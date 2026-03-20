@@ -1,0 +1,61 @@
+# Company Skill Policy
+# Copy to company-policy.yaml and customize for your organization.
+
+# Maximum risk level that is auto-approved (no human review needed).
+# Skills above this threshold are queued for human review.
+# Values: LOW, MEDIUM, HIGH, EXTREME
+auto_approve_max_risk: LOW
+
+# Risk levels that always require human review before approval.
+require_human_review:
+  - HIGH
+  - EXTREME
+
+# Risk levels that are automatically rejected (never approved).
+auto_reject_risk:
+  - EXTREME
+
+# Tool permissions that are never allowed, regardless of what a skill declares.
+# Skills requesting these are flagged as policy violations.
+blocked_permissions:
+  - read_credentials
+  - write_memory
+  - read_identity
+  - execute_shell_unrestricted
+
+# Authors/publishers trusted enough to reduce scrutiny (still scanned, but
+# MEDIUM findings from trusted authors don't require human review).
+trusted_authors:
+  - internal-team
+  - vetted-vendor-a
+
+# Allowlist of tools skills are permitted to declare in allowed-tools.
+# Skills declaring tools outside this list are flagged.
+allowed_tools_allowlist:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - WebFetch
+  - WebSearch
+
+# Maximum number of tools a skill may declare.
+max_allowed_tools: 10
+
+# Require a license field in the skill manifest.
+require_license: true
+
+# Accepted license identifiers.
+accepted_licenses:
+  - MIT
+  - Apache-2.0
+  - BSD-3-Clause
+  - BSD-2-Clause
+  - ISC
+  - internal
+
+# Scanner policy preset to use when scanning skills.
+# Options: strict, balanced, permissive
+scanner_policy: balanced

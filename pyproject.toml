@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "skill-manager"
+version = "0.1.0"
+description = "Enterprise skill lifecycle manager — vet, approve, deploy, and govern AI agent skills"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+
+dependencies = [
+    "pydantic>=2.6.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "PyYAML>=6.0.1",
+    "fastapi>=0.125.0",
+    "uvicorn[standard]>=0.29.0",
+    "python-multipart>=0.0.6",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.28.1",
+]
+
+[project.optional-dependencies]
+scanner = [
+    "cisco-ai-skill-scanner",
+]
+dev = [
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
+    "ruff>=0.14.0",
+    "mypy>=1.8.0",
+]
+
+[project.scripts]
+skill-manager = "skill_manager.cli.cli:main"
+skill-manager-api = "skill_manager.api.api_cli:main"
+skill-manager-deploy = "skill_manager.hooks.deploy:main"
+skill-manager-install-hooks = "skill_manager.hooks.install:main"
+
+[tool.uv.sources]
+cisco-ai-skill-scanner = { path = "../skill-scanner", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["skill_manager"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501", "F401", "F841", "B904", "B006", "B007", "B008", "B023"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+]

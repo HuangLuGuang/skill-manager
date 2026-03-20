@@ -1,0 +1,145 @@
+"""Tests for the vetting pipeline and policy enforcement."""
+
+import textwrap
+from pathlib import Path
+
+import pytest
+
+from skill_manager.core.models import RiskLevel, SkillOrigin, SkillStatus, SourceInfo
+from skill_manager.core.policy import CompanyPolicy
+from skill_manager.core.vetting import VettingPipeline, _check_manifest_policy, _load_manifest
+
+
+@pytest.fixture
+def skill_dir(tmp_path):
+    """Create a minimal valid skill directory."""
+    skill_md = tmp_path / "SKILL.md"
+    skill_md.write_text(textwrap.dedent("""\
+        ---
+        name: test-skill
+        description: A simple test skill
+        license: MIT
+        allowed-tools: Read, Grep
+        ---
+
+        # Test Skill
+
+        This skill reads files.
+    """))
+    return tmp_path
+
+
+@pytest.fixture
+def default_policy():
+    return CompanyPolicy.default()
+
+
+class TestManifestLoading:
+    def test_load_valid_manifest(self, skill_dir):
+        name, desc, tools, lic = _load_manifest(skill_dir)
+        assert name == "test-skill"
+        assert "test" in desc.lower()
+        assert lic == "MIT"
+
+    def test_missing_skill_md_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="SKILL.md not found"):
+            _load_manifest(tmp_path)
+
+
+class TestPolicyChecks:
+    def test_allowed_tools_pass(self):
+        policy = CompanyPolicy.default()
+        violations = _check_manifest_policy(["Read", "Grep"], "MIT", policy)
+        # No violations for default policy with standard tools
+        blocking = [v for v in violations if v.blocking]
+        assert not blocking
+
+    def test_blocked_permission(self):
+        policy = CompanyPolicy({
+            "blocked_permissions": ["read_credentials"],
+            "allowed_tools_allowlist": ["read_credentials", "Read"],
+        })
+        violations = _check_manifest_policy(["read_credentials"], "MIT", policy)
+        assert any(v.rule == "blocked_permission" for v in violations)
+
+    def test_tool_not_in_allowlist(self):
+        policy = CompanyPolicy({"allowed_tools_allowlist": ["Read"]})
+        violations = _check_manifest_policy(["SomeDangerousTool"], "MIT", policy)
+        assert any(v.rule == "tool_not_in_allowlist" for v in violations)
+
+    def test_require_license_missing(self):
+        policy = CompanyPolicy({"require_license": True})
+        violations = _check_manifest_policy([], None, policy)
+        assert any(v.rule == "require_license" for v in violations)
+
+    def test_unaccepted_license(self):
+        policy = CompanyPolicy({
+            "require_license": True,
+            "accepted_licenses": ["MIT"],
+        })
+        violations = _check_manifest_policy([], "GPL-3.0", policy)
+        assert any(v.rule == "unaccepted_license" for v in violations)
+
+    def test_max_tools_exceeded(self):
+        policy = CompanyPolicy({
+            "max_allowed_tools": 2,
+            "allowed_tools_allowlist": ["A", "B", "C", "D"],
+        })
+        violations = _check_manifest_policy(["A", "B", "C"], "MIT", policy)
+        assert any(v.rule == "max_allowed_tools" for v in violations)
+
+
+class TestPolicyDecide:
+    def test_auto_approve_low_risk(self):
+        policy = CompanyPolicy.default()
+        source = SourceInfo(origin=SkillOrigin.LOCAL)
+        status = policy.decide(RiskLevel.LOW, source, [])
+        assert status == SkillStatus.APPROVED
+
+    def test_medium_risk_queued(self):
+        policy = CompanyPolicy({"auto_approve_max_risk": "LOW", "require_human_review": ["MEDIUM", "HIGH", "EXTREME"]})
+        source = SourceInfo(origin=SkillOrigin.LOCAL)
+        status = policy.decide(RiskLevel.MEDIUM, source, [])
+        assert status == SkillStatus.VETTED
+
+    def test_extreme_risk_rejected(self):
+        policy = CompanyPolicy.default()
+        source = SourceInfo(origin=SkillOrigin.LOCAL)
+        status = policy.decide(RiskLevel.EXTREME, source, [])
+        assert status == SkillStatus.REJECTED
+
+    def test_blocking_violation_rejects(self):
+        from skill_manager.core.models import PolicyViolation
+        policy = CompanyPolicy.default()
+        source = SourceInfo(origin=SkillOrigin.LOCAL)
+        violations = [PolicyViolation(rule="blocked_permission", message="no", blocking=True)]
+        status = policy.decide(RiskLevel.LOW, source, violations)
+        assert status == SkillStatus.REJECTED
+
+    def test_trusted_author_medium_auto_approves(self):
+        policy = CompanyPolicy({
+            "auto_approve_max_risk": "LOW",
+            "require_human_review": ["HIGH", "EXTREME"],
+            "trusted_authors": ["trusted-vendor"],
+        })
+        source = SourceInfo(origin=SkillOrigin.GITHUB, author="trusted-vendor")
+        status = policy.decide(RiskLevel.MEDIUM, source, [])
+        assert status == SkillStatus.APPROVED
+
+
+class TestVettingPipeline:
+    def test_vet_valid_skill(self, skill_dir, default_policy):
+        """End-to-end vet with skill-scanner absent (falls back to basic check)."""
+        pipeline = VettingPipeline(default_policy)
+        source = SourceInfo(origin=SkillOrigin.LOCAL)
+        result, violations, name, desc, tools = pipeline.vet(skill_dir, source)
+
+        assert name == "test-skill"
+        assert result.risk_level in RiskLevel.__members__.values()
+        assert isinstance(violations, list)
+
+    def test_vet_missing_skill_raises(self, tmp_path, default_policy):
+        pipeline = VettingPipeline(default_policy)
+        source = SourceInfo(origin=SkillOrigin.LOCAL)
+        with pytest.raises(ValueError):
+            pipeline.vet(tmp_path / "nonexistent", source)
