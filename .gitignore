@@ -16,3 +16,5 @@ company-policy.yaml
 .claude/settings.local.json
 .DS_Store
 sqlite/
+node_modules/
+web/node_modules/
