@@ -14,3 +14,5 @@ uv.lock
 .env
 company-policy.yaml
 .claude/settings.local.json
+.DS_Store
+sqlite/

@@ -1,0 +1,26 @@
+[project]
+name = "skill-manager-admin-backend"
+version = "0.1.0"
+description = "Admin starter backend for Skill Manager"
+requires-python = ">=3.10"
+dependencies = [
+    "cisco-ai-skill-scanner",
+    "fastapi",
+    "httpx",
+    "uvicorn",
+    "sqlalchemy",
+    "pydantic[email]",
+    "pydantic-settings",
+    "python-dotenv",
+    "python-multipart",
+    "python-jose[cryptography]",
+    "passlib[bcrypt]",
+    "bcrypt<5",
+    "captcha",
+    "psutil",
+    "croniter",
+    "PyYAML",
+]
+
+[tool.uv]
+package = false

@@ -143,3 +143,37 @@ class TestVettingPipeline:
         source = SourceInfo(origin=SkillOrigin.LOCAL)
         with pytest.raises(ValueError):
             pipeline.vet(tmp_path / "nonexistent", source)
+
+    def test_behavioral_analysis_disabled_by_default(self, skill_dir, default_policy):
+        scripts_dir = skill_dir / "scripts"
+        scripts_dir.mkdir()
+        (scripts_dir / "run.py").write_text(
+            "import subprocess\nsubprocess.run('rm -rf /tmp/demo', shell=True)\n",
+            encoding="utf-8",
+        )
+
+        pipeline = VettingPipeline(default_policy)
+        source = SourceInfo(origin=SkillOrigin.LOCAL)
+        result, _violations, _name, _desc, _tools = pipeline.vet(skill_dir, source, use_behavioral=False)
+
+        assert "behavioral:local" not in result.analyzers_used
+        assert "behavioral_analysis" not in result.scan_report
+
+    def test_behavioral_analysis_finds_script_patterns(self, skill_dir, default_policy):
+        scripts_dir = skill_dir / "scripts"
+        scripts_dir.mkdir()
+        (scripts_dir / "run.py").write_text(
+            "import os\nimport subprocess\n"
+            "subprocess.run('cat ~/.aws/credentials', shell=True)\n"
+            "os.system('echo hi')\n",
+            encoding="utf-8",
+        )
+
+        pipeline = VettingPipeline(default_policy)
+        source = SourceInfo(origin=SkillOrigin.LOCAL)
+        result, _violations, _name, _desc, _tools = pipeline.vet(skill_dir, source, use_behavioral=True)
+
+        assert "behavioral:local" in result.analyzers_used
+        assert result.scan_report["behavioral_analysis"]["scanned_file_count"] >= 1
+        assert any(f["source"] == "behavioral" for f in result.scan_report["findings"])
+        assert result.risk_level in (RiskLevel.HIGH, RiskLevel.EXTREME)

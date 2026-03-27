@@ -51,6 +51,13 @@ class CompanyPolicy:
     def default(cls) -> "CompanyPolicy":
         return cls({})
 
+    def to_dict(self) -> dict[str, Any]:
+        return dict(self._data)
+
+    def save(self, path: str | Path) -> None:
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(self.to_dict(), f, sort_keys=False, allow_unicode=False)
+
     # ------------------------------------------------------------------ #
     # Public accessors                                                     #
     # ------------------------------------------------------------------ #

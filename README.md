@@ -4,6 +4,12 @@ Enterprise skill lifecycle manager for AI agents. Gate-and-govern model: every s
 
 Built on top of [skill-scanner](../skill-scanner) for deep threat detection.
 
+For the current integrated admin console setup, see:
+[docs/admin-console-guide.md](docs/admin-console-guide.md)
+
+For external agent integration patterns, see:
+[docs/external-agent-integration.md](docs/external-agent-integration.md)
+
 ---
 
 ## How Skills Are Stored

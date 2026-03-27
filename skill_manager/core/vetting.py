@@ -8,15 +8,75 @@ Falls back to a basic static check if skill-scanner is not installed.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .llm import LLMConfig, analyze_skill_with_llm
 from .models import PolicyViolation, RiskLevel, SourceInfo, VettingResult
 
 if TYPE_CHECKING:
     from .policy import CompanyPolicy
 
 logger = logging.getLogger(__name__)
+
+_SEVERITY_ORDER = {
+    "SAFE": 0,
+    "INFO": 1,
+    "LOW": 2,
+    "MEDIUM": 3,
+    "HIGH": 4,
+    "CRITICAL": 5,
+}
+_BEHAVIORAL_TEXT_EXTENSIONS = {
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".sh", ".bash", ".zsh",
+    ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".cfg", ".ini",
+}
+_BEHAVIORAL_PRIORITY_DIRS = ("scripts", "references", "prompts")
+_BEHAVIORAL_RULES = (
+    {
+        "rule": "subprocess_shell_true",
+        "severity": "HIGH",
+        "title": "检测到 shell=True 子进程调用",
+        "message": "脚本通过 subprocess 且 shell=True 执行命令，存在命令注入和权限放大风险。",
+        "pattern": re.compile(r"subprocess\.(?:run|Popen|call|check_call|check_output)\s*\([^\\n]*shell\s*=\s*True"),
+    },
+    {
+        "rule": "os_command_execution",
+        "severity": "HIGH",
+        "title": "检测到直接系统命令执行",
+        "message": "脚本直接调用 os.system 或 os.popen，执行路径不透明，风险较高。",
+        "pattern": re.compile(r"\bos\.(?:system|popen)\s*\("),
+    },
+    {
+        "rule": "dynamic_code_execution",
+        "severity": "HIGH",
+        "title": "检测到动态代码执行",
+        "message": "脚本出现 eval 或 exec，可能执行动态构造代码。",
+        "pattern": re.compile(r"\b(?:eval|exec)\s*\("),
+    },
+    {
+        "rule": "download_and_execute",
+        "severity": "HIGH",
+        "title": "检测到下载后执行模式",
+        "message": "脚本中存在 curl/wget 与 shell 管道组合，可能下载后直接执行远程内容。",
+        "pattern": re.compile(r"(?:curl|wget)[^\n|>]*(?:\||>)\s*(?:sh|bash|zsh)"),
+    },
+    {
+        "rule": "credential_file_access",
+        "severity": "MEDIUM",
+        "title": "检测到敏感凭据文件访问",
+        "message": "脚本中出现常见凭据文件路径，可能访问本地敏感配置。",
+        "pattern": re.compile(r"(?:\.aws/credentials|id_rsa|id_dsa|\.ssh/config|\.env\b|/etc/shadow|/etc/passwd)"),
+    },
+    {
+        "rule": "encoded_payload_execution",
+        "severity": "MEDIUM",
+        "title": "检测到编码载荷或反序列化执行风险",
+        "message": "脚本中出现 base64 解码、pickle.loads 或 marshal.loads，需确认是否用于执行外部输入。",
+        "pattern": re.compile(r"(?:base64\.(?:b64decode|urlsafe_b64decode)|pickle\.loads|marshal\.loads)"),
+    },
+)
 
 # --------------------------------------------------------------------------- #
 # Scanner integration                                                           #
@@ -134,6 +194,78 @@ def _check_manifest_policy(
     return violations
 
 
+def _max_severity(*values: str) -> str:
+    resolved = "SAFE"
+    resolved_rank = -1
+    for value in values:
+        rank = _SEVERITY_ORDER.get((value or "SAFE").upper(), 0)
+        if rank > resolved_rank:
+            resolved_rank = rank
+            resolved = (value or "SAFE").upper()
+    return resolved
+
+
+def _iter_behavioral_candidate_files(skill_path: Path) -> list[Path]:
+    priority_files: list[Path] = []
+    fallback_files: list[Path] = []
+
+    for path in sorted(skill_path.rglob("*")):
+        if not path.is_file():
+            continue
+        rel_parts = path.relative_to(skill_path).parts
+        if any(part.startswith(".") for part in rel_parts):
+            continue
+        if "__pycache__" in rel_parts:
+            continue
+        if path.suffix.lower() not in _BEHAVIORAL_TEXT_EXTENSIONS:
+            continue
+        if rel_parts and rel_parts[0] in _BEHAVIORAL_PRIORITY_DIRS:
+            priority_files.append(path)
+        else:
+            fallback_files.append(path)
+
+    return [*priority_files, *fallback_files]
+
+
+def _run_behavioral_analysis(skill_path: Path) -> dict[str, object]:
+    findings: list[dict[str, str]] = []
+    scanned_files: list[str] = []
+
+    for path in _iter_behavioral_candidate_files(skill_path):
+        try:
+            content = path.read_text(encoding="utf-8")
+        except Exception:
+            continue
+
+        rel_path = path.relative_to(skill_path).as_posix()
+        scanned_files.append(rel_path)
+        for rule in _BEHAVIORAL_RULES:
+            match = rule["pattern"].search(content)
+            if not match:
+                continue
+
+            line_no = content[: match.start()].count("\n") + 1
+            findings.append({
+                "severity": str(rule["severity"]),
+                "title": str(rule["title"]),
+                "message": f"{rule['message']} 文件: {rel_path}:{line_no}",
+                "file": rel_path,
+                "source": "behavioral",
+                "rule": str(rule["rule"]),
+            })
+
+    max_severity = "SAFE"
+    for finding in findings:
+        max_severity = _max_severity(max_severity, finding["severity"])
+
+    return {
+        "max_severity": max_severity,
+        "findings": findings,
+        "scanned_files": scanned_files,
+        "scanned_file_count": len(scanned_files),
+    }
+
+
 # --------------------------------------------------------------------------- #
 # Main vetting entry point                                                      #
 # --------------------------------------------------------------------------- #
@@ -167,6 +299,68 @@ class VettingPipeline:
 
         # 2. Run scanner
         scan_report = _run_scanner(skill_path, self.policy.scanner_policy)
+        behavioral_notes: list[str] = []
+        if use_behavioral:
+            behavioral_result = _run_behavioral_analysis(skill_path)
+            scan_report = {
+                **scan_report,
+                "max_severity": _max_severity(
+                    scan_report.get("max_severity", "SAFE"),
+                    str(behavioral_result.get("max_severity", "SAFE")),
+                ),
+                "findings": [
+                    *scan_report.get("findings", []),
+                    *behavioral_result.get("findings", []),
+                ],
+                "analyzers_used": [
+                    *scan_report.get("analyzers_used", ["basic"]),
+                    "behavioral:local",
+                ],
+                "behavioral_analysis": behavioral_result,
+            }
+            behavioral_notes.append(
+                "[BEHAVIORAL] "
+                f"scanned {behavioral_result.get('scanned_file_count', 0)} files"
+            )
+            if behavioral_result.get("findings"):
+                behavioral_notes.append(
+                    "[BEHAVIORAL] "
+                    f"found {len(behavioral_result['findings'])} suspicious patterns"
+                )
+        llm_notes: list[str] = []
+        if use_llm:
+            try:
+                llm_config = LLMConfig.load()
+                llm_result = analyze_skill_with_llm(skill_path, llm_config)
+                llm_findings = [
+                    {
+                        "severity": finding.severity.upper(),
+                        "title": finding.title,
+                        "message": finding.message,
+                        "file": finding.file,
+                        "source": "llm",
+                    }
+                    for finding in llm_result.findings
+                ]
+                scan_report = {
+                    **scan_report,
+                    "max_severity": _max_severity(
+                        scan_report.get("max_severity", "SAFE"),
+                        llm_result.max_severity,
+                    ),
+                    "findings": [*scan_report.get("findings", []), *llm_findings],
+                    "analyzers_used": [
+                        *scan_report.get("analyzers_used", ["basic"]),
+                        f"llm:{llm_result.provider}",
+                    ],
+                    "llm_analysis": llm_result.model_dump(mode="json"),
+                }
+                if llm_result.summary:
+                    llm_notes.append(f"[LLM] {llm_result.summary}")
+                llm_notes.extend(f"[LLM] {note}" for note in llm_result.policy_notes)
+            except Exception as exc:
+                logger.warning("LLM analysis skipped for %s: %s", skill_path, exc)
+                llm_notes.append(f"[LLM] analysis skipped: {exc}")
 
         # 3. Derive risk level
         max_severity = scan_report.get("max_severity", "SAFE")
@@ -186,6 +380,8 @@ class VettingPipeline:
         for v in violations:
             prefix = "[BLOCK]" if v.blocking else "[WARN]"
             policy_notes.append(f"{prefix} {v.rule}: {v.message}")
+        policy_notes.extend(behavioral_notes)
+        policy_notes.extend(llm_notes)
 
         # 5. Build result
         result = VettingResult(
