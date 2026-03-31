@@ -10,6 +10,15 @@ For the current integrated admin console setup, see:
 For external agent integration patterns, see:
 [docs/external-agent-integration.md](docs/external-agent-integration.md)
 
+For agent-side signature verification details, see:
+[docs/agent-signature-verification.md](docs/agent-signature-verification.md)
+
+For OpenClaw hook integration with Skill Manager, see:
+[docs/openclaw-skill-manager-hooks.md](docs/openclaw-skill-manager-hooks.md)
+
+For a starter OpenClaw hook pack demo, see:
+[demo/openclaw-skill-manager-hook/README.md](demo/openclaw-skill-manager-hook/README.md)
+
 ---
 
 ## How Skills Are Stored

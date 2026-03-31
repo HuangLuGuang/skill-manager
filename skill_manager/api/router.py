@@ -120,6 +120,23 @@ class ToolCheckResponse(BaseModel):
     tool_name: str
 
 
+class VerifySkillSignatureRequest(BaseModel):
+    skill_name: str
+    local_signature: str
+    skill_id: str | None = None
+    agent_id: str | None = None
+
+
+class VerifySkillSignatureResponse(BaseModel):
+    allowed: bool
+    reason: str
+    skill_id: str | None = None
+    skill_name: str
+    status: str | None = None
+    risk_level: str | None = None
+    signature_match: bool
+
+
 class PolicyPayload(BaseModel):
     auto_approve_max_risk: str
     require_human_review: list[str]
@@ -722,6 +739,29 @@ def runtime_can_load(
         reason=reason,
         status=entry.status.value if entry else None,
         risk_level=entry.risk_level.value if entry and entry.risk_level else None,
+    )
+
+
+@router.post("/runtime/verify-skill-signature", response_model=VerifySkillSignatureResponse)
+def runtime_verify_skill_signature(
+    body: VerifySkillSignatureRequest,
+    mgr: SkillManager = Depends(get_manager),
+):
+    """Verify a locally computed skill signature sent by an external agent."""
+    allowed, entry, reason = mgr.runtime.verify_local_signature(
+        body.skill_name,
+        body.local_signature,
+        skill_id=body.skill_id,
+        agent_id=body.agent_id,
+    )
+    return VerifySkillSignatureResponse(
+        allowed=allowed,
+        reason=reason,
+        skill_id=entry.skill_id if entry else None,
+        skill_name=entry.name if entry else body.skill_name,
+        status=entry.status.value if entry else None,
+        risk_level=entry.risk_level.value if entry and entry.risk_level else None,
+        signature_match=allowed,
     )
 
 

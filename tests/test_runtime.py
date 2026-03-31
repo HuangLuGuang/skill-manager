@@ -105,6 +105,46 @@ class TestRuntimeGuard:
         assert not allowed
         assert "tamper" in reason.lower() or "mismatch" in reason.lower()
 
+    def test_verify_local_signature_allows_match(self, guard, registry, tmp_path):
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: signed\ndescription: d\n---\n")
+
+        sig = compute_signature(skill_dir)
+        entry = _make_entry("signed", sig=sig)
+        registry.add(entry)
+
+        allowed, matched_entry, reason = guard.verify_local_signature("signed", sig, agent_id="agent-1")
+        assert allowed, reason
+        assert matched_entry is not None
+        assert matched_entry.name == "signed"
+
+    def test_verify_local_signature_blocks_mismatch(self, guard, registry, tmp_path):
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: signed\ndescription: d\n---\n")
+
+        sig = compute_signature(skill_dir)
+        entry = _make_entry("signed", sig=sig)
+        registry.add(entry)
+
+        allowed, _, reason = guard.verify_local_signature("signed", "not-the-real-signature", agent_id="agent-1")
+        assert not allowed
+        assert "tamper" in reason.lower() or "mismatch" in reason.lower()
+
+    def test_verify_local_signature_blocks_non_loadable_status(self, guard, registry, tmp_path):
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: reviewed\ndescription: d\n---\n")
+
+        sig = compute_signature(skill_dir)
+        entry = _make_entry("reviewed", status=SkillStatus.VETTED, sig=sig)
+        registry.add(entry)
+
+        allowed, _, reason = guard.verify_local_signature("reviewed", sig)
+        assert not allowed
+        assert "VETTED" in reason
+
     def test_check_tool_declared(self, guard, registry):
         registry.add(_make_entry("tool-skill", tools=["Read", "Grep"]))
         assert guard.check_tool("tool-skill", "Read")

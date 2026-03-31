@@ -21,32 +21,37 @@ flowchart LR
     B --> C["Vetting / Policy / Review / Sign"]
     C --> D["Registry 中形成合法记录"]
 
-    E["外部 Agent Runtime"] --> F["加载本地 Skill"]
-    F --> G["调用 /api/v1/runtime/can-load/{skill_name}"]
-    G --> H{"允许加载?"}
+    E["外部 Agent Runtime"] --> F["本地计算 Skill 签名"]
+    F --> G["调用 /api/v1/runtime/verify-skill-signature"]
+    G --> H{"签名是否匹配?"}
     H -- "否" --> I["阻断加载并记录日志"]
-    H -- "是" --> J["Agent 加载 Skill"]
+    H -- "是" --> J["调用 /api/v1/runtime/can-load/{skill_name}"]
+    J --> K{"允许加载?"}
+    K -- "否" --> I["阻断加载并记录日志"]
+    K -- "是" --> L["Agent 加载 Skill"]
 
-    J --> K["Skill 尝试调用 Tool"]
-    K --> L["调用 /api/v1/runtime/check-tool"]
-    L --> M{"允许调用?"}
-    M -- "否" --> N["阻断 Tool 调用并记录日志"]
-    M -- "是" --> O["继续执行 Tool"]
+    L --> M["Skill 尝试调用 Tool"]
+    M --> N["调用 /api/v1/runtime/check-tool"]
+    N --> O{"允许调用?"}
+    O -- "否" --> P["阻断 Tool 调用并记录日志"]
+    O -- "是" --> Q["继续执行 Tool"]
 ```
 
 ### Typical Flow
 
 1. 开发者先把 skill 提交到 Skill Manager。
 2. Skill Manager 完成 vetting、policy 检查、审批和签名。
-3. 外部 Agent 在真正加载 skill 前，调用 `can-load`。
-4. 如果返回允许，Agent 才真正加载 skill。
-5. Skill 在运行中每次要调用工具前，再调用 `check-tool`。
-6. Skill Manager 记录允许或阻断的审计事件。
+3. 外部 Agent 在真正加载 skill 前，先本地计算 skill 签名。
+4. Agent 调用 `verify-skill-signature` 校验本地内容是否与审批时一致。
+5. 如果签名匹配，再调用 `can-load` 检查 registry 状态。
+6. Skill 在运行中每次要调用工具前，再调用 `check-tool`。
+7. Skill Manager 记录允许或阻断的审计事件。
 
 ### Current APIs
 
-外部 Agent 最关键会用到这两个接口：
+外部 Agent 最关键会用到这三个接口：
 
+- `POST /api/v1/runtime/verify-skill-signature`
 - `GET /api/v1/runtime/can-load/{skill_name}`
 - `GET /api/v1/runtime/check-tool`
 
@@ -117,14 +122,16 @@ sequenceDiagram
 ```mermaid
 flowchart TD
     A["Agent Session Start"] --> B["枚举本地可见 skills"]
-    B --> C["对每个 skill 调 can-load"]
-    C --> D["过滤掉未注册 / 未批准 / 验签失败的 skill"]
-    D --> E["把通过检查的 skill 注入 Agent"]
-    E --> F["执行任务"]
-    F --> G["每次 Tool 调用前调 check-tool"]
-    G --> H{"允许?"}
-    H -- "Yes" --> I["继续执行"]
-    H -- "No" --> J["中断并提示原因"]
+    B --> C["对每个 skill 本地计算签名"]
+    C --> D["调 verify-skill-signature"]
+    D --> E["通过后再调 can-load"]
+    E --> F["过滤掉未注册 / 未批准 / 验签失败的 skill"]
+    F --> G["把通过检查的 skill 注入 Agent"]
+    G --> H["执行任务"]
+    H --> I["每次 Tool 调用前调 check-tool"]
+    I --> J{"允许?"}
+    J -- "Yes" --> K["继续执行"]
+    J -- "No" --> L["中断并提示原因"]
 ```
 
 ### Why This Pattern
@@ -132,7 +139,7 @@ flowchart TD
 原因很直接：
 
 - 不要求你改外部 Agent 的核心 runtime
-- 只需要在“加载前”和“调用前”两个点加拦截
+- 只需要在“加载前验签/放行”和“调用前”两个点加拦截
 - 可以最大程度复用当前 Skill Manager 的现有能力
 - 审计链路也完整
 
@@ -158,6 +165,7 @@ flowchart TD
 当前最实用的接法就是：
 
 - 提交 skill 到 Skill Manager 做准入治理
+- Agent 本地计算 skill 签名并调用 `verify-skill-signature`
 - Agent 加载前调 `can-load`
 - Agent 调工具前调 `check-tool`
 - 所有关键动作都留审计
@@ -166,3 +174,5 @@ flowchart TD
 
 - `GET /api/v1/skills/{id}/files`
   返回 skill 目录内的相对路径、文件大小和修改时间
+- `POST /api/v1/runtime/verify-skill-signature`
+  校验外部 Agent 本地计算的签名是否与批准记录一致

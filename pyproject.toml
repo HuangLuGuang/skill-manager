@@ -38,9 +38,6 @@ skill-manager-api = "skill_manager.api.api_cli:main"
 skill-manager-deploy = "skill_manager.hooks.deploy:main"
 skill-manager-install-hooks = "skill_manager.hooks.install:main"
 
-[tool.uv.sources]
-cisco-ai-skill-scanner = { path = "../skill-scanner", editable = true }
-
 [tool.hatch.build.targets.wheel]
 packages = ["skill_manager"]
 

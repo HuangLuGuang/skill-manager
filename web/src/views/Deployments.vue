@@ -91,7 +91,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 
 import { deploySkill, listSkillsPaged, retireSkill } from '../api'
@@ -119,8 +119,8 @@ const pagination = ref({
 })
 
 const tabs = [
-  { label: 'Ready To Deploy', value: 'ready' },
-  { label: 'Deployed', value: 'deployed' },
+  { label: '待部署', value: 'ready' },
+  { label: '已部署', value: 'deployed' },
 ]
 
 const columns = [
@@ -246,6 +246,14 @@ const riskColor = (value) =>
   }[value] || 'default')
 
 onMounted(fetchRows)
+
+watch(activeTab, () => {
+  pagination.value = {
+    ...pagination.value,
+    current: 1,
+  }
+  fetchRows()
+})
 </script>
 
 <style scoped>

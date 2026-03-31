@@ -7,6 +7,7 @@ invoking any tool. All decisions are logged to the audit trail.
 
 from __future__ import annotations
 
+import hmac
 import logging
 from pathlib import Path
 
@@ -157,6 +158,70 @@ class RuntimeGuard:
     def get_loadable_skills(self) -> list[RegistryEntry]:
         """Return all skills currently loadable by agents."""
         return self.registry.list_loadable()
+
+    def verify_local_signature(
+        self,
+        skill_name: str,
+        local_signature: str,
+        skill_id: str | None = None,
+        agent_id: str | None = None,
+    ) -> tuple[bool, RegistryEntry | None, str]:
+        """
+        Verify a signature computed locally by an agent.
+
+        This is intended for distributed setups where the Skill Manager service
+        cannot read the agent's local filesystem directly. The agent computes a
+        signature over its local skill directory using the same algorithm as
+        the registry, then submits it here for comparison against the approved
+        signature stored in the registry.
+        """
+        entry = self.registry.get_by_id(skill_id) if skill_id else self.registry.get_by_name(skill_name)
+
+        if entry is None:
+            reason = f"Skill {skill_name!r} is not in the registry"
+            logger.warning("BLOCKED signature verify: %s", reason)
+            self._emit_blocked(skill_name, agent_id, reason)
+            return False, None, reason
+
+        if skill_name and entry.name != skill_name:
+            reason = f"Skill id {entry.skill_id!r} does not match skill name {skill_name!r}"
+            logger.warning("BLOCKED signature verify: %s", reason)
+            self._emit_blocked_entry(entry, agent_id, reason)
+            return False, entry, reason
+
+        if not entry.is_loadable():
+            reason = (
+                f"Skill {entry.name!r} has status {entry.status.value} "
+                "— only APPROVED/DEPLOYED skills may load"
+            )
+            logger.warning("BLOCKED signature verify: %s", reason)
+            self._emit_blocked_entry(entry, agent_id, reason)
+            return False, entry, reason
+
+        if not entry.signature:
+            reason = f"Skill {entry.name!r} has no stored signature"
+            logger.warning("BLOCKED signature verify: %s", reason)
+            self._emit_blocked_entry(entry, agent_id, reason)
+            return False, entry, reason
+
+        if not local_signature.strip():
+            reason = "Local signature is required"
+            logger.warning("BLOCKED signature verify: %s", reason)
+            self._emit_blocked_entry(entry, agent_id, reason)
+            return False, entry, reason
+
+        if not hmac.compare_digest(local_signature.strip(), entry.signature):
+            reason = f"Skill {entry.name!r} signature mismatch — possible tampering"
+            logger.error("BLOCKED signature verify (tamper): %s", reason)
+            self._emit_blocked_entry(entry, agent_id, reason, tamper=True)
+            return False, entry, reason
+
+        self.registry.log_event(make_event(
+            "skill_signature_verified", entry, actor=agent_id,
+            details={"status": entry.status.value, "verification_mode": "local_signature"},
+        ))
+        logger.info("VERIFIED signature: skill=%r agent=%r", entry.name, agent_id)
+        return True, entry, "signature verified"
 
     # ------------------------------------------------------------------ #
     # Audit helpers                                                        #
