@@ -778,6 +778,40 @@ def runtime_check_tool(
 
 
 # --------------------------------------------------------------------------- #
+# Hook endpoints (called by claude_api_hook.py)                                #
+# --------------------------------------------------------------------------- #
+
+class HookEventRequest(BaseModel):
+    hook_event_name: str
+    session_id: str | None = None
+    cwd: str | None = None
+    file_path: str | None = None
+    source: str | None = None
+    tool_name: str | None = None
+    # Allow any other fields from the hook event
+    model_config = {"extra": "allow"}
+
+
+class HookEventResponse(BaseModel):
+    allowed: bool
+    message: str
+
+
+@router.post("/hook/event", response_model=HookEventResponse)
+def hook_process_event(
+    body: HookEventRequest,
+    mgr: SkillManager = Depends(get_manager),
+):
+    """Process a Claude Code hook event via API."""
+    from skill_manager.hooks.agent_hook import process_event
+
+    # Convert the model to a dict, preserving all extra fields
+    event = body.model_dump()
+    allowed, message = process_event(event)
+    return HookEventResponse(allowed=allowed, message=message)
+
+
+# --------------------------------------------------------------------------- #
 # Audit                                                                         #
 # --------------------------------------------------------------------------- #
 
