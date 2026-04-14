@@ -4,14 +4,26 @@ Enterprise skill lifecycle manager for AI agents. Gate-and-govern model: every s
 
 Built on top of [skill-scanner](../skill-scanner) for deep threat detection.
 
-For the current integrated admin console setup, see:
-[docs/admin-console-guide.md](docs/admin-console-guide.md)
+For a full project guide covering principles, architecture, admin console, runtime governance, and usage, see:
+[docs/project-guide.md](docs/project-guide.md)
 
 For external agent integration patterns, see:
 [docs/external-agent-integration.md](docs/external-agent-integration.md)
 
 For agent-side signature verification details, see:
 [docs/agent-signature-verification.md](docs/agent-signature-verification.md)
+
+For sandbox backend architecture and isolated execution service design, see:
+[docs/sandbox-service-architecture.md](docs/sandbox-service-architecture.md)
+
+For a quick start using the local mock remote sandbox service, see:
+[docs/remote-sandbox-mock-quickstart.md](docs/remote-sandbox-mock-quickstart.md)
+
+For the production-oriented isolated sandbox service, see:
+[services/isolated-sandbox-service/README.md](services/isolated-sandbox-service/README.md)
+
+For Dockerfiles and docker-compose based deployment, see:
+[docs/docker-deployment.md](docs/docker-deployment.md)
 
 For OpenClaw hook integration with Skill Manager, see:
 [docs/openclaw-skill-manager-hooks.md](docs/openclaw-skill-manager-hooks.md)

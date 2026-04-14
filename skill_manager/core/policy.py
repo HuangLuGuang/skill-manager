@@ -21,6 +21,7 @@ _DEFAULT_POLICY: dict[str, Any] = {
     "auto_approve_max_risk": "LOW",
     "require_human_review": ["HIGH", "EXTREME"],
     "auto_reject_risk": ["EXTREME"],
+    "require_sandbox_for_risk": ["HIGH", "EXTREME"],
     "blocked_permissions": ["read_credentials", "write_memory", "read_identity"],
     "trusted_authors": [],
     "allowed_tools_allowlist": [
@@ -75,6 +76,10 @@ class CompanyPolicy:
         return [RiskLevel(r) for r in self._data["auto_reject_risk"]]
 
     @property
+    def require_sandbox_for_risk(self) -> list[RiskLevel]:
+        return [RiskLevel(r) for r in self._data.get("require_sandbox_for_risk", [])]
+
+    @property
     def blocked_permissions(self) -> list[str]:
         return self._data["blocked_permissions"]
 
@@ -93,6 +98,9 @@ class CompanyPolicy:
     @property
     def scanner_policy(self) -> str:
         return self._data["scanner_policy"]
+
+    def requires_sandbox(self, risk_level: RiskLevel) -> bool:
+        return risk_level in self.require_sandbox_for_risk
 
     # ------------------------------------------------------------------ #
     # Enforcement                                                          #

@@ -4,7 +4,14 @@
 
     <a-card style="margin-top: 16px">
       <a-space wrap style="margin-bottom: 16px">
-        <a-input v-model:value="keyword" placeholder="搜索技能名称 / ID / 审批人" style="width: 280px" allow-clear />
+        <a-input
+          v-model:value="keyword"
+          placeholder="搜索技能名称 / ID / 审批人"
+          style="width: 280px"
+          allow-clear
+          @pressEnter="handleKeywordSearch"
+          @change="handleKeywordInputChange"
+        />
         <a-select v-model:value="status" style="width: 160px">
           <a-select-option value="all">全部状态</a-select-option>
           <a-select-option value="VETTED">VETTED</a-select-option>
@@ -20,7 +27,12 @@
           <a-select-option value="HIGH">HIGH</a-select-option>
           <a-select-option value="EXTREME">EXTREME</a-select-option>
         </a-select>
-        <a-button type="primary" @click="fetchSkills" :loading="loading">查询</a-button>
+        <a-select v-model:value="sandboxFilter" style="width: 180px">
+          <a-select-option value="all">全部 Sandbox</a-select-option>
+          <a-select-option value="triggered">仅已触发</a-select-option>
+          <a-select-option value="policy">仅策略强制</a-select-option>
+        </a-select>
+        <a-button type="primary" @click="handleKeywordSearch" :loading="loading">查询</a-button>
         <a-button @click="resetFilters" :disabled="loading">重置</a-button>
         <a-button @click="fetchSkills" :loading="loading">刷新</a-button>
         <a-button type="primary" @click="$router.push('/submit')">提交 Skill</a-button>
@@ -49,6 +61,13 @@
           <template v-else-if="column.key === 'risk'">
             <a-tag :color="riskColor(record.risk_level)">{{ record.risk_level || '-' }}</a-tag>
           </template>
+          <template v-else-if="column.key === 'sandbox'">
+            <a-space wrap>
+              <a-tag v-if="record.sandbox_triggered" color="blue">{{ record.sandbox_runtime || 'sandbox' }}</a-tag>
+              <a-tag v-if="record.sandbox_required_by_policy" color="orange">策略强制</a-tag>
+              <span v-if="!record.sandbox_triggered" style="color: #8c8c8c">-</span>
+            </a-space>
+          </template>
           <template v-else-if="column.key === 'actions'">
             <a-space>
               <a-button size="small" @click="$router.push(`/skills/${record.skill_id}`)">详情</a-button>
@@ -62,7 +81,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 
 import { listSkillsPaged } from '../api'
@@ -71,6 +90,7 @@ import { formatDateTime } from '../utils/format'
 const keyword = ref('')
 const status = ref('all')
 const risk = ref('all')
+const sandboxFilter = ref('all')
 const loading = ref(false)
 const rows = ref([])
 const total = ref(0)
@@ -89,6 +109,7 @@ const columns = [
   { title: 'Skill ID', dataIndex: 'skill_id', key: 'skill_id', sorter: true },
   { title: '状态', dataIndex: 'status', key: 'status', width: 140, sorter: true },
   { title: '风险', dataIndex: 'risk_level', key: 'risk', width: 120, sorter: true },
+  { title: 'Sandbox', key: 'sandbox', width: 180 },
   { title: '审批人', dataIndex: 'approved_by', key: 'approved_by', width: 160, sorter: true },
   { title: '提交时间', dataIndex: 'submitted_at', key: 'submitted_at', width: 190, sorter: true, customRender: ({ text }) => formatDateTime(text) },
   { title: '操作', key: 'actions', width: 140 },
@@ -100,6 +121,8 @@ const fetchSkills = async () => {
     const res = await listSkillsPaged({
       status: status.value === 'all' ? undefined : status.value,
       risk_level: risk.value === 'all' ? undefined : risk.value,
+      sandbox_triggered: sandboxFilter.value === 'triggered' ? true : undefined,
+      sandbox_required_by_policy: sandboxFilter.value === 'policy' ? true : undefined,
       q: keyword.value.trim() || undefined,
       page: pagination.value.current,
       page_size: pagination.value.pageSize,
@@ -123,6 +146,24 @@ const fetchSkills = async () => {
   }
 }
 
+const handleKeywordSearch = () => {
+  pagination.value = {
+    ...pagination.value,
+    current: 1,
+  }
+  fetchSkills()
+}
+
+const handleKeywordInputChange = (event) => {
+  const nextValue = event?.target?.value ?? ''
+  if (String(nextValue).trim()) return
+  pagination.value = {
+    ...pagination.value,
+    current: 1,
+  }
+  fetchSkills()
+}
+
 const handleTableChange = (pager, _filters, sorter) => {
   pagination.value = {
     ...pagination.value,
@@ -142,6 +183,7 @@ const resetFilters = () => {
   keyword.value = ''
   status.value = 'all'
   risk.value = 'all'
+  sandboxFilter.value = 'all'
   sortState.value = { field: 'submitted_at', order: 'descend' }
   pagination.value = {
     ...pagination.value,
@@ -152,6 +194,7 @@ const resetFilters = () => {
 
 const statusColor = (value) =>
   ({
+    PENDING: 'gold',
     VETTED: 'orange',
     APPROVED: 'green',
     DEPLOYED: 'blue',
@@ -169,6 +212,14 @@ const riskColor = (value) =>
   }[value] || 'default')
 
 onMounted(fetchSkills)
+
+watch([status, risk, sandboxFilter], () => {
+  pagination.value = {
+    ...pagination.value,
+    current: 1,
+  }
+  fetchSkills()
+})
 </script>
 
 <style scoped>

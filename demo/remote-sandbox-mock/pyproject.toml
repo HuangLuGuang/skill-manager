@@ -1,0 +1,12 @@
+[project]
+name = "remote-sandbox-mock"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi",
+  "uvicorn",
+  "pydantic>=2.6.0",
+]
+
+[tool.uv]
+package = false

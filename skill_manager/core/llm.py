@@ -38,9 +38,23 @@ class LLMAnalysisResult(BaseModel):
     model: str
     max_severity: str = "SAFE"
     risk_level: str = "LOW"
+    skill_function_summary: str = ""
     summary: str = ""
     findings: list[LLMFinding] = Field(default_factory=list)
     policy_notes: list[str] = Field(default_factory=list)
+    raw_response: dict[str, Any] = Field(default_factory=dict)
+
+
+class LLMSandboxProbeCase(BaseModel):
+    name: str
+    description: str = ""
+    args: list[str] = Field(default_factory=list)
+
+
+class LLMSandboxProbePlan(BaseModel):
+    provider: str
+    model: str
+    probes: list[LLMSandboxProbeCase] = Field(default_factory=list)
     raw_response: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -60,6 +74,9 @@ class LLMConfig(BaseModel):
         raw = os.environ.get("SKILL_MANAGER_LLM_CONFIG")
         if raw:
             return Path(raw).expanduser().resolve()
+        data_dir = os.environ.get("SKILL_MANAGER_DATA_DIR")
+        if data_dir:
+            return Path(data_dir).expanduser().resolve() / "config" / "llm.yaml"
         return _DEFAULT_LLM_CONFIG_PATH
 
     @classmethod
@@ -70,23 +87,23 @@ class LLMConfig(BaseModel):
             with open(target, encoding="utf-8") as handle:
                 data = yaml.safe_load(handle) or {}
 
-        env_overrides: dict[str, Any] = {}
+        env_defaults: dict[str, Any] = {}
         if "SKILL_MANAGER_LLM_ENABLED" in os.environ:
-            env_overrides["enabled"] = os.environ["SKILL_MANAGER_LLM_ENABLED"].strip().lower() in {
+            env_defaults["enabled"] = os.environ["SKILL_MANAGER_LLM_ENABLED"].strip().lower() in {
                 "1", "true", "yes", "on",
             }
         if os.environ.get("SKILL_MANAGER_LLM_PROVIDER"):
-            env_overrides["provider"] = os.environ["SKILL_MANAGER_LLM_PROVIDER"].strip()
+            env_defaults["provider"] = os.environ["SKILL_MANAGER_LLM_PROVIDER"].strip()
         if os.environ.get("SKILL_MANAGER_LLM_API_BASE"):
-            env_overrides["api_base"] = os.environ["SKILL_MANAGER_LLM_API_BASE"].strip()
+            env_defaults["api_base"] = os.environ["SKILL_MANAGER_LLM_API_BASE"].strip()
         if os.environ.get("SKILL_MANAGER_LLM_API_KEY"):
-            env_overrides["api_key"] = os.environ["SKILL_MANAGER_LLM_API_KEY"].strip()
+            env_defaults["api_key"] = os.environ["SKILL_MANAGER_LLM_API_KEY"].strip()
         if os.environ.get("SKILL_MANAGER_LLM_MODEL"):
-            env_overrides["model"] = os.environ["SKILL_MANAGER_LLM_MODEL"].strip()
+            env_defaults["model"] = os.environ["SKILL_MANAGER_LLM_MODEL"].strip()
         if os.environ.get("SKILL_MANAGER_LLM_TIMEOUT_SECONDS"):
-            env_overrides["timeout_seconds"] = float(os.environ["SKILL_MANAGER_LLM_TIMEOUT_SECONDS"])
+            env_defaults["timeout_seconds"] = float(os.environ["SKILL_MANAGER_LLM_TIMEOUT_SECONDS"])
 
-        return cls.model_validate({**data, **env_overrides})
+        return cls.model_validate({**env_defaults, **data})
 
     def save(self, path: str | Path | None = None) -> Path:
         target = Path(path or self.config_path()).expanduser()
@@ -201,6 +218,7 @@ def analyze_skill_with_llm(skill_path: Path, config: LLMConfig | None = None) ->
         "Respond with exactly one JSON object and no markdown. "
         "Schema: "
         "{"
+        "\"skill_function_summary\": string, "
         "\"summary\": string, "
         "\"risk_level\": \"LOW\"|\"MEDIUM\"|\"HIGH\"|\"EXTREME\", "
         "\"max_severity\": \"SAFE\"|\"LOW\"|\"MEDIUM\"|\"HIGH\"|\"CRITICAL\", "
@@ -215,9 +233,10 @@ def analyze_skill_with_llm(skill_path: Path, config: LLMConfig | None = None) ->
     )
     user_prompt = (
         "请分析这个 skill 快照，重点给出基于证据的具体风险点。"
+        "同时请先用一小段简体中文概括这个 skill 的主要功能，不要太长。"
         "所有说明文字必须使用简体中文。"
         "如果没有明显问题，请返回空 findings，"
-        "\"risk_level\": \"LOW\"，\"max_severity\": \"SAFE\"。\n\n"
+        "\"risk_level\": \"LOW\"，\"max_severity\": \"SAFE\"，并给出简短功能概述。\n\n"
         f"{snapshot}"
     )
 
@@ -266,3 +285,84 @@ def analyze_skill_with_llm(skill_path: Path, config: LLMConfig | None = None) ->
         len(result.findings),
     )
     return result
+
+
+def generate_sandbox_probes_with_llm(
+    skill_path: Path,
+    entrypoint: str,
+    config: LLMConfig | None = None,
+    max_cases: int = 4,
+) -> LLMSandboxProbePlan:
+    resolved_config = config or LLMConfig.load()
+    if not resolved_config.enabled:
+        raise ValueError("LLM analysis is disabled")
+    if not resolved_config.api_key:
+        raise ValueError("LLM API key is not configured")
+    if resolved_config.provider.lower() != "deepseek":
+        raise ValueError(f"Unsupported LLM provider: {resolved_config.provider}")
+
+    snapshot = _build_skill_snapshot(skill_path, resolved_config)
+    system_prompt = (
+        "You generate safe sandbox probe arguments for AI agent skill testing. "
+        "Only generate command-line argument lists for the existing entrypoint. "
+        "Do not generate code, shell pipelines, destructive commands, credential values, or real external targets. "
+        "Prefer harmless placeholder paths under /tmp and example URLs/domains. "
+        "Respond with exactly one JSON object and no markdown. "
+        "Schema: {\"probes\": [{\"name\": string, \"description\": string, \"args\": string[]}]} "
+        f"Return at most {max_cases} probes."
+    )
+    user_prompt = (
+        f"Skill entrypoint: {entrypoint}\n\n"
+        "请基于这个 skill 快照生成 sandbox 动态测试用例参数。"
+        "目标是尽可能触发真实执行路径，但不能要求访问真实凭证、真实内网或破坏性文件。"
+        "如果无法判断参数，返回空 probes。\n\n"
+        f"{snapshot}"
+    )
+
+    endpoint = f"{resolved_config.api_base.rstrip('/')}/chat/completions"
+    payload = {
+        "model": resolved_config.model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"},
+        "stream": False,
+    }
+    with httpx.Client(timeout=resolved_config.timeout_seconds) as client:
+        response = client.post(
+            endpoint,
+            headers={
+                "Authorization": f"Bearer {resolved_config.api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+        response.raise_for_status()
+        body = response.json()
+
+    try:
+        content = body["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ValueError("Unexpected LLM response shape") from exc
+
+    parsed = _extract_json_object(content)
+    raw_probes = parsed.get("probes") or []
+    probes: list[dict[str, Any]] = []
+    for item in raw_probes[:max_cases]:
+        args = item.get("args") or []
+        if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+            continue
+        probes.append({
+            "name": str(item.get("name") or f"probe-{len(probes) + 1}"),
+            "description": str(item.get("description") or ""),
+            "args": args[:12],
+        })
+
+    return LLMSandboxProbePlan.model_validate({
+        "provider": resolved_config.provider,
+        "model": resolved_config.model,
+        "probes": probes,
+        "raw_response": body,
+    })

@@ -26,7 +26,7 @@ from .policy import CompanyPolicy
 from .registry import Registry, make_event
 from .runtime import RuntimeGuard
 from .signer import compute_signature
-from .vetting import VettingPipeline
+from .vetting import VettingPipeline, _load_manifest
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +74,7 @@ class SkillManager:
         author: str | None = None,
         use_behavioral: bool = False,
         use_llm: bool = False,
+        use_sandbox: bool = False,
     ) -> RegistryEntry:
         """
         Vet a skill and submit it to the registry.
@@ -85,22 +86,31 @@ class SkillManager:
 
         Returns the new RegistryEntry.
         """
+        entry = self.create_pending_submission(skill_path, source=source, author=author)
+        return self.process_pending_submission(
+            entry.skill_id,
+            use_behavioral=use_behavioral,
+            use_llm=use_llm,
+            use_sandbox=use_sandbox,
+        )
+
+    def create_pending_submission(
+        self,
+        skill_path: str | Path,
+        source: SourceInfo | None = None,
+        author: str | None = None,
+    ) -> RegistryEntry:
         skill_path = Path(skill_path).resolve()
 
         if source is None:
             source = SourceInfo(origin=SkillOrigin.LOCAL, author=author)
 
-        logger.info("Vetting skill at %s ...", skill_path)
-
-        # Run vetting pipeline
-        vetting_result, violations, name, description, allowed_tools = self.vetting.vet(
-            skill_path, source, use_behavioral=use_behavioral, use_llm=use_llm
-        )
-
-        # Policy gate
-        status = self.policy.decide(vetting_result.risk_level, source, violations)
-
-        declared_tools_valid = not any(v.rule in ("tool_not_in_allowlist", "blocked_permission") for v in violations)
+        try:
+            name, description, allowed_tools, _license = _load_manifest(skill_path)
+        except Exception:
+            name = skill_path.name
+            description = ""
+            allowed_tools = []
 
         entry = RegistryEntry(
             skill_id=str(uuid.uuid4()),
@@ -108,28 +118,65 @@ class SkillManager:
             description=description,
             source=source,
             skill_path=str(skill_path),
-            status=status,
-            risk_level=vetting_result.risk_level,
-            vetting=vetting_result,
+            status=SkillStatus.PENDING,
             allowed_tools=allowed_tools,
-            declared_tools_valid=declared_tools_valid,
+        )
+        self.registry.add(entry)
+        self.registry.log_event(make_event(
+            "skill_submitted",
+            entry,
+            details={"skill_path": str(skill_path), "status": SkillStatus.PENDING.value},
+        ))
+        return entry
+
+    def process_pending_submission(
+        self,
+        skill_id: str,
+        use_behavioral: bool = False,
+        use_llm: bool = False,
+        use_sandbox: bool = False,
+    ) -> RegistryEntry:
+        entry = self._require_entry(skill_id)
+        skill_path = Path(entry.skill_path or "").resolve()
+        source = entry.source
+
+        logger.info("Vetting skill at %s ...", skill_path)
+
+        vetting_result, violations, name, description, allowed_tools = self.vetting.vet(
+            skill_path,
+            source,
+            use_behavioral=use_behavioral,
+            use_llm=use_llm,
+            use_sandbox=use_sandbox,
         )
 
-        # Sign if approved
+        status = self.policy.decide(vetting_result.risk_level, source, violations)
+        declared_tools_valid = not any(v.rule in ("tool_not_in_allowlist", "blocked_permission") for v in violations)
+
+        entry.name = name
+        entry.description = description
+        entry.status = status
+        entry.risk_level = vetting_result.risk_level
+        entry.vetting = vetting_result
+        entry.allowed_tools = allowed_tools
+        entry.declared_tools_valid = declared_tools_valid
+
         if status == SkillStatus.APPROVED:
             entry.signature = compute_signature(skill_path)
             entry.approved_at = datetime.now(timezone.utc)
             entry.approved_by = "auto-policy"
 
-        self.registry.add(entry)
-        self.registry.log_event(make_event("skill_submitted", entry, details={
-            "skill_path": str(skill_path),
-            "risk_level": vetting_result.risk_level.value,
-            "status": status.value,
-            "violations": [v.rule for v in violations],
-        }))
+        self.registry.update(entry)
+        self.registry.log_event(make_event(
+            "skill_processing_completed",
+            entry,
+            details={
+                "risk_level": vetting_result.risk_level.value,
+                "status": status.value,
+                "violations": [v.rule for v in violations],
+            },
+        ))
 
-        # Enqueue for review if needed
         if status == SkillStatus.VETTED:
             self.registry.enqueue_review(ReviewRequest(
                 skill_id=entry.skill_id,
@@ -151,10 +198,20 @@ class SkillManager:
             details={"risk_level": vetting_result.risk_level.value, "status": status.value},
         ))
 
-        logger.info(
-            "Submitted skill %r: status=%s risk=%s",
-            name, status.value, vetting_result.risk_level.value,
-        )
+        logger.info("Processed skill %r: status=%s risk=%s", name, status.value, vetting_result.risk_level.value)
+        return entry
+
+    def mark_submission_failed(self, skill_id: str, reason: str, actor: str | None = None) -> RegistryEntry:
+        entry = self._require_entry(skill_id)
+        entry.status = SkillStatus.REJECTED
+        entry.rejection_reason = reason
+        self.registry.update(entry)
+        self.registry.log_event(make_event(
+            "skill_processing_failed",
+            entry,
+            actor=actor,
+            details={"reason": reason},
+        ))
         return entry
 
     # ------------------------------------------------------------------ #

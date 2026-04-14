@@ -35,6 +35,17 @@
                     {{ managerStatus.scanner_available ? '可用' : '未安装' }}
                   </a-tag>
                 </a-descriptions-item>
+                <a-descriptions-item label="Sandbox">
+                  <a-tag :color="managerStatus.sandbox_available ? 'green' : 'default'">
+                    {{ managerStatus.sandbox_available ? '可用' : '不可用' }}
+                  </a-tag>
+                </a-descriptions-item>
+                <a-descriptions-item label="Sandbox 后端">
+                  {{ managerStatus.sandbox_runtime || '-' }}
+                </a-descriptions-item>
+                <a-descriptions-item label="Sandbox 镜像">
+                  {{ sandboxConfig.image || '-' }}
+                </a-descriptions-item>
                 <a-descriptions-item label="当前扫描模式">
                   <a-tag :color="scanModeColor(managerStatus.scan_mode)">
                     {{ managerStatus.scan_mode || '-' }}
@@ -66,7 +77,7 @@
     </a-row>
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
-      <a-col :span="24">
+      <a-col :xs="24" :xl="12">
         <a-card title="LLM 配置">
           <a-form layout="vertical" :model="llmForm" @finish="saveLlmConfig">
             <a-form-item>
@@ -125,6 +136,76 @@
           </a-form>
         </a-card>
       </a-col>
+      <a-col :xs="24" :xl="12">
+        <a-card title="Sandbox 配置">
+          <a-form layout="vertical" :model="sandboxForm" @finish="saveSandboxConfig">
+            <a-form-item>
+              <a-switch
+                v-model:checked="sandboxForm.enabled"
+                checked-children="启用"
+                un-checked-children="关闭"
+                :loading="savingSandbox"
+              />
+              <div class="hint">这里控制 Sandbox 配置是否启用；高风险 skill 的强制执行仍由策略页决定。</div>
+            </a-form-item>
+            <a-form-item label="后端类型">
+              <a-select v-model:value="sandboxForm.runtime">
+                <a-select-option value="docker">docker</a-select-option>
+                <a-select-option value="remote">remote</a-select-option>
+              </a-select>
+            </a-form-item>
+            <a-form-item v-if="sandboxForm.runtime === 'docker'" label="镜像">
+              <a-input v-model:value="sandboxForm.image" placeholder="skill-manager-sandbox-runtime:latest" />
+            </a-form-item>
+            <template v-else>
+              <a-form-item label="远程 Sandbox URL">
+                <a-input v-model:value="sandboxForm.remote_url" placeholder="http://sandbox:8194" />
+                <div class="hint">配置文件：{{ sandboxConfig.config_path || '-' }}</div>
+              </a-form-item>
+              <a-form-item label="远程 API Key">
+                <a-input-password
+                  v-model:value="sandboxForm.remote_api_key"
+                  placeholder="留空则保留现有 key"
+                  autocomplete="new-password"
+                />
+                <div class="hint">
+                  当前状态：{{ sandboxConfig.remote_api_key_configured ? (sandboxConfig.remote_api_key_masked || '已配置') : '未配置' }}
+                </div>
+              </a-form-item>
+              <a-form-item>
+                <a-checkbox v-model:checked="sandboxForm.clear_remote_api_key">清除当前远程 API Key</a-checkbox>
+              </a-form-item>
+            </template>
+            <a-form-item label="超时时间（秒）">
+              <a-input-number v-model:value="sandboxForm.timeout_seconds" :min="1" :max="300" style="width: 100%" />
+            </a-form-item>
+            <a-form-item label="网络模式">
+              <a-select v-model:value="sandboxForm.network_mode">
+                <a-select-option value="none">none</a-select-option>
+                <a-select-option value="bridge">bridge</a-select-option>
+              </a-select>
+            </a-form-item>
+            <a-form-item label="内存限制">
+              <a-input v-model:value="sandboxForm.memory_limit" placeholder="256m" />
+            </a-form-item>
+            <a-form-item label="CPU 限制">
+              <a-input v-model:value="sandboxForm.cpu_limit" placeholder="1.0" />
+            </a-form-item>
+            <a-form-item label="进程数限制">
+              <a-input-number v-model:value="sandboxForm.pids_limit" :min="1" :max="1024" style="width: 100%" />
+            </a-form-item>
+            <a-form-item>
+              <a-checkbox v-model:checked="sandboxForm.read_only_rootfs">启用只读根文件系统</a-checkbox>
+            </a-form-item>
+            <a-form-item>
+              <a-space wrap>
+                <a-button type="primary" html-type="submit" :loading="savingSandbox">保存 Sandbox 配置</a-button>
+                <a-button @click="fetchStatus" :disabled="savingSandbox">重新加载</a-button>
+              </a-space>
+            </a-form-item>
+          </a-form>
+        </a-card>
+      </a-col>
     </a-row>
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
@@ -155,14 +236,24 @@
 import { onMounted, reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
 
-import { getLlmConfig, getLogoInfo, getSkillManagerSystemStatus, getSystemInfo, updateLlmConfig } from '../api'
+import {
+  getLlmConfig,
+  getLogoInfo,
+  getSandboxConfig,
+  getSkillManagerSystemStatus,
+  getSystemInfo,
+  updateLlmConfig,
+  updateSandboxConfig,
+} from '../api'
 
 const loading = ref(false)
 const savingLlm = ref(false)
+const savingSandbox = ref(false)
 const systemInfo = ref({})
 const logoInfo = ref({})
 const managerStatus = ref({})
 const llmConfig = ref({})
+const sandboxConfig = ref({})
 const llmForm = reactive({
   enabled: false,
   provider: 'deepseek',
@@ -175,11 +266,26 @@ const llmForm = reactive({
   api_key: '',
   clear_api_key: false,
 })
+const sandboxForm = reactive({
+  enabled: false,
+  runtime: 'docker',
+  image: 'skill-manager-sandbox-runtime:latest',
+  timeout_seconds: 15,
+  network_mode: 'none',
+  memory_limit: '256m',
+  cpu_limit: '1.0',
+  pids_limit: 64,
+  read_only_rootfs: true,
+  remote_url: '',
+  remote_api_key: '',
+  clear_remote_api_key: false,
+})
 const items = [
   'Starter backend 继续负责账号、登录、菜单和系统管理。',
   'Skill Manager API 负责 skill 生命周期、审计和运行时治理。',
   '启用 LLM 分析后，提交 Skill 时勾选“启用 LLM 分析”才会调用 DeepSeek 接口。',
   '当前页面已经同时汇总两侧状态，便于你判断环境是否完整。',
+  'Sandbox 可以走本机 Docker，也可以走独立隔离执行服务；当前后端类型会显示在状态区。',
 ]
 
 const formatSize = (size) => {
@@ -206,16 +312,18 @@ const scanModeColor = (value) =>
 const fetchStatus = async () => {
   loading.value = true
   try {
-    const [sys, logo, manager, llm] = await Promise.all([
+    const [sys, logo, manager, llm, sandbox] = await Promise.all([
       getSystemInfo(),
       getLogoInfo(),
       getSkillManagerSystemStatus(),
       getLlmConfig(),
+      getSandboxConfig(),
     ])
     systemInfo.value = sys || {}
     logoInfo.value = logo || {}
     managerStatus.value = manager || {}
     llmConfig.value = llm || {}
+    sandboxConfig.value = sandbox || {}
     llmForm.enabled = llm?.enabled ?? false
     llmForm.provider = llm?.provider || 'deepseek'
     llmForm.api_base = llm?.api_base || 'https://api.deepseek.com'
@@ -226,6 +334,18 @@ const fetchStatus = async () => {
     llmForm.max_manifest_chars = llm?.max_manifest_chars ?? 12000
     llmForm.api_key = ''
     llmForm.clear_api_key = false
+    sandboxForm.enabled = sandbox?.enabled ?? false
+    sandboxForm.runtime = sandbox?.runtime || 'docker'
+    sandboxForm.image = sandbox?.image || 'skill-manager-sandbox-runtime:latest'
+    sandboxForm.timeout_seconds = sandbox?.timeout_seconds ?? 15
+    sandboxForm.network_mode = sandbox?.network_mode || 'none'
+    sandboxForm.memory_limit = sandbox?.memory_limit || '256m'
+    sandboxForm.cpu_limit = sandbox?.cpu_limit || '1.0'
+    sandboxForm.pids_limit = sandbox?.pids_limit ?? 64
+    sandboxForm.read_only_rootfs = sandbox?.read_only_rootfs ?? true
+    sandboxForm.remote_url = sandbox?.remote_url || ''
+    sandboxForm.remote_api_key = ''
+    sandboxForm.clear_remote_api_key = false
   } catch (error) {
     message.error(error.response?.data?.detail || '获取系统状态失败')
   } finally {
@@ -262,6 +382,34 @@ const saveLlmConfig = async (successText = 'LLM 配置已保存') => {
 
 const handleToggleLlmEnabled = async () => {
   await saveLlmConfig(llmForm.enabled ? 'LLM 已启用' : 'LLM 已禁用')
+}
+
+const saveSandboxConfig = async () => {
+  savingSandbox.value = true
+  try {
+    const payload = {
+      enabled: sandboxForm.enabled,
+      runtime: sandboxForm.runtime,
+      image: sandboxForm.image,
+      timeout_seconds: Number(sandboxForm.timeout_seconds || 15),
+      network_mode: sandboxForm.network_mode,
+      memory_limit: sandboxForm.memory_limit,
+      cpu_limit: sandboxForm.cpu_limit,
+      pids_limit: Number(sandboxForm.pids_limit || 64),
+      read_only_rootfs: sandboxForm.read_only_rootfs,
+      remote_url: sandboxForm.remote_url || null,
+      remote_api_key: sandboxForm.remote_api_key || null,
+      clear_remote_api_key: sandboxForm.clear_remote_api_key,
+    }
+    const result = await updateSandboxConfig(payload)
+    sandboxConfig.value = result || {}
+    message.success('Sandbox 配置已保存')
+    await fetchStatus()
+  } catch (error) {
+    message.error(error.response?.data?.detail || '保存 Sandbox 配置失败')
+  } finally {
+    savingSandbox.value = false
+  }
 }
 
 onMounted(fetchStatus)

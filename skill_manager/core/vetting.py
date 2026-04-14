@@ -12,8 +12,9 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .llm import LLMConfig, analyze_skill_with_llm
+from .llm import LLMConfig, analyze_skill_with_llm, generate_sandbox_probes_with_llm
 from .models import PolicyViolation, RiskLevel, SourceInfo, VettingResult
+from .sandbox import build_probe_plan, discover_probe_entrypoint, get_sandbox_runner
 
 if TYPE_CHECKING:
     from .policy import CompanyPolicy
@@ -282,6 +283,7 @@ class VettingPipeline:
         source: SourceInfo,
         use_behavioral: bool = False,
         use_llm: bool = False,
+        use_sandbox: bool = False,
     ) -> tuple[VettingResult, list[PolicyViolation], str, str, list[str]]:
         """
         Run the full vetting pipeline.
@@ -362,6 +364,157 @@ class VettingPipeline:
                 logger.warning("LLM analysis skipped for %s: %s", skill_path, exc)
                 llm_notes.append(f"[LLM] analysis skipped: {exc}")
 
+        initial_risk_level = RiskLevel.from_severity(scan_report.get("max_severity", "SAFE"))
+        sandbox_required_by_policy = self.policy.requires_sandbox(initial_risk_level)
+        effective_use_sandbox = use_sandbox or sandbox_required_by_policy
+        sandbox_notes: list[str] = []
+        sandbox_runtime: str | None = None
+        if sandbox_required_by_policy:
+            sandbox_notes.append(
+                f"[SANDBOX] required by policy for risk level {initial_risk_level.value}"
+            )
+        if effective_use_sandbox:
+            sandbox_runtime = get_sandbox_runner().config.runtime
+            entrypoint = discover_probe_entrypoint(skill_path)
+            if not entrypoint:
+                sandbox_result = {
+                    "executed": False,
+                    "runtime": sandbox_runtime,
+                    "available": True,
+                    "reason": "No supported probe entrypoint found",
+                }
+                scan_report = {
+                    **scan_report,
+                    "sandbox_analysis": sandbox_result,
+                    "analyzers_used": [
+                        *scan_report.get("analyzers_used", ["basic"]),
+                        "sandbox:docker",
+                    ],
+                }
+                sandbox_notes.append("[SANDBOX] no supported entrypoint found")
+            else:
+                try:
+                    runner = get_sandbox_runner()
+                    sandbox_runtime = runner.config.runtime
+                    probe_plan = build_probe_plan(skill_path, entrypoint)
+                    probe_cases = [{
+                        "name": "default",
+                        "description": f"default sandbox probe strategy={probe_plan.strategy}",
+                        "args": probe_plan.args,
+                        "generated_by": "default",
+                    }]
+                    llm_probe_plan = None
+                    if use_llm:
+                        try:
+                            llm_probe_plan = generate_sandbox_probes_with_llm(skill_path, entrypoint, LLMConfig.load())
+                            for case in llm_probe_plan.probes:
+                                if case.args not in [existing["args"] for existing in probe_cases]:
+                                    probe_cases.append({
+                                        "name": case.name,
+                                        "description": case.description,
+                                        "args": case.args,
+                                        "generated_by": f"llm:{llm_probe_plan.provider}",
+                                    })
+                            if llm_probe_plan.probes:
+                                sandbox_notes.append(f"[SANDBOX] LLM generated {len(llm_probe_plan.probes)} probe cases")
+                        except Exception as exc:
+                            sandbox_notes.append(f"[SANDBOX] LLM probe generation skipped: {exc}")
+
+                    sandbox_exec_results = []
+                    all_sandbox_events = []
+                    max_sandbox_severity = "SAFE"
+                    representative_exec = None
+                    for case in probe_cases:
+                        sandbox_exec = runner.run_probe(
+                            skill_path,
+                            entrypoint=probe_plan.entrypoint,
+                            args=case["args"],
+                        )
+                        result_payload = sandbox_exec.model_dump(mode="json")
+                        result_payload["probe_name"] = case["name"]
+                        result_payload["probe_description"] = case["description"]
+                        result_payload["probe_args"] = case["args"]
+                        result_payload["probe_generated_by"] = case["generated_by"]
+                        sandbox_exec_results.append(result_payload)
+                        for event in sandbox_exec.signals or sandbox_exec.suspicious_events:
+                            all_sandbox_events.append((case, event))
+                            max_sandbox_severity = _max_severity(max_sandbox_severity, event.severity)
+                        if representative_exec is None:
+                            representative_exec = sandbox_exec
+                        elif _SEVERITY_ORDER.get(sandbox_exec.max_severity.upper(), 0) > _SEVERITY_ORDER.get(representative_exec.max_severity.upper(), 0):
+                            representative_exec = sandbox_exec
+
+                    sandbox_exec = representative_exec
+                    sandbox_result = sandbox_exec.model_dump(mode="json") if sandbox_exec else {
+                        "executed": False,
+                        "runtime": sandbox_runtime,
+                        "reason": "No sandbox probe executed",
+                    }
+                    sandbox_result["probe_strategy"] = "multi-case" if len(probe_cases) > 1 else probe_plan.strategy
+                    sandbox_result["probe_args"] = probe_cases[0]["args"]
+                    sandbox_result["probe_cases"] = probe_cases
+                    sandbox_result["probe_results"] = sandbox_exec_results
+                    sandbox_result["llm_probe_plan"] = llm_probe_plan.model_dump(mode="json") if llm_probe_plan else None
+                    sandbox_events = [
+                        {
+                            "severity": event.severity,
+                            "title": event.message,
+                            "message": event.message,
+                            "file": entrypoint,
+                            "source": "sandbox",
+                            "probe": case["name"],
+                            "category": event.category,
+                            "evidence": event.evidence,
+                        }
+                        for case, event in all_sandbox_events
+                    ]
+
+                    scan_report = {
+                        **scan_report,
+                        "max_severity": _max_severity(
+                            scan_report.get("max_severity", "SAFE"),
+                            max_sandbox_severity,
+                        ),
+                        "findings": [
+                            *scan_report.get("findings", []),
+                            *sandbox_events,
+                        ],
+                        "analyzers_used": [
+                            *scan_report.get("analyzers_used", ["basic"]),
+                            "sandbox:docker",
+                        ],
+                        "sandbox_analysis": sandbox_result,
+                    }
+                    if sandbox_exec.executed:
+                        sandbox_notes.append(
+                            f"[SANDBOX] executed {entrypoint} strategy={sandbox_result['probe_strategy']} "
+                            f"cases={len(probe_cases)} "
+                            f"exit_code={sandbox_exec.exit_code} timeout={sandbox_exec.timed_out} "
+                            f"duration_ms={sandbox_exec.duration_ms}"
+                        )
+                    else:
+                        sandbox_notes.append(f"[SANDBOX] skipped: {sandbox_exec.reason or 'not executed'}")
+                    for case, event in all_sandbox_events:
+                        sandbox_notes.append(f"[SANDBOX] {case['name']} {event.category}: {event.message}")
+                except Exception as exc:
+                    logger.warning("Sandbox analysis skipped for %s: %s", skill_path, exc)
+                    sandbox_result = {
+                        "executed": False,
+                        "runtime": sandbox_runtime or "unknown",
+                        "available": False,
+                        "entrypoint": entrypoint,
+                        "reason": f"Sandbox analysis skipped: {exc}",
+                    }
+                    scan_report = {
+                        **scan_report,
+                        "sandbox_analysis": sandbox_result,
+                        "analyzers_used": [
+                            *scan_report.get("analyzers_used", ["basic"]),
+                            "sandbox:docker",
+                        ],
+                    }
+                    sandbox_notes.append(f"[SANDBOX] analysis skipped: {exc}")
+
         # 3. Derive risk level
         max_severity = scan_report.get("max_severity", "SAFE")
         risk_level = RiskLevel.from_severity(max_severity)
@@ -382,6 +535,7 @@ class VettingPipeline:
             policy_notes.append(f"{prefix} {v.rule}: {v.message}")
         policy_notes.extend(behavioral_notes)
         policy_notes.extend(llm_notes)
+        policy_notes.extend(sandbox_notes)
 
         # 5. Build result
         result = VettingResult(
@@ -393,6 +547,9 @@ class VettingPipeline:
             medium_count=counts["medium"],
             low_count=counts["low"],
             analyzers_used=scan_report.get("analyzers_used", ["basic"]),
+            sandbox_triggered=effective_use_sandbox,
+            sandbox_required_by_policy=sandbox_required_by_policy,
+            sandbox_runtime=sandbox_runtime,
             scan_duration_seconds=scan_report.get("scan_duration_seconds", 0.0),
             scan_report=scan_report,
             policy_notes=policy_notes,

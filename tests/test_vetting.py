@@ -177,3 +177,14 @@ class TestVettingPipeline:
         assert result.scan_report["behavioral_analysis"]["scanned_file_count"] >= 1
         assert any(f["source"] == "behavioral" for f in result.scan_report["findings"])
         assert result.risk_level in (RiskLevel.HIGH, RiskLevel.EXTREME)
+
+    def test_sandbox_flags_are_recorded(self, skill_dir, default_policy):
+        pipeline = VettingPipeline(default_policy)
+        source = SourceInfo(origin=SkillOrigin.LOCAL)
+
+        result, _violations, _name, _desc, _tools = pipeline.vet(skill_dir, source, use_sandbox=True)
+
+        assert result.sandbox_triggered is True
+        assert result.sandbox_required_by_policy is False
+        assert result.sandbox_runtime == "docker"
+        assert "sandbox_analysis" in result.scan_report

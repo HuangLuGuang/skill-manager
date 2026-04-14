@@ -41,6 +41,17 @@ export const submitSkillZip = (formData, params = {}) =>
     params,
     headers: { 'Content-Type': 'multipart/form-data' },
   })
+export const prepareUploadZip = (formData) =>
+  api.post('/v1/skills/prepare-upload-zip', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+export const getLocalImportCandidates = () => api.get('/v1/skills/import-candidates')
+export const submitLocalSkills = (data) => api.post('/v1/skills/submit-local', data)
+export const prepareRemoteImport = (data) => api.post('/v1/skills/prepare-remote-import', data)
+export const submitRemoteSelected = (data) => api.post('/v1/skills/submit-remote-selected', data)
+export const submitUploadSelected = (data) => api.post('/v1/skills/submit-upload-selected', data)
+export const submitSkillUrl = (data) => api.post('/v1/skills/submit-url', data)
+export const submitClawHubSkill = (data) => api.post('/v1/skills/submit-clawhub', data)
 export const approveSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/approve`, data)
 export const rejectSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/reject`, data)
 export const deploySkill = (skillId) => api.post(`/v1/skills/${skillId}/deploy`)
@@ -53,6 +64,8 @@ export const getPolicy = () => api.get('/v1/policy')
 export const updatePolicy = (data) => api.put('/v1/policy', data)
 export const getLlmConfig = () => api.get('/v1/llm-config')
 export const updateLlmConfig = (data) => api.put('/v1/llm-config', data)
+export const getSandboxConfig = () => api.get('/v1/sandbox-config')
+export const updateSandboxConfig = (data) => api.put('/v1/sandbox-config', data)
 export const getSkillManagerSystemStatus = () => api.get('/v1/system/status')
 
 api.interceptors.request.use((config) => {

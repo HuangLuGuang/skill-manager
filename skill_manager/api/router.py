@@ -10,11 +10,15 @@ import shutil
 import tempfile
 import uuid
 import os
+import mimetypes
+import re
+import zipfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+import httpx
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 from skill_manager.core.llm import LLMConfig
@@ -22,6 +26,8 @@ from skill_manager.core.manager import SkillManager
 from skill_manager.core.models import SkillStatus, SourceInfo, SkillOrigin
 from skill_manager.core.policy import CompanyPolicy
 from skill_manager.core.registry import Registry
+from skill_manager.core.sandbox import SandboxConfig, get_sandbox_runner
+from skill_manager.core.vetting import _load_manifest
 
 router = APIRouter(prefix="/api/v1", tags=["skill-manager"])
 
@@ -79,6 +85,166 @@ def _resolve_skill_root(extract_dir: Path) -> Path:
     )
 
 
+def _safe_extract_zip(zip_path: Path, extract_dir: Path) -> None:
+    with zipfile.ZipFile(zip_path) as zf:
+        for name in zf.namelist():
+            if ".." in name or name.startswith("/"):
+                raise HTTPException(status_code=400, detail=f"Unsafe path in ZIP: {name}")
+        zf.extractall(extract_dir)
+
+
+def _extract_zip_with_nested_archives(zip_path: Path, extract_dir: Path) -> None:
+    _safe_extract_zip(zip_path, extract_dir)
+    nested_archives = sorted(path for path in extract_dir.rglob("*.zip") if path.is_file())
+    for nested_zip in nested_archives:
+        if not zipfile.is_zipfile(nested_zip):
+            continue
+        nested_target = nested_zip.with_suffix("")
+        nested_target.mkdir(parents=True, exist_ok=True)
+        _safe_extract_zip(nested_zip, nested_target)
+
+
+def _import_root() -> Path:
+    raw = os.environ.get("SKILL_MANAGER_IMPORT_ROOT") or os.environ.get("OPENCLOW_SKILLS_ROOT")
+    target = Path(raw).expanduser() if raw else (Path.home() / ".openclaw" / "workspace" / "skills")
+    return target.resolve()
+
+
+def _is_within_root(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except Exception:
+        return False
+
+
+def _collect_import_candidates(root: Path) -> list[dict[str, str]]:
+    if not root.exists() or not root.is_dir():
+        return []
+    candidates: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for manifest in sorted(root.rglob("SKILL.md")):
+        skill_dir = manifest.parent.resolve()
+        key = str(skill_dir)
+        if key in seen:
+            continue
+        seen.add(key)
+        rel = skill_dir.relative_to(root).as_posix()
+        description = ""
+        try:
+            _name, description, _allowed_tools, _license = _load_manifest(skill_dir)
+        except Exception:
+            description = ""
+        candidates.append({
+            "name": skill_dir.name,
+            "path": str(skill_dir),
+            "relative_path": rel,
+            "description": description,
+        })
+    return candidates
+
+
+def _normalize_download_url(url: str) -> tuple[str, str]:
+    raw = url.strip()
+    github_match = re.match(r"^https://github\.com/([^/]+)/([^/]+)(?:/tree/([^/?#]+))?/?(?:[?#].*)?$", raw)
+    if github_match:
+        owner, repo, branch = github_match.groups()
+        repo = repo.removesuffix(".git")
+        ref = branch or "main"
+        return f"https://github.com/{owner}/{repo}/archive/refs/heads/{ref}.zip", "github"
+
+    github_archive_match = re.match(
+        r"^https://github\.com/([^/]+)/([^/]+)/archive/refs/(heads|tags)/([^/?#]+)\.zip(?:[?#].*)?$",
+        raw,
+    )
+    if github_archive_match:
+        return raw, "github"
+
+    return raw, "direct"
+
+
+def _extract_zip_link_from_html(base_url: str, html: str) -> str | None:
+    patterns = [
+        re.compile(r'href=["\']([^"\']+\.zip(?:\?[^"\']*)?)["\']', re.I),
+        re.compile(r'data-download-url=["\']([^"\']+)["\']', re.I),
+        re.compile(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>\s*Download\s+zip\s*</a>', re.I),
+        re.compile(r'href=["\']([^"\']+/api/v\d+/download[^"\']*)["\']', re.I),
+    ]
+    for pattern in patterns:
+        match = pattern.search(html)
+        if match:
+            return httpx.URL(base_url).join(match.group(1)).__str__()
+    return None
+
+
+def _normalize_clawhub_origin_url(url: str) -> str:
+    return url.strip()
+
+
+def _process_pending_submission_task(
+    skill_id: str,
+    use_behavioral: bool,
+    use_llm: bool,
+    use_sandbox: bool,
+) -> None:
+    mgr = get_manager()
+    try:
+        mgr.process_pending_submission(
+            skill_id,
+            use_behavioral=use_behavioral,
+            use_llm=use_llm,
+            use_sandbox=use_sandbox,
+        )
+    except Exception as exc:
+        mgr.mark_submission_failed(skill_id, f"后台分析失败: {exc}")
+
+
+def _submit_directory_for_processing(
+    mgr: SkillManager,
+    background_tasks: BackgroundTasks,
+    skill_dir: Path,
+    source: SourceInfo,
+    use_behavioral: bool,
+    use_llm: bool,
+    use_sandbox: bool,
+) -> SubmitResponse:
+    entry = mgr.create_pending_submission(skill_dir, source=source)
+    background_tasks.add_task(
+        _process_pending_submission_task,
+        entry.skill_id,
+        use_behavioral,
+        use_llm,
+        use_sandbox,
+    )
+    return SubmitResponse(
+        skill_id=entry.skill_id,
+        name=entry.name,
+        status=entry.status.value,
+        risk_level=entry.risk_level.value if entry.risk_level else None,
+        findings_count=entry.vetting.findings_count if entry.vetting else 0,
+        sandbox_triggered=entry.vetting.sandbox_triggered if entry.vetting else False,
+        sandbox_required_by_policy=entry.vetting.sandbox_required_by_policy if entry.vetting else False,
+        sandbox_runtime=entry.vetting.sandbox_runtime if entry.vetting else None,
+        message="已提交，后台分析中。请在技能列表查看状态变化。",
+    )
+
+
+async def _download_remote_archive(url: str, tmp_dir: Path) -> tuple[Path, str]:
+    download_path = tmp_dir / "downloaded-skill.zip"
+    normalized_url, detected_origin = _normalize_download_url(url)
+    timeout = httpx.Timeout(60.0)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        response = await client.get(normalized_url)
+        response.raise_for_status()
+        content_type = response.headers.get("content-type", "")
+        if ".zip" not in normalized_url.lower() and "zip" not in content_type.lower():
+            guessed = mimetypes.guess_type(normalized_url)[0] or ""
+            if "zip" not in guessed.lower():
+                raise HTTPException(status_code=400, detail="Only ZIP downloads are currently supported")
+        download_path.write_bytes(response.content)
+    return download_path, detected_origin
+
+
 # --------------------------------------------------------------------------- #
 # Request / Response schemas                                                    #
 # --------------------------------------------------------------------------- #
@@ -89,7 +255,87 @@ class SubmitResponse(BaseModel):
     status: str
     risk_level: str | None
     findings_count: int
+    sandbox_triggered: bool = False
+    sandbox_required_by_policy: bool = False
+    sandbox_runtime: str | None = None
     message: str
+
+
+class BatchSubmitResponse(BaseModel):
+    results: list[SubmitResponse]
+
+
+class LocalImportCandidate(BaseModel):
+    name: str
+    path: str
+    relative_path: str
+    description: str = ""
+
+
+class LocalImportCandidatesResponse(BaseModel):
+    root_path: str
+    count: int
+    items: list[LocalImportCandidate]
+
+
+class LocalImportSubmitRequest(BaseModel):
+    paths: list[str]
+    author: str | None = None
+    origin: str = "local"
+    use_behavioral: bool = False
+    use_llm: bool = False
+    use_sandbox: bool = False
+
+
+class UrlSubmitRequest(BaseModel):
+    url: str
+    author: str | None = None
+    origin: str = "github"
+    use_behavioral: bool = False
+    use_llm: bool = False
+    use_sandbox: bool = False
+
+
+class RemoteImportPrepareRequest(BaseModel):
+    url: str
+    author: str | None = None
+    origin: str = "unknown"
+
+
+class RemoteImportPrepareResponse(BaseModel):
+    session_id: str
+    source_url: str
+    detected_origin: str
+    root_path: str
+    count: int
+    items: list[LocalImportCandidate]
+
+
+class RemoteImportSubmitRequest(BaseModel):
+    session_id: str
+    paths: list[str]
+    author: str | None = None
+    origin: str = "unknown"
+    use_behavioral: bool = False
+    use_llm: bool = False
+    use_sandbox: bool = False
+
+
+class UploadZipPrepareResponse(BaseModel):
+    session_id: str
+    filename: str
+    root_path: str
+    count: int
+    items: list[LocalImportCandidate]
+
+
+class ClawHubSubmitRequest(BaseModel):
+    url: str
+    author: str | None = None
+    token: str | None = None
+    use_behavioral: bool = False
+    use_llm: bool = False
+    use_sandbox: bool = False
 
 
 class ApproveRequest(BaseModel):
@@ -141,6 +387,7 @@ class PolicyPayload(BaseModel):
     auto_approve_max_risk: str
     require_human_review: list[str]
     auto_reject_risk: list[str]
+    require_sandbox_for_risk: list[str]
     blocked_permissions: list[str]
     trusted_authors: list[str]
     allowed_tools_allowlist: list[str]
@@ -162,6 +409,8 @@ class SystemStatusResponse(BaseModel):
     review_queue: int
     signing_key_configured: bool
     scanner_available: bool
+    sandbox_available: bool
+    sandbox_runtime: str
     hooks_available: bool
     llm_enabled: bool
     llm_provider: str
@@ -197,6 +446,37 @@ class LLMConfigResponse(BaseModel):
     max_manifest_chars: int
     api_key_configured: bool
     api_key_masked: str | None = None
+
+
+class SandboxConfigPayload(BaseModel):
+    enabled: bool = False
+    runtime: str = "docker"
+    image: str = "skill-manager-sandbox-runtime:latest"
+    timeout_seconds: int = 15
+    network_mode: str = "none"
+    memory_limit: str = "256m"
+    cpu_limit: str = "1.0"
+    pids_limit: int = 64
+    read_only_rootfs: bool = True
+    remote_url: str | None = None
+    remote_api_key: str | None = None
+    clear_remote_api_key: bool = False
+
+
+class SandboxConfigResponse(BaseModel):
+    config_path: str
+    enabled: bool
+    runtime: str
+    image: str
+    timeout_seconds: int
+    network_mode: str
+    memory_limit: str
+    cpu_limit: str
+    pids_limit: int
+    read_only_rootfs: bool
+    remote_url: str | None = None
+    remote_api_key_configured: bool
+    remote_api_key_masked: str | None = None
 
 
 class VerifySignatureRequest(BaseModel):
@@ -297,6 +577,34 @@ def update_llm_config(body: LLMConfigPayload):
     return LLMConfigResponse(**public)
 
 
+@router.get("/sandbox-config", response_model=SandboxConfigResponse)
+def get_sandbox_config():
+    config = SandboxConfig.load()
+    public = config.public_dict()
+    return SandboxConfigResponse(**public)
+
+
+@router.put("/sandbox-config", response_model=SandboxConfigResponse)
+def update_sandbox_config(body: SandboxConfigPayload):
+    current = SandboxConfig.load()
+    data = body.model_dump()
+    clear_remote_api_key = data.pop("clear_remote_api_key", False)
+    incoming_api_key = data.pop("remote_api_key", None)
+    merged = {**current.model_dump(), **data}
+    if clear_remote_api_key:
+        merged["remote_api_key"] = None
+    elif incoming_api_key:
+        merged["remote_api_key"] = incoming_api_key
+    else:
+        merged["remote_api_key"] = current.remote_api_key
+
+    config = SandboxConfig.model_validate(merged)
+    path = config.save()
+    public = config.public_dict()
+    public["config_path"] = str(path)
+    return SandboxConfigResponse(**public)
+
+
 @router.put("/policy", response_model=PolicyResponse)
 def update_policy(body: PolicyPayload):
     global _manager
@@ -312,6 +620,8 @@ def get_system_status():
     mgr = get_manager()
     registry = Registry(mgr.registry.data_dir)
     llm_config = LLMConfig.load()
+    sandbox_runner = get_sandbox_runner(SandboxConfig.load())
+    sandbox_available = sandbox_runner.is_available()
     try:
         import skill_scanner  # noqa: F401
         scanner_available = True
@@ -334,6 +644,8 @@ def get_system_status():
         review_queue=len(registry.list_review_queue()),
         signing_key_configured=bool(os.environ.get("SKILL_MANAGER_SIGNING_KEY", "").strip()),
         scanner_available=scanner_available,
+        sandbox_available=sandbox_available,
+        sandbox_runtime=sandbox_runner.config.runtime,
         hooks_available=(Path(__file__).resolve().parent.parent / "hooks" / "agent_hook.py").exists(),
         llm_enabled=llm_config.enabled,
         llm_provider=llm_config.provider,
@@ -351,11 +663,13 @@ def get_system_status():
 
 @router.post("/skills/submit-zip", response_model=SubmitResponse)
 async def submit_skill_zip(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     author: str | None = Query(None),
     origin: str = Query("unknown"),
     use_behavioral: bool = Query(False),
     use_llm: bool = Query(False),
+    use_sandbox: bool = Query(False),
     mgr: SkillManager = Depends(get_manager),
 ):
     """
@@ -373,14 +687,8 @@ async def submit_skill_zip(
             content = await file.read()
             f.write(content)
 
-        import zipfile
         extract_dir = tmp_dir / "skill"
-        with zipfile.ZipFile(zip_path) as zf:
-            # Security: check for path traversal
-            for name in zf.namelist():
-                if ".." in name or name.startswith("/"):
-                    raise HTTPException(status_code=400, detail=f"Unsafe path in ZIP: {name}")
-            zf.extractall(extract_dir)
+        _extract_zip_with_nested_archives(zip_path, extract_dir)
 
         skill_root = _resolve_skill_root(extract_dir)
 
@@ -389,28 +697,280 @@ async def submit_skill_zip(
         shutil.copytree(skill_root, persistent_dir)
 
         source = SourceInfo(origin=SkillOrigin(origin), author=author)
-
-        entry = mgr.submit(
+        return _submit_directory_for_processing(
+            mgr,
+            background_tasks,
             persistent_dir,
-            source=source,
-            use_behavioral=use_behavioral,
-            use_llm=use_llm,
+            source,
+            use_behavioral,
+            use_llm,
+            use_sandbox,
         )
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
-        msg = {
-            "APPROVED": "Auto-approved. Call /deploy to activate.",
-            "VETTED": "Queued for human review.",
-            "REJECTED": "Rejected by policy.",
-        }.get(entry.status.value, entry.status.value)
 
-        return SubmitResponse(
-            skill_id=entry.skill_id,
-            name=entry.name,
-            status=entry.status.value,
-            risk_level=entry.risk_level.value if entry.risk_level else None,
-            findings_count=entry.vetting.findings_count if entry.vetting else 0,
-            message=msg,
+@router.post("/skills/prepare-upload-zip", response_model=UploadZipPrepareResponse)
+async def prepare_upload_zip(
+    file: UploadFile = File(...),
+    mgr: SkillManager = Depends(get_manager),
+):
+    if file.size and file.size > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="skill-manager-prepare-upload-"))
+    try:
+        zip_path = tmp_dir / "skill.zip"
+        with open(zip_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+
+        extract_dir = tmp_dir / "skill"
+        _extract_zip_with_nested_archives(zip_path, extract_dir)
+
+        session_id = uuid.uuid4().hex
+        session_root = mgr.registry.data_dir / "upload_import_sessions" / session_id
+        session_root.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(extract_dir, session_root)
+        items = [LocalImportCandidate(**item) for item in _collect_import_candidates(session_root)]
+        return UploadZipPrepareResponse(
+            session_id=session_id,
+            filename=file.filename or "skill.zip",
+            root_path=str(session_root),
+            count=len(items),
+            items=items,
         )
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@router.get("/skills/import-candidates", response_model=LocalImportCandidatesResponse)
+def list_import_candidates():
+    root = _import_root()
+    items = [LocalImportCandidate(**item) for item in _collect_import_candidates(root)]
+    return LocalImportCandidatesResponse(root_path=str(root), count=len(items), items=items)
+
+
+@router.post("/skills/submit-local", response_model=BatchSubmitResponse)
+def submit_local_skills(
+    body: LocalImportSubmitRequest,
+    background_tasks: BackgroundTasks,
+    mgr: SkillManager = Depends(get_manager),
+):
+    root = _import_root()
+    if not body.paths:
+        raise HTTPException(status_code=400, detail="No skill paths selected")
+
+    source = SourceInfo(origin=SkillOrigin(body.origin), author=body.author)
+    results: list[SubmitResponse] = []
+    for raw_path in body.paths:
+        skill_dir = Path(raw_path).expanduser().resolve()
+        if not _is_within_root(skill_dir, root):
+            raise HTTPException(status_code=400, detail=f"Path is outside import root: {skill_dir}")
+        if not (skill_dir / "SKILL.md").exists():
+            raise HTTPException(status_code=400, detail=f"SKILL.md not found: {skill_dir}")
+        results.append(_submit_directory_for_processing(
+            mgr,
+            background_tasks,
+            skill_dir,
+            source,
+            body.use_behavioral,
+            body.use_llm,
+            body.use_sandbox,
+        ))
+
+    return BatchSubmitResponse(results=results)
+
+
+@router.post("/skills/submit-url", response_model=SubmitResponse)
+async def submit_skill_url(
+    body: UrlSubmitRequest,
+    background_tasks: BackgroundTasks,
+    mgr: SkillManager = Depends(get_manager),
+):
+    tmp_dir = Path(tempfile.mkdtemp(prefix="skill-manager-download-"))
+    try:
+        download_path, detected_origin = await _download_remote_archive(body.url, tmp_dir)
+
+        extract_dir = tmp_dir / "skill"
+        _extract_zip_with_nested_archives(download_path, extract_dir)
+
+        skill_root = _resolve_skill_root(extract_dir)
+        persistent_dir = mgr.registry.data_dir / "downloaded_skills" / uuid.uuid4().hex
+        persistent_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(skill_root, persistent_dir)
+        origin_value = body.origin
+        if origin_value == "unknown" and detected_origin == "github":
+            origin_value = "github"
+        source = SourceInfo(origin=SkillOrigin(origin_value), author=body.author, url=body.url)
+        return _submit_directory_for_processing(
+            mgr,
+            background_tasks,
+            persistent_dir,
+            source,
+            body.use_behavioral,
+            body.use_llm,
+            body.use_sandbox,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to download skill: {exc}") from exc
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@router.post("/skills/prepare-remote-import", response_model=RemoteImportPrepareResponse)
+async def prepare_remote_import(
+    body: RemoteImportPrepareRequest,
+    mgr: SkillManager = Depends(get_manager),
+):
+    tmp_dir = Path(tempfile.mkdtemp(prefix="skill-manager-prepare-remote-"))
+    try:
+        download_path, detected_origin = await _download_remote_archive(body.url, tmp_dir)
+        extract_dir = tmp_dir / "skill"
+        _extract_zip_with_nested_archives(download_path, extract_dir)
+
+        session_id = uuid.uuid4().hex
+        session_root = mgr.registry.data_dir / "remote_import_sessions" / session_id
+        session_root.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(extract_dir, session_root)
+        items = [LocalImportCandidate(**item) for item in _collect_import_candidates(session_root)]
+        return RemoteImportPrepareResponse(
+            session_id=session_id,
+            source_url=body.url,
+            detected_origin=detected_origin,
+            root_path=str(session_root),
+            count=len(items),
+            items=items,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to download skill: {exc}") from exc
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@router.post("/skills/submit-remote-selected", response_model=BatchSubmitResponse)
+def submit_remote_selected(
+    body: RemoteImportSubmitRequest,
+    background_tasks: BackgroundTasks,
+    mgr: SkillManager = Depends(get_manager),
+):
+    session_root = (mgr.registry.data_dir / "remote_import_sessions" / body.session_id).resolve()
+    if not session_root.exists() or not session_root.is_dir():
+        raise HTTPException(status_code=404, detail="Remote import session not found")
+    if not body.paths:
+        raise HTTPException(status_code=400, detail="No skill paths selected")
+
+    origin_value = body.origin
+    source = SourceInfo(origin=SkillOrigin(origin_value), author=body.author)
+    results: list[SubmitResponse] = []
+    for raw_path in body.paths:
+        skill_dir = Path(raw_path).expanduser().resolve()
+        if not _is_within_root(skill_dir, session_root):
+            raise HTTPException(status_code=400, detail=f"Path is outside remote import session: {skill_dir}")
+        if not (skill_dir / "SKILL.md").exists():
+            raise HTTPException(status_code=400, detail=f"SKILL.md not found: {skill_dir}")
+        persistent_dir = mgr.registry.data_dir / "downloaded_skills" / uuid.uuid4().hex
+        persistent_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(skill_dir, persistent_dir)
+        results.append(_submit_directory_for_processing(
+            mgr,
+            background_tasks,
+            persistent_dir,
+            source,
+            body.use_behavioral,
+            body.use_llm,
+            body.use_sandbox,
+        ))
+    return BatchSubmitResponse(results=results)
+
+
+@router.post("/skills/submit-upload-selected", response_model=BatchSubmitResponse)
+def submit_upload_selected(
+    body: RemoteImportSubmitRequest,
+    background_tasks: BackgroundTasks,
+    mgr: SkillManager = Depends(get_manager),
+):
+    session_root = (mgr.registry.data_dir / "upload_import_sessions" / body.session_id).resolve()
+    if not session_root.exists() or not session_root.is_dir():
+        raise HTTPException(status_code=404, detail="Upload import session not found")
+    if not body.paths:
+        raise HTTPException(status_code=400, detail="No skill paths selected")
+
+    source = SourceInfo(origin=SkillOrigin(body.origin), author=body.author)
+    results: list[SubmitResponse] = []
+    for raw_path in body.paths:
+        skill_dir = Path(raw_path).expanduser().resolve()
+        if not _is_within_root(skill_dir, session_root):
+            raise HTTPException(status_code=400, detail=f"Path is outside upload import session: {skill_dir}")
+        if not (skill_dir / "SKILL.md").exists():
+            raise HTTPException(status_code=400, detail=f"SKILL.md not found: {skill_dir}")
+        persistent_dir = mgr.registry.data_dir / "uploaded_skills" / uuid.uuid4().hex
+        persistent_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(skill_dir, persistent_dir)
+        results.append(_submit_directory_for_processing(
+            mgr,
+            background_tasks,
+            persistent_dir,
+            source,
+            body.use_behavioral,
+            body.use_llm,
+            body.use_sandbox,
+        ))
+    return BatchSubmitResponse(results=results)
+
+
+@router.post("/skills/submit-clawhub", response_model=SubmitResponse)
+async def submit_skill_clawhub(
+    body: ClawHubSubmitRequest,
+    background_tasks: BackgroundTasks,
+    mgr: SkillManager = Depends(get_manager),
+):
+    tmp_dir = Path(tempfile.mkdtemp(prefix="skill-manager-clawhub-"))
+    try:
+        download_path = tmp_dir / "clawhub-skill.zip"
+        normalized_url = _normalize_clawhub_origin_url(body.url)
+        headers = {}
+        if body.token:
+            headers["Authorization"] = f"Bearer {body.token}"
+        timeout = httpx.Timeout(60.0)
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            response = await client.get(normalized_url, headers=headers)
+            response.raise_for_status()
+            content_type = response.headers.get("content-type", "")
+            final_url = str(response.url)
+
+            if "zip" in content_type.lower() or final_url.lower().endswith(".zip"):
+                download_path.write_bytes(response.content)
+            else:
+                zip_url = _extract_zip_link_from_html(final_url, response.text)
+                if not zip_url:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="ClawHub 页面中未找到可下载的 ZIP 链接；请直接填写 ZIP 下载地址或提供可访问的详情页。",
+                    )
+                zip_response = await client.get(zip_url, headers=headers)
+                zip_response.raise_for_status()
+                download_path.write_bytes(zip_response.content)
+
+        extract_dir = tmp_dir / "skill"
+        _extract_zip_with_nested_archives(download_path, extract_dir)
+
+        skill_root = _resolve_skill_root(extract_dir)
+        persistent_dir = mgr.registry.data_dir / "clawhub_skills" / uuid.uuid4().hex
+        persistent_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(skill_root, persistent_dir)
+        source = SourceInfo(origin=SkillOrigin.CLAWHUB, author=body.author, url=body.url)
+        return _submit_directory_for_processing(
+            mgr,
+            background_tasks,
+            persistent_dir,
+            source,
+            body.use_behavioral,
+            body.use_llm,
+            body.use_sandbox,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to download from ClawHub: {exc}") from exc
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -424,6 +984,8 @@ def list_skills(
     status: str | None = Query(None),
     loadable_only: bool = Query(False),
     risk_level: str | None = Query(None),
+    sandbox_triggered: bool | None = Query(None),
+    sandbox_required_by_policy: bool | None = Query(None),
     q: str | None = Query(None),
     sort_by: str = Query("submitted_at"),
     sort_order: str = Query("desc"),
@@ -439,6 +1001,18 @@ def list_skills(
 
     if risk_level:
         entries = [e for e in entries if e.risk_level and e.risk_level.value == risk_level]
+
+    if sandbox_triggered is not None:
+        entries = [
+            e for e in entries
+            if bool(e.vetting.sandbox_triggered if e.vetting else False) == sandbox_triggered
+        ]
+
+    if sandbox_required_by_policy is not None:
+        entries = [
+            e for e in entries
+            if bool(e.vetting.sandbox_required_by_policy if e.vetting else False) == sandbox_required_by_policy
+        ]
 
     if q:
         needle = q.lower()

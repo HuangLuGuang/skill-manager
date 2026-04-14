@@ -91,10 +91,12 @@ def main(ctx: click.Context, policy_path: str | None):
               help="Enable behavioral analysis (slower, more thorough)")
 @click.option("--llm", is_flag=True, default=False,
               help="Enable LLM semantic analysis (requires API key)")
+@click.option("--sandbox", is_flag=True, default=False,
+              help="Enable Docker sandbox execution probe (requires Docker)")
 @click.option("--json", "output_json", is_flag=True, default=False,
               help="Output result as JSON")
 @click.pass_context
-def submit(ctx, skill_path, author, origin, behavioral, llm, output_json):
+def submit(ctx, skill_path, author, origin, behavioral, llm, sandbox, output_json):
     """Vet and submit a skill to the registry."""
     from skill_manager.core.models import SourceInfo, SkillOrigin
 
@@ -112,6 +114,7 @@ def submit(ctx, skill_path, author, origin, behavioral, llm, output_json):
                 source=source,
                 use_behavioral=behavioral,
                 use_llm=llm,
+                use_sandbox=sandbox,
             )
         except Exception as e:
             err_console.print(f"[red]Error:[/red] {e}")

@@ -20,6 +20,18 @@
               <a-descriptions-item label="来源">{{ detail?.source?.origin || '-' }}</a-descriptions-item>
               <a-descriptions-item label="允许工具">{{ detail?.allowed_tools?.join(', ') || 'none' }}</a-descriptions-item>
               <a-descriptions-item label="声明工具有效">{{ detail?.declared_tools_valid ? '是' : '否' }}</a-descriptions-item>
+              <a-descriptions-item label="Sandbox 已触发">
+                {{ detail?.vetting?.sandbox_triggered ? '是' : '否' }}
+              </a-descriptions-item>
+              <a-descriptions-item label="Sandbox 由策略强制">
+                {{ detail?.vetting?.sandbox_required_by_policy ? '是' : '否' }}
+              </a-descriptions-item>
+              <a-descriptions-item label="Sandbox 后端">
+                {{ detail?.vetting?.sandbox_runtime || '-' }}
+              </a-descriptions-item>
+              <a-descriptions-item label="Sandbox 镜像">
+                {{ sandboxDisplayImage }}
+              </a-descriptions-item>
             </a-descriptions>
           </a-skeleton>
         </a-card>
@@ -99,6 +111,14 @@
                     <a-tag :color="severityColor(llmAnalysis.max_severity)">{{ llmAnalysis.max_severity || '-' }}</a-tag>
                   </a-descriptions-item>
                 </a-descriptions>
+                <a-alert
+                  v-if="llmAnalysis.skill_function_summary"
+                  style="margin-top: 12px"
+                  type="success"
+                  show-icon
+                  message="技能主要功能"
+                  :description="llmAnalysis.skill_function_summary"
+                />
                 <a-alert
                   v-if="llmAnalysis.summary"
                   style="margin-top: 12px"
@@ -209,6 +229,125 @@
               <a-empty
                 v-else
                 description="当前没有可展示的行为分析结果。若本次提交启用了行为分析，但这里仍为空，请刷新报告。"
+              />
+            </a-card>
+            <a-divider />
+            <a-card size="small" title="Sandbox 执行结果">
+              <template v-if="sandboxAnalysis">
+                <a-alert
+                  style="margin-bottom: 12px"
+                  type="info"
+                  show-icon
+                  message="当前实际执行环境"
+                  :description="sandboxAnalysis.runtime === 'docker' ? `后端：docker，镜像：${sandboxAnalysis.image || 'skill-manager-sandbox-runtime:latest'}` : `后端：${sandboxAnalysis.runtime || '-'}，执行服务：${sandboxAnalysis.image || '-'}`"
+                />
+                <a-alert
+                  :type="sandboxRiskAlertType"
+                  show-icon
+                  :message="`风险等级：${sandboxAnalysis.risk_level || 'LOW'} / 最高严重级别：${sandboxAnalysis.max_severity || 'SAFE'}`"
+                  :description="sandboxAnalysis.summary || 'Sandbox 未发现明确风险信号。'"
+                />
+                <a-descriptions :column="2" size="small" bordered>
+                  <a-descriptions-item label="风险等级">
+                    <a-tag :color="riskColor(sandboxAnalysis.risk_level)">{{ sandboxAnalysis.risk_level || '-' }}</a-tag>
+                  </a-descriptions-item>
+                  <a-descriptions-item label="最高严重级别">
+                    <a-tag :color="severityColor(sandboxAnalysis.max_severity)">{{ sandboxAnalysis.max_severity || '-' }}</a-tag>
+                  </a-descriptions-item>
+                  <a-descriptions-item label="是否执行">
+                    {{ sandboxAnalysis.executed ? '是' : '否' }}
+                  </a-descriptions-item>
+                  <a-descriptions-item label="运行时">
+                    {{ sandboxAnalysis.runtime || '-' }}
+                  </a-descriptions-item>
+                  <a-descriptions-item label="入口脚本">
+                    <a-button
+                      v-if="sandboxAnalysis.entrypoint"
+                      type="link"
+                      style="padding: 0"
+                      @click="openFileViewer(sandboxAnalysis.entrypoint)"
+                    >
+                      {{ sandboxAnalysis.entrypoint }}
+                    </a-button>
+                    <span v-else>-</span>
+                  </a-descriptions-item>
+                  <a-descriptions-item label="镜像">
+                    {{ sandboxAnalysis.image || '-' }}
+                  </a-descriptions-item>
+                  <a-descriptions-item label="Probe 策略">
+                    {{ sandboxAnalysis.probe_strategy || '-' }}
+                  </a-descriptions-item>
+                  <a-descriptions-item label="Probe 参数">
+                    {{ Array.isArray(sandboxAnalysis.probe_args) && sandboxAnalysis.probe_args.length ? sandboxAnalysis.probe_args.join(' ') : '-' }}
+                  </a-descriptions-item>
+                  <a-descriptions-item label="退出码">
+                    {{ sandboxAnalysis.exit_code ?? '-' }}
+                  </a-descriptions-item>
+                  <a-descriptions-item label="是否超时">
+                    {{ sandboxAnalysis.timed_out ? '是' : '否' }}
+                  </a-descriptions-item>
+                  <a-descriptions-item label="耗时">
+                    {{ sandboxAnalysis.duration_ms ?? '-' }} ms
+                  </a-descriptions-item>
+                  <a-descriptions-item label="网络尝试">
+                    {{ sandboxAnalysis.network_attempts ?? 0 }}
+                  </a-descriptions-item>
+                </a-descriptions>
+                <a-alert
+                  v-if="sandboxAnalysis.recommendation"
+                  style="margin-top: 12px"
+                  type="warning"
+                  show-icon
+                  message="建议动作"
+                  :description="sandboxAnalysis.recommendation"
+                />
+                <a-alert
+                  v-if="sandboxAnalysis.reason"
+                  style="margin-top: 12px"
+                  type="info"
+                  show-icon
+                  message="Sandbox 说明"
+                  :description="sandboxAnalysis.reason"
+                />
+                <a-list
+                  v-if="sandboxSignals.length"
+                  style="margin-top: 12px"
+                  header="Sandbox 风险信号"
+                  :data-source="sandboxSignals"
+                  bordered
+                  size="small"
+                >
+                  <template #renderItem="{ item }">
+                    <a-list-item>
+                      <div style="width: 100%">
+                        <a-space wrap>
+                          <a-tag :color="severityColor(item.severity)">{{ item.severity }}</a-tag>
+                          <a-tag color="default">{{ item.category }}</a-tag>
+                          <strong>{{ item.message }}</strong>
+                        </a-space>
+                        <div v-if="item.evidence" style="margin-top: 6px; color: #8c8c8c">
+                          {{ item.evidence }}
+                        </div>
+                      </div>
+                    </a-list-item>
+                  </template>
+                </a-list>
+                <a-collapse style="margin-top: 12px">
+                  <a-collapse-panel key="sandbox-output" header="查看 Sandbox 输出">
+                    <a-tabs size="small">
+                      <a-tab-pane key="stdout" tab="stdout">
+                        <a-textarea :value="sandboxAnalysis.stdout || '无输出'" :rows="8" readonly />
+                      </a-tab-pane>
+                      <a-tab-pane key="stderr" tab="stderr">
+                        <a-textarea :value="sandboxAnalysis.stderr || '无输出'" :rows="8" readonly />
+                      </a-tab-pane>
+                    </a-tabs>
+                  </a-collapse-panel>
+                </a-collapse>
+              </template>
+              <a-empty
+                v-else
+                description="当前没有可展示的 Sandbox 执行结果。若本次提交启用了 Sandbox，请刷新报告。"
               />
             </a-card>
             <a-divider />
@@ -629,6 +768,19 @@ const llmFindings = computed(() => {
 const behavioralAnalysis = computed(() => scanReport.value?.behavioral_analysis || null)
 const behavioralFindings = computed(() => behavioralAnalysis.value?.findings || [])
 const behavioralScannedFiles = computed(() => behavioralAnalysis.value?.scanned_files || [])
+const sandboxAnalysis = computed(() => scanReport.value?.sandbox_analysis || null)
+const sandboxSignals = computed(() => sandboxAnalysis.value?.signals || sandboxAnalysis.value?.suspicious_events || [])
+const sandboxRiskAlertType = computed(() => {
+  const risk = (sandboxAnalysis.value?.risk_level || '').toUpperCase()
+  if (risk === 'EXTREME' || risk === 'HIGH') return 'error'
+  if (risk === 'MEDIUM') return 'warning'
+  return 'success'
+})
+const sandboxDisplayImage = computed(() => {
+  if (sandboxAnalysis.value?.image) return sandboxAnalysis.value.image
+  if (detail.value?.vetting?.sandbox_runtime === 'docker') return 'skill-manager-sandbox-runtime:latest'
+  return '-'
+})
 
 const parsedSkillContent = computed(() => {
   const content = skillContent.value?.content || ''
@@ -656,6 +808,7 @@ const skillContentHtml = computed(() => {
 
 const statusColor = (value) =>
   ({
+    PENDING: 'gold',
     VETTED: 'orange',
     APPROVED: 'green',
     DEPLOYED: 'blue',

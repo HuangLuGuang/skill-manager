@@ -1,0 +1,43 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      python3 \
+      python3-pip \
+      python3-venv \
+      nodejs \
+      npm \
+      nsjail \
+      ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install uv && \
+    uv pip install --system \
+      fastapi \
+      uvicorn \
+      "pydantic>=2.6.0" \
+      requests \
+      httpx \
+      PyYAML \
+      python-frontmatter \
+      rich \
+      click
+
+WORKDIR /app
+
+COPY services/isolated-sandbox-service/app.py ./
+
+ENV SANDBOX_SERVICE_BACKEND=nsjail \
+    SANDBOX_SERVICE_WORK_ROOT=/tmp/isolated-sandbox-service \
+    SANDBOX_SERVICE_PYTHON_BIN=python3 \
+    SANDBOX_SERVICE_NODE_BIN=node \
+    SANDBOX_SERVICE_NSJAIL_BIN=nsjail
+
+EXPOSE 8194
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8194"]

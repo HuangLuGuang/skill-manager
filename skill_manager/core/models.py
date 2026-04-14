@@ -81,6 +81,9 @@ class VettingResult(BaseModel):
     medium_count: int = 0
     low_count: int = 0
     analyzers_used: list[str] = Field(default_factory=list)
+    sandbox_triggered: bool = False
+    sandbox_required_by_policy: bool = False
+    sandbox_runtime: str | None = None
     scan_duration_seconds: float = 0.0
     vetted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     # Full scan report (serialized ScanResult.to_dict())
@@ -135,6 +138,9 @@ class RegistryEntry(BaseModel):
             "name": self.name,
             "status": self.status.value,
             "risk_level": self.risk_level.value if self.risk_level else None,
+            "sandbox_triggered": self.vetting.sandbox_triggered if self.vetting else False,
+            "sandbox_required_by_policy": self.vetting.sandbox_required_by_policy if self.vetting else False,
+            "sandbox_runtime": self.vetting.sandbox_runtime if self.vetting else None,
             "approved_by": self.approved_by,
             "submitted_at": self.submitted_at.isoformat(),
             "approved_at": self.approved_at.isoformat() if self.approved_at else None,
