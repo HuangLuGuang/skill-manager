@@ -16,7 +16,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from skill_manager.api.router import (
+    RuntimeCheckResponse,
     SubmitResponse,
+    ToolCheckResponse,
+    VerifySkillSignatureRequest,
+    VerifySkillSignatureResponse,
     _extract_zip_with_nested_archives,
     _resolve_skill_root,
     _submit_directory_for_processing,
@@ -28,6 +32,7 @@ from skill_manager.core.scanner_tokens import DEFAULT_SCOPES, ScannerToken, Scan
 
 router = APIRouter(prefix="/api/v1", tags=["skill-scanner"])
 admin_router = APIRouter(prefix="/api/v1", tags=["skill-scanner-admin"])
+runtime_router = APIRouter(prefix="/api/v1/access", tags=["access-runtime"])
 
 
 class ScannerTokenCreateRequest(BaseModel):
@@ -114,7 +119,7 @@ def get_token_store(mgr: SkillManager = Depends(get_manager)) -> ScannerTokenSto
 
 def _extract_bearer(authorization: str | None) -> str:
     if not authorization:
-        raise HTTPException(status_code=401, detail="missing scanner token")
+        raise HTTPException(status_code=401, detail="missing access token")
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token.strip():
         raise HTTPException(status_code=401, detail="invalid authorization header")
@@ -150,6 +155,30 @@ def require_scanner_read_token(
     return _validate_scanner_token("scanner:read-own-results", request, authorization, store)
 
 
+def require_runtime_verify_token(
+    request: Request,
+    authorization: str | None = Header(None),
+    store: ScannerTokenStore = Depends(get_token_store),
+) -> ScannerToken:
+    return _validate_scanner_token("runtime:verify-signature", request, authorization, store)
+
+
+def require_runtime_can_load_token(
+    request: Request,
+    authorization: str | None = Header(None),
+    store: ScannerTokenStore = Depends(get_token_store),
+) -> ScannerToken:
+    return _validate_scanner_token("runtime:can-load", request, authorization, store)
+
+
+def require_runtime_check_tool_token(
+    request: Request,
+    authorization: str | None = Header(None),
+    store: ScannerTokenStore = Depends(get_token_store),
+) -> ScannerToken:
+    return _validate_scanner_token("runtime:check-tool", request, authorization, store)
+
+
 @admin_router.get("/scanner/tokens", response_model=ScannerTokenListResponse)
 def list_scanner_tokens(store: ScannerTokenStore = Depends(get_token_store)):
     return ScannerTokenListResponse(items=[token.public_dict() for token in store.list()])
@@ -159,15 +188,18 @@ def list_scanner_tokens(store: ScannerTokenStore = Depends(get_token_store)):
 def create_scanner_token(body: ScannerTokenCreateRequest, store: ScannerTokenStore = Depends(get_token_store)):
     if not body.name.strip():
         raise HTTPException(status_code=400, detail="Token name is required")
-    record, plain = store.create(
-        name=body.name,
-        scopes=body.scopes,
-        expires_at=body.expires_at,
-        allowed_ips=body.allowed_ips,
-        max_upload_mb=body.max_upload_mb,
-        max_concurrent_jobs=body.max_concurrent_jobs,
-        created_by=body.created_by,
-    )
+    try:
+        record, plain = store.create(
+            name=body.name,
+            scopes=body.scopes,
+            expires_at=body.expires_at,
+            allowed_ips=body.allowed_ips,
+            max_upload_mb=body.max_upload_mb,
+            max_concurrent_jobs=body.max_concurrent_jobs,
+            created_by=body.created_by,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ScannerTokenCreateResponse(token=plain, record=record.public_dict())
 
 
@@ -178,6 +210,63 @@ def revoke_scanner_token(token_id: str, store: ScannerTokenStore = Depends(get_t
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Scanner token not found") from exc
     return token.public_dict()
+
+
+@runtime_router.get("/runtime/can-load/{skill_name}", response_model=RuntimeCheckResponse)
+def token_runtime_can_load(
+    skill_name: str,
+    skill_path: str | None = None,
+    agent_id: str | None = None,
+    _token: ScannerToken = Depends(require_runtime_can_load_token),
+    mgr: SkillManager = Depends(get_manager),
+):
+    if skill_path:
+        raise HTTPException(
+            status_code=400,
+            detail="access runtime can-load does not accept skill_path; use verify-skill-signature first",
+        )
+    allowed, entry, reason = mgr.runtime.can_load(skill_name, agent_id=agent_id)
+    return RuntimeCheckResponse(
+        allowed=allowed,
+        reason=reason,
+        status=entry.status.value if entry else None,
+        risk_level=entry.risk_level.value if entry and entry.risk_level else None,
+    )
+
+
+@runtime_router.post("/runtime/verify-skill-signature", response_model=VerifySkillSignatureResponse)
+def token_runtime_verify_skill_signature(
+    body: VerifySkillSignatureRequest,
+    _token: ScannerToken = Depends(require_runtime_verify_token),
+    mgr: SkillManager = Depends(get_manager),
+):
+    allowed, entry, reason = mgr.runtime.verify_local_signature(
+        body.skill_name,
+        body.local_signature,
+        skill_id=body.skill_id,
+        agent_id=body.agent_id,
+    )
+    return VerifySkillSignatureResponse(
+        allowed=allowed,
+        reason=reason,
+        skill_id=entry.skill_id if entry else None,
+        skill_name=entry.name if entry else body.skill_name,
+        status=entry.status.value if entry else None,
+        risk_level=entry.risk_level.value if entry and entry.risk_level else None,
+        signature_match=allowed,
+    )
+
+
+@runtime_router.get("/runtime/check-tool", response_model=ToolCheckResponse)
+def token_runtime_check_tool(
+    skill_name: str,
+    tool_name: str,
+    agent_id: str | None = None,
+    _token: ScannerToken = Depends(require_runtime_check_tool_token),
+    mgr: SkillManager = Depends(get_manager),
+):
+    allowed = mgr.runtime.check_tool(skill_name, tool_name, agent_id=agent_id)
+    return ToolCheckResponse(allowed=allowed, skill_name=skill_name, tool_name=tool_name)
 
 
 @admin_router.get("/scanner/downloads", response_model=ScannerDownloadInfo)

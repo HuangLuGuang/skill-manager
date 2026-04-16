@@ -16,7 +16,10 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-DEFAULT_SCOPES = ["scanner:submit", "scanner:read-own-results", "scanner:read-own-sessions"]
+SCANNER_SCOPES = ["scanner:submit", "scanner:read-own-results", "scanner:read-own-sessions"]
+RUNTIME_SCOPES = ["runtime:verify-signature", "runtime:can-load", "runtime:check-tool"]
+DEFAULT_SCOPES = list(SCANNER_SCOPES)
+ALLOWED_SCOPES = set(SCANNER_SCOPES + RUNTIME_SCOPES)
 
 
 class ScannerToken(BaseModel):
@@ -64,7 +67,7 @@ class ScannerTokenStore:
             name=name.strip(),
             token_prefix=plain[:18],
             token_hash=self._hash(plain),
-            scopes=scopes or list(DEFAULT_SCOPES),
+            scopes=_normalize_scopes(scopes or list(DEFAULT_SCOPES)),
             expires_at=expires_at,
             allowed_ips=allowed_ips or [],
             max_upload_mb=max_upload_mb,
@@ -170,3 +173,16 @@ def _ip_allowed(client_ip: str | None, allowed: list[str]) -> bool:
         except ValueError:
             continue
     return False
+
+
+def _normalize_scopes(scopes: list[str]) -> list[str]:
+    result: list[str] = []
+    for scope in scopes:
+        value = str(scope).strip()
+        if not value:
+            continue
+        if value not in ALLOWED_SCOPES:
+            raise ValueError(f"unsupported token scope: {value}")
+        if value not in result:
+            result.append(value)
+    return result

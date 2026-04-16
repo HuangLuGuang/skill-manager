@@ -47,7 +47,7 @@ BUILD_WINDOWS_CLI=1 BUILD_WINDOWS_GUI=1 ./scripts/package.sh v0.1.0-windows</pre
       </a-col>
 
       <a-col :xs="24" :xl="15">
-        <a-card title="Scanner Token">
+        <a-card title="接入 Token">
           <template #extra>
             <a-space>
               <a-button @click="fetchTokens" :loading="loading">刷新</a-button>
@@ -59,7 +59,7 @@ BUILD_WINDOWS_CLI=1 BUILD_WINDOWS_GUI=1 ./scripts/package.sh v0.1.0-windows</pre
             type="warning"
             show-icon
             message="Token 只展示一次"
-            description="服务端只保存 hash。创建后请立即复制给客户侧 scanner 使用；泄露后只能吊销并重建。"
+            description="服务端只保存 hash。可按用途选择 scanner 或 runtime 权限；创建后请立即复制，泄露后只能吊销并重建。"
             style="margin-bottom: 16px"
           />
 
@@ -92,7 +92,7 @@ BUILD_WINDOWS_CLI=1 BUILD_WINDOWS_GUI=1 ./scripts/package.sh v0.1.0-windows</pre
               <template v-else-if="column.key === 'action'">
                 <a-popconfirm
                   v-if="record.status === 'active'"
-                  title="确认吊销这个 Scanner Token？"
+                  title="确认吊销这个接入 Token？"
                   ok-text="吊销"
                   cancel-text="取消"
                   @confirm="handleRevoke(record)"
@@ -137,7 +137,7 @@ BUILD_WINDOWS_CLI=1 BUILD_WINDOWS_GUI=1 ./scripts/package.sh v0.1.0-windows</pre
       </a-tabs>
     </a-card>
 
-    <a-modal v-model:open="createVisible" title="创建 Scanner Token" width="760px" @ok="handleCreate" :confirm-loading="creating">
+    <a-modal v-model:open="createVisible" title="创建接入 Token" width="760px" @ok="handleCreate" :confirm-loading="creating">
       <a-form layout="vertical" :model="createForm">
         <a-form-item label="名称" required>
           <a-input v-model:value="createForm.name" placeholder="例如：客户A-生产环境扫描器" />
@@ -162,17 +162,29 @@ BUILD_WINDOWS_CLI=1 BUILD_WINDOWS_GUI=1 ./scripts/package.sh v0.1.0-windows</pre
           <div class="hint">可填具体 IP 或 CIDR。配置后，只有这些来源能使用 token。</div>
         </a-form-item>
         <a-form-item label="权限范围">
-          <a-select v-model:value="createForm.scopes" mode="multiple">
-            <a-select-option value="scanner:submit">scanner:submit</a-select-option>
-            <a-select-option value="scanner:read-own-results">scanner:read-own-results</a-select-option>
-            <a-select-option value="scanner:read-own-sessions">scanner:read-own-sessions</a-select-option>
+          <a-space style="margin-bottom: 8px" wrap>
+            <a-button size="small" @click="setScannerScopes">扫描器默认</a-button>
+            <a-button size="small" @click="setRuntimeScopes">Runtime 默认</a-button>
+            <a-button size="small" @click="setAllScopes">全部权限</a-button>
+          </a-space>
+          <a-select v-model:value="createForm.scopes" mode="multiple" style="width: 100%">
+            <a-select-opt-group label="Scanner 扫描器权限">
+              <a-select-option value="scanner:submit">scanner:submit</a-select-option>
+              <a-select-option value="scanner:read-own-results">scanner:read-own-results</a-select-option>
+              <a-select-option value="scanner:read-own-sessions">scanner:read-own-sessions</a-select-option>
+            </a-select-opt-group>
+            <a-select-opt-group label="Runtime Agent 加载校验权限">
+              <a-select-option value="runtime:verify-signature">runtime:verify-signature</a-select-option>
+              <a-select-option value="runtime:can-load">runtime:can-load</a-select-option>
+              <a-select-option value="runtime:check-tool">runtime:check-tool</a-select-option>
+            </a-select-opt-group>
           </a-select>
-          <div class="hint">不要给 scanner token 授权审批、部署、策略修改或用户管理权限。</div>
+          <div class="hint">Scanner 用于提交扫描；Runtime 用于外部 Agent 加载前验签、can-load 和工具调用校验。不要授权审批、部署、策略修改或用户管理权限。</div>
         </a-form-item>
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="tokenVisible" title="Scanner Token 已创建" width="820px" :footer="null">
+    <a-modal v-model:open="tokenVisible" title="接入 Token 已创建" width="820px" :footer="null">
       <a-alert
         type="warning"
         show-icon
@@ -187,6 +199,8 @@ BUILD_WINDOWS_CLI=1 BUILD_WINDOWS_GUI=1 ./scripts/package.sh v0.1.0-windows</pre
       <a-divider />
       <a-typography-title :level="5">客户侧运行命令</a-typography-title>
       <pre class="code-block">{{ createdCommand }}</pre>
+      <a-typography-title :level="5" style="margin-top: 12px">Agent Runtime 使用</a-typography-title>
+      <pre class="code-block">{{ createdRuntimeCommand }}</pre>
       <a-space style="margin-top: 12px">
         <a-button type="primary" @click="copyText(createdCommand)">复制命令</a-button>
         <a-button @click="tokenVisible = false">关闭</a-button>
@@ -225,9 +239,11 @@ const platformOptions = [
   { value: 'linux-arm64', label: 'Linux ARM64（linux-arm64）' },
   { value: 'windows-amd64.exe', label: 'Windows x86_64（windows-amd64.exe）' },
 ]
+const scannerScopes = ['scanner:submit', 'scanner:read-own-results', 'scanner:read-own-sessions']
+const runtimeScopes = ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool']
 const createForm = reactive({
   name: '',
-  scopes: ['scanner:submit', 'scanner:read-own-results', 'scanner:read-own-sessions'],
+  scopes: [...scannerScopes],
   allowed_ips: [],
   max_upload_mb: 50,
   max_concurrent_jobs: 2,
@@ -253,7 +269,7 @@ const parameterColumns = [
 const parameterRows = [
   { name: 'scan <path>', required: '是', usage: '客户本地 skills 根目录。scanner 会递归查找包含 SKILL.md 的目录。', example: './skill-scanner scan /opt/openclaw/skills' },
   { name: '--server', required: '上传时必填', usage: 'Skill Manager 管理台地址。设置后会启用上传。', example: '--server https://skill-manager.example.com' },
-  { name: '--token', required: '上传时必填', usage: '本页创建的 Scanner Token。也可以用 SKILL_MANAGER_TOKEN 环境变量。', example: '--token smsc_live_xxx' },
+  { name: '--token', required: '上传时必填', usage: '本页创建的接入 Token，需要包含 scanner:submit。也可以用 SKILL_MANAGER_TOKEN 环境变量。', example: '--token smsc_live_xxx' },
   { name: '--output', required: '否', usage: '本地 JSON 报告输出路径。报告里有 skill_id、fingerprint、本地预检结果和上传状态。', example: '--output report.json' },
   { name: '--host-id', required: '否', usage: '客户主机或环境标识，便于后台区分来源。也可以用 SKILL_SCANNER_HOST_ID。', example: '--host-id customer-a-prod-01' },
   { name: '--behavioral', required: '否', usage: '请求服务端启用规则分析，扫描 scripts、references 等文件中的可疑行为。', example: '--behavioral' },
@@ -266,6 +282,13 @@ const parameterRows = [
 ]
 
 const serverOrigin = computed(() => window.location.origin)
+const runtimeApiOrigin = computed(() => {
+  const { protocol, hostname, port } = window.location
+  if ((hostname === 'localhost' || hostname === '127.0.0.1') && (port === '5173' || port === '5174')) {
+    return `${protocol}//${hostname}:8000`
+  }
+  return serverOrigin.value
+})
 const basicCommand = computed(() => `./skill-scanner scan /path/to/customer/skills \\
   --server ${serverOrigin.value} \\
   --token smsc_live_xxx \\
@@ -302,6 +325,13 @@ const createdCommand = computed(() => `./skill-scanner scan /path/to/customer/sk
   --sandbox \\
   --output report.json`)
 
+const createdRuntimeCommand = computed(() => `# 本地开发时这里要填后端 API 地址，不要填前端 Vite 端口 5173/5174。
+export SKILL_MANAGER_BASE_URL="${runtimeApiOrigin.value}"
+export SKILL_MANAGER_API_TOKEN="${createdToken.value || 'smsc_live_xxx'}"
+export SKILL_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
+
+uv run python git_workflow_demo.py --all`)
+
 const formatTime = (value) => {
   if (!value) return '-'
   return new Date(value).toLocaleString()
@@ -313,7 +343,7 @@ const fetchTokens = async () => {
     const data = await listScannerTokens()
     tokens.value = data.items || []
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取 Scanner Token 失败')
+    message.error(error.response?.data?.detail || '获取接入 Token 失败')
   } finally {
     loading.value = false
   }
@@ -359,11 +389,23 @@ const handleDownload = async () => {
 
 const openCreateModal = () => {
   createForm.name = ''
-  createForm.scopes = ['scanner:submit', 'scanner:read-own-results', 'scanner:read-own-sessions']
+  createForm.scopes = [...scannerScopes]
   createForm.allowed_ips = []
   createForm.max_upload_mb = 50
   createForm.max_concurrent_jobs = 2
   createVisible.value = true
+}
+
+const setScannerScopes = () => {
+  createForm.scopes = [...scannerScopes]
+}
+
+const setRuntimeScopes = () => {
+  createForm.scopes = [...runtimeScopes]
+}
+
+const setAllScopes = () => {
+  createForm.scopes = [...scannerScopes, ...runtimeScopes]
 }
 
 const handleCreate = async () => {
@@ -386,7 +428,7 @@ const handleCreate = async () => {
     tokenVisible.value = true
     await fetchTokens()
   } catch (error) {
-    message.error(error.response?.data?.detail || '创建 Scanner Token 失败')
+    message.error(error.response?.data?.detail || '创建接入 Token 失败')
   } finally {
     creating.value = false
   }
@@ -396,10 +438,10 @@ const handleRevoke = async (record) => {
   revokingId.value = record.id
   try {
     await revokeScannerToken(record.id)
-    message.success('Scanner Token 已吊销')
+    message.success('接入 Token 已吊销')
     await fetchTokens()
   } catch (error) {
-    message.error(error.response?.data?.detail || '吊销 Scanner Token 失败')
+    message.error(error.response?.data?.detail || '吊销接入 Token 失败')
   } finally {
     revokingId.value = ''
   }
