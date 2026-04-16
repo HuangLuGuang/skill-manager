@@ -32,6 +32,14 @@
               <a-descriptions-item label="Sandbox 镜像">
                 {{ sandboxDisplayImage }}
               </a-descriptions-item>
+              <a-descriptions-item label="扫描复用">
+                <a-space wrap>
+                  <a-tag :color="detail?.scan_reused ? 'green' : 'default'">
+                    {{ detail?.scan_reused ? '已复用' : '未复用' }}
+                  </a-tag>
+                  <span v-if="detail?.reused_from_skill_id">来源：{{ detail.reused_from_skill_id }}</span>
+                </a-space>
+              </a-descriptions-item>
             </a-descriptions>
           </a-skeleton>
         </a-card>
@@ -80,8 +88,10 @@
             <a-descriptions :column="2" size="small" bordered>
               <a-descriptions-item label="发现项">{{ detail?.vetting?.findings_count ?? 0 }}</a-descriptions-item>
               <a-descriptions-item label="最高严重级别">{{ detail?.vetting?.max_severity || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="分析器">{{ detail?.vetting?.analyzers_used?.join(', ') || '-' }}</a-descriptions-item>
+              <a-descriptions-item label="规则分析器">{{ detail?.vetting?.analyzers_used?.join(', ') || '-' }}</a-descriptions-item>
               <a-descriptions-item label="耗时">{{ detail?.vetting?.scan_duration_seconds ?? 0 }}s</a-descriptions-item>
+              <a-descriptions-item label="扫描缓存">{{ detail?.scan_reused ? '复用历史结果' : '本次执行扫描' }}</a-descriptions-item>
+              <a-descriptions-item label="缓存 Key">{{ detail?.scan_cache_key || '-' }}</a-descriptions-item>
               <a-descriptions-item label="Critical">{{ detail?.vetting?.critical_count ?? 0 }}</a-descriptions-item>
               <a-descriptions-item label="High">{{ detail?.vetting?.high_count ?? 0 }}</a-descriptions-item>
               <a-descriptions-item label="Medium">{{ detail?.vetting?.medium_count ?? 0 }}</a-descriptions-item>
@@ -162,7 +172,7 @@
               </a-card>
               <a-divider />
             </template>
-            <a-card size="small" title="行为分析结果">
+            <a-card size="small" title="规则分析结果">
               <template v-if="behavioralAnalysis">
                 <a-descriptions :column="2" size="small" bordered>
                   <a-descriptions-item label="扫描文件数">
@@ -176,13 +186,13 @@
                       {{ behavioralAnalysis.max_severity || '-' }}
                     </a-tag>
                   </a-descriptions-item>
-                  <a-descriptions-item label="分析器">
+                  <a-descriptions-item label="规则分析器">
                     <a-tag color="blue">behavioral:local</a-tag>
                   </a-descriptions-item>
                 </a-descriptions>
                 <a-list
                   style="margin-top: 12px"
-                  header="行为命中项"
+                  header="规则命中项"
                   :data-source="behavioralFindings"
                   bordered
                   size="small"
@@ -223,12 +233,12 @@
                 <a-empty
                   v-else
                   style="margin-top: 12px"
-                  description="本次行为分析没有记录到已扫描文件列表。"
+                  description="本次规则分析没有记录到已扫描文件列表。"
                 />
               </template>
               <a-empty
                 v-else
-                description="当前没有可展示的行为分析结果。若本次提交启用了行为分析，但这里仍为空，请刷新报告。"
+                description="当前没有可展示的规则分析结果。若本次提交启用了规则分析，但这里仍为空，请刷新报告。"
               />
             </a-card>
             <a-divider />

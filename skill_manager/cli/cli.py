@@ -88,7 +88,7 @@ def main(ctx: click.Context, policy_path: str | None):
               type=click.Choice(["local", "github", "clawhub", "internal"]),
               help="Where the skill came from")
 @click.option("--behavioral", is_flag=True, default=False,
-              help="Enable behavioral analysis (slower, more thorough)")
+              help="Enable rule-based analysis (slower, more thorough)")
 @click.option("--llm", is_flag=True, default=False,
               help="Enable LLM semantic analysis (requires API key)")
 @click.option("--sandbox", is_flag=True, default=False,

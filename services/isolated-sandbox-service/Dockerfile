@@ -13,6 +13,8 @@ RUN uv pip install --system \
     fastapi \
     uvicorn \
     "pydantic>=2.6.0" \
+    numpy \
+    pandas \
     requests \
     httpx \
     PyYAML \

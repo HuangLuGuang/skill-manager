@@ -48,6 +48,7 @@ class LLMAnalysisResult(BaseModel):
 class LLMSandboxProbeCase(BaseModel):
     name: str
     description: str = ""
+    entrypoint: str | None = None
     args: list[str] = Field(default_factory=list)
 
 
@@ -303,18 +304,23 @@ def generate_sandbox_probes_with_llm(
 
     snapshot = _build_skill_snapshot(skill_path, resolved_config)
     system_prompt = (
-        "You generate safe sandbox probe arguments for AI agent skill testing. "
-        "Only generate command-line argument lists for the existing entrypoint. "
+        "You generate safe sandbox probe commands for AI agent skill testing. "
+        "Use the SKILL.md usage instructions, command examples, and file inventory to infer realistic probes. "
+        "Only choose entrypoint files that already exist in the skill package. "
+        "Entrypoints must be relative paths to .py, .sh, or .js files. "
         "Do not generate code, shell pipelines, destructive commands, credential values, or real external targets. "
         "Prefer harmless placeholder paths under /tmp and example URLs/domains. "
         "Respond with exactly one JSON object and no markdown. "
-        "Schema: {\"probes\": [{\"name\": string, \"description\": string, \"args\": string[]}]} "
+        "Schema: {\"probes\": [{\"name\": string, \"description\": string, \"entrypoint\": string|null, \"args\": string[]}]} "
         f"Return at most {max_cases} probes."
     )
     user_prompt = (
-        f"Skill entrypoint: {entrypoint}\n\n"
+        f"Default discovered entrypoint: {entrypoint}\n\n"
         "请基于这个 skill 快照生成 sandbox 动态测试用例参数。"
+        "重点阅读 SKILL.md 里的使用说明、命令示例和参数说明；如果 SKILL.md 提到某个已有脚本或命令入口，"
+        "可以把它作为 entrypoint 返回，而不是局限于默认入口。"
         "目标是尽可能触发真实执行路径，但不能要求访问真实凭证、真实内网或破坏性文件。"
+        "entrypoint 必须是 skill 包中已经存在的相对路径文件；如果不确定，使用默认入口或返回 null。"
         "如果无法判断参数，返回空 probes。\n\n"
         f"{snapshot}"
     )
@@ -354,9 +360,13 @@ def generate_sandbox_probes_with_llm(
         args = item.get("args") or []
         if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
             continue
+        entrypoint_value = item.get("entrypoint")
+        if entrypoint_value is not None and not isinstance(entrypoint_value, str):
+            entrypoint_value = None
         probes.append({
             "name": str(item.get("name") or f"probe-{len(probes) + 1}"),
             "description": str(item.get("description") or ""),
+            "entrypoint": entrypoint_value.strip() if isinstance(entrypoint_value, str) and entrypoint_value.strip() else None,
             "args": args[:12],
         })
 

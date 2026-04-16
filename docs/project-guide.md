@@ -169,11 +169,26 @@ flowchart TB
 - [web/src/views/SubmitSkill.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/SubmitSkill.vue)
 - [web/src/views/ReviewQueue.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/ReviewQueue.vue)
 - [web/src/views/SystemSettings.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/SystemSettings.vue)
+- [web/src/views/ScannerAccess.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/ScannerAccess.vue)
+  客户侧扫描器接入、Token、CLI/GUI 下载
 
 ### 5.4 独立执行服务
 
 - [services/isolated-sandbox-service/app.py](/Users/huangluguang/Desktop/Project/skill-manager/services/isolated-sandbox-service/app.py)
   生产版远程 sandbox 服务基线
+
+### 5.5 客户侧扫描器
+
+- [scanner/cmd/skill-scanner/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner/main.go)
+  Go CLI 扫描器入口
+- [scanner/cmd/skill-scanner-gui/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner-gui/main.go)
+  原生桌面 GUI 扫描器入口
+- [skill_manager/api/scanner_router.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/api/scanner_router.py)
+  Scanner 专用 API 与下载接口
+- [skill_manager/core/scanner_tokens.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/scanner_tokens.py)
+  Scanner Token 存储、校验和审计
+- [skill_manager/core/scan_cache.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/scan_cache.py)
+  重复扫描复用缓存
 
 ---
 
@@ -189,7 +204,7 @@ sequenceDiagram
     participant Reg as "Registry"
     participant Agent as "Agent Runtime"
 
-    Dev->>UI: 上传 ZIP / 提交目录
+    Dev->>UI: 上传 ZIP / 提交目录 / 客户侧 scanner
     UI->>API: submit
     API->>Mgr: create_pending_submission()
     Mgr->>Reg: 写入 PENDING
@@ -214,16 +229,25 @@ sequenceDiagram
 
 ### 6.1 提交
 
-当前提交支持两种入口：
+当前提交支持多种入口：
 
 - CLI
 - 管理台上传 ZIP
+- 管理台本地目录导入
+- 管理台网络 / GitHub / ClawHub 导入
+- 客户侧 Go Scanner CLI
+- 客户侧原生 GUI Scanner
 
 上传后不会再阻塞前端等待全部分析跑完，而是：
 
 1. 先写一条 `PENDING`
 2. 后台继续分析
 3. 列表和详情页看到状态变化
+
+客户侧扫描器使用专用 Scanner Token，不使用管理员登录态。
+详细说明见：
+
+- [skill-scanner.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/skill-scanner.md)
 
 ### 6.2 Vetting
 
@@ -293,7 +317,7 @@ LLM 现在做三件事：
 
 1. 给一段简短的“技能主要功能”说明
 2. 从语义上判断是否有恶意意图、数据外泄、凭证访问等风险
-3. 当 sandbox 和 LLM 同时启用时，生成一组安全的 sandbox probe 参数用例
+3. 当 sandbox 和 LLM 同时启用时，结合 `SKILL.md` 使用说明生成一组安全的 sandbox probe 用例
 
 所以 LLM 结果里你会看到：
 
@@ -310,11 +334,12 @@ Sandbox 负责“受限环境试跑”。
 
 1. 先发现一个 probe 入口，例如 `scripts/*.py`、`scripts/*.sh`、`scripts/*.js`
 2. 生成默认 probe，如果脚本像 CLI，会优先生成 `--help`
-3. 如果提交时同时启用了 LLM，会让 LLM 生成额外的安全参数用例
+3. 如果提交时同时启用了 LLM，会让 LLM 阅读 `SKILL.md` 的用法示例，生成额外的安全 probe 用例
 4. 对每个 probe case 分别执行 sandbox
 5. 汇总所有 case 的输出和风险信号
 
-LLM 只能生成参数列表，不能生成代码、shell 管道、真实凭证或破坏性命令。
+LLM 可以从 `SKILL.md` 里识别“已有入口文件 + 参数”，但入口必须是 skill 目录中真实存在的 `.py`、`.sh` 或 `.js` 文件。
+它不能生成代码、shell 管道、真实凭证、真实外部目标或破坏性命令。
 
 它现在会给出两层结果：
 
@@ -560,6 +585,22 @@ make sandbox-runtime-build
 - sandbox
 - 当前 sandbox 后端和镜像
 
+### 12.7 扫描器接入
+
+用于客户侧批量扫描本地 skills：
+
+- 创建和吊销 Scanner Token
+- 下载 CLI / GUI 扫描器
+- 查看安装命令和参数说明
+- 获取配置模板
+- 跳转查看服务端扫描结果
+
+CLI 适合服务器和 CI，GUI 是原生桌面程序，适合人工选择目录、勾选 skill、实时查看状态。
+
+详细说明见：
+
+- [skill-scanner.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/skill-scanner.md)
+
 ---
 
 ## 13. 外部 Agent 怎么接
@@ -614,10 +655,31 @@ sequenceDiagram
 
 例如 `EXTREME` 风险通常会被策略直接拒绝。
 
+### 14.4 为什么重复提交没有复用？
+
+扫描复用不是按 skill name 判断，而是按：
+
+- skill 内容指纹
+- 扫描上下文指纹
+
+只有完整目录内容一致，并且规则分析、LLM、sandbox、策略和扫描器代码上下文一致，才会复用历史结果。
+
+常见不复用原因：
+
+- 两个目录内容实际不同
+- 第二次打开了新的分析选项
+- 策略或扫描器代码升级
+- 第一条还在 `PENDING`
+- 旧记录没有写入内容指纹
+
+详情页会展示是否复用、来源 skill ID、内容指纹和扫描上下文指纹。
+
 ---
 
 ## 15. 相关专题文档
 
+- 客户侧扫描器：
+  [skill-scanner.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/skill-scanner.md)
 - 管理台与容器化部署：
   [docker-deployment.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/docker-deployment.md)
 - 外部 Agent 接入：

@@ -23,6 +23,8 @@
 
 - `requests`
 - `httpx`
+- `numpy`
+- `pandas`
 - `PyYAML`
 - `python-frontmatter`
 - `rich`

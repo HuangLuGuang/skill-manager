@@ -25,6 +25,12 @@ from .models import (
 from .policy import CompanyPolicy
 from .registry import Registry, make_event
 from .runtime import RuntimeGuard
+from .scan_cache import (
+    ScanCacheStore,
+    compute_content_fingerprint,
+    compute_scan_cache_key,
+    compute_scan_context_fingerprint,
+)
 from .signer import compute_signature
 from .vetting import VettingPipeline, _load_manifest
 
@@ -62,6 +68,7 @@ class SkillManager:
         self.policy = policy or CompanyPolicy.default()
         self.vetting = VettingPipeline(self.policy)
         self.runtime = RuntimeGuard(self.registry)
+        self.scan_cache = ScanCacheStore(self.registry.data_dir)
 
     # ------------------------------------------------------------------ #
     # Submit                                                               #
@@ -139,6 +146,38 @@ class SkillManager:
         entry = self._require_entry(skill_id)
         skill_path = Path(entry.skill_path or "").resolve()
         source = entry.source
+        content_fingerprint = compute_content_fingerprint(skill_path)
+        scan_context_fingerprint = compute_scan_context_fingerprint(
+            self.policy,
+            use_behavioral=use_behavioral,
+            use_llm=use_llm,
+            use_sandbox=use_sandbox,
+        )
+        scan_cache_key = compute_scan_cache_key(content_fingerprint, scan_context_fingerprint)
+        entry.content_fingerprint = content_fingerprint
+        entry.scan_context_fingerprint = scan_context_fingerprint
+        entry.scan_cache_key = scan_cache_key
+        self.registry.update(entry)
+
+        cached = self.scan_cache.get(scan_cache_key)
+        if cached:
+            cached_entry = self.registry.get_by_id(cached.get("skill_id", ""))
+            if cached_entry and cached_entry.vetting and cached_entry.status != SkillStatus.PENDING:
+                return self._reuse_scan_result(entry, cached_entry, skill_path)
+
+        matching_entry = self._find_completed_scan_match(
+            entry.skill_id,
+            content_fingerprint,
+            scan_context_fingerprint,
+        )
+        if matching_entry:
+            self.scan_cache.put(
+                scan_cache_key,
+                matching_entry,
+                content_fingerprint,
+                scan_context_fingerprint,
+            )
+            return self._reuse_scan_result(entry, matching_entry, skill_path)
 
         logger.info("Vetting skill at %s ...", skill_path)
 
@@ -152,6 +191,13 @@ class SkillManager:
 
         status = self.policy.decide(vetting_result.risk_level, source, violations)
         declared_tools_valid = not any(v.rule in ("tool_not_in_allowlist", "blocked_permission") for v in violations)
+        vetting_result.scan_report = {
+            **vetting_result.scan_report,
+            "scan_reused": False,
+            "content_fingerprint": content_fingerprint,
+            "scan_context_fingerprint": scan_context_fingerprint,
+            "scan_cache_key": scan_cache_key,
+        }
 
         entry.name = name
         entry.description = description
@@ -199,6 +245,81 @@ class SkillManager:
         ))
 
         logger.info("Processed skill %r: status=%s risk=%s", name, status.value, vetting_result.risk_level.value)
+        self.scan_cache.put(scan_cache_key, entry, content_fingerprint, scan_context_fingerprint)
+        return entry
+
+    def _reuse_scan_result(
+        self,
+        entry: RegistryEntry,
+        cached_entry: RegistryEntry,
+        skill_path: Path,
+    ) -> RegistryEntry:
+        entry.name = cached_entry.name
+        entry.description = cached_entry.description
+        entry.status = cached_entry.status
+        entry.risk_level = cached_entry.risk_level
+        entry.vetting = cached_entry.vetting.model_copy(deep=True) if cached_entry.vetting else None
+        entry.allowed_tools = list(cached_entry.allowed_tools)
+        entry.declared_tools_valid = cached_entry.declared_tools_valid
+        entry.scan_reused = True
+        entry.reused_from_skill_id = cached_entry.skill_id
+        if entry.vetting:
+            entry.vetting.scan_report = {
+                **entry.vetting.scan_report,
+                "scan_reused": True,
+                "reused_from_skill_id": cached_entry.skill_id,
+                "reused_from_skill_name": cached_entry.name,
+                "content_fingerprint": entry.content_fingerprint,
+                "scan_context_fingerprint": entry.scan_context_fingerprint,
+                "scan_cache_key": entry.scan_cache_key,
+            }
+            entry.vetting.policy_notes = [
+                *entry.vetting.policy_notes,
+                f"[CACHE] reused scan result from {cached_entry.skill_id}",
+            ]
+
+        if entry.status == SkillStatus.APPROVED:
+            entry.signature = compute_signature(skill_path)
+            entry.approved_at = datetime.now(timezone.utc)
+            entry.approved_by = "auto-policy-cache"
+        elif entry.status == SkillStatus.VETTED and entry.risk_level:
+            self.registry.enqueue_review(ReviewRequest(
+                skill_id=entry.skill_id,
+                skill_name=entry.name,
+                risk_level=entry.risk_level,
+                findings_summary={
+                    "critical": entry.vetting.critical_count if entry.vetting else 0,
+                    "high": entry.vetting.high_count if entry.vetting else 0,
+                    "medium": entry.vetting.medium_count if entry.vetting else 0,
+                    "low": entry.vetting.low_count if entry.vetting else 0,
+                },
+                submitted_at=entry.submitted_at,
+                notes="复用历史扫描结果，仍需人工审核。",
+            ))
+
+        self.registry.update(entry)
+        self.registry.log_event(make_event(
+            "skill_scan_reused",
+            entry,
+            details={
+                "reused_from_skill_id": cached_entry.skill_id,
+                "content_fingerprint": entry.content_fingerprint,
+                "scan_context_fingerprint": entry.scan_context_fingerprint,
+                "scan_cache_key": entry.scan_cache_key,
+                "status": entry.status.value,
+                "risk_level": entry.risk_level.value if entry.risk_level else None,
+            },
+        ))
+        self.registry.log_event(make_event(
+            "skill_vetted",
+            entry,
+            details={
+                "risk_level": entry.risk_level.value if entry.risk_level else None,
+                "status": entry.status.value,
+                "scan_reused": True,
+            },
+        ))
+        logger.info("Reused scan result for skill %r from %s", entry.name, cached_entry.skill_id)
         return entry
 
     def mark_submission_failed(self, skill_id: str, reason: str, actor: str | None = None) -> RegistryEntry:
@@ -367,3 +488,21 @@ class SkillManager:
         if entry is None:
             raise KeyError(f"Skill ID {skill_id!r} not found in registry")
         return entry
+
+    def _find_completed_scan_match(
+        self,
+        current_skill_id: str,
+        content_fingerprint: str,
+        scan_context_fingerprint: str,
+    ) -> RegistryEntry | None:
+        for candidate in self.registry.list_all():
+            if candidate.skill_id == current_skill_id:
+                continue
+            if candidate.status == SkillStatus.PENDING or candidate.vetting is None:
+                continue
+            if candidate.content_fingerprint != content_fingerprint:
+                continue
+            if candidate.scan_context_fingerprint != scan_context_fingerprint:
+                continue
+            return candidate
+        return None

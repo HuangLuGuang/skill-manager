@@ -22,6 +22,8 @@ if str(base_dir) not in sys.path:
     sys.path.insert(0, str(base_dir))
 
 from skill_manager.api.router import router as skill_manager_router
+from skill_manager.api.scanner_router import admin_router as scanner_admin_router
+from skill_manager.api.scanner_router import router as scanner_router
 
 app = FastAPI(title=settings.APP_NAME, debug=settings.DEBUG)
 app.add_middleware(
@@ -37,6 +39,8 @@ app.include_router(config.router, prefix=settings.API_PREFIX)
 app.include_router(system.router, prefix=settings.API_PREFIX)
 app.include_router(tasks.router, prefix=settings.API_PREFIX)
 app.include_router(skill_manager_router, dependencies=[Depends(get_current_admin_user)])
+app.include_router(scanner_admin_router, dependencies=[Depends(get_current_admin_user)])
+app.include_router(scanner_router)
 
 Base.metadata.create_all(bind=engine)
 

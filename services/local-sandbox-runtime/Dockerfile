@@ -9,6 +9,8 @@ RUN pip install uv
 WORKDIR /runtime
 
 RUN uv pip install --system \
+    numpy \
+    pandas \
     requests \
     httpx \
     PyYAML \

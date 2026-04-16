@@ -1,0 +1,165 @@
+# AGENTS.md
+
+本文件给本地 coding agent 使用。修改本仓库时优先遵守这里的项目约定；如果用户有更具体要求，以用户要求为准。
+
+## 项目定位
+
+Skill Manager 是一个 AI Agent Skill 生命周期治理系统，用于对 skill 进行准入扫描、人工审核、签名验签、部署、运行时加载校验和审计。
+
+核心目标：
+
+- 提交 skill 后先进入后台扫描流程，不要直接信任外部 skill。
+- 低风险 skill 可以自动批准并签名，高风险进入审核或拒绝。
+- Agent 加载 skill 时应先调用 Skill Manager 做 registry/status/signature 校验。
+- Sandbox、行为分析和 LLM 分析是辅助信号，最终风险等级由策略汇总决定。
+
+## 目录结构
+
+- `skill_manager/`：核心 Python 包，包含 CLI、API router、策略、扫描、签名、sandbox 等核心逻辑。
+- `backend/`：后台管理 API 启动壳和账号/菜单/登录等管理台基础能力，使用 `uv` 管理依赖。
+- `web/`：Vue 3 + Vite + Ant Design Vue 前端管理台。
+- `services/isolated-sandbox-service/`：生产向远程 sandbox 服务。
+- `services/local-sandbox-runtime/`：本地 Docker sandbox runtime 镜像。
+- `demo/`：Agent 集成示例，包括 Agno、LangGraph、OpenClaw、Claude Code hook 等。
+- `docs/`：项目原理、部署、sandbox、外部 Agent 集成等文档。
+- `tests/`：pytest 测试和恶意/测试 skill 样例。
+
+## 常用命令
+
+后端 API：
+
+```bash
+uv run skill-manager-api --host 0.0.0.0 --port 8080
+```
+
+如果从 `backend/` 管理环境启动：
+
+```bash
+uv run --project backend uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+前端：
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+前端构建需要 Node `20.19+` 或 `22.12+`。本机如果默认 Node 过低，使用：
+
+```bash
+source ~/.nvm/nvm.sh
+nvm use 22.21.1
+cd web
+npm run build
+```
+
+测试：
+
+```bash
+uv run pytest
+uv run pytest tests/test_sandbox.py -q
+uv run pytest tests/test_vetting.py -q
+```
+
+Python 语法检查：
+
+```bash
+python3 -m py_compile skill_manager/core/llm.py skill_manager/core/vetting.py skill_manager/core/sandbox.py skill_manager/api/router.py
+```
+
+Docker 编排：
+
+```bash
+docker compose up --build
+docker compose ps
+docker compose logs -f
+```
+
+构建本地 sandbox runtime 镜像：
+
+```bash
+make sandbox-runtime-build
+```
+
+## 开发约束
+
+- Python 依赖优先使用 `uv` 管理，不要直接引入未记录的运行时依赖。
+- 后台管理 API 依赖在 `backend/pyproject.toml`，核心包依赖在根目录 `pyproject.toml`。
+- 前端依赖在 `web/package.json`，不要提交 `node_modules/`。
+- 手动代码修改使用小范围补丁，避免重写无关文件。
+- 仓库可能存在用户未提交改动；不要执行 `git reset --hard`、`git checkout -- <file>` 等破坏性命令，除非用户明确要求。
+- 大改动前先看现有实现和文档，尤其是 `docs/project-guide.md`、`docs/external-agent-integration.md`、`docs/sandbox-service-architecture.md`。
+
+## 后端注意事项
+
+- API 路由主要在 `skill_manager/api/router.py`。
+- 核心扫描流程在 `skill_manager/core/vetting.py`。
+- LLM 调用封装在 `skill_manager/core/llm.py`，需要兼容 DeepSeek/OpenAI-compatible API。
+- Sandbox 运行封装在 `skill_manager/core/sandbox.py`。
+- 策略相关逻辑在 `skill_manager/core/policy.py`。
+- 模型和 registry 数据结构在 `skill_manager/core/models.py`、`skill_manager/core/manager.py`。
+- 新增 API 时要考虑登录权限、审计日志、错误信息中文可读性和前端兼容。
+- 提交 skill 相关接口应保持幂等和防重复提交意识，前端禁用按钮不能替代后端校验。
+
+## 前端注意事项
+
+- 前端使用 Vue 3 Composition API、Vite、Ant Design Vue。
+- API 封装在 `web/src/api/index.js`。
+- 页面主要在 `web/src/views/`。
+- 提交 skill 页面支持四种导入方式：ZIP、本地目录、网络下载/GitHub、ClawHub。
+- 对会创建后台记录的按钮必须同时做：
+  - loading 状态。
+  - disabled 防重复点击。
+  - 函数入口的 `submitting` 防重入。
+- 如果系统设置未启用或未配置 LLM API Key，提交页的 LLM 选项不能勾选，并要有 tooltip 说明。
+- 文件列表、扫描文件、报告 JSON 等内容应支持查看原始内容，避免只显示摘要。
+
+## Sandbox 约定
+
+- Sandbox 的风险等级只代表运行时 probe 观察到的行为，不等同于静态扫描或 LLM 的最终风险。
+- 默认 probe 可能覆盖不足；启用 LLM 时可以生成测试参数，但不要让 LLM 生成要执行的代码。
+- 本地 Docker runtime 镜像建议使用 `skill-manager-sandbox-runtime:latest`，避免运行时缺少常见依赖。
+- 远程 sandbox 服务的生产向实现参考 `services/isolated-sandbox-service/README.md`。
+- 不要把 sandbox 当成完整攻击链复现系统；精确 syscall tracing、完整文件访问审计、进程树分析需要更底层的 runner 支持。
+
+## Agent 集成约定
+
+- Agent 不应该只按 skill name 加载本地目录；如果本地目录可写，应传 `skill_path` 让 Skill Manager 计算内容签名并验证。
+- Name-only 校验只适合 CI/CD 管控的只读 skill 目录。
+- 示例优先参考：
+  - `demo/agno-skill-guard/`
+  - `demo/langgraph-skill-guard/`
+  - `demo/openclaw-skill-manager-hook/`
+  - `demo/claude-code-hook/`
+
+## 客户侧 Go 扫描器实施计划
+
+- 客户本地 skills 扫描器使用 Go 实现，目标是单二进制部署，避免客户侧安装 Python、Node 或 Docker。
+- Go 二进制不能硬编码 token；token 只能从 CLI 参数、环境变量或配置文件读取。
+- Scanner Token 必须在管理台页面管理，创建后只展示一次明文，服务端只保存 hash，并支持禁用、吊销、过期、权限范围、允许 IP/CIDR、最大上传大小、最大并发任务数和审计。
+- Scanner Token 最小权限为 `scanner:submit`、`scanner:read-own-results`、`scanner:read-own-sessions`；不要授予审批、部署、策略修改、用户管理或 token 管理权限。
+- 后端新增 scanner 专用 API，不复用管理员接口。建议接口包括 `POST /api/v1/scanner/imports`、`GET /api/v1/scanner/imports/{skill_id}`，后续再增加 session 批量接口。
+- Go scanner MVP 先实现 `skill-scanner scan <path>`：递归发现包含 `SKILL.md` 的目录，忽略 `.git`、`.venv`、`node_modules`、`__pycache__`、`dist`、`build`，解析基础元数据，生成 manifest 和 sha256 fingerprint，本地轻量预检，安全打 ZIP，上传到 Skill Manager，轮询结果，输出 JSON 报告。
+- 本地轻量预检不执行客户代码，只检查大文件、危险扩展名、明显危险关键词等静态信号。
+- 打包时禁止路径逃逸，不跟随指向 skill 目录外部的软链接，限制单文件大小、总上传大小和文件数量。
+- 服务端收到 scanner 上传后要重新计算 manifest/fingerprint 并和客户端提交值对比。
+- 前端新增“扫描器接入”页面，用于 Scanner Token 管理、安装命令、配置模板、最近扫描会话和风险统计。
+- 建议目录结构为 `scanner/go.mod`、`scanner/cmd/skill-scanner/main.go`、`scanner/internal/config`、`scanner/internal/discovery`、`scanner/internal/manifest`、`scanner/internal/precheck`、`scanner/internal/packager`、`scanner/internal/client`、`scanner/internal/report`。
+- 实施顺序：Phase 1 Go CLI MVP；Phase 2 后端 Scanner API 和 token 校验；Phase 3 前端 Scanner Token 管理；Phase 4 增量扫描、Markdown/HTML 报告、scanner 二进制下载、host/customer 分组和 CI 定时扫描。
+
+## 文档维护
+
+- 项目原理和使用说明优先更新 `docs/project-guide.md`。
+- Agent 对接更新 `docs/external-agent-integration.md` 和 `docs/agent-signature-verification.md`。
+- Sandbox 设计更新 `docs/sandbox-service-architecture.md`。
+- Docker 部署更新 `docs/docker-deployment.md`。
+- 如果新增 demo，补充对应 `README.md`。
+- 临时实施文档和计划文档用完就删除；长期开发约定记在 `AGENTS.md`，不要为了计划类内容新增 `docs/` 文档或放进 `docs/project-guide.md`。
+
+## Git 约定
+
+- 提交前检查 `git status --short`，确认没有误带无关文件。
+- 如果 push 被拒绝，优先 `git fetch` 后 rebase 当前分支到远端分支，再解决冲突。
+- 解决冲突时保留双方有效配置；示例文件中的密钥应使用占位值，不要提交真实 key。

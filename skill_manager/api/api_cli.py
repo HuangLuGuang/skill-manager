@@ -12,6 +12,8 @@ def main(host: str, port: int, reload: bool):
     """Start the skill manager API server."""
     from fastapi import FastAPI
     from .router import router
+    from .scanner_router import admin_router as scanner_admin_router
+    from .scanner_router import router as scanner_router
 
     app = FastAPI(
         title="Skill Manager API",
@@ -19,5 +21,7 @@ def main(host: str, port: int, reload: bool):
         version="0.1.0",
     )
     app.include_router(router)
+    app.include_router(scanner_admin_router)
+    app.include_router(scanner_router)
 
     uvicorn.run(app, host=host, port=port, reload=reload)

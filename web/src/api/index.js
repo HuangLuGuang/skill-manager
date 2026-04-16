@@ -58,6 +58,7 @@ export const deploySkill = (skillId) => api.post(`/v1/skills/${skillId}/deploy`)
 export const retireSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/retire`, data)
 export const runtimeCanLoad = (skillName, params = {}) => api.get(`/v1/runtime/can-load/${skillName}`, { params })
 export const runtimeCheckTool = (params) => api.get('/v1/runtime/check-tool', { params })
+export const getDashboardRiskSourceStats = () => api.get('/v1/dashboard/risk-source-stats')
 export const getAudit = (params = {}) => api.get('/v1/audit', { params })
 export const getAuditPaged = (params = {}) => api.get('/v1/audit', { params: { ...params, page: params.page || 1, page_size: params.page_size || 10 } })
 export const getPolicy = () => api.get('/v1/policy')
@@ -67,6 +68,15 @@ export const updateLlmConfig = (data) => api.put('/v1/llm-config', data)
 export const getSandboxConfig = () => api.get('/v1/sandbox-config')
 export const updateSandboxConfig = (data) => api.put('/v1/sandbox-config', data)
 export const getSkillManagerSystemStatus = () => api.get('/v1/system/status')
+export const listScannerTokens = () => api.get('/v1/scanner/tokens')
+export const createScannerToken = (data) => api.post('/v1/scanner/tokens', data)
+export const revokeScannerToken = (tokenId) => api.post(`/v1/scanner/tokens/${tokenId}/revoke`)
+export const listScannerDownloads = () => api.get('/v1/scanner/downloads')
+export const downloadScannerBinary = (platform) =>
+  api.get('/v1/scanner/download', {
+    params: { platform },
+    responseType: 'blob',
+  })
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')

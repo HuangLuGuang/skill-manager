@@ -21,3 +21,7 @@ web/node_modules/
 .claude/
 document/
 *.log
+scanner/.gocache/
+scanner/skill-scanner
+scanner/releases/skill-scanner-*
+scanner/releases/*/skill-scanner-*

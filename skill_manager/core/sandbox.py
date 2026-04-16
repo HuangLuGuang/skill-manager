@@ -375,7 +375,7 @@ def _finalize_result(result: SandboxResult) -> SandboxResult:
         recommendation = "先确认 sandbox 后端可用性，再结合静态扫描结果继续评估。"
     elif not signals:
         summary = "Sandbox 已执行，未从输出中提取到明确风险信号。"
-        recommendation = "可结合静态扫描、LLM 和行为分析结果综合判断。"
+        recommendation = "可结合静态扫描、LLM 和规则分析结果综合判断。"
     else:
         categories: list[str] = []
         for event in signals:

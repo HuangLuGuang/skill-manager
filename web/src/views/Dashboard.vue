@@ -12,14 +12,19 @@
     </a-row>
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
-      <a-col :xs="24" :xl="12">
+      <a-col :xs="24" :xl="8">
         <a-card title="状态分布">
           <Chart :options="statusChartOptions" height="300px" />
         </a-card>
       </a-col>
-      <a-col :xs="24" :xl="12">
+      <a-col :xs="24" :xl="8">
         <a-card title="风险分布">
           <Chart :options="riskChartOptions" height="300px" />
+        </a-card>
+      </a-col>
+      <a-col :xs="24" :xl="8">
+        <a-card title="风险来源发现项">
+          <Chart :options="riskSourceChartOptions" height="300px" />
         </a-card>
       </a-col>
     </a-row>
@@ -68,12 +73,13 @@ import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
 
 import Chart from '../components/Chart.vue'
-import { getAudit, listReviewQueue, listSkills } from '../api'
+import { getAudit, getDashboardRiskSourceStats, listReviewQueue, listSkills } from '../api'
 import { formatDateTime, formatDetails } from '../utils/format'
 
 const skillRows = ref([])
 const reviewRows = ref([])
 const auditRows = ref([])
+const riskSourceRows = ref([])
 
 const metrics = computed(() => {
   const deployments = skillRows.value.filter((item) => ['APPROVED', 'DEPLOYED'].includes(item.status)).length
@@ -128,6 +134,53 @@ const buildBarChart = (title, items, color) => ({
   grid: { left: 32, right: 16, top: 24, bottom: 24, containLabel: true },
 })
 
+const riskSourceChartOptions = computed(() => {
+  const fallback = [
+    { key: 'rule', label: '规则分析', count: 0, skills: 0 },
+    { key: 'llm', label: '大模型分析', count: 0, skills: 0 },
+    { key: 'sandbox', label: 'Sandbox', count: 0, skills: 0 },
+  ]
+  const rows = riskSourceRows.value.length ? riskSourceRows.value : fallback
+  const colors = {
+    rule: '#2563eb',
+    llm: '#16a34a',
+    sandbox: '#ea580c',
+  }
+  return {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: (params) => {
+        const row = rows[params?.[0]?.dataIndex] || {}
+        return [
+          `<strong>${row.label}</strong>`,
+          `发现项：${row.count || 0}`,
+          `涉及 Skill：${row.skills || 0}`,
+          `严重/高/中/低：${row.critical || 0}/${row.high || 0}/${row.medium || 0}/${row.low || 0}`,
+        ].join('<br/>')
+      },
+    },
+    xAxis: {
+      type: 'category',
+      data: rows.map((item) => item.label),
+      axisTick: { show: false },
+    },
+    yAxis: { type: 'value', minInterval: 1 },
+    series: [
+      {
+        name: '发现项',
+        type: 'bar',
+        data: rows.map((item) => ({
+          value: item.count || 0,
+          itemStyle: { color: colors[item.key] || '#64748b', borderRadius: [6, 6, 0, 0] },
+        })),
+        label: { show: true, position: 'top' },
+      },
+    ],
+    grid: { left: 32, right: 16, top: 24, bottom: 24, containLabel: true },
+  }
+})
+
 const statusChartOptions = computed(() => {
   const counts = ['VETTED', 'APPROVED', 'DEPLOYED', 'REJECTED', 'RETIRED'].map((label) => ({
     label,
@@ -146,14 +199,16 @@ const riskChartOptions = computed(() => {
 
 const fetchDashboard = async () => {
   try {
-    const [skills, review, audit] = await Promise.all([
+    const [skills, review, audit, riskSourceStats] = await Promise.all([
       listSkills(),
       listReviewQueue(),
       getAudit({ since_hours: 168, limit: 300 }),
+      getDashboardRiskSourceStats(),
     ])
     skillRows.value = Array.isArray(skills) ? skills : []
     reviewRows.value = Array.isArray(review) ? review : []
     auditRows.value = Array.isArray(audit) ? audit : []
+    riskSourceRows.value = Array.isArray(riskSourceStats?.items) ? riskSourceStats.items : []
   } catch (error) {
     message.error(error.response?.data?.detail || '获取 Dashboard 数据失败')
   }

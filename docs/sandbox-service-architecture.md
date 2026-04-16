@@ -98,8 +98,8 @@ sequenceDiagram
 - 如果入口脚本看起来是 CLI，例如使用 `argparse`、`click`、`typer`，默认 probe 会用 `--help`
 - 否则用空参数执行一次
 
-当提交时同时启用 `Sandbox` 和 `LLM 分析` 时，Skill Manager 会额外请求 LLM 生成最多 4 组命令行参数型 probe case。  
-这不是让 LLM 生成代码，而是只允许它生成参数列表，例如：
+当提交时同时启用 `Sandbox` 和 `LLM 分析` 时，Skill Manager 会额外请求 LLM 结合 `SKILL.md` 使用说明、命令示例和文件清单生成最多 4 组 probe case。
+这不是让 LLM 生成代码，而是只允许它选择 skill 包中已经存在的入口文件，并生成参数列表，例如：
 
 ```json
 {
@@ -107,6 +107,7 @@ sequenceDiagram
     {
       "name": "safe-file-input",
       "description": "用 /tmp 下的占位文件触发文件读取路径",
+      "entrypoint": "tools/check.py",
       "args": ["--input", "/tmp/nonexistent.txt"]
     }
   ]
@@ -116,6 +117,7 @@ sequenceDiagram
 限制：
 
 - 不允许生成 shell 管道
+- 入口文件必须是 skill 目录中真实存在的 `.py`、`.sh` 或 `.js`
 - 不允许生成真实凭证
 - 不允许生成真实内网目标
 - 不允许生成破坏性参数

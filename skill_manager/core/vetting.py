@@ -78,6 +78,27 @@ _BEHAVIORAL_RULES = (
         "pattern": re.compile(r"(?:base64\.(?:b64decode|urlsafe_b64decode)|pickle\.loads|marshal\.loads)"),
     },
 )
+_SANDBOX_ENTRYPOINT_EXTENSIONS = {".py", ".sh", ".js"}
+
+
+def _normalize_llm_probe_entrypoint(
+    skill_path: Path,
+    candidate: str | None,
+    default_entrypoint: str,
+) -> str | None:
+    raw = (candidate or default_entrypoint).strip()
+    if not raw or raw.startswith("/") or ".." in Path(raw).parts:
+        return None
+
+    root = skill_path.resolve()
+    target = (root / raw).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        return None
+    if not target.is_file() or target.suffix.lower() not in _SANDBOX_ENTRYPOINT_EXTENSIONS:
+        return None
+    return target.relative_to(root).as_posix()
 
 # --------------------------------------------------------------------------- #
 # Scanner integration                                                           #
@@ -400,6 +421,7 @@ class VettingPipeline:
                     probe_cases = [{
                         "name": "default",
                         "description": f"default sandbox probe strategy={probe_plan.strategy}",
+                        "entrypoint": probe_plan.entrypoint,
                         "args": probe_plan.args,
                         "generated_by": "default",
                     }]
@@ -408,10 +430,24 @@ class VettingPipeline:
                         try:
                             llm_probe_plan = generate_sandbox_probes_with_llm(skill_path, entrypoint, LLMConfig.load())
                             for case in llm_probe_plan.probes:
-                                if case.args not in [existing["args"] for existing in probe_cases]:
+                                case_entrypoint = _normalize_llm_probe_entrypoint(
+                                    skill_path,
+                                    case.entrypoint,
+                                    probe_plan.entrypoint,
+                                )
+                                if not case_entrypoint:
+                                    sandbox_notes.append(
+                                        f"[SANDBOX] skipped LLM probe {case.name}: invalid entrypoint {case.entrypoint!r}"
+                                    )
+                                    continue
+                                if not any(
+                                    existing["entrypoint"] == case_entrypoint and existing["args"] == case.args
+                                    for existing in probe_cases
+                                ):
                                     probe_cases.append({
                                         "name": case.name,
                                         "description": case.description,
+                                        "entrypoint": case_entrypoint,
                                         "args": case.args,
                                         "generated_by": f"llm:{llm_probe_plan.provider}",
                                     })
@@ -427,12 +463,13 @@ class VettingPipeline:
                     for case in probe_cases:
                         sandbox_exec = runner.run_probe(
                             skill_path,
-                            entrypoint=probe_plan.entrypoint,
+                            entrypoint=case.get("entrypoint") or probe_plan.entrypoint,
                             args=case["args"],
                         )
                         result_payload = sandbox_exec.model_dump(mode="json")
                         result_payload["probe_name"] = case["name"]
                         result_payload["probe_description"] = case["description"]
+                        result_payload["probe_entrypoint"] = case.get("entrypoint") or probe_plan.entrypoint
                         result_payload["probe_args"] = case["args"]
                         result_payload["probe_generated_by"] = case["generated_by"]
                         sandbox_exec_results.append(result_payload)
@@ -460,9 +497,10 @@ class VettingPipeline:
                             "severity": event.severity,
                             "title": event.message,
                             "message": event.message,
-                            "file": entrypoint,
+                            "file": case.get("entrypoint") or probe_plan.entrypoint,
                             "source": "sandbox",
                             "probe": case["name"],
+                            "probe_entrypoint": case.get("entrypoint") or probe_plan.entrypoint,
                             "category": event.category,
                             "evidence": event.evidence,
                         }

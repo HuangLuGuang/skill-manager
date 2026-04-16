@@ -121,6 +121,13 @@ class RegistryEntry(BaseModel):
     rejection_reason: str | None = None
     retire_reason: str | None = None
 
+    # Scan cache / dedupe metadata
+    content_fingerprint: str | None = None
+    scan_context_fingerprint: str | None = None
+    scan_cache_key: str | None = None
+    scan_reused: bool = False
+    reused_from_skill_id: str | None = None
+
     @field_validator("name")
     @classmethod
     def name_not_empty(cls, v: str) -> str:

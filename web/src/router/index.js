@@ -12,6 +12,7 @@ const routes = [
   { path: '/runtime', name: 'runtime', component: () => import('../views/RuntimeGovernance.vue'), meta: { requiresAuth: true } },
   { path: '/audit', name: 'audit', component: () => import('../views/AuditLog.vue'), meta: { requiresAuth: true } },
   { path: '/policy', name: 'policy', component: () => import('../views/PolicySettings.vue'), meta: { requiresAuth: true } },
+  { path: '/scanner-access', name: 'scanner-access', component: () => import('../views/ScannerAccess.vue'), meta: { requiresAuth: true } },
   { path: '/settings', name: 'settings', component: () => import('../views/SystemSettings.vue'), meta: { requiresAuth: true } },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('../views/NotFound.vue'), meta: { requiresAuth: true } },
 ]

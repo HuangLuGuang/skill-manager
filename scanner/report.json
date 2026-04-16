@@ -1,0 +1,846 @@
+{
+  "generated_at": "2026-04-16T03:03:07.77261Z",
+  "root": "/Users/huangluguang/.openclaw/workspace/skills",
+  "found": 6,
+  "submitted": 6,
+  "failed": 0,
+  "skills": [
+    {
+      "path": "/Users/huangluguang/.openclaw/workspace/skills/agent-browser-0.2.0",
+      "name": "Agent Browser",
+      "description": "A fast Rust-based headless browser automation CLI with Node.js fallback that enables AI agents to navigate, click, type, and snapshot pages via structured commands.",
+      "fingerprint": "sha256:ad53c43e84e3ef186177e9d09112f1dbc7eda0d749518aa3f285b04308d8261b",
+      "file_count": 3,
+      "total_bytes": 11982,
+      "local_findings": [
+        {
+          "severity": "MEDIUM",
+          "rule": "network_post",
+          "file": "SKILL.md",
+          "message": "发现网络请求相关代码"
+        },
+        {
+          "severity": "MEDIUM",
+          "rule": "sensitive_file_access",
+          "file": "SKILL.md",
+          "message": "发现敏感文件路径特征"
+        }
+      ],
+      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/report-packages/agent-browser-ad53c43e84e3.zip",
+      "submitted": true,
+      "submission": {
+        "skill_id": "5e915abe-ec86-4bde-8cd3-ae789d0bd6b3",
+        "name": "Agent Browser",
+        "status": "PENDING",
+        "message": "已提交，后台分析中。请在技能列表查看状态变化。",
+        "detail_url": "http://localhost:5174/skills/5e915abe-ec86-4bde-8cd3-ae789d0bd6b3"
+      },
+      "manifest": {
+        "name": "Agent Browser",
+        "description": "A fast Rust-based headless browser automation CLI with Node.js fallback that enables AI agents to navigate, click, type, and snapshot pages via structured commands.",
+        "root": "/Users/huangluguang/.openclaw/workspace/skills/agent-browser-0.2.0",
+        "fingerprint": "sha256:ad53c43e84e3ef186177e9d09112f1dbc7eda0d749518aa3f285b04308d8261b",
+        "files": [
+          {
+            "path": "CONTRIBUTING.md",
+            "size": 1626,
+            "sha256": "6aa2ff6c195842f5013eed3ca2d563ec9fef63bb4fb9b2f0038e13bccc0a65ce"
+          },
+          {
+            "path": "SKILL.md",
+            "size": 10224,
+            "sha256": "04afeeb53a8b6ab953974311ec7ed60e0d66c532341ca21933625320f28b01c6"
+          },
+          {
+            "path": "_meta.json",
+            "size": 132,
+            "sha256": "f68418184f93ba77d56e16e2056ce873560b1eeeff14e5129126d9bbd9fd0d28"
+          }
+        ],
+        "total_bytes": 11982
+      }
+    },
+    {
+      "path": "/Users/huangluguang/.openclaw/workspace/skills/byd-stock-news",
+      "name": "byd-stock-news",
+      "description": "比亚迪股票新闻数据整理技能。每天从Tavily搜索比亚迪相关新闻，整理成结构化报告。当用户需要获取比亚迪股票最新新闻、投资消息、市场动态时使用。支持自动搜索、数据整理和报告生成。",
+      "fingerprint": "sha256:8b95fe7a9d622723dc6f359a5372d4ad2a05d07602c1ae8ab3cefb49c1c1fa42",
+      "file_count": 84,
+      "total_bytes": 265641,
+      "local_findings": [
+        {
+          "severity": "MEDIUM",
+          "rule": "network_post",
+          "file": "scripts/search_real_news.py",
+          "message": "发现网络请求相关代码"
+        }
+      ],
+      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/report-packages/byd-stock-news-8b95fe7a9d62.zip",
+      "submitted": true,
+      "submission": {
+        "skill_id": "a1875df6-aa4a-4f72-9207-745e6ea15c97",
+        "name": "byd-stock-news",
+        "status": "PENDING",
+        "message": "已提交，后台分析中。请在技能列表查看状态变化。",
+        "detail_url": "http://localhost:5174/skills/a1875df6-aa4a-4f72-9207-745e6ea15c97"
+      },
+      "manifest": {
+        "name": "byd-stock-news",
+        "description": "比亚迪股票新闻数据整理技能。每天从Tavily搜索比亚迪相关新闻，整理成结构化报告。当用户需要获取比亚迪股票最新新闻、投资消息、市场动态时使用。支持自动搜索、数据整理和报告生成。",
+        "root": "/Users/huangluguang/.openclaw/workspace/skills/byd-stock-news",
+        "fingerprint": "sha256:8b95fe7a9d622723dc6f359a5372d4ad2a05d07602c1ae8ab3cefb49c1c1fa42",
+        "files": [
+          {
+            "path": "README.md",
+            "size": 4349,
+            "sha256": "2f81f51b7fdeb4186d8ac2f6491097cb771aa32a1caa464df9b91a362de7d782"
+          },
+          {
+            "path": "SKILL.md",
+            "size": 4256,
+            "sha256": "78d203b672ad42d3fc6c63e9e651bdfb423d7d7029eb0ab028d61e9b41b10d56"
+          },
+          {
+            "path": "references/news_categories.md",
+            "size": 3207,
+            "sha256": "b7bfc6899e0ca46646c41416a242ce45a228548cf552e7fd3918ce7d2426c83f"
+          },
+          {
+            "path": "reports/byd_daily_summary_20260326.txt",
+            "size": 1175,
+            "sha256": "479b49e98dca6334457efad43b66c9c871c51be6ef084f82d75de348dd335f90"
+          },
+          {
+            "path": "reports/byd_daily_summary_20260331.txt",
+            "size": 1588,
+            "sha256": "341b94a65cf9c08429d2dcf4aae70642d70ae7adf1f5b7c197779039a7737006"
+          },
+          {
+            "path": "reports/byd_daily_summary_20260401.txt",
+            "size": 1745,
+            "sha256": "66333793fc21005532e9d8dda40690e7d1e51171cb924215de880abab34ad966"
+          },
+          {
+            "path": "reports/byd_daily_summary_20260407.txt",
+            "size": 1197,
+            "sha256": "f3ae46822dd772a318c4c65b27197ad53006963a3ff5014b0c837b95d0eb56fc"
+          },
+          {
+            "path": "reports/byd_daily_summary_20260410.txt",
+            "size": 1197,
+            "sha256": "b5840a9a718f1b9ec69137a3580305f901213ec8b83e12eb59fd3806ca65491f"
+          },
+          {
+            "path": "reports/byd_daily_summary_20260414.txt",
+            "size": 1197,
+            "sha256": "e40001e4dc8f932b1190174291d23b25169d702a01aa4885c47240ef9669c3a0"
+          },
+          {
+            "path": "reports/byd_news_data_20260317_110018.json",
+            "size": 1177,
+            "sha256": "544edc1ddd92bd4ecea5ed5852aabad5725c56625f5646192a7a228b1a31dbe8"
+          },
+          {
+            "path": "reports/byd_news_data_20260318_110031.json",
+            "size": 1177,
+            "sha256": "719bc5cc51b344df9b9b8f410a1f3dd760e3481b29008a609e2838ccff3886c0"
+          },
+          {
+            "path": "reports/byd_news_data_20260319_110021.json",
+            "size": 1177,
+            "sha256": "f7faee1730c42f7354b4275b21b3460662fe6289f1e06bccc3b4a3953d18de5d"
+          },
+          {
+            "path": "reports/byd_news_data_20260325_110037.json",
+            "size": 1177,
+            "sha256": "09daa282c7ff7b10ee7ee915ee4d1cf0505ffef5677be080c0ebd982fdf7f68d"
+          },
+          {
+            "path": "reports/byd_news_data_20260327_110048.json",
+            "size": 1177,
+            "sha256": "8efa7522d897d05899d47f0680f4ee6cb344f54ca99a41e23e62699ebb70318b"
+          },
+          {
+            "path": "reports/byd_news_raw_20260317_110018.json",
+            "size": 4075,
+            "sha256": "92a172385371e82ee649b6af5fc294496cd32cc3bc48e7e7db606bad6cba6972"
+          },
+          {
+            "path": "reports/byd_news_raw_20260318_110031.json",
+            "size": 4075,
+            "sha256": "06a8d0a22e99fe3aef1735914a927ee52f2bd3ae5c5f0751af1e5aa695f231f5"
+          },
+          {
+            "path": "reports/byd_news_raw_20260319_110021.json",
+            "size": 4075,
+            "sha256": "6150b8e6ca09bea137215c2cf677b25b6c0119656f8ef27b5349cda8ff68f970"
+          },
+          {
+            "path": "reports/byd_news_raw_20260325_110037.json",
+            "size": 4075,
+            "sha256": "d1021ae05c007946829898c38d093b32eff6d1d9c7b103d5221cae0b70a0a918"
+          },
+          {
+            "path": "reports/byd_news_raw_20260327_110048.json",
+            "size": 4075,
+            "sha256": "c6b52536c30ec67d162650dcaee27f5f9bed6b17a9f05d8a50a210ac78417887"
+          },
+          {
+            "path": "reports/byd_news_report_20260317_110018.md",
+            "size": 1347,
+            "sha256": "90c62d5aa6409606562030a070c0031805177741808b74b81180b41d4127ca47"
+          },
+          {
+            "path": "reports/byd_news_report_20260318_110031.md",
+            "size": 1347,
+            "sha256": "2475270e568a0de6534d0572f80381e2a86c5ae1e415bd1e0963444d8aec47ec"
+          },
+          {
+            "path": "reports/byd_news_report_20260319_110021.md",
+            "size": 1347,
+            "sha256": "ac03411345751d4f472cd56c6e648c605a15f36b85d3f71478ce503bc78e2013"
+          },
+          {
+            "path": "reports/byd_news_report_20260324_110000.md",
+            "size": 3688,
+            "sha256": "13e396b56d42fa065a2ba03ab811ddfd642f96e26d028d3b3222de42749b70f9"
+          },
+          {
+            "path": "reports/byd_news_report_20260325_110037.md",
+            "size": 1347,
+            "sha256": "70c054bdc6c1e849875477dc9f4e9e7b9a103b7d896f4f76675501d1da589e3b"
+          },
+          {
+            "path": "reports/byd_news_report_20260327_110048.md",
+            "size": 1347,
+            "sha256": "755c910a463e5fc703bfb8ced1ea40bc8c21ee6abb639e4a19fe892949df14c0"
+          },
+          {
+            "path": "reports/byd_news_summary_20260317_110018.txt",
+            "size": 403,
+            "sha256": "04a7554f16aaba17b80b68fd730674468a0bd13f27c8149ea077816e08e41b7e"
+          },
+          {
+            "path": "reports/byd_news_summary_20260318_110031.txt",
+            "size": 403,
+            "sha256": "130bd767e4bdca60ffcef66285f2097ad129c13932ae4e0f754f93bb4fc1c571"
+          },
+          {
+            "path": "reports/byd_news_summary_20260319_110021.txt",
+            "size": 403,
+            "sha256": "44a2eb7ee5468ba8e9ec93a8fe7f9c73d9d507b061ffa37f4118d18cf3c77358"
+          },
+          {
+            "path": "reports/byd_news_summary_20260325_110037.txt",
+            "size": 403,
+            "sha256": "8161f788606a5d4a26e1bf62f321bcb49ada2173416e1af217504026e3e240c5"
+          },
+          {
+            "path": "reports/byd_news_summary_20260327_110048.txt",
+            "size": 403,
+            "sha256": "dd8a572e8630faca0efffe03dbe5c243680a4b30d19f3ab5f9674f9d14cba4a6"
+          },
+          {
+            "path": "reports/byd_real_news_raw_20260331_110050.json",
+            "size": 4706,
+            "sha256": "c2855ba003bd99e5f03b0b721d6c0656aff7d8121db27e2f9dc568ca776e4191"
+          },
+          {
+            "path": "reports/byd_real_news_raw_20260401_110045.json",
+            "size": 4706,
+            "sha256": "6c390384aa78cd21ada789c90dd9b6eb60620ae43832c633ac782636856881fc"
+          },
+          {
+            "path": "reports/byd_real_news_raw_20260407_110906.json",
+            "size": 15117,
+            "sha256": "fb4ec3e705f59c8f917a171bcecfcd2261bbd5e98c9e0740e791ed897dcf67da"
+          },
+          {
+            "path": "reports/byd_real_news_raw_20260410_110032.json",
+            "size": 15117,
+            "sha256": "09e1aed2f818b5d2b4661397ada04319c3328b37dd7c3eb60597a3df4f956d8d"
+          },
+          {
+            "path": "reports/byd_real_news_raw_20260414_110032.json",
+            "size": 15117,
+            "sha256": "d543b3044bbfd94c5815861d6e556d6401887fd2ac503dc1d0d3ab3b1298fb7b"
+          },
+          {
+            "path": "reports/byd_real_news_report_20260331_110050.md",
+            "size": 1396,
+            "sha256": "9829be442d6174a416d4a9ed5c532689afba2f620fc49cc65a4f0759c36b4b75"
+          },
+          {
+            "path": "reports/byd_real_news_report_20260401_110045.md",
+            "size": 1396,
+            "sha256": "c82c894d0089d85372c4cc5be75703fc77e469f7eb9cebc2eb7768aed98e293d"
+          },
+          {
+            "path": "reports/byd_real_news_report_20260407_110906.md",
+            "size": 1341,
+            "sha256": "90d15548ecf2feb7d8013ece7eda6681e086c2077d3c4a5cc2f975b4d830bcd9"
+          },
+          {
+            "path": "reports/byd_real_news_report_20260410_110032.md",
+            "size": 1341,
+            "sha256": "4e7285ebc3dae5e92700f458d1f611e3ac3f7b240ba0a430b416a15d59fd3a5f"
+          },
+          {
+            "path": "reports/byd_real_news_report_20260414_110032.md",
+            "size": 1341,
+            "sha256": "2e974874d0129374b75fd7a3221741a2481ac8cdc8a93851d73e64d0cf7208a4"
+          },
+          {
+            "path": "reports/byd_real_news_summary_20260331_110050.txt",
+            "size": 403,
+            "sha256": "30607d5db6d56f2f59b700a53f2dfc6b15dbc2b987be32d75c51b523c2a36c2b"
+          },
+          {
+            "path": "reports/byd_real_news_summary_20260401_110045.txt",
+            "size": 403,
+            "sha256": "f7d3ee802267fcdc354b973ff8a8928ca58ad70668d8769b187e6dad473924ba"
+          },
+          {
+            "path": "reports/byd_real_news_summary_20260407_110906.txt",
+            "size": 397,
+            "sha256": "f2ef947f25978ca8d11b94206d4dc98291766a958104773eca3af7dff11247c8"
+          },
+          {
+            "path": "reports/byd_real_news_summary_20260410_110032.txt",
+            "size": 397,
+            "sha256": "e668d47e7dce3c0405e539e11cb415de4cb572de0dbb05acf48c57ed5924fb47"
+          },
+          {
+            "path": "reports/byd_real_news_summary_20260414_110032.txt",
+            "size": 397,
+            "sha256": "e8321aa57a31aed079a3b2b41e70990c9f96238161d6c8a947c7332434676b95"
+          },
+          {
+            "path": "reports/byd_stock_news_daily_20260317_complete.md",
+            "size": 6774,
+            "sha256": "24aa823a9646bbdc370bdd8e4a592a5e91c75bdea6825d7f7c3038fde53c4ff9"
+          },
+          {
+            "path": "reports/byd_stock_news_daily_20260326_complete.md",
+            "size": 7452,
+            "sha256": "af94360ba27bbd4e015d565e749c117b5630eea38d46dcad3bb89661eef26452"
+          },
+          {
+            "path": "reports/cron_summary_20260317.txt",
+            "size": 1494,
+            "sha256": "8617928d21b70712ddf4e5f25c43dd7c86302db0eb24be1824801c3bd88a14a5"
+          },
+          {
+            "path": "reports/cron_summary_20260319.txt",
+            "size": 823,
+            "sha256": "153546989232e09438513717e216acd5a313ebc460450623e9d7f1567af257b7"
+          },
+          {
+            "path": "reports/daily_summary_20260317_110018.json",
+            "size": 297,
+            "sha256": "27e7c0ca1392f9c70700d9cdaeb1b58b078c53db939486149aa45c7697d032d8"
+          },
+          {
+            "path": "reports/daily_summary_20260318_110031.json",
+            "size": 297,
+            "sha256": "0f4c80815fd2a25bc0f5651f8832286a59311fc7a2a059d893c30a07e9d9c4e7"
+          },
+          {
+            "path": "reports/daily_summary_20260319_110021.json",
+            "size": 297,
+            "sha256": "4edadda9c274612df5f011aef3de37dc1ef32bdeb1c6ff748406c0062a007fb2"
+          },
+          {
+            "path": "reports/daily_summary_20260324_110000.json",
+            "size": 1523,
+            "sha256": "e417fb3f167b01b37aa1c0ef1e2833f64528c0b3a4eb6e1a00959243a2fc0f15"
+          },
+          {
+            "path": "reports/daily_summary_20260325_110037.json",
+            "size": 297,
+            "sha256": "4f8d62bd325c70cab0822ef8be809826bf813330c331769818a7de81a7544bc8"
+          },
+          {
+            "path": "reports/daily_summary_20260327_110048.json",
+            "size": 297,
+            "sha256": "70ab4fc42d0799f2a16465f4bf6bf4c7ebdf311a4f9e88679bc3995cef493c40"
+          },
+          {
+            "path": "reports/final_task_summary.txt",
+            "size": 2120,
+            "sha256": "7c1ffef8b61c6da9597210325102cb2623e23335004b2a5ba9d09f90474fba83"
+          },
+          {
+            "path": "reports/final_task_summary_20260327.txt",
+            "size": 1244,
+            "sha256": "0d5b2f64c20a554c1552c856f4366400268710e09aba7db10d8a02386c773a81"
+          },
+          {
+            "path": "reports/latest_summary.json",
+            "size": 873,
+            "sha256": "a27091311419aa8338ae179baea9c6c98ffb89502ed0435ad45ff4e433ed62d1"
+          },
+          {
+            "path": "reports/task_execution_summary_20260318_1103.md",
+            "size": 5578,
+            "sha256": "ed5f22e150e9c90176ec5c44f549a1edb6282b7b6beb5ef783c20ed4dd14a187"
+          },
+          {
+            "path": "reports/task_execution_summary_20260319_1105.md",
+            "size": 2317,
+            "sha256": "a93af20c1974c8f855f17ca10572f36097c6d960dfc208f3e50c5a0e4c5d1ab1"
+          },
+          {
+            "path": "reports/task_execution_summary_20260324_1100.md",
+            "size": 3133,
+            "sha256": "9de2126743142297f375e472d79353019dfc9d60709efa88a6f23b0c49fbce81"
+          },
+          {
+            "path": "reports/task_execution_summary_20260326_1105.md",
+            "size": 3868,
+            "sha256": "b2d2d75fe40074e211716360e3f6495d150696fb2ac143d34fe46fec7a4ee4b2"
+          },
+          {
+            "path": "reports/task_execution_summary_20260327_1105.md",
+            "size": 4586,
+            "sha256": "1e12b828c15cdb6d7e07209c1a79aaffae0f239db3878cdb1a122bf017c25e70"
+          },
+          {
+            "path": "reports/task_execution_summary_20260407_1109.md",
+            "size": 3004,
+            "sha256": "62263a1284c11b227132a0e32e11e470d2ddf5bcd9868547ed3c459578ffee8e"
+          },
+          {
+            "path": "scripts/generate_report.py",
+            "size": 13762,
+            "sha256": "012bc204fcb321af7fcebcf837f1728375b599109c6f2897dd14fe8041db8d9a"
+          },
+          {
+            "path": "scripts/main.py",
+            "size": 10364,
+            "sha256": "4e6536e738dd7ad1099b9a47637f36c38363c4f8ab8d2302a89917560b218ee9"
+          },
+          {
+            "path": "scripts/process_news.py",
+            "size": 11431,
+            "sha256": "59685e702b87f5711b827dacc7a2363b9b5de692786ebe2e3ef3555bb47fabb0"
+          },
+          {
+            "path": "scripts/reports/byd_real_news_raw_20260318_110246.json",
+            "size": 4706,
+            "sha256": "c79e1c3aedf5bd1d0fec30de5b4b10ca5d660b1d1064d1df51be0379a53e0646"
+          },
+          {
+            "path": "scripts/reports/byd_real_news_raw_20260323_110029.json",
+            "size": 4706,
+            "sha256": "d60979c1b03614cfb11f0c9d77ba246b6b598f45d88dc661d0ebe58b05746026"
+          },
+          {
+            "path": "scripts/reports/byd_real_news_raw_20260326_110033.json",
+            "size": 4706,
+            "sha256": "d927b1ec2d345a14932b04fd696f8f282812083b18152d245dd2efc2868f10a0"
+          },
+          {
+            "path": "scripts/reports/byd_real_news_raw_20260331_110050.json",
+            "size": 4706,
+            "sha256": "c2855ba003bd99e5f03b0b721d6c0656aff7d8121db27e2f9dc568ca776e4191"
+          },
+          {
+            "path": "scripts/reports/byd_real_news_raw_20260401_110045.json",
+            "size": 4706,
+            "sha256": "6c390384aa78cd21ada789c90dd9b6eb60620ae43832c633ac782636856881fc"
+          },
+          {
+            "path": "scripts/reports/byd_real_news_report_20260318_110246.md",
+            "size": 1396,
+            "sha256": "ab936ed59dfb12ea8b78b842dc6d5433cbf3b0023f707780e56e47e53f2d82cb"
+          },
+          {
+            "path": "scripts/reports/byd_real_news_report_20260323_110029.md",
+            "size": 1396,
+            "sha256": "651db9062384d1c4381c3e3b81bbc57560b80e3162347276c8e23b9edc4a4954"
+          },
+          {
+            "path": "scripts/reports/byd_real_news_report_20260326_110033.md",
+            "size": 1396,
+            "sha256": "ad557957b65b8aeddbb928e0f74931299848ed37c72f20564a78d95d1e20e93d"
+          },
+          {
+            "path": "scripts/reports/byd_real_news_report_20260331_110050.md",
+            "size": 1396,
+            "sha256": "9829be442d6174a416d4a9ed5c532689afba2f620fc49cc65a4f0759c36b4b75"
+          },
+          {
+            "path": "scripts/reports/byd_real_news_report_20260401_110045.md",
+            "size": 1396,
+            "sha256": "c82c894d0089d85372c4cc5be75703fc77e469f7eb9cebc2eb7768aed98e293d"
+          },
+          {
+            "path": "scripts/reports/byd_real_news_summary_20260318_110246.txt",
+            "size": 403,
+            "sha256": "33e60b7c428872739c961f4ad549446266b3ec92b7bbfa59c747dd6443dba172"
+          },
+          {
+            "path": "scripts/reports/byd_real_news_summary_20260323_110029.txt",
+            "size": 403,
+            "sha256": "98eaa6356856b957c5d1bbfac1003b9dadd65f472a4eafc886270f15dcaef9b3"
+          },
+          {
+            "path": "scripts/reports/byd_real_news_summary_20260326_110033.txt",
+            "size": 403,
+            "sha256": "64058513ee0144d54cb02f63e44dfb02528296e63863623b31470b65f741bddb"
+          },
+          {
+            "path": "scripts/reports/byd_real_news_summary_20260331_110050.txt",
+            "size": 403,
+            "sha256": "30607d5db6d56f2f59b700a53f2dfc6b15dbc2b987be32d75c51b523c2a36c2b"
+          },
+          {
+            "path": "scripts/reports/byd_real_news_summary_20260401_110045.txt",
+            "size": 403,
+            "sha256": "f7d3ee802267fcdc354b973ff8a8928ca58ad70668d8769b187e6dad473924ba"
+          },
+          {
+            "path": "scripts/run_byd_news_task.py",
+            "size": 15276,
+            "sha256": "587815292a0fd54c0686da59c750fd9872aebfd6199c7a100f3e072cd923c384"
+          },
+          {
+            "path": "scripts/search_real_news.py",
+            "size": 13825,
+            "sha256": "b5deb727c334b0a71960ee2ea107c40a7352f63c1bcdd20a1cdc04e98b60e442"
+          }
+        ],
+        "total_bytes": 265641
+      }
+    },
+    {
+      "path": "/Users/huangluguang/.openclaw/workspace/skills/clickhouse",
+      "name": "ClickHouse",
+      "description": "Query, optimize, and administer ClickHouse OLAP databases with schema design, performance tuning, and data ingestion patterns.",
+      "fingerprint": "sha256:110afcfe31a8b2cfed887d1c14b930d27ba52ef5ace77c15ffa52755b516ae7c",
+      "file_count": 8,
+      "total_bytes": 26066,
+      "local_findings": [
+        {
+          "severity": "MEDIUM",
+          "rule": "sensitive_file_access",
+          "file": "SKILL.md",
+          "message": "发现敏感文件路径特征"
+        },
+        {
+          "severity": "MEDIUM",
+          "rule": "network_post",
+          "file": "queries.md",
+          "message": "发现网络请求相关代码"
+        }
+      ],
+      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/report-packages/clickhouse-110afcfe31a8.zip",
+      "submitted": true,
+      "submission": {
+        "skill_id": "6af899ce-3915-4d56-a1a9-e3ee82c94ede",
+        "name": "ClickHouse",
+        "status": "PENDING",
+        "message": "已提交，后台分析中。请在技能列表查看状态变化。",
+        "detail_url": "http://localhost:5174/skills/6af899ce-3915-4d56-a1a9-e3ee82c94ede"
+      },
+      "manifest": {
+        "name": "ClickHouse",
+        "description": "Query, optimize, and administer ClickHouse OLAP databases with schema design, performance tuning, and data ingestion patterns.",
+        "root": "/Users/huangluguang/.openclaw/workspace/skills/clickhouse",
+        "fingerprint": "sha256:110afcfe31a8b2cfed887d1c14b930d27ba52ef5ace77c15ffa52755b516ae7c",
+        "files": [
+          {
+            "path": ".clawhub/origin.json",
+            "size": 142,
+            "sha256": "67c22e73b529cb1b657da710349241cbb65595a6173fae97e3fbac3442d27502"
+          },
+          {
+            "path": "SKILL.md",
+            "size": 6826,
+            "sha256": "b57f273d5618633f39a77d67277ae222217afa71fa39fb64e63b68b249c976d8"
+          },
+          {
+            "path": "_meta.json",
+            "size": 129,
+            "sha256": "390fc2f3ed182434a5ac548fd4615d2e878b4cf07fdbf88fd0c161fcf419f405"
+          },
+          {
+            "path": "ingestion.md",
+            "size": 5643,
+            "sha256": "fc5c40e4744a133445af62e9c8b6408b8048a3d91733949805764e430d33cc38"
+          },
+          {
+            "path": "memory-template.md",
+            "size": 1563,
+            "sha256": "e75edaffc064a1b656488468cc6674b0009d84f5916b038ba7518e87c9861ada"
+          },
+          {
+            "path": "performance.md",
+            "size": 5409,
+            "sha256": "dc78fce3d3c93a4b5a5c2615c62fe0018bfb21a00e6c8bf577791690a014be2f"
+          },
+          {
+            "path": "queries.md",
+            "size": 4518,
+            "sha256": "4e934ecdf2fecbc7bdc637c5cc1804b5cbf01ab3c6e513bc07e0422470f00746"
+          },
+          {
+            "path": "setup.md",
+            "size": 1836,
+            "sha256": "de8922f8ddee16bd4663a49c26fba9924edc8f63ac248dd157eb962f7af16423"
+          }
+        ],
+        "total_bytes": 26066
+      }
+    },
+    {
+      "path": "/Users/huangluguang/.openclaw/workspace/skills/multi-search-engine-2.0.1",
+      "name": "multi-search-engine",
+      "description": "Multi search engine integration with 17 engines (8 CN + 9 Global). Supports advanced search operators, time filters, site search, privacy engines, and WolframAlpha knowledge queries. No API keys required.",
+      "fingerprint": "sha256:d7ed83ff0d7e48daf8ea130127a8a6b1441e47a06a5fc2dc5b396248d47fa970",
+      "file_count": 7,
+      "total_bytes": 30119,
+      "local_findings": [
+        {
+          "severity": "MEDIUM",
+          "rule": "network_post",
+          "file": "references/international-search.md",
+          "message": "发现网络请求相关代码"
+        }
+      ],
+      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/report-packages/multi-search-engine-d7ed83ff0d7e.zip",
+      "submitted": true,
+      "submission": {
+        "skill_id": "7c409077-3a06-46b3-84c1-87e9605b1261",
+        "name": "multi-search-engine",
+        "status": "PENDING",
+        "message": "已提交，后台分析中。请在技能列表查看状态变化。",
+        "detail_url": "http://localhost:5174/skills/7c409077-3a06-46b3-84c1-87e9605b1261"
+      },
+      "manifest": {
+        "name": "multi-search-engine",
+        "description": "Multi search engine integration with 17 engines (8 CN + 9 Global). Supports advanced search operators, time filters, site search, privacy engines, and WolframAlpha knowledge queries. No API keys required.",
+        "root": "/Users/huangluguang/.openclaw/workspace/skills/multi-search-engine-2.0.1",
+        "fingerprint": "sha256:d7ed83ff0d7e48daf8ea130127a8a6b1441e47a06a5fc2dc5b396248d47fa970",
+        "files": [
+          {
+            "path": "CHANGELOG.md",
+            "size": 376,
+            "sha256": "21ed06de8dcb14e477f44b6cc7762e18689c4b2da0006600c9d5a509a32bb17c"
+          },
+          {
+            "path": "CHANNELLOG.md",
+            "size": 1132,
+            "sha256": "e76603f4891c4deb7d81dfb8966218a3705d639bf1f721bccb1626d4fd1aa67e"
+          },
+          {
+            "path": "SKILL.md",
+            "size": 3372,
+            "sha256": "ef2d2706e82ad0fc8d681b48e08cfac3ddb716972560394dabe25bf01ccf4933"
+          },
+          {
+            "path": "_meta.json",
+            "size": 138,
+            "sha256": "c519005e390529c64cea5e920e579f2c840dfa6fe3c51d01a752f7cd3a469830"
+          },
+          {
+            "path": "config.json",
+            "size": 1701,
+            "sha256": "120f98289429b9763f548266d65a48faf4d50acb39d893260386cf3c5f370d25"
+          },
+          {
+            "path": "metadata.json",
+            "size": 239,
+            "sha256": "2199f8bbabb0014745ab8c20bcc37906e6e5f431aea59196348af88b9582cad8"
+          },
+          {
+            "path": "references/international-search.md",
+            "size": 23161,
+            "sha256": "ee2d742aa59287140b388ca10ab2c9cb7da9c5d86a2b2a991ea06a79916ed390"
+          }
+        ],
+        "total_bytes": 30119
+      }
+    },
+    {
+      "path": "/Users/huangluguang/.openclaw/workspace/skills/self-improving",
+      "name": "Self-Improving Agent (With Self-Reflection)",
+      "description": "Self-reflection + Self-criticism + Self-learning + Self-organizing memory. Agent evaluates its own work, catches mistakes, and improves permanently. Use this skill before starting work and after responding to the user.",
+      "fingerprint": "sha256:89147e8359b5c9c5408a27f2c53520eea712f18d99044e5f8381bd59bd86c301",
+      "file_count": 12,
+      "total_bytes": 23853,
+      "local_findings": [
+        {
+          "severity": "MEDIUM",
+          "rule": "network_post",
+          "file": "SKILL.md",
+          "message": "发现网络请求相关代码"
+        },
+        {
+          "severity": "MEDIUM",
+          "rule": "sensitive_file_access",
+          "file": "SKILL.md",
+          "message": "发现敏感文件路径特征"
+        }
+      ],
+      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/report-packages/self-improving-agent-with-self-reflection-89147e8359b5.zip",
+      "submitted": true,
+      "submission": {
+        "skill_id": "44ff74b3-5790-485a-88c1-6d23f6b54116",
+        "name": "Self-Improving Agent (With Self-Reflection)",
+        "status": "PENDING",
+        "message": "已提交，后台分析中。请在技能列表查看状态变化。",
+        "detail_url": "http://localhost:5174/skills/44ff74b3-5790-485a-88c1-6d23f6b54116"
+      },
+      "manifest": {
+        "name": "Self-Improving Agent (With Self-Reflection)",
+        "description": "Self-reflection + Self-criticism + Self-learning + Self-organizing memory. Agent evaluates its own work, catches mistakes, and improves permanently. Use this skill before starting work and after responding to the user.",
+        "root": "/Users/huangluguang/.openclaw/workspace/skills/self-improving",
+        "fingerprint": "sha256:89147e8359b5c9c5408a27f2c53520eea712f18d99044e5f8381bd59bd86c301",
+        "files": [
+          {
+            "path": ".clawhub/origin.json",
+            "size": 146,
+            "sha256": "046eccb997415b7c8b7a80ebff98a8fa25dd77bf8b237395e58a7feb400816e2"
+          },
+          {
+            "path": "SKILL.md",
+            "size": 6845,
+            "sha256": "8e22537f9df3c3e4fa6e9d9fc3577bd74c09cafe537ff7dbb99b52aee659c963"
+          },
+          {
+            "path": "_meta.json",
+            "size": 133,
+            "sha256": "6159606cd85c3d3caaff1987e149d56e19ea67f649c3b724b725ba695787dd85"
+          },
+          {
+            "path": "boundaries.md",
+            "size": 2236,
+            "sha256": "d306e26bc55d77bc8397b5cd8fc0a3fc0fc3dc085ae2eecf1c0196b329c3f24e"
+          },
+          {
+            "path": "corrections.md",
+            "size": 1026,
+            "sha256": "55191d526c48a05928c20a9f8581100b39a46140bfc4fba6ebd600c9f9eae688"
+          },
+          {
+            "path": "learning.md",
+            "size": 2951,
+            "sha256": "7662295cc88c04e2620de8bb83331cda6a7347b4cfdaaa131ebd23cdd56b1b96"
+          },
+          {
+            "path": "memory-template.md",
+            "size": 1014,
+            "sha256": "bdefc56271ccca51b9f27e6f7ac5ca135e2cb7a2ba7e6661bd0aac068dbc6e41"
+          },
+          {
+            "path": "memory.md",
+            "size": 756,
+            "sha256": "f41a0b5c0530b7085dfcf783afddd074db5638721552abf7cb0d227530024a63"
+          },
+          {
+            "path": "operations.md",
+            "size": 3435,
+            "sha256": "efe32247caa4fb05a401501b91eec26d1400d68efd02810ebab681b284c5a8c4"
+          },
+          {
+            "path": "reflections.md",
+            "size": 840,
+            "sha256": "7a3322c2784dde81030c41ca6b681ce883f253176ce32601d921da7aa1065bcd"
+          },
+          {
+            "path": "scaling.md",
+            "size": 2945,
+            "sha256": "7821d1a8580f8687be461d74a1e3e1fa0cf96c86c36ed788763b159a88f2fe42"
+          },
+          {
+            "path": "setup.md",
+            "size": 1526,
+            "sha256": "a91e1edb58cea982908da27fe0dfd9feb8d417787f47c719a6e0efa5a79e4c7d"
+          }
+        ],
+        "total_bytes": 23853
+      }
+    },
+    {
+      "path": "/Users/huangluguang/.openclaw/workspace/skills/skill-creator",
+      "name": "skill-creator",
+      "description": "Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Claude's capabilities with specialized knowledge, workflows, or tool integrations.",
+      "fingerprint": "sha256:cadbdf671c668d955d6408b016ab478309ebedcb792a8de8182469602ecfe2f9",
+      "file_count": 9,
+      "total_bytes": 49776,
+      "local_findings": [
+        {
+          "severity": "MEDIUM",
+          "rule": "network_post",
+          "file": "scripts/init_skill.py",
+          "message": "发现网络请求相关代码"
+        }
+      ],
+      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/report-packages/skill-creator-cadbdf671c66.zip",
+      "submitted": true,
+      "submission": {
+        "skill_id": "fd4dae54-ed71-40be-a1c2-6cc3b1efd04b",
+        "name": "skill-creator",
+        "status": "PENDING",
+        "message": "已提交，后台分析中。请在技能列表查看状态变化。",
+        "detail_url": "http://localhost:5174/skills/fd4dae54-ed71-40be-a1c2-6cc3b1efd04b"
+      },
+      "manifest": {
+        "name": "skill-creator",
+        "description": "Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Claude's capabilities with specialized knowledge, workflows, or tool integrations.",
+        "root": "/Users/huangluguang/.openclaw/workspace/skills/skill-creator",
+        "fingerprint": "sha256:cadbdf671c668d955d6408b016ab478309ebedcb792a8de8182469602ecfe2f9",
+        "files": [
+          {
+            "path": ".clawhub/origin.json",
+            "size": 145,
+            "sha256": "d19175e0475256a107395587a747cd33b62d24c17f4ad28d97a7f12a3c5e377c"
+          },
+          {
+            "path": "LICENSE.txt",
+            "size": 11357,
+            "sha256": "58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd"
+          },
+          {
+            "path": "SKILL.md",
+            "size": 17837,
+            "sha256": "b2e3d83f60425c2d0b9d4162efb8f9aa322b45843497340f2289f42be422801c"
+          },
+          {
+            "path": "_meta.json",
+            "size": 132,
+            "sha256": "e42619674aa33a7b19420e199794a6ea28a10df672a9c67106ac03cbab1a4aa4"
+          },
+          {
+            "path": "references/output-patterns.md",
+            "size": 1813,
+            "sha256": "d6027800b9d8c26589edba85b42901a41ac36d753b4e9cebc7f4cbb03cdcf0a4"
+          },
+          {
+            "path": "references/workflows.md",
+            "size": 818,
+            "sha256": "ef4846877d5dab47511a01a6cf31476ad64f5bc5945635459295794575338980"
+          },
+          {
+            "path": "scripts/init_skill.py",
+            "size": 10863,
+            "sha256": "0bba250b94caa4cb2b28b15dad26fdcf371aeda4c9797b8120e55c2e33e0c73c"
+          },
+          {
+            "path": "scripts/package_skill.py",
+            "size": 3288,
+            "sha256": "b31fbcb3e362d5c5308e99255ff8e83cde3a513e0636953964a648494ca10931"
+          },
+          {
+            "path": "scripts/quick_validate.py",
+            "size": 3523,
+            "sha256": "381ab2d3d1fd5ec32371016413063eff99d0d48c415747085c61517e967dbb87"
+          }
+        ],
+        "total_bytes": 49776
+      }
+    }
+  ]
+}

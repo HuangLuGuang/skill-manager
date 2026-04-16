@@ -7,7 +7,7 @@
         type="info"
         show-icon
         message="提交说明"
-        description="你可以上传 ZIP、从后台指定目录中多选 skill 导入，或填写 ZIP 下载地址 / GitHub 仓库地址先下载并扫描候选 skill，再多选提交。ZIP 选择或拖拽后会自动解析；来源会根据导入方式自动填充，提交后会先进入 PENDING，再由后台继续完成扫描、LLM、行为分析和 Sandbox。"
+        description="你可以上传 ZIP、从后台指定目录中多选 skill 导入，或填写 ZIP 下载地址 / GitHub 仓库地址先下载并扫描候选 skill，再多选提交。ZIP 选择或拖拽后会自动解析；来源会根据导入方式自动填充，提交后会先进入 PENDING，再由后台继续完成扫描、LLM、规则分析和 Sandbox。"
         style="margin-bottom: 16px"
       />
 
@@ -86,7 +86,7 @@
             <a-form-item>
               <a-space wrap>
                 <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动行为分析</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认未启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
                   <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
@@ -170,7 +170,7 @@
             <a-form-item>
               <a-space wrap>
                 <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动行为分析</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认未启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
                   <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
@@ -248,7 +248,7 @@
             <a-form-item>
               <a-space wrap>
                 <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动行为分析</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认未启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
                   <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
@@ -302,7 +302,7 @@
             <a-form-item>
               <a-space wrap>
                 <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动行为分析</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认未启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
                   <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
@@ -337,7 +337,7 @@
         type="info"
         show-icon
         message="后台分析中"
-        description="技能已经入库，服务端正在后台执行扫描、LLM、行为分析和 Sandbox。列表页会显示最新状态。"
+        description="技能已经入库，服务端正在后台执行扫描、LLM、规则分析和 Sandbox。列表页会显示最新状态。"
       />
       <a-table
         :data-source="submitResults"
@@ -574,7 +574,7 @@ const llmTooltip = computed(() => {
   if (!managerStatus.value?.llm_api_key_configured) return '系统设置里尚未配置 LLM API Key，所以这里不能勾选'
   return '启用后会调用系统设置里的 DeepSeek 配置，对技能做补充分析'
 })
-const behavioralTooltip = '启用后会额外扫描 scripts、references、prompts 等目录中的文本代码文件，检测命令执行、敏感文件访问、动态执行等可疑模式'
+const behavioralTooltip = '默认未启动。启用后会额外扫描 scripts、references、prompts 等目录中的文本代码文件，检测命令执行、敏感文件访问、动态执行等可疑模式'
 const sandboxTooltip = '启用后会尝试在 Docker 沙箱或远程隔离执行服务中执行一个受控 probe，用于观察 skill 运行时行为'
 
 const inferRemoteOrigin = (url) => (url && url.includes('github.com') ? 'github' : 'unknown')

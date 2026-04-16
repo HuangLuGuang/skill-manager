@@ -75,6 +75,7 @@ import {
   DeploymentUnitOutlined,
   DownOutlined,
   FileSearchOutlined,
+  KeyOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
   UploadOutlined,
@@ -104,6 +105,7 @@ const menuItems = [
   { key: '/runtime', label: '运行时治理', icon: SafetyCertificateOutlined },
   { key: '/audit', label: '审计日志', icon: AuditOutlined },
   { key: '/policy', label: '策略配置', icon: SettingOutlined },
+  { key: '/scanner-access', label: '扫描器接入', icon: KeyOutlined },
   { key: '/settings', label: '系统设置', icon: SettingOutlined },
 ]
 

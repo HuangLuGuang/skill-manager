@@ -7,7 +7,12 @@ import pytest
 
 from skill_manager.core.models import RiskLevel, SkillOrigin, SkillStatus, SourceInfo
 from skill_manager.core.policy import CompanyPolicy
-from skill_manager.core.vetting import VettingPipeline, _check_manifest_policy, _load_manifest
+from skill_manager.core.vetting import (
+    VettingPipeline,
+    _check_manifest_policy,
+    _load_manifest,
+    _normalize_llm_probe_entrypoint,
+)
 
 
 @pytest.fixture
@@ -188,3 +193,15 @@ class TestVettingPipeline:
         assert result.sandbox_required_by_policy is False
         assert result.sandbox_runtime == "docker"
         assert "sandbox_analysis" in result.scan_report
+
+    def test_llm_probe_entrypoint_must_be_existing_supported_file(self, skill_dir):
+        tools_dir = skill_dir / "tools"
+        tools_dir.mkdir()
+        (tools_dir / "check.py").write_text("print('ok')\n", encoding="utf-8")
+        (tools_dir / "data.txt").write_text("text\n", encoding="utf-8")
+
+        assert _normalize_llm_probe_entrypoint(skill_dir, "tools/check.py", "tools/check.py") == "tools/check.py"
+        assert _normalize_llm_probe_entrypoint(skill_dir, None, "tools/check.py") == "tools/check.py"
+        assert _normalize_llm_probe_entrypoint(skill_dir, "../escape.py", "tools/check.py") is None
+        assert _normalize_llm_probe_entrypoint(skill_dir, "tools/data.txt", "tools/check.py") is None
+        assert _normalize_llm_probe_entrypoint(skill_dir, "missing.py", "tools/check.py") is None

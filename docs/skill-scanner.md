@@ -1,0 +1,462 @@
+# 客户侧 Skill Scanner 使用说明
+
+本文档说明客户侧 Go 扫描器的定位、CLI/GUI 使用方式、Scanner Token、服务端接入接口、下载发布和重复扫描复用机制。
+
+---
+
+## 1. 定位
+
+客户侧 Skill Scanner 用于扫描客户本地的 skills 目录，并把发现的 skill 安全提交到 Skill Manager 后台治理流程。
+
+它解决的是这类场景：
+
+- 客户已有一批本地 skills，不方便逐个在管理台上传。
+- 客户环境不希望安装 Python、Node 或 Docker。
+- 需要一个单二进制工具递归发现 `SKILL.md`，做本地轻量预检，再上传服务端做完整扫描。
+- 客户侧只能拥有 scanner 最小权限，不能拥有审批、部署、策略修改、用户管理等管理权限。
+
+当前提供两个版本：
+
+- `skill-scanner-cli-*`：命令行版本，适合服务器、CI、批处理。
+- `skill-scanner-gui-*`：原生桌面 GUI，适合人工选择目录、选择 skill、查看扫描状态。
+
+---
+
+## 2. 总体流程
+
+```mermaid
+sequenceDiagram
+    participant User as "客户 / 操作员"
+    participant Scanner as "Go Scanner CLI/GUI"
+    participant API as "Skill Manager Scanner API"
+    participant Token as "Scanner Token Store"
+    participant Mgr as "SkillManager"
+    participant Vet as "Vetting Pipeline"
+    participant UI as "管理台"
+
+    User->>Scanner: 选择本地 skills 根目录
+    Scanner->>Scanner: 递归发现包含 SKILL.md 的目录
+    Scanner->>Scanner: 解析基础元数据 / manifest / fingerprint
+    Scanner->>Scanner: 本地轻量预检
+    Scanner->>Scanner: 安全打 ZIP
+    Scanner->>API: POST /api/v1/scanner/imports
+    API->>Token: 校验 Bearer Scanner Token
+    API->>API: 解压 ZIP 并重新计算 fingerprint
+    API->>API: 对比客户端 manifest fingerprint
+    API->>Mgr: 创建 PENDING 提交
+    API-->>Scanner: 返回 skill_id / detail_url
+    Mgr->>Vet: 后台完整扫描
+    Vet-->>Mgr: scanner / 规则分析 / LLM / sandbox 结果
+    Mgr->>Mgr: 检查重复扫描复用
+    Mgr->>UI: 列表 / 详情展示状态和报告
+    Scanner->>API: GET /api/v1/scanner/imports/{skill_id}
+    API-->>Scanner: 返回自己提交的扫描状态
+```
+
+---
+
+## 3. Scanner Token
+
+Scanner 不使用管理员登录态，而是使用专用 Scanner Token。
+
+### 3.1 创建位置
+
+管理台进入：
+
+- `扫描器接入`
+- `Scanner Token 管理`
+- 创建 Token
+
+创建后只展示一次明文 Token。服务端只保存 hash。
+
+### 3.2 权限范围
+
+默认最小权限：
+
+- `scanner:submit`
+- `scanner:read-own-results`
+- `scanner:read-own-sessions`
+
+不要给 scanner token 授予：
+
+- 审批权限
+- 部署权限
+- 策略修改权限
+- 用户管理权限
+- Token 管理权限
+
+### 3.3 安全控制
+
+Token 支持：
+
+- 禁用 / 吊销
+- 过期时间
+- 允许 IP / CIDR
+- 最大上传大小
+- 最大并发任务数
+- 审计日志
+
+Token 明文可以通过 CLI 参数、环境变量或 GUI 设置页配置，不应硬编码到二进制里。
+
+---
+
+## 4. CLI 使用
+
+### 4.1 下载
+
+管理台进入：
+
+- `扫描器接入`
+- `下载扫描器`
+
+选择对应平台的 CLI 文件，例如：
+
+- `skill-scanner-cli-darwin-arm64`
+- `skill-scanner-cli-darwin-amd64`
+- `skill-scanner-cli-linux-amd64`
+- `skill-scanner-cli-linux-arm64`
+
+下载列表来自：
+
+- `scanner/releases/`
+
+如果页面显示没有可下载文件，需要先在服务端构建发布文件，见本文第 9 节。
+
+### 4.2 基本命令
+
+```bash
+chmod +x skill-scanner-cli-darwin-arm64
+./skill-scanner-cli-darwin-arm64 scan /path/to/skills \
+  --server http://localhost:8000 \
+  --token "$SKILL_MANAGER_TOKEN" \
+  --host-id customer-prod-01 \
+  --behavioral \
+  --sandbox \
+  --llm \
+  --output skill-scan-report.json
+```
+
+也可以使用环境变量：
+
+```bash
+export SKILL_MANAGER_SERVER="http://localhost:8000"
+export SKILL_MANAGER_TOKEN="smsc_live_xxx"
+export SKILL_SCANNER_HOST_ID="customer-prod-01"
+
+./skill-scanner-cli-darwin-arm64 scan /path/to/skills --behavioral --sandbox --llm
+```
+
+### 4.3 参数说明
+
+| 参数 | 说明 |
+| --- | --- |
+| `scan <path>` | 扫描根目录。scanner 会递归发现包含 `SKILL.md` 的目录。 |
+| `--server URL` | Skill Manager 服务端地址。设置后会自动启用上传。 |
+| `--token TOKEN` | Scanner Token。也可用 `SKILL_MANAGER_TOKEN`。 |
+| `--output PATH` | 本地 JSON 报告输出路径，默认 `skill-scan-report.json`。 |
+| `--host-id ID` | 客户侧主机或环境标识，方便服务端审计来源。 |
+| `--upload` | 显式上传到服务端。配置 `--server` 时会自动上传。 |
+| `--behavioral` | 启用服务端规则分析。界面里显示为“规则分析”。 |
+| `--sandbox` | 启用服务端 sandbox 动态执行验证。 |
+| `--llm` | 启用服务端 LLM 分析。需要系统设置里已配置 LLM。 |
+| `--timeout` | HTTP 请求超时时间，默认 `120s`。 |
+| `--max-file-mb` | 单文件打包大小上限，默认 `20`。 |
+| `--max-total-mb` | 单个 skill 包总大小上限，默认 `50`。 |
+| `--max-files` | 单个 skill 最大文件数，默认 `2000`。 |
+| `--ignore` | 忽略目录名，默认 `.git,.venv,node_modules,__pycache__,dist,build`。 |
+
+### 4.4 本地报告
+
+CLI 会生成 JSON 报告，内容包括：
+
+- 扫描根目录
+- 发现的 skills 数量
+- 每个 skill 的路径、名称、描述、文件数、大小
+- 本地轻量预检结果
+- 上传后的 `skill_id`
+- 服务端返回状态
+- 详情页链接
+
+最终完整扫描报告以 Skill Manager 服务端详情页为准。
+
+---
+
+## 5. GUI 使用
+
+GUI 是原生桌面程序，不是网页版 GUI。
+
+### 5.1 下载
+
+管理台进入：
+
+- `扫描器接入`
+- `下载扫描器`
+
+选择对应平台的 GUI 文件，例如：
+
+- `skill-scanner-gui-darwin-arm64`
+- `skill-scanner-gui-darwin-amd64`
+
+当前 GUI 使用 Fyne 构建，跨平台 GUI 需要目标平台图形工具链。服务端发布目录里有哪个二进制，页面就显示哪个可下载项。
+
+### 5.2 基本操作
+
+1. 打开 GUI。
+2. 进入 `设置` 页，配置：
+   - Skill Manager Server
+   - Scanner Token
+   - Host ID
+   - 默认输出报告路径
+3. 回到扫描页，点击 `选择目录`。
+4. GUI 调用系统文件选择器选择本地 skills 根目录。
+5. 点击 `发现 Skills`。
+6. 在表格中勾选要提交的 skill。
+7. 配置扫描参数：
+   - 规则分析
+   - Sandbox
+   - LLM 分析
+   - 超时
+   - 文件大小 / 数量限制
+   - 忽略目录
+8. 点击 `执行扫描`。
+
+### 5.3 结果查看
+
+GUI 结果区会实时刷新：
+
+- 发现数量
+- 已提交数量
+- 失败数量
+- 每个 skill 的名称、状态、风险、错误信息
+
+表格的 `详情` 列可以打开 Skill Manager 管理台对应 skill 详情页。
+
+如果状态一直是 `PENDING`，可以：
+
+- 等待 GUI 自动刷新。
+- 手动刷新。
+- 到管理台技能列表或详情页查看后台扫描进度。
+
+---
+
+## 6. 本地轻量预检
+
+客户侧 scanner 的本地预检只做低成本静态检查，不执行客户代码。
+
+预检目标是提前发现明显问题，例如：
+
+- 超大文件
+- 文件总量过大
+- 常见忽略目录
+- 危险扩展名
+- 明显危险关键词
+- 打包路径逃逸风险
+
+本地预检不是最终结论。最终风险等级由服务端完整扫描、策略、LLM 和 sandbox 汇总决定。
+
+---
+
+## 7. 服务端接口
+
+Scanner 使用专用 API，不复用管理员接口。
+
+### 7.1 提交
+
+```http
+POST /api/v1/scanner/imports
+Authorization: Bearer <scanner-token>
+Content-Type: multipart/form-data
+```
+
+表单字段：
+
+- `file`：skill ZIP 包
+- `manifest`：scanner 生成的 manifest JSON
+- `use_behavioral`：是否启用规则分析
+- `use_llm`：是否启用 LLM 分析
+- `use_sandbox`：是否启用 sandbox
+- `scanner_version`：scanner 版本
+- `host_id`：客户侧主机 / 环境标识
+
+服务端会：
+
+1. 校验 scanner token。
+2. 检查上传大小。
+3. 解压 ZIP，支持嵌套压缩包解包。
+4. 重新计算 skill fingerprint。
+5. 对比客户端 manifest fingerprint。
+6. 持久化上传目录。
+7. 创建 `PENDING` skill。
+8. 后台执行完整扫描。
+
+### 7.2 查询自己的提交
+
+```http
+GET /api/v1/scanner/imports/{skill_id}
+Authorization: Bearer <scanner-token>
+```
+
+只能读取当前 token 自己提交的结果。
+
+---
+
+## 8. 重复扫描复用
+
+服务端会尽量避免重复扫描完全相同的 skill。
+
+### 8.1 复用条件
+
+必须同时满足：
+
+- skill 内容指纹一致。
+- 扫描上下文指纹一致。
+- 已经存在完成扫描的历史记录。
+
+内容指纹来自完整目录树：
+
+- 文件相对路径
+- 文件大小
+- 文件 SHA256
+
+扫描上下文指纹包含：
+
+- 当前策略内容
+- 是否启用规则分析
+- 是否启用 LLM
+- 是否启用 sandbox
+- scanner / policy / vetting 相关代码版本
+- LLM 配置和 prompt 源
+- sandbox 配置和 runner 源
+
+### 8.2 页面显示
+
+如果发生复用，技能详情会显示：
+
+- 是否复用扫描结果
+- 复用来源 skill ID
+- 内容指纹
+- 扫描上下文指纹
+- scan cache key
+
+原始报告 JSON 里也会包含：
+
+- `scan_reused`
+- `reused_from_skill_id`
+- `content_fingerprint`
+- `scan_context_fingerprint`
+- `scan_cache_key`
+
+### 8.3 为什么没有复用
+
+常见原因：
+
+- 两个 skill 内容并不完全一致。
+- 一个开启了 LLM，另一个没开启 LLM。
+- 一个开启了 sandbox，另一个没开启 sandbox。
+- 策略或扫描器代码升级导致扫描上下文变化。
+- 第一条还在 `PENDING`，没有完成结果可复用。
+- 旧记录是在复用功能上线前生成的，没有内容指纹。
+
+服务端现在除了查 `scan_cache/index.json`，还会在 cache miss 时从 registry 里查找已完成的相同指纹记录，并自动重建 cache。
+
+---
+
+## 9. 构建和发布扫描器
+
+### 9.1 本地构建
+
+```bash
+cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
+go test ./...
+go build -o skill-scanner ./cmd/skill-scanner
+go build -o skill-scanner-gui ./cmd/skill-scanner-gui
+```
+
+GUI 依赖本机图形工具链。macOS 上构建 macOS GUI 最稳定；跨平台 GUI 构建建议在目标平台构建。
+
+### 9.2 生成发布目录
+
+```bash
+cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
+./scripts/package.sh
+```
+
+脚本会生成版本号目录，例如：
+
+```text
+scanner/releases/2026.04.16-399cdd8c/
+```
+
+同时会把最新二进制同步到：
+
+```text
+scanner/releases/
+```
+
+管理台“扫描器接入”页面只读取 `scanner/releases/` 下的顶层文件：
+
+- `skill-scanner-cli-*`
+- `skill-scanner-gui-*`
+
+所以如果页面显示“当前可下载文件为空”，先检查：
+
+```bash
+ls -lh /Users/huangluguang/Desktop/Project/skill-manager/scanner/releases
+```
+
+### 9.3 支持的平台
+
+CLI 默认尝试构建：
+
+- macOS arm64
+- macOS amd64
+- Linux amd64
+- Linux arm64
+
+Windows CLI 需要显式打开：
+
+```bash
+BUILD_WINDOWS_CLI=1 ./scripts/package.sh
+```
+
+GUI 默认构建当前 macOS 主机平台，并在 Apple Silicon 上额外尝试 macOS amd64。
+
+可以通过环境变量打开更多 GUI 构建：
+
+```bash
+BUILD_LINUX_GUI=1 ./scripts/package.sh
+BUILD_WINDOWS_GUI=1 ./scripts/package.sh
+```
+
+如果缺少目标平台 GUI 工具链，脚本会跳过对应 GUI 二进制并输出 warning。
+
+---
+
+## 10. 服务端页面
+
+管理台 `扫描器接入` 页面提供：
+
+- Scanner Token 创建、查看、吊销
+- CLI / GUI 下载
+- 安装命令
+- 参数说明
+- 配置模板
+- 最近扫描会话和结果入口
+
+扫描完成后看结果的位置：
+
+- GUI / CLI 本地报告：看本地 `skill-scan-report.json`
+- 服务端最终结果：管理台 `技能列表` 和 `技能详情`
+- 审计：管理台 `审计日志`
+
+---
+
+## 11. 相关代码
+
+- [scanner/cmd/skill-scanner/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner/main.go)
+- [scanner/cmd/skill-scanner-gui/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner-gui/main.go)
+- [scanner/internal/runner/runner.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/internal/runner/runner.go)
+- [scanner/internal/gui/gui.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/internal/gui/gui.go)
+- [skill_manager/api/scanner_router.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/api/scanner_router.py)
+- [skill_manager/core/scanner_tokens.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/scanner_tokens.py)
+- [skill_manager/core/scan_cache.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/scan_cache.py)
