@@ -21,6 +21,7 @@ class ServiceConfig(BaseModel):
     max_code_bytes: int = 200_000
     python_bin: str = sys.executable
     node_bin: str = "node"
+    shell_bin: str = "sh"
     nsjail_bin: str = "nsjail"
     memory_limit_mb: int = 256
     cpu_limit_seconds: int = 10
@@ -36,6 +37,7 @@ class ServiceConfig(BaseModel):
             max_code_bytes=int(os.getenv("SANDBOX_SERVICE_MAX_CODE_BYTES", "200000")),
             python_bin=os.getenv("SANDBOX_SERVICE_PYTHON_BIN", sys.executable),
             node_bin=os.getenv("SANDBOX_SERVICE_NODE_BIN", "node"),
+            shell_bin=os.getenv("SANDBOX_SERVICE_SHELL_BIN", "sh"),
             nsjail_bin=os.getenv("SANDBOX_SERVICE_NSJAIL_BIN", "nsjail"),
             memory_limit_mb=int(os.getenv("SANDBOX_SERVICE_MEMORY_LIMIT_MB", "256")),
             cpu_limit_seconds=int(os.getenv("SANDBOX_SERVICE_CPU_LIMIT_SECONDS", "10")),
@@ -89,6 +91,7 @@ class Workspace:
         mapping = {
             "python3": "main.py",
             "nodejs": "main.js",
+            "shell": "main.sh",
         }
         if language not in mapping:
             raise ValueError(f"Unsupported language: {language}")
@@ -160,6 +163,8 @@ class SubprocessExecutor:
             return [self._resolve_binary(self.config.python_bin), str(source_path)]
         if language == "nodejs":
             return [self._resolve_binary(self.config.node_bin), str(source_path)]
+        if language == "shell":
+            return [self._resolve_binary(self.config.shell_bin), str(source_path)]
         raise ValueError(f"Unsupported language: {language}")
 
     @staticmethod
@@ -228,6 +233,8 @@ class NsjailExecutor:
             return [self._resolve_binary(self.config.python_bin), f"/workspace/{source_path.name}"]
         if language == "nodejs":
             return [self._resolve_binary(self.config.node_bin), f"/workspace/{source_path.name}"]
+        if language == "shell":
+            return [self._resolve_binary(self.config.shell_bin), f"/workspace/{source_path.name}"]
         raise ValueError(f"Unsupported language: {language}")
 
     def _build_nsjail_command(self, workspace_root: Path, command: list[str], enable_network: bool) -> list[str]:
@@ -297,7 +304,7 @@ def run_code(body: RunCodeRequest, config: ServiceConfig = Depends(ServiceConfig
     if body_bytes > config.max_code_bytes:
         raise HTTPException(status_code=413, detail="code payload too large")
 
-    if body.language not in {"python3", "nodejs"}:
+    if body.language not in {"python3", "nodejs", "shell"}:
         raise HTTPException(status_code=400, detail=f"unsupported language: {body.language}")
 
     work_root = Path(config.work_root)

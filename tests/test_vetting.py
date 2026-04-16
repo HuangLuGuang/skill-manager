@@ -7,6 +7,7 @@ import pytest
 
 from skill_manager.core.models import RiskLevel, SkillOrigin, SkillStatus, SourceInfo
 from skill_manager.core.policy import CompanyPolicy
+from skill_manager.core.sandbox import SandboxConfig, SandboxResult
 from skill_manager.core.vetting import (
     VettingPipeline,
     _check_manifest_policy,
@@ -205,3 +206,43 @@ class TestVettingPipeline:
         assert _normalize_llm_probe_entrypoint(skill_dir, "../escape.py", "tools/check.py") is None
         assert _normalize_llm_probe_entrypoint(skill_dir, "tools/data.txt", "tools/check.py") is None
         assert _normalize_llm_probe_entrypoint(skill_dir, "missing.py", "tools/check.py") is None
+
+    def test_sandbox_runs_skill_md_command_probe_without_script_entrypoint(self, tmp_path, default_policy, monkeypatch):
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(textwrap.dedent("""\
+            ---
+            name: markdown-only
+            description: d
+            ---
+
+            ```bash
+            clawdbot --version
+            ```
+        """), encoding="utf-8")
+        captured = {}
+
+        class FakeRunner:
+            config = SandboxConfig(runtime="docker")
+
+            def run_probe(self, skill_path, entrypoint, args=None):
+                captured["skill_path"] = str(skill_path)
+                captured["entrypoint"] = entrypoint
+                captured["args"] = args or []
+                return SandboxResult(
+                    executed=True,
+                    runtime="docker",
+                    entrypoint=entrypoint,
+                    exit_code=127,
+                    stderr="sh: clawdbot: not found",
+                )
+
+        monkeypatch.setattr("skill_manager.core.vetting.get_sandbox_runner", lambda: FakeRunner())
+
+        pipeline = VettingPipeline(default_policy)
+        source = SourceInfo(origin=SkillOrigin.LOCAL)
+        result, _violations, _name, _desc, _tools = pipeline.vet(skill_dir, source, use_sandbox=True)
+
+        assert captured["entrypoint"].startswith(".skill-manager-sandbox-probes/")
+        assert result.scan_report["sandbox_analysis"]["probe_cases"][0]["generated_by"] == "skill-md"
+        assert result.scan_report["sandbox_analysis"]["probe_results"][0]["probe_entrypoint"] == captured["entrypoint"]

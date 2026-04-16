@@ -333,13 +333,16 @@ Sandbox 负责“受限环境试跑”。
 它不再只依赖默认 `--help`。当前执行顺序是：
 
 1. 先发现一个 probe 入口，例如 `scripts/*.py`、`scripts/*.sh`、`scripts/*.js`
-2. 生成默认 probe，如果脚本像 CLI，会优先生成 `--help`
-3. 如果提交时同时启用了 LLM，会让 LLM 阅读 `SKILL.md` 的用法示例，生成额外的安全 probe 用例
-4. 对每个 probe case 分别执行 sandbox
-5. 汇总所有 case 的输出和风险信号
+2. 如果 `SKILL.md` 中存在 bash/sh fenced code block，会生成临时 `.sh` probe 脚本
+3. 生成默认 probe，如果脚本像 CLI，会优先生成 `--help`
+4. 如果提交时同时启用了 LLM，会让 LLM 阅读 `SKILL.md` 的用法示例，生成额外的安全 probe 用例
+5. 对每个 probe case 分别执行 sandbox
+6. 汇总所有 case 的输出和风险信号
 
 LLM 可以从 `SKILL.md` 里识别“已有入口文件 + 参数”，但入口必须是 skill 目录中真实存在的 `.py`、`.sh` 或 `.js` 文件。
 它不能生成代码、shell 管道、真实凭证、真实外部目标或破坏性命令。
+
+`SKILL.md` 命令 probe 会写入 sandbox 临时拷贝，不会修改原始 skill 目录。
 
 它现在会给出两层结果：
 

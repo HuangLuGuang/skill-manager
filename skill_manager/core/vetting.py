@@ -9,12 +9,20 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .llm import LLMConfig, analyze_skill_with_llm, generate_sandbox_probes_with_llm
 from .models import PolicyViolation, RiskLevel, SourceInfo, VettingResult
-from .sandbox import build_probe_plan, discover_probe_entrypoint, get_sandbox_runner
+from .sandbox import (
+    build_probe_plan,
+    discover_probe_entrypoint,
+    extract_markdown_command_probes,
+    get_sandbox_runner,
+    write_markdown_command_probe_scripts,
+)
 
 if TYPE_CHECKING:
     from .policy import CompanyPolicy
@@ -396,13 +404,24 @@ class VettingPipeline:
             )
         if effective_use_sandbox:
             sandbox_runtime = get_sandbox_runner().config.runtime
-            entrypoint = discover_probe_entrypoint(skill_path)
-            if not entrypoint:
+            sandbox_skill_path = skill_path
+            temp_probe_context: tempfile.TemporaryDirectory[str] | None = None
+            markdown_probe_plans = []
+            markdown_command_probes = extract_markdown_command_probes(skill_path)
+            if markdown_command_probes:
+                temp_probe_context = tempfile.TemporaryDirectory(prefix="skill-md-sandbox-")
+                sandbox_skill_path = Path(temp_probe_context.name) / "skill"
+                shutil.copytree(skill_path, sandbox_skill_path)
+                markdown_probe_plans = write_markdown_command_probe_scripts(sandbox_skill_path, markdown_command_probes)
+                sandbox_notes.append(f"[SANDBOX] generated {len(markdown_probe_plans)} probes from SKILL.md command blocks")
+
+            entrypoint = discover_probe_entrypoint(sandbox_skill_path)
+            if not entrypoint and not markdown_probe_plans:
                 sandbox_result = {
                     "executed": False,
                     "runtime": sandbox_runtime,
                     "available": True,
-                    "reason": "No supported probe entrypoint found",
+                    "reason": "No supported probe entrypoint or SKILL.md command block found",
                 }
                 scan_report = {
                     **scan_report,
@@ -412,26 +431,37 @@ class VettingPipeline:
                         "sandbox:docker",
                     ],
                 }
-                sandbox_notes.append("[SANDBOX] no supported entrypoint found")
+                sandbox_notes.append("[SANDBOX] no supported entrypoint or SKILL.md command block found")
             else:
                 try:
                     runner = get_sandbox_runner()
                     sandbox_runtime = runner.config.runtime
-                    probe_plan = build_probe_plan(skill_path, entrypoint)
-                    probe_cases = [{
-                        "name": "default",
-                        "description": f"default sandbox probe strategy={probe_plan.strategy}",
-                        "entrypoint": probe_plan.entrypoint,
-                        "args": probe_plan.args,
-                        "generated_by": "default",
-                    }]
+                    probe_plan = build_probe_plan(sandbox_skill_path, entrypoint) if entrypoint else markdown_probe_plans[0]
+                    probe_cases = []
+                    if entrypoint:
+                        probe_cases.append({
+                            "name": "default",
+                            "description": f"default sandbox probe strategy={probe_plan.strategy}",
+                            "entrypoint": probe_plan.entrypoint,
+                            "args": probe_plan.args,
+                            "generated_by": "default",
+                        })
+                    for index, markdown_plan in enumerate(markdown_probe_plans, start=1):
+                        if not any(existing["entrypoint"] == markdown_plan.entrypoint for existing in probe_cases):
+                            probe_cases.append({
+                                "name": f"skill-md-command-{index}",
+                                "description": markdown_plan.description or "SKILL.md command block",
+                                "entrypoint": markdown_plan.entrypoint,
+                                "args": markdown_plan.args,
+                                "generated_by": "skill-md",
+                            })
                     llm_probe_plan = None
                     if use_llm:
                         try:
-                            llm_probe_plan = generate_sandbox_probes_with_llm(skill_path, entrypoint, LLMConfig.load())
+                            llm_probe_plan = generate_sandbox_probes_with_llm(skill_path, probe_plan.entrypoint, LLMConfig.load())
                             for case in llm_probe_plan.probes:
                                 case_entrypoint = _normalize_llm_probe_entrypoint(
-                                    skill_path,
+                                    sandbox_skill_path,
                                     case.entrypoint,
                                     probe_plan.entrypoint,
                                 )
@@ -462,7 +492,7 @@ class VettingPipeline:
                     representative_exec = None
                     for case in probe_cases:
                         sandbox_exec = runner.run_probe(
-                            skill_path,
+                            sandbox_skill_path,
                             entrypoint=case.get("entrypoint") or probe_plan.entrypoint,
                             args=case["args"],
                         )
@@ -552,6 +582,9 @@ class VettingPipeline:
                         ],
                     }
                     sandbox_notes.append(f"[SANDBOX] analysis skipped: {exc}")
+                finally:
+                    if temp_probe_context:
+                        temp_probe_context.cleanup()
 
         # 3. Derive risk level
         max_severity = scan_report.get("max_severity", "SAFE")

@@ -52,6 +52,10 @@ _HELP_STYLE_PATTERNS = (
     re.compile(r"\bimport\s+typer\b"),
     re.compile(r"typer\.Typer\("),
 )
+_MARKDOWN_SHELL_BLOCK_RE = re.compile(
+    r"```(?:bash|sh|shell|zsh|console|terminal)\s*\n(.*?)```",
+    re.I | re.S,
+)
 
 
 class SandboxEvent(BaseModel):
@@ -98,6 +102,7 @@ class SandboxConfig(BaseModel):
     remote_language_map: dict[str, str] = Field(default_factory=lambda: {
         ".py": "python3",
         ".js": "nodejs",
+        ".sh": "shell",
     })
 
     @classmethod
@@ -142,13 +147,17 @@ class SandboxConfig(BaseModel):
         if os.environ.get("SKILL_MANAGER_SANDBOX_API_KEY"):
             env_defaults["remote_api_key"] = os.environ["SKILL_MANAGER_SANDBOX_API_KEY"].strip()
 
+        default_language_map = {
+            ".py": "python3",
+            ".js": "nodejs",
+            ".sh": "shell",
+        }
+        configured_language_map = data.get("remote_language_map") or env_defaults.get("remote_language_map") or {}
+
         return cls.model_validate({
             **env_defaults,
             **data,
-            "remote_language_map": data.get("remote_language_map") or env_defaults.get("remote_language_map") or {
-                ".py": "python3",
-                ".js": "nodejs",
-            },
+            "remote_language_map": {**default_language_map, **configured_language_map},
         })
 
     def save(self, path: str | Path | None = None) -> Path:
@@ -179,6 +188,13 @@ class SandboxProbePlan(BaseModel):
     entrypoint: str
     args: list[str] = Field(default_factory=list)
     strategy: str = "default"
+    description: str = ""
+
+
+class MarkdownCommandProbe(BaseModel):
+    name: str
+    description: str
+    script: str
 
 
 class RemoteSandboxRequest(BaseModel):
@@ -231,9 +247,80 @@ def discover_probe_entrypoint(skill_path: str | Path) -> str | None:
             continue
         for pattern in patterns:
             for candidate in sorted(base.rglob(pattern)):
-                if candidate.is_file():
+                rel_parts = candidate.relative_to(root).parts
+                if candidate.is_file() and not any(part.startswith(".") for part in rel_parts):
                     return candidate.relative_to(root).as_posix()
     return None
+
+
+def extract_markdown_command_probes(
+    skill_path: str | Path,
+    max_cases: int = 4,
+    max_chars_per_case: int = 4000,
+) -> list[MarkdownCommandProbe]:
+    manifest_path = Path(skill_path) / "SKILL.md"
+    if not manifest_path.exists():
+        return []
+    try:
+        manifest = manifest_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return []
+
+    probes: list[MarkdownCommandProbe] = []
+    for index, match in enumerate(_MARKDOWN_SHELL_BLOCK_RE.finditer(manifest), start=1):
+        script = _normalize_markdown_shell_block(match.group(1), max_chars_per_case)
+        if not script:
+            continue
+        probes.append(MarkdownCommandProbe(
+            name=f"skill-md-command-{len(probes) + 1}",
+            description=f"SKILL.md shell command block #{index}",
+            script=script,
+        ))
+        if len(probes) >= max_cases:
+            break
+    return probes
+
+
+def write_markdown_command_probe_scripts(
+    skill_path: str | Path,
+    probes: list[MarkdownCommandProbe],
+) -> list[SandboxProbePlan]:
+    root = Path(skill_path)
+    probe_dir = root / ".skill-manager-sandbox-probes"
+    probe_dir.mkdir(parents=True, exist_ok=True)
+    plans: list[SandboxProbePlan] = []
+    for probe in probes:
+        script_path = probe_dir / f"{probe.name}.sh"
+        script_path.write_text(
+            "\n".join([
+                "#!/bin/sh",
+                "set +e",
+                "export HOME=/tmp",
+                "cd /tmp",
+                probe.script,
+                "",
+            ]),
+            encoding="utf-8",
+        )
+        plans.append(SandboxProbePlan(
+            entrypoint=script_path.relative_to(root).as_posix(),
+            args=[],
+            strategy="skill-md-command",
+            description=probe.description,
+        ))
+    return plans
+
+
+def _normalize_markdown_shell_block(raw: str, max_chars: int) -> str:
+    lines: list[str] = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("$ "):
+            line = line[line.find("$ ") + 2 :]
+        elif stripped.startswith("> "):
+            line = line[line.find("> ") + 2 :]
+        lines.append(line.rstrip())
+    return "\n".join(lines).strip()[:max_chars]
 
 
 def build_probe_plan(skill_path: str | Path, entrypoint: str) -> SandboxProbePlan:

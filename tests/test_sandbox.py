@@ -5,7 +5,9 @@ from skill_manager.core.sandbox import (
     SandboxRunner,
     build_probe_plan,
     discover_probe_entrypoint,
+    extract_markdown_command_probes,
     get_sandbox_runner,
+    write_markdown_command_probe_scripts,
 )
 
 
@@ -52,6 +54,34 @@ def test_build_probe_plan_prefers_help_for_argparse_scripts(tmp_path):
     assert plan.entrypoint == "scripts/run.py"
     assert plan.args == ["--help"]
     assert plan.strategy == "cli-help"
+
+
+def test_markdown_command_blocks_can_be_written_as_probe_scripts(tmp_path):
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        """---
+name: markdown-command
+description: d
+---
+
+```bash
+$ clawdhub update --all --dry-run
+clawdbot --version
+```
+""",
+        encoding="utf-8",
+    )
+
+    probes = extract_markdown_command_probes(skill_dir)
+    plans = write_markdown_command_probe_scripts(skill_dir, probes)
+
+    assert len(probes) == 1
+    assert len(plans) == 1
+    assert plans[0].entrypoint.endswith(".sh")
+    script = (skill_dir / plans[0].entrypoint).read_text(encoding="utf-8")
+    assert "clawdhub update --all --dry-run" in script
+    assert "clawdbot --version" in script
 
 
 def test_get_sandbox_runner_returns_remote_runner_when_configured():

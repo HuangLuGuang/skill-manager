@@ -342,6 +342,67 @@
                     </a-list-item>
                   </template>
                 </a-list>
+                <a-table
+                  v-if="sandboxProbeResults.length"
+                  style="margin-top: 12px"
+                  :data-source="sandboxProbeResults"
+                  :columns="sandboxProbeColumns"
+                  row-key="key"
+                  size="small"
+                  bordered
+                  :pagination="false"
+                >
+                  <template #title>
+                    Sandbox 执行明细
+                  </template>
+                  <template #bodyCell="{ column, record }">
+                    <template v-if="column.key === 'probe'">
+                      <a-space direction="vertical" size="small">
+                        <strong>{{ record.probe_name }}</strong>
+                        <span class="muted">{{ record.probe_description || '-' }}</span>
+                      </a-space>
+                    </template>
+                    <template v-else-if="column.key === 'entrypoint'">
+                      <a-button
+                        v-if="record.probe_entrypoint"
+                        type="link"
+                        style="padding: 0"
+                        @click="openFileViewer(record.probe_entrypoint)"
+                      >
+                        {{ record.probe_entrypoint }}
+                      </a-button>
+                      <span v-else>-</span>
+                    </template>
+                    <template v-else-if="column.key === 'command'">
+                      <code class="inline-command">{{ formatSandboxCommand(record) }}</code>
+                    </template>
+                    <template v-else-if="column.key === 'exit_code'">
+                      <a-tag :color="record.exit_code === 0 ? 'green' : 'orange'">{{ record.exit_code ?? '-' }}</a-tag>
+                    </template>
+                    <template v-else-if="column.key === 'timeout'">
+                      <a-tag :color="record.timed_out ? 'red' : 'green'">{{ record.timed_out ? '是' : '否' }}</a-tag>
+                    </template>
+                  </template>
+                  <template #expandedRowRender="{ record }">
+                    <a-descriptions :column="2" size="small" bordered>
+                      <a-descriptions-item label="执行命令" :span="2">
+                        <pre class="command-block">{{ formatSandboxCommand(record) }}</pre>
+                      </a-descriptions-item>
+                      <a-descriptions-item label="生成来源">{{ record.probe_generated_by || '-' }}</a-descriptions-item>
+                      <a-descriptions-item label="运行时">{{ record.runtime || sandboxAnalysis.runtime || '-' }}</a-descriptions-item>
+                      <a-descriptions-item label="耗时">{{ record.duration_ms ?? '-' }} ms</a-descriptions-item>
+                      <a-descriptions-item label="网络尝试">{{ record.network_attempts ?? 0 }}</a-descriptions-item>
+                    </a-descriptions>
+                    <a-tabs size="small" style="margin-top: 12px">
+                      <a-tab-pane key="stdout" tab="stdout">
+                        <a-textarea :value="record.stdout || '无输出'" :rows="8" readonly />
+                      </a-tab-pane>
+                      <a-tab-pane key="stderr" tab="stderr">
+                        <a-textarea :value="record.stderr || '无输出'" :rows="8" readonly />
+                      </a-tab-pane>
+                    </a-tabs>
+                  </template>
+                </a-table>
                 <a-collapse style="margin-top: 12px">
                   <a-collapse-panel key="sandbox-output" header="查看 Sandbox 输出">
                     <a-tabs size="small">
@@ -578,6 +639,15 @@ const fileColumns = [
   { title: '修改时间', dataIndex: 'modified_at', key: 'modified_at', width: 220, customRender: ({ text }) => formatDateTime(text) },
 ]
 
+const sandboxProbeColumns = [
+  { title: 'Probe', key: 'probe', width: 220 },
+  { title: '入口', key: 'entrypoint', width: 260 },
+  { title: '执行命令', key: 'command' },
+  { title: '退出码', key: 'exit_code', width: 90 },
+  { title: '超时', key: 'timeout', width: 80 },
+  { title: '耗时', dataIndex: 'duration_ms', key: 'duration_ms', width: 100, customRender: ({ text }) => `${text ?? '-'} ms` },
+]
+
 const fetchDetail = async () => {
   loading.value = true
   try {
@@ -780,6 +850,34 @@ const behavioralFindings = computed(() => behavioralAnalysis.value?.findings || 
 const behavioralScannedFiles = computed(() => behavioralAnalysis.value?.scanned_files || [])
 const sandboxAnalysis = computed(() => scanReport.value?.sandbox_analysis || null)
 const sandboxSignals = computed(() => sandboxAnalysis.value?.signals || sandboxAnalysis.value?.suspicious_events || [])
+const sandboxProbeResults = computed(() => {
+  const results = sandboxAnalysis.value?.probe_results
+  if (Array.isArray(results) && results.length) {
+    return results.map((item, index) => ({
+      key: `${item.probe_name || 'probe'}-${index}`,
+      ...item,
+      probe_name: item.probe_name || `probe-${index + 1}`,
+      probe_entrypoint: item.probe_entrypoint || item.entrypoint || sandboxAnalysis.value?.entrypoint || '',
+      probe_args: Array.isArray(item.probe_args) ? item.probe_args : [],
+    }))
+  }
+  if (!sandboxAnalysis.value) return []
+  return [{
+    key: 'representative',
+    probe_name: 'representative',
+    probe_description: sandboxAnalysis.value.reason || '代表性 Sandbox 执行结果',
+    probe_entrypoint: sandboxAnalysis.value.entrypoint || '',
+    probe_args: Array.isArray(sandboxAnalysis.value.probe_args) ? sandboxAnalysis.value.probe_args : [],
+    probe_generated_by: 'summary',
+    runtime: sandboxAnalysis.value.runtime,
+    stdout: sandboxAnalysis.value.stdout,
+    stderr: sandboxAnalysis.value.stderr,
+    exit_code: sandboxAnalysis.value.exit_code,
+    timed_out: sandboxAnalysis.value.timed_out,
+    duration_ms: sandboxAnalysis.value.duration_ms,
+    network_attempts: sandboxAnalysis.value.network_attempts,
+  }]
+})
 const sandboxRiskAlertType = computed(() => {
   const risk = (sandboxAnalysis.value?.risk_level || '').toUpperCase()
   if (risk === 'EXTREME' || risk === 'HIGH') return 'error'
@@ -791,6 +889,20 @@ const sandboxDisplayImage = computed(() => {
   if (detail.value?.vetting?.sandbox_runtime === 'docker') return 'skill-manager-sandbox-runtime:latest'
   return '-'
 })
+
+const formatSandboxCommand = (record) => {
+  const entrypoint = record?.probe_entrypoint || record?.entrypoint || ''
+  const args = Array.isArray(record?.probe_args) ? record.probe_args : []
+  if (!entrypoint) return args.length ? args.join(' ') : '-'
+  const prefix = entrypoint.endsWith('.py')
+    ? 'python'
+    : entrypoint.endsWith('.js')
+      ? 'node'
+      : entrypoint.endsWith('.sh')
+        ? 'sh'
+        : ''
+  return [prefix, entrypoint, ...args].filter(Boolean).join(' ')
+}
 
 const parsedSkillContent = computed(() => {
   const content = skillContent.value?.content || ''
@@ -915,5 +1027,29 @@ onMounted(fetchDetail)
 
 .refresh-report-button {
   box-shadow: 0 8px 20px rgba(22, 50, 79, 0.16);
+}
+
+.inline-command {
+  display: inline-block;
+  max-width: 520px;
+  padding: 2px 6px;
+  overflow: hidden;
+  color: #16324f;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+  background: #f5f7fa;
+  border-radius: 4px;
+}
+
+.command-block {
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  color: #dbeafe;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0f172a;
+  border-radius: 8px;
 }
 </style>

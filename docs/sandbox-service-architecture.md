@@ -98,6 +98,9 @@ sequenceDiagram
 - 如果入口脚本看起来是 CLI，例如使用 `argparse`、`click`、`typer`，默认 probe 会用 `--help`
 - 否则用空参数执行一次
 
+如果 skill 没有脚本入口，但 `SKILL.md` 里存在 bash/sh fenced code block，系统会把这些命令块写入 sandbox 临时拷贝中的 `.sh` probe 脚本，然后交给 sandbox 执行。
+这个过程不会修改原始 skill 目录。
+
 当提交时同时启用 `Sandbox` 和 `LLM 分析` 时，Skill Manager 会额外请求 LLM 结合 `SKILL.md` 使用说明、命令示例和文件清单生成最多 4 组 probe case。
 这不是让 LLM 生成代码，而是只允许它选择 skill 包中已经存在的入口文件，并生成参数列表，例如：
 
