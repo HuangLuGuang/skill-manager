@@ -22,16 +22,16 @@ flowchart LR
     C --> D["Registry 中形成合法记录"]
 
     E["外部 Agent Runtime"] --> F["本地计算 Skill 签名"]
-    F --> G["调用 /api/v1/runtime/verify-skill-signature"]
+    F --> G["调用 /api/v1/access/runtime/verify-skill-signature"]
     G --> H{"签名是否匹配?"}
     H -- "否" --> I["阻断加载并记录日志"]
-    H -- "是" --> J["调用 /api/v1/runtime/can-load/{skill_name}"]
+    H -- "是" --> J["调用 /api/v1/access/runtime/can-load/{skill_name}"]
     J --> K{"允许加载?"}
     K -- "否" --> I["阻断加载并记录日志"]
     K -- "是" --> L["Agent 加载 Skill"]
 
     L --> M["Skill 尝试调用 Tool"]
-    M --> N["调用 /api/v1/runtime/check-tool"]
+    M --> N["调用 /api/v1/access/runtime/check-tool"]
     N --> O{"允许调用?"}
     O -- "否" --> P["阻断 Tool 调用并记录日志"]
     O -- "是" --> Q["继续执行 Tool"]
@@ -49,11 +49,15 @@ flowchart LR
 
 ### Current APIs
 
-外部 Agent 最关键会用到这三个接口：
+外部 Agent 推荐使用管理台“扫描器接入”页面创建的接入 Token，并勾选 runtime 权限。最关键会用到这三个 token 鉴权接口：
 
-- `POST /api/v1/runtime/verify-skill-signature`
-- `GET /api/v1/runtime/can-load/{skill_name}`
-- `GET /api/v1/runtime/check-tool`
+- `POST /api/v1/access/runtime/verify-skill-signature`，需要 `runtime:verify-signature`
+- `GET /api/v1/access/runtime/can-load/{skill_name}`，需要 `runtime:can-load`
+- `GET /api/v1/access/runtime/check-tool`，需要 `runtime:check-tool`
+
+旧的 `/api/v1/runtime/...` 路径仍保留给内部或已有集成使用。外部 Agent 不建议使用管理员 JWT。
+
+注意：`/api/v1/access/runtime/can-load/{skill_name}` 不接受 `skill_path`。外部 Agent 应先本地计算签名并调用 `verify-skill-signature`，再做 name-only `can-load`。
 
 如果外部系统还需要查看 skill 状态，也可以读：
 
@@ -174,5 +178,5 @@ flowchart TD
 
 - `GET /api/v1/skills/{id}/files`
   返回 skill 目录内的相对路径、文件大小和修改时间
-- `POST /api/v1/runtime/verify-skill-signature`
+- `POST /api/v1/access/runtime/verify-skill-signature`
   校验外部 Agent 本地计算的签名是否与批准记录一致

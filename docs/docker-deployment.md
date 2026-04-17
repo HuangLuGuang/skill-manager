@@ -143,8 +143,10 @@ compose 里已经给后端挂了这些 volume：
 
 - 系统数据目录
 - 上传文件
-- 管理后台 sqlite
-- Skill Manager registry / review / audit
+- 管理后台 SQLite，同时保存 Skill Manager registry / review / audit 表
+- Skill Manager 工作目录，保留上传目录、scan cache、历史 JSON 迁移源和备份
+
+Skill Manager 现在不再把 `registry.json` 作为主存储。容器启动后会复用 `SQLITE_PATH=/app/runtime/sqlite/admin_starter.db`，并在数据库为空时自动从 `/app/runtime/skill_manager/registry.json`、`review.json`、`audit.jsonl` 迁移旧数据。迁移完成后旧 JSON 文件会保留，后续读写以 SQLite 为准。
 
 ## 默认账号
 

@@ -1,163 +1,129 @@
 {
-  "generated_at": "2026-04-16T08:03:26.908143Z",
-  "root": "/Users/huangluguang/Downloads/skill-scanner-main",
-  "found": 2,
-  "submitted": 2,
-  "failed": 0,
+  "generated_at": "2026-04-17T02:09:14.772132Z",
+  "root": "/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills",
+  "found": 3,
+  "submitted": 0,
+  "failed": 3,
   "skills": [
     {
-      "path": "/Users/huangluguang/Downloads/skill-scanner-main/evals/skills/backdoor/magic-string-trigger",
-      "name": "data-processor",
-      "description": "Process and validate data inputs",
-      "fingerprint": "sha256:742a8ced5c2d5aa49023dc576fb7777b7f514b41165012b67410cd0471bbb7dc",
-      "file_count": 3,
-      "total_bytes": 3854,
-      "local_findings": [
-        {
-          "severity": "MEDIUM",
-          "rule": "network_post",
-          "file": "_expected.json",
-          "message": "发现网络请求相关代码"
-        },
-        {
-          "severity": "HIGH",
-          "rule": "dynamic_code_execution",
-          "file": "process.py",
-          "message": "发现动态代码执行函数"
-        },
-        {
-          "severity": "HIGH",
-          "rule": "process_execution",
-          "file": "process.py",
-          "message": "发现进程或命令执行调用"
-        },
-        {
-          "severity": "MEDIUM",
-          "rule": "network_post",
-          "file": "process.py",
-          "message": "发现网络请求相关代码"
-        }
-      ],
-      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/releases/skill-scan-report-packages/data-processor-742a8ced5c2d.zip",
-      "submitted": true,
-      "submission": {
-        "skill_id": "7ee74c61-d91f-400e-ab9b-33ea11b97b01",
-        "name": "data-processor",
-        "status": "PENDING",
-        "message": "已提交，后台分析中。请在技能列表查看状态变化。",
-        "detail_url": "http://localhost:5174/skills/7ee74c61-d91f-400e-ab9b-33ea11b97b01"
-      },
+      "path": "/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills/approved-helper",
+      "name": "approved-helper",
+      "description": "Safe skill used by the Agno customer demo to explain governed skill loading.",
+      "fingerprint": "sha256:c474ef827b0efb97c117bb4e823fdfc1bebe7472d03971749d990d476d18103d",
+      "file_count": 2,
+      "total_bytes": 1044,
+      "local_findings": null,
+      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/releases/skill-scan-report-packages/approved-helper-c474ef827b0e.zip",
+      "submitted": false,
+      "submit_error": "submit failed: 500 Internal Server Error: Internal Server Error",
+      "submission": {},
       "manifest": {
-        "name": "data-processor",
-        "description": "Process and validate data inputs",
-        "root": "/Users/huangluguang/Downloads/skill-scanner-main/evals/skills/backdoor/magic-string-trigger",
-        "fingerprint": "sha256:742a8ced5c2d5aa49023dc576fb7777b7f514b41165012b67410cd0471bbb7dc",
+        "name": "approved-helper",
+        "description": "Safe skill used by the Agno customer demo to explain governed skill loading.",
+        "root": "/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills/approved-helper",
+        "fingerprint": "sha256:c474ef827b0efb97c117bb4e823fdfc1bebe7472d03971749d990d476d18103d",
         "files": [
           {
             "path": "SKILL.md",
-            "size": 241,
-            "sha256": "8f33fbd3bbfbca993f63c1750822c8e7d4edac1d9261032103f4f62b0caf7cd3"
+            "size": 766,
+            "sha256": "5a7ba7dd3579c9e62b189715860bd45f930188f3e4a1394ef22d15693eceb57f"
           },
           {
-            "path": "_expected.json",
-            "size": 1792,
-            "sha256": "3c49928b646f7e1918874603e6eaecbbdf287797eede2cade4db732ec19fdbd6"
-          },
-          {
-            "path": "process.py",
-            "size": 1821,
-            "sha256": "b863217ba600251c91146e0b4b74d35c59ec8393387a4c8d5942508e492f2d0d"
+            "path": "references/customer-story.md",
+            "size": 278,
+            "sha256": "5b029256bf11b52020f767087a991fe0e15366d8fbeb50e76f6397f2941a4236"
           }
         ],
-        "total_bytes": 3854
+        "total_bytes": 1044
       }
     },
     {
-      "path": "/Users/huangluguang/Downloads/skill-scanner-main/evals/skills/behavioral-analysis/multi-file-exfiltration",
-      "name": "config-analyzer",
-      "description": "Analyze configuration files for validation and best practices",
-      "fingerprint": "sha256:9ed1ea0372abc102c6d8f72abab326537d8f4882102480d8eaf16d21770b399b",
-      "file_count": 6,
-      "total_bytes": 11490,
+      "path": "/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills/read-only-script",
+      "name": "read-only-script",
+      "description": "Skill that declares only Read permission but contains a script, used to demo runtime tool blocking.",
+      "fingerprint": "sha256:5ea00ac4943c2e64a3591e74dd2f3df9a136ec686f3ea88abb4c9674aae3dd16",
+      "file_count": 2,
+      "total_bytes": 783,
+      "local_findings": null,
+      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/releases/skill-scan-report-packages/read-only-script-5ea00ac4943c.zip",
+      "submitted": false,
+      "submit_error": "submit failed: 500 Internal Server Error: Internal Server Error",
+      "submission": {},
+      "manifest": {
+        "name": "read-only-script",
+        "description": "Skill that declares only Read permission but contains a script, used to demo runtime tool blocking.",
+        "root": "/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills/read-only-script",
+        "fingerprint": "sha256:5ea00ac4943c2e64a3591e74dd2f3df9a136ec686f3ea88abb4c9674aae3dd16",
+        "files": [
+          {
+            "path": "SKILL.md",
+            "size": 717,
+            "sha256": "f2aa66c9ab75a4574d021442470cf795c50a6b4d026d9099b21e2ca8816fb477"
+          },
+          {
+            "path": "scripts/maintenance.py",
+            "size": 66,
+            "sha256": "a9bfb88bcdd45f2da8de3dd2d412ba33a9e7275169d07ba75ad1499e6b48b3f9"
+          }
+        ],
+        "total_bytes": 783
+      }
+    },
+    {
+      "path": "/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills/rejected-exfiltrator",
+      "name": "rejected-exfiltrator",
+      "description": "Demo malicious skill that reads secrets and posts them externally.",
+      "fingerprint": "sha256:ae6d47c35e7ab8ba83fc27f2424e00e586192a6c4f9c8c042f6d1c4ce3b2810e",
+      "file_count": 2,
+      "total_bytes": 800,
       "local_findings": [
         {
+          "severity": "HIGH",
+          "rule": "dynamic_code_execution",
+          "file": "scripts/exfiltrate.py",
+          "message": "发现动态代码执行函数"
+        },
+        {
           "severity": "MEDIUM",
-          "rule": "sensitive_file_access",
-          "file": "analyze.py",
-          "message": "发现敏感文件路径特征"
+          "rule": "network_post",
+          "file": "scripts/exfiltrate.py",
+          "message": "发现网络请求相关代码"
         },
         {
           "severity": "MEDIUM",
           "rule": "environment_secret_access",
-          "file": "collector.py",
+          "file": "scripts/exfiltrate.py",
           "message": "发现环境变量或敏感名称访问"
         },
         {
           "severity": "MEDIUM",
           "rule": "sensitive_file_access",
-          "file": "collector.py",
+          "file": "scripts/exfiltrate.py",
           "message": "发现敏感文件路径特征"
-        },
-        {
-          "severity": "MEDIUM",
-          "rule": "sensitive_file_access",
-          "file": "encoder.py",
-          "message": "发现敏感文件路径特征"
-        },
-        {
-          "severity": "MEDIUM",
-          "rule": "network_post",
-          "file": "reporter.py",
-          "message": "发现网络请求相关代码"
         }
       ],
-      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/releases/skill-scan-report-packages/config-analyzer-9ed1ea0372ab.zip",
-      "submitted": true,
-      "submission": {
-        "skill_id": "1974d0fe-8a53-426f-8d25-b7b49e87027a",
-        "name": "config-analyzer",
-        "status": "PENDING",
-        "message": "已提交，后台分析中。请在技能列表查看状态变化。",
-        "detail_url": "http://localhost:5174/skills/1974d0fe-8a53-426f-8d25-b7b49e87027a"
-      },
+      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/releases/skill-scan-report-packages/rejected-exfiltrator-ae6d47c35e7a.zip",
+      "submitted": false,
+      "submit_error": "submit failed: 500 Internal Server Error: Internal Server Error",
+      "submission": {},
       "manifest": {
-        "name": "config-analyzer",
-        "description": "Analyze configuration files for validation and best practices",
-        "root": "/Users/huangluguang/Downloads/skill-scanner-main/evals/skills/behavioral-analysis/multi-file-exfiltration",
-        "fingerprint": "sha256:9ed1ea0372abc102c6d8f72abab326537d8f4882102480d8eaf16d21770b399b",
+        "name": "rejected-exfiltrator",
+        "description": "Demo malicious skill that reads secrets and posts them externally.",
+        "root": "/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills/rejected-exfiltrator",
+        "fingerprint": "sha256:ae6d47c35e7ab8ba83fc27f2424e00e586192a6c4f9c8c042f6d1c4ce3b2810e",
         "files": [
           {
             "path": "SKILL.md",
-            "size": 483,
-            "sha256": "50a4129b439ebfa5d5236688f8681c5f988cb1a81b594b54e4acbd4a66baaf07"
+            "size": 474,
+            "sha256": "41adf76b3c8e9e35ec0ad1d94567d969808e10404167ac0fe9602b17c40d123f"
           },
           {
-            "path": "_expected.json",
-            "size": 2699,
-            "sha256": "bbd7b507b00debca503a8541164f3be591d7fe68304cf98fadd2fce6594a0dd8"
-          },
-          {
-            "path": "analyze.py",
-            "size": 2428,
-            "sha256": "57c78fad0baedc09c023a06e28544c1b5e0303ae95575a3b406c5b116af526cc"
-          },
-          {
-            "path": "collector.py",
-            "size": 2220,
-            "sha256": "e27b8bd10ec8747fa3ed778497542b09e016dcf1ad63c2d62c3410fa240461a7"
-          },
-          {
-            "path": "encoder.py",
-            "size": 1646,
-            "sha256": "53b6992d6a849d993a750a820416eee3a9f5ea6a32dc2f9ba959933bc30dbe57"
-          },
-          {
-            "path": "reporter.py",
-            "size": 2014,
-            "sha256": "7bd25b09bf15bb604068f345c7c3203b9f5ae0a5eda156ed1f1bc2e5a2a38e3c"
+            "path": "scripts/exfiltrate.py",
+            "size": 326,
+            "sha256": "3e5c88bdc4d53991ac78aa231572e27e51747f14ae5e3066ec22576da9ed4e59"
           }
         ],
-        "total_bytes": 11490
+        "total_bytes": 800
       }
     }
   ]

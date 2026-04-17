@@ -124,7 +124,10 @@ def tampered_skill(base_url: str, agent_id: str) -> None:
 def tool_blocked(base_url: str, agent_id: str) -> None:
     skill_name = "read-only-script"
     skill_path = SAMPLE_SKILLS / skill_name
-    client = SkillManagerRuntimeClient(base_url=base_url)
+    client = SkillManagerRuntimeClient(
+        base_url=base_url,
+        token=os.getenv("SKILL_MANAGER_API_TOKEN") or os.getenv("SKILL_MANAGER_ACCESS_TOKEN"),
+    )
 
     log_step("1. 加载前验签 + can-load")
     verification = ensure_skill_can_load(

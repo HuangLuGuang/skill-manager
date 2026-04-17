@@ -145,7 +145,7 @@ flowchart TB
 - [skill_manager/core/policy.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/policy.py)
   策略配置
 - [skill_manager/core/registry.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/registry.py)
-  JSON 持久化
+  SQLite 持久化，启动时可从旧 `registry.json`、`review.json`、`audit.jsonl` 自动迁移
 - [skill_manager/core/runtime.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/runtime.py)
   运行时治理
 - [skill_manager/core/signer.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/signer.py)
@@ -681,6 +681,8 @@ sequenceDiagram
 
 ## 15. 相关专题文档
 
+- 客户演示 Runbook：
+  [customer-demo-runbook.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/customer-demo-runbook.md)
 - 客户侧扫描器：
   [skill-scanner.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/skill-scanner.md)
 - 管理台与容器化部署：

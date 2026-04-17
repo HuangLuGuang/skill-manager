@@ -24,4 +24,4 @@ document/
 scanner/.gocache/
 scanner/skill-scanner
 scanner/releases/skill-scanner-*
-scanner/releases/*/skill-scanner-*
+scanner/releases/

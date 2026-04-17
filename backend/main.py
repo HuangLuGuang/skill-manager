@@ -21,6 +21,9 @@ base_dir = Path(__file__).resolve().parent.parent
 if str(base_dir) not in sys.path:
     sys.path.insert(0, str(base_dir))
 
+os.environ.setdefault("SKILL_MANAGER_REGISTRY_SQLITE_PATH", settings.SQLITE_PATH)
+
+from skill_manager.api.router import get_manager as get_skill_manager
 from skill_manager.api.router import router as skill_manager_router
 from skill_manager.api.scanner_router import admin_router as scanner_admin_router
 from skill_manager.api.scanner_router import runtime_router as access_runtime_router
@@ -45,6 +48,7 @@ app.include_router(scanner_admin_router, dependencies=[Depends(get_current_admin
 app.include_router(scanner_router)
 
 Base.metadata.create_all(bind=engine)
+get_skill_manager()
 
 uploads_dir = Path(settings.UPLOADS_DIR)
 uploads_dir.mkdir(parents=True, exist_ok=True)

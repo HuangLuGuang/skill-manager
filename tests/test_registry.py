@@ -141,3 +141,29 @@ class TestRegistry:
 
         r2 = Registry(data_dir=tmp_path)
         assert r2.get_by_name("persistent-skill") is not None
+
+    def test_recovers_registry_with_extra_json_data(self, tmp_path):
+        entry = _make_entry("recoverable")
+        registry_file = tmp_path / "registry.json"
+        registry_file.write_text(
+            json.dumps([entry.model_dump(mode="json")], default=str) + "\n[]\n",
+            encoding="utf-8",
+        )
+        registry = Registry(data_dir=tmp_path)
+
+        entries = registry.list_all()
+
+        assert len(entries) == 1
+        assert entries[0].name == "recoverable"
+        assert json.loads(registry_file.read_text(encoding="utf-8"))[0]["name"] == "recoverable"
+        assert list(tmp_path.glob("registry.json.corrupt-*"))
+
+    def test_uses_configured_sqlite_path(self, tmp_path, monkeypatch):
+        db_path = tmp_path / "shared" / "admin_starter.db"
+        monkeypatch.setenv("SKILL_MANAGER_REGISTRY_SQLITE_PATH", str(db_path))
+
+        registry = Registry(data_dir=tmp_path / "data")
+        registry.add(_make_entry("sqlite-backed"))
+
+        assert db_path.exists()
+        assert Registry(data_dir=tmp_path / "other-data").get_by_name("sqlite-backed") is not None

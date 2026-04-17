@@ -62,3 +62,22 @@ def test_validate_accepts_allowed_cidr(tmp_path):
     validated = store.validate(plain, "scanner:submit", client_ip="10.0.0.42")
 
     assert validated.name == "customer-a"
+
+
+def test_runtime_scopes_can_be_created_and_validated(tmp_path):
+    store = ScannerTokenStore(tmp_path)
+    _record, plain = store.create(
+        name="agent-runtime",
+        scopes=["runtime:verify-signature", "runtime:can-load", "runtime:check-tool"],
+    )
+
+    assert store.validate(plain, "runtime:verify-signature").name == "agent-runtime"
+    assert store.validate(plain, "runtime:can-load").name == "agent-runtime"
+    assert store.validate(plain, "runtime:check-tool").name == "agent-runtime"
+
+
+def test_rejects_unknown_scope(tmp_path):
+    store = ScannerTokenStore(tmp_path)
+
+    with pytest.raises(ValueError):
+        store.create(name="bad", scopes=["admin:all"])

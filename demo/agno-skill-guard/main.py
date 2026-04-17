@@ -46,9 +46,24 @@ class AgentAnswer(BaseModel):
 
 
 class SkillManagerRuntimeClient:
-    def __init__(self, base_url: str, timeout: float = 20.0):
+    def __init__(self, base_url: str, timeout: float = 20.0, token: str | None = None):
         self.base_url = base_url.rstrip("/")
-        self.http = httpx.Client(base_url=self.base_url, timeout=timeout)
+        self.token = token
+        self.runtime_prefix = "/api/v1/access/runtime" if token else "/api/v1/runtime"
+        headers = {"Authorization": f"Bearer {token}"} if token else None
+        self.http = httpx.Client(base_url=self.base_url, timeout=timeout, headers=headers)
+
+    def _raise_for_status(self, response: httpx.Response) -> None:
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if response.status_code == 502 and self.base_url.startswith(("http://localhost:517", "http://127.0.0.1:517")):
+                raise RuntimeError(
+                    "Skill Manager API returned 502 through the frontend dev server. "
+                    "Set SKILL_MANAGER_BASE_URL to the backend API, for example "
+                    "http://localhost:8000 or http://localhost:8080, not the frontend Vite port."
+                ) from exc
+            raise
 
     def verify_skill_signature(
         self,
@@ -58,7 +73,7 @@ class SkillManagerRuntimeClient:
         skill_id: str | None = None,
     ) -> SkillVerificationResult:
         response = self.http.post(
-            "/api/v1/runtime/verify-skill-signature",
+            f"{self.runtime_prefix}/verify-skill-signature",
             json={
                 "skill_name": skill_name,
                 "skill_id": skill_id,
@@ -66,23 +81,23 @@ class SkillManagerRuntimeClient:
                 "agent_id": agent_id,
             },
         )
-        response.raise_for_status()
+        self._raise_for_status(response)
         return SkillVerificationResult.model_validate(response.json())
 
     def can_load(self, skill_name: str, agent_id: str) -> SkillLoadResult:
         response = self.http.get(
-            f"/api/v1/runtime/can-load/{skill_name}",
+            f"{self.runtime_prefix}/can-load/{skill_name}",
             params={"agent_id": agent_id},
         )
-        response.raise_for_status()
+        self._raise_for_status(response)
         return SkillLoadResult.model_validate(response.json())
 
     def check_tool(self, skill_name: str, tool_name: str, agent_id: str) -> ToolCheckResult:
         response = self.http.get(
-            "/api/v1/runtime/check-tool",
+            f"{self.runtime_prefix}/check-tool",
             params={"skill_name": skill_name, "tool_name": tool_name, "agent_id": agent_id},
         )
-        response.raise_for_status()
+        self._raise_for_status(response)
         return ToolCheckResult.model_validate(response.json())
 
 
@@ -245,7 +260,10 @@ def run_demo(
     skill_id: str | None = None,
 ) -> AgentAnswer | BaseModel | str:
     resolved_skill_path = Path(skill_path).resolve()
-    client = SkillManagerRuntimeClient(base_url=base_url)
+    client = SkillManagerRuntimeClient(
+        base_url=base_url,
+        token=os.getenv("SKILL_MANAGER_API_TOKEN") or os.getenv("SKILL_MANAGER_ACCESS_TOKEN"),
+    )
 
     verification = ensure_skill_can_load(
         client=client,

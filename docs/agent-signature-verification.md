@@ -13,7 +13,16 @@
 
 当前接口：
 
-- `POST /api/v1/runtime/verify-skill-signature`
+- 推荐外部 Agent 使用：`POST /api/v1/access/runtime/verify-skill-signature`
+- 兼容内部或已有集成：`POST /api/v1/runtime/verify-skill-signature`
+
+`/api/v1/access/runtime/...` 使用管理台“扫描器接入”页面创建的接入 Token，不需要管理员登录态。创建 token 时至少勾选：
+
+- `runtime:verify-signature`
+- `runtime:can-load`
+- `runtime:check-tool`
+
+token 鉴权的 `can-load` 不接受 `skill_path`，避免外部 token 探测服务端本地文件。外部 Agent 应先提交本地计算的 `local_signature` 做验签，再调用 name-only `can-load`。
 
 ## Why This Is Needed
 
@@ -109,8 +118,9 @@ if __name__ == "__main__":
 调用示例：
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/runtime/verify-skill-signature" \
+curl -X POST "http://localhost:8000/api/v1/access/runtime/verify-skill-signature" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer smsc_live_xxx" \
   -d '{
     "skill_name": "byd-stock-news",
     "local_signature": "your-local-signature",
@@ -144,13 +154,13 @@ sequenceDiagram
 
     AG->>FS: 读取本地 skill 文件树
     AG->>AG: 计算 local_signature
-    AG->>SM: POST /runtime/verify-skill-signature
+    AG->>SM: POST /access/runtime/verify-skill-signature
     SM-->>AG: allowed / denied
     alt allowed
-        AG->>SM: GET /runtime/can-load/{skill_name}
+        AG->>SM: GET /access/runtime/can-load/{skill_name}
         SM-->>AG: allow
         AG->>AG: 加载 skill
-        AG->>SM: GET /runtime/check-tool
+        AG->>SM: GET /access/runtime/check-tool
         SM-->>AG: allow / deny
     else denied
         AG->>AG: 阻断加载并记录原因
@@ -181,6 +191,6 @@ sequenceDiagram
 
 ## Notes
 
-- 如果服务端和 Agent 在同一台机器，也可以继续用：
+- 如果服务端和 Agent 在同一台机器，也可以继续用内部兼容接口：
   - `GET /api/v1/runtime/can-load/{skill_name}?skill_path=...`
 - 但对于外部 Agent，更推荐 `local_signature` 模式，因为服务端通常无法直接访问 Agent 的本地目录。

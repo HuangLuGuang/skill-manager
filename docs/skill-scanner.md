@@ -1,6 +1,6 @@
 # 客户侧 Skill Scanner 使用说明
 
-本文档说明客户侧 Go 扫描器的定位、CLI/GUI 使用方式、Scanner Token、服务端接入接口、下载发布和重复扫描复用机制。
+本文档说明客户侧 Go 扫描器的定位、CLI/GUI 使用方式、接入 Token、服务端接入接口、下载发布和重复扫描复用机制。
 
 ---
 
@@ -29,7 +29,7 @@ sequenceDiagram
     participant User as "客户 / 操作员"
     participant Scanner as "Go Scanner CLI/GUI"
     participant API as "Skill Manager Scanner API"
-    participant Token as "Scanner Token Store"
+    participant Token as "Access Token Store"
     participant Mgr as "SkillManager"
     participant Vet as "Vetting Pipeline"
     participant UI as "管理台"
@@ -40,7 +40,7 @@ sequenceDiagram
     Scanner->>Scanner: 本地轻量预检
     Scanner->>Scanner: 安全打 ZIP
     Scanner->>API: POST /api/v1/scanner/imports
-    API->>Token: 校验 Bearer Scanner Token
+    API->>Token: 校验 Bearer 接入 Token
     API->>API: 解压 ZIP 并重新计算 fingerprint
     API->>API: 对比客户端 manifest fingerprint
     API->>Mgr: 创建 PENDING 提交
@@ -55,29 +55,41 @@ sequenceDiagram
 
 ---
 
-## 3. Scanner Token
+## 3. 接入 Token
 
-Scanner 不使用管理员登录态，而是使用专用 Scanner Token。
+Scanner 和外部 Agent Runtime 都不应该使用管理员登录态，而是使用管理台创建的最小权限接入 Token。
 
 ### 3.1 创建位置
 
 管理台进入：
 
 - `扫描器接入`
-- `Scanner Token 管理`
+- `接入 Token`
 - 创建 Token
 
 创建后只展示一次明文 Token。服务端只保存 hash。
 
 ### 3.2 权限范围
 
-默认最小权限：
+扫描器默认权限：
 
 - `scanner:submit`
 - `scanner:read-own-results`
 - `scanner:read-own-sessions`
 
-不要给 scanner token 授予：
+Runtime Agent 加载校验权限：
+
+- `runtime:verify-signature`
+- `runtime:can-load`
+- `runtime:check-tool`
+
+常见配置：
+
+- 客户本地扫描器：只选 scanner 权限。
+- Agno / LangGraph 等外部 Agent：只选 runtime 权限。
+- 同一个测试环境既扫描又加载：可以同时选择 scanner 和 runtime 权限。
+
+不要给接入 token 授予：
 
 - 审批权限
 - 部署权限
@@ -96,7 +108,7 @@ Token 支持：
 - 最大并发任务数
 - 审计日志
 
-Token 明文可以通过 CLI 参数、环境变量或 GUI 设置页配置，不应硬编码到二进制里。
+Token 明文可以通过 CLI 参数、环境变量或 GUI 设置页配置，不应硬编码到二进制里。Agent demo 读取 `SKILL_MANAGER_API_TOKEN` 或 `SKILL_MANAGER_ACCESS_TOKEN`，并调用 `/api/v1/access/runtime/...` 这组 token 鉴权接口。
 
 ---
 
@@ -152,7 +164,7 @@ export SKILL_SCANNER_HOST_ID="customer-prod-01"
 | --- | --- |
 | `scan <path>` | 扫描根目录。scanner 会递归发现包含 `SKILL.md` 的目录。 |
 | `--server URL` | Skill Manager 服务端地址。设置后会自动启用上传。 |
-| `--token TOKEN` | Scanner Token。也可用 `SKILL_MANAGER_TOKEN`。 |
+| `--token TOKEN` | 接入 Token，需要包含 `scanner:submit`。也可用 `SKILL_MANAGER_TOKEN`。 |
 | `--output PATH` | 本地 JSON 报告输出路径，默认 `skill-scan-report.json`。 |
 | `--host-id ID` | 客户侧主机或环境标识，方便服务端审计来源。 |
 | `--upload` | 显式上传到服务端。配置 `--server` 时会自动上传。 |
@@ -204,7 +216,7 @@ GUI 是原生桌面程序，不是网页版 GUI。
 1. 打开 GUI。
 2. 进入 `设置` 页，配置：
    - Skill Manager Server
-   - Scanner Token
+   - 接入 Token
    - Host ID
    - 默认输出报告路径
 3. 回到扫描页，点击 `选择目录`。
@@ -280,7 +292,7 @@ Content-Type: multipart/form-data
 
 服务端会：
 
-1. 校验 scanner token。
+1. 校验接入 token。
 2. 检查上传大小。
 3. 解压 ZIP，支持嵌套压缩包解包。
 4. 重新计算 skill fingerprint。
@@ -436,7 +448,7 @@ BUILD_WINDOWS_GUI=1 ./scripts/package.sh
 
 管理台 `扫描器接入` 页面提供：
 
-- Scanner Token 创建、查看、吊销
+- 接入 Token 创建、查看、吊销
 - CLI / GUI 下载
 - 安装命令
 - 参数说明
