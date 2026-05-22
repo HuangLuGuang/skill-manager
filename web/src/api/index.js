@@ -78,6 +78,18 @@ export const downloadScannerBinary = (platform) =>
     responseType: 'blob',
   })
 
+// Prompt Management
+export const listPrompts = (params = {}) => api.get('/v1/prompts', { params })
+export const getPromptDetail = (idOrName) => api.get(`/v1/prompts/${idOrName}`)
+export const getPromptContent = (idOrName) => api.get(`/v1/prompts/${idOrName}/content`)
+export const submitPrompt = (data) => api.post('/v1/prompts/submit', data)
+export const approvePrompt = (promptId, data) => api.post(`/v1/prompts/${promptId}/approve`, data)
+export const rejectPrompt = (promptId, data) => api.post(`/v1/prompts/${promptId}/reject`, data)
+export const deployPrompt = (promptId, data = {}) => api.post(`/v1/prompts/${promptId}/deploy`, data)
+export const retirePrompt = (promptId, data) => api.post(`/v1/prompts/${promptId}/retire`, data)
+export const listPromptReviewQueue = () => api.get('/v1/prompts/review')
+export const getPromptAudit = (params = {}) => api.get('/v1/audit', { params: { ...params, category: 'prompt' } }) // Assuming category filter works or use specialized audit
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
   if (token) {

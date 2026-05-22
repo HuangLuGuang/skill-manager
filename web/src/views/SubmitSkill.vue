@@ -94,6 +94,9 @@
                 <a-tooltip :title="llmTooltip">
                   <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
                 </a-tooltip>
+                <a-tooltip title="强制重新扫描，不复用之前的扫描结果">
+                  <span><a-checkbox v-model:checked="formState.noCache">禁用缓存</a-checkbox></span>
+                </a-tooltip>
               </a-space>
             </a-form-item>
             <a-form-item>
@@ -178,6 +181,9 @@
                 <a-tooltip :title="llmTooltip">
                   <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
                 </a-tooltip>
+                <a-tooltip title="强制重新扫描，不复用之前的扫描结果">
+                  <span><a-checkbox v-model:checked="formState.noCache">禁用缓存</a-checkbox></span>
+                </a-tooltip>
               </a-space>
             </a-form-item>
             <a-form-item>
@@ -256,6 +262,9 @@
                 <a-tooltip :title="llmTooltip">
                   <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
                 </a-tooltip>
+                <a-tooltip title="强制重新扫描，不复用之前的扫描结果">
+                  <span><a-checkbox v-model:checked="formState.noCache">禁用缓存</a-checkbox></span>
+                </a-tooltip>
               </a-space>
             </a-form-item>
             <a-form-item>
@@ -309,6 +318,9 @@
                 </a-tooltip>
                 <a-tooltip :title="llmTooltip">
                   <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
+                </a-tooltip>
+                <a-tooltip title="强制重新扫描，不复用之前的扫描结果">
+                  <span><a-checkbox v-model:checked="formState.noCache">禁用缓存</a-checkbox></span>
                 </a-tooltip>
               </a-space>
             </a-form-item>
@@ -420,6 +432,7 @@ const formState = reactive({
   useBehavioral: true,
   useSandbox: false,
   useLlm: false,
+  noCache: false,
 })
 
 const getCandidateDirectory = (item) => {
@@ -740,6 +753,7 @@ const handleZipSubmit = async () => {
       use_behavioral: formState.useBehavioral,
       use_sandbox: formState.useSandbox,
       use_llm: formState.useLlm,
+      no_cache: formState.noCache,
     })
     submitResults.value = result.results || []
     clearSubmittedZipSelection()
@@ -816,6 +830,7 @@ const handleLocalSubmit = async () => {
       use_behavioral: formState.useBehavioral,
       use_sandbox: formState.useSandbox,
       use_llm: formState.useLlm,
+      no_cache: formState.noCache,
     })
     submitResults.value = result.results || []
     clearSubmittedLocalSelection()
@@ -921,6 +936,7 @@ const handleUrlSubmit = async () => {
       use_behavioral: formState.useBehavioral,
       use_sandbox: formState.useSandbox,
       use_llm: formState.useLlm,
+      no_cache: formState.noCache,
     })
     submitResults.value = result.results || []
     clearSubmittedRemoteSelection()
@@ -989,6 +1005,7 @@ const handleClawHubSubmit = async () => {
       use_behavioral: formState.useBehavioral,
       use_sandbox: formState.useSandbox,
       use_llm: formState.useLlm,
+      no_cache: formState.noCache,
     })
     submitResults.value = [result]
     message.success('ClawHub 导入成功')

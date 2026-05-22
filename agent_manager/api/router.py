@@ -24,12 +24,17 @@ from pydantic import BaseModel
 from agent_manager.core.llm import LLMConfig
 from agent_manager.core.manager import AgentManager
 from agent_manager.core.models import SkillStatus, SourceInfo, SkillOrigin
+from agent_manager.core.prompt_models import PromptStatus
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.registry import Registry
 from agent_manager.core.sandbox import SandboxConfig, get_sandbox_runner
 from agent_manager.core.vetting import _load_manifest
 
+from backend.auth import get_current_admin_user
+
 router = APIRouter(prefix="/api/v1", tags=["agent-manager"])
+admin_router = APIRouter(prefix="/api/v1", tags=["agent-manager-admin"], dependencies=[Depends(get_current_admin_user)])
+runtime_router = APIRouter(prefix="/api/v1", tags=["agent-manager-runtime"])
 
 # Module-level singleton (overridable in tests via dependency injection)
 _manager: AgentManager | None = None
@@ -119,6 +124,7 @@ def _is_within_root(path: Path, root: Path) -> bool:
 
 
 def _collect_import_candidates(root: Path) -> list[dict[str, str]]:
+    root = root.resolve()
     if not root.exists() or not root.is_dir():
         return []
     candidates: list[dict[str, str]] = []
@@ -186,6 +192,7 @@ def _process_pending_submission_task(
     use_behavioral: bool,
     use_llm: bool,
     use_sandbox: bool,
+    no_cache: bool = False,
 ) -> None:
     mgr = get_manager()
     try:
@@ -194,6 +201,7 @@ def _process_pending_submission_task(
             use_behavioral=use_behavioral,
             use_llm=use_llm,
             use_sandbox=use_sandbox,
+            no_cache=no_cache,
         )
     except Exception as exc:
         mgr.mark_submission_failed(skill_id, f"后台分析失败: {exc}")
@@ -207,6 +215,7 @@ def _submit_directory_for_processing(
     use_behavioral: bool,
     use_llm: bool,
     use_sandbox: bool,
+    no_cache: bool = False,
 ) -> SubmitResponse:
     entry = mgr.create_pending_submission(skill_dir, source=source)
     background_tasks.add_task(
@@ -215,6 +224,7 @@ def _submit_directory_for_processing(
         use_behavioral,
         use_llm,
         use_sandbox,
+        no_cache,
     )
     return SubmitResponse(
         skill_id=entry.skill_id,
@@ -285,6 +295,7 @@ class LocalImportSubmitRequest(BaseModel):
     use_behavioral: bool = False
     use_llm: bool = False
     use_sandbox: bool = False
+    no_cache: bool = False
 
 
 class UrlSubmitRequest(BaseModel):
@@ -294,6 +305,7 @@ class UrlSubmitRequest(BaseModel):
     use_behavioral: bool = False
     use_llm: bool = False
     use_sandbox: bool = False
+    no_cache: bool = False
 
 
 class RemoteImportPrepareRequest(BaseModel):
@@ -319,6 +331,7 @@ class RemoteImportSubmitRequest(BaseModel):
     use_behavioral: bool = False
     use_llm: bool = False
     use_sandbox: bool = False
+    no_cache: bool = False
 
 
 class UploadZipPrepareResponse(BaseModel):
@@ -336,6 +349,7 @@ class ClawHubSubmitRequest(BaseModel):
     use_behavioral: bool = False
     use_llm: bool = False
     use_sandbox: bool = False
+    no_cache: bool = False
 
 
 class ApproveRequest(BaseModel):
@@ -670,6 +684,7 @@ async def submit_skill_zip(
     use_behavioral: bool = Query(False),
     use_llm: bool = Query(False),
     use_sandbox: bool = Query(False),
+    no_cache: bool = Query(False),
     mgr: AgentManager = Depends(get_manager),
 ):
     """
@@ -705,6 +720,7 @@ async def submit_skill_zip(
             use_behavioral,
             use_llm,
             use_sandbox,
+            no_cache,
         )
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -777,6 +793,7 @@ def submit_local_skills(
             body.use_behavioral,
             body.use_llm,
             body.use_sandbox,
+            body.no_cache,
         ))
 
     return BatchSubmitResponse(results=results)
@@ -811,6 +828,7 @@ async def submit_skill_url(
             body.use_behavioral,
             body.use_llm,
             body.use_sandbox,
+            body.no_cache,
         )
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=400, detail=f"Failed to download skill: {exc}") from exc
@@ -880,6 +898,7 @@ def submit_remote_selected(
             body.use_behavioral,
             body.use_llm,
             body.use_sandbox,
+            body.no_cache,
         ))
     return BatchSubmitResponse(results=results)
 
@@ -915,6 +934,7 @@ def submit_upload_selected(
             body.use_behavioral,
             body.use_llm,
             body.use_sandbox,
+            body.no_cache,
         ))
     return BatchSubmitResponse(results=results)
 
@@ -968,6 +988,7 @@ async def submit_skill_clawhub(
             body.use_behavioral,
             body.use_llm,
             body.use_sandbox,
+            body.no_cache,
         )
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=400, detail=f"Failed to download from ClawHub: {exc}") from exc
@@ -1378,7 +1399,7 @@ def retire_skill(
 # Runtime guard endpoints (called by agents)                                    #
 # --------------------------------------------------------------------------- #
 
-@router.get("/runtime/can-load/{skill_name}", response_model=RuntimeCheckResponse)
+@runtime_router.get("/runtime/can-load/{skill_name}", response_model=RuntimeCheckResponse)
 def runtime_can_load(
     skill_name: str,
     skill_path: str | None = Query(None),
@@ -1397,7 +1418,7 @@ def runtime_can_load(
     )
 
 
-@router.post("/runtime/verify-skill-signature", response_model=VerifySkillSignatureResponse)
+@runtime_router.post("/runtime/verify-skill-signature", response_model=VerifySkillSignatureResponse)
 def runtime_verify_skill_signature(
     body: VerifySkillSignatureRequest,
     mgr: AgentManager = Depends(get_manager),
@@ -1420,7 +1441,7 @@ def runtime_verify_skill_signature(
     )
 
 
-@router.get("/runtime/check-tool", response_model=ToolCheckResponse)
+@runtime_router.get("/runtime/check-tool", response_model=ToolCheckResponse)
 def runtime_check_tool(
     skill_name: str = Query(...),
     tool_name: str = Query(...),
@@ -1508,3 +1529,205 @@ def get_audit(
     if page is not None or page_size is not None:
         return _paginate(data, page or 1, page_size or 10)
     return data
+
+
+# --------------------------------------------------------------------------- #
+# Prompt endpoints                                                              #
+# --------------------------------------------------------------------------- #
+
+# Module-level temp dir for prompt deploys
+_prompt_content_temp_dir: Path | None = None
+
+
+def _get_prompt_content_temp_dir() -> Path:
+    global _prompt_content_temp_dir
+    if _prompt_content_temp_dir is None or not _prompt_content_temp_dir.exists():
+        _prompt_content_temp_dir = Path(tempfile.mkdtemp(prefix="agent-manager-prompts-"))
+    return _prompt_content_temp_dir
+
+
+class PromptSubmitPayload(BaseModel):
+    name: str
+    content: str
+    agent_id: str = ""
+    description: str = ""
+    author: str | None = None
+
+
+class PromptApprovePayload(BaseModel):
+    approver: str = "admin"
+    note: str | None = None
+
+
+class PromptRejectPayload(BaseModel):
+    reviewer: str = "admin"
+    reason: str
+
+
+class PromptDeployPayload(BaseModel):
+    target_dir: str | None = None
+    actor: str | None = None
+
+
+class PromptRetirePayload(BaseModel):
+    reason: str
+    actor: str | None = None
+
+
+class PromptVerifyPayload(BaseModel):
+    prompt_name: str
+    local_content: str | None = None
+    local_file_path: str | None = None
+
+
+@router.post("/prompts/submit")
+def submit_prompt(body: PromptSubmitPayload, mgr: AgentManager = Depends(get_manager)):
+    entry = mgr.submit_prompt(
+        name=body.name,
+        content=body.content,
+        agent_id=body.agent_id,
+        description=body.description,
+        author=body.author,
+    )
+    try:
+        entry = mgr.vet_prompt(entry.prompt_id)
+    except Exception as exc:
+        logger.error("Prompt vetting failed for %s: %s", entry.prompt_id, exc)
+    return entry.model_dump(mode="json")
+
+
+@router.get("/prompts")
+def list_prompts(
+    status: str | None = Query(None),
+    agent_id: str | None = Query(None),
+    mgr: AgentManager = Depends(get_manager),
+):
+    status_enum = PromptStatus(status) if status else None
+    entries = mgr.list_prompts(status=status_enum, agent_id=agent_id)
+    return [e.summary() for e in entries]
+
+
+@router.get("/prompts/loadable")
+def list_loadable_prompts(
+    agent_id: str | None = Query(None),
+    mgr: AgentManager = Depends(get_manager),
+):
+    entries = mgr.list_prompts_loadable(agent_id=agent_id)
+    return [e.summary() for e in entries]
+
+
+@router.get("/prompts/review")
+def list_prompt_review_queue(mgr: AgentManager = Depends(get_manager)):
+    queue = mgr.list_prompt_review_queue()
+    return [r.model_dump(mode="json") for r in queue]
+
+
+@router.get("/prompts/{id_or_name}")
+def get_prompt(id_or_name: str, mgr: AgentManager = Depends(get_manager)):
+    entry = mgr.get_prompt(id_or_name)
+    if not entry:
+        raise HTTPException(404, f"Prompt {id_or_name!r} not found")
+    return entry.model_dump(mode="json")
+
+
+@router.get("/prompts/{id_or_name}/content")
+def get_prompt_content(id_or_name: str, mgr: AgentManager = Depends(get_manager)):
+    entry = mgr.get_prompt(id_or_name)
+    if not entry:
+        raise HTTPException(404, f"Prompt {id_or_name!r} not found")
+    if not entry.is_loadable():
+        raise HTTPException(403, f"Prompt {id_or_name!r} is not loadable")
+    return {"name": entry.name, "content": entry.content, "signature": entry.signature, "agent_id": entry.agent_id}
+
+
+@router.post("/prompts/{prompt_id}/approve")
+def approve_prompt(prompt_id: str, body: PromptApprovePayload, mgr: AgentManager = Depends(get_manager)):
+    try:
+        entry = mgr.approve_prompt(prompt_id, body.approver, body.note)
+        return entry.model_dump(mode="json")
+    except KeyError:
+        raise HTTPException(404, f"Prompt {prompt_id!r} not found")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/prompts/{prompt_id}/reject")
+def reject_prompt(prompt_id: str, body: PromptRejectPayload, mgr: AgentManager = Depends(get_manager)):
+    try:
+        entry = mgr.reject_prompt(prompt_id, body.reviewer, body.reason)
+        return entry.model_dump(mode="json")
+    except KeyError:
+        raise HTTPException(404, f"Prompt {prompt_id!r} not found")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/prompts/{prompt_id}/deploy")
+def deploy_prompt(prompt_id: str, body: PromptDeployPayload | None = None, mgr: AgentManager = Depends(get_manager)):
+    target_dir = body.target_dir if body else None
+    actor = body.actor if body else None
+    try:
+        entry = mgr.deploy_prompt(prompt_id, target_dir=target_dir, actor=actor)
+        return entry.model_dump(mode="json")
+    except KeyError:
+        raise HTTPException(404, f"Prompt {prompt_id!r} not found")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/prompts/{prompt_id}/retire")
+def retire_prompt(prompt_id: str, body: PromptRetirePayload, mgr: AgentManager = Depends(get_manager)):
+    try:
+        entry = mgr.retire_prompt(prompt_id, body.reason, body.actor)
+        return entry.model_dump(mode="json")
+    except KeyError:
+        raise HTTPException(404, f"Prompt {prompt_id!r} not found")
+
+
+# -- Runtime endpoints for agent-side prompt verification
+
+@runtime_router.get("/runtime/verify-prompt")
+def verify_prompt(
+    prompt_name: str = Query(...),
+    local_content: str | None = Query(None),
+    local_file_path: str | None = Query(None),
+    mgr: AgentManager = Depends(get_manager),
+):
+    result = mgr.verify_prompt_signature(
+        prompt_name=prompt_name,
+        local_content=local_content,
+        local_file_path=Path(local_file_path) if local_file_path else None,
+    )
+    return result
+
+
+@runtime_router.post("/runtime/verify-prompt-signature")
+def verify_prompt_signature_endpoint(body: PromptVerifyPayload, mgr: AgentManager = Depends(get_manager)):
+    result = mgr.verify_prompt_signature(
+        prompt_name=body.prompt_name,
+        local_content=body.local_content,
+        local_file_path=Path(body.local_file_path) if body.local_file_path else None,
+    )
+    return result
+
+
+@runtime_router.get("/runtime/can-load-prompt/{prompt_name}")
+def can_load_prompt(
+    prompt_name: str,
+    local_file_path: str | None = Query(None),
+    agent_id: str | None = Query(None),
+    mgr: AgentManager = Depends(get_manager),
+):
+    entry = mgr.get_prompt(prompt_name)
+    if not entry:
+        return {"allowed": False, "status": None, "reason": f"Prompt {prompt_name!r} not found in registry"}
+    if not entry.is_loadable():
+        return {"allowed": False, "status": entry.status.value, "reason": f"Prompt {prompt_name!r} is {entry.status.value}"}
+    if agent_id and entry.agent_id and entry.agent_id != agent_id:
+        return {"allowed": False, "status": entry.status.value, "reason": f"Prompt belongs to agent {entry.agent_id!r}, not {agent_id!r}"}
+    if local_file_path and entry.signature:
+        from agent_manager.core.signer import verify_prompt_signature as _verify
+        verified = _verify(Path(local_file_path), entry.signature)
+        if not verified:
+            return {"allowed": False, "status": entry.status.value, "reason": "Prompt 签名校验失败，文件可能被篡改"}
+    return {"allowed": True, "status": entry.status.value, "prompt_id": entry.prompt_id, "agent_id": entry.agent_id}

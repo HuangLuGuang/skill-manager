@@ -612,6 +612,12 @@ class VettingPipeline:
                     ],
                     "llm_analysis": llm_result.model_dump(mode="json"),
                 }
+                # Elevate max_severity if LLM found it malicious
+                if llm_result.verdict == "malicious":
+                    current_sev = scan_report.get("max_severity", "SAFE")
+                    if current_sev in ("SAFE", "INFO", "LOW", "MEDIUM"):
+                        scan_report["max_severity"] = "HIGH"
+
                 if llm_result.report:
                     llm_notes.append(f"[LLM] {llm_result.report}")
             except Exception as exc:

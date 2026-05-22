@@ -102,6 +102,12 @@ class CompanyPolicy:
     def requires_sandbox(self, risk_level: RiskLevel) -> bool:
         return risk_level in self.require_sandbox_for_risk
 
+    def should_auto_approve_prompt(self, entry: Any) -> bool:
+        """Check if a prompt can be auto-approved based on its risk level."""
+        if not entry.risk_level:
+            return False
+        return self.auto_approve_max_risk.is_at_least(entry.risk_level)
+
     # ------------------------------------------------------------------ #
     # Enforcement                                                          #
     # ------------------------------------------------------------------ #

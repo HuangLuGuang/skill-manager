@@ -38,7 +38,8 @@ except ImportError:
     pass
 
 # Session state directory - store state per session_id
-SESSION_STATE_DIR = Path("/Users/nancy_yu/riversecurity/agent-manager/.claude/session-state")
+_DEFAULT_SESSION_STATE_DIR = Path.home() / ".agent-manager" / "session-state"
+SESSION_STATE_DIR = Path(os.environ.get("AGENT_MANAGER_SESSION_STATE_DIR", _DEFAULT_SESSION_STATE_DIR))
 
 
 # --------------------------------------------------------------------------- #
@@ -148,19 +149,25 @@ def _block(reason: str) -> None:
 
 def handle_session_start(event: dict) -> None:
     """
-    At session start, find all skill files visible to the agent and verify
-    each one is in the registry.  If any skill is unregistered, block the
-    session from proceeding.
+    At session start, find all skill files and prompt files visible to the agent
+    and verify each one is in the registry. If any is unregistered or tampered,
+    block the session from proceeding.
 
     Skill directories searched (in order):
       1. AGENT_MANAGER_SKILLS_DIR env var (company-controlled directory)
       2. .claude/skills/ in the cwd
       3. ~/.claude/skills/
+
+    Prompt directories searched (in order):
+      1. AGENT_MANAGER_PROMPTS_DIR env var (company-controlled directory)
+      2. .claude/prompts/ in the cwd
+      3. ~/.claude/prompts/
     """
     session_id = event.get("session_id", "")
     cwd = event.get("cwd", ".")
-    skill_dirs = _candidate_skill_dirs(cwd)
 
+    # -- Skills --
+    skill_dirs = _candidate_skill_dirs(cwd)
     registry = _get_registry()
     unregistered: list[str] = []
     active_names: list[str] = []
@@ -173,7 +180,7 @@ def handle_session_start(event: dict) -> None:
             entry = registry.get_by_name(name)
             _log(f"Checked skill {name} (at {skill_md.parent}): {entry}")
             if entry is None or not entry.is_loadable():
-                unregistered.append(f"{name} (at {skill_md.parent})")
+                unregistered.append(f"Skill: {name} (at {skill_md.parent})")
                 if entry is None:
                     _emit_audit_event(
                         "skill_load_blocked",
@@ -197,16 +204,49 @@ def handle_session_start(event: dict) -> None:
                     details={"status": entry.status.value}
                 )
 
+    # -- Prompts --
+    prompt_dirs = _candidate_prompt_dirs(cwd)
+    from agent_manager.core.signer import verify_prompt_signature as _verify_prompt_sig
+
+    for prompt_dir in prompt_dirs:
+        for prompt_file in sorted(prompt_dir.glob("*.txt")):
+            prompt_name = prompt_file.stem
+            prompt_entry = registry.get_prompt_by_name(prompt_name)
+            if prompt_entry is None:
+                unregistered.append(f"Prompt: {prompt_name} (at {prompt_file}) — not in registry")
+            elif not prompt_entry.is_loadable():
+                unregistered.append(f"Prompt: {prompt_name} (at {prompt_file}) — status={prompt_entry.status.value}")
+            elif prompt_entry.signature:
+                if not _verify_prompt_sig(prompt_file, prompt_entry.signature):
+                    _log(f"Prompt {prompt_name} signature mismatch!")
+                    unregistered.append(
+                        f"Prompt: {prompt_name} (at {prompt_file}) — SIGNATURE MISMATCH, may be tampered!"
+                    )
+                    registry.log_prompt_event(_make_prompt_audit(
+                        "prompt_tamper_detected",
+                        prompt_entry,
+                        session_id,
+                        {"file_path": str(prompt_file)},
+                    ))
+                else:
+                    _log(f"Prompt {prompt_name} verified OK")
+                    registry.log_prompt_event(_make_prompt_audit(
+                        "prompt_signature_verified",
+                        prompt_entry,
+                        session_id,
+                        {"file_path": str(prompt_file)},
+                    ))
+
     _log(f"Active skills: {active_names}")
-    # Persist active skills list for later hooks
     if session_id:
         _set_active_skills_in_state(session_id, active_names)
 
     if unregistered:
         _block(
-            f"[agent-manager] Session blocked: {len(unregistered)} unregistered skill(s) found.\n"
+            f"[agent-manager] Session blocked: {len(unregistered)} issue(s) found.\n"
             + "\n".join(f"  - {s}" for s in unregistered)
-            + "\nRun: agent-manager submit <path> to register each skill."
+            + "\n\nRun: agent-manager submit <path> to register skills,"
+            + "\n     agent-manager prompt submit <file> to register prompts."
         )
 
 
@@ -416,6 +456,42 @@ def _candidate_skill_dirs(cwd: str) -> list[Path]:
         dirs.append(global_skills)
 
     return dirs
+
+
+def _candidate_prompt_dirs(cwd: str) -> list[Path]:
+    """Return prompt directories to scan, in priority order."""
+    dirs: list[Path] = []
+
+    company_dir = os.environ.get("AGENT_MANAGER_PROMPTS_DIR")
+    if company_dir:
+        p = Path(company_dir)
+        if p.is_dir():
+            dirs.append(p)
+
+    project_prompts = Path(cwd) / ".claude" / "prompts"
+    if project_prompts.is_dir():
+        dirs.append(project_prompts)
+
+    global_prompts = Path.home() / ".claude" / "prompts"
+    if global_prompts.is_dir():
+        dirs.append(global_prompts)
+
+    return dirs
+
+
+def _make_prompt_audit(event_type: str, entry, session_id: str | None = None,
+                        details: dict | None = None) -> "PromptAuditEvent":
+    """Create a PromptAuditEvent for logging."""
+    from agent_manager.core.prompt_models import PromptAuditEvent
+    import uuid
+    return PromptAuditEvent(
+        event_id=str(uuid.uuid4()),
+        event_type=event_type,
+        prompt_id=entry.prompt_id,
+        prompt_name=entry.name,
+        actor=_make_actor(session_id),
+        details=details or {},
+    )
 
 
 def _extract_name(skill_md: Path) -> str | None:

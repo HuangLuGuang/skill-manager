@@ -87,8 +87,51 @@ def verify_signature(skill_path: str | Path, expected_signature: str) -> bool:
     """
     try:
         actual = compute_signature(skill_path)
-        # Use hmac.compare_digest to prevent timing attacks
         return hmac.compare_digest(actual, expected_signature)
     except Exception as e:
         logger.error("Signature verification failed for %s: %s", skill_path, e)
+        return False
+
+
+# --------------------------------------------------------------------------- #
+# Prompt signing                                                               #
+# --------------------------------------------------------------------------- #
+
+
+def compute_prompt_signature(content: str) -> str:
+    """Compute HMAC-SHA256 signature for a prompt text.
+
+    If AGENT_MANAGER_SIGNING_KEY is set, uses HMAC-SHA256.
+    Otherwise falls back to plain SHA256 (dev mode).
+    """
+    key = _get_key()
+    data = content.encode("utf-8")
+    if key:
+        return hmac.new(key, data, hashlib.sha256).hexdigest()
+    return hashlib.sha256(data).hexdigest()
+
+
+def compute_prompt_file_signature(file_path: str | Path) -> str:
+    """Compute signature for a prompt file on disk."""
+    path = Path(file_path)
+    if not path.is_file():
+        raise ValueError(f"Not a file: {path}")
+    return compute_prompt_signature(path.read_text(encoding="utf-8"))
+
+
+def verify_prompt_signature(content_or_path: str | Path, expected_signature: str) -> bool:
+    """Verify prompt content or file against the expected signature.
+
+    If the argument is a Path or an existing file path string, reads the file.
+    Otherwise treats it as raw prompt content.
+    """
+    try:
+        path = Path(content_or_path)
+        if path.is_file():
+            actual = compute_prompt_file_signature(path)
+        else:
+            actual = compute_prompt_signature(str(content_or_path))
+        return hmac.compare_digest(actual, expected_signature)
+    except Exception as e:
+        logger.error("Prompt signature verification failed: %s", e)
         return False

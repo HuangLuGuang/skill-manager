@@ -20,7 +20,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .models import AuditEvent, RegistryEntry, ReviewRequest, RiskLevel, SkillStatus
+from .models import (
+    AuditEvent,
+    RegistryEntry,
+    ReviewRequest,
+    RiskLevel,
+    SkillStatus,
+)
+from .prompt_registry import PromptRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +40,12 @@ class Registry:
     """SQLite registry with legacy JSON import support."""
 
     def __init__(self, data_dir: str | Path | None = None):
-        self.data_dir = Path(data_dir or os.environ.get("AGENT_MANAGER_DATA_DIR", _DEFAULT_DIR))
+        self.data_dir = Path(data_dir or os.environ.get("AGENT_MANAGER_DATA_DIR", _DEFAULT_DIR)).resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         with _LOCKS_GUARD:
             self._lock = _LOCKS.setdefault(self.data_dir.resolve(), threading.RLock())
 
+        self.prompts = PromptRegistry(self)
         self._registry_file = self.data_dir / "registry.json"
         self._audit_file = self.data_dir / "audit.jsonl"
         self._review_file = self.data_dir / "review.json"
@@ -97,6 +105,42 @@ class Registry:
                 );
                 CREATE INDEX IF NOT EXISTS idx_skill_audit_timestamp ON skill_audit_events(timestamp);
                 CREATE INDEX IF NOT EXISTS idx_skill_audit_skill_id ON skill_audit_events(skill_id);
+
+                CREATE TABLE IF NOT EXISTS prompt_registry (
+                    prompt_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    agent_id TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL,
+                    risk_level TEXT,
+                    submitted_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_prompt_registry_name ON prompt_registry(lower(name));
+                CREATE INDEX IF NOT EXISTS idx_prompt_registry_agent ON prompt_registry(agent_id);
+                CREATE INDEX IF NOT EXISTS idx_prompt_registry_status ON prompt_registry(status);
+
+                CREATE TABLE IF NOT EXISTS prompt_review_queue (
+                    prompt_id TEXT PRIMARY KEY,
+                    prompt_name TEXT NOT NULL,
+                    risk_level TEXT NOT NULL,
+                    submitted_at TEXT NOT NULL,
+                    queued_at TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_prompt_review_queue_queued_at ON prompt_review_queue(queued_at);
+
+                CREATE TABLE IF NOT EXISTS prompt_audit_events (
+                    event_id TEXT PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    prompt_id TEXT NOT NULL,
+                    prompt_name TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    actor TEXT,
+                    payload TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_prompt_audit_timestamp ON prompt_audit_events(timestamp);
+                CREATE INDEX IF NOT EXISTS idx_prompt_audit_prompt_id ON prompt_audit_events(prompt_id);
                 """
             )
 
@@ -391,6 +435,43 @@ class Registry:
             ).fetchall()
             events = [AuditEvent.model_validate(json.loads(row["payload"])) for row in rows]
             return list(reversed(events))
+
+    # ------------------------------------------------------------------ #
+    # Prompt delegation                                                    #
+    # ------------------------------------------------------------------ #
+
+    def add_prompt(self, *args, **kwargs):
+        return self.prompts.add(*args, **kwargs)
+
+    def update_prompt(self, *args, **kwargs):
+        return self.prompts.update(*args, **kwargs)
+
+    def get_prompt_by_id(self, *args, **kwargs):
+        return self.prompts.get_by_id(*args, **kwargs)
+
+    def get_prompt_by_name(self, *args, **kwargs):
+        return self.prompts.get_by_name(*args, **kwargs)
+
+    def list_prompts(self, *args, **kwargs):
+        return self.prompts.list(*args, **kwargs)
+
+    def list_prompts_loadable(self, *args, **kwargs):
+        return self.prompts.list_loadable(*args, **kwargs)
+
+    def enqueue_prompt_review(self, *args, **kwargs):
+        return self.prompts.enqueue_review(*args, **kwargs)
+
+    def dequeue_prompt_review(self, *args, **kwargs):
+        return self.prompts.dequeue_review(*args, **kwargs)
+
+    def list_prompt_review_queue(self, *args, **kwargs):
+        return self.prompts.list_review_queue(*args, **kwargs)
+
+    def log_prompt_event(self, *args, **kwargs):
+        return self.prompts.log_event(*args, **kwargs)
+
+    def read_prompt_audit(self, *args, **kwargs):
+        return self.prompts.read_audit(*args, **kwargs)
 
 
 # --------------------------------------------------------------------------- #

@@ -21,9 +21,12 @@ from .models import (
     SkillStatus,
     SourceInfo,
     SkillOrigin,
+    VettingResult,
 )
 from .policy import CompanyPolicy
 from .registry import Registry, make_event
+from .prompt_manager import PromptManager
+from .prompt_models import PromptEntry, PromptStatus, PromptAuditEvent, PromptReviewRequest
 from .runtime import RuntimeGuard
 from .scan_cache import (
     ScanCacheStore,
@@ -31,7 +34,7 @@ from .scan_cache import (
     compute_scan_cache_key,
     compute_scan_context_fingerprint,
 )
-from .signer import compute_signature
+from .signer import compute_signature, compute_prompt_signature
 from .vetting import VettingPipeline, _load_manifest
 
 logger = logging.getLogger(__name__)
@@ -66,6 +69,7 @@ class AgentManager:
     ):
         self.registry = registry or Registry(data_dir)
         self.policy = policy or CompanyPolicy.default()
+        self.prompts = PromptManager(self)
         self.vetting = VettingPipeline(self.policy)
         self.runtime = RuntimeGuard(self.registry)
         self.scan_cache = ScanCacheStore(self.registry.data_dir)
@@ -82,16 +86,10 @@ class AgentManager:
         use_behavioral: bool = False,
         use_llm: bool = False,
         use_sandbox: bool = False,
+        no_cache: bool = False,
     ) -> RegistryEntry:
         """
         Vet a skill and submit it to the registry.
-
-        The skill is scanned, policy-checked, and assigned a status:
-        - APPROVED  — auto-approved (risk below threshold, no violations)
-        - VETTED    — needs human review
-        - REJECTED  — auto-rejected (EXTREME risk or blocking violation)
-
-        Returns the new RegistryEntry.
         """
         entry = self.create_pending_submission(skill_path, source=source, author=author)
         return self.process_pending_submission(
@@ -99,6 +97,7 @@ class AgentManager:
             use_behavioral=use_behavioral,
             use_llm=use_llm,
             use_sandbox=use_sandbox,
+            no_cache=no_cache,
         )
 
     def create_pending_submission(
@@ -142,6 +141,7 @@ class AgentManager:
         use_behavioral: bool = False,
         use_llm: bool = False,
         use_sandbox: bool = False,
+        no_cache: bool = False,
     ) -> RegistryEntry:
         entry = self._require_entry(skill_id)
         skill_path = Path(entry.skill_path or "").resolve()
@@ -159,25 +159,26 @@ class AgentManager:
         entry.scan_cache_key = scan_cache_key
         self.registry.update(entry)
 
-        cached = self.scan_cache.get(scan_cache_key)
-        if cached:
-            cached_entry = self.registry.get_by_id(cached.get("skill_id", ""))
-            if cached_entry and cached_entry.vetting and cached_entry.status != SkillStatus.PENDING:
-                return self._reuse_scan_result(entry, cached_entry, skill_path)
+        if not no_cache:
+            cached = self.scan_cache.get(scan_cache_key)
+            if cached:
+                cached_entry = self.registry.get_by_id(cached.get("skill_id", ""))
+                if cached_entry and cached_entry.vetting and cached_entry.status != SkillStatus.PENDING:
+                    return self._reuse_scan_result(entry, cached_entry, skill_path)
 
-        matching_entry = self._find_completed_scan_match(
-            entry.skill_id,
-            content_fingerprint,
-            scan_context_fingerprint,
-        )
-        if matching_entry:
-            self.scan_cache.put(
-                scan_cache_key,
-                matching_entry,
+            matching_entry = self._find_completed_scan_match(
+                entry.skill_id,
                 content_fingerprint,
                 scan_context_fingerprint,
             )
-            return self._reuse_scan_result(entry, matching_entry, skill_path)
+            if matching_entry:
+                self.scan_cache.put(
+                    scan_cache_key,
+                    matching_entry,
+                    content_fingerprint,
+                    scan_context_fingerprint,
+                )
+                return self._reuse_scan_result(entry, matching_entry, skill_path)
 
         logger.info("Vetting skill at %s ...", skill_path)
 
@@ -189,8 +190,14 @@ class AgentManager:
             use_sandbox=use_sandbox,
         )
 
+        # Aggregate risk: consider both static/behavioral max_severity and LLM verdict
+        scan_max_severity = vetting_result.scan_report.get("max_severity", "SAFE")
+        risk_level = RiskLevel.from_severity(scan_max_severity)
+        if vetting_result.verdict == "malicious" and not risk_level.is_at_least(RiskLevel.HIGH):
+            risk_level = RiskLevel.HIGH
+
         status = self.policy.decide(
-            RiskLevel.from_severity(vetting_result.scan_report.get("max_severity", "SAFE")),
+            risk_level,
             source,
             violations,
         )
@@ -206,7 +213,7 @@ class AgentManager:
         entry.name = name
         entry.description = description
         entry.status = status
-        entry.risk_level = RiskLevel.from_severity(vetting_result.scan_report.get("max_severity", "SAFE"))
+        entry.risk_level = risk_level
         entry.vetting = vetting_result
         entry.allowed_tools = allowed_tools
         entry.declared_tools_valid = declared_tools_valid
@@ -222,7 +229,7 @@ class AgentManager:
             entry,
             details={
                 "verdict": vetting_result.verdict,
-                "risk_level": RiskLevel.from_severity(vetting_result.scan_report.get("max_severity", "SAFE")).value,
+                "risk_level": risk_level.value,
                 "status": status.value,
                 "violations": [v.rule for v in violations],
             },
@@ -232,7 +239,7 @@ class AgentManager:
             self.registry.enqueue_review(ReviewRequest(
                 skill_id=entry.skill_id,
                 skill_name=name,
-                risk_level=RiskLevel.from_severity(vetting_result.scan_report.get("max_severity", "SAFE")),
+                risk_level=risk_level,
                 findings_summary={"total": vetting_result.findings_count},
                 submitted_at=entry.submitted_at,
                 notes="; ".join(vetting_result.policy_notes) if vetting_result.policy_notes else None,
@@ -501,3 +508,50 @@ class AgentManager:
                 continue
             return candidate
         return None
+
+    # ------------------------------------------------------------------ #
+    # Prompt lifecycle delegation                                          #
+    # ------------------------------------------------------------------ #
+
+    def submit_prompt(self, *args, **kwargs):
+        return self.prompts.submit(*args, **kwargs)
+
+    def vet_prompt(self, *args, **kwargs):
+        return self.prompts.vet(*args, **kwargs)
+
+    def approve_prompt(self, *args, **kwargs):
+        return self.prompts.approve(*args, **kwargs)
+
+    def reject_prompt(self, *args, **kwargs):
+        return self.prompts.reject(*args, **kwargs)
+
+    def deploy_prompt(self, *args, **kwargs):
+        return self.prompts.deploy(*args, **kwargs)
+
+    def retire_prompt(self, *args, **kwargs):
+        return self.prompts.retire(*args, **kwargs)
+
+    def list_prompts(self, *args, **kwargs):
+        return self.prompts.list(*args, **kwargs)
+
+    def get_prompt(self, *args, **kwargs):
+        return self.prompts.get_by_id(*args, **kwargs) or self.prompts.get_by_name(*args, **kwargs)
+
+    def list_prompts_loadable(self, *args, **kwargs):
+        return self.prompts.list_loadable(*args, **kwargs)
+
+    def list_prompt_review_queue(self, *args, **kwargs):
+        return self.prompts.list_review_queue(*args, **kwargs)
+
+    def prompt_audit(self, *args, **kwargs):
+        return self.prompts.read_audit(*args, **kwargs)
+
+    def verify_prompt_signature(self, *args, **kwargs):
+        return self.prompts.verify_signature(*args, **kwargs)
+
+    # Private delegations for tests
+    def _basic_prompt_scan(self, *args, **kwargs):
+        return self.prompts._basic_scan(*args, **kwargs)
+
+    def _require_prompt(self, *args, **kwargs):
+        return self.prompts._require_prompt(*args, **kwargs)

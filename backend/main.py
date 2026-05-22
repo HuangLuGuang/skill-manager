@@ -23,8 +23,11 @@ if str(base_dir) not in sys.path:
 
 os.environ.setdefault("AGENT_MANAGER_REGISTRY_SQLITE_PATH", settings.SQLITE_PATH)
 
-from agent_manager.api.router import get_manager as get_agent_manager
-from agent_manager.api.router import router as agent_manager_router
+from agent_manager.api.router import (
+    get_manager as get_agent_manager,
+    router as agent_manager_router,
+    runtime_router as agent_runtime_router,
+)
 from agent_manager.api.scanner_router import admin_router as scanner_admin_router
 from agent_manager.api.scanner_router import runtime_router as access_runtime_router
 from agent_manager.api.scanner_router import router as scanner_router
@@ -43,6 +46,7 @@ app.include_router(config.router, prefix=settings.API_PREFIX)
 app.include_router(system.router, prefix=settings.API_PREFIX)
 app.include_router(tasks.router, prefix=settings.API_PREFIX)
 app.include_router(access_runtime_router)
+app.include_router(agent_runtime_router)
 app.include_router(agent_manager_router, dependencies=[Depends(get_current_admin_user)])
 app.include_router(scanner_admin_router, dependencies=[Depends(get_current_admin_user)])
 app.include_router(scanner_router)

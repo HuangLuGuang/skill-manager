@@ -75,6 +75,7 @@ import {
   DeploymentUnitOutlined,
   DownOutlined,
   FileSearchOutlined,
+  FileTextOutlined,
   KeyOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
@@ -99,6 +100,7 @@ const passwordForm = reactive({
 const menuItems = [
   { key: '/dashboard', label: '总览', icon: DashboardOutlined },
   { key: '/skills', label: '技能注册表', icon: FileSearchOutlined },
+  { key: '/prompts', label: '提示词管理', icon: FileTextOutlined },
   { key: '/submit', label: '提交技能', icon: UploadOutlined },
   { key: '/review', label: '审核队列', icon: CheckSquareOutlined },
   { key: '/deployments', label: '部署管理', icon: DeploymentUnitOutlined },
@@ -115,6 +117,7 @@ const isLoginPage = computed(() => route.name === 'login')
 
 const resolveMenuKey = (path) => {
   if (path.startsWith('/skills/')) return '/skills'
+  if (path.startsWith('/prompts/')) return '/prompts'
   return path
 }
 

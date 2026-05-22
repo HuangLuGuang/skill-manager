@@ -343,8 +343,11 @@ def build_probe_plan(skill_path: str | Path, entrypoint: str) -> SandboxProbePla
     return SandboxProbePlan(entrypoint=entrypoint, args=args, strategy=strategy)
 
 
-def _build_events(stdout: str, stderr: str) -> list[SandboxEvent]:
-    combined = "\n".join(part for part in (stdout, stderr) if part).strip()
+def _build_events(stdout: Any, stderr: Any) -> list[SandboxEvent]:
+    # Ensure we have strings to avoid join errors
+    s_out = stdout.decode("utf-8", "ignore") if isinstance(stdout, bytes) else str(stdout or "")
+    s_err = stderr.decode("utf-8", "ignore") if isinstance(stderr, bytes) else str(stderr or "")
+    combined = "\n".join(part for part in (s_out, s_err) if part).strip()
     if not combined:
         return []
 

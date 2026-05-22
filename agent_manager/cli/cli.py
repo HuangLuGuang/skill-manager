@@ -19,12 +19,17 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import click
 from rich.console import Console
 from rich.table import Table
 from rich import box
 from rich.panel import Panel
 from rich.text import Text
+
+from agent_manager.core.prompt_models import PromptStatus
 
 console = Console()
 err_console = Console(stderr=True)
@@ -93,10 +98,12 @@ def main(ctx: click.Context, policy_path: str | None):
               help="Enable LLM semantic analysis (requires API key)")
 @click.option("--sandbox", is_flag=True, default=False,
               help="Enable Docker sandbox execution probe (requires Docker)")
+@click.option("--no-cache", is_flag=True, default=False,
+              help="Bypass scan cache and force a fresh analysis")
 @click.option("--json", "output_json", is_flag=True, default=False,
               help="Output result as JSON")
 @click.pass_context
-def submit(ctx, skill_path, author, origin, behavioral, llm, sandbox, output_json):
+def submit(ctx, skill_path, author, origin, behavioral, llm, sandbox, no_cache, output_json):
     """Vet and submit a skill to the registry."""
     from agent_manager.core.models import SourceInfo, SkillOrigin
 
@@ -115,6 +122,7 @@ def submit(ctx, skill_path, author, origin, behavioral, llm, sandbox, output_jso
                 use_behavioral=behavioral,
                 use_llm=llm,
                 use_sandbox=sandbox,
+                no_cache=no_cache,
             )
         except Exception as e:
             err_console.print(f"[red]Error:[/red] {e}")
@@ -526,3 +534,235 @@ def _resolve_skill(mgr, skill_id_or_name: str):
         err_console.print(f"[red]Skill {skill_id_or_name!r} not found.[/red]")
         sys.exit(1)
     return entry
+
+
+# --------------------------------------------------------------------------- #
+# Prompt commands                                                               #
+# --------------------------------------------------------------------------- #
+
+@main.group()
+def prompt():
+    """Manage agent prompts: submit, list, show, deploy, retire."""
+
+
+@prompt.command("submit")
+@click.argument("file_path", type=click.Path(exists=True, dir_okay=False))
+@click.option("--name", default=None, help="Prompt name (derived from filename if omitted)")
+@click.option("--agent", "agent_id", default="", help="Target agent ID")
+@click.option("--description", default="", help="Human-readable description")
+@click.option("--author", default=None, help="Submitter")
+@click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON")
+@click.pass_context
+def prompt_submit(ctx, file_path, name, agent_id, description, author, output_json):
+    """Submit a prompt file for vetting and registry."""
+    mgr = _load_manager(ctx.obj.get("policy_path"))
+    content = Path(file_path).read_text(encoding="utf-8")
+    if not name:
+        name = Path(file_path).stem
+
+    entry = mgr.submit_prompt(
+        name=name,
+        content=content,
+        agent_id=agent_id,
+        description=description,
+        author=author,
+    )
+    if not output_json:
+        console.print(f"[bold]Submitted prompt [cyan]{name!r}[/cyan] — prompt_id={entry.prompt_id[:8]}…[/bold]")
+        console.print(f"  Agent: {agent_id or '(unassigned)'}")
+        console.print(f"  Status: {entry.status.value}")
+
+    try:
+        entry = mgr.vet_prompt(entry.prompt_id)
+    except Exception as exc:
+        if output_json:
+            console.print_json(json.dumps(entry.model_dump(mode="json")))
+        else:
+            console.print(f"[yellow]Vetting skipped: {exc}[/yellow]")
+        return
+
+    if output_json:
+        console.print_json(json.dumps(entry.model_dump(mode="json")))
+    else:
+        risk_color = {"LOW": "green", "MEDIUM": "yellow", "HIGH": "red", "EXTREME": "bold red"}.get(
+            entry.risk_level.value if entry.risk_level else "LOW", "white"
+        )
+        console.print(f"  Risk: [{risk_color}]{entry.risk_level.value if entry.risk_level else 'N/A'}[/{risk_color}]")
+        console.print(f"  Status after vetting: [{risk_color}]{entry.status.value}[/{risk_color}]")
+        if entry.status.value == "VETTED":
+            console.print(f"  [yellow]→ Prompt needs human review: agent-manager prompt approve {entry.prompt_id[:8]}[/yellow]")
+        elif entry.status.value == "APPROVED":
+            console.print(f"  [green]→ Auto-approved! Ready to deploy: agent-manager prompt deploy {entry.prompt_id[:8]}[/green]")
+        elif entry.status.value == "REJECTED":
+            console.print(f"  [red]→ Auto-rejected: {entry.rejection_reason or 'risk too high'}[/red]")
+
+
+@prompt.command("list")
+@click.option("--status", default=None, help="Filter by status")
+@click.option("--agent", "agent_id", default=None, help="Filter by agent ID")
+@click.option("--json", "output_json", is_flag=True, default=False)
+@click.pass_context
+def prompt_list(ctx, status, agent_id, output_json):
+    """List prompts in the registry."""
+    mgr = _load_manager(ctx.obj.get("policy_path"))
+    status_enum = PromptStatus(status) if status else None
+    entries = mgr.list_prompts(status=status_enum, agent_id=agent_id)
+
+    if output_json:
+        console.print_json(json.dumps([e.summary() for e in entries]))
+        return
+
+    if not entries:
+        console.print("[dim]No prompts found.[/dim]")
+        return
+
+    table = Table(title="Prompt Registry", box=box.SIMPLE)
+    table.add_column("ID", style="dim")
+    table.add_column("Name")
+    table.add_column("Agent")
+    table.add_column("Status")
+    table.add_column("Risk")
+    table.add_column("Submitted")
+    for e in entries:
+        risk_color = {"LOW": "green", "MEDIUM": "yellow", "HIGH": "red", "EXTREME": "bold red"}.get(
+            e.risk_level.value if e.risk_level else "", ""
+        )
+        table.add_row(
+            e.prompt_id[:8],
+            e.name,
+            e.agent_id or "-",
+            e.status.value,
+            f"[{risk_color}]{e.risk_level.value if e.risk_level else 'N/A'}[/{risk_color}]",
+            e.submitted_at.strftime("%Y-%m-%d %H:%M") if e.submitted_at else "-",
+        )
+    console.print(table)
+
+
+@prompt.command("show")
+@click.argument("id_or_name")
+@click.option("--json", "output_json", is_flag=True, default=False)
+@click.pass_context
+def prompt_show(ctx, id_or_name, output_json):
+    """Show prompt details."""
+    mgr = _load_manager(ctx.obj.get("policy_path"))
+    entry = mgr.get_prompt(id_or_name)
+    if not entry:
+        err_console.print(f"[red]Prompt {id_or_name!r} not found.[/red]")
+        sys.exit(1)
+
+    if output_json:
+        console.print_json(json.dumps(entry.model_dump(mode="json")))
+        return
+
+    console.print(Panel(f"[bold cyan]{entry.name}[/bold cyan]"))
+    console.print(f"  Prompt ID:    {entry.prompt_id}")
+    console.print(f"  Agent:        {entry.agent_id or '(unassigned)'}")
+    console.print(f"  Description:  {entry.description or '-'}")
+    console.print(f"  Status:       {entry.status.value}")
+    if entry.risk_level:
+        risk_color = {"LOW": "green", "MEDIUM": "yellow", "HIGH": "red", "EXTREME": "bold red"}[entry.risk_level.value]
+        console.print(f"  Risk:         [{risk_color}]{entry.risk_level.value}[/{risk_color}]")
+    if entry.signature:
+        console.print(f"  Signature:    [dim]{entry.signature[:32]}…[/dim]")
+    console.print(f"  Submitted:    {entry.submitted_at.strftime('%Y-%m-%d %H:%M:%S')}")
+    if entry.approved_at:
+        console.print(f"  Approved:     {entry.approved_at.strftime('%Y-%m-%d %H:%M:%S')} by {entry.approved_by}")
+    if entry.deployed_at:
+        console.print(f"  Deployed:     {entry.deployed_at.strftime('%Y-%m-%d %H:%M:%S')}")
+    if entry.rejection_reason:
+        console.print(f"  [red]Rejected: {entry.rejection_reason}[/red]")
+    if entry.vetting:
+        console.print(f"\n[bold]Vetting[/bold]")
+        console.print(f"  Verdict:      {entry.vetting.verdict}")
+        console.print(f"  Findings:     {entry.vetting.findings_count}")
+        console.print(f"  Analyzers:    {', '.join(entry.vetting.analyzers_used)}")
+        if entry.vetting.policy_notes:
+            for note in entry.vetting.policy_notes:
+                console.print(f"  [yellow]• {note}[/yellow]")
+    console.print(f"\n[bold]Content (first 500 chars)[/bold]")
+    console.print(entry.content[:500])
+
+
+@prompt.command("approve")
+@click.argument("prompt_id")
+@click.option("--approver", default="admin", help="Approver name")
+@click.option("--note", default=None, help="Approval note")
+@click.pass_context
+def prompt_approve(ctx, prompt_id, approver, note):
+    """Approve a VETTED prompt."""
+    mgr = _load_manager(ctx.obj.get("policy_path"))
+    try:
+        entry = mgr.approve_prompt(prompt_id, approver, note)
+        console.print(f"[green]Approved prompt {entry.name!r}[/green]")
+        console.print(f"  Signature: [dim]{entry.signature[:32]}…[/dim]")
+    except (KeyError, ValueError) as exc:
+        err_console.print(f"[red]{exc}[/red]")
+        sys.exit(1)
+
+
+@prompt.command("reject")
+@click.argument("prompt_id")
+@click.option("--reviewer", default="admin", help="Reviewer name")
+@click.option("--reason", default="Rejected by reviewer", help="Rejection reason")
+@click.pass_context
+def prompt_reject(ctx, prompt_id, reviewer, reason):
+    """Reject a prompt."""
+    mgr = _load_manager(ctx.obj.get("policy_path"))
+    try:
+        entry = mgr.reject_prompt(prompt_id, reviewer, reason)
+        console.print(f"[yellow]Rejected prompt {entry.name!r}: {reason}[/yellow]")
+    except (KeyError, ValueError) as exc:
+        err_console.print(f"[red]{exc}[/red]")
+        sys.exit(1)
+
+
+@prompt.command("deploy")
+@click.argument("prompt_id")
+@click.option("--target-dir", default=None, help="Write prompt file to this directory")
+@click.option("--actor", default=None, help="Actor performing deploy")
+@click.pass_context
+def prompt_deploy(ctx, prompt_id, target_dir, actor):
+    """Deploy an APPROVED prompt — sign and optionally write to disk."""
+    mgr = _load_manager(ctx.obj.get("policy_path"))
+    try:
+        entry = mgr.deploy_prompt(prompt_id, target_dir=target_dir, actor=actor)
+        console.print(f"[green]Deployed prompt {entry.name!r}[/green]")
+        if target_dir:
+            console.print(f"  Written to: {target_dir}/{entry.name}.txt")
+    except (KeyError, ValueError) as exc:
+        err_console.print(f"[red]{exc}[/red]")
+        sys.exit(1)
+
+
+@prompt.command("retire")
+@click.argument("id_or_name")
+@click.option("--reason", default="Retired by operator", help="Retire reason")
+@click.option("--actor", default=None)
+@click.pass_context
+def prompt_retire(ctx, id_or_name, reason, actor):
+    """Retire a prompt — immediately revokes loadability."""
+    mgr = _load_manager(ctx.obj.get("policy_path"))
+    try:
+        entry = mgr.retire_prompt(id_or_name, reason, actor)
+        console.print(f"[yellow]Retired prompt {entry.name!r}: {reason}[/yellow]")
+    except KeyError as exc:
+        err_console.print(f"[red]{exc}[/red]")
+        sys.exit(1)
+
+
+@prompt.command("verify")
+@click.argument("prompt_name")
+@click.option("--file", "file_path", default=None, help="Local prompt file path to verify")
+@click.pass_context
+def prompt_verify(ctx, prompt_name, file_path):
+    """Verify a local prompt file against the registry signature."""
+    mgr = _load_manager(ctx.obj.get("policy_path"))
+    result = mgr.verify_prompt_signature(
+        prompt_name=prompt_name,
+        local_file_path=Path(file_path) if file_path else None,
+    )
+    if result["valid"]:
+        console.print(f"[green]VERIFIED[/green] — {prompt_name!r} signature matches registry")
+    else:
+        console.print(f"[bold red]FAILED[/bold red] — {result.get('reason', 'verification failed')}")
+        sys.exit(2)

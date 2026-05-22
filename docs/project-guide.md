@@ -148,6 +148,10 @@ flowchart TB
   SQLite 持久化，启动时可从旧 `registry.json`、`review.json`、`audit.jsonl` 自动迁移
 - [agent_manager/core/runtime.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/runtime.py)
   运行时治理
+- [agent_manager/core/prompt_manager.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/prompt_manager.py)
+  提示词全生命周期管理
+- [agent_manager/core/prompt_registry.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/prompt_registry.py)
+  提示词持久化存储
 - [agent_manager/core/signer.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/signer.py)
   目录签名
 - [agent_manager/core/llm.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/llm.py)
@@ -697,3 +701,5 @@ sequenceDiagram
   [remote-sandbox-mock-quickstart.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/remote-sandbox-mock-quickstart.md)
 - OpenClaw Hook 接入：
   [openclaw-agent-manager-hooks.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/openclaw-agent-manager-hooks.md)
+- 提示词管理使用指南：
+  [prompt-management.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/prompt-management.md)
