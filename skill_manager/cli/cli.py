@@ -333,7 +333,7 @@ def registry_show(ctx, skill_id_or_name, output_json):
         v = entry.vetting
         console.print()
         console.print(f"  [bold]Scan:[/bold] {v.findings_count} findings "
-                      f"(C:{v.critical_count} H:{v.high_count} M:{v.medium_count} L:{v.low_count}) "
+                      f"verdict={v.verdict} "
                       f"in {v.scan_duration_seconds:.1f}s")
         if v.policy_notes:
             for note in v.policy_notes:

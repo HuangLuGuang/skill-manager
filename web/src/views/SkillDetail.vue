@@ -12,8 +12,10 @@
               <a-descriptions-item label="状态">
                 <a-tag :color="statusColor(detail?.status)">{{ detail?.status || '-' }}</a-tag>
               </a-descriptions-item>
-              <a-descriptions-item label="风险">
-                <a-tag :color="riskColor(detail?.risk_level)">{{ detail?.risk_level || '-' }}</a-tag>
+              <a-descriptions-item label="安全判定">
+                <a-tag :color="detail?.vetting?.verdict === 'malicious' ? 'red' : 'green'" style="font-size: 16px; padding: 4px 16px;">
+                  {{ detail?.vetting?.verdict === 'malicious' ? '恶意' : '安全' }}
+                </a-tag>
               </a-descriptions-item>
               <a-descriptions-item label="路径">{{ detail?.skill_path || '-' }}</a-descriptions-item>
               <a-descriptions-item label="作者">{{ detail?.source?.author || '-' }}</a-descriptions-item>
@@ -76,7 +78,39 @@
     </a-row>
 
     <a-card title="Vetting / 签名 / 审计" style="margin-top: 16px">
-      <a-tabs>
+      <a-tabs default-active-key="llm">
+        <a-tab-pane key="llm" tab="LLM 分析">
+          <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
+            <template v-if="llmAnalysis">
+              <a-card size="small" title="LLM 深度分析">
+                <a-descriptions :column="2" size="small" bordered style="margin-bottom: 12px">
+                  <a-descriptions-item label="提供方">{{ llmAnalysis.provider || '-' }}</a-descriptions-item>
+                  <a-descriptions-item label="模型">{{ llmAnalysis.model || '-' }}</a-descriptions-item>
+                  <a-descriptions-item label="判定">
+                    <a-tag :color="llmAnalysis.verdict === 'malicious' ? 'red' : 'green'" style="font-size: 15px; padding: 2px 12px;">
+                      {{ llmAnalysis.verdict === 'malicious' ? '恶意' : '安全' }}
+                    </a-tag>
+                  </a-descriptions-item>
+                </a-descriptions>
+
+                <!-- 分析说明 -->
+                <div v-if="llmAnalysis.report" class="llm-explanation" v-html="llmExplanationHtml" />
+
+                <!-- 攻击链图 -->
+                <template v-if="llmAnalysis.verdict === 'malicious' && llmAnalysis.attack_chain?.length">
+                  <a-divider />
+                  <div>
+                    <h4 style="margin-bottom: 12px;">攻击链分析</h4>
+                    <AttackChainGraph :attack-chain="llmAnalysis.attack_chain" />
+                  </div>
+                </template>
+              </a-card>
+            </template>
+            <template v-else>
+              <a-empty description="暂无 LLM 分析结果" />
+            </template>
+          </a-skeleton>
+        </a-tab-pane>
         <a-tab-pane key="vetting" tab="Vetting">
           <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
             <a-space style="margin-bottom: 12px" wrap>
@@ -86,16 +120,16 @@
               <span style="color: #8c8c8c">原始扫描 JSON 默认折叠，按需展开查看</span>
             </a-space>
             <a-descriptions :column="2" size="small" bordered>
+              <a-descriptions-item label="安全判定">
+                <a-tag :color="detail?.vetting?.verdict === 'malicious' ? 'red' : 'green'">
+                  {{ detail?.vetting?.verdict === 'malicious' ? '恶意' : '安全' }}
+                </a-tag>
+              </a-descriptions-item>
               <a-descriptions-item label="发现项">{{ detail?.vetting?.findings_count ?? 0 }}</a-descriptions-item>
-              <a-descriptions-item label="最高严重级别">{{ detail?.vetting?.max_severity || '-' }}</a-descriptions-item>
               <a-descriptions-item label="规则分析器">{{ detail?.vetting?.analyzers_used?.join(', ') || '-' }}</a-descriptions-item>
               <a-descriptions-item label="耗时">{{ detail?.vetting?.scan_duration_seconds ?? 0 }}s</a-descriptions-item>
               <a-descriptions-item label="扫描缓存">{{ detail?.scan_reused ? '复用历史结果' : '本次执行扫描' }}</a-descriptions-item>
               <a-descriptions-item label="缓存 Key">{{ detail?.scan_cache_key || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="Critical">{{ detail?.vetting?.critical_count ?? 0 }}</a-descriptions-item>
-              <a-descriptions-item label="High">{{ detail?.vetting?.high_count ?? 0 }}</a-descriptions-item>
-              <a-descriptions-item label="Medium">{{ detail?.vetting?.medium_count ?? 0 }}</a-descriptions-item>
-              <a-descriptions-item label="Low">{{ detail?.vetting?.low_count ?? 0 }}</a-descriptions-item>
             </a-descriptions>
             <a-divider />
             <a-list
@@ -109,69 +143,6 @@
               </template>
             </a-list>
             <a-divider />
-            <template v-if="llmAnalysis">
-              <a-card size="small" title="LLM 分析结果">
-                <a-descriptions :column="2" size="small" bordered>
-                  <a-descriptions-item label="提供方">{{ llmAnalysis.provider || '-' }}</a-descriptions-item>
-                  <a-descriptions-item label="模型">{{ llmAnalysis.model || '-' }}</a-descriptions-item>
-                  <a-descriptions-item label="风险等级">
-                    <a-tag :color="riskColor(llmAnalysis.risk_level)">{{ llmAnalysis.risk_level || '-' }}</a-tag>
-                  </a-descriptions-item>
-                  <a-descriptions-item label="最高严重级别">
-                    <a-tag :color="severityColor(llmAnalysis.max_severity)">{{ llmAnalysis.max_severity || '-' }}</a-tag>
-                  </a-descriptions-item>
-                </a-descriptions>
-                <a-alert
-                  v-if="llmAnalysis.skill_function_summary"
-                  style="margin-top: 12px"
-                  type="success"
-                  show-icon
-                  message="技能主要功能"
-                  :description="llmAnalysis.skill_function_summary"
-                />
-                <a-alert
-                  v-if="llmAnalysis.summary"
-                  style="margin-top: 12px"
-                  type="info"
-                  show-icon
-                  message="LLM 摘要"
-                  :description="llmAnalysis.summary"
-                />
-                <a-list
-                  style="margin-top: 12px"
-                  header="LLM Findings"
-                  :data-source="llmFindings"
-                  bordered
-                  size="small"
-                >
-                  <template #renderItem="{ item }">
-                    <a-list-item>
-                      <div style="width: 100%">
-                        <a-space wrap>
-                          <a-tag :color="severityColor(item.severity)">{{ item.severity }}</a-tag>
-                          <strong>{{ item.title }}</strong>
-                          <span v-if="item.file" style="color: #8c8c8c">{{ item.file }}</span>
-                        </a-space>
-                        <div style="margin-top: 6px">{{ item.message }}</div>
-                      </div>
-                    </a-list-item>
-                  </template>
-                </a-list>
-                <a-list
-                  v-if="llmAnalysis.policy_notes?.length"
-                  style="margin-top: 12px"
-                  header="LLM Notes"
-                  :data-source="llmAnalysis.policy_notes"
-                  bordered
-                  size="small"
-                >
-                  <template #renderItem="{ item }">
-                    <a-list-item>{{ item }}</a-list-item>
-                  </template>
-                </a-list>
-              </a-card>
-              <a-divider />
-            </template>
             <a-card size="small" title="规则分析结果">
               <template v-if="behavioralAnalysis">
                 <a-descriptions :column="2" size="small" bordered>
@@ -599,6 +570,7 @@ import {
   verifySkillSignature,
 } from '../api'
 import { formatDateTime, formatDetails } from '../utils/format'
+import AttackChainGraph from '../components/AttackChainGraph.vue'
 
 const route = useRoute()
 const skillId = computed(() => route.params.skillId)
@@ -839,11 +811,10 @@ const scanReportText = computed(() =>
 )
 
 const llmAnalysis = computed(() => scanReport.value?.llm_analysis || null)
-const llmFindings = computed(() => {
-  const findings = llmAnalysis.value?.findings
-  return Array.isArray(findings) && findings.length
-    ? findings
-    : [{ severity: 'SAFE', title: '未发现额外问题', message: 'LLM 没有识别出需要补充的风险项。', file: null }]
+const llmExplanationHtml = computed(() => {
+  const text = llmAnalysis.value?.report || ''
+  if (!text) return '<p>暂无分析说明</p>'
+  return marked.parse(text)
 })
 const behavioralAnalysis = computed(() => scanReport.value?.behavioral_analysis || null)
 const behavioralFindings = computed(() => behavioralAnalysis.value?.findings || [])
@@ -1006,6 +977,48 @@ onMounted(fetchDetail)
 }
 
 .markdown-body :deep(pre) {
+  background: #0f172a;
+  color: #e5e7eb;
+  padding: 12px;
+  border-radius: 8px;
+  overflow: auto;
+}
+
+.llm-explanation {
+  padding: 16px;
+  background: #f7f9fc;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  line-height: 1.8;
+  font-size: 14px;
+  color: #333;
+}
+
+.llm-explanation :deep(h2),
+.llm-explanation :deep(h3),
+.llm-explanation :deep(h4) {
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+.llm-explanation :deep(p) {
+  margin-bottom: 8px;
+}
+
+.llm-explanation :deep(ul),
+.llm-explanation :deep(ol) {
+  padding-left: 20px;
+  margin-bottom: 8px;
+}
+
+.llm-explanation :deep(code) {
+  background: #e8e8e8;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.llm-explanation :deep(pre) {
   background: #0f172a;
   color: #e5e7eb;
   padding: 12px;
