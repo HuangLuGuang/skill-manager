@@ -1,86 +1,56 @@
-# 企业级 AI 治理演示 (Skills + Prompts)
+# 企业级 AI 治理闭环演示 (Lingxi Scenario)
 
-本 Demo 模拟了一家金融服务公司的“理财助手”智能体场景，展示了如何同时治理技能（Skills）和提示词（Prompts）。
-
-## 场景角色
-- **智能体**：理财助手 (Financial Advisor)
-- **目标**：帮助用户计算房贷，提供基础理财建议。
+本 Demo 展示了 Agent Manager 如何为企业提供“从准入到运行”的全链路 AI 安全治理，涵盖了 **提示词 (Prompts)** 和 **技能 (Skills)** 两大核心治理对象。
 
 ---
 
-## 1. 演示内容
-
-### 提示词治理 (Prompt Governance)
-1.  **安全提示词 (`safe-advisor.txt`)**：专业的理财师指令。
-    -   *预期*：扫描通过，自动批准。
-2.  **恶意注入提示词 (`malicious-advisor.txt`)**：包含指令覆盖（Override）和凭证窃取意图。
-    -   *预期*：被安全引擎拦截，标识为 `CRITICAL` 风险。
-
-### 技能治理 (Skill Governance)
-1.  **安全技能 (`mortgage-calculator`)**：纯本地计算房贷。
-    -   *预期*：扫描通过，允许加载。
-2.  **恶意技能 (`data-logger`)**：伪装成统计工具，实际在后台窃取环境变量并通过网络外发。
-    -   *预期*：行为分析识别到 `os.environ` 访问 and 外部请求，被拦截。
+## 演示主线
+**“准入前深度审计 -> 批准时数字签名 -> 加载前双重验签 -> 运行中行为可溯”**
 
 ---
 
-## 2. 快速开始 (演示流程)
+## 演示流程 (4 步走)
 
-### A. 环境准备
-确保后端服务已启动：
+### 第一步：环境初始化与样本提交
+运行一键准备脚本。该脚本会模拟开发者向系统提交安全与恶意的样例，并自动触发安全扫描引擎。
 ```bash
-uv run --project backend uvicorn backend.main:app --reload
+python3 demo/enterprise-governance-demo/prepare_demo.py
 ```
+- **看点**：控制台将展示实时提交进度，包括后端对 Prompt 注入的识别结果。
 
-### B. 提交并查看风险
-使用 CLI 批量提交演示样本：
-```bash
-# 提交提示词
-uv run agent-manager prompt submit demo/enterprise-governance-demo/prompts/safe-advisor.txt --name safe-advisor
-uv run agent-manager prompt submit demo/enterprise-governance-demo/prompts/malicious-advisor.txt --name malicious-advisor
+### 第二步：管理台深度巡检 (Web UI)
+打开浏览器访问 [http://localhost:8000](http://localhost:8000)：
+1.  **提示词管理**：
+    -   展示 `malicious-advisor` 为什么被标记为 `CRITICAL` 风险（命中指令覆盖）。
+    -   批准 `safe-advisor` 上线。
+2.  **技能注册表**：
+    -   查看 `data-logger` 的恶意代码审计报告（识别到环境变量扫描和外部外发行为）。
+    -   查看 `welfare-tools` 的 Sandbox 动态执行信号。
 
-# 提交技能
-uv run agent-manager submit demo/enterprise-governance-demo/skills/mortgage-calculator --behavioral --sandbox
-uv run agent-manager submit demo/enterprise-governance-demo/skills/data-logger --behavioral --sandbox
-```
+### 第三步：全量审计追踪 (Audit Log)
+在管理台点击 **“审计日志”**：
+- 展示系统捕捉到的每一次“恶意注入尝试”和“非法加载拦截”。
+- 强调企业合规性：谁在什么时候提交了什么，扫描结论是什么，谁批准的。
 
-### C. 管理台演示逻辑
-1.  **总览页**：展示风险饼图的变化。
-2.  **提示词管理**：
-    -   展示 `malicious-advisor` 为何被拦截（查看扫描发现项：指令覆盖）。
-    -   批准 `safe-advisor`。
-3.  **技能注册表**：
-    -   展示 `data-logger` 的行为审计结果（代码中的恶意模式）。
-    -   在 Sandbox 详情中查看 `mortgage-calculator` 的正常运行信号。
+### 第四步：闭环 Agent 运行演示
+在终端运行受控 Agent 脚本，模拟真实生产环境下的加载校验。
 
----
-
-## 3. 运行 Agent 闭环演示 (Live Agent Demo)
-
-本环节展示 Agent 在加载 Prompt 和 Skill 前如何执行“验票”逻辑。
-
-### A. 配置密钥 (DeepSeek)
-```bash
-export DEEPSEEK_API_KEY="您的key"
-```
-
-### B. 运行安全场景 (Safe)
-演示 Agent 成功加载经过批准的提示词和技能。
+**1. 运行安全场景 (Safe)**
 ```bash
 python3 demo/enterprise-governance-demo/run_agent_demo.py safe
 ```
-- **过程**：校验 `advisor-safe` (OK) -> 校验 `mortgage-calculator` (OK) -> 启动 Agent。
+- **看点**：展示 Agent 在启动前成功通过了提示词和技能的双重验签，并正常提供中文行政咨询服务。
 
-### C. 运行拦截场景 (Malicious)
-演示 Agent 拒绝加载未通过审计的恶意内容。
+**2. 运行拦截场景 (Malicious)**
 ```bash
 python3 demo/enterprise-governance-demo/run_agent_demo.py malicious
 ```
-- **预期**：在第一步校验提示词时即被拦截，提示 `[BLOCKED]`。
+- **看点**：展示 Agent 检测到提示词未通过审核，立即主动阻断加载并安全退出，防止风险指令执行。
 
 ---
 
-## 4. 核心价值讲解点
-- **双重防线**：不仅管代码（Skill），还管语义（Prompt）。
-- **篡改检测**：演示修改 `safe-advisor.txt` 内容后，再次调用验证接口会失败。
-- **治理闭环**：所有拦截行为均在“审计日志”中可查。
+## 核心价值点 (向客户强调)
+1.  **语义 + 执行双重拦截**：不仅能拦住带毒的代码，还能拦住带毒的对话指令。
+2.  **电子签名防篡改**：本地文件一旦被私自篡改，Agent 毫秒级识别并拒载。
+3.  **治理原子化**：治理逻辑与 Agent 业务逻辑完全解耦，零成本接入现有 Agent 框架。
+

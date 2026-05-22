@@ -30,11 +30,8 @@ from agent_manager.core.registry import Registry
 from agent_manager.core.sandbox import SandboxConfig, get_sandbox_runner
 from agent_manager.core.vetting import _load_manifest
 
-from backend.auth import get_current_admin_user
-
-router = APIRouter(prefix="/api/v1", tags=["agent-manager"])
-admin_router = APIRouter(prefix="/api/v1", tags=["agent-manager-admin"], dependencies=[Depends(get_current_admin_user)])
-runtime_router = APIRouter(prefix="/api/v1", tags=["agent-manager-runtime"])
+router = APIRouter(tags=["agent-manager"])
+runtime_router = APIRouter(tags=["agent-manager-runtime"])
 
 # Module-level singleton (overridable in tests via dependency injection)
 _manager: AgentManager | None = None

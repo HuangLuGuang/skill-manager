@@ -49,7 +49,13 @@ class Registry:
         self._registry_file = self.data_dir / "registry.json"
         self._audit_file = self.data_dir / "audit.jsonl"
         self._review_file = self.data_dir / "review.json"
-        db_path = os.environ.get("AGENT_MANAGER_REGISTRY_SQLITE_PATH") or os.environ.get("SQLITE_PATH")
+        
+        # If data_dir is explicitly provided (common in tests), prioritize it
+        # Otherwise, check environment variables for a global path
+        db_path = None
+        if data_dir is None:
+            db_path = os.environ.get("AGENT_MANAGER_REGISTRY_SQLITE_PATH") or os.environ.get("SQLITE_PATH")
+            
         self._db_file = Path(db_path) if db_path else self.data_dir / "agent_manager_registry.db"
         self._db_file.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()

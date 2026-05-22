@@ -75,6 +75,7 @@ class PromptManager:
 
         # Use LLM for prompt injection analysis
         from .llm import LLMConfig
+        llm_analyzed = False
         try:
             llm_config = LLMConfig.load()
             if llm_config.api_key:
@@ -87,6 +88,7 @@ class PromptManager:
                     scan_report=analysis,
                 )
                 entry.risk_level = RiskLevel.from_severity(analysis.get("max_severity", "SAFE"))
+                llm_analyzed = not analysis.get("parse_error")
             else:
                 from .models import VettingResult
                 entry.vetting = VettingResult(
@@ -97,6 +99,7 @@ class PromptManager:
 
         # Basic regex scan
         basic_findings = self._basic_scan(entry.content)
+        regex_matched = len(basic_findings) > 0
         if basic_findings:
             if not entry.vetting:
                 from .models import VettingResult
@@ -110,22 +113,28 @@ class PromptManager:
             if entry.risk_level is None or RiskLevel.from_severity(max_regex_sev).is_at_least(entry.risk_level):
                 entry.risk_level = RiskLevel.from_severity(max_regex_sev)
 
-        # Auto-approval based on policy
-        if self.policy.should_auto_approve_prompt(entry):
+        # Policy decision
+        if entry.status != PromptStatus.PENDING:
+            pass # Already transitioned? 
+        elif self.policy.should_auto_approve_prompt(entry) and (llm_analyzed or regex_matched):
+            # Only auto-approve if actually analyzed by at least one engine and risk is low
             entry.status = PromptStatus.APPROVED
             entry.signature = compute_prompt_signature(entry.content)
             entry.approved_at = datetime.now(timezone.utc)
             entry.approved_by = "auto-policy"
         elif entry.risk_level and entry.risk_level.is_at_least(RiskLevel.MEDIUM):
             entry.status = PromptStatus.VETTED
-        elif entry.risk_level == RiskLevel.LOW or entry.risk_level is None:
-            # Safe enough for auto-approval or vetting if not matching auto-approve
+        elif not llm_analyzed and not regex_matched:
+            # Analysis failed or skipped -> require human review
+            entry.status = PromptStatus.VETTED
+            if not entry.risk_level:
+                entry.risk_level = RiskLevel.MEDIUM
+        else:
+            # Safe enough or fallback
             entry.status = PromptStatus.APPROVED
             entry.signature = compute_prompt_signature(entry.content)
             entry.approved_at = datetime.now(timezone.utc)
             entry.approved_by = "auto-policy"
-        else:
-            entry.status = PromptStatus.REJECTED
 
         self.registry.prompts.update(entry)
         self.registry.prompts.log_event(make_prompt_event(
@@ -203,9 +212,21 @@ class PromptManager:
 
         # Write prompt to disk if target_dir is provided
         if target_dir:
-            path = Path(target_dir) / f"{entry.name}.txt"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(entry.content, encoding="utf-8")
+            import os
+            import tempfile
+            dest_path = Path(target_dir) / f"{entry.name}.txt"
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Atomic write
+            fd, tmp_path = tempfile.mkstemp(dir=str(dest_path.parent), prefix=f".{entry.name}-", suffix=".tmp")
+            try:
+                with os.fdopen(fd, 'w', encoding="utf-8") as f:
+                    f.write(entry.content)
+                os.replace(tmp_path, str(dest_path))
+            except Exception:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+                raise
 
         entry.status = PromptStatus.DEPLOYED
         entry.deployed_at = datetime.now(timezone.utc)
@@ -240,7 +261,7 @@ class PromptManager:
         logger.info("Retired prompt %r: %s", entry.name, reason)
         return entry
 
-    def list(self, status: PromptStatus | None = None, agent_id: str | None = None) -> list[PromptEntry]:
+    def list_all(self, status: PromptStatus | None = None, agent_id: str | None = None) -> list[PromptEntry]:
         return self.registry.prompts.list(status=status, agent_id=agent_id)
 
     def list_loadable(self, agent_id: str | None = None) -> list[PromptEntry]:
@@ -372,5 +393,9 @@ class PromptManager:
         json_start = text.find("{")
         json_end = text.rfind("}") + 1
         if json_start >= 0 and json_end > json_start:
-            return _json.loads(text[json_start:json_end])
-        return {"max_severity": "SAFE", "findings": []}
+            try:
+                return _json.loads(text[json_start:json_end])
+            except _json.JSONDecodeError:
+                logger.warning("Failed to parse LLM prompt analysis JSON: %s", text)
+                return {"max_severity": "SAFE", "findings": [], "parse_error": True}
+        return {"max_severity": "SAFE", "findings": [], "parse_error": True}

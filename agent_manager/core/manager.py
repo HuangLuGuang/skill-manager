@@ -532,7 +532,7 @@ class AgentManager:
         return self.prompts.retire(*args, **kwargs)
 
     def list_prompts(self, *args, **kwargs):
-        return self.prompts.list(*args, **kwargs)
+        return self.prompts.list_all(*args, **kwargs)
 
     def get_prompt(self, *args, **kwargs):
         return self.prompts.get_by_id(*args, **kwargs) or self.prompts.get_by_name(*args, **kwargs)

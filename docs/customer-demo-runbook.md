@@ -7,9 +7,10 @@
 - 服务器部署
 - 管理台查看
 - 客户侧扫描器接入
-- skill 准入扫描
+- skill/prompt 准入扫描
 - 规则 / LLM / Sandbox 风险分析
 - 审核、签名和运行时治理
+- 提示词指纹验签与防篡改
 - Agno Agent 加载前校验和工具调用拦截
 
 ---
@@ -19,38 +20,31 @@
 一句话主线：
 
 ```text
-客户本地 Skill -> Scanner 批量提交 -> Agent Manager 准入治理 -> 审核/签名 -> Agno Agent 加载前验签 -> 工具调用前 check-tool -> 管理台审计闭环
+Prompt/Skill 提交 -> Agent Manager 准入治理 -> 自动/人工审核 -> 电子签名 -> Agent 启动前双重验签 -> 管理台审计闭环
 ```
 
 客户能看到的价值：
 
-- 外部 skill 不能直接被 Agent 信任。
-- 低风险 skill 可以进入批准和签名流程。
-- 高风险 skill 会被扫描结果、策略和审核流程拦住。
-- 本地 skill 被篡改后，Agent 加载前会被签名校验拦截。
-- 即使 skill 已加载，危险工具调用仍会被运行时权限校验拦截。
-- 所有动作都有审计记录。
+- **双重防线**：不仅管代码（Skill），还管语义（Prompt）。
+- **篡改检测**：本地文件一旦被改动，Agent 立即拒绝加载。
+- **透明审计**：所有 AI 行为的“准入-运行-拦截”全过程可查。
 
 ```mermaid
 sequenceDiagram
-    participant Customer as "客户本地环境"
-    participant Scanner as "Go Scanner CLI/GUI"
-    participant SM as "Agent Manager"
     participant UI as "管理台"
-    participant Agno as "Agno Agent"
+    participant SM as "Agent Manager"
+    participant Agno as "企业级 Agent"
 
-    Customer->>Scanner: 选择 skills 根目录
-    Scanner->>Scanner: 发现 SKILL.md / 生成 manifest / 本地预检
-    Scanner->>SM: 使用 Scanner Token 上传 skill
-    SM->>SM: 规则 / LLM / Sandbox / Policy
-    UI->>SM: 审核 / 查看报告 / 签名
-    Agno->>Agno: 计算本地 skill 签名
-    Agno->>SM: verify-skill-signature
-    Agno->>SM: can-load
-    SM-->>Agno: 允许或阻断
-    Agno->>SM: check-tool(Read/Bash)
-    SM-->>Agno: 允许或阻断
-    UI->>SM: 查看审计日志
+    UI->>SM: 提交提示词 (Lingxi-Assistant)
+    SM->>SM: 注入检测 (LLM/Regex)
+    UI->>SM: 审批提示词并签名
+    UI->>SM: 提交技能 (Welfare-Tools)
+    SM->>SM: 行为分析 & Sandbox
+    Agno->>SM: verify-prompt (验签)
+    Agno->>SM: verify-skill-signature (验签)
+    SM-->>Agno: 允许启动
+    Agno->>SM: check-tool (鉴权)
+    UI->>SM: 查看完整审计链路
 ```
 
 ---
@@ -170,15 +164,18 @@ Agent 仍然运行在客户自己的环境里。
 打开管理台后建议按这个顺序展示：
 
 1. `总览`
-   - 技能总数
-   - 风险分布
-   - 风险来源发现项：规则、大模型、Sandbox
-   - 最近阻断事件
+   - 技能/提示词总数
+   - 风险分布与来源分析
+   - 最近拦截的非法 Prompt 注入事件
 
-2. `技能注册表`
-   - 状态：`PENDING` / `APPROVED` / `VETTED` / `REJECTED`
-   - 风险等级：`LOW` / `MEDIUM` / `HIGH` / `EXTREME`
-   - 筛选条件会立即生效
+2. `提示词管理` (New)
+   - 生命周期：`PENDING` -> `VETTED` -> `APPROVED`
+   - 扫描发现项：指令覆盖、越狱、数据泄露检测
+   - 电子签名指纹可视化
+
+3. `技能注册表`
+   - 状态流转
+   - 风险等级过滤
 
 3. `技能详情`
    - `SKILL.md`
@@ -374,7 +371,25 @@ CLI 适合服务器和 CI，GUI 适合客户安全团队人工选择目录和技
 
 ---
 
-## 5. Skill 准入扫描演示
+## 5. 提示词准入演示 (Lingxi Scenario)
+
+使用三类样例：
+- `safe-advisor.txt`：合规行政助手
+- `malicious-advisor.txt`：冒充 CEO 授权试图窃取薪资数据的注入
+
+提交演示：
+```bash
+uv run agent-manager prompt submit demo/enterprise-governance-demo/prompts/safe-advisor.txt --name safe-advisor
+uv run agent-manager prompt submit demo/enterprise-governance-demo/prompts/malicious-advisor.txt --name malicious-advisor
+```
+
+预期：
+- `safe-advisor`：自动批准。
+- `malicious-advisor`：拦截，提示 `CRITICAL` 风险，命中“指令覆盖”。
+
+---
+
+## 6. Skill 准入扫描演示
 
 可以用三类样例：
 
@@ -509,18 +524,7 @@ uv run agent-manager submit demo/agno-skill-guard/sample_skills/rejected-exfiltr
 
 如果安全样例没有自动批准，在管理台审核通过。
 
-### 7.3 跑四个场景
-
-```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
-
-uv run python customer_demo.py approved
-uv run python customer_demo.py rejected
-uv run python customer_demo.py tampered
-uv run python customer_demo.py tool-blocked
-```
-
-也可以一次跑完：
+### 7.3 跑四个场景 (Agno Classic)
 
 ```bash
 uv run python customer_demo.py all
@@ -528,7 +532,25 @@ uv run python customer_demo.py all
 
 ---
 
-## 8. Agno 场景话术
+## 8. 灵犀助手 (Lingxi) 闭环演示
+
+进入 `demo/enterprise-governance-demo` 目录。
+
+### 8.1 场景一：安全运行
+```bash
+python3 run_agent_demo.py safe
+```
+- **看点**：展示 Agent 在启动时如何同时验证“提示词签名”和“技能签名”。
+
+### 8.2 场景二：注入拦截
+```bash
+python3 run_agent_demo.py malicious
+```
+- **看点**：展示非法 Prompt 如何在第一步被阻断，Agent 进程安全退出。
+
+---
+
+## 9. Agno 场景话术
 
 ### 8.1 approved
 

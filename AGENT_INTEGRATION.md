@@ -57,6 +57,35 @@ How to connect a new agent with skills to the agent manager, and how the company
 | Company controlled dir | `/company-skills` (CI/CD only) | Mode 1 (name-only) — directory IS the guard |
 | Fully remote API check | Agent calls REST API | Mode 1 via `GET /api/v1/runtime/can-load/{name}` |
 
+> **Note:** Runtime endpoints under `/api/v1/runtime/` are accessible by Agents without admin authentication. Management endpoints (POST/PUT/DELETE) remain protected.
+
+---
+
+## Prompt Governance
+
+In addition to skills, Agent Manager provides a **Prompt Registry** to govern the system instructions given to AI agents.
+
+### Prompt Lifecycle
+1. **Submit**: Developers submit a text prompt (e.g., `customer-service-v1`).
+2. **Vet**: Automated scanning for prompt injection (jailbreak, instruction override, data leakage).
+3. **Approve**: Manual review for high-risk prompts; auto-approval for safe ones.
+4. **Sign**: Once approved, a cryptographic signature is generated for the prompt content.
+5. **Verify**: Agents verify the prompt at runtime before initialization.
+
+### Agent Integration (Prompt)
+
+**Check status & loadability:**
+```bash
+curl "http://agent-manager:8080/api/v1/runtime/can-load-prompt/my-prompt"
+# {"allowed": true, "status": "APPROVED"}
+```
+
+**Verify content integrity:**
+```bash
+curl "http://agent-manager:8080/api/v1/runtime/verify-prompt?prompt_name=my-prompt&local_content=..."
+# {"valid": true, "reason": "签名校验通过"}
+```
+
 ---
 
 ## Overview

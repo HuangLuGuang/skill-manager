@@ -16,9 +16,6 @@ import hmac
 import logging
 import os
 from pathlib import Path
-from dotenv import load_dotenv
-
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +23,19 @@ _SIGNING_KEY_ENV = "AGENT_MANAGER_SIGNING_KEY"
 _DEV_WARNING_SHOWN = False
 
 
+_ENV_LOADED = False
+
 def _get_key() -> bytes | None:
+    # Lazily load dotenv if not already loaded to avoid import-time side effects
+    global _ENV_LOADED
+    if not _ENV_LOADED and not os.environ.get("ENV_LOADED"):
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+            _ENV_LOADED = True
+        except ImportError:
+            pass
+
     key = os.environ.get(_SIGNING_KEY_ENV, "").strip()
     if not key:
         global _DEV_WARNING_SHOWN

@@ -5,7 +5,7 @@ Receives JSON events from Claude Code on stdin.
 Communicates decisions via exit code and stderr.
 
 Hook events handled:
-  SessionStart   — scan all skills in the session's skill dirs; block if any unregistered
+  SessionStart   — scan all skills in the session's skill dirs; block if any issues
   ConfigChange   — verify a newly-loaded skill is registered; update the active-skill env
   PreToolUse     — enforce allowed_tools for all currently active skills
 
@@ -28,17 +28,38 @@ from __future__ import annotations
 import json
 import os
 import sys
+import io
+import contextlib
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
-# Try to load .env file
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
-
 # Session state directory - store state per session_id
-_DEFAULT_SESSION_STATE_DIR = Path.home() / ".agent-manager" / "session-state"
+_DEFAULT_BASE_DIR = Path.home() / ".agent-manager"
+_DEFAULT_SESSION_STATE_DIR = _DEFAULT_BASE_DIR / "session-state"
+_DEFAULT_LOG_FILE = _DEFAULT_BASE_DIR / "logs" / "agent_hook.log"
+
+def _ensure_env_loaded():
+    if not os.environ.get("ENV_LOADED"):
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+            os.environ["ENV_LOADED"] = "1"
+        except ImportError:
+            pass
+
+def _log(msg: str) -> None:
+    """Log hook diagnostic messages to a local file."""
+    try:
+        log_file = Path(os.environ.get("AGENT_MANAGER_HOOK_LOG_FILE", _DEFAULT_LOG_FILE))
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).isoformat()
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] {msg}\n")
+    except Exception:
+        pass
+
+# _ensure_env_loaded()  # Moved to main()
 SESSION_STATE_DIR = Path(os.environ.get("AGENT_MANAGER_SESSION_STATE_DIR", _DEFAULT_SESSION_STATE_DIR))
 
 
@@ -94,11 +115,6 @@ def _set_active_skills_in_state(session_id: str, skills: list[str]) -> None:
 # Registry access                                                               #
 # --------------------------------------------------------------------------- #
 
-def _log(_msg: str) -> None:
-    """No-op for backward compatibility."""
-    pass
-
-
 def _get_registry():
     from agent_manager.core.registry import Registry
     return Registry()
@@ -150,7 +166,7 @@ def _block(reason: str) -> None:
 def handle_session_start(event: dict) -> None:
     """
     At session start, find all skill files and prompt files visible to the agent
-    and verify each one is in the registry. If any is unregistered or tampered,
+    and verify each one is in the registry. If any have issues or are tampered,
     block the session from proceeding.
 
     Skill directories searched (in order):
@@ -169,7 +185,7 @@ def handle_session_start(event: dict) -> None:
     # -- Skills --
     skill_dirs = _candidate_skill_dirs(cwd)
     registry = _get_registry()
-    unregistered: list[str] = []
+    issues: list[str] = []
     active_names: list[str] = []
 
     for skill_dir in skill_dirs:
@@ -180,7 +196,7 @@ def handle_session_start(event: dict) -> None:
             entry = registry.get_by_name(name)
             _log(f"Checked skill {name} (at {skill_md.parent}): {entry}")
             if entry is None or not entry.is_loadable():
-                unregistered.append(f"Skill: {name} (at {skill_md.parent})")
+                issues.append(f"Skill: {name} (at {skill_md.parent})")
                 if entry is None:
                     _emit_audit_event(
                         "skill_load_blocked",
@@ -213,13 +229,13 @@ def handle_session_start(event: dict) -> None:
             prompt_name = prompt_file.stem
             prompt_entry = registry.get_prompt_by_name(prompt_name)
             if prompt_entry is None:
-                unregistered.append(f"Prompt: {prompt_name} (at {prompt_file}) — not in registry")
+                issues.append(f"Prompt: {prompt_name} (at {prompt_file}) — not in registry")
             elif not prompt_entry.is_loadable():
-                unregistered.append(f"Prompt: {prompt_name} (at {prompt_file}) — status={prompt_entry.status.value}")
+                issues.append(f"Prompt: {prompt_name} (at {prompt_file}) — status={prompt_entry.status.value}")
             elif prompt_entry.signature:
                 if not _verify_prompt_sig(prompt_file, prompt_entry.signature):
                     _log(f"Prompt {prompt_name} signature mismatch!")
-                    unregistered.append(
+                    issues.append(
                         f"Prompt: {prompt_name} (at {prompt_file}) — SIGNATURE MISMATCH, may be tampered!"
                     )
                     registry.log_prompt_event(_make_prompt_audit(
@@ -241,10 +257,10 @@ def handle_session_start(event: dict) -> None:
     if session_id:
         _set_active_skills_in_state(session_id, active_names)
 
-    if unregistered:
+    if issues:
         _block(
-            f"[agent-manager] Session blocked: {len(unregistered)} issue(s) found.\n"
-            + "\n".join(f"  - {s}" for s in unregistered)
+            f"[agent-manager] Session blocked: {len(issues)} issue(s) found.\n"
+            + "\n".join(f"  - {s}" for s in issues)
             + "\n\nRun: agent-manager submit <path> to register skills,"
             + "\n     agent-manager prompt submit <file> to register prompts."
         )
@@ -523,9 +539,6 @@ def process_event(event: dict) -> tuple[bool, str]:
 
     Returns: (allowed: bool, message: str)
     """
-    import io
-    import contextlib
-
     hook_event = event.get("hook_event_name", "")
 
     # Capture stderr
@@ -554,6 +567,7 @@ def process_event(event: dict) -> tuple[bool, str]:
 # --------------------------------------------------------------------------- #
 
 def main() -> None:
+    _ensure_env_loaded()
     raw = sys.stdin.read()
     try:
         event = json.loads(raw)

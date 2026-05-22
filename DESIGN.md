@@ -107,40 +107,44 @@ The "company-controlled directory" pattern works like this: CI/CD runs `agent-ma
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Agent Manager                            │
-│                                                                 │
-│  ┌──────────┐   ┌──────────────┐   ┌──────────┐  ┌─────────┐  │
-│  │  CLI /   │   │  VettingPipe │   │ Registry │  │ Runtime │  │
-│  │  API     │──►│  line        │──►│ (JSON)   │◄─│ Guard   │  │
-│  └──────────┘   └──────┬───────┘   └──────────┘  └─────────┘  │
-│                         │           (metadata only —           │
-│                  ┌──────▼───────┐    no skill content stored)  │
-│                  │ skill-scanner│  (optional, falls back        │
-│                  │ (external)   │   to basic manifest check)   │
-│                  └──────────────┘                              │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                    CompanyPolicy                        │   │
-│  │   auto_approve_max_risk · blocked_permissions           │   │
-│  │   trusted_authors · allowed_tools_allowlist             │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                        Agent Manager                             │
+│                                                                  │
+│  ┌──────────┐   ┌──────────────┐   ┌────────────┐  ┌─────────┐   │
+│  │  CLI /   │   │  VettingPipe │   │ Registry   │  │ Runtime │   │
+│  │  API     │──►│  line        │──►│ (SQLite)   │◄─│ Guard   │   │
+│  └──────────┘   └──────┬───────┘   └────────────┘  └─────────┘   │
+│                        │           (metadata only)               │
+│                 ┌──────▼───────┐                                 │
+│                 │ skill-scanner│   ┌─────────────────────────┐   │
+│                 │ (external)   │   │   Prompt Management     │   │
+│                 └──────────────┘   │  Registry · Vetting     │   │
+│                                    └─────────────────────────┘   │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐    │
+│  │                    CompanyPolicy                         │    │
+│  │   auto_approve_max_risk · blocked_permissions            │    │
+│  │   trusted_authors · allowed_tools_allowlist              │    │
+│  └──────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ### Module map
 
 | Module | Responsibility |
 |---|---|
-| `core/models.py` | All data types: `RegistryEntry`, `RiskLevel`, `SkillStatus`, `AuditEvent`, `PolicyViolation` |
-| `core/policy.py` | Load and enforce `company-policy.yaml` — auto-approve, block, require review |
-| `core/signer.py` | Compute and verify HMAC-SHA256 content signatures |
-| `core/vetting.py` | Orchestrate skill-scanner + manifest parsing + policy checks |
-| `core/registry.py` | Persist registry entries, review queue, and audit log to disk |
-| `core/runtime.py` | Enforce registry at load time and tool invocation time |
-| `core/manager.py` | High-level API: `submit`, `approve`, `reject`, `deploy`, `retire` |
-| `cli/cli.py` | Click CLI |
-| `api/router.py` | FastAPI REST API |
+| `core/models.py` | Core data types for skills: `RegistryEntry`, `RiskLevel`, `SkillStatus` |
+| `core/prompt_models.py` | Data types for prompts: `PromptEntry`, `PromptStatus` |
+| `core/policy.py` | Load and enforce `company-policy.yaml` |
+| `core/signer.py` | HMAC-SHA256 signatures for both skills and prompts |
+| `core/vetting.py` | Skill vetting orchestration |
+| `core/prompt_manager.py` | Prompt vetting, approval, and lifecycle management |
+| `core/registry.py` | High-level SQLite registry orchestrator |
+| `core/prompt_registry.py` | Prompt-specific SQLite persistence |
+| `core/runtime.py` | Runtime enforcement for skills and prompts |
+| `core/manager.py` | Enterprise orchestrator (Skill + Prompt API) |
+| `cli/cli.py` | Unified Click CLI (with local `.env` support) |
+| `api/router.py` | Split Admin (Auth) and Runtime (No-Auth) REST API |
 
 ### Skill lifecycle states
 
@@ -612,18 +616,27 @@ can_load("my-skill", skill_path="/path/to/skill")
 
 ## Design Decisions and Trade-offs
 
-### JSON over SQLite
+### SQLite Registry
 
-The registry is stored as JSON files rather than SQLite for three reasons:
-1. **Zero dependencies** — no database driver required
-2. **Human-readable** — an operator can audit or recover the registry with a text editor
-3. **Simple diff** — registry changes show clearly in git if the data dir is version-controlled
+Initially stored as JSON, the registry was migrated to **SQLite** to support:
+1. **Concurrent Writes** — Safe access from multiple API workers and background scan tasks.
+2. **Indexing** — Efficient lookup by content fingerprint and name as the registry grows.
+3. **Structured Schemas** — Native support for relational data like review queues and audit trails.
 
-The trade-off is that concurrent writes are not safe. For multi-process deployments, replace `Registry._save_entries()` with a SQLite or PostgreSQL backend behind the same interface.
+### Split Admin/Runtime API
+
+The API is split into an **Admin Router** (requiring JWT authentication) and a **Runtime Router** (no authentication required). This design allows Agents to perform load-time verification and tool-permission checks without needing to manage long-lived administrative tokens, significantly simplifying Agent integration.
 
 ### No In-Memory Cache in RuntimeGuard
 
-Every `can_load()` reads `registry.json` from disk. This makes retirement instant but adds disk I/O on every skill load. For high-frequency invocations, add a short TTL cache (e.g., 5 seconds) with an explicit invalidation path for retirements.
+Every `can_load()` consults the SQLite registry. This makes retirement instant but adds a database read on every skill load. SQLite's performance is sufficient for the target scale of enterprise agents.
+
+### Lingxi Scenario (Real-World Demo)
+
+The "Lingxi Enterprise Assistant" scenario (located in `demo/enterprise-governance-demo`) serves as the primary demonstration of this architecture. It showcases:
+- **Prompt Injection Defense**: Preventing an assistant from revealing executive salaries.
+- **Malicious Skill Detection**: Identifying hidden data exfiltration in a welfare calculation tool.
+- **Closed-Loop Verification**: An Agno-based agent that refuses to start if its instructions or tools have been tampered with.
 
 ### Fail-Open for Empty `allowed_tools`
 

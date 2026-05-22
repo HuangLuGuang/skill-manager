@@ -47,6 +47,7 @@ sequenceDiagram
     API-->>Scanner: 返回 skill_id / detail_url
     Mgr->>Vet: 后台完整扫描
     Vet-->>Mgr: scanner / 规则分析 / LLM / sandbox 结果
+    Note over Mgr: 如果 LLM 判定为恶意，风险等级强制升至 HIGH
     Mgr->>Mgr: 检查重复扫描复用
     Mgr->>UI: 列表 / 详情展示状态和报告
     Scanner->>API: GET /api/v1/scanner/imports/{skill_id}
@@ -171,6 +172,7 @@ export SKILL_SCANNER_HOST_ID="customer-prod-01"
 | `--behavioral` | 启用服务端规则分析。界面里显示为“规则分析”。 |
 | `--sandbox` | 启用服务端 sandbox 动态执行验证。 |
 | `--llm` | 启用服务端 LLM 分析。需要系统设置里已配置 LLM。 |
+| `--no-cache` | 禁用扫描缓存。强制服务端重新执行完整分析，不复用历史结果。 |
 | `--timeout` | HTTP 请求超时时间，默认 `120s`。 |
 | `--max-file-mb` | 单文件打包大小上限，默认 `20`。 |
 | `--max-total-mb` | 单个 skill 包总大小上限，默认 `50`。 |
