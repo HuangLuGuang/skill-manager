@@ -1,4 +1,4 @@
-# Skill Manager 客户演示 Runbook
+# Agent Manager 客户演示 Runbook
 
 这份文档用于客户现场演示，可以直接照着执行和讲解。
 
@@ -19,7 +19,7 @@
 一句话主线：
 
 ```text
-客户本地 Skill -> Scanner 批量提交 -> Skill Manager 准入治理 -> 审核/签名 -> Agno Agent 加载前验签 -> 工具调用前 check-tool -> 管理台审计闭环
+客户本地 Skill -> Scanner 批量提交 -> Agent Manager 准入治理 -> 审核/签名 -> Agno Agent 加载前验签 -> 工具调用前 check-tool -> 管理台审计闭环
 ```
 
 客户能看到的价值：
@@ -35,7 +35,7 @@
 sequenceDiagram
     participant Customer as "客户本地环境"
     participant Scanner as "Go Scanner CLI/GUI"
-    participant SM as "Skill Manager"
+    participant SM as "Agent Manager"
     participant UI as "管理台"
     participant Agno as "Agno Agent"
 
@@ -80,13 +80,13 @@ admin / Admin@123
 扫描器和 Agent Demo 也默认连接这个地址：
 
 ```bash
-export SKILL_MANAGER_BASE_URL="http://10.10.71.33"
+export AGENT_MANAGER_BASE_URL="http://10.10.71.33"
 ```
 
 讲解话术：
 
 ```text
-今天演示用的是已经部署好的服务器环境，客户侧 scanner 和 Agent 都通过 HTTP 接入 Skill Manager。
+今天演示用的是已经部署好的服务器环境，客户侧 scanner 和 Agent 都通过 HTTP 接入 Agent Manager。
 这更接近生产落地方式：治理平台在服务器，skills 和 Agent 可以在客户自己的机器或 CI 环境。
 ```
 
@@ -95,14 +95,14 @@ export SKILL_MANAGER_BASE_URL="http://10.10.71.33"
 后端管理台：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /Users/huangluguang/Desktop/Project/agent-manager
 uv run --project backend uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 前端：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/web
+cd /Users/huangluguang/Desktop/Project/agent-manager/web
 source ~/.nvm/nvm.sh
 nvm use 22.21.1
 npm run dev
@@ -123,14 +123,14 @@ admin / Admin@123
 Agno runtime demo 推荐另起无后台登录态 API：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
-uv run skill-manager-api --host 0.0.0.0 --port 8080
+cd /Users/huangluguang/Desktop/Project/agent-manager
+uv run agent-manager-api --host 0.0.0.0 --port 8080
 ```
 
 ### 1.3 服务器 Docker Compose 部署方式
 
 ```bash
-cd /opt/skill-manager
+cd /opt/agent-manager
 cp .env.example .env
 vim .env
 docker compose up --build -d
@@ -142,10 +142,10 @@ docker compose ps
 ```bash
 SECRET_KEY=replace-with-random-secret
 DEBUG=false
-SKILL_MANAGER_SIGNING_KEY=replace-with-random-signing-key
-SKILL_MANAGER_SANDBOX_RUNTIME=remote
-SKILL_MANAGER_SANDBOX_URL=http://sandbox:8194
-SKILL_MANAGER_SANDBOX_API_KEY=replace-with-random-sandbox-key
+AGENT_MANAGER_SIGNING_KEY=replace-with-random-signing-key
+AGENT_MANAGER_SANDBOX_RUNTIME=remote
+AGENT_MANAGER_SANDBOX_URL=http://sandbox:8194
+AGENT_MANAGER_SANDBOX_API_KEY=replace-with-random-sandbox-key
 SANDBOX_SERVICE_API_KEY=replace-with-random-sandbox-key
 ```
 
@@ -159,7 +159,7 @@ docker compose -f docker-compose.yaml -f docker-compose.prod.yaml up --build -d
 
 ```text
 这里不是把 Agent 放进平台里，而是部署一个治理平面。
-Skill Manager 负责准入、审核、签名、运行时校验和审计。
+Agent Manager 负责准入、审核、签名、运行时校验和审计。
 Agent 仍然运行在客户自己的环境里。
 ```
 
@@ -175,7 +175,7 @@ Agent 仍然运行在客户自己的环境里。
    - 风险来源发现项：规则、大模型、Sandbox
    - 最近阻断事件
 
-2. `技能列表`
+2. `技能注册表`
    - 状态：`PENDING` / `APPROVED` / `VETTED` / `REJECTED`
    - 风险等级：`LOW` / `MEDIUM` / `HIGH` / `EXTREME`
    - 筛选条件会立即生效
@@ -238,13 +238,13 @@ LLM 不替代规则扫描。
 
 ```text
 runtime: docker
-image: skill-manager-sandbox-runtime:latest
+image: agent-manager-sandbox-runtime:latest
 ```
 
 构建本地 runtime 镜像：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /Users/huangluguang/Desktop/Project/agent-manager
 make sandbox-runtime-build
 ```
 
@@ -301,7 +301,7 @@ Scanner Token 是客户侧最小权限凭证。
 本地构建：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
+cd /Users/huangluguang/Desktop/Project/agent-manager/scanner
 go test ./...
 go build -o skill-scanner ./cmd/skill-scanner
 ```
@@ -309,12 +309,12 @@ go build -o skill-scanner ./cmd/skill-scanner
 扫描样例目录：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
+cd /Users/huangluguang/Desktop/Project/agent-manager/scanner
 
-export SKILL_MANAGER_TOKEN="smsc_live_xxx"
+export AGENT_MANAGER_TOKEN="smsc_live_xxx"
 export SKILL_SCANNER_HOST_ID="customer-demo-host"
 
-./skill-scanner scan /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills \
+./skill-scanner scan /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/sample_skills \
   --server http://10.10.71.33 \
   --behavioral \
   --sandbox \
@@ -331,7 +331,7 @@ export SKILL_SCANNER_HOST_ID="customer-demo-host"
 预期结果：
 
 - 本地生成 `customer-demo-scan-report.json`
-- 管理台技能列表出现新 skill
+- 管理台技能注册表出现新 skill
 - 初始可能是 `PENDING`
 - 后台完成后变成 `APPROVED` / `VETTED` / `REJECTED`
 
@@ -389,11 +389,11 @@ demo/agno-skill-guard/sample_skills/rejected-exfiltrator
 如果临时做本地备用演示，可以用 CLI 提交到本地 registry：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /Users/huangluguang/Desktop/Project/agent-manager
 
-uv run skill-manager submit demo/agno-skill-guard/sample_skills/approved-helper
-uv run skill-manager submit demo/agno-skill-guard/sample_skills/read-only-script
-uv run skill-manager submit demo/agno-skill-guard/sample_skills/rejected-exfiltrator --behavioral --sandbox
+uv run agent-manager submit demo/agno-skill-guard/sample_skills/approved-helper
+uv run agent-manager submit demo/agno-skill-guard/sample_skills/read-only-script
+uv run agent-manager submit demo/agno-skill-guard/sample_skills/rejected-exfiltrator --behavioral --sandbox
 ```
 
 预期：
@@ -458,23 +458,23 @@ Vetting -> Sandbox 执行结果 -> Sandbox 执行明细
 本次客户演示默认使用服务器地址，不需要在本机启动 runtime API：
 
 ```bash
-export SKILL_MANAGER_BASE_URL="http://10.10.71.33"
+export AGENT_MANAGER_BASE_URL="http://10.10.71.33"
 ```
 
-如果临时切到本地开发环境，再启动 Skill Manager runtime API：
+如果临时切到本地开发环境，再启动 Agent Manager runtime API：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
-uv run skill-manager-api --host 0.0.0.0 --port 8080
+cd /Users/huangluguang/Desktop/Project/agent-manager
+uv run agent-manager-api --host 0.0.0.0 --port 8080
 ```
 
 配置 Agno demo：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
+cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
 uv sync
 
-export SKILL_MANAGER_BASE_URL="http://10.10.71.33"
+export AGENT_MANAGER_BASE_URL="http://10.10.71.33"
 export DEEPSEEK_API_KEY="your-deepseek-key"
 export AGNO_API_KEY="$DEEPSEEK_API_KEY"
 export AGNO_MODEL_BASE_URL="https://api.deepseek.com"
@@ -484,7 +484,7 @@ export AGNO_MODEL_ID="deepseek-chat"
 如果服务端配置了签名 key：
 
 ```bash
-export SKILL_MANAGER_SIGNING_KEY="same-key-used-by-skill-manager"
+export AGENT_MANAGER_SIGNING_KEY="same-key-used-by-agent-manager"
 ```
 
 ### 7.2 提交 demo skills
@@ -500,11 +500,11 @@ demo/agno-skill-guard/sample_skills/rejected-exfiltrator
 如果临时做本地备用演示，再用 CLI 提交：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /Users/huangluguang/Desktop/Project/agent-manager
 
-uv run skill-manager submit demo/agno-skill-guard/sample_skills/approved-helper
-uv run skill-manager submit demo/agno-skill-guard/sample_skills/read-only-script
-uv run skill-manager submit demo/agno-skill-guard/sample_skills/rejected-exfiltrator --behavioral --sandbox
+uv run agent-manager submit demo/agno-skill-guard/sample_skills/approved-helper
+uv run agent-manager submit demo/agno-skill-guard/sample_skills/read-only-script
+uv run agent-manager submit demo/agno-skill-guard/sample_skills/rejected-exfiltrator --behavioral --sandbox
 ```
 
 如果安全样例没有自动批准，在管理台审核通过。
@@ -512,7 +512,7 @@ uv run skill-manager submit demo/agno-skill-guard/sample_skills/rejected-exfiltr
 ### 7.3 跑四个场景
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
+cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
 
 uv run python customer_demo.py approved
 uv run python customer_demo.py rejected
@@ -546,7 +546,7 @@ uv run python customer_demo.py all
 ```text
 这里 Agno 不是读一个假工具。
 它使用 Agno 自己的 LocalSkills 加载本地 skill。
-区别是加载前先问 Skill Manager：这个 skill 是否已经批准，签名是否匹配。
+区别是加载前先问 Agent Manager：这个 skill 是否已经批准，签名是否匹配。
 ```
 
 ### 8.2 rejected
@@ -587,7 +587,7 @@ signature mismatch — possible tampering
 预期输出：
 
 ```text
-Skill Manager blocked tool 'Bash'
+Agent Manager blocked tool 'Bash'
 ```
 
 讲解话术：
@@ -718,7 +718,7 @@ Token 明文只展示一次，不能找回。
 ## 12. 结尾话术
 
 ```text
-Skill Manager 不是替代 Agno、OpenClaw 或客户已有 Agent 框架。
+Agent Manager 不是替代 Agno、OpenClaw 或客户已有 Agent 框架。
 它提供的是 skill 生命周期治理平面：
 准入前扫描，批准时签名，加载前验签，执行时验工具，事后可审计。
 

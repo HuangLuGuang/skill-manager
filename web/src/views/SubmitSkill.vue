@@ -1,13 +1,13 @@
 <template>
   <div>
-    <a-page-header title="提交 Skill" sub-title="支持 ZIP 上传、本地目录导入、远程压缩包/GitHub 仓库导入和 ClawHub 导入" />
+    <a-page-header title="提交技能" sub-title="支持 ZIP 上传、本地目录导入、远程压缩包/GitHub 仓库导入和 ClawHub 导入" />
 
     <a-card style="margin-top: 16px">
       <a-alert
         type="info"
         show-icon
         message="提交说明"
-        description="你可以上传 ZIP、从后台指定目录中多选 skill 导入，或填写 ZIP 下载地址 / GitHub 仓库地址先下载并扫描候选 skill，再多选提交。ZIP 选择或拖拽后会自动解析；来源会根据导入方式自动填充，提交后会先进入 PENDING，再由后台继续完成扫描、LLM、规则分析和 Sandbox。"
+        description="你可以上传 ZIP、从后台指定目录中多选 skill 导入，或填写 ZIP 下载地址 / GitHub 仓库地址先下载并扫描候选技能，再多选提交。ZIP 选择或拖拽后会自动解析；来源会根据导入方式自动填充，提交后会先进入 PENDING，再由后台继续完成扫描、LLM、规则分析和 Sandbox。"
         style="margin-bottom: 16px"
       />
 
@@ -25,7 +25,7 @@
                   <InboxOutlined />
                 </p>
                 <p class="ant-upload-text">点击或拖拽 ZIP 文件到这里，选择后自动解析</p>
-                <p class="ant-upload-hint">支持单个 ZIP 上传；如果压缩包里还包含一层 ZIP，系统会自动再解压一层后解析候选 skill。</p>
+                <p class="ant-upload-hint">支持单个 ZIP 上传；如果压缩包里还包含一层 ZIP，系统会自动再解压一层后解析候选技能。</p>
               </a-upload-dragger>
               <div class="field-hint">{{ selectedFile ? `当前文件：${selectedFile.name}` : '尚未选择文件' }}</div>
               <a-space style="margin-top: 8px" wrap>
@@ -52,20 +52,20 @@
                 option-filter-prop="label"
                 option-label-prop="label"
               />
-              <div class="field-hint">先选目录，再从目录中的 skill 列表里多选要导入的项。</div>
+              <div class="field-hint">先选目录，再从目录中的 技能列表里多选要导入的项。</div>
               <a-space style="margin-top: 8px" wrap>
                 <a-button size="small" @click="selectAllUploadDirectories" :disabled="!uploadDirectoryOptions.length">全选目录</a-button>
                 <a-button size="small" @click="clearUploadDirectories" :disabled="!selectedUploadDirectories.length">全部清除</a-button>
               </a-space>
             </a-form-item>
-            <a-form-item v-if="uploadCandidates.length" label="选择要导入的 Skills">
+            <a-form-item v-if="uploadCandidates.length" label="选择要导入的技能">
               <a-select
                 v-model:value="selectedUploadPaths"
                 class="remote-import-select"
                 mode="multiple"
                 :loading="loadingZipCandidates"
                 allow-clear
-                :placeholder="selectedUploadDirectories.length ? '从所选目录中多选要导入的 skill' : '请先选择目录'"
+                :placeholder="selectedUploadDirectories.length ? '从所选目录中多选要导入的技能' : '请先选择目录'"
                 :options="uploadSkillSelectOptions"
                 option-filter-prop="label"
                 option-label-prop="label"
@@ -105,7 +105,7 @@
                   :disabled="submitting || !uploadImportSessionId || !selectedUploadPaths.length"
                   @click="handleZipSubmit"
                 >
-                  提交所选 Skills
+                  提交所选技能
                 </a-button>
               </a-space>
             </a-form-item>
@@ -136,20 +136,20 @@
                 option-filter-prop="label"
                 option-label-prop="label"
               />
-              <div class="field-hint">先选目录，再从目录中的 skill 列表里多选要导入的项。</div>
+              <div class="field-hint">先选目录，再从目录中的 技能列表里多选要导入的项。</div>
               <a-space style="margin-top: 8px" wrap>
                 <a-button size="small" @click="selectAllLocalDirectories" :disabled="!localDirectoryOptions.length">全选目录</a-button>
                 <a-button size="small" @click="clearLocalDirectories" :disabled="!selectedLocalDirectories.length">全部清除</a-button>
               </a-space>
             </a-form-item>
-            <a-form-item label="选择要导入的 Skills">
+            <a-form-item label="选择要导入的技能">
               <a-select
                 v-model:value="selectedLocalPaths"
                 class="remote-import-select"
                 mode="multiple"
                 :loading="loadingLocalCandidates"
                 allow-clear
-                :placeholder="selectedLocalDirectories.length ? '从所选目录中多选要导入的 skill' : '请先选择目录'"
+                :placeholder="selectedLocalDirectories.length ? '从所选目录中多选要导入的技能' : '请先选择目录'"
                 :options="localSkillSelectOptions"
                 option-filter-prop="label"
                 option-label-prop="label"
@@ -188,7 +188,7 @@
                   :disabled="submitting || !selectedLocalPaths.length"
                   @click="handleLocalSubmit"
                 >
-                  导入所选 Skills
+                  导入所选技能
                 </a-button>
                 <a-button @click="resetLocalImport" :disabled="submitting">清空选择</a-button>
               </a-space>
@@ -214,20 +214,20 @@
                 option-filter-prop="label"
                 option-label-prop="label"
               />
-              <div class="field-hint">先选目录，再从目录中的 skill 列表里多选要导入的项。</div>
+              <div class="field-hint">先选目录，再从目录中的 技能列表里多选要导入的项。</div>
               <a-space style="margin-top: 8px" wrap>
                 <a-button size="small" @click="selectAllRemoteDirectories" :disabled="!remoteDirectoryOptions.length">全选目录</a-button>
                 <a-button size="small" @click="clearRemoteDirectories" :disabled="!selectedRemoteDirectories.length">全部清除</a-button>
               </a-space>
             </a-form-item>
-            <a-form-item v-if="remoteCandidates.length" label="选择要导入的 Skills">
+            <a-form-item v-if="remoteCandidates.length" label="选择要导入的技能">
               <a-select
                 v-model:value="selectedRemotePaths"
                 class="remote-import-select"
                 mode="multiple"
                 :loading="loadingRemoteCandidates"
                 allow-clear
-                :placeholder="selectedRemoteDirectories.length ? '从所选目录中多选要导入的 skill' : '请先选择目录'"
+                :placeholder="selectedRemoteDirectories.length ? '从所选目录中多选要导入的技能' : '请先选择目录'"
                 :options="remoteSkillSelectOptions"
                 option-filter-prop="label"
                 option-label-prop="label"
@@ -275,7 +275,7 @@
                   :disabled="submitting || !remoteImportSessionId || !selectedRemotePaths.length"
                   @click="handleUrlSubmit"
                 >
-                  提交所选 Skills
+                  提交所选技能
                 </a-button>
                 <a-button @click="resetRemoteImport" :disabled="submitting || loadingRemoteCandidates">清空</a-button>
               </a-space>
@@ -377,7 +377,7 @@ import { InboxOutlined } from '@ant-design/icons-vue'
 import {
   getLocalImportCandidates,
   getSkillDetail,
-  getSkillManagerSystemStatus,
+  getAgentManagerSystemStatus,
   prepareUploadZip,
   prepareRemoteImport,
   submitLocalSkills,
@@ -582,7 +582,7 @@ const inferRemoteOrigin = (url) => (url && url.includes('github.com') ? 'github'
 const fetchSystemStatus = async () => {
   loadingSystemStatus.value = true
   try {
-    managerStatus.value = await getSkillManagerSystemStatus()
+    managerStatus.value = await getAgentManagerSystemStatus()
     if (!llmReadyForSubmit.value) formState.useLlm = false
   } catch (_error) {
     managerStatus.value = {}
@@ -647,7 +647,7 @@ const startPolling = () => {
             sandbox_triggered: Boolean(detail.vetting?.sandbox_triggered),
             sandbox_required_by_policy: Boolean(detail.vetting?.sandbox_required_by_policy),
             sandbox_runtime: detail.vetting?.sandbox_runtime || null,
-            message: detail.status === 'PENDING' ? '已提交，后台分析中。请在技能列表查看状态变化。' : '后台分析已完成。',
+            message: detail.status === 'PENDING' ? '已提交，后台分析中。请在技能注册表查看状态变化。' : '后台分析已完成。',
           }
         }),
       )
@@ -727,7 +727,7 @@ const handleZipSubmit = async () => {
     return
   }
   if (!selectedUploadPaths.value.length) {
-    message.warning('请先选择要导入的 skill')
+    message.warning('请先选择要导入的技能')
     return
   }
   submitting.value = true
@@ -804,7 +804,7 @@ const handleLocalSubmit = async () => {
     return
   }
   if (!selectedLocalPaths.value.length) {
-    message.warning('请先多选要导入的 skills')
+    message.warning('请先多选要导入的技能s')
     return
   }
   submitting.value = true
@@ -908,7 +908,7 @@ const handleUrlSubmit = async () => {
     return
   }
   if (!selectedRemotePaths.value.length) {
-    message.warning('请先选择要导入的 skill 目录')
+    message.warning('请先选择要导入的技能 目录')
     return
   }
   submitting.value = true

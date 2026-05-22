@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="部署管理" sub-title="查看可部署 Skill 并执行部署或退役" />
+    <a-page-header title="部署管理" sub-title="查看可部署技能 并执行部署或退役" />
 
     <a-card style="margin-top: 16px">
       <a-space style="margin-bottom: 16px" wrap>
@@ -28,7 +28,7 @@
         rowKey="skill_id"
         :loading="loading"
         :pagination="pagination"
-        :locale="{ emptyText: activeTab === 'ready' ? '当前没有可部署 Skill' : '当前没有已部署 Skill' }"
+        :locale="{ emptyText: activeTab === 'ready' ? '当前没有可部署技能' : '当前没有已部署技能' }"
         @change="handleTableChange"
       >
         <template #bodyCell="{ column, record }">
@@ -69,7 +69,7 @@
 
     <a-modal
       v-model:open="retireModalOpen"
-      title="退役 Skill"
+      title="退役技能"
       ok-text="确认退役"
       cancel-text="取消"
       :confirm-loading="actionLoading"

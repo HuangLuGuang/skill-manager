@@ -1,8 +1,8 @@
 """
-Claude Code API Hook — calls Skill Manager backend API to enforce skill registry.
+Claude Code API Hook — calls Agent Manager backend API to enforce skill registry.
 
 Receives JSON events from Claude Code on stdin.
-Sends events to Skill Manager backend API for processing.
+Sends events to Agent Manager backend API for processing.
 Communicates decisions via exit code and stderr.
 
 Hook events handled:
@@ -42,9 +42,9 @@ except ImportError:
 
 
 def get_backend_url() -> str:
-    """Get Skill Manager backend URL from environment or use default."""
+    """Get Agent Manager backend URL from environment or use default."""
     return os.environ.get(
-        "SKILL_MANAGER_BASE_URL",
+        "AGENT_MANAGER_BASE_URL",
         "http://127.0.0.1:8080"
     ).rstrip("/")
 
@@ -78,7 +78,7 @@ def main() -> None:
 
     except Exception as e:
         # Hook errors must not block the agent — log and continue
-        error_msg = f"[skill-manager api hook error] {e}"
+        error_msg = f"[agent-manager api hook error] {e}"
         print(error_msg, file=sys.stderr)
         sys.exit(0)
 

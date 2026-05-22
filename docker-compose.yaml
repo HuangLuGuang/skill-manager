@@ -13,10 +13,10 @@ services:
       DATA_DIR: /app/runtime/data
       UPLOADS_DIR: /app/runtime/uploads
       SQLITE_PATH: /app/runtime/sqlite/admin_starter.db
-      SKILL_MANAGER_DATA_DIR: /app/runtime/skill_manager
-      SKILL_MANAGER_SANDBOX_RUNTIME: ${SKILL_MANAGER_SANDBOX_RUNTIME:-remote}
-      SKILL_MANAGER_SANDBOX_URL: ${SKILL_MANAGER_SANDBOX_URL:-http://sandbox:8194}
-      SKILL_MANAGER_SANDBOX_API_KEY: ${SKILL_MANAGER_SANDBOX_API_KEY:-sandbox-change-me}
+      AGENT_MANAGER_DATA_DIR: /app/runtime/agent_manager
+      AGENT_MANAGER_SANDBOX_RUNTIME: ${AGENT_MANAGER_SANDBOX_RUNTIME:-remote}
+      AGENT_MANAGER_SANDBOX_URL: ${AGENT_MANAGER_SANDBOX_URL:-http://sandbox:8194}
+      AGENT_MANAGER_SANDBOX_API_KEY: ${AGENT_MANAGER_SANDBOX_API_KEY:-sandbox-change-me}
     depends_on:
       sandbox:
         condition: service_healthy
@@ -24,7 +24,7 @@ services:
       - backend_data:/app/runtime/data
       - backend_uploads:/app/runtime/uploads
       - backend_sqlite:/app/runtime/sqlite
-      - skill_manager_registry:/app/runtime/skill_manager
+      - agent_manager_registry:/app/runtime/agent_manager
       - ./scanner/releases:/app/scanner/releases:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"]
@@ -87,4 +87,4 @@ volumes:
   backend_data:
   backend_uploads:
   backend_sqlite:
-  skill_manager_registry:
+  agent_manager_registry:

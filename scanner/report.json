@@ -26,7 +26,7 @@
           "message": "发现敏感文件路径特征"
         }
       ],
-      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/report-packages/agent-browser-ad53c43e84e3.zip",
+      "package_path": "/Users/huangluguang/Desktop/Project/agent-manager/scanner/report-packages/agent-browser-ad53c43e84e3.zip",
       "submitted": true,
       "submission": {
         "skill_id": "5e915abe-ec86-4bde-8cd3-ae789d0bd6b3",
@@ -75,7 +75,7 @@
           "message": "发现网络请求相关代码"
         }
       ],
-      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/report-packages/byd-stock-news-8b95fe7a9d62.zip",
+      "package_path": "/Users/huangluguang/Desktop/Project/agent-manager/scanner/report-packages/byd-stock-news-8b95fe7a9d62.zip",
       "submitted": true,
       "submission": {
         "skill_id": "a1875df6-aa4a-4f72-9207-745e6ea15c97",
@@ -535,7 +535,7 @@
           "message": "发现网络请求相关代码"
         }
       ],
-      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/report-packages/clickhouse-110afcfe31a8.zip",
+      "package_path": "/Users/huangluguang/Desktop/Project/agent-manager/scanner/report-packages/clickhouse-110afcfe31a8.zip",
       "submitted": true,
       "submission": {
         "skill_id": "6af899ce-3915-4d56-a1a9-e3ee82c94ede",
@@ -609,7 +609,7 @@
           "message": "发现网络请求相关代码"
         }
       ],
-      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/report-packages/multi-search-engine-d7ed83ff0d7e.zip",
+      "package_path": "/Users/huangluguang/Desktop/Project/agent-manager/scanner/report-packages/multi-search-engine-d7ed83ff0d7e.zip",
       "submitted": true,
       "submission": {
         "skill_id": "7c409077-3a06-46b3-84c1-87e9605b1261",
@@ -684,7 +684,7 @@
           "message": "发现敏感文件路径特征"
         }
       ],
-      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/report-packages/self-improving-agent-with-self-reflection-89147e8359b5.zip",
+      "package_path": "/Users/huangluguang/Desktop/Project/agent-manager/scanner/report-packages/self-improving-agent-with-self-reflection-89147e8359b5.zip",
       "submitted": true,
       "submission": {
         "skill_id": "44ff74b3-5790-485a-88c1-6d23f6b54116",
@@ -778,7 +778,7 @@
           "message": "发现网络请求相关代码"
         }
       ],
-      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/report-packages/skill-creator-cadbdf671c66.zip",
+      "package_path": "/Users/huangluguang/Desktop/Project/agent-manager/scanner/report-packages/skill-creator-cadbdf671c66.zip",
       "submitted": true,
       "submission": {
         "skill_id": "fd4dae54-ed71-40be-a1c2-6cc3b1efd04b",

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m skill_manager.hooks.agent_hook",
+            "command": "python3 -m agent_manager.hooks.agent_hook",
             "timeout": 30
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m skill_manager.hooks.agent_hook",
+            "command": "python3 -m agent_manager.hooks.agent_hook",
             "timeout": 10
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m skill_manager.hooks.agent_hook",
+            "command": "python3 -m agent_manager.hooks.agent_hook",
             "timeout": 10
           }
         ]

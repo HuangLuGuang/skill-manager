@@ -1,0 +1,6 @@
+{
+  "name": "openclaw-agent-manager-plugin-hooks-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module"
+}

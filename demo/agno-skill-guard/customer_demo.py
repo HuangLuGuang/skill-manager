@@ -11,7 +11,7 @@ from typing import Callable
 from pydantic import BaseModel
 
 from main import (
-    SkillManagerRuntimeClient,
+    AgentManagerRuntimeClient,
     build_agent,
     compute_local_signature,
     ensure_skill_can_load,
@@ -23,7 +23,7 @@ from main import (
 
 ROOT = Path(__file__).resolve().parent
 SAMPLE_SKILLS = ROOT / "sample_skills"
-DEFAULT_BASE_URL = os.getenv("SKILL_MANAGER_BASE_URL", "http://127.0.0.1:8080")
+DEFAULT_BASE_URL = os.getenv("AGENT_MANAGER_BASE_URL", "http://127.0.0.1:8080")
 
 
 def log_step(message: str) -> None:
@@ -42,7 +42,7 @@ def approved_skill(base_url: str, agent_id: str) -> None:
     skill_path = SAMPLE_SKILLS / skill_name
     question = (
         "请使用 approved-helper skill 的内容，用客户能听懂的话解释："
-        "Skill Manager 如何保护 Agno 加载本地 skill？"
+        "Agent Manager 如何保护 Agno 加载本地 skill？"
     )
 
     log_step("1. Agno Agent 准备加载安全 skill")
@@ -50,9 +50,9 @@ def approved_skill(base_url: str, agent_id: str) -> None:
     print(f"skill_path={skill_path}")
 
     log_step("2. 本地计算 skill 内容签名")
-    print(compute_local_signature(skill_path, os.getenv("SKILL_MANAGER_SIGNING_KEY")))
+    print(compute_local_signature(skill_path, os.getenv("AGENT_MANAGER_SIGNING_KEY")))
 
-    log_step("3. 调用 Skill Manager 验签 + can-load，通过后创建真实 Agno Agent")
+    log_step("3. 调用 Agent Manager 验签 + can-load，通过后创建真实 Agno Agent")
     answer = run_demo(
         skill_name=skill_name,
         skill_path=skill_path,
@@ -73,7 +73,7 @@ def rejected_skill(base_url: str, agent_id: str) -> None:
     print(f"skill_name={skill_name}")
     print(f"skill_path={skill_path}")
 
-    log_step("2. 加载前调用 Skill Manager runtime 校验")
+    log_step("2. 加载前调用 Agent Manager runtime 校验")
     try:
         run_demo(
             skill_name=skill_name,
@@ -103,8 +103,8 @@ def tampered_skill(base_url: str, agent_id: str) -> None:
         print(f"original_path={source_path}")
         print(f"tampered_path={tampered_path}")
 
-        log_step("2. Agno Agent 计算篡改后签名并提交给 Skill Manager")
-        print(compute_local_signature(tampered_path, os.getenv("SKILL_MANAGER_SIGNING_KEY")))
+        log_step("2. Agno Agent 计算篡改后签名并提交给 Agent Manager")
+        print(compute_local_signature(tampered_path, os.getenv("AGENT_MANAGER_SIGNING_KEY")))
 
         try:
             run_demo(
@@ -124,9 +124,9 @@ def tampered_skill(base_url: str, agent_id: str) -> None:
 def tool_blocked(base_url: str, agent_id: str) -> None:
     skill_name = "read-only-script"
     skill_path = SAMPLE_SKILLS / skill_name
-    client = SkillManagerRuntimeClient(
+    client = AgentManagerRuntimeClient(
         base_url=base_url,
-        token=os.getenv("SKILL_MANAGER_API_TOKEN") or os.getenv("SKILL_MANAGER_ACCESS_TOKEN"),
+        token=os.getenv("AGENT_MANAGER_API_TOKEN") or os.getenv("AGENT_MANAGER_ACCESS_TOKEN"),
     )
 
     log_step("1. 加载前验签 + can-load")
@@ -181,7 +181,7 @@ def all_scenarios(base_url: str, agent_id: str) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Closed-loop Agno + Skill Manager customer demo")
+    parser = argparse.ArgumentParser(description="Closed-loop Agno + Agent Manager customer demo")
     parser.add_argument(
         "scenario",
         choices=["approved", "rejected", "tampered", "tool-blocked", "all"],

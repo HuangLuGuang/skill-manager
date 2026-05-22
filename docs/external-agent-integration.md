@@ -6,18 +6,18 @@
 
 外部系统或外部 Agent 接入它，通常有两种模式：
 
-- 模式一：把 Skill Manager 当作审批和验票中心
-- 模式二：把 Skill Manager 当作 skill 制品登记中心
+- 模式一：把 Agent Manager 当作审批和验票中心
+- 模式二：把 Agent Manager 当作 skill 制品登记中心
 
-最推荐的是模式一。这样外部 Agent 仍然使用自己的 skill 加载机制，但在关键节点调用 Skill Manager 做校验和审计。
+最推荐的是模式一。这样外部 Agent 仍然使用自己的 skill 加载机制，但在关键节点调用 Agent Manager 做校验和审计。
 
 ## Mode 1: Governance Gateway
 
-在这个模式下，外部 Agent 自己保有 skill 文件，并在运行前调用 Skill Manager 的运行时检查接口。
+在这个模式下，外部 Agent 自己保有 skill 文件，并在运行前调用 Agent Manager 的运行时检查接口。
 
 ```mermaid
 flowchart LR
-    A["外部开发者 / 外部系统"] --> B["提交 Skill 到 Skill Manager"]
+    A["外部开发者 / 外部系统"] --> B["提交技能 到 Agent Manager"]
     B --> C["Vetting / Policy / Review / Sign"]
     C --> D["Registry 中形成合法记录"]
 
@@ -39,13 +39,13 @@ flowchart LR
 
 ### Typical Flow
 
-1. 开发者先把 skill 提交到 Skill Manager。
-2. Skill Manager 完成 vetting、policy 检查、审批和签名。
+1. 开发者先把 skill 提交到 Agent Manager。
+2. Agent Manager 完成 vetting、policy 检查、审批和签名。
 3. 外部 Agent 在真正加载 skill 前，先本地计算 skill 签名。
 4. Agent 调用 `verify-skill-signature` 校验本地内容是否与审批时一致。
 5. 如果签名匹配，再调用 `can-load` 检查 registry 状态。
 6. Skill 在运行中每次要调用工具前，再调用 `check-tool`。
-7. Skill Manager 记录允许或阻断的审计事件。
+7. Agent Manager 记录允许或阻断的审计事件。
 
 ### Current APIs
 
@@ -66,12 +66,12 @@ flowchart LR
 
 ## Mode 2: Registry As Artifact Catalog
 
-在这个模式下，Skill Manager 主要负责记录“哪些 skill 是已批准或已部署的”，外部系统根据 registry 信息决定应该拉取哪个 skill。
+在这个模式下，Agent Manager 主要负责记录“哪些 skill 是已批准或已部署的”，外部系统根据 registry 信息决定应该拉取哪个 skill。
 
 ```mermaid
 sequenceDiagram
     participant Dev as "开发者"
-    participant SM as "Skill Manager"
+    participant SM as "Agent Manager"
     participant REG as "Registry"
     participant DIST as "外部分发系统"
     participant AG as "外部 Agent"
@@ -97,7 +97,7 @@ sequenceDiagram
 所以现在更现实的落地方式仍然是：
 
 - 外部系统自己管理 skill 文件
-- Skill Manager 负责审批、验签、运行时放行与审计
+- Agent Manager 负责审批、验签、运行时放行与审计
 
 ## Boundaries
 
@@ -144,7 +144,7 @@ flowchart TD
 
 - 不要求你改外部 Agent 的核心 runtime
 - 只需要在“加载前验签/放行”和“调用前”两个点加拦截
-- 可以最大程度复用当前 Skill Manager 的现有能力
+- 可以最大程度复用当前 Agent Manager 的现有能力
 - 审计链路也完整
 
 ## What To Build Next
@@ -168,7 +168,7 @@ flowchart TD
 
 当前最实用的接法就是：
 
-- 提交 skill 到 Skill Manager 做准入治理
+- 提交 skill 到 Agent Manager 做准入治理
 - Agent 本地计算 skill 签名并调用 `verify-skill-signature`
 - Agent 加载前调 `can-load`
 - Agent 调工具前调 `check-tool`

@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "skill-manager"
+name = "agent-manager"
 version = "0.1.0"
 description = "Enterprise skill lifecycle manager — vet, approve, deploy, and govern AI agent skills"
 requires-python = ">=3.10"
@@ -33,13 +33,13 @@ dev = [
 ]
 
 [project.scripts]
-skill-manager = "skill_manager.cli.cli:main"
-skill-manager-api = "skill_manager.api.api_cli:main"
-skill-manager-deploy = "skill_manager.hooks.deploy:main"
-skill-manager-install-hooks = "skill_manager.hooks.install:main"
+agent-manager = "agent_manager.cli.cli:main"
+agent-manager-api = "agent_manager.api.api_cli:main"
+agent-manager-deploy = "agent_manager.hooks.deploy:main"
+agent-manager-install-hooks = "agent_manager.hooks.install:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["skill_manager"]
+packages = ["agent_manager"]
 
 [tool.ruff]
 line-length = 120

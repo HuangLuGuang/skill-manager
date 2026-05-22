@@ -67,7 +67,7 @@ export const getLlmConfig = () => api.get('/v1/llm-config')
 export const updateLlmConfig = (data) => api.put('/v1/llm-config', data)
 export const getSandboxConfig = () => api.get('/v1/sandbox-config')
 export const updateSandboxConfig = (data) => api.put('/v1/sandbox-config', data)
-export const getSkillManagerSystemStatus = () => api.get('/v1/system/status')
+export const getAgentManagerSystemStatus = () => api.get('/v1/system/status')
 export const listScannerTokens = () => api.get('/v1/scanner/tokens')
 export const createScannerToken = (data) => api.post('/v1/scanner/tokens', data)
 export const revokeScannerToken = (tokenId) => api.post(`/v1/scanner/tokens/${tokenId}/revoke`)
@@ -89,6 +89,12 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
+    if (error.response?.data?.detail) {
+      const detail = error.response.data.detail
+      if (Array.isArray(detail)) {
+        error.response.data.detail = detail.map(e => e.msg).join('; ')
+      }
+    }
     if (error.response?.status === 401) {
       const detail = error.response.data?.detail
       if (detail === 'session_expired_elsewhere') {

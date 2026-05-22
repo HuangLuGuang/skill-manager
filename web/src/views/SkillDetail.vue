@@ -220,7 +220,7 @@
                   type="info"
                   show-icon
                   message="当前实际执行环境"
-                  :description="sandboxAnalysis.runtime === 'docker' ? `后端：docker，镜像：${sandboxAnalysis.image || 'skill-manager-sandbox-runtime:latest'}` : `后端：${sandboxAnalysis.runtime || '-'}，执行服务：${sandboxAnalysis.image || '-'}`"
+                  :description="sandboxAnalysis.runtime === 'docker' ? `后端：docker，镜像：${sandboxAnalysis.image || 'agent-manager-sandbox-runtime:latest'}` : `后端：${sandboxAnalysis.runtime || '-'}，执行服务：${sandboxAnalysis.image || '-'}`"
                 />
                 <a-alert
                   :type="sandboxRiskAlertType"
@@ -474,7 +474,7 @@
 
     <a-modal
       v-model:open="approveModalOpen"
-      title="批准 Skill"
+      title="批准技能"
       ok-text="确认批准"
       cancel-text="取消"
       :confirm-loading="actionLoading"
@@ -495,7 +495,7 @@
 
     <a-modal
       v-model:open="rejectModalOpen"
-      title="拒绝 Skill"
+      title="拒绝技能"
       ok-text="确认拒绝"
       cancel-text="取消"
       :confirm-loading="actionLoading"
@@ -516,7 +516,7 @@
 
     <a-modal
       v-model:open="retireModalOpen"
-      title="退役 Skill"
+      title="退役技能"
       ok-text="确认退役"
       cancel-text="取消"
       :confirm-loading="actionLoading"
@@ -857,7 +857,7 @@ const sandboxRiskAlertType = computed(() => {
 })
 const sandboxDisplayImage = computed(() => {
   if (sandboxAnalysis.value?.image) return sandboxAnalysis.value.image
-  if (detail.value?.vetting?.sandbox_runtime === 'docker') return 'skill-manager-sandbox-runtime:latest'
+  if (detail.value?.vetting?.sandbox_runtime === 'docker') return 'agent-manager-sandbox-runtime:latest'
   return '-'
 })
 

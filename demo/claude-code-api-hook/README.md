@@ -1,6 +1,6 @@
 # Claude Code API Hook Demo
 
-这个目录包含通过 HTTP API 调用 Skill Manager 后端的 Claude Code Hook 实现。
+这个目录包含通过 HTTP API 调用 Agent Manager 后端的 Claude Code Hook 实现。
 
 ## 两种 Hook 方案对比
 
@@ -10,9 +10,9 @@
 - 审计日志写入本地 `audit.jsonl`
 
 ### 2. API Hook (`demo/claude-code-api-hook`)
-- 通过 HTTP API 调用 Skill Manager 后端服务
+- 通过 HTTP API 调用 Agent Manager 后端服务
 - 后端服务处理验证逻辑并写入审计日志
-- 适合 Claude Code 与 Skill Manager 不在同一台机器上的场景
+- 适合 Claude Code 与 Agent Manager 不在同一台机器上的场景
 
 ## 前置条件
 
@@ -21,14 +21,14 @@
    pip install httpx
    ```
 
-2. 启动 Skill Manager 后端服务：
+2. 启动 Agent Manager 后端服务：
    ```bash
-   uv run skill-manager-api --host 0.0.0.0 --port 8080
+   uv run agent-manager-api --host 0.0.0.0 --port 8080
    ```
 
 3. 日志文件
-`SKILL_MANAGER_DATA_DIR/audit.jsonl`，通过 .env 配置 `SKILL_MANAGER_DATA_DIR`。
-默认日志文件位置： ``Path.home() / ".skill-manager/audit.jsonl"`
+`AGENT_MANAGER_DATA_DIR/audit.jsonl`，通过 .env 配置 `AGENT_MANAGER_DATA_DIR`。
+默认日志文件位置： ``Path.home() / ".agent-manager/audit.jsonl"`
 
 4. 设置签名密钥
 
@@ -36,7 +36,7 @@
 
 ```bash
 # 在项目根目录的 .env 文件中添加
-SKILL_MANAGER_SIGNING_KEY="your-secret-key-here-change-this-in-production"
+AGENT_MANAGER_SIGNING_KEY="your-secret-key-here-change-this-in-production"
 ```
 
 ### 配置 Claude Code
@@ -54,7 +54,7 @@ SKILL_MANAGER_SIGNING_KEY="your-secret-key-here-change-this-in-production"
 
 ### 环境变量
 
-- 在 `.env` 中配置 `SKILL_MANAGER_BASE_URL`: Skill Manager 后端服务地址（默认：`http://127.0.0.1:8080`）
+- 在 `.env` 中配置 `AGENT_MANAGER_BASE_URL`: Agent Manager 后端服务地址（默认：`http://127.0.0.1:8080`）
 
 
 ## 测试场景
@@ -70,13 +70,13 @@ SKILL_MANAGER_SIGNING_KEY="your-secret-key-here-change-this-in-production"
 让我们提交 code-review skill 到 registry：
 
 ```bash
-cd skill-manager
+cd agent-manager
 
 # 提交 code-review skill
-uv run skill-manager submit .claude/skills/code-review
+uv run agent-manager submit .claude/skills/code-review
 
 # 批准 skill
-uv run skill-manager approve code-review
+uv run agent-manager approve code-review
 ```
 
 1. 确保提交并批准 code-review skill（带签名）
@@ -231,7 +231,7 @@ PreToolUse 事件触发
 ## Notes
 
 - 这是一个指导性 demo，展示如何配置 Claude Code hooks
-- 日志文件路径可以通过 `SKILL_MANAGER_DATA_DIR` 环境变量配置
+- 日志文件路径可以通过 `AGENT_MANAGER_DATA_DIR` 环境变量配置
 - SessionStart 和 ConfigChange 事件不会阻止会话，所有信息都可以通过日志文件查看
 - PreToolUse 事件会在权限检查失败时阻止工具调用
 

@@ -27,7 +27,7 @@ build_binary() {
   fi
   local name="skill-scanner-${edition}-${suffix}${ext}"
   echo "building ${name}"
-  GOCACHE="${GOCACHE:-/tmp/skill-manager-go-cache}" GOOS="$goos" GOARCH="$goarch" go build -o "${OUT_DIR}/${name}" "$package_path"
+  GOCACHE="${GOCACHE:-/tmp/agent-manager-go-cache}" GOOS="$goos" GOARCH="$goarch" go build -o "${OUT_DIR}/${name}" "$package_path"
   cp "${OUT_DIR}/${name}" "releases/${name}"
 }
 
@@ -41,7 +41,7 @@ build_gui_binary() {
   fi
   local name="skill-scanner-gui-${suffix}${ext}"
   echo "building ${name}"
-  if GOCACHE="${GOCACHE:-/tmp/skill-manager-go-cache}" CGO_ENABLED=1 GOOS="$goos" GOARCH="$goarch" go build -o "${OUT_DIR}/${name}" ./cmd/skill-scanner-gui; then
+  if GOCACHE="${GOCACHE:-/tmp/agent-manager-go-cache}" CGO_ENABLED=1 GOOS="$goos" GOARCH="$goarch" go build -o "${OUT_DIR}/${name}" ./cmd/skill-scanner-gui; then
     cp "${OUT_DIR}/${name}" "releases/${name}"
   else
     echo "warning: failed to build ${name}; build it on the target platform or install the required GUI toolchain" >&2

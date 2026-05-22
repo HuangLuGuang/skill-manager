@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from skill_manager.core.models import RiskLevel, SkillOrigin, SkillStatus, SourceInfo
-from skill_manager.core.policy import CompanyPolicy
-from skill_manager.core.sandbox import SandboxConfig, SandboxResult
-from skill_manager.core.vetting import (
+from agent_manager.core.models import RiskLevel, SkillOrigin, SkillStatus, SourceInfo
+from agent_manager.core.policy import CompanyPolicy
+from agent_manager.core.sandbox import SandboxConfig, SandboxResult
+from agent_manager.core.vetting import (
     VettingPipeline,
     _check_manifest_policy,
     _load_manifest,
@@ -136,7 +136,7 @@ class TestPolicyDecide:
         assert status == SkillStatus.REJECTED
 
     def test_blocking_violation_rejects(self):
-        from skill_manager.core.models import PolicyViolation
+        from agent_manager.core.models import PolicyViolation
         policy = CompanyPolicy.default()
         source = SourceInfo(origin=SkillOrigin.LOCAL)
         violations = [PolicyViolation(rule="blocked_permission", message="no", blocking=True)]
@@ -258,12 +258,12 @@ class TestVettingPipeline:
                     stderr="sh: clawdbot: not found",
                 )
 
-        monkeypatch.setattr("skill_manager.core.vetting.get_sandbox_runner", lambda: FakeRunner())
+        monkeypatch.setattr("agent_manager.core.vetting.get_sandbox_runner", lambda: FakeRunner())
 
         pipeline = VettingPipeline(default_policy)
         source = SourceInfo(origin=SkillOrigin.LOCAL)
         result, _violations, _name, _desc, _tools = pipeline.vet(skill_dir, source, use_sandbox=True)
 
-        assert captured["entrypoint"].startswith(".skill-manager-sandbox-probes/")
+        assert captured["entrypoint"].startswith(".agent-manager-sandbox-probes/")
         assert result.scan_report["sandbox_analysis"]["probe_cases"][0]["generated_by"] == "skill-md"
         assert result.scan_report["sandbox_analysis"]["probe_results"][0]["probe_entrypoint"] == captured["entrypoint"]

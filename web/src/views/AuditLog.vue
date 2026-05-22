@@ -6,7 +6,7 @@
       <a-space wrap style="margin-bottom: 16px">
         <a-input
           v-model:value="filters.keyword"
-          placeholder="搜索 Skill 名称 / Skill ID / Actor"
+          placeholder="搜索技能名称 / Skill ID / Actor"
           style="width: 280px"
           allow-clear
         />

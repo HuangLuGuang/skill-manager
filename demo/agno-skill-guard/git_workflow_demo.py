@@ -25,7 +25,7 @@ def main() -> None:
         skill_name="git-workflow",
         skill_path=DEFAULT_SKILL_PATH,
         question=DEFAULT_QUESTION,
-        base_url=os.getenv("SKILL_MANAGER_BASE_URL", "http://127.0.0.1:8080"),
+        base_url=os.getenv("AGENT_MANAGER_BASE_URL", "http://127.0.0.1:8080"),
         agent_id=os.getenv("AGENT_ID", "agno-git-workflow-demo"),
     )
 

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="总览" sub-title="Skill Manager 核心指标与待处理事项" />
+    <a-page-header title="总览" sub-title="Agent Manager 核心指标与待处理事项" />
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24" :sm="12" :lg="6" v-for="item in metrics" :key="item.label">
@@ -31,8 +31,8 @@
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24" :xl="14">
-        <a-card title="最近待处理 Skill">
-          <a-table :data-source="pendingRows" :columns="pendingColumns" rowKey="skill_id" :pagination="{ pageSize: 5 }" :locale="{ emptyText: '当前没有待处理 Skill' }">
+        <a-card title="最近待处理技能">
+          <a-table :data-source="pendingRows" :columns="pendingColumns" rowKey="skill_id" :pagination="{ pageSize: 5 }" :locale="{ emptyText: '当前没有待处理技能' }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'name'">
                 <a @click="$router.push(`/skills/${record.skill_id}`)">{{ record.name }}</a>
@@ -89,7 +89,7 @@ const metrics = computed(() => {
 
   return [
     { label: '技能总数', value: skillRows.value.length, note: '当前 registry 中的技能总数' },
-    { label: '待审核', value: reviewRows.value.length, note: '待审核 Skill 数量' },
+    { label: '待审核', value: reviewRows.value.length, note: '待审核技能 数量' },
     { label: '可部署/已部署', value: deployments, note: 'APPROVED + DEPLOYED 状态聚合' },
     { label: '阻断事件', value: blocked, note: '最近 7 天被拦截的运行时事件' },
   ]
@@ -109,7 +109,7 @@ const blockedEvents = computed(() =>
 )
 
 const pendingColumns = [
-  { title: 'Skill Name', dataIndex: 'name', key: 'name' },
+  { title: '技能名称', dataIndex: 'name', key: 'name' },
   { title: 'Status', dataIndex: 'status', key: 'status', width: 120 },
   { title: 'Risk', dataIndex: 'risk_level', key: 'risk', width: 120 },
   { title: 'Submitted At', dataIndex: 'submitted_at', key: 'submitted_at', width: 220, customRender: ({ text }) => formatDateTime(text) },
@@ -155,7 +155,7 @@ const riskSourceChartOptions = computed(() => {
         return [
           `<strong>${row.label}</strong>`,
           `发现项：${row.count || 0}`,
-          `涉及 Skill：${row.skills || 0}`,
+          `涉及技能：${row.skills || 0}`,
           `严重/高/中/低：${row.critical || 0}/${row.high || 0}/${row.medium || 0}/${row.low || 0}`,
         ].join('<br/>')
       },

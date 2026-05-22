@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from skill_manager.core.scanner_tokens import ScannerTokenStore
+from agent_manager.core.scanner_tokens import ScannerTokenStore
 
 
 def test_create_stores_only_hash(tmp_path):

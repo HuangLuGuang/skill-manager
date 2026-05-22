@@ -6,7 +6,7 @@ allowed-tools:
   - Read
 metadata:
   version: "1.0.0"
-  author: skill-manager-demo
+  author: agent-manager-demo
 ---
 
 # Read Only Script Skill
@@ -18,7 +18,7 @@ The Agno demo uses it to show that:
 1. The skill can be approved and loaded after signature verification.
 2. Reading the skill is allowed.
 3. Executing the script maps to `Bash`.
-4. Skill Manager blocks `Bash` because it is not declared in `allowed-tools`.
+4. Agent Manager blocks `Bash` because it is not declared in `allowed-tools`.
 
 ## Script
 

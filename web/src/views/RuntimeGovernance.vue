@@ -6,10 +6,10 @@
       <a-col :xs="24" :xl="12">
         <a-card title="加载检查">
           <a-form layout="vertical" :model="canLoadForm" @finish="handleCanLoad">
-            <a-form-item label="Skill 名称">
+            <a-form-item label="技能名称">
               <a-input v-model:value="canLoadForm.skillName" placeholder="如 byd-stock-news" />
             </a-form-item>
-            <a-form-item label="Skill 路径">
+            <a-form-item label="技能路径">
               <a-input v-model:value="canLoadForm.skillPath" placeholder="/path/to/skill，可选" />
             </a-form-item>
             <a-form-item label="Agent ID">
@@ -38,7 +38,7 @@
       <a-col :xs="24" :xl="12">
         <a-card title="工具权限检查">
           <a-form layout="vertical" :model="toolForm" @finish="handleCheckTool">
-            <a-form-item label="Skill 名称">
+            <a-form-item label="技能名称">
               <a-input v-model:value="toolForm.skillName" placeholder="如 byd-stock-news" />
             </a-form-item>
             <a-form-item label="工具名称">
@@ -72,12 +72,12 @@
               <a-select-option value="HIGH">HIGH</a-select-option>
               <a-select-option value="EXTREME">EXTREME</a-select-option>
             </a-select>
-            <a-input v-model:value="skillKeyword" placeholder="搜索 Skill 名称 / ID" style="width: 220px" allow-clear />
+            <a-input v-model:value="skillKeyword" placeholder="搜索 技能名称 / ID" style="width: 220px" allow-clear />
             <a-button type="primary" @click="fetchLoadableSkills" :loading="loadingSkills">查询</a-button>
             <a-button @click="resetSkillFilters" :disabled="loadingSkills">重置</a-button>
           </a-space>
 
-          <div class="table-meta">共 {{ skillTotal }} 条可加载 Skill</div>
+          <div class="table-meta">共 {{ skillTotal }} 条可加载技能</div>
 
           <a-table
             :data-source="loadableSkills"
@@ -85,7 +85,7 @@
             rowKey="skill_id"
             :loading="loadingSkills"
             :pagination="skillPagination"
-            :locale="{ emptyText: '当前没有可加载 Skill' }"
+            :locale="{ emptyText: '当前没有可加载技能' }"
             @change="handleSkillTableChange"
           >
             <template #bodyCell="{ column, record }">
@@ -112,7 +112,7 @@
                 {{ option.label }}
               </a-select-option>
             </a-select>
-            <a-input v-model:value="auditKeyword" placeholder="搜索 Skill / Actor" style="width: 220px" allow-clear />
+            <a-input v-model:value="auditKeyword" placeholder="搜索技能 / Actor" style="width: 220px" allow-clear />
             <a-button type="primary" @click="fetchRuntimeAudit" :loading="loadingAudit">查询</a-button>
             <a-button @click="resetAuditFilters" :disabled="loadingAudit">重置</a-button>
           </a-space>
@@ -225,7 +225,7 @@ const runtimeEventTypes = runtimeEventOptions.map((item) => item.value)
 
 const handleCanLoad = async () => {
   if (!canLoadForm.skillName.trim()) {
-    message.warning('请先输入 Skill 名称')
+    message.warning('请先输入 技能名称')
     return
   }
   checkingCanLoad.value = true
@@ -244,7 +244,7 @@ const handleCanLoad = async () => {
 
 const handleCheckTool = async () => {
   if (!toolForm.skillName.trim() || !toolForm.toolName.trim()) {
-    message.warning('请先输入 Skill 名称和工具名称')
+    message.warning('请先输入 技能名称和工具名称')
     return
   }
   checkingTool.value = true

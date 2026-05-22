@@ -1,6 +1,6 @@
 # Sandbox Service Architecture
 
-这个文档描述 Skill Manager 的 Sandbox 演进方向：
+这个文档描述 Agent Manager 的 Sandbox 演进方向：
 
 - 当前方案：本机 Docker probe
 - 目标方案：独立隔离执行服务
@@ -9,7 +9,7 @@
 
 ## 目标
 
-Skill Manager 负责治理：
+Agent Manager 负责治理：
 
 - skill 提交
 - scanner / behavioral / LLM
@@ -29,7 +29,7 @@ Sandbox 负责执行：
 
 ```mermaid
 flowchart TB
-    A["上传 Skill"] --> B["Skill Manager<br/>scanner / behavioral / LLM / policy"]
+    A["上传 Skill"] --> B["Agent Manager<br/>scanner / behavioral / LLM / policy"]
     B --> C{"选择 Sandbox 后端"}
 
     C --> D1["DockerSandboxRunner"]
@@ -49,8 +49,8 @@ flowchart TB
 
 代码位置：
 
-- [skill_manager/core/sandbox.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/sandbox.py)
-- [skill_manager/core/vetting.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/vetting.py)
+- [agent_manager/core/sandbox.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/sandbox.py)
+- [agent_manager/core/vetting.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/vetting.py)
 
 当前已经支持：
 
@@ -58,7 +58,7 @@ flowchart TB
 - `RemoteSandboxRunner`
 - `get_sandbox_runner()` 工厂切换
 - 一个生产版独立服务基线实现：
-  [services/isolated-sandbox-service/README.md](/Users/huangluguang/Desktop/Project/skill-manager/services/isolated-sandbox-service/README.md)
+  [services/isolated-sandbox-service/README.md](/Users/huangluguang/Desktop/Project/agent-manager/services/isolated-sandbox-service/README.md)
 
 说明：
 
@@ -101,7 +101,7 @@ sequenceDiagram
 如果 skill 没有脚本入口，但 `SKILL.md` 里存在 bash/sh fenced code block，系统会把这些命令块写入 sandbox 临时拷贝中的 `.sh` probe 脚本，然后交给 sandbox 执行。
 这个过程不会修改原始 skill 目录。
 
-当提交时同时启用 `Sandbox` 和 `LLM 分析` 时，Skill Manager 会额外请求 LLM 结合 `SKILL.md` 使用说明、命令示例和文件清单生成最多 4 组 probe case。
+当提交时同时启用 `Sandbox` 和 `LLM 分析` 时，Agent Manager 会额外请求 LLM 结合 `SKILL.md` 使用说明、命令示例和文件清单生成最多 4 组 probe case。
 这不是让 LLM 生成代码，而是只允许它选择 skill 包中已经存在的入口文件，并生成参数列表，例如：
 
 ```json
@@ -147,7 +147,7 @@ sequenceDiagram
 - setuid / setgid 降权
 - 请求级网络开关
 
-Skill Manager 需要的只是一个稳定返回结果的 HTTP API，不关心对方具体实现细节。
+Agent Manager 需要的只是一个稳定返回结果的 HTTP API，不关心对方具体实现细节。
 
 ### 请求 schema
 
@@ -198,22 +198,22 @@ Skill Manager 需要的只是一个稳定返回结果的 HTTP API，不关心对
 }
 ```
 
-如果远程服务返回非零 `code`，Skill Manager 会把这次 probe 记为未执行成功，并把 `message` 写进 `sandbox_analysis.reason`。
+如果远程服务返回非零 `code`，Agent Manager 会把这次 probe 记为未执行成功，并把 `message` 写进 `sandbox_analysis.reason`。
 
 ## 配置
 
 当前代码支持以下环境变量：
 
-- `SKILL_MANAGER_SANDBOX_RUNTIME=docker|remote`
-- `SKILL_MANAGER_SANDBOX_ENABLED=true|false`
-- `SKILL_MANAGER_SANDBOX_URL=http://sandbox:8194`
-- `SKILL_MANAGER_SANDBOX_API_KEY=...`
-- `SKILL_MANAGER_SANDBOX_TIMEOUT_SECONDS=15`
-- `SKILL_MANAGER_SANDBOX_NETWORK_MODE=none`
-- `SKILL_MANAGER_SANDBOX_IMAGE=python:3.12-slim`
-- `SKILL_MANAGER_SANDBOX_MEMORY_LIMIT=256m`
-- `SKILL_MANAGER_SANDBOX_CPU_LIMIT=1.0`
-- `SKILL_MANAGER_SANDBOX_PIDS_LIMIT=64`
+- `AGENT_MANAGER_SANDBOX_RUNTIME=docker|remote`
+- `AGENT_MANAGER_SANDBOX_ENABLED=true|false`
+- `AGENT_MANAGER_SANDBOX_URL=http://sandbox:8194`
+- `AGENT_MANAGER_SANDBOX_API_KEY=...`
+- `AGENT_MANAGER_SANDBOX_TIMEOUT_SECONDS=15`
+- `AGENT_MANAGER_SANDBOX_NETWORK_MODE=none`
+- `AGENT_MANAGER_SANDBOX_IMAGE=python:3.12-slim`
+- `AGENT_MANAGER_SANDBOX_MEMORY_LIMIT=256m`
+- `AGENT_MANAGER_SANDBOX_CPU_LIMIT=1.0`
+- `AGENT_MANAGER_SANDBOX_PIDS_LIMIT=64`
 
 也支持通过 API 和系统设置页保存到本地配置文件：
 
@@ -222,7 +222,7 @@ Skill Manager 需要的只是一个稳定返回结果的 HTTP API，不关心对
 
 默认配置文件路径：
 
-- `~/.skill-manager/sandbox.yaml`
+- `~/.agent-manager/sandbox.yaml`
 
 ## 为什么保留 Docker 后端
 

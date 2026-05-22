@@ -10,7 +10,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    APP_NAME: str = "Skill Manager Admin Starter"
+    APP_NAME: str = "Agent Manager Admin Starter"
     API_PREFIX: str = "/api"
     DEBUG: bool = True
 

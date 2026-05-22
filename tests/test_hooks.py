@@ -9,15 +9,15 @@ from unittest import mock
 
 import pytest
 
-from skill_manager.core.models import (
+from agent_manager.core.models import (
     RegistryEntry,
     RiskLevel,
     SkillOrigin,
     SkillStatus,
     SourceInfo,
 )
-from skill_manager.core.registry import Registry
-from skill_manager.hooks.agent_hook import (
+from agent_manager.core.registry import Registry
+from agent_manager.hooks.agent_hook import (
     _extract_name,
     handle_config_change,
     handle_pre_tool_use,
@@ -97,8 +97,8 @@ class TestSessionStart:
 
         event = {"hook_event_name": "SessionStart", "cwd": str(tmp_path)}
 
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch.dict(os.environ, {"SKILL_MANAGER_SKILLS_DIR": str(skills_dir)}):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
+             mock.patch.dict(os.environ, {"AGENT_MANAGER_SKILLS_DIR": str(skills_dir)}):
             # Should not raise SystemExit
             handle_session_start(event)
 
@@ -108,8 +108,8 @@ class TestSessionStart:
 
         event = {"hook_event_name": "SessionStart", "cwd": str(tmp_path)}
 
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch.dict(os.environ, {"SKILL_MANAGER_SKILLS_DIR": str(skills_dir)}):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
+             mock.patch.dict(os.environ, {"AGENT_MANAGER_SKILLS_DIR": str(skills_dir)}):
             with pytest.raises(SystemExit) as exc:
                 handle_session_start(event)
             assert exc.value.code == 2
@@ -120,8 +120,8 @@ class TestSessionStart:
 
         event = {"hook_event_name": "SessionStart", "cwd": str(tmp_path)}
 
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch.dict(os.environ, {"SKILL_MANAGER_SKILLS_DIR": str(skills_dir)}):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
+             mock.patch.dict(os.environ, {"AGENT_MANAGER_SKILLS_DIR": str(skills_dir)}):
             with pytest.raises(SystemExit) as exc:
                 handle_session_start(event)
             assert exc.value.code == 2
@@ -129,8 +129,8 @@ class TestSessionStart:
     def test_empty_skills_dir_allows_session(self, registry, skills_dir, tmp_path):
         event = {"hook_event_name": "SessionStart", "cwd": str(tmp_path)}
 
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch.dict(os.environ, {"SKILL_MANAGER_SKILLS_DIR": str(skills_dir)}):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
+             mock.patch.dict(os.environ, {"AGENT_MANAGER_SKILLS_DIR": str(skills_dir)}):
             handle_session_start(event)  # Should not raise
 
 
@@ -149,7 +149,7 @@ class TestConfigChange:
             "file_path": str(skill_dir / "SKILL.md"),
         }
 
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry):
             handle_config_change(event)  # No exception
 
     def test_blocks_unregistered_skill(self, registry, tmp_path):
@@ -162,7 +162,7 @@ class TestConfigChange:
             "file_path": str(skill_dir / "SKILL.md"),
         }
 
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry):
             with pytest.raises(SystemExit) as exc:
                 handle_config_change(event)
             assert exc.value.code == 2
@@ -177,7 +177,7 @@ class TestConfigChange:
             "file_path": str(skill_dir / "SKILL.md"),
         }
 
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry):
             with pytest.raises(SystemExit) as exc:
                 handle_config_change(event)
             assert exc.value.code == 2
@@ -189,11 +189,11 @@ class TestConfigChange:
             "file_path": str(tmp_path / "CLAUDE.md"),
         }
 
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry):
             handle_config_change(event)  # Should not raise or block
 
     def test_blocks_tampered_skill(self, registry, tmp_path):
-        from skill_manager.core.signer import compute_signature
+        from agent_manager.core.signer import compute_signature
 
         skill_dir = _make_skill_dir(tmp_path, "tampered")
         sig = compute_signature(skill_dir)
@@ -211,7 +211,7 @@ class TestConfigChange:
             "file_path": str(skill_dir / "SKILL.md"),
         }
 
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry):
             with pytest.raises(SystemExit) as exc:
                 handle_config_change(event)
             assert exc.value.code == 2
@@ -227,8 +227,8 @@ class TestPreToolUse:
 
         event = {"hook_event_name": "PreToolUse", "tool_name": "Read"}
 
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch("skill_manager.hooks.agent_hook._active_skills", return_value=["my-skill"]):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
+             mock.patch("agent_manager.hooks.agent_hook._active_skills", return_value=["my-skill"]):
             handle_pre_tool_use(event)  # No exception
 
     def test_blocks_undeclared_tool(self, registry):
@@ -236,8 +236,8 @@ class TestPreToolUse:
 
         event = {"hook_event_name": "PreToolUse", "tool_name": "Bash"}
 
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch("skill_manager.hooks.agent_hook._active_skills", return_value=["read-only"]):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
+             mock.patch("agent_manager.hooks.agent_hook._active_skills", return_value=["read-only"]):
             with pytest.raises(SystemExit) as exc:
                 handle_pre_tool_use(event)
             assert exc.value.code == 2
@@ -245,8 +245,8 @@ class TestPreToolUse:
     def test_allows_all_tools_when_no_active_skills(self, registry):
         event = {"hook_event_name": "PreToolUse", "tool_name": "Bash"}
 
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch("skill_manager.hooks.agent_hook._active_skills", return_value=[]):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
+             mock.patch("agent_manager.hooks.agent_hook._active_skills", return_value=[]):
             handle_pre_tool_use(event)  # No exception
 
     def test_allows_all_tools_when_skill_has_no_declarations(self, registry):
@@ -254,8 +254,8 @@ class TestPreToolUse:
 
         event = {"hook_event_name": "PreToolUse", "tool_name": "AnythingAtAll"}
 
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch("skill_manager.hooks.agent_hook._active_skills", return_value=["open-skill"]):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
+             mock.patch("agent_manager.hooks.agent_hook._active_skills", return_value=["open-skill"]):
             handle_pre_tool_use(event)  # No exception
 
     def test_union_of_tools_for_multiple_active_skills(self, registry):
@@ -265,8 +265,8 @@ class TestPreToolUse:
         event = {"hook_event_name": "PreToolUse", "tool_name": "Grep"}
 
         # Both active → union is {Read, Grep} → Grep is allowed
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch("skill_manager.hooks.agent_hook._active_skills", return_value=["skill-a", "skill-b"]):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
+             mock.patch("agent_manager.hooks.agent_hook._active_skills", return_value=["skill-a", "skill-b"]):
             handle_pre_tool_use(event)  # No exception
 
     def test_blocks_tool_not_in_any_active_skills(self, registry):
@@ -275,8 +275,8 @@ class TestPreToolUse:
 
         event = {"hook_event_name": "PreToolUse", "tool_name": "Bash"}
 
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch("skill_manager.hooks.agent_hook._active_skills", return_value=["skill-a", "skill-b"]):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
+             mock.patch("agent_manager.hooks.agent_hook._active_skills", return_value=["skill-a", "skill-b"]):
             with pytest.raises(SystemExit) as exc:
                 handle_pre_tool_use(event)
             assert exc.value.code == 2
@@ -286,8 +286,8 @@ class TestPreToolUse:
 
         event = {"hook_event_name": "PreToolUse", "tool_name": "Read"}
 
-        with mock.patch("skill_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch("skill_manager.hooks.agent_hook._active_skills", return_value=["live-skill"]):
+        with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
+             mock.patch("agent_manager.hooks.agent_hook._active_skills", return_value=["live-skill"]):
             with pytest.raises(SystemExit) as exc:
                 handle_pre_tool_use(event)
             assert exc.value.code == 2

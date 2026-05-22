@@ -1,6 +1,6 @@
 # Isolated Sandbox Service
 
-这是 Skill Manager 的生产版远程 sandbox 服务基线实现。
+这是 Agent Manager 的生产版远程 sandbox 服务基线实现。
 
 它不是 mock，而是一个独立的 HTTP 服务，负责执行：
 
@@ -35,7 +35,7 @@
 如果你修改了镜像依赖，需要重建 sandbox 容器：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /Users/huangluguang/Desktop/Project/agent-manager
 docker compose build sandbox
 docker compose up -d sandbox
 ```
@@ -43,7 +43,7 @@ docker compose up -d sandbox
 ## 启动
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/services/isolated-sandbox-service
+cd /Users/huangluguang/Desktop/Project/agent-manager/services/isolated-sandbox-service
 uv sync
 uv run uvicorn app:app --host 0.0.0.0 --port 8194 --reload
 ```
@@ -127,12 +127,12 @@ export SANDBOX_SERVICE_CPU_LIMIT_SECONDS=10
 export SANDBOX_SERVICE_API_KEY=change-me
 ```
 
-然后在 Skill Manager 的系统设置页或环境变量里配置：
+然后在 Agent Manager 的系统设置页或环境变量里配置：
 
 ```bash
-export SKILL_MANAGER_SANDBOX_RUNTIME=remote
-export SKILL_MANAGER_SANDBOX_URL=http://sandbox-service:8194
-export SKILL_MANAGER_SANDBOX_API_KEY=change-me
+export AGENT_MANAGER_SANDBOX_RUNTIME=remote
+export AGENT_MANAGER_SANDBOX_URL=http://sandbox-service:8194
+export AGENT_MANAGER_SANDBOX_API_KEY=change-me
 ```
 
 ### 4. 本地开发回退
@@ -161,11 +161,11 @@ export SANDBOX_SERVICE_BACKEND=subprocess
 - 多语言依赖镜像管理
 - 更细的网络白名单
 
-## 与 Skill Manager 的关系
+## 与 Agent Manager 的关系
 
 这项服务只负责“执行”。
 
-Skill Manager 仍然负责：
+Agent Manager 仍然负责：
 
 - 扫描
 - 风险分级
@@ -176,5 +176,5 @@ Skill Manager 仍然负责：
 
 也就是说：
 
-- Skill Manager 是控制面
+- Agent Manager 是控制面
 - Isolated Sandbox Service 是执行面

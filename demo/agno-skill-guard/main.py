@@ -45,7 +45,7 @@ class AgentAnswer(BaseModel):
     evidence: list[str] = Field(default_factory=list, description="支撑判断的关键信息")
 
 
-class SkillManagerRuntimeClient:
+class AgentManagerRuntimeClient:
     def __init__(self, base_url: str, timeout: float = 20.0, token: str | None = None):
         self.base_url = base_url.rstrip("/")
         self.token = token
@@ -59,8 +59,8 @@ class SkillManagerRuntimeClient:
         except httpx.HTTPStatusError as exc:
             if response.status_code == 502 and self.base_url.startswith(("http://localhost:517", "http://127.0.0.1:517")):
                 raise RuntimeError(
-                    "Skill Manager API returned 502 through the frontend dev server. "
-                    "Set SKILL_MANAGER_BASE_URL to the backend API, for example "
+                    "Agent Manager API returned 502 through the frontend dev server. "
+                    "Set AGENT_MANAGER_BASE_URL to the backend API, for example "
                     "http://localhost:8000 or http://localhost:8080, not the frontend Vite port."
                 ) from exc
             raise
@@ -127,7 +127,7 @@ def compute_local_signature(skill_path: str | Path, signing_key: str | None = No
 
 
 def ensure_skill_can_load(
-    client: SkillManagerRuntimeClient,
+    client: AgentManagerRuntimeClient,
     skill_name: str,
     skill_path: Path,
     agent_id: str,
@@ -135,7 +135,7 @@ def ensure_skill_can_load(
 ) -> SkillVerificationResult:
     local_signature = compute_local_signature(
         skill_path,
-        signing_key=os.getenv("SKILL_MANAGER_SIGNING_KEY"),
+        signing_key=os.getenv("AGENT_MANAGER_SIGNING_KEY"),
     )
 
     verify_result = client.verify_skill_signature(
@@ -180,14 +180,14 @@ def map_agno_function_to_runtime_tool(function_name: str, args: dict) -> str | N
     return None
 
 
-def make_skill_runtime_hook(client: SkillManagerRuntimeClient, skill_name: str, agent_id: str):
+def make_skill_runtime_hook(client: AgentManagerRuntimeClient, skill_name: str, agent_id: str):
     def skill_runtime_hook(function_name: str, func: callable, args: dict):
         runtime_tool_name = map_agno_function_to_runtime_tool(function_name, args)
         if runtime_tool_name:
             check = client.check_tool(skill_name=skill_name, tool_name=runtime_tool_name, agent_id=agent_id)
             if not check.allowed:
                 raise PermissionError(
-                    f"Skill Manager blocked tool {runtime_tool_name!r} for skill {skill_name!r}"
+                    f"Agent Manager blocked tool {runtime_tool_name!r} for skill {skill_name!r}"
                 )
         return func(**args)
 
@@ -195,7 +195,7 @@ def make_skill_runtime_hook(client: SkillManagerRuntimeClient, skill_name: str, 
 
 
 def build_agent(
-    client: SkillManagerRuntimeClient,
+    client: AgentManagerRuntimeClient,
     skill_name: str,
     skills_root: Path,
     agent_id: str,
@@ -236,7 +236,7 @@ def build_agent(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Agno demo for guarded skill loading with Skill Manager")
+    parser = argparse.ArgumentParser(description="Agno demo for guarded skill loading with Agent Manager")
     parser.add_argument("--skill-name", required=True, help="Registered skill name")
     parser.add_argument("--skill-path", required=True, help="Local path to the skill directory")
     parser.add_argument("--question", required=True, help="User question for the agent")
@@ -244,8 +244,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--agent-id", default=os.getenv("AGENT_ID", "agno-demo-agent"))
     parser.add_argument(
         "--base-url",
-        default=os.getenv("SKILL_MANAGER_BASE_URL", "http://127.0.0.1:8080"),
-        help="Skill Manager API base URL",
+        default=os.getenv("AGENT_MANAGER_BASE_URL", "http://127.0.0.1:8080"),
+        help="Agent Manager API base URL",
     )
     return parser.parse_args()
 
@@ -260,9 +260,9 @@ def run_demo(
     skill_id: str | None = None,
 ) -> AgentAnswer | BaseModel | str:
     resolved_skill_path = Path(skill_path).resolve()
-    client = SkillManagerRuntimeClient(
+    client = AgentManagerRuntimeClient(
         base_url=base_url,
-        token=os.getenv("SKILL_MANAGER_API_TOKEN") or os.getenv("SKILL_MANAGER_ACCESS_TOKEN"),
+        token=os.getenv("AGENT_MANAGER_API_TOKEN") or os.getenv("AGENT_MANAGER_ACCESS_TOKEN"),
     )
 
     verification = ensure_skill_can_load(

@@ -1,8 +1,8 @@
-# Skill Manager — Design Document
+# Agent Manager — Design Document
 
 ## Overview
 
-Skill Manager is an enterprise governance system for AI agent skills. It enforces a **gate-and-govern** model: skills cannot run inside agents unless they have been vetted, approved, signed, and registered. At runtime, every load and every tool call is checked against the registry.
+Agent Manager is an enterprise governance system for AI agent skills. It enforces a **gate-and-govern** model: skills cannot run inside agents unless they have been vetted, approved, signed, and registered. At runtime, every load and every tool call is checked against the registry.
 
 This document explains the threat model, architecture, and — in depth — how each of the seven key security properties is designed and implemented.
 
@@ -29,7 +29,7 @@ This document explains the threat model, architecture, and — in depth — how 
 
 ### Non-goals
 
-- Skill Manager does not protect against a compromised agent runtime itself
+- Agent Manager does not protect against a compromised agent runtime itself
 - It does not prevent skills from making network calls that are within their declared tool scope
 - Novel zero-day attack patterns not covered by skill-scanner's rule packs may not be detected
 
@@ -37,7 +37,7 @@ This document explains the threat model, architecture, and — in depth — how 
 
 ## Where Skills Live
 
-**Skills are always local files.** Claude Code loads a skill by reading its `SKILL.md` from the filesystem and injecting the content as agent instructions. Skill Manager never stores or serves the skill content — the registry holds only metadata: name, status, approved tools, and a content signature.
+**Skills are always local files.** Claude Code loads a skill by reading its `SKILL.md` from the filesystem and injecting the content as agent instructions. Agent Manager never stores or serves the skill content — the registry holds only metadata: name, status, approved tools, and a content signature.
 
 ```
   Developer's disk / Company-controlled dir / Shared mount
@@ -49,7 +49,7 @@ This document explains the threat model, architecture, and — in depth — how 
             │
             │  submit once
             ▼
-  ~/.skill-manager/registry.json
+  ~/.agent-manager/registry.json
   ┌──────────────────────────────────────────────────────┐
   │  { name: "my-skill",  ← metadata only               │
   │    status: APPROVED,                                 │
@@ -100,7 +100,7 @@ Checks registry but skips signature verification. Useful for debugging or when d
 | `/company-skills/` (CI/CD only, read-only) | CI/CD service account | Mode 1 — directory ownership is sufficient |
 | Agent has no local disk | — | Mode 1 via REST: `GET /api/v1/runtime/can-load/{name}` |
 
-The "company-controlled directory" pattern works like this: CI/CD runs `skill-manager-deploy --dest /company-skills --clean` after each approval. Agents read from `/company-skills/` but cannot write to it. Because only approved skills were ever deployed there, a name-only registry check confirms the skill is sanctioned.
+The "company-controlled directory" pattern works like this: CI/CD runs `agent-manager-deploy --dest /company-skills --clean` after each approval. Agents read from `/company-skills/` but cannot write to it. Because only approved skills were ever deployed there, a name-only registry check confirms the skill is sanctioned.
 
 ---
 
@@ -108,7 +108,7 @@ The "company-controlled directory" pattern works like this: CI/CD runs `skill-ma
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Skill Manager                            │
+│                        Agent Manager                            │
 │                                                                 │
 │  ┌──────────┐   ┌──────────────┐   ┌──────────┐  ┌─────────┐  │
 │  │  CLI /   │   │  VettingPipe │   │ Registry │  │ Runtime │  │
@@ -316,7 +316,7 @@ def compute_signature(skill_path):
 
 The signature is a single hex string covering the *entire directory tree*: every file's relative path and content hash. Adding, removing, or modifying any file changes the signature.
 
-**HMAC vs plain SHA256:** In production (when `SKILL_MANAGER_SIGNING_KEY` is set), the signature is an HMAC-SHA256. An attacker who can write to disk could forge a plain SHA256 by recomputing it; they cannot forge an HMAC without the key. The key is an environment variable, kept out of the registry and the codebase.
+**HMAC vs plain SHA256:** In production (when `AGENT_MANAGER_SIGNING_KEY` is set), the signature is an HMAC-SHA256. An attacker who can write to disk could forge a plain SHA256 by recomputing it; they cannot forge an HMAC without the key. The key is an environment variable, kept out of the registry and the codebase.
 
 **Timing-safe comparison** in `core/signer.py` — `verify_signature()`:
 
@@ -540,7 +540,7 @@ def is_loadable(self) -> bool:
     # RETIRED, VETTED, REJECTED, PENDING all return False
 ```
 
-**Revocation audit:** The retirement event is logged with `reason` and `actor`, giving a clear forensic record. For incident response, `skill-manager audit --skill <id>` shows the full history of a skill — when it was submitted, approved, deployed, and finally retired.
+**Revocation audit:** The retirement event is logged with `reason` and `actor`, giving a clear forensic record. For incident response, `agent-manager audit --skill <id>` shows the full history of a skill — when it was submitted, approved, deployed, and finally retired.
 
 ---
 
@@ -631,7 +631,7 @@ Skills with no `allowed-tools` declaration are allowed to invoke any tool. The a
 
 ### HMAC Key Stored in Environment
 
-The signing key is read from `SKILL_MANAGER_SIGNING_KEY` at runtime. This is a deliberate choice: the key must not be in the codebase, and it must be rotatable without a code change. In production, inject it via your secrets manager (Vault, AWS Secrets Manager, etc.).
+The signing key is read from `AGENT_MANAGER_SIGNING_KEY` at runtime. This is a deliberate choice: the key must not be in the codebase, and it must be rotatable without a code change. In production, inject it via your secrets manager (Vault, AWS Secrets Manager, etc.).
 
 ---
 
@@ -648,7 +648,7 @@ pip install -e ".[scanner]"
 Enable deeper analysis at submit time:
 
 ```bash
-skill-manager submit ./my-skill --behavioral --llm
+agent-manager submit ./my-skill --behavioral --llm
 ```
 
 ### CI/CD
@@ -659,7 +659,7 @@ Add a vetting step to your skill publishing pipeline:
 # .github/workflows/publish-skill.yml
 - name: Vet skill
   run: |
-    skill-manager submit ./my-skill --policy company-policy.yaml --json > result.json
+    agent-manager submit ./my-skill --policy company-policy.yaml --json > result.json
     STATUS=$(jq -r '.status' result.json)
     if [ "$STATUS" = "REJECTED" ]; then
       echo "Skill rejected by policy"
@@ -690,8 +690,8 @@ The `audit.jsonl` file is structured for ingestion by any log aggregation system
 
 ```bash
 # Tamper detection events (page immediately)
-grep '"skill_tamper_detected"' ~/.skill-manager/audit.jsonl
+grep '"skill_tamper_detected"' ~/.agent-manager/audit.jsonl
 
 # Blocked load attempts
-grep '"skill_load_blocked"' ~/.skill-manager/audit.jsonl | jq '.details.reason'
+grep '"skill_load_blocked"' ~/.agent-manager/audit.jsonl | jq '.details.reason'
 ```

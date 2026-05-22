@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from skill_manager.core.models import (
+from agent_manager.core.models import (
     AuditEvent,
     PolicyViolation,
     RegistryEntry,

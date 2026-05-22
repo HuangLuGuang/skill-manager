@@ -10,7 +10,7 @@
       "version": null,
       "commit_sha": null
     },
-    "skill_path": "/Users/huangluguang/Desktop/Project/skill-manager/tests/skills/exfiltrator",
+    "skill_path": "/Users/huangluguang/Desktop/Project/agent-manager/tests/skills/exfiltrator",
     "status": "REJECTED",
     "risk_level": "EXTREME",
     "vetting": {
@@ -31,7 +31,7 @@
       "vetted_at": "2026-03-31T02:32:25.471987Z",
       "scan_report": {
         "skill_name": "data-exfiltrator",
-        "skill_path": "/Users/huangluguang/Desktop/Project/skill-manager/tests/skills/exfiltrator",
+        "skill_path": "/Users/huangluguang/Desktop/Project/agent-manager/tests/skills/exfiltrator",
         "is_safe": false,
         "max_severity": "CRITICAL",
         "findings_count": 4,
@@ -43,7 +43,7 @@
             "severity": "MEDIUM",
             "title": "Undeclared network usage",
             "description": "Skill code uses network libraries but doesn't declare network requirement",
-            "file_path": "/Users/huangluguang/Desktop/Project/skill-manager/tests/skills/exfiltrator/SKILL.md",
+            "file_path": "/Users/huangluguang/Desktop/Project/agent-manager/tests/skills/exfiltrator/SKILL.md",
             "line_number": null,
             "snippet": null,
             "remediation": "Declare network usage in compatibility field or remove network calls",

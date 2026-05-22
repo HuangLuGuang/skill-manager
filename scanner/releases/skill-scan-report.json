@@ -1,26 +1,26 @@
 {
   "generated_at": "2026-04-17T02:09:14.772132Z",
-  "root": "/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills",
+  "root": "/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/sample_skills",
   "found": 3,
   "submitted": 0,
   "failed": 3,
   "skills": [
     {
-      "path": "/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills/approved-helper",
+      "path": "/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/sample_skills/approved-helper",
       "name": "approved-helper",
       "description": "Safe skill used by the Agno customer demo to explain governed skill loading.",
       "fingerprint": "sha256:c474ef827b0efb97c117bb4e823fdfc1bebe7472d03971749d990d476d18103d",
       "file_count": 2,
       "total_bytes": 1044,
       "local_findings": null,
-      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/releases/skill-scan-report-packages/approved-helper-c474ef827b0e.zip",
+      "package_path": "/Users/huangluguang/Desktop/Project/agent-manager/scanner/releases/skill-scan-report-packages/approved-helper-c474ef827b0e.zip",
       "submitted": false,
       "submit_error": "submit failed: 500 Internal Server Error: Internal Server Error",
       "submission": {},
       "manifest": {
         "name": "approved-helper",
         "description": "Safe skill used by the Agno customer demo to explain governed skill loading.",
-        "root": "/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills/approved-helper",
+        "root": "/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/sample_skills/approved-helper",
         "fingerprint": "sha256:c474ef827b0efb97c117bb4e823fdfc1bebe7472d03971749d990d476d18103d",
         "files": [
           {
@@ -38,21 +38,21 @@
       }
     },
     {
-      "path": "/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills/read-only-script",
+      "path": "/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/sample_skills/read-only-script",
       "name": "read-only-script",
       "description": "Skill that declares only Read permission but contains a script, used to demo runtime tool blocking.",
       "fingerprint": "sha256:5ea00ac4943c2e64a3591e74dd2f3df9a136ec686f3ea88abb4c9674aae3dd16",
       "file_count": 2,
       "total_bytes": 783,
       "local_findings": null,
-      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/releases/skill-scan-report-packages/read-only-script-5ea00ac4943c.zip",
+      "package_path": "/Users/huangluguang/Desktop/Project/agent-manager/scanner/releases/skill-scan-report-packages/read-only-script-5ea00ac4943c.zip",
       "submitted": false,
       "submit_error": "submit failed: 500 Internal Server Error: Internal Server Error",
       "submission": {},
       "manifest": {
         "name": "read-only-script",
         "description": "Skill that declares only Read permission but contains a script, used to demo runtime tool blocking.",
-        "root": "/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills/read-only-script",
+        "root": "/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/sample_skills/read-only-script",
         "fingerprint": "sha256:5ea00ac4943c2e64a3591e74dd2f3df9a136ec686f3ea88abb4c9674aae3dd16",
         "files": [
           {
@@ -70,7 +70,7 @@
       }
     },
     {
-      "path": "/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills/rejected-exfiltrator",
+      "path": "/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/sample_skills/rejected-exfiltrator",
       "name": "rejected-exfiltrator",
       "description": "Demo malicious skill that reads secrets and posts them externally.",
       "fingerprint": "sha256:ae6d47c35e7ab8ba83fc27f2424e00e586192a6c4f9c8c042f6d1c4ce3b2810e",
@@ -102,14 +102,14 @@
           "message": "发现敏感文件路径特征"
         }
       ],
-      "package_path": "/Users/huangluguang/Desktop/Project/skill-manager/scanner/releases/skill-scan-report-packages/rejected-exfiltrator-ae6d47c35e7a.zip",
+      "package_path": "/Users/huangluguang/Desktop/Project/agent-manager/scanner/releases/skill-scan-report-packages/rejected-exfiltrator-ae6d47c35e7a.zip",
       "submitted": false,
       "submit_error": "submit failed: 500 Internal Server Error: Internal Server Error",
       "submission": {},
       "manifest": {
         "name": "rejected-exfiltrator",
         "description": "Demo malicious skill that reads secrets and posts them externally.",
-        "root": "/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills/rejected-exfiltrator",
+        "root": "/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/sample_skills/rejected-exfiltrator",
         "fingerprint": "sha256:ae6d47c35e7ab8ba83fc27f2424e00e586192a6c4f9c8c042f6d1c4ce3b2810e",
         "files": [
           {

@@ -155,7 +155,7 @@
               </a-select>
             </a-form-item>
             <a-form-item v-if="sandboxForm.runtime === 'docker'" label="镜像">
-              <a-input v-model:value="sandboxForm.image" placeholder="skill-manager-sandbox-runtime:latest" />
+              <a-input v-model:value="sandboxForm.image" placeholder="agent-manager-sandbox-runtime:latest" />
             </a-form-item>
             <template v-else>
               <a-form-item label="远程 Sandbox URL">
@@ -240,7 +240,7 @@ import {
   getLlmConfig,
   getLogoInfo,
   getSandboxConfig,
-  getSkillManagerSystemStatus,
+  getAgentManagerSystemStatus,
   getSystemInfo,
   updateLlmConfig,
   updateSandboxConfig,
@@ -269,7 +269,7 @@ const llmForm = reactive({
 const sandboxForm = reactive({
   enabled: false,
   runtime: 'docker',
-  image: 'skill-manager-sandbox-runtime:latest',
+  image: 'agent-manager-sandbox-runtime:latest',
   timeout_seconds: 15,
   network_mode: 'none',
   memory_limit: '256m',
@@ -282,8 +282,8 @@ const sandboxForm = reactive({
 })
 const items = [
   'Starter backend 继续负责账号、登录、菜单和系统管理。',
-  'Skill Manager API 负责 skill 生命周期、审计和运行时治理。',
-  '启用 LLM 分析后，提交 Skill 时勾选“启用 LLM 分析”才会调用 DeepSeek 接口。',
+  'Agent Manager API 负责智能体技能生命周期、审计和运行时治理。',
+  '启用 LLM 分析后，提交技能时勾选“启用 LLM 分析”才会调用 DeepSeek 接口。',
   '当前页面已经同时汇总两侧状态，便于你判断环境是否完整。',
   'Sandbox 可以走本机 Docker，也可以走独立隔离执行服务；当前后端类型会显示在状态区。',
 ]
@@ -315,7 +315,7 @@ const fetchStatus = async () => {
     const [sys, logo, manager, llm, sandbox] = await Promise.all([
       getSystemInfo(),
       getLogoInfo(),
-      getSkillManagerSystemStatus(),
+      getAgentManagerSystemStatus(),
       getLlmConfig(),
       getSandboxConfig(),
     ])
@@ -336,7 +336,7 @@ const fetchStatus = async () => {
     llmForm.clear_api_key = false
     sandboxForm.enabled = sandbox?.enabled ?? false
     sandboxForm.runtime = sandbox?.runtime || 'docker'
-    sandboxForm.image = sandbox?.image || 'skill-manager-sandbox-runtime:latest'
+    sandboxForm.image = sandbox?.image || 'agent-manager-sandbox-runtime:latest'
     sandboxForm.timeout_seconds = sandbox?.timeout_seconds ?? 15
     sandboxForm.network_mode = sandbox?.network_mode || 'none'
     sandboxForm.memory_limit = sandbox?.memory_limit || '256m'
@@ -347,7 +347,7 @@ const fetchStatus = async () => {
     sandboxForm.remote_api_key = ''
     sandboxForm.clear_remote_api_key = false
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取系统状态失败')
+    message.error(extractErrorMsg(error, '获取系统状态失败'))
   } finally {
     loading.value = false
   }
@@ -366,15 +366,23 @@ const buildLlmPayload = () => ({
   clear_api_key: llmForm.clear_api_key,
 })
 
-const saveLlmConfig = async (successText = 'LLM 配置已保存') => {
+const extractErrorMsg = (error, fallback) => {
+  const detail = error.response?.data?.detail
+  if (!detail) return fallback
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) return detail.map(e => e.msg).join('; ')
+  return fallback
+}
+
+const saveLlmConfig = async (successText) => {
   savingLlm.value = true
   try {
     const result = await updateLlmConfig(buildLlmPayload())
     llmConfig.value = result || {}
-    message.success(successText)
+    message.success(typeof successText === 'string' ? successText : '修改成功')
     await fetchStatus()
   } catch (error) {
-    message.error(error.response?.data?.detail || '保存 LLM 配置失败')
+    message.error(extractErrorMsg(error, '保存 LLM 配置失败'))
   } finally {
     savingLlm.value = false
   }
@@ -406,7 +414,7 @@ const saveSandboxConfig = async () => {
     message.success('Sandbox 配置已保存')
     await fetchStatus()
   } catch (error) {
-    message.error(error.response?.data?.detail || '保存 Sandbox 配置失败')
+    message.error(extractErrorMsg(error, '保存 Sandbox 配置失败'))
   } finally {
     savingSandbox.value = false
   }

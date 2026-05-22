@@ -1,7 +1,7 @@
 [project]
-name = "skill-manager-admin-backend"
+name = "agent-manager-admin-backend"
 version = "0.1.0"
-description = "Admin starter backend for Skill Manager"
+description = "Admin starter backend for Agent Manager"
 requires-python = ">=3.10"
 dependencies = [
     "cisco-ai-skill-scanner",

@@ -1,14 +1,14 @@
-"""Integration tests for the SkillManager high-level API."""
+"""Integration tests for the AgentManager high-level API."""
 
 import textwrap
 from pathlib import Path
 
 import pytest
 
-from skill_manager.core.manager import SkillManager
-from skill_manager.core.models import RiskLevel, SkillOrigin, SkillStatus, SourceInfo
-from skill_manager.core.policy import CompanyPolicy
-from skill_manager.core.registry import Registry
+from agent_manager.core.manager import AgentManager
+from agent_manager.core.models import RiskLevel, SkillOrigin, SkillStatus, SourceInfo
+from agent_manager.core.policy import CompanyPolicy
+from agent_manager.core.registry import Registry
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def skill_dir(tmp_path):
 def mgr(tmp_path):
     policy = CompanyPolicy({"auto_approve_max_risk": "MEDIUM"})
     registry = Registry(data_dir=tmp_path / "registry")
-    return SkillManager(policy=policy, registry=registry)
+    return AgentManager(policy=policy, registry=registry)
 
 
 class TestSubmit:
@@ -69,7 +69,7 @@ class TestApproveReject:
     def test_approve_vetted_skill(self, tmp_path, skill_dir):
         policy = CompanyPolicy({"auto_approve_max_risk": "LOW", "require_human_review": ["MEDIUM", "HIGH", "EXTREME"]})
         registry = Registry(data_dir=tmp_path / "reg")
-        mgr = SkillManager(policy=policy, registry=registry)
+        mgr = AgentManager(policy=policy, registry=registry)
 
         # Force VETTED by making scanner return MEDIUM (we mock via low threshold)
         # In practice, without scanner, LOW → APPROVED; we test the approve path via direct status manipulation
@@ -79,7 +79,7 @@ class TestApproveReject:
             entry.status = SkillStatus.VETTED
             registry.update(entry)
             registry.enqueue_review(
-                __import__("skill_manager.core.models", fromlist=["ReviewRequest"]).ReviewRequest(
+                __import__("agent_manager.core.models", fromlist=["ReviewRequest"]).ReviewRequest(
                     skill_id=entry.skill_id,
                     skill_name=entry.name,
                     risk_level=RiskLevel.MEDIUM,
@@ -103,7 +103,7 @@ class TestApproveReject:
     def test_reject_skill(self, tmp_path, skill_dir):
         policy = CompanyPolicy({"auto_approve_max_risk": "LOW"})
         registry = Registry(data_dir=tmp_path / "reg2")
-        mgr = SkillManager(policy=policy, registry=registry)
+        mgr = AgentManager(policy=policy, registry=registry)
         entry = mgr.submit(skill_dir)
         # Force to VETTED
         entry.status = SkillStatus.VETTED

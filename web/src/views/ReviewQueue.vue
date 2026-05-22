@@ -1,10 +1,10 @@
 <template>
   <div>
-    <a-page-header title="审核队列" sub-title="处理待审核 Skill" />
+    <a-page-header title="审核队列" sub-title="处理待审核技能" />
 
     <a-card style="margin-top: 16px">
       <a-space style="margin-bottom: 16px" wrap>
-        <a-input v-model:value="keyword" placeholder="搜索 Skill 名称 / ID / 备注" style="width: 280px" allow-clear />
+        <a-input v-model:value="keyword" placeholder="搜索技能 名称 / ID / 备注" style="width: 280px" allow-clear />
         <a-select v-model:value="risk" style="width: 160px">
           <a-select-option value="all">全部风险</a-select-option>
           <a-select-option value="LOW">LOW</a-select-option>
@@ -17,7 +17,7 @@
         <a-button @click="fetchQueue" :loading="loading">刷新</a-button>
       </a-space>
 
-      <div class="table-meta">当前共有 {{ total }} 条待审核 Skill</div>
+      <div class="table-meta">当前共有 {{ total }} 条待审核技能</div>
 
       <a-table
         :data-source="rows"
@@ -25,7 +25,7 @@
         rowKey="skill_id"
         :loading="loading"
         :pagination="pagination"
-        :locale="{ emptyText: '当前没有待审核 Skill' }"
+        :locale="{ emptyText: '当前没有待审核技能' }"
         @change="handleTableChange"
       >
         <template #bodyCell="{ column, record }">
@@ -47,7 +47,7 @@
 
     <a-modal
       v-model:open="approveModalOpen"
-      title="批准 Skill"
+      title="批准技能"
       ok-text="确认批准"
       cancel-text="取消"
       :confirm-loading="actionLoading"
@@ -68,7 +68,7 @@
 
     <a-modal
       v-model:open="rejectModalOpen"
-      title="拒绝 Skill"
+      title="拒绝技能"
       ok-text="确认拒绝"
       cancel-text="取消"
       :confirm-loading="actionLoading"

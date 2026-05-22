@@ -1,12 +1,12 @@
 # Agent Integration Guide
 
-How to connect a new agent with skills to the skill manager, and how the company enforces that only approved skills can run.
+How to connect a new agent with skills to the agent manager, and how the company enforces that only approved skills can run.
 
 ---
 
 ## Where Do Skills Actually Live?
 
-**Skills are always local files.** Claude Code loads a skill by reading its `SKILL.md` from the filesystem and injecting the content as agent instructions. Skill Manager never stores or serves the skill content — it only keeps a registry of approved names, signatures, and metadata.
+**Skills are always local files.** Claude Code loads a skill by reading its `SKILL.md` from the filesystem and injecting the content as agent instructions. Agent Manager never stores or serves the skill content — it only keeps a registry of approved names, signatures, and metadata.
 
 `can_load()` does not fetch anything remotely. It answers one question: *"Is this skill on the approved list, and (optionally) have its local files been tampered with?"*
 
@@ -61,7 +61,7 @@ How to connect a new agent with skills to the skill manager, and how the company
 
 ## Overview
 
-Two roles interact with skill manager differently:
+Two roles interact with agent manager differently:
 
 | Role | Concern | Primary interaction |
 |---|---|---|
@@ -103,16 +103,16 @@ files by pattern, and Grep to search file contents.
 
 ```bash
 # Basic submission (static scan only)
-skill-manager submit ./file-reader --author my-team --origin internal
+agent-manager submit ./file-reader --author my-team --origin internal
 
 # With deeper analysis (recommended for production skills)
-skill-manager submit ./file-reader --behavioral --llm --author my-team
+agent-manager submit ./file-reader --behavioral --llm --author my-team
 ```
 
 **What happens:**
 
 ```
-skill-manager submit ./file-reader
+agent-manager submit ./file-reader
         │
         ▼
   Parse SKILL.md      → extract name, description, allowed-tools, license
@@ -141,7 +141,7 @@ Sample output for a clean skill:
   Findings:      0
   Allowed tools: Read, Glob, Grep
 
-Auto-approved. Run skill-manager deploy to activate.
+Auto-approved. Run agent-manager deploy to activate.
 ```
 
 Sample output for a HIGH-risk skill:
@@ -152,7 +152,7 @@ Sample output for a HIGH-risk skill:
   Findings:      3  (H:1 M:2)
   Policy notes:  [WARN] tool_not_in_allowlist: Tool 'Bash' is not in the company allowlist
 
-Queued for human review. Run skill-manager review list.
+Queued for human review. Run agent-manager review list.
 ```
 
 ### Step 3 — Wait for approval (HIGH risk)
@@ -161,7 +161,7 @@ If your skill is VETTED, a security reviewer needs to approve it:
 
 ```bash
 # Reviewer sees the queue
-skill-manager review list
+agent-manager review list
 
 # ┌──────────┬─────────────┬──────┬─────────────┬──────────────────┐
 # │ ID       │ Skill Name  │ Risk │ Findings    │ Queued At        │
@@ -170,22 +170,22 @@ skill-manager review list
 # └──────────┴─────────────┴──────┴─────────────┴──────────────────┘
 
 # Reviewer approves after manual review of the scan report
-skill-manager review approve 3f2a1b4c --approver alice --note "Checked Bash usage, only reads stdout"
+agent-manager review approve 3f2a1b4c --approver alice --note "Checked Bash usage, only reads stdout"
 
 # Or rejects
-skill-manager review reject 3f2a1b4c --reviewer alice --reason "Undeclared curl call on line 42"
+agent-manager review reject 3f2a1b4c --reviewer alice --reason "Undeclared curl call on line 42"
 ```
 
 You can see the full scan report to understand what was found:
 
 ```bash
-skill-manager registry show file-reader --json | jq '.vetting.scan_report'
+agent-manager registry show file-reader --json | jq '.vetting.scan_report'
 ```
 
 ### Step 4 — Deploy
 
 ```bash
-skill-manager deploy file-reader
+agent-manager deploy file-reader
 # Deployed skill 'file-reader'
 ```
 
@@ -198,9 +198,9 @@ The skill is now in the registry and signed. Your agent can load it — the runt
 **Python (SDK usage):**
 
 ```python
-from skill_manager import SkillManager
+from agent_manager import AgentManager
 
-mgr = SkillManager()
+mgr = AgentManager()
 
 # Check at agent startup
 allowed, entry, reason = mgr.runtime.can_load(
@@ -220,11 +220,11 @@ if not mgr.runtime.check_tool("file-reader", "Read", agent_id="my-agent-v1"):
 
 ```bash
 # Load check
-curl "http://skill-manager:8080/api/v1/runtime/can-load/file-reader?agent_id=my-agent-v1"
+curl "http://agent-manager:8080/api/v1/runtime/can-load/file-reader?agent_id=my-agent-v1"
 # {"allowed": true, "reason": "allowed", "status": "DEPLOYED", "risk_level": "LOW"}
 
 # Tool permission check
-curl "http://skill-manager:8080/api/v1/runtime/check-tool?skill_name=file-reader&tool_name=Read"
+curl "http://agent-manager:8080/api/v1/runtime/check-tool?skill_name=file-reader&tool_name=Read"
 # {"allowed": true, "skill_name": "file-reader", "tool_name": "Read"}
 ```
 
@@ -255,14 +255,14 @@ sudo chown ci-deploy:ci-deploy /usr/local/share/company-skills
 sudo chmod 755 /usr/local/share/company-skills
 
 # Tell all agents to use this directory
-export SKILL_MANAGER_SKILLS_DIR=/usr/local/share/company-skills
+export AGENT_MANAGER_SKILLS_DIR=/usr/local/share/company-skills
 ```
 
 **CI/CD deployment step** (runs after each skill is approved):
 
 ```bash
 # Deploy all approved/deployed skills from registry to the controlled directory
-python -m skill_manager.hooks.deploy \
+python -m agent_manager.hooks.deploy \
   --dest /usr/local/share/company-skills \
   --clean        # remove skills that were retired
 ```
@@ -287,13 +287,13 @@ Hooks enforce the registry at two points in every agent session:
 
 ```bash
 # Project scope (.claude/settings.json) — shared with team via git
-python -m skill_manager.hooks.install
+python -m agent_manager.hooks.install
 
 # Global scope (~/.claude/settings.json) — applies to all your projects
-python -m skill_manager.hooks.install --global
+python -m agent_manager.hooks.install --global
 
 # Strict mode — also blocks the entire session if any unregistered skill is present
-python -m skill_manager.hooks.install --strict --global
+python -m agent_manager.hooks.install --strict --global
 ```
 
 This writes the following into `settings.json`:
@@ -307,7 +307,7 @@ This writes the following into `settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m skill_manager.hooks.agent_hook",
+            "command": "python3 -m agent_manager.hooks.agent_hook",
             "timeout": 10
           }
         ]
@@ -319,7 +319,7 @@ This writes the following into `settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m skill_manager.hooks.agent_hook",
+            "command": "python3 -m agent_manager.hooks.agent_hook",
             "timeout": 10
           }
         ]
@@ -344,21 +344,21 @@ Agent session starts
         │      → registry.get_by_name("file-reader")
         │      → verify HMAC-SHA256 signature
         │      → not registered or tampered? → exit 2 (block)
-        │      → registered? → write SKILL_MANAGER_ACTIVE_SKILLS=file-reader to $CLAUDE_ENV_FILE
+        │      → registered? → write AGENT_MANAGER_ACTIVE_SKILLS=file-reader to $CLAUDE_ENV_FILE
         │
         └─ Claude invokes Read tool
                [PreToolUse hook]
-               → read SKILL_MANAGER_ACTIVE_SKILLS → ["file-reader"]
+               → read AGENT_MANAGER_ACTIVE_SKILLS → ["file-reader"]
                → registry entry for file-reader: allowed_tools = ["Read", "Glob", "Grep"]
                → "Read" in allowed_tools → exit 0 (allow)
 
                Claude invokes Bash tool
                [PreToolUse hook]
                → "Bash" not in ["Read", "Glob", "Grep"]
-               → exit 2: "[skill-manager] Tool 'Bash' is not permitted by active skill(s): 'file-reader'"
+               → exit 2: "[agent-manager] Tool 'Bash' is not permitted by active skill(s): 'file-reader'"
 ```
 
-**When a tool is blocked,** Claude sees the message and understands it cannot use that tool. It will tell the user: *"The skill-manager policy doesn't permit me to use Bash for this skill."*
+**When a tool is blocked,** Claude sees the message and understands it cannot use that tool. It will tell the user: *"The agent-manager policy doesn't permit me to use Bash for this skill."*
 
 ---
 
@@ -382,16 +382,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install skill-manager
-        run: pip install -e ./skill-manager
+      - name: Install agent-manager
+        run: pip install -e ./agent-manager
 
       - name: Vet changed skills
         env:
-          SKILL_MANAGER_SIGNING_KEY: ${{ secrets.SKILL_MANAGER_SIGNING_KEY }}
+          AGENT_MANAGER_SIGNING_KEY: ${{ secrets.AGENT_MANAGER_SIGNING_KEY }}
         run: |
           for skill_dir in $(git diff --name-only HEAD~1 | grep 'skills/' | xargs -I{} dirname {} | sort -u); do
             echo "Vetting $skill_dir..."
-            skill-manager submit "$skill_dir" --policy company-policy.yaml --json > result.json
+            agent-manager submit "$skill_dir" --policy company-policy.yaml --json > result.json
 
             STATUS=$(jq -r '.status' result.json)
             RISK=$(jq -r '.risk_level' result.json)
@@ -408,9 +408,9 @@ jobs:
       - name: Deploy approved skills (on main branch only)
         if: github.ref == 'refs/heads/main'
         env:
-          SKILL_MANAGER_SIGNING_KEY: ${{ secrets.SKILL_MANAGER_SIGNING_KEY }}
+          AGENT_MANAGER_SIGNING_KEY: ${{ secrets.AGENT_MANAGER_SIGNING_KEY }}
         run: |
-          python -m skill_manager.hooks.deploy \
+          python -m agent_manager.hooks.deploy \
             --dest /mnt/company-skills \
             --clean
 ```
@@ -477,7 +477,7 @@ Developer pushes new skill
         │
         ▼
 [CI/CD Gate]
-  skill-manager submit → REJECTED (Bash in blocked_permissions)?
+  agent-manager submit → REJECTED (Bash in blocked_permissions)?
         │                → stop here, PR fails
         │
         ▼ (VETTED or APPROVED)
@@ -486,7 +486,7 @@ Developer pushes new skill
         │
         ▼ (APPROVED)
 [CI/CD Deploy]
-  python -m skill_manager.hooks.deploy --dest /company-skills --clean
+  python -m agent_manager.hooks.deploy --dest /company-skills --clean
         │
         ▼
 [Runtime Hooks]
@@ -508,10 +508,10 @@ If a deployed skill is found to have a vulnerability:
 
 ```bash
 # Immediate revocation — takes effect on the next tool call in any agent
-skill-manager retire file-reader --reason "CVE-2026-4242: exfil via Grep pattern" --actor security-team
+agent-manager retire file-reader --reason "CVE-2026-4242: exfil via Grep pattern" --actor security-team
 
 # Deploy updated manifest to company skills dir (removes the skill files)
-python -m skill_manager.hooks.deploy --dest /company-skills --clean
+python -m agent_manager.hooks.deploy --dest /company-skills --clean
 ```
 
 **What each agent experiences:**
@@ -539,14 +539,14 @@ Use WebSearch to find relevant pages, WebFetch to read them.
 EOF
 
 # 2. Submit
-skill-manager submit ./web-searcher --author my-team
+agent-manager submit ./web-searcher --author my-team
 
 # 3. (If auto-approved) Deploy
-skill-manager deploy web-searcher
+agent-manager deploy web-searcher
 
 # 4. Verify the agent can now use both skills
-skill-manager runtime check file-reader
-skill-manager runtime check web-searcher
+agent-manager runtime check file-reader
+agent-manager runtime check web-searcher
 ```
 
 No agent code changes required — the hooks pick up the new skill automatically on next load.
@@ -557,14 +557,14 @@ No agent code changes required — the hooks pick up the new skill automatically
 
 **"Skill is not in the registry"**
 ```bash
-skill-manager submit ./my-skill
+agent-manager submit ./my-skill
 ```
 
 **"Skill has status VETTED and cannot be loaded"**
 Someone needs to approve it first:
 ```bash
-skill-manager review list
-skill-manager review approve <id> --approver <name>
+agent-manager review list
+agent-manager review approve <id> --approver <name>
 ```
 
 **"Tool 'X' is not permitted by active skill(s)"**
@@ -575,14 +575,14 @@ The skill didn't declare that tool in its `allowed-tools`. Options:
 **"Skill FAILED signature verification"**
 The skill files changed on disk after approval. Re-submit:
 ```bash
-skill-manager submit ./my-skill  # creates a new registry entry
-skill-manager deploy my-skill
+agent-manager submit ./my-skill  # creates a new registry entry
+agent-manager deploy my-skill
 ```
 
-**"SKILL_MANAGER_SIGNING_KEY not set — using unsigned SHA256"**
+**"AGENT_MANAGER_SIGNING_KEY not set — using unsigned SHA256"**
 Set the key in your environment. Without it, signatures are not authenticated:
 ```bash
-export SKILL_MANAGER_SIGNING_KEY="$(openssl rand -hex 32)"
+export AGENT_MANAGER_SIGNING_KEY="$(openssl rand -hex 32)"
 # Save this key somewhere permanent (Vault, AWS Secrets Manager, etc.)
 ```
 
@@ -593,6 +593,6 @@ cat .claude/settings.json | python3 -m json.tool
 
 # Test the hook directly
 echo '{"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": "."}' \
-  | python3 -m skill_manager.hooks.agent_hook
+  | python3 -m agent_manager.hooks.agent_hook
 echo "exit: $?"
 ```

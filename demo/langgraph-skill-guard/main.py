@@ -14,7 +14,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
 
-class SkillManagerRuntimeClient:
+class AgentManagerRuntimeClient:
     def __init__(self, base_url: str, timeout: float = 20.0):
         self.base_url = base_url.rstrip("/")
         self.http = httpx.Client(base_url=self.base_url, timeout=timeout)
@@ -85,7 +85,7 @@ class LoadedSkill:
         self,
         skill_name: str,
         skill_path: Path,
-        runtime_client: SkillManagerRuntimeClient,
+        runtime_client: AgentManagerRuntimeClient,
         agent_id: str,
     ):
         self.skill_name = skill_name
@@ -96,7 +96,7 @@ class LoadedSkill:
     def _assert_tool_allowed(self, tool_name: str) -> None:
         result = self.runtime_client.check_tool(self.skill_name, tool_name, self.agent_id)
         if not result.get("allowed"):
-            raise PermissionError(f"Skill Manager blocked tool {tool_name!r} for skill {self.skill_name!r}")
+            raise PermissionError(f"Agent Manager blocked tool {tool_name!r} for skill {self.skill_name!r}")
 
     def _safe_path(self, relative_path: str) -> Path:
         target = (self.skill_path / relative_path).resolve()
@@ -140,10 +140,10 @@ def verify_and_load_skill(
     agent_id: str,
     skill_id: str | None = None,
 ) -> tuple[LoadedSkill, dict, dict]:
-    runtime_client = SkillManagerRuntimeClient(base_url=base_url)
+    runtime_client = AgentManagerRuntimeClient(base_url=base_url)
     local_signature = compute_local_signature(
         skill_path,
-        signing_key=os.getenv("SKILL_MANAGER_SIGNING_KEY"),
+        signing_key=os.getenv("AGENT_MANAGER_SIGNING_KEY"),
     )
     verify_result = runtime_client.verify_skill_signature(
         skill_name=skill_name,
@@ -221,7 +221,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--skill-id", default=None)
     parser.add_argument("--agent-id", default=os.getenv("AGENT_ID", "langgraph-skill-guard-demo"))
-    parser.add_argument("--base-url", default=os.getenv("SKILL_MANAGER_BASE_URL", "http://127.0.0.1:8080"))
+    parser.add_argument("--base-url", default=os.getenv("AGENT_MANAGER_BASE_URL", "http://127.0.0.1:8080"))
     parser.add_argument(
         "--question",
         default="请总结这个 skill 的用途，并为“新增运行时本地签名校验接口”生成一个 conventional commit message。",
@@ -241,7 +241,7 @@ def main() -> None:
     tools = build_tools(loaded_skill)
     agent = build_agent(tools)
     guarded_context = (
-        f"Skill {args.skill_name} 已通过 Skill Manager 验证。\n"
+        f"Skill {args.skill_name} 已通过 Agent Manager 验证。\n"
         f"signature_check={verify_result.get('allowed')} reason={verify_result.get('reason')}\n"
         f"can_load={load_result.get('allowed')} status={load_result.get('status')} risk={load_result.get('risk_level')}\n"
     )

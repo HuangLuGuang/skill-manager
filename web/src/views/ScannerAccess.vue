@@ -114,7 +114,7 @@ BUILD_WINDOWS_CLI=1 BUILD_WINDOWS_GUI=1 ./scripts/package.sh v0.1.0-windows</pre
     <a-card title="扫描结果在哪里看" style="margin-top: 16px">
       <a-steps :current="3" direction="vertical">
         <a-step title="客户本地 JSON 报告" description="scanner 执行结束后会在 --output 指定路径写入 JSON 报告，里面包含发现的 skill、fingerprint、本地轻量预检发现项、上传状态和服务端 skill_id。" />
-        <a-step title="技能列表" description="上传成功后，管理台「技能列表」会出现对应记录，初始状态通常是 PENDING，后台完成扫描后会变成 APPROVED、VETTED 或 REJECTED。" />
+        <a-step title="技能注册表" description="上传成功后，管理台「技能注册表」会出现对应记录，初始状态通常是 PENDING，后台完成扫描后会变成 APPROVED、VETTED 或 REJECTED。" />
         <a-step title="技能详情" description="点击技能详情可以查看 SKILL.md、文件列表、原始报告、规则分析、Sandbox 结果和 LLM 分析结果。" />
         <a-step title="审计日志" description="Token 创建、吊销、使用，以及 scanner 提交记录会写入审计，后续可以在审计日志或 scanner_audit.jsonl 中追踪。" />
       </a-steps>
@@ -268,8 +268,8 @@ const parameterColumns = [
 
 const parameterRows = [
   { name: 'scan <path>', required: '是', usage: '客户本地 skills 根目录。scanner 会递归查找包含 SKILL.md 的目录。', example: './skill-scanner scan /opt/openclaw/skills' },
-  { name: '--server', required: '上传时必填', usage: 'Skill Manager 管理台地址。设置后会启用上传。', example: '--server https://skill-manager.example.com' },
-  { name: '--token', required: '上传时必填', usage: '本页创建的接入 Token，需要包含 scanner:submit。也可以用 SKILL_MANAGER_TOKEN 环境变量。', example: '--token smsc_live_xxx' },
+  { name: '--server', required: '上传时必填', usage: 'Agent Manager 管理台地址。设置后会启用上传。', example: '--server https://agent-manager.example.com' },
+  { name: '--token', required: '上传时必填', usage: '本页创建的接入 Token，需要包含 scanner:submit。也可以用 AGENT_MANAGER_TOKEN 环境变量。', example: '--token smsc_live_xxx' },
   { name: '--output', required: '否', usage: '本地 JSON 报告输出路径。报告里有 skill_id、fingerprint、本地预检结果和上传状态。', example: '--output report.json' },
   { name: '--host-id', required: '否', usage: '客户主机或环境标识，便于后台区分来源。也可以用 SKILL_SCANNER_HOST_ID。', example: '--host-id customer-a-prod-01' },
   { name: '--behavioral', required: '否', usage: '请求服务端启用规则分析，扫描 scripts、references 等文件中的可疑行为。', example: '--behavioral' },
@@ -303,7 +303,7 @@ const fullCommand = computed(() => `./skill-scanner scan /path/to/customer/skill
   --llm \\
   --output report.json`)
 
-const envCommand = computed(() => `export SKILL_MANAGER_TOKEN="smsc_live_xxx"
+const envCommand = computed(() => `export AGENT_MANAGER_TOKEN="smsc_live_xxx"
 export SKILL_SCANNER_HOST_ID="customer-prod-01"
 ./skill-scanner scan /path/to/customer/skills \\
   --server ${serverOrigin.value} \\
@@ -326,9 +326,9 @@ const createdCommand = computed(() => `./skill-scanner scan /path/to/customer/sk
   --output report.json`)
 
 const createdRuntimeCommand = computed(() => `# 本地开发时这里要填后端 API 地址，不要填前端 Vite 端口 5173/5174。
-export SKILL_MANAGER_BASE_URL="${runtimeApiOrigin.value}"
-export SKILL_MANAGER_API_TOKEN="${createdToken.value || 'smsc_live_xxx'}"
-export SKILL_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
+export AGENT_MANAGER_BASE_URL="${runtimeApiOrigin.value}"
+export AGENT_MANAGER_API_TOKEN="${createdToken.value || 'smsc_live_xxx'}"
+export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 
 uv run python git_workflow_demo.py --all`)
 

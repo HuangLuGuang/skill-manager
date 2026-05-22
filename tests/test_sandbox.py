@@ -1,5 +1,5 @@
 from pathlib import Path
-from skill_manager.core.sandbox import (
+from agent_manager.core.sandbox import (
     RemoteSandboxRunner,
     SandboxConfig,
     SandboxRunner,
@@ -29,7 +29,7 @@ def test_sandbox_runner_reports_unavailable_without_docker(tmp_path, monkeypatch
     (skill_dir / "SKILL.md").write_text("---\nname: demo\ndescription: d\n---\n", encoding="utf-8")
     (scripts_dir / "run.py").write_text("print('ok')\n", encoding="utf-8")
 
-    monkeypatch.setattr("skill_manager.core.sandbox.shutil.which", lambda _: None)
+    monkeypatch.setattr("agent_manager.core.sandbox.shutil.which", lambda _: None)
 
     runner = SandboxRunner(SandboxConfig(runtime="docker"))
     result = runner.run_probe(skill_dir, "scripts/run.py")
@@ -124,7 +124,7 @@ def test_remote_runner_parses_enveloped_response(tmp_path, monkeypatch):
                 },
             }
 
-    monkeypatch.setattr("skill_manager.core.sandbox.httpx.post", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("agent_manager.core.sandbox.httpx.post", lambda *args, **kwargs: FakeResponse())
 
     runner = RemoteSandboxRunner(SandboxConfig(runtime="remote", remote_url="http://sandbox.local"))
     result = runner.run_probe(skill_dir, "scripts/run.py")
@@ -158,7 +158,7 @@ def test_remote_runner_parses_flat_response(tmp_path, monkeypatch):
                 "message": "timeout",
             }
 
-    monkeypatch.setattr("skill_manager.core.sandbox.httpx.post", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("agent_manager.core.sandbox.httpx.post", lambda *args, **kwargs: FakeResponse())
 
     runner = RemoteSandboxRunner(SandboxConfig(runtime="remote", remote_url="http://sandbox.local"))
     result = runner.run_probe(skill_dir, "scripts/run.py")
@@ -192,7 +192,7 @@ def test_remote_runner_extracts_dependency_and_network_signals(tmp_path, monkeyp
                 "message": "failed",
             }
 
-    monkeypatch.setattr("skill_manager.core.sandbox.httpx.post", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("agent_manager.core.sandbox.httpx.post", lambda *args, **kwargs: FakeResponse())
 
     runner = RemoteSandboxRunner(SandboxConfig(runtime="remote", remote_url="http://sandbox.local"))
     result = runner.run_probe(skill_dir, "scripts/run.py")

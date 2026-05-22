@@ -7,7 +7,7 @@ allowed-tools:
   - Bash
 metadata:
   version: "1.0.0"
-  author: skill-manager-demo
+  author: agent-manager-demo
   tags: ["openclaw", "discovery", "network-scan", "security"]
 ---
 # OpenClaw Network Discovery Skill

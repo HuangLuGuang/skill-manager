@@ -7,8 +7,8 @@
 更安全的接法是：
 
 1. Agent 在本地对 skill 目录计算签名
-2. 把本地签名发送给 Skill Manager
-3. Skill Manager 用 registry 中存储的签名做比对
+2. 把本地签名发送给 Agent Manager
+3. Agent Manager 用 registry 中存储的签名做比对
 4. 一致才允许加载
 
 当前接口：
@@ -40,9 +40,9 @@ token 鉴权的 `can-load` 不接受 `skill_path`，避免外部 token 探测服
 
 ## Signature Algorithm
 
-Agent 侧必须和 Skill Manager 使用同样的签名算法。
+Agent 侧必须和 Agent Manager 使用同样的签名算法。
 
-当前算法定义在 [signer.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/signer.py)：
+当前算法定义在 [signer.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/signer.py)：
 
 1. 递归遍历 skill 根目录下所有文件
 2. 按相对路径排序
@@ -54,7 +54,7 @@ relative/path/to/file:FILE_SHA256
 ```
 
 5. 把所有行按顺序拼接，并在每行末尾追加 `\n`
-6. 如果配置了 `SKILL_MANAGER_SIGNING_KEY`
+6. 如果配置了 `AGENT_MANAGER_SIGNING_KEY`
    使用 `HMAC-SHA256`
 7. 如果没有配置 signing key
    使用普通 `SHA256`
@@ -98,7 +98,7 @@ def compute_skill_signature(skill_path: str | Path, signing_key: str | None = No
 
 if __name__ == "__main__":
     skill_dir = "/path/to/skill"
-    key = os.environ.get("SKILL_MANAGER_SIGNING_KEY")
+    key = os.environ.get("AGENT_MANAGER_SIGNING_KEY")
     print(compute_skill_signature(skill_dir, signing_key=key))
 ```
 
@@ -150,7 +150,7 @@ curl -X POST "http://localhost:8000/api/v1/access/runtime/verify-skill-signature
 sequenceDiagram
     participant AG as "External Agent"
     participant FS as "Local Skill Directory"
-    participant SM as "Skill Manager"
+    participant SM as "Agent Manager"
 
     AG->>FS: 读取本地 skill 文件树
     AG->>AG: 计算 local_signature

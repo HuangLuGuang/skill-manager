@@ -2,29 +2,29 @@
 
 这个示例演示的是：
 
-1. 如何在 Claude Code 中配置 Skill Manager hooks
+1. 如何在 Claude Code 中配置 Agent Manager hooks
 2. SessionStart: 会话启动时扫描并验证所有可见 skill
 3. ConfigChange: 加载 skill 时验证注册状态和签名
 4. PreToolUse: 工具调用时强制执行 allowed_tools 权限控制
 
-这个 demo 适合指导别人把 Claude Code 接入当前 Skill Manager 系统。
+这个 demo 适合指导别人把 Claude Code 接入当前 Agent Manager 系统。
 
 ## Demo Scope
 
-这个样例展示如何通过 Claude Code 的 hook 机制，把 Skill Manager 的安全控制无缝集成到 Claude Code 的整个生命周期中。
+这个样例展示如何通过 Claude Code 的 hook 机制，把 Agent Manager 的安全控制无缝集成到 Claude Code 的整个生命周期中。
 
 ## Files
 
-- [README.md](/Users/nancy_yu/riversecurity/skill-manager/demo/claude-code-hook/README.md)
+- [README.md](/Users/nancy_yu/riversecurity/agent-manager/demo/claude-code-hook/README.md)
   本文档
-- [settings.json.example](/Users/nancy_yu/riversecurity/skill-manager/demo/claude-code-hook/settings.json.example)
+- [settings.json.example](/Users/nancy_yu/riversecurity/agent-manager/demo/claude-code-hook/settings.json.example)
   Claude Code 配置文件示例
-- [skills/code-review/](/Users/nancy_yu/riversecurity/skill-manager/demo/claude-code-hook/skills/code-review/)
+- [skills/code-review/](/Users/nancy_yu/riversecurity/agent-manager/demo/claude-code-hook/skills/code-review/)
   示例 skill
 
 ## Hook 事件说明
 
-Skill Manager hook 处理三个 Claude Code 事件：
+Agent Manager hook 处理三个 Claude Code 事件：
 
 | 事件 | 作用 | 是否会阻止 |
 |------|------|-----------|
@@ -38,16 +38,16 @@ Skill Manager hook 处理三个 Claude Code 事件：
 
 ### 1. 准备工作
 
-确保你已经在项目根目录下，并且 Skill Manager 已经安装：
+确保你已经在项目根目录下，并且 Agent Manager 已经安装：
 
 ```bash
-cd skill-manager
+cd agent-manager
 uv sync
 ```
 
 ### 2. 日志文件
-`SKILL_MANAGER_DATA_DIR/audit.jsonl`，通过 .env 配置。
-默认日志文件位置： ``Path.home() / ".skill-manager/audit.jsonl"`
+`AGENT_MANAGER_DATA_DIR/audit.jsonl`，通过 .env 配置。
+默认日志文件位置： ``Path.home() / ".agent-manager/audit.jsonl"`
 
 ### 3 设置签名密钥
 
@@ -55,14 +55,14 @@ uv sync
 
 ```bash
 # 在项目根目录的 .env 文件中添加
-SKILL_MANAGER_SIGNING_KEY="your-secret-key-here-change-this-in-production"
+AGENT_MANAGER_SIGNING_KEY="your-secret-key-here-change-this-in-production"
 ```
 ### 4. 准备示例 skill
 
 将 demo 目录下的 code-review skill 复制到 `.claude/skills/` 目录：
 
 ```bash
-cd skill-manager
+cd agent-manager
 
 # 创建 .claude/skills 目录（如果不存在）
 mkdir -p .claude/skills
@@ -99,13 +99,13 @@ cp demo/claude-code-hook/settings.json.example ~/.claude/settings.json
 让我们提交 code-review skill 到 registry：
 
 ```bash
-cd skill-manager
+cd agent-manager
 
 # 提交 code-review skill
-uv run skill-manager submit .claude/skills/code-review
+uv run agent-manager submit .claude/skills/code-review
 
 # 批准 skill
-uv run skill-manager approve code-review
+uv run agent-manager approve code-review
 ```
 
 1. 确保提交并批准 code-review skill（带签名）
@@ -149,7 +149,7 @@ uv run skill-manager approve code-review
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m skill_manager.hooks.agent_hook",
+            "command": "python3 -m agent_manager.hooks.agent_hook",
             "timeout": 30
           }
         ]
@@ -161,7 +161,7 @@ uv run skill-manager approve code-review
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m skill_manager.hooks.agent_hook",
+            "command": "python3 -m agent_manager.hooks.agent_hook",
             "timeout": 10
           }
         ]
@@ -173,7 +173,7 @@ uv run skill-manager approve code-review
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m skill_manager.hooks.agent_hook",
+            "command": "python3 -m agent_manager.hooks.agent_hook",
             "timeout": 10
           }
         ]
@@ -264,6 +264,6 @@ PreToolUse 事件触发
 ## Notes
 
 - 这是一个指导性 demo，展示如何配置 Claude Code hooks
-- 日志文件路径可以通过 `SKILL_MANAGER_DATA_DIR` 环境变量配置
+- 日志文件路径可以通过 `AGENT_MANAGER_DATA_DIR` 环境变量配置
 - SessionStart 和 ConfigChange 事件不会阻止会话，所有信息都可以通过日志文件查看
 - PreToolUse 事件会在权限检查失败时阻止工具调用

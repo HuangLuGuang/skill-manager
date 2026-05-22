@@ -181,7 +181,7 @@ class NsjailExecutor:
 
     This backend assumes `nsjail` is installed on the host and that the service
     runs on Linux. It is intentionally conservative and returns stderr from the
-    jail process so Skill Manager can surface failures in `sandbox_analysis`.
+    jail process so Agent Manager can surface failures in `sandbox_analysis`.
     """
 
     def __init__(self, config: ServiceConfig):

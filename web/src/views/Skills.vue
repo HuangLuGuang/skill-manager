@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="技能列表" sub-title="查看技能注册表并进入详情页" />
+    <a-page-header title="技能注册表" sub-title="查看已注册的 AI Agent 技能并进入详情页" />
 
     <a-card style="margin-top: 16px">
       <a-space wrap style="margin-bottom: 16px">
@@ -35,7 +35,7 @@
         <a-button type="primary" @click="handleKeywordSearch" :loading="loading">查询</a-button>
         <a-button @click="resetFilters" :disabled="loading">重置</a-button>
         <a-button @click="fetchSkills" :loading="loading">刷新</a-button>
-        <a-button type="primary" @click="$router.push('/submit')">提交 Skill</a-button>
+        <a-button type="primary" @click="$router.push('/submit')">提交技能</a-button>
       </a-space>
 
       <div class="table-meta">
@@ -138,7 +138,7 @@ const fetchSkills = async () => {
       pageSize: Number(res.page_size || pagination.value.pageSize),
     }
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取技能列表失败')
+    message.error(error.response?.data?.detail || '获取技能注册表失败')
     rows.value = []
     total.value = 0
   } finally {

@@ -5,14 +5,14 @@ import zipfile
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import skill_manager.api.router as api_router
-from skill_manager.api.router import get_manager
-from skill_manager.api.scanner_router import _scanner_release_dir, admin_router, router, runtime_router
-from skill_manager.core.manager import SkillManager
-from skill_manager.core.models import SkillOrigin, SourceInfo
-from skill_manager.core.policy import CompanyPolicy
-from skill_manager.core.registry import make_event
-from skill_manager.core.signer import compute_signature
+import agent_manager.api.router as api_router
+from agent_manager.api.router import get_manager
+from agent_manager.api.scanner_router import _scanner_release_dir, admin_router, router, runtime_router
+from agent_manager.core.manager import AgentManager
+from agent_manager.core.models import SkillOrigin, SourceInfo
+from agent_manager.core.policy import CompanyPolicy
+from agent_manager.core.registry import make_event
+from agent_manager.core.signer import compute_signature
 
 
 def _skill_zip() -> bytes:
@@ -42,7 +42,7 @@ def test_scanner_release_dir_points_to_project_scanner_releases():
 
 def test_scanner_import_accepts_scanner_token(tmp_path):
     app = FastAPI()
-    manager = SkillManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
     previous_manager = api_router._manager
     api_router._manager = manager
     try:
@@ -86,7 +86,7 @@ def test_scanner_import_accepts_scanner_token(tmp_path):
 
 def test_access_runtime_routes_accept_runtime_token(tmp_path):
     app = FastAPI()
-    manager = SkillManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
     skill_dir = tmp_path / "skill"
     skill_dir.mkdir()
     (skill_dir / "SKILL.md").write_text("---\nname: runtime-skill\ndescription: Runtime test\n---\n", encoding="utf-8")
@@ -143,7 +143,7 @@ def test_access_runtime_routes_accept_runtime_token(tmp_path):
 
 def test_audit_accepts_comma_separated_event_types(tmp_path):
     app = FastAPI()
-    manager = SkillManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
     skill_dir = tmp_path / "skill"
     skill_dir.mkdir()
     (skill_dir / "SKILL.md").write_text("---\nname: audit-skill\ndescription: Audit test\n---\n", encoding="utf-8")

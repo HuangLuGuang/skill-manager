@@ -9,7 +9,7 @@ RUN pip install uv
 WORKDIR /app
 
 COPY pyproject.toml README.md company-policy.example.yaml ./
-COPY skill_manager ./skill_manager
+COPY agent_manager ./agent_manager
 COPY backend ./backend
 
 RUN uv pip install --system -e . && \
@@ -32,14 +32,14 @@ RUN uv pip install --system -e . && \
       PyYAML \
       python-frontmatter
 
-RUN mkdir -p /app/runtime/data /app/runtime/uploads /app/runtime/sqlite /app/runtime/skill_manager
+RUN mkdir -p /app/runtime/data /app/runtime/uploads /app/runtime/sqlite /app/runtime/agent_manager
 
 ENV PYTHONPATH=/app \
     DEBUG=false \
     DATA_DIR=/app/runtime/data \
     UPLOADS_DIR=/app/runtime/uploads \
     SQLITE_PATH=/app/runtime/sqlite/admin_starter.db \
-    SKILL_MANAGER_DATA_DIR=/app/runtime/skill_manager
+    AGENT_MANAGER_DATA_DIR=/app/runtime/agent_manager
 
 EXPOSE 8000
 

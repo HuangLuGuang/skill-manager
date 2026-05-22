@@ -6,19 +6,19 @@ allowed-tools:
   - Read
 metadata:
   version: "1.0.0"
-  author: skill-manager-demo
+  author: agent-manager-demo
 ---
 
 # Approved Helper Skill
 
-Use this skill when you need to explain how Skill Manager protects Agno skill loading.
+Use this skill when you need to explain how Agent Manager protects Agno skill loading.
 
 ## What To Explain
 
-1. Skill Manager scans the skill before use.
+1. Agent Manager scans the skill before use.
 2. Approved skills are signed.
 3. Agno computes the local signature before loading the skill.
-4. Runtime tool calls are checked by Skill Manager.
+4. Runtime tool calls are checked by Agent Manager.
 
 ## Demo Talking Points
 

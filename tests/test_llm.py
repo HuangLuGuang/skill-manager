@@ -1,6 +1,6 @@
 import json
 
-from skill_manager.core.llm import LLMConfig, generate_sandbox_probes_with_llm
+from agent_manager.core.llm import LLMConfig, generate_sandbox_probes_with_llm
 
 
 def test_generate_sandbox_probes_accepts_entrypoint_from_skill_md(tmp_path, monkeypatch):
@@ -51,7 +51,7 @@ python tools/check.py --target /tmp/input.txt --dry-run
         def post(self, *args, **kwargs):
             return FakeResponse()
 
-    monkeypatch.setattr("skill_manager.core.llm.httpx.Client", FakeClient)
+    monkeypatch.setattr("agent_manager.core.llm.httpx.Client", FakeClient)
 
     plan = generate_sandbox_probes_with_llm(
         skill_dir,

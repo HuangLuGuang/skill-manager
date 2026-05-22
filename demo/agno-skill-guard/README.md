@@ -3,12 +3,12 @@
 这个示例演示的是：
 
 1. Agent 在加载本地 skill 前先计算签名
-2. 调用 Skill Manager 的运行时接口验证本地签名
+2. 调用 Agent Manager 的运行时接口验证本地签名
 3. 再调用 `can-load` 做注册状态检查
 4. 用 Agno 的 `Skills(loaders=[LocalSkills(...)])` 真正加载 skill
 5. 用 Agno `tool_hooks` 拦截 skill 工具调用并走 `check-tool`
 
-这个 demo 适合指导别人把 Agno Agent 接到当前 Skill Manager 系统上。
+这个 demo 适合指导别人把 Agno Agent 接到当前 Agent Manager 系统上。
 
 ## Demo Scope
 
@@ -16,20 +16,20 @@
 
 ## Files
 
-- [main.py](/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/main.py)
+- [main.py](/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/main.py)
   Agno demo 主程序
-- [AGENTS.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/AGENTS.md)
+- [AGENTS.md](/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/AGENTS.md)
   Agno 开发约束
-- [pyproject.toml](/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/pyproject.toml)
+- [pyproject.toml](/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/pyproject.toml)
   demo 依赖
 
-## Start The Skill Manager API
+## Start The Agent Manager API
 
-推荐直接启动不带后台登录的 Skill Manager API，方便外部 Agent 直接调用：
+推荐直接启动不带后台登录的 Agent Manager API，方便外部 Agent 直接调用：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
-uv run skill-manager-api --host 0.0.0.0 --port 8080
+cd /Users/huangluguang/Desktop/Project/agent-manager
+uv run agent-manager-api --host 0.0.0.0 --port 8080
 ```
 
 如果你用的是集成后的后台服务 `backend.main:app`，当前 `/api/v1` 仍然挂在后台登录态后面，不适合外部 Agent 直接接。真正面向 Agent 的 token 鉴权后面还要补。
@@ -37,7 +37,7 @@ uv run skill-manager-api --host 0.0.0.0 --port 8080
 ## Install Demo Dependencies
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
+cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
 uv sync
 ```
 
@@ -53,14 +53,14 @@ uv sync
 deactivate 2>/dev/null || true
 ```
 
-### 2. 启动 Skill Manager API
+### 2. 启动 Agent Manager API
 
 打开一个终端窗口：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /Users/huangluguang/Desktop/Project/agent-manager
 uv sync
-uv run skill-manager-api --host 0.0.0.0 --port 8080
+uv run agent-manager-api --host 0.0.0.0 --port 8080
 ```
 
 ### 3. 配置 Agno demo 依赖和模型环境变量
@@ -68,16 +68,16 @@ uv run skill-manager-api --host 0.0.0.0 --port 8080
 打开第二个终端窗口：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
+cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
 uv sync
-export SKILL_MANAGER_BASE_URL="http://127.0.0.1:8080"
+export AGENT_MANAGER_BASE_URL="http://127.0.0.1:8080"
 export DEEPSEEK_API_KEY="your-deepseek-key"
 ```
 
-如果 Skill Manager 服务端设置了 `SKILL_MANAGER_SIGNING_KEY`，这里也要设置同一个值：
+如果 Agent Manager 服务端设置了 `AGENT_MANAGER_SIGNING_KEY`，这里也要设置同一个值：
 
 ```bash
-export SKILL_MANAGER_SIGNING_KEY="same-key-used-by-skill-manager"
+export AGENT_MANAGER_SIGNING_KEY="same-key-used-by-agent-manager"
 ```
 
 ### 4. 提交一个真实 skill
@@ -85,8 +85,8 @@ export SKILL_MANAGER_SIGNING_KEY="same-key-used-by-skill-manager"
 这里用 Agno cookbook 里的 `git-workflow` 做正常样例：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
-uv run skill-manager submit /Users/huangluguang/Desktop/github/agno/cookbook/02_agents/16_skills/sample_skills/git-workflow
+cd /Users/huangluguang/Desktop/Project/agent-manager
+uv run agent-manager submit /Users/huangluguang/Desktop/github/agno/cookbook/02_agents/16_skills/sample_skills/git-workflow
 ```
 
 如果你想让脚本执行也通过，确认这个 skill 在 `allowed-tools` 里声明了 `Read` 和 `Bash`。
@@ -94,14 +94,14 @@ uv run skill-manager submit /Users/huangluguang/Desktop/github/agno/cookbook/02_
 ### 5. 运行正常样例
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
+cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
 uv run python git_workflow_demo.py
 ```
 
 预期结果：
 
 - demo 会先本地计算 skill 签名
-- 再请求 Skill Manager 做验签和 `can-load`
+- 再请求 Agent Manager 做验签和 `can-load`
 - 通过后才创建 Agno `Skills(loaders=[LocalSkills(...)])`
 - 然后 agent 读取 skill 内容并输出结构化结果
 
@@ -110,16 +110,16 @@ uv run python git_workflow_demo.py
 先把恶意样例解压并提交：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /Users/huangluguang/Desktop/Project/agent-manager
 tmpdir=$(mktemp -d)
-unzip -q /Users/huangluguang/Desktop/Project/skill-manager/tests/skills/exfiltrator.zip -d "$tmpdir"
-uv run skill-manager submit "$tmpdir/exfiltrator" --behavioral
+unzip -q /Users/huangluguang/Desktop/Project/agent-manager/tests/skills/exfiltrator.zip -d "$tmpdir"
+uv run agent-manager submit "$tmpdir/exfiltrator" --behavioral
 ```
 
 再运行：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
+cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
 uv run python malicious_exfiltrator_demo.py
 ```
 
@@ -135,7 +135,7 @@ uv run python malicious_exfiltrator_demo.py
 ## Required Environment Variables
 
 ```bash
-export SKILL_MANAGER_BASE_URL="http://127.0.0.1:8080"
+export AGENT_MANAGER_BASE_URL="http://127.0.0.1:8080"
 export DEEPSEEK_API_KEY="your-deepseek-key"
 ```
 
@@ -145,11 +145,11 @@ export DEEPSEEK_API_KEY="your-deepseek-key"
 export AGNO_MODEL_ID="deepseek-chat"
 export AGNO_MODEL_BASE_URL="https://api.deepseek.com"
 export AGNO_API_KEY="$DEEPSEEK_API_KEY"
-export SKILL_MANAGER_SIGNING_KEY="same-key-used-by-skill-manager"
+export AGENT_MANAGER_SIGNING_KEY="same-key-used-by-agent-manager"
 export AGENT_ID="agno-demo-agent"
 ```
 
-如果服务端启用了 `SKILL_MANAGER_SIGNING_KEY`，Agent 端必须用同样的 key 计算本地签名。
+如果服务端启用了 `AGENT_MANAGER_SIGNING_KEY`，Agent 端必须用同样的 key 计算本地签名。
 
 这个 demo 默认使用：
 
@@ -173,7 +173,7 @@ uv run python main.py \
 
 这个 demo 现在还附带了一个直接可测的真实样例：
 
-- [git_workflow_demo.py](/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/git_workflow_demo.py)
+- [git_workflow_demo.py](/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/git_workflow_demo.py)
 
 它默认使用你本地 Agno cookbook 里的真实 skill：
 
@@ -185,17 +185,17 @@ uv run python main.py \
 - `references/commit-types.md`
 - `scripts/commit_message.py`
 
-先把这个 skill 提交到 Skill Manager：
+先把这个 skill 提交到 Agent Manager：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
-uv run skill-manager submit /Users/huangluguang/Desktop/github/agno/cookbook/02_agents/16_skills/sample_skills/git-workflow
+cd /Users/huangluguang/Desktop/Project/agent-manager
+uv run agent-manager submit /Users/huangluguang/Desktop/github/agno/cookbook/02_agents/16_skills/sample_skills/git-workflow
 ```
 
 然后直接跑：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
+cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
 uv run python git_workflow_demo.py
 ```
 
@@ -203,13 +203,13 @@ uv run python git_workflow_demo.py
 
 ## Malicious Skill Blocking Example
 
-如果你想测试 Skill Manager 是否会在 Agno 加载前阻断恶意 skill，可以直接跑：
+如果你想测试 Agent Manager 是否会在 Agno 加载前阻断恶意 skill，可以直接跑：
 
-- [malicious_exfiltrator_demo.py](/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/malicious_exfiltrator_demo.py)
+- [malicious_exfiltrator_demo.py](/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/malicious_exfiltrator_demo.py)
 
 它默认使用测试样例：
 
-- `/Users/huangluguang/Desktop/Project/skill-manager/tests/skills/exfiltrator.zip`
+- `/Users/huangluguang/Desktop/Project/agent-manager/tests/skills/exfiltrator.zip`
 
 这个样例的恶意点比较明确：
 
@@ -221,14 +221,14 @@ uv run python git_workflow_demo.py
 
 ```bash
 tmpdir=$(mktemp -d)
-unzip -q /Users/huangluguang/Desktop/Project/skill-manager/tests/skills/exfiltrator.zip -d "$tmpdir"
-uv run skill-manager submit "$tmpdir/exfiltrator" --behavioral
+unzip -q /Users/huangluguang/Desktop/Project/agent-manager/tests/skills/exfiltrator.zip -d "$tmpdir"
+uv run agent-manager submit "$tmpdir/exfiltrator" --behavioral
 ```
 
 然后运行 demo：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
+cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
 uv run python malicious_exfiltrator_demo.py
 ```
 
@@ -238,13 +238,13 @@ uv run python malicious_exfiltrator_demo.py
 - 被本地签名校验或 `can-load` 状态校验阻断
 - 最终打印 `Expected block: ...`
 
-这更适合验证 Skill Manager 的价值点：**恶意 skill 不该被 agent 成功加载。**
+这更适合验证 Agent Manager 的价值点：**恶意 skill 不该被 agent 成功加载。**
 
 ## What This Demo Actually Does
 
 ### Step 1. Local Signature
 
-Agent 先读取本地 skill 目录，使用与 Skill Manager 相同的算法计算签名。
+Agent 先读取本地 skill 目录，使用与 Agent Manager 相同的算法计算签名。
 
 ### Step 2. Signature Verification
 
@@ -281,7 +281,7 @@ Agent 先读取本地 skill 目录，使用与 Skill Manager 相同的算法计�
 - `get_skill_script(execute=false)` -> `Read`
 - `get_skill_script(execute=true)` -> `Bash`
 
-这样就能把 Agno skill 工具和 Skill Manager 的 `allowed_tools` 对齐。
+这样就能把 Agno skill 工具和 Agent Manager 的 `allowed_tools` 对齐。
 
 ## Expected Skill Declaration
 

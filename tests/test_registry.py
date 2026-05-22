@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from skill_manager.core.models import (
+from agent_manager.core.models import (
     AuditEvent,
     RegistryEntry,
     ReviewRequest,
@@ -16,7 +16,7 @@ from skill_manager.core.models import (
     SkillStatus,
     SourceInfo,
 )
-from skill_manager.core.registry import Registry, make_event
+from agent_manager.core.registry import Registry, make_event
 
 
 def _make_entry(name="my-skill", status=SkillStatus.APPROVED) -> RegistryEntry:
@@ -160,7 +160,7 @@ class TestRegistry:
 
     def test_uses_configured_sqlite_path(self, tmp_path, monkeypatch):
         db_path = tmp_path / "shared" / "admin_starter.db"
-        monkeypatch.setenv("SKILL_MANAGER_REGISTRY_SQLITE_PATH", str(db_path))
+        monkeypatch.setenv("AGENT_MANAGER_REGISTRY_SQLITE_PATH", str(db_path))
 
         registry = Registry(data_dir=tmp_path / "data")
         registry.add(_make_entry("sqlite-backed"))

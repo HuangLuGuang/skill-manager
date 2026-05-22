@@ -1,7 +1,7 @@
 import textwrap
 
-from skill_manager.core.manager import SkillManager
-from skill_manager.core.policy import CompanyPolicy
+from agent_manager.core.manager import AgentManager
+from agent_manager.core.policy import CompanyPolicy
 
 
 def _write_skill(path, name="cached-skill"):
@@ -20,7 +20,7 @@ def _write_skill(path, name="cached-skill"):
 
 def test_reuses_scan_when_content_and_context_match(tmp_path):
     data_dir = tmp_path / "data"
-    mgr = SkillManager(policy=CompanyPolicy.default(), data_dir=data_dir)
+    mgr = AgentManager(policy=CompanyPolicy.default(), data_dir=data_dir)
     skill_a = tmp_path / "skill-a"
     skill_b = tmp_path / "skill-b"
     _write_skill(skill_a)
@@ -40,7 +40,7 @@ def test_reuses_scan_when_content_and_context_match(tmp_path):
 
 def test_scan_context_change_prevents_reuse(tmp_path):
     data_dir = tmp_path / "data"
-    mgr = SkillManager(policy=CompanyPolicy.default(), data_dir=data_dir)
+    mgr = AgentManager(policy=CompanyPolicy.default(), data_dir=data_dir)
     skill_a = tmp_path / "skill-a"
     skill_b = tmp_path / "skill-b"
     _write_skill(skill_a)
@@ -59,7 +59,7 @@ def test_scan_context_change_prevents_reuse(tmp_path):
 
 def test_registry_completed_match_rebuilds_missing_cache_index(tmp_path):
     data_dir = tmp_path / "data"
-    mgr = SkillManager(policy=CompanyPolicy.default(), data_dir=data_dir)
+    mgr = AgentManager(policy=CompanyPolicy.default(), data_dir=data_dir)
     skill_a = tmp_path / "skill-a"
     skill_b = tmp_path / "skill-b"
     _write_skill(skill_a)

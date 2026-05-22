@@ -2,11 +2,11 @@
 
 这个 demo 演示的是：
 
-1. 在 LangGraph agent 暴露 skill 能力之前，先用 Skill Manager 做：
+1. 在 LangGraph agent 暴露 skill 能力之前，先用 Agent Manager 做：
    - 本地签名校验
    - `can-load` 状态校验
 2. 校验通过后，才把本地 skill 包装成可调用工具
-3. 每次读文件或执行脚本前，再用 Skill Manager 调 `check-tool`
+3. 每次读文件或执行脚本前，再用 Agent Manager 调 `check-tool`
 
 ## Why LangGraph Needs A Custom Loader
 
@@ -20,21 +20,21 @@ LangGraph / LangChain 没有像 Agno 那样现成的 `Skills(loaders=[...])` 机
 
 ## Files
 
-- [main.py](/Users/huangluguang/Desktop/Project/skill-manager/demo/langgraph-skill-guard/main.py)
-- [pyproject.toml](/Users/huangluguang/Desktop/Project/skill-manager/demo/langgraph-skill-guard/pyproject.toml)
-- [AGENTS.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/langgraph-skill-guard/AGENTS.md)
+- [main.py](/Users/huangluguang/Desktop/Project/agent-manager/demo/langgraph-skill-guard/main.py)
+- [pyproject.toml](/Users/huangluguang/Desktop/Project/agent-manager/demo/langgraph-skill-guard/pyproject.toml)
+- [AGENTS.md](/Users/huangluguang/Desktop/Project/agent-manager/demo/langgraph-skill-guard/AGENTS.md)
 
 ## Install
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/demo/langgraph-skill-guard
+cd /Users/huangluguang/Desktop/Project/agent-manager/demo/langgraph-skill-guard
 uv sync
 ```
 
 ## Environment
 
 ```bash
-export SKILL_MANAGER_BASE_URL="http://127.0.0.1:8080"
+export AGENT_MANAGER_BASE_URL="http://127.0.0.1:8080"
 export DEEPSEEK_API_KEY="your-deepseek-key"
 ```
 
@@ -47,13 +47,13 @@ export LANGGRAPH_API_KEY="$DEEPSEEK_API_KEY"
 export AGENT_ID="langgraph-skill-guard-demo"
 ```
 
-## Skill Manager API
+## Agent Manager API
 
-推荐先启动不带后台登录的 Skill Manager API：
+推荐先启动不带后台登录的 Agent Manager API：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
-uv run skill-manager-api --host 0.0.0.0 --port 8080
+cd /Users/huangluguang/Desktop/Project/agent-manager
+uv run agent-manager-api --host 0.0.0.0 --port 8080
 ```
 
 ## Prepare A Real Skill
@@ -62,17 +62,17 @@ uv run skill-manager-api --host 0.0.0.0 --port 8080
 
 - `/Users/huangluguang/Desktop/github/agno/cookbook/02_agents/16_skills/sample_skills/git-workflow`
 
-先把它提交到 Skill Manager：
+先把它提交到 Agent Manager：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
-uv run skill-manager submit /Users/huangluguang/Desktop/github/agno/cookbook/02_agents/16_skills/sample_skills/git-workflow
+cd /Users/huangluguang/Desktop/Project/agent-manager
+uv run agent-manager submit /Users/huangluguang/Desktop/github/agno/cookbook/02_agents/16_skills/sample_skills/git-workflow
 ```
 
 ## Run
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/demo/langgraph-skill-guard
+cd /Users/huangluguang/Desktop/Project/agent-manager/demo/langgraph-skill-guard
 uv run python main.py
 ```
 

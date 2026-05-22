@@ -3,8 +3,8 @@
     <div class="login-box">
       <div class="login-header">
         <img :src="logoUrl" alt="Logo" class="login-logo" />
-        <h2 class="login-title">Skill Manager Console</h2>
-        <p class="login-desc">技能准入、审核、部署与运行时治理后台</p>
+        <h2 class="login-title">Agent Manager Console</h2>
+        <p class="login-desc">AI 智能体全生命周期管理平台</p>
       </div>
       <a-form layout="vertical" :model="formState" @finish="onFinish">
         <a-form-item label="用户名/邮箱" name="username" :rules="[{ required: true, message: '请输入用户名或邮箱' }]">

@@ -1,4 +1,4 @@
-# Skill Manager
+# Agent Manager
 
 Enterprise skill lifecycle manager for AI agents. Gate-and-govern model: every skill is vetted before deployment and governed at runtime via signature verification and permission enforcement.
 
@@ -25,17 +25,17 @@ For the production-oriented isolated sandbox service, see:
 For Dockerfiles and docker-compose based deployment, see:
 [docs/docker-deployment.md](docs/docker-deployment.md)
 
-For OpenClaw hook integration with Skill Manager, see:
-[docs/openclaw-skill-manager-hooks.md](docs/openclaw-skill-manager-hooks.md)
+For OpenClaw hook integration with Agent Manager, see:
+[docs/openclaw-agent-manager-hooks.md](docs/openclaw-agent-manager-hooks.md)
 
 For a starter OpenClaw hook pack demo, see:
-[demo/openclaw-skill-manager-hook/README.md](demo/openclaw-skill-manager-hook/README.md)
+[demo/openclaw-agent-manager-hook/README.md](demo/openclaw-agent-manager-hook/README.md)
 
 ---
 
 ## How Skills Are Stored
 
-**Skills are always local files** — Claude Code loads a skill by reading its `SKILL.md` from the filesystem. Skill Manager never stores or serves skill content. The registry holds only metadata: name, approval status, allowed tools, and a content hash.
+**Skills are always local files** — Claude Code loads a skill by reading its `SKILL.md` from the filesystem. Agent Manager never stores or serves skill content. The registry holds only metadata: name, approval status, allowed tools, and a content hash.
 
 `can_load()` does not fetch anything remotely. It checks the registry and (optionally) verifies that the on-disk files haven't changed since approval.
 
@@ -63,7 +63,7 @@ can_load("my-skill", skill_path="...", verify_sig=False)
 | `/company-skills/` (CI/CD only) | CI/CD service account | Mode 1 — directory ownership is sufficient |
 | No local disk | — | Mode 1 via REST API |
 
-In the company-controlled directory model, CI/CD runs `skill-manager-deploy` after each approval to write the approved files to `/company-skills/`. Agents can read from there but cannot write to it, so a name-only check is as strong as a signature check.
+In the company-controlled directory model, CI/CD runs `agent-manager-deploy` after each approval to write the approved files to `/company-skills/`. Agents can read from there but cannot write to it, so a name-only check is as strong as a signature check.
 
 ---
 
@@ -76,7 +76,7 @@ AI agent skills are code that runs with the agent's full permissions. A compromi
 - Chain tool calls to escalate privileges
 - Execute arbitrary commands through `Bash`
 
-Without a governance layer, any skill — from any source — can be loaded by any agent. Skill Manager closes this gap.
+Without a governance layer, any skill — from any source — can be loaded by any agent. Agent Manager closes this gap.
 
 ---
 
@@ -86,7 +86,7 @@ Without a governance layer, any skill — from any source — can be loaded by a
 Developer / External Source
         │
         ▼
-   [SUBMIT]  ──── skill-manager submit ./my-skill
+   [SUBMIT]  ──── agent-manager submit ./my-skill
         │
         ▼
    [VET]     ──── skill-scanner (static + behavioral + LLM) + policy checks
@@ -103,7 +103,7 @@ Developer / External Source
    [SIGN]    ──── HMAC-SHA256 over full content tree → stored in registry
         │
         ▼
-   [DEPLOY]  ──── skill-manager deploy my-skill
+   [DEPLOY]  ──── agent-manager deploy my-skill
         │
         ▼
    [RUNTIME] ──── Registry check + signature verification on every load
@@ -111,7 +111,7 @@ Developer / External Source
                   Audit logging for every event
         │
         ▼
-   [RETIRE]  ──── skill-manager retire my-skill --reason "CVE-2026-0001"
+   [RETIRE]  ──── agent-manager retire my-skill --reason "CVE-2026-0001"
                   Immediate revocation — all agents blocked instantly
 ```
 
@@ -133,13 +133,13 @@ pip install -e ".[dev]"
 Set the signing key (required in production):
 
 ```bash
-export SKILL_MANAGER_SIGNING_KEY="$(openssl rand -hex 32)"
+export AGENT_MANAGER_SIGNING_KEY="$(openssl rand -hex 32)"
 ```
 
-Override the default data directory (`~/.skill-manager/`):
+Override the default data directory (`~/.agent-manager/`):
 
 ```bash
-export SKILL_MANAGER_DATA_DIR="/var/lib/skill-manager"
+export AGENT_MANAGER_DATA_DIR="/var/lib/agent-manager"
 ```
 
 ---
@@ -148,23 +148,23 @@ export SKILL_MANAGER_DATA_DIR="/var/lib/skill-manager"
 
 ```bash
 # 1. Vet and submit a skill
-skill-manager submit ./my-skill
+agent-manager submit ./my-skill
 
 # 2. Check what happened
-skill-manager registry show my-skill
+agent-manager registry show my-skill
 
 # 3. Deploy it (if auto-approved)
-skill-manager deploy my-skill
+agent-manager deploy my-skill
 
 # 4. Runtime check (call from agent startup)
-skill-manager runtime check my-skill --path ./my-skill
+agent-manager runtime check my-skill --path ./my-skill
 
 # 5. If a HIGH-risk skill is pending review
-skill-manager review list
-skill-manager review approve <id> --approver alice --note "Reviewed, no issues"
+agent-manager review list
+agent-manager review approve <id> --approver alice --note "Reviewed, no issues"
 
 # 6. Revoke a compromised skill immediately
-skill-manager retire my-skill --reason "CVE-2026-0001"
+agent-manager retire my-skill --reason "CVE-2026-0001"
 ```
 
 ---
@@ -176,7 +176,7 @@ skill-manager retire my-skill --reason "CVE-2026-0001"
 Vet a skill directory and submit it to the registry.
 
 ```
-skill-manager submit <path> [OPTIONS]
+agent-manager submit <path> [OPTIONS]
 
 Options:
   --author TEXT       Author/publisher identifier
@@ -190,41 +190,41 @@ Options:
 ### `review`
 
 ```
-skill-manager review list
-skill-manager review approve <skill-id> --approver <name> [--note TEXT]
-skill-manager review reject  <skill-id> --reviewer <name>  --reason TEXT
+agent-manager review list
+agent-manager review approve <skill-id> --approver <name> [--note TEXT]
+agent-manager review reject  <skill-id> --reviewer <name>  --reason TEXT
 ```
 
 ### `registry`
 
 ```
-skill-manager registry list [--status PENDING|VETTED|APPROVED|DEPLOYED|REJECTED|RETIRED]
-skill-manager registry show <name-or-id> [--json]
+agent-manager registry list [--status PENDING|VETTED|APPROVED|DEPLOYED|REJECTED|RETIRED]
+agent-manager registry show <name-or-id> [--json]
 ```
 
 ### `deploy`
 
 ```
-skill-manager deploy <name-or-id> [--actor TEXT]
+agent-manager deploy <name-or-id> [--actor TEXT]
 ```
 
 ### `retire`
 
 ```
-skill-manager retire <name-or-id> --reason TEXT [--actor TEXT]
+agent-manager retire <name-or-id> --reason TEXT [--actor TEXT]
 ```
 
 ### `audit`
 
 ```
-skill-manager audit [--since HOURS] [--skill SKILL_ID] [--limit N] [--json]
+agent-manager audit [--since HOURS] [--skill SKILL_ID] [--limit N] [--json]
 ```
 
 ### `runtime`
 
 ```
-skill-manager runtime check  <skill-name> [--path PATH] [--agent AGENT_ID]
-skill-manager runtime verify <skill-name> <path>
+agent-manager runtime check  <skill-name> [--path PATH] [--agent AGENT_ID]
+agent-manager runtime verify <skill-name> <path>
 ```
 
 ---
@@ -232,7 +232,7 @@ skill-manager runtime verify <skill-name> <path>
 ## API Server
 
 ```bash
-skill-manager-api --host 0.0.0.0 --port 8080
+agent-manager-api --host 0.0.0.0 --port 8080
 ```
 
 Key endpoints:
@@ -254,12 +254,12 @@ Key endpoints:
 ## Python SDK
 
 ```python
-from skill_manager import SkillManager
-from skill_manager.core.policy import CompanyPolicy
-from skill_manager.core.models import SourceInfo, SkillOrigin
+from agent_manager import AgentManager
+from agent_manager.core.policy import CompanyPolicy
+from agent_manager.core.models import SourceInfo, SkillOrigin
 
 policy = CompanyPolicy.load("company-policy.yaml")
-mgr = SkillManager(policy=policy)
+mgr = AgentManager(policy=policy)
 
 # Submit and vet a skill
 entry = mgr.submit("./my-skill", source=SourceInfo(origin=SkillOrigin.GITHUB, author="my-team"))
@@ -319,10 +319,10 @@ scanner_policy: balanced           # strict | balanced | permissive
 
 ## Storage Layout
 
-Data is stored in `~/.skill-manager/` (override with `SKILL_MANAGER_DATA_DIR`):
+Data is stored in `~/.agent-manager/` (override with `AGENT_MANAGER_DATA_DIR`):
 
 ```
-~/.skill-manager/
+~/.agent-manager/
 ├── registry.json      # Skill registry (list of RegistryEntry objects)
 ├── audit.jsonl        # Append-only audit log (one JSON event per line)
 └── review.json        # Pending human review queue

@@ -7,7 +7,7 @@
         type="info"
         show-icon
         :message="policyPath ? '当前策略文件' : '当前使用默认策略'"
-        :description="policyPath || '尚未发现 policy.yaml，首次保存会写入 ~/.skill-manager/policy.yaml'"
+        :description="policyPath || '尚未发现 policy.yaml，首次保存会写入 ~/.agent-manager/policy.yaml'"
         style="margin-bottom: 16px"
       />
 

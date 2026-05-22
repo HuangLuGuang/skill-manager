@@ -1,7 +1,7 @@
 [project]
 name = "agno-skill-guard-demo"
 version = "0.1.0"
-description = "Agno demo showing how to guard skill loading with Skill Manager"
+description = "Agno demo showing how to guard skill loading with Agent Manager"
 requires-python = ">=3.10"
 dependencies = [
     "agno",

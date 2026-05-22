@@ -1,4 +1,4 @@
-# Skill Manager Project Guide
+# Agent Manager Project Guide
 
 这份文档是这个项目的主说明文档，目标是把下面几件事讲清楚：
 
@@ -15,7 +15,7 @@
 
 ## 1. 项目定位
 
-Skill Manager 不是一个“帮你写 skill 的平台”，而是一个：
+Agent Manager 不是一个“帮你写 skill 的平台”，而是一个：
 
 - `skill 准入中心`
 - `skill 风险治理中心`
@@ -48,7 +48,7 @@ Skill Manager 不是一个“帮你写 skill 的平台”，而是一个：
 - 把数据发到外部服务器
 - 在事后无法快速停用
 
-Skill Manager 用一套“提交、扫描、审批、签名、运行时校验、审计”的链路，把这些风险纳入治理。
+Agent Manager 用一套“提交、扫描、审批、签名、运行时校验、审计”的链路，把这些风险纳入治理。
 
 ---
 
@@ -56,7 +56,7 @@ Skill Manager 用一套“提交、扫描、审批、签名、运行时校验、
 
 ### 3.1 Skill 永远是本地文件
 
-Skill Manager 不负责“远程托管 skill 并下发给 agent”。  
+Agent Manager 不负责“远程托管 skill 并下发给 agent”。  
 它管理的是：
 
 - skill 元数据
@@ -108,7 +108,7 @@ sandbox 的作用是看：
 
 ```mermaid
 flowchart TB
-    U["开发者 / 外部来源"] --> S["提交 Skill"]
+    U["开发者 / 外部来源"] --> S["提交技能"]
     S --> V["Vetting Pipeline"]
     V --> P["Policy Gate"]
     P --> R["Registry / Review / Audit"]
@@ -138,56 +138,56 @@ flowchart TB
 
 ### 5.1 核心治理后端
 
-- [skill_manager/core/manager.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/manager.py)
+- [agent_manager/core/manager.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/manager.py)
   生命周期总控
-- [skill_manager/core/vetting.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/vetting.py)
+- [agent_manager/core/vetting.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/vetting.py)
   扫描与风险判定
-- [skill_manager/core/policy.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/policy.py)
+- [agent_manager/core/policy.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/policy.py)
   策略配置
-- [skill_manager/core/registry.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/registry.py)
+- [agent_manager/core/registry.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/registry.py)
   SQLite 持久化，启动时可从旧 `registry.json`、`review.json`、`audit.jsonl` 自动迁移
-- [skill_manager/core/runtime.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/runtime.py)
+- [agent_manager/core/runtime.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/runtime.py)
   运行时治理
-- [skill_manager/core/signer.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/signer.py)
+- [agent_manager/core/signer.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/signer.py)
   目录签名
-- [skill_manager/core/llm.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/llm.py)
+- [agent_manager/core/llm.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/llm.py)
   DeepSeek LLM 分析
-- [skill_manager/core/sandbox.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/sandbox.py)
+- [agent_manager/core/sandbox.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/sandbox.py)
   Docker / remote sandbox
 
 ### 5.2 API 层
 
-- [skill_manager/api/router.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/api/router.py)
-  Skill Manager API
-- [backend/main.py](/Users/huangluguang/Desktop/Project/skill-manager/backend/main.py)
-  管理后台 + Skill Manager API 集成入口
+- [agent_manager/api/router.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/api/router.py)
+  Agent Manager API
+- [backend/main.py](/Users/huangluguang/Desktop/Project/agent-manager/backend/main.py)
+  管理后台 + Agent Manager API 集成入口
 
 ### 5.3 管理台前端
 
-- [web/src/views/Skills.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/Skills.vue)
-- [web/src/views/SkillDetail.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/SkillDetail.vue)
-- [web/src/views/SubmitSkill.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/SubmitSkill.vue)
-- [web/src/views/ReviewQueue.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/ReviewQueue.vue)
-- [web/src/views/SystemSettings.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/SystemSettings.vue)
-- [web/src/views/ScannerAccess.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/ScannerAccess.vue)
+- [web/src/views/Skills.vue](/Users/huangluguang/Desktop/Project/agent-manager/web/src/views/Skills.vue)
+- [web/src/views/SkillDetail.vue](/Users/huangluguang/Desktop/Project/agent-manager/web/src/views/SkillDetail.vue)
+- [web/src/views/SubmitSkill.vue](/Users/huangluguang/Desktop/Project/agent-manager/web/src/views/SubmitSkill.vue)
+- [web/src/views/ReviewQueue.vue](/Users/huangluguang/Desktop/Project/agent-manager/web/src/views/ReviewQueue.vue)
+- [web/src/views/SystemSettings.vue](/Users/huangluguang/Desktop/Project/agent-manager/web/src/views/SystemSettings.vue)
+- [web/src/views/ScannerAccess.vue](/Users/huangluguang/Desktop/Project/agent-manager/web/src/views/ScannerAccess.vue)
   客户侧扫描器接入、Token、CLI/GUI 下载
 
 ### 5.4 独立执行服务
 
-- [services/isolated-sandbox-service/app.py](/Users/huangluguang/Desktop/Project/skill-manager/services/isolated-sandbox-service/app.py)
+- [services/isolated-sandbox-service/app.py](/Users/huangluguang/Desktop/Project/agent-manager/services/isolated-sandbox-service/app.py)
   生产版远程 sandbox 服务基线
 
 ### 5.5 客户侧扫描器
 
-- [scanner/cmd/skill-scanner/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner/main.go)
+- [scanner/cmd/skill-scanner/main.go](/Users/huangluguang/Desktop/Project/agent-manager/scanner/cmd/skill-scanner/main.go)
   Go CLI 扫描器入口
-- [scanner/cmd/skill-scanner-gui/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner-gui/main.go)
+- [scanner/cmd/skill-scanner-gui/main.go](/Users/huangluguang/Desktop/Project/agent-manager/scanner/cmd/skill-scanner-gui/main.go)
   原生桌面 GUI 扫描器入口
-- [skill_manager/api/scanner_router.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/api/scanner_router.py)
+- [agent_manager/api/scanner_router.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/api/scanner_router.py)
   Scanner 专用 API 与下载接口
-- [skill_manager/core/scanner_tokens.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/scanner_tokens.py)
+- [agent_manager/core/scanner_tokens.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/scanner_tokens.py)
   Scanner Token 存储、校验和审计
-- [skill_manager/core/scan_cache.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/scan_cache.py)
+- [agent_manager/core/scan_cache.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/scan_cache.py)
   重复扫描复用缓存
 
 ---
@@ -198,8 +198,8 @@ flowchart TB
 sequenceDiagram
     participant Dev as "开发者"
     participant UI as "前端 / CLI"
-    participant API as "Skill Manager API"
-    participant Mgr as "SkillManager"
+    participant API as "Agent Manager API"
+    participant Mgr as "AgentManager"
     participant Vet as "VettingPipeline"
     participant Reg as "Registry"
     participant Agent as "Agent Runtime"
@@ -247,7 +247,7 @@ sequenceDiagram
 客户侧扫描器使用专用 Scanner Token，不使用管理员登录态。
 详细说明见：
 
-- [skill-scanner.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/skill-scanner.md)
+- [skill-scanner.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/skill-scanner.md)
 
 ### 6.2 Vetting
 
@@ -408,7 +408,7 @@ flowchart LR
 
 如果要验证 sandbox 展示链路，可以上传这个测试样本：
 
-- [tests/skills/sandbox-runtime-signal.zip](/Users/huangluguang/Desktop/Project/skill-manager/tests/skills/sandbox-runtime-signal.zip)
+- [tests/skills/sandbox-runtime-signal.zip](/Users/huangluguang/Desktop/Project/agent-manager/tests/skills/sandbox-runtime-signal.zip)
 
 它会在默认 probe 中主动暴露网络、文件系统、动态执行、凭证关键词和非零退出码等信号。
 
@@ -434,7 +434,7 @@ flowchart LR
 - 运行时检测本地 skill 是否被篡改
 
 更详细的 agent 侧签名对接，见：
-- [agent-signature-verification.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/agent-signature-verification.md)
+- [agent-signature-verification.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/agent-signature-verification.md)
 
 ---
 
@@ -452,7 +452,7 @@ flowchart TB
     B --> C2["remote"]
 
     C1 --> D1["本机 docker run"]
-    D1 --> E1["镜像: skill-manager-sandbox-runtime:latest"]
+    D1 --> E1["镜像: agent-manager-sandbox-runtime:latest"]
 
     C2 --> D2["isolated-sandbox-service"]
     D2 --> E2["subprocess / nsjail"]
@@ -470,7 +470,7 @@ flowchart TB
 
 现在默认镜像是：
 
-- `skill-manager-sandbox-runtime:latest`
+- `agent-manager-sandbox-runtime:latest`
 
 它内置常见 Python 依赖，避免很多 skill 因为 `requests` 之类库缺失直接失败。
 
@@ -483,11 +483,11 @@ flowchart TB
 
 当前服务基线在：
 
-- [services/isolated-sandbox-service/README.md](/Users/huangluguang/Desktop/Project/skill-manager/services/isolated-sandbox-service/README.md)
+- [services/isolated-sandbox-service/README.md](/Users/huangluguang/Desktop/Project/agent-manager/services/isolated-sandbox-service/README.md)
 
 更详细架构说明：
 
-- [sandbox-service-architecture.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/sandbox-service-architecture.md)
+- [sandbox-service-architecture.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/sandbox-service-architecture.md)
 
 ---
 
@@ -498,7 +498,7 @@ flowchart TB
 后端：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /Users/huangluguang/Desktop/Project/agent-manager
 uv sync --project backend
 uv run --project backend uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
@@ -506,7 +506,7 @@ uv run --project backend uvicorn backend.main:app --host 0.0.0.0 --port 8000 --r
 前端：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/web
+cd /Users/huangluguang/Desktop/Project/agent-manager/web
 npm install
 npm run dev
 ```
@@ -521,7 +521,7 @@ npm run dev
 如果系统设置里选的是 `docker`，先构建项目自带镜像：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /Users/huangluguang/Desktop/Project/agent-manager
 make sandbox-runtime-build
 ```
 
@@ -529,7 +529,7 @@ make sandbox-runtime-build
 
 完整容器化启动见：
 
-- [docker-deployment.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/docker-deployment.md)
+- [docker-deployment.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/docker-deployment.md)
 
 ---
 
@@ -544,7 +544,7 @@ make sandbox-runtime-build
 - 最近阻断事件
 - 待处理 skill
 
-### 12.2 技能列表
+### 12.2 技能注册表
 
 看：
 
@@ -564,7 +564,7 @@ make sandbox-runtime-build
 - 原始报告 JSON
 - 文件列表与文件内容
 
-### 12.4 提交 Skill
+### 12.4 提交技能
 
 上传 ZIP 后：
 
@@ -602,7 +602,7 @@ CLI 适合服务器和 CI，GUI 是原生桌面程序，适合人工选择目录
 
 详细说明见：
 
-- [skill-scanner.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/skill-scanner.md)
+- [skill-scanner.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/skill-scanner.md)
 
 ---
 
@@ -613,7 +613,7 @@ CLI 适合服务器和 CI，GUI 是原生桌面程序，适合人工选择目录
 ```mermaid
 sequenceDiagram
     participant Agent as "External Agent"
-    participant SM as "Skill Manager"
+    participant SM as "Agent Manager"
 
     Agent->>Agent: 本地计算 skill 签名
     Agent->>SM: POST /api/v1/runtime/verify-skill-signature
@@ -626,8 +626,8 @@ sequenceDiagram
 
 更详细说明：
 
-- [external-agent-integration.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/external-agent-integration.md)
-- [agent-signature-verification.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/agent-signature-verification.md)
+- [external-agent-integration.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/external-agent-integration.md)
+- [agent-signature-verification.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/agent-signature-verification.md)
 
 ---
 
@@ -682,18 +682,18 @@ sequenceDiagram
 ## 15. 相关专题文档
 
 - 客户演示 Runbook：
-  [customer-demo-runbook.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/customer-demo-runbook.md)
+  [customer-demo-runbook.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/customer-demo-runbook.md)
 - 客户侧扫描器：
-  [skill-scanner.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/skill-scanner.md)
+  [skill-scanner.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/skill-scanner.md)
 - 管理台与容器化部署：
-  [docker-deployment.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/docker-deployment.md)
+  [docker-deployment.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/docker-deployment.md)
 - 外部 Agent 接入：
-  [external-agent-integration.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/external-agent-integration.md)
+  [external-agent-integration.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/external-agent-integration.md)
 - Agent 验签：
-  [agent-signature-verification.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/agent-signature-verification.md)
+  [agent-signature-verification.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/agent-signature-verification.md)
 - Sandbox 架构：
-  [sandbox-service-architecture.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/sandbox-service-architecture.md)
+  [sandbox-service-architecture.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/sandbox-service-architecture.md)
 - Remote mock 联调：
-  [remote-sandbox-mock-quickstart.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/remote-sandbox-mock-quickstart.md)
+  [remote-sandbox-mock-quickstart.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/remote-sandbox-mock-quickstart.md)
 - OpenClaw Hook 接入：
-  [openclaw-skill-manager-hooks.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/openclaw-skill-manager-hooks.md)
+  [openclaw-agent-manager-hooks.md](/Users/huangluguang/Desktop/Project/agent-manager/docs/openclaw-agent-manager-hooks.md)

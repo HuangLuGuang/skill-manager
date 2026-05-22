@@ -12,7 +12,7 @@ build:
 	$(COMPOSE) build
 
 sandbox-runtime-build:
-	docker build -t skill-manager-sandbox-runtime:latest -f services/local-sandbox-runtime/Dockerfile .
+	docker build -t agent-manager-sandbox-runtime:latest -f services/local-sandbox-runtime/Dockerfile .
 
 logs:
 	$(COMPOSE) logs -f

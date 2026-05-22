@@ -8,8 +8,8 @@
         <div class="app-brand">
           <img :src="logoUrl" alt="Logo" class="app-logo" />
           <div>
-            <div class="app-title">Skill Manager Console</div>
-            <div class="app-subtitle">技能准入、审核、部署与运行时治理后台</div>
+            <div class="app-title">Agent Manager Console</div>
+            <div class="app-subtitle">AI 智能体全生命周期管理平台</div>
           </div>
         </div>
         <div v-if="userInfo" class="app-user">
@@ -98,8 +98,8 @@ const passwordForm = reactive({
 
 const menuItems = [
   { key: '/dashboard', label: '总览', icon: DashboardOutlined },
-  { key: '/skills', label: '技能列表', icon: FileSearchOutlined },
-  { key: '/submit', label: '提交 Skill', icon: UploadOutlined },
+  { key: '/skills', label: '技能注册表', icon: FileSearchOutlined },
+  { key: '/submit', label: '提交技能', icon: UploadOutlined },
   { key: '/review', label: '审核队列', icon: CheckSquareOutlined },
   { key: '/deployments', label: '部署管理', icon: DeploymentUnitOutlined },
   { key: '/runtime', label: '运行时治理', icon: SafetyCertificateOutlined },

@@ -1,17 +1,17 @@
 # Remote Sandbox Mock
 
-这是一个本地 mock 的远程 sandbox 服务，用来联调 Skill Manager 的 `remote` sandbox 后端。
+这是一个本地 mock 的远程 sandbox 服务，用来联调 Agent Manager 的 `remote` sandbox 后端。
 
 它不提供真正的隔离执行，只是模拟独立执行服务的协议，方便你先验证：
 
 - 系统设置里的 `remote` sandbox 配置
-- Skill Manager 提交 skill 时走远程 probe
+- Agent Manager 提交 skill 时走远程 probe
 - 详情页展示 `Sandbox 执行结果`
 
 ## 启动
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/demo/remote-sandbox-mock
+cd /Users/huangluguang/Desktop/Project/agent-manager/demo/remote-sandbox-mock
 uv sync
 uv run uvicorn app:app --host 0.0.0.0 --port 8194 --reload
 ```
@@ -20,7 +20,7 @@ uv run uvicorn app:app --host 0.0.0.0 --port 8194 --reload
 
 - `http://127.0.0.1:8194`
 
-## 配置 Skill Manager
+## 配置 Agent Manager
 
 在系统设置页把 Sandbox 配置改成：
 
@@ -30,8 +30,8 @@ uv run uvicorn app:app --host 0.0.0.0 --port 8194 --reload
 也可以用环境变量：
 
 ```bash
-export SKILL_MANAGER_SANDBOX_RUNTIME=remote
-export SKILL_MANAGER_SANDBOX_URL=http://127.0.0.1:8194
+export AGENT_MANAGER_SANDBOX_RUNTIME=remote
+export AGENT_MANAGER_SANDBOX_URL=http://127.0.0.1:8194
 ```
 
 ## 协议

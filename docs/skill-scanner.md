@@ -6,7 +6,7 @@
 
 ## 1. 定位
 
-客户侧 Skill Scanner 用于扫描客户本地的 skills 目录，并把发现的 skill 安全提交到 Skill Manager 后台治理流程。
+客户侧 Skill Scanner 用于扫描客户本地的 skills 目录，并把发现的 skill 安全提交到 Agent Manager 后台治理流程。
 
 它解决的是这类场景：
 
@@ -28,9 +28,9 @@
 sequenceDiagram
     participant User as "客户 / 操作员"
     participant Scanner as "Go Scanner CLI/GUI"
-    participant API as "Skill Manager Scanner API"
+    participant API as "Agent Manager Scanner API"
     participant Token as "Access Token Store"
-    participant Mgr as "SkillManager"
+    participant Mgr as "AgentManager"
     participant Vet as "Vetting Pipeline"
     participant UI as "管理台"
 
@@ -108,7 +108,7 @@ Token 支持：
 - 最大并发任务数
 - 审计日志
 
-Token 明文可以通过 CLI 参数、环境变量或 GUI 设置页配置，不应硬编码到二进制里。Agent demo 读取 `SKILL_MANAGER_API_TOKEN` 或 `SKILL_MANAGER_ACCESS_TOKEN`，并调用 `/api/v1/access/runtime/...` 这组 token 鉴权接口。
+Token 明文可以通过 CLI 参数、环境变量或 GUI 设置页配置，不应硬编码到二进制里。Agent demo 读取 `AGENT_MANAGER_API_TOKEN` 或 `AGENT_MANAGER_ACCESS_TOKEN`，并调用 `/api/v1/access/runtime/...` 这组 token 鉴权接口。
 
 ---
 
@@ -140,7 +140,7 @@ Token 明文可以通过 CLI 参数、环境变量或 GUI 设置页配置，不�
 chmod +x skill-scanner-cli-darwin-arm64
 ./skill-scanner-cli-darwin-arm64 scan /path/to/skills \
   --server http://localhost:8000 \
-  --token "$SKILL_MANAGER_TOKEN" \
+  --token "$AGENT_MANAGER_TOKEN" \
   --host-id customer-prod-01 \
   --behavioral \
   --sandbox \
@@ -151,8 +151,8 @@ chmod +x skill-scanner-cli-darwin-arm64
 也可以使用环境变量：
 
 ```bash
-export SKILL_MANAGER_SERVER="http://localhost:8000"
-export SKILL_MANAGER_TOKEN="smsc_live_xxx"
+export AGENT_MANAGER_SERVER="http://localhost:8000"
+export AGENT_MANAGER_TOKEN="smsc_live_xxx"
 export SKILL_SCANNER_HOST_ID="customer-prod-01"
 
 ./skill-scanner-cli-darwin-arm64 scan /path/to/skills --behavioral --sandbox --llm
@@ -163,8 +163,8 @@ export SKILL_SCANNER_HOST_ID="customer-prod-01"
 | 参数 | 说明 |
 | --- | --- |
 | `scan <path>` | 扫描根目录。scanner 会递归发现包含 `SKILL.md` 的目录。 |
-| `--server URL` | Skill Manager 服务端地址。设置后会自动启用上传。 |
-| `--token TOKEN` | 接入 Token，需要包含 `scanner:submit`。也可用 `SKILL_MANAGER_TOKEN`。 |
+| `--server URL` | Agent Manager 服务端地址。设置后会自动启用上传。 |
+| `--token TOKEN` | 接入 Token，需要包含 `scanner:submit`。也可用 `AGENT_MANAGER_TOKEN`。 |
 | `--output PATH` | 本地 JSON 报告输出路径，默认 `skill-scan-report.json`。 |
 | `--host-id ID` | 客户侧主机或环境标识，方便服务端审计来源。 |
 | `--upload` | 显式上传到服务端。配置 `--server` 时会自动上传。 |
@@ -189,7 +189,7 @@ CLI 会生成 JSON 报告，内容包括：
 - 服务端返回状态
 - 详情页链接
 
-最终完整扫描报告以 Skill Manager 服务端详情页为准。
+最终完整扫描报告以 Agent Manager 服务端详情页为准。
 
 ---
 
@@ -215,7 +215,7 @@ GUI 是原生桌面程序，不是网页版 GUI。
 
 1. 打开 GUI。
 2. 进入 `设置` 页，配置：
-   - Skill Manager Server
+   - Agent Manager Server
    - 接入 Token
    - Host ID
    - 默认输出报告路径
@@ -241,13 +241,13 @@ GUI 结果区会实时刷新：
 - 失败数量
 - 每个 skill 的名称、状态、风险、错误信息
 
-表格的 `详情` 列可以打开 Skill Manager 管理台对应 skill 详情页。
+表格的 `详情` 列可以打开 Agent Manager 管理台对应 skill 详情页。
 
 如果状态一直是 `PENDING`，可以：
 
 - 等待 GUI 自动刷新。
 - 手动刷新。
-- 到管理台技能列表或详情页查看后台扫描进度。
+- 到管理台技能注册表或详情页查看后台扫描进度。
 
 ---
 
@@ -378,7 +378,7 @@ Authorization: Bearer <scanner-token>
 ### 9.1 本地构建
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
+cd /Users/huangluguang/Desktop/Project/agent-manager/scanner
 go test ./...
 go build -o skill-scanner ./cmd/skill-scanner
 go build -o skill-scanner-gui ./cmd/skill-scanner-gui
@@ -389,7 +389,7 @@ GUI 依赖本机图形工具链。macOS 上构建 macOS GUI 最稳定；跨平�
 ### 9.2 生成发布目录
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
+cd /Users/huangluguang/Desktop/Project/agent-manager/scanner
 ./scripts/package.sh
 ```
 
@@ -413,7 +413,7 @@ scanner/releases/
 所以如果页面显示“当前可下载文件为空”，先检查：
 
 ```bash
-ls -lh /Users/huangluguang/Desktop/Project/skill-manager/scanner/releases
+ls -lh /Users/huangluguang/Desktop/Project/agent-manager/scanner/releases
 ```
 
 ### 9.3 支持的平台
@@ -458,17 +458,17 @@ BUILD_WINDOWS_GUI=1 ./scripts/package.sh
 扫描完成后看结果的位置：
 
 - GUI / CLI 本地报告：看本地 `skill-scan-report.json`
-- 服务端最终结果：管理台 `技能列表` 和 `技能详情`
+- 服务端最终结果：管理台 `技能注册表` 和 `技能详情`
 - 审计：管理台 `审计日志`
 
 ---
 
 ## 11. 相关代码
 
-- [scanner/cmd/skill-scanner/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner/main.go)
-- [scanner/cmd/skill-scanner-gui/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner-gui/main.go)
-- [scanner/internal/runner/runner.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/internal/runner/runner.go)
-- [scanner/internal/gui/gui.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/internal/gui/gui.go)
-- [skill_manager/api/scanner_router.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/api/scanner_router.py)
-- [skill_manager/core/scanner_tokens.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/scanner_tokens.py)
-- [skill_manager/core/scan_cache.py](/Users/huangluguang/Desktop/Project/skill-manager/skill_manager/core/scan_cache.py)
+- [scanner/cmd/skill-scanner/main.go](/Users/huangluguang/Desktop/Project/agent-manager/scanner/cmd/skill-scanner/main.go)
+- [scanner/cmd/skill-scanner-gui/main.go](/Users/huangluguang/Desktop/Project/agent-manager/scanner/cmd/skill-scanner-gui/main.go)
+- [scanner/internal/runner/runner.go](/Users/huangluguang/Desktop/Project/agent-manager/scanner/internal/runner/runner.go)
+- [scanner/internal/gui/gui.go](/Users/huangluguang/Desktop/Project/agent-manager/scanner/internal/gui/gui.go)
+- [agent_manager/api/scanner_router.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/api/scanner_router.py)
+- [agent_manager/core/scanner_tokens.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/scanner_tokens.py)
+- [agent_manager/core/scan_cache.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/scan_cache.py)

@@ -5,16 +5,16 @@ from pathlib import Path
 
 import pytest
 
-from skill_manager.core.models import (
+from agent_manager.core.models import (
     RegistryEntry,
     RiskLevel,
     SkillOrigin,
     SkillStatus,
     SourceInfo,
 )
-from skill_manager.core.registry import Registry
-from skill_manager.core.runtime import RuntimeGuard
-from skill_manager.core.signer import compute_signature
+from agent_manager.core.registry import Registry
+from agent_manager.core.runtime import RuntimeGuard
+from agent_manager.core.signer import compute_signature
 
 
 def _make_entry(name, status=SkillStatus.APPROVED, tools=None, sig=None):

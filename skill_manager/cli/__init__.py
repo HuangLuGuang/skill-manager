@@ -1,1 +1,0 @@
-"""Skill manager CLI."""

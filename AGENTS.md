@@ -4,18 +4,18 @@
 
 ## 项目定位
 
-Skill Manager 是一个 AI Agent Skill 生命周期治理系统，用于对 skill 进行准入扫描、人工审核、签名验签、部署、运行时加载校验和审计。
+Agent Manager 是一个 AI Agent Skill 生命周期治理系统，用于对 skill 进行准入扫描、人工审核、签名验签、部署、运行时加载校验和审计。
 
 核心目标：
 
 - 提交 skill 后先进入后台扫描流程，不要直接信任外部 skill。
 - 低风险 skill 可以自动批准并签名，高风险进入审核或拒绝。
-- Agent 加载 skill 时应先调用 Skill Manager 做 registry/status/signature 校验。
+- Agent 加载 skill 时应先调用 Agent Manager 做 registry/status/signature 校验。
 - Sandbox、行为分析和 LLM 分析是辅助信号，最终风险等级由策略汇总决定。
 
 ## 目录结构
 
-- `skill_manager/`：核心 Python 包，包含 CLI、API router、策略、扫描、签名、sandbox 等核心逻辑。
+- `agent_manager/`：核心 Python 包，包含 CLI、API router、策略、扫描、签名、sandbox 等核心逻辑。
 - `backend/`：后台管理 API 启动壳和账号/菜单/登录等管理台基础能力，使用 `uv` 管理依赖。
 - `web/`：Vue 3 + Vite + Ant Design Vue 前端管理台。
 - `services/isolated-sandbox-service/`：生产向远程 sandbox 服务。
@@ -29,7 +29,7 @@ Skill Manager 是一个 AI Agent Skill 生命周期治理系统，用于对 skil
 后端 API：
 
 ```bash
-uv run skill-manager-api --host 0.0.0.0 --port 8080
+uv run agent-manager-api --host 0.0.0.0 --port 8080
 ```
 
 如果从 `backend/` 管理环境启动：
@@ -66,7 +66,7 @@ uv run pytest tests/test_vetting.py -q
 Python 语法检查：
 
 ```bash
-python3 -m py_compile skill_manager/core/llm.py skill_manager/core/vetting.py skill_manager/core/sandbox.py skill_manager/api/router.py
+python3 -m py_compile agent_manager/core/llm.py agent_manager/core/vetting.py agent_manager/core/sandbox.py agent_manager/api/router.py
 ```
 
 Docker 编排：
@@ -94,12 +94,12 @@ make sandbox-runtime-build
 
 ## 后端注意事项
 
-- API 路由主要在 `skill_manager/api/router.py`。
-- 核心扫描流程在 `skill_manager/core/vetting.py`。
-- LLM 调用封装在 `skill_manager/core/llm.py`，需要兼容 DeepSeek/OpenAI-compatible API。
-- Sandbox 运行封装在 `skill_manager/core/sandbox.py`。
-- 策略相关逻辑在 `skill_manager/core/policy.py`。
-- 模型和 registry 数据结构在 `skill_manager/core/models.py`、`skill_manager/core/manager.py`。
+- API 路由主要在 `agent_manager/api/router.py`。
+- 核心扫描流程在 `agent_manager/core/vetting.py`。
+- LLM 调用封装在 `agent_manager/core/llm.py`，需要兼容 DeepSeek/OpenAI-compatible API。
+- Sandbox 运行封装在 `agent_manager/core/sandbox.py`。
+- 策略相关逻辑在 `agent_manager/core/policy.py`。
+- 模型和 registry 数据结构在 `agent_manager/core/models.py`、`agent_manager/core/manager.py`。
 - 新增 API 时要考虑登录权限、审计日志、错误信息中文可读性和前端兼容。
 - 提交 skill 相关接口应保持幂等和防重复提交意识，前端禁用按钮不能替代后端校验。
 
@@ -120,18 +120,18 @@ make sandbox-runtime-build
 
 - Sandbox 的风险等级只代表运行时 probe 观察到的行为，不等同于静态扫描或 LLM 的最终风险。
 - 默认 probe 可能覆盖不足；启用 LLM 时可以生成测试参数，但不要让 LLM 生成要执行的代码。
-- 本地 Docker runtime 镜像建议使用 `skill-manager-sandbox-runtime:latest`，避免运行时缺少常见依赖。
+- 本地 Docker runtime 镜像建议使用 `agent-manager-sandbox-runtime:latest`，避免运行时缺少常见依赖。
 - 远程 sandbox 服务的生产向实现参考 `services/isolated-sandbox-service/README.md`。
 - 不要把 sandbox 当成完整攻击链复现系统；精确 syscall tracing、完整文件访问审计、进程树分析需要更底层的 runner 支持。
 
 ## Agent 集成约定
 
-- Agent 不应该只按 skill name 加载本地目录；如果本地目录可写，应传 `skill_path` 让 Skill Manager 计算内容签名并验证。
+- Agent 不应该只按 skill name 加载本地目录；如果本地目录可写，应传 `skill_path` 让 Agent Manager 计算内容签名并验证。
 - Name-only 校验只适合 CI/CD 管控的只读 skill 目录。
 - 示例优先参考：
   - `demo/agno-skill-guard/`
   - `demo/langgraph-skill-guard/`
-  - `demo/openclaw-skill-manager-hook/`
+  - `demo/openclaw-agent-manager-hook/`
   - `demo/claude-code-hook/`
 
 ## 客户侧 Go 扫描器实施计划
@@ -141,7 +141,7 @@ make sandbox-runtime-build
 - Scanner Token 必须在管理台页面管理，创建后只展示一次明文，服务端只保存 hash，并支持禁用、吊销、过期、权限范围、允许 IP/CIDR、最大上传大小、最大并发任务数和审计。
 - Scanner Token 最小权限为 `scanner:submit`、`scanner:read-own-results`、`scanner:read-own-sessions`；不要授予审批、部署、策略修改、用户管理或 token 管理权限。
 - 后端新增 scanner 专用 API，不复用管理员接口。建议接口包括 `POST /api/v1/scanner/imports`、`GET /api/v1/scanner/imports/{skill_id}`，后续再增加 session 批量接口。
-- Go scanner MVP 先实现 `skill-scanner scan <path>`：递归发现包含 `SKILL.md` 的目录，忽略 `.git`、`.venv`、`node_modules`、`__pycache__`、`dist`、`build`，解析基础元数据，生成 manifest 和 sha256 fingerprint，本地轻量预检，安全打 ZIP，上传到 Skill Manager，轮询结果，输出 JSON 报告。
+- Go scanner MVP 先实现 `skill-scanner scan <path>`：递归发现包含 `SKILL.md` 的目录，忽略 `.git`、`.venv`、`node_modules`、`__pycache__`、`dist`、`build`，解析基础元数据，生成 manifest 和 sha256 fingerprint，本地轻量预检，安全打 ZIP，上传到 Agent Manager，轮询结果，输出 JSON 报告。
 - 本地轻量预检不执行客户代码，只检查大文件、危险扩展名、明显危险关键词等静态信号。
 - 打包时禁止路径逃逸，不跟随指向 skill 目录外部的软链接，限制单文件大小、总上传大小和文件数量。
 - 服务端收到 scanner 上传后要重新计算 manifest/fingerprint 并和客户端提交值对比。

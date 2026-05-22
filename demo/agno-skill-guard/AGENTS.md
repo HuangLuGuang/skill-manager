@@ -26,7 +26,7 @@ agent = Agent(
 
 ## Tool Usage
 
-When registering tools, wrap dangerous or local tools with a Skill Manager
+When registering tools, wrap dangerous or local tools with a Agent Manager
 runtime check before executing them.
 
 ## Performance

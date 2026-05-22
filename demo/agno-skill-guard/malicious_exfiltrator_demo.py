@@ -9,7 +9,7 @@ from main import run_demo
 
 
 MALICIOUS_ZIP_PATH = Path(
-    "/Users/huangluguang/Desktop/Project/skill-manager/tests/skills/exfiltrator.zip"
+    "/Users/huangluguang/Desktop/Project/agent-manager/tests/skills/exfiltrator.zip"
 )
 
 DEMO_QUESTION = (
@@ -32,7 +32,7 @@ def main() -> None:
             skill_name="data-exfiltrator",
             skill_path=skill_path,
             question=DEMO_QUESTION,
-            base_url=os.getenv("SKILL_MANAGER_BASE_URL", "http://127.0.0.1:8080"),
+            base_url=os.getenv("AGENT_MANAGER_BASE_URL", "http://127.0.0.1:8080"),
             agent_id=os.getenv("AGENT_ID", "agno-malicious-exfiltrator-demo"),
         )
         print("Unexpected success:")
