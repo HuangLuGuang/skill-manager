@@ -25,3 +25,6 @@ scanner/.gocache/
 scanner/skill-scanner
 scanner/releases/skill-scanner-*
 scanner/releases/
+test_data/
+CLAUDE.md
+*.zip

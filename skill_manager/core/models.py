@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -64,26 +64,21 @@ class SourceInfo(BaseModel):
     """Provenance information for a skill."""
 
     origin: SkillOrigin = SkillOrigin.UNKNOWN
-    author: str | None = None
-    url: str | None = None
-    version: str | None = None
-    commit_sha: str | None = None
+    author: Optional[str] = None
+    url: Optional[str] = None
+    version: Optional[str] = None
+    commit_sha: Optional[str] = None
 
 
 class VettingResult(BaseModel):
     """Output of the vetting pipeline for a skill."""
 
-    risk_level: RiskLevel
-    max_severity: str
-    findings_count: int
-    critical_count: int = 0
-    high_count: int = 0
-    medium_count: int = 0
-    low_count: int = 0
+    verdict: Literal["malicious", "benign"] = "benign"
+    findings_count: int = 0
     analyzers_used: list[str] = Field(default_factory=list)
     sandbox_triggered: bool = False
     sandbox_required_by_policy: bool = False
-    sandbox_runtime: str | None = None
+    sandbox_runtime: Optional[str] = None
     scan_duration_seconds: float = 0.0
     vetted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     # Full scan report (serialized ScanResult.to_dict())
@@ -99,34 +94,34 @@ class RegistryEntry(BaseModel):
     name: str                           # From SKILL.md manifest
     description: str                    # From SKILL.md manifest
     source: SourceInfo
-    skill_path: str | None = None       # Absolute path (local skills)
+    skill_path: Optional[str] = None       # Absolute path (local skills)
     status: SkillStatus = SkillStatus.PENDING
-    risk_level: RiskLevel | None = None
-    vetting: VettingResult | None = None
+    risk_level: Optional[RiskLevel] = None
+    vetting: Optional[VettingResult] = None
     allowed_tools: list[str] = Field(default_factory=list)
     declared_tools_valid: bool = True   # All declared tools are in policy allowlist
 
     # Signing
-    signature: str | None = None        # HMAC-SHA256 of skill content tree
+    signature: Optional[str] = None        # HMAC-SHA256 of skill content tree
 
     # Timestamps
     submitted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    approved_at: datetime | None = None
-    deployed_at: datetime | None = None
-    retired_at: datetime | None = None
+    approved_at: Optional[datetime] = None
+    deployed_at: Optional[datetime] = None
+    retired_at: Optional[datetime] = None
 
     # Review
-    approved_by: str | None = None
-    approval_note: str | None = None
-    rejection_reason: str | None = None
-    retire_reason: str | None = None
+    approved_by: Optional[str] = None
+    approval_note: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    retire_reason: Optional[str] = None
 
     # Scan cache / dedupe metadata
-    content_fingerprint: str | None = None
-    scan_context_fingerprint: str | None = None
-    scan_cache_key: str | None = None
+    content_fingerprint: Optional[str] = None
+    scan_context_fingerprint: Optional[str] = None
+    scan_cache_key: Optional[str] = None
     scan_reused: bool = False
-    reused_from_skill_id: str | None = None
+    reused_from_skill_id: Optional[str] = None
 
     @field_validator("name")
     @classmethod
@@ -165,7 +160,7 @@ class AuditEvent(BaseModel):
     skill_id: str
     skill_name: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    actor: str | None = None     # user or agent ID
+    actor: Optional[str] = None     # user or agent ID
     details: dict[str, Any] = Field(default_factory=dict)
 
     def to_log_line(self) -> str:
@@ -193,4 +188,4 @@ class ReviewRequest(BaseModel):
     findings_summary: dict[str, int]   # severity -> count
     submitted_at: datetime
     queued_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    notes: str | None = None
+    notes: Optional[str] = None

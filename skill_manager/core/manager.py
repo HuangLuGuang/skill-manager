@@ -189,7 +189,11 @@ class SkillManager:
             use_sandbox=use_sandbox,
         )
 
-        status = self.policy.decide(vetting_result.risk_level, source, violations)
+        status = self.policy.decide(
+            RiskLevel.from_severity(vetting_result.scan_report.get("max_severity", "SAFE")),
+            source,
+            violations,
+        )
         declared_tools_valid = not any(v.rule in ("tool_not_in_allowlist", "blocked_permission") for v in violations)
         vetting_result.scan_report = {
             **vetting_result.scan_report,
@@ -202,7 +206,7 @@ class SkillManager:
         entry.name = name
         entry.description = description
         entry.status = status
-        entry.risk_level = vetting_result.risk_level
+        entry.risk_level = RiskLevel.from_severity(vetting_result.scan_report.get("max_severity", "SAFE"))
         entry.vetting = vetting_result
         entry.allowed_tools = allowed_tools
         entry.declared_tools_valid = declared_tools_valid
@@ -217,7 +221,8 @@ class SkillManager:
             "skill_processing_completed",
             entry,
             details={
-                "risk_level": vetting_result.risk_level.value,
+                "verdict": vetting_result.verdict,
+                "risk_level": RiskLevel.from_severity(vetting_result.scan_report.get("max_severity", "SAFE")).value,
                 "status": status.value,
                 "violations": [v.rule for v in violations],
             },
@@ -227,13 +232,8 @@ class SkillManager:
             self.registry.enqueue_review(ReviewRequest(
                 skill_id=entry.skill_id,
                 skill_name=name,
-                risk_level=vetting_result.risk_level,
-                findings_summary={
-                    "critical": vetting_result.critical_count,
-                    "high": vetting_result.high_count,
-                    "medium": vetting_result.medium_count,
-                    "low": vetting_result.low_count,
-                },
+                risk_level=RiskLevel.from_severity(vetting_result.scan_report.get("max_severity", "SAFE")),
+                findings_summary={"total": vetting_result.findings_count},
                 submitted_at=entry.submitted_at,
                 notes="; ".join(vetting_result.policy_notes) if vetting_result.policy_notes else None,
             ))
@@ -241,10 +241,10 @@ class SkillManager:
 
         self.registry.log_event(make_event(
             "skill_vetted", entry,
-            details={"risk_level": vetting_result.risk_level.value, "status": status.value},
+            details={"verdict": vetting_result.verdict, "status": status.value},
         ))
 
-        logger.info("Processed skill %r: status=%s risk=%s", name, status.value, vetting_result.risk_level.value)
+        logger.info("Processed skill %r: status=%s verdict=%s", name, status.value, vetting_result.verdict)
         self.scan_cache.put(scan_cache_key, entry, content_fingerprint, scan_context_fingerprint)
         return entry
 
@@ -287,12 +287,7 @@ class SkillManager:
                 skill_id=entry.skill_id,
                 skill_name=entry.name,
                 risk_level=entry.risk_level,
-                findings_summary={
-                    "critical": entry.vetting.critical_count if entry.vetting else 0,
-                    "high": entry.vetting.high_count if entry.vetting else 0,
-                    "medium": entry.vetting.medium_count if entry.vetting else 0,
-                    "low": entry.vetting.low_count if entry.vetting else 0,
-                },
+                findings_summary={"total": entry.vetting.findings_count if entry.vetting else 0},
                 submitted_at=entry.submitted_at,
                 notes="复用历史扫描结果，仍需人工审核。",
             ))

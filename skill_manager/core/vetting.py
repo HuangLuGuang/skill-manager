@@ -14,7 +14,8 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .llm import LLMConfig, analyze_skill_with_llm, generate_sandbox_probes_with_llm
+from .llm import LLMConfig, analyze_skill_with_llm_single_round, generate_sandbox_probes_with_llm
+from .llm import _build_skill_snapshot  # noqa: F401 - used via llm module
 from .models import PolicyViolation, RiskLevel, SourceInfo, VettingResult
 from .sandbox import (
     build_probe_plan,
@@ -355,6 +356,7 @@ class VettingPipeline:
         # 2. Run scanner
         scan_report = _run_scanner(skill_path, self.policy.scanner_policy)
         behavioral_notes: list[str] = []
+        behavioral_result = None
         if use_behavioral:
             behavioral_result = _run_behavioral_analysis(skill_path)
             scan_report = {
@@ -382,46 +384,13 @@ class VettingPipeline:
                     "[BEHAVIORAL] "
                     f"found {len(behavioral_result['findings'])} suspicious patterns"
                 )
-        llm_notes: list[str] = []
-        if use_llm:
-            try:
-                llm_config = LLMConfig.load()
-                llm_result = analyze_skill_with_llm(skill_path, llm_config)
-                llm_findings = [
-                    {
-                        "severity": finding.severity.upper(),
-                        "title": finding.title,
-                        "message": finding.message,
-                        "file": finding.file,
-                        "source": "llm",
-                    }
-                    for finding in llm_result.findings
-                ]
-                scan_report = {
-                    **scan_report,
-                    "max_severity": _max_severity(
-                        scan_report.get("max_severity", "SAFE"),
-                        llm_result.max_severity,
-                    ),
-                    "findings": [*scan_report.get("findings", []), *llm_findings],
-                    "analyzers_used": [
-                        *scan_report.get("analyzers_used", ["basic"]),
-                        f"llm:{llm_result.provider}",
-                    ],
-                    "llm_analysis": llm_result.model_dump(mode="json"),
-                }
-                if llm_result.summary:
-                    llm_notes.append(f"[LLM] {llm_result.summary}")
-                llm_notes.extend(f"[LLM] {note}" for note in llm_result.policy_notes)
-            except Exception as exc:
-                logger.warning("LLM analysis skipped for %s: %s", skill_path, exc)
-                llm_notes.append(f"[LLM] analysis skipped: {exc}")
-
+        # 3. Sandbox Analysis (before LLM so LLM can use sandbox results)
         initial_risk_level = RiskLevel.from_severity(scan_report.get("max_severity", "SAFE"))
         sandbox_required_by_policy = self.policy.requires_sandbox(initial_risk_level)
         effective_use_sandbox = use_sandbox or sandbox_required_by_policy
         sandbox_notes: list[str] = []
         sandbox_runtime: str | None = None
+        sandbox_result: dict[str, Any] | None = None
         if sandbox_required_by_policy:
             sandbox_notes.append(
                 f"[SANDBOX] required by policy for risk level {initial_risk_level.value}"
@@ -610,18 +579,51 @@ class VettingPipeline:
                     if temp_probe_context:
                         temp_probe_context.cleanup()
 
-        # 3. Derive risk level
+        # 4. LLM multi-round analysis (after sandbox, with all prior results)
+        llm_notes: list[str] = []
+        llm_result = None
+        if use_llm:
+            try:
+                llm_config = LLMConfig.load()
+                # Build skill snapshot for LLM
+                from .llm import _build_skill_snapshot as _build_snapshot
+                skill_snapshot = _build_snapshot(skill_path, llm_config)
+                # Extract rule findings from scan report
+                rule_findings = {
+                    "max_severity": scan_report.get("max_severity", "SAFE"),
+                    "findings": [
+                        f for f in scan_report.get("findings", [])
+                        if f.get("source") in (None, "scanner", "basic")
+                    ],
+                }
+                llm_result = analyze_skill_with_llm_single_round(
+                    skill_snapshot=skill_snapshot,
+                    rule_results=rule_findings,
+                    behavioural_result=behavioral_result if use_behavioral else None,
+                    sandbox_result=sandbox_result,
+                    config=llm_config,
+                )
+                # Merge LLM result into scan report
+                scan_report = {
+                    **scan_report,
+                    "analyzers_used": [
+                        *scan_report.get("analyzers_used", ["basic"]),
+                        f"llm:{llm_result.provider}",
+                    ],
+                    "llm_analysis": llm_result.model_dump(mode="json"),
+                }
+                if llm_result.report:
+                    llm_notes.append(f"[LLM] {llm_result.report}")
+            except Exception as exc:
+                logger.warning("LLM analysis skipped for %s: %s", skill_path, exc)
+                llm_notes.append(f"[LLM] analysis skipped: {exc}")
+
+        # 5. Derive risk level from scan report (for policy decisions)
         max_severity = scan_report.get("max_severity", "SAFE")
         risk_level = RiskLevel.from_severity(max_severity)
-
         findings = scan_report.get("findings", [])
-        counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-        for f in findings:
-            sev = f.get("severity", "INFO").lower()
-            if sev in counts:
-                counts[sev] += 1
 
-        # 4. Policy checks
+        # 6. Policy checks
         violations = _check_manifest_policy(allowed_tools, license_val, self.policy)
 
         policy_notes: list[str] = []
@@ -632,15 +634,15 @@ class VettingPipeline:
         policy_notes.extend(llm_notes)
         policy_notes.extend(sandbox_notes)
 
-        # 5. Build result
+        # 7. Determine final verdict
+        final_verdict = "benign"
+        if llm_result:
+            final_verdict = llm_result.verdict
+
+        # 8. Build result
         result = VettingResult(
-            risk_level=risk_level,
-            max_severity=max_severity,
+            verdict=final_verdict,
             findings_count=len(findings),
-            critical_count=counts["critical"],
-            high_count=counts["high"],
-            medium_count=counts["medium"],
-            low_count=counts["low"],
             analyzers_used=scan_report.get("analyzers_used", ["basic"]),
             sandbox_triggered=effective_use_sandbox,
             sandbox_required_by_policy=sandbox_required_by_policy,
