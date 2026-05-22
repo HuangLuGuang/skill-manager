@@ -86,7 +86,7 @@
             <a-form-item>
               <a-space wrap>
                 <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认未启动）</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
                   <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
@@ -170,7 +170,7 @@
             <a-form-item>
               <a-space wrap>
                 <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认未启动）</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
                   <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
@@ -248,7 +248,7 @@
             <a-form-item>
               <a-space wrap>
                 <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认未启动）</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
                   <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
@@ -302,7 +302,7 @@
             <a-form-item>
               <a-space wrap>
                 <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认未启动）</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
                   <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
@@ -417,7 +417,7 @@ const clawhubToken = ref('')
 const currentUsername = localStorage.getItem('username') || 'admin'
 
 const formState = reactive({
-  useBehavioral: false,
+  useBehavioral: true,
   useSandbox: false,
   useLlm: false,
 })
@@ -574,7 +574,7 @@ const llmTooltip = computed(() => {
   if (!managerStatus.value?.llm_api_key_configured) return '系统设置里尚未配置 LLM API Key，所以这里不能勾选'
   return '启用后会调用系统设置里的 DeepSeek 配置，对技能做补充分析'
 })
-const behavioralTooltip = '默认未启动。启用后会额外扫描 scripts、references、prompts 等目录中的文本代码文件，检测命令执行、敏感文件访问、动态执行等可疑模式'
+const behavioralTooltip = '默认已启动。会额外扫描 scripts、references、prompts 等目录中的文本代码文件，检测命令执行、敏感文件访问、动态执行等可疑模式'
 const sandboxTooltip = '启用后会尝试在 Docker 沙箱或远程隔离执行服务中执行一个受控 probe，用于观察 skill 运行时行为'
 
 const inferRemoteOrigin = (url) => (url && url.includes('github.com') ? 'github' : 'unknown')
@@ -672,6 +672,11 @@ const resetZip = () => {
   clearZipAnalysis()
 }
 
+const clearSubmittedZipSelection = () => {
+  selectedFile.value = null
+  clearZipAnalysis()
+}
+
 const resetAll = () => {
   stopPolling()
   selectedFile.value = null
@@ -682,6 +687,11 @@ const resetAll = () => {
 }
 
 const resetLocalImport = () => {
+  selectedLocalDirectories.value = []
+  selectedLocalPaths.value = []
+}
+
+const clearSubmittedLocalSelection = () => {
   selectedLocalDirectories.value = []
   selectedLocalPaths.value = []
 }
@@ -732,6 +742,7 @@ const handleZipSubmit = async () => {
       use_llm: formState.useLlm,
     })
     submitResults.value = result.results || []
+    clearSubmittedZipSelection()
     message.success(`已提交 ${submitResults.value.length} 个 skills`)
     startPolling()
   } catch (error) {
@@ -807,6 +818,7 @@ const handleLocalSubmit = async () => {
       use_llm: formState.useLlm,
     })
     submitResults.value = result.results || []
+    clearSubmittedLocalSelection()
     message.success(`已提交 ${submitResults.value.length} 个 skills`)
     startPolling()
   } catch (error) {
@@ -818,6 +830,14 @@ const handleLocalSubmit = async () => {
 
 const resetRemoteImport = () => {
   downloadUrl.value = ''
+  remoteImportSessionId.value = ''
+  remoteImportRootPath.value = ''
+  remoteCandidates.value = []
+  selectedRemoteDirectories.value = []
+  selectedRemotePaths.value = []
+}
+
+const clearSubmittedRemoteSelection = () => {
   remoteImportSessionId.value = ''
   remoteImportRootPath.value = ''
   remoteCandidates.value = []
@@ -903,6 +923,7 @@ const handleUrlSubmit = async () => {
       use_llm: formState.useLlm,
     })
     submitResults.value = result.results || []
+    clearSubmittedRemoteSelection()
     message.success(`已提交 ${submitResults.value.length} 个 skills`)
     startPolling()
   } catch (error) {

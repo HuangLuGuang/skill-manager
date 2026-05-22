@@ -1475,6 +1475,7 @@ def get_audit(
     since_hours: float = Query(24.0),
     skill_id: str | None = Query(None),
     event_type: str | None = Query(None),
+    event_types: str | None = Query(None),
     actor: str | None = Query(None),
     q: str | None = Query(None),
     sort_order: str = Query("desc"),
@@ -1487,6 +1488,9 @@ def get_audit(
     events = mgr.audit(since=since, skill_id=skill_id, limit=limit)
     if event_type:
         events = [e for e in events if e.event_type == event_type]
+    elif event_types:
+        allowed_types = {item.strip() for item in event_types.split(",") if item.strip()}
+        events = [e for e in events if e.event_type in allowed_types]
     if actor:
         needle = actor.lower()
         events = [e for e in events if needle in (e.actor or "").lower()]

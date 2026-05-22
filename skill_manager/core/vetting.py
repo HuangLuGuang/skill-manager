@@ -163,7 +163,7 @@ def _load_manifest(skill_path: Path) -> tuple[str, str, list[str], str | None]:
         license_val = post.get("license")
         return str(name), str(description), list(raw_tools), license_val
     except ImportError:
-        # Fallback: read SKILL.md manually
+        # Fallback: parse SKILL.md frontmatter without python-frontmatter.
         content = skill_md.read_text(encoding="utf-8")
         name = skill_path.name
         description = ""
@@ -181,6 +181,26 @@ def _load_manifest(skill_path: Path) -> tuple[str, str, list[str], str | None]:
                     break
                 fm_lines.append(line)
 
+        fm_text = "\n".join(fm_lines)
+        try:
+            import yaml
+
+            payload = yaml.safe_load(fm_text) or {}
+            if isinstance(payload, dict):
+                name = str(payload.get("name") or payload.get("skill-name") or name)
+                description = str(payload.get("description") or description)
+                raw_tools = payload.get("allowed-tools") or payload.get("allowed_tools") or []
+                if isinstance(raw_tools, str):
+                    allowed_tools = [t.strip() for t in raw_tools.split(",") if t.strip()]
+                elif isinstance(raw_tools, list):
+                    allowed_tools = [str(t).strip() for t in raw_tools if str(t).strip()]
+                license_raw = payload.get("license")
+                if license_raw is not None:
+                    license_val = str(license_raw)
+                return name, description, allowed_tools, license_val
+        except Exception:
+            pass
+
         for line in fm_lines:
             if line.startswith("name:"):
                 name = line.split(":", 1)[1].strip().strip('"\'')
@@ -188,6 +208,10 @@ def _load_manifest(skill_path: Path) -> tuple[str, str, list[str], str | None]:
                 description = line.split(":", 1)[1].strip().strip('"\'')
             elif line.startswith("license:"):
                 license_val = line.split(":", 1)[1].strip().strip('"\'')
+            elif line.startswith("allowed-tools:") or line.startswith("allowed_tools:"):
+                raw = line.split(":", 1)[1].strip().strip('"\'')
+                if raw:
+                    allowed_tools = [t.strip() for t in raw.split(",") if t.strip()]
 
         return name, description, allowed_tools, license_val
 

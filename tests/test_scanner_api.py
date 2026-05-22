@@ -9,7 +9,9 @@ import skill_manager.api.router as api_router
 from skill_manager.api.router import get_manager
 from skill_manager.api.scanner_router import _scanner_release_dir, admin_router, router, runtime_router
 from skill_manager.core.manager import SkillManager
+from skill_manager.core.models import SkillOrigin, SourceInfo
 from skill_manager.core.policy import CompanyPolicy
+from skill_manager.core.registry import make_event
 from skill_manager.core.signer import compute_signature
 
 
@@ -135,5 +137,39 @@ def test_access_runtime_routes_accept_runtime_token(tmp_path):
             params={"skill_path": str(skill_dir)},
         )
         assert path_response.status_code == 400
+    finally:
+        api_router._manager = previous_manager
+
+
+def test_audit_accepts_comma_separated_event_types(tmp_path):
+    app = FastAPI()
+    manager = SkillManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: audit-skill\ndescription: Audit test\n---\n", encoding="utf-8")
+    entry = manager.create_pending_submission(skill_dir, source=SourceInfo(origin=SkillOrigin.LOCAL))
+    manager.registry.log_event(make_event("skill_load_allowed", entry))
+    manager.registry.log_event(make_event("tool_blocked", entry))
+    manager.registry.log_event(make_event("skill_processing_completed", entry))
+
+    previous_manager = api_router._manager
+    api_router._manager = manager
+    try:
+        app.dependency_overrides[get_manager] = lambda: manager
+        app.include_router(api_router.router)
+        client = TestClient(app)
+
+        response = client.get(
+            "/api/v1/audit",
+            params={
+                "event_types": "skill_load_allowed,tool_blocked",
+                "page": 1,
+                "page_size": 20,
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert {item["event_type"] for item in payload["items"]} == {"skill_load_allowed", "tool_blocked"}
     finally:
         api_router._manager = previous_manager

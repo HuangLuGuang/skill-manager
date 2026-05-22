@@ -65,7 +65,7 @@
       <a-col :xs="24" :xl="10">
         <a-card title="当前可加载技能">
           <a-space style="margin-bottom: 16px" wrap>
-            <a-select v-model:value="skillRiskFilter" style="width: 160px">
+            <a-select v-model:value="skillRiskFilter" style="width: 160px" @change="handleSkillFilterChange">
               <a-select-option value="all">全部风险</a-select-option>
               <a-select-option value="LOW">LOW</a-select-option>
               <a-select-option value="MEDIUM">MEDIUM</a-select-option>
@@ -106,13 +106,11 @@
       <a-col :xs="24" :xl="14">
         <a-card title="最近运行时事件">
           <a-space style="margin-bottom: 16px" wrap>
-            <a-select v-model:value="eventFilter" style="width: 220px">
+            <a-select v-model:value="eventFilter" style="width: 220px" @change="handleAuditFilterChange">
               <a-select-option value="all">全部运行时事件</a-select-option>
-              <a-select-option value="skill_load_allowed">skill_load_allowed</a-select-option>
-              <a-select-option value="skill_load_blocked">skill_load_blocked</a-select-option>
-              <a-select-option value="skill_tamper_detected">skill_tamper_detected</a-select-option>
-              <a-select-option value="tool_invoked">tool_invoked</a-select-option>
-              <a-select-option value="tool_blocked">tool_blocked</a-select-option>
+              <a-select-option v-for="option in runtimeEventOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </a-select-option>
             </a-select>
             <a-input v-model:value="auditKeyword" placeholder="搜索 Skill / Actor" style="width: 220px" allow-clear />
             <a-button type="primary" @click="fetchRuntimeAudit" :loading="loadingAudit">查询</a-button>
@@ -215,6 +213,16 @@ const auditColumns = [
   { title: 'Details', dataIndex: 'details', key: 'details' },
 ]
 
+const runtimeEventOptions = [
+  { value: 'skill_signature_verified', label: 'skill_signature_verified' },
+  { value: 'skill_load_allowed', label: 'skill_load_allowed' },
+  { value: 'skill_load_blocked', label: 'skill_load_blocked' },
+  { value: 'skill_tamper_detected', label: 'skill_tamper_detected' },
+  { value: 'tool_invoked', label: 'tool_invoked' },
+  { value: 'tool_blocked', label: 'tool_blocked' },
+]
+const runtimeEventTypes = runtimeEventOptions.map((item) => item.value)
+
 const handleCanLoad = async () => {
   if (!canLoadForm.skillName.trim()) {
     message.warning('请先输入 Skill 名称')
@@ -289,6 +297,7 @@ const fetchRuntimeAudit = async () => {
     const res = await getAuditPaged({
       since_hours: 168,
       event_type: eventFilter.value === 'all' ? undefined : eventFilter.value,
+      event_types: eventFilter.value === 'all' ? runtimeEventTypes.join(',') : undefined,
       q: auditKeyword.value.trim() || undefined,
       page: auditPagination.value.current,
       page_size: auditPagination.value.pageSize,
@@ -338,6 +347,22 @@ const handleAuditTableChange = (pager, _filters, sorter) => {
       field: sorter.field,
       order: sorter.order || 'ascend',
     }
+  }
+  fetchRuntimeAudit()
+}
+
+const handleSkillFilterChange = () => {
+  skillPagination.value = {
+    ...skillPagination.value,
+    current: 1,
+  }
+  fetchLoadableSkills()
+}
+
+const handleAuditFilterChange = () => {
+  auditPagination.value = {
+    ...auditPagination.value,
+    current: 1,
   }
   fetchRuntimeAudit()
 }

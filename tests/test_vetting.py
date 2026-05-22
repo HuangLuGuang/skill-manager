@@ -45,6 +45,27 @@ class TestManifestLoading:
         name, desc, tools, lic = _load_manifest(skill_dir)
         assert name == "test-skill"
         assert "test" in desc.lower()
+        assert tools == ["Read", "Grep"]
+        assert lic == "MIT"
+
+    def test_load_manifest_supports_yaml_list_allowed_tools_without_frontmatter(self, tmp_path):
+        skill_md = tmp_path / "SKILL.md"
+        skill_md.write_text(textwrap.dedent("""\
+            ---
+            name: yaml-list-skill
+            description: YAML list test
+            license: MIT
+            allowed-tools:
+              - Read
+              - Bash
+            ---
+        """))
+
+        name, desc, tools, lic = _load_manifest(tmp_path)
+
+        assert name == "yaml-list-skill"
+        assert desc == "YAML list test"
+        assert tools == ["Read", "Bash"]
         assert lic == "MIT"
 
     def test_missing_skill_md_raises(self, tmp_path):

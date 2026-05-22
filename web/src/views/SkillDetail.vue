@@ -1,79 +1,101 @@
 <template>
-  <div>
+  <div class="skill-detail-page">
     <a-page-header :title="detail?.name ? `技能详情：${detail.name}` : `技能详情：${skillId}`" sub-title="查看技能详情、审核、部署与审计记录" />
 
-    <a-row :gutter="[16, 16]" style="margin-top: 16px">
-      <a-col :xs="24" :xl="8">
-        <a-card title="基础信息">
-          <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
-            <a-descriptions :column="1" size="small">
-              <a-descriptions-item label="Skill ID">{{ detail?.skill_id || skillId }}</a-descriptions-item>
-              <a-descriptions-item label="名称">{{ detail?.name || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="状态">
-                <a-tag :color="statusColor(detail?.status)">{{ detail?.status || '-' }}</a-tag>
-              </a-descriptions-item>
-              <a-descriptions-item label="风险">
-                <a-tag :color="riskColor(detail?.risk_level)">{{ detail?.risk_level || '-' }}</a-tag>
-              </a-descriptions-item>
-              <a-descriptions-item label="路径">{{ detail?.skill_path || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="作者">{{ detail?.source?.author || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="来源">{{ detail?.source?.origin || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="允许工具">{{ detail?.allowed_tools?.join(', ') || 'none' }}</a-descriptions-item>
-              <a-descriptions-item label="声明工具有效">{{ detail?.declared_tools_valid ? '是' : '否' }}</a-descriptions-item>
-              <a-descriptions-item label="Sandbox 已触发">
-                {{ detail?.vetting?.sandbox_triggered ? '是' : '否' }}
-              </a-descriptions-item>
-              <a-descriptions-item label="Sandbox 由策略强制">
-                {{ detail?.vetting?.sandbox_required_by_policy ? '是' : '否' }}
-              </a-descriptions-item>
-              <a-descriptions-item label="Sandbox 后端">
-                {{ detail?.vetting?.sandbox_runtime || '-' }}
-              </a-descriptions-item>
-              <a-descriptions-item label="Sandbox 镜像">
-                {{ sandboxDisplayImage }}
-              </a-descriptions-item>
-              <a-descriptions-item label="扫描复用">
-                <a-space wrap>
-                  <a-tag :color="detail?.scan_reused ? 'green' : 'default'">
-                    {{ detail?.scan_reused ? '已复用' : '未复用' }}
-                  </a-tag>
-                  <span v-if="detail?.reused_from_skill_id">来源：{{ detail.reused_from_skill_id }}</span>
-                </a-space>
-              </a-descriptions-item>
-            </a-descriptions>
-          </a-skeleton>
-        </a-card>
-      </a-col>
+    <a-card style="margin-top: 16px" class="overview-card">
+      <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
+        <div class="hero-row">
+          <div class="hero-main">
+            <div class="detail-overview__name">{{ detail?.name || '-' }}</div>
+            <div class="detail-overview__subline">Skill ID：{{ detail?.skill_id || skillId }}</div>
+          </div>
+          <div class="hero-actions">
+            <a-space wrap>
+              <a-tag :color="statusColor(detail?.status)">{{ detail?.status || '-' }}</a-tag>
+              <a-tag :color="riskColor(detail?.risk_level)">{{ detail?.risk_level || '-' }}</a-tag>
+              <a-tag v-if="detail?.scan_reused" color="green">复用扫描</a-tag>
+              <a-tag v-if="detail?.vetting?.sandbox_triggered" color="blue">Sandbox</a-tag>
+            </a-space>
+            <a-space wrap>
+              <a-button @click="fetchDetail" :loading="loading">刷新</a-button>
+              <a-tooltip :title="detail?.signature ? '校验当前 skill 内容是否与已登记签名一致' : '当前 skill 尚未批准签名，暂时不能验签'">
+                <span>
+                  <a-button @click="handleVerifySignature" :loading="verifyingSignature" :disabled="!detail?.signature">验签</a-button>
+                </span>
+              </a-tooltip>
+              <a-button v-if="detail?.status === 'VETTED'" type="primary" @click="openApproveModal">批准</a-button>
+              <a-button v-if="detail?.status === 'VETTED'" danger @click="openRejectModal">拒绝</a-button>
+              <a-button v-if="detail?.status === 'APPROVED'" type="primary" :loading="actionLoading && actionType === 'deploy'" @click="handleDeploy">部署</a-button>
+              <a-button v-if="detail?.status === 'APPROVED' || detail?.status === 'DEPLOYED'" danger @click="openRetireModal">退役</a-button>
+            </a-space>
+          </div>
+        </div>
 
-      <a-col :xs="24" :xl="16">
-        <a-card title="生命周期与操作">
-          <a-space style="margin-bottom: 16px" wrap>
-            <a-button @click="fetchDetail" :loading="loading">刷新</a-button>
-            <a-button @click="handleVerifySignature" :loading="verifyingSignature">验签</a-button>
-            <a-button v-if="detail?.status === 'VETTED'" type="primary" @click="openApproveModal">批准</a-button>
-            <a-button v-if="detail?.status === 'VETTED'" danger @click="openRejectModal">拒绝</a-button>
-            <a-button v-if="detail?.status === 'APPROVED'" type="primary" :loading="actionLoading && actionType === 'deploy'" @click="handleDeploy">部署</a-button>
-            <a-button v-if="detail?.status === 'APPROVED' || detail?.status === 'DEPLOYED'" danger @click="openRetireModal">退役</a-button>
-          </a-space>
+        <div class="overview-inline-metrics">
+          <div class="inline-metric"><span>作者</span><strong>{{ detail?.source?.author || '-' }}</strong></div>
+          <div class="inline-metric"><span>来源</span><strong>{{ detail?.source?.origin || '-' }}</strong></div>
+          <div class="inline-metric"><span>提交时间</span><strong>{{ formatDateTime(detail?.submitted_at) }}</strong></div>
+          <div class="inline-metric"><span>批准时间</span><strong>{{ formatDateTime(detail?.approved_at) }}</strong></div>
+          <div class="inline-metric"><span>签名</span><strong>{{ detail?.signature ? '已签名' : '未签名' }}</strong></div>
+          <div class="inline-metric"><span>声明工具有效</span><strong>{{ detail?.declared_tools_valid ? '是' : '否' }}</strong></div>
+        </div>
 
-          <a-steps :current="stepIndex" size="small">
-            <a-step title="提交" :description="formatDateTime(detail?.submitted_at)" />
-            <a-step title="审核" :description="detail?.approved_by || '待审核'" />
-            <a-step title="批准" :description="formatDateTime(detail?.approved_at)" />
-            <a-step title="部署" :description="formatDateTime(detail?.deployed_at)" />
-          </a-steps>
+        <a-steps :current="stepIndex" size="small" class="hero-steps">
+          <a-step title="提交" :description="formatDateTime(detail?.submitted_at)" />
+          <a-step title="审核" :description="detail?.approved_by || '待审核'" />
+          <a-step title="批准" :description="formatDateTime(detail?.approved_at)" />
+          <a-step title="部署" :description="formatDateTime(detail?.deployed_at)" />
+        </a-steps>
 
-          <a-alert
-            v-if="signatureResult"
-            style="margin-top: 16px"
-            :type="signatureResult.valid ? 'success' : 'error'"
-            show-icon
-            :message="signatureResult.valid ? '签名校验通过' : '签名校验失败'"
-            :description="signatureResult.reason"
-          />
-        </a-card>
-      </a-col>
-    </a-row>
+        <a-alert
+          v-if="signatureResult"
+          style="margin-top: 16px"
+          :type="signatureResult.valid ? 'success' : 'error'"
+          show-icon
+          :message="signatureResult.valid ? '签名校验通过' : '签名校验失败'"
+          :description="signatureResult.reason"
+        />
+
+        <div class="summary-grid">
+          <div class="summary-block">
+            <div class="summary-block__title">基础元数据</div>
+            <div class="summary-block__item">
+              <span>路径</span>
+              <strong :title="detail?.skill_path || '-'">{{ ellipsisText(detail?.skill_path || '-') }}</strong>
+            </div>
+            <div class="summary-block__item">
+              <span>技能声明工具</span>
+              <strong :title="declaredToolsDisplay">{{ ellipsisText(declaredToolsDisplay, 96) }}</strong>
+            </div>
+            <div class="summary-block__item">
+              <span>策略白名单</span>
+              <strong :title="policyAllowedToolsDisplay">{{ ellipsisText(policyAllowedToolsDisplay, 96) }}</strong>
+            </div>
+          </div>
+
+          <div class="summary-block">
+            <div class="summary-block__title">审核与缓存</div>
+            <div class="summary-block__item"><span>当前审核人</span><strong>{{ detail?.approved_by || '待审核' }}</strong></div>
+            <div class="summary-block__item">
+              <span>扫描复用</span>
+              <strong>{{ detail?.scan_reused ? '已复用' : '未复用' }}</strong>
+            </div>
+            <div class="summary-block__item">
+              <span>缓存 Key</span>
+              <strong :title="detail?.scan_cache_key || '-'">{{ ellipsisText(detail?.scan_cache_key || '-') }}</strong>
+            </div>
+          </div>
+
+          <div class="summary-block">
+            <div class="summary-block__title">扫描与执行</div>
+            <div class="summary-block__item"><span>发现项</span><strong>{{ detail?.vetting?.findings_count ?? 0 }}</strong></div>
+            <div class="summary-block__item"><span>最高严重级别</span><strong>{{ detail?.vetting?.max_severity || '-' }}</strong></div>
+            <div class="summary-block__item"><span>规则分析</span><strong>{{ behavioralAnalysis ? `${behavioralFindings.length} 条命中 / ${behavioralAnalysis.scanned_file_count ?? behavioralScannedFiles.length} 个文件` : '未启用' }}</strong></div>
+            <div class="summary-block__item"><span>Sandbox</span><strong :title="sandboxSummaryText">{{ ellipsisText(sandboxSummaryText, 72) }}</strong></div>
+          </div>
+        </div>
+      </a-skeleton>
+    </a-card>
 
     <a-card title="Vetting / 签名 / 审计" style="margin-top: 16px">
       <a-tabs>
@@ -589,6 +611,7 @@ import {
   approveSkill,
   deploySkill,
   getAudit,
+  getPolicy,
   getSkillContent,
   getSkillDetail,
   getSkillFileContent,
@@ -609,6 +632,7 @@ const verifyingSignature = ref(false)
 const actionLoading = ref(false)
 const actionType = ref('')
 const detail = ref(null)
+const policy = ref(null)
 const auditRows = ref([])
 const scanReport = ref(null)
 const skillContent = ref(null)
@@ -625,6 +649,17 @@ const retireModalOpen = ref(false)
 const approveNote = ref('')
 const rejectReason = ref('')
 const retireReason = ref('')
+
+const declaredToolsDisplay = computed(() => {
+  const tools = detail.value?.allowed_tools || []
+  if (tools.length) return tools.join(', ')
+  return '未声明（不会自动继承策略白名单；运行时默认不限制）'
+})
+
+const policyAllowedToolsDisplay = computed(() => {
+  const tools = policy.value?.allowed_tools_allowlist || []
+  return tools.length ? tools.join(', ') : '-'
+})
 
 const auditColumns = [
   { title: 'Time', dataIndex: 'timestamp', key: 'timestamp', width: 220, customRender: ({ text }) => formatDateTime(text) },
@@ -651,8 +686,12 @@ const sandboxProbeColumns = [
 const fetchDetail = async () => {
   loading.value = true
   try {
-    const data = await getSkillDetail(skillId.value)
+    const [data, policyData] = await Promise.all([
+      getSkillDetail(skillId.value),
+      getPolicy().catch(() => null),
+    ])
     detail.value = data
+    policy.value = policyData
     signatureResult.value = null
     const [auditResult, reportResult, contentResult, filesResult] = await Promise.allSettled([
       getAudit({ skill_id: data.skill_id, since_hours: 720, limit: 50 }),
@@ -889,6 +928,11 @@ const sandboxDisplayImage = computed(() => {
   if (detail.value?.vetting?.sandbox_runtime === 'docker') return 'skill-manager-sandbox-runtime:latest'
   return '-'
 })
+const sandboxSummaryText = computed(() => {
+  if (!detail.value?.vetting?.sandbox_triggered) return '未触发'
+  const runtime = detail.value?.vetting?.sandbox_runtime || '已执行'
+  return sandboxDisplayImage.value !== '-' ? `${runtime} / ${sandboxDisplayImage.value}` : runtime
+})
 
 const formatSandboxCommand = (record) => {
   const entrypoint = record?.probe_entrypoint || record?.entrypoint || ''
@@ -976,6 +1020,12 @@ const stepIndex = computed(() => {
   return 0
 })
 
+const ellipsisText = (value, max = 72) => {
+  const text = String(value || '-')
+  if (text.length <= max) return text
+  return `${text.slice(0, max)}...`
+}
+
 watch(skillId, () => {
   fetchDetail()
 })
@@ -984,6 +1034,140 @@ onMounted(fetchDetail)
 </script>
 
 <style scoped>
+.skill-detail-page :deep(.ant-page-header) {
+  padding-inline: 0;
+}
+
+.detail-overview {
+  padding: 4px 0 0;
+}
+
+.overview-card :deep(.ant-card-body) {
+  padding: 20px 24px;
+}
+
+.hero-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.hero-main {
+  min-width: 0;
+}
+
+.hero-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.detail-overview__subline {
+  margin-top: 6px;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.overview-inline-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.inline-metric {
+  min-width: 0;
+  padding: 10px 12px;
+  background: #fbfdff;
+  border: 1px solid #eef3f8;
+  border-radius: 8px;
+}
+
+.detail-overview__name {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #16324f;
+}
+
+.inline-metric span {
+  display: block;
+  margin-bottom: 4px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.inline-metric strong {
+  display: block;
+  color: #16324f;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.hero-steps {
+  margin-top: 18px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.summary-block {
+  min-width: 0;
+  padding: 16px;
+  background: #fcfdff;
+  border: 1px solid #eef3f8;
+  border-radius: 10px;
+}
+
+.summary-block__title {
+  margin-bottom: 12px;
+  color: #16324f;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.summary-block__item {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 7px 0;
+  line-height: 1.5;
+  border-top: 1px solid #f1f5f9;
+}
+
+.summary-block__item:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.summary-block__item span {
+  flex: 0 0 86px;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.summary-block__item strong {
+  flex: 1;
+  font-weight: 500;
+  color: #16324f;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.descriptions-break :deep(.ant-descriptions-item-content) {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .markdown-body {
   padding: 16px;
   border: 1px solid #f0f0f0;
@@ -1051,5 +1235,27 @@ onMounted(fetchDetail)
   word-break: break-word;
   background: #0f172a;
   border-radius: 8px;
+}
+
+@media (max-width: 768px) {
+  .hero-row,
+  .hero-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .overview-inline-metrics,
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-block__item {
+    flex-direction: column;
+  }
+
+  .summary-block__item strong {
+    text-align: left;
+    white-space: normal;
+  }
 }
 </style>
