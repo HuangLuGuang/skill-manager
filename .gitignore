@@ -28,3 +28,5 @@ scanner/releases/
 test_data/
 CLAUDE.md
 *.zip
+data/
+projects/
