@@ -20,14 +20,14 @@ LangGraph / LangChain 没有像 Agno 那样现成的 `Skills(loaders=[...])` 机
 
 ## Files
 
-- [main.py](/Users/huangluguang/Desktop/Project/agent-manager/demo/langgraph-skill-guard/main.py)
-- [pyproject.toml](/Users/huangluguang/Desktop/Project/agent-manager/demo/langgraph-skill-guard/pyproject.toml)
-- [AGENTS.md](/Users/huangluguang/Desktop/Project/agent-manager/demo/langgraph-skill-guard/AGENTS.md)
+- [main.py](/Users/huangluguang/Desktop/Project/skill-manager/demo/langgraph-skill-guard/main.py)
+- [pyproject.toml](/Users/huangluguang/Desktop/Project/skill-manager/demo/langgraph-skill-guard/pyproject.toml)
+- [AGENTS.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/langgraph-skill-guard/AGENTS.md)
 
 ## Install
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/demo/langgraph-skill-guard
+cd /Users/huangluguang/Desktop/Project/skill-manager/demo/langgraph-skill-guard
 uv sync
 ```
 
@@ -44,15 +44,18 @@ export DEEPSEEK_API_KEY="your-deepseek-key"
 export LANGGRAPH_MODEL="deepseek-chat"
 export LANGGRAPH_BASE_URL="https://api.deepseek.com"
 export LANGGRAPH_API_KEY="$DEEPSEEK_API_KEY"
+export AGENT_MANAGER_ACCESS_TOKEN="smsc_live_xxx"
 export AGENT_ID="langgraph-skill-guard-demo"
 ```
+
+如果不设置 `AGENT_MANAGER_ACCESS_TOKEN`，demo 会走旧的 `/api/v1/runtime/...` 兼容路径；接入后台服务或生产环境时应使用带 runtime scope 的接入 Token。
 
 ## Agent Manager API
 
 推荐先启动不带后台登录的 Agent Manager API：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 uv run agent-manager-api --host 0.0.0.0 --port 8080
 ```
 
@@ -65,14 +68,14 @@ uv run agent-manager-api --host 0.0.0.0 --port 8080
 先把它提交到 Agent Manager：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 uv run agent-manager submit /Users/huangluguang/Desktop/github/agno/cookbook/02_agents/16_skills/sample_skills/git-workflow
 ```
 
 ## Run
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/demo/langgraph-skill-guard
+cd /Users/huangluguang/Desktop/Project/skill-manager/demo/langgraph-skill-guard
 uv run python main.py
 ```
 
@@ -90,12 +93,12 @@ uv run python main.py \
 在 agent 真正开始前，会先做：
 
 1. 对本地 skill 目录计算签名
-2. `POST /api/v1/runtime/verify-skill-signature`
-3. `GET /api/v1/runtime/can-load/{skill_name}`
+2. `POST /api/v1/access/runtime/verify-skill-signature`
+3. `GET /api/v1/access/runtime/can-load/{skill_name}`
 
 在 tool 调用时，会再做：
 
-1. `GET /api/v1/runtime/check-tool`
+1. `GET /api/v1/access/runtime/check-tool`
 2. 只有允许后才会：
    - 读取 `SKILL.md`
    - 读取 reference
@@ -109,6 +112,6 @@ uv run python main.py \
 
 ## Notes
 
-- 这个 demo 默认使用 DeepSeek 的 OpenAI 兼容接口
+- 这个 demo 默认使用 DeepSeek 的 OpenAI 兼容接口；也可以把模型地址指到 Agent Manager 的模型网关 `/v1`
 - 如果 skill 没通过验证，agent 不会被创建
 - 如果 tool 不被允许，对应调用会直接抛错

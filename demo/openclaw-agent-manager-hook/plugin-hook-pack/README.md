@@ -11,8 +11,8 @@
 
 当前文件：
 
-- [package.json](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/plugin-hook-pack/package.json)
-- [plugin-hooks.ts](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/plugin-hook-pack/plugin-hooks.ts)
+- [package.json](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/plugin-hook-pack/package.json)
+- [plugin-hooks.ts](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/plugin-hook-pack/plugin-hooks.ts)
 
 ## Notes
 

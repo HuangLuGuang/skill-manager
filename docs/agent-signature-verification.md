@@ -42,7 +42,7 @@ token 鉴权的 `can-load` 不接受 `skill_path`，避免外部 token 探测服
 
 Agent 侧必须和 Agent Manager 使用同样的签名算法。
 
-当前算法定义在 [signer.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/signer.py)：
+当前算法定义在 [signer.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/signer.py)：
 
 1. 递归遍历 skill 根目录下所有文件
 2. 按相对路径排序

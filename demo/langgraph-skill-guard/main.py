@@ -15,9 +15,11 @@ from langgraph.prebuilt import create_react_agent
 
 
 class AgentManagerRuntimeClient:
-    def __init__(self, base_url: str, timeout: float = 20.0):
+    def __init__(self, base_url: str, timeout: float = 20.0, token: str | None = None):
         self.base_url = base_url.rstrip("/")
-        self.http = httpx.Client(base_url=self.base_url, timeout=timeout)
+        self.runtime_prefix = "/api/v1/access/runtime" if token else "/api/v1/runtime"
+        headers = {"Authorization": f"Bearer {token}"} if token else None
+        self.http = httpx.Client(base_url=self.base_url, timeout=timeout, headers=headers)
 
     def verify_skill_signature(
         self,
@@ -27,7 +29,7 @@ class AgentManagerRuntimeClient:
         skill_id: str | None = None,
     ) -> dict:
         response = self.http.post(
-            "/api/v1/runtime/verify-skill-signature",
+            f"{self.runtime_prefix}/verify-skill-signature",
             json={
                 "skill_name": skill_name,
                 "skill_id": skill_id,
@@ -40,7 +42,7 @@ class AgentManagerRuntimeClient:
 
     def can_load(self, skill_name: str, agent_id: str) -> dict:
         response = self.http.get(
-            f"/api/v1/runtime/can-load/{skill_name}",
+            f"{self.runtime_prefix}/can-load/{skill_name}",
             params={"agent_id": agent_id},
         )
         response.raise_for_status()
@@ -48,7 +50,7 @@ class AgentManagerRuntimeClient:
 
     def check_tool(self, skill_name: str, tool_name: str, agent_id: str) -> dict:
         response = self.http.get(
-            "/api/v1/runtime/check-tool",
+            f"{self.runtime_prefix}/check-tool",
             params={"skill_name": skill_name, "tool_name": tool_name, "agent_id": agent_id},
         )
         response.raise_for_status()
@@ -140,7 +142,10 @@ def verify_and_load_skill(
     agent_id: str,
     skill_id: str | None = None,
 ) -> tuple[LoadedSkill, dict, dict]:
-    runtime_client = AgentManagerRuntimeClient(base_url=base_url)
+    runtime_client = AgentManagerRuntimeClient(
+        base_url=base_url,
+        token=os.getenv("AGENT_MANAGER_API_TOKEN") or os.getenv("AGENT_MANAGER_ACCESS_TOKEN"),
+    )
     local_signature = compute_local_signature(
         skill_path,
         signing_key=os.getenv("AGENT_MANAGER_SIGNING_KEY"),

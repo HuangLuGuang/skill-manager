@@ -49,8 +49,8 @@ flowchart TB
 
 代码位置：
 
-- [agent_manager/core/sandbox.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/sandbox.py)
-- [agent_manager/core/vetting.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/vetting.py)
+- [agent_manager/core/sandbox.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/sandbox.py)
+- [agent_manager/core/vetting.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/vetting.py)
 
 当前已经支持：
 
@@ -58,7 +58,7 @@ flowchart TB
 - `RemoteSandboxRunner`
 - `get_sandbox_runner()` 工厂切换
 - 一个生产版独立服务基线实现：
-  [services/isolated-sandbox-service/README.md](/Users/huangluguang/Desktop/Project/agent-manager/services/isolated-sandbox-service/README.md)
+  [services/isolated-sandbox-service/README.md](/Users/huangluguang/Desktop/Project/skill-manager/services/isolated-sandbox-service/README.md)
 
 说明：
 

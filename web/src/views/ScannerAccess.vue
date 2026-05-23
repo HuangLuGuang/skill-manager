@@ -274,7 +274,7 @@ const parameterRows = [
   { name: '--host-id', required: '否', usage: '客户主机或环境标识，便于后台区分来源。也可以用 SKILL_SCANNER_HOST_ID。', example: '--host-id customer-a-prod-01' },
   { name: '--behavioral', required: '否', usage: '请求服务端启用规则分析，扫描 scripts、references 等文件中的可疑行为。', example: '--behavioral' },
   { name: '--sandbox', required: '否', usage: '请求服务端启用 Sandbox probe，观察受控运行时行为。', example: '--sandbox' },
-  { name: '--llm', required: '否', usage: '请求服务端启用 LLM 分析。需要系统设置里已配置 LLM。', example: '--llm' },
+  { name: '--llm', required: '否', usage: '请求服务端启用 LLM 分析。需要系统设置直连 LLM 可用，或服务端已配置模型网关隐私代理。', example: '--llm' },
   { name: '--max-file-mb', required: '否', usage: '本地打包前限制单文件大小。', example: '--max-file-mb 20' },
   { name: '--max-total-mb', required: '否', usage: '本地打包前限制单个 skill 总大小。', example: '--max-total-mb 50' },
   { name: '--max-files', required: '否', usage: '本地打包前限制单个 skill 文件数量。', example: '--max-files 2000' },

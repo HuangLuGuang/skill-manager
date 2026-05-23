@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from . import models
 from .auth import get_current_admin_user, get_password_hash
 from .config import settings
-from .routers import auth, config, system, tasks
+from .routers import auth, config, llm_gateway, system, tasks
 from .sqlite_db import Base, SessionLocal, engine
 from .task_runtime import init_default_tasks
 
@@ -45,13 +45,25 @@ app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(config.router, prefix=settings.API_PREFIX)
 app.include_router(system.router, prefix=settings.API_PREFIX)
 app.include_router(tasks.router, prefix=settings.API_PREFIX)
+app.include_router(llm_gateway.runtime_router)
+app.include_router(llm_gateway.admin_router, prefix=settings.API_PREFIX)
 app.include_router(access_runtime_router)
 app.include_router(agent_runtime_router, prefix="/api/v1")
 app.include_router(agent_manager_router, prefix="/api/v1", dependencies=[Depends(get_current_admin_user)])
 app.include_router(scanner_admin_router, dependencies=[Depends(get_current_admin_user)])
 app.include_router(scanner_router)
 
-Base.metadata.create_all(bind=engine)
+def ensure_sqlite_schema() -> None:
+    Base.metadata.create_all(bind=engine)
+    if engine.dialect.name != "sqlite":
+        return
+    with engine.begin() as conn:
+        columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(privacy_policies)").fetchall()}
+        if "entity_rules_json" not in columns:
+            conn.exec_driver_sql("ALTER TABLE privacy_policies ADD COLUMN entity_rules_json TEXT NOT NULL DEFAULT '{}'")
+
+
+ensure_sqlite_schema()
 get_agent_manager()
 
 uploads_dir = Path(settings.UPLOADS_DIR)

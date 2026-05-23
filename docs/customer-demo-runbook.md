@@ -89,14 +89,14 @@ export AGENT_MANAGER_BASE_URL="http://10.10.71.33"
 后端管理台：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 uv run --project backend uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 前端：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/web
+cd /Users/huangluguang/Desktop/Project/skill-manager/web
 source ~/.nvm/nvm.sh
 nvm use 22.21.1
 npm run dev
@@ -117,7 +117,7 @@ admin / Admin@123
 Agno runtime demo 推荐另起无后台登录态 API：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 uv run agent-manager-api --host 0.0.0.0 --port 8080
 ```
 
@@ -215,6 +215,10 @@ Agent 仍然运行在客户自己的环境里。
 
 ### 3.1 LLM 配置
 
+推荐客户环境优先使用 `模型网关` 页面管理供应商、模型、API Key、用户组和隐私策略。这样 skill / prompt 的 LLM 分析、外部 Agent 的模型调用，都可以进入统一的隐私路由和 Pipeline Trace。
+
+如果只是演示传统直连 LLM，可在 `系统设置` 中配置：
+
 ```text
 提供方：deepseek
 接口：https://api.deepseek.com
@@ -227,6 +231,14 @@ API Key：客户自己的 key
 ```text
 LLM 不替代规则扫描。
 它补充语义判断，特别适合识别 prompt 中的恶意意图、数据外泄目的和伪装描述。
+如果走模型网关，LLM 请求会先做 PII 伪匿名化，管理台还能展示 original / masked / masked_response / final_response 四阶段 Trace。
+```
+
+内部 vetting 走模型网关时，设置：
+
+```bash
+export AGENT_MANAGER_LLM_GATEWAY_URL="http://127.0.0.1:8000/v1/chat/completions"
+export AGENT_MANAGER_LLM_GATEWAY_API_KEY="amk_xxx"
 ```
 
 ### 3.2 Sandbox 配置
@@ -241,7 +253,7 @@ image: agent-manager-sandbox-runtime:latest
 构建本地 runtime 镜像：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 make sandbox-runtime-build
 ```
 
@@ -298,7 +310,7 @@ Scanner Token 是客户侧最小权限凭证。
 本地构建：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/scanner
+cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
 go test ./...
 go build -o skill-scanner ./cmd/skill-scanner
 ```
@@ -306,12 +318,12 @@ go build -o skill-scanner ./cmd/skill-scanner
 扫描样例目录：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/scanner
+cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
 
 export AGENT_MANAGER_TOKEN="smsc_live_xxx"
 export SKILL_SCANNER_HOST_ID="customer-demo-host"
 
-./skill-scanner scan /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/sample_skills \
+./skill-scanner scan /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills \
   --server http://10.10.71.33 \
   --behavioral \
   --sandbox \
@@ -404,7 +416,7 @@ demo/agno-skill-guard/sample_skills/rejected-exfiltrator
 如果临时做本地备用演示，可以用 CLI 提交到本地 registry：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 
 uv run agent-manager submit demo/agno-skill-guard/sample_skills/approved-helper
 uv run agent-manager submit demo/agno-skill-guard/sample_skills/read-only-script
@@ -479,14 +491,14 @@ export AGENT_MANAGER_BASE_URL="http://10.10.71.33"
 如果临时切到本地开发环境，再启动 Agent Manager runtime API：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 uv run agent-manager-api --host 0.0.0.0 --port 8080
 ```
 
 配置 Agno demo：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
+cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
 uv sync
 
 export AGENT_MANAGER_BASE_URL="http://10.10.71.33"
@@ -515,7 +527,7 @@ demo/agno-skill-guard/sample_skills/rejected-exfiltrator
 如果临时做本地备用演示，再用 CLI 提交：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 
 uv run agent-manager submit demo/agno-skill-guard/sample_skills/approved-helper
 uv run agent-manager submit demo/agno-skill-guard/sample_skills/read-only-script
@@ -679,7 +691,20 @@ DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 docker compose up --build -d
 supports_native_structured_outputs=False
 ```
 
-### 10.4 Sandbox 结果是 LOW，但 LLM 是 EXTREME
+### 10.4 模型网关返回 401 / 403 / 413 / 429
+
+排查：
+
+- `401`：LLM API Key 缺失、无效、过期或已吊销。
+- `403`：API Key 不允许访问请求里的模型，或隐私策略不允许 bypass。
+- `413`：请求体超过 API Key 的 `max_body_kb`。
+- `429`：该 API Key 的并发请求数超过 `max_concurrent_requests`。
+
+### 10.5 Pipeline Trace 看不到原始报文
+
+Trace 页面包含原始 PII，仅 `admin`、`super_admin`、`privacy_auditor` 角色应访问。确认当前账号角色和登录状态。
+
+### 10.6 Sandbox 结果是 LOW，但 LLM 是 EXTREME
 
 讲解：
 
@@ -689,7 +714,7 @@ Sandbox 只代表这次 probe 实际观察到的行为。
 最终风险以策略合并后的最高风险为准。
 ```
 
-### 10.5 重复提交为什么没有复用
+### 10.7 重复提交为什么没有复用
 
 复用条件：
 
@@ -705,7 +730,7 @@ Sandbox 只代表这次 probe 实际观察到的行为。
 - 策略版本
 - 扫描器和核心代码版本
 
-### 10.6 Scanner Token 忘记复制
+### 10.8 Scanner Token 忘记复制
 
 Token 明文只展示一次，不能找回。
 

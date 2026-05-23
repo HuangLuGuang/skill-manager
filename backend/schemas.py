@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -164,3 +164,222 @@ class ExecutionLogsResponse(BaseModel):
 class StatsBackfillRequest(BaseModel):
     days: int = Field(default=7, ge=1, le=90)
     business_name: Optional[str] = None
+
+
+class UserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    password: Optional[str] = None
+
+
+class UserGroupCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    user_ids: list[int] = []
+    privacy_policy_id: Optional[int] = None
+
+
+class UserGroupUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    user_ids: Optional[list[int]] = None
+    privacy_policy_id: Optional[int] = None
+
+
+class UserGroupResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    is_active: bool
+    user_ids: list[int] = []
+    privacy_policy_id: Optional[int] = None
+    privacy_policy_name: Optional[str] = None
+    created_at: datetime
+
+
+class ModelProviderCreate(BaseModel):
+    name: str
+    base_url: str
+    api_key: Optional[str] = None
+    enabled: bool = True
+    timeout_seconds: int = Field(default=60, ge=1, le=600)
+
+
+class ModelProviderUpdate(BaseModel):
+    name: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    clear_api_key: bool = False
+    enabled: Optional[bool] = None
+    timeout_seconds: Optional[int] = Field(default=None, ge=1, le=600)
+
+
+class ModelProviderResponse(BaseModel):
+    id: int
+    name: str
+    base_url: str
+    enabled: bool
+    timeout_seconds: int
+    api_key_configured: bool
+    api_key_masked: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ModelEndpointCreate(BaseModel):
+    provider_id: int
+    name: str
+    display_name: Optional[str] = None
+    enabled: bool = True
+    context_window: Optional[int] = None
+    max_output_tokens: Optional[int] = None
+    is_default: bool = False
+
+
+class ModelEndpointUpdate(BaseModel):
+    provider_id: Optional[int] = None
+    name: Optional[str] = None
+    display_name: Optional[str] = None
+    enabled: Optional[bool] = None
+    context_window: Optional[int] = None
+    max_output_tokens: Optional[int] = None
+    is_default: Optional[bool] = None
+
+
+class ModelEndpointResponse(BaseModel):
+    id: int
+    provider_id: int
+    provider_name: Optional[str] = None
+    name: str
+    display_name: Optional[str] = None
+    enabled: bool
+    context_window: Optional[int] = None
+    max_output_tokens: Optional[int] = None
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class LlmApiKeyCreate(BaseModel):
+    name: str
+    allowed_models: list[str] = []
+    expires_at: Optional[datetime] = None
+    max_body_kb: int = Field(default=1024, ge=1, le=10240)
+    max_concurrent_requests: int = Field(default=5, ge=1, le=100)
+
+
+class LlmApiKeyUpdate(BaseModel):
+    name: Optional[str] = None
+    user_id: Optional[int] = None
+    group_id: Optional[int] = None
+    allowed_models: Optional[list[str]] = None
+    status: Optional[str] = Field(default=None, pattern="^(active|disabled|revoked)$")
+    expires_at: Optional[datetime] = None
+    max_body_kb: Optional[int] = Field(default=None, ge=1, le=10240)
+    max_concurrent_requests: Optional[int] = Field(default=None, ge=1, le=100)
+
+
+class LlmApiKeyResponse(BaseModel):
+    id: int
+    name: str
+    key_prefix: str
+    token: Optional[str] = None
+    user_id: Optional[int] = None
+    group_id: Optional[int] = None
+    allowed_models: list[str] = []
+    status: str
+    expires_at: Optional[datetime] = None
+    max_body_kb: int
+    max_concurrent_requests: int
+    created_at: datetime
+    last_used_at: Optional[datetime] = None
+
+
+class PrivacyPolicyPayload(BaseModel):
+    name: str = "默认隐私策略"
+    group_id: Optional[int] = None
+    entity_types: list[str] = []
+    entity_rules: dict[str, str] = Field(default_factory=dict)
+    detect_system_messages: bool = False
+    allow_bypass: bool = False
+    mapping_ttl_days: int = Field(default=7, ge=1, le=365)
+    dp_enabled: bool = True
+    dp_epsilon: float = Field(default=1.0, gt=0)
+    dp_min_count: int = Field(default=5, ge=1)
+
+
+class PrivacyPolicyResponse(PrivacyPolicyPayload):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatMessage(BaseModel):
+    model_config = {"extra": "allow"}
+
+    role: str
+    content: Any = ""
+
+
+class ChatCompletionRequest(BaseModel):
+    model_config = {"extra": "forbid", "populate_by_name": True}
+
+    model: Optional[str] = None
+    messages: list[ChatMessage]
+    stream: bool = False
+    conversation_id: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    max_tokens: Optional[int] = None
+    max_completion_tokens: Optional[int] = None
+    stop: Optional[Any] = None
+    n: Optional[int] = None
+    presence_penalty: Optional[float] = None
+    frequency_penalty: Optional[float] = None
+    logit_bias: Optional[dict[str, Any]] = None
+    tools: Optional[list[dict[str, Any]]] = None
+    tool_choice: Optional[Any] = None
+    response_format: Optional[dict[str, Any]] = None
+    stream_options: Optional[dict[str, Any]] = None
+    seed: Optional[int] = None
+    user: Optional[str] = None
+    reasoning_effort: Optional[str] = None
+    service_tier: Optional[str] = Field(default=None, alias="serviceTier")
+    verbosity: Optional[str] = None
+
+    @field_validator(
+        "temperature",
+        "top_p",
+        "max_tokens",
+        "max_completion_tokens",
+        "stop",
+        "n",
+        "presence_penalty",
+        "frequency_penalty",
+        "logit_bias",
+        "tools",
+        "tool_choice",
+        "response_format",
+        "stream_options",
+        "seed",
+        "user",
+        "reasoning_effort",
+        "service_tier",
+        "verbosity",
+        mode="before",
+    )
+    @classmethod
+    def normalize_undefined(cls, value: Any) -> Any:
+        if isinstance(value, str) and value in {"[undefined]", "undefined", ""}:
+            return None
+        return value
+
+    @field_validator("messages")
+    @classmethod
+    def validate_messages(cls, value: list[ChatMessage]) -> list[ChatMessage]:
+        if not value:
+            raise ValueError("messages must not be empty")
+        return value

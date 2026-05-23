@@ -8,9 +8,13 @@ type PluginHookEvent = {
 };
 
 const baseUrl = process.env.AGENT_MANAGER_BASE_URL;
+const accessToken = process.env.AGENT_MANAGER_ACCESS_TOKEN;
 
 if (!baseUrl) {
   throw new Error("AGENT_MANAGER_BASE_URL is required");
+}
+if (!accessToken) {
+  throw new Error("AGENT_MANAGER_ACCESS_TOKEN is required");
 }
 
 export async function before_tool_call(event: PluginHookEvent): Promise<unknown> {
@@ -31,7 +35,7 @@ export async function before_tool_call(event: PluginHookEvent): Promise<unknown>
     return;
   }
 
-  const result = await checkTool(baseUrl, skillName, toolName, sessionKey);
+  const result = await checkTool(baseUrl, accessToken, skillName, toolName, sessionKey);
   if (!result.allowed) {
     return {
       block: true,

@@ -92,6 +92,7 @@
             </a-form-item>
             <a-form-item label="提供方">
               <a-select v-model:value="llmForm.provider">
+                <a-select-option value="openai-compatible">openai-compatible</a-select-option>
                 <a-select-option value="deepseek">deepseek</a-select-option>
               </a-select>
             </a-form-item>
@@ -283,7 +284,7 @@ const sandboxForm = reactive({
 const items = [
   'Starter backend 继续负责账号、登录、菜单和系统管理。',
   'Agent Manager API 负责智能体技能生命周期、审计和运行时治理。',
-  '启用 LLM 分析后，提交技能时勾选“启用 LLM 分析”才会调用 DeepSeek 接口。',
+  '启用 LLM 分析后，提交技能时勾选“启用 LLM 分析”才会调用 OpenAI-compatible 接口；服务端也可以优先走模型网关隐私代理。',
   '当前页面已经同时汇总两侧状态，便于你判断环境是否完整。',
   'Sandbox 可以走本机 Docker，也可以走独立隔离执行服务；当前后端类型会显示在状态区。',
 ]

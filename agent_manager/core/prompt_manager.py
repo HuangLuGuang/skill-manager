@@ -353,6 +353,8 @@ class PromptManager:
         """Use LLM to analyze prompt for injection and malicious patterns."""
         import json as _json
         import httpx
+        import os
+        import uuid
 
         system_prompt = (
             "你是一个 AI Agent 安全审计专家。分析给定的 agent 系统提示词，检测：\n"
@@ -366,22 +368,33 @@ class PromptManager:
             "只返回 JSON，不要其他文字。"
         )
 
-        endpoint = f"{llm_config.api_base.rstrip('/')}/chat/completions"
+        gateway_url = os.environ.get("AGENT_MANAGER_LLM_GATEWAY_URL", "").strip()
+        gateway_api_key = os.environ.get("AGENT_MANAGER_LLM_GATEWAY_API_KEY", "").strip()
+        endpoint = gateway_url or f"{llm_config.api_base.rstrip('/')}/chat/completions"
         payload = {
             "model": llm_config.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"分析以下 agent 系统提示词:\n\n{content[:8000]}"},
             ],
+            "metadata": {
+                "tenant_id": os.environ.get("AGENT_MANAGER_LLM_GATEWAY_TENANT_ID", "agent-manager-internal"),
+                "user_id": os.environ.get("AGENT_MANAGER_LLM_GATEWAY_USER_ID", "agent-manager-prompt-vetting"),
+                "conversation_id": os.environ.get(
+                    "AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID",
+                    f"prompt-vetting-{uuid.uuid4().hex}",
+                ),
+            },
             "temperature": 0.1,
             "max_tokens": 2000,
             "stream": False,
         }
+        api_key = gateway_api_key or llm_config.api_key
         with httpx.Client(timeout=llm_config.timeout_seconds) as client:
             response = client.post(
                 endpoint,
                 headers={
-                    "Authorization": f"Bearer {llm_config.api_key}",
+                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
                 json=payload,

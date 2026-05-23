@@ -30,12 +30,14 @@ export type ToolCheckResponse = {
 
 export async function verifySkillSignature(
   baseUrl: string,
+  accessToken: string,
   body: VerifySkillSignatureRequest,
 ): Promise<VerifySkillSignatureResponse> {
-  const response = await fetch(`${baseUrl}/api/v1/runtime/verify-skill-signature`, {
+  const response = await fetch(`${baseUrl}/api/v1/access/runtime/verify-skill-signature`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(body),
   });
@@ -47,14 +49,17 @@ export async function verifySkillSignature(
 
 export async function canLoad(
   baseUrl: string,
+  accessToken: string,
   skillName: string,
   agentId?: string,
 ): Promise<RuntimeCheckResponse> {
-  const url = new URL(`${baseUrl}/api/v1/runtime/can-load/${skillName}`);
+  const url = new URL(`${baseUrl}/api/v1/access/runtime/can-load/${skillName}`);
   if (agentId) {
     url.searchParams.set("agent_id", agentId);
   }
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: { authorization: `Bearer ${accessToken}` },
+  });
   if (!response.ok) {
     throw new Error(await response.text());
   }
@@ -63,17 +68,20 @@ export async function canLoad(
 
 export async function checkTool(
   baseUrl: string,
+  accessToken: string,
   skillName: string,
   toolName: string,
   agentId?: string,
 ): Promise<ToolCheckResponse> {
-  const url = new URL(`${baseUrl}/api/v1/runtime/check-tool`);
+  const url = new URL(`${baseUrl}/api/v1/access/runtime/check-tool`);
   url.searchParams.set("skill_name", skillName);
   url.searchParams.set("tool_name", toolName);
   if (agentId) {
     url.searchParams.set("agent_id", agentId);
   }
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: { authorization: `Bearer ${accessToken}` },
+  });
   if (!response.ok) {
     throw new Error(await response.text());
   }

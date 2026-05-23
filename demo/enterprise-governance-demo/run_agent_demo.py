@@ -14,9 +14,11 @@ from pydantic import BaseModel, Field
 # --------------------------------------------------------------------------- #
 
 class AgentManagerRuntimeClient:
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, token: str | None = None):
         self.base_url = base_url.rstrip("/")
-        self.http = httpx.Client(base_url=self.base_url, timeout=20.0)
+        self.runtime_prefix = "/api/v1/access/runtime" if token else "/api/v1/runtime"
+        headers = {"Authorization": f"Bearer {token}"} if token else None
+        self.http = httpx.Client(base_url=self.base_url, timeout=20.0, headers=headers)
 
     def verify_prompt(self, prompt_name: str, local_content: str) -> dict:
         """Verify local prompt content against registry signature."""
@@ -36,7 +38,7 @@ class AgentManagerRuntimeClient:
     def verify_skill_signature(self, skill_name: str, local_signature: str) -> bool:
         """Verify skill directory signature."""
         res = self.http.post(
-            "/api/v1/runtime/verify-skill-signature",
+            f"{self.runtime_prefix}/verify-skill-signature",
             json={"skill_name": skill_name, "local_signature": local_signature, "agent_id": "demo-agent"}
         )
         res.raise_for_status()
@@ -67,7 +69,10 @@ def run_governed_agent(scenario="safe"):
     print(f"========================================================\n")
 
     BASE_URL = os.environ.get("AGENT_MANAGER_BASE_URL", "http://localhost:8000")
-    client = AgentManagerRuntimeClient(BASE_URL)
+    client = AgentManagerRuntimeClient(
+        BASE_URL,
+        token=os.getenv("AGENT_MANAGER_API_TOKEN") or os.getenv("AGENT_MANAGER_ACCESS_TOKEN"),
+    )
 
     # 1. 验证提示词 (Prompt)
     prompt_name = "safe-advisor" if scenario == "safe" else "malicious-advisor"

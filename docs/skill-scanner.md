@@ -171,7 +171,7 @@ export SKILL_SCANNER_HOST_ID="customer-prod-01"
 | `--upload` | 显式上传到服务端。配置 `--server` 时会自动上传。 |
 | `--behavioral` | 启用服务端规则分析。界面里显示为“规则分析”。 |
 | `--sandbox` | 启用服务端 sandbox 动态执行验证。 |
-| `--llm` | 启用服务端 LLM 分析。需要系统设置里已配置 LLM。 |
+| `--llm` | 启用服务端 LLM 分析。需要系统设置里已配置 LLM，或已通过模型网关环境变量配置隐私路由。 |
 | `--no-cache` | 禁用扫描缓存。强制服务端重新执行完整分析，不复用历史结果。 |
 | `--timeout` | HTTP 请求超时时间，默认 `120s`。 |
 | `--max-file-mb` | 单文件打包大小上限，默认 `20`。 |
@@ -340,6 +340,7 @@ Authorization: Bearer <scanner-token>
 - 是否启用 sandbox
 - scanner / policy / vetting 相关代码版本
 - LLM 配置和 prompt 源
+- 如果启用了模型网关，还包括网关 URL 和内部 metadata 配置
 - sandbox 配置和 runner 源
 
 ### 8.2 页面显示
@@ -380,7 +381,7 @@ Authorization: Bearer <scanner-token>
 ### 9.1 本地构建
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/scanner
+cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
 go test ./...
 go build -o skill-scanner ./cmd/skill-scanner
 go build -o skill-scanner-gui ./cmd/skill-scanner-gui
@@ -391,7 +392,7 @@ GUI 依赖本机图形工具链。macOS 上构建 macOS GUI 最稳定；跨平�
 ### 9.2 生成发布目录
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/scanner
+cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
 ./scripts/package.sh
 ```
 
@@ -415,7 +416,7 @@ scanner/releases/
 所以如果页面显示“当前可下载文件为空”，先检查：
 
 ```bash
-ls -lh /Users/huangluguang/Desktop/Project/agent-manager/scanner/releases
+ls -lh /Users/huangluguang/Desktop/Project/skill-manager/scanner/releases
 ```
 
 ### 9.3 支持的平台
@@ -467,10 +468,10 @@ BUILD_WINDOWS_GUI=1 ./scripts/package.sh
 
 ## 11. 相关代码
 
-- [scanner/cmd/skill-scanner/main.go](/Users/huangluguang/Desktop/Project/agent-manager/scanner/cmd/skill-scanner/main.go)
-- [scanner/cmd/skill-scanner-gui/main.go](/Users/huangluguang/Desktop/Project/agent-manager/scanner/cmd/skill-scanner-gui/main.go)
-- [scanner/internal/runner/runner.go](/Users/huangluguang/Desktop/Project/agent-manager/scanner/internal/runner/runner.go)
-- [scanner/internal/gui/gui.go](/Users/huangluguang/Desktop/Project/agent-manager/scanner/internal/gui/gui.go)
-- [agent_manager/api/scanner_router.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/api/scanner_router.py)
-- [agent_manager/core/scanner_tokens.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/scanner_tokens.py)
-- [agent_manager/core/scan_cache.py](/Users/huangluguang/Desktop/Project/agent-manager/agent_manager/core/scan_cache.py)
+- [scanner/cmd/skill-scanner/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner/main.go)
+- [scanner/cmd/skill-scanner-gui/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner-gui/main.go)
+- [scanner/internal/runner/runner.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/internal/runner/runner.go)
+- [scanner/internal/gui/gui.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/internal/gui/gui.go)
+- [agent_manager/api/scanner_router.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/api/scanner_router.py)
+- [agent_manager/core/scanner_tokens.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/scanner_tokens.py)
+- [agent_manager/core/scan_cache.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/scan_cache.py)

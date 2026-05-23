@@ -1,0 +1,836 @@
+<template>
+  <div>
+    <a-page-header title="模型网关" sub-title="管理供应商、模型、API Key、用户组和隐私策略" />
+
+    <a-row :gutter="[16, 16]" style="margin-top: 16px">
+      <a-col :xs="24" :md="8">
+        <a-statistic title="请求数（DP保护）" :value="stats.total_requests ?? '低于阈值'" />
+      </a-col>
+      <a-col :xs="24" :md="8">
+        <a-statistic title="PII 检查请求（DP保护）" :value="stats.pii_checked_requests ?? '低于阈值'" />
+      </a-col>
+      <a-col :xs="24" :md="8">
+        <a-statistic title="映射数（DP保护）" :value="stats.active_mappings ?? '低于阈值'" />
+      </a-col>
+      <a-col :xs="24" :md="8">
+        <a-statistic title="新建 Token（DP保护）" :value="stats.created_tokens ?? '低于阈值'" />
+      </a-col>
+      <a-col :xs="24" :md="8">
+        <a-statistic title="复用 Token（DP保护）" :value="stats.reused_tokens ?? '低于阈值'" />
+      </a-col>
+      <a-col :xs="24" :md="8">
+        <a-statistic title="PII 命中类型" :value="Object.keys(stats.pii_hits || {}).length" />
+      </a-col>
+    </a-row>
+
+    <div style="margin-top: 16px">
+      <section v-if="activeTab === 'providers'">
+        <a-card>
+          <template #extra>
+            <a-space>
+              <a-button @click="loadAll" :loading="loading">刷新</a-button>
+              <a-button type="primary" @click="openProvider()">新增供应商</a-button>
+            </a-space>
+          </template>
+          <a-table :data-source="providers" :columns="providerColumns" row-key="id" :loading="loading" size="small">
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'enabled'">
+                <a-tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '启用' : '禁用' }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'api_key'">
+                {{ record.api_key_masked || '未配置' }}
+              </template>
+              <template v-else-if="column.key === 'action'">
+                <a-space>
+                  <a-button type="link" @click="openProvider(record)">编辑</a-button>
+                  <a-button type="link" @click="handleTestProvider(record)">测试</a-button>
+                  <a-popconfirm title="确认删除供应商？" @confirm="handleDeleteProvider(record)">
+                    <a-button type="link" danger>删除</a-button>
+                  </a-popconfirm>
+                </a-space>
+              </template>
+            </template>
+          </a-table>
+        </a-card>
+      </section>
+
+      <section v-if="activeTab === 'models'">
+        <a-card>
+          <template #extra>
+            <a-button type="primary" @click="openModel()">新增模型</a-button>
+          </template>
+          <a-table :data-source="models" :columns="modelColumns" row-key="id" :loading="loading" size="small">
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'enabled'">
+                <a-tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '启用' : '禁用' }}</a-tag>
+                <a-tag v-if="record.is_default" color="blue">默认</a-tag>
+              </template>
+              <template v-else-if="column.key === 'action'">
+                <a-space>
+                  <a-button type="link" @click="openModel(record)">编辑</a-button>
+                  <a-popconfirm title="确认删除模型？" @confirm="handleDeleteModel(record)">
+                    <a-button type="link" danger>删除</a-button>
+                  </a-popconfirm>
+                </a-space>
+              </template>
+            </template>
+          </a-table>
+        </a-card>
+      </section>
+
+      <section v-if="activeTab === 'keys'">
+        <a-card>
+          <template #extra>
+            <a-button type="primary" @click="openKey">创建 API Key</a-button>
+          </template>
+          <a-alert type="warning" show-icon message="API Key 明文只展示一次，服务端只保存 hash。" style="margin-bottom: 16px" />
+          <a-table :data-source="apiKeys" :columns="keyColumns" row-key="id" :loading="loading" size="small">
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'status'">
+                <a-tag :color="record.status === 'active' ? 'green' : 'default'">{{ record.status }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'models'">
+                <a-space wrap>
+                  <a-tag v-for="name in record.allowed_models || []" :key="name">{{ name }}</a-tag>
+                  <span v-if="!record.allowed_models?.length" class="muted">全部模型</span>
+                </a-space>
+              </template>
+              <template v-else-if="column.key === 'expires_at'">
+                {{ record.expires_at ? formatDateTime(record.expires_at) : '永不过期' }}
+              </template>
+              <template v-else-if="column.key === 'action'">
+                <a-space>
+                  <a-button type="link" @click="openKey(record)">编辑</a-button>
+                  <a-popconfirm v-if="record.status === 'active'" title="确认吊销这个 API Key？" @confirm="handleRevokeKey(record)">
+                    <a-button type="link" danger>吊销</a-button>
+                  </a-popconfirm>
+                  <a-popconfirm title="确认删除这个 API Key 记录？" @confirm="handleDeleteKey(record)">
+                    <a-button type="link" danger>删除</a-button>
+                  </a-popconfirm>
+                </a-space>
+              </template>
+            </template>
+          </a-table>
+        </a-card>
+      </section>
+
+      <section v-if="activeTab === 'groups'">
+        <a-row :gutter="[16, 16]">
+          <a-col :xs="24" :xl="12">
+            <a-card title="用户">
+              <template #extra>
+                <a-button type="primary" @click="openUser()">新增用户</a-button>
+              </template>
+              <a-table :data-source="users" :columns="userColumns" row-key="id" :loading="loading" size="small">
+                <template #bodyCell="{ column, record }">
+                  <template v-if="column.key === 'active'">
+                    <a-tag :color="record.is_active ? 'green' : 'default'">{{ record.is_active ? '启用' : '禁用' }}</a-tag>
+                  </template>
+                  <template v-else-if="column.key === 'action'">
+                    <a-button type="link" @click="openUser(record)">编辑</a-button>
+                  </template>
+                </template>
+              </a-table>
+            </a-card>
+          </a-col>
+          <a-col :xs="24" :xl="12">
+            <a-card title="用户组">
+              <template #extra>
+                <a-button type="primary" @click="openGroup()">新增组</a-button>
+              </template>
+              <a-table :data-source="groups" :columns="groupColumns" row-key="id" :loading="loading" size="small">
+                <template #bodyCell="{ column, record }">
+                  <template v-if="column.key === 'members'">
+                    {{ record.user_ids?.length || 0 }} 人
+                  </template>
+                  <template v-else-if="column.key === 'policy'">
+                    <a-tag :color="record.privacy_policy_id ? 'blue' : 'default'">{{ record.privacy_policy_name || '默认策略' }}</a-tag>
+                  </template>
+                  <template v-else-if="column.key === 'action'">
+                    <a-button type="link" @click="openGroup(record)">编辑</a-button>
+                  </template>
+                </template>
+              </a-table>
+            </a-card>
+          </a-col>
+        </a-row>
+      </section>
+
+      <section v-if="activeTab === 'policies'">
+        <a-card>
+          <template #extra>
+            <a-button type="primary" @click="openPolicy()">新增 / 更新策略</a-button>
+          </template>
+          <a-table :data-source="policies" :columns="policyColumns" row-key="id" :loading="loading" size="small">
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'entity_types'">
+                <a-space wrap>
+                  <a-tag v-for="name in record.entity_types || []" :key="name">{{ name }}</a-tag>
+                </a-space>
+              </template>
+              <template v-else-if="column.key === 'flags'">
+                <a-tag :color="record.detect_system_messages ? 'blue' : 'default'">system: {{ record.detect_system_messages ? '检测' : '跳过' }}</a-tag>
+                <a-tag :color="record.allow_bypass ? 'orange' : 'default'">bypass: {{ record.allow_bypass ? '允许' : '禁止' }}</a-tag>
+                <a-tag :color="record.dp_enabled ? 'green' : 'default'">DP: {{ record.dp_enabled ? '开' : '关' }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'action'">
+                <a-button type="link" @click="openPolicy(record)">编辑</a-button>
+              </template>
+            </template>
+          </a-table>
+        </a-card>
+      </section>
+
+      <section v-if="activeTab === 'audit'">
+        <a-card title="隐私审计">
+          <a-row :gutter="16">
+            <a-col :xs="24" :md="10">
+              <a-form layout="vertical">
+                <a-form-item label="Tenant ID">
+                  <a-input v-model:value="mappingQuery.tenant_id" placeholder="tenant-a" />
+                </a-form-item>
+                <a-form-item label="Conversation ID">
+                  <a-input v-model:value="mappingQuery.conversation_id" placeholder="conv-xxx" />
+                </a-form-item>
+                <a-space>
+                  <a-button type="primary" :loading="mappingLoading" @click="loadMappings">查询映射</a-button>
+                  <a-popconfirm title="确认删除该会话映射？" @confirm="removeMappings">
+                    <a-button danger :disabled="!mappingQuery.tenant_id || !mappingQuery.conversation_id">删除会话映射</a-button>
+                  </a-popconfirm>
+                </a-space>
+              </a-form>
+            </a-col>
+            <a-col :xs="24" :md="14">
+              <a-table :data-source="mappings" :columns="mappingColumns" row-key="token" :loading="mappingLoading" size="small" :pagination="{ pageSize: 8 }">
+                <template #bodyCell="{ column, record }">
+                  <template v-if="column.key === 'token'"><a-typography-text code>{{ record.token }}</a-typography-text></template>
+                  <template v-else-if="column.key === 'original'">{{ record.original_value }}</template>
+                </template>
+              </a-table>
+            </a-col>
+          </a-row>
+        </a-card>
+      </section>
+    </div>
+
+    <a-modal v-model:open="providerVisible" title="模型供应商" @ok="saveProvider" :confirm-loading="submitting">
+      <a-form layout="vertical" :model="providerForm">
+        <a-form-item label="名称" required><a-input v-model:value="providerForm.name" /></a-form-item>
+        <a-form-item label="Base URL" required><a-input v-model:value="providerForm.base_url" placeholder="https://api.openai.com 或 http://localhost:4000" /></a-form-item>
+        <a-form-item label="API Key"><a-input-password v-model:value="providerForm.api_key" placeholder="留空表示不修改" /></a-form-item>
+        <a-form-item><a-checkbox v-model:checked="providerForm.clear_api_key">清除已有 API Key</a-checkbox></a-form-item>
+        <a-form-item label="超时秒数"><a-input-number v-model:value="providerForm.timeout_seconds" :min="1" :max="600" style="width: 100%" /></a-form-item>
+        <a-form-item><a-checkbox v-model:checked="providerForm.enabled">启用</a-checkbox></a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal v-model:open="modelVisible" title="模型" @ok="saveModel" :confirm-loading="submitting">
+      <a-form layout="vertical" :model="modelForm">
+        <a-form-item label="供应商" required>
+          <a-select v-model:value="modelForm.provider_id">
+            <a-select-option v-for="item in providers" :key="item.id" :value="item.id">{{ item.name }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="模型名" required><a-input v-model:value="modelForm.name" /></a-form-item>
+        <a-form-item label="显示名"><a-input v-model:value="modelForm.display_name" /></a-form-item>
+        <a-form-item label="上下文窗口"><a-input-number v-model:value="modelForm.context_window" style="width: 100%" /></a-form-item>
+        <a-form-item label="最大输出 Token"><a-input-number v-model:value="modelForm.max_output_tokens" style="width: 100%" /></a-form-item>
+        <a-space>
+          <a-checkbox v-model:checked="modelForm.enabled">启用</a-checkbox>
+          <a-checkbox v-model:checked="modelForm.is_default">默认模型</a-checkbox>
+        </a-space>
+      </a-form>
+    </a-modal>
+
+    <a-modal v-model:open="keyVisible" :title="editingKeyId ? '编辑 LLM API Key' : '创建 LLM API Key'" @ok="saveKey" :confirm-loading="submitting" width="720px">
+      <a-form layout="vertical" :model="keyForm">
+        <a-form-item label="名称" required><a-input v-model:value="keyForm.name" /></a-form-item>
+        <a-alert type="info" show-icon message="API Key 会自动绑定当前登录用户；隐私策略按该用户所属用户组解析。" style="margin-bottom: 16px" />
+        <a-form-item label="允许模型">
+          <a-select v-model:value="keyForm.allowed_models" mode="multiple" placeholder="留空表示允许全部启用模型">
+            <a-select-option v-for="item in models" :key="item.name" :value="item.name">{{ item.name }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-row :gutter="16">
+          <a-col :span="12"><a-form-item label="最大请求体 KB"><a-input-number v-model:value="keyForm.max_body_kb" :min="1" :max="10240" style="width: 100%" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item label="最大并发"><a-input-number v-model:value="keyForm.max_concurrent_requests" :min="1" :max="100" style="width: 100%" /></a-form-item></a-col>
+        </a-row>
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="过期时间">
+              <a-date-picker
+                v-model:value="keyForm.expires_at"
+                show-time
+                format="YYYY-MM-DD HH:mm:ss"
+                value-format="YYYY-MM-DDTHH:mm:ss"
+                :disabled="keyForm.never_expires"
+                placeholder="选择过期时间"
+                style="width: 100%"
+              />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12"><a-form-item label="有效期"><a-checkbox v-model:checked="keyForm.never_expires">永不过期</a-checkbox></a-form-item></a-col>
+        </a-row>
+        <a-row :gutter="16" v-if="editingKeyId">
+          <a-col :span="12" v-if="editingKeyId"><a-form-item label="状态"><a-select v-model:value="keyForm.status"><a-select-option value="active">active</a-select-option><a-select-option value="disabled">disabled</a-select-option><a-select-option value="revoked">revoked</a-select-option></a-select></a-form-item></a-col>
+        </a-row>
+      </a-form>
+    </a-modal>
+
+    <a-modal v-model:open="createdKeyVisible" title="API Key 已创建" :footer="null" width="760px">
+      <a-alert type="warning" show-icon message="请立即保存明文 API Key，关闭后无法再次查看。" style="margin-bottom: 16px" />
+        <a-input-group compact>
+          <a-input :value="createdKey" readonly style="width: calc(100% - 96px)" />
+        <a-button type="primary" @click="copy(createdKey)" :disabled="!createdKey">复制</a-button>
+        </a-input-group>
+    </a-modal>
+
+    <a-modal v-model:open="userVisible" title="用户" @ok="saveUser" :confirm-loading="submitting">
+      <a-form layout="vertical" :model="userForm">
+        <a-form-item label="用户名" required><a-input v-model:value="userForm.username" :disabled="!!editingUserId" /></a-form-item>
+        <a-form-item label="邮箱"><a-input v-model:value="userForm.email" /></a-form-item>
+        <a-form-item label="角色"><a-select v-model:value="userForm.role"><a-select-option value="admin">admin</a-select-option><a-select-option value="super_admin">super_admin</a-select-option><a-select-option value="privacy_auditor">privacy_auditor</a-select-option></a-select></a-form-item>
+        <a-form-item label="密码"><a-input-password v-model:value="userForm.password" :placeholder="editingUserId ? '留空表示不修改' : ''" /></a-form-item>
+        <a-form-item><a-checkbox v-model:checked="userForm.is_active">启用</a-checkbox></a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal v-model:open="groupVisible" title="用户组" @ok="saveGroup" :confirm-loading="submitting">
+      <a-form layout="vertical" :model="groupForm">
+        <a-form-item label="名称" required><a-input v-model:value="groupForm.name" /></a-form-item>
+        <a-form-item label="描述"><a-textarea v-model:value="groupForm.description" /></a-form-item>
+        <a-form-item label="成员">
+          <a-select v-model:value="groupForm.user_ids" mode="multiple">
+            <a-select-option v-for="item in users" :key="item.id" :value="item.id">{{ item.username }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="隐私策略">
+          <a-select v-model:value="groupForm.privacy_policy_id" allow-clear placeholder="未选择时使用默认策略">
+            <a-select-option v-for="item in unboundOrCurrentPolicies" :key="item.id" :value="item.id">{{ item.name }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item><a-checkbox v-model:checked="groupForm.is_active">启用</a-checkbox></a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal v-model:open="policyVisible" title="隐私策略" @ok="savePolicy" :confirm-loading="submitting" width="860px">
+      <a-form layout="vertical" :model="policyForm">
+        <a-form-item label="策略名称"><a-input v-model:value="policyForm.name" /></a-form-item>
+        <a-form-item>
+          <template #label>
+            <a-tooltip title="策略可以绑定到用户组。用户通过 API Key 请求模型网关时，会按其所属用户组解析隐私策略；留空表示默认策略。">
+              <span>用户组</span>
+            </a-tooltip>
+          </template>
+          <a-select v-model:value="policyForm.group_id" allow-clear placeholder="留空表示默认策略">
+            <a-select-option v-for="item in groups" :key="item.id" :value="item.id">{{ item.name }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item>
+          <template #label>
+            <a-tooltip title="选择需要检测并替换成占位符的敏感实体类型。选中一个实体类型后，下方会自动新增一条对应的正则规则。">
+              <span>伪匿名实体类型</span>
+            </a-tooltip>
+          </template>
+          <a-select v-model:value="policyForm.entity_types" mode="tags" @change="syncPolicyRuleRows">
+            <a-select-option v-for="item in defaultEntities" :key="item" :value="item">{{ item }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item>
+          <template #label>
+            <a-tooltip title="每条规则是一种实体类型的正则表达式。左侧是实体类型 key，右侧是用于识别该实体的匹配规则。">
+              <span>实体规则</span>
+            </a-tooltip>
+          </template>
+          <div class="rule-list">
+            <a-row v-for="row in policyRuleRows" :key="row.key" :gutter="12" class="rule-row">
+              <a-col :span="7">
+                <a-input :value="row.key" readonly />
+              </a-col>
+              <a-col :span="17">
+                <a-input v-model:value="row.pattern" placeholder="填写正则表达式；留空表示使用内置规则或不启用自定义规则" />
+              </a-col>
+            </a-row>
+            <a-empty v-if="!policyRuleRows.length" description="请选择伪匿名实体类型" />
+          </div>
+        </a-form-item>
+        <a-row :gutter="16">
+          <a-col :span="8">
+            <a-form-item>
+              <template #label>
+                <a-tooltip title="伪匿名映射保存的天数。TTL 内同一会话复用相同 token，过期后映射不可再用于还原。">
+                  <span>映射 TTL 天</span>
+                </a-tooltip>
+              </template>
+              <a-input-number v-model:value="policyForm.mapping_ttl_days" :min="1" :max="365" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item>
+              <template #label>
+                <a-tooltip title="差分隐私噪声强度参数。epsilon 越小隐私保护越强、统计噪声越大；epsilon 越大统计越接近真实值。">
+                  <span>DP epsilon</span>
+                </a-tooltip>
+              </template>
+              <a-input-number v-model:value="policyForm.dp_epsilon" :min="0.1" :step="0.1" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item>
+              <template #label>
+                <a-tooltip title="统计样本低于该阈值时不展示具体数值，用于减少小样本反推风险。">
+                  <span>DP 最小样本</span>
+                </a-tooltip>
+              </template>
+              <a-input-number v-model:value="policyForm.dp_min_count" :min="1" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-space>
+          <a-tooltip title="开启后 system 消息也会参与 PII 检测和伪匿名化；默认只处理用户消息，避免改写系统指令。">
+            <a-checkbox v-model:checked="policyForm.detect_system_messages">检测 system 消息</a-checkbox>
+          </a-tooltip>
+          <a-tooltip title="允许请求通过 metadata.bypass_pii_check 绕过 PII 检测。通常只建议受信任内部任务开启。">
+            <a-checkbox v-model:checked="policyForm.allow_bypass">允许 bypass</a-checkbox>
+          </a-tooltip>
+          <a-tooltip title="开启后统计接口会应用最小样本阈值和 Laplace 噪声；只影响管理台指标，不影响真实 prompt。">
+            <a-checkbox v-model:checked="policyForm.dp_enabled">启用 DP 指标保护</a-checkbox>
+          </a-tooltip>
+        </a-space>
+      </a-form>
+    </a-modal>
+  </div>
+</template>
+
+<script setup>
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { message } from 'ant-design-vue'
+import dayjs from 'dayjs'
+
+import {
+  createGroup,
+  createLlmApiKey,
+  createManagedUser,
+  createModelEndpoint,
+  createModelProvider,
+  deleteLlmApiKey,
+  deleteModelEndpoint,
+  deleteModelProvider,
+  deletePrivacyMappings,
+  getPrivacyMappings,
+  getPrivacyStats,
+  listGroups,
+  listLlmApiKeys,
+  listManagedUsers,
+  listModelEndpoints,
+  listModelProviders,
+  listPrivacyPolicies,
+  revokeLlmApiKey,
+  savePrivacyPolicy,
+  testModelProvider,
+  updateGroup,
+  updateLlmApiKey,
+  updateManagedUser,
+  updateModelEndpoint,
+  updateModelProvider,
+} from '../api'
+
+const route = useRoute()
+const activeTab = ref(route.meta.gatewayTab || 'providers')
+const loading = ref(false)
+const submitting = ref(false)
+const mappingLoading = ref(false)
+const providers = ref([])
+const models = ref([])
+const apiKeys = ref([])
+const users = ref([])
+const groups = ref([])
+const policies = ref([])
+const stats = ref({})
+const mappings = ref([])
+const defaultEntities = ['PERSON', 'CN_PERSON', 'PHONE_NUMBER', 'EMAIL_ADDRESS', 'CREDIT_CARD', 'US_SSN', 'ID_CARD', 'EMPLOYEE_ID', 'CUSTOMER_ID', 'ACCOUNT_ID']
+const defaultRules = {
+  PERSON: '\\b[A-Z][a-z]+(?:\\s+[A-Z][a-z]+){1,2}\\b',
+  CN_PERSON: '',
+  PHONE_NUMBER: '(?<!\\d)(?:\\+?\\d[\\d\\s().-]{7,}\\d)(?!\\d)',
+  EMAIL_ADDRESS: '\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b',
+  CREDIT_CARD: '(?<!\\d)(?:\\d[ -]*?){13,19}(?!\\d)',
+  US_SSN: '\\b\\d{3}-\\d{2}-\\d{4}\\b',
+  ID_CARD: '\\b\\d{15}(?:\\d{2}[\\dXx])?\\b',
+  EMPLOYEE_ID: '\\b(?:EMP|Employee|员工)[-_:# ]?[A-Za-z0-9]{4,}\\b',
+  CUSTOMER_ID: '\\b(?:CUST|Customer|客户)[-_:# ]?[A-Za-z0-9]{4,}\\b',
+  ACCOUNT_ID: '\\b(?:ACCT|Account|账号)[-_:# ]?[A-Za-z0-9]{4,}\\b',
+}
+
+const providerColumns = [
+  { title: '名称', dataIndex: 'name' },
+  { title: 'Base URL', dataIndex: 'base_url' },
+  { title: 'Key', key: 'api_key', width: 180 },
+  { title: '状态', key: 'enabled', width: 120 },
+  { title: '操作', key: 'action', width: 220 },
+]
+const modelColumns = [
+  { title: '模型名', dataIndex: 'name' },
+  { title: '供应商', dataIndex: 'provider_name' },
+  { title: '显示名', dataIndex: 'display_name' },
+  { title: '状态', key: 'enabled', width: 160 },
+  { title: '操作', key: 'action', width: 160 },
+]
+const keyColumns = [
+  { title: '名称', dataIndex: 'name' },
+  { title: '前缀', dataIndex: 'key_prefix', width: 110 },
+  { title: '模型', key: 'models' },
+  { title: '过期时间', key: 'expires_at', width: 170 },
+  { title: '状态', key: 'status', width: 120 },
+  { title: '操作', key: 'action', width: 100 },
+]
+const mappingColumns = [
+  { title: 'Token', key: 'token', width: 220 },
+  { title: '类型', dataIndex: 'entity_type', width: 130 },
+  { title: '原始值', key: 'original' },
+  { title: '过期时间', dataIndex: 'expires_at', width: 180 },
+]
+const userColumns = [
+  { title: '用户名', dataIndex: 'username' },
+  { title: '邮箱', dataIndex: 'email' },
+  { title: '角色', dataIndex: 'role', width: 130 },
+  { title: '状态', key: 'active', width: 90 },
+  { title: '操作', key: 'action', width: 90 },
+]
+const groupColumns = [
+  { title: '名称', dataIndex: 'name' },
+  { title: '成员', key: 'members', width: 90 },
+  { title: '隐私策略', key: 'policy', width: 150 },
+  { title: '描述', dataIndex: 'description' },
+  { title: '操作', key: 'action', width: 90 },
+]
+const policyColumns = [
+  { title: '名称', dataIndex: 'name', width: 160 },
+  { title: 'Group ID', dataIndex: 'group_id', width: 100 },
+  { title: '实体类型', key: 'entity_types' },
+  { title: '开关', key: 'flags', width: 280 },
+  { title: '操作', key: 'action', width: 90 },
+]
+
+const providerVisible = ref(false)
+const modelVisible = ref(false)
+const keyVisible = ref(false)
+const createdKeyVisible = ref(false)
+const userVisible = ref(false)
+const groupVisible = ref(false)
+const policyVisible = ref(false)
+const createdKey = ref('')
+const editingProviderId = ref(null)
+const editingModelId = ref(null)
+const editingKeyId = ref(null)
+const editingUserId = ref(null)
+const editingGroupId = ref(null)
+const policyRuleRows = ref([])
+
+const providerForm = reactive({ name: '', base_url: '', api_key: '', clear_api_key: false, enabled: true, timeout_seconds: 60 })
+const modelForm = reactive({ provider_id: null, name: '', display_name: '', enabled: true, context_window: null, max_output_tokens: null, is_default: false })
+const keyForm = reactive({ name: '', allowed_models: [], max_body_kb: 1024, max_concurrent_requests: 5, expires_at: null, never_expires: true, status: 'active' })
+const userForm = reactive({ username: '', email: '', role: 'admin', password: '', is_active: true })
+const groupForm = reactive({ name: '', description: '', user_ids: [], privacy_policy_id: null, is_active: true })
+const policyForm = reactive({ name: '默认隐私策略', group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 })
+const mappingQuery = reactive({ tenant_id: '', conversation_id: '' })
+
+const unboundOrCurrentPolicies = computed(() =>
+  policies.value.filter(item => !item.group_id || item.id === groupForm.privacy_policy_id),
+)
+
+const formatDateTime = (value) => value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : ''
+
+const syncPolicyRuleRows = () => {
+  const existing = new Map(policyRuleRows.value.map(item => [item.key, item.pattern]))
+  policyRuleRows.value = (policyForm.entity_types || []).map(key => ({
+    key,
+    pattern: existing.has(key) ? existing.get(key) : (policyForm.entity_rules?.[key] ?? defaultRules[key] ?? ''),
+  }))
+}
+
+watch(
+  () => route.meta.gatewayTab,
+  (tab) => {
+    activeTab.value = tab || 'providers'
+  },
+  { immediate: true },
+)
+
+const loadAll = async () => {
+  loading.value = true
+  try {
+    const [providerRes, modelRes, keyRes, userRes, groupRes, policyRes, statRes] = await Promise.all([
+      listModelProviders(),
+      listModelEndpoints(),
+      listLlmApiKeys(),
+      listManagedUsers(),
+      listGroups(),
+      listPrivacyPolicies(),
+      getPrivacyStats(),
+    ])
+    providers.value = providerRes
+    models.value = modelRes
+    apiKeys.value = keyRes
+    users.value = userRes
+    groups.value = groupRes
+    policies.value = policyRes
+    stats.value = statRes
+  } catch (error) {
+    message.error(error.response?.data?.detail || '加载模型网关数据失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const openProvider = (record = null) => {
+  editingProviderId.value = record?.id || null
+  Object.assign(providerForm, {
+    name: record?.name || '',
+    base_url: record?.base_url || '',
+    api_key: '',
+    clear_api_key: false,
+    enabled: record?.enabled ?? true,
+    timeout_seconds: record?.timeout_seconds || 60,
+  })
+  providerVisible.value = true
+}
+
+const saveProvider = async () => {
+  if (submitting.value) return
+  submitting.value = true
+  try {
+    const payload = { ...providerForm }
+    if (!payload.api_key) delete payload.api_key
+    if (editingProviderId.value) await updateModelProvider(editingProviderId.value, payload)
+    else await createModelProvider(payload)
+    providerVisible.value = false
+    await loadAll()
+  } catch (error) {
+    message.error(error.response?.data?.detail || '保存供应商失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+const handleTestProvider = async (record) => {
+  const res = await testModelProvider(record.id)
+  message[res.ok ? 'success' : 'warning'](res.ok ? `连接返回 ${res.status_code}` : (res.error || '连接失败'))
+}
+
+const handleDeleteProvider = async (record) => {
+  await deleteModelProvider(record.id)
+  await loadAll()
+}
+
+const openModel = (record = null) => {
+  editingModelId.value = record?.id || null
+  Object.assign(modelForm, {
+    provider_id: record?.provider_id || providers.value[0]?.id || null,
+    name: record?.name || '',
+    display_name: record?.display_name || '',
+    enabled: record?.enabled ?? true,
+    context_window: record?.context_window || null,
+    max_output_tokens: record?.max_output_tokens || null,
+    is_default: record?.is_default || false,
+  })
+  modelVisible.value = true
+}
+
+const saveModel = async () => {
+  if (submitting.value) return
+  submitting.value = true
+  try {
+    if (editingModelId.value) await updateModelEndpoint(editingModelId.value, { ...modelForm })
+    else await createModelEndpoint({ ...modelForm })
+    modelVisible.value = false
+    await loadAll()
+  } catch (error) {
+    message.error(error.response?.data?.detail || '保存模型失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+const handleDeleteModel = async (record) => {
+  await deleteModelEndpoint(record.id)
+  await loadAll()
+}
+
+const openKey = (record = null) => {
+  editingKeyId.value = record?.id || null
+  Object.assign(keyForm, {
+    name: record?.name || '',
+    allowed_models: record?.allowed_models || [],
+    max_body_kb: record?.max_body_kb || 1024,
+    max_concurrent_requests: record?.max_concurrent_requests || 5,
+    expires_at: record?.expires_at ? dayjs(record.expires_at).format('YYYY-MM-DDTHH:mm:ss') : null,
+    never_expires: !record?.expires_at,
+    status: record?.status || 'active',
+  })
+  keyVisible.value = true
+}
+
+const saveKey = async () => {
+  if (submitting.value) return
+  submitting.value = true
+  try {
+    const payload = {
+      ...keyForm,
+      expires_at: keyForm.never_expires ? null : (keyForm.expires_at || null),
+    }
+    delete payload.never_expires
+    let res = null
+    if (editingKeyId.value) await updateLlmApiKey(editingKeyId.value, payload)
+    else res = await createLlmApiKey(payload)
+    createdKey.value = res?.token || ''
+    keyVisible.value = false
+    if (createdKey.value) createdKeyVisible.value = true
+    await loadAll()
+  } catch (error) {
+    message.error(error.response?.data?.detail || '创建 API Key 失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+const handleRevokeKey = async (record) => {
+  await revokeLlmApiKey(record.id)
+  await loadAll()
+}
+
+const handleDeleteKey = async (record) => {
+  await deleteLlmApiKey(record.id)
+  await loadAll()
+}
+
+const openUser = (record = null) => {
+  editingUserId.value = record?.id || null
+  Object.assign(userForm, { username: record?.username || '', email: record?.email || '', role: record?.role || 'admin', password: '', is_active: record?.is_active ?? true })
+  userVisible.value = true
+}
+
+const saveUser = async () => {
+  if (submitting.value) return
+  submitting.value = true
+  try {
+    const payload = { ...userForm }
+    if (!payload.password) delete payload.password
+    if (editingUserId.value) await updateManagedUser(editingUserId.value, payload)
+    else await createManagedUser(payload)
+    userVisible.value = false
+    await loadAll()
+  } catch (error) {
+    message.error(error.response?.data?.detail || '保存用户失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+const openGroup = (record = null) => {
+  editingGroupId.value = record?.id || null
+  Object.assign(groupForm, {
+    name: record?.name || '',
+    description: record?.description || '',
+    user_ids: record?.user_ids || [],
+    privacy_policy_id: record?.privacy_policy_id || null,
+    is_active: record?.is_active ?? true,
+  })
+  groupVisible.value = true
+}
+
+const saveGroup = async () => {
+  if (submitting.value) return
+  submitting.value = true
+  try {
+    if (editingGroupId.value) await updateGroup(editingGroupId.value, { ...groupForm })
+    else await createGroup({ ...groupForm })
+    groupVisible.value = false
+    await loadAll()
+  } catch (error) {
+    message.error(error.response?.data?.detail || '保存用户组失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+const openPolicy = (record = null) => {
+  const next = record ? { ...record } : { name: '默认隐私策略', group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 }
+  Object.assign(policyForm, next)
+  syncPolicyRuleRows()
+  policyVisible.value = true
+}
+
+const savePolicy = async () => {
+  if (submitting.value) return
+  submitting.value = true
+  try {
+    const entityRules = Object.fromEntries(policyRuleRows.value.map(row => [row.key, row.pattern || '']))
+    await savePrivacyPolicy({ ...policyForm, entity_rules: entityRules })
+    policyVisible.value = false
+    await loadAll()
+  } catch (error) {
+    message.error(error.response?.data?.detail || '保存隐私策略失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+const loadMappings = async () => {
+  if (!mappingQuery.tenant_id || !mappingQuery.conversation_id) {
+    message.error('请填写 Tenant ID 和 Conversation ID')
+    return
+  }
+  mappingLoading.value = true
+  try {
+    const res = await getPrivacyMappings(mappingQuery.conversation_id, mappingQuery.tenant_id)
+    mappings.value = res.mappings || []
+  } catch (error) {
+    message.error(error.response?.data?.detail || '查询映射失败')
+  } finally {
+    mappingLoading.value = false
+  }
+}
+
+const removeMappings = async () => {
+  if (!mappingQuery.tenant_id || !mappingQuery.conversation_id) return
+  mappingLoading.value = true
+  try {
+    await deletePrivacyMappings(mappingQuery.conversation_id, mappingQuery.tenant_id)
+    mappings.value = []
+    await loadAll()
+    message.success('会话映射已删除')
+  } catch (error) {
+    message.error(error.response?.data?.detail || '删除映射失败')
+  } finally {
+    mappingLoading.value = false
+  }
+}
+
+const copy = async (text) => {
+  await navigator.clipboard.writeText(text)
+  message.success('已复制')
+}
+
+onMounted(loadAll)
+</script>
+
+<style scoped>
+.muted {
+  color: #8c8c8c;
+}
+
+.rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.rule-row {
+  align-items: center;
+}
+</style>

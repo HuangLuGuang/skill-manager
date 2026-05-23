@@ -16,11 +16,11 @@
 
 ## Files
 
-- [main.py](/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/main.py)
+- [main.py](/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/main.py)
   Agno demo 主程序
-- [AGENTS.md](/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/AGENTS.md)
+- [AGENTS.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/AGENTS.md)
   Agno 开发约束
-- [pyproject.toml](/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/pyproject.toml)
+- [pyproject.toml](/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/pyproject.toml)
   demo 依赖
 
 ## Start The Agent Manager API
@@ -28,16 +28,16 @@
 推荐直接启动不带后台登录的 Agent Manager API，方便外部 Agent 直接调用：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 uv run agent-manager-api --host 0.0.0.0 --port 8080
 ```
 
-如果你用的是集成后的后台服务 `backend.main:app`，当前 `/api/v1` 仍然挂在后台登录态后面，不适合外部 Agent 直接接。真正面向 Agent 的 token 鉴权后面还要补。
+如果你用的是集成后的后台服务 `backend.main:app`，外部 Agent 应优先使用 `/api/v1/access/runtime/...` 接口，并携带管理台“扫描器接入”页面创建的 runtime Token。
 
 ## Install Demo Dependencies
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
+cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
 uv sync
 ```
 
@@ -58,7 +58,7 @@ deactivate 2>/dev/null || true
 打开一个终端窗口：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 uv sync
 uv run agent-manager-api --host 0.0.0.0 --port 8080
 ```
@@ -68,7 +68,7 @@ uv run agent-manager-api --host 0.0.0.0 --port 8080
 打开第二个终端窗口：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
+cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
 uv sync
 export AGENT_MANAGER_BASE_URL="http://127.0.0.1:8080"
 export DEEPSEEK_API_KEY="your-deepseek-key"
@@ -85,7 +85,7 @@ export AGENT_MANAGER_SIGNING_KEY="same-key-used-by-agent-manager"
 这里用 Agno cookbook 里的 `git-workflow` 做正常样例：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 uv run agent-manager submit /Users/huangluguang/Desktop/github/agno/cookbook/02_agents/16_skills/sample_skills/git-workflow
 ```
 
@@ -94,7 +94,7 @@ uv run agent-manager submit /Users/huangluguang/Desktop/github/agno/cookbook/02_
 ### 5. 运行正常样例
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
+cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
 uv run python git_workflow_demo.py
 ```
 
@@ -110,16 +110,16 @@ uv run python git_workflow_demo.py
 先把恶意样例解压并提交：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 tmpdir=$(mktemp -d)
-unzip -q /Users/huangluguang/Desktop/Project/agent-manager/tests/skills/exfiltrator.zip -d "$tmpdir"
+unzip -q /Users/huangluguang/Desktop/Project/skill-manager/tests/skills/exfiltrator.zip -d "$tmpdir"
 uv run agent-manager submit "$tmpdir/exfiltrator" --behavioral
 ```
 
 再运行：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
+cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
 uv run python malicious_exfiltrator_demo.py
 ```
 
@@ -156,7 +156,7 @@ export AGENT_ID="agno-demo-agent"
 - 模型：`deepseek-chat`
 - 接口：`https://api.deepseek.com`
 
-底层仍然使用 Agno 的 `OpenAIChat`，因为 DeepSeek 提供 OpenAI 兼容接口。
+底层仍然使用 Agno 的 `OpenAIChat`。默认示例直连 DeepSeek，也可以把 `AGNO_MODEL_BASE_URL` 指到 Agent Manager 模型网关的 `/v1` 兼容入口。
 为了兼容 DeepSeek 不接受 `developer` role 的限制，demo 里已经显式配置了 role map，把 `developer` 映射成 `system`。
 同时也关闭了 OpenAI 原生 structured output，避免 DeepSeek 对 `response_format` 的兼容性报错。
 
@@ -173,7 +173,7 @@ uv run python main.py \
 
 这个 demo 现在还附带了一个直接可测的真实样例：
 
-- [git_workflow_demo.py](/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/git_workflow_demo.py)
+- [git_workflow_demo.py](/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/git_workflow_demo.py)
 
 它默认使用你本地 Agno cookbook 里的真实 skill：
 
@@ -188,14 +188,14 @@ uv run python main.py \
 先把这个 skill 提交到 Agent Manager：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 uv run agent-manager submit /Users/huangluguang/Desktop/github/agno/cookbook/02_agents/16_skills/sample_skills/git-workflow
 ```
 
 然后直接跑：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
+cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
 uv run python git_workflow_demo.py
 ```
 
@@ -205,11 +205,11 @@ uv run python git_workflow_demo.py
 
 如果你想测试 Agent Manager 是否会在 Agno 加载前阻断恶意 skill，可以直接跑：
 
-- [malicious_exfiltrator_demo.py](/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard/malicious_exfiltrator_demo.py)
+- [malicious_exfiltrator_demo.py](/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/malicious_exfiltrator_demo.py)
 
 它默认使用测试样例：
 
-- `/Users/huangluguang/Desktop/Project/agent-manager/tests/skills/exfiltrator.zip`
+- `/Users/huangluguang/Desktop/Project/skill-manager/tests/skills/exfiltrator.zip`
 
 这个样例的恶意点比较明确：
 
@@ -221,14 +221,14 @@ uv run python git_workflow_demo.py
 
 ```bash
 tmpdir=$(mktemp -d)
-unzip -q /Users/huangluguang/Desktop/Project/agent-manager/tests/skills/exfiltrator.zip -d "$tmpdir"
+unzip -q /Users/huangluguang/Desktop/Project/skill-manager/tests/skills/exfiltrator.zip -d "$tmpdir"
 uv run agent-manager submit "$tmpdir/exfiltrator" --behavioral
 ```
 
 然后运行 demo：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-skill-guard
+cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
 uv run python malicious_exfiltrator_demo.py
 ```
 
@@ -250,7 +250,7 @@ Agent 先读取本地 skill 目录，使用与 Agent Manager 相同的算法计�
 
 调用：
 
-- `POST /api/v1/runtime/verify-skill-signature`
+- `POST /api/v1/access/runtime/verify-skill-signature`
 
 如果签名不一致，直接阻断加载。
 
@@ -258,7 +258,7 @@ Agent 先读取本地 skill 目录，使用与 Agent Manager 相同的算法计�
 
 再调用：
 
-- `GET /api/v1/runtime/can-load/{skill_name}`
+- `GET /api/v1/access/runtime/can-load/{skill_name}`
 
 如果 skill 当前不是 `APPROVED` 或 `DEPLOYED`，直接阻断。
 
@@ -272,7 +272,7 @@ Agent 先读取本地 skill 目录，使用与 Agent Manager 相同的算法计�
 
 每次真正调用前，会先请求：
 
-- `GET /api/v1/runtime/check-tool`
+- `GET /api/v1/access/runtime/check-tool`
 
 映射规则：
 

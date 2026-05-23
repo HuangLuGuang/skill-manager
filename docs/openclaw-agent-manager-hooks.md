@@ -55,15 +55,15 @@ flowchart TD
     A["OpenClaw Agent Start"] --> B["agent:bootstrap hook"]
     B --> C["枚举当前可见 skill 目录"]
     C --> D["本地计算每个 skill 签名"]
-    D --> E["POST /api/v1/runtime/verify-skill-signature"]
-    E --> F["GET /api/v1/runtime/can-load/{skill_name}"]
+    D --> E["POST /api/v1/access/runtime/verify-skill-signature"]
+    E --> F["GET /api/v1/access/runtime/can-load/{skill_name}"]
     F --> G["保留允许 skill / 移除不允许 skill"]
     G --> H["把 skill 校验结果写入 session/context"]
     H --> I["Agent 正常启动"]
 
     I --> J["before_tool_call hook"]
     J --> K["识别当前调用来自哪个 skill"]
-    K --> L["GET /api/v1/runtime/check-tool"]
+    K --> L["GET /api/v1/access/runtime/check-tool"]
     L --> M{"允许?"}
     M -- "否" --> N["block=true, 返回 blockReason"]
     M -- "是" --> O["继续执行 tool"]
@@ -80,8 +80,8 @@ flowchart TD
 1. 找到当前 agent 可见的所有 skill 目录
 2. 对每个 skill 目录计算本地签名
 3. 调 Agent Manager：
-   - `POST /api/v1/runtime/verify-skill-signature`
-   - `GET /api/v1/runtime/can-load/{skill_name}`
+   - `POST /api/v1/access/runtime/verify-skill-signature`
+   - `GET /api/v1/access/runtime/can-load/{skill_name}`
 4. 把未通过验证的 skill 从可见集合里移除
 5. 把验证结果写到 session/context，供后续 hooks 使用
 
@@ -91,7 +91,7 @@ flowchart TD
 
 1. 获取当前调用的 tool
 2. 获取当前触发者对应的 skill
-3. 调 `GET /api/v1/runtime/check-tool`
+3. 调 `GET /api/v1/access/runtime/check-tool`
 4. 不允许时：
    - `block: true`
    - `blockReason: "..."`
@@ -197,30 +197,30 @@ export async function verifySkillSignature(baseUrl: string, body: {
   skill_id?: string
   local_signature: string
   agent_id?: string
-}) {
-  const res = await fetch(`${baseUrl}/api/v1/runtime/verify-skill-signature`, {
+}, token: string) {
+  const res = await fetch(`${baseUrl}/api/v1/access/runtime/verify-skill-signature`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(await res.text())
   return await res.json()
 }
 
-export async function canLoad(baseUrl: string, skillName: string, agentId?: string) {
-  const url = new URL(`${baseUrl}/api/v1/runtime/can-load/${skillName}`)
+export async function canLoad(baseUrl: string, skillName: string, token: string, agentId?: string) {
+  const url = new URL(`${baseUrl}/api/v1/access/runtime/can-load/${skillName}`)
   if (agentId) url.searchParams.set("agent_id", agentId)
-  const res = await fetch(url)
+  const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } })
   if (!res.ok) throw new Error(await res.text())
   return await res.json()
 }
 
-export async function checkTool(baseUrl: string, skillName: string, toolName: string, agentId?: string) {
-  const url = new URL(`${baseUrl}/api/v1/runtime/check-tool`)
+export async function checkTool(baseUrl: string, skillName: string, toolName: string, token: string, agentId?: string) {
+  const url = new URL(`${baseUrl}/api/v1/access/runtime/check-tool`)
   url.searchParams.set("skill_name", skillName)
   url.searchParams.set("tool_name", toolName)
   if (agentId) url.searchParams.set("agent_id", agentId)
-  const res = await fetch(url)
+  const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } })
   if (!res.ok) throw new Error(await res.text())
   return await res.json()
 }

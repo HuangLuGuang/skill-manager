@@ -90,6 +90,37 @@ export const retirePrompt = (promptId, data) => api.post(`/v1/prompts/${promptId
 export const listPromptReviewQueue = () => api.get('/v1/prompts/review')
 export const getPromptAudit = (params = {}) => api.get('/v1/audit', { params: { ...params, category: 'prompt' } }) // Assuming category filter works or use specialized audit
 
+// LLM Gateway
+export const listManagedUsers = () => api.get('/v1/users')
+export const createManagedUser = (data) => api.post('/v1/users', data)
+export const updateManagedUser = (userId, data) => api.put(`/v1/users/${userId}`, data)
+export const listGroups = () => api.get('/v1/groups')
+export const createGroup = (data) => api.post('/v1/groups', data)
+export const updateGroup = (groupId, data) => api.put(`/v1/groups/${groupId}`, data)
+export const listModelProviders = () => api.get('/v1/model-providers')
+export const createModelProvider = (data) => api.post('/v1/model-providers', data)
+export const updateModelProvider = (providerId, data) => api.put(`/v1/model-providers/${providerId}`, data)
+export const deleteModelProvider = (providerId) => api.delete(`/v1/model-providers/${providerId}`)
+export const testModelProvider = (providerId) => api.post(`/v1/model-providers/${providerId}/test`)
+export const listModelEndpoints = () => api.get('/v1/models')
+export const createModelEndpoint = (data) => api.post('/v1/models', data)
+export const updateModelEndpoint = (modelId, data) => api.put(`/v1/models/${modelId}`, data)
+export const deleteModelEndpoint = (modelId) => api.delete(`/v1/models/${modelId}`)
+export const listLlmApiKeys = () => api.get('/v1/llm-api-keys')
+export const createLlmApiKey = (data) => api.post('/v1/llm-api-keys', data)
+export const updateLlmApiKey = (keyId, data) => api.put(`/v1/llm-api-keys/${keyId}`, data)
+export const revokeLlmApiKey = (keyId) => api.post(`/v1/llm-api-keys/${keyId}/revoke`)
+export const deleteLlmApiKey = (keyId) => api.delete(`/v1/llm-api-keys/${keyId}`)
+export const listPrivacyPolicies = () => api.get('/v1/privacy-policies')
+export const savePrivacyPolicy = (data) => api.post('/v1/privacy-policies', data)
+export const getPrivacyStats = () => api.get('/v1/privacy/stats')
+export const listPrivacyTraces = (params = {}) => api.get('/v1/privacy/traces', { params })
+export const getPrivacyTrace = (requestId) => api.get(`/v1/privacy/traces/${requestId}`)
+export const getPrivacyMappings = (conversationId, tenantId) =>
+  api.get(`/v1/privacy/conversations/${conversationId}/mappings`, { params: { tenant_id: tenantId } })
+export const deletePrivacyMappings = (conversationId, tenantId) =>
+  api.delete(`/v1/privacy/conversations/${conversationId}/mappings`, { params: { tenant_id: tenantId } })
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
   if (token) {
@@ -113,6 +144,7 @@ api.interceptors.response.use(
         alert('您的账号已在其他地方登录，当前会话已失效')
       }
       localStorage.removeItem('token')
+      localStorage.removeItem('username')
       if (window.location.pathname !== '/login') {
         window.location.href = '/login'
       }

@@ -34,6 +34,17 @@
 - **泄露检测**：识别试图窃取系统内部指令或敏感信息的模式。
 - **角色审计**：LLM 会判断提示词是否赋予了 Agent 过高的权限或潜在的恶意人格。
 
+如果启用了模型网关，提示词 LLM 审计请求会先经过隐私路由，再转发给上游模型供应商。这样可以在 `Pipeline Trace` 中看到内部 vetting 请求的四阶段处理过程，并避免把明文 PII 直接发给外部模型。
+
+配置方式：
+
+```bash
+export AGENT_MANAGER_LLM_GATEWAY_URL="http://127.0.0.1:8000/v1/chat/completions"
+export AGENT_MANAGER_LLM_GATEWAY_API_KEY="amk_xxx"
+```
+
+详细说明见 [model-gateway.md](model-gateway.md)。
+
 ### 2.3 审批上线
 - 状态为 `VETTED` 的提示词需要管理员介入。
 - 点击 **“通过审核”**，系统会固化内容并生成签名。

@@ -9,7 +9,7 @@ from main import run_demo
 
 
 MALICIOUS_ZIP_PATH = Path(
-    "/Users/huangluguang/Desktop/Project/agent-manager/tests/skills/exfiltrator.zip"
+    "/Users/huangluguang/Desktop/Project/skill-manager/tests/skills/exfiltrator.zip"
 )
 
 DEMO_QUESTION = (

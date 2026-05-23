@@ -30,11 +30,23 @@
 
       <a-layout v-if="!isLoginPage" class="app-main-layout">
         <a-layout-sider width="240" class="app-sider">
-          <a-menu :selectedKeys="selectedKeys" mode="inline" @click="handleMenuClick">
-            <a-menu-item v-for="item in menuItems" :key="item.key">
-              <component :is="item.icon" />
-              <span>{{ item.label }}</span>
-            </a-menu-item>
+          <a-menu :selectedKeys="selectedKeys" :openKeys="openKeys" mode="inline" @click="handleMenuClick" @openChange="keys => openKeys = keys">
+            <template v-for="item in menuItems" :key="item.key">
+              <a-sub-menu v-if="item.children" :key="item.key">
+                <template #title>
+                  <component :is="item.icon" />
+                  <span>{{ item.label }}</span>
+                </template>
+                <a-menu-item v-for="child in item.children" :key="child.key">
+                  <component :is="child.icon" />
+                  <span>{{ child.label }}</span>
+                </a-menu-item>
+              </a-sub-menu>
+              <a-menu-item v-else :key="item.key">
+                <component :is="item.icon" />
+                <span>{{ item.label }}</span>
+              </a-menu-item>
+            </template>
           </a-menu>
         </a-layout-sider>
         <a-layout-content class="app-content">
@@ -74,6 +86,7 @@ import {
   DashboardOutlined,
   DeploymentUnitOutlined,
   DownOutlined,
+  ApiOutlined,
   FileSearchOutlined,
   FileTextOutlined,
   KeyOutlined,
@@ -91,6 +104,7 @@ const authChecking = ref(true)
 const passwordVisible = ref(false)
 const logoUrl = ref('/logo.png')
 const selectedKeys = ref([route.path])
+const openKeys = ref([])
 const passwordForm = reactive({
   oldPassword: '',
   newPassword: '',
@@ -108,6 +122,20 @@ const menuItems = [
   { key: '/audit', label: '审计日志', icon: AuditOutlined },
   { key: '/policy', label: '策略配置', icon: SettingOutlined },
   { key: '/scanner-access', label: '扫描器接入', icon: KeyOutlined },
+  {
+    key: '/model-gateway',
+    label: '模型网关',
+    icon: ApiOutlined,
+    children: [
+      { key: '/model-gateway/providers', label: '供应商管理', icon: ApiOutlined },
+      { key: '/model-gateway/models', label: '模型管理', icon: DeploymentUnitOutlined },
+      { key: '/model-gateway/keys', label: 'API Key', icon: KeyOutlined },
+      { key: '/model-gateway/groups', label: '用户与组', icon: SafetyCertificateOutlined },
+      { key: '/model-gateway/policies', label: '隐私策略', icon: SettingOutlined },
+      { key: '/model-gateway/audit', label: '隐私审计', icon: AuditOutlined },
+      { key: '/pipeline-trace', label: 'Pipeline Trace', icon: AuditOutlined },
+    ],
+  },
   { key: '/settings', label: '系统设置', icon: SettingOutlined },
 ]
 
@@ -118,6 +146,7 @@ const isLoginPage = computed(() => route.name === 'login')
 const resolveMenuKey = (path) => {
   if (path.startsWith('/skills/')) return '/skills'
   if (path.startsWith('/prompts/')) return '/prompts'
+  if (path === '/model-gateway') return '/model-gateway/providers'
   return path
 }
 
@@ -125,8 +154,31 @@ watch(
   () => route.path,
   (path) => {
     selectedKeys.value = [resolveMenuKey(path)]
+    if (path.startsWith('/model-gateway') || path === '/pipeline-trace') {
+      openKeys.value = ['/model-gateway']
+    }
   },
   { immediate: true },
+)
+
+watch(
+  isLoginPage,
+  async (isLogin, wasLogin) => {
+    if (!isLogin && wasLogin && localStorage.getItem('token')) {
+      try {
+        await loadProfile()
+        startSessionCheck()
+      } catch {
+        localStorage.removeItem('token')
+        userInfo.value = null
+        router.push('/login')
+      }
+    }
+    if (isLogin) {
+      userInfo.value = null
+      stopSessionCheck()
+    }
+  },
 )
 
 const startSessionCheck = () => {
@@ -167,6 +219,8 @@ const handleMenuClick = ({ key }) => router.push(key)
 
 const handleLogout = () => {
   localStorage.removeItem('token')
+  localStorage.removeItem('username')
+  userInfo.value = null
   stopSessionCheck()
   router.push('/login')
 }
@@ -203,6 +257,8 @@ onMounted(async () => {
     startSessionCheck()
   } catch {
     localStorage.removeItem('token')
+    localStorage.removeItem('username')
+    userInfo.value = null
     router.push('/login')
   } finally {
     authChecking.value = false

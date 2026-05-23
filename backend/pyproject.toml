@@ -15,6 +15,7 @@ dependencies = [
     "python-dotenv",
     "python-multipart",
     "python-jose[cryptography]",
+    "cryptography",
     "passlib[bcrypt]",
     "bcrypt<4",
     "captcha",

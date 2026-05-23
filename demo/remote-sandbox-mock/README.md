@@ -11,7 +11,7 @@
 ## 启动
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/demo/remote-sandbox-mock
+cd /Users/huangluguang/Desktop/Project/skill-manager/demo/remote-sandbox-mock
 uv sync
 uv run uvicorn app:app --host 0.0.0.0 --port 8194 --reload
 ```

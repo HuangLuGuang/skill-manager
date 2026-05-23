@@ -9,16 +9,16 @@
 
 当前目录：
 
-- [HOOK.md](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/HOOK.md)
-- [handler.ts](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/handler.ts)
-- [agent-manager-client.ts](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/lib/agent-manager-client.ts)
-- [signer.ts](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/lib/signer.ts)
-- [discovery.ts](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/lib/discovery.ts)
-- [context.ts](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/lib/context.ts)
-- [plugin-hooks.ts](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/plugin-hooks.ts)
-- [plugin-hook-pack/README.md](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/plugin-hook-pack/README.md)
-- [hooks/payload-recorder/HOOK.md](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/hooks/payload-recorder/HOOK.md)
-- [hooks/payload-recorder/handler.ts](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/hooks/payload-recorder/handler.ts)
+- [HOOK.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/HOOK.md)
+- [handler.ts](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/handler.ts)
+- [agent-manager-client.ts](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/lib/agent-manager-client.ts)
+- [signer.ts](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/lib/signer.ts)
+- [discovery.ts](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/lib/discovery.ts)
+- [context.ts](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/lib/context.ts)
+- [plugin-hooks.ts](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/plugin-hooks.ts)
+- [plugin-hook-pack/README.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/plugin-hook-pack/README.md)
+- [hooks/payload-recorder/HOOK.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/hooks/payload-recorder/HOOK.md)
+- [hooks/payload-recorder/handler.ts](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/hooks/payload-recorder/handler.ts)
 
 ## Notes
 
@@ -30,6 +30,7 @@
 
 ```bash
 export AGENT_MANAGER_BASE_URL="http://127.0.0.1:8080"
+export AGENT_MANAGER_ACCESS_TOKEN="smsc_live_xxx"
 export AGENT_MANAGER_SIGNING_KEY="same-key-as-agent-manager"
 ```
 
@@ -38,12 +39,12 @@ export AGENT_MANAGER_SIGNING_KEY="same-key-as-agent-manager"
 这里分成两类：
 
 1. Internal hook
-   - 当前 [HOOK.md](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/HOOK.md)
+   - 当前 [HOOK.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/HOOK.md)
    - 事件：`agent:bootstrap`
    - 作用：加载前验签和 gating
 
 2. Plugin hook skeleton
-   - 当前 [plugin-hooks.ts](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/plugin-hooks.ts)
+   - 当前 [plugin-hooks.ts](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/plugin-hooks.ts)
    - 事件：`before_tool_call`
    - 作用：运行时 tool gating
 
@@ -51,7 +52,7 @@ export AGENT_MANAGER_SIGNING_KEY="same-key-as-agent-manager"
 
 我额外加了一个可直接安装的调试 hook：
 
-- [hooks/payload-recorder/HOOK.md](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/hooks/payload-recorder/HOOK.md)
+- [hooks/payload-recorder/HOOK.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/hooks/payload-recorder/HOOK.md)
 
 它会把真实 `agent:bootstrap` payload 记录到：
 
@@ -71,7 +72,7 @@ export AGENT_MANAGER_SIGNING_KEY="same-key-as-agent-manager"
 
 ```bash
 mkdir -p ~/.openclaw/hooks/agent-manager-guard
-rsync -a /Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/ ~/.openclaw/hooks/agent-manager-guard/
+rsync -a /Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/ ~/.openclaw/hooks/agent-manager-guard/
 openclaw hooks enable agent-manager-guard
 ```
 
@@ -79,7 +80,7 @@ openclaw hooks enable agent-manager-guard
 
 ```bash
 mkdir -p ~/.openclaw/hooks/payload-recorder
-rsync -a /Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/hooks/payload-recorder/ ~/.openclaw/hooks/payload-recorder/
+rsync -a /Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/hooks/payload-recorder/ ~/.openclaw/hooks/payload-recorder/
 openclaw hooks enable payload-recorder
 ```
 
@@ -89,11 +90,11 @@ openclaw hooks enable payload-recorder
 
 现在这个 demo 里给了一个最小骨架：
 
-- [plugin-hook-pack/README.md](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/plugin-hook-pack/README.md)
+- [plugin-hook-pack/README.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/plugin-hook-pack/README.md)
 
 后面你需要把：
 
-- [plugin-hooks.ts](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/plugin-hooks.ts)
+- [plugin-hooks.ts](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/plugin-hooks.ts)
 
 接进你实际的 OpenClaw plugin 工程里。
 
@@ -106,8 +107,8 @@ openclaw hooks enable payload-recorder
 3. 读取 `~/.openclaw/logs/hook-payloads.jsonl`
 4. 把真实 `agent:bootstrap` payload 给我
 5. 我根据真实结构收紧：
-   - [discovery.ts](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/lib/discovery.ts)
-   - [handler.ts](/Users/huangluguang/Desktop/Project/agent-manager/demo/openclaw-agent-manager-hook/handler.ts)
+   - [discovery.ts](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/lib/discovery.ts)
+   - [handler.ts](/Users/huangluguang/Desktop/Project/skill-manager/demo/openclaw-agent-manager-hook/handler.ts)
 6. 再接 plugin 的 `before_tool_call`
 
 ## Next Step

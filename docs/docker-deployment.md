@@ -9,34 +9,34 @@
 
 ## 文件位置
 
-- [docker-compose.yaml](/Users/huangluguang/Desktop/Project/agent-manager/docker-compose.yaml)
-- [docker-compose.prod.yaml](/Users/huangluguang/Desktop/Project/agent-manager/docker-compose.prod.yaml)
-- [backend/Dockerfile](/Users/huangluguang/Desktop/Project/agent-manager/backend/Dockerfile)
-- [web/Dockerfile](/Users/huangluguang/Desktop/Project/agent-manager/web/Dockerfile)
-- [services/isolated-sandbox-service/Dockerfile](/Users/huangluguang/Desktop/Project/agent-manager/services/isolated-sandbox-service/Dockerfile)
-- [services/isolated-sandbox-service/Dockerfile.nsjail](/Users/huangluguang/Desktop/Project/agent-manager/services/isolated-sandbox-service/Dockerfile.nsjail)
-- [deploy/nginx/default.conf](/Users/huangluguang/Desktop/Project/agent-manager/deploy/nginx/default.conf)
+- [docker-compose.yaml](/Users/huangluguang/Desktop/Project/skill-manager/docker-compose.yaml)
+- [docker-compose.prod.yaml](/Users/huangluguang/Desktop/Project/skill-manager/docker-compose.prod.yaml)
+- [backend/Dockerfile](/Users/huangluguang/Desktop/Project/skill-manager/backend/Dockerfile)
+- [web/Dockerfile](/Users/huangluguang/Desktop/Project/skill-manager/web/Dockerfile)
+- [services/isolated-sandbox-service/Dockerfile](/Users/huangluguang/Desktop/Project/skill-manager/services/isolated-sandbox-service/Dockerfile)
+- [services/isolated-sandbox-service/Dockerfile.nsjail](/Users/huangluguang/Desktop/Project/skill-manager/services/isolated-sandbox-service/Dockerfile.nsjail)
+- [deploy/nginx/default.conf](/Users/huangluguang/Desktop/Project/skill-manager/deploy/nginx/default.conf)
 
 ## 启动
 
 先准备环境变量文件：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 cp .env.example .env
 ```
 
 然后启动：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 docker compose up --build
 ```
 
 或者直接用：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 make up
 ```
 
@@ -45,7 +45,7 @@ make up
 如果你不是用整套 compose 部署，但希望 Agent Manager 的 `docker` sandbox 能本地直接测试带常见依赖的 Python skill，先构建项目自带的运行时镜像：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 make sandbox-runtime-build
 ```
 
@@ -100,25 +100,25 @@ SANDBOX_SERVICE_API_KEY=replace-with-real-secret
 
 环境变量模板文件：
 
-- [.env.example](/Users/huangluguang/Desktop/Project/agent-manager/.env.example)
+- [.env.example](/Users/huangluguang/Desktop/Project/skill-manager/.env.example)
 
 如果你要直接使用生产版 sandbox 镜像，可以这样启动：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 make prod-up
 ```
 
 或者：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager
+cd /Users/huangluguang/Desktop/Project/skill-manager
 docker compose -f docker-compose.yaml -f docker-compose.prod.yaml up --build
 ```
 
 这个覆盖文件会把 `sandbox` 服务切到：
 
-- [services/isolated-sandbox-service/Dockerfile.nsjail](/Users/huangluguang/Desktop/Project/agent-manager/services/isolated-sandbox-service/Dockerfile.nsjail)
+- [services/isolated-sandbox-service/Dockerfile.nsjail](/Users/huangluguang/Desktop/Project/skill-manager/services/isolated-sandbox-service/Dockerfile.nsjail)
 
 ## Nginx 代理规则
 
@@ -174,7 +174,7 @@ Agent Manager 现在不再把 `registry.json` 作为主存储。容器启动后�
 
 项目根目录新增了：
 
-- [Makefile](/Users/huangluguang/Desktop/Project/agent-manager/Makefile)
+- [Makefile](/Users/huangluguang/Desktop/Project/skill-manager/Makefile)
 
 常用命令：
 

@@ -7,15 +7,15 @@
 
 主要文件：
 
-- [main.py](/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-openclaw-discovery/main.py)
-- [SKILL.md](/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-openclaw-discovery/skills/openclaw-network-discovery/SKILL.md)
-- [discover_openclaw.py](/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-openclaw-discovery/skills/openclaw-network-discovery/scripts/discover_openclaw.py)
-- [usage.md](/Users/huangluguang/Desktop/Project/agent-manager/demo/agno-openclaw-discovery/skills/openclaw-network-discovery/references/usage.md)
+- [main.py](/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-openclaw-discovery/main.py)
+- [SKILL.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-openclaw-discovery/skills/openclaw-network-discovery/SKILL.md)
+- [discover_openclaw.py](/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-openclaw-discovery/skills/openclaw-network-discovery/scripts/discover_openclaw.py)
+- [usage.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/agno-openclaw-discovery/skills/openclaw-network-discovery/references/usage.md)
 
 ## Install
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-openclaw-discovery
+cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-openclaw-discovery
 uv sync
 ```
 
@@ -36,7 +36,7 @@ export OPENCLOW_TARGET="192.168.1.10:18789"
 ## Run
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-openclaw-discovery
+cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-openclaw-discovery
 uv run python main.py
 ```
 
@@ -57,7 +57,7 @@ uv run python main.py --target 192.168.1.0/24 --port 18789 --concurrency 20
 如果你想先跳过 Agent，直接测试 skill 脚本：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/agent-manager/demo/agno-openclaw-discovery/skills/openclaw-network-discovery/scripts
+cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-openclaw-discovery/skills/openclaw-network-discovery/scripts
 uv run python discover_openclaw.py --target 127.0.0.1:18789
 ```
 

@@ -7,7 +7,7 @@ metadata:
     "openclaw": {
       "events": ["agent:bootstrap"],
       "requires": {
-        "env": ["AGENT_MANAGER_BASE_URL"]
+        "env": ["AGENT_MANAGER_BASE_URL", "AGENT_MANAGER_ACCESS_TOKEN"]
       }
     }
   }
@@ -24,15 +24,16 @@ Runtime tool gating via `before_tool_call` is provided separately in the plugin 
 - Enumerates visible skills during `agent:bootstrap`
 - Computes local signatures for each skill directory
 - Calls Agent Manager:
-  - `POST /api/v1/runtime/verify-skill-signature`
-  - `GET /api/v1/runtime/can-load/{skill_name}`
+  - `POST /api/v1/access/runtime/verify-skill-signature`
+  - `GET /api/v1/access/runtime/can-load/{skill_name}`
 - Removes blocked skills from bootstrap-visible context when possible
 - Writes verification results into hook context
-- Calls `GET /api/v1/runtime/check-tool` during `before_tool_call`
+- Calls `GET /api/v1/access/runtime/check-tool` during `before_tool_call`
 
 ## Requirements
 
 - `AGENT_MANAGER_BASE_URL`
+- `AGENT_MANAGER_ACCESS_TOKEN`
 - Optional `AGENT_MANAGER_SIGNING_KEY`
 
 ## Status

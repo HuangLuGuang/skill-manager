@@ -8,6 +8,7 @@
 
 - 模式一：把 Agent Manager 当作审批和验票中心
 - 模式二：把 Agent Manager 当作 skill 制品登记中心
+- 模式三：把 Agent Manager 当作 LLM 隐私代理
 
 最推荐的是模式一。这样外部 Agent 仍然使用自己的 skill 加载机制，但在关键节点调用 Agent Manager 做校验和审计。
 
@@ -99,6 +100,53 @@ sequenceDiagram
 - 外部系统自己管理 skill 文件
 - Agent Manager 负责审批、验签、运行时放行与审计
 
+## Mode 3: LLM Privacy Proxy
+
+外部应用或 Agent 也可以把 Agent Manager 当作 OpenAI-compatible 模型网关使用。
+
+```mermaid
+flowchart LR
+    A["外部应用 / Agent"] --> B["POST /v1/chat/completions"]
+    B --> C["LLM API Key 校验"]
+    C --> D["用户组隐私策略"]
+    D --> E["PII 检测 / 伪匿名"]
+    E --> F["上游模型供应商"]
+    F --> G["响应还原"]
+    G --> H["Pipeline Trace / 审计"]
+    H --> A
+```
+
+运行时接口：
+
+- `POST /v1/chat/completions`
+  OpenAI SDK 兼容路径，适合把 SDK 的 `base_url` 指到 Agent Manager。
+- `POST /`
+  兼容把配置地址当作完整 Chat Completions 请求地址直接 POST 的客户端。
+- `POST /chat/completions`
+  兼容部分客户端把 `base_url` 配成不含 `/v1` 时直接拼接的路径。
+- `GET /v1/models` / `GET /models`
+  OpenAI-compatible 模型列表，只返回当前 LLM API Key 允许访问的启用模型。
+- `POST /api/v1/llm/chat/completions`
+  Agent Manager 命名空间路径，适合内部服务显式调用。
+
+鉴权使用模型网关页面创建的 LLM API Key：
+
+```http
+Authorization: Bearer amk_xxx
+```
+
+与 Scanner Token 不同，LLM API Key 用于模型调用：
+
+- 可绑定用户或用户组
+- 可限制可访问模型
+- 可设置过期时间
+- 可限制请求体大小和并发数
+- 明文只展示一次，服务端只保存 hash
+
+完整说明见：
+
+- [model-gateway.md](model-gateway.md)
+
 ## Boundaries
 
 这套系统当前负责的是：
@@ -111,6 +159,8 @@ sequenceDiagram
 - 部署状态
 - 运行时放行判断
 - 审计日志
+- LLM 模型调用隐私代理
+- LLM Pipeline Trace
 
 这套系统当前不负责的是：
 
@@ -160,6 +210,13 @@ flowchart TD
 4. 面向外部 Agent 的独立 token / API key 鉴权
 5. 按环境区分 `dev / staging / prod`
 
+模型网关方向的后续增强：
+
+1. 支持 streaming 响应的增量反替换
+2. 引入更完整的 NER / Presidio 识别器
+3. 对 API Key 做跨进程 / 分布式限流
+4. 对 Trace 增加脱敏导出视图
+
 ## Summary
 
 一句话说清楚：
@@ -180,3 +237,7 @@ flowchart TD
   返回 skill 目录内的相对路径、文件大小和修改时间
 - `POST /api/v1/access/runtime/verify-skill-signature`
   校验外部 Agent 本地计算的签名是否与批准记录一致
+- `GET /api/v1/access/runtime/can-load/{skill_name}`
+  校验 skill 注册状态是否允许加载
+- `GET /api/v1/access/runtime/check-tool`
+  校验运行时 tool 调用是否在允许范围内

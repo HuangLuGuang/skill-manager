@@ -25,6 +25,9 @@ For the production-oriented isolated sandbox service, see:
 For Dockerfiles and docker-compose based deployment, see:
 [docs/docker-deployment.md](docs/docker-deployment.md)
 
+For the built-in LLM model gateway and privacy router, see:
+[docs/model-gateway.md](docs/model-gateway.md)
+
 For OpenClaw hook integration with Agent Manager, see:
 [docs/openclaw-agent-manager-hooks.md](docs/openclaw-agent-manager-hooks.md)
 
@@ -114,6 +117,26 @@ Developer / External Source
    [RETIRE]  ──── agent-manager retire my-skill --reason "CVE-2026-0001"
                   Immediate revocation — all agents blocked instantly
 ```
+
+Agent Manager also includes an LLM model gateway:
+
+```
+Client / Agent
+        │
+        ▼
+   [LLM API KEY] ── model scope / body size / concurrency checks
+        │
+        ▼
+   [PRIVACY]     ── PII detection → pseudonym tokens → upstream model call
+        │
+        ▼
+   [RESTORE]     ── response de-pseudonymization
+        │
+        ▼
+   [TRACE]       ── request audit + four-stage pipeline trace
+```
+
+It exposes OpenAI-compatible `POST /v1/chat/completions`, compatibility aliases `POST /` and `POST /chat/completions`, `GET /v1/models`, and the namespaced `POST /api/v1/llm/chat/completions`. Configure providers, models, API keys, user groups, and privacy policies in the admin console under **模型网关**. See [docs/model-gateway.md](docs/model-gateway.md).
 
 ---
 
@@ -245,8 +268,13 @@ Key endpoints:
 | `POST` | `/api/v1/skills/{id}/reject` | Reject a vetted skill |
 | `POST` | `/api/v1/skills/{id}/deploy` | Mark a skill as deployed |
 | `POST` | `/api/v1/skills/{id}/retire` | Retire a skill immediately |
-| `GET`  | `/api/v1/runtime/can-load/{name}` | Runtime load check (call from agents) |
-| `GET`  | `/api/v1/runtime/check-tool` | Tool permission check |
+| `POST` | `/api/v1/access/runtime/verify-skill-signature` | Token-auth runtime signature check for external agents |
+| `GET`  | `/api/v1/access/runtime/can-load/{name}` | Token-auth runtime load check for external agents |
+| `GET`  | `/api/v1/access/runtime/check-tool` | Token-auth tool permission check for external agents |
+| `POST` | `/` | Compatibility alias for clients that treat the configured endpoint as the full chat URL |
+| `POST` | `/v1/chat/completions` | OpenAI-compatible privacy model gateway |
+| `POST` | `/chat/completions` | Compatibility alias for clients whose base URL omits `/v1` |
+| `GET`  | `/v1/models` | OpenAI-compatible model list for the current LLM API Key |
 | `GET`  | `/api/v1/audit` | Audit trail |
 
 ---

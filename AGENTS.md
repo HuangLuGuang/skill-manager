@@ -96,12 +96,17 @@ make sandbox-runtime-build
 
 - API 路由主要在 `agent_manager/api/router.py`。
 - 核心扫描流程在 `agent_manager/core/vetting.py`。
-- LLM 调用封装在 `agent_manager/core/llm.py`，需要兼容 DeepSeek/OpenAI-compatible API。
+- LLM 调用封装在 `agent_manager/core/llm.py`，需要兼容 OpenAI-compatible API（DeepSeek 属于其中一种供应商）。
+- 模型网关和隐私路由在 `backend/routers/llm_gateway.py`，用于管理模型供应商、模型、用户组、LLM API Key、隐私策略，并提供 OpenAI-compatible Chat Completions 代理。
 - Sandbox 运行封装在 `agent_manager/core/sandbox.py`。
 - 策略相关逻辑在 `agent_manager/core/policy.py`。
 - 模型和 registry 数据结构在 `agent_manager/core/models.py`、`agent_manager/core/manager.py`。
 - 新增 API 时要考虑登录权限、审计日志、错误信息中文可读性和前端兼容。
 - 提交 skill 相关接口应保持幂等和防重复提交意识，前端禁用按钮不能替代后端校验。
+- LLM API Key 明文只能在创建后展示一次，服务端只保存 hash；模型供应商 API Key 必须加密或脱敏存储，接口只能返回掩码。
+- Chat Completions 代理只能透传明确允许的 OpenAI 参数；未知字段应拒绝，避免资源滥用。
+- 模型网关运行时必须校验 API Key 状态、过期时间、模型范围、请求体大小和并发限制。
+- Pipeline Trace 会保存原始 PII，只允许管理员或隐私审计角色查看；不要把原始 prompt/response 写入普通日志。
 
 ## 前端注意事项
 
@@ -113,7 +118,7 @@ make sandbox-runtime-build
   - loading 状态。
   - disabled 防重复点击。
   - 函数入口的 `submitting` 防重入。
-- 如果系统设置未启用或未配置 LLM API Key，提交页的 LLM 选项不能勾选，并要有 tooltip 说明。
+- 如果系统设置未启用或未配置直连 LLM API Key，提交页的 LLM 选项不能勾选，并要有 tooltip 说明；服务端内部任务也可以通过模型网关环境变量走隐私代理。
 - 文件列表、扫描文件、报告 JSON 等内容应支持查看原始内容，避免只显示摘要。
 
 ## Sandbox 约定
@@ -156,6 +161,7 @@ make sandbox-runtime-build
 - Sandbox 设计更新 `docs/sandbox-service-architecture.md`。
 - Docker 部署更新 `docs/docker-deployment.md`。
 - 如果新增 demo，补充对应 `README.md`。
+- 模型网关、隐私路由、LLM API Key、Pipeline Trace 相关变更优先更新 `docs/model-gateway.md`，必要时同步 `docs/project-guide.md` 和 `docs/external-agent-integration.md`。
 - 临时实施文档和计划文档用完就删除；长期开发约定记在 `AGENTS.md`，不要为了计划类内容新增 `docs/` 文档或放进 `docs/project-guide.md`。
 
 ## Git 约定

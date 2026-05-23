@@ -15,7 +15,7 @@ await fs.writeFile(path.join(blockedSkillDir, "SKILL.md"), "---\nname: blocked-s
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", "http://127.0.0.1");
 
-  if (req.method === "POST" && url.pathname === "/api/v1/runtime/verify-skill-signature") {
+  if (req.method === "POST" && url.pathname === "/api/v1/access/runtime/verify-skill-signature") {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
@@ -33,7 +33,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === "GET" && url.pathname === "/api/v1/runtime/can-load/safe-skill") {
+  if (req.method === "GET" && url.pathname === "/api/v1/access/runtime/can-load/safe-skill") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({
       allowed: true,
@@ -44,7 +44,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === "GET" && url.pathname === "/api/v1/runtime/can-load/blocked-skill") {
+  if (req.method === "GET" && url.pathname === "/api/v1/access/runtime/can-load/blocked-skill") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({
       allowed: false,
@@ -55,7 +55,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === "GET" && url.pathname === "/api/v1/runtime/check-tool") {
+  if (req.method === "GET" && url.pathname === "/api/v1/access/runtime/check-tool") {
     const skillName = url.searchParams.get("skill_name");
     const toolName = url.searchParams.get("tool_name");
     const allowed = !(skillName === "safe-skill" && toolName === "Bash");
@@ -78,7 +78,8 @@ if (!address || typeof address === "string") {
   throw new Error("Failed to get test server address");
 }
 
-process.env.SKILL_MANAGER_BASE_URL = `http://127.0.0.1:${address.port}`;
+process.env.AGENT_MANAGER_BASE_URL = `http://127.0.0.1:${address.port}`;
+process.env.AGENT_MANAGER_ACCESS_TOKEN = "smsc_live_test";
 
 const { default: handler } = await import("./handler.ts");
 const { before_tool_call } = await import("./plugin-hooks.ts");

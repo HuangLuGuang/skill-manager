@@ -584,8 +584,8 @@ const llmTooltip = computed(() => {
   if (loadingSystemStatus.value) return '正在读取系统设置中的 LLM 状态'
   if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return '尚未获取系统设置，请稍后重试'
   if (!llmEnabledInSystem.value) return '系统设置里没有启用 LLM 分析，所以这里不能勾选'
-  if (!managerStatus.value?.llm_api_key_configured) return '系统设置里尚未配置 LLM API Key，所以这里不能勾选'
-  return '启用后会调用系统设置里的 DeepSeek 配置，对技能做补充分析'
+  if (!managerStatus.value?.llm_api_key_configured) return '系统设置里尚未配置直连 LLM API Key，所以这里不能勾选'
+  return '启用后会调用系统设置里的 OpenAI-compatible 配置；服务端也可配置模型网关隐私代理'
 })
 const behavioralTooltip = '默认已启动。会额外扫描 scripts、references、prompts 等目录中的文本代码文件，检测命令执行、敏感文件访问、动态执行等可疑模式'
 const sandboxTooltip = '启用后会尝试在 Docker 沙箱或远程隔离执行服务中执行一个受控 probe，用于观察 skill 运行时行为'

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import uuid
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -226,23 +227,33 @@ def _extract_json_object(raw_text: str) -> dict[str, Any]:
 
 def _call_llm(config: LLMConfig, system_prompt: str, user_prompt: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """Call the LLM and return (parsed_json, raw_response_body)."""
-    endpoint = f"{config.api_base.rstrip('/')}/chat/completions"
+    gateway_url = os.environ.get("AGENT_MANAGER_LLM_GATEWAY_URL", "").strip()
+    gateway_api_key = os.environ.get("AGENT_MANAGER_LLM_GATEWAY_API_KEY", "").strip()
+    endpoint = gateway_url or f"{config.api_base.rstrip('/')}/chat/completions"
     payload = {
         "model": config.model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
+        "metadata": {
+            "tenant_id": os.environ.get("AGENT_MANAGER_LLM_GATEWAY_TENANT_ID", "agent-manager-internal"),
+            "user_id": os.environ.get("AGENT_MANAGER_LLM_GATEWAY_USER_ID", "agent-manager-vetting"),
+            "conversation_id": os.environ.get(
+                "AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID",
+                f"vetting-{uuid.uuid4().hex}",
+            ),
+        },
         "temperature": 0.1,
         "response_format": {"type": "json_object"},
         "stream": False,
     }
-    logger.error(f"LLM request payload: {payload}")
+    api_key = gateway_api_key or config.api_key
     with httpx.Client(timeout=config.timeout_seconds) as client:
         response = client.post(
             endpoint,
             headers={
-                "Authorization": f"Bearer {config.api_key}",
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
             json=payload,
@@ -669,11 +680,13 @@ def generate_sandbox_probes_with_llm(
     max_cases: int = 4,
 ) -> LLMSandboxProbePlan:
     resolved_config = config or LLMConfig.load()
+    gateway_url = os.environ.get("AGENT_MANAGER_LLM_GATEWAY_URL", "").strip()
+    gateway_api_key = os.environ.get("AGENT_MANAGER_LLM_GATEWAY_API_KEY", "").strip()
     if not resolved_config.enabled:
         raise ValueError("LLM analysis is disabled")
-    if not resolved_config.api_key:
+    if not (gateway_api_key or resolved_config.api_key):
         raise ValueError("LLM API key is not configured")
-    if resolved_config.provider.lower() != "deepseek":
+    if not gateway_url and resolved_config.provider.lower() != "deepseek":
         raise ValueError(f"Unsupported LLM provider: {resolved_config.provider}")
 
     snapshot = _build_skill_snapshot(skill_path, resolved_config)
@@ -699,22 +712,31 @@ def generate_sandbox_probes_with_llm(
         f"{snapshot}"
     )
 
-    endpoint = f"{resolved_config.api_base.rstrip('/')}/chat/completions"
+    endpoint = gateway_url or f"{resolved_config.api_base.rstrip('/')}/chat/completions"
     payload = {
         "model": resolved_config.model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
+        "metadata": {
+            "tenant_id": os.environ.get("AGENT_MANAGER_LLM_GATEWAY_TENANT_ID", "agent-manager-internal"),
+            "user_id": os.environ.get("AGENT_MANAGER_LLM_GATEWAY_USER_ID", "agent-manager-sandbox-probes"),
+            "conversation_id": os.environ.get(
+                "AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID",
+                f"sandbox-probes-{uuid.uuid4().hex}",
+            ),
+        },
         "temperature": 0.2,
         "response_format": {"type": "json_object"},
         "stream": False,
     }
+    api_key = gateway_api_key or resolved_config.api_key
     with httpx.Client(timeout=resolved_config.timeout_seconds) as client:
         response = client.post(
             endpoint,
             headers={
-                "Authorization": f"Bearer {resolved_config.api_key}",
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
             json=payload,

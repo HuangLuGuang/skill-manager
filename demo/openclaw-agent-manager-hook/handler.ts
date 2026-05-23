@@ -30,9 +30,13 @@ type BlockedSkillState = {
 };
 
 const baseUrl = process.env.AGENT_MANAGER_BASE_URL;
+const accessToken = process.env.AGENT_MANAGER_ACCESS_TOKEN;
 
 if (!baseUrl) {
   throw new Error("AGENT_MANAGER_BASE_URL is required");
+}
+if (!accessToken) {
+  throw new Error("AGENT_MANAGER_ACCESS_TOKEN is required");
 }
 
 async function handleBootstrap(event: HookEvent): Promise<void> {
@@ -48,7 +52,7 @@ async function handleBootstrap(event: HookEvent): Promise<void> {
         process.env.AGENT_MANAGER_SIGNING_KEY,
       );
 
-      const verifyResult: VerifySkillSignatureResponse = await verifySkillSignature(baseUrl, {
+      const verifyResult: VerifySkillSignatureResponse = await verifySkillSignature(baseUrl, accessToken, {
         skill_name: skill.name,
         local_signature: localSignature,
         agent_id: sessionKey,
@@ -60,7 +64,7 @@ async function handleBootstrap(event: HookEvent): Promise<void> {
         continue;
       }
 
-      const loadResult: RuntimeCheckResponse = await canLoad(baseUrl, skill.name, sessionKey);
+      const loadResult: RuntimeCheckResponse = await canLoad(baseUrl, accessToken, skill.name, sessionKey);
       if (!loadResult.allowed) {
         blockedSkills[skill.name] = { reason: loadResult.reason };
         removeSkillFromBootstrap(event, skill);
