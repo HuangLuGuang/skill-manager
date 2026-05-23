@@ -14,6 +14,7 @@ import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
@@ -1381,6 +1382,70 @@ async def get_trace_detail(
     return {"request_id": request_id, "stages": stages}
 
 
+def _mapping_payload(row: models.PseudonymMapping) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "tenant_id": row.tenant_id,
+        "conversation_id": row.conversation_id,
+        "token": row.token,
+        "entity_type": row.entity_type,
+        "original_value": row.original_value,
+        "normalized_value": row.normalized_value,
+        "created_by": row.created_by,
+        "created_at": row.created_at.isoformat(),
+        "expires_at": row.expires_at.isoformat(),
+    }
+
+
+@admin_router.get("/privacy/mappings")
+async def list_privacy_mappings(
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 10,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    safe_page = max(1, page)
+    safe_page_size = max(1, min(page_size, 100))
+    query = db.query(models.PseudonymMapping).filter(models.PseudonymMapping.expires_at >= _now())
+    if q:
+        pattern = f"%{q.strip()}%"
+        query = query.filter(
+            or_(
+                models.PseudonymMapping.tenant_id.ilike(pattern),
+                models.PseudonymMapping.conversation_id.ilike(pattern),
+                models.PseudonymMapping.original_value.ilike(pattern),
+            )
+        )
+    total = query.count()
+    rows = (
+        query.order_by(models.PseudonymMapping.created_at.desc(), models.PseudonymMapping.id.desc())
+        .offset((safe_page - 1) * safe_page_size)
+        .limit(safe_page_size)
+        .all()
+    )
+    return {
+        "mappings": [_mapping_payload(row) for row in rows],
+        "total": total,
+        "page": safe_page,
+        "page_size": safe_page_size,
+    }
+
+
+@admin_router.delete("/privacy/mappings/{mapping_id}")
+async def delete_privacy_mapping(
+    mapping_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    row = db.query(models.PseudonymMapping).filter(models.PseudonymMapping.id == mapping_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="映射不存在")
+    db.delete(row)
+    db.commit()
+    return {"deleted": 1}
+
+
 @admin_router.get("/privacy/conversations/{conversation_id}/mappings")
 async def get_conversation_mappings(
     conversation_id: str,
@@ -1397,18 +1462,7 @@ async def get_conversation_mappings(
         "tenant_id": tenant_id,
         "conversation_id": conversation_id,
         "count": len(rows),
-        "mappings": [
-            {
-                "token": row.token,
-                "entity_type": row.entity_type,
-                "original_value": row.original_value,
-                "normalized_value": row.normalized_value,
-                "created_by": row.created_by,
-                "created_at": row.created_at.isoformat(),
-                "expires_at": row.expires_at.isoformat(),
-            }
-            for row in rows
-        ],
+        "mappings": [_mapping_payload(row) for row in rows],
     }
 
 

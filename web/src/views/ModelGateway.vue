@@ -183,32 +183,46 @@
 
       <section v-if="activeTab === 'audit'">
         <a-card title="隐私审计">
-          <a-row :gutter="16">
-            <a-col :xs="24" :md="10">
-              <a-form layout="vertical">
-                <a-form-item label="Tenant ID">
-                  <a-input v-model:value="mappingQuery.tenant_id" placeholder="tenant-a" />
-                </a-form-item>
-                <a-form-item label="Conversation ID">
-                  <a-input v-model:value="mappingQuery.conversation_id" placeholder="conv-xxx" />
-                </a-form-item>
-                <a-space>
-                  <a-button type="primary" :loading="mappingLoading" @click="loadMappings">查询映射</a-button>
-                  <a-popconfirm title="确认删除该会话映射？" @confirm="removeMappings">
-                    <a-button danger :disabled="!mappingQuery.tenant_id || !mappingQuery.conversation_id">删除会话映射</a-button>
-                  </a-popconfirm>
-                </a-space>
-              </a-form>
-            </a-col>
-            <a-col :xs="24" :md="14">
-              <a-table :data-source="mappings" :columns="mappingColumns" row-key="token" :loading="mappingLoading" size="small" :pagination="{ pageSize: 8 }">
-                <template #bodyCell="{ column, record }">
-                  <template v-if="column.key === 'token'"><a-typography-text code>{{ record.token }}</a-typography-text></template>
-                  <template v-else-if="column.key === 'original'">{{ record.original_value }}</template>
-                </template>
-              </a-table>
-            </a-col>
-          </a-row>
+          <template #extra>
+            <a-space>
+              <a-input-search
+                v-model:value="mappingQuery.q"
+                placeholder="搜索 Tenant ID / Conversation ID / 原始值"
+                allow-clear
+                style="width: 360px"
+                :loading="mappingLoading"
+                @search="searchMappings"
+              />
+              <a-button :loading="mappingLoading" @click="loadMappings">刷新</a-button>
+            </a-space>
+          </template>
+          <a-table
+            :data-source="mappings"
+            :columns="mappingColumns"
+            row-key="id"
+            :loading="mappingLoading"
+            size="small"
+            :pagination="mappingPagination"
+            :scroll="{ x: 1280 }"
+            @change="handleMappingTableChange"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'tenant_id'"><a-typography-text :ellipsis="{ tooltip: record.tenant_id }">{{ record.tenant_id }}</a-typography-text></template>
+              <template v-else-if="column.key === 'conversation_id'">
+                <a-tooltip :title="record.conversation_id">
+                  <a-typography-text code>{{ compactId(record.conversation_id) }}</a-typography-text>
+                </a-tooltip>
+              </template>
+              <template v-else-if="column.key === 'token'"><a-typography-text code :ellipsis="{ tooltip: record.token }">{{ record.token }}</a-typography-text></template>
+              <template v-else-if="column.key === 'original'"><a-typography-text :ellipsis="{ tooltip: record.original_value }">{{ record.original_value }}</a-typography-text></template>
+              <template v-else-if="column.key === 'expires_at'">{{ formatDateTime(record.expires_at) }}</template>
+              <template v-else-if="column.key === 'action'">
+                <a-popconfirm title="确认删除这条映射？" @confirm="removeMapping(record)">
+                  <a-button type="link" danger>删除</a-button>
+                </a-popconfirm>
+              </template>
+            </template>
+          </a-table>
         </a-card>
       </section>
     </div>
@@ -407,6 +421,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import dayjs from 'dayjs'
+import { formatBeijingDateTime } from '../utils/format'
 
 import {
   createGroup,
@@ -417,9 +432,9 @@ import {
   deleteLlmApiKey,
   deleteModelEndpoint,
   deleteModelProvider,
-  deletePrivacyMappings,
-  getPrivacyMappings,
+  deletePrivacyMapping,
   getPrivacyStats,
+  listPrivacyMappings,
   listGroups,
   listLlmApiKeys,
   listManagedUsers,
@@ -449,6 +464,7 @@ const groups = ref([])
 const policies = ref([])
 const stats = ref({})
 const mappings = ref([])
+const mappingTotal = ref(0)
 const defaultEntities = ['PERSON', 'CN_PERSON', 'PHONE_NUMBER', 'EMAIL_ADDRESS', 'CREDIT_CARD', 'US_SSN', 'ID_CARD', 'EMPLOYEE_ID', 'CUSTOMER_ID', 'ACCOUNT_ID']
 const defaultRules = {
   PERSON: '\\b[A-Z][a-z]+(?:\\s+[A-Z][a-z]+){1,2}\\b',
@@ -486,10 +502,13 @@ const keyColumns = [
   { title: '操作', key: 'action', width: 100 },
 ]
 const mappingColumns = [
+  { title: 'Tenant ID', key: 'tenant_id', width: 180 },
+  { title: 'Conversation ID', key: 'conversation_id', width: 240 },
   { title: 'Token', key: 'token', width: 220 },
   { title: '类型', dataIndex: 'entity_type', width: 130 },
-  { title: '原始值', key: 'original' },
-  { title: '过期时间', dataIndex: 'expires_at', width: 180 },
+  { title: '原始值', key: 'original', width: 180 },
+  { title: '过期时间', key: 'expires_at', width: 170 },
+  { title: '操作', key: 'action', width: 90, fixed: 'right' },
 ]
 const userColumns = [
   { title: '用户名', dataIndex: 'username' },
@@ -534,13 +553,24 @@ const keyForm = reactive({ name: '', allowed_models: [], max_body_kb: 1024, max_
 const userForm = reactive({ username: '', email: '', role: 'admin', password: '', is_active: true })
 const groupForm = reactive({ name: '', description: '', user_ids: [], privacy_policy_id: null, is_active: true })
 const policyForm = reactive({ name: '默认隐私策略', group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 })
-const mappingQuery = reactive({ tenant_id: '', conversation_id: '' })
+const mappingQuery = reactive({ q: '', page: 1, page_size: 10 })
+const mappingPagination = computed(() => ({
+  current: mappingQuery.page,
+  pageSize: mappingQuery.page_size,
+  total: mappingTotal.value,
+  showSizeChanger: true,
+  showTotal: total => `共 ${total} 条`,
+}))
 
 const unboundOrCurrentPolicies = computed(() =>
   policies.value.filter(item => !item.group_id || item.id === groupForm.privacy_policy_id),
 )
 
-const formatDateTime = (value) => value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : ''
+const formatDateTime = (value) => value ? formatBeijingDateTime(value) : ''
+const compactId = (value, head = 10, tail = 8) => {
+  if (!value || value.length <= head + tail + 3) return value || ''
+  return `${value.slice(0, head)}...${value.slice(-tail)}`
+}
 
 const syncPolicyRuleRows = () => {
   const existing = new Map(policyRuleRows.value.map(item => [item.key, item.pattern]))
@@ -561,7 +591,7 @@ watch(
 const loadAll = async () => {
   loading.value = true
   try {
-    const [providerRes, modelRes, keyRes, userRes, groupRes, policyRes, statRes] = await Promise.all([
+    const [providerRes, modelRes, keyRes, userRes, groupRes, policyRes, statRes, mappingRes] = await Promise.all([
       listModelProviders(),
       listModelEndpoints(),
       listLlmApiKeys(),
@@ -569,6 +599,7 @@ const loadAll = async () => {
       listGroups(),
       listPrivacyPolicies(),
       getPrivacyStats(),
+      listPrivacyMappings({ page: mappingQuery.page, page_size: mappingQuery.page_size, q: mappingQuery.q || undefined }),
     ])
     providers.value = providerRes
     models.value = modelRes
@@ -577,6 +608,8 @@ const loadAll = async () => {
     groups.value = groupRes
     policies.value = policyRes
     stats.value = statRes
+    mappings.value = mappingRes.mappings || []
+    mappingTotal.value = mappingRes.total || 0
   } catch (error) {
     message.error(error.response?.data?.detail || '加载模型网关数据失败')
   } finally {
@@ -778,14 +811,15 @@ const savePolicy = async () => {
 }
 
 const loadMappings = async () => {
-  if (!mappingQuery.tenant_id || !mappingQuery.conversation_id) {
-    message.error('请填写 Tenant ID 和 Conversation ID')
-    return
-  }
   mappingLoading.value = true
   try {
-    const res = await getPrivacyMappings(mappingQuery.conversation_id, mappingQuery.tenant_id)
+    const res = await listPrivacyMappings({
+      page: mappingQuery.page,
+      page_size: mappingQuery.page_size,
+      q: mappingQuery.q || undefined,
+    })
     mappings.value = res.mappings || []
+    mappingTotal.value = res.total || 0
   } catch (error) {
     message.error(error.response?.data?.detail || '查询映射失败')
   } finally {
@@ -793,20 +827,40 @@ const loadMappings = async () => {
   }
 }
 
-const removeMappings = async () => {
-  if (!mappingQuery.tenant_id || !mappingQuery.conversation_id) return
+const searchMappings = async () => {
+  mappingQuery.page = 1
+  await loadMappings()
+}
+
+const handleMappingTableChange = async (pagination) => {
+  mappingQuery.page = pagination.current || 1
+  mappingQuery.page_size = pagination.pageSize || 10
+  await loadMappings()
+}
+
+const removeMapping = async (record) => {
   mappingLoading.value = true
   try {
-    await deletePrivacyMappings(mappingQuery.conversation_id, mappingQuery.tenant_id)
-    mappings.value = []
+    await deletePrivacyMapping(record.id)
+    if (mappings.value.length === 1 && mappingQuery.page > 1) {
+      mappingQuery.page -= 1
+    }
+    await loadMappings()
     await loadAll()
-    message.success('会话映射已删除')
+    message.success('映射已删除')
   } catch (error) {
     message.error(error.response?.data?.detail || '删除映射失败')
   } finally {
     mappingLoading.value = false
   }
 }
+
+watch(
+  () => activeTab.value,
+  (tab) => {
+    if (tab === 'audit') loadMappings()
+  },
+)
 
 const copy = async (text) => {
   await navigator.clipboard.writeText(text)

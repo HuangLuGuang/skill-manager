@@ -797,6 +797,70 @@ def test_privacy_stats_are_owner_scoped(tmp_path, monkeypatch):
     assert data["pii_hits"] == {"EMAIL_ADDRESS": 2}
 
 
+def test_privacy_mapping_list_search_and_delete(tmp_path, monkeypatch):
+    client, _token, session_factory = _client(tmp_path, monkeypatch)
+    db = session_factory()
+    try:
+        user = models.User(username="mapping-admin", email="mapping-admin@example.com", hashed_password="x", role="admin")
+        db.add(user)
+        db.flush()
+        db.add_all(
+            [
+                models.PseudonymMapping(
+                    tenant_id="tenant-a",
+                    conversation_id="conv-a",
+                    token="<CN_PERSON:one>",
+                    entity_type="CN_PERSON",
+                    original_value="黄路光",
+                    normalized_value="黄路光",
+                    request_id="req-a",
+                    created_by="user",
+                    expires_at=datetime.utcnow() + timedelta(days=1),
+                ),
+                models.PseudonymMapping(
+                    tenant_id="tenant-b",
+                    conversation_id="conv-b",
+                    token="<CN_PERSON:two>",
+                    entity_type="CN_PERSON",
+                    original_value="张三",
+                    normalized_value="张三",
+                    request_id="req-b",
+                    created_by="user",
+                    expires_at=datetime.utcnow() + timedelta(days=1),
+                ),
+            ]
+        )
+        db.commit()
+        user_id = user.id
+    finally:
+        db.close()
+
+    async def override_current_user():
+        db_session = session_factory()
+        try:
+            return db_session.query(models.User).filter(models.User.id == user_id).first()
+        finally:
+            db_session.close()
+
+    client.app.dependency_overrides[auth.get_current_admin_user] = override_current_user
+
+    response = client.get("/v1/privacy/mappings", params={"q": "黄路光"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["mappings"][0]["tenant_id"] == "tenant-a"
+    assert data["mappings"][0]["original_value"] == "黄路光"
+    mapping_id = data["mappings"][0]["id"]
+
+    response = client.delete(f"/v1/privacy/mappings/{mapping_id}")
+    assert response.status_code == 200
+    assert response.json()["deleted"] == 1
+
+    response = client.get("/v1/privacy/mappings", params={"q": "tenant-a"})
+    assert response.status_code == 200
+    assert response.json()["total"] == 0
+
+
 def test_stream_chat_completions_returns_sse(tmp_path, monkeypatch):
     client, token, _session_factory = _client(tmp_path, monkeypatch)
     captured = {}

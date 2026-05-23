@@ -116,6 +116,8 @@ export const savePrivacyPolicy = (data) => api.post('/v1/privacy-policies', data
 export const getPrivacyStats = () => api.get('/v1/privacy/stats')
 export const listPrivacyTraces = (params = {}) => api.get('/v1/privacy/traces', { params })
 export const getPrivacyTrace = (requestId) => api.get(`/v1/privacy/traces/${requestId}`)
+export const listPrivacyMappings = (params = {}) => api.get('/v1/privacy/mappings', { params })
+export const deletePrivacyMapping = (mappingId) => api.delete(`/v1/privacy/mappings/${mappingId}`)
 export const getPrivacyMappings = (conversationId, tenantId) =>
   api.get(`/v1/privacy/conversations/${conversationId}/mappings`, { params: { tenant_id: tenantId } })
 export const deletePrivacyMappings = (conversationId, tenantId) =>

@@ -55,7 +55,7 @@ def wait_for_skill(skill_id, name):
     print(f"   [审计] 正在执行深度行为分析与沙箱验证...", end="", flush=True)
     for _ in range(60):
         # Use CLI to poll status
-        cmd = ["uv", "run", "agent-manager", "list", "--json"]
+        cmd = ["uv", "run", "agent-manager", "registry", "list", "--json"]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             skills = json.loads(result.stdout)
@@ -73,7 +73,7 @@ def submit_skill(path):
     # Use --no-cache to ensure fresh results for the demo
     cmd = [
         "uv", "run", "agent-manager", "submit", str(path),
-        "--behavioral", "--sandbox", "--llm", "--no-cache", "--json"
+        "--behavioral", "--sandbox", "--llm", "--json"
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode == 0:
@@ -99,7 +99,7 @@ def main():
     print_step("4. 系统治理环境配置完成")
     print(f"   后续操作：")
     print(f"   - 登录治理控制台查看审计报告: {BASE_URL.replace('/api', '')}")
-    print(f"   - 启动受控 Agent 业务实例: python3 run_agent_demo.py safe")
+    print(f"   - 启动受控 Agent 业务实例: python3 demo/enterprise-governance-demo/run_agent_demo.py safe")
 
 if __name__ == "__main__":
     main()
