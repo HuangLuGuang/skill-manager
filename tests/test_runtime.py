@@ -24,7 +24,7 @@ def _make_entry(name, status=SkillStatus.APPROVED, tools=None, sig=None):
         description="Test",
         source=SourceInfo(origin=SkillOrigin.LOCAL),
         status=status,
-        risk_level=RiskLevel.LOW,
+        risk_level=RiskLevel.BENIGN,
         allowed_tools=tools or [],
         signature=sig,
     )

@@ -81,13 +81,14 @@ class PromptManager:
             if llm_config.api_key:
                 analysis = self._analyze_with_llm(entry.content, llm_config)
                 from .models import VettingResult
+                risk_level = RiskLevel.from_severity(analysis.get("max_severity", "SAFE"))
                 entry.vetting = VettingResult(
-                    verdict="malicious" if analysis.get("max_severity") in ("HIGH", "CRITICAL") else "benign",
+                    risk_level=risk_level,
                     findings_count=len(analysis.get("findings", [])),
                     analyzers_used=["llm", "regex"],
                     scan_report=analysis,
                 )
-                entry.risk_level = RiskLevel.from_severity(analysis.get("max_severity", "SAFE"))
+                entry.risk_level = risk_level
                 llm_analyzed = not analysis.get("parse_error")
             else:
                 from .models import VettingResult
@@ -122,13 +123,13 @@ class PromptManager:
             entry.signature = compute_prompt_signature(entry.content)
             entry.approved_at = datetime.now(timezone.utc)
             entry.approved_by = "auto-policy"
-        elif entry.risk_level and entry.risk_level.is_at_least(RiskLevel.MEDIUM):
+        elif entry.risk_level and entry.risk_level.is_at_least(RiskLevel.SUSPICIOUS):
             entry.status = PromptStatus.VETTED
         elif not llm_analyzed and not regex_matched:
             # Analysis failed or skipped -> require human review
             entry.status = PromptStatus.VETTED
             if not entry.risk_level:
-                entry.risk_level = RiskLevel.MEDIUM
+                entry.risk_level = RiskLevel.SUSPICIOUS
         else:
             # Safe enough or fallback
             entry.status = PromptStatus.APPROVED
@@ -152,7 +153,7 @@ class PromptManager:
             self.registry.prompts.enqueue_review(PromptReviewRequest(
                 prompt_id=entry.prompt_id,
                 prompt_name=entry.name,
-                risk_level=entry.risk_level or RiskLevel.LOW,
+                risk_level=entry.risk_level or RiskLevel.SUSPICIOUS,
                 findings_summary={"total": entry.vetting.findings_count if entry.vetting else 0},
                 submitted_at=entry.submitted_at,
             ))

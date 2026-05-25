@@ -48,7 +48,7 @@ def _make_entry(registry: Registry, name: str, status=SkillStatus.DEPLOYED, tool
         description="Test",
         source=SourceInfo(origin=SkillOrigin.LOCAL),
         status=status,
-        risk_level=RiskLevel.LOW,
+        risk_level=RiskLevel.BENIGN,
         allowed_tools=tools or [],
     )
     registry.add(entry)
@@ -228,7 +228,7 @@ class TestPreToolUse:
         event = {"hook_event_name": "PreToolUse", "tool_name": "Read"}
 
         with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch("agent_manager.hooks.agent_hook._active_skills", return_value=["my-skill"]):
+             mock.patch("agent_manager.hooks.agent_hook._get_active_skills_from_state", return_value=["my-skill"]):
             handle_pre_tool_use(event)  # No exception
 
     def test_blocks_undeclared_tool(self, registry):
@@ -237,7 +237,7 @@ class TestPreToolUse:
         event = {"hook_event_name": "PreToolUse", "tool_name": "Bash"}
 
         with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch("agent_manager.hooks.agent_hook._active_skills", return_value=["read-only"]):
+             mock.patch("agent_manager.hooks.agent_hook._get_active_skills_from_state", return_value=["read-only"]):
             with pytest.raises(SystemExit) as exc:
                 handle_pre_tool_use(event)
             assert exc.value.code == 2
@@ -246,7 +246,7 @@ class TestPreToolUse:
         event = {"hook_event_name": "PreToolUse", "tool_name": "Bash"}
 
         with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch("agent_manager.hooks.agent_hook._active_skills", return_value=[]):
+             mock.patch("agent_manager.hooks.agent_hook._get_active_skills_from_state", return_value=[]):
             handle_pre_tool_use(event)  # No exception
 
     def test_allows_all_tools_when_skill_has_no_declarations(self, registry):
@@ -255,7 +255,7 @@ class TestPreToolUse:
         event = {"hook_event_name": "PreToolUse", "tool_name": "AnythingAtAll"}
 
         with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch("agent_manager.hooks.agent_hook._active_skills", return_value=["open-skill"]):
+             mock.patch("agent_manager.hooks.agent_hook._get_active_skills_from_state", return_value=["open-skill"]):
             handle_pre_tool_use(event)  # No exception
 
     def test_union_of_tools_for_multiple_active_skills(self, registry):
@@ -266,7 +266,7 @@ class TestPreToolUse:
 
         # Both active → union is {Read, Grep} → Grep is allowed
         with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch("agent_manager.hooks.agent_hook._active_skills", return_value=["skill-a", "skill-b"]):
+             mock.patch("agent_manager.hooks.agent_hook._get_active_skills_from_state", return_value=["skill-a", "skill-b"]):
             handle_pre_tool_use(event)  # No exception
 
     def test_blocks_tool_not_in_any_active_skills(self, registry):
@@ -276,7 +276,7 @@ class TestPreToolUse:
         event = {"hook_event_name": "PreToolUse", "tool_name": "Bash"}
 
         with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch("agent_manager.hooks.agent_hook._active_skills", return_value=["skill-a", "skill-b"]):
+             mock.patch("agent_manager.hooks.agent_hook._get_active_skills_from_state", return_value=["skill-a", "skill-b"]):
             with pytest.raises(SystemExit) as exc:
                 handle_pre_tool_use(event)
             assert exc.value.code == 2
@@ -287,7 +287,7 @@ class TestPreToolUse:
         event = {"hook_event_name": "PreToolUse", "tool_name": "Read"}
 
         with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
-             mock.patch("agent_manager.hooks.agent_hook._active_skills", return_value=["live-skill"]):
+             mock.patch("agent_manager.hooks.agent_hook._get_active_skills_from_state", return_value=["live-skill"]):
             with pytest.raises(SystemExit) as exc:
                 handle_pre_tool_use(event)
             assert exc.value.code == 2

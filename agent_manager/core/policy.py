@@ -18,10 +18,10 @@ from .models import PolicyViolation, RiskLevel, SkillStatus, SourceInfo
 logger = logging.getLogger(__name__)
 
 _DEFAULT_POLICY: dict[str, Any] = {
-    "auto_approve_max_risk": "LOW",
-    "require_human_review": ["HIGH", "EXTREME"],
-    "auto_reject_risk": ["EXTREME"],
-    "require_sandbox_for_risk": ["HIGH", "EXTREME"],
+    "auto_approve_max_risk": "benign",
+    "require_human_review": ["suspicious"],
+    "auto_reject_risk": ["malicious"],
+    "require_sandbox_for_risk": ["suspicious", "malicious"],
     "blocked_permissions": ["read_credentials", "write_memory", "read_identity"],
     "trusted_authors": [],
     "allowed_tools_allowlist": [
@@ -64,18 +64,6 @@ class CompanyPolicy:
     # ------------------------------------------------------------------ #
 
     @property
-    def auto_approve_max_risk(self) -> RiskLevel:
-        return RiskLevel(self._data["auto_approve_max_risk"])
-
-    @property
-    def require_human_review(self) -> list[RiskLevel]:
-        return [RiskLevel(r) for r in self._data["require_human_review"]]
-
-    @property
-    def auto_reject_risk(self) -> list[RiskLevel]:
-        return [RiskLevel(r) for r in self._data["auto_reject_risk"]]
-
-    @property
     def require_sandbox_for_risk(self) -> list[RiskLevel]:
         return [RiskLevel(r) for r in self._data.get("require_sandbox_for_risk", [])]
 
@@ -106,7 +94,9 @@ class CompanyPolicy:
         """Check if a prompt can be auto-approved based on its risk level."""
         if not entry.risk_level:
             return False
-        return self.auto_approve_max_risk.is_at_least(entry.risk_level)
+        risk_order = {"benign": 0, "suspicious": 1, "malicious": 2}
+        threshold = self._data.get("auto_approve_max_risk", "benign")
+        return risk_order.get(entry.risk_level.value, 999) <= risk_order.get(threshold, 0)
 
     # ------------------------------------------------------------------ #
     # Enforcement                                                          #
@@ -143,35 +133,24 @@ class CompanyPolicy:
     def decide(
         self,
         risk_level: RiskLevel,
-        source: SourceInfo,
         violations: list[PolicyViolation],
     ) -> SkillStatus:
         """
-        Determine the initial status after vetting.
+        Determine the initial status after vetting based on final risk level.
 
         Returns:
-            REJECTED   — auto-reject risk or blocking violations
-            VETTED     — needs human review
-            APPROVED   — auto-approved
+            REJECTED   — risk is malicious or has blocking violations
+            VETTED     — risk is suspicious
+            APPROVED   — risk is benign
         """
         blocking = [v for v in violations if v.blocking]
         if blocking:
             return SkillStatus.REJECTED
 
-        if risk_level in self.auto_reject_risk:
+        risk_value = risk_level.value
+        if risk_value in self._data.get("auto_reject_risk", ["malicious"]):
             return SkillStatus.REJECTED
-
-        if risk_level in self.require_human_review:
-            # Trusted authors with MEDIUM can skip review
-            if risk_level == RiskLevel.MEDIUM and source.author in self.trusted_authors:
-                return SkillStatus.APPROVED
+        elif risk_value in self._data.get("require_human_review", ["suspicious"]):
             return SkillStatus.VETTED
-
-        # Auto-approve if at or below threshold
-        threshold = self.auto_approve_max_risk
-        if not risk_level.is_at_least(RiskLevel.MEDIUM) or not threshold.is_at_least(RiskLevel.MEDIUM):
+        else:  # benign
             return SkillStatus.APPROVED
-        if risk_level == threshold or not risk_level.is_at_least(threshold):
-            return SkillStatus.APPROVED
-
-        return SkillStatus.VETTED

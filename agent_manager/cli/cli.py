@@ -341,7 +341,7 @@ def registry_show(ctx, skill_id_or_name, output_json):
         v = entry.vetting
         console.print()
         console.print(f"  [bold]Scan:[/bold] {v.findings_count} findings "
-                      f"verdict={v.verdict} "
+                      f"risk={v.risk_level.value} "
                       f"in {v.scan_duration_seconds:.1f}s")
         if v.policy_notes:
             for note in v.policy_notes:
@@ -673,7 +673,7 @@ def prompt_show(ctx, id_or_name, output_json):
         console.print(f"  [red]Rejected: {entry.rejection_reason}[/red]")
     if entry.vetting:
         console.print(f"\n[bold]Vetting[/bold]")
-        console.print(f"  Verdict:      {entry.vetting.verdict}")
+        console.print(f"  Risk level:   {entry.vetting.risk_level.value}")
         console.print(f"  Findings:     {entry.vetting.findings_count}")
         console.print(f"  Analyzers:    {', '.join(entry.vetting.analyzers_used)}")
         if entry.vetting.policy_notes:

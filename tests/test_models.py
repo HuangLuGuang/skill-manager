@@ -19,22 +19,22 @@ from agent_manager.core.models import (
 
 class TestRiskLevel:
     def test_from_severity_mapping(self):
-        assert RiskLevel.from_severity("SAFE") == RiskLevel.LOW
-        assert RiskLevel.from_severity("INFO") == RiskLevel.LOW
-        assert RiskLevel.from_severity("LOW") == RiskLevel.LOW
-        assert RiskLevel.from_severity("MEDIUM") == RiskLevel.MEDIUM
-        assert RiskLevel.from_severity("HIGH") == RiskLevel.HIGH
-        assert RiskLevel.from_severity("CRITICAL") == RiskLevel.EXTREME
+        assert RiskLevel.from_severity("SAFE") == RiskLevel.BENIGN
+        assert RiskLevel.from_severity("INFO") == RiskLevel.BENIGN
+        assert RiskLevel.from_severity("LOW") == RiskLevel.SUSPICIOUS
+        assert RiskLevel.from_severity("MEDIUM") == RiskLevel.SUSPICIOUS
+        assert RiskLevel.from_severity("HIGH") == RiskLevel.MALICIOUS
+        assert RiskLevel.from_severity("CRITICAL") == RiskLevel.MALICIOUS
 
     def test_from_severity_case_insensitive(self):
-        assert RiskLevel.from_severity("safe") == RiskLevel.LOW
-        assert RiskLevel.from_severity("Critical") == RiskLevel.EXTREME
+        assert RiskLevel.from_severity("safe") == RiskLevel.BENIGN
+        assert RiskLevel.from_severity("Critical") == RiskLevel.MALICIOUS
 
     def test_is_at_least(self):
-        assert RiskLevel.EXTREME.is_at_least(RiskLevel.HIGH)
-        assert RiskLevel.HIGH.is_at_least(RiskLevel.HIGH)
-        assert not RiskLevel.MEDIUM.is_at_least(RiskLevel.HIGH)
-        assert not RiskLevel.LOW.is_at_least(RiskLevel.MEDIUM)
+        assert RiskLevel.MALICIOUS.is_at_least(RiskLevel.SUSPICIOUS)
+        assert RiskLevel.MALICIOUS.is_at_least(RiskLevel.MALICIOUS)
+        assert not RiskLevel.SUSPICIOUS.is_at_least(RiskLevel.MALICIOUS)
+        assert not RiskLevel.BENIGN.is_at_least(RiskLevel.SUSPICIOUS)
 
 
 class TestRegistryEntry:

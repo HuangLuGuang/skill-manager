@@ -363,7 +363,11 @@
             <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>
           </template>
           <template v-else-if="column.key === 'risk_level'">
-            <a-tag :color="riskColor(record.risk_level)">{{ record.risk_level || '-' }}</a-tag>
+            <a-tag v-if="record.status === 'PENDING'" color="default">-</a-tag>
+            <a-tag v-else-if="record.risk_level === 'malicious'" color="red">恶意</a-tag>
+            <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange">可疑</a-tag>
+            <a-tag v-else-if="record.risk_level === 'benign'" color="green">安全</a-tag>
+            <a-tag v-else color="default">-</a-tag>
           </template>
           <template v-else-if="column.key === 'sandbox'">
             <a-space wrap>
@@ -1032,11 +1036,9 @@ const statusColor = (value) => ({
 }[value] || 'default')
 
 const riskColor = (value) => ({
-  SAFE: 'green',
-  LOW: 'green',
-  MEDIUM: 'orange',
-  HIGH: 'red',
-  EXTREME: 'magenta',
+  benign: 'green',
+  suspicious: 'orange',
+  malicious: 'red',
 }[value] || 'default')
 
 onMounted(async () => {

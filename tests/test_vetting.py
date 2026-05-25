@@ -117,41 +117,27 @@ class TestPolicyChecks:
 
 
 class TestPolicyDecide:
-    def test_auto_approve_low_risk(self):
+    def test_auto_approve_benign(self):
         policy = CompanyPolicy.default()
-        source = SourceInfo(origin=SkillOrigin.LOCAL)
-        status = policy.decide(RiskLevel.LOW, source, [])
+        status = policy.decide(RiskLevel("benign"), [])
         assert status == SkillStatus.APPROVED
 
-    def test_medium_risk_queued(self):
-        policy = CompanyPolicy({"auto_approve_max_risk": "LOW", "require_human_review": ["MEDIUM", "HIGH", "EXTREME"]})
-        source = SourceInfo(origin=SkillOrigin.LOCAL)
-        status = policy.decide(RiskLevel.MEDIUM, source, [])
+    def test_suspicious_queued(self):
+        policy = CompanyPolicy.default()
+        status = policy.decide(RiskLevel("suspicious"), [])    
         assert status == SkillStatus.VETTED
 
-    def test_extreme_risk_rejected(self):
+    def test_malicious_rejected(self):
         policy = CompanyPolicy.default()
-        source = SourceInfo(origin=SkillOrigin.LOCAL)
-        status = policy.decide(RiskLevel.EXTREME, source, [])
+        status = policy.decide(RiskLevel("malicious"), [])
         assert status == SkillStatus.REJECTED
 
     def test_blocking_violation_rejects(self):
         from agent_manager.core.models import PolicyViolation
         policy = CompanyPolicy.default()
-        source = SourceInfo(origin=SkillOrigin.LOCAL)
         violations = [PolicyViolation(rule="blocked_permission", message="no", blocking=True)]
-        status = policy.decide(RiskLevel.LOW, source, violations)
+        status = policy.decide("benign", violations)
         assert status == SkillStatus.REJECTED
-
-    def test_trusted_author_medium_auto_approves(self):
-        policy = CompanyPolicy({
-            "auto_approve_max_risk": "LOW",
-            "require_human_review": ["HIGH", "EXTREME"],
-            "trusted_authors": ["trusted-vendor"],
-        })
-        source = SourceInfo(origin=SkillOrigin.GITHUB, author="trusted-vendor")
-        status = policy.decide(RiskLevel.MEDIUM, source, [])
-        assert status == SkillStatus.APPROVED
 
 
 class TestVettingPipeline:
@@ -203,7 +189,7 @@ class TestVettingPipeline:
         assert "behavioral:local" in result.analyzers_used
         assert result.scan_report["behavioral_analysis"]["scanned_file_count"] >= 1
         assert any(f["source"] == "behavioral" for f in result.scan_report["findings"])
-        assert result.risk_level in (RiskLevel.HIGH, RiskLevel.EXTREME)
+        assert result.risk_level == RiskLevel.MALICIOUS
 
     def test_sandbox_flags_are_recorded(self, skill_dir, default_policy):
         pipeline = VettingPipeline(default_policy)

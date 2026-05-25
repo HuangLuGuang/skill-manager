@@ -17,7 +17,6 @@ from .models import (
     AuditEvent,
     RegistryEntry,
     ReviewRequest,
-    RiskLevel,
     SkillStatus,
     SourceInfo,
     SkillOrigin,
@@ -190,17 +189,8 @@ class AgentManager:
             use_sandbox=use_sandbox,
         )
 
-        # Aggregate risk: consider both static/behavioral max_severity and LLM verdict
-        scan_max_severity = vetting_result.scan_report.get("max_severity", "SAFE")
-        risk_level = RiskLevel.from_severity(scan_max_severity)
-        if vetting_result.verdict == "malicious" and not risk_level.is_at_least(RiskLevel.HIGH):
-            risk_level = RiskLevel.HIGH
-
-        status = self.policy.decide(
-            risk_level,
-            source,
-            violations,
-        )
+        # 根据最终 risk_level 决定状态
+        status = self.policy.decide(vetting_result.risk_level, violations)
         declared_tools_valid = not any(v.rule in ("tool_not_in_allowlist", "blocked_permission") for v in violations)
         vetting_result.scan_report = {
             **vetting_result.scan_report,
@@ -213,7 +203,7 @@ class AgentManager:
         entry.name = name
         entry.description = description
         entry.status = status
-        entry.risk_level = risk_level
+        entry.risk_level = vetting_result.risk_level
         entry.vetting = vetting_result
         entry.allowed_tools = allowed_tools
         entry.declared_tools_valid = declared_tools_valid
@@ -228,8 +218,9 @@ class AgentManager:
             "skill_processing_completed",
             entry,
             details={
-                "verdict": vetting_result.verdict,
-                "risk_level": risk_level.value,
+                "risk_level": vetting_result.risk_level.value,
+                "pre_llm_risk_level": vetting_result.scan_report.get("pre_llm_risk_level"),
+                "max_severity": vetting_result.scan_report.get("max_severity"),
                 "status": status.value,
                 "violations": [v.rule for v in violations],
             },
@@ -239,7 +230,7 @@ class AgentManager:
             self.registry.enqueue_review(ReviewRequest(
                 skill_id=entry.skill_id,
                 skill_name=name,
-                risk_level=risk_level,
+                risk_level=entry.risk_level,
                 findings_summary={"total": vetting_result.findings_count},
                 submitted_at=entry.submitted_at,
                 notes="; ".join(vetting_result.policy_notes) if vetting_result.policy_notes else None,
@@ -248,10 +239,10 @@ class AgentManager:
 
         self.registry.log_event(make_event(
             "skill_vetted", entry,
-            details={"verdict": vetting_result.verdict, "status": status.value},
+            details={"risk_level": vetting_result.risk_level.value, "status": status.value},
         ))
 
-        logger.info("Processed skill %r: status=%s verdict=%s", name, status.value, vetting_result.verdict)
+        logger.info("Processed skill %r: status=%s risk=%s", name, status.value, vetting_result.risk_level.value)
         self.scan_cache.put(scan_cache_key, entry, content_fingerprint, scan_context_fingerprint)
         return entry
 
