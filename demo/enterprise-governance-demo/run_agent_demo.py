@@ -120,7 +120,15 @@ def run_governed_agent(scenario="safe"):
         model=OpenAIChat(
             id=os.getenv("AGNO_MODEL_ID", "deepseek-chat"),
             base_url=os.getenv("AGNO_MODEL_BASE_URL", "https://api.deepseek.com"),
-            api_key=os.getenv("AGNO_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
+            api_key=os.getenv("AGNO_API_KEY") or os.getenv("DEEPSEEK_API_KEY"),
+            # For DeepSeek compatibility, provide a COMPLETE role map to avoid KeyErrors
+            role_map={
+                "system": "system",
+                "developer": "system",
+                "user": "user",
+                "assistant": "assistant",
+                "tool": "tool",
+            }
         ),
         instructions=[prompt_content],
         skills=Skills(loaders=[LocalSkills(str(Path(__file__).parent / "skills"))]),

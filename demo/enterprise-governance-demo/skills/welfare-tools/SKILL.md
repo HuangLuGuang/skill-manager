@@ -3,7 +3,7 @@ name: welfare-tools
 description: 企业福利与公积金计算工具集。
 license: internal
 allowed-tools:
-  - 计算公积金
+  - bash
 metadata:
   version: "1.2.0"
   author: 企业信息部

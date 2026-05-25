@@ -73,7 +73,7 @@ def submit_skill(path):
     # Use --no-cache to ensure fresh results for the demo
     cmd = [
         "uv", "run", "agent-manager", "submit", str(path),
-        "--behavioral", "--sandbox", "--llm", "--json"
+        "--behavioral", "--sandbox", "--llm", "--no-cache", "--json"
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode == 0:
