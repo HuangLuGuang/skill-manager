@@ -94,13 +94,12 @@ Developer / External Source
         ▼
    [VET]     ──── skill-scanner (static + behavioral + LLM) + policy checks
         │
-        ├── LOW risk       → APPROVED (auto, signed)
-        ├── MEDIUM risk    → APPROVED or VETTED (policy-dependent)
-        ├── HIGH risk      → VETTED (human review queue)
-        └── EXTREME risk   → REJECTED (auto)
+        ├── benign risk       → APPROVED (auto, signed)
+        ├── suspicious risk   → VETTED (human review queue)
+        └── malicious risk  → REJECTED (auto)
         │
         ▼
-   [REVIEW]  ──── Human reviewer approves or rejects (HIGH/EXTREME)
+   [REVIEW]  ──── Human reviewer approves or rejects (suspicious)
         │
         ▼
    [SIGN]    ──── HMAC-SHA256 over full content tree → stored in registry
@@ -319,9 +318,9 @@ if not mgr.runtime.check_tool("my-skill", "Bash"):
 Copy `company-policy.example.yaml` to `company-policy.yaml` and customize:
 
 ```yaml
-auto_approve_max_risk: LOW          # AUTO-APPROVE up to this risk level
-require_human_review: [HIGH, EXTREME]
-auto_reject_risk: [EXTREME]
+auto_approve_max_risk: benign          # AUTO-APPROVE up to this risk level
+require_human_review: [suspicious]
+auto_reject_risk: [malicious]
 
 blocked_permissions:
   - read_credentials

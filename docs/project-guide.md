@@ -88,14 +88,15 @@ skill 通过后会对完整目录生成签名。
 
 ### 3.3 风险来自多分析器，不看单点结果
 
-最终风险不是只看一个结果，而是综合：
+scanner、behavioral、sandbox 分析完成后的分析结果和完整的skill内容一起输入 LLM 做最后的风险判断：
 
 - scanner
 - behavioral
-- LLM (如果 LLM 判定为 **malicious**，总风险等级强制升至 **HIGH**)
 - sandbox
+- LLM
 
-其中任一分析器给出更高风险，都可能抬高最终结论。
+
+LLM 分析生成详细的安全报告，如果是恶意skill，还会生成攻击链，并映射到 MITRE ATT&CK（传统网络安全）和 MITRE ATLAS（AI 安全）框架，帮助用户更好地理解和缓解风险。
 
 ### 3.4 扫描缓存与强制重扫
 
@@ -113,7 +114,7 @@ sandbox 的作用是看：
 
 但它不一定能触发所有恶意分支，所以：
 
-- `sandbox LOW`
+- `sandbox benign`
 
 不等于：
 
@@ -364,18 +365,19 @@ behavioral 分析主要扫文本代码文件，优先：
 
 ### 7.3 LLM
 
-LLM 现在做三件事：
+LLM 现在做这些事：
 
-1. 给一段简短的“技能主要功能”说明
-2. 从语义上判断是否有恶意意图、数据外泄、凭证访问等风险
-3. 当 sandbox 和 LLM 同时启用时，结合 `SKILL.md` 使用说明生成一组安全的 sandbox probe 用例
+1. scanner、behavioral、sandbox 分析完成后的分析结果和完整的skill内容一起输入 LLM 做最后的风险判断，benign/suspicious/malicious
+2. 生成一篇专业的安全分析报告
+3. **生成详细的攻击链分析**，如果是恶意skill, 会生成攻击链并映射到 MITRE ATT&CK（传统网络安全）和 MITRE ATLAS（AI 安全）框架
+4. 当 sandbox 和 LLM 同时启用时，结合 `SKILL.md` 使用说明生成一组安全的 sandbox probe 用例
+
 
 所以 LLM 结果里你会看到：
 
-- `skill_function_summary`
-- `summary`
-- `findings`
-- `policy_notes`
+- `risk_level`
+- `report`
+- `attack_chain`
 - `sandbox_analysis.llm_probe_plan`，仅在 LLM probe 生成成功时出现
 
 如果配置了模型网关环境变量，LLM vetting 会优先走隐私路由：
@@ -462,7 +464,7 @@ flowchart LR
 
 例如：
 
-- `LLM = EXTREME`
+- `LLM = malicious`
 - `sandbox = LOW`
 
 常见原因是：
@@ -626,6 +628,9 @@ make sandbox-runtime-build
 能看到：
 
 - 基础信息
+- 专业的安全分析报告
+- **攻击链可视化**（展示 LLM 分析出的完整攻击路径）
+- **MITRE ATT&CK / ATLAS 框架映射**（帮助理解风险对应的安全框架分类）
 - LLM 对技能主要功能的概括
 - behavioral 结果
 - sandbox 风险摘要
@@ -737,10 +742,10 @@ sequenceDiagram
 
 ## 14. 常见问题
 
-### 14.1 为什么 sandbox 是 LOW，但 LLM 是 EXTREME？
+### 14.1 为什么 sandbox 是 LOW，但 LLM 是 malicious？
 
-因为 sandbox 只观察“这次 probe 实际跑出来的行为”，  
-而 LLM 会从整体语义上判断恶意意图。  
+因为 sandbox 只观察“这次 probe 实际跑出来的行为”，
+而 LLM 会从整体语义上判断恶意意图，并生成详细的攻击链分析。
 二者不一致是正常的，最终看合并风险。
 
 ### 14.2 为什么系统设置里改了 sandbox，提交结果还是旧镜像？
@@ -760,7 +765,7 @@ sequenceDiagram
 - `VETTED` 才进审核队列
 - `REJECTED` 不进审核队列
 
-例如 `EXTREME` 风险通常会被策略直接拒绝。
+例如 `malicious` 风险通常会被策略直接拒绝。
 
 ### 14.4 为什么重复提交没有复用？
 

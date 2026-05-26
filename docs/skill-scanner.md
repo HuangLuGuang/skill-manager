@@ -47,7 +47,7 @@ sequenceDiagram
     API-->>Scanner: 返回 skill_id / detail_url
     Mgr->>Vet: 后台完整扫描
     Vet-->>Mgr: scanner / 规则分析 / LLM / sandbox 结果
-    Note over Mgr: 如果 LLM 判定为恶意，风险等级强制升至 HIGH
+    Note over Mgr: 如果 LLM 判定为 malicious，风险等级设为 malicious
     Mgr->>Mgr: 检查重复扫描复用
     Mgr->>UI: 列表 / 详情展示状态和报告
     Scanner->>API: GET /api/v1/scanner/imports/{skill_id}

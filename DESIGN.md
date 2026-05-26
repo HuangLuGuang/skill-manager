@@ -356,7 +356,7 @@ Events cover the full lifecycle:
 |---|---|
 | `skill_submitted` | `mgr.submit()` called |
 | `skill_vetted` | Vetting pipeline completes |
-| `skill_queued_for_review` | HIGH/EXTREME skill enters review queue |
+| `skill_queued_for_review` | suspicious skill enters review queue |
 | `skill_approved` | Human approves a vetted skill |
 | `skill_rejected` | Skill rejected by policy or reviewer |
 | `skill_deployed` | `mgr.deploy()` called |
@@ -412,16 +412,17 @@ risk_level = RiskLevel.from_severity(max_severity)
 
 `max_severity` is the highest severity across *all* findings, including `UNANALYZABLE_BINARY` and `LOW_ANALYZABILITY`. No finding type is filtered out before computing the risk level.
 
-`core/models.py` — `RiskLevel.from_severity()` maps `CRITICAL` → `EXTREME`:
+`core/models.py` — `RiskLevel.from_severity()` maps scanner severities to risk levels:
 
 ```python
 mapping = {
-    "SAFE":     cls.LOW,
-    "INFO":     cls.LOW,
-    "LOW":      cls.LOW,
-    "MEDIUM":   cls.MEDIUM,
-    "HIGH":     cls.HIGH,
-    "CRITICAL": cls.EXTREME,  # includes UNANALYZABLE when scanner flags it CRITICAL
+    "SAFE":     cls.benign,
+    "INFO":     cls.benign,
+    "LOW":      cls.suspicious,
+    "MEDIUM":   cls.suspicious,
+    "HIGH":     cls.malicious,
+    "EXTREME":  cls.malicious,
+    "CRITICAL": cls.malicious,  # includes UNANALYZABLE when scanner flags it CRITICAL
 }
 ```
 
@@ -429,18 +430,18 @@ mapping = {
 
 ---
 
-### 6. Human in the Loop for HIGH / EXTREME Risk
+### 6. Human in the Loop for suspicious Risk
 
 **Threat addressed:** Automation approves a skill with significant findings because no human reviewed the scanner report. Automated systems are good at pattern-matching known threats but cannot exercise judgment about novel or ambiguous findings.
 
 #### Design
 
-Skills with `HIGH` or `EXTREME` risk (configurable in policy) are placed in a **review queue** and given status `VETTED`. They cannot be loaded until a human explicitly calls `approve`. The review queue entry includes a findings summary (C/H/M/L counts) and the full scan report is accessible via `registry show --json`.
+Skills with `suspicious` risk (configurable in policy) are placed in a **review queue** and given status `VETTED`. They cannot be loaded until a human explicitly calls `approve`. The review queue entry includes a findings summary and the full scan report is accessible via `registry show --json`.
 
 The policy layer allows organizations to tune the threshold:
-- `auto_approve_max_risk: MEDIUM` — auto-approve LOW and MEDIUM, review HIGH+
-- `auto_approve_max_risk: LOW` — only auto-approve LOW (strict mode)
-- `trusted_authors` — named authors get MEDIUM approved without review (exception for known-good sources)
+- `auto_approve_max_risk: benign` — auto-approve benign, review suspicious
+- `auto_approve_max_risk: benign` — only auto-approve benign (strict mode)
+- `trusted_authors` — named authors get suspicious approved without review (exception for known-good sources)
 
 The approval step re-signs the skill. This means: even if someone manually edits the registry JSON to set a `VETTED` skill to `APPROVED`, the signature will be stale (the signing step runs inside `mgr.approve()`), and the runtime signature check will catch it at load time.
 
@@ -457,7 +458,7 @@ def decide(self, risk_level, source, violations):
         return SkillStatus.REJECTED
 
     if risk_level in self.require_human_review:
-        if risk_level == RiskLevel.MEDIUM and source.author in self.trusted_authors:
+        if risk_level == RiskLevel.suspicious and source.author in self.trusted_authors:
             return SkillStatus.APPROVED   # trusted author exception
         return SkillStatus.VETTED         # → human review queue
 

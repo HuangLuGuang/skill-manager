@@ -573,7 +573,7 @@ def analyze_skill_with_llm_single_round(
     sandbox_result: Optional[dict[str, Any]],
     config: LLMConfig,
 ) -> LLMAnalysisResult:
-    """单轮 LLM 深度分析：基于完整代码 + 精简风险项，直接判定 malicious/benign。
+    """单轮 LLM 深度分析：基于完整代码 + 精简风险项，直接判定 malicious/suspicious/benign。
 
     无多轮反思，无 MITRE 数据查询补充 — 所有分析在一次 LLM 调用中完成。
     """

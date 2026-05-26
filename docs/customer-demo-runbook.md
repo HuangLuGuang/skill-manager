@@ -704,7 +704,7 @@ supports_native_structured_outputs=False
 
 Trace 页面包含原始 PII，仅 `admin`、`super_admin`、`privacy_auditor` 角色应访问。确认当前账号角色和登录状态。
 
-### 10.6 Sandbox 结果是 LOW，但 LLM 是 EXTREME
+### 10.6 Sandbox 结果是 LOW，但 LLM 是 malicious
 
 讲解：
 

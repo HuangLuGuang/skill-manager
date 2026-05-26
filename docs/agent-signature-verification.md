@@ -137,7 +137,7 @@ curl -X POST "http://localhost:8000/api/v1/access/runtime/verify-skill-signature
   "skill_id": "7c7b6a86-4cd1-4946-a83c-5d6d4d1f5f98",
   "skill_name": "byd-stock-news",
   "status": "APPROVED",
-  "risk_level": "LOW",
+  "risk_level": "benign",
   "signature_match": true
 }
 ```
