@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -16,26 +16,31 @@ from pydantic import BaseModel, Field, field_validator
 class RiskLevel(str, Enum):
     """Risk classification assigned after vetting."""
 
-    LOW = "LOW"
-    MEDIUM = "MEDIUM"
-    HIGH = "HIGH"
-    EXTREME = "EXTREME"
+    BENIGN = "benign"
+    SUSPICIOUS = "suspicious"
+    MALICIOUS = "malicious"
 
     @classmethod
     def from_severity(cls, severity: str) -> "RiskLevel":
-        """Map skill-scanner Severity to RiskLevel."""
-        mapping = {
-            "SAFE": cls.LOW,
-            "INFO": cls.LOW,
-            "LOW": cls.LOW,
-            "MEDIUM": cls.MEDIUM,
-            "HIGH": cls.HIGH,
-            "CRITICAL": cls.EXTREME,
-        }
-        return mapping.get(severity.upper(), cls.HIGH)
+        """Map skill-scanner Severity to RiskLevel.
+        
+        Mapping rules:
+        - SAFE, INFO → benign
+        - LOW, MEDIUM → suspicious
+        - HIGH, EXTREME → malicious
+        """
+        upper_severity = severity.upper() if severity else ""
+        
+        if upper_severity in ("SAFE", "INFO"):
+            return cls.BENIGN
+        elif upper_severity in ("HIGH", "CRITICAL", "EXTREME"):
+            return cls.MALICIOUS
+        else:
+            # LOW, MEDIUM, or any unknown value → suspicious
+            return cls.SUSPICIOUS
 
     def is_at_least(self, other: "RiskLevel") -> bool:
-        order = [RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.EXTREME]
+        order = [RiskLevel.BENIGN, RiskLevel.SUSPICIOUS, RiskLevel.MALICIOUS]
         return order.index(self) >= order.index(other)
 
 
@@ -73,7 +78,7 @@ class SourceInfo(BaseModel):
 class VettingResult(BaseModel):
     """Output of the vetting pipeline for a skill."""
 
-    verdict: Literal["malicious", "benign"] = "benign"
+    risk_level: RiskLevel = RiskLevel.BENIGN
     findings_count: int = 0
     analyzers_used: list[str] = Field(default_factory=list)
     sandbox_triggered: bool = False
@@ -140,6 +145,11 @@ class RegistryEntry(BaseModel):
             "name": self.name,
             "status": self.status.value,
             "risk_level": self.risk_level.value if self.risk_level else None,
+            "vetting": {
+                "sandbox_triggered": self.vetting.sandbox_triggered if self.vetting else False,
+                "sandbox_required_by_policy": self.vetting.sandbox_required_by_policy if self.vetting else False,
+                "sandbox_runtime": self.vetting.sandbox_runtime if self.vetting else None,
+            } if self.vetting else None,
             "sandbox_triggered": self.vetting.sandbox_triggered if self.vetting else False,
             "sandbox_required_by_policy": self.vetting.sandbox_required_by_policy if self.vetting else False,
             "sandbox_runtime": self.vetting.sandbox_runtime if self.vetting else None,

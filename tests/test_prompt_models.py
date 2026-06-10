@@ -62,7 +62,7 @@ class TestPromptEntry:
 
     def test_full_entry_serialization(self):
         vetting = VettingResult(
-            verdict="benign",
+            risk_level=RiskLevel.BENIGN,
             findings_count=2,
             analyzers_used=["llm", "regex"],
         )
@@ -73,7 +73,7 @@ class TestPromptEntry:
             agent_id="cs-agent-v2",
             content="You are a helpful customer service assistant. Be polite and professional.",
             status=PromptStatus.APPROVED,
-            risk_level=RiskLevel.LOW,
+            risk_level=RiskLevel.BENIGN,
             vetting=vetting,
             signature="abc123def456",
             approved_by="auto-policy",
@@ -81,7 +81,7 @@ class TestPromptEntry:
         data = entry.model_dump(mode="json")
         assert data["prompt_id"] == "p-001"
         assert data["status"] == "APPROVED"
-        assert data["risk_level"] == "LOW"
+        assert data["risk_level"] == "benign"
         assert data["content"] == "You are a helpful customer service assistant. Be polite and professional."
 
     def test_summary_excludes_content(self):
@@ -91,7 +91,7 @@ class TestPromptEntry:
             agent_id="a1",
             content="secret prompt text",
             status=PromptStatus.APPROVED,
-            risk_level=RiskLevel.LOW,
+            risk_level=RiskLevel.BENIGN,
         )
         summary = entry.summary()
         assert "prompt_id" in summary
@@ -150,28 +150,28 @@ class TestPromptReviewRequest:
         req = PromptReviewRequest(
             prompt_id="p-001",
             prompt_name="test-prompt",
-            risk_level=RiskLevel.HIGH,
+            risk_level=RiskLevel.MALICIOUS,
             findings_summary={"total": 3, "CRITICAL": 1, "HIGH": 2},
             submitted_at=now,
             notes="Found prompt injection patterns",
         )
         data = req.model_dump(mode="json")
-        assert data["risk_level"] == "HIGH"
+        assert data["risk_level"] == "malicious"
         assert data["findings_summary"]["total"] == 3
         assert data["notes"] == "Found prompt injection patterns"
 
 
 class TestRiskLevelMapping:
     def test_from_severity(self):
-        assert RiskLevel.from_severity("SAFE") == RiskLevel.LOW
-        assert RiskLevel.from_severity("INFO") == RiskLevel.LOW
-        assert RiskLevel.from_severity("LOW") == RiskLevel.LOW
-        assert RiskLevel.from_severity("MEDIUM") == RiskLevel.MEDIUM
-        assert RiskLevel.from_severity("HIGH") == RiskLevel.HIGH
-        assert RiskLevel.from_severity("CRITICAL") == RiskLevel.EXTREME
+        assert RiskLevel.from_severity("SAFE") == RiskLevel.BENIGN
+        assert RiskLevel.from_severity("INFO") == RiskLevel.BENIGN
+        assert RiskLevel.from_severity("LOW") == RiskLevel.SUSPICIOUS
+        assert RiskLevel.from_severity("MEDIUM") == RiskLevel.SUSPICIOUS
+        assert RiskLevel.from_severity("HIGH") == RiskLevel.MALICIOUS
+        assert RiskLevel.from_severity("CRITICAL") == RiskLevel.MALICIOUS
 
     def test_is_at_least(self):
-        assert RiskLevel.HIGH.is_at_least(RiskLevel.MEDIUM)
-        assert RiskLevel.HIGH.is_at_least(RiskLevel.HIGH)
-        assert not RiskLevel.LOW.is_at_least(RiskLevel.HIGH)
-        assert RiskLevel.EXTREME.is_at_least(RiskLevel.LOW)
+        assert RiskLevel.MALICIOUS.is_at_least(RiskLevel.SUSPICIOUS)
+        assert RiskLevel.MALICIOUS.is_at_least(RiskLevel.MALICIOUS)
+        assert not RiskLevel.BENIGN.is_at_least(RiskLevel.MALICIOUS)
+        assert RiskLevel.SUSPICIOUS.is_at_least(RiskLevel.BENIGN)

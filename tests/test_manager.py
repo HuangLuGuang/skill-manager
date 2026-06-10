@@ -82,7 +82,7 @@ class TestApproveReject:
                 __import__("agent_manager.core.models", fromlist=["ReviewRequest"]).ReviewRequest(
                     skill_id=entry.skill_id,
                     skill_name=entry.name,
-                    risk_level=RiskLevel.MEDIUM,
+                    risk_level=RiskLevel.SUSPICIOUS,
                     findings_summary={},
                     submitted_at=entry.submitted_at,
                 )

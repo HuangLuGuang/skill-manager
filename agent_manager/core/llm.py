@@ -49,7 +49,7 @@ class LLMAnalysisResult(BaseModel):
     """LLM 分析最终结果（单轮）"""
     provider: str
     model: str
-    verdict: Literal["malicious", "benign"] = "benign"
+    risk_level: Literal["malicious", "benign", "suspicious"] = "benign"
     report: str = ""
     attack_chain: list[AttackChainStep] = Field(default_factory=list)
     raw_response: dict[str, Any] = Field(default_factory=dict)
@@ -279,6 +279,7 @@ _SINGLE_ROUND_SYSTEM_PROMPT = """
 输出要求：
 -恶意skill: 输出攻击链和对应的安全分析报告，攻击链是要把skill的每一步实际操作映射到 MITRE ATT&CK 框架和 MITRE ATLAS框架的战术、技术中，每个战术可以关联多个技术。
 安全分析报告要包括skill声明的功能、skill的实际功能、攻击链分析、攻击目的、攻击后果、结论这几块内容，其中，攻击链分析要把为完成实际功能的操作步骤（每一步要指明对应的内容片段在哪个文件、哪几行内容）组织成一段逻辑清晰的文本，而不是生硬的罗列要点，攻击链分析的内容要和你映射的战术和技术列表相符。
+-可疑skill：输出安全分析报告，说明为什么认为是可疑的，攻击链为空。
 -正常skill：只输出安全分析报告，说明skill的功能，攻击链为空。
 
 ## 分析原则
@@ -293,9 +294,10 @@ _SINGLE_ROUND_SYSTEM_PROMPT = """
 - 然后通过实际执行流程推理实际实现的功能是什么
 - 对比两者是否一致，是否存在与声明功能不相关的操作或异常行为
 
-### 3. 区分正常 vs 恶意
-- **正常skill**：有明确的业务目的、每一步操作都与声明功能强相关、实际功能与声明一致，所有操作都没有安全风险
-- **恶意skill**：访问不可信的网址、下载安装不可信的安装包、执行恶意命令、盗取隐私密码凭证、数据泄露、提升权限、等有安全风险的操作，实际功能与声明不一致，或包含与申明功能无关的操作
+### 3. 判定标准
+- **正常skill (benign)**：有明确的业务目的、每一步操作都与声明功能强相关、实际功能与声明一致，所有操作都没有安全风险，完全确定是安全的
+- **可疑skill (suspicious)**：不能确定是完全安全的，存在一些可疑的迹象，但又没有足够的证据判定为恶意；或者存在一些高风险操作但有合理的解释，但仍然需要人工进一步审核
+- **恶意skill (malicious)**：访问不可信的网址、下载安装不可信的安装包、执行恶意命令、盗取隐私密码凭证、数据泄露、提升权限、等有安全风险的操作，实际功能与声明不一致，或包含与申明功能无关的操作，完全确定是恶意的
 - 如果不确定某个操作是否有安全风险，可以查看sandbox是否有关于此项的风险分析，再综合判断
 
 ### 4. 具体判定指南
@@ -375,8 +377,8 @@ MITRE ATT&CK 是传统软件攻击的框架， MITRE ATLAS 是 MITRE ATT&CK 框�
 
 ## 输出格式（JSON）
 {
-  "verdict": "malicious|benign",
-  "report": "markdown 格式的专业的安全分析报告。如果是 malicious skill: 要包括skill的声明功能、实际功能、以及为完成实际功能的操作步骤（每一步要指明对应的内容片段在哪个文件、哪几行内容）、得到的结果、造成的影响，操作步骤应该是对攻击链的详细说明解释。如果是 benign skill: 只说明skill的功能",
+  "risk_level": "malicious|benign|suspicious",
+  "report": "markdown 格式的专业的安全分析报告。如果是 malicious skill: 要包括skill的声明功能、实际功能、以及为完成实际功能的操作步骤（每一步要指明对应的内容片段在哪个文件、哪几行内容）、得到的结果、造成的影响，操作步骤应该是对攻击链的详细说明解释。如果是 benign 或 suspicious skill: 说明skill的功能以及你的判定理由",
   "attack_chain": [
     {
       "step": 步骤编号（从1开始，每个步骤编号递增）,
@@ -395,9 +397,9 @@ MITRE ATT&CK 是传统软件攻击的框架， MITRE ATLAS 是 MITRE ATT&CK 框�
 ## 重要约束
 
 - 所有自然语言输出必须使用简体中文
-- verdict 字段必须严格是 malicious 或 benign
-- 如果 verdict 是 malicious，attack_chain 必须包含至少一个步骤
-- 如果 verdict 是 benign，attack_chain 是空数组
+- risk_level 字段必须严格是 malicious、benign 或 suspicious
+- 如果 risk_level 是 malicious，attack_chain 必须包含至少一个步骤
+- 如果 risk_level 是 benign 或 suspicious，attack_chain 是空数组
 - report 要有足够的深度和细节，不是简单的几句话概括，要专业的安全分析报告
 - 每个 attack_chain 步骤战术、技术的映射，必须要与skill中的实际操作步骤相符，禁止映射到无关战术或技术，禁止无中生有，techniques 数组可以包含多个技术
 - attack chain 中的 description 字段的描述：如果有 skill 的原文可以对应，必须要明确指出是哪一个文件的那几行内容，内容是什么，以及该操作步骤的风险。
@@ -571,7 +573,7 @@ def analyze_skill_with_llm_single_round(
     sandbox_result: Optional[dict[str, Any]],
     config: LLMConfig,
 ) -> LLMAnalysisResult:
-    """单轮 LLM 深度分析：基于完整代码 + 精简风险项，直接判定 malicious/benign。
+    """单轮 LLM 深度分析：基于完整代码 + 精简风险项，直接判定 malicious/suspicious/benign。
 
     无多轮反思，无 MITRE 数据查询补充 — 所有分析在一次 LLM 调用中完成。
     """
@@ -609,15 +611,15 @@ def analyze_skill_with_llm_single_round(
     result = LLMAnalysisResult(
         provider=config.provider,
         model=config.model,
-        verdict=parsed.get("verdict", "benign"),
+        risk_level=parsed.get("risk_level", "benign"),
         report=parsed.get("report", ""),
         attack_chain=attack_chain,
         raw_response=raw,
     )
     logger.error("LLM analysis result: %s", result)
     logger.info(
-        "Completed single-round LLM analysis: verdict=%s attack_chain_steps=%d",
-        result.verdict,
+        "Completed single-round LLM analysis: risk=%s attack_chain_steps=%d",
+        result.risk_level,
         len(result.attack_chain),
     )
     return result
@@ -639,7 +641,7 @@ def analyze_skill_with_llm(skill_path: Path, config: LLMConfig | None = None) ->
     parsed, body = _call_llm(
         resolved_config,
         _SINGLE_ROUND_SYSTEM_PROMPT,
-        f"请分析这个 skill 快照。如果没有明显问题，verdict 设为 benign。\n\n{snapshot}",
+        f"请分析这个 skill 快照。如果没有明显问题，risk_level 设为 benign。\n\n{snapshot}",
     )
 
     attack_chain: list[AttackChainStep] = []
@@ -661,14 +663,14 @@ def analyze_skill_with_llm(skill_path: Path, config: LLMConfig | None = None) ->
     result = LLMAnalysisResult(
         provider=resolved_config.provider,
         model=resolved_config.model,
-        verdict=parsed.get("verdict", "benign"),
+        risk_level=parsed.get("risk_level", "benign"),
         report=parsed.get("report", ""),
         attack_chain=attack_chain,
         raw_response=body,
     )
     logger.info(
-        "Completed LLM vetting for %s via %s/%s verdict=%s",
-        skill_path, result.provider, result.model, result.verdict,
+        "Completed LLM vetting for %s via %s/%s risk=%s",
+        skill_path, result.provider, result.model, result.risk_level,
     )
     return result
 

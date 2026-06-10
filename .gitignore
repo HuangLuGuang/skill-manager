@@ -30,3 +30,4 @@ CLAUDE.md
 *.zip
 data/
 projects/
+mitre_attack_atlas/

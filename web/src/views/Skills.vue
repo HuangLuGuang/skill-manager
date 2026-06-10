@@ -22,10 +22,9 @@
         </a-select>
         <a-select v-model:value="risk" style="width: 160px">
           <a-select-option value="all">全部风险</a-select-option>
-          <a-select-option value="LOW">LOW</a-select-option>
-          <a-select-option value="MEDIUM">MEDIUM</a-select-option>
-          <a-select-option value="HIGH">HIGH</a-select-option>
-          <a-select-option value="EXTREME">EXTREME</a-select-option>
+          <a-select-option value="benign">安全</a-select-option>
+          <a-select-option value="suspicious">可疑</a-select-option>
+          <a-select-option value="malicious">恶意</a-select-option>
         </a-select>
         <a-select v-model:value="sandboxFilter" style="width: 180px">
           <a-select-option value="all">全部 Sandbox</a-select-option>
@@ -59,7 +58,11 @@
             <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>
           </template>
           <template v-else-if="column.key === 'risk'">
-            <a-tag :color="riskColor(record.risk_level)">{{ record.risk_level || '-' }}</a-tag>
+            <a-tag v-if="record.status === 'PENDING'" color="default">-</a-tag>
+            <a-tag v-else-if="record.risk_level === 'malicious'" color="red">恶意</a-tag>
+            <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange">可疑</a-tag>
+            <a-tag v-else-if="record.risk_level === 'benign'" color="green">安全</a-tag>
+            <a-tag v-else color="default">-</a-tag>
           </template>
           <template v-else-if="column.key === 'sandbox'">
             <a-space wrap>
@@ -204,11 +207,9 @@ const statusColor = (value) =>
 
 const riskColor = (value) =>
   ({
-    SAFE: 'green',
-    LOW: 'green',
-    MEDIUM: 'orange',
-    HIGH: 'red',
-    EXTREME: 'magenta',
+    benign: 'green',
+    suspicious: 'orange',
+    malicious: 'red',
   }[value] || 'default')
 
 onMounted(fetchSkills)

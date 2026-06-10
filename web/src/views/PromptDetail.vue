@@ -39,8 +39,8 @@
 
         <a-card title="安全扫描结果" class="detail-card" v-if="prompt.vetting">
           <a-alert
-            :type="prompt.vetting.verdict === 'malicious' ? 'error' : 'success'"
-            :message="prompt.vetting.verdict === 'malicious' ? '检测到安全风险' : '扫描通过：未发现明显风险'"
+            :type="prompt.vetting.risk_level === 'malicious' ? 'error' : 'success'"
+            :message="prompt.vetting.risk_level === 'malicious' ? '检测到安全风险' : '扫描通过：未发现明显风险'"
             show-icon
             class="vetting-alert"
           />
@@ -171,10 +171,12 @@ const getStatusColor = (status) => {
 
 const getRiskColor = (risk) => {
   const map = {
-    LOW: 'green',
+    benign: 'green',
+    suspicious: 'orange',
+    malicious: 'red',
+    LOW: 'orange',
     MEDIUM: 'orange',
     HIGH: 'red',
-    EXTREME: 'purple',
     CRITICAL: 'red',
     SAFE: 'green',
   }

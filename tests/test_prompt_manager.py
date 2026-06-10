@@ -56,7 +56,7 @@ class TestPromptSubmit:
         )
         entry = mgr.vet_prompt(entry.prompt_id)
         assert entry.status == PromptStatus.APPROVED
-        assert entry.risk_level == RiskLevel.LOW
+        assert entry.risk_level == RiskLevel.BENIGN
         assert entry.signature is not None
         assert entry.approved_by == "auto-policy"
 

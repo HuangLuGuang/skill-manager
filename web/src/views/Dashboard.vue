@@ -41,7 +41,10 @@
                 <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>
               </template>
               <template v-else-if="column.key === 'risk'">
-                <a-tag :color="riskColor(record.risk_level)">{{ record.risk_level || '-' }}</a-tag>
+                <a-tag v-if="record.risk_level === 'malicious'" color="red">恶意</a-tag>
+                <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange">可疑</a-tag>
+                <a-tag v-else-if="record.risk_level === 'benign'" color="green">安全</a-tag>
+                <a-tag v-else color="default">-</a-tag>
               </template>
             </template>
           </a-table>
@@ -190,10 +193,16 @@ const statusChartOptions = computed(() => {
 })
 
 const riskChartOptions = computed(() => {
-  const counts = ['LOW', 'MEDIUM', 'HIGH', 'EXTREME'].map((label) => ({
-    label,
-    value: skillRows.value.filter((item) => item.risk_level === label).length,
-  }))
+  const counts = ['安全', '可疑', '恶意'].map((label) => {
+    let riskLevel
+    if (label === '安全') riskLevel = 'benign'
+    else if (label === '可疑') riskLevel = 'suspicious'
+    else riskLevel = 'malicious'
+    return {
+      label,
+      value: skillRows.value.filter((item) => item.risk_level === riskLevel).length,
+    }
+  })
   return buildBarChart('Risk', counts, '#d97706')
 })
 
@@ -225,11 +234,9 @@ const statusColor = (value) =>
 
 const riskColor = (value) =>
   ({
-    SAFE: 'green',
-    LOW: 'green',
-    MEDIUM: 'orange',
-    HIGH: 'red',
-    EXTREME: 'magenta',
+    benign: 'green',
+    suspicious: 'orange',
+    malicious: 'red',
   }[value] || 'default')
 
 onMounted(fetchDashboard)

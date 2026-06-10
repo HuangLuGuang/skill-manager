@@ -24,7 +24,6 @@ from .models import (
     AuditEvent,
     RegistryEntry,
     ReviewRequest,
-    RiskLevel,
     SkillStatus,
 )
 from .prompt_registry import PromptRegistry

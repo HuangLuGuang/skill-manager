@@ -16,9 +16,9 @@
           <a-col :xs="24" :md="12">
             <a-form-item label="自动批准最大风险">
               <a-select v-model:value="formState.auto_approve_max_risk">
-                <a-select-option value="LOW">LOW</a-select-option>
-                <a-select-option value="MEDIUM">MEDIUM</a-select-option>
-                <a-select-option value="HIGH">HIGH</a-select-option>
+                <a-select-option value="benign">benign</a-select-option>
+                <a-select-option value="suspicious">suspicious</a-select-option>
+                <a-select-option value="malicious">malicious</a-select-option>
               </a-select>
             </a-form-item>
           </a-col>
@@ -37,20 +37,18 @@
           <a-col :xs="24" :md="12">
             <a-form-item label="需要人工审核">
               <a-select v-model:value="formState.require_human_review" mode="multiple" placeholder="选择需要人工审核的风险等级">
-                <a-select-option value="LOW">LOW</a-select-option>
-                <a-select-option value="MEDIUM">MEDIUM</a-select-option>
-                <a-select-option value="HIGH">HIGH</a-select-option>
-                <a-select-option value="EXTREME">EXTREME</a-select-option>
+                <a-select-option value="benign">benign</a-select-option>
+                <a-select-option value="suspicious">suspicious</a-select-option>
+                <a-select-option value="malicious">malicious</a-select-option>
               </a-select>
             </a-form-item>
           </a-col>
           <a-col :xs="24" :md="12">
             <a-form-item label="自动拒绝风险">
               <a-select v-model:value="formState.auto_reject_risk" mode="multiple" placeholder="选择自动拒绝的风险等级">
-                <a-select-option value="LOW">LOW</a-select-option>
-                <a-select-option value="MEDIUM">MEDIUM</a-select-option>
-                <a-select-option value="HIGH">HIGH</a-select-option>
-                <a-select-option value="EXTREME">EXTREME</a-select-option>
+                <a-select-option value="benign">benign</a-select-option>
+                <a-select-option value="suspicious">suspicious</a-select-option>
+                <a-select-option value="malicious">malicious</a-select-option>
               </a-select>
             </a-form-item>
           </a-col>
@@ -60,10 +58,9 @@
           <a-col :xs="24" :md="12">
             <a-form-item label="强制 Sandbox 风险等级">
               <a-select v-model:value="formState.require_sandbox_for_risk" mode="multiple" placeholder="选择必须执行 Sandbox 的风险等级">
-                <a-select-option value="LOW">LOW</a-select-option>
-                <a-select-option value="MEDIUM">MEDIUM</a-select-option>
-                <a-select-option value="HIGH">HIGH</a-select-option>
-                <a-select-option value="EXTREME">EXTREME</a-select-option>
+                <a-select-option value="benign">benign</a-select-option>
+                <a-select-option value="suspicious">suspicious</a-select-option>
+                <a-select-option value="malicious">malicious</a-select-option>
               </a-select>
             </a-form-item>
           </a-col>
@@ -120,10 +117,10 @@ const saving = ref(false)
 const policyPath = ref('')
 
 const formState = reactive({
-  auto_approve_max_risk: 'LOW',
-  require_human_review: ['HIGH', 'EXTREME'],
-  auto_reject_risk: ['EXTREME'],
-  require_sandbox_for_risk: ['HIGH', 'EXTREME'],
+  auto_approve_max_risk: 'benign',
+  require_human_review: ['suspicious'],
+  auto_reject_risk: ['malicious'],
+  require_sandbox_for_risk: ['suspicious', 'malicious'],
   blocked_permissions: [],
   trusted_authors: [],
   allowed_tools_allowlist: [],

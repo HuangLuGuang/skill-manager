@@ -109,7 +109,7 @@ flowchart TD
         "skill_path": "/abs/path/to/skill",
         "signature_verified": true,
         "status": "APPROVED",
-        "risk_level": "LOW"
+        "risk_level": "benign"
       }
     },
     "blocked_skills": {

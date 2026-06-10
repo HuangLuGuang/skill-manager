@@ -26,7 +26,7 @@ def _make_entry(name="my-skill", status=SkillStatus.APPROVED) -> RegistryEntry:
         description="Test skill",
         source=SourceInfo(origin=SkillOrigin.LOCAL, author="test-author"),
         status=status,
-        risk_level=RiskLevel.LOW,
+        risk_level=RiskLevel.BENIGN,
     )
 
 
@@ -101,7 +101,7 @@ class TestRegistry:
         req = ReviewRequest(
             skill_id="id-my-skill",
             skill_name="my-skill",
-            risk_level=RiskLevel.HIGH,
+            risk_level=RiskLevel.MALICIOUS,
             findings_summary={"high": 2},
             submitted_at=datetime.now(timezone.utc),
         )

@@ -13,8 +13,17 @@
                 <a-tag :color="statusColor(detail?.status)">{{ detail?.status || '-' }}</a-tag>
               </a-descriptions-item>
               <a-descriptions-item label="安全判定">
-                <a-tag :color="detail?.vetting?.verdict === 'malicious' ? 'red' : 'green'" style="font-size: 16px; padding: 4px 16px;">
-                  {{ detail?.vetting?.verdict === 'malicious' ? '恶意' : '安全' }}
+                <a-tag v-if="detail?.status === 'PENDING'" color="default" style="font-size: 16px; padding: 4px 16px;">
+                  -
+                </a-tag>
+                <a-tag v-else-if="detail?.risk_level === 'malicious'" color="red" style="font-size: 16px; padding: 4px 16px;">
+                  恶意
+                </a-tag>
+                <a-tag v-else-if="detail?.risk_level === 'suspicious'" color="orange" style="font-size: 16px; padding: 4px 16px;">
+                  可疑
+                </a-tag>
+                <a-tag v-else color="green" style="font-size: 16px; padding: 4px 16px;">
+                  安全
                 </a-tag>
               </a-descriptions-item>
               <a-descriptions-item label="路径">{{ detail?.skill_path || '-' }}</a-descriptions-item>
@@ -87,8 +96,14 @@
                   <a-descriptions-item label="提供方">{{ llmAnalysis.provider || '-' }}</a-descriptions-item>
                   <a-descriptions-item label="模型">{{ llmAnalysis.model || '-' }}</a-descriptions-item>
                   <a-descriptions-item label="判定">
-                    <a-tag :color="llmAnalysis.verdict === 'malicious' ? 'red' : 'green'" style="font-size: 15px; padding: 2px 12px;">
-                      {{ llmAnalysis.verdict === 'malicious' ? '恶意' : '安全' }}
+                    <a-tag v-if="llmAnalysis.risk_level === 'malicious'" color="red" style="font-size: 15px; padding: 2px 12px;">
+                      恶意
+                    </a-tag>
+                    <a-tag v-else-if="llmAnalysis.risk_level === 'suspicious'" color="orange" style="font-size: 15px; padding: 2px 12px;">
+                      可疑
+                    </a-tag>
+                    <a-tag v-else color="green" style="font-size: 15px; padding: 2px 12px;">
+                      安全
                     </a-tag>
                   </a-descriptions-item>
                 </a-descriptions>
@@ -97,7 +112,7 @@
                 <div v-if="llmAnalysis.report" class="llm-explanation" v-html="llmExplanationHtml" />
 
                 <!-- 攻击链图 -->
-                <template v-if="llmAnalysis.verdict === 'malicious' && llmAnalysis.attack_chain?.length">
+                <template v-if="llmAnalysis.risk_level === 'malicious' && llmAnalysis.attack_chain?.length">
                   <a-divider />
                   <div>
                     <h4 style="margin-bottom: 12px;">攻击链分析</h4>
@@ -121,8 +136,17 @@
             </a-space>
             <a-descriptions :column="2" size="small" bordered>
               <a-descriptions-item label="安全判定">
-                <a-tag :color="detail?.vetting?.verdict === 'malicious' ? 'red' : 'green'">
-                  {{ detail?.vetting?.verdict === 'malicious' ? '恶意' : '安全' }}
+                <a-tag v-if="detail?.status === 'PENDING'" color="default">
+                  -
+                </a-tag>
+                <a-tag v-else-if="detail?.risk_level === 'malicious'" color="red">
+                  恶意
+                </a-tag>
+                <a-tag v-else-if="detail?.risk_level === 'suspicious'" color="orange">
+                  可疑
+                </a-tag>
+                <a-tag v-else color="green">
+                  安全
                 </a-tag>
               </a-descriptions-item>
               <a-descriptions-item label="发现项">{{ detail?.vetting?.findings_count ?? 0 }}</a-descriptions-item>
@@ -810,7 +834,23 @@ const scanReportText = computed(() =>
   scanReport.value ? JSON.stringify(scanReport.value, null, 2) : '暂无扫描报告',
 )
 
-const llmAnalysis = computed(() => scanReport.value?.llm_analysis || null)
+const stepIndex = computed(() => {
+  if (!detail.value) return 0
+  const status = detail.value.status
+  if (status === 'DEPLOYED' && detail.value.deployed_at) return 3
+  if (status === 'APPROVED' && detail.value.approved_at) return 2
+  if (status === 'VETTED') return 1
+  return 0
+})
+
+const llmAnalysis = computed(() => {
+  const analysis = scanReport.value?.llm_analysis
+  if (!analysis) return null
+  return {
+    ...analysis,
+    risk_level: analysis.risk_level || 'benign',
+  }
+})
 const llmExplanationHtml = computed(() => {
   const text = llmAnalysis.value?.report || ''
   if (!text) return '<p>暂无分析说明</p>'
@@ -939,20 +979,193 @@ const formatFileSize = (value) => {
   return `${size.toFixed(size >= 100 || index === 0 ? 0 : 2)} ${units[index]}`
 }
 
-const stepIndex = computed(() => {
-  const status = detail.value?.status
-  if (status === 'DEPLOYED') return 3
-  if (status === 'APPROVED') return 2
-  if (status === 'VETTED') return 1
-  return 0
-})
-
-watch(skillId, () => {
+onMounted(() => {
   fetchDetail()
 })
 
-onMounted(fetchDetail)
+watch(
+  () => route.params.skillId,
+  () => {
+    fetchDetail()
+  },
+)
 </script>
+
+<style scoped>
+/* LLM 分析报告 Markdown 样式 - 使用 :deep() 穿透 scoped */
+.llm-explanation {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  color: #24292f;
+  word-wrap: break-word;
+}
+
+/* 标题样式 */
+.llm-explanation :deep(h1),
+.llm-explanation :deep(h2),
+.llm-explanation :deep(h3),
+.llm-explanation :deep(h4) {
+  font-weight: 600;
+  margin-top: 20px;
+  margin-bottom: 12px;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid #d0d7de;
+}
+
+.llm-explanation :deep(h1) { font-size: 24px; }
+.llm-explanation :deep(h2) { font-size: 20px; }
+.llm-explanation :deep(h3) { font-size: 16px; }
+
+/* 段落样式 */
+.llm-explanation :deep(p) {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+/* 列表样式 */
+.llm-explanation :deep(ul),
+.llm-explanation :deep(ol) {
+  padding-left: 2em;
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.llm-explanation :deep(li) {
+  margin-top: 0.25em;
+}
+
+/* 代码块样式（修复黑框问题）- 使用 !important 强制覆盖默认样式 */
+.llm-explanation :deep(pre) {
+  background-color: #f6f8fa !important;
+  border-radius: 6px;
+  padding: 16px;
+  overflow: auto;
+  font-size: 85%;
+  line-height: 1.45;
+  border: 1px solid #d0d7de;
+  margin: 12px 0;
+  color: #24292f !important;
+}
+
+.llm-explanation :deep(code) {
+  background-color: rgba(175, 184, 193, 0.2) !important;
+  border-radius: 3px;
+  font-size: 85%;
+  padding: 0.2em 0.4em;
+  font-family: monospace;
+  color: #24292f !important;
+}
+
+.llm-explanation :deep(pre code) {
+  background-color: transparent !important;
+  padding: 0;
+}
+
+/* 引用样式 */
+.llm-explanation blockquote {
+  padding: 0 1em;
+  color: #57606a;
+  border-left: 0.25em solid #d0d7de;
+  margin: 0 0 12px 0;
+}
+
+/* 表格样式 */
+.llm-explanation table {
+  border-spacing: 0;
+  border-collapse: collapse;
+  margin-bottom: 12px;
+  width: 100%;
+}
+
+.llm-explanation table th,
+.llm-explanation table td {
+  padding: 6px 13px;
+  border: 1px solid #d0d7de;
+}
+
+.llm-explanation table th {
+  font-weight: 600;
+  background-color: #f6f8fa;
+}
+
+.llm-explanation table tr:nth-child(2n) {
+  background-color: #f6f8fa;
+}
+
+/* 链接样式 */
+.llm-explanation a {
+  color: #0969da;
+  text-decoration: none;
+}
+
+.llm-explanation a:hover {
+  text-decoration: underline;
+}
+
+/* 内联命令样式 */
+.inline-command {
+  background-color: #f6f8fa;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 85%;
+  font-family: monospace;
+}
+
+/* 命令块样式 */
+.command-block {
+  background-color: #f6f8fa;
+  padding: 12px;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 85%;
+  overflow-x: auto;
+}
+
+/* Frontmatter 样式 */
+.frontmatter-box {
+  background-color: #f6f8fa;
+  padding: 12px;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 通用 Markdown 样式 */
+.markdown-body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  color: #24292f;
+  word-wrap: break-word;
+}
+
+.markdown-body pre {
+  background-color: #f6f8fa;
+  border-radius: 6px;
+  padding: 16px;
+  overflow: auto;
+  font-size: 85%;
+  line-height: 1.45;
+  border: 1px solid #d0d7de;
+  margin: 12px 0;
+}
+
+.markdown-body code {
+  background-color: rgba(175, 184, 193, 0.2);
+  border-radius: 3px;
+  font-size: 85%;
+  padding: 0.2em 0.4em;
+  font-family: monospace;
+}
+
+.markdown-body pre code {
+  background-color: transparent;
+  padding: 0;
+}
+</style>
 
 <style scoped>
 .markdown-body {

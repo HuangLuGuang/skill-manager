@@ -385,15 +385,19 @@ class VettingPipeline:
                     f"found {len(behavioral_result['findings'])} suspicious patterns"
                 )
         # 3. Sandbox Analysis (before LLM so LLM can use sandbox results)
-        initial_risk_level = RiskLevel.from_severity(scan_report.get("max_severity", "SAFE"))
-        sandbox_required_by_policy = self.policy.requires_sandbox(initial_risk_level)
+        interim_risk_level = RiskLevel.from_severity(scan_report.get("max_severity", "SAFE"))
+        scan_report = {
+            **scan_report,
+            "interim_risk_level": interim_risk_level.value,
+        }
+        sandbox_required_by_policy = self.policy.requires_sandbox(interim_risk_level)
         effective_use_sandbox = use_sandbox or sandbox_required_by_policy
         sandbox_notes: list[str] = []
         sandbox_runtime: str | None = None
         sandbox_result: dict[str, Any] | None = None
         if sandbox_required_by_policy:
             sandbox_notes.append(
-                f"[SANDBOX] required by policy for risk level {initial_risk_level.value}"
+                f"[SANDBOX] required by policy for risk level {interim_risk_level.value}"
             )
         if effective_use_sandbox:
             sandbox_runtime = get_sandbox_runner().config.runtime
@@ -580,6 +584,11 @@ class VettingPipeline:
                         temp_probe_context.cleanup()
 
         # 4. LLM multi-round analysis (after sandbox, with all prior results)
+        pre_llm_risk_level = RiskLevel.from_severity(scan_report.get("max_severity", "SAFE"))
+        scan_report = {
+            **scan_report,
+            "pre_llm_risk_level": pre_llm_risk_level.value,
+        }
         llm_notes: list[str] = []
         llm_result = None
         if use_llm:
@@ -612,21 +621,14 @@ class VettingPipeline:
                     ],
                     "llm_analysis": llm_result.model_dump(mode="json"),
                 }
-                # Elevate max_severity if LLM found it malicious
-                if llm_result.verdict == "malicious":
-                    current_sev = scan_report.get("max_severity", "SAFE")
-                    if current_sev in ("SAFE", "INFO", "LOW", "MEDIUM"):
-                        scan_report["max_severity"] = "HIGH"
-
                 if llm_result.report:
                     llm_notes.append(f"[LLM] {llm_result.report}")
             except Exception as exc:
                 logger.warning("LLM analysis skipped for %s: %s", skill_path, exc)
                 llm_notes.append(f"[LLM] analysis skipped: {exc}")
 
-        # 5. Derive risk level from scan report (for policy decisions)
-        max_severity = scan_report.get("max_severity", "SAFE")
-        risk_level = RiskLevel.from_severity(max_severity)
+        # 5. Determine final risk level for policy decisions
+        final_risk_level = RiskLevel(llm_result.risk_level) if llm_result else pre_llm_risk_level
         findings = scan_report.get("findings", [])
 
         # 6. Policy checks
@@ -640,14 +642,14 @@ class VettingPipeline:
         policy_notes.extend(llm_notes)
         policy_notes.extend(sandbox_notes)
 
-        # 7. Determine final verdict
-        final_verdict = "benign"
-        if llm_result:
-            final_verdict = llm_result.verdict
+        scan_report = {
+            **scan_report,
+            "risk_level": final_risk_level.value,
+        }
 
-        # 8. Build result
+        # 7. Build result
         result = VettingResult(
-            verdict=final_verdict,
+            risk_level=final_risk_level,
             findings_count=len(findings),
             analyzers_used=scan_report.get("analyzers_used", ["basic"]),
             sandbox_triggered=effective_use_sandbox,

@@ -27,7 +27,7 @@ def _make_prompt(name="test-prompt", agent_id="agent-1", status=PromptStatus.APP
         agent_id=agent_id,
         content="You are a helpful assistant.",
         status=status,
-        risk_level=RiskLevel.LOW,
+        risk_level=RiskLevel.BENIGN,
         signature="sigtestsig",
     )
 
@@ -151,7 +151,7 @@ class TestPromptReviewQueue:
         req = PromptReviewRequest(
             prompt_id="p-001",
             prompt_name="test-prompt",
-            risk_level=RiskLevel.HIGH,
+            risk_level=RiskLevel.MALICIOUS,
             findings_summary={"total": 3, "CRITICAL": 2},
             submitted_at=datetime.now(timezone.utc),
             notes="Needs review",
@@ -165,7 +165,7 @@ class TestPromptReviewQueue:
         req = PromptReviewRequest(
             prompt_id="p-002",
             prompt_name="another-prompt",
-            risk_level=RiskLevel.MEDIUM,
+            risk_level=RiskLevel.SUSPICIOUS,
             findings_summary={"total": 1},
             submitted_at=datetime.now(timezone.utc),
         )
