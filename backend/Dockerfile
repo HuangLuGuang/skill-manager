@@ -25,16 +25,26 @@ RUN uv pip install --system -e ".[scanner,compression]" && \
       croniter \
       python-frontmatter
 
-# Pre-download all HF models needed by headroom at runtime (air-gapped compatible)
+# Build-time proxy args (set via: docker build --build-arg HTTPS_PROXY=http://10.10.8.66:1081 ...)
+ARG HTTPS_PROXY
+ARG HTTP_PROXY
+ARG ALL_PROXY
+
+# Pre-download all HF models needed by headroom (uses build-time proxy if set)
 ENV HF_HOME=/app/.cache/huggingface
-RUN python -c "\
+RUN export https_proxy=${HTTPS_PROXY} http_proxy=${HTTP_PROXY} all_proxy=${ALL_PROXY} && \
+    python -c "\
 from huggingface_hub import snapshot_download;\
 for model in ['chopratejas/kompress-base', 'answerdotai/ModernBERT-base', 'deepseek-ai/deepseek-llm-7b-base']:\
     snapshot_download(model);\
     print(f'Downloaded {model}')\
 " 2>&1
 # Warm up headroom so first request doesn't trigger downloads
-RUN python -c "from headroom import compress; compress([{'role':'user','content':'warmup'}], model='gpt-4o', optimize=False)" 2>&1 || true
+RUN export https_proxy=${HTTPS_PROXY} http_proxy=${HTTP_PROXY} all_proxy=${ALL_PROXY} && \
+    python -c "from headroom import compress; compress([{'role':'user','content':'warmup'}], model='gpt-4o', optimize=False)" 2>&1 || true
+
+# Clear proxy from runtime env (production has no network)
+ENV HTTPS_PROXY= HTTP_PROXY= ALL_PROXY= https_proxy= http_proxy= all_proxy=
 
 RUN mkdir -p /app/runtime/data /app/runtime/uploads /app/runtime/sqlite /app/runtime/agent_manager
 
