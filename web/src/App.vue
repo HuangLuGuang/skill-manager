@@ -82,6 +82,7 @@ import zhCN from 'ant-design-vue/es/locale/zh_CN'
 import { message } from 'ant-design-vue'
 import {
   AuditOutlined,
+  BarChartOutlined,
   CheckSquareOutlined,
   DashboardOutlined,
   DeploymentUnitOutlined,
@@ -92,6 +93,7 @@ import {
   KeyOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
+  TeamOutlined,
   UploadOutlined,
 } from '@ant-design/icons-vue'
 
@@ -133,6 +135,8 @@ const menuItems = [
       { key: '/model-gateway/groups', label: '用户与组', icon: SafetyCertificateOutlined },
       { key: '/model-gateway/policies', label: '隐私策略', icon: SettingOutlined },
       { key: '/model-gateway/audit', label: '隐私审计', icon: AuditOutlined },
+      { key: '/model-gateway/stats', label: '用量统计', icon: BarChartOutlined },
+      { key: '/model-gateway/user-stats', label: '用户用量', icon: TeamOutlined },
       { key: '/pipeline-trace', label: 'Pipeline Trace', icon: AuditOutlined },
     ],
   },
