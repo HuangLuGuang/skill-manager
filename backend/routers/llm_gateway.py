@@ -12,12 +12,13 @@ from typing import Any
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
+from ..compression import compress_messages
 from ..config import settings
 from ..sqlite_db import get_db
 
@@ -54,7 +55,7 @@ PLACEHOLDER_PRESERVATION_SYSTEM_PROMPT = (
     "Treat these tokens as the real values and preserve them naturally in the answer. "
     "Do not explain that they are placeholders."
 )
-TRACE_STAGES = ["meta", "original", "masked", "masked_response", "final_response"]
+TRACE_STAGES = ["meta", "original", "masked", "compressed", "masked_response", "final_response"]
 ACTIVE_KEY_REQUESTS: dict[int, int] = {}
 MESSAGE_TEXT_FIELDS = ("content", "reasoning_content")
 COMMON_CN_SURNAMES = (
@@ -157,6 +158,7 @@ def _provider_response(row: models.ModelProvider) -> schemas.ModelProviderRespon
         timeout_seconds=row.timeout_seconds,
         api_key_configured=bool(row.api_key),
         api_key_masked=_mask_secret(row.api_key),
+        enable_compression=getattr(row, "enable_compression", False),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -198,6 +200,8 @@ def _api_key_response(row: models.LlmApiKey, token: str | None = None) -> schema
         expires_at=row.expires_at,
         max_body_kb=row.max_body_kb,
         max_concurrent_requests=row.max_concurrent_requests,
+        enable_compression=getattr(row, "enable_compression", False),
+        compression_level=getattr(row, "compression_level", "auto"),
         created_at=row.created_at,
         last_used_at=row.last_used_at,
     )
@@ -724,6 +728,9 @@ async def _stream_upstream(
     policy: models.PrivacyPolicy,
     original_messages: list[dict[str, Any]],
     upstream_messages: list[dict[str, Any]],
+    compression_enabled: bool = False,
+    compression_level: str = "auto",
+    compression_result: Any = None,
 ):
     provider = db.query(models.ModelProvider).filter(models.ModelProvider.id == model.provider_id).first()
     if not provider:
@@ -796,6 +803,10 @@ async def _stream_upstream(
                                 upstream_messages=upstream_messages,
                                 masked_choices=_stream_choices_snapshot(masked_parts),
                                 final_choices=_stream_choices_snapshot(final_parts),
+                                compression_enabled=compression_enabled,
+                                compression_level=compression_level,
+                                compression_result=compression_result,
+                                compressed_messages=payload["messages"],
                             )
                             yield "data: [DONE]\n\n"
                             return
@@ -841,6 +852,10 @@ async def _stream_upstream(
                 upstream_messages=upstream_messages,
                 masked_choices=_stream_choices_snapshot(masked_parts),
                 final_choices=_stream_choices_snapshot(final_parts),
+                compression_enabled=compression_enabled,
+                compression_level=compression_level,
+                compression_result=compression_result,
+                compressed_messages=payload["messages"],
             )
         except HTTPException as exc:
             _record_llm_error(
@@ -853,6 +868,8 @@ async def _stream_upstream(
                 model_name=model.name,
                 bypass_pii=bypass_pii,
                 error=str(exc.detail),
+                compression_enabled=compression_enabled,
+                compression_level=compression_level,
             )
             yield f"data: {json.dumps({'error': {'message': str(exc.detail), 'type': 'upstream_error'}}, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
@@ -886,6 +903,10 @@ def _record_llm_success(
     upstream_messages: list[dict[str, Any]],
     masked_choices: list[dict[str, Any]],
     final_choices: list[dict[str, Any]],
+    compression_enabled: bool = False,
+    compression_level: str = "auto",
+    compression_result: Any = None,
+    compressed_messages: list[dict[str, Any]] | None = None,
 ) -> None:
     owner_meta = _key_owner_meta(db, key)
     db.add(
@@ -904,6 +925,8 @@ def _record_llm_success(
             detected_counts_json=_json_dumps(detected_counts),
             created_tokens=created_total,
             reused_tokens=reused_total,
+            compression_enabled=compression_enabled,
+            compression_level=compression_level if compression_enabled else None,
         )
     )
     db.add(
@@ -920,6 +943,11 @@ def _record_llm_success(
             pii_hits_json=_json_dumps(detected_counts),
             created_tokens=created_total,
             reused_tokens=reused_total,
+            pre_compression_tokens=compression_result.pre_tokens if compression_result else 0,
+            post_compression_tokens=compression_result.post_tokens if compression_result else 0,
+            tokens_saved=compression_result.tokens_saved if compression_result else 0,
+            compression_ratio=compression_result.ratio if compression_result else 0.0,
+            compression_duration_ms=compression_result.duration_ms if compression_result else 0.0,
         )
     )
     _save_trace(
@@ -942,6 +970,16 @@ def _record_llm_success(
             },
             "original": {"messages": original_messages},
             "masked": {"messages": upstream_messages},
+            "compressed": {
+                "messages": compressed_messages if compressed_messages else upstream_messages,
+                "enabled": compression_enabled,
+                "level": compression_level if compression_enabled else None,
+                "pre_tokens": compression_result.pre_tokens if compression_result else 0,
+                "post_tokens": compression_result.post_tokens if compression_result else 0,
+                "tokens_saved": compression_result.tokens_saved if compression_result else 0,
+                "ratio": compression_result.ratio if compression_result else 0,
+                "duration_ms": compression_result.duration_ms if compression_result else 0,
+            },
             "masked_response": {"choices": masked_choices},
             "final_response": {"choices": final_choices},
         },
@@ -960,6 +998,8 @@ def _record_llm_error(
     model_name: str,
     bypass_pii: bool,
     error: str,
+    compression_enabled: bool = False,
+    compression_level: str = "auto",
 ) -> None:
     db.add(
         models.LlmRequestAudit(
@@ -973,6 +1013,8 @@ def _record_llm_error(
             traffic_type="pii_bypass" if bypass_pii else "pii_checked",
             status="error",
             error=error,
+            compression_enabled=compression_enabled,
+            compression_level=compression_level if compression_enabled else None,
         )
     )
     db.commit()
@@ -1238,6 +1280,8 @@ async def create_llm_api_key(
         expires_at=body.expires_at,
         max_body_kb=body.max_body_kb,
         max_concurrent_requests=body.max_concurrent_requests,
+        enable_compression=body.enable_compression,
+        compression_level=body.compression_level,
     )
     db.add(row)
     db.commit()
@@ -1521,6 +1565,317 @@ async def get_privacy_stats(db: Session = Depends(get_db), current_user: models.
     }
 
 
+# ── 压缩自检 API ──────────────────────────────────────────────────
+
+
+@runtime_router.get("/llm-stats/compression-self-test")
+async def compression_self_test():
+    """验证压缩模块是否正常加载（无需认证，无敏感数据）"""
+    from .. import compression as comp_module
+
+    test_messages = [
+        {"role": "user", "content": "test"},
+        {"role": "tool", "content": '[{"id":1,"name":"a"},{"id":2,"name":"b"},{"id":3,"name":"c"}]' * 10},
+    ]
+
+    # 直接测 headroom 原始返回
+    headroom_raw = {}
+    headroom_error = None
+    try:
+        from headroom import compress
+        raw = compress(test_messages, model="gpt-4o")
+        headroom_raw = {
+            "tokens_before": raw.tokens_before,
+            "tokens_after": raw.tokens_after,
+            "tokens_saved": raw.tokens_saved,
+            "transforms": list(raw.transforms_applied) if raw.transforms_applied else [],
+        }
+    except ImportError as e:
+        headroom_error = f"ImportError: {e}"
+    except Exception as e:
+        headroom_error = f"{type(e).__name__}: {e}"
+
+    # 再测封装函数
+    wrapper_error = None
+    result = None
+    try:
+        result = comp_module.compress_messages(test_messages, model="gpt-4o", level="auto")
+    except Exception as e:
+        wrapper_error = f"{type(e).__name__}: {e}"
+
+    return {
+        "module_version": getattr(comp_module, "__version__", "unknown"),
+        "headroom_available": headroom_error is None,
+        "headroom_error": headroom_error,
+        "headroom_raw": headroom_raw,
+        "wrapper_error": wrapper_error,
+        "test_pre_tokens": result.pre_tokens if result else 0,
+        "test_post_tokens": result.post_tokens if result else 0,
+        "test_tokens_saved": result.tokens_saved if result else 0,
+        "test_transforms": result.transforms_applied if result else [],
+        "test_duration_ms": result.duration_ms if result else 0,
+        "verdict": "OK" if (result and (result.tokens_saved > 0 or result.pre_tokens > 50)) else "NEEDS_INVESTIGATION",
+    }
+
+
+# ── LLM 用量统计 API ──────────────────────────────────────────────
+
+# 压缩诊断：近 10 条压缩请求的详细日志
+@admin_router.get("/llm-stats/compression-diagnostics")
+async def get_compression_diagnostics(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    """查看最近压缩请求的详细诊断信息，帮助排查压缩为什么是 0"""
+    # 最近 10 条 compress_enabled=True 的审计记录
+    audit_rows = (
+        db.query(models.LlmRequestAudit)
+        .filter(models.LlmRequestAudit.compression_enabled.is_(True))
+        .order_by(models.LlmRequestAudit.created_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    # 对应的用量指标
+    request_ids = [r.request_id for r in audit_rows]
+    metric_rows = (
+        db.query(models.LlmUsageMetric)
+        .filter(models.LlmUsageMetric.request_id.in_(request_ids))
+        .all()
+    ) if request_ids else []
+    metric_by_id = {m.request_id: m for m in metric_rows}
+
+    # 对应的 trace
+    trace_rows = (
+        db.query(models.LlmPipelineTrace)
+        .filter(
+            models.LlmPipelineTrace.request_id.in_(request_ids),
+            models.LlmPipelineTrace.stage == "compressed",
+        )
+        .all()
+    ) if request_ids else []
+    trace_by_id: dict[str, Any] = {}
+    for t in trace_rows:
+        trace_by_id.setdefault(t.request_id, {})
+        try:
+            trace_by_id[t.request_id] = json.loads(t.payload_json or "{}")
+        except Exception:
+            trace_by_id[t.request_id] = {"raw": t.payload_json}
+
+    return {
+        "compression_enabled_requests_found": len(audit_rows),
+        "recent": [
+            {
+                "request_id": r.request_id,
+                "model": r.model,
+                "compression_level": r.compression_level,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "metrics": {
+                    "prompt_tokens": m.prompt_tokens,
+                    "completion_tokens": m.completion_tokens,
+                    "tokens_saved": m.tokens_saved,
+                    "compression_ratio": m.compression_ratio,
+                    "pre_compression_tokens": m.pre_compression_tokens,
+                    "post_compression_tokens": m.post_compression_tokens,
+                    "compression_duration_ms": m.compression_duration_ms,
+                } if (m := metric_by_id.get(r.request_id)) else None,
+                "trace_compressed_stage": trace_by_id.get(r.request_id),
+            }
+            for r in audit_rows
+        ],
+    }
+
+
+def _usage_base_query(db: Session, days: int, model: str | None = None):
+    """查询最近 N 天的用量指标"""
+    since = _now() - timedelta(days=max(1, min(days, 365)))
+    q = db.query(models.LlmUsageMetric).filter(
+        models.LlmUsageMetric.created_at >= since,
+    )
+    if model:
+        q = q.filter(models.LlmUsageMetric.model == model)
+    return q
+
+
+def _audit_base_query(db: Session, days: int, model: str | None = None):
+    """查询最近 N 天的审计记录"""
+    since = _now() - timedelta(days=max(1, min(days, 365)))
+    q = db.query(models.LlmRequestAudit).filter(
+        models.LlmRequestAudit.created_at >= since,
+    )
+    if model:
+        q = q.filter(models.LlmRequestAudit.model == model)
+    return q
+
+
+@admin_router.get("/llm-stats/overview")
+async def get_llm_stats_overview(
+    days: int = Query(default=30, ge=1, le=365),
+    model: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    """统计总览卡片数据"""
+    metrics_q = _usage_base_query(db, days, model)
+    audit_q = _audit_base_query(db, days, model)
+
+    total_requests = audit_q.filter(models.LlmRequestAudit.status == "success").count()
+    total_requests_with_error = audit_q.filter(models.LlmRequestAudit.status == "error").count()
+    compression_requests = audit_q.filter(
+        models.LlmRequestAudit.compression_enabled.is_(True),
+        models.LlmRequestAudit.status == "success",
+    ).count()
+
+    agg = metrics_q.with_entities(
+        func.coalesce(func.sum(models.LlmUsageMetric.prompt_tokens), 0),
+        func.coalesce(func.sum(models.LlmUsageMetric.completion_tokens), 0),
+        func.coalesce(func.sum(models.LlmUsageMetric.total_tokens), 0),
+        func.coalesce(func.sum(models.LlmUsageMetric.tokens_saved), 0),
+        func.coalesce(func.avg(models.LlmUsageMetric.compression_ratio), 0),
+        func.coalesce(func.avg(models.LlmUsageMetric.compression_duration_ms), 0),
+    ).first()
+
+    prompt_tokens, completion_tokens, total_tokens, tokens_saved, avg_ratio, avg_duration = agg
+
+    return {
+        "days": days,
+        "total_requests": total_requests,
+        "error_requests": total_requests_with_error,
+        "compression_requests": compression_requests,
+        "prompt_tokens": int(prompt_tokens),
+        "completion_tokens": int(completion_tokens),
+        "total_tokens": int(total_tokens),
+        "tokens_saved": int(tokens_saved),
+        "avg_compression_ratio": round(float(avg_ratio or 0), 4),
+        "avg_compression_ms": round(float(avg_duration or 0), 1),
+    }
+
+
+@admin_router.get("/llm-stats/daily")
+async def get_llm_stats_daily(
+    days: int = Query(default=30, ge=1, le=365),
+    model: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    """按天统计的折线图数据"""
+    since = _now() - timedelta(days=max(1, min(days, 365)))
+
+    q = db.query(
+        func.strftime("%Y-%m-%d", models.LlmUsageMetric.created_at).label("date"),
+        func.coalesce(func.sum(models.LlmUsageMetric.prompt_tokens), 0).label("prompt"),
+        func.coalesce(func.sum(models.LlmUsageMetric.completion_tokens), 0).label("completion"),
+        func.coalesce(func.sum(models.LlmUsageMetric.tokens_saved), 0).label("saved"),
+        func.count(models.LlmUsageMetric.id).label("requests"),
+    ).filter(models.LlmUsageMetric.created_at >= since)
+    if model:
+        q = q.filter(models.LlmUsageMetric.model == model)
+    rows = q.group_by("date").order_by("date").all()
+
+    return {
+        "days": days,
+        "series": [
+            {
+                "date": row.date,
+                "prompt_tokens": int(row.prompt),
+                "completion_tokens": int(row.completion),
+                "tokens_saved": int(row.saved),
+                "requests": row.requests,
+            }
+            for row in rows
+        ],
+    }
+
+
+@admin_router.get("/llm-stats/by-model")
+async def get_llm_stats_by_model(
+    days: int = Query(default=30, ge=1, le=365),
+    model: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    """按模型统计的柱状图数据"""
+    since = _now() - timedelta(days=max(1, min(days, 365)))
+
+    q = db.query(
+        models.LlmUsageMetric.model,
+        func.coalesce(func.sum(models.LlmUsageMetric.prompt_tokens), 0).label("prompt"),
+        func.coalesce(func.sum(models.LlmUsageMetric.completion_tokens), 0).label("completion"),
+        func.coalesce(func.sum(models.LlmUsageMetric.total_tokens), 0).label("total"),
+        func.coalesce(func.sum(models.LlmUsageMetric.tokens_saved), 0).label("saved"),
+        func.count(models.LlmUsageMetric.id).label("requests"),
+    ).filter(models.LlmUsageMetric.created_at >= since)
+    if model:
+        q = q.filter(models.LlmUsageMetric.model == model)
+    rows = q.group_by(models.LlmUsageMetric.model).order_by(func.sum(models.LlmUsageMetric.total_tokens).desc()).all()
+
+    return {
+        "days": days,
+        "models": [
+            {
+                "model": row.model,
+                "prompt_tokens": int(row.prompt),
+                "completion_tokens": int(row.completion),
+                "total_tokens": int(row.total),
+                "tokens_saved": int(row.saved),
+                "requests": row.requests,
+            }
+            for row in rows
+        ],
+    }
+
+
+@admin_router.get("/llm-stats/by-user")
+async def get_llm_stats_by_user(
+    days: int = Query(default=30, ge=1, le=365),
+    model: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    """按用户统计的 Token 用量数据（JOIN user 表获取用户名）"""
+    since = _now() - timedelta(days=max(1, min(days, 365)))
+
+    q = (
+        db.query(
+            models.LlmApiKey.user_id,
+            models.User.username,
+            func.coalesce(func.sum(models.LlmUsageMetric.prompt_tokens), 0).label("prompt"),
+            func.coalesce(func.sum(models.LlmUsageMetric.completion_tokens), 0).label("completion"),
+            func.coalesce(func.sum(models.LlmUsageMetric.total_tokens), 0).label("total"),
+            func.coalesce(func.sum(models.LlmUsageMetric.tokens_saved), 0).label("saved"),
+            func.count(models.LlmUsageMetric.id).label("requests"),
+        )
+        .join(models.LlmApiKey, models.LlmUsageMetric.api_key_id == models.LlmApiKey.id)
+        .join(models.User, models.LlmApiKey.user_id == models.User.id)
+        .filter(models.LlmUsageMetric.created_at >= since)
+    )
+    if model:
+        q = q.filter(models.LlmUsageMetric.model == model)
+
+    rows = (
+        q.group_by(models.LlmApiKey.user_id)
+        .order_by(func.sum(models.LlmUsageMetric.total_tokens).desc())
+        .all()
+    )
+
+    return {
+        "days": days,
+        "model": model,
+        "users": [
+            {
+                "user_id": row.user_id,
+                "username": row.username or f"user-{row.user_id}",
+                "prompt_tokens": int(row.prompt),
+                "completion_tokens": int(row.completion),
+                "total_tokens": int(row.total),
+                "tokens_saved": int(row.saved),
+                "requests": row.requests,
+            }
+            for row in rows
+        ],
+    }
+
+
 async def _chat_completions_impl(
     payload: schemas.ChatCompletionRequest,
     request: Request,
@@ -1551,6 +1906,16 @@ async def _chat_completions_with_key(
 ) -> dict[str, Any]:
     model = _resolve_model(db, payload.model, key)
     policy = _resolve_policy(db, key)
+
+    # 解析压缩策略: API Key 设置 > Provider 设置 > 全局默认
+    provider = db.query(models.ModelProvider).filter(
+        models.ModelProvider.id == model.provider_id
+    ).first()
+    compression_enabled = bool(
+        getattr(key, "enable_compression", False)
+        or getattr(provider, "enable_compression", False)
+    )
+    compression_level = str(getattr(key, "compression_level", None) or "auto")
     request_id = f"req_{uuid.uuid4().hex[:12]}"
     metadata = {str(k): str(v) for k, v in (payload.metadata or {}).items()}
     tenant_id = metadata.get("tenant_id") or f"group-{key.group_id or 'default'}"
@@ -1625,6 +1990,17 @@ async def _chat_completions_with_key(
             if token_field in body and int(body[token_field]) > model.max_output_tokens:
                 raise HTTPException(status_code=400, detail=f"{token_field} 超过模型输出限制: {model.max_output_tokens}")
 
+    # === Headroom 智能压缩（可选） ===
+    compression_result = None
+    if compression_enabled:
+        compression_result = compress_messages(
+            body["messages"],
+            model=body["model"],
+            level=compression_level,
+        )
+        body["messages"] = compression_result.messages
+    # =================================
+
     if payload.stream:
         stream = await _stream_upstream(
             db,
@@ -1643,6 +2019,9 @@ async def _chat_completions_with_key(
             policy=policy,
             original_messages=original_messages,
             upstream_messages=upstream_messages,
+            compression_enabled=compression_enabled,
+            compression_level=compression_level,
+            compression_result=compression_result,
         )
         return StreamingResponse(
             stream,
@@ -1652,6 +2031,16 @@ async def _chat_completions_with_key(
                 "x-tenant-id": tenant_id,
                 "x-conversation-id": conversation_id,
                 "x-traffic-type": "pii_bypass" if bypass_pii else "pii_checked",
+                "x-compression": (
+                    "on" if compression_result and compression_result.applied
+                    else ("enabled-noop" if compression_result else "off")
+                ),
+                **({
+                    "x-compression-saved-tokens": str(compression_result.tokens_saved),
+                    "x-compression-ratio": str(round(compression_result.ratio * 100, 1)),
+                    "x-compression-ms": str(round(compression_result.duration_ms, 0)),
+                    "x-compression-transforms": ",".join(compression_result.transforms_applied) if compression_result.transforms_applied else "no-op",
+                } if compression_result else {}),
                 "cache-control": "no-cache",
             },
         )
@@ -1691,6 +2080,8 @@ async def _chat_completions_with_key(
             detected_counts_json=_json_dumps(detected_counts),
             created_tokens=created_total,
             reused_tokens=reused_total,
+            compression_enabled=compression_enabled,
+            compression_level=compression_level if compression_enabled else None,
         )
         db.add(audit)
         db.add(
@@ -1707,6 +2098,11 @@ async def _chat_completions_with_key(
                 pii_hits_json=_json_dumps(detected_counts),
                 created_tokens=created_total,
                 reused_tokens=reused_total,
+                pre_compression_tokens=compression_result.pre_tokens if compression_result else 0,
+                post_compression_tokens=compression_result.post_tokens if compression_result else 0,
+                tokens_saved=compression_result.tokens_saved if compression_result else 0,
+                compression_ratio=compression_result.ratio if compression_result else 0.0,
+                compression_duration_ms=compression_result.duration_ms if compression_result else 0.0,
             )
         )
         _save_trace(
@@ -1729,6 +2125,16 @@ async def _chat_completions_with_key(
                 },
                 "original": {"messages": original_messages},
                 "masked": {"messages": upstream_messages},
+                "compressed": {
+                    "messages": body["messages"],
+                    "enabled": compression_enabled,
+                    "level": compression_level if compression_enabled else None,
+                    "pre_tokens": compression_result.pre_tokens if compression_result else 0,
+                    "post_tokens": compression_result.post_tokens if compression_result else 0,
+                    "tokens_saved": compression_result.tokens_saved if compression_result else 0,
+                    "ratio": compression_result.ratio if compression_result else 0,
+                    "duration_ms": compression_result.duration_ms if compression_result else 0,
+                },
                 "masked_response": {"choices": masked_choices},
                 "final_response": {"choices": final_choices},
             },
@@ -1738,6 +2144,16 @@ async def _chat_completions_with_key(
         response.headers["x-tenant-id"] = tenant_id
         response.headers["x-conversation-id"] = conversation_id
         response.headers["x-traffic-type"] = "pii_bypass" if bypass_pii else "pii_checked"
+        response.headers["x-compression"] = (
+            "on" if compression_result and compression_result.applied
+            else ("enabled-noop" if compression_result else "off")
+        )
+        if compression_result:
+            response.headers["x-compression-transforms"] = ",".join(compression_result.transforms_applied) if compression_result.transforms_applied else "no-op"
+            if compression_result.applied:
+                response.headers["x-compression-saved-tokens"] = str(compression_result.tokens_saved)
+                response.headers["x-compression-ratio"] = str(round(compression_result.ratio * 100, 1))
+                response.headers["x-compression-ms"] = str(round(compression_result.duration_ms, 0))
         return upstream_response
     except HTTPException as exc:
         db.add(
@@ -1752,9 +2168,21 @@ async def _chat_completions_with_key(
                 traffic_type="pii_bypass" if bypass_pii else "pii_checked",
                 status="error",
                 error=str(exc.detail),
+                compression_enabled=compression_enabled,
+                compression_level=compression_level if compression_enabled else None,
             )
         )
         db.commit()
+        # 即使上游失败也输出压缩诊断头
+        response.headers["x-compression"] = (
+            "on" if compression_result and compression_result.applied
+            else ("enabled-noop" if compression_result else "off")
+        )
+        if compression_result:
+            response.headers["x-compression-transforms"] = ",".join(compression_result.transforms_applied) if compression_result.transforms_applied else "no-op"
+            if compression_result.applied:
+                response.headers["x-compression-saved-tokens"] = str(compression_result.tokens_saved)
+                response.headers["x-compression-ratio"] = str(round(compression_result.ratio * 100, 1))
         raise
 
 
