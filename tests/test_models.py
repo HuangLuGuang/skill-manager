@@ -91,6 +91,19 @@ class TestRegistryEntry:
         assert "status" in s
         assert "risk_level" in s
 
+    def test_model_validate_accepts_legacy_severity_risk_level(self):
+        entry = RegistryEntry.model_validate(
+            {
+                "skill_id": "legacy-id",
+                "name": "legacy-skill",
+                "description": "legacy payload",
+                "source": {"origin": "local"},
+                "status": "APPROVED",
+                "risk_level": "HIGH",
+            }
+        )
+        assert entry.risk_level == RiskLevel.MALICIOUS
+
 
 class TestAuditEvent:
     def test_to_log_line(self):

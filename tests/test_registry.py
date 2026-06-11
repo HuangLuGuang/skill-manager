@@ -167,3 +167,36 @@ class TestRegistry:
 
         assert db_path.exists()
         assert Registry(data_dir=tmp_path / "other-data").get_by_name("sqlite-backed") is not None
+
+    def test_list_all_accepts_legacy_uppercase_risk_level_payload(self, registry):
+        with registry._lock, registry._connect() as conn:
+            payload = {
+                "skill_id": "legacy-risk",
+                "name": "legacy-risk",
+                "description": "legacy payload",
+                "source": {"origin": "local", "author": "legacy"},
+                "status": "APPROVED",
+                "risk_level": "HIGH",
+                "submitted_at": datetime.now(timezone.utc).isoformat(),
+            }
+            conn.execute(
+                """
+                INSERT INTO skill_registry (
+                    skill_id, name, status, risk_level, submitted_at, updated_at, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "legacy-risk",
+                    "legacy-risk",
+                    "APPROVED",
+                    "HIGH",
+                    payload["submitted_at"],
+                    payload["submitted_at"],
+                    json.dumps(payload),
+                ),
+            )
+
+        entries = registry.list_all()
+
+        assert len(entries) == 1
+        assert entries[0].risk_level == RiskLevel.MALICIOUS

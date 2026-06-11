@@ -21,6 +21,22 @@ class RiskLevel(str, Enum):
     MALICIOUS = "malicious"
 
     @classmethod
+    def _missing_(cls, value: object) -> "RiskLevel" | None:
+        """Accept legacy severity-style values when reading persisted payloads."""
+        if not isinstance(value, str):
+            return None
+
+        normalized = value.strip().lower()
+        for member in cls:
+            if member.value == normalized:
+                return member
+
+        severity = value.strip().upper()
+        if not severity:
+            return None
+        return cls.from_severity(severity)
+
+    @classmethod
     def from_severity(cls, severity: str) -> "RiskLevel":
         """Map skill-scanner Severity to RiskLevel.
         
