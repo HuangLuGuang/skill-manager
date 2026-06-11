@@ -25,6 +25,12 @@ RUN uv pip install --system -e ".[scanner,compression]" && \
       croniter \
       python-frontmatter
 
+# Pre-download kompress model so it's bundled in the image (no network needed at runtime)
+ENV HF_HOME=/app/.cache/huggingface
+RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('chopratejas/kompress-base')" 2>&1 || true
+# Warm up headroom so first request doesn't trigger model download
+RUN python -c "from headroom import compress; compress([{'role':'user','content':'warmup'}], model='gpt-4o', optimize=False)" 2>&1 || true
+
 RUN mkdir -p /app/runtime/data /app/runtime/uploads /app/runtime/sqlite /app/runtime/agent_manager
 
 ENV PYTHONPATH=/app \
@@ -32,7 +38,10 @@ ENV PYTHONPATH=/app \
     DATA_DIR=/app/runtime/data \
     UPLOADS_DIR=/app/runtime/uploads \
     SQLITE_PATH=/app/runtime/sqlite/admin_starter.db \
-    AGENT_MANAGER_DATA_DIR=/app/runtime/agent_manager
+    AGENT_MANAGER_DATA_DIR=/app/runtime/agent_manager \
+    HF_HOME=/app/.cache/huggingface \
+    HF_HUB_DISABLE_PROGRESS_BARS=1 \
+    TRANSFORMERS_VERBOSITY=error
 
 EXPOSE 8000
 
