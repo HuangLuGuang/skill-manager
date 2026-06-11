@@ -62,6 +62,10 @@ def ensure_sqlite_schema() -> None:
         if "entity_rules_json" not in columns:
             conn.exec_driver_sql("ALTER TABLE privacy_policies ADD COLUMN entity_rules_json TEXT NOT NULL DEFAULT '{}'")
 
+    # Headroom 压缩字段 migration
+    from backend.migrate_compression import migrate as migrate_compression
+    migrate_compression()
+
 
 ensure_sqlite_schema()
 get_agent_manager()

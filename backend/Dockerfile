@@ -12,24 +12,11 @@ COPY pyproject.toml README.md company-policy.example.yaml ./
 COPY agent_manager ./agent_manager
 COPY backend ./backend
 
-RUN uv pip install --system -e . && \
+RUN uv pip install --system -e ".[scanner,compression]" && \
     uv pip install --system \
-      cisco-ai-skill-scanner \
-      fastapi \
-      httpx \
-      uvicorn \
-      sqlalchemy \
-      pydantic[email] \
-      pydantic-settings \
-      python-dotenv \
-      python-multipart \
-      python-jose[cryptography] \
-      passlib[bcrypt] \
-      "bcrypt<4" \
       captcha \
       psutil \
       croniter \
-      PyYAML \
       python-frontmatter
 
 RUN mkdir -p /app/runtime/data /app/runtime/uploads /app/runtime/sqlite /app/runtime/agent_manager

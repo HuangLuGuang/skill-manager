@@ -71,6 +71,21 @@
           <a-descriptions-item label="API key">{{ detail.stages.meta.api_key_name || '-' }}</a-descriptions-item>
         </a-descriptions>
 
+        <a-alert
+          v-if="detail?.stages?.compressed?.enabled && detail.stages.compressed.tokens_saved > 0"
+          type="success"
+          show-icon
+          :message="`智能压缩: 节省 ${detail.stages.compressed.tokens_saved} tokens (${detail.stages.compressed.ratio * 100}%), 耗时 ${detail.stages.compressed.duration_ms}ms`"
+          style="margin-bottom: 16px"
+        />
+        <a-alert
+          v-if="detail?.stages?.compressed?.enabled && !detail.stages.compressed.tokens_saved"
+          type="info"
+          show-icon
+          message="智能压缩已开启，但本请求无额外压缩空间（内容已足够精简）"
+          style="margin-bottom: 16px"
+        />
+
         <a-collapse v-model:activeKey="activeStages">
           <a-collapse-panel v-for="stage in stageOrder" :key="stage.key" :header="stage.label">
             <template #extra>
@@ -117,12 +132,13 @@ const selectedId = ref('')
 const drawerOpen = ref(false)
 const viewMode = ref('文本')
 const revealOriginal = ref(false)
-const activeStages = ref(['masked', 'masked_response', 'final_response'])
+const activeStages = ref(['masked', 'compressed', 'masked_response', 'final_response'])
 const stageOrder = [
   { key: 'original', label: '1. 原始请求（含 PII）' },
   { key: 'masked', label: '2. 发送给 LLM（已替换）' },
-  { key: 'masked_response', label: '3. LLM 返回（含占位符）' },
-  { key: 'final_response', label: '4. 最终响应（已还原）' },
+  { key: 'compressed', label: '3. 智能压缩后（发送上游）' },
+  { key: 'masked_response', label: '4. LLM 返回（含占位符）' },
+  { key: 'final_response', label: '5. 最终响应（已还原）' },
 ]
 
 const traceColumns = [

@@ -945,7 +945,7 @@ def _record_llm_success(
             reused_tokens=reused_total,
             pre_compression_tokens=compression_result.pre_tokens if compression_result else 0,
             post_compression_tokens=compression_result.post_tokens if compression_result else 0,
-            tokens_saved=compression_result.tokens_saved if compression_result else 0,
+            tokens_saved=(min(compression_result.tokens_saved, int(usage.get("prompt_tokens") or 0)) if compression_result else 0),
             compression_ratio=compression_result.ratio if compression_result else 0.0,
             compression_duration_ms=compression_result.duration_ms if compression_result else 0.0,
         )
@@ -2100,7 +2100,7 @@ async def _chat_completions_with_key(
                 reused_tokens=reused_total,
                 pre_compression_tokens=compression_result.pre_tokens if compression_result else 0,
                 post_compression_tokens=compression_result.post_tokens if compression_result else 0,
-                tokens_saved=compression_result.tokens_saved if compression_result else 0,
+                tokens_saved=(min(compression_result.tokens_saved, int(usage.get("prompt_tokens") or 0)) if compression_result else 0),
                 compression_ratio=compression_result.ratio if compression_result else 0.0,
                 compression_duration_ms=compression_result.duration_ms if compression_result else 0.0,
             )

@@ -47,6 +47,8 @@ class ModelProvider(Base):
     api_key = Column(Text, nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
     timeout_seconds = Column(Integer, default=60, nullable=False)
+    # Provider 级别压缩默认值（API Key 设置优先）
+    enable_compression = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -80,6 +82,9 @@ class LlmApiKey(Base):
     expires_at = Column(DateTime, nullable=True)
     max_body_kb = Column(Integer, default=1024, nullable=False)
     max_concurrent_requests = Column(Integer, default=5, nullable=False)
+    # Headroom 智能压缩配置
+    enable_compression = Column(Boolean, default=False, nullable=False)
+    compression_level = Column(String(32), default="auto", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     last_used_at = Column(DateTime, nullable=True)
 
@@ -137,6 +142,9 @@ class LlmRequestAudit(Base):
     detected_counts_json = Column(Text, default="{}", nullable=False)
     created_tokens = Column(Integer, default=0, nullable=False)
     reused_tokens = Column(Integer, default=0, nullable=False)
+    # 压缩标记
+    compression_enabled = Column(Boolean, default=False, nullable=False)
+    compression_level = Column(String(32), nullable=True)
     status = Column(String(32), default="success", nullable=False)
     error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -158,6 +166,12 @@ class LlmUsageMetric(Base):
     pii_hits_json = Column(Text, default="{}", nullable=False)
     created_tokens = Column(Integer, default=0, nullable=False)
     reused_tokens = Column(Integer, default=0, nullable=False)
+    # 压缩统计（仅 enable_compression=True 时填充）
+    pre_compression_tokens = Column(Integer, default=0, nullable=False)
+    post_compression_tokens = Column(Integer, default=0, nullable=False)
+    tokens_saved = Column(Integer, default=0, nullable=False)
+    compression_ratio = Column(Float, default=0.0, nullable=False)
+    compression_duration_ms = Column(Float, default=0.0, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 

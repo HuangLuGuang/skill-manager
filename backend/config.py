@@ -21,5 +21,9 @@ class Settings(BaseSettings):
     UPLOADS_DIR: str = Field(default=str(BASE_DIR / "uploads"))
     SQLITE_PATH: str = Field(default=str(BASE_DIR / "sqlite" / "admin_starter.db"))
 
+    # Headroom 智能压缩全局默认
+    HEADROOM_COMPRESSION_ENABLED_BY_DEFAULT: bool = False
+    HEADROOM_COMPRESSION_LEVEL: str = "auto"  # auto | conservative | aggressive
+
 
 settings = Settings()

@@ -250,3 +250,51 @@ export AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID="vetting-session"
 - LLM API Key 明文无法找回，只能吊销重建。
 - Trace 含原始 PII，应按审计权限和 TTL 管控。
 - 差分隐私仅保护统计视图，不等于删除原始审计数据。
+
+---
+
+## 11. 智能上下文压缩
+
+> 详细实施文档见 [headroom-compression-integration.md](headroom-compression-integration.md)
+
+模型网关集成 [Headroom](https://github.com/chopratejas/headroom) 智能压缩，自动压缩发送给 LLM 的消息内容（工具输出、日志、代码等），节省 60-95% Token。压缩在 PII 伪匿名化之后执行，按 API Key 粒度可选开启。
+
+### 开启方式
+
+在管理台 `模型网关 / API Key` 创建或编辑时，打开"开启智能压缩"开关并选择压缩级别（均衡/保守/激进）。
+
+### 如何看到效果
+
+**方式 1 — HTTP 响应头（最快）**:
+
+```bash
+curl -s -D - http://127.0.0.1:8000/v1/chat/completions \
+  -H "Authorization: Bearer amk_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]}' \
+  | grep -i x-compression
+```
+
+开启压缩且生效时的响应头:
+```
+x-compression: on
+x-compression-saved-tokens: 2094
+x-compression-ratio: 92.4
+x-compression-ms: 45
+```
+
+关闭或未生效时:
+```
+x-compression: off
+```
+
+**方式 2 — 管理台 Pipeline Trace**:
+
+进入 `Pipeline Trace` 页面，展开一次请求:
+
+- 详情顶部显示绿色提示条：「智能压缩: 节省 2094 tokens (92.4%), 耗时 45ms」
+- 展开第 3 阶段「智能压缩后」可对比压缩前后的 messages 差异
+
+**方式 3 — 管理台 API Key 列表**:
+
+API Key 表格中「压缩」列显示当前状态: 紫色标签 `auto` / `conservative` / `aggressive`，或灰色「关闭」。

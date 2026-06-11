@@ -87,7 +87,11 @@
           <a-table :data-source="apiKeys" :columns="keyColumns" row-key="id" :loading="loading" size="small">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'status'">
-                <a-tag :color="record.status === 'active' ? 'green' : 'default'">{{ record.status }}</a-tag>
+                <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'compression'">
+                <a-tag v-if="record.enable_compression" color="purple">{{ record.compression_level || 'auto' }}</a-tag>
+                <span v-else class="muted">关闭</span>
               </template>
               <template v-else-if="column.key === 'models'">
                 <a-space wrap>
@@ -234,6 +238,10 @@
         <a-form-item label="API Key"><a-input-password v-model:value="providerForm.api_key" placeholder="留空表示不修改" /></a-form-item>
         <a-form-item><a-checkbox v-model:checked="providerForm.clear_api_key">清除已有 API Key</a-checkbox></a-form-item>
         <a-form-item label="超时秒数"><a-input-number v-model:value="providerForm.timeout_seconds" :min="1" :max="600" style="width: 100%" /></a-form-item>
+        <a-form-item>
+          <a-checkbox v-model:checked="providerForm.enable_compression">默认开启智能压缩</a-checkbox>
+          <div style="color: #888; font-size: 12px; margin-top: 4px">使用该 Provider 模型的 API Key 将默认开启上下文压缩（API Key 级别设置优先）</div>
+        </a-form-item>
         <a-form-item><a-checkbox v-model:checked="providerForm.enabled">启用</a-checkbox></a-form-item>
       </a-form>
     </a-modal>
@@ -269,6 +277,18 @@
           <a-col :span="12"><a-form-item label="最大请求体 KB"><a-input-number v-model:value="keyForm.max_body_kb" :min="1" :max="10240" style="width: 100%" /></a-form-item></a-col>
           <a-col :span="12"><a-form-item label="最大并发"><a-input-number v-model:value="keyForm.max_concurrent_requests" :min="1" :max="100" style="width: 100%" /></a-form-item></a-col>
         </a-row>
+        <a-divider style="font-size: 13px; color: #888">智能上下文压缩</a-divider>
+        <a-form-item>
+          <a-checkbox v-model:checked="keyForm.enable_compression">开启智能压缩（节省 60-95% Token）</a-checkbox>
+          <div style="color: #888; font-size: 12px; margin-top: 4px">压缩工具输出、日志、代码等内容后再发送给 LLM</div>
+        </a-form-item>
+        <a-form-item v-if="keyForm.enable_compression" label="压缩级别">
+          <a-radio-group v-model:value="keyForm.compression_level">
+            <a-radio value="auto">均衡（推荐）— 自动选择压缩策略</a-radio>
+            <a-radio value="conservative">保守 — 仅压缩 JSON/结构化数据</a-radio>
+            <a-radio value="aggressive">激进 — 全部算法 + ML 模型（节省最多）</a-radio>
+          </a-radio-group>
+        </a-form-item>
         <a-row :gutter="16">
           <a-col :span="12">
             <a-form-item label="过期时间">
@@ -286,7 +306,7 @@
           <a-col :span="12"><a-form-item label="有效期"><a-checkbox v-model:checked="keyForm.never_expires">永不过期</a-checkbox></a-form-item></a-col>
         </a-row>
         <a-row :gutter="16" v-if="editingKeyId">
-          <a-col :span="12" v-if="editingKeyId"><a-form-item label="状态"><a-select v-model:value="keyForm.status"><a-select-option value="active">active</a-select-option><a-select-option value="disabled">disabled</a-select-option><a-select-option value="revoked">revoked</a-select-option></a-select></a-form-item></a-col>
+          <a-col :span="12" v-if="editingKeyId"><a-form-item label="状态"><a-select v-model:value="keyForm.status"><a-select-option value="active">启用</a-select-option><a-select-option value="disabled">禁用</a-select-option><a-select-option value="revoked">已吊销</a-select-option></a-select></a-form-item></a-col>
         </a-row>
       </a-form>
     </a-modal>
@@ -497,6 +517,7 @@ const keyColumns = [
   { title: '名称', dataIndex: 'name' },
   { title: '前缀', dataIndex: 'key_prefix', width: 110 },
   { title: '模型', key: 'models' },
+  { title: '压缩', key: 'compression', width: 80 },
   { title: '过期时间', key: 'expires_at', width: 170 },
   { title: '状态', key: 'status', width: 120 },
   { title: '操作', key: 'action', width: 100 },
@@ -547,9 +568,9 @@ const editingUserId = ref(null)
 const editingGroupId = ref(null)
 const policyRuleRows = ref([])
 
-const providerForm = reactive({ name: '', base_url: '', api_key: '', clear_api_key: false, enabled: true, timeout_seconds: 60 })
+const providerForm = reactive({ name: '', base_url: '', api_key: '', clear_api_key: false, enabled: true, timeout_seconds: 60, enable_compression: false })
 const modelForm = reactive({ provider_id: null, name: '', display_name: '', enabled: true, context_window: null, max_output_tokens: null, is_default: false })
-const keyForm = reactive({ name: '', allowed_models: [], max_body_kb: 1024, max_concurrent_requests: 5, expires_at: null, never_expires: true, status: 'active' })
+const keyForm = reactive({ name: '', allowed_models: [], max_body_kb: 1024, max_concurrent_requests: 5, expires_at: null, never_expires: true, status: 'active', enable_compression: false, compression_level: 'auto' })
 const userForm = reactive({ username: '', email: '', role: 'admin', password: '', is_active: true })
 const groupForm = reactive({ name: '', description: '', user_ids: [], privacy_policy_id: null, is_active: true })
 const policyForm = reactive({ name: '默认隐私策略', group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 })
@@ -567,6 +588,8 @@ const unboundOrCurrentPolicies = computed(() =>
 )
 
 const formatDateTime = (value) => value ? formatBeijingDateTime(value) : ''
+const statusLabel = (s) => ({ active: '启用', disabled: '禁用', revoked: '已吊销' }[s] || s)
+const statusColor = (s) => ({ active: 'green', disabled: 'orange', revoked: 'red' }[s] || 'default')
 const compactId = (value, head = 10, tail = 8) => {
   if (!value || value.length <= head + tail + 3) return value || ''
   return `${value.slice(0, head)}...${value.slice(-tail)}`
@@ -626,6 +649,7 @@ const openProvider = (record = null) => {
     clear_api_key: false,
     enabled: record?.enabled ?? true,
     timeout_seconds: record?.timeout_seconds || 60,
+    enable_compression: record?.enable_compression ?? false,
   })
   providerVisible.value = true
 }
@@ -701,6 +725,8 @@ const openKey = (record = null) => {
     expires_at: record?.expires_at ? dayjs(record.expires_at).format('YYYY-MM-DDTHH:mm:ss') : null,
     never_expires: !record?.expires_at,
     status: record?.status || 'active',
+    enable_compression: record?.enable_compression ?? false,
+    compression_level: record?.compression_level || 'auto',
   })
   keyVisible.value = true
 }

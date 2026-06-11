@@ -27,6 +27,10 @@ dependencies = [
 scanner = [
     "cisco-ai-skill-scanner",
 ]
+# Headroom 智能上下文压缩（可选）
+compression = [
+    "headroom-ai[proxy]>=0.24.0",
+]
 dev = [
     "pytest>=8.4.1",
     "pytest-cov>=6.2.1",

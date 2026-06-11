@@ -205,6 +205,7 @@ class ModelProviderCreate(BaseModel):
     api_key: Optional[str] = None
     enabled: bool = True
     timeout_seconds: int = Field(default=60, ge=1, le=600)
+    enable_compression: bool = False
 
 
 class ModelProviderUpdate(BaseModel):
@@ -214,6 +215,7 @@ class ModelProviderUpdate(BaseModel):
     clear_api_key: bool = False
     enabled: Optional[bool] = None
     timeout_seconds: Optional[int] = Field(default=None, ge=1, le=600)
+    enable_compression: Optional[bool] = None
 
 
 class ModelProviderResponse(BaseModel):
@@ -224,6 +226,7 @@ class ModelProviderResponse(BaseModel):
     timeout_seconds: int
     api_key_configured: bool
     api_key_masked: Optional[str] = None
+    enable_compression: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -268,6 +271,8 @@ class LlmApiKeyCreate(BaseModel):
     expires_at: Optional[datetime] = None
     max_body_kb: int = Field(default=1024, ge=1, le=10240)
     max_concurrent_requests: int = Field(default=5, ge=1, le=100)
+    enable_compression: bool = False
+    compression_level: str = Field(default="auto", pattern="^(auto|conservative|aggressive)$")
 
 
 class LlmApiKeyUpdate(BaseModel):
@@ -279,6 +284,8 @@ class LlmApiKeyUpdate(BaseModel):
     expires_at: Optional[datetime] = None
     max_body_kb: Optional[int] = Field(default=None, ge=1, le=10240)
     max_concurrent_requests: Optional[int] = Field(default=None, ge=1, le=100)
+    enable_compression: Optional[bool] = None
+    compression_level: Optional[str] = Field(default=None, pattern="^(auto|conservative|aggressive)$")
 
 
 class LlmApiKeyResponse(BaseModel):
@@ -293,6 +300,8 @@ class LlmApiKeyResponse(BaseModel):
     expires_at: Optional[datetime] = None
     max_body_kb: int
     max_concurrent_requests: int
+    enable_compression: bool = False
+    compression_level: str = "auto"
     created_at: datetime
     last_used_at: Optional[datetime] = None
 
