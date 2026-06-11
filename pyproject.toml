@@ -29,7 +29,8 @@ scanner = [
 ]
 # Headroom 智能上下文压缩（可选）
 compression = [
-    "headroom-ai[proxy]>=0.24.0",
+    # SmartCrusher (JSON) + CodeCompressor (AST) 纯本地，无需 HF 模型
+    "headroom-ai>=0.24.0",
 ]
 dev = [
     "pytest>=8.4.1",
