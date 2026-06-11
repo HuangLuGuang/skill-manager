@@ -33,12 +33,7 @@ ARG ALL_PROXY
 # Pre-download all HF models needed by headroom (uses build-time proxy if set)
 ENV HF_HOME=/app/.cache/huggingface
 RUN export https_proxy=${HTTPS_PROXY} http_proxy=${HTTP_PROXY} all_proxy=${ALL_PROXY} && \
-    python -c "\
-from huggingface_hub import snapshot_download;\
-for model in ['chopratejas/kompress-base', 'answerdotai/ModernBERT-base']:\
-    snapshot_download(model);\
-    print(f'Downloaded {model}')\
-" 2>&1
+    python -c "from huggingface_hub import snapshot_download; [snapshot_download(m) or print(f'Downloaded {m}') for m in ['chopratejas/kompress-base', 'answerdotai/ModernBERT-base']]" 2>&1
 # Warm up headroom so first request doesn't trigger downloads
 RUN export https_proxy=${HTTPS_PROXY} http_proxy=${HTTP_PROXY} all_proxy=${ALL_PROXY} && \
     python -c "from headroom import compress; compress([{'role':'user','content':'warmup'}], model='gpt-4o', optimize=False)" 2>&1 || true
