@@ -14,6 +14,12 @@ COPY backend ./backend
 
 RUN uv pip install --system -e ".[scanner,compression]" && \
     uv pip install --system \
+      sqlalchemy \
+      pydantic[email] \
+      pydantic-settings \
+      python-jose[cryptography] \
+      passlib[bcrypt] \
+      "bcrypt<4" \
       captcha \
       psutil \
       croniter \
