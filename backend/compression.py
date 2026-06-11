@@ -92,7 +92,10 @@ def compress_messages(
             kwargs["target_ratio"] = 0.3  # 压缩到 30%，较激进
         # level == "auto": 使用 Headroom 默认策略
 
-        result = compress(messages, model=model, **kwargs)
+        # headroom 用 model 参数选择分词器做 token 计数，非 OpenAI 模型会尝试
+        # 从 HuggingFace 下载对应分词器（内网不可用）。token 计数不影响压缩效果，
+        # 统一用 gpt-4o 走 tiktoken 本地分词，避免网络依赖
+        result = compress(messages, model="gpt-4o", **kwargs)
 
         elapsed_ms = (time.perf_counter() - start) * 1000
 

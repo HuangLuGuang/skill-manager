@@ -35,7 +35,7 @@ ENV HF_HOME=/app/.cache/huggingface
 RUN export https_proxy=${HTTPS_PROXY} http_proxy=${HTTP_PROXY} all_proxy=${ALL_PROXY} && \
     python -c "\
 from huggingface_hub import snapshot_download;\
-for model in ['chopratejas/kompress-base', 'answerdotai/ModernBERT-base', 'deepseek-ai/deepseek-llm-7b-base']:\
+for model in ['chopratejas/kompress-base', 'answerdotai/ModernBERT-base']:\
     snapshot_download(model);\
     print(f'Downloaded {model}')\
 " 2>&1
