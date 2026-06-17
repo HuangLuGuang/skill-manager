@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .local_analyzers import run_local_static_analysis
 from .llm import LLMConfig, analyze_skill_with_llm_single_round, generate_sandbox_probes_with_llm
 from .llm import _build_skill_snapshot  # noqa: F401 - used via llm module
 from .models import PolicyViolation, RiskLevel, SourceInfo, VettingResult
@@ -24,6 +25,7 @@ from .sandbox import (
     get_sandbox_runner,
     write_markdown_command_probe_scripts,
 )
+from .skillspector import run_skillspector_scan
 
 if TYPE_CHECKING:
     from .policy import CompanyPolicy
@@ -355,34 +357,81 @@ class VettingPipeline:
 
         # 2. Run scanner
         scan_report = _run_scanner(skill_path, self.policy.scanner_policy)
-        behavioral_notes: list[str] = []
-        behavioral_result = None
-        if use_behavioral:
-            behavioral_result = _run_behavioral_analysis(skill_path)
+        skillspector_notes: list[str] = []
+        if self.policy.skillspector_enabled:
+            skillspector_result = run_skillspector_scan(
+                skill_path,
+                timeout_seconds=self.policy.skillspector_timeout_seconds,
+            )
+            analyzer_name = "skillspector:cli"
+            if not skillspector_result.get("available"):
+                analyzer_name = "skillspector:unavailable"
+                skillspector_notes.append("[SKILLSPECTOR] SkillSpector unavailable; skipped optional scan")
+            elif skillspector_result.get("error"):
+                analyzer_name = "skillspector:error"
+                skillspector_notes.append(f"[SKILLSPECTOR] optional scan failed: {skillspector_result['error']}")
+            else:
+                skillspector_notes.append(
+                    "[SKILLSPECTOR] "
+                    f"risk={skillspector_result.get('risk_severity', 'SAFE')} "
+                    f"score={skillspector_result.get('risk_score', '-')}"
+                )
+
             scan_report = {
                 **scan_report,
                 "max_severity": _max_severity(
                     scan_report.get("max_severity", "SAFE"),
-                    str(behavioral_result.get("max_severity", "SAFE")),
+                    str(skillspector_result.get("max_severity", "SAFE")),
                 ),
                 "findings": [
                     *scan_report.get("findings", []),
-                    *behavioral_result.get("findings", []),
+                    *skillspector_result.get("findings", []),
+                ],
+                "analyzers_used": [
+                    *scan_report.get("analyzers_used", ["basic"]),
+                    analyzer_name,
+                ],
+                "skillspector_analysis": skillspector_result,
+            }
+        behavioral_notes: list[str] = []
+        behavioral_result = None
+        if use_behavioral:
+            local_static_result = run_local_static_analysis(skill_path)
+            behavioral_result = _run_behavioral_analysis(skill_path)
+            combined_behavioral_findings = [
+                *behavioral_result.get("findings", []),
+                *local_static_result.get("findings", []),
+            ]
+            combined_behavioral_max = _max_severity(
+                str(behavioral_result.get("max_severity", "SAFE")),
+                str(local_static_result.get("max_severity", "SAFE")),
+            )
+            scan_report = {
+                **scan_report,
+                "max_severity": _max_severity(
+                    scan_report.get("max_severity", "SAFE"),
+                    combined_behavioral_max,
+                ),
+                "findings": [
+                    *scan_report.get("findings", []),
+                    *combined_behavioral_findings,
                 ],
                 "analyzers_used": [
                     *scan_report.get("analyzers_used", ["basic"]),
                     "behavioral:local",
+                    "agent-manager-local",
                 ],
                 "behavioral_analysis": behavioral_result,
+                "local_static_analysis": local_static_result,
             }
             behavioral_notes.append(
                 "[BEHAVIORAL] "
                 f"scanned {behavioral_result.get('scanned_file_count', 0)} files"
             )
-            if behavioral_result.get("findings"):
+            if combined_behavioral_findings:
                 behavioral_notes.append(
                     "[BEHAVIORAL] "
-                    f"found {len(behavioral_result['findings'])} suspicious patterns"
+                    f"found {len(combined_behavioral_findings)} suspicious patterns"
                 )
         # 3. Sandbox Analysis (before LLM so LLM can use sandbox results)
         interim_risk_level = RiskLevel.from_severity(scan_report.get("max_severity", "SAFE"))
@@ -627,8 +676,33 @@ class VettingPipeline:
                 logger.warning("LLM analysis skipped for %s: %s", skill_path, exc)
                 llm_notes.append(f"[LLM] analysis skipped: {exc}")
 
-        # 5. Determine final risk level for policy decisions
-        final_risk_level = RiskLevel(llm_result.risk_level) if llm_result else pre_llm_risk_level
+        # 5. Reconcile risk conservatively: LLM may raise, but never lower,
+        # deterministic scanner, behavioral, or sandbox risk.
+        llm_risk_level = RiskLevel(llm_result.risk_level) if llm_result else None
+        llm_downgrade_blocked = bool(
+            llm_risk_level and not llm_risk_level.is_at_least(pre_llm_risk_level)
+        )
+        final_risk_level = (
+            llm_risk_level
+            if llm_risk_level and llm_risk_level.is_at_least(pre_llm_risk_level)
+            else pre_llm_risk_level
+        )
+        if llm_downgrade_blocked:
+            llm_notes.append(
+                "[LLM] downgrade blocked: "
+                f"deterministic risk={pre_llm_risk_level.value}, "
+                f"LLM risk={llm_risk_level.value}"
+            )
+        scan_report = {
+            **scan_report,
+            "risk_reconciliation": {
+                "strategy": "conservative_max",
+                "pre_llm_risk_level": pre_llm_risk_level.value,
+                "llm_risk_level": llm_risk_level.value if llm_risk_level else None,
+                "final_risk_level": final_risk_level.value,
+                "llm_downgrade_blocked": llm_downgrade_blocked,
+            },
+        }
         findings = scan_report.get("findings", [])
 
         # 6. Policy checks
@@ -638,6 +712,7 @@ class VettingPipeline:
         for v in violations:
             prefix = "[BLOCK]" if v.blocking else "[WARN]"
             policy_notes.append(f"{prefix} {v.rule}: {v.message}")
+        policy_notes.extend(skillspector_notes)
         policy_notes.extend(behavioral_notes)
         policy_notes.extend(llm_notes)
         policy_notes.extend(sandbox_notes)

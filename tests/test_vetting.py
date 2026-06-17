@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from agent_manager.core.models import RiskLevel, SkillOrigin, SkillStatus, SourceInfo
+from agent_manager.core.llm import LLMAnalysisResult, LLMConfig
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.sandbox import SandboxConfig, SandboxResult
 from agent_manager.core.vetting import (
@@ -139,6 +140,30 @@ class TestPolicyDecide:
         status = policy.decide("benign", violations)
         assert status == SkillStatus.REJECTED
 
+    def test_legacy_high_severity_auto_rejects_malicious(self):
+        policy = CompanyPolicy({
+            "auto_reject_risk": ["HIGH", "EXTREME"],
+            "require_human_review": ["MEDIUM"],
+        })
+
+        assert policy.decide(RiskLevel.MALICIOUS, []) == SkillStatus.REJECTED
+
+    def test_legacy_medium_severity_queues_suspicious_for_review(self):
+        policy = CompanyPolicy({
+            "auto_reject_risk": ["HIGH", "EXTREME"],
+            "require_human_review": ["LOW", "MEDIUM"],
+        })
+
+        assert policy.decide(RiskLevel.SUSPICIOUS, []) == SkillStatus.VETTED
+
+    def test_invalid_policy_values_never_default_malicious_to_approved(self):
+        policy = CompanyPolicy({
+            "auto_reject_risk": ["TYPO"],
+            "require_human_review": ["UNKNOWN"],
+        })
+
+        assert policy.decide(RiskLevel.MALICIOUS, []) == SkillStatus.REJECTED
+
 
 class TestVettingPipeline:
     def test_vet_valid_skill(self, skill_dir, default_policy):
@@ -190,6 +215,43 @@ class TestVettingPipeline:
         assert result.scan_report["behavioral_analysis"]["scanned_file_count"] >= 1
         assert any(f["source"] == "behavioral" for f in result.scan_report["findings"])
         assert result.risk_level == RiskLevel.MALICIOUS
+
+    def test_llm_cannot_downgrade_deterministic_scan_risk(self, skill_dir, monkeypatch):
+        monkeypatch.setattr(
+            "agent_manager.core.vetting._run_scanner",
+            lambda _path, _policy: {
+                "max_severity": "HIGH",
+                "findings": [{"severity": "HIGH", "title": "Opaque binary", "source": "scanner"}],
+                "analyzers_used": ["scanner"],
+            },
+        )
+        monkeypatch.setattr(
+            "agent_manager.core.vetting.LLMConfig.load",
+            lambda: LLMConfig(enabled=True, api_key="test-key"),
+        )
+        monkeypatch.setattr(
+            "agent_manager.core.vetting.analyze_skill_with_llm_single_round",
+            lambda **_kwargs: LLMAnalysisResult(
+                provider="test",
+                model="test-model",
+                risk_level="benign",
+                report="Known test fixture.",
+            ),
+        )
+
+        result, _violations, _name, _desc, _tools = VettingPipeline(
+            CompanyPolicy({"require_sandbox_for_risk": []})
+        ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_llm=True)
+
+        assert result.risk_level == RiskLevel.MALICIOUS
+        assert result.scan_report["risk_reconciliation"] == {
+            "strategy": "conservative_max",
+            "pre_llm_risk_level": "malicious",
+            "llm_risk_level": "benign",
+            "final_risk_level": "malicious",
+            "llm_downgrade_blocked": True,
+        }
+        assert any("downgrade blocked" in note for note in result.policy_notes)
 
     def test_sandbox_flags_are_recorded(self, skill_dir, default_policy):
         pipeline = VettingPipeline(default_policy)

@@ -13,6 +13,7 @@ from .llm import LLMConfig
 from .models import RegistryEntry
 from .policy import CompanyPolicy
 from .sandbox import SandboxConfig
+from .skillspector import get_skillspector_version
 
 SCAN_CACHE_SCHEMA_VERSION = "1"
 
@@ -60,6 +61,12 @@ def compute_scan_context_fingerprint(
             "package_version": _distribution_version("cisco-ai-skill-scanner"),
             "vetting_py": _file_hash(Path(__file__).with_name("vetting.py")),
             "policy_py": _file_hash(Path(__file__).with_name("policy.py")),
+        },
+        "skillspector": {
+            "enabled": policy.skillspector_enabled,
+            "version": get_skillspector_version() if policy.skillspector_enabled else None,
+            "timeout_seconds": policy.skillspector_timeout_seconds,
+            "adapter_source": _file_hash(Path(__file__).with_name("skillspector.py")),
         },
         "rule_analysis": {
             "enabled": use_behavioral,

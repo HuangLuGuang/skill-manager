@@ -35,6 +35,14 @@
                     {{ managerStatus.scanner_available ? '可用' : '未安装' }}
                   </a-tag>
                 </a-descriptions-item>
+                <a-descriptions-item label="SkillSpector">
+                  <a-space wrap>
+                    <a-tag :color="managerStatus.skillspector_available ? 'green' : 'default'">
+                      {{ managerStatus.skillspector_available ? '可用' : '未安装' }}
+                    </a-tag>
+                    <span>{{ managerStatus.skillspector_version || '-' }}</span>
+                  </a-space>
+                </a-descriptions-item>
                 <a-descriptions-item label="Sandbox">
                   <a-tag :color="managerStatus.sandbox_available ? 'green' : 'default'">
                     {{ managerStatus.sandbox_available ? '可用' : '不可用' }}

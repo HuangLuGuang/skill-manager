@@ -35,6 +35,7 @@ from .scan_cache import (
 )
 from .signer import compute_signature, compute_prompt_signature
 from .vetting import VettingPipeline, _load_manifest
+from .governance_card import read_or_write_governance_card, write_governance_card
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +213,14 @@ class AgentManager:
             entry.signature = compute_signature(skill_path)
             entry.approved_at = datetime.now(timezone.utc)
             entry.approved_by = "auto-policy"
+
+        card = write_governance_card(entry, self.registry)
+        if entry.vetting:
+            entry.vetting.scan_report = {
+                **entry.vetting.scan_report,
+                "governance_card_path": card["path"],
+                "governance_card_generated_at": card["generated_at"],
+            }
 
         self.registry.update(entry)
         self.registry.log_event(make_event(
@@ -460,6 +469,26 @@ class AgentManager:
     def get_skill(self, skill_id_or_name: str) -> RegistryEntry | None:
         entry = self.registry.get_by_id(skill_id_or_name)
         return entry or self.registry.get_by_name(skill_id_or_name)
+
+    def get_governance_card(self, skill_id_or_name: str) -> dict[str, Any]:
+        entry = self.get_skill(skill_id_or_name)
+        if entry is None:
+            raise KeyError(f"skill {skill_id_or_name!r} not found")
+        return read_or_write_governance_card(entry, self.registry)
+
+    def refresh_governance_card(self, skill_id_or_name: str) -> dict[str, Any]:
+        entry = self.get_skill(skill_id_or_name)
+        if entry is None:
+            raise KeyError(f"skill {skill_id_or_name!r} not found")
+        card = write_governance_card(entry, self.registry)
+        if entry.vetting:
+            entry.vetting.scan_report = {
+                **entry.vetting.scan_report,
+                "governance_card_path": card["path"],
+                "governance_card_generated_at": card["generated_at"],
+            }
+            self.registry.update(entry)
+        return card
 
     def list_review_queue(self) -> list[ReviewRequest]:
         return self.registry.list_review_queue()

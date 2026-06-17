@@ -6,6 +6,7 @@ Provides endpoints for CI/CD pipelines, agent runtimes, and review UIs.
 
 from __future__ import annotations
 
+import atexit
 import shutil
 import tempfile
 import uuid
@@ -13,6 +14,7 @@ import os
 import mimetypes
 import re
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -28,6 +30,7 @@ from agent_manager.core.prompt_models import PromptStatus
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.registry import Registry
 from agent_manager.core.sandbox import SandboxConfig, get_sandbox_runner
+from agent_manager.core.skillspector import get_skillspector_version, is_skillspector_available
 from agent_manager.core.vetting import _load_manifest
 
 router = APIRouter(tags=["agent-manager"])
@@ -35,6 +38,26 @@ runtime_router = APIRouter(tags=["agent-manager-runtime"])
 
 # Module-level singleton (overridable in tests via dependency injection)
 _manager: AgentManager | None = None
+
+
+def _scan_worker_count() -> int:
+    try:
+        return max(1, int(os.environ.get("AGENT_MANAGER_SCAN_WORKERS", "2")))
+    except ValueError:
+        return 2
+
+
+_scan_executor = ThreadPoolExecutor(
+    max_workers=_scan_worker_count(),
+    thread_name_prefix="agent-manager-scan",
+)
+
+
+def _shutdown_scan_executor() -> None:
+    _scan_executor.shutdown(wait=True, cancel_futures=False)
+
+
+atexit.register(_shutdown_scan_executor)
 
 
 def _discover_policy_path() -> Path | None:
@@ -185,13 +208,13 @@ def _normalize_clawhub_origin_url(url: str) -> str:
 
 
 def _process_pending_submission_task(
+    mgr: AgentManager,
     skill_id: str,
     use_behavioral: bool,
     use_llm: bool,
     use_sandbox: bool,
     no_cache: bool = False,
 ) -> None:
-    mgr = get_manager()
     try:
         mgr.process_pending_submission(
             skill_id,
@@ -215,8 +238,9 @@ def _submit_directory_for_processing(
     no_cache: bool = False,
 ) -> SubmitResponse:
     entry = mgr.create_pending_submission(skill_dir, source=source)
-    background_tasks.add_task(
+    _scan_executor.submit(
         _process_pending_submission_task,
+        mgr,
         entry.skill_id,
         use_behavioral,
         use_llm,
@@ -406,6 +430,11 @@ class PolicyPayload(BaseModel):
     require_license: bool
     accepted_licenses: list[str]
     scanner_policy: str
+    skillspector_enabled: bool = False
+    skillspector_fail_open: bool = True
+    skillspector_timeout_seconds: int = 120
+    skillspector_min_blocking_severity: str = "HIGH"
+    skillspector_use_llm: bool = False
 
 
 class PolicyResponse(BaseModel):
@@ -420,6 +449,8 @@ class SystemStatusResponse(BaseModel):
     review_queue: int
     signing_key_configured: bool
     scanner_available: bool
+    skillspector_available: bool
+    skillspector_version: str | None = None
     sandbox_available: bool
     sandbox_runtime: str
     hooks_available: bool
@@ -527,6 +558,14 @@ class SkillFileContentResponse(BaseModel):
     skill_name: str
     path: str
     absolute_path: str
+    content: str
+
+
+class GovernanceCardResponse(BaseModel):
+    skill_id: str
+    skill_name: str
+    generated_at: str | None = None
+    path: str
     content: str
 
 
@@ -638,15 +677,17 @@ def get_system_status():
         scanner_available = True
     except Exception:
         scanner_available = False
+    skillspector_available = is_skillspector_available()
+    skillspector_version = get_skillspector_version()
 
-    if scanner_available and llm_config.enabled:
-        scan_mode = "scanner + llm"
-    elif scanner_available:
-        scan_mode = "scanner only"
-    elif llm_config.enabled:
-        scan_mode = "llm only"
-    else:
-        scan_mode = "manifest only"
+    scan_modes = []
+    if scanner_available:
+        scan_modes.append("scanner")
+    if mgr.policy.skillspector_enabled:
+        scan_modes.append("skillspector" if skillspector_available else "skillspector unavailable")
+    if llm_config.enabled:
+        scan_modes.append("llm")
+    scan_mode = " + ".join(scan_modes) if scan_modes else "manifest only"
 
     return SystemStatusResponse(
         data_dir=str(mgr.registry.data_dir),
@@ -655,6 +696,8 @@ def get_system_status():
         review_queue=len(registry.list_review_queue()),
         signing_key_configured=bool(os.environ.get("AGENT_MANAGER_SIGNING_KEY", "").strip()),
         scanner_available=scanner_available,
+        skillspector_available=skillspector_available,
+        skillspector_version=skillspector_version,
         sandbox_available=sandbox_available,
         sandbox_runtime=sandbox_runner.config.runtime,
         hooks_available=(Path(__file__).resolve().parent.parent / "hooks" / "agent_hook.py").exists(),
@@ -1160,6 +1203,22 @@ def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manag
         "name": entry.name,
         "scan_report": entry.vetting.scan_report if entry.vetting else {},
     }
+
+
+@router.get("/skills/{skill_id_or_name}/governance-card", response_model=GovernanceCardResponse)
+def get_governance_card(skill_id_or_name: str, mgr: AgentManager = Depends(get_manager)):
+    try:
+        return GovernanceCardResponse(**mgr.get_governance_card(skill_id_or_name))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Skill not found") from exc
+
+
+@router.post("/skills/{skill_id_or_name}/governance-card/refresh", response_model=GovernanceCardResponse)
+def refresh_governance_card(skill_id_or_name: str, mgr: AgentManager = Depends(get_manager)):
+    try:
+        return GovernanceCardResponse(**mgr.refresh_governance_card(skill_id_or_name))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Skill not found") from exc
 
 
 @router.get("/skills/{skill_id_or_name}/content", response_model=SkillContentResponse)

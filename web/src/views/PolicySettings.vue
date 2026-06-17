@@ -67,6 +67,42 @@
         </a-row>
 
         <a-row :gutter="16">
+          <a-col :xs="24" :md="8">
+            <a-form-item label="启用 SkillSpector">
+              <a-switch v-model:checked="formState.skillspector_enabled" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :md="8">
+            <a-form-item label="SkillSpector fail-open">
+              <a-switch v-model:checked="formState.skillspector_fail_open" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :md="8">
+            <a-form-item label="SkillSpector 超时（秒）">
+              <a-input-number v-model:value="formState.skillspector_timeout_seconds" :min="10" :max="600" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+
+        <a-row :gutter="16">
+          <a-col :xs="24" :md="12">
+            <a-form-item label="SkillSpector 阻断阈值">
+              <a-select v-model:value="formState.skillspector_min_blocking_severity">
+                <a-select-option value="MEDIUM">MEDIUM</a-select-option>
+                <a-select-option value="HIGH">HIGH</a-select-option>
+                <a-select-option value="CRITICAL">CRITICAL</a-select-option>
+              </a-select>
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :md="12">
+            <a-form-item label="SkillSpector LLM">
+              <a-switch v-model:checked="formState.skillspector_use_llm" disabled />
+              <div style="color: #8c8c8c; font-size: 12px">第一阶段固定使用静态模式，避免和平台 LLM 审核重复。</div>
+            </a-form-item>
+          </a-col>
+        </a-row>
+
+        <a-row :gutter="16">
           <a-col :xs="24" :md="12">
             <a-form-item label="允许声明工具上限">
               <a-input-number v-model:value="formState.max_allowed_tools" :min="1" :max="100" style="width: 100%" />
@@ -128,6 +164,11 @@ const formState = reactive({
   require_license: false,
   accepted_licenses: [],
   scanner_policy: 'balanced',
+  skillspector_enabled: false,
+  skillspector_fail_open: true,
+  skillspector_timeout_seconds: 120,
+  skillspector_min_blocking_severity: 'HIGH',
+  skillspector_use_llm: false,
 })
 
 const applyPolicy = (policy) => {
@@ -142,6 +183,11 @@ const applyPolicy = (policy) => {
   formState.require_license = Boolean(policy.require_license)
   formState.accepted_licenses = [...(policy.accepted_licenses || [])]
   formState.scanner_policy = policy.scanner_policy
+  formState.skillspector_enabled = Boolean(policy.skillspector_enabled)
+  formState.skillspector_fail_open = policy.skillspector_fail_open !== false
+  formState.skillspector_timeout_seconds = Number(policy.skillspector_timeout_seconds || 120)
+  formState.skillspector_min_blocking_severity = policy.skillspector_min_blocking_severity || 'HIGH'
+  formState.skillspector_use_llm = Boolean(policy.skillspector_use_llm)
 }
 
 const fetchPolicy = async () => {
@@ -172,6 +218,11 @@ const handleSave = async () => {
       require_license: formState.require_license,
       accepted_licenses: formState.accepted_licenses,
       scanner_policy: formState.scanner_policy,
+      skillspector_enabled: formState.skillspector_enabled,
+      skillspector_fail_open: formState.skillspector_fail_open,
+      skillspector_timeout_seconds: Number(formState.skillspector_timeout_seconds || 120),
+      skillspector_min_blocking_severity: formState.skillspector_min_blocking_severity,
+      skillspector_use_llm: formState.skillspector_use_llm,
     }
     const res = await updatePolicy(payload)
     policyPath.value = res.policy_path || ''

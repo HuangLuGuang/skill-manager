@@ -39,6 +39,7 @@
           </template>
           <template v-else-if="column.key === 'actions'">
             <a-space>
+              <a-button size="small" @click="$router.push(`/skills/${record.skill_id}?tab=governance-card`)">治理卡片</a-button>
               <a-button size="small" type="primary" @click="openApproveModal(record)">批准</a-button>
               <a-button size="small" danger @click="openRejectModal(record)">拒绝</a-button>
             </a-space>
@@ -236,7 +237,7 @@ const columns = [
   { title: '风险', dataIndex: 'risk_level', key: 'risk', width: 120, sorter: true },
   { title: 'Findings', dataIndex: 'findings', key: 'findings', width: 140 },
   { title: '排队时间', dataIndex: 'queued_at', key: 'queued_at', width: 190, sorter: true, customRender: ({ text }) => formatDateTime(text) },
-  { title: '操作', key: 'actions', width: 160 },
+  { title: '操作', key: 'actions', width: 240 },
 ]
 
 const riskColor = (value) =>

@@ -32,7 +32,41 @@ _DEFAULT_POLICY: dict[str, Any] = {
     "require_license": False,
     "accepted_licenses": ["MIT", "Apache-2.0", "BSD-3-Clause", "BSD-2-Clause", "ISC", "internal"],
     "scanner_policy": "balanced",
+    "skillspector_enabled": False,
+    "skillspector_fail_open": True,
+    "skillspector_timeout_seconds": 120,
+    "skillspector_min_blocking_severity": "HIGH",
+    "skillspector_use_llm": False,
 }
+
+_SEVERITY_TO_RISK = {
+    "SAFE": RiskLevel.BENIGN,
+    "INFO": RiskLevel.BENIGN,
+    "LOW": RiskLevel.SUSPICIOUS,
+    "MEDIUM": RiskLevel.SUSPICIOUS,
+    "HIGH": RiskLevel.MALICIOUS,
+    "CRITICAL": RiskLevel.MALICIOUS,
+    "EXTREME": RiskLevel.MALICIOUS,
+}
+
+
+def _normalized_policy_risks(values: Any) -> set[RiskLevel]:
+    if not isinstance(values, (list, tuple, set)):
+        return set()
+
+    normalized: set[RiskLevel] = set()
+    for value in values:
+        text = str(value).strip()
+        semantic = text.lower()
+        if semantic in {risk.value for risk in RiskLevel}:
+            normalized.add(RiskLevel(semantic))
+            continue
+        mapped = _SEVERITY_TO_RISK.get(text.upper())
+        if mapped:
+            normalized.add(mapped)
+        else:
+            logger.warning("Ignoring unknown policy risk value: %r", value)
+    return normalized
 
 
 class CompanyPolicy:
@@ -86,6 +120,14 @@ class CompanyPolicy:
     @property
     def scanner_policy(self) -> str:
         return self._data["scanner_policy"]
+
+    @property
+    def skillspector_enabled(self) -> bool:
+        return bool(self._data.get("skillspector_enabled", False))
+
+    @property
+    def skillspector_timeout_seconds(self) -> int:
+        return int(self._data.get("skillspector_timeout_seconds", 120))
 
     def requires_sandbox(self, risk_level: RiskLevel) -> bool:
         return risk_level in self.require_sandbox_for_risk
@@ -147,10 +189,21 @@ class CompanyPolicy:
         if blocking:
             return SkillStatus.REJECTED
 
-        risk_value = risk_level.value
-        if risk_value in self._data.get("auto_reject_risk", ["malicious"]):
+        auto_reject = _normalized_policy_risks(
+            self._data.get("auto_reject_risk", ["malicious"])
+        )
+        require_review = _normalized_policy_risks(
+            self._data.get("require_human_review", ["suspicious"])
+        )
+        if risk_level in auto_reject:
             return SkillStatus.REJECTED
-        elif risk_value in self._data.get("require_human_review", ["suspicious"]):
+        if risk_level in require_review:
             return SkillStatus.VETTED
-        else:  # benign
-            return SkillStatus.APPROVED
+
+        # A malformed or incomplete policy must never turn elevated risk into
+        # an approval merely because no configured value matched.
+        if risk_level == RiskLevel.MALICIOUS:
+            return SkillStatus.REJECTED
+        if risk_level == RiskLevel.SUSPICIOUS:
+            return SkillStatus.VETTED
+        return SkillStatus.APPROVED
