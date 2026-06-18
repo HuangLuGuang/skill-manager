@@ -7,6 +7,7 @@ Provides endpoints for CI/CD pipelines, agent runtimes, and review UIs.
 from __future__ import annotations
 
 import atexit
+import importlib.util
 import shutil
 import subprocess
 import tempfile
@@ -703,13 +704,9 @@ def get_system_status():
     sandbox_runner = get_sandbox_runner(sandbox_config)
     sandbox_enabled = sandbox_config.enabled
     sandbox_available = sandbox_enabled and sandbox_runner.is_available()
-    try:
-        import skill_scanner  # noqa: F401
-        scanner_available = True
-    except Exception:
-        scanner_available = False
-    skillspector_available = is_skillspector_available()
-    skillspector_version = get_skillspector_version()
+    scanner_available = importlib.util.find_spec("skill_scanner") is not None
+    skillspector_available = is_skillspector_available() if mgr.policy.skillspector_enabled else False
+    skillspector_version = get_skillspector_version() if mgr.policy.skillspector_enabled and skillspector_available else None
 
     scan_modes = []
     if scanner_available:

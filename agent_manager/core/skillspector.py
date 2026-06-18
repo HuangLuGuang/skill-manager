@@ -11,10 +11,15 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
 from .llm import LLMConfig
+
+_CACHE_TTL_SECONDS = 60
+_availability_cache: tuple[float, str | None] | None = None
+_version_cache: tuple[float, str | None, str | None] | None = None
 
 
 def _skillspector_executable() -> str | None:
@@ -25,13 +30,23 @@ def _skillspector_executable() -> str | None:
 
 
 def is_skillspector_available() -> bool:
-    return _skillspector_executable() is not None
+    global _availability_cache
+    now = time.monotonic()
+    if _availability_cache and now - _availability_cache[0] < _CACHE_TTL_SECONDS:
+        return _availability_cache[1] is not None
+    executable = _skillspector_executable()
+    _availability_cache = (now, executable)
+    return executable is not None
 
 
 def get_skillspector_version() -> str | None:
+    global _version_cache
     executable = _skillspector_executable()
     if not executable:
         return None
+    now = time.monotonic()
+    if _version_cache and _version_cache[1] == executable and now - _version_cache[0] < _CACHE_TTL_SECONDS:
+        return _version_cache[2]
     try:
         completed = subprocess.run(
             [executable, "--version"],
@@ -43,7 +58,9 @@ def get_skillspector_version() -> str | None:
     except Exception:
         return None
     value = (completed.stdout or completed.stderr or "").strip()
-    return value or None
+    version = value or None
+    _version_cache = (now, executable, version)
+    return version
 
 
 def run_skillspector_scan(

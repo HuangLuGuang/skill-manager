@@ -97,19 +97,19 @@
             </a-col>
             <a-col :xs="24" :md="8">
               <a-form-item label="启用 SkillSpector">
-                <a-switch v-model:checked="formState.skillspector_enabled" />
+                <a-switch v-model:checked="formState.skillspector_enabled" @change="handleSave" />
                 <div class="field-hint">开启后提交扫描会调用 SkillSpector CLI；系统状态会显示是否启用。</div>
               </a-form-item>
             </a-col>
             <a-col :xs="24" :md="8">
               <a-form-item label="SkillSpector fail-open">
-                <a-switch v-model:checked="formState.skillspector_fail_open" />
+                <a-switch v-model:checked="formState.skillspector_fail_open" @change="handleSave" />
                 <div class="field-hint">开启后 SkillSpector 失败不会阻断整次扫描。</div>
               </a-form-item>
             </a-col>
             <a-col :xs="24" :md="8">
               <a-form-item label="SkillSpector LLM">
-                <a-switch v-model:checked="formState.skillspector_use_llm" :disabled="!systemLlmReady" />
+                <a-switch v-model:checked="formState.skillspector_use_llm" :disabled="!systemLlmReady" @change="handleSave" />
                 <div class="field-hint">{{ skillspectorLlmHint }}</div>
               </a-form-item>
             </a-col>
@@ -136,7 +136,7 @@
             </a-col>
             <a-col :xs="24" :lg="12">
               <a-form-item label="必须声明 License">
-                <a-switch v-model:checked="formState.require_license" />
+                <a-switch v-model:checked="formState.require_license" @change="handleSave" />
                 <div class="field-hint">开启后，缺少 license 字段会记录策略违规。</div>
               </a-form-item>
             </a-col>
@@ -168,13 +168,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
+import { onBeforeRouteLeave } from 'vue-router'
 
 import { getLlmConfig, getPolicy, updatePolicy } from '../api'
 
 const loading = ref(false)
 const saving = ref(false)
+const dirty = ref(false)
+const savedSnapshot = ref('')
 const policyPath = ref('')
 const activeTab = ref('decision')
 const llmConfig = ref({})
@@ -238,6 +241,30 @@ const skillspectorLlmHint = computed(() => (
     : '系统设置里的 LLM 未启用或未配置 API Key，不能启用 SkillSpector LLM。'
 ))
 
+const buildPayload = () => ({
+  auto_approve_max_risk: formState.auto_approve_max_risk,
+  require_human_review: formState.require_human_review,
+  auto_reject_risk: formState.auto_reject_risk,
+  require_sandbox_for_risk: formState.require_sandbox_for_risk,
+  blocked_permissions: formState.blocked_permissions,
+  trusted_authors: formState.trusted_authors,
+  allowed_tools_allowlist: formState.allowed_tools_allowlist,
+  max_allowed_tools: Number(formState.max_allowed_tools || 0),
+  require_license: formState.require_license,
+  accepted_licenses: formState.accepted_licenses,
+  scanner_policy: formState.scanner_policy,
+  skillspector_enabled: formState.skillspector_enabled,
+  skillspector_fail_open: formState.skillspector_fail_open,
+  skillspector_timeout_seconds: Number(formState.skillspector_timeout_seconds || 120),
+  skillspector_min_blocking_severity: formState.skillspector_min_blocking_severity,
+  skillspector_use_llm: systemLlmReady.value && formState.skillspector_use_llm,
+})
+
+const markSaved = () => {
+  savedSnapshot.value = JSON.stringify(buildPayload())
+  dirty.value = false
+}
+
 const applyPolicy = (policy) => {
   formState.auto_approve_max_risk = policy.auto_approve_max_risk
   formState.require_human_review = [...(policy.require_human_review || [])]
@@ -255,6 +282,7 @@ const applyPolicy = (policy) => {
   formState.skillspector_timeout_seconds = Number(policy.skillspector_timeout_seconds || 120)
   formState.skillspector_min_blocking_severity = policy.skillspector_min_blocking_severity || 'HIGH'
   formState.skillspector_use_llm = Boolean(policy.skillspector_use_llm && systemLlmReady.value)
+  markSaved()
 }
 
 const fetchPolicy = async () => {
@@ -276,24 +304,7 @@ const handleSave = async () => {
   saving.value = true
   try {
     if (!systemLlmReady.value) formState.skillspector_use_llm = false
-    const payload = {
-      auto_approve_max_risk: formState.auto_approve_max_risk,
-      require_human_review: formState.require_human_review,
-      auto_reject_risk: formState.auto_reject_risk,
-      require_sandbox_for_risk: formState.require_sandbox_for_risk,
-      blocked_permissions: formState.blocked_permissions,
-      trusted_authors: formState.trusted_authors,
-      allowed_tools_allowlist: formState.allowed_tools_allowlist,
-      max_allowed_tools: Number(formState.max_allowed_tools || 0),
-      require_license: formState.require_license,
-      accepted_licenses: formState.accepted_licenses,
-      scanner_policy: formState.scanner_policy,
-      skillspector_enabled: formState.skillspector_enabled,
-      skillspector_fail_open: formState.skillspector_fail_open,
-      skillspector_timeout_seconds: Number(formState.skillspector_timeout_seconds || 120),
-      skillspector_min_blocking_severity: formState.skillspector_min_blocking_severity,
-      skillspector_use_llm: systemLlmReady.value && formState.skillspector_use_llm,
-    }
+    const payload = buildPayload()
     const res = await updatePolicy(payload)
     policyPath.value = res.policy_path || ''
     applyPolicy(res.policy)
@@ -305,7 +316,26 @@ const handleSave = async () => {
   }
 }
 
-onMounted(fetchPolicy)
+const handleBeforeUnload = (event) => {
+  if (!dirty.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+watch(formState, () => {
+  dirty.value = Boolean(savedSnapshot.value && JSON.stringify(buildPayload()) !== savedSnapshot.value)
+}, { deep: true })
+
+onBeforeRouteLeave(() => {
+  if (!dirty.value) return true
+  return window.confirm('策略配置有未保存修改，确定离开吗？')
+})
+
+onMounted(() => {
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  fetchPolicy()
+})
+onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnload))
 </script>
 
 <style scoped>
