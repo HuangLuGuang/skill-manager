@@ -1,6 +1,8 @@
 """Tests for the vetting pipeline and policy enforcement."""
 
 import textwrap
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -14,6 +16,7 @@ from agent_manager.core.vetting import (
     _check_manifest_policy,
     _load_manifest,
     _normalize_llm_probe_entrypoint,
+    _run_scanner,
 )
 
 
@@ -69,9 +72,56 @@ class TestManifestLoading:
         assert tools == ["Read", "Bash"]
         assert lic == "MIT"
 
+    def test_load_manifest_falls_back_when_frontmatter_parser_fails(self, tmp_path, monkeypatch):
+        skill_md = tmp_path / "SKILL.md"
+        skill_md.write_text(textwrap.dedent("""\
+            ---
+            name: research-logger
+            description: AI research pipeline with automatic logging
+            license: MIT
+            metadata: {"openclaw": {"emoji": "\\ud83d\\udcdd"}}
+            ---
+        """))
+
+        fake_frontmatter = types.SimpleNamespace(load=lambda _path: (_ for _ in ()).throw(RuntimeError("bad yaml")))
+        monkeypatch.setitem(sys.modules, "frontmatter", fake_frontmatter)
+
+        name, desc, tools, lic = _load_manifest(tmp_path)
+
+        assert name == "research-logger"
+        assert desc == "AI research pipeline with automatic logging"
+        assert tools == []
+        assert lic == "MIT"
+
     def test_missing_skill_md_raises(self, tmp_path):
         with pytest.raises(ValueError, match="SKILL.md not found"):
             _load_manifest(tmp_path)
+
+
+class TestScannerIntegration:
+    def test_run_scanner_error_does_not_abort_pipeline(self, tmp_path, monkeypatch):
+        class BrokenScanner:
+            def __init__(self, policy):
+                self.policy = policy
+
+            def scan_skill(self, _path):
+                raise RuntimeError("bad frontmatter")
+
+        class FakePolicy:
+            @staticmethod
+            def from_preset(_name):
+                return object()
+
+            @staticmethod
+            def default():
+                return object()
+
+        monkeypatch.setattr("agent_manager.core.vetting._try_import_scanner", lambda: (BrokenScanner, FakePolicy))
+
+        report = _run_scanner(tmp_path, "default")
+
+        assert report["analyzers_used"] == ["scanner:error"]
+        assert report["scanner_error"] == "bad frontmatter"
 
 
 class TestPolicyChecks:

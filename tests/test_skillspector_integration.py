@@ -7,6 +7,7 @@ import subprocess
 import textwrap
 
 from agent_manager.core.models import RiskLevel, SkillOrigin, SourceInfo
+from agent_manager.core.llm import LLMConfig
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.scan_cache import compute_scan_context_fingerprint
 from agent_manager.core.vetting import VettingPipeline
@@ -91,6 +92,43 @@ def test_skillspector_json_findings_are_merged_into_vetting(tmp_path, monkeypatc
     assert finding["category"] == "Data Exfiltration"
     assert finding["line"] == 23
     assert finding["remediation"] == "Avoid reading secrets."
+
+
+def test_skillspector_llm_uses_agent_manager_llm_config(tmp_path, monkeypatch):
+    skill_dir = _skill_dir(tmp_path)
+    payload = {"risk_assessment": {"score": 0, "severity": "LOW", "recommendation": "SAFE"}, "issues": []}
+    captured = {}
+
+    monkeypatch.setattr("agent_manager.core.skillspector.shutil.which", lambda _name: "/usr/bin/skillspector")
+    monkeypatch.setattr("agent_manager.core.skillspector.get_skillspector_version", lambda: "SkillSpector v2.2.3")
+
+    def fake_run(cmd, *, capture_output, text, timeout, check, env=None):
+        captured["cmd"] = cmd
+        captured["env"] = env
+        output_path = cmd[cmd.index("--output") + 1]
+        with open(output_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("agent_manager.core.skillspector.subprocess.run", fake_run)
+    monkeypatch.setattr("agent_manager.core.skillspector.LLMConfig.load", lambda: LLMConfig(
+        enabled=True,
+        provider="deepseek",
+        api_base="https://api.deepseek.com",
+        api_key="secret",
+        model="deepseek-chat",
+    ))
+
+    VettingPipeline(CompanyPolicy({
+        "skillspector_enabled": True,
+        "skillspector_use_llm": True,
+    })).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+
+    assert "--no-llm" not in captured["cmd"]
+    assert captured["env"]["SKILLSPECTOR_PROVIDER"] == "openai"
+    assert captured["env"]["OPENAI_BASE_URL"] == "https://api.deepseek.com"
+    assert captured["env"]["OPENAI_API_KEY"] == "secret"
+    assert captured["env"]["SKILLSPECTOR_MODEL"] == "deepseek-chat"
 
 
 def test_skillspector_v223_report_is_normalized(tmp_path, monkeypatch):

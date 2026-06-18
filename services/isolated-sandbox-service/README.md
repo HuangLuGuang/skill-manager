@@ -29,6 +29,7 @@
 - `python-frontmatter`
 - `rich`
 - `click`
+- `duckduckgo-search`
 
 这意味着很多常见的 Python skill 在测试时不需要临时联网下载依赖。
 

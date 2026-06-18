@@ -6,6 +6,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN pip install uv
 
+# Install SkillSpector CLI for optional security scanning
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git make build-essential \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /app/tools \
+    && cd /app/tools \
+    && git clone https://github.com/NVIDIA/SkillSpector.git \
+    && cd SkillSpector \
+    && uv venv --python 3.12 .venv \
+    && . .venv/bin/activate \
+    && make install
+
 WORKDIR /app
 
 COPY pyproject.toml README.md company-policy.example.yaml ./
@@ -35,6 +47,7 @@ RUN python -c "from headroom import compress; compress([{'role':'user','content'
 RUN mkdir -p /app/runtime/data /app/runtime/uploads /app/runtime/sqlite /app/runtime/agent_manager
 
 ENV PYTHONPATH=/app \
+    PATH="/app/tools/SkillSpector/.venv/bin:$PATH" \
     DEBUG=false \
     DATA_DIR=/app/runtime/data \
     UPLOADS_DIR=/app/runtime/uploads \

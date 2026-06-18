@@ -16,6 +16,7 @@ RUN uv pip install --system \
     PyYAML \
     python-frontmatter \
     rich \
-    click
+    click \
+    duckduckgo-search
 
 CMD ["python", "--version"]

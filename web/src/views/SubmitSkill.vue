@@ -89,7 +89,7 @@
                   <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="llmTooltip">
                   <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
@@ -176,7 +176,7 @@
                   <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="llmTooltip">
                   <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
@@ -257,7 +257,7 @@
                   <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="llmTooltip">
                   <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
@@ -314,7 +314,7 @@
                   <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="llmTooltip">
                   <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
@@ -360,13 +360,13 @@
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
-            <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>
+            <a-tag :color="statusColor(record.status)" :title="statusTitle(record.status)">{{ record.status }}</a-tag>
           </template>
           <template v-else-if="column.key === 'risk_level'">
             <a-tag v-if="record.status === 'PENDING'" color="default">-</a-tag>
-            <a-tag v-else-if="record.risk_level === 'malicious'" color="red">恶意</a-tag>
-            <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange">可疑</a-tag>
-            <a-tag v-else-if="record.risk_level === 'benign'" color="green">安全</a-tag>
+            <a-tag v-else-if="record.risk_level === 'malicious'" color="red" title="恶意">malicious</a-tag>
+            <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange" title="可疑">suspicious</a-tag>
+            <a-tag v-else-if="record.risk_level === 'benign'" color="green" title="安全">benign</a-tag>
             <a-tag v-else color="default">-</a-tag>
           </template>
           <template v-else-if="column.key === 'sandbox'">
@@ -584,6 +584,8 @@ const resultColumns = [
 
 const llmEnabledInSystem = computed(() => Boolean(managerStatus.value?.llm_enabled))
 const llmReadyForSubmit = computed(() => Boolean(managerStatus.value?.llm_enabled && managerStatus.value?.llm_api_key_configured))
+const sandboxEnabledInSystem = computed(() => Boolean(managerStatus.value?.sandbox_enabled))
+const sandboxReadyForSubmit = computed(() => Boolean(managerStatus.value?.sandbox_enabled && managerStatus.value?.sandbox_available))
 const llmTooltip = computed(() => {
   if (loadingSystemStatus.value) return '正在读取系统设置中的 LLM 状态'
   if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return '尚未获取系统设置，请稍后重试'
@@ -592,7 +594,14 @@ const llmTooltip = computed(() => {
   return '启用后会调用系统设置里的 OpenAI-compatible 配置；服务端也可配置模型网关隐私代理'
 })
 const behavioralTooltip = '默认已启动。会额外扫描 scripts、references、prompts 等目录中的文本代码文件，检测命令执行、敏感文件访问、动态执行等可疑模式'
-const sandboxTooltip = '启用后会尝试在 Docker 沙箱或远程隔离执行服务中执行一个受控 probe，用于观察 skill 运行时行为'
+const sandboxTooltip = computed(() => {
+  if (loadingSystemStatus.value) return '正在读取系统设置中的 Sandbox 状态'
+  if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return '尚未获取系统设置，请稍后重试'
+  if (!sandboxEnabledInSystem.value) return '系统设置里已经关闭 Sandbox，所以这里不能勾选'
+  if (!managerStatus.value?.sandbox_available) return 'Sandbox 已启用但当前运行环境不可用，请先检查系统设置'
+  return '启用后会尝试在 Docker 沙箱或远程隔离执行服务中执行一个受控 probe，用于观察 skill 运行时行为'
+})
+const effectiveUseSandbox = () => Boolean(sandboxReadyForSubmit.value && formState.useSandbox)
 
 const inferRemoteOrigin = (url) => (url && url.includes('github.com') ? 'github' : 'unknown')
 
@@ -601,9 +610,11 @@ const fetchSystemStatus = async () => {
   try {
     managerStatus.value = await getAgentManagerSystemStatus()
     if (!llmReadyForSubmit.value) formState.useLlm = false
+    if (!sandboxReadyForSubmit.value) formState.useSandbox = false
   } catch (_error) {
     managerStatus.value = {}
     formState.useLlm = false
+    formState.useSandbox = false
   } finally {
     loadingSystemStatus.value = false
   }
@@ -755,7 +766,7 @@ const handleZipSubmit = async () => {
       author: currentUsername,
       origin: 'local',
       use_behavioral: formState.useBehavioral,
-      use_sandbox: formState.useSandbox,
+      use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
       no_cache: formState.noCache,
     })
@@ -832,7 +843,7 @@ const handleLocalSubmit = async () => {
       author: currentUsername,
       origin: 'local',
       use_behavioral: formState.useBehavioral,
-      use_sandbox: formState.useSandbox,
+      use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
       no_cache: formState.noCache,
     })
@@ -938,7 +949,7 @@ const handleUrlSubmit = async () => {
       author: currentUsername,
       origin: inferRemoteOrigin(downloadUrl.value.trim()),
       use_behavioral: formState.useBehavioral,
-      use_sandbox: formState.useSandbox,
+      use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
       no_cache: formState.noCache,
     })
@@ -1007,7 +1018,7 @@ const handleClawHubSubmit = async () => {
       token: clawhubToken.value.trim() || null,
       author: currentUsername,
       use_behavioral: formState.useBehavioral,
-      use_sandbox: formState.useSandbox,
+      use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
       no_cache: formState.noCache,
     })
@@ -1034,6 +1045,15 @@ const statusColor = (value) => ({
   REJECTED: 'red',
   RETIRED: 'default',
 }[value] || 'default')
+
+const statusTitle = (value) => ({
+  PENDING: '分析中',
+  VETTED: '待审核',
+  APPROVED: '已批准',
+  DEPLOYED: '已部署',
+  REJECTED: '已拒绝',
+  RETIRED: '已退役',
+}[value] || '未知')
 
 const riskColor = (value) => ({
   benign: 'green',

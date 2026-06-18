@@ -167,3 +167,20 @@ class TestListAndAudit:
         mgr.submit(skill_dir)
         events = mgr.audit()
         assert len(events) > 0
+
+    def test_delete_skill_removes_registry_entry(self, mgr, skill_dir):
+        entry = mgr.submit(skill_dir)
+
+        mgr.delete_skill(entry.skill_id)
+
+        assert mgr.get_skill(entry.skill_id) is None
+
+    def test_rescan_skill_resets_pending_and_can_process(self, mgr, skill_dir):
+        entry = mgr.submit(skill_dir)
+
+        pending = mgr.rescan_skill(entry.skill_id)
+
+        assert pending.status == SkillStatus.PENDING
+        assert pending.vetting is None
+        processed = mgr.process_pending_submission(entry.skill_id, no_cache=True)
+        assert processed.status == SkillStatus.APPROVED

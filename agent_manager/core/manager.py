@@ -459,6 +459,35 @@ class AgentManager:
         logger.info("Retired skill %r: %s", entry.name, reason)
         return entry
 
+    def delete_skill(self, skill_id: str, actor: str | None = None) -> RegistryEntry:
+        entry = self._require_entry(skill_id)
+        self.registry.log_event(make_event("skill_deleted", entry, actor=actor))
+        self.registry.delete(skill_id)
+        return entry
+
+    def rescan_skill(self, skill_id: str, actor: str | None = None) -> RegistryEntry:
+        entry = self._require_entry(skill_id)
+        if not entry.skill_path or not Path(entry.skill_path).exists():
+            raise ValueError(f"Skill path {entry.skill_path!r} is not accessible")
+
+        entry.status = SkillStatus.PENDING
+        entry.risk_level = None
+        entry.vetting = None
+        entry.signature = None
+        entry.approved_at = None
+        entry.approved_by = None
+        entry.approval_note = None
+        entry.rejection_reason = None
+        entry.retire_reason = None
+        entry.retired_at = None
+        entry.deployed_at = None
+        entry.scan_reused = False
+        entry.reused_from_skill_id = None
+        self.registry.update(entry)
+        self.registry.dequeue_review(skill_id)
+        self.registry.log_event(make_event("skill_rescan_requested", entry, actor=actor))
+        return entry
+
     # ------------------------------------------------------------------ #
     # Queries                                                              #
     # ------------------------------------------------------------------ #

@@ -327,6 +327,13 @@ class Registry:
                 raise KeyError(f"skill_id {entry.skill_id!r} not found")
             self._upsert_entry(conn, entry)
 
+    def delete(self, skill_id: str) -> None:
+        with self._lock, self._connect() as conn:
+            cur = conn.execute("DELETE FROM skill_registry WHERE skill_id = ?", (skill_id,))
+            if cur.rowcount == 0:
+                raise KeyError(f"skill_id {skill_id!r} not found")
+            conn.execute("DELETE FROM skill_review_queue WHERE skill_id = ?", (skill_id,))
+
     def get_by_id(self, skill_id: str) -> RegistryEntry | None:
         with self._lock, self._connect() as conn:
             row = conn.execute(

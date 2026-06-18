@@ -11,17 +11,17 @@ from .registry import Registry
 
 
 _STATUS_LABELS = {
-    "PENDING": "分析中",
-    "VETTED": "待审核",
-    "APPROVED": "已批准",
-    "DEPLOYED": "已部署",
-    "REJECTED": "已拒绝",
-    "RETIRED": "已退役",
+    "PENDING": "PENDING（分析中）",
+    "VETTED": "VETTED（待审核）",
+    "APPROVED": "APPROVED（已批准）",
+    "DEPLOYED": "DEPLOYED（已部署）",
+    "REJECTED": "REJECTED（已拒绝）",
+    "RETIRED": "RETIRED（已退役）",
 }
 _RISK_LABELS = {
-    "benign": "安全",
-    "suspicious": "可疑",
-    "malicious": "恶意",
+    "benign": "benign（安全）",
+    "suspicious": "suspicious（可疑）",
+    "malicious": "malicious（恶意）",
 }
 _ORIGIN_LABELS = {
     "local": "本地",
@@ -68,20 +68,7 @@ def write_governance_card(entry: RegistryEntry, registry: Registry) -> dict[str,
 
 
 def read_or_write_governance_card(entry: RegistryEntry, registry: Registry) -> dict[str, Any]:
-    path = governance_card_path(registry.data_dir, entry.skill_id)
-    if not path.exists():
-        return write_governance_card(entry, registry)
-    content = path.read_text(encoding="utf-8")
-    if content.lstrip().startswith("# Governance Skill Card:"):
-        return write_governance_card(entry, registry)
-    generated_at = _extract_generated_at(content)
-    return {
-        "skill_id": entry.skill_id,
-        "skill_name": entry.name,
-        "generated_at": generated_at,
-        "path": str(path),
-        "content": content,
-    }
+    return write_governance_card(entry, registry)
 
 
 def generate_governance_card(
@@ -102,7 +89,7 @@ def generate_governance_card(
     audit_events = registry.read_audit(skill_id=entry.skill_id, limit=20)
 
     lines = [
-        f"# Skill 治理卡片：{entry.name}",
+        f"# Governance Card（治理卡片）：{entry.name}",
         "",
         f"生成时间：{generated_at}",
         "",
@@ -138,9 +125,20 @@ def generate_governance_card(
         f"- 最终风险：`{_risk_label(scan_report.get('risk_level', entry.risk_level.value if entry.risk_level else None))}`",
         f"- 是否触发 Sandbox：{'是' if vetting and vetting.sandbox_triggered else '否'}",
         "",
-        "## 高风险命中项",
+        "## 判断依据",
         "",
     ]
+    rationale_items = _rationale_items(top_findings, vetting.policy_notes if vetting else [])
+    if rationale_items:
+        lines.extend([f"- {item}" for item in rationale_items])
+    else:
+        lines.append("- 未记录到高风险判断依据。")
+
+    lines.extend([
+        "",
+        "## 高风险命中项",
+        "",
+    ])
     if top_findings:
         for finding in top_findings:
             location = _format_location(finding)
@@ -218,6 +216,19 @@ def _status_label(value: str) -> str:
 def _risk_label(value: Any) -> str:
     text = str(value or "-")
     return _RISK_LABELS.get(text.lower(), text)
+
+
+def _rationale_items(findings: list[dict[str, Any]], policy_notes: list[str]) -> list[str]:
+    items: list[str] = []
+    for finding in findings[:3]:
+        severity = _severity_label(finding.get("severity", "LOW"))
+        source = finding.get("source", "rule")
+        title = finding.get("title") or finding.get("message") or finding.get("rule") or "命中风险规则"
+        items.append(f"`{severity}` `{source}` {title}")
+    for note in policy_notes[:2]:
+        if note and note not in items:
+            items.append(note)
+    return items[:5]
 
 
 def _severity_label(value: Any) -> str:

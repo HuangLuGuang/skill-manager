@@ -12,19 +12,17 @@
           @pressEnter="handleKeywordSearch"
           @change="handleKeywordInputChange"
         />
-        <a-select v-model:value="status" style="width: 160px">
+        <a-select v-model:value="status" style="width: 220px">
           <a-select-option value="all">全部状态</a-select-option>
-          <a-select-option value="VETTED">VETTED</a-select-option>
-          <a-select-option value="APPROVED">APPROVED</a-select-option>
-          <a-select-option value="DEPLOYED">DEPLOYED</a-select-option>
-          <a-select-option value="REJECTED">REJECTED</a-select-option>
-          <a-select-option value="RETIRED">RETIRED</a-select-option>
+          <a-select-option v-for="item in statusOptions" :key="item.value" :value="item.value">
+            {{ item.label }}
+          </a-select-option>
         </a-select>
         <a-select v-model:value="risk" style="width: 160px">
           <a-select-option value="all">全部风险</a-select-option>
-          <a-select-option value="benign">安全</a-select-option>
-          <a-select-option value="suspicious">可疑</a-select-option>
-          <a-select-option value="malicious">恶意</a-select-option>
+          <a-select-option v-for="item in riskOptions" :key="item.value" :value="item.value">
+            {{ item.label }}
+          </a-select-option>
         </a-select>
         <a-select v-model:value="sandboxFilter" style="width: 180px">
           <a-select-option value="all">全部 Sandbox</a-select-option>
@@ -54,14 +52,19 @@
           <template v-if="column.key === 'name'">
             <a @click="$router.push(`/skills/${record.skill_id}`)">{{ record.name }}</a>
           </template>
+          <template v-else-if="column.key === 'skill_id'">
+            <a-tooltip :title="record.skill_id">
+              <span class="short-id">{{ shortId(record.skill_id) }}</span>
+            </a-tooltip>
+          </template>
           <template v-else-if="column.key === 'status'">
-            <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>
+            <a-tag :color="statusColor(record.status)">{{ statusDisplay(record.status) }}</a-tag>
           </template>
           <template v-else-if="column.key === 'risk'">
             <a-tag v-if="record.status === 'PENDING'" color="default">-</a-tag>
-            <a-tag v-else-if="record.risk_level === 'malicious'" color="red">恶意</a-tag>
-            <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange">可疑</a-tag>
-            <a-tag v-else-if="record.risk_level === 'benign'" color="green">安全</a-tag>
+            <a-tag v-else-if="record.risk_level === 'malicious'" color="red">{{ riskDisplay(record.risk_level) }}</a-tag>
+            <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange">{{ riskDisplay(record.risk_level) }}</a-tag>
+            <a-tag v-else-if="record.risk_level === 'benign'" color="green">{{ riskDisplay(record.risk_level) }}</a-tag>
             <a-tag v-else color="default">-</a-tag>
           </template>
           <template v-else-if="column.key === 'sandbox'">
@@ -72,9 +75,32 @@
             </a-space>
           </template>
           <template v-else-if="column.key === 'actions'">
-            <a-space>
-              <a-button size="small" @click="$router.push(`/skills/${record.skill_id}`)">详情</a-button>
-              <a-button size="small" @click="$router.push('/deployments')">部署</a-button>
+            <a-space class="actions-cell">
+              <a @click="$router.push(`/skills/${record.skill_id}`)">详情</a>
+              <a-divider type="vertical" />
+              <a-dropdown>
+                <a class="ant-dropdown-link" @click.prevent>
+                  更多 <DownOutlined />
+                </a>
+                <template #overlay>
+                  <a-menu>
+                    <a-menu-item
+                      :disabled="record.status === 'PENDING' || Boolean(actionKey)"
+                      @click="handleRescan(record)"
+                    >
+                      {{ actionKey === `rescan:${record.skill_id}` ? '重新检测中...' : '重新检测' }}
+                    </a-menu-item>
+                    <a-menu-divider />
+                    <a-menu-item
+                      danger
+                      :disabled="Boolean(actionKey)"
+                      @click="confirmDelete(record)"
+                    >
+                      {{ actionKey === `delete:${record.skill_id}` ? '删除中...' : '删除' }}
+                    </a-menu-item>
+                  </a-menu>
+                </template>
+              </a-dropdown>
             </a-space>
           </template>
         </template>
@@ -85,9 +111,10 @@
 
 <script setup>
 import { onMounted, ref, watch } from 'vue'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
+import { DownOutlined } from '@ant-design/icons-vue'
 
-import { listSkillsPaged } from '../api'
+import { deleteSkill, listSkillsPaged, rescanSkill } from '../api'
 import { formatDateTime } from '../utils/format'
 
 const keyword = ref('')
@@ -95,6 +122,7 @@ const status = ref('all')
 const risk = ref('all')
 const sandboxFilter = ref('all')
 const loading = ref(false)
+const actionKey = ref('')
 const rows = ref([])
 const total = ref(0)
 const sortState = ref({ field: 'submitted_at', order: 'descend' })
@@ -106,16 +134,29 @@ const pagination = ref({
   pageSizeOptions: ['10', '20', '50'],
   showTotal: (value) => `共 ${value} 条`,
 })
+const statusOptions = [
+  { value: 'PENDING', label: 'PENDING（分析中）' },
+  { value: 'VETTED', label: 'VETTED（待审核）' },
+  { value: 'APPROVED', label: 'APPROVED（已批准）' },
+  { value: 'DEPLOYED', label: 'DEPLOYED（已部署）' },
+  { value: 'REJECTED', label: 'REJECTED（已拒绝）' },
+  { value: 'RETIRED', label: 'RETIRED（已退役）' },
+]
+const riskOptions = [
+  { value: 'benign', label: 'benign（安全）' },
+  { value: 'suspicious', label: 'suspicious（可疑）' },
+  { value: 'malicious', label: 'malicious（恶意）' },
+]
 
 const columns = [
   { title: '技能名称', dataIndex: 'name', key: 'name', sorter: true },
-  { title: 'Skill ID', dataIndex: 'skill_id', key: 'skill_id', sorter: true },
-  { title: '状态', dataIndex: 'status', key: 'status', width: 140, sorter: true },
-  { title: '风险', dataIndex: 'risk_level', key: 'risk', width: 120, sorter: true },
+  { title: 'Skill ID', dataIndex: 'skill_id', key: 'skill_id', width: 110, sorter: true },
+  { title: '状态', dataIndex: 'status', key: 'status', width: 180, sorter: true },
+  { title: '风险', dataIndex: 'risk_level', key: 'risk', width: 160, sorter: true },
   { title: 'Sandbox', key: 'sandbox', width: 180 },
   { title: '审批人', dataIndex: 'approved_by', key: 'approved_by', width: 160, sorter: true },
   { title: '提交时间', dataIndex: 'submitted_at', key: 'submitted_at', width: 190, sorter: true, customRender: ({ text }) => formatDateTime(text) },
-  { title: '操作', key: 'actions', width: 140 },
+  { title: '操作', key: 'actions', width: 120 },
 ]
 
 const fetchSkills = async () => {
@@ -195,6 +236,51 @@ const resetFilters = () => {
   fetchSkills()
 }
 
+const handleRescan = async (record) => {
+  actionKey.value = `rescan:${record.skill_id}`
+  try {
+    await rescanSkill(record.skill_id)
+    message.success('已提交重新检测')
+    fetchSkills()
+  } catch (error) {
+    message.error(error.response?.data?.detail || '重新检测失败')
+  } finally {
+    actionKey.value = ''
+  }
+}
+
+const confirmDelete = (record) => {
+  Modal.confirm({
+    title: `删除技能：${record.name}`,
+    content: '只删除注册表记录，不会删除磁盘上的技能目录。',
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    onOk: () => handleDelete(record),
+  })
+}
+
+const handleDelete = async (record) => {
+  actionKey.value = `delete:${record.skill_id}`
+  try {
+    await deleteSkill(record.skill_id)
+    message.success('已删除技能记录')
+    if (rows.value.length === 1 && pagination.value.current > 1) {
+      pagination.value = { ...pagination.value, current: pagination.value.current - 1 }
+    }
+    fetchSkills()
+  } catch (error) {
+    message.error(error.response?.data?.detail || '删除技能失败')
+  } finally {
+    actionKey.value = ''
+  }
+}
+
+const shortId = (value) => {
+  const text = String(value || '')
+  return text.length > 12 ? `${text.slice(0, 8)}...` : text || '-'
+}
+
 const statusColor = (value) =>
   ({
     PENDING: 'gold',
@@ -205,12 +291,26 @@ const statusColor = (value) =>
     RETIRED: 'default',
   }[value] || 'default')
 
-const riskColor = (value) =>
+const statusTitle = (value) =>
   ({
-    benign: 'green',
-    suspicious: 'orange',
-    malicious: 'red',
-  }[value] || 'default')
+    PENDING: '分析中',
+    VETTED: '待审核',
+    APPROVED: '已批准',
+    DEPLOYED: '已部署',
+    REJECTED: '已拒绝',
+    RETIRED: '已退役',
+  }[value] || '未知')
+const statusDisplay = (value) => (value ? `${value}（${statusTitle(value)}）` : '-')
+const riskDisplay = (value) => {
+  const text = String(value || 'unknown')
+  const zh = {
+    benign: '安全',
+    suspicious: '可疑',
+    malicious: '恶意',
+    unknown: '未知',
+  }[text.toLowerCase()] || '未知'
+  return `${text}（${zh}）`
+}
 
 onMounted(fetchSkills)
 
@@ -222,6 +322,13 @@ watch([status, risk, sandboxFilter], () => {
   fetchSkills()
 })
 </script>
+
+<style scoped>
+.short-id,
+.actions-cell {
+  white-space: nowrap;
+}
+</style>
 
 <style scoped>
 .table-meta {

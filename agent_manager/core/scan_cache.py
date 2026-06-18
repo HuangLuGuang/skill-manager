@@ -64,6 +64,7 @@ def compute_scan_context_fingerprint(
         },
         "skillspector": {
             "enabled": policy.skillspector_enabled,
+            "use_llm": getattr(policy, "skillspector_use_llm", False),
             "version": get_skillspector_version() if policy.skillspector_enabled else None,
             "timeout_seconds": policy.skillspector_timeout_seconds,
             "adapter_source": _file_hash(Path(__file__).with_name("skillspector.py")),

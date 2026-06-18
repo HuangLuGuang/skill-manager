@@ -58,6 +58,8 @@ export const approveSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/a
 export const rejectSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/reject`, data)
 export const deploySkill = (skillId) => api.post(`/v1/skills/${skillId}/deploy`)
 export const retireSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/retire`, data)
+export const rescanSkill = (skillId) => api.post(`/v1/skills/${skillId}/rescan`)
+export const deleteSkill = (skillId) => api.delete(`/v1/skills/${skillId}`)
 export const runtimeCanLoad = (skillName, params = {}) => api.get(`/v1/runtime/can-load/${skillName}`, { params })
 export const runtimeCheckTool = (params) => api.get('/v1/runtime/check-tool', { params })
 export const getDashboardRiskSourceStats = () => api.get('/v1/dashboard/risk-source-stats')

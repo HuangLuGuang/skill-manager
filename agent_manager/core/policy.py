@@ -129,6 +129,10 @@ class CompanyPolicy:
     def skillspector_timeout_seconds(self) -> int:
         return int(self._data.get("skillspector_timeout_seconds", 120))
 
+    @property
+    def skillspector_use_llm(self) -> bool:
+        return bool(self._data.get("skillspector_use_llm", False))
+
     def requires_sandbox(self, risk_level: RiskLevel) -> bool:
         return risk_level in self.require_sandbox_for_risk
 

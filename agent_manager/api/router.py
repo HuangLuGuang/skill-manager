@@ -449,6 +449,7 @@ class SystemStatusResponse(BaseModel):
     review_queue: int
     signing_key_configured: bool
     scanner_available: bool
+    skillspector_enabled: bool
     skillspector_available: bool
     skillspector_version: str | None = None
     sandbox_enabled: bool
@@ -699,6 +700,7 @@ def get_system_status():
         review_queue=len(registry.list_review_queue()),
         signing_key_configured=bool(os.environ.get("AGENT_MANAGER_SIGNING_KEY", "").strip()),
         scanner_available=scanner_available,
+        skillspector_enabled=mgr.policy.skillspector_enabled,
         skillspector_available=skillspector_available,
         skillspector_version=skillspector_version,
         sandbox_enabled=sandbox_enabled,
@@ -1207,6 +1209,68 @@ def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manag
         "name": entry.name,
         "scan_report": entry.vetting.scan_report if entry.vetting else {},
     }
+
+
+def _previous_scan_options(entry) -> dict[str, bool]:
+    report = entry.vetting.scan_report if entry.vetting else {}
+    analyzers = {str(item).lower() for item in report.get("analyzers_used", [])}
+    return {
+        "use_behavioral": bool(report.get("behavioral_analysis") or report.get("local_static_analysis") or analyzers.intersection({"behavioral:local", "agent-manager-local"})),
+        "use_llm": bool(report.get("llm_analysis") or any(item.startswith("llm:") for item in analyzers)),
+        "use_sandbox": bool(report.get("sandbox_analysis") or any(item.startswith("sandbox:") for item in analyzers)),
+    }
+
+
+@router.post("/skills/{skill_id}/rescan", response_model=SubmitResponse)
+def rescan_skill(
+    skill_id: str,
+    use_behavioral: bool | None = Query(None),
+    use_llm: bool | None = Query(None),
+    use_sandbox: bool | None = Query(None),
+    no_cache: bool = Query(True),
+    mgr: AgentManager = Depends(get_manager),
+):
+    previous = mgr.get_skill(skill_id)
+    if previous is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    previous_options = _previous_scan_options(previous)
+    try:
+        entry = mgr.rescan_skill(skill_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    _scan_executor.submit(
+        _process_pending_submission_task,
+        mgr,
+        entry.skill_id,
+        previous_options["use_behavioral"] if use_behavioral is None else use_behavioral,
+        previous_options["use_llm"] if use_llm is None else use_llm,
+        previous_options["use_sandbox"] if use_sandbox is None else use_sandbox,
+        no_cache,
+    )
+    current = mgr.get_skill(entry.skill_id) or entry
+    return SubmitResponse(
+        skill_id=current.skill_id,
+        name=current.name,
+        status=current.status.value,
+        risk_level=current.risk_level.value if current.risk_level else None,
+        findings_count=current.vetting.findings_count if current.vetting else 0,
+        sandbox_triggered=current.vetting.sandbox_triggered if current.vetting else False,
+        sandbox_required_by_policy=current.vetting.sandbox_required_by_policy if current.vetting else False,
+        sandbox_runtime=current.vetting.sandbox_runtime if current.vetting else None,
+        message="已提交重新检测，后台分析中。请刷新技能注册表查看状态变化。",
+    )
+
+
+@router.delete("/skills/{skill_id}")
+def delete_skill(skill_id: str, mgr: AgentManager = Depends(get_manager)):
+    try:
+        entry = mgr.delete_skill(skill_id)
+        return {"skill_id": entry.skill_id, "status": "DELETED", "message": "Deleted"}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/skills/{skill_id_or_name}/governance-card", response_model=GovernanceCardResponse)

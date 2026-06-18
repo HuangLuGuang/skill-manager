@@ -7,9 +7,9 @@
         <a-input v-model:value="keyword" placeholder="搜索技能 名称 / ID / 备注" style="width: 280px" allow-clear />
         <a-select v-model:value="risk" style="width: 160px">
           <a-select-option value="all">全部风险</a-select-option>
-          <a-select-option value="benign">安全</a-select-option>
-          <a-select-option value="suspicious">可疑</a-select-option>
-          <a-select-option value="malicious">恶意</a-select-option>
+          <a-select-option value="benign">benign</a-select-option>
+          <a-select-option value="suspicious">suspicious</a-select-option>
+          <a-select-option value="malicious">malicious</a-select-option>
         </a-select>
         <a-button type="primary" @click="fetchQueue" :loading="loading">查询</a-button>
         <a-button @click="resetFilters" :disabled="loading">重置</a-button>
@@ -32,9 +32,9 @@
             <a @click="$router.push(`/skills/${record.skill_id}`)">{{ record.skill_name }}</a>
           </template>
           <template v-else-if="column.key === 'risk'">
-            <a-tag v-if="record.risk_level === 'malicious'" color="red">恶意</a-tag>
-            <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange">可疑</a-tag>
-            <a-tag v-else-if="record.risk_level === 'benign'" color="green">安全</a-tag>
+            <a-tag v-if="record.risk_level === 'malicious'" color="red" title="恶意">malicious</a-tag>
+            <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange" title="可疑">suspicious</a-tag>
+            <a-tag v-else-if="record.risk_level === 'benign'" color="green" title="安全">benign</a-tag>
             <a-tag v-else color="default">-</a-tag>
           </template>
           <template v-else-if="column.key === 'actions'">

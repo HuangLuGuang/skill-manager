@@ -38,12 +38,12 @@
                 <a @click="$router.push(`/skills/${record.skill_id}`)">{{ record.name }}</a>
               </template>
               <template v-else-if="column.key === 'status'">
-                <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>
+                <a-tag :color="statusColor(record.status)" :title="statusTitle(record.status)">{{ record.status }}</a-tag>
               </template>
               <template v-else-if="column.key === 'risk'">
-                <a-tag v-if="record.risk_level === 'malicious'" color="red">恶意</a-tag>
-                <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange">可疑</a-tag>
-                <a-tag v-else-if="record.risk_level === 'benign'" color="green">安全</a-tag>
+                <a-tag v-if="record.risk_level === 'malicious'" color="red" title="恶意">malicious</a-tag>
+                <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange" title="可疑">suspicious</a-tag>
+                <a-tag v-else-if="record.risk_level === 'benign'" color="green" title="安全">benign</a-tag>
                 <a-tag v-else color="default">-</a-tag>
               </template>
             </template>
@@ -85,7 +85,7 @@ const auditRows = ref([])
 const riskSourceRows = ref([])
 
 const metrics = computed(() => {
-  const deployments = skillRows.value.filter((item) => ['APPROVED', 'DEPLOYED'].includes(item.status)).length
+  const loadable = skillRows.value.filter((item) => ['APPROVED', 'DEPLOYED'].includes(item.status)).length
   const blocked = auditRows.value.filter((item) =>
     ['skill_load_blocked', 'skill_tamper_detected', 'tool_blocked'].includes(item.event_type),
   ).length
@@ -93,7 +93,7 @@ const metrics = computed(() => {
   return [
     { label: '技能总数', value: skillRows.value.length, note: '当前 registry 中的技能总数' },
     { label: '待审核', value: reviewRows.value.length, note: '待审核技能 数量' },
-    { label: '可部署/已部署', value: deployments, note: 'APPROVED + DEPLOYED 状态聚合' },
+    { label: '可加载技能', value: loadable, note: 'APPROVED + DEPLOYED 状态聚合' },
     { label: '阻断事件', value: blocked, note: '最近 7 天被拦截的运行时事件' },
   ]
 })
@@ -225,12 +225,23 @@ const fetchDashboard = async () => {
 
 const statusColor = (value) =>
   ({
+    PENDING: 'gold',
     VETTED: 'orange',
     APPROVED: 'green',
     DEPLOYED: 'blue',
     REJECTED: 'red',
     RETIRED: 'default',
   }[value] || 'default')
+
+const statusTitle = (value) =>
+  ({
+    PENDING: '分析中',
+    VETTED: '待审核',
+    APPROVED: '已批准',
+    DEPLOYED: '已部署',
+    REJECTED: '已拒绝',
+    RETIRED: '已退役',
+  }[value] || '未知')
 
 const riskColor = (value) =>
   ({

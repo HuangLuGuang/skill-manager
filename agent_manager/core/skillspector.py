@@ -7,11 +7,14 @@ baseline, so this module treats it as an external optional scanner.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
+
+from .llm import LLMConfig
 
 
 def is_skillspector_available() -> bool:
@@ -36,7 +39,11 @@ def get_skillspector_version() -> str | None:
     return value or None
 
 
-def run_skillspector_scan(skill_path: Path, timeout_seconds: int = 120) -> dict[str, Any]:
+def run_skillspector_scan(
+    skill_path: Path,
+    timeout_seconds: int = 120,
+    use_llm: bool = False,
+) -> dict[str, Any]:
     executable = shutil.which("skillspector")
     version = get_skillspector_version()
     if not executable:
@@ -55,19 +62,38 @@ def run_skillspector_scan(skill_path: Path, timeout_seconds: int = 120) -> dict[
             executable,
             "scan",
             str(skill_path),
-            "--no-llm",
             "--format",
             "json",
             "--output",
             str(output_path),
         ]
+        if not use_llm:
+            cmd.insert(3, "--no-llm")
+        env = None
+        if use_llm:
+            llm_config = LLMConfig.load()
+            if not llm_config.is_ready:
+                return {
+                    "available": True,
+                    "version": version,
+                    "max_severity": "SAFE",
+                    "findings": [],
+                    "raw_report": {},
+                    "error": "SkillSpector LLM is enabled but system LLM config is not ready",
+                }
+            env = _skillspector_llm_env(llm_config)
         try:
+            run_kwargs = {
+                "capture_output": True,
+                "text": True,
+                "timeout": timeout_seconds,
+                "check": False,
+            }
+            if env is not None:
+                run_kwargs["env"] = env
             completed = subprocess.run(
                 cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout_seconds,
-                check=False,
+                **run_kwargs,
             )
             if completed.returncode not in (0, 1):
                 raise RuntimeError((completed.stderr or completed.stdout or f"exit {completed.returncode}").strip())
@@ -144,6 +170,20 @@ def _normalize_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
             normalized["line"] = line
         findings.append(normalized)
     return findings
+
+
+def _skillspector_llm_env(config: LLMConfig) -> dict[str, str]:
+    env = os.environ.copy()
+    provider = config.provider.lower()
+    if provider == "anthropic":
+        env["SKILLSPECTOR_PROVIDER"] = "anthropic"
+        env["ANTHROPIC_API_KEY"] = config.api_key or ""
+    else:
+        env["SKILLSPECTOR_PROVIDER"] = "openai"
+        env["OPENAI_API_KEY"] = config.api_key or ""
+        env["OPENAI_BASE_URL"] = config.api_base
+    env["SKILLSPECTOR_MODEL"] = config.model
+    return env
 
 
 def _max_severity(*values: str) -> str:

@@ -137,8 +137,17 @@ def _run_scanner(skill_path: Path, scanner_policy_name: str) -> dict:
         policy = ScanPolicy.default()
 
     scanner = SkillScanner(policy=policy)
-    result = scanner.scan_skill(str(skill_path))
-    return result.to_dict()
+    try:
+        result = scanner.scan_skill(str(skill_path))
+        return result.to_dict()
+    except Exception as exc:
+        logger.warning("skill-scanner failed for %s; continuing with local analyzers: %s", skill_path, exc)
+        return {
+            "max_severity": "SAFE",
+            "findings": [],
+            "analyzers_used": ["scanner:error"],
+            "scanner_error": str(exc),
+        }
 
 
 # --------------------------------------------------------------------------- #
@@ -157,66 +166,73 @@ def _load_manifest(skill_path: Path) -> tuple[str, str, list[str], str | None]:
 
     try:
         import frontmatter
-        post = frontmatter.load(str(skill_md))
-        name = post.get("name") or post.get("skill-name") or skill_path.name
-        description = post.get("description") or ""
-        raw_tools = post.get("allowed-tools") or post.get("allowed_tools") or []
-        if isinstance(raw_tools, str):
-            raw_tools = [t.strip() for t in raw_tools.split(",") if t.strip()]
-        license_val = post.get("license")
-        return str(name), str(description), list(raw_tools), license_val
     except ImportError:
-        # Fallback: parse SKILL.md frontmatter without python-frontmatter.
-        content = skill_md.read_text(encoding="utf-8")
-        name = skill_path.name
-        description = ""
-        allowed_tools: list[str] = []
-        license_val = None
+        frontmatter = None
 
-        in_frontmatter = False
-        fm_lines: list[str] = []
-        for i, line in enumerate(content.splitlines()):
-            if i == 0 and line.strip() == "---":
-                in_frontmatter = True
-                continue
-            if in_frontmatter:
-                if line.strip() == "---":
-                    break
-                fm_lines.append(line)
-
-        fm_text = "\n".join(fm_lines)
+    if frontmatter is not None:
         try:
-            import yaml
+            post = frontmatter.load(str(skill_md))
+            name = post.get("name") or post.get("skill-name") or skill_path.name
+            description = post.get("description") or ""
+            raw_tools = post.get("allowed-tools") or post.get("allowed_tools") or []
+            if isinstance(raw_tools, str):
+                raw_tools = [t.strip() for t in raw_tools.split(",") if t.strip()]
+            license_val = post.get("license")
+            return str(name), str(description), list(raw_tools), license_val
+        except Exception as exc:
+            logger.warning("python-frontmatter failed to parse %s; falling back to tolerant parser: %s", skill_md, exc)
 
-            payload = yaml.safe_load(fm_text) or {}
-            if isinstance(payload, dict):
-                name = str(payload.get("name") or payload.get("skill-name") or name)
-                description = str(payload.get("description") or description)
-                raw_tools = payload.get("allowed-tools") or payload.get("allowed_tools") or []
-                if isinstance(raw_tools, str):
-                    allowed_tools = [t.strip() for t in raw_tools.split(",") if t.strip()]
-                elif isinstance(raw_tools, list):
-                    allowed_tools = [str(t).strip() for t in raw_tools if str(t).strip()]
-                license_raw = payload.get("license")
-                if license_raw is not None:
-                    license_val = str(license_raw)
-                return name, description, allowed_tools, license_val
-        except Exception:
-            pass
+    # Fallback: parse SKILL.md frontmatter without python-frontmatter.
+    content = skill_md.read_text(encoding="utf-8")
+    name = skill_path.name
+    description = ""
+    allowed_tools: list[str] = []
+    license_val = None
 
-        for line in fm_lines:
-            if line.startswith("name:"):
-                name = line.split(":", 1)[1].strip().strip('"\'')
-            elif line.startswith("description:"):
-                description = line.split(":", 1)[1].strip().strip('"\'')
-            elif line.startswith("license:"):
-                license_val = line.split(":", 1)[1].strip().strip('"\'')
-            elif line.startswith("allowed-tools:") or line.startswith("allowed_tools:"):
-                raw = line.split(":", 1)[1].strip().strip('"\'')
-                if raw:
-                    allowed_tools = [t.strip() for t in raw.split(",") if t.strip()]
+    in_frontmatter = False
+    fm_lines: list[str] = []
+    for i, line in enumerate(content.splitlines()):
+        if i == 0 and line.strip() == "---":
+            in_frontmatter = True
+            continue
+        if in_frontmatter:
+            if line.strip() == "---":
+                break
+            fm_lines.append(line)
 
-        return name, description, allowed_tools, license_val
+    fm_text = "\n".join(fm_lines)
+    try:
+        import yaml
+
+        payload = yaml.safe_load(fm_text) or {}
+        if isinstance(payload, dict):
+            name = str(payload.get("name") or payload.get("skill-name") or name)
+            description = str(payload.get("description") or description)
+            raw_tools = payload.get("allowed-tools") or payload.get("allowed_tools") or []
+            if isinstance(raw_tools, str):
+                allowed_tools = [t.strip() for t in raw_tools.split(",") if t.strip()]
+            elif isinstance(raw_tools, list):
+                allowed_tools = [str(t).strip() for t in raw_tools if str(t).strip()]
+            license_raw = payload.get("license")
+            if license_raw is not None:
+                license_val = str(license_raw)
+            return name, description, allowed_tools, license_val
+    except Exception:
+        pass
+
+    for line in fm_lines:
+        if line.startswith("name:"):
+            name = line.split(":", 1)[1].strip().strip('"\'')
+        elif line.startswith("description:"):
+            description = line.split(":", 1)[1].strip().strip('"\'')
+        elif line.startswith("license:"):
+            license_val = line.split(":", 1)[1].strip().strip('"\'')
+        elif line.startswith("allowed-tools:") or line.startswith("allowed_tools:"):
+            raw = line.split(":", 1)[1].strip().strip('"\'')
+            if raw:
+                allowed_tools = [t.strip() for t in raw.split(",") if t.strip()]
+
+    return name, description, allowed_tools, license_val
 
 
 # --------------------------------------------------------------------------- #
@@ -362,6 +378,7 @@ class VettingPipeline:
             skillspector_result = run_skillspector_scan(
                 skill_path,
                 timeout_seconds=self.policy.skillspector_timeout_seconds,
+                use_llm=self.policy.skillspector_use_llm,
             )
             analyzer_name = "skillspector:cli"
             if not skillspector_result.get("available"):
