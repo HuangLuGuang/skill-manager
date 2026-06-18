@@ -279,7 +279,7 @@ sequenceDiagram
     API-->>Agent: 允许 / 拦截
 ```
 
-### 6.1 提交
+# 6.1 提交
 
 当前提交支持多种入口：
 
@@ -570,7 +570,7 @@ flowchart TB
 ```bash
 cd /Users/huangluguang/Desktop/Project/skill-manager
 uv sync --project backend
-uv run --project backend uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+uv run --project backend python -m backend.dev_server --host 0.0.0.0 --port 8000
 ```
 
 前端：
@@ -807,4 +807,5 @@ sequenceDiagram
 - OpenClaw Hook 接入：
   [openclaw-agent-manager-hooks.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/openclaw-agent-manager-hooks.md)
 - 提示词管理使用指南：
-  [prompt-management.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/prompt-management.md)
+
+  ###### [prompt-management.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/prompt-management.md)
