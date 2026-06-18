@@ -451,6 +451,7 @@ class SystemStatusResponse(BaseModel):
     scanner_available: bool
     skillspector_available: bool
     skillspector_version: str | None = None
+    sandbox_enabled: bool
     sandbox_available: bool
     sandbox_runtime: str
     hooks_available: bool
@@ -670,8 +671,10 @@ def get_system_status():
     mgr = get_manager()
     registry = Registry(mgr.registry.data_dir)
     llm_config = LLMConfig.load()
-    sandbox_runner = get_sandbox_runner(SandboxConfig.load())
-    sandbox_available = sandbox_runner.is_available()
+    sandbox_config = SandboxConfig.load()
+    sandbox_runner = get_sandbox_runner(sandbox_config)
+    sandbox_enabled = sandbox_config.enabled
+    sandbox_available = sandbox_enabled and sandbox_runner.is_available()
     try:
         import skill_scanner  # noqa: F401
         scanner_available = True
@@ -698,8 +701,9 @@ def get_system_status():
         scanner_available=scanner_available,
         skillspector_available=skillspector_available,
         skillspector_version=skillspector_version,
+        sandbox_enabled=sandbox_enabled,
         sandbox_available=sandbox_available,
-        sandbox_runtime=sandbox_runner.config.runtime,
+        sandbox_runtime=sandbox_config.runtime,
         hooks_available=(Path(__file__).resolve().parent.parent / "hooks" / "agent_hook.py").exists(),
         llm_enabled=llm_config.enabled,
         llm_provider=llm_config.provider,
