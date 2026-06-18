@@ -127,7 +127,8 @@ uv run agent-manager-api --host 0.0.0.0 --port 8080
 cd /opt/agent-manager
 cp .env.example .env
 vim .env
-docker compose up --build -d
+./.build.sh --all
+docker compose up -d
 docker compose ps
 ```
 
@@ -143,10 +144,11 @@ AGENT_MANAGER_SANDBOX_API_KEY=replace-with-random-sandbox-key
 SANDBOX_SERVICE_API_KEY=replace-with-random-sandbox-key
 ```
 
-生产 sandbox 建议：
+compose 只引用已构建镜像；生产环境同样先构建镜像再启动：
 
 ```bash
-docker compose -f docker-compose.yaml -f docker-compose.prod.yaml up --build -d
+./.build.sh --all
+docker compose up -d
 ```
 
 讲解话术：
@@ -664,19 +666,20 @@ Agent Manager blocked tool 'Bash'
 
 ## 10. 常见问题和现场处理
 
-### 10.1 `compose build requires buildx 0.17 or later`
+### 10.1 构建镜像失败
 
-升级：
+compose 不再负责构建镜像，先用项目脚本构建：
+
+```bash
+./.build.sh --all
+docker compose up -d
+```
+
+如果脚本提示 buildx 不可用，再升级 Docker 插件：
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y docker-buildx-plugin docker-compose-plugin
-```
-
-或临时绕过：
-
-```bash
-DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 docker compose up --build -d
 ```
 
 ### 10.2 Agno DeepSeek 报 `developer role`

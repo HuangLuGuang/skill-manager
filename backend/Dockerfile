@@ -47,7 +47,7 @@ RUN python -c "from headroom import compress; compress([{'role':'user','content'
 RUN mkdir -p /app/runtime/data /app/runtime/uploads /app/runtime/sqlite /app/runtime/agent_manager
 
 ENV PYTHONPATH=/app \
-    PATH="/app/tools/SkillSpector/.venv/bin:$PATH" \
+    SKILLSPECTOR_BIN=/app/tools/SkillSpector/.venv/bin/skillspector \
     DEBUG=false \
     DATA_DIR=/app/runtime/data \
     UPLOADS_DIR=/app/runtime/uploads \

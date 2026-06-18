@@ -1,10 +1,6 @@
-version: "3.9"
-
 services:
   backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    image: agent-manager-backend:${TAG:-latest}
     env_file:
       - .env
     environment:
@@ -14,7 +10,7 @@ services:
       UPLOADS_DIR: /app/runtime/uploads
       SQLITE_PATH: /app/runtime/sqlite/admin_starter.db
       AGENT_MANAGER_DATA_DIR: /app/runtime/agent_manager
-      AGENT_MANAGER_SANDBOX_RUNTIME: ${AGENT_MANAGER_SANDBOX_RUNTIME:-remote}
+      AGENT_MANAGER_SANDBOX_RUNTIME: ${AGENT_MANAGER_SANDBOX_RUNTIME:-docker}
       AGENT_MANAGER_SANDBOX_URL: ${AGENT_MANAGER_SANDBOX_URL:-http://sandbox:8194}
       AGENT_MANAGER_SANDBOX_API_KEY: ${AGENT_MANAGER_SANDBOX_API_KEY:-sandbox-change-me}
     depends_on:
@@ -35,9 +31,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    build:
-      context: .
-      dockerfile: web/Dockerfile
+    image: agent-manager-frontend:${TAG:-latest}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
       interval: 15s
@@ -47,9 +41,7 @@ services:
     restart: unless-stopped
 
   sandbox:
-    build:
-      context: .
-      dockerfile: services/isolated-sandbox-service/Dockerfile
+    image: agent-manager-sandbox:${TAG:-latest}
     env_file:
       - .env
     environment:

@@ -17,12 +17,19 @@ from typing import Any
 from .llm import LLMConfig
 
 
+def _skillspector_executable() -> str | None:
+    configured = os.environ.get("SKILLSPECTOR_BIN")
+    if configured:
+        return configured if Path(configured).exists() else None
+    return shutil.which("skillspector")
+
+
 def is_skillspector_available() -> bool:
-    return shutil.which("skillspector") is not None
+    return _skillspector_executable() is not None
 
 
 def get_skillspector_version() -> str | None:
-    executable = shutil.which("skillspector")
+    executable = _skillspector_executable()
     if not executable:
         return None
     try:
@@ -44,7 +51,7 @@ def run_skillspector_scan(
     timeout_seconds: int = 120,
     use_llm: bool = False,
 ) -> dict[str, Any]:
-    executable = shutil.which("skillspector")
+    executable = _skillspector_executable()
     version = get_skillspector_version()
     if not executable:
         return {

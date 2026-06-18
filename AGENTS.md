@@ -72,7 +72,8 @@ python3 -m py_compile agent_manager/core/llm.py agent_manager/core/vetting.py ag
 Docker 编排：
 
 ```bash
-docker compose up --build
+./.build.sh --all
+docker compose up
 docker compose ps
 docker compose logs -f
 ```

@@ -71,6 +71,7 @@ export const getLlmConfig = () => api.get('/v1/llm-config')
 export const updateLlmConfig = (data) => api.put('/v1/llm-config', data)
 export const getSandboxConfig = () => api.get('/v1/sandbox-config')
 export const updateSandboxConfig = (data) => api.put('/v1/sandbox-config', data)
+export const listSandboxImages = () => api.get('/v1/sandbox-images')
 export const getAgentManagerSystemStatus = () => api.get('/v1/system/status')
 export const listScannerTokens = () => api.get('/v1/scanner/tokens')
 export const createScannerToken = (data) => api.post('/v1/scanner/tokens', data)
@@ -151,7 +152,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       const detail = error.response.data?.detail
       if (detail === 'session_expired_elsewhere') {
-        alert('您的账号已在其他地方登录，当前会话已失效')
+        alert('登录状态已失效，请重新登录')
       }
       localStorage.removeItem('token')
       localStorage.removeItem('username')

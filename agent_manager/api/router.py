@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import atexit
 import shutil
+import subprocess
 import tempfile
 import uuid
 import os
@@ -523,6 +524,10 @@ class SandboxConfigResponse(BaseModel):
     remote_api_key_masked: str | None = None
 
 
+class SandboxImagesResponse(BaseModel):
+    images: list[str]
+
+
 class VerifySignatureRequest(BaseModel):
     skill_path: str | None = None
 
@@ -655,6 +660,28 @@ def update_sandbox_config(body: SandboxConfigPayload):
     public = config.public_dict()
     public["config_path"] = str(path)
     return SandboxConfigResponse(**public)
+
+
+@router.get("/sandbox-images", response_model=SandboxImagesResponse)
+def list_sandbox_images():
+    if not shutil.which("docker"):
+        return SandboxImagesResponse(images=[])
+    try:
+        completed = subprocess.run(
+            ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except Exception:
+        return SandboxImagesResponse(images=[])
+    images = sorted({
+        line.strip()
+        for line in completed.stdout.splitlines()
+        if line.strip() and "sandbox" in line.lower() and not line.endswith(":<none>")
+    })
+    return SandboxImagesResponse(images=images)
 
 
 @router.put("/policy", response_model=PolicyResponse)

@@ -175,7 +175,14 @@
               </a-select>
             </a-form-item>
             <a-form-item v-if="sandboxForm.runtime === 'docker'" label="镜像">
-              <a-input v-model:value="sandboxForm.image" placeholder="agent-manager-sandbox-runtime:latest" />
+              <a-select
+                v-model:value="sandboxForm.image"
+                show-search
+                placeholder="选择本机 sandbox 镜像"
+                :options="sandboxImageOptions"
+                :loading="loading"
+              />
+              <div class="hint">只显示本机 Docker 镜像名包含 sandbox 的镜像。</div>
             </a-form-item>
             <template v-else>
               <a-form-item label="远程 Sandbox URL">
@@ -262,6 +269,7 @@ import {
   getSandboxConfig,
   getAgentManagerSystemStatus,
   getSystemInfo,
+  listSandboxImages,
   updateLlmConfig,
   updateSandboxConfig,
 } from '../api'
@@ -274,6 +282,7 @@ const logoInfo = ref({})
 const managerStatus = ref({})
 const llmConfig = ref({})
 const sandboxConfig = ref({})
+const sandboxImages = ref([])
 const llmForm = reactive({
   enabled: false,
   provider: 'deepseek',
@@ -345,22 +354,29 @@ const scanModeColor = (value) =>
     'llm only': 'orange',
     'manifest only': 'default',
   }[value] || 'default')
+const sandboxImageOptions = computed(() => {
+  const values = new Set(sandboxImages.value)
+  if (sandboxForm.image) values.add(sandboxForm.image)
+  return [...values].map((value) => ({ value, label: value }))
+})
 
 const fetchStatus = async () => {
   loading.value = true
   try {
-    const [sys, logo, manager, llm, sandbox] = await Promise.all([
+    const [sys, logo, manager, llm, sandbox, images] = await Promise.all([
       getSystemInfo(),
       getLogoInfo(),
       getAgentManagerSystemStatus(),
       getLlmConfig(),
       getSandboxConfig(),
+      listSandboxImages(),
     ])
     systemInfo.value = sys || {}
     logoInfo.value = logo || {}
     managerStatus.value = manager || {}
     llmConfig.value = llm || {}
     sandboxConfig.value = sandbox || {}
+    sandboxImages.value = images?.images || []
     llmForm.enabled = llm?.enabled ?? false
     llmForm.provider = llm?.provider || 'deepseek'
     llmForm.api_base = llm?.api_base || 'https://api.deepseek.com'
