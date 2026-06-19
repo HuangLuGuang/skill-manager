@@ -11,18 +11,19 @@ TEXT_EXTENSIONS = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".sh", ".bash", ".zsh",
     ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".cfg", ".ini",
 }
+_LICENSE_FILENAMES = {"license", "license.txt", "notice", "notice.txt", "copying"}
 
 TEXT_RULES = (
-    ("P1", "HIGH", "Prompt Injection", "Instruction Override", re.compile(r"ignore (?:all )?(?:previous|prior|above|system) instructions?", re.I), "Skill content asks the agent to ignore higher-priority instructions."),
-    ("P6", "HIGH", "System Prompt Leakage", "System Prompt Disclosure", re.compile(r"(?:reveal|print|show|dump|exfiltrate).{0,40}system prompt", re.I), "Skill content attempts to disclose the system prompt."),
-    ("TP1", "HIGH", "Tool Poisoning", "Hidden Instructions", re.compile(r"<!--[\s\S]{0,300}(?:ignore|send|exfiltrate|system prompt)[\s\S]{0,300}-->", re.I), "Hidden metadata contains agent-facing instructions."),
-    ("E1", "MEDIUM", "Data Exfiltration", "External Transmission", re.compile(r"\b(?:requests\.(?:post|put)|httpx\.(?:post|put)|fetch)\s*\(|https?://", re.I), "Code or instructions reference external transmission."),
-    ("E2", "HIGH", "Data Exfiltration", "Environment Variable Harvesting", re.compile(r"\b(?:os\.environ|process\.env|env\s*\|)", re.I), "Code accesses environment variables that may contain secrets."),
-    ("E3", "MEDIUM", "Data Exfiltration", "Credential File Access", re.compile(r"(?:\.aws/credentials|id_rsa|id_dsa|\.ssh/config|\.env\b|/etc/shadow|/etc/passwd)", re.I), "Code or instructions reference sensitive credential files."),
-    ("SC2", "HIGH", "Supply Chain", "External Script Fetching", re.compile(r"(?:curl|wget)[^\n|>]*(?:\||>)\s*(?:sh|bash|zsh)", re.I), "Installer downloads remote content and executes it directly."),
-    ("SC3", "HIGH", "Supply Chain", "Obfuscated Code", re.compile(r"(?:base64\.(?:b64decode|urlsafe_b64decode)|pickle\.loads|marshal\.loads)", re.I), "Code decodes or deserializes potentially executable payloads."),
-    ("TP2", "HIGH", "Tool Poisoning", "Unicode Deception", re.compile(r"[\u202a-\u202e\u2066-\u2069\u200b\u200c\u200d\ufeff]|\\u(?:202a|202b|202c|202d|202e|2066|2067|2068|2069|200b|200c|200d|feff)", re.I), "Metadata contains direction override or zero-width characters."),
-    ("LP2", "MEDIUM", "MCP Least Privilege", "Wildcard Permission", re.compile(r'["\'](?:\*|all|full|any)["\']', re.I), "Permission metadata contains wildcard-like access."),
+    ("P1", "HIGH", "提示词注入", "覆盖上级指令", re.compile(r"ignore (?:all )?(?:previous|prior|above|system) instructions?", re.I), "Skill 内容要求忽略上级或系统指令。"),
+    ("P6", "HIGH", "系统提示词泄露", "披露系统提示词", re.compile(r"(?:reveal|print|show|dump|exfiltrate).{0,40}system prompt", re.I), "Skill 内容尝试泄露系统提示词。"),
+    ("TP1", "HIGH", "工具投毒", "隐藏指令", re.compile(r"<!--[\s\S]{0,300}(?:ignore|send|exfiltrate|system prompt)[\s\S]{0,300}-->", re.I), "隐藏元数据中包含面向 Agent 的可疑指令。"),
+    ("E1", "MEDIUM", "数据外传", "外部传输", re.compile(r"\b(?:requests\.(?:post|put)|httpx\.(?:post|put)|fetch)\s*\(", re.I), "代码或指令引用了可能向外部发送数据的调用。"),
+    ("E2", "HIGH", "数据外传", "环境变量读取", re.compile(r"\b(?:os\.environ|process\.env|env\s*\|)", re.I), "代码读取环境变量，可能接触密钥或敏感配置。"),
+    ("E3", "MEDIUM", "数据外传", "凭据文件访问", re.compile(r"(?:\.aws/credentials|id_rsa|id_dsa|\.ssh/config|\.env\b|/etc/shadow|/etc/passwd)", re.I), "代码或指令引用了常见敏感凭据文件。"),
+    ("SC2", "HIGH", "供应链风险", "下载后执行", re.compile(r"(?:curl|wget)[^\n|>]*(?:\||>)\s*(?:sh|bash|zsh)", re.I), "安装脚本下载远程内容后直接交给 shell 执行。"),
+    ("SC3", "HIGH", "供应链风险", "混淆或反序列化载荷", re.compile(r"(?:base64\.(?:b64decode|urlsafe_b64decode)|pickle\.loads|marshal\.loads)", re.I), "代码解码或反序列化可能执行的载荷。"),
+    ("TP2", "HIGH", "工具投毒", "Unicode 欺骗字符", re.compile(r"[\u202a-\u202e\u2066-\u2069\u200b\u200c\u200d\ufeff]|\\u(?:202a|202b|202c|202d|202e|2066|2067|2068|2069|200b|200c|200d|feff)", re.I), "元数据中包含方向覆盖或零宽字符，可能隐藏真实内容。"),
+    ("LP2", "MEDIUM", "最小权限", "通配权限", re.compile(r'["\'](?:\*|all|full|any)["\']', re.I), "权限声明包含通配或过宽权限。"),
 )
 
 _SEVERITY_ORDER = {
@@ -55,7 +56,8 @@ def run_local_static_analysis(skill_path: Path) -> dict[str, Any]:
 
         if path.suffix.lower() == ".py":
             findings.extend(_analyze_python_ast(content, rel_path))
-        findings.extend(_analyze_text_rules(content, rel_path))
+        if not _is_license_file(rel_path):
+            findings.extend(_analyze_text_rules(content, rel_path))
 
     max_severity = "SAFE"
     for finding in findings:
@@ -122,9 +124,14 @@ def _analyze_text_rules(content: str, rel_path: str) -> list[dict[str, Any]]:
             file=rel_path,
             line=line,
             evidence=match.group(0),
-            remediation="Review the matched content and remove or constrain unsafe behavior.",
+            remediation="请复核命中内容，删除或收紧不必要的高风险行为。",
         ))
     return findings
+
+
+def _is_license_file(rel_path: str) -> bool:
+    name = Path(rel_path).name.lower()
+    return name in _LICENSE_FILENAMES or name.endswith("-ofl.txt")
 
 
 def _analyze_python_ast(content: str, rel_path: str) -> list[dict[str, Any]]:
@@ -161,11 +168,11 @@ def _ast_finding(rule: str, severity: str, title: str, name: str, rel_path: str,
         severity=severity,
         category="Behavioral AST",
         title=title,
-        message=f"Python AST detected dangerous call {name!r}. 文件: {rel_path}:{getattr(node, 'lineno', 1)}",
+        message=f"Python AST 检测到危险调用 {name!r}。文件: {rel_path}:{getattr(node, 'lineno', 1)}",
         file=rel_path,
         line=int(getattr(node, "lineno", 1)),
         evidence=name,
-        remediation="Avoid dynamic code or shell execution unless it is tightly scoped and reviewed.",
+        remediation="除非范围明确且经过审核，否则避免动态代码或 shell 执行。",
     )
 
 

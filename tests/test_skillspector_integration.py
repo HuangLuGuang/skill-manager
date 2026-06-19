@@ -94,6 +94,39 @@ def test_skillspector_json_findings_are_merged_into_vetting(tmp_path, monkeypatc
     assert finding["remediation"] == "Avoid reading secrets."
 
 
+def test_skillspector_filters_license_and_font_noise(tmp_path, monkeypatch):
+    skill_dir = _skill_dir(tmp_path)
+    payload = {
+        "risk_score": 100,
+        "risk_severity": "CRITICAL",
+        "risk_recommendation": "DO_NOT_INSTALL",
+        "filtered_findings": [
+            {"rule_id": "EA3", "message": "not limited to", "severity": "LOW", "file": "LICENSE.txt"},
+            {"rule_id": "MP2", "message": "binary noise", "severity": "MEDIUM", "file": "fonts/demo.ttf"},
+            {"rule_id": "E2", "message": "Env Variable Harvesting", "severity": "HIGH", "file": "scripts/sync.py"},
+        ],
+    }
+
+    monkeypatch.setattr("agent_manager.core.skillspector.shutil.which", lambda _name: "/usr/bin/skillspector")
+    monkeypatch.setattr("agent_manager.core.skillspector.get_skillspector_version", lambda: "2.0.0")
+
+    def fake_run(cmd, *, capture_output, text, timeout, check):
+        output_path = cmd[cmd.index("--output") + 1]
+        with open(output_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("agent_manager.core.skillspector.subprocess.run", fake_run)
+
+    result, _violations, _name, _desc, _tools = VettingPipeline(
+        CompanyPolicy({"skillspector_enabled": True})
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+
+    analysis = result.scan_report["skillspector_analysis"]
+    assert analysis["risk_severity"] == "HIGH"
+    assert [finding["file"] for finding in analysis["findings"]] == ["scripts/sync.py"]
+
+
 def test_skillspector_llm_uses_agent_manager_llm_config(tmp_path, monkeypatch):
     skill_dir = _skill_dir(tmp_path)
     payload = {"risk_assessment": {"score": 0, "severity": "LOW", "recommendation": "SAFE"}, "issues": []}
@@ -171,8 +204,8 @@ def test_skillspector_v223_report_is_normalized(tmp_path, monkeypatch):
 
     analysis = result.scan_report["skillspector_analysis"]
     assert analysis["risk_score"] == 50
-    assert analysis["risk_severity"] == "MEDIUM"
-    assert analysis["risk_recommendation"] == "CAUTION"
+    assert analysis["risk_severity"] == "HIGH"
+    assert analysis["risk_recommendation"] == "DO_NOT_INSTALL"
     assert analysis["max_severity"] == "HIGH"
     assert analysis["findings"] == [
         {

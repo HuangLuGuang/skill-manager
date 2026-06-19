@@ -17,6 +17,8 @@ from typing import Any
 
 from .llm import LLMConfig
 
+_FONT_EXTENSIONS = {".ttf", ".otf", ".woff", ".woff2"}
+_LICENSE_FILENAMES = {"license", "license.txt", "notice", "notice.txt", "copying"}
 _CACHE_TTL_SECONDS = 60
 _availability_cache: tuple[float, str | None] | None = None
 _version_cache: tuple[float, str | None, str | None] | None = None
@@ -132,16 +134,14 @@ def run_skillspector_scan(
                 "risk_recommendation",
                 risk_assessment.get("recommendation"),
             )
+            effective_severity = _max_severity(*(str(item.get("severity") or "SAFE") for item in findings))
             return {
                 "available": True,
                 "version": version,
                 "risk_score": risk_score,
-                "risk_severity": risk_severity,
-                "risk_recommendation": risk_recommendation,
-                "max_severity": _max_severity(
-                    str(risk_severity or "SAFE"),
-                    *(str(item.get("severity") or "SAFE") for item in findings),
-                ),
+                "risk_severity": effective_severity,
+                "risk_recommendation": _recommendation_for_severity(effective_severity, risk_recommendation),
+                "max_severity": effective_severity,
                 "findings": findings,
                 "raw_report": raw_report,
             }
@@ -192,8 +192,37 @@ def _normalize_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
         }
         if line is not None:
             normalized["line"] = line
-        findings.append(normalized)
+        if not _is_noisy_finding(normalized):
+            findings.append(normalized)
     return findings
+
+
+def _is_noisy_finding(finding: dict[str, Any]) -> bool:
+    file = str(finding.get("file") or "")
+    rule = str(finding.get("rule") or finding.get("rule_id") or "").upper()
+    message = str(finding.get("message") or finding.get("evidence") or "").lower()
+    suffix = Path(file).suffix.lower()
+    if suffix in _FONT_EXTENSIONS:
+        return True
+    if rule == "EA3" and _is_license_file(file) and "limited to" in message:
+        return True
+    return False
+
+
+def _is_license_file(rel_path: str) -> bool:
+    name = Path(rel_path).name.lower()
+    return name in _LICENSE_FILENAMES or name.endswith("-ofl.txt")
+
+
+def _recommendation_for_severity(severity: str, fallback: Any) -> str:
+    return {
+        "SAFE": "SAFE",
+        "INFO": "SAFE",
+        "LOW": "SAFE",
+        "MEDIUM": "CAUTION",
+        "HIGH": "DO_NOT_INSTALL",
+        "CRITICAL": "DO_NOT_INSTALL",
+    }.get(str(severity or "").upper(), str(fallback or "SAFE"))
 
 
 def _skillspector_llm_env(config: LLMConfig) -> dict[str, str]:

@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="skill-detail-page">
     <a-page-header :title="detail?.name ? `技能详情：${detail.name}` : `技能详情：${skillId}`" sub-title="查看技能详情、审核与审计记录" />
 
     <a-card title="基础信息" class="basic-info-card" style="margin-top: 16px">
@@ -83,7 +83,6 @@
             </a-tooltip>
             <a-button v-if="detail?.status === 'VETTED'" type="primary" @click="openApproveModal">批准</a-button>
             <a-button v-if="detail?.status === 'VETTED'" danger @click="openRejectModal">拒绝</a-button>
-            <a-button v-if="detail?.status === 'APPROVED' || detail?.status === 'DEPLOYED'" danger @click="openRetireModal">退役</a-button>
         </a-space>
       </div>
       <a-alert
@@ -255,41 +254,42 @@
                   <a-descriptions-item label="建议">{{ recommendationDisplay(skillspectorAnalysis.risk_recommendation) }}</a-descriptions-item>
                   <a-descriptions-item label="发现项">{{ skillspectorFindings.length }}</a-descriptions-item>
                 </a-descriptions>
-                <a-list
-                  v-if="skillspectorFindings.length"
-                  style="margin-top: 12px"
-                  header="SkillSpector 命中项"
-                  :data-source="skillspectorFindings"
-                  bordered
-                  size="small"
-                >
-                  <template #renderItem="{ item }">
-                    <a-list-item>
-                      <div style="width: 100%">
-                        <a-space wrap>
-                          <a-tag :color="severityColor(item.severity)">{{ item.severity || '-' }}</a-tag>
-                          <a-tag color="default">{{ item.rule || item.rule_id || '-' }}</a-tag>
-                          <strong>{{ findingTitle(item) }}</strong>
-                          <a-button
-                            v-if="item.file"
-                            type="link"
-                            size="small"
-                            style="padding: 0"
-                            @click="openFileViewer(item.file)"
-                          >
-                            {{ item.file }}{{ item.line || item.start_line ? `:${item.line || item.start_line}` : '' }}
-                          </a-button>
-                        </a-space>
-                        <div v-if="item.message || item.explanation" style="margin-top: 6px">
-                          {{ bilingualText(item.message || item.explanation) }}
-                        </div>
-                        <div v-if="item.remediation" style="margin-top: 6px; color: #8c8c8c">
-                          建议：{{ item.remediation }}
-                        </div>
-                      </div>
-                    </a-list-item>
-                  </template>
-                </a-list>
+                <a-collapse v-if="skillspectorFindings.length" v-model:activeKey="skillspectorFindingsActiveKey" style="margin-top: 12px">
+                  <a-collapse-panel key="skillspector-findings" :header="`SkillSpector 命中项（${skillspectorFindings.length}）`">
+                    <a-list
+                      :data-source="skillspectorFindings"
+                      bordered
+                      size="small"
+                    >
+                      <template #renderItem="{ item }">
+                        <a-list-item>
+                          <div style="width: 100%">
+                            <a-space wrap>
+                              <a-tag :color="severityColor(item.severity)">{{ item.severity || '-' }}</a-tag>
+                              <a-tag color="default">{{ item.rule || item.rule_id || '-' }}</a-tag>
+                              <strong>{{ findingTitle(item) }}</strong>
+                              <a-button
+                                v-if="item.file"
+                                type="link"
+                                size="small"
+                                style="padding: 0"
+                                @click="openFileViewer(item.file)"
+                              >
+                                {{ item.file }}{{ item.line || item.start_line ? `:${item.line || item.start_line}` : '' }}
+                              </a-button>
+                            </a-space>
+                            <div v-if="item.message || item.explanation" style="margin-top: 6px">
+                              {{ bilingualText(item.message || item.explanation) }}
+                            </div>
+                            <div v-if="item.remediation" style="margin-top: 6px; color: #8c8c8c">
+                              建议：{{ item.remediation }}
+                            </div>
+                          </div>
+                        </a-list-item>
+                      </template>
+                    </a-list>
+                  </a-collapse-panel>
+                </a-collapse>
               </template>
               <a-empty v-else description="本次扫描未启用 SkillSpector 或没有报告。" />
             </a-card>
@@ -529,7 +529,12 @@
             <div class="markdown-body governance-card-preview" v-html="governanceCardHtml" />
           </template>
           <template v-else>
-            <a-textarea :value="governanceCard?.content || '暂无治理卡片'" :rows="24" readonly />
+            <div class="code-preview">
+              <div v-for="line in governanceCardLines" :key="line.no" class="code-line">
+                <span class="line-no">{{ line.no }}</span>
+                <span class="line-text">{{ line.text || ' ' }}</span>
+              </div>
+            </div>
           </template>
         </a-tab-pane>
 
@@ -569,7 +574,12 @@
             </a-card>
             <div class="markdown-body" v-html="skillContentHtml" />
           </template>
-          <a-textarea v-else :value="skillContent?.content || '点击“加载 SKILL.md”查看技能内容'" :rows="18" readonly />
+          <div v-else class="code-preview">
+            <div v-for="line in skillContentLines" :key="line.no" class="code-line">
+              <span class="line-no">{{ line.no }}</span>
+              <span class="line-text">{{ line.text || ' ' }}</span>
+            </div>
+          </div>
         </a-tab-pane>
 
         <a-tab-pane key="files" tab="文件列表">
@@ -646,27 +656,6 @@
       </a-form>
     </a-modal>
 
-    <a-modal
-      v-model:open="retireModalOpen"
-      title="退役技能"
-      ok-text="确认退役"
-      cancel-text="取消"
-      :confirm-loading="actionLoading"
-      @ok="submitRetire"
-    >
-      <a-form layout="vertical">
-        <a-form-item label="Skill">
-          <a-input :value="detail?.name || ''" disabled />
-        </a-form-item>
-        <a-form-item label="执行人">
-          <a-input :value="currentUser()" disabled />
-        </a-form-item>
-        <a-form-item label="退役原因" required>
-          <a-textarea v-model:value="retireReason" :rows="4" placeholder="请输入退役原因" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
     <a-drawer
       v-model:open="fileViewerOpen"
       :title="viewerTitle"
@@ -677,7 +666,12 @@
         <a-button @click="refreshViewedFile" :loading="loadingFileViewer" :disabled="!viewingFilePath">刷新文件</a-button>
         <span style="color: #8c8c8c">{{ viewedFile?.absolute_path || viewingFilePath || '-' }}</span>
       </a-space>
-      <a-textarea :value="viewedFile?.content || '暂无文件内容'" :rows="28" readonly />
+      <div class="code-preview drawer-code-preview">
+        <div v-for="line in viewedFileLines" :key="line.no" class="code-line">
+          <span class="line-no">{{ line.no }}</span>
+          <span class="line-text">{{ line.text || ' ' }}</span>
+        </div>
+      </div>
     </a-drawer>
   </div>
 </template>
@@ -699,7 +693,6 @@ import {
   getSkillScanReport,
   refreshSkillGovernanceCard,
   rejectSkill,
-  retireSkill,
   verifySkillSignature,
 } from '../api'
 import { formatDateTime } from '../utils/format'
@@ -728,12 +721,11 @@ const viewingFilePath = ref('')
 const viewedFile = ref(null)
 const contentViewMode = ref('preview')
 const governanceCardViewMode = ref('preview')
+const skillspectorFindingsActiveKey = ref([])
 const approveModalOpen = ref(false)
 const rejectModalOpen = ref(false)
-const retireModalOpen = ref(false)
 const approveNote = ref('')
 const rejectReason = ref('')
-const retireReason = ref('')
 
 const auditColumns = [
   { title: '时间', dataIndex: 'timestamp', key: 'timestamp', width: 180, customRender: ({ text }) => formatDateTime(text) },
@@ -928,11 +920,6 @@ const openRejectModal = () => {
   rejectModalOpen.value = true
 }
 
-const openRetireModal = () => {
-  retireReason.value = ''
-  retireModalOpen.value = true
-}
-
 const submitApprove = async () => {
   if (!detail.value) return
   actionLoading.value = true
@@ -965,27 +952,6 @@ const submitReject = async () => {
     fetchDetail()
   } catch (error) {
     message.error(error.response?.data?.detail || '拒绝失败')
-  } finally {
-    actionLoading.value = false
-    actionType.value = ''
-  }
-}
-
-const submitRetire = async () => {
-  if (!detail.value) return
-  if (!retireReason.value.trim()) {
-    message.warning('请输入退役原因')
-    return
-  }
-  actionLoading.value = true
-  actionType.value = 'retire'
-  try {
-    await retireSkill(detail.value.skill_id, { actor: currentUser(), reason: retireReason.value.trim() })
-    message.success('已退役')
-    retireModalOpen.value = false
-    fetchDetail()
-  } catch (error) {
-    message.error(error.response?.data?.detail || '退役失败')
   } finally {
     actionLoading.value = false
     actionType.value = ''
@@ -1091,11 +1057,19 @@ const skillspectorFindings = computed(() => {
   const rawFindings = skillspectorRawReport.value?.filtered_findings || skillspectorRawReport.value?.findings
   return Array.isArray(rawFindings) ? rawFindings : []
 })
+const hasHighRiskSkillspectorFinding = computed(() =>
+  skillspectorFindings.value.some((item) => severityRank(item.severity) >= severityRank('HIGH')),
+)
 const governanceCardHtml = computed(() => {
   const content = governanceCard.value?.content || ''
   if (!content) return '<p>暂无治理卡片</p>'
   return marked.parse(content)
 })
+const numberedLines = (text) => String(text || '').split('\n').map((line, index) => ({
+  no: index + 1,
+  text: line,
+}))
+const governanceCardLines = computed(() => numberedLines(governanceCard.value?.content || '暂无治理卡片'))
 const sandboxAnalysis = computed(() => scanReport.value?.sandbox_analysis || null)
 const sandboxSignals = computed(() => sandboxAnalysis.value?.signals || sandboxAnalysis.value?.suspicious_events || [])
 const sandboxProbeResults = computed(() => {
@@ -1233,6 +1207,8 @@ const skillContentHtml = computed(() => {
   if (!body) return '<p>该 SKILL.md 只有 manifest，没有额外正文内容。</p>'
   return marked.parse(body)
 })
+const skillContentLines = computed(() => numberedLines(skillContent.value?.content || '点击“加载 SKILL.md”查看技能内容'))
+const viewedFileLines = computed(() => numberedLines(viewedFile.value?.content || '暂无文件内容'))
 
 const statusLabels = {
   PENDING: '分析中',
@@ -1261,8 +1237,20 @@ const recommendationLabels = {
 }
 
 const termTranslations = {
+  'LOW_ANALYZABILITY': '可分析性不足',
+  'Moderate analyzability score': '中等可分析性评分',
   'External Transmission': '外部传输',
   'Data Exfiltration': '数据外传',
+  'Prompt Injection': '提示词注入',
+  'Instruction Override': '覆盖上级指令',
+  'System Prompt Leakage': '系统提示词泄露',
+  'System Prompt Disclosure': '披露系统提示词',
+  'Tool Poisoning': '工具投毒',
+  'Hidden Instructions': '隐藏指令',
+  'Supply Chain': '供应链风险',
+  'External Script Fetching': '下载外部脚本',
+  'Obfuscated Code': '混淆代码',
+  'Wildcard Permission': '通配权限',
   'Network Access': '网络访问',
   'File System Access': '文件系统访问',
   'Sensitive File Access': '敏感文件访问',
@@ -1270,11 +1258,30 @@ const termTranslations = {
   'Code Execution': '代码执行',
   'Dynamic Code Execution': '动态代码执行',
   'Credential Access': '凭据访问',
-  'Prompt Injection': '提示词注入',
   'Privilege Escalation': '权限提升',
   Persistence: '持久化',
   'Encoded Payload': '编码载荷',
 }
+
+const sentenceTranslations = [
+  {
+    pattern: /^Only\s+(\d+)%\s+of skill content could be analyzed\.\s+(\d+)\s+of\s+(\d+)\s+files?\s+(?:is|are)\s+opaque to the scanner\.\s+Some content could not be verified as safe\.?$/i,
+    render: ([, percent, opaque, total]) =>
+      `仅有 ${percent}% 的 Skill 内容可被分析。${total} 个文件中有 ${opaque} 个对扫描器不可解析，因此部分内容无法确认安全。`,
+  },
+  {
+    pattern: /^Code or instructions reference external transmission\.\s*文件:\s*(.+)$/i,
+    render: ([, file]) => `代码或指令引用了可能向外部发送数据的调用。文件: ${file}`,
+  },
+  {
+    pattern: /^Code accesses environment variables that may contain secrets\.\s*文件:\s*(.+)$/i,
+    render: ([, file]) => `代码读取环境变量，可能接触密钥或敏感配置。文件: ${file}`,
+  },
+  {
+    pattern: /^Skill content asks the agent to ignore higher-priority instructions\.\s*文件:\s*(.+)$/i,
+    render: ([, file]) => `Skill 内容要求忽略上级或系统指令。文件: ${file}`,
+  },
+]
 
 const statusTitle = (value) => statusLabels[value] || '未知'
 const statusDisplay = (value) => (value ? `${value}（${statusTitle(value)}）` : '-')
@@ -1299,10 +1306,12 @@ const riskDisplay = (value) => {
 const bilingualText = (value) => {
   const text = String(value || '').trim()
   if (!text) return '-'
-  return Object.entries(termTranslations).reduce((result, [english, chinese]) => {
-    if (result.includes(`${english}（`)) return result
-    return result.replaceAll(english, `${english}（${chinese}）`)
-  }, text)
+  if (termTranslations[text]) return `${text}（${termTranslations[text]}）`
+  for (const item of sentenceTranslations) {
+    const match = text.match(item.pattern)
+    if (match) return item.render(match)
+  }
+  return text
 }
 const findingTitle = (item) => bilingualText(item?.title || item?.pattern || item?.message || '-')
 const originLabel = (value) => ({
@@ -1393,6 +1402,14 @@ watch(
   (value) => {
     activeTab.value = value || 'vetting'
   },
+)
+
+watch(
+  () => [skillspectorFindings.value.length, hasHighRiskSkillspectorFinding.value],
+  () => {
+    skillspectorFindingsActiveKey.value = hasHighRiskSkillspectorFinding.value ? ['skillspector-findings'] : []
+  },
+  { immediate: true },
 )
 </script>
 
@@ -1578,6 +1595,22 @@ watch(
   padding: 16px;
 }
 
+.skill-detail-page {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.skill-detail-page :deep(.ant-card),
+.skill-detail-page :deep(.ant-card-body),
+.skill-detail-page :deep(.ant-tabs),
+.skill-detail-page :deep(.ant-tabs-content),
+.skill-detail-page :deep(.ant-tabs-tabpane),
+.skill-detail-page :deep(.ant-descriptions),
+.skill-detail-page :deep(.ant-table-wrapper) {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .basic-info-card :deep(.ant-descriptions-item-label) {
   width: 124px;
   white-space: nowrap;
@@ -1614,7 +1647,7 @@ watch(
 
 .lifecycle-steps {
   flex: 1 1 620px;
-  min-width: 520px;
+  min-width: 0;
 }
 
 .lifecycle-actions {
@@ -1759,5 +1792,44 @@ watch(
   max-width: 100%;
   overflow-x: auto;
   word-break: break-word;
+}
+
+.code-preview {
+  width: 100%;
+  max-width: 100%;
+  max-height: 620px;
+  overflow: auto;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #fbfdff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.drawer-code-preview {
+  max-height: calc(100vh - 150px);
+}
+
+.code-line {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+}
+
+.line-no {
+  flex: 0 0 56px;
+  padding: 0 10px;
+  color: #8c8c8c;
+  text-align: right;
+  user-select: none;
+  background: #f3f6fa;
+  border-right: 1px solid #e5e7eb;
+}
+
+.line-text {
+  flex: 0 0 auto;
+  padding: 0 12px;
+  white-space: pre;
 }
 </style>

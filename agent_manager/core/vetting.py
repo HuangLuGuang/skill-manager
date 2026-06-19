@@ -65,7 +65,7 @@ _BEHAVIORAL_RULES = (
         "severity": "HIGH",
         "title": "检测到动态代码执行",
         "message": "脚本出现 eval 或 exec，可能执行动态构造代码。",
-        "pattern": re.compile(r"\b(?:eval|exec)\s*\("),
+        "pattern": re.compile(r"(?<![\w.])(?:eval|exec)\s*\("),
     },
     {
         "rule": "download_and_execute",
@@ -278,6 +278,14 @@ def _max_severity(*values: str) -> str:
     return resolved
 
 
+def _risk_max_severity(findings: list[dict]) -> str:
+    return _max_severity(*(
+        str(finding.get("severity", "SAFE"))
+        for finding in findings
+        if str(finding.get("rule") or finding.get("rule_id") or "").upper() != "LOW_ANALYZABILITY"
+    ))
+
+
 def _iter_behavioral_candidate_files(skill_path: Path) -> list[Path]:
     priority_files: list[Path] = []
     fallback_files: list[Path] = []
@@ -410,6 +418,7 @@ class VettingPipeline:
                 ],
                 "skillspector_analysis": skillspector_result,
             }
+            scan_report["risk_max_severity"] = _risk_max_severity(scan_report.get("findings", []))
         behavioral_notes: list[str] = []
         behavioral_result = None
         if use_behavioral:
@@ -441,6 +450,7 @@ class VettingPipeline:
                 "behavioral_analysis": behavioral_result,
                 "local_static_analysis": local_static_result,
             }
+            scan_report["risk_max_severity"] = _risk_max_severity(scan_report.get("findings", []))
             behavioral_notes.append(
                 "[BEHAVIORAL] "
                 f"scanned {behavioral_result.get('scanned_file_count', 0)} files"
@@ -451,7 +461,8 @@ class VettingPipeline:
                     f"found {len(combined_behavioral_findings)} suspicious patterns"
                 )
         # 3. Sandbox Analysis (before LLM so LLM can use sandbox results)
-        interim_risk_level = RiskLevel.from_severity(scan_report.get("max_severity", "SAFE"))
+        scan_report["risk_max_severity"] = _risk_max_severity(scan_report.get("findings", []))
+        interim_risk_level = RiskLevel.from_severity(scan_report.get("risk_max_severity", "SAFE"))
         scan_report = {
             **scan_report,
             "interim_risk_level": interim_risk_level.value,
@@ -616,6 +627,7 @@ class VettingPipeline:
                         ],
                         "sandbox_analysis": sandbox_result,
                     }
+                    scan_report["risk_max_severity"] = _risk_max_severity(scan_report.get("findings", []))
                     if sandbox_exec.executed:
                         sandbox_notes.append(
                             f"[SANDBOX] executed {entrypoint} strategy={sandbox_result['probe_strategy']} "
@@ -650,7 +662,8 @@ class VettingPipeline:
                         temp_probe_context.cleanup()
 
         # 4. LLM multi-round analysis (after sandbox, with all prior results)
-        pre_llm_risk_level = RiskLevel.from_severity(scan_report.get("max_severity", "SAFE"))
+        scan_report["risk_max_severity"] = _risk_max_severity(scan_report.get("findings", []))
+        pre_llm_risk_level = RiskLevel.from_severity(scan_report.get("risk_max_severity", "SAFE"))
         scan_report = {
             **scan_report,
             "pre_llm_risk_level": pre_llm_risk_level.value,

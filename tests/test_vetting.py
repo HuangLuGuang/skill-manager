@@ -266,6 +266,31 @@ class TestVettingPipeline:
         assert any(f["source"] == "behavioral" for f in result.scan_report["findings"])
         assert result.risk_level == RiskLevel.MALICIOUS
 
+    def test_low_analyzability_does_not_raise_risk(self, skill_dir, monkeypatch):
+        monkeypatch.setattr(
+            "agent_manager.core.vetting._run_scanner",
+            lambda _path, _policy: {
+                "max_severity": "MEDIUM",
+                "findings": [{
+                    "rule": "LOW_ANALYZABILITY",
+                    "severity": "MEDIUM",
+                    "title": "可分析性不足",
+                    "message": "部分内容无法确认安全。",
+                    "source": "scanner",
+                }],
+                "analyzers_used": ["scanner"],
+            },
+        )
+
+        result, _violations, _name, _desc, _tools = VettingPipeline(
+            CompanyPolicy({"require_sandbox_for_risk": []})
+        ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+
+        assert result.risk_level == RiskLevel.BENIGN
+        assert result.scan_report["max_severity"] == "MEDIUM"
+        assert result.scan_report["risk_max_severity"] == "SAFE"
+        assert result.scan_report["findings"][0]["rule"] == "LOW_ANALYZABILITY"
+
     def test_llm_cannot_downgrade_deterministic_scan_risk(self, skill_dir, monkeypatch):
         monkeypatch.setattr(
             "agent_manager.core.vetting._run_scanner",
