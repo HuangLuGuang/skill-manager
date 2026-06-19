@@ -129,20 +129,25 @@ def run_skillspector_scan(
             if not isinstance(risk_assessment, dict):
                 risk_assessment = {}
             risk_score = raw_report.get("risk_score", risk_assessment.get("score"))
-            risk_severity = raw_report.get("risk_severity", risk_assessment.get("severity"))
-            risk_recommendation = raw_report.get(
+            raw_risk_severity = str(raw_report.get("risk_severity", risk_assessment.get("severity")) or "SAFE").upper()
+            raw_risk_recommendation = raw_report.get(
                 "risk_recommendation",
                 risk_assessment.get("recommendation"),
             )
-            effective_severity = _max_severity(*(str(item.get("severity") or "SAFE") for item in findings))
+            effective_severity = _effective_severity(raw_risk_severity, findings)
             return {
                 "available": True,
                 "version": version,
                 "risk_score": risk_score,
+                "raw_risk_severity": raw_risk_severity,
+                "raw_risk_recommendation": raw_risk_recommendation,
                 "risk_severity": effective_severity,
-                "risk_recommendation": _recommendation_for_severity(effective_severity, risk_recommendation),
+                "effective_risk_severity": effective_severity,
+                "risk_recommendation": _recommendation_for_severity(effective_severity, raw_risk_recommendation),
+                "effective_risk_recommendation": _recommendation_for_severity(effective_severity, raw_risk_recommendation),
                 "max_severity": effective_severity,
                 "findings": findings,
+                "suppressed_findings_count": _suppressed_findings_count(raw_report),
                 "raw_report": raw_report,
             }
         except Exception as exc:
@@ -157,6 +162,14 @@ def run_skillspector_scan(
 
 
 def _normalize_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        finding
+        for finding in _normalize_raw_findings(report)
+        if not _is_noisy_finding(finding)
+    ]
+
+
+def _normalize_raw_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
     raw_findings = report.get("filtered_findings")
     if raw_findings is None:
         raw_findings = report.get("findings")
@@ -192,9 +205,21 @@ def _normalize_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
         }
         if line is not None:
             normalized["line"] = line
-        if not _is_noisy_finding(normalized):
-            findings.append(normalized)
+        findings.append(normalized)
     return findings
+
+
+def _suppressed_findings_count(report: dict[str, Any]) -> int:
+    return sum(1 for finding in _normalize_raw_findings(report) if _is_noisy_finding(finding))
+
+
+def _effective_severity(raw_severity: str, findings: list[dict[str, Any]]) -> str:
+    findings_severity = _max_severity(*(str(item.get("severity") or "SAFE") for item in findings))
+    if findings_severity != "SAFE":
+        return findings_severity
+    if _severity_rank(raw_severity) >= _severity_rank("HIGH"):
+        return "MEDIUM"
+    return raw_severity.upper() if raw_severity else "SAFE"
 
 
 def _is_noisy_finding(finding: dict[str, Any]) -> bool:
@@ -223,6 +248,13 @@ def _recommendation_for_severity(severity: str, fallback: Any) -> str:
         "HIGH": "DO_NOT_INSTALL",
         "CRITICAL": "DO_NOT_INSTALL",
     }.get(str(severity or "").upper(), str(fallback or "SAFE"))
+
+
+def _severity_rank(value: str) -> int:
+    return {"SAFE": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4, "EXTREME": 5}.get(
+        str(value or "SAFE").upper(),
+        0,
+    )
 
 
 def _skillspector_llm_env(config: LLMConfig) -> dict[str, str]:

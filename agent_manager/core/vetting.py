@@ -278,12 +278,21 @@ def _max_severity(*values: str) -> str:
     return resolved
 
 
-def _risk_max_severity(findings: list[dict]) -> str:
-    return _max_severity(*(
+def _risk_max_severity(findings: list[dict], reported_max: str = "SAFE") -> str:
+    finding_max = _max_severity(*(
         str(finding.get("severity", "SAFE"))
         for finding in findings
-        if str(finding.get("rule") or finding.get("rule_id") or "").upper() != "LOW_ANALYZABILITY"
+        if not _is_low_analyzability_signal(finding)
     ))
+    if finding_max != "SAFE" or not findings:
+        return _max_severity(finding_max, reported_max)
+    return "SAFE"
+
+
+def _is_low_analyzability_signal(finding: dict) -> bool:
+    rule = str(finding.get("rule") or finding.get("rule_id") or "").upper()
+    severity = str(finding.get("severity", "SAFE")).upper()
+    return rule == "LOW_ANALYZABILITY" and _SEVERITY_ORDER.get(severity, 0) <= _SEVERITY_ORDER["MEDIUM"]
 
 
 def _iter_behavioral_candidate_files(skill_path: Path) -> list[Path]:
@@ -418,7 +427,10 @@ class VettingPipeline:
                 ],
                 "skillspector_analysis": skillspector_result,
             }
-            scan_report["risk_max_severity"] = _risk_max_severity(scan_report.get("findings", []))
+            scan_report["risk_max_severity"] = _risk_max_severity(
+                scan_report.get("findings", []),
+                scan_report.get("max_severity", "SAFE"),
+            )
         behavioral_notes: list[str] = []
         behavioral_result = None
         if use_behavioral:
@@ -450,7 +462,10 @@ class VettingPipeline:
                 "behavioral_analysis": behavioral_result,
                 "local_static_analysis": local_static_result,
             }
-            scan_report["risk_max_severity"] = _risk_max_severity(scan_report.get("findings", []))
+            scan_report["risk_max_severity"] = _risk_max_severity(
+                scan_report.get("findings", []),
+                scan_report.get("max_severity", "SAFE"),
+            )
             behavioral_notes.append(
                 "[BEHAVIORAL] "
                 f"scanned {behavioral_result.get('scanned_file_count', 0)} files"
@@ -461,7 +476,10 @@ class VettingPipeline:
                     f"found {len(combined_behavioral_findings)} suspicious patterns"
                 )
         # 3. Sandbox Analysis (before LLM so LLM can use sandbox results)
-        scan_report["risk_max_severity"] = _risk_max_severity(scan_report.get("findings", []))
+        scan_report["risk_max_severity"] = _risk_max_severity(
+            scan_report.get("findings", []),
+            scan_report.get("max_severity", "SAFE"),
+        )
         interim_risk_level = RiskLevel.from_severity(scan_report.get("risk_max_severity", "SAFE"))
         scan_report = {
             **scan_report,
@@ -627,7 +645,10 @@ class VettingPipeline:
                         ],
                         "sandbox_analysis": sandbox_result,
                     }
-                    scan_report["risk_max_severity"] = _risk_max_severity(scan_report.get("findings", []))
+                    scan_report["risk_max_severity"] = _risk_max_severity(
+                        scan_report.get("findings", []),
+                        scan_report.get("max_severity", "SAFE"),
+                    )
                     if sandbox_exec.executed:
                         sandbox_notes.append(
                             f"[SANDBOX] executed {entrypoint} strategy={sandbox_result['probe_strategy']} "
@@ -662,7 +683,10 @@ class VettingPipeline:
                         temp_probe_context.cleanup()
 
         # 4. LLM multi-round analysis (after sandbox, with all prior results)
-        scan_report["risk_max_severity"] = _risk_max_severity(scan_report.get("findings", []))
+        scan_report["risk_max_severity"] = _risk_max_severity(
+            scan_report.get("findings", []),
+            scan_report.get("max_severity", "SAFE"),
+        )
         pre_llm_risk_level = RiskLevel.from_severity(scan_report.get("risk_max_severity", "SAFE"))
         scan_report = {
             **scan_report,

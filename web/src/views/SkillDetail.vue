@@ -247,12 +247,18 @@
                   <a-descriptions-item label="版本">{{ skillspectorAnalysis.version || '-' }}</a-descriptions-item>
                   <a-descriptions-item label="风险分">{{ skillspectorAnalysis.risk_score ?? '-' }}</a-descriptions-item>
                   <a-descriptions-item label="风险级别">
-                    <a-tag :color="severityColor(skillspectorAnalysis.risk_severity || skillspectorAnalysis.max_severity)">
-                      {{ severityDisplay(skillspectorAnalysis.risk_severity || skillspectorAnalysis.max_severity) }}
+                    <a-tag :color="severityColor(skillspectorEffectiveSeverity)">
+                      {{ severityDisplay(skillspectorEffectiveSeverity) }}
                     </a-tag>
+                  </a-descriptions-item>
+                  <a-descriptions-item v-if="skillspectorRawSeverity && skillspectorRawSeverity !== skillspectorEffectiveSeverity" label="原始风险">
+                    {{ severityDisplay(skillspectorRawSeverity) }}
                   </a-descriptions-item>
                   <a-descriptions-item label="建议">{{ recommendationDisplay(skillspectorAnalysis.risk_recommendation) }}</a-descriptions-item>
                   <a-descriptions-item label="发现项">{{ skillspectorFindings.length }}</a-descriptions-item>
+                  <a-descriptions-item v-if="skillspectorAnalysis.suppressed_findings_count" label="已过滤噪声">
+                    {{ skillspectorAnalysis.suppressed_findings_count }}
+                  </a-descriptions-item>
                 </a-descriptions>
                 <a-collapse v-if="skillspectorFindings.length" v-model:activeKey="skillspectorFindingsActiveKey" style="margin-top: 12px">
                   <a-collapse-panel key="skillspector-findings" :header="`SkillSpector 命中项（${skillspectorFindings.length}）`">
@@ -1050,13 +1056,18 @@ const riskRationaleItems = computed(() => {
   }).slice(0, 3)
 })
 const skillspectorAnalysis = computed(() => scanReport.value?.skillspector_analysis || null)
-const skillspectorRawReport = computed(() => skillspectorAnalysis.value?.raw_report || {})
 const skillspectorFindings = computed(() => {
   const findings = skillspectorAnalysis.value?.findings
   if (Array.isArray(findings)) return findings
-  const rawFindings = skillspectorRawReport.value?.filtered_findings || skillspectorRawReport.value?.findings
-  return Array.isArray(rawFindings) ? rawFindings : []
+  return []
 })
+const skillspectorEffectiveSeverity = computed(() =>
+  skillspectorAnalysis.value?.effective_risk_severity
+  || skillspectorAnalysis.value?.risk_severity
+  || skillspectorAnalysis.value?.max_severity
+  || '',
+)
+const skillspectorRawSeverity = computed(() => skillspectorAnalysis.value?.raw_risk_severity || '')
 const hasHighRiskSkillspectorFinding = computed(() =>
   skillspectorFindings.value.some((item) => severityRank(item.severity) >= severityRank('HIGH')),
 )
@@ -1373,6 +1384,7 @@ const severityColor = (value) =>
     MEDIUM: 'orange',
     HIGH: 'red',
     CRITICAL: 'magenta',
+    EXTREME: 'magenta',
   }[(value || '').toUpperCase()] || 'default')
 
 const formatFileSize = (value) => {
