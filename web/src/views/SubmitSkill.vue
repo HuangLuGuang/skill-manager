@@ -7,7 +7,7 @@
         type="info"
         show-icon
         message="提交说明"
-        description="你可以上传 ZIP、从后台指定目录中多选 skill 导入，或填写 ZIP 下载地址 / GitHub 仓库地址先下载并扫描候选技能，再多选提交。ZIP 选择或拖拽后会自动解析；来源会根据导入方式自动填充，提交后会先进入 PENDING，再由后台继续完成扫描、LLM、规则分析和 Sandbox。"
+        description="你可以上传 ZIP、从后台指定目录中多选 skill 导入，或填写 ZIP 下载地址 / GitHub 仓库地址先下载候选技能，再多选提交。ZIP 选择或拖拽后会自动解析；来源会根据导入方式自动填充，提交后会先进入 PENDING，再由后台继续完成扫描、LLM、规则分析和 Sandbox。"
         style="margin-bottom: 16px"
       />
 
@@ -203,7 +203,7 @@
         </a-tab-pane>
 
         <a-tab-pane key="url" tab="网络下载导入">
-          <a-form layout="vertical" @finish="prepareUrlImport">
+          <a-form layout="vertical" @finish="handleRemoteFormFinish">
             <a-form-item label="下载地址">
               <a-input v-model:value="downloadUrl" class="remote-import-input" allow-clear placeholder="https://example.com/skill.zip 或 https://github.com/org/repo" />
               <div class="field-hint">支持直接填 ZIP 下载地址，也支持 GitHub 仓库地址；如果压缩包里包含多个 skill，会先解析候选目录供你多选。</div>
@@ -270,12 +270,13 @@
             <a-form-item>
               <a-space>
                 <a-button
+                  v-if="!remoteImportSessionId"
                   type="primary"
                   :loading="loadingRemoteCandidates"
                   :disabled="submitting || loadingRemoteCandidates || !downloadUrl.trim()"
                   @click="prepareUrlImport"
                 >
-                  下载并扫描
+                  下载
                 </a-button>
                 <a-button
                   type="primary"
@@ -286,6 +287,17 @@
                 >
                   提交所选技能
                 </a-button>
+                <a-popconfirm
+                  v-if="remoteImportSessionId"
+                  title="重新下载会清空当前已解析的候选技能和选择，确认继续？"
+                  ok-text="重新下载"
+                  cancel-text="取消"
+                  @confirm="prepareUrlImport"
+                >
+                  <a-button :loading="loadingRemoteCandidates" :disabled="submitting || loadingRemoteCandidates || !downloadUrl.trim()">
+                    重新下载
+                  </a-button>
+                </a-popconfirm>
                 <a-button @click="resetRemoteImport" :disabled="submitting || loadingRemoteCandidates">清空</a-button>
               </a-space>
             </a-form-item>
@@ -919,18 +931,24 @@ const prepareUrlImport = async () => {
     if (remoteCandidates.value.length === 1) {
       selectedRemotePaths.value = [remoteCandidates.value[0].path]
     }
-    message.success(`下载并扫描完成，识别到 ${remoteCandidates.value.length} 个可导入 skill`)
+    message.success(`下载完成，识别到 ${remoteCandidates.value.length} 个可导入 skill`)
   } catch (error) {
-    message.error(error.response?.data?.detail || '远程下载扫描失败')
+    message.error(error.response?.data?.detail || '远程下载失败')
   } finally {
     loadingRemoteCandidates.value = false
+  }
+}
+
+const handleRemoteFormFinish = () => {
+  if (!remoteImportSessionId.value) {
+    prepareUrlImport()
   }
 }
 
 const handleUrlSubmit = async () => {
   if (submitting.value) return
   if (!remoteImportSessionId.value) {
-    message.warning('请先下载并扫描远程压缩包')
+    message.warning('请先下载远程压缩包')
     return
   }
   if (!selectedRemoteDirectories.value.length) {
