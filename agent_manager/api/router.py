@@ -1078,7 +1078,7 @@ def list_skills(
     sandbox_triggered: bool | None = Query(None),
     sandbox_required_by_policy: bool | None = Query(None),
     q: str | None = Query(None),
-    sort_by: str = Query("submitted_at"),
+    sort_by: str = Query("updated_at"),
     sort_order: str = Query("desc"),
     page: int | None = Query(None, ge=1),
     page_size: int | None = Query(None, ge=1, le=100),
@@ -1125,8 +1125,10 @@ def list_skills(
         entries = sorted(entries, key=lambda e: e.risk_level.value if e.risk_level else "", reverse=reverse)
     elif sort_by == "approved_by":
         entries = sorted(entries, key=lambda e: (e.approved_by or "").lower(), reverse=reverse)
-    else:
+    elif sort_by == "submitted_at":
         entries = sorted(entries, key=lambda e: e.submitted_at, reverse=reverse)
+    else:
+        entries = sorted(entries, key=lambda e: e.updated_at, reverse=reverse)
 
     summaries = [e.summary() for e in entries]
     if page is not None or page_size is not None:

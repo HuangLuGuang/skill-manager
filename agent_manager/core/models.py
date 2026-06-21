@@ -127,6 +127,7 @@ class RegistryEntry(BaseModel):
 
     # Timestamps
     submitted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     approved_at: Optional[datetime] = None
     deployed_at: Optional[datetime] = None
     retired_at: Optional[datetime] = None
@@ -171,6 +172,7 @@ class RegistryEntry(BaseModel):
             "sandbox_runtime": self.vetting.sandbox_runtime if self.vetting else None,
             "approved_by": self.approved_by,
             "submitted_at": self.submitted_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
             "approved_at": self.approved_at.isoformat() if self.approved_at else None,
             "deployed_at": self.deployed_at.isoformat() if self.deployed_at else None,
         }

@@ -18,6 +18,7 @@ from typing import Any
 from .llm import LLMConfig
 
 _FONT_EXTENSIONS = {".ttf", ".otf", ".woff", ".woff2"}
+_RASTER_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp"}
 _LICENSE_FILENAMES = {"license", "license.txt", "notice", "notice.txt", "copying"}
 _CACHE_TTL_SECONDS = 60
 _availability_cache: tuple[float, str | None] | None = None
@@ -124,7 +125,12 @@ def run_skillspector_scan(
             if completed.returncode not in (0, 1):
                 raise RuntimeError((completed.stderr or completed.stdout or f"exit {completed.returncode}").strip())
             raw_report = json.loads(output_path.read_text(encoding="utf-8"))
-            findings = _normalize_findings(raw_report)
+            raw_findings = _normalize_raw_findings(raw_report)
+            findings = [
+                finding
+                for finding in raw_findings
+                if not _is_noisy_finding(finding)
+            ]
             risk_assessment = raw_report.get("risk_assessment")
             if not isinstance(risk_assessment, dict):
                 risk_assessment = {}
@@ -134,7 +140,17 @@ def run_skillspector_scan(
                 "risk_recommendation",
                 risk_assessment.get("recommendation"),
             )
-            effective_severity = _effective_severity(raw_risk_severity, findings)
+            effective_severity = _effective_severity(
+                raw_risk_severity,
+                findings,
+                risk_score=risk_score,
+                recommendation=raw_risk_recommendation,
+                all_suppressed_as_raster_image_noise=(
+                    bool(raw_findings)
+                    and not findings
+                    and all(_is_raster_image_noise_finding(item) for item in raw_findings)
+                ),
+            )
             return {
                 "available": True,
                 "version": version,
@@ -159,14 +175,6 @@ def run_skillspector_scan(
                 "raw_report": {},
                 "error": str(exc),
             }
-
-
-def _normalize_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        finding
-        for finding in _normalize_raw_findings(report)
-        if not _is_noisy_finding(finding)
-    ]
 
 
 def _normalize_raw_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
@@ -213,13 +221,36 @@ def _suppressed_findings_count(report: dict[str, Any]) -> int:
     return sum(1 for finding in _normalize_raw_findings(report) if _is_noisy_finding(finding))
 
 
-def _effective_severity(raw_severity: str, findings: list[dict[str, Any]]) -> str:
+def _effective_severity(
+    raw_severity: str,
+    findings: list[dict[str, Any]],
+    *,
+    risk_score: Any = None,
+    recommendation: Any = None,
+    all_suppressed_as_raster_image_noise: bool = False,
+) -> str:
     findings_severity = _max_severity(*(str(item.get("severity") or "SAFE") for item in findings))
     if findings_severity != "SAFE":
         return findings_severity
+    if all_suppressed_as_raster_image_noise:
+        return "SAFE"
+    if _is_empty_safe_low(raw_severity, risk_score, recommendation):
+        return "SAFE"
     if _severity_rank(raw_severity) >= _severity_rank("HIGH"):
         return "MEDIUM"
     return raw_severity.upper() if raw_severity else "SAFE"
+
+
+def _is_empty_safe_low(raw_severity: str, risk_score: Any, recommendation: Any) -> bool:
+    try:
+        score = float(risk_score)
+    except (TypeError, ValueError):
+        return False
+    return (
+        str(raw_severity or "").upper() == "LOW"
+        and score == 0
+        and str(recommendation or "").upper() == "SAFE"
+    )
 
 
 def _is_noisy_finding(finding: dict[str, Any]) -> bool:
@@ -229,9 +260,16 @@ def _is_noisy_finding(finding: dict[str, Any]) -> bool:
     suffix = Path(file).suffix.lower()
     if suffix in _FONT_EXTENSIONS:
         return True
+    if _is_raster_image_noise_finding(finding):
+        return True
     if rule == "EA3" and _is_license_file(file) and "limited to" in message:
         return True
     return False
+
+
+def _is_raster_image_noise_finding(finding: dict[str, Any]) -> bool:
+    file = str(finding.get("file") or "")
+    return Path(file).suffix.lower() in _RASTER_IMAGE_EXTENSIONS
 
 
 def _is_license_file(rel_path: str) -> bool:

@@ -88,6 +88,7 @@ Runtime Agent 加载校验权限：
 
 - 客户本地扫描器：只选 scanner 权限。
 - Agno / LangGraph 等外部 Agent：只选 runtime 权限。
+- Codex / Claude Code 等通用 Skill Guard：选择 `scanner:submit`、`scanner:read-own-results` 和全部 runtime 权限。
 - 同一个测试环境既扫描又加载：可以同时选择 scanner 和 runtime 权限。
 
 不要给接入 token 授予：
@@ -113,9 +114,112 @@ Token 明文可以通过 CLI 参数、环境变量或 GUI 设置页配置，不�
 
 ---
 
-## 4. CLI 使用
+## 4. Agent Skill Guard
+
+`Agent Skill Guard` 是给 Codex、Claude Code 等通用 Agent 使用的示例 skill。它不依赖 hook，也不绑定某个 Agent 平台；安装后，Agent 在安装、加载或调用第三方 skill 前，可以按 skill 指令先提交扫描，再验签和检查审批状态。
+
+它和 Go Scanner 的定位不同：
+
+- Go Scanner：面向客户侧批量发现和上传本地 skills，适合 CI、服务器或人工 GUI 扫描。
+- Agent Skill Guard：面向 Agent 运行过程，强调“第三方 skill 使用前必须先过 Agent Manager”。
 
 ### 4.1 下载
+
+管理台进入：
+
+- `扫描器接入`
+- `Agent Skill Guard 接入`
+- 点击 `下载 Skill Guard`
+
+对应后端接口：
+
+```http
+GET /api/v1/scanner/skill-guard/download
+```
+
+下载文件名为：
+
+```text
+agent-manager-skill-guard.zip
+```
+
+ZIP 内包含：
+
+- `agent-manager-skill-guard/SKILL.md`
+- `agent-manager-skill-guard/scripts/agent_manager_skill_guard.py`
+
+### 4.2 Token 权限
+
+Skill Guard 首版使用一个合并 token。至少需要：
+
+- `scanner:submit`
+- `scanner:read-own-results`
+- `runtime:verify-signature`
+- `runtime:can-load`
+- `runtime:check-tool`
+
+环境变量示例：
+
+```bash
+export AGENT_MANAGER_BASE_URL="http://localhost:8001"
+export AGENT_MANAGER_API_TOKEN="smsc_live_xxx"
+export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
+```
+
+也兼容 `AGENT_MANAGER_TOKEN` 和 `AGENT_MANAGER_ACCESS_TOKEN`。
+
+### 4.3 安装到 Codex
+
+```bash
+mkdir -p ~/.codex/skills
+unzip agent-manager-skill-guard.zip -d ~/.codex/skills/
+```
+
+安装后重启 Codex，或刷新 Codex 的 skill 列表。
+
+### 4.4 安装到 Claude Code
+
+```bash
+mkdir -p ~/.claude/skills
+unzip agent-manager-skill-guard.zip -d ~/.claude/skills/
+```
+
+安装后重启 Claude Code，或刷新 Claude Code 的 skill 列表。
+
+### 4.5 使用命令
+
+提交本地第三方 skill 扫描：
+
+```bash
+python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py submit \
+  --path /path/to/third-party-skill \
+  --behavioral
+```
+
+查看提交状态：
+
+```bash
+python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py status \
+  --skill-id <skill-id>
+```
+
+使用前验签和检查审批状态：
+
+```bash
+python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py verify \
+  --name <skill-name> \
+  --path /path/to/third-party-skill
+```
+
+默认策略是阻断优先：未提交、扫描中、待审核、已拒绝、未签名、签名不匹配、状态不可加载或 API 错误，脚本都会返回非 `0`，并输出中文阻断原因。Agent 不应提供“用户确认后继续”的默认绕过路径。
+
+`submit` 默认启用 LLM 分析；如果服务端未启用 LLM，可显式加 `--no-llm`。
+
+---
+
+## 5. CLI 使用
+
+### 5.1 下载
 
 管理台进入：
 
@@ -133,9 +237,9 @@ Token 明文可以通过 CLI 参数、环境变量或 GUI 设置页配置，不�
 
 - `scanner/releases/`
 
-如果页面显示没有可下载文件，需要先在服务端构建发布文件，见本文第 9 节。
+如果页面显示没有可下载文件，需要先在服务端构建发布文件，见本文第 10 节。
 
-### 4.2 基本命令
+### 5.2 基本命令
 
 ```bash
 chmod +x skill-scanner-cli-darwin-arm64
@@ -159,7 +263,7 @@ export SKILL_SCANNER_HOST_ID="customer-prod-01"
 ./skill-scanner-cli-darwin-arm64 scan /path/to/skills --behavioral --sandbox --llm
 ```
 
-### 4.3 参数说明
+### 5.3 参数说明
 
 | 参数 | 说明 |
 | --- | --- |
@@ -179,7 +283,7 @@ export SKILL_SCANNER_HOST_ID="customer-prod-01"
 | `--max-files` | 单个 skill 最大文件数，默认 `2000`。 |
 | `--ignore` | 忽略目录名，默认 `.git,.venv,node_modules,__pycache__,dist,build`。 |
 
-### 4.4 本地报告
+### 5.4 本地报告
 
 CLI 会生成 JSON 报告，内容包括：
 
@@ -195,11 +299,11 @@ CLI 会生成 JSON 报告，内容包括：
 
 ---
 
-## 5. GUI 使用
+## 6. GUI 使用
 
 GUI 是原生桌面程序，不是网页版 GUI。
 
-### 5.1 下载
+### 6.1 下载
 
 管理台进入：
 
@@ -213,7 +317,7 @@ GUI 是原生桌面程序，不是网页版 GUI。
 
 当前 GUI 使用 Fyne 构建，跨平台 GUI 需要目标平台图形工具链。服务端发布目录里有哪个二进制，页面就显示哪个可下载项。
 
-### 5.2 基本操作
+### 6.2 基本操作
 
 1. 打开 GUI。
 2. 进入 `设置` 页，配置：
@@ -234,7 +338,7 @@ GUI 是原生桌面程序，不是网页版 GUI。
    - 忽略目录
 8. 点击 `执行扫描`。
 
-### 5.3 结果查看
+### 6.3 结果查看
 
 GUI 结果区会实时刷新：
 
@@ -253,7 +357,7 @@ GUI 结果区会实时刷新：
 
 ---
 
-## 6. 本地轻量预检
+## 7. 本地轻量预检
 
 客户侧 scanner 的本地预检只做低成本静态检查，不执行客户代码。
 
@@ -270,11 +374,11 @@ GUI 结果区会实时刷新：
 
 ---
 
-## 7. 服务端接口
+## 8. 服务端接口
 
 Scanner 使用专用 API，不复用管理员接口。
 
-### 7.1 提交
+### 8.1 提交
 
 ```http
 POST /api/v1/scanner/imports
@@ -303,7 +407,7 @@ Content-Type: multipart/form-data
 7. 创建 `PENDING` skill。
 8. 后台执行完整扫描。
 
-### 7.2 查询自己的提交
+### 8.2 查询自己的提交
 
 ```http
 GET /api/v1/scanner/imports/{skill_id}
@@ -314,11 +418,11 @@ Authorization: Bearer <scanner-token>
 
 ---
 
-## 8. 重复扫描复用
+## 9. 重复扫描复用
 
 服务端会尽量避免重复扫描完全相同的 skill。
 
-### 8.1 复用条件
+### 9.1 复用条件
 
 必须同时满足：
 
@@ -343,7 +447,7 @@ Authorization: Bearer <scanner-token>
 - 如果启用了模型网关，还包括网关 URL 和内部 metadata 配置
 - sandbox 配置和 runner 源
 
-### 8.2 页面显示
+### 9.2 页面显示
 
 如果发生复用，技能详情会显示：
 
@@ -361,7 +465,7 @@ Authorization: Bearer <scanner-token>
 - `scan_context_fingerprint`
 - `scan_cache_key`
 
-### 8.3 为什么没有复用
+### 9.3 为什么没有复用
 
 常见原因：
 
@@ -376,9 +480,9 @@ Authorization: Bearer <scanner-token>
 
 ---
 
-## 9. 构建和发布扫描器
+## 10. 构建和发布扫描器
 
-### 9.1 本地构建
+### 10.1 本地构建
 
 ```bash
 cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
@@ -389,7 +493,7 @@ go build -o skill-scanner-gui ./cmd/skill-scanner-gui
 
 GUI 依赖本机图形工具链。macOS 上构建 macOS GUI 最稳定；跨平台 GUI 构建建议在目标平台构建。
 
-### 9.2 生成发布目录
+### 10.2 生成发布目录
 
 ```bash
 cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
@@ -419,7 +523,7 @@ scanner/releases/
 ls -lh /Users/huangluguang/Desktop/Project/skill-manager/scanner/releases
 ```
 
-### 9.3 支持的平台
+### 10.3 支持的平台
 
 CLI 默认尝试构建：
 
@@ -447,12 +551,14 @@ BUILD_WINDOWS_GUI=1 ./scripts/package.sh
 
 ---
 
-## 10. 服务端页面
+## 11. 服务端页面
 
 管理台 `扫描器接入` 页面提供：
 
 - 接入 Token 创建、查看、吊销
 - CLI / GUI 下载
+- Agent Skill Guard 下载
+- Codex / Claude Code 安装示例
 - 安装命令
 - 参数说明
 - 配置模板
@@ -466,12 +572,14 @@ BUILD_WINDOWS_GUI=1 ./scripts/package.sh
 
 ---
 
-## 11. 相关代码
+## 12. 相关代码
 
 - [scanner/cmd/skill-scanner/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner/main.go)
 - [scanner/cmd/skill-scanner-gui/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner-gui/main.go)
 - [scanner/internal/runner/runner.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/internal/runner/runner.go)
 - [scanner/internal/gui/gui.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/internal/gui/gui.go)
+- [demo/agent-manager-skill-guard/skills/agent-manager-skill-guard/SKILL.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-guard/skills/agent-manager-skill-guard/SKILL.md)
+- [demo/agent-manager-skill-guard/skills/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-guard/skills/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py)
 - [agent_manager/api/scanner_router.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/api/scanner_router.py)
 - [agent_manager/core/scanner_tokens.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/scanner_tokens.py)
 - [agent_manager/core/scan_cache.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/scan_cache.py)

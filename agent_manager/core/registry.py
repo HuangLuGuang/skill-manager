@@ -88,6 +88,7 @@ class Registry:
                 CREATE INDEX IF NOT EXISTS idx_skill_registry_name ON skill_registry(lower(name));
                 CREATE INDEX IF NOT EXISTS idx_skill_registry_status ON skill_registry(status);
                 CREATE INDEX IF NOT EXISTS idx_skill_registry_submitted_at ON skill_registry(submitted_at);
+                CREATE INDEX IF NOT EXISTS idx_skill_registry_updated_at ON skill_registry(updated_at);
 
                 CREATE TABLE IF NOT EXISTS skill_review_queue (
                     skill_id TEXT PRIMARY KEY,
@@ -229,6 +230,7 @@ class Registry:
         os.replace(tmp_path, path)
 
     def _upsert_entry(self, conn: sqlite3.Connection, entry: RegistryEntry) -> None:
+        entry.updated_at = datetime.now(timezone.utc)
         payload = json.dumps(entry.model_dump(mode="json"), ensure_ascii=False, default=str)
         conn.execute(
             """
@@ -249,13 +251,16 @@ class Registry:
                 entry.status.value,
                 entry.risk_level.value if entry.risk_level else None,
                 entry.submitted_at.isoformat(),
-                datetime.now(timezone.utc).isoformat(),
+                entry.updated_at.isoformat(),
                 payload,
             ),
         )
 
     def _entry_from_row(self, row: sqlite3.Row) -> RegistryEntry:
-        return RegistryEntry.model_validate(json.loads(row["payload"]))
+        payload = json.loads(row["payload"])
+        if "updated_at" not in payload and "updated_at" in row.keys():
+            payload["updated_at"] = row["updated_at"]
+        return RegistryEntry.model_validate(payload)
 
     def _upsert_review(self, conn: sqlite3.Connection, request: ReviewRequest) -> None:
         payload = json.dumps(request.model_dump(mode="json"), ensure_ascii=False, default=str)
@@ -337,7 +342,7 @@ class Registry:
     def get_by_id(self, skill_id: str) -> RegistryEntry | None:
         with self._lock, self._connect() as conn:
             row = conn.execute(
-                "SELECT payload FROM skill_registry WHERE skill_id = ?",
+                "SELECT payload, updated_at FROM skill_registry WHERE skill_id = ?",
                 (skill_id,),
             ).fetchone()
             return self._entry_from_row(row) if row else None
@@ -347,7 +352,7 @@ class Registry:
         with self._lock, self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT payload FROM skill_registry
+                SELECT payload, updated_at FROM skill_registry
                 WHERE lower(name) = lower(?)
                 ORDER BY submitted_at DESC
                 LIMIT 1
@@ -361,15 +366,15 @@ class Registry:
             if status:
                 rows = conn.execute(
                     """
-                    SELECT payload FROM skill_registry
+                    SELECT payload, updated_at FROM skill_registry
                     WHERE status = ?
-                    ORDER BY submitted_at DESC
+                    ORDER BY updated_at DESC
                     """,
                     (status.value,),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT payload FROM skill_registry ORDER BY submitted_at DESC"
+                    "SELECT payload, updated_at FROM skill_registry ORDER BY updated_at DESC"
                 ).fetchall()
             return [self._entry_from_row(row) for row in rows]
 
@@ -378,7 +383,7 @@ class Registry:
         with self._lock, self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT payload FROM skill_registry
+                SELECT payload, updated_at FROM skill_registry
                 WHERE status IN (?, ?)
                 ORDER BY submitted_at DESC
                 """,

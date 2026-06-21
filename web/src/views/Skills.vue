@@ -125,7 +125,7 @@ const loading = ref(false)
 const actionKey = ref('')
 const rows = ref([])
 const total = ref(0)
-const sortState = ref({ field: 'submitted_at', order: 'descend' })
+const sortState = ref({ field: 'updated_at', order: 'descend' })
 const pagination = ref({
   current: 1,
   pageSize: 10,
@@ -155,7 +155,7 @@ const columns = [
   { title: '风险', dataIndex: 'risk_level', key: 'risk', width: 160, sorter: true },
   { title: 'Sandbox', key: 'sandbox', width: 180 },
   { title: '审批人', dataIndex: 'approved_by', key: 'approved_by', width: 160, sorter: true },
-  { title: '提交时间', dataIndex: 'submitted_at', key: 'submitted_at', width: 190, sorter: true, customRender: ({ text }) => formatDateTime(text) },
+  { title: '扫描时间', dataIndex: 'updated_at', key: 'updated_at', width: 190, sorter: true, customRender: ({ text }) => formatDateTime(text) },
   { title: '操作', key: 'actions', width: 120 },
 ]
 
@@ -228,7 +228,7 @@ const resetFilters = () => {
   status.value = 'all'
   risk.value = 'all'
   sandboxFilter.value = 'all'
-  sortState.value = { field: 'submitted_at', order: 'descend' }
+  sortState.value = { field: 'updated_at', order: 'descend' }
   pagination.value = {
     ...pagination.value,
     current: 1,

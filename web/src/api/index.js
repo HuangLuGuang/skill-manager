@@ -82,6 +82,10 @@ export const downloadScannerBinary = (platform) =>
     params: { platform },
     responseType: 'blob',
   })
+export const downloadSkillGuard = () =>
+  api.get('/v1/scanner/skill-guard/download', {
+    responseType: 'blob',
+  })
 
 // Prompt Management
 export const listPrompts = (params = {}) => api.get('/v1/prompts', { params })
