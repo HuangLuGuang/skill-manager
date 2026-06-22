@@ -889,7 +889,22 @@ watch(
 )
 
 const copy = async (text) => {
-  await navigator.clipboard.writeText(text)
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      throw new Error('clipboard api unavailable')
+    }
+  } catch {
+    const el = document.createElement('textarea')
+    el.value = text
+    el.style.position = 'fixed'
+    el.style.opacity = '0'
+    document.body.appendChild(el)
+    el.select()
+    document.execCommand('copy')
+    document.body.removeChild(el)
+  }
   message.success('已复制')
 }
 

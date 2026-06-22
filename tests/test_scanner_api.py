@@ -40,6 +40,20 @@ def test_scanner_release_dir_points_to_project_scanner_releases():
     assert _scanner_release_dir().name == "releases"
 
 
+def test_skill_guard_download_returns_zip():
+    app = FastAPI()
+    app.include_router(admin_router)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/scanner/skill-guard/download")
+
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        names = set(archive.namelist())
+    assert "agent-manager-skill-guard/SKILL.md" in names
+    assert "agent-manager-skill-guard/scripts/agent_manager_skill_guard.py" in names
+
+
 def test_scanner_import_accepts_scanner_token(tmp_path):
     app = FastAPI()
     manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")

@@ -65,6 +65,85 @@ flowchart LR
 - `GET /api/v1/skills`
 - `GET /api/v1/skills/{id}`
 
+### Universal Skill Guard
+
+对于 Codex、Claude Code 这类支持本地 skill 指令的 Agent，可以使用仓库内置的通用示例：
+
+- `demo/agent-manager-skill-guard/skills/agent-manager-skill-guard/`
+
+它不使用 Claude Code hook、Codex 专用 adapter 或平台绑定配置，适合首版用来规范 Agent 行为：
+
+- 发现或安装第三方 skill 后，先上传到 Agent Manager 扫描。
+- 用户要求使用第三方 skill 前，先验签并检查审批状态。
+- 未提交、扫描中、待审核、已拒绝、未签名、签名不匹配或状态不可加载时，默认阻断使用。
+
+管理台提供下载入口：
+
+- `扫描器接入`
+- `Agent Skill Guard 接入`
+- `下载 Skill Guard`
+
+后端下载接口：
+
+```http
+GET /api/v1/scanner/skill-guard/download
+```
+
+Token 至少需要这些权限：
+
+- `scanner:submit`
+- `scanner:read-own-results`
+- `runtime:verify-signature`
+- `runtime:can-load`
+- `runtime:check-tool`
+
+安装到 Codex：
+
+```bash
+mkdir -p ~/.codex/skills
+unzip agent-manager-skill-guard.zip -d ~/.codex/skills/
+```
+
+安装到 Claude Code：
+
+```bash
+mkdir -p ~/.claude/skills
+unzip agent-manager-skill-guard.zip -d ~/.claude/skills/
+```
+
+配置运行环境：
+
+```bash
+export AGENT_MANAGER_BASE_URL="http://localhost:8001"
+export AGENT_MANAGER_API_TOKEN="smsc_live_xxx"
+export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
+```
+
+提交第三方 skill：
+
+```bash
+python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py submit \
+  --path /path/to/third-party-skill \
+  --behavioral
+```
+
+查看状态：
+
+```bash
+python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py status \
+  --skill-id <skill-id>
+```
+
+使用前验签：
+
+```bash
+python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py verify \
+  --name <skill-name> \
+  --path /path/to/third-party-skill
+```
+
+这类接法依赖 Agent 遵循 skill 指令和脚本退出码，不是平台级强制拦截。如果需要强制拦截，应在具体平台上再接 hook 或 runtime adapter。
+
 ## Mode 2: Registry As Artifact Catalog
 
 在这个模式下，Agent Manager 主要负责记录“哪些 skill 是已批准或已部署的”，外部系统根据 registry 信息决定应该拉取哪个 skill。

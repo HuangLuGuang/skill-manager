@@ -1,7 +1,0 @@
-services:
-  sandbox:
-    build:
-      context: .
-      dockerfile: services/isolated-sandbox-service/Dockerfile.nsjail
-    environment:
-      SANDBOX_SERVICE_BACKEND: ${SANDBOX_SERVICE_BACKEND:-nsjail}

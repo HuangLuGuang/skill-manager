@@ -1,11 +1,14 @@
 """Tests for the vetting pipeline and policy enforcement."""
 
 import textwrap
+import sys
+import types
 from pathlib import Path
 
 import pytest
 
 from agent_manager.core.models import RiskLevel, SkillOrigin, SkillStatus, SourceInfo
+from agent_manager.core.llm import LLMAnalysisResult, LLMConfig
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.sandbox import SandboxConfig, SandboxResult
 from agent_manager.core.vetting import (
@@ -13,6 +16,7 @@ from agent_manager.core.vetting import (
     _check_manifest_policy,
     _load_manifest,
     _normalize_llm_probe_entrypoint,
+    _run_scanner,
 )
 
 
@@ -68,9 +72,56 @@ class TestManifestLoading:
         assert tools == ["Read", "Bash"]
         assert lic == "MIT"
 
+    def test_load_manifest_falls_back_when_frontmatter_parser_fails(self, tmp_path, monkeypatch):
+        skill_md = tmp_path / "SKILL.md"
+        skill_md.write_text(textwrap.dedent("""\
+            ---
+            name: research-logger
+            description: AI research pipeline with automatic logging
+            license: MIT
+            metadata: {"openclaw": {"emoji": "\\ud83d\\udcdd"}}
+            ---
+        """))
+
+        fake_frontmatter = types.SimpleNamespace(load=lambda _path: (_ for _ in ()).throw(RuntimeError("bad yaml")))
+        monkeypatch.setitem(sys.modules, "frontmatter", fake_frontmatter)
+
+        name, desc, tools, lic = _load_manifest(tmp_path)
+
+        assert name == "research-logger"
+        assert desc == "AI research pipeline with automatic logging"
+        assert tools == []
+        assert lic == "MIT"
+
     def test_missing_skill_md_raises(self, tmp_path):
         with pytest.raises(ValueError, match="SKILL.md not found"):
             _load_manifest(tmp_path)
+
+
+class TestScannerIntegration:
+    def test_run_scanner_error_does_not_abort_pipeline(self, tmp_path, monkeypatch):
+        class BrokenScanner:
+            def __init__(self, policy):
+                self.policy = policy
+
+            def scan_skill(self, _path):
+                raise RuntimeError("bad frontmatter")
+
+        class FakePolicy:
+            @staticmethod
+            def from_preset(_name):
+                return object()
+
+            @staticmethod
+            def default():
+                return object()
+
+        monkeypatch.setattr("agent_manager.core.vetting._try_import_scanner", lambda: (BrokenScanner, FakePolicy))
+
+        report = _run_scanner(tmp_path, "default")
+
+        assert report["analyzers_used"] == ["scanner:error"]
+        assert report["scanner_error"] == "bad frontmatter"
 
 
 class TestPolicyChecks:
@@ -139,6 +190,30 @@ class TestPolicyDecide:
         status = policy.decide("benign", violations)
         assert status == SkillStatus.REJECTED
 
+    def test_legacy_high_severity_auto_rejects_malicious(self):
+        policy = CompanyPolicy({
+            "auto_reject_risk": ["HIGH", "EXTREME"],
+            "require_human_review": ["MEDIUM"],
+        })
+
+        assert policy.decide(RiskLevel.MALICIOUS, []) == SkillStatus.REJECTED
+
+    def test_legacy_medium_severity_queues_suspicious_for_review(self):
+        policy = CompanyPolicy({
+            "auto_reject_risk": ["HIGH", "EXTREME"],
+            "require_human_review": ["LOW", "MEDIUM"],
+        })
+
+        assert policy.decide(RiskLevel.SUSPICIOUS, []) == SkillStatus.VETTED
+
+    def test_invalid_policy_values_never_default_malicious_to_approved(self):
+        policy = CompanyPolicy({
+            "auto_reject_risk": ["TYPO"],
+            "require_human_review": ["UNKNOWN"],
+        })
+
+        assert policy.decide(RiskLevel.MALICIOUS, []) == SkillStatus.REJECTED
+
 
 class TestVettingPipeline:
     def test_vet_valid_skill(self, skill_dir, default_policy):
@@ -190,6 +265,91 @@ class TestVettingPipeline:
         assert result.scan_report["behavioral_analysis"]["scanned_file_count"] >= 1
         assert any(f["source"] == "behavioral" for f in result.scan_report["findings"])
         assert result.risk_level == RiskLevel.MALICIOUS
+
+    def test_low_analyzability_does_not_raise_risk(self, skill_dir, monkeypatch):
+        monkeypatch.setattr(
+            "agent_manager.core.vetting._run_scanner",
+            lambda _path, _policy: {
+                "max_severity": "MEDIUM",
+                "findings": [{
+                    "rule": "LOW_ANALYZABILITY",
+                    "severity": "MEDIUM",
+                    "title": "可分析性不足",
+                    "message": "部分内容无法确认安全。",
+                    "source": "scanner",
+                }],
+                "analyzers_used": ["scanner"],
+            },
+        )
+
+        result, _violations, _name, _desc, _tools = VettingPipeline(
+            CompanyPolicy({"require_sandbox_for_risk": []})
+        ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+
+        assert result.risk_level == RiskLevel.BENIGN
+        assert result.scan_report["max_severity"] == "MEDIUM"
+        assert result.scan_report["risk_max_severity"] == "SAFE"
+        assert result.scan_report["findings"][0]["rule"] == "LOW_ANALYZABILITY"
+
+    def test_high_analyzability_failure_still_raises_risk(self, skill_dir, monkeypatch):
+        monkeypatch.setattr(
+            "agent_manager.core.vetting._run_scanner",
+            lambda _path, _policy: {
+                "max_severity": "HIGH",
+                "findings": [{
+                    "rule": "LOW_ANALYZABILITY",
+                    "severity": "HIGH",
+                    "title": "可分析性严重不足",
+                    "message": "大量内容无法确认安全。",
+                    "source": "scanner",
+                }],
+                "analyzers_used": ["scanner"],
+            },
+        )
+
+        result, _violations, _name, _desc, _tools = VettingPipeline(
+            CompanyPolicy({"require_sandbox_for_risk": []})
+        ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+
+        assert result.risk_level == RiskLevel.MALICIOUS
+        assert result.scan_report["risk_max_severity"] == "HIGH"
+
+    def test_llm_cannot_downgrade_deterministic_scan_risk(self, skill_dir, monkeypatch):
+        monkeypatch.setattr(
+            "agent_manager.core.vetting._run_scanner",
+            lambda _path, _policy: {
+                "max_severity": "HIGH",
+                "findings": [{"severity": "HIGH", "title": "Opaque binary", "source": "scanner"}],
+                "analyzers_used": ["scanner"],
+            },
+        )
+        monkeypatch.setattr(
+            "agent_manager.core.vetting.LLMConfig.load",
+            lambda: LLMConfig(enabled=True, api_key="test-key"),
+        )
+        monkeypatch.setattr(
+            "agent_manager.core.vetting.analyze_skill_with_llm_single_round",
+            lambda **_kwargs: LLMAnalysisResult(
+                provider="test",
+                model="test-model",
+                risk_level="benign",
+                report="Known test fixture.",
+            ),
+        )
+
+        result, _violations, _name, _desc, _tools = VettingPipeline(
+            CompanyPolicy({"require_sandbox_for_risk": []})
+        ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_llm=True)
+
+        assert result.risk_level == RiskLevel.MALICIOUS
+        assert result.scan_report["risk_reconciliation"] == {
+            "strategy": "conservative_max",
+            "pre_llm_risk_level": "malicious",
+            "llm_risk_level": "benign",
+            "final_risk_level": "malicious",
+            "llm_downgrade_blocked": True,
+        }
+        assert any("downgrade blocked" in note for note in result.policy_notes)
 
     def test_sandbox_flags_are_recorded(self, skill_dir, default_policy):
         pipeline = VettingPipeline(default_policy)

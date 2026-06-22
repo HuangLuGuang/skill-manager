@@ -33,6 +33,8 @@ export const getSkillContent = (skillIdOrName) => api.get(`/v1/skills/${skillIdO
 export const getSkillFiles = (skillIdOrName) => api.get(`/v1/skills/${skillIdOrName}/files`)
 export const getSkillFileContent = (skillIdOrName, path) => api.get(`/v1/skills/${skillIdOrName}/file-content`, { params: { path } })
 export const getSkillScanReport = (skillIdOrName) => api.get(`/v1/skills/${skillIdOrName}/scan-report`)
+export const getSkillGovernanceCard = (skillIdOrName) => api.get(`/v1/skills/${skillIdOrName}/governance-card`)
+export const refreshSkillGovernanceCard = (skillIdOrName) => api.post(`/v1/skills/${skillIdOrName}/governance-card/refresh`)
 export const verifySkillSignature = (skillIdOrName, data = {}) => api.post(`/v1/skills/${skillIdOrName}/verify-signature`, data)
 export const listReviewQueue = () => api.get('/v1/review')
 export const listReviewQueuePaged = (params = {}) => api.get('/v1/review', { params: { ...params, page: params.page || 1, page_size: params.page_size || 10 } })
@@ -56,6 +58,8 @@ export const approveSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/a
 export const rejectSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/reject`, data)
 export const deploySkill = (skillId) => api.post(`/v1/skills/${skillId}/deploy`)
 export const retireSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/retire`, data)
+export const rescanSkill = (skillId) => api.post(`/v1/skills/${skillId}/rescan`)
+export const deleteSkill = (skillId) => api.delete(`/v1/skills/${skillId}`)
 export const runtimeCanLoad = (skillName, params = {}) => api.get(`/v1/runtime/can-load/${skillName}`, { params })
 export const runtimeCheckTool = (params) => api.get('/v1/runtime/check-tool', { params })
 export const getDashboardRiskSourceStats = () => api.get('/v1/dashboard/risk-source-stats')
@@ -67,6 +71,7 @@ export const getLlmConfig = () => api.get('/v1/llm-config')
 export const updateLlmConfig = (data) => api.put('/v1/llm-config', data)
 export const getSandboxConfig = () => api.get('/v1/sandbox-config')
 export const updateSandboxConfig = (data) => api.put('/v1/sandbox-config', data)
+export const listSandboxImages = () => api.get('/v1/sandbox-images')
 export const getAgentManagerSystemStatus = () => api.get('/v1/system/status')
 export const listScannerTokens = () => api.get('/v1/scanner/tokens')
 export const createScannerToken = (data) => api.post('/v1/scanner/tokens', data)
@@ -75,6 +80,10 @@ export const listScannerDownloads = () => api.get('/v1/scanner/downloads')
 export const downloadScannerBinary = (platform) =>
   api.get('/v1/scanner/download', {
     params: { platform },
+    responseType: 'blob',
+  })
+export const downloadSkillGuard = () =>
+  api.get('/v1/scanner/skill-guard/download', {
     responseType: 'blob',
   })
 
@@ -147,7 +156,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       const detail = error.response.data?.detail
       if (detail === 'session_expired_elsewhere') {
-        alert('您的账号已在其他地方登录，当前会话已失效')
+        alert('登录状态已失效，请重新登录')
       }
       localStorage.removeItem('token')
       localStorage.removeItem('username')

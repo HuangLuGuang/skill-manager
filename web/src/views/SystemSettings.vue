@@ -2,79 +2,97 @@
   <div>
     <a-page-header title="系统设置" sub-title="查看系统状态、数据目录与基础环境信息" />
 
-    <a-row :gutter="[16, 16]" style="margin-top: 16px">
-      <a-col :span="24">
-        <a-card title="系统状态">
-          <a-row :gutter="[24, 16]">
-            <a-col :xs="24" :xl="12">
-              <div class="section-title">后台基础服务状态</div>
-              <a-descriptions :column="1" size="small">
-                <a-descriptions-item label="数据目录">{{ systemInfo.data_dir || '-' }}</a-descriptions-item>
-                <a-descriptions-item label="目录大小">{{ formatSize(systemInfo.data_dir_size || 0) }}</a-descriptions-item>
-                <a-descriptions-item label="Logo 地址">{{ logoInfo.logo_url || '-' }}</a-descriptions-item>
-                <a-descriptions-item label="CPU">{{ formatCpu(systemInfo.cpu) }}</a-descriptions-item>
-                <a-descriptions-item label="内存">{{ formatPercent(systemInfo.memory?.percent) }}</a-descriptions-item>
-              </a-descriptions>
-            </a-col>
+    <a-card class="status-overview-card" title="系统状态总览" style="margin-top: 16px">
+      <template #extra>
+        <a-button type="primary" size="small" @click="fetchStatus" :loading="loading">刷新状态</a-button>
+      </template>
 
-            <a-col :xs="24" :xl="12">
-              <div class="section-title">治理服务状态</div>
-              <a-descriptions :column="1" size="small">
-                <a-descriptions-item label="服务">{{ managerStatus.service || '-' }}</a-descriptions-item>
-                <a-descriptions-item label="注册表目录">{{ managerStatus.data_dir || '-' }}</a-descriptions-item>
-                <a-descriptions-item label="策略文件">{{ managerStatus.policy_path || '-' }}</a-descriptions-item>
-                <a-descriptions-item label="注册条目">{{ managerStatus.registry_entries ?? '-' }}</a-descriptions-item>
-                <a-descriptions-item label="审核队列">{{ managerStatus.review_queue ?? '-' }}</a-descriptions-item>
-                <a-descriptions-item label="签名密钥">
-                  <a-tag :color="managerStatus.signing_key_configured ? 'green' : 'orange'">
-                    {{ managerStatus.signing_key_configured ? '已配置' : '开发模式' }}
-                  </a-tag>
-                </a-descriptions-item>
-                <a-descriptions-item label="扫描器">
-                  <a-tag :color="managerStatus.scanner_available ? 'green' : 'default'">
-                    {{ managerStatus.scanner_available ? '可用' : '未安装' }}
-                  </a-tag>
-                </a-descriptions-item>
-                <a-descriptions-item label="Sandbox">
-                  <a-tag :color="managerStatus.sandbox_available ? 'green' : 'default'">
-                    {{ managerStatus.sandbox_available ? '可用' : '不可用' }}
-                  </a-tag>
-                </a-descriptions-item>
-                <a-descriptions-item label="Sandbox 后端">
-                  {{ managerStatus.sandbox_runtime || '-' }}
-                </a-descriptions-item>
-                <a-descriptions-item label="Sandbox 镜像">
-                  {{ sandboxConfig.image || '-' }}
-                </a-descriptions-item>
-                <a-descriptions-item label="当前扫描模式">
-                  <a-tag :color="scanModeColor(managerStatus.scan_mode)">
-                    {{ managerStatus.scan_mode || '-' }}
-                  </a-tag>
-                </a-descriptions-item>
-                <a-descriptions-item label="运行时 Hooks">
-                  <a-tag :color="managerStatus.hooks_available ? 'blue' : 'default'">
-                    {{ managerStatus.hooks_available ? '可用' : '缺失' }}
-                  </a-tag>
-                </a-descriptions-item>
-                <a-descriptions-item label="LLM 分析">
-                  <a-tag :color="managerStatus.llm_enabled ? 'blue' : 'default'">
-                    {{ managerStatus.llm_enabled ? '已启用' : '未启用' }}
-                  </a-tag>
-                </a-descriptions-item>
-                <a-descriptions-item label="LLM 提供方">{{ managerStatus.llm_provider || '-' }}</a-descriptions-item>
-                <a-descriptions-item label="LLM 接口">{{ managerStatus.llm_api_base || '-' }}</a-descriptions-item>
-                <a-descriptions-item label="LLM 模型">{{ managerStatus.llm_model || '-' }}</a-descriptions-item>
-                <a-descriptions-item label="LLM API Key">
-                  <a-tag :color="managerStatus.llm_api_key_configured ? 'green' : 'orange'">
-                    {{ managerStatus.llm_api_key_configured ? '已配置' : '未配置' }}
-                  </a-tag>
-                </a-descriptions-item>
-              </a-descriptions>
-            </a-col>
-          </a-row>
-        </a-card>
-      </a-col>
-    </a-row>
+      <div class="status-section">
+        <div class="section-title">基础环境</div>
+        <a-descriptions bordered size="small" :column="{ xs: 1, md: 2, xl: 3 }">
+          <a-descriptions-item label="数据目录" :span="2">
+            <span class="path-text">{{ systemInfo.data_dir || '-' }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="目录大小">{{ formatSize(systemInfo.data_dir_size || 0) }}</a-descriptions-item>
+          <a-descriptions-item label="CPU">{{ formatCpu(systemInfo.cpu) }}</a-descriptions-item>
+          <a-descriptions-item label="内存">{{ formatPercent(systemInfo.memory?.percent) }}</a-descriptions-item>
+          <a-descriptions-item label="Logo 地址">
+            <span class="path-text">{{ logoInfo.logo_url || '-' }}</span>
+          </a-descriptions-item>
+        </a-descriptions>
+      </div>
+
+      <div class="status-section">
+        <div class="section-title">治理服务</div>
+        <a-descriptions bordered size="small" :column="{ xs: 1, md: 2, xl: 3 }">
+          <a-descriptions-item label="服务">{{ managerStatus.service || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="注册条目">{{ managerStatus.registry_entries ?? '-' }}</a-descriptions-item>
+          <a-descriptions-item label="审核队列">{{ managerStatus.review_queue ?? '-' }}</a-descriptions-item>
+          <a-descriptions-item label="签名密钥">
+            <a-tag :color="managerStatus.signing_key_configured ? 'green' : 'orange'">
+              {{ managerStatus.signing_key_configured ? '已配置' : '开发模式' }}
+            </a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="运行时 Hooks">
+            <a-tag :color="managerStatus.hooks_available ? 'blue' : 'default'">
+              {{ managerStatus.hooks_available ? '可用' : '缺失' }}
+            </a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="当前扫描模式">
+            <a-tag :color="scanModeColor(managerStatus.scan_mode)">
+              {{ managerStatus.scan_mode || '-' }}
+            </a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="注册表目录" :span="2">
+            <span class="path-text">{{ managerStatus.data_dir || '-' }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="策略文件">
+            <span class="path-text">{{ managerStatus.policy_path || '-' }}</span>
+          </a-descriptions-item>
+        </a-descriptions>
+      </div>
+
+      <div class="status-section">
+        <div class="section-title">分析与运行能力</div>
+        <a-descriptions bordered size="small" :column="{ xs: 1, md: 2, xl: 3 }">
+          <a-descriptions-item label="扫描器">
+            <a-tag :color="managerStatus.scanner_available ? 'green' : 'default'">
+              {{ managerStatus.scanner_available ? '可用' : '未安装' }}
+            </a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="SkillSpector">
+            <a-space wrap>
+              <a-tag :color="skillspectorStatusColor">
+                {{ skillspectorStatusText }}
+              </a-tag>
+              <span class="muted">{{ managerStatus.skillspector_version || '-' }}</span>
+            </a-space>
+          </a-descriptions-item>
+          <a-descriptions-item label="Sandbox">
+            <a-tag :color="sandboxStatusColor">{{ sandboxStatusText }}</a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="Sandbox 后端">{{ managerStatus.sandbox_runtime || sandboxConfig.runtime || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="Sandbox 镜像">
+            <span class="path-text">{{ sandboxConfig.image || '-' }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="LLM 分析">
+            <a-tag :color="managerStatus.llm_enabled ? 'blue' : 'default'">
+              {{ managerStatus.llm_enabled ? '已启用' : '未启用' }}
+            </a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="LLM 提供方">{{ managerStatus.llm_provider || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="LLM 模型">{{ managerStatus.llm_model || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="LLM API Key">
+            <a-tag :color="managerStatus.llm_api_key_configured ? 'green' : 'orange'">
+              {{ managerStatus.llm_api_key_configured ? '已配置' : '未配置' }}
+            </a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="LLM 接口" :span="3">
+            <span class="path-text">{{ managerStatus.llm_api_base || '-' }}</span>
+          </a-descriptions-item>
+        </a-descriptions>
+      </div>
+    </a-card>
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24" :xl="12">
@@ -146,8 +164,9 @@
                 checked-children="启用"
                 un-checked-children="关闭"
                 :loading="savingSandbox"
+                @change="handleToggleSandboxEnabled"
               />
-              <div class="hint">这里控制 Sandbox 配置是否启用；高风险 skill 的强制执行仍由策略页决定。</div>
+              <div class="hint">切换后会立即保存；高风险 skill 的强制执行仍由策略页决定。</div>
             </a-form-item>
             <a-form-item label="后端类型">
               <a-select v-model:value="sandboxForm.runtime">
@@ -156,7 +175,14 @@
               </a-select>
             </a-form-item>
             <a-form-item v-if="sandboxForm.runtime === 'docker'" label="镜像">
-              <a-input v-model:value="sandboxForm.image" placeholder="agent-manager-sandbox-runtime:latest" />
+              <a-select
+                v-model:value="sandboxForm.image"
+                show-search
+                placeholder="选择本机 sandbox 镜像"
+                :options="sandboxImageOptions"
+                :loading="loading"
+              />
+              <div class="hint">只显示本机 Docker 镜像名包含 sandbox 的镜像。</div>
             </a-form-item>
             <template v-else>
               <a-form-item label="远程 Sandbox URL">
@@ -234,7 +260,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
 
 import {
@@ -243,6 +269,7 @@ import {
   getSandboxConfig,
   getAgentManagerSystemStatus,
   getSystemInfo,
+  listSandboxImages,
   updateLlmConfig,
   updateSandboxConfig,
 } from '../api'
@@ -255,6 +282,7 @@ const logoInfo = ref({})
 const managerStatus = ref({})
 const llmConfig = ref({})
 const sandboxConfig = ref({})
+const sandboxImages = ref([])
 const llmForm = reactive({
   enabled: false,
   provider: 'deepseek',
@@ -302,6 +330,23 @@ const formatSize = (size) => {
 
 const formatPercent = (value) => (value == null ? '-' : `${Number(value).toFixed(1)}%`)
 const formatCpu = (cpu) => (cpu ? `${formatPercent(cpu.percent)} / ${cpu.count} cores` : '-')
+const sandboxEnabled = computed(() => managerStatus.value.sandbox_enabled ?? sandboxConfig.value.enabled ?? false)
+const sandboxStatusText = computed(() => {
+  if (!sandboxEnabled.value) return '已关闭'
+  return managerStatus.value.sandbox_available ? '可用' : '不可用'
+})
+const sandboxStatusColor = computed(() => {
+  if (!sandboxEnabled.value) return 'default'
+  return managerStatus.value.sandbox_available ? 'green' : 'red'
+})
+const skillspectorStatusText = computed(() => {
+  if (!managerStatus.value.skillspector_enabled) return '未启用'
+  return managerStatus.value.skillspector_available ? '可用' : '未安装'
+})
+const skillspectorStatusColor = computed(() => {
+  if (!managerStatus.value.skillspector_enabled) return 'default'
+  return managerStatus.value.skillspector_available ? 'green' : 'orange'
+})
 const scanModeColor = (value) =>
   ({
     'scanner + llm': 'green',
@@ -309,22 +354,29 @@ const scanModeColor = (value) =>
     'llm only': 'orange',
     'manifest only': 'default',
   }[value] || 'default')
+const sandboxImageOptions = computed(() => {
+  const values = new Set(sandboxImages.value)
+  if (sandboxForm.image) values.add(sandboxForm.image)
+  return [...values].map((value) => ({ value, label: value }))
+})
 
 const fetchStatus = async () => {
   loading.value = true
   try {
-    const [sys, logo, manager, llm, sandbox] = await Promise.all([
+    const [sys, logo, manager, llm, sandbox, images] = await Promise.all([
       getSystemInfo(),
       getLogoInfo(),
       getAgentManagerSystemStatus(),
       getLlmConfig(),
       getSandboxConfig(),
+      listSandboxImages(),
     ])
     systemInfo.value = sys || {}
     logoInfo.value = logo || {}
     managerStatus.value = manager || {}
     llmConfig.value = llm || {}
     sandboxConfig.value = sandbox || {}
+    sandboxImages.value = images?.images || []
     llmForm.enabled = llm?.enabled ?? false
     llmForm.provider = llm?.provider || 'deepseek'
     llmForm.api_base = llm?.api_base || 'https://api.deepseek.com'
@@ -393,29 +445,46 @@ const handleToggleLlmEnabled = async () => {
   await saveLlmConfig(llmForm.enabled ? 'LLM 已启用' : 'LLM 已禁用')
 }
 
+const buildSandboxPayload = () => ({
+  enabled: sandboxForm.enabled,
+  runtime: sandboxForm.runtime,
+  image: sandboxForm.image,
+  timeout_seconds: Number(sandboxForm.timeout_seconds || 15),
+  network_mode: sandboxForm.network_mode,
+  memory_limit: sandboxForm.memory_limit,
+  cpu_limit: sandboxForm.cpu_limit,
+  pids_limit: Number(sandboxForm.pids_limit || 64),
+  read_only_rootfs: sandboxForm.read_only_rootfs,
+  remote_url: sandboxForm.remote_url || null,
+  remote_api_key: sandboxForm.remote_api_key || null,
+  clear_remote_api_key: sandboxForm.clear_remote_api_key,
+})
+
 const saveSandboxConfig = async () => {
   savingSandbox.value = true
   try {
-    const payload = {
-      enabled: sandboxForm.enabled,
-      runtime: sandboxForm.runtime,
-      image: sandboxForm.image,
-      timeout_seconds: Number(sandboxForm.timeout_seconds || 15),
-      network_mode: sandboxForm.network_mode,
-      memory_limit: sandboxForm.memory_limit,
-      cpu_limit: sandboxForm.cpu_limit,
-      pids_limit: Number(sandboxForm.pids_limit || 64),
-      read_only_rootfs: sandboxForm.read_only_rootfs,
-      remote_url: sandboxForm.remote_url || null,
-      remote_api_key: sandboxForm.remote_api_key || null,
-      clear_remote_api_key: sandboxForm.clear_remote_api_key,
-    }
-    const result = await updateSandboxConfig(payload)
+    const result = await updateSandboxConfig(buildSandboxPayload())
     sandboxConfig.value = result || {}
     message.success('Sandbox 配置已保存')
     await fetchStatus()
   } catch (error) {
     message.error(extractErrorMsg(error, '保存 Sandbox 配置失败'))
+    await fetchStatus()
+  } finally {
+    savingSandbox.value = false
+  }
+}
+
+const handleToggleSandboxEnabled = async () => {
+  savingSandbox.value = true
+  try {
+    const result = await updateSandboxConfig(buildSandboxPayload())
+    sandboxConfig.value = result || {}
+    message.success(sandboxForm.enabled ? 'Sandbox 已启用' : 'Sandbox 已关闭')
+    await fetchStatus()
+  } catch (error) {
+    message.error(extractErrorMsg(error, '切换 Sandbox 状态失败'))
+    await fetchStatus()
   } finally {
     savingSandbox.value = false
   }
@@ -425,11 +494,41 @@ onMounted(fetchStatus)
 </script>
 
 <style scoped>
+.status-overview-card :deep(.ant-card-body) {
+  padding: 16px;
+}
+
+.status-section + .status-section {
+  margin-top: 16px;
+}
+
 .section-title {
   margin-bottom: 12px;
   font-size: 15px;
   font-weight: 600;
-  color: #1f1f1f;
+  color: #16324f;
+}
+
+.status-overview-card :deep(.ant-descriptions-item-label) {
+  width: 132px;
+  color: #475569;
+  white-space: nowrap;
+  background: #f8fafc;
+}
+
+.status-overview-card :deep(.ant-descriptions-item-content) {
+  min-width: 0;
+  color: #1f2937;
+  overflow-wrap: anywhere;
+}
+
+.path-text {
+  color: #475569;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: #64748b;
 }
 
 .hint {

@@ -7,6 +7,7 @@ import hashlib
 import shutil
 import tempfile
 import uuid
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -91,6 +92,10 @@ def _fingerprint_skill_dir(skill_dir: Path) -> dict[str, Any]:
 
 def _scanner_release_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "scanner" / "releases"
+
+
+def _skill_guard_dir() -> Path:
+    return Path(__file__).resolve().parents[2] / "demo" / "agent-manager-skill-guard" / "skills" / "agent-manager-skill-guard"
 
 
 def _scanner_release_files() -> list[dict[str, Any]]:
@@ -286,6 +291,35 @@ def download_scanner(platform: str):
             detail=f"Scanner binary not found: scanner/releases/{filename}",
         )
     return FileResponse(path, filename=filename, media_type="application/octet-stream")
+
+
+@admin_router.get("/scanner/skill-guard/download")
+def download_skill_guard():
+    skill_dir = _skill_guard_dir()
+    if not skill_dir.exists():
+        raise HTTPException(status_code=404, detail="Agent Manager Skill Guard demo not found")
+
+    tmp = tempfile.NamedTemporaryFile(prefix="agent-manager-skill-guard-", suffix=".zip", delete=False)
+    tmp_path = Path(tmp.name)
+    tmp.close()
+    try:
+        with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(item for item in skill_dir.rglob("*") if item.is_file()):
+                rel = path.relative_to(skill_dir).as_posix()
+                if "__pycache__" in rel.split("/") or rel.endswith(".pyc"):
+                    continue
+                archive.write(path, f"agent-manager-skill-guard/{rel}")
+        cleanup = BackgroundTasks()
+        cleanup.add_task(tmp_path.unlink, missing_ok=True)
+        return FileResponse(
+            tmp_path,
+            filename="agent-manager-skill-guard.zip",
+            media_type="application/zip",
+            background=cleanup,
+        )
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 @router.post("/scanner/imports", response_model=ScannerSubmitResponse)

@@ -25,6 +25,7 @@ scanner/.gocache/
 scanner/skill-scanner
 scanner/releases/skill-scanner-*
 scanner/releases/
+docker_images/
 test_data/
 CLAUDE.md
 *.zip

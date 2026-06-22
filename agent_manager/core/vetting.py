@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .local_analyzers import run_local_static_analysis
 from .llm import LLMConfig, analyze_skill_with_llm_single_round, generate_sandbox_probes_with_llm
 from .llm import _build_skill_snapshot  # noqa: F401 - used via llm module
 from .models import PolicyViolation, RiskLevel, SourceInfo, VettingResult
@@ -24,6 +25,7 @@ from .sandbox import (
     get_sandbox_runner,
     write_markdown_command_probe_scripts,
 )
+from .skillspector import run_skillspector_scan
 
 if TYPE_CHECKING:
     from .policy import CompanyPolicy
@@ -63,7 +65,7 @@ _BEHAVIORAL_RULES = (
         "severity": "HIGH",
         "title": "检测到动态代码执行",
         "message": "脚本出现 eval 或 exec，可能执行动态构造代码。",
-        "pattern": re.compile(r"\b(?:eval|exec)\s*\("),
+        "pattern": re.compile(r"(?<![\w.])(?:eval|exec)\s*\("),
     },
     {
         "rule": "download_and_execute",
@@ -135,8 +137,17 @@ def _run_scanner(skill_path: Path, scanner_policy_name: str) -> dict:
         policy = ScanPolicy.default()
 
     scanner = SkillScanner(policy=policy)
-    result = scanner.scan_skill(str(skill_path))
-    return result.to_dict()
+    try:
+        result = scanner.scan_skill(str(skill_path))
+        return result.to_dict()
+    except Exception as exc:
+        logger.warning("skill-scanner failed for %s; continuing with local analyzers: %s", skill_path, exc)
+        return {
+            "max_severity": "SAFE",
+            "findings": [],
+            "analyzers_used": ["scanner:error"],
+            "scanner_error": str(exc),
+        }
 
 
 # --------------------------------------------------------------------------- #
@@ -155,66 +166,73 @@ def _load_manifest(skill_path: Path) -> tuple[str, str, list[str], str | None]:
 
     try:
         import frontmatter
-        post = frontmatter.load(str(skill_md))
-        name = post.get("name") or post.get("skill-name") or skill_path.name
-        description = post.get("description") or ""
-        raw_tools = post.get("allowed-tools") or post.get("allowed_tools") or []
-        if isinstance(raw_tools, str):
-            raw_tools = [t.strip() for t in raw_tools.split(",") if t.strip()]
-        license_val = post.get("license")
-        return str(name), str(description), list(raw_tools), license_val
     except ImportError:
-        # Fallback: parse SKILL.md frontmatter without python-frontmatter.
-        content = skill_md.read_text(encoding="utf-8")
-        name = skill_path.name
-        description = ""
-        allowed_tools: list[str] = []
-        license_val = None
+        frontmatter = None
 
-        in_frontmatter = False
-        fm_lines: list[str] = []
-        for i, line in enumerate(content.splitlines()):
-            if i == 0 and line.strip() == "---":
-                in_frontmatter = True
-                continue
-            if in_frontmatter:
-                if line.strip() == "---":
-                    break
-                fm_lines.append(line)
-
-        fm_text = "\n".join(fm_lines)
+    if frontmatter is not None:
         try:
-            import yaml
+            post = frontmatter.load(str(skill_md))
+            name = post.get("name") or post.get("skill-name") or skill_path.name
+            description = post.get("description") or ""
+            raw_tools = post.get("allowed-tools") or post.get("allowed_tools") or []
+            if isinstance(raw_tools, str):
+                raw_tools = [t.strip() for t in raw_tools.split(",") if t.strip()]
+            license_val = post.get("license")
+            return str(name), str(description), list(raw_tools), license_val
+        except Exception as exc:
+            logger.warning("python-frontmatter failed to parse %s; falling back to tolerant parser: %s", skill_md, exc)
 
-            payload = yaml.safe_load(fm_text) or {}
-            if isinstance(payload, dict):
-                name = str(payload.get("name") or payload.get("skill-name") or name)
-                description = str(payload.get("description") or description)
-                raw_tools = payload.get("allowed-tools") or payload.get("allowed_tools") or []
-                if isinstance(raw_tools, str):
-                    allowed_tools = [t.strip() for t in raw_tools.split(",") if t.strip()]
-                elif isinstance(raw_tools, list):
-                    allowed_tools = [str(t).strip() for t in raw_tools if str(t).strip()]
-                license_raw = payload.get("license")
-                if license_raw is not None:
-                    license_val = str(license_raw)
-                return name, description, allowed_tools, license_val
-        except Exception:
-            pass
+    # Fallback: parse SKILL.md frontmatter without python-frontmatter.
+    content = skill_md.read_text(encoding="utf-8")
+    name = skill_path.name
+    description = ""
+    allowed_tools: list[str] = []
+    license_val = None
 
-        for line in fm_lines:
-            if line.startswith("name:"):
-                name = line.split(":", 1)[1].strip().strip('"\'')
-            elif line.startswith("description:"):
-                description = line.split(":", 1)[1].strip().strip('"\'')
-            elif line.startswith("license:"):
-                license_val = line.split(":", 1)[1].strip().strip('"\'')
-            elif line.startswith("allowed-tools:") or line.startswith("allowed_tools:"):
-                raw = line.split(":", 1)[1].strip().strip('"\'')
-                if raw:
-                    allowed_tools = [t.strip() for t in raw.split(",") if t.strip()]
+    in_frontmatter = False
+    fm_lines: list[str] = []
+    for i, line in enumerate(content.splitlines()):
+        if i == 0 and line.strip() == "---":
+            in_frontmatter = True
+            continue
+        if in_frontmatter:
+            if line.strip() == "---":
+                break
+            fm_lines.append(line)
 
-        return name, description, allowed_tools, license_val
+    fm_text = "\n".join(fm_lines)
+    try:
+        import yaml
+
+        payload = yaml.safe_load(fm_text) or {}
+        if isinstance(payload, dict):
+            name = str(payload.get("name") or payload.get("skill-name") or name)
+            description = str(payload.get("description") or description)
+            raw_tools = payload.get("allowed-tools") or payload.get("allowed_tools") or []
+            if isinstance(raw_tools, str):
+                allowed_tools = [t.strip() for t in raw_tools.split(",") if t.strip()]
+            elif isinstance(raw_tools, list):
+                allowed_tools = [str(t).strip() for t in raw_tools if str(t).strip()]
+            license_raw = payload.get("license")
+            if license_raw is not None:
+                license_val = str(license_raw)
+            return name, description, allowed_tools, license_val
+    except Exception:
+        pass
+
+    for line in fm_lines:
+        if line.startswith("name:"):
+            name = line.split(":", 1)[1].strip().strip('"\'')
+        elif line.startswith("description:"):
+            description = line.split(":", 1)[1].strip().strip('"\'')
+        elif line.startswith("license:"):
+            license_val = line.split(":", 1)[1].strip().strip('"\'')
+        elif line.startswith("allowed-tools:") or line.startswith("allowed_tools:"):
+            raw = line.split(":", 1)[1].strip().strip('"\'')
+            if raw:
+                allowed_tools = [t.strip() for t in raw.split(",") if t.strip()]
+
+    return name, description, allowed_tools, license_val
 
 
 # --------------------------------------------------------------------------- #
@@ -258,6 +276,23 @@ def _max_severity(*values: str) -> str:
             resolved_rank = rank
             resolved = (value or "SAFE").upper()
     return resolved
+
+
+def _risk_max_severity(findings: list[dict], reported_max: str = "SAFE") -> str:
+    finding_max = _max_severity(*(
+        str(finding.get("severity", "SAFE"))
+        for finding in findings
+        if not _is_low_analyzability_signal(finding)
+    ))
+    if finding_max != "SAFE" or not findings:
+        return _max_severity(finding_max, reported_max)
+    return "SAFE"
+
+
+def _is_low_analyzability_signal(finding: dict) -> bool:
+    rule = str(finding.get("rule") or finding.get("rule_id") or "").upper()
+    severity = str(finding.get("severity", "SAFE")).upper()
+    return rule == "LOW_ANALYZABILITY" and _SEVERITY_ORDER.get(severity, 0) <= _SEVERITY_ORDER["MEDIUM"]
 
 
 def _iter_behavioral_candidate_files(skill_path: Path) -> list[Path]:
@@ -355,37 +390,97 @@ class VettingPipeline:
 
         # 2. Run scanner
         scan_report = _run_scanner(skill_path, self.policy.scanner_policy)
-        behavioral_notes: list[str] = []
-        behavioral_result = None
-        if use_behavioral:
-            behavioral_result = _run_behavioral_analysis(skill_path)
+        skillspector_notes: list[str] = []
+        if self.policy.skillspector_enabled:
+            skillspector_result = run_skillspector_scan(
+                skill_path,
+                timeout_seconds=self.policy.skillspector_timeout_seconds,
+                use_llm=self.policy.skillspector_use_llm,
+            )
+            analyzer_name = "skillspector:cli"
+            if not skillspector_result.get("available"):
+                analyzer_name = "skillspector:unavailable"
+                skillspector_notes.append("[SKILLSPECTOR] SkillSpector unavailable; skipped optional scan")
+            elif skillspector_result.get("error"):
+                analyzer_name = "skillspector:error"
+                skillspector_notes.append(f"[SKILLSPECTOR] optional scan failed: {skillspector_result['error']}")
+            else:
+                skillspector_notes.append(
+                    "[SKILLSPECTOR] "
+                    f"risk={skillspector_result.get('risk_severity', 'SAFE')} "
+                    f"score={skillspector_result.get('risk_score', '-')}"
+                )
+
             scan_report = {
                 **scan_report,
                 "max_severity": _max_severity(
                     scan_report.get("max_severity", "SAFE"),
-                    str(behavioral_result.get("max_severity", "SAFE")),
+                    str(skillspector_result.get("max_severity", "SAFE")),
                 ),
                 "findings": [
                     *scan_report.get("findings", []),
-                    *behavioral_result.get("findings", []),
+                    *skillspector_result.get("findings", []),
+                ],
+                "analyzers_used": [
+                    *scan_report.get("analyzers_used", ["basic"]),
+                    analyzer_name,
+                ],
+                "skillspector_analysis": skillspector_result,
+            }
+            scan_report["risk_max_severity"] = _risk_max_severity(
+                scan_report.get("findings", []),
+                scan_report.get("max_severity", "SAFE"),
+            )
+        behavioral_notes: list[str] = []
+        behavioral_result = None
+        if use_behavioral:
+            local_static_result = run_local_static_analysis(skill_path)
+            behavioral_result = _run_behavioral_analysis(skill_path)
+            combined_behavioral_findings = [
+                *behavioral_result.get("findings", []),
+                *local_static_result.get("findings", []),
+            ]
+            combined_behavioral_max = _max_severity(
+                str(behavioral_result.get("max_severity", "SAFE")),
+                str(local_static_result.get("max_severity", "SAFE")),
+            )
+            scan_report = {
+                **scan_report,
+                "max_severity": _max_severity(
+                    scan_report.get("max_severity", "SAFE"),
+                    combined_behavioral_max,
+                ),
+                "findings": [
+                    *scan_report.get("findings", []),
+                    *combined_behavioral_findings,
                 ],
                 "analyzers_used": [
                     *scan_report.get("analyzers_used", ["basic"]),
                     "behavioral:local",
+                    "agent-manager-local",
                 ],
                 "behavioral_analysis": behavioral_result,
+                "local_static_analysis": local_static_result,
             }
+            scan_report["risk_max_severity"] = _risk_max_severity(
+                scan_report.get("findings", []),
+                scan_report.get("max_severity", "SAFE"),
+            )
             behavioral_notes.append(
                 "[BEHAVIORAL] "
                 f"scanned {behavioral_result.get('scanned_file_count', 0)} files"
             )
-            if behavioral_result.get("findings"):
+            if combined_behavioral_findings:
                 behavioral_notes.append(
                     "[BEHAVIORAL] "
-                    f"found {len(behavioral_result['findings'])} suspicious patterns"
+                    f"found {len(combined_behavioral_findings)} suspicious patterns"
                 )
         # 3. Sandbox Analysis (before LLM so LLM can use sandbox results)
-        interim_risk_level = RiskLevel.from_severity(scan_report.get("max_severity", "SAFE"))
+        scan_report["risk_max_severity"] = _risk_max_severity(
+            scan_report.get("findings", []),
+            scan_report.get("max_severity", "SAFE"),
+        )
+        interim_risk_level = RiskLevel.from_severity(scan_report.get("risk_max_severity", "SAFE"))
         scan_report = {
             **scan_report,
             "interim_risk_level": interim_risk_level.value,
@@ -550,6 +645,10 @@ class VettingPipeline:
                         ],
                         "sandbox_analysis": sandbox_result,
                     }
+                    scan_report["risk_max_severity"] = _risk_max_severity(
+                        scan_report.get("findings", []),
+                        scan_report.get("max_severity", "SAFE"),
+                    )
                     if sandbox_exec.executed:
                         sandbox_notes.append(
                             f"[SANDBOX] executed {entrypoint} strategy={sandbox_result['probe_strategy']} "
@@ -584,7 +683,11 @@ class VettingPipeline:
                         temp_probe_context.cleanup()
 
         # 4. LLM multi-round analysis (after sandbox, with all prior results)
-        pre_llm_risk_level = RiskLevel.from_severity(scan_report.get("max_severity", "SAFE"))
+        scan_report["risk_max_severity"] = _risk_max_severity(
+            scan_report.get("findings", []),
+            scan_report.get("max_severity", "SAFE"),
+        )
+        pre_llm_risk_level = RiskLevel.from_severity(scan_report.get("risk_max_severity", "SAFE"))
         scan_report = {
             **scan_report,
             "pre_llm_risk_level": pre_llm_risk_level.value,
@@ -627,8 +730,33 @@ class VettingPipeline:
                 logger.warning("LLM analysis skipped for %s: %s", skill_path, exc)
                 llm_notes.append(f"[LLM] analysis skipped: {exc}")
 
-        # 5. Determine final risk level for policy decisions
-        final_risk_level = RiskLevel(llm_result.risk_level) if llm_result else pre_llm_risk_level
+        # 5. Reconcile risk conservatively: LLM may raise, but never lower,
+        # deterministic scanner, behavioral, or sandbox risk.
+        llm_risk_level = RiskLevel(llm_result.risk_level) if llm_result else None
+        llm_downgrade_blocked = bool(
+            llm_risk_level and not llm_risk_level.is_at_least(pre_llm_risk_level)
+        )
+        final_risk_level = (
+            llm_risk_level
+            if llm_risk_level and llm_risk_level.is_at_least(pre_llm_risk_level)
+            else pre_llm_risk_level
+        )
+        if llm_downgrade_blocked:
+            llm_notes.append(
+                "[LLM] downgrade blocked: "
+                f"deterministic risk={pre_llm_risk_level.value}, "
+                f"LLM risk={llm_risk_level.value}"
+            )
+        scan_report = {
+            **scan_report,
+            "risk_reconciliation": {
+                "strategy": "conservative_max",
+                "pre_llm_risk_level": pre_llm_risk_level.value,
+                "llm_risk_level": llm_risk_level.value if llm_risk_level else None,
+                "final_risk_level": final_risk_level.value,
+                "llm_downgrade_blocked": llm_downgrade_blocked,
+            },
+        }
         findings = scan_report.get("findings", [])
 
         # 6. Policy checks
@@ -638,6 +766,7 @@ class VettingPipeline:
         for v in violations:
             prefix = "[BLOCK]" if v.blocking else "[WARN]"
             policy_notes.append(f"{prefix} {v.rule}: {v.message}")
+        policy_notes.extend(skillspector_notes)
         policy_notes.extend(behavioral_notes)
         policy_notes.extend(llm_notes)
         policy_notes.extend(sandbox_notes)

@@ -7,7 +7,7 @@
         type="info"
         show-icon
         message="提交说明"
-        description="你可以上传 ZIP、从后台指定目录中多选 skill 导入，或填写 ZIP 下载地址 / GitHub 仓库地址先下载并扫描候选技能，再多选提交。ZIP 选择或拖拽后会自动解析；来源会根据导入方式自动填充，提交后会先进入 PENDING，再由后台继续完成扫描、LLM、规则分析和 Sandbox。"
+        description="你可以上传 ZIP、从后台指定目录中多选 skill 导入，或填写 ZIP 下载地址 / GitHub 仓库地址先下载候选技能，再多选提交。ZIP 选择或拖拽后会自动解析；来源会根据导入方式自动填充，提交后会先进入 PENDING，再由后台继续完成扫描、LLM、规则分析和 Sandbox。"
         style="margin-bottom: 16px"
       />
 
@@ -89,7 +89,7 @@
                   <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="llmTooltip">
                   <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
@@ -176,7 +176,7 @@
                   <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="llmTooltip">
                   <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
@@ -203,7 +203,7 @@
         </a-tab-pane>
 
         <a-tab-pane key="url" tab="网络下载导入">
-          <a-form layout="vertical" @finish="prepareUrlImport">
+          <a-form layout="vertical" @finish="handleRemoteFormFinish">
             <a-form-item label="下载地址">
               <a-input v-model:value="downloadUrl" class="remote-import-input" allow-clear placeholder="https://example.com/skill.zip 或 https://github.com/org/repo" />
               <div class="field-hint">支持直接填 ZIP 下载地址，也支持 GitHub 仓库地址；如果压缩包里包含多个 skill，会先解析候选目录供你多选。</div>
@@ -257,7 +257,7 @@
                   <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="llmTooltip">
                   <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
@@ -270,12 +270,13 @@
             <a-form-item>
               <a-space>
                 <a-button
+                  v-if="!remoteImportSessionId"
                   type="primary"
                   :loading="loadingRemoteCandidates"
                   :disabled="submitting || loadingRemoteCandidates || !downloadUrl.trim()"
                   @click="prepareUrlImport"
                 >
-                  下载并扫描
+                  下载
                 </a-button>
                 <a-button
                   type="primary"
@@ -286,6 +287,17 @@
                 >
                   提交所选技能
                 </a-button>
+                <a-popconfirm
+                  v-if="remoteImportSessionId"
+                  title="重新下载会清空当前已解析的候选技能和选择，确认继续？"
+                  ok-text="重新下载"
+                  cancel-text="取消"
+                  @confirm="prepareUrlImport"
+                >
+                  <a-button :loading="loadingRemoteCandidates" :disabled="submitting || loadingRemoteCandidates || !downloadUrl.trim()">
+                    重新下载
+                  </a-button>
+                </a-popconfirm>
                 <a-button @click="resetRemoteImport" :disabled="submitting || loadingRemoteCandidates">清空</a-button>
               </a-space>
             </a-form-item>
@@ -314,7 +326,7 @@
                   <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox">启动 Sandbox</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="llmTooltip">
                   <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
@@ -360,13 +372,13 @@
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
-            <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>
+            <a-tag :color="statusColor(record.status)" :title="statusTitle(record.status)">{{ record.status }}</a-tag>
           </template>
           <template v-else-if="column.key === 'risk_level'">
             <a-tag v-if="record.status === 'PENDING'" color="default">-</a-tag>
-            <a-tag v-else-if="record.risk_level === 'malicious'" color="red">恶意</a-tag>
-            <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange">可疑</a-tag>
-            <a-tag v-else-if="record.risk_level === 'benign'" color="green">安全</a-tag>
+            <a-tag v-else-if="record.risk_level === 'malicious'" color="red" title="恶意">malicious</a-tag>
+            <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange" title="可疑">suspicious</a-tag>
+            <a-tag v-else-if="record.risk_level === 'benign'" color="green" title="安全">benign</a-tag>
             <a-tag v-else color="default">-</a-tag>
           </template>
           <template v-else-if="column.key === 'sandbox'">
@@ -584,6 +596,8 @@ const resultColumns = [
 
 const llmEnabledInSystem = computed(() => Boolean(managerStatus.value?.llm_enabled))
 const llmReadyForSubmit = computed(() => Boolean(managerStatus.value?.llm_enabled && managerStatus.value?.llm_api_key_configured))
+const sandboxEnabledInSystem = computed(() => Boolean(managerStatus.value?.sandbox_enabled))
+const sandboxReadyForSubmit = computed(() => Boolean(managerStatus.value?.sandbox_enabled && managerStatus.value?.sandbox_available))
 const llmTooltip = computed(() => {
   if (loadingSystemStatus.value) return '正在读取系统设置中的 LLM 状态'
   if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return '尚未获取系统设置，请稍后重试'
@@ -592,7 +606,14 @@ const llmTooltip = computed(() => {
   return '启用后会调用系统设置里的 OpenAI-compatible 配置；服务端也可配置模型网关隐私代理'
 })
 const behavioralTooltip = '默认已启动。会额外扫描 scripts、references、prompts 等目录中的文本代码文件，检测命令执行、敏感文件访问、动态执行等可疑模式'
-const sandboxTooltip = '启用后会尝试在 Docker 沙箱或远程隔离执行服务中执行一个受控 probe，用于观察 skill 运行时行为'
+const sandboxTooltip = computed(() => {
+  if (loadingSystemStatus.value) return '正在读取系统设置中的 Sandbox 状态'
+  if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return '尚未获取系统设置，请稍后重试'
+  if (!sandboxEnabledInSystem.value) return '系统设置里已经关闭 Sandbox，所以这里不能勾选'
+  if (!managerStatus.value?.sandbox_available) return 'Sandbox 已启用但当前运行环境不可用，请先检查系统设置'
+  return '启用后会尝试在 Docker 沙箱或远程隔离执行服务中执行一个受控 probe，用于观察 skill 运行时行为'
+})
+const effectiveUseSandbox = () => Boolean(sandboxReadyForSubmit.value && formState.useSandbox)
 
 const inferRemoteOrigin = (url) => (url && url.includes('github.com') ? 'github' : 'unknown')
 
@@ -601,9 +622,11 @@ const fetchSystemStatus = async () => {
   try {
     managerStatus.value = await getAgentManagerSystemStatus()
     if (!llmReadyForSubmit.value) formState.useLlm = false
+    if (!sandboxReadyForSubmit.value) formState.useSandbox = false
   } catch (_error) {
     managerStatus.value = {}
     formState.useLlm = false
+    formState.useSandbox = false
   } finally {
     loadingSystemStatus.value = false
   }
@@ -755,7 +778,7 @@ const handleZipSubmit = async () => {
       author: currentUsername,
       origin: 'local',
       use_behavioral: formState.useBehavioral,
-      use_sandbox: formState.useSandbox,
+      use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
       no_cache: formState.noCache,
     })
@@ -832,7 +855,7 @@ const handleLocalSubmit = async () => {
       author: currentUsername,
       origin: 'local',
       use_behavioral: formState.useBehavioral,
-      use_sandbox: formState.useSandbox,
+      use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
       no_cache: formState.noCache,
     })
@@ -908,18 +931,24 @@ const prepareUrlImport = async () => {
     if (remoteCandidates.value.length === 1) {
       selectedRemotePaths.value = [remoteCandidates.value[0].path]
     }
-    message.success(`下载并扫描完成，识别到 ${remoteCandidates.value.length} 个可导入 skill`)
+    message.success(`下载完成，识别到 ${remoteCandidates.value.length} 个可导入 skill`)
   } catch (error) {
-    message.error(error.response?.data?.detail || '远程下载扫描失败')
+    message.error(error.response?.data?.detail || '远程下载失败')
   } finally {
     loadingRemoteCandidates.value = false
+  }
+}
+
+const handleRemoteFormFinish = () => {
+  if (!remoteImportSessionId.value) {
+    prepareUrlImport()
   }
 }
 
 const handleUrlSubmit = async () => {
   if (submitting.value) return
   if (!remoteImportSessionId.value) {
-    message.warning('请先下载并扫描远程压缩包')
+    message.warning('请先下载远程压缩包')
     return
   }
   if (!selectedRemoteDirectories.value.length) {
@@ -938,7 +967,7 @@ const handleUrlSubmit = async () => {
       author: currentUsername,
       origin: inferRemoteOrigin(downloadUrl.value.trim()),
       use_behavioral: formState.useBehavioral,
-      use_sandbox: formState.useSandbox,
+      use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
       no_cache: formState.noCache,
     })
@@ -1007,7 +1036,7 @@ const handleClawHubSubmit = async () => {
       token: clawhubToken.value.trim() || null,
       author: currentUsername,
       use_behavioral: formState.useBehavioral,
-      use_sandbox: formState.useSandbox,
+      use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
       no_cache: formState.noCache,
     })
@@ -1034,6 +1063,15 @@ const statusColor = (value) => ({
   REJECTED: 'red',
   RETIRED: 'default',
 }[value] || 'default')
+
+const statusTitle = (value) => ({
+  PENDING: '分析中',
+  VETTED: '待审核',
+  APPROVED: '已批准',
+  DEPLOYED: '已部署',
+  REJECTED: '已拒绝',
+  RETIRED: '已退役',
+}[value] || '未知')
 
 const riskColor = (value) => ({
   benign: 'green',

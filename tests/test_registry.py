@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import agent_manager.core.registry as registry_module
 from agent_manager.core.models import (
     AuditEvent,
     RegistryEntry,
@@ -66,6 +67,32 @@ class TestRegistry:
         registry.add(_make_entry("b", status=SkillStatus.DEPLOYED))
         all_entries = registry.list_all()
         assert len(all_entries) == 2
+
+    def test_list_all_orders_by_updated_at(self, registry, monkeypatch):
+        class FakeDateTime(datetime):
+            current = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+            @classmethod
+            def now(cls, tz=None):
+                return cls.current
+
+        monkeypatch.setattr(registry_module, "datetime", FakeDateTime)
+
+        FakeDateTime.current = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        first = _make_entry("first")
+        registry.add(first)
+        FakeDateTime.current = datetime(2024, 1, 2, tzinfo=timezone.utc)
+        second = _make_entry("second")
+        registry.add(second)
+        FakeDateTime.current = datetime(2024, 1, 3, tzinfo=timezone.utc)
+        first.status = SkillStatus.VETTED
+        registry.update(first)
+
+        all_entries = registry.list_all()
+
+        assert [entry.name for entry in all_entries] == ["first", "second"]
+        assert all_entries[0].updated_at == datetime(2024, 1, 3, tzinfo=timezone.utc)
+        assert all_entries[0].summary()["updated_at"] == "2024-01-03T00:00:00+00:00"
 
     def test_list_filtered_by_status(self, registry):
         registry.add(_make_entry("a", status=SkillStatus.APPROVED))

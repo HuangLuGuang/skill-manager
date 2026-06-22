@@ -119,7 +119,6 @@ const menuItems = [
   { key: '/prompts', label: '提示词管理', icon: FileTextOutlined },
   { key: '/submit', label: '提交技能', icon: UploadOutlined },
   { key: '/review', label: '审核队列', icon: CheckSquareOutlined },
-  { key: '/deployments', label: '部署管理', icon: DeploymentUnitOutlined },
   { key: '/runtime', label: '运行时治理', icon: SafetyCertificateOutlined },
   { key: '/audit', label: '审计日志', icon: AuditOutlined },
   { key: '/policy', label: '策略配置', icon: SettingOutlined },

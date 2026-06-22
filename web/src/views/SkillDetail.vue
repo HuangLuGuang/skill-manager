@@ -1,138 +1,108 @@
 <template>
-  <div>
-    <a-page-header :title="detail?.name ? `技能详情：${detail.name}` : `技能详情：${skillId}`" sub-title="查看技能详情、审核、部署与审计记录" />
+  <div class="skill-detail-page">
+    <a-page-header :title="detail?.name ? `技能详情：${detail.name}` : `技能详情：${skillId}`" sub-title="查看技能详情、审核与审计记录" />
 
-    <a-row :gutter="[16, 16]" style="margin-top: 16px">
-      <a-col :xs="24" :xl="8">
-        <a-card title="基础信息">
-          <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
-            <a-descriptions :column="1" size="small">
-              <a-descriptions-item label="Skill ID">{{ detail?.skill_id || skillId }}</a-descriptions-item>
-              <a-descriptions-item label="名称">{{ detail?.name || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="状态">
-                <a-tag :color="statusColor(detail?.status)">{{ detail?.status || '-' }}</a-tag>
-              </a-descriptions-item>
-              <a-descriptions-item label="安全判定">
-                <a-tag v-if="detail?.status === 'PENDING'" color="default" style="font-size: 16px; padding: 4px 16px;">
-                  -
-                </a-tag>
-                <a-tag v-else-if="detail?.risk_level === 'malicious'" color="red" style="font-size: 16px; padding: 4px 16px;">
-                  恶意
-                </a-tag>
-                <a-tag v-else-if="detail?.risk_level === 'suspicious'" color="orange" style="font-size: 16px; padding: 4px 16px;">
-                  可疑
-                </a-tag>
-                <a-tag v-else color="green" style="font-size: 16px; padding: 4px 16px;">
-                  安全
-                </a-tag>
-              </a-descriptions-item>
-              <a-descriptions-item label="路径">{{ detail?.skill_path || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="作者">{{ detail?.source?.author || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="来源">{{ detail?.source?.origin || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="允许工具">{{ detail?.allowed_tools?.join(', ') || 'none' }}</a-descriptions-item>
-              <a-descriptions-item label="声明工具有效">{{ detail?.declared_tools_valid ? '是' : '否' }}</a-descriptions-item>
-              <a-descriptions-item label="Sandbox 已触发">
-                {{ detail?.vetting?.sandbox_triggered ? '是' : '否' }}
-              </a-descriptions-item>
-              <a-descriptions-item label="Sandbox 由策略强制">
-                {{ detail?.vetting?.sandbox_required_by_policy ? '是' : '否' }}
-              </a-descriptions-item>
-              <a-descriptions-item label="Sandbox 后端">
-                {{ detail?.vetting?.sandbox_runtime || '-' }}
-              </a-descriptions-item>
-              <a-descriptions-item label="Sandbox 镜像">
-                {{ sandboxDisplayImage }}
-              </a-descriptions-item>
-              <a-descriptions-item label="扫描复用">
-                <a-space wrap>
-                  <a-tag :color="detail?.scan_reused ? 'green' : 'default'">
-                    {{ detail?.scan_reused ? '已复用' : '未复用' }}
-                  </a-tag>
-                  <span v-if="detail?.reused_from_skill_id">来源：{{ detail.reused_from_skill_id }}</span>
-                </a-space>
-              </a-descriptions-item>
-            </a-descriptions>
-          </a-skeleton>
-        </a-card>
-      </a-col>
+    <a-card title="基础信息" class="basic-info-card" style="margin-top: 16px">
+      <a-skeleton :loading="loading" active :paragraph="{ rows: 5 }">
+        <a-descriptions :column="{ xs: 1, sm: 2, lg: 3, xxl: 4 }" size="small" bordered>
+          <a-descriptions-item label="Skill ID" :span="2">{{ detail?.skill_id || skillId }}</a-descriptions-item>
+          <a-descriptions-item label="名称">{{ detail?.name || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="状态">
+            <a-tag :color="statusColor(detail?.status)">{{ statusDisplay(detail?.status) }}</a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="安全判定">
+            <a-tag v-if="detail?.status === 'PENDING'" color="default">-</a-tag>
+            <a-tag v-else-if="detail?.risk_level === 'malicious'" color="red">{{ riskDisplay(detail.risk_level) }}</a-tag>
+            <a-tag v-else-if="detail?.risk_level === 'suspicious'" color="orange">{{ riskDisplay(detail.risk_level) }}</a-tag>
+            <a-tag v-else-if="detail?.risk_level === 'benign'" color="green">{{ riskDisplay(detail.risk_level) }}</a-tag>
+            <a-tag v-else color="default">{{ riskDisplay(detail?.risk_level) }}</a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="作者">{{ detail?.source?.author || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="来源">{{ originLabel(detail?.source?.origin) }}</a-descriptions-item>
+          <a-descriptions-item label="工具声明是否合规">
+            <a-tag :color="detail?.declared_tools_valid ? 'green' : 'red'" title="按策略页的允许工具白名单和禁止权限/工具校验">
+              {{ detail?.declared_tools_valid ? '合规' : '不合规' }}
+            </a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="SKILL.md 声明工具" :span="2">
+            <span title="来自 SKILL.md 的 allowed-tools 字段，表示 skill 声明可能需要使用的工具权限">
+              {{ detail?.allowed_tools?.join(', ') || '未声明' }}
+            </span>
+          </a-descriptions-item>
+          <a-descriptions-item label="扫描复用" :span="2">
+            <a-space wrap>
+              <a-tag :color="detail?.scan_reused ? 'green' : 'default'">
+                {{ detail?.scan_reused ? '已复用' : '未复用' }}
+              </a-tag>
+              <span v-if="detail?.reused_from_skill_id">来源：{{ detail.reused_from_skill_id }}</span>
+            </a-space>
+          </a-descriptions-item>
+          <a-descriptions-item label="Sandbox 已触发">{{ detail?.vetting?.sandbox_triggered ? '是' : '否' }}</a-descriptions-item>
+          <a-descriptions-item label="策略强制 Sandbox">
+            <a-tag
+              :color="detail?.vetting?.sandbox_required_by_policy ? 'orange' : 'default'"
+              title="表示这次 Sandbox 不是用户手动勾选触发的，而是因为风险等级命中了策略页里的“强制 Sandbox 风险等级”，系统自动要求执行"
+            >
+              {{ detail?.vetting?.sandbox_required_by_policy ? '是' : '否' }}
+            </a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="Sandbox 后端">{{ detail?.vetting?.sandbox_runtime || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="Sandbox 镜像">{{ sandboxDisplayImage }}</a-descriptions-item>
+          <a-descriptions-item label="技能路径" :span="4">
+            <span class="path-value">{{ detail?.skill_path || '-' }}</span>
+          </a-descriptions-item>
+        </a-descriptions>
+      </a-skeleton>
+    </a-card>
 
-      <a-col :xs="24" :xl="16">
-        <a-card title="生命周期与操作">
-          <a-space style="margin-bottom: 16px" wrap>
+    <a-card class="lifecycle-card" style="margin-top: 12px">
+      <div class="lifecycle-row">
+        <div class="lifecycle-heading">
+          <strong>生命周期与操作</strong>
+          <a-tag :color="statusColor(detail?.status)">{{ statusDisplay(detail?.status) }}</a-tag>
+        </div>
+
+        <a-steps :current="stepIndex" size="small" class="lifecycle-steps" :responsive="false">
+          <a-step title="提交" :description="formatDateTime(detail?.submitted_at)" />
+          <a-step title="审核" :description="detail?.approved_by || '待审核'" />
+          <a-step title="批准" :description="formatDateTime(detail?.approved_at)" />
+        </a-steps>
+
+        <a-space class="lifecycle-actions" wrap>
             <a-button @click="fetchDetail" :loading="loading">刷新</a-button>
-            <a-button @click="handleVerifySignature" :loading="verifyingSignature">验签</a-button>
+            <a-tooltip :title="signatureVerifyDisabledReason">
+              <span>
+                <a-button
+                  :disabled="!detail?.signature"
+                  :loading="verifyingSignature"
+                  @click="handleVerifySignature"
+                >
+                  验签
+                </a-button>
+              </span>
+            </a-tooltip>
             <a-button v-if="detail?.status === 'VETTED'" type="primary" @click="openApproveModal">批准</a-button>
             <a-button v-if="detail?.status === 'VETTED'" danger @click="openRejectModal">拒绝</a-button>
-            <a-button v-if="detail?.status === 'APPROVED'" type="primary" :loading="actionLoading && actionType === 'deploy'" @click="handleDeploy">部署</a-button>
-            <a-button v-if="detail?.status === 'APPROVED' || detail?.status === 'DEPLOYED'" danger @click="openRetireModal">退役</a-button>
-          </a-space>
+        </a-space>
+      </div>
+      <a-alert
+        v-if="signatureResult"
+        style="margin-top: 12px"
+        :type="signatureResult.valid ? 'success' : 'error'"
+        show-icon
+        :message="signatureResult.valid ? '签名校验通过' : '签名校验失败'"
+        :description="signatureResultReason"
+      />
+    </a-card>
 
-          <a-steps :current="stepIndex" size="small">
-            <a-step title="提交" :description="formatDateTime(detail?.submitted_at)" />
-            <a-step title="审核" :description="detail?.approved_by || '待审核'" />
-            <a-step title="批准" :description="formatDateTime(detail?.approved_at)" />
-            <a-step title="部署" :description="formatDateTime(detail?.deployed_at)" />
-          </a-steps>
-
-          <a-alert
-            v-if="signatureResult"
-            style="margin-top: 16px"
-            :type="signatureResult.valid ? 'success' : 'error'"
-            show-icon
-            :message="signatureResult.valid ? '签名校验通过' : '签名校验失败'"
-            :description="signatureResult.reason"
-          />
-        </a-card>
-      </a-col>
-    </a-row>
-
-    <a-card title="Vetting / 签名 / 审计" style="margin-top: 16px">
-      <a-tabs default-active-key="llm">
-        <a-tab-pane key="llm" tab="LLM 分析">
-          <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
-            <template v-if="llmAnalysis">
-              <a-card size="small" title="LLM 深度分析">
-                <a-descriptions :column="2" size="small" bordered style="margin-bottom: 12px">
-                  <a-descriptions-item label="提供方">{{ llmAnalysis.provider || '-' }}</a-descriptions-item>
-                  <a-descriptions-item label="模型">{{ llmAnalysis.model || '-' }}</a-descriptions-item>
-                  <a-descriptions-item label="判定">
-                    <a-tag v-if="llmAnalysis.risk_level === 'malicious'" color="red" style="font-size: 15px; padding: 2px 12px;">
-                      恶意
-                    </a-tag>
-                    <a-tag v-else-if="llmAnalysis.risk_level === 'suspicious'" color="orange" style="font-size: 15px; padding: 2px 12px;">
-                      可疑
-                    </a-tag>
-                    <a-tag v-else color="green" style="font-size: 15px; padding: 2px 12px;">
-                      安全
-                    </a-tag>
-                  </a-descriptions-item>
-                </a-descriptions>
-
-                <!-- 分析说明 -->
-                <div v-if="llmAnalysis.report" class="llm-explanation" v-html="llmExplanationHtml" />
-
-                <!-- 攻击链图 -->
-                <template v-if="llmAnalysis.risk_level === 'malicious' && llmAnalysis.attack_chain?.length">
-                  <a-divider />
-                  <div>
-                    <h4 style="margin-bottom: 12px;">攻击链分析</h4>
-                    <AttackChainGraph :attack-chain="llmAnalysis.attack_chain" />
-                  </div>
-                </template>
-              </a-card>
-            </template>
-            <template v-else>
-              <a-empty description="暂无 LLM 分析结果" />
-            </template>
-          </a-skeleton>
-        </a-tab-pane>
-        <a-tab-pane key="vetting" tab="Vetting">
+    <a-card title="安全检测与治理" style="margin-top: 12px">
+      <a-tabs v-model:activeKey="activeTab">
+        <a-tab-pane key="vetting" tab="安全检测">
           <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
             <a-space style="margin-bottom: 12px" wrap>
               <a-button type="primary" class="refresh-report-button" @click="fetchScanReport" :loading="loadingScanReport">
                 刷新报告
               </a-button>
-              <span style="color: #8c8c8c">原始扫描 JSON 默认折叠，按需展开查看</span>
             </a-space>
             <a-descriptions :column="2" size="small" bordered>
               <a-descriptions-item label="安全判定">
@@ -140,14 +110,15 @@
                   -
                 </a-tag>
                 <a-tag v-else-if="detail?.risk_level === 'malicious'" color="red">
-                  恶意
+                  {{ riskDisplay(detail.risk_level) }}
                 </a-tag>
                 <a-tag v-else-if="detail?.risk_level === 'suspicious'" color="orange">
-                  可疑
+                  {{ riskDisplay(detail.risk_level) }}
                 </a-tag>
-                <a-tag v-else color="green">
-                  安全
+                <a-tag v-else-if="detail?.risk_level === 'benign'" color="green">
+                  {{ riskDisplay(detail.risk_level) }}
                 </a-tag>
+                <a-tag v-else color="default">{{ riskDisplay(detail?.risk_level) }}</a-tag>
               </a-descriptions-item>
               <a-descriptions-item label="发现项">{{ detail?.vetting?.findings_count ?? 0 }}</a-descriptions-item>
               <a-descriptions-item label="规则分析器">{{ detail?.vetting?.analyzers_used?.join(', ') || '-' }}</a-descriptions-item>
@@ -155,81 +126,101 @@
               <a-descriptions-item label="扫描缓存">{{ detail?.scan_reused ? '复用历史结果' : '本次执行扫描' }}</a-descriptions-item>
               <a-descriptions-item label="缓存 Key">{{ detail?.scan_cache_key || '-' }}</a-descriptions-item>
             </a-descriptions>
+            <a-card v-if="riskRationaleItems.length" size="small" title="判断依据" style="margin-top: 12px">
+              <a-list :data-source="riskRationaleItems" size="small">
+                <template #renderItem="{ item }">
+                  <a-list-item>
+                    <a-space wrap>
+                      <a-tag :color="item.color">{{ item.source }}</a-tag>
+                      <span>{{ item.text }}</span>
+                      <a-button type="link" size="small" style="padding: 0" @click="jumpToRationale(item.target)">
+                        查看
+                      </a-button>
+                    </a-space>
+                  </a-list-item>
+                </template>
+              </a-list>
+            </a-card>
             <a-divider />
-            <a-list
-              header="策略说明"
-              :data-source="detail?.vetting?.policy_notes?.length ? detail.vetting.policy_notes : ['No policy notes']"
-              bordered
-              size="small"
-            >
-              <template #renderItem="{ item }">
-                <a-list-item>{{ item }}</a-list-item>
-              </template>
-            </a-list>
-            <a-divider />
-            <a-card size="small" title="规则分析结果">
-              <template v-if="behavioralAnalysis">
-                <a-descriptions :column="2" size="small" bordered>
-                  <a-descriptions-item label="扫描文件数">
-                    {{ behavioralAnalysis.scanned_file_count ?? behavioralScannedFiles.length }}
-                  </a-descriptions-item>
-                  <a-descriptions-item label="命中规则数">
-                    {{ behavioralFindings.length }}
-                  </a-descriptions-item>
-                  <a-descriptions-item label="最高严重级别">
-                    <a-tag :color="severityColor(behavioralAnalysis.max_severity)">
-                      {{ behavioralAnalysis.max_severity || '-' }}
-                    </a-tag>
-                  </a-descriptions-item>
-                  <a-descriptions-item label="规则分析器">
-                    <a-tag color="blue">behavioral:local</a-tag>
-                  </a-descriptions-item>
-                </a-descriptions>
+            <a-collapse id="policy-notes-section">
+              <a-collapse-panel key="policy-notes" :header="`策略说明（${detail?.vetting?.policy_notes?.length || 0}）`">
                 <a-list
-                  style="margin-top: 12px"
-                  header="规则命中项"
-                  :data-source="behavioralFindings"
+                  :data-source="detail?.vetting?.policy_notes?.length ? detail.vetting.policy_notes : ['暂无策略说明']"
                   bordered
                   size="small"
                 >
                   <template #renderItem="{ item }">
-                    <a-list-item>
-                      <div style="width: 100%">
-                        <a-space wrap>
-                          <a-tag :color="severityColor(item.severity)">{{ item.severity }}</a-tag>
-                          <strong>{{ item.title }}</strong>
-                          <a-button
-                            v-if="item.file"
-                            type="link"
-                            size="small"
-                            style="padding: 0"
-                            @click="openFileViewer(item.file)"
-                          >
-                            {{ item.file }}
-                          </a-button>
-                          <a-tag v-if="item.rule" color="default">{{ item.rule }}</a-tag>
-                        </a-space>
-                        <div style="margin-top: 6px">{{ item.message }}</div>
-                      </div>
-                    </a-list-item>
+                    <a-list-item>{{ item }}</a-list-item>
                   </template>
                 </a-list>
-                <a-collapse v-if="behavioralScannedFiles.length" style="margin-top: 12px">
-                  <a-collapse-panel key="files" header="查看已扫描文件">
-                    <a-list :data-source="behavioralScannedFiles" bordered size="small">
+              </a-collapse-panel>
+            </a-collapse>
+            <a-divider />
+            <a-card id="rule-analysis-section" size="small" title="规则分析结果">
+              <template v-if="behavioralAnalysis">
+                <a-descriptions :column="2" size="small" bordered>
+                  <a-descriptions-item label="扫描文件数">
+                    {{ localStaticAnalysis?.scanned_file_count ?? behavioralAnalysis.scanned_file_count ?? behavioralScannedFiles.length }}
+                  </a-descriptions-item>
+                  <a-descriptions-item label="命中规则数">
+                    {{ ruleAnalysisFindings.length }}
+                  </a-descriptions-item>
+                  <a-descriptions-item label="最高严重级别">
+                    <a-tag :color="severityColor(localStaticAnalysis?.max_severity || behavioralAnalysis.max_severity)">
+                      {{ localStaticAnalysis?.max_severity || behavioralAnalysis.max_severity || '-' }}
+                    </a-tag>
+                  </a-descriptions-item>
+                  <a-descriptions-item label="规则分析器">
+                    <a-tag color="blue">behavioral:local</a-tag>
+                    <a-tag v-if="localStaticAnalysis" color="cyan">agent-manager-local</a-tag>
+                  </a-descriptions-item>
+                </a-descriptions>
+                <a-collapse
+                  style="margin-top: 12px"
+                  :default-active-key="ruleAnalysisFindings.length ? ['findings'] : []"
+                >
+                  <a-collapse-panel key="findings" :header="`规则命中项（${ruleAnalysisFindings.length}）`">
+                    <a-list
+                      v-if="ruleAnalysisFindings.length"
+                      :data-source="ruleAnalysisFindings"
+                      bordered
+                      size="small"
+                    >
+                      <template #renderItem="{ item }">
+                        <a-list-item>
+                          <div style="width: 100%">
+                            <a-space wrap>
+                              <a-tag :color="severityColor(item.severity)">{{ item.severity }}</a-tag>
+                              <strong>{{ bilingualText(item.title) }}</strong>
+                              <a-button
+                                v-if="item.file"
+                                type="link"
+                                size="small"
+                                style="padding: 0"
+                                @click="openFileViewer(item.file)"
+                              >
+                                {{ item.file }}
+                              </a-button>
+                              <a-tag v-if="item.rule" color="default">{{ item.rule }}</a-tag>
+                            </a-space>
+                            <div style="margin-top: 6px">{{ bilingualText(item.message) }}</div>
+                          </div>
+                        </a-list-item>
+                      </template>
+                    </a-list>
+                    <a-empty v-else :image-style="{ height: '36px' }" description="本次规则分析没有命中项" />
+                  </a-collapse-panel>
+                  <a-collapse-panel key="files" :header="`已扫描文件（${behavioralScannedFiles.length}）`">
+                    <a-list v-if="behavioralScannedFiles.length" :data-source="behavioralScannedFiles" bordered size="small">
                       <template #renderItem="{ item }">
                         <a-list-item>
                           <a-button type="link" style="padding: 0" @click="openFileViewer(item)">{{ item }}</a-button>
                         </a-list-item>
                       </template>
                     </a-list>
+                    <a-empty v-else :image-style="{ height: '36px' }" description="没有已扫描文件记录" />
                   </a-collapse-panel>
                 </a-collapse>
-                <a-empty
-                  v-else
-                  style="margin-top: 12px"
-                  description="本次规则分析没有记录到已扫描文件列表。"
-                />
               </template>
               <a-empty
                 v-else
@@ -237,7 +228,79 @@
               />
             </a-card>
             <a-divider />
-            <a-card size="small" title="Sandbox 执行结果">
+            <a-card id="skillspector-section" size="small" title="SkillSpector 扫描结果">
+              <template v-if="skillspectorAnalysis">
+                <a-alert
+                  v-if="skillspectorAnalysis.error"
+                  type="warning"
+                  show-icon
+                  message="SkillSpector 扫描未完成"
+                  :description="skillspectorAnalysis.error"
+                  style="margin-bottom: 12px"
+                />
+                <a-descriptions :column="2" size="small" bordered>
+                  <a-descriptions-item label="扫描器状态">
+                    <a-tag :color="skillspectorAnalysis.available ? 'green' : 'default'">
+                      {{ skillspectorAnalysis.available ? 'available（可用）' : 'unavailable（未安装）' }}
+                    </a-tag>
+                  </a-descriptions-item>
+                  <a-descriptions-item label="版本">{{ skillspectorAnalysis.version || '-' }}</a-descriptions-item>
+                  <a-descriptions-item label="风险分">{{ skillspectorAnalysis.risk_score ?? '-' }}</a-descriptions-item>
+                  <a-descriptions-item label="风险级别">
+                    <a-tag :color="severityColor(skillspectorEffectiveSeverity)">
+                      {{ severityDisplay(skillspectorEffectiveSeverity) }}
+                    </a-tag>
+                  </a-descriptions-item>
+                  <a-descriptions-item v-if="skillspectorRawSeverity && skillspectorRawSeverity !== skillspectorEffectiveSeverity" label="原始风险">
+                    {{ severityDisplay(skillspectorRawSeverity) }}
+                  </a-descriptions-item>
+                  <a-descriptions-item label="建议">{{ recommendationDisplay(skillspectorAnalysis.risk_recommendation) }}</a-descriptions-item>
+                  <a-descriptions-item label="发现项">{{ skillspectorFindings.length }}</a-descriptions-item>
+                  <a-descriptions-item v-if="skillspectorAnalysis.suppressed_findings_count" label="已过滤噪声">
+                    {{ skillspectorAnalysis.suppressed_findings_count }}
+                  </a-descriptions-item>
+                </a-descriptions>
+                <a-collapse v-if="skillspectorFindings.length" v-model:activeKey="skillspectorFindingsActiveKey" style="margin-top: 12px">
+                  <a-collapse-panel key="skillspector-findings" :header="`SkillSpector 命中项（${skillspectorFindings.length}）`">
+                    <a-list
+                      :data-source="skillspectorFindings"
+                      bordered
+                      size="small"
+                    >
+                      <template #renderItem="{ item }">
+                        <a-list-item>
+                          <div style="width: 100%">
+                            <a-space wrap>
+                              <a-tag :color="severityColor(item.severity)">{{ item.severity || '-' }}</a-tag>
+                              <a-tag color="default">{{ item.rule || item.rule_id || '-' }}</a-tag>
+                              <strong>{{ findingTitle(item) }}</strong>
+                              <a-button
+                                v-if="item.file"
+                                type="link"
+                                size="small"
+                                style="padding: 0"
+                                @click="openFileViewer(item.file)"
+                              >
+                                {{ item.file }}{{ item.line || item.start_line ? `:${item.line || item.start_line}` : '' }}
+                              </a-button>
+                            </a-space>
+                            <div v-if="item.message || item.explanation" style="margin-top: 6px">
+                              {{ bilingualText(item.message || item.explanation) }}
+                            </div>
+                            <div v-if="item.remediation" style="margin-top: 6px; color: #8c8c8c">
+                              建议：{{ item.remediation }}
+                            </div>
+                          </div>
+                        </a-list-item>
+                      </template>
+                    </a-list>
+                  </a-collapse-panel>
+                </a-collapse>
+              </template>
+              <a-empty v-else description="本次扫描未启用 SkillSpector 或没有报告。" />
+            </a-card>
+            <a-divider />
+            <a-card id="sandbox-section" size="small" title="Sandbox 执行结果">
               <template v-if="sandboxAnalysis">
                 <a-alert
                   style="margin-bottom: 12px"
@@ -327,8 +390,8 @@
                       <div style="width: 100%">
                         <a-space wrap>
                           <a-tag :color="severityColor(item.severity)">{{ item.severity }}</a-tag>
-                          <a-tag color="default">{{ item.category }}</a-tag>
-                          <strong>{{ item.message }}</strong>
+                          <a-tag color="default">{{ bilingualText(item.category) }}</a-tag>
+                          <strong>{{ bilingualText(item.message) }}</strong>
                         </a-space>
                         <div v-if="item.evidence" style="margin-top: 6px; color: #8c8c8c">
                           {{ item.evidence }}
@@ -389,10 +452,10 @@
                       <a-descriptions-item label="网络尝试">{{ record.network_attempts ?? 0 }}</a-descriptions-item>
                     </a-descriptions>
                     <a-tabs size="small" style="margin-top: 12px">
-                      <a-tab-pane key="stdout" tab="stdout">
+                      <a-tab-pane key="stdout" tab="标准输出">
                         <a-textarea :value="record.stdout || '无输出'" :rows="8" readonly />
                       </a-tab-pane>
-                      <a-tab-pane key="stderr" tab="stderr">
+                      <a-tab-pane key="stderr" tab="标准错误">
                         <a-textarea :value="record.stderr || '无输出'" :rows="8" readonly />
                       </a-tab-pane>
                     </a-tabs>
@@ -401,10 +464,10 @@
                 <a-collapse style="margin-top: 12px">
                   <a-collapse-panel key="sandbox-output" header="查看 Sandbox 输出">
                     <a-tabs size="small">
-                      <a-tab-pane key="stdout" tab="stdout">
+                      <a-tab-pane key="stdout" tab="标准输出">
                         <a-textarea :value="sandboxAnalysis.stdout || '无输出'" :rows="8" readonly />
                       </a-tab-pane>
-                      <a-tab-pane key="stderr" tab="stderr">
+                      <a-tab-pane key="stderr" tab="标准错误">
                         <a-textarea :value="sandboxAnalysis.stderr || '无输出'" :rows="8" readonly />
                       </a-tab-pane>
                     </a-tabs>
@@ -416,16 +479,72 @@
                 description="当前没有可展示的 Sandbox 执行结果。若本次提交启用了 Sandbox，请刷新报告。"
               />
             </a-card>
-            <a-divider />
-            <a-collapse>
-              <a-collapse-panel key="raw-report" header="查看原始报告 JSON">
-                <a-textarea :value="scanReportText" :rows="12" readonly />
-              </a-collapse-panel>
-            </a-collapse>
           </a-skeleton>
         </a-tab-pane>
 
-        <a-tab-pane key="signature" tab="Signature">
+        <a-tab-pane key="llm" tab="LLM 分析">
+          <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
+            <template v-if="llmAnalysis">
+              <a-card id="llm-section" size="small" title="LLM 深度分析">
+                <a-descriptions :column="2" size="small" bordered style="margin-bottom: 12px">
+                  <a-descriptions-item label="提供方">{{ llmAnalysis.provider || '-' }}</a-descriptions-item>
+                  <a-descriptions-item label="模型">{{ llmAnalysis.model || '-' }}</a-descriptions-item>
+                  <a-descriptions-item label="判定">
+                    <a-tag v-if="llmAnalysis.risk_level === 'malicious'" color="red">{{ riskDisplay(llmAnalysis.risk_level) }}</a-tag>
+                    <a-tag v-else-if="llmAnalysis.risk_level === 'suspicious'" color="orange">{{ riskDisplay(llmAnalysis.risk_level) }}</a-tag>
+                    <a-tag v-else-if="llmAnalysis.risk_level === 'benign'" color="green">{{ riskDisplay(llmAnalysis.risk_level) }}</a-tag>
+                    <a-tag v-else color="default">{{ riskDisplay(llmAnalysis.risk_level) }}</a-tag>
+                  </a-descriptions-item>
+                </a-descriptions>
+                <div v-if="llmAnalysis.report" class="llm-explanation" v-html="llmExplanationHtml" />
+                <template v-if="llmAnalysis.risk_level === 'malicious' && llmAnalysis.attack_chain?.length">
+                  <a-divider />
+                  <div>
+                    <h4 style="margin-bottom: 12px">攻击链分析</h4>
+                    <AttackChainGraph :attack-chain="llmAnalysis.attack_chain" />
+                  </div>
+                </template>
+              </a-card>
+            </template>
+            <a-empty v-else description="暂无 LLM 分析结果" />
+          </a-skeleton>
+        </a-tab-pane>
+
+        <a-tab-pane key="governance-card" tab="Governance Card（治理卡片）">
+          <a-space style="margin-bottom: 12px" wrap>
+            <a-button @click="fetchGovernanceCard" :loading="loadingGovernanceCard">刷新</a-button>
+            <a-button type="primary" @click="handleRefreshGovernanceCard" :loading="loadingGovernanceCard">
+              重新生成
+            </a-button>
+            <a-radio-group v-model:value="governanceCardViewMode" button-style="solid">
+              <a-radio-button value="preview">预览</a-radio-button>
+              <a-radio-button value="raw">原文</a-radio-button>
+            </a-radio-group>
+            <span style="color: #8c8c8c">
+              {{ governanceCard?.generated_at ? `生成时间：${formatDateTime(governanceCard.generated_at)}` : '暂无生成时间' }}
+            </span>
+          </a-space>
+          <a-alert
+            v-if="governanceCard?.path"
+            type="info"
+            show-icon
+            :message="governanceCard.path"
+            style="margin-bottom: 12px"
+          />
+          <template v-if="governanceCardViewMode === 'preview'">
+            <div class="markdown-body governance-card-preview" v-html="governanceCardHtml" />
+          </template>
+          <template v-else>
+            <div class="code-preview">
+              <div v-for="line in governanceCardLines" :key="line.no" class="code-line">
+                <span class="line-no">{{ line.no }}</span>
+                <span class="line-text">{{ line.text || ' ' }}</span>
+              </div>
+            </div>
+          </template>
+        </a-tab-pane>
+
+        <a-tab-pane key="signature" tab="签名验证">
           <a-descriptions :column="1" size="small" bordered>
             <a-descriptions-item label="签名是否存在">{{ detail?.signature ? '是' : '否' }}</a-descriptions-item>
             <a-descriptions-item label="签名预览">{{ detail?.signature ? `${detail.signature.slice(0, 24)}...` : '-' }}</a-descriptions-item>
@@ -433,7 +552,7 @@
           </a-descriptions>
         </a-tab-pane>
 
-        <a-tab-pane key="content" tab="Skill 内容">
+        <a-tab-pane key="content" tab="技能内容">
           <a-space style="margin-bottom: 12px" wrap>
             <a-button @click="fetchSkillContent" :loading="loadingContent">刷新 SKILL.md</a-button>
             <a-radio-group v-model:value="contentViewMode" button-style="solid">
@@ -454,14 +573,19 @@
             <a-card
               v-if="skillFrontmatter"
               size="small"
-              title="Manifest Frontmatter"
+              title="Manifest 元数据"
               style="margin-bottom: 12px"
             >
               <pre class="frontmatter-box">{{ skillFrontmatter }}</pre>
             </a-card>
             <div class="markdown-body" v-html="skillContentHtml" />
           </template>
-          <a-textarea v-else :value="skillContent?.content || '点击“加载 SKILL.md”查看技能内容'" :rows="18" readonly />
+          <div v-else class="code-preview">
+            <div v-for="line in skillContentLines" :key="line.no" class="code-line">
+              <span class="line-no">{{ line.no }}</span>
+              <span class="line-text">{{ line.text || ' ' }}</span>
+            </div>
+          </div>
         </a-tab-pane>
 
         <a-tab-pane key="files" tab="文件列表">
@@ -484,12 +608,12 @@
           </a-table>
         </a-tab-pane>
 
-        <a-tab-pane key="audit" tab="Audit">
+        <a-tab-pane key="audit" tab="审计记录">
           <a-table :data-source="auditRows" :columns="auditColumns" rowKey="event_id" :pagination="{ pageSize: 5 }">
             <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'details'">
-                <span>{{ formatDetails(record.details) }}</span>
-              </template>
+              <span v-if="column.key === 'event_type'">{{ auditEventLabel(record.event_type) }}</span>
+              <span v-else-if="column.key === 'actor'">{{ record.actor || '系统' }}</span>
+              <span v-else-if="column.key === 'details'">{{ formatAuditDetails(record.details) }}</span>
             </template>
           </a-table>
         </a-tab-pane>
@@ -538,27 +662,6 @@
       </a-form>
     </a-modal>
 
-    <a-modal
-      v-model:open="retireModalOpen"
-      title="退役技能"
-      ok-text="确认退役"
-      cancel-text="取消"
-      :confirm-loading="actionLoading"
-      @ok="submitRetire"
-    >
-      <a-form layout="vertical">
-        <a-form-item label="Skill">
-          <a-input :value="detail?.name || ''" disabled />
-        </a-form-item>
-        <a-form-item label="执行人">
-          <a-input :value="currentUser()" disabled />
-        </a-form-item>
-        <a-form-item label="退役原因" required>
-          <a-textarea v-model:value="retireReason" :rows="4" placeholder="请输入退役原因" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
     <a-drawer
       v-model:open="fileViewerOpen"
       :title="viewerTitle"
@@ -569,44 +672,52 @@
         <a-button @click="refreshViewedFile" :loading="loadingFileViewer" :disabled="!viewingFilePath">刷新文件</a-button>
         <span style="color: #8c8c8c">{{ viewedFile?.absolute_path || viewingFilePath || '-' }}</span>
       </a-space>
-      <a-textarea :value="viewedFile?.content || '暂无文件内容'" :rows="28" readonly />
+      <div class="code-preview drawer-code-preview">
+        <div v-for="line in viewedFileLines" :key="line.no" class="code-line">
+          <span class="line-no">{{ line.no }}</span>
+          <span class="line-text">{{ line.text || ' ' }}</span>
+        </div>
+      </div>
     </a-drawer>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { marked } from 'marked'
 
 import {
   approveSkill,
-  deploySkill,
   getAudit,
   getSkillContent,
   getSkillDetail,
   getSkillFileContent,
   getSkillFiles,
+  getSkillGovernanceCard,
   getSkillScanReport,
+  refreshSkillGovernanceCard,
   rejectSkill,
-  retireSkill,
   verifySkillSignature,
 } from '../api'
-import { formatDateTime, formatDetails } from '../utils/format'
+import { formatDateTime } from '../utils/format'
 import AttackChainGraph from '../components/AttackChainGraph.vue'
 
 const route = useRoute()
 const skillId = computed(() => route.params.skillId)
+const activeTab = ref(route.query.tab || 'vetting')
 const loading = ref(false)
 const loadingScanReport = ref(false)
 const loadingContent = ref(false)
+const loadingGovernanceCard = ref(false)
 const verifyingSignature = ref(false)
 const actionLoading = ref(false)
 const actionType = ref('')
 const detail = ref(null)
 const auditRows = ref([])
 const scanReport = ref(null)
+const governanceCard = ref(null)
 const skillContent = ref(null)
 const skillFiles = ref([])
 const signatureResult = ref(null)
@@ -615,19 +726,48 @@ const loadingFileViewer = ref(false)
 const viewingFilePath = ref('')
 const viewedFile = ref(null)
 const contentViewMode = ref('preview')
+const governanceCardViewMode = ref('preview')
+const skillspectorFindingsActiveKey = ref([])
 const approveModalOpen = ref(false)
 const rejectModalOpen = ref(false)
-const retireModalOpen = ref(false)
 const approveNote = ref('')
 const rejectReason = ref('')
-const retireReason = ref('')
 
 const auditColumns = [
-  { title: 'Time', dataIndex: 'timestamp', key: 'timestamp', width: 220, customRender: ({ text }) => formatDateTime(text) },
-  { title: 'Event', dataIndex: 'event_type', key: 'event_type', width: 180 },
-  { title: 'Actor', dataIndex: 'actor', key: 'actor', width: 140 },
-  { title: 'Details', dataIndex: 'details', key: 'details' },
+  { title: '时间', dataIndex: 'timestamp', key: 'timestamp', width: 180, customRender: ({ text }) => formatDateTime(text) },
+  { title: '事件', dataIndex: 'event_type', key: 'event_type', width: 180 },
+  { title: '操作人', dataIndex: 'actor', key: 'actor', width: 120 },
+  { title: '详情', dataIndex: 'details', key: 'details' },
 ]
+
+const auditEventLabels = {
+  skill_submitted: '技能已提交',
+  skill_processing_completed: '后台分析完成',
+  skill_queued_for_review: '已进入人工审核',
+  skill_vetted: '安全检测完成',
+  skill_approved: '技能已批准',
+  skill_rejected: '技能已拒绝',
+  skill_deployed: '技能已部署',
+  skill_retired: '技能已退役',
+  skill_signature_verified: '签名校验通过',
+  skill_tamper_detected: '检测到内容篡改',
+  skill_load_allowed: '允许运行时加载',
+  skill_load_blocked: '阻止运行时加载',
+  tool_invoked: '工具已调用',
+  tool_blocked: '工具调用被阻止',
+}
+
+const auditDetailLabels = {
+  skill_path: '技能路径',
+  status: '状态',
+  risk_level: '风险等级',
+  pre_llm_risk_level: 'LLM 分析前风险',
+  max_severity: '最高严重级别',
+  violations: '策略违规',
+  verification_mode: '校验方式',
+  reason: '原因',
+  note: '备注',
+}
 
 const fileColumns = [
   { title: '路径', dataIndex: 'path', key: 'path' },
@@ -650,11 +790,12 @@ const fetchDetail = async () => {
     const data = await getSkillDetail(skillId.value)
     detail.value = data
     signatureResult.value = null
-    const [auditResult, reportResult, contentResult, filesResult] = await Promise.allSettled([
+    const [auditResult, reportResult, contentResult, filesResult, cardResult] = await Promise.allSettled([
       getAudit({ skill_id: data.skill_id, since_hours: 720, limit: 50 }),
       getSkillScanReport(data.skill_id),
       getSkillContent(data.skill_id),
       getSkillFiles(data.skill_id),
+      getSkillGovernanceCard(data.skill_id),
     ])
     auditRows.value = auditResult.status === 'fulfilled' && Array.isArray(auditResult.value)
       ? auditResult.value
@@ -664,6 +805,7 @@ const fetchDetail = async () => {
       : null
     skillContent.value = contentResult.status === 'fulfilled' ? (contentResult.value || null) : null
     skillFiles.value = filesResult.status === 'fulfilled' ? (filesResult.value?.files || []) : []
+    governanceCard.value = cardResult.status === 'fulfilled' ? (cardResult.value || null) : null
   } catch (error) {
     message.error(error.response?.data?.detail || '获取技能详情失败')
   } finally {
@@ -706,6 +848,32 @@ const fetchSkillFiles = async () => {
   }
 }
 
+const fetchGovernanceCard = async () => {
+  if (!detail.value) return
+  loadingGovernanceCard.value = true
+  try {
+    governanceCard.value = await getSkillGovernanceCard(detail.value.skill_id)
+  } catch (error) {
+    message.error(error.response?.data?.detail || '获取治理卡片失败')
+  } finally {
+    loadingGovernanceCard.value = false
+  }
+}
+
+const handleRefreshGovernanceCard = async () => {
+  if (!detail.value) return
+  loadingGovernanceCard.value = true
+  try {
+    governanceCard.value = await refreshSkillGovernanceCard(detail.value.skill_id)
+    await fetchScanReport()
+    message.success('治理卡片已刷新')
+  } catch (error) {
+    message.error(error.response?.data?.detail || '刷新治理卡片失败')
+  } finally {
+    loadingGovernanceCard.value = false
+  }
+}
+
 const openFileViewer = async (path) => {
   if (!detail.value || !path) return
   viewingFilePath.value = path
@@ -727,10 +895,18 @@ const refreshViewedFile = async () => {
 
 const handleVerifySignature = async () => {
   if (!detail.value) return
+  if (!detail.value.signature) {
+    message.warning(signatureVerifyDisabledReason.value)
+    return
+  }
   verifyingSignature.value = true
   try {
     signatureResult.value = await verifySkillSignature(detail.value.skill_id)
-    message.success(signatureResult.value.valid ? '签名校验通过' : '签名校验失败')
+    if (signatureResult.value.valid) {
+      message.success('签名校验通过')
+    } else {
+      message.error(`签名校验失败：${signatureResultReason.value}`)
+    }
   } catch (error) {
     message.error(error.response?.data?.detail || '签名校验失败')
   } finally {
@@ -748,11 +924,6 @@ const openApproveModal = () => {
 const openRejectModal = () => {
   rejectReason.value = ''
   rejectModalOpen.value = true
-}
-
-const openRetireModal = () => {
-  retireReason.value = ''
-  retireModalOpen.value = true
 }
 
 const submitApprove = async () => {
@@ -793,52 +964,10 @@ const submitReject = async () => {
   }
 }
 
-const handleDeploy = async () => {
-  if (!detail.value) return
-  actionLoading.value = true
-  actionType.value = 'deploy'
-  try {
-    await deploySkill(detail.value.skill_id)
-    message.success('已部署')
-    fetchDetail()
-  } catch (error) {
-    message.error(error.response?.data?.detail || '部署失败')
-  } finally {
-    actionLoading.value = false
-    actionType.value = ''
-  }
-}
-
-const submitRetire = async () => {
-  if (!detail.value) return
-  if (!retireReason.value.trim()) {
-    message.warning('请输入退役原因')
-    return
-  }
-  actionLoading.value = true
-  actionType.value = 'retire'
-  try {
-    await retireSkill(detail.value.skill_id, { actor: currentUser(), reason: retireReason.value.trim() })
-    message.success('已退役')
-    retireModalOpen.value = false
-    fetchDetail()
-  } catch (error) {
-    message.error(error.response?.data?.detail || '退役失败')
-  } finally {
-    actionLoading.value = false
-    actionType.value = ''
-  }
-}
-
-const scanReportText = computed(() =>
-  scanReport.value ? JSON.stringify(scanReport.value, null, 2) : '暂无扫描报告',
-)
-
 const stepIndex = computed(() => {
   if (!detail.value) return 0
   const status = detail.value.status
-  if (status === 'DEPLOYED' && detail.value.deployed_at) return 3
-  if (status === 'APPROVED' && detail.value.approved_at) return 2
+  if (['APPROVED', 'DEPLOYED'].includes(status) && detail.value.approved_at) return 2
   if (status === 'VETTED') return 1
   return 0
 })
@@ -859,6 +988,99 @@ const llmExplanationHtml = computed(() => {
 const behavioralAnalysis = computed(() => scanReport.value?.behavioral_analysis || null)
 const behavioralFindings = computed(() => behavioralAnalysis.value?.findings || [])
 const behavioralScannedFiles = computed(() => behavioralAnalysis.value?.scanned_files || [])
+const localStaticAnalysis = computed(() => scanReport.value?.local_static_analysis || null)
+const normalizeRuleFinding = (item) => ({
+  ...item,
+  title: item.title || item.rule_id || item.rule || '规则命中',
+  message: item.message || item.description || item.remediation || '',
+  file: item.file || item.file_path || '',
+  line: item.line || item.line_number || item.start_line || null,
+  rule: item.rule || item.rule_id || '',
+})
+const isRuleFinding = (item) => {
+  const source = String(item.source || item.analyzer || '').toLowerCase()
+  return !['sandbox', 'llm', 'skillspector'].some((name) => source.includes(name))
+}
+const topLevelRuleFindings = computed(() => {
+  const findings = Array.isArray(scanReport.value?.findings) ? scanReport.value.findings : []
+  return findings.filter(isRuleFinding).map(normalizeRuleFinding)
+})
+const ruleAnalysisFindings = computed(() => {
+  const nested = [
+    ...behavioralFindings.value,
+    ...(localStaticAnalysis.value?.findings || []),
+  ].map(normalizeRuleFinding)
+  return nested.length ? nested : topLevelRuleFindings.value
+})
+const riskRationaleItems = computed(() => {
+  const finalRisk = detail.value?.risk_level
+  if (!['suspicious', 'malicious'].includes(finalRisk)) return []
+  const findings = Array.isArray(scanReport.value?.findings) ? scanReport.value.findings : []
+  const items = findings
+    .filter((item) => findingSupportsRisk(item, finalRisk))
+    .sort((a, b) => severityRank(b.severity) - severityRank(a.severity))
+    .map((item) => {
+      const source = rationaleSource(item.source)
+      return {
+        source: source.label,
+        color: source.color,
+        target: source.target,
+        text: rationaleText(item),
+      }
+    })
+
+  const llmRisk = llmAnalysis.value?.risk_level
+  if (llmRisk === finalRisk) {
+    items.push({
+      source: 'LLM',
+      color: 'purple',
+      target: 'llm',
+      text: finalRisk === 'malicious' ? 'LLM 判定为恶意，详情见 LLM 分析。' : 'LLM 判定为可疑，详情见 LLM 分析。',
+    })
+  }
+
+  if (!items.length && detail.value?.vetting?.policy_notes?.length) {
+    items.push({
+      source: '策略',
+      color: 'blue',
+      target: 'policy',
+      text: detail.value.vetting.policy_notes[0],
+    })
+  }
+  const seen = new Set()
+  return items.filter((item) => {
+    const key = `${item.source}:${item.text}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).slice(0, 3)
+})
+const skillspectorAnalysis = computed(() => scanReport.value?.skillspector_analysis || null)
+const skillspectorFindings = computed(() => {
+  const findings = skillspectorAnalysis.value?.findings
+  if (Array.isArray(findings)) return findings
+  return []
+})
+const skillspectorEffectiveSeverity = computed(() =>
+  skillspectorAnalysis.value?.effective_risk_severity
+  || skillspectorAnalysis.value?.risk_severity
+  || skillspectorAnalysis.value?.max_severity
+  || '',
+)
+const skillspectorRawSeverity = computed(() => skillspectorAnalysis.value?.raw_risk_severity || '')
+const hasHighRiskSkillspectorFinding = computed(() =>
+  skillspectorFindings.value.some((item) => severityRank(item.severity) >= severityRank('HIGH')),
+)
+const governanceCardHtml = computed(() => {
+  const content = governanceCard.value?.content || ''
+  if (!content) return '<p>暂无治理卡片</p>'
+  return marked.parse(content)
+})
+const numberedLines = (text) => String(text || '').split('\n').map((line, index) => ({
+  no: index + 1,
+  text: line,
+}))
+const governanceCardLines = computed(() => numberedLines(governanceCard.value?.content || '暂无治理卡片'))
 const sandboxAnalysis = computed(() => scanReport.value?.sandbox_analysis || null)
 const sandboxSignals = computed(() => sandboxAnalysis.value?.signals || sandboxAnalysis.value?.suspicious_events || [])
 const sandboxProbeResults = computed(() => {
@@ -895,10 +1117,68 @@ const sandboxRiskAlertType = computed(() => {
   if (risk === 'MEDIUM') return 'warning'
   return 'success'
 })
+const rationaleSource = (source) => {
+  const text = String(source || '').toLowerCase()
+  if (text.includes('sandbox')) return { label: 'Sandbox', color: 'orange', target: 'sandbox' }
+  if (text.includes('skillspector')) return { label: 'SkillSpector', color: 'cyan', target: 'skillspector' }
+  if (text.includes('llm')) return { label: 'LLM', color: 'purple', target: 'llm' }
+  return { label: '规则', color: 'blue', target: 'rule' }
+}
+const severityRank = (value) =>
+  ({
+    SAFE: 0,
+    INFO: 1,
+    LOW: 2,
+    MEDIUM: 3,
+    HIGH: 4,
+    CRITICAL: 5,
+    EXTREME: 5,
+  }[String(value || 'LOW').toUpperCase()] ?? 2)
+const findingSupportsRisk = (finding, finalRisk) => {
+  const rank = severityRank(finding?.severity)
+  if (finalRisk === 'malicious') return rank >= 4
+  if (finalRisk === 'suspicious') return rank >= 2 && rank <= 3
+  return false
+}
+const rationaleText = (finding) => {
+  const severity = String(finding?.severity || '').toUpperCase()
+  const title = finding?.title || finding?.message || finding?.rule || finding?.rule_id || '命中风险规则'
+  const text = bilingualText(title)
+  return severity ? `${severity}：${text}` : text
+}
+const jumpToRationale = async (target) => {
+  if (target === 'llm') activeTab.value = 'llm'
+  else activeTab.value = 'vetting'
+  await nextTick()
+  const id = {
+    rule: 'rule-analysis-section',
+    skillspector: 'skillspector-section',
+    sandbox: 'sandbox-section',
+    llm: 'llm-section',
+    policy: 'policy-notes-section',
+  }[target]
+  if (id) document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 const sandboxDisplayImage = computed(() => {
   if (sandboxAnalysis.value?.image) return sandboxAnalysis.value.image
   if (detail.value?.vetting?.sandbox_runtime === 'docker') return 'agent-manager-sandbox-runtime:latest'
   return '-'
+})
+
+const signatureReasonLabels = {
+  'No signature stored for this skill': '当前技能未存储签名。只有已批准并完成签名的技能才能验签。',
+  'No skill path available for verification': '没有可用于验签的技能路径。',
+  'signature valid': '签名有效，技能内容未发生变化。',
+  'signature mismatch': '签名不匹配，技能内容可能已发生变化。',
+}
+const signatureVerifyDisabledReason = computed(() => (
+  detail.value?.signature
+    ? ''
+    : '当前技能没有签名。被拒绝、待分析或待审核的技能不会生成签名。'
+))
+const signatureResultReason = computed(() => {
+  const reason = signatureResult.value?.reason
+  return signatureReasonLabels[reason] || reason || '-'
 })
 
 const formatSandboxCommand = (record) => {
@@ -938,6 +1218,144 @@ const skillContentHtml = computed(() => {
   if (!body) return '<p>该 SKILL.md 只有 manifest，没有额外正文内容。</p>'
   return marked.parse(body)
 })
+const skillContentLines = computed(() => numberedLines(skillContent.value?.content || '点击“加载 SKILL.md”查看技能内容'))
+const viewedFileLines = computed(() => numberedLines(viewedFile.value?.content || '暂无文件内容'))
+
+const statusLabels = {
+  PENDING: '分析中',
+  VETTED: '待审核',
+  APPROVED: '已批准',
+  DEPLOYED: '已部署',
+  REJECTED: '已拒绝',
+  RETIRED: '已退役',
+}
+
+const severityLabels = {
+  SAFE: '安全',
+  INFO: '提示',
+  LOW: '低',
+  MEDIUM: '中',
+  HIGH: '高',
+  CRITICAL: '严重',
+  EXTREME: '极高',
+}
+
+const recommendationLabels = {
+  SAFE: '可安装',
+  CAUTION: '谨慎安装',
+  REVIEW: '需要审核',
+  DO_NOT_INSTALL: '不要安装',
+}
+
+const termTranslations = {
+  'LOW_ANALYZABILITY': '可分析性不足',
+  'Moderate analyzability score': '中等可分析性评分',
+  'External Transmission': '外部传输',
+  'Data Exfiltration': '数据外传',
+  'Prompt Injection': '提示词注入',
+  'Instruction Override': '覆盖上级指令',
+  'System Prompt Leakage': '系统提示词泄露',
+  'System Prompt Disclosure': '披露系统提示词',
+  'Tool Poisoning': '工具投毒',
+  'Hidden Instructions': '隐藏指令',
+  'Supply Chain': '供应链风险',
+  'External Script Fetching': '下载外部脚本',
+  'Obfuscated Code': '混淆代码',
+  'Wildcard Permission': '通配权限',
+  'Network Access': '网络访问',
+  'File System Access': '文件系统访问',
+  'Sensitive File Access': '敏感文件访问',
+  'Command Execution': '命令执行',
+  'Code Execution': '代码执行',
+  'Dynamic Code Execution': '动态代码执行',
+  'Credential Access': '凭据访问',
+  'Privilege Escalation': '权限提升',
+  Persistence: '持久化',
+  'Encoded Payload': '编码载荷',
+}
+
+const sentenceTranslations = [
+  {
+    pattern: /^Only\s+(\d+)%\s+of skill content could be analyzed\.\s+(\d+)\s+of\s+(\d+)\s+files?\s+(?:is|are)\s+opaque to the scanner\.\s+Some content could not be verified as safe\.?$/i,
+    render: ([, percent, opaque, total]) =>
+      `仅有 ${percent}% 的 Skill 内容可被分析。${total} 个文件中有 ${opaque} 个对扫描器不可解析，因此部分内容无法确认安全。`,
+  },
+  {
+    pattern: /^Code or instructions reference external transmission\.\s*文件:\s*(.+)$/i,
+    render: ([, file]) => `代码或指令引用了可能向外部发送数据的调用。文件: ${file}`,
+  },
+  {
+    pattern: /^Code accesses environment variables that may contain secrets\.\s*文件:\s*(.+)$/i,
+    render: ([, file]) => `代码读取环境变量，可能接触密钥或敏感配置。文件: ${file}`,
+  },
+  {
+    pattern: /^Skill content asks the agent to ignore higher-priority instructions\.\s*文件:\s*(.+)$/i,
+    render: ([, file]) => `Skill 内容要求忽略上级或系统指令。文件: ${file}`,
+  },
+]
+
+const statusTitle = (value) => statusLabels[value] || '未知'
+const statusDisplay = (value) => (value ? `${value}（${statusTitle(value)}）` : '-')
+const severityDisplay = (value) => {
+  const text = String(value || '').toUpperCase()
+  return text ? `${text}（${severityLabels[text] || '未知'}）` : '-'
+}
+const recommendationDisplay = (value) => {
+  const text = String(value || '').toUpperCase()
+  return text ? `${text}（${recommendationLabels[text] || '未知'}）` : '-'
+}
+const riskDisplay = (value) => {
+  const text = String(value || 'unknown')
+  const zh = {
+    benign: '安全',
+    suspicious: '可疑',
+    malicious: '恶意',
+    unknown: '未知',
+  }[text.toLowerCase()] || '未知'
+  return `${text}（${zh}）`
+}
+const bilingualText = (value) => {
+  const text = String(value || '').trim()
+  if (!text) return '-'
+  if (termTranslations[text]) return `${text}（${termTranslations[text]}）`
+  for (const item of sentenceTranslations) {
+    const match = text.match(item.pattern)
+    if (match) return item.render(match)
+  }
+  return text
+}
+const findingTitle = (item) => bilingualText(item?.title || item?.pattern || item?.message || '-')
+const originLabel = (value) => ({
+  local: '本地',
+  github: 'GitHub',
+  clawhub: 'ClawHub',
+  internal: '内部',
+  unknown: '未知',
+}[value] || value || '-')
+const auditEventLabel = (value) => auditEventLabels[value] || value || '-'
+
+const formatAuditValue = (key, value) => {
+  if (value === null || value === undefined || value === '') return '-'
+  if (key === 'status') return statusDisplay(String(value))
+  if (key === 'risk_level' || key === 'pre_llm_risk_level') {
+    return riskDisplay(value)
+  }
+  if (key === 'max_severity') {
+    return severityLabels[String(value).toUpperCase()] || String(value)
+  }
+  if (Array.isArray(value)) return value.length ? value.join('、') : '无'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
+const formatAuditDetails = (details, limit = 6) => {
+  if (!details || typeof details !== 'object') return '-'
+  const entries = Object.entries(details).slice(0, limit)
+  if (!entries.length) return '-'
+  return entries
+    .map(([key, value]) => `${auditDetailLabels[key] || key}：${formatAuditValue(key, value)}`)
+    .join('；')
+}
 
 const statusColor = (value) =>
   ({
@@ -966,6 +1384,7 @@ const severityColor = (value) =>
     MEDIUM: 'orange',
     HIGH: 'red',
     CRITICAL: 'magenta',
+    EXTREME: 'magenta',
   }[(value || '').toUpperCase()] || 'default')
 
 const formatFileSize = (value) => {
@@ -988,6 +1407,21 @@ watch(
   () => {
     fetchDetail()
   },
+)
+
+watch(
+  () => route.query.tab,
+  (value) => {
+    activeTab.value = value || 'vetting'
+  },
+)
+
+watch(
+  () => [skillspectorFindings.value.length, hasHighRiskSkillspectorFinding.value],
+  () => {
+    skillspectorFindingsActiveKey.value = hasHighRiskSkillspectorFinding.value ? ['skillspector-findings'] : []
+  },
+  { immediate: true },
 )
 </script>
 
@@ -1168,6 +1602,93 @@ watch(
 </style>
 
 <style scoped>
+.basic-info-card :deep(.ant-card-body),
+.lifecycle-card :deep(.ant-card-body) {
+  padding: 16px;
+}
+
+.skill-detail-page {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.skill-detail-page :deep(.ant-card),
+.skill-detail-page :deep(.ant-card-body),
+.skill-detail-page :deep(.ant-tabs),
+.skill-detail-page :deep(.ant-tabs-content),
+.skill-detail-page :deep(.ant-tabs-tabpane),
+.skill-detail-page :deep(.ant-descriptions),
+.skill-detail-page :deep(.ant-table-wrapper) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.basic-info-card :deep(.ant-descriptions-item-label) {
+  width: 124px;
+  white-space: nowrap;
+}
+
+.basic-info-card :deep(.ant-descriptions-item-content) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.path-value {
+  color: #475569;
+  overflow-wrap: anywhere;
+}
+
+.lifecycle-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  width: 100%;
+}
+
+.lifecycle-heading {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.lifecycle-heading strong {
+  font-size: 15px;
+}
+
+.lifecycle-steps {
+  flex: 1 1 620px;
+  min-width: 0;
+}
+
+.lifecycle-actions {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+@media (max-width: 1100px) {
+  .lifecycle-row {
+    flex-wrap: wrap;
+  }
+
+  .lifecycle-steps {
+    order: 3;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .lifecycle-actions {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .lifecycle-steps {
+    overflow-x: auto;
+  }
+}
+
 .markdown-body {
   padding: 16px;
   border: 1px solid #f0f0f0;
@@ -1277,5 +1798,50 @@ watch(
   word-break: break-word;
   background: #0f172a;
   border-radius: 8px;
+}
+
+.governance-card-preview {
+  max-width: 100%;
+  overflow-x: auto;
+  word-break: break-word;
+}
+
+.code-preview {
+  width: 100%;
+  max-width: 100%;
+  max-height: 620px;
+  overflow: auto;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #fbfdff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.drawer-code-preview {
+  max-height: calc(100vh - 150px);
+}
+
+.code-line {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+}
+
+.line-no {
+  flex: 0 0 56px;
+  padding: 0 10px;
+  color: #8c8c8c;
+  text-align: right;
+  user-select: none;
+  background: #f3f6fa;
+  border-right: 1px solid #e5e7eb;
+}
+
+.line-text {
+  flex: 0 0 auto;
+  padding: 0 12px;
+  white-space: pre;
 }
 </style>

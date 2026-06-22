@@ -1,10 +1,6 @@
-version: "3.9"
-
 services:
   backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    image: agent-manager-backend:${TAG:-latest}
     env_file:
       - .env
     environment:
@@ -35,9 +31,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    build:
-      context: .
-      dockerfile: web/Dockerfile
+    image: agent-manager-frontend:${TAG:-latest}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
       interval: 15s
@@ -47,9 +41,7 @@ services:
     restart: unless-stopped
 
   sandbox:
-    build:
-      context: .
-      dockerfile: services/isolated-sandbox-service/Dockerfile
+    image: agent-manager-sandbox:${TAG:-latest}
     env_file:
       - .env
     environment:

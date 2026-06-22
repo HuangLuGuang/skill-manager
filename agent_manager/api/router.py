@@ -6,13 +6,17 @@ Provides endpoints for CI/CD pipelines, agent runtimes, and review UIs.
 
 from __future__ import annotations
 
+import atexit
+import importlib.util
 import shutil
+import subprocess
 import tempfile
 import uuid
 import os
 import mimetypes
 import re
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -28,6 +32,7 @@ from agent_manager.core.prompt_models import PromptStatus
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.registry import Registry
 from agent_manager.core.sandbox import SandboxConfig, get_sandbox_runner
+from agent_manager.core.skillspector import get_skillspector_version, is_skillspector_available
 from agent_manager.core.vetting import _load_manifest
 
 router = APIRouter(tags=["agent-manager"])
@@ -35,6 +40,26 @@ runtime_router = APIRouter(tags=["agent-manager-runtime"])
 
 # Module-level singleton (overridable in tests via dependency injection)
 _manager: AgentManager | None = None
+
+
+def _scan_worker_count() -> int:
+    try:
+        return max(1, int(os.environ.get("AGENT_MANAGER_SCAN_WORKERS", "2")))
+    except ValueError:
+        return 2
+
+
+_scan_executor = ThreadPoolExecutor(
+    max_workers=_scan_worker_count(),
+    thread_name_prefix="agent-manager-scan",
+)
+
+
+def _shutdown_scan_executor() -> None:
+    _scan_executor.shutdown(wait=True, cancel_futures=False)
+
+
+atexit.register(_shutdown_scan_executor)
 
 
 def _discover_policy_path() -> Path | None:
@@ -185,13 +210,13 @@ def _normalize_clawhub_origin_url(url: str) -> str:
 
 
 def _process_pending_submission_task(
+    mgr: AgentManager,
     skill_id: str,
     use_behavioral: bool,
     use_llm: bool,
     use_sandbox: bool,
     no_cache: bool = False,
 ) -> None:
-    mgr = get_manager()
     try:
         mgr.process_pending_submission(
             skill_id,
@@ -215,8 +240,9 @@ def _submit_directory_for_processing(
     no_cache: bool = False,
 ) -> SubmitResponse:
     entry = mgr.create_pending_submission(skill_dir, source=source)
-    background_tasks.add_task(
+    _scan_executor.submit(
         _process_pending_submission_task,
+        mgr,
         entry.skill_id,
         use_behavioral,
         use_llm,
@@ -406,6 +432,11 @@ class PolicyPayload(BaseModel):
     require_license: bool
     accepted_licenses: list[str]
     scanner_policy: str
+    skillspector_enabled: bool = False
+    skillspector_fail_open: bool = True
+    skillspector_timeout_seconds: int = 120
+    skillspector_min_blocking_severity: str = "HIGH"
+    skillspector_use_llm: bool = False
 
 
 class PolicyResponse(BaseModel):
@@ -420,6 +451,10 @@ class SystemStatusResponse(BaseModel):
     review_queue: int
     signing_key_configured: bool
     scanner_available: bool
+    skillspector_enabled: bool
+    skillspector_available: bool
+    skillspector_version: str | None = None
+    sandbox_enabled: bool
     sandbox_available: bool
     sandbox_runtime: str
     hooks_available: bool
@@ -490,6 +525,10 @@ class SandboxConfigResponse(BaseModel):
     remote_api_key_masked: str | None = None
 
 
+class SandboxImagesResponse(BaseModel):
+    images: list[str]
+
+
 class VerifySignatureRequest(BaseModel):
     skill_path: str | None = None
 
@@ -527,6 +566,14 @@ class SkillFileContentResponse(BaseModel):
     skill_name: str
     path: str
     absolute_path: str
+    content: str
+
+
+class GovernanceCardResponse(BaseModel):
+    skill_id: str
+    skill_name: str
+    generated_at: str | None = None
+    path: str
     content: str
 
 
@@ -616,6 +663,28 @@ def update_sandbox_config(body: SandboxConfigPayload):
     return SandboxConfigResponse(**public)
 
 
+@router.get("/sandbox-images", response_model=SandboxImagesResponse)
+def list_sandbox_images():
+    if not shutil.which("docker"):
+        return SandboxImagesResponse(images=[])
+    try:
+        completed = subprocess.run(
+            ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except Exception:
+        return SandboxImagesResponse(images=[])
+    images = sorted({
+        line.strip()
+        for line in completed.stdout.splitlines()
+        if line.strip() and "sandbox" in line.lower() and not line.endswith(":<none>")
+    })
+    return SandboxImagesResponse(images=images)
+
+
 @router.put("/policy", response_model=PolicyResponse)
 def update_policy(body: PolicyPayload):
     global _manager
@@ -631,22 +700,22 @@ def get_system_status():
     mgr = get_manager()
     registry = Registry(mgr.registry.data_dir)
     llm_config = LLMConfig.load()
-    sandbox_runner = get_sandbox_runner(SandboxConfig.load())
-    sandbox_available = sandbox_runner.is_available()
-    try:
-        import skill_scanner  # noqa: F401
-        scanner_available = True
-    except Exception:
-        scanner_available = False
+    sandbox_config = SandboxConfig.load()
+    sandbox_runner = get_sandbox_runner(sandbox_config)
+    sandbox_enabled = sandbox_config.enabled
+    sandbox_available = sandbox_enabled and sandbox_runner.is_available()
+    scanner_available = importlib.util.find_spec("skill_scanner") is not None
+    skillspector_available = is_skillspector_available() if mgr.policy.skillspector_enabled else False
+    skillspector_version = get_skillspector_version() if mgr.policy.skillspector_enabled and skillspector_available else None
 
-    if scanner_available and llm_config.enabled:
-        scan_mode = "scanner + llm"
-    elif scanner_available:
-        scan_mode = "scanner only"
-    elif llm_config.enabled:
-        scan_mode = "llm only"
-    else:
-        scan_mode = "manifest only"
+    scan_modes = []
+    if scanner_available:
+        scan_modes.append("scanner")
+    if mgr.policy.skillspector_enabled:
+        scan_modes.append("skillspector" if skillspector_available else "skillspector unavailable")
+    if llm_config.enabled:
+        scan_modes.append("llm")
+    scan_mode = " + ".join(scan_modes) if scan_modes else "manifest only"
 
     return SystemStatusResponse(
         data_dir=str(mgr.registry.data_dir),
@@ -655,8 +724,12 @@ def get_system_status():
         review_queue=len(registry.list_review_queue()),
         signing_key_configured=bool(os.environ.get("AGENT_MANAGER_SIGNING_KEY", "").strip()),
         scanner_available=scanner_available,
+        skillspector_enabled=mgr.policy.skillspector_enabled,
+        skillspector_available=skillspector_available,
+        skillspector_version=skillspector_version,
+        sandbox_enabled=sandbox_enabled,
         sandbox_available=sandbox_available,
-        sandbox_runtime=sandbox_runner.config.runtime,
+        sandbox_runtime=sandbox_config.runtime,
         hooks_available=(Path(__file__).resolve().parent.parent / "hooks" / "agent_hook.py").exists(),
         llm_enabled=llm_config.enabled,
         llm_provider=llm_config.provider,
@@ -1005,7 +1078,7 @@ def list_skills(
     sandbox_triggered: bool | None = Query(None),
     sandbox_required_by_policy: bool | None = Query(None),
     q: str | None = Query(None),
-    sort_by: str = Query("submitted_at"),
+    sort_by: str = Query("updated_at"),
     sort_order: str = Query("desc"),
     page: int | None = Query(None, ge=1),
     page_size: int | None = Query(None, ge=1, le=100),
@@ -1052,8 +1125,10 @@ def list_skills(
         entries = sorted(entries, key=lambda e: e.risk_level.value if e.risk_level else "", reverse=reverse)
     elif sort_by == "approved_by":
         entries = sorted(entries, key=lambda e: (e.approved_by or "").lower(), reverse=reverse)
-    else:
+    elif sort_by == "submitted_at":
         entries = sorted(entries, key=lambda e: e.submitted_at, reverse=reverse)
+    else:
+        entries = sorted(entries, key=lambda e: e.updated_at, reverse=reverse)
 
     summaries = [e.summary() for e in entries]
     if page is not None or page_size is not None:
@@ -1160,6 +1235,84 @@ def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manag
         "name": entry.name,
         "scan_report": entry.vetting.scan_report if entry.vetting else {},
     }
+
+
+def _previous_scan_options(entry) -> dict[str, bool]:
+    report = entry.vetting.scan_report if entry.vetting else {}
+    analyzers = {str(item).lower() for item in report.get("analyzers_used", [])}
+    return {
+        "use_behavioral": bool(report.get("behavioral_analysis") or report.get("local_static_analysis") or analyzers.intersection({"behavioral:local", "agent-manager-local"})),
+        "use_llm": bool(report.get("llm_analysis") or any(item.startswith("llm:") for item in analyzers)),
+        "use_sandbox": bool(report.get("sandbox_analysis") or any(item.startswith("sandbox:") for item in analyzers)),
+    }
+
+
+@router.post("/skills/{skill_id}/rescan", response_model=SubmitResponse)
+def rescan_skill(
+    skill_id: str,
+    use_behavioral: bool | None = Query(None),
+    use_llm: bool | None = Query(None),
+    use_sandbox: bool | None = Query(None),
+    no_cache: bool = Query(True),
+    mgr: AgentManager = Depends(get_manager),
+):
+    previous = mgr.get_skill(skill_id)
+    if previous is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    previous_options = _previous_scan_options(previous)
+    try:
+        entry = mgr.rescan_skill(skill_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    _scan_executor.submit(
+        _process_pending_submission_task,
+        mgr,
+        entry.skill_id,
+        previous_options["use_behavioral"] if use_behavioral is None else use_behavioral,
+        previous_options["use_llm"] if use_llm is None else use_llm,
+        previous_options["use_sandbox"] if use_sandbox is None else use_sandbox,
+        no_cache,
+    )
+    current = mgr.get_skill(entry.skill_id) or entry
+    return SubmitResponse(
+        skill_id=current.skill_id,
+        name=current.name,
+        status=current.status.value,
+        risk_level=current.risk_level.value if current.risk_level else None,
+        findings_count=current.vetting.findings_count if current.vetting else 0,
+        sandbox_triggered=current.vetting.sandbox_triggered if current.vetting else False,
+        sandbox_required_by_policy=current.vetting.sandbox_required_by_policy if current.vetting else False,
+        sandbox_runtime=current.vetting.sandbox_runtime if current.vetting else None,
+        message="已提交重新检测，后台分析中。请刷新技能注册表查看状态变化。",
+    )
+
+
+@router.delete("/skills/{skill_id}")
+def delete_skill(skill_id: str, mgr: AgentManager = Depends(get_manager)):
+    try:
+        entry = mgr.delete_skill(skill_id)
+        return {"skill_id": entry.skill_id, "status": "DELETED", "message": "Deleted"}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/skills/{skill_id_or_name}/governance-card", response_model=GovernanceCardResponse)
+def get_governance_card(skill_id_or_name: str, mgr: AgentManager = Depends(get_manager)):
+    try:
+        return GovernanceCardResponse(**mgr.get_governance_card(skill_id_or_name))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Skill not found") from exc
+
+
+@router.post("/skills/{skill_id_or_name}/governance-card/refresh", response_model=GovernanceCardResponse)
+def refresh_governance_card(skill_id_or_name: str, mgr: AgentManager = Depends(get_manager)):
+    try:
+        return GovernanceCardResponse(**mgr.refresh_governance_card(skill_id_or_name))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Skill not found") from exc
 
 
 @router.get("/skills/{skill_id_or_name}/content", response_model=SkillContentResponse)

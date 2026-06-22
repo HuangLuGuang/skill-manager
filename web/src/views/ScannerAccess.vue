@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="扫描器接入" sub-title="下载客户侧 Go Scanner，管理 Token，并说明扫描结果查看方式" />
+    <a-page-header title="扫描器接入" sub-title="下载客户侧 Go Scanner / Agent Skill Guard，管理 Token，并说明扫描与运行时校验方式" />
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24" :xl="9">
@@ -106,6 +106,51 @@ BUILD_WINDOWS_CLI=1 BUILD_WINDOWS_GUI=1 ./scripts/package.sh v0.1.0-windows</pre
         </a-card>
       </a-col>
     </a-row>
+
+    <a-card title="Agent Skill Guard 接入" style="margin-top: 16px">
+      <template #extra>
+        <a-button type="primary" :loading="guardDownloading" @click="handleSkillGuardDownload">下载 Skill Guard</a-button>
+      </template>
+      <a-alert
+        type="info"
+        show-icon
+        message="给 Codex、Claude Code 等 Agent 使用的通用 skill"
+        description="它不依赖 hook：安装到 Agent 的 skills 目录后，Agent 在安装、加载或调用第三方 skill 前，按说明先提交扫描，再做签名和审批状态校验。未批准、未签名、验签失败或状态不可加载都会阻断使用。"
+        style="margin-bottom: 16px"
+      />
+      <a-row :gutter="[16, 16]">
+        <a-col :xs="24" :lg="8">
+          <div class="guard-panel">
+            <div class="guard-panel-title">1. 创建 Token</div>
+            <p class="hint">建议使用「全部权限」或至少包含下面这些 scope，既能提交扫描，也能在运行时验签。</p>
+            <a-space wrap>
+              <a-tag v-for="scope in skillGuardScopes" :key="scope" color="blue">{{ scope }}</a-tag>
+            </a-space>
+          </div>
+        </a-col>
+        <a-col :xs="24" :lg="8">
+          <div class="guard-panel">
+            <div class="guard-panel-title">2. 安装到 Agent</div>
+            <p class="hint">下载 zip 后解压到对应平台的 skills 目录。安装完成后重启 Agent 或刷新 skill 列表。</p>
+            <a-tabs size="small">
+              <a-tab-pane key="codex" tab="Codex">
+                <pre class="code-block compact">{{ codexGuardInstallCommand }}</pre>
+              </a-tab-pane>
+              <a-tab-pane key="claude" tab="Claude Code">
+                <pre class="code-block compact">{{ claudeGuardInstallCommand }}</pre>
+              </a-tab-pane>
+            </a-tabs>
+          </div>
+        </a-col>
+        <a-col :xs="24" :lg="8">
+          <div class="guard-panel">
+            <div class="guard-panel-title">3. 提交与验签</div>
+            <p class="hint">首次发现第三方 skill 先 submit；管理员批准并签名后，使用前执行 verify。</p>
+            <pre class="code-block compact">{{ guardUsageCommand }}</pre>
+          </div>
+        </a-col>
+      </a-row>
+    </a-card>
 
     <a-card title="参数怎么用" style="margin-top: 16px">
       <a-table :data-source="parameterRows" :columns="parameterColumns" row-key="name" :pagination="false" size="small" />
@@ -216,6 +261,7 @@ import { message } from 'ant-design-vue'
 import {
   createScannerToken,
   downloadScannerBinary,
+  downloadSkillGuard,
   listScannerDownloads,
   listScannerTokens,
   revokeScannerToken,
@@ -230,6 +276,7 @@ const tokens = ref([])
 const createdToken = ref('')
 const downloads = ref([])
 const downloading = ref(false)
+const guardDownloading = ref(false)
 const selectedEdition = ref('cli')
 const selectedPlatform = ref('darwin-arm64')
 const platformOptions = [
@@ -241,6 +288,7 @@ const platformOptions = [
 ]
 const scannerScopes = ['scanner:submit', 'scanner:read-own-results', 'scanner:read-own-sessions']
 const runtimeScopes = ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool']
+const skillGuardScopes = ['scanner:submit', 'scanner:read-own-results', 'runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool']
 const createForm = reactive({
   name: '',
   scopes: [...scannerScopes],
@@ -285,7 +333,7 @@ const serverOrigin = computed(() => window.location.origin)
 const runtimeApiOrigin = computed(() => {
   const { protocol, hostname, port } = window.location
   if ((hostname === 'localhost' || hostname === '127.0.0.1') && (port === '5173' || port === '5174')) {
-    return `${protocol}//${hostname}:8000`
+    return `${protocol}//${hostname}:8001`
   }
   return serverOrigin.value
 })
@@ -316,6 +364,24 @@ const guiCommand = computed(() => `chmod +x ./skill-scanner-gui-darwin-arm64
 
 # GUI 是原生桌面窗口，不启动本地 Web 服务。
 # Server、Token、Host ID、输出报告在 GUI 的「设置」页配置。`)
+
+const codexGuardInstallCommand = computed(() => `mkdir -p ~/.codex/skills
+unzip agent-manager-skill-guard.zip -d ~/.codex/skills/
+
+export AGENT_MANAGER_BASE_URL="${runtimeApiOrigin.value}"
+export AGENT_MANAGER_API_TOKEN="smsc_live_xxx"
+export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"`)
+
+const claudeGuardInstallCommand = computed(() => `mkdir -p ~/.claude/skills
+unzip agent-manager-skill-guard.zip -d ~/.claude/skills/
+
+export AGENT_MANAGER_BASE_URL="${runtimeApiOrigin.value}"
+export AGENT_MANAGER_API_TOKEN="smsc_live_xxx"
+export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"`)
+
+const guardUsageCommand = computed(() => `python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py submit --path /path/to/third-party-skill --behavioral
+python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py status --skill-id <skill-id>
+python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py verify --name <skill-name> --path /path/to/third-party-skill`)
 
 const createdCommand = computed(() => `./skill-scanner scan /path/to/customer/skills \\
   --server ${serverOrigin.value} \\
@@ -384,6 +450,25 @@ const handleDownload = async () => {
     message.error(error.response?.data?.detail || '下载失败，请确认 scanner/releases 下已有对应平台二进制')
   } finally {
     downloading.value = false
+  }
+}
+
+const handleSkillGuardDownload = async () => {
+  guardDownloading.value = true
+  try {
+    const blob = await downloadSkillGuard()
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'agent-manager-skill-guard.zip'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    message.error(error.response?.data?.detail || '下载 Agent Skill Guard 失败')
+  } finally {
+    guardDownloading.value = false
   }
 }
 
@@ -472,6 +557,24 @@ onMounted(() => {
   border-radius: 8px;
   font-size: 12px;
   line-height: 1.6;
+}
+
+.code-block.compact {
+  max-height: 220px;
+}
+
+.guard-panel {
+  min-height: 100%;
+  padding: 12px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.guard-panel-title {
+  margin-bottom: 8px;
+  color: #262626;
+  font-weight: 600;
 }
 
 .muted,

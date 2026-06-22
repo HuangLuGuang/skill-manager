@@ -27,8 +27,10 @@
           >
             <template #extra>
               <a-space wrap>
-                <a-tag :color="statusColor(canLoadResult.status)">{{ canLoadResult.status || 'unknown' }}</a-tag>
-                <a-tag :color="riskColor(canLoadResult.risk_level)">{{ canLoadResult.risk_level || 'unknown' }}</a-tag>
+                <a-tag :color="statusColor(canLoadResult.status)" :title="statusTitle(canLoadResult.status)">{{ canLoadResult.status || 'unknown' }}</a-tag>
+                <a-tag :color="riskColor(canLoadResult.risk_level)" :title="riskTitle(canLoadResult.risk_level)">
+                  {{ canLoadResult.risk_level || 'unknown' }}
+                </a-tag>
               </a-space>
             </template>
           </a-result>
@@ -67,9 +69,9 @@
           <a-space style="margin-bottom: 16px" wrap>
             <a-select v-model:value="skillRiskFilter" style="width: 160px" @change="handleSkillFilterChange">
               <a-select-option value="all">全部风险</a-select-option>
-              <a-select-option value="benign">安全</a-select-option>
-              <a-select-option value="suspicious">可疑</a-select-option>
-              <a-select-option value="malicious">恶意</a-select-option>
+              <a-select-option value="benign">benign</a-select-option>
+              <a-select-option value="suspicious">suspicious</a-select-option>
+              <a-select-option value="malicious">malicious</a-select-option>
             </a-select>
             <a-input v-model:value="skillKeyword" placeholder="搜索 技能名称 / ID" style="width: 220px" allow-clear />
             <a-button type="primary" @click="fetchLoadableSkills" :loading="loadingSkills">查询</a-button>
@@ -92,12 +94,12 @@
                 <a @click="$router.push(`/skills/${record.skill_id}`)">{{ record.name }}</a>
               </template>
               <template v-else-if="column.key === 'status'">
-                <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>
+                <a-tag :color="statusColor(record.status)" :title="statusTitle(record.status)">{{ record.status }}</a-tag>
               </template>
               <template v-else-if="column.key === 'risk_level'">
-                <a-tag v-if="record.risk_level === 'malicious'" color="red">恶意</a-tag>
-                <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange">可疑</a-tag>
-                <a-tag v-else-if="record.risk_level === 'benign'" color="green">安全</a-tag>
+                <a-tag v-if="record.risk_level === 'malicious'" color="red" title="恶意">malicious</a-tag>
+                <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange" title="可疑">suspicious</a-tag>
+                <a-tag v-else-if="record.risk_level === 'benign'" color="green" title="安全">benign</a-tag>
                 <a-tag v-else color="default">-</a-tag>
               </template>
             </template>
@@ -393,9 +395,23 @@ const resetAuditFilters = () => {
 
 const statusColor = (value) =>
   ({
+    PENDING: 'gold',
+    VETTED: 'orange',
     APPROVED: 'green',
     DEPLOYED: 'blue',
+    REJECTED: 'red',
+    RETIRED: 'default',
   }[value] || 'default')
+
+const statusTitle = (value) =>
+  ({
+    PENDING: '分析中',
+    VETTED: '待审核',
+    APPROVED: '已批准',
+    DEPLOYED: '已部署',
+    REJECTED: '已拒绝',
+    RETIRED: '已退役',
+  }[value] || '未知')
 
 const riskColor = (value) =>
   ({
@@ -403,6 +419,13 @@ const riskColor = (value) =>
     suspicious: 'orange',
     malicious: 'red',
   }[value] || 'default')
+
+const riskTitle = (value) =>
+  ({
+    benign: '安全',
+    suspicious: '可疑',
+    malicious: '恶意',
+  }[value] || '未知')
 
 onMounted(() => {
   fetchLoadableSkills()
