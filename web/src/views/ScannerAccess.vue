@@ -1,10 +1,10 @@
 <template>
   <div>
-    <a-page-header title="扫描器接入" sub-title="下载客户侧 Go Scanner / Agent Skill Guard，管理 Token，并说明扫描与运行时校验方式" />
+    <a-page-header title="Skills 扫描器" sub-title="下载客户侧 Go Scanner / Agent Skill Guard，管理 Token，并说明扫描与运行时校验方式" />
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24" :xl="9">
-        <a-card title="下载扫描器">
+        <a-card title="下载 Skills 扫描器">
           <a-alert
             type="info"
             show-icon
@@ -185,7 +185,7 @@ BUILD_WINDOWS_CLI=1 BUILD_WINDOWS_GUI=1 ./scripts/package.sh v0.1.0-windows</pre
     <a-modal v-model:open="createVisible" title="创建接入 Token" width="760px" @ok="handleCreate" :confirm-loading="creating">
       <a-form layout="vertical" :model="createForm">
         <a-form-item label="名称" required>
-          <a-input v-model:value="createForm.name" placeholder="例如：客户A-生产环境扫描器" />
+          <a-input v-model:value="createForm.name" placeholder="例如：客户A-生产环境 Skills 扫描器" />
           <div class="hint">用于后台识别这个 token 属于哪个客户、环境或主机组。</div>
         </a-form-item>
         <a-row :gutter="16">
@@ -208,12 +208,12 @@ BUILD_WINDOWS_CLI=1 BUILD_WINDOWS_GUI=1 ./scripts/package.sh v0.1.0-windows</pre
         </a-form-item>
         <a-form-item label="权限范围">
           <a-space style="margin-bottom: 8px" wrap>
-            <a-button size="small" @click="setScannerScopes">扫描器默认</a-button>
+            <a-button size="small" @click="setScannerScopes">Skills 扫描器默认</a-button>
             <a-button size="small" @click="setRuntimeScopes">Runtime 默认</a-button>
             <a-button size="small" @click="setAllScopes">全部权限</a-button>
           </a-space>
           <a-select v-model:value="createForm.scopes" mode="multiple" style="width: 100%">
-            <a-select-opt-group label="Scanner 扫描器权限">
+            <a-select-opt-group label="Skills 扫描器权限">
               <a-select-option value="scanner:submit">scanner:submit</a-select-option>
               <a-select-option value="scanner:read-own-results">scanner:read-own-results</a-select-option>
               <a-select-option value="scanner:read-own-sessions">scanner:read-own-sessions</a-select-option>
