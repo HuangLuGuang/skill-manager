@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from . import models
 from .auth import get_current_admin_user, get_password_hash
 from .config import settings
-from .routers import auth, config, llm_gateway, system, tasks
+from .routers import access_tokens, agents, auth, config, llm_gateway, system, tasks
 from .sqlite_db import Base, SessionLocal, engine
 from .task_runtime import init_default_tasks
 
@@ -45,6 +45,8 @@ app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(config.router, prefix=settings.API_PREFIX)
 app.include_router(system.router, prefix=settings.API_PREFIX)
 app.include_router(tasks.router, prefix=settings.API_PREFIX)
+app.include_router(agents.router, prefix=settings.API_PREFIX)
+app.include_router(access_tokens.router, prefix=f"{settings.API_PREFIX}/v1")
 app.include_router(llm_gateway.runtime_router)
 app.include_router(llm_gateway.admin_router, prefix=settings.API_PREFIX)
 app.include_router(access_runtime_router)
@@ -61,6 +63,9 @@ def ensure_sqlite_schema() -> None:
         columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(privacy_policies)").fetchall()}
         if "entity_rules_json" not in columns:
             conn.exec_driver_sql("ALTER TABLE privacy_policies ADD COLUMN entity_rules_json TEXT NOT NULL DEFAULT '{}'")
+        agent_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(managed_agents)").fetchall()}
+        if "runtime_token_id" not in agent_columns:
+            conn.exec_driver_sql("ALTER TABLE managed_agents ADD COLUMN runtime_token_id INTEGER")
 
     # Headroom 压缩字段 migration
     from backend.migrate_compression import migrate as migrate_compression

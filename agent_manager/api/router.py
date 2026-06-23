@@ -496,7 +496,7 @@ class LLMConfigResponse(BaseModel):
 
 class SandboxConfigPayload(BaseModel):
     enabled: bool = False
-    runtime: str = "docker"
+    runtime: str = "remote"
     image: str = "agent-manager-sandbox-runtime:latest"
     timeout_seconds: int = 15
     network_mode: str = "none"
@@ -504,7 +504,7 @@ class SandboxConfigPayload(BaseModel):
     cpu_limit: str = "1.0"
     pids_limit: int = 64
     read_only_rootfs: bool = True
-    remote_url: str | None = None
+    remote_url: str | None = "http://sandbox:8194"
     remote_api_key: str | None = None
     clear_remote_api_key: bool = False
 
@@ -1085,8 +1085,16 @@ def list_skills(
     mgr: AgentManager = Depends(get_manager),
 ):
     """List skills, optionally filtered by status."""
-    s = SkillStatus(status) if status else None
-    entries = mgr.list_skills(s)
+    status_values: list[SkillStatus] = []
+    if status:
+        try:
+            status_values = [SkillStatus(item.strip()) for item in status.split(",") if item.strip()]
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid skill status: {status}") from exc
+    entries = mgr.list_skills()
+    if status_values:
+        allowed_statuses = set(status_values)
+        entries = [e for e in entries if e.status in allowed_statuses]
     if loadable_only:
         entries = [e for e in entries if e.is_loadable()]
 
@@ -1752,8 +1760,12 @@ def list_prompts(
     agent_id: str | None = Query(None),
     mgr: AgentManager = Depends(get_manager),
 ):
-    status_enum = PromptStatus(status) if status else None
-    entries = mgr.list_prompts(status=status_enum, agent_id=agent_id)
+    if status and "," in status:
+        statuses = {PromptStatus(item.strip()) for item in status.split(",") if item.strip()}
+        entries = [entry for entry in mgr.list_prompts(agent_id=agent_id) if entry.status in statuses]
+    else:
+        status_enum = PromptStatus(status) if status else None
+        entries = mgr.list_prompts(status=status_enum, agent_id=agent_id)
     return [e.summary() for e in entries]
 
 

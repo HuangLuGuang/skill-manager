@@ -30,24 +30,14 @@
 
       <a-layout v-if="!isLoginPage" class="app-main-layout">
         <a-layout-sider width="240" class="app-sider">
-          <a-menu :selectedKeys="selectedKeys" :openKeys="openKeys" mode="inline" @click="handleMenuClick" @openChange="keys => openKeys = keys">
-            <template v-for="item in menuItems" :key="item.key">
-              <a-sub-menu v-if="item.children" :key="item.key">
-                <template #title>
-                  <component :is="iconMap[item.icon]" />
-                  <span>{{ item.label }}</span>
-                </template>
-                <a-menu-item v-for="child in item.children" :key="child.key">
-                  <component :is="iconMap[child.icon]" />
-                  <span>{{ child.label }}</span>
-                </a-menu-item>
-              </a-sub-menu>
-              <a-menu-item v-else :key="item.key">
-                <component :is="iconMap[item.icon]" />
-                <span>{{ item.label }}</span>
-              </a-menu-item>
-            </template>
-          </a-menu>
+          <a-menu
+            :items="menuItems"
+            :selectedKeys="selectedKeys"
+            :openKeys="openKeys"
+            mode="inline"
+            @click="handleMenuClick"
+            @openChange="keys => openKeys = keys"
+          />
         </a-layout-sider>
         <a-layout-content class="app-content">
           <router-view />
@@ -76,7 +66,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import zhCN from 'ant-design-vue/es/locale/zh_CN'
 import { message } from 'ant-design-vue'
@@ -114,7 +104,6 @@ const passwordForm = reactive({
   confirmPassword: '',
 })
 
-const menuItems = navigationItems
 const iconMap = {
   api: ApiOutlined,
   audit: AuditOutlined,
@@ -125,11 +114,21 @@ const iconMap = {
   fileSearch: FileSearchOutlined,
   fileText: FileTextOutlined,
   key: KeyOutlined,
+  agent: DeploymentUnitOutlined,
   safety: SafetyCertificateOutlined,
   setting: SettingOutlined,
   team: TeamOutlined,
   upload: UploadOutlined,
 }
+
+const buildMenuItem = (item) => ({
+  key: item.key,
+  label: item.label,
+  icon: item.icon && iconMap[item.icon] ? h(iconMap[item.icon]) : undefined,
+  children: item.children?.map(buildMenuItem),
+})
+
+const menuItems = computed(() => navigationItems.map(buildMenuItem))
 
 let sessionCheckTimer = null
 

@@ -71,7 +71,7 @@ sequenceDiagram
 - OpenAI SDK / Cherry Studio：优先把 Base URL 配成 `http://127.0.0.1:8000/v1`。
 - Hermes 或其他只接受根地址的客户端：可配 `http://127.0.0.1:8000`；如果客户端直接 POST 根地址，网关会兼容 `POST /`，如果客户端自动拼接路径，网关也会兼容 `/chat/completions` 和 `/models`。
 
-请求必须携带 LLM API Key：
+请求必须携带模型调用凭证。凭证统一在管理台 `智能体治理 / 凭证管理` 创建，类型选择 `模型调用凭证`：
 
 ```http
 Authorization: Bearer amk_xxx
@@ -126,15 +126,16 @@ Authorization: Bearer amk_xxx
 
 ---
 
-## 4. LLM API Key
+## 4. 模型调用凭证
 
-LLM API Key 在 `模型网关 / API Key` 页面创建：
+模型调用凭证在 `智能体治理 / 凭证管理` 页面创建：
 
 - 明文只展示一次。
 - 服务端只保存 SHA-256 hash 和 key prefix。
 - 创建时自动绑定当前登录用户；运行时按该用户所属用户组解析隐私策略。
 - 可配置允许模型列表、过期时间、最大请求体大小 `max_body_kb`、最大并发请求数 `max_concurrent_requests`。
 - 可编辑名称、模型范围、过期时间、状态和限额；明文 token 仍只在创建后展示一次。
+- Agent 运行凭证默认不能调用模型；只有显式勾选 `model:chat` 后，才可以调用模型网关。
 
 运行时会检查：
 
@@ -257,11 +258,11 @@ export AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID="vetting-session"
 
 > 详细实施文档见 [headroom-compression-integration.md](headroom-compression-integration.md)
 
-模型网关集成 [Headroom](https://github.com/chopratejas/headroom) 智能压缩，自动压缩发送给 LLM 的消息内容（工具输出、日志、代码等），节省 60-95% Token。压缩在 PII 伪匿名化之后执行，按 API Key 粒度可选开启。
+模型网关集成 [Headroom](https://github.com/chopratejas/headroom) 智能压缩，自动压缩发送给 LLM 的消息内容（工具输出、日志、代码等），节省 60-95% Token。压缩在 PII 伪匿名化之后执行，按模型调用凭证粒度可选开启。
 
 ### 开启方式
 
-在管理台 `模型网关 / API Key` 创建或编辑时，打开"开启智能压缩"开关并选择压缩级别（均衡/保守/激进）。
+在管理台 `智能体治理 / 凭证管理` 创建模型调用凭证时，打开“开启智能压缩”开关并选择压缩级别（均衡/保守/激进）。
 
 ### 如何看到效果
 

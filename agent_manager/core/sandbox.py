@@ -89,7 +89,7 @@ class SandboxResult(BaseModel):
 
 class SandboxConfig(BaseModel):
     enabled: bool = False
-    runtime: str = "docker"
+    runtime: str = "remote"
     image: str = "agent-manager-sandbox-runtime:latest"
     timeout_seconds: int = 15
     network_mode: str = "none"
@@ -97,7 +97,7 @@ class SandboxConfig(BaseModel):
     cpu_limit: str = "1.0"
     pids_limit: int = 64
     read_only_rootfs: bool = True
-    remote_url: str | None = None
+    remote_url: str | None = "http://sandbox:8194"
     remote_api_key: str | None = None
     remote_language_map: dict[str, str] = Field(default_factory=lambda: {
         ".py": "python3",

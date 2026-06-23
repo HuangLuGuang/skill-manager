@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="Skills 扫描器" sub-title="下载客户侧 Go Scanner / Agent Skill Guard，管理 Token，并说明扫描与运行时校验方式" />
+    <a-page-header title="Skills 扫描器" sub-title="下载客户侧 Go Scanner / Agent Skill Guard，并说明扫描与运行时校验方式" />
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24" :xl="9">
@@ -47,62 +47,25 @@ BUILD_WINDOWS_CLI=1 BUILD_WINDOWS_GUI=1 ./scripts/package.sh v0.1.0-windows</pre
       </a-col>
 
       <a-col :xs="24" :xl="15">
-        <a-card title="接入 Token">
+        <a-card title="接入凭证">
           <template #extra>
             <a-space>
-              <a-button @click="fetchTokens" :loading="loading">刷新</a-button>
-              <a-button type="primary" @click="openCreateModal">创建 Token</a-button>
+              <a-button type="primary" @click="router.push('/credentials')">前往凭证管理</a-button>
             </a-space>
           </template>
 
           <a-alert
-            type="warning"
+            type="info"
             show-icon
-            message="Token 只展示一次"
-            description="服务端只保存 hash。可按用途选择 scanner 或 runtime 权限；创建后请立即复制，泄露后只能吊销并重建。"
+            message="Scanner 接入凭证统一在“凭证管理”中创建"
+            description="创建时类型选择“Scanner 接入凭证”，权限至少包含 scanner:submit；如需 Agent Skill Guard 同时运行校验，再增加 runtime:verify-signature、runtime:can-load、runtime:check-tool。"
             style="margin-bottom: 16px"
           />
-
-          <a-table
-            :data-source="tokens"
-            :columns="columns"
-            row-key="id"
-            :loading="loading"
-            :pagination="{ pageSize: 10 }"
-            size="small"
-          >
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'status'">
-                <a-tag :color="record.status === 'active' ? 'green' : 'default'">
-                  {{ record.status === 'active' ? '启用' : '已吊销' }}
-                </a-tag>
-              </template>
-              <template v-else-if="column.key === 'scopes'">
-                <a-space wrap>
-                  <a-tag v-for="scope in record.scopes || []" :key="scope" color="blue">{{ scope }}</a-tag>
-                </a-space>
-              </template>
-              <template v-else-if="column.key === 'limits'">
-                {{ record.max_upload_mb || 0 }} MB / {{ record.max_concurrent_jobs || 0 }} 并发
-              </template>
-              <template v-else-if="column.key === 'time'">
-                <div>创建：{{ formatTime(record.created_at) }}</div>
-                <div class="muted">最近使用：{{ formatTime(record.last_used_at) }}</div>
-              </template>
-              <template v-else-if="column.key === 'action'">
-                <a-popconfirm
-                  v-if="record.status === 'active'"
-                  title="确认吊销这个接入 Token？"
-                  ok-text="吊销"
-                  cancel-text="取消"
-                  @confirm="handleRevoke(record)"
-                >
-                  <a-button type="link" danger :loading="revokingId === record.id">吊销</a-button>
-                </a-popconfirm>
-                <span v-else class="muted">不可用</span>
-              </template>
-            </template>
-          </a-table>
+          <a-descriptions bordered size="small" :column="1">
+            <a-descriptions-item label="创建入口">智能体治理 / 凭证管理</a-descriptions-item>
+            <a-descriptions-item label="Scanner 权限">scanner:submit、scanner:read-own-results、scanner:read-own-sessions</a-descriptions-item>
+            <a-descriptions-item label="Runtime 权限">runtime:verify-signature、runtime:can-load、runtime:check-tool</a-descriptions-item>
+          </a-descriptions>
         </a-card>
       </a-col>
     </a-row>
@@ -121,8 +84,8 @@ BUILD_WINDOWS_CLI=1 BUILD_WINDOWS_GUI=1 ./scripts/package.sh v0.1.0-windows</pre
       <a-row :gutter="[16, 16]">
         <a-col :xs="24" :lg="8">
           <div class="guard-panel">
-            <div class="guard-panel-title">1. 创建 Token</div>
-            <p class="hint">建议使用「全部权限」或至少包含下面这些 scope，既能提交扫描，也能在运行时验签。</p>
+            <div class="guard-panel-title">1. 创建凭证</div>
+            <p class="hint">请在“凭证管理”创建 Scanner 接入凭证，并至少包含下面这些 scope，既能提交扫描，也能在运行时验签。</p>
             <a-space wrap>
               <a-tag v-for="scope in skillGuardScopes" :key="scope" color="blue">{{ scope }}</a-tag>
             </a-space>
@@ -182,98 +145,21 @@ BUILD_WINDOWS_CLI=1 BUILD_WINDOWS_GUI=1 ./scripts/package.sh v0.1.0-windows</pre
       </a-tabs>
     </a-card>
 
-    <a-modal v-model:open="createVisible" title="创建接入 Token" width="760px" @ok="handleCreate" :confirm-loading="creating">
-      <a-form layout="vertical" :model="createForm">
-        <a-form-item label="名称" required>
-          <a-input v-model:value="createForm.name" placeholder="例如：客户A-生产环境 Skills 扫描器" />
-          <div class="hint">用于后台识别这个 token 属于哪个客户、环境或主机组。</div>
-        </a-form-item>
-        <a-row :gutter="16">
-          <a-col :xs="24" :md="12">
-            <a-form-item label="最大上传大小（MB）">
-              <a-input-number v-model:value="createForm.max_upload_mb" :min="1" :max="500" style="width: 100%" />
-              <div class="hint">限制单个 skill ZIP 上传大小，防止客户误扫大目录。</div>
-            </a-form-item>
-          </a-col>
-          <a-col :xs="24" :md="12">
-            <a-form-item label="最大并发任务数">
-              <a-input-number v-model:value="createForm.max_concurrent_jobs" :min="1" :max="20" style="width: 100%" />
-              <div class="hint">预留给后续批量 session 调度使用。</div>
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-form-item label="允许来源 IP / CIDR">
-          <a-select v-model:value="createForm.allowed_ips" mode="tags" placeholder="留空表示不限制，例如 10.0.0.0/24" />
-          <div class="hint">可填具体 IP 或 CIDR。配置后，只有这些来源能使用 token。</div>
-        </a-form-item>
-        <a-form-item label="权限范围">
-          <a-space style="margin-bottom: 8px" wrap>
-            <a-button size="small" @click="setScannerScopes">Skills 扫描器默认</a-button>
-            <a-button size="small" @click="setRuntimeScopes">Runtime 默认</a-button>
-            <a-button size="small" @click="setAllScopes">全部权限</a-button>
-          </a-space>
-          <a-select v-model:value="createForm.scopes" mode="multiple" style="width: 100%">
-            <a-select-opt-group label="Skills 扫描器权限">
-              <a-select-option value="scanner:submit">scanner:submit</a-select-option>
-              <a-select-option value="scanner:read-own-results">scanner:read-own-results</a-select-option>
-              <a-select-option value="scanner:read-own-sessions">scanner:read-own-sessions</a-select-option>
-            </a-select-opt-group>
-            <a-select-opt-group label="Runtime Agent 加载校验权限">
-              <a-select-option value="runtime:verify-signature">runtime:verify-signature</a-select-option>
-              <a-select-option value="runtime:can-load">runtime:can-load</a-select-option>
-              <a-select-option value="runtime:check-tool">runtime:check-tool</a-select-option>
-            </a-select-opt-group>
-          </a-select>
-          <div class="hint">Scanner 用于提交扫描；Runtime 用于外部 Agent 加载前验签、can-load 和工具调用校验。不要授权审批、部署、策略修改或用户管理权限。</div>
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <a-modal v-model:open="tokenVisible" title="接入 Token 已创建" width="820px" :footer="null">
-      <a-alert
-        type="warning"
-        show-icon
-        message="请立即保存 Token"
-        description="这是唯一一次展示明文 Token。关闭弹窗后，系统无法再次查看，只能吊销后重建。"
-        style="margin-bottom: 16px"
-      />
-      <a-input-group compact>
-        <a-input :value="createdToken" readonly style="width: calc(100% - 96px)" />
-        <a-button type="primary" @click="copyText(createdToken)">复制</a-button>
-      </a-input-group>
-      <a-divider />
-      <a-typography-title :level="5">客户侧运行命令</a-typography-title>
-      <pre class="code-block">{{ createdCommand }}</pre>
-      <a-typography-title :level="5" style="margin-top: 12px">Agent Runtime 使用</a-typography-title>
-      <pre class="code-block">{{ createdRuntimeCommand }}</pre>
-      <a-space style="margin-top: 12px">
-        <a-button type="primary" @click="copyText(createdCommand)">复制命令</a-button>
-        <a-button @click="tokenVisible = false">关闭</a-button>
-      </a-space>
-    </a-modal>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
+import { useRouter } from 'vue-router'
 
 import {
-  createScannerToken,
   downloadScannerBinary,
   downloadSkillGuard,
   listScannerDownloads,
-  listScannerTokens,
-  revokeScannerToken,
 } from '../api'
 
-const loading = ref(false)
-const creating = ref(false)
-const createVisible = ref(false)
-const tokenVisible = ref(false)
-const revokingId = ref('')
-const tokens = ref([])
-const createdToken = ref('')
+const router = useRouter()
 const downloads = ref([])
 const downloading = ref(false)
 const guardDownloading = ref(false)
@@ -286,27 +172,6 @@ const platformOptions = [
   { value: 'linux-arm64', label: 'Linux ARM64（linux-arm64）' },
   { value: 'windows-amd64.exe', label: 'Windows x86_64（windows-amd64.exe）' },
 ]
-const scannerScopes = ['scanner:submit', 'scanner:read-own-results', 'scanner:read-own-sessions']
-const runtimeScopes = ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool']
-const skillGuardScopes = ['scanner:submit', 'scanner:read-own-results', 'runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool']
-const createForm = reactive({
-  name: '',
-  scopes: [...scannerScopes],
-  allowed_ips: [],
-  max_upload_mb: 50,
-  max_concurrent_jobs: 2,
-})
-
-const columns = [
-  { title: '名称', dataIndex: 'name', key: 'name' },
-  { title: '前缀', dataIndex: 'token_prefix', key: 'token_prefix', width: 160 },
-  { title: '状态', key: 'status', width: 90 },
-  { title: '权限', key: 'scopes' },
-  { title: '限制', key: 'limits', width: 140 },
-  { title: '时间', key: 'time', width: 240 },
-  { title: '操作', key: 'action', width: 90 },
-]
-
 const parameterColumns = [
   { title: '参数', dataIndex: 'name', key: 'name', width: 180 },
   { title: '是否必填', dataIndex: 'required', key: 'required', width: 100 },
@@ -317,7 +182,7 @@ const parameterColumns = [
 const parameterRows = [
   { name: 'scan <path>', required: '是', usage: '客户本地 skills 根目录。scanner 会递归查找包含 SKILL.md 的目录。', example: './skill-scanner scan /opt/openclaw/skills' },
   { name: '--server', required: '上传时必填', usage: 'Agent Manager 管理台地址。设置后会启用上传。', example: '--server https://agent-manager.example.com' },
-  { name: '--token', required: '上传时必填', usage: '本页创建的接入 Token，需要包含 scanner:submit。也可以用 AGENT_MANAGER_TOKEN 环境变量。', example: '--token smsc_live_xxx' },
+  { name: '--token', required: '上传时必填', usage: '凭证管理中创建的 Scanner 接入凭证，需要包含 scanner:submit。也可以用 AGENT_MANAGER_TOKEN 环境变量。', example: '--token amat_xxx' },
   { name: '--output', required: '否', usage: '本地 JSON 报告输出路径。报告里有 skill_id、fingerprint、本地预检结果和上传状态。', example: '--output report.json' },
   { name: '--host-id', required: '否', usage: '客户主机或环境标识，便于后台区分来源。也可以用 SKILL_SCANNER_HOST_ID。', example: '--host-id customer-a-prod-01' },
   { name: '--behavioral', required: '否', usage: '请求服务端启用规则分析，扫描 scripts、references 等文件中的可疑行为。', example: '--behavioral' },
@@ -339,19 +204,19 @@ const runtimeApiOrigin = computed(() => {
 })
 const basicCommand = computed(() => `./skill-scanner scan /path/to/customer/skills \\
   --server ${serverOrigin.value} \\
-  --token smsc_live_xxx \\
+  --token amat_xxx \\
   --output report.json`)
 
 const fullCommand = computed(() => `./skill-scanner scan /path/to/customer/skills \\
   --server ${serverOrigin.value} \\
-  --token smsc_live_xxx \\
+  --token amat_xxx \\
   --host-id customer-prod-01 \\
   --behavioral \\
   --sandbox \\
   --llm \\
   --output report.json`)
 
-const envCommand = computed(() => `export AGENT_MANAGER_TOKEN="smsc_live_xxx"
+const envCommand = computed(() => `export AGENT_MANAGER_TOKEN="amat_xxx"
 export SKILL_SCANNER_HOST_ID="customer-prod-01"
 ./skill-scanner scan /path/to/customer/skills \\
   --server ${serverOrigin.value} \\
@@ -369,51 +234,19 @@ const codexGuardInstallCommand = computed(() => `mkdir -p ~/.codex/skills
 unzip agent-manager-skill-guard.zip -d ~/.codex/skills/
 
 export AGENT_MANAGER_BASE_URL="${runtimeApiOrigin.value}"
-export AGENT_MANAGER_API_TOKEN="smsc_live_xxx"
+export AGENT_MANAGER_API_TOKEN="amat_xxx"
 export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"`)
 
 const claudeGuardInstallCommand = computed(() => `mkdir -p ~/.claude/skills
 unzip agent-manager-skill-guard.zip -d ~/.claude/skills/
 
 export AGENT_MANAGER_BASE_URL="${runtimeApiOrigin.value}"
-export AGENT_MANAGER_API_TOKEN="smsc_live_xxx"
+export AGENT_MANAGER_API_TOKEN="amat_xxx"
 export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"`)
 
 const guardUsageCommand = computed(() => `python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py submit --path /path/to/third-party-skill --behavioral
 python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py status --skill-id <skill-id>
 python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py verify --name <skill-name> --path /path/to/third-party-skill`)
-
-const createdCommand = computed(() => `./skill-scanner scan /path/to/customer/skills \\
-  --server ${serverOrigin.value} \\
-  --token ${createdToken.value || 'smsc_live_xxx'} \\
-  --host-id customer-prod-01 \\
-  --behavioral \\
-  --sandbox \\
-  --output report.json`)
-
-const createdRuntimeCommand = computed(() => `# 本地开发时这里要填后端 API 地址，不要填前端 Vite 端口 5173/5174。
-export AGENT_MANAGER_BASE_URL="${runtimeApiOrigin.value}"
-export AGENT_MANAGER_API_TOKEN="${createdToken.value || 'smsc_live_xxx'}"
-export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
-
-uv run python git_workflow_demo.py --all`)
-
-const formatTime = (value) => {
-  if (!value) return '-'
-  return new Date(value).toLocaleString()
-}
-
-const fetchTokens = async () => {
-  loading.value = true
-  try {
-    const data = await listScannerTokens()
-    tokens.value = data.items || []
-  } catch (error) {
-    message.error(error.response?.data?.detail || '获取接入 Token 失败')
-  } finally {
-    loading.value = false
-  }
-}
 
 const fetchDownloads = async () => {
   try {
@@ -472,66 +305,6 @@ const handleSkillGuardDownload = async () => {
   }
 }
 
-const openCreateModal = () => {
-  createForm.name = ''
-  createForm.scopes = [...scannerScopes]
-  createForm.allowed_ips = []
-  createForm.max_upload_mb = 50
-  createForm.max_concurrent_jobs = 2
-  createVisible.value = true
-}
-
-const setScannerScopes = () => {
-  createForm.scopes = [...scannerScopes]
-}
-
-const setRuntimeScopes = () => {
-  createForm.scopes = [...runtimeScopes]
-}
-
-const setAllScopes = () => {
-  createForm.scopes = [...scannerScopes, ...runtimeScopes]
-}
-
-const handleCreate = async () => {
-  if (!createForm.name.trim()) {
-    message.warning('请填写 Token 名称')
-    return
-  }
-  creating.value = true
-  try {
-    const data = await createScannerToken({
-      name: createForm.name.trim(),
-      scopes: createForm.scopes,
-      allowed_ips: createForm.allowed_ips,
-      max_upload_mb: Number(createForm.max_upload_mb || 50),
-      max_concurrent_jobs: Number(createForm.max_concurrent_jobs || 2),
-      created_by: localStorage.getItem('username') || 'admin',
-    })
-    createdToken.value = data.token
-    createVisible.value = false
-    tokenVisible.value = true
-    await fetchTokens()
-  } catch (error) {
-    message.error(error.response?.data?.detail || '创建接入 Token 失败')
-  } finally {
-    creating.value = false
-  }
-}
-
-const handleRevoke = async (record) => {
-  revokingId.value = record.id
-  try {
-    await revokeScannerToken(record.id)
-    message.success('接入 Token 已吊销')
-    await fetchTokens()
-  } catch (error) {
-    message.error(error.response?.data?.detail || '吊销接入 Token 失败')
-  } finally {
-    revokingId.value = ''
-  }
-}
-
 const copyText = async (text) => {
   try {
     await navigator.clipboard.writeText(text)
@@ -542,7 +315,6 @@ const copyText = async (text) => {
 }
 
 onMounted(() => {
-  fetchTokens()
   fetchDownloads()
 })
 </script>

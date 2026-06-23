@@ -56,19 +56,19 @@ sequenceDiagram
 
 ---
 
-## 3. 接入 Token
+## 3. 接入凭证
 
-Scanner 和外部 Agent Runtime 都不应该使用管理员登录态，而是使用管理台创建的最小权限接入 Token。
+Scanner 和外部 Agent Runtime 都不应该使用管理员登录态，而是使用管理台创建的最小权限接入凭证。
 
 ### 3.1 创建位置
 
 管理台进入：
 
-- `扫描器接入`
-- `接入 Token`
-- 创建 Token
+- `智能体治理`
+- `凭证管理`
+- 创建凭证，类型选择 `Scanner 接入凭证`
 
-创建后只展示一次明文 Token。服务端只保存 hash。
+创建后只展示一次明文凭证。服务端只保存 hash。
 
 ### 3.2 权限范围
 
@@ -91,17 +91,17 @@ Runtime Agent 加载校验权限：
 - Codex / Claude Code 等通用 Skill Guard：选择 `scanner:submit`、`scanner:read-own-results` 和全部 runtime 权限。
 - 同一个测试环境既扫描又加载：可以同时选择 scanner 和 runtime 权限。
 
-不要给接入 token 授予：
+不要给接入凭证授予：
 
 - 审批权限
 - 部署权限
 - 策略修改权限
 - 用户管理权限
-- Token 管理权限
+- 凭证管理权限
 
 ### 3.3 安全控制
 
-Token 支持：
+接入凭证支持：
 
 - 禁用 / 吊销
 - 过期时间
@@ -110,7 +110,7 @@ Token 支持：
 - 最大并发任务数
 - 审计日志
 
-Token 明文可以通过 CLI 参数、环境变量或 GUI 设置页配置，不应硬编码到二进制里。Agent demo 读取 `AGENT_MANAGER_API_TOKEN` 或 `AGENT_MANAGER_ACCESS_TOKEN`，并调用 `/api/v1/access/runtime/...` 这组 token 鉴权接口。
+凭证明文可以通过 CLI 参数、环境变量或 GUI 设置页配置，不应硬编码到二进制里。Agent demo 读取 `AGENT_MANAGER_API_TOKEN` 或 `AGENT_MANAGER_ACCESS_TOKEN`，并调用 `/api/v1/access/runtime/...` 这组凭证鉴权接口。
 
 ---
 
@@ -162,7 +162,7 @@ Skill Guard 首版使用一个合并 token。至少需要：
 
 ```bash
 export AGENT_MANAGER_BASE_URL="http://localhost:8001"
-export AGENT_MANAGER_API_TOKEN="smsc_live_xxx"
+export AGENT_MANAGER_API_TOKEN="amat_xxx"
 export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 ```
 
@@ -257,7 +257,7 @@ chmod +x skill-scanner-cli-darwin-arm64
 
 ```bash
 export AGENT_MANAGER_SERVER="http://localhost:8000"
-export AGENT_MANAGER_TOKEN="smsc_live_xxx"
+export AGENT_MANAGER_TOKEN="amat_xxx"
 export SKILL_SCANNER_HOST_ID="customer-prod-01"
 
 ./skill-scanner-cli-darwin-arm64 scan /path/to/skills --behavioral --sandbox --llm
@@ -555,7 +555,6 @@ BUILD_WINDOWS_GUI=1 ./scripts/package.sh
 
 管理台 `扫描器接入` 页面提供：
 
-- 接入 Token 创建、查看、吊销
 - CLI / GUI 下载
 - Agent Skill Guard 下载
 - Codex / Claude Code 安装示例
@@ -563,6 +562,8 @@ BUILD_WINDOWS_GUI=1 ./scripts/package.sh
 - 参数说明
 - 配置模板
 - 最近扫描会话和结果入口
+
+接入凭证的创建、查看和吊销统一在 `智能体治理 / 凭证管理` 页面完成。
 
 扫描完成后看结果的位置：
 

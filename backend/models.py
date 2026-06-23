@@ -38,6 +38,26 @@ class UserGroupMember(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class ManagedAgent(Base):
+    __tablename__ = "managed_agents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    agent_id = Column(String(128), unique=True, index=True, nullable=False)
+    name = Column(String(128), index=True, nullable=False)
+    department_group_id = Column(Integer, ForeignKey("user_groups.id"), index=True, nullable=True)
+    owner = Column(String(128), nullable=True)
+    description = Column(Text, nullable=True)
+    channel = Column(String(64), nullable=True)
+    status = Column(String(32), default="active", nullable=False)
+    default_model = Column(String(128), nullable=True)
+    skill_names_json = Column(Text, default="[]", nullable=False)
+    prompt_names_json = Column(Text, default="[]", nullable=False)
+    runtime_token_id = Column(Integer, ForeignKey("access_tokens.id"), nullable=True)
+    runtime_token_name = Column(String(128), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class ModelProvider(Base):
     __tablename__ = "model_providers"
 
@@ -87,6 +107,35 @@ class LlmApiKey(Base):
     compression_level = Column(String(32), default="auto", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     last_used_at = Column(DateTime, nullable=True)
+
+
+class AccessToken(Base):
+    __tablename__ = "access_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(128), index=True, nullable=False)
+    token_type = Column(String(32), index=True, nullable=False)
+    token_hash = Column(String(128), unique=True, index=True, nullable=False)
+    token_prefix = Column(String(24), index=True, nullable=False)
+    scopes_json = Column(Text, default="[]", nullable=False)
+    bound_agent_id = Column(String(128), index=True, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
+    group_id = Column(Integer, ForeignKey("user_groups.id"), index=True, nullable=True)
+    allowed_models_json = Column(Text, default="[]", nullable=False)
+    allowed_ips_json = Column(Text, default="[]", nullable=False)
+    status = Column(String(32), default="active", nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    max_body_kb = Column(Integer, default=1024, nullable=False)
+    max_concurrent_requests = Column(Integer, default=5, nullable=False)
+    max_upload_mb = Column(Integer, default=50, nullable=False)
+    max_concurrent_jobs = Column(Integer, default=2, nullable=False)
+    enable_compression = Column(Boolean, default=False, nullable=False)
+    compression_level = Column(String(32), default="auto", nullable=False)
+    created_by = Column(String(128), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_used_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    revoked_by = Column(String(128), nullable=True)
 
 
 class PrivacyPolicy(Base):

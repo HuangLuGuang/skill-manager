@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import uuid
+import asyncio
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -137,6 +138,8 @@ class LLMConfig(BaseModel):
 
     @property
     def is_ready(self) -> bool:
+        if self.provider.lower() in {"model-gateway", "model_gateway"}:
+            return bool(self.enabled and self.model)
         return bool(self.enabled and self.api_key and self.api_base and self.model)
 
     @property
@@ -225,6 +228,34 @@ def _extract_json_object(raw_text: str) -> dict[str, Any]:
 # LLM call helper                                                               #
 # --------------------------------------------------------------------------- #
 
+def _uses_model_gateway(config: LLMConfig) -> bool:
+    return config.provider.lower() in {"model-gateway", "model_gateway"}
+
+
+async def _call_model_gateway_upstream(payload: dict[str, Any]) -> dict[str, Any]:
+    from backend import models
+    from backend.routers.llm_gateway import _call_upstream
+    from backend.sqlite_db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        model_name = payload.get("model")
+        model = (
+            db.query(models.ModelEndpoint)
+            .filter(models.ModelEndpoint.name == model_name, models.ModelEndpoint.enabled.is_(True))
+            .first()
+        )
+        if not model:
+            raise ValueError(f"模型不存在或未启用: {model_name}")
+        return await _call_upstream(db, model, payload)
+    finally:
+        db.close()
+
+
+def _call_model_gateway_sync(payload: dict[str, Any]) -> dict[str, Any]:
+    return asyncio.run(_call_model_gateway_upstream(payload))
+
+
 def _call_llm(config: LLMConfig, system_prompt: str, user_prompt: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """Call the LLM and return (parsed_json, raw_response_body)."""
     gateway_url = os.environ.get("AGENT_MANAGER_LLM_GATEWAY_URL", "").strip()
@@ -248,18 +279,21 @@ def _call_llm(config: LLMConfig, system_prompt: str, user_prompt: str) -> tuple[
         "response_format": {"type": "json_object"},
         "stream": False,
     }
-    api_key = gateway_api_key or config.api_key
-    with httpx.Client(timeout=config.timeout_seconds) as client:
-        response = client.post(
-            endpoint,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
-        response.raise_for_status()
-        body = response.json()
+    if _uses_model_gateway(config) and not gateway_url:
+        body = _call_model_gateway_sync(payload)
+    else:
+        api_key = gateway_api_key or config.api_key
+        with httpx.Client(timeout=config.timeout_seconds) as client:
+            response = client.post(
+                endpoint,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            response.raise_for_status()
+            body = response.json()
 
     try:
         content = body["choices"][0]["message"]["content"]
@@ -634,7 +668,7 @@ def analyze_skill_with_llm(skill_path: Path, config: LLMConfig | None = None) ->
     resolved_config = config or LLMConfig.load()
     if not resolved_config.enabled:
         raise ValueError("LLM analysis is disabled")
-    if not resolved_config.api_key:
+    if not resolved_config.is_ready:
         raise ValueError("LLM API key is not configured")
 
     snapshot = _build_skill_snapshot(skill_path, resolved_config)
@@ -686,9 +720,9 @@ def generate_sandbox_probes_with_llm(
     gateway_api_key = os.environ.get("AGENT_MANAGER_LLM_GATEWAY_API_KEY", "").strip()
     if not resolved_config.enabled:
         raise ValueError("LLM analysis is disabled")
-    if not (gateway_api_key or resolved_config.api_key):
+    if not _uses_model_gateway(resolved_config) and not (gateway_api_key or resolved_config.api_key):
         raise ValueError("LLM API key is not configured")
-    if not gateway_url and resolved_config.provider.lower() != "deepseek":
+    if not gateway_url and resolved_config.provider.lower() != "deepseek" and not _uses_model_gateway(resolved_config):
         raise ValueError(f"Unsupported LLM provider: {resolved_config.provider}")
 
     snapshot = _build_skill_snapshot(skill_path, resolved_config)
@@ -733,18 +767,21 @@ def generate_sandbox_probes_with_llm(
         "response_format": {"type": "json_object"},
         "stream": False,
     }
-    api_key = gateway_api_key or resolved_config.api_key
-    with httpx.Client(timeout=resolved_config.timeout_seconds) as client:
-        response = client.post(
-            endpoint,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
-        response.raise_for_status()
-        body = response.json()
+    if _uses_model_gateway(resolved_config) and not gateway_url:
+        body = _call_model_gateway_sync(payload)
+    else:
+        api_key = gateway_api_key or resolved_config.api_key
+        with httpx.Client(timeout=resolved_config.timeout_seconds) as client:
+            response = client.post(
+                endpoint,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            response.raise_for_status()
+            body = response.json()
 
     try:
         content = body["choices"][0]["message"]["content"]

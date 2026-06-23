@@ -12,6 +12,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
     role: str = "admin"
+    group_ids: list[int] = []
 
     @field_validator("password")
     @classmethod
@@ -25,6 +26,7 @@ class User(UserBase):
     id: int
     is_active: bool
     role: str
+    group_ids: list[int] = []
     created_at: datetime
     last_login_at: Optional[datetime] = None
 
@@ -171,6 +173,7 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
     is_active: Optional[bool] = None
     password: Optional[str] = None
+    group_ids: Optional[list[int]] = None
 
 
 class UserGroupCreate(BaseModel):
@@ -197,6 +200,128 @@ class UserGroupResponse(BaseModel):
     privacy_policy_id: Optional[int] = None
     privacy_policy_name: Optional[str] = None
     created_at: datetime
+
+
+class ManagedAgentCreate(BaseModel):
+    agent_id: str
+    name: str
+    department_group_id: Optional[int] = None
+    owner: Optional[str] = None
+    description: Optional[str] = None
+    channel: Optional[str] = None
+    status: str = "active"
+    default_model: Optional[str] = None
+    skill_names: list[str] = []
+    prompt_names: list[str] = []
+    runtime_token_id: Optional[int] = None
+    runtime_token_name: Optional[str] = None
+
+
+class ManagedAgentUpdate(BaseModel):
+    agent_id: Optional[str] = None
+    name: Optional[str] = None
+    department_group_id: Optional[int] = None
+    owner: Optional[str] = None
+    description: Optional[str] = None
+    channel: Optional[str] = None
+    status: Optional[str] = None
+    default_model: Optional[str] = None
+    skill_names: Optional[list[str]] = None
+    prompt_names: Optional[list[str]] = None
+    runtime_token_id: Optional[int] = None
+    runtime_token_name: Optional[str] = None
+
+
+class ManagedAgentResponse(BaseModel):
+    id: int
+    agent_id: str
+    name: str
+    department_group_id: Optional[int] = None
+    department_name: Optional[str] = None
+    owner: Optional[str] = None
+    description: Optional[str] = None
+    channel: Optional[str] = None
+    status: str
+    default_model: Optional[str] = None
+    skill_names: list[str] = []
+    prompt_names: list[str] = []
+    runtime_token_id: Optional[int] = None
+    runtime_token_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AccessTokenCreate(BaseModel):
+    name: str
+    token_type: str = Field(pattern="^(model_gateway|agent_runtime|scanner)$")
+    bound_agent_id: Optional[str] = None
+    user_id: Optional[int] = None
+    group_id: Optional[int] = None
+    scopes: list[str] = []
+    allowed_models: list[str] = []
+    allowed_ips: list[str] = []
+    expires_at: Optional[datetime] = None
+    max_body_kb: int = Field(default=1024, ge=1, le=10240)
+    max_concurrent_requests: int = Field(default=5, ge=1, le=100)
+    max_upload_mb: int = Field(default=50, ge=1, le=10240)
+    max_concurrent_jobs: int = Field(default=2, ge=1, le=100)
+    enable_compression: bool = False
+    compression_level: str = Field(default="auto", pattern="^(auto|conservative|aggressive)$")
+
+
+class AccessTokenUpdate(BaseModel):
+    name: Optional[str] = None
+    bound_agent_id: Optional[str] = None
+    user_id: Optional[int] = None
+    group_id: Optional[int] = None
+    scopes: Optional[list[str]] = None
+    allowed_models: Optional[list[str]] = None
+    allowed_ips: Optional[list[str]] = None
+    status: Optional[str] = Field(default=None, pattern="^(active|disabled|revoked)$")
+    expires_at: Optional[datetime] = None
+    max_body_kb: Optional[int] = Field(default=None, ge=1, le=10240)
+    max_concurrent_requests: Optional[int] = Field(default=None, ge=1, le=100)
+    max_upload_mb: Optional[int] = Field(default=None, ge=1, le=10240)
+    max_concurrent_jobs: Optional[int] = Field(default=None, ge=1, le=100)
+    enable_compression: Optional[bool] = None
+    compression_level: Optional[str] = Field(default=None, pattern="^(auto|conservative|aggressive)$")
+
+
+class AccessTokenResponse(BaseModel):
+    id: int
+    name: str
+    token_type: str
+    token_prefix: str
+    token: Optional[str] = None
+    token_hash: Optional[str] = None
+    bound_agent_id: Optional[str] = None
+    user_id: Optional[int] = None
+    group_id: Optional[int] = None
+    scopes: list[str] = []
+    allowed_models: list[str] = []
+    allowed_ips: list[str] = []
+    status: str
+    expires_at: Optional[datetime] = None
+    max_body_kb: int
+    max_concurrent_requests: int
+    max_upload_mb: int
+    max_concurrent_jobs: int
+    enable_compression: bool = False
+    compression_level: str = "auto"
+    created_by: Optional[str] = None
+    created_at: datetime
+    last_used_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+    revoked_by: Optional[str] = None
+
+
+class AccessTokenCreateResponse(BaseModel):
+    token: str
+    record: AccessTokenResponse
+
+
+class AccessTokenListResponse(BaseModel):
+    items: list[AccessTokenResponse]
 
 
 class ModelProviderCreate(BaseModel):
