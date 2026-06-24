@@ -238,7 +238,7 @@ class TestPolicyDecide:
     def test_legacy_medium_severity_queues_suspicious_for_review(self):
         policy = CompanyPolicy({
             "auto_reject_risk": ["HIGH", "EXTREME"],
-            "require_human_review": ["LOW", "MEDIUM"],
+            "require_human_review": ["MEDIUM"],
         })
 
         assert policy.decide(RiskLevel.SUSPICIOUS, []) == SkillStatus.VETTED

@@ -41,18 +41,18 @@ class RiskLevel(str, Enum):
         """Map skill-scanner Severity to RiskLevel.
         
         Mapping rules:
-        - SAFE, INFO → benign
-        - LOW, MEDIUM → suspicious
+        - SAFE, INFO, LOW → benign
+        - MEDIUM → suspicious
         - HIGH, EXTREME → malicious
         """
         upper_severity = severity.upper() if severity else ""
         
-        if upper_severity in ("SAFE", "INFO"):
+        if upper_severity in ("SAFE", "INFO", "LOW"):
             return cls.BENIGN
         elif upper_severity in ("HIGH", "CRITICAL", "EXTREME"):
             return cls.MALICIOUS
         else:
-            # LOW, MEDIUM, or any unknown value → suspicious
+            # MEDIUM or any unknown value → suspicious
             return cls.SUSPICIOUS
 
     def is_at_least(self, other: "RiskLevel") -> bool:
