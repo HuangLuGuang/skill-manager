@@ -69,53 +69,66 @@
           </a-row>
         </a-tab-pane>
 
-        <a-tab-pane key="analyzers" tab="扫描器与分析器">
-          <a-row :gutter="16">
-            <a-col :xs="24" :lg="12">
-              <a-form-item label="扫描策略">
-                <a-select v-model:value="formState.scanner_policy">
-                  <a-select-option v-for="item in scannerPolicyOptions" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </a-select-option>
-                </a-select>
-                <div class="field-hint">控制基础 scanner 的敏感程度；balanced 适合日常默认扫描。</div>
-              </a-form-item>
-            </a-col>
-            <a-col :xs="24" :lg="12">
-              <a-form-item label="SkillSpector 超时（秒）">
-                <a-input-number v-model:value="formState.skillspector_timeout_seconds" :min="10" :max="600" style="width: 100%" />
-                <div class="field-hint">超过该时间会停止 SkillSpector，避免提交任务长时间卡住。</div>
-              </a-form-item>
-            </a-col>
-            <a-col :xs="24" :md="8">
-              <a-form-item label="启用 SkillSpector">
-                <a-switch v-model:checked="formState.skillspector_enabled" />
-                <div class="field-hint">开启后提交扫描会调用 SkillSpector CLI；系统状态会显示是否启用。</div>
-              </a-form-item>
-            </a-col>
-            <a-col :xs="24" :md="8">
-              <a-form-item label="SkillSpector fail-open">
-                <a-switch v-model:checked="formState.skillspector_fail_open" />
-                <div class="field-hint">开启后 SkillSpector 失败不会阻断整次扫描。</div>
-              </a-form-item>
-            </a-col>
-            <a-col :xs="24" :md="8">
-              <a-form-item label="SkillSpector LLM">
-                <a-switch v-model:checked="formState.skillspector_use_llm" :disabled="!systemLlmReady" />
-                <div class="field-hint">{{ skillspectorLlmHint }}</div>
-              </a-form-item>
-            </a-col>
-            <a-col :xs="24" :lg="12">
-              <a-form-item label="SkillSpector 阻断阈值">
-                <a-select v-model:value="formState.skillspector_min_blocking_severity">
-                  <a-select-option v-for="item in severityOptions" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </a-select-option>
-                </a-select>
-                <div class="field-hint">用于解释 SkillSpector 命中严重度；最终状态仍由审批决策汇总决定。</div>
-              </a-form-item>
-            </a-col>
-          </a-row>
+        <a-tab-pane key="admission" tab="准入规则">
+          <section class="policy-section">
+            <div class="section-title">工具权限</div>
+            <a-row :gutter="16">
+              <a-col :xs="24" :lg="12">
+                <a-form-item label="允许声明工具上限">
+                  <a-input-number v-model:value="formState.max_allowed_tools" :min="1" :max="100" style="width: 100%" />
+                  <div class="field-hint">限制 SKILL.md allowed-tools 数量，防止 skill 声明过宽权限面。</div>
+                </a-form-item>
+              </a-col>
+            </a-row>
+
+            <a-form-item label="禁止权限/工具">
+              <a-select v-model:value="formState.blocked_permissions" mode="tags" placeholder="例如 read_credentials、write_memory" />
+              <div class="field-hint">命中这里的工具或权限会作为阻断项，优先 REJECTED。</div>
+            </a-form-item>
+
+            <a-form-item label="允许工具白名单">
+              <a-select v-model:value="formState.allowed_tools_allowlist" mode="tags" placeholder="允许 skill 声明的工具列表" />
+              <div class="field-hint">不在白名单里的 allowed-tools 会记录策略违规；低风险策略拒绝可由管理员人工例外批准。</div>
+            </a-form-item>
+          </section>
+
+          <section class="policy-section">
+            <div class="section-title">作者与 License</div>
+            <a-row :gutter="16">
+              <a-col :xs="24" :lg="12">
+                <a-form-item label="必须声明 License">
+                  <a-switch v-model:checked="formState.require_license" />
+                  <div class="field-hint">开启后，缺少 license 字段会记录策略违规。</div>
+                </a-form-item>
+              </a-col>
+            </a-row>
+
+            <a-form-item label="可信作者">
+              <a-select v-model:value="formState.trusted_authors" mode="tags" placeholder="可信作者，可为空" />
+              <div class="field-hint">预留字段；当前主要用于展示和后续策略扩展。</div>
+            </a-form-item>
+
+            <a-form-item label="允许 License">
+              <a-select v-model:value="formState.accepted_licenses" mode="tags" placeholder="MIT、Apache-2.0、internal 等" />
+              <div class="field-hint">当“必须声明 License”开启时，用于判断声明的 license 是否可接受。</div>
+            </a-form-item>
+          </section>
+
+          <section class="policy-section">
+            <div class="section-title">扫描器策略</div>
+            <a-row :gutter="16">
+              <a-col :xs="24" :lg="12">
+                <a-form-item label="扫描策略">
+                  <a-select v-model:value="formState.scanner_policy">
+                    <a-select-option v-for="item in scannerPolicyOptions" :key="item.value" :value="item.value">
+                      {{ item.label }}
+                    </a-select-option>
+                  </a-select>
+                  <div class="field-hint">控制基础 scanner 的敏感程度；balanced 适合日常默认扫描。</div>
+                </a-form-item>
+              </a-col>
+            </a-row>
+          </section>
         </a-tab-pane>
 
         <a-tab-pane key="llm" tab="LLM 配置">
@@ -263,43 +276,6 @@
             </a-form-item>
           </a-card>
         </a-tab-pane>
-
-        <a-tab-pane key="governance" tab="工具、作者与 License">
-          <a-row :gutter="16">
-            <a-col :xs="24" :lg="12">
-              <a-form-item label="允许声明工具上限">
-                <a-input-number v-model:value="formState.max_allowed_tools" :min="1" :max="100" style="width: 100%" />
-                <div class="field-hint">限制 SKILL.md allowed-tools 数量，防止 skill 声明过宽权限面。</div>
-              </a-form-item>
-            </a-col>
-            <a-col :xs="24" :lg="12">
-              <a-form-item label="必须声明 License">
-                <a-switch v-model:checked="formState.require_license" />
-                <div class="field-hint">开启后，缺少 license 字段会记录策略违规。</div>
-              </a-form-item>
-            </a-col>
-          </a-row>
-
-          <a-form-item label="禁止权限/工具">
-            <a-select v-model:value="formState.blocked_permissions" mode="tags" placeholder="例如 read_credentials、write_memory" />
-            <div class="field-hint">命中这里的工具或权限会作为阻断项，优先 REJECTED。</div>
-          </a-form-item>
-
-          <a-form-item label="允许工具白名单">
-            <a-select v-model:value="formState.allowed_tools_allowlist" mode="tags" placeholder="允许 skill 声明的工具列表" />
-            <div class="field-hint">不在白名单里的 allowed-tools 会记录策略违规；按当前实现通常不直接阻断。</div>
-          </a-form-item>
-
-          <a-form-item label="可信作者">
-            <a-select v-model:value="formState.trusted_authors" mode="tags" placeholder="可信作者，可为空" />
-            <div class="field-hint">预留字段；当前主要用于展示和后续策略扩展。</div>
-          </a-form-item>
-
-          <a-form-item label="允许 License">
-            <a-select v-model:value="formState.accepted_licenses" mode="tags" placeholder="MIT、Apache-2.0、internal 等" />
-            <div class="field-hint">当“必须声明 License”开启时，用于判断声明的 license 是否可接受。</div>
-          </a-form-item>
-        </a-tab-pane>
       </a-tabs>
 
       <div class="bottom-action-bar">
@@ -380,11 +356,6 @@ const formState = reactive({
   require_license: false,
   accepted_licenses: [],
   scanner_policy: 'balanced',
-  skillspector_enabled: false,
-  skillspector_fail_open: true,
-  skillspector_timeout_seconds: 120,
-  skillspector_min_blocking_severity: 'HIGH',
-  skillspector_use_llm: false,
 })
 const llmForm = reactive({
   enabled: false,
@@ -415,11 +386,6 @@ const conflictingRiskLevels = computed(() =>
 const systemLlmReady = computed(() =>
   Boolean(llmForm.enabled && llmForm.model),
 )
-const skillspectorLlmHint = computed(() => (
-  systemLlmReady.value
-    ? `使用模型网关模型：${llmForm.model || '-'}`
-    : '策略配置里的 LLM 未启用或未选择模型，不能启用 SkillSpector LLM。'
-))
 const llmModelOptions = computed(() => {
   const values = new Set(modelEndpoints.value.map((item) => item.name).filter(Boolean))
   if (llmForm.model) values.add(llmForm.model)
@@ -447,11 +413,6 @@ const buildPayload = () => ({
   require_license: formState.require_license,
   accepted_licenses: formState.accepted_licenses,
   scanner_policy: formState.scanner_policy,
-  skillspector_enabled: formState.skillspector_enabled,
-  skillspector_fail_open: formState.skillspector_fail_open,
-  skillspector_timeout_seconds: Number(formState.skillspector_timeout_seconds || 120),
-  skillspector_min_blocking_severity: formState.skillspector_min_blocking_severity,
-  skillspector_use_llm: systemLlmReady.value && formState.skillspector_use_llm,
 })
 
 const buildLlmPayload = () => ({
@@ -505,11 +466,6 @@ const applyPolicy = (policy) => {
   formState.require_license = Boolean(policy.require_license)
   formState.accepted_licenses = [...(policy.accepted_licenses || [])]
   formState.scanner_policy = policy.scanner_policy
-  formState.skillspector_enabled = Boolean(policy.skillspector_enabled)
-  formState.skillspector_fail_open = policy.skillspector_fail_open !== false
-  formState.skillspector_timeout_seconds = Number(policy.skillspector_timeout_seconds || 120)
-  formState.skillspector_min_blocking_severity = policy.skillspector_min_blocking_severity || 'HIGH'
-  formState.skillspector_use_llm = Boolean(policy.skillspector_use_llm && systemLlmReady.value)
   markSaved()
 }
 
@@ -574,7 +530,6 @@ const extractErrorMsg = (error, fallback) => {
 const handleSaveAll = async () => {
   saving.value = true
   try {
-    if (!systemLlmReady.value) formState.skillspector_use_llm = false
     const [llmRes, sandboxRes, policyRes] = await Promise.all([
       updateLlmConfig(buildLlmPayload()),
       updateSandboxConfig(buildSandboxPayload()),

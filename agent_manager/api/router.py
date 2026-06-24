@@ -215,6 +215,7 @@ def _process_pending_submission_task(
     use_behavioral: bool,
     use_llm: bool,
     use_sandbox: bool,
+    use_skillspector: bool,
     no_cache: bool = False,
 ) -> None:
     try:
@@ -223,6 +224,7 @@ def _process_pending_submission_task(
             use_behavioral=use_behavioral,
             use_llm=use_llm,
             use_sandbox=use_sandbox,
+            use_skillspector=use_skillspector,
             no_cache=no_cache,
         )
     except Exception as exc:
@@ -237,6 +239,7 @@ def _submit_directory_for_processing(
     use_behavioral: bool,
     use_llm: bool,
     use_sandbox: bool,
+    use_skillspector: bool,
     no_cache: bool = False,
 ) -> SubmitResponse:
     entry = mgr.create_pending_submission(skill_dir, source=source)
@@ -247,6 +250,7 @@ def _submit_directory_for_processing(
         use_behavioral,
         use_llm,
         use_sandbox,
+        use_skillspector,
         no_cache,
     )
     return SubmitResponse(
@@ -318,6 +322,7 @@ class LocalImportSubmitRequest(BaseModel):
     use_behavioral: bool = False
     use_llm: bool = False
     use_sandbox: bool = False
+    use_skillspector: bool = False
     no_cache: bool = False
 
 
@@ -328,6 +333,7 @@ class UrlSubmitRequest(BaseModel):
     use_behavioral: bool = False
     use_llm: bool = False
     use_sandbox: bool = False
+    use_skillspector: bool = False
     no_cache: bool = False
 
 
@@ -354,6 +360,7 @@ class RemoteImportSubmitRequest(BaseModel):
     use_behavioral: bool = False
     use_llm: bool = False
     use_sandbox: bool = False
+    use_skillspector: bool = False
     no_cache: bool = False
 
 
@@ -372,6 +379,7 @@ class ClawHubSubmitRequest(BaseModel):
     use_behavioral: bool = False
     use_llm: bool = False
     use_sandbox: bool = False
+    use_skillspector: bool = False
     no_cache: bool = False
 
 
@@ -705,14 +713,14 @@ def get_system_status():
     sandbox_enabled = sandbox_config.enabled
     sandbox_available = sandbox_enabled and sandbox_runner.is_available()
     scanner_available = importlib.util.find_spec("skill_scanner") is not None
-    skillspector_available = is_skillspector_available() if mgr.policy.skillspector_enabled else False
-    skillspector_version = get_skillspector_version() if mgr.policy.skillspector_enabled and skillspector_available else None
+    skillspector_available = is_skillspector_available()
+    skillspector_version = get_skillspector_version() if skillspector_available else None
 
     scan_modes = []
     if scanner_available:
         scan_modes.append("scanner")
-    if mgr.policy.skillspector_enabled:
-        scan_modes.append("skillspector" if skillspector_available else "skillspector unavailable")
+    if skillspector_available:
+        scan_modes.append("深度扫描")
     if llm_config.enabled:
         scan_modes.append("llm")
     scan_mode = " + ".join(scan_modes) if scan_modes else "manifest only"
@@ -724,7 +732,7 @@ def get_system_status():
         review_queue=len(registry.list_review_queue()),
         signing_key_configured=bool(os.environ.get("AGENT_MANAGER_SIGNING_KEY", "").strip()),
         scanner_available=scanner_available,
-        skillspector_enabled=mgr.policy.skillspector_enabled,
+        skillspector_enabled=skillspector_available,
         skillspector_available=skillspector_available,
         skillspector_version=skillspector_version,
         sandbox_enabled=sandbox_enabled,
@@ -754,6 +762,7 @@ async def submit_skill_zip(
     use_behavioral: bool = Query(False),
     use_llm: bool = Query(False),
     use_sandbox: bool = Query(False),
+    use_skillspector: bool = Query(False),
     no_cache: bool = Query(False),
     mgr: AgentManager = Depends(get_manager),
 ):
@@ -790,6 +799,7 @@ async def submit_skill_zip(
             use_behavioral,
             use_llm,
             use_sandbox,
+            use_skillspector,
             no_cache,
         )
     finally:
@@ -863,6 +873,7 @@ def submit_local_skills(
             body.use_behavioral,
             body.use_llm,
             body.use_sandbox,
+            body.use_skillspector,
             body.no_cache,
         ))
 
@@ -898,6 +909,7 @@ async def submit_skill_url(
             body.use_behavioral,
             body.use_llm,
             body.use_sandbox,
+            body.use_skillspector,
             body.no_cache,
         )
     except httpx.HTTPError as exc:
@@ -968,6 +980,7 @@ def submit_remote_selected(
             body.use_behavioral,
             body.use_llm,
             body.use_sandbox,
+            body.use_skillspector,
             body.no_cache,
         ))
     return BatchSubmitResponse(results=results)
@@ -1004,6 +1017,7 @@ def submit_upload_selected(
             body.use_behavioral,
             body.use_llm,
             body.use_sandbox,
+            body.use_skillspector,
             body.no_cache,
         ))
     return BatchSubmitResponse(results=results)
@@ -1058,6 +1072,7 @@ async def submit_skill_clawhub(
             body.use_behavioral,
             body.use_llm,
             body.use_sandbox,
+            body.use_skillspector,
             body.no_cache,
         )
     except httpx.HTTPError as exc:
@@ -1178,6 +1193,16 @@ def get_dashboard_risk_source_stats(mgr: AgentManager = Depends(get_manager)):
             "medium": 0,
             "low": 0,
         },
+        "skillspector": {
+            "key": "skillspector",
+            "label": "深度分析",
+            "count": 0,
+            "skills": set(),
+            "critical": 0,
+            "high": 0,
+            "medium": 0,
+            "low": 0,
+        },
     }
 
     for entry in mgr.list_skills():
@@ -1211,6 +1236,8 @@ def _risk_finding_source_key(finding: dict[str, Any]) -> str:
         return "llm"
     if source.startswith("sandbox"):
         return "sandbox"
+    if source.startswith("skillspector") or source.startswith("deep"):
+        return "skillspector"
     return "rule"
 
 
@@ -1252,6 +1279,7 @@ def _previous_scan_options(entry) -> dict[str, bool]:
         "use_behavioral": bool(report.get("behavioral_analysis") or report.get("local_static_analysis") or analyzers.intersection({"behavioral:local", "agent-manager-local"})),
         "use_llm": bool(report.get("llm_analysis") or any(item.startswith("llm:") for item in analyzers)),
         "use_sandbox": bool(report.get("sandbox_analysis") or any(item.startswith("sandbox:") for item in analyzers)),
+        "use_skillspector": bool(report.get("skillspector_analysis") or any(item.startswith("skillspector:") for item in analyzers)),
     }
 
 
@@ -1261,6 +1289,7 @@ def rescan_skill(
     use_behavioral: bool | None = Query(None),
     use_llm: bool | None = Query(None),
     use_sandbox: bool | None = Query(None),
+    use_skillspector: bool | None = Query(None),
     no_cache: bool = Query(True),
     mgr: AgentManager = Depends(get_manager),
 ):
@@ -1282,6 +1311,7 @@ def rescan_skill(
         previous_options["use_behavioral"] if use_behavioral is None else use_behavioral,
         previous_options["use_llm"] if use_llm is None else use_llm,
         previous_options["use_sandbox"] if use_sandbox is None else use_sandbox,
+        previous_options["use_skillspector"] if use_skillspector is None else use_skillspector,
         no_cache,
     )
     current = mgr.get_skill(entry.skill_id) or entry

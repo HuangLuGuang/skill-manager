@@ -6,6 +6,8 @@ import json
 import subprocess
 import textwrap
 
+import pytest
+
 from agent_manager.core.models import RiskLevel, SkillOrigin, SourceInfo
 from agent_manager.core.llm import LLMConfig
 from agent_manager.core.policy import CompanyPolicy
@@ -29,6 +31,14 @@ def _skill_dir(tmp_path):
     return skill_dir
 
 
+@pytest.fixture(autouse=True)
+def _disable_system_llm_by_default(monkeypatch):
+    monkeypatch.setattr(
+        "agent_manager.core.vetting.LLMConfig.load",
+        lambda: LLMConfig(enabled=False),
+    )
+
+
 def test_skillspector_unavailable_is_recorded_without_blocking_scan(tmp_path, monkeypatch):
     skill_dir = _skill_dir(tmp_path)
 
@@ -36,12 +46,12 @@ def test_skillspector_unavailable_is_recorded_without_blocking_scan(tmp_path, mo
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     assert result.risk_level == RiskLevel.BENIGN
     assert "skillspector:unavailable" in result.analyzers_used
     assert result.scan_report["skillspector_analysis"]["available"] is False
-    assert any("SkillSpector unavailable" in note for note in result.policy_notes)
+    assert any("深度扫描不可用" in note for note in result.policy_notes)
 
 
 def test_skillspector_json_findings_are_merged_into_vetting(tmp_path, monkeypatch):
@@ -81,7 +91,7 @@ def test_skillspector_json_findings_are_merged_into_vetting(tmp_path, monkeypatc
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     assert result.risk_level == RiskLevel.MALICIOUS
     assert "skillspector:cli" in result.analyzers_used
@@ -120,7 +130,7 @@ def test_skillspector_filters_license_and_font_noise(tmp_path, monkeypatch):
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     analysis = result.scan_report["skillspector_analysis"]
     assert analysis["risk_severity"] == "HIGH"
@@ -172,7 +182,7 @@ def test_skillspector_filters_raster_image_binary_noise(tmp_path, monkeypatch):
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True, "require_sandbox_for_risk": []})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     analysis = result.scan_report["skillspector_analysis"]
     assert result.risk_level == RiskLevel.BENIGN
@@ -209,7 +219,7 @@ def test_skillspector_top_level_high_with_only_noise_requires_review(tmp_path, m
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True, "require_sandbox_for_risk": []})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     analysis = result.scan_report["skillspector_analysis"]
     assert result.risk_level == RiskLevel.SUSPICIOUS
@@ -239,18 +249,20 @@ def test_skillspector_llm_uses_agent_manager_llm_config(tmp_path, monkeypatch):
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr("agent_manager.core.skillspector.subprocess.run", fake_run)
-    monkeypatch.setattr("agent_manager.core.skillspector.LLMConfig.load", lambda: LLMConfig(
+    ready_llm_config = LLMConfig(
         enabled=True,
         provider="deepseek",
         api_base="https://api.deepseek.com",
         api_key="secret",
         model="deepseek-chat",
-    ))
+    )
+    monkeypatch.setattr("agent_manager.core.vetting.LLMConfig.load", lambda: ready_llm_config)
+    monkeypatch.setattr("agent_manager.core.skillspector.LLMConfig.load", lambda: ready_llm_config)
 
     VettingPipeline(CompanyPolicy({
         "skillspector_enabled": True,
         "skillspector_use_llm": True,
-    })).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    })).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     assert "--no-llm" not in captured["cmd"]
     assert captured["env"]["SKILLSPECTOR_PROVIDER"] == "openai"
@@ -286,7 +298,7 @@ def test_skillspector_safe_low_without_findings_stays_benign(tmp_path, monkeypat
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     analysis = result.scan_report["skillspector_analysis"]
     assert result.risk_level == RiskLevel.BENIGN
@@ -334,7 +346,7 @@ def test_skillspector_v223_report_is_normalized(tmp_path, monkeypatch):
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     analysis = result.scan_report["skillspector_analysis"]
     assert analysis["risk_score"] == 50
@@ -377,25 +389,27 @@ def test_skillspector_invalid_json_records_error_without_blocking_scan(tmp_path,
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     assert result.risk_level == RiskLevel.BENIGN
     assert "skillspector:error" in result.analyzers_used
     assert "error" in result.scan_report["skillspector_analysis"]
 
 
-def test_scan_context_changes_when_skillspector_settings_change():
+def test_scan_context_changes_when_deep_scan_option_changes():
     disabled = compute_scan_context_fingerprint(
-        CompanyPolicy({"skillspector_enabled": False}),
+        CompanyPolicy.default(),
         use_behavioral=False,
         use_llm=False,
         use_sandbox=False,
+        use_skillspector=False,
     )
     enabled = compute_scan_context_fingerprint(
-        CompanyPolicy({"skillspector_enabled": True}),
+        CompanyPolicy.default(),
         use_behavioral=False,
         use_llm=False,
         use_sandbox=False,
+        use_skillspector=True,
     )
 
     assert disabled != enabled

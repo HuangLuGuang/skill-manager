@@ -47,6 +47,7 @@ def compute_scan_context_fingerprint(
     use_behavioral: bool,
     use_llm: bool,
     use_sandbox: bool,
+    use_skillspector: bool = False,
 ) -> str:
     """Fingerprint scanner capabilities and selected scan options."""
     payload: dict[str, Any] = {
@@ -56,6 +57,7 @@ def compute_scan_context_fingerprint(
             "use_behavioral": use_behavioral,
             "use_llm": use_llm,
             "use_sandbox": use_sandbox,
+            "use_skillspector": use_skillspector,
         },
         "scanner": {
             "package_version": _distribution_version("cisco-ai-skill-scanner"),
@@ -63,9 +65,9 @@ def compute_scan_context_fingerprint(
             "policy_py": _file_hash(Path(__file__).with_name("policy.py")),
         },
         "skillspector": {
-            "enabled": policy.skillspector_enabled,
-            "use_llm": getattr(policy, "skillspector_use_llm", False),
-            "version": get_skillspector_version() if policy.skillspector_enabled else None,
+            "enabled": use_skillspector,
+            "use_llm": LLMConfig.load().is_ready if use_skillspector else False,
+            "version": get_skillspector_version() if use_skillspector else None,
             "timeout_seconds": policy.skillspector_timeout_seconds,
             "adapter_source": _file_hash(Path(__file__).with_name("skillspector.py")),
         },

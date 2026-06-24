@@ -60,12 +60,11 @@
               {{ managerStatus.scanner_available ? '可用' : '未安装' }}
             </a-tag>
           </a-descriptions-item>
-          <a-descriptions-item label="SkillSpector">
+          <a-descriptions-item label="深度扫描">
             <a-space wrap>
               <a-tag :color="skillspectorStatusColor">
                 {{ skillspectorStatusText }}
               </a-tag>
-              <span class="muted">{{ managerStatus.skillspector_version || '-' }}</span>
             </a-space>
           </a-descriptions-item>
           <a-descriptions-item label="Sandbox">
@@ -146,11 +145,9 @@ const sandboxTargetValue = computed(() =>
     : (sandboxConfig.value.image || '-'),
 )
 const skillspectorStatusText = computed(() => {
-  if (!managerStatus.value.skillspector_enabled) return '未启用'
   return managerStatus.value.skillspector_available ? '可用' : '未安装'
 })
 const skillspectorStatusColor = computed(() => {
-  if (!managerStatus.value.skillspector_enabled) return 'default'
   return managerStatus.value.skillspector_available ? 'green' : 'orange'
 })
 const scanModeColor = (value) =>

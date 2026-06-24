@@ -100,6 +100,27 @@ class TestApproveReject:
             with pytest.raises(ValueError, match="VETTED"):
                 mgr.approve(entry.skill_id, approver="bob")
 
+    def test_approve_low_risk_policy_rejection_as_manual_exception(self, tmp_path, skill_dir):
+        policy = CompanyPolicy({
+            "auto_approve_max_risk": "MEDIUM",
+            "allowed_tools_allowlist": ["Read"],
+        })
+        registry = Registry(data_dir=tmp_path / "reg-policy-override")
+        mgr = AgentManager(policy=policy, registry=registry)
+
+        entry = mgr.submit(skill_dir)
+        assert entry.status == SkillStatus.REJECTED
+        assert entry.risk_level == RiskLevel.BENIGN
+        assert entry.declared_tools_valid is False
+
+        approved = mgr.approve(entry.skill_id, approver="alice", note="只读检索工具例外批准")
+        assert approved.status == SkillStatus.APPROVED
+        assert approved.approved_by == "alice"
+        assert approved.signature is not None
+
+        event = next(item for item in mgr.audit() if item.event_type == "skill_approved")
+        assert event.details["manual_policy_override"] is True
+
     def test_reject_skill(self, tmp_path, skill_dir):
         policy = CompanyPolicy({"auto_approve_max_risk": "LOW"})
         registry = Registry(data_dir=tmp_path / "reg2")

@@ -4,6 +4,7 @@ export const navigationItems = [
     label: '智能体管理',
     icon: 'agent',
     children: [
+      { key: '/dashboard', label: '平台总览', icon: 'dashboard' },
       { key: '/agents', label: '智能体列表', icon: 'agent' },
       {
         key: 'skill-governance',

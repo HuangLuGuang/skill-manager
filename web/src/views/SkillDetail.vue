@@ -52,6 +52,14 @@
             <span class="path-value">{{ detail?.skill_path || '-' }}</span>
           </a-descriptions-item>
         </a-descriptions>
+        <a-alert
+          v-if="admissionBlocked"
+          style="margin-top: 12px"
+          type="error"
+          show-icon
+          message="准入策略拒绝"
+          :description="admissionBlockedSummary"
+        />
       </a-skeleton>
     </a-card>
 
@@ -81,7 +89,9 @@
                 </a-button>
               </span>
             </a-tooltip>
-            <a-button v-if="detail?.status === 'VETTED'" type="primary" @click="openApproveModal">批准</a-button>
+            <a-button v-if="canApproveSkill" type="primary" @click="openApproveModal">
+              {{ admissionBlocked ? '例外批准' : '批准' }}
+            </a-button>
             <a-button v-if="detail?.status === 'VETTED'" danger @click="openRejectModal">拒绝</a-button>
         </a-space>
       </div>
@@ -126,8 +136,16 @@
               <a-descriptions-item label="扫描缓存">{{ detail?.scan_reused ? '复用历史结果' : '本次执行扫描' }}</a-descriptions-item>
               <a-descriptions-item label="缓存 Key">{{ detail?.scan_cache_key || '-' }}</a-descriptions-item>
             </a-descriptions>
-            <a-card v-if="riskRationaleItems.length" size="small" title="判断依据" style="margin-top: 12px">
-              <a-list :data-source="riskRationaleItems" size="small">
+            <a-card v-if="decisionRationaleItems.length" size="small" title="最终判定依据" style="margin-top: 12px">
+              <a-alert
+                v-if="admissionBlocked"
+                type="warning"
+                show-icon
+                message="安全研判与准入结果是两条线"
+                description="安全判定用于说明内容风险；准入结果还会校验工具白名单、权限边界、许可证等策略。即使安全判定为安全，策略违规仍会导致拒绝。"
+                style="margin-bottom: 12px"
+              />
+              <a-list :data-source="decisionRationaleItems" size="small">
                 <template #renderItem="{ item }">
                   <a-list-item>
                     <a-space wrap>
@@ -150,7 +168,7 @@
                   size="small"
                 >
                   <template #renderItem="{ item }">
-                    <a-list-item>{{ item }}</a-list-item>
+                    <a-list-item>{{ policyNoteText(item) }}</a-list-item>
                   </template>
                 </a-list>
               </a-collapse-panel>
@@ -228,23 +246,22 @@
               />
             </a-card>
             <a-divider />
-            <a-card id="skillspector-section" size="small" title="SkillSpector 扫描结果">
+            <a-card id="skillspector-section" size="small" title="深度扫描结果">
               <template v-if="skillspectorAnalysis">
                 <a-alert
                   v-if="skillspectorAnalysis.error"
                   type="warning"
                   show-icon
-                  message="SkillSpector 扫描未完成"
-                  :description="skillspectorAnalysis.error"
+                  message="深度扫描未完成"
+                  :description="deepScanText(skillspectorAnalysis.error)"
                   style="margin-bottom: 12px"
                 />
                 <a-descriptions :column="2" size="small" bordered>
                   <a-descriptions-item label="扫描器状态">
                     <a-tag :color="skillspectorAnalysis.available ? 'green' : 'default'">
-                      {{ skillspectorAnalysis.available ? 'available（可用）' : 'unavailable（未安装）' }}
+                      {{ skillspectorAnalysis.available ? '可用' : '未安装' }}
                     </a-tag>
                   </a-descriptions-item>
-                  <a-descriptions-item label="版本">{{ skillspectorAnalysis.version || '-' }}</a-descriptions-item>
                   <a-descriptions-item label="风险分">{{ skillspectorAnalysis.risk_score ?? '-' }}</a-descriptions-item>
                   <a-descriptions-item label="风险级别">
                     <a-tag :color="severityColor(skillspectorEffectiveSeverity)">
@@ -261,7 +278,7 @@
                   </a-descriptions-item>
                 </a-descriptions>
                 <a-collapse v-if="skillspectorFindings.length" v-model:activeKey="skillspectorFindingsActiveKey" style="margin-top: 12px">
-                  <a-collapse-panel key="skillspector-findings" :header="`SkillSpector 命中项（${skillspectorFindings.length}）`">
+                  <a-collapse-panel key="skillspector-findings" :header="`深度扫描命中项（${skillspectorFindings.length}）`">
                     <a-list
                       :data-source="skillspectorFindings"
                       bordered
@@ -285,10 +302,10 @@
                               </a-button>
                             </a-space>
                             <div v-if="item.message || item.explanation" style="margin-top: 6px">
-                              {{ bilingualText(item.message || item.explanation) }}
+                              {{ deepScanText(bilingualText(item.message || item.explanation)) }}
                             </div>
                             <div v-if="item.remediation" style="margin-top: 6px; color: #8c8c8c">
-                              建议：{{ item.remediation }}
+                              建议：{{ deepScanText(item.remediation) }}
                             </div>
                           </div>
                         </a-list-item>
@@ -297,7 +314,7 @@
                   </a-collapse-panel>
                 </a-collapse>
               </template>
-              <a-empty v-else description="本次扫描未启用 SkillSpector 或没有报告。" />
+              <a-empty v-else description="本次扫描未启用深度扫描或没有报告。" />
             </a-card>
             <a-divider />
             <a-card id="sandbox-section" size="small" title="Sandbox 执行结果">
@@ -629,6 +646,14 @@
       @ok="submitApprove"
     >
       <a-form layout="vertical">
+        <a-alert
+          v-if="admissionBlocked"
+          type="warning"
+          show-icon
+          message="这是一次人工例外批准"
+          description="该 Skill 的安全研判为低风险，但准入策略曾因工具/权限/许可证阻断。批准后会签名并进入可绑定状态，请在备注中说明例外依据。"
+          style="margin-bottom: 12px"
+        />
         <a-form-item label="Skill">
           <a-input :value="detail?.name || ''" disabled />
         </a-form-item>
@@ -1012,6 +1037,53 @@ const ruleAnalysisFindings = computed(() => {
   ].map(normalizeRuleFinding)
   return nested.length ? nested : topLevelRuleFindings.value
 })
+const policyNotes = computed(() => detail.value?.vetting?.policy_notes || [])
+const parsePolicyBlock = (note) => {
+  const text = String(note || '')
+  const match = text.match(/^\[BLOCK\]\s+([^:]+):\s*(.+)$/)
+  if (!match) return null
+  const [, code, message] = match
+  const toolMatch = message.match(/Tool '([^']+)' is not in the company allowlist/i)
+  if (code === 'tool_not_in_allowlist' && toolMatch) {
+    return {
+      code,
+      source: '准入策略',
+      color: 'red',
+      target: 'policy',
+      text: `工具声明不在白名单：${toolMatch[1]}。安全研判可以是安全，但该工具权限未被公司策略允许，因此准入被拒绝。`,
+    }
+  }
+  return {
+    code,
+    source: '准入策略',
+    color: 'red',
+    target: 'policy',
+    text: `${code}：${message}`,
+  }
+}
+const policyBlockItems = computed(() =>
+  policyNotes.value
+    .map(parsePolicyBlock)
+    .filter(Boolean),
+)
+const policyNoteText = (note) => {
+  const parsed = parsePolicyBlock(note)
+  return parsed ? parsed.text : deepScanText(note)
+}
+const admissionBlocked = computed(() =>
+  detail.value?.status === 'REJECTED' && policyBlockItems.value.length > 0,
+)
+const canApproveSkill = computed(() => {
+  if (detail.value?.status === 'VETTED') return true
+  if (!admissionBlocked.value) return false
+  return ['benign', 'suspicious'].includes(detail.value?.risk_level)
+})
+const admissionBlockedSummary = computed(() => {
+  if (!admissionBlocked.value) return ''
+  const risk = detail.value?.risk_level ? riskDisplay(detail.value.risk_level) : '未知'
+  const reasons = policyBlockItems.value.map((item) => item.text).join('；')
+  return `安全判定：${risk}。最终状态为已拒绝，是因为准入策略未通过：${reasons}`
+})
 const riskRationaleItems = computed(() => {
   const finalRisk = detail.value?.risk_level
   if (!['suspicious', 'malicious'].includes(finalRisk)) return []
@@ -1054,6 +1126,24 @@ const riskRationaleItems = computed(() => {
     seen.add(key)
     return true
   }).slice(0, 3)
+})
+const decisionRationaleItems = computed(() => {
+  const items = [...policyBlockItems.value, ...riskRationaleItems.value]
+  if (!items.length && detail.value?.status === 'REJECTED' && detail.value?.rejection_reason) {
+    items.push({
+      source: '人工审核',
+      color: 'red',
+      target: 'policy',
+      text: detail.value.rejection_reason,
+    })
+  }
+  const seen = new Set()
+  return items.filter((item) => {
+    const key = `${item.source}:${item.text}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).slice(0, 5)
 })
 const skillspectorAnalysis = computed(() => scanReport.value?.skillspector_analysis || null)
 const skillspectorFindings = computed(() => {
@@ -1120,10 +1210,15 @@ const sandboxRiskAlertType = computed(() => {
 const rationaleSource = (source) => {
   const text = String(source || '').toLowerCase()
   if (text.includes('sandbox')) return { label: 'Sandbox', color: 'orange', target: 'sandbox' }
-  if (text.includes('skillspector')) return { label: 'SkillSpector', color: 'cyan', target: 'skillspector' }
+  if (text.includes('skillspector')) return { label: '深度扫描', color: 'cyan', target: 'skillspector' }
   if (text.includes('llm')) return { label: 'LLM', color: 'purple', target: 'llm' }
   return { label: '规则', color: 'blue', target: 'rule' }
 }
+const deepScanText = (value) =>
+  String(value || '')
+    .replace(/SkillSpector/gi, '深度扫描')
+    .replace(/skillspector/gi, '深度扫描')
+    .replace(/\bCLI\b/g, '服务')
 const severityRank = (value) =>
   ({
     SAFE: 0,

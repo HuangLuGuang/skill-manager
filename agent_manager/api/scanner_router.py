@@ -375,6 +375,7 @@ async def submit_scanner_import(
     use_behavioral: bool = Form(False),
     use_llm: bool = Form(False),
     use_sandbox: bool = Form(False),
+    use_skillspector: bool = Form(False),
     scanner_version: str | None = Form(None),
     host_id: str | None = Form(None),
     scanner_token: ScannerToken = Depends(require_scanner_submit_token),
@@ -427,6 +428,7 @@ async def submit_scanner_import(
             use_behavioral,
             use_llm,
             use_sandbox,
+            use_skillspector,
         )
         store.log_event(
             "scanner_import_submitted",

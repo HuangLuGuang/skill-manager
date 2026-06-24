@@ -57,6 +57,23 @@ def test_scan_context_change_prevents_reuse(tmp_path):
     assert second.scan_cache_key != first.scan_cache_key
 
 
+def test_deep_scan_option_change_prevents_reuse(tmp_path):
+    data_dir = tmp_path / "data"
+    mgr = AgentManager(policy=CompanyPolicy.default(), data_dir=data_dir)
+    skill_a = tmp_path / "skill-a"
+    skill_b = tmp_path / "skill-b"
+    _write_skill(skill_a)
+    _write_skill(skill_b)
+
+    first = mgr.submit(skill_a, use_skillspector=False)
+    second = mgr.submit(skill_b, use_skillspector=True)
+
+    assert first.scan_reused is False
+    assert second.scan_reused is False
+    assert second.content_fingerprint == first.content_fingerprint
+    assert second.scan_context_fingerprint != first.scan_context_fingerprint
+
+
 def test_registry_completed_match_rebuilds_missing_cache_index(tmp_path):
     data_dir = tmp_path / "data"
     mgr = AgentManager(policy=CompanyPolicy.default(), data_dir=data_dir)

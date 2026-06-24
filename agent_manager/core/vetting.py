@@ -373,6 +373,7 @@ class VettingPipeline:
         use_behavioral: bool = False,
         use_llm: bool = False,
         use_sandbox: bool = False,
+        use_skillspector: bool | None = None,
     ) -> tuple[VettingResult, list[PolicyViolation], str, str, list[str]]:
         """
         Run the full vetting pipeline.
@@ -391,22 +392,23 @@ class VettingPipeline:
         # 2. Run scanner
         scan_report = _run_scanner(skill_path, self.policy.scanner_policy)
         skillspector_notes: list[str] = []
-        if self.policy.skillspector_enabled:
+        should_run_skillspector = self.policy.skillspector_enabled if use_skillspector is None else use_skillspector
+        if should_run_skillspector:
             skillspector_result = run_skillspector_scan(
                 skill_path,
                 timeout_seconds=self.policy.skillspector_timeout_seconds,
-                use_llm=self.policy.skillspector_use_llm,
+                use_llm=LLMConfig.load().is_ready,
             )
             analyzer_name = "skillspector:cli"
             if not skillspector_result.get("available"):
                 analyzer_name = "skillspector:unavailable"
-                skillspector_notes.append("[SKILLSPECTOR] SkillSpector unavailable; skipped optional scan")
+                skillspector_notes.append("[DEEP_SCAN] 深度扫描不可用，已跳过")
             elif skillspector_result.get("error"):
                 analyzer_name = "skillspector:error"
-                skillspector_notes.append(f"[SKILLSPECTOR] optional scan failed: {skillspector_result['error']}")
+                skillspector_notes.append(f"[DEEP_SCAN] 深度扫描失败: {skillspector_result['error']}")
             else:
                 skillspector_notes.append(
-                    "[SKILLSPECTOR] "
+                    "[DEEP_SCAN] "
                     f"risk={skillspector_result.get('risk_severity', 'SAFE')} "
                     f"score={skillspector_result.get('risk_score', '-')}"
                 )
