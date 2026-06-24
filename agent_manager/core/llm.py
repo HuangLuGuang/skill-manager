@@ -19,6 +19,8 @@ import httpx
 import yaml
 from pydantic import BaseModel, Field
 
+from .text_reader import read_text_fallback
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_LLM_CONFIG_PATH = Path.home() / ".agent-manager" / "llm.yaml"
@@ -180,7 +182,8 @@ def _iter_text_files(skill_path: Path, max_files: int) -> list[Path]:
 
 def _build_skill_snapshot(skill_path: Path, config: LLMConfig) -> str:
     manifest_path = skill_path / "SKILL.md"
-    manifest = manifest_path.read_text(encoding="utf-8")[: config.max_manifest_chars]
+    manifest, _encoding = read_text_fallback(manifest_path)
+    manifest = manifest[: config.max_manifest_chars]
     all_files = [
         str(path.relative_to(skill_path))
         for path in sorted(skill_path.rglob("*"))
@@ -199,7 +202,8 @@ def _build_skill_snapshot(skill_path: Path, config: LLMConfig) -> str:
 
     for file_path in _iter_text_files(skill_path, config.max_files):
         try:
-            content = file_path.read_text(encoding="utf-8")[: config.max_file_chars]
+            content, _encoding = read_text_fallback(file_path)
+            content = content[: config.max_file_chars]
         except Exception:
             continue
         sections.extend([

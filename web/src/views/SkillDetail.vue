@@ -1,6 +1,12 @@
 <template>
   <div class="skill-detail-page">
-    <a-page-header :title="detail?.name ? `技能详情：${detail.name}` : `技能详情：${skillId}`" sub-title="查看技能详情、审核与审计记录" />
+    <a-page-header :title="detail?.name ? `Skill 详情：${detail.name}` : `Skill 详情：${skillId}`" sub-title="查看 Skill 详情、审核与审计记录">
+      <template #extra>
+        <a-button @click="handleDownloadSkill" :loading="downloadingSkill" :disabled="!detail?.skill_id">
+          下载 Skill
+        </a-button>
+      </template>
+    </a-page-header>
 
     <a-card title="基础信息" class="basic-info-card" style="margin-top: 16px">
       <a-skeleton :loading="loading" active :paragraph="{ rows: 5 }">
@@ -48,17 +54,14 @@
           </a-descriptions-item>
           <a-descriptions-item label="Sandbox 后端">{{ detail?.vetting?.sandbox_runtime || '-' }}</a-descriptions-item>
           <a-descriptions-item label="Sandbox 镜像">{{ sandboxDisplayImage }}</a-descriptions-item>
-          <a-descriptions-item label="技能路径" :span="4">
-            <span class="path-value">{{ detail?.skill_path || '-' }}</span>
-          </a-descriptions-item>
         </a-descriptions>
         <a-alert
-          v-if="admissionBlocked"
+          v-if="manualApprovalRequired"
           style="margin-top: 12px"
           type="error"
           show-icon
-          message="准入策略拒绝"
-          :description="admissionBlockedSummary"
+          :message="vettingFailed ? '后台分析失败' : '准入策略拒绝'"
+          :description="manualApprovalSummary"
         />
       </a-skeleton>
     </a-card>
@@ -90,7 +93,7 @@
               </span>
             </a-tooltip>
             <a-button v-if="canApproveSkill" type="primary" @click="openApproveModal">
-              {{ admissionBlocked ? '例外批准' : '批准' }}
+              {{ manualApprovalRequired ? '例外批准' : '批准' }}
             </a-button>
             <a-button v-if="detail?.status === 'VETTED'" danger @click="openRejectModal">拒绝</a-button>
         </a-space>
@@ -320,84 +323,15 @@
             <a-card id="sandbox-section" size="small" title="Sandbox 执行结果">
               <template v-if="sandboxAnalysis">
                 <a-alert
-                  style="margin-bottom: 12px"
-                  type="info"
-                  show-icon
-                  message="当前实际执行环境"
-                  :description="sandboxAnalysis.runtime === 'docker' ? `后端：docker，镜像：${sandboxAnalysis.image || 'agent-manager-sandbox-runtime:latest'}` : `后端：${sandboxAnalysis.runtime || '-'}，执行服务：${sandboxAnalysis.image || '-'}`"
-                />
-                <a-alert
                   :type="sandboxRiskAlertType"
                   show-icon
-                  :message="`风险等级：${sandboxAnalysis.risk_level || 'LOW'} / 最高严重级别：${sandboxAnalysis.max_severity || 'SAFE'}`"
-                  :description="sandboxAnalysis.summary || 'Sandbox 未发现明确风险信号。'"
-                />
-                <a-descriptions :column="2" size="small" bordered>
-                  <a-descriptions-item label="风险等级">
-                    <a-tag :color="riskColor(sandboxAnalysis.risk_level)">{{ sandboxAnalysis.risk_level || '-' }}</a-tag>
-                  </a-descriptions-item>
-                  <a-descriptions-item label="最高严重级别">
-                    <a-tag :color="severityColor(sandboxAnalysis.max_severity)">{{ sandboxAnalysis.max_severity || '-' }}</a-tag>
-                  </a-descriptions-item>
-                  <a-descriptions-item label="是否执行">
-                    {{ sandboxAnalysis.executed ? '是' : '否' }}
-                  </a-descriptions-item>
-                  <a-descriptions-item label="运行时">
-                    {{ sandboxAnalysis.runtime || '-' }}
-                  </a-descriptions-item>
-                  <a-descriptions-item label="入口脚本">
-                    <a-button
-                      v-if="sandboxAnalysis.entrypoint"
-                      type="link"
-                      style="padding: 0"
-                      @click="openFileViewer(sandboxAnalysis.entrypoint)"
-                    >
-                      {{ sandboxAnalysis.entrypoint }}
-                    </a-button>
-                    <span v-else>-</span>
-                  </a-descriptions-item>
-                  <a-descriptions-item label="镜像">
-                    {{ sandboxAnalysis.image || '-' }}
-                  </a-descriptions-item>
-                  <a-descriptions-item label="Probe 策略">
-                    {{ sandboxAnalysis.probe_strategy || '-' }}
-                  </a-descriptions-item>
-                  <a-descriptions-item label="Probe 参数">
-                    {{ Array.isArray(sandboxAnalysis.probe_args) && sandboxAnalysis.probe_args.length ? sandboxAnalysis.probe_args.join(' ') : '-' }}
-                  </a-descriptions-item>
-                  <a-descriptions-item label="退出码">
-                    {{ sandboxAnalysis.exit_code ?? '-' }}
-                  </a-descriptions-item>
-                  <a-descriptions-item label="是否超时">
-                    {{ sandboxAnalysis.timed_out ? '是' : '否' }}
-                  </a-descriptions-item>
-                  <a-descriptions-item label="耗时">
-                    {{ sandboxAnalysis.duration_ms ?? '-' }} ms
-                  </a-descriptions-item>
-                  <a-descriptions-item label="网络尝试">
-                    {{ sandboxAnalysis.network_attempts ?? 0 }}
-                  </a-descriptions-item>
-                </a-descriptions>
-                <a-alert
-                  v-if="sandboxAnalysis.recommendation"
-                  style="margin-top: 12px"
-                  type="warning"
-                  show-icon
-                  message="建议动作"
-                  :description="sandboxAnalysis.recommendation"
-                />
-                <a-alert
-                  v-if="sandboxAnalysis.reason"
-                  style="margin-top: 12px"
-                  type="info"
-                  show-icon
-                  message="Sandbox 说明"
-                  :description="sandboxAnalysis.reason"
+                  :message="`风险等级：${sandboxDisplayRiskLevel} / 最高严重级别：${sandboxDisplayMaxSeverity}`"
+                  :description="sandboxDisplaySummary"
                 />
                 <a-list
                   v-if="sandboxSignals.length"
                   style="margin-top: 12px"
-                  header="Sandbox 风险信号"
+                  header="Sandbox 提取到的运行时信号"
                   :data-source="sandboxSignals"
                   bordered
                   size="small"
@@ -410,55 +344,136 @@
                           <a-tag color="default">{{ bilingualText(item.category) }}</a-tag>
                           <strong>{{ bilingualText(item.message) }}</strong>
                         </a-space>
-                        <div v-if="item.evidence" style="margin-top: 6px; color: #8c8c8c">
-                          {{ item.evidence }}
+                        <div v-if="item.evidence" class="evidence-box">
+                          <div class="evidence-title">判断依据</div>
+                          <div
+                            v-for="line in sandboxEvidenceLines(item.evidence)"
+                            :key="line"
+                            class="evidence-line"
+                          >
+                            {{ line }}
+                          </div>
                         </div>
                       </div>
                     </a-list-item>
                   </template>
                 </a-list>
-                <a-table
-                  v-if="sandboxProbeResults.length"
+                <a-empty
+                  v-else
                   style="margin-top: 12px"
-                  :data-source="sandboxProbeResults"
-                  :columns="sandboxProbeColumns"
-                  row-key="key"
-                  size="small"
-                  bordered
-                  :pagination="false"
-                >
-                  <template #title>
-                    Sandbox 执行明细
-                  </template>
-                  <template #bodyCell="{ column, record }">
-                    <template v-if="column.key === 'probe'">
-                      <a-space direction="vertical" size="small">
-                        <strong>{{ record.probe_name }}</strong>
-                        <span class="muted">{{ record.probe_description || '-' }}</span>
-                      </a-space>
-                    </template>
-                    <template v-else-if="column.key === 'entrypoint'">
-                      <a-button
-                        v-if="record.probe_entrypoint"
-                        type="link"
-                        style="padding: 0"
-                        @click="openFileViewer(record.probe_entrypoint)"
-                      >
-                        {{ record.probe_entrypoint }}
-                      </a-button>
-                      <span v-else>-</span>
-                    </template>
-                    <template v-else-if="column.key === 'command'">
-                      <code class="inline-command">{{ formatSandboxCommand(record) }}</code>
-                    </template>
-                    <template v-else-if="column.key === 'exit_code'">
-                      <a-tag :color="record.exit_code === 0 ? 'green' : 'orange'">{{ record.exit_code ?? '-' }}</a-tag>
-                    </template>
-                    <template v-else-if="column.key === 'timeout'">
-                      <a-tag :color="record.timed_out ? 'red' : 'green'">{{ record.timed_out ? '是' : '否' }}</a-tag>
-                    </template>
-                  </template>
-                  <template #expandedRowRender="{ record }">
+                  description="Sandbox 未提取到明确运行时风险信号。"
+                />
+                <a-collapse style="margin-top: 12px">
+                  <a-collapse-panel key="sandbox-debug" header="查看 Sandbox 调试信息">
+                    <a-descriptions :column="2" size="small" bordered>
+                      <a-descriptions-item label="是否执行">{{ sandboxAnalysis.executed ? '是' : '否' }}</a-descriptions-item>
+                      <a-descriptions-item label="运行时">{{ sandboxAnalysis.runtime || '-' }}</a-descriptions-item>
+                      <a-descriptions-item label="入口脚本">
+                        <a-button
+                          v-if="sandboxAnalysis.entrypoint"
+                          type="link"
+                          style="padding: 0"
+                          @click="openFileViewer(sandboxAnalysis.entrypoint)"
+                        >
+                          {{ sandboxAnalysis.entrypoint }}
+                        </a-button>
+                        <span v-else>-</span>
+                      </a-descriptions-item>
+                      <a-descriptions-item label="执行环境">
+                        {{ sandboxAnalysis.runtime === 'docker' ? (sandboxAnalysis.image || 'agent-manager-sandbox-runtime:latest') : (sandboxAnalysis.image || '-') }}
+                      </a-descriptions-item>
+                      <a-descriptions-item label="Probe 策略">{{ sandboxAnalysis.probe_strategy || '-' }}</a-descriptions-item>
+                      <a-descriptions-item label="Probe 参数">
+                        {{ Array.isArray(sandboxAnalysis.probe_args) && sandboxAnalysis.probe_args.length ? sandboxAnalysis.probe_args.join(' ') : '-' }}
+                      </a-descriptions-item>
+                      <a-descriptions-item label="退出码">{{ sandboxAnalysis.exit_code ?? '-' }}</a-descriptions-item>
+                      <a-descriptions-item label="是否超时">{{ sandboxAnalysis.timed_out ? '是' : '否' }}</a-descriptions-item>
+                      <a-descriptions-item label="耗时">{{ sandboxAnalysis.duration_ms ?? '-' }} ms</a-descriptions-item>
+                      <a-descriptions-item label="网络尝试">{{ sandboxAnalysis.network_attempts ?? 0 }}</a-descriptions-item>
+                      <a-descriptions-item v-if="sandboxAnalysis.reason" label="说明" :span="2">
+                        {{ sandboxAnalysis.reason }}
+                      </a-descriptions-item>
+                      <a-descriptions-item v-if="sandboxAnalysis.recommendation" label="建议" :span="2">
+                        {{ sandboxAnalysis.recommendation }}
+                      </a-descriptions-item>
+                    </a-descriptions>
+                    <a-list
+                      v-if="sandboxDiagnosticSignals.length"
+                      style="margin-top: 12px"
+                      header="Sandbox 诊断信息（不计入运行时风险）"
+                      :data-source="sandboxDiagnosticSignals"
+                      bordered
+                      size="small"
+                    >
+                      <template #renderItem="{ item }">
+                        <a-list-item>
+                          <div style="width: 100%">
+                            <a-space wrap>
+                              <a-tag :color="severityColor(item.severity)">{{ item.severity || 'INFO' }}</a-tag>
+                              <a-tag color="default">{{ bilingualText(item.category) }}</a-tag>
+                              <strong>{{ bilingualText(item.message) }}</strong>
+                            </a-space>
+                            <div v-if="item.evidence" class="evidence-box">
+                              <div class="evidence-title">判断依据</div>
+                              <div
+                                v-for="line in sandboxEvidenceLines(item.evidence)"
+                                :key="line"
+                                class="evidence-line"
+                              >
+                                {{ line }}
+                              </div>
+                            </div>
+                          </div>
+                        </a-list-item>
+                      </template>
+                    </a-list>
+                    <a-table
+                      v-if="sandboxProbeResults.length"
+                      style="margin-top: 12px"
+                      :data-source="sandboxProbeResults"
+                      :columns="sandboxProbeColumns"
+                      row-key="key"
+                      size="small"
+                      bordered
+                      :pagination="false"
+                    >
+                      <template #title>
+                        Sandbox 执行明细
+                      </template>
+                      <template #bodyCell="{ column, record }">
+                        <template v-if="column.key === 'probe'">
+                          <a-space direction="vertical" size="small">
+                            <strong>{{ record.probe_name }}</strong>
+                            <span class="muted">{{ record.probe_description || '-' }}</span>
+                          </a-space>
+                        </template>
+                        <template v-else-if="column.key === 'entrypoint'">
+                          <a-button
+                            v-if="record.probe_entrypoint"
+                            type="link"
+                            style="padding: 0"
+                            @click="openFileViewer(record.probe_entrypoint)"
+                          >
+                            {{ record.probe_entrypoint }}
+                          </a-button>
+                          <span v-else>-</span>
+                        </template>
+                        <template v-else-if="column.key === 'command'">
+                          <code class="inline-command">{{ formatSandboxCommand(record) }}</code>
+                        </template>
+                        <template v-else-if="column.key === 'exit_code'">
+                          <a-tag :color="record.exit_code === 0 ? 'green' : 'orange'">{{ record.exit_code ?? '-' }}</a-tag>
+                        </template>
+                        <template v-else-if="column.key === 'timeout'">
+                          <a-tag :color="record.timed_out ? 'red' : 'green'">{{ record.timed_out ? '是' : '否' }}</a-tag>
+                        </template>
+                        <template v-else-if="column.key === 'result'">
+                          <a-tag :color="sandboxProbeResultTag(record).color">
+                            {{ sandboxProbeResultTag(record).text }}
+                          </a-tag>
+                        </template>
+                      </template>
+                      <template #expandedRowRender="{ record }">
                     <a-descriptions :column="2" size="small" bordered>
                       <a-descriptions-item label="执行命令" :span="2">
                         <pre class="command-block">{{ formatSandboxCommand(record) }}</pre>
@@ -467,27 +482,28 @@
                       <a-descriptions-item label="运行时">{{ record.runtime || sandboxAnalysis.runtime || '-' }}</a-descriptions-item>
                       <a-descriptions-item label="耗时">{{ record.duration_ms ?? '-' }} ms</a-descriptions-item>
                       <a-descriptions-item label="网络尝试">{{ record.network_attempts ?? 0 }}</a-descriptions-item>
+                      <a-descriptions-item label="执行结果" :span="2">
+                        {{ sandboxProbeResultText(record) }}
+                      </a-descriptions-item>
                     </a-descriptions>
-                    <a-tabs size="small" style="margin-top: 12px">
-                      <a-tab-pane key="stdout" tab="标准输出">
-                        <a-textarea :value="record.stdout || '无输出'" :rows="8" readonly />
-                      </a-tab-pane>
-                      <a-tab-pane key="stderr" tab="标准错误">
-                        <a-textarea :value="record.stderr || '无输出'" :rows="8" readonly />
-                      </a-tab-pane>
-                    </a-tabs>
-                  </template>
-                </a-table>
-                <a-collapse style="margin-top: 12px">
-                  <a-collapse-panel key="sandbox-output" header="查看 Sandbox 输出">
-                    <a-tabs size="small">
-                      <a-tab-pane key="stdout" tab="标准输出">
-                        <a-textarea :value="sandboxAnalysis.stdout || '无输出'" :rows="8" readonly />
-                      </a-tab-pane>
-                      <a-tab-pane key="stderr" tab="标准错误">
-                        <a-textarea :value="sandboxAnalysis.stderr || '无输出'" :rows="8" readonly />
-                      </a-tab-pane>
-                    </a-tabs>
+                    <a-alert
+                      v-if="isSandboxProbeInputMissing(record)"
+                      style="margin-top: 12px"
+                      type="info"
+                      show-icon
+                      message="Probe 输入文件缺失"
+                      description="命令引用了示例输入文件，但该文件不在 skill 包或 Sandbox 工作目录中。这类信息通常不代表 skill 存在安全风险，建议补充真实测试输入后再复测。"
+                    />
+                    <a-alert
+                      v-else-if="record.exit_code != null && record.exit_code !== 0"
+                      style="margin-top: 12px"
+                      type="info"
+                      show-icon
+                      message="Probe 诊断"
+                      description="这通常是测试参数、依赖或执行环境不完整导致的诊断信息，不单独计入运行时风险。请优先查看上方提取到的运行时信号。"
+                    />
+                      </template>
+                    </a-table>
                   </a-collapse-panel>
                 </a-collapse>
               </template>
@@ -583,6 +599,7 @@
             type="info"
             show-icon
             :message="skillContent.manifest_path"
+            :description="skillContent.encoding ? `编码：${skillContent.encoding}` : undefined"
             style="margin-bottom: 12px"
           />
 
@@ -647,11 +664,11 @@
     >
       <a-form layout="vertical">
         <a-alert
-          v-if="admissionBlocked"
+          v-if="manualApprovalRequired"
           type="warning"
           show-icon
           message="这是一次人工例外批准"
-          description="该 Skill 的安全研判为低风险，但准入策略曾因工具/权限/许可证阻断。批准后会签名并进入可绑定状态，请在备注中说明例外依据。"
+          :description="vettingFailed ? '后台分析未完成，但可以人工确认 Skill 内容后例外批准。批准后会签名并进入可绑定状态，请在备注中说明人工判断依据。' : '该 Skill 的安全研判为低风险，但准入策略曾因工具/权限/许可证阻断。批准后会签名并进入可绑定状态，请在备注中说明例外依据。'"
           style="margin-bottom: 12px"
         />
         <a-form-item label="Skill">
@@ -695,7 +712,8 @@
     >
       <a-space style="margin-bottom: 12px" wrap>
         <a-button @click="refreshViewedFile" :loading="loadingFileViewer" :disabled="!viewingFilePath">刷新文件</a-button>
-        <span style="color: #8c8c8c">{{ viewedFile?.absolute_path || viewingFilePath || '-' }}</span>
+        <span style="color: #8c8c8c">{{ viewedFile?.path || viewingFilePath || '-' }}</span>
+        <a-tag v-if="viewedFile?.encoding">编码：{{ viewedFile.encoding }}</a-tag>
       </a-space>
       <div class="code-preview drawer-code-preview">
         <div v-for="line in viewedFileLines" :key="line.no" class="code-line">
@@ -715,6 +733,7 @@ import { marked } from 'marked'
 
 import {
   approveSkill,
+  downloadSkill,
   getAudit,
   getSkillContent,
   getSkillDetail,
@@ -737,6 +756,7 @@ const loadingScanReport = ref(false)
 const loadingContent = ref(false)
 const loadingGovernanceCard = ref(false)
 const verifyingSignature = ref(false)
+const downloadingSkill = ref(false)
 const actionLoading = ref(false)
 const actionType = ref('')
 const detail = ref(null)
@@ -806,6 +826,7 @@ const sandboxProbeColumns = [
   { title: '执行命令', key: 'command' },
   { title: '退出码', key: 'exit_code', width: 90 },
   { title: '超时', key: 'timeout', width: 80 },
+  { title: '结果', key: 'result', width: 100 },
   { title: '耗时', dataIndex: 'duration_ms', key: 'duration_ms', width: 100, customRender: ({ text }) => `${text ?? '-'} ms` },
 ]
 
@@ -896,6 +917,28 @@ const handleRefreshGovernanceCard = async () => {
     message.error(error.response?.data?.detail || '刷新治理卡片失败')
   } finally {
     loadingGovernanceCard.value = false
+  }
+}
+
+const handleDownloadSkill = async () => {
+  if (!detail.value?.skill_id) return
+  downloadingSkill.value = true
+  try {
+    const blob = await downloadSkill(detail.value.skill_id)
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const safeName = String(detail.value.name || detail.value.skill_id || 'skill').replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '') || 'skill'
+    link.href = url
+    link.download = `${safeName}.zip`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    message.success('已开始下载 Skill')
+  } catch (error) {
+    message.error(error.response?.data?.detail || '下载 Skill 失败')
+  } finally {
+    downloadingSkill.value = false
   }
 }
 
@@ -1073,8 +1116,13 @@ const policyNoteText = (note) => {
 const admissionBlocked = computed(() =>
   detail.value?.status === 'REJECTED' && policyBlockItems.value.length > 0,
 )
+const vettingFailed = computed(() =>
+  detail.value?.status === 'REJECTED' && Boolean(scanReport.value?.vetting_failed || detail.value?.rejection_reason?.startsWith('后台分析失败')),
+)
+const manualApprovalRequired = computed(() => admissionBlocked.value || vettingFailed.value)
 const canApproveSkill = computed(() => {
   if (detail.value?.status === 'VETTED') return true
+  if (vettingFailed.value) return true
   if (!admissionBlocked.value) return false
   return ['benign', 'suspicious'].includes(detail.value?.risk_level)
 })
@@ -1083,6 +1131,12 @@ const admissionBlockedSummary = computed(() => {
   const risk = detail.value?.risk_level ? riskDisplay(detail.value.risk_level) : '未知'
   const reasons = policyBlockItems.value.map((item) => item.text).join('；')
   return `安全判定：${risk}。最终状态为已拒绝，是因为准入策略未通过：${reasons}`
+})
+const manualApprovalSummary = computed(() => {
+  if (vettingFailed.value) {
+    return `后台分析失败：${scanReport.value?.vetting_error || detail.value?.rejection_reason || '未知错误'}。可人工确认 Skill 内容后例外批准。`
+  }
+  return admissionBlockedSummary.value
 })
 const riskRationaleItems = computed(() => {
   const finalRisk = detail.value?.risk_level
@@ -1172,7 +1226,40 @@ const numberedLines = (text) => String(text || '').split('\n').map((line, index)
 }))
 const governanceCardLines = computed(() => numberedLines(governanceCard.value?.content || '暂无治理卡片'))
 const sandboxAnalysis = computed(() => scanReport.value?.sandbox_analysis || null)
-const sandboxSignals = computed(() => sandboxAnalysis.value?.signals || sandboxAnalysis.value?.suspicious_events || [])
+const sandboxDiagnosticCategories = new Set(['dependency', 'probe_input', 'runtime', 'execution', 'credentials'])
+const sandboxAllSignals = computed(() => sandboxAnalysis.value?.signals || sandboxAnalysis.value?.suspicious_events || [])
+const isSandboxDiagnosticSignal = (item) => sandboxDiagnosticCategories.has(String(item?.category || '').toLowerCase())
+const sandboxSignals = computed(() => sandboxAllSignals.value.filter((item) => !isSandboxDiagnosticSignal(item)))
+const sandboxDiagnosticSignals = computed(() => sandboxAllSignals.value.filter((item) => isSandboxDiagnosticSignal(item)))
+const sandboxDisplayRiskLevel = computed(() => {
+  if (!sandboxSignals.value.length && sandboxDiagnosticSignals.value.length) return 'LOW'
+  return sandboxAnalysis.value?.risk_level || 'LOW'
+})
+const sandboxDisplayMaxSeverity = computed(() => {
+  if (!sandboxSignals.value.length && sandboxDiagnosticSignals.value.length) return 'SAFE'
+  return sandboxAnalysis.value?.max_severity || 'SAFE'
+})
+const sandboxDisplaySummary = computed(() => {
+  if (!sandboxAnalysis.value) return ''
+  if (!sandboxSignals.value.length && sandboxDiagnosticSignals.value.length) {
+    return 'Sandbox 未提取到明确运行时风险信号；仅发现执行环境或 Probe 诊断信息，可在调试信息中查看。'
+  }
+  return sandboxAnalysis.value.summary || 'Sandbox 未发现明确风险信号。'
+})
+const missingProbeInputPattern = /(cannot open\s+[^:\n]+:\s+No such file|No such file or directory)/i
+const isSandboxProbeInputMissing = (record) => {
+  const text = [record?.stdout, record?.stderr, record?.reason, record?.summary]
+    .map((item) => String(item || ''))
+    .join('\n')
+  return missingProbeInputPattern.test(text)
+}
+const sandboxProbeResultTag = (record) => {
+  if (isSandboxProbeInputMissing(record)) return { text: '输入缺失', color: 'orange' }
+  if (record?.timed_out) return { text: '超时', color: 'red' }
+  if (record?.exit_code === 0) return { text: '已执行', color: 'green' }
+  if (record?.exit_code != null) return { text: '诊断', color: 'default' }
+  return { text: '未执行', color: 'default' }
+}
 const sandboxProbeResults = computed(() => {
   const results = sandboxAnalysis.value?.probe_results
   if (Array.isArray(results) && results.length) {
@@ -1199,10 +1286,15 @@ const sandboxProbeResults = computed(() => {
     timed_out: sandboxAnalysis.value.timed_out,
     duration_ms: sandboxAnalysis.value.duration_ms,
     network_attempts: sandboxAnalysis.value.network_attempts,
+    reason: sandboxAnalysis.value.reason,
+    summary: sandboxAnalysis.value.summary,
+    recommendation: sandboxAnalysis.value.recommendation,
+    max_severity: sandboxAnalysis.value.max_severity,
+    risk_level: sandboxAnalysis.value.risk_level,
   }]
 })
 const sandboxRiskAlertType = computed(() => {
-  const risk = (sandboxAnalysis.value?.risk_level || '').toUpperCase()
+  const risk = (sandboxDisplayRiskLevel.value || '').toUpperCase()
   if (risk === 'EXTREME' || risk === 'HIGH') return 'error'
   if (risk === 'MEDIUM') return 'warning'
   return 'success'
@@ -1288,6 +1380,32 @@ const formatSandboxCommand = (record) => {
         ? 'sh'
         : ''
   return [prefix, entrypoint, ...args].filter(Boolean).join(' ')
+}
+
+const sandboxEvidenceLines = (evidence) => {
+  const text = String(evidence || '').trim()
+  if (!text) return []
+  return text
+    .replace(/；/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+const sandboxProbeResultText = (record) => {
+  if (isSandboxProbeInputMissing(record)) {
+    return 'Probe 引用了不存在的示例输入文件，当前结果主要反映测试参数不完整，不应单独作为安全风险判断。'
+  }
+  const parts = [
+    record?.summary,
+    record?.reason,
+    record?.recommendation,
+  ].filter((item) => String(item || '').trim())
+  if (parts.length) return parts.join('；')
+  if (record?.timed_out) return '执行超时，建议检查 probe 参数或执行环境限制。'
+  if (record?.exit_code != null && record.exit_code !== 0) return '脚本以非零退出码结束，建议结合规则扫描和风险信号判断。'
+  if (record?.exit_code === 0) return '脚本执行完成，未从输出中提取到明确风险信号。'
+  return '未记录额外执行说明。'
 }
 
 const parsedSkillContent = computed(() => {
@@ -1893,6 +2011,29 @@ watch(
   word-break: break-word;
   background: #0f172a;
   border-radius: 8px;
+}
+
+.evidence-box {
+  margin-top: 8px;
+  padding: 8px 10px;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.evidence-title {
+  margin-bottom: 4px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.evidence-line {
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .governance-card-preview {

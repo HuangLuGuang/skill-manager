@@ -224,26 +224,40 @@
             <template v-else>
               <a-form-item label="远程 Sandbox URL">
                 <a-input-group compact>
-                  <a-input v-model:value="sandboxForm.remote_url" style="width: calc(100% - 150px)" placeholder="http://sandbox:8194" />
+                  <a-input v-model:value="sandboxForm.remote_url" style="width: calc(100% - 238px)" placeholder="http://sandbox:8194" />
                   <a-button html-type="button" @click="useDefaultSandboxUrl">使用默认远程地址</a-button>
+                  <a-button html-type="button" :loading="testingSandbox" @click="handleTestSandboxConnection">测试连接</a-button>
                 </a-input-group>
                 <div class="field-hint">默认推荐 http://sandbox:8194；可以直接编辑为客户环境中的远程 Sandbox 地址。配置文件：{{ sandboxConfig.config_path || '-' }}</div>
               </a-form-item>
 
-              <a-form-item label="远程 API Key">
-                <a-input-password
-                  v-model:value="sandboxForm.remote_api_key"
-                  placeholder="留空则保留现有 key"
-                  autocomplete="new-password"
-                />
-                <div class="field-hint">
-                  当前状态：{{ sandboxConfig.remote_api_key_configured ? (sandboxConfig.remote_api_key_masked || '已配置') : '未配置' }}
-                </div>
-              </a-form-item>
+              <a-alert
+                v-if="sandboxTestResult"
+                class="sandbox-test-result"
+                show-icon
+                :type="sandboxTestResult.available ? 'success' : 'error'"
+                :message="sandboxTestResult.available ? 'Sandbox 连接可用' : 'Sandbox 连接不可用'"
+                :description="sandboxTestDescription"
+              />
 
-              <a-form-item>
-                <a-checkbox v-model:checked="sandboxForm.clear_remote_api_key">清除当前远程 API Key</a-checkbox>
-              </a-form-item>
+              <a-collapse ghost size="small" class="sandbox-auth-collapse">
+                <a-collapse-panel key="auth" header="远程访问凭证（可选）">
+                  <a-form-item label="服务 Token">
+                    <a-input-password
+                      v-model:value="sandboxForm.remote_api_key"
+                      placeholder="仅在远程 Sandbox 服务要求鉴权时填写"
+                      autocomplete="new-password"
+                    />
+                    <div class="field-hint">
+                      这是 Sandbox 服务自身的访问 Token，不是模型网关凭据；本地演示或未开启鉴权的远程服务可留空。当前状态：{{ sandboxConfig.remote_api_key_configured ? (sandboxConfig.remote_api_key_masked || '已配置') : '未配置' }}
+                    </div>
+                  </a-form-item>
+
+                  <a-form-item>
+                    <a-checkbox v-model:checked="sandboxForm.clear_remote_api_key">清除当前 Sandbox 服务 Token</a-checkbox>
+                  </a-form-item>
+                </a-collapse-panel>
+              </a-collapse>
             </template>
 
             <a-row :gutter="16">
@@ -299,6 +313,7 @@ import {
   getSandboxConfig,
   listModelEndpoints,
   listSandboxImages,
+  testSandboxConfig,
   updateLlmConfig,
   updatePolicy,
   updateSandboxConfig,
@@ -314,6 +329,8 @@ const llmConfig = ref({})
 const sandboxConfig = ref({})
 const modelEndpoints = ref([])
 const sandboxImages = ref([])
+const testingSandbox = ref(false)
+const sandboxTestResult = ref(null)
 const defaultSandboxRemoteUrl = 'http://sandbox:8194'
 
 const riskOptions = [
@@ -399,6 +416,13 @@ const sandboxImageOptions = computed(() => {
   const values = new Set(sandboxImages.value)
   if (sandboxForm.image) values.add(sandboxForm.image)
   return [...values].map((value) => ({ value, label: value }))
+})
+const sandboxTestDescription = computed(() => {
+  if (!sandboxTestResult.value) return ''
+  const parts = [sandboxTestResult.value.message].filter(Boolean)
+  if (sandboxTestResult.value.target) parts.push(`目标：${sandboxTestResult.value.target}`)
+  if (sandboxTestResult.value.duration_ms != null) parts.push(`耗时：${sandboxTestResult.value.duration_ms} ms`)
+  return parts.join('；')
 })
 
 const buildPayload = () => ({
@@ -547,9 +571,32 @@ const handleSaveAll = async () => {
   }
 }
 
+const handleTestSandboxConnection = async () => {
+  testingSandbox.value = true
+  sandboxTestResult.value = null
+  try {
+    const result = await testSandboxConfig({
+      ...buildSandboxPayload(),
+      enabled: true,
+      runtime: 'remote',
+    })
+    sandboxTestResult.value = result || {}
+    if (result?.available) {
+      message.success(result.message || 'Sandbox 连接可用')
+    } else {
+      message.error(result?.message || 'Sandbox 连接不可用')
+    }
+  } catch (error) {
+    message.error(extractErrorMsg(error, '测试 Sandbox 连接失败'))
+  } finally {
+    testingSandbox.value = false
+  }
+}
+
 const useDefaultSandboxUrl = () => {
   sandboxForm.runtime = 'remote'
   sandboxForm.remote_url = defaultSandboxRemoteUrl
+  sandboxTestResult.value = null
 }
 
 const handleBeforeUnload = (event) => {
@@ -592,6 +639,14 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
 
 .field-hint {
   margin-top: 6px;
+}
+
+.sandbox-test-result {
+  margin: -4px 0 16px;
+}
+
+.sandbox-auth-collapse {
+  margin: -4px 0 16px;
 }
 
 .policy-section {

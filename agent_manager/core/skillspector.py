@@ -6,11 +6,15 @@ baseline, so this module treats it as an external optional scanner.
 
 from __future__ import annotations
 
+import contextlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -83,7 +87,7 @@ def run_skillspector_scan(
             "error": "SkillSpector CLI is not installed or not on PATH",
         }
 
-    with tempfile.TemporaryDirectory(prefix="agent-manager-skillspector-") as tmp_dir:
+    with tempfile.TemporaryDirectory(prefix="agent-manager-skillspector-") as tmp_dir, contextlib.ExitStack() as stack:
         output_path = Path(tmp_dir) / "skillspector-report.json"
         cmd = [
             executable,
@@ -94,8 +98,8 @@ def run_skillspector_scan(
             "--output",
             str(output_path),
         ]
-        if not use_llm:
-            cmd.insert(3, "--no-llm")
+        effective_use_llm = use_llm
+        llm_note: str | None = None
         env = None
         if use_llm:
             llm_config = LLMConfig.load()
@@ -108,7 +112,11 @@ def run_skillspector_scan(
                     "raw_report": {},
                     "error": "SkillSpector LLM is enabled but system LLM config is not ready",
                 }
-            env = _skillspector_llm_env(llm_config)
+            env, llm_note = _skillspector_llm_env(llm_config, stack)
+            if env is None:
+                effective_use_llm = False
+        if not effective_use_llm:
+            cmd.insert(3, "--no-llm")
         try:
             run_kwargs = {
                 "capture_output": True,
@@ -165,6 +173,9 @@ def run_skillspector_scan(
                 "findings": findings,
                 "suppressed_findings_count": _suppressed_findings_count(raw_report),
                 "raw_report": raw_report,
+                "llm_requested": use_llm,
+                "llm_enabled": effective_use_llm,
+                "llm_note": llm_note,
             }
         except Exception as exc:
             return {
@@ -174,6 +185,9 @@ def run_skillspector_scan(
                 "findings": [],
                 "raw_report": {},
                 "error": str(exc),
+                "llm_requested": use_llm,
+                "llm_enabled": effective_use_llm,
+                "llm_note": llm_note,
             }
 
 
@@ -295,9 +309,29 @@ def _severity_rank(value: str) -> int:
     )
 
 
-def _skillspector_llm_env(config: LLMConfig) -> dict[str, str]:
+def _skillspector_llm_env(
+    config: LLMConfig,
+    stack: contextlib.ExitStack | None = None,
+) -> tuple[dict[str, str] | None, str | None]:
     env = os.environ.copy()
     provider = config.provider.lower()
+    if provider in {"model-gateway", "model_gateway"}:
+        gateway_url = os.environ.get("AGENT_MANAGER_LLM_GATEWAY_URL", "").strip()
+        gateway_api_key = os.environ.get("AGENT_MANAGER_LLM_GATEWAY_API_KEY", "").strip()
+        if not gateway_url or not gateway_api_key:
+            if stack is None:
+                return None, "深度扫描 LLM 已按静态模式运行：缺少内部代理上下文。"
+            try:
+                proxy_env = stack.enter_context(_internal_model_gateway_proxy(config))
+            except Exception as exc:
+                return None, f"深度扫描 LLM 已按静态模式运行：内置模型网关代理启动失败：{exc}"
+            env.update(proxy_env)
+            return env, "深度扫描 LLM 已通过 Agent Manager 内置模型网关代理运行。"
+        env["SKILLSPECTOR_PROVIDER"] = "openai"
+        env["OPENAI_API_KEY"] = gateway_api_key
+        env["OPENAI_BASE_URL"] = _openai_base_url(gateway_url)
+        env["SKILLSPECTOR_MODEL"] = config.model
+        return env, None
     if provider == "anthropic":
         env["SKILLSPECTOR_PROVIDER"] = "anthropic"
         env["ANTHROPIC_API_KEY"] = config.api_key or ""
@@ -306,7 +340,96 @@ def _skillspector_llm_env(config: LLMConfig) -> dict[str, str]:
         env["OPENAI_API_KEY"] = config.api_key or ""
         env["OPENAI_BASE_URL"] = config.api_base
     env["SKILLSPECTOR_MODEL"] = config.model
-    return env
+    return env, None
+
+
+@contextlib.contextmanager
+def _internal_model_gateway_proxy(config: LLMConfig):
+    token = secrets.token_urlsafe(24)
+
+    class Handler(BaseHTTPRequestHandler):
+        def _send_json(self, status: int, payload: dict[str, Any]) -> None:
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _authorized(self) -> bool:
+            return self.headers.get("Authorization", "").strip() == f"Bearer {token}"
+
+        def do_GET(self) -> None:
+            if self.path not in {"/models", "/v1/models"}:
+                self._send_json(404, {"error": {"message": "not found"}})
+                return
+            if not self._authorized():
+                self._send_json(401, {"error": {"message": "unauthorized"}})
+                return
+            self._send_json(200, {
+                "object": "list",
+                "data": [{
+                    "id": config.model,
+                    "object": "model",
+                    "owned_by": "agent-manager",
+                }],
+            })
+
+        def do_POST(self) -> None:
+            if self.path not in {"/", "/chat/completions", "/v1/chat/completions"}:
+                self._send_json(404, {"error": {"message": "not found"}})
+                return
+            if not self._authorized():
+                self._send_json(401, {"error": {"message": "unauthorized"}})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length)
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                if not payload.get("model"):
+                    payload["model"] = config.model
+                from .llm import _call_model_gateway_sync
+
+                response = _call_model_gateway_sync(payload)
+                self._send_json(200, response)
+            except Exception as exc:
+                self._send_json(500, {
+                    "error": {
+                        "message": str(exc),
+                        "type": "agent_manager_model_gateway_error",
+                    },
+                })
+
+        def log_message(self, _format: str, *args: Any) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield {
+            "SKILLSPECTOR_PROVIDER": "openai",
+            "OPENAI_API_KEY": token,
+            "OPENAI_BASE_URL": f"http://127.0.0.1:{server.server_port}",
+            "SKILLSPECTOR_MODEL": config.model,
+        }
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=1)
+
+
+def _openai_base_url(value: str) -> str:
+    base = value.rstrip("/")
+    suffixes = (
+        "/api/v1/llm/chat/completions",
+        "/v1/chat/completions",
+        "/chat/completions",
+    )
+    for suffix in suffixes:
+        if base.endswith(suffix):
+            return base[: -len(suffix)] or base
+    return base
 
 
 def _max_severity(*values: str) -> str:

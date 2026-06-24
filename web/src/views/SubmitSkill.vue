@@ -609,7 +609,7 @@ const resultColumns = [
 ]
 
 const llmEnabledInSystem = computed(() => Boolean(managerStatus.value?.llm_enabled))
-const llmReadyForSubmit = computed(() => Boolean(managerStatus.value?.llm_enabled && managerStatus.value?.llm_api_key_configured))
+const llmReadyForSubmit = computed(() => Boolean(managerStatus.value?.llm_enabled && managerStatus.value?.llm_model))
 const sandboxEnabledInSystem = computed(() => Boolean(managerStatus.value?.sandbox_enabled))
 const sandboxReadyForSubmit = computed(() => Boolean(managerStatus.value?.sandbox_enabled && managerStatus.value?.sandbox_available))
 const deepScanReadyForSubmit = computed(() => Boolean(managerStatus.value?.skillspector_available))
@@ -617,8 +617,8 @@ const llmTooltip = computed(() => {
   if (loadingSystemStatus.value) return '正在读取系统设置中的 LLM 状态'
   if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return '尚未获取系统设置，请稍后重试'
   if (!llmEnabledInSystem.value) return '系统设置里没有启用 LLM 分析，所以这里不能勾选'
-  if (!managerStatus.value?.llm_api_key_configured) return '系统设置里尚未配置直连 LLM API Key，所以这里不能勾选'
-  return '启用后会调用系统设置里的 OpenAI-compatible 配置；服务端也可配置模型网关隐私代理'
+  if (!managerStatus.value?.llm_model) return '策略配置里尚未选择模型网关模型，所以这里不能勾选'
+  return `启用后会使用策略配置中选择的模型：${managerStatus.value.llm_model}`
 })
 const behavioralTooltip = '默认已启动。会额外扫描 scripts、references、prompts 等目录中的文本代码文件，检测命令执行、敏感文件访问、动态执行等可疑模式'
 const deepScanTooltip = computed(() => {

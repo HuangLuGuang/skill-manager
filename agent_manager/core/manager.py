@@ -333,7 +333,31 @@ class AgentManager:
     def mark_submission_failed(self, skill_id: str, reason: str, actor: str | None = None) -> RegistryEntry:
         entry = self._require_entry(skill_id)
         entry.status = SkillStatus.REJECTED
+        entry.risk_level = RiskLevel.BENIGN
         entry.rejection_reason = reason
+        entry.vetting = VettingResult(
+            risk_level=RiskLevel.BENIGN,
+            findings_count=1,
+            analyzers_used=["scanner:error"],
+            scan_report={
+                "risk_level": RiskLevel.BENIGN.value,
+                "max_severity": "INFO",
+                "risk_max_severity": "INFO",
+                "findings": [
+                    {
+                        "source": "system",
+                        "severity": "INFO",
+                        "rule": "VETTING_FAILED",
+                        "title": "后台分析失败",
+                        "message": reason,
+                    }
+                ],
+                "analyzers_used": ["scanner:error"],
+                "vetting_failed": True,
+                "vetting_error": reason,
+            },
+            policy_notes=[f"[BLOCK] vetting_failed: {reason}"],
+        )
         self.registry.update(entry)
         self.registry.log_event(make_event(
             "skill_processing_failed",
@@ -397,6 +421,10 @@ class AgentManager:
         return entry
 
     def _can_manually_override_rejection(self, entry: RegistryEntry) -> bool:
+        if entry.vetting and entry.vetting.scan_report.get("vetting_failed"):
+            return True
+        if str(entry.rejection_reason or "").startswith("后台分析失败"):
+            return True
         if entry.risk_level not in (RiskLevel.BENIGN, RiskLevel.SUSPICIOUS):
             return False
         notes = entry.vetting.policy_notes if entry.vetting else []

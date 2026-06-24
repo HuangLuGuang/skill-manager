@@ -45,12 +45,18 @@ class ServiceConfig(BaseModel):
         )
 
 
+class RunCodeFile(BaseModel):
+    path: str
+    content: str
+
+
 class RunCodeRequest(BaseModel):
     language: str
     code: str
     preload: str = ""
     enable_network: bool = False
     metadata: dict[str, object] = Field(default_factory=dict)
+    files: list[RunCodeFile] = Field(default_factory=list)
 
 
 class RunCodeData(BaseModel):
@@ -68,6 +74,9 @@ class RunCodeResponse(BaseModel):
     data: RunCodeData
 
 
+RunCodeRequest.model_rebuild()
+
+
 class SandboxExecutor(Protocol):
     config: ServiceConfig
 
@@ -83,7 +92,7 @@ class Workspace:
         self.config = config
         self.request = request
         self.root_context = tempfile.TemporaryDirectory(prefix="sandbox-work-", dir=config.work_root)
-        self.root = Path(self.root_context.name)
+        self.root = Path(self.root_context.name).resolve()
         self.source_path = self.root / self._filename_for_language(request.language)
 
     @staticmethod
@@ -99,11 +108,24 @@ class Workspace:
 
     def prepare(self) -> Path:
         self.root.mkdir(parents=True, exist_ok=True)
+        for file_payload in self.request.files:
+            target = self._safe_file_path(file_payload.path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(file_payload.content, encoding="utf-8")
         payload = self.request.code
         if self.request.preload.strip():
             payload = f"{self.request.preload.rstrip()}\n\n{payload}"
         self.source_path.write_text(payload, encoding="utf-8")
         return self.source_path
+
+    def _safe_file_path(self, relative_path: str) -> Path:
+        rel = Path(relative_path)
+        if rel.is_absolute() or ".." in rel.parts:
+            raise ValueError(f"Unsafe sandbox file path: {relative_path}")
+        target = (self.root / rel).resolve()
+        if self.root not in target.parents and target != self.root:
+            raise ValueError(f"Unsafe sandbox file path: {relative_path}")
+        return target
 
     def cleanup(self) -> None:
         self.root_context.cleanup()
@@ -123,7 +145,7 @@ class SubprocessExecutor:
     def execute(self, request: RunCodeRequest) -> RunCodeData:
         workspace = Workspace(self.config, request)
         source_path = workspace.prepare()
-        command = self._command_for_request(request.language, source_path)
+        command = self._command_for_request(request, source_path, workspace.root)
         started = time.monotonic()
         try:
             completed = subprocess.run(
@@ -132,7 +154,7 @@ class SubprocessExecutor:
                 capture_output=True,
                 text=True,
                 timeout=self.config.default_timeout_seconds,
-                env={},
+                env=self._env_for_workspace(workspace.root),
                 check=False,
                 start_new_session=True,
             )
@@ -158,14 +180,40 @@ class SubprocessExecutor:
         finally:
             workspace.cleanup()
 
-    def _command_for_request(self, language: str, source_path: Path) -> list[str]:
-        if language == "python3":
-            return [self._resolve_binary(self.config.python_bin), str(source_path)]
-        if language == "nodejs":
-            return [self._resolve_binary(self.config.node_bin), str(source_path)]
-        if language == "shell":
-            return [self._resolve_binary(self.config.shell_bin), str(source_path)]
-        raise ValueError(f"Unsupported language: {language}")
+    def _command_for_request(self, request: RunCodeRequest, source_path: Path, workspace_root: Path) -> list[str]:
+        target = self._execution_target(request, source_path, workspace_root)
+        args = self._execution_args(request)
+        if request.language == "python3":
+            return [self._resolve_binary(self.config.python_bin), str(target), *args]
+        if request.language == "nodejs":
+            return [self._resolve_binary(self.config.node_bin), str(target), *args]
+        if request.language == "shell":
+            return [self._resolve_binary(self.config.shell_bin), str(target), *args]
+        raise ValueError(f"Unsupported language: {request.language}")
+
+    @staticmethod
+    def _execution_target(request: RunCodeRequest, source_path: Path, workspace_root: Path) -> Path:
+        if request.files and request.metadata.get("execute_entrypoint"):
+            entrypoint = str(request.metadata.get("entrypoint") or "")
+            rel = Path(entrypoint)
+            if rel and not rel.is_absolute() and ".." not in rel.parts:
+                target = (workspace_root / rel).resolve()
+                if workspace_root in target.parents and target.exists():
+                    return target
+        return source_path
+
+    @staticmethod
+    def _execution_args(request: RunCodeRequest) -> list[str]:
+        raw_args = request.metadata.get("args") or []
+        return [str(item) for item in raw_args] if isinstance(raw_args, list) else []
+
+    @staticmethod
+    def _env_for_workspace(workspace_root: Path) -> dict[str, str]:
+        return {
+            "HOME": "/tmp",
+            "LANG": "C.UTF-8",
+            "PYTHONPATH": str(workspace_root),
+        }
 
     @staticmethod
     def _resolve_binary(binary: str) -> str:
@@ -193,7 +241,7 @@ class NsjailExecutor:
     def execute(self, request: RunCodeRequest) -> RunCodeData:
         workspace = Workspace(self.config, request)
         source_path = workspace.prepare()
-        command = self._command_for_request(request.language, source_path)
+        command = self._command_for_request(request, source_path)
         nsjail_command = self._build_nsjail_command(workspace.root, command, request.enable_network)
         started = time.monotonic()
         try:
@@ -228,14 +276,25 @@ class NsjailExecutor:
         finally:
             workspace.cleanup()
 
-    def _command_for_request(self, language: str, source_path: Path) -> list[str]:
-        if language == "python3":
-            return [self._resolve_binary(self.config.python_bin), f"/workspace/{source_path.name}"]
-        if language == "nodejs":
-            return [self._resolve_binary(self.config.node_bin), f"/workspace/{source_path.name}"]
-        if language == "shell":
-            return [self._resolve_binary(self.config.shell_bin), f"/workspace/{source_path.name}"]
-        raise ValueError(f"Unsupported language: {language}")
+    def _command_for_request(self, request: RunCodeRequest, source_path: Path) -> list[str]:
+        target = self._execution_target(request, source_path)
+        args = SubprocessExecutor._execution_args(request)
+        if request.language == "python3":
+            return [self._resolve_binary(self.config.python_bin), target, *args]
+        if request.language == "nodejs":
+            return [self._resolve_binary(self.config.node_bin), target, *args]
+        if request.language == "shell":
+            return [self._resolve_binary(self.config.shell_bin), target, *args]
+        raise ValueError(f"Unsupported language: {request.language}")
+
+    @staticmethod
+    def _execution_target(request: RunCodeRequest, source_path: Path) -> str:
+        if request.files and request.metadata.get("execute_entrypoint"):
+            entrypoint = str(request.metadata.get("entrypoint") or "")
+            rel = Path(entrypoint)
+            if rel and not rel.is_absolute() and ".." not in rel.parts:
+                return f"/workspace/{rel.as_posix()}"
+        return f"/workspace/{source_path.name}"
 
     def _build_nsjail_command(self, workspace_root: Path, command: list[str], enable_network: bool) -> list[str]:
         cmd = [
@@ -252,6 +311,8 @@ class NsjailExecutor:
             "--bindmount_ro", f"{workspace_root}:/workspace",
             "--tmpfsmount", "/tmp",
             "--env", "LANG=C.UTF-8",
+            "--env", "HOME=/tmp",
+            "--env", "PYTHONPATH=/workspace",
         ]
         if not enable_network:
             cmd.extend(["--iface_no_lo"])

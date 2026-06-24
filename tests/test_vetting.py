@@ -14,6 +14,7 @@ from agent_manager.core.sandbox import SandboxConfig, SandboxResult
 from agent_manager.core.vetting import (
     VettingPipeline,
     _check_manifest_policy,
+    _llm_probe_args_safe,
     _load_manifest,
     _normalize_llm_probe_entrypoint,
     _run_scanner,
@@ -92,6 +93,42 @@ class TestManifestLoading:
         assert desc == "AI research pipeline with automatic logging"
         assert tools == []
         assert lic == "MIT"
+
+    def test_load_manifest_tolerates_non_utf8_bytes(self, tmp_path, monkeypatch):
+        skill_md = tmp_path / "SKILL.md"
+        skill_md.write_bytes(
+            b"---\n"
+            b"name: latin-skill\n"
+            b"description: bad byte \x97 should not abort parsing\n"
+            b"license: MIT\n"
+            b"allowed-tools: Read\n"
+            b"---\n"
+        )
+
+        fake_frontmatter = types.SimpleNamespace(load=lambda _path: (_ for _ in ()).throw(UnicodeDecodeError("utf-8", b"\x97", 0, 1, "bad byte")))
+        monkeypatch.setitem(sys.modules, "frontmatter", fake_frontmatter)
+
+        name, desc, tools, lic = _load_manifest(tmp_path)
+
+        assert name == "latin-skill"
+        assert "bad byte" in desc
+        assert tools == ["Read"]
+        assert lic == "MIT"
+
+    def test_load_manifest_uses_markdown_h1_without_frontmatter(self, tmp_path):
+        skill_md = tmp_path / "SKILL.md"
+        skill_md.write_bytes(
+            b"# Social Media Marketing & Lead Generation Specialist\r\n"
+            b"\r\n"
+            b"Overview with Windows dash \x97 still decodes.\r\n"
+        )
+
+        name, desc, tools, lic = _load_manifest(tmp_path)
+
+        assert name == "Social Media Marketing & Lead Generation Specialist"
+        assert desc == ""
+        assert tools == []
+        assert lic is None
 
     def test_missing_skill_md_raises(self, tmp_path):
         with pytest.raises(ValueError, match="SKILL.md not found"):
@@ -351,7 +388,19 @@ class TestVettingPipeline:
         }
         assert any("downgrade blocked" in note for note in result.policy_notes)
 
-    def test_sandbox_flags_are_recorded(self, skill_dir, default_policy):
+    def test_sandbox_flags_are_recorded(self, skill_dir, default_policy, monkeypatch):
+        class FakeRunner:
+            config = SandboxConfig(runtime="docker")
+
+            def run_probe(self, skill_path, entrypoint, args=None):
+                return SandboxResult(
+                    executed=True,
+                    runtime="docker",
+                    entrypoint=entrypoint,
+                    exit_code=0,
+                )
+
+        monkeypatch.setattr("agent_manager.core.vetting.get_sandbox_runner", lambda: FakeRunner())
         pipeline = VettingPipeline(default_policy)
         source = SourceInfo(origin=SkillOrigin.LOCAL)
 
@@ -373,8 +422,10 @@ class TestVettingPipeline:
         assert _normalize_llm_probe_entrypoint(skill_dir, "../escape.py", "tools/check.py") is None
         assert _normalize_llm_probe_entrypoint(skill_dir, "tools/data.txt", "tools/check.py") is None
         assert _normalize_llm_probe_entrypoint(skill_dir, "missing.py", "tools/check.py") is None
+        assert _llm_probe_args_safe(["--query", "select 1"]) is True
+        assert _llm_probe_args_safe(["agent-browser", "open", "https://example.com", "&&", "agent-browser", "snapshot"]) is False
 
-    def test_sandbox_runs_skill_md_command_probe_without_script_entrypoint(self, tmp_path, default_policy, monkeypatch):
+    def test_sandbox_skips_skill_md_command_examples_without_script_entrypoint(self, tmp_path, default_policy, monkeypatch):
         skill_dir = tmp_path / "skill"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text(textwrap.dedent("""\
@@ -387,22 +438,12 @@ class TestVettingPipeline:
             clawdbot --version
             ```
         """), encoding="utf-8")
-        captured = {}
 
         class FakeRunner:
             config = SandboxConfig(runtime="docker")
 
             def run_probe(self, skill_path, entrypoint, args=None):
-                captured["skill_path"] = str(skill_path)
-                captured["entrypoint"] = entrypoint
-                captured["args"] = args or []
-                return SandboxResult(
-                    executed=True,
-                    runtime="docker",
-                    entrypoint=entrypoint,
-                    exit_code=127,
-                    stderr="sh: clawdbot: not found",
-                )
+                raise AssertionError("SKILL.md command examples should not be executed as sandbox probes")
 
         monkeypatch.setattr("agent_manager.core.vetting.get_sandbox_runner", lambda: FakeRunner())
 
@@ -410,6 +451,6 @@ class TestVettingPipeline:
         source = SourceInfo(origin=SkillOrigin.LOCAL)
         result, _violations, _name, _desc, _tools = pipeline.vet(skill_dir, source, use_sandbox=True)
 
-        assert captured["entrypoint"].startswith(".agent-manager-sandbox-probes/")
-        assert result.scan_report["sandbox_analysis"]["probe_cases"][0]["generated_by"] == "skill-md"
-        assert result.scan_report["sandbox_analysis"]["probe_results"][0]["probe_entrypoint"] == captured["entrypoint"]
+        sandbox_analysis = result.scan_report["sandbox_analysis"]
+        assert sandbox_analysis["executed"] is False
+        assert "SKILL.md command examples are not executed" in sandbox_analysis["reason"]

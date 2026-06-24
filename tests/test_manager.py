@@ -121,6 +121,31 @@ class TestApproveReject:
         event = next(item for item in mgr.audit() if item.event_type == "skill_approved")
         assert event.details["manual_policy_override"] is True
 
+    def test_approve_failed_submission_as_manual_exception(self, mgr, skill_dir):
+        entry = mgr.create_pending_submission(skill_dir)
+        failed = mgr.mark_submission_failed(entry.skill_id, "后台分析失败: decode error")
+
+        assert failed.status == SkillStatus.REJECTED
+        assert failed.vetting.scan_report["vetting_failed"] is True
+
+        approved = mgr.approve(entry.skill_id, approver="alice", note="人工确认内容可接受")
+
+        assert approved.status == SkillStatus.APPROVED
+        assert approved.signature is not None
+        event = next(item for item in mgr.audit() if item.event_type == "skill_approved")
+        assert event.details["manual_policy_override"] is True
+
+    def test_approve_legacy_failed_submission_by_rejection_reason(self, mgr, skill_dir):
+        entry = mgr.create_pending_submission(skill_dir)
+        entry.status = SkillStatus.REJECTED
+        entry.rejection_reason = "后台分析失败: Cannot vet skill: decode error"
+        mgr.registry.update(entry)
+
+        approved = mgr.approve(entry.skill_id, approver="alice", note="人工确认内容可接受")
+
+        assert approved.status == SkillStatus.APPROVED
+        assert approved.signature is not None
+
     def test_reject_skill(self, tmp_path, skill_dir):
         policy = CompanyPolicy({"auto_approve_max_risk": "LOW"})
         registry = Registry(data_dir=tmp_path / "reg2")

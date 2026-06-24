@@ -82,6 +82,8 @@ clawdbot --version
     script = (skill_dir / plans[0].entrypoint).read_text(encoding="utf-8")
     assert "clawdhub update --all --dry-run" in script
     assert "clawdbot --version" in script
+    assert 'cd "$(dirname "$0")/.."' in script
+    assert "cd /tmp" not in script
 
 
 def test_get_sandbox_runner_returns_remote_runner_when_configured():
@@ -136,7 +138,50 @@ def test_remote_runner_parses_enveloped_response(tmp_path, monkeypatch):
     assert result.duration_ms == 12
     assert result.risk_level == "LOW"
     assert result.max_severity == "SAFE"
-    assert "未从输出中提取到明确风险信号" in result.summary
+    assert "未提取到明确运行时风险信号" in result.summary
+
+
+def test_remote_runner_sends_skill_files_for_local_package_imports(tmp_path, monkeypatch):
+    skill_dir = tmp_path / "skill"
+    scripts_dir = skill_dir / "scripts"
+    scripts_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: demo\ndescription: d\n---\n", encoding="utf-8")
+    (scripts_dir / "__init__.py").write_text("", encoding="utf-8")
+    (scripts_dir / "helper.py").write_text("VALUE = 'ok'\n", encoding="utf-8")
+    (scripts_dir / "run.py").write_text("from scripts.helper import VALUE\nprint(VALUE)\n", encoding="utf-8")
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "code": 0,
+                "message": "success",
+                "data": {
+                    "stdout": "ok",
+                    "stderr": "",
+                    "exit_code": 0,
+                    "duration_ms": 12,
+                },
+            }
+
+    def fake_post(*args, **kwargs):
+        captured["json"] = kwargs["json"]
+        return FakeResponse()
+
+    monkeypatch.setattr("agent_manager.core.sandbox.httpx.post", fake_post)
+
+    runner = RemoteSandboxRunner(SandboxConfig(runtime="remote", remote_url="http://sandbox.local"))
+    result = runner.run_probe(skill_dir, "scripts/run.py")
+
+    sent_files = {item["path"]: item["content"] for item in captured["json"]["files"]}
+    assert result.executed is True
+    assert captured["json"]["metadata"]["execute_entrypoint"] is True
+    assert captured["json"]["metadata"]["entrypoint"] == "scripts/run.py"
+    assert "scripts/helper.py" in sent_files
+    assert "scripts/__init__.py" in sent_files
 
 
 def test_remote_runner_parses_flat_response(tmp_path, monkeypatch):
@@ -172,7 +217,7 @@ def test_remote_runner_parses_flat_response(tmp_path, monkeypatch):
     assert result.recommendation
 
 
-def test_remote_runner_extracts_dependency_and_network_signals(tmp_path, monkeypatch):
+def test_remote_runner_extracts_network_signal_without_dependency_noise(tmp_path, monkeypatch):
     skill_dir = tmp_path / "skill"
     scripts_dir = skill_dir / "scripts"
     scripts_dir.mkdir(parents=True)
@@ -186,7 +231,7 @@ def test_remote_runner_extracts_dependency_and_network_signals(tmp_path, monkeyp
         def json(self):
             return {
                 "stdout": "",
-                "stderr": "ModuleNotFoundError: No module named 'requests'\nrequests.post('https://evil.example.com')",
+                "stderr": "ModuleNotFoundError: No module named 'requests'\nnetwork failure for https://evil.example.com",
                 "exit_code": 1,
                 "duration_ms": 20,
                 "message": "failed",
@@ -200,5 +245,100 @@ def test_remote_runner_extracts_dependency_and_network_signals(tmp_path, monkeyp
     assert result.executed is True
     assert result.risk_level == "HIGH"
     assert result.max_severity == "HIGH"
-    assert any(event.category == "dependency" for event in result.signals)
+    assert not any(event.category == "dependency" for event in result.signals)
     assert any(event.category == "network" for event in result.signals)
+
+
+def test_missing_module_output_is_not_runtime_risk(tmp_path, monkeypatch):
+    skill_dir = tmp_path / "skill"
+    scripts_dir = skill_dir / "scripts"
+    scripts_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: demo\ndescription: d\n---\n", encoding="utf-8")
+    (scripts_dir / "run.py").write_text("print('ok')\n", encoding="utf-8")
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "stdout": "",
+                "stderr": "ModuleNotFoundError: No module named 'scripts'",
+                "exit_code": 1,
+                "duration_ms": 20,
+                "message": "failed",
+            }
+
+    monkeypatch.setattr("agent_manager.core.sandbox.httpx.post", lambda *args, **kwargs: FakeResponse())
+
+    runner = RemoteSandboxRunner(SandboxConfig(runtime="remote", remote_url="http://sandbox.local"))
+    result = runner.run_probe(skill_dir, "scripts/run.py")
+
+    assert result.risk_level == "LOW"
+    assert result.max_severity == "SAFE"
+    assert not result.signals
+    assert "未提取到明确运行时风险信号" in result.summary
+
+
+def test_stdout_keyword_does_not_create_sandbox_risk_signal(tmp_path, monkeypatch):
+    skill_dir = tmp_path / "skill"
+    scripts_dir = skill_dir / "scripts"
+    scripts_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: demo\ndescription: d\n---\n", encoding="utf-8")
+    (scripts_dir / "run.py").write_text("print('ok')\n", encoding="utf-8")
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "stdout": "eval",
+                "stderr": "",
+                "exit_code": 0,
+                "duration_ms": 20,
+                "message": "ok",
+            }
+
+    monkeypatch.setattr("agent_manager.core.sandbox.httpx.post", lambda *args, **kwargs: FakeResponse())
+
+    runner = RemoteSandboxRunner(SandboxConfig(runtime="remote", remote_url="http://sandbox.local"))
+    result = runner.run_probe(skill_dir, "scripts/run.py")
+
+    assert result.risk_level == "LOW"
+    assert result.max_severity == "SAFE"
+    assert not result.signals
+    assert "未提取到明确运行时风险信号" in result.summary
+
+
+def test_remote_runner_treats_missing_probe_input_as_info(tmp_path, monkeypatch):
+    skill_dir = tmp_path / "skill"
+    scripts_dir = skill_dir / "scripts"
+    scripts_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: demo\ndescription: d\n---\n", encoding="utf-8")
+    (scripts_dir / "run.py").write_text("print('ok')\n", encoding="utf-8")
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "stdout": "",
+                "stderr": "/tmp/sandbox/main.sh: 5: cannot open path-to-trigger-eval.json: No such file",
+                "exit_code": 2,
+                "duration_ms": 20,
+                "message": "failed",
+            }
+
+    monkeypatch.setattr("agent_manager.core.sandbox.httpx.post", lambda *args, **kwargs: FakeResponse())
+
+    runner = RemoteSandboxRunner(SandboxConfig(runtime="remote", remote_url="http://sandbox.local"))
+    result = runner.run_probe(skill_dir, "scripts/run.py")
+
+    assert result.executed is True
+    assert result.risk_level == "LOW"
+    assert result.max_severity == "INFO"
+    assert any(event.category == "probe_input" for event in result.signals)
+    assert not any(event.category == "runtime" for event in result.signals)
+    assert "示例输入文件不存在" in result.summary

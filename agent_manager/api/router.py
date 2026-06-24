@@ -23,6 +23,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from agent_manager.core.llm import LLMConfig
@@ -31,8 +32,9 @@ from agent_manager.core.models import SkillStatus, SourceInfo, SkillOrigin
 from agent_manager.core.prompt_models import PromptStatus
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.registry import Registry
-from agent_manager.core.sandbox import SandboxConfig, get_sandbox_runner
+from agent_manager.core.sandbox import SandboxConfig, SandboxConnectionTest, test_sandbox_connection
 from agent_manager.core.skillspector import get_skillspector_version, is_skillspector_available
+from agent_manager.core.text_reader import read_text_fallback
 from agent_manager.core.vetting import _load_manifest
 
 router = APIRouter(tags=["agent-manager"])
@@ -465,6 +467,8 @@ class SystemStatusResponse(BaseModel):
     sandbox_enabled: bool
     sandbox_available: bool
     sandbox_runtime: str
+    sandbox_target: str | None = None
+    sandbox_status_message: str | None = None
     hooks_available: bool
     llm_enabled: bool
     llm_provider: str
@@ -533,6 +537,14 @@ class SandboxConfigResponse(BaseModel):
     remote_api_key_masked: str | None = None
 
 
+class SandboxConnectionTestResponse(BaseModel):
+    available: bool
+    runtime: str
+    target: str | None = None
+    message: str
+    duration_ms: int | None = None
+
+
 class SandboxImagesResponse(BaseModel):
     images: list[str]
 
@@ -553,6 +565,7 @@ class SkillContentResponse(BaseModel):
     skill_name: str
     manifest_path: str
     content: str
+    encoding: str | None = None
 
 
 class SkillFileEntry(BaseModel):
@@ -575,6 +588,7 @@ class SkillFileContentResponse(BaseModel):
     path: str
     absolute_path: str
     content: str
+    encoding: str | None = None
 
 
 class GovernanceCardResponse(BaseModel):
@@ -650,9 +664,7 @@ def get_sandbox_config():
     return SandboxConfigResponse(**public)
 
 
-@router.put("/sandbox-config", response_model=SandboxConfigResponse)
-def update_sandbox_config(body: SandboxConfigPayload):
-    current = SandboxConfig.load()
+def _sandbox_config_from_payload(body: SandboxConfigPayload, current: SandboxConfig) -> SandboxConfig:
     data = body.model_dump()
     clear_remote_api_key = data.pop("clear_remote_api_key", False)
     incoming_api_key = data.pop("remote_api_key", None)
@@ -663,12 +675,25 @@ def update_sandbox_config(body: SandboxConfigPayload):
         merged["remote_api_key"] = incoming_api_key
     else:
         merged["remote_api_key"] = current.remote_api_key
+    return SandboxConfig.model_validate(merged)
 
-    config = SandboxConfig.model_validate(merged)
+
+@router.put("/sandbox-config", response_model=SandboxConfigResponse)
+def update_sandbox_config(body: SandboxConfigPayload):
+    current = SandboxConfig.load()
+    config = _sandbox_config_from_payload(body, current)
     path = config.save()
     public = config.public_dict()
     public["config_path"] = str(path)
     return SandboxConfigResponse(**public)
+
+
+@router.post("/sandbox-config/test", response_model=SandboxConnectionTestResponse)
+def test_sandbox_config(body: SandboxConfigPayload):
+    current = SandboxConfig.load()
+    config = _sandbox_config_from_payload(body, current)
+    result = test_sandbox_connection(config, timeout_seconds=3)
+    return SandboxConnectionTestResponse(**result.model_dump())
 
 
 @router.get("/sandbox-images", response_model=SandboxImagesResponse)
@@ -709,9 +734,11 @@ def get_system_status():
     registry = Registry(mgr.registry.data_dir)
     llm_config = LLMConfig.load()
     sandbox_config = SandboxConfig.load()
-    sandbox_runner = get_sandbox_runner(sandbox_config)
     sandbox_enabled = sandbox_config.enabled
-    sandbox_available = sandbox_enabled and sandbox_runner.is_available()
+    sandbox_status: SandboxConnectionTest | None = None
+    if sandbox_enabled:
+        sandbox_status = test_sandbox_connection(sandbox_config, timeout_seconds=2)
+    sandbox_available = bool(sandbox_status and sandbox_status.available)
     scanner_available = importlib.util.find_spec("skill_scanner") is not None
     skillspector_available = is_skillspector_available()
     skillspector_version = get_skillspector_version() if skillspector_available else None
@@ -738,6 +765,8 @@ def get_system_status():
         sandbox_enabled=sandbox_enabled,
         sandbox_available=sandbox_available,
         sandbox_runtime=sandbox_config.runtime,
+        sandbox_target=sandbox_status.target if sandbox_status else None,
+        sandbox_status_message=sandbox_status.message if sandbox_status else "Sandbox 未启用",
         hooks_available=(Path(__file__).resolve().parent.parent / "hooks" / "agent_hook.py").exists(),
         llm_enabled=llm_config.enabled,
         llm_provider=llm_config.provider,
@@ -1366,7 +1395,7 @@ def get_skill_content(skill_id_or_name: str, mgr: AgentManager = Depends(get_man
         raise HTTPException(status_code=404, detail="SKILL.md not found")
 
     try:
-        content = manifest_path.read_text(encoding="utf-8")
+        content, encoding = read_text_fallback(manifest_path)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to read SKILL.md: {exc}") from exc
 
@@ -1375,6 +1404,7 @@ def get_skill_content(skill_id_or_name: str, mgr: AgentManager = Depends(get_man
         skill_name=entry.name,
         manifest_path=str(manifest_path),
         content=content,
+        encoding=encoding,
     )
 
 
@@ -1435,9 +1465,7 @@ def get_skill_file_content(
         raise HTTPException(status_code=404, detail="File not found")
 
     try:
-        content = requested.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="File is not a UTF-8 text file")
+        content, encoding = read_text_fallback(requested)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to read file: {exc}") from exc
 
@@ -1447,6 +1475,52 @@ def get_skill_file_content(
         path=path,
         absolute_path=str(requested),
         content=content,
+        encoding=encoding,
+    )
+
+
+@router.get("/skills/{skill_id_or_name}/download")
+def download_skill_archive(
+    skill_id_or_name: str,
+    background_tasks: BackgroundTasks,
+    mgr: AgentManager = Depends(get_manager),
+):
+    entry = mgr.get_skill(skill_id_or_name)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    if not entry.skill_path:
+        raise HTTPException(status_code=400, detail="Skill path is not available")
+
+    skill_root = Path(entry.skill_path).resolve()
+    if not skill_root.exists() or not skill_root.is_dir():
+        raise HTTPException(status_code=404, detail="Skill directory not found")
+
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", entry.name or entry.skill_id).strip("-") or "skill"
+    tmp = tempfile.NamedTemporaryFile(prefix=f"{safe_name}-", suffix=".zip", delete=False)
+    tmp_path = Path(tmp.name)
+    tmp.close()
+    try:
+        with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(skill_root.rglob("*")):
+                if not path.is_file():
+                    continue
+                resolved = path.resolve()
+                try:
+                    rel = resolved.relative_to(skill_root)
+                except ValueError:
+                    continue
+                if any(part in {".git", ".venv", "node_modules", "__pycache__"} for part in rel.parts):
+                    continue
+                archive.write(resolved, rel.as_posix())
+    except Exception as exc:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Failed to package Skill: {exc}") from exc
+
+    background_tasks.add_task(tmp_path.unlink, missing_ok=True)
+    return FileResponse(
+        path=tmp_path,
+        filename=f"{safe_name}.zip",
+        media_type="application/zip",
     )
 
 

@@ -90,20 +90,6 @@
                     >
                       {{ actionKey === `rescan:${record.skill_id}` ? '重新检测中...' : '重新检测' }}
                     </a-menu-item>
-                    <a-menu-item
-                      v-if="record.status === 'APPROVED'"
-                      :disabled="Boolean(actionKey)"
-                      @click="handleDeploy(record)"
-                    >
-                      {{ actionKey === `deploy:${record.skill_id}` ? '部署中...' : '标记部署' }}
-                    </a-menu-item>
-                    <a-menu-item
-                      v-if="record.status === 'DEPLOYED'"
-                      :disabled="Boolean(actionKey)"
-                      @click="openRetireModal(record)"
-                    >
-                      退役
-                    </a-menu-item>
                     <a-menu-divider />
                     <a-menu-item
                       danger
@@ -121,23 +107,6 @@
       </a-table>
     </a-card>
 
-    <a-modal
-      v-model:open="retireModalOpen"
-      title="退役 Skill"
-      ok-text="确认退役"
-      cancel-text="取消"
-      :confirm-loading="actionKey === `retire:${selectedRecord?.skill_id}`"
-      @ok="submitRetire"
-    >
-      <a-form layout="vertical">
-        <a-form-item label="Skill">
-          <a-input :value="selectedRecord?.name || ''" disabled />
-        </a-form-item>
-        <a-form-item label="退役原因" required>
-          <a-textarea v-model:value="retireReason" :rows="4" placeholder="请输入退役原因" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
   </div>
 </template>
 
@@ -146,7 +115,7 @@ import { onMounted, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { DownOutlined } from '@ant-design/icons-vue'
 
-import { deleteSkill, deploySkill, listSkillsPaged, rescanSkill, retireSkill } from '../api'
+import { deleteSkill, listSkillsPaged, rescanSkill } from '../api'
 import { formatDateTime } from '../utils/format'
 
 const keyword = ref('')
@@ -157,9 +126,6 @@ const loading = ref(false)
 const actionKey = ref('')
 const rows = ref([])
 const total = ref(0)
-const selectedRecord = ref(null)
-const retireModalOpen = ref(false)
-const retireReason = ref('')
 const sortState = ref({ field: 'updated_at', order: 'descend' })
 const pagination = ref({
   current: 1,
@@ -276,47 +242,6 @@ const handleRescan = async (record) => {
     fetchSkills()
   } catch (error) {
     message.error(error.response?.data?.detail || '重新检测失败')
-  } finally {
-    actionKey.value = ''
-  }
-}
-
-const handleDeploy = async (record) => {
-  actionKey.value = `deploy:${record.skill_id}`
-  try {
-    await deploySkill(record.skill_id)
-    message.success(`已标记部署：${record.name}`)
-    fetchSkills()
-  } catch (error) {
-    message.error(error.response?.data?.detail || '部署失败')
-  } finally {
-    actionKey.value = ''
-  }
-}
-
-const currentUser = () => localStorage.getItem('username') || 'admin'
-
-const openRetireModal = (record) => {
-  selectedRecord.value = record
-  retireReason.value = ''
-  retireModalOpen.value = true
-}
-
-const submitRetire = async () => {
-  if (!selectedRecord.value) return
-  const reason = retireReason.value.trim()
-  if (!reason) {
-    message.warning('请输入退役原因')
-    return
-  }
-  actionKey.value = `retire:${selectedRecord.value.skill_id}`
-  try {
-    await retireSkill(selectedRecord.value.skill_id, { actor: currentUser(), reason })
-    message.success(`已退役：${selectedRecord.value.name}`)
-    retireModalOpen.value = false
-    fetchSkills()
-  } catch (error) {
-    message.error(error.response?.data?.detail || '退役失败')
   } finally {
     actionKey.value = ''
   }
