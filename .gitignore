@@ -23,8 +23,9 @@ document/
 *.log
 scanner/.gocache/
 scanner/skill-scanner
-scanner/releases/skill-scanner-*
-scanner/releases/
+scanner/releases/skill-scan-report*
+scanner/releases/skill-scan-report-packages/
+scanner/releases/*/
 docker_images/
 test_data/
 CLAUDE.md
