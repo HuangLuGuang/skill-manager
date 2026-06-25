@@ -247,11 +247,12 @@
         description="能力治理 → 智能体管理 → 凭证管理 → 接入与运行 → 审计追踪。扫描器负责把本地 Skill 批量接入平台；Agent Skill Guard 负责运行时加载前完整性校验。"
       />
       <a-card size="small" title="模型网关接入" class="flow-gateway-card">
-        <a-steps size="small" :current="3">
+        <a-steps size="small" :current="4">
           <a-step title="配置供应商" description="维护上游模型地址和密钥" />
           <a-step title="添加模型" description="对外暴露可选模型列表" />
           <a-step title="绑定组策略" description="按用户组应用隐私策略" />
           <a-step title="签发凭证" description="模型调用或 Agent 凭证勾选 model:chat" />
+          <a-step title="修改模型配置" description="将 Agent/SDK 的大模型 API 地址改为平台网关地址，使用已签发凭证调用" />
         </a-steps>
       </a-card>
       <a-space class="flow-actions" wrap>
