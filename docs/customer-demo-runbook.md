@@ -278,12 +278,12 @@ Sandbox 是动态试跑，不是唯一裁判。
 
 ## 4. 扫描器接入演示
 
-### 4.1 创建 Scanner Token
+### 4.1 创建 Scanner 接入凭证
 
 管理台进入：
 
 ```text
-扫描器接入 -> Scanner Token -> 创建 Token
+智能体治理 -> 凭证管理 -> 创建凭证 -> Scanner 接入凭证
 ```
 
 建议参数：
@@ -295,12 +295,12 @@ Sandbox 是动态试跑，不是唯一裁判。
 权限：scanner:submit, scanner:read-own-results, scanner:read-own-sessions
 ```
 
-复制 token，关闭后不能再次查看。
+复制凭证明文，关闭后不能再次查看。
 
 讲解话术：
 
 ```text
-Scanner Token 是客户侧最小权限凭证。
+Scanner 接入凭证是客户侧最小权限凭证。
 它只能提交 skill 和读取自己提交的结果，不能审批、部署、改策略、管用户。
 服务端只保存 hash，泄露后吊销重建。
 ```
@@ -322,7 +322,7 @@ go build -o skill-scanner ./cmd/skill-scanner
 ```bash
 cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
 
-export AGENT_MANAGER_TOKEN="smsc_live_xxx"
+export AGENT_MANAGER_TOKEN="amat_xxx"
 export SKILL_SCANNER_HOST_ID="customer-demo-host"
 
 ./skill-scanner scan /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills \

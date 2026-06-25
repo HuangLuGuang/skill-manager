@@ -40,6 +40,16 @@ def _client(tmp_path, monkeypatch, *, max_body_kb: int = 1024, max_concurrent_re
             mapping_ttl_days=7,
         )
     )
+    db.add(
+        models.ManagedAgent(
+            agent_id="risk-agent",
+            name="风险智能体",
+            status="active",
+            default_model="mock-model",
+            skill_names_json="[]",
+            prompt_names_json="[]",
+        )
+    )
     db.commit()
     db.close()
 
@@ -102,6 +112,56 @@ def test_chat_completions_pseudonymizes_and_saves_trace(tmp_path, monkeypatch):
         meta_payload = llm_gateway._json_loads(meta.payload_json, {})
         assert meta_payload["api_key_id"] == audit.api_key_id
         assert meta_payload["api_key_name"] == "customer-key"
+    finally:
+        db.close()
+
+
+def test_create_and_update_user_can_assign_groups(tmp_path, monkeypatch):
+    client, _token, session_factory = _client(tmp_path, monkeypatch)
+
+    db = session_factory()
+    try:
+        group_a = models.UserGroup(name="风控部")
+        group_b = models.UserGroup(name="客服部")
+        db.add_all([
+            group_a,
+            group_b,
+            models.User(username="admin-user", email="admin-user@example.com", hashed_password="x", role="super_admin"),
+        ])
+        db.commit()
+        db.refresh(group_a)
+        db.refresh(group_b)
+    finally:
+        db.close()
+    headers = {"Authorization": f"Bearer {auth.create_access_token({'sub': 'admin-user'})}"}
+
+    created = client.post(
+        "/v1/users",
+        headers=headers,
+        json={
+            "username": "agent-owner",
+            "email": "agent-owner@example.com",
+            "password": "Password123",
+            "role": "admin",
+            "group_ids": [group_a.id],
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["group_ids"] == [group_a.id]
+
+    users = client.get("/v1/users", headers=headers)
+    assert users.status_code == 200
+    user_row = next(row for row in users.json() if row["username"] == "agent-owner")
+    assert user_row["group_ids"] == [group_a.id]
+
+    updated = client.put(f"/v1/users/{user_row['id']}", headers=headers, json={"group_ids": [group_b.id]})
+    assert updated.status_code == 200
+    assert updated.json()["group_ids"] == [group_b.id]
+
+    db = session_factory()
+    try:
+        memberships = db.query(models.UserGroupMember).filter(models.UserGroupMember.user_id == user_row["id"]).all()
+        assert [membership.group_id for membership in memberships] == [group_b.id]
     finally:
         db.close()
 
@@ -170,6 +230,73 @@ def test_api_key_cannot_use_unlisted_model(tmp_path, monkeypatch):
     )
 
     assert response.status_code == 403
+
+
+def test_access_token_without_model_chat_cannot_call_model_gateway(tmp_path, monkeypatch):
+    client, _token, session_factory = _client(tmp_path, monkeypatch)
+
+    db = session_factory()
+    try:
+        raw = "amat_runtime_only"
+        db.add(
+            models.AccessToken(
+                name="runtime-only",
+                token_type="agent_runtime",
+                token_hash=llm_gateway._hash_token(raw),
+                token_prefix=raw[:12],
+                bound_agent_id="risk-agent",
+                scopes_json='["runtime:can-load"]',
+                allowed_models_json='["mock-model"]',
+                allowed_ips_json="[]",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": "Bearer amat_runtime_only"},
+        json={"model": "mock-model", "messages": [{"role": "user", "content": "hello"}]},
+    )
+
+    assert response.status_code == 403
+    assert "model:chat" in response.json()["detail"]
+
+
+def test_agent_access_token_with_model_chat_can_use_agent_default_model(tmp_path, monkeypatch):
+    client, _token, session_factory = _client(tmp_path, monkeypatch)
+
+    db = session_factory()
+    try:
+        raw = "amat_model_chat"
+        db.add(
+            models.AccessToken(
+                name="risk-agent-model",
+                token_type="agent_runtime",
+                token_hash=llm_gateway._hash_token(raw),
+                token_prefix=raw[:12],
+                bound_agent_id="risk-agent",
+                scopes_json='["runtime:can-load","model:chat"]',
+                allowed_models_json="[]",
+                allowed_ips_json="[]",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": "Bearer amat_model_chat"},
+        json={
+            "messages": [{"role": "user", "content": "Jane email is jane@example.com"}],
+            "metadata": {"tenant_id": "tenant-a", "user_id": "risk-agent"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["model"] == "mock-model"
 
 
 def test_unknown_chat_completion_fields_are_rejected(tmp_path, monkeypatch):

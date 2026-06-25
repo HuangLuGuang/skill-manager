@@ -1,13 +1,13 @@
 <template>
   <div>
-    <a-page-header title="提交技能" sub-title="支持 ZIP 上传、本地目录导入、远程压缩包/GitHub 仓库导入和 ClawHub 导入" />
+    <a-page-header title="提交技能" sub-title="支持 ZIP 上传、远程压缩包/GitHub 仓库导入和 ClawHub 导入" />
 
     <a-card style="margin-top: 16px">
       <a-alert
         type="info"
         show-icon
         message="提交说明"
-        description="你可以上传 ZIP、从后台指定目录中多选 skill 导入，或填写 ZIP 下载地址 / GitHub 仓库地址先下载候选技能，再多选提交。ZIP 选择或拖拽后会自动解析；来源会根据导入方式自动填充，提交后会先进入 PENDING，再由后台继续完成扫描、LLM、规则分析和 Sandbox。"
+        description="你可以上传 ZIP，或填写 ZIP 下载地址 / GitHub 仓库地址先下载候选技能，再多选提交。ZIP 选择或拖拽后会自动解析；来源会根据导入方式自动填充，提交后会先进入 PENDING，再由后台继续完成扫描、LLM、规则分析和 Sandbox。"
         style="margin-bottom: 16px"
       />
 
@@ -88,6 +88,9 @@
                 <a-tooltip :title="behavioralTooltip">
                   <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
                 </a-tooltip>
+                <a-tooltip :title="deepScanTooltip">
+                  <span><a-checkbox v-model:checked="formState.useSkillspector" :disabled="!deepScanReadyForSubmit">启动深度扫描</a-checkbox></span>
+                </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
                   <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
                 </a-tooltip>
@@ -115,7 +118,7 @@
           </a-form>
         </a-tab-pane>
 
-        <a-tab-pane key="local" tab="本地目录导入">
+        <a-tab-pane v-if="showLocalImport" key="local" tab="本地目录导入">
           <a-space style="margin-bottom: 12px" wrap>
             <a-button
               @click="fetchLocalCandidates"
@@ -174,6 +177,9 @@
               <a-space wrap>
                 <a-tooltip :title="behavioralTooltip">
                   <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
+                </a-tooltip>
+                <a-tooltip :title="deepScanTooltip">
+                  <span><a-checkbox v-model:checked="formState.useSkillspector" :disabled="!deepScanReadyForSubmit">启动深度扫描</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
                   <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
@@ -256,6 +262,9 @@
                 <a-tooltip :title="behavioralTooltip">
                   <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
                 </a-tooltip>
+                <a-tooltip :title="deepScanTooltip">
+                  <span><a-checkbox v-model:checked="formState.useSkillspector" :disabled="!deepScanReadyForSubmit">启动深度扫描</a-checkbox></span>
+                </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
                   <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
                 </a-tooltip>
@@ -324,6 +333,9 @@
               <a-space wrap>
                 <a-tooltip :title="behavioralTooltip">
                   <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
+                </a-tooltip>
+                <a-tooltip :title="deepScanTooltip">
+                  <span><a-checkbox v-model:checked="formState.useSkillspector" :disabled="!deepScanReadyForSubmit">启动深度扫描</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
                   <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
@@ -416,6 +428,7 @@ import {
 
 const router = useRouter()
 const submitMode = ref('zip')
+const showLocalImport = false
 const submitting = ref(false)
 const loadingSystemStatus = ref(false)
 const loadingLocalCandidates = ref(false)
@@ -446,6 +459,7 @@ const currentUsername = localStorage.getItem('username') || 'admin'
 
 const formState = reactive({
   useBehavioral: true,
+  useSkillspector: false,
   useSandbox: false,
   useLlm: false,
   noCache: false,
@@ -595,17 +609,25 @@ const resultColumns = [
 ]
 
 const llmEnabledInSystem = computed(() => Boolean(managerStatus.value?.llm_enabled))
-const llmReadyForSubmit = computed(() => Boolean(managerStatus.value?.llm_enabled && managerStatus.value?.llm_api_key_configured))
+const llmReadyForSubmit = computed(() => Boolean(managerStatus.value?.llm_enabled && managerStatus.value?.llm_model))
 const sandboxEnabledInSystem = computed(() => Boolean(managerStatus.value?.sandbox_enabled))
 const sandboxReadyForSubmit = computed(() => Boolean(managerStatus.value?.sandbox_enabled && managerStatus.value?.sandbox_available))
+const deepScanReadyForSubmit = computed(() => Boolean(managerStatus.value?.skillspector_available))
 const llmTooltip = computed(() => {
   if (loadingSystemStatus.value) return '正在读取系统设置中的 LLM 状态'
   if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return '尚未获取系统设置，请稍后重试'
   if (!llmEnabledInSystem.value) return '系统设置里没有启用 LLM 分析，所以这里不能勾选'
-  if (!managerStatus.value?.llm_api_key_configured) return '系统设置里尚未配置直连 LLM API Key，所以这里不能勾选'
-  return '启用后会调用系统设置里的 OpenAI-compatible 配置；服务端也可配置模型网关隐私代理'
+  if (!managerStatus.value?.llm_model) return '策略配置里尚未选择模型网关模型，所以这里不能勾选'
+  return `启用后会使用策略配置中选择的模型：${managerStatus.value.llm_model}`
 })
 const behavioralTooltip = '默认已启动。会额外扫描 scripts、references、prompts 等目录中的文本代码文件，检测命令执行、敏感文件访问、动态执行等可疑模式'
+const deepScanTooltip = computed(() => {
+  if (loadingSystemStatus.value) return '正在读取深度扫描状态'
+  if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return '尚未获取系统状态，请稍后重试'
+  if (!managerStatus.value?.skillspector_available) return '当前运行环境不可用，请先检查服务安装状态'
+  if (llmReadyForSubmit.value) return '启用后会执行深度扫描，并自动使用当前 LLM 配置增强分析'
+  return '启用后会执行深度扫描；当前未配置 LLM，因此只运行基础深度扫描'
+})
 const sandboxTooltip = computed(() => {
   if (loadingSystemStatus.value) return '正在读取系统设置中的 Sandbox 状态'
   if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return '尚未获取系统设置，请稍后重试'
@@ -623,10 +645,12 @@ const fetchSystemStatus = async () => {
     managerStatus.value = await getAgentManagerSystemStatus()
     if (!llmReadyForSubmit.value) formState.useLlm = false
     if (!sandboxReadyForSubmit.value) formState.useSandbox = false
+    if (!deepScanReadyForSubmit.value) formState.useSkillspector = false
   } catch (_error) {
     managerStatus.value = {}
     formState.useLlm = false
     formState.useSandbox = false
+    formState.useSkillspector = false
   } finally {
     loadingSystemStatus.value = false
   }
@@ -778,6 +802,7 @@ const handleZipSubmit = async () => {
       author: currentUsername,
       origin: 'local',
       use_behavioral: formState.useBehavioral,
+      use_skillspector: formState.useSkillspector,
       use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
       no_cache: formState.noCache,
@@ -855,6 +880,7 @@ const handleLocalSubmit = async () => {
       author: currentUsername,
       origin: 'local',
       use_behavioral: formState.useBehavioral,
+      use_skillspector: formState.useSkillspector,
       use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
       no_cache: formState.noCache,
@@ -967,6 +993,7 @@ const handleUrlSubmit = async () => {
       author: currentUsername,
       origin: inferRemoteOrigin(downloadUrl.value.trim()),
       use_behavioral: formState.useBehavioral,
+      use_skillspector: formState.useSkillspector,
       use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
       no_cache: formState.noCache,
@@ -1036,6 +1063,7 @@ const handleClawHubSubmit = async () => {
       token: clawhubToken.value.trim() || null,
       author: currentUsername,
       use_behavioral: formState.useBehavioral,
+      use_skillspector: formState.useSkillspector,
       use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
       no_cache: formState.noCache,

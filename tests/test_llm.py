@@ -1,6 +1,6 @@
 import json
 
-from agent_manager.core.llm import LLMConfig, generate_sandbox_probes_with_llm
+from agent_manager.core.llm import LLMConfig, _build_skill_snapshot, generate_sandbox_probes_with_llm
 
 
 def test_generate_sandbox_probes_accepts_entrypoint_from_skill_md(tmp_path, monkeypatch):
@@ -62,3 +62,17 @@ python tools/check.py --target /tmp/input.txt --dry-run
     assert len(plan.probes) == 1
     assert plan.probes[0].entrypoint == "tools/check.py"
     assert plan.probes[0].args == ["--target", "/tmp/input.txt", "--dry-run"]
+
+
+def test_skill_snapshot_tolerates_non_utf8_manifest(tmp_path):
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_bytes(
+        b"# Social Media Marketing\r\n\r\n"
+        b"Copy with Windows dash \x97 should not abort LLM analysis.\r\n"
+    )
+
+    snapshot = _build_skill_snapshot(skill_dir, LLMConfig())
+
+    assert "Social Media Marketing" in snapshot
+    assert "should not abort LLM analysis" in snapshot

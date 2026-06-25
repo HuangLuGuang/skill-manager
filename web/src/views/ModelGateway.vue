@@ -1,8 +1,8 @@
 <template>
   <div>
-    <a-page-header title="模型网关" sub-title="管理供应商、模型、API Key、用户组和隐私策略" />
+    <a-page-header :title="pageTitle" :sub-title="pageSubtitle" />
 
-    <a-row :gutter="[16, 16]" style="margin-top: 16px">
+    <a-row v-if="activeTab !== 'users-groups'" :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24" :md="8">
         <a-statistic title="请求数（DP保护）" :value="stats.total_requests ?? '低于阈值'" />
       </a-col>
@@ -57,8 +57,17 @@
       <section v-if="activeTab === 'models'">
         <a-card>
           <template #extra>
-            <a-button type="primary" @click="openModel()">新增模型</a-button>
+            <a-space>
+              <a-button @click="router.push('/credentials')">前往凭证管理</a-button>
+              <a-button type="primary" @click="openModel()">新增模型</a-button>
+            </a-space>
           </template>
+          <a-alert
+            type="info"
+            show-icon
+            message="模型调用凭证请在“凭证管理”中创建。"
+            style="margin-bottom: 16px"
+          />
           <a-table :data-source="models" :columns="modelColumns" row-key="id" :loading="loading" size="small">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'enabled'">
@@ -81,9 +90,15 @@
       <section v-if="activeTab === 'keys'">
         <a-card>
           <template #extra>
-            <a-button type="primary" @click="openKey">创建 API Key</a-button>
+            <a-button type="primary" @click="router.push('/credentials')">前往凭证管理</a-button>
           </template>
-          <a-alert type="warning" show-icon message="API Key 明文只展示一次，服务端只保存 hash。" style="margin-bottom: 16px" />
+          <a-alert
+            type="info"
+            show-icon
+            message="模型调用凭证统一在“凭证管理”中创建"
+            description="本页仅保留历史 API Key 查看、吊销和删除能力。新建模型调用凭证请进入“凭证管理”，类型选择“模型调用凭证”。"
+            style="margin-bottom: 16px"
+          />
           <a-table :data-source="apiKeys" :columns="keyColumns" row-key="id" :loading="loading" size="small">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'status'">
@@ -105,10 +120,10 @@
               <template v-else-if="column.key === 'action'">
                 <a-space>
                   <a-button type="link" @click="openKey(record)">编辑</a-button>
-                  <a-popconfirm v-if="record.status === 'active'" title="确认吊销这个 API Key？" @confirm="handleRevokeKey(record)">
+                  <a-popconfirm v-if="record.status === 'active'" title="确认吊销这个历史模型调用凭证？" @confirm="handleRevokeKey(record)">
                     <a-button type="link" danger>吊销</a-button>
                   </a-popconfirm>
-                  <a-popconfirm title="确认删除这个 API Key 记录？" @confirm="handleDeleteKey(record)">
+                  <a-popconfirm title="确认删除这个历史模型调用凭证记录？" @confirm="handleDeleteKey(record)">
                     <a-button type="link" danger>删除</a-button>
                   </a-popconfirm>
                 </a-space>
@@ -118,7 +133,7 @@
         </a-card>
       </section>
 
-      <section v-if="activeTab === 'groups'">
+      <section v-if="activeTab === 'users-groups'">
         <a-row :gutter="[16, 16]">
           <a-col :xs="24" :xl="12">
             <a-card title="用户">
@@ -129,6 +144,12 @@
                 <template #bodyCell="{ column, record }">
                   <template v-if="column.key === 'active'">
                     <a-tag :color="record.is_active ? 'green' : 'default'">{{ record.is_active ? '启用' : '禁用' }}</a-tag>
+                  </template>
+                  <template v-else-if="column.key === 'groups'">
+                    <a-space wrap>
+                      <a-tag v-for="groupId in record.group_ids || []" :key="groupId">{{ groupNameMap.get(groupId) || groupId }}</a-tag>
+                      <span v-if="!record.group_ids?.length" class="muted">未分组</span>
+                    </a-space>
                   </template>
                   <template v-else-if="column.key === 'action'">
                     <a-button type="link" @click="openUser(record)">编辑</a-button>
@@ -158,6 +179,39 @@
             </a-card>
           </a-col>
         </a-row>
+      </section>
+
+      <section v-if="activeTab === 'policy-bindings'">
+        <a-card title="用户组与隐私策略绑定">
+          <template #extra>
+            <a-space>
+              <a-button @click="loadAll" :loading="loading">刷新</a-button>
+              <a-button type="primary" @click="openPolicy()">新增 / 更新隐私策略</a-button>
+            </a-space>
+          </template>
+          <a-alert
+            type="info"
+            show-icon
+            message="用户和组在“系统管理 / 用户与组”维护；这里仅维护模型网关运行时如何按用户组套用隐私策略。"
+            style="margin-bottom: 16px"
+          />
+          <a-table :data-source="groups" :columns="groupPolicyColumns" row-key="id" :loading="loading" size="small">
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'members'">
+                {{ record.user_ids?.length || 0 }} 人
+              </template>
+              <template v-else-if="column.key === 'policy'">
+                <a-tag :color="record.privacy_policy_id ? 'blue' : 'default'">{{ record.privacy_policy_name || '默认策略' }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'action'">
+                <a-space>
+                  <a-button type="link" @click="openGroupPolicy(record)">绑定策略</a-button>
+                  <a-button type="link" @click="openPolicy()">新建策略</a-button>
+                </a-space>
+              </template>
+            </template>
+          </a-table>
+        </a-card>
       </section>
 
       <section v-if="activeTab === 'policies'">
@@ -324,6 +378,11 @@
         <a-form-item label="用户名" required><a-input v-model:value="userForm.username" :disabled="!!editingUserId" /></a-form-item>
         <a-form-item label="邮箱"><a-input v-model:value="userForm.email" /></a-form-item>
         <a-form-item label="角色"><a-select v-model:value="userForm.role"><a-select-option value="admin">admin</a-select-option><a-select-option value="super_admin">super_admin</a-select-option><a-select-option value="privacy_auditor">privacy_auditor</a-select-option></a-select></a-form-item>
+        <a-form-item label="所属组">
+          <a-select v-model:value="userForm.group_ids" mode="multiple" placeholder="选择用户所属部门/用户组">
+            <a-select-option v-for="item in groups" :key="item.id" :value="item.id">{{ item.name }}</a-select-option>
+          </a-select>
+        </a-form-item>
         <a-form-item label="密码"><a-input-password v-model:value="userForm.password" :placeholder="editingUserId ? '留空表示不修改' : ''" /></a-form-item>
         <a-form-item><a-checkbox v-model:checked="userForm.is_active">启用</a-checkbox></a-form-item>
       </a-form>
@@ -344,6 +403,19 @@
           </a-select>
         </a-form-item>
         <a-form-item><a-checkbox v-model:checked="groupForm.is_active">启用</a-checkbox></a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal v-model:open="groupPolicyVisible" title="绑定隐私策略" @ok="saveGroupPolicy" :confirm-loading="submitting">
+      <a-form layout="vertical">
+        <a-form-item label="用户组">
+          <a-input :value="selectedGroup?.name || ''" disabled />
+        </a-form-item>
+        <a-form-item label="隐私策略">
+          <a-select v-model:value="groupPolicyForm.privacy_policy_id" allow-clear placeholder="未选择时使用默认策略">
+            <a-select-option v-for="item in unboundOrCurrentBindingPolicies" :key="item.id" :value="item.id">{{ item.name }}</a-select-option>
+          </a-select>
+        </a-form-item>
       </a-form>
     </a-modal>
 
@@ -438,7 +510,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import { formatBeijingDateTime } from '../utils/format'
@@ -472,6 +544,7 @@ import {
 } from '../api'
 
 const route = useRoute()
+const router = useRouter()
 const activeTab = ref(route.meta.gatewayTab || 'providers')
 const loading = ref(false)
 const submitting = ref(false)
@@ -535,6 +608,7 @@ const userColumns = [
   { title: '用户名', dataIndex: 'username' },
   { title: '邮箱', dataIndex: 'email' },
   { title: '角色', dataIndex: 'role', width: 130 },
+  { title: '所属组', key: 'groups', width: 180 },
   { title: '状态', key: 'active', width: 90 },
   { title: '操作', key: 'action', width: 90 },
 ]
@@ -544,6 +618,13 @@ const groupColumns = [
   { title: '隐私策略', key: 'policy', width: 150 },
   { title: '描述', dataIndex: 'description' },
   { title: '操作', key: 'action', width: 90 },
+]
+const groupPolicyColumns = [
+  { title: '用户组', dataIndex: 'name' },
+  { title: '成员', key: 'members', width: 100 },
+  { title: '当前隐私策略', key: 'policy', width: 180 },
+  { title: '说明', dataIndex: 'description' },
+  { title: '操作', key: 'action', width: 180 },
 ]
 const policyColumns = [
   { title: '名称', dataIndex: 'name', width: 160 },
@@ -559,6 +640,7 @@ const keyVisible = ref(false)
 const createdKeyVisible = ref(false)
 const userVisible = ref(false)
 const groupVisible = ref(false)
+const groupPolicyVisible = ref(false)
 const policyVisible = ref(false)
 const createdKey = ref('')
 const editingProviderId = ref(null)
@@ -566,13 +648,15 @@ const editingModelId = ref(null)
 const editingKeyId = ref(null)
 const editingUserId = ref(null)
 const editingGroupId = ref(null)
+const selectedGroup = ref(null)
 const policyRuleRows = ref([])
 
 const providerForm = reactive({ name: '', base_url: '', api_key: '', clear_api_key: false, enabled: true, timeout_seconds: 60, enable_compression: false })
 const modelForm = reactive({ provider_id: null, name: '', display_name: '', enabled: true, context_window: null, max_output_tokens: null, is_default: false })
 const keyForm = reactive({ name: '', allowed_models: [], max_body_kb: 1024, max_concurrent_requests: 5, expires_at: null, never_expires: true, status: 'active', enable_compression: false, compression_level: 'auto' })
-const userForm = reactive({ username: '', email: '', role: 'admin', password: '', is_active: true })
+const userForm = reactive({ username: '', email: '', role: 'admin', password: '', is_active: true, group_ids: [] })
 const groupForm = reactive({ name: '', description: '', user_ids: [], privacy_policy_id: null, is_active: true })
+const groupPolicyForm = reactive({ privacy_policy_id: null })
 const policyForm = reactive({ name: '默认隐私策略', group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 })
 const mappingQuery = reactive({ q: '', page: 1, page_size: 10 })
 const mappingPagination = computed(() => ({
@@ -586,6 +670,16 @@ const mappingPagination = computed(() => ({
 const unboundOrCurrentPolicies = computed(() =>
   policies.value.filter(item => !item.group_id || item.id === groupForm.privacy_policy_id),
 )
+const unboundOrCurrentBindingPolicies = computed(() =>
+  policies.value.filter(item => !item.group_id || item.id === groupPolicyForm.privacy_policy_id),
+)
+const pageTitle = computed(() => activeTab.value === 'users-groups' ? '用户与组' : '模型网关')
+const pageSubtitle = computed(() =>
+  activeTab.value === 'users-groups'
+    ? '维护平台用户、部门用户组和基础权限边界'
+    : '管理供应商、模型、模型调用凭证、隐私策略和组策略绑定',
+)
+const groupNameMap = computed(() => new Map(groups.value.map(item => [item.id, item.name])))
 
 const formatDateTime = (value) => value ? formatBeijingDateTime(value) : ''
 const statusLabel = (s) => ({ active: '启用', disabled: '禁用', revoked: '已吊销' }[s] || s)
@@ -748,7 +842,7 @@ const saveKey = async () => {
     if (createdKey.value) createdKeyVisible.value = true
     await loadAll()
   } catch (error) {
-    message.error(error.response?.data?.detail || '创建 API Key 失败')
+    message.error(error.response?.data?.detail || '保存历史模型调用凭证失败')
   } finally {
     submitting.value = false
   }
@@ -766,7 +860,14 @@ const handleDeleteKey = async (record) => {
 
 const openUser = (record = null) => {
   editingUserId.value = record?.id || null
-  Object.assign(userForm, { username: record?.username || '', email: record?.email || '', role: record?.role || 'admin', password: '', is_active: record?.is_active ?? true })
+  Object.assign(userForm, {
+    username: record?.username || '',
+    email: record?.email || '',
+    role: record?.role || 'admin',
+    password: '',
+    is_active: record?.is_active ?? true,
+    group_ids: [...(record?.group_ids || [])],
+  })
   userVisible.value = true
 }
 
@@ -809,6 +910,28 @@ const saveGroup = async () => {
     await loadAll()
   } catch (error) {
     message.error(error.response?.data?.detail || '保存用户组失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+const openGroupPolicy = (record) => {
+  selectedGroup.value = record
+  Object.assign(groupPolicyForm, {
+    privacy_policy_id: record?.privacy_policy_id || null,
+  })
+  groupPolicyVisible.value = true
+}
+
+const saveGroupPolicy = async () => {
+  if (submitting.value || !selectedGroup.value) return
+  submitting.value = true
+  try {
+    await updateGroup(selectedGroup.value.id, { privacy_policy_id: groupPolicyForm.privacy_policy_id })
+    groupPolicyVisible.value = false
+    await loadAll()
+  } catch (error) {
+    message.error(error.response?.data?.detail || '绑定隐私策略失败')
   } finally {
     submitting.value = false
   }

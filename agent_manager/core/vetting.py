@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import logging
 import re
-import shutil
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,11 +19,10 @@ from .models import PolicyViolation, RiskLevel, SourceInfo, VettingResult
 from .sandbox import (
     build_probe_plan,
     discover_probe_entrypoint,
-    extract_markdown_command_probes,
     get_sandbox_runner,
-    write_markdown_command_probe_scripts,
 )
 from .skillspector import run_skillspector_scan
+from .text_reader import read_text_fallback
 
 if TYPE_CHECKING:
     from .policy import CompanyPolicy
@@ -90,6 +87,7 @@ _BEHAVIORAL_RULES = (
     },
 )
 _SANDBOX_ENTRYPOINT_EXTENSIONS = {".py", ".sh", ".js"}
+_UNSAFE_LLM_PROBE_ARGS = {"&&", "||", "|", ";", "<", ">", ">>", "2>", "&"}
 
 
 def _normalize_llm_probe_entrypoint(
@@ -110,6 +108,20 @@ def _normalize_llm_probe_entrypoint(
     if not target.is_file() or target.suffix.lower() not in _SANDBOX_ENTRYPOINT_EXTENSIONS:
         return None
     return target.relative_to(root).as_posix()
+
+
+def _llm_probe_args_safe(args: list[str]) -> bool:
+    return all(str(arg).strip() not in _UNSAFE_LLM_PROBE_ARGS for arg in args)
+
+
+def _markdown_title(content: str) -> str | None:
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            title = stripped[2:].strip()
+            if title:
+                return title
+    return None
 
 # --------------------------------------------------------------------------- #
 # Scanner integration                                                           #
@@ -183,8 +195,9 @@ def _load_manifest(skill_path: Path) -> tuple[str, str, list[str], str | None]:
             logger.warning("python-frontmatter failed to parse %s; falling back to tolerant parser: %s", skill_md, exc)
 
     # Fallback: parse SKILL.md frontmatter without python-frontmatter.
-    content = skill_md.read_text(encoding="utf-8")
-    name = skill_path.name
+    content, _encoding = read_text_fallback(skill_md)
+    markdown_name = _markdown_title(content)
+    name = markdown_name or skill_path.name
     description = ""
     allowed_tools: list[str] = []
     license_val = None
@@ -323,7 +336,7 @@ def _run_behavioral_analysis(skill_path: Path) -> dict[str, object]:
 
     for path in _iter_behavioral_candidate_files(skill_path):
         try:
-            content = path.read_text(encoding="utf-8")
+            content, _encoding = read_text_fallback(path)
         except Exception:
             continue
 
@@ -373,6 +386,7 @@ class VettingPipeline:
         use_behavioral: bool = False,
         use_llm: bool = False,
         use_sandbox: bool = False,
+        use_skillspector: bool | None = None,
     ) -> tuple[VettingResult, list[PolicyViolation], str, str, list[str]]:
         """
         Run the full vetting pipeline.
@@ -391,22 +405,23 @@ class VettingPipeline:
         # 2. Run scanner
         scan_report = _run_scanner(skill_path, self.policy.scanner_policy)
         skillspector_notes: list[str] = []
-        if self.policy.skillspector_enabled:
+        should_run_skillspector = self.policy.skillspector_enabled if use_skillspector is None else use_skillspector
+        if should_run_skillspector:
             skillspector_result = run_skillspector_scan(
                 skill_path,
                 timeout_seconds=self.policy.skillspector_timeout_seconds,
-                use_llm=self.policy.skillspector_use_llm,
+                use_llm=LLMConfig.load().is_ready,
             )
             analyzer_name = "skillspector:cli"
             if not skillspector_result.get("available"):
                 analyzer_name = "skillspector:unavailable"
-                skillspector_notes.append("[SKILLSPECTOR] SkillSpector unavailable; skipped optional scan")
+                skillspector_notes.append("[DEEP_SCAN] 深度扫描不可用，已跳过")
             elif skillspector_result.get("error"):
                 analyzer_name = "skillspector:error"
-                skillspector_notes.append(f"[SKILLSPECTOR] optional scan failed: {skillspector_result['error']}")
+                skillspector_notes.append(f"[DEEP_SCAN] 深度扫描失败: {skillspector_result['error']}")
             else:
                 skillspector_notes.append(
-                    "[SKILLSPECTOR] "
+                    "[DEEP_SCAN] "
                     f"risk={skillspector_result.get('risk_severity', 'SAFE')} "
                     f"score={skillspector_result.get('risk_score', '-')}"
                 )
@@ -497,23 +512,14 @@ class VettingPipeline:
         if effective_use_sandbox:
             sandbox_runtime = get_sandbox_runner().config.runtime
             sandbox_skill_path = skill_path
-            temp_probe_context: tempfile.TemporaryDirectory[str] | None = None
-            markdown_probe_plans = []
-            markdown_command_probes = extract_markdown_command_probes(skill_path)
-            if markdown_command_probes:
-                temp_probe_context = tempfile.TemporaryDirectory(prefix="skill-md-sandbox-")
-                sandbox_skill_path = Path(temp_probe_context.name) / "skill"
-                shutil.copytree(skill_path, sandbox_skill_path)
-                markdown_probe_plans = write_markdown_command_probe_scripts(sandbox_skill_path, markdown_command_probes)
-                sandbox_notes.append(f"[SANDBOX] generated {len(markdown_probe_plans)} probes from SKILL.md command blocks")
 
             entrypoint = discover_probe_entrypoint(sandbox_skill_path)
-            if not entrypoint and not markdown_probe_plans:
+            if not entrypoint:
                 sandbox_result = {
                     "executed": False,
                     "runtime": sandbox_runtime,
                     "available": True,
-                    "reason": "No supported probe entrypoint or SKILL.md command block found",
+                    "reason": "No supported executable script found. SKILL.md command examples are not executed as Sandbox probes.",
                 }
                 scan_report = {
                     **scan_report,
@@ -523,30 +529,20 @@ class VettingPipeline:
                         "sandbox:docker",
                     ],
                 }
-                sandbox_notes.append("[SANDBOX] no supported entrypoint or SKILL.md command block found")
+                sandbox_notes.append("[SANDBOX] no supported executable script found; skipped SKILL.md command examples")
             else:
                 try:
                     runner = get_sandbox_runner()
                     sandbox_runtime = runner.config.runtime
-                    probe_plan = build_probe_plan(sandbox_skill_path, entrypoint) if entrypoint else markdown_probe_plans[0]
+                    probe_plan = build_probe_plan(sandbox_skill_path, entrypoint)
                     probe_cases = []
-                    if entrypoint:
-                        probe_cases.append({
-                            "name": "default",
-                            "description": f"default sandbox probe strategy={probe_plan.strategy}",
-                            "entrypoint": probe_plan.entrypoint,
-                            "args": probe_plan.args,
-                            "generated_by": "default",
-                        })
-                    for index, markdown_plan in enumerate(markdown_probe_plans, start=1):
-                        if not any(existing["entrypoint"] == markdown_plan.entrypoint for existing in probe_cases):
-                            probe_cases.append({
-                                "name": f"skill-md-command-{index}",
-                                "description": markdown_plan.description or "SKILL.md command block",
-                                "entrypoint": markdown_plan.entrypoint,
-                                "args": markdown_plan.args,
-                                "generated_by": "skill-md",
-                            })
+                    probe_cases.append({
+                        "name": "default",
+                        "description": f"default sandbox probe strategy={probe_plan.strategy}",
+                        "entrypoint": probe_plan.entrypoint,
+                        "args": probe_plan.args,
+                        "generated_by": "default",
+                    })
                     llm_probe_plan = None
                     if use_llm:
                         try:
@@ -560,6 +556,11 @@ class VettingPipeline:
                                 if not case_entrypoint:
                                     sandbox_notes.append(
                                         f"[SANDBOX] skipped LLM probe {case.name}: invalid entrypoint {case.entrypoint!r}"
+                                    )
+                                    continue
+                                if not _llm_probe_args_safe(case.args):
+                                    sandbox_notes.append(
+                                        f"[SANDBOX] skipped LLM probe {case.name}: contains shell control arguments"
                                     )
                                     continue
                                 if not any(
@@ -678,9 +679,6 @@ class VettingPipeline:
                         ],
                     }
                     sandbox_notes.append(f"[SANDBOX] analysis skipped: {exc}")
-                finally:
-                    if temp_probe_context:
-                        temp_probe_context.cleanup()
 
         # 4. LLM multi-round analysis (after sandbox, with all prior results)
         scan_report["risk_max_severity"] = _risk_max_severity(

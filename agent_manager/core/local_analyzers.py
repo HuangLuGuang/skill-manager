@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .text_reader import read_text_fallback
+
 TEXT_EXTENSIONS = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".sh", ".bash", ".zsh",
     ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".cfg", ".ini",
@@ -50,7 +52,7 @@ def run_local_static_analysis(skill_path: Path) -> dict[str, Any]:
         rel_path = path.relative_to(root).as_posix()
         scanned_files.append(rel_path)
         try:
-            content = path.read_text(encoding="utf-8")
+            content, _encoding = read_text_fallback(path)
         except Exception:
             continue
 

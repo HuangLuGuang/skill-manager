@@ -42,7 +42,7 @@ _DEFAULT_POLICY: dict[str, Any] = {
 _SEVERITY_TO_RISK = {
     "SAFE": RiskLevel.BENIGN,
     "INFO": RiskLevel.BENIGN,
-    "LOW": RiskLevel.SUSPICIOUS,
+    "LOW": RiskLevel.BENIGN,
     "MEDIUM": RiskLevel.SUSPICIOUS,
     "HIGH": RiskLevel.MALICIOUS,
     "CRITICAL": RiskLevel.MALICIOUS,

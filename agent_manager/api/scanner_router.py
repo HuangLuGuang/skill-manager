@@ -30,6 +30,16 @@ from agent_manager.api.router import (
 from agent_manager.core.manager import AgentManager
 from agent_manager.core.models import SkillOrigin, SourceInfo
 from agent_manager.core.scanner_tokens import DEFAULT_SCOPES, ScannerToken, ScannerTokenStore
+from backend.models import AccessToken
+from backend.routers.access_tokens import (
+    ensure_agent_prompt_allowed,
+    ensure_agent_skill_allowed,
+    ensure_token_agent_allowed,
+    resolve_access_token,
+    resolve_agent_id,
+)
+from backend.sqlite_db import get_db
+from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/v1", tags=["skill-scanner"])
 admin_router = APIRouter(prefix="/api/v1", tags=["skill-scanner-admin"])
@@ -163,25 +173,25 @@ def require_scanner_read_token(
 def require_runtime_verify_token(
     request: Request,
     authorization: str | None = Header(None),
-    store: ScannerTokenStore = Depends(get_token_store),
-) -> ScannerToken:
-    return _validate_scanner_token("runtime:verify-signature", request, authorization, store)
+    db: Session = Depends(get_db),
+) -> AccessToken:
+    return resolve_access_token(db, authorization, required_scope="runtime:verify-signature", request=request)
 
 
 def require_runtime_can_load_token(
     request: Request,
     authorization: str | None = Header(None),
-    store: ScannerTokenStore = Depends(get_token_store),
-) -> ScannerToken:
-    return _validate_scanner_token("runtime:can-load", request, authorization, store)
+    db: Session = Depends(get_db),
+) -> AccessToken:
+    return resolve_access_token(db, authorization, required_scope="runtime:can-load", request=request)
 
 
 def require_runtime_check_tool_token(
     request: Request,
     authorization: str | None = Header(None),
-    store: ScannerTokenStore = Depends(get_token_store),
-) -> ScannerToken:
-    return _validate_scanner_token("runtime:check-tool", request, authorization, store)
+    db: Session = Depends(get_db),
+) -> AccessToken:
+    return resolve_access_token(db, authorization, required_scope="runtime:check-tool", request=request)
 
 
 @admin_router.get("/scanner/tokens", response_model=ScannerTokenListResponse)
@@ -222,7 +232,9 @@ def token_runtime_can_load(
     skill_name: str,
     skill_path: str | None = None,
     agent_id: str | None = None,
-    _token: ScannerToken = Depends(require_runtime_can_load_token),
+    x_agent_id: str | None = Header(None, alias="X-Agent-ID"),
+    token: AccessToken = Depends(require_runtime_can_load_token),
+    db: Session = Depends(get_db),
     mgr: AgentManager = Depends(get_manager),
 ):
     if skill_path:
@@ -230,7 +242,10 @@ def token_runtime_can_load(
             status_code=400,
             detail="access runtime can-load does not accept skill_path; use verify-skill-signature first",
         )
-    allowed, entry, reason = mgr.runtime.can_load(skill_name, agent_id=agent_id)
+    resolved_agent_id = resolve_agent_id(agent_id, x_agent_id)
+    agent = ensure_token_agent_allowed(db, token, resolved_agent_id)
+    ensure_agent_skill_allowed(agent, skill_name)
+    allowed, entry, reason = mgr.runtime.can_load(skill_name, agent_id=resolved_agent_id)
     return RuntimeCheckResponse(
         allowed=allowed,
         reason=reason,
@@ -242,14 +257,19 @@ def token_runtime_can_load(
 @runtime_router.post("/runtime/verify-skill-signature", response_model=VerifySkillSignatureResponse)
 def token_runtime_verify_skill_signature(
     body: VerifySkillSignatureRequest,
-    _token: ScannerToken = Depends(require_runtime_verify_token),
+    x_agent_id: str | None = Header(None, alias="X-Agent-ID"),
+    token: AccessToken = Depends(require_runtime_verify_token),
+    db: Session = Depends(get_db),
     mgr: AgentManager = Depends(get_manager),
 ):
+    resolved_agent_id = resolve_agent_id(body.agent_id, x_agent_id)
+    agent = ensure_token_agent_allowed(db, token, resolved_agent_id)
+    ensure_agent_skill_allowed(agent, body.skill_name)
     allowed, entry, reason = mgr.runtime.verify_local_signature(
         body.skill_name,
         body.local_signature,
         skill_id=body.skill_id,
-        agent_id=body.agent_id,
+        agent_id=resolved_agent_id,
     )
     return VerifySkillSignatureResponse(
         allowed=allowed,
@@ -267,11 +287,36 @@ def token_runtime_check_tool(
     skill_name: str,
     tool_name: str,
     agent_id: str | None = None,
-    _token: ScannerToken = Depends(require_runtime_check_tool_token),
+    x_agent_id: str | None = Header(None, alias="X-Agent-ID"),
+    token: AccessToken = Depends(require_runtime_check_tool_token),
+    db: Session = Depends(get_db),
     mgr: AgentManager = Depends(get_manager),
 ):
-    allowed = mgr.runtime.check_tool(skill_name, tool_name, agent_id=agent_id)
+    resolved_agent_id = resolve_agent_id(agent_id, x_agent_id)
+    agent = ensure_token_agent_allowed(db, token, resolved_agent_id)
+    ensure_agent_skill_allowed(agent, skill_name)
+    allowed = mgr.runtime.check_tool(skill_name, tool_name, agent_id=resolved_agent_id)
     return ToolCheckResponse(allowed=allowed, skill_name=skill_name, tool_name=tool_name)
+
+
+@runtime_router.get("/runtime/can-load-prompt/{prompt_name}")
+def token_runtime_can_load_prompt(
+    prompt_name: str,
+    agent_id: str | None = None,
+    x_agent_id: str | None = Header(None, alias="X-Agent-ID"),
+    token: AccessToken = Depends(require_runtime_can_load_token),
+    db: Session = Depends(get_db),
+    mgr: AgentManager = Depends(get_manager),
+):
+    resolved_agent_id = resolve_agent_id(agent_id, x_agent_id)
+    agent = ensure_token_agent_allowed(db, token, resolved_agent_id)
+    ensure_agent_prompt_allowed(agent, prompt_name)
+    entry = mgr.get_prompt(prompt_name)
+    if not entry:
+        return {"allowed": False, "status": None, "reason": f"Prompt {prompt_name!r} not found in registry"}
+    if not entry.is_loadable():
+        return {"allowed": False, "status": entry.status.value, "reason": f"Prompt {prompt_name!r} is {entry.status.value}"}
+    return {"allowed": True, "status": entry.status.value, "reason": "allowed"}
 
 
 @admin_router.get("/scanner/downloads", response_model=ScannerDownloadInfo)
@@ -330,6 +375,7 @@ async def submit_scanner_import(
     use_behavioral: bool = Form(False),
     use_llm: bool = Form(False),
     use_sandbox: bool = Form(False),
+    use_skillspector: bool = Form(False),
     scanner_version: str | None = Form(None),
     host_id: str | None = Form(None),
     scanner_token: ScannerToken = Depends(require_scanner_submit_token),
@@ -382,6 +428,7 @@ async def submit_scanner_import(
             use_behavioral,
             use_llm,
             use_sandbox,
+            use_skillspector,
         )
         store.log_event(
             "scanner_import_submitted",

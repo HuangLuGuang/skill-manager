@@ -17,6 +17,7 @@ from .models import (
     AuditEvent,
     RegistryEntry,
     ReviewRequest,
+    RiskLevel,
     SkillStatus,
     SourceInfo,
     SkillOrigin,
@@ -86,6 +87,7 @@ class AgentManager:
         use_behavioral: bool = False,
         use_llm: bool = False,
         use_sandbox: bool = False,
+        use_skillspector: bool = False,
         no_cache: bool = False,
     ) -> RegistryEntry:
         """
@@ -97,6 +99,7 @@ class AgentManager:
             use_behavioral=use_behavioral,
             use_llm=use_llm,
             use_sandbox=use_sandbox,
+            use_skillspector=use_skillspector,
             no_cache=no_cache,
         )
 
@@ -141,6 +144,7 @@ class AgentManager:
         use_behavioral: bool = False,
         use_llm: bool = False,
         use_sandbox: bool = False,
+        use_skillspector: bool = False,
         no_cache: bool = False,
     ) -> RegistryEntry:
         entry = self._require_entry(skill_id)
@@ -152,6 +156,7 @@ class AgentManager:
             use_behavioral=use_behavioral,
             use_llm=use_llm,
             use_sandbox=use_sandbox,
+            use_skillspector=use_skillspector,
         )
         scan_cache_key = compute_scan_cache_key(content_fingerprint, scan_context_fingerprint)
         entry.content_fingerprint = content_fingerprint
@@ -188,6 +193,7 @@ class AgentManager:
             use_behavioral=use_behavioral,
             use_llm=use_llm,
             use_sandbox=use_sandbox,
+            use_skillspector=use_skillspector,
         )
 
         # 根据最终 risk_level 决定状态
@@ -327,7 +333,31 @@ class AgentManager:
     def mark_submission_failed(self, skill_id: str, reason: str, actor: str | None = None) -> RegistryEntry:
         entry = self._require_entry(skill_id)
         entry.status = SkillStatus.REJECTED
+        entry.risk_level = RiskLevel.BENIGN
         entry.rejection_reason = reason
+        entry.vetting = VettingResult(
+            risk_level=RiskLevel.BENIGN,
+            findings_count=1,
+            analyzers_used=["scanner:error"],
+            scan_report={
+                "risk_level": RiskLevel.BENIGN.value,
+                "max_severity": "INFO",
+                "risk_max_severity": "INFO",
+                "findings": [
+                    {
+                        "source": "system",
+                        "severity": "INFO",
+                        "rule": "VETTING_FAILED",
+                        "title": "后台分析失败",
+                        "message": reason,
+                    }
+                ],
+                "analyzers_used": ["scanner:error"],
+                "vetting_failed": True,
+                "vetting_error": reason,
+            },
+            policy_notes=[f"[BLOCK] vetting_failed: {reason}"],
+        )
         self.registry.update(entry)
         self.registry.log_event(make_event(
             "skill_processing_failed",
@@ -348,16 +378,19 @@ class AgentManager:
         note: str | None = None,
     ) -> RegistryEntry:
         """
-        Approve a VETTED skill.
+        Approve a reviewed skill.
 
         Signs the skill and moves it to APPROVED status.
         """
         entry = self._require_entry(skill_id)
 
-        if entry.status != SkillStatus.VETTED:
+        manual_policy_override = False
+        if entry.status == SkillStatus.REJECTED:
+            manual_policy_override = self._can_manually_override_rejection(entry)
+        if entry.status != SkillStatus.VETTED and not manual_policy_override:
             raise ValueError(
-                f"Skill {entry.name!r} is {entry.status.value}, not VETTED. "
-                "Only VETTED skills can be approved."
+                f"Skill {entry.name!r} is {entry.status.value}. "
+                "Only VETTED skills or low-risk policy rejections can be approved manually."
             )
 
         skill_path = entry.skill_path
@@ -377,11 +410,31 @@ class AgentManager:
         self.registry.dequeue_review(skill_id)
         self.registry.log_event(make_event(
             "skill_approved", entry, actor=approver,
-            details={"note": note},
+            details={
+                "note": note,
+                "manual_policy_override": manual_policy_override,
+                "previous_status": SkillStatus.REJECTED.value if manual_policy_override else SkillStatus.VETTED.value,
+            },
         ))
 
         logger.info("Approved skill %r by %r", entry.name, approver)
         return entry
+
+    def _can_manually_override_rejection(self, entry: RegistryEntry) -> bool:
+        if entry.vetting and entry.vetting.scan_report.get("vetting_failed"):
+            return True
+        if str(entry.rejection_reason or "").startswith("后台分析失败"):
+            return True
+        if entry.risk_level not in (RiskLevel.BENIGN, RiskLevel.SUSPICIOUS):
+            return False
+        notes = entry.vetting.policy_notes if entry.vetting else []
+        blocking_notes = [str(note) for note in notes if str(note).startswith("[BLOCK]")]
+        if not blocking_notes:
+            return False
+        return all(
+            "tool_not_in_allowlist" in note or "blocked_permission" in note or "unaccepted_license" in note
+            for note in blocking_notes
+        )
 
     def reject(
         self,

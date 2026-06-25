@@ -211,7 +211,11 @@ def _api_key_query_for_user(db: Session, current_user: models.User):
     return db.query(models.LlmApiKey).filter(models.LlmApiKey.user_id == current_user.id)
 
 
-def _key_owner_meta(db: Session, key: models.LlmApiKey) -> dict[str, Any]:
+def _key_prefix(key) -> str:
+    return getattr(key, "key_prefix", None) or getattr(key, "token_prefix", None) or ""
+
+
+def _key_owner_meta(db: Session, key) -> dict[str, Any]:
     user = db.query(models.User).filter(models.User.id == key.user_id).first() if key.user_id else None
     if key.group_id:
         groups = db.query(models.UserGroup).filter(models.UserGroup.id == key.group_id).all()
@@ -225,9 +229,13 @@ def _key_owner_meta(db: Session, key: models.LlmApiKey) -> dict[str, Any]:
         )
     else:
         groups = []
+    if not groups and isinstance(key, models.AccessToken) and key.bound_agent_id:
+        agent = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == key.bound_agent_id).first()
+        if agent and agent.department_group_id:
+            groups = db.query(models.UserGroup).filter(models.UserGroup.id == agent.department_group_id).all()
     return {
         "api_key_id": key.id,
-        "api_key_prefix": key.key_prefix,
+        "api_key_prefix": _key_prefix(key),
         "api_key_name": key.name,
         "api_key_user_id": key.user_id,
         "api_key_username": user.username if user else None,
@@ -268,6 +276,37 @@ def _group_response(db: Session, row: models.UserGroup) -> schemas.UserGroupResp
         privacy_policy_name=policy.name if policy else None,
         created_at=row.created_at,
     )
+
+
+def _user_group_ids(db: Session, user_id: int) -> list[int]:
+    rows = db.query(models.UserGroupMember).filter(models.UserGroupMember.user_id == user_id).order_by(models.UserGroupMember.group_id.asc()).all()
+    return [row.group_id for row in rows]
+
+
+def _user_response(db: Session, row: models.User) -> schemas.User:
+    return schemas.User(
+        id=row.id,
+        username=row.username,
+        email=row.email,
+        is_active=row.is_active,
+        role=row.role,
+        group_ids=_user_group_ids(db, row.id),
+        created_at=row.created_at,
+        last_login_at=row.last_login_at,
+    )
+
+
+def _sync_user_groups(db: Session, user_id: int, group_ids: list[int]) -> None:
+    clean_group_ids = []
+    for group_id in group_ids:
+        if group_id in clean_group_ids:
+            continue
+        if not db.query(models.UserGroup).filter(models.UserGroup.id == group_id).first():
+            raise HTTPException(status_code=404, detail="用户组不存在")
+        clean_group_ids.append(group_id)
+    db.query(models.UserGroupMember).filter(models.UserGroupMember.user_id == user_id).delete()
+    for group_id in clean_group_ids:
+        db.add(models.UserGroupMember(user_id=user_id, group_id=group_id))
 
 
 def _sync_group_members(db: Session, group_id: int, user_ids: list[int]) -> None:
@@ -311,7 +350,7 @@ def _get_default_policy(db: Session) -> models.PrivacyPolicy:
     return policy
 
 
-def _resolve_policy(db: Session, key: models.LlmApiKey) -> models.PrivacyPolicy:
+def _resolve_policy(db: Session, key) -> models.PrivacyPolicy:
     candidate_group_ids: list[int] = []
     if key.group_id is not None:
         candidate_group_ids.append(key.group_id)
@@ -324,6 +363,10 @@ def _resolve_policy(db: Session, key: models.LlmApiKey) -> models.PrivacyPolicy:
             .all()
         )
         candidate_group_ids.extend(item.group_id for item in memberships)
+    elif isinstance(key, models.AccessToken) and key.bound_agent_id:
+        agent = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == key.bound_agent_id).first()
+        if agent and agent.department_group_id:
+            candidate_group_ids.append(agent.department_group_id)
     for group_id in candidate_group_ids:
         policy = db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.group_id == group_id).first()
         if policy:
@@ -331,7 +374,7 @@ def _resolve_policy(db: Session, key: models.LlmApiKey) -> models.PrivacyPolicy:
     return _get_default_policy(db)
 
 
-def _resolve_api_key(db: Session, authorization: str | None) -> models.LlmApiKey:
+def _resolve_api_key(db: Session, authorization: str | None):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="缺少 LLM API Key")
     raw = authorization[len("Bearer "):].strip()
@@ -339,12 +382,23 @@ def _resolve_api_key(db: Session, authorization: str | None) -> models.LlmApiKey
         raise HTTPException(status_code=401, detail="缺少 LLM API Key")
     key_hash = _hash_token(raw)
     key = db.query(models.LlmApiKey).filter(models.LlmApiKey.key_hash == key_hash).first()
-    if not key or key.status != "active":
+    if key:
+        if key.status != "active":
+            raise HTTPException(status_code=401, detail="LLM API Key 无效或已禁用")
+        if key.expires_at and key.expires_at < _now():
+            raise HTTPException(status_code=401, detail="LLM API Key 已过期")
+        key.last_used_at = _now()
+        return key
+    access_token = db.query(models.AccessToken).filter(models.AccessToken.token_hash == key_hash).first()
+    if not access_token or access_token.status != "active":
         raise HTTPException(status_code=401, detail="LLM API Key 无效或已禁用")
-    if key.expires_at and key.expires_at < _now():
+    if access_token.expires_at and access_token.expires_at < _now():
         raise HTTPException(status_code=401, detail="LLM API Key 已过期")
-    key.last_used_at = _now()
-    return key
+    scopes = _json_loads(access_token.scopes_json, [])
+    if "model:chat" not in scopes:
+        raise HTTPException(status_code=403, detail="接入凭证缺少权限: model:chat")
+    access_token.last_used_at = _now()
+    return access_token
 
 
 async def _check_request_size(request: Request, key: models.LlmApiKey) -> None:
@@ -369,8 +423,12 @@ def _release_key_slot(key: models.LlmApiKey) -> None:
         ACTIVE_KEY_REQUESTS[key.id] = active - 1
 
 
-def _resolve_model(db: Session, requested_model: str | None, key: models.LlmApiKey) -> models.ModelEndpoint:
+def _resolve_model(db: Session, requested_model: str | None, key) -> models.ModelEndpoint:
     allowed_models = _json_loads(key.allowed_models_json, [])
+    if isinstance(key, models.AccessToken) and key.token_type == "agent_runtime" and not allowed_models and key.bound_agent_id:
+        agent = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == key.bound_agent_id).first()
+        if agent and agent.default_model:
+            allowed_models = [agent.default_model]
     model_name = requested_model
     if not model_name:
         default_model = db.query(models.ModelEndpoint).filter(
@@ -1022,7 +1080,7 @@ def _record_llm_error(
 
 @admin_router.get("/users", response_model=list[schemas.User])
 async def list_users(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
-    return db.query(models.User).order_by(models.User.id.asc()).all()
+    return [_user_response(db, row) for row in db.query(models.User).order_by(models.User.id.asc()).all()]
 
 
 @admin_router.post("/users", response_model=schemas.User)
@@ -1040,9 +1098,11 @@ async def create_managed_user(
         role=body.role,
     )
     db.add(user)
+    db.flush()
+    _sync_user_groups(db, user.id, body.group_ids)
     db.commit()
     db.refresh(user)
-    return user
+    return _user_response(db, user)
 
 
 @admin_router.put("/users/{user_id}", response_model=schemas.User)
@@ -1056,13 +1116,16 @@ async def update_managed_user(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     data = body.model_dump(exclude_unset=True)
+    group_ids = data.pop("group_ids", None)
     if data.get("password"):
         user.hashed_password = auth.get_password_hash(data.pop("password"))
     for field, value in data.items():
         setattr(user, field, value)
+    if group_ids is not None:
+        _sync_user_groups(db, user.id, group_ids)
     db.commit()
     db.refresh(user)
-    return user
+    return _user_response(db, user)
 
 
 @admin_router.get("/groups", response_model=list[schemas.UserGroupResponse])

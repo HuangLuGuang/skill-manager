@@ -1,18 +1,18 @@
 <template>
   <div>
-    <a-page-header title="技能注册表" sub-title="查看已注册的 AI Agent 技能并进入详情页" />
+    <a-page-header title="Skill 列表" sub-title="查看已提交的 Skill 并进入详情页" />
 
     <a-card style="margin-top: 16px">
       <a-space wrap style="margin-bottom: 16px">
         <a-input
           v-model:value="keyword"
-          placeholder="搜索技能名称 / ID / 审批人"
+          placeholder="搜索 Skill 名称 / ID / 审批人"
           style="width: 280px"
           allow-clear
           @pressEnter="handleKeywordSearch"
           @change="handleKeywordInputChange"
         />
-        <a-select v-model:value="status" style="width: 220px">
+        <a-select v-model:value="status" style="width: 260px">
           <a-select-option value="all">全部状态</a-select-option>
           <a-select-option v-for="item in statusOptions" :key="item.value" :value="item.value">
             {{ item.label }}
@@ -32,7 +32,7 @@
         <a-button type="primary" @click="handleKeywordSearch" :loading="loading">查询</a-button>
         <a-button @click="resetFilters" :disabled="loading">重置</a-button>
         <a-button @click="fetchSkills" :loading="loading">刷新</a-button>
-        <a-button type="primary" @click="$router.push('/submit')">提交技能</a-button>
+        <a-button type="primary" @click="$router.push('/submit')">提交 Skill</a-button>
       </a-space>
 
       <div class="table-meta">
@@ -45,7 +45,7 @@
         rowKey="skill_id"
         :loading="loading"
         :pagination="pagination"
-        :locale="{ emptyText: '暂无技能数据' }"
+        :locale="{ emptyText: '暂无 Skill 数据' }"
         @change="handleTableChange"
       >
         <template #bodyCell="{ column, record }">
@@ -106,6 +106,7 @@
         </template>
       </a-table>
     </a-card>
+
   </div>
 </template>
 
@@ -135,12 +136,9 @@ const pagination = ref({
   showTotal: (value) => `共 ${value} 条`,
 })
 const statusOptions = [
-  { value: 'PENDING', label: 'PENDING（分析中）' },
-  { value: 'VETTED', label: 'VETTED（待审核）' },
-  { value: 'APPROVED', label: 'APPROVED（已批准）' },
-  { value: 'DEPLOYED', label: 'DEPLOYED（已部署）' },
-  { value: 'REJECTED', label: 'REJECTED（已拒绝）' },
-  { value: 'RETIRED', label: 'RETIRED（已退役）' },
+  { value: 'PENDING,VETTED', label: '待处理（Pending / Vetted）' },
+  { value: 'APPROVED,DEPLOYED', label: '可使用（Approved / Deployed）' },
+  { value: 'REJECTED', label: '已拒绝（Rejected）' },
 ]
 const riskOptions = [
   { value: 'benign', label: 'benign（安全）' },
@@ -149,7 +147,7 @@ const riskOptions = [
 ]
 
 const columns = [
-  { title: '技能名称', dataIndex: 'name', key: 'name', sorter: true },
+  { title: 'Skill 名称', dataIndex: 'name', key: 'name', sorter: true },
   { title: 'Skill ID', dataIndex: 'skill_id', key: 'skill_id', width: 110, sorter: true },
   { title: '状态', dataIndex: 'status', key: 'status', width: 180, sorter: true },
   { title: '风险', dataIndex: 'risk_level', key: 'risk', width: 160, sorter: true },
@@ -182,7 +180,7 @@ const fetchSkills = async () => {
       pageSize: Number(res.page_size || pagination.value.pageSize),
     }
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取技能注册表失败')
+    message.error(error.response?.data?.detail || '获取 Skill 列表失败')
     rows.value = []
     total.value = 0
   } finally {
@@ -251,8 +249,8 @@ const handleRescan = async (record) => {
 
 const confirmDelete = (record) => {
   Modal.confirm({
-    title: `删除技能：${record.name}`,
-    content: '只删除注册表记录，不会删除磁盘上的技能目录。',
+    title: `删除 Skill：${record.name}`,
+    content: '只删除列表记录，不会删除磁盘上的 Skill 目录。',
     okText: '删除',
     okType: 'danger',
     cancelText: '取消',
@@ -264,13 +262,13 @@ const handleDelete = async (record) => {
   actionKey.value = `delete:${record.skill_id}`
   try {
     await deleteSkill(record.skill_id)
-    message.success('已删除技能记录')
+    message.success('已删除 Skill 记录')
     if (rows.value.length === 1 && pagination.value.current > 1) {
       pagination.value = { ...pagination.value, current: pagination.value.current - 1 }
     }
     fetchSkills()
   } catch (error) {
-    message.error(error.response?.data?.detail || '删除技能失败')
+    message.error(error.response?.data?.detail || '删除 Skill 失败')
   } finally {
     actionKey.value = ''
   }

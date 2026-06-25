@@ -30,24 +30,14 @@
 
       <a-layout v-if="!isLoginPage" class="app-main-layout">
         <a-layout-sider width="240" class="app-sider">
-          <a-menu :selectedKeys="selectedKeys" :openKeys="openKeys" mode="inline" @click="handleMenuClick" @openChange="keys => openKeys = keys">
-            <template v-for="item in menuItems" :key="item.key">
-              <a-sub-menu v-if="item.children" :key="item.key">
-                <template #title>
-                  <component :is="item.icon" />
-                  <span>{{ item.label }}</span>
-                </template>
-                <a-menu-item v-for="child in item.children" :key="child.key">
-                  <component :is="child.icon" />
-                  <span>{{ child.label }}</span>
-                </a-menu-item>
-              </a-sub-menu>
-              <a-menu-item v-else :key="item.key">
-                <component :is="item.icon" />
-                <span>{{ item.label }}</span>
-              </a-menu-item>
-            </template>
-          </a-menu>
+          <a-menu
+            :items="menuItems"
+            :selectedKeys="selectedKeys"
+            :openKeys="openKeys"
+            mode="inline"
+            @click="handleMenuClick"
+            @openChange="keys => openKeys = keys"
+          />
         </a-layout-sider>
         <a-layout-content class="app-content">
           <router-view />
@@ -76,7 +66,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import zhCN from 'ant-design-vue/es/locale/zh_CN'
 import { message } from 'ant-design-vue'
@@ -98,6 +88,7 @@ import {
 } from '@ant-design/icons-vue'
 
 import { changePassword, checkSession, getLogoInfo, getMe } from './api'
+import { findMenuOpenKeys, navigationItems, resolveMenuKey } from './navigation'
 
 const router = useRouter()
 const route = useRoute()
@@ -106,60 +97,49 @@ const authChecking = ref(true)
 const passwordVisible = ref(false)
 const logoUrl = ref('/logo.png')
 const selectedKeys = ref([route.path])
-const openKeys = ref([])
+const openKeys = ref(['agent-governance'])
 const passwordForm = reactive({
   oldPassword: '',
   newPassword: '',
   confirmPassword: '',
 })
 
-const menuItems = [
-  { key: '/dashboard', label: '总览', icon: DashboardOutlined },
-  { key: '/skills', label: '技能注册表', icon: FileSearchOutlined },
-  { key: '/prompts', label: '提示词管理', icon: FileTextOutlined },
-  { key: '/submit', label: '提交技能', icon: UploadOutlined },
-  { key: '/review', label: '审核队列', icon: CheckSquareOutlined },
-  { key: '/runtime', label: '运行时治理', icon: SafetyCertificateOutlined },
-  { key: '/audit', label: '审计日志', icon: AuditOutlined },
-  { key: '/policy', label: '策略配置', icon: SettingOutlined },
-  { key: '/scanner-access', label: '扫描器接入', icon: KeyOutlined },
-  {
-    key: '/model-gateway',
-    label: '模型网关',
-    icon: ApiOutlined,
-    children: [
-      { key: '/model-gateway/providers', label: '供应商管理', icon: ApiOutlined },
-      { key: '/model-gateway/models', label: '模型管理', icon: DeploymentUnitOutlined },
-      { key: '/model-gateway/keys', label: 'API Key', icon: KeyOutlined },
-      { key: '/model-gateway/groups', label: '用户与组', icon: SafetyCertificateOutlined },
-      { key: '/model-gateway/policies', label: '隐私策略', icon: SettingOutlined },
-      { key: '/model-gateway/audit', label: '隐私审计', icon: AuditOutlined },
-      { key: '/model-gateway/stats', label: '用量统计', icon: BarChartOutlined },
-      { key: '/model-gateway/user-stats', label: '用户用量', icon: TeamOutlined },
-      { key: '/pipeline-trace', label: 'Pipeline Trace', icon: AuditOutlined },
-    ],
-  },
-  { key: '/settings', label: '系统设置', icon: SettingOutlined },
-]
+const iconMap = {
+  api: ApiOutlined,
+  audit: AuditOutlined,
+  barChart: BarChartOutlined,
+  checkSquare: CheckSquareOutlined,
+  dashboard: DashboardOutlined,
+  deployment: DeploymentUnitOutlined,
+  fileSearch: FileSearchOutlined,
+  fileText: FileTextOutlined,
+  key: KeyOutlined,
+  agent: DeploymentUnitOutlined,
+  safety: SafetyCertificateOutlined,
+  setting: SettingOutlined,
+  team: TeamOutlined,
+  upload: UploadOutlined,
+}
+
+const buildMenuItem = (item) => ({
+  key: item.key,
+  label: item.label,
+  icon: item.icon && iconMap[item.icon] ? h(iconMap[item.icon]) : undefined,
+  children: item.children?.map(buildMenuItem),
+})
+
+const menuItems = computed(() => navigationItems.map(buildMenuItem))
 
 let sessionCheckTimer = null
 
 const isLoginPage = computed(() => route.name === 'login')
 
-const resolveMenuKey = (path) => {
-  if (path.startsWith('/skills/')) return '/skills'
-  if (path.startsWith('/prompts/')) return '/prompts'
-  if (path === '/model-gateway') return '/model-gateway/providers'
-  return path
-}
-
 watch(
   () => route.path,
   (path) => {
     selectedKeys.value = [resolveMenuKey(path)]
-    if (path.startsWith('/model-gateway') || path === '/pipeline-trace') {
-      openKeys.value = ['/model-gateway']
-    }
+    const nextOpenKeys = findMenuOpenKeys(path)
+    openKeys.value = nextOpenKeys.length ? nextOpenKeys : ['agent-governance']
   },
   { immediate: true },
 )

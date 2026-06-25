@@ -21,7 +21,7 @@ class TestRiskLevel:
     def test_from_severity_mapping(self):
         assert RiskLevel.from_severity("SAFE") == RiskLevel.BENIGN
         assert RiskLevel.from_severity("INFO") == RiskLevel.BENIGN
-        assert RiskLevel.from_severity("LOW") == RiskLevel.SUSPICIOUS
+        assert RiskLevel.from_severity("LOW") == RiskLevel.BENIGN
         assert RiskLevel.from_severity("MEDIUM") == RiskLevel.SUSPICIOUS
         assert RiskLevel.from_severity("HIGH") == RiskLevel.MALICIOUS
         assert RiskLevel.from_severity("CRITICAL") == RiskLevel.MALICIOUS

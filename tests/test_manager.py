@@ -100,6 +100,52 @@ class TestApproveReject:
             with pytest.raises(ValueError, match="VETTED"):
                 mgr.approve(entry.skill_id, approver="bob")
 
+    def test_approve_low_risk_policy_rejection_as_manual_exception(self, tmp_path, skill_dir):
+        policy = CompanyPolicy({
+            "auto_approve_max_risk": "MEDIUM",
+            "allowed_tools_allowlist": ["Read"],
+        })
+        registry = Registry(data_dir=tmp_path / "reg-policy-override")
+        mgr = AgentManager(policy=policy, registry=registry)
+
+        entry = mgr.submit(skill_dir)
+        assert entry.status == SkillStatus.REJECTED
+        assert entry.risk_level == RiskLevel.BENIGN
+        assert entry.declared_tools_valid is False
+
+        approved = mgr.approve(entry.skill_id, approver="alice", note="只读检索工具例外批准")
+        assert approved.status == SkillStatus.APPROVED
+        assert approved.approved_by == "alice"
+        assert approved.signature is not None
+
+        event = next(item for item in mgr.audit() if item.event_type == "skill_approved")
+        assert event.details["manual_policy_override"] is True
+
+    def test_approve_failed_submission_as_manual_exception(self, mgr, skill_dir):
+        entry = mgr.create_pending_submission(skill_dir)
+        failed = mgr.mark_submission_failed(entry.skill_id, "后台分析失败: decode error")
+
+        assert failed.status == SkillStatus.REJECTED
+        assert failed.vetting.scan_report["vetting_failed"] is True
+
+        approved = mgr.approve(entry.skill_id, approver="alice", note="人工确认内容可接受")
+
+        assert approved.status == SkillStatus.APPROVED
+        assert approved.signature is not None
+        event = next(item for item in mgr.audit() if item.event_type == "skill_approved")
+        assert event.details["manual_policy_override"] is True
+
+    def test_approve_legacy_failed_submission_by_rejection_reason(self, mgr, skill_dir):
+        entry = mgr.create_pending_submission(skill_dir)
+        entry.status = SkillStatus.REJECTED
+        entry.rejection_reason = "后台分析失败: Cannot vet skill: decode error"
+        mgr.registry.update(entry)
+
+        approved = mgr.approve(entry.skill_id, approver="alice", note="人工确认内容可接受")
+
+        assert approved.status == SkillStatus.APPROVED
+        assert approved.signature is not None
+
     def test_reject_skill(self, tmp_path, skill_dir):
         policy = CompanyPolicy({"auto_approve_max_risk": "LOW"})
         registry = Registry(data_dir=tmp_path / "reg2")

@@ -23,6 +23,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from agent_manager.core.llm import LLMConfig
@@ -31,8 +32,9 @@ from agent_manager.core.models import SkillStatus, SourceInfo, SkillOrigin
 from agent_manager.core.prompt_models import PromptStatus
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.registry import Registry
-from agent_manager.core.sandbox import SandboxConfig, get_sandbox_runner
+from agent_manager.core.sandbox import SandboxConfig, SandboxConnectionTest, test_sandbox_connection
 from agent_manager.core.skillspector import get_skillspector_version, is_skillspector_available
+from agent_manager.core.text_reader import read_text_fallback
 from agent_manager.core.vetting import _load_manifest
 
 router = APIRouter(tags=["agent-manager"])
@@ -215,6 +217,7 @@ def _process_pending_submission_task(
     use_behavioral: bool,
     use_llm: bool,
     use_sandbox: bool,
+    use_skillspector: bool,
     no_cache: bool = False,
 ) -> None:
     try:
@@ -223,6 +226,7 @@ def _process_pending_submission_task(
             use_behavioral=use_behavioral,
             use_llm=use_llm,
             use_sandbox=use_sandbox,
+            use_skillspector=use_skillspector,
             no_cache=no_cache,
         )
     except Exception as exc:
@@ -237,6 +241,7 @@ def _submit_directory_for_processing(
     use_behavioral: bool,
     use_llm: bool,
     use_sandbox: bool,
+    use_skillspector: bool,
     no_cache: bool = False,
 ) -> SubmitResponse:
     entry = mgr.create_pending_submission(skill_dir, source=source)
@@ -247,6 +252,7 @@ def _submit_directory_for_processing(
         use_behavioral,
         use_llm,
         use_sandbox,
+        use_skillspector,
         no_cache,
     )
     return SubmitResponse(
@@ -318,6 +324,7 @@ class LocalImportSubmitRequest(BaseModel):
     use_behavioral: bool = False
     use_llm: bool = False
     use_sandbox: bool = False
+    use_skillspector: bool = False
     no_cache: bool = False
 
 
@@ -328,6 +335,7 @@ class UrlSubmitRequest(BaseModel):
     use_behavioral: bool = False
     use_llm: bool = False
     use_sandbox: bool = False
+    use_skillspector: bool = False
     no_cache: bool = False
 
 
@@ -354,6 +362,7 @@ class RemoteImportSubmitRequest(BaseModel):
     use_behavioral: bool = False
     use_llm: bool = False
     use_sandbox: bool = False
+    use_skillspector: bool = False
     no_cache: bool = False
 
 
@@ -372,6 +381,7 @@ class ClawHubSubmitRequest(BaseModel):
     use_behavioral: bool = False
     use_llm: bool = False
     use_sandbox: bool = False
+    use_skillspector: bool = False
     no_cache: bool = False
 
 
@@ -457,6 +467,8 @@ class SystemStatusResponse(BaseModel):
     sandbox_enabled: bool
     sandbox_available: bool
     sandbox_runtime: str
+    sandbox_target: str | None = None
+    sandbox_status_message: str | None = None
     hooks_available: bool
     llm_enabled: bool
     llm_provider: str
@@ -496,7 +508,7 @@ class LLMConfigResponse(BaseModel):
 
 class SandboxConfigPayload(BaseModel):
     enabled: bool = False
-    runtime: str = "docker"
+    runtime: str = "remote"
     image: str = "agent-manager-sandbox-runtime:latest"
     timeout_seconds: int = 15
     network_mode: str = "none"
@@ -504,7 +516,7 @@ class SandboxConfigPayload(BaseModel):
     cpu_limit: str = "1.0"
     pids_limit: int = 64
     read_only_rootfs: bool = True
-    remote_url: str | None = None
+    remote_url: str | None = "http://sandbox:8194"
     remote_api_key: str | None = None
     clear_remote_api_key: bool = False
 
@@ -523,6 +535,14 @@ class SandboxConfigResponse(BaseModel):
     remote_url: str | None = None
     remote_api_key_configured: bool
     remote_api_key_masked: str | None = None
+
+
+class SandboxConnectionTestResponse(BaseModel):
+    available: bool
+    runtime: str
+    target: str | None = None
+    message: str
+    duration_ms: int | None = None
 
 
 class SandboxImagesResponse(BaseModel):
@@ -545,6 +565,7 @@ class SkillContentResponse(BaseModel):
     skill_name: str
     manifest_path: str
     content: str
+    encoding: str | None = None
 
 
 class SkillFileEntry(BaseModel):
@@ -567,6 +588,7 @@ class SkillFileContentResponse(BaseModel):
     path: str
     absolute_path: str
     content: str
+    encoding: str | None = None
 
 
 class GovernanceCardResponse(BaseModel):
@@ -642,9 +664,7 @@ def get_sandbox_config():
     return SandboxConfigResponse(**public)
 
 
-@router.put("/sandbox-config", response_model=SandboxConfigResponse)
-def update_sandbox_config(body: SandboxConfigPayload):
-    current = SandboxConfig.load()
+def _sandbox_config_from_payload(body: SandboxConfigPayload, current: SandboxConfig) -> SandboxConfig:
     data = body.model_dump()
     clear_remote_api_key = data.pop("clear_remote_api_key", False)
     incoming_api_key = data.pop("remote_api_key", None)
@@ -655,12 +675,25 @@ def update_sandbox_config(body: SandboxConfigPayload):
         merged["remote_api_key"] = incoming_api_key
     else:
         merged["remote_api_key"] = current.remote_api_key
+    return SandboxConfig.model_validate(merged)
 
-    config = SandboxConfig.model_validate(merged)
+
+@router.put("/sandbox-config", response_model=SandboxConfigResponse)
+def update_sandbox_config(body: SandboxConfigPayload):
+    current = SandboxConfig.load()
+    config = _sandbox_config_from_payload(body, current)
     path = config.save()
     public = config.public_dict()
     public["config_path"] = str(path)
     return SandboxConfigResponse(**public)
+
+
+@router.post("/sandbox-config/test", response_model=SandboxConnectionTestResponse)
+def test_sandbox_config(body: SandboxConfigPayload):
+    current = SandboxConfig.load()
+    config = _sandbox_config_from_payload(body, current)
+    result = test_sandbox_connection(config, timeout_seconds=3)
+    return SandboxConnectionTestResponse(**result.model_dump())
 
 
 @router.get("/sandbox-images", response_model=SandboxImagesResponse)
@@ -701,18 +734,20 @@ def get_system_status():
     registry = Registry(mgr.registry.data_dir)
     llm_config = LLMConfig.load()
     sandbox_config = SandboxConfig.load()
-    sandbox_runner = get_sandbox_runner(sandbox_config)
     sandbox_enabled = sandbox_config.enabled
-    sandbox_available = sandbox_enabled and sandbox_runner.is_available()
+    sandbox_status: SandboxConnectionTest | None = None
+    if sandbox_enabled:
+        sandbox_status = test_sandbox_connection(sandbox_config, timeout_seconds=2)
+    sandbox_available = bool(sandbox_status and sandbox_status.available)
     scanner_available = importlib.util.find_spec("skill_scanner") is not None
-    skillspector_available = is_skillspector_available() if mgr.policy.skillspector_enabled else False
-    skillspector_version = get_skillspector_version() if mgr.policy.skillspector_enabled and skillspector_available else None
+    skillspector_available = is_skillspector_available()
+    skillspector_version = get_skillspector_version() if skillspector_available else None
 
     scan_modes = []
     if scanner_available:
         scan_modes.append("scanner")
-    if mgr.policy.skillspector_enabled:
-        scan_modes.append("skillspector" if skillspector_available else "skillspector unavailable")
+    if skillspector_available:
+        scan_modes.append("深度扫描")
     if llm_config.enabled:
         scan_modes.append("llm")
     scan_mode = " + ".join(scan_modes) if scan_modes else "manifest only"
@@ -724,12 +759,14 @@ def get_system_status():
         review_queue=len(registry.list_review_queue()),
         signing_key_configured=bool(os.environ.get("AGENT_MANAGER_SIGNING_KEY", "").strip()),
         scanner_available=scanner_available,
-        skillspector_enabled=mgr.policy.skillspector_enabled,
+        skillspector_enabled=skillspector_available,
         skillspector_available=skillspector_available,
         skillspector_version=skillspector_version,
         sandbox_enabled=sandbox_enabled,
         sandbox_available=sandbox_available,
         sandbox_runtime=sandbox_config.runtime,
+        sandbox_target=sandbox_status.target if sandbox_status else None,
+        sandbox_status_message=sandbox_status.message if sandbox_status else "Sandbox 未启用",
         hooks_available=(Path(__file__).resolve().parent.parent / "hooks" / "agent_hook.py").exists(),
         llm_enabled=llm_config.enabled,
         llm_provider=llm_config.provider,
@@ -754,6 +791,7 @@ async def submit_skill_zip(
     use_behavioral: bool = Query(False),
     use_llm: bool = Query(False),
     use_sandbox: bool = Query(False),
+    use_skillspector: bool = Query(False),
     no_cache: bool = Query(False),
     mgr: AgentManager = Depends(get_manager),
 ):
@@ -790,6 +828,7 @@ async def submit_skill_zip(
             use_behavioral,
             use_llm,
             use_sandbox,
+            use_skillspector,
             no_cache,
         )
     finally:
@@ -863,6 +902,7 @@ def submit_local_skills(
             body.use_behavioral,
             body.use_llm,
             body.use_sandbox,
+            body.use_skillspector,
             body.no_cache,
         ))
 
@@ -898,6 +938,7 @@ async def submit_skill_url(
             body.use_behavioral,
             body.use_llm,
             body.use_sandbox,
+            body.use_skillspector,
             body.no_cache,
         )
     except httpx.HTTPError as exc:
@@ -968,6 +1009,7 @@ def submit_remote_selected(
             body.use_behavioral,
             body.use_llm,
             body.use_sandbox,
+            body.use_skillspector,
             body.no_cache,
         ))
     return BatchSubmitResponse(results=results)
@@ -1004,6 +1046,7 @@ def submit_upload_selected(
             body.use_behavioral,
             body.use_llm,
             body.use_sandbox,
+            body.use_skillspector,
             body.no_cache,
         ))
     return BatchSubmitResponse(results=results)
@@ -1058,6 +1101,7 @@ async def submit_skill_clawhub(
             body.use_behavioral,
             body.use_llm,
             body.use_sandbox,
+            body.use_skillspector,
             body.no_cache,
         )
     except httpx.HTTPError as exc:
@@ -1085,8 +1129,16 @@ def list_skills(
     mgr: AgentManager = Depends(get_manager),
 ):
     """List skills, optionally filtered by status."""
-    s = SkillStatus(status) if status else None
-    entries = mgr.list_skills(s)
+    status_values: list[SkillStatus] = []
+    if status:
+        try:
+            status_values = [SkillStatus(item.strip()) for item in status.split(",") if item.strip()]
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid skill status: {status}") from exc
+    entries = mgr.list_skills()
+    if status_values:
+        allowed_statuses = set(status_values)
+        entries = [e for e in entries if e.status in allowed_statuses]
     if loadable_only:
         entries = [e for e in entries if e.is_loadable()]
 
@@ -1170,6 +1222,16 @@ def get_dashboard_risk_source_stats(mgr: AgentManager = Depends(get_manager)):
             "medium": 0,
             "low": 0,
         },
+        "skillspector": {
+            "key": "skillspector",
+            "label": "深度分析",
+            "count": 0,
+            "skills": set(),
+            "critical": 0,
+            "high": 0,
+            "medium": 0,
+            "low": 0,
+        },
     }
 
     for entry in mgr.list_skills():
@@ -1203,6 +1265,8 @@ def _risk_finding_source_key(finding: dict[str, Any]) -> str:
         return "llm"
     if source.startswith("sandbox"):
         return "sandbox"
+    if source.startswith("skillspector") or source.startswith("deep"):
+        return "skillspector"
     return "rule"
 
 
@@ -1244,6 +1308,7 @@ def _previous_scan_options(entry) -> dict[str, bool]:
         "use_behavioral": bool(report.get("behavioral_analysis") or report.get("local_static_analysis") or analyzers.intersection({"behavioral:local", "agent-manager-local"})),
         "use_llm": bool(report.get("llm_analysis") or any(item.startswith("llm:") for item in analyzers)),
         "use_sandbox": bool(report.get("sandbox_analysis") or any(item.startswith("sandbox:") for item in analyzers)),
+        "use_skillspector": bool(report.get("skillspector_analysis") or any(item.startswith("skillspector:") for item in analyzers)),
     }
 
 
@@ -1253,6 +1318,7 @@ def rescan_skill(
     use_behavioral: bool | None = Query(None),
     use_llm: bool | None = Query(None),
     use_sandbox: bool | None = Query(None),
+    use_skillspector: bool | None = Query(None),
     no_cache: bool = Query(True),
     mgr: AgentManager = Depends(get_manager),
 ):
@@ -1274,6 +1340,7 @@ def rescan_skill(
         previous_options["use_behavioral"] if use_behavioral is None else use_behavioral,
         previous_options["use_llm"] if use_llm is None else use_llm,
         previous_options["use_sandbox"] if use_sandbox is None else use_sandbox,
+        previous_options["use_skillspector"] if use_skillspector is None else use_skillspector,
         no_cache,
     )
     current = mgr.get_skill(entry.skill_id) or entry
@@ -1328,7 +1395,7 @@ def get_skill_content(skill_id_or_name: str, mgr: AgentManager = Depends(get_man
         raise HTTPException(status_code=404, detail="SKILL.md not found")
 
     try:
-        content = manifest_path.read_text(encoding="utf-8")
+        content, encoding = read_text_fallback(manifest_path)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to read SKILL.md: {exc}") from exc
 
@@ -1337,6 +1404,7 @@ def get_skill_content(skill_id_or_name: str, mgr: AgentManager = Depends(get_man
         skill_name=entry.name,
         manifest_path=str(manifest_path),
         content=content,
+        encoding=encoding,
     )
 
 
@@ -1397,9 +1465,7 @@ def get_skill_file_content(
         raise HTTPException(status_code=404, detail="File not found")
 
     try:
-        content = requested.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="File is not a UTF-8 text file")
+        content, encoding = read_text_fallback(requested)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to read file: {exc}") from exc
 
@@ -1409,6 +1475,52 @@ def get_skill_file_content(
         path=path,
         absolute_path=str(requested),
         content=content,
+        encoding=encoding,
+    )
+
+
+@router.get("/skills/{skill_id_or_name}/download")
+def download_skill_archive(
+    skill_id_or_name: str,
+    background_tasks: BackgroundTasks,
+    mgr: AgentManager = Depends(get_manager),
+):
+    entry = mgr.get_skill(skill_id_or_name)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    if not entry.skill_path:
+        raise HTTPException(status_code=400, detail="Skill path is not available")
+
+    skill_root = Path(entry.skill_path).resolve()
+    if not skill_root.exists() or not skill_root.is_dir():
+        raise HTTPException(status_code=404, detail="Skill directory not found")
+
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", entry.name or entry.skill_id).strip("-") or "skill"
+    tmp = tempfile.NamedTemporaryFile(prefix=f"{safe_name}-", suffix=".zip", delete=False)
+    tmp_path = Path(tmp.name)
+    tmp.close()
+    try:
+        with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(skill_root.rglob("*")):
+                if not path.is_file():
+                    continue
+                resolved = path.resolve()
+                try:
+                    rel = resolved.relative_to(skill_root)
+                except ValueError:
+                    continue
+                if any(part in {".git", ".venv", "node_modules", "__pycache__"} for part in rel.parts):
+                    continue
+                archive.write(resolved, rel.as_posix())
+    except Exception as exc:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Failed to package Skill: {exc}") from exc
+
+    background_tasks.add_task(tmp_path.unlink, missing_ok=True)
+    return FileResponse(
+        path=tmp_path,
+        filename=f"{safe_name}.zip",
+        media_type="application/zip",
     )
 
 
@@ -1752,8 +1864,12 @@ def list_prompts(
     agent_id: str | None = Query(None),
     mgr: AgentManager = Depends(get_manager),
 ):
-    status_enum = PromptStatus(status) if status else None
-    entries = mgr.list_prompts(status=status_enum, agent_id=agent_id)
+    if status and "," in status:
+        statuses = {PromptStatus(item.strip()) for item in status.split(",") if item.strip()}
+        entries = [entry for entry in mgr.list_prompts(agent_id=agent_id) if entry.status in statuses]
+    else:
+        status_enum = PromptStatus(status) if status else None
+        entries = mgr.list_prompts(status=status_enum, agent_id=agent_id)
     return [e.summary() for e in entries]
 
 

@@ -1,423 +1,489 @@
 <template>
-  <div>
-    <a-page-header title="系统设置" sub-title="查看系统状态、数据目录与基础环境信息" />
+  <div class="system-overview">
+    <a-page-header title="系统总览" sub-title="检查治理、运行、模型网关与接入能力是否可用" />
 
-    <a-card class="status-overview-card" title="系统状态总览" style="margin-top: 16px">
-      <template #extra>
-        <a-button type="primary" size="small" @click="fetchStatus" :loading="loading">刷新状态</a-button>
-      </template>
+    <section class="health-panel">
+      <div class="health-main">
+        <div>
+          <div class="eyebrow">平台能力体检</div>
+          <div class="health-title">系统健康度</div>
+          <div class="health-summary">
+            <a-tag :color="statusColor(overallHealth.status)">{{ overallHealth.text }}</a-tag>
+            <span>{{ overallHealth.message }}</span>
+          </div>
+        </div>
+        <div class="group-status-list">
+          <div v-for="group in capabilityGroups" :key="group.key" class="group-status-pill">
+            <span>{{ group.title }}</span>
+            <a-tag :color="statusColor(group.status)">{{ statusText(group.status) }}</a-tag>
+          </div>
+        </div>
+      </div>
+      <a-button type="primary" size="small" :loading="loading" @click="fetchStatus">刷新状态</a-button>
+    </section>
 
-      <div class="status-section">
-        <div class="section-title">基础环境</div>
-        <a-descriptions bordered size="small" :column="{ xs: 1, md: 2, xl: 3 }">
-          <a-descriptions-item label="数据目录" :span="2">
-            <span class="path-text">{{ systemInfo.data_dir || '-' }}</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="目录大小">{{ formatSize(systemInfo.data_dir_size || 0) }}</a-descriptions-item>
-          <a-descriptions-item label="CPU">{{ formatCpu(systemInfo.cpu) }}</a-descriptions-item>
-          <a-descriptions-item label="内存">{{ formatPercent(systemInfo.memory?.percent) }}</a-descriptions-item>
-          <a-descriptions-item label="Logo 地址">
-            <span class="path-text">{{ logoInfo.logo_url || '-' }}</span>
-          </a-descriptions-item>
-        </a-descriptions>
+    <section v-for="group in capabilityGroups" :key="group.key" class="capability-section">
+      <div class="section-heading">
+        <div>
+          <div class="section-title">{{ group.title }}</div>
+          <div class="section-subtitle">{{ group.description }}</div>
+        </div>
+        <a-tag :color="statusColor(group.status)">{{ statusText(group.status) }}</a-tag>
       </div>
 
-      <div class="status-section">
-        <div class="section-title">治理服务</div>
-        <a-descriptions bordered size="small" :column="{ xs: 1, md: 2, xl: 3 }">
-          <a-descriptions-item label="服务">{{ managerStatus.service || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="注册条目">{{ managerStatus.registry_entries ?? '-' }}</a-descriptions-item>
-          <a-descriptions-item label="审核队列">{{ managerStatus.review_queue ?? '-' }}</a-descriptions-item>
-          <a-descriptions-item label="签名密钥">
-            <a-tag :color="managerStatus.signing_key_configured ? 'green' : 'orange'">
-              {{ managerStatus.signing_key_configured ? '已配置' : '开发模式' }}
-            </a-tag>
-          </a-descriptions-item>
-          <a-descriptions-item label="运行时 Hooks">
-            <a-tag :color="managerStatus.hooks_available ? 'blue' : 'default'">
-              {{ managerStatus.hooks_available ? '可用' : '缺失' }}
-            </a-tag>
-          </a-descriptions-item>
-          <a-descriptions-item label="当前扫描模式">
-            <a-tag :color="scanModeColor(managerStatus.scan_mode)">
-              {{ managerStatus.scan_mode || '-' }}
-            </a-tag>
-          </a-descriptions-item>
-          <a-descriptions-item label="注册表目录" :span="2">
-            <span class="path-text">{{ managerStatus.data_dir || '-' }}</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="策略文件">
-            <span class="path-text">{{ managerStatus.policy_path || '-' }}</span>
-          </a-descriptions-item>
-        </a-descriptions>
-      </div>
-
-      <div class="status-section">
-        <div class="section-title">分析与运行能力</div>
-        <a-descriptions bordered size="small" :column="{ xs: 1, md: 2, xl: 3 }">
-          <a-descriptions-item label="扫描器">
-            <a-tag :color="managerStatus.scanner_available ? 'green' : 'default'">
-              {{ managerStatus.scanner_available ? '可用' : '未安装' }}
-            </a-tag>
-          </a-descriptions-item>
-          <a-descriptions-item label="SkillSpector">
-            <a-space wrap>
-              <a-tag :color="skillspectorStatusColor">
-                {{ skillspectorStatusText }}
-              </a-tag>
-              <span class="muted">{{ managerStatus.skillspector_version || '-' }}</span>
-            </a-space>
-          </a-descriptions-item>
-          <a-descriptions-item label="Sandbox">
-            <a-tag :color="sandboxStatusColor">{{ sandboxStatusText }}</a-tag>
-          </a-descriptions-item>
-          <a-descriptions-item label="Sandbox 后端">{{ managerStatus.sandbox_runtime || sandboxConfig.runtime || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="Sandbox 镜像">
-            <span class="path-text">{{ sandboxConfig.image || '-' }}</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="LLM 分析">
-            <a-tag :color="managerStatus.llm_enabled ? 'blue' : 'default'">
-              {{ managerStatus.llm_enabled ? '已启用' : '未启用' }}
-            </a-tag>
-          </a-descriptions-item>
-          <a-descriptions-item label="LLM 提供方">{{ managerStatus.llm_provider || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="LLM 模型">{{ managerStatus.llm_model || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="LLM API Key">
-            <a-tag :color="managerStatus.llm_api_key_configured ? 'green' : 'orange'">
-              {{ managerStatus.llm_api_key_configured ? '已配置' : '未配置' }}
-            </a-tag>
-          </a-descriptions-item>
-          <a-descriptions-item label="LLM 接口" :span="3">
-            <span class="path-text">{{ managerStatus.llm_api_base || '-' }}</span>
-          </a-descriptions-item>
-        </a-descriptions>
-      </div>
-    </a-card>
-
-    <a-row :gutter="[16, 16]" style="margin-top: 16px">
-      <a-col :xs="24" :xl="12">
-        <a-card title="LLM 配置">
-          <a-form layout="vertical" :model="llmForm" @finish="saveLlmConfig">
-            <a-form-item>
-              <a-switch
-                v-model:checked="llmForm.enabled"
-                checked-children="启用"
-                un-checked-children="关闭"
-                :loading="savingLlm"
-                @change="handleToggleLlmEnabled"
-              />
-              <div class="hint">这里切换会直接保存，下面的“保存 LLM 配置”主要用于其他字段。</div>
-            </a-form-item>
-            <a-form-item label="提供方">
-              <a-select v-model:value="llmForm.provider">
-                <a-select-option value="openai-compatible">openai-compatible</a-select-option>
-                <a-select-option value="deepseek">deepseek</a-select-option>
-              </a-select>
-            </a-form-item>
-            <a-form-item label="API Base URL">
-              <a-input v-model:value="llmForm.api_base" placeholder="https://api.deepseek.com" />
-              <div class="hint">配置文件：{{ llmConfig.config_path || '-' }}</div>
-            </a-form-item>
-            <a-form-item label="模型">
-              <a-input v-model:value="llmForm.model" placeholder="deepseek-chat" />
-            </a-form-item>
-            <a-form-item label="超时时间（秒）">
-              <a-input-number v-model:value="llmForm.timeout_seconds" :min="5" :max="180" style="width: 100%" />
-            </a-form-item>
-            <a-form-item label="分析文件数上限">
-              <a-input-number v-model:value="llmForm.max_files" :min="1" :max="20" style="width: 100%" />
-            </a-form-item>
-            <a-form-item label="单文件截断字符数">
-              <a-input-number v-model:value="llmForm.max_file_chars" :min="500" :max="20000" :step="500" style="width: 100%" />
-            </a-form-item>
-            <a-form-item label="SKILL.md 截断字符数">
-              <a-input-number v-model:value="llmForm.max_manifest_chars" :min="2000" :max="50000" :step="1000" style="width: 100%" />
-            </a-form-item>
-            <a-form-item label="API Key">
-              <a-input-password
-                v-model:value="llmForm.api_key"
-                placeholder="留空则保留现有 key"
-                autocomplete="new-password"
-              />
-              <div class="hint">
-                当前状态：{{ llmConfig.api_key_configured ? (llmConfig.api_key_masked || '已配置') : '未配置' }}
+      <div class="capability-list">
+        <div v-for="item in group.items" :key="item.key" class="capability-row">
+          <div class="capability-status" :class="`status-${item.status}`" />
+          <div class="capability-main">
+            <div class="capability-title">{{ item.title }}</div>
+            <div class="capability-desc">{{ item.description }}</div>
+          </div>
+          <div class="meta-list">
+            <template v-if="item.meta?.length">
+              <div v-for="meta in item.meta" :key="meta.label" class="meta-line">
+                <span class="meta-label">{{ meta.label }}：</span>
+                <span class="meta-value">{{ meta.value || '-' }}</span>
               </div>
-            </a-form-item>
-            <a-form-item>
-              <a-checkbox v-model:checked="llmForm.clear_api_key">清除当前 API Key</a-checkbox>
-            </a-form-item>
-            <a-form-item>
-              <a-space wrap>
-                <a-button type="primary" html-type="submit" :loading="savingLlm">保存 LLM 配置</a-button>
-                <a-button @click="fetchStatus" :disabled="savingLlm">重新加载</a-button>
-              </a-space>
-            </a-form-item>
-          </a-form>
-        </a-card>
-      </a-col>
-      <a-col :xs="24" :xl="12">
-        <a-card title="Sandbox 配置">
-          <a-form layout="vertical" :model="sandboxForm" @finish="saveSandboxConfig">
-            <a-form-item>
-              <a-switch
-                v-model:checked="sandboxForm.enabled"
-                checked-children="启用"
-                un-checked-children="关闭"
-                :loading="savingSandbox"
-                @change="handleToggleSandboxEnabled"
-              />
-              <div class="hint">切换后会立即保存；高风险 skill 的强制执行仍由策略页决定。</div>
-            </a-form-item>
-            <a-form-item label="后端类型">
-              <a-select v-model:value="sandboxForm.runtime">
-                <a-select-option value="docker">docker</a-select-option>
-                <a-select-option value="remote">remote</a-select-option>
-              </a-select>
-            </a-form-item>
-            <a-form-item v-if="sandboxForm.runtime === 'docker'" label="镜像">
-              <a-select
-                v-model:value="sandboxForm.image"
-                show-search
-                placeholder="选择本机 sandbox 镜像"
-                :options="sandboxImageOptions"
-                :loading="loading"
-              />
-              <div class="hint">只显示本机 Docker 镜像名包含 sandbox 的镜像。</div>
-            </a-form-item>
-            <template v-else>
-              <a-form-item label="远程 Sandbox URL">
-                <a-input v-model:value="sandboxForm.remote_url" placeholder="http://sandbox:8194" />
-                <div class="hint">配置文件：{{ sandboxConfig.config_path || '-' }}</div>
-              </a-form-item>
-              <a-form-item label="远程 API Key">
-                <a-input-password
-                  v-model:value="sandboxForm.remote_api_key"
-                  placeholder="留空则保留现有 key"
-                  autocomplete="new-password"
-                />
-                <div class="hint">
-                  当前状态：{{ sandboxConfig.remote_api_key_configured ? (sandboxConfig.remote_api_key_masked || '已配置') : '未配置' }}
-                </div>
-              </a-form-item>
-              <a-form-item>
-                <a-checkbox v-model:checked="sandboxForm.clear_remote_api_key">清除当前远程 API Key</a-checkbox>
-              </a-form-item>
             </template>
-            <a-form-item label="超时时间（秒）">
-              <a-input-number v-model:value="sandboxForm.timeout_seconds" :min="1" :max="300" style="width: 100%" />
-            </a-form-item>
-            <a-form-item label="网络模式">
-              <a-select v-model:value="sandboxForm.network_mode">
-                <a-select-option value="none">none</a-select-option>
-                <a-select-option value="bridge">bridge</a-select-option>
-              </a-select>
-            </a-form-item>
-            <a-form-item label="内存限制">
-              <a-input v-model:value="sandboxForm.memory_limit" placeholder="256m" />
-            </a-form-item>
-            <a-form-item label="CPU 限制">
-              <a-input v-model:value="sandboxForm.cpu_limit" placeholder="1.0" />
-            </a-form-item>
-            <a-form-item label="进程数限制">
-              <a-input-number v-model:value="sandboxForm.pids_limit" :min="1" :max="1024" style="width: 100%" />
-            </a-form-item>
-            <a-form-item>
-              <a-checkbox v-model:checked="sandboxForm.read_only_rootfs">启用只读根文件系统</a-checkbox>
-            </a-form-item>
-            <a-form-item>
-              <a-space wrap>
-                <a-button type="primary" html-type="submit" :loading="savingSandbox">保存 Sandbox 配置</a-button>
-                <a-button @click="fetchStatus" :disabled="savingSandbox">重新加载</a-button>
-              </a-space>
-            </a-form-item>
-          </a-form>
-        </a-card>
-      </a-col>
-    </a-row>
+            <span v-else class="meta-empty">-</span>
+          </div>
+          <div class="capability-state">
+            <a-tag :color="statusColor(item.status)">{{ item.statusText || statusText(item.status) }}</a-tag>
+          </div>
+          <div class="capability-action">
+            <router-link v-if="item.actionPath" :to="item.actionPath">
+              <a-button size="small">{{ item.actionText }}</a-button>
+            </router-link>
+            <span v-else class="meta-empty">-</span>
+          </div>
+        </div>
+      </div>
+    </section>
 
-    <a-row :gutter="[16, 16]" style="margin-top: 16px">
-      <a-col :xs="24" :xl="12">
-        <a-card title="操作">
-          <a-space wrap>
-            <a-button type="primary" @click="fetchStatus" :loading="loading">刷新状态</a-button>
-            <a-button @click="$router.push('/policy')">打开策略配置</a-button>
-            <a-button @click="$router.push('/audit')">查看审计日志</a-button>
-          </a-space>
-        </a-card>
-      </a-col>
-
-      <a-col :xs="24" :xl="12">
-        <a-card title="当前说明">
-          <a-list size="small" bordered :data-source="items">
-            <template #renderItem="{ item }">
-              <a-list-item>{{ item }}</a-list-item>
-            </template>
-          </a-list>
-        </a-card>
-      </a-col>
-    </a-row>
+    <section class="recommendation-panel">
+      <div class="section-heading">
+        <div>
+          <div class="section-title">配置建议</div>
+          <div class="section-subtitle">只展示会影响系统能力闭环的配置项。</div>
+        </div>
+      </div>
+      <a-empty v-if="!recommendations.length" description="当前系统能力配置完整，可以支持 Skill 治理、模型调用和 Agent 接入。" />
+      <div v-else class="recommendation-list">
+        <div v-for="item in recommendations" :key="item.title" class="recommendation-row">
+          <div class="recommendation-main">
+            <div class="recommendation-title">{{ item.title }}</div>
+            <div class="recommendation-desc">{{ item.description }}</div>
+          </div>
+          <div class="recommendation-action">
+            <router-link v-if="item.actionPath" :to="item.actionPath">
+              <a-button size="small">{{ item.actionText }}</a-button>
+            </router-link>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
 
 import {
-  getLlmConfig,
-  getLogoInfo,
-  getSandboxConfig,
   getAgentManagerSystemStatus,
-  getSystemInfo,
-  listSandboxImages,
-  updateLlmConfig,
-  updateSandboxConfig,
+  getLlmConfig,
+  getSandboxConfig,
+  listAccessTokens,
+  listAgents,
+  listGroups,
+  listModelEndpoints,
+  listModelProviders,
+  listPrivacyPolicies,
 } from '../api'
 
 const loading = ref(false)
-const savingLlm = ref(false)
-const savingSandbox = ref(false)
-const systemInfo = ref({})
-const logoInfo = ref({})
 const managerStatus = ref({})
 const llmConfig = ref({})
 const sandboxConfig = ref({})
-const sandboxImages = ref([])
-const llmForm = reactive({
-  enabled: false,
-  provider: 'deepseek',
-  api_base: 'https://api.deepseek.com',
-  model: 'deepseek-chat',
-  timeout_seconds: 30,
-  max_files: 6,
-  max_file_chars: 3000,
-  max_manifest_chars: 12000,
-  api_key: '',
-  clear_api_key: false,
-})
-const sandboxForm = reactive({
-  enabled: false,
-  runtime: 'docker',
-  image: 'agent-manager-sandbox-runtime:latest',
-  timeout_seconds: 15,
-  network_mode: 'none',
-  memory_limit: '256m',
-  cpu_limit: '1.0',
-  pids_limit: 64,
-  read_only_rootfs: true,
-  remote_url: '',
-  remote_api_key: '',
-  clear_remote_api_key: false,
-})
-const items = [
-  'Starter backend 继续负责账号、登录、菜单和系统管理。',
-  'Agent Manager API 负责智能体技能生命周期、审计和运行时治理。',
-  '启用 LLM 分析后，提交技能时勾选“启用 LLM 分析”才会调用 OpenAI-compatible 接口；服务端也可以优先走模型网关隐私代理。',
-  '当前页面已经同时汇总两侧状态，便于你判断环境是否完整。',
-  'Sandbox 可以走本机 Docker，也可以走独立隔离执行服务；当前后端类型会显示在状态区。',
-]
+const modelProviders = ref([])
+const modelEndpoints = ref([])
+const accessTokens = ref([])
+const agents = ref([])
+const groups = ref([])
+const privacyPolicies = ref([])
 
-const formatSize = (size) => {
-  let value = Number(size || 0)
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let unitIndex = 0
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024
-    unitIndex += 1
+const safeRequest = async (request, fallback) => {
+  try {
+    return await request()
+  } catch (error) {
+    return fallback
   }
-  return `${value.toFixed(2)} ${units[unitIndex]}`
 }
 
-const formatPercent = (value) => (value == null ? '-' : `${Number(value).toFixed(1)}%`)
-const formatCpu = (cpu) => (cpu ? `${formatPercent(cpu.percent)} / ${cpu.count} cores` : '-')
+const toArray = (value) => {
+  if (Array.isArray(value)) return value
+  if (Array.isArray(value?.items)) return value.items
+  return []
+}
+
+const statusText = (status) => ({
+  ok: '正常',
+  warning: '待配置',
+  error: '异常',
+  disabled: '未启用',
+  unknown: '待检查',
+}[status] || '待检查')
+
+const statusColor = (status) => ({
+  ok: 'green',
+  warning: 'orange',
+  error: 'red',
+  disabled: 'default',
+  unknown: 'default',
+}[status] || 'default')
+
+const groupStatus = (items) => {
+  const statuses = items.map((item) => item.status)
+  if (statuses.includes('error')) return 'error'
+  if (statuses.includes('warning')) return 'warning'
+  if (statuses.every((status) => status === 'disabled')) return 'disabled'
+  if (statuses.includes('unknown')) return 'unknown'
+  return 'ok'
+}
+
+const activeModels = computed(() => modelEndpoints.value.filter((item) => item.enabled !== false))
+const activeAccessTokens = computed(() => accessTokens.value.filter((item) => item.status === 'active'))
+const agentRuntimeTokens = computed(() =>
+  activeAccessTokens.value.filter((item) => item.token_type === 'agent_runtime'),
+)
+const scannerTokens = computed(() =>
+  activeAccessTokens.value.filter((item) => item.token_type === 'scanner'),
+)
+const gatewayTokens = computed(() =>
+  activeAccessTokens.value.filter((item) => item.token_type === 'model_gateway'),
+)
+const activeAgents = computed(() => agents.value.filter((item) => item.status !== 'disabled'))
+const boundAgentTokenCount = computed(() =>
+  new Set(agentRuntimeTokens.value.map((item) => item.bound_agent_id).filter(Boolean)).size,
+)
+const groupsWithPolicy = computed(() =>
+  groups.value.filter((item) => item.privacy_policy_id),
+)
+
 const sandboxEnabled = computed(() => managerStatus.value.sandbox_enabled ?? sandboxConfig.value.enabled ?? false)
-const sandboxStatusText = computed(() => {
-  if (!sandboxEnabled.value) return '已关闭'
-  return managerStatus.value.sandbox_available ? '可用' : '不可用'
+const sandboxRuntime = computed(() => managerStatus.value.sandbox_runtime || sandboxConfig.value.runtime || 'remote')
+const sandboxTargetValue = computed(() => {
+  if (managerStatus.value.sandbox_target) return managerStatus.value.sandbox_target
+  if (sandboxRuntime.value === 'remote') return sandboxConfig.value.remote_url || 'http://sandbox:8194'
+  return sandboxConfig.value.image || '-'
 })
-const sandboxStatusColor = computed(() => {
-  if (!sandboxEnabled.value) return 'default'
-  return managerStatus.value.sandbox_available ? 'green' : 'red'
+const sandboxItemStatus = computed(() => {
+  if (!sandboxEnabled.value) return 'disabled'
+  return managerStatus.value.sandbox_available ? 'ok' : 'error'
 })
-const skillspectorStatusText = computed(() => {
-  if (!managerStatus.value.skillspector_enabled) return '未启用'
-  return managerStatus.value.skillspector_available ? '可用' : '未安装'
+const llmItemStatus = computed(() => {
+  if (!managerStatus.value.llm_enabled) return 'disabled'
+  return managerStatus.value.llm_model ? 'ok' : 'warning'
 })
-const skillspectorStatusColor = computed(() => {
-  if (!managerStatus.value.skillspector_enabled) return 'default'
-  return managerStatus.value.skillspector_available ? 'green' : 'orange'
+const llmSource = computed(() =>
+  (managerStatus.value.llm_provider || llmConfig.value.provider) === 'model-gateway'
+    ? '模型网关'
+    : (managerStatus.value.llm_provider || llmConfig.value.provider || '-'),
+)
+
+const governanceItems = computed(() => [
+  {
+    key: 'skill-review',
+    title: 'Skill 审核',
+    status: 'ok',
+    statusText: '可用',
+    description: '支持 Skill 提交、扫描、审核和签名治理。',
+    actionText: '查看审核',
+    actionPath: '/review',
+  },
+  {
+    key: 'prompt-review',
+    title: 'Prompt 审核',
+    status: 'ok',
+    statusText: '可用',
+    description: '支持 Prompt 提交、审核和发布流程。',
+    actionText: '查看 Prompt',
+    actionPath: '/prompts',
+  },
+  {
+    key: 'signing',
+    title: '签名能力',
+    status: managerStatus.value.signing_key_configured ? 'ok' : 'warning',
+    statusText: managerStatus.value.signing_key_configured ? '生产密钥' : '开发模式',
+    description: managerStatus.value.signing_key_configured
+      ? '已配置正式签名密钥，适合生产验签。'
+      : '当前使用开发模式，生产环境建议配置正式签名密钥。',
+    actionText: '查看策略',
+    actionPath: '/policy',
+  },
+  {
+    key: 'audit',
+    title: '审计日志',
+    status: 'ok',
+    statusText: '可用',
+    description: '审核、凭证、运行校验和网关调用可追踪。',
+    actionText: '查看审计',
+    actionPath: '/audit',
+  },
+])
+
+const runtimeItems = computed(() => [
+  {
+    key: 'sandbox',
+    title: 'Sandbox',
+    status: sandboxItemStatus.value,
+    statusText: sandboxEnabled.value
+      ? (managerStatus.value.sandbox_available ? '可用' : '不可用')
+      : '未启用',
+    description: managerStatus.value.sandbox_status_message || '用于受控执行 probe，辅助判断运行时行为。',
+    meta: [
+      { label: '后端', value: sandboxRuntime.value },
+      { label: '目标', value: sandboxTargetValue.value },
+    ],
+    actionText: '去测试连接',
+    actionPath: '/policy',
+  },
+  {
+    key: 'llm',
+    title: 'LLM 分析',
+    status: llmItemStatus.value,
+    statusText: managerStatus.value.llm_enabled ? '已启用' : '未启用',
+    description: managerStatus.value.llm_enabled
+      ? '深度研判使用模型网关中选择的模型。'
+      : '未启用时只使用基础扫描和规则策略。',
+    meta: [
+      { label: '模型', value: managerStatus.value.llm_model || llmConfig.value.model || '-' },
+      { label: '来源', value: llmSource.value },
+    ],
+    actionText: '选择模型',
+    actionPath: '/policy',
+  },
+  {
+    key: 'deep-analysis',
+    title: '深度分析',
+    status: managerStatus.value.skillspector_available ? 'ok' : 'warning',
+    statusText: managerStatus.value.skillspector_available ? '可用' : '未安装',
+    description: '提交时勾选深度分析后，会增加更细的静态与行为信号。',
+    actionText: '提交 Skill',
+    actionPath: '/submit',
+  },
+  {
+    key: 'runtime-check',
+    title: 'Runtime 校验',
+    status: managerStatus.value.hooks_available ? 'ok' : 'warning',
+    statusText: managerStatus.value.hooks_available ? '可用' : '待接入',
+    description: 'Agent 加载 Skill 前可校验注册状态、审批状态和签名。',
+    actionText: '查看运行治理',
+    actionPath: '/runtime',
+  },
+])
+
+const gatewayItems = computed(() => [
+  {
+    key: 'models',
+    title: '模型管理',
+    status: activeModels.value.length > 0 ? 'ok' : 'error',
+    statusText: activeModels.value.length > 0 ? '有可用模型' : '无可用模型',
+    description: '平台内部 LLM 分析和 Agent 调用都应从模型网关选择模型。',
+    meta: [
+      { label: '供应商', value: `${modelProviders.value.length}` },
+      { label: '可用模型', value: `${activeModels.value.length}` },
+    ],
+    actionText: '去模型管理',
+    actionPath: '/model-gateway/models',
+  },
+  {
+    key: 'credentials',
+    title: '凭证管理',
+    status: activeAccessTokens.value.length > 0 ? 'ok' : 'warning',
+    statusText: activeAccessTokens.value.length > 0 ? '可用' : '待签发',
+    description: '模型调用、Agent 运行和 Scanner 接入统一在凭证管理中签发。',
+    meta: [
+      { label: '模型凭证', value: `${gatewayTokens.value.length}` },
+      { label: '运行凭证', value: `${agentRuntimeTokens.value.length}` },
+    ],
+    actionText: '去凭证管理',
+    actionPath: '/credentials',
+  },
+  {
+    key: 'group-policy',
+    title: '用户组策略',
+    status: groups.value.length === 0 ? 'warning' : 'ok',
+    statusText: groups.value.length === 0 ? '待配置' : '已配置',
+    description: '用户组用于绑定部门、模型访问范围和隐私策略。',
+    meta: [
+      { label: '用户组', value: `${groups.value.length}` },
+      { label: '绑定策略', value: `${groupsWithPolicy.value.length}` },
+    ],
+    actionText: '去组策略绑定',
+    actionPath: '/model-gateway/policy-bindings',
+  },
+  {
+    key: 'privacy',
+    title: '隐私策略',
+    status: privacyPolicies.value.length > 0 ? 'ok' : 'warning',
+    statusText: privacyPolicies.value.length > 0 ? '已配置' : '待配置',
+    description: '控制脱敏、路由和审计策略，支撑模型网关合规调用。',
+    meta: [
+      { label: '策略数', value: `${privacyPolicies.value.length}` },
+    ],
+    actionText: '去隐私策略',
+    actionPath: '/model-gateway/policies',
+  },
+])
+
+const integrationItems = computed(() => [
+  {
+    key: 'agents',
+    title: 'Agent 管理',
+    status: activeAgents.value.length > 0 ? 'ok' : 'warning',
+    statusText: activeAgents.value.length > 0 ? '可用' : '待创建',
+    description: '创建 Agent 后绑定可用 Skill 与 Prompt，形成受管运行单元。',
+    meta: [
+      { label: 'Agent', value: `${agents.value.length}` },
+      { label: '启用中', value: `${activeAgents.value.length}` },
+    ],
+    actionText: '去智能体管理',
+    actionPath: '/agents',
+  },
+  {
+    key: 'agent-token',
+    title: '运行凭证签发',
+    status: boundAgentTokenCount.value > 0 ? 'ok' : 'warning',
+    statusText: boundAgentTokenCount.value > 0 ? '已签发' : '待签发',
+    description: '凭证绑定 Agent 后，才能识别调用方并执行运行时校验。',
+    meta: [
+      { label: '绑定 Agent', value: `${boundAgentTokenCount.value}` },
+    ],
+    actionText: '去凭证管理',
+    actionPath: '/credentials',
+  },
+  {
+    key: 'scanner',
+    title: 'Scanner 接入',
+    status: scannerTokens.value.length > 0 ? 'ok' : 'warning',
+    statusText: scannerTokens.value.length > 0 ? '可用' : '待配置',
+    description: '客户侧扫描器通过 Scanner 接入凭证提交 Skill。',
+    meta: [
+      { label: 'Scanner 凭证', value: `${scannerTokens.value.length}` },
+    ],
+    actionText: '查看接入说明',
+    actionPath: '/scanner-access',
+  },
+  {
+    key: 'runtime-audit',
+    title: '运行时审计',
+    status: 'ok',
+    statusText: '可用',
+    description: '调用方、Agent、模型、Skill 和审核动作可以进入审计链路。',
+    actionText: '查看审计',
+    actionPath: '/audit',
+  },
+])
+
+const capabilityGroups = computed(() => {
+  const groups = [
+    {
+      key: 'governance',
+      title: '治理能力',
+      description: '检查 Skill、Prompt、签名和审计是否能形成治理闭环。',
+      items: governanceItems.value,
+    },
+    {
+      key: 'runtime',
+      title: '运行能力',
+      description: '检查 Sandbox、LLM、深度分析和运行时校验是否可用。',
+      items: runtimeItems.value,
+    },
+    {
+      key: 'gateway',
+      title: '模型网关能力',
+      description: '检查模型、凭证、用户组和隐私策略是否能支撑统一调用。',
+      items: gatewayItems.value,
+    },
+    {
+      key: 'integration',
+      title: '接入能力',
+      description: '检查 Agent、运行凭证、Scanner 和运行审计是否具备接入条件。',
+      items: integrationItems.value,
+    },
+  ]
+  return groups.map((group) => ({
+    ...group,
+    status: groupStatus(group.items),
+  }))
 })
-const scanModeColor = (value) =>
-  ({
-    'scanner + llm': 'green',
-    'scanner only': 'blue',
-    'llm only': 'orange',
-    'manifest only': 'default',
-  }[value] || 'default')
-const sandboxImageOptions = computed(() => {
-  const values = new Set(sandboxImages.value)
-  if (sandboxForm.image) values.add(sandboxForm.image)
-  return [...values].map((value) => ({ value, label: value }))
+
+const overallHealth = computed(() => {
+  const statuses = capabilityGroups.value.map((group) => group.status)
+  if (statuses.includes('error')) {
+    return { status: 'error', text: '部分异常', message: '存在会影响运行或模型调用的能力异常。' }
+  }
+  if (statuses.includes('warning')) {
+    return { status: 'warning', text: '待完善', message: '核心能力可用，但仍有配置建议需要处理。' }
+  }
+  if (statuses.includes('unknown')) {
+    return { status: 'unknown', text: '待检查', message: '部分能力状态暂时无法读取。' }
+  }
+  return { status: 'ok', text: '正常', message: '治理、运行、模型网关和接入能力配置完整。' }
 })
+
+const recommendations = computed(() =>
+  capabilityGroups.value
+    .flatMap((group) => group.items.map((item) => ({ ...item, groupTitle: group.title })))
+    .filter((item) => ['error', 'warning'].includes(item.status))
+    .map((item) => ({
+      title: `${item.groupTitle}：${item.title} ${item.statusText || statusText(item.status)}`,
+      description: item.description,
+      actionPath: item.actionPath,
+      actionText: item.actionText || '去处理',
+    })),
+)
 
 const fetchStatus = async () => {
   loading.value = true
   try {
-    const [sys, logo, manager, llm, sandbox, images] = await Promise.all([
-      getSystemInfo(),
-      getLogoInfo(),
-      getAgentManagerSystemStatus(),
-      getLlmConfig(),
-      getSandboxConfig(),
-      listSandboxImages(),
+    const [
+      manager,
+      llm,
+      sandbox,
+      providers,
+      models,
+      tokens,
+      agentRows,
+      groupRows,
+      policies,
+    ] = await Promise.all([
+      safeRequest(() => getAgentManagerSystemStatus(), {}),
+      safeRequest(() => getLlmConfig(), {}),
+      safeRequest(() => getSandboxConfig(), {}),
+      safeRequest(() => listModelProviders(), []),
+      safeRequest(() => listModelEndpoints(), []),
+      safeRequest(() => listAccessTokens({ page_size: 200 }), { items: [] }),
+      safeRequest(() => listAgents(), []),
+      safeRequest(() => listGroups(), []),
+      safeRequest(() => listPrivacyPolicies(), []),
     ])
-    systemInfo.value = sys || {}
-    logoInfo.value = logo || {}
     managerStatus.value = manager || {}
     llmConfig.value = llm || {}
     sandboxConfig.value = sandbox || {}
-    sandboxImages.value = images?.images || []
-    llmForm.enabled = llm?.enabled ?? false
-    llmForm.provider = llm?.provider || 'deepseek'
-    llmForm.api_base = llm?.api_base || 'https://api.deepseek.com'
-    llmForm.model = llm?.model || 'deepseek-chat'
-    llmForm.timeout_seconds = llm?.timeout_seconds ?? 30
-    llmForm.max_files = llm?.max_files ?? 6
-    llmForm.max_file_chars = llm?.max_file_chars ?? 3000
-    llmForm.max_manifest_chars = llm?.max_manifest_chars ?? 12000
-    llmForm.api_key = ''
-    llmForm.clear_api_key = false
-    sandboxForm.enabled = sandbox?.enabled ?? false
-    sandboxForm.runtime = sandbox?.runtime || 'docker'
-    sandboxForm.image = sandbox?.image || 'agent-manager-sandbox-runtime:latest'
-    sandboxForm.timeout_seconds = sandbox?.timeout_seconds ?? 15
-    sandboxForm.network_mode = sandbox?.network_mode || 'none'
-    sandboxForm.memory_limit = sandbox?.memory_limit || '256m'
-    sandboxForm.cpu_limit = sandbox?.cpu_limit || '1.0'
-    sandboxForm.pids_limit = sandbox?.pids_limit ?? 64
-    sandboxForm.read_only_rootfs = sandbox?.read_only_rootfs ?? true
-    sandboxForm.remote_url = sandbox?.remote_url || ''
-    sandboxForm.remote_api_key = ''
-    sandboxForm.clear_remote_api_key = false
+    modelProviders.value = toArray(providers)
+    modelEndpoints.value = toArray(models)
+    accessTokens.value = toArray(tokens)
+    agents.value = toArray(agentRows)
+    groups.value = toArray(groupRows)
+    privacyPolicies.value = toArray(policies)
   } catch (error) {
-    message.error(extractErrorMsg(error, '获取系统状态失败'))
+    message.error(extractErrorMsg(error, '获取系统能力状态失败'))
   } finally {
     loading.value = false
   }
 }
-
-const buildLlmPayload = () => ({
-  enabled: llmForm.enabled,
-  provider: llmForm.provider,
-  api_base: llmForm.api_base,
-  model: llmForm.model,
-  timeout_seconds: Number(llmForm.timeout_seconds || 30),
-  max_files: Number(llmForm.max_files || 6),
-  max_file_chars: Number(llmForm.max_file_chars || 3000),
-  max_manifest_chars: Number(llmForm.max_manifest_chars || 12000),
-  api_key: llmForm.api_key || null,
-  clear_api_key: llmForm.clear_api_key,
-})
 
 const extractErrorMsg = (error, fallback) => {
   const detail = error.response?.data?.detail
@@ -427,113 +493,258 @@ const extractErrorMsg = (error, fallback) => {
   return fallback
 }
 
-const saveLlmConfig = async (successText) => {
-  savingLlm.value = true
-  try {
-    const result = await updateLlmConfig(buildLlmPayload())
-    llmConfig.value = result || {}
-    message.success(typeof successText === 'string' ? successText : '修改成功')
-    await fetchStatus()
-  } catch (error) {
-    message.error(extractErrorMsg(error, '保存 LLM 配置失败'))
-  } finally {
-    savingLlm.value = false
-  }
-}
-
-const handleToggleLlmEnabled = async () => {
-  await saveLlmConfig(llmForm.enabled ? 'LLM 已启用' : 'LLM 已禁用')
-}
-
-const buildSandboxPayload = () => ({
-  enabled: sandboxForm.enabled,
-  runtime: sandboxForm.runtime,
-  image: sandboxForm.image,
-  timeout_seconds: Number(sandboxForm.timeout_seconds || 15),
-  network_mode: sandboxForm.network_mode,
-  memory_limit: sandboxForm.memory_limit,
-  cpu_limit: sandboxForm.cpu_limit,
-  pids_limit: Number(sandboxForm.pids_limit || 64),
-  read_only_rootfs: sandboxForm.read_only_rootfs,
-  remote_url: sandboxForm.remote_url || null,
-  remote_api_key: sandboxForm.remote_api_key || null,
-  clear_remote_api_key: sandboxForm.clear_remote_api_key,
-})
-
-const saveSandboxConfig = async () => {
-  savingSandbox.value = true
-  try {
-    const result = await updateSandboxConfig(buildSandboxPayload())
-    sandboxConfig.value = result || {}
-    message.success('Sandbox 配置已保存')
-    await fetchStatus()
-  } catch (error) {
-    message.error(extractErrorMsg(error, '保存 Sandbox 配置失败'))
-    await fetchStatus()
-  } finally {
-    savingSandbox.value = false
-  }
-}
-
-const handleToggleSandboxEnabled = async () => {
-  savingSandbox.value = true
-  try {
-    const result = await updateSandboxConfig(buildSandboxPayload())
-    sandboxConfig.value = result || {}
-    message.success(sandboxForm.enabled ? 'Sandbox 已启用' : 'Sandbox 已关闭')
-    await fetchStatus()
-  } catch (error) {
-    message.error(extractErrorMsg(error, '切换 Sandbox 状态失败'))
-    await fetchStatus()
-  } finally {
-    savingSandbox.value = false
-  }
-}
-
 onMounted(fetchStatus)
 </script>
 
 <style scoped>
-.status-overview-card :deep(.ant-card-body) {
-  padding: 16px;
+.system-overview {
+  padding-bottom: 24px;
 }
 
-.status-section + .status-section {
+.health-panel {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  justify-content: space-between;
   margin-top: 16px;
+  padding: 18px 20px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.health-main {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.eyebrow {
+  margin-bottom: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.health-title {
+  margin-bottom: 6px;
+  color: #16324f;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.health-summary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: #475569;
+}
+
+.group-status-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.group-status-pill {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 5px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  color: #475569;
+  background: #f8fafc;
+  font-size: 12px;
+}
+
+.capability-section {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 12px;
 }
 
 .section-title {
-  margin-bottom: 12px;
-  font-size: 15px;
-  font-weight: 600;
   color: #16324f;
+  font-size: 16px;
+  font-weight: 600;
 }
 
-.status-overview-card :deep(.ant-descriptions-item-label) {
-  width: 132px;
-  color: #475569;
-  white-space: nowrap;
-  background: #f8fafc;
-}
-
-.status-overview-card :deep(.ant-descriptions-item-content) {
-  min-width: 0;
-  color: #1f2937;
-  overflow-wrap: anywhere;
-}
-
-.path-text {
-  color: #475569;
-  overflow-wrap: anywhere;
-}
-
-.muted {
+.section-subtitle {
+  margin-top: 2px;
   color: #64748b;
+  font-size: 12px;
 }
 
-.hint {
-  margin-top: 8px;
-  color: #8c8c8c;
+.capability-list {
+  border-top: 1px solid #f1f5f9;
+}
+
+.capability-row {
+  display: grid;
+  grid-template-columns: 10px minmax(260px, 1fr) minmax(220px, 0.8fr) 96px 116px;
+  gap: 14px;
+  align-items: center;
+  min-height: 76px;
+  padding: 12px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.capability-row:last-child {
+  border-bottom: 0;
+}
+
+.capability-status {
+  width: 8px;
+  height: 34px;
+  border-radius: 999px;
+  background: #d1d5db;
+}
+
+.status-ok {
+  background: #22c55e;
+}
+
+.status-warning {
+  background: #f59e0b;
+}
+
+.status-error {
+  background: #ef4444;
+}
+
+.status-disabled,
+.status-unknown {
+  background: #cbd5e1;
+}
+
+.capability-main {
+  min-width: 0;
+}
+
+.capability-title {
+  color: #1f2937;
+  font-weight: 600;
+}
+
+.capability-desc {
+  margin-top: 4px;
+  color: #64748b;
   font-size: 12px;
+  line-height: 1.5;
+}
+
+.meta-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  min-width: 0;
+}
+
+.meta-line {
+  display: flex;
+  gap: 6px;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.meta-label {
+  flex: none;
+  color: #8c8c8c;
+}
+
+.meta-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.meta-empty {
+  color: #c0c4cc;
+  font-size: 12px;
+}
+
+.capability-state {
+  text-align: left;
+}
+
+.capability-action {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.recommendation-panel {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.recommendation-list {
+  border-top: 1px solid #f1f5f9;
+}
+
+.recommendation-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.recommendation-row:last-child {
+  border-bottom: 0;
+}
+
+.recommendation-title {
+  color: #1f2937;
+  font-weight: 600;
+}
+
+.recommendation-desc {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .health-panel,
+  .health-main {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .group-status-list {
+    justify-content: flex-start;
+  }
+
+  .capability-row {
+    grid-template-columns: 10px minmax(0, 1fr);
+  }
+
+  .meta-list,
+  .capability-state,
+  .capability-action {
+    grid-column: 2;
+    text-align: left;
+  }
+
+  .recommendation-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

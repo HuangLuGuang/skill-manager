@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 import subprocess
 import textwrap
+import urllib.request
+
+import pytest
 
 from agent_manager.core.models import RiskLevel, SkillOrigin, SourceInfo
 from agent_manager.core.llm import LLMConfig
@@ -29,6 +32,14 @@ def _skill_dir(tmp_path):
     return skill_dir
 
 
+@pytest.fixture(autouse=True)
+def _disable_system_llm_by_default(monkeypatch):
+    monkeypatch.setattr(
+        "agent_manager.core.vetting.LLMConfig.load",
+        lambda: LLMConfig(enabled=False),
+    )
+
+
 def test_skillspector_unavailable_is_recorded_without_blocking_scan(tmp_path, monkeypatch):
     skill_dir = _skill_dir(tmp_path)
 
@@ -36,12 +47,12 @@ def test_skillspector_unavailable_is_recorded_without_blocking_scan(tmp_path, mo
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     assert result.risk_level == RiskLevel.BENIGN
     assert "skillspector:unavailable" in result.analyzers_used
     assert result.scan_report["skillspector_analysis"]["available"] is False
-    assert any("SkillSpector unavailable" in note for note in result.policy_notes)
+    assert any("深度扫描不可用" in note for note in result.policy_notes)
 
 
 def test_skillspector_json_findings_are_merged_into_vetting(tmp_path, monkeypatch):
@@ -81,7 +92,7 @@ def test_skillspector_json_findings_are_merged_into_vetting(tmp_path, monkeypatc
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     assert result.risk_level == RiskLevel.MALICIOUS
     assert "skillspector:cli" in result.analyzers_used
@@ -120,7 +131,7 @@ def test_skillspector_filters_license_and_font_noise(tmp_path, monkeypatch):
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     analysis = result.scan_report["skillspector_analysis"]
     assert analysis["risk_severity"] == "HIGH"
@@ -172,7 +183,7 @@ def test_skillspector_filters_raster_image_binary_noise(tmp_path, monkeypatch):
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True, "require_sandbox_for_risk": []})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     analysis = result.scan_report["skillspector_analysis"]
     assert result.risk_level == RiskLevel.BENIGN
@@ -209,7 +220,7 @@ def test_skillspector_top_level_high_with_only_noise_requires_review(tmp_path, m
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True, "require_sandbox_for_risk": []})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     analysis = result.scan_report["skillspector_analysis"]
     assert result.risk_level == RiskLevel.SUSPICIOUS
@@ -239,24 +250,145 @@ def test_skillspector_llm_uses_agent_manager_llm_config(tmp_path, monkeypatch):
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr("agent_manager.core.skillspector.subprocess.run", fake_run)
-    monkeypatch.setattr("agent_manager.core.skillspector.LLMConfig.load", lambda: LLMConfig(
+    ready_llm_config = LLMConfig(
         enabled=True,
         provider="deepseek",
         api_base="https://api.deepseek.com",
         api_key="secret",
         model="deepseek-chat",
-    ))
+    )
+    monkeypatch.setattr("agent_manager.core.vetting.LLMConfig.load", lambda: ready_llm_config)
+    monkeypatch.setattr("agent_manager.core.skillspector.LLMConfig.load", lambda: ready_llm_config)
 
     VettingPipeline(CompanyPolicy({
         "skillspector_enabled": True,
         "skillspector_use_llm": True,
-    })).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    })).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     assert "--no-llm" not in captured["cmd"]
     assert captured["env"]["SKILLSPECTOR_PROVIDER"] == "openai"
     assert captured["env"]["OPENAI_BASE_URL"] == "https://api.deepseek.com"
     assert captured["env"]["OPENAI_API_KEY"] == "secret"
     assert captured["env"]["SKILLSPECTOR_MODEL"] == "deepseek-chat"
+
+
+def test_skillspector_model_gateway_without_external_key_uses_internal_proxy(tmp_path, monkeypatch):
+    skill_dir = _skill_dir(tmp_path)
+    payload = {"risk_assessment": {"score": 0, "severity": "LOW", "recommendation": "SAFE"}, "issues": []}
+    captured = {}
+
+    monkeypatch.delenv("AGENT_MANAGER_LLM_GATEWAY_URL", raising=False)
+    monkeypatch.delenv("AGENT_MANAGER_LLM_GATEWAY_API_KEY", raising=False)
+    monkeypatch.setattr("agent_manager.core.skillspector.shutil.which", lambda _name: "/usr/bin/skillspector")
+    monkeypatch.setattr("agent_manager.core.skillspector.get_skillspector_version", lambda: "SkillSpector v2.2.3")
+
+    def fake_run(cmd, *, capture_output, text, timeout, check, env=None):
+        captured["cmd"] = cmd
+        captured["env"] = env
+        output_path = cmd[cmd.index("--output") + 1]
+        with open(output_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("agent_manager.core.skillspector.subprocess.run", fake_run)
+    ready_llm_config = LLMConfig(
+        enabled=True,
+        provider="model-gateway",
+        api_base="",
+        api_key=None,
+        model="deepseek-chat",
+    )
+    monkeypatch.setattr("agent_manager.core.vetting.LLMConfig.load", lambda: ready_llm_config)
+    monkeypatch.setattr("agent_manager.core.skillspector.LLMConfig.load", lambda: ready_llm_config)
+
+    result, _violations, _name, _desc, _tools = VettingPipeline(CompanyPolicy({
+        "skillspector_enabled": True,
+        "skillspector_use_llm": True,
+    })).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
+
+    analysis = result.scan_report["skillspector_analysis"]
+    assert "--no-llm" not in captured["cmd"]
+    assert captured["env"]["SKILLSPECTOR_PROVIDER"] == "openai"
+    assert captured["env"]["OPENAI_BASE_URL"].startswith("http://127.0.0.1:")
+    assert captured["env"]["OPENAI_API_KEY"]
+    assert captured["env"]["SKILLSPECTOR_MODEL"] == "deepseek-chat"
+    assert analysis["llm_requested"] is True
+    assert analysis["llm_enabled"] is True
+    assert "内置模型网关代理" in analysis["llm_note"]
+    assert "skillspector:error" not in result.analyzers_used
+
+
+def test_skillspector_model_gateway_env_is_exposed_as_openai_endpoint(tmp_path, monkeypatch):
+    skill_dir = _skill_dir(tmp_path)
+    payload = {"risk_assessment": {"score": 0, "severity": "LOW", "recommendation": "SAFE"}, "issues": []}
+    captured = {}
+
+    monkeypatch.setenv("AGENT_MANAGER_LLM_GATEWAY_URL", "http://127.0.0.1:8001/v1/chat/completions")
+    monkeypatch.setenv("AGENT_MANAGER_LLM_GATEWAY_API_KEY", "gateway-token")
+    monkeypatch.setattr("agent_manager.core.skillspector.shutil.which", lambda _name: "/usr/bin/skillspector")
+    monkeypatch.setattr("agent_manager.core.skillspector.get_skillspector_version", lambda: "SkillSpector v2.2.3")
+
+    def fake_run(cmd, *, capture_output, text, timeout, check, env=None):
+        captured["cmd"] = cmd
+        captured["env"] = env
+        output_path = cmd[cmd.index("--output") + 1]
+        with open(output_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("agent_manager.core.skillspector.subprocess.run", fake_run)
+    ready_llm_config = LLMConfig(
+        enabled=True,
+        provider="model-gateway",
+        api_base="",
+        api_key=None,
+        model="deepseek-chat",
+    )
+    monkeypatch.setattr("agent_manager.core.vetting.LLMConfig.load", lambda: ready_llm_config)
+    monkeypatch.setattr("agent_manager.core.skillspector.LLMConfig.load", lambda: ready_llm_config)
+
+    result, _violations, _name, _desc, _tools = VettingPipeline(CompanyPolicy({
+        "skillspector_enabled": True,
+        "skillspector_use_llm": True,
+    })).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
+
+    analysis = result.scan_report["skillspector_analysis"]
+    assert "--no-llm" not in captured["cmd"]
+    assert captured["env"]["SKILLSPECTOR_PROVIDER"] == "openai"
+    assert captured["env"]["OPENAI_BASE_URL"] == "http://127.0.0.1:8001"
+    assert captured["env"]["OPENAI_API_KEY"] == "gateway-token"
+    assert captured["env"]["SKILLSPECTOR_MODEL"] == "deepseek-chat"
+    assert analysis["llm_requested"] is True
+    assert analysis["llm_enabled"] is True
+
+
+def test_internal_model_gateway_proxy_forwards_chat_completion(monkeypatch):
+    from agent_manager.core.skillspector import _internal_model_gateway_proxy
+
+    captured = {}
+
+    def fake_call(payload):
+        captured["payload"] = payload
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    monkeypatch.setattr("agent_manager.core.llm._call_model_gateway_sync", fake_call)
+    config = LLMConfig(enabled=True, provider="model-gateway", model="deepseek-chat")
+
+    with _internal_model_gateway_proxy(config) as env:
+        req = urllib.request.Request(
+            f"{env['OPENAI_BASE_URL']}/v1/chat/completions",
+            data=json.dumps({"messages": [{"role": "user", "content": "hi"}]}).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {env['OPENAI_API_KEY']}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=3) as response:
+            body = json.loads(response.read().decode("utf-8"))
+
+    assert captured["payload"]["model"] == "deepseek-chat"
+    assert body["choices"][0]["message"]["content"] == "ok"
 
 
 def test_skillspector_safe_low_without_findings_stays_benign(tmp_path, monkeypatch):
@@ -286,7 +418,7 @@ def test_skillspector_safe_low_without_findings_stays_benign(tmp_path, monkeypat
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     analysis = result.scan_report["skillspector_analysis"]
     assert result.risk_level == RiskLevel.BENIGN
@@ -334,7 +466,7 @@ def test_skillspector_v223_report_is_normalized(tmp_path, monkeypatch):
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     analysis = result.scan_report["skillspector_analysis"]
     assert analysis["risk_score"] == 50
@@ -377,25 +509,27 @@ def test_skillspector_invalid_json_records_error_without_blocking_scan(tmp_path,
 
     result, _violations, _name, _desc, _tools = VettingPipeline(
         CompanyPolicy({"skillspector_enabled": True})
-    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+    ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     assert result.risk_level == RiskLevel.BENIGN
     assert "skillspector:error" in result.analyzers_used
     assert "error" in result.scan_report["skillspector_analysis"]
 
 
-def test_scan_context_changes_when_skillspector_settings_change():
+def test_scan_context_changes_when_deep_scan_option_changes():
     disabled = compute_scan_context_fingerprint(
-        CompanyPolicy({"skillspector_enabled": False}),
+        CompanyPolicy.default(),
         use_behavioral=False,
         use_llm=False,
         use_sandbox=False,
+        use_skillspector=False,
     )
     enabled = compute_scan_context_fingerprint(
-        CompanyPolicy({"skillspector_enabled": True}),
+        CompanyPolicy.default(),
         use_behavioral=False,
         use_llm=False,
         use_sandbox=False,
+        use_skillspector=True,
     )
 
     assert disabled != enabled

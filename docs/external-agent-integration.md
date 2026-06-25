@@ -50,7 +50,7 @@ flowchart LR
 
 ### Current APIs
 
-外部 Agent 推荐使用管理台“扫描器接入”页面创建的接入 Token，并勾选 runtime 权限。最关键会用到这三个 token 鉴权接口：
+外部 Agent 推荐使用管理台 `智能体治理 / 凭证管理` 创建的 `Agent 运行凭证`，并绑定对应 Agent。最关键会用到这三个凭证鉴权接口：
 
 - `POST /api/v1/access/runtime/verify-skill-signature`，需要 `runtime:verify-signature`
 - `GET /api/v1/access/runtime/can-load/{skill_name}`，需要 `runtime:can-load`
@@ -89,7 +89,7 @@ flowchart LR
 GET /api/v1/scanner/skill-guard/download
 ```
 
-Token 至少需要这些权限：
+凭证至少需要这些权限：
 
 - `scanner:submit`
 - `scanner:read-own-results`
@@ -115,7 +115,7 @@ unzip agent-manager-skill-guard.zip -d ~/.claude/skills/
 
 ```bash
 export AGENT_MANAGER_BASE_URL="http://localhost:8001"
-export AGENT_MANAGER_API_TOKEN="smsc_live_xxx"
+export AGENT_MANAGER_API_TOKEN="amat_xxx"
 export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 ```
 
@@ -208,13 +208,13 @@ flowchart LR
 - `POST /api/v1/llm/chat/completions`
   Agent Manager 命名空间路径，适合内部服务显式调用。
 
-鉴权使用模型网关页面创建的 LLM API Key：
+鉴权使用 `智能体治理 / 凭证管理` 创建的模型调用凭证，或显式授予 `model:chat` 的 Agent 运行凭证：
 
 ```http
-Authorization: Bearer amk_xxx
+Authorization: Bearer amat_xxx
 ```
 
-与 Scanner Token 不同，LLM API Key 用于模型调用：
+模型调用凭证用于模型调用：
 
 - 可绑定用户或用户组
 - 可限制可访问模型

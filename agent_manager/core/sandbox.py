@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -27,23 +28,18 @@ logger = logging.getLogger(__name__)
 _DEFAULT_SANDBOX_CONFIG_PATH = Path.home() / ".agent-manager" / "sandbox.yaml"
 
 _NETWORK_PATTERNS = (
+    re.compile(r"(attempting network access|network failure)", re.I),
     re.compile(r"(name or service not known|temporary failure in name resolution)", re.I),
     re.compile(r"(failed to establish a new connection|connection refused|network is unreachable)", re.I),
-    re.compile(r"(https?://[^\s]+)", re.I),
-)
-_DEPENDENCY_PATTERNS = (
-    re.compile(r"No module named ['\"]?([A-Za-z0-9_.-]+)['\"]?", re.I),
-    re.compile(r"ModuleNotFoundError", re.I),
+    re.compile(r"(handshake operation timed out|https?://[^\s]+.*timed out|timed out.*https?://[^\s]+)", re.I),
 )
 _PERMISSION_PATTERNS = (
     re.compile(r"permission denied", re.I),
     re.compile(r"read-only file system", re.I),
 )
-_EXECUTION_PATTERNS = (
-    re.compile(r"\b(subprocess|os\.system|os\.popen|eval|exec)\b", re.I),
-)
-_CREDENTIAL_PATTERNS = (
-    re.compile(r"\b(api[_-]?key|secret|token|password|authorization)\b", re.I),
+_MISSING_INPUT_PATTERNS = (
+    re.compile(r"cannot open\s+[^:\n]+:\s+No such file", re.I),
+    re.compile(r"No such file or directory", re.I),
 )
 _HELP_STYLE_PATTERNS = (
     re.compile(r"argparse\.ArgumentParser"),
@@ -56,6 +52,9 @@ _MARKDOWN_SHELL_BLOCK_RE = re.compile(
     r"```(?:bash|sh|shell|zsh|console|terminal)\s*\n(.*?)```",
     re.I | re.S,
 )
+_REMOTE_SANDBOX_EXCLUDED_DIRS = {".git", ".venv", "node_modules", "__pycache__", "dist", "build"}
+_REMOTE_SANDBOX_MAX_FILE_BYTES = 200_000
+_REMOTE_SANDBOX_MAX_TOTAL_BYTES = 2_000_000
 
 
 class SandboxEvent(BaseModel):
@@ -89,7 +88,7 @@ class SandboxResult(BaseModel):
 
 class SandboxConfig(BaseModel):
     enabled: bool = False
-    runtime: str = "docker"
+    runtime: str = "remote"
     image: str = "agent-manager-sandbox-runtime:latest"
     timeout_seconds: int = 15
     network_mode: str = "none"
@@ -97,7 +96,7 @@ class SandboxConfig(BaseModel):
     cpu_limit: str = "1.0"
     pids_limit: int = 64
     read_only_rootfs: bool = True
-    remote_url: str | None = None
+    remote_url: str | None = "http://sandbox:8194"
     remote_api_key: str | None = None
     remote_language_map: dict[str, str] = Field(default_factory=lambda: {
         ".py": "python3",
@@ -197,12 +196,18 @@ class MarkdownCommandProbe(BaseModel):
     script: str
 
 
+class RemoteSandboxFile(BaseModel):
+    path: str
+    content: str
+
+
 class RemoteSandboxRequest(BaseModel):
     language: str
     code: str
     preload: str = ""
     enable_network: bool = False
     metadata: dict[str, object] = Field(default_factory=dict)
+    files: list[RemoteSandboxFile] = Field(default_factory=list)
 
 
 class RemoteSandboxExecutionData(BaseModel):
@@ -219,6 +224,14 @@ class RemoteSandboxEnvelope(BaseModel):
     code: int = 0
     message: str = "success"
     data: RemoteSandboxExecutionData | None = None
+
+
+class SandboxConnectionTest(BaseModel):
+    available: bool
+    runtime: str
+    target: str | None = None
+    message: str
+    duration_ms: int | None = None
 
 
 class SandboxBackend(Protocol):
@@ -296,7 +309,7 @@ def write_markdown_command_probe_scripts(
                 "#!/bin/sh",
                 "set +e",
                 "export HOME=/tmp",
-                "cd /tmp",
+                'cd "$(dirname "$0")/.."',
                 probe.script,
                 "",
             ]),
@@ -343,6 +356,57 @@ def build_probe_plan(skill_path: str | Path, entrypoint: str) -> SandboxProbePla
     return SandboxProbePlan(entrypoint=entrypoint, args=args, strategy=strategy)
 
 
+def _collect_remote_sandbox_files(skill_root: Path) -> list[RemoteSandboxFile]:
+    files: list[RemoteSandboxFile] = []
+    total_bytes = 0
+    for path in sorted(skill_root.rglob("*")):
+        if not path.is_file():
+            continue
+        rel_path = path.relative_to(skill_root)
+        if any(part in _REMOTE_SANDBOX_EXCLUDED_DIRS for part in rel_path.parts):
+            continue
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        if size > _REMOTE_SANDBOX_MAX_FILE_BYTES:
+            continue
+        if total_bytes + size > _REMOTE_SANDBOX_MAX_TOTAL_BYTES:
+            break
+        try:
+            content = path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        total_bytes += len(content.encode("utf-8", errors="ignore"))
+        files.append(RemoteSandboxFile(path=rel_path.as_posix(), content=content))
+    return files
+
+
+def _remote_fallback_code(language: str, target: Path, entrypoint: str, args: list[str]) -> str:
+    if language == "python3":
+        argv = repr([entrypoint, *args])
+        return "\n".join([
+            "import os, runpy, sys",
+            "os.chdir('/workspace')",
+            "sys.path.insert(0, '/workspace')",
+            f"sys.argv = {argv}",
+            f"runpy.run_path('/workspace/{entrypoint}', run_name='__main__')",
+            "",
+        ])
+    if language == "shell":
+        command = " ".join(shlex.quote(part) for part in [entrypoint, *args])
+        return f"cd /workspace\nexec sh {command}\n"
+    if language == "nodejs":
+        argv = repr(["node", entrypoint, *args])
+        return "\n".join([
+            "process.chdir('/workspace');",
+            f"process.argv = {argv};",
+            f"require('/workspace/{entrypoint}');",
+            "",
+        ])
+    return target.read_text(encoding="utf-8", errors="ignore")
+
+
 def _build_events(stdout: Any, stderr: Any) -> list[SandboxEvent]:
     # Ensure we have strings to avoid join errors
     s_out = stdout.decode("utf-8", "ignore") if isinstance(stdout, bytes) else str(stdout or "")
@@ -359,18 +423,7 @@ def _build_events(stdout: Any, stderr: Any) -> list[SandboxEvent]:
                 category="network",
                 severity="HIGH",
                 message="检测到网络访问尝试或网络相关错误输出。",
-                evidence=match.group(0)[:200],
-            ))
-            break
-
-    for pattern in _DEPENDENCY_PATTERNS:
-        match = pattern.search(combined)
-        if match:
-            events.append(SandboxEvent(
-                category="dependency",
-                severity="LOW",
-                message="Sandbox 执行环境缺少脚本依赖，当前结果可能只反映运行环境问题。",
-                evidence=match.group(0)[:200],
+                evidence=f"规则：输出匹配网络访问/网络错误特征；命中片段：{match.group(0)[:200]}",
             ))
             break
 
@@ -381,29 +434,18 @@ def _build_events(stdout: Any, stderr: Any) -> list[SandboxEvent]:
                 category="filesystem",
                 severity="MEDIUM",
                 message="Sandbox 拦截了写入或特权文件访问行为。",
-                evidence=match.group(0)[:200],
+                evidence=f"规则：输出匹配权限拒绝或只读文件系统特征；命中片段：{match.group(0)[:200]}",
             ))
             break
 
-    for pattern in _EXECUTION_PATTERNS:
+    for pattern in _MISSING_INPUT_PATTERNS:
         match = pattern.search(combined)
         if match:
             events.append(SandboxEvent(
-                category="execution",
-                severity="HIGH",
-                message="输出中出现动态代码执行或 shell 执行迹象。",
-                evidence=match.group(0)[:200],
-            ))
-            break
-
-    for pattern in _CREDENTIAL_PATTERNS:
-        match = pattern.search(combined)
-        if match:
-            events.append(SandboxEvent(
-                category="credentials",
-                severity="HIGH",
-                message="输出中出现凭证相关字段，需检查是否存在敏感信息访问或外泄风险。",
-                evidence=match.group(0)[:200],
+                category="probe_input",
+                severity="INFO",
+                message="Sandbox probe 引用了不存在的示例输入文件，当前结果主要反映 probe 参数不完整。",
+                evidence=f"规则：输出匹配 probe 输入文件缺失特征；命中片段：{match.group(0)[:200]}",
             ))
             break
 
@@ -441,16 +483,10 @@ def _finalize_result(result: SandboxResult) -> SandboxResult:
             category="timeout",
             severity="MEDIUM",
             message="执行超时，脚本可能存在阻塞、死循环或资源消耗异常。",
-            evidence=f"duration_ms={result.duration_ms}" if result.duration_ms is not None else None,
+            evidence=f"规则：Sandbox 执行超过超时阈值；耗时：duration_ms={result.duration_ms}" if result.duration_ms is not None else "规则：Sandbox 执行超过超时阈值",
         ))
 
-    if result.executed and result.exit_code not in {None, 0}:
-        signals.append(SandboxEvent(
-            category="runtime",
-            severity="LOW",
-            message="脚本以非零退出码结束，建议结合 stderr 排查失败原因。",
-            evidence=f"exit_code={result.exit_code}",
-        ))
+    probe_input_only = bool(signals) and all(event.category == "probe_input" for event in signals)
 
     max_severity = "SAFE"
     for event in signals:
@@ -464,8 +500,11 @@ def _finalize_result(result: SandboxResult) -> SandboxResult:
         summary = result.reason or "Sandbox 未执行。"
         recommendation = "先确认 sandbox 后端可用性，再结合静态扫描结果继续评估。"
     elif not signals:
-        summary = "Sandbox 已执行，未从输出中提取到明确风险信号。"
+        summary = "Sandbox 已执行，未提取到明确运行时风险信号。"
         recommendation = "可结合静态扫描、LLM 和规则分析结果综合判断。"
+    elif probe_input_only:
+        summary = "Sandbox probe 未能完整执行：引用的示例输入文件不存在。"
+        recommendation = "这通常不是 skill 的安全行为，可补充真实测试输入后重新执行 Sandbox，或结合静态扫描结果继续判断。"
     else:
         categories: list[str] = []
         for event in signals:
@@ -676,7 +715,9 @@ class RemoteSandboxRunner:
                 reason=f"Unsupported remote sandbox entrypoint type: {target.suffix}",
             ))
 
-        code = target.read_text(encoding="utf-8", errors="ignore")
+        probe_args = args or []
+        files = _collect_remote_sandbox_files(skill_root)
+        code = _remote_fallback_code(language, target, entrypoint, probe_args)
         timeout_value = timeout_seconds or self.config.timeout_seconds
         network = network_mode or self.config.network_mode
         enable_network = network.lower() not in {"none", "off", "disabled", "false"}
@@ -687,8 +728,10 @@ class RemoteSandboxRunner:
             enable_network=enable_network,
             metadata={
                 "entrypoint": entrypoint,
-                "args": args or [],
+                "args": probe_args,
+                "execute_entrypoint": True,
             },
+            files=files,
         )
         headers = {}
         if self.config.remote_api_key:
@@ -778,6 +821,85 @@ def get_sandbox_runner(config: SandboxConfig | None = None) -> SandboxBackend:
     if resolved.runtime == "remote":
         return RemoteSandboxRunner(resolved)
     return DockerSandboxRunner(resolved)
+
+
+def _sandbox_test_target(config: SandboxConfig) -> str | None:
+    if config.runtime == "remote":
+        return config.remote_url.rstrip("/") + "/run-code" if config.remote_url else None
+    if config.runtime == "docker":
+        return config.image
+    return None
+
+
+def test_sandbox_connection(
+    config: SandboxConfig | None = None,
+    timeout_seconds: int = 3,
+) -> SandboxConnectionTest:
+    resolved = config or SandboxConfig.load()
+    started = time.monotonic()
+
+    def finish(available: bool, message: str, target: str | None = None) -> SandboxConnectionTest:
+        return SandboxConnectionTest(
+            available=available,
+            runtime=resolved.runtime,
+            target=target if target is not None else _sandbox_test_target(resolved),
+            message=message,
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+
+    if not resolved.enabled:
+        return finish(False, "Sandbox 未启用")
+
+    if resolved.runtime == "docker":
+        if shutil.which("docker") is None:
+            return finish(False, "Docker 命令不可用")
+        try:
+            completed = subprocess.run(
+                ["docker", "image", "inspect", resolved.image],
+                capture_output=True,
+                text=True,
+                timeout=max(1, min(timeout_seconds, 10)),
+                check=False,
+            )
+        except Exception as exc:
+            return finish(False, f"Docker Sandbox 检查失败：{exc}")
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "").strip()
+            return finish(False, f"Sandbox 镜像不可用：{detail or resolved.image}")
+        return finish(True, "Docker Sandbox 镜像可用")
+
+    if resolved.runtime != "remote":
+        return finish(False, f"不支持的 Sandbox 后端：{resolved.runtime}")
+
+    target = _sandbox_test_target(resolved)
+    if not target:
+        return finish(False, "远程 Sandbox URL 未配置")
+
+    payload = RemoteSandboxRequest(
+        language="shell",
+        code="echo sandbox-ok",
+        preload="",
+        enable_network=False,
+        metadata={"probe": "connection-test"},
+    )
+    headers = {}
+    if resolved.remote_api_key:
+        headers["Authorization"] = f"Bearer {resolved.remote_api_key}"
+
+    try:
+        response = httpx.post(
+            target,
+            json=payload.model_dump(mode="json"),
+            headers=headers,
+            timeout=max(1, min(timeout_seconds, 10)),
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return finish(False, f"远程 Sandbox 返回 HTTP {exc.response.status_code}", target)
+    except Exception as exc:
+        return finish(False, f"远程 Sandbox 连接失败：{exc}", target)
+
+    return finish(True, "远程 Sandbox 连接可用", target)
 
 
 # Backward-compatible alias for existing imports/tests.
