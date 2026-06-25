@@ -133,17 +133,18 @@
         </a-form-item>
         <a-form-item label="绑定 Prompt">
           <a-select
-            v-model:value="agentForm.prompt_names"
+            v-model:value="agentForm.prompt_refs"
             mode="multiple"
             show-search
             allow-clear
             option-filter-prop="label"
             placeholder="搜索并选择可用 Prompt"
+            :filter-option="filterOption"
           >
             <a-select-option
-              v-for="prompt in prompts"
-              :key="prompt.name"
-              :value="prompt.name"
+              v-for="prompt in promptOptions"
+              :key="prompt.value"
+              :value="prompt.value"
               :label="promptOptionLabel(prompt)"
             >
               {{ promptOptionLabel(prompt) }}
@@ -152,18 +153,18 @@
         </a-form-item>
         <a-form-item label="允许 Skills">
           <a-select
-            v-model:value="agentForm.skill_names"
+            v-model:value="agentForm.skill_refs"
             mode="multiple"
             show-search
             allow-clear
             placeholder="搜索并选择可用 Skill"
             option-filter-prop="label"
-            :filter-option="filterSkillOption"
+            :filter-option="filterOption"
           >
             <a-select-option
-              v-for="skill in skills"
-              :key="skill.name"
-              :value="skill.name"
+              v-for="skill in skillOptions"
+              :key="skill.value"
+              :value="skill.value"
               :label="skillOptionLabel(skill)"
             >
               {{ skillOptionLabel(skill) }}
@@ -197,7 +198,8 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { message } from 'ant-design-vue'
+import { useRouter } from 'vue-router'
+import { message, Modal } from 'ant-design-vue'
 
 import {
   createAgent,
@@ -211,6 +213,7 @@ import {
   updateAgent,
 } from '../api'
 
+const router = useRouter()
 const loading = ref(false)
 const submitting = ref(false)
 const agentVisible = ref(false)
@@ -231,8 +234,8 @@ const agentForm = reactive({
   description: '',
   status: 'active',
   default_model: undefined,
-  skill_names: [],
-  prompt_names: [],
+  skill_refs: [],
+  prompt_refs: [],
 })
 
 const columns = [
@@ -248,19 +251,41 @@ const activeCount = computed(() => agents.value.filter(item => item.status === '
 const departmentCount = computed(() => new Set(agents.value.map(item => item.department_group_id).filter(Boolean)).size)
 const skillBindingCount = computed(() => agents.value.reduce((sum, item) => sum + (item.skill_names?.length || 0), 0))
 const activeUsers = computed(() => users.value.filter(item => item.is_active !== false))
+const skillOptions = computed(() => skills.value.map((skill, index) => ({
+  ...skill,
+  value: uniqueOptionValue(skill, 'skill', index),
+})))
+const promptOptions = computed(() => prompts.value.map((prompt, index) => ({
+  ...prompt,
+  value: uniqueOptionValue(prompt, 'prompt', index),
+})))
 const statusText = (status) => ({ active: '启用', disabled: '禁用', draft: '草稿' }[status] || status)
 const statusColor = (status) => ({ active: 'green', disabled: 'red', draft: 'orange' }[status] || 'default')
 const userOptionLabel = (user) => `${user.username}${user.email ? `（${user.email}）` : ''}`
+const uniqueOptionValue = (item, type, index) => `${type}:${item.skill_id || item.prompt_id || item.id || index}:${index}`
 const skillOptionLabel = (skill) => {
   const statusLabel = skill.status === 'DEPLOYED' ? '已部署' : '已批准'
-  return `${skill.name}（${statusLabel}）`
+  const id = skill.skill_id || skill.id
+  return `${skill.name}（${statusLabel}${id ? ` · ${id}` : ''}）`
 }
 const promptOptionLabel = (prompt) => {
   const statusLabel = prompt.status === 'DEPLOYED' ? '已部署' : '已批准'
-  return `${prompt.name}（${statusLabel}）`
+  const id = prompt.prompt_id || prompt.id
+  return `${prompt.name}（${statusLabel}${id ? ` · ${id}` : ''}）`
 }
-const filterSkillOption = (input, option) =>
+const filterOption = (input, option) =>
   String(option?.label || option?.value || '').toLowerCase().includes(String(input || '').toLowerCase())
+const findRefsByNames = (options, names = []) => {
+  const used = new Set()
+  return names.map((name) => {
+    const option = options.find(item => item.name === name && !used.has(item.value))
+    if (!option) return null
+    used.add(option.value)
+    return option.value
+  }).filter(Boolean)
+}
+const namesFromRefs = (options, refs = []) =>
+  refs.map(ref => options.find(item => item.value === ref)?.name).filter(Boolean)
 
 const fetchAgents = async () => {
   loading.value = true
@@ -307,8 +332,8 @@ const openAgent = (record = null) => {
     description: record?.description || '',
     status: record?.status || 'active',
     default_model: record?.default_model || undefined,
-    skill_names: [...(record?.skill_names || [])],
-    prompt_names: [...(record?.prompt_names || [])],
+    skill_refs: findRefsByNames(skillOptions.value, record?.skill_names || []),
+    prompt_refs: findRefsByNames(promptOptions.value, record?.prompt_names || []),
   })
   agentVisible.value = true
 }
@@ -321,11 +346,37 @@ const saveAgent = async () => {
   }
   submitting.value = true
   try {
-    const payload = { ...agentForm, agent_id: agentForm.agent_id.trim(), name: agentForm.name.trim() }
-    if (editingAgentId.value) await updateAgent(editingAgentId.value, payload)
-    else await createAgent(payload)
+    const payload = {
+      agent_id: agentForm.agent_id.trim(),
+      name: agentForm.name.trim(),
+      department_group_id: agentForm.department_group_id,
+      owner: agentForm.owner,
+      description: agentForm.description,
+      status: agentForm.status,
+      default_model: agentForm.default_model,
+      skill_names: namesFromRefs(skillOptions.value, agentForm.skill_refs),
+      prompt_names: namesFromRefs(promptOptions.value, agentForm.prompt_refs),
+    }
+    let savedAgent
+    if (editingAgentId.value) savedAgent = await updateAgent(editingAgentId.value, payload)
+    else savedAgent = await createAgent(payload)
     agentVisible.value = false
     await fetchAgents()
+    if (!editingAgentId.value) {
+      Modal.confirm({
+        title: '智能体已创建',
+        content: '运行凭证请在“凭证管理”中创建。是否现在去创建 Agent 运行凭证？',
+        okText: '去创建凭证',
+        cancelText: '稍后再说',
+        onOk: () => router.push({
+          name: 'credentials',
+          query: {
+            create: 'agent_runtime',
+            agent_id: savedAgent.agent_id,
+          },
+        }),
+      })
+    }
   } catch (error) {
     message.error(error.response?.data?.detail || '保存智能体失败')
   } finally {
