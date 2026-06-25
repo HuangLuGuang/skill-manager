@@ -20,6 +20,14 @@
               </div>
             </a-col>
           </a-row>
+          <div class="module-flow">
+            <div class="module-flow-title">接入路径</div>
+            <div class="module-flow-steps">
+              <span v-for="(step, index) in item.flow" :key="step" class="flow-step">
+                {{ step }}<span v-if="index < item.flow.length - 1" class="flow-arrow">→</span>
+              </span>
+            </div>
+          </div>
         </a-card>
       </a-col>
     </a-row>
@@ -96,7 +104,7 @@
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24" :xl="14">
-        <a-card title="模型网关调用趋势">
+        <a-card title="模型网关 Token 与压缩趋势">
           <Chart :options="gatewayTrendChartOptions" height="320px" />
         </a-card>
       </a-col>
@@ -106,6 +114,7 @@
         </a-card>
       </a-col>
     </a-row>
+
   </div>
 </template>
 
@@ -180,24 +189,12 @@ const activeGatewayKeys = computed(() =>
 
 const moduleCards = computed(() => [
   {
-    key: 'agents',
-    title: '智能体',
-    path: '/agents',
-    value: agentRows.value.length,
-    label: '已登记智能体',
-    stats: [
-      { label: '已启用', value: countByStatus(agentRows.value, 'active') },
-      { label: '绑定凭证', value: agentRows.value.filter((item) => item.runtime_token_id || item.runtime_token_name).length },
-      { label: '绑定 Skill', value: agentRows.value.reduce((sum, item) => sum + (item.skill_names?.length || 0), 0) },
-      { label: '绑定 Prompt', value: agentRows.value.reduce((sum, item) => sum + (item.prompt_names?.length || 0), 0) },
-    ],
-  },
-  {
     key: 'skills',
     title: 'Skill 治理',
-    path: '/skills',
+    path: '/submit',
     value: skillRows.value.length,
     label: '已提交 Skill',
+    flow: ['提交', '扫描', '审核', '可信版本'],
     stats: [
       { label: '待审核', value: skillReviewRows.value.length },
       { label: '可加载', value: countByStatus(skillRows.value, 'APPROVED') },
@@ -211,6 +208,7 @@ const moduleCards = computed(() => [
     path: '/prompts',
     value: promptRows.value.length,
     label: '已提交 Prompt',
+    flow: ['提交', '检测', '审核', '可授权'],
     stats: [
       { label: '待审核', value: promptReviewRows.value.length },
       { label: '可加载', value: countByStatus(promptRows.value, 'APPROVED') },
@@ -219,11 +217,26 @@ const moduleCards = computed(() => [
     ],
   },
   {
+    key: 'agents',
+    title: '智能体管理',
+    path: '/agents',
+    value: agentRows.value.length,
+    label: '已登记智能体',
+    flow: ['创建 Agent', '绑定能力', '签发凭证', '接入守卫'],
+    stats: [
+      { label: '已启用', value: countByStatus(agentRows.value, 'active') },
+      { label: '绑定凭证', value: agentRows.value.filter((item) => item.runtime_token_id || item.runtime_token_name).length },
+      { label: '绑定 Skill', value: agentRows.value.reduce((sum, item) => sum + (item.skill_names?.length || 0), 0) },
+      { label: '绑定 Prompt', value: agentRows.value.reduce((sum, item) => sum + (item.prompt_names?.length || 0), 0) },
+    ],
+  },
+  {
     key: 'gateway',
     title: '模型网关',
     path: '/model-gateway/models',
     value: modelRows.value.length,
     label: '已配置模型',
+    flow: ['配置供应商', '添加模型', '绑定组策略', '审计统计'],
     stats: [
       { label: '可用模型', value: modelRows.value.filter((item) => item.enabled).length },
       { label: '供应商', value: providerRows.value.length },
@@ -568,6 +581,33 @@ onMounted(fetchDashboard)
   padding-top: 12px;
 }
 
+.module-flow {
+  border-top: 1px solid #eef2f7;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.module-flow-title {
+  color: #6b7280;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.module-flow-steps {
+  color: #374151;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.flow-step {
+  white-space: nowrap;
+}
+
+.flow-arrow {
+  color: #9ca3af;
+  margin: 0 5px;
+}
+
 .substat {
   background: #f8fafc;
   border-radius: 6px;
@@ -590,4 +630,5 @@ onMounted(fetchDashboard)
   color: #6b7280;
   font-size: 12px;
 }
+
 </style>

@@ -6,6 +6,37 @@
       </template>
     </a-page-header>
 
+    <a-card class="flow-card">
+      <a-row :gutter="[16, 16]">
+        <a-col :xs="24" :lg="12">
+          <div class="flow-section">
+            <div class="flow-title">1. 先治理能力</div>
+            <a-steps size="small" :current="3" direction="horizontal" class="flow-inline-steps">
+              <a-step title="提交" description="Skill / Prompt" />
+              <a-step title="扫描" description="分析风险" />
+              <a-step title="审核" description="人工确认" />
+              <a-step title="批准" description="可信可用" />
+            </a-steps>
+          </div>
+        </a-col>
+        <a-col :xs="24" :lg="12">
+          <div class="flow-section">
+            <div class="flow-title">2. 再接入 Agent</div>
+            <a-steps size="small" :current="4" direction="horizontal" class="flow-inline-steps">
+              <a-step title="创建 Agent" description="部门 / 负责人" />
+              <a-step title="绑定范围" description="Skill / Prompt / 模型" />
+              <a-step title="签发凭证" description="运行身份" />
+              <a-step title="集成守卫" description="加载前校验" />
+              <a-step title="审计追踪" description="记录结果" />
+            </a-steps>
+          </div>
+        </a-col>
+      </a-row>
+      <div class="flow-summary">
+        扫描器负责批量接入本地 Skill；Agent 运行时通过 skill-guard 或 Runtime API 在加载前向平台校验授权、状态和内容指纹。
+      </div>
+    </a-card>
+
     <a-card style="margin-top: 16px">
       <a-row :gutter="[12, 12]">
         <a-col :xs="12" :md="6">
@@ -184,14 +215,52 @@
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="flowVisible" title="接入流程" width="920px" :footer="null">
-      <a-steps size="small" :current="4" class="agent-flow-steps">
-        <a-step title="配置部门" description="维护智能体所属部门或业务团队" />
-        <a-step title="登记智能体" description="创建智能体档案并明确负责人" />
-        <a-step title="绑定能力" description="关联模型、Prompt 与允许使用的 Skill" />
-        <a-step title="签发凭证" description="在凭证管理中创建运行凭证" />
-        <a-step title="运行校验" description="接入加载校验和工具调用校验" />
-      </a-steps>
+    <a-modal v-model:open="flowVisible" title="Agent 接入流程" width="980px" :footer="null">
+      <a-row :gutter="[16, 16]">
+        <a-col :xs="24" :lg="12">
+          <a-card size="small" title="能力治理入库">
+            <a-steps size="small" direction="vertical" :current="3">
+              <a-step title="提交 Skill / Prompt" description="手动提交，或用扫描器批量接入本地 Skill。" />
+              <a-step title="平台扫描分析" description="执行静态扫描、Sandbox 信号、深度分析和 LLM 辅助研判。" />
+              <a-step title="人工审核" description="查看判断依据，确认通过或拒绝。" />
+              <a-step title="批准为可信版本" description="批准后记录内容指纹，后续运行时可校验是否被篡改。" />
+            </a-steps>
+          </a-card>
+        </a-col>
+        <a-col :xs="24" :lg="12">
+          <a-card size="small" title="Agent 接入运行">
+            <a-steps size="small" direction="vertical" :current="4">
+              <a-step title="创建 Agent" description="登记部门、负责人和业务用途。" />
+              <a-step title="绑定能力范围" description="约束可用 Skill、Prompt 和默认模型。" />
+              <a-step title="签发运行凭证" description="凭证绑定 Agent，作为外部运行身份。" />
+              <a-step title="集成 Agent Skill Guard" description="Agent 加载 Skill 前向平台校验状态、内容指纹和授权。" />
+              <a-step title="审计追踪" description="记录哪个 Agent 通过哪个凭证使用了哪个 Skill。" />
+            </a-steps>
+          </a-card>
+        </a-col>
+      </a-row>
+      <a-alert
+        type="info"
+        show-icon
+        class="flow-note"
+        message="推荐路径"
+        description="能力治理 → 智能体管理 → 凭证管理 → 接入与运行 → 审计追踪。扫描器负责把本地 Skill 批量接入平台；Agent Skill Guard 负责运行时加载前完整性校验。"
+      />
+      <a-card size="small" title="模型网关接入" class="flow-gateway-card">
+        <a-steps size="small" :current="3">
+          <a-step title="配置供应商" description="维护上游模型地址和密钥" />
+          <a-step title="添加模型" description="对外暴露可选模型列表" />
+          <a-step title="绑定组策略" description="按用户组应用隐私策略" />
+          <a-step title="签发凭证" description="模型调用或 Agent 凭证勾选 model:chat" />
+        </a-steps>
+      </a-card>
+      <a-space class="flow-actions" wrap>
+        <a-button @click="router.push('/submit')">提交 Skill</a-button>
+        <a-button @click="router.push('/agents')">创建 Agent</a-button>
+        <a-button @click="router.push('/credentials')">签发凭证</a-button>
+        <a-button @click="router.push('/model-gateway/models')">配置模型网关</a-button>
+        <a-button type="primary" @click="router.push('/runtime')">查看接入与运行</a-button>
+      </a-space>
     </a-modal>
   </div>
 </template>
@@ -405,7 +474,38 @@ onMounted(async () => {
   font-size: 12px;
 }
 
-.agent-flow-steps {
-  padding: 8px 0 12px;
+.flow-card {
+  margin-top: 16px;
+}
+
+.flow-section {
+  min-height: 118px;
+}
+
+.flow-title {
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.flow-inline-steps :deep(.ant-steps-item-description) {
+  max-width: 120px;
+}
+
+.flow-summary {
+  color: #5f6b7a;
+  font-size: 13px;
+  margin-top: 14px;
+}
+
+.flow-note {
+  margin-top: 16px;
+}
+
+.flow-gateway-card {
+  margin-top: 16px;
+}
+
+.flow-actions {
+  margin-top: 16px;
 }
 </style>

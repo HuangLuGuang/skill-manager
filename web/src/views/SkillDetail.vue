@@ -24,7 +24,12 @@
             <a-tag v-else color="default">{{ riskDisplay(detail?.risk_level) }}</a-tag>
           </a-descriptions-item>
           <a-descriptions-item label="作者">{{ detail?.source?.author || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="来源">{{ originLabel(detail?.source?.origin) }}</a-descriptions-item>
+          <a-descriptions-item label="来源">
+            <a-space wrap>
+              <span>{{ sourceLabel(detail) }}</span>
+              <a-tag v-if="detail?.source?.token_name" color="blue">凭证：{{ detail.source.token_name }}</a-tag>
+            </a-space>
+          </a-descriptions-item>
           <a-descriptions-item label="工具声明是否合规">
             <a-tag :color="detail?.declared_tools_valid ? 'green' : 'red'" title="按策略页的允许工具白名单和禁止权限/工具校验">
               {{ detail?.declared_tools_valid ? '合规' : '不合规' }}
@@ -88,7 +93,7 @@
                   :loading="verifyingSignature"
                   @click="handleVerifySignature"
                 >
-                  验签
+                  完整性校验
                 </a-button>
               </span>
             </a-tooltip>
@@ -103,7 +108,7 @@
         style="margin-top: 12px"
         :type="signatureResult.valid ? 'success' : 'error'"
         show-icon
-        :message="signatureResult.valid ? '签名校验通过' : '签名校验失败'"
+        :message="signatureResult.valid ? '完整性校验通过' : '完整性校验失败'"
         :description="signatureResultReason"
       />
     </a-card>
@@ -577,10 +582,10 @@
           </template>
         </a-tab-pane>
 
-        <a-tab-pane key="signature" tab="签名验证">
+        <a-tab-pane key="signature" tab="完整性校验">
           <a-descriptions :column="1" size="small" bordered>
-            <a-descriptions-item label="签名是否存在">{{ detail?.signature ? '是' : '否' }}</a-descriptions-item>
-            <a-descriptions-item label="签名预览">{{ detail?.signature ? `${detail.signature.slice(0, 24)}...` : '-' }}</a-descriptions-item>
+            <a-descriptions-item label="内容指纹是否存在">{{ detail?.signature ? '是' : '否' }}</a-descriptions-item>
+            <a-descriptions-item label="内容指纹预览">{{ detail?.signature ? `${detail.signature.slice(0, 24)}...` : '-' }}</a-descriptions-item>
             <a-descriptions-item label="最近一次校验">{{ signatureResult ? (signatureResult.valid ? '通过' : '失败') : '未校验' }}</a-descriptions-item>
           </a-descriptions>
         </a-tab-pane>
@@ -668,7 +673,7 @@
           type="warning"
           show-icon
           message="这是一次人工例外批准"
-          :description="vettingFailed ? '后台分析未完成，但可以人工确认 Skill 内容后例外批准。批准后会签名并进入可绑定状态，请在备注中说明人工判断依据。' : '该 Skill 的安全研判为低风险，但准入策略曾因工具/权限/许可证阻断。批准后会签名并进入可绑定状态，请在备注中说明例外依据。'"
+          :description="vettingFailed ? '后台分析未完成，但可以人工确认 Skill 内容后例外批准。批准后会记录内容指纹并进入可绑定状态，请在备注中说明人工判断依据。' : '该 Skill 的安全研判为低风险，但准入策略曾因工具/权限/许可证阻断。批准后会记录内容指纹并进入可绑定状态，请在备注中说明例外依据。'"
           style="margin-bottom: 12px"
         />
         <a-form-item label="Skill">
@@ -794,7 +799,7 @@ const auditEventLabels = {
   skill_rejected: '技能已拒绝',
   skill_deployed: '技能已部署',
   skill_retired: '技能已退役',
-  skill_signature_verified: '签名校验通过',
+  skill_signature_verified: '完整性校验通过',
   skill_tamper_detected: '检测到内容篡改',
   skill_load_allowed: '允许运行时加载',
   skill_load_blocked: '阻止运行时加载',
@@ -971,12 +976,12 @@ const handleVerifySignature = async () => {
   try {
     signatureResult.value = await verifySkillSignature(detail.value.skill_id)
     if (signatureResult.value.valid) {
-      message.success('签名校验通过')
+      message.success('完整性校验通过')
     } else {
-      message.error(`签名校验失败：${signatureResultReason.value}`)
+      message.error(`完整性校验失败：${signatureResultReason.value}`)
     }
   } catch (error) {
-    message.error(error.response?.data?.detail || '签名校验失败')
+    message.error(error.response?.data?.detail || '完整性校验失败')
   } finally {
     verifyingSignature.value = false
   }
@@ -1353,15 +1358,15 @@ const sandboxDisplayImage = computed(() => {
 })
 
 const signatureReasonLabels = {
-  'No signature stored for this skill': '当前技能未存储签名。只有已批准并完成签名的技能才能验签。',
-  'No skill path available for verification': '没有可用于验签的技能路径。',
-  'signature valid': '签名有效，技能内容未发生变化。',
-  'signature mismatch': '签名不匹配，技能内容可能已发生变化。',
+  'No signature stored for this skill': '当前 Skill 未记录内容指纹。只有已批准为可信版本的 Skill 才能做完整性校验。',
+  'No skill path available for verification': '没有可用于完整性校验的 Skill 路径。',
+  'signature valid': '内容指纹匹配，Skill 内容未发生变化。',
+  'signature mismatch': '内容指纹不匹配，Skill 内容可能已发生变化。',
 }
 const signatureVerifyDisabledReason = computed(() => (
   detail.value?.signature
     ? ''
-    : '当前技能没有签名。被拒绝、待分析或待审核的技能不会生成签名。'
+    : '当前 Skill 没有内容指纹。被拒绝、待分析或待审核的 Skill 不会生成内容指纹。'
 ))
 const signatureResultReason = computed(() => {
   const reason = signatureResult.value?.reason
@@ -1545,6 +1550,32 @@ const originLabel = (value) => ({
   internal: '内部',
   unknown: '未知',
 }[value] || value || '-')
+const sourceChannelLabel = (value) => ({
+  scanner: 'Skill 扫描器',
+  upload_zip: '上传 ZIP',
+  local_import: '本地目录导入',
+  remote_download: '网络下载导入',
+  github: 'GitHub 导入',
+  clawhub: 'ClawHub 导入',
+  direct_submit: '直接提交',
+}[value] || '')
+const sourceLabelFromPath = (value) => {
+  const text = String(value || '')
+  if (text.includes('scanner_uploaded_skills')) return 'Skill 扫描器'
+  if (text.includes('uploaded_skills') || text.includes('upload_import_sessions')) return '上传 ZIP'
+  if (text.includes('downloaded_skills') || text.includes('remote_import_sessions')) return '网络下载导入'
+  if (text.includes('clawhub_skills')) return 'ClawHub 导入'
+  return ''
+}
+const sourceLabel = (entry) => {
+  const source = entry?.source
+  if (!source) return '-'
+  const channel = sourceChannelLabel(source.channel)
+  if (channel) return channel
+  const pathLabel = sourceLabelFromPath(entry?.skill_path)
+  if (pathLabel) return pathLabel
+  return originLabel(source.origin)
+}
 const auditEventLabel = (value) => auditEventLabels[value] || value || '-'
 
 const formatAuditValue = (key, value) => {

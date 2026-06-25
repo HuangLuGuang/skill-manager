@@ -86,9 +86,11 @@ class SourceInfo(BaseModel):
 
     origin: SkillOrigin = SkillOrigin.UNKNOWN
     author: Optional[str] = None
+    channel: Optional[str] = None
     url: Optional[str] = None
     version: Optional[str] = None
     commit_sha: Optional[str] = None
+    token_name: Optional[str] = None
 
 
 class VettingResult(BaseModel):

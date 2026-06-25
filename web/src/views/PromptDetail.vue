@@ -74,8 +74,8 @@
             <a-descriptions-item label="风险等级">
               <a-tag :color="getRiskColor(prompt.risk_level)">{{ prompt.risk_level || 'UNKNOWN' }}</a-tag>
             </a-descriptions-item>
-            <a-descriptions-item label="内容签名">
-              <code class="sig-code">{{ prompt.signature || '尚未签名' }}</code>
+            <a-descriptions-item label="内容指纹">
+              <code class="sig-code">{{ prompt.signature || '尚未生成' }}</code>
             </a-descriptions-item>
             <a-descriptions-item label="提交时间">{{ formatDate(prompt.submitted_at) }}</a-descriptions-item>
             <a-descriptions-item label="批准人">{{ prompt.approved_by || '-' }}</a-descriptions-item>
@@ -101,7 +101,7 @@
 
     <!-- 审批 Modal -->
     <a-modal v-model:open="approveVisible" title="批准提示词上线" @ok="handleApproveOk" :confirmLoading="approving">
-      <p>您正在批准提示词 <b>{{ prompt.name }}</b> 上线。批准后系统将为其生成内容指纹签名。</p>
+      <p>您正在批准提示词 <b>{{ prompt.name }}</b> 上线。批准后系统会记录内容指纹，用于后续完整性校验。</p>
       <a-form layout="vertical">
         <a-form-item label="批准备注">
           <a-textarea v-model:value="approveForm.note" placeholder="可选：填写审批意见" />

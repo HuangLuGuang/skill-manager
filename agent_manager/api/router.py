@@ -819,7 +819,7 @@ async def submit_skill_zip(
         persistent_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(skill_root, persistent_dir)
 
-        source = SourceInfo(origin=SkillOrigin(origin), author=author)
+        source = SourceInfo(origin=SkillOrigin(origin), author=author, channel="upload_zip")
         return _submit_directory_for_processing(
             mgr,
             background_tasks,
@@ -886,7 +886,7 @@ def submit_local_skills(
     if not body.paths:
         raise HTTPException(status_code=400, detail="No skill paths selected")
 
-    source = SourceInfo(origin=SkillOrigin(body.origin), author=body.author)
+    source = SourceInfo(origin=SkillOrigin(body.origin), author=body.author, channel="local_import")
     results: list[SubmitResponse] = []
     for raw_path in body.paths:
         skill_dir = Path(raw_path).expanduser().resolve()
@@ -929,7 +929,8 @@ async def submit_skill_url(
         origin_value = body.origin
         if origin_value == "unknown" and detected_origin == "github":
             origin_value = "github"
-        source = SourceInfo(origin=SkillOrigin(origin_value), author=body.author, url=body.url)
+        channel = "github" if origin_value == "github" else "remote_download"
+        source = SourceInfo(origin=SkillOrigin(origin_value), author=body.author, channel=channel, url=body.url)
         return _submit_directory_for_processing(
             mgr,
             background_tasks,
@@ -990,7 +991,8 @@ def submit_remote_selected(
         raise HTTPException(status_code=400, detail="No skill paths selected")
 
     origin_value = body.origin
-    source = SourceInfo(origin=SkillOrigin(origin_value), author=body.author)
+    channel = "github" if origin_value == "github" else "remote_download"
+    source = SourceInfo(origin=SkillOrigin(origin_value), author=body.author, channel=channel)
     results: list[SubmitResponse] = []
     for raw_path in body.paths:
         skill_dir = Path(raw_path).expanduser().resolve()
@@ -1027,7 +1029,7 @@ def submit_upload_selected(
     if not body.paths:
         raise HTTPException(status_code=400, detail="No skill paths selected")
 
-    source = SourceInfo(origin=SkillOrigin(body.origin), author=body.author)
+    source = SourceInfo(origin=SkillOrigin(body.origin), author=body.author, channel="upload_zip")
     results: list[SubmitResponse] = []
     for raw_path in body.paths:
         skill_dir = Path(raw_path).expanduser().resolve()
@@ -1092,7 +1094,7 @@ async def submit_skill_clawhub(
         persistent_dir = mgr.registry.data_dir / "clawhub_skills" / uuid.uuid4().hex
         persistent_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(skill_root, persistent_dir)
-        source = SourceInfo(origin=SkillOrigin.CLAWHUB, author=body.author, url=body.url)
+        source = SourceInfo(origin=SkillOrigin.CLAWHUB, author=body.author, channel="clawhub", url=body.url)
         return _submit_directory_for_processing(
             mgr,
             background_tasks,

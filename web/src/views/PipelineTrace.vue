@@ -1,11 +1,11 @@
 <template>
   <div>
-    <a-page-header title="Pipeline Trace" sub-title="查看隐私路由请求、脱敏、响应和还原的完整链路" />
+    <a-page-header title="隐私链路追踪" sub-title="查看模型请求的脱敏、智能压缩、响应和还原过程" />
 
     <a-alert
       type="warning"
       show-icon
-      message="Trace 包含原始隐私数据"
+      message="链路详情包含原始隐私数据"
       description="仅管理员和隐私审计人员应查看此页面。打开原始内容前请确认业务授权。"
       style="margin-top: 16px"
     />
@@ -53,7 +53,7 @@
 
     <a-drawer
       v-model:open="drawerOpen"
-      :title="selectedId || 'Pipeline Trace'"
+      :title="selectedId || '隐私链路追踪'"
       width="960"
       placement="right"
       destroy-on-close
@@ -163,7 +163,7 @@ const fetchTraces = async (page = pagination.value.current, pageSize = paginatio
       total: res.total || 0,
     }
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取 Trace 列表失败')
+    message.error(error.response?.data?.detail || '获取链路列表失败')
   } finally {
     loading.value = false
   }
@@ -185,7 +185,7 @@ const selectTrace = async (record) => {
   try {
     detail.value = await getPrivacyTrace(record.request_id)
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取 Trace 详情失败')
+    message.error(error.response?.data?.detail || '获取链路详情失败')
   } finally {
     detailLoading.value = false
   }

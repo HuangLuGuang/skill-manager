@@ -116,7 +116,7 @@ Runtime Agent 加载校验权限：
 
 ## 4. Agent Skill Guard
 
-`Agent Skill Guard` 是给 Codex、Claude Code 等通用 Agent 使用的示例 skill。它不依赖 hook，也不绑定某个 Agent 平台；安装后，Agent 在安装、加载或调用第三方 skill 前，可以按 skill 指令先提交扫描，再验签和检查审批状态。
+`Agent Skill Guard` 是给 Codex、Claude Code 等通用 Agent 使用的示例 skill。它不依赖 hook，也不绑定某个 Agent 平台；安装后，Agent 在安装、加载或调用第三方 skill 前，可以按 skill 指令先提交扫描，再检查内容完整性、审批状态和 Agent 授权范围。
 
 它和 Go Scanner 的定位不同：
 
@@ -154,6 +154,7 @@ Skill Guard 首版使用一个合并 token。至少需要：
 
 - `scanner:submit`
 - `scanner:read-own-results`
+- `scanner:read-own-sessions`
 - `runtime:verify-signature`
 - `runtime:can-load`
 - `runtime:check-tool`
@@ -163,6 +164,7 @@ Skill Guard 首版使用一个合并 token。至少需要：
 ```bash
 export AGENT_MANAGER_BASE_URL="http://localhost:8001"
 export AGENT_MANAGER_API_TOKEN="amat_xxx"
+export AGENT_ID="<agent-id>"
 export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 ```
 
@@ -193,7 +195,8 @@ unzip agent-manager-skill-guard.zip -d ~/.claude/skills/
 ```bash
 python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py submit \
   --path /path/to/third-party-skill \
-  --behavioral
+  --behavioral \
+  --deep-scan
 ```
 
 查看提交状态：
@@ -203,7 +206,7 @@ python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.
   --skill-id <skill-id>
 ```
 
-使用前验签和检查审批状态：
+使用前检查内容完整性、审批状态和 Agent 授权范围：
 
 ```bash
 python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py verify \
@@ -211,9 +214,9 @@ python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.
   --path /path/to/third-party-skill
 ```
 
-默认策略是阻断优先：未提交、扫描中、待审核、已拒绝、未签名、签名不匹配、状态不可加载或 API 错误，脚本都会返回非 `0`，并输出中文阻断原因。Agent 不应提供“用户确认后继续”的默认绕过路径。
+默认策略是阻断优先：未提交、扫描中、待审核、已拒绝、未形成可信版本、内容不匹配、状态不可加载或 API 错误，脚本都会返回非 `0`，并输出中文阻断原因。Agent 不应提供“用户确认后继续”的默认绕过路径。
 
-`submit` 默认启用 LLM 分析；如果服务端未启用 LLM，可显式加 `--no-llm`。
+`submit` 不再默认启用 LLM。需要更完整分析时显式增加 `--deep-scan`、`--sandbox`、`--llm` 或 `--no-cache`。
 
 ---
 

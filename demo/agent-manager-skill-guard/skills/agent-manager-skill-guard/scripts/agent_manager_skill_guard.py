@@ -185,21 +185,27 @@ def normalize_base_url(value: str) -> str:
 
 
 def resolve_server(args: argparse.Namespace) -> str:
-    server = args.server or os.environ.get("AGENT_MANAGER_BASE_URL")
+    server = (
+        args.server
+        or os.environ.get("AGENT_MANAGER_BASE_URL")
+        or os.environ.get("SKILL_MANAGER_SERVER")
+        or os.environ.get("AGENT_MANAGER_SERVER")
+    )
     if not server:
-        raise GuardError("缺少 Agent Manager 地址，请设置 AGENT_MANAGER_BASE_URL 或传入 --server")
+        raise GuardError("缺少 Agent Manager 地址，请设置 AGENT_MANAGER_BASE_URL/SKILL_MANAGER_SERVER 或传入 --server")
     return normalize_base_url(server)
 
 
 def resolve_token(args: argparse.Namespace) -> str:
     token = (
         args.token
+        or os.environ.get("SKILL_MANAGER_TOKEN")
         or os.environ.get("AGENT_MANAGER_TOKEN")
         or os.environ.get("AGENT_MANAGER_API_TOKEN")
         or os.environ.get("AGENT_MANAGER_ACCESS_TOKEN")
     )
     if not token:
-        raise GuardError("缺少接入 Token，请设置 AGENT_MANAGER_TOKEN/AGENT_MANAGER_API_TOKEN 或传入 --token")
+        raise GuardError("缺少接入凭证，请设置 SKILL_MANAGER_TOKEN/AGENT_MANAGER_TOKEN/AGENT_MANAGER_API_TOKEN 或传入 --token")
     return token
 
 
@@ -215,8 +221,10 @@ def command_submit(args: argparse.Namespace) -> int:
         fields = {
             "manifest": json.dumps(manifest, ensure_ascii=False),
             "use_behavioral": str(bool(args.behavioral)).lower(),
+            "use_skillspector": str(bool(args.deep_scan)).lower(),
             "use_llm": str(bool(args.llm)).lower(),
             "use_sandbox": str(bool(args.sandbox)).lower(),
+            "no_cache": str(bool(args.no_cache)).lower(),
             "scanner_version": "agent-manager-skill-guard",
         }
         if args.host_id:
@@ -247,7 +255,7 @@ def command_status(args: argparse.Namespace) -> int:
 def _print_block(reason: str, status: str | None = None) -> None:
     status_text = f" status={status}" if status else ""
     print(f"阻断: {reason}{status_text}")
-    print("不要调用该 skill。请先提交扫描、等待审批通过，或重新提交本地修改后的版本。")
+    print("不要调用该 Skill。请先提交扫描、等待审批通过，或重新提交本地修改后的版本。")
 
 
 def command_verify(args: argparse.Namespace) -> int:
@@ -272,7 +280,7 @@ def command_verify(args: argparse.Namespace) -> int:
         json_body=body,
     )
     if not verify_payload.get("allowed"):
-        _print_block(str(verify_payload.get("reason") or "签名校验失败"), verify_payload.get("status"))
+        _print_block(str(verify_payload.get("reason") or "内容完整性校验失败"), verify_payload.get("status"))
         return 1
 
     can_load_url = f"{server}/api/v1/access/runtime/can-load/{urllib.parse.quote(args.name)}"
@@ -297,10 +305,11 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--server", default=None, help="Agent Manager base URL; default AGENT_MANAGER_BASE_URL")
     submit.add_argument("--token", default=None, help="Access token; default AGENT_MANAGER_TOKEN")
     submit.add_argument("--path", required=True, help="Local skill directory")
-    submit.add_argument("--behavioral", action="store_true", help="Enable server behavioral/static analysis")
+    submit.add_argument("--behavioral", action="store_true", help="Enable server rule analysis")
+    submit.add_argument("--deep-scan", action="store_true", help="Enable server deep scan")
     submit.add_argument("--sandbox", action="store_true", help="Enable sandbox analysis")
-    submit.add_argument("--llm", action="store_true", default=True, help="Enable LLM analysis (default)")
-    submit.add_argument("--no-llm", action="store_false", dest="llm", help="Disable LLM analysis when the server has no LLM configured")
+    submit.add_argument("--llm", action="store_true", help="Enable LLM analysis")
+    submit.add_argument("--no-cache", action="store_true", help="Force server-side rescan without cache")
     submit.add_argument("--host-id", default=None, help="Optional host/environment identifier")
     submit.add_argument("--ignore", default="", help="Comma-separated extra ignored directories")
     submit.set_defaults(func=command_submit)

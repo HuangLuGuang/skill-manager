@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="模型网关" sub-title="用量统计与压缩效果分析" />
+    <a-page-header title="Token 用量与压缩" sub-title="查看模型调用量、Token 消耗和智能压缩节省效果" />
 
     <!-- 日期范围 + 模型筛选 -->
     <a-space style="margin-bottom: 16px" wrap>

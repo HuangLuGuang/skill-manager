@@ -21,12 +21,14 @@ type Client struct {
 }
 
 type SubmitOptions struct {
-	UseBehavioral  bool
-	UseSandbox     bool
-	UseLLM         bool
-	ManifestJSON   string
-	ScannerVersion string
-	HostID         string
+	UseBehavioral   bool
+	UseSkillspector bool
+	UseSandbox      bool
+	UseLLM          bool
+	NoCache         bool
+	ManifestJSON    string
+	ScannerVersion  string
+	HostID          string
 }
 
 type SubmitResult struct {
@@ -94,8 +96,10 @@ func (c Client) SubmitZip(ctx context.Context, zipPath string, opts SubmitOption
 		}
 	}
 	_ = writer.WriteField("use_behavioral", boolString(opts.UseBehavioral))
+	_ = writer.WriteField("use_skillspector", boolString(opts.UseSkillspector))
 	_ = writer.WriteField("use_sandbox", boolString(opts.UseSandbox))
 	_ = writer.WriteField("use_llm", boolString(opts.UseLLM))
+	_ = writer.WriteField("no_cache", boolString(opts.NoCache))
 	if err := writer.Close(); err != nil {
 		return result, err
 	}

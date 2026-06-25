@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import uuid
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -71,6 +72,16 @@ class ScannerDownloadInfo(BaseModel):
 
 class ScannerSubmitResponse(SubmitResponse):
     detail_url: str | None = None
+
+
+@dataclass
+class ScannerAuthContext:
+    name: str
+    max_upload_mb: int
+    author: str | None = None
+    token_name: str | None = None
+    legacy_token: ScannerToken | None = None
+    access_token: AccessToken | None = None
 
 
 def _fingerprint_skill_dir(skill_dir: Path) -> dict[str, Any]:
@@ -158,16 +169,56 @@ def require_scanner_submit_token(
     request: Request,
     authorization: str | None = Header(None),
     store: ScannerTokenStore = Depends(get_token_store),
-) -> ScannerToken:
-    return _validate_scanner_token("scanner:submit", request, authorization, store)
+    db: Session = Depends(get_db),
+) -> ScannerAuthContext:
+    return _validate_scanner_auth("scanner:submit", request, authorization, store, db)
 
 
 def require_scanner_read_token(
     request: Request,
     authorization: str | None = Header(None),
     store: ScannerTokenStore = Depends(get_token_store),
-) -> ScannerToken:
-    return _validate_scanner_token("scanner:read-own-results", request, authorization, store)
+    db: Session = Depends(get_db),
+) -> ScannerAuthContext:
+    return _validate_scanner_auth("scanner:read-own-results", request, authorization, store, db)
+
+
+def _validate_scanner_auth(
+    required_scope: str,
+    request: Request,
+    authorization: str | None,
+    store: ScannerTokenStore,
+    db: Session,
+) -> ScannerAuthContext:
+    plain = _extract_bearer(authorization)
+    if plain.startswith("amat_"):
+        token = resolve_access_token(db, authorization, required_scope=required_scope, request=request)
+        author = _access_token_author(db, token)
+        return ScannerAuthContext(
+            name=token.name,
+            max_upload_mb=token.max_upload_mb,
+            author=author,
+            token_name=token.name,
+            access_token=token,
+        )
+    legacy = _validate_scanner_token(required_scope, request, authorization, store)
+    return ScannerAuthContext(
+        name=legacy.name,
+        max_upload_mb=legacy.max_upload_mb,
+        author=legacy.created_by or legacy.name,
+        token_name=legacy.name,
+        legacy_token=legacy,
+    )
+
+
+def _access_token_author(db: Session, token: AccessToken) -> str:
+    if token.user_id:
+        from backend import models
+
+        user = db.query(models.User).filter(models.User.id == token.user_id).first()
+        if user:
+            return user.username
+    return token.created_by or token.name
 
 
 def require_runtime_verify_token(
@@ -376,15 +427,16 @@ async def submit_scanner_import(
     use_llm: bool = Form(False),
     use_sandbox: bool = Form(False),
     use_skillspector: bool = Form(False),
+    no_cache: bool = Form(False),
     scanner_version: str | None = Form(None),
     host_id: str | None = Form(None),
-    scanner_token: ScannerToken = Depends(require_scanner_submit_token),
+    scanner_auth: ScannerAuthContext = Depends(require_scanner_submit_token),
     mgr: AgentManager = Depends(get_manager),
     store: ScannerTokenStore = Depends(get_token_store),
 ):
-    max_bytes = scanner_token.max_upload_mb * 1024 * 1024
+    max_bytes = scanner_auth.max_upload_mb * 1024 * 1024
     if file.size and file.size > max_bytes:
-        raise HTTPException(status_code=413, detail=f"File too large (max {scanner_token.max_upload_mb} MB)")
+        raise HTTPException(status_code=413, detail=f"File too large (max {scanner_auth.max_upload_mb} MB)")
 
     parsed_manifest: dict[str, Any] | None = None
     if manifest:
@@ -398,7 +450,7 @@ async def submit_scanner_import(
         zip_path = tmp_dir / "skill.zip"
         content = await file.read()
         if len(content) > max_bytes:
-            raise HTTPException(status_code=413, detail=f"File too large (max {scanner_token.max_upload_mb} MB)")
+            raise HTTPException(status_code=413, detail=f"File too large (max {scanner_auth.max_upload_mb} MB)")
         zip_path.write_bytes(content)
 
         extract_dir = tmp_dir / "skill"
@@ -417,7 +469,9 @@ async def submit_scanner_import(
 
         source = SourceInfo(
             origin=SkillOrigin.LOCAL,
-            author=scanner_token.name,
+            author=scanner_auth.author or scanner_auth.name,
+            channel="scanner",
+            token_name=scanner_auth.token_name,
             version=scanner_version,
         )
         response = _submit_directory_for_processing(
@@ -429,10 +483,12 @@ async def submit_scanner_import(
             use_llm,
             use_sandbox,
             use_skillspector,
+            no_cache,
         )
         store.log_event(
             "scanner_import_submitted",
-            scanner_token,
+            scanner_auth.legacy_token,
+            actor=scanner_auth.name if scanner_auth.access_token else None,
             details={
                 "skill_id": response.skill_id,
                 "skill_name": response.name,
@@ -450,12 +506,13 @@ async def submit_scanner_import(
 @router.get("/scanner/imports/{skill_id}")
 def get_scanner_import(
     skill_id: str,
-    scanner_token: ScannerToken = Depends(require_scanner_read_token),
+    scanner_auth: ScannerAuthContext = Depends(require_scanner_read_token),
     mgr: AgentManager = Depends(get_manager),
 ):
     entry = mgr.get_skill(skill_id)
     if entry is None:
         raise HTTPException(status_code=404, detail="Skill not found")
-    if entry.source.author != scanner_token.name:
+    allowed_owners = {scanner_auth.name, scanner_auth.author or "", scanner_auth.token_name or ""}
+    if entry.source.author not in allowed_owners and entry.source.token_name not in allowed_owners:
         raise HTTPException(status_code=403, detail="scanner token can only read own submissions")
     return entry.model_dump(mode="json", exclude={"vetting": {"scan_report"}})

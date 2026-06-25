@@ -126,12 +126,14 @@ func ScanOne(cfg config.Config, apiClient client.Client, skillPath string, workD
 		ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 		defer cancel()
 		submission, err := apiClient.SubmitZip(ctx, zipPath, client.SubmitOptions{
-			UseBehavioral:  cfg.UseBehavioral,
-			UseSandbox:     cfg.UseSandbox,
-			UseLLM:         cfg.UseLLM,
-			ManifestJSON:   string(manifestPayload),
-			ScannerVersion: Version,
-			HostID:         cfg.HostID,
+			UseBehavioral:   cfg.UseBehavioral,
+			UseSkillspector: cfg.UseSkillspector,
+			UseSandbox:      cfg.UseSandbox,
+			UseLLM:          cfg.UseLLM,
+			NoCache:         cfg.NoCache,
+			ManifestJSON:    string(manifestPayload),
+			ScannerVersion:  Version,
+			HostID:          cfg.HostID,
 		})
 		if err != nil {
 			item.SubmitError = err.Error()

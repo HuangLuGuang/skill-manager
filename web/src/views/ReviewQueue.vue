@@ -4,14 +4,21 @@
 
     <a-card style="margin-top: 16px">
       <a-space style="margin-bottom: 16px" wrap>
-        <a-input v-model:value="keyword" placeholder="搜索技能 名称 / ID / 备注" style="width: 280px" allow-clear />
-        <a-select v-model:value="risk" style="width: 160px">
+        <a-input
+          v-model:value="keyword"
+          placeholder="搜索技能 名称 / ID / 备注"
+          style="width: 280px"
+          allow-clear
+          @pressEnter="handleFilterChange"
+          @change="handleKeywordInputChange"
+        />
+        <a-select v-model:value="risk" style="width: 160px" @change="handleFilterChange">
           <a-select-option value="all">全部风险</a-select-option>
           <a-select-option value="benign">benign</a-select-option>
           <a-select-option value="suspicious">suspicious</a-select-option>
           <a-select-option value="malicious">malicious</a-select-option>
         </a-select>
-        <a-button type="primary" @click="fetchQueue" :loading="loading">查询</a-button>
+        <a-button type="primary" @click="handleFilterChange" :loading="loading">查询</a-button>
         <a-button @click="resetFilters" :disabled="loading">重置</a-button>
         <a-button @click="fetchQueue" :loading="loading">刷新</a-button>
       </a-space>
@@ -93,7 +100,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
 
 import { approveSkill, listReviewQueuePaged, rejectSkill } from '../api'
@@ -105,7 +112,7 @@ const rows = ref([])
 const total = ref(0)
 const keyword = ref('')
 const risk = ref('all')
-const sortState = ref({ field: 'queued_at', order: 'ascend' })
+const sortState = ref({ field: 'queued_at', order: 'descend' })
 const selectedRecord = ref(null)
 const approveModalOpen = ref(false)
 const rejectModalOpen = ref(false)
@@ -119,6 +126,7 @@ const pagination = ref({
   pageSizeOptions: ['10', '20', '50'],
   showTotal: (value) => `共 ${value} 条`,
 })
+let keywordTimer = null
 
 const fetchQueue = async () => {
   loading.value = true
@@ -220,10 +228,25 @@ const handleTableChange = (pager, _filters, sorter) => {
   fetchQueue()
 }
 
+const handleFilterChange = () => {
+  pagination.value = {
+    ...pagination.value,
+    current: 1,
+  }
+  fetchQueue()
+}
+
+const handleKeywordInputChange = () => {
+  if (keywordTimer) window.clearTimeout(keywordTimer)
+  keywordTimer = window.setTimeout(() => {
+    handleFilterChange()
+  }, 300)
+}
+
 const resetFilters = () => {
   keyword.value = ''
   risk.value = 'all'
-  sortState.value = { field: 'queued_at', order: 'ascend' }
+  sortState.value = { field: 'queued_at', order: 'descend' }
   pagination.value = {
     ...pagination.value,
     current: 1,
@@ -248,6 +271,10 @@ const riskColor = (value) =>
   }[value] || 'default')
 
 onMounted(fetchQueue)
+
+onBeforeUnmount(() => {
+  if (keywordTimer) window.clearTimeout(keywordTimer)
+})
 </script>
 
 <style scoped>

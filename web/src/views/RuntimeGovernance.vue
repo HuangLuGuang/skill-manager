@@ -1,6 +1,51 @@
 <template>
   <div>
-    <a-page-header title="运行时治理" sub-title="执行加载校验与工具权限校验" />
+    <a-page-header title="接入与运行" sub-title="指导 Agent 接入运行时守卫，并执行加载校验与工具权限校验" />
+
+    <a-card title="Agent Skill Guard 接入" style="margin-top: 16px">
+      <template #extra>
+        <a-button type="primary" :loading="guardDownloading" @click="handleSkillGuardDownload">下载 Skill Guard</a-button>
+      </template>
+      <a-alert
+        type="info"
+        show-icon
+        message="Agent Skill Guard 是 Agent 侧运行时守卫"
+        description="它安装在 Agent 的 skills 目录中。Agent 加载第三方 Skill 前，先向平台校验 Skill 状态、内容指纹、Agent 授权范围和运行凭证，未通过则阻止加载并写入审计。"
+        style="margin-bottom: 16px"
+      />
+      <a-row :gutter="[16, 16]">
+        <a-col :xs="24" :lg="8">
+          <div class="guard-panel">
+            <div class="guard-panel-title">1. 签发运行凭证</div>
+            <p class="hint">在“凭证管理”创建 Agent 运行凭证，绑定目标 Agent，并授予提交扫描与运行时校验权限。</p>
+            <a-space wrap>
+              <a-tag v-for="scope in skillGuardScopes" :key="scope" color="blue">{{ scope }}</a-tag>
+            </a-space>
+          </div>
+        </a-col>
+        <a-col :xs="24" :lg="8">
+          <div class="guard-panel">
+            <div class="guard-panel-title">2. 安装到 Agent</div>
+            <p class="hint">下载 zip 后解压到 Agent 的 skills 目录。安装完成后重启 Agent 或刷新 skill 列表。</p>
+            <a-tabs size="small">
+              <a-tab-pane key="codex" tab="Codex">
+                <pre class="code-block compact">{{ codexGuardInstallCommand }}</pre>
+              </a-tab-pane>
+              <a-tab-pane key="claude" tab="Claude Code">
+                <pre class="code-block compact">{{ claudeGuardInstallCommand }}</pre>
+              </a-tab-pane>
+            </a-tabs>
+          </div>
+        </a-col>
+        <a-col :xs="24" :lg="8">
+          <div class="guard-panel">
+            <div class="guard-panel-title">3. 加载前校验</div>
+            <p class="hint">Agent 使用 Skill 前执行校验。平台会检查是否已批准、内容指纹是否匹配、当前 Agent 是否被授权。</p>
+            <pre class="code-block compact">{{ guardUsageCommand }}</pre>
+          </div>
+        </a-col>
+      </a-row>
+    </a-card>
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24" :xl="12">
@@ -154,13 +199,14 @@
 import { onMounted, reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
 
-import { getAuditPaged, listSkillsPaged, runtimeCanLoad, runtimeCheckTool } from '../api'
+import { downloadSkillGuard, getAuditPaged, listSkillsPaged, runtimeCanLoad, runtimeCheckTool } from '../api'
 import { formatDateTime, formatDetails } from '../utils/format'
 
 const checkingCanLoad = ref(false)
 const checkingTool = ref(false)
 const loadingSkills = ref(false)
 const loadingAudit = ref(false)
+const guardDownloading = ref(false)
 
 const canLoadResult = ref(null)
 const toolResult = ref(null)
@@ -174,6 +220,31 @@ const skillKeyword = ref('')
 const auditKeyword = ref('')
 const skillSortState = ref({ field: 'name', order: 'ascend' })
 const auditSortState = ref({ field: 'timestamp', order: 'descend' })
+const skillGuardScopes = ['scanner:submit', 'scanner:read-own-results', 'scanner:read-own-sessions', 'runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool']
+const runtimeApiOrigin = (() => {
+  const { protocol, hostname, port } = window.location
+  if ((hostname === 'localhost' || hostname === '127.0.0.1') && (port === '5173' || port === '5174')) {
+    return `${protocol}//${hostname}:8001`
+  }
+  return window.location.origin
+})()
+const codexGuardInstallCommand = `mkdir -p ~/.codex/skills
+unzip agent-manager-skill-guard.zip -d ~/.codex/skills/
+
+export AGENT_MANAGER_BASE_URL="${runtimeApiOrigin}"
+export AGENT_MANAGER_API_TOKEN="amat_xxx"
+export AGENT_ID="<agent-id>"`
+const claudeGuardInstallCommand = `mkdir -p ~/.claude/skills
+unzip agent-manager-skill-guard.zip -d ~/.claude/skills/
+
+export AGENT_MANAGER_BASE_URL="${runtimeApiOrigin}"
+export AGENT_MANAGER_API_TOKEN="amat_xxx"
+export AGENT_ID="<agent-id>"`
+const guardUsageCommand = `# 首次发现未入库 Skill 时，可先提交到平台治理
+python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py submit --path /path/to/skill --behavioral --deep-scan
+
+# 批准为可信版本后，Agent 加载前执行完整性校验
+python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py verify --name <skill-name> --path /path/to/skill --agent-id <agent-id>`
 const skillPagination = ref({
   current: 1,
   pageSize: 6,
@@ -263,6 +334,25 @@ const handleCheckTool = async () => {
     message.error(error.response?.data?.detail || '工具校验失败')
   } finally {
     checkingTool.value = false
+  }
+}
+
+const handleSkillGuardDownload = async () => {
+  guardDownloading.value = true
+  try {
+    const blob = await downloadSkillGuard()
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'agent-manager-skill-guard.zip'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    message.error(error.response?.data?.detail || '下载 Agent Skill Guard 失败')
+  } finally {
+    guardDownloading.value = false
   }
 }
 
@@ -437,6 +527,40 @@ onMounted(() => {
 .table-meta {
   margin-bottom: 12px;
   color: #6b7280;
+  font-size: 12px;
+}
+
+.code-block {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  background: #0f172a;
+  color: #dbeafe;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.code-block.compact {
+  max-height: 220px;
+}
+
+.guard-panel {
+  min-height: 100%;
+  padding: 12px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.guard-panel-title {
+  margin-bottom: 8px;
+  color: #262626;
+  font-weight: 600;
+}
+
+.hint {
+  color: #8c8c8c;
   font-size: 12px;
 }
 </style>
