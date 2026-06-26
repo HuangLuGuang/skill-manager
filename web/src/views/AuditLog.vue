@@ -1,26 +1,20 @@
 <template>
   <div>
-    <a-page-header title="审计日志" sub-title="查看审计事件与治理痕迹" />
+    <a-page-header title="审计追踪" sub-title="按 Skill、Agent、来源 IP 和凭证追踪治理与运行事件" />
 
     <a-card style="margin-top: 16px">
       <a-space wrap style="margin-bottom: 16px">
         <a-input
           v-model:value="filters.keyword"
-          placeholder="搜索技能名称 / Skill ID / Actor"
-          style="width: 280px"
+          placeholder="搜索 Skill / Agent / IP / 凭证 / Actor"
+          style="width: 320px"
           allow-clear
         />
         <a-select v-model:value="filters.eventType" style="width: 220px">
           <a-select-option value="all">全部事件</a-select-option>
-          <a-select-option value="skill_submitted">skill_submitted</a-select-option>
-          <a-select-option value="skill_approved">skill_approved</a-select-option>
-          <a-select-option value="skill_rejected">skill_rejected</a-select-option>
-          <a-select-option value="skill_deployed">skill_deployed</a-select-option>
-          <a-select-option value="skill_retired">skill_retired</a-select-option>
-          <a-select-option value="skill_load_allowed">skill_load_allowed</a-select-option>
-          <a-select-option value="skill_load_blocked">skill_load_blocked</a-select-option>
-          <a-select-option value="tool_invoked">tool_invoked</a-select-option>
-          <a-select-option value="tool_blocked">tool_blocked</a-select-option>
+          <a-select-option v-for="option in eventTypeOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </a-select-option>
         </a-select>
         <a-select v-model:value="filters.sinceHours" style="width: 160px">
           <a-select-option :value="24">最近 24 小时</a-select-option>
@@ -46,13 +40,25 @@
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'skill_name'">
-            <a v-if="record.skill_id" @click="$router.push(`/skills/${record.skill_id}`)">
+            <a v-if="record.skill_id && record.skill_id !== 'unknown'" @click="$router.push(`/skills/${record.skill_id}`)">
               {{ record.skill_name || record.skill_id }}
             </a>
             <span v-else>{{ record.skill_name || '-' }}</span>
           </template>
+          <template v-else-if="column.key === 'event_type'">
+            <a-tag :color="eventColor(record.event_type)">{{ eventLabel(record.event_type) }}</a-tag>
+          </template>
+          <template v-else-if="column.key === 'agent_id'">
+            <span>{{ auditAgent(record) }}</span>
+          </template>
+          <template v-else-if="column.key === 'client_ip'">
+            <span>{{ auditIp(record) }}</span>
+          </template>
+          <template v-else-if="column.key === 'actor'">
+            <span>{{ auditActor(record) }}</span>
+          </template>
           <template v-else-if="column.key === 'details'">
-            <span>{{ formatDetails(record.details) }}</span>
+            <span>{{ formatAuditDetails(record.details) }}</span>
           </template>
         </template>
       </a-table>
@@ -65,7 +71,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
 
 import { getAuditPaged } from '../api'
-import { formatDateTime, formatDetails } from '../utils/format'
+import { formatDateTime } from '../utils/format'
 
 const loading = ref(false)
 const rows = ref([])
@@ -87,11 +93,29 @@ const filters = reactive({
 
 const columns = [
   { title: '时间', dataIndex: 'timestamp', key: 'timestamp', width: 220, sorter: true, customRender: ({ text }) => formatDateTime(text) },
-  { title: '事件类型', dataIndex: 'event_type', key: 'event_type', width: 190, sorter: true },
+  { title: '事件', dataIndex: 'event_type', key: 'event_type', width: 180, sorter: true },
   { title: 'Skill', dataIndex: 'skill_name', key: 'skill_name', width: 220, sorter: true },
-  { title: 'Actor', dataIndex: 'actor', key: 'actor', width: 160, sorter: true },
-  { title: 'Details', dataIndex: 'details', key: 'details' },
+  { title: 'Agent', dataIndex: 'agent_id', key: 'agent_id', width: 170 },
+  { title: '来源 IP', dataIndex: 'client_ip', key: 'client_ip', width: 140 },
+  { title: '凭证/Actor', dataIndex: 'actor', key: 'actor', width: 170, sorter: true },
+  { title: '详情', dataIndex: 'details', key: 'details' },
 ]
+
+const eventTypeOptions = [
+  { value: 'skill_submitted', label: 'Skill 已提交' },
+  { value: 'skill_processing_started', label: '开始分析 Skill' },
+  { value: 'skill_processing_completed', label: '分析完成' },
+  { value: 'skill_vetted', label: '进入审核' },
+  { value: 'skill_approved', label: '审核通过' },
+  { value: 'skill_rejected', label: '审核拒绝' },
+  { value: 'skill_signature_verified', label: '完整性校验通过' },
+  { value: 'skill_load_allowed', label: '允许加载 Skill' },
+  { value: 'skill_load_blocked', label: '阻止加载 Skill' },
+  { value: 'skill_tamper_detected', label: '发现内容不一致' },
+  { value: 'tool_invoked', label: '允许工具调用' },
+  { value: 'tool_blocked', label: '阻止工具调用' },
+]
+const eventLabelMap = Object.fromEntries(eventTypeOptions.map((item) => [item.value, item.label]))
 
 const fetchAudit = async () => {
   loading.value = true
@@ -147,6 +171,52 @@ const resetFilters = () => {
     current: 1,
   }
   fetchAudit()
+}
+
+const eventLabel = (value) => eventLabelMap[value] || value || '-'
+const eventColor = (value) => {
+  if (['skill_rejected', 'skill_load_blocked', 'skill_tamper_detected', 'tool_blocked'].includes(value)) return 'red'
+  if (['skill_approved', 'skill_signature_verified', 'skill_load_allowed', 'tool_invoked'].includes(value)) return 'green'
+  if (['skill_vetted', 'skill_processing_completed'].includes(value)) return 'orange'
+  return 'blue'
+}
+const auditDetails = (record) => (record?.details && typeof record.details === 'object' ? record.details : {})
+const auditAgent = (record) => record.agent_id || auditDetails(record).agent_id || record.actor || '-'
+const auditIp = (record) => record.client_ip || auditDetails(record).client_ip || '-'
+const auditActor = (record) => {
+  const details = auditDetails(record)
+  if (details.token_name) return details.token_name
+  if (details.token_prefix) return details.token_prefix
+  return record.actor || '-'
+}
+const formatAuditDetails = (details = {}) => {
+  const labels = {
+    status: '状态',
+    reason: '原因',
+    tool: '工具',
+    allowed: '结果',
+    verification_mode: '校验方式',
+    risk_level: '风险',
+    decision: '结论',
+    reviewer: '审核人',
+    approver: '审批人',
+    source: '来源',
+  }
+  const hidden = new Set([
+    'agent_id',
+    'client_ip',
+    'token_id',
+    'token_name',
+    'token_type',
+    'token_prefix',
+    'bound_agent_id',
+    'user_id',
+    'group_id',
+  ])
+  return Object.entries(details || {})
+    .filter(([key, value]) => !hidden.has(key) && value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => `${labels[key] || key}: ${value === true ? '允许' : value === false ? '拒绝' : value}`)
+    .join('；') || '-'
 }
 
 onMounted(fetchAudit)

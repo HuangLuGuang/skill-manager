@@ -210,7 +210,6 @@ python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.
 
 ```bash
 python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py verify \
-  --name <skill-name> \
   --path /path/to/third-party-skill
 ```
 

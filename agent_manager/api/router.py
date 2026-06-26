@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import atexit
 import importlib.util
+import json
 import shutil
 import subprocess
 import tempfile
@@ -22,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -414,7 +415,7 @@ class ToolCheckResponse(BaseModel):
 
 
 class VerifySkillSignatureRequest(BaseModel):
-    skill_name: str
+    skill_name: str | None = None
     local_signature: str
     skill_id: str | None = None
     agent_id: str | None = None
@@ -1703,6 +1704,7 @@ def retire_skill(
 
 @runtime_router.get("/runtime/can-load/{skill_name}", response_model=RuntimeCheckResponse)
 def runtime_can_load(
+    request: Request,
     skill_name: str,
     skill_path: str | None = Query(None),
     agent_id: str | None = Query(None),
@@ -1710,7 +1712,10 @@ def runtime_can_load(
 ):
     """Check whether an agent may load a skill (enforces registry + signature)."""
     allowed, entry, reason = mgr.runtime.can_load(
-        skill_name, skill_path=skill_path, agent_id=agent_id
+        skill_name,
+        skill_path=skill_path,
+        agent_id=agent_id,
+        audit_metadata={"agent_id": agent_id, "client_ip": request.client.host if request.client else None},
     )
     return RuntimeCheckResponse(
         allowed=allowed,
@@ -1723,20 +1728,22 @@ def runtime_can_load(
 @runtime_router.post("/runtime/verify-skill-signature", response_model=VerifySkillSignatureResponse)
 def runtime_verify_skill_signature(
     body: VerifySkillSignatureRequest,
+    request: Request,
     mgr: AgentManager = Depends(get_manager),
 ):
     """Verify a locally computed skill signature sent by an external agent."""
     allowed, entry, reason = mgr.runtime.verify_local_signature(
-        body.skill_name,
+        body.skill_name or "",
         body.local_signature,
         skill_id=body.skill_id,
         agent_id=body.agent_id,
+        audit_metadata={"agent_id": body.agent_id, "client_ip": request.client.host if request.client else None},
     )
     return VerifySkillSignatureResponse(
         allowed=allowed,
         reason=reason,
         skill_id=entry.skill_id if entry else None,
-        skill_name=entry.name if entry else body.skill_name,
+        skill_name=entry.name if entry else (body.skill_name or ""),
         status=entry.status.value if entry else None,
         risk_level=entry.risk_level.value if entry and entry.risk_level else None,
         signature_match=allowed,
@@ -1745,13 +1752,19 @@ def runtime_verify_skill_signature(
 
 @runtime_router.get("/runtime/check-tool", response_model=ToolCheckResponse)
 def runtime_check_tool(
+    request: Request,
     skill_name: str = Query(...),
     tool_name: str = Query(...),
     agent_id: str | None = Query(None),
     mgr: AgentManager = Depends(get_manager),
 ):
     """Check whether a skill is permitted to invoke a tool."""
-    allowed = mgr.runtime.check_tool(skill_name, tool_name, agent_id=agent_id)
+    allowed = mgr.runtime.check_tool(
+        skill_name,
+        tool_name,
+        agent_id=agent_id,
+        audit_metadata={"agent_id": agent_id, "client_ip": request.client.host if request.client else None},
+    )
     return ToolCheckResponse(allowed=allowed, skill_name=skill_name, tool_name=tool_name)
 
 
@@ -1824,10 +1837,20 @@ def get_audit(
             if needle in e.skill_name.lower()
             or needle in e.skill_id.lower()
             or needle in (e.actor or "").lower()
+            or needle in json.dumps(e.details, ensure_ascii=False).lower()
         ]
 
     events = sorted(events, key=lambda e: e.timestamp, reverse=(sort_order.lower() != "asc"))
-    data = [e.model_dump(mode="json") for e in events]
+    data = []
+    for event in events:
+        item = event.model_dump(mode="json")
+        details = item.get("details") or {}
+        if isinstance(details, dict):
+            item["agent_id"] = details.get("agent_id") or item.get("actor")
+            item["client_ip"] = details.get("client_ip")
+            item["token_name"] = details.get("token_name")
+            item["token_type"] = details.get("token_type")
+        data.append(item)
     if page is not None or page_size is not None:
         return _paginate(data, page or 1, page_size or 10)
     return data

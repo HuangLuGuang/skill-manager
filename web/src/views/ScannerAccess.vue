@@ -48,14 +48,14 @@ export SKILL_MANAGER_TOKEN="amat_xxx"
             type="info"
             show-icon
             message="Scanner 接入凭证统一在“凭证管理”中创建"
-            description="创建时类型选择“Scanner 接入凭证”，权限至少包含 scanner:submit。Agent Skill Guard 属于 Agent 运行时接入，请到“智能体管理 / 接入与运行”查看。"
+            description="创建时类型选择“Scanner 接入凭证”，权限至少包含 scanner:submit。Agent Skill Verifier 属于 Agent 运行时接入，请到“智能体管理 / 接入与运行”查看。"
             style="margin-bottom: 16px"
           />
           <a-descriptions bordered size="small" :column="1">
             <a-descriptions-item label="创建入口">智能体管理 / 凭证管理</a-descriptions-item>
             <a-descriptions-item label="Scanner 权限">scanner:submit、scanner:read-own-results、scanner:read-own-sessions</a-descriptions-item>
             <a-descriptions-item label="运行时守卫">
-              <a @click="router.push('/runtime')">前往“接入与运行”查看 Agent Skill Guard 接入说明</a>
+              <a @click="router.push('/runtime')">前往“接入与运行”查看 Agent Skill Verifier 接入说明</a>
             </a-descriptions-item>
           </a-descriptions>
         </a-card>

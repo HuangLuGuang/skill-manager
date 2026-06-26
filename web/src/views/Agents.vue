@@ -233,7 +233,7 @@
               <a-step title="创建 Agent" description="登记部门、负责人和业务用途。" />
               <a-step title="绑定能力范围" description="约束可用 Skill、Prompt 和默认模型。" />
               <a-step title="签发运行凭证" description="凭证绑定 Agent，作为外部运行身份。" />
-              <a-step title="集成 Agent Skill Guard" description="Agent 加载 Skill 前向平台校验状态、内容指纹和授权。" />
+              <a-step title="集成 Agent Skill Verifier" description="Agent 加载 Skill 前向平台校验状态、内容指纹和授权。" />
               <a-step title="审计追踪" description="记录哪个 Agent 通过哪个凭证使用了哪个 Skill。" />
             </a-steps>
           </a-card>
@@ -244,7 +244,7 @@
         show-icon
         class="flow-note"
         message="推荐路径"
-        description="能力治理 → 智能体管理 → 凭证管理 → 接入与运行 → 审计追踪。扫描器负责把本地 Skill 批量接入平台；Agent Skill Guard 负责运行时加载前完整性校验。"
+        description="能力治理 → 智能体管理 → 凭证管理 → 接入与运行 → 审计追踪。扫描器负责把本地 Skill 批量接入平台；Agent Skill Verifier 负责运行时加载前完整性校验。"
       />
       <a-card size="small" title="模型网关接入" class="flow-gateway-card">
         <a-steps size="small" :current="4">

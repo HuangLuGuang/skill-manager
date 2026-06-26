@@ -2,14 +2,14 @@
   <div>
     <a-page-header title="接入与运行" sub-title="指导 Agent 接入运行时守卫，并执行加载校验与工具权限校验" />
 
-    <a-card title="Agent Skill Guard 接入" style="margin-top: 16px">
+    <a-card title="Agent Skill Verifier 接入" style="margin-top: 16px">
       <template #extra>
-        <a-button type="primary" :loading="guardDownloading" @click="handleSkillGuardDownload">下载 Skill Guard</a-button>
+        <a-button type="primary" :loading="guardDownloading" @click="handleSkillGuardDownload">下载 Skill Verifier</a-button>
       </template>
       <a-alert
         type="info"
         show-icon
-        message="Agent Skill Guard 是 Agent 侧运行时守卫"
+        message="Agent Skill Verifier 是 Agent 侧验证门禁"
         description="它安装在 Agent 的 skills 目录中。Agent 加载第三方 Skill 前，先向平台校验 Skill 状态、内容指纹、Agent 授权范围和运行凭证，未通过则阻止加载并写入审计。"
         style="margin-bottom: 16px"
       />
@@ -161,7 +161,7 @@
                 {{ option.label }}
               </a-select-option>
             </a-select>
-            <a-input v-model:value="auditKeyword" placeholder="搜索技能 / Actor" style="width: 220px" allow-clear />
+            <a-input v-model:value="auditKeyword" placeholder="搜索 Skill / Agent / IP / 凭证" style="width: 240px" allow-clear />
             <a-button type="primary" @click="fetchRuntimeAudit" :loading="loadingAudit">查询</a-button>
             <a-button @click="resetAuditFilters" :disabled="loadingAudit">重置</a-button>
           </a-space>
@@ -184,8 +184,20 @@
                 </a>
                 <span v-else>{{ record.skill_name }}</span>
               </template>
+              <template v-else-if="column.key === 'event_type'">
+                <a-tag :color="runtimeEventColor(record.event_type)">{{ runtimeEventLabel(record.event_type) }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'agent_id'">
+                <span>{{ auditAgent(record) }}</span>
+              </template>
+              <template v-else-if="column.key === 'client_ip'">
+                <span>{{ auditIp(record) }}</span>
+              </template>
+              <template v-else-if="column.key === 'actor'">
+                <span>{{ auditActor(record) }}</span>
+              </template>
               <template v-else-if="column.key === 'details'">
-                <span>{{ formatDetails(record.details) }}</span>
+                <span>{{ formatRuntimeDetails(record.details) }}</span>
               </template>
             </template>
           </a-table>
@@ -199,8 +211,8 @@
 import { onMounted, reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
 
-import { downloadSkillGuard, getAuditPaged, listSkillsPaged, runtimeCanLoad, runtimeCheckTool } from '../api'
-import { formatDateTime, formatDetails } from '../utils/format'
+import { downloadSkillVerifier, getAuditPaged, listSkillsPaged, runtimeCanLoad, runtimeCheckTool } from '../api'
+import { formatDateTime } from '../utils/format'
 
 const checkingCanLoad = ref(false)
 const checkingTool = ref(false)
@@ -229,22 +241,19 @@ const runtimeApiOrigin = (() => {
   return window.location.origin
 })()
 const codexGuardInstallCommand = `mkdir -p ~/.codex/skills
-unzip agent-manager-skill-guard.zip -d ~/.codex/skills/
+unzip agent-manager-skill-verifier.zip -d ~/.codex/skills/
 
 export AGENT_MANAGER_BASE_URL="${runtimeApiOrigin}"
 export AGENT_MANAGER_API_TOKEN="amat_xxx"
 export AGENT_ID="<agent-id>"`
 const claudeGuardInstallCommand = `mkdir -p ~/.claude/skills
-unzip agent-manager-skill-guard.zip -d ~/.claude/skills/
+unzip agent-manager-skill-verifier.zip -d ~/.claude/skills/
 
 export AGENT_MANAGER_BASE_URL="${runtimeApiOrigin}"
 export AGENT_MANAGER_API_TOKEN="amat_xxx"
 export AGENT_ID="<agent-id>"`
-const guardUsageCommand = `# 首次发现未入库 Skill 时，可先提交到平台治理
-python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py submit --path /path/to/skill --behavioral --deep-scan
-
-# 批准为可信版本后，Agent 加载前执行完整性校验
-python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py verify --name <skill-name> --path /path/to/skill --agent-id <agent-id>`
+const guardUsageCommand = `python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_guard.py verify \\
+  --path /path/to/skill`
 const skillPagination = ref({
   current: 1,
   pageSize: 6,
@@ -282,21 +291,24 @@ const skillColumns = [
 
 const auditColumns = [
   { title: '时间', dataIndex: 'timestamp', key: 'timestamp', width: 220, sorter: true, customRender: ({ text }) => formatDateTime(text) },
-  { title: '事件', dataIndex: 'event_type', key: 'event_type', width: 190, sorter: true },
+  { title: '事件', dataIndex: 'event_type', key: 'event_type', width: 170, sorter: true },
   { title: 'Skill', dataIndex: 'skill_name', key: 'skill_name', width: 180, sorter: true },
-  { title: 'Actor', dataIndex: 'actor', key: 'actor', width: 140, sorter: true },
-  { title: 'Details', dataIndex: 'details', key: 'details' },
+  { title: 'Agent', dataIndex: 'agent_id', key: 'agent_id', width: 160 },
+  { title: '来源 IP', dataIndex: 'client_ip', key: 'client_ip', width: 140 },
+  { title: '凭证/Actor', dataIndex: 'actor', key: 'actor', width: 170, sorter: true },
+  { title: '详情', dataIndex: 'details', key: 'details' },
 ]
 
 const runtimeEventOptions = [
-  { value: 'skill_signature_verified', label: 'skill_signature_verified' },
-  { value: 'skill_load_allowed', label: 'skill_load_allowed' },
-  { value: 'skill_load_blocked', label: 'skill_load_blocked' },
-  { value: 'skill_tamper_detected', label: 'skill_tamper_detected' },
-  { value: 'tool_invoked', label: 'tool_invoked' },
-  { value: 'tool_blocked', label: 'tool_blocked' },
+  { value: 'skill_signature_verified', label: '完整性校验通过' },
+  { value: 'skill_load_allowed', label: '允许加载 Skill' },
+  { value: 'skill_load_blocked', label: '阻止加载 Skill' },
+  { value: 'skill_tamper_detected', label: '发现内容不一致' },
+  { value: 'tool_invoked', label: '允许工具调用' },
+  { value: 'tool_blocked', label: '阻止工具调用' },
 ]
 const runtimeEventTypes = runtimeEventOptions.map((item) => item.value)
+const runtimeEventLabelMap = Object.fromEntries(runtimeEventOptions.map((item) => [item.value, item.label]))
 
 const handleCanLoad = async () => {
   if (!canLoadForm.skillName.trim()) {
@@ -340,17 +352,17 @@ const handleCheckTool = async () => {
 const handleSkillGuardDownload = async () => {
   guardDownloading.value = true
   try {
-    const blob = await downloadSkillGuard()
+    const blob = await downloadSkillVerifier()
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'agent-manager-skill-guard.zip'
+    link.download = 'agent-manager-skill-verifier.zip'
     document.body.appendChild(link)
     link.click()
     link.remove()
     window.URL.revokeObjectURL(url)
   } catch (error) {
-    message.error(error.response?.data?.detail || '下载 Agent Skill Guard 失败')
+    message.error(error.response?.data?.detail || '下载 Agent Skill Verifier 失败')
   } finally {
     guardDownloading.value = false
   }
@@ -516,6 +528,46 @@ const riskTitle = (value) =>
     suspicious: '可疑',
     malicious: '恶意',
   }[value] || '未知')
+
+const runtimeEventLabel = (value) => runtimeEventLabelMap[value] || value || '-'
+const runtimeEventColor = (value) => {
+  if (['skill_load_blocked', 'skill_tamper_detected', 'tool_blocked'].includes(value)) return 'red'
+  if (['skill_load_allowed', 'skill_signature_verified', 'tool_invoked'].includes(value)) return 'green'
+  return 'blue'
+}
+const auditDetails = (record) => (record?.details && typeof record.details === 'object' ? record.details : {})
+const auditAgent = (record) => record.agent_id || auditDetails(record).agent_id || record.actor || '-'
+const auditIp = (record) => record.client_ip || auditDetails(record).client_ip || '-'
+const auditActor = (record) => {
+  const details = auditDetails(record)
+  if (details.token_name) return details.token_name
+  if (details.token_prefix) return details.token_prefix
+  return record.actor || '-'
+}
+const formatRuntimeDetails = (details = {}) => {
+  const labels = {
+    status: '状态',
+    reason: '原因',
+    tool: '工具',
+    allowed: '结果',
+    verification_mode: '校验方式',
+  }
+  const hidden = new Set([
+    'agent_id',
+    'client_ip',
+    'token_id',
+    'token_name',
+    'token_type',
+    'token_prefix',
+    'bound_agent_id',
+    'user_id',
+    'group_id',
+  ])
+  return Object.entries(details || {})
+    .filter(([key, value]) => !hidden.has(key) && value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => `${labels[key] || key}: ${value === true ? '允许' : value === false ? '拒绝' : value}`)
+    .join('；') || '-'
+}
 
 onMounted(() => {
   fetchLoadableSkills()

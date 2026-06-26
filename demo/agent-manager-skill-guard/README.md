@@ -1,14 +1,16 @@
-# Agent Manager Skill Guard
+# Agent Manager Skill Verifier
 
-这是一个通用 Agent skill 示例，用来指导 Codex、Claude Code 等平台在安装、加载或调用第三方 skill 前，先接入 Agent Manager 做扫描、审批状态检查、内容完整性校验和 Agent 授权范围校验。
+这是一个通用 Agent skill 示例，核心目标是在 Codex、Claude Code 等平台安装、加载或调用第三方 skill 前，先强制完成 Agent Manager 验证。
 
-首版不包含 hook、adapter 或平台绑定配置。它依赖 Agent 遵循 `SKILL.md` 指令和脚本退出码，适合做跨平台的通用接入样例。
+它依赖 Agent 遵循 `SKILL.md` 指令和脚本退出码，适合做跨平台的通用接入样例。对于 Hermes 等运行时，要真正强制生效，还应把同样的校验调用集成到 Skill loader 或 tool runtime。
 
 ## 目录
 
 ```text
 skills/agent-manager-skill-guard/
 ├── SKILL.md
+├── references/
+│   └── agent-manager-verification.md
 └── scripts/
     └── agent_manager_skill_guard.py
 ```
@@ -95,7 +97,6 @@ python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.
 
 ```bash
 python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py verify \
-  --name <skill-name> \
   --path /path/to/third-party-skill
 ```
 
