@@ -119,7 +119,7 @@
 
     <!-- 审批 Modal -->
     <a-modal v-model:open="approveVisible" title="批准提示词上线" @ok="handleApproveOk" :confirmLoading="approving">
-      <p>您正在批准提示词 <b>{{ currentRecord?.name }}</b> 上线。批准后系统将为其生成内容指纹签名。</p>
+      <p>您正在批准提示词 <b>{{ currentRecord?.name }}</b> 上线。批准后系统会记录内容指纹，用于后续完整性校验。</p>
       <a-form layout="vertical">
         <a-form-item label="批准备注">
           <a-textarea v-model:value="approveForm.note" placeholder="可选：填写审批意见" />

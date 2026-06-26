@@ -378,6 +378,22 @@ class Registry:
                 ).fetchall()
             return [self._entry_from_row(row) for row in rows]
 
+    def list_by_statuses(self, statuses: list[SkillStatus]) -> list[RegistryEntry]:
+        """Return all skills whose status is in the given list."""
+        if not statuses:
+            return []
+        with self._lock, self._connect() as conn:
+            placeholders = ",".join("?" for _ in statuses)
+            rows = conn.execute(
+                f"""
+                SELECT payload, updated_at FROM skill_registry
+                WHERE status IN ({placeholders})
+                ORDER BY updated_at DESC
+                """,
+                tuple(s.value for s in statuses),
+            ).fetchall()
+            return [self._entry_from_row(row) for row in rows]
+
     def list_loadable(self) -> list[RegistryEntry]:
         """Return all skills that agents can load."""
         with self._lock, self._connect() as conn:

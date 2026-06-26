@@ -197,7 +197,7 @@ const governanceItems = computed(() => [
     title: 'Skill 审核',
     status: 'ok',
     statusText: '可用',
-    description: '支持 Skill 提交、扫描、审核和签名治理。',
+    description: '支持 Skill 提交、扫描、审核和可信版本治理。',
     actionText: '查看审核',
     actionPath: '/review',
   },
@@ -212,12 +212,12 @@ const governanceItems = computed(() => [
   },
   {
     key: 'signing',
-    title: '签名能力',
+    title: '内容完整性校验',
     status: managerStatus.value.signing_key_configured ? 'ok' : 'warning',
     statusText: managerStatus.value.signing_key_configured ? '生产密钥' : '开发模式',
     description: managerStatus.value.signing_key_configured
-      ? '已配置正式签名密钥，适合生产验签。'
-      : '当前使用开发模式，生产环境建议配置正式签名密钥。',
+      ? '已配置正式完整性校验密钥，适合生产运行时校验。'
+      : '当前使用开发模式，生产环境建议配置正式完整性校验密钥。',
     actionText: '查看策略',
     actionPath: '/policy',
   },
@@ -277,7 +277,7 @@ const runtimeItems = computed(() => [
     title: 'Runtime 校验',
     status: managerStatus.value.hooks_available ? 'ok' : 'warning',
     statusText: managerStatus.value.hooks_available ? '可用' : '待接入',
-    description: 'Agent 加载 Skill 前可校验注册状态、审批状态和签名。',
+    description: 'Agent 加载 Skill 前可校验注册状态、审批状态和内容完整性。',
     actionText: '查看运行治理',
     actionPath: '/runtime',
   },
@@ -391,7 +391,7 @@ const capabilityGroups = computed(() => {
     {
       key: 'governance',
       title: '治理能力',
-      description: '检查 Skill、Prompt、签名和审计是否能形成治理闭环。',
+      description: '检查 Skill、Prompt、内容完整性和审计是否能形成治理闭环。',
       items: governanceItems.value,
     },
     {

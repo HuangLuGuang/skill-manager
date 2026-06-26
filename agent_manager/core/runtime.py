@@ -10,6 +10,7 @@ from __future__ import annotations
 import hmac
 import logging
 from pathlib import Path
+from typing import Any
 
 from .models import RegistryEntry, SkillStatus
 from .registry import Registry, make_event
@@ -45,6 +46,7 @@ class RuntimeGuard:
         skill_path: str | None = None,
         agent_id: str | None = None,
         verify_sig: bool = True,
+        audit_metadata: dict[str, Any] | None = None,
     ) -> tuple[bool, RegistryEntry | None, str]:
         """
         Check whether a skill may be loaded.
@@ -99,24 +101,24 @@ class RuntimeGuard:
         if entry is None:
             reason = f"Skill {skill_name!r} is not in the registry"
             logger.warning("BLOCKED load: %s", reason)
-            self._emit_blocked(skill_name, agent_id, reason)
+            self._emit_blocked(skill_name, agent_id, reason, audit_metadata)
             return False, None, reason
 
         if not entry.is_loadable():
             reason = f"Skill {skill_name!r} has status {entry.status.value} — only APPROVED/DEPLOYED skills may load"
             logger.warning("BLOCKED load: %s", reason)
-            self._emit_blocked_entry(entry, agent_id, reason)
+            self._emit_blocked_entry(entry, agent_id, reason, metadata=audit_metadata)
             return False, entry, reason
 
         if verify_sig and skill_path and entry.signature:
             if not verify_signature(skill_path, entry.signature):
                 reason = f"Skill {skill_name!r} signature mismatch — possible tampering"
                 logger.error("BLOCKED load (tamper): %s", reason)
-                self._emit_blocked_entry(entry, agent_id, reason, tamper=True)
+                self._emit_blocked_entry(entry, agent_id, reason, tamper=True, metadata=audit_metadata)
                 return False, entry, reason
 
         logger.info("ALLOWED load: skill=%r agent=%r", skill_name, agent_id)
-        self._emit_allowed(entry, agent_id)
+        self._emit_allowed(entry, agent_id, audit_metadata)
         return True, entry, "allowed"
 
     def check_tool(
@@ -124,6 +126,7 @@ class RuntimeGuard:
         skill_name: str,
         tool_name: str,
         agent_id: str | None = None,
+        audit_metadata: dict[str, Any] | None = None,
     ) -> bool:
         """
         Check whether a skill is permitted to invoke a tool.
@@ -136,22 +139,22 @@ class RuntimeGuard:
         entry = self.registry.get_by_name(skill_name)
 
         if entry is None or not entry.is_loadable():
-            self._emit_tool_blocked(skill_name, tool_name, agent_id, "skill not loadable")
+            self._emit_tool_blocked(skill_name, tool_name, agent_id, "skill not loadable", audit_metadata)
             return False
 
         if not entry.allowed_tools:
             # No declarations — allow all (emit INFO-level log)
             logger.debug("Tool %r: no restrictions on skill %r", tool_name, skill_name)
-            self._emit_tool_event(entry, tool_name, agent_id, allowed=True)
+            self._emit_tool_event(entry, tool_name, agent_id, allowed=True, metadata=audit_metadata)
             return True
 
         allowed = tool_name in entry.allowed_tools
         if not allowed:
             reason = f"Tool {tool_name!r} not in declared allowed_tools for skill {skill_name!r}"
             logger.warning("BLOCKED tool: %s", reason)
-            self._emit_tool_blocked(skill_name, tool_name, agent_id, reason)
+            self._emit_tool_blocked(skill_name, tool_name, agent_id, reason, audit_metadata)
         else:
-            self._emit_tool_event(entry, tool_name, agent_id, allowed=True)
+            self._emit_tool_event(entry, tool_name, agent_id, allowed=True, metadata=audit_metadata)
 
         return allowed
 
@@ -165,6 +168,7 @@ class RuntimeGuard:
         local_signature: str,
         skill_id: str | None = None,
         agent_id: str | None = None,
+        audit_metadata: dict[str, Any] | None = None,
     ) -> tuple[bool, RegistryEntry | None, str]:
         """
         Verify a signature computed locally by an agent.
@@ -180,13 +184,13 @@ class RuntimeGuard:
         if entry is None:
             reason = f"Skill {skill_name!r} is not in the registry"
             logger.warning("BLOCKED signature verify: %s", reason)
-            self._emit_blocked(skill_name, agent_id, reason)
+            self._emit_blocked(skill_name, agent_id, reason, audit_metadata)
             return False, None, reason
 
         if skill_name and entry.name != skill_name:
             reason = f"Skill id {entry.skill_id!r} does not match skill name {skill_name!r}"
             logger.warning("BLOCKED signature verify: %s", reason)
-            self._emit_blocked_entry(entry, agent_id, reason)
+            self._emit_blocked_entry(entry, agent_id, reason, metadata=audit_metadata)
             return False, entry, reason
 
         if not entry.is_loadable():
@@ -195,30 +199,33 @@ class RuntimeGuard:
                 "— only APPROVED/DEPLOYED skills may load"
             )
             logger.warning("BLOCKED signature verify: %s", reason)
-            self._emit_blocked_entry(entry, agent_id, reason)
+            self._emit_blocked_entry(entry, agent_id, reason, metadata=audit_metadata)
             return False, entry, reason
 
         if not entry.signature:
             reason = f"Skill {entry.name!r} has no stored signature"
             logger.warning("BLOCKED signature verify: %s", reason)
-            self._emit_blocked_entry(entry, agent_id, reason)
+            self._emit_blocked_entry(entry, agent_id, reason, metadata=audit_metadata)
             return False, entry, reason
 
         if not local_signature.strip():
             reason = "Local signature is required"
             logger.warning("BLOCKED signature verify: %s", reason)
-            self._emit_blocked_entry(entry, agent_id, reason)
+            self._emit_blocked_entry(entry, agent_id, reason, metadata=audit_metadata)
             return False, entry, reason
 
         if not hmac.compare_digest(local_signature.strip(), entry.signature):
             reason = f"Skill {entry.name!r} signature mismatch — possible tampering"
             logger.error("BLOCKED signature verify (tamper): %s", reason)
-            self._emit_blocked_entry(entry, agent_id, reason, tamper=True)
+            self._emit_blocked_entry(entry, agent_id, reason, tamper=True, metadata=audit_metadata)
             return False, entry, reason
 
         self.registry.log_event(make_event(
             "skill_signature_verified", entry, actor=agent_id,
-            details={"status": entry.status.value, "verification_mode": "local_signature"},
+            details=self._merge_details(
+                {"status": entry.status.value, "verification_mode": "local_signature"},
+                audit_metadata,
+            ),
         ))
         logger.info("VERIFIED signature: skill=%r agent=%r", entry.name, agent_id)
         return True, entry, "signature verified"
@@ -227,44 +234,72 @@ class RuntimeGuard:
     # Audit helpers                                                        #
     # ------------------------------------------------------------------ #
 
-    def _emit_allowed(self, entry: RegistryEntry, actor: str | None) -> None:
+    def _merge_details(
+        self, details: dict[str, Any], metadata: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        merged = {key: value for key, value in (metadata or {}).items() if value is not None}
+        merged.update(details)
+        return merged
+
+    def _emit_allowed(
+        self, entry: RegistryEntry, actor: str | None, metadata: dict[str, Any] | None = None
+    ) -> None:
         self.registry.log_event(make_event(
             "skill_load_allowed", entry, actor=actor,
-            details={"status": entry.status.value},
+            details=self._merge_details({"status": entry.status.value}, metadata),
         ))
 
-    def _emit_blocked(self, skill_name: str, actor: str | None, reason: str) -> None:
+    def _emit_blocked(
+        self, skill_name: str, actor: str | None, reason: str, metadata: dict[str, Any] | None = None
+    ) -> None:
         from .models import AuditEvent
         import uuid
-        from datetime import datetime, timezone
         ev = AuditEvent(
             event_id=str(uuid.uuid4()),
             event_type="skill_load_blocked",
             skill_id="unknown",
             skill_name=skill_name,
             actor=actor,
-            details={"reason": reason},
+            details=self._merge_details({"reason": reason}, metadata),
         )
         self.registry.log_event(ev)
 
     def _emit_blocked_entry(
-        self, entry: RegistryEntry, actor: str | None, reason: str, tamper: bool = False
+        self,
+        entry: RegistryEntry,
+        actor: str | None,
+        reason: str,
+        tamper: bool = False,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         event_type = "skill_tamper_detected" if tamper else "skill_load_blocked"
         self.registry.log_event(make_event(
-            event_type, entry, actor=actor, details={"reason": reason},
+            event_type, entry, actor=actor, details=self._merge_details({"reason": reason}, metadata),
         ))
 
     def _emit_tool_event(
-        self, entry: RegistryEntry, tool: str, actor: str | None, allowed: bool
+        self,
+        entry: RegistryEntry,
+        tool: str,
+        actor: str | None,
+        allowed: bool,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         event_type = "tool_invoked" if allowed else "tool_blocked"
         self.registry.log_event(make_event(
-            event_type, entry, actor=actor, details={"tool": tool, "allowed": allowed},
+            event_type,
+            entry,
+            actor=actor,
+            details=self._merge_details({"tool": tool, "allowed": allowed}, metadata),
         ))
 
     def _emit_tool_blocked(
-        self, skill_name: str, tool: str, actor: str | None, reason: str
+        self,
+        skill_name: str,
+        tool: str,
+        actor: str | None,
+        reason: str,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         from .models import AuditEvent
         import uuid
@@ -274,6 +309,6 @@ class RuntimeGuard:
             skill_id="unknown",
             skill_name=skill_name,
             actor=actor,
-            details={"tool": tool, "reason": reason},
+            details=self._merge_details({"tool": tool, "reason": reason}, metadata),
         )
         self.registry.log_event(ev)

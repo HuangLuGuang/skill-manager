@@ -33,7 +33,7 @@
                     {{ item.label }}
                   </a-select-option>
                 </a-select>
-                <div class="field-hint">低于或等于该风险的 skill 会自动批准并签名；生产环境通常只建议 benign。</div>
+                <div class="field-hint">低于或等于该风险的 skill 会自动批准为可信版本；生产环境通常只建议 benign。</div>
               </a-form-item>
             </a-col>
             <a-col :xs="24" :lg="12">
@@ -358,7 +358,7 @@ const decisionRows = [
   { step: 1, condition: '命中禁止权限/工具', result: 'REJECTED', note: '最高优先级，直接拒绝' },
   { step: 2, condition: '命中自动拒绝风险（auto_reject_risk）', result: 'REJECTED', note: '不会进入审核队列' },
   { step: 3, condition: '命中需要人工审核（require_human_review）', result: 'VETTED', note: '进入审核队列，等待人工处理' },
-  { step: 4, condition: '不高于自动批准最大风险（auto_approve_max_risk）', result: 'APPROVED', note: '自动批准并签名' },
+  { step: 4, condition: '不高于自动批准最大风险（auto_approve_max_risk）', result: 'APPROVED', note: '自动批准为可信版本' },
 ]
 
 const formState = reactive({

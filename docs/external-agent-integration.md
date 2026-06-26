@@ -74,13 +74,13 @@ flowchart LR
 它不使用 Claude Code hook、Codex 专用 adapter 或平台绑定配置，适合首版用来规范 Agent 行为：
 
 - 发现或安装第三方 skill 后，先上传到 Agent Manager 扫描。
-- 用户要求使用第三方 skill 前，先验签并检查审批状态。
-- 未提交、扫描中、待审核、已拒绝、未签名、签名不匹配或状态不可加载时，默认阻断使用。
+- 用户要求使用第三方 skill 前，先检查内容完整性、审批状态和 Agent 授权范围。
+- 未提交、扫描中、待审核、已拒绝、未形成可信版本、内容不匹配或状态不可加载时，默认阻断使用。
 
 管理台提供下载入口：
 
-- `扫描器接入`
-- `Agent Skill Guard 接入`
+- `智能体管理`
+- `接入与运行`
 - `下载 Skill Guard`
 
 后端下载接口：
@@ -93,6 +93,7 @@ GET /api/v1/scanner/skill-guard/download
 
 - `scanner:submit`
 - `scanner:read-own-results`
+- `scanner:read-own-sessions`
 - `runtime:verify-signature`
 - `runtime:can-load`
 - `runtime:check-tool`
@@ -116,6 +117,7 @@ unzip agent-manager-skill-guard.zip -d ~/.claude/skills/
 ```bash
 export AGENT_MANAGER_BASE_URL="http://localhost:8001"
 export AGENT_MANAGER_API_TOKEN="amat_xxx"
+export AGENT_ID="<agent-id>"
 export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 ```
 
@@ -124,7 +126,8 @@ export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 ```bash
 python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py submit \
   --path /path/to/third-party-skill \
-  --behavioral
+  --behavioral \
+  --deep-scan
 ```
 
 查看状态：
@@ -134,11 +137,10 @@ python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.
   --skill-id <skill-id>
 ```
 
-使用前验签：
+使用前检查内容完整性和加载授权：
 
 ```bash
 python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py verify \
-  --name <skill-name> \
   --path /path/to/third-party-skill
 ```
 

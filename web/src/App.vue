@@ -97,7 +97,7 @@ const authChecking = ref(true)
 const passwordVisible = ref(false)
 const logoUrl = ref('/logo.png')
 const selectedKeys = ref([route.path])
-const openKeys = ref(['agent-governance'])
+const openKeys = ref(['capability-governance'])
 const passwordForm = reactive({
   oldPassword: '',
   newPassword: '',
@@ -139,7 +139,7 @@ watch(
   (path) => {
     selectedKeys.value = [resolveMenuKey(path)]
     const nextOpenKeys = findMenuOpenKeys(path)
-    openKeys.value = nextOpenKeys.length ? nextOpenKeys : ['agent-governance']
+    openKeys.value = nextOpenKeys.length ? nextOpenKeys : ['capability-governance']
   },
   { immediate: true },
 )

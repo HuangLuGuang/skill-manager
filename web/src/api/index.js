@@ -89,8 +89,8 @@ export const downloadScannerBinary = (platform) =>
     params: { platform },
     responseType: 'blob',
   })
-export const downloadSkillGuard = () =>
-  api.get('/v1/scanner/skill-guard/download', {
+export const downloadSkillVerifier = () =>
+  api.get('/v1/scanner/skill-verifier/download', {
     responseType: 'blob',
   })
 

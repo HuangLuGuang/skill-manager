@@ -172,6 +172,7 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 
 import {
@@ -183,6 +184,8 @@ import {
   revokeAccessToken,
 } from '../api'
 
+const route = useRoute()
+const router = useRouter()
 const loading = ref(false)
 const creating = ref(false)
 const createVisible = ref(false)
@@ -257,11 +260,11 @@ const fetchOptions = async () => {
   models.value = modelRows || []
 }
 
-const openCreate = () => {
+const openCreate = (defaults = {}) => {
   Object.assign(form, {
-    name: '',
-    token_type: 'agent_runtime',
-    bound_agent_id: undefined,
+    name: defaults.name || '',
+    token_type: defaults.token_type || 'agent_runtime',
+    bound_agent_id: defaults.bound_agent_id,
     scopes: [...typeDefaults.agent_runtime],
     allowed_models: [],
     allowed_ips: [],
@@ -272,7 +275,22 @@ const openCreate = () => {
     enable_compression: false,
     compression_level: 'auto',
   })
+  applyTypeDefaults()
+  form.bound_agent_id = defaults.bound_agent_id
+  if (defaults.name) form.name = defaults.name
   createVisible.value = true
+}
+
+const openCreateFromQuery = async () => {
+  if (route.query.create !== 'agent_runtime') return
+  const agentId = String(route.query.agent_id || '')
+  const agent = agents.value.find(item => item.agent_id === agentId)
+  openCreate({
+    token_type: 'agent_runtime',
+    bound_agent_id: agentId || undefined,
+    name: agent ? `${agent.name}运行凭证` : '',
+  })
+  await router.replace({ name: 'credentials', query: {} })
 }
 
 const handleCreate = async () => {
@@ -329,6 +347,7 @@ const copy = async (value) => {
 
 onMounted(async () => {
   await Promise.all([fetchTokens(), fetchOptions()])
+  await openCreateFromQuery()
 })
 </script>
 

@@ -672,18 +672,19 @@ make sandbox-runtime-build
 - 获取配置模板
 - 跳转查看服务端扫描结果
 
-CLI 适合服务器和 CI，GUI 是原生桌面程序，适合人工选择目录、勾选 skill、实时查看状态。Agent Skill Guard 适合安装到 Codex、Claude Code 等通用 Agent 的 skills 目录，用来指导 Agent 在使用第三方 skill 前先提交扫描、验签和检查审批状态。
+CLI 适合服务器和 CI。Agent Skill Guard 适合安装到 Codex、Claude Code 等通用 Agent 的 skills 目录，用来指导 Agent 在使用第三方 skill 前先提交扫描，并检查内容完整性、审批状态和 Agent 授权范围。
 
 Skill Guard 下载位置：
 
-- `扫描器接入`
-- `Agent Skill Guard 接入`
+- `智能体管理`
+- `接入与运行`
 - `下载 Skill Guard`
 
 它需要一个同时包含 scanner 和 runtime 权限的接入 Token：
 
 - `scanner:submit`
 - `scanner:read-own-results`
+- `scanner:read-own-sessions`
 - `runtime:verify-signature`
 - `runtime:can-load`
 - `runtime:check-tool`

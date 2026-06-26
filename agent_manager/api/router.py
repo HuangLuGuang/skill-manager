@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import atexit
 import importlib.util
+import json
 import shutil
 import subprocess
 import tempfile
@@ -22,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -414,7 +415,7 @@ class ToolCheckResponse(BaseModel):
 
 
 class VerifySkillSignatureRequest(BaseModel):
-    skill_name: str
+    skill_name: str | None = None
     local_signature: str
     skill_id: str | None = None
     agent_id: str | None = None
@@ -819,7 +820,7 @@ async def submit_skill_zip(
         persistent_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(skill_root, persistent_dir)
 
-        source = SourceInfo(origin=SkillOrigin(origin), author=author)
+        source = SourceInfo(origin=SkillOrigin(origin), author=author, channel="upload_zip")
         return _submit_directory_for_processing(
             mgr,
             background_tasks,
@@ -886,7 +887,7 @@ def submit_local_skills(
     if not body.paths:
         raise HTTPException(status_code=400, detail="No skill paths selected")
 
-    source = SourceInfo(origin=SkillOrigin(body.origin), author=body.author)
+    source = SourceInfo(origin=SkillOrigin(body.origin), author=body.author, channel="local_import")
     results: list[SubmitResponse] = []
     for raw_path in body.paths:
         skill_dir = Path(raw_path).expanduser().resolve()
@@ -929,7 +930,8 @@ async def submit_skill_url(
         origin_value = body.origin
         if origin_value == "unknown" and detected_origin == "github":
             origin_value = "github"
-        source = SourceInfo(origin=SkillOrigin(origin_value), author=body.author, url=body.url)
+        channel = "github" if origin_value == "github" else "remote_download"
+        source = SourceInfo(origin=SkillOrigin(origin_value), author=body.author, channel=channel, url=body.url)
         return _submit_directory_for_processing(
             mgr,
             background_tasks,
@@ -990,7 +992,8 @@ def submit_remote_selected(
         raise HTTPException(status_code=400, detail="No skill paths selected")
 
     origin_value = body.origin
-    source = SourceInfo(origin=SkillOrigin(origin_value), author=body.author)
+    channel = "github" if origin_value == "github" else "remote_download"
+    source = SourceInfo(origin=SkillOrigin(origin_value), author=body.author, channel=channel)
     results: list[SubmitResponse] = []
     for raw_path in body.paths:
         skill_dir = Path(raw_path).expanduser().resolve()
@@ -1027,7 +1030,7 @@ def submit_upload_selected(
     if not body.paths:
         raise HTTPException(status_code=400, detail="No skill paths selected")
 
-    source = SourceInfo(origin=SkillOrigin(body.origin), author=body.author)
+    source = SourceInfo(origin=SkillOrigin(body.origin), author=body.author, channel="upload_zip")
     results: list[SubmitResponse] = []
     for raw_path in body.paths:
         skill_dir = Path(raw_path).expanduser().resolve()
@@ -1092,7 +1095,7 @@ async def submit_skill_clawhub(
         persistent_dir = mgr.registry.data_dir / "clawhub_skills" / uuid.uuid4().hex
         persistent_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(skill_root, persistent_dir)
-        source = SourceInfo(origin=SkillOrigin.CLAWHUB, author=body.author, url=body.url)
+        source = SourceInfo(origin=SkillOrigin.CLAWHUB, author=body.author, channel="clawhub", url=body.url)
         return _submit_directory_for_processing(
             mgr,
             background_tasks,
@@ -1569,37 +1572,75 @@ def verify_skill_signature(
 def list_review_queue(
     risk_level: str | None = Query(None),
     q: str | None = Query(None),
+    review_status: str = Query("pending"),
     sort_by: str = Query("queued_at"),
     sort_order: str = Query("asc"),
     page: int | None = Query(None, ge=1),
     page_size: int | None = Query(None, ge=1, le=100),
     mgr: AgentManager = Depends(get_manager),
 ):
-    queue = mgr.list_review_queue()
+    data: list[dict[str, Any]] = []
 
+    # 1) Pending review items (VETTED, in review queue)
+    if review_status in ("pending", "all"):
+        queue = mgr.list_review_queue()
+        for r in queue:
+            item = r.model_dump(mode="json")
+            item["status"] = SkillStatus.VETTED.value
+            item["approved_by"] = None
+            item["approved_at"] = None
+            item["rejection_reason"] = None
+            data.append(item)
+
+    # 2) Already reviewed items (APPROVED / REJECTED, from registry)
+    if review_status in ("reviewed", "all"):
+        entries = mgr.list_skills_by_statuses([SkillStatus.APPROVED, SkillStatus.REJECTED])
+        for entry in entries:
+            findings_summary: dict[str, int] = {}
+            if entry.vetting and entry.vetting.scan_report:
+                findings_summary = entry.vetting.scan_report.get("findings_summary", {}) or {}
+            data.append({
+                "skill_id": entry.skill_id,
+                "skill_name": entry.name,
+                "risk_level": entry.risk_level.value if entry.risk_level else None,
+                "status": entry.status.value,
+                "findings_summary": findings_summary,
+                "submitted_at": entry.submitted_at.isoformat() if entry.submitted_at else None,
+                "queued_at": entry.approved_at.isoformat() if entry.approved_at else (
+                    entry.updated_at.isoformat() if entry.updated_at else None
+                ),
+                "notes": entry.rejection_reason if entry.status == SkillStatus.REJECTED else (entry.approval_note or None),
+                "approved_by": entry.approved_by,
+                "approved_at": entry.approved_at.isoformat() if entry.approved_at else None,
+                "rejection_reason": entry.rejection_reason,
+            })
+
+    # 3) Apply filters
     if risk_level:
-        queue = [r for r in queue if r.risk_level.value == risk_level]
+        data = [r for r in data if r.get("risk_level") == risk_level]
 
     if q:
         needle = q.lower()
-        queue = [
-            r for r in queue
-            if needle in r.skill_name.lower()
-            or needle in r.skill_id.lower()
-            or needle in (r.notes or "").lower()
+        data = [
+            r for r in data
+            if needle in (r.get("skill_name") or "").lower()
+            or needle in (r.get("skill_id") or "").lower()
+            or needle in (r.get("notes") or "").lower()
         ]
 
+    # 4) Sort
     reverse = sort_order.lower() != "asc"
     if sort_by == "skill_name":
-        queue = sorted(queue, key=lambda r: r.skill_name.lower(), reverse=reverse)
+        data = sorted(data, key=lambda r: (r.get("skill_name") or "").lower(), reverse=reverse)
     elif sort_by == "risk_level":
-        queue = sorted(queue, key=lambda r: r.risk_level.value, reverse=reverse)
+        data = sorted(data, key=lambda r: r.get("risk_level") or "", reverse=reverse)
     elif sort_by == "submitted_at":
-        queue = sorted(queue, key=lambda r: r.submitted_at, reverse=reverse)
+        data = sorted(data, key=lambda r: r.get("submitted_at") or "", reverse=reverse)
+    elif sort_by == "status":
+        data = sorted(data, key=lambda r: r.get("status") or "", reverse=reverse)
     else:
-        queue = sorted(queue, key=lambda r: r.queued_at, reverse=reverse)
+        data = sorted(data, key=lambda r: r.get("queued_at") or "", reverse=reverse)
 
-    data = [r.model_dump(mode="json") for r in queue]
     if page is not None or page_size is not None:
         return _paginate(data, page or 1, page_size or 10)
     return data
@@ -1663,6 +1704,7 @@ def retire_skill(
 
 @runtime_router.get("/runtime/can-load/{skill_name}", response_model=RuntimeCheckResponse)
 def runtime_can_load(
+    request: Request,
     skill_name: str,
     skill_path: str | None = Query(None),
     agent_id: str | None = Query(None),
@@ -1670,7 +1712,10 @@ def runtime_can_load(
 ):
     """Check whether an agent may load a skill (enforces registry + signature)."""
     allowed, entry, reason = mgr.runtime.can_load(
-        skill_name, skill_path=skill_path, agent_id=agent_id
+        skill_name,
+        skill_path=skill_path,
+        agent_id=agent_id,
+        audit_metadata={"agent_id": agent_id, "client_ip": request.client.host if request.client else None},
     )
     return RuntimeCheckResponse(
         allowed=allowed,
@@ -1683,20 +1728,22 @@ def runtime_can_load(
 @runtime_router.post("/runtime/verify-skill-signature", response_model=VerifySkillSignatureResponse)
 def runtime_verify_skill_signature(
     body: VerifySkillSignatureRequest,
+    request: Request,
     mgr: AgentManager = Depends(get_manager),
 ):
     """Verify a locally computed skill signature sent by an external agent."""
     allowed, entry, reason = mgr.runtime.verify_local_signature(
-        body.skill_name,
+        body.skill_name or "",
         body.local_signature,
         skill_id=body.skill_id,
         agent_id=body.agent_id,
+        audit_metadata={"agent_id": body.agent_id, "client_ip": request.client.host if request.client else None},
     )
     return VerifySkillSignatureResponse(
         allowed=allowed,
         reason=reason,
         skill_id=entry.skill_id if entry else None,
-        skill_name=entry.name if entry else body.skill_name,
+        skill_name=entry.name if entry else (body.skill_name or ""),
         status=entry.status.value if entry else None,
         risk_level=entry.risk_level.value if entry and entry.risk_level else None,
         signature_match=allowed,
@@ -1705,13 +1752,19 @@ def runtime_verify_skill_signature(
 
 @runtime_router.get("/runtime/check-tool", response_model=ToolCheckResponse)
 def runtime_check_tool(
+    request: Request,
     skill_name: str = Query(...),
     tool_name: str = Query(...),
     agent_id: str | None = Query(None),
     mgr: AgentManager = Depends(get_manager),
 ):
     """Check whether a skill is permitted to invoke a tool."""
-    allowed = mgr.runtime.check_tool(skill_name, tool_name, agent_id=agent_id)
+    allowed = mgr.runtime.check_tool(
+        skill_name,
+        tool_name,
+        agent_id=agent_id,
+        audit_metadata={"agent_id": agent_id, "client_ip": request.client.host if request.client else None},
+    )
     return ToolCheckResponse(allowed=allowed, skill_name=skill_name, tool_name=tool_name)
 
 
@@ -1784,10 +1837,20 @@ def get_audit(
             if needle in e.skill_name.lower()
             or needle in e.skill_id.lower()
             or needle in (e.actor or "").lower()
+            or needle in json.dumps(e.details, ensure_ascii=False).lower()
         ]
 
     events = sorted(events, key=lambda e: e.timestamp, reverse=(sort_order.lower() != "asc"))
-    data = [e.model_dump(mode="json") for e in events]
+    data = []
+    for event in events:
+        item = event.model_dump(mode="json")
+        details = item.get("details") or {}
+        if isinstance(details, dict):
+            item["agent_id"] = details.get("agent_id") or item.get("actor")
+            item["client_ip"] = details.get("client_ip")
+            item["token_name"] = details.get("token_name")
+            item["token_type"] = details.get("token_type")
+        data.append(item)
     if page is not None or page_size is not None:
         return _paginate(data, page or 1, page_size or 10)
     return data

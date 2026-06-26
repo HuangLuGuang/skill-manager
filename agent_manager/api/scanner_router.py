@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import uuid
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -73,6 +74,16 @@ class ScannerSubmitResponse(SubmitResponse):
     detail_url: str | None = None
 
 
+@dataclass
+class ScannerAuthContext:
+    name: str
+    max_upload_mb: int
+    author: str | None = None
+    token_name: str | None = None
+    legacy_token: ScannerToken | None = None
+    access_token: AccessToken | None = None
+
+
 def _fingerprint_skill_dir(skill_dir: Path) -> dict[str, Any]:
     files: list[dict[str, Any]] = []
     total_bytes = 0
@@ -104,8 +115,36 @@ def _scanner_release_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "scanner" / "releases"
 
 
-def _skill_guard_dir() -> Path:
+def _skill_verifier_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "demo" / "agent-manager-skill-guard" / "skills" / "agent-manager-skill-guard"
+
+
+def _client_ip(request: Request) -> str | None:
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for.strip():
+        return forwarded_for.split(",", 1)[0].strip()
+    real_ip = request.headers.get("x-real-ip", "").strip()
+    if real_ip:
+        return real_ip
+    return request.client.host if request.client else None
+
+
+def _access_token_audit_metadata(
+    request: Request,
+    token: AccessToken,
+    agent_id: str | None,
+) -> dict[str, Any]:
+    return {
+        "agent_id": agent_id,
+        "client_ip": _client_ip(request),
+        "token_id": token.id,
+        "token_name": token.name,
+        "token_type": token.token_type,
+        "token_prefix": token.token_prefix,
+        "bound_agent_id": token.bound_agent_id,
+        "user_id": token.user_id,
+        "group_id": token.group_id,
+    }
 
 
 def _scanner_release_files() -> list[dict[str, Any]]:
@@ -158,16 +197,56 @@ def require_scanner_submit_token(
     request: Request,
     authorization: str | None = Header(None),
     store: ScannerTokenStore = Depends(get_token_store),
-) -> ScannerToken:
-    return _validate_scanner_token("scanner:submit", request, authorization, store)
+    db: Session = Depends(get_db),
+) -> ScannerAuthContext:
+    return _validate_scanner_auth("scanner:submit", request, authorization, store, db)
 
 
 def require_scanner_read_token(
     request: Request,
     authorization: str | None = Header(None),
     store: ScannerTokenStore = Depends(get_token_store),
-) -> ScannerToken:
-    return _validate_scanner_token("scanner:read-own-results", request, authorization, store)
+    db: Session = Depends(get_db),
+) -> ScannerAuthContext:
+    return _validate_scanner_auth("scanner:read-own-results", request, authorization, store, db)
+
+
+def _validate_scanner_auth(
+    required_scope: str,
+    request: Request,
+    authorization: str | None,
+    store: ScannerTokenStore,
+    db: Session,
+) -> ScannerAuthContext:
+    plain = _extract_bearer(authorization)
+    if plain.startswith("amat_"):
+        token = resolve_access_token(db, authorization, required_scope=required_scope, request=request)
+        author = _access_token_author(db, token)
+        return ScannerAuthContext(
+            name=token.name,
+            max_upload_mb=token.max_upload_mb,
+            author=author,
+            token_name=token.name,
+            access_token=token,
+        )
+    legacy = _validate_scanner_token(required_scope, request, authorization, store)
+    return ScannerAuthContext(
+        name=legacy.name,
+        max_upload_mb=legacy.max_upload_mb,
+        author=legacy.created_by or legacy.name,
+        token_name=legacy.name,
+        legacy_token=legacy,
+    )
+
+
+def _access_token_author(db: Session, token: AccessToken) -> str:
+    if token.user_id:
+        from backend import models
+
+        user = db.query(models.User).filter(models.User.id == token.user_id).first()
+        if user:
+            return user.username
+    return token.created_by or token.name
 
 
 def require_runtime_verify_token(
@@ -230,6 +309,7 @@ def revoke_scanner_token(token_id: str, store: ScannerTokenStore = Depends(get_t
 @runtime_router.get("/runtime/can-load/{skill_name}", response_model=RuntimeCheckResponse)
 def token_runtime_can_load(
     skill_name: str,
+    request: Request,
     skill_path: str | None = None,
     agent_id: str | None = None,
     x_agent_id: str | None = Header(None, alias="X-Agent-ID"),
@@ -245,7 +325,11 @@ def token_runtime_can_load(
     resolved_agent_id = resolve_agent_id(agent_id, x_agent_id)
     agent = ensure_token_agent_allowed(db, token, resolved_agent_id)
     ensure_agent_skill_allowed(agent, skill_name)
-    allowed, entry, reason = mgr.runtime.can_load(skill_name, agent_id=resolved_agent_id)
+    allowed, entry, reason = mgr.runtime.can_load(
+        skill_name,
+        agent_id=resolved_agent_id,
+        audit_metadata=_access_token_audit_metadata(request, token, resolved_agent_id),
+    )
     return RuntimeCheckResponse(
         allowed=allowed,
         reason=reason,
@@ -257,6 +341,7 @@ def token_runtime_can_load(
 @runtime_router.post("/runtime/verify-skill-signature", response_model=VerifySkillSignatureResponse)
 def token_runtime_verify_skill_signature(
     body: VerifySkillSignatureRequest,
+    request: Request,
     x_agent_id: str | None = Header(None, alias="X-Agent-ID"),
     token: AccessToken = Depends(require_runtime_verify_token),
     db: Session = Depends(get_db),
@@ -264,18 +349,23 @@ def token_runtime_verify_skill_signature(
 ):
     resolved_agent_id = resolve_agent_id(body.agent_id, x_agent_id)
     agent = ensure_token_agent_allowed(db, token, resolved_agent_id)
-    ensure_agent_skill_allowed(agent, body.skill_name)
+    registry_entry = mgr.get_skill(body.skill_id or body.skill_name) if (body.skill_id or body.skill_name) else None
+    if registry_entry:
+        ensure_agent_skill_allowed(agent, registry_entry.name)
+    elif body.skill_name:
+        ensure_agent_skill_allowed(agent, body.skill_name)
     allowed, entry, reason = mgr.runtime.verify_local_signature(
-        body.skill_name,
+        body.skill_name or "",
         body.local_signature,
         skill_id=body.skill_id,
         agent_id=resolved_agent_id,
+        audit_metadata=_access_token_audit_metadata(request, token, resolved_agent_id),
     )
     return VerifySkillSignatureResponse(
         allowed=allowed,
         reason=reason,
         skill_id=entry.skill_id if entry else None,
-        skill_name=entry.name if entry else body.skill_name,
+        skill_name=entry.name if entry else (body.skill_name or ""),
         status=entry.status.value if entry else None,
         risk_level=entry.risk_level.value if entry and entry.risk_level else None,
         signature_match=allowed,
@@ -284,6 +374,7 @@ def token_runtime_verify_skill_signature(
 
 @runtime_router.get("/runtime/check-tool", response_model=ToolCheckResponse)
 def token_runtime_check_tool(
+    request: Request,
     skill_name: str,
     tool_name: str,
     agent_id: str | None = None,
@@ -295,7 +386,12 @@ def token_runtime_check_tool(
     resolved_agent_id = resolve_agent_id(agent_id, x_agent_id)
     agent = ensure_token_agent_allowed(db, token, resolved_agent_id)
     ensure_agent_skill_allowed(agent, skill_name)
-    allowed = mgr.runtime.check_tool(skill_name, tool_name, agent_id=resolved_agent_id)
+    allowed = mgr.runtime.check_tool(
+        skill_name,
+        tool_name,
+        agent_id=resolved_agent_id,
+        audit_metadata=_access_token_audit_metadata(request, token, resolved_agent_id),
+    )
     return ToolCheckResponse(allowed=allowed, skill_name=skill_name, tool_name=tool_name)
 
 
@@ -338,13 +434,12 @@ def download_scanner(platform: str):
     return FileResponse(path, filename=filename, media_type="application/octet-stream")
 
 
-@admin_router.get("/scanner/skill-guard/download")
-def download_skill_guard():
-    skill_dir = _skill_guard_dir()
+def _download_skill_verifier_response():
+    skill_dir = _skill_verifier_dir()
     if not skill_dir.exists():
-        raise HTTPException(status_code=404, detail="Agent Manager Skill Guard demo not found")
+        raise HTTPException(status_code=404, detail="Agent Skill Verifier 未找到")
 
-    tmp = tempfile.NamedTemporaryFile(prefix="agent-manager-skill-guard-", suffix=".zip", delete=False)
+    tmp = tempfile.NamedTemporaryFile(prefix="agent-manager-skill-verifier-", suffix=".zip", delete=False)
     tmp_path = Path(tmp.name)
     tmp.close()
     try:
@@ -353,18 +448,28 @@ def download_skill_guard():
                 rel = path.relative_to(skill_dir).as_posix()
                 if "__pycache__" in rel.split("/") or rel.endswith(".pyc"):
                     continue
-                archive.write(path, f"agent-manager-skill-guard/{rel}")
+                archive.write(path, f"agent-manager-skill-verifier/{rel}")
         cleanup = BackgroundTasks()
         cleanup.add_task(tmp_path.unlink, missing_ok=True)
         return FileResponse(
             tmp_path,
-            filename="agent-manager-skill-guard.zip",
+            filename="agent-manager-skill-verifier.zip",
             media_type="application/zip",
             background=cleanup,
         )
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
+
+
+@admin_router.get("/scanner/skill-verifier/download")
+def download_skill_verifier():
+    return _download_skill_verifier_response()
+
+
+@admin_router.get("/scanner/skill-guard/download")
+def download_skill_guard():
+    return _download_skill_verifier_response()
 
 
 @router.post("/scanner/imports", response_model=ScannerSubmitResponse)
@@ -376,15 +481,16 @@ async def submit_scanner_import(
     use_llm: bool = Form(False),
     use_sandbox: bool = Form(False),
     use_skillspector: bool = Form(False),
+    no_cache: bool = Form(False),
     scanner_version: str | None = Form(None),
     host_id: str | None = Form(None),
-    scanner_token: ScannerToken = Depends(require_scanner_submit_token),
+    scanner_auth: ScannerAuthContext = Depends(require_scanner_submit_token),
     mgr: AgentManager = Depends(get_manager),
     store: ScannerTokenStore = Depends(get_token_store),
 ):
-    max_bytes = scanner_token.max_upload_mb * 1024 * 1024
+    max_bytes = scanner_auth.max_upload_mb * 1024 * 1024
     if file.size and file.size > max_bytes:
-        raise HTTPException(status_code=413, detail=f"File too large (max {scanner_token.max_upload_mb} MB)")
+        raise HTTPException(status_code=413, detail=f"File too large (max {scanner_auth.max_upload_mb} MB)")
 
     parsed_manifest: dict[str, Any] | None = None
     if manifest:
@@ -398,7 +504,7 @@ async def submit_scanner_import(
         zip_path = tmp_dir / "skill.zip"
         content = await file.read()
         if len(content) > max_bytes:
-            raise HTTPException(status_code=413, detail=f"File too large (max {scanner_token.max_upload_mb} MB)")
+            raise HTTPException(status_code=413, detail=f"File too large (max {scanner_auth.max_upload_mb} MB)")
         zip_path.write_bytes(content)
 
         extract_dir = tmp_dir / "skill"
@@ -417,7 +523,9 @@ async def submit_scanner_import(
 
         source = SourceInfo(
             origin=SkillOrigin.LOCAL,
-            author=scanner_token.name,
+            author=scanner_auth.author or scanner_auth.name,
+            channel="scanner",
+            token_name=scanner_auth.token_name,
             version=scanner_version,
         )
         response = _submit_directory_for_processing(
@@ -429,10 +537,12 @@ async def submit_scanner_import(
             use_llm,
             use_sandbox,
             use_skillspector,
+            no_cache,
         )
         store.log_event(
             "scanner_import_submitted",
-            scanner_token,
+            scanner_auth.legacy_token,
+            actor=scanner_auth.name if scanner_auth.access_token else None,
             details={
                 "skill_id": response.skill_id,
                 "skill_name": response.name,
@@ -450,12 +560,13 @@ async def submit_scanner_import(
 @router.get("/scanner/imports/{skill_id}")
 def get_scanner_import(
     skill_id: str,
-    scanner_token: ScannerToken = Depends(require_scanner_read_token),
+    scanner_auth: ScannerAuthContext = Depends(require_scanner_read_token),
     mgr: AgentManager = Depends(get_manager),
 ):
     entry = mgr.get_skill(skill_id)
     if entry is None:
         raise HTTPException(status_code=404, detail="Skill not found")
-    if entry.source.author != scanner_token.name:
+    allowed_owners = {scanner_auth.name, scanner_auth.author or "", scanner_auth.token_name or ""}
+    if entry.source.author not in allowed_owners and entry.source.token_name not in allowed_owners:
         raise HTTPException(status_code=403, detail="scanner token can only read own submissions")
     return entry.model_dump(mode="json", exclude={"vetting": {"scan_report"}})

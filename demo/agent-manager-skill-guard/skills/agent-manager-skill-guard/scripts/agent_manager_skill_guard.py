@@ -123,6 +123,26 @@ def create_skill_zip(skill_dir: str | Path, output_dir: str | Path, ignores: set
     return zip_path, manifest
 
 
+def read_skill_name(skill_dir: str | Path) -> str | None:
+    skill_md = Path(skill_dir).resolve() / "SKILL.md"
+    if not skill_md.is_file():
+        return None
+    try:
+        with skill_md.open("r", encoding="utf-8", errors="replace") as handle:
+            first = handle.readline().strip()
+            if first != "---":
+                return None
+            for line in handle:
+                text = line.strip()
+                if text == "---":
+                    return None
+                if text.startswith("name:"):
+                    return text.split(":", 1)[1].strip().strip("\"'")
+    except OSError:
+        return None
+    return None
+
+
 def _json_request(method: str, url: str, token: str, payload: dict[str, Any] | None) -> urllib.request.Request:
     data = json.dumps(payload or {}).encode("utf-8") if payload is not None else None
     request = urllib.request.Request(url, data=data, method=method)
@@ -185,21 +205,27 @@ def normalize_base_url(value: str) -> str:
 
 
 def resolve_server(args: argparse.Namespace) -> str:
-    server = args.server or os.environ.get("AGENT_MANAGER_BASE_URL")
+    server = (
+        args.server
+        or os.environ.get("AGENT_MANAGER_BASE_URL")
+        or os.environ.get("SKILL_MANAGER_SERVER")
+        or os.environ.get("AGENT_MANAGER_SERVER")
+    )
     if not server:
-        raise GuardError("缺少 Agent Manager 地址，请设置 AGENT_MANAGER_BASE_URL 或传入 --server")
+        raise GuardError("缺少 Agent Manager 地址，请设置 AGENT_MANAGER_BASE_URL/SKILL_MANAGER_SERVER 或传入 --server")
     return normalize_base_url(server)
 
 
 def resolve_token(args: argparse.Namespace) -> str:
     token = (
         args.token
+        or os.environ.get("SKILL_MANAGER_TOKEN")
         or os.environ.get("AGENT_MANAGER_TOKEN")
         or os.environ.get("AGENT_MANAGER_API_TOKEN")
         or os.environ.get("AGENT_MANAGER_ACCESS_TOKEN")
     )
     if not token:
-        raise GuardError("缺少接入 Token，请设置 AGENT_MANAGER_TOKEN/AGENT_MANAGER_API_TOKEN 或传入 --token")
+        raise GuardError("缺少接入凭证，请设置 SKILL_MANAGER_TOKEN/AGENT_MANAGER_TOKEN/AGENT_MANAGER_API_TOKEN 或传入 --token")
     return token
 
 
@@ -215,8 +241,10 @@ def command_submit(args: argparse.Namespace) -> int:
         fields = {
             "manifest": json.dumps(manifest, ensure_ascii=False),
             "use_behavioral": str(bool(args.behavioral)).lower(),
+            "use_skillspector": str(bool(args.deep_scan)).lower(),
             "use_llm": str(bool(args.llm)).lower(),
             "use_sandbox": str(bool(args.sandbox)).lower(),
+            "no_cache": str(bool(args.no_cache)).lower(),
             "scanner_version": "agent-manager-skill-guard",
         }
         if args.host_id:
@@ -247,7 +275,7 @@ def command_status(args: argparse.Namespace) -> int:
 def _print_block(reason: str, status: str | None = None) -> None:
     status_text = f" status={status}" if status else ""
     print(f"阻断: {reason}{status_text}")
-    print("不要调用该 skill。请先提交扫描、等待审批通过，或重新提交本地修改后的版本。")
+    print("不要调用该 Skill。请联系管理员在 Agent Manager 中审批通过后再使用。")
 
 
 def command_verify(args: argparse.Namespace) -> int:
@@ -256,12 +284,19 @@ def command_verify(args: argparse.Namespace) -> int:
     ignores = set(DEFAULT_IGNORES)
     if args.ignore:
         ignores.update(part.strip() for part in args.ignore.split(",") if part.strip())
+    agent_id = (args.agent_id or os.environ.get("AGENT_ID") or "").strip()
+    if not agent_id:
+        raise GuardError("缺少 Agent 身份，请设置 AGENT_ID")
+    skill_name = read_skill_name(args.path)
+    if not skill_name and not args.skill_id:
+        raise GuardError("无法识别 Skill 名称。请确认目录包含带 name 的 SKILL.md，或传入 --skill-id")
     signature = compute_skill_signature(args.path, ignores=ignores)
     body = {
-        "skill_name": args.name,
         "local_signature": signature,
-        "agent_id": args.agent_id,
+        "agent_id": agent_id,
     }
+    if skill_name:
+        body["skill_name"] = skill_name
     if args.skill_id:
         body["skill_id"] = args.skill_id
 
@@ -272,18 +307,27 @@ def command_verify(args: argparse.Namespace) -> int:
         json_body=body,
     )
     if not verify_payload.get("allowed"):
-        _print_block(str(verify_payload.get("reason") or "签名校验失败"), verify_payload.get("status"))
+        _print_block(str(verify_payload.get("reason") or "内容完整性校验失败"), verify_payload.get("status"))
+        return 1
+    verified_name = str(verify_payload.get("skill_name") or skill_name or "").strip()
+    if not verified_name:
+        _print_block("平台未返回 Skill 名称，无法继续加载校验", verify_payload.get("status"))
+        return 1
+    if verify_payload.get("status") != "APPROVED":
+        _print_block("Skill 尚未审批通过", verify_payload.get("status"))
         return 1
 
-    can_load_url = f"{server}/api/v1/access/runtime/can-load/{urllib.parse.quote(args.name)}"
-    if args.agent_id:
-        can_load_url += f"?agent_id={urllib.parse.quote(args.agent_id)}"
+    can_load_url = f"{server}/api/v1/access/runtime/can-load/{urllib.parse.quote(verified_name)}"
+    can_load_url += f"?agent_id={urllib.parse.quote(agent_id)}"
     can_load_payload = api_request("GET", can_load_url, token)
     if not can_load_payload.get("allowed"):
         _print_block(str(can_load_payload.get("reason") or "状态不允许加载"), can_load_payload.get("status"))
         return 1
+    if can_load_payload.get("status") != "APPROVED":
+        _print_block("Skill 尚未审批通过", can_load_payload.get("status"))
+        return 1
 
-    print(f"允许加载: {args.name} status={can_load_payload.get('status', '-')}, risk={can_load_payload.get('risk_level') or '-'}")
+    print(f"允许加载: {verified_name} status={can_load_payload.get('status', '-')}, risk={can_load_payload.get('risk_level') or '-'}")
     return 0
 
 
@@ -297,10 +341,11 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--server", default=None, help="Agent Manager base URL; default AGENT_MANAGER_BASE_URL")
     submit.add_argument("--token", default=None, help="Access token; default AGENT_MANAGER_TOKEN")
     submit.add_argument("--path", required=True, help="Local skill directory")
-    submit.add_argument("--behavioral", action="store_true", help="Enable server behavioral/static analysis")
+    submit.add_argument("--behavioral", action="store_true", help="Enable server rule analysis")
+    submit.add_argument("--deep-scan", action="store_true", help="Enable server deep scan")
     submit.add_argument("--sandbox", action="store_true", help="Enable sandbox analysis")
-    submit.add_argument("--llm", action="store_true", default=True, help="Enable LLM analysis (default)")
-    submit.add_argument("--no-llm", action="store_false", dest="llm", help="Disable LLM analysis when the server has no LLM configured")
+    submit.add_argument("--llm", action="store_true", help="Enable LLM analysis")
+    submit.add_argument("--no-cache", action="store_true", help="Force server-side rescan without cache")
     submit.add_argument("--host-id", default=None, help="Optional host/environment identifier")
     submit.add_argument("--ignore", default="", help="Comma-separated extra ignored directories")
     submit.set_defaults(func=command_submit)
@@ -314,10 +359,9 @@ def build_parser() -> argparse.ArgumentParser:
     verify = subparsers.add_parser("verify", help="Verify local skill signature and load status")
     verify.add_argument("--server", default=None, help="Agent Manager base URL; default AGENT_MANAGER_BASE_URL")
     verify.add_argument("--token", default=None, help="Access token; default AGENT_MANAGER_TOKEN")
-    verify.add_argument("--name", required=True, help="Skill name registered in Agent Manager")
     verify.add_argument("--path", required=True, help="Local skill directory")
     verify.add_argument("--skill-id", default=None, help="Optional skill id to disambiguate same-name skills")
-    verify.add_argument("--agent-id", default=os.environ.get("AGENT_ID", "agent-manager-skill-guard"), help="Agent identifier")
+    verify.add_argument("--agent-id", default=None, help="Agent identifier; default AGENT_ID")
     verify.add_argument("--ignore", default="", help="Comma-separated extra ignored directories; defaults match submit")
     verify.set_defaults(func=command_verify)
     return parser

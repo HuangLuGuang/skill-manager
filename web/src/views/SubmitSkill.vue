@@ -1,13 +1,13 @@
 <template>
   <div>
-    <a-page-header title="提交技能" sub-title="支持 ZIP 上传、远程压缩包/GitHub 仓库导入和 ClawHub 导入" />
+    <a-page-header title="提交技能" :sub-title="submitModeMeta.subtitle" />
 
     <a-card style="margin-top: 16px">
       <a-alert
         type="info"
         show-icon
-        message="提交说明"
-        description="你可以上传 ZIP，或填写 ZIP 下载地址 / GitHub 仓库地址先下载候选技能，再多选提交。ZIP 选择或拖拽后会自动解析；来源会根据导入方式自动填充，提交后会先进入 PENDING，再由后台继续完成扫描、LLM、规则分析和 Sandbox。"
+        :message="submitModeMeta.message"
+        :description="submitModeMeta.description"
         style="margin-bottom: 16px"
       />
 
@@ -363,6 +363,10 @@
             </a-form-item>
           </a-form>
         </a-tab-pane>
+
+        <a-tab-pane key="scanner" tab="Skill 扫描器">
+          <ScannerAccess embedded />
+        </a-tab-pane>
       </a-tabs>
     </a-card>
 
@@ -413,6 +417,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { InboxOutlined } from '@ant-design/icons-vue'
+import ScannerAccess from './ScannerAccess.vue'
 
 import {
   getLocalImportCandidates,
@@ -464,6 +469,35 @@ const formState = reactive({
   useLlm: false,
   noCache: false,
 })
+
+const submitModeMetaMap = {
+  zip: {
+    subtitle: '上传 ZIP 包并选择要提交的 Skill',
+    message: 'ZIP 上传说明',
+    description: '拖拽或选择 ZIP 后会自动解析候选 Skill；如果压缩包里包含多个 Skill，可以先选目录再多选提交。提交后先进入 PENDING，后台继续完成规则分析、深度扫描、Sandbox 和 LLM 分析。',
+  },
+  local: {
+    subtitle: '从服务端本地导入目录选择 Skill',
+    message: '本地目录导入说明',
+    description: '本地目录导入仅用于服务端已配置导入根目录的场景。一般客户侧批量扫描请使用“Skill 扫描器”tab，通过 CLI 扫描本地 skills 目录并上传。',
+  },
+  url: {
+    subtitle: '通过 ZIP 下载地址或 GitHub 仓库导入 Skill',
+    message: '网络下载导入说明',
+    description: '填写 ZIP 下载地址或 GitHub 仓库地址后，平台会先下载并解析候选 Skill；确认目录和 Skill 后再提交进入后台分析。',
+  },
+  clawhub: {
+    subtitle: '从 ClawHub 页面或 ZIP 地址导入 Skill',
+    message: 'ClawHub 导入说明',
+    description: '填写 ClawHub 详情页地址或 ZIP 下载地址；如需认证可填写访问 Token。平台会解析可提交的 Skill 并进入后台治理流程。',
+  },
+  scanner: {
+    subtitle: '下载 CLI 扫描器，批量扫描本地 skills 目录并上传平台治理',
+    message: 'Skill 扫描器说明',
+    description: '适合命令行、服务器和 CI 场景。先在“凭证管理”创建 Scanner 接入凭证，再用 CLI 扫描本地 skills 目录；上传后在 Skill 列表查看状态和详情。',
+  },
+}
+const submitModeMeta = computed(() => submitModeMetaMap[submitMode.value] || submitModeMetaMap.zip)
 
 const getCandidateDirectory = (item) => {
   const relativePath = item?.relative_path || ''

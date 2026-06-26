@@ -27,6 +27,19 @@ func run(args []string) error {
 		return err
 	}
 	fmt.Printf("scanned %d skills, submitted %d, failed %d\n", result.Found, result.Submitted, result.Failed)
+	if result.Failed > 0 {
+		fmt.Println("failed skills:")
+		for _, item := range result.Skills {
+			if item.SubmitError == "" {
+				continue
+			}
+			name := item.Name
+			if name == "" {
+				name = "-"
+			}
+			fmt.Printf("- %s (%s): %s\n", name, item.Path, item.SubmitError)
+		}
+	}
 	fmt.Printf("report: %s\n", outputAbs)
 	return nil
 }

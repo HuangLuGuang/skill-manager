@@ -10,20 +10,22 @@ import (
 )
 
 type Config struct {
-	Root          string
-	Server        string
-	Token         string
-	Output        string
-	HostID        string
-	Upload        bool
-	UseBehavioral bool
-	UseSandbox    bool
-	UseLLM        bool
-	Timeout       time.Duration
-	MaxFileBytes  int64
-	MaxTotalBytes int64
-	MaxFiles      int
-	IgnoreDirs    map[string]bool
+	Root            string
+	Server          string
+	Token           string
+	Output          string
+	HostID          string
+	Upload          bool
+	UseBehavioral   bool
+	UseSkillspector bool
+	UseSandbox      bool
+	UseLLM          bool
+	NoCache         bool
+	Timeout         time.Duration
+	MaxFileBytes    int64
+	MaxTotalBytes   int64
+	MaxFiles        int
+	IgnoreDirs      map[string]bool
 }
 
 func Parse(args []string) (Config, error) {
@@ -36,14 +38,16 @@ func Parse(args []string) (Config, error) {
 	}
 
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
-	fs.StringVar(&cfg.Server, "server", getenv("SKILL_MANAGER_SERVER", ""), "Skill Manager server URL")
-	fs.StringVar(&cfg.Token, "token", getenv("SKILL_MANAGER_TOKEN", ""), "Bearer token for Skill Manager")
+	fs.StringVar(&cfg.Server, "server", getenvAny("SKILL_MANAGER_SERVER", "AGENT_MANAGER_SERVER"), "Skill Manager server URL")
+	fs.StringVar(&cfg.Token, "token", getenvAny("SKILL_MANAGER_TOKEN", "AGENT_MANAGER_TOKEN", "AGENT_MANAGER_ACCESS_TOKEN"), "Bearer token for Skill Manager")
 	fs.StringVar(&cfg.Output, "output", "skill-scan-report.json", "JSON report output path")
 	fs.StringVar(&cfg.HostID, "host-id", getenv("SKILL_SCANNER_HOST_ID", ""), "host identifier sent to Skill Manager")
 	fs.BoolVar(&cfg.Upload, "upload", false, "upload discovered skills to Skill Manager")
 	fs.BoolVar(&cfg.UseBehavioral, "behavioral", false, "request rule-based analysis")
+	fs.BoolVar(&cfg.UseSkillspector, "deep-scan", false, "request deep scan analysis")
 	fs.BoolVar(&cfg.UseSandbox, "sandbox", false, "request sandbox analysis")
 	fs.BoolVar(&cfg.UseLLM, "llm", false, "request LLM analysis")
+	fs.BoolVar(&cfg.NoCache, "no-cache", false, "force server-side rescan without cache")
 	timeout := fs.Duration("timeout", 120*time.Second, "HTTP timeout")
 	maxFileMB := fs.Int64("max-file-mb", 20, "maximum single file size included in package")
 	maxTotalMB := fs.Int64("max-total-mb", 50, "maximum total skill package size")
@@ -130,8 +134,10 @@ Options:
   --host-id ID        Host identifier. Can also use SKILL_SCANNER_HOST_ID.
   --upload            Upload discovered skills to Skill Manager.
   --behavioral        Request rule-based analysis.
+  --deep-scan         Request deep scan analysis.
   --sandbox           Request sandbox analysis.
   --llm               Request LLM analysis.
+  --no-cache          Force server-side rescan without cache.
   --max-file-mb N     Maximum single file size. Default: 20.
   --max-total-mb N    Maximum total skill size. Default: 50.
   --max-files N       Maximum file count. Default: 2000.
@@ -145,6 +151,16 @@ func getenv(key string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func getenvAny(keys ...string) string {
+	for _, key := range keys {
+		value := strings.TrimSpace(os.Getenv(key))
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func DefaultIgnoreList() string {
