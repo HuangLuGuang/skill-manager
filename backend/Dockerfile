@@ -23,6 +23,7 @@ WORKDIR /app
 COPY pyproject.toml README.md company-policy.example.yaml ./
 COPY agent_manager ./agent_manager
 COPY backend ./backend
+COPY demo/agent-manager-skill-guard ./demo/agent-manager-skill-guard
 
 RUN uv pip install --system -e ".[scanner,compression]" && \
     uv pip install --system \
