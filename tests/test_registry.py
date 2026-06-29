@@ -62,11 +62,56 @@ class TestRegistry:
     def test_get_by_id_missing(self, registry):
         assert registry.get_by_id("nonexistent") is None
 
+    def test_get_by_id_skips_malformed_row(self, registry):
+        with registry._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO skill_registry (
+                    skill_id, name, status, risk_level, submitted_at, updated_at, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "bad-row",
+                    "bad-row",
+                    SkillStatus.APPROVED.value,
+                    None,
+                    "2026-06-25T12:58:23",
+                    "2026-06-25T12:58:23",
+                    json.dumps({"source": "local", "version": "1.0"}),
+                ),
+            )
+
+        assert registry.get_by_id("bad-row") is None
+
     def test_list_all(self, registry):
         registry.add(_make_entry("a"))
         registry.add(_make_entry("b", status=SkillStatus.DEPLOYED))
         all_entries = registry.list_all()
         assert len(all_entries) == 2
+
+    def test_list_all_skips_malformed_rows(self, registry):
+        registry.add(_make_entry("valid"))
+        with registry._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO skill_registry (
+                    skill_id, name, status, risk_level, submitted_at, updated_at, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "bad-row",
+                    "bad-row",
+                    SkillStatus.APPROVED.value,
+                    None,
+                    "2026-06-25T12:58:23",
+                    "2026-06-25T12:58:23",
+                    json.dumps({"source": "local", "version": "1.0"}),
+                ),
+            )
+
+        all_entries = registry.list_all()
+
+        assert [entry.name for entry in all_entries] == ["valid"]
 
     def test_list_all_orders_by_updated_at(self, registry, monkeypatch):
         class FakeDateTime(datetime):
@@ -108,6 +153,18 @@ class TestRegistry:
         registry.update(entry)
         updated = registry.get_by_id(entry.skill_id)
         assert updated.status == SkillStatus.DEPLOYED
+
+    def test_refresh_signature_if_current_does_not_reactivate_changed_status(self, registry):
+        entry = _make_entry("signed")
+        entry.signature = "old"
+        registry.add(entry)
+        entry.status = SkillStatus.REJECTED
+        registry.update(entry)
+
+        refreshed = registry.refresh_signature_if_current(entry.skill_id, "old", "new")
+
+        assert refreshed.status == SkillStatus.REJECTED
+        assert registry.get_by_id(entry.skill_id).signature == "old"
 
     def test_update_missing_raises(self, registry):
         entry = _make_entry("ghost")

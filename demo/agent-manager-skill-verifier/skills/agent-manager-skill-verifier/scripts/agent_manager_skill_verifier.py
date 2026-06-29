@@ -49,6 +49,13 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def normalize_zip_mojibake(value: str) -> str:
+    try:
+        return value.encode("cp437").decode("utf-8")
+    except UnicodeError:
+        return value
+
+
 def iter_skill_files(skill_dir: str | Path, ignores: set[str] | None = None) -> list[Path]:
     root = Path(skill_dir).resolve()
     ignored = ignores or set()
@@ -68,7 +75,7 @@ def fingerprint_skill_dir(skill_dir: str | Path, ignores: set[str] | None = None
     files = []
     total_bytes = 0
     for path in iter_skill_files(root, ignores=ignores):
-        rel = path.relative_to(root).as_posix()
+        rel = "/".join(normalize_zip_mojibake(part) for part in path.relative_to(root).parts)
         size = path.stat().st_size
         digest = file_sha256(path)
         total_bytes += size
@@ -95,9 +102,9 @@ def compute_skill_signature(skill_dir: str | Path, ignores: set[str] | None = No
         raise VerifierError(f"不是目录: {root}")
 
     parts = []
-    files = iter_skill_files(root, ignores=ignores) if ignores is not None else sorted(item for item in root.rglob("*") if item.is_file())
+    files = iter_skill_files(root, ignores=ignores or set())
     for path in files:
-        rel = path.relative_to(root).as_posix()
+        rel = "/".join(normalize_zip_mojibake(part) for part in path.relative_to(root).parts)
         parts.append(f"{rel}:{file_sha256(path)}\n")
 
     content = "".join(parts).encode()

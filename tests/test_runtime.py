@@ -132,6 +132,39 @@ class TestRuntimeGuard:
         assert not allowed
         assert "tamper" in reason.lower() or "mismatch" in reason.lower()
 
+    def test_verify_local_signature_refreshes_legacy_mojibake_signature(self, guard, registry, tmp_path):
+        local_dir = tmp_path / "local"
+        stored_dir = tmp_path / "stored"
+        (local_dir / "references").mkdir(parents=True)
+        (stored_dir / "references").mkdir(parents=True)
+        (local_dir / "references" / "常用查询模板.md").write_text("select 1", encoding="utf-8")
+        (stored_dir / "references" / "σ╕╕τö¿µƒÑΦ»óµ¿íµ¥┐.md").write_text("select 1", encoding="utf-8")
+        local_sig = compute_signature(local_dir)
+        entry = _make_entry("signed", sig="legacy-signature")
+        entry.skill_path = str(stored_dir)
+        registry.add(entry)
+
+        allowed, matched_entry, reason = guard.verify_local_signature("signed", local_sig, agent_id="agent-1")
+
+        assert allowed
+        assert reason == "signature verified"
+        assert matched_entry.signature == local_sig
+        assert registry.get_by_id(entry.skill_id).signature == local_sig
+
+    def test_verify_local_signature_refresh_io_error_is_not_tamper(self, guard, registry, tmp_path):
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: signed\n---\n", encoding="utf-8")
+        entry = _make_entry("signed", sig="legacy-signature")
+        entry.skill_path = str(tmp_path / "missing")
+        registry.add(entry)
+
+        allowed, _, reason = guard.verify_local_signature("signed", compute_signature(skill_dir), agent_id="agent-1")
+
+        assert not allowed
+        assert "could not be refreshed" in reason
+        assert "skill_tamper_detected" not in {event.event_type for event in registry.read_audit()}
+
     def test_verify_local_signature_blocks_non_loadable_status(self, guard, registry, tmp_path):
         skill_dir = tmp_path / "skill"
         skill_dir.mkdir()
@@ -157,6 +190,25 @@ class TestRuntimeGuard:
 
     def test_check_tool_unregistered_blocks(self, guard):
         assert not guard.check_tool("ghost", "Read")
+
+    def test_signature_normalizes_legacy_zip_mojibake_paths(self, tmp_path):
+        normal = tmp_path / "normal"
+        mojibake = tmp_path / "mojibake"
+        (normal / "references").mkdir(parents=True)
+        (mojibake / "references").mkdir(parents=True)
+        (normal / "references" / "常用查询模板.md").write_text("select 1", encoding="utf-8")
+        (mojibake / "references" / "σ╕╕τö¿µƒÑΦ»óµ¿íµ¥┐.md").write_text("select 1", encoding="utf-8")
+
+        assert compute_signature(normal) == compute_signature(mojibake)
+
+    def test_signature_ignores_runtime_cache_dirs(self, tmp_path):
+        skill_dir = tmp_path / "skill"
+        (skill_dir / "scripts" / "__pycache__").mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("---\nname: cache-test\n---\n", encoding="utf-8")
+        before = compute_signature(skill_dir)
+        (skill_dir / "scripts" / "__pycache__" / "x.pyc").write_bytes(b"cache")
+
+        assert compute_signature(skill_dir) == before
 
     def test_get_loadable_skills(self, guard, registry):
         registry.add(_make_entry("a", SkillStatus.APPROVED))

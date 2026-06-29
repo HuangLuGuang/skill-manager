@@ -12,13 +12,28 @@ from backend.sqlite_db import Base, get_db
 
 
 class _Runtime:
-    def can_load(self, skill_name, agent_id=None):
+    def can_load(self, skill_name, agent_id=None, **_kwargs):
         entry = type("Entry", (), {"status": type("Status", (), {"value": "APPROVED"})(), "risk_level": None})()
         return True, entry, "allowed"
 
 
+class _Registry:
+    def log_event(self, _event):
+        return None
+
+
 class _Manager:
     runtime = _Runtime()
+    registry = _Registry()
+
+    def get_skill(self, skill_name):
+        if skill_name != "risk-skill":
+            return None
+        return type(
+            "Skill",
+            (),
+            {"skill_id": "risk-skill-id", "name": "risk-skill"},
+        )()
 
     def get_prompt(self, prompt_name):
         if prompt_name != "risk-prompt":
@@ -161,6 +176,33 @@ def test_agent_runtime_token_enforces_bound_agent_and_allowed_skill(tmp_path):
     )
     assert disabled.status_code == 403
     assert "未启用" in disabled.json()["detail"]
+
+
+def test_runtime_missing_scope_error_identifies_token(tmp_path):
+    client = _client(tmp_path)
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "scanner-only",
+            "token_type": "scanner",
+            "scopes": ["scanner:submit"],
+        },
+    ).json()
+
+    response = client.post(
+        "/api/v1/access/runtime/verify-skill-signature",
+        headers={"Authorization": f"Bearer {created['token']}"},
+        json={
+            "skill_name": "risk-skill",
+            "agent_id": "risk-agent",
+        },
+    )
+
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert detail == "接入凭证缺少权限: runtime:verify-signature"
+    assert "scanner-only" not in detail
+    assert created["record"]["token_prefix"] not in detail
 
 
 def test_agent_runtime_token_enforces_bound_prompt(tmp_path):

@@ -16,6 +16,7 @@ import uuid
 import os
 import mimetypes
 import re
+import stat
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
@@ -116,11 +117,30 @@ def _resolve_skill_root(extract_dir: Path) -> Path:
 
 
 def _safe_extract_zip(zip_path: Path, extract_dir: Path) -> None:
+    extract_root = extract_dir.resolve()
     with zipfile.ZipFile(zip_path) as zf:
-        for name in zf.namelist():
+        for info in zf.infolist():
+            name = info.filename
             if ".." in name or name.startswith("/"):
                 raise HTTPException(status_code=400, detail=f"Unsafe path in ZIP: {name}")
-        zf.extractall(extract_dir)
+            if stat.S_ISLNK(info.external_attr >> 16):
+                raise HTTPException(status_code=400, detail=f"Symlinks are not allowed in ZIP: {name}")
+            if not info.flag_bits & 0x800:
+                try:
+                    name = name.encode("cp437").decode("utf-8")
+                except UnicodeError:
+                    pass
+            target = (extract_root / name).resolve()
+            try:
+                target.relative_to(extract_root)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Unsafe path in ZIP: {info.filename}")
+            if info.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(info) as src, target.open("wb") as dst:
+                    shutil.copyfileobj(src, dst)
 
 
 def _extract_zip_with_nested_archives(zip_path: Path, extract_dir: Path) -> None:
