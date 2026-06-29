@@ -29,7 +29,7 @@ from agent_manager.api.router import (
     get_manager,
 )
 from agent_manager.core.manager import AgentManager
-from agent_manager.core.models import SkillOrigin, SourceInfo
+from agent_manager.core.models import AuditEvent, RegistryEntry, SkillOrigin, SourceInfo
 from agent_manager.core.scanner_tokens import DEFAULT_SCOPES, ScannerToken, ScannerTokenStore
 from backend.models import AccessToken
 from backend.routers.access_tokens import (
@@ -116,7 +116,11 @@ def _scanner_release_dir() -> Path:
 
 
 def _skill_verifier_dir() -> Path:
-    return Path(__file__).resolve().parents[2] / "demo" / "agent-manager-skill-guard" / "skills" / "agent-manager-skill-guard"
+    base_dir = Path(__file__).resolve().parents[2] / "demo"
+    current = base_dir / "agent-manager-skill-verifier" / "skills" / "agent-manager-skill-verifier"
+    if current.exists():
+        return current
+    return base_dir / "agent-manager-skill-guard" / "skills" / "agent-manager-skill-guard"
 
 
 def _client_ip(request: Request) -> str | None:
@@ -145,6 +149,64 @@ def _access_token_audit_metadata(
         "user_id": token.user_id,
         "group_id": token.group_id,
     }
+
+
+def _log_runtime_blocked_event(
+    mgr: AgentManager,
+    *,
+    event_type: str,
+    skill_name: str,
+    request: Request,
+    token: AccessToken,
+    agent_id: str | None,
+    reason: str,
+    entry: RegistryEntry | None = None,
+    extra_details: dict[str, Any] | None = None,
+) -> None:
+    details = _access_token_audit_metadata(request, token, agent_id)
+    details["reason"] = reason
+    if extra_details:
+        details.update(extra_details)
+    mgr.registry.log_event(
+        AuditEvent(
+            event_id=str(uuid.uuid4()),
+            event_type=event_type,
+            skill_id=entry.skill_id if entry else "unknown",
+            skill_name=entry.name if entry else skill_name,
+            actor=agent_id,
+            details=details,
+        )
+    )
+
+
+def _ensure_agent_skill_allowed_or_audit(
+    mgr: AgentManager,
+    agent,
+    skill_name: str,
+    *,
+    request: Request,
+    token: AccessToken,
+    agent_id: str | None,
+    entry: RegistryEntry | None = None,
+    event_type: str = "skill_load_blocked",
+    extra_details: dict[str, Any] | None = None,
+) -> None:
+    try:
+        ensure_agent_skill_allowed(agent, skill_name)
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            _log_runtime_blocked_event(
+                mgr,
+                event_type=event_type,
+                skill_name=skill_name,
+                request=request,
+                token=token,
+                agent_id=agent_id,
+                reason=str(exc.detail),
+                entry=entry,
+                extra_details=extra_details,
+            )
+        raise
 
 
 def _scanner_release_files() -> list[dict[str, Any]]:
@@ -324,7 +386,16 @@ def token_runtime_can_load(
         )
     resolved_agent_id = resolve_agent_id(agent_id, x_agent_id)
     agent = ensure_token_agent_allowed(db, token, resolved_agent_id)
-    ensure_agent_skill_allowed(agent, skill_name)
+    entry = mgr.get_skill(skill_name)
+    _ensure_agent_skill_allowed_or_audit(
+        mgr,
+        agent,
+        skill_name,
+        request=request,
+        token=token,
+        agent_id=resolved_agent_id,
+        entry=entry,
+    )
     allowed, entry, reason = mgr.runtime.can_load(
         skill_name,
         agent_id=resolved_agent_id,
@@ -351,9 +422,24 @@ def token_runtime_verify_skill_signature(
     agent = ensure_token_agent_allowed(db, token, resolved_agent_id)
     registry_entry = mgr.get_skill(body.skill_id or body.skill_name) if (body.skill_id or body.skill_name) else None
     if registry_entry:
-        ensure_agent_skill_allowed(agent, registry_entry.name)
+        _ensure_agent_skill_allowed_or_audit(
+            mgr,
+            agent,
+            registry_entry.name,
+            request=request,
+            token=token,
+            agent_id=resolved_agent_id,
+            entry=registry_entry,
+        )
     elif body.skill_name:
-        ensure_agent_skill_allowed(agent, body.skill_name)
+        _ensure_agent_skill_allowed_or_audit(
+            mgr,
+            agent,
+            body.skill_name,
+            request=request,
+            token=token,
+            agent_id=resolved_agent_id,
+        )
     allowed, entry, reason = mgr.runtime.verify_local_signature(
         body.skill_name or "",
         body.local_signature,
@@ -385,7 +471,18 @@ def token_runtime_check_tool(
 ):
     resolved_agent_id = resolve_agent_id(agent_id, x_agent_id)
     agent = ensure_token_agent_allowed(db, token, resolved_agent_id)
-    ensure_agent_skill_allowed(agent, skill_name)
+    entry = mgr.get_skill(skill_name)
+    _ensure_agent_skill_allowed_or_audit(
+        mgr,
+        agent,
+        skill_name,
+        request=request,
+        token=token,
+        agent_id=resolved_agent_id,
+        entry=entry,
+        event_type="tool_blocked",
+        extra_details={"tool": tool_name},
+    )
     allowed = mgr.runtime.check_tool(
         skill_name,
         tool_name,

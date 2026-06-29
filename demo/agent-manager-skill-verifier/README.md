@@ -7,12 +7,12 @@
 ## 目录
 
 ```text
-skills/agent-manager-skill-guard/
+skills/agent-manager-skill-verifier/
 ├── SKILL.md
 ├── references/
 │   └── agent-manager-verification.md
 └── scripts/
-    └── agent_manager_skill_guard.py
+    └── agent_manager_skill_verifier.py
 ```
 
 ## 下载
@@ -21,18 +21,18 @@ skills/agent-manager-skill-guard/
 
 - `智能体管理`
 - `接入与运行`
-- `下载 Skill Guard`
+- `下载 Skill Verifier`
 
 后端接口：
 
 ```http
-GET /api/v1/scanner/skill-guard/download
+GET /api/v1/scanner/skill-verifier/download
 ```
 
 下载得到：
 
 ```text
-agent-manager-skill-guard.zip
+agent-manager-skill-verifier.zip
 ```
 
 ## Token 权限
@@ -55,13 +55,11 @@ export AGENT_ID="<agent-id>"
 export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 ```
 
-脚本也兼容读取 `SKILL_MANAGER_SERVER`、`SKILL_MANAGER_TOKEN`、`AGENT_MANAGER_TOKEN` 和 `AGENT_MANAGER_ACCESS_TOKEN`。
-
 ## 安装到 Codex
 
 ```bash
 mkdir -p ~/.codex/skills
-unzip agent-manager-skill-guard.zip -d ~/.codex/skills/
+unzip agent-manager-skill-verifier.zip -d ~/.codex/skills/
 ```
 
 安装后重启 Codex，或刷新 Codex 的 skill 列表。
@@ -70,7 +68,7 @@ unzip agent-manager-skill-guard.zip -d ~/.codex/skills/
 
 ```bash
 mkdir -p ~/.claude/skills
-unzip agent-manager-skill-guard.zip -d ~/.claude/skills/
+unzip agent-manager-skill-verifier.zip -d ~/.claude/skills/
 ```
 
 安装后重启 Claude Code，或刷新 Claude Code 的 skill 列表。
@@ -80,7 +78,7 @@ unzip agent-manager-skill-guard.zip -d ~/.claude/skills/
 提交第三方 skill：
 
 ```bash
-python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py submit \
+python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py submit \
   --path /path/to/third-party-skill \
   --behavioral \
   --deep-scan
@@ -89,14 +87,14 @@ python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.
 查看状态：
 
 ```bash
-python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py status \
+python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py status \
   --skill-id <skill-id>
 ```
 
 使用前做内容完整性和加载授权校验：
 
 ```bash
-python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py verify \
+python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py verify \
   --path /path/to/third-party-skill
 ```
 

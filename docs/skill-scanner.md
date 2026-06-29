@@ -88,7 +88,7 @@ Runtime Agent 加载校验权限：
 
 - 客户本地扫描器：只选 scanner 权限。
 - Agno / LangGraph 等外部 Agent：只选 runtime 权限。
-- Codex / Claude Code 等通用 Skill Guard：选择 `scanner:submit`、`scanner:read-own-results` 和全部 runtime 权限。
+- Codex / Claude Code 等通用 Skill Verifier：选择 `scanner:submit`、`scanner:read-own-results` 和全部 runtime 权限。
 - 同一个测试环境既扫描又加载：可以同时选择 scanner 和 runtime 权限。
 
 不要给接入凭证授予：
@@ -114,43 +114,43 @@ Runtime Agent 加载校验权限：
 
 ---
 
-## 4. Agent Skill Guard
+## 4. Agent Skill Verifier
 
-`Agent Skill Guard` 是给 Codex、Claude Code 等通用 Agent 使用的示例 skill。它不依赖 hook，也不绑定某个 Agent 平台；安装后，Agent 在安装、加载或调用第三方 skill 前，可以按 skill 指令先提交扫描，再检查内容完整性、审批状态和 Agent 授权范围。
+`Agent Skill Verifier` 是给 Codex、Claude Code 等通用 Agent 使用的示例 skill。它不依赖 hook，也不绑定某个 Agent 平台；安装后，Agent 在安装、加载或调用第三方 skill 前，可以按 skill 指令先提交扫描，再检查内容完整性、审批状态和 Agent 授权范围。
 
 它和 Go Scanner 的定位不同：
 
 - Go Scanner：面向客户侧批量发现和上传本地 skills，适合 CI、服务器或人工 GUI 扫描。
-- Agent Skill Guard：面向 Agent 运行过程，强调“第三方 skill 使用前必须先过 Agent Manager”。
+- Agent Skill Verifier：面向 Agent 运行过程，强调“第三方 skill 使用前必须先过 Agent Manager”。
 
 ### 4.1 下载
 
 管理台进入：
 
 - `扫描器接入`
-- `Agent Skill Guard 接入`
-- 点击 `下载 Skill Guard`
+- `Agent Skill Verifier 接入`
+- 点击 `下载 Skill Verifier`
 
 对应后端接口：
 
 ```http
-GET /api/v1/scanner/skill-guard/download
+GET /api/v1/scanner/skill-verifier/download
 ```
 
 下载文件名为：
 
 ```text
-agent-manager-skill-guard.zip
+agent-manager-skill-verifier.zip
 ```
 
 ZIP 内包含：
 
-- `agent-manager-skill-guard/SKILL.md`
-- `agent-manager-skill-guard/scripts/agent_manager_skill_guard.py`
+- `agent-manager-skill-verifier/SKILL.md`
+- `agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py`
 
 ### 4.2 Token 权限
 
-Skill Guard 首版使用一个合并 token。至少需要：
+Skill Verifier 首版使用一个合并 token。至少需要：
 
 - `scanner:submit`
 - `scanner:read-own-results`
@@ -174,7 +174,7 @@ export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 
 ```bash
 mkdir -p ~/.codex/skills
-unzip agent-manager-skill-guard.zip -d ~/.codex/skills/
+unzip agent-manager-skill-verifier.zip -d ~/.codex/skills/
 ```
 
 安装后重启 Codex，或刷新 Codex 的 skill 列表。
@@ -183,7 +183,7 @@ unzip agent-manager-skill-guard.zip -d ~/.codex/skills/
 
 ```bash
 mkdir -p ~/.claude/skills
-unzip agent-manager-skill-guard.zip -d ~/.claude/skills/
+unzip agent-manager-skill-verifier.zip -d ~/.claude/skills/
 ```
 
 安装后重启 Claude Code，或刷新 Claude Code 的 skill 列表。
@@ -193,7 +193,7 @@ unzip agent-manager-skill-guard.zip -d ~/.claude/skills/
 提交本地第三方 skill 扫描：
 
 ```bash
-python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py submit \
+python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py submit \
   --path /path/to/third-party-skill \
   --behavioral \
   --deep-scan
@@ -202,14 +202,14 @@ python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.
 查看提交状态：
 
 ```bash
-python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py status \
+python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py status \
   --skill-id <skill-id>
 ```
 
 使用前检查内容完整性、审批状态和 Agent 授权范围：
 
 ```bash
-python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py verify \
+python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py verify \
   --path /path/to/third-party-skill
 ```
 
@@ -558,7 +558,7 @@ BUILD_WINDOWS_GUI=1 ./scripts/package.sh
 管理台 `扫描器接入` 页面提供：
 
 - CLI / GUI 下载
-- Agent Skill Guard 下载
+- Agent Skill Verifier 下载
 - Codex / Claude Code 安装示例
 - 安装命令
 - 参数说明
@@ -581,8 +581,8 @@ BUILD_WINDOWS_GUI=1 ./scripts/package.sh
 - [scanner/cmd/skill-scanner-gui/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner-gui/main.go)
 - [scanner/internal/runner/runner.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/internal/runner/runner.go)
 - [scanner/internal/gui/gui.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/internal/gui/gui.go)
-- [demo/agent-manager-skill-guard/skills/agent-manager-skill-guard/SKILL.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-guard/skills/agent-manager-skill-guard/SKILL.md)
-- [demo/agent-manager-skill-guard/skills/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-guard/skills/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py)
+- [demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/SKILL.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/SKILL.md)
+- [demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py)
 - [agent_manager/api/scanner_router.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/api/scanner_router.py)
 - [agent_manager/core/scanner_tokens.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/scanner_tokens.py)
 - [agent_manager/core/scan_cache.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/scan_cache.py)

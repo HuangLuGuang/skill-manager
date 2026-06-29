@@ -33,7 +33,7 @@
         </a-col>
       </a-row>
       <div class="flow-summary">
-        扫描器负责批量接入本地 Skill；Agent 运行时通过 skill-guard 或 Runtime API 在加载前向平台校验授权、状态和内容指纹。
+        扫描器负责批量接入本地 Skill；Agent 运行时通过 Skill Verifier 或 Runtime API 在加载前向平台校验授权、状态和内容指纹。
       </div>
     </a-card>
 

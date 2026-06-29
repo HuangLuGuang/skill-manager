@@ -269,7 +269,7 @@ Key endpoints:
 | `POST` | `/api/v1/skills/{id}/retire` | Retire a skill immediately |
 | `POST` | `/api/v1/scanner/imports` | Token-auth scanner upload for third-party skills |
 | `GET`  | `/api/v1/scanner/imports/{id}` | Read own scanner submission result |
-| `GET`  | `/api/v1/scanner/skill-guard/download` | Download the generic Agent Manager Skill Guard ZIP |
+| `GET`  | `/api/v1/scanner/skill-verifier/download` | Download the generic Agent Manager Skill Verifier ZIP |
 | `POST` | `/api/v1/access/runtime/verify-skill-signature` | Token-auth runtime signature check for external agents |
 | `GET`  | `/api/v1/access/runtime/can-load/{name}` | Token-auth runtime load check for external agents |
 | `GET`  | `/api/v1/access/runtime/check-tool` | Token-auth tool permission check for external agents |

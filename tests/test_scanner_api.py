@@ -4,6 +4,8 @@ import zipfile
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 import agent_manager.api.router as api_router
 from agent_manager.api.router import get_manager
@@ -13,6 +15,9 @@ from agent_manager.core.models import SkillOrigin, SourceInfo
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.registry import make_event
 from agent_manager.core.signer import compute_signature
+from backend import models
+from backend.routers.access_tokens import _hash_token
+from backend.sqlite_db import Base, get_db
 
 
 def _skill_zip() -> bytes:
@@ -40,7 +45,26 @@ def test_scanner_release_dir_points_to_project_scanner_releases():
     assert _scanner_release_dir().name == "releases"
 
 
-def test_skill_guard_download_returns_zip():
+def _assert_skill_verifier_zip(content: bytes):
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        names = set(archive.namelist())
+    assert "agent-manager-skill-verifier/SKILL.md" in names
+    assert "agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py" in names
+    assert "agent-manager-skill-verifier/scripts/agent_manager_skill_guard.py" in names
+
+
+def test_skill_verifier_download_returns_zip():
+    app = FastAPI()
+    app.include_router(admin_router)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/scanner/skill-verifier/download")
+
+    assert response.status_code == 200
+    _assert_skill_verifier_zip(response.content)
+
+
+def test_skill_guard_download_legacy_alias_returns_zip():
     app = FastAPI()
     app.include_router(admin_router)
     client = TestClient(app)
@@ -48,10 +72,7 @@ def test_skill_guard_download_returns_zip():
     response = client.get("/api/v1/scanner/skill-guard/download")
 
     assert response.status_code == 200
-    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
-        names = set(archive.namelist())
-    assert "agent-manager-skill-guard/SKILL.md" in names
-    assert "agent-manager-skill-guard/scripts/agent_manager_skill_guard.py" in names
+    _assert_skill_verifier_zip(response.content)
 
 
 def test_scanner_import_accepts_scanner_token(tmp_path):
@@ -151,6 +172,83 @@ def test_access_runtime_routes_accept_runtime_token(tmp_path):
             params={"skill_path": str(skill_dir)},
         )
         assert path_response.status_code == 400
+    finally:
+        api_router._manager = previous_manager
+
+
+def test_runtime_unauthorized_skill_is_audited(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'access.db'}", connect_args={"check_same_thread": False})
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    token = "amat_runtime_test"
+    db = TestingSessionLocal()
+    db.add(
+        models.ManagedAgent(
+            agent_id="risk-agent",
+            name="风险智能体",
+            status="active",
+            skill_names_json="[]",
+            prompt_names_json="[]",
+        )
+    )
+    db.add(
+        models.AccessToken(
+            name="risk-runtime",
+            token_type="agent_runtime",
+            token_hash=_hash_token(token),
+            token_prefix=token[:8],
+            bound_agent_id="risk-agent",
+            scopes_json='["runtime:verify-signature"]',
+            allowed_models_json="[]",
+            allowed_ips_json="[]",
+            status="active",
+        )
+    )
+    db.commit()
+    db.close()
+
+    def override_get_db():
+        session = TestingSessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app = FastAPI()
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: blocked-skill\ndescription: Runtime test\n---\n", encoding="utf-8")
+    entry = manager.submit(skill_dir)
+
+    previous_manager = api_router._manager
+    api_router._manager = manager
+    try:
+        app.dependency_overrides[get_manager] = lambda: manager
+        app.dependency_overrides[get_db] = override_get_db
+        app.include_router(runtime_router)
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v1/access/runtime/verify-skill-signature",
+            headers={"Authorization": f"Bearer {token}", "X-Forwarded-For": "10.1.2.3"},
+            json={
+                "skill_name": "blocked-skill",
+                "skill_id": entry.skill_id,
+                "local_signature": compute_signature(skill_dir),
+                "agent_id": "risk-agent",
+            },
+        )
+
+        assert response.status_code == 403
+        events = manager.audit(skill_id=entry.skill_id, limit=20)
+        blocked = [event for event in events if event.event_type == "skill_load_blocked"]
+        assert blocked
+        assert blocked[0].actor == "risk-agent"
+        assert blocked[0].details["reason"] == "智能体未授权使用该 Skill"
+        assert blocked[0].details["client_ip"] == "10.1.2.3"
+        assert blocked[0].details["token_name"] == "risk-runtime"
     finally:
         api_router._manager = previous_manager
 

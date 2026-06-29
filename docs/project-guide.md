@@ -667,18 +667,18 @@ make sandbox-runtime-build
 
 - 创建和吊销 Scanner Token
 - 下载 CLI / GUI 扫描器
-- 下载 Agent Skill Guard
+- 下载 Agent Skill Verifier
 - 查看安装命令和参数说明
 - 获取配置模板
 - 跳转查看服务端扫描结果
 
-CLI 适合服务器和 CI。Agent Skill Guard 适合安装到 Codex、Claude Code 等通用 Agent 的 skills 目录，用来指导 Agent 在使用第三方 skill 前先提交扫描，并检查内容完整性、审批状态和 Agent 授权范围。
+CLI 适合服务器和 CI。Agent Skill Verifier 适合安装到 Codex、Claude Code 等通用 Agent 的 skills 目录，用来指导 Agent 在使用第三方 skill 前先提交扫描，并检查内容完整性、审批状态和 Agent 授权范围。
 
-Skill Guard 下载位置：
+Skill Verifier 下载位置：
 
 - `智能体管理`
 - `接入与运行`
-- `下载 Skill Guard`
+- `下载 Skill Verifier`
 
 它需要一个同时包含 scanner 和 runtime 权限的接入 Token：
 
@@ -754,10 +754,10 @@ sequenceDiagram
 - [external-agent-integration.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/external-agent-integration.md)
 - [agent-signature-verification.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/agent-signature-verification.md)
 
-如果外部 Agent 支持本地 skill 指令，也可以直接使用示例 `Agent Skill Guard`：
+如果外部 Agent 支持本地 skill 指令，也可以直接使用示例 `Agent Skill Verifier`：
 
-- [demo/agent-manager-skill-guard/README.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-guard/README.md)
-- [demo/agent-manager-skill-guard/skills/agent-manager-skill-guard/SKILL.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-guard/skills/agent-manager-skill-guard/SKILL.md)
+- [demo/agent-manager-skill-verifier/README.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-verifier/README.md)
+- [demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/SKILL.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/SKILL.md)
 
 它不做平台级 hook，适合 Codex、Claude Code 等 Agent 的通用接入；如果需要强制拦截，再按具体平台补 hook 或 adapter。
 

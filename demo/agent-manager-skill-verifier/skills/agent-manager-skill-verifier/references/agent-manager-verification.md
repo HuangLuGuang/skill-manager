@@ -2,13 +2,13 @@
 
 仅在验证命令无法执行或环境变量缺失时阅读本文件。正常情况下只运行：
 
-`python scripts/agent_manager_skill_guard.py verify --path /path/to/skill`
+`python scripts/agent_manager_skill_verifier.py verify --path /path/to/skill`
 
 ## 路径要求
 
 `--path` 是本机 Skill 目录路径，必须指向包含 `SKILL.md` 的目录。优先使用绝对路径，例如：
 
-`python scripts/agent_manager_skill_guard.py verify --path /Users/me/.codex/skills/some-skill`
+`python scripts/agent_manager_skill_verifier.py verify --path /Users/me/.codex/skills/some-skill`
 
 不要把父级 `skills` 目录、压缩包路径、单个 `SKILL.md` 文件路径传给 `--path`。
 
