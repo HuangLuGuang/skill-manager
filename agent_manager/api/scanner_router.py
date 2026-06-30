@@ -192,7 +192,7 @@ def _ensure_agent_skill_allowed_or_audit(
     extra_details: dict[str, Any] | None = None,
 ) -> None:
     try:
-        ensure_agent_skill_allowed(agent, skill_name)
+        ensure_agent_skill_allowed(agent, skill_name, entry.skill_id if entry else None)
     except HTTPException as exc:
         if exc.status_code == 403:
             _log_runtime_blocked_event(
