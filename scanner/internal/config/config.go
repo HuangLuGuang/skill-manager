@@ -38,8 +38,8 @@ func Parse(args []string) (Config, error) {
 	}
 
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
-	fs.StringVar(&cfg.Server, "server", getenvAny("SKILL_MANAGER_SERVER", "AGENT_MANAGER_SERVER"), "Skill Manager server URL")
-	fs.StringVar(&cfg.Token, "token", getenvAny("SKILL_MANAGER_TOKEN", "AGENT_MANAGER_TOKEN", "AGENT_MANAGER_ACCESS_TOKEN"), "Bearer token for Skill Manager")
+	fs.StringVar(&cfg.Server, "server", getenvAny("SKILL_SCANNER_SERVER", "SKILL_MANAGER_SERVER"), "Skill Manager server URL")
+	fs.StringVar(&cfg.Token, "token", getenvAny("SKILL_SCANNER_TOKEN", "SKILL_MANAGER_TOKEN"), "Bearer token for Skill Manager")
 	fs.StringVar(&cfg.Output, "output", "skill-scan-report.json", "JSON report output path")
 	fs.StringVar(&cfg.HostID, "host-id", getenv("SKILL_SCANNER_HOST_ID", ""), "host identifier sent to Skill Manager")
 	fs.BoolVar(&cfg.Upload, "upload", false, "upload discovered skills to Skill Manager")
@@ -78,7 +78,7 @@ func Parse(args []string) (Config, error) {
 		cfg.Upload = true
 	}
 	if cfg.Upload && cfg.Server == "" {
-		return cfg, fmt.Errorf("--upload requires --server or SKILL_MANAGER_SERVER")
+		return cfg, fmt.Errorf("--upload requires --server or SKILL_SCANNER_SERVER")
 	}
 	return cfg, nil
 }
@@ -129,7 +129,7 @@ Usage:
 
 Options:
   --server URL        Skill Manager server URL. If set, upload is enabled.
-  --token TOKEN       Bearer token. Can also use SKILL_MANAGER_TOKEN.
+  --token TOKEN       Bearer token. Can also use SKILL_SCANNER_TOKEN.
   --output PATH       JSON report output path. Default: skill-scan-report.json.
   --host-id ID        Host identifier. Can also use SKILL_SCANNER_HOST_ID.
   --upload            Upload discovered skills to Skill Manager.

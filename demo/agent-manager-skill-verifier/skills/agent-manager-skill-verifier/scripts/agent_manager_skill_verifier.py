@@ -214,25 +214,23 @@ def normalize_base_url(value: str) -> str:
 def resolve_server(args: argparse.Namespace) -> str:
     server = (
         args.server
+        or os.environ.get("AGENT_MANAGER_VERIFIER_BASE_URL")
         or os.environ.get("AGENT_MANAGER_BASE_URL")
-        or os.environ.get("SKILL_MANAGER_SERVER")
-        or os.environ.get("AGENT_MANAGER_SERVER")
     )
     if not server:
-        raise VerifierError("缺少 Agent Manager 地址，请设置 AGENT_MANAGER_BASE_URL 或传入 --server")
+        raise VerifierError("缺少 Agent Manager 地址，请设置 AGENT_MANAGER_VERIFIER_BASE_URL、旧版 AGENT_MANAGER_BASE_URL，或传入 --server")
     return normalize_base_url(server)
 
 
 def resolve_token(args: argparse.Namespace) -> str:
     token = (
         args.token
-        or os.environ.get("SKILL_MANAGER_TOKEN")
-        or os.environ.get("AGENT_MANAGER_TOKEN")
+        or os.environ.get("AGENT_MANAGER_VERIFIER_TOKEN")
         or os.environ.get("AGENT_MANAGER_API_TOKEN")
         or os.environ.get("AGENT_MANAGER_ACCESS_TOKEN")
     )
     if not token:
-        raise VerifierError("缺少接入凭证，请设置 AGENT_MANAGER_API_TOKEN 或传入 --token")
+        raise VerifierError("缺少接入凭证，请设置 AGENT_MANAGER_VERIFIER_TOKEN、旧版 AGENT_MANAGER_API_TOKEN/AGENT_MANAGER_ACCESS_TOKEN，或传入 --token")
     return token
 
 
@@ -340,13 +338,13 @@ def command_verify(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Agent Manager third-party skill verifier")
-    parser.add_argument("--server", default=None, help="Agent Manager base URL; default AGENT_MANAGER_BASE_URL")
-    parser.add_argument("--token", default=None, help="Access token; default AGENT_MANAGER_TOKEN")
+    parser.add_argument("--server", default=None, help="Agent Manager base URL; default AGENT_MANAGER_VERIFIER_BASE_URL")
+    parser.add_argument("--token", default=None, help="Access token; default AGENT_MANAGER_VERIFIER_TOKEN")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     submit = subparsers.add_parser("submit", help="Upload a local skill for Agent Manager scanning")
-    submit.add_argument("--server", default=None, help="Agent Manager base URL; default AGENT_MANAGER_BASE_URL")
-    submit.add_argument("--token", default=None, help="Access token; default AGENT_MANAGER_TOKEN")
+    submit.add_argument("--server", default=None, help="Agent Manager base URL; default AGENT_MANAGER_VERIFIER_BASE_URL")
+    submit.add_argument("--token", default=None, help="Access token; default AGENT_MANAGER_VERIFIER_TOKEN")
     submit.add_argument("--path", required=True, help="Local skill directory")
     submit.add_argument("--behavioral", action="store_true", help="Enable server rule analysis")
     submit.add_argument("--deep-scan", action="store_true", help="Enable server deep scan")
@@ -358,14 +356,14 @@ def build_parser() -> argparse.ArgumentParser:
     submit.set_defaults(func=command_submit)
 
     status = subparsers.add_parser("status", help="Read scanner submission status")
-    status.add_argument("--server", default=None, help="Agent Manager base URL; default AGENT_MANAGER_BASE_URL")
-    status.add_argument("--token", default=None, help="Access token; default AGENT_MANAGER_TOKEN")
+    status.add_argument("--server", default=None, help="Agent Manager base URL; default AGENT_MANAGER_VERIFIER_BASE_URL")
+    status.add_argument("--token", default=None, help="Access token; default AGENT_MANAGER_VERIFIER_TOKEN")
     status.add_argument("--skill-id", required=True, help="Submitted skill id")
     status.set_defaults(func=command_status)
 
     verify = subparsers.add_parser("verify", help="Verify local skill signature and load status")
-    verify.add_argument("--server", default=None, help="Agent Manager base URL; default AGENT_MANAGER_BASE_URL")
-    verify.add_argument("--token", default=None, help="Access token; default AGENT_MANAGER_TOKEN")
+    verify.add_argument("--server", default=None, help="Agent Manager base URL; default AGENT_MANAGER_VERIFIER_BASE_URL")
+    verify.add_argument("--token", default=None, help="Access token; default AGENT_MANAGER_VERIFIER_TOKEN")
     verify.add_argument("--path", required=True, help="Local skill directory")
     verify.add_argument("--skill-id", default=None, help="Optional skill id to disambiguate same-name skills")
     verify.add_argument("--agent-id", default=None, help="Agent identifier; default AGENT_ID")

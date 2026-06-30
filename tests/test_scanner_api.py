@@ -50,7 +50,7 @@ def _assert_skill_verifier_zip(content: bytes):
         names = set(archive.namelist())
     assert "agent-manager-skill-verifier/SKILL.md" in names
     assert "agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py" in names
-    assert "agent-manager-skill-verifier/scripts/agent_manager_skill_guard.py" in names
+    assert "agent-manager-skill-verifier/scripts/agent_manager_skill_guard.py" not in names
 
 
 def test_skill_verifier_download_returns_zip():

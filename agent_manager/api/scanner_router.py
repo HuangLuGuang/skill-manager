@@ -117,10 +117,7 @@ def _scanner_release_dir() -> Path:
 
 def _skill_verifier_dir() -> Path:
     base_dir = Path(__file__).resolve().parents[2] / "demo"
-    current = base_dir / "agent-manager-skill-verifier" / "skills" / "agent-manager-skill-verifier"
-    if current.exists():
-        return current
-    return base_dir / "agent-manager-skill-guard" / "skills" / "agent-manager-skill-guard"
+    return base_dir / "agent-manager-skill-verifier" / "skills" / "agent-manager-skill-verifier"
 
 
 def _client_ip(request: Request) -> str | None:

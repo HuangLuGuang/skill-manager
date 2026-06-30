@@ -110,7 +110,7 @@ Runtime Agent 加载校验权限：
 - 最大并发任务数
 - 审计日志
 
-凭证明文可以通过 CLI 参数、环境变量或 GUI 设置页配置，不应硬编码到二进制里。Agent demo 读取 `AGENT_MANAGER_API_TOKEN` 或 `AGENT_MANAGER_ACCESS_TOKEN`，并调用 `/api/v1/access/runtime/...` 这组凭证鉴权接口。
+凭证明文可以通过 CLI 参数或环境变量配置，不应硬编码到二进制里。Go Scanner 使用 `SKILL_SCANNER_TOKEN`，Agent Skill Verifier 使用 `AGENT_MANAGER_VERIFIER_TOKEN`，避免 scanner 凭证和运行时凭证混用。
 
 ---
 
@@ -162,13 +162,15 @@ Skill Verifier 首版使用一个合并 token。至少需要：
 环境变量示例：
 
 ```bash
-export AGENT_MANAGER_BASE_URL="http://localhost:8001"
-export AGENT_MANAGER_API_TOKEN="amat_xxx"
+export AGENT_MANAGER_VERIFIER_BASE_URL="http://localhost:8001"
+export AGENT_MANAGER_VERIFIER_TOKEN="amat_xxx"
 export AGENT_ID="<agent-id>"
 export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 ```
 
-也兼容 `AGENT_MANAGER_TOKEN` 和 `AGENT_MANAGER_ACCESS_TOKEN`。
+旧版本变量 `AGENT_MANAGER_BASE_URL`、`AGENT_MANAGER_API_TOKEN`、`AGENT_MANAGER_ACCESS_TOKEN` 仍兼容，但不推荐继续使用。
+
+不要复用 `SKILL_SCANNER_TOKEN`；Verifier 需要 Agent 运行凭证。
 
 ### 4.3 安装到 Codex
 
@@ -247,7 +249,7 @@ python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_ver
 chmod +x skill-scanner-cli-darwin-arm64
 ./skill-scanner-cli-darwin-arm64 scan /path/to/skills \
   --server http://localhost:8000 \
-  --token "$AGENT_MANAGER_TOKEN" \
+  --token "$SKILL_SCANNER_TOKEN" \
   --host-id customer-prod-01 \
   --behavioral \
   --sandbox \
@@ -258,8 +260,8 @@ chmod +x skill-scanner-cli-darwin-arm64
 也可以使用环境变量：
 
 ```bash
-export AGENT_MANAGER_SERVER="http://localhost:8000"
-export AGENT_MANAGER_TOKEN="amat_xxx"
+export SKILL_SCANNER_SERVER="http://localhost:8000"
+export SKILL_SCANNER_TOKEN="amat_xxx"
 export SKILL_SCANNER_HOST_ID="customer-prod-01"
 
 ./skill-scanner-cli-darwin-arm64 scan /path/to/skills --behavioral --sandbox --llm
@@ -271,7 +273,7 @@ export SKILL_SCANNER_HOST_ID="customer-prod-01"
 | --- | --- |
 | `scan <path>` | 扫描根目录。scanner 会递归发现包含 `SKILL.md` 的目录。 |
 | `--server URL` | Agent Manager 服务端地址。设置后会自动启用上传。 |
-| `--token TOKEN` | 接入 Token，需要包含 `scanner:submit`。也可用 `AGENT_MANAGER_TOKEN`。 |
+| `--token TOKEN` | 接入 Token，需要包含 `scanner:submit`。也可用 `SKILL_SCANNER_TOKEN`。 |
 | `--output PATH` | 本地 JSON 报告输出路径，默认 `skill-scan-report.json`。 |
 | `--host-id ID` | 客户侧主机或环境标识，方便服务端审计来源。 |
 | `--upload` | 显式上传到服务端。配置 `--server` 时会自动上传。 |

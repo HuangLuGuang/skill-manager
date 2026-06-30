@@ -27,8 +27,8 @@
 ./skill-scanner scan /path/to/skills --output skill-scan-report.json
 
 # 上传到平台：
-export SKILL_MANAGER_SERVER="{{ serverOrigin }}"
-export SKILL_MANAGER_TOKEN="amat_xxx"
+export SKILL_SCANNER_SERVER="{{ serverOrigin }}"
+export SKILL_SCANNER_TOKEN="amat_xxx"
 ./skill-scanner scan /path/to/skills --behavioral
 
 # 全部分析能力：
@@ -129,8 +129,8 @@ const parameterColumns = [
 
 const parameterRows = [
   { name: 'scan <path>', required: '是', usage: '客户本地 skills 根目录。scanner 会递归查找包含 SKILL.md 的目录。', example: './skill-scanner scan /opt/openclaw/skills' },
-  { name: 'SKILL_MANAGER_SERVER', required: '上传时必填', usage: 'Agent Manager 管理台地址。设置后会启用上传；也可以用 --server 传入。', example: 'http://127.0.0.1:8001' },
-  { name: 'SKILL_MANAGER_TOKEN', required: '上传时必填', usage: '凭证管理中创建的 Scanner 接入凭证，需要包含 scanner:submit；也兼容 AGENT_MANAGER_TOKEN。', example: 'amat_xxx' },
+  { name: 'SKILL_SCANNER_SERVER', required: '上传时必填', usage: 'Agent Manager 管理台地址。设置后会启用上传；也可以用 --server 传入。', example: 'http://127.0.0.1:8001' },
+  { name: 'SKILL_SCANNER_TOKEN', required: '上传时必填', usage: '凭证管理中创建的 Scanner 接入凭证，需要包含 scanner:submit。', example: 'amat_xxx' },
   { name: '--server', required: '否', usage: '命令行方式指定平台地址，会覆盖环境变量。', example: '--server https://agent-manager.example.com' },
   { name: '--token', required: '否', usage: '命令行方式指定接入凭证，会覆盖环境变量。', example: '--token amat_xxx' },
   { name: '--output', required: '否', usage: '本地 JSON 报告输出路径。报告里有 skill_id、fingerprint、本地预检结果和上传状态。', example: '--output report.json' },
@@ -151,8 +151,8 @@ const basicCommand = computed(() => `# 只做本地发现和轻量预检，不�
 ./skill-scanner scan /path/to/customer/skills \\
   --output skill-scan-report.json`)
 
-const fullCommand = computed(() => `export SKILL_MANAGER_SERVER="${serverOrigin.value}"
-export SKILL_MANAGER_TOKEN="amat_xxx"
+const fullCommand = computed(() => `export SKILL_SCANNER_SERVER="${serverOrigin.value}"
+export SKILL_SCANNER_TOKEN="amat_xxx"
 export SKILL_SCANNER_HOST_ID="customer-prod-01"
 
 ./skill-scanner scan /path/to/customer/skills \\
@@ -188,8 +188,8 @@ const switchesCommand = computed(() => `# 启动规则分析
   --output skill-scan-report.json`)
 
 const envCommand = computed(() => `# 本地调试示例，后端端口按你的 dev_server 配置填写
-export SKILL_MANAGER_SERVER="http://127.0.0.1:8001"
-export SKILL_MANAGER_TOKEN="amat_xxx"
+export SKILL_SCANNER_SERVER="http://127.0.0.1:8001"
+export SKILL_SCANNER_TOKEN="amat_xxx"
 export SKILL_SCANNER_HOST_ID="customer-prod-01"
 
 ./skill-scanner scan /Users/huangluguang/Downloads/skills-main \\

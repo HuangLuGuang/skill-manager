@@ -17,10 +17,12 @@
 必须配置：
 
 ```bash
-export AGENT_MANAGER_BASE_URL="http://agent-manager.example.com"
-export AGENT_MANAGER_API_TOKEN="amat_xxx"
+export AGENT_MANAGER_VERIFIER_BASE_URL="http://agent-manager.example.com"
+export AGENT_MANAGER_VERIFIER_TOKEN="amat_xxx"
 export AGENT_ID="your-agent-id"
 ```
+
+不要复用 `SKILL_SCANNER_TOKEN`；Verifier 需要 Agent 运行凭证。
 
 如果服务端配置了 `AGENT_MANAGER_SIGNING_KEY`，Agent 环境也必须使用同一个值。
 

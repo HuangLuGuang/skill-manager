@@ -49,11 +49,13 @@ agent-manager-skill-verifier.zip
 配置环境变量：
 
 ```bash
-export AGENT_MANAGER_BASE_URL="http://localhost:8001"
-export AGENT_MANAGER_API_TOKEN="amat_xxx"
+export AGENT_MANAGER_VERIFIER_BASE_URL="http://localhost:8001"
+export AGENT_MANAGER_VERIFIER_TOKEN="amat_xxx"
 export AGENT_ID="<agent-id>"
 export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 ```
+
+不要复用 `SKILL_SCANNER_TOKEN`；Verifier 需要 Agent 运行凭证。
 
 ## 安装到 Codex
 

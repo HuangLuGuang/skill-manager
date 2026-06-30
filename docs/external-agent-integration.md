@@ -115,8 +115,8 @@ unzip agent-manager-skill-verifier.zip -d ~/.claude/skills/
 配置运行环境：
 
 ```bash
-export AGENT_MANAGER_BASE_URL="http://localhost:8001"
-export AGENT_MANAGER_API_TOKEN="amat_xxx"
+export AGENT_MANAGER_VERIFIER_BASE_URL="http://localhost:8001"
+export AGENT_MANAGER_VERIFIER_TOKEN="amat_xxx"
 export AGENT_ID="<agent-id>"
 export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 ```
