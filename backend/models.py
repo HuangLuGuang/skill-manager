@@ -194,6 +194,9 @@ class LlmRequestAudit(Base):
     # 压缩标记
     compression_enabled = Column(Boolean, default=False, nullable=False)
     compression_level = Column(String(32), nullable=True)
+    request_duration_ms = Column(Float, default=0.0, nullable=False)
+    upstream_duration_ms = Column(Float, default=0.0, nullable=False)
+    platform_duration_ms = Column(Float, default=0.0, nullable=False)
     status = Column(String(32), default="success", nullable=False)
     error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

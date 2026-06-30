@@ -22,7 +22,7 @@
         :loading="loading"
         size="small"
         :pagination="pagination"
-        :scroll="{ x: 980, y: 400 }"
+        :scroll="{ x: 1120, y: 400 }"
         :customRow="traceRowProps"
         @change="handleTableChange"
       >
@@ -69,6 +69,12 @@
           <a-descriptions-item label="用户">{{ detail.stages.meta.api_key_username || '-' }}</a-descriptions-item>
           <a-descriptions-item label="用户组">{{ formatGroupNames(detail.stages.meta.api_key_group_names) }}</a-descriptions-item>
           <a-descriptions-item label="API key">{{ detail.stages.meta.api_key_name || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="总耗时">{{ formatMs(detail.stages.meta.request_duration_ms) }}</a-descriptions-item>
+          <a-descriptions-item label="模型耗时">{{ formatMs(detail.stages.meta.upstream_duration_ms) }}</a-descriptions-item>
+          <a-descriptions-item label="平台耗时">{{ formatMs(detail.stages.meta.platform_duration_ms) }}</a-descriptions-item>
+          <a-descriptions-item label="原始输入 Token">{{ formatNumber(originalInputTokens) }}</a-descriptions-item>
+          <a-descriptions-item label="发给模型输入 Token">{{ formatNumber(modelInputTokens) }}</a-descriptions-item>
+          <a-descriptions-item label="输出 Token">{{ formatNumber(detail.stages.meta.completion_tokens) }}</a-descriptions-item>
         </a-descriptions>
 
         <a-alert
@@ -111,7 +117,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
 
 import { getPrivacyTrace, listPrivacyTraces } from '../api'
@@ -133,6 +139,14 @@ const drawerOpen = ref(false)
 const viewMode = ref('文本')
 const revealOriginal = ref(false)
 const activeStages = ref(['masked', 'compressed', 'masked_response', 'final_response'])
+const originalInputTokens = computed(() => {
+  const compressed = detail.value?.stages?.compressed
+  return compressed?.enabled ? compressed.pre_tokens : detail.value?.stages?.meta?.prompt_tokens
+})
+const modelInputTokens = computed(() => {
+  const compressed = detail.value?.stages?.compressed
+  return compressed?.enabled ? compressed.post_tokens : detail.value?.stages?.meta?.prompt_tokens
+})
 const stageOrder = [
   { key: 'original', label: '1. 原始请求（含 PII）' },
   { key: 'masked', label: '2. 发送给 LLM（已替换）' },
@@ -142,13 +156,18 @@ const stageOrder = [
 ]
 
 const traceColumns = [
-  { title: '时间', dataIndex: 'created_at', width: 160, customRender: ({ text }) => formatBeijingDateTime(text) },
-  { title: '用户', key: 'api_key_username', width: 90 },
-  { title: '用户组', key: 'api_key_group_names', width: 150 },
-  { title: 'API key', key: 'api_key_name', width: 140 },
-  { title: '模型', dataIndex: 'model', width: 130 },
-  { title: '类型', key: 'type', width: 110 },
-  { title: 'Request ID', key: 'request_id', width: 180 },
+  { title: '时间', dataIndex: 'created_at', width: 135, customRender: ({ text }) => formatBeijingDateTime(text) },
+  { title: '用户', key: 'api_key_username', width: 75 },
+  { title: '用户组', key: 'api_key_group_names', width: 115 },
+  { title: 'API Key', key: 'api_key_name', width: 105 },
+  { title: '模型', dataIndex: 'model', width: 110 },
+  { title: '总耗时', dataIndex: 'request_duration_ms', width: 80, customRender: ({ text }) => formatMs(text) },
+  { title: '模型耗时', dataIndex: 'upstream_duration_ms', width: 85, customRender: ({ text }) => formatMs(text) },
+  { title: '平台耗时', dataIndex: 'platform_duration_ms', width: 85, customRender: ({ text }) => formatMs(text) },
+  { title: '输入', dataIndex: 'prompt_tokens', width: 75, customRender: ({ text }) => formatNumber(text) },
+  { title: '输出', dataIndex: 'completion_tokens', width: 75, customRender: ({ text }) => formatNumber(text) },
+  { title: '类型', key: 'type', width: 90 },
+  { title: 'Request ID', key: 'request_id', width: 90 },
 ]
 
 const fetchTraces = async (page = pagination.value.current, pageSize = pagination.value.pageSize) => {
@@ -202,6 +221,8 @@ const formatGroupNames = (value) => {
   const names = normalizeGroupNames(value)
   return names.length ? names.join(', ') : '-'
 }
+const formatMs = (value) => value || value === 0 ? `${Number(value).toFixed(1)} ms` : '-'
+const formatNumber = (value) => value || value === 0 ? Number(value).toLocaleString() : '-'
 
 const renderMessages = (messages = []) => messages.map((msg, index) => {
   const tag = msg.system ? 'SYSTEM INJECTED' : String(msg.role || '').toUpperCase()
@@ -243,7 +264,7 @@ onMounted(fetchTraces)
 
 .request-id-text {
   display: inline-block;
-  max-width: 150px;
+  max-width: 70px;
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: bottom;

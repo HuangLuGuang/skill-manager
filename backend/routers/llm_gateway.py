@@ -789,6 +789,7 @@ async def _stream_upstream(
     compression_enabled: bool = False,
     compression_level: str = "auto",
     compression_result: Any = None,
+    request_started_at: float | None = None,
 ):
     provider = db.query(models.ModelProvider).filter(models.ModelProvider.id == model.provider_id).first()
     if not provider:
@@ -806,6 +807,8 @@ async def _stream_upstream(
 
     async def event_generator():
         nonlocal usage
+        started_at = request_started_at or time.perf_counter()
+        upstream_started_at = time.perf_counter()
         try:
             async with httpx.AsyncClient(timeout=None) as client:
                 async with client.stream(
@@ -865,6 +868,8 @@ async def _stream_upstream(
                                 compression_level=compression_level,
                                 compression_result=compression_result,
                                 compressed_messages=payload["messages"],
+                                request_duration_ms=(time.perf_counter() - started_at) * 1000,
+                                upstream_duration_ms=(time.perf_counter() - upstream_started_at) * 1000,
                             )
                             yield "data: [DONE]\n\n"
                             return
@@ -914,6 +919,8 @@ async def _stream_upstream(
                 compression_level=compression_level,
                 compression_result=compression_result,
                 compressed_messages=payload["messages"],
+                request_duration_ms=(time.perf_counter() - started_at) * 1000,
+                upstream_duration_ms=(time.perf_counter() - upstream_started_at) * 1000,
             )
         except HTTPException as exc:
             _record_llm_error(
@@ -928,6 +935,8 @@ async def _stream_upstream(
                 error=str(exc.detail),
                 compression_enabled=compression_enabled,
                 compression_level=compression_level,
+                request_duration_ms=(time.perf_counter() - started_at) * 1000,
+                upstream_duration_ms=(time.perf_counter() - upstream_started_at) * 1000,
             )
             yield f"data: {json.dumps({'error': {'message': str(exc.detail), 'type': 'upstream_error'}}, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
@@ -965,8 +974,11 @@ def _record_llm_success(
     compression_level: str = "auto",
     compression_result: Any = None,
     compressed_messages: list[dict[str, Any]] | None = None,
+    request_duration_ms: float = 0.0,
+    upstream_duration_ms: float = 0.0,
 ) -> None:
     owner_meta = _key_owner_meta(db, key)
+    platform_duration_ms = max(0.0, request_duration_ms - upstream_duration_ms)
     db.add(
         models.LlmRequestAudit(
             request_id=request_id,
@@ -985,6 +997,9 @@ def _record_llm_success(
             reused_tokens=reused_total,
             compression_enabled=compression_enabled,
             compression_level=compression_level if compression_enabled else None,
+            request_duration_ms=round(request_duration_ms, 2),
+            upstream_duration_ms=round(upstream_duration_ms, 2),
+            platform_duration_ms=round(platform_duration_ms, 2),
         )
     )
     db.add(
@@ -1025,6 +1040,12 @@ def _record_llm_success(
                 "bypass_pii": bypass_pii,
                 **owner_meta,
                 "created_at": int(time.time()),
+                "request_duration_ms": round(request_duration_ms, 2),
+                "upstream_duration_ms": round(upstream_duration_ms, 2),
+                "platform_duration_ms": round(platform_duration_ms, 2),
+                "prompt_tokens": int(usage.get("prompt_tokens") or 0),
+                "completion_tokens": int(usage.get("completion_tokens") or 0),
+                "total_tokens": int(usage.get("total_tokens") or 0),
             },
             "original": {"messages": original_messages},
             "masked": {"messages": upstream_messages},
@@ -1058,7 +1079,10 @@ def _record_llm_error(
     error: str,
     compression_enabled: bool = False,
     compression_level: str = "auto",
+    request_duration_ms: float = 0.0,
+    upstream_duration_ms: float = 0.0,
 ) -> None:
+    platform_duration_ms = max(0.0, request_duration_ms - upstream_duration_ms)
     db.add(
         models.LlmRequestAudit(
             request_id=request_id,
@@ -1073,6 +1097,9 @@ def _record_llm_error(
             error=error,
             compression_enabled=compression_enabled,
             compression_level=compression_level if compression_enabled else None,
+            request_duration_ms=round(request_duration_ms, 2),
+            upstream_duration_ms=round(upstream_duration_ms, 2),
+            platform_duration_ms=round(platform_duration_ms, 2),
         )
     )
     db.commit()
@@ -1454,9 +1481,21 @@ async def list_traces(
         .limit(safe_page_size)
         .all()
     )
+    request_ids = [row.request_id for row in rows]
+    metric_by_request_id = {
+        metric.request_id: metric
+        for metric in (
+            db.query(models.LlmUsageMetric)
+            .filter(models.LlmUsageMetric.request_id.in_(request_ids))
+            .all()
+            if request_ids
+            else []
+        )
+    }
     traces = []
     for row in rows:
         payload = _json_loads(row.payload_json, {})
+        metric = metric_by_request_id.get(row.request_id)
         traces.append(
             {
                 **payload,
@@ -1466,6 +1505,8 @@ async def list_traces(
                 "model": row.model,
                 "bypass_pii": row.bypass_pii,
                 "created_at": row.created_at.isoformat(),
+                "prompt_tokens": metric.prompt_tokens if metric else payload.get("prompt_tokens", 0),
+                "completion_tokens": metric.completion_tokens if metric else payload.get("completion_tokens", 0),
             }
         )
     return {"traces": traces, "total": total, "page": safe_page, "page_size": safe_page_size}
@@ -1486,6 +1527,15 @@ async def get_trace_detail(
     if not rows:
         raise HTTPException(status_code=404, detail="Trace 不存在")
     stages = {row.stage: _json_loads(row.payload_json, {}) for row in rows}
+    metric = db.query(models.LlmUsageMetric).filter(models.LlmUsageMetric.request_id == request_id).first()
+    if metric:
+        stages.setdefault("meta", {}).update(
+            {
+                "prompt_tokens": metric.prompt_tokens,
+                "completion_tokens": metric.completion_tokens,
+                "total_tokens": metric.total_tokens,
+            }
+        )
     return {"request_id": request_id, "stages": stages}
 
 
@@ -1799,6 +1849,12 @@ async def get_llm_stats_overview(
     ).first()
 
     prompt_tokens, completion_tokens, total_tokens, tokens_saved, avg_ratio, avg_duration = agg
+    duration_agg = audit_q.with_entities(
+        func.coalesce(func.avg(models.LlmRequestAudit.request_duration_ms), 0),
+        func.coalesce(func.avg(models.LlmRequestAudit.upstream_duration_ms), 0),
+        func.coalesce(func.avg(models.LlmRequestAudit.platform_duration_ms), 0),
+    ).first()
+    avg_request_ms, avg_upstream_ms, avg_platform_ms = duration_agg
 
     return {
         "days": days,
@@ -1811,6 +1867,9 @@ async def get_llm_stats_overview(
         "tokens_saved": int(tokens_saved),
         "avg_compression_ratio": round(float(avg_ratio or 0), 4),
         "avg_compression_ms": round(float(avg_duration or 0), 1),
+        "avg_request_ms": round(float(avg_request_ms or 0), 1),
+        "avg_upstream_ms": round(float(avg_upstream_ms or 0), 1),
+        "avg_platform_ms": round(float(avg_platform_ms or 0), 1),
     }
 
 
@@ -1871,6 +1930,15 @@ async def get_llm_stats_by_model(
     if model:
         q = q.filter(models.LlmUsageMetric.model == model)
     rows = q.group_by(models.LlmUsageMetric.model).order_by(func.sum(models.LlmUsageMetric.total_tokens).desc()).all()
+    duration_q = db.query(
+        models.LlmRequestAudit.model,
+        func.coalesce(func.avg(models.LlmRequestAudit.request_duration_ms), 0).label("avg_request_ms"),
+        func.coalesce(func.avg(models.LlmRequestAudit.upstream_duration_ms), 0).label("avg_upstream_ms"),
+        func.coalesce(func.avg(models.LlmRequestAudit.platform_duration_ms), 0).label("avg_platform_ms"),
+    ).filter(models.LlmRequestAudit.created_at >= since)
+    if model:
+        duration_q = duration_q.filter(models.LlmRequestAudit.model == model)
+    duration_rows = {row.model: row for row in duration_q.group_by(models.LlmRequestAudit.model).all()}
 
     return {
         "days": days,
@@ -1882,6 +1950,9 @@ async def get_llm_stats_by_model(
                 "total_tokens": int(row.total),
                 "tokens_saved": int(row.saved),
                 "requests": row.requests,
+                "avg_request_ms": round(float(getattr(duration_rows.get(row.model), "avg_request_ms", 0) or 0), 1),
+                "avg_upstream_ms": round(float(getattr(duration_rows.get(row.model), "avg_upstream_ms", 0) or 0), 1),
+                "avg_platform_ms": round(float(getattr(duration_rows.get(row.model), "avg_platform_ms", 0) or 0), 1),
             }
             for row in rows
         ],
@@ -1967,6 +2038,7 @@ async def _chat_completions_with_key(
     key: models.LlmApiKey,
     db: Session,
 ) -> dict[str, Any]:
+    request_started_at = time.perf_counter()
     model = _resolve_model(db, payload.model, key)
     policy = _resolve_policy(db, key)
 
@@ -2085,6 +2157,7 @@ async def _chat_completions_with_key(
             compression_enabled=compression_enabled,
             compression_level=compression_level,
             compression_result=compression_result,
+            request_started_at=request_started_at,
         )
         return StreamingResponse(
             stream,
@@ -2109,7 +2182,10 @@ async def _chat_completions_with_key(
         )
 
     try:
+        upstream_started_at = time.perf_counter()
         upstream_response = await _call_upstream(db, model, body)
+        upstream_duration_ms = (time.perf_counter() - upstream_started_at) * 1000
+        request_duration_ms = (time.perf_counter() - request_started_at) * 1000
         masked_choices = []
         final_choices = []
         for choice in upstream_response.get("choices", []):
@@ -2145,6 +2221,9 @@ async def _chat_completions_with_key(
             reused_tokens=reused_total,
             compression_enabled=compression_enabled,
             compression_level=compression_level if compression_enabled else None,
+            request_duration_ms=round(request_duration_ms, 2),
+            upstream_duration_ms=round(upstream_duration_ms, 2),
+            platform_duration_ms=round(max(0.0, request_duration_ms - upstream_duration_ms), 2),
         )
         db.add(audit)
         db.add(
@@ -2185,6 +2264,12 @@ async def _chat_completions_with_key(
                     "bypass_pii": bypass_pii,
                     **_key_owner_meta(db, key),
                     "created_at": int(time.time()),
+                    "request_duration_ms": round(request_duration_ms, 2),
+                    "upstream_duration_ms": round(upstream_duration_ms, 2),
+                    "platform_duration_ms": round(max(0.0, request_duration_ms - upstream_duration_ms), 2),
+                    "prompt_tokens": int(usage.get("prompt_tokens") or 0),
+                    "completion_tokens": int(usage.get("completion_tokens") or 0),
+                    "total_tokens": int(usage.get("total_tokens") or 0),
                 },
                 "original": {"messages": original_messages},
                 "masked": {"messages": upstream_messages},
@@ -2219,6 +2304,11 @@ async def _chat_completions_with_key(
                 response.headers["x-compression-ms"] = str(round(compression_result.duration_ms, 0))
         return upstream_response
     except HTTPException as exc:
+        request_duration_ms = (time.perf_counter() - request_started_at) * 1000
+        upstream_duration_ms = locals().get("upstream_duration_ms")
+        if upstream_duration_ms is None and "upstream_started_at" in locals():
+            upstream_duration_ms = (time.perf_counter() - upstream_started_at) * 1000
+        upstream_duration_ms = float(upstream_duration_ms or 0.0)
         db.add(
             models.LlmRequestAudit(
                 request_id=request_id,
@@ -2233,6 +2323,9 @@ async def _chat_completions_with_key(
                 error=str(exc.detail),
                 compression_enabled=compression_enabled,
                 compression_level=compression_level if compression_enabled else None,
+                request_duration_ms=round(request_duration_ms, 2),
+                upstream_duration_ms=round(upstream_duration_ms, 2),
+                platform_duration_ms=round(max(0.0, request_duration_ms - upstream_duration_ms), 2),
             )
         )
         db.commit()
