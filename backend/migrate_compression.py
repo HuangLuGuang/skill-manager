@@ -70,6 +70,9 @@ def migrate() -> None:
         for col_name, col_type in [
             ("compression_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
             ("compression_level", "VARCHAR(32)"),
+            ("request_duration_ms", "FLOAT NOT NULL DEFAULT 0.0"),
+            ("upstream_duration_ms", "FLOAT NOT NULL DEFAULT 0.0"),
+            ("platform_duration_ms", "FLOAT NOT NULL DEFAULT 0.0"),
         ]:
             if col_name not in existing:
                 conn.exec_driver_sql(

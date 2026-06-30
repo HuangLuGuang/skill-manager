@@ -11,7 +11,7 @@ description: 当 Agent 准备查看、加载、注册或执行第三方、外部
 
 使用第三方或外部来源 Skill 前，只执行这一条验证命令：
 
-`python scripts/agent_manager_skill_guard.py verify --path /path/to/skill`
+`python scripts/agent_manager_skill_verifier.py verify --path /path/to/skill`
 
 `--path` 是本机 Skill 目录路径，必须指向包含 `SKILL.md` 的目录；优先使用绝对路径。
 

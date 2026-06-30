@@ -176,8 +176,9 @@ def agent_prompt_names(agent: models.ManagedAgent) -> list[str]:
     return [str(item) for item in _json_loads(agent.prompt_names_json, [])]
 
 
-def ensure_agent_skill_allowed(agent: models.ManagedAgent, skill_name: str) -> None:
-    if skill_name not in agent_skill_names(agent):
+def ensure_agent_skill_allowed(agent: models.ManagedAgent, skill_name: str, skill_id: str | None = None) -> None:
+    allowed = set(agent_skill_names(agent))
+    if skill_name not in allowed and (not skill_id or skill_id not in allowed):
         raise HTTPException(status_code=403, detail="智能体未授权使用该 Skill")
 
 

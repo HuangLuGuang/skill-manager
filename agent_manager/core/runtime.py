@@ -14,7 +14,7 @@ from typing import Any
 
 from .models import RegistryEntry, SkillStatus
 from .registry import Registry, make_event
-from .signer import verify_signature
+from .signer import compute_signature, verify_signature
 
 logger = logging.getLogger(__name__)
 
@@ -214,11 +214,44 @@ class RuntimeGuard:
             self._emit_blocked_entry(entry, agent_id, reason, metadata=audit_metadata)
             return False, entry, reason
 
-        if not hmac.compare_digest(local_signature.strip(), entry.signature):
-            reason = f"Skill {entry.name!r} signature mismatch — possible tampering"
-            logger.error("BLOCKED signature verify (tamper): %s", reason)
-            self._emit_blocked_entry(entry, agent_id, reason, tamper=True, metadata=audit_metadata)
-            return False, entry, reason
+        submitted_signature = local_signature.strip()
+        if not hmac.compare_digest(submitted_signature, entry.signature):
+            previous_signature = entry.signature
+            if entry.skill_path:
+                try:
+                    refreshed_signature = compute_signature(Path(entry.skill_path))
+                except Exception as exc:
+                    refreshed_signature = None
+                    logger.warning("Could not refresh stored signature for %r: %s", entry.name, exc)
+                    reason = f"Skill {entry.name!r} stored signature could not be refreshed"
+                    self._emit_blocked_entry(entry, agent_id, reason, metadata=audit_metadata)
+                    return False, entry, reason
+                if refreshed_signature and hmac.compare_digest(submitted_signature, refreshed_signature):
+                    refreshed_entry = self.registry.refresh_signature_if_current(
+                        entry.skill_id,
+                        previous_signature,
+                        refreshed_signature,
+                    )
+                    if not refreshed_entry or not refreshed_entry.is_loadable():
+                        reason = (
+                            f"Skill {entry.name!r} has status "
+                            f"{refreshed_entry.status.value if refreshed_entry else 'UNKNOWN'} "
+                            "— only APPROVED/DEPLOYED skills may load"
+                        )
+                        logger.warning("BLOCKED signature verify: %s", reason)
+                        self._emit_blocked_entry(refreshed_entry or entry, agent_id, reason, metadata=audit_metadata)
+                        return False, refreshed_entry or entry, reason
+                    entry = refreshed_entry
+                else:
+                    reason = f"Skill {entry.name!r} signature mismatch — possible tampering"
+                    logger.error("BLOCKED signature verify (tamper): %s", reason)
+                    self._emit_blocked_entry(entry, agent_id, reason, tamper=True, metadata=audit_metadata)
+                    return False, entry, reason
+            else:
+                reason = f"Skill {entry.name!r} signature mismatch — possible tampering"
+                logger.error("BLOCKED signature verify (tamper): %s", reason)
+                self._emit_blocked_entry(entry, agent_id, reason, tamper=True, metadata=audit_metadata)
+                return False, entry, reason
 
         self.registry.log_event(make_event(
             "skill_signature_verified", entry, actor=agent_id,

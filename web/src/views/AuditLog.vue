@@ -10,13 +10,13 @@
           style="width: 320px"
           allow-clear
         />
-        <a-select v-model:value="filters.eventType" style="width: 220px">
+        <a-select v-model:value="filters.eventType" style="width: 220px" @change="handleFilterChange">
           <a-select-option value="all">全部事件</a-select-option>
           <a-select-option v-for="option in eventTypeOptions" :key="option.value" :value="option.value">
             {{ option.label }}
           </a-select-option>
         </a-select>
-        <a-select v-model:value="filters.sinceHours" style="width: 160px">
+        <a-select v-model:value="filters.sinceHours" style="width: 160px" @change="handleFilterChange">
           <a-select-option :value="24">最近 24 小时</a-select-option>
           <a-select-option :value="168">最近 7 天</a-select-option>
           <a-select-option :value="720">最近 30 天</a-select-option>
@@ -157,6 +157,14 @@ const handleTableChange = (pager, _filters, sorter) => {
       field: sorter.field,
       order: sorter.order || 'ascend',
     }
+  }
+  fetchAudit()
+}
+
+const handleFilterChange = () => {
+  pagination.value = {
+    ...pagination.value,
+    current: 1,
   }
   fetchAudit()
 }

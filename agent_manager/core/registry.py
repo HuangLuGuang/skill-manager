@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from .models import (
     AuditEvent,
     RegistryEntry,
@@ -262,6 +264,28 @@ class Registry:
             payload["updated_at"] = row["updated_at"]
         return RegistryEntry.model_validate(payload)
 
+    def _entries_from_rows(self, rows: list[sqlite3.Row]) -> list[RegistryEntry]:
+        entries: list[RegistryEntry] = []
+        for row in rows:
+            try:
+                entries.append(self._entry_from_row(row))
+            except (json.JSONDecodeError, ValidationError) as exc:
+                row_id = row["skill_id"] if "skill_id" in row.keys() else "unknown"
+                row_name = row["name"] if "name" in row.keys() else "unknown"
+                logger.warning("Skipping malformed skill registry row skill_id=%s name=%s: %s", row_id, row_name, exc)
+        return entries
+
+    def _safe_entry_from_row(self, row: sqlite3.Row | None) -> RegistryEntry | None:
+        if not row:
+            return None
+        try:
+            return self._entry_from_row(row)
+        except (json.JSONDecodeError, ValidationError) as exc:
+            row_id = row["skill_id"] if "skill_id" in row.keys() else "unknown"
+            row_name = row["name"] if "name" in row.keys() else "unknown"
+            logger.warning("Skipping malformed skill registry row skill_id=%s name=%s: %s", row_id, row_name, exc)
+            return None
+
     def _upsert_review(self, conn: sqlite3.Connection, request: ReviewRequest) -> None:
         payload = json.dumps(request.model_dump(mode="json"), ensure_ascii=False, default=str)
         conn.execute(
@@ -332,6 +356,24 @@ class Registry:
                 raise KeyError(f"skill_id {entry.skill_id!r} not found")
             self._upsert_entry(conn, entry)
 
+    def refresh_signature_if_current(
+        self,
+        skill_id: str,
+        old_signature: str,
+        new_signature: str,
+    ) -> RegistryEntry | None:
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                "SELECT skill_id, name, payload, updated_at FROM skill_registry WHERE skill_id = ?",
+                (skill_id,),
+            ).fetchone()
+            entry = self._safe_entry_from_row(row)
+            if not entry or entry.signature != old_signature or not entry.is_loadable():
+                return entry
+            entry.signature = new_signature
+            self._upsert_entry(conn, entry)
+            return entry
+
     def delete(self, skill_id: str) -> None:
         with self._lock, self._connect() as conn:
             cur = conn.execute("DELETE FROM skill_registry WHERE skill_id = ?", (skill_id,))
@@ -342,31 +384,31 @@ class Registry:
     def get_by_id(self, skill_id: str) -> RegistryEntry | None:
         with self._lock, self._connect() as conn:
             row = conn.execute(
-                "SELECT payload, updated_at FROM skill_registry WHERE skill_id = ?",
+                "SELECT skill_id, name, payload, updated_at FROM skill_registry WHERE skill_id = ?",
                 (skill_id,),
             ).fetchone()
-            return self._entry_from_row(row) if row else None
+            return self._safe_entry_from_row(row)
 
     def get_by_name(self, name: str) -> RegistryEntry | None:
         """Return the most recently submitted entry with matching name."""
         with self._lock, self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT payload, updated_at FROM skill_registry
+                SELECT skill_id, name, payload, updated_at FROM skill_registry
                 WHERE lower(name) = lower(?)
                 ORDER BY submitted_at DESC
                 LIMIT 1
                 """,
                 (name,),
             ).fetchone()
-            return self._entry_from_row(row) if row else None
+            return self._safe_entry_from_row(row)
 
     def list_all(self, status: SkillStatus | None = None) -> list[RegistryEntry]:
         with self._lock, self._connect() as conn:
             if status:
                 rows = conn.execute(
                     """
-                    SELECT payload, updated_at FROM skill_registry
+                    SELECT skill_id, name, payload, updated_at FROM skill_registry
                     WHERE status = ?
                     ORDER BY updated_at DESC
                     """,
@@ -374,9 +416,9 @@ class Registry:
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT payload, updated_at FROM skill_registry ORDER BY updated_at DESC"
+                    "SELECT skill_id, name, payload, updated_at FROM skill_registry ORDER BY updated_at DESC"
                 ).fetchall()
-            return [self._entry_from_row(row) for row in rows]
+            return self._entries_from_rows(rows)
 
     def list_by_statuses(self, statuses: list[SkillStatus]) -> list[RegistryEntry]:
         """Return all skills whose status is in the given list."""
@@ -386,26 +428,26 @@ class Registry:
             placeholders = ",".join("?" for _ in statuses)
             rows = conn.execute(
                 f"""
-                SELECT payload, updated_at FROM skill_registry
+                SELECT skill_id, name, payload, updated_at FROM skill_registry
                 WHERE status IN ({placeholders})
                 ORDER BY updated_at DESC
                 """,
                 tuple(s.value for s in statuses),
             ).fetchall()
-            return [self._entry_from_row(row) for row in rows]
+            return self._entries_from_rows(rows)
 
     def list_loadable(self) -> list[RegistryEntry]:
         """Return all skills that agents can load."""
         with self._lock, self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT payload, updated_at FROM skill_registry
+                SELECT skill_id, name, payload, updated_at FROM skill_registry
                 WHERE status IN (?, ?)
                 ORDER BY submitted_at DESC
                 """,
                 (SkillStatus.APPROVED.value, SkillStatus.DEPLOYED.value),
             ).fetchall()
-            return [self._entry_from_row(row) for row in rows]
+            return self._entries_from_rows(rows)
 
     # ------------------------------------------------------------------ #
     # Review queue                                                         #

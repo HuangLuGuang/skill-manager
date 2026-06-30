@@ -33,7 +33,7 @@
         </a-col>
       </a-row>
       <div class="flow-summary">
-        扫描器负责批量接入本地 Skill；Agent 运行时通过 skill-guard 或 Runtime API 在加载前向平台校验授权、状态和内容指纹。
+        扫描器负责批量接入本地 Skill；Agent 运行时通过 Skill Verifier 或 Runtime API 在加载前向平台校验授权、状态和内容指纹。
       </div>
     </a-card>
 
@@ -348,12 +348,17 @@ const filterOption = (input, option) =>
 const findRefsByNames = (options, names = []) => {
   const used = new Set()
   return names.map((name) => {
-    const option = options.find(item => item.name === name && !used.has(item.value))
+    const option = options.find(item => (item.skill_id === name || item.prompt_id === name || item.name === name) && !used.has(item.value))
     if (!option) return null
     used.add(option.value)
     return option.value
   }).filter(Boolean)
 }
+const skillIdsFromRefs = (options, refs = []) =>
+  refs.map(ref => {
+    const item = options.find(option => option.value === ref)
+    return item?.skill_id || item?.id || item?.name
+  }).filter(Boolean)
 const namesFromRefs = (options, refs = []) =>
   refs.map(ref => options.find(item => item.value === ref)?.name).filter(Boolean)
 
@@ -424,7 +429,7 @@ const saveAgent = async () => {
       description: agentForm.description,
       status: agentForm.status,
       default_model: agentForm.default_model,
-      skill_names: namesFromRefs(skillOptions.value, agentForm.skill_refs),
+      skill_names: skillIdsFromRefs(skillOptions.value, agentForm.skill_refs),
       prompt_names: namesFromRefs(promptOptions.value, agentForm.prompt_refs),
     }
     let savedAgent

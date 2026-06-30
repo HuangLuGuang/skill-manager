@@ -252,7 +252,7 @@ unzip agent-manager-skill-verifier.zip -d ~/.claude/skills/
 export AGENT_MANAGER_BASE_URL="${runtimeApiOrigin}"
 export AGENT_MANAGER_API_TOKEN="amat_xxx"
 export AGENT_ID="<agent-id>"`
-const guardUsageCommand = `python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_guard.py verify \\
+const guardUsageCommand = `python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py verify \\
   --path /path/to/skill`
 const skillPagination = ref({
   current: 1,

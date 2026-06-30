@@ -22,8 +22,18 @@ logger = logging.getLogger(__name__)
 _SIGNING_KEY_ENV = "AGENT_MANAGER_SIGNING_KEY"
 _DEV_WARNING_SHOWN = False
 
+# Directories whose contents are excluded from signature computation.
+# Must match the client-side DEFAULT_IGNORES in agent_manager_skill_verifier.py.
+_SKILL_IGNORE_DIRS = {".git", ".venv", "node_modules", "__pycache__", "dist", "build"}
 
 _ENV_LOADED = False
+
+
+def _normalize_zip_mojibake(value: str) -> str:
+    try:
+        return value.encode("cp437").decode("utf-8")
+    except UnicodeError:
+        return value
 
 def _get_key() -> bytes | None:
     # Lazily load dotenv if not already loaded to avoid import-time side effects
@@ -72,10 +82,14 @@ def compute_signature(skill_path: str | Path) -> str:
 
     parts: list[str] = []
     for fpath in sorted(root.rglob("*")):
-        if fpath.is_file():
-            rel = fpath.relative_to(root).as_posix()
-            file_hash = _content_hash(fpath)
-            parts.append(f"{rel}:{file_hash}\n")
+        if not fpath.is_file() or fpath.is_symlink():
+            continue
+        rel_parts = fpath.relative_to(root).parts
+        if any(part in _SKILL_IGNORE_DIRS for part in rel_parts):
+            continue
+        rel = "/".join(_normalize_zip_mojibake(part) for part in fpath.relative_to(root).parts)
+        file_hash = _content_hash(fpath)
+        parts.append(f"{rel}:{file_hash}\n")
 
     content = "".join(parts).encode()
     key = _get_key()

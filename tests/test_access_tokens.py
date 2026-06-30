@@ -7,18 +7,33 @@ from sqlalchemy.orm import sessionmaker
 
 from agent_manager.api import scanner_router
 from backend import auth, models
-from backend.routers import access_tokens
+from backend.routers import access_tokens, agents
 from backend.sqlite_db import Base, get_db
 
 
 class _Runtime:
-    def can_load(self, skill_name, agent_id=None):
+    def can_load(self, skill_name, agent_id=None, **_kwargs):
         entry = type("Entry", (), {"status": type("Status", (), {"value": "APPROVED"})(), "risk_level": None})()
         return True, entry, "allowed"
 
 
+class _Registry:
+    def log_event(self, _event):
+        return None
+
+
 class _Manager:
     runtime = _Runtime()
+    registry = _Registry()
+
+    def get_skill(self, skill_name):
+        if skill_name != "risk-skill":
+            return None
+        return type(
+            "Skill",
+            (),
+            {"skill_id": "risk-skill-id", "name": "risk-skill"},
+        )()
 
     def get_prompt(self, prompt_name):
         if prompt_name != "risk-prompt":
@@ -79,6 +94,7 @@ def _client(tmp_path):
     )
     app.dependency_overrides[scanner_router.get_manager] = lambda: _Manager()
     app.include_router(access_tokens.router, prefix="/api/v1")
+    app.include_router(agents.router)
     app.include_router(scanner_router.runtime_router)
     return TestClient(app)
 
@@ -161,6 +177,59 @@ def test_agent_runtime_token_enforces_bound_agent_and_allowed_skill(tmp_path):
     )
     assert disabled.status_code == 403
     assert "未启用" in disabled.json()["detail"]
+
+
+def test_agent_runtime_token_allows_skill_id_binding(tmp_path):
+    client = _client(tmp_path)
+    token = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "risk-agent-runtime",
+            "token_type": "agent_runtime",
+            "bound_agent_id": "risk-agent",
+            "scopes": ["runtime:can-load"],
+        },
+    ).json()["token"]
+
+    response = client.put(
+        "/agents/1",
+        json={"skill_names": ["risk-skill-id"]},
+    )
+    assert response.status_code == 200
+
+    allowed = client.get(
+        "/api/v1/access/runtime/can-load/risk-skill",
+        headers={"Authorization": f"Bearer {token}", "X-Agent-ID": "risk-agent"},
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["allowed"] is True
+
+
+def test_runtime_missing_scope_error_identifies_token(tmp_path):
+    client = _client(tmp_path)
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "scanner-only",
+            "token_type": "scanner",
+            "scopes": ["scanner:submit"],
+        },
+    ).json()
+
+    response = client.post(
+        "/api/v1/access/runtime/verify-skill-signature",
+        headers={"Authorization": f"Bearer {created['token']}"},
+        json={
+            "skill_name": "risk-skill",
+            "agent_id": "risk-agent",
+        },
+    )
+
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert detail == "接入凭证缺少权限: runtime:verify-signature"
+    assert "scanner-only" not in detail
+    assert created["record"]["token_prefix"] not in detail
 
 
 def test_agent_runtime_token_enforces_bound_prompt(tmp_path):

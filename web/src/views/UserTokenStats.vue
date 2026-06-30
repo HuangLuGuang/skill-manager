@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="模型网关" sub-title="按用户统计 Token 用量" />
+    <a-page-header title="用户 Token 分析" sub-title="按用户查看模型调用、Token 消耗和压缩节省" />
 
     <!-- 筛选 -->
     <a-space style="margin-bottom: 16px" wrap>
@@ -41,7 +41,7 @@
     </a-row>
 
     <!-- 明细表 -->
-    <a-card title="用户用量明细">
+    <a-card title="用户 Token 明细">
       <a-table
         :data-source="userStats.users"
         :columns="columns"

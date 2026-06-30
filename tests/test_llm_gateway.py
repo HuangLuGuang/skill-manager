@@ -108,10 +108,17 @@ def test_chat_completions_pseudonymizes_and_saves_trace(tmp_path, monkeypatch):
         assert {"meta", "original", "masked", "masked_response", "final_response"} <= stages
         audit = db.query(models.LlmRequestAudit).first()
         assert audit.total_tokens == 15
+        assert audit.request_duration_ms >= audit.upstream_duration_ms >= 0
+        assert audit.platform_duration_ms >= 0
         meta = next(row for row in db.query(models.LlmPipelineTrace).all() if row.stage == "meta")
         meta_payload = llm_gateway._json_loads(meta.payload_json, {})
         assert meta_payload["api_key_id"] == audit.api_key_id
         assert meta_payload["api_key_name"] == "customer-key"
+        assert meta_payload["request_duration_ms"] == audit.request_duration_ms
+        assert meta_payload["upstream_duration_ms"] == audit.upstream_duration_ms
+        assert meta_payload["platform_duration_ms"] == audit.platform_duration_ms
+        assert meta_payload["prompt_tokens"] == audit.prompt_tokens
+        assert meta_payload["completion_tokens"] == audit.completion_tokens
     finally:
         db.close()
 

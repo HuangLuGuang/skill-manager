@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Platform-neutral Agent Manager guard for third-party skills."""
+"""Platform-neutral Agent Manager verifier for third-party skills."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ SIGNING_KEY_ENV = "AGENT_MANAGER_SIGNING_KEY"
 _ENV_LOADED = False
 
 
-class GuardError(RuntimeError):
+class VerifierError(RuntimeError):
     pass
 
 
@@ -49,6 +49,13 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def normalize_zip_mojibake(value: str) -> str:
+    try:
+        return value.encode("cp437").decode("utf-8")
+    except UnicodeError:
+        return value
+
+
 def iter_skill_files(skill_dir: str | Path, ignores: set[str] | None = None) -> list[Path]:
     root = Path(skill_dir).resolve()
     ignored = ignores or set()
@@ -68,7 +75,7 @@ def fingerprint_skill_dir(skill_dir: str | Path, ignores: set[str] | None = None
     files = []
     total_bytes = 0
     for path in iter_skill_files(root, ignores=ignores):
-        rel = path.relative_to(root).as_posix()
+        rel = "/".join(normalize_zip_mojibake(part) for part in path.relative_to(root).parts)
         size = path.stat().st_size
         digest = file_sha256(path)
         total_bytes += size
@@ -92,12 +99,12 @@ def fingerprint_skill_dir(skill_dir: str | Path, ignores: set[str] | None = None
 def compute_skill_signature(skill_dir: str | Path, ignores: set[str] | None = None) -> str:
     root = Path(skill_dir).resolve()
     if not root.is_dir():
-        raise GuardError(f"不是目录: {root}")
+        raise VerifierError(f"不是目录: {root}")
 
     parts = []
-    files = iter_skill_files(root, ignores=ignores) if ignores is not None else sorted(item for item in root.rglob("*") if item.is_file())
+    files = iter_skill_files(root, ignores=ignores or set())
     for path in files:
-        rel = path.relative_to(root).as_posix()
+        rel = "/".join(normalize_zip_mojibake(part) for part in path.relative_to(root).parts)
         parts.append(f"{rel}:{file_sha256(path)}\n")
 
     content = "".join(parts).encode()
@@ -110,9 +117,9 @@ def compute_skill_signature(skill_dir: str | Path, ignores: set[str] | None = No
 def create_skill_zip(skill_dir: str | Path, output_dir: str | Path, ignores: set[str] | None = None) -> tuple[Path, dict[str, Any]]:
     root = Path(skill_dir).resolve()
     if not root.is_dir():
-        raise GuardError(f"不是目录: {root}")
+        raise VerifierError(f"不是目录: {root}")
     if not (root / "SKILL.md").is_file():
-        raise GuardError(f"SKILL.md 不存在: {root}")
+        raise VerifierError(f"SKILL.md 不存在: {root}")
 
     ignored = ignores or DEFAULT_IGNORES
     manifest = fingerprint_skill_dir(root, ignores=ignored)
@@ -195,9 +202,9 @@ def api_request(
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise GuardError(f"Agent Manager API 返回 {exc.code}: {detail}") from exc
+        raise VerifierError(f"Agent Manager API 返回 {exc.code}: {detail}") from exc
     except urllib.error.URLError as exc:
-        raise GuardError(f"无法连接 Agent Manager: {exc.reason}") from exc
+        raise VerifierError(f"无法连接 Agent Manager: {exc.reason}") from exc
 
 
 def normalize_base_url(value: str) -> str:
@@ -212,7 +219,7 @@ def resolve_server(args: argparse.Namespace) -> str:
         or os.environ.get("AGENT_MANAGER_SERVER")
     )
     if not server:
-        raise GuardError("缺少 Agent Manager 地址，请设置 AGENT_MANAGER_BASE_URL/SKILL_MANAGER_SERVER 或传入 --server")
+        raise VerifierError("缺少 Agent Manager 地址，请设置 AGENT_MANAGER_BASE_URL 或传入 --server")
     return normalize_base_url(server)
 
 
@@ -225,7 +232,7 @@ def resolve_token(args: argparse.Namespace) -> str:
         or os.environ.get("AGENT_MANAGER_ACCESS_TOKEN")
     )
     if not token:
-        raise GuardError("缺少接入凭证，请设置 SKILL_MANAGER_TOKEN/AGENT_MANAGER_TOKEN/AGENT_MANAGER_API_TOKEN 或传入 --token")
+        raise VerifierError("缺少接入凭证，请设置 AGENT_MANAGER_API_TOKEN 或传入 --token")
     return token
 
 
@@ -236,7 +243,7 @@ def command_submit(args: argparse.Namespace) -> int:
     if args.ignore:
         ignores.update(part.strip() for part in args.ignore.split(",") if part.strip())
 
-    with tempfile.TemporaryDirectory(prefix="agent-manager-skill-guard-") as tmp_dir:
+    with tempfile.TemporaryDirectory(prefix="agent-manager-skill-verifier-") as tmp_dir:
         zip_path, manifest = create_skill_zip(args.path, tmp_dir, ignores=ignores)
         fields = {
             "manifest": json.dumps(manifest, ensure_ascii=False),
@@ -245,7 +252,7 @@ def command_submit(args: argparse.Namespace) -> int:
             "use_llm": str(bool(args.llm)).lower(),
             "use_sandbox": str(bool(args.sandbox)).lower(),
             "no_cache": str(bool(args.no_cache)).lower(),
-            "scanner_version": "agent-manager-skill-guard",
+            "scanner_version": "agent-manager-skill-verifier",
         }
         if args.host_id:
             fields["host_id"] = args.host_id
@@ -286,10 +293,10 @@ def command_verify(args: argparse.Namespace) -> int:
         ignores.update(part.strip() for part in args.ignore.split(",") if part.strip())
     agent_id = (args.agent_id or os.environ.get("AGENT_ID") or "").strip()
     if not agent_id:
-        raise GuardError("缺少 Agent 身份，请设置 AGENT_ID")
+        raise VerifierError("缺少 Agent 身份，请设置 AGENT_ID")
     skill_name = read_skill_name(args.path)
     if not skill_name and not args.skill_id:
-        raise GuardError("无法识别 Skill 名称。请确认目录包含带 name 的 SKILL.md，或传入 --skill-id")
+        raise VerifierError("无法识别 Skill 名称。请确认目录包含带 name 的 SKILL.md，或传入 --skill-id")
     signature = compute_skill_signature(args.path, ignores=ignores)
     body = {
         "local_signature": signature,
@@ -332,7 +339,7 @@ def command_verify(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Agent Manager third-party skill guard")
+    parser = argparse.ArgumentParser(description="Agent Manager third-party skill verifier")
     parser.add_argument("--server", default=None, help="Agent Manager base URL; default AGENT_MANAGER_BASE_URL")
     parser.add_argument("--token", default=None, help="Access token; default AGENT_MANAGER_TOKEN")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -372,7 +379,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except GuardError as exc:
+    except VerifierError as exc:
         print(f"阻断: {exc}")
         return 1
 

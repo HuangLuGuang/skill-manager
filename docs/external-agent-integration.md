@@ -65,11 +65,11 @@ flowchart LR
 - `GET /api/v1/skills`
 - `GET /api/v1/skills/{id}`
 
-### Universal Skill Guard
+### Universal Skill Verifier
 
 对于 Codex、Claude Code 这类支持本地 skill 指令的 Agent，可以使用仓库内置的通用示例：
 
-- `demo/agent-manager-skill-guard/skills/agent-manager-skill-guard/`
+- `demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/`
 
 它不使用 Claude Code hook、Codex 专用 adapter 或平台绑定配置，适合首版用来规范 Agent 行为：
 
@@ -81,12 +81,12 @@ flowchart LR
 
 - `智能体管理`
 - `接入与运行`
-- `下载 Skill Guard`
+- `下载 Skill Verifier`
 
 后端下载接口：
 
 ```http
-GET /api/v1/scanner/skill-guard/download
+GET /api/v1/scanner/skill-verifier/download
 ```
 
 凭证至少需要这些权限：
@@ -102,14 +102,14 @@ GET /api/v1/scanner/skill-guard/download
 
 ```bash
 mkdir -p ~/.codex/skills
-unzip agent-manager-skill-guard.zip -d ~/.codex/skills/
+unzip agent-manager-skill-verifier.zip -d ~/.codex/skills/
 ```
 
 安装到 Claude Code：
 
 ```bash
 mkdir -p ~/.claude/skills
-unzip agent-manager-skill-guard.zip -d ~/.claude/skills/
+unzip agent-manager-skill-verifier.zip -d ~/.claude/skills/
 ```
 
 配置运行环境：
@@ -124,7 +124,7 @@ export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 提交第三方 skill：
 
 ```bash
-python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py submit \
+python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py submit \
   --path /path/to/third-party-skill \
   --behavioral \
   --deep-scan
@@ -133,14 +133,14 @@ python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.
 查看状态：
 
 ```bash
-python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py status \
+python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py status \
   --skill-id <skill-id>
 ```
 
 使用前检查内容完整性和加载授权：
 
 ```bash
-python <skills-dir>/agent-manager-skill-guard/scripts/agent_manager_skill_guard.py verify \
+python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py verify \
   --path /path/to/third-party-skill
 ```
 

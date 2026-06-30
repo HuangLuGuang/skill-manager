@@ -66,6 +66,20 @@
       </a-col>
       <a-col :xs="24" :sm="12" :lg="6">
         <a-card>
+          <a-statistic title="平均响应时间" :value="overview.avg_request_ms || 0" :precision="1">
+            <template #suffix>
+              <span style="font-size: 14px">ms</span>
+            </template>
+          </a-statistic>
+          <div class="stat-sub">
+            模型 {{ overview.avg_upstream_ms || 0 }}ms · 平台 {{ overview.avg_platform_ms || 0 }}ms
+          </div>
+        </a-card>
+      </a-col>
+    </a-row>
+    <a-row :gutter="[16, 16]" style="margin-bottom: 16px">
+      <a-col :span="24">
+        <a-card>
           <a-statistic
             title="Token 节省"
             :value="formatNumber(overview.tokens_saved)"
@@ -76,7 +90,7 @@
             </template>
           </a-statistic>
           <div class="stat-sub" v-if="overview.avg_compression_ratio">
-            平均压缩比 {{ (overview.avg_compression_ratio * 100).toFixed(1) }}% · 平均耗时 {{ overview.avg_compression_ms }}ms
+            平均压缩比 {{ (overview.avg_compression_ratio * 100).toFixed(1) }}% · 平均压缩耗时 {{ overview.avg_compression_ms }}ms
           </div>
         </a-card>
       </a-col>
@@ -352,6 +366,18 @@ const modelTableColumns = [
       const pct = record.prompt_tokens ? Math.round(text / record.prompt_tokens * 100) : 0
       return `${formatNumber(text)} (${pct}%)`
     },
+  },
+  {
+    title: '平均响应', dataIndex: 'avg_request_ms', width: 110, align: 'right',
+    customRender: ({ text }) => `${text || 0} ms`,
+  },
+  {
+    title: '模型耗时', dataIndex: 'avg_upstream_ms', width: 110, align: 'right',
+    customRender: ({ text }) => `${text || 0} ms`,
+  },
+  {
+    title: '平台耗时', dataIndex: 'avg_platform_ms', width: 110, align: 'right',
+    customRender: ({ text }) => `${text || 0} ms`,
   },
 ]
 
