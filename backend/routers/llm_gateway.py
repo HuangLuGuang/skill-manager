@@ -59,11 +59,12 @@ TRACE_STAGES = ["meta", "prompt_security", "original", "masked", "compressed", "
 ACTIVE_KEY_REQUESTS: dict[int, int] = {}
 MESSAGE_TEXT_FIELDS = ("content", "reasoning_content")
 PROMPT_GUARD_RULES = [
-    ("prompt_injection", "HIGH", "要求忽略或覆盖系统指令", r"(?i)(ignore|disregard|forget)\s+(all\s+)?(previous|prior|above|system)\s+(instructions?|prompts?)|忽略(以上|之前|前面|所有).{0,12}(指令|提示词|规则)|覆盖.{0,12}(系统|开发者).{0,8}(指令|提示词)"),
-    ("system_prompt_leak", "HIGH", "要求泄露系统提示词或内部指令", r"(?i)(reveal|show|print|dump|output).{0,40}(system prompt|developer message|hidden instructions?|internal instructions?)|(泄露|显示|输出|打印).{0,20}(系统提示词|系统指令|隐藏指令|内部指令)"),
-    ("secret_exfiltration", "HIGH", "要求输出密钥、凭据或敏感配置", r"(?i)(api[_ -]?key|secret|token|password|credential|private key).{0,40}(print|show|reveal|dump|output|exfiltrate)|(输出|泄露|打印).{0,20}(密钥|凭据|密码|token|api key|私钥)"),
-    ("safety_bypass", "MEDIUM", "要求绕过安全限制或审计", r"(?i)(bypass|disable|turn off|ignore).{0,30}(safety|policy|guardrail|audit|filter|moderation)|(绕过|关闭|禁用).{0,20}(安全|策略|审计|过滤|限制)"),
-    ("tool_output_instruction", "MEDIUM", "工具返回内容夹带新的执行指令", r"(?i)(tool output|observation|retrieved content).{0,80}(ignore|follow these instructions|system prompt)|(工具返回|检索内容).{0,40}(忽略|执行以下|遵循以下)"),
+    ("prompt_injection", "HIGH", "要求忽略或覆盖系统指令", r"(?i)(ignore|disregard|forget)\s+(all\s+)?(previous|prior|above|system)\s+(instructions?|prompts?)|(忽略|无视|忘记|不要遵守|不用遵守|别管).{0,16}(以上|之前|前面|所有|系统|开发者|平台).{0,16}(指令|提示词|规则|要求)|(覆盖|重写|替换).{0,12}(系统|开发者|平台).{0,8}(指令|提示词|规则)"),
+    ("system_prompt_leak", "HIGH", "要求泄露系统提示词或内部指令", r"(?i)(reveal|show|print|dump|output).{0,40}(system prompt|developer message|hidden instructions?|internal instructions?)|(泄露|显示|输出|打印|复述|逐字).{0,20}(系统提示词|系统指令|开发者消息|隐藏指令|内部指令|初始提示词|完整提示词)"),
+    ("secret_exfiltration", "HIGH", "要求输出密钥、凭据或敏感配置", r"(?i)(api[_ -]?key|secret|token|password|credential|private key).{0,40}(print|show|reveal|dump|output|exfiltrate)|(输出|泄露|打印|展示|导出).{0,20}(密钥|凭据|密码|token|api key|私钥|环境变量|配置文件)"),
+    ("safety_bypass", "MEDIUM", "要求绕过安全限制或审计", r"(?i)(bypass|disable|turn off|ignore).{0,30}(safety|policy|guardrail|audit|filter|moderation)|(绕过|关闭|禁用|跳过|规避).{0,20}(安全|策略|审计|过滤|限制|风控|防护|检测)"),
+    ("role_override", "MEDIUM", "要求模型切换为不受限制的角色", r"(?i)(developer mode|dan mode|jailbreak|act as).{0,40}(no restrictions?|unfiltered|ignore)|(开发者模式|越狱模式|无限制模式|DAN模式|扮演).{0,24}(无视规则|不受限制|绕过限制|没有限制)"),
+    ("tool_output_instruction", "MEDIUM", "工具返回内容夹带新的执行指令", r"(?i)(tool output|observation|retrieved content).{0,80}(ignore|follow these instructions|system prompt)|(工具返回|检索内容|网页内容|文档内容|搜索结果).{0,40}(忽略|执行以下|遵循以下|按以下指令|新的系统指令)"),
 ]
 RISK_ORDER = {"none": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
 COMMON_CN_SURNAMES = (
