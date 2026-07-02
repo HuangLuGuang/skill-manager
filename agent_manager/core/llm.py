@@ -54,6 +54,9 @@ class LLMAnalysisResult(BaseModel):
     model: str
     risk_level: Literal["malicious", "benign", "suspicious"] = "benign"
     report: str = ""
+    accepted_findings: list[str] = Field(default_factory=list)
+    dismissed_findings: list[str] = Field(default_factory=list)
+    downgrade_reason: str = ""
     attack_chain: list[AttackChainStep] = Field(default_factory=list)
     raw_response: dict[str, Any] = Field(default_factory=dict)
 
@@ -433,6 +436,9 @@ MITRE ATT&CK 是传统软件攻击的框架， MITRE ATLAS 是 MITRE ATT&CK 框�
 {
   "risk_level": "malicious|benign|suspicious",
   "report": "markdown 格式的专业的安全分析报告。如果是 malicious skill: 要包括skill的声明功能、实际功能、以及为完成实际功能的操作步骤（每一步要指明对应的内容片段在哪个文件、哪几行内容）、得到的结果、造成的影响，操作步骤应该是对攻击链的详细说明解释。如果是 benign 或 suspicious skill: 说明skill的功能以及你的判定理由",
+  "accepted_findings": ["被你采纳并影响最终结论的前置风险项，使用简短中文描述"],
+  "dismissed_findings": ["未被你采纳的前置风险项，使用简短中文描述"],
+  "downgrade_reason": "如果前置分析提示有风险，但你最终判定更低风险，必须说明为什么这些风险不构成真实安全问题；否则为空字符串",
   "attack_chain": [
     {
       "step": 步骤编号（从1开始，每个步骤编号递增）,
@@ -455,6 +461,7 @@ MITRE ATT&CK 是传统软件攻击的框架， MITRE ATLAS 是 MITRE ATT&CK 框�
 - 如果 risk_level 是 malicious，attack_chain 必须包含至少一个步骤
 - 如果 risk_level 是 benign 或 suspicious，attack_chain 是空数组
 - report 要有足够的深度和细节，不是简单的几句话概括，要专业的安全分析报告
+- 如果前置分析风险项和最终 risk_level 不一致，必须在 dismissed_findings 和 downgrade_reason 中解释差异
 - 每个 attack_chain 步骤战术、技术的映射，必须要与skill中的实际操作步骤相符，禁止映射到无关战术或技术，禁止无中生有，techniques 数组可以包含多个技术
 - attack chain 中的 description 字段的描述：如果有 skill 的原文可以对应，必须要明确指出是哪一个文件的那几行内容，内容是什么，以及该操作步骤的风险。
 - 不要输出任何 markdown 格式，只输出纯 JSON
@@ -667,6 +674,9 @@ def analyze_skill_with_llm_single_round(
         model=config.model,
         risk_level=parsed.get("risk_level", "benign"),
         report=parsed.get("report", ""),
+        accepted_findings=[str(item) for item in parsed.get("accepted_findings", []) if str(item).strip()],
+        dismissed_findings=[str(item) for item in parsed.get("dismissed_findings", []) if str(item).strip()],
+        downgrade_reason=str(parsed.get("downgrade_reason", "") or ""),
         attack_chain=attack_chain,
         raw_response=raw,
     )

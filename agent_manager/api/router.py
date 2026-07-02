@@ -240,6 +240,7 @@ def _process_pending_submission_task(
     use_sandbox: bool,
     use_skillspector: bool,
     no_cache: bool = False,
+    judgement_mode: str | None = None,
 ) -> None:
     try:
         mgr.process_pending_submission(
@@ -249,6 +250,7 @@ def _process_pending_submission_task(
             use_sandbox=use_sandbox,
             use_skillspector=use_skillspector,
             no_cache=no_cache,
+            judgement_mode=judgement_mode,
         )
     except Exception as exc:
         mgr.mark_submission_failed(skill_id, f"后台分析失败: {exc}")
@@ -264,6 +266,7 @@ def _submit_directory_for_processing(
     use_sandbox: bool,
     use_skillspector: bool,
     no_cache: bool = False,
+    judgement_mode: str | None = None,
 ) -> SubmitResponse:
     entry = mgr.create_pending_submission(skill_dir, source=source)
     _scan_executor.submit(
@@ -275,6 +278,7 @@ def _submit_directory_for_processing(
         use_sandbox,
         use_skillspector,
         no_cache,
+        judgement_mode,
     )
     return SubmitResponse(
         skill_id=entry.skill_id,
@@ -347,6 +351,7 @@ class LocalImportSubmitRequest(BaseModel):
     use_sandbox: bool = False
     use_skillspector: bool = False
     no_cache: bool = False
+    judgement_mode: str | None = None
 
 
 class UrlSubmitRequest(BaseModel):
@@ -358,6 +363,7 @@ class UrlSubmitRequest(BaseModel):
     use_sandbox: bool = False
     use_skillspector: bool = False
     no_cache: bool = False
+    judgement_mode: str | None = None
 
 
 class RemoteImportPrepareRequest(BaseModel):
@@ -385,6 +391,7 @@ class RemoteImportSubmitRequest(BaseModel):
     use_sandbox: bool = False
     use_skillspector: bool = False
     no_cache: bool = False
+    judgement_mode: str | None = None
 
 
 class UploadZipPrepareResponse(BaseModel):
@@ -404,6 +411,7 @@ class ClawHubSubmitRequest(BaseModel):
     use_sandbox: bool = False
     use_skillspector: bool = False
     no_cache: bool = False
+    judgement_mode: str | None = None
 
 
 class ApproveRequest(BaseModel):
@@ -463,6 +471,7 @@ class PolicyPayload(BaseModel):
     require_license: bool
     accepted_licenses: list[str]
     scanner_policy: str
+    judgement_mode: str = "balanced"
     skillspector_enabled: bool = False
     skillspector_fail_open: bool = True
     skillspector_timeout_seconds: int = 120
@@ -814,6 +823,7 @@ async def submit_skill_zip(
     use_sandbox: bool = Query(False),
     use_skillspector: bool = Query(False),
     no_cache: bool = Query(False),
+    judgement_mode: str | None = Query(None),
     mgr: AgentManager = Depends(get_manager),
 ):
     """
@@ -851,6 +861,7 @@ async def submit_skill_zip(
             use_sandbox,
             use_skillspector,
             no_cache,
+            judgement_mode,
         )
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -925,6 +936,7 @@ def submit_local_skills(
             body.use_sandbox,
             body.use_skillspector,
             body.no_cache,
+            body.judgement_mode,
         ))
 
     return BatchSubmitResponse(results=results)
@@ -962,6 +974,7 @@ async def submit_skill_url(
             body.use_sandbox,
             body.use_skillspector,
             body.no_cache,
+            body.judgement_mode,
         )
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=400, detail=f"Failed to download skill: {exc}") from exc
@@ -1034,6 +1047,7 @@ def submit_remote_selected(
             body.use_sandbox,
             body.use_skillspector,
             body.no_cache,
+            body.judgement_mode,
         ))
     return BatchSubmitResponse(results=results)
 
@@ -1071,6 +1085,7 @@ def submit_upload_selected(
             body.use_sandbox,
             body.use_skillspector,
             body.no_cache,
+            body.judgement_mode,
         ))
     return BatchSubmitResponse(results=results)
 
@@ -1126,6 +1141,7 @@ async def submit_skill_clawhub(
             body.use_sandbox,
             body.use_skillspector,
             body.no_cache,
+            body.judgement_mode,
         )
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=400, detail=f"Failed to download from ClawHub: {exc}") from exc

@@ -89,6 +89,7 @@ class AgentManager:
         use_sandbox: bool = False,
         use_skillspector: bool = False,
         no_cache: bool = False,
+        judgement_mode: str | None = None,
     ) -> RegistryEntry:
         """
         Vet a skill and submit it to the registry.
@@ -101,6 +102,7 @@ class AgentManager:
             use_sandbox=use_sandbox,
             use_skillspector=use_skillspector,
             no_cache=no_cache,
+            judgement_mode=judgement_mode,
         )
 
     def create_pending_submission(
@@ -146,6 +148,7 @@ class AgentManager:
         use_sandbox: bool = False,
         use_skillspector: bool = False,
         no_cache: bool = False,
+        judgement_mode: str | None = None,
     ) -> RegistryEntry:
         entry = self._require_entry(skill_id)
         skill_path = Path(entry.skill_path or "").resolve()
@@ -157,6 +160,7 @@ class AgentManager:
             use_llm=use_llm,
             use_sandbox=use_sandbox,
             use_skillspector=use_skillspector,
+            judgement_mode=judgement_mode,
         )
         scan_cache_key = compute_scan_cache_key(content_fingerprint, scan_context_fingerprint)
         entry.content_fingerprint = content_fingerprint
@@ -194,6 +198,7 @@ class AgentManager:
             use_llm=use_llm,
             use_sandbox=use_sandbox,
             use_skillspector=use_skillspector,
+            judgement_mode=judgement_mode,
         )
 
         # 根据最终 risk_level 决定状态

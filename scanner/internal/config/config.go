@@ -21,6 +21,7 @@ type Config struct {
 	UseSandbox      bool
 	UseLLM          bool
 	NoCache         bool
+	JudgementMode   string
 	Timeout         time.Duration
 	MaxFileBytes    int64
 	MaxTotalBytes   int64
@@ -48,6 +49,7 @@ func Parse(args []string) (Config, error) {
 	fs.BoolVar(&cfg.UseSandbox, "sandbox", false, "request sandbox analysis")
 	fs.BoolVar(&cfg.UseLLM, "llm", false, "request LLM analysis")
 	fs.BoolVar(&cfg.NoCache, "no-cache", false, "force server-side rescan without cache")
+	fs.StringVar(&cfg.JudgementMode, "judgement-mode", getenv("SKILL_SCANNER_JUDGEMENT_MODE", ""), "judgement mode: strict, balanced, or permissive")
 	timeout := fs.Duration("timeout", 120*time.Second, "HTTP timeout")
 	maxFileMB := fs.Int64("max-file-mb", 20, "maximum single file size included in package")
 	maxTotalMB := fs.Int64("max-total-mb", 50, "maximum total skill package size")
@@ -85,15 +87,16 @@ func Parse(args []string) (Config, error) {
 
 func splitScanArgs(args []string) ([]string, string, error) {
 	valueFlags := map[string]bool{
-		"server":       true,
-		"token":        true,
-		"output":       true,
-		"host-id":      true,
-		"timeout":      true,
-		"max-file-mb":  true,
-		"max-total-mb": true,
-		"max-files":    true,
-		"ignore":       true,
+		"server":         true,
+		"token":          true,
+		"output":         true,
+		"host-id":        true,
+		"timeout":        true,
+		"max-file-mb":    true,
+		"max-total-mb":   true,
+		"max-files":      true,
+		"ignore":         true,
+		"judgement-mode": true,
 	}
 	var flagArgs []string
 	var root string
@@ -138,6 +141,7 @@ Options:
   --sandbox           Request sandbox analysis.
   --llm               Request LLM analysis.
   --no-cache          Force server-side rescan without cache.
+  --judgement-mode M  Judgement mode: strict, balanced, or permissive. Can also use SKILL_SCANNER_JUDGEMENT_MODE.
   --max-file-mb N     Maximum single file size. Default: 20.
   --max-total-mb N    Maximum total skill size. Default: 50.
   --max-files N       Maximum file count. Default: 2000.

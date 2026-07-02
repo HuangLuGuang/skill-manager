@@ -27,6 +27,16 @@
 
           <a-row :gutter="16">
             <a-col :xs="24" :lg="12">
+              <a-form-item label="判定模式（judgement_mode）">
+                <a-select v-model:value="formState.judgement_mode">
+                  <a-select-option v-for="item in judgementModeOptions" :key="item.value" :value="item.value">
+                    {{ item.label }}
+                  </a-select-option>
+                </a-select>
+                <div class="field-hint">{{ currentJudgementModeDescription }}</div>
+              </a-form-item>
+            </a-col>
+            <a-col :xs="24" :lg="12">
               <a-form-item label="自动批准最大风险（auto_approve_max_risk）">
                 <a-select v-model:value="formState.auto_approve_max_risk">
                   <a-select-option v-for="item in riskOptions" :key="item.value" :value="item.value">
@@ -343,6 +353,11 @@ const scannerPolicyOptions = [
   { value: 'balanced', label: 'balanced（平衡，推荐）' },
   { value: 'permissive', label: 'permissive（更宽松）' },
 ]
+const judgementModeOptions = [
+  { value: 'strict', label: '严格模式：优先降低漏报风险', description: '对潜在危险行为采取保守判定，适合生产环境、敏感数据场景和外部来源 Skill 准入。' },
+  { value: 'balanced', label: '平衡模式（推荐）：兼顾安全与可操作性', description: '明确恶意自动阻断，可疑行为进入审核，低置信噪声不直接影响最终结论。' },
+  { value: 'permissive', label: '宽松模式：优先减少误报和噪声', description: '仅对明确恶意或策略禁止项阻断，其他风险以提示和人工复核为主。' },
+]
 const severityOptions = [
   { value: 'MEDIUM', label: 'MEDIUM（中）' },
   { value: 'HIGH', label: 'HIGH（高）' },
@@ -373,6 +388,7 @@ const formState = reactive({
   require_license: false,
   accepted_licenses: [],
   scanner_policy: 'balanced',
+  judgement_mode: 'balanced',
 })
 const llmForm = reactive({
   enabled: false,
@@ -399,6 +415,9 @@ const sandboxForm = reactive({
 
 const conflictingRiskLevels = computed(() =>
   formState.require_human_review.filter((risk) => formState.auto_reject_risk.includes(risk)),
+)
+const currentJudgementModeDescription = computed(() =>
+  judgementModeOptions.find((item) => item.value === formState.judgement_mode)?.description || '',
 )
 const systemLlmReady = computed(() =>
   Boolean(llmForm.enabled && llmForm.model),
@@ -437,6 +456,7 @@ const buildPayload = () => ({
   require_license: formState.require_license,
   accepted_licenses: formState.accepted_licenses,
   scanner_policy: formState.scanner_policy,
+  judgement_mode: formState.judgement_mode,
 })
 
 const buildLlmPayload = () => ({
@@ -490,6 +510,7 @@ const applyPolicy = (policy) => {
   formState.require_license = Boolean(policy.require_license)
   formState.accepted_licenses = [...(policy.accepted_licenses || [])]
   formState.scanner_policy = policy.scanner_policy
+  formState.judgement_mode = policy.judgement_mode || 'balanced'
   markSaved()
 }
 

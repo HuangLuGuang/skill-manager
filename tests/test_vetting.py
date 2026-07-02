@@ -301,7 +301,7 @@ class TestVettingPipeline:
         assert "behavioral:local" in result.analyzers_used
         assert result.scan_report["behavioral_analysis"]["scanned_file_count"] >= 1
         assert any(f["source"] == "behavioral" for f in result.scan_report["findings"])
-        assert result.risk_level == RiskLevel.MALICIOUS
+        assert result.risk_level == RiskLevel.SUSPICIOUS
 
     def test_low_analyzability_does_not_raise_risk(self, skill_dir, monkeypatch):
         monkeypatch.setattr(
@@ -328,7 +328,7 @@ class TestVettingPipeline:
         assert result.scan_report["risk_max_severity"] == "SAFE"
         assert result.scan_report["findings"][0]["rule"] == "LOW_ANALYZABILITY"
 
-    def test_high_analyzability_failure_still_raises_risk(self, skill_dir, monkeypatch):
+    def test_high_analyzability_failure_enters_review_in_balanced_mode(self, skill_dir, monkeypatch):
         monkeypatch.setattr(
             "agent_manager.core.vetting._run_scanner",
             lambda _path, _policy: {
@@ -348,10 +348,10 @@ class TestVettingPipeline:
             CompanyPolicy({"require_sandbox_for_risk": []})
         ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
 
-        assert result.risk_level == RiskLevel.MALICIOUS
+        assert result.risk_level == RiskLevel.SUSPICIOUS
         assert result.scan_report["risk_max_severity"] == "HIGH"
 
-    def test_llm_cannot_downgrade_deterministic_scan_risk(self, skill_dir, monkeypatch):
+    def test_llm_can_downgrade_non_blocking_scan_risk(self, skill_dir, monkeypatch):
         monkeypatch.setattr(
             "agent_manager.core.vetting._run_scanner",
             lambda _path, _policy: {
@@ -371,6 +371,56 @@ class TestVettingPipeline:
                 model="test-model",
                 risk_level="benign",
                 report="Known test fixture.",
+                downgrade_reason="The binary is a known inert fixture.",
+                dismissed_findings=["Opaque binary"],
+            ),
+        )
+
+        result, _violations, _name, _desc, _tools = VettingPipeline(
+            CompanyPolicy({"require_sandbox_for_risk": []})
+        ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_llm=True)
+
+        assert result.risk_level == RiskLevel.BENIGN
+        assert result.scan_report["risk_reconciliation"] == {
+            "strategy": "mode_aware_llm_judgement",
+            "judgement_mode": "balanced",
+            "pre_llm_reason": "risk",
+            "pre_llm_risk_level": "suspicious",
+            "llm_risk_level": "benign",
+            "final_risk_level": "benign",
+            "llm_downgraded": True,
+            "llm_downgrade_blocked": False,
+            "downgrade_reason": "The binary is a known inert fixture.",
+            "dismissed_findings": ["Opaque binary"],
+            "accepted_findings": [],
+        }
+        assert any("non-blocking risk downgraded" in note for note in result.policy_notes)
+
+    def test_llm_cannot_downgrade_blocking_scan_risk(self, skill_dir, monkeypatch):
+        monkeypatch.setattr(
+            "agent_manager.core.vetting._run_scanner",
+            lambda _path, _policy: {
+                "max_severity": "HIGH",
+                "findings": [{
+                    "rule": "download_and_execute",
+                    "severity": "HIGH",
+                    "title": "Download and execute",
+                    "source": "scanner",
+                }],
+                "analyzers_used": ["scanner"],
+            },
+        )
+        monkeypatch.setattr(
+            "agent_manager.core.vetting.LLMConfig.load",
+            lambda: LLMConfig(enabled=True, api_key="test-key"),
+        )
+        monkeypatch.setattr(
+            "agent_manager.core.vetting.analyze_skill_with_llm_single_round",
+            lambda **_kwargs: LLMAnalysisResult(
+                provider="test",
+                model="test-model",
+                risk_level="benign",
+                report="Looks safe.",
             ),
         )
 
@@ -379,14 +429,8 @@ class TestVettingPipeline:
         ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_llm=True)
 
         assert result.risk_level == RiskLevel.MALICIOUS
-        assert result.scan_report["risk_reconciliation"] == {
-            "strategy": "conservative_max",
-            "pre_llm_risk_level": "malicious",
-            "llm_risk_level": "benign",
-            "final_risk_level": "malicious",
-            "llm_downgrade_blocked": True,
-        }
-        assert any("downgrade blocked" in note for note in result.policy_notes)
+        assert result.scan_report["risk_classification"]["blocking_count"] == 1
+        assert result.scan_report["risk_reconciliation"]["llm_downgrade_blocked"] is True
 
     def test_sandbox_flags_are_recorded(self, skill_dir, default_policy, monkeypatch):
         class FakeRunner:

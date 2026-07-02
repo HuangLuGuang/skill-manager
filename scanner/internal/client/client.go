@@ -26,6 +26,7 @@ type SubmitOptions struct {
 	UseSandbox      bool
 	UseLLM          bool
 	NoCache         bool
+	JudgementMode   string
 	ManifestJSON    string
 	ScannerVersion  string
 	HostID          string
@@ -100,6 +101,9 @@ func (c Client) SubmitZip(ctx context.Context, zipPath string, opts SubmitOption
 	_ = writer.WriteField("use_sandbox", boolString(opts.UseSandbox))
 	_ = writer.WriteField("use_llm", boolString(opts.UseLLM))
 	_ = writer.WriteField("no_cache", boolString(opts.NoCache))
+	if opts.JudgementMode != "" {
+		_ = writer.WriteField("judgement_mode", opts.JudgementMode)
+	}
 	if err := writer.Close(); err != nil {
 		return result, err
 	}

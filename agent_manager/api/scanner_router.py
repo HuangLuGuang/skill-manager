@@ -576,6 +576,7 @@ async def submit_scanner_import(
     use_sandbox: bool = Form(False),
     use_skillspector: bool = Form(False),
     no_cache: bool = Form(False),
+    judgement_mode: str | None = Form(None),
     scanner_version: str | None = Form(None),
     host_id: str | None = Form(None),
     scanner_auth: ScannerAuthContext = Depends(require_scanner_submit_token),
@@ -632,6 +633,7 @@ async def submit_scanner_import(
             use_sandbox,
             use_skillspector,
             no_cache,
+            judgement_mode,
         )
         store.log_event(
             "scanner_import_submitted",

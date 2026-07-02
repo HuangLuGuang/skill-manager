@@ -88,6 +88,14 @@ _BEHAVIORAL_RULES = (
 )
 _SANDBOX_ENTRYPOINT_EXTENSIONS = {".py", ".sh", ".js"}
 _UNSAFE_LLM_PROBE_ARGS = {"&&", "||", "|", ";", "<", ">", ">>", "2>", "&"}
+_BLOCKING_RULES = {
+    "download_and_execute",
+    "credential_exfiltration",
+    "data_exfiltration",
+    "agent_manager_bypass",
+}
+_NOISE_RULES = {"DEPENDENCY_MISSING", "MISSING_DEPENDENCY"}
+_NOISE_CATEGORIES = {"dependency", "runtime"}
 
 
 def _normalize_llm_probe_entrypoint(
@@ -308,6 +316,52 @@ def _is_low_analyzability_signal(finding: dict) -> bool:
     return rule == "LOW_ANALYZABILITY" and _SEVERITY_ORDER.get(severity, 0) <= _SEVERITY_ORDER["MEDIUM"]
 
 
+def _classify_finding(finding: dict) -> str:
+    rule = str(finding.get("rule") or finding.get("rule_id") or "").strip()
+    rule_upper = rule.upper()
+    category = str(finding.get("category") or "").strip().lower()
+    severity = str(finding.get("severity", "SAFE")).upper()
+    text = " ".join(str(finding.get(key) or "") for key in ("title", "message", "evidence")).lower()
+
+    if rule in _BLOCKING_RULES or any(token in text for token in ("exfiltrat", "数据外传", "窃取凭据", "steal credential")):
+        return "blocking"
+    if rule_upper in _NOISE_RULES or category in _NOISE_CATEGORIES or _is_low_analyzability_signal(finding):
+        return "noise"
+    if _SEVERITY_ORDER.get(severity, 0) >= _SEVERITY_ORDER["MEDIUM"]:
+        return "risk"
+    return "noise"
+
+
+def _classify_findings(findings: list[dict]) -> dict[str, object]:
+    items = [{**finding, "classification": _classify_finding(finding)} for finding in findings]
+    return {
+        "items": items,
+        "blocking_count": sum(1 for item in items if item["classification"] == "blocking"),
+        "risk_count": sum(1 for item in items if item["classification"] == "risk"),
+        "noise_count": sum(1 for item in items if item["classification"] == "noise"),
+    }
+
+
+def _risk_from_classification(classification: dict[str, object], mode: str) -> tuple[RiskLevel, str]:
+    items = classification.get("items", [])
+    if not isinstance(items, list):
+        items = []
+    if any(item.get("classification") == "blocking" for item in items):
+        return RiskLevel.MALICIOUS, "blocking"
+
+    max_risk_severity = _max_severity(*(
+        str(item.get("severity", "SAFE"))
+        for item in items
+        if item.get("classification") == "risk"
+    ))
+    rank = _SEVERITY_ORDER.get(max_risk_severity, 0)
+    if rank >= _SEVERITY_ORDER["HIGH"]:
+        return (RiskLevel.MALICIOUS if mode == "strict" else RiskLevel.SUSPICIOUS), "risk"
+    if rank >= _SEVERITY_ORDER["MEDIUM"]:
+        return (RiskLevel.BENIGN if mode == "permissive" else RiskLevel.SUSPICIOUS), "risk"
+    return RiskLevel.BENIGN, "noise"
+
+
 def _iter_behavioral_candidate_files(skill_path: Path) -> list[Path]:
     priority_files: list[Path] = []
     fallback_files: list[Path] = []
@@ -387,6 +441,7 @@ class VettingPipeline:
         use_llm: bool = False,
         use_sandbox: bool = False,
         use_skillspector: bool | None = None,
+        judgement_mode: str | None = None,
     ) -> tuple[VettingResult, list[PolicyViolation], str, str, list[str]]:
         """
         Run the full vetting pipeline.
@@ -395,6 +450,7 @@ class VettingPipeline:
             (VettingResult, violations, name, description, allowed_tools)
         """
         skill_path = Path(skill_path).resolve()
+        effective_judgement_mode = judgement_mode if judgement_mode in {"strict", "balanced", "permissive"} else self.policy.judgement_mode
 
         # 1. Parse manifest
         try:
@@ -685,10 +741,16 @@ class VettingPipeline:
             scan_report.get("findings", []),
             scan_report.get("max_severity", "SAFE"),
         )
-        pre_llm_risk_level = RiskLevel.from_severity(scan_report.get("risk_max_severity", "SAFE"))
+        risk_classification = _classify_findings(scan_report.get("findings", []))
+        pre_llm_risk_level, pre_llm_reason = _risk_from_classification(
+            risk_classification,
+            effective_judgement_mode,
+        )
         scan_report = {
             **scan_report,
             "pre_llm_risk_level": pre_llm_risk_level.value,
+            "judgement_mode": effective_judgement_mode,
+            "risk_classification": risk_classification,
         }
         llm_notes: list[str] = []
         llm_result = None
@@ -728,31 +790,58 @@ class VettingPipeline:
                 logger.warning("LLM analysis skipped for %s: %s", skill_path, exc)
                 llm_notes.append(f"[LLM] analysis skipped: {exc}")
 
-        # 5. Reconcile risk conservatively: LLM may raise, but never lower,
-        # deterministic scanner, behavioral, or sandbox risk.
+        # 5. Reconcile risk. Blocking findings stay malicious; non-blocking
+        # findings may be downgraded by LLM in balanced/permissive modes.
         llm_risk_level = RiskLevel(llm_result.risk_level) if llm_result else None
-        llm_downgrade_blocked = bool(
-            llm_risk_level and not llm_risk_level.is_at_least(pre_llm_risk_level)
-        )
-        final_risk_level = (
+        has_blocking_findings = bool(risk_classification.get("blocking_count"))
+        llm_downgraded = bool(
             llm_risk_level
-            if llm_risk_level and llm_risk_level.is_at_least(pre_llm_risk_level)
-            else pre_llm_risk_level
+            and not has_blocking_findings
+            and effective_judgement_mode in {"balanced", "permissive"}
+            and not llm_risk_level.is_at_least(pre_llm_risk_level)
         )
-        if llm_downgrade_blocked:
+        llm_downgrade_blocked = bool(
+            llm_risk_level
+            and not llm_risk_level.is_at_least(pre_llm_risk_level)
+            and not llm_downgraded
+        )
+        if llm_risk_level and (llm_risk_level.is_at_least(pre_llm_risk_level) or llm_downgraded):
+            final_risk_level = llm_risk_level
+        else:
+            final_risk_level = pre_llm_risk_level
+        if llm_downgraded:
+            downgrade_reason = llm_result.downgrade_reason or llm_result.report or "LLM judged the risk signal non-exploitable"
+            llm_notes.append(
+                "[LLM] non-blocking risk downgraded: "
+                f"tool risk={pre_llm_risk_level.value}, "
+                f"LLM risk={llm_risk_level.value}; "
+                f"reason={downgrade_reason}"
+            )
+        elif llm_downgrade_blocked:
             llm_notes.append(
                 "[LLM] downgrade blocked: "
-                f"deterministic risk={pre_llm_risk_level.value}, "
-                f"LLM risk={llm_risk_level.value}"
+                f"tool risk={pre_llm_risk_level.value}, "
+                f"LLM risk={llm_risk_level.value}; "
+                f"reason={'blocking finding present' if has_blocking_findings else 'strict mode'}"
             )
         scan_report = {
             **scan_report,
             "risk_reconciliation": {
-                "strategy": "conservative_max",
+                "strategy": "mode_aware_llm_judgement",
+                "judgement_mode": effective_judgement_mode,
+                "pre_llm_reason": pre_llm_reason,
                 "pre_llm_risk_level": pre_llm_risk_level.value,
                 "llm_risk_level": llm_risk_level.value if llm_risk_level else None,
                 "final_risk_level": final_risk_level.value,
+                "llm_downgraded": llm_downgraded,
                 "llm_downgrade_blocked": llm_downgrade_blocked,
+                "downgrade_reason": (
+                    (llm_result.downgrade_reason or llm_result.report)
+                    if llm_downgraded and llm_result
+                    else None
+                ),
+                "dismissed_findings": llm_result.dismissed_findings if llm_result else [],
+                "accepted_findings": llm_result.accepted_findings if llm_result else [],
             },
         }
         findings = scan_report.get("findings", [])

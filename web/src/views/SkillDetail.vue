@@ -144,6 +144,30 @@
               <a-descriptions-item label="扫描缓存">{{ detail?.scan_reused ? '复用历史结果' : '本次执行扫描' }}</a-descriptions-item>
               <a-descriptions-item label="缓存 Key">{{ detail?.scan_cache_key || '-' }}</a-descriptions-item>
             </a-descriptions>
+            <a-card v-if="judgementSummary" size="small" title="综合研判结论" style="margin-top: 12px">
+              <a-descriptions bordered size="small" :column="2">
+                <a-descriptions-item label="判定模式">{{ judgementSummary.mode }}</a-descriptions-item>
+                <a-descriptions-item label="策略">{{ judgementSummary.strategy }}</a-descriptions-item>
+                <a-descriptions-item label="工具初判">{{ riskDisplay(judgementSummary.preRisk) }}</a-descriptions-item>
+                <a-descriptions-item label="最终风险">{{ riskDisplay(judgementSummary.finalRisk) }}</a-descriptions-item>
+                <a-descriptions-item v-if="judgementSummary.llmRisk" label="LLM 研判">{{ riskDisplay(judgementSummary.llmRisk) }}</a-descriptions-item>
+                <a-descriptions-item label="阻断项">{{ judgementSummary.blockingCount }}</a-descriptions-item>
+                <a-descriptions-item v-if="judgementSummary.reason" label="差异解释" :span="2">
+                  {{ judgementSummary.reason }}
+                </a-descriptions-item>
+              </a-descriptions>
+              <a-list
+                v-if="judgementSummary.dismissedFindings.length"
+                :data-source="judgementSummary.dismissedFindings"
+                size="small"
+                style="margin-top: 12px"
+              >
+                <template #header>未采纳的风险提示</template>
+                <template #renderItem="{ item }">
+                  <a-list-item>{{ item }}</a-list-item>
+                </template>
+              </a-list>
+            </a-card>
             <a-card v-if="decisionRationaleItems.length" size="small" title="最终判定依据" style="margin-top: 12px">
               <a-alert
                 v-if="admissionBlocked"
@@ -1058,6 +1082,27 @@ const llmExplanationHtml = computed(() => {
   if (!text) return '<p>暂无分析说明</p>'
   return marked.parse(text)
 })
+const riskReconciliation = computed(() => scanReport.value?.risk_reconciliation || null)
+const riskClassification = computed(() => scanReport.value?.risk_classification || null)
+const judgementSummary = computed(() => {
+  const rec = riskReconciliation.value
+  if (!rec) return null
+  return {
+    mode: judgementModeText(rec.judgement_mode || scanReport.value?.judgement_mode),
+    strategy: rec.llm_downgraded ? 'LLM 已解释降级非阻断风险' : (rec.llm_downgrade_blocked ? '阻断项或严格模式阻止降级' : '按工具结果与策略综合判定'),
+    preRisk: rec.pre_llm_risk_level,
+    finalRisk: rec.final_risk_level || detail.value?.risk_level,
+    llmRisk: rec.llm_risk_level,
+    blockingCount: riskClassification.value?.blocking_count || 0,
+    reason: rec.downgrade_reason || '',
+    dismissedFindings: Array.isArray(rec.dismissed_findings) ? rec.dismissed_findings : [],
+  }
+})
+const judgementModeText = (mode) => ({
+  strict: '严格模式',
+  balanced: '平衡模式',
+  permissive: '宽松模式',
+}[mode] || '平衡模式')
 const behavioralAnalysis = computed(() => scanReport.value?.behavioral_analysis || null)
 const behavioralFindings = computed(() => behavioralAnalysis.value?.findings || [])
 const behavioralScannedFiles = computed(() => behavioralAnalysis.value?.scanned_files || [])

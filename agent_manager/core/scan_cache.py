@@ -48,6 +48,7 @@ def compute_scan_context_fingerprint(
     use_llm: bool,
     use_sandbox: bool,
     use_skillspector: bool = False,
+    judgement_mode: str | None = None,
 ) -> str:
     """Fingerprint scanner capabilities and selected scan options."""
     payload: dict[str, Any] = {
@@ -58,6 +59,7 @@ def compute_scan_context_fingerprint(
             "use_llm": use_llm,
             "use_sandbox": use_sandbox,
             "use_skillspector": use_skillspector,
+            "judgement_mode": judgement_mode or policy.judgement_mode,
         },
         "scanner": {
             "package_version": _distribution_version("cisco-ai-skill-scanner"),

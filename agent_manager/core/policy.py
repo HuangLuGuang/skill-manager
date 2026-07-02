@@ -32,6 +32,7 @@ _DEFAULT_POLICY: dict[str, Any] = {
     "require_license": False,
     "accepted_licenses": ["MIT", "Apache-2.0", "BSD-3-Clause", "BSD-2-Clause", "ISC", "internal"],
     "scanner_policy": "balanced",
+    "judgement_mode": "balanced",
     "skillspector_enabled": False,
     "skillspector_fail_open": True,
     "skillspector_timeout_seconds": 120,
@@ -120,6 +121,11 @@ class CompanyPolicy:
     @property
     def scanner_policy(self) -> str:
         return self._data["scanner_policy"]
+
+    @property
+    def judgement_mode(self) -> str:
+        value = str(self._data.get("judgement_mode", "balanced")).strip().lower()
+        return value if value in {"strict", "balanced", "permissive"} else "balanced"
 
     @property
     def skillspector_enabled(self) -> bool:

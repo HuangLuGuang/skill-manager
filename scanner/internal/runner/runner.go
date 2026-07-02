@@ -131,6 +131,7 @@ func ScanOne(cfg config.Config, apiClient client.Client, skillPath string, workD
 			UseSandbox:      cfg.UseSandbox,
 			UseLLM:          cfg.UseLLM,
 			NoCache:         cfg.NoCache,
+			JudgementMode:   cfg.JudgementMode,
 			ManifestJSON:    string(manifestPayload),
 			ScannerVersion:  Version,
 			HostID:          cfg.HostID,
