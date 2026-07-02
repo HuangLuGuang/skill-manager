@@ -3,10 +3,10 @@
 Claude Code Agent Guard Hook - PreToolUse Only
 
 Receives JSON events from Claude Code on stdin.
-For PreToolUse events, verify active skills using verify functionality.
+For PreToolUse events, verify the skill being called before allowing execution.
 
 Hook events handled:
-  PreToolUse     - verify active skills using verify-skill-signature and can-load APIs
+  PreToolUse     - verify the skill being called (if any)
 
 Exit codes:
   0  - allow (or not applicable)
@@ -58,7 +58,7 @@ def _log(msg: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Session state management                                                    #
+# Session state management (for caching verified skills)                     #
 # --------------------------------------------------------------------------- #
 
 def _get_session_state_path(session_id: str) -> Path:
@@ -93,17 +93,26 @@ def _save_session_state(session_id: str, state: dict) -> None:
         _log(f"Error saving session state: {e}")
 
 
-def _get_active_skills_from_state(session_id: str) -> list[str]:
-    """Get active skills from session state."""
+def _add_verified_skill(session_id: str, skill_name: str) -> None:
+    """Add a verified skill to session state."""
+    if not session_id:
+        return
     state = _load_session_state(session_id)
-    return state.get("active_skills", [])
+    verified_skills = state.get("verified_skills", [])
+    if skill_name not in verified_skills:
+        verified_skills.append(skill_name)
+        state["verified_skills"] = verified_skills
+        _save_session_state(session_id, state)
+        _log(f"Added verified skill: {skill_name}")
 
 
-def _set_active_skills_in_state(session_id: str, skills: list[str]) -> None:
-    """Set active skills in session state."""
+def _is_skill_verified(session_id: str, skill_name: str) -> bool:
+    """Check if a skill has been verified in this session."""
+    if not session_id:
+        return False
     state = _load_session_state(session_id)
-    state["active_skills"] = skills
-    _save_session_state(session_id, state)
+    verified_skills = state.get("verified_skills", [])
+    return skill_name in verified_skills
 
 
 # --------------------------------------------------------------------------- #
@@ -197,7 +206,7 @@ def resolve_token() -> str:
     token = os.environ.get("AGENT_MANAGER_API_TOKEN")
     if not token:
         raise ValueError("Missing Agent Manager API token, please set AGENT_MANAGER_API_TOKEN")
-    return token 
+    return token
 
 
 def resolve_agent_id(session_id: str | None = None) -> str:
@@ -274,6 +283,11 @@ def can_load_skill(
     return result
 
 
+def _format_block_message(reason: str, status: str | None = None) -> str:
+    status_text = f" status={status}" if status else ""
+    return f"阻断: {reason}{status_text}\n不要调用该 Skill。请联系管理员在 Agent Manager 中审批通过后再使用。"
+
+
 def verify_skill(
     client: httpx.Client,
     server: str,
@@ -289,7 +303,7 @@ def verify_skill(
     if skill_name is None:
         skill_name = read_skill_name(skill_dir)
         if not skill_name:
-            return False, f"Cannot identify skill name from {skill_dir}"
+            return False, f"无法识别 Skill 名称。请确认目录包含带 name 的 SKILL.md"
 
     try:
         # Step 1: Verify signature
@@ -297,32 +311,39 @@ def verify_skill(
             client, server, token, skill_dir, skill_name, agent_id, ignores=DEFAULT_IGNORES
         )
         if not verify_result.get("allowed"):
-            reason = verify_result.get("reason") or "Content integrity verification failed"
-            status = verify_result.get("status", "")
-            return False, f"Skill {skill_name!r} blocked: {reason} (status: {status})"
+            reason = verify_result.get("reason") or "内容完整性校验失败"
+            status = verify_result.get("status")
+            return False, _format_block_message(str(reason), status)
 
         verified_name = verify_result.get("skill_name") or skill_name
         if not verified_name:
-            return False, f"Skill {skill_name!r} blocked: platform did not return skill name"
+            return False, _format_block_message("平台未返回 Skill 名称，无法继续加载校验", verify_result.get("status"))
 
         if verify_result.get("status") != "APPROVED":
-            return False, f"Skill {verified_name!r} is not approved (status: {verify_result.get('status')})"
+            return False, _format_block_message("Skill 尚未审批通过", verify_result.get("status"))
 
         # Step 2: Check can-load
         can_load_result = can_load_skill(client, server, token, verified_name, agent_id)
         if not can_load_result.get("allowed"):
-            reason = can_load_result.get("reason") or "Status does not allow loading"
-            status = can_load_result.get("status", "")
-            return False, f"Skill {verified_name!r} blocked: {reason} (status: {status})"
+            reason = can_load_result.get("reason") or "状态不允许加载"
+            status = can_load_result.get("status")
+            return False, _format_block_message(str(reason), status)
 
         if can_load_result.get("status") != "APPROVED":
-            return False, f"Skill {verified_name!r} is not approved (status: {can_load_result.get('status')})"
+            return False, _format_block_message("Skill 尚未审批通过", can_load_result.get("status"))
 
         return True, verified_name
 
+    except httpx.HTTPStatusError as e:
+        _log(f"API error verifying skill {skill_name}: {e}")
+        try:
+            detail = e.response.text
+        except Exception:
+            detail = str(e)
+        return False, _format_block_message(f"Agent Manager API 返回 {e.response.status_code}: {detail}")
     except httpx.HTTPError as e:
         _log(f"API error verifying skill {skill_name}: {e}")
-        return False, f"API error verifying skill {skill_name!r}: {e}"
+        return False, _format_block_message(f"无法连接 Agent Manager: {e}")
 
 
 # --------------------------------------------------------------------------- #
@@ -365,101 +386,101 @@ def _scan_skill_dirs(cwd: str) -> dict[str, Path]:
     return skill_dir_map
 
 
-# --------------------------------------------------------------------------- #
-# SessionStart handler (to track active skills)                               #
-# --------------------------------------------------------------------------- #
-
-def handle_session_start(event: dict, client: httpx.Client, server: str, token: str) -> None:
+def _extract_skill_name_from_event(event: dict) -> str | None:
     """
-    At session start, scan skills and track which are active.
+    Extract skill name from PreToolUse event.
+    Looking for Skill tool calls with skill name in args.
     """
-    session_id = event.get("session_id", "")
-    cwd = event.get("cwd", ".")
-    agent_id = resolve_agent_id(session_id)
+    tool_name = event.get("tool_name", "")
+    if tool_name != "Skill":
+        return None
 
-    skill_dirs = _candidate_skill_dirs(cwd)
-    skill_dir_map = _scan_skill_dirs(cwd)
-    active_names: list[str] = []
+    # Try to extract skill name from tool_input
+    tool_input = event.get("tool_input", {})
+    if isinstance(tool_input, dict):
+        skill_name = tool_input.get("skill")
+        if skill_name:
+            return skill_name
 
-    # Try to verify all skills initially, but only track those that pass
-    for skill_name, skill_dir in skill_dir_map.items():
-        allowed, result = verify_skill(client, server, token, skill_dir, agent_id, skill_name)
-        if allowed:
-            active_names.append(result)
+    # Try to extract skill name from args (fallback)
+    args = event.get("args", {})
+    if isinstance(args, dict):
+        skill_name = args.get("skill")
+        if skill_name:
+            return skill_name
 
-    _log(f"SessionStart: Active skills: {active_names}")
-    if session_id:
-        _set_active_skills_in_state(session_id, active_names)
+    # Fallback: try to parse args as string
+    args_str = event.get("args_str", "")
+    if args_str:
+        # Simple heuristic: first word is skill name
+        parts = args_str.strip().split()
+        if parts:
+            return parts[0]
 
-
-# --------------------------------------------------------------------------- #
-# ConfigChange handler (to update active skills)                              #
-# --------------------------------------------------------------------------- #
-
-def handle_config_change(event: dict, client: httpx.Client, server: str, token: str) -> None:
-    """
-    When config changes, verify the new skill and add to active skills.
-    """
-    session_id = event.get("session_id", "")
-    file_path = event.get("file_path", "")
-    agent_id = resolve_agent_id(session_id)
-
-    if not file_path or not Path(file_path).name == "SKILL.md":
-        return  # Not a skill file
-
-    skill_dir = Path(file_path).parent
-    skill_name = read_skill_name(skill_dir)
-    if not skill_name:
-        return
-
-    allowed, result = verify_skill(client, server, token, skill_dir, agent_id, skill_name)
-    if allowed:
-        verified_name = result
-        if session_id:
-            current = _get_active_skills_from_state(session_id)
-            if verified_name not in current:
-                current.append(verified_name)
-                _set_active_skills_in_state(session_id, current)
-                _log(f"ConfigChange: Added {verified_name} to active skills: {current}")
+    return None
 
 
 # --------------------------------------------------------------------------- #
-# PreToolUse handler                                                          #
+# PreToolUse handler (only one we need)                                      #
 # --------------------------------------------------------------------------- #
+
+def _find_project_root(current_dir: str) -> str:
+    """Find project root by looking for .git or .claude directory."""
+    path = Path(current_dir).resolve()
+    for parent in [path] + list(path.parents):
+        if (parent / ".git").exists() or (parent / ".claude").exists():
+            return str(parent)
+    return current_dir
+
 
 def handle_pre_tool_use(event: dict, client: httpx.Client, server: str, token: str) -> None:
     """
-    Before every tool call, only verify active skills.
+    Before every tool call:
+    - If it's a Skill tool call: verify the skill being called
+    - Otherwise: allow
     """
     session_id = event.get("session_id", "")
     tool_name = event.get("tool_name", "")
     cwd = event.get("cwd", ".")
     agent_id = resolve_agent_id(session_id)
 
-    # Get active skills from state
-    active_skills = _get_active_skills_from_state(session_id) if session_id else []
-    _log(f"PreToolUse: tool={tool_name}, active_skills={active_skills}")
+    _log(f"PreToolUse: tool={tool_name}")
 
-    if not active_skills:
-        _log("No active skills, allowing")
+    # Only verify Skill tool calls
+    if tool_name != "Skill":
+        _log("Not a Skill tool call, allowing")
         return
 
-    # Scan skill dirs to find locations of active skills
-    skill_dir_map = _scan_skill_dirs(cwd)
+    # Extract skill name from event
+    skill_name = _extract_skill_name_from_event(event)
+    if not skill_name:
+        _log("Could not extract skill name from event, allowing")
+        return
 
-    # Only verify active skills
-    for skill_name in active_skills:
-        if skill_name not in skill_dir_map:
-            _log(f"Active skill {skill_name} not found in skill dirs, skipping")
-            continue
+    _log(f"Skill being called: {skill_name}")
 
-        _log(f"Verifying active skill: {skill_name}")
-        allowed, result = verify_skill(client, server, token, skill_dir_map[skill_name], agent_id, skill_name)
-        if not allowed:
-            _block(f"[agent-manager] {result}")
+    # Find project root (cwd might already be in skill directory)
+    project_root = _find_project_root(cwd)
+    _log(f"Project root: {project_root}")
 
-    # All active skills verified - allow
-    _log("All active skills verified successfully")
+    # Scan skill dirs to find the skill
+    skill_dir_map = _scan_skill_dirs(project_root)
+    if skill_name not in skill_dir_map:
+        _block(_format_block_message(f"Skill {skill_name!r} not found in skill directories"))
+        return
+
+    skill_dir = skill_dir_map[skill_name]
+    _log(f"Found skill directory: {skill_dir}")
+
+    # Verify the skill
+    allowed, result = verify_skill(client, server, token, skill_dir, agent_id, skill_name)
+    if not allowed:
+        _block(result)
+        return
+
+    # Verification passed - cache it and allow
+    _log(f"Skill {result!r} verified successfully")
+    _add_verified_skill(session_id, result)
 
 
 def _block(reason: str) -> None:
@@ -485,11 +506,8 @@ def main() -> None:
         with httpx.Client(timeout=30.0) as client:
             hook_event = event.get("hook_event_name", "")
 
-            if hook_event == "SessionStart":
-                handle_session_start(event, client, server, token)
-            elif hook_event == "ConfigChange" and event.get("source") == "skills":
-                handle_config_change(event, client, server, token)
-            elif hook_event == "PreToolUse":
+            # Only handle PreToolUse
+            if hook_event == "PreToolUse":
                 handle_pre_tool_use(event, client, server, token)
 
         sys.exit(0)
@@ -506,3 +524,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

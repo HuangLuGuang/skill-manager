@@ -4,18 +4,19 @@
 
 ## 功能特性
 
-Agent Guard Hook (`agent_guard_hook.py`) 仅使用 verify 功能：
+Agent Guard Hook (`agent_guard_hook.py`) 仅使用 verify 功能，逻辑与 `agent_manager_skill_verifier.py` 完全一致：
 
-- **在 PreToolUse 事件触发** - 每次工具调用前验证 skills
-- **验证所有发现的 skills** - 扫描 skill 目录并验证每个 skill
+- **仅在 PreToolUse 事件触发** - 每次调用 Skill 工具前验证该 skill
+- **验证被调用的 skill** - 从事件中提取 skill 名称，找到对应目录并验证
 - **使用需要 token 的 API 端点** - `/api/v1/access/runtime/verify-skill-signature` 和 `/api/v1/access/runtime/can-load/{name}`
-- **会话状态管理** - 跟踪已验证的 active skills
+- **阻断消息格式与 verifier 完全一致** - 使用中文，包含详细原因和后续提示
+- **会话状态管理** - 跟踪已验证的 skills（用于日志，不跳过验证）
 
 ## 前置条件
 
 1. **安装项目 SDK**
    ```bash
-   cd /path/to/skill-manager
+   cd skill-manager
    python -m pip install -e ".[dev]"
    ```
 
@@ -38,40 +39,18 @@ Agent Guard Hook (`agent_guard_hook.py`) 仅使用 verify 功能：
 
 ## 配置 Claude Code
 
-在 `.claude/settings.json` 中配置：
+在 `.claude/settings.json` 中配置（仅需 PreToolUse）：使用 `agent_guard_hook.py` 脚本的绝对路径。
 
 ```json
 {
   "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 demo/claude-code-api-hook/agent_guard_hook.py"
-          }
-        ]
-      }
-    ],
-    "ConfigChange": [
-      {
-        "matcher": "skills",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 demo/claude-code-api-hook/agent_guard_hook.py"
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 demo/claude-code-api-hook/agent_guard_hook.py"
+            "command": "python3 skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"
           }
         ]
       }
@@ -92,13 +71,11 @@ Agent Guard Hook (`agent_guard_hook.py`) 仅使用 verify 功能：
 
 ## 工作原理
 
-### 三个 Hook 事件
+### 单个 Hook 事件
 
 | 事件 | 触发时机 | 作用 |
 |------|----------|------|
-| `SessionStart` | 新会话开始时 | 扫描并验证所有 skills，初始化 active_skills |
-| `ConfigChange` | 配置改变时 | 验证新加载的 skill，添加到 active_skills |
-| `PreToolUse` | 每次工具调用前 | 验证 active_skills |
+| `PreToolUse` | 每次工具调用前 | 如果是 Skill 工具调用，验证该 skill |
 
 ### PreToolUse 流程
 
@@ -107,13 +84,40 @@ Agent 调用工具
     ↓
 PreToolUse 事件触发
     ↓
-有 active_skills 吗？
-    ├─ 否 → 扫描所有 skills，验证它们，更新 active_skills
-    └─ 是 → 只验证 active_skills
+是 Skill 工具调用吗？
+    ├─ 否 → 允许工具调用
+    └─ 是 → 提取 skill 名称
               ↓
-         skill 验证通过？
-              ├─ 是 → 允许工具调用
-              └─ 否 → 阻止工具调用
+         找到 skill 目录
+              ↓
+         调用 verify-skill-signature API
+              ↓
+         验证通过且状态是 APPROVED？
+              ├─ 否 → 阻断并显示原因
+              └─ 是 → 调用 can-load API
+                        ↓
+                   验证通过且状态是 APPROVED？
+                        ├─ 否 → 阻断并显示原因
+                        └─ 是 → 允许工具调用
+```
+
+### 验证步骤（与 agent_manager_skill_verifier.py 完全一致）
+
+1. **Verify Skill Signature**
+   - 调用 `/api/v1/access/runtime/verify-skill-signature`
+   - 检查 `allowed` 字段为 True
+   - 检查 `status` 为 `APPROVED`
+
+2. **Verify Can Load**
+   - 调用 `/api/v1/access/runtime/can-load/{skill_name}`
+   - 检查 `allowed` 字段为 True
+   - 检查 `status` 为 `APPROVED`
+
+### 阻断消息格式
+
+```
+阻断: {reason} status={status}
+不要调用该 Skill。请联系管理员在 Agent Manager 中审批通过后再使用。
 ```
 
 ## 日志文件
@@ -134,3 +138,11 @@ tail -f ~/.agent-manager/logs/agent_guard_hook.log
 |--------|------|
 | 0 | 允许 |
 | 2 | 阻止，stderr 包含原因 |
+
+## Skill 目录扫描顺序
+
+按以下优先级顺序扫描 skill 目录：
+
+1. `AGENT_MANAGER_SKILLS_DIR` 环境变量指定的目录（最高优先级）
+2. 项目 `.claude/skills/` 目录
+3. 全局 `~/.claude/skills/` 目录
