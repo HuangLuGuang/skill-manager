@@ -153,7 +153,7 @@
                 <a-descriptions-item v-if="judgementSummary.llmRisk" label="LLM 研判">{{ riskDisplay(judgementSummary.llmRisk) }}</a-descriptions-item>
                 <a-descriptions-item label="阻断项">{{ judgementSummary.blockingCount }}</a-descriptions-item>
                 <a-descriptions-item v-if="judgementSummary.reason" label="差异解释" :span="2">
-                  {{ judgementSummary.reason }}
+                  <div class="markdown-body judgement-reason" v-html="judgementReasonHtml" />
                 </a-descriptions-item>
               </a-descriptions>
               <a-list
@@ -1098,6 +1098,7 @@ const judgementSummary = computed(() => {
     dismissedFindings: Array.isArray(rec.dismissed_findings) ? rec.dismissed_findings : [],
   }
 })
+const judgementReasonHtml = computed(() => marked.parse(judgementSummary.value?.reason || ''))
 const judgementModeText = (mode) => ({
   strict: '严格模式',
   balanced: '平衡模式',
@@ -1887,6 +1888,10 @@ watch(
 .markdown-body pre code {
   background-color: transparent;
   padding: 0;
+}
+
+.judgement-reason :deep(p:last-child) {
+  margin-bottom: 0;
 }
 </style>
 
