@@ -108,6 +108,11 @@
                 <a-tag v-if="record.enable_compression" color="purple">{{ record.compression_level || 'auto' }}</a-tag>
                 <span v-else class="muted">关闭</span>
               </template>
+              <template v-else-if="column.key === 'promptGuard'">
+                <a-tag :color="promptGuardColor(record.prompt_guard_mode)">
+                  {{ promptGuardLabel(record.prompt_guard_mode) }}
+                </a-tag>
+              </template>
               <template v-else-if="column.key === 'models'">
                 <a-space wrap>
                   <a-tag v-for="name in record.allowed_models || []" :key="name">{{ name }}</a-tag>
@@ -342,6 +347,19 @@
             <a-radio value="conservative">保守 — 仅压缩 JSON/结构化数据</a-radio>
             <a-radio value="aggressive">激进 — 全部算法 + ML 模型（节省最多）</a-radio>
           </a-radio-group>
+        </a-form-item>
+        <a-divider style="font-size: 13px; color: #888">Prompt 防护</a-divider>
+        <a-form-item label="检测模式">
+          <a-radio-group v-model:value="keyForm.prompt_guard_mode">
+            <a-radio value="off">关闭</a-radio>
+            <a-radio value="log">仅记录</a-radio>
+            <a-radio value="warn">告警放行</a-radio>
+            <a-radio value="block">高风险阻断</a-radio>
+          </a-radio-group>
+          <div style="color: #888; font-size: 12px; margin-top: 4px">建议新接入方到“凭证管理”创建模型调用凭证并配置。</div>
+        </a-form-item>
+        <a-form-item v-if="keyForm.prompt_guard_mode !== 'off'">
+          <a-checkbox v-model:checked="keyForm.prompt_guard_llm_review">启用 LLM 复核</a-checkbox>
         </a-form-item>
         <a-row :gutter="16">
           <a-col :span="12">
@@ -591,6 +609,7 @@ const keyColumns = [
   { title: '前缀', dataIndex: 'key_prefix', width: 110 },
   { title: '模型', key: 'models' },
   { title: '压缩', key: 'compression', width: 80 },
+  { title: 'Prompt 防护', key: 'promptGuard', width: 120 },
   { title: '过期时间', key: 'expires_at', width: 170 },
   { title: '状态', key: 'status', width: 120 },
   { title: '操作', key: 'action', width: 100 },
@@ -653,7 +672,19 @@ const policyRuleRows = ref([])
 
 const providerForm = reactive({ name: '', base_url: '', api_key: '', clear_api_key: false, enabled: true, timeout_seconds: 60, enable_compression: false })
 const modelForm = reactive({ provider_id: null, name: '', display_name: '', enabled: true, context_window: null, max_output_tokens: null, is_default: false })
-const keyForm = reactive({ name: '', allowed_models: [], max_body_kb: 1024, max_concurrent_requests: 5, expires_at: null, never_expires: true, status: 'active', enable_compression: false, compression_level: 'auto' })
+const keyForm = reactive({
+  name: '',
+  allowed_models: [],
+  max_body_kb: 1024,
+  max_concurrent_requests: 5,
+  expires_at: null,
+  never_expires: true,
+  status: 'active',
+  enable_compression: false,
+  compression_level: 'auto',
+  prompt_guard_mode: 'off',
+  prompt_guard_llm_review: false,
+})
 const userForm = reactive({ username: '', email: '', role: 'admin', password: '', is_active: true, group_ids: [] })
 const groupForm = reactive({ name: '', description: '', user_ids: [], privacy_policy_id: null, is_active: true })
 const groupPolicyForm = reactive({ privacy_policy_id: null })
@@ -684,6 +715,8 @@ const groupNameMap = computed(() => new Map(groups.value.map(item => [item.id, i
 const formatDateTime = (value) => value ? formatBeijingDateTime(value) : ''
 const statusLabel = (s) => ({ active: '启用', disabled: '禁用', revoked: '已吊销' }[s] || s)
 const statusColor = (s) => ({ active: 'green', disabled: 'orange', revoked: 'red' }[s] || 'default')
+const promptGuardLabel = (value) => ({ off: '关闭', log: '仅记录', warn: '告警放行', block: '高风险阻断' }[value] || '关闭')
+const promptGuardColor = (value) => ({ off: 'default', log: 'blue', warn: 'orange', block: 'red' }[value] || 'default')
 const compactId = (value, head = 10, tail = 8) => {
   if (!value || value.length <= head + tail + 3) return value || ''
   return `${value.slice(0, head)}...${value.slice(-tail)}`
@@ -821,6 +854,8 @@ const openKey = (record = null) => {
     status: record?.status || 'active',
     enable_compression: record?.enable_compression ?? false,
     compression_level: record?.compression_level || 'auto',
+    prompt_guard_mode: record?.prompt_guard_mode || 'off',
+    prompt_guard_llm_review: record?.prompt_guard_llm_review ?? false,
   })
   keyVisible.value = true
 }

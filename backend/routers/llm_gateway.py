@@ -55,9 +55,17 @@ PLACEHOLDER_PRESERVATION_SYSTEM_PROMPT = (
     "Treat these tokens as the real values and preserve them naturally in the answer. "
     "Do not explain that they are placeholders."
 )
-TRACE_STAGES = ["meta", "original", "masked", "compressed", "masked_response", "final_response"]
+TRACE_STAGES = ["meta", "prompt_security", "original", "masked", "compressed", "masked_response", "final_response"]
 ACTIVE_KEY_REQUESTS: dict[int, int] = {}
 MESSAGE_TEXT_FIELDS = ("content", "reasoning_content")
+PROMPT_GUARD_RULES = [
+    ("prompt_injection", "HIGH", "要求忽略或覆盖系统指令", r"(?i)(ignore|disregard|forget)\s+(all\s+)?(previous|prior|above|system)\s+(instructions?|prompts?)|忽略(以上|之前|前面|所有).{0,12}(指令|提示词|规则)|覆盖.{0,12}(系统|开发者).{0,8}(指令|提示词)"),
+    ("system_prompt_leak", "HIGH", "要求泄露系统提示词或内部指令", r"(?i)(reveal|show|print|dump|output).{0,40}(system prompt|developer message|hidden instructions?|internal instructions?)|(泄露|显示|输出|打印).{0,20}(系统提示词|系统指令|隐藏指令|内部指令)"),
+    ("secret_exfiltration", "HIGH", "要求输出密钥、凭据或敏感配置", r"(?i)(api[_ -]?key|secret|token|password|credential|private key).{0,40}(print|show|reveal|dump|output|exfiltrate)|(输出|泄露|打印).{0,20}(密钥|凭据|密码|token|api key|私钥)"),
+    ("safety_bypass", "MEDIUM", "要求绕过安全限制或审计", r"(?i)(bypass|disable|turn off|ignore).{0,30}(safety|policy|guardrail|audit|filter|moderation)|(绕过|关闭|禁用).{0,20}(安全|策略|审计|过滤|限制)"),
+    ("tool_output_instruction", "MEDIUM", "工具返回内容夹带新的执行指令", r"(?i)(tool output|observation|retrieved content).{0,80}(ignore|follow these instructions|system prompt)|(工具返回|检索内容).{0,40}(忽略|执行以下|遵循以下)"),
+]
+RISK_ORDER = {"none": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
 COMMON_CN_SURNAMES = (
     "赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜"
     "戚谢邹喻柏水窦章云苏潘葛奚范彭郎鲁韦昌马苗凤花方俞任袁柳鲍史唐"
@@ -102,6 +110,75 @@ def _strip_undefined_values(value: Any) -> Any:
                 cleaned[key] = normalized
         return cleaned
     return value
+
+
+def _text_from_message_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                value = item.get("text") or item.get("content")
+                if isinstance(value, str):
+                    parts.append(value)
+            elif isinstance(item, str):
+                parts.append(item)
+        return "\n".join(parts)
+    return ""
+
+
+def _prompt_guard_mode(key) -> str:
+    mode = str(getattr(key, "prompt_guard_mode", "off") or "off").lower()
+    return mode if mode in {"off", "log", "warn", "block"} else "off"
+
+
+def _scan_prompt_security(messages: list[dict[str, Any]], *, mode: str, llm_review: bool = False) -> dict[str, Any]:
+    started = time.perf_counter()
+    findings: list[dict[str, Any]] = []
+    max_risk = "none"
+    if mode != "off":
+        for index, message in enumerate(messages):
+            text = _text_from_message_content(message.get("content"))
+            if not text:
+                continue
+            for rule_id, severity, reason, pattern in PROMPT_GUARD_RULES:
+                match = re.search(pattern, text)
+                if not match:
+                    continue
+                if RISK_ORDER[severity] > RISK_ORDER[max_risk]:
+                    max_risk = severity
+                start, end = match.span()
+                snippet = text[max(0, start - 30): min(len(text), end + 30)]
+                findings.append({
+                    "rule": rule_id,
+                    "severity": severity,
+                    "reason": reason,
+                    "role": message.get("role") or "unknown",
+                    "message_index": index,
+                    "snippet": snippet[:240],
+                })
+    action = "off"
+    blocked = False
+    if mode == "log":
+        action = "record"
+    elif mode == "warn":
+        action = "warn" if findings else "pass"
+    elif mode == "block":
+        blocked = max_risk == "HIGH"
+        action = "block" if blocked else ("warn" if findings else "pass")
+    return {
+        "enabled": mode != "off",
+        "mode": mode,
+        "llm_review_enabled": bool(llm_review),
+        "llm_review_used": False,
+        "risk_level": max_risk,
+        "action": action,
+        "blocked": blocked,
+        "findings": findings[:20],
+        "findings_count": len(findings),
+        "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+    }
 
 
 def _mask_secret(value: str | None) -> str | None:
@@ -202,6 +279,8 @@ def _api_key_response(row: models.LlmApiKey, token: str | None = None) -> schema
         max_concurrent_requests=row.max_concurrent_requests,
         enable_compression=getattr(row, "enable_compression", False),
         compression_level=getattr(row, "compression_level", "auto"),
+        prompt_guard_mode=getattr(row, "prompt_guard_mode", "off"),
+        prompt_guard_llm_review=getattr(row, "prompt_guard_llm_review", False),
         created_at=row.created_at,
         last_used_at=row.last_used_at,
     )
@@ -789,6 +868,7 @@ async def _stream_upstream(
     compression_enabled: bool = False,
     compression_level: str = "auto",
     compression_result: Any = None,
+    prompt_security: dict[str, Any] | None = None,
     request_started_at: float | None = None,
 ):
     provider = db.query(models.ModelProvider).filter(models.ModelProvider.id == model.provider_id).first()
@@ -868,6 +948,7 @@ async def _stream_upstream(
                                 compression_level=compression_level,
                                 compression_result=compression_result,
                                 compressed_messages=payload["messages"],
+                                prompt_security=prompt_security,
                                 request_duration_ms=(time.perf_counter() - started_at) * 1000,
                                 upstream_duration_ms=(time.perf_counter() - upstream_started_at) * 1000,
                             )
@@ -919,6 +1000,7 @@ async def _stream_upstream(
                 compression_level=compression_level,
                 compression_result=compression_result,
                 compressed_messages=payload["messages"],
+                prompt_security=prompt_security,
                 request_duration_ms=(time.perf_counter() - started_at) * 1000,
                 upstream_duration_ms=(time.perf_counter() - upstream_started_at) * 1000,
             )
@@ -974,6 +1056,7 @@ def _record_llm_success(
     compression_level: str = "auto",
     compression_result: Any = None,
     compressed_messages: list[dict[str, Any]] | None = None,
+    prompt_security: dict[str, Any] | None = None,
     request_duration_ms: float = 0.0,
     upstream_duration_ms: float = 0.0,
 ) -> None:
@@ -1000,6 +1083,7 @@ def _record_llm_success(
             request_duration_ms=round(request_duration_ms, 2),
             upstream_duration_ms=round(upstream_duration_ms, 2),
             platform_duration_ms=round(platform_duration_ms, 2),
+            prompt_guard_result_json=_json_dumps(prompt_security or {}),
         )
     )
     db.add(
@@ -1046,7 +1130,10 @@ def _record_llm_success(
                 "prompt_tokens": int(usage.get("prompt_tokens") or 0),
                 "completion_tokens": int(usage.get("completion_tokens") or 0),
                 "total_tokens": int(usage.get("total_tokens") or 0),
+                "prompt_security_risk": (prompt_security or {}).get("risk_level", "none"),
+                "prompt_security_action": (prompt_security or {}).get("action", "off"),
             },
+            "prompt_security": prompt_security or {},
             "original": {"messages": original_messages},
             "masked": {"messages": upstream_messages},
             "compressed": {
@@ -1101,6 +1188,74 @@ def _record_llm_error(
             upstream_duration_ms=round(upstream_duration_ms, 2),
             platform_duration_ms=round(platform_duration_ms, 2),
         )
+    )
+    db.commit()
+
+
+def _record_prompt_guard_block(
+    db: Session,
+    *,
+    request_id: str,
+    tenant_id: str,
+    conversation_id: str,
+    user_ref: str,
+    key,
+    model_name: str,
+    bypass_pii: bool,
+    policy: models.PrivacyPolicy,
+    original_messages: list[dict[str, Any]],
+    prompt_security: dict[str, Any],
+    request_duration_ms: float,
+) -> None:
+    owner_meta = _key_owner_meta(db, key)
+    db.add(
+        models.LlmRequestAudit(
+            request_id=request_id,
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            user_ref=user_ref,
+            group_id=key.group_id,
+            api_key_id=key.id,
+            model=model_name,
+            traffic_type="prompt_blocked",
+            detected_counts_json="{}",
+            prompt_guard_result_json=_json_dumps(prompt_security),
+            status="blocked",
+            error="Prompt 防护阻断高风险请求",
+            request_duration_ms=round(request_duration_ms, 2),
+            upstream_duration_ms=0.0,
+            platform_duration_ms=round(request_duration_ms, 2),
+        )
+    )
+    _save_trace(
+        db,
+        request_id=request_id,
+        tenant_id=tenant_id,
+        conversation_id=conversation_id,
+        model=model_name,
+        bypass_pii=bypass_pii,
+        ttl_days=policy.mapping_ttl_days,
+        stages={
+            "meta": {
+                "request_id": request_id,
+                "tenant_id": tenant_id,
+                "conversation_id": conversation_id,
+                "model": model_name,
+                "bypass_pii": bypass_pii,
+                **owner_meta,
+                "created_at": int(time.time()),
+                "request_duration_ms": round(request_duration_ms, 2),
+                "upstream_duration_ms": 0.0,
+                "platform_duration_ms": round(request_duration_ms, 2),
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "prompt_security_risk": prompt_security.get("risk_level", "none"),
+                "prompt_security_action": prompt_security.get("action", "block"),
+            },
+            "prompt_security": prompt_security,
+            "original": {"messages": original_messages},
+        },
     )
     db.commit()
 
@@ -1372,6 +1527,8 @@ async def create_llm_api_key(
         max_concurrent_requests=body.max_concurrent_requests,
         enable_compression=body.enable_compression,
         compression_level=body.compression_level,
+        prompt_guard_mode=body.prompt_guard_mode,
+        prompt_guard_llm_review=body.prompt_guard_llm_review,
     )
     db.add(row)
     db.commit()
@@ -1507,6 +1664,8 @@ async def list_traces(
                 "created_at": row.created_at.isoformat(),
                 "prompt_tokens": metric.prompt_tokens if metric else payload.get("prompt_tokens", 0),
                 "completion_tokens": metric.completion_tokens if metric else payload.get("completion_tokens", 0),
+                "prompt_security_risk": payload.get("prompt_security_risk", "none"),
+                "prompt_security_action": payload.get("prompt_security_action", "off"),
             }
         )
     return {"traces": traces, "total": total, "page": safe_page, "page_size": safe_page_size}
@@ -1642,6 +1801,14 @@ async def delete_conversation_mappings(
 async def get_privacy_stats(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
     policy = _get_default_policy(db)
     api_key_ids = [row.id for row in _api_key_query_for_user(db, current_user).all()]
+    access_token_ids = [
+        row.id for row in db.query(models.AccessToken)
+        .filter(models.AccessToken.token_type.in_(["model_gateway", "agent_runtime"]))
+        .filter(or_(models.AccessToken.user_id == current_user.id, models.AccessToken.created_by == current_user.username))
+        .all()
+        if "model:chat" in _json_loads(row.scopes_json, [])
+    ]
+    api_key_ids = sorted(set(api_key_ids + access_token_ids))
     audit_query = db.query(models.LlmRequestAudit).filter(models.LlmRequestAudit.api_key_id.in_(api_key_ids))
     total = audit_query.count()
     pii_checked = audit_query.filter(models.LlmRequestAudit.traffic_type == "pii_checked").count()
@@ -1657,9 +1824,17 @@ async def get_privacy_stats(db: Session = Depends(get_db), current_user: models.
     created_tokens = sum(row.created_tokens or 0 for row in metrics)
     reused_tokens = sum(row.reused_tokens or 0 for row in metrics)
     pii_hits: dict[str, int] = {}
+    prompt_guard_events = 0
+    prompt_guard_blocked = 0
     for row in metrics:
         for entity_type, count in _json_loads(row.pii_hits_json, {}).items():
             pii_hits[entity_type] = pii_hits.get(entity_type, 0) + int(count or 0)
+    for row in audit_query.all():
+        guard = _json_loads(getattr(row, "prompt_guard_result_json", None), {})
+        if guard.get("enabled") and guard.get("findings_count", 0):
+            prompt_guard_events += 1
+        if guard.get("blocked") or row.status == "blocked":
+            prompt_guard_blocked += 1
     def protected(value: int) -> int | None:
         if policy.dp_enabled and value < policy.dp_min_count:
             return None
@@ -1672,6 +1847,8 @@ async def get_privacy_stats(db: Session = Depends(get_db), current_user: models.
         "active_mappings": protected(mappings),
         "created_tokens": protected(created_tokens),
         "reused_tokens": protected(reused_tokens),
+        "prompt_guard_events": protected(prompt_guard_events),
+        "prompt_guard_blocked": protected(prompt_guard_blocked),
         "pii_hits": {entity_type: protected(count) for entity_type, count in pii_hits.items()},
         "dp_enabled": policy.dp_enabled,
         "dp_min_count": policy.dp_min_count,
@@ -2061,6 +2238,29 @@ async def _chat_completions_with_key(
         raise HTTPException(status_code=403, detail="当前策略不允许绕过 PII 检查")
 
     original_messages = [_strip_undefined_values(message.model_dump()) for message in payload.messages]
+    prompt_security = _scan_prompt_security(
+        original_messages,
+        mode=_prompt_guard_mode(key),
+        llm_review=bool(getattr(key, "prompt_guard_llm_review", False)),
+    )
+    if prompt_security["blocked"]:
+        _record_prompt_guard_block(
+            db,
+            request_id=request_id,
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            user_ref=user_ref,
+            key=key,
+            model_name=model.name,
+            bypass_pii=bypass_pii,
+            policy=policy,
+            original_messages=original_messages,
+            prompt_security=prompt_security,
+            request_duration_ms=(time.perf_counter() - request_started_at) * 1000,
+        )
+        response.headers["x-request-id"] = request_id
+        response.headers["x-prompt-guard"] = "block"
+        raise HTTPException(status_code=403, detail="Prompt 防护阻断高风险请求，请在链路追踪中查看命中规则")
     active_mappings = db.query(models.PseudonymMapping).filter(
         models.PseudonymMapping.tenant_id == tenant_id,
         models.PseudonymMapping.conversation_id == conversation_id,
@@ -2157,6 +2357,7 @@ async def _chat_completions_with_key(
             compression_enabled=compression_enabled,
             compression_level=compression_level,
             compression_result=compression_result,
+            prompt_security=prompt_security,
             request_started_at=request_started_at,
         )
         return StreamingResponse(
@@ -2167,6 +2368,7 @@ async def _chat_completions_with_key(
                 "x-tenant-id": tenant_id,
                 "x-conversation-id": conversation_id,
                 "x-traffic-type": "pii_bypass" if bypass_pii else "pii_checked",
+                "x-prompt-guard": prompt_security.get("action", "off"),
                 "x-compression": (
                     "on" if compression_result and compression_result.applied
                     else ("enabled-noop" if compression_result else "off")
@@ -2224,6 +2426,7 @@ async def _chat_completions_with_key(
             request_duration_ms=round(request_duration_ms, 2),
             upstream_duration_ms=round(upstream_duration_ms, 2),
             platform_duration_ms=round(max(0.0, request_duration_ms - upstream_duration_ms), 2),
+            prompt_guard_result_json=_json_dumps(prompt_security),
         )
         db.add(audit)
         db.add(
@@ -2270,7 +2473,10 @@ async def _chat_completions_with_key(
                     "prompt_tokens": int(usage.get("prompt_tokens") or 0),
                     "completion_tokens": int(usage.get("completion_tokens") or 0),
                     "total_tokens": int(usage.get("total_tokens") or 0),
+                    "prompt_security_risk": prompt_security.get("risk_level", "none"),
+                    "prompt_security_action": prompt_security.get("action", "off"),
                 },
+                "prompt_security": prompt_security,
                 "original": {"messages": original_messages},
                 "masked": {"messages": upstream_messages},
                 "compressed": {
@@ -2292,6 +2498,7 @@ async def _chat_completions_with_key(
         response.headers["x-tenant-id"] = tenant_id
         response.headers["x-conversation-id"] = conversation_id
         response.headers["x-traffic-type"] = "pii_bypass" if bypass_pii else "pii_checked"
+        response.headers["x-prompt-guard"] = prompt_security.get("action", "off")
         response.headers["x-compression"] = (
             "on" if compression_result and compression_result.applied
             else ("enabled-noop" if compression_result else "off")

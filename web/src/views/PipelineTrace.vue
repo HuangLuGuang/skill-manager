@@ -47,6 +47,12 @@
           <template v-else-if="column.key === 'type'">
             <a-tag :color="record.bypass_pii ? 'orange' : 'blue'">{{ record.bypass_pii ? 'Bypass' : 'PII Checked' }}</a-tag>
           </template>
+          <template v-else-if="column.key === 'prompt_security'">
+            <a-tag :color="promptSecurityColor(record.prompt_security_risk)">
+              {{ promptSecurityRiskLabel(record.prompt_security_risk) }}
+            </a-tag>
+            <div class="muted">{{ promptSecurityActionLabel(record.prompt_security_action) }}</div>
+          </template>
         </template>
       </a-table>
     </a-card>
@@ -72,6 +78,7 @@
           <a-descriptions-item label="总耗时">{{ formatMs(detail.stages.meta.request_duration_ms) }}</a-descriptions-item>
           <a-descriptions-item label="模型耗时">{{ formatMs(detail.stages.meta.upstream_duration_ms) }}</a-descriptions-item>
           <a-descriptions-item label="平台耗时">{{ formatMs(detail.stages.meta.platform_duration_ms) }}</a-descriptions-item>
+          <a-descriptions-item label="Prompt 防护">{{ promptSecuritySummary(detail.stages.meta) }}</a-descriptions-item>
           <a-descriptions-item label="原始输入 Token">{{ formatNumber(originalInputTokens) }}</a-descriptions-item>
           <a-descriptions-item label="发给模型输入 Token">{{ formatNumber(modelInputTokens) }}</a-descriptions-item>
           <a-descriptions-item label="输出 Token">{{ formatNumber(detail.stages.meta.completion_tokens) }}</a-descriptions-item>
@@ -138,7 +145,7 @@ const selectedId = ref('')
 const drawerOpen = ref(false)
 const viewMode = ref('文本')
 const revealOriginal = ref(false)
-const activeStages = ref(['masked', 'compressed', 'masked_response', 'final_response'])
+const activeStages = ref(['prompt_security', 'masked', 'compressed', 'masked_response', 'final_response'])
 const originalInputTokens = computed(() => {
   const compressed = detail.value?.stages?.compressed
   return compressed?.enabled ? compressed.pre_tokens : detail.value?.stages?.meta?.prompt_tokens
@@ -148,6 +155,7 @@ const modelInputTokens = computed(() => {
   return compressed?.enabled ? compressed.post_tokens : detail.value?.stages?.meta?.prompt_tokens
 })
 const stageOrder = [
+  { key: 'prompt_security', label: '0. Prompt 防护' },
   { key: 'original', label: '1. 原始请求（含 PII）' },
   { key: 'masked', label: '2. 发送给 LLM（已替换）' },
   { key: 'compressed', label: '3. 智能压缩后（发送上游）' },
@@ -164,6 +172,7 @@ const traceColumns = [
   { title: '总耗时', dataIndex: 'request_duration_ms', width: 80, customRender: ({ text }) => formatMs(text) },
   { title: '模型耗时', dataIndex: 'upstream_duration_ms', width: 85, customRender: ({ text }) => formatMs(text) },
   { title: '平台耗时', dataIndex: 'platform_duration_ms', width: 85, customRender: ({ text }) => formatMs(text) },
+  { title: 'Prompt 防护', key: 'prompt_security', width: 105 },
   { title: '输入', dataIndex: 'prompt_tokens', width: 75, customRender: ({ text }) => formatNumber(text) },
   { title: '输出', dataIndex: 'completion_tokens', width: 75, customRender: ({ text }) => formatNumber(text) },
   { title: '类型', key: 'type', width: 90 },
@@ -223,6 +232,11 @@ const formatGroupNames = (value) => {
 }
 const formatMs = (value) => value || value === 0 ? `${Number(value).toFixed(1)} ms` : '-'
 const formatNumber = (value) => value || value === 0 ? Number(value).toLocaleString() : '-'
+const promptSecurityRiskLabel = (value) => ({ none: '无风险', LOW: '低风险', MEDIUM: '中风险', HIGH: '高风险' }[value] || '无风险')
+const promptSecurityActionLabel = (value) => ({ off: '关闭', log: '仅记录', pass: '通过', record: '记录', warn: '告警放行', block: '已阻断' }[value] || '关闭')
+const promptSecurityColor = (value) => ({ LOW: 'blue', MEDIUM: 'orange', HIGH: 'red' }[value] || 'default')
+const promptSecuritySummary = (meta = {}) =>
+  `${promptSecurityRiskLabel(meta.prompt_security_risk)} / ${promptSecurityActionLabel(meta.prompt_security_action)}`
 
 const renderMessages = (messages = []) => messages.map((msg, index) => {
   const tag = msg.system ? 'SYSTEM INJECTED' : String(msg.role || '').toUpperCase()
@@ -231,9 +245,25 @@ const renderMessages = (messages = []) => messages.map((msg, index) => {
 
 const renderChoices = (choices = []) => choices.map((choice) => `#${choice.index ?? 0}\n${choice.content || ''}`).join('\n\n')
 
+const renderPromptSecurity = (data = {}) => {
+  if (!data.enabled) return 'Prompt 防护未开启'
+  const lines = [
+    `检测模式：${promptSecurityActionLabel(data.mode)}`,
+    `风险等级：${promptSecurityRiskLabel(data.risk_level)}`,
+    `处理动作：${promptSecurityActionLabel(data.action)}`,
+    `命中数量：${data.findings_count || 0}`,
+  ]
+  for (const item of data.findings || []) {
+    lines.push(`\n- ${item.reason || item.rule}（${promptSecurityRiskLabel(item.severity)}）`)
+    if (item.snippet) lines.push(`  命中片段：${item.snippet}`)
+  }
+  return lines.join('\n')
+}
+
 const renderStage = (stage) => {
   const data = detail.value?.stages?.[stage] || {}
   if (viewMode.value === 'JSON') return JSON.stringify(data, null, 2)
+  if (stage === 'prompt_security') return renderPromptSecurity(data)
   if (data.messages) return renderMessages(data.messages)
   if (data.choices) return renderChoices(data.choices)
   return JSON.stringify(data, null, 2)

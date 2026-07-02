@@ -1,11 +1,12 @@
 # 模型网关与隐私路由
 
-模型网关把 `rs-router` 的隐私代理能力内置到 Agent Manager 后台中，用于统一代理 OpenAI-compatible Chat Completions 请求，并在请求进入外部模型供应商前做 PII 伪匿名化。
+模型网关把 `rs-router` 的隐私代理能力内置到 Agent Manager 后台中，用于统一代理 OpenAI-compatible Chat Completions 请求，并在请求进入外部模型供应商前做 PII 伪匿名化、Prompt 防护和智能上下文压缩。
 
 它解决两类问题：
 
 - 外部应用 / Agent 调用 LLM 时，不直接暴露真实隐私数据给模型供应商。
-- Agent Manager 自己做 skill / prompt 的 LLM vetting 时，也可以走同一条隐私代理链路并留下审计。
+- Agent Manager 自己做 skill 的 LLM vetting 时，也可以走同一条隐私代理链路并留下审计。
+- 真实调用时检测提示词注入、系统提示词泄露、凭据外传等 Prompt 风险，不要求用户额外上传 Prompt 模板。
 
 ---
 
@@ -13,8 +14,8 @@
 
 管理台新增两个页面：
 
-- `模型网关`：管理模型供应商、模型端点、用户、用户组、LLM API Key 和隐私策略。
-- `Pipeline Trace`：查看一次请求的四阶段报文。
+- `模型网关`：管理模型供应商、模型端点、用户、用户组、模型调用凭证、隐私策略和 Prompt 防护开关。
+- `Pipeline Trace`：查看一次请求的 Prompt 防护、脱敏、压缩、响应和还原过程。
 
 Trace 会保存原始 PII，仅 `admin`、`super_admin`、`privacy_auditor` 角色应该访问。
 
@@ -31,6 +32,11 @@ sequenceDiagram
 
     Client->>GW: POST /v1/chat/completions
     GW->>GW: 校验 LLM API Key / 模型范围 / 请求大小 / 并发
+    GW->>GW: Prompt 防护规则检测
+    alt 高风险阻断
+        GW->>DB: 写阻断审计与 Pipeline Trace
+        GW-->>Client: 403
+    end
     GW->>DB: 加载用户组隐私策略与会话映射
     GW->>GW: PII 检测与 token 替换
     GW->>LLM: 发送替换后的 OpenAI-compatible 请求
@@ -40,12 +46,14 @@ sequenceDiagram
     GW-->>Client: 返回还原后的响应
 ```
 
-四阶段 Trace：
+Trace 阶段：
 
 | 阶段 | 含义 |
 |---|---|
+| `prompt_security` | Prompt 防护结果、风险等级、处理动作和命中规则 |
 | `original` | 客户端原始请求 messages，可能含 PII |
 | `masked` | 发送给上游模型前的替换后 messages |
+| `compressed` | 智能上下文压缩后的上游 messages |
 | `masked_response` | 上游模型返回的 token 响应 |
 | `final_response` | 反替换后的最终响应 |
 
@@ -71,7 +79,7 @@ sequenceDiagram
 - OpenAI SDK / Cherry Studio：优先把 Base URL 配成 `http://127.0.0.1:8000/v1`。
 - Hermes 或其他只接受根地址的客户端：可配 `http://127.0.0.1:8000`；如果客户端直接 POST 根地址，网关会兼容 `POST /`，如果客户端自动拼接路径，网关也会兼容 `/chat/completions` 和 `/models`。
 
-请求必须携带模型调用凭证。凭证统一在管理台 `智能体治理 / 凭证管理` 创建，类型选择 `模型调用凭证`：
+请求必须携带模型调用凭证。凭证统一在管理台 `智能体管理 / 凭证管理` 创建，类型选择 `模型调用凭证`：
 
 ```http
 Authorization: Bearer amk_xxx
@@ -122,13 +130,50 @@ Authorization: Bearer amk_xxx
 
 - 请求入站时仍先完成 API Key 校验、模型范围校验、PII 伪匿名和上游路由。
 - 上游每个 `delta.content` chunk 返回时，网关会把占位符实时还原后再下发给客户端。
-- 流结束后保存 audit、usage metric 和四阶段 Pipeline Trace；Trace 中的 `masked_response` / `final_response` 会保存聚合后的文本片段。
+- 流结束后保存 audit、usage metric 和 Pipeline Trace；Trace 中的 `prompt_security`、`masked_response`、`final_response` 等阶段会保存聚合后的文本片段。
 
 ---
 
-## 4. 模型调用凭证
+## 4. Prompt 防护
 
-模型调用凭证在 `智能体治理 / 凭证管理` 页面创建：
+Prompt 不再作为主流程里的独立上传资产。平台默认在模型网关运行时处理真实请求，因为这里能看到最终发给模型的 `system` / `user` / `tool` messages。
+
+### 开启方式
+
+在管理台 `凭证管理` 创建或编辑模型调用凭证，勾选 `model:chat` 后选择 `Prompt 防护`：
+
+| 模式 | 行为 |
+|---|---|
+| 关闭 | 不检测 Prompt 风险 |
+| 仅记录 | 命中规则时写入链路追踪和统计，但不影响请求 |
+| 告警放行 | 命中规则时标记告警并放行 |
+| 高风险阻断 | 命中高风险规则时返回 `403`，并写入审计和链路追踪 |
+
+旧的 `模型网关 / API Key 管理` 页面也保留同样配置，但新接入方建议统一使用 `凭证管理`。
+
+### 当前检测内容
+
+首版使用轻量规则同步检测，避免每次调用都增加一次 LLM 审查延迟。规则覆盖：
+
+- 忽略、覆盖或绕过系统指令。
+- 泄露 system prompt、隐藏指令或内部上下文。
+- 输出 API Key、token、密码、私钥等敏感凭据。
+- 绕过安全策略、审计、过滤或限制。
+- 工具返回内容夹带新的执行指令。
+
+`启用 LLM 复核` 目前作为策略配置项保留，默认不进入同步主链路。后续可以只在规则命中中高风险时触发 LLM 复核，避免成本和延迟不可控。
+
+### 查看结果
+
+- `隐私链路追踪` 列表显示 Prompt 防护风险和处理动作。
+- Trace 详情展开 `Prompt 防护` 阶段，可查看命中规则、风险等级、命中片段和是否阻断。
+- `平台总览` 的模型网关卡片展示 Prompt 风险事件数和阻断次数。
+
+---
+
+## 5. 模型调用凭证
+
+模型调用凭证在 `智能体管理 / 凭证管理` 页面创建：
 
 - 明文只展示一次。
 - 服务端只保存 SHA-256 hash 和 key prefix。
@@ -262,7 +307,7 @@ export AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID="vetting-session"
 
 ### 开启方式
 
-在管理台 `智能体治理 / 凭证管理` 创建模型调用凭证时，打开“开启智能压缩”开关并选择压缩级别（均衡/保守/激进）。
+在管理台 `智能体管理 / 凭证管理` 创建模型调用凭证时，打开“开启智能压缩”开关并选择压缩级别（均衡/保守/激进）。
 
 ### 如何看到效果
 

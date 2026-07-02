@@ -105,6 +105,8 @@ class LlmApiKey(Base):
     # Headroom 智能压缩配置
     enable_compression = Column(Boolean, default=False, nullable=False)
     compression_level = Column(String(32), default="auto", nullable=False)
+    prompt_guard_mode = Column(String(32), default="off", nullable=False)
+    prompt_guard_llm_review = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     last_used_at = Column(DateTime, nullable=True)
 
@@ -131,6 +133,8 @@ class AccessToken(Base):
     max_concurrent_jobs = Column(Integer, default=2, nullable=False)
     enable_compression = Column(Boolean, default=False, nullable=False)
     compression_level = Column(String(32), default="auto", nullable=False)
+    prompt_guard_mode = Column(String(32), default="off", nullable=False)
+    prompt_guard_llm_review = Column(Boolean, default=False, nullable=False)
     created_by = Column(String(128), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     last_used_at = Column(DateTime, nullable=True)
@@ -197,6 +201,7 @@ class LlmRequestAudit(Base):
     request_duration_ms = Column(Float, default=0.0, nullable=False)
     upstream_duration_ms = Column(Float, default=0.0, nullable=False)
     platform_duration_ms = Column(Float, default=0.0, nullable=False)
+    prompt_guard_result_json = Column(Text, default="{}", nullable=False)
     status = Column(String(32), default="success", nullable=False)
     error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

@@ -43,6 +43,12 @@
               <span v-if="!record.allowed_models?.length" class="muted">按类型默认</span>
             </a-space>
           </template>
+          <template v-else-if="column.key === 'promptGuard'">
+            <a-tag :color="promptGuardColor(record.prompt_guard_mode)">
+              {{ promptGuardLabel(record.prompt_guard_mode) }}
+            </a-tag>
+            <div v-if="record.prompt_guard_llm_review" class="muted">LLM 复核</div>
+          </template>
           <template v-else-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
           </template>
@@ -129,6 +135,20 @@
           </a-radio-group>
         </a-form-item>
 
+        <a-form-item v-if="form.scopes.includes('model:chat')" label="Prompt 防护">
+          <a-radio-group v-model:value="form.prompt_guard_mode">
+            <a-radio value="off">关闭</a-radio>
+            <a-radio value="log">仅记录</a-radio>
+            <a-radio value="warn">告警放行</a-radio>
+            <a-radio value="block">高风险阻断</a-radio>
+          </a-radio-group>
+          <div class="hint">在模型网关运行时检测提示词注入、系统提示词泄露和凭据外传等风险。</div>
+        </a-form-item>
+        <a-form-item v-if="form.scopes.includes('model:chat') && form.prompt_guard_mode !== 'off'">
+          <a-checkbox v-model:checked="form.prompt_guard_llm_review">启用 LLM 复核</a-checkbox>
+          <div class="hint">首版先记录配置，默认使用轻量规则检测，避免增加网关主链路延迟。</div>
+        </a-form-item>
+
         <a-row :gutter="16">
           <a-col :xs="24" :md="12">
             <a-form-item label="最大请求体 KB">
@@ -209,6 +229,8 @@ const form = reactive({
   max_concurrent_jobs: 2,
   enable_compression: false,
   compression_level: 'auto',
+  prompt_guard_mode: 'off',
+  prompt_guard_llm_review: false,
 })
 
 const typeDefaults = {
@@ -223,6 +245,7 @@ const columns = [
   { title: '绑定对象', key: 'binding', width: 180 },
   { title: '权限', key: 'scopes' },
   { title: '模型', key: 'models', width: 180 },
+  { title: 'Prompt 防护', key: 'promptGuard', width: 130 },
   { title: '状态', key: 'status', width: 100 },
   { title: '时间', key: 'time', width: 240 },
   { title: '操作', key: 'action', width: 130 },
@@ -235,6 +258,8 @@ const tokenTypeLabel = (value) => ({
 }[value] || value)
 const statusLabel = (value) => ({ active: '启用', disabled: '禁用', revoked: '已吊销' }[value] || value)
 const statusColor = (value) => ({ active: 'green', disabled: 'orange', revoked: 'red' }[value] || 'default')
+const promptGuardLabel = (value) => ({ off: '关闭', log: '仅记录', warn: '告警放行', block: '高风险阻断' }[value] || '关闭')
+const promptGuardColor = (value) => ({ off: 'default', log: 'blue', warn: 'orange', block: 'red' }[value] || 'default')
 const formatTime = (value) => value ? new Date(value).toLocaleString() : '-'
 
 const applyTypeDefaults = () => {
@@ -274,6 +299,8 @@ const openCreate = (defaults = {}) => {
     max_concurrent_jobs: 2,
     enable_compression: false,
     compression_level: 'auto',
+    prompt_guard_mode: 'off',
+    prompt_guard_llm_review: false,
   })
   applyTypeDefaults()
   form.bound_agent_id = defaults.bound_agent_id
@@ -301,6 +328,10 @@ const handleCreate = async () => {
   if (form.token_type === 'agent_runtime' && !form.bound_agent_id) {
     message.warning('请选择绑定智能体')
     return
+  }
+  if (!form.scopes.includes('model:chat')) {
+    form.prompt_guard_mode = 'off'
+    form.prompt_guard_llm_review = false
   }
   creating.value = true
   try {

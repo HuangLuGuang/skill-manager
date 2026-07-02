@@ -267,6 +267,8 @@ class AccessTokenCreate(BaseModel):
     max_concurrent_jobs: int = Field(default=2, ge=1, le=100)
     enable_compression: bool = False
     compression_level: str = Field(default="auto", pattern="^(auto|conservative|aggressive)$")
+    prompt_guard_mode: str = Field(default="off", pattern="^(off|log|warn|block)$")
+    prompt_guard_llm_review: bool = False
 
 
 class AccessTokenUpdate(BaseModel):
@@ -285,6 +287,8 @@ class AccessTokenUpdate(BaseModel):
     max_concurrent_jobs: Optional[int] = Field(default=None, ge=1, le=100)
     enable_compression: Optional[bool] = None
     compression_level: Optional[str] = Field(default=None, pattern="^(auto|conservative|aggressive)$")
+    prompt_guard_mode: Optional[str] = Field(default=None, pattern="^(off|log|warn|block)$")
+    prompt_guard_llm_review: Optional[bool] = None
 
 
 class AccessTokenResponse(BaseModel):
@@ -308,6 +312,8 @@ class AccessTokenResponse(BaseModel):
     max_concurrent_jobs: int
     enable_compression: bool = False
     compression_level: str = "auto"
+    prompt_guard_mode: str = "off"
+    prompt_guard_llm_review: bool = False
     created_by: Optional[str] = None
     created_at: datetime
     last_used_at: Optional[datetime] = None
@@ -398,6 +404,8 @@ class LlmApiKeyCreate(BaseModel):
     max_concurrent_requests: int = Field(default=5, ge=1, le=100)
     enable_compression: bool = False
     compression_level: str = Field(default="auto", pattern="^(auto|conservative|aggressive)$")
+    prompt_guard_mode: str = Field(default="off", pattern="^(off|log|warn|block)$")
+    prompt_guard_llm_review: bool = False
 
 
 class LlmApiKeyUpdate(BaseModel):
@@ -411,6 +419,8 @@ class LlmApiKeyUpdate(BaseModel):
     max_concurrent_requests: Optional[int] = Field(default=None, ge=1, le=100)
     enable_compression: Optional[bool] = None
     compression_level: Optional[str] = Field(default=None, pattern="^(auto|conservative|aggressive)$")
+    prompt_guard_mode: Optional[str] = Field(default=None, pattern="^(off|log|warn|block)$")
+    prompt_guard_llm_review: Optional[bool] = None
 
 
 class LlmApiKeyResponse(BaseModel):
@@ -427,6 +437,8 @@ class LlmApiKeyResponse(BaseModel):
     max_concurrent_requests: int
     enable_compression: bool = False
     compression_level: str = "auto"
+    prompt_guard_mode: str = "off"
+    prompt_guard_llm_review: bool = False
     created_at: datetime
     last_used_at: Optional[datetime] = None
 

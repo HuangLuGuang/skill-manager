@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="平台总览" sub-title="查看智能体、Skill、Prompt 与模型网关的治理状态" />
+    <a-page-header title="平台总览" sub-title="查看智能体、Skill、模型网关与运行时 Prompt 防护状态" />
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24" :lg="12" :xl="6" v-for="item in moduleCards" :key="item.key">
@@ -128,14 +128,12 @@ import {
   getDashboardRiskSourceStats,
   getLlmStatsByModel,
   getLlmStatsDaily,
-  getLlmStatsOverview,
+  getPrivacyStats,
   listAccessTokens,
   listAgents,
   listLlmApiKeys,
   listModelEndpoints,
   listModelProviders,
-  listPromptReviewQueue,
-  listPrompts,
   listReviewQueue,
   listSkills,
 } from '../api'
@@ -143,8 +141,6 @@ import { formatDateTime, formatDetails } from '../utils/format'
 
 const skillRows = ref([])
 const skillReviewRows = ref([])
-const promptRows = ref([])
-const promptReviewRows = ref([])
 const agentRows = ref([])
 const providerRows = ref([])
 const modelRows = ref([])
@@ -152,7 +148,7 @@ const accessTokenRows = ref([])
 const gatewayKeyRows = ref([])
 const auditRows = ref([])
 const riskSourceRows = ref([])
-const gatewayOverview = ref({})
+const privacyStats = ref({})
 const gatewayDailyRows = ref([])
 const gatewayModelRows = ref([])
 
@@ -203,20 +199,6 @@ const moduleCards = computed(() => [
     ],
   },
   {
-    key: 'prompts',
-    title: 'Prompt 治理',
-    path: '/prompts',
-    value: promptRows.value.length,
-    label: '已提交 Prompt',
-    flow: ['提交', '检测', '审核', '可授权'],
-    stats: [
-      { label: '待审核', value: promptReviewRows.value.length },
-      { label: '可加载', value: countByStatus(promptRows.value, 'APPROVED') },
-      { label: '高风险', value: countByRisk(promptRows.value, ['suspicious', 'malicious']) },
-      { label: '已拒绝', value: countByStatus(promptRows.value, 'REJECTED') },
-    ],
-  },
-  {
     key: 'agents',
     title: '智能体管理',
     path: '/agents',
@@ -227,21 +209,21 @@ const moduleCards = computed(() => [
       { label: '已启用', value: countByStatus(agentRows.value, 'active') },
       { label: '绑定凭证', value: agentRows.value.filter((item) => item.runtime_token_id || item.runtime_token_name).length },
       { label: '绑定 Skill', value: agentRows.value.reduce((sum, item) => sum + (item.skill_names?.length || 0), 0) },
-      { label: '绑定 Prompt', value: agentRows.value.reduce((sum, item) => sum + (item.prompt_names?.length || 0), 0) },
+      { label: '默认模型', value: agentRows.value.filter((item) => item.default_model).length },
     ],
   },
   {
     key: 'gateway',
-    title: '模型网关',
+    title: '模型网关与 Prompt 防护',
     path: '/model-gateway/models',
     value: modelRows.value.length,
     label: '已配置模型',
-    flow: ['配置供应商', '添加模型', '绑定组策略', '审计统计'],
+    flow: ['配置供应商', '添加模型', '签发凭证', 'Prompt 防护'],
     stats: [
       { label: '可用模型', value: modelRows.value.filter((item) => item.enabled).length },
       { label: '供应商', value: providerRows.value.length },
-      { label: '接入凭证', value: activeAccessTokens.value.length + activeGatewayKeys.value.length },
-      { label: '近 7 天调用', value: gatewayOverview.value.total_requests || 0 },
+      { label: 'Prompt 风险', value: privacyStats.value.prompt_guard_events || 0 },
+      { label: '阻断', value: privacyStats.value.prompt_guard_blocked || 0 },
     ],
   },
 ])
@@ -259,19 +241,7 @@ const todoRows = computed(() => {
       time: item.submitted_at,
       path: `/skills/${item.skill_id}`,
     }))
-  const promptTodos = promptRows.value
-    .filter((item) => item.status === 'VETTED')
-    .map((item) => ({
-      id: `prompt-${item.prompt_id}`,
-      type: 'Prompt',
-      name: item.name,
-      description: '等待人工审核',
-      status: item.status,
-      risk: item.risk_level,
-      time: item.submitted_at,
-      path: `/prompts/${item.prompt_id}`,
-    }))
-  return [...skillTodos, ...promptTodos]
+  return skillTodos
     .sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0))
     .slice(0, 20)
 })
@@ -326,12 +296,6 @@ const governanceStatusChartOptions = computed(() => {
         data: statuses.map((status) => countByStatus(skillRows.value, status)),
         itemStyle: { color: '#2563eb', borderRadius: [4, 4, 0, 0] },
       },
-      {
-        name: 'Prompt',
-        type: 'bar',
-        data: statuses.map((status) => countByStatus(promptRows.value, status)),
-        itemStyle: { color: '#16a34a', borderRadius: [4, 4, 0, 0] },
-      },
     ],
     grid: { left: 32, right: 16, top: 40, bottom: 24, containLabel: true },
   }
@@ -339,9 +303,9 @@ const governanceStatusChartOptions = computed(() => {
 
 const riskChartOptions = computed(() => {
   const rows = [
-    { label: '安全', value: countByRisk(skillRows.value, 'benign') + countByRisk(promptRows.value, 'benign') },
-    { label: '可疑', value: countByRisk(skillRows.value, 'suspicious') + countByRisk(promptRows.value, 'suspicious') },
-    { label: '恶意', value: countByRisk(skillRows.value, 'malicious') + countByRisk(promptRows.value, 'malicious') },
+    { label: '安全', value: countByRisk(skillRows.value, 'benign') },
+    { label: '可疑', value: countByRisk(skillRows.value, 'suspicious') },
+    { label: '恶意', value: countByRisk(skillRows.value, 'malicious') },
   ]
   return buildBarChart('风险对象', rows, '#d97706')
 })
@@ -436,8 +400,6 @@ const fetchDashboard = async () => {
     const [
       skills,
       skillReview,
-      prompts,
-      promptReview,
       agents,
       providers,
       models,
@@ -445,14 +407,12 @@ const fetchDashboard = async () => {
       gatewayKeys,
       audit,
       riskSourceStats,
-      llmOverview,
+      gatewayPrivacy,
       llmDaily,
       llmByModel,
     ] = await Promise.all([
       safeRequest(() => listSkills(), []),
       safeRequest(() => listReviewQueue(), []),
-      safeRequest(() => listPrompts(), []),
-      safeRequest(() => listPromptReviewQueue(), []),
       safeRequest(() => listAgents(), []),
       safeRequest(() => listModelProviders(), []),
       safeRequest(() => listModelEndpoints(), []),
@@ -460,15 +420,13 @@ const fetchDashboard = async () => {
       safeRequest(() => listLlmApiKeys(), []),
       safeRequest(() => getAudit({ since_hours: 168, limit: 300 }), []),
       safeRequest(() => getDashboardRiskSourceStats(), { items: [] }),
-      safeRequest(() => getLlmStatsOverview({ days: 7 }), {}),
+      safeRequest(() => getPrivacyStats(), {}),
       safeRequest(() => getLlmStatsDaily({ days: 7 }), { series: [] }),
       safeRequest(() => getLlmStatsByModel({ days: 7 }), { models: [] }),
     ])
 
     skillRows.value = toArray(skills)
     skillReviewRows.value = toArray(skillReview)
-    promptRows.value = toArray(prompts)
-    promptReviewRows.value = toArray(promptReview)
     agentRows.value = toArray(agents)
     providerRows.value = toArray(providers)
     modelRows.value = toArray(models)
@@ -476,7 +434,7 @@ const fetchDashboard = async () => {
     gatewayKeyRows.value = toArray(gatewayKeys)
     auditRows.value = toArray(audit)
     riskSourceRows.value = toArray(riskSourceStats)
-    gatewayOverview.value = llmOverview || {}
+    privacyStats.value = gatewayPrivacy || {}
     gatewayDailyRows.value = toArray(llmDaily, 'series')
     gatewayModelRows.value = toArray(llmByModel, 'models')
   } catch (error) {
@@ -487,7 +445,6 @@ const fetchDashboard = async () => {
 const todoTypeColor = (value) =>
   ({
     Skill: 'blue',
-    Prompt: 'green',
     智能体: 'purple',
     模型网关: 'cyan',
     凭证: 'orange',

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="智能体管理" sub-title="按部门登记智能体，串起模型、Prompt、Skill 与运行时接入">
+    <a-page-header title="智能体管理" sub-title="按部门登记智能体，串起模型、Skill 与运行时接入">
       <template #extra>
         <a-button @click="flowVisible = true">接入流程</a-button>
       </template>
@@ -12,7 +12,7 @@
           <div class="flow-section">
             <div class="flow-title">1. 先治理能力</div>
             <a-steps size="small" :current="3" direction="horizontal" class="flow-inline-steps">
-              <a-step title="提交" description="Skill / Prompt" />
+              <a-step title="提交" description="Skill" />
               <a-step title="扫描" description="分析风险" />
               <a-step title="审核" description="人工确认" />
               <a-step title="批准" description="可信可用" />
@@ -24,7 +24,7 @@
             <div class="flow-title">2. 再接入 Agent</div>
             <a-steps size="small" :current="4" direction="horizontal" class="flow-inline-steps">
               <a-step title="创建 Agent" description="部门 / 负责人" />
-              <a-step title="绑定范围" description="Skill / Prompt / 模型" />
+              <a-step title="绑定范围" description="Skill / 模型" />
               <a-step title="签发凭证" description="运行身份" />
               <a-step title="集成守卫" description="加载前校验" />
               <a-step title="审计追踪" description="记录结果" />
@@ -85,7 +85,6 @@
           <template v-else-if="column.key === 'capabilities'">
             <a-space direction="vertical" size="small">
               <span>模型：{{ record.default_model || '-' }}</span>
-              <span>Prompt：{{ record.prompt_names?.length || 0 }} 个</span>
               <span>Skill：{{ record.skill_names?.length || 0 }} 个</span>
             </a-space>
           </template>
@@ -162,26 +161,6 @@
             </a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="绑定 Prompt">
-          <a-select
-            v-model:value="agentForm.prompt_refs"
-            mode="multiple"
-            show-search
-            allow-clear
-            option-filter-prop="label"
-            placeholder="搜索并选择可用 Prompt"
-            :filter-option="filterOption"
-          >
-            <a-select-option
-              v-for="prompt in promptOptions"
-              :key="prompt.value"
-              :value="prompt.value"
-              :label="promptOptionLabel(prompt)"
-            >
-              {{ promptOptionLabel(prompt) }}
-            </a-select-option>
-          </a-select>
-        </a-form-item>
         <a-form-item label="允许 Skills">
           <a-select
             v-model:value="agentForm.skill_refs"
@@ -220,7 +199,7 @@
         <a-col :xs="24" :lg="12">
           <a-card size="small" title="能力治理入库">
             <a-steps size="small" direction="vertical" :current="3">
-              <a-step title="提交 Skill / Prompt" description="手动提交，或用扫描器批量接入本地 Skill。" />
+              <a-step title="提交 Skill" description="手动提交，或用扫描器批量接入本地 Skill。" />
               <a-step title="平台扫描分析" description="执行静态扫描、Sandbox 信号、深度分析和 LLM 辅助研判。" />
               <a-step title="人工审核" description="查看判断依据，确认通过或拒绝。" />
               <a-step title="批准为可信版本" description="批准后记录内容指纹，后续运行时可校验是否被篡改。" />
@@ -231,7 +210,7 @@
           <a-card size="small" title="Agent 接入运行">
             <a-steps size="small" direction="vertical" :current="4">
               <a-step title="创建 Agent" description="登记部门、负责人和业务用途。" />
-              <a-step title="绑定能力范围" description="约束可用 Skill、Prompt 和默认模型。" />
+              <a-step title="绑定能力范围" description="约束可用 Skill 和默认模型。" />
               <a-step title="签发运行凭证" description="凭证绑定 Agent，作为外部运行身份。" />
               <a-step title="集成 Agent Skill Verifier" description="Agent 加载 Skill 前向平台校验状态、内容指纹和授权。" />
               <a-step title="审计追踪" description="记录哪个 Agent 通过哪个凭证使用了哪个 Skill。" />
@@ -278,7 +257,6 @@ import {
   listGroups,
   listManagedUsers,
   listModelEndpoints,
-  listPrompts,
   listSkills,
   updateAgent,
 } from '../api'
@@ -293,7 +271,6 @@ const agents = ref([])
 const groups = ref([])
 const users = ref([])
 const models = ref([])
-const prompts = ref([])
 const skills = ref([])
 const filters = reactive({ department_group_id: null, status: undefined, q: '' })
 const agentForm = reactive({
@@ -305,7 +282,7 @@ const agentForm = reactive({
   status: 'active',
   default_model: undefined,
   skill_refs: [],
-  prompt_refs: [],
+  prompt_names: [],
 })
 
 const columns = [
@@ -325,30 +302,21 @@ const skillOptions = computed(() => skills.value.map((skill, index) => ({
   ...skill,
   value: uniqueOptionValue(skill, 'skill', index),
 })))
-const promptOptions = computed(() => prompts.value.map((prompt, index) => ({
-  ...prompt,
-  value: uniqueOptionValue(prompt, 'prompt', index),
-})))
 const statusText = (status) => ({ active: '启用', disabled: '禁用', draft: '草稿' }[status] || status)
 const statusColor = (status) => ({ active: 'green', disabled: 'red', draft: 'orange' }[status] || 'default')
 const userOptionLabel = (user) => `${user.username}${user.email ? `（${user.email}）` : ''}`
-const uniqueOptionValue = (item, type, index) => `${type}:${item.skill_id || item.prompt_id || item.id || index}:${index}`
+const uniqueOptionValue = (item, type, index) => `${type}:${item.skill_id || item.id || index}:${index}`
 const skillOptionLabel = (skill) => {
   const statusLabel = skill.status === 'DEPLOYED' ? '已部署' : '已批准'
   const id = skill.skill_id || skill.id
   return `${skill.name}（${statusLabel}${id ? ` · ${id}` : ''}）`
-}
-const promptOptionLabel = (prompt) => {
-  const statusLabel = prompt.status === 'DEPLOYED' ? '已部署' : '已批准'
-  const id = prompt.prompt_id || prompt.id
-  return `${prompt.name}（${statusLabel}${id ? ` · ${id}` : ''}）`
 }
 const filterOption = (input, option) =>
   String(option?.label || option?.value || '').toLowerCase().includes(String(input || '').toLowerCase())
 const findRefsByNames = (options, names = []) => {
   const used = new Set()
   return names.map((name) => {
-    const option = options.find(item => (item.skill_id === name || item.prompt_id === name || item.name === name) && !used.has(item.value))
+    const option = options.find(item => (item.skill_id === name || item.name === name) && !used.has(item.value))
     if (!option) return null
     used.add(option.value)
     return option.value
@@ -359,9 +327,6 @@ const skillIdsFromRefs = (options, refs = []) =>
     const item = options.find(option => option.value === ref)
     return item?.skill_id || item?.id || item?.name
   }).filter(Boolean)
-const namesFromRefs = (options, refs = []) =>
-  refs.map(ref => options.find(item => item.value === ref)?.name).filter(Boolean)
-
 const fetchAgents = async () => {
   loading.value = true
   try {
@@ -378,17 +343,15 @@ const fetchAgents = async () => {
 }
 
 const loadOptions = async () => {
-  const [groupRes, userRes, modelRes, promptRes, skillRes] = await Promise.all([
+  const [groupRes, userRes, modelRes, skillRes] = await Promise.all([
     listGroups(),
     listManagedUsers(),
     listModelEndpoints(),
-    listPrompts({ status: 'APPROVED,DEPLOYED' }),
     listSkills({ status: 'APPROVED,DEPLOYED' }),
   ])
   groups.value = groupRes
   users.value = userRes
   models.value = modelRes
-  prompts.value = Array.isArray(promptRes.items) ? promptRes.items : promptRes
   skills.value = Array.isArray(skillRes.items) ? skillRes.items : skillRes
 }
 
@@ -408,7 +371,7 @@ const openAgent = (record = null) => {
     status: record?.status || 'active',
     default_model: record?.default_model || undefined,
     skill_refs: findRefsByNames(skillOptions.value, record?.skill_names || []),
-    prompt_refs: findRefsByNames(promptOptions.value, record?.prompt_names || []),
+    prompt_names: record?.prompt_names || [],
   })
   agentVisible.value = true
 }
@@ -430,7 +393,7 @@ const saveAgent = async () => {
       status: agentForm.status,
       default_model: agentForm.default_model,
       skill_names: skillIdsFromRefs(skillOptions.value, agentForm.skill_refs),
-      prompt_names: namesFromRefs(promptOptions.value, agentForm.prompt_refs),
+      prompt_names: agentForm.prompt_names || [],
     }
     let savedAgent
     if (editingAgentId.value) savedAgent = await updateAgent(editingAgentId.value, payload)

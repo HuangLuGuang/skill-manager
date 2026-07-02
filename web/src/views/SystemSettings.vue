@@ -202,15 +202,6 @@ const governanceItems = computed(() => [
     actionPath: '/review',
   },
   {
-    key: 'prompt-review',
-    title: 'Prompt 审核',
-    status: 'ok',
-    statusText: '可用',
-    description: '支持 Prompt 提交、审核和发布流程。',
-    actionText: '查看 Prompt',
-    actionPath: '/prompts',
-  },
-  {
     key: 'signing',
     title: '内容完整性校验',
     status: managerStatus.value.signing_key_configured ? 'ok' : 'warning',
@@ -343,7 +334,7 @@ const integrationItems = computed(() => [
     title: 'Agent 管理',
     status: activeAgents.value.length > 0 ? 'ok' : 'warning',
     statusText: activeAgents.value.length > 0 ? '可用' : '待创建',
-    description: '创建 Agent 后绑定可用 Skill 与 Prompt，形成受管运行单元。',
+    description: '创建 Agent 后绑定可用 Skill、模型和运行凭证，形成受管运行单元。',
     meta: [
       { label: 'Agent', value: `${agents.value.length}` },
       { label: '启用中', value: `${activeAgents.value.length}` },
@@ -391,7 +382,7 @@ const capabilityGroups = computed(() => {
     {
       key: 'governance',
       title: '治理能力',
-      description: '检查 Skill、Prompt、内容完整性和审计是否能形成治理闭环。',
+      description: '检查 Skill、内容完整性、模型网关和审计是否能形成治理闭环。',
       items: governanceItems.value,
     },
     {

@@ -8,7 +8,6 @@ export const navigationItems = [
       { key: '/submit', label: '提交 Skill', icon: 'upload' },
       { key: '/review', label: 'Skill 审核', icon: 'checkSquare' },
       { key: '/skills', label: 'Skill 列表', icon: 'fileSearch' },
-      { key: '/prompts', label: 'Prompt 管理', icon: 'fileText' },
       { key: '/policy', label: '策略配置', icon: 'setting' },
     ],
   },
@@ -51,7 +50,7 @@ export const navigationItems = [
 
 export const resolveMenuKey = (path) => {
   if (path.startsWith('/skills/')) return '/skills'
-  if (path.startsWith('/prompts/')) return '/prompts'
+  if (path.startsWith('/prompts/')) return '/model-gateway/policies'
   if (path === '/model-gateway') return '/model-gateway/providers'
   return path
 }
