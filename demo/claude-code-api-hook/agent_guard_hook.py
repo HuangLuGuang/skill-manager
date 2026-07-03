@@ -398,7 +398,8 @@ def _extract_skill_name_from_event(event: dict) -> str | None:
     # Try to extract skill name from tool_input
     tool_input = event.get("tool_input", {})
     if isinstance(tool_input, dict):
-        skill_name = tool_input.get("skill")
+        # 兼容 Claude Code and Trae IDE
+        skill_name = tool_input.get("skill", None) or tool_input.get("name", None)
         if skill_name:
             return skill_name
 

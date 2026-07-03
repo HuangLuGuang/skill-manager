@@ -1,6 +1,6 @@
-# Claude Code Agent Guard Hook
+# Claude Code Agent and Trae IDE Guard Hook
 
-这个目录包含使用 agent-manager-skill-verifier 逻辑的 Claude Code Hook 实现。
+这个目录包含使用 agent-manager-skill-verifier 逻辑的 Claude Code Hook 和 Trae IDE Hook 实现。
 
 ## 功能特性
 
@@ -37,10 +37,10 @@ Agent Guard Hook (`agent_guard_hook.py`) 仅使用 verify 功能，逻辑与 `ag
 
    注意：`AGENT_MANAGER_SIGNING_KEY` 必须与服务端配置的完全一致！
 
-## 配置 Claude Code
+## 配置 Claude Code or Trae IDE Hook
 
 在 `.claude/settings.json` 中配置（仅需 PreToolUse）：使用 `agent_guard_hook.py` 脚本的绝对路径。
-
+在 `.trae-cn/hooks.json` 中配置（仅需 PreToolUse）：使用 `agent_guard_hook.py` 脚本的绝对路径。
 ```json
 {
   "hooks": {
