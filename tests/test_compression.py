@@ -1,5 +1,8 @@
 """Headroom 压缩集成测试"""
 
+import sys
+import types
+
 import pytest
 
 
@@ -81,6 +84,33 @@ class TestCompressMessages:
         assert "auto" in ALLOWED_COMPRESSION_LEVELS
         assert "conservative" in ALLOWED_COMPRESSION_LEVELS
         assert "aggressive" in ALLOWED_COMPRESSION_LEVELS
+
+    def test_gateway_compression_disables_ccr_placeholders(self, monkeypatch):
+        """网关压缩不应把内容替换成 ccr:* 占位符。"""
+        calls = []
+
+        class FakeResult:
+            messages = [{"role": "user", "content": "full skill content"}]
+            tokens_before = 100
+            tokens_after = 90
+            tokens_saved = 10
+            compression_ratio = 0.1
+            transforms_applied = ["fake"]
+
+        def fake_compress(messages, **kwargs):
+            calls.append(kwargs)
+            return FakeResult()
+
+        fake_headroom = types.SimpleNamespace(compress=fake_compress)
+        monkeypatch.setitem(sys.modules, "headroom", fake_headroom)
+
+        from backend.compression import compress_messages
+
+        result = compress_messages([{"role": "user", "content": "full skill content"}], level="auto")
+
+        assert result.messages[0]["content"] == "full skill content"
+        assert calls
+        assert calls[0]["enable_ccr"] is False
 
 
 class TestCompressionIntegration:

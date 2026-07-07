@@ -182,6 +182,15 @@ class TestPolicyChecks:
         violations = _check_manifest_policy(["SomeDangerousTool"], "MIT", policy)
         assert any(v.rule == "tool_not_in_allowlist" for v in violations)
 
+    def test_tool_child_permissions_match_parent_allowlist(self):
+        policy = CompanyPolicy({"allowed_tools_allowlist": ["Bash", "Read"]})
+        violations = _check_manifest_policy(
+            ["Bash(duckduckgo-search:*)", "Bash(python:*)", "Bash(pip:*)", "Bash(uv:*)"],
+            "MIT",
+            policy,
+        )
+        assert not any(v.rule == "tool_not_in_allowlist" for v in violations)
+
     def test_require_license_missing(self):
         policy = CompanyPolicy({"require_license": True})
         violations = _check_manifest_policy([], None, policy)

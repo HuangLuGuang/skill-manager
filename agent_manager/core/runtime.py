@@ -15,6 +15,7 @@ from typing import Any
 from .models import RegistryEntry, SkillStatus
 from .registry import Registry, make_event
 from .signer import compute_signature, verify_signature
+from .utils import tool_matches
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +149,7 @@ class RuntimeGuard:
             self._emit_tool_event(entry, tool_name, agent_id, allowed=True, metadata=audit_metadata)
             return True
 
-        allowed = tool_name in entry.allowed_tools
+        allowed = any(tool_matches(allowed_tool, tool_name) for allowed_tool in entry.allowed_tools)
         if not allowed:
             reason = f"Tool {tool_name!r} not in declared allowed_tools for skill {skill_name!r}"
             logger.warning("BLOCKED tool: %s", reason)

@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 
 from .models import PolicyViolation, RiskLevel, SkillStatus, SourceInfo
+from .utils import tool_parent_name
 
 logger = logging.getLogger(__name__)
 
@@ -165,15 +166,21 @@ class CompanyPolicy:
             ))
 
         allowlist_lower = {t.lower() for t in self.allowed_tools_allowlist}
+        allowlist_parent_lower = {tool_parent_name(t).lower() for t in self.allowed_tools_allowlist}
         for tool in allowed_tools:
-            if tool.lower() not in allowlist_lower:
+            tool_lower = tool.lower()
+            parent_lower = tool_parent_name(tool).lower()
+            if tool_lower not in allowlist_lower and parent_lower not in allowlist_parent_lower:
                 violations.append(PolicyViolation(
                     rule="tool_not_in_allowlist",
                     message=f"Tool {tool!r} is not in the company allowlist",
                 ))
 
+        declared_lower = {t.lower() for t in allowed_tools}
+        declared_parent_lower = {tool_parent_name(t).lower() for t in allowed_tools}
         for perm in self.blocked_permissions:
-            if perm.lower() in [t.lower() for t in allowed_tools]:
+            perm_lower = perm.lower()
+            if perm_lower in declared_lower or perm_lower in declared_parent_lower:
                 violations.append(PolicyViolation(
                     rule="blocked_permission",
                     message=f"Tool/permission {perm!r} is explicitly blocked by policy",

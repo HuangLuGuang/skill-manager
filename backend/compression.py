@@ -80,7 +80,12 @@ def compress_messages(
     start = time.perf_counter()
 
     try:
-        kwargs: dict[str, Any] = {}
+        kwargs: dict[str, Any] = {
+            # 网关发给上游模型的内容必须是模型可直接理解的文本。
+            # CCR 会把大段内容替换成 ccr:* 引用，适合有还原器的本地上下文，
+            # 但上游模型无法解引用，会影响 skill / prompt / tool 内容理解。
+            "enable_ccr": False,
+        }
 
         if level == "conservative":
             # 仅压缩 tool 输出等结构化内容，不碰用户消息

@@ -34,6 +34,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ..core.utils import tool_matches
+
 # Session state directory - store state per session_id
 _DEFAULT_BASE_DIR = Path.home() / ".agent-manager"
 _DEFAULT_SESSION_STATE_DIR = _DEFAULT_BASE_DIR / "session-state"
@@ -58,6 +60,11 @@ def _log(msg: str) -> None:
             f.write(f"[{timestamp}] {msg}\n")
     except Exception:
         pass
+
+
+def _tool_allowed(allowed_tools: set[str], tool_name: str) -> bool:
+    return any(tool_matches(allowed, tool_name) for allowed in allowed_tools)
+
 
 # _ensure_env_loaded()  # Moved to main()
 SESSION_STATE_DIR = Path(os.environ.get("AGENT_MANAGER_SESSION_STATE_DIR", _DEFAULT_SESSION_STATE_DIR))
@@ -416,7 +423,7 @@ def handle_pre_tool_use(event: dict) -> None:
                 )
         return  # All active skills have no restrictions
 
-    if tool_name not in all_allowed:
+    if not _tool_allowed(all_allowed, tool_name):
         # Emit tool_blocked for all active skills
         for skill_name in active:
             entry = registry.get_by_name(skill_name)

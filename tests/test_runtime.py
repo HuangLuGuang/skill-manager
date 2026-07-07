@@ -184,6 +184,13 @@ class TestRuntimeGuard:
         assert guard.check_tool("tool-skill", "Grep")
         assert not guard.check_tool("tool-skill", "Bash")
 
+    def test_check_tool_matches_parent_and_child_tool_permissions(self, guard, registry):
+        registry.add(_make_entry("bash-parent", tools=["Bash"]))
+        registry.add(_make_entry("bash-child", tools=["Bash(python:*)"]))
+
+        assert guard.check_tool("bash-parent", "Bash(python:*)")
+        assert guard.check_tool("bash-child", "Bash")
+
     def test_check_tool_no_declarations_allows_all(self, guard, registry):
         registry.add(_make_entry("open-skill", tools=[]))
         assert guard.check_tool("open-skill", "AnythingAtAll")
