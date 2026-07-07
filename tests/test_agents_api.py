@@ -8,7 +8,7 @@ from backend.routers import agents
 from backend.sqlite_db import Base, get_db
 
 
-def _client(tmp_path):
+def _client(tmp_path, *, username: str = "admin", role: str = "admin"):
     engine = create_engine(f"sqlite:///{tmp_path / 'agents.db'}", connect_args={"check_same_thread": False})
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -31,9 +31,9 @@ def _client(tmp_path):
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(
         id=1,
-        username="admin",
+        username=username,
         hashed_password="x",
-        role="super_admin",
+        role=role,
     )
     app.include_router(agents.router)
     return TestClient(app), group.id
@@ -80,6 +80,46 @@ def test_create_list_and_update_department_agent(tmp_path):
     updated = update_response.json()
     assert updated["status"] == "disabled"
     assert updated["skill_names"] == ["risk-screening-deep-trace", "raw-log-threat-hunting"]
+
+
+def test_agents_are_scoped_to_creator(tmp_path):
+    client, group_id = _client(tmp_path, username="alice")
+    response = client.post(
+        "/agents",
+        json={"agent_id": "alice-agent", "name": "Alice Agent", "department_group_id": group_id},
+    )
+    assert response.status_code == 200
+    assert response.json()["created_by"] == "alice"
+
+    client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(
+        id=2,
+        username="bob",
+        hashed_password="x",
+        role="admin",
+    )
+    other_response = client.post(
+        "/agents",
+        json={"agent_id": "bob-agent", "name": "Bob Agent", "department_group_id": group_id},
+    )
+    assert other_response.status_code == 200
+
+    client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(
+        id=1,
+        username="alice",
+        hashed_password="x",
+        role="admin",
+    )
+    alice_rows = client.get("/agents").json()
+    client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(
+        id=2,
+        username="bob",
+        hashed_password="x",
+        role="admin",
+    )
+    bob_rows = client.get("/agents").json()
+
+    assert [row["agent_id"] for row in alice_rows] == ["alice-agent"]
+    assert [row["agent_id"] for row in bob_rows] == ["bob-agent"]
 
 
 def test_create_agent_rejects_unknown_department(tmp_path):

@@ -1505,6 +1505,15 @@ async def delete_model(
     return {"status": "deleted"}
 
 
+@admin_router.post("/prompt-guard/test")
+async def test_prompt_guard(
+    body: schemas.PromptGuardTestRequest,
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    messages = [_strip_undefined_values(message.model_dump()) for message in body.messages]
+    return _scan_prompt_security(messages, mode=body.mode, llm_review=body.llm_review)
+
+
 @admin_router.get("/llm-api-keys", response_model=list[schemas.LlmApiKeyResponse])
 async def list_llm_api_keys(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
     rows = _api_key_query_for_user(db, current_user).order_by(models.LlmApiKey.id.desc()).all()
@@ -2142,51 +2151,71 @@ async def get_llm_stats_by_model(
 @admin_router.get("/llm-stats/by-user")
 async def get_llm_stats_by_user(
     days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=10, ge=1, le=100),
     model: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    """按用户统计的 Token 用量数据（JOIN user 表获取用户名）"""
+    """按用户统计 Token 用量，覆盖旧 LLM API Key 和统一凭证中心。"""
     since = _now() - timedelta(days=max(1, min(days, 365)))
-
-    q = (
-        db.query(
-            models.LlmApiKey.user_id,
-            models.User.username,
-            func.coalesce(func.sum(models.LlmUsageMetric.prompt_tokens), 0).label("prompt"),
-            func.coalesce(func.sum(models.LlmUsageMetric.completion_tokens), 0).label("completion"),
-            func.coalesce(func.sum(models.LlmUsageMetric.total_tokens), 0).label("total"),
-            func.coalesce(func.sum(models.LlmUsageMetric.tokens_saved), 0).label("saved"),
-            func.count(models.LlmUsageMetric.id).label("requests"),
-        )
-        .join(models.LlmApiKey, models.LlmUsageMetric.api_key_id == models.LlmApiKey.id)
-        .join(models.User, models.LlmApiKey.user_id == models.User.id)
-        .filter(models.LlmUsageMetric.created_at >= since)
-    )
+    users = {row.id: row.username for row in db.query(models.User).all()}
+    api_key_users = {
+        row.id: row.user_id
+        for row in db.query(models.LlmApiKey.id, models.LlmApiKey.user_id).all()
+        if row.user_id
+    }
+    access_token_users = {
+        row.id: row.user_id
+        for row in db.query(models.AccessToken.id, models.AccessToken.user_id)
+        .filter(models.AccessToken.token_type.in_(["model_gateway", "agent_runtime"]))
+        .all()
+        if row.user_id
+    }
+    stats = {
+        user_id: {
+            "user_id": user_id,
+            "username": username or f"user-{user_id}",
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "tokens_saved": 0,
+            "requests": 0,
+        }
+        for user_id, username in users.items()
+    }
+    q = db.query(models.LlmUsageMetric).filter(models.LlmUsageMetric.created_at >= since)
     if model:
         q = q.filter(models.LlmUsageMetric.model == model)
-
-    rows = (
-        q.group_by(models.LlmApiKey.user_id)
-        .order_by(func.sum(models.LlmUsageMetric.total_tokens).desc())
-        .all()
-    )
+    for metric in q.all():
+        # Unified access tokens are the current path; fall back to legacy LLM API keys.
+        user_id = access_token_users.get(metric.api_key_id) or api_key_users.get(metric.api_key_id)
+        if not user_id:
+            continue
+        row = stats.setdefault(user_id, {
+            "user_id": user_id,
+            "username": users.get(user_id) or f"user-{user_id}",
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "tokens_saved": 0,
+            "requests": 0,
+        })
+        row["prompt_tokens"] += int(metric.prompt_tokens or 0)
+        row["completion_tokens"] += int(metric.completion_tokens or 0)
+        row["total_tokens"] += int(metric.total_tokens or 0)
+        row["tokens_saved"] += int(metric.tokens_saved or 0)
+        row["requests"] += 1
+    rows = sorted(
+        stats.values(),
+        key=lambda item: (item["total_tokens"], item["requests"], item["username"]),
+        reverse=True,
+    )[:limit]
 
     return {
         "days": days,
         "model": model,
-        "users": [
-            {
-                "user_id": row.user_id,
-                "username": row.username or f"user-{row.user_id}",
-                "prompt_tokens": int(row.prompt),
-                "completion_tokens": int(row.completion),
-                "total_tokens": int(row.total),
-                "tokens_saved": int(row.saved),
-                "requests": row.requests,
-            }
-            for row in rows
-        ],
+        "limit": limit,
+        "users": rows,
     }
 
 

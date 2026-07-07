@@ -50,7 +50,7 @@ flowchart LR
 
 ### Current APIs
 
-外部 Agent 推荐使用管理台 `智能体治理 / 凭证管理` 创建的 `Agent 运行凭证`，并绑定对应 Agent。最关键会用到这三个凭证鉴权接口：
+外部 Agent 推荐使用管理台 `智能体管理 / 统一凭证中心` 创建的 `Agent 运行凭证`，并绑定对应 Agent。最关键会用到这三个凭证鉴权接口：
 
 - `POST /api/v1/access/runtime/verify-skill-signature`，需要 `runtime:verify-signature`
 - `GET /api/v1/access/runtime/can-load/{skill_name}`，需要 `runtime:can-load`
@@ -210,7 +210,7 @@ flowchart LR
 - `POST /api/v1/llm/chat/completions`
   Agent Manager 命名空间路径，适合内部服务显式调用。
 
-鉴权使用 `智能体治理 / 凭证管理` 创建的模型调用凭证，或显式授予 `model:chat` 的 Agent 运行凭证：
+鉴权使用 `智能体管理 / 统一凭证中心` 创建的模型调用凭证，或显式授予 `model:chat` 的 Agent 运行凭证：
 
 ```http
 Authorization: Bearer amat_xxx

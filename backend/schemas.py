@@ -247,6 +247,7 @@ class ManagedAgentResponse(BaseModel):
     prompt_names: list[str] = []
     runtime_token_id: Optional[int] = None
     runtime_token_name: Optional[str] = None
+    created_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -522,6 +523,19 @@ class ChatCompletionRequest(BaseModel):
         if isinstance(value, str) and value in {"[undefined]", "undefined", ""}:
             return None
         return value
+
+    @field_validator("messages")
+    @classmethod
+    def validate_messages(cls, value: list[ChatMessage]) -> list[ChatMessage]:
+        if not value:
+            raise ValueError("messages must not be empty")
+        return value
+
+
+class PromptGuardTestRequest(BaseModel):
+    mode: str = Field(default="log", pattern="^(off|log|warn|block)$")
+    messages: list[ChatMessage]
+    llm_review: bool = False
 
     @field_validator("messages")
     @classmethod

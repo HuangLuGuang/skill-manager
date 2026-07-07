@@ -94,8 +94,6 @@ import {
   getLlmConfig,
   getSandboxConfig,
   listAccessTokens,
-  listAgents,
-  listGroups,
   listModelEndpoints,
   listModelProviders,
   listPrivacyPolicies,
@@ -108,8 +106,6 @@ const sandboxConfig = ref({})
 const modelProviders = ref([])
 const modelEndpoints = ref([])
 const accessTokens = ref([])
-const agents = ref([])
-const groups = ref([])
 const privacyPolicies = ref([])
 
 const safeRequest = async (request, fallback) => {
@@ -162,12 +158,8 @@ const scannerTokens = computed(() =>
 const gatewayTokens = computed(() =>
   activeAccessTokens.value.filter((item) => item.token_type === 'model_gateway'),
 )
-const activeAgents = computed(() => agents.value.filter((item) => item.status !== 'disabled'))
 const boundAgentTokenCount = computed(() =>
   new Set(agentRuntimeTokens.value.map((item) => item.bound_agent_id).filter(Boolean)).size,
-)
-const groupsWithPolicy = computed(() =>
-  groups.value.filter((item) => item.privacy_policy_id),
 )
 
 const sandboxEnabled = computed(() => managerStatus.value.sandbox_enabled ?? sandboxConfig.value.enabled ?? false)
@@ -191,15 +183,13 @@ const llmSource = computed(() =>
     : (managerStatus.value.llm_provider || llmConfig.value.provider || '-'),
 )
 
-const governanceItems = computed(() => [
+const coreItems = computed(() => [
   {
-    key: 'skill-review',
-    title: 'Skill 审核',
+    key: 'api',
+    title: '后台 API',
     status: 'ok',
-    statusText: '可用',
-    description: '支持 Skill 提交、扫描、审核和可信版本治理。',
-    actionText: '查看审核',
-    actionPath: '/review',
+    statusText: '可访问',
+    description: '管理台已能读取系统状态接口。',
   },
   {
     key: 'signing',
@@ -217,13 +207,13 @@ const governanceItems = computed(() => [
     title: '审计日志',
     status: 'ok',
     statusText: '可用',
-    description: '审核、凭证、运行校验和网关调用可追踪。',
+    description: '审核、凭证、运行校验和网关调用具备统一审计入口。',
     actionText: '查看审计',
     actionPath: '/audit',
   },
 ])
 
-const runtimeItems = computed(() => [
+const analysisItems = computed(() => [
   {
     key: 'sandbox',
     title: 'Sandbox',
@@ -263,15 +253,6 @@ const runtimeItems = computed(() => [
     actionText: '提交 Skill',
     actionPath: '/submit',
   },
-  {
-    key: 'runtime-check',
-    title: 'Runtime 校验',
-    status: managerStatus.value.hooks_available ? 'ok' : 'warning',
-    statusText: managerStatus.value.hooks_available ? '可用' : '待接入',
-    description: 'Agent 加载 Skill 前可校验注册状态、审批状态和内容完整性。',
-    actionText: '查看运行治理',
-    actionPath: '/runtime',
-  },
 ])
 
 const gatewayItems = computed(() => [
@@ -290,29 +271,16 @@ const gatewayItems = computed(() => [
   },
   {
     key: 'credentials',
-    title: '凭证管理',
+    title: '模型调用凭证',
     status: activeAccessTokens.value.length > 0 ? 'ok' : 'warning',
     statusText: activeAccessTokens.value.length > 0 ? '可用' : '待签发',
-    description: '模型调用、Agent 运行和 Scanner 接入统一在凭证管理中签发。',
+    description: '模型网关调用需要有效的模型调用凭证或带 model:chat 的 Agent 凭证。',
     meta: [
       { label: '模型凭证', value: `${gatewayTokens.value.length}` },
-      { label: '运行凭证', value: `${agentRuntimeTokens.value.length}` },
+      { label: '可调用模型的运行凭证', value: `${agentRuntimeTokens.value.filter(item => item.scopes?.includes('model:chat')).length}` },
     ],
     actionText: '去凭证管理',
     actionPath: '/credentials',
-  },
-  {
-    key: 'group-policy',
-    title: '用户组策略',
-    status: groups.value.length === 0 ? 'warning' : 'ok',
-    statusText: groups.value.length === 0 ? '待配置' : '已配置',
-    description: '用户组用于绑定部门、模型访问范围和隐私策略。',
-    meta: [
-      { label: '用户组', value: `${groups.value.length}` },
-      { label: '绑定策略', value: `${groupsWithPolicy.value.length}` },
-    ],
-    actionText: '去组策略绑定',
-    actionPath: '/model-gateway/policy-bindings',
   },
   {
     key: 'privacy',
@@ -326,24 +294,20 @@ const gatewayItems = computed(() => [
     actionText: '去隐私策略',
     actionPath: '/model-gateway/policies',
   },
+  {
+    key: 'prompt-guard',
+    title: 'Prompt 防护测试',
+    status: 'ok',
+    statusText: '可用',
+    description: '可在不调用上游模型的情况下测试提示词注入、凭据外传等规则。',
+    actionText: '去测试',
+    actionPath: '/model-gateway/prompt-guard',
+  },
 ])
 
 const integrationItems = computed(() => [
   {
-    key: 'agents',
-    title: 'Agent 管理',
-    status: activeAgents.value.length > 0 ? 'ok' : 'warning',
-    statusText: activeAgents.value.length > 0 ? '可用' : '待创建',
-    description: '创建 Agent 后绑定可用 Skill、模型和运行凭证，形成受管运行单元。',
-    meta: [
-      { label: 'Agent', value: `${agents.value.length}` },
-      { label: '启用中', value: `${activeAgents.value.length}` },
-    ],
-    actionText: '去智能体管理',
-    actionPath: '/agents',
-  },
-  {
-    key: 'agent-token',
+    key: 'runtime-token',
     title: '运行凭证签发',
     status: boundAgentTokenCount.value > 0 ? 'ok' : 'warning',
     statusText: boundAgentTokenCount.value > 0 ? '已签发' : '待签发',
@@ -353,6 +317,15 @@ const integrationItems = computed(() => [
     ],
     actionText: '去凭证管理',
     actionPath: '/credentials',
+  },
+  {
+    key: 'runtime-check',
+    title: 'Runtime 校验接口',
+    status: managerStatus.value.hooks_available ? 'ok' : 'warning',
+    statusText: managerStatus.value.hooks_available ? '可用' : '待接入',
+    description: 'Agent 加载 Skill 前可校验注册状态、审批状态和内容完整性。',
+    actionText: '查看接入',
+    actionPath: '/runtime',
   },
   {
     key: 'scanner',
@@ -368,7 +341,7 @@ const integrationItems = computed(() => [
   },
   {
     key: 'runtime-audit',
-    title: '运行时审计',
+    title: '运行审计链路',
     status: 'ok',
     statusText: '可用',
     description: '调用方、Agent、模型、Skill 和审核动作可以进入审计链路。',
@@ -380,27 +353,27 @@ const integrationItems = computed(() => [
 const capabilityGroups = computed(() => {
   const groups = [
     {
-      key: 'governance',
-      title: '治理能力',
-      description: '检查 Skill、内容完整性、模型网关和审计是否能形成治理闭环。',
-      items: governanceItems.value,
+      key: 'core',
+      title: '核心服务',
+      description: '检查后台 API、完整性校验和审计基础能力。',
+      items: coreItems.value,
     },
     {
-      key: 'runtime',
-      title: '运行能力',
-      description: '检查 Sandbox、LLM、深度分析和运行时校验是否可用。',
-      items: runtimeItems.value,
+      key: 'analysis',
+      title: '扫描分析',
+      description: '检查 Sandbox、LLM 和深度分析是否可用于 Skill 检测。',
+      items: analysisItems.value,
     },
     {
       key: 'gateway',
-      title: '模型网关能力',
-      description: '检查模型、凭证、用户组和隐私策略是否能支撑统一调用。',
+      title: '模型网关',
+      description: '检查模型、调用凭证、隐私策略和 Prompt 防护测试是否可用。',
       items: gatewayItems.value,
     },
     {
       key: 'integration',
-      title: '接入能力',
-      description: '检查 Agent、运行凭证、Scanner 和运行审计是否具备接入条件。',
+      title: '接入链路',
+      description: '检查运行凭证、Runtime 校验、Scanner 和审计链路是否具备接入条件。',
       items: integrationItems.value,
     },
   ]
@@ -446,8 +419,6 @@ const fetchStatus = async () => {
       providers,
       models,
       tokens,
-      agentRows,
-      groupRows,
       policies,
     ] = await Promise.all([
       safeRequest(() => getAgentManagerSystemStatus(), {}),
@@ -456,8 +427,6 @@ const fetchStatus = async () => {
       safeRequest(() => listModelProviders(), []),
       safeRequest(() => listModelEndpoints(), []),
       safeRequest(() => listAccessTokens({ page_size: 200 }), { items: [] }),
-      safeRequest(() => listAgents(), []),
-      safeRequest(() => listGroups(), []),
       safeRequest(() => listPrivacyPolicies(), []),
     ])
     managerStatus.value = manager || {}
@@ -466,8 +435,6 @@ const fetchStatus = async () => {
     modelProviders.value = toArray(providers)
     modelEndpoints.value = toArray(models)
     accessTokens.value = toArray(tokens)
-    agents.value = toArray(agentRows)
-    groups.value = toArray(groupRows)
     privacyPolicies.value = toArray(policies)
   } catch (error) {
     message.error(extractErrorMsg(error, '获取系统能力状态失败'))

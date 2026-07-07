@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="接入与运行" sub-title="指导 Agent 接入运行时守卫，并执行加载校验与工具权限校验" />
+    <a-page-header title="接入与运行" sub-title="指导 Agent 接入运行时守卫，并查看运行时校验审计" />
 
     <a-card title="Agent Skill Verifier 接入" style="margin-top: 16px">
       <template #extra>
@@ -17,7 +17,7 @@
         <a-col :xs="24" :lg="8">
           <div class="guard-panel">
             <div class="guard-panel-title">1. 签发运行凭证</div>
-            <p class="hint">在“凭证管理”创建 Agent 运行凭证，绑定目标 Agent，并授予提交扫描与运行时校验权限。</p>
+            <p class="hint">在“统一凭证中心”创建 Agent 运行凭证，绑定目标 Agent，并授予运行时校验权限；如需调用模型网关，再额外勾选 model:chat。</p>
             <a-space wrap>
               <a-tag v-for="scope in skillGuardScopes" :key="scope" color="blue">{{ scope }}</a-tag>
             </a-space>
@@ -48,111 +48,7 @@
     </a-card>
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
-      <a-col :xs="24" :xl="12">
-        <a-card title="加载检查">
-          <a-form layout="vertical" :model="canLoadForm" @finish="handleCanLoad">
-            <a-form-item label="技能名称">
-              <a-input v-model:value="canLoadForm.skillName" placeholder="如 byd-stock-news" />
-            </a-form-item>
-            <a-form-item label="技能路径">
-              <a-input v-model:value="canLoadForm.skillPath" placeholder="/path/to/skill，可选" />
-            </a-form-item>
-            <a-form-item label="Agent ID">
-              <a-input v-model:value="canLoadForm.agentId" placeholder="agent-1，可选" />
-            </a-form-item>
-            <a-button type="primary" html-type="submit" :loading="checkingCanLoad">检查</a-button>
-          </a-form>
-
-          <a-result
-            v-if="canLoadResult"
-            :status="canLoadResult.allowed ? 'success' : 'error'"
-            :title="canLoadResult.allowed ? '允许加载' : '拒绝加载'"
-            :sub-title="canLoadResult.reason"
-            style="padding-inline: 0"
-          >
-            <template #extra>
-              <a-space wrap>
-                <a-tag :color="statusColor(canLoadResult.status)" :title="statusTitle(canLoadResult.status)">{{ canLoadResult.status || 'unknown' }}</a-tag>
-                <a-tag :color="riskColor(canLoadResult.risk_level)" :title="riskTitle(canLoadResult.risk_level)">
-                  {{ canLoadResult.risk_level || 'unknown' }}
-                </a-tag>
-              </a-space>
-            </template>
-          </a-result>
-        </a-card>
-      </a-col>
-
-      <a-col :xs="24" :xl="12">
-        <a-card title="工具权限检查">
-          <a-form layout="vertical" :model="toolForm" @finish="handleCheckTool">
-            <a-form-item label="技能名称">
-              <a-input v-model:value="toolForm.skillName" placeholder="如 byd-stock-news" />
-            </a-form-item>
-            <a-form-item label="工具名称">
-              <a-input v-model:value="toolForm.toolName" placeholder="Read / Bash / WebSearch" />
-            </a-form-item>
-            <a-form-item label="Agent ID">
-              <a-input v-model:value="toolForm.agentId" placeholder="agent-1，可选" />
-            </a-form-item>
-            <a-button type="primary" html-type="submit" :loading="checkingTool">校验</a-button>
-          </a-form>
-
-          <a-result
-            v-if="toolResult"
-            :status="toolResult.allowed ? 'success' : 'error'"
-            :title="toolResult.allowed ? '允许调用工具' : '拒绝调用工具'"
-            :sub-title="`${toolResult.skill_name} -> ${toolResult.tool_name}`"
-            style="padding-inline: 0"
-          />
-        </a-card>
-      </a-col>
-    </a-row>
-
-    <a-row :gutter="[16, 16]" style="margin-top: 16px">
-      <a-col :xs="24" :xl="10">
-        <a-card title="当前可加载技能">
-          <a-space style="margin-bottom: 16px" wrap>
-            <a-select v-model:value="skillRiskFilter" style="width: 160px" @change="handleSkillFilterChange">
-              <a-select-option value="all">全部风险</a-select-option>
-              <a-select-option value="benign">benign</a-select-option>
-              <a-select-option value="suspicious">suspicious</a-select-option>
-              <a-select-option value="malicious">malicious</a-select-option>
-            </a-select>
-            <a-input v-model:value="skillKeyword" placeholder="搜索 技能名称 / ID" style="width: 220px" allow-clear />
-            <a-button type="primary" @click="fetchLoadableSkills" :loading="loadingSkills">查询</a-button>
-            <a-button @click="resetSkillFilters" :disabled="loadingSkills">重置</a-button>
-          </a-space>
-
-          <div class="table-meta">共 {{ skillTotal }} 条可加载技能</div>
-
-          <a-table
-            :data-source="loadableSkills"
-            :columns="skillColumns"
-            rowKey="skill_id"
-            :loading="loadingSkills"
-            :pagination="skillPagination"
-            :locale="{ emptyText: '当前没有可加载技能' }"
-            @change="handleSkillTableChange"
-          >
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'name'">
-                <a @click="$router.push(`/skills/${record.skill_id}`)">{{ record.name }}</a>
-              </template>
-              <template v-else-if="column.key === 'status'">
-                <a-tag :color="statusColor(record.status)" :title="statusTitle(record.status)">{{ record.status }}</a-tag>
-              </template>
-              <template v-else-if="column.key === 'risk_level'">
-                <a-tag v-if="record.risk_level === 'malicious'" color="red" title="恶意">malicious</a-tag>
-                <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange" title="可疑">suspicious</a-tag>
-                <a-tag v-else-if="record.risk_level === 'benign'" color="green" title="安全">benign</a-tag>
-                <a-tag v-else color="default">-</a-tag>
-              </template>
-            </template>
-          </a-table>
-        </a-card>
-      </a-col>
-
-      <a-col :xs="24" :xl="14">
+      <a-col :xs="24">
         <a-card title="最近运行时事件">
           <a-space style="margin-bottom: 16px" wrap>
             <a-select v-model:value="eventFilter" style="width: 220px" @change="handleAuditFilterChange">
@@ -208,31 +104,21 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
 
-import { downloadSkillVerifier, getAuditPaged, listSkillsPaged, runtimeCanLoad, runtimeCheckTool } from '../api'
+import { downloadSkillVerifier, getAuditPaged } from '../api'
 import { formatDateTime } from '../utils/format'
 
-const checkingCanLoad = ref(false)
-const checkingTool = ref(false)
-const loadingSkills = ref(false)
 const loadingAudit = ref(false)
 const guardDownloading = ref(false)
 
-const canLoadResult = ref(null)
-const toolResult = ref(null)
-const loadableSkills = ref([])
 const auditRows = ref([])
-const skillTotal = ref(0)
 const auditTotal = ref(0)
 const eventFilter = ref('all')
-const skillRiskFilter = ref('all')
-const skillKeyword = ref('')
 const auditKeyword = ref('')
-const skillSortState = ref({ field: 'name', order: 'ascend' })
 const auditSortState = ref({ field: 'timestamp', order: 'descend' })
-const skillGuardScopes = ['scanner:submit', 'scanner:read-own-results', 'scanner:read-own-sessions', 'runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool']
+const skillGuardScopes = ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool']
 const runtimeApiOrigin = (() => {
   const { protocol, hostname, port } = window.location
   if ((hostname === 'localhost' || hostname === '127.0.0.1') && (port === '5173' || port === '5174')) {
@@ -254,40 +140,14 @@ export AGENT_MANAGER_VERIFIER_TOKEN="amat_xxx"
 export AGENT_ID="<agent-id>"`
 const guardUsageCommand = `python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py verify \\
   --path /path/to/skill`
-const skillPagination = ref({
-  current: 1,
-  pageSize: 6,
-  total: 0,
-  showSizeChanger: true,
-  pageSizeOptions: ['6', '12', '24'],
-  showTotal: (total) => `共 ${total} 条`,
-})
 const auditPagination = ref({
   current: 1,
-  pageSize: 6,
+  pageSize: 10,
   total: 0,
   showSizeChanger: true,
-  pageSizeOptions: ['6', '12', '24'],
+  pageSizeOptions: ['10', '20', '50'],
   showTotal: (total) => `共 ${total} 条`,
 })
-
-const canLoadForm = reactive({
-  skillName: '',
-  skillPath: '',
-  agentId: '',
-})
-
-const toolForm = reactive({
-  skillName: '',
-  toolName: '',
-  agentId: '',
-})
-
-const skillColumns = [
-  { title: '技能名称', dataIndex: 'name', key: 'name', sorter: true },
-  { title: '状态', dataIndex: 'status', key: 'status', width: 120, sorter: true },
-  { title: '风险', dataIndex: 'risk_level', key: 'risk_level', width: 120, sorter: true },
-]
 
 const auditColumns = [
   { title: '时间', dataIndex: 'timestamp', key: 'timestamp', width: 220, sorter: true, customRender: ({ text }) => formatDateTime(text) },
@@ -310,45 +170,6 @@ const runtimeEventOptions = [
 const runtimeEventTypes = runtimeEventOptions.map((item) => item.value)
 const runtimeEventLabelMap = Object.fromEntries(runtimeEventOptions.map((item) => [item.value, item.label]))
 
-const handleCanLoad = async () => {
-  if (!canLoadForm.skillName.trim()) {
-    message.warning('请先输入 技能名称')
-    return
-  }
-  checkingCanLoad.value = true
-  try {
-    canLoadResult.value = await runtimeCanLoad(canLoadForm.skillName.trim(), {
-      skill_path: canLoadForm.skillPath.trim() || undefined,
-      agent_id: canLoadForm.agentId.trim() || undefined,
-    })
-    fetchRuntimeAudit()
-  } catch (error) {
-    message.error(error.response?.data?.detail || '加载检查失败')
-  } finally {
-    checkingCanLoad.value = false
-  }
-}
-
-const handleCheckTool = async () => {
-  if (!toolForm.skillName.trim() || !toolForm.toolName.trim()) {
-    message.warning('请先输入 技能名称和工具名称')
-    return
-  }
-  checkingTool.value = true
-  try {
-    toolResult.value = await runtimeCheckTool({
-      skill_name: toolForm.skillName.trim(),
-      tool_name: toolForm.toolName.trim(),
-      agent_id: toolForm.agentId.trim() || undefined,
-    })
-    fetchRuntimeAudit()
-  } catch (error) {
-    message.error(error.response?.data?.detail || '工具校验失败')
-  } finally {
-    checkingTool.value = false
-  }
-}
-
 const handleSkillGuardDownload = async () => {
   guardDownloading.value = true
   try {
@@ -365,35 +186,6 @@ const handleSkillGuardDownload = async () => {
     message.error(error.response?.data?.detail || '下载 Agent Skill Verifier 失败')
   } finally {
     guardDownloading.value = false
-  }
-}
-
-const fetchLoadableSkills = async () => {
-  loadingSkills.value = true
-  try {
-    const res = await listSkillsPaged({
-      loadable_only: true,
-      risk_level: skillRiskFilter.value === 'all' ? undefined : skillRiskFilter.value,
-      q: skillKeyword.value.trim() || undefined,
-      page: skillPagination.value.current,
-      page_size: skillPagination.value.pageSize,
-      sort_by: skillSortState.value.field,
-      sort_order: skillSortState.value.order === 'ascend' ? 'asc' : 'desc',
-    })
-    loadableSkills.value = Array.isArray(res.items) ? res.items : []
-    skillTotal.value = Number(res.total || 0)
-    skillPagination.value = {
-      ...skillPagination.value,
-      total: skillTotal.value,
-      current: Number(res.page || skillPagination.value.current),
-      pageSize: Number(res.page_size || skillPagination.value.pageSize),
-    }
-  } catch (error) {
-    message.error(error.response?.data?.detail || '获取可加载技能失败')
-    loadableSkills.value = []
-    skillTotal.value = 0
-  } finally {
-    loadingSkills.value = false
   }
 }
 
@@ -427,21 +219,6 @@ const fetchRuntimeAudit = async () => {
   }
 }
 
-const handleSkillTableChange = (pager, _filters, sorter) => {
-  skillPagination.value = {
-    ...skillPagination.value,
-    current: pager.current,
-    pageSize: pager.pageSize,
-  }
-  if (sorter?.field) {
-    skillSortState.value = {
-      field: sorter.field,
-      order: sorter.order || 'ascend',
-    }
-  }
-  fetchLoadableSkills()
-}
-
 const handleAuditTableChange = (pager, _filters, sorter) => {
   auditPagination.value = {
     ...auditPagination.value,
@@ -457,31 +234,12 @@ const handleAuditTableChange = (pager, _filters, sorter) => {
   fetchRuntimeAudit()
 }
 
-const handleSkillFilterChange = () => {
-  skillPagination.value = {
-    ...skillPagination.value,
-    current: 1,
-  }
-  fetchLoadableSkills()
-}
-
 const handleAuditFilterChange = () => {
   auditPagination.value = {
     ...auditPagination.value,
     current: 1,
   }
   fetchRuntimeAudit()
-}
-
-const resetSkillFilters = () => {
-  skillRiskFilter.value = 'all'
-  skillKeyword.value = ''
-  skillSortState.value = { field: 'name', order: 'ascend' }
-  skillPagination.value = {
-    ...skillPagination.value,
-    current: 1,
-  }
-  fetchLoadableSkills()
 }
 
 const resetAuditFilters = () => {
@@ -494,40 +252,6 @@ const resetAuditFilters = () => {
   }
   fetchRuntimeAudit()
 }
-
-const statusColor = (value) =>
-  ({
-    PENDING: 'gold',
-    VETTED: 'orange',
-    APPROVED: 'green',
-    DEPLOYED: 'blue',
-    REJECTED: 'red',
-    RETIRED: 'default',
-  }[value] || 'default')
-
-const statusTitle = (value) =>
-  ({
-    PENDING: '分析中',
-    VETTED: '待审核',
-    APPROVED: '已批准',
-    DEPLOYED: '已部署',
-    REJECTED: '已拒绝',
-    RETIRED: '已退役',
-  }[value] || '未知')
-
-const riskColor = (value) =>
-  ({
-    benign: 'green',
-    suspicious: 'orange',
-    malicious: 'red',
-  }[value] || 'default')
-
-const riskTitle = (value) =>
-  ({
-    benign: '安全',
-    suspicious: '可疑',
-    malicious: '恶意',
-  }[value] || '未知')
 
 const runtimeEventLabel = (value) => runtimeEventLabelMap[value] || value || '-'
 const runtimeEventColor = (value) => {
@@ -570,7 +294,6 @@ const formatRuntimeDetails = (details = {}) => {
 }
 
 onMounted(() => {
-  fetchLoadableSkills()
   fetchRuntimeAudit()
 })
 </script>

@@ -16,7 +16,7 @@
 - 推荐外部 Agent 使用：`POST /api/v1/access/runtime/verify-skill-signature`
 - 兼容内部或已有集成：`POST /api/v1/runtime/verify-skill-signature`
 
-`/api/v1/access/runtime/...` 使用管理台 `智能体治理 / 凭证管理` 创建的 Agent 运行凭证，不需要管理员登录态。创建凭证时至少勾选：
+`/api/v1/access/runtime/...` 使用管理台 `智能体管理 / 统一凭证中心` 创建的 Agent 运行凭证，不需要管理员登录态。创建凭证时至少勾选：
 
 - `runtime:verify-signature`
 - `runtime:can-load`

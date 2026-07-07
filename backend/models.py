@@ -54,6 +54,7 @@ class ManagedAgent(Base):
     prompt_names_json = Column(Text, default="[]", nullable=False)
     runtime_token_id = Column(Integer, ForeignKey("access_tokens.id"), nullable=True)
     runtime_token_name = Column(String(128), nullable=True)
+    created_by = Column(String(128), index=True, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

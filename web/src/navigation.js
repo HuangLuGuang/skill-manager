@@ -17,7 +17,7 @@ export const navigationItems = [
     icon: 'agent',
     children: [
       { key: '/agents', label: '智能体列表', icon: 'agent' },
-      { key: '/credentials', label: '凭证管理', icon: 'key' },
+      { key: '/credentials', label: '统一凭证中心', icon: 'key' },
       { key: '/runtime', label: '接入与运行', icon: 'safety' },
       { key: '/audit', label: '审计追踪', icon: 'audit' },
     ],
@@ -31,6 +31,7 @@ export const navigationItems = [
       { key: '/model-gateway/models', label: '模型管理', icon: 'deployment' },
       { key: '/model-gateway/policy-bindings', label: '组策略绑定', icon: 'team' },
       { key: '/model-gateway/policies', label: '隐私策略', icon: 'setting' },
+      { key: '/model-gateway/prompt-guard', label: 'Prompt 防护测试', icon: 'safety' },
       { key: '/model-gateway/audit', label: '隐私审计', icon: 'audit' },
       { key: '/model-gateway/stats', label: 'Token 压缩统计', icon: 'barChart' },
       { key: '/model-gateway/user-stats', label: '用户 Token 分析', icon: 'team' },

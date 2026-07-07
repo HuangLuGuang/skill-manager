@@ -21,6 +21,15 @@
       >
         <a-select-option v-for="m in availableModels" :key="m" :value="m">{{ m }}</a-select-option>
       </a-select>
+      <a-select
+        v-model:value="topLimit"
+        style="width: 120px"
+        @change="loadData"
+        size="small"
+      >
+        <a-select-option :value="10">Top 10</a-select-option>
+        <a-select-option :value="20">Top 20</a-select-option>
+      </a-select>
       <a-button size="small" @click="loadData" :loading="loading">刷新</a-button>
     </a-space>
 
@@ -63,6 +72,7 @@ import { getLlmStatsByUser, getLlmStatsByModel } from '../api'
 
 const days = ref(30)
 const selectedModel = ref(null)
+const topLimit = ref(10)
 const loading = ref(false)
 const userStats = ref({ users: [] })
 const availableModels = ref([])
@@ -82,7 +92,7 @@ const hasCompression = computed(() =>
 const loadData = async () => {
   loading.value = true
   try {
-    const params = { days: days.value }
+    const params = { days: days.value, limit: topLimit.value }
     if (selectedModel.value) params.model = selectedModel.value
     const data = await getLlmStatsByUser(params)
     userStats.value = data

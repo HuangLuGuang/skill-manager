@@ -58,6 +58,7 @@ Agent Manager 用一套“提交、扫描、审批、签名、运行时校验、
 - 请求进入上游模型前会做 PII 检测和伪匿名 token 替换。
 - 模型响应会按会话映射还原后再返回给调用方。
 - 管理台可以通过“隐私链路追踪”查看 Prompt 防护、脱敏、压缩、模型响应和最终还原结果。
+- Prompt 不再作为独立上传资产进入主流程；提示词注入、系统提示词泄露、凭据外传等风险在模型网关运行时检测。
 
 ---
 
@@ -191,9 +192,9 @@ flowchart TB
 - [agent_manager/core/runtime.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/runtime.py)
   运行时治理
 - [agent_manager/core/prompt_manager.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/prompt_manager.py)
-  提示词全生命周期管理
+  历史 Prompt Registry 兼容能力；新主流程使用模型网关运行时 Prompt 防护
 - [agent_manager/core/prompt_registry.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/prompt_registry.py)
-  提示词持久化存储
+  历史 Prompt Registry 持久化存储
 - [agent_manager/core/signer.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/signer.py)
   目录签名
 - [agent_manager/core/llm.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/llm.py)

@@ -88,6 +88,12 @@
               <span>Skill：{{ record.skill_names?.length || 0 }} 个</span>
             </a-space>
           </template>
+          <template v-else-if="column.key === 'access'">
+            <a-space direction="vertical" size="small">
+              <a-tag :color="agentAccessStatus(record).color">{{ agentAccessStatus(record).text }}</a-tag>
+              <span class="muted">{{ agentAccessStatus(record).hint }}</span>
+            </a-space>
+          </template>
           <template v-else-if="column.key === 'actions'">
             <a-space>
               <a @click="openAgent(record)">编辑</a>
@@ -253,6 +259,8 @@ import { message, Modal } from 'ant-design-vue'
 import {
   createAgent,
   deleteAgent,
+  getAudit,
+  listAccessTokens,
   listAgents,
   listGroups,
   listManagedUsers,
@@ -272,6 +280,8 @@ const groups = ref([])
 const users = ref([])
 const models = ref([])
 const skills = ref([])
+const accessTokens = ref([])
+const auditRows = ref([])
 const filters = reactive({ department_group_id: null, status: undefined, q: '' })
 const agentForm = reactive({
   agent_id: '',
@@ -291,6 +301,7 @@ const columns = [
   { title: '负责人', dataIndex: 'owner', width: 140 },
   { title: '状态', key: 'status', width: 100 },
   { title: '能力绑定', key: 'capabilities', width: 220 },
+  { title: '接入状态', key: 'access', width: 190 },
   { title: '操作', key: 'actions', width: 120 },
 ]
 
@@ -327,6 +338,52 @@ const skillIdsFromRefs = (options, refs = []) =>
     const item = options.find(option => option.value === ref)
     return item?.skill_id || item?.id || item?.name
   }).filter(Boolean)
+const auditDetails = (record) => {
+  if (!record?.details) return {}
+  if (typeof record.details === 'object') return record.details
+  try {
+    return JSON.parse(record.details)
+  } catch {
+    return {}
+  }
+}
+const tokenByAgent = computed(() => {
+  const map = new Map()
+  accessTokens.value
+    .filter(item => item.token_type === 'agent_runtime' && item.bound_agent_id)
+    .forEach(item => {
+      const current = map.get(item.bound_agent_id)
+      if (!current || item.status === 'active') map.set(item.bound_agent_id, item)
+    })
+  return map
+})
+const latestRuntimeEventByAgent = computed(() => {
+  const map = new Map()
+  auditRows.value.forEach((item) => {
+    const details = auditDetails(item)
+    const agentId = item.agent_id || details.agent_id || details.bound_agent_id
+    if (!agentId || map.has(agentId)) return
+    map.set(agentId, item)
+  })
+  return map
+})
+const agentAccessStatus = (record) => {
+  const token = tokenByAgent.value.get(record.agent_id)
+  if (!token) {
+    return { color: 'default', text: '未签发凭证', hint: '到凭证管理创建运行凭证' }
+  }
+  if (token.status !== 'active') {
+    return { color: 'orange', text: '凭证不可用', hint: statusText(token.status) }
+  }
+  const event = latestRuntimeEventByAgent.value.get(record.agent_id)
+  if (!event) {
+    return { color: 'blue', text: '已签发凭证', hint: '等待运行时校验' }
+  }
+  if (['skill_load_blocked', 'skill_tamper_detected', 'tool_blocked'].includes(event.event_type)) {
+    return { color: 'red', text: '最近被阻断', hint: event.skill_name || event.event_type }
+  }
+  return { color: 'green', text: '最近校验成功', hint: event.skill_name || event.event_type }
+}
 const fetchAgents = async () => {
   loading.value = true
   try {
@@ -343,16 +400,20 @@ const fetchAgents = async () => {
 }
 
 const loadOptions = async () => {
-  const [groupRes, userRes, modelRes, skillRes] = await Promise.all([
+  const [groupRes, userRes, modelRes, skillRes, tokenRes, auditRes] = await Promise.all([
     listGroups(),
     listManagedUsers(),
     listModelEndpoints(),
     listSkills({ status: 'APPROVED,DEPLOYED' }),
+    listAccessTokens({ token_type: 'agent_runtime' }),
+    getAudit({ since_hours: 168, limit: 300 }),
   ])
   groups.value = groupRes
   users.value = userRes
   models.value = modelRes
   skills.value = Array.isArray(skillRes.items) ? skillRes.items : skillRes
+  accessTokens.value = tokenRes.items || []
+  auditRows.value = Array.isArray(auditRes) ? auditRes : []
 }
 
 const resetFilters = async () => {
@@ -403,7 +464,7 @@ const saveAgent = async () => {
     if (!editingAgentId.value) {
       Modal.confirm({
         title: '智能体已创建',
-        content: '运行凭证请在“凭证管理”中创建。是否现在去创建 Agent 运行凭证？',
+        content: '下一步到“凭证管理”创建 Agent 运行凭证。',
         okText: '去创建凭证',
         cancelText: '稍后再说',
         onOk: () => router.push({

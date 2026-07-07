@@ -66,6 +66,8 @@ def ensure_sqlite_schema() -> None:
         agent_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(managed_agents)").fetchall()}
         if "runtime_token_id" not in agent_columns:
             conn.exec_driver_sql("ALTER TABLE managed_agents ADD COLUMN runtime_token_id INTEGER")
+        if "created_by" not in agent_columns:
+            conn.exec_driver_sql("ALTER TABLE managed_agents ADD COLUMN created_by VARCHAR(128)")
         access_token_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(access_tokens)").fetchall()}
         if "prompt_guard_mode" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN prompt_guard_mode VARCHAR(32) NOT NULL DEFAULT 'off'")

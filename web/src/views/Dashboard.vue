@@ -1,6 +1,10 @@
 <template>
   <div>
-    <a-page-header title="平台总览" sub-title="查看智能体、Skill、模型网关与运行时 Prompt 防护状态" />
+    <a-page-header title="平台总览" sub-title="查看智能体、Skill、模型网关与运行时 Prompt 防护状态">
+      <template #extra>
+        <a-button type="primary" @click="guideVisible = true">接入向导</a-button>
+      </template>
+    </a-page-header>
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24" :md="8" v-for="item in moduleCards" :key="item.key">
@@ -115,6 +119,41 @@
       </a-col>
     </a-row>
 
+    <a-modal v-model:open="guideVisible" title="平台接入向导" width="980px" :footer="null">
+      <a-row :gutter="[16, 16]">
+        <a-col :xs="24" :lg="12">
+          <a-card size="small" title="用法一：只做 Skill 治理">
+            <a-steps size="small" direction="vertical" :current="3">
+              <a-step title="提交或扫描 Skill" description="上传 ZIP，或用 Skill 扫描器批量扫描本地 skills 目录。" />
+              <a-step title="平台分析风险" description="根据规则、深度分析、Sandbox 和 LLM 分析形成判断依据。" />
+              <a-step title="人工审核" description="审核通过后成为可信版本，可在 Skill 列表和详情中追踪结果。" />
+              <a-step title="治理留痕" description="提交、分析、审核和结论进入审计，便于追踪来源和责任人。" />
+            </a-steps>
+            <a-space class="guide-actions" wrap>
+              <a-button @click="$router.push('/submit')">提交 Skill</a-button>
+              <a-button @click="$router.push('/skills')">查看 Skill 列表</a-button>
+            </a-space>
+          </a-card>
+        </a-col>
+        <a-col :xs="24" :lg="12">
+          <a-card size="small" title="用法二：约束 Agent 运行">
+            <a-steps size="small" direction="vertical" :current="4">
+              <a-step title="先完成 Skill 治理" description="只有已批准的 Skill 才能绑定给 Agent。" />
+              <a-step title="登记 Agent" description="维护部门、负责人、默认模型和允许 Skill 范围。" />
+              <a-step title="签发运行凭证" description="在统一凭证中心创建 Agent 运行凭证，作为运行身份。" />
+              <a-step title="集成 Skill Verifier" description="Agent 加载 Skill 前向平台校验状态、授权和内容指纹。" />
+              <a-step title="审计追踪" description="查看哪个 Agent、哪个 IP、哪个凭证使用或阻断了哪个 Skill。" />
+            </a-steps>
+            <a-space class="guide-actions" wrap>
+              <a-button @click="$router.push('/agents')">管理 Agent</a-button>
+              <a-button @click="$router.push('/credentials')">创建凭证</a-button>
+              <a-button type="primary" @click="$router.push('/runtime')">接入与运行</a-button>
+            </a-space>
+          </a-card>
+        </a-col>
+      </a-row>
+    </a-modal>
+
   </div>
 </template>
 
@@ -151,6 +190,7 @@ const riskSourceRows = ref([])
 const privacyStats = ref({})
 const gatewayDailyRows = ref([])
 const gatewayModelRows = ref([])
+const guideVisible = ref(false)
 
 const safeRequest = async (request, fallback) => {
   try {
@@ -581,6 +621,10 @@ onMounted(fetchDashboard)
   color: #6b7280;
   font-size: 12px;
   margin-top: 2px;
+}
+
+.guide-actions {
+  margin-top: 16px;
 }
 
 .muted-text {

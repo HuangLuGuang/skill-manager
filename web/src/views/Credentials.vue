@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="凭证管理" sub-title="统一创建模型调用、Agent 运行时和 Scanner 接入凭证" />
+    <a-page-header title="统一凭证中心" sub-title="统一签发模型调用、Agent 运行时和 Scanner 接入凭证" />
 
     <a-card style="margin-top: 16px">
       <template #extra>
@@ -19,7 +19,7 @@
         type="info"
         show-icon
         message="凭证明文只展示一次"
-        description="服务端只保存 hash。先在智能体管理登记 Agent，再在这里为 Agent 签发运行凭证；模型调用和 Scanner 接入凭证也统一在这里创建。"
+        description="服务端只保存 hash。模型网关调用、Agent 运行时校验和 Scanner 批量提交都在这里创建凭证。"
         style="margin-bottom: 16px"
       />
 
@@ -95,7 +95,7 @@
               {{ agent.name }}（{{ agent.agent_id }}）
             </a-select-option>
           </a-select>
-          <div class="hint">Agent 运行凭证是某个智能体的运行身份；如果列表为空，请先到“智能体管理”创建智能体。</div>
+          <div class="hint">Agent 运行凭证用于识别调用方；如果列表为空，请先到“智能体管理”创建智能体。</div>
         </a-form-item>
 
         <a-form-item label="权限范围">

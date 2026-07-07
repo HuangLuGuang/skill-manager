@@ -46,6 +46,7 @@ def _agent_response(db: Session, row: models.ManagedAgent) -> schemas.ManagedAge
         prompt_names=_json_list(row.prompt_names_json),
         runtime_token_id=row.runtime_token_id,
         runtime_token_name=row.runtime_token_name,
+        created_by=row.created_by,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -66,7 +67,7 @@ async def list_agents(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    query = db.query(models.ManagedAgent)
+    query = db.query(models.ManagedAgent).filter(models.ManagedAgent.created_by == current_user.username)
     if department_group_id is not None:
         query = query.filter(models.ManagedAgent.department_group_id == department_group_id)
     if status:
@@ -104,6 +105,7 @@ async def create_agent(
         prompt_names_json=_dump_list(body.prompt_names),
         runtime_token_id=body.runtime_token_id,
         runtime_token_name=body.runtime_token_name,
+        created_by=current_user.username,
     )
     db.add(row)
     db.commit()
@@ -118,7 +120,12 @@ async def update_agent(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    row = db.query(models.ManagedAgent).filter(models.ManagedAgent.id == agent_pk).first()
+    row = (
+        db.query(models.ManagedAgent)
+        .filter(models.ManagedAgent.id == agent_pk)
+        .filter(models.ManagedAgent.created_by == current_user.username)
+        .first()
+    )
     if not row:
         raise HTTPException(status_code=404, detail="智能体不存在")
     data = body.model_dump(exclude_unset=True)
@@ -146,7 +153,12 @@ async def delete_agent(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    row = db.query(models.ManagedAgent).filter(models.ManagedAgent.id == agent_pk).first()
+    row = (
+        db.query(models.ManagedAgent)
+        .filter(models.ManagedAgent.id == agent_pk)
+        .filter(models.ManagedAgent.created_by == current_user.username)
+        .first()
+    )
     if not row:
         raise HTTPException(status_code=404, detail="智能体不存在")
     db.delete(row)
