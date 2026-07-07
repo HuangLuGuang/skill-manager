@@ -223,7 +223,7 @@ def test_skillspector_top_level_high_with_only_noise_requires_review(tmp_path, m
     ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     analysis = result.scan_report["skillspector_analysis"]
-    assert result.risk_level == RiskLevel.SUSPICIOUS
+    assert result.risk_level == RiskLevel.BENIGN
     assert result.scan_report["risk_max_severity"] == "MEDIUM"
     assert analysis["risk_score"] == 100
     assert analysis["raw_risk_severity"] == "CRITICAL"

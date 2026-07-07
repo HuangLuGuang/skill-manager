@@ -3,7 +3,7 @@
     <a-page-header title="平台总览" sub-title="查看智能体、Skill、模型网关与运行时 Prompt 防护状态" />
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
-      <a-col :xs="24" :lg="12" :xl="6" v-for="item in moduleCards" :key="item.key">
+      <a-col :xs="24" :md="8" v-for="item in moduleCards" :key="item.key">
         <a-card class="module-card" :title="item.title">
           <template #extra>
             <a-button type="link" size="small" @click="$router.push(item.path)">进入</a-button>

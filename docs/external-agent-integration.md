@@ -193,7 +193,7 @@ flowchart LR
     D --> E["PII 检测 / 伪匿名"]
     E --> F["上游模型供应商"]
     F --> G["响应还原"]
-    G --> H["Pipeline Trace / 审计"]
+    G --> H["隐私链路追踪 / 审计"]
     H --> A
 ```
 
@@ -241,7 +241,7 @@ Authorization: Bearer amat_xxx
 - 运行时放行判断
 - 审计日志
 - LLM 模型调用隐私代理
-- LLM Pipeline Trace
+- LLM 隐私链路追踪
 
 这套系统当前不负责的是：
 

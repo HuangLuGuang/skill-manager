@@ -459,7 +459,7 @@ def _candidate_skill_dirs(cwd: str) -> list[Path]:
     if company_dir:
         p = Path(company_dir)
         if p.is_dir():
-            dirs.append(p)
+            return [p]
 
     # 2. Project .claude/skills/
     project_skills = Path(cwd) / ".claude" / "skills"
@@ -482,7 +482,7 @@ def _candidate_prompt_dirs(cwd: str) -> list[Path]:
     if company_dir:
         p = Path(company_dir)
         if p.is_dir():
-            dirs.append(p)
+            return [p]
 
     project_prompts = Path(cwd) / ".claude" / "prompts"
     if project_prompts.is_dir():

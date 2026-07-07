@@ -43,22 +43,18 @@ class Registry:
     def __init__(self, data_dir: str | Path | None = None):
         self.data_dir = Path(data_dir or os.environ.get("AGENT_MANAGER_DATA_DIR", _DEFAULT_DIR)).resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        with _LOCKS_GUARD:
-            self._lock = _LOCKS.setdefault(self.data_dir.resolve(), threading.RLock())
-
         self.prompts = PromptRegistry(self)
         self._registry_file = self.data_dir / "registry.json"
         self._audit_file = self.data_dir / "audit.jsonl"
         self._review_file = self.data_dir / "review.json"
-        
-        # If data_dir is explicitly provided (common in tests), prioritize it
-        # Otherwise, check environment variables for a global path
+
         db_path = None
         if data_dir is None:
             db_path = os.environ.get("AGENT_MANAGER_REGISTRY_SQLITE_PATH") or os.environ.get("SQLITE_PATH")
-            
         self._db_file = Path(db_path) if db_path else self.data_dir / "agent_manager_registry.db"
         self._db_file.parent.mkdir(parents=True, exist_ok=True)
+        with _LOCKS_GUARD:
+            self._lock = _LOCKS.setdefault(self._db_file.resolve(), threading.RLock())
         self._init_db()
         self._migrate_legacy_files()
         self._checkpoint()

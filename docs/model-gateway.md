@@ -12,10 +12,11 @@
 
 ## 1. 管理台入口
 
-管理台新增两个页面：
+管理台入口：
 
-- `模型网关`：管理模型供应商、模型端点、用户、用户组、模型调用凭证、隐私策略和 Prompt 防护开关。
-- `Pipeline Trace`：查看一次请求的 Prompt 防护、脱敏、压缩、响应和还原过程。
+- `模型网关`：管理模型供应商、模型端点、用户组策略绑定、隐私策略和 Prompt 防护配置。
+- `智能体管理 / 凭证管理`：创建模型调用凭证，并在凭证上开启 Prompt 防护和智能压缩。
+- `隐私链路追踪`：查看一次请求的 Prompt 防护、脱敏、压缩、响应和还原过程。
 
 Trace 会保存原始 PII，仅 `admin`、`super_admin`、`privacy_auditor` 角色应该访问。
 
@@ -34,7 +35,7 @@ sequenceDiagram
     GW->>GW: 校验 LLM API Key / 模型范围 / 请求大小 / 并发
     GW->>GW: Prompt 防护规则检测
     alt 高风险阻断
-        GW->>DB: 写阻断审计与 Pipeline Trace
+        GW->>DB: 写阻断审计与隐私链路追踪
         GW-->>Client: 403
     end
     GW->>DB: 加载用户组隐私策略与会话映射
@@ -42,7 +43,7 @@ sequenceDiagram
     GW->>LLM: 发送替换后的 OpenAI-compatible 请求
     LLM-->>GW: 返回含 token 的响应
     GW->>GW: 按映射还原响应
-    GW->>DB: 写请求审计、用量、Pipeline Trace
+    GW->>DB: 写请求审计、用量、隐私链路追踪
     GW-->>Client: 返回还原后的响应
 ```
 
@@ -130,7 +131,7 @@ Authorization: Bearer amk_xxx
 
 - 请求入站时仍先完成 API Key 校验、模型范围校验、PII 伪匿名和上游路由。
 - 上游每个 `delta.content` chunk 返回时，网关会把占位符实时还原后再下发给客户端。
-- 流结束后保存 audit、usage metric 和 Pipeline Trace；Trace 中的 `prompt_security`、`masked_response`、`final_response` 等阶段会保存聚合后的文本片段。
+- 流结束后保存 audit、usage metric 和隐私链路追踪；Trace 中的 `prompt_security`、`masked_response`、`final_response` 等阶段会保存聚合后的文本片段。
 
 ---
 
@@ -264,7 +265,7 @@ PII 检测是首版轻量规则：
 - 在样本数低于 `dp_min_count` 时返回空值。
 - 在启用 `dp_enabled` 时给计数加入 Laplace noise。
 
-原始请求审计和 Pipeline Trace 仍保存真实内容，仅限管理员或隐私审计员查看。
+原始请求审计和隐私链路追踪仍保存真实内容，仅限管理员或隐私审计员查看。
 
 ---
 
@@ -334,9 +335,9 @@ x-compression-ms: 45
 x-compression: off
 ```
 
-**方式 2 — 管理台 Pipeline Trace**:
+**方式 2 — 管理台隐私链路追踪**:
 
-进入 `Pipeline Trace` 页面，展开一次请求:
+进入 `隐私链路追踪` 页面，展开一次请求:
 
 - 详情顶部显示绿色提示条：「智能压缩: 节省 2094 tokens (92.4%), 耗时 45ms」
 - 展开第 3 阶段「智能压缩后」可对比压缩前后的 messages 差异

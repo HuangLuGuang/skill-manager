@@ -120,6 +120,44 @@ def test_scanner_import_accepts_scanner_token(tmp_path):
 
 
 def test_access_runtime_routes_accept_runtime_token(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'access.db'}", connect_args={"check_same_thread": False})
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    token = "amat_runtime_test"
+    db = TestingSessionLocal()
+    db.add(
+        models.ManagedAgent(
+            agent_id="agno-demo",
+            name="Agno Demo",
+            status="active",
+            skill_names_json='["runtime-skill"]',
+            prompt_names_json="[]",
+        )
+    )
+    db.add(
+        models.AccessToken(
+            name="agent-runtime",
+            token_type="agent_runtime",
+            token_hash=_hash_token(token),
+            token_prefix=token[:8],
+            bound_agent_id="agno-demo",
+            scopes_json='["runtime:verify-signature", "runtime:can-load", "runtime:check-tool"]',
+            allowed_models_json="[]",
+            allowed_ips_json="[]",
+            status="active",
+        )
+    )
+    db.commit()
+    db.close()
+
+    def override_get_db():
+        session = TestingSessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
     app = FastAPI()
     manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
     skill_dir = tmp_path / "skill"
@@ -131,19 +169,10 @@ def test_access_runtime_routes_accept_runtime_token(tmp_path):
     api_router._manager = manager
     try:
         app.dependency_overrides[get_manager] = lambda: manager
+        app.dependency_overrides[get_db] = override_get_db
         app.include_router(admin_router)
         app.include_router(runtime_router)
         client = TestClient(app)
-
-        token_response = client.post(
-            "/api/v1/scanner/tokens",
-            json={
-                "name": "agent-runtime",
-                "scopes": ["runtime:verify-signature", "runtime:can-load", "runtime:check-tool"],
-            },
-        )
-        assert token_response.status_code == 200
-        token = token_response.json()["token"]
 
         verify_response = client.post(
             "/api/v1/access/runtime/verify-skill-signature",
@@ -272,7 +301,7 @@ def test_audit_accepts_comma_separated_event_types(tmp_path):
         client = TestClient(app)
 
         response = client.get(
-            "/api/v1/audit",
+            "/audit",
             params={
                 "event_types": "skill_load_allowed,tool_blocked",
                 "page": 1,

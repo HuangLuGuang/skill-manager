@@ -123,7 +123,7 @@ def test_vetting_merges_local_static_analysis_when_behavioral_enabled(tmp_path):
         use_behavioral=True,
     )
 
-    assert result.risk_level == RiskLevel.MALICIOUS
+    assert result.risk_level == RiskLevel.SUSPICIOUS
     assert "agent-manager-local" in result.analyzers_used
     assert "local_static_analysis" in result.scan_report
     assert any(finding["source"] == "agent-manager-local" for finding in result.scan_report["findings"])

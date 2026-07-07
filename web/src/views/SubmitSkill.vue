@@ -745,7 +745,7 @@ const startPolling = () => {
             sandbox_triggered: Boolean(detail.vetting?.sandbox_triggered),
             sandbox_required_by_policy: Boolean(detail.vetting?.sandbox_required_by_policy),
             sandbox_runtime: detail.vetting?.sandbox_runtime || null,
-            message: detail.status === 'PENDING' ? '已提交，后台分析中。请在技能注册表查看状态变化。' : '后台分析已完成。',
+            message: detail.status === 'PENDING' ? '已提交，后台分析中。请在 Skill 列表查看状态变化。' : '后台分析已完成。',
           }
         }),
       )

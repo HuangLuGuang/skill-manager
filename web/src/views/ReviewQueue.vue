@@ -131,7 +131,7 @@ const total = ref(0)
 const keyword = ref('')
 const risk = ref('all')
 const reviewStatus = ref('pending')
-const sortState = ref({ field: 'queued_at', order: 'descend' })
+const sortState = ref({ field: 'sort_at', order: 'descend' })
 const selectedRecord = ref(null)
 const approveModalOpen = ref(false)
 const rejectModalOpen = ref(false)
@@ -157,7 +157,7 @@ const baseColumns = [
   { title: 'Skill ID', dataIndex: 'skill_id', key: 'skill_id', sorter: true },
   { title: '风险', dataIndex: 'risk_level', key: 'risk', width: 120, sorter: true },
   { title: 'Findings', dataIndex: 'findings', key: 'findings', width: 140 },
-  { title: '时间', dataIndex: 'queued_at', key: 'queued_at', width: 190, sorter: true, customRender: ({ text }) => formatDateTime(text) },
+  { title: '时间', dataIndex: 'display_time', key: 'time', width: 190, sorter: true, customRender: ({ text }) => formatDateTime(text) },
 ]
 
 const reviewedColumns = [
@@ -168,8 +168,7 @@ const reviewedColumns = [
 const dynamicColumns = computed(() => {
   const cols = [...baseColumns]
   if (reviewStatus.value === 'reviewed' || reviewStatus.value === 'all') {
-    // Insert review status columns before actions
-    cols.splice(cols.length, 0, ...reviewedColumns)
+    cols.push(...reviewedColumns)
   }
   cols.push({ title: '操作', key: 'actions', width: reviewStatus.value === 'pending' ? 280 : 160 })
   return cols
@@ -189,6 +188,7 @@ const fetchQueue = async () => {
     })
     rows.value = (Array.isArray(res.items) ? res.items : []).map((item) => ({
       ...item,
+      display_time: item.sort_at || item.reviewed_at || item.queued_at,
       findings: `${item.findings_summary?.critical || 0}/${item.findings_summary?.high || 0}/${item.findings_summary?.medium || 0}/${item.findings_summary?.low || 0}`,
     }))
     total.value = Number(res.total || 0)
@@ -269,7 +269,7 @@ const handleTableChange = (pager, _filters, sorter) => {
   }
   if (sorter?.field) {
     sortState.value = {
-      field: sorter.field,
+      field: sorter.field === 'display_time' ? 'sort_at' : sorter.field,
       order: sorter.order || 'ascend',
     }
   }
@@ -295,20 +295,13 @@ const resetFilters = () => {
   keyword.value = ''
   risk.value = 'all'
   reviewStatus.value = 'pending'
-  sortState.value = { field: 'queued_at', order: 'descend' }
+  sortState.value = { field: 'sort_at', order: 'descend' }
   pagination.value = {
     ...pagination.value,
     current: 1,
   }
   fetchQueue()
 }
-
-const riskColor = (value) =>
-  ({
-    benign: 'green',
-    suspicious: 'orange',
-    malicious: 'red',
-  }[value] || 'default')
 
 onMounted(fetchQueue)
 

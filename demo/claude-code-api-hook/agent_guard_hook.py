@@ -500,29 +500,27 @@ def main() -> None:
     except json.JSONDecodeError:
         sys.exit(0)  # Malformed input → allow (don't block on hook errors)
 
+    hook_event = event.get("hook_event_name", "")
+    skill_name = _extract_skill_name_from_event(event) if hook_event == "PreToolUse" else None
+    if hook_event != "PreToolUse" or not skill_name:
+        sys.exit(0)
+
     try:
         server = resolve_server()
         token = resolve_token()
 
         with httpx.Client(timeout=30.0) as client:
-            hook_event = event.get("hook_event_name", "")
-
-            # Only handle PreToolUse
-            if hook_event == "PreToolUse":
-                handle_pre_tool_use(event, client, server, token)
+            handle_pre_tool_use(event, client, server, token)
 
         sys.exit(0)
 
     except SystemExit:
         raise
     except Exception as e:
-        # Hook errors must not block the agent — log and continue
         error_msg = f"[agent-manager guard hook error] {e}"
         _log(error_msg)
-        print(error_msg, file=sys.stderr)
-        sys.exit(0)
+        _block(_format_block_message(error_msg))
 
 
 if __name__ == "__main__":
     main()
-

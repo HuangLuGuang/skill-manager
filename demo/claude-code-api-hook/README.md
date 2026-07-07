@@ -28,14 +28,14 @@ Agent Guard Hook (`agent_guard_hook.py`) 仅使用 verify 功能，逻辑与 `ag
    # API Token（必需）
    AGENT_MANAGER_API_TOKEN=your-token-here
 
-   # Agent ID（可选）
+   # Agent ID（可选；不设置时按会话自动生成）
    AGENT_ID=your-agent-id
 
-   # 签名密钥（必需，必须与服务端一致！）
+   # 签名密钥（仅当服务端启用 AGENT_MANAGER_SIGNING_KEY 时需要）
    AGENT_MANAGER_SIGNING_KEY=your-signing-key-here
    ```
 
-   注意：`AGENT_MANAGER_SIGNING_KEY` 必须与服务端配置的完全一致！
+   注意：如果服务端启用了 `AGENT_MANAGER_SIGNING_KEY`，Hook 侧必须使用同一个值，否则本地签名会不一致。
 
 ## 配置 Claude Code or Trae IDE Hook
 
@@ -65,8 +65,8 @@ Agent Guard Hook (`agent_guard_hook.py`) 仅使用 verify 功能，逻辑与 `ag
 |----------|------|------|
 | `AGENT_MANAGER_BASE_URL` | ✅ | Agent Manager 服务地址 |
 | `AGENT_MANAGER_API_TOKEN` | ✅ | API 访问 Token |
-| `AGENT_MANAGER_SIGNING_KEY` | ✅ | 签名密钥（必须与服务端一致，服务端没有可不填）|
-| `AGENT_ID` | ✅ | Agent ID |
+| `AGENT_MANAGER_SIGNING_KEY` | 条件必需 | 仅当服务端启用 HMAC 签名时需要，必须与服务端一致 |
+| `AGENT_ID` | ❌ | Agent ID；不设置时按会话自动生成 |
 | `AGENT_MANAGER_DATA_DIR` | ❌ | 数据目录 |
 
 ## 工作原理

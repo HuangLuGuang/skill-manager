@@ -467,7 +467,7 @@
                       :pagination="false"
                     >
                       <template #title>
-                        Sandbox 执行明细
+                        Sandbox 提取到的运行时信号
                       </template>
                       <template #bodyCell="{ column, record }">
                         <template v-if="column.key === 'probe'">

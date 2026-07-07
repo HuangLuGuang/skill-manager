@@ -1615,6 +1615,13 @@ def list_review_queue(
     page_size: int | None = Query(None, ge=1, le=100),
     mgr: AgentManager = Depends(get_manager),
 ):
+    allowed_review_statuses = {"pending", "reviewed", "all"}
+    if review_status not in allowed_review_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"review_status must be one of: {', '.join(sorted(allowed_review_statuses))}",
+        )
+
     data: list[dict[str, Any]] = []
 
     # 1) Pending review items (VETTED, in review queue)
@@ -1625,7 +1632,11 @@ def list_review_queue(
             item["status"] = SkillStatus.VETTED.value
             item["approved_by"] = None
             item["approved_at"] = None
+            item["reviewed_at"] = None
             item["rejection_reason"] = None
+            item["approval_note"] = None
+            item["review_note"] = item.get("notes")
+            item["sort_at"] = item.get("queued_at")
             data.append(item)
 
     # 2) Already reviewed items (APPROVED / REJECTED, from registry)
@@ -1635,6 +1646,8 @@ def list_review_queue(
             findings_summary: dict[str, int] = {}
             if entry.vetting and entry.vetting.scan_report:
                 findings_summary = entry.vetting.scan_report.get("findings_summary", {}) or {}
+            reviewed_at = entry.approved_at or entry.updated_at
+            review_note = entry.rejection_reason if entry.status == SkillStatus.REJECTED else (entry.approval_note or None)
             data.append({
                 "skill_id": entry.skill_id,
                 "skill_name": entry.name,
@@ -1642,10 +1655,14 @@ def list_review_queue(
                 "status": entry.status.value,
                 "findings_summary": findings_summary,
                 "submitted_at": entry.submitted_at.isoformat() if entry.submitted_at else None,
-                "queued_at": entry.approved_at.isoformat() if entry.approved_at else (
-                    entry.updated_at.isoformat() if entry.updated_at else None
+                "queued_at": entry.submitted_at.isoformat() if entry.submitted_at else None,
+                "reviewed_at": reviewed_at.isoformat() if reviewed_at else None,
+                "sort_at": reviewed_at.isoformat() if reviewed_at else (
+                    entry.submitted_at.isoformat() if entry.submitted_at else None
                 ),
-                "notes": entry.rejection_reason if entry.status == SkillStatus.REJECTED else (entry.approval_note or None),
+                "notes": review_note,
+                "review_note": review_note,
+                "approval_note": entry.approval_note,
                 "approved_by": entry.approved_by,
                 "approved_at": entry.approved_at.isoformat() if entry.approved_at else None,
                 "rejection_reason": entry.rejection_reason,
@@ -1662,6 +1679,9 @@ def list_review_queue(
             if needle in (r.get("skill_name") or "").lower()
             or needle in (r.get("skill_id") or "").lower()
             or needle in (r.get("notes") or "").lower()
+            or needle in (r.get("review_note") or "").lower()
+            or needle in (r.get("approval_note") or "").lower()
+            or needle in (r.get("rejection_reason") or "").lower()
         ]
 
     # 4) Sort
@@ -1672,6 +1692,10 @@ def list_review_queue(
         data = sorted(data, key=lambda r: r.get("risk_level") or "", reverse=reverse)
     elif sort_by == "submitted_at":
         data = sorted(data, key=lambda r: r.get("submitted_at") or "", reverse=reverse)
+    elif sort_by == "reviewed_at":
+        data = sorted(data, key=lambda r: r.get("reviewed_at") or "", reverse=reverse)
+    elif sort_by == "sort_at":
+        data = sorted(data, key=lambda r: r.get("sort_at") or "", reverse=reverse)
     elif sort_by == "status":
         data = sorted(data, key=lambda r: r.get("status") or "", reverse=reverse)
     else:

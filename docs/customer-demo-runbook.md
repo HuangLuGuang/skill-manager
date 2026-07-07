@@ -165,36 +165,37 @@ Agent 仍然运行在客户自己的环境里。
 
 打开管理台后建议按这个顺序展示：
 
-1. `总览`
-   - 技能/提示词总数
-   - 风险分布与来源分析
-   - 最近拦截的非法 Prompt 注入事件
+1. `平台总览`
+   - 智能体、Skill、模型网关和审计的整体状态
+   - 风险分布、风险来源和最近待处理事项
+   - 模型网关 Token 用量、压缩节省和 Prompt 防护事件
 
-2. `提示词管理` (New)
-   - 生命周期：`PENDING` -> `VETTED` -> `APPROVED`
-   - 扫描发现项：指令覆盖、越狱、数据泄露检测
-   - 电子签名指纹可视化
+2. `能力治理 / 提交 Skill`
+   - 上传 ZIP 或使用 Skill 扫描器批量提交本地 skills 目录
+   - 按需开启规则分析、深度扫描、Sandbox、LLM 分析和判定模式
+   - 提交后进入后台扫描与审核流程，不直接信任外部 Skill
 
-3. `技能注册表`
-   - 状态流转
-   - 风险等级过滤
+3. `能力治理 / Skill 审核`
+   - 查看待审核 Skill
+   - 对规则、深度扫描、Sandbox、LLM 的发现项做人工复核
+   - 手动通过或拒绝，避免自动判定和人工判断割裂
 
-3. `技能详情`
-   - `SKILL.md`
-   - 文件列表和文件内容
-   - 规则分析结果
-   - LLM 分析结果
-   - Sandbox 执行结果
-   - Sandbox 执行明细：具体命令、入口、stdout、stderr、退出码
-   - 扫描复用信息
+4. `能力治理 / Skill 列表`
+   - 查看已提交 Skill、状态、风险、来源和提交人
+   - 进入 Skill 详情查看综合研判、发现项依据和下载入口
+   - 扫描器提交的 Skill 可在这里查看结果
 
-4. `扫描器接入`
-   - Scanner Token
-   - CLI / GUI 下载
-   - 参数说明
-   - 扫描结果在哪里看
+5. `智能体管理 / 智能体列表`
+   - 登记业务 Agent、负责人和部门
+   - 绑定允许加载的 Skill 范围
+   - 创建后到 `凭证管理` 签发 Agent 运行凭证
 
-5. `审计日志`
+6. `模型网关`
+   - 管理供应商、模型、组策略绑定和隐私策略
+   - 在凭证管理中创建模型调用凭证，可开启 Prompt 防护和智能压缩
+   - 通过 `Token 压缩统计`、`用户 Token 分析`、`隐私链路追踪` 查看调用效果
+
+7. `智能体管理 / 审计追踪`
    - skill 提交
    - 扫描完成
    - 签名验证
@@ -204,36 +205,25 @@ Agent 仍然运行在客户自己的环境里。
 讲解话术：
 
 ```text
-总览不是只看最终风险等级，还能看到风险是由规则、大模型还是 Sandbox 发现。
-详情页保留原始报告和具体文件内容，方便安全团队复核。
-审计日志是运行时治理闭环的证据。
+总览先建立“治理平面”的概念；能力治理解决 Skill 准入；智能体管理解决哪个 Agent 能用哪些 Skill；模型网关解决模型调用、Prompt 防护和隐私链路。最后用审计追踪证明运行时确实发生了校验和拦截。
 ```
 
 ---
 
 ## 3. 开启 LLM 和 Sandbox
 
-进入 `系统设置`：
+进入 `能力治理 / 策略配置`：
 
 ### 3.1 LLM 配置
 
-推荐客户环境优先使用 `模型网关` 页面管理供应商、模型、API Key、用户组和隐私策略。这样 skill / prompt 的 LLM 分析、外部 Agent 的模型调用，都可以进入统一的隐私路由和 Pipeline Trace。
-
-如果只是演示传统直连 LLM，可在 `系统设置` 中配置：
-
-```text
-提供方：deepseek
-接口：https://api.deepseek.com
-模型：deepseek-chat
-API Key：客户自己的 key
-```
+推荐客户环境优先在 `模型网关` 页面管理供应商、模型、组策略绑定和隐私策略。然后在 `能力治理 / 策略配置` 中选择模型网关里的默认模型，Skill 的 LLM 分析和外部 Agent 的模型调用都可以进入统一的隐私链路。
 
 讲解话术：
 
 ```text
 LLM 不替代规则扫描。
 它补充语义判断，特别适合识别 prompt 中的恶意意图、数据外泄目的和伪装描述。
-如果走模型网关，LLM 请求会先做 PII 伪匿名化，管理台还能展示 original / masked / masked_response / final_response 四阶段 Trace。
+如果走模型网关，LLM 请求会先做 PII 伪匿名化，管理台还能在“隐私链路追踪”里展示 Prompt 防护、脱敏、压缩、模型响应和最终还原结果。
 ```
 
 内部 vetting 走模型网关时，设置：
@@ -322,11 +312,12 @@ go build -o skill-scanner ./cmd/skill-scanner
 ```bash
 cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
 
-export AGENT_MANAGER_TOKEN="amat_xxx"
+export SKILL_SCANNER_TOKEN="amat_xxx"
 export SKILL_SCANNER_HOST_ID="customer-demo-host"
 
 ./skill-scanner scan /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills \
   --server http://10.10.71.33 \
+  --token "$SKILL_SCANNER_TOKEN" \
   --behavioral \
   --sandbox \
   --llm \
@@ -342,7 +333,7 @@ export SKILL_SCANNER_HOST_ID="customer-demo-host"
 预期结果：
 
 - 本地生成 `customer-demo-scan-report.json`
-- 管理台技能注册表出现新 skill
+- 管理台 `Skill 列表` 出现新 Skill
 - 初始可能是 `PENDING`
 - 后台完成后变成 `APPROVED` / `VETTED` / `REJECTED`
 
@@ -354,52 +345,21 @@ export SKILL_SCANNER_HOST_ID="customer-demo-host"
 服务端收到 ZIP 后会重新计算 fingerprint，避免客户端伪造 manifest。
 ```
 
-### 4.3 GUI 扫描器演示
+## 5. 模型网关 Prompt 防护演示
 
-管理台进入：
-
-```text
-扫描器接入 -> 下载扫描器 -> GUI 图形版
-```
-
-GUI 操作：
-
-1. 打开 GUI。
-2. 设置页配置：
-   - Server
-   - Scanner Token
-   - Host ID
-3. 扫描页选择本地 skills 根目录。
-4. 点击 `发现 Skills`。
-5. 勾选要提交的 skill。
-6. 勾选规则分析、Sandbox、LLM。
-7. 执行扫描。
-8. 在结果表中点击详情跳转管理台。
-
-讲解话术：
+进入 `智能体管理 / 凭证管理`，创建 `模型调用凭证`，打开 Prompt 防护：
 
 ```text
-CLI 适合服务器和 CI，GUI 适合客户安全团队人工选择目录和技能。
-两者走同一套 Scanner API 和 Token 权限模型。
+仅记录：适合灰度观察，不影响业务请求
+告警放行：适合演示风险识别和审计
+高风险阻断：适合生产强约束场景
 ```
 
----
+用这张凭证调用模型网关，发送包含提示词注入、系统提示词泄露或凭据外传意图的消息。预期结果：
 
-## 5. 提示词准入演示 (Lingxi Scenario)
-
-使用三类样例：
-- `safe-advisor.txt`：合规行政助手
-- `malicious-advisor.txt`：冒充 CEO 授权试图窃取薪资数据的注入
-
-提交演示：
-```bash
-uv run agent-manager prompt submit demo/enterprise-governance-demo/prompts/safe-advisor.txt --name safe-advisor
-uv run agent-manager prompt submit demo/enterprise-governance-demo/prompts/malicious-advisor.txt --name malicious-advisor
-```
-
-预期：
-- `safe-advisor`：自动批准。
-- `malicious-advisor`：拦截，提示 `CRITICAL` 风险，命中“指令覆盖”。
+- `模型网关 / 隐私审计` 能看到 Prompt 防护事件
+- `隐私链路追踪` 能看到命中规则、风险等级和处理动作
+- 若凭证配置为高风险阻断，请求会返回 403
 
 ---
 
@@ -435,7 +395,7 @@ uv run agent-manager submit demo/agno-skill-guard/sample_skills/rejected-exfiltr
 
 - 规则分析发现项
 - LLM 对主要功能和风险的总结
-- Sandbox 执行明细
+- Sandbox 提取到的运行时信号
 - 原始 JSON 报告
 
 讲解话术：
@@ -450,23 +410,19 @@ Sandbox 负责在受限环境观察实际运行信号。
 
 ---
 
-## 6. Sandbox 细节演示
+## 7. Sandbox 信号演示
 
 在技能详情里打开：
 
 ```text
-Vetting -> Sandbox 执行结果 -> Sandbox 执行明细
+综合研判 / Sandbox 提取到的运行时信号
 ```
 
 重点看：
 
-- `Probe`
-- `入口`
-- `执行命令`
-- `退出码`
-- `stdout`
-- `stderr`
 - `风险信号`
+- `判断依据`
+- `命中片段`
 
 对于只有 `SKILL.md` 命令块、没有 scripts 的 skill，系统会把 fenced bash/sh code block 转成临时 `.sh` probe，在 sandbox 临时拷贝里执行。
 
@@ -480,9 +436,9 @@ Vetting -> Sandbox 执行结果 -> Sandbox 执行明细
 
 ---
 
-## 7. Agno 闭环 Demo
+## 8. Agno 闭环 Demo
 
-### 7.1 准备 Agno 环境
+### 8.1 准备 Agno 环境
 
 本次客户演示默认使用服务器地址，不需要在本机启动 runtime API：
 
@@ -516,7 +472,7 @@ export AGNO_MODEL_ID="deepseek-chat"
 export AGENT_MANAGER_SIGNING_KEY="same-key-used-by-agent-manager"
 ```
 
-### 7.2 提交 demo skills
+### 8.2 提交 demo skills
 
 服务器演示建议先通过管理台或扫描器把下面三个样例提交到 `http://10.10.71.33`：
 
@@ -538,7 +494,7 @@ uv run agent-manager submit demo/agno-skill-guard/sample_skills/rejected-exfiltr
 
 如果安全样例没有自动批准，在管理台审核通过。
 
-### 7.3 跑四个场景 (Agno Classic)
+### 8.3 跑四个场景 (Agno Classic)
 
 ```bash
 uv run python customer_demo.py all
@@ -546,17 +502,17 @@ uv run python customer_demo.py all
 
 ---
 
-## 8. 灵犀助手 (Lingxi) 闭环演示
+## 9. 灵犀助手 (Lingxi) 闭环演示
 
 进入 `demo/enterprise-governance-demo` 目录。
 
-### 8.1 场景一：安全运行
+### 9.1 场景一：安全运行
 ```bash
 python3 run_agent_demo.py safe
 ```
 - **看点**：展示 Agent 在启动时如何同时验证“提示词签名”和“技能签名”。
 
-### 8.2 场景二：注入拦截
+### 9.2 场景二：注入拦截
 ```bash
 python3 run_agent_demo.py malicious
 ```
@@ -564,9 +520,9 @@ python3 run_agent_demo.py malicious
 
 ---
 
-## 9. Agno 场景话术
+## 10. Agno 场景话术
 
-### 8.1 approved
+### 10.1 approved
 
 终端会展示：
 
@@ -585,7 +541,7 @@ python3 run_agent_demo.py malicious
 区别是加载前先问 Agent Manager：这个 skill 是否已经批准，签名是否匹配。
 ```
 
-### 8.2 rejected
+### 10.2 rejected
 
 预期输出：
 
@@ -602,7 +558,7 @@ Agent 加载前必须经过 registry 状态校验。
 这就是从“本地文件可信”转成“治理状态可信”。
 ```
 
-### 8.3 tampered
+### 10.3 tampered
 
 预期输出：
 
@@ -618,7 +574,7 @@ signature mismatch — possible tampering
 本地任何文件新增、删除或修改，都会导致签名不一致，Agent 加载前被拦截。
 ```
 
-### 8.4 tool-blocked
+### 10.4 tool-blocked
 
 预期输出：
 
@@ -636,7 +592,7 @@ Agent Manager blocked tool 'Bash'
 
 ---
 
-## 9. 审计闭环
+## 11. 审计闭环
 
 演示完进入：
 
@@ -664,9 +620,9 @@ Agent Manager blocked tool 'Bash'
 
 ---
 
-## 10. 常见问题和现场处理
+## 12. 常见问题和现场处理
 
-### 10.1 构建镜像失败
+### 12.1 构建镜像失败
 
 compose 不再负责构建镜像，先用项目脚本构建：
 
@@ -682,11 +638,11 @@ sudo apt-get update
 sudo apt-get install -y docker-buildx-plugin docker-compose-plugin
 ```
 
-### 10.2 Agno DeepSeek 报 `developer role`
+### 12.2 Agno DeepSeek 报 `developer role`
 
 当前 demo 已经在 `main.py` 里配置 role map，把 `developer` 映射到 `system`。
 
-### 10.3 DeepSeek 报 `response_format unavailable`
+### 12.3 DeepSeek 报 `response_format unavailable`
 
 当前 demo 已关闭 OpenAI native structured output：
 
@@ -694,7 +650,7 @@ sudo apt-get install -y docker-buildx-plugin docker-compose-plugin
 supports_native_structured_outputs=False
 ```
 
-### 10.4 模型网关返回 401 / 403 / 413 / 429
+### 12.4 模型网关返回 401 / 403 / 413 / 429
 
 排查：
 
@@ -703,11 +659,11 @@ supports_native_structured_outputs=False
 - `413`：请求体超过 API Key 的 `max_body_kb`。
 - `429`：该 API Key 的并发请求数超过 `max_concurrent_requests`。
 
-### 10.5 Pipeline Trace 看不到原始报文
+### 12.5 隐私链路追踪看不到原始报文
 
 Trace 页面包含原始 PII，仅 `admin`、`super_admin`、`privacy_auditor` 角色应访问。确认当前账号角色和登录状态。
 
-### 10.6 Sandbox 结果是 LOW，但 LLM 是 malicious
+### 12.6 Sandbox 结果是 LOW，但 LLM 是 malicious
 
 讲解：
 
@@ -717,7 +673,7 @@ Sandbox 只代表这次 probe 实际观察到的行为。
 最终风险以策略合并后的最高风险为准。
 ```
 
-### 10.7 重复提交为什么没有复用
+### 12.7 重复提交为什么没有复用
 
 复用条件：
 
@@ -733,7 +689,7 @@ Sandbox 只代表这次 probe 实际观察到的行为。
 - 策略版本
 - 扫描器和核心代码版本
 
-### 10.8 Scanner Token 忘记复制
+### 12.8 Scanner Token 忘记复制
 
 Token 明文只展示一次，不能找回。
 
@@ -745,7 +701,7 @@ Token 明文只展示一次，不能找回。
 
 ---
 
-## 11. 推荐客户演示节奏
+## 13. 推荐客户演示节奏
 
 ### 15 分钟版本
 
@@ -758,14 +714,14 @@ Token 明文只展示一次，不能找回。
 ### 30 分钟版本
 
 1. 5 分钟：部署架构和数据流。
-2. 5 分钟：Scanner CLI/GUI 和 Token 权限。
+2. 5 分钟：Scanner CLI 和 Token 权限。
 3. 8 分钟：Skill 准入扫描详情。
 4. 8 分钟：Agno runtime demo。
 5. 4 分钟：审计、风险边界、生产建议。
 
 ---
 
-## 12. 结尾话术
+## 14. 结尾话术
 
 ```text
 Agent Manager 不是替代 Agno、OpenClaw 或客户已有 Agent 框架。

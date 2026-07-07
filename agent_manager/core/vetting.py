@@ -321,7 +321,10 @@ def _classify_finding(finding: dict) -> str:
     rule_upper = rule.upper()
     category = str(finding.get("category") or "").strip().lower()
     severity = str(finding.get("severity", "SAFE")).upper()
-    text = " ".join(str(finding.get(key) or "") for key in ("title", "message", "evidence")).lower()
+    text = " ".join(
+        str(finding.get(key) or "")
+        for key in ("title", "message", "evidence", "category", "pattern", "finding", "explanation", "code_snippet")
+    ).lower()
 
     if rule in _BLOCKING_RULES or any(token in text for token in ("exfiltrat", "数据外传", "窃取凭据", "steal credential")):
         return "blocking"

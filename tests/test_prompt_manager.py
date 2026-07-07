@@ -18,6 +18,7 @@ from agent_manager.core.prompt_models import (
 )
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.registry import Registry
+from agent_manager.core.signer import compute_prompt_signature
 
 
 @pytest.fixture
@@ -48,17 +49,17 @@ class TestPromptSubmit:
         types = {e.event_type for e in events}
         assert "prompt_submitted" in types
 
-    def test_vet_safe_prompt_is_auto_approved(self, mgr):
+    def test_vet_safe_prompt_without_analysis_requires_review(self, mgr):
         entry = mgr.submit_prompt(
             name="safe-prompt",
             content="You are a helpful coding assistant. Write secure code.",
             agent_id="dev-agent",
         )
         entry = mgr.vet_prompt(entry.prompt_id)
-        assert entry.status == PromptStatus.APPROVED
-        assert entry.risk_level == RiskLevel.BENIGN
-        assert entry.signature is not None
-        assert entry.approved_by == "auto-policy"
+        assert entry.status == PromptStatus.VETTED
+        assert entry.risk_level == RiskLevel.SUSPICIOUS
+        assert entry.signature is None
+        assert entry.approved_by is None
 
     def test_vet_prompt_injection_detected(self, mgr):
         entry = mgr.submit_prompt(
@@ -156,11 +157,12 @@ class TestPromptDeployRetire:
         assert deployed.deployed_at is not None
 
     def test_deploy_writes_to_disk(self, mgr, tmp_path):
-        entry = mgr.submit_prompt(name="disk-deploy", content="File content.", agent_id="a1")
+        content = "File content."
+        entry = mgr.submit_prompt(name="disk-deploy", content=content, agent_id="a1")
         entry = mgr.vet_prompt(entry.prompt_id)
         if entry.status != PromptStatus.APPROVED:
             entry.status = PromptStatus.APPROVED
-            entry.signature = "sig"
+            entry.signature = compute_prompt_signature(content)
             mgr.registry.update_prompt(entry)
 
         target = tmp_path / "deployed-prompts"
@@ -221,7 +223,7 @@ class TestPromptVerify:
         entry = mgr.vet_prompt(entry.prompt_id)
         if entry.status != PromptStatus.APPROVED:
             entry.status = PromptStatus.APPROVED
-            entry.signature = "sig"
+            entry.signature = compute_prompt_signature(content)
             mgr.registry.update_prompt(entry)
 
         result = mgr.verify_prompt_signature(
@@ -236,7 +238,7 @@ class TestPromptVerify:
         entry = mgr.vet_prompt(entry.prompt_id)
         if entry.status != PromptStatus.APPROVED:
             entry.status = PromptStatus.APPROVED
-            entry.signature = "sig"
+            entry.signature = compute_prompt_signature(content)
             mgr.registry.update_prompt(entry)
 
         result = mgr.verify_prompt_signature(
@@ -252,7 +254,7 @@ class TestPromptVerify:
         entry = mgr.vet_prompt(entry.prompt_id)
         if entry.status != PromptStatus.APPROVED:
             entry.status = PromptStatus.APPROVED
-            entry.signature = "sig"
+            entry.signature = compute_prompt_signature(content)
             mgr.registry.update_prompt(entry)
 
         f = tmp_path / "verify.txt"

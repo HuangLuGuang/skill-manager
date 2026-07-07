@@ -1,6 +1,6 @@
 # 客户侧 Skill Scanner 使用说明
 
-本文档说明客户侧 Go 扫描器的定位、CLI/GUI 使用方式、接入 Token、服务端接入接口、下载发布和重复扫描复用机制。
+本文档说明客户侧 Go 扫描器的定位、CLI 使用方式、接入 Token、服务端接入接口、下载发布和重复扫描复用机制。
 
 ---
 
@@ -18,7 +18,6 @@
 当前提供两个版本：
 
 - `skill-scanner-cli-*`：命令行版本，适合服务器、CI、批处理。
-- `skill-scanner-gui-*`：原生桌面 GUI，适合人工选择目录、选择 skill、查看扫描状态。
 
 ---
 
@@ -27,7 +26,7 @@
 ```mermaid
 sequenceDiagram
     participant User as "客户 / 操作员"
-    participant Scanner as "Go Scanner CLI/GUI"
+    participant Scanner as "Go Scanner CLI"
     participant API as "Agent Manager Scanner API"
     participant Token as "Access Token Store"
     participant Mgr as "AgentManager"
@@ -120,7 +119,7 @@ Runtime Agent 加载校验权限：
 
 它和 Go Scanner 的定位不同：
 
-- Go Scanner：面向客户侧批量发现和上传本地 skills，适合 CI、服务器或人工 GUI 扫描。
+- Go Scanner：面向客户侧批量发现和上传本地 skills，适合命令行、服务器和 CI 批量扫描。
 - Agent Skill Verifier：面向 Agent 运行过程，强调“第三方 skill 使用前必须先过 Agent Manager”。
 
 ### 4.1 下载
@@ -165,6 +164,7 @@ Skill Verifier 首版使用一个合并 token。至少需要：
 export AGENT_MANAGER_VERIFIER_BASE_URL="http://localhost:8001"
 export AGENT_MANAGER_VERIFIER_TOKEN="amat_xxx"
 export AGENT_ID="<agent-id>"
+# 仅当服务端启用 AGENT_MANAGER_SIGNING_KEY 时需要，且必须与服务端一致
 export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 ```
 
@@ -303,65 +303,7 @@ CLI 会生成 JSON 报告，内容包括：
 
 ---
 
-## 6. GUI 使用
-
-GUI 是原生桌面程序，不是网页版 GUI。
-
-### 6.1 下载
-
-管理台进入：
-
-- `扫描器接入`
-- `下载扫描器`
-
-选择对应平台的 GUI 文件，例如：
-
-- `skill-scanner-gui-darwin-arm64`
-- `skill-scanner-gui-darwin-amd64`
-
-当前 GUI 使用 Fyne 构建，跨平台 GUI 需要目标平台图形工具链。服务端发布目录里有哪个二进制，页面就显示哪个可下载项。
-
-### 6.2 基本操作
-
-1. 打开 GUI。
-2. 进入 `设置` 页，配置：
-   - Agent Manager Server
-   - 接入 Token
-   - Host ID
-   - 默认输出报告路径
-3. 回到扫描页，点击 `选择目录`。
-4. GUI 调用系统文件选择器选择本地 skills 根目录。
-5. 点击 `发现 Skills`。
-6. 在表格中勾选要提交的 skill。
-7. 配置扫描参数：
-   - 规则分析
-   - Sandbox
-   - LLM 分析
-   - 超时
-   - 文件大小 / 数量限制
-   - 忽略目录
-8. 点击 `执行扫描`。
-
-### 6.3 结果查看
-
-GUI 结果区会实时刷新：
-
-- 发现数量
-- 已提交数量
-- 失败数量
-- 每个 skill 的名称、状态、风险、错误信息
-
-表格的 `详情` 列可以打开 Agent Manager 管理台对应 skill 详情页。
-
-如果状态一直是 `PENDING`，可以：
-
-- 等待 GUI 自动刷新。
-- 手动刷新。
-- 到管理台技能注册表或详情页查看后台扫描进度。
-
----
-
-## 7. 本地轻量预检
+## 6. 本地轻量预检
 
 客户侧 scanner 的本地预检只做低成本静态检查，不执行客户代码。
 
@@ -378,11 +320,11 @@ GUI 结果区会实时刷新：
 
 ---
 
-## 8. 服务端接口
+## 7. 服务端接口
 
 Scanner 使用专用 API，不复用管理员接口。
 
-### 8.1 提交
+### 7.1 提交
 
 ```http
 POST /api/v1/scanner/imports
@@ -411,7 +353,7 @@ Content-Type: multipart/form-data
 7. 创建 `PENDING` skill。
 8. 后台执行完整扫描。
 
-### 8.2 查询自己的提交
+### 7.2 查询自己的提交
 
 ```http
 GET /api/v1/scanner/imports/{skill_id}
@@ -422,11 +364,11 @@ Authorization: Bearer <scanner-token>
 
 ---
 
-## 9. 重复扫描复用
+## 8. 重复扫描复用
 
 服务端会尽量避免重复扫描完全相同的 skill。
 
-### 9.1 复用条件
+### 8.1 复用条件
 
 必须同时满足：
 
@@ -451,7 +393,7 @@ Authorization: Bearer <scanner-token>
 - 如果启用了模型网关，还包括网关 URL 和内部 metadata 配置
 - sandbox 配置和 runner 源
 
-### 9.2 页面显示
+### 8.2 页面显示
 
 如果发生复用，技能详情会显示：
 
@@ -469,7 +411,7 @@ Authorization: Bearer <scanner-token>
 - `scan_context_fingerprint`
 - `scan_cache_key`
 
-### 9.3 为什么没有复用
+### 8.3 为什么没有复用
 
 常见原因：
 
@@ -484,20 +426,17 @@ Authorization: Bearer <scanner-token>
 
 ---
 
-## 10. 构建和发布扫描器
+## 9. 构建和发布扫描器
 
-### 10.1 本地构建
+### 9.1 本地构建
 
 ```bash
 cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
 go test ./...
 go build -o skill-scanner ./cmd/skill-scanner
-go build -o skill-scanner-gui ./cmd/skill-scanner-gui
 ```
 
-GUI 依赖本机图形工具链。macOS 上构建 macOS GUI 最稳定；跨平台 GUI 构建建议在目标平台构建。
-
-### 10.2 生成发布目录
+### 9.2 生成发布目录
 
 ```bash
 cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
@@ -519,7 +458,6 @@ scanner/releases/
 管理台“扫描器接入”页面只读取 `scanner/releases/` 下的顶层文件：
 
 - `skill-scanner-cli-*`
-- `skill-scanner-gui-*`
 
 所以如果页面显示“当前可下载文件为空”，先检查：
 
@@ -527,7 +465,7 @@ scanner/releases/
 ls -lh /Users/huangluguang/Desktop/Project/skill-manager/scanner/releases
 ```
 
-### 10.3 支持的平台
+### 9.3 支持的平台
 
 CLI 默认尝试构建：
 
@@ -542,24 +480,13 @@ Windows CLI 需要显式打开：
 BUILD_WINDOWS_CLI=1 ./scripts/package.sh
 ```
 
-GUI 默认构建当前 macOS 主机平台，并在 Apple Silicon 上额外尝试 macOS amd64。
-
-可以通过环境变量打开更多 GUI 构建：
-
-```bash
-BUILD_LINUX_GUI=1 ./scripts/package.sh
-BUILD_WINDOWS_GUI=1 ./scripts/package.sh
-```
-
-如果缺少目标平台 GUI 工具链，脚本会跳过对应 GUI 二进制并输出 warning。
-
 ---
 
-## 11. 服务端页面
+## 10. 服务端页面
 
 管理台 `扫描器接入` 页面提供：
 
-- CLI / GUI 下载
+- CLI 下载
 - Agent Skill Verifier 下载
 - Codex / Claude Code 安装示例
 - 安装命令
@@ -567,22 +494,20 @@ BUILD_WINDOWS_GUI=1 ./scripts/package.sh
 - 配置模板
 - 最近扫描会话和结果入口
 
-接入凭证的创建、查看和吊销统一在 `智能体治理 / 凭证管理` 页面完成。
+接入凭证的创建、查看和吊销统一在 `智能体管理 / 凭证管理` 页面完成。
 
 扫描完成后看结果的位置：
 
-- GUI / CLI 本地报告：看本地 `skill-scan-report.json`
-- 服务端最终结果：管理台 `技能注册表` 和 `技能详情`
-- 审计：管理台 `审计日志`
+- CLI 本地报告：看本地 `skill-scan-report.json`
+- 服务端最终结果：管理台 `Skill 列表` 和 `Skill 详情`
+- 审计：管理台 `智能体管理 / 审计追踪`
 
 ---
 
-## 12. 相关代码
+## 11. 相关代码
 
 - [scanner/cmd/skill-scanner/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner/main.go)
-- [scanner/cmd/skill-scanner-gui/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner-gui/main.go)
 - [scanner/internal/runner/runner.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/internal/runner/runner.go)
-- [scanner/internal/gui/gui.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/internal/gui/gui.go)
 - [demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/SKILL.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/SKILL.md)
 - [demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py)
 - [agent_manager/api/scanner_router.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/api/scanner_router.py)

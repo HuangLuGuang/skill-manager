@@ -27,9 +27,9 @@ from typing import Any
 # 配置区域 - 在此修改配置
 # ===========================================
 
-# 访问令牌 - 在前端创建 (scanner:submit 权限)
-# 或者通过命令行 --token 参数传入
-TOKEN = "amat_MX-_fjJ_Di3dyCAPG9VOfsBvxlt3Cj6tBEuYA7rG89Y"
+# 访问令牌在前端“智能体管理 → 凭证管理”创建，需包含 scanner:submit 权限。
+# 通过命令行 --token 或环境变量 SKILL_SCANNER_TOKEN 传入，不要写入源码。
+TOKEN = ""
 
 # 数据集路径配置
 DATASET_BENIGN = "test_data/demo_data/upload_zip/benign"
@@ -76,6 +76,10 @@ def health_check(base_url: str) -> bool:
 
 def confirm_purge(db_path: Path, scan_cache_dir: Path, purge_mode: str, yes: bool = False):
     """确认并执行数据清理操作"""
+    if purge_mode == "none":
+        print("跳过数据清理")
+        return
+
     # 先建议备份数据库
     backup_name = db_path.with_suffix(f".bak.{datetime.now():%Y%m%d-%H%M%S}")
     print(f"⚠️  强烈建议先备份数据库:")
@@ -474,8 +478,12 @@ def main():
     parser = argparse.ArgumentParser(description="检测能力回归测试脚本 - CLI 驱动全自动测试")
 
     # 必需参数 - 优先命令行，其次文件配置，最后环境变量
-    parser.add_argument("--token", type=str, default=TOKEN or os.environ.get("AGENT_MANAGER_TOKEN"),
-                        help="访问令牌 (amat_...)，也可在文件开头配置 TOKEN，或通过 AGENT_MANAGER_TOKEN 环境变量设置")
+    parser.add_argument(
+        "--token",
+        type=str,
+        default=TOKEN or os.environ.get("SKILL_SCANNER_TOKEN") or os.environ.get("AGENT_MANAGER_ACCESS_TOKEN"),
+        help="访问令牌 (amat_...)，也可通过 SKILL_SCANNER_TOKEN 环境变量设置",
+    )
 
     # 主要配置 - 默认从上面的配置区域读取
     parser.add_argument("--cli-path", type=Path, default=CLI_PATH,
@@ -503,8 +511,8 @@ def main():
                         help="要测试的数据集 (默认: 全部)")
 
     # 清理选项
-    parser.add_argument("--purge", type=str, default="all", choices=["benchmark", "all"],
-                        help="清理模式 (默认: all)")
+    parser.add_argument("--purge", type=str, default="none", choices=["none", "benchmark", "all"],
+                        help="清理模式 (默认: none，不清理数据)")
     parser.add_argument("--yes", action="store_true", help="跳过确认提示 (CI 使用)")
 
     # 等待参数
@@ -522,9 +530,8 @@ def main():
     # 检查令牌
     if not args.token:
         print("❌ 错误: 必须提供访问令牌！")
-        print("   方式 1: 修改文件开头的 TOKEN 配置项")
-        print("   方式 2: 通过命令行参数 --token 传入")
-        print("   方式 3: 设置环境变量 AGENT_MANAGER_TOKEN")
+        print("   方式 1: 通过命令行参数 --token 传入")
+        print("   方式 2: 设置环境变量 SKILL_SCANNER_TOKEN")
         print("\n在前端创建: 智能体管理 → 凭证管理 → 创建凭证，选择 scanner:submit 权限")
         sys.exit(1)
 

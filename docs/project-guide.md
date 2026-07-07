@@ -57,7 +57,7 @@ Agent Manager 用一套“提交、扫描、审批、签名、运行时校验、
 - 网关会先校验 LLM API Key、模型范围、请求大小和并发限制。
 - 请求进入上游模型前会做 PII 检测和伪匿名 token 替换。
 - 模型响应会按会话映射还原后再返回给调用方。
-- 管理台可以查看四阶段 Pipeline Trace：原始请求、替换后请求、模型响应、最终还原响应。
+- 管理台可以通过“隐私链路追踪”查看 Prompt 防护、脱敏、压缩、模型响应和最终还原结果。
 
 ---
 
@@ -127,7 +127,7 @@ LLM 模型网关负责保护发送给外部模型供应商的数据：
 - LLM API Key 明文只展示一次，服务端只保存 hash。
 - 模型供应商 API Key 加密落库，接口只返回掩码。
 - 用户组可绑定隐私策略，控制实体类型、是否扫描 system 消息、是否允许 bypass、映射 TTL 和差分隐私统计参数。
-- `stream=true` 支持 OpenAI-compatible SSE；网关会对流式 `delta.content` 做增量反替换，并在流结束后写入 audit、usage metric 和 Pipeline Trace。
+- `stream=true` 支持 OpenAI-compatible SSE；网关会对流式 `delta.content` 做增量反替换，并在流结束后写入 audit、usage metric 和隐私链路追踪。
 - 未知 OpenAI 参数默认拒绝，避免无审计透传造成资源滥用。
 
 详细说明见：
@@ -614,11 +614,11 @@ make sandbox-runtime-build
 - 最近阻断事件
 - 待处理 skill
 
-### 12.2 技能注册表
+### 12.2 Skill 列表
 
 看：
 
-- 当前状态
+- 已提交 Skill 的当前状态
 - 风险等级
 - Sandbox 是否触发
 - 是否策略强制
@@ -653,12 +653,13 @@ make sandbox-runtime-build
 - 批准
 - 拒绝
 
-### 12.6 系统设置
+### 12.6 策略配置
 
 配置：
 
-- LLM
-- sandbox
+- Skill 判定策略
+- LLM 模型选择
+- Sandbox 连接配置
 - 当前 sandbox 后端和镜像
 
 ### 12.7 扫描器接入
@@ -666,7 +667,7 @@ make sandbox-runtime-build
 用于客户侧批量扫描本地 skills：
 
 - 创建和吊销 Scanner Token
-- 下载 CLI / GUI 扫描器
+- 下载 CLI 扫描器
 - 下载 Agent Skill Verifier
 - 查看安装命令和参数说明
 - 获取配置模板
@@ -704,7 +705,7 @@ Skill Verifier 下载位置：
 - 隐私策略：按用户组绑定，配置实体类型、每类实体正则规则、system 消息检测、bypass 权限、映射 TTL、差分隐私统计参数
 - 隐私审计：DP 统计、PII 命中、token 创建/复用、会话映射查询和删除
 
-管理台菜单已拆成 `模型网关` 子菜单：供应商管理、模型管理、API Key、用户与组、隐私策略、隐私审计和 Pipeline Trace。
+管理台菜单已拆成 `模型网关` 子菜单：供应商管理、模型管理、组策略绑定、隐私策略、隐私审计、Token 压缩统计、用户 Token 分析和隐私链路追踪。
 
 运行时接口：
 
@@ -718,12 +719,14 @@ Skill Verifier 下载位置：
 
 - [model-gateway.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/model-gateway.md)
 
-### 12.9 Pipeline Trace
+### 12.9 隐私链路追踪
 
 用于查看一次 LLM 请求的隐私处理链路：
 
+- `prompt_security`：Prompt 防护检测结果
 - `original`：原始请求
 - `masked`：发送给上游模型前的替换后请求
+- `compressed`：智能上下文压缩后的请求
 - `masked_response`：上游模型返回的 token 响应
 - `final_response`：最终还原响应
 
@@ -829,6 +832,5 @@ sequenceDiagram
   [remote-sandbox-mock-quickstart.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/remote-sandbox-mock-quickstart.md)
 - OpenClaw Hook 接入：
   [openclaw-agent-manager-hooks.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/openclaw-agent-manager-hooks.md)
-- 提示词管理使用指南：
-
-  ###### [prompt-management.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/prompt-management.md)
+- 模型网关、Prompt 防护与隐私链路：
+  [model-gateway.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/model-gateway.md)

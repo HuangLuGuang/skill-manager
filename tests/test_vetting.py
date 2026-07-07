@@ -301,7 +301,7 @@ class TestVettingPipeline:
         assert "behavioral:local" in result.analyzers_used
         assert result.scan_report["behavioral_analysis"]["scanned_file_count"] >= 1
         assert any(f["source"] == "behavioral" for f in result.scan_report["findings"])
-        assert result.risk_level == RiskLevel.SUSPICIOUS
+        assert result.risk_level == RiskLevel.MALICIOUS
 
     def test_low_analyzability_does_not_raise_risk(self, skill_dir, monkeypatch):
         monkeypatch.setattr(

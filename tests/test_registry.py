@@ -113,6 +113,30 @@ class TestRegistry:
 
         assert [entry.name for entry in all_entries] == ["valid"]
 
+    def test_list_by_statuses_skips_malformed_rows(self, registry):
+        registry.add(_make_entry("valid", status=SkillStatus.APPROVED))
+        with registry._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO skill_registry (
+                    skill_id, name, status, risk_level, submitted_at, updated_at, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "bad-row",
+                    "bad-row",
+                    SkillStatus.APPROVED.value,
+                    None,
+                    "2026-06-25T12:58:23",
+                    "2026-06-25T12:58:23",
+                    json.dumps({"source": "local", "version": "1.0"}),
+                ),
+            )
+
+        approved = registry.list_by_statuses([SkillStatus.APPROVED])
+
+        assert [entry.name for entry in approved] == ["valid"]
+
     def test_list_all_orders_by_updated_at(self, registry, monkeypatch):
         class FakeDateTime(datetime):
             current = datetime(2024, 1, 1, tzinfo=timezone.utc)
@@ -244,13 +268,14 @@ class TestRegistry:
 
     def test_uses_configured_sqlite_path(self, tmp_path, monkeypatch):
         db_path = tmp_path / "shared" / "admin_starter.db"
+        monkeypatch.setenv("AGENT_MANAGER_DATA_DIR", str(tmp_path / "data"))
         monkeypatch.setenv("AGENT_MANAGER_REGISTRY_SQLITE_PATH", str(db_path))
 
-        registry = Registry(data_dir=tmp_path / "data")
+        registry = Registry()
         registry.add(_make_entry("sqlite-backed"))
 
         assert db_path.exists()
-        assert Registry(data_dir=tmp_path / "other-data").get_by_name("sqlite-backed") is not None
+        assert Registry().get_by_name("sqlite-backed") is not None
 
     def test_list_all_accepts_legacy_uppercase_risk_level_payload(self, registry):
         with registry._lock, registry._connect() as conn:

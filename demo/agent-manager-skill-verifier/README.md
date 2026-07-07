@@ -52,6 +52,7 @@ agent-manager-skill-verifier.zip
 export AGENT_MANAGER_VERIFIER_BASE_URL="http://localhost:8001"
 export AGENT_MANAGER_VERIFIER_TOKEN="amat_xxx"
 export AGENT_ID="<agent-id>"
+# 仅当服务端启用 AGENT_MANAGER_SIGNING_KEY 时需要，且必须与服务端一致
 export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 ```
 

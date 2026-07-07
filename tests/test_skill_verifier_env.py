@@ -29,3 +29,57 @@ def test_verifier_prefers_specific_env(monkeypatch):
 
     assert verifier.resolve_server(args) == "http://verifier.example"
     assert verifier.resolve_token(args) == "verifier-token"
+
+
+def test_verifier_command_verify_checks_signature_then_can_load(tmp_path, monkeypatch, capsys):
+    verifier = _load_verifier()
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: safe-skill\n---\n", encoding="utf-8")
+    calls = []
+
+    def fake_api_request(method, url, token, *, json_body=None, fields=None, file_path=None):
+        calls.append((method, url, token, json_body))
+        if url.endswith("/verify-skill-signature"):
+            return {"allowed": True, "skill_name": "safe-skill", "status": "APPROVED"}
+        if "/can-load/safe-skill" in url:
+            return {"allowed": True, "status": "APPROVED", "risk_level": "BENIGN"}
+        raise AssertionError(url)
+
+    monkeypatch.setattr(verifier, "api_request", fake_api_request)
+    monkeypatch.setenv("AGENT_MANAGER_VERIFIER_BASE_URL", "http://agent-manager")
+    monkeypatch.setenv("AGENT_MANAGER_VERIFIER_TOKEN", "amat_test")
+    monkeypatch.setenv("AGENT_ID", "risk-agent")
+
+    assert verifier.main(["verify", "--path", str(skill_dir)]) == 0
+
+    out = capsys.readouterr().out
+    assert "允许加载: safe-skill" in out
+    assert calls[0][0] == "POST"
+    assert calls[0][1] == "http://agent-manager/api/v1/access/runtime/verify-skill-signature"
+    assert calls[0][2] == "amat_test"
+    assert calls[0][3]["skill_name"] == "safe-skill"
+    assert calls[0][3]["agent_id"] == "risk-agent"
+    assert calls[1][0] == "GET"
+    assert calls[1][1] == "http://agent-manager/api/v1/access/runtime/can-load/safe-skill?agent_id=risk-agent"
+
+
+def test_verifier_command_verify_blocks_unapproved_skill(tmp_path, monkeypatch, capsys):
+    verifier = _load_verifier()
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: pending-skill\n---\n", encoding="utf-8")
+
+    def fake_api_request(method, url, token, *, json_body=None, fields=None, file_path=None):
+        return {"allowed": True, "skill_name": "pending-skill", "status": "PENDING"}
+
+    monkeypatch.setattr(verifier, "api_request", fake_api_request)
+    monkeypatch.setenv("AGENT_MANAGER_VERIFIER_BASE_URL", "http://agent-manager")
+    monkeypatch.setenv("AGENT_MANAGER_VERIFIER_TOKEN", "amat_test")
+    monkeypatch.setenv("AGENT_ID", "risk-agent")
+
+    assert verifier.main(["verify", "--path", str(skill_dir)]) == 1
+
+    out = capsys.readouterr().out
+    assert "阻断: Skill 尚未审批通过 status=PENDING" in out
+    assert "请联系管理员" in out

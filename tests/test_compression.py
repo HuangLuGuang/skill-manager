@@ -86,15 +86,12 @@ class TestCompressMessages:
 class TestCompressionIntegration:
     """网关集成测试 — 验证压缩流程不破坏请求链路"""
 
-    @pytest.mark.asyncio
-    async def test_chat_completion_with_compression_disabled(self):
+    @pytest.mark.skip(reason="integration placeholder; covered by tests/test_llm_gateway.py")
+    def test_chat_completion_with_compression_disabled(self):
         """未开启压缩的请求与原来行为一致"""
-        # 此测试需要启动 FastAPI TestClient
-        # TODO: 集成测试环境搭建后补全
         pass
 
-    @pytest.mark.asyncio
-    async def test_chat_completion_headers_include_compression_info(self):
+    @pytest.mark.skip(reason="integration placeholder; covered by tests/test_llm_gateway.py")
+    def test_chat_completion_headers_include_compression_info(self):
         """响应头应包含压缩相关信息"""
-        # TODO: 集成测试环境搭建后补全
         pass

@@ -39,8 +39,8 @@ func Parse(args []string) (Config, error) {
 	}
 
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
-	fs.StringVar(&cfg.Server, "server", getenvAny("SKILL_SCANNER_SERVER", "SKILL_MANAGER_SERVER"), "Skill Manager server URL")
-	fs.StringVar(&cfg.Token, "token", getenvAny("SKILL_SCANNER_TOKEN", "SKILL_MANAGER_TOKEN"), "Bearer token for Skill Manager")
+	fs.StringVar(&cfg.Server, "server", getenv("SKILL_SCANNER_SERVER", ""), "Skill Manager server URL")
+	fs.StringVar(&cfg.Token, "token", getenv("SKILL_SCANNER_TOKEN", ""), "Bearer token for Skill Manager")
 	fs.StringVar(&cfg.Output, "output", "skill-scan-report.json", "JSON report output path")
 	fs.StringVar(&cfg.HostID, "host-id", getenv("SKILL_SCANNER_HOST_ID", ""), "host identifier sent to Skill Manager")
 	fs.BoolVar(&cfg.Upload, "upload", false, "upload discovered skills to Skill Manager")
@@ -155,16 +155,6 @@ func getenv(key string, fallback string) string {
 		return fallback
 	}
 	return value
-}
-
-func getenvAny(keys ...string) string {
-	for _, key := range keys {
-		value := strings.TrimSpace(os.Getenv(key))
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func DefaultIgnoreList() string {

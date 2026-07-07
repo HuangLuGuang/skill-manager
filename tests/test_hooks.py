@@ -225,7 +225,7 @@ class TestPreToolUse:
     def test_allows_declared_tool(self, registry):
         _make_entry(registry, "my-skill", tools=["Read", "Grep"])
 
-        event = {"hook_event_name": "PreToolUse", "tool_name": "Read"}
+        event = {"hook_event_name": "PreToolUse", "tool_name": "Read", "session_id": "s1"}
 
         with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
              mock.patch("agent_manager.hooks.agent_hook._get_active_skills_from_state", return_value=["my-skill"]):
@@ -234,7 +234,7 @@ class TestPreToolUse:
     def test_blocks_undeclared_tool(self, registry):
         _make_entry(registry, "read-only", tools=["Read", "Grep"])
 
-        event = {"hook_event_name": "PreToolUse", "tool_name": "Bash"}
+        event = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "session_id": "s1"}
 
         with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
              mock.patch("agent_manager.hooks.agent_hook._get_active_skills_from_state", return_value=["read-only"]):
@@ -243,7 +243,7 @@ class TestPreToolUse:
             assert exc.value.code == 2
 
     def test_allows_all_tools_when_no_active_skills(self, registry):
-        event = {"hook_event_name": "PreToolUse", "tool_name": "Bash"}
+        event = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "session_id": "s1"}
 
         with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
              mock.patch("agent_manager.hooks.agent_hook._get_active_skills_from_state", return_value=[]):
@@ -252,7 +252,7 @@ class TestPreToolUse:
     def test_allows_all_tools_when_skill_has_no_declarations(self, registry):
         _make_entry(registry, "open-skill", tools=[])
 
-        event = {"hook_event_name": "PreToolUse", "tool_name": "AnythingAtAll"}
+        event = {"hook_event_name": "PreToolUse", "tool_name": "AnythingAtAll", "session_id": "s1"}
 
         with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
              mock.patch("agent_manager.hooks.agent_hook._get_active_skills_from_state", return_value=["open-skill"]):
@@ -262,7 +262,7 @@ class TestPreToolUse:
         _make_entry(registry, "skill-a", tools=["Read"])
         _make_entry(registry, "skill-b", tools=["Grep"])
 
-        event = {"hook_event_name": "PreToolUse", "tool_name": "Grep"}
+        event = {"hook_event_name": "PreToolUse", "tool_name": "Grep", "session_id": "s1"}
 
         # Both active → union is {Read, Grep} → Grep is allowed
         with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
@@ -273,7 +273,7 @@ class TestPreToolUse:
         _make_entry(registry, "skill-a", tools=["Read"])
         _make_entry(registry, "skill-b", tools=["Grep"])
 
-        event = {"hook_event_name": "PreToolUse", "tool_name": "Bash"}
+        event = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "session_id": "s1"}
 
         with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
              mock.patch("agent_manager.hooks.agent_hook._get_active_skills_from_state", return_value=["skill-a", "skill-b"]):
@@ -284,7 +284,7 @@ class TestPreToolUse:
     def test_blocks_when_skill_retired_mid_session(self, registry):
         _make_entry(registry, "live-skill", status=SkillStatus.RETIRED, tools=["Read"])
 
-        event = {"hook_event_name": "PreToolUse", "tool_name": "Read"}
+        event = {"hook_event_name": "PreToolUse", "tool_name": "Read", "session_id": "s1"}
 
         with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
              mock.patch("agent_manager.hooks.agent_hook._get_active_skills_from_state", return_value=["live-skill"]):
