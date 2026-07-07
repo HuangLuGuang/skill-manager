@@ -238,12 +238,25 @@ const promptSecurityColor = (value) => ({ LOW: 'blue', MEDIUM: 'orange', HIGH: '
 const promptSecuritySummary = (meta = {}) =>
   `${promptSecurityRiskLabel(meta.prompt_security_risk)} / ${promptSecurityActionLabel(meta.prompt_security_action)}`
 
+const renderContentPart = (part) => {
+  if (part === null || part === undefined) return ''
+  if (typeof part === 'string') return part
+  if (Array.isArray(part)) return part.map(renderContentPart).filter(Boolean).join('\n')
+  if (typeof part !== 'object') return String(part)
+
+  if (part.type === 'text' && typeof part.text === 'string') return part.text
+  if (typeof part.content === 'string') return part.content
+  if (typeof part.text === 'string') return part.text
+  if (part.type) return `[${part.type}] ${JSON.stringify(part)}`
+  return JSON.stringify(part, null, 2)
+}
+
 const renderMessages = (messages = []) => messages.map((msg, index) => {
   const tag = msg.system ? 'SYSTEM INJECTED' : String(msg.role || '').toUpperCase()
-  return `#${index + 1} ${tag}\n${msg.content || ''}`
+  return `#${index + 1} ${tag}\n${renderContentPart(msg.content)}`
 }).join('\n\n')
 
-const renderChoices = (choices = []) => choices.map((choice) => `#${choice.index ?? 0}\n${choice.content || ''}`).join('\n\n')
+const renderChoices = (choices = []) => choices.map((choice) => `#${choice.index ?? 0}\n${renderContentPart(choice.content)}`).join('\n\n')
 
 const renderPromptSecurity = (data = {}) => {
   if (!data.enabled) return 'Prompt 防护未开启'
