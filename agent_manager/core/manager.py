@@ -55,7 +55,7 @@ def findings_summary_from_report(
             severity = str(finding.get("severity") or "").lower()
             if severity in summary:
                 summary[severity] += 1
-        summary["total"] = len(findings)
+        summary["total"] = sum(summary.values())
         return summary
 
     raw = fallback
@@ -230,12 +230,20 @@ class AgentManager:
             use_skillspector=use_skillspector,
             judgement_mode=judgement_mode,
         )
+        current_entry = self.registry.get_by_id(skill_id)
+        if current_entry and current_entry.status != SkillStatus.PENDING:
+            logger.info(
+                "Skip processing result for skill %r because status changed to %s",
+                current_entry.name,
+                current_entry.status.value,
+            )
+            return current_entry
 
         # 根据最终 risk_level 决定状态
         status = self.policy.decide(vetting_result.risk_level, violations)
         declared_tools_valid = not any(v.rule in ("tool_not_in_allowlist", "blocked_permission") for v in violations)
         vetting_result.scan_report = {
-            **vetting_result.scan_report,
+            **(vetting_result.scan_report or {}),
             "scan_reused": False,
             "content_fingerprint": content_fingerprint,
             "scan_context_fingerprint": scan_context_fingerprint,
