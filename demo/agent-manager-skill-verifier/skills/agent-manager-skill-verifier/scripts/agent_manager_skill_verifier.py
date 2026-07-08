@@ -21,12 +21,21 @@ from typing import Any
 
 
 DEFAULT_IGNORES = {".git", ".venv", "node_modules", "__pycache__", "dist", "build"}
+LOADABLE_STATUSES = {"APPROVED", "DEPLOYED"}
 SIGNING_KEY_ENV = "AGENT_MANAGER_SIGNING_KEY"
 _ENV_LOADED = False
 
 
 class VerifierError(RuntimeError):
     pass
+
+
+class ApiError(VerifierError):
+    def __init__(self, status_code: int, detail: str, skill_status: str | None = None):
+        self.status_code = status_code
+        self.detail = detail
+        self.skill_status = skill_status
+        super().__init__(f"Agent Manager API 返回 {status_code}: {detail}")
 
 
 def signing_key() -> str:
@@ -199,10 +208,22 @@ def api_request(
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             raw = response.read().decode("utf-8")
-            return json.loads(raw) if raw else {}
+            payload = json.loads(raw) if raw else {}
+            if not isinstance(payload, dict):
+                raise VerifierError("Agent Manager 返回了非预期的响应格式")
+            return payload
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise VerifierError(f"Agent Manager API 返回 {exc.code}: {detail}") from exc
+        raw_detail = exc.read().decode("utf-8", errors="replace")
+        detail = raw_detail
+        try:
+            parsed = json.loads(raw_detail)
+            skill_status = str(parsed.get("status") or "") if isinstance(parsed, dict) else ""
+            if isinstance(parsed, dict) and parsed.get("detail"):
+                detail_raw = parsed["detail"]
+                detail = detail_raw if isinstance(detail_raw, str) else str(detail_raw)
+        except json.JSONDecodeError:
+            skill_status = ""
+        raise ApiError(exc.code, detail, skill_status or None) from exc
     except urllib.error.URLError as exc:
         raise VerifierError(f"无法连接 Agent Manager: {exc.reason}") from exc
 
@@ -277,10 +298,31 @@ def command_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _block_guidance(reason: str, status: str | None = None) -> str:
+    text = reason or ""
+    text_lower = text.lower()
+    if "未授权使用该 Skill" in text:
+        return "Skill 已批准也需要绑定到当前智能体。请管理员在 Agent Manager 的“智能体管理”中把该 Skill 加入当前智能体的允许 Skills。"
+    if "接入凭证缺少权限" in text:
+        return "请管理员在“统一凭证中心”为当前 Agent 运行凭证授予所需 runtime 权限。"
+    if "绑定的智能体不匹配" in text:
+        return "请检查当前 AGENT_ID 是否和运行凭证绑定的智能体一致，或重新签发绑定正确智能体的凭证。"
+    signature_failed = "signature" in text_lower and any(word in text_lower for word in ("mismatch", "failed", "tampering"))
+    if signature_failed or "内容完整性校验失败" in text:
+        return "本地 Skill 内容和平台批准版本不一致。请重新提交扫描审批，或使用平台批准后的同一份 Skill 内容。"
+    if status and not _is_loadable_status(status):
+        return "请联系管理员在 Agent Manager 中审批通过该 Skill 后再使用。"
+    return "请联系管理员在 Agent Manager 中查看该 Skill、当前智能体绑定关系和运行凭证配置。"
+
+
+def _is_loadable_status(status: str | None) -> bool:
+    return status in LOADABLE_STATUSES
+
+
 def _print_block(reason: str, status: str | None = None) -> None:
     status_text = f" status={status}" if status else ""
     print(f"阻断: {reason}{status_text}")
-    print("不要调用该 Skill。请联系管理员在 Agent Manager 中审批通过后再使用。")
+    print(f"不要调用该 Skill。{_block_guidance(reason, status)}")
 
 
 def command_verify(args: argparse.Namespace) -> int:
@@ -318,7 +360,7 @@ def command_verify(args: argparse.Namespace) -> int:
     if not verified_name:
         _print_block("平台未返回 Skill 名称，无法继续加载校验", verify_payload.get("status"))
         return 1
-    if verify_payload.get("status") != "APPROVED":
+    if not _is_loadable_status(verify_payload.get("status")):
         _print_block("Skill 尚未审批通过", verify_payload.get("status"))
         return 1
 
@@ -328,7 +370,7 @@ def command_verify(args: argparse.Namespace) -> int:
     if not can_load_payload.get("allowed"):
         _print_block(str(can_load_payload.get("reason") or "状态不允许加载"), can_load_payload.get("status"))
         return 1
-    if can_load_payload.get("status") != "APPROVED":
+    if not _is_loadable_status(can_load_payload.get("status")):
         _print_block("Skill 尚未审批通过", can_load_payload.get("status"))
         return 1
 
@@ -377,8 +419,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
+    except ApiError as exc:
+        print(f"阻断: {exc}")
+        print(f"不要调用该 Skill。{_block_guidance(exc.detail, exc.skill_status)}")
+        return 1
     except VerifierError as exc:
         print(f"阻断: {exc}")
+        print("不要调用该 Skill。请修正本地路径、环境变量或平台连接问题后重试。")
         return 1
 
 

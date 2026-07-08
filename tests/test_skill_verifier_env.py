@@ -83,3 +83,108 @@ def test_verifier_command_verify_blocks_unapproved_skill(tmp_path, monkeypatch, 
     out = capsys.readouterr().out
     assert "阻断: Skill 尚未审批通过 status=PENDING" in out
     assert "请联系管理员" in out
+
+
+def test_verifier_command_verify_explains_unbound_approved_skill(tmp_path, monkeypatch, capsys):
+    verifier = _load_verifier()
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: approved-but-unbound\n---\n", encoding="utf-8")
+
+    def fake_api_request(method, url, token, *, json_body=None, fields=None, file_path=None):
+        if url.endswith("/verify-skill-signature"):
+            return {"allowed": True, "skill_name": "approved-but-unbound", "status": "APPROVED"}
+        if "/can-load/approved-but-unbound" in url:
+            return {"allowed": False, "reason": "智能体未授权使用该 Skill", "status": "APPROVED"}
+        raise AssertionError(url)
+
+    monkeypatch.setattr(verifier, "api_request", fake_api_request)
+    monkeypatch.setenv("AGENT_MANAGER_VERIFIER_BASE_URL", "http://agent-manager")
+    monkeypatch.setenv("AGENT_MANAGER_VERIFIER_TOKEN", "amat_test")
+    monkeypatch.setenv("AGENT_ID", "risk-agent")
+
+    assert verifier.main(["verify", "--path", str(skill_dir)]) == 1
+
+    out = capsys.readouterr().out
+    assert "阻断: 智能体未授权使用该 Skill status=APPROVED" in out
+    assert "Skill 已批准" in out
+    assert "绑定到当前智能体" in out
+    assert "审批通过后再使用" not in out
+
+
+def test_verifier_command_verify_allows_deployed_skill(tmp_path, monkeypatch, capsys):
+    verifier = _load_verifier()
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: deployed-skill\n---\n", encoding="utf-8")
+
+    def fake_api_request(method, url, token, *, json_body=None, fields=None, file_path=None):
+        if url.endswith("/verify-skill-signature"):
+            return {"allowed": True, "skill_name": "deployed-skill", "status": "DEPLOYED"}
+        if "/can-load/deployed-skill" in url:
+            return {"allowed": True, "status": "DEPLOYED", "risk_level": "BENIGN"}
+        raise AssertionError(url)
+
+    monkeypatch.setattr(verifier, "api_request", fake_api_request)
+    monkeypatch.setenv("AGENT_MANAGER_VERIFIER_BASE_URL", "http://agent-manager")
+    monkeypatch.setenv("AGENT_MANAGER_VERIFIER_TOKEN", "amat_test")
+    monkeypatch.setenv("AGENT_ID", "risk-agent")
+
+    assert verifier.main(["verify", "--path", str(skill_dir)]) == 0
+
+    out = capsys.readouterr().out
+    assert "允许加载: deployed-skill status=DEPLOYED" in out
+    assert "尚未审批" not in out
+
+
+def test_verifier_main_explains_api_permission_error(monkeypatch, capsys):
+    verifier = _load_verifier()
+
+    def fail_with_api_error(args):
+        raise verifier.ApiError(403, "接入凭证缺少权限: runtime:verify-signature")
+
+    monkeypatch.setattr(verifier, "command_status", fail_with_api_error)
+
+    assert verifier.main(["status", "--skill-id", "skill-1"]) == 1
+
+    out = capsys.readouterr().out
+    assert "阻断: Agent Manager API 返回 403" in out
+    assert "统一凭证中心" in out
+    assert "runtime 权限" in out
+
+
+def test_verifier_main_uses_api_skill_status_for_guidance(monkeypatch, capsys):
+    verifier = _load_verifier()
+
+    def fail_with_api_error(args):
+        raise verifier.ApiError(403, "状态不允许加载", "PENDING")
+
+    monkeypatch.setattr(verifier, "command_status", fail_with_api_error)
+
+    assert verifier.main(["status", "--skill-id", "skill-1"]) == 1
+
+    out = capsys.readouterr().out
+    assert "审批通过该 Skill" in out
+
+
+def test_api_request_rejects_non_object_json_response(monkeypatch):
+    verifier = _load_verifier()
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b'["not", "an", "object"]'
+
+    monkeypatch.setattr(verifier.urllib.request, "urlopen", lambda request, timeout: FakeResponse())
+
+    try:
+        verifier.api_request("GET", "http://agent-manager/api", "amat_test")
+    except verifier.VerifierError as exc:
+        assert "非预期的响应格式" in str(exc)
+    else:
+        raise AssertionError("expected VerifierError")
