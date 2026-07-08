@@ -237,7 +237,12 @@
                 <a-tag :color="record.dp_enabled ? 'green' : 'default'">DP: {{ record.dp_enabled ? '开' : '关' }}</a-tag>
               </template>
               <template v-else-if="column.key === 'action'">
-                <a-button type="link" @click="openPolicy(record)">编辑</a-button>
+                <a-space>
+                  <a-button type="link" @click="openPolicy(record)">编辑</a-button>
+                  <a-popconfirm title="确认删除这个隐私策略？" @confirm="handleDeletePolicy(record)">
+                    <a-button type="link" danger>删除</a-button>
+                  </a-popconfirm>
+                </a-space>
               </template>
             </template>
           </a-table>
@@ -617,6 +622,7 @@ import {
   deleteLlmApiKey,
   deleteModelEndpoint,
   deleteModelProvider,
+  deletePrivacyPolicy,
   deletePrivacyMapping,
   getPrivacyStats,
   listPrivacyMappings,
@@ -712,7 +718,7 @@ const groupColumns = [
   { title: '成员', key: 'members', width: 90 },
   { title: '隐私策略', key: 'policy', width: 150 },
   { title: '描述', dataIndex: 'description' },
-  { title: '操作', key: 'action', width: 90 },
+  { title: '操作', key: 'action', width: 130 },
 ]
 const groupPolicyColumns = [
   { title: '用户组', dataIndex: 'name' },
@@ -764,7 +770,7 @@ const keyForm = reactive({
 const userForm = reactive({ username: '', email: '', role: 'admin', password: '', is_active: true, group_ids: [] })
 const groupForm = reactive({ name: '', description: '', user_ids: [], privacy_policy_id: null, is_active: true })
 const groupPolicyForm = reactive({ privacy_policy_id: null })
-const policyForm = reactive({ name: '默认隐私策略', group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 })
+const policyForm = reactive({ id: null, name: '默认隐私策略', group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 })
 const mappingQuery = reactive({ q: '', page: 1, page_size: 10 })
 const promptGuardForm = reactive({
   mode: 'block',
@@ -1100,7 +1106,7 @@ const saveGroupPolicy = async () => {
 }
 
 const openPolicy = (record = null) => {
-  const next = record ? { ...record } : { name: '默认隐私策略', group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 }
+  const next = record ? { ...record } : { id: null, name: '', group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 }
   Object.assign(policyForm, next)
   syncPolicyRuleRows()
   policyVisible.value = true
@@ -1118,6 +1124,16 @@ const savePolicy = async () => {
     message.error(error.response?.data?.detail || '保存隐私策略失败')
   } finally {
     submitting.value = false
+  }
+}
+
+const handleDeletePolicy = async (record) => {
+  try {
+    await deletePrivacyPolicy(record.id)
+    message.success('隐私策略已删除')
+    await loadAll()
+  } catch (error) {
+    message.error(error.response?.data?.detail || '删除隐私策略失败')
   }
 }
 

@@ -49,6 +49,18 @@
             <a-tag v-else-if="record.risk_level === 'benign'" color="green" title="安全">benign</a-tag>
             <a-tag v-else color="default">-</a-tag>
           </template>
+          <template v-else-if="column.key === 'findings'">
+            <a-space size="small" wrap>
+              <a-tag
+                v-for="item in findingBadges(record.findings_summary)"
+                :key="item.key"
+                :color="item.color"
+              >
+                {{ item.label }} {{ item.count }}
+              </a-tag>
+              <span v-if="!findingBadges(record.findings_summary).length" class="muted-text">无</span>
+            </a-space>
+          </template>
           <template v-else-if="column.key === 'actions'">
             <a-space>
               <a-button size="small" @click="$router.push(`/skills/${record.skill_id}?tab=governance-card`)">治理卡片</a-button>
@@ -156,9 +168,16 @@ const baseColumns = [
   { title: '技能名称', dataIndex: 'skill_name', key: 'skill_name', sorter: true },
   { title: 'Skill ID', dataIndex: 'skill_id', key: 'skill_id', sorter: true },
   { title: '风险', dataIndex: 'risk_level', key: 'risk', width: 120, sorter: true },
-  { title: 'Findings', dataIndex: 'findings', key: 'findings', width: 140 },
+  { title: '发现项', dataIndex: 'findings_summary', key: 'findings', width: 190 },
   { title: '时间', dataIndex: 'display_time', key: 'time', width: 190, sorter: true, customRender: ({ text }) => formatDateTime(text) },
 ]
+
+const findingBadges = (summary = {}) => [
+  { key: 'critical', label: '严重', color: 'red', count: Number(summary.critical || 0) },
+  { key: 'high', label: '高', color: 'volcano', count: Number(summary.high || 0) },
+  { key: 'medium', label: '中', color: 'orange', count: Number(summary.medium || 0) },
+  { key: 'low', label: '低', color: 'blue', count: Number(summary.low || 0) },
+].filter((item) => item.count > 0)
 
 const reviewedColumns = [
   { title: '审核状态', key: 'reviewStatus', width: 100 },
@@ -189,7 +208,6 @@ const fetchQueue = async () => {
     rows.value = (Array.isArray(res.items) ? res.items : []).map((item) => ({
       ...item,
       display_time: item.sort_at || item.reviewed_at || item.queued_at,
-      findings: `${item.findings_summary?.critical || 0}/${item.findings_summary?.high || 0}/${item.findings_summary?.medium || 0}/${item.findings_summary?.low || 0}`,
     }))
     total.value = Number(res.total || 0)
     pagination.value = {
@@ -315,5 +333,9 @@ onBeforeUnmount(() => {
   margin-bottom: 12px;
   color: #6b7280;
   font-size: 12px;
+}
+
+.muted-text {
+  color: #9ca3af;
 }
 </style>

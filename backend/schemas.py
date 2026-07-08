@@ -445,6 +445,7 @@ class LlmApiKeyResponse(BaseModel):
 
 
 class PrivacyPolicyPayload(BaseModel):
+    id: Optional[int] = None
     name: str = "默认隐私策略"
     group_id: Optional[int] = None
     entity_types: list[str] = []

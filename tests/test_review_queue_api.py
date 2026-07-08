@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from agent_manager.api import router as api_router
 from agent_manager.core.manager import AgentManager
-from agent_manager.core.models import RegistryEntry, ReviewRequest, RiskLevel, SkillOrigin, SkillStatus, SourceInfo
+from agent_manager.core.models import RegistryEntry, ReviewRequest, RiskLevel, SkillOrigin, SkillStatus, SourceInfo, VettingResult
 from agent_manager.core.policy import CompanyPolicy
 
 
@@ -89,3 +89,40 @@ def test_review_queue_all_sorts_pending_and_reviewed_by_sort_at(tmp_path):
     assert rows[0]["rejection_reason"] == "风险不可接受"
     assert rows[0]["review_note"] == "风险不可接受"
     assert rows[1]["review_note"] == "需要人工审核"
+
+
+def test_review_queue_findings_summary_matches_scan_report_findings(tmp_path):
+    client, manager = _client(tmp_path)
+    pending = _entry("pending-with-findings", SkillStatus.VETTED, datetime(2026, 1, 2, tzinfo=timezone.utc))
+    pending.vetting = VettingResult(
+        risk_level=RiskLevel.SUSPICIOUS,
+        findings_count=3,
+        scan_report={
+            "findings": [
+                {"severity": "HIGH", "rule_id": "dangerous_network"},
+                {"severity": "LOW", "rule_id": "runtime_exit"},
+                {"severity": "LOW", "rule_id": "sandbox_signal"},
+            ],
+        },
+    )
+    manager.registry.add(pending)
+    manager.registry.enqueue_review(ReviewRequest(
+        skill_id=pending.skill_id,
+        skill_name=pending.name,
+        risk_level=RiskLevel.SUSPICIOUS,
+        findings_summary={"total": 3},
+        submitted_at=pending.submitted_at,
+        queued_at=pending.submitted_at,
+    ))
+
+    response = client.get("/api/v1/review", params={"review_status": "pending"})
+
+    assert response.status_code == 200
+    rows = response.json()
+    assert rows[0]["findings_summary"] == {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 2,
+        "total": 3,
+    }

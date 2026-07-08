@@ -1615,11 +1615,18 @@ async def upsert_privacy_policy(
 ):
     if body.group_id and not db.query(models.UserGroup).filter(models.UserGroup.id == body.group_id).first():
         raise HTTPException(status_code=404, detail="用户组不存在")
-    row = db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.group_id == body.group_id).first()
-    if not row:
+    row = None
+    if body.id:
+        row = db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.id == body.id).first()
+        if not row:
+            raise HTTPException(status_code=404, detail="隐私策略不存在")
+    elif body.group_id:
+        row = db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.group_id == body.group_id).first()
+    if row is None:
         row = models.PrivacyPolicy(group_id=body.group_id, entity_types_json="[]", name=body.name)
         db.add(row)
     data = body.model_dump()
+    data.pop("id", None)
     entity_types = data.pop("entity_types") or DEFAULT_ENTITY_TYPES
     entity_rules = {k: v for k, v in (data.pop("entity_rules") or {}).items() if v}
     for field, value in data.items():
@@ -1630,6 +1637,24 @@ async def upsert_privacy_policy(
     db.commit()
     db.refresh(row)
     return _policy_response(row)
+
+
+@admin_router.delete("/privacy-policies/{policy_id}")
+async def delete_privacy_policy(
+    policy_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    row = db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.id == policy_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="隐私策略不存在")
+    if row.id == _get_default_policy(db).id:
+        raise HTTPException(status_code=400, detail="默认隐私策略不能删除")
+    if row.group_id is not None:
+        raise HTTPException(status_code=400, detail="隐私策略已绑定用户组，请先解绑")
+    db.delete(row)
+    db.commit()
+    return {"status": "deleted"}
 
 
 @admin_router.get("/privacy/traces")

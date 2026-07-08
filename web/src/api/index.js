@@ -121,6 +121,7 @@ export const revokeLlmApiKey = (keyId) => api.post(`/v1/llm-api-keys/${keyId}/re
 export const deleteLlmApiKey = (keyId) => api.delete(`/v1/llm-api-keys/${keyId}`)
 export const listPrivacyPolicies = () => api.get('/v1/privacy-policies')
 export const savePrivacyPolicy = (data) => api.post('/v1/privacy-policies', data)
+export const deletePrivacyPolicy = (policyId) => api.delete(`/v1/privacy-policies/${policyId}`)
 export const getPrivacyStats = () => api.get('/v1/privacy/stats')
 export const getLlmStatsOverview = (params = {}) => api.get('/v1/llm-stats/overview', { params })
 export const getLlmStatsDaily = (params = {}) => api.get('/v1/llm-stats/daily', { params })

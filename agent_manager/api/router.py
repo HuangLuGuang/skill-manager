@@ -29,7 +29,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from agent_manager.core.llm import LLMConfig
-from agent_manager.core.manager import AgentManager
+from agent_manager.core.manager import AgentManager, findings_summary_from_report
 from agent_manager.core.models import SkillStatus, SourceInfo, SkillOrigin
 from agent_manager.core.prompt_models import PromptStatus
 from agent_manager.core.policy import CompanyPolicy
@@ -1629,6 +1629,12 @@ def list_review_queue(
         queue = mgr.list_review_queue()
         for r in queue:
             item = r.model_dump(mode="json")
+            entry = mgr.get_skill(r.skill_id)
+            if entry and entry.vetting:
+                item["findings_summary"] = findings_summary_from_report(
+                    entry.vetting.scan_report,
+                    r.findings_summary,
+                )
             item["status"] = SkillStatus.VETTED.value
             item["approved_by"] = None
             item["approved_at"] = None
@@ -1643,9 +1649,9 @@ def list_review_queue(
     if review_status in ("reviewed", "all"):
         entries = mgr.list_skills_by_statuses([SkillStatus.APPROVED, SkillStatus.REJECTED])
         for entry in entries:
-            findings_summary: dict[str, int] = {}
-            if entry.vetting and entry.vetting.scan_report:
-                findings_summary = entry.vetting.scan_report.get("findings_summary", {}) or {}
+            findings_summary = findings_summary_from_report(
+                entry.vetting.scan_report if entry.vetting else None
+            )
             reviewed_at = entry.approved_at or entry.updated_at
             review_note = entry.rejection_reason if entry.status == SkillStatus.REJECTED else (entry.approval_note or None)
             data.append({

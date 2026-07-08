@@ -41,6 +41,36 @@ from .governance_card import read_or_write_governance_card, write_governance_car
 logger = logging.getLogger(__name__)
 
 
+def findings_summary_from_report(
+    scan_report: dict[str, Any] | None,
+    fallback: dict[str, int] | None = None,
+) -> dict[str, int]:
+    """Return normalized C/H/M/L counts from a scan report."""
+    summary = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    findings = scan_report.get("findings") if isinstance(scan_report, dict) else None
+    if isinstance(findings, list):
+        for finding in findings:
+            if not isinstance(finding, dict):
+                continue
+            severity = str(finding.get("severity") or "").lower()
+            if severity in summary:
+                summary[severity] += 1
+        summary["total"] = len(findings)
+        return summary
+
+    raw = fallback
+    if raw is None and isinstance(scan_report, dict):
+        maybe_summary = scan_report.get("findings_summary")
+        raw = maybe_summary if isinstance(maybe_summary, dict) else None
+    if raw:
+        for key in ("critical", "high", "medium", "low"):
+            summary[key] = int(raw.get(key) or raw.get(key.upper()) or 0)
+        summary["total"] = int(raw.get("total") or sum(summary.values()))
+    else:
+        summary["total"] = 0
+    return summary
+
+
 class AgentManager:
     """
     Lifecycle manager for AI agent skills.
@@ -211,6 +241,8 @@ class AgentManager:
             "scan_context_fingerprint": scan_context_fingerprint,
             "scan_cache_key": scan_cache_key,
         }
+        findings_summary = findings_summary_from_report(vetting_result.scan_report)
+        vetting_result.scan_report["findings_summary"] = findings_summary
 
         entry.name = name
         entry.description = description
@@ -251,7 +283,7 @@ class AgentManager:
                 skill_id=entry.skill_id,
                 skill_name=name,
                 risk_level=entry.risk_level,
-                findings_summary={"total": vetting_result.findings_count},
+                findings_summary=findings_summary,
                 submitted_at=entry.submitted_at,
                 notes="; ".join(vetting_result.policy_notes) if vetting_result.policy_notes else None,
             ))
@@ -301,11 +333,12 @@ class AgentManager:
             entry.approved_at = datetime.now(timezone.utc)
             entry.approved_by = "auto-policy-cache"
         elif entry.status == SkillStatus.VETTED and entry.risk_level:
+            findings_summary = findings_summary_from_report(entry.vetting.scan_report if entry.vetting else None)
             self.registry.enqueue_review(ReviewRequest(
                 skill_id=entry.skill_id,
                 skill_name=entry.name,
                 risk_level=entry.risk_level,
-                findings_summary={"total": entry.vetting.findings_count if entry.vetting else 0},
+                findings_summary=findings_summary,
                 submitted_at=entry.submitted_at,
                 notes="复用历史扫描结果，仍需人工审核。",
             ))

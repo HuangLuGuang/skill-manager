@@ -419,6 +419,62 @@ def test_prompt_guard_test_endpoint_returns_rule_findings(tmp_path, monkeypatch)
     assert data["findings"][0]["rule"] in {"prompt_injection", "system_prompt_leak"}
 
 
+def test_create_privacy_policy_without_group_does_not_update_default(tmp_path, monkeypatch):
+    client, _token, session_factory = _client(tmp_path, monkeypatch)
+    db = session_factory()
+    try:
+        user = models.User(username="policy-admin", email="policy@example.com", hashed_password="x", role="admin")
+        db.add(user)
+        db.commit()
+        user_id = user.id
+    finally:
+        db.close()
+
+    async def override_current_user():
+        db_session = session_factory()
+        try:
+            return db_session.query(models.User).filter(models.User.id == user_id).first()
+        finally:
+            db_session.close()
+
+    client.app.dependency_overrides[auth.get_current_admin_user] = override_current_user
+
+    listed = client.get("/v1/privacy-policies")
+    assert listed.status_code == 200
+    default_policy = listed.json()[0]
+
+    created = client.post(
+        "/v1/privacy-policies",
+        json={
+            "name": "客服隐私策略",
+            "group_id": None,
+            "entity_types": ["EMAIL_ADDRESS"],
+            "entity_rules": {},
+        },
+    )
+
+    assert created.status_code == 200
+    assert created.json()["id"] != default_policy["id"]
+    assert created.json()["name"] == "客服隐私策略"
+    policy_id = created.json()["id"]
+
+    blocked = client.delete(f"/v1/privacy-policies/{default_policy['id']}")
+    assert blocked.status_code == 400
+    assert "默认隐私策略不能删除" in blocked.json()["detail"]
+
+    deleted = client.delete(f"/v1/privacy-policies/{policy_id}")
+    assert deleted.status_code == 200
+    assert deleted.json()["status"] == "deleted"
+
+    db = session_factory()
+    try:
+        default_row = db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.id == default_policy["id"]).first()
+        assert default_row.name == default_policy["name"]
+        assert db.query(models.PrivacyPolicy).count() == 1
+    finally:
+        db.close()
+
+
 def test_agent_access_token_with_model_chat_can_use_agent_default_model(tmp_path, monkeypatch):
     client, _token, session_factory = _client(tmp_path, monkeypatch)
 
