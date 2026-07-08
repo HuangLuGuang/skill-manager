@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from agent_manager.api import router as api_router
 from agent_manager.api.router import _safe_extract_zip
 from agent_manager.core.manager import AgentManager
+from agent_manager.core.models import RiskLevel, SkillStatus
 from agent_manager.core.policy import CompanyPolicy
 
 
@@ -87,3 +88,28 @@ def test_safe_extract_zip_rejects_symlinks(tmp_path):
 
     assert response is not None
     assert "Symlinks are not allowed" in response.detail
+
+
+def test_list_skills_can_filter_cancelled_tasks(tmp_path):
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    cancelled = manager.create_pending_submission(tmp_path)
+    cancelled.status = SkillStatus.REJECTED
+    cancelled.risk_level = RiskLevel.BENIGN
+    cancelled.rejection_reason = "用户取消后台分析任务"
+    manager.registry.update(cancelled)
+    rejected = manager.create_pending_submission(tmp_path)
+    rejected.status = SkillStatus.REJECTED
+    rejected.risk_level = RiskLevel.SUSPICIOUS
+    rejected.rejection_reason = "策略拒绝"
+    manager.registry.update(rejected)
+
+    app = FastAPI()
+    app.include_router(api_router.router)
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+
+    response = TestClient(app).get("/skills", params={"status": "cancelled"})
+
+    assert response.status_code == 200
+    rows = response.json()
+    assert [row["skill_id"] for row in rows] == [cancelled.skill_id]
+    assert rows[0]["rejection_reason"] == "用户取消后台分析任务"

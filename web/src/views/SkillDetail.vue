@@ -14,7 +14,7 @@
           <a-descriptions-item label="Skill ID" :span="2">{{ detail?.skill_id || skillId }}</a-descriptions-item>
           <a-descriptions-item label="名称">{{ detail?.name || '-' }}</a-descriptions-item>
           <a-descriptions-item label="状态">
-            <a-tag :color="statusColor(detail?.status)">{{ statusDisplay(detail?.status) }}</a-tag>
+            <a-tag :color="statusColor(detail?.status, detail)">{{ statusDisplay(detail?.status, detail) }}</a-tag>
           </a-descriptions-item>
           <a-descriptions-item label="安全判定">
             <a-tag v-if="detail?.status === 'PENDING'" color="default">-</a-tag>
@@ -75,7 +75,7 @@
       <div class="lifecycle-row">
         <div class="lifecycle-heading">
           <strong>生命周期与操作</strong>
-          <a-tag :color="statusColor(detail?.status)">{{ statusDisplay(detail?.status) }}</a-tag>
+          <a-tag :color="statusColor(detail?.status, detail)">{{ statusDisplay(detail?.status, detail) }}</a-tag>
         </div>
 
         <a-steps :current="stepIndex" size="small" class="lifecycle-steps" :responsive="false">
@@ -1494,6 +1494,9 @@ const statusLabels = {
   RETIRED: '已退役',
 }
 
+const cancelledReason = '用户取消后台分析任务'
+const isCancelled = (entry) => entry?.status === 'REJECTED' && entry?.rejection_reason === cancelledReason
+
 const severityLabels = {
   SAFE: '安全',
   INFO: '提示',
@@ -1559,7 +1562,10 @@ const sentenceTranslations = [
 ]
 
 const statusTitle = (value) => statusLabels[value] || '未知'
-const statusDisplay = (value) => (value ? `${value}（${statusTitle(value)}）` : '-')
+const statusDisplay = (value, entry) => {
+  if (isCancelled(entry)) return 'Cancelled（已取消）'
+  return value ? `${value}（${statusTitle(value)}）` : '-'
+}
 const severityDisplay = (value) => {
   const text = String(value || '').toUpperCase()
   return text ? `${text}（${severityLabels[text] || '未知'}）` : '-'
@@ -1647,8 +1653,9 @@ const formatAuditDetails = (details, limit = 6) => {
     .join('；')
 }
 
-const statusColor = (value) =>
-  ({
+const statusColor = (value, entry) => {
+  if (isCancelled(entry)) return 'default'
+  return ({
     PENDING: 'gold',
     VETTED: 'orange',
     APPROVED: 'green',
@@ -1656,6 +1663,7 @@ const statusColor = (value) =>
     REJECTED: 'red',
     RETIRED: 'default',
   }[value] || 'default')
+}
 
 const riskColor = (value) =>
   ({

@@ -58,7 +58,7 @@
             </a-tooltip>
           </template>
           <template v-else-if="column.key === 'status'">
-            <a-tag :color="statusColor(record.status)">{{ statusDisplay(record.status) }}</a-tag>
+            <a-tag :color="statusColor(record.status)">{{ statusDisplay(record.status, record) }}</a-tag>
           </template>
           <template v-else-if="column.key === 'risk'">
             <a-tag v-if="record.status === 'PENDING'" color="default">-</a-tag>
@@ -90,6 +90,13 @@
                     >
                       {{ actionKey === `rescan:${record.skill_id}` ? '重新检测中...' : '重新检测' }}
                     </a-menu-item>
+                    <a-menu-item
+                      v-if="record.status === 'PENDING'"
+                      :disabled="Boolean(actionKey)"
+                      @click="confirmCancel(record)"
+                    >
+                      {{ actionKey === `cancel:${record.skill_id}` ? '取消中...' : '取消任务' }}
+                    </a-menu-item>
                     <a-menu-divider />
                     <a-menu-item
                       danger
@@ -115,7 +122,7 @@ import { onMounted, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { DownOutlined } from '@ant-design/icons-vue'
 
-import { deleteSkill, listSkillsPaged, rescanSkill } from '../api'
+import { deleteSkill, listSkillsPaged, rejectSkill, rescanSkill } from '../api'
 import { formatDateTime } from '../utils/format'
 
 const keyword = ref('')
@@ -137,7 +144,8 @@ const pagination = ref({
 })
 const statusOptions = [
   { value: 'PENDING,VETTED', label: '待处理（Pending / Vetted）' },
-  { value: 'APPROVED,DEPLOYED', label: '可使用（Approved / Deployed）' },
+  { value: 'APPROVED', label: '可使用（Approved）' },
+  { value: 'cancelled', label: 'Cancelled（已取消）' },
   { value: 'REJECTED', label: '已拒绝（Rejected）' },
 ]
 const riskOptions = [
@@ -247,6 +255,36 @@ const handleRescan = async (record) => {
   }
 }
 
+const currentUser = () => localStorage.getItem('username') || 'admin'
+const cancelledReason = '用户取消后台分析任务'
+const isCancelled = (record) => record?.status === 'REJECTED' && record?.rejection_reason === cancelledReason
+
+const confirmCancel = (record) => {
+  Modal.confirm({
+    title: `取消分析任务：${record.name}`,
+    content: '取消后该 Skill 将停止等待后台分析结果，并在列表中显示为 Cancelled。',
+    okText: '取消任务',
+    cancelText: '返回',
+    onOk: () => handleCancel(record),
+  })
+}
+
+const handleCancel = async (record) => {
+  actionKey.value = `cancel:${record.skill_id}`
+  try {
+    await rejectSkill(record.skill_id, {
+      reviewer: currentUser(),
+      reason: cancelledReason,
+    })
+    message.success('已取消分析任务')
+    fetchSkills()
+  } catch (error) {
+    message.error(error.response?.data?.detail || '取消任务失败')
+  } finally {
+    actionKey.value = ''
+  }
+}
+
 const confirmDelete = (record) => {
   Modal.confirm({
     title: `删除 Skill：${record.name}`,
@@ -298,7 +336,10 @@ const statusTitle = (value) =>
     REJECTED: '已拒绝',
     RETIRED: '已退役',
   }[value] || '未知')
-const statusDisplay = (value) => (value ? `${value}（${statusTitle(value)}）` : '-')
+const statusDisplay = (value, record) => {
+  if (isCancelled(record)) return 'Cancelled（已取消）'
+  return value ? `${value}（${statusTitle(value)}）` : '-'
+}
 const riskDisplay = (value) => {
   const text = String(value || 'unknown')
   const zh = {

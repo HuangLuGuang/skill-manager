@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from agent_manager.core.manager import AgentManager
-from agent_manager.core.models import RiskLevel, SkillOrigin, SkillStatus, SourceInfo
+from agent_manager.core.models import RiskLevel, SkillOrigin, SkillStatus, SourceInfo, VettingResult
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.registry import Registry
 
@@ -230,3 +230,20 @@ class TestListAndAudit:
         assert pending.vetting is None
         processed = mgr.process_pending_submission(entry.skill_id, no_cache=True)
         assert processed.status == SkillStatus.APPROVED
+
+    def test_processing_does_not_override_cancelled_pending_skill(self, mgr, skill_dir, monkeypatch):
+        pending = mgr.create_pending_submission(skill_dir)
+
+        def vet_after_cancel(*_args, **_kwargs):
+            mgr.reject(pending.skill_id, reviewer="admin", reason="用户取消后台分析任务")
+            return VettingResult(
+                risk_level=RiskLevel.BENIGN,
+                scan_report={"findings": []},
+            ), [], "my-skill", "safe", ["Read"]
+
+        monkeypatch.setattr(mgr.vetting, "vet", vet_after_cancel)
+
+        processed = mgr.process_pending_submission(pending.skill_id, no_cache=True)
+
+        assert processed.status == SkillStatus.REJECTED
+        assert processed.rejection_reason == "用户取消后台分析任务"

@@ -232,6 +232,9 @@ def _normalize_clawhub_origin_url(url: str) -> str:
     return url.strip()
 
 
+CANCELLED_SKILL_REASON = "用户取消后台分析任务"
+
+
 def _process_pending_submission_task(
     mgr: AgentManager,
     skill_id: str,
@@ -1169,15 +1172,23 @@ def list_skills(
 ):
     """List skills, optionally filtered by status."""
     status_values: list[SkillStatus] = []
+    cancelled_only = False
     if status:
         try:
-            status_values = [SkillStatus(item.strip()) for item in status.split(",") if item.strip()]
+            for item in (part.strip() for part in status.split(",") if part.strip()):
+                if item.lower() == "cancelled":
+                    cancelled_only = True
+                    status_values.append(SkillStatus.REJECTED)
+                else:
+                    status_values.append(SkillStatus(item))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"Invalid skill status: {status}") from exc
     entries = mgr.list_skills()
     if status_values:
         allowed_statuses = set(status_values)
         entries = [e for e in entries if e.status in allowed_statuses]
+    if cancelled_only:
+        entries = [e for e in entries if e.rejection_reason == CANCELLED_SKILL_REASON]
     if loadable_only:
         entries = [e for e in entries if e.is_loadable()]
 
