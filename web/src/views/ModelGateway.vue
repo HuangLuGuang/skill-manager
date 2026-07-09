@@ -474,7 +474,7 @@
     <a-modal v-model:open="userVisible" title="用户" @ok="saveUser" :confirm-loading="submitting">
       <a-form layout="vertical" :model="userForm">
         <a-form-item label="用户名" required><a-input v-model:value="userForm.username" :disabled="!!editingUserId" /></a-form-item>
-        <a-form-item label="邮箱"><a-input v-model:value="userForm.email" /></a-form-item>
+        <a-form-item label="邮箱" required><a-input v-model:value="userForm.email" /></a-form-item>
         <a-form-item label="角色"><a-select v-model:value="userForm.role"><a-select-option value="admin">admin</a-select-option><a-select-option value="super_admin">super_admin</a-select-option><a-select-option value="privacy_auditor">privacy_auditor</a-select-option></a-select></a-form-item>
         <a-form-item label="所属组">
           <a-select v-model:value="userForm.group_ids" mode="multiple" placeholder="选择用户所属部门/用户组">
@@ -1041,6 +1041,18 @@ const openUser = (record = null) => {
 
 const saveUser = async () => {
   if (submitting.value) return
+  if (!userForm.username.trim()) {
+    message.warning('请输入用户名')
+    return
+  }
+  if (!userForm.email.trim()) {
+    message.warning('请输入邮箱')
+    return
+  }
+  if (!editingUserId.value && !userForm.password) {
+    message.warning('请输入密码')
+    return
+  }
   submitting.value = true
   try {
     const payload = { ...userForm }

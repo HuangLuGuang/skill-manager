@@ -1276,6 +1276,8 @@ async def create_managed_user(
 ):
     if db.query(models.User).filter(models.User.username == body.username).first():
         raise HTTPException(status_code=400, detail="用户名已存在")
+    if body.email and db.query(models.User).filter(models.User.email == body.email).first():
+        raise HTTPException(status_code=400, detail="邮箱已存在")
     user = models.User(
         username=body.username,
         email=body.email,

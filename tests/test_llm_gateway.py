@@ -173,6 +173,34 @@ def test_create_and_update_user_can_assign_groups(tmp_path, monkeypatch):
         db.close()
 
 
+def test_create_user_rejects_duplicate_email_with_clear_message(tmp_path, monkeypatch):
+    client, _token, session_factory = _client(tmp_path, monkeypatch)
+
+    db = session_factory()
+    try:
+        db.add(models.User(username="admin-user", email="admin-user@example.com", hashed_password="x", role="super_admin"))
+        db.add(models.User(username="existing", email="same@example.com", hashed_password="x", role="admin"))
+        db.commit()
+    finally:
+        db.close()
+    headers = {"Authorization": f"Bearer {auth.create_access_token({'sub': 'admin-user'})}"}
+
+    response = client.post(
+        "/v1/users",
+        headers=headers,
+        json={
+            "username": "new-user",
+            "email": "same@example.com",
+            "password": "Password123",
+            "role": "admin",
+            "group_ids": [],
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "邮箱已存在"
+
+
 def test_root_chat_completions_alias_supports_clients_without_v1_base(tmp_path, monkeypatch):
     client, token, _session_factory = _client(tmp_path, monkeypatch)
 
