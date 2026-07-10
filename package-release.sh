@@ -5,7 +5,7 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo master)"
 VERSION=""
 PLATFORM="linux/amd64"
 DOCKER_INSTALLER="/home/ubuntu/docker-installer-28.5.2-x86-arm.tar.gz"
-WORK_DIR="/tmp/agent_manager_build"
+WORK_DIR="/tmp/agent-manager"
 OUTPUT_DIR="${PWD}"
 REPO_URL="git@git.dev-rs.com:agnitio/skill-manager.git"
 
@@ -22,7 +22,7 @@ usage() {
     echo "  -i, --installer FILE Docker installer tar.gz"
     echo "                       (default: /home/ubuntu/docker-installer-28.5.2-x86-arm.tar.gz)"
     echo "  -o, --output DIR     Output directory (default: current dir)"
-    echo "  -w, --work-dir DIR   Working directory (default: /tmp/agent_manager_build)"
+    echo "  -w, --work-dir DIR   Working directory (default: /tmp/agent-manager)"
     echo "  -r, --repo URL       Git repo URL (default: ${REPO_URL})"
     echo "  -h, --help           Show help"
     echo ""
@@ -111,11 +111,19 @@ cp "$DOCKER_INSTALLER" "installers/docker-installer-28.5.2-x86-arm.tar.gz"
 
 log "Building and saving Docker images..."
 bash build.sh -t "$VERSION" -p "$PLATFORM" --all --save
+IMAGE_DIR="docker_images/${ARCH}"
+IMAGE_TAR="${IMAGE_DIR}/agent-manager-images-${VERSION}.tar"
+IMAGE_XZ="${IMAGE_TAR}.xz"
+if [ -f "$IMAGE_TAR" ] && [ ! -f "$IMAGE_XZ" ]; then
+    log "Compressing Docker image tar to xz: ${IMAGE_XZ}"
+    xz -vf -2 -T 4 "$IMAGE_TAR"
+fi
 
 log "Creating release archive..."
 rm -rf .git
-cd "$(dirname "$WORK_DIR")"
-tar -czf "$ARCHIVE_PATH" --transform "s/^$(basename "$WORK_DIR")/agent-manager/" "$(basename "$WORK_DIR")"
+WORK_PARENT="$(dirname "$WORK_DIR")"
+WORK_BASE="$(basename "$WORK_DIR")"
+tar -czf "$ARCHIVE_PATH" -C "$WORK_PARENT" "$WORK_BASE"
 
 log "Archive created: ${ARCHIVE_PATH}"
 log "Archive size: $(du -h "$ARCHIVE_PATH" | cut -f1)"

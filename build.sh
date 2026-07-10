@@ -18,7 +18,7 @@ usage() {
     echo "  -f, --frontend      Build frontend image"
     echo "  -s, --sandbox       Build isolated sandbox service image"
     echo "  -r, --runtime       Build local sandbox runtime image"
-    echo "  --save              Save all runtime images to docker_images/<arch>/"
+    echo "  --save              Save all runtime images to docker_images/<arch>/ as tar.xz"
     echo "  -h, --help          Show this help"
 }
 
@@ -26,24 +26,32 @@ step() {
     echo -e "${GREEN}[BUILD]${NC} $1"
 }
 
+docker_buildx_proxy_args() {
+    local args=()
+    [[ -n "${http_proxy:-}" ]] && args+=(--build-arg "http_proxy=${http_proxy}" --build-arg "HTTP_PROXY=${http_proxy}")
+    [[ -n "${https_proxy:-}" ]] && args+=(--build-arg "https_proxy=${https_proxy}" --build-arg "HTTPS_PROXY=${https_proxy}")
+    [[ -n "${all_proxy:-}" ]] && args+=(--build-arg "all_proxy=${all_proxy}" --build-arg "ALL_PROXY=${all_proxy}")
+    printf '%s\n' "${args[@]}"
+}
+
 build_backend() {
     step "Building ${BACKEND_IMAGE}"
-    docker buildx build --load -f backend/Dockerfile --platform "${PLATFORM}" -t "${BACKEND_IMAGE}" .
+    docker buildx build $(docker_buildx_proxy_args) --load -f backend/Dockerfile --platform "${PLATFORM}" -t "${BACKEND_IMAGE}" .
 }
 
 build_frontend() {
     step "Building ${FRONTEND_IMAGE}"
-    docker buildx build --load -f web/Dockerfile --platform "${PLATFORM}" -t "${FRONTEND_IMAGE}" .
+    docker buildx build $(docker_buildx_proxy_args) --load -f web/Dockerfile --platform "${PLATFORM}" -t "${FRONTEND_IMAGE}" .
 }
 
 build_sandbox() {
     step "Building ${SANDBOX_IMAGE}"
-    docker buildx build --load -f services/isolated-sandbox-service/Dockerfile --platform "${PLATFORM}" -t "${SANDBOX_IMAGE}" .
+    docker buildx build $(docker_buildx_proxy_args) --load -f services/isolated-sandbox-service/Dockerfile --platform "${PLATFORM}" -t "${SANDBOX_IMAGE}" .
 }
 
 build_runtime() {
     step "Building ${SANDBOX_RUNTIME_IMAGE}"
-    docker buildx build --load -f services/local-sandbox-runtime/Dockerfile --platform "${PLATFORM}" -t "${SANDBOX_RUNTIME_IMAGE}" .
+    docker buildx build $(docker_buildx_proxy_args) --load -f services/local-sandbox-runtime/Dockerfile --platform "${PLATFORM}" -t "${SANDBOX_RUNTIME_IMAGE}" .
 }
 
 arch_dir() {
@@ -70,7 +78,8 @@ ensure_image() {
 
 save_images() {
     local output_dir="docker_images/$(arch_dir)"
-    local output="${output_dir}/agent-manager-images-${TAG}.tar"
+    local output="${output_dir}/agent-manager-images-${TAG}.tar.xz"
+    local tmp="${output}.tmp"
     mkdir -p "$output_dir"
     ensure_image "${BACKEND_IMAGE}"
     ensure_image "${FRONTEND_IMAGE}"
@@ -78,12 +87,15 @@ save_images() {
     ensure_image "${SANDBOX_RUNTIME_IMAGE}"
     ensure_image "nginx:1.27-alpine"
     step "Saving images to ${output}"
-    docker image save -o "$output" \
+    rm -f "$tmp" "${tmp}.xz" "$output"
+    docker image save -o "$tmp" \
         "${BACKEND_IMAGE}" \
         "${FRONTEND_IMAGE}" \
         "${SANDBOX_IMAGE}" \
         "${SANDBOX_RUNTIME_IMAGE}" \
         nginx:1.27-alpine
+    xz -vf -2 -T 4 "$tmp"
+    mv "${tmp}.xz" "$output"
 }
 
 BUILD_BACKEND=false
