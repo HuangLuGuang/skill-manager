@@ -124,21 +124,6 @@
             </a-form-item>
           </section>
 
-          <section class="policy-section">
-            <div class="section-title">扫描器策略</div>
-            <a-row :gutter="16">
-              <a-col :xs="24" :lg="12">
-                <a-form-item label="扫描策略">
-                  <a-select v-model:value="formState.scanner_policy">
-                    <a-select-option v-for="item in scannerPolicyOptions" :key="item.value" :value="item.value">
-                      {{ item.label }}
-                    </a-select-option>
-                  </a-select>
-                  <div class="field-hint">控制基础 scanner 的敏感程度；balanced 适合日常默认扫描。</div>
-                </a-form-item>
-              </a-col>
-            </a-row>
-          </section>
         </a-tab-pane>
 
         <a-tab-pane key="llm" tab="LLM 配置">
@@ -348,11 +333,6 @@ const riskOptions = [
   { value: 'suspicious', label: 'suspicious（可疑）' },
   { value: 'malicious', label: 'malicious（恶意）' },
 ]
-const scannerPolicyOptions = [
-  { value: 'strict', label: 'strict（更敏感）' },
-  { value: 'balanced', label: 'balanced（平衡，推荐）' },
-  { value: 'permissive', label: 'permissive（更宽松）' },
-]
 const judgementModeOptions = [
   { value: 'strict', label: '严格模式：优先降低漏报风险', description: '对潜在危险行为采取保守判定，适合生产环境、敏感数据场景和外部来源 Skill 准入。' },
   { value: 'balanced', label: '平衡模式（推荐）：兼顾安全与可操作性', description: '明确恶意自动阻断，可疑行为进入审核，低置信噪声不直接影响最终结论。' },
@@ -387,7 +367,6 @@ const formState = reactive({
   max_allowed_tools: 20,
   require_license: false,
   accepted_licenses: [],
-  scanner_policy: 'balanced',
   judgement_mode: 'balanced',
 })
 const llmForm = reactive({
@@ -455,7 +434,7 @@ const buildPayload = () => ({
   max_allowed_tools: Number(formState.max_allowed_tools || 0),
   require_license: formState.require_license,
   accepted_licenses: formState.accepted_licenses,
-  scanner_policy: formState.scanner_policy,
+  scanner_policy: formState.judgement_mode,
   judgement_mode: formState.judgement_mode,
 })
 
@@ -509,7 +488,6 @@ const applyPolicy = (policy) => {
   formState.max_allowed_tools = policy.max_allowed_tools
   formState.require_license = Boolean(policy.require_license)
   formState.accepted_licenses = [...(policy.accepted_licenses || [])]
-  formState.scanner_policy = policy.scanner_policy
   formState.judgement_mode = policy.judgement_mode || 'balanced'
   markSaved()
 }

@@ -121,7 +121,7 @@ class CompanyPolicy:
 
     @property
     def scanner_policy(self) -> str:
-        return self._data["scanner_policy"]
+        return self.judgement_mode
 
     @property
     def judgement_mode(self) -> str:

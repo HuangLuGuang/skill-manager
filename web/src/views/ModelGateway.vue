@@ -438,8 +438,8 @@
           </a-radio-group>
           <div style="color: #888; font-size: 12px; margin-top: 4px">建议新接入方到“凭证管理”创建模型调用凭证并配置。</div>
         </a-form-item>
-        <a-form-item v-if="keyForm.prompt_guard_mode !== 'off'">
-          <a-checkbox v-model:checked="keyForm.prompt_guard_llm_review">启用 LLM 复核</a-checkbox>
+        <a-form-item v-if="keyForm.prompt_guard_mode !== 'off'" label="AI 复核">
+          <div style="color: #888; font-size: 12px; margin-top: 4px">暂未启用在线大模型复核。当前 Prompt 防护使用轻量规则检测，避免增加模型网关主链路延迟。</div>
         </a-form-item>
         <a-row :gutter="16">
           <a-col :span="12">
@@ -1000,6 +1000,7 @@ const saveKey = async () => {
     const payload = {
       ...keyForm,
       expires_at: keyForm.never_expires ? null : (keyForm.expires_at || null),
+      prompt_guard_llm_review: false,
     }
     delete payload.never_expires
     let res = null

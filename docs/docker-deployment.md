@@ -6,7 +6,7 @@
 
 ```bash
 cp .env.example .env
-./.build.sh --all
+./build.sh --all
 docker compose up -d
 docker compose ps
 ```
@@ -21,17 +21,17 @@ http://localhost
 
 ```bash
 # 查看帮助
-./.build.sh --help
+./build.sh --help
 
 # 构建全部镜像，默认 tag 是 latest
-./.build.sh --all
+./build.sh --all
 
 # 指定 tag
-./.build.sh --tag v1.0.0 --all
+./build.sh --tag v1.0.0 --all
 
 # 指定平台
-./.build.sh --platform linux/amd64 --tag v1.0.0 --all
-./.build.sh --platform linux/arm64 --tag v1.0.0 --all
+./build.sh --platform linux/amd64 --tag v1.0.0 --all
+./build.sh --platform linux/arm64 --tag v1.0.0 --all
 ```
 
 会生成这些镜像：
@@ -41,40 +41,36 @@ http://localhost
 - `agent-manager-sandbox:<tag>`
 - `agent-manager-sandbox-runtime:<tag>`
 
+## 打包发布
+
+在有网络的机器上生成客户安装包：
+
+```bash
+# x86
+./package-release.sh -v v1.0.0 -p linux/amd64 -i /path/to/docker-installer-28.5.2-x86-arm.tar.gz
+
+# ARM
+./package-release.sh -v v1.0.0 -p linux/arm64 -i /path/to/docker-installer-28.5.2-x86-arm.tar.gz
+```
+
+输出：
+
+```text
+agent-manager_v1.0.0_x86.tar.gz
+agent-manager_v1.0.0_arm.tar.gz
+```
+
+安装包内包含：
+
+```text
+docker_images/x86/agent-manager-images-v1.0.0.tar.xz
+docker_images/arm/agent-manager-images-v1.0.0.tar.xz
+installers/docker-installer-28.5.2-x86-arm.tar.gz
+```
+
 ## 离线部署
 
-在有网络的机器上构建并保存镜像：
-
-```bash
-./.build.sh --tag v1.0.0 --all --save
-```
-
-生成的镜像包：
-
-```text
-docker_images/x86/agent-manager-images-v1.0.0.tar
-```
-
-ARM 平台是：
-
-```text
-docker_images/arm/agent-manager-images-v1.0.0.tar
-```
-
-把这些文件拷贝到目标机器的项目目录：
-
-- `docker-compose.yaml`
-- `deploy/nginx/default.conf`
-- `.env`
-- `docker_images/x86/agent-manager-images-v1.0.0.tar`
-
-在目标机器加载镜像并启动：
-
-```bash
-docker load -i docker_images/x86/agent-manager-images-v1.0.0.tar
-TAG=v1.0.0 docker compose up -d
-docker compose ps
-```
+现场实施步骤单独维护在 [离线部署现场实施指南](offline-deployment.md)。
 
 ## 常用命令
 

@@ -33,3 +33,5 @@ CLAUDE.md
 data/
 projects/
 mitre_attack_atlas/
+*.tar.gz
+agent-manager/

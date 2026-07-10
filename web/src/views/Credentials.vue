@@ -47,7 +47,6 @@
             <a-tag :color="promptGuardColor(record.prompt_guard_mode)">
               {{ promptGuardLabel(record.prompt_guard_mode) }}
             </a-tag>
-            <div v-if="record.prompt_guard_llm_review" class="muted">LLM 复核</div>
           </template>
           <template v-else-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
@@ -144,9 +143,8 @@
           </a-radio-group>
           <div class="hint">在模型网关运行时检测提示词注入、系统提示词泄露和凭据外传等风险。</div>
         </a-form-item>
-        <a-form-item v-if="form.scopes.includes('model:chat') && form.prompt_guard_mode !== 'off'">
-          <a-checkbox v-model:checked="form.prompt_guard_llm_review">启用 LLM 复核</a-checkbox>
-          <div class="hint">首版先记录配置，默认使用轻量规则检测，避免增加网关主链路延迟。</div>
+        <a-form-item v-if="form.scopes.includes('model:chat') && form.prompt_guard_mode !== 'off'" label="AI 复核">
+          <div class="hint">暂未启用在线大模型复核。当前 Prompt 防护使用轻量规则检测，避免增加模型网关主链路延迟。</div>
         </a-form-item>
 
         <a-row :gutter="16">
@@ -331,8 +329,8 @@ const handleCreate = async () => {
   }
   if (!form.scopes.includes('model:chat')) {
     form.prompt_guard_mode = 'off'
-    form.prompt_guard_llm_review = false
   }
+  form.prompt_guard_llm_review = false
   creating.value = true
   try {
     const data = await createAccessToken({ ...form, name: form.name.trim() })
