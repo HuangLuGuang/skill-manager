@@ -416,6 +416,131 @@ class Registry:
                 ).fetchall()
             return self._entries_from_rows(rows)
 
+    def list_skill_summaries(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        statuses: list[SkillStatus] | None = None,
+        cancelled_only: bool = False,
+        cancelled_reason: str = "",
+        loadable_only: bool = False,
+        risk_level: str | None = None,
+        sandbox_triggered: bool | None = None,
+        sandbox_required_by_policy: bool | None = None,
+        q: str | None = None,
+        sort_by: str = "updated_at",
+        sort_order: str = "desc",
+    ) -> dict[str, Any]:
+        where: list[str] = []
+        params: list[Any] = []
+
+        if statuses:
+            placeholders = ",".join("?" for _ in statuses)
+            where.append(f"status IN ({placeholders})")
+            params.extend(status.value for status in statuses)
+        if loadable_only:
+            where.append("status IN (?, ?)")
+            params.extend([SkillStatus.APPROVED.value, SkillStatus.DEPLOYED.value])
+        if cancelled_only:
+            where.append("json_extract(payload, '$.rejection_reason') = ?")
+            params.append(cancelled_reason)
+        if risk_level:
+            where.append("risk_level = ?")
+            params.append(risk_level)
+        if sandbox_triggered is not None:
+            where.append("coalesce(json_extract(payload, '$.vetting.sandbox_triggered'), 0) = ?")
+            params.append(1 if sandbox_triggered else 0)
+        if sandbox_required_by_policy is not None:
+            where.append("coalesce(json_extract(payload, '$.vetting.sandbox_required_by_policy'), 0) = ?")
+            params.append(1 if sandbox_required_by_policy else 0)
+        if q:
+            needle = f"%{q.lower()}%"
+            where.append(
+                "(lower(name) LIKE ? OR lower(skill_id) LIKE ? OR "
+                "lower(coalesce(json_extract(payload, '$.approved_by'), '')) LIKE ?)"
+            )
+            params.extend([needle, needle, needle])
+
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        sort_columns = {
+            "name": "lower(name)",
+            "skill_id": "lower(skill_id)",
+            "status": "status",
+            "risk_level": "coalesce(risk_level, '')",
+            "approved_by": "lower(coalesce(json_extract(payload, '$.approved_by'), ''))",
+            "submitted_at": "submitted_at",
+            "updated_at": "updated_at",
+        }
+        sort_expr = sort_columns.get(sort_by, "updated_at")
+        direction = "ASC" if sort_order.lower() == "asc" else "DESC"
+        safe_page = max(page, 1)
+        safe_page_size = max(1, min(page_size, 100))
+        offset = (safe_page - 1) * safe_page_size
+
+        with self._lock, self._connect() as conn:
+            total = conn.execute(
+                f"SELECT count(*) FROM skill_registry {where_sql}",
+                tuple(params),
+            ).fetchone()[0]
+            rows = conn.execute(
+                f"""
+                SELECT
+                    skill_id,
+                    name,
+                    status,
+                    risk_level,
+                    submitted_at,
+                    updated_at,
+                    json_type(payload, '$.vetting') AS vetting_type,
+                    json_extract(payload, '$.vetting.sandbox_triggered') AS sandbox_triggered,
+                    json_extract(payload, '$.vetting.sandbox_required_by_policy') AS sandbox_required_by_policy,
+                    json_extract(payload, '$.vetting.sandbox_runtime') AS sandbox_runtime,
+                    json_extract(payload, '$.approved_by') AS approved_by,
+                    json_extract(payload, '$.rejection_reason') AS rejection_reason,
+                    json_extract(payload, '$.approved_at') AS approved_at,
+                    json_extract(payload, '$.deployed_at') AS deployed_at
+                FROM skill_registry
+                {where_sql}
+                ORDER BY {sort_expr} {direction}, updated_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                tuple([*params, safe_page_size, offset]),
+            ).fetchall()
+
+        items = []
+        for row in rows:
+            has_vetting = row["vetting_type"] is not None
+            sandbox_triggered_value = bool(row["sandbox_triggered"]) if has_vetting else False
+            sandbox_required_value = bool(row["sandbox_required_by_policy"]) if has_vetting else False
+            sandbox_runtime_value = row["sandbox_runtime"] if has_vetting else None
+            items.append({
+                "skill_id": row["skill_id"],
+                "name": row["name"],
+                "status": row["status"],
+                "risk_level": row["risk_level"],
+                "vetting": {
+                    "sandbox_triggered": sandbox_triggered_value,
+                    "sandbox_required_by_policy": sandbox_required_value,
+                    "sandbox_runtime": sandbox_runtime_value,
+                } if has_vetting else None,
+                "sandbox_triggered": sandbox_triggered_value,
+                "sandbox_required_by_policy": sandbox_required_value,
+                "sandbox_runtime": sandbox_runtime_value,
+                "approved_by": row["approved_by"],
+                "rejection_reason": row["rejection_reason"],
+                "submitted_at": row["submitted_at"],
+                "updated_at": row["updated_at"],
+                "approved_at": row["approved_at"],
+                "deployed_at": row["deployed_at"],
+            })
+        return {
+            "items": items,
+            "total": total,
+            "page": safe_page,
+            "page_size": safe_page_size,
+        }
+
     def list_by_statuses(self, statuses: list[SkillStatus]) -> list[RegistryEntry]:
         """Return all skills whose status is in the given list."""
         if not statuses:

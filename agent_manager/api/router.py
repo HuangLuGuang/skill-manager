@@ -1184,6 +1184,21 @@ def list_skills(
                     status_values.append(SkillStatus(item))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"Invalid skill status: {status}") from exc
+    if page is not None or page_size is not None:
+        return mgr.list_skill_summaries(
+            page=page or 1,
+            page_size=page_size or 10,
+            statuses=status_values or None,
+            cancelled_only=cancelled_only,
+            cancelled_reason=CANCELLED_SKILL_REASON,
+            loadable_only=loadable_only,
+            risk_level=risk_level,
+            sandbox_triggered=sandbox_triggered,
+            sandbox_required_by_policy=sandbox_required_by_policy,
+            q=q,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
     entries = mgr.list_skills()
     if status_values:
         allowed_statuses = set(status_values)
@@ -1234,8 +1249,6 @@ def list_skills(
         entries = sorted(entries, key=lambda e: e.updated_at, reverse=reverse)
 
     summaries = [e.summary() for e in entries]
-    if page is not None or page_size is not None:
-        return _paginate(summaries, page or 1, page_size or 10)
     return summaries
 
 

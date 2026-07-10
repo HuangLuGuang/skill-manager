@@ -113,3 +113,32 @@ def test_list_skills_can_filter_cancelled_tasks(tmp_path):
     rows = response.json()
     assert [row["skill_id"] for row in rows] == [cancelled.skill_id]
     assert rows[0]["rejection_reason"] == "用户取消后台分析任务"
+
+
+def test_list_skills_paginated_uses_summary_query(tmp_path, monkeypatch):
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    second = manager.create_pending_submission(tmp_path)
+    second.status = SkillStatus.REJECTED
+    second.risk_level = RiskLevel.BENIGN
+    second.rejection_reason = "用户取消后台分析任务"
+    manager.registry.update(second)
+
+    monkeypatch.setattr(manager, "list_skills", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("full list should not be used")))
+
+    app = FastAPI()
+    app.include_router(api_router.router)
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+
+    response = TestClient(app).get("/skills", params={
+        "page": 1,
+        "page_size": 10,
+        "status": "cancelled",
+        "sort_by": "updated_at",
+        "sort_order": "desc",
+    })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["skill_id"] == second.skill_id
+    assert body["items"][0]["rejection_reason"] == "用户取消后台分析任务"
