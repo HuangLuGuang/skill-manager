@@ -77,6 +77,39 @@
               </a-form-item>
             </a-col>
           </a-row>
+
+          <section class="policy-section">
+            <div class="section-title">风险项目归类</div>
+            <a-row :gutter="[16, 16]">
+              <a-col v-for="group in riskClassificationGroups" :key="group.key" :xs="24" :lg="8">
+                <div class="risk-class-card">
+                  <div class="risk-class-header">
+                    <span>{{ group.label }}</span>
+                    <a-tag :color="group.color">{{ group.tag }}</a-tag>
+                  </div>
+                  <div class="risk-class-description">{{ group.description }}</div>
+                  <a-select
+                    :value="formState.risk_classification_groups[group.key]"
+                    class="risk-class-select"
+                    mode="multiple"
+                    option-label-prop="label"
+                    placeholder="选择风险项"
+                    @change="value => handleRiskGroupChange(group.key, value)"
+                  >
+                    <template #tagRender="{ value }">
+                      <a-tag class="risk-class-tag">{{ riskItemLabel(value) }}</a-tag>
+                    </template>
+                    <a-select-option v-for="item in riskItems" :key="item.key" :value="item.key" :label="item.label">
+                      <div class="risk-option">
+                        <div class="risk-option-title">{{ item.label }}</div>
+                        <div class="risk-option-description">{{ item.description }}</div>
+                      </div>
+                    </a-select-option>
+                  </a-select>
+                </div>
+              </a-col>
+            </a-row>
+          </section>
         </a-tab-pane>
 
         <a-tab-pane key="admission" tab="准入规则">
@@ -338,6 +371,38 @@ const judgementModeOptions = [
   { value: 'balanced', label: '平衡模式（推荐）：兼顾安全与可操作性', description: '明确恶意自动阻断，可疑行为进入审核，低置信噪声不直接影响最终结论。' },
   { value: 'permissive', label: '宽松模式：优先减少误报和噪声', description: '仅对明确恶意或策略禁止项阻断，其他风险以提示和人工复核为主。' },
 ]
+const riskClassificationGroups = [
+  { key: 'blocking', label: '阻断项', tag: '阻断', color: 'red', description: '确认命中后会按恶意风险处理，阻止 LLM 降级，通常直接进入拒绝或强制人工处理。' },
+  { key: 'risk', label: '可疑项', tag: '审核', color: 'orange', description: '作为有效风险信号参与综合判定，通常进入审核；在平衡或宽松模式下可结合上下文降级。' },
+  { key: 'noise', label: '噪声', tag: '记录', color: 'default', description: '只作为诊断信息记录，不直接影响最终风险结论，适合环境问题和低价值信号。' },
+]
+const riskItems = [
+  { key: 'data_exfiltration', label: '数据外传', description: '检测到向外部发送数据、采集环境变量、读取敏感信息后可能外传的行为。' },
+  { key: 'supply_chain', label: '供应链风险', description: '检测到下载后执行、远程脚本安装、混淆载荷或不可信依赖引入。' },
+  { key: 'prompt_injection', label: '提示词注入', description: '检测到忽略上级指令、泄露系统提示词、隐藏指令等面向 Agent 的攻击。' },
+  { key: 'tool_misuse', label: '工具滥用', description: '检测到工具投毒、绕过平台校验、诱导 Agent 使用高风险工具等行为。' },
+  { key: 'network', label: '网络访问', description: '检测到代码或运行时尝试访问网络，需结合业务场景判断是否必要。' },
+  { key: 'credential_access', label: '凭据访问', description: '检测到读取密钥、凭据文件、Token、SSH 配置等敏感凭据相关行为。' },
+  { key: 'dynamic_execution', label: '动态执行', description: '检测到 eval、exec、os.system、shell=True 等动态代码或命令执行能力。' },
+  { key: 'excessive_permissions', label: '权限过宽', description: '检测到 allowed-tools 过宽、通配权限或不符合最小权限原则的声明。' },
+  { key: 'documented_external_api', label: '文档型 API 示例', description: 'SKILL.md 或说明文档中列出的固定 API endpoint、curl 示例。通常只记录为噪声，不代表真实数据外传。' },
+  { key: 'dependency', label: '依赖/环境问题', description: '检测到依赖缺失、模块不可导入等环境问题，通常不代表 Skill 本身恶意。' },
+  { key: 'runtime', label: '运行时失败', description: '检测到非零退出、超时或运行环境异常，主要用于辅助排查。' },
+]
+const riskItemLabel = (value) => riskItems.find(item => item.key === value)?.label || value
+const defaultRiskClassification = {
+  data_exfiltration: 'blocking',
+  supply_chain: 'blocking',
+  prompt_injection: 'risk',
+  tool_misuse: 'risk',
+  network: 'risk',
+  credential_access: 'risk',
+  dynamic_execution: 'risk',
+  excessive_permissions: 'risk',
+  documented_external_api: 'noise',
+  dependency: 'noise',
+  runtime: 'noise',
+}
 const severityOptions = [
   { value: 'MEDIUM', label: 'MEDIUM（中）' },
   { value: 'HIGH', label: 'HIGH（高）' },
@@ -368,6 +433,11 @@ const formState = reactive({
   require_license: false,
   accepted_licenses: [],
   judgement_mode: 'balanced',
+  risk_classification_groups: {
+    blocking: [],
+    risk: [],
+    noise: [],
+  },
 })
 const llmForm = reactive({
   enabled: false,
@@ -423,6 +493,46 @@ const sandboxTestDescription = computed(() => {
   return parts.join('；')
 })
 
+const riskClassificationFromGroups = () => {
+  const result = {}
+  for (const group of riskClassificationGroups) {
+    for (const key of formState.risk_classification_groups[group.key] || []) {
+      result[key] = group.key
+    }
+  }
+  return result
+}
+
+const applyRiskClassification = (mapping = {}) => {
+  const merged = { ...defaultRiskClassification, ...(mapping || {}) }
+  for (const group of riskClassificationGroups) formState.risk_classification_groups[group.key] = []
+  for (const item of riskItems) {
+    const group = merged[item.key]
+    if (formState.risk_classification_groups[group]) {
+      formState.risk_classification_groups[group].push(item.key)
+    }
+  }
+}
+
+const normalizeRiskValues = (values) => (values || []).map(item => (
+  typeof item === 'object' && item !== null ? item.value : item
+)).filter(value => typeof value === 'string')
+
+const handleRiskGroupChange = (targetGroup, values) => {
+  const previous = new Set(formState.risk_classification_groups[targetGroup] || [])
+  const selected = new Set(normalizeRiskValues(values))
+  for (const item of riskItems) {
+    if (previous.has(item.key) && !selected.has(item.key)) selected.add(item.key)
+  }
+  for (const group of riskClassificationGroups) {
+    if (group.key === targetGroup) {
+      formState.risk_classification_groups[group.key] = [...selected]
+    } else {
+      formState.risk_classification_groups[group.key] = formState.risk_classification_groups[group.key].filter(key => !selected.has(key))
+    }
+  }
+}
+
 const buildPayload = () => ({
   auto_approve_max_risk: formState.auto_approve_max_risk,
   require_human_review: formState.require_human_review,
@@ -436,6 +546,7 @@ const buildPayload = () => ({
   accepted_licenses: formState.accepted_licenses,
   scanner_policy: formState.judgement_mode,
   judgement_mode: formState.judgement_mode,
+  risk_classification: riskClassificationFromGroups(),
 })
 
 const buildLlmPayload = () => ({
@@ -489,6 +600,7 @@ const applyPolicy = (policy) => {
   formState.require_license = Boolean(policy.require_license)
   formState.accepted_licenses = [...(policy.accepted_licenses || [])]
   formState.judgement_mode = policy.judgement_mode || 'balanced'
+  applyRiskClassification(policy.risk_classification || policy.risk_classification_overrides || {})
   markSaved()
 }
 
@@ -655,5 +767,54 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
 .section-title {
   font-weight: 600;
   margin-bottom: 8px;
+}
+
+.risk-class-card {
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  padding: 12px;
+  min-height: 188px;
+  background: #fff;
+}
+
+.risk-class-header {
+  align-items: center;
+  display: flex;
+  font-weight: 600;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.risk-class-description {
+  color: #8c8c8c;
+  font-size: 12px;
+  line-height: 1.5;
+  min-height: 54px;
+  margin-bottom: 10px;
+}
+
+.risk-class-select {
+  width: 100%;
+}
+
+.risk-class-tag {
+  margin: 2px 4px 2px 0;
+}
+
+.risk-option {
+  line-height: 1.35;
+  padding: 4px 0;
+  white-space: normal;
+}
+
+.risk-option-title {
+  color: #262626;
+  font-weight: 500;
+}
+
+.risk-option-description {
+  color: #8c8c8c;
+  font-size: 12px;
+  margin-top: 2px;
 }
 </style>

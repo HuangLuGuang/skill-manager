@@ -316,7 +316,12 @@ def _is_low_analyzability_signal(finding: dict) -> bool:
     return rule == "LOW_ANALYZABILITY" and _SEVERITY_ORDER.get(severity, 0) <= _SEVERITY_ORDER["MEDIUM"]
 
 
-def _classify_finding(finding: dict) -> str:
+def _classify_finding_detail(finding: dict, policy: "CompanyPolicy") -> tuple[str, str | None]:
+    policy_key = policy.finding_policy_key(finding)
+    configured = policy.risk_classification.get(policy_key) if policy_key else None
+    if configured:
+        return configured, policy_key
+
     rule = str(finding.get("rule") or finding.get("rule_id") or "").strip()
     rule_upper = rule.upper()
     category = str(finding.get("category") or "").strip().lower()
@@ -327,16 +332,26 @@ def _classify_finding(finding: dict) -> str:
     ).lower()
 
     if rule in _BLOCKING_RULES or any(token in text for token in ("exfiltrat", "数据外传", "窃取凭据", "steal credential")):
-        return "blocking"
+        return "blocking", None
     if rule_upper in _NOISE_RULES or category in _NOISE_CATEGORIES or _is_low_analyzability_signal(finding):
-        return "noise"
+        return "noise", None
     if _SEVERITY_ORDER.get(severity, 0) >= _SEVERITY_ORDER["MEDIUM"]:
-        return "risk"
-    return "noise"
+        return "risk", None
+    return "noise", None
 
 
-def _classify_findings(findings: list[dict]) -> dict[str, object]:
-    items = [{**finding, "classification": _classify_finding(finding)} for finding in findings]
+def _classify_finding(finding: dict, policy: "CompanyPolicy") -> str:
+    return _classify_finding_detail(finding, policy)[0]
+
+
+def _classify_findings(findings: list[dict], policy: "CompanyPolicy") -> dict[str, object]:
+    items = []
+    for finding in findings:
+        classification, policy_key = _classify_finding_detail(finding, policy)
+        item = {**finding, "classification": classification}
+        if policy_key:
+            item["classification_key"] = policy_key
+        items.append(item)
     return {
         "items": items,
         "blocking_count": sum(1 for item in items if item["classification"] == "blocking"),
@@ -744,7 +759,7 @@ class VettingPipeline:
             scan_report.get("findings", []),
             scan_report.get("max_severity", "SAFE"),
         )
-        risk_classification = _classify_findings(scan_report.get("findings", []))
+        risk_classification = _classify_findings(scan_report.get("findings", []), self.policy)
         pre_llm_risk_level, pre_llm_reason = _risk_from_classification(
             risk_classification,
             effective_judgement_mode,

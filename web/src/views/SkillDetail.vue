@@ -216,8 +216,8 @@
                     {{ ruleAnalysisFindings.length }}
                   </a-descriptions-item>
                   <a-descriptions-item label="最高严重级别">
-                    <a-tag :color="severityColor(localStaticAnalysis?.max_severity || behavioralAnalysis.max_severity)">
-                      {{ localStaticAnalysis?.max_severity || behavioralAnalysis.max_severity || '-' }}
+                    <a-tag :color="severityColor(ruleAnalysisMaxSeverity)">
+                      {{ ruleAnalysisMaxSeverity || '-' }}
                     </a-tag>
                   </a-descriptions-item>
                   <a-descriptions-item label="规则分析器">
@@ -227,38 +227,44 @@
                 </a-descriptions>
                 <a-collapse
                   style="margin-top: 12px"
-                  :default-active-key="ruleAnalysisFindings.length ? ['findings'] : []"
+                  :default-active-key="ruleAnalysisFindings.length ? nonEmptyRuleClassificationKeys : []"
                 >
-                  <a-collapse-panel key="findings" :header="`规则命中项（${ruleAnalysisFindings.length}）`">
-                    <a-list
-                      v-if="ruleAnalysisFindings.length"
-                      :data-source="ruleAnalysisFindings"
-                      bordered
-                      size="small"
-                    >
-                      <template #renderItem="{ item }">
-                        <a-list-item>
-                          <div style="width: 100%">
-                            <a-space wrap>
-                              <a-tag :color="severityColor(item.severity)">{{ item.severity }}</a-tag>
-                              <strong>{{ bilingualText(item.title) }}</strong>
-                              <a-button
-                                v-if="item.file"
-                                type="link"
-                                size="small"
-                                style="padding: 0"
-                                @click="openFileViewer(item.file)"
-                              >
-                                {{ item.file }}
-                              </a-button>
-                              <a-tag v-if="item.rule" color="default">{{ item.rule }}</a-tag>
-                            </a-space>
-                            <div style="margin-top: 6px">{{ bilingualText(item.message) }}</div>
-                          </div>
-                        </a-list-item>
-                      </template>
-                    </a-list>
-                    <a-empty v-else :image-style="{ height: '36px' }" description="本次规则分析没有命中项" />
+                  <a-collapse-panel
+                    v-for="group in groupedRuleAnalysisFindings"
+                    :key="group.key"
+                    :header="`${group.label}（${group.items.length}）`"
+                  >
+                    <div v-for="section in group.sections" :key="section.key" class="finding-section">
+                      <div class="finding-section-title">{{ section.label }}（{{ section.items.length }}）</div>
+                      <a-list :data-source="section.items" bordered size="small">
+                        <template #renderItem="{ item }">
+                          <a-list-item>
+                            <div style="width: 100%">
+                              <a-space wrap>
+                                <a-tag :color="severityColor(item.severity)">{{ item.severity }}</a-tag>
+                                <strong>{{ findingTitle(item) }}</strong>
+                                <a-button
+                                  v-if="item.file"
+                                  type="link"
+                                  size="small"
+                                  style="padding: 0"
+                                  @click="openFileViewer(item.file)"
+                                >
+                                  {{ item.file }}
+                                </a-button>
+                                <a-tag v-if="item.rule" color="default">{{ item.rule }}</a-tag>
+                                <a-tag v-if="findingPolicyLabel(item)" color="cyan">策略项：{{ findingPolicyLabel(item) }}</a-tag>
+                                <a-tag v-if="item.aggregate_count > 1" color="blue">命中 {{ item.aggregate_count }} 处</a-tag>
+                              </a-space>
+                              <div v-if="item.aggregate_lines?.length" class="muted" style="margin-top: 4px">
+                                行号：{{ formatAggregateLines(item.aggregate_lines) }}
+                              </div>
+                              <div style="margin-top: 6px">{{ ruleFindingExplanation(item) }}</div>
+                            </div>
+                          </a-list-item>
+                        </template>
+                      </a-list>
+                    </div>
                   </a-collapse-panel>
                   <a-collapse-panel key="files" :header="`已扫描文件（${behavioralScannedFiles.length}）`">
                     <a-list v-if="behavioralScannedFiles.length" :data-source="behavioralScannedFiles" bordered size="small">
@@ -310,39 +316,47 @@
                   </a-descriptions-item>
                 </a-descriptions>
                 <a-collapse v-if="skillspectorFindings.length" v-model:activeKey="skillspectorFindingsActiveKey" style="margin-top: 12px">
-                  <a-collapse-panel key="skillspector-findings" :header="`深度扫描命中项（${skillspectorFindings.length}）`">
-                    <a-list
-                      :data-source="skillspectorFindings"
-                      bordered
-                      size="small"
-                    >
-                      <template #renderItem="{ item }">
-                        <a-list-item>
-                          <div style="width: 100%">
-                            <a-space wrap>
-                              <a-tag :color="severityColor(item.severity)">{{ item.severity || '-' }}</a-tag>
-                              <a-tag color="default">{{ item.rule || item.rule_id || '-' }}</a-tag>
-                              <strong>{{ findingTitle(item) }}</strong>
-                              <a-button
-                                v-if="item.file"
-                                type="link"
-                                size="small"
-                                style="padding: 0"
-                                @click="openFileViewer(item.file)"
-                              >
-                                {{ item.file }}{{ item.line || item.start_line ? `:${item.line || item.start_line}` : '' }}
-                              </a-button>
-                            </a-space>
-                            <div v-if="item.message || item.explanation" style="margin-top: 6px">
-                              {{ deepScanText(bilingualText(item.message || item.explanation)) }}
+                  <a-collapse-panel
+                    v-for="group in groupedSkillspectorFindings"
+                    :key="`skillspector-${group.key}`"
+                    :header="`${group.label}（${group.items.length}）`"
+                  >
+                    <div v-for="section in group.sections" :key="section.key" class="finding-section">
+                      <div class="finding-section-title">{{ section.label }}（{{ section.items.length }}）</div>
+                      <a-list :data-source="section.items" bordered size="small">
+                        <template #renderItem="{ item }">
+                          <a-list-item>
+                            <div style="width: 100%">
+                              <a-space wrap>
+                                <a-tag :color="severityColor(item.severity)">{{ item.severity || '-' }}</a-tag>
+                                <a-tag color="default">{{ item.rule || item.rule_id || '-' }}</a-tag>
+                                <strong>{{ findingTitle(item) }}</strong>
+                                <a-button
+                                  v-if="item.file"
+                                  type="link"
+                                  size="small"
+                                  style="padding: 0"
+                                  @click="openFileViewer(item.file)"
+                                >
+                                  {{ item.file }}{{ item.line || item.start_line ? `:${item.line || item.start_line}` : '' }}
+                                </a-button>
+                                <a-tag v-if="findingPolicyLabel(item)" color="cyan">策略项：{{ findingPolicyLabel(item) }}</a-tag>
+                                <a-tag v-if="item.aggregate_count > 1" color="blue">命中 {{ item.aggregate_count }} 处</a-tag>
+                              </a-space>
+                              <div v-if="item.aggregate_lines?.length" class="muted" style="margin-top: 4px">
+                                行号：{{ formatAggregateLines(item.aggregate_lines) }}
+                              </div>
+                              <div v-if="item.message || item.explanation" style="margin-top: 6px">
+                                {{ deepScanText(bilingualText(item.message || item.explanation)) }}
+                              </div>
+                              <div v-if="item.remediation" style="margin-top: 6px; color: #8c8c8c">
+                                建议：{{ deepScanText(bilingualText(item.remediation)) }}
+                              </div>
                             </div>
-                            <div v-if="item.remediation" style="margin-top: 6px; color: #8c8c8c">
-                              建议：{{ deepScanText(item.remediation) }}
-                            </div>
-                          </div>
-                        </a-list-item>
-                      </template>
-                    </a-list>
+                          </a-list-item>
+                        </template>
+                      </a-list>
+                    </div>
                   </a-collapse-panel>
                 </a-collapse>
               </template>
@@ -1084,6 +1098,133 @@ const llmExplanationHtml = computed(() => {
 })
 const riskReconciliation = computed(() => scanReport.value?.risk_reconciliation || null)
 const riskClassification = computed(() => scanReport.value?.risk_classification || null)
+const findingClassificationGroups = [
+  { key: 'blocking', label: '阻断项' },
+  { key: 'risk', label: '可疑项' },
+  { key: 'noise', label: '噪声' },
+]
+const findingTypeLabels = {
+  data_exfiltration: '数据外传',
+  supply_chain: '供应链风险',
+  prompt_injection: '提示词注入',
+  tool_misuse: '工具滥用',
+  network: '网络访问',
+  credential_access: '凭据访问',
+  dynamic_execution: '动态执行',
+  excessive_permissions: '权限过宽',
+  documented_external_api: '文档型 API 示例',
+  dependency: '依赖/环境问题',
+  runtime: '运行时失败',
+  other: '其他',
+}
+const findingSignature = (item) => [
+  item?.rule || item?.rule_id || '',
+  item?.category || '',
+  item?.title || item?.message || '',
+  item?.file || item?.file_path || '',
+].map(value => String(value || '').toLowerCase()).join('|')
+const classifiedFindingMap = computed(() => {
+  const map = new Map()
+  const items = riskClassification.value?.items
+  if (!Array.isArray(items)) return map
+  for (const item of items) {
+    if (!item?.classification) continue
+    map.set(findingSignature(item), item)
+  }
+  return map
+})
+const classifiedFindingOf = (item) => classifiedFindingMap.value.get(findingSignature(item))
+const fallbackFindingClassification = (item) => {
+  const severity = severityRank(item?.severity)
+  const category = String(item?.category || '').toLowerCase()
+  const rule = String(item?.rule || item?.rule_id || '').toUpperCase()
+  if (category.includes('data exfiltration') || category.includes('data_exfiltration')) return 'blocking'
+  if (rule.includes('DEPENDENCY') || ['dependency', 'runtime'].includes(category)) return 'noise'
+  return severity >= severityRank('MEDIUM') ? 'risk' : 'noise'
+}
+const findingClassificationOf = (item) =>
+  classifiedFindingOf(item)?.classification || fallbackFindingClassification(item)
+const findingTypeOf = (item) => {
+  const classified = classifiedFindingOf(item)
+  if (classified?.classification_key) return classified.classification_key
+  if (item?.classification_key) return item.classification_key
+  return legacyFindingType(item)
+}
+const aggregateFindingKey = (item) => [
+  findingClassificationOf(item),
+  findingTypeOf(item),
+  item?.rule || item?.rule_id || '',
+  item?.category || '',
+  item?.title || '',
+  item?.message || item?.finding || '',
+  item?.file || item?.file_path || '',
+].map(value => String(value || '').trim().toLowerCase()).join('|')
+const aggregateFindings = (items) => {
+  const map = new Map()
+  for (const item of items) {
+    const key = aggregateFindingKey(item)
+    const line = item?.line || item?.start_line || item?.line_number
+    const current = map.get(key)
+    if (current) {
+      current.aggregate_count += 1
+      if (line) current.aggregate_lines.push(line)
+      continue
+    }
+    map.set(key, {
+      ...item,
+      aggregate_count: 1,
+      aggregate_lines: line ? [line] : [],
+    })
+  }
+  return [...map.values()]
+}
+const legacyFindingType = (item) => {
+  const rule = String(item?.rule || item?.rule_id || '').toLowerCase()
+  const category = String(item?.category || '').toLowerCase()
+  if (legacyDocumentedExternalApi(item)) return 'documented_external_api'
+  if (rule.includes('dependency') || category === 'dependency') return 'dependency'
+  if (category === 'runtime') return 'runtime'
+  if (rule === 'e1' || rule === 'e2' || rule === 'e3' || category.includes('data exfiltration')) return 'data_exfiltration'
+  if (category.includes('credential') || rule === 'credential_file_access') return 'credential_access'
+  if (category.includes('prompt')) return 'prompt_injection'
+  if (category.includes('network')) return 'network'
+  return 'other'
+}
+const legacyDocumentedExternalApi = (item) => {
+  const rule = String(item?.rule || item?.rule_id || '').toLowerCase()
+  const file = String(item?.file || item?.file_path || '').toLowerCase().split('/').pop()
+  const text = [
+    item?.message,
+    item?.finding,
+    item?.code_snippet,
+    item?.explanation,
+  ].map(value => String(value || '').toLowerCase()).join(' ')
+  return rule === 'e1'
+    && ['skill.md', 'skill-card.md'].includes(file)
+    && (text.includes('http://') || text.includes('https://'))
+    && ['curl ', 'api ', 'endpoint', '端点', '接口'].some(token => text.includes(token))
+}
+const groupFindingSections = (items) => {
+  const sections = []
+  for (const item of items) {
+    const key = findingTypeOf(item)
+    let section = sections.find(entry => entry.key === key)
+    if (!section) {
+      section = { key, label: findingTypeLabels[key] || key, items: [] }
+      sections.push(section)
+    }
+    section.items.push(item)
+  }
+  return sections
+}
+const groupFindingsByClassification = (items) =>
+  findingClassificationGroups.map(group => ({
+    ...group,
+    items: aggregateFindings(items.filter(item => findingClassificationOf(item) === group.key)),
+  })).filter(group => group.items.length).map(group => ({
+    ...group,
+    sections: groupFindingSections(group.items),
+  }))
 const judgementSummary = computed(() => {
   const rec = riskReconciliation.value
   if (!rec) return null
@@ -1131,6 +1272,23 @@ const ruleAnalysisFindings = computed(() => {
   ].map(normalizeRuleFinding)
   return nested.length ? nested : topLevelRuleFindings.value
 })
+const groupedRuleAnalysisFindings = computed(() => groupFindingsByClassification(ruleAnalysisFindings.value))
+const nonEmptyRuleClassificationKeys = computed(() => groupedRuleAnalysisFindings.value.map(group => group.key))
+const maxSeverity = (...values) => {
+  let current = 'SAFE'
+  for (const value of values) {
+    if (severityRank(value) > severityRank(current)) current = value
+  }
+  return current
+}
+const ruleAnalysisMaxSeverity = computed(() =>
+  maxSeverity(
+    scanReport.value?.max_severity,
+    behavioralAnalysis.value?.max_severity,
+    localStaticAnalysis.value?.max_severity,
+    ...ruleAnalysisFindings.value.map(item => item.severity),
+  ),
+)
 const policyNotes = computed(() => detail.value?.vetting?.policy_notes || [])
 const parsePolicyBlock = (note) => {
   const text = String(note || '')
@@ -1256,6 +1414,10 @@ const skillspectorFindings = computed(() => {
   if (Array.isArray(findings)) return findings
   return []
 })
+const groupedSkillspectorFindings = computed(() => groupFindingsByClassification(skillspectorFindings.value))
+const nonEmptySkillspectorClassificationKeys = computed(() =>
+  groupedSkillspectorFindings.value.map(group => `skillspector-${group.key}`),
+)
 const skillspectorEffectiveSeverity = computed(() =>
   skillspectorAnalysis.value?.effective_risk_severity
   || skillspectorAnalysis.value?.risk_severity
@@ -1517,7 +1679,7 @@ const recommendationLabels = {
 const termTranslations = {
   'LOW_ANALYZABILITY': '可分析性不足',
   'Moderate analyzability score': '中等可分析性评分',
-  'External Transmission': '外部传输',
+  'External Transmission': '数据外传',
   'Data Exfiltration': '数据外传',
   'Prompt Injection': '提示词注入',
   'Instruction Override': '覆盖上级指令',
@@ -1539,6 +1701,26 @@ const termTranslations = {
   'Privilege Escalation': '权限提升',
   Persistence: '持久化',
   'Encoded Payload': '编码载荷',
+  'Undeclared network usage': '未声明的网络使用',
+  'Potential description-behavior mismatch': '描述与行为可能不一致',
+  'Skill does not specify a license': 'Skill 未声明许可证',
+  'Outbound network request primitives that can transmit data externally': '可能向外部传输数据的网络请求',
+  'MCP Least Privilege': 'MCP 最小权限',
+  'Data Flow': '数据流',
+  'Env Variable Harvesting': '环境变量采集',
+  'Access token': '访问令牌',
+}
+
+const ruleExplanations = {
+  TOOL_ABUSE_UNDECLARED_NETWORK: '代码使用了网络库或外部请求能力，但 Skill 元数据没有声明需要网络访问。建议补充网络权限说明，或确认是否确实需要联网。',
+  SOCIAL_ENG_MISLEADING_DESC: 'Skill 的实际行为和描述不完全一致。这里通常表示功能说明没有覆盖代码里的某些行为，需要补充描述或人工确认。',
+  MANIFEST_MISSING_LICENSE: 'SKILL.md 没有声明 license。它通常是合规提示，不一定代表安全风险。',
+  DATA_EXFIL_NETWORK_REQUESTS: '代码中出现可向外部发送请求的调用，例如 urllib/request/httpx/fetch。该信号表示存在数据外发能力，需要结合目标域名和业务用途判断是否合理。',
+  E1: '检测到外部传输目标或网络请求。可能是正常 API 调用，也可能用于数据外发，需要确认目标地址、传输内容和业务必要性。',
+  LP3: '权限声明不完整，扫描器无法从 manifest 中确认该 Skill 需要哪些能力。建议补充权限或能力声明，降低误判。',
+  TT3: '检测到敏感来源到网络输出的数据流。例如环境变量或凭据进入网络请求，通常需要重点确认是否存在凭据外发。',
+  E2: '代码读取环境变量，可能接触 API Key、Token 等敏感配置。需要确认读取内容是否必要，以及是否会被记录或发送出去。',
+  PE3: '检测到访问令牌、密钥文件或凭据相关内容。需要确认是否为正常配置读取，还是可能存在凭据窃取风险。',
 }
 
 const sentenceTranslations = [
@@ -1558,6 +1740,46 @@ const sentenceTranslations = [
   {
     pattern: /^Skill content asks the agent to ignore higher-priority instructions\.\s*文件:\s*(.+)$/i,
     render: ([, file]) => `Skill 内容要求忽略上级或系统指令。文件: ${file}`,
+  },
+  {
+    pattern: /^Tainted flow:\s+'([^']+)'\s+from\s+(.+?)\s+→\s+(.+)$/i,
+    render: ([, variable, source, sink]) => `污点数据流：变量 ${variable} 从 ${source} 流向 ${sink}。需要确认敏感数据是否被发送到网络出口。`,
+  },
+  {
+    pattern: /^Credentials or environment variables flow to a network sink\. This is a high-confidence indicator of credential exfiltration\.?$/i,
+    render: () => '凭据或环境变量流向网络输出点。这是凭据外发的高置信风险信号。',
+  },
+  {
+    pattern: /^Without declared permissions the skill's intent is opaque and cannot be validated\.?$/i,
+    render: () => 'Skill 未声明所需权限，平台无法从元数据确认其意图和能力边界。',
+  },
+  {
+    pattern: /^Code accesses environment variables that may contain secrets \(API keys, tokens\)\. This is a common pattern for credential theft\.?$/i,
+    render: () => '代码读取可能包含密钥的环境变量（如 API Key、Token），这是凭据窃取场景中的常见模式。',
+  },
+  {
+    pattern: /^Code accesses credential files \(SSH keys, AWS credentials, etc\.\)\. This could indicate credential theft attempts\.?$/i,
+    render: () => '代码访问凭据文件（如 SSH Key、云厂商凭据等），可能表示凭据窃取尝试。',
+  },
+  {
+    pattern: /^Data is being sent to an external URL\. This could be legitimate telemetry or data exfiltration\. Manual review is recommended\.?$/i,
+    render: () => '数据会发送到外部 URL。它可能是正常遥测或业务 API，也可能是数据外发，建议人工复核。',
+  },
+  {
+    pattern: /^Add a 'permissions' field to SKILL\.md listing the capabilities this skill requires\.?$/i,
+    render: () => '在 SKILL.md 中添加 permissions 字段，列出该 Skill 所需能力。',
+  },
+  {
+    pattern: /^Never send credentials or environment variables over the network\. Use secure credential stores and avoid transmitting secrets in request bodies or URLs\.?$/i,
+    render: () => '不要通过网络发送凭据或环境变量。请使用安全凭据存储，并避免在请求体或 URL 中传输密钥。',
+  },
+  {
+    pattern: /^Avoid reading sensitive env vars \(API keys, tokens\) unless strictly required\. Use secrets managers or secure config\. Never log or transmit credentials\.?$/i,
+    render: () => '除非确有必要，不要读取敏感环境变量（API Key、Token）。建议使用密钥管理或安全配置，并禁止记录或传输凭据。',
+  },
+  {
+    pattern: /^Remove references to credential paths\. Use environment variables or secrets managers\. For docs, use placeholder paths \(e\.g\., \/path\/to\/config\)\. Never load \.env or token files in production code paths\.?$/i,
+    render: () => '移除对凭据路径的直接引用。使用环境变量或密钥管理；文档中使用占位路径，不要在生产代码路径中加载 .env 或 token 文件。',
   },
 ]
 
@@ -1594,7 +1816,24 @@ const bilingualText = (value) => {
   }
   return text
 }
-const findingTitle = (item) => bilingualText(item?.title || item?.pattern || item?.message || '-')
+const ruleFindingExplanation = (item) => {
+  if (findingTypeOf(item) === 'documented_external_api') {
+    return '文档中声明的固定 API endpoint 或 curl 示例，按策略记录为噪声；不等同于读取用户数据、凭据或文件后进行数据外传。'
+  }
+  const rule = item?.rule || item?.rule_id || ''
+  if (ruleExplanations[rule]) return ruleExplanations[rule]
+  return bilingualText(item?.message || item?.description || item?.remediation || '')
+}
+const findingPolicyLabel = (item) => findingTypeLabels[findingTypeOf(item)] || ''
+const formatAggregateLines = (lines) => {
+  const unique = [...new Set(lines)].slice(0, 8)
+  const suffix = lines.length > unique.length ? ` 等 ${lines.length} 处` : ''
+  return `${unique.join('、')}${suffix}`
+}
+const findingTitle = (item) => {
+  if (findingTypeOf(item) === 'documented_external_api') return '文档型 API 示例'
+  return bilingualText(item?.title || item?.pattern || item?.message || '-')
+}
 const originLabel = (value) => ({
   local: '本地',
   github: 'GitHub',
@@ -1715,9 +1954,9 @@ watch(
 )
 
 watch(
-  () => [skillspectorFindings.value.length, hasHighRiskSkillspectorFinding.value],
+  () => [skillspectorFindings.value.length, groupedSkillspectorFindings.value.length],
   () => {
-    skillspectorFindingsActiveKey.value = hasHighRiskSkillspectorFinding.value ? ['skillspector-findings'] : []
+    skillspectorFindingsActiveKey.value = nonEmptySkillspectorClassificationKeys.value
   },
   { immediate: true },
 )
@@ -2123,6 +2362,20 @@ watch(
   font-size: 12px;
   line-height: 1.6;
   overflow-wrap: anywhere;
+}
+
+.finding-section {
+  margin-bottom: 12px;
+}
+
+.finding-section:last-child {
+  margin-bottom: 0;
+}
+
+.finding-section-title {
+  margin-bottom: 8px;
+  color: #595959;
+  font-weight: 600;
 }
 
 .governance-card-preview {

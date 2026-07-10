@@ -26,7 +26,7 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agent_manager.core.llm import LLMConfig
 from agent_manager.core.manager import AgentManager, findings_summary_from_report
@@ -475,6 +475,7 @@ class PolicyPayload(BaseModel):
     accepted_licenses: list[str]
     scanner_policy: str
     judgement_mode: str = "balanced"
+    risk_classification: dict[str, str] = Field(default_factory=dict)
     skillspector_enabled: bool = False
     skillspector_fail_open: bool = True
     skillspector_timeout_seconds: int = 120

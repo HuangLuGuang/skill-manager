@@ -18,6 +18,22 @@ from .utils import tool_parent_name
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_RISK_CLASSIFICATION: dict[str, str] = {
+    "data_exfiltration": "blocking",
+    "supply_chain": "blocking",
+    "prompt_injection": "risk",
+    "tool_misuse": "risk",
+    "network": "risk",
+    "credential_access": "risk",
+    "dynamic_execution": "risk",
+    "excessive_permissions": "risk",
+    "documented_external_api": "noise",
+    "dependency": "noise",
+    "runtime": "noise",
+}
+
+_VALID_FINDING_CLASSIFICATIONS = {"blocking", "risk", "noise"}
+
 _DEFAULT_POLICY: dict[str, Any] = {
     "auto_approve_max_risk": "benign",
     "require_human_review": ["suspicious"],
@@ -34,6 +50,7 @@ _DEFAULT_POLICY: dict[str, Any] = {
     "accepted_licenses": ["MIT", "Apache-2.0", "BSD-3-Clause", "BSD-2-Clause", "ISC", "internal"],
     "scanner_policy": "balanced",
     "judgement_mode": "balanced",
+    "risk_classification": DEFAULT_RISK_CLASSIFICATION,
     "skillspector_enabled": False,
     "skillspector_fail_open": True,
     "skillspector_timeout_seconds": 120,
@@ -140,6 +157,36 @@ class CompanyPolicy:
     def skillspector_use_llm(self) -> bool:
         return bool(self._data.get("skillspector_use_llm", False))
 
+    @property
+    def risk_classification(self) -> dict[str, str]:
+        raw = self._data.get("risk_classification")
+        if not isinstance(raw, dict):
+            raw = self._data.get("risk_classification_overrides")
+        merged = dict(DEFAULT_RISK_CLASSIFICATION)
+        if isinstance(raw, dict):
+            for key, value in raw.items():
+                normalized = str(value).strip().lower()
+                if normalized in _VALID_FINDING_CLASSIFICATIONS:
+                    merged[str(key)] = normalized
+        return merged
+
+    def finding_classification(self, finding: dict[str, Any]) -> str | None:
+        key = self.finding_policy_key(finding)
+        if not key:
+            return None
+        mapping = self.risk_classification
+        value = mapping.get(key)
+        if value in _VALID_FINDING_CLASSIFICATIONS:
+            return value
+        return None
+
+    def finding_policy_key(self, finding: dict[str, Any]) -> str | None:
+        mapping = self.risk_classification
+        for key in _finding_policy_keys(finding):
+            if key in mapping:
+                return key
+        return None
+
     def requires_sandbox(self, risk_level: RiskLevel) -> bool:
         return risk_level in self.require_sandbox_for_risk
 
@@ -224,3 +271,49 @@ class CompanyPolicy:
         if risk_level == RiskLevel.SUSPICIOUS:
             return SkillStatus.VETTED
         return SkillStatus.APPROVED
+
+
+def _finding_policy_keys(finding: dict[str, Any]) -> list[str]:
+    rule = str(finding.get("rule") or finding.get("rule_id") or "").strip().lower()
+    category = str(finding.get("category") or "").strip().lower()
+    file_path = str(finding.get("file") or finding.get("file_path") or "").strip().lower()
+    text = " ".join(
+        str(finding.get(key) or "")
+        for key in ("title", "message", "evidence", "category", "pattern", "finding", "explanation", "code_snippet")
+    ).lower()
+    haystack = f"{rule} {category} {text}"
+
+    keys: list[str] = []
+    if _is_documented_external_api_example(rule, file_path, haystack):
+        return ["documented_external_api"]
+    if rule in {"dependency_missing", "missing_dependency"} or category == "dependency":
+        keys.append("dependency")
+    if category == "runtime":
+        keys.append("runtime")
+    if "数据外传" in haystack or "data exfiltration" in haystack or "exfiltrat" in haystack or rule in {"data_exfiltration", "credential_exfiltration", "e1", "e2", "e3"}:
+        keys.append("data_exfiltration")
+    if "credential access" in haystack or "凭据访问" in haystack or "窃取凭据" in haystack or "steal credential" in haystack or rule == "credential_file_access":
+        keys.append("credential_access")
+    if "prompt injection" in haystack or "提示词注入" in haystack or "system prompt" in haystack or "系统提示词" in haystack:
+        keys.append("prompt_injection")
+    if "tool misuse" in haystack or "工具投毒" in haystack or "工具滥用" in haystack or rule == "agent_manager_bypass":
+        keys.append("tool_misuse")
+    if "supply chain" in haystack or "供应链" in haystack or "download and execute" in haystack or "下载后执行" in haystack or rule == "download_and_execute":
+        keys.append("supply_chain")
+    if category == "network" or "network access" in haystack or "网络访问" in haystack:
+        keys.append("network")
+    if rule in {"dynamic_code_execution", "os_command_execution", "subprocess_shell_true"} or "动态代码执行" in haystack:
+        keys.append("dynamic_execution")
+    if "最小权限" in haystack or "通配权限" in haystack or rule in {"tool_not_in_allowlist", "blocked_permission"}:
+        keys.append("excessive_permissions")
+    return keys
+
+
+def _is_documented_external_api_example(rule: str, file_path: str, haystack: str) -> bool:
+    if rule != "e1":
+        return False
+    if Path(file_path).name not in {"skill.md", "skill-card.md"}:
+        return False
+    if "http://" not in haystack and "https://" not in haystack:
+        return False
+    return any(token in haystack for token in ("curl ", "api ", "endpoint", "端点", "接口"))

