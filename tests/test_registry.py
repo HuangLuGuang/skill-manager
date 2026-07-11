@@ -16,6 +16,7 @@ from agent_manager.core.models import (
     SkillOrigin,
     SkillStatus,
     SourceInfo,
+    VettingResult,
 )
 from agent_manager.core.registry import Registry, make_event
 
@@ -177,6 +178,73 @@ class TestRegistry:
         registry.update(entry)
         updated = registry.get_by_id(entry.skill_id)
         assert updated.status == SkillStatus.DEPLOYED
+
+    def test_scan_report_is_stored_outside_registry_payload(self, registry):
+        entry = _make_entry("heavy-report")
+        large_report = {
+            "findings": [{"rule": "E1", "code_snippet": "x" * 1000} for _ in range(20)],
+            "risk_classification": {"items": [{"rule": "E1", "code_snippet": "x" * 1000} for _ in range(20)]},
+            "risk_level": "benign",
+        }
+        entry.vetting = VettingResult(scan_report=large_report, findings_count=40)
+
+        registry.add(entry)
+
+        with registry._connect() as conn:
+            payload = json.loads(conn.execute(
+                "SELECT payload FROM skill_registry WHERE skill_id = ?",
+                (entry.skill_id,),
+            ).fetchone()[0])
+            report_row = conn.execute(
+                "SELECT report FROM skill_scan_reports WHERE skill_id = ?",
+                (entry.skill_id,),
+            ).fetchone()
+
+        assert payload["vetting"]["scan_report"] == {}
+        assert report_row is not None
+        assert len(report_row["report"]) > 10_000
+        assert registry.get_by_id(entry.skill_id).vetting.scan_report == large_report
+
+    def test_legacy_payload_scan_report_is_migrated_to_cold_table(self, tmp_path):
+        registry = Registry(data_dir=tmp_path)
+        entry = _make_entry("legacy-heavy")
+        large_report = {"findings": [{"rule": "E1", "code_snippet": "x" * 1000}]}
+        entry.vetting = VettingResult(scan_report=large_report, findings_count=1)
+        payload = json.dumps(entry.model_dump(mode="json"), ensure_ascii=False, default=str)
+        with registry._connect() as conn:
+            conn.execute("DELETE FROM skill_registry")
+            conn.execute("DELETE FROM skill_scan_reports")
+            conn.execute(
+                """
+                INSERT INTO skill_registry (
+                    skill_id, name, status, risk_level, submitted_at, updated_at, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    entry.skill_id,
+                    entry.name,
+                    entry.status.value,
+                    entry.risk_level.value,
+                    entry.submitted_at.isoformat(),
+                    entry.updated_at.isoformat(),
+                    payload,
+                ),
+            )
+
+        migrated = Registry(data_dir=tmp_path)
+
+        with migrated._connect() as conn:
+            stored_payload = json.loads(conn.execute(
+                "SELECT payload FROM skill_registry WHERE skill_id = ?",
+                (entry.skill_id,),
+            ).fetchone()[0])
+            report_row = conn.execute(
+                "SELECT report FROM skill_scan_reports WHERE skill_id = ?",
+                (entry.skill_id,),
+            ).fetchone()
+        assert stored_payload["vetting"]["scan_report"] == {}
+        assert json.loads(report_row["report"]) == large_report
+        assert migrated.get_by_id(entry.skill_id).vetting.scan_report == large_report
 
     def test_refresh_signature_if_current_does_not_reactivate_changed_status(self, registry):
         entry = _make_entry("signed")

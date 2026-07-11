@@ -57,6 +57,7 @@ class Registry:
             self._lock = _LOCKS.setdefault(self._db_file.resolve(), threading.RLock())
         self._init_db()
         self._migrate_legacy_files()
+        self._migrate_inline_scan_reports()
         self._checkpoint()
 
     # ------------------------------------------------------------------ #
@@ -87,6 +88,12 @@ class Registry:
                 CREATE INDEX IF NOT EXISTS idx_skill_registry_status ON skill_registry(status);
                 CREATE INDEX IF NOT EXISTS idx_skill_registry_submitted_at ON skill_registry(submitted_at);
                 CREATE INDEX IF NOT EXISTS idx_skill_registry_updated_at ON skill_registry(updated_at);
+
+                CREATE TABLE IF NOT EXISTS skill_scan_reports (
+                    skill_id TEXT PRIMARY KEY,
+                    report TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
 
                 CREATE TABLE IF NOT EXISTS skill_review_queue (
                     skill_id TEXT PRIMARY KEY,
@@ -227,9 +234,62 @@ class Registry:
         tmp_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
         os.replace(tmp_path, path)
 
+    def _migrate_inline_scan_reports(self) -> None:
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT s.skill_id, s.payload, s.updated_at
+                FROM skill_registry s
+                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                WHERE r.skill_id IS NULL
+                """
+            ).fetchall()
+            for row in rows:
+                try:
+                    payload = json.loads(row["payload"])
+                except json.JSONDecodeError as exc:
+                    logger.warning("Skipping scan report migration for malformed skill row skill_id=%s: %s", row["skill_id"], exc)
+                    continue
+                vetting = payload.get("vetting")
+                if not isinstance(vetting, dict):
+                    continue
+                scan_report = vetting.get("scan_report")
+                if not scan_report:
+                    continue
+                vetting["scan_report"] = {}
+                conn.execute(
+                    """
+                    INSERT INTO skill_scan_reports (skill_id, report, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(skill_id) DO UPDATE SET
+                        report=excluded.report,
+                        updated_at=excluded.updated_at
+                    """,
+                    (
+                        row["skill_id"],
+                        json.dumps(scan_report, ensure_ascii=False, default=str),
+                        row["updated_at"],
+                    ),
+                )
+                conn.execute(
+                    "UPDATE skill_registry SET payload = ? WHERE skill_id = ?",
+                    (
+                        json.dumps(payload, ensure_ascii=False, default=str),
+                        row["skill_id"],
+                    ),
+                )
+
     def _upsert_entry(self, conn: sqlite3.Connection, entry: RegistryEntry) -> None:
         entry.updated_at = datetime.now(timezone.utc)
-        payload = json.dumps(entry.model_dump(mode="json"), ensure_ascii=False, default=str)
+        payload_data = entry.model_dump(mode="json")
+        scan_report = None
+        vetting = payload_data.get("vetting")
+        if isinstance(vetting, dict):
+            report = vetting.get("scan_report")
+            if report:
+                scan_report = report
+                vetting["scan_report"] = {}
+        payload = json.dumps(payload_data, ensure_ascii=False, default=str)
         conn.execute(
             """
             INSERT INTO skill_registry (
@@ -253,11 +313,30 @@ class Registry:
                 payload,
             ),
         )
+        if scan_report is not None:
+            conn.execute(
+                """
+                INSERT INTO skill_scan_reports (skill_id, report, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(skill_id) DO UPDATE SET
+                    report=excluded.report,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    entry.skill_id,
+                    json.dumps(scan_report, ensure_ascii=False, default=str),
+                    entry.updated_at.isoformat(),
+                ),
+            )
+        else:
+            conn.execute("DELETE FROM skill_scan_reports WHERE skill_id = ?", (entry.skill_id,))
 
     def _entry_from_row(self, row: sqlite3.Row) -> RegistryEntry:
         payload = json.loads(row["payload"])
         if "updated_at" not in payload and "updated_at" in row.keys():
             payload["updated_at"] = row["updated_at"]
+        if "scan_report" in row.keys() and row["scan_report"] and isinstance(payload.get("vetting"), dict):
+            payload["vetting"]["scan_report"] = json.loads(row["scan_report"])
         return RegistryEntry.model_validate(payload)
 
     def _entries_from_rows(self, rows: list[sqlite3.Row]) -> list[RegistryEntry]:
@@ -360,7 +439,12 @@ class Registry:
     ) -> RegistryEntry | None:
         with self._lock, self._connect() as conn:
             row = conn.execute(
-                "SELECT skill_id, name, payload, updated_at FROM skill_registry WHERE skill_id = ?",
+                """
+                SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
+                FROM skill_registry s
+                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                WHERE s.skill_id = ?
+                """,
                 (skill_id,),
             ).fetchone()
             entry = self._safe_entry_from_row(row)
@@ -376,11 +460,17 @@ class Registry:
             if cur.rowcount == 0:
                 raise KeyError(f"skill_id {skill_id!r} not found")
             conn.execute("DELETE FROM skill_review_queue WHERE skill_id = ?", (skill_id,))
+            conn.execute("DELETE FROM skill_scan_reports WHERE skill_id = ?", (skill_id,))
 
     def get_by_id(self, skill_id: str) -> RegistryEntry | None:
         with self._lock, self._connect() as conn:
             row = conn.execute(
-                "SELECT skill_id, name, payload, updated_at FROM skill_registry WHERE skill_id = ?",
+                """
+                SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
+                FROM skill_registry s
+                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                WHERE s.skill_id = ?
+                """,
                 (skill_id,),
             ).fetchone()
             return self._safe_entry_from_row(row)
@@ -390,9 +480,11 @@ class Registry:
         with self._lock, self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT skill_id, name, payload, updated_at FROM skill_registry
-                WHERE lower(name) = lower(?)
-                ORDER BY submitted_at DESC
+                SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
+                FROM skill_registry s
+                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                WHERE lower(s.name) = lower(?)
+                ORDER BY s.submitted_at DESC
                 LIMIT 1
                 """,
                 (name,),
@@ -404,15 +496,22 @@ class Registry:
             if status:
                 rows = conn.execute(
                     """
-                    SELECT skill_id, name, payload, updated_at FROM skill_registry
-                    WHERE status = ?
-                    ORDER BY updated_at DESC
+                    SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
+                    FROM skill_registry s
+                    LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                    WHERE s.status = ?
+                    ORDER BY s.updated_at DESC
                     """,
                     (status.value,),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT skill_id, name, payload, updated_at FROM skill_registry ORDER BY updated_at DESC"
+                    """
+                    SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
+                    FROM skill_registry s
+                    LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                    ORDER BY s.updated_at DESC
+                    """
                 ).fetchall()
             return self._entries_from_rows(rows)
 
@@ -549,9 +648,11 @@ class Registry:
             placeholders = ",".join("?" for _ in statuses)
             rows = conn.execute(
                 f"""
-                SELECT skill_id, name, payload, updated_at FROM skill_registry
-                WHERE status IN ({placeholders})
-                ORDER BY updated_at DESC
+                SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
+                FROM skill_registry s
+                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                WHERE s.status IN ({placeholders})
+                ORDER BY s.updated_at DESC
                 """,
                 tuple(s.value for s in statuses),
             ).fetchall()
@@ -562,9 +663,11 @@ class Registry:
         with self._lock, self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT skill_id, name, payload, updated_at FROM skill_registry
-                WHERE status IN (?, ?)
-                ORDER BY submitted_at DESC
+                SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
+                FROM skill_registry s
+                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                WHERE s.status IN (?, ?)
+                ORDER BY s.submitted_at DESC
                 """,
                 (SkillStatus.APPROVED.value, SkillStatus.DEPLOYED.value),
             ).fetchall()
