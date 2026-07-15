@@ -82,7 +82,7 @@ class SandboxResult(BaseModel):
     max_severity: str = "SAFE"
     risk_level: str = "LOW"
     summary: str = "Sandbox 未发现明确风险信号。"
-    recommendation: str = "可结合静态扫描结果继续评估。"
+    recommendation: str = "可结合规则分析和深度分析结果继续评估。"
     signals: list[SandboxEvent] = Field(default_factory=list)
 
 
@@ -498,13 +498,13 @@ def _finalize_result(result: SandboxResult) -> SandboxResult:
         if max_severity == "SAFE":
             max_severity = "LOW"
         summary = result.reason or "Sandbox 未执行。"
-        recommendation = "先确认 sandbox 后端可用性，再结合静态扫描结果继续评估。"
+        recommendation = "先确认 Sandbox 后端可用性，再结合规则分析和深度分析结果继续评估。"
     elif not signals:
         summary = "Sandbox 已执行，未提取到明确运行时风险信号。"
-        recommendation = "可结合静态扫描、LLM 和规则分析结果综合判断。"
+        recommendation = "可结合规则分析、深度分析和 LLM 分析结果综合判断。"
     elif probe_input_only:
         summary = "Sandbox probe 未能完整执行：引用的示例输入文件不存在。"
-        recommendation = "这通常不是 skill 的安全行为，可补充真实测试输入后重新执行 Sandbox，或结合静态扫描结果继续判断。"
+        recommendation = "这通常不是 Skill 的安全行为，可补充真实测试输入后重新执行 Sandbox，或结合规则分析和深度分析结果继续判断。"
     else:
         categories: list[str] = []
         for event in signals:

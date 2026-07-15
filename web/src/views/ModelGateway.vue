@@ -347,7 +347,7 @@
             :loading="mappingLoading"
             size="small"
             :pagination="mappingPagination"
-            :scroll="{ x: 1280 }"
+            :scroll="{ x: 1480 }"
             @change="handleMappingTableChange"
           >
             <template #bodyCell="{ column, record }">
@@ -360,6 +360,7 @@
               <template v-else-if="column.key === 'token'"><a-typography-text code :ellipsis="{ tooltip: record.token }">{{ record.token }}</a-typography-text></template>
               <template v-else-if="column.key === 'entity_type'">{{ entityLabel(record.entity_type) }}</template>
               <template v-else-if="column.key === 'original'"><a-typography-text :ellipsis="{ tooltip: record.original_value }">{{ record.original_value }}</a-typography-text></template>
+              <template v-else-if="column.key === 'created_at'">{{ formatDateTime(record.created_at) }}</template>
               <template v-else-if="column.key === 'expires_at'">{{ formatDateTime(record.expires_at) }}</template>
               <template v-else-if="column.key === 'action'">
                 <a-popconfirm title="确认删除这条映射？" @confirm="removeMapping(record)">
@@ -727,6 +728,7 @@ const mappingColumns = [
   { title: 'Token', key: 'token', width: 220 },
   { title: '类型', dataIndex: 'entity_type', key: 'entity_type', width: 220 },
   { title: '原始值', key: 'original', width: 180 },
+  { title: '写入时间', key: 'created_at', width: 170 },
   { title: '过期时间', key: 'expires_at', width: 170 },
   { title: '操作', key: 'action', width: 90, fixed: 'right' },
 ]
