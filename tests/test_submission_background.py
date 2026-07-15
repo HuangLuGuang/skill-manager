@@ -28,6 +28,14 @@ def _skill_zip() -> bytes:
     return buffer.getvalue()
 
 
+def _mixed_skill_zip() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("valid/SKILL.md", "---\nname: valid-skill\n---\n")
+        archive.writestr("invalid/SKILL.md", "# Skill without frontmatter\n")
+    return buffer.getvalue()
+
+
 def test_submit_zip_returns_before_slow_scan_finishes(tmp_path, monkeypatch):
     manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
 
@@ -52,6 +60,26 @@ def test_submit_zip_returns_before_slow_scan_finishes(tmp_path, monkeypatch):
         assert response.status_code == 200
         assert response.json()["status"] == "PENDING"
         assert elapsed < 0.4
+
+
+def test_prepare_upload_zip_keeps_valid_candidates_and_reports_invalid_ones(tmp_path, monkeypatch):
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    monkeypatch.setattr(api_router, "_manager", manager)
+
+    app = FastAPI()
+    app.include_router(api_router.router)
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+
+    response = TestClient(app).post(
+        "/skills/prepare-upload-zip",
+        files={"file": ("skill.zip", _mixed_skill_zip(), "application/zip")},
+    )
+
+    assert response.status_code == 200
+    items = {item["relative_path"]: item for item in response.json()["items"]}
+    assert items["valid"]["name"] == "valid-skill"
+    assert items["valid"]["error"] == ""
+    assert items["invalid"]["error"] == "SKILL.md 缺少 name 字段（格式：name: your-skill-name）"
 
 
 def test_safe_extract_zip_preserves_utf8_names_without_flag(tmp_path):

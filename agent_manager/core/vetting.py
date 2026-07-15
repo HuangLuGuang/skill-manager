@@ -122,15 +122,6 @@ def _llm_probe_args_safe(args: list[str]) -> bool:
     return all(str(arg).strip() not in _UNSAFE_LLM_PROBE_ARGS for arg in args)
 
 
-def _markdown_title(content: str) -> str | None:
-    for line in content.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("# "):
-            title = stripped[2:].strip()
-            if title:
-                return title
-    return None
-
 # --------------------------------------------------------------------------- #
 # Scanner integration                                                           #
 # --------------------------------------------------------------------------- #
@@ -192,20 +183,21 @@ def _load_manifest(skill_path: Path) -> tuple[str, str, list[str], str | None]:
     if frontmatter is not None:
         try:
             post = frontmatter.load(str(skill_md))
-            name = post.get("name") or post.get("skill-name") or skill_path.name
+        except Exception as exc:
+            logger.warning("python-frontmatter failed to parse %s; falling back to tolerant parser: %s", skill_md, exc)
+        else:
+            name = post.get("name") or post.get("skill-name")
+            if not name:
+                raise ValueError("SKILL.md 缺少 name 字段（格式：name: your-skill-name）")
             description = post.get("description") or ""
             raw_tools = post.get("allowed-tools") or post.get("allowed_tools") or []
             if isinstance(raw_tools, str):
                 raw_tools = [t.strip() for t in raw_tools.split(",") if t.strip()]
-            license_val = post.get("license")
-            return str(name), str(description), list(raw_tools), license_val
-        except Exception as exc:
-            logger.warning("python-frontmatter failed to parse %s; falling back to tolerant parser: %s", skill_md, exc)
+            return str(name), str(description), list(raw_tools), post.get("license")
 
     # Fallback: parse SKILL.md frontmatter without python-frontmatter.
     content, _encoding = read_text_fallback(skill_md)
-    markdown_name = _markdown_title(content)
-    name = markdown_name or skill_path.name
+    name = ""
     description = ""
     allowed_tools: list[str] = []
     license_val = None
@@ -226,20 +218,22 @@ def _load_manifest(skill_path: Path) -> tuple[str, str, list[str], str | None]:
         import yaml
 
         payload = yaml.safe_load(fm_text) or {}
-        if isinstance(payload, dict):
-            name = str(payload.get("name") or payload.get("skill-name") or name)
-            description = str(payload.get("description") or description)
-            raw_tools = payload.get("allowed-tools") or payload.get("allowed_tools") or []
-            if isinstance(raw_tools, str):
-                allowed_tools = [t.strip() for t in raw_tools.split(",") if t.strip()]
-            elif isinstance(raw_tools, list):
-                allowed_tools = [str(t).strip() for t in raw_tools if str(t).strip()]
-            license_raw = payload.get("license")
-            if license_raw is not None:
-                license_val = str(license_raw)
-            return name, description, allowed_tools, license_val
     except Exception:
-        pass
+        payload = None
+    if isinstance(payload, dict):
+        name = str(payload.get("name") or payload.get("skill-name") or "").strip()
+        if not name:
+            raise ValueError("SKILL.md 缺少 name 字段（格式：name: your-skill-name）")
+        description = str(payload.get("description") or description)
+        raw_tools = payload.get("allowed-tools") or payload.get("allowed_tools") or []
+        if isinstance(raw_tools, str):
+            allowed_tools = [t.strip() for t in raw_tools.split(",") if t.strip()]
+        elif isinstance(raw_tools, list):
+            allowed_tools = [str(t).strip() for t in raw_tools if str(t).strip()]
+        license_raw = payload.get("license")
+        if license_raw is not None:
+            license_val = str(license_raw)
+        return name, description, allowed_tools, license_val
 
     for line in fm_lines:
         if line.startswith("name:"):
@@ -253,6 +247,8 @@ def _load_manifest(skill_path: Path) -> tuple[str, str, list[str], str | None]:
             if raw:
                 allowed_tools = [t.strip() for t in raw.split(",") if t.strip()]
 
+    if not name:
+        raise ValueError("SKILL.md 缺少 name 字段（格式：name: your-skill-name）")
     return name, description, allowed_tools, license_val
 
 

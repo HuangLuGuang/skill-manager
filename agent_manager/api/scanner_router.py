@@ -31,6 +31,7 @@ from agent_manager.api.router import (
 from agent_manager.core.manager import AgentManager
 from agent_manager.core.models import AuditEvent, RegistryEntry, SkillOrigin, SourceInfo
 from agent_manager.core.scanner_tokens import DEFAULT_SCOPES, ScannerToken, ScannerTokenStore
+from agent_manager.core.vetting import _load_manifest
 from backend.models import AccessToken
 from backend.routers.access_tokens import (
     ensure_agent_prompt_allowed,
@@ -593,6 +594,13 @@ async def submit_scanner_import(
             parsed_manifest = json.loads(manifest)
         except json.JSONDecodeError as exc:
             raise HTTPException(status_code=400, detail=f"Invalid manifest JSON: {exc}") from exc
+        if not isinstance(parsed_manifest, dict):
+            raise HTTPException(status_code=400, detail="Invalid manifest JSON: expected an object")
+        if not str(parsed_manifest.get("name") or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail="SKILL.md 缺少 name 字段（格式：name: your-skill-name）",
+            )
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="agent-manager-scanner-"))
     try:
@@ -605,6 +613,10 @@ async def submit_scanner_import(
         extract_dir = tmp_dir / "skill"
         _extract_zip_with_nested_archives(zip_path, extract_dir)
         skill_root = _resolve_skill_root(extract_dir)
+        try:
+            _load_manifest(skill_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         server_manifest = _fingerprint_skill_dir(skill_root)
         if parsed_manifest and parsed_manifest.get("fingerprint") != server_manifest["fingerprint"]:
             raise HTTPException(

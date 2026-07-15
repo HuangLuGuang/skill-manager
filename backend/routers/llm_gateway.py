@@ -1,4 +1,5 @@
 import hashlib
+import ipaddress
 import json
 import math
 import random
@@ -27,31 +28,38 @@ admin_router = APIRouter(prefix="/v1", tags=["llm-gateway-admin"])
 runtime_router = APIRouter(tags=["llm-gateway"])
 
 DEFAULT_ENTITY_TYPES = [
-    "PERSON",
     "CN_PERSON",
-    "PHONE_NUMBER",
+    "CN_ID_CARD",
+    "CN_MOBILE",
+    "CN_LANDLINE",
+    "CN_BANK_CARD",
     "EMAIL_ADDRESS",
-    "CREDIT_CARD",
-    "US_SSN",
-    "ID_CARD",
+    "IP_ADDRESS",
+    "CN_LICENSE_PLATE",
+    "CN_USCC",
+    "CN_ADDRESS",
     "EMPLOYEE_ID",
     "CUSTOMER_ID",
     "ACCOUNT_ID",
 ]
 DEFAULT_ENTITY_PATTERNS = {
-    "PERSON": r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}\b",
+    "CN_PERSON": "",
+    "CN_ID_CARD": r"(?<!\d)[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx](?!\d)",
+    "CN_MOBILE": r"(?<!\d)(?:\+?86[- ]?)?1[3-9]\d{9}(?!\d)",
+    "CN_LANDLINE": "",
+    "CN_BANK_CARD": r"(?<!\d)(?:\d[ -]?){15,18}\d(?!\d)",
     "EMAIL_ADDRESS": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
-    "PHONE_NUMBER": r"(?<!\d)(?:\+?\d[\d\s().-]{7,}\d)(?!\d)",
-    "CREDIT_CARD": r"(?<!\d)(?:\d[ -]*?){13,19}(?!\d)",
-    "US_SSN": r"\b\d{3}-\d{2}-\d{4}\b",
-    "ID_CARD": r"\b\d{15}(?:\d{2}[\dXx])?\b",
+    "IP_ADDRESS": r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])|(?<![\w:])(?:[0-9A-Fa-f]{1,4}:){2,7}[0-9A-Fa-f]{0,4}(?![\w:])",
+    "CN_LICENSE_PLATE": r"(?<![A-Z0-9\u4e00-\u9fff])[\u4eac\u6d25\u6caa\u6e1d\u5180\u8c6b\u4e91\u8fbd\u9ed1\u6e58\u7696\u9c81\u65b0\u82cf\u6d59\u8d63\u9102\u6842\u7518\u664b\u8499\u9655\u5409\u95fd\u8d35\u7ca4\u9752\u85cf\u5ddd\u5b81\u743c][A-HJ-NP-Z](?:[DF][A-HJ-NP-Z0-9]\d{4}|\d{5}[DF]|[A-HJ-NP-Z0-9]{5})(?![A-Z0-9])",
+    "CN_USCC": r"(?<![0-9A-Z])[0-9A-HJ-NPQRTUWXY]{18}(?![0-9A-Z])",
+    "CN_ADDRESS": "",
     "EMPLOYEE_ID": r"\b(?:EMP|Employee|员工)[-_:# ]?[A-Za-z0-9]{4,}\b",
     "CUSTOMER_ID": r"\b(?:CUST|Customer|客户)[-_:# ]?[A-Za-z0-9]{4,}\b",
     "ACCOUNT_ID": r"\b(?:ACCT|Account|账号)[-_:# ]?[A-Za-z0-9]{4,}\b",
 }
 DEFAULT_ENTITY_RULES = {name: DEFAULT_ENTITY_PATTERNS.get(name, "") for name in DEFAULT_ENTITY_TYPES}
 PLACEHOLDER_PRESERVATION_SYSTEM_PROMPT = (
-    "Each token like <PERSON:p_abc> or <PHONE_NUMBER:ph_xyz> is encoded private data. "
+    "Each token like <CN_PERSON:cnp_abc> or <CN_MOBILE:mobile_xyz> is encoded private data. "
     "Treat these tokens as the real values and preserve them naturally in the answer. "
     "Do not explain that they are placeholders."
 )
@@ -84,6 +92,10 @@ COMMON_CN_SURNAMES = (
     "国文寇广禄阙东殴殳沃利蔚越夔隆师巩厍聂晁勾敖融冷訾辛阚那简饶空"
     "曾毋沙乜养鞠须丰巢关蒯相查后荆红游竺权逯盖益桓公"
 )
+COMMON_CN_COMPOUND_SURNAMES = "欧阳|司马|上官|诸葛|东方|尉迟|公孙|慕容|令狐|长孙|宇文|司徒|司空|夏侯|皇甫"
+CN_NAME_STOPWORDS = {
+    "万份", "万手", "万市值", "成交额", "成交量", "全面", "空头", "步骤",
+}
 
 
 def _json_loads(value: str | None, default: Any) -> Any:
@@ -331,6 +343,7 @@ def _policy_response(row: models.PrivacyPolicy) -> schemas.PrivacyPolicyResponse
     return schemas.PrivacyPolicyResponse(
         id=row.id,
         name=row.name,
+        enabled=row.enabled,
         group_id=row.group_id,
         entity_types=_json_loads(row.entity_types_json, DEFAULT_ENTITY_TYPES),
         entity_rules={**DEFAULT_ENTITY_RULES, **_json_loads(getattr(row, "entity_rules_json", None), {})},
@@ -416,6 +429,7 @@ def _get_default_policy(db: Session) -> models.PrivacyPolicy:
         return policy
     policy = models.PrivacyPolicy(
         name="默认隐私策略",
+        enabled=True,
         group_id=None,
         entity_types_json=_json_dumps(DEFAULT_ENTITY_TYPES),
         entity_rules_json=_json_dumps(DEFAULT_ENTITY_RULES),
@@ -535,27 +549,112 @@ def _normalize_value(entity_type: str, value: str) -> str:
     value = value.strip()
     if entity_type in {"EMAIL_ADDRESS", "URL"}:
         return value.lower()
-    if entity_type in {"PHONE_NUMBER", "CREDIT_CARD", "US_SSN", "ID_CARD"}:
+    if entity_type in {"CN_MOBILE", "CN_LANDLINE", "CN_BANK_CARD", "CN_ID_CARD", "PHONE_NUMBER", "CREDIT_CARD", "US_SSN", "ID_CARD"}:
         return re.sub(r"\D+", "", value)
     return re.sub(r"\s+", " ", value).lower()
+
+
+def _valid_cn_id_card(value: str) -> bool:
+    value = value.upper()
+    if not re.fullmatch(r"\d{17}[\dX]", value):
+        return False
+    if value[:2] not in {
+        "11", "12", "13", "14", "15", "21", "22", "23", "31", "32", "33", "34", "35", "36", "37",
+        "41", "42", "43", "44", "45", "46", "50", "51", "52", "53", "54", "61", "62", "63", "64", "65",
+        "71", "81", "82",
+    }:
+        return False
+    try:
+        datetime.strptime(value[6:14], "%Y%m%d")
+    except ValueError:
+        return False
+    weights = (7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2)
+    checks = "10X98765432"
+    return checks[sum(int(digit) * weight for digit, weight in zip(value[:17], weights)) % 11] == value[-1]
+
+
+def _valid_luhn(value: str) -> bool:
+    digits = re.sub(r"\D", "", value)
+    if not 16 <= len(digits) <= 19:
+        return False
+    total = 0
+    parity = len(digits) % 2
+    for index, digit in enumerate(map(int, digits)):
+        if index % 2 == parity:
+            digit *= 2
+            if digit > 9:
+                digit -= 9
+        total += digit
+    return total % 10 == 0
+
+
+def _valid_uscc(value: str) -> bool:
+    charset = "0123456789ABCDEFGHJKLMNPQRTUWXY"
+    weights = (1, 3, 9, 27, 19, 26, 16, 17, 20, 29, 25, 13, 8, 24, 10, 30, 28)
+    value = value.upper()
+    if len(value) != 18 or any(char not in charset for char in value):
+        return False
+    expected = charset[(31 - sum(charset.index(char) * weight for char, weight in zip(value[:17], weights)) % 31) % 31]
+    return value[-1] == expected
+
+
+def _valid_ip_address(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _add_matches(entities, entity_type: str, matches, *, score: float, group: int = 0, validator=None) -> None:
+    for match in matches:
+        value = match.group(group)
+        if validator and not validator(value):
+            continue
+        entities.append({
+            "entity_type": entity_type,
+            "start": match.start(group),
+            "end": match.end(group),
+            "score": score,
+        })
 
 
 def _detect_entities(text: str, allowed_types: set[str], entity_rules: dict[str, str] | None = None) -> list[dict[str, Any]]:
     patterns = {**DEFAULT_ENTITY_PATTERNS, **{k: v for k, v in (entity_rules or {}).items() if v}}
     entities: list[dict[str, Any]] = []
+    validated_types = {"CN_PERSON", "CN_ID_CARD", "CN_MOBILE", "CN_LANDLINE", "CN_BANK_CARD", "IP_ADDRESS", "CN_USCC", "CN_ADDRESS"}
     for entity_type, pattern in patterns.items():
-        if entity_type not in allowed_types:
+        if entity_type not in allowed_types or entity_type in validated_types or not pattern:
             continue
         try:
             matches = re.finditer(pattern, text)
         except re.error:
             continue
-        for match in matches:
-            entities.append({"entity_type": entity_type, "start": match.start(), "end": match.end(), "score": 0.85})
+        _add_matches(entities, entity_type, matches, score=0.85)
+
+    validated_rules = (
+        ("CN_ID_CARD", 0.99, _valid_cn_id_card),
+        ("CN_MOBILE", 0.96, None),
+        ("CN_BANK_CARD", 0.95, _valid_luhn),
+        ("IP_ADDRESS", 0.98, _valid_ip_address),
+        ("CN_USCC", 0.99, _valid_uscc),
+    )
+    for entity_type, score, validator in validated_rules:
+        pattern = patterns.get(entity_type)
+        if entity_type not in allowed_types or not pattern:
+            continue
+        try:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+        except re.error:
+            continue
+        _add_matches(entities, entity_type, matches, score=score, validator=validator)
+
     if "CN_PERSON" in allowed_types:
-        cn_name_core = rf"[{COMMON_CN_SURNAMES}][\u4e00-\u9fff]{{1,2}}"
-        context_pattern = rf"(?:我叫|叫我|姓名(?:是|为)?|名字(?:是|叫)?|用户叫|候选人(?:叫|姓名)?|联系人(?:是|为)?|客户(?:叫|姓名)?|孩子(?:叫|名叫|姓名(?:是|为)?)|小孩(?:叫|名叫|姓名(?:是|为)?))[：:\\s]*({cn_name_core})"
+        cn_name_core = rf"(?:(?:{COMMON_CN_COMPOUND_SURNAMES})[\u4e00-\u9fff]{{1,2}}|[{COMMON_CN_SURNAMES}][\u4e00-\u9fff]{{1,2}})"
+        context_pattern = rf"(?:我叫|叫我|名叫|姓名(?:是|为)?|名字(?:是|叫)?|用户(?:叫|姓名)|候选人(?:叫|姓名)|联系人(?:是|为)?|负责人(?:是|为)?|客户(?:叫|姓名)|法人(?:是|为)?|孩子(?:叫|名叫|姓名(?:是|为)?)|小孩(?:叫|名叫|姓名(?:是|为)?))[：:\s]*({cn_name_core})"
         for match in re.finditer(context_pattern, text):
+            if match.group(1) in CN_NAME_STOPWORDS:
+                continue
             entities.append(
                 {
                     "entity_type": "CN_PERSON",
@@ -564,20 +663,46 @@ def _detect_entities(text: str, allowed_types: set[str], entity_rules: dict[str,
                     "score": 0.9,
                 }
             )
-        cn_name_pattern = rf"(?<![\u4e00-\u9fff])(?:[{COMMON_CN_SURNAMES}])[\u4e00-\u9fff]{{1,2}}(?![\u4e00-\u9fff])"
-        for match in re.finditer(cn_name_pattern, text):
-            entities.append({"entity_type": "CN_PERSON", "start": match.start(), "end": match.end(), "score": 0.5})
-        suffix_pattern = rf"(?<![\u4e00-\u9fff])({cn_name_core})(?=这个|这人|此人|怎么样|如何|吗|呢|，|。|、|；|：|,|;|:|\s|$)"
+        suffix_pattern = rf"({cn_name_core})(?=先生|女士|老师|经理|总监|主任|同学|医生|律师|这个人|此人)"
         for match in re.finditer(suffix_pattern, text):
+            if match.group(1) in CN_NAME_STOPWORDS:
+                continue
             entities.append(
                 {
                     "entity_type": "CN_PERSON",
                     "start": match.start(1),
                     "end": match.end(1),
-                    "score": 0.65,
+                    "score": 0.88,
                 }
             )
-    entities.sort(key=lambda item: (item["start"], -(item["end"] - item["start"]), -item["score"]))
+
+    if "CN_LANDLINE" in allowed_types:
+        pattern = r"(?:座机|固定电话|联系电话|电话|Tel)[：:\s]*((?:0\d{2,3}[- ]?)?[2-9]\d{6,7}(?:-\d{1,6})?)"
+        _add_matches(entities, "CN_LANDLINE", re.finditer(pattern, text, re.IGNORECASE), score=0.93, group=1)
+
+    if "CN_ADDRESS" in allowed_types:
+        pattern = r"(?:收货地址|家庭住址|注册地址|通讯地址|联系地址|地址|住址)[：:\s]*([^\n，,;；。.!！?？]{6,80})"
+        for match in re.finditer(pattern, text):
+            value = match.group(1).strip()
+            markers = re.findall(r"省|自治区|市|区|县|镇|街道|路|街|巷|村|小区|大厦|号|室", value)
+            if len(markers) < 2:
+                continue
+            leading = len(match.group(1)) - len(match.group(1).lstrip())
+            entities.append({
+                "entity_type": "CN_ADDRESS",
+                "start": match.start(1) + leading,
+                "end": match.start(1) + leading + len(value),
+                "score": 0.9,
+            })
+
+    custom_cn_person = (entity_rules or {}).get("CN_PERSON")
+    if "CN_PERSON" in allowed_types and custom_cn_person:
+        try:
+            _add_matches(entities, "CN_PERSON", re.finditer(custom_cn_person, text), score=0.85)
+        except re.error:
+            pass
+
+    entities.sort(key=lambda item: (item["start"], -item["score"], -(item["end"] - item["start"])))
     accepted: list[dict[str, Any]] = []
     for candidate in entities:
         if any(not (candidate["end"] <= item["start"] or candidate["start"] >= item["end"]) for item in accepted):
@@ -589,13 +714,16 @@ def _detect_entities(text: str, allowed_types: set[str], entity_rules: dict[str,
 def _token_for(tenant_id: str, conversation_id: str, entity_type: str, normalized_value: str) -> str:
     digest = hashlib.sha256(f"{tenant_id}:{conversation_id}:{entity_type}:{normalized_value}".encode("utf-8")).hexdigest()
     prefix = {
-        "PERSON": "p",
         "CN_PERSON": "cnp",
-        "PHONE_NUMBER": "ph",
+        "CN_ID_CARD": "id",
+        "CN_MOBILE": "mobile",
+        "CN_LANDLINE": "tel",
+        "CN_BANK_CARD": "bank",
         "EMAIL_ADDRESS": "em",
-        "CREDIT_CARD": "cc",
-        "US_SSN": "ssn",
-        "ID_CARD": "id",
+        "IP_ADDRESS": "ip",
+        "CN_LICENSE_PLATE": "plate",
+        "CN_USCC": "uscc",
+        "CN_ADDRESS": "addr",
         "EMPLOYEE_ID": "emp",
         "CUSTOMER_ID": "cust",
         "ACCOUNT_ID": "acct",
@@ -2292,9 +2420,11 @@ async def _chat_completions_with_key(
     tenant_id = metadata.get("tenant_id") or f"group-{key.group_id or 'default'}"
     user_ref = metadata.get("user_id") or (f"user-{key.user_id}" if key.user_id else f"key-{key.id}")
     conversation_id = payload.conversation_id or metadata.get("conversation_id") or f"conv-{uuid.uuid4().hex}"
-    bypass_pii = str(metadata.get("bypass_pii_check", "")).lower() in {"1", "true", "yes", "on"}
-    if bypass_pii and not policy.allow_bypass:
+    privacy_enabled = bool(policy.enabled)
+    requested_bypass = str(metadata.get("bypass_pii_check", "")).lower() in {"1", "true", "yes", "on"}
+    if privacy_enabled and requested_bypass and not policy.allow_bypass:
         raise HTTPException(status_code=403, detail="当前策略不允许绕过 PII 检查")
+    bypass_pii = requested_bypass or not privacy_enabled
 
     original_messages = [_strip_undefined_values(message.model_dump()) for message in payload.messages]
     prompt_security = _scan_prompt_security(
@@ -2372,7 +2502,7 @@ async def _chat_completions_with_key(
             rewritten_messages.append(rewritten_message)
 
     rewritten_messages = _redact_known_values(rewritten_messages, all_mappings, skip_fields=pseudonymized_fields)
-    upstream_messages = [{"role": "system", "content": PLACEHOLDER_PRESERVATION_SYSTEM_PROMPT, "system": True}, *rewritten_messages]
+    upstream_messages = rewritten_messages if bypass_pii else [{"role": "system", "content": PLACEHOLDER_PRESERVATION_SYSTEM_PROMPT, "system": True}, *rewritten_messages]
     body = payload.model_dump(exclude={"metadata", "conversation_id"}, exclude_none=True)
     body["model"] = model.name
     body["messages"] = [
@@ -2427,6 +2557,7 @@ async def _chat_completions_with_key(
                 "x-tenant-id": tenant_id,
                 "x-conversation-id": conversation_id,
                 "x-traffic-type": "pii_bypass" if bypass_pii else "pii_checked",
+                "x-privacy-policy": "enabled" if privacy_enabled else "disabled",
                 "x-prompt-guard": prompt_security.get("action", "off"),
                 "x-compression": (
                     "on" if compression_result and compression_result.applied
@@ -2557,6 +2688,7 @@ async def _chat_completions_with_key(
         response.headers["x-tenant-id"] = tenant_id
         response.headers["x-conversation-id"] = conversation_id
         response.headers["x-traffic-type"] = "pii_bypass" if bypass_pii else "pii_checked"
+        response.headers["x-privacy-policy"] = "enabled" if privacy_enabled else "disabled"
         response.headers["x-prompt-guard"] = prompt_security.get("action", "off")
         response.headers["x-compression"] = (
             "on" if compression_result and compression_result.applied

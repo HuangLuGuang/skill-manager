@@ -235,7 +235,7 @@ Prompt 不再作为主流程里的独立上传资产。平台默认在模型网�
 首版策略项：
 
 - `entity_types`：启用的实体类型
-- `entity_rules`：按实体类型配置正则规则，例如为 `PHONE_NUMBER` 或企业自定义员工号配置专用识别模式
+- `entity_rules`：按实体类型配置正则规则，例如为企业自定义员工号配置专用识别模式
 - `detect_system_messages`：是否扫描 system 消息
 - `allow_bypass`：是否允许请求通过 `metadata.bypass_pii_check=true` 绕过 PII 检测
 - `mapping_ttl_days`：伪匿名映射和 Trace 保留时间
@@ -244,17 +244,16 @@ Prompt 不再作为主流程里的独立上传资产。平台默认在模型网�
 默认实体类型：
 
 ```text
-PERSON,CN_PERSON,PHONE_NUMBER,EMAIL_ADDRESS,CREDIT_CARD,US_SSN,ID_CARD,EMPLOYEE_ID,CUSTOMER_ID,ACCOUNT_ID
+CN_PERSON,CN_ID_CARD,CN_MOBILE,CN_LANDLINE,CN_BANK_CARD,EMAIL_ADDRESS,IP_ADDRESS,CN_LICENSE_PLATE,CN_USCC,CN_ADDRESS,EMPLOYEE_ID,CUSTOMER_ID,ACCOUNT_ID
 ```
 
-PII 检测是首版轻量规则：
+PII 检测默认按中国业务场景精准率优先：
 
-- 邮箱、电话、信用卡、SSN、身份证、员工号、客户号、账号等使用正则。
-- 中文姓名使用常见姓氏 + 1-2 字名的基础规则。
-- 英文姓名使用首字母大写词组规则。
-- 管理台可在 `隐私策略` 页面按“实体类型 + 正则规则”逐条配置规则。选择一个伪匿名实体类型时，会自动新增对应的实体规则行，例如 `PHONE_NUMBER` 可配置为 `(?<!\d)1[3-9]\d{9}(?!\d)`，`EMPLOYEE_ID` 可配置为 `\bSTAFF-\d{6}\b`。
-
-这不是完整 NER 引擎。生产场景如需更高召回率，可以后续替换为 Presidio 或企业自定义识别器。
+- 中国居民身份证校验省级地区码、出生日期和校验位。
+- 银行卡号使用 Luhn 校验，统一社会信用代码校验末位校验码，IP 地址使用标准地址解析。
+- 中文姓名只在“姓名、联系人、负责人”等上下文或“先生、女士、老师”等称谓中识别，不做全文姓氏猜测。
+- 座机号和中国地址需要明确中文字段上下文；日期、小数、数字区间不会作为手机号。
+- 管理台可继续为员工号、客户号等企业字段配置自定义正则。
 
 ---
 

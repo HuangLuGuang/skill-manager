@@ -61,6 +61,8 @@ def ensure_sqlite_schema() -> None:
         return
     with engine.begin() as conn:
         columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(privacy_policies)").fetchall()}
+        if "enabled" not in columns:
+            conn.exec_driver_sql("ALTER TABLE privacy_policies ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT 1")
         if "entity_rules_json" not in columns:
             conn.exec_driver_sql("ALTER TABLE privacy_policies ADD COLUMN entity_rules_json TEXT NOT NULL DEFAULT '{}'")
         agent_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(managed_agents)").fetchall()}

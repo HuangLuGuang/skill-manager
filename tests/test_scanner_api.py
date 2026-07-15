@@ -94,8 +94,18 @@ def test_scanner_import_accepts_scanner_token(tmp_path):
             "/api/v1/scanner/imports",
             headers={"Authorization": f"Bearer {token}"},
             files={"file": ("skill.zip", _skill_zip(), "application/zip")},
+            data={"manifest": json.dumps({"root": "/opt/skills/claw-and-order", "name": ""})},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "SKILL.md 缺少 name 字段（格式：name: your-skill-name）"
+
+        response = client.post(
+            "/api/v1/scanner/imports",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": ("skill.zip", _skill_zip(), "application/zip")},
             data={
-                "manifest": json.dumps({"fingerprint": None}),
+                "manifest": json.dumps({"name": "api-skill", "fingerprint": None}),
                 "use_behavioral": "false",
                 "use_llm": "false",
                 "use_sandbox": "false",

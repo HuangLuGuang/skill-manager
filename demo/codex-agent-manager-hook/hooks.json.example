@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 /ABSOLUTE/PATH/skill-manager/demo/codex-agent-manager-hook/codex_agent_guard_hook.py --env-file /ABSOLUTE/PATH/codex-agent-manager-hook.env",
+            "timeout": 30,
+            "statusMessage": "正在通过 Agent Manager 校验 Codex Skills"
+          }
+        ]
+      }
+    ]
+  }
+}

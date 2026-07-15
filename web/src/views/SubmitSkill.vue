@@ -40,7 +40,7 @@
                 <a-button @click="resetZip" :disabled="submitting || loadingZipCandidates">重置</a-button>
               </a-space>
             </a-form-item>
-            <a-form-item v-if="uploadCandidates.length" label="选择目录">
+            <a-form-item v-if="validUploadCandidates.length" label="选择目录">
               <a-select
                 v-model:value="selectedUploadDirectories"
                 class="remote-import-select"
@@ -58,7 +58,7 @@
                 <a-button size="small" @click="clearUploadDirectories" :disabled="!selectedUploadDirectories.length">全部清除</a-button>
               </a-space>
             </a-form-item>
-            <a-form-item v-if="uploadCandidates.length" label="选择要导入的技能">
+            <a-form-item v-if="validUploadCandidates.length" label="选择要导入的技能">
               <a-select
                 v-model:value="selectedUploadPaths"
                 class="remote-import-select"
@@ -208,162 +208,6 @@
           </a-form>
         </a-tab-pane>
 
-        <a-tab-pane key="url" tab="网络下载导入">
-          <a-form layout="vertical" @finish="handleRemoteFormFinish">
-            <a-form-item label="下载地址">
-              <a-input v-model:value="downloadUrl" class="remote-import-input" allow-clear placeholder="https://example.com/skill.zip 或 https://github.com/org/repo" />
-              <div class="field-hint">支持直接填 ZIP 下载地址，也支持 GitHub 仓库地址；如果压缩包里包含多个 skill，会先解析候选目录供你多选。</div>
-            </a-form-item>
-            <a-form-item v-if="remoteCandidates.length" label="选择目录">
-              <a-select
-                v-model:value="selectedRemoteDirectories"
-                class="remote-import-select"
-                mode="multiple"
-                :loading="loadingRemoteCandidates"
-                allow-clear
-                placeholder="先选择要查看的目录，可多选"
-                :options="remoteDirectorySelectOptions"
-                option-filter-prop="label"
-                option-label-prop="label"
-              />
-              <div class="field-hint">先选目录，再从目录中的 技能列表里多选要导入的项。</div>
-              <a-space style="margin-top: 8px" wrap>
-                <a-button size="small" @click="selectAllRemoteDirectories" :disabled="!remoteDirectoryOptions.length">全选目录</a-button>
-                <a-button size="small" @click="clearRemoteDirectories" :disabled="!selectedRemoteDirectories.length">全部清除</a-button>
-              </a-space>
-            </a-form-item>
-            <a-form-item v-if="remoteCandidates.length" label="选择要导入的技能">
-              <a-select
-                v-model:value="selectedRemotePaths"
-                class="remote-import-select"
-                mode="multiple"
-                :loading="loadingRemoteCandidates"
-                allow-clear
-                :placeholder="selectedRemoteDirectories.length ? '从所选目录中多选要导入的技能' : '请先选择目录'"
-                :options="remoteSkillSelectOptions"
-                option-filter-prop="label"
-                option-label-prop="label"
-              />
-              <div class="field-hint">本次远程导入会话：{{ remoteImportRootPath || '-' }}</div>
-              <a-space style="margin-top: 8px" wrap>
-                <a-button size="small" @click="selectAllRemoteSkills" :disabled="!filteredRemoteCandidates.length">全选当前目录技能</a-button>
-                <a-button size="small" @click="clearRemoteSkills" :disabled="!selectedRemotePaths.length">全部清除</a-button>
-              </a-space>
-            </a-form-item>
-            <a-alert
-              type="info"
-              show-icon
-              style="margin-bottom: 16px"
-              :message="`当前提交人：${currentUsername}`"
-              :description="`当前来源：${inferRemoteOrigin(downloadUrl.trim())}`"
-            />
-            <a-form-item>
-              <a-space wrap>
-                <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="deepScanTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSkillspector" :disabled="!deepScanReadyForSubmit">启动深度扫描</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="llmTooltip">
-                  <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip title="强制重新扫描，不复用之前的扫描结果">
-                  <span><a-checkbox v-model:checked="formState.noCache">禁用缓存</a-checkbox></span>
-                </a-tooltip>
-              </a-space>
-            </a-form-item>
-            <a-form-item>
-              <a-space>
-                <a-button
-                  v-if="!remoteImportSessionId"
-                  type="primary"
-                  :loading="loadingRemoteCandidates"
-                  :disabled="submitting || loadingRemoteCandidates || !downloadUrl.trim()"
-                  @click="prepareUrlImport"
-                >
-                  下载
-                </a-button>
-                <a-button
-                  type="primary"
-                  ghost
-                  :loading="submitting"
-                  :disabled="submitting || !remoteImportSessionId || !selectedRemotePaths.length"
-                  @click="handleUrlSubmit"
-                >
-                  提交所选技能
-                </a-button>
-                <a-popconfirm
-                  v-if="remoteImportSessionId"
-                  title="重新下载会清空当前已解析的候选技能和选择，确认继续？"
-                  ok-text="重新下载"
-                  cancel-text="取消"
-                  @confirm="prepareUrlImport"
-                >
-                  <a-button :loading="loadingRemoteCandidates" :disabled="submitting || loadingRemoteCandidates || !downloadUrl.trim()">
-                    重新下载
-                  </a-button>
-                </a-popconfirm>
-                <a-button @click="resetRemoteImport" :disabled="submitting || loadingRemoteCandidates">清空</a-button>
-              </a-space>
-            </a-form-item>
-          </a-form>
-        </a-tab-pane>
-
-        <a-tab-pane key="clawhub" tab="ClawHub 导入">
-          <a-form layout="vertical" @finish="handleClawHubSubmit">
-            <a-form-item label="ClawHub 地址">
-              <a-input v-model:value="clawhubUrl" placeholder="ClawHub 详情页地址或 ZIP 下载地址" />
-            </a-form-item>
-            <a-form-item label="访问 Token（可选）">
-              <a-input-password v-model:value="clawhubToken" placeholder="如果 ClawHub 需要认证，可填写 token" autocomplete="new-password" />
-              <div class="field-hint">当前版本会优先尝试直接下载；如果返回的是页面，会尝试从页面里解析 ZIP 链接。</div>
-            </a-form-item>
-            <a-alert
-              type="info"
-              show-icon
-              style="margin-bottom: 16px"
-              :message="`当前提交人：${currentUsername}`"
-              description="当前来源：clawhub"
-            />
-            <a-form-item>
-              <a-space wrap>
-                <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="deepScanTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSkillspector" :disabled="!deepScanReadyForSubmit">启动深度扫描</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="llmTooltip">
-                  <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip title="强制重新扫描，不复用之前的扫描结果">
-                  <span><a-checkbox v-model:checked="formState.noCache">禁用缓存</a-checkbox></span>
-                </a-tooltip>
-              </a-space>
-            </a-form-item>
-            <a-form-item>
-              <a-space>
-                <a-button
-                  type="primary"
-                  :loading="submitting"
-                  :disabled="submitting || !clawhubUrl.trim()"
-                  @click="handleClawHubSubmit"
-                >
-                  从 ClawHub 导入
-                </a-button>
-                <a-button @click="resetClawHub" :disabled="submitting">清空</a-button>
-              </a-space>
-            </a-form-item>
-          </a-form>
-        </a-tab-pane>
-
         <a-tab-pane key="scanner" tab="Skill 扫描器">
           <ScannerAccess embedded />
         </a-tab-pane>
@@ -413,9 +257,9 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
 import { InboxOutlined } from '@ant-design/icons-vue'
 import ScannerAccess from './ScannerAccess.vue'
 
@@ -424,10 +268,7 @@ import {
   getSkillDetail,
   getAgentManagerSystemStatus,
   prepareUploadZip,
-  prepareRemoteImport,
   submitLocalSkills,
-  submitClawHubSkill,
-  submitRemoteSelected,
   submitUploadSelected,
 } from '../api'
 
@@ -437,7 +278,6 @@ const showLocalImport = false
 const submitting = ref(false)
 const loadingSystemStatus = ref(false)
 const loadingLocalCandidates = ref(false)
-const loadingRemoteCandidates = ref(false)
 const loadingZipCandidates = ref(false)
 const selectedFile = ref(null)
 const submitResults = ref([])
@@ -452,14 +292,6 @@ const uploadImportRootPath = ref('')
 const uploadCandidates = ref([])
 const selectedUploadDirectories = ref([])
 const selectedUploadPaths = ref([])
-const downloadUrl = ref('')
-const remoteImportSessionId = ref('')
-const remoteImportRootPath = ref('')
-const remoteCandidates = ref([])
-const selectedRemoteDirectories = ref([])
-const selectedRemotePaths = ref([])
-const clawhubUrl = ref('')
-const clawhubToken = ref('')
 const currentUsername = localStorage.getItem('username') || 'admin'
 
 const formState = reactive({
@@ -480,16 +312,6 @@ const submitModeMetaMap = {
     subtitle: '从服务端本地导入目录选择 Skill',
     message: '本地目录导入说明',
     description: '本地目录导入仅用于服务端已配置导入根目录的场景。一般客户侧批量扫描请使用“Skill 扫描器”tab，通过 CLI 扫描本地 skills 目录并上传。',
-  },
-  url: {
-    subtitle: '通过 ZIP 下载地址或 GitHub 仓库导入 Skill',
-    message: '网络下载导入说明',
-    description: '填写 ZIP 下载地址或 GitHub 仓库地址后，平台会先下载并解析候选 Skill；确认目录和 Skill 后再提交进入后台分析。',
-  },
-  clawhub: {
-    subtitle: '从 ClawHub 页面或 ZIP 地址导入 Skill',
-    message: 'ClawHub 导入说明',
-    description: '填写 ClawHub 详情页地址或 ZIP 下载地址；如需认证可填写访问 Token。平台会解析可提交的 Skill 并进入后台治理流程。',
   },
   scanner: {
     subtitle: '下载 CLI 扫描器，批量扫描本地 skills 目录并上传平台治理',
@@ -549,7 +371,7 @@ const getTopLevelDirectory = (item) => {
 
 const uploadDirectoryOptions = computed(() => {
   const counts = new Map()
-  for (const item of uploadCandidates.value) {
+  for (const item of validUploadCandidates.value) {
     const directory = getTopLevelDirectory(item)
     counts.set(directory, (counts.get(directory) || 0) + 1)
   }
@@ -562,6 +384,9 @@ const uploadDirectoryOptions = computed(() => {
     }))
 })
 
+const validUploadCandidates = computed(() => uploadCandidates.value.filter((item) => !item.error))
+const invalidUploadCandidates = computed(() => uploadCandidates.value.filter((item) => item.error))
+
 const uploadDirectorySelectOptions = computed(() =>
   uploadDirectoryOptions.value.map((item) => ({
     value: item.value,
@@ -571,7 +396,7 @@ const uploadDirectorySelectOptions = computed(() =>
 
 const filteredUploadCandidates = computed(() => {
   if (!selectedUploadDirectories.value.length) return []
-  return uploadCandidates.value.filter((item) => selectedUploadDirectories.value.includes(getTopLevelDirectory(item)))
+  return validUploadCandidates.value.filter((item) => selectedUploadDirectories.value.includes(getTopLevelDirectory(item)))
 })
 
 const uploadSkillSelectOptions = computed(() =>
@@ -588,49 +413,6 @@ const allFilteredUploadPaths = computed(() => filteredUploadCandidates.value.map
 
 const allLocalDirectoryValues = computed(() => localDirectoryOptions.value.map((item) => item.value))
 const allFilteredLocalPaths = computed(() => filteredLocalCandidates.value.map((item) => item.path))
-
-const getRemoteCandidateDirectory = (item) => {
-  return getCandidateDirectory(item)
-}
-
-const remoteDirectoryOptions = computed(() => {
-  const counts = new Map()
-  for (const item of remoteCandidates.value) {
-    const directory = getRemoteCandidateDirectory(item)
-    counts.set(directory, (counts.get(directory) || 0) + 1)
-  }
-  return Array.from(counts.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([directory, count]) => ({
-      value: directory,
-      label: directory === '.' ? '压缩包根目录' : directory,
-      count,
-    }))
-})
-
-const remoteDirectorySelectOptions = computed(() =>
-  remoteDirectoryOptions.value.map((item) => ({
-    value: item.value,
-    label: `${item.label} (${item.count} 个 skill)`,
-  })),
-)
-
-const filteredRemoteCandidates = computed(() => {
-  if (!selectedRemoteDirectories.value.length) return []
-  return remoteCandidates.value.filter((item) => selectedRemoteDirectories.value.includes(getRemoteCandidateDirectory(item)))
-})
-
-const remoteSkillSelectOptions = computed(() =>
-  filteredRemoteCandidates.value.map((item) => ({
-    value: item.path,
-    label: item.description
-      ? `${item.name} · ${item.relative_path} · ${item.description}`
-      : `${item.name} · ${item.relative_path}`,
-  })),
-)
-
-const allRemoteDirectoryValues = computed(() => remoteDirectoryOptions.value.map((item) => item.value))
-const allFilteredRemotePaths = computed(() => filteredRemoteCandidates.value.map((item) => item.path))
 
 const resultColumns = [
   { title: '名称', dataIndex: 'name', key: 'name' },
@@ -670,8 +452,6 @@ const sandboxTooltip = computed(() => {
   return '启用后会尝试在 Docker 沙箱或远程隔离执行服务中执行一个受控 probe，用于观察 skill 运行时行为'
 })
 const effectiveUseSandbox = () => Boolean(sandboxReadyForSubmit.value && formState.useSandbox)
-
-const inferRemoteOrigin = (url) => (url && url.includes('github.com') ? 'github' : 'unknown')
 
 const fetchSystemStatus = async () => {
   loadingSystemStatus.value = true
@@ -780,8 +560,6 @@ const resetAll = () => {
   selectedFile.value = null
   submitResults.value = []
   resetLocalImport()
-  resetRemoteImport()
-  resetClawHub()
 }
 
 const resetLocalImport = () => {
@@ -868,12 +646,22 @@ const prepareZipImport = async () => {
     uploadImportRootPath.value = result.root_path
     uploadCandidates.value = result.items || []
     selectedUploadDirectories.value = uploadDirectoryOptions.value.length === 1 ? [uploadDirectoryOptions.value[0].value] : []
-    selectedUploadPaths.value = uploadCandidates.value.length === 1 ? [uploadCandidates.value[0].path] : []
-    if (!uploadCandidates.value.length) {
+    selectedUploadPaths.value = validUploadCandidates.value.length === 1 ? [validUploadCandidates.value[0].path] : []
+    if (invalidUploadCandidates.value.length) {
+      Modal.warning({
+        title: '部分 Skill 解析失败，已跳过',
+        content: h('div', invalidUploadCandidates.value.map((item) => {
+          const directory = item.relative_path && item.relative_path !== '.' ? `${item.relative_path} 目录` : '压缩包根目录'
+          return h('div', { style: 'margin-bottom: 8px' }, `${directory}解析失败，${item.error}`)
+        })),
+        okText: '知道了',
+      })
+    }
+    if (!validUploadCandidates.value.length) {
       message.warning('ZIP 解析完成，但没有识别到可导入的 skill 目录')
       return
     }
-    message.success(`ZIP 解析完成，识别到 ${uploadCandidates.value.length} 个可导入 skill`)
+    message.success(`ZIP 解析完成，识别到 ${validUploadCandidates.value.length} 个可导入 Skill`)
   } catch (error) {
     message.error(error.response?.data?.detail || 'ZIP 解析失败')
   } finally {
@@ -930,133 +718,6 @@ const handleLocalSubmit = async () => {
   }
 }
 
-const resetRemoteImport = () => {
-  downloadUrl.value = ''
-  remoteImportSessionId.value = ''
-  remoteImportRootPath.value = ''
-  remoteCandidates.value = []
-  selectedRemoteDirectories.value = []
-  selectedRemotePaths.value = []
-}
-
-const clearSubmittedRemoteSelection = () => {
-  remoteImportSessionId.value = ''
-  remoteImportRootPath.value = ''
-  remoteCandidates.value = []
-  selectedRemoteDirectories.value = []
-  selectedRemotePaths.value = []
-}
-
-const selectAllRemoteDirectories = () => {
-  selectedRemoteDirectories.value = [...allRemoteDirectoryValues.value]
-}
-
-const clearRemoteDirectories = () => {
-  selectedRemoteDirectories.value = []
-}
-
-const selectAllRemoteSkills = () => {
-  selectedRemotePaths.value = [...allFilteredRemotePaths.value]
-}
-
-const clearRemoteSkills = () => {
-  selectedRemotePaths.value = []
-}
-
-const prepareUrlImport = async () => {
-  if (loadingRemoteCandidates.value || submitting.value) return
-  if (!downloadUrl.value.trim()) {
-    message.warning('请输入 ZIP 下载地址或 GitHub 仓库地址')
-    return
-  }
-  loadingRemoteCandidates.value = true
-  try {
-    const result = await prepareRemoteImport({
-      url: downloadUrl.value.trim(),
-      author: currentUsername,
-      origin: inferRemoteOrigin(downloadUrl.value.trim()),
-    })
-    remoteImportSessionId.value = result.session_id
-    remoteImportRootPath.value = result.root_path
-    remoteCandidates.value = result.items || []
-    selectedRemoteDirectories.value = []
-    selectedRemotePaths.value = []
-    if (!remoteCandidates.value.length) {
-      message.warning('下载完成，但没有识别到可导入的 skill 目录')
-      return
-    }
-    if (remoteDirectoryOptions.value.length === 1) {
-      selectedRemoteDirectories.value = [remoteDirectoryOptions.value[0].value]
-    }
-    if (remoteCandidates.value.length === 1) {
-      selectedRemotePaths.value = [remoteCandidates.value[0].path]
-    }
-    message.success(`下载完成，识别到 ${remoteCandidates.value.length} 个可导入 skill`)
-  } catch (error) {
-    message.error(error.response?.data?.detail || '远程下载失败')
-  } finally {
-    loadingRemoteCandidates.value = false
-  }
-}
-
-const handleRemoteFormFinish = () => {
-  if (!remoteImportSessionId.value) {
-    prepareUrlImport()
-  }
-}
-
-const handleUrlSubmit = async () => {
-  if (submitting.value) return
-  if (!remoteImportSessionId.value) {
-    message.warning('请先下载远程压缩包')
-    return
-  }
-  if (!selectedRemoteDirectories.value.length) {
-    message.warning('请先选择要导入的目录')
-    return
-  }
-  if (!selectedRemotePaths.value.length) {
-    message.warning('请先选择要导入的技能 目录')
-    return
-  }
-  submitting.value = true
-  try {
-    const result = await submitRemoteSelected({
-      session_id: remoteImportSessionId.value,
-      paths: selectedRemotePaths.value,
-      author: currentUsername,
-      origin: inferRemoteOrigin(downloadUrl.value.trim()),
-      use_behavioral: formState.useBehavioral,
-      use_skillspector: formState.useSkillspector,
-      use_sandbox: effectiveUseSandbox(),
-      use_llm: formState.useLlm,
-      no_cache: formState.noCache,
-    })
-    submitResults.value = result.results || []
-    clearSubmittedRemoteSelection()
-    message.success(`已提交 ${submitResults.value.length} 个 skills`)
-    startPolling()
-  } catch (error) {
-    message.error(error.response?.data?.detail || '远程导入失败')
-  } finally {
-    submitting.value = false
-  }
-}
-
-const resetClawHub = () => {
-  clawhubUrl.value = ''
-  clawhubToken.value = ''
-}
-
-watch(downloadUrl, (_newValue, oldValue) => {
-  if (!oldValue) return
-  remoteImportSessionId.value = ''
-  remoteImportRootPath.value = ''
-  remoteCandidates.value = []
-  selectedRemoteDirectories.value = []
-  selectedRemotePaths.value = []
-})
-
 watch(selectedLocalDirectories, (directories) => {
   if (!directories.length) {
     selectedLocalPaths.value = []
@@ -1074,43 +735,6 @@ watch(selectedUploadDirectories, (directories) => {
   const allowed = new Set(filteredUploadCandidates.value.map((item) => item.path))
   selectedUploadPaths.value = selectedUploadPaths.value.filter((path) => allowed.has(path))
 })
-
-watch(selectedRemoteDirectories, (directories) => {
-  if (!directories.length) {
-    selectedRemotePaths.value = []
-    return
-  }
-  const allowed = new Set(filteredRemoteCandidates.value.map((item) => item.path))
-  selectedRemotePaths.value = selectedRemotePaths.value.filter((path) => allowed.has(path))
-})
-
-const handleClawHubSubmit = async () => {
-  if (submitting.value) return
-  if (!clawhubUrl.value.trim()) {
-    message.warning('请输入 ClawHub 地址')
-    return
-  }
-  submitting.value = true
-  try {
-    const result = await submitClawHubSkill({
-      url: clawhubUrl.value.trim(),
-      token: clawhubToken.value.trim() || null,
-      author: currentUsername,
-      use_behavioral: formState.useBehavioral,
-      use_skillspector: formState.useSkillspector,
-      use_sandbox: effectiveUseSandbox(),
-      use_llm: formState.useLlm,
-      no_cache: formState.noCache,
-    })
-    submitResults.value = [result]
-    message.success('ClawHub 导入成功')
-    startPolling()
-  } catch (error) {
-    message.error(error.response?.data?.detail || 'ClawHub 导入失败')
-  } finally {
-    submitting.value = false
-  }
-}
 
 const goToDetail = (skillId) => {
   if (!skillId) return

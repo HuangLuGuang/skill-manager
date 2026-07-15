@@ -228,10 +228,11 @@
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'entity_types'">
                 <a-space wrap>
-                  <a-tag v-for="name in record.entity_types || []" :key="name">{{ name }}</a-tag>
+                  <a-tag v-for="name in record.entity_types || []" :key="name">{{ entityLabel(name) }}</a-tag>
                 </a-space>
               </template>
               <template v-else-if="column.key === 'flags'">
+                <a-tag :color="record.enabled ? 'green' : 'default'">隐私处理: {{ record.enabled ? '开' : '关' }}</a-tag>
                 <a-tag :color="record.detect_system_messages ? 'blue' : 'default'">system: {{ record.detect_system_messages ? '检测' : '跳过' }}</a-tag>
                 <a-tag :color="record.allow_bypass ? 'orange' : 'default'">bypass: {{ record.allow_bypass ? '允许' : '禁止' }}</a-tag>
                 <a-tag :color="record.dp_enabled ? 'green' : 'default'">DP: {{ record.dp_enabled ? '开' : '关' }}</a-tag>
@@ -357,6 +358,7 @@
                 </a-tooltip>
               </template>
               <template v-else-if="column.key === 'token'"><a-typography-text code :ellipsis="{ tooltip: record.token }">{{ record.token }}</a-typography-text></template>
+              <template v-else-if="column.key === 'entity_type'">{{ entityLabel(record.entity_type) }}</template>
               <template v-else-if="column.key === 'original'"><a-typography-text :ellipsis="{ tooltip: record.original_value }">{{ record.original_value }}</a-typography-text></template>
               <template v-else-if="column.key === 'expires_at'">{{ formatDateTime(record.expires_at) }}</template>
               <template v-else-if="column.key === 'action'">
@@ -520,6 +522,10 @@
     <a-modal v-model:open="policyVisible" title="隐私策略" @ok="savePolicy" :confirm-loading="submitting" width="860px">
       <a-form layout="vertical" :model="policyForm">
         <a-form-item label="策略名称"><a-input v-model:value="policyForm.name" /></a-form-item>
+        <a-form-item label="隐私处理">
+          <a-switch v-model:checked="policyForm.enabled" checked-children="开启" un-checked-children="关闭" />
+          <span class="muted" style="margin-left: 12px">关闭后请求直接发送给模型，不检测或替换敏感信息</span>
+        </a-form-item>
         <a-form-item>
           <template #label>
             <a-tooltip title="策略可以绑定到用户组。用户通过 API Key 请求模型网关时，会按其所属用户组解析隐私策略；留空表示默认策略。">
@@ -537,7 +543,7 @@
             </a-tooltip>
           </template>
           <a-select v-model:value="policyForm.entity_types" mode="tags" @change="syncPolicyRuleRows">
-            <a-select-option v-for="item in defaultEntities" :key="item" :value="item">{{ item }}</a-select-option>
+            <a-select-option v-for="item in defaultEntities" :key="item" :value="item">{{ entityLabel(item) }}</a-select-option>
           </a-select>
         </a-form-item>
         <a-form-item>
@@ -549,7 +555,7 @@
           <div class="rule-list">
             <a-row v-for="row in policyRuleRows" :key="row.key" :gutter="12" class="rule-row">
               <a-col :span="7">
-                <a-input :value="row.key" readonly />
+                <a-input :value="entityLabel(row.key)" readonly />
               </a-col>
               <a-col :span="17">
                 <a-input v-model:value="row.pattern" placeholder="填写正则表达式；留空表示使用内置规则或不启用自定义规则" />
@@ -658,15 +664,34 @@ const policies = ref([])
 const stats = ref({})
 const mappings = ref([])
 const mappingTotal = ref(0)
-const defaultEntities = ['PERSON', 'CN_PERSON', 'PHONE_NUMBER', 'EMAIL_ADDRESS', 'CREDIT_CARD', 'US_SSN', 'ID_CARD', 'EMPLOYEE_ID', 'CUSTOMER_ID', 'ACCOUNT_ID']
+const defaultEntities = ['CN_PERSON', 'CN_ID_CARD', 'CN_MOBILE', 'CN_LANDLINE', 'CN_BANK_CARD', 'EMAIL_ADDRESS', 'IP_ADDRESS', 'CN_LICENSE_PLATE', 'CN_USCC', 'CN_ADDRESS', 'EMPLOYEE_ID', 'CUSTOMER_ID', 'ACCOUNT_ID']
+const entityLabels = {
+  CN_PERSON: '中文姓名',
+  CN_ID_CARD: '中国居民身份证',
+  CN_MOBILE: '中国大陆手机号',
+  CN_LANDLINE: '中国座机号',
+  CN_BANK_CARD: '银行卡号',
+  EMAIL_ADDRESS: '电子邮箱',
+  IP_ADDRESS: 'IP 地址',
+  CN_LICENSE_PLATE: '中国车牌号',
+  CN_USCC: '统一社会信用代码',
+  CN_ADDRESS: '中国地址',
+  EMPLOYEE_ID: '员工编号',
+  CUSTOMER_ID: '客户编号',
+  ACCOUNT_ID: '账号',
+}
+const entityLabel = (name) => entityLabels[name] ? `${entityLabels[name]} (${name})` : name
 const defaultRules = {
-  PERSON: '\\b[A-Z][a-z]+(?:\\s+[A-Z][a-z]+){1,2}\\b',
   CN_PERSON: '',
-  PHONE_NUMBER: '(?<!\\d)(?:\\+?\\d[\\d\\s().-]{7,}\\d)(?!\\d)',
+  CN_ID_CARD: '(?<!\\d)[1-9]\\d{5}(?:18|19|20)\\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])\\d{3}[\\dXx](?!\\d)',
+  CN_MOBILE: '(?<!\\d)(?:\\+?86[- ]?)?1[3-9]\\d{9}(?!\\d)',
+  CN_LANDLINE: '',
+  CN_BANK_CARD: '(?<!\\d)(?:\\d[ -]?){15,18}\\d(?!\\d)',
   EMAIL_ADDRESS: '\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b',
-  CREDIT_CARD: '(?<!\\d)(?:\\d[ -]*?){13,19}(?!\\d)',
-  US_SSN: '\\b\\d{3}-\\d{2}-\\d{4}\\b',
-  ID_CARD: '\\b\\d{15}(?:\\d{2}[\\dXx])?\\b',
+  IP_ADDRESS: '(?<![\\w.])(?:\\d{1,3}\\.){3}\\d{1,3}(?![\\w.])|(?<![\\w:])(?:[0-9A-Fa-f]{1,4}:){2,7}[0-9A-Fa-f]{0,4}(?![\\w:])',
+  CN_LICENSE_PLATE: '(?<![A-Z0-9\\u4e00-\\u9fff])[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼][A-HJ-NP-Z](?:[DF][A-HJ-NP-Z0-9]\\d{4}|\\d{5}[DF]|[A-HJ-NP-Z0-9]{5})(?![A-Z0-9])',
+  CN_USCC: '(?<![0-9A-Z])[0-9A-HJ-NPQRTUWXY]{18}(?![0-9A-Z])',
+  CN_ADDRESS: '',
   EMPLOYEE_ID: '\\b(?:EMP|Employee|员工)[-_:# ]?[A-Za-z0-9]{4,}\\b',
   CUSTOMER_ID: '\\b(?:CUST|Customer|客户)[-_:# ]?[A-Za-z0-9]{4,}\\b',
   ACCOUNT_ID: '\\b(?:ACCT|Account|账号)[-_:# ]?[A-Za-z0-9]{4,}\\b',
@@ -700,7 +725,7 @@ const mappingColumns = [
   { title: 'Tenant ID', key: 'tenant_id', width: 180 },
   { title: 'Conversation ID', key: 'conversation_id', width: 240 },
   { title: 'Token', key: 'token', width: 220 },
-  { title: '类型', dataIndex: 'entity_type', width: 130 },
+  { title: '类型', dataIndex: 'entity_type', key: 'entity_type', width: 220 },
   { title: '原始值', key: 'original', width: 180 },
   { title: '过期时间', key: 'expires_at', width: 170 },
   { title: '操作', key: 'action', width: 90, fixed: 'right' },
@@ -770,7 +795,7 @@ const keyForm = reactive({
 const userForm = reactive({ username: '', email: '', role: 'admin', password: '', is_active: true, group_ids: [] })
 const groupForm = reactive({ name: '', description: '', user_ids: [], privacy_policy_id: null, is_active: true })
 const groupPolicyForm = reactive({ privacy_policy_id: null })
-const policyForm = reactive({ id: null, name: '默认隐私策略', group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 })
+const policyForm = reactive({ id: null, name: '默认隐私策略', enabled: true, group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 })
 const mappingQuery = reactive({ q: '', page: 1, page_size: 10 })
 const promptGuardForm = reactive({
   mode: 'block',
@@ -1119,7 +1144,7 @@ const saveGroupPolicy = async () => {
 }
 
 const openPolicy = (record = null) => {
-  const next = record ? { ...record } : { id: null, name: '', group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 }
+  const next = record ? { ...record } : { id: null, name: '', enabled: true, group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 }
   Object.assign(policyForm, next)
   syncPolicyRuleRows()
   policyVisible.value = true

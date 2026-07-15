@@ -116,7 +116,7 @@ class TestManifestLoading:
         assert tools == ["Read"]
         assert lic == "MIT"
 
-    def test_load_manifest_uses_markdown_h1_without_frontmatter(self, tmp_path):
+    def test_load_manifest_requires_frontmatter_name(self, tmp_path):
         skill_md = tmp_path / "SKILL.md"
         skill_md.write_bytes(
             b"# Social Media Marketing & Lead Generation Specialist\r\n"
@@ -124,12 +124,8 @@ class TestManifestLoading:
             b"Overview with Windows dash \x97 still decodes.\r\n"
         )
 
-        name, desc, tools, lic = _load_manifest(tmp_path)
-
-        assert name == "Social Media Marketing & Lead Generation Specialist"
-        assert desc == ""
-        assert tools == []
-        assert lic is None
+        with pytest.raises(ValueError, match=r"SKILL\.md 缺少 name 字段.*name: your-skill-name"):
+            _load_manifest(tmp_path)
 
     def test_missing_skill_md_raises(self, tmp_path):
         with pytest.raises(ValueError, match="SKILL.md not found"):

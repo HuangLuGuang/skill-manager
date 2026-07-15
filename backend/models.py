@@ -149,6 +149,7 @@ class PrivacyPolicy(Base):
     id = Column(Integer, primary_key=True, index=True)
     group_id = Column(Integer, ForeignKey("user_groups.id"), unique=True, index=True, nullable=True)
     name = Column(String(128), index=True, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
     entity_types_json = Column(Text, nullable=False)
     entity_rules_json = Column(Text, default="{}", nullable=False)
     detect_system_messages = Column(Boolean, default=False, nullable=False)

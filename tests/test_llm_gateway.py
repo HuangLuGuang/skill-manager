@@ -36,7 +36,7 @@ def _client(tmp_path, monkeypatch, *, max_body_kb: int = 1024, max_concurrent_re
     db.add(
         models.PrivacyPolicy(
             name="default",
-            entity_types_json='["PERSON","CN_PERSON","EMAIL_ADDRESS","PHONE_NUMBER"]',
+            entity_types_json='["CN_PERSON","EMAIL_ADDRESS","CN_MOBILE"]',
             mapping_ttl_days=7,
         )
     )
@@ -119,6 +119,40 @@ def test_chat_completions_pseudonymizes_and_saves_trace(tmp_path, monkeypatch):
         assert meta_payload["platform_duration_ms"] == audit.platform_duration_ms
         assert meta_payload["prompt_tokens"] == audit.prompt_tokens
         assert meta_payload["completion_tokens"] == audit.completion_tokens
+    finally:
+        db.close()
+
+
+def test_disabled_privacy_policy_sends_original_prompt(tmp_path, monkeypatch):
+    client, token, session_factory = _client(tmp_path, monkeypatch)
+    db = session_factory()
+    try:
+        policy = db.query(models.PrivacyPolicy).first()
+        policy.enabled = False
+        db.commit()
+    finally:
+        db.close()
+
+    async def fake_upstream(_db, _model, payload):
+        messages = payload["messages"]
+        assert messages == [{"role": "user", "content": "Email jane@example.com"}]
+        return {
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
+        }
+
+    monkeypatch.setattr(llm_gateway, "_call_upstream", fake_upstream)
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"model": "mock-model", "messages": [{"role": "user", "content": "Email jane@example.com"}]},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["x-privacy-policy"] == "disabled"
+    db = session_factory()
+    try:
+        assert db.query(models.PseudonymMapping).count() == 0
     finally:
         db.close()
 
@@ -637,7 +671,7 @@ def test_multimodal_text_content_is_pseudonymized(tmp_path, monkeypatch):
     assert isinstance(content, list)
     joined = "\n".join(item.get("text", "") for item in content if isinstance(item, dict))
     assert "13312344321" not in joined
-    assert "<PHONE_NUMBER:" in joined
+    assert "<CN_MOBILE:" in joined
 
 
 def test_message_level_undefined_fields_are_stripped_before_upstream(tmp_path, monkeypatch):
@@ -816,7 +850,7 @@ def test_existing_mappings_do_not_rewrite_system_examples(tmp_path, monkeypatch)
 
 
 def test_cn_person_detection_uses_name_like_pattern():
-    entities = llm_gateway._detect_entities("张三 联系邮箱 zhang@example.com，普通中文词语不应全中", {"CN_PERSON", "EMAIL_ADDRESS"})
+    entities = llm_gateway._detect_entities("联系人：张三，联系邮箱 zhang@example.com，普通中文词语不应全中", {"CN_PERSON", "EMAIL_ADDRESS"})
     types = [item["entity_type"] for item in entities]
 
     assert "CN_PERSON" in types
@@ -824,13 +858,46 @@ def test_cn_person_detection_uses_name_like_pattern():
 
 
 def test_cn_person_detection_handles_context_and_suffix():
-    text = "我叫黄路光，以后记得叫我黄路光。张三这个名字怎么样。我的孩子叫黄润泽"
+    text = "我叫黄路光，以后记得叫我黄路光。请联系张三先生。我的孩子叫黄润泽"
     entities = llm_gateway._detect_entities(text, {"CN_PERSON"})
     names = [text[item["start"] : item["end"]] for item in entities]
 
     assert "黄路光" in names
     assert "张三" in names
     assert "黄润泽" in names
+
+
+def test_china_privacy_rules_reject_financial_and_date_false_positives():
+    text = (
+        "1.287 (2025-04-07，2026-07-13，1.391 - 1.287，"
+        "万份 万手 万市值 成交额 成交量 全面 空头 步骤，"
+        "IP 是 10.10.71.33，The Python"
+    )
+    entities = llm_gateway._detect_entities(text, {"CN_PERSON", "CN_MOBILE", "IP_ADDRESS"})
+    values = [(item["entity_type"], text[item["start"]:item["end"]]) for item in entities]
+
+    assert values == [("IP_ADDRESS", "10.10.71.33")]
+
+
+def test_china_identity_rules_require_valid_checksums():
+    text = "身份证 11010519491231002X，错误号码 110105194912310021，银行卡 6222021001116248，信用代码 91350211M000100Y46"
+    entities = llm_gateway._detect_entities(text, {"CN_ID_CARD", "CN_BANK_CARD", "CN_USCC"})
+    values = {(item["entity_type"], text[item["start"]:item["end"]]) for item in entities}
+
+    assert ("CN_ID_CARD", "11010519491231002X") in values
+    assert ("CN_ID_CARD", "110105194912310021") not in values
+    assert ("CN_BANK_CARD", "6222021001116248") in values
+    assert ("CN_USCC", "91350211M000100Y46") in values
+
+
+def test_china_context_rules_detect_landline_address_and_plate():
+    text = "联系电话：010-87654321，收货地址：北京市海淀区中关村大街1号，车牌：京A12345"
+    entities = llm_gateway._detect_entities(text, {"CN_LANDLINE", "CN_ADDRESS", "CN_LICENSE_PLATE"})
+    values = {(item["entity_type"], text[item["start"]:item["end"]]) for item in entities}
+
+    assert ("CN_LANDLINE", "010-87654321") in values
+    assert ("CN_ADDRESS", "北京市海淀区中关村大街1号") in values
+    assert ("CN_LICENSE_PLATE", "京A12345") in values
 
 
 def test_custom_entity_rules_are_used():

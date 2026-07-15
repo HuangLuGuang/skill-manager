@@ -181,16 +181,23 @@ def _collect_import_candidates(root: Path) -> list[dict[str, str]]:
             continue
         seen.add(key)
         rel = skill_dir.relative_to(root).as_posix()
-        description = ""
         try:
-            _name, description, _allowed_tools, _license = _load_manifest(skill_dir)
-        except Exception:
-            description = ""
+            name, description, _allowed_tools, _license = _load_manifest(skill_dir)
+        except ValueError as exc:
+            candidates.append({
+                "name": skill_dir.name,
+                "path": str(skill_dir),
+                "relative_path": rel,
+                "description": "",
+                "error": str(exc),
+            })
+            continue
         candidates.append({
-            "name": skill_dir.name,
+            "name": name,
             "path": str(skill_dir),
             "relative_path": rel,
             "description": description,
+            "error": "",
         })
     return candidates
 
@@ -337,6 +344,7 @@ class LocalImportCandidate(BaseModel):
     path: str
     relative_path: str
     description: str = ""
+    error: str = ""
 
 
 class LocalImportCandidatesResponse(BaseModel):
@@ -849,6 +857,10 @@ async def submit_skill_zip(
         _extract_zip_with_nested_archives(zip_path, extract_dir)
 
         skill_root = _resolve_skill_root(extract_dir)
+        try:
+            _load_manifest(skill_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         persistent_dir = mgr.registry.data_dir / "uploaded_skills" / uuid.uuid4().hex
         persistent_dir.parent.mkdir(parents=True, exist_ok=True)
