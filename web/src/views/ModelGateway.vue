@@ -174,7 +174,7 @@
                     {{ record.user_ids?.length || 0 }} 人
                   </template>
                   <template v-else-if="column.key === 'policy'">
-                    <a-tag :color="record.privacy_policy_id ? 'blue' : 'default'">{{ record.privacy_policy_name || '默认策略' }}</a-tag>
+                    <a-tag :color="record.privacy_policy_id ? 'blue' : 'default'">{{ groupPolicyName(record) }}</a-tag>
                   </template>
                   <template v-else-if="column.key === 'action'">
                     <a-button type="link" @click="openGroup(record)">编辑</a-button>
@@ -206,7 +206,7 @@
                 {{ record.user_ids?.length || 0 }} 人
               </template>
               <template v-else-if="column.key === 'policy'">
-                <a-tag :color="record.privacy_policy_id ? 'blue' : 'default'">{{ record.privacy_policy_name || '默认策略' }}</a-tag>
+                <a-tag :color="record.privacy_policy_id ? 'blue' : 'default'">{{ groupPolicyName(record) }}</a-tag>
               </template>
               <template v-else-if="column.key === 'action'">
                 <a-space>
@@ -224,9 +224,24 @@
           <template #extra>
             <a-button type="primary" @click="openPolicy()">新增 / 更新策略</a-button>
           </template>
+          <a-alert
+            type="info"
+            show-icon
+            message="系统默认策略是全局兜底，不需要绑定用户组。"
+            description="用户组未绑定专属策略时会自动使用系统默认策略；只有需要差异化配置时，才新建策略并绑定到用户组。"
+            style="margin-bottom: 16px"
+          />
           <a-table :data-source="policies" :columns="policyColumns" row-key="id" :loading="loading" size="small">
             <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'entity_types'">
+              <template v-if="column.key === 'name'">
+                <a-space>
+                  <span>{{ policyDisplayName(record) }}</span>
+                  <a-tag v-if="record.is_default" color="blue">系统默认</a-tag>
+                  <a-tag v-else-if="record.group_id" color="purple">组策略</a-tag>
+                  <a-tag v-else>待绑定</a-tag>
+                </a-space>
+              </template>
+              <template v-else-if="column.key === 'entity_types'">
                 <a-space wrap>
                   <a-tag v-for="name in record.entity_types || []" :key="name">{{ entityLabel(name) }}</a-tag>
                 </a-space>
@@ -240,7 +255,7 @@
               <template v-else-if="column.key === 'action'">
                 <a-space>
                   <a-button type="link" @click="openPolicy(record)">编辑</a-button>
-                  <a-popconfirm title="确认删除这个隐私策略？" @confirm="handleDeletePolicy(record)">
+                  <a-popconfirm v-if="!record.is_default" title="确认删除这个隐私策略？" @confirm="handleDeletePolicy(record)">
                     <a-button type="link" danger>删除</a-button>
                   </a-popconfirm>
                 </a-space>
@@ -500,8 +515,9 @@
         </a-form-item>
         <a-form-item label="隐私策略">
           <a-select v-model:value="groupForm.privacy_policy_id" allow-clear placeholder="未选择时使用默认策略">
-            <a-select-option v-for="item in unboundOrCurrentPolicies" :key="item.id" :value="item.id">{{ item.name }}</a-select-option>
+            <a-select-option v-for="item in unboundOrCurrentPolicies" :key="item.id" :value="item.id">{{ policyDisplayName(item) }}</a-select-option>
           </a-select>
+          <div class="muted policy-binding-hint">留空即自动使用系统默认隐私策略；只有需要差异化配置时才绑定组策略。</div>
         </a-form-item>
         <a-form-item><a-checkbox v-model:checked="groupForm.is_active">启用</a-checkbox></a-form-item>
       </a-form>
@@ -514,8 +530,9 @@
         </a-form-item>
         <a-form-item label="隐私策略">
           <a-select v-model:value="groupPolicyForm.privacy_policy_id" allow-clear placeholder="未选择时使用默认策略">
-            <a-select-option v-for="item in unboundOrCurrentBindingPolicies" :key="item.id" :value="item.id">{{ item.name }}</a-select-option>
+            <a-select-option v-for="item in unboundOrCurrentBindingPolicies" :key="item.id" :value="item.id">{{ policyDisplayName(item) }}</a-select-option>
           </a-select>
+          <div class="muted policy-binding-hint">留空即自动使用系统默认隐私策略；只有需要差异化配置时才绑定组策略。</div>
         </a-form-item>
       </a-form>
     </a-modal>
@@ -533,7 +550,7 @@
               <span>用户组</span>
             </a-tooltip>
           </template>
-          <a-select v-model:value="policyForm.group_id" allow-clear placeholder="留空表示默认策略">
+          <a-select v-model:value="policyForm.group_id" allow-clear :disabled="policyForm.is_default" placeholder="留空表示待绑定">
             <a-select-option v-for="item in groups" :key="item.id" :value="item.id">{{ item.name }}</a-select-option>
           </a-select>
         </a-form-item>
@@ -665,8 +682,9 @@ const policies = ref([])
 const stats = ref({})
 const mappings = ref([])
 const mappingTotal = ref(0)
-const defaultEntities = ['CN_PERSON', 'CN_ID_CARD', 'CN_MOBILE', 'CN_LANDLINE', 'CN_BANK_CARD', 'EMAIL_ADDRESS', 'IP_ADDRESS', 'CN_LICENSE_PLATE', 'CN_USCC', 'CN_ADDRESS', 'EMPLOYEE_ID', 'CUSTOMER_ID', 'ACCOUNT_ID']
+const defaultEntities = ['PERSON', 'CN_ID_CARD', 'CN_MOBILE', 'CN_LANDLINE', 'CN_BANK_CARD', 'EMAIL_ADDRESS', 'IP_ADDRESS', 'CN_LICENSE_PLATE', 'CN_USCC', 'CN_ADDRESS', 'EMPLOYEE_ID', 'CUSTOMER_ID', 'ACCOUNT_ID']
 const entityLabels = {
+  PERSON: '中文姓名',
   CN_PERSON: '中文姓名',
   CN_ID_CARD: '中国居民身份证',
   CN_MOBILE: '中国大陆手机号',
@@ -683,7 +701,7 @@ const entityLabels = {
 }
 const entityLabel = (name) => entityLabels[name] ? `${entityLabels[name]} (${name})` : name
 const defaultRules = {
-  CN_PERSON: '',
+  PERSON: '',
   CN_ID_CARD: '(?<!\\d)[1-9]\\d{5}(?:18|19|20)\\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])\\d{3}[\\dXx](?!\\d)',
   CN_MOBILE: '(?<!\\d)(?:\\+?86[- ]?)?1[3-9]\\d{9}(?!\\d)',
   CN_LANDLINE: '',
@@ -755,7 +773,7 @@ const groupPolicyColumns = [
   { title: '操作', key: 'action', width: 180 },
 ]
 const policyColumns = [
-  { title: '名称', dataIndex: 'name', width: 160 },
+  { title: '名称', dataIndex: 'name', key: 'name', width: 260 },
   { title: 'Group ID', dataIndex: 'group_id', width: 100 },
   { title: '实体类型', key: 'entity_types' },
   { title: '开关', key: 'flags', width: 280 },
@@ -797,7 +815,7 @@ const keyForm = reactive({
 const userForm = reactive({ username: '', email: '', role: 'admin', password: '', is_active: true, group_ids: [] })
 const groupForm = reactive({ name: '', description: '', user_ids: [], privacy_policy_id: null, is_active: true })
 const groupPolicyForm = reactive({ privacy_policy_id: null })
-const policyForm = reactive({ id: null, name: '默认隐私策略', enabled: true, group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 })
+const policyForm = reactive({ id: null, name: '默认隐私策略', is_default: false, enabled: true, group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 })
 const mappingQuery = reactive({ q: '', page: 1, page_size: 10 })
 const promptGuardForm = reactive({
   mode: 'block',
@@ -814,10 +832,10 @@ const mappingPagination = computed(() => ({
 }))
 
 const unboundOrCurrentPolicies = computed(() =>
-  policies.value.filter(item => !item.group_id || item.id === groupForm.privacy_policy_id),
+  policies.value.filter(item => !item.is_default && (!item.group_id || item.id === groupForm.privacy_policy_id)),
 )
 const unboundOrCurrentBindingPolicies = computed(() =>
-  policies.value.filter(item => !item.group_id || item.id === groupPolicyForm.privacy_policy_id),
+  policies.value.filter(item => !item.is_default && (!item.group_id || item.id === groupPolicyForm.privacy_policy_id)),
 )
 const pageTitle = computed(() => activeTab.value === 'users-groups' ? '用户与组' : '模型网关')
 const pageSubtitle = computed(() =>
@@ -827,6 +845,17 @@ const pageSubtitle = computed(() =>
 )
 const showGatewayStats = computed(() => !['users-groups', 'prompt-guard'].includes(activeTab.value))
 const groupNameMap = computed(() => new Map(groups.value.map(item => [item.id, item.name])))
+const policyDisplayName = (policy) => {
+  if (policy?.is_default || policy?.name !== '默认隐私策略') return policy?.name || '-'
+  return `${groupNameMap.value.get(policy.group_id) || '用户组'}隐私策略`
+}
+const groupPolicyName = (group) => {
+  if (!group?.privacy_policy_id) return '系统默认策略'
+  return policyDisplayName(policies.value.find(item => item.id === group.privacy_policy_id) || {
+    name: group.privacy_policy_name,
+    group_id: group.id,
+  })
+}
 
 const formatDateTime = (value) => value ? formatBeijingDateTime(value) : ''
 const statusLabel = (s) => ({ active: '启用', disabled: '禁用', revoked: '已吊销' }[s] || s)
@@ -1146,7 +1175,7 @@ const saveGroupPolicy = async () => {
 }
 
 const openPolicy = (record = null) => {
-  const next = record ? { ...record } : { id: null, name: '', enabled: true, group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 }
+  const next = record ? { ...record } : { id: null, name: '', is_default: false, enabled: true, group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 }
   Object.assign(policyForm, next)
   syncPolicyRuleRows()
   policyVisible.value = true
@@ -1255,6 +1284,11 @@ onMounted(loadAll)
 <style scoped>
 .muted {
   color: #8c8c8c;
+}
+
+.policy-binding-hint {
+  margin-top: 6px;
+  line-height: 1.5;
 }
 
 .rule-list {

@@ -28,7 +28,7 @@ admin_router = APIRouter(prefix="/v1", tags=["llm-gateway-admin"])
 runtime_router = APIRouter(tags=["llm-gateway"])
 
 DEFAULT_ENTITY_TYPES = [
-    "CN_PERSON",
+    "PERSON",
     "CN_ID_CARD",
     "CN_MOBILE",
     "CN_LANDLINE",
@@ -43,7 +43,7 @@ DEFAULT_ENTITY_TYPES = [
     "ACCOUNT_ID",
 ]
 DEFAULT_ENTITY_PATTERNS = {
-    "CN_PERSON": "",
+    "PERSON": "",
     "CN_ID_CARD": r"(?<!\d)[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx](?!\d)",
     "CN_MOBILE": r"(?<!\d)(?:\+?86[- ]?)?1[3-9]\d{9}(?!\d)",
     "CN_LANDLINE": "",
@@ -59,7 +59,7 @@ DEFAULT_ENTITY_PATTERNS = {
 }
 DEFAULT_ENTITY_RULES = {name: DEFAULT_ENTITY_PATTERNS.get(name, "") for name in DEFAULT_ENTITY_TYPES}
 PLACEHOLDER_PRESERVATION_SYSTEM_PROMPT = (
-    "Each token like <CN_PERSON:cnp_abc> or <CN_MOBILE:mobile_xyz> is encoded private data. "
+    "Each token like <PERSON:p_abc> or <CN_MOBILE:mobile_xyz> is encoded private data. "
     "Treat these tokens as the real values and preserve them naturally in the answer. "
     "Do not explain that they are placeholders."
 )
@@ -96,6 +96,13 @@ COMMON_CN_COMPOUND_SURNAMES = "欧阳|司马|上官|诸葛|东方|尉迟|公孙|
 CN_NAME_STOPWORDS = {
     "万份", "万手", "万市值", "成交额", "成交量", "全面", "空头", "步骤",
 }
+LEGACY_ENTITY_ALIASES = {
+    "CN_PERSON": "PERSON",
+    "PHONE_NUMBER": "CN_MOBILE",
+    "CREDIT_CARD": "CN_BANK_CARD",
+    "ID_CARD": "CN_ID_CARD",
+}
+REMOVED_ENTITY_TYPES = {"US_SSN"}
 
 
 def _json_loads(value: str | None, default: Any) -> Any:
@@ -109,6 +116,30 @@ def _json_loads(value: str | None, default: Any) -> Any:
 
 def _json_dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
+
+
+def _normalize_entity_types(values: Any) -> list[str]:
+    normalized: list[str] = []
+    for value in values if isinstance(values, list) else DEFAULT_ENTITY_TYPES:
+        entity_type = str(value)
+        if entity_type in REMOVED_ENTITY_TYPES:
+            continue
+        entity_type = LEGACY_ENTITY_ALIASES.get(entity_type, entity_type)
+        if entity_type not in normalized:
+            normalized.append(entity_type)
+    return normalized or list(DEFAULT_ENTITY_TYPES)
+
+
+def _effective_entity_rules(value: str | None) -> dict[str, str]:
+    stored = _json_loads(value, {})
+    rules = dict(DEFAULT_ENTITY_RULES)
+    if not isinstance(stored, dict):
+        return rules
+    for key, pattern in stored.items():
+        if key in REMOVED_ENTITY_TYPES or key in LEGACY_ENTITY_ALIASES or key == "PERSON" or not pattern:
+            continue
+        rules[key] = pattern
+    return rules
 
 
 def _strip_undefined_values(value: Any) -> Any:
@@ -339,14 +370,15 @@ def _key_owner_meta(db: Session, key) -> dict[str, Any]:
     }
 
 
-def _policy_response(row: models.PrivacyPolicy) -> schemas.PrivacyPolicyResponse:
+def _policy_response(row: models.PrivacyPolicy, *, default_policy_id: int | None = None) -> schemas.PrivacyPolicyResponse:
     return schemas.PrivacyPolicyResponse(
         id=row.id,
         name=row.name,
         enabled=row.enabled,
+        is_default=row.id == default_policy_id,
         group_id=row.group_id,
-        entity_types=_json_loads(row.entity_types_json, DEFAULT_ENTITY_TYPES),
-        entity_rules={**DEFAULT_ENTITY_RULES, **_json_loads(getattr(row, "entity_rules_json", None), {})},
+        entity_types=_normalize_entity_types(_json_loads(row.entity_types_json, DEFAULT_ENTITY_TYPES)),
+        entity_rules=_effective_entity_rules(getattr(row, "entity_rules_json", None)),
         detect_system_messages=row.detect_system_messages,
         allow_bypass=row.allow_bypass,
         mapping_ttl_days=row.mapping_ttl_days,
@@ -412,14 +444,17 @@ def _sync_group_members(db: Session, group_id: int, user_ids: list[int]) -> None
 
 
 def _bind_group_policy(db: Session, group_id: int, policy_id: int | None) -> None:
-    db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.group_id == group_id).update({"group_id": None})
     if policy_id is None:
+        db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.group_id == group_id).update({"group_id": None})
         return
     policy = db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.id == policy_id).first()
     if not policy:
         raise HTTPException(status_code=404, detail="隐私策略不存在")
+    if policy.id == _get_default_policy(db).id:
+        raise HTTPException(status_code=400, detail="系统默认隐私策略不能绑定用户组")
     if policy.group_id is not None and policy.group_id != group_id:
         raise HTTPException(status_code=400, detail="隐私策略已绑定其他用户组")
+    db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.group_id == group_id).update({"group_id": None})
     policy.group_id = group_id
 
 
@@ -622,7 +657,7 @@ def _add_matches(entities, entity_type: str, matches, *, score: float, group: in
 def _detect_entities(text: str, allowed_types: set[str], entity_rules: dict[str, str] | None = None) -> list[dict[str, Any]]:
     patterns = {**DEFAULT_ENTITY_PATTERNS, **{k: v for k, v in (entity_rules or {}).items() if v}}
     entities: list[dict[str, Any]] = []
-    validated_types = {"CN_PERSON", "CN_ID_CARD", "CN_MOBILE", "CN_LANDLINE", "CN_BANK_CARD", "IP_ADDRESS", "CN_USCC", "CN_ADDRESS"}
+    validated_types = {"PERSON", "CN_ID_CARD", "CN_MOBILE", "CN_LANDLINE", "CN_BANK_CARD", "IP_ADDRESS", "CN_USCC", "CN_ADDRESS"}
     for entity_type, pattern in patterns.items():
         if entity_type not in allowed_types or entity_type in validated_types or not pattern:
             continue
@@ -649,15 +684,17 @@ def _detect_entities(text: str, allowed_types: set[str], entity_rules: dict[str,
             continue
         _add_matches(entities, entity_type, matches, score=score, validator=validator)
 
-    if "CN_PERSON" in allowed_types:
+    if "PERSON" in allowed_types:
         cn_name_core = rf"(?:(?:{COMMON_CN_COMPOUND_SURNAMES})[\u4e00-\u9fff]{{1,2}}|[{COMMON_CN_SURNAMES}][\u4e00-\u9fff]{{1,2}})"
-        context_pattern = rf"(?:我叫|叫我|名叫|姓名(?:是|为)?|名字(?:是|叫)?|用户(?:叫|姓名)|候选人(?:叫|姓名)|联系人(?:是|为)?|负责人(?:是|为)?|客户(?:叫|姓名)|法人(?:是|为)?|孩子(?:叫|名叫|姓名(?:是|为)?)|小孩(?:叫|名叫|姓名(?:是|为)?))[：:\s]*({cn_name_core})"
+        direct_context = r"(?:我叫|叫我|名叫|名字叫|用户叫|候选人叫|客户叫|孩子叫|孩子名叫|小孩叫|小孩名叫)\s*"
+        labeled_context = r"(?:姓名|名字|用户姓名|候选人姓名|联系人|负责人|客户姓名|法人|孩子姓名|小孩姓名)(?:(?:是|为)\s*|[：:\s]+)"
+        context_pattern = rf"(?:{direct_context}|{labeled_context})({cn_name_core})"
         for match in re.finditer(context_pattern, text):
             if match.group(1) in CN_NAME_STOPWORDS:
                 continue
             entities.append(
                 {
-                    "entity_type": "CN_PERSON",
+                    "entity_type": "PERSON",
                     "start": match.start(1),
                     "end": match.end(1),
                     "score": 0.9,
@@ -669,7 +706,7 @@ def _detect_entities(text: str, allowed_types: set[str], entity_rules: dict[str,
                 continue
             entities.append(
                 {
-                    "entity_type": "CN_PERSON",
+                    "entity_type": "PERSON",
                     "start": match.start(1),
                     "end": match.end(1),
                     "score": 0.88,
@@ -695,13 +732,6 @@ def _detect_entities(text: str, allowed_types: set[str], entity_rules: dict[str,
                 "score": 0.9,
             })
 
-    custom_cn_person = (entity_rules or {}).get("CN_PERSON")
-    if "CN_PERSON" in allowed_types and custom_cn_person:
-        try:
-            _add_matches(entities, "CN_PERSON", re.finditer(custom_cn_person, text), score=0.85)
-        except re.error:
-            pass
-
     entities.sort(key=lambda item: (item["start"], -item["score"], -(item["end"] - item["start"])))
     accepted: list[dict[str, Any]] = []
     for candidate in entities:
@@ -714,7 +744,7 @@ def _detect_entities(text: str, allowed_types: set[str], entity_rules: dict[str,
 def _token_for(tenant_id: str, conversation_id: str, entity_type: str, normalized_value: str) -> str:
     digest = hashlib.sha256(f"{tenant_id}:{conversation_id}:{entity_type}:{normalized_value}".encode("utf-8")).hexdigest()
     prefix = {
-        "CN_PERSON": "cnp",
+        "PERSON": "p",
         "CN_ID_CARD": "id",
         "CN_MOBILE": "mobile",
         "CN_LANDLINE": "tel",
@@ -1733,8 +1763,11 @@ async def delete_llm_api_key(
 
 @admin_router.get("/privacy-policies", response_model=list[schemas.PrivacyPolicyResponse])
 async def list_privacy_policies(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
-    _get_default_policy(db)
-    return [_policy_response(row) for row in db.query(models.PrivacyPolicy).order_by(models.PrivacyPolicy.id.asc()).all()]
+    default_policy = _get_default_policy(db)
+    return [
+        _policy_response(row, default_policy_id=default_policy.id)
+        for row in db.query(models.PrivacyPolicy).order_by(models.PrivacyPolicy.id.asc()).all()
+    ]
 
 
 @admin_router.post("/privacy-policies", response_model=schemas.PrivacyPolicyResponse)
@@ -1743,6 +1776,7 @@ async def upsert_privacy_policy(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
+    default_policy = _get_default_policy(db)
     if body.group_id and not db.query(models.UserGroup).filter(models.UserGroup.id == body.group_id).first():
         raise HTTPException(status_code=404, detail="用户组不存在")
     row = None
@@ -1755,10 +1789,17 @@ async def upsert_privacy_policy(
     if row is None:
         row = models.PrivacyPolicy(group_id=body.group_id, entity_types_json="[]", name=body.name)
         db.add(row)
+    if row.id == default_policy.id and body.group_id is not None:
+        raise HTTPException(status_code=400, detail="系统默认隐私策略不能绑定用户组")
+    if body.name.strip() == "默认隐私策略" and row.id != default_policy.id:
+        raise HTTPException(status_code=400, detail="隐私策略名称已存在，请使用其他名称")
     data = body.model_dump()
     data.pop("id", None)
-    entity_types = data.pop("entity_types") or DEFAULT_ENTITY_TYPES
-    entity_rules = {k: v for k, v in (data.pop("entity_rules") or {}).items() if v}
+    entity_types = _normalize_entity_types(data.pop("entity_types") or DEFAULT_ENTITY_TYPES)
+    entity_rules = {
+        k: v for k, v in (data.pop("entity_rules") or {}).items()
+        if v and k not in REMOVED_ENTITY_TYPES and k not in LEGACY_ENTITY_ALIASES and k != "PERSON"
+    }
     for field, value in data.items():
         setattr(row, field, value)
     row.entity_types_json = _json_dumps(entity_types)
@@ -1766,7 +1807,7 @@ async def upsert_privacy_policy(
     row.updated_at = _now()
     db.commit()
     db.refresh(row)
-    return _policy_response(row)
+    return _policy_response(row, default_policy_id=default_policy.id)
 
 
 @admin_router.delete("/privacy-policies/{policy_id}")
@@ -2460,8 +2501,8 @@ async def _chat_completions_with_key(
     created_total = 0
     reused_total = 0
     detected_counts: dict[str, int] = {}
-    entity_types = set(_json_loads(policy.entity_types_json, DEFAULT_ENTITY_TYPES))
-    entity_rules = {**DEFAULT_ENTITY_RULES, **_json_loads(getattr(policy, "entity_rules_json", None), {})}
+    entity_types = set(_normalize_entity_types(_json_loads(policy.entity_types_json, DEFAULT_ENTITY_TYPES)))
+    entity_rules = _effective_entity_rules(getattr(policy, "entity_rules_json", None))
     pseudonymized_fields: dict[int, set[str]] = {}
 
     if bypass_pii:
@@ -2471,7 +2512,7 @@ async def _chat_completions_with_key(
         for idx, message in enumerate(original_messages):
             role = message.get("role")
             scan_fields: list[str] = []
-            if role == "user" or (role == "system" and policy.detect_system_messages):
+            if role in {"user", "assistant", "tool"} or (role == "system" and policy.detect_system_messages):
                 scan_fields.append("content")
             if isinstance(message.get("reasoning_content"), (str, list)):
                 scan_fields.append("reasoning_content")
@@ -2524,6 +2565,10 @@ async def _chat_completions_with_key(
         )
         body["messages"] = compression_result.messages
     # =================================
+
+    # Pseudonym mappings are flushed while rewriting the prompt. Commit before
+    # the network call so a slow or streaming model response does not hold SQLite's write lock.
+    db.commit()
 
     if payload.stream:
         stream = await _stream_upstream(

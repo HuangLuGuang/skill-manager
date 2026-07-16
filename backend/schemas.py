@@ -461,6 +461,7 @@ class PrivacyPolicyPayload(BaseModel):
 
 class PrivacyPolicyResponse(PrivacyPolicyPayload):
     id: int
+    is_default: bool = False
     created_at: datetime
     updated_at: datetime
 
