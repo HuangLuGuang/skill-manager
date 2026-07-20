@@ -206,9 +206,28 @@ git tag client-v26.03.15
 git push origin client-v26.03.15
 ```
 
-GitLab CI 会在带有 `macos`、`windows`、`linux` 标签的 Runner 上分别构建，最终生成 `agent-manager-client-update-feed-*` Artifact，其中包含供用户下载的安装包、自动更新包和 `latest.json`。macOS 和 Windows Runner 需要预装 Node.js 22、Go 和 Rust；Linux Docker Runner 使用 [Dockerfile.ci-linux](/Users/huangluguang/Desktop/Project/skill-manager/client/desktop/Dockerfile.ci-linux) 构建的 `agent-manager-client-ci-linux:latest` 镜像。若现有 Runner 标签不同，修改 [.gitlab-ci.yml](/Users/huangluguang/Desktop/Project/skill-manager/.gitlab-ci.yml) 中的 `tags` 即可。
+GitLab CI 会在带有 `macos`、`windows`、`linux` 标签的 Runner 上分别构建，最终生成 `agent-manager-client-update-feed-*` Artifact，其中包含供用户下载的安装包、自动更新包和 `latest.json`。三个 Runner 都使用 Shell executor，并预装 Node.js 22、Go 和 Rust；Linux 还需要 Tauri 的 WebKitGTK 系统依赖。若现有 Runner 标签不同，修改 [.gitlab-ci.yml](/Users/huangluguang/Desktop/Project/skill-manager/.gitlab-ci.yml) 中的 `tags` 即可。
 
-macOS 和 Windows 安装包必须在对应系统的 Runner 上构建；Linux Docker Runner 不能替代原生系统完成这两个安装包。下载并解压最终 Artifact 后，将其中的文件放入服务端：
+Linux Runner 注册示例：
+
+```bash
+sudo gitlab-runner register --non-interactive \
+  --url https://git.dev-rs.com \
+  --token '<项目 Runner authentication token>' \
+  --executor shell \
+  --description agent-manager-linux-35 \
+  --tag-list linux \
+  --run-untagged=false \
+  --locked=true
+
+sudo gitlab-runner install --user ubuntu --working-directory /home/ubuntu
+sudo gitlab-runner start
+sudo gitlab-runner verify
+```
+
+Runner token 在 GitLab 项目“设置 → CI/CD → Runners → 新建项目 Runner”中创建。Runner 账号需要能够读取代码仓库，正式发布还需要上文三个 Updater 签名变量。
+
+macOS 和 Windows 安装包必须在对应系统的 Runner 上构建；Linux Runner 不能替代原生系统完成这两个安装包。下载并解压最终 Artifact 后，将其中的文件放入服务端：
 
 ```text
 scanner/releases/
