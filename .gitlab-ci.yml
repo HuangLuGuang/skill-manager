@@ -1,0 +1,61 @@
+stages:
+  - client-build
+  - client-package
+
+.client-release:
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^client-v\d{2}\.\d{2}\.\d{2}$/'
+  variables:
+    AGENT_MANAGER_CLIENT_VERSION: $CI_COMMIT_TAG
+  before_script:
+    - cd client/desktop
+    - npm ci
+  artifacts:
+    expire_in: 30 days
+    paths:
+      - client/desktop/release-output/
+
+client-macos:
+  extends: .client-release
+  stage: client-build
+  tags: [macos]
+  script:
+    - npm run release:mac
+    - node scripts/collect-updater-artifact.mjs darwin-aarch64 "$CI_COMMIT_TAG"
+
+client-windows:
+  extends: .client-release
+  stage: client-build
+  tags: [windows]
+  script:
+    - npm run release:windows
+    - node scripts/collect-updater-artifact.mjs windows-x86_64 "$CI_COMMIT_TAG"
+
+client-linux:
+  extends: .client-release
+  stage: client-build
+  tags: [linux]
+  script:
+    - npm run release:linux
+    - node scripts/collect-updater-artifact.mjs linux-x86_64 "$CI_COMMIT_TAG"
+
+client-release-feed:
+  stage: client-package
+  tags: [linux]
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^client-v\d{2}\.\d{2}\.\d{2}$/'
+  needs:
+    - job: client-macos
+      artifacts: true
+    - job: client-windows
+      artifacts: true
+    - job: client-linux
+      artifacts: true
+  script:
+    - node client/desktop/scripts/generate-update-manifest.mjs client/desktop/release-output "$CI_COMMIT_TAG"
+  artifacts:
+    name: "agent-manager-client-update-feed-$CI_COMMIT_TAG"
+    expire_in: 90 days
+    paths:
+      - client/desktop/release-output/agent-manager-client-*
+      - client/desktop/release-output/latest.json

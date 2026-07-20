@@ -1,4 +1,5 @@
 import json
+import re
 import tempfile
 import zipfile
 from datetime import datetime, timedelta
@@ -31,6 +32,17 @@ from agent_manager.core.text_reader import read_text_fallback
 router = APIRouter(prefix="/v1/clients", tags=["clients"])
 _CLIENT_RELEASE_DIR = Path(__file__).resolve().parents[2] / "scanner" / "releases"
 _CLIENT_ONLINE_WINDOW = timedelta(minutes=10)
+_CLIENT_INSTALLER_RE = re.compile(
+    r"^agent-manager-client-(?P<version>\d{2}\.\d{2}\.\d{2})-"
+    r"(?P<platform>darwin-aarch64|darwin-x86_64|windows-x86_64|linux-x86_64)"
+    r"(?P<extension>\.dmg|\.exe|\.AppImage)$"
+)
+_CLIENT_PLATFORM_LABELS = {
+    "darwin-aarch64": "macOS Apple 芯片",
+    "darwin-x86_64": "macOS Intel",
+    "windows-x86_64": "Windows 64 位",
+    "linux-x86_64": "Linux 64 位",
+}
 
 
 def _dump(value) -> str:
@@ -660,11 +672,19 @@ def list_clients(
 def list_client_downloads(
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    items = [
-        path.name.removeprefix("agent-manager-client-")
-        for path in sorted(_CLIENT_RELEASE_DIR.glob("agent-manager-client-*"))
-        if path.is_file()
-    ]
+    items = []
+    for path in _CLIENT_RELEASE_DIR.glob("agent-manager-client-*"):
+        match = _CLIENT_INSTALLER_RE.match(path.name)
+        if path.is_file() and match:
+            value = match.groupdict()
+            items.append({
+                "key": path.name.removeprefix("agent-manager-client-"),
+                "filename": path.name,
+                "version": value["version"],
+                "platform": value["platform"],
+                "platform_label": _CLIENT_PLATFORM_LABELS[value["platform"]],
+            })
+    items.sort(key=lambda item: (tuple(map(int, item["version"].split("."))), item["platform"]), reverse=True)
     return {"items": items}
 
 
@@ -676,6 +696,8 @@ def download_client_binary(
     if "/" in platform or "\\" in platform or ".." in platform:
         raise HTTPException(status_code=400, detail="无效的客户端平台")
     filename = f"agent-manager-client-{platform}"
+    if not _CLIENT_INSTALLER_RE.fullmatch(filename):
+        raise HTTPException(status_code=400, detail="无效的客户端安装包")
     path = _CLIENT_RELEASE_DIR / filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail=f"客户端文件不存在: {filename}")

@@ -62,8 +62,10 @@ nav { display: grid; gap: 6px; }
 .nav-item.active span { color: #fff; }
 .nav-item.active .nav-label { color: inherit; }
 .rail-note { display: grid; gap: 5px; margin-top: auto; padding: 16px 10px 0; border-top: 1px solid #34363c; color: #94979f; font-size: 11px; line-height: 1.7; }
+.rail-note > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .rail-note strong { color: #d7dee4; font-size: 12px; }
 .rail-note span { display: block; white-space: nowrap; }
+.rail-note small { flex: 0 0 auto; color: #6f7781; font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 .workspace { min-width: 0; height: 100vh; padding: 30px 38px 38px; overflow-y: auto; }
 header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }

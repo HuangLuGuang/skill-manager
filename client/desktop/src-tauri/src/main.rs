@@ -16,6 +16,15 @@ const UPDATER_PUBLIC_KEY: &str = match option_env!("AGENT_MANAGER_UPDATER_PUBLIC
     Some(value) => value,
     None => "",
 };
+const BUILD_VERSION: &str = match option_env!("AGENT_MANAGER_RELEASE_VERSION") {
+    Some(value) => value,
+    None => "dev",
+};
+
+#[tauri::command]
+fn get_build_version() -> &'static str {
+    BUILD_VERSION
+}
 
 #[derive(Deserialize)]
 struct ClientConfig {
@@ -386,7 +395,8 @@ fn main() {
             execute_client,
             select_skill_directory,
             get_connection_status,
-            check_client_update
+            check_client_update,
+            get_build_version
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Agent Manager Client desktop");

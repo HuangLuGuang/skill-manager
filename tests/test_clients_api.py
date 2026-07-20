@@ -380,6 +380,27 @@ def test_client_update_manifest_and_download_require_client_token(tmp_path, monk
     assert downloaded.content == b"signed-update"
 
 
+def test_client_installers_are_listed_by_version_and_downloadable(tmp_path, monkeypatch):
+    release_dir = tmp_path / "releases"
+    release_dir.mkdir()
+    older = release_dir / "agent-manager-client-26.03.14-windows-x86_64.exe"
+    newer = release_dir / "agent-manager-client-26.03.15-darwin-aarch64.dmg"
+    ignored = release_dir / "agent-manager-client-26.03.15-darwin-aarch64.app.tar.gz"
+    older.write_bytes(b"windows")
+    newer.write_bytes(b"macos")
+    ignored.write_bytes(b"updater")
+    monkeypatch.setattr(clients, "_CLIENT_RELEASE_DIR", release_dir)
+    client = _client(tmp_path)
+
+    response = client.get("/api/v1/clients/downloads/available")
+    assert response.status_code == 200
+    assert [item["version"] for item in response.json()["items"]] == ["26.03.15", "26.03.14"]
+    key = response.json()["items"][0]["key"]
+    downloaded = client.get("/api/v1/clients/downloads/file", params={"platform": key})
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"macos"
+
+
 def test_disabled_client_token_is_rejected_immediately(tmp_path):
     client = _client(tmp_path)
     created = client.post(

@@ -46,11 +46,11 @@ http://localhost
 在有网络的机器上生成客户安装包：
 
 ```bash
-# x86
-./package-release.sh -v v1.0.0 -p linux/amd64 -i /path/to/docker-installer-28.5.2-x86-arm.tar.gz
+# x86（client-releases 是 CI 下载并解压后的 agent-manager-client-update-feed）
+./package-release.sh -v v1.0.0 -p linux/amd64 -i /path/to/docker-installer-28.5.2-x86-arm.tar.gz -c /path/to/client-releases
 
 # ARM
-./package-release.sh -v v1.0.0 -p linux/arm64 -i /path/to/docker-installer-28.5.2-x86-arm.tar.gz
+./package-release.sh -v v1.0.0 -p linux/arm64 -i /path/to/docker-installer-28.5.2-x86-arm.tar.gz -c /path/to/client-releases
 ```
 
 输出：
@@ -66,7 +66,11 @@ agent-manager_v1.0.0_arm.tar.gz
 docker_images/x86/agent-manager-images-v1.0.0.tar.xz
 docker_images/arm/agent-manager-images-v1.0.0.tar.xz
 installers/docker-installer-28.5.2-x86-arm.tar.gz
+scanner/releases/agent-manager-client-26.03.15-darwin-aarch64.dmg
+scanner/releases/agent-manager-client-26.03.15-windows-x86_64.exe
 ```
+
+Docker Compose 已将宿主机 `scanner/releases` 只读挂载到后端。部署完成后，管理员可在“终端管理 → 安装客户端”按系统和版本下载；新增版本只需把新的 release 文件复制到该目录，无需重建镜像。
 
 ## 离线部署
 

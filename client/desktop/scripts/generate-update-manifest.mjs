@@ -20,9 +20,11 @@ const walk = directory => {
 walk(path.resolve(inputDir))
 if (!Object.keys(platforms).length) throw new Error('no platform updater metadata found')
 
+const displayVersion = version.replace(/^client-v/, '').replace(/^v/, '')
+const packageVersion = displayVersion.split('.').map(Number).join('.')
 const manifest = {
-  version: version.replace(/^client-v/, '').replace(/^v/, ''),
-  notes: `Agent Manager Client ${version}`,
+  version: packageVersion,
+  notes: `瑞数智能体安全治理终端 ${displayVersion}`,
   pub_date: new Date().toISOString(),
   platforms,
 }

@@ -206,7 +206,7 @@
           <template #description>
             <a-space wrap>
               <a-select v-model:value="selectedPlatform" placeholder="选择系统与架构" style="width: 300px">
-                <a-select-option v-for="platform in downloadPlatforms" :key="platform" :value="platform">{{ platform }}</a-select-option>
+                <a-select-option v-for="item in downloadPlatforms" :key="item.key" :value="item.key">{{ item.platform_label }} · {{ item.version }}</a-select-option>
               </a-select>
               <a-button type="primary" :disabled="!selectedPlatform" @click="downloadSelectedClient">下载</a-button>
             </a-space>
@@ -446,10 +446,11 @@ const retryTask = async (record) => {
 }
 const downloadClient = async ({ key }) => {
   const blob = await downloadClientBinary(key)
+  const release = downloadPlatforms.value.find(item => item.key === key)
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `agent-manager-client-${key}`
+  link.download = release?.filename || `agent-manager-client-${key}`
   link.click()
   URL.revokeObjectURL(url)
 }

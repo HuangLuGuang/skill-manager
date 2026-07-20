@@ -16,7 +16,7 @@ import (
 	"skill-manager/scanner/internal/manifest"
 )
 
-const Version = "0.1.0"
+var Version = "dev"
 
 type Skill struct {
 	SkillID      string `json:"skill_id,omitempty"`

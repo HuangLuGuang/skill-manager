@@ -191,7 +191,7 @@ cd client/desktop
 npx tauri signer generate -w ~/.tauri/agent-manager-client.key
 ```
 
-在 GitHub Actions 配置：
+在 GitLab 项目“设置 → CI/CD → 变量”配置以下受保护变量：
 
 ```text
 AGENT_MANAGER_UPDATER_PUBLIC_KEY
@@ -199,15 +199,29 @@ AGENT_MANAGER_UPDATER_PRIVATE_KEY
 AGENT_MANAGER_UPDATER_PRIVATE_KEY_PASSWORD
 ```
 
-推送 `client-v*` 标签后，`.github/workflows/agent-manager-client.yml` 会生成各平台更新包和 `latest.json`。将 `agent-manager-client-update-feed` 中的文件放入服务端：
+版本使用日期格式 `YY.MM.DD`。例如 2026 年 3 月 15 日发布：
+
+```bash
+git tag client-v26.03.15
+git push origin client-v26.03.15
+```
+
+GitLab CI 会在带有 `macos`、`windows`、`linux` 标签的 Runner 上分别构建，最终生成 `agent-manager-client-update-feed-*` Artifact，其中包含供用户下载的安装包、自动更新包和 `latest.json`。Runner 需要预装 Node.js 22、Go 和 Rust；Linux Runner 还需要 Tauri WebKit 依赖。若现有 Runner 标签不同，修改 [.gitlab-ci.yml](/Users/huangluguang/Desktop/Project/skill-manager/.gitlab-ci.yml) 中的 `tags` 即可。
+
+macOS 和 Windows 安装包必须在对应系统的 Runner 上构建；Linux Docker Runner 不能替代原生系统完成这两个安装包。下载并解压最终 Artifact 后，将其中的文件放入服务端：
 
 ```text
 scanner/releases/
   latest.json
-  agent-manager-client-darwin-aarch64.app.tar.gz
-  agent-manager-client-windows-x86_64.nsis.zip
-  agent-manager-client-linux-x86_64.AppImage.tar.gz
+  agent-manager-client-26.03.15-darwin-aarch64.dmg
+  agent-manager-client-26.03.15-windows-x86_64.exe
+  agent-manager-client-26.03.15-linux-x86_64.AppImage
+  agent-manager-client-26.03.15-darwin-aarch64.app.tar.gz
+  agent-manager-client-26.03.15-windows-x86_64.nsis.zip
+  agent-manager-client-26.03.15-linux-x86_64.AppImage.tar.gz
 ```
+
+管理台“终端管理 → 安装客户端”只展示 `.dmg`、`.exe` 和 `.AppImage`，并按版本倒序排列；更新压缩包不会出现在手动下载列表。正式构建左下角显示 `版本 26.03.15`，本地 `npm run dev` 或普通 `npm run build` 显示 `版本 dev`。
 
 更新检查和文件下载均要求有效的终端接入凭证。内网 HTTP 可以使用，但更新包仍必须通过内置公钥验签；生产环境优先使用 HTTPS。
 

@@ -14,8 +14,9 @@ const goos = os === 'windows' ? 'windows' : os === 'darwin' || vendor === 'apple
 const goarch = arch === 'aarch64' ? 'arm64' : arch === 'x86_64' ? 'amd64' : arch
 const suffix = goos === 'windows' ? '.exe' : ''
 const output = resolve(root, 'client/desktop/src-tauri/bin', `agent-manager-client-${target}${suffix}`)
+const version = (process.env.AGENT_MANAGER_CLIENT_VERSION || 'dev').replace(/^client-v/, '').replace(/^v/, '')
 mkdirSync(dirname(output), { recursive: true })
-execFileSync('go', ['build', '-o', output, './cmd/agent-manager-client'], {
+execFileSync('go', ['build', '-ldflags', `-X skill-manager/scanner/internal/managedclient.Version=${version}`, '-o', output, './cmd/agent-manager-client'], {
   cwd: resolve(root, 'scanner'),
   env: {
     ...process.env,
@@ -26,4 +27,4 @@ execFileSync('go', ['build', '-o', output, './cmd/agent-manager-client'], {
   },
   stdio: 'inherit',
 })
-console.log(`prepared Agent Manager Client sidecar for ${target}`)
+console.log(`prepared Agent Manager Client ${version} sidecar for ${target}`)

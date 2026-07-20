@@ -1199,6 +1199,7 @@ function escapeHtml(value) {
   return node.innerHTML
 }
 
+invoke('get_build_version').then(version => { $('#client-build-version').textContent = `版本 ${version}` })
 refreshConnection()
 setInterval(refreshChangedInventory, 3000)
 document.addEventListener('visibilitychange', () => {
