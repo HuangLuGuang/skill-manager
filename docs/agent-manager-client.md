@@ -237,7 +237,6 @@ scanner/releases/
   agent-manager-client-26.03.15-linux-x86_64.AppImage
   agent-manager-client-26.03.15-darwin-aarch64.app.tar.gz
   agent-manager-client-26.03.15-windows-x86_64.nsis.zip
-  agent-manager-client-26.03.15-linux-x86_64.AppImage.tar.gz
 ```
 
 管理台“终端管理 → 安装客户端”只展示 `.dmg`、`.exe` 和 `.AppImage`，并按版本倒序排列；更新压缩包不会出现在手动下载列表。正式构建左下角显示 `版本 26.03.15`，本地 `npm run dev` 或普通 `npm run build` 显示 `版本 dev`。
