@@ -206,7 +206,7 @@ git tag client-v26.03.15
 git push origin client-v26.03.15
 ```
 
-GitLab CI 会在带有 `macos`、`windows`、`linux` 标签的 Runner 上分别构建，最终生成 `agent-manager-client-update-feed-*` Artifact，其中包含供用户下载的安装包、自动更新包和 `latest.json`。Runner 需要预装 Node.js 22、Go 和 Rust；Linux Runner 还需要 Tauri WebKit 依赖。若现有 Runner 标签不同，修改 [.gitlab-ci.yml](/Users/huangluguang/Desktop/Project/skill-manager/.gitlab-ci.yml) 中的 `tags` 即可。
+GitLab CI 会在带有 `macos`、`windows`、`linux` 标签的 Runner 上分别构建，最终生成 `agent-manager-client-update-feed-*` Artifact，其中包含供用户下载的安装包、自动更新包和 `latest.json`。macOS 和 Windows Runner 需要预装 Node.js 22、Go 和 Rust；Linux Docker Runner 使用 [Dockerfile.ci-linux](/Users/huangluguang/Desktop/Project/skill-manager/client/desktop/Dockerfile.ci-linux) 构建的 `agent-manager-client-ci-linux:latest` 镜像。若现有 Runner 标签不同，修改 [.gitlab-ci.yml](/Users/huangluguang/Desktop/Project/skill-manager/.gitlab-ci.yml) 中的 `tags` 即可。
 
 macOS 和 Windows 安装包必须在对应系统的 Runner 上构建；Linux Docker Runner 不能替代原生系统完成这两个安装包。下载并解压最终 Artifact 后，将其中的文件放入服务端：
 
