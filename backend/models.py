@@ -122,6 +122,7 @@ class AccessToken(Base):
     token_prefix = Column(String(24), index=True, nullable=False)
     scopes_json = Column(Text, default="[]", nullable=False)
     bound_agent_id = Column(String(128), index=True, nullable=True)
+    bound_client_id = Column(String(128), index=True, nullable=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     group_id = Column(Integer, ForeignKey("user_groups.id"), index=True, nullable=True)
     allowed_models_json = Column(Text, default="[]", nullable=False)
@@ -141,6 +142,82 @@ class AccessToken(Base):
     last_used_at = Column(DateTime, nullable=True)
     revoked_at = Column(DateTime, nullable=True)
     revoked_by = Column(String(128), nullable=True)
+
+
+class ManagedClient(Base):
+    __tablename__ = "managed_clients"
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(String(128), unique=True, index=True, nullable=False)
+    name = Column(String(128), nullable=False)
+    hostname = Column(String(255), nullable=False)
+    os = Column(String(32), nullable=False)
+    arch = Column(String(32), nullable=False)
+    client_version = Column(String(64), nullable=False)
+    governance_mode = Column(String(32), default="registry", nullable=False)
+    policy_mode = Column(String(32), default="audit", nullable=False)
+    status = Column(String(32), default="online", nullable=False)
+    last_seen_at = Column(DateTime, default=datetime.utcnow, index=True, nullable=False)
+    registered_by = Column(String(128), index=True, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ClientAgent(Base):
+    __tablename__ = "client_agents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(String(128), ForeignKey("managed_clients.client_id"), index=True, nullable=False)
+    agent_type = Column(String(64), index=True, nullable=False)
+    managed_agent_id = Column(String(128), index=True, nullable=True)
+    agent_version = Column(String(128), nullable=True)
+    install_path = Column(String(1024), nullable=True)
+    skills_path = Column(String(1024), nullable=True)
+    skill_management_supported = Column(Boolean, default=True, nullable=False)
+    capabilities_json = Column(Text, default="{}", nullable=False)
+    takeover_status = Column(String(32), default="discovered", nullable=False)
+    last_scanned_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ClientSkillInstall(Base):
+    __tablename__ = "client_skill_installs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(String(128), ForeignKey("managed_clients.client_id"), index=True, nullable=False)
+    agent_type = Column(String(64), index=True, nullable=False)
+    skill_id = Column(String(128), index=True, nullable=True)
+    skill_name = Column(String(255), index=True, nullable=False)
+    skill_path = Column(String(1024), nullable=False)
+    signature = Column(String(128), nullable=True)
+    install_mode = Column(String(32), default="observed", nullable=False)
+    status = Column(String(32), default="observed", nullable=False)
+    installed_at = Column(DateTime, nullable=True)
+    verified_at = Column(DateTime, nullable=True)
+
+
+class ClientTask(Base):
+    __tablename__ = "client_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(String(128), ForeignKey("managed_clients.client_id"), index=True, nullable=False)
+    task_type = Column(String(32), index=True, nullable=False)
+    payload_json = Column(Text, default="{}", nullable=False)
+    status = Column(String(32), default="pending", index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    error = Column(Text, nullable=True)
+
+
+class ClientEvent(Base):
+    __tablename__ = "client_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(String(128), ForeignKey("managed_clients.client_id"), index=True, nullable=False)
+    event_type = Column(String(64), index=True, nullable=False)
+    agent_type = Column(String(64), nullable=True)
+    skill_name = Column(String(255), nullable=True)
+    details_json = Column(Text, default="{}", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True, nullable=False)
 
 
 class PrivacyPolicy(Base):

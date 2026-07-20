@@ -1,0 +1,96 @@
+name: Agent Manager Client
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "client-v*"
+    paths:
+      - "client/desktop/**"
+      - "scanner/cmd/agent-manager-client/**"
+      - "scanner/internal/managedclient/**"
+      - ".github/workflows/agent-manager-client.yml"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            script: build:mac
+            release_script: release:mac
+            platform_key: darwin-aarch64
+          - os: windows-2022
+            script: build:windows
+            release_script: release:windows
+            platform_key: windows-x86_64
+          - os: ubuntu-22.04
+            script: build:linux
+            release_script: release:linux
+            platform_key: linux-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: scanner/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: client/desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+        working-directory: client/desktop
+      - name: Build development artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/client-v') }}
+        run: npm run ${{ matrix.script }}
+        working-directory: client/desktop
+      - name: Build signed updater artifact
+        if: ${{ startsWith(github.ref, 'refs/tags/client-v') }}
+        run: npm run ${{ matrix.release_script }}
+        working-directory: client/desktop
+        env:
+          AGENT_MANAGER_UPDATER_PUBLIC_KEY: ${{ secrets.AGENT_MANAGER_UPDATER_PUBLIC_KEY }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.AGENT_MANAGER_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.AGENT_MANAGER_UPDATER_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.AGENT_MANAGER_UPDATER_PRIVATE_KEY_PASSWORD }}
+      - name: Collect updater artifact
+        if: ${{ startsWith(github.ref, 'refs/tags/client-v') }}
+        run: node scripts/collect-updater-artifact.mjs ${{ matrix.platform_key }}
+        working-directory: client/desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-manager-client-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            client/desktop/src-tauri/target/release/bundle/**
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: ${{ startsWith(github.ref, 'refs/tags/client-v') }}
+        with:
+          name: agent-manager-client-update-${{ matrix.platform_key }}
+          path: client/desktop/release-output/**
+          if-no-files-found: error
+
+  update-manifest:
+    if: ${{ startsWith(github.ref, 'refs/tags/client-v') }}
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: agent-manager-client-update-*
+          path: client-updates
+          merge-multiple: true
+      - run: node client/desktop/scripts/generate-update-manifest.mjs client-updates "${GITHUB_REF_NAME}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-manager-client-update-feed
+          path: |
+            client-updates/agent-manager-client-*
+            client-updates/latest.json

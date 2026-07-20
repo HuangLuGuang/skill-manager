@@ -17,11 +17,22 @@ router = APIRouter(prefix="/access/tokens", tags=["access-tokens"])
 SCANNER_SCOPES = ["scanner:submit", "scanner:read-own-results", "scanner:read-own-sessions"]
 RUNTIME_SCOPES = ["runtime:verify-signature", "runtime:can-load", "runtime:check-tool"]
 MODEL_SCOPES = ["model:chat"]
-ALLOWED_SCOPES = set(SCANNER_SCOPES + RUNTIME_SCOPES + MODEL_SCOPES)
+CLIENT_SCOPES = [
+    "client:register",
+    "client:heartbeat",
+    "client:read-policy",
+    "client:read-tasks",
+    "client:report-inventory",
+    "client:report-events",
+    "client:submit-skill",
+    "client:download-approved-skill",
+]
+ALLOWED_SCOPES = set(SCANNER_SCOPES + RUNTIME_SCOPES + MODEL_SCOPES + CLIENT_SCOPES)
 DEFAULT_SCOPES_BY_TYPE = {
     "model_gateway": ["model:chat"],
     "agent_runtime": list(RUNTIME_SCOPES),
     "scanner": list(SCANNER_SCOPES),
+    "client": list(CLIENT_SCOPES),
 }
 ACTIVE_TOKEN_REQUESTS: dict[int, int] = {}
 
@@ -68,6 +79,7 @@ def _access_token_response(row: models.AccessToken, token: str | None = None) ->
         token=token,
         token_hash=None,
         bound_agent_id=row.bound_agent_id,
+        bound_client_id=row.bound_client_id,
         user_id=row.user_id,
         group_id=row.group_id,
         scopes=_json_loads(row.scopes_json, []),
@@ -127,7 +139,7 @@ def resolve_access_token(
     db: Session,
     authorization: str | None,
     *,
-    required_scope: str,
+    required_scope: str | tuple[str, ...],
     request: Request | None = None,
 ) -> models.AccessToken:
     plain = _extract_bearer(authorization)
@@ -137,8 +149,9 @@ def resolve_access_token(
     if row.expires_at and row.expires_at < datetime.utcnow():
         raise HTTPException(status_code=403, detail="接入凭证已过期")
     scopes = _json_loads(row.scopes_json, [])
-    if required_scope not in scopes:
-        raise HTTPException(status_code=403, detail=f"接入凭证缺少权限: {required_scope}")
+    required_scopes = (required_scope,) if isinstance(required_scope, str) else required_scope
+    if not any(scope in scopes for scope in required_scopes):
+        raise HTTPException(status_code=403, detail=f"接入凭证缺少权限: {' 或 '.join(required_scopes)}")
     allowed_ips = _json_loads(row.allowed_ips_json, [])
     client_ip = request.client.host if request and request.client else None
     if not _ip_allowed(client_ip, allowed_ips):
@@ -244,6 +257,7 @@ async def create_access_token(
         token_prefix=plain[:12],
         scopes_json=_json_dumps(scopes),
         bound_agent_id=body.bound_agent_id,
+        bound_client_id=body.bound_client_id,
         user_id=body.user_id or current_user.id if body.token_type == "model_gateway" else body.user_id,
         group_id=body.group_id,
         allowed_models_json=_json_dumps(body.allowed_models),

@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>瑞数智能体安全治理终端</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="rail">
+        <div class="brand">
+          <img class="brand-mark" src="./ruishu-logo.png" alt="瑞数信息" />
+          <div><strong>瑞数信息</strong><small>智能体安全治理终端</small></div>
+        </div>
+        <nav aria-label="客户端流程">
+          <button class="nav-item active" data-panel="connect"><span>01</span>终端接入</button>
+          <button class="nav-item" data-panel="discover"><span>02</span>Agent 发现</button>
+          <button class="nav-item" data-panel="takeover"><span>03</span><span id="takeover-nav-label" class="nav-label">接管预览</span></button>
+          <button class="nav-item" data-panel="status"><span>04</span>运行状态</button>
+          <button class="nav-item" data-panel="records"><span>05</span>执行记录</button>
+        </nav>
+        <div class="rail-note"><strong>瑞数智能体安全治理终端</strong><span>统一治理智能体配置、能力与运行安全。</span></div>
+      </aside>
+
+      <section class="workspace">
+        <header>
+          <div>
+            <p class="eyebrow">RIVER SECURITY</p>
+            <h1 id="panel-title">终端接入</h1>
+          </div>
+          <span id="connection-state" class="state">未接入</span>
+        </header>
+
+        <section id="connect" class="panel active">
+          <div id="connection-intro" class="panel-copy">
+            <h2>配置一次，后台持续运行</h2>
+            <p>使用“终端接入凭证”接入 Agent Manager。凭证只写入当前用户可读的本地配置文件。</p>
+          </div>
+          <div id="credential-tip" class="credential-tip">
+            <strong>凭证创建位置</strong>
+            <span>管理台 → 智能体管理 → 统一凭证中心 → 创建凭证，类型选择“终端接入凭证”。</span>
+            <span>保留默认的全部终端权限（8 个 <code>client:*</code> 权限）即可，其中 <code>client:submit-skill</code> 用于提交停用 Skill 到平台检测。</span>
+          </div>
+
+          <div id="connected-overview" hidden>
+            <section class="overview-hero">
+              <div>
+                <span id="overview-badge" class="overview-badge">正在检查</span>
+                <h2 id="overview-title">正在检查平台连接</h2>
+                <p id="overview-subtitle">请稍候</p>
+              </div>
+              <div class="actions">
+                <button id="overview-sync" class="primary icon-button icon-refresh">刷新状态</button>
+                <button id="check-update" class="icon-button icon-check">检查更新</button>
+                <button id="edit-connection" class="icon-button icon-edit">修改连接</button>
+              </div>
+            </section>
+
+            <section class="metric-grid" aria-label="终端管理摘要">
+              <button class="metric" data-target-panel="discover"><strong id="metric-agents">0</strong><span>本机 Agent</span></button>
+              <button class="metric" data-target-panel="discover"><strong id="metric-bound">0 / 0</strong><span id="metric-bound-label">治理就绪</span></button>
+              <button class="metric" data-target-panel="status"><strong id="metric-skills">0</strong><span>受管 Skill</span></button>
+              <div class="metric"><strong id="metric-todos">0</strong><span>待完成事项</span></div>
+            </section>
+
+            <section class="overview-section">
+              <div class="section-heading"><div><h2>接入进度</h2><p id="progress-summary">正在读取终端状态</p></div></div>
+              <div class="progress-track">
+                <div id="step-connect" class="progress-step"><i></i><span>接入平台</span></div>
+                <div id="step-discover" class="progress-step"><i></i><span>发现 Agent</span></div>
+                <div id="step-bind" class="progress-step"><i></i><span>绑定智能体</span></div>
+                <div id="step-service" class="progress-step"><i></i><span>后台巡检</span></div>
+              </div>
+            </section>
+
+            <section id="todo-section" class="overview-section todo-section" hidden>
+              <div class="section-heading"><div><h2>需要处理</h2><p>完成以下事项后，终端即可按当前配置运行。</p></div></div>
+              <div id="todo-list" class="todo-list"></div>
+            </section>
+
+            <section class="overview-section">
+              <div class="section-heading"><div><h2>平台检测能力</h2><p>提交待处理 Skill 时，将启用平台当前可用的全部检测能力并禁用缓存。</p></div></div>
+              <div class="detection-capabilities">
+                <div><span>规则扫描</span><strong id="capability-rules">-</strong></div>
+                <div><span>深度扫描</span><strong id="capability-deep-scan">-</strong></div>
+                <div><span>Sandbox</span><strong id="capability-sandbox">-</strong></div>
+                <div><span>LLM 分析</span><strong id="capability-llm">-</strong></div>
+              </div>
+            </section>
+
+            <div class="overview-columns">
+              <section class="overview-section">
+                <div class="section-heading"><h2>运行状态</h2></div>
+                <dl class="detail-list">
+                  <div><dt>后台巡检</dt><dd id="detail-service">-</dd></div>
+                  <div><dt>当前策略</dt><dd id="detail-policy">-</dd></div>
+                  <div><dt>治理方式</dt><dd id="detail-governance">-</dd></div>
+                  <div><dt>最近同步</dt><dd id="detail-last-seen">-</dd></div>
+                  <div><dt>凭证状态</dt><dd id="detail-token-status">-</dd></div>
+                  <div><dt>待补报事件</dt><dd id="detail-queued-events">-</dd></div>
+                  <div><dt>最近本地巡检</dt><dd id="detail-local-scan">-</dd></div>
+                </dl>
+              </section>
+              <section class="overview-section">
+                <div class="section-heading"><h2>终端信息</h2></div>
+                <dl class="detail-list">
+                  <div><dt>终端名称</dt><dd id="detail-name">-</dd></div>
+                  <div><dt>终端 ID</dt><dd><code id="detail-client-id">-</code></dd></div>
+                  <div><dt>系统</dt><dd id="detail-system">-</dd></div>
+                  <div><dt>客户端版本</dt><dd id="detail-version">-</dd></div>
+                  <div><dt>平台地址</dt><dd id="detail-server">-</dd></div>
+                </dl>
+              </section>
+            </div>
+
+          </div>
+
+          <form id="connect-form" class="form-grid">
+            <label>Agent Manager 地址<input id="server" type="url" placeholder="http://127.0.0.1:8001" required /></label>
+            <label>终端接入凭证<input id="token" type="password" placeholder="amat_..." required /></label>
+            <label>终端名称<input id="client-name" type="text" placeholder="研发终端" /></label>
+            <div class="form-actions">
+              <button id="connect-submit" class="primary icon-button icon-connect" type="submit">接入平台</button>
+              <button id="cancel-edit" class="icon-button icon-close" type="button" hidden>取消</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="discover" class="panel">
+          <div class="panel-toolbar">
+            <div><h2>本机 Agent 与 Skill</h2><p>查看发现路径、校验状态，并选择需要纳入治理的 Skill。</p></div>
+            <div class="actions discover-actions"><button id="add-custom-agent-button" title="添加自定义 Agent">添加 Agent</button><button id="platform-install-button" title="从平台安装 Skill">安装 Skill</button><button id="discover-button" class="primary" title="重新发现本机 Agent 与 Skill">重新发现</button></div>
+          </div>
+          <div id="agent-list" class="agent-list empty">尚未执行发现</div>
+          <div id="discover-next" class="next-step" hidden>
+            <div><strong>下一步：确认接管范围</strong><span>已选择 <b id="selected-skill-count">0</b> 个 Skill，生成预览后可查看哪些继续启用、哪些需要处理。</span></div>
+            <button id="open-preview-button" class="primary icon-button icon-preview">生成接管预览</button>
+          </div>
+        </section>
+
+        <section id="takeover" class="panel">
+          <div class="panel-toolbar">
+            <div>
+              <div class="takeover-heading-line"><h2 id="takeover-heading">接管预览</h2><span id="takeover-state-badge" class="takeover-state-badge" hidden>接管中</span></div>
+              <p id="takeover-description">安全治理模式只校验平台批准状态与内容签名；Agent 强授权模式还会校验智能体允许范围。</p>
+            </div>
+            <div class="actions">
+              <button id="toggle-takeover" hidden>暂停接管</button>
+              <button id="preview-button" class="icon-button icon-refresh">刷新预览</button>
+            </div>
+          </div>
+          <div id="takeover-summary" class="summary-strip" hidden>
+            <div><strong id="manage-count">0</strong><span>本次可接管<small>已接管的 Skill 不会重复处理</small></span></div>
+            <div><strong id="pending-count">0</strong><span>本次需停用<small>移出 Agent 目录并安全保留</small></span></div>
+          </div>
+          <div id="takeover-result-note" class="result-note" hidden></div>
+          <div id="takeover-feedback" class="takeover-feedback" aria-live="polite" hidden></div>
+          <div id="takeover-list" class="takeover-list empty">请先发现 Agent，并选择要接管的 Skill</div>
+          <div id="takeover-actions" class="takeover-actions" hidden>
+            <label class="takeover-confirm"><input id="takeover-ack" type="checkbox" /><span><strong>确认执行上述处理</strong><small>需要处理的 Skill 会从 Agent 目录移出并保留到待处理区，不会被删除。</small></span></label>
+            <button id="apply-button" class="action-success icon-button icon-check" data-busy-text="正在接管..." disabled>执行接管</button>
+          </div>
+          <div class="panel-toolbar pending-heading">
+            <div><h2>已停用待处理</h2><p>这些 Skill 已安全移出 Agent 目录，提交平台检测后可在 Skill 列表中继续审核。</p></div>
+            <button id="refresh-pending" class="icon-button icon-refresh">刷新待处理</button>
+          </div>
+          <div id="pending-list" class="takeover-list empty">当前没有停用待处理的 Skill</div>
+        </section>
+
+        <section id="status" class="panel">
+          <section class="status-hero">
+            <div>
+              <span id="status-service-badge" class="overview-badge">正在检查</span>
+              <h2 id="status-service-title">后台巡检状态</h2>
+              <p id="status-service-description">默认每 5 分钟同步平台任务并校验受管 Skill。</p>
+            </div>
+            <div class="status-actions">
+              <button id="run-once" class="primary icon-button icon-run">立即执行巡检</button>
+              <button id="toggle-governance" class="takeover-toggle pause icon-button icon-pause">暂停持续治理</button>
+              <button id="install-service" class="action-success icon-button icon-start">启用后台服务</button>
+              <button id="uninstall-service" class="subtle-danger icon-button icon-stop" hidden>停止后台服务</button>
+            </div>
+          </section>
+
+          <section class="status-metrics" aria-label="巡检状态摘要">
+            <div><strong id="status-last-scan">-</strong><span>最近完整巡检</span></div>
+            <div><strong id="status-next-scan">-</strong><span>下次完整巡检</span></div>
+            <div><strong id="status-managed-count">0</strong><span>受管 Skill</span></div>
+            <div><strong id="status-quarantine-count">0</strong><span>隔离中</span></div>
+            <div><strong id="status-queued-count">0</strong><span>待补报事件</span></div>
+          </section>
+
+          <div id="status-attention" class="status-attention"><span id="status-attention-text">正在读取需要处理的事项</span></div>
+          <div id="status-last-operation" class="operation-result" aria-live="polite">最近操作：等待操作</div>
+
+          <div class="panel-toolbar quarantine-heading">
+            <div><h2>隔离区</h2><p>异常内容不会直接恢复到 Agent。确认安全后，请从平台选择批准版本重新安装。</p></div>
+            <button id="refresh-quarantine" class="icon-button icon-refresh">刷新隔离区</button>
+          </div>
+          <div id="quarantine-list" class="takeover-list empty">正在加载隔离记录</div>
+
+          <details class="advanced-recovery">
+            <summary>高级恢复</summary>
+            <p>接管前备份用于紧急回退。恢复会覆盖对应 Agent 当前的同名 Skill，请确认后操作。</p>
+            <div class="backup-row">
+              <label>接管前备份
+                <select id="backup-select"><option value="">正在加载</option></select>
+              </label>
+              <button id="refresh-backups" class="icon-button icon-refresh">刷新</button>
+              <button id="restore-backup" class="danger icon-button icon-restore">恢复所选备份</button>
+            </div>
+          </details>
+        </section>
+
+        <section id="records" class="panel">
+          <section class="status-hero">
+            <div><span class="overview-badge">终端记录</span><h2>执行记录</h2><p>查看巡检发现、自动处置以及平台下发任务的执行结果。</p></div>
+            <button id="refresh-records" class="icon-button icon-refresh">刷新记录</button>
+          </section>
+          <div class="panel-toolbar task-history-heading"><div><h2>巡检与处置记录</h2><p>记录 Skill 修改、自动恢复、隔离和安装等安全事件。</p></div></div>
+          <div class="takeover-column-head task-history-columns"><span>事件</span><span>Agent</span><span>结果</span><span>发生时间</span></div>
+          <div id="event-history-list" class="takeover-list empty">暂无巡检与处置记录</div>
+          <div class="panel-toolbar task-history-heading"><div><h2>平台任务记录</h2><p>记录策略同步、Skill 安装、移除和修复任务。</p></div></div>
+          <div class="takeover-column-head task-history-columns"><span>任务</span><span>Agent</span><span>状态</span><span>执行时间 / 结果</span></div>
+          <div id="task-history-list" class="takeover-list empty">暂无平台任务记录</div>
+        </section>
+      </section>
+    </main>
+    <dialog id="message-dialog" class="message-dialog">
+      <div class="message-dialog-body">
+        <h3 id="message-dialog-title">操作提示</h3>
+        <p id="message-dialog-detail"></p>
+        <form method="dialog"><button class="primary icon-button icon-check">知道了</button></form>
+      </div>
+    </dialog>
+    <dialog id="install-skill-dialog" class="message-dialog install-skill-dialog">
+      <div class="message-dialog-body">
+        <h3 id="install-skill-title">从平台安装 Skill</h3>
+        <p>选择平台已批准的 Skill 和一个或多个目标 Agent。多个 Agent 共用一份受管内容，各自目录使用软连接。</p>
+        <label id="install-skill-search-label">搜索 Skill 名称<input id="install-skill-search" type="search" placeholder="输入名称筛选" autocomplete="off" /></label>
+        <label>平台 Skill<select id="install-platform-skill"><option value="">正在读取平台 Skill...</option></select></label>
+        <div id="install-skill-preview" class="install-skill-preview"><span>选择 Skill 后可查看说明</span></div>
+        <fieldset class="install-target-fieldset">
+          <legend>目标 Agent（可多选）</legend>
+          <div id="install-agent-targets" class="install-agent-targets"><span>请先选择 Skill</span></div>
+        </fieldset>
+        <div class="dialog-actions"><button id="cancel-install-skill" class="icon-button icon-close">取消</button><button id="confirm-install-skill" class="action-success icon-button icon-install" data-busy-text="正在安装...">安装到所选 Agent</button></div>
+      </div>
+    </dialog>
+    <dialog id="custom-agent-dialog" class="message-dialog custom-agent-dialog">
+      <form id="custom-agent-form" class="message-dialog-body">
+        <h3>添加自定义 Agent</h3>
+        <p>适用于未内置适配的 Agent。指定其 Skill 根目录后，即可使用现有的发现、接管、安装和巡检能力。终端安全治理无需先在平台创建智能体；Agent 强授权模式下再选择对应的平台智能体。</p>
+        <label>Agent 名称<input id="custom-agent-name" type="text" placeholder="例如：内部研发助手" maxlength="100" required /></label>
+        <label>Skill 根目录<div class="path-input"><input id="custom-agent-path" type="text" placeholder="绝对路径，例如 /Users/me/.my-agent/skills" required /><button id="select-custom-agent-path" class="icon-button icon-folder" type="button">选择目录</button></div><small>请选择包含各个 Skill 子目录的根目录，不是单个 SKILL.md 文件。</small></label>
+        <div class="dialog-actions"><button id="cancel-custom-agent" class="icon-button icon-close" type="button">取消</button><button class="action-success icon-button icon-add" type="submit" data-busy-text="正在添加...">添加并发现</button></div>
+      </form>
+    </dialog>
+    <script src="./app.js"></script>
+  </body>
+</html>

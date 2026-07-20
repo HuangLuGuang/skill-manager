@@ -254,8 +254,9 @@ class ManagedAgentResponse(BaseModel):
 
 class AccessTokenCreate(BaseModel):
     name: str
-    token_type: str = Field(pattern="^(model_gateway|agent_runtime|scanner)$")
+    token_type: str = Field(pattern="^(model_gateway|agent_runtime|scanner|client)$")
     bound_agent_id: Optional[str] = None
+    bound_client_id: Optional[str] = None
     user_id: Optional[int] = None
     group_id: Optional[int] = None
     scopes: list[str] = []
@@ -275,6 +276,7 @@ class AccessTokenCreate(BaseModel):
 class AccessTokenUpdate(BaseModel):
     name: Optional[str] = None
     bound_agent_id: Optional[str] = None
+    bound_client_id: Optional[str] = None
     user_id: Optional[int] = None
     group_id: Optional[int] = None
     scopes: Optional[list[str]] = None
@@ -300,6 +302,7 @@ class AccessTokenResponse(BaseModel):
     token: Optional[str] = None
     token_hash: Optional[str] = None
     bound_agent_id: Optional[str] = None
+    bound_client_id: Optional[str] = None
     user_id: Optional[int] = None
     group_id: Optional[int] = None
     scopes: list[str] = []
@@ -329,6 +332,94 @@ class AccessTokenCreateResponse(BaseModel):
 
 class AccessTokenListResponse(BaseModel):
     items: list[AccessTokenResponse]
+
+
+class ClientSkillInventory(BaseModel):
+    skill_id: Optional[str] = None
+    name: str
+    path: str
+    signature: Optional[str] = None
+    status: str = "observed"
+    install_mode: str = "observed"
+
+
+class ClientAgentInventory(BaseModel):
+    agent_type: str
+    version: Optional[str] = None
+    install_path: Optional[str] = None
+    skills_path: Optional[str] = None
+    skill_management_supported: bool = True
+    capabilities: dict[str, Any] = {}
+    managed_agent_id: Optional[str] = None
+    skills: list[ClientSkillInventory] = []
+
+
+class ClientRegisterRequest(BaseModel):
+    client_id: str
+    name: str
+    hostname: str
+    os: str
+    arch: str
+    client_version: str
+    agents: list[ClientAgentInventory] = []
+
+
+class ClientHeartbeatRequest(BaseModel):
+    client_id: str
+    client_version: Optional[str] = None
+
+
+class ClientPolicyUpdate(BaseModel):
+    mode: Optional[str] = Field(default=None, pattern="^(audit|repair|block)$")
+    governance_mode: Optional[str] = Field(default=None, pattern="^(registry|strict)$")
+
+
+class ClientAgentBindingUpdate(BaseModel):
+    managed_agent_id: Optional[str] = None
+
+
+class ClientInventoryRequest(BaseModel):
+    agents: list[ClientAgentInventory] = []
+
+
+class ClientEventCreate(BaseModel):
+    event_type: str
+    agent_type: Optional[str] = None
+    skill_name: Optional[str] = None
+    details: dict[str, Any] = {}
+
+
+class ClientTaskCreate(BaseModel):
+    task_type: str = Field(pattern="^(install_skill|remove_skill|rescan|repair_skill)$")
+    payload: dict[str, Any] = {}
+
+
+class ClientTaskResult(BaseModel):
+    status: str = Field(pattern="^(running|succeeded|failed|cancelled)$")
+    error: Optional[str] = None
+
+
+class ClientSkillCompareItem(BaseModel):
+    name: str
+    path: Optional[str] = None
+    signature: Optional[str] = None
+
+
+class ClientAgentCompare(BaseModel):
+    agent_type: str
+    managed_agent_id: Optional[str] = None
+    skills: list[ClientSkillCompareItem] = []
+
+
+class ClientCompareRequest(BaseModel):
+    agents: list[ClientAgentCompare] = []
+
+
+class ClientTakeoverReport(BaseModel):
+    backup: str
+    managed_count: int = Field(ge=0)
+    pending_count: int = Field(ge=0)
+
 
 
 class ModelProviderCreate(BaseModel):

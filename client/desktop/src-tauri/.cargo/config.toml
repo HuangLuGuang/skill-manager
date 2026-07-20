@@ -1,0 +1,6 @@
+[resolver]
+incompatible-rust-versions = "fallback"
+
+[http]
+timeout = 600
+low-speed-limit = 1

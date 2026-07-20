@@ -35,3 +35,5 @@ projects/
 mitre_attack_atlas/
 *.tar.gz
 agent-manager/
+client/desktop/src-tauri/tauri.release.conf.json
+client/desktop/release-output/

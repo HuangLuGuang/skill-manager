@@ -160,6 +160,14 @@
             </a-form-item>
           </a-col>
         </a-row>
+        <a-form-item label="客户端类型" required>
+          <a-select v-model:value="agentForm.channel" placeholder="选择该智能体运行在哪类客户端">
+            <a-select-option v-for="option in clientTypeOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </a-select-option>
+          </a-select>
+          <div class="field-hint">仅用于终端自动发现和映射，不代表接入方式。</div>
+        </a-form-item>
         <a-form-item label="默认模型">
           <a-select v-model:value="agentForm.default_model" allow-clear show-search placeholder="选择模型">
             <a-select-option v-for="model in models" :key="model.name" :value="model.name">
@@ -289,11 +297,21 @@ const agentForm = reactive({
   department_group_id: null,
   owner: '',
   description: '',
+  channel: undefined,
   status: 'active',
   default_model: undefined,
   skill_refs: [],
   prompt_names: [],
 })
+const clientTypeOptions = [
+  { value: 'Claude Code', label: 'Claude Code' },
+  { value: 'Codex', label: 'Codex' },
+  { value: 'Gemini CLI', label: 'Gemini CLI' },
+  { value: 'OpenCode', label: 'OpenCode' },
+  { value: 'OpenClaw', label: 'OpenClaw' },
+  { value: 'Hermes', label: 'Hermes' },
+  { value: 'Custom', label: '自定义 Agent' },
+]
 
 const columns = [
   { title: '智能体', key: 'agent' },
@@ -429,6 +447,7 @@ const openAgent = (record = null) => {
     department_group_id: record?.department_group_id || null,
     owner: record?.owner || '',
     description: record?.description || '',
+    channel: record?.channel || undefined,
     status: record?.status || 'active',
     default_model: record?.default_model || undefined,
     skill_refs: findRefsByNames(skillOptions.value, record?.skill_names || []),
@@ -439,8 +458,8 @@ const openAgent = (record = null) => {
 
 const saveAgent = async () => {
   if (submitting.value) return
-  if (!agentForm.agent_id.trim() || !agentForm.name.trim()) {
-    message.warning('请填写 Agent ID 和名称')
+  if (!agentForm.agent_id.trim() || !agentForm.name.trim() || !agentForm.channel) {
+    message.warning('请填写 Agent ID、名称并选择客户端类型')
     return
   }
   submitting.value = true
@@ -451,6 +470,7 @@ const saveAgent = async () => {
       department_group_id: agentForm.department_group_id,
       owner: agentForm.owner,
       description: agentForm.description,
+      channel: agentForm.channel,
       status: agentForm.status,
       default_model: agentForm.default_model,
       skill_names: skillIdsFromRefs(skillOptions.value, agentForm.skill_refs),

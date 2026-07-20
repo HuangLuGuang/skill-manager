@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from . import models
 from .auth import get_current_admin_user, get_password_hash
 from .config import settings
-from .routers import access_tokens, agents, auth, config, llm_gateway, system, tasks
+from .routers import access_tokens, agents, auth, clients, config, llm_gateway, system, tasks
 from .sqlite_db import Base, SessionLocal, engine
 from .task_runtime import init_default_tasks
 
@@ -47,6 +47,7 @@ app.include_router(system.router, prefix=settings.API_PREFIX)
 app.include_router(tasks.router, prefix=settings.API_PREFIX)
 app.include_router(agents.router, prefix=settings.API_PREFIX)
 app.include_router(access_tokens.router, prefix=f"{settings.API_PREFIX}/v1")
+app.include_router(clients.router, prefix=settings.API_PREFIX)
 app.include_router(llm_gateway.runtime_router)
 app.include_router(llm_gateway.admin_router, prefix=settings.API_PREFIX)
 app.include_router(access_runtime_router)
@@ -71,6 +72,8 @@ def ensure_sqlite_schema() -> None:
         if "created_by" not in agent_columns:
             conn.exec_driver_sql("ALTER TABLE managed_agents ADD COLUMN created_by VARCHAR(128)")
         access_token_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(access_tokens)").fetchall()}
+        if "bound_client_id" not in access_token_columns:
+            conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN bound_client_id VARCHAR(128)")
         if "prompt_guard_mode" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN prompt_guard_mode VARCHAR(32) NOT NULL DEFAULT 'off'")
         if "prompt_guard_llm_review" not in access_token_columns:
@@ -83,6 +86,11 @@ def ensure_sqlite_schema() -> None:
         audit_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(llm_request_audit)").fetchall()}
         if "prompt_guard_result_json" not in audit_columns:
             conn.exec_driver_sql("ALTER TABLE llm_request_audit ADD COLUMN prompt_guard_result_json TEXT NOT NULL DEFAULT '{}'")
+        managed_client_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(managed_clients)").fetchall()}
+        if managed_client_columns and "policy_mode" not in managed_client_columns:
+            conn.exec_driver_sql("ALTER TABLE managed_clients ADD COLUMN policy_mode VARCHAR(32) NOT NULL DEFAULT 'audit'")
+        if managed_client_columns and "governance_mode" not in managed_client_columns:
+            conn.exec_driver_sql("ALTER TABLE managed_clients ADD COLUMN governance_mode VARCHAR(32) NOT NULL DEFAULT 'registry'")
 
     # Headroom 压缩字段 migration
     from backend.migrate_compression import migrate as migrate_compression

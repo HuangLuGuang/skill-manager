@@ -24,7 +24,7 @@ _DEV_WARNING_SHOWN = False
 
 # Directories whose contents are excluded from signature computation.
 # Must match the client-side DEFAULT_IGNORES in agent_manager_skill_verifier.py.
-_SKILL_IGNORE_DIRS = {".git", ".venv", "node_modules", "__pycache__", "dist", "build"}
+SKILL_IGNORE_DIRS = frozenset({".git", ".venv", "node_modules", "__pycache__", "dist", "build"})
 
 _ENV_LOADED = False
 
@@ -85,7 +85,7 @@ def compute_signature(skill_path: str | Path) -> str:
         if not fpath.is_file() or fpath.is_symlink():
             continue
         rel_parts = fpath.relative_to(root).parts
-        if any(part in _SKILL_IGNORE_DIRS for part in rel_parts):
+        if any(part in SKILL_IGNORE_DIRS for part in rel_parts):
             continue
         rel = "/".join(_normalize_zip_mojibake(part) for part in fpath.relative_to(root).parts)
         file_hash = _content_hash(fpath)

@@ -1,0 +1,20 @@
+{
+  "name": "agent-manager-client-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "prepare": "node scripts/prepare-sidecar.mjs",
+    "prepare:release": "node scripts/prepare-release-config.mjs",
+    "dev": "npm run prepare && tauri dev",
+    "build": "npm run build:mac",
+    "build:mac": "npm run prepare && tauri build --bundles app",
+    "build:windows": "npm run prepare && tauri build --bundles nsis",
+    "build:linux": "npm run prepare && tauri build --bundles deb,appimage",
+    "release:mac": "npm run prepare && npm run prepare:release && tauri build --config src-tauri/tauri.release.conf.json --bundles app",
+    "release:windows": "npm run prepare && npm run prepare:release && tauri build --config src-tauri/tauri.release.conf.json --bundles nsis",
+    "release:linux": "npm run prepare && npm run prepare:release && tauri build --config src-tauri/tauri.release.conf.json --bundles appimage"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.0.4"
+  }
+}

@@ -4,13 +4,16 @@
 
 这个项目本身不是一个“运行 skill 的平台”，而是一个“管理 skill 准入和运行时治理的中心”。
 
-外部系统或外部 Agent 接入它，通常有两种模式：
+外部系统或外部 Agent 接入它，通常有四种模式：
 
+- 模式零：使用 Agent Manager Client 统一接管本地 Skill
 - 模式一：把 Agent Manager 当作审批和验票中心
 - 模式二：把 Agent Manager 当作 skill 制品登记中心
 - 模式三：把 Agent Manager 当作 LLM 隐私代理
 
 最推荐的是模式一。这样外部 Agent 仍然使用自己的 skill 加载机制，但在关键节点调用 Agent Manager 做校验和审计。
+
+如果客户需要统一管理 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes 等本地 Skill 目录，优先使用 Agent Manager Client。它不依赖 Agent 是否遵循 Skill 指令，说明见 [agent-manager-client.md](agent-manager-client.md)。
 
 ## Mode 1: Governance Gateway
 

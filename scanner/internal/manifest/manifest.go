@@ -132,6 +132,14 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
+func ContentSignature(files []FileEntry) string {
+	hash := sha256.New()
+	for _, file := range files {
+		io.WriteString(hash, file.Path+":"+file.SHA256+"\n")
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
 func fingerprint(files []FileEntry) string {
 	hash := sha256.New()
 	for _, file := range files {
@@ -171,6 +179,10 @@ func parseSkillMetadata(path string) (string, string) {
 		}
 	}
 	return name, description
+}
+
+func ReadSkillMetadata(root string) (string, string) {
+	return parseSkillMetadata(filepath.Join(root, "SKILL.md"))
 }
 
 func cleanValue(value string) string {

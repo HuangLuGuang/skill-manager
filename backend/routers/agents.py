@@ -59,6 +59,13 @@ def _ensure_department(db: Session, group_id: int | None) -> None:
         raise HTTPException(status_code=404, detail="部门不存在")
 
 
+def _owned_agents(db: Session, current_user: models.User):
+    query = db.query(models.ManagedAgent)
+    if current_user.role != "super_admin":
+        query = query.filter(models.ManagedAgent.created_by == current_user.username)
+    return query
+
+
 @router.get("", response_model=list[schemas.ManagedAgentResponse])
 async def list_agents(
     department_group_id: int | None = Query(None),
@@ -67,7 +74,7 @@ async def list_agents(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    query = db.query(models.ManagedAgent).filter(models.ManagedAgent.created_by == current_user.username)
+    query = _owned_agents(db, current_user)
     if department_group_id is not None:
         query = query.filter(models.ManagedAgent.department_group_id == department_group_id)
     if status:
@@ -120,12 +127,7 @@ async def update_agent(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    row = (
-        db.query(models.ManagedAgent)
-        .filter(models.ManagedAgent.id == agent_pk)
-        .filter(models.ManagedAgent.created_by == current_user.username)
-        .first()
-    )
+    row = _owned_agents(db, current_user).filter(models.ManagedAgent.id == agent_pk).first()
     if not row:
         raise HTTPException(status_code=404, detail="智能体不存在")
     data = body.model_dump(exclude_unset=True)
@@ -153,12 +155,7 @@ async def delete_agent(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    row = (
-        db.query(models.ManagedAgent)
-        .filter(models.ManagedAgent.id == agent_pk)
-        .filter(models.ManagedAgent.created_by == current_user.username)
-        .first()
-    )
+    row = _owned_agents(db, current_user).filter(models.ManagedAgent.id == agent_pk).first()
     if not row:
         raise HTTPException(status_code=404, detail="智能体不存在")
     db.delete(row)

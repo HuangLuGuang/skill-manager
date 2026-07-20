@@ -2,6 +2,9 @@
   <div class="skill-detail-page">
     <a-page-header :title="detail?.name ? `Skill 详情：${detail.name}` : `Skill 详情：${skillId}`" sub-title="查看 Skill 详情、审核与审计记录">
       <template #extra>
+        <a-button v-if="detail?.status === 'APPROVED'" type="primary" @click="openClientInstall">
+          安装到终端
+        </a-button>
         <a-button @click="handleDownloadSkill" :loading="downloadingSkill" :disabled="!detail?.skill_id">
           下载 Skill
         </a-button>
@@ -747,6 +750,27 @@
       </a-form>
     </a-modal>
 
+    <a-modal
+      v-model:open="clientInstallOpen"
+      title="安装 Skill 到终端"
+      ok-text="创建安装任务"
+      :confirm-loading="clientInstallLoading"
+      @ok="submitClientInstall"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="Skill">
+          <a-input :value="detail?.name || ''" disabled />
+        </a-form-item>
+        <a-form-item label="目标终端与 Agent" required>
+          <a-select v-model:value="clientInstallTarget" show-search option-filter-prop="label" placeholder="选择支持 Skill 管理的终端 Agent">
+            <a-select-option v-for="target in clientTargets" :key="target.key" :value="target.key" :label="target.label">
+              {{ target.label }}
+            </a-select-option>
+          </a-select>
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
     <a-drawer
       v-model:open="fileViewerOpen"
       :title="viewerTitle"
@@ -776,6 +800,7 @@ import { marked } from 'marked'
 
 import {
   approveSkill,
+  createClientTask,
   downloadSkill,
   getAudit,
   getSkillContent,
@@ -784,6 +809,7 @@ import {
   getSkillFiles,
   getSkillGovernanceCard,
   getSkillScanReport,
+  listClients,
   refreshSkillGovernanceCard,
   rejectSkill,
   verifySkillSignature,
@@ -820,6 +846,21 @@ const approveModalOpen = ref(false)
 const rejectModalOpen = ref(false)
 const approveNote = ref('')
 const rejectReason = ref('')
+const clientInstallOpen = ref(false)
+const clientInstallLoading = ref(false)
+const clientInstallTarget = ref('')
+const managedClients = ref([])
+const clientTargets = computed(() => managedClients.value.flatMap(client =>
+  (client.agents || [])
+    .filter(agent => agent.skill_management_supported && (client.governance_mode !== 'strict' || agent.managed_agent_id))
+    .map(agent => ({
+      key: `${client.client_id}\x00${agent.agent_type}`,
+      label: `${client.name} / ${agent.agent_type}`,
+      clientId: client.client_id,
+      agentType: agent.agent_type,
+      managedAgentId: agent.managed_agent_id,
+    })),
+))
 
 const auditColumns = [
   { title: '时间', dataIndex: 'timestamp', key: 'timestamp', width: 180, customRender: ({ text }) => formatDateTime(text) },
@@ -899,6 +940,44 @@ const fetchDetail = async () => {
     message.error(error.response?.data?.detail || '获取技能详情失败')
   } finally {
     loading.value = false
+  }
+}
+
+const openClientInstall = async () => {
+  clientInstallTarget.value = ''
+  clientInstallOpen.value = true
+  clientInstallLoading.value = true
+  try {
+    managedClients.value = await listClients()
+  } catch (error) {
+    message.error(error.response?.data?.detail || '获取终端列表失败')
+  } finally {
+    clientInstallLoading.value = false
+  }
+}
+
+const submitClientInstall = async () => {
+  const target = clientTargets.value.find(item => item.key === clientInstallTarget.value)
+  if (!target) {
+    message.warning('请选择目标终端与 Agent')
+    return
+  }
+  clientInstallLoading.value = true
+  try {
+    await createClientTask(target.clientId, {
+      task_type: 'install_skill',
+      payload: {
+        agent_type: target.agentType,
+        managed_agent_id: target.managedAgentId,
+        skill_id: detail.value.skill_id,
+      },
+    })
+    clientInstallOpen.value = false
+    message.success('安装任务已创建')
+  } catch (error) {
+    message.error(error.response?.data?.detail || '创建安装任务失败')
+  } finally {
+    clientInstallLoading.value = false
   }
 }
 
@@ -1843,6 +1922,7 @@ const originLabel = (value) => ({
 }[value] || value || '-')
 const sourceChannelLabel = (value) => ({
   scanner: 'Skill 扫描器',
+  agent_manager_client: 'Agent Manager Client',
   upload_zip: '上传 ZIP',
   local_import: '本地目录导入',
   remote_download: '网络下载导入',

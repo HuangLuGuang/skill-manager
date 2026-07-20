@@ -259,7 +259,7 @@ def require_scanner_submit_token(
     store: ScannerTokenStore = Depends(get_token_store),
     db: Session = Depends(get_db),
 ) -> ScannerAuthContext:
-    return _validate_scanner_auth("scanner:submit", request, authorization, store, db)
+    return _validate_scanner_auth(("scanner:submit", "client:submit-skill"), request, authorization, store, db)
 
 
 def require_scanner_read_token(
@@ -268,11 +268,11 @@ def require_scanner_read_token(
     store: ScannerTokenStore = Depends(get_token_store),
     db: Session = Depends(get_db),
 ) -> ScannerAuthContext:
-    return _validate_scanner_auth("scanner:read-own-results", request, authorization, store, db)
+    return _validate_scanner_auth(("scanner:read-own-results", "client:submit-skill"), request, authorization, store, db)
 
 
 def _validate_scanner_auth(
-    required_scope: str,
+    required_scope: str | tuple[str, ...],
     request: Request,
     authorization: str | None,
     store: ScannerTokenStore,
@@ -281,6 +281,8 @@ def _validate_scanner_auth(
     plain = _extract_bearer(authorization)
     if plain.startswith("amat_"):
         token = resolve_access_token(db, authorization, required_scope=required_scope, request=request)
+        if isinstance(required_scope, tuple) and token.token_type not in {"scanner", "client"}:
+            raise HTTPException(status_code=403, detail="当前凭证不能提交 Skill")
         author = _access_token_author(db, token)
         return ScannerAuthContext(
             name=token.name,
@@ -289,7 +291,8 @@ def _validate_scanner_auth(
             token_name=token.name,
             access_token=token,
         )
-    legacy = _validate_scanner_token(required_scope, request, authorization, store)
+    legacy_scope = required_scope[0] if isinstance(required_scope, tuple) else required_scope
+    legacy = _validate_scanner_token(legacy_scope, request, authorization, store)
     return ScannerAuthContext(
         name=legacy.name,
         max_upload_mb=legacy.max_upload_mb,
@@ -576,6 +579,7 @@ async def submit_scanner_import(
     use_llm: bool = Form(False),
     use_sandbox: bool = Form(False),
     use_skillspector: bool = Form(False),
+    use_deep_scan: bool = Form(False),
     no_cache: bool = Form(False),
     judgement_mode: str | None = Form(None),
     scanner_version: str | None = Form(None),
@@ -584,6 +588,9 @@ async def submit_scanner_import(
     mgr: AgentManager = Depends(get_manager),
     store: ScannerTokenStore = Depends(get_token_store),
 ):
+    if scanner_auth.access_token and scanner_auth.access_token.token_type == "client":
+        if not host_id or scanner_auth.access_token.bound_client_id != host_id:
+            raise HTTPException(status_code=403, detail="客户端凭证未绑定当前终端，请先连接并注册")
     max_bytes = scanner_auth.max_upload_mb * 1024 * 1024
     if file.size and file.size > max_bytes:
         raise HTTPException(status_code=413, detail=f"File too large (max {scanner_auth.max_upload_mb} MB)")
@@ -631,10 +638,11 @@ async def submit_scanner_import(
         source = SourceInfo(
             origin=SkillOrigin.LOCAL,
             author=scanner_auth.author or scanner_auth.name,
-            channel="scanner",
+            channel="agent_manager_client" if scanner_auth.access_token and scanner_auth.access_token.token_type == "client" else "scanner",
             token_name=scanner_auth.token_name,
             version=scanner_version,
         )
+        deep_scan_enabled = use_deep_scan or use_skillspector
         response = _submit_directory_for_processing(
             mgr,
             background_tasks,
@@ -643,7 +651,7 @@ async def submit_scanner_import(
             use_behavioral,
             use_llm,
             use_sandbox,
-            use_skillspector,
+            deep_scan_enabled,
             no_cache,
             judgement_mode,
         )
@@ -658,6 +666,13 @@ async def submit_scanner_import(
                 "scanner_version": scanner_version,
                 "manifest_fingerprint": (parsed_manifest or {}).get("fingerprint") if parsed_manifest else None,
                 "server_fingerprint": server_manifest["fingerprint"],
+                "detection_options": {
+                    "rules": use_behavioral,
+                    "deep_scan": deep_scan_enabled,
+                    "sandbox": use_sandbox,
+                    "llm": use_llm,
+                    "no_cache": no_cache,
+                },
             },
         )
         return ScannerSubmitResponse(**response.model_dump(), detail_url=f"/skills/{response.skill_id}")

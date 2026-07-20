@@ -1,6 +1,6 @@
 COMPOSE=docker compose
 
-.PHONY: up down build logs ps restart pull clean sandbox-runtime-build
+.PHONY: up down build logs ps restart pull clean sandbox-runtime-build client-build
 
 up:
 	$(COMPOSE) up
@@ -13,6 +13,9 @@ build:
 
 sandbox-runtime-build:
 	docker build -t agent-manager-sandbox-runtime:latest -f services/local-sandbox-runtime/Dockerfile .
+
+client-build:
+	cd scanner && ./scripts/package.sh
 
 logs:
 	$(COMPOSE) logs -f

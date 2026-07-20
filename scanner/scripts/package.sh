@@ -31,13 +31,32 @@ build_binary() {
   cp "${OUT_DIR}/${name}" "releases/${name}"
 }
 
+build_client() {
+  local goos="$1"
+  local goarch="$2"
+  local ext=""
+  if [[ "$goos" == "windows" ]]; then
+    ext=".exe"
+  fi
+  local name="agent-manager-client-${goos}-${goarch}${ext}"
+  echo "building ${name}"
+  GOCACHE="${GOCACHE:-/tmp/agent-manager-go-cache}" GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
+    go build -o "${OUT_DIR}/${name}" ./cmd/agent-manager-client
+  cp "${OUT_DIR}/${name}" "releases/${name}"
+}
+
 build_binary darwin arm64 cli ./cmd/skill-scanner
 build_binary darwin amd64 cli ./cmd/skill-scanner
 build_binary linux amd64 cli ./cmd/skill-scanner
 build_binary linux arm64 cli ./cmd/skill-scanner
+build_client darwin arm64
+build_client darwin amd64
+build_client linux amd64
+build_client linux arm64
 
 if [[ "${BUILD_WINDOWS_CLI:-0}" == "1" ]]; then
   build_binary windows amd64 cli ./cmd/skill-scanner
+  build_client windows amd64
 fi
 
 cat > "${OUT_DIR}/manifest.txt" <<EOF

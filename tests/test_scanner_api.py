@@ -129,6 +129,65 @@ def test_scanner_import_accepts_scanner_token(tmp_path):
         api_router._manager = previous_manager
 
 
+def test_scanner_import_accepts_bound_client_token(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'client-access.db'}", connect_args={"check_same_thread": False})
+    session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    token = "amat_client_submit"
+    db = session_factory()
+    db.add(
+        models.AccessToken(
+            name="desktop-client",
+            token_type="client",
+            token_hash=_hash_token(token),
+            token_prefix=token[:8],
+            bound_client_id="host-001",
+            scopes_json='["client:submit-skill"]',
+            allowed_models_json="[]",
+            allowed_ips_json="[]",
+            status="active",
+        )
+    )
+    db.commit()
+    db.close()
+
+    def override_get_db():
+        session = session_factory()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app = FastAPI()
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    previous_manager = api_router._manager
+    api_router._manager = manager
+    try:
+        app.dependency_overrides[get_manager] = lambda: manager
+        app.dependency_overrides[get_db] = override_get_db
+        app.include_router(router)
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v1/scanner/imports",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": ("skill.zip", _skill_zip(), "application/zip")},
+            data={"host_id": "host-001", "use_behavioral": "true"},
+        )
+
+        assert response.status_code == 200
+        entry = manager.get_skill(response.json()["skill_id"])
+        assert entry.source.channel == "agent_manager_client"
+        result = client.get(
+            f"/api/v1/scanner/imports/{entry.skill_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert result.status_code == 200
+        assert result.json()["skill_id"] == entry.skill_id
+    finally:
+        api_router._manager = previous_manager
+
+
 def test_access_runtime_routes_accept_runtime_token(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'access.db'}", connect_args={"check_same_thread": False})
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="统一凭证中心" sub-title="统一签发模型调用、Agent 运行时和 Scanner 接入凭证" />
+    <a-page-header title="统一凭证中心" sub-title="统一签发模型调用、Agent 运行时、终端和 Scanner 接入凭证" />
 
     <a-card style="margin-top: 16px">
       <template #extra>
@@ -9,6 +9,7 @@
             <a-select-option value="model_gateway">模型调用凭证</a-select-option>
             <a-select-option value="agent_runtime">Agent 运行凭证</a-select-option>
             <a-select-option value="scanner">Scanner 接入凭证</a-select-option>
+            <a-select-option value="client">终端接入凭证</a-select-option>
           </a-select>
           <a-button @click="fetchTokens" :loading="loading">刷新</a-button>
           <a-button type="primary" @click="openCreate">创建凭证</a-button>
@@ -19,7 +20,7 @@
         type="info"
         show-icon
         message="凭证明文只展示一次"
-        description="服务端只保存 hash。模型网关调用、Agent 运行时校验和 Scanner 批量提交都在这里创建凭证。"
+        description="服务端只保存 hash。模型调用、Agent 运行时、终端接管和 Scanner 批量提交都在这里创建凭证。"
         style="margin-bottom: 16px"
       />
 
@@ -29,7 +30,7 @@
             <a-tag color="blue">{{ tokenTypeLabel(record.token_type) }}</a-tag>
           </template>
           <template v-else-if="column.key === 'binding'">
-            <div>{{ record.bound_agent_id || '-' }}</div>
+            <div>{{ record.bound_agent_id || record.bound_client_id || '-' }}</div>
             <div class="muted" v-if="record.group_id">Group ID: {{ record.group_id }}</div>
           </template>
           <template v-else-if="column.key === 'scopes'">
@@ -83,6 +84,7 @@
                 <a-select-option value="model_gateway">模型调用凭证</a-select-option>
                 <a-select-option value="agent_runtime">Agent 运行凭证</a-select-option>
                 <a-select-option value="scanner">Scanner 接入凭证</a-select-option>
+                <a-select-option value="client">终端接入凭证</a-select-option>
               </a-select>
             </a-form-item>
           </a-col>
@@ -111,6 +113,16 @@
               <a-select-option value="scanner:submit">scanner:submit</a-select-option>
               <a-select-option value="scanner:read-own-results">scanner:read-own-results</a-select-option>
               <a-select-option value="scanner:read-own-sessions">scanner:read-own-sessions</a-select-option>
+            </a-select-opt-group>
+            <a-select-opt-group label="Agent Manager Client">
+              <a-select-option value="client:register">client:register</a-select-option>
+              <a-select-option value="client:heartbeat">client:heartbeat</a-select-option>
+              <a-select-option value="client:read-policy">client:read-policy</a-select-option>
+              <a-select-option value="client:read-tasks">client:read-tasks</a-select-option>
+              <a-select-option value="client:report-inventory">client:report-inventory</a-select-option>
+              <a-select-option value="client:report-events">client:report-events</a-select-option>
+              <a-select-option value="client:submit-skill">client:submit-skill</a-select-option>
+              <a-select-option value="client:download-approved-skill">client:download-approved-skill</a-select-option>
             </a-select-opt-group>
           </a-select>
           <div class="hint">Agent 运行凭证默认不含 model:chat；只有显式勾选后才能调用模型网关。</div>
@@ -235,6 +247,16 @@ const typeDefaults = {
   model_gateway: ['model:chat'],
   agent_runtime: ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool'],
   scanner: ['scanner:submit', 'scanner:read-own-results', 'scanner:read-own-sessions'],
+  client: [
+    'client:register',
+    'client:heartbeat',
+    'client:read-policy',
+    'client:read-tasks',
+    'client:report-inventory',
+    'client:report-events',
+    'client:submit-skill',
+    'client:download-approved-skill',
+  ],
 }
 const columns = [
   { title: '名称', dataIndex: 'name' },
@@ -253,6 +275,7 @@ const tokenTypeLabel = (value) => ({
   model_gateway: '模型调用',
   agent_runtime: 'Agent 运行',
   scanner: 'Scanner 接入',
+  client: '终端接入',
 }[value] || value)
 const statusLabel = (value) => ({ active: '启用', disabled: '禁用', revoked: '已吊销' }[value] || value)
 const statusColor = (value) => ({ active: 'green', disabled: 'orange', revoked: 'red' }[value] || 'default')

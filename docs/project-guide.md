@@ -64,10 +64,11 @@ Agent Manager 用一套“提交、扫描、审批、签名、运行时校验、
 
 ## 3. 核心原则
 
-### 3.1 Skill 永远是本地文件
+### 3.1 Agent 最终加载的 Skill 永远是本地文件
 
-Agent Manager 不负责“远程托管 skill 并下发给 agent”。  
-它管理的是：
+Agent Manager 管理 Skill 的准入状态、签名和授权，也可以通过 Agent Manager Client 把批准版本安全安装到客户终端。无论通过哪种方式接入，Agent 最终加载的仍是本地目录，不会直接执行平台数据库中的内容。
+
+平台管理的是：
 
 - skill 元数据
 - 风险结果
@@ -735,7 +736,25 @@ Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privac
 
 ---
 
-## 13. 外部 Agent 怎么接
+## 13. 终端 Skill 怎么统一接管
+
+当客户同时使用 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes 或其他支持 Skill 目录的 Agent 时，推荐安装 Agent Manager Client：
+
+1. 在“智能体管理 -> 统一凭证中心”创建终端接入凭证。
+2. 安装客户端并输入 Agent Manager 地址和凭证。
+3. 默认使用“终端安全治理”；需要限制每个 Agent 的 Skill 范围时，再切换到“Agent 强授权”并绑定平台智能体。
+4. 客户端自动发现六类内置工具；其他 Agent 可填写名称并选择或输入 Skill 根目录，随后同样可逐项选择接管。
+5. 用户确认后，符合当前治理方式的已批准 Skill 进入安全仓库，其余内容备份后移入待处理目录。
+6. 后台服务持续执行平台任务、完整性巡检和异常隔离；离线事件在恢复连接后补报。
+
+平台入口为“智能体管理 -> 终端管理”，可以查看 Agent 映射、已安装 Skill、任务和异常，也可以从 Skill 详情直接创建“安装到终端”任务。
+
+详细说明：
+
+- [agent-manager-client.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/agent-manager-client.md)
+- [agent-manager-client-implementation-plan.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/agent-manager-client-implementation-plan.md)
+
+## 14. 外部 Agent 怎么接
 
 推荐调用顺序：
 
@@ -767,15 +786,15 @@ sequenceDiagram
 
 ---
 
-## 14. 常见问题
+## 15. 常见问题
 
-### 14.1 为什么 sandbox 是 LOW，但 LLM 是 malicious？
+### 15.1 为什么 sandbox 是 LOW，但 LLM 是 malicious？
 
 因为 sandbox 只观察“这次 probe 实际跑出来的行为”，
 而 LLM 会从整体语义上判断恶意意图，并生成详细的攻击链分析。
 二者不一致是正常的，最终看合并风险。
 
-### 14.2 为什么系统设置里改了 sandbox，提交结果还是旧镜像？
+### 15.2 为什么系统设置里改了 sandbox，提交结果还是旧镜像？
 
 说明实际生效的配置还没更新。  
 现在系统设置和详情页都能显示：
@@ -785,7 +804,7 @@ sequenceDiagram
 
 优先看“技能详情里的当前实际执行环境”。
 
-### 14.3 为什么一个恶意 skill 不进入审核队列？
+### 15.3 为什么一个恶意 skill 不进入审核队列？
 
 因为：
 
@@ -794,7 +813,7 @@ sequenceDiagram
 
 例如 `malicious` 风险通常会被策略直接拒绝。
 
-### 14.4 为什么重复提交没有复用？
+### 15.4 为什么重复提交没有复用？
 
 扫描复用不是按 skill name 判断，而是按：
 
@@ -815,12 +834,14 @@ sequenceDiagram
 
 ---
 
-## 15. 相关专题文档
+## 16. 相关专题文档
 
 - 客户演示 Runbook：
   [customer-demo-runbook.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/customer-demo-runbook.md)
 - 客户侧扫描器：
   [skill-scanner.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/skill-scanner.md)
+- 终端 Skill 统一接管：
+  [agent-manager-client.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/agent-manager-client.md)
 - 管理台与容器化部署：
   [docker-deployment.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/docker-deployment.md)
 - 外部 Agent 接入：
