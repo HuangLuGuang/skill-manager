@@ -68,30 +68,37 @@ def _content_hash(path: Path) -> str:
     return h.hexdigest()
 
 
-def compute_signature(skill_path: str | Path) -> str:
-    """
-    Compute a stable signature for a skill directory.
-
-    Walks all files sorted by relative path, hashes each file's content,
-    then produces a final HMAC-SHA256 (or SHA256 in dev mode) over the
-    concatenated 'relpath:filehash\\n' lines.
-    """
+def _signature_content(skill_path: str | Path) -> bytes:
     root = Path(skill_path)
     if not root.is_dir():
         raise ValueError(f"Not a directory: {root}")
 
-    parts: list[str] = []
-    for fpath in sorted(root.rglob("*")):
+    files: list[tuple[str, Path]] = []
+    for fpath in root.rglob("*"):
         if not fpath.is_file() or fpath.is_symlink():
             continue
         rel_parts = fpath.relative_to(root).parts
         if any(part in SKILL_IGNORE_DIRS for part in rel_parts):
             continue
         rel = "/".join(_normalize_zip_mojibake(part) for part in fpath.relative_to(root).parts)
+        files.append((rel, fpath))
+
+    parts: list[str] = []
+    for rel, fpath in sorted(files, key=lambda item: item[0]):
         file_hash = _content_hash(fpath)
         parts.append(f"{rel}:{file_hash}\n")
 
-    content = "".join(parts).encode()
+    return "".join(parts).encode()
+
+
+def compute_content_digest(skill_path: str | Path) -> str:
+    """Compute the keyless content digest used to diagnose client HMAC setup."""
+    return hashlib.sha256(_signature_content(skill_path)).hexdigest()
+
+
+def compute_signature(skill_path: str | Path) -> str:
+    """Compute the configured HMAC-SHA256, or plain SHA256 in dev mode."""
+    content = _signature_content(skill_path)
     key = _get_key()
 
     if key:

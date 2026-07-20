@@ -1,4 +1,6 @@
 import importlib.util
+import hashlib
+import hmac
 import io
 import json
 import os
@@ -68,6 +70,68 @@ def test_hook_extracts_skill_name_from_claude_and_trae_payloads(tool_input, expe
         "tool_name": "Skill",
         "tool_input": tool_input,
     }) == expected
+
+
+def test_hook_signature_normalizes_legacy_zip_mojibake_paths(tmp_path, monkeypatch):
+    hook = _load_hook()
+    monkeypatch.setenv("AGENT_MANAGER_SIGNING_KEY", "test-key")
+    normal = tmp_path / "normal"
+    mojibake = tmp_path / "mojibake"
+    (normal / "references").mkdir(parents=True)
+    (mojibake / "references").mkdir(parents=True)
+    (normal / "references" / "常用查询模板.md").write_text("select 1", encoding="utf-8")
+    (mojibake / "references" / "σ╕╕τö¿µƒÑΦ»óµ¿íµ¥┐.md").write_text("select 1", encoding="utf-8")
+
+    assert hook.compute_skill_signature(normal, hook.DEFAULT_IGNORES) == hook.compute_skill_signature(
+        mojibake, hook.DEFAULT_IGNORES
+    )
+
+
+def test_hook_signature_sorts_by_canonical_relative_path(tmp_path, monkeypatch):
+    hook = _load_hook()
+    monkeypatch.setenv("AGENT_MANAGER_SIGNING_KEY", "test-key")
+    files = {
+        "SKILL.md": b"skill",
+        "_meta.json": b"meta",
+        "skill-card.md": b"card",
+    }
+    for name, content in files.items():
+        (tmp_path / name).write_bytes(content)
+    payload = "".join(
+        f"{name}:{hashlib.sha256(files[name]).hexdigest()}\n"
+        for name in sorted(files)
+    ).encode()
+
+    assert hook.compute_skill_signature(tmp_path, hook.DEFAULT_IGNORES) == hmac.new(
+        b"test-key", payload, hashlib.sha256
+    ).hexdigest()
+
+
+def test_hook_scan_keeps_company_skill_when_project_has_same_name(tmp_path, monkeypatch):
+    hook = _load_hook()
+    company_root = tmp_path / "company-skills"
+    project_root = tmp_path / "project"
+    company_skill = company_root / "shared-skill"
+    project_skill = project_root / ".claude" / "skills" / "shared-skill"
+    company_skill.mkdir(parents=True)
+    project_skill.mkdir(parents=True)
+    manifest = "---\nname: shared-skill\n---\n"
+    (company_skill / "SKILL.md").write_text(manifest, encoding="utf-8")
+    (project_skill / "SKILL.md").write_text(manifest, encoding="utf-8")
+    monkeypatch.setenv("AGENT_MANAGER_SKILLS_DIR", str(company_root))
+
+    assert hook._scan_skill_dirs(str(project_root))["shared-skill"] == company_skill
+
+
+def test_hook_reads_skill_id_from_managed_install_path(tmp_path, monkeypatch):
+    hook = _load_hook()
+    skill_id = "6f1fa149-5b0c-4eb2-b597-462bcedac5c9"
+    skill_dir = tmp_path / "skills" / skill_id / "content-signature"
+    skill_dir.mkdir(parents=True)
+    monkeypatch.setenv("AGENT_MANAGER_MANAGED_SKILLS_DIR", str(tmp_path / "skills"))
+
+    assert hook.managed_skill_id(skill_dir) == skill_id
+    assert hook.managed_skill_id(tmp_path / "other") is None
 
 
 def test_hook_pre_tool_use_verifies_skill_from_name_payload(tmp_path, monkeypatch):
@@ -189,3 +253,34 @@ def test_hook_subprocess_verifies_skill_against_runtime_api(tmp_path):
     assert captured["post"]["agent_id"] == "agent-a"
     assert captured["post"]["local_signature"]
     assert captured["get_path"] == "/api/v1/access/runtime/can-load/runtime-skill?agent_id=agent-a"
+
+
+def test_hook_submits_managed_skill_id_and_uses_it_for_can_load(tmp_path, monkeypatch):
+    hook = _load_hook()
+    skill_id = "6f1fa149-5b0c-4eb2-b597-462bcedac5c9"
+    skill_dir = tmp_path / "skills" / skill_id / "content-signature"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: shared-skill\n---\n", encoding="utf-8")
+    monkeypatch.setenv("AGENT_MANAGER_MANAGED_SKILLS_DIR", str(tmp_path / "skills"))
+    captured = {}
+
+    def fake_verify(*_args, **kwargs):
+        captured["skill_id"] = kwargs.get("skill_id")
+        return {
+            "allowed": True,
+            "skill_id": skill_id,
+            "skill_name": "shared-skill",
+            "status": "APPROVED",
+        }
+
+    def fake_can_load(_client, _server, _token, skill_ref, _agent_id):
+        captured["skill_ref"] = skill_ref
+        return {"allowed": True, "status": "APPROVED"}
+
+    monkeypatch.setattr(hook, "verify_skill_signature", fake_verify)
+    monkeypatch.setattr(hook, "can_load_skill", fake_can_load)
+
+    allowed, _ = hook.verify_skill(object(), "http://agent-manager", "token", skill_dir, "agent-a")
+
+    assert allowed
+    assert captured == {"skill_id": skill_id, "skill_ref": skill_id}

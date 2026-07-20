@@ -21,6 +21,7 @@ import json
 import os
 import sys
 import urllib.parse
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -139,18 +140,30 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def normalize_zip_mojibake(value: str) -> str:
+    try:
+        return value.encode("cp437").decode("utf-8")
+    except UnicodeError:
+        return value
+
+
 def iter_skill_files(skill_dir: str | Path, ignores: set[str] | None = None) -> list[Path]:
     root = Path(skill_dir).resolve()
     ignored = ignores or set()
     files: list[Path] = []
-    for path in sorted(root.rglob("*")):
+    for path in root.rglob("*"):
         if not path.is_file() or path.is_symlink():
             continue
         rel_parts = path.relative_to(root).parts
         if any(part in ignored for part in rel_parts):
             continue
         files.append(path)
-    return files
+    return sorted(
+        files,
+        key=lambda path: "/".join(
+            normalize_zip_mojibake(part) for part in path.relative_to(root).parts
+        ),
+    )
 
 
 def compute_skill_signature(skill_dir: str | Path, ignores: set[str] | None = None) -> str:
@@ -159,9 +172,9 @@ def compute_skill_signature(skill_dir: str | Path, ignores: set[str] | None = No
         raise ValueError(f"Not a directory: {root}")
 
     parts = []
-    files = iter_skill_files(root, ignores=ignores) if ignores is not None else sorted(item for item in root.rglob("*") if item.is_file())
+    files = iter_skill_files(root, ignores=ignores or set())
     for path in files:
-        rel = path.relative_to(root).as_posix()
+        rel = "/".join(normalize_zip_mojibake(part) for part in path.relative_to(root).parts)
         parts.append(f"{rel}:{file_sha256(path)}\n")
 
     content = "".join(parts).encode()
@@ -218,6 +231,30 @@ def resolve_agent_id(session_id: str | None = None) -> str:
     return f"claude-code-{os.getpid()}"
 
 
+def managed_skill_id(skill_dir: str | Path) -> str | None:
+    """Return the platform skill UUID encoded in a managed install path."""
+    roots = [_DEFAULT_BASE_DIR / "skills"]
+    configured_root = os.environ.get("AGENT_MANAGER_MANAGED_SKILLS_DIR")
+    if configured_root:
+        roots.insert(0, Path(configured_root).expanduser())
+
+    resolved = Path(skill_dir).resolve()
+    for root in roots:
+        try:
+            relative = resolved.relative_to(root.resolve())
+        except ValueError:
+            continue
+        if len(relative.parts) < 2:
+            continue
+        candidate = relative.parts[0]
+        try:
+            uuid.UUID(candidate)
+        except ValueError:
+            continue
+        return candidate
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # API client - verify functionality only (with token)                        #
 # --------------------------------------------------------------------------- #
@@ -228,6 +265,7 @@ def verify_skill_signature(
     token: str,
     skill_dir: Path,
     skill_name: str | None = None,
+    skill_id: str | None = None,
     agent_id: str | None = None,
     ignores: set[str] | None = None,
 ) -> dict[str, Any]:
@@ -241,6 +279,8 @@ def verify_skill_signature(
     }
     if skill_name:
         body["skill_name"] = skill_name
+    if skill_id:
+        body["skill_id"] = skill_id
 
     headers = {}
     if token:
@@ -306,9 +346,20 @@ def verify_skill(
             return False, f"无法识别 Skill 名称。请确认目录包含带 name 的 SKILL.md"
 
     try:
+        skill_id = managed_skill_id(skill_dir)
+        if skill_id:
+            _log(f"Managed Skill ID: {skill_id} for {skill_dir}")
+
         # Step 1: Verify signature
         verify_result = verify_skill_signature(
-            client, server, token, skill_dir, skill_name, agent_id, ignores=DEFAULT_IGNORES
+            client,
+            server,
+            token,
+            skill_dir,
+            skill_name=skill_name,
+            skill_id=skill_id,
+            agent_id=agent_id,
+            ignores=DEFAULT_IGNORES,
         )
         if not verify_result.get("allowed"):
             reason = verify_result.get("reason") or "内容完整性校验失败"
@@ -323,7 +374,8 @@ def verify_skill(
             return False, _format_block_message("Skill 尚未审批通过", verify_result.get("status"))
 
         # Step 2: Check can-load
-        can_load_result = can_load_skill(client, server, token, verified_name, agent_id)
+        verified_ref = verify_result.get("skill_id") or skill_id or verified_name
+        can_load_result = can_load_skill(client, server, token, verified_ref, agent_id)
         if not can_load_result.get("allowed"):
             reason = can_load_result.get("reason") or "状态不允许加载"
             status = can_load_result.get("status")
@@ -382,7 +434,8 @@ def _scan_skill_dirs(cwd: str) -> dict[str, Path]:
         for skill_md in sorted(skill_dir.glob("*/SKILL.md")):
             name = read_skill_name(skill_md.parent)
             if name:
-                skill_dir_map[name] = skill_md.parent
+                # Candidate roots are ordered by priority; keep the first match.
+                skill_dir_map.setdefault(name, skill_md.parent)
     return skill_dir_map
 
 

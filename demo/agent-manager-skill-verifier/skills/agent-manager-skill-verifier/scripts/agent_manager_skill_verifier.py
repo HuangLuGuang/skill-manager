@@ -69,14 +69,19 @@ def iter_skill_files(skill_dir: str | Path, ignores: set[str] | None = None) -> 
     root = Path(skill_dir).resolve()
     ignored = ignores or set()
     files: list[Path] = []
-    for path in sorted(root.rglob("*")):
+    for path in root.rglob("*"):
         if not path.is_file() or path.is_symlink():
             continue
         rel_parts = path.relative_to(root).parts
         if any(part in ignored for part in rel_parts):
             continue
         files.append(path)
-    return files
+    return sorted(
+        files,
+        key=lambda path: "/".join(
+            normalize_zip_mojibake(part) for part in path.relative_to(root).parts
+        ),
+    )
 
 
 def fingerprint_skill_dir(skill_dir: str | Path, ignores: set[str] | None = None) -> dict[str, Any]:

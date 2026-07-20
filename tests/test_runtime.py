@@ -14,7 +14,7 @@ from agent_manager.core.models import (
 )
 from agent_manager.core.registry import Registry
 from agent_manager.core.runtime import RuntimeGuard
-from agent_manager.core.signer import compute_signature
+from agent_manager.core.signer import compute_content_digest, compute_signature
 
 
 def _make_entry(name, status=SkillStatus.APPROVED, tools=None, sig=None):
@@ -163,6 +163,23 @@ class TestRuntimeGuard:
 
         assert not allowed
         assert "could not be refreshed" in reason
+        assert "skill_tamper_detected" not in {event.event_type for event in registry.read_audit()}
+
+    def test_verify_local_signature_reports_missing_client_signing_key(self, guard, registry, tmp_path, monkeypatch):
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: signed\n---\n", encoding="utf-8")
+        monkeypatch.setenv("AGENT_MANAGER_SIGNING_KEY", "server-key")
+        entry = _make_entry("signed", sig=compute_signature(skill_dir))
+        entry.skill_path = str(skill_dir)
+        registry.add(entry)
+
+        allowed, _, reason = guard.verify_local_signature(
+            "signed", compute_content_digest(skill_dir), agent_id="agent-1"
+        )
+
+        assert not allowed
+        assert "AGENT_MANAGER_SIGNING_KEY" in reason
         assert "skill_tamper_detected" not in {event.event_type for event in registry.read_audit()}
 
     def test_verify_local_signature_blocks_non_loadable_status(self, guard, registry, tmp_path):

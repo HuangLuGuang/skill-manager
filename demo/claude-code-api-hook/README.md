@@ -67,7 +67,7 @@ Agent Guard Hook (`agent_guard_hook.py`) 仅使用 verify 功能，逻辑与 `ag
 | `AGENT_MANAGER_API_TOKEN` | ✅ | API 访问 Token |
 | `AGENT_MANAGER_SIGNING_KEY` | 条件必需 | 仅当服务端启用 HMAC 签名时需要，必须与服务端一致 |
 | `AGENT_ID` | ❌ | Agent ID；不设置时按会话自动生成 |
-| `AGENT_MANAGER_DATA_DIR` | ❌ | 数据目录 |
+| `AGENT_MANAGER_MANAGED_SKILLS_DIR` | ❌ | 受管 Skill 根目录，默认 `~/.agent-manager/skills` |
 
 ## 工作原理
 

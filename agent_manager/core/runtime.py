@@ -14,7 +14,7 @@ from typing import Any
 
 from .models import RegistryEntry, SkillStatus
 from .registry import Registry, make_event
-from .signer import compute_signature, verify_signature
+from .signer import compute_content_digest, compute_signature, verify_signature
 from .utils import tool_matches
 
 logger = logging.getLogger(__name__)
@@ -221,10 +221,22 @@ class RuntimeGuard:
             if entry.skill_path:
                 try:
                     refreshed_signature = compute_signature(Path(entry.skill_path))
+                    content_digest = compute_content_digest(Path(entry.skill_path))
                 except Exception as exc:
                     refreshed_signature = None
                     logger.warning("Could not refresh stored signature for %r: %s", entry.name, exc)
                     reason = f"Skill {entry.name!r} stored signature could not be refreshed"
+                    self._emit_blocked_entry(entry, agent_id, reason, metadata=audit_metadata)
+                    return False, entry, reason
+                if (
+                    hmac.compare_digest(submitted_signature, content_digest)
+                    and not hmac.compare_digest(content_digest, refreshed_signature)
+                ):
+                    reason = (
+                        f"Skill {entry.name!r} content matches, but signature mode differs — "
+                        "configure the same AGENT_MANAGER_SIGNING_KEY on the client and server"
+                    )
+                    logger.warning("BLOCKED signature verify: %s", reason)
                     self._emit_blocked_entry(entry, agent_id, reason, metadata=audit_metadata)
                     return False, entry, reason
                 if refreshed_signature and hmac.compare_digest(submitted_signature, refreshed_signature):
