@@ -9,7 +9,7 @@ if (!/^\d{2}\.\d{2}\.\d{2}$/.test(version)) throw new Error('version must use YY
 const updaterExtensions = platformKey.startsWith('darwin-')
   ? ['.app.tar.gz']
   : platformKey.startsWith('windows-')
-    ? ['.nsis.zip', '.msi.zip']
+    ? ['.exe', '.msi']
     : ['.AppImage', '.AppImage.tar.gz']
 
 const bundleRoot = path.resolve('src-tauri/target/release/bundle')

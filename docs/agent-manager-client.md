@@ -217,10 +217,9 @@ scanner/releases/
   agent-manager-client-26.03.15-windows-x86_64.exe
   agent-manager-client-26.03.15-linux-x86_64.AppImage
   agent-manager-client-26.03.15-darwin-aarch64.app.tar.gz
-  agent-manager-client-26.03.15-windows-x86_64.nsis.zip
 ```
 
-管理台“终端管理 → 安装客户端”只展示 `.dmg`、`.exe` 和 `.AppImage`，并按版本倒序排列；更新压缩包不会出现在手动下载列表。正式构建左下角显示 `版本 26.03.15`，本地 `npm run dev` 或普通 `npm run build` 显示 `版本 dev`。
+管理台“终端管理 → 安装客户端”只展示 `.dmg`、`.exe` 和 `.AppImage`，并按版本倒序排列。Windows 和 Linux 复用安装包执行更新，macOS 的更新压缩包不会出现在手动下载列表。正式构建左下角显示 `版本 26.03.15`，本地 `npm run dev` 或普通 `npm run build` 显示 `版本 dev`。
 
 更新检查和文件下载均要求有效的终端接入凭证。内网 HTTP 可以使用，但更新包仍必须通过内置公钥验签；生产环境优先使用 HTTPS。
 
