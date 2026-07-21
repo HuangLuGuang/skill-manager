@@ -231,6 +231,7 @@ class TestRuntimeGuard:
         (skill_dir / "SKILL.md").write_text("---\nname: cache-test\n---\n", encoding="utf-8")
         before = compute_signature(skill_dir)
         (skill_dir / "scripts" / "__pycache__" / "x.pyc").write_bytes(b"cache")
+        (skill_dir / ".DS_Store").write_bytes(b"finder metadata")
 
         assert compute_signature(skill_dir) == before
 

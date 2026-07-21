@@ -40,7 +40,7 @@ _DEFAULT_SESSION_STATE_DIR = _DEFAULT_BASE_DIR / "session-state"
 _DEFAULT_LOG_FILE = _DEFAULT_BASE_DIR / "logs" / "agent_guard_hook.log"
 
 # Default ignores for signature calculation
-DEFAULT_IGNORES = {".git", ".venv", "node_modules", "__pycache__", "dist", "build"}
+DEFAULT_IGNORES = {".git", ".venv", "node_modules", "__pycache__", "dist", "build", ".DS_Store"}
 SIGNING_KEY_ENV = "AGENT_MANAGER_SIGNING_KEY"
 _ENV_LOADED = False
 

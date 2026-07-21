@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_IGNORES = {".git", ".venv", "node_modules", "__pycache__", "dist", "build"}
+DEFAULT_IGNORES = {".git", ".venv", "node_modules", "__pycache__", "dist", "build", ".DS_Store"}
 LOADABLE_STATUSES = {"APPROVED", "DEPLOYED"}
 SIGNING_KEY_ENV = "AGENT_MANAGER_SIGNING_KEY"
 _ENV_LOADED = False

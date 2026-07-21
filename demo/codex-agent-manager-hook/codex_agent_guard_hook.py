@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 
-IGNORED_DIRS = {".git", ".venv", "node_modules", "__pycache__", "dist", "build"}
+IGNORED_DIRS = {".git", ".venv", "node_modules", "__pycache__", "dist", "build", ".DS_Store"}
 LOADABLE_STATUSES = {"APPROVED", "DEPLOYED"}
 
 

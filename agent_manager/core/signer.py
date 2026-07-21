@@ -24,7 +24,7 @@ _DEV_WARNING_SHOWN = False
 
 # Directories whose contents are excluded from signature computation.
 # Must match the client-side DEFAULT_IGNORES in agent_manager_skill_verifier.py.
-SKILL_IGNORE_DIRS = frozenset({".git", ".venv", "node_modules", "__pycache__", "dist", "build"})
+SKILL_IGNORE_DIRS = frozenset({".git", ".venv", "node_modules", "__pycache__", "dist", "build", ".DS_Store"})
 
 _ENV_LOADED = False
 

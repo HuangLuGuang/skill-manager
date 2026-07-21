@@ -107,6 +107,16 @@ def test_hook_signature_sorts_by_canonical_relative_path(tmp_path, monkeypatch):
     ).hexdigest()
 
 
+def test_hook_signature_ignores_macos_finder_metadata(tmp_path, monkeypatch):
+    hook = _load_hook()
+    monkeypatch.setenv("AGENT_MANAGER_SIGNING_KEY", "test-key")
+    (tmp_path / "SKILL.md").write_text("---\nname: test\n---\n", encoding="utf-8")
+    before = hook.compute_skill_signature(tmp_path, hook.DEFAULT_IGNORES)
+    (tmp_path / ".DS_Store").write_bytes(b"finder metadata")
+
+    assert hook.compute_skill_signature(tmp_path, hook.DEFAULT_IGNORES) == before
+
+
 def test_hook_scan_keeps_company_skill_when_project_has_same_name(tmp_path, monkeypatch):
     hook = _load_hook()
     company_root = tmp_path / "company-skills"
