@@ -11,6 +11,8 @@ on:
       - "client/desktop/**"
       - "scanner/cmd/agent-manager-client/**"
       - "scanner/internal/managedclient/**"
+      - "scanner/go.mod"
+      - "scanner/go.sum"
       - ".github/workflows/agent-manager-client.yml"
 
 permissions:
