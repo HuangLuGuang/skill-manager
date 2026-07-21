@@ -3,9 +3,10 @@ import hmac
 import ipaddress
 import json
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
@@ -35,6 +36,7 @@ DEFAULT_SCOPES_BY_TYPE = {
     "client": list(CLIENT_SCOPES),
 }
 ACTIVE_TOKEN_REQUESTS: dict[int, int] = {}
+LAST_USED_WRITE_INTERVAL = timedelta(minutes=5)
 
 
 def _json_loads(value: str | None, default):
@@ -156,9 +158,21 @@ def resolve_access_token(
     client_ip = request.client.host if request and request.client else None
     if not _ip_allowed(client_ip, allowed_ips):
         raise HTTPException(status_code=403, detail="接入凭证不允许当前来源 IP")
-    row.last_used_at = datetime.utcnow()
-    db.commit()
-    db.refresh(row)
+    return _touch_last_used(db, row)
+
+
+def _touch_last_used(db: Session, row: models.AccessToken) -> models.AccessToken:
+    now = datetime.utcnow()
+    if row.last_used_at and now - row.last_used_at < LAST_USED_WRITE_INTERVAL:
+        return row
+    row.last_used_at = now
+    try:
+        db.commit()
+        db.refresh(row)
+    except OperationalError as exc:
+        db.rollback()
+        if "database is locked" not in str(exc).lower():
+            raise
     return row
 
 

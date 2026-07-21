@@ -56,6 +56,10 @@ func RequestFullScan(home string) error {
 }
 
 func WaitForRun(home string, interval time.Duration, idle func()) bool {
+	return WaitForRunOrChange(home, interval, idle, nil)
+}
+
+func WaitForRunOrChange(home string, interval time.Duration, idle func(), changes <-chan struct{}) bool {
 	deadline := time.NewTimer(interval)
 	ticker := time.NewTicker(time.Second)
 	defer deadline.Stop()
@@ -63,6 +67,8 @@ func WaitForRun(home string, interval time.Duration, idle func()) bool {
 	trigger := filepath.Join(home, ".agent-manager", "run-now")
 	for {
 		select {
+		case <-changes:
+			return true
 		case <-deadline.C:
 			return false
 		case <-ticker.C:

@@ -3,6 +3,7 @@ package manifest
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -37,6 +38,17 @@ func TestBuildRejectsLargeFile(t *testing.T) {
 	_, err := Build(root, Options{MaxFileBytes: 3, MaxTotalBytes: 4096, MaxFiles: 10})
 	if err == nil {
 		t.Fatal("expected large file error")
+	}
+}
+
+func TestBuildRejectsTooManyFilesWithChineseMessage(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "SKILL.md"), "---\nname: demo\n---\n")
+	mustWrite(t, filepath.Join(root, "extra.txt"), "extra")
+
+	_, err := Build(root, Options{MaxFileBytes: 1024, MaxTotalBytes: 4096, MaxFiles: 1})
+	if err == nil || !strings.Contains(err.Error(), "当前至少 2 个，最多允许 1 个") {
+		t.Fatalf("unexpected file count error: %v", err)
 	}
 }
 

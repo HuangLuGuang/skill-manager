@@ -364,7 +364,7 @@ func patrol(ctx context.Context, home string, inventory Inventory, policy Policy
 			}
 			if first {
 				_ = reportEvent(ctx, api, store, inventory.ClientID, "unmanaged_skill_found", agent.AgentType, skill.Name, map[string]any{
-					"path": skill.Path,
+					"path": skill.Path, "mode": policy.Mode,
 				})
 			}
 			if !online && policy.Mode == "block" {
@@ -504,6 +504,12 @@ func patrolLocalChanges(ctx context.Context, home string, inventory Inventory, p
 }
 
 func reportEvent(ctx context.Context, api API, store *Store, clientID, eventType, agentType, skillName string, details map[string]any) error {
+	if details == nil {
+		details = map[string]any{}
+	}
+	if notification, ok := notificationForEvent(eventType, agentType, skillName, details); ok {
+		_ = store.RecordNotification(notification)
+	}
 	if eventType == "skill_modified" || eventType == "unmanaged_skill_found" || eventType == "skill_quarantined" {
 		if err := store.RecordPatrolFinding(PatrolFinding{EventType: eventType, AgentType: agentType, SkillName: skillName}); err != nil {
 			return err

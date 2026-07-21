@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,7 +25,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-manager-client <configure|add-custom-agent|remove-custom-agent|inventory|register|takeover|pending|refresh-pending|submit-pending|available-skills|skill-preview|install-skill|quarantine|backups|restore|run-once|run|local-status|pause-governance|resume-governance|service-status|install-service|uninstall-service> [options]")
+		return fmt.Errorf("usage: agent-manager-client <configure|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|takeover|pending|refresh-pending|submit-pending|available-skills|skill-preview|install-skill|quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|pause-governance|resume-governance|service-status|install-service|uninstall-service> [options]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
@@ -180,6 +181,66 @@ func run(args []string) error {
 		}
 		return json.NewEncoder(os.Stdout).Encode(status)
 	}
+	if args[0] == "cached-inventory" {
+		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		body, ok, err := store.State("inventory")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("cached inventory is unavailable")
+		}
+		var cached managedclient.Inventory
+		if err := json.Unmarshal([]byte(body), &cached); err != nil || cached.ClientID == "" {
+			return fmt.Errorf("cached inventory is invalid")
+		}
+		return json.NewEncoder(os.Stdout).Encode(cached)
+	}
+	if args[0] == "read-notifications" {
+		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		if strings.TrimSpace(*itemID) != "" {
+			id, parseErr := strconv.ParseInt(*itemID, 10, 64)
+			if parseErr != nil {
+				return fmt.Errorf("invalid notification id")
+			}
+			err = store.MarkNotificationRead(id)
+		} else {
+			err = store.MarkNotificationsRead()
+		}
+		if err != nil {
+			return err
+		}
+		fmt.Println("notifications marked as read")
+		return nil
+	}
+	if args[0] == "deliver-notification" {
+		id, parseErr := strconv.ParseInt(strings.TrimSpace(*itemID), 10, 64)
+		if parseErr != nil {
+			return fmt.Errorf("deliver-notification requires --id")
+		}
+		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		return store.MarkNotificationDelivered(id)
+	}
+	if args[0] == "clear-notifications" {
+		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		return store.ClearNotifications()
+	}
 	if args[0] == "pause-governance" || args[0] == "resume-governance" {
 		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
 		if err != nil {
@@ -196,6 +257,31 @@ func run(args []string) error {
 			fmt.Println("持续治理已暂停")
 		}
 		return nil
+	}
+	if args[0] == "available-skills" || args[0] == "skill-preview" {
+		if *server == "" || *token == "" || strings.TrimSpace(*agentType) == "" {
+			return fmt.Errorf("%s requires --server, --token and --agent-type", args[0])
+		}
+		hostname, _ := os.Hostname()
+		clientID := managedclient.DeviceID(hostname, *home)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		api := managedclient.NewAPI(*server, *token, 30*time.Second)
+		if args[0] == "available-skills" {
+			items, err := api.AvailableSkills(ctx, clientID, *agentType, *managedAgentID, strings.TrimSpace(*query))
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(os.Stdout).Encode(items)
+		}
+		if strings.TrimSpace(*skillID) == "" {
+			return fmt.Errorf("skill-preview requires --skill-id")
+		}
+		item, err := api.SkillPreview(ctx, clientID, *skillID, *agentType, *managedAgentID)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(item)
 	}
 	inventory, err := managedclient.Discover(*home)
 	if err != nil {
@@ -214,6 +300,9 @@ func run(args []string) error {
 		if err := store.EnrichInventory(&inventory); err != nil {
 			return err
 		}
+		if err := store.SaveInventory(inventory); err != nil {
+			return err
+		}
 		return json.NewEncoder(os.Stdout).Encode(inventory)
 	case "register":
 		if *server == "" || *token == "" {
@@ -226,28 +315,6 @@ func run(args []string) error {
 		}
 		fmt.Printf("registered %s with %d agents\n", inventory.ClientID, len(inventory.Agents))
 		return nil
-	case "available-skills":
-		if *server == "" || *token == "" || strings.TrimSpace(*agentType) == "" {
-			return fmt.Errorf("available-skills requires --server, --token and --agent-type")
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		items, err := managedclient.NewAPI(*server, *token, 30*time.Second).AvailableSkills(ctx, inventory.ClientID, *agentType, *managedAgentID, strings.TrimSpace(*query))
-		if err != nil {
-			return err
-		}
-		return json.NewEncoder(os.Stdout).Encode(items)
-	case "skill-preview":
-		if *server == "" || *token == "" || strings.TrimSpace(*agentType) == "" || strings.TrimSpace(*skillID) == "" {
-			return fmt.Errorf("skill-preview requires --server, --token, --agent-type and --skill-id")
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		item, err := managedclient.NewAPI(*server, *token, 30*time.Second).SkillPreview(ctx, inventory.ClientID, *skillID, *agentType, *managedAgentID)
-		if err != nil {
-			return err
-		}
-		return json.NewEncoder(os.Stdout).Encode(item)
 	case "install-skill":
 		if *server == "" || *token == "" || strings.TrimSpace(*agentType) == "" || strings.TrimSpace(*skillID) == "" {
 			return fmt.Errorf("install-skill requires --server, --token, --agent-type and --skill-id")
@@ -359,6 +426,17 @@ func run(args []string) error {
 		}
 		defer releaseLock()
 		api := managedclient.NewAPI(*server, *token, 30*time.Second)
+		var watcher *managedclient.SkillWatcher
+		if args[0] == "run" {
+			watcher, err = managedclient.NewSkillWatcher()
+			if err != nil {
+				return fmt.Errorf("无法启动 Skill 文件监控: %w", err)
+			}
+			defer watcher.Close()
+			if err := watcher.Refresh(*home, store); err != nil {
+				return fmt.Errorf("无法监听 Skill 目录: %w", err)
+			}
+		}
 		forceFullScan := args[0] == "run-once"
 		for {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -375,16 +453,22 @@ func run(args []string) error {
 				}
 				fmt.Fprintln(os.Stderr, "sync error:", err)
 			}
+			if watcher != nil {
+				if refreshErr := watcher.Refresh(*home, store); refreshErr != nil {
+					fmt.Fprintln(os.Stderr, "watch refresh error:", refreshErr)
+				}
+			}
+			managedclient.DeliverPendingNotifications(store)
 			if args[0] == "run-once" {
 				return nil
 			}
-			forceFullScan = managedclient.WaitForRun(*home, *interval, func() {
+			forceFullScan = managedclient.WaitForRunOrChange(*home, *interval, func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				defer cancel()
 				if err := managedclient.PollTasks(ctx, *home, api, store); err != nil {
 					fmt.Fprintln(os.Stderr, "task poll error:", err)
 				}
-			})
+			}, watcher.Changes())
 		}
 	default:
 		return fmt.Errorf("unknown command %q", args[0])

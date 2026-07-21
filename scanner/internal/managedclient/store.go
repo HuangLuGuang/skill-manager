@@ -20,16 +20,31 @@ type Store struct {
 }
 
 type LocalStatus struct {
-	ManagedSkills     int             `json:"managed_skills"`
-	GovernanceEnabled bool            `json:"governance_enabled"`
-	PendingSkills     int             `json:"pending_skills"`
-	QuarantinedSkills int             `json:"quarantined_skills"`
-	QueuedEvents      int             `json:"queued_events"`
-	LastInventoryAt   string          `json:"last_inventory_at,omitempty"`
-	LastFullScanAt    string          `json:"last_full_scan_at,omitempty"`
-	NextFullScanAt    string          `json:"next_full_scan_at,omitempty"`
-	PatrolFindings    []PatrolFinding `json:"patrol_findings"`
-	Tasks             []LocalTask     `json:"tasks"`
+	ManagedSkills       int                 `json:"managed_skills"`
+	GovernanceEnabled   bool                `json:"governance_enabled"`
+	PendingSkills       int                 `json:"pending_skills"`
+	QuarantinedSkills   int                 `json:"quarantined_skills"`
+	QueuedEvents        int                 `json:"queued_events"`
+	LastInventoryAt     string              `json:"last_inventory_at,omitempty"`
+	LastFullScanAt      string              `json:"last_full_scan_at,omitempty"`
+	NextFullScanAt      string              `json:"next_full_scan_at,omitempty"`
+	PatrolFindings      []PatrolFinding     `json:"patrol_findings"`
+	Tasks               []LocalTask         `json:"tasks"`
+	UnreadNotifications int                 `json:"unread_notifications"`
+	Notifications       []LocalNotification `json:"notifications"`
+}
+
+type LocalNotification struct {
+	ID          int64  `json:"id"`
+	Severity    string `json:"severity"`
+	EventType   string `json:"event_type"`
+	AgentType   string `json:"agent_type"`
+	SkillName   string `json:"skill_name"`
+	Title       string `json:"title"`
+	Message     string `json:"message"`
+	CreatedAt   string `json:"created_at"`
+	DeliveredAt string `json:"delivered_at,omitempty"`
+	ReadAt      string `json:"read_at,omitempty"`
 }
 
 type LocalTask struct {
@@ -49,12 +64,24 @@ func OpenStore(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
+	_, statErr := os.Stat(path)
+	newDatabase := os.IsNotExist(statErr)
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if newDatabase {
+		if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	if _, err := db.Exec(`
-		PRAGMA journal_mode=WAL;
 		CREATE TABLE IF NOT EXISTS client_state (
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL,
@@ -111,6 +138,18 @@ func OpenStore(path string) (*Store, error) {
 		CREATE TABLE IF NOT EXISTS client_exclusions (
 			path TEXT PRIMARY KEY,
 			created_at TEXT NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS client_notifications (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			severity TEXT NOT NULL,
+			event_type TEXT NOT NULL,
+			agent_type TEXT NOT NULL,
+			skill_name TEXT NOT NULL,
+			title TEXT NOT NULL,
+			message TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			delivered_at TEXT,
+			read_at TEXT
 		);
 	`); err != nil {
 		db.Close()
@@ -363,7 +402,7 @@ func (store *Store) Close() error {
 }
 
 func (store *Store) LocalStatus() (LocalStatus, error) {
-	result := LocalStatus{PatrolFindings: []PatrolFinding{}, Tasks: []LocalTask{}}
+	result := LocalStatus{PatrolFindings: []PatrolFinding{}, Tasks: []LocalTask{}, Notifications: []LocalNotification{}}
 	if err := store.db.QueryRow(`SELECT COUNT(*) FROM client_installs`).Scan(&result.ManagedSkills); err != nil {
 		return result, err
 	}
@@ -402,7 +441,93 @@ func (store *Store) LocalStatus() (LocalStatus, error) {
 	if err != nil {
 		return result, err
 	}
+	result.Notifications, err = store.Notifications(100)
+	if err != nil {
+		return result, err
+	}
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM client_notifications WHERE read_at IS NULL`).Scan(&result.UnreadNotifications); err != nil {
+		return result, err
+	}
 	return result, nil
+}
+
+func (store *Store) RecordNotification(item LocalNotification) error {
+	cutoff := time.Now().UTC().Add(-5 * time.Minute).Format(time.RFC3339Nano)
+	var exists int
+	if err := store.db.QueryRow(
+		`SELECT COUNT(*) FROM client_notifications WHERE event_type = ? AND agent_type = ? AND skill_name = ? AND created_at >= ?`,
+		item.EventType, item.AgentType, item.SkillName, cutoff,
+	).Scan(&exists); err != nil {
+		return err
+	}
+	if exists > 0 {
+		return nil
+	}
+	_, err := store.db.Exec(
+		`INSERT INTO client_notifications(severity, event_type, agent_type, skill_name, title, message, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)`,
+		item.Severity, item.EventType, item.AgentType, item.SkillName, item.Title, item.Message, time.Now().UTC().Format(time.RFC3339Nano),
+	)
+	return err
+}
+
+func (store *Store) Notifications(limit int) ([]LocalNotification, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	rows, err := store.db.Query(`SELECT id, severity, event_type, agent_type, skill_name, title, message, created_at, COALESCE(delivered_at, ''), COALESCE(read_at, '') FROM client_notifications ORDER BY id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LocalNotification{}
+	for rows.Next() {
+		var item LocalNotification
+		if err := rows.Scan(&item.ID, &item.Severity, &item.EventType, &item.AgentType, &item.SkillName, &item.Title, &item.Message, &item.CreatedAt, &item.DeliveredAt, &item.ReadAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (store *Store) PendingNotifications(limit int) ([]LocalNotification, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := store.db.Query(`SELECT id, severity, event_type, agent_type, skill_name, title, message, created_at, '', COALESCE(read_at, '') FROM client_notifications WHERE delivered_at IS NULL ORDER BY id LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LocalNotification{}
+	for rows.Next() {
+		var item LocalNotification
+		if err := rows.Scan(&item.ID, &item.Severity, &item.EventType, &item.AgentType, &item.SkillName, &item.Title, &item.Message, &item.CreatedAt, &item.DeliveredAt, &item.ReadAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (store *Store) MarkNotificationDelivered(id int64) error {
+	_, err := store.db.Exec(`UPDATE client_notifications SET delivered_at = ? WHERE id = ?`, time.Now().UTC().Format(time.RFC3339Nano), id)
+	return err
+}
+
+func (store *Store) MarkNotificationsRead() error {
+	_, err := store.db.Exec(`UPDATE client_notifications SET read_at = ? WHERE read_at IS NULL`, time.Now().UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+func (store *Store) MarkNotificationRead(id int64) error {
+	_, err := store.db.Exec(`UPDATE client_notifications SET read_at = ? WHERE id = ?`, time.Now().UTC().Format(time.RFC3339Nano), id)
+	return err
+}
+
+func (store *Store) ClearNotifications() error {
+	_, err := store.db.Exec(`DELETE FROM client_notifications`)
+	return err
 }
 
 func (store *Store) GovernanceEnabled() (bool, error) {

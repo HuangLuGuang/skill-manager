@@ -29,7 +29,10 @@
             <p class="eyebrow">RIVER SECURITY</p>
             <h1 id="panel-title">终端接入</h1>
           </div>
-          <span id="connection-state" class="state">未接入</span>
+          <div class="header-tools">
+            <button id="notification-trigger" class="notification-trigger" title="安全通知" aria-label="打开安全通知" hidden><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10.27 21a2 2 0 0 0 3.46 0"/><path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33"/></svg><em id="notification-nav-badge" class="notification-count" hidden>0</em></button>
+            <span id="connection-state" class="state">未接入</span>
+          </div>
         </header>
 
         <section id="connect" class="panel active">
@@ -60,7 +63,7 @@
             <section class="metric-grid" aria-label="终端管理摘要">
               <button class="metric" data-target-panel="discover"><strong id="metric-agents">0</strong><span>本机 Agent</span></button>
               <button class="metric" data-target-panel="discover"><strong id="metric-bound">0 / 0</strong><span id="metric-bound-label">治理就绪</span></button>
-              <button class="metric" data-target-panel="status"><strong id="metric-skills">0</strong><span>受管 Skill</span></button>
+              <button class="metric" data-target-panel="takeover"><strong id="metric-skills">0</strong><span>受管 Skill</span></button>
               <div class="metric"><strong id="metric-todos">0</strong><span>待完成事项</span></div>
             </section>
 
@@ -130,7 +133,7 @@
         <section id="discover" class="panel">
           <div class="panel-toolbar">
             <div><h2>本机 Agent 与 Skill</h2><p>查看发现路径、校验状态，并选择需要纳入治理的 Skill。</p></div>
-            <div class="actions discover-actions"><button id="add-custom-agent-button" title="添加自定义 Agent">添加 Agent</button><button id="platform-install-button" title="从平台安装 Skill">安装 Skill</button><button id="discover-button" class="primary" title="重新发现本机 Agent 与 Skill">重新发现</button></div>
+            <div class="actions discover-actions"><button id="add-custom-agent-button" title="添加自定义 Agent">添加 Agent</button><button id="discover-button" class="primary" title="重新发现本机 Agent 与 Skill">重新发现</button></div>
           </div>
           <div id="agent-list" class="agent-list empty">尚未执行发现</div>
           <div id="discover-next" class="next-step" hidden>
@@ -146,6 +149,7 @@
               <p id="takeover-description">安全治理模式只校验平台批准状态与内容签名；Agent 强授权模式还会校验智能体允许范围。</p>
             </div>
             <div class="actions">
+              <button id="platform-install-button" class="action-success icon-button icon-install" title="从平台安装 Skill">从平台安装</button>
               <button id="toggle-takeover" hidden>暂停接管</button>
               <button id="preview-button" class="icon-button icon-refresh">刷新预览</button>
             </div>
@@ -213,6 +217,28 @@
           </details>
         </section>
 
+        <section id="notifications" class="panel">
+          <section class="status-hero notification-hero">
+            <div><span class="overview-badge">本机提醒</span><h2>安全通知</h2><p>集中查看文件变化巡检后的自动恢复、隔离阻断和只审计提醒。</p></div>
+            <div class="actions"><button id="test-system-notification" class="icon-button icon-notification">测试系统通知</button><button id="mark-notifications-read" class="icon-button icon-check" data-busy-text="正在标记...">全部标为已读</button><button id="clear-notifications" class="subtle-danger icon-button icon-remove" data-busy-text="正在清除...">清除通知</button></div>
+          </section>
+          <div id="system-notification-state" class="system-notification-state" hidden></div>
+          <section class="notification-summary" aria-label="通知摘要">
+            <div><strong id="notification-total">0</strong><span>最近通知</span></div>
+            <div><strong id="notification-unread">0</strong><span>未读</span></div>
+            <div><strong id="notification-critical">0</strong><span>严重</span></div>
+          </section>
+          <div class="notification-toolbar">
+            <div class="notification-filters" role="group" aria-label="通知筛选">
+              <button class="active" data-notification-filter="all">全部</button>
+              <button data-notification-filter="unread">未读</button>
+              <button data-notification-filter="critical">严重</button>
+            </div>
+            <button id="refresh-notifications" class="icon-button icon-refresh">刷新通知</button>
+          </div>
+          <div id="notification-list" class="notification-list empty">暂无安全通知</div>
+        </section>
+
         <section id="records" class="panel">
           <section class="status-hero">
             <div><span class="overview-badge">终端记录</span><h2>执行记录</h2><p>查看巡检发现、自动处置以及平台下发任务的执行结果。</p></div>
@@ -232,6 +258,13 @@
         <h3 id="message-dialog-title">操作提示</h3>
         <p id="message-dialog-detail"></p>
         <form method="dialog"><button class="primary icon-button icon-check">知道了</button></form>
+      </div>
+    </dialog>
+    <dialog id="clear-notifications-dialog" class="message-dialog">
+      <div class="message-dialog-body">
+        <h3>确认清除通知</h3>
+        <p>请确认相关事项已经处理。清除只删除终端本地提醒，不会恢复隔离 Skill，也不会删除平台审计记录。</p>
+        <div class="dialog-actions"><button id="cancel-clear-notifications" class="icon-button icon-close">取消</button><button id="confirm-clear-notifications" class="subtle-danger icon-button icon-remove" data-busy-text="正在清除...">确认清除</button></div>
       </div>
     </dialog>
     <dialog id="install-skill-dialog" class="message-dialog install-skill-dialog">

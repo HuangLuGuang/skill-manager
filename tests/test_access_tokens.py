@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
 from agent_manager.api import scanner_router
@@ -127,6 +128,26 @@ def test_create_access_token_returns_plaintext_once_and_lists_masked_record(tmp_
     assert rows[0]["token"] is None
     assert rows[0]["token_hash"] is None
     assert rows[0]["token_prefix"] == body["record"]["token_prefix"]
+
+
+def test_last_used_lock_does_not_block_token_authentication():
+    row = models.AccessToken(id=1, name="client", token_hash="hash", token_prefix="amat_test")
+
+    class LockedSession:
+        rolled_back = False
+
+        def commit(self):
+            raise OperationalError("UPDATE access_tokens", {}, Exception("database is locked"))
+
+        def refresh(self, _row):
+            raise AssertionError("locked writes must not refresh")
+
+        def rollback(self):
+            self.rolled_back = True
+
+    db = LockedSession()
+    assert access_tokens._touch_last_used(db, row) is row
+    assert db.rolled_back is True
 
 
 def test_agent_runtime_token_enforces_bound_agent_and_allowed_skill(tmp_path):

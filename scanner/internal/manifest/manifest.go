@@ -74,7 +74,7 @@ func Build(root string, opts Options) (Manifest, error) {
 			return fmt.Errorf("file too large: %s (%d bytes)", path, info.Size())
 		}
 		if opts.MaxFiles > 0 && len(result.Files) >= opts.MaxFiles {
-			return fmt.Errorf("too many files under skill: %s", absRoot)
+			return fmt.Errorf("Skill 文件数量超过限制：当前至少 %d 个，最多允许 %d 个", len(result.Files)+1, opts.MaxFiles)
 		}
 		rel, err := safeRel(absRoot, path)
 		if err != nil {

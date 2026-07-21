@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import sqlite3
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -20,10 +21,19 @@ from backend.routers import access_tokens, clients
 from backend.sqlite_db import Base, get_db
 
 
+class _Registry:
+    def __init__(self):
+        self.events = []
+
+    def log_event(self, event):
+        self.events.append(event)
+
+
 class _Manager:
     def __init__(self, entries=None):
         self.entries = entries or {}
         self.list_calls = 0
+        self.registry = _Registry()
 
     def get_skill(self, value):
         return self.entries.get(value)
@@ -98,12 +108,11 @@ def test_generated_registry_name_uses_skill_metadata(tmp_path):
         "cninfo-announcement-scraper",
         "Fetches official CNINFO disclosures.",
     )
-    manager = type("Manager", (), {"registry": type("Registry", (), {"data_dir": tmp_path})()})()
-    assert clients._legacy_skill_names_matching(manager, "cninfo") == [root.name]
 
 
 def test_client_register_inventory_and_task_round_trip(tmp_path):
-    client = _client(tmp_path)
+    manager = _Manager()
+    client = _client(tmp_path, manager)
     created = client.post(
         "/api/v1/access/tokens",
         json={"name": "终端接入", "token_type": "client"},
@@ -312,17 +321,35 @@ def test_client_register_inventory_and_task_round_trip(tmp_path):
     )
     assert no_change_takeover.status_code == 200
     assert no_change_takeover.json()["recorded"] is False
-    client.post(
+    reported = client.post(
         "/api/v1/clients/host-001/events",
         headers=headers,
-        json={"event_type": "skill_quarantined", "agent_type": "codex", "skill_name": "unsafe"},
+        json={
+            "event_type": "skill_quarantined",
+            "agent_type": "codex",
+            "skill_name": "unsafe",
+            "details": {"skill_id": "skill-unsafe", "reason": "signature_mismatch"},
+        },
     )
+    assert reported.status_code == 200
+    audit_event = manager.registry.events[-1]
+    assert audit_event.event_type == "skill_quarantined"
+    assert audit_event.skill_id == "skill-unsafe"
+    assert audit_event.actor == "host-001"
+    assert audit_event.details["agent_id"] == "codex"
+    assert audit_event.details["source"] == "managed_client"
     assert client.get("/api/v1/clients").json()[0]["issue_count"] == 1
-    client.post(
+    class LockedRegistry:
+        def log_event(self, _event):
+            raise sqlite3.OperationalError("database is locked")
+
+    manager.registry = LockedRegistry()
+    restored = client.post(
         "/api/v1/clients/host-001/events",
         headers=headers,
         json={"event_type": "skill_quarantine_restored", "agent_type": "codex", "skill_name": "unsafe"},
     )
+    assert restored.status_code == 200
     assert client.get("/api/v1/clients").json()[0]["issue_count"] == 0
 
     detail = client.get("/api/v1/clients/host-001")

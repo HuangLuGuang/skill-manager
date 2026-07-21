@@ -1,0 +1,142 @@
+package managedclient
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestSkillWatcherDetectsFileChange(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".codex", "skills", "demo")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	watcher, err := NewSkillWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+	if err := watcher.Refresh(home, store); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("name: demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-watcher.Changes():
+	case <-time.After(3 * time.Second):
+		t.Fatal("Skill file change did not wake the watcher")
+	}
+}
+
+func TestSkillWatcherDetectsNewStandardSkillRoot(t *testing.T) {
+	home := t.TempDir()
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	watcher, err := NewSkillWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+	if err := watcher.Refresh(home, store); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(home, ".codex", "skills", "new-skill")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("name: new-skill\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-watcher.Changes():
+	case <-time.After(3 * time.Second):
+		t.Fatal("new standard Skill root did not wake the watcher")
+	}
+}
+
+func TestSkillWatcherIgnoresChangesOutsideSkillRoots(t *testing.T) {
+	home := t.TempDir()
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	watcher, err := NewSkillWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+	if err := watcher.Refresh(home, store); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "unrelated.txt"), []byte("unrelated"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-watcher.Changes():
+		t.Fatal("unrelated home directory change woke the Skill watcher")
+	case <-time.After(1500 * time.Millisecond):
+	}
+}
+
+func TestNotificationsAreRelevantAndDeduplicated(t *testing.T) {
+	home := t.TempDir()
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	if _, ok := notificationForEvent("skill_modified", "codex", "demo", map[string]any{"mode": "repair"}); ok {
+		t.Fatal("intermediate modification should not notify before automatic repair")
+	}
+	if _, ok := notificationForEvent("skill_modified", "codex", "demo", map[string]any{"mode": "repair", "offline": true}); !ok {
+		t.Fatal("offline repair failure should notify")
+	}
+	if _, ok := notificationForEvent("unmanaged_skill_found", "codex", "demo", map[string]any{"mode": "repair"}); !ok {
+		t.Fatal("unmanaged Skill left in place should notify")
+	}
+	item, ok := notificationForEvent("skill_repaired", "codex", "demo", nil)
+	if !ok || item.Title != "Skill 已自动恢复" || item.Severity != "info" {
+		t.Fatalf("unexpected notification: %#v", item)
+	}
+	if err := store.RecordNotification(item); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordNotification(item); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.Notifications(10)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("duplicate notification was not suppressed: %#v %v", items, err)
+	}
+	status, err := store.LocalStatus()
+	if err != nil || status.UnreadNotifications != 1 {
+		t.Fatalf("unexpected unread count: %#v %v", status, err)
+	}
+	if err := store.MarkNotificationsRead(); err != nil {
+		t.Fatal(err)
+	}
+	status, err = store.LocalStatus()
+	if err != nil || status.UnreadNotifications != 0 {
+		t.Fatalf("notifications were not marked read: %#v %v", status, err)
+	}
+	if err := store.ClearNotifications(); err != nil {
+		t.Fatal(err)
+	}
+	status, err = store.LocalStatus()
+	if err != nil || len(status.Notifications) != 0 {
+		t.Fatalf("notifications were not cleared: %#v %v", status, err)
+	}
+}

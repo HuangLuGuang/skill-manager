@@ -4,6 +4,7 @@ const titles = {
   discover: 'Agent 发现',
   takeover: '接管预览',
   status: '运行状态',
+  notifications: '安全通知',
   records: '执行记录',
 }
 let inventory = null
@@ -18,6 +19,8 @@ let takeoverLoadedAt = ''
 let previewSelectionKey = ''
 let takeoverLoading = false
 let autoRefreshBusy = false
+let notificationFilter = 'all'
+const notificationDeliveryAttempts = new Set()
 
 const $ = selector => document.querySelector(selector)
 const setBusy = (button, busy) => {
@@ -45,10 +48,12 @@ const isCustomAgent = agent => Boolean(agent?.capabilities?.custom)
 const showPanel = panel => {
   document.querySelectorAll('.nav-item, .panel').forEach(item => item.classList.remove('active'))
   document.querySelector(`.nav-item[data-panel="${panel}"]`)?.classList.add('active')
+  $('#notification-trigger').classList.toggle('active', panel === 'notifications')
   $(`#${panel}`).classList.add('active')
   $('#panel-title').textContent = titles[panel]
   $('.workspace').scrollTop = 0
   if (panel === 'status') loadStatusPage()
+  if (panel === 'notifications') refreshConnection()
   if (panel === 'records') refreshConnection()
 }
 
@@ -130,6 +135,7 @@ const renderDisconnected = () => {
   $('#connect-submit').textContent = '接入平台'
   $('#connection-state').textContent = '未接入'
   $('#connection-state').classList.remove('online')
+  $('#notification-trigger').hidden = true
   $('#panel-title').textContent = '终端接入'
 }
 const editConnection = () => {
@@ -202,6 +208,7 @@ const renderConnected = data => {
   $('#connected-overview').hidden = false
   $('#connection-state').textContent = data.connected ? '已接入' : '接入异常'
   $('#connection-state').classList.toggle('online', data.connected)
+  $('#notification-trigger').hidden = false
   const activePanel = document.querySelector('.panel.active')?.id || 'connect'
   $('#panel-title').textContent = titles[activePanel]
   $('#overview-badge').className = `overview-badge${connectionError ? ' error' : ''}`
@@ -317,7 +324,79 @@ const renderStatus = data => {
     : localTasks
   renderTaskHistory(tasks)
   renderEventHistory(data?.platform?.events || [])
+  renderNotifications(local)
 }
+
+const renderNotifications = local => {
+  const items = local.notifications || []
+  const unread = Number(local.unread_notifications || 0)
+  const critical = items.filter(item => item.severity === 'critical').length
+  $('#notification-total').textContent = items.length
+  $('#notification-unread').textContent = unread
+  $('#notification-critical').textContent = critical
+  $('#notification-nav-badge').hidden = unread === 0
+  $('#notification-nav-badge').textContent = unread > 99 ? '99+' : unread
+  const filtered = items.filter(item => {
+    if (notificationFilter === 'unread') return !item.read_at
+    if (notificationFilter === 'critical') return item.severity === 'critical'
+    return true
+  })
+  const element = $('#notification-list')
+  element.classList.toggle('empty', filtered.length === 0)
+  element.innerHTML = filtered.length ? filtered.map(item => {
+    const action = notificationAction(item.event_type)
+    return `
+    <button class="notification-item ${escapeHtml(item.severity)}${item.read_at ? '' : ' unread'}" data-notification-id="${item.id}" data-notification-panel="${action.panel}">
+      <i aria-hidden="true"></i>
+      <div class="notification-content">
+        <div><strong>${escapeHtml(item.title)}</strong><span class="severity-label">${notificationSeverity(item.severity)}</span>${item.read_at ? '' : '<span>未读</span>'}</div>
+        <p>${escapeHtml(item.message)}</p>
+        <small>${escapeHtml(agentLabel(item.agent_type))} · ${escapeHtml(item.skill_name)} · ${escapeHtml(formatTime(item.created_at))}</small>
+      </div>
+      <span class="notification-action">${action.label} →</span>
+    </button>`
+  }).join('') : '<div class="empty">当前筛选下暂无通知</div>'
+  document.querySelectorAll('[data-notification-id]').forEach(button => button.addEventListener('click', async () => {
+    const panel = button.dataset.notificationPanel
+    showPanel(panel)
+    try {
+      await run('read-notifications', ['--id', button.dataset.notificationId])
+      await refreshLocalNotifications()
+    } catch (error) {
+      showMessageDialog('操作失败', String(error))
+    }
+  }))
+  deliverDesktopNotification(items.find(item => !item.delivered_at))
+}
+
+const refreshLocalNotifications = async () => {
+  const local = JSON.parse(await run('local-status'))
+  if (connection) connection.local = local
+  renderNotifications(local)
+  return local
+}
+
+const deliverDesktopNotification = async item => {
+  if (!item || notificationDeliveryAttempts.has(item.id)) return
+  notificationDeliveryAttempts.add(item.id)
+  try {
+    await invoke('show_system_notification', { title: item.title, body: item.message })
+    await run('deliver-notification', ['--id', String(item.id)])
+    $('#system-notification-state').hidden = true
+  } catch (error) {
+    $('#system-notification-state').classList.remove('success')
+    $('#system-notification-state').hidden = false
+    $('#system-notification-state').textContent = String(error)
+  }
+}
+
+const notificationSeverity = severity => ({ critical: '严重', warning: '警告', info: '已处置' }[severity] || '提示')
+const notificationAction = eventType => ({
+  skill_quarantined: { panel: 'status', label: '查看隔离区' },
+  unmanaged_skill_found: { panel: 'takeover', label: '前往治理' },
+  skill_modified: { panel: 'status', label: '查看状态' },
+  skill_repaired: { panel: 'records', label: '查看记录' },
+}[eventType] || { panel: 'records', label: '查看详情' })
 
 const renderEventHistory = events => {
   const element = $('#event-history-list')
@@ -369,7 +448,8 @@ const refreshChangedInventory = async () => {
     const local = JSON.parse(await run('local-status'))
     const changedAt = local.last_inventory_at || ''
     const taskChanged = local.tasks?.[0]?.updated_at !== connection.local?.tasks?.[0]?.updated_at
-    if ((!changedAt || changedAt === lastInventoryAt) && !taskChanged) return
+    const notificationChanged = local.notifications?.[0]?.id !== connection.local?.notifications?.[0]?.id || local.unread_notifications !== connection.local?.unread_notifications
+    if ((!changedAt || changedAt === lastInventoryAt) && !taskChanged && !notificationChanged) return
     if (changedAt === lastInventoryAt) {
       connection.local = local
       renderStatus(connection)
@@ -384,6 +464,65 @@ const refreshChangedInventory = async () => {
     autoRefreshBusy = false
   }
 }
+
+document.querySelectorAll('[data-notification-filter]').forEach(button => {
+  button.addEventListener('click', () => {
+    notificationFilter = button.dataset.notificationFilter
+    document.querySelectorAll('[data-notification-filter]').forEach(item => item.classList.toggle('active', item === button))
+    renderNotifications(connection?.local || {})
+  })
+})
+
+$('#refresh-notifications').addEventListener('click', refreshConnection)
+$('#notification-trigger').addEventListener('click', () => showPanel('notifications'))
+$('#test-system-notification').addEventListener('click', async () => {
+  try {
+    await invoke('show_system_notification', { title: '瑞数智能体安全治理终端', body: '系统通知已开启，安全事件将及时提醒。' })
+    $('#system-notification-state').hidden = false
+    $('#system-notification-state').classList.add('success')
+    $('#system-notification-state').textContent = '系统通知已发送。应用位于前台时，macOS 可能只将其收录到通知中心。'
+  } catch (error) {
+    $('#system-notification-state').classList.remove('success')
+    $('#system-notification-state').hidden = false
+    $('#system-notification-state').textContent = String(error)
+  }
+})
+$('#mark-notifications-read').addEventListener('click', async event => {
+  const button = event.currentTarget
+  setBusy(button, true)
+  try {
+    await run('read-notifications')
+    const local = await refreshLocalNotifications()
+    if (Number(local.unread_notifications || 0) !== 0) throw new Error('本地通知状态未更新，请重试')
+    $('#system-notification-state').hidden = false
+    $('#system-notification-state').classList.add('success')
+    $('#system-notification-state').textContent = '全部通知已标记为已读。'
+  } catch (error) {
+    showMessageDialog('操作失败', String(error))
+  } finally {
+    setBusy(button, false)
+  }
+})
+$('#clear-notifications').addEventListener('click', () => $('#clear-notifications-dialog').showModal())
+$('#cancel-clear-notifications').addEventListener('click', () => $('#clear-notifications-dialog').close())
+$('#confirm-clear-notifications').addEventListener('click', async event => {
+  const button = event.currentTarget
+  setBusy(button, true)
+  try {
+    await run('clear-notifications')
+    const local = await refreshLocalNotifications()
+    if ((local.notifications || []).length !== 0) throw new Error('本地通知仍未清空，请重试')
+    $('#clear-notifications-dialog').close()
+    $('#system-notification-state').hidden = false
+    $('#system-notification-state').classList.add('success')
+    $('#system-notification-state').textContent = '本机通知已清除。隔离记录和平台审计未受影响。'
+    log('本机通知已清除')
+  } catch (error) {
+    showMessageDialog('清除失败', String(error))
+  } finally {
+    setBusy(button, false)
+  }
+})
 
 const renderInventory = () => {
   if (!inventory?.agents) return
@@ -587,7 +726,7 @@ const preview = async (confirm, showNoChange = false) => {
           <div class="takeover-column-head"><span>Skill</span><span>接管后状态</span><span>判断依据</span><span>操作</span></div>
           ${group.items.map(item => `
           <div class="takeover-row">
-            <div><strong>${escapeHtml(item.name)}</strong><p>${escapeHtml(item.source)}</p></div>
+            <div><strong>${escapeHtml(item.name)}</strong><p title="${escapeHtml(item.source)}">${escapeHtml(item.source)}</p></div>
             <span class="result-status status-${item.action}"><i></i>${item.action === 'managed' ? '已接管' : item.action === 'manage' ? '待接管' : '停用'}</span>
             <span>${escapeHtml(reasonLabel(item.reason))}</span>
             ${['manage', 'managed'].includes(item.action) && item.skill_id ? `<button class="icon-button icon-install" type="button" data-install-preview="${escapeHtml(item.skill_id)}" data-skill-name="${escapeHtml(item.name)}" data-source-agent="${escapeHtml(item.agent_type)}">安装到其他 Agent</button>` : '<span>-</span>'}

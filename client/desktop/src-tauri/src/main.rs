@@ -8,7 +8,9 @@ use std::process::Command;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use tauri::plugin::PermissionState;
 use tauri::AppHandle;
+use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
 
@@ -64,6 +66,7 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "add-custom-agent",
         "remove-custom-agent",
         "inventory",
+        "cached-inventory",
         "register",
         "takeover",
         "pending",
@@ -80,6 +83,9 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "resume-governance",
         "service-status",
         "local-status",
+        "read-notifications",
+        "clear-notifications",
+        "deliver-notification",
         "install-service",
         "uninstall-service",
     ];
@@ -107,6 +113,36 @@ async fn execute_client(command: String, args: Vec<String>) -> Result<String, St
     tauri::async_runtime::spawn_blocking(move || execute_client_sync(command, args))
         .await
         .map_err(|error| format!("客户端操作异常: {error}"))?
+}
+
+#[tauri::command]
+fn show_system_notification(app: AppHandle, title: String, body: String) -> Result<(), String> {
+    let notifications = app.notification();
+    if matches!(
+        notifications
+            .permission_state()
+            .map_err(|error| error.to_string())?,
+        PermissionState::Prompt | PermissionState::PromptWithRationale
+    ) {
+        notifications
+            .request_permission()
+            .map_err(|error| error.to_string())?;
+    }
+    if notifications
+        .permission_state()
+        .map_err(|error| error.to_string())?
+        != PermissionState::Granted
+    {
+        return Err(
+            "系统通知权限未开启，请在系统设置中允许瑞数智能体安全治理终端发送通知".to_string(),
+        );
+    }
+    notifications
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -149,8 +185,10 @@ async fn get_connection_status() -> Result<ConnectionStatus, String> {
         Vec::new(),
     )?)
     .map_err(|error| format!("无法读取本地治理状态: {error}"))?;
+    let inventory_output = execute_client_sync("cached-inventory".to_string(), Vec::new())
+        .or_else(|_| execute_client_sync("inventory".to_string(), Vec::new()))?;
     let inventory: serde_json::Value =
-        serde_json::from_str(&execute_client_sync("inventory".to_string(), Vec::new())?)
+        serde_json::from_str(&inventory_output)
             .map_err(|error| format!("无法读取本机 Agent 信息: {error}"))?;
     let client_id = inventory
         .get("client_id")
@@ -386,6 +424,14 @@ fn client_binary() -> Result<PathBuf, String> {
 
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            #[cfg(target_os = "macos")]
+            if let Err(error) = notify_rust::set_application(&app.config().identifier) {
+                eprintln!("could not register macOS notification identity: {error}");
+            }
+            Ok(())
+        })
+        .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_updater::Builder::new()
                 .pubkey(UPDATER_PUBLIC_KEY)
@@ -395,6 +441,7 @@ fn main() {
             execute_client,
             select_skill_directory,
             get_connection_status,
+            show_system_notification,
             check_client_update,
             get_build_version
         ])

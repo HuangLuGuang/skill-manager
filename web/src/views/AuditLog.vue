@@ -114,6 +114,15 @@ const eventTypeOptions = [
   { value: 'skill_tamper_detected', label: '发现内容不一致' },
   { value: 'tool_invoked', label: '允许工具调用' },
   { value: 'tool_blocked', label: '阻止工具调用' },
+  { value: 'unmanaged_skill_found', label: '终端发现未受管 Skill' },
+  { value: 'unmanaged_skill_verified', label: '终端校验未受管 Skill' },
+  { value: 'skill_modified', label: '终端发现 Skill 修改' },
+  { value: 'skill_repaired', label: '终端已恢复批准版本' },
+  { value: 'skill_blocked', label: '终端已阻止异常 Skill' },
+  { value: 'skill_quarantined', label: '终端已隔离 Skill' },
+  { value: 'skill_quarantine_restored', label: '终端已恢复隔离 Skill' },
+  { value: 'skill_installed', label: '终端已安装 Skill' },
+  { value: 'skill_removed', label: '终端已移除 Skill' },
 ]
 const eventLabelMap = Object.fromEntries(eventTypeOptions.map((item) => [item.value, item.label]))
 
@@ -183,9 +192,9 @@ const resetFilters = () => {
 
 const eventLabel = (value) => eventLabelMap[value] || value || '-'
 const eventColor = (value) => {
-  if (['skill_rejected', 'skill_load_blocked', 'skill_tamper_detected', 'tool_blocked'].includes(value)) return 'red'
-  if (['skill_approved', 'skill_signature_verified', 'skill_load_allowed', 'tool_invoked'].includes(value)) return 'green'
-  if (['skill_vetted', 'skill_processing_completed'].includes(value)) return 'orange'
+  if (['skill_rejected', 'skill_load_blocked', 'skill_tamper_detected', 'tool_blocked', 'skill_blocked', 'skill_quarantined'].includes(value)) return 'red'
+  if (['skill_approved', 'skill_signature_verified', 'skill_load_allowed', 'tool_invoked', 'skill_repaired', 'skill_quarantine_restored', 'skill_installed', 'unmanaged_skill_verified'].includes(value)) return 'green'
+  if (['skill_vetted', 'skill_processing_completed', 'skill_modified', 'unmanaged_skill_found'].includes(value)) return 'orange'
   return 'blue'
 }
 const auditDetails = (record) => (record?.details && typeof record.details === 'object' ? record.details : {})
@@ -209,6 +218,7 @@ const formatAuditDetails = (details = {}) => {
     reviewer: '审核人',
     approver: '审批人',
     source: '来源',
+    client_id: '终端 ID',
   }
   const hidden = new Set([
     'agent_id',
@@ -221,9 +231,15 @@ const formatAuditDetails = (details = {}) => {
     'user_id',
     'group_id',
   ])
+  const displayValue = (key, value) => {
+    if (key === 'source' && value === 'managed_client') return '终端客户端'
+    if (value === true) return '允许'
+    if (value === false) return '拒绝'
+    return value
+  }
   return Object.entries(details || {})
     .filter(([key, value]) => !hidden.has(key) && value !== undefined && value !== null && value !== '')
-    .map(([key, value]) => `${labels[key] || key}: ${value === true ? '允许' : value === false ? '拒绝' : value}`)
+    .map(([key, value]) => `${labels[key] || key}: ${displayValue(key, value)}`)
     .join('；') || '-'
 }
 

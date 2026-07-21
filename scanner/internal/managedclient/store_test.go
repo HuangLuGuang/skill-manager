@@ -13,6 +13,10 @@ func TestStorePersistsInventoryAndCompletedTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
+	var busyTimeout int
+	if err := store.db.QueryRow(`PRAGMA busy_timeout`).Scan(&busyTimeout); err != nil || busyTimeout != 5000 {
+		t.Fatalf("unexpected busy timeout: %d %v", busyTimeout, err)
+	}
 	if err := store.SaveInventory(Inventory{ClientID: "client-1"}); err != nil {
 		t.Fatal(err)
 	}

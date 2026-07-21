@@ -1,5 +1,7 @@
 import json
+import logging
 import re
+import sqlite3
 import tempfile
 import zipfile
 from datetime import datetime, timedelta
@@ -23,13 +25,14 @@ from .access_tokens import resolve_access_token
 from agent_manager.api.router import get_manager
 from agent_manager.core.manager import AgentManager
 from agent_manager.core.llm import LLMConfig
-from agent_manager.core.models import SkillStatus
+from agent_manager.core.models import AuditEvent, SkillStatus
 from agent_manager.core.sandbox import SandboxConfig
 from agent_manager.core.skillspector import is_skillspector_available
 from agent_manager.core.text_reader import read_text_fallback
 
 
 router = APIRouter(prefix="/v1/clients", tags=["clients"])
+logger = logging.getLogger(__name__)
 _CLIENT_RELEASE_DIR = Path(__file__).resolve().parents[2] / "scanner" / "releases"
 _CLIENT_ONLINE_WINDOW = timedelta(minutes=10)
 _CLIENT_INSTALLER_RE = re.compile(
@@ -174,33 +177,6 @@ def _skill_display_metadata(name: str, description: str = "", root: Path | None 
                 description = stripped
                 break
     return display_name or name, description
-
-
-def _legacy_skill_root(manager: AgentManager, stored_name: str) -> Path | None:
-    for directory in ("uploaded_skills", "downloaded_skills", "clawhub_skills", "scanner_uploaded_skills"):
-        root = manager.registry.data_dir / directory / stored_name
-        if root.is_dir():
-            return root
-    return None
-
-
-def _legacy_skill_names_matching(manager: AgentManager, query: str, limit: int = 100) -> list[str]:
-    matches: list[str] = []
-    needle = query.lower()
-    for directory in ("uploaded_skills", "downloaded_skills", "clawhub_skills", "scanner_uploaded_skills"):
-        parent = manager.registry.data_dir / directory
-        if not parent.is_dir():
-            continue
-        for root in parent.iterdir():
-            stored_name = root.name
-            if len(stored_name) != 32 or not all(character in "0123456789abcdef" for character in stored_name.lower()):
-                continue
-            display_name, _description = _skill_display_metadata(stored_name, root=root)
-            if needle in display_name.lower():
-                matches.append(stored_name)
-                if len(matches) >= limit:
-                    return matches
-    return matches
 
 
 def _update_platform_key(target: str, arch: str) -> str:
@@ -568,6 +544,7 @@ def report_event(
     request: Request,
     authorization: str | None = Header(None),
     db: Session = Depends(get_db),
+    manager: AgentManager = Depends(get_manager),
 ):
     token = _runtime_token("client:report-events", authorization, request, db)
     _bind_client(token, client_id, db)
@@ -581,6 +558,29 @@ def report_event(
     )
     db.add(row)
     db.commit()
+    db.refresh(row)
+    details = {
+        **body.details,
+        "client_id": client_id,
+        "agent_id": body.agent_type,
+        "client_ip": request.client.host if request.client else None,
+        "token_name": token.name,
+        "token_type": token.token_type,
+        "source": "managed_client",
+    }
+    try:
+        manager.registry.log_event(
+            AuditEvent(
+                event_id=f"client-event-{client_id}-{row.id}",
+                event_type=body.event_type,
+                skill_id=str(body.details.get("skill_id") or "unknown"),
+                skill_name=body.skill_name or "-",
+                actor=client_id,
+                details=details,
+            )
+        )
+    except sqlite3.OperationalError as exc:
+        logger.warning("Could not project client event %s into audit: %s", row.id, exc)
     return {"ok": True, "event_id": row.id}
 
 
@@ -1140,31 +1140,14 @@ def list_available_client_skills(
                 entries.append(item)
                 seen.add(entry.skill_id)
     else:
-        queries = [q]
-        if q:
-            queries.extend(_legacy_skill_names_matching(manager, q))
-        entries_by_id = {}
-        for query in queries:
-            for item in manager.list_skill_summaries(
-                page=1,
-                page_size=100,
-                statuses=[SkillStatus.APPROVED],
-                q=query,
-                sort_by="name",
-                sort_order="asc",
-            )["items"]:
-                entries_by_id[item["skill_id"]] = item
-        entries = list(entries_by_id.values())
-        entries = [
-            {
-                **item,
-                "name": _skill_display_metadata(
-                    item["name"],
-                    root=_legacy_skill_root(manager, item["name"]),
-                )[0],
-            }
-            for item in entries
-        ]
+        entries = manager.list_skill_summaries(
+            page=1,
+            page_size=100,
+            statuses=[SkillStatus.APPROVED],
+            q=q,
+            sort_by="name",
+            sort_order="asc",
+        )["items"]
         entries.sort(key=lambda item: item["name"].lower())
     if q and client.governance_mode == "strict":
         needle = q.lower()
