@@ -208,6 +208,8 @@ git push github client-v26.03.15
 
 推送 `client-v*` 标签后，[GitHub Actions 工作流](/Users/huangluguang/Desktop/Project/skill-manager/.github/workflows/agent-manager-client.yml) 会使用 GitHub 托管的 macOS ARM、macOS Intel、Windows x64 和 Linux x64 Runner 构建安装包。最终的 `agent-manager-client-update-feed` Artifact 包含安装包、自动更新包和 `latest.json`；也可以在 Actions 页面手动运行工作流，先验证四个平台的普通构建。
 
+生产发布由标签为 `agent-manager-release` 的 GitHub self-hosted runner 自动同步到 35：版本文件保存到 `/home/ubuntu/releases/client-YY.MM.DD`，`client-latest` 指向最新版本，同时复制到 `/home/ubuntu/skill-manager/scanner/releases` 供管理台下载。企业微信通知地址通过 Repository Secret `WECHAT_WEBHOOK_URL` 配置，不写入仓库。
+
 下载并解压最终 Artifact 后，将其中的文件放入服务端：
 
 ```text
