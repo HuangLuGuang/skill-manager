@@ -68,7 +68,7 @@ jobs:
           AGENT_MANAGER_UPDATER_PRIVATE_KEY_PASSWORD: ${{ secrets.AGENT_MANAGER_UPDATER_PRIVATE_KEY_PASSWORD }}
       - name: Collect release artifact
         if: ${{ startsWith(github.ref, 'refs/tags/client-v') }}
-        run: node scripts/collect-updater-artifact.mjs ${{ matrix.platform_key }} "${GITHUB_REF_NAME}"
+        run: node scripts/collect-updater-artifact.mjs ${{ matrix.platform_key }} "${{ github.ref_name }}"
         working-directory: client/desktop
       - uses: actions/upload-artifact@v4
         with:
