@@ -206,7 +206,7 @@ git tag client-v26.03.15
 git push github client-v26.03.15
 ```
 
-推送 `client-v*` 标签后，[GitHub Actions 工作流](/Users/huangluguang/Desktop/Project/skill-manager/.github/workflows/agent-manager-client.yml) 会使用 GitHub 托管的 macOS ARM、Windows x64 和 Linux x64 Runner 构建安装包。最终的 `agent-manager-client-update-feed` Artifact 包含安装包、自动更新包和 `latest.json`；也可以在 Actions 页面手动运行工作流，先验证三个平台的普通构建。
+推送 `client-v*` 标签后，[GitHub Actions 工作流](/Users/huangluguang/Desktop/Project/skill-manager/.github/workflows/agent-manager-client.yml) 会使用 GitHub 托管的 macOS ARM、macOS Intel、Windows x64 和 Linux x64 Runner 构建安装包。最终的 `agent-manager-client-update-feed` Artifact 包含安装包、自动更新包和 `latest.json`；也可以在 Actions 页面手动运行工作流，先验证四个平台的普通构建。
 
 下载并解压最终 Artifact 后，将其中的文件放入服务端：
 
@@ -214,9 +214,11 @@ git push github client-v26.03.15
 scanner/releases/
   latest.json
   agent-manager-client-26.03.15-darwin-aarch64.dmg
+  agent-manager-client-26.03.15-darwin-x86_64.dmg
   agent-manager-client-26.03.15-windows-x86_64.exe
   agent-manager-client-26.03.15-linux-x86_64.AppImage
   agent-manager-client-26.03.15-darwin-aarch64.app.tar.gz
+  agent-manager-client-26.03.15-darwin-x86_64.app.tar.gz
 ```
 
 管理台“终端管理 → 安装客户端”只展示 `.dmg`、`.exe` 和 `.AppImage`，并按版本倒序排列。Windows 和 Linux 复用安装包执行更新，macOS 的更新压缩包不会出现在手动下载列表。正式构建左下角显示 `版本 26.03.15`，本地 `npm run dev` 或普通 `npm run build` 显示 `版本 dev`。
