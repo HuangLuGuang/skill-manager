@@ -97,7 +97,7 @@ class RuntimeGuard:
         Returns:
             (allowed: bool, entry: RegistryEntry | None, reason: str)
         """
-        entry = self.registry.get_by_name(skill_name)
+        entry = self.registry.get_by_id(skill_name) or self.registry.get_by_name(skill_name)
 
         if entry is None:
             reason = f"Skill {skill_name!r} is not in the registry"

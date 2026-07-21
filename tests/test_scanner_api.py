@@ -241,6 +241,7 @@ def test_access_runtime_routes_accept_runtime_token(tmp_path):
         app.dependency_overrides[get_db] = override_get_db
         app.include_router(admin_router)
         app.include_router(runtime_router)
+        app.include_router(api_router.router)
         client = TestClient(app)
 
         verify_response = client.post(
@@ -257,12 +258,27 @@ def test_access_runtime_routes_accept_runtime_token(tmp_path):
         assert verify_response.json()["allowed"] is True
 
         can_load_response = client.get(
-            "/api/v1/access/runtime/can-load/runtime-skill",
+            f"/api/v1/access/runtime/can-load/{entry.skill_id}",
             headers={"Authorization": f"Bearer {token}"},
             params={"agent_id": "agno-demo"},
         )
         assert can_load_response.status_code == 200
         assert can_load_response.json()["allowed"] is True
+
+        audit_response = client.get(
+            "/audit",
+            params={
+                "skill_id": entry.skill_id,
+                "event_types": "skill_signature_verified,skill_load_allowed",
+                "page": 1,
+                "page_size": 20,
+            },
+        )
+        assert audit_response.status_code == 200
+        assert {item["event_type"] for item in audit_response.json()["items"]} == {
+            "skill_signature_verified",
+            "skill_load_allowed",
+        }
 
         path_response = client.get(
             "/api/v1/access/runtime/can-load/runtime-skill",

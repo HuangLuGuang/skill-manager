@@ -391,7 +391,7 @@ def token_runtime_can_load(
     _ensure_agent_skill_allowed_or_audit(
         mgr,
         agent,
-        skill_name,
+        entry.name if entry else skill_name,
         request=request,
         token=token,
         agent_id=resolved_agent_id,
