@@ -3,8 +3,15 @@ name: Agent Manager Client
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "client-v*"
+    paths:
+      - "client/desktop/**"
+      - "scanner/cmd/agent-manager-client/**"
+      - "scanner/internal/managedclient/**"
+      - ".github/workflows/agent-manager-client.yml"
 
 permissions:
   contents: read
