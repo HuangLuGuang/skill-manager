@@ -10,9 +10,9 @@ env.AGENT_MANAGER_CLIENT_VERSION = displayVersion
 env.TAURI_UPDATER_PUBLIC_KEY ||= env.AGENT_MANAGER_UPDATER_PUBLIC_KEY
 env.TAURI_SIGNING_PRIVATE_KEY ||= env.AGENT_MANAGER_UPDATER_PRIVATE_KEY
 env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ||= env.AGENT_MANAGER_UPDATER_PRIVATE_KEY_PASSWORD
-execFileSync('npm', ['run', 'prepare'], { env, stdio: 'inherit' })
-execFileSync('node', ['scripts/prepare-release-config.mjs'], { env, stdio: 'inherit' })
-execFileSync('npx', ['tauri', 'build', '--config', 'src-tauri/tauri.release.conf.json', '--bundles', bundles], {
+execFileSync(process.execPath, ['scripts/prepare-sidecar.mjs'], { env, stdio: 'inherit' })
+execFileSync(process.execPath, ['scripts/prepare-release-config.mjs'], { env, stdio: 'inherit' })
+execFileSync(process.execPath, ['node_modules/@tauri-apps/cli/tauri.js', 'build', '--config', 'src-tauri/tauri.release.conf.json', '--bundles', bundles], {
   env: { ...env, AGENT_MANAGER_RELEASE_VERSION: displayVersion },
   stdio: 'inherit',
 })
