@@ -1,61 +1,99 @@
 stages:
-  - client-build
-  - client-package
+  - release
 
-.client-release:
+platform-release-35:
+  stage: release
+  tags:
+    - agent-manager-release
   rules:
-    - if: '$CI_COMMIT_TAG =~ /^client-v\d{2}\.\d{2}\.\d{2}$/'
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+  resource_group: production-35
+  timeout: 4h
   variables:
-    AGENT_MANAGER_CLIENT_VERSION: $CI_COMMIT_TAG
-  before_script:
-    - cd client/desktop
-    - npm ci
-  artifacts:
-    expire_in: 30 days
-    paths:
-      - client/desktop/release-output/
-
-client-macos:
-  extends: .client-release
-  stage: client-build
-  tags: [macos]
+    RELEASE_DIR: /home/ubuntu/releases
+    CLIENT_RELEASES: /home/ubuntu/releases/client-latest
+    DOCKER_INSTALLER: /home/ubuntu/docker-installer-28.5.2-x86-arm.tar.gz
+    DEPLOY_DIR: /home/ubuntu/skill-manager
   script:
-    - npm run release:mac
-    - node scripts/collect-updater-artifact.mjs darwin-aarch64 "$CI_COMMIT_TAG"
+    - |
+      set -euo pipefail
 
-client-windows:
-  extends: .client-release
-  stage: client-build
-  tags: [windows]
-  script:
-    - npm run release:windows
-    - node scripts/collect-updater-artifact.mjs windows-x86_64 "$CI_COMMIT_TAG"
+      notify() {
+        local content="$1"
+        if [ -z "${WECHAT_WEBHOOK_URL:-}" ]; then
+          echo "WECHAT_WEBHOOK_URL is not configured; skipping notification"
+          return 0
+        fi
+        python3 -c 'import json,sys; print(json.dumps({"msgtype":"text","text":{"content":sys.argv[1]}}, ensure_ascii=False))' "$content" \
+          | curl --fail --silent --show-error --max-time 15 \
+              -H 'Content-Type: application/json' \
+              --data-binary @- "$WECHAT_WEBHOOK_URL" >/dev/null \
+          || echo "Warning: WeCom notification failed"
+      }
 
-client-linux:
-  extends: .client-release
-  stage: client-build
-  tags: [linux]
-  script:
-    - npm run release:linux
-    - node scripts/collect-updater-artifact.mjs linux-x86_64 "$CI_COMMIT_TAG"
+      notify "Agent Manager ${CI_COMMIT_TAG} 开始构建离线发布包\n${CI_PIPELINE_URL}"
 
-client-release-feed:
-  stage: client-package
-  tags: [linux]
-  rules:
-    - if: '$CI_COMMIT_TAG =~ /^client-v\d{2}\.\d{2}\.\d{2}$/'
-  needs:
-    - job: client-macos
-      artifacts: true
-    - job: client-windows
-      artifacts: true
-    - job: client-linux
-      artifacts: true
-  script:
-    - node client/desktop/scripts/generate-update-manifest.mjs client/desktop/release-output "$CI_COMMIT_TAG"
-  artifacts:
-    name: "agent-manager-client-update-feed-$CI_COMMIT_TAG"
-    expire_in: 90 days
-    paths:
-      - client/desktop/release-output/agent-manager-client-*
-      - client/desktop/release-output/latest.json
+      test -f "$DOCKER_INSTALLER"
+      test -f "$CLIENT_RELEASES/latest.json"
+      test -f "$DEPLOY_DIR/.env"
+      docker info >/dev/null
+      docker run --rm --platform linux/arm64 alpine:3.20 uname -m | grep -q '^aarch64$'
+
+      ./package-release.sh \
+        -v "$CI_COMMIT_TAG" \
+        -b "$CI_COMMIT_TAG" \
+        -p linux/arm64 \
+        -i "$DOCKER_INSTALLER" \
+        -c "$CLIENT_RELEASES" \
+        -o "$RELEASE_DIR"
+      notify "Agent Manager ${CI_COMMIT_TAG} ARM 离线包构建完成"
+
+      ./package-release.sh \
+        -v "$CI_COMMIT_TAG" \
+        -b "$CI_COMMIT_TAG" \
+        -p linux/amd64 \
+        -i "$DOCKER_INSTALLER" \
+        -c "$CLIENT_RELEASES" \
+        -o "$RELEASE_DIR"
+      notify "Agent Manager ${CI_COMMIT_TAG} x86 离线包构建完成"
+
+      install -m 0644 docker-compose.yaml "$DEPLOY_DIR/docker-compose.yaml"
+      install -d "$DEPLOY_DIR/deploy/nginx"
+      install -m 0644 deploy/nginx/default.conf "$DEPLOY_DIR/deploy/nginx/default.conf"
+
+      if grep -q '^TAG=' "$DEPLOY_DIR/.env"; then
+        sed -i "s/^TAG=.*/TAG=${CI_COMMIT_TAG}/" "$DEPLOY_DIR/.env"
+      else
+        printf '\nTAG=%s\n' "$CI_COMMIT_TAG" >> "$DEPLOY_DIR/.env"
+      fi
+
+      cd "$DEPLOY_DIR"
+      docker compose up -d --remove-orphans
+
+      for attempt in $(seq 1 30); do
+        if curl --fail --silent --show-error --max-time 5 http://127.0.0.1/ >/dev/null; then
+          break
+        fi
+        if [ "$attempt" -eq 30 ]; then
+          docker compose ps
+          docker compose logs --tail=100 backend frontend nginx sandbox
+          exit 1
+        fi
+        sleep 5
+      done
+
+      docker compose ps
+      test -s "$RELEASE_DIR/agent-manager_${CI_COMMIT_TAG}_arm.tar.gz"
+      test -s "$RELEASE_DIR/agent-manager_${CI_COMMIT_TAG}_x86.tar.gz"
+      notify "Agent Manager ${CI_COMMIT_TAG} 发布成功\n离线包已保存到 ${RELEASE_DIR}\n${CI_PIPELINE_URL}"
+  after_script:
+    - |
+      if [ "$CI_JOB_STATUS" = "success" ] || [ -z "${WECHAT_WEBHOOK_URL:-}" ]; then
+        exit 0
+      fi
+      python3 -c 'import json,sys; print(json.dumps({"msgtype":"text","text":{"content":sys.argv[1]}}, ensure_ascii=False))' \
+        "Agent Manager ${CI_COMMIT_TAG} 发布失败\n${CI_JOB_URL}" \
+        | curl --fail --silent --show-error --max-time 15 \
+            -H 'Content-Type: application/json' \
+            --data-binary @- "$WECHAT_WEBHOOK_URL" >/dev/null \
+        || true

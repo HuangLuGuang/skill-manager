@@ -64,12 +64,12 @@ arch_dir() {
 
 ensure_image() {
     local image="$1"
-    if docker image inspect "$image" >/dev/null 2>&1; then
+    if [ "$image" = "nginx:1.27-alpine" ]; then
+        step "Pulling ${image} for ${PLATFORM}"
+        docker pull --platform "${PLATFORM}" "$image"
         return
     fi
-    if [ "$image" = "nginx:1.27-alpine" ]; then
-        step "Pulling ${image}"
-        docker pull --platform "${PLATFORM}" "$image"
+    if docker image inspect "$image" >/dev/null 2>&1; then
         return
     fi
     echo "Missing image: $image"

@@ -67,10 +67,35 @@ docker_images/x86/agent-manager-images-v1.0.0.tar.xz
 docker_images/arm/agent-manager-images-v1.0.0.tar.xz
 installers/docker-installer-28.5.2-x86-arm.tar.gz
 scanner/releases/agent-manager-client-26.03.15-darwin-aarch64.dmg
+scanner/releases/agent-manager-client-26.03.15-darwin-x86_64.dmg
 scanner/releases/agent-manager-client-26.03.15-windows-x86_64.exe
+scanner/releases/agent-manager-client-26.03.15-linux-x86_64.AppImage
 ```
 
 Docker Compose 已将宿主机 `scanner/releases` 只读挂载到后端。部署完成后，管理员可在“终端管理 → 安装客户端”按系统和版本下载；新增版本只需把新的 release 文件复制到该目录，无需重建镜像。
+
+## 35 自动发布
+
+GitLab Runner `35-ubuntu` 使用 `agent-manager-release` 标签。推送平台版本标签后，它会在 `10.10.71.35` 上依次完成：
+
+1. 校验 Docker 安装包、桌面客户端发布目录和 ARM 模拟环境。
+2. 生成 ARM 和 x86 两套离线安装包。
+3. 将当前 Compose 与 Nginx 配置同步到部署目录。
+4. 使用 x86 镜像重启服务并执行首页健康检查。
+
+```bash
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+发布产物保存在：
+
+```text
+/home/ubuntu/releases/agent-manager_v1.0.1_arm.tar.gz
+/home/ubuntu/releases/agent-manager_v1.0.1_x86.tar.gz
+```
+
+如需企业微信通知，在 GitLab 项目的 `Settings → CI/CD → Variables` 中添加掩码变量 `WECHAT_WEBHOOK_URL`。只有在 `v*` 发布标签已配置为 Protected tag 时才同时勾选 Protected，否则标签流水线读不到该变量。流水线只在 `v数字.数字.数字` 格式的平台版本上运行；`client-vYY.MM.DD` 仍由 GitHub Actions 构建并同步桌面客户端。
 
 ## 离线部署
 
