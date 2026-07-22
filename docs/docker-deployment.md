@@ -74,19 +74,19 @@ scanner/releases/agent-manager-client-26.03.15-linux-x86_64.AppImage
 
 Docker Compose 已将宿主机 `scanner/releases` 只读挂载到后端。部署完成后，管理员可在“终端管理 → 安装客户端”按系统和版本下载；新增版本只需把新的 release 文件复制到该目录，无需重建镜像。
 
-## 35 自动发布
+## 35 自动部署与离线发布
 
-GitLab Runner `35-ubuntu` 使用 `agent-manager-release` 标签。推送平台版本标签后，它会在 `10.10.71.35` 上依次完成：
+GitLab Runner `35-ubuntu` 使用 `agent-manager-release` 标签，流水线分为两个独立任务：
 
-1. 校验 Docker 安装包、桌面客户端发布目录、S3 和 ARM 模拟环境。
-2. 构建 x86 镜像，更新 Compose，健康检查通过后发送企业微信通知。
-3. 生成 x86 和 ARM 两套离线安装包，并恢复服务器上的 x86 镜像标签。
-4. 上传两套安装包到 `s3://condi/agent-manager/`，完成后再次通知。
+- `deploy-35`：只构建 x86 镜像、更新 Compose 并执行健康检查。推送正式版本标签时自动执行；分支流水线中也可以手动执行，镜像版本为 `dev-提交短哈希`。
+- `offline-package`：只在正式版本标签流水线中显示，默认不执行。需要给客户交付时手动启动，生成 x86、ARM 离线包并上传 S3。
 
 ```bash
 git tag v1.0.1
 git push origin v1.0.1
 ```
+
+标签推送后，35 会先完成快速部署。如需客户离线包，在该标签的 GitLab 流水线中手动点击 `offline-package`。
 
 发布产物保存在：
 
@@ -95,7 +95,7 @@ git push origin v1.0.1
 /home/ubuntu/releases/agent-manager_v1.0.1_x86.tar.gz
 ```
 
-如需企业微信通知，在 GitLab 项目的 `Settings → CI/CD → Variables` 中添加掩码变量 `WECHAT_WEBHOOK_URL`。只有在 `v*` 发布标签已配置为 Protected tag 时才同时勾选 Protected，否则标签流水线读不到该变量。流水线只在 `v数字.数字.数字` 格式的平台版本上运行；`client-vYY.MM.DD` 仍由 GitHub Actions 构建并同步桌面客户端。
+如需企业微信通知，在 GitLab 项目的 `Settings → CI/CD → Variables` 中添加掩码变量 `WECHAT_WEBHOOK_URL`。只有在 `v*` 发布标签已配置为 Protected tag 时才同时勾选 Protected，否则标签流水线读不到该变量。正式发布标签使用 `v数字.数字.数字` 格式；`client-vYY.MM.DD` 仍由 GitHub Actions 构建并同步桌面客户端。
 
 35 上 Docker daemon 使用外网代理拉取基础镜像，Backend 的 Debian 与 GitHub 下载分别通过 `BUILD_APT_PROXY`、`BUILD_GIT_PROXY` 使用代理，Python 包通过 `BUILD_PYPI_INDEX` 使用清华源；npm 保持直连。Docker 代理配置位于 `/etc/systemd/system/docker.service.d/http-proxy.conf`；修改后执行 `sudo systemctl daemon-reload && sudo systemctl restart docker`。
 
