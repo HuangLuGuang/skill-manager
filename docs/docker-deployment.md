@@ -78,15 +78,15 @@ Docker Compose 已将宿主机 `scanner/releases` 只读挂载到后端。部署
 
 GitLab Runner `35-ubuntu` 使用 `agent-manager-release` 标签，流水线分为两个独立任务：
 
-- `deploy-35`：只构建 x86 镜像、更新 Compose 并执行健康检查。推送正式版本标签时自动执行；分支流水线中也可以手动执行，镜像版本为 `dev-提交短哈希`。
-- `offline-package`：只在正式版本标签流水线中显示，默认不执行。需要给客户交付时手动启动，生成 x86、ARM 离线包并上传 S3。
+- `deploy-35`：只构建 x86 镜像、更新 Compose 并执行健康检查。普通推送到 `RENA-1347` 时自动执行，镜像版本为 `dev-提交短哈希`。
+- `offline-package`：推送正式版本标签时，在快速部署成功后自动生成 x86、ARM 离线包并上传 S3。
 
 ```bash
 git tag v1.0.1
 git push origin v1.0.1
 ```
 
-标签推送后，35 会先完成快速部署。如需客户离线包，在该标签的 GitLab 流水线中手动点击 `offline-package`。
+标签推送后，35 会先完成快速部署，再自动生成并上传客户离线包。
 
 发布产物保存在：
 
