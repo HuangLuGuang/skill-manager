@@ -169,6 +169,16 @@ FRONTEND_IMAGE=agent-manager-frontend:${TAG}
 SANDBOX_IMAGE=agent-manager-sandbox:${TAG}
 SANDBOX_RUNTIME_IMAGE=agent-manager-sandbox-runtime:${TAG}
 
+if $BUILD_BACKEND || $BUILD_SANDBOX || $BUILD_RUNTIME; then
+    step "Pulling python:3.12-slim for ${PLATFORM}"
+    docker pull --platform "${PLATFORM}" python:3.12-slim
+fi
+if $BUILD_FRONTEND; then
+    step "Pulling frontend base images for ${PLATFORM}"
+    docker pull --platform "${PLATFORM}" node:22-alpine
+    docker pull --platform "${PLATFORM}" nginx:1.27-alpine
+fi
+
 $BUILD_BACKEND && build_backend
 $BUILD_FRONTEND && build_frontend
 $BUILD_SANDBOX && build_sandbox
