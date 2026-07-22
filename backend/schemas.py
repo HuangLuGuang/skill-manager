@@ -425,6 +425,7 @@ class ClientTakeoverReport(BaseModel):
 class ModelProviderCreate(BaseModel):
     name: str
     base_url: str
+    api_format: str = Field(default="openai", pattern="^(openai|anthropic)$")
     api_key: Optional[str] = None
     enabled: bool = True
     timeout_seconds: int = Field(default=60, ge=1, le=600)
@@ -434,6 +435,7 @@ class ModelProviderCreate(BaseModel):
 class ModelProviderUpdate(BaseModel):
     name: Optional[str] = None
     base_url: Optional[str] = None
+    api_format: Optional[str] = Field(default=None, pattern="^(openai|anthropic)$")
     api_key: Optional[str] = None
     clear_api_key: bool = False
     enabled: Optional[bool] = None
@@ -445,6 +447,7 @@ class ModelProviderResponse(BaseModel):
     id: int
     name: str
     base_url: str
+    api_format: str = "openai"
     enabled: bool
     timeout_seconds: int
     api_key_configured: bool
@@ -590,6 +593,7 @@ class ChatCompletionRequest(BaseModel):
     reasoning_effort: Optional[str] = None
     service_tier: Optional[str] = Field(default=None, alias="serviceTier")
     verbosity: Optional[str] = None
+    anthropic_options: dict[str, Any] = Field(default_factory=dict, exclude=True)
 
     @field_validator(
         "temperature",
@@ -621,6 +625,41 @@ class ChatCompletionRequest(BaseModel):
     @field_validator("messages")
     @classmethod
     def validate_messages(cls, value: list[ChatMessage]) -> list[ChatMessage]:
+        if not value:
+            raise ValueError("messages must not be empty")
+        return value
+
+
+class AnthropicMessage(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    role: str = Field(pattern="^(system|user|assistant)$")
+    content: Any
+
+
+class AnthropicMessagesRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    model: str
+    messages: list[AnthropicMessage]
+    max_tokens: int = Field(gt=0)
+    system: Optional[Any] = None
+    stream: bool = False
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    stop_sequences: Optional[list[str]] = None
+    tools: Optional[list[dict[str, Any]]] = None
+    tool_choice: Optional[dict[str, Any]] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    thinking: Optional[dict[str, Any]] = None
+    service_tier: Optional[str] = None
+    context_management: Optional[dict[str, Any]] = None
+    output_config: Optional[dict[str, Any]] = None
+
+    @field_validator("messages")
+    @classmethod
+    def validate_anthropic_messages(cls, value: list[AnthropicMessage]) -> list[AnthropicMessage]:
         if not value:
             raise ValueError("messages must not be empty")
         return value

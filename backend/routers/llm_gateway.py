@@ -14,11 +14,19 @@ from typing import Any
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
+from ..anthropic_compat import (
+    anthropic_stream_event_to_openai,
+    anthropic_to_openai_request,
+    anthropic_to_openai_response,
+    openai_stream_to_anthropic,
+    openai_to_anthropic_request,
+    openai_to_anthropic_response,
+)
 from ..compression import compress_messages
 from ..config import settings
 from ..sqlite_db import get_db
@@ -277,6 +285,7 @@ def _provider_response(row: models.ModelProvider) -> schemas.ModelProviderRespon
         id=row.id,
         name=row.name,
         base_url=row.base_url,
+        api_format=getattr(row, "api_format", "openai"),
         enabled=row.enabled,
         timeout_seconds=row.timeout_seconds,
         api_key_configured=bool(row.api_key),
@@ -840,6 +849,8 @@ def _redact_known_values(
             if field in skip_fields.get(idx, set()) or field not in copied:
                 continue
             copied[field] = _replace_text_content(copied.get(field), sorted_mappings, to_token=True)
+        if "tool_calls" in copied and "tool_calls" not in skip_fields.get(idx, set()):
+            copied["tool_calls"] = _replace_tool_call_arguments(copied["tool_calls"], sorted_mappings, to_token=True)
         result.append(copied)
     return result
 
@@ -867,6 +878,20 @@ def _replace_text_content(value: Any, mappings: list[models.PseudonymMapping], *
                 replaced.append(item)
         return replaced
     return value
+
+
+def _replace_tool_call_arguments(value: Any, mappings: list[models.PseudonymMapping], *, to_token: bool) -> Any:
+    if not isinstance(value, list):
+        return value
+    result = []
+    for tool_call in value:
+        copied = dict(tool_call)
+        function = dict(copied.get("function") or {})
+        if isinstance(function.get("arguments"), str):
+            function["arguments"] = _replace_text_content(function["arguments"], mappings, to_token=to_token)
+        copied["function"] = function
+        result.append(copied)
+    return result
 
 
 def _pseudonymize_content(
@@ -983,19 +1008,46 @@ def _chat_url(base_url: str) -> str:
     return f"{base}/v1/chat/completions"
 
 
-async def _call_upstream(db: Session, model: models.ModelEndpoint, payload: dict[str, Any]) -> dict[str, Any]:
-    provider = db.query(models.ModelProvider).filter(models.ModelProvider.id == model.provider_id).first()
-    if not provider:
-        raise HTTPException(status_code=400, detail="模型供应商不存在")
+def _anthropic_url(base_url: str) -> str:
+    base = base_url.rstrip("/")
+    if base.endswith("/v1/messages"):
+        return base
+    if base.endswith("/v1"):
+        return f"{base}/messages"
+    return f"{base}/v1/messages"
+
+
+def _upstream_request(provider: models.ModelProvider, payload: dict[str, Any]) -> tuple[str, dict[str, Any], dict[str, str]]:
+    api_format = getattr(provider, "api_format", "openai") or "openai"
+    payload = dict(payload)
+    anthropic_options = payload.pop("anthropic_options", {})
     headers = {"content-type": "application/json"}
     api_key = _unprotect_secret(provider.api_key)
     if api_key:
         headers["authorization"] = f"Bearer {api_key}"
+        if api_format == "anthropic":
+            headers["x-api-key"] = api_key
+    if api_format == "anthropic":
+        headers["anthropic-version"] = "2023-06-01"
+        upstream_payload = openai_to_anthropic_request(payload)
+        upstream_payload.update(anthropic_options)
+        return _anthropic_url(provider.base_url), upstream_payload, headers
+    return _chat_url(provider.base_url), payload, headers
+
+
+async def _call_upstream(db: Session, model: models.ModelEndpoint, payload: dict[str, Any]) -> dict[str, Any]:
+    provider = db.query(models.ModelProvider).filter(models.ModelProvider.id == model.provider_id).first()
+    if not provider:
+        raise HTTPException(status_code=400, detail="模型供应商不存在")
+    url, upstream_payload, headers = _upstream_request(provider, payload)
     async with httpx.AsyncClient(timeout=provider.timeout_seconds) as client:
-        response = await client.post(_chat_url(provider.base_url), json=payload, headers=headers)
+        response = await client.post(url, json=upstream_payload, headers=headers)
     if response.status_code >= 400:
         raise HTTPException(status_code=502, detail=f"上游模型接口失败: {response.status_code} {response.text[:500]}")
-    return response.json()
+    result = response.json()
+    if (getattr(provider, "api_format", "openai") or "openai") == "anthropic":
+        return anthropic_to_openai_response(result)
+    return result
 
 
 def _stream_choices_snapshot(parts_by_index: dict[int, dict[str, list[str]]]) -> list[dict[str, Any]]:
@@ -1006,6 +1058,28 @@ def _stream_choices_snapshot(parts_by_index: dict[int, dict[str, list[str]]]) ->
             choice[field] = "".join(parts)
         choices.append(choice)
     return choices
+
+
+async def _upstream_sse_data(upstream: httpx.Response, api_format: str):
+    event = "message"
+    async for line in upstream.aiter_lines():
+        if not line:
+            continue
+        if line.startswith("event:"):
+            event = line[6:].strip()
+            continue
+        if not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if api_format != "anthropic":
+            yield data
+            continue
+        try:
+            parsed = json.loads(data)
+        except json.JSONDecodeError:
+            continue
+        for converted in anthropic_stream_event_to_openai(event, parsed):
+            yield converted if isinstance(converted, str) else json.dumps(converted, ensure_ascii=False)
 
 
 async def _stream_upstream(
@@ -1035,14 +1109,13 @@ async def _stream_upstream(
     provider = db.query(models.ModelProvider).filter(models.ModelProvider.id == model.provider_id).first()
     if not provider:
         raise HTTPException(status_code=400, detail="模型供应商不存在")
-    headers = {"content-type": "application/json"}
-    api_key = _unprotect_secret(provider.api_key)
-    if api_key:
-        headers["authorization"] = f"Bearer {api_key}"
+    url, upstream_payload, headers = _upstream_request(provider, payload)
+    api_format = getattr(provider, "api_format", "openai") or "openai"
 
     masked_parts: dict[int, dict[str, list[str]]] = {}
     final_parts: dict[int, dict[str, list[str]]] = {}
     pending_parts: dict[tuple[int, str], str] = {}
+    pending_tool_parts: dict[tuple[int, int], str] = {}
     usage: dict[str, Any] = {}
     mapping_tokens = [mapping.token for mapping in all_mappings if mapping.token]
 
@@ -1054,8 +1127,8 @@ async def _stream_upstream(
             async with httpx.AsyncClient(timeout=None) as client:
                 async with client.stream(
                     "POST",
-                    _chat_url(provider.base_url),
-                    json=payload,
+                    url,
+                    json=upstream_payload,
                     headers=headers,
                     timeout=provider.timeout_seconds,
                 ) as upstream:
@@ -1065,13 +1138,7 @@ async def _stream_upstream(
                             status_code=502,
                             detail=f"上游模型接口失败: {upstream.status_code} {error_body[:500].decode('utf-8', errors='replace')}",
                         )
-                    async for line in upstream.aiter_lines():
-                        if not line:
-                            continue
-                        if not line.startswith("data:"):
-                            yield f"{line}\n\n"
-                            continue
-                        data = line[5:].strip()
+                    async for data in _upstream_sse_data(upstream, api_format):
                         if data == "[DONE]":
                             for (index, field), pending in sorted(pending_parts.items()):
                                 if not pending:
@@ -1087,6 +1154,17 @@ async def _stream_upstream(
                                     + "\n\n"
                                 )
                             pending_parts.clear()
+                            for (choice_index, tool_index), pending in sorted(pending_tool_parts.items()):
+                                if not pending:
+                                    continue
+                                final_arguments = pending if bypass_pii else (_depseudonymize_text(pending, all_mappings) or "")
+                                yield "data: " + json.dumps({
+                                    "choices": [{
+                                        "index": choice_index,
+                                        "delta": {"tool_calls": [{"index": tool_index, "function": {"arguments": final_arguments}}]},
+                                    }],
+                                }, ensure_ascii=False) + "\n\n"
+                            pending_tool_parts.clear()
                             _record_llm_success(
                                 db,
                                 request_id=request_id,
@@ -1121,7 +1199,8 @@ async def _stream_upstream(
                             yield f"data: {data}\n\n"
                             continue
                         if isinstance(chunk.get("usage"), dict):
-                            usage = chunk["usage"]
+                            usage.update(chunk["usage"])
+                            usage["total_tokens"] = int(usage.get("prompt_tokens") or 0) + int(usage.get("completion_tokens") or 0)
                         for choice in chunk.get("choices", []) or []:
                             index = int(choice.get("index") or 0)
                             delta = choice.get("delta") or {}
@@ -1138,6 +1217,19 @@ async def _stream_upstream(
                                 final_parts.setdefault(index, {}).setdefault(field, []).append(final_content)
                                 delta[field] = final_content
                                 choice["delta"] = delta
+                            for tool_call in delta.get("tool_calls") or []:
+                                function = tool_call.get("function") or {}
+                                arguments = function.get("arguments")
+                                if not isinstance(arguments, str) or not arguments:
+                                    continue
+                                tool_index = int(tool_call.get("index") or 0)
+                                pending_key = (index, tool_index)
+                                combined = pending_tool_parts.get(pending_key, "") + arguments
+                                emit_masked, pending = _split_stream_safe_text(combined, mapping_tokens)
+                                pending_tool_parts[pending_key] = pending
+                                function["arguments"] = emit_masked if bypass_pii else (_depseudonymize_text(emit_masked, all_mappings) or "")
+                                tool_call["function"] = function
+                            choice["delta"] = delta
                         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
             _record_llm_success(
                 db,
@@ -2516,7 +2608,7 @@ async def _chat_completions_with_key(
                 scan_fields.append("content")
             if isinstance(message.get("reasoning_content"), (str, list)):
                 scan_fields.append("reasoning_content")
-            if not scan_fields:
+            if not scan_fields and not message.get("tool_calls"):
                 rewritten_messages.append(message)
                 continue
             rewritten_message = dict(message)
@@ -2540,11 +2632,41 @@ async def _chat_completions_with_key(
                 reused_total += reused
                 for entity_type, count in counts.items():
                     detected_counts[entity_type] = detected_counts.get(entity_type, 0) + count
+            if isinstance(message.get("tool_calls"), list):
+                rewritten_tool_calls = []
+                for tool_call in message["tool_calls"]:
+                    copied_call = dict(tool_call)
+                    function = dict(copied_call.get("function") or {})
+                    arguments = function.get("arguments")
+                    if isinstance(arguments, str):
+                        rewritten, new_mappings, created, reused, counts = _pseudonymize_content(
+                            db,
+                            tenant_id=tenant_id,
+                            conversation_id=conversation_id,
+                            user_ref=user_ref,
+                            request_id=request_id,
+                            content=arguments,
+                            entity_types=entity_types,
+                            entity_rules=entity_rules,
+                            ttl_days=policy.mapping_ttl_days,
+                        )
+                        function["arguments"] = rewritten
+                        all_mappings.extend(new_mappings)
+                        created_total += created
+                        reused_total += reused
+                        for entity_type, count in counts.items():
+                            detected_counts[entity_type] = detected_counts.get(entity_type, 0) + count
+                    copied_call["function"] = function
+                    rewritten_tool_calls.append(copied_call)
+                rewritten_message["tool_calls"] = rewritten_tool_calls
+                pseudonymized_fields[idx].add("tool_calls")
             rewritten_messages.append(rewritten_message)
 
     rewritten_messages = _redact_known_values(rewritten_messages, all_mappings, skip_fields=pseudonymized_fields)
     upstream_messages = rewritten_messages if bypass_pii else [{"role": "system", "content": PLACEHOLDER_PRESERVATION_SYSTEM_PROMPT, "system": True}, *rewritten_messages]
     body = payload.model_dump(exclude={"metadata", "conversation_id"}, exclude_none=True)
+    if payload.anthropic_options:
+        body["anthropic_options"] = payload.anthropic_options
     body["model"] = model.name
     body["messages"] = [
         _strip_undefined_values({k: v for k, v in message.items() if k != "system"}) for message in upstream_messages
@@ -2637,6 +2759,12 @@ async def _chat_completions_with_key(
                 masked_choice[field] = before or ""
                 final_choice[field] = after or ""
                 message[field] = after
+            if message.get("tool_calls"):
+                message["tool_calls"] = (
+                    message["tool_calls"]
+                    if bypass_pii
+                    else _replace_tool_call_arguments(message["tool_calls"], all_mappings, to_token=False)
+                )
             masked_choices.append(masked_choice)
             final_choices.append(final_choice)
             choice["message"] = message
@@ -2803,6 +2931,46 @@ def _models_payload_for_key(db: Session, key: models.LlmApiKey) -> dict[str, Any
             for row in rows
         ],
     }
+
+
+@runtime_router.post(
+    "/v1/messages",
+    summary="Anthropic-compatible Messages endpoint for Claude Code",
+)
+async def anthropic_messages_compat(
+    payload: schemas.AnthropicMessagesRequest,
+    request: Request,
+    response: Response,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    credential = authorization or (f"Bearer {x_api_key}" if x_api_key else None)
+    converted = schemas.ChatCompletionRequest.model_validate(
+        anthropic_to_openai_request(payload.model_dump(exclude_none=True))
+    )
+    try:
+        result = await _chat_completions_impl(converted, request, response, credential, db)
+    except HTTPException as exc:
+        error_type = "authentication_error" if exc.status_code in {401, 403} else "invalid_request_error"
+        if exc.status_code >= 500:
+            error_type = "api_error"
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"type": "error", "error": {"type": error_type, "message": str(exc.detail)}},
+        )
+    if isinstance(result, StreamingResponse):
+        headers = {
+            key: value
+            for key, value in result.headers.items()
+            if key.lower() not in {"content-type", "content-length"}
+        }
+        return StreamingResponse(
+            openai_stream_to_anthropic(result.body_iterator, payload.model),
+            media_type="text/event-stream",
+            headers=headers,
+        )
+    return openai_to_anthropic_response(result)
 
 
 @runtime_router.post(

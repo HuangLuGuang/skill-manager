@@ -36,6 +36,10 @@ def migrate() -> None:
                 "PRAGMA table_info(model_providers)"
             ).fetchall()
         }
+        if "api_format" not in existing:
+            conn.exec_driver_sql(
+                "ALTER TABLE model_providers ADD COLUMN api_format VARCHAR(32) NOT NULL DEFAULT 'openai'"
+            )
         if "enable_compression" not in existing:
             conn.exec_driver_sql(
                 "ALTER TABLE model_providers ADD COLUMN enable_compression BOOLEAN NOT NULL DEFAULT 0"

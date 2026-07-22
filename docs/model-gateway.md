@@ -64,7 +64,7 @@ Trace 阶段：
 
 ## 3. 运行时接口
 
-模型网关提供多个 OpenAI-compatible 运行时路径：
+模型网关同时提供 OpenAI-compatible 和 Anthropic-compatible 入口：
 
 | 路径 | 用途 |
 |---|---|
@@ -72,6 +72,7 @@ Trace 阶段：
 | `POST /v1/chat/completions` | OpenAI SDK 兼容路径，适合把 `base_url` 指到 Agent Manager |
 | `POST /chat/completions` | 兼容部分客户端把 `base_url` 配成不含 `/v1` 时直接拼接的路径 |
 | `POST /api/v1/llm/chat/completions` | Agent Manager 命名空间路径，适合内部系统显式调用 |
+| `POST /v1/messages` | Anthropic Messages 兼容路径，适合 Claude Code 和 Anthropic SDK |
 | `GET /v1/models` | OpenAI-compatible 模型列表，只返回当前 LLM API Key 允许访问的启用模型 |
 | `GET /models` | 兼容不含 `/v1` 的模型列表路径 |
 
@@ -79,6 +80,7 @@ Trace 阶段：
 
 - OpenAI SDK / Cherry Studio：优先把 Base URL 配成 `http://127.0.0.1:8000/v1`。
 - Hermes 或其他只接受根地址的客户端：可配 `http://127.0.0.1:8000`；如果客户端直接 POST 根地址，网关会兼容 `POST /`，如果客户端自动拼接路径，网关也会兼容 `/chat/completions` 和 `/models`。
+- Claude Code：设置 `ANTHROPIC_BASE_URL=http://127.0.0.1:8000`、`ANTHROPIC_AUTH_TOKEN=amk_xxx`，并把 Claude Code 使用的模型名设置为管理台登记的模型名。
 
 请求必须携带模型调用凭证。凭证统一在管理台 `智能体管理 / 统一凭证中心` 创建，类型选择 `模型调用凭证`：
 
@@ -207,7 +209,11 @@ Prompt 不再作为主流程里的独立上传资产。平台默认在模型网�
 
 ## 5. 模型供应商与模型
 
-模型供应商保存 OpenAI-compatible `base_url`、API Key、超时和启用状态。
+模型供应商保存 `base_url`、上游协议（OpenAI-compatible 或 Anthropic-compatible）、API Key、超时和启用状态。
+
+- 上游支持 Anthropic 时，网关调用供应商的 `/v1/messages`。
+- 上游仅支持 OpenAI 时，Anthropic 入站请求会在网关边界转换为 `/v1/chat/completions`，响应和 SSE 再转换回 Anthropic 格式。
+- 当前核心兼容范围为文本、图片 base64、客户端工具调用、流式输出和基础 usage；Anthropic 专有的服务端工具、完整 prompt caching 语义及全部 beta 内容块不承诺兼容。
 
 供应商 API Key 会加密落库：
 
