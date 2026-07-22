@@ -31,6 +31,9 @@ docker_buildx_proxy_args() {
     [[ -n "${http_proxy:-}" ]] && args+=(--build-arg "http_proxy=${http_proxy}" --build-arg "HTTP_PROXY=${http_proxy}")
     [[ -n "${https_proxy:-}" ]] && args+=(--build-arg "https_proxy=${https_proxy}" --build-arg "HTTPS_PROXY=${https_proxy}")
     [[ -n "${all_proxy:-}" ]] && args+=(--build-arg "all_proxy=${all_proxy}" --build-arg "ALL_PROXY=${all_proxy}")
+    [[ -n "${BUILD_APT_PROXY:-}" ]] && args+=(--build-arg "APT_PROXY=${BUILD_APT_PROXY}")
+    [[ -n "${BUILD_GIT_PROXY:-}" ]] && args+=(--build-arg "GIT_PROXY=${BUILD_GIT_PROXY}")
+    [[ -n "${BUILD_PYPI_INDEX:-}" ]] && args+=(--build-arg "PYPI_INDEX=${BUILD_PYPI_INDEX}")
     printf '%s\n' "${args[@]}"
 }
 

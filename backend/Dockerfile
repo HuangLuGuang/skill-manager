@@ -4,19 +4,25 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-RUN pip install uv
+ARG PYPI_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install --index-url "$PYPI_INDEX" uv
 
 # Install SkillSpector CLI for optional security scanning
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git make build-essential \
+ARG APT_PROXY
+ARG GIT_PROXY
+RUN if [ -n "$APT_PROXY" ]; then printf 'Acquire::http::Proxy "%s";\n' "$APT_PROXY" > /etc/apt/apt.conf.d/99build-proxy; fi \
+    && apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+      git make build-essential \
+    && rm -f /etc/apt/apt.conf.d/99build-proxy \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /app/tools \
     && cd /app/tools \
-    && git clone https://github.com/NVIDIA/SkillSpector.git \
+    && if [ -n "$GIT_PROXY" ]; then git -c http.proxy="$GIT_PROXY" clone https://github.com/NVIDIA/SkillSpector.git; else git clone https://github.com/NVIDIA/SkillSpector.git; fi \
     && cd SkillSpector \
     && uv venv --python 3.12 .venv \
     && . .venv/bin/activate \
-    && make install
+    && PIP_INDEX_URL="$PYPI_INDEX" UV_DEFAULT_INDEX="$PYPI_INDEX" make install
 
 WORKDIR /app
 
@@ -25,8 +31,8 @@ COPY agent_manager ./agent_manager
 COPY backend ./backend
 COPY demo/agent-manager-skill-verifier ./demo/agent-manager-skill-verifier
 
-RUN uv pip install --system -e ".[scanner,compression]" && \
-    uv pip install --system \
+RUN UV_DEFAULT_INDEX="$PYPI_INDEX" uv pip install --system -e ".[scanner,compression]" && \
+    UV_DEFAULT_INDEX="$PYPI_INDEX" uv pip install --system \
       sqlalchemy \
       pydantic[email] \
       pydantic-settings \

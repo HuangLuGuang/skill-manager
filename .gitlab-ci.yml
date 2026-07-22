@@ -17,6 +17,9 @@ platform-release-35:
     S3_BUCKET: condi
     S3_REGION: cn-northwest-1
     S3_ENDPOINT: https://s3.cn-northwest-1.amazonaws.com.cn
+    BUILD_APT_PROXY: http://10.10.8.66:1081
+    BUILD_GIT_PROXY: http://10.10.8.66:1081
+    BUILD_PYPI_INDEX: https://pypi.tuna.tsinghua.edu.cn/simple
   script:
     - |
       set -euo pipefail
