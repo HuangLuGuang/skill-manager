@@ -186,7 +186,7 @@ sequenceDiagram
 
 ## Mode 3: LLM Privacy Proxy
 
-外部应用或 Agent 也可以把 Agent Manager 当作 OpenAI-compatible 模型网关使用。
+外部应用或 Agent 可以把 Agent Manager 当作 OpenAI-compatible 或 Anthropic-compatible 模型网关使用。
 
 ```mermaid
 flowchart LR
@@ -212,6 +212,8 @@ flowchart LR
   OpenAI-compatible 模型列表，只返回当前 LLM API Key 允许访问的启用模型。
 - `POST /api/v1/llm/chat/completions`
   Agent Manager 命名空间路径，适合内部服务显式调用。
+- `POST /v1/messages`
+  Anthropic Messages 兼容路径，Claude Code 可通过 `ANTHROPIC_BASE_URL` 和 `ANTHROPIC_AUTH_TOKEN` 接入。
 
 鉴权使用 `智能体管理 / 统一凭证中心` 创建的模型调用凭证，或显式授予 `model:chat` 的 Agent 运行凭证：
 

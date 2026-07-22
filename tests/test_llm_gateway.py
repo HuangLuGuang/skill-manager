@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI
@@ -121,6 +122,129 @@ def test_chat_completions_pseudonymizes_and_saves_trace(tmp_path, monkeypatch):
         assert meta_payload["completion_tokens"] == audit.completion_tokens
     finally:
         db.close()
+
+
+def test_anthropic_messages_converts_tools_and_accepts_x_api_key(tmp_path, monkeypatch):
+    client, token, _session_factory = _client(tmp_path, monkeypatch)
+    captured = {}
+
+    async def fake_upstream(_db, _model, payload):
+        captured.update(payload)
+        email_token = next(
+            part.split(">", 1)[0] + ">"
+            for part in str(payload["messages"]).split("<")
+            if part.startswith("EMAIL_ADDRESS:")
+        )
+        email_token = "<" + email_token
+        return {
+            "id": "chatcmpl-tool",
+            "model": payload["model"],
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "Checking it.",
+                    "tool_calls": [{
+                        "id": "toolu_1",
+                        "type": "function",
+                        "function": {"name": "read_file", "arguments": json.dumps({"path": "README.md", "email": email_token})},
+                    }],
+                },
+                "finish_reason": "tool_calls",
+            }],
+            "usage": {"prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16},
+        }
+
+    monkeypatch.setattr(llm_gateway, "_call_upstream", fake_upstream)
+    response = client.post(
+        "/v1/messages",
+        headers={"x-api-key": token, "anthropic-version": "2023-06-01"},
+        json={
+            "model": "mock-model",
+            "max_tokens": 512,
+            "system": "You are a coding agent.",
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": "Email jane@example.com"}]},
+                {"role": "system", "content": "Keep tool output concise."},
+            ],
+            "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
+            "output_config": {"effort": "max"},
+            "tools": [{
+                "name": "read_file",
+                "description": "Read a file",
+                "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}},
+            }],
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["tools"][0]["function"]["name"] == "read_file"
+    assert "jane@example.com" not in str(captured["messages"])
+    body = response.json()
+    assert body["type"] == "message"
+    assert body["stop_reason"] == "tool_use"
+    assert body["content"][1]["type"] == "tool_use"
+    assert body["content"][1]["name"] == "read_file"
+    assert body["content"][1]["input"] == {"path": "README.md", "email": "jane@example.com"}
+
+
+def test_anthropic_messages_streams_anthropic_sse(tmp_path, monkeypatch):
+    client, token, _session_factory = _client(tmp_path, monkeypatch)
+
+    async def fake_stream(_db, _model, _payload, **_kwargs):
+        async def events():
+            yield 'data: {"id":"chatcmpl-1","model":"mock-model","choices":[{"index":0,"delta":{"role":"assistant","content":"Hi"},"finish_reason":null}]}\n\n'
+            yield 'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"completion_tokens":1}}\n\n'
+            yield "data: [DONE]\n\n"
+
+        return events()
+
+    monkeypatch.setattr(llm_gateway, "_stream_upstream", fake_stream)
+    response = client.post(
+        "/v1/messages",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "model": "mock-model",
+            "max_tokens": 32,
+            "stream": True,
+            "messages": [{"role": "user", "content": "Hello"}],
+        },
+    )
+
+    assert response.status_code == 200
+    assert "event: message_start" in response.text
+    assert '"type": "text_delta", "text": "Hi"' in response.text
+    assert '"stop_reason": "end_turn"' in response.text
+    assert "event: message_stop" in response.text
+
+
+def test_anthropic_upstream_request_uses_native_endpoint_and_headers():
+    provider = models.ModelProvider(
+        name="anthropic-provider",
+        base_url="https://api.deepseek.com/anthropic",
+        api_format="anthropic",
+        api_key="secret",
+    )
+    url, payload, headers = llm_gateway._upstream_request(
+        provider,
+        {
+            "model": "deepseek-v4-pro[1m]",
+            "messages": [{"role": "system", "content": "Be concise"}, {"role": "user", "content": "Hi"}],
+            "max_tokens": 100,
+            "stream": False,
+            "anthropic_options": {
+                "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
+                "output_config": {"effort": "max"},
+            },
+        },
+    )
+
+    assert url == "https://api.deepseek.com/anthropic/v1/messages"
+    assert payload["system"] == "Be concise"
+    assert payload["messages"][0]["role"] == "user"
+    assert payload["output_config"] == {"effort": "max"}
+    assert headers["x-api-key"] == "secret"
+    assert headers["authorization"] == "Bearer secret"
 
 
 def test_chat_completions_releases_write_transaction_before_upstream(tmp_path, monkeypatch):

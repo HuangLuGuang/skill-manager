@@ -392,6 +392,12 @@
       <a-form layout="vertical" :model="providerForm">
         <a-form-item label="名称" required><a-input v-model:value="providerForm.name" /></a-form-item>
         <a-form-item label="Base URL" required><a-input v-model:value="providerForm.base_url" placeholder="https://api.openai.com 或 http://localhost:4000" /></a-form-item>
+        <a-form-item label="上游协议" required>
+          <a-select v-model:value="providerForm.api_format">
+            <a-select-option value="openai">OpenAI-compatible</a-select-option>
+            <a-select-option value="anthropic">Anthropic-compatible</a-select-option>
+          </a-select>
+        </a-form-item>
         <a-form-item label="API Key"><a-input-password v-model:value="providerForm.api_key" placeholder="留空表示不修改" /></a-form-item>
         <a-form-item><a-checkbox v-model:checked="providerForm.clear_api_key">清除已有 API Key</a-checkbox></a-form-item>
         <a-form-item label="超时秒数"><a-input-number v-model:value="providerForm.timeout_seconds" :min="1" :max="600" style="width: 100%" /></a-form-item>
@@ -718,6 +724,7 @@ const defaultRules = {
 
 const providerColumns = [
   { title: '名称', dataIndex: 'name' },
+  { title: '协议', dataIndex: 'api_format', width: 130 },
   { title: 'Base URL', dataIndex: 'base_url' },
   { title: 'Key', key: 'api_key', width: 180 },
   { title: '状态', key: 'enabled', width: 120 },
@@ -797,7 +804,7 @@ const editingGroupId = ref(null)
 const selectedGroup = ref(null)
 const policyRuleRows = ref([])
 
-const providerForm = reactive({ name: '', base_url: '', api_key: '', clear_api_key: false, enabled: true, timeout_seconds: 60, enable_compression: false })
+const providerForm = reactive({ name: '', base_url: '', api_format: 'openai', api_key: '', clear_api_key: false, enabled: true, timeout_seconds: 60, enable_compression: false })
 const modelForm = reactive({ provider_id: null, name: '', display_name: '', enabled: true, context_window: null, max_output_tokens: null, is_default: false })
 const keyForm = reactive({
   name: '',
@@ -961,6 +968,7 @@ const openProvider = (record = null) => {
   Object.assign(providerForm, {
     name: record?.name || '',
     base_url: record?.base_url || '',
+    api_format: record?.api_format || 'openai',
     api_key: '',
     clear_api_key: false,
     enabled: record?.enabled ?? true,

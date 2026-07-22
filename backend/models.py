@@ -65,6 +65,7 @@ class ModelProvider(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(128), unique=True, index=True, nullable=False)
     base_url = Column(String(512), nullable=False)
+    api_format = Column(String(32), default="openai", nullable=False)
     api_key = Column(Text, nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
     timeout_seconds = Column(Integer, default=60, nullable=False)

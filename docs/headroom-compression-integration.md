@@ -791,9 +791,9 @@ Headroom 的 CCR（可逆压缩）会在本地存储原始内容，供 LLM 通�
 
 所有异常都记日志 + 审计。
 
-### 4.4 不做 Anthropic 格式支持（当前阶段）
+### 4.4 Anthropic 格式支持边界
 
-当前网关仅支持 OpenAI-compatible 格式。Headroom 全面支持 Anthropic 格式 `/v1/messages`，但如果网关不暴露 Anthropic 接口，暂不需要。
+网关已提供 Anthropic-compatible `/v1/messages`，进入隐私链路前会转换为内部 OpenAI 消息结构，因此继续复用当前 Headroom 压缩流程。Anthropic 专有内容块不在当前压缩范围内。
 
 ---
 
