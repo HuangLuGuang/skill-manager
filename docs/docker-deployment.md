@@ -78,10 +78,10 @@ Docker Compose 已将宿主机 `scanner/releases` 只读挂载到后端。部署
 
 GitLab Runner `35-ubuntu` 使用 `agent-manager-release` 标签。推送平台版本标签后，它会在 `10.10.71.35` 上依次完成：
 
-1. 校验 Docker 安装包、桌面客户端发布目录和 ARM 模拟环境。
-2. 生成 ARM 和 x86 两套离线安装包。
-3. 将当前 Compose 与 Nginx 配置同步到部署目录。
-4. 使用 x86 镜像重启服务并执行首页健康检查。
+1. 校验 Docker 安装包、桌面客户端发布目录、S3 和 ARM 模拟环境。
+2. 构建 x86 镜像，更新 Compose，健康检查通过后发送企业微信通知。
+3. 生成 x86 和 ARM 两套离线安装包，并恢复服务器上的 x86 镜像标签。
+4. 上传两套安装包到 `s3://condi/agent-manager/`，完成后再次通知。
 
 ```bash
 git tag v1.0.1

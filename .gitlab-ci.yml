@@ -14,9 +14,13 @@ platform-release-35:
     CLIENT_RELEASES: /home/ubuntu/releases/client-latest
     DOCKER_INSTALLER: /home/ubuntu/docker-installer-28.5.2-x86-arm.tar.gz
     DEPLOY_DIR: /home/ubuntu/skill-manager
+    S3_BUCKET: condi
+    S3_REGION: cn-northwest-1
+    S3_ENDPOINT: https://s3.cn-northwest-1.amazonaws.com.cn
   script:
     - |
       set -euo pipefail
+      unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
 
       notify() {
         local content="$1"
@@ -31,31 +35,17 @@ platform-release-35:
           || echo "Warning: WeCom notification failed"
       }
 
-      notify "Agent Manager ${CI_COMMIT_TAG} 开始构建离线发布包\n${CI_PIPELINE_URL}"
+      notify "Agent Manager ${CI_COMMIT_TAG} 开始发布\n${CI_PIPELINE_URL}"
 
       test -f "$DOCKER_INSTALLER"
       test -f "$CLIENT_RELEASES/latest.json"
       test -f "$DEPLOY_DIR/.env"
+      command -v aws >/dev/null
+      aws s3api head-bucket --bucket "$S3_BUCKET" --endpoint-url "$S3_ENDPOINT" --region "$S3_REGION"
       docker info >/dev/null
       docker run --rm --platform linux/arm64 alpine:3.20 uname -m | grep -q '^aarch64$'
 
-      ./package-release.sh \
-        -v "$CI_COMMIT_TAG" \
-        -b "$CI_COMMIT_TAG" \
-        -p linux/arm64 \
-        -i "$DOCKER_INSTALLER" \
-        -c "$CLIENT_RELEASES" \
-        -o "$RELEASE_DIR"
-      notify "Agent Manager ${CI_COMMIT_TAG} ARM 离线包构建完成"
-
-      ./package-release.sh \
-        -v "$CI_COMMIT_TAG" \
-        -b "$CI_COMMIT_TAG" \
-        -p linux/amd64 \
-        -i "$DOCKER_INSTALLER" \
-        -c "$CLIENT_RELEASES" \
-        -o "$RELEASE_DIR"
-      notify "Agent Manager ${CI_COMMIT_TAG} x86 离线包构建完成"
+      ./build.sh -t "$CI_COMMIT_TAG" -p linux/amd64 --all
 
       install -m 0644 docker-compose.yaml "$DEPLOY_DIR/docker-compose.yaml"
       install -d "$DEPLOY_DIR/deploy/nginx"
@@ -83,9 +73,45 @@ platform-release-35:
       done
 
       docker compose ps
-      test -s "$RELEASE_DIR/agent-manager_${CI_COMMIT_TAG}_arm.tar.gz"
-      test -s "$RELEASE_DIR/agent-manager_${CI_COMMIT_TAG}_x86.tar.gz"
-      notify "Agent Manager ${CI_COMMIT_TAG} 发布成功\n离线包已保存到 ${RELEASE_DIR}\n${CI_PIPELINE_URL}"
+      notify "Agent Manager ${CI_COMMIT_TAG} x86 服务已启动并通过健康检查\n${CI_PIPELINE_URL}"
+
+      cd "$CI_PROJECT_DIR"
+      ./package-release.sh \
+        -v "$CI_COMMIT_TAG" \
+        -b "$CI_COMMIT_TAG" \
+        -p linux/amd64 \
+        -i "$DOCKER_INSTALLER" \
+        -c "$CLIENT_RELEASES" \
+        -o "$RELEASE_DIR" \
+        --reuse-images
+
+      ./package-release.sh \
+        -v "$CI_COMMIT_TAG" \
+        -b "$CI_COMMIT_TAG" \
+        -p linux/arm64 \
+        -i "$DOCKER_INSTALLER" \
+        -c "$CLIENT_RELEASES" \
+        -o "$RELEASE_DIR"
+
+      X86_ARCHIVE="$RELEASE_DIR/agent-manager_${CI_COMMIT_TAG}_x86.tar.gz"
+      ARM_ARCHIVE="$RELEASE_DIR/agent-manager_${CI_COMMIT_TAG}_arm.tar.gz"
+      test -s "$X86_ARCHIVE"
+      test -s "$ARM_ARCHIVE"
+
+      tar -xOf "$X86_ARCHIVE" "agent-manager/docker_images/x86/agent-manager-images-${CI_COMMIT_TAG}.tar.xz" \
+        | xz -dc \
+        | docker load >/dev/null
+
+      for archive in "$X86_ARCHIVE" "$ARM_ARCHIVE"; do
+        name="$(basename "$archive")"
+        aws s3 cp "$archive" "s3://${S3_BUCKET}/agent-manager/${name}" \
+          --endpoint-url "$S3_ENDPOINT" \
+          --region "$S3_REGION" \
+          --content-type application/gzip \
+          --content-disposition "attachment; filename=\"${name}\""
+      done
+
+      notify "Agent Manager ${CI_COMMIT_TAG} 离线包已上传 S3\n${S3_ENDPOINT}/${S3_BUCKET}/agent-manager/\n${CI_PIPELINE_URL}"
   after_script:
     - |
       if [ "$CI_JOB_STATUS" = "success" ] || [ -z "${WECHAT_WEBHOOK_URL:-}" ]; then

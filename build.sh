@@ -64,16 +64,22 @@ arch_dir() {
 
 ensure_image() {
     local image="$1"
+    local expected_arch="${PLATFORM#linux/}"
+    expected_arch="${expected_arch%%/*}"
     if [ "$image" = "nginx:1.27-alpine" ]; then
         step "Pulling ${image} for ${PLATFORM}"
         docker pull --platform "${PLATFORM}" "$image"
-        return
     fi
-    if docker image inspect "$image" >/dev/null 2>&1; then
-        return
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
+        echo "Missing image: $image"
+        exit 1
     fi
-    echo "Missing image: $image"
-    exit 1
+    local actual_arch
+    actual_arch="$(docker image inspect --format '{{.Architecture}}' "$image")"
+    if [ "$actual_arch" != "$expected_arch" ]; then
+        echo "Image architecture mismatch: $image is $actual_arch, expected $expected_arch"
+        exit 1
+    fi
 }
 
 save_images() {

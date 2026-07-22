@@ -9,6 +9,7 @@ WORK_DIR="/tmp/agent-manager"
 OUTPUT_DIR="${PWD}"
 REPO_URL="git@git.dev-rs.com:agnitio/skill-manager.git"
 CLIENT_RELEASES=""
+REUSE_IMAGES=false
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -26,6 +27,7 @@ usage() {
     echo "  -w, --work-dir DIR   Working directory (default: /tmp/agent-manager)"
     echo "  -r, --repo URL       Git repo URL (default: ${REPO_URL})"
     echo "  -c, --client-releases DIR  Desktop release feed downloaded from CI"
+    echo "  --reuse-images      Package already-built images without rebuilding"
     echo "  -h, --help           Show help"
     echo ""
     echo "Examples:"
@@ -63,6 +65,7 @@ while [[ $# -gt 0 ]]; do
         -w|--work-dir) require_value "$1" "${2:-}"; WORK_DIR="$2"; shift 2 ;;
         -r|--repo) require_value "$1" "${2:-}"; REPO_URL="$2"; shift 2 ;;
         -c|--client-releases) require_value "$1" "${2:-}"; CLIENT_RELEASES="$2"; shift 2 ;;
+        --reuse-images) REUSE_IMAGES=true; shift ;;
         -h|--help) usage; exit 0 ;;
         *) err "Unknown option: $1"; usage; exit 1 ;;
     esac
@@ -125,8 +128,13 @@ if [ -n "$CLIENT_RELEASES" ]; then
     cp -R "$CLIENT_RELEASES"/. scanner/releases/
 fi
 
-log "Building and saving Docker images..."
-bash build.sh -t "$VERSION" -p "$PLATFORM" --all --save
+if [ "$REUSE_IMAGES" = true ]; then
+    log "Saving existing Docker images..."
+    bash build.sh -t "$VERSION" -p "$PLATFORM" --save
+else
+    log "Building and saving Docker images..."
+    bash build.sh -t "$VERSION" -p "$PLATFORM" --all --save
+fi
 IMAGE_DIR="docker_images/${ARCH}"
 IMAGE_TAR="${IMAGE_DIR}/agent-manager-images-${VERSION}.tar"
 IMAGE_XZ="${IMAGE_TAR}.xz"
