@@ -3,6 +3,7 @@ package managedclient
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"skill-manager/scanner/internal/manifest"
@@ -120,6 +121,34 @@ func TestRemoveCustomAgentKeepsSkillDirectory(t *testing.T) {
 	config, err := LoadConfig(home)
 	if err != nil || len(config.CustomAgents) != 0 {
 		t.Fatalf("custom Agent config was not removed: %#v %v", config.CustomAgents, err)
+	}
+}
+
+func TestDiscoverDeduplicatesCustomAgentUsingBuiltinRoot(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".trae-cn", "skills")
+	writeSkill(t, filepath.Join(root, "code-review"), "code-review")
+	if err := SaveConfig(home, Config{
+		Server: "http://agent-manager",
+		Token:  "token",
+		CustomAgents: []CustomAgentConfig{{
+			AgentType:  "custom-trae",
+			Name:       "Trae IDE",
+			SkillsPath: root,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	inventory, err := Discover(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Agents) != 1 || inventory.Agents[0].AgentType != "trae-cn" {
+		t.Fatalf("duplicate custom Agent should be hidden in favor of built-in Agent: %#v", inventory.Agents)
+	}
+	if _, err := AddCustomAgent(home, "Trae IDE", root); err == nil || !strings.Contains(err.Error(), "内置 Agent trae-cn") {
+		t.Fatalf("expected duplicate built-in directory error, got %v", err)
 	}
 }
 

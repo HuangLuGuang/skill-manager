@@ -88,6 +88,13 @@ func AddCustomAgent(home, name, skillsPath string) (CustomAgentConfig, error) {
 	if err != nil {
 		return CustomAgentConfig{}, err
 	}
+	for _, setting := range builtinAgentSettings(home, config) {
+		for _, root := range setting.CurrentRoots {
+			if canonicalSkillRoot(root) == filepath.Clean(resolved) {
+				return CustomAgentConfig{}, fmt.Errorf("该 Skill 目录已由内置 Agent %s 管理，无需重复添加", setting.AgentType)
+			}
+		}
+	}
 	sum := sha256.Sum256([]byte(filepath.Clean(resolved)))
 	item := CustomAgentConfig{
 		AgentType:  fmt.Sprintf("custom-%x", sum[:6]),

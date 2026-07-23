@@ -83,12 +83,19 @@ func RecordTakeover(home string, plan TakeoverPlan, store *Store) error {
 			continue
 		}
 		if item.Action != "manage" {
+			fingerprint := ""
+			if item.PendingPath != "" {
+				if value, err := manifest.Build(item.PendingPath, opts); err == nil {
+					fingerprint = value.Fingerprint
+				}
+			}
 			if err := store.SavePending(PendingItem{
 				AgentType:    item.AgentType,
 				SkillName:    item.Name,
 				OriginalPath: item.Source,
 				PendingPath:  item.PendingPath,
 				Reason:       item.Reason,
+				Fingerprint:  fingerprint,
 			}); err != nil {
 				return err
 			}

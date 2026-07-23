@@ -173,7 +173,11 @@
           </div>
           <div class="panel-toolbar pending-heading">
             <div><h2>已停用待处理</h2><p>这些 Skill 已安全移出 Agent 目录，提交平台检测后可在 Skill 列表中继续审核。</p></div>
-            <button id="refresh-pending" class="icon-button icon-refresh">刷新待处理</button>
+            <div class="actions pending-actions">
+              <label id="pending-select-all-wrap" class="pending-select-all" hidden><input id="pending-select-all" type="checkbox" />全选待检测</label>
+              <button id="submit-selected-pending" class="primary icon-button icon-submit" hidden disabled>提交所选 <span id="pending-selected-count">0</span></button>
+              <button id="refresh-pending" class="icon-button icon-refresh">刷新待处理</button>
+            </div>
           </div>
           <div id="pending-list" class="takeover-list empty">当前没有停用待处理的 Skill</div>
         </section>

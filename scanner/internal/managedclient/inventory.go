@@ -122,15 +122,22 @@ func Discover(home string) (Inventory, error) {
 		}(index, spec)
 	}
 	wait.Wait()
+	builtinRoots := map[string]string{}
 	for _, item := range discovered {
 		if item.err != nil {
 			return result, item.err
 		}
 		if item.installed {
 			result.Agents = append(result.Agents, item.agent)
+			for _, root := range agentSkillRoots(item.agent) {
+				builtinRoots[canonicalSkillRoot(root)] = item.agent.AgentType
+			}
 		}
 	}
 	for _, custom := range config.CustomAgents {
+		if _, duplicated := builtinRoots[canonicalSkillRoot(custom.SkillsPath)]; duplicated {
+			continue
+		}
 		agent := Agent{
 			AgentType:                custom.AgentType,
 			DisplayName:              custom.Name,
@@ -154,6 +161,24 @@ func Discover(home string) (Inventory, error) {
 		result.Agents = append(result.Agents, agent)
 	}
 	return result, nil
+}
+
+func agentSkillRoots(agent Agent) []string {
+	if roots, ok := agent.Capabilities["skill_roots"].([]string); ok {
+		return roots
+	}
+	if agent.SkillsPath != "" {
+		return []string{agent.SkillsPath}
+	}
+	return nil
+}
+
+func canonicalSkillRoot(path string) string {
+	path = filepath.Clean(path)
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return path
 }
 
 func DeviceID(hostname, home string) string {
@@ -225,6 +250,10 @@ func BuiltinAgentSettings(home string) ([]BuiltinAgentSetting, error) {
 	if err != nil {
 		return nil, err
 	}
+	return builtinAgentSettings(home, config), nil
+}
+
+func builtinAgentSettings(home string, config Config) []BuiltinAgentSetting {
 	result := make([]BuiltinAgentSetting, 0, len(adapters()))
 	for _, spec := range adapters() {
 		defaults := resolvedSkillRoots(home, spec.skillRoots)
@@ -241,7 +270,7 @@ func BuiltinAgentSettings(home string) ([]BuiltinAgentSetting, error) {
 			Customized:   customized,
 		})
 	}
-	return result, nil
+	return result
 }
 
 func SetBuiltinAgentRoots(home, agentType string, roots []string) error {

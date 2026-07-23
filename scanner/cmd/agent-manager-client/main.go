@@ -376,6 +376,10 @@ func run(args []string) error {
 		compareInventory, excludedPaths := filterInventorySkills(inventory, selectedSkills)
 		api := managedclient.NewAPI(*server, *token, 30*time.Second)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := api.ReportInventory(ctx, inventory); err != nil {
+			cancel()
+			return fmt.Errorf("同步最新 Agent 清单失败: %w", err)
+		}
 		comparisons, err := api.Compare(ctx, compareInventory, mappings)
 		cancel()
 		if err != nil {

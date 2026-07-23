@@ -602,7 +602,23 @@ button:disabled { cursor: wait; opacity: .55; }
 .takeover-confirm small { margin-top: 3px; color: #788590; font-size: 11px; }
 .takeover-actions button { min-width: 108px; }
 .pending-heading { margin-top: 24px; }
-.pending-skill-row { grid-template-columns: minmax(0, 1fr) 90px minmax(180px, 260px) auto; }
+.pending-actions { flex-wrap: wrap; justify-content: flex-end; }
+.pending-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #cfd7dd;
+  color: #52616d;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.pending-select-all input, .pending-skill-select input { width: 16px; height: 16px; margin: 0; }
+.pending-skill-row { grid-template-columns: 24px minmax(0, 1fr) 90px minmax(180px, 260px) auto; }
+.pending-skill-select { display: flex; align-items: center; justify-content: center; }
+.pending-select-placeholder { width: 16px; }
 .pending-skill-row button { white-space: nowrap; }
 .pending-next { justify-self: start; color: #65737e; font-size: 12px; font-weight: 700; }
 .quarantine-heading { margin-top: 24px; }
