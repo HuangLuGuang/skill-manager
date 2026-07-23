@@ -17,10 +17,11 @@ type CustomAgentConfig struct {
 }
 
 type Config struct {
-	Server       string              `json:"server"`
-	Token        string              `json:"token"`
-	Name         string              `json:"name,omitempty"`
-	CustomAgents []CustomAgentConfig `json:"custom_agents,omitempty"`
+	Server          string              `json:"server"`
+	Token           string              `json:"token"`
+	Name            string              `json:"name,omitempty"`
+	CustomAgents    []CustomAgentConfig `json:"custom_agents,omitempty"`
+	AgentSkillRoots map[string][]string `json:"agent_skill_roots,omitempty"`
 }
 
 func LoadConfig(home string) (Config, error) {

@@ -30,6 +30,11 @@ export default defineConfig({
         target: 'http://127.0.0.1:8001',
         changeOrigin: true,
         // rewrite: (path) => path.replace(/^\/api/, '') // Backend prefix is /api, so no rewrite needed if backend expects /api
+      },
+      '/mcp/': {
+        target: 'http://127.0.0.1:8001',
+        // Keep the browser Host/Origin aligned with the MCP DNS-rebinding check.
+        changeOrigin: false,
       }
     }
   }

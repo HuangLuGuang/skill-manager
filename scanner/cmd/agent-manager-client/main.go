@@ -25,7 +25,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-manager-client <configure|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|takeover|pending|refresh-pending|submit-pending|available-skills|skill-preview|install-skill|quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|pause-governance|resume-governance|service-status|install-service|uninstall-service> [options]")
+		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|takeover|pending|refresh-pending|submit-pending|available-skills|skill-preview|install-skill|quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|pause-governance|resume-governance|service-status|install-service|uninstall-service> [options]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
@@ -43,8 +43,10 @@ func run(args []string) error {
 	interval := fs.Duration("interval", 5*time.Minute, "daemon polling interval")
 	var agentMappings stringList
 	var selectedSkills stringList
+	var skillRoots stringList
 	fs.Var(&agentMappings, "agent", "agent mapping in local-type=managed-agent-id form")
 	fs.Var(&selectedSkills, "skill", "only take over the selected local skill path")
+	fs.Var(&skillRoots, "skill-root", "built-in Agent Skill directory; repeat for multiple directories")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -83,6 +85,27 @@ func run(args []string) error {
 			return err
 		}
 		fmt.Println("custom Agent removed")
+		return nil
+	}
+	if args[0] == "agent-settings" {
+		settings, err := managedclient.BuiltinAgentSettings(*home)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(settings)
+	}
+	if args[0] == "set-agent-roots" {
+		if err := managedclient.SetBuiltinAgentRoots(*home, *agentType, skillRoots); err != nil {
+			return err
+		}
+		fmt.Println("built-in Agent Skill directories updated")
+		return nil
+	}
+	if args[0] == "reset-agent-roots" {
+		if err := managedclient.ResetBuiltinAgentRoots(*home, *agentType); err != nil {
+			return err
+		}
+		fmt.Println("built-in Agent Skill directories reset")
 		return nil
 	}
 	if args[0] == "install-service" {
@@ -187,16 +210,9 @@ func run(args []string) error {
 			return err
 		}
 		defer store.Close()
-		body, ok, err := store.State("inventory")
+		cached, err := loadCachedInventory(store)
 		if err != nil {
 			return err
-		}
-		if !ok {
-			return fmt.Errorf("cached inventory is unavailable")
-		}
-		var cached managedclient.Inventory
-		if err := json.Unmarshal([]byte(body), &cached); err != nil || cached.ClientID == "" {
-			return fmt.Errorf("cached inventory is invalid")
 		}
 		return json.NewEncoder(os.Stdout).Encode(cached)
 	}
@@ -473,6 +489,24 @@ func run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func loadCachedInventory(store *managedclient.Store) (managedclient.Inventory, error) {
+	body, ok, err := store.State("inventory")
+	if err != nil {
+		return managedclient.Inventory{}, err
+	}
+	if !ok {
+		return managedclient.Inventory{}, fmt.Errorf("cached inventory is unavailable")
+	}
+	var cached managedclient.Inventory
+	if err := json.Unmarshal([]byte(body), &cached); err != nil || cached.ClientID == "" {
+		return managedclient.Inventory{}, fmt.Errorf("cached inventory is invalid")
+	}
+	if cached.DiscoveryVersion != managedclient.InventoryCacheVersion {
+		return managedclient.Inventory{}, fmt.Errorf("cached inventory is outdated")
+	}
+	return cached, nil
 }
 
 func filterInventorySkills(inventory managedclient.Inventory, selectedSkills []string) (managedclient.Inventory, []string) {

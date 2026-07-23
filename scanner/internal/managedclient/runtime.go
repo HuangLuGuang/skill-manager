@@ -407,7 +407,11 @@ func patrol(ctx context.Context, home string, inventory Inventory, policy Policy
 			_ = reportEvent(ctx, api, store, inventory.ClientID, "skill_quarantined", item.AgentType, skill.Name, map[string]any{"reason": item.Reason, "quarantine_id": quarantined.ID})
 		}
 	}
+	handledSharedInstalls := map[string]bool{}
 	for _, install := range installs {
+		if handledSharedInstalls[filepath.Clean(install.TargetPath)] {
+			continue
+		}
 		item, ok := platform[comparisonKey(
 			install.AgentType,
 			install.SkillName,
@@ -435,8 +439,17 @@ func patrol(ctx context.Context, home string, inventory Inventory, policy Policy
 		if !fullScan && pathPresent {
 			continue
 		}
-		if pathPresent && verifyInstalled(install) {
+		if pathPresent && verifyManagedInstall(home, install) {
 			if err := store.ResolveQuarantine(install.AgentType, install.SkillName); err != nil {
+				return err
+			}
+			continue
+		}
+		if releasePath, group := sharedInstallGroup(home, install, installs); len(group) > 1 {
+			for _, affected := range group {
+				handledSharedInstalls[filepath.Clean(affected.TargetPath)] = true
+			}
+			if err := handleSharedInstallMismatch(ctx, home, inventory, policy, api, store, releasePath, group, true); err != nil {
 				return err
 			}
 			continue
@@ -477,9 +490,22 @@ func patrol(ctx context.Context, home string, inventory Inventory, policy Policy
 }
 
 func patrolLocalChanges(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, installs []Installation, fullScan bool) error {
+	handledSharedInstalls := map[string]bool{}
 	for _, install := range installs {
+		if handledSharedInstalls[filepath.Clean(install.TargetPath)] {
+			continue
+		}
 		pathPresent := installPathPresent(install)
-		if !fullScan && pathPresent || pathPresent && verifyInstalled(install) {
+		if !fullScan && pathPresent || pathPresent && verifyManagedInstall(home, install) {
+			continue
+		}
+		if releasePath, group := sharedInstallGroup(home, install, installs); len(group) > 1 {
+			for _, affected := range group {
+				handledSharedInstalls[filepath.Clean(affected.TargetPath)] = true
+			}
+			if err := handleSharedInstallMismatch(ctx, home, inventory, policy, api, store, releasePath, group, false); err != nil {
+				return err
+			}
 			continue
 		}
 		_ = reportEvent(ctx, api, store, inventory.ClientID, "skill_modified", install.AgentType, install.SkillName, map[string]any{"mode": policy.Mode, "offline": true})
@@ -498,6 +524,115 @@ func patrolLocalChanges(ctx context.Context, home string, inventory Inventory, p
 				return err
 			}
 			_ = reportEvent(ctx, api, store, inventory.ClientID, "skill_quarantined", install.AgentType, install.SkillName, map[string]any{"reason": "signature_mismatch", "offline": true, "quarantine_id": item.ID})
+		}
+	}
+	return nil
+}
+
+func sharedInstallGroup(home string, current Installation, installs []Installation) (string, []Installation) {
+	releasePath, ok := managedSymlinkTarget(home, current)
+	if !ok {
+		return "", nil
+	}
+	group := []Installation{}
+	for _, install := range installs {
+		target, shared := managedSymlinkTarget(home, install)
+		if shared && filepath.Clean(target) == filepath.Clean(releasePath) {
+			group = append(group, install)
+		}
+	}
+	return releasePath, group
+}
+
+func managedSymlinkTarget(home string, install Installation) (string, bool) {
+	info, err := os.Lstat(install.TargetPath)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return "", false
+	}
+	target, err := os.Readlink(install.TargetPath)
+	if err != nil {
+		return "", false
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(install.TargetPath), target)
+	}
+	expected := filepath.Join(home, ".agent-manager", "skills", install.SkillID, "release")
+	return expected, filepath.Clean(target) == filepath.Clean(expected)
+}
+
+func verifyManagedInstall(home string, install Installation) bool {
+	if info, err := os.Lstat(install.TargetPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		if _, expected := managedSymlinkTarget(home, install); !expected {
+			return false
+		}
+	}
+	return verifyInstalled(install)
+}
+
+func handleSharedInstallMismatch(
+	ctx context.Context,
+	home string,
+	inventory Inventory,
+	policy Policy,
+	api API,
+	store *Store,
+	releasePath string,
+	installs []Installation,
+	online bool,
+) error {
+	clientID := inventory.ClientID
+	primary := installs[0]
+	agents := make([]string, 0, len(installs))
+	paths := make([]string, 0, len(installs))
+	for _, install := range installs {
+		agents = append(agents, install.AgentType)
+		paths = append(paths, install.TargetPath)
+	}
+	details := map[string]any{
+		"mode": policy.Mode, "path": releasePath, "shared_skill": true,
+		"affected_agents": agents, "affected_paths": paths,
+	}
+	if !online {
+		details["offline"] = true
+	}
+	_ = reportEvent(ctx, api, store, clientID, "skill_modified", primary.AgentType, primary.SkillName, details)
+
+	if _, err := os.Stat(releasePath); err != nil {
+		return removeSharedInstalls(store, installs)
+	}
+	if online && policy.Mode == "repair" {
+		task := Task{TaskType: "repair_skill", Payload: map[string]any{
+			"agent_type": primary.AgentType, "managed_agent_id": primary.ManagedAgentID, "skill_id": primary.SkillID,
+		}}
+		if err := executeTask(ctx, home, inventory, policy, api, store, task); err != nil {
+			return err
+		}
+		_ = reportEvent(ctx, api, store, clientID, "skill_repaired", primary.AgentType, primary.SkillName, details)
+		return nil
+	}
+	if policy.Mode != "block" {
+		return nil
+	}
+	item, err := QuarantineSkill(home, store, primary.AgentType, primary.SkillName, releasePath, "signature_mismatch")
+	if err != nil {
+		return err
+	}
+	if err := removeSharedInstalls(store, installs); err != nil {
+		return err
+	}
+	details["reason"] = "signature_mismatch"
+	details["quarantine_id"] = item.ID
+	_ = reportEvent(ctx, api, store, clientID, "skill_quarantined", primary.AgentType, primary.SkillName, details)
+	return nil
+}
+
+func removeSharedInstalls(store *Store, installs []Installation) error {
+	for _, install := range installs {
+		if err := os.RemoveAll(install.TargetPath); err != nil {
+			return err
+		}
+		if err := store.RemoveInstall(install.AgentType, install.SkillID); err != nil {
+			return err
 		}
 	}
 	return nil

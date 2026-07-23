@@ -37,6 +37,17 @@ _LOCKS_GUARD = threading.Lock()
 _LOCKS: dict[Path, threading.RLock] = {}
 
 
+def _finding_source_key(finding: dict[str, Any]) -> str:
+    source = str(finding.get("source") or "").lower()
+    if source.startswith("llm"):
+        return "llm"
+    if source.startswith("sandbox"):
+        return "sandbox"
+    if source.startswith("skillspector") or source.startswith("deep"):
+        return "skillspector"
+    return "rule"
+
+
 class Registry:
     """SQLite registry with legacy JSON import support."""
 
@@ -93,6 +104,17 @@ class Registry:
                     skill_id TEXT PRIMARY KEY,
                     report TEXT NOT NULL,
                     updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS skill_finding_stats (
+                    skill_id TEXT NOT NULL,
+                    source_key TEXT NOT NULL,
+                    count INTEGER NOT NULL,
+                    critical INTEGER NOT NULL,
+                    high INTEGER NOT NULL,
+                    medium INTEGER NOT NULL,
+                    low INTEGER NOT NULL,
+                    PRIMARY KEY (skill_id, source_key)
                 );
 
                 CREATE TABLE IF NOT EXISTS skill_review_queue (
@@ -328,8 +350,42 @@ class Registry:
                     entry.updated_at.isoformat(),
                 ),
             )
+            conn.execute("DELETE FROM skill_finding_stats WHERE skill_id = ?", (entry.skill_id,))
+            buckets: dict[str, dict[str, int]] = {}
+            for finding in scan_report.get("findings") or []:
+                if not isinstance(finding, dict):
+                    continue
+                bucket = buckets.setdefault(
+                    _finding_source_key(finding),
+                    {"count": 0, "critical": 0, "high": 0, "medium": 0, "low": 0},
+                )
+                severity = str(finding.get("severity") or "low").lower()
+                severity = "critical" if severity == "extreme" else severity
+                severity = severity if severity in {"critical", "high", "medium"} else "low"
+                bucket["count"] += 1
+                bucket[severity] += 1
+            conn.executemany(
+                """
+                INSERT INTO skill_finding_stats (
+                    skill_id, source_key, count, critical, high, medium, low
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        entry.skill_id,
+                        source,
+                        counts["count"],
+                        counts["critical"],
+                        counts["high"],
+                        counts["medium"],
+                        counts["low"],
+                    )
+                    for source, counts in buckets.items()
+                ],
+            )
         else:
             conn.execute("DELETE FROM skill_scan_reports WHERE skill_id = ?", (entry.skill_id,))
+            conn.execute("DELETE FROM skill_finding_stats WHERE skill_id = ?", (entry.skill_id,))
 
     def _entry_from_row(self, row: sqlite3.Row) -> RegistryEntry:
         payload = json.loads(row["payload"])
@@ -461,6 +517,7 @@ class Registry:
                 raise KeyError(f"skill_id {skill_id!r} not found")
             conn.execute("DELETE FROM skill_review_queue WHERE skill_id = ?", (skill_id,))
             conn.execute("DELETE FROM skill_scan_reports WHERE skill_id = ?", (skill_id,))
+            conn.execute("DELETE FROM skill_finding_stats WHERE skill_id = ?", (skill_id,))
 
     def get_by_id(self, skill_id: str) -> RegistryEntry | None:
         with self._lock, self._connect() as conn:
@@ -639,6 +696,60 @@ class Registry:
             "page": safe_page,
             "page_size": safe_page_size,
         }
+
+    def dashboard_stats(self) -> dict[str, Any]:
+        """Return the dashboard's Skill aggregates without loading full scan reports."""
+        with self._lock, self._connect() as conn:
+            grouped = conn.execute(
+                """
+                SELECT status, risk_level, count(*) AS count
+                FROM skill_registry
+                GROUP BY status, risk_level
+                """
+            ).fetchall()
+            todos = conn.execute(
+                """
+                SELECT skill_id, name, status, risk_level, submitted_at
+                FROM skill_registry
+                WHERE status = ?
+                ORDER BY submitted_at DESC
+                LIMIT 20
+                """,
+                (SkillStatus.VETTED.value,),
+            ).fetchall()
+            findings = conn.execute(
+                """
+                SELECT
+                    source_key,
+                    sum(count) AS count,
+                    count(*) AS skills,
+                    sum(critical) AS critical,
+                    sum(high) AS high,
+                    sum(medium) AS medium,
+                    sum(low) AS low
+                FROM skill_finding_stats
+                GROUP BY source_key
+                """
+            ).fetchall()
+
+            status_counts: dict[str, int] = {}
+            risk_counts: dict[str, int] = {}
+            total = 0
+            for row in grouped:
+                count = int(row["count"])
+                total += count
+                status_counts[row["status"]] = status_counts.get(row["status"], 0) + count
+                if row["risk_level"]:
+                    risk_counts[row["risk_level"]] = risk_counts.get(row["risk_level"], 0) + count
+
+            result = {
+                "total": total,
+                "status_counts": status_counts,
+                "risk_counts": risk_counts,
+                "todos": [dict(row) for row in todos],
+                "risk_sources": {row["source_key"]: dict(row) for row in findings},
+            }
+            return result
 
     def list_by_statuses(self, statuses: list[SkillStatus]) -> list[RegistryEntry]:
         """Return all skills whose status is in the given list."""

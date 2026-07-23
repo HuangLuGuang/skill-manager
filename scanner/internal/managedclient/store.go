@@ -569,6 +569,7 @@ func (store *Store) RecordPatrolFinding(finding PatrolFinding) error {
 }
 
 func (store *Store) SaveInventory(inventory Inventory) error {
+	inventory.DiscoveryVersion = InventoryCacheVersion
 	body, err := json.Marshal(inventory)
 	if err != nil {
 		return err

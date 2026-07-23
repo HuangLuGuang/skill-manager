@@ -5,10 +5,28 @@ export const navigationItems = [
     label: '能力治理',
     icon: 'fileSearch',
     children: [
-      { key: '/submit', label: '提交 Skill', icon: 'upload' },
-      { key: '/review', label: 'Skill 审核', icon: 'checkSquare' },
-      { key: '/skills', label: 'Skill 列表', icon: 'fileSearch' },
-      { key: '/policy', label: '策略配置', icon: 'setting' },
+      {
+        key: 'skill-governance',
+        label: 'Skill 治理',
+        icon: 'fileSearch',
+        children: [
+          { key: '/submit', label: '提交 Skill', icon: 'upload' },
+          { key: '/review', label: 'Skill 审核', icon: 'checkSquare' },
+          { key: '/skills', label: 'Skill 列表', icon: 'fileSearch' },
+          { key: '/policy', label: '策略配置', icon: 'setting' },
+        ],
+      },
+      {
+        key: 'mcp-governance',
+        label: 'MCP 治理',
+        icon: 'api',
+        children: [
+          { key: '/mcp-governance/servers', label: 'MCP 服务', icon: 'api' },
+          { key: '/mcp-governance/gateways', label: 'MCP 网关', icon: 'deployment' },
+          { key: '/mcp-governance/debug', label: 'MCP 调试', icon: 'safety' },
+          { key: '/mcp-governance/audit', label: '调用审计', icon: 'audit' },
+        ],
+      },
     ],
   },
   {

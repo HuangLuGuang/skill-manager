@@ -18,6 +18,7 @@ router = APIRouter(prefix="/access/tokens", tags=["access-tokens"])
 SCANNER_SCOPES = ["scanner:submit", "scanner:read-own-results", "scanner:read-own-sessions"]
 RUNTIME_SCOPES = ["runtime:verify-signature", "runtime:can-load", "runtime:check-tool"]
 MODEL_SCOPES = ["model:chat"]
+MCP_SCOPES = ["mcp:connect", "mcp:list-tools", "mcp:call-tools"]
 CLIENT_SCOPES = [
     "client:register",
     "client:heartbeat",
@@ -28,12 +29,13 @@ CLIENT_SCOPES = [
     "client:submit-skill",
     "client:download-approved-skill",
 ]
-ALLOWED_SCOPES = set(SCANNER_SCOPES + RUNTIME_SCOPES + MODEL_SCOPES + CLIENT_SCOPES)
+ALLOWED_SCOPES = set(SCANNER_SCOPES + RUNTIME_SCOPES + MODEL_SCOPES + MCP_SCOPES + CLIENT_SCOPES)
 DEFAULT_SCOPES_BY_TYPE = {
     "model_gateway": ["model:chat"],
     "agent_runtime": list(RUNTIME_SCOPES),
     "scanner": list(SCANNER_SCOPES),
     "client": list(CLIENT_SCOPES),
+    "mcp_gateway": list(MCP_SCOPES),
 }
 ACTIVE_TOKEN_REQUESTS: dict[int, int] = {}
 LAST_USED_WRITE_INTERVAL = timedelta(minutes=5)
@@ -86,6 +88,7 @@ def _access_token_response(row: models.AccessToken, token: str | None = None) ->
         group_id=row.group_id,
         scopes=_json_loads(row.scopes_json, []),
         allowed_models=_json_loads(row.allowed_models_json, []),
+        allowed_mcp_gateways=_json_loads(row.allowed_mcp_gateways_json, []),
         allowed_ips=_json_loads(row.allowed_ips_json, []),
         status=row.status,
         expires_at=row.expires_at,
@@ -262,6 +265,11 @@ async def create_access_token(
         raise HTTPException(status_code=404, detail="用户不存在")
     if body.group_id and not db.query(models.UserGroup).filter(models.UserGroup.id == body.group_id).first():
         raise HTTPException(status_code=404, detail="用户组不存在")
+    if body.token_type == "mcp_gateway":
+        existing = {row.slug for row in db.query(models.McpGateway).all()}
+        missing = set(body.allowed_mcp_gateways) - existing
+        if missing:
+            raise HTTPException(status_code=404, detail=f"MCP 网关不存在: {', '.join(sorted(missing))}")
     scopes = _normalize_scopes(body.token_type, body.scopes)
     plain = _new_token()
     row = models.AccessToken(
@@ -275,6 +283,7 @@ async def create_access_token(
         user_id=body.user_id or current_user.id if body.token_type == "model_gateway" else body.user_id,
         group_id=body.group_id,
         allowed_models_json=_json_dumps(body.allowed_models),
+        allowed_mcp_gateways_json=_json_dumps(body.allowed_mcp_gateways),
         allowed_ips_json=_json_dumps(body.allowed_ips),
         expires_at=body.expires_at,
         max_body_kb=body.max_body_kb,
@@ -308,6 +317,13 @@ async def update_access_token(
         row.scopes_json = _json_dumps(_normalize_scopes(row.token_type, data.pop("scopes")))
     if "allowed_models" in data and data["allowed_models"] is not None:
         row.allowed_models_json = _json_dumps(data.pop("allowed_models"))
+    if "allowed_mcp_gateways" in data and data["allowed_mcp_gateways"] is not None:
+        gateways = data.pop("allowed_mcp_gateways")
+        existing = {item.slug for item in db.query(models.McpGateway).all()}
+        missing = set(gateways) - existing
+        if missing:
+            raise HTTPException(status_code=404, detail=f"MCP 网关不存在: {', '.join(sorted(missing))}")
+        row.allowed_mcp_gateways_json = _json_dumps(gateways)
     if "allowed_ips" in data and data["allowed_ips"] is not None:
         row.allowed_ips_json = _json_dumps(data.pop("allowed_ips"))
     if "bound_agent_id" in data and data["bound_agent_id"]:

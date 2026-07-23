@@ -90,6 +90,29 @@ class TestRegistry:
         all_entries = registry.list_all()
         assert len(all_entries) == 2
 
+    def test_dashboard_stats_aggregates_without_loading_entries(self, registry):
+        approved = _make_entry("approved", status=SkillStatus.APPROVED)
+        approved.vetting = VettingResult(
+            risk_level=RiskLevel.BENIGN,
+            scan_report={"findings": [{"source": "llm", "severity": "HIGH"}]},
+        )
+        pending = _make_entry("pending", status=SkillStatus.VETTED)
+        pending.risk_level = RiskLevel.SUSPICIOUS
+        registry.add(approved)
+        registry.add(pending)
+
+        stats = registry.dashboard_stats()
+
+        assert stats["total"] == 2
+        assert stats["status_counts"] == {"APPROVED": 1, "VETTED": 1}
+        assert stats["risk_counts"] == {"benign": 1, "suspicious": 1}
+        assert [item["name"] for item in stats["todos"]] == ["pending"]
+        assert stats["risk_sources"]["llm"]["high"] == 1
+
+        pending.status = SkillStatus.APPROVED
+        registry.update(pending)
+        assert registry.dashboard_stats()["status_counts"] == {"APPROVED": 2}
+
     def test_list_all_skips_malformed_rows(self, registry):
         registry.add(_make_entry("valid"))
         with registry._connect() as conn:

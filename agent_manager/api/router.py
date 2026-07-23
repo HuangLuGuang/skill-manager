@@ -1267,12 +1267,13 @@ def list_skills(
 @router.get("/dashboard/risk-source-stats")
 def get_dashboard_risk_source_stats(mgr: AgentManager = Depends(get_manager)):
     """Aggregate finding counts by analyzer source for the dashboard."""
+    dashboard = mgr.dashboard_stats()
     sources = {
         "rule": {
             "key": "rule",
             "label": "规则分析",
             "count": 0,
-            "skills": set(),
+            "skills": 0,
             "critical": 0,
             "high": 0,
             "medium": 0,
@@ -1282,7 +1283,7 @@ def get_dashboard_risk_source_stats(mgr: AgentManager = Depends(get_manager)):
             "key": "llm",
             "label": "大模型分析",
             "count": 0,
-            "skills": set(),
+            "skills": 0,
             "critical": 0,
             "high": 0,
             "medium": 0,
@@ -1292,7 +1293,7 @@ def get_dashboard_risk_source_stats(mgr: AgentManager = Depends(get_manager)):
             "key": "sandbox",
             "label": "Sandbox",
             "count": 0,
-            "skills": set(),
+            "skills": 0,
             "critical": 0,
             "high": 0,
             "medium": 0,
@@ -1302,7 +1303,7 @@ def get_dashboard_risk_source_stats(mgr: AgentManager = Depends(get_manager)):
             "key": "skillspector",
             "label": "深度分析",
             "count": 0,
-            "skills": set(),
+            "skills": 0,
             "critical": 0,
             "high": 0,
             "medium": 0,
@@ -1310,51 +1311,20 @@ def get_dashboard_risk_source_stats(mgr: AgentManager = Depends(get_manager)):
         },
     }
 
-    for entry in mgr.list_skills():
-        if not entry.vetting:
-            continue
-        findings = entry.vetting.scan_report.get("findings") or []
-        for finding in findings:
-            if not isinstance(finding, dict):
-                continue
-            source_key = _risk_finding_source_key(finding)
-            bucket = sources[source_key]
-            bucket["count"] += 1
-            bucket["skills"].add(entry.skill_id)
-            severity_key = _risk_severity_key(str(finding.get("severity") or "LOW"))
-            bucket[severity_key] += 1
+    for source_key, counts in dashboard["risk_sources"].items():
+        sources[source_key].update(
+            {key: value for key, value in counts.items() if key != "source_key"}
+        )
 
-    items = []
-    for item in sources.values():
-        payload = {key: value for key, value in item.items() if key != "skills"}
-        payload["skills"] = len(item["skills"])
-        items.append(payload)
+    items = list(sources.values())
     return {
         "items": items,
         "total_findings": sum(item["count"] for item in items),
+        "skill_summary": {
+            key: dashboard[key]
+            for key in ("total", "status_counts", "risk_counts", "todos")
+        },
     }
-
-
-def _risk_finding_source_key(finding: dict[str, Any]) -> str:
-    source = str(finding.get("source") or finding.get("analyzer") or "").lower()
-    if source.startswith("llm"):
-        return "llm"
-    if source.startswith("sandbox"):
-        return "sandbox"
-    if source.startswith("skillspector") or source.startswith("deep"):
-        return "skillspector"
-    return "rule"
-
-
-def _risk_severity_key(severity: str) -> str:
-    value = severity.upper()
-    if value in {"CRITICAL", "EXTREME"}:
-        return "critical"
-    if value == "HIGH":
-        return "high"
-    if value == "MEDIUM":
-        return "medium"
-    return "low"
 
 
 @router.get("/skills/{skill_id_or_name}")

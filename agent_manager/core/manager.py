@@ -600,6 +600,9 @@ class AgentManager:
     def list_skill_summaries(self, **kwargs: Any) -> dict[str, Any]:
         return self.registry.list_skill_summaries(**kwargs)
 
+    def dashboard_stats(self) -> dict[str, Any]:
+        return self.registry.dashboard_stats()
+
     def get_skill(self, skill_id_or_name: str) -> RegistryEntry | None:
         entry = self.registry.get_by_id(skill_id_or_name)
         return entry or self.registry.get_by_name(skill_id_or_name)

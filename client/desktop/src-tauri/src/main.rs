@@ -63,6 +63,9 @@ struct UpdateResult {
 fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, String> {
     const ALLOWED: &[&str] = &[
         "configure",
+        "agent-settings",
+        "set-agent-roots",
+        "reset-agent-roots",
         "add-custom-agent",
         "remove-custom-agent",
         "inventory",
@@ -187,9 +190,8 @@ async fn get_connection_status() -> Result<ConnectionStatus, String> {
     .map_err(|error| format!("无法读取本地治理状态: {error}"))?;
     let inventory_output = execute_client_sync("cached-inventory".to_string(), Vec::new())
         .or_else(|_| execute_client_sync("inventory".to_string(), Vec::new()))?;
-    let inventory: serde_json::Value =
-        serde_json::from_str(&inventory_output)
-            .map_err(|error| format!("无法读取本机 Agent 信息: {error}"))?;
+    let inventory: serde_json::Value = serde_json::from_str(&inventory_output)
+        .map_err(|error| format!("无法读取本机 Agent 信息: {error}"))?;
     let client_id = inventory
         .get("client_id")
         .and_then(|value| value.as_str())

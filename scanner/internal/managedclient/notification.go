@@ -13,6 +13,13 @@ import (
 func notificationForEvent(eventType, agentType, skillName string, details map[string]any) (LocalNotification, bool) {
 	agent := agentDisplayName(agentType)
 	target := fmt.Sprintf("%s 的 Skill %s", agent, skillName)
+	if agents := stringSliceDetail(details, "affected_agents"); len(agents) > 1 {
+		labels := make([]string, 0, len(agents))
+		for _, value := range agents {
+			labels = append(labels, agentDisplayName(value))
+		}
+		target = fmt.Sprintf("Skill %s（影响 %s）", skillName, strings.Join(labels, "、"))
+	}
 	result := LocalNotification{Severity: "warning", EventType: eventType, AgentType: agentType, SkillName: skillName}
 	switch eventType {
 	case "skill_repaired":
@@ -26,7 +33,7 @@ func notificationForEvent(eventType, agentType, skillName string, details map[st
 	case "skill_modified":
 		mode := stringDetail(details, "mode")
 		offline, _ := details["offline"].(bool)
-		if mode != "audit" && !offline {
+		if mode != "audit" && (!offline || mode == "block") {
 			return LocalNotification{}, false
 		}
 		result.Title = "发现 Skill 内容变化"
@@ -45,6 +52,23 @@ func notificationForEvent(eventType, agentType, skillName string, details map[st
 		return LocalNotification{}, false
 	}
 	return result, true
+}
+
+func stringSliceDetail(details map[string]any, key string) []string {
+	switch values := details[key].(type) {
+	case []string:
+		return values
+	case []any:
+		result := make([]string, 0, len(values))
+		for _, value := range values {
+			if text, ok := value.(string); ok {
+				result = append(result, text)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
 }
 
 func DeliverPendingNotifications(store *Store) {
@@ -90,6 +114,8 @@ func agentDisplayName(agentType string) string {
 	labels := map[string]string{
 		"claude-code": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI",
 		"opencode": "OpenCode", "openclaw": "OpenClaw", "hermes": "Hermes",
+		"trae-cn": "TRAE CN", "trae": "TRAE", "cursor": "Cursor",
+		"global-skills": "通用 Skills", "codebuddy": "CodeBuddy",
 	}
 	if label := labels[agentType]; label != "" {
 		return label

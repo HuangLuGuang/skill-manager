@@ -127,6 +127,7 @@ class AccessToken(Base):
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     group_id = Column(Integer, ForeignKey("user_groups.id"), index=True, nullable=True)
     allowed_models_json = Column(Text, default="[]", nullable=False)
+    allowed_mcp_gateways_json = Column(Text, default="[]", nullable=False)
     allowed_ips_json = Column(Text, default="[]", nullable=False)
     status = Column(String(32), default="active", nullable=False)
     expires_at = Column(DateTime, nullable=True)
@@ -143,6 +144,78 @@ class AccessToken(Base):
     last_used_at = Column(DateTime, nullable=True)
     revoked_at = Column(DateTime, nullable=True)
     revoked_by = Column(String(128), nullable=True)
+
+
+class McpServer(Base):
+    __tablename__ = "mcp_servers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    slug = Column(String(128), unique=True, index=True, nullable=False)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, nullable=True)
+    endpoint = Column(String(1024), nullable=False)
+    authorization_header = Column(String(128), default="Authorization", nullable=False)
+    authorization_value = Column(Text, nullable=True)
+    status = Column(String(32), default="draft", index=True, nullable=False)
+    health_status = Column(String(32), default="unknown", nullable=False)
+    timeout_seconds = Column(Integer, default=30, nullable=False)
+    last_checked_at = Column(DateTime, nullable=True)
+    created_by = Column(String(128), index=True, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class McpTool(Base):
+    __tablename__ = "mcp_tools"
+
+    id = Column(Integer, primary_key=True, index=True)
+    server_id = Column(Integer, ForeignKey("mcp_servers.id"), index=True, nullable=False)
+    name = Column(String(255), index=True, nullable=False)
+    exposed_name = Column(String(384), unique=True, index=True, nullable=False)
+    description = Column(Text, nullable=True)
+    input_schema_json = Column(Text, default="{}", nullable=False)
+    schema_hash = Column(String(64), index=True, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    discovered_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class McpGateway(Base):
+    __tablename__ = "mcp_gateways"
+
+    id = Column(Integer, primary_key=True, index=True)
+    slug = Column(String(128), unique=True, index=True, nullable=False)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(String(32), default="active", index=True, nullable=False)
+    created_by = Column(String(128), index=True, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class McpGatewayBinding(Base):
+    __tablename__ = "mcp_gateway_bindings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    gateway_id = Column(Integer, ForeignKey("mcp_gateways.id"), index=True, nullable=False)
+    server_id = Column(Integer, ForeignKey("mcp_servers.id"), index=True, nullable=False)
+    allowed_tools_json = Column(Text, default="[]", nullable=False)
+    approved_schema_hashes_json = Column(Text, default="{}", nullable=False)
+
+
+class McpCallAudit(Base):
+    __tablename__ = "mcp_call_audits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    request_id = Column(String(64), unique=True, index=True, nullable=False)
+    token_id = Column(Integer, ForeignKey("access_tokens.id"), index=True, nullable=False)
+    gateway_slug = Column(String(128), index=True, nullable=False)
+    server_slug = Column(String(128), index=True, nullable=True)
+    tool_name = Column(String(255), index=True, nullable=True)
+    schema_hash = Column(String(64), nullable=True)
+    status = Column(String(32), index=True, nullable=False)
+    duration_ms = Column(Float, default=0.0, nullable=False)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True, nullable=False)
 
 
 class ManagedClient(Base):

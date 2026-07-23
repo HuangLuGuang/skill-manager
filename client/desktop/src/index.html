@@ -92,6 +92,11 @@
               </div>
             </section>
 
+            <section class="overview-section builtin-agent-section">
+              <div class="section-heading"><div><h2>内置 Agent 与扫描目录</h2><p>终端默认识别以下 Agent。点击对应 Agent 可修改 Skill 扫描目录。</p></div></div>
+              <div id="builtin-agent-settings" class="builtin-agent-settings"><div class="empty compact">正在读取内置 Agent 配置...</div></div>
+            </section>
+
             <div class="overview-columns">
               <section class="overview-section">
                 <div class="section-heading"><h2>运行状态</h2></div>
@@ -136,6 +141,7 @@
             <div class="actions discover-actions"><button id="add-custom-agent-button" title="添加自定义 Agent">添加 Agent</button><button id="discover-button" class="primary" title="重新发现本机 Agent 与 Skill">重新发现</button></div>
           </div>
           <div id="agent-list" class="agent-list empty">尚未执行发现</div>
+          <p class="agent-discovery-tip">没有找到需要管理的 Agent？可点击右上角“添加 Agent”，手动指定 Skill 根目录。</p>
           <div id="discover-next" class="next-step" hidden>
             <div><strong>下一步：确认接管范围</strong><span>已选择 <b id="selected-skill-count">0</b> 个 Skill，生成预览后可查看哪些继续启用、哪些需要处理。</span></div>
             <button id="open-preview-button" class="primary icon-button icon-preview">生成接管预览</button>
@@ -265,6 +271,27 @@
         <h3>确认清除通知</h3>
         <p>请确认相关事项已经处理。清除只删除终端本地提醒，不会恢复隔离 Skill，也不会删除平台审计记录。</p>
         <div class="dialog-actions"><button id="cancel-clear-notifications" class="icon-button icon-close">取消</button><button id="confirm-clear-notifications" class="subtle-danger icon-button icon-remove" data-busy-text="正在清除...">确认清除</button></div>
+      </div>
+    </dialog>
+    <dialog id="remove-custom-agent-dialog" class="message-dialog">
+      <div class="message-dialog-body">
+        <h3>取消自定义 Agent 登记</h3>
+        <p>确认取消“<strong id="remove-custom-agent-name"></strong>”的本地登记？原 Skill 目录和文件不会被删除。</p>
+        <div class="dialog-actions"><button id="cancel-remove-custom-agent" class="icon-button icon-close">取消</button><button id="confirm-remove-custom-agent" class="subtle-danger icon-button icon-remove" data-busy-text="正在取消...">确认取消登记</button></div>
+      </div>
+    </dialog>
+    <dialog id="agent-paths-dialog" class="message-dialog agent-paths-dialog">
+      <div class="message-dialog-body">
+        <h3 id="agent-paths-title">修改扫描目录</h3>
+        <p>每行填写一个 Skill 根目录。目录中每个包含 SKILL.md 的子目录会被识别为一个 Skill。</p>
+        <label for="agent-paths-input">扫描目录</label>
+        <div class="directory-editor">
+          <textarea id="agent-paths-input" rows="5" spellcheck="false" required></textarea>
+          <button id="select-agent-path" class="icon-button icon-folder" type="button" data-busy-text="正在选择...">选择文件夹</button>
+        </div>
+        <small>选择文件夹会替换当前内容；如需扫描多个目录，可在文本框中按每行一个目录继续填写。</small>
+        <small id="agent-paths-default"></small>
+        <div class="dialog-actions"><button id="reset-agent-paths" class="icon-button icon-refresh">恢复默认</button><button id="cancel-agent-paths" class="icon-button icon-close">取消</button><button id="save-agent-paths" class="primary icon-button icon-check" data-busy-text="正在保存...">保存目录</button></div>
       </div>
     </dialog>
     <dialog id="install-skill-dialog" class="message-dialog install-skill-dialog">
