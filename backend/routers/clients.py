@@ -684,8 +684,16 @@ def list_client_downloads(
                 "platform": value["platform"],
                 "platform_label": _CLIENT_PLATFORM_LABELS[value["platform"]],
             })
-    items.sort(key=lambda item: (tuple(map(int, item["version"].split("."))), item["platform"]), reverse=True)
-    return {"items": items}
+    if not items:
+        return {"items": []}
+    latest_version = max(tuple(map(int, item["version"].split("."))) for item in items)
+    latest_items = [
+        item
+        for item in items
+        if tuple(map(int, item["version"].split("."))) == latest_version
+    ]
+    latest_items.sort(key=lambda item: item["platform"])
+    return {"items": latest_items}
 
 
 @router.get("/downloads/file")
