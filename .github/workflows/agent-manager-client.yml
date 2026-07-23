@@ -90,8 +90,32 @@ jobs:
             printf 'Missing required GitHub Actions secrets: %s\n' "${missing[*]}" >&2
             exit 1
           fi
-      - name: Build signed macOS release
-        if: ${{ runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/client-v') }}
+          certificate_path="${RUNNER_TEMP}/agent-manager-developer-id.p12"
+          private_key_path="${RUNNER_TEMP}/agent-manager-developer-id-key.pem"
+          trap 'rm -f "$certificate_path" "$private_key_path"' EXIT
+          if ! printf '%s' "$APPLE_CERTIFICATE" | openssl base64 -d -A -out "$certificate_path" || [[ ! -s "$certificate_path" ]]; then
+            echo "APPLE_CERTIFICATE 不是有效的 Base64 内容，请填写包含私钥的 .p12 文件编码结果。" >&2
+            exit 1
+          fi
+          if ! openssl pkcs12 -in "$certificate_path" -passin env:APPLE_CERTIFICATE_PASSWORD -noout; then
+            echo "无法解析 APPLE_CERTIFICATE，请检查 .p12 文件和 APPLE_CERTIFICATE_PASSWORD。" >&2
+            exit 1
+          fi
+          certificate_subject="$(
+            openssl pkcs12 -in "$certificate_path" -passin env:APPLE_CERTIFICATE_PASSWORD -clcerts -nokeys |
+              openssl x509 -noout -subject
+          )"
+          if [[ "$certificate_subject" != *"Developer ID Application:"* ]]; then
+            echo "APPLE_CERTIFICATE 不是 Developer ID Application 证书: $certificate_subject" >&2
+            exit 1
+          fi
+          if ! openssl pkcs12 -in "$certificate_path" -passin env:APPLE_CERTIFICATE_PASSWORD -nocerts -nodes -out "$private_key_path" ||
+             ! grep -q 'PRIVATE KEY' "$private_key_path"; then
+            echo "APPLE_CERTIFICATE 不包含私钥，请从钥匙串的“我的证书”中导出 .p12。" >&2
+            exit 1
+          fi
+      - name: Build ad-hoc signed macOS release
+        if: ${{ runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/client-v') && vars.AGENT_MANAGER_MACOS_SIGNING_MODE != 'developer-id' }}
         run: npm run ${{ matrix.release_script }}
         working-directory: client/desktop
         env:
@@ -99,7 +123,17 @@ jobs:
           AGENT_MANAGER_UPDATER_PUBLIC_KEY: ${{ secrets.AGENT_MANAGER_UPDATER_PUBLIC_KEY }}
           AGENT_MANAGER_UPDATER_PRIVATE_KEY: ${{ secrets.AGENT_MANAGER_UPDATER_PRIVATE_KEY }}
           AGENT_MANAGER_UPDATER_PRIVATE_KEY_PASSWORD: ${{ secrets.AGENT_MANAGER_UPDATER_PRIVATE_KEY_PASSWORD }}
-          AGENT_MANAGER_MACOS_SIGNING_MODE: ${{ vars.AGENT_MANAGER_MACOS_SIGNING_MODE || 'adhoc' }}
+          AGENT_MANAGER_MACOS_SIGNING_MODE: adhoc
+      - name: Build Developer ID signed macOS release
+        if: ${{ runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/client-v') && vars.AGENT_MANAGER_MACOS_SIGNING_MODE == 'developer-id' }}
+        run: npm run ${{ matrix.release_script }}
+        working-directory: client/desktop
+        env:
+          AGENT_MANAGER_CLIENT_VERSION: ${{ github.ref_name }}
+          AGENT_MANAGER_UPDATER_PUBLIC_KEY: ${{ secrets.AGENT_MANAGER_UPDATER_PUBLIC_KEY }}
+          AGENT_MANAGER_UPDATER_PRIVATE_KEY: ${{ secrets.AGENT_MANAGER_UPDATER_PRIVATE_KEY }}
+          AGENT_MANAGER_UPDATER_PRIVATE_KEY_PASSWORD: ${{ secrets.AGENT_MANAGER_UPDATER_PRIVATE_KEY_PASSWORD }}
+          AGENT_MANAGER_MACOS_SIGNING_MODE: developer-id
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}

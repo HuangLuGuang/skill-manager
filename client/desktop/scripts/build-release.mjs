@@ -17,6 +17,18 @@ if (platform === 'mac') {
     throw new Error(`unsupported AGENT_MANAGER_MACOS_SIGNING_MODE: ${signingMode}`)
   }
   if (signingMode === 'adhoc') {
+    for (const name of [
+      'APPLE_CERTIFICATE',
+      'APPLE_CERTIFICATE_PASSWORD',
+      'APPLE_ID',
+      'APPLE_PASSWORD',
+      'APPLE_TEAM_ID',
+      'APPLE_API_ISSUER',
+      'APPLE_API_KEY',
+      'APPLE_API_KEY_PATH',
+    ]) {
+      delete env[name]
+    }
     env.APPLE_SIGNING_IDENTITY = '-'
   } else {
     const required = ['APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_ID', 'APPLE_PASSWORD', 'APPLE_TEAM_ID']
