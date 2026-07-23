@@ -254,13 +254,14 @@ class ManagedAgentResponse(BaseModel):
 
 class AccessTokenCreate(BaseModel):
     name: str
-    token_type: str = Field(pattern="^(model_gateway|agent_runtime|scanner|client)$")
+    token_type: str = Field(pattern="^(model_gateway|agent_runtime|scanner|client|mcp_gateway)$")
     bound_agent_id: Optional[str] = None
     bound_client_id: Optional[str] = None
     user_id: Optional[int] = None
     group_id: Optional[int] = None
     scopes: list[str] = []
     allowed_models: list[str] = []
+    allowed_mcp_gateways: list[str] = []
     allowed_ips: list[str] = []
     expires_at: Optional[datetime] = None
     max_body_kb: int = Field(default=1024, ge=1, le=10240)
@@ -281,6 +282,7 @@ class AccessTokenUpdate(BaseModel):
     group_id: Optional[int] = None
     scopes: Optional[list[str]] = None
     allowed_models: Optional[list[str]] = None
+    allowed_mcp_gateways: Optional[list[str]] = None
     allowed_ips: Optional[list[str]] = None
     status: Optional[str] = Field(default=None, pattern="^(active|disabled|revoked)$")
     expires_at: Optional[datetime] = None
@@ -307,6 +309,7 @@ class AccessTokenResponse(BaseModel):
     group_id: Optional[int] = None
     scopes: list[str] = []
     allowed_models: list[str] = []
+    allowed_mcp_gateways: list[str] = []
     allowed_ips: list[str] = []
     status: str
     expires_at: Optional[datetime] = None
@@ -332,6 +335,123 @@ class AccessTokenCreateResponse(BaseModel):
 
 class AccessTokenListResponse(BaseModel):
     items: list[AccessTokenResponse]
+
+
+class McpServerCreate(BaseModel):
+    slug: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,127}$")
+    name: str
+    description: Optional[str] = None
+    endpoint: str
+    authorization_header: str = "Authorization"
+    authorization_value: Optional[str] = None
+    status: str = Field(default="draft", pattern="^(draft|active|disabled)$")
+    timeout_seconds: int = Field(default=30, ge=1, le=300)
+
+
+class McpServerUpdate(BaseModel):
+    slug: Optional[str] = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,127}$")
+    name: Optional[str] = None
+    description: Optional[str] = None
+    endpoint: Optional[str] = None
+    authorization_header: Optional[str] = None
+    authorization_value: Optional[str] = None
+    status: Optional[str] = Field(default=None, pattern="^(draft|active|disabled)$")
+    timeout_seconds: Optional[int] = Field(default=None, ge=1, le=300)
+
+
+class McpToolResponse(BaseModel):
+    id: int
+    server_id: int
+    name: str
+    exposed_name: str
+    description: Optional[str] = None
+    input_schema: dict[str, Any] = {}
+    schema_hash: str
+    enabled: bool
+    discovered_at: datetime
+
+
+class McpServerResponse(BaseModel):
+    id: int
+    slug: str
+    name: str
+    description: Optional[str] = None
+    endpoint: str
+    authorization_header: str
+    authorization_masked: Optional[str] = None
+    status: str
+    health_status: str
+    timeout_seconds: int
+    last_checked_at: Optional[datetime] = None
+    created_by: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    tools: list[McpToolResponse] = []
+
+
+class McpGatewayBindingInput(BaseModel):
+    server_id: int
+    allowed_tools: list[str] = []
+
+
+class McpGatewayCreate(BaseModel):
+    slug: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,127}$")
+    name: str
+    description: Optional[str] = None
+    status: str = Field(default="active", pattern="^(active|disabled)$")
+    bindings: list[McpGatewayBindingInput] = []
+
+
+class McpGatewayUpdate(BaseModel):
+    slug: Optional[str] = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,127}$")
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = Field(default=None, pattern="^(active|disabled)$")
+    bindings: Optional[list[McpGatewayBindingInput]] = None
+
+
+class McpGatewayBindingResponse(BaseModel):
+    server_id: int
+    server_slug: str
+    server_name: str
+    allowed_tools: list[str] = []
+    approved_schema_hashes: dict[str, str] = {}
+
+
+class McpGatewayResponse(BaseModel):
+    id: int
+    slug: str
+    name: str
+    description: Optional[str] = None
+    status: str
+    bindings: list[McpGatewayBindingResponse] = []
+    created_by: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class McpCallAuditResponse(BaseModel):
+    id: int
+    request_id: str
+    token_id: int
+    gateway_slug: str
+    server_slug: Optional[str] = None
+    tool_name: Optional[str] = None
+    schema_hash: Optional[str] = None
+    status: str
+    duration_ms: float
+    error: Optional[str] = None
+    created_at: datetime
+
+
+class McpUpstreamDebugRequest(BaseModel):
+    server_id: Optional[int] = None
+    endpoint: Optional[str] = None
+    authorization_header: Optional[str] = None
+    authorization_value: Optional[str] = None
+    timeout_seconds: int = Field(default=30, ge=1, le=300)
+    method: str = Field(pattern="^(ping|tools/list|tools/call)$")
+    params: dict[str, Any] = {}
 
 
 class ClientSkillInventory(BaseModel):

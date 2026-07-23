@@ -61,8 +61,58 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/client-v') }}
         run: npm run ${{ matrix.build_script }}
         working-directory: client/desktop
-      - name: Build signed release
-        if: ${{ startsWith(github.ref, 'refs/tags/client-v') }}
+      - name: Validate Apple release credentials
+        if: ${{ runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/client-v') }}
+        shell: bash
+        env:
+          AGENT_MANAGER_MACOS_SIGNING_MODE: ${{ vars.AGENT_MANAGER_MACOS_SIGNING_MODE || 'adhoc' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [[ "$AGENT_MANAGER_MACOS_SIGNING_MODE" == "adhoc" ]]; then
+            echo "Building an ad-hoc signed macOS artifact for testing."
+            exit 0
+          fi
+          if [[ "$AGENT_MANAGER_MACOS_SIGNING_MODE" != "developer-id" ]]; then
+            echo "Unsupported AGENT_MANAGER_MACOS_SIGNING_MODE: $AGENT_MANAGER_MACOS_SIGNING_MODE" >&2
+            exit 1
+          fi
+          missing=()
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required GitHub Actions secrets: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+      - name: Build signed macOS release
+        if: ${{ runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/client-v') }}
+        run: npm run ${{ matrix.release_script }}
+        working-directory: client/desktop
+        env:
+          AGENT_MANAGER_CLIENT_VERSION: ${{ github.ref_name }}
+          AGENT_MANAGER_UPDATER_PUBLIC_KEY: ${{ secrets.AGENT_MANAGER_UPDATER_PUBLIC_KEY }}
+          AGENT_MANAGER_UPDATER_PRIVATE_KEY: ${{ secrets.AGENT_MANAGER_UPDATER_PRIVATE_KEY }}
+          AGENT_MANAGER_UPDATER_PRIVATE_KEY_PASSWORD: ${{ secrets.AGENT_MANAGER_UPDATER_PRIVATE_KEY_PASSWORD }}
+          AGENT_MANAGER_MACOS_SIGNING_MODE: ${{ vars.AGENT_MANAGER_MACOS_SIGNING_MODE || 'adhoc' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Verify signed and notarized macOS release
+        if: ${{ runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/client-v') }}
+        run: scripts/verify-macos-release.sh
+        working-directory: client/desktop
+        env:
+          AGENT_MANAGER_MACOS_SIGNING_MODE: ${{ vars.AGENT_MANAGER_MACOS_SIGNING_MODE || 'adhoc' }}
+      - name: Build signed non-macOS release
+        if: ${{ runner.os != 'macOS' && startsWith(github.ref, 'refs/tags/client-v') }}
         run: npm run ${{ matrix.release_script }}
         working-directory: client/desktop
         env:

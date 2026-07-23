@@ -173,13 +173,10 @@ import {
   listLlmApiKeys,
   listModelEndpoints,
   listModelProviders,
-  listReviewQueue,
-  listSkills,
 } from '../api'
 import { formatDateTime, formatDetails } from '../utils/format'
 
-const skillRows = ref([])
-const skillReviewRows = ref([])
+const skillSummary = ref({ total: 0, status_counts: {}, risk_counts: {}, todos: [] })
 const agentRows = ref([])
 const providerRows = ref([])
 const modelRows = ref([])
@@ -211,10 +208,13 @@ const countByStatus = (rows, statuses) => {
   return rows.filter((item) => values.includes(item.status)).length
 }
 
-const countByRisk = (rows, risks) => {
-  const values = Array.isArray(risks) ? risks : [risks]
-  return rows.filter((item) => values.includes(item.risk_level)).length
-}
+const skillStatusCount = (statuses) =>
+  (Array.isArray(statuses) ? statuses : [statuses])
+    .reduce((sum, status) => sum + (skillSummary.value.status_counts?.[status] || 0), 0)
+
+const skillRiskCount = (risks) =>
+  (Array.isArray(risks) ? risks : [risks])
+    .reduce((sum, risk) => sum + (skillSummary.value.risk_counts?.[risk] || 0), 0)
 
 const activeAccessTokens = computed(() =>
   accessTokenRows.value.filter((item) => item.status === 'active'),
@@ -228,14 +228,14 @@ const moduleCards = computed(() => [
     key: 'skills',
     title: 'Skill 治理',
     path: '/submit',
-    value: skillRows.value.length,
+    value: skillSummary.value.total,
     label: '已提交 Skill',
     flow: ['提交', '扫描', '审核', '可信版本'],
     stats: [
-      { label: '待审核', value: skillReviewRows.value.length },
-      { label: '可加载', value: countByStatus(skillRows.value, 'APPROVED') },
-      { label: '高风险', value: countByRisk(skillRows.value, ['suspicious', 'malicious']) },
-      { label: '已拒绝', value: countByStatus(skillRows.value, 'REJECTED') },
+      { label: '待审核', value: skillStatusCount('VETTED') },
+      { label: '可加载', value: skillStatusCount(['APPROVED', 'DEPLOYED']) },
+      { label: '高风险', value: skillRiskCount(['suspicious', 'malicious']) },
+      { label: '已拒绝', value: skillStatusCount('REJECTED') },
     ],
   },
   {
@@ -269,8 +269,7 @@ const moduleCards = computed(() => [
 ])
 
 const todoRows = computed(() => {
-  const skillTodos = skillRows.value
-    .filter((item) => item.status === 'VETTED')
+  const skillTodos = skillSummary.value.todos
     .map((item) => ({
       id: `skill-${item.skill_id}`,
       type: 'Skill',
@@ -333,7 +332,7 @@ const governanceStatusChartOptions = computed(() => {
       {
         name: 'Skill',
         type: 'bar',
-        data: statuses.map((status) => countByStatus(skillRows.value, status)),
+        data: statuses.map(skillStatusCount),
         itemStyle: { color: '#2563eb', borderRadius: [4, 4, 0, 0] },
       },
     ],
@@ -343,9 +342,9 @@ const governanceStatusChartOptions = computed(() => {
 
 const riskChartOptions = computed(() => {
   const rows = [
-    { label: '安全', value: countByRisk(skillRows.value, 'benign') },
-    { label: '可疑', value: countByRisk(skillRows.value, 'suspicious') },
-    { label: '恶意', value: countByRisk(skillRows.value, 'malicious') },
+    { label: '安全', value: skillRiskCount('benign') },
+    { label: '可疑', value: skillRiskCount('suspicious') },
+    { label: '恶意', value: skillRiskCount('malicious') },
   ]
   return buildBarChart('风险对象', rows, '#d97706')
 })
@@ -438,8 +437,6 @@ const gatewayModelChartOptions = computed(() => {
 const fetchDashboard = async () => {
   try {
     const [
-      skills,
-      skillReview,
       agents,
       providers,
       models,
@@ -451,8 +448,6 @@ const fetchDashboard = async () => {
       llmDaily,
       llmByModel,
     ] = await Promise.all([
-      safeRequest(() => listSkills(), []),
-      safeRequest(() => listReviewQueue(), []),
       safeRequest(() => listAgents(), []),
       safeRequest(() => listModelProviders(), []),
       safeRequest(() => listModelEndpoints(), []),
@@ -465,8 +460,6 @@ const fetchDashboard = async () => {
       safeRequest(() => getLlmStatsByModel({ days: 7 }), { models: [] }),
     ])
 
-    skillRows.value = toArray(skills)
-    skillReviewRows.value = toArray(skillReview)
     agentRows.value = toArray(agents)
     providerRows.value = toArray(providers)
     modelRows.value = toArray(models)
@@ -474,6 +467,7 @@ const fetchDashboard = async () => {
     gatewayKeyRows.value = toArray(gatewayKeys)
     auditRows.value = toArray(audit)
     riskSourceRows.value = toArray(riskSourceStats)
+    skillSummary.value = riskSourceStats?.skill_summary || skillSummary.value
     privacyStats.value = gatewayPrivacy || {}
     gatewayDailyRows.value = toArray(llmDaily, 'series')
     gatewayModelRows.value = toArray(llmByModel, 'models')

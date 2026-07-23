@@ -435,6 +435,124 @@ func TestUnknownSkillIsComparedBeforeBlockModeQuarantine(t *testing.T) {
 	}
 }
 
+func TestSharedSkillTamperCreatesOneQuarantine(t *testing.T) {
+	home := t.TempDir()
+	release := filepath.Join(home, ".agent-manager", "skills", "skill-1", "release")
+	original := []byte("---\nname: shared-skill\n---\n")
+	if err := os.MkdirAll(release, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(release, "SKILL.md"), original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(original)
+	manifest := releaseManifest{
+		SkillID: "skill-1", Name: "shared-skill",
+		Files: []releaseFile{{Path: "SKILL.md", Size: int64(len(original)), SHA256: hex.EncodeToString(sum[:])}},
+	}
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	installs := []Installation{
+		{AgentType: "claude-code", SkillID: "skill-1", SkillName: "shared-skill", TargetPath: filepath.Join(home, ".claude", "skills", "shared-skill"), Manifest: manifest},
+		{AgentType: "codex", SkillID: "skill-1", SkillName: "shared-skill", TargetPath: filepath.Join(home, ".codex", "skills", "shared-skill"), Manifest: manifest},
+	}
+	for _, install := range installs {
+		if err := os.MkdirAll(filepath.Dir(install.TargetPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(release, install.TargetPath); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveInstall(install); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(release, "SKILL.md"), []byte("tampered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	api := NewAPI("http://127.0.0.1:1", "token", 20*time.Millisecond)
+	if err := patrolLocalChanges(context.Background(), home, Inventory{ClientID: "host"}, Policy{Mode: "block"}, api, store, installs, true); err != nil {
+		t.Fatal(err)
+	}
+	if items, err := store.QuarantineItems(); err != nil || len(items) != 1 {
+		t.Fatalf("shared content should create one quarantine: %#v %v", items, err)
+	}
+	if remaining, err := store.Installations(); err != nil || len(remaining) != 0 {
+		t.Fatalf("shared references were not removed: %#v %v", remaining, err)
+	}
+	for _, install := range installs {
+		if _, err := os.Lstat(install.TargetPath); !os.IsNotExist(err) {
+			t.Fatalf("affected link still exists at %s: %v", install.TargetPath, err)
+		}
+	}
+	notifications, err := store.Notifications(10)
+	if err != nil || len(notifications) != 1 || !strings.Contains(notifications[0].Message, "Claude Code、Codex") {
+		t.Fatalf("shared incident was not aggregated: %#v %v", notifications, err)
+	}
+}
+
+func TestRepointedSharedLinkOnlyQuarantinesAffectedAgent(t *testing.T) {
+	home := t.TempDir()
+	release := filepath.Join(home, ".agent-manager", "skills", "skill-1", "release")
+	repointed := filepath.Join(home, "other-release")
+	content := []byte("---\nname: shared-skill\n---\n")
+	for _, root := range []string{release, repointed} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "SKILL.md"), content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sum := sha256.Sum256(content)
+	manifest := releaseManifest{
+		SkillID: "skill-1", Name: "shared-skill",
+		Files: []releaseFile{{Path: "SKILL.md", Size: int64(len(content)), SHA256: hex.EncodeToString(sum[:])}},
+	}
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	installs := []Installation{
+		{AgentType: "claude-code", SkillID: "skill-1", SkillName: "shared-skill", TargetPath: filepath.Join(home, ".claude", "skills", "shared-skill"), Manifest: manifest},
+		{AgentType: "codex", SkillID: "skill-1", SkillName: "shared-skill", TargetPath: filepath.Join(home, ".codex", "skills", "shared-skill"), Manifest: manifest},
+	}
+	for _, install := range installs {
+		if err := os.MkdirAll(filepath.Dir(install.TargetPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		target := release
+		if install.AgentType == "codex" {
+			target = repointed
+		}
+		if err := os.Symlink(target, install.TargetPath); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveInstall(install); err != nil {
+			t.Fatal(err)
+		}
+	}
+	api := NewAPI("http://127.0.0.1:1", "token", 20*time.Millisecond)
+	if err := patrolLocalChanges(context.Background(), home, Inventory{ClientID: "host"}, Policy{Mode: "block"}, api, store, installs, true); err != nil {
+		t.Fatal(err)
+	}
+	remaining, err := store.Installations()
+	if err != nil || len(remaining) != 1 || remaining[0].AgentType != "claude-code" {
+		t.Fatalf("healthy shared reference was affected: %#v %v", remaining, err)
+	}
+	items, err := store.QuarantineItems()
+	if err != nil || len(items) != 1 || items[0].AgentType != "codex" {
+		t.Fatalf("repointed link was not isolated independently: %#v %v", items, err)
+	}
+	if _, err := os.Stat(release); err != nil {
+		t.Fatalf("shared release was removed: %v", err)
+	}
+}
+
 func signedPackage(t *testing.T, privateKey ed25519.PrivateKey) []byte {
 	t.Helper()
 	content := []byte("---\nname: safe-skill\n---\n")

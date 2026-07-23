@@ -136,6 +136,17 @@ LLM 模型网关负责保护发送给外部模型供应商的数据：
 
 - [model-gateway.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/model-gateway.md)
 
+### 3.7 MCP 能力总线
+
+MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟网关发布选定 Tool：
+
+- 管理台在 `能力治理 / MCP 服务` 中登记 Endpoint，连接后保存 `tools/list` Schema 快照。
+- `能力治理 / MCP 网关` 把多个 Server 的部分 Tool 组合为 `/mcp/{gateway_slug}`。
+- `能力治理 / MCP 调试` 可以在保存前使用临时 Endpoint 直连服务，也可以使用真实网关凭证执行 Tool 发现和调用，并展示原始 JSON 请求历史。
+- 调用方使用 `MCP 网关凭证`，凭证限制可访问网关、IP、有效期、请求大小和并发数，不要求绑定 `ManagedAgent`。
+- Tool 对外名称为 `{server_slug}__{tool_name}`；Schema 变化后暂停暴露，重新保存网关配置才会批准新 Hash。
+- 当前数据面实现 `initialize`、`ping`、`tools/list` 和 `tools/call`，不托管 stdio MCP。
+
 ---
 
 ## 4. 总体架构
@@ -211,6 +222,8 @@ flowchart TB
   管理后台 + Agent Manager API 集成入口
 - [backend/routers/llm_gateway.py](/Users/huangluguang/Desktop/Project/skill-manager/backend/routers/llm_gateway.py)
   内置模型网关、OpenAI-compatible 代理、PII 伪匿名、Trace 与管理 API
+- [backend/routers/mcp_gateway.py](/Users/huangluguang/Desktop/Project/skill-manager/backend/routers/mcp_gateway.py)
+  MCP Server 发现、虚拟网关、Tool 路由、凭证校验与调用审计
 
 ### 5.3 管理台前端
 
@@ -225,6 +238,8 @@ flowchart TB
   模型供应商、模型端点、LLM API Key、用户组和隐私策略管理
 - [web/src/views/PipelineTrace.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/PipelineTrace.vue)
   查看隐私路由四阶段报文
+- [web/src/views/McpGateway.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/McpGateway.vue)
+  MCP Server、虚拟网关和调用审计管理
 
 ### 5.4 独立执行服务
 

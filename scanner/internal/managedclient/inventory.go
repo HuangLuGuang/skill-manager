@@ -1,9 +1,9 @@
 package managedclient
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,12 +11,13 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"skill-manager/scanner/internal/manifest"
 )
 
 var Version = "dev"
+
+const InventoryCacheVersion = "2"
 
 type Skill struct {
 	SkillID      string `json:"skill_id,omitempty"`
@@ -41,13 +42,14 @@ type Agent struct {
 }
 
 type Inventory struct {
-	ClientID      string  `json:"client_id"`
-	Name          string  `json:"name"`
-	Hostname      string  `json:"hostname"`
-	OS            string  `json:"os"`
-	Arch          string  `json:"arch"`
-	ClientVersion string  `json:"client_version"`
-	Agents        []Agent `json:"agents"`
+	ClientID         string  `json:"client_id"`
+	Name             string  `json:"name"`
+	Hostname         string  `json:"hostname"`
+	OS               string  `json:"os"`
+	Arch             string  `json:"arch"`
+	ClientVersion    string  `json:"client_version"`
+	DiscoveryVersion string  `json:"discovery_version,omitempty"`
+	Agents           []Agent `json:"agents"`
 }
 
 type adapter struct {
@@ -56,16 +58,30 @@ type adapter struct {
 	skillRoots    []string
 	supportsSkill bool
 	appPaths      []string
+	sharedSkills  bool
+}
+
+type BuiltinAgentSetting struct {
+	AgentType    string   `json:"agent_type"`
+	DefaultRoots []string `json:"default_roots"`
+	CurrentRoots []string `json:"current_roots"`
+	Customized   bool     `json:"customized"`
 }
 
 func adapters() []adapter {
 	return []adapter{
+		{agentType: "global-skills", skillRoots: []string{".agents/skills"}, supportsSkill: true, sharedSkills: true},
 		{agentType: "claude-code", binaries: []string{"claude"}, skillRoots: []string{".claude/skills"}, supportsSkill: true},
-		{agentType: "codex", binaries: []string{"codex"}, skillRoots: []string{".codex/skills", ".agents/skills"}, supportsSkill: true},
+		{agentType: "codex", binaries: []string{"codex"}, skillRoots: []string{".codex/skills"}, supportsSkill: true},
 		{agentType: "gemini", binaries: []string{"gemini"}, skillRoots: []string{".gemini/skills"}, supportsSkill: true},
-		{agentType: "opencode", binaries: []string{"opencode"}, skillRoots: []string{".config/opencode/skills"}, supportsSkill: true},
+		{agentType: "opencode", binaries: []string{"opencode"}, skillRoots: []string{".opencode/skills", ".config/opencode/skills"}, supportsSkill: true},
 		{agentType: "openclaw", binaries: []string{"openclaw"}, skillRoots: []string{".openclaw/skills"}, supportsSkill: true},
 		{agentType: "hermes", binaries: []string{"hermes"}, skillRoots: []string{".hermes/skills"}, supportsSkill: true},
+		{agentType: "trae-cn", binaries: []string{"trae-cn"}, skillRoots: []string{".trae-cn/skills"}, supportsSkill: true},
+		{agentType: "trae", binaries: []string{"trae"}, skillRoots: []string{".trae/skills"}, supportsSkill: true},
+		{agentType: "cursor", binaries: []string{"cursor"}, skillRoots: []string{".cursor/skills"}, supportsSkill: true},
+		{agentType: "codebuddy", binaries: []string{"codebuddy"}, skillRoots: []string{".codebuddy/skills"}, supportsSkill: true},
+		{agentType: "workbuddy", binaries: []string{"workbuddy"}, skillRoots: []string{".workbuddy/skills"}, supportsSkill: true},
 	}
 }
 
@@ -81,7 +97,16 @@ func Discover(home string) (Inventory, error) {
 		Agents:        []Agent{},
 	}
 	opts := DefaultManifestOptions()
+	config, err := LoadConfig(home)
+	if err != nil {
+		return result, err
+	}
 	specs := adapters()
+	for index := range specs {
+		if roots := config.AgentSkillRoots[specs[index].agentType]; len(roots) > 0 {
+			specs[index].skillRoots = roots
+		}
+	}
 	type discoveryResult struct {
 		agent     Agent
 		installed bool
@@ -104,10 +129,6 @@ func Discover(home string) (Inventory, error) {
 		if item.installed {
 			result.Agents = append(result.Agents, item.agent)
 		}
-	}
-	config, err := LoadConfig(home)
-	if err != nil {
-		return result, err
 	}
 	for _, custom := range config.CustomAgents {
 		agent := Agent{
@@ -147,10 +168,12 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 		Capabilities:             map[string]any{"skill_management": spec.supportsSkill},
 		Skills:                   []Skill{},
 	}
+	if spec.sharedSkills {
+		agent.Capabilities["shared_skills"] = true
+	}
 	for _, binary := range spec.binaries {
 		if path, err := exec.LookPath(binary); err == nil {
 			agent.InstallPath = path
-			agent.Version = commandVersion(path)
 			break
 		}
 	}
@@ -169,18 +192,23 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 		}
 	}
 	var roots []string
-	for _, rel := range spec.skillRoots {
-		root := filepath.Join(home, filepath.FromSlash(rel))
+	relatedDirectoryFound := false
+	for _, configuredRoot := range spec.skillRoots {
+		root := resolveSkillRoot(home, configuredRoot)
+		parent := filepath.Dir(root)
+		if info, err := os.Stat(parent); err == nil && info.IsDir() {
+			relatedDirectoryFound = true
+		}
 		if info, err := os.Stat(root); err == nil && info.IsDir() {
 			roots = append(roots, root)
 		}
 	}
+	if !relatedDirectoryFound {
+		return agent, false, nil
+	}
 	if len(roots) > 0 {
 		agent.SkillsPath = roots[0]
 		agent.Capabilities["skill_roots"] = roots
-	}
-	if agent.InstallPath == "" && len(roots) == 0 {
-		return agent, false, nil
 	}
 	for _, root := range roots {
 		skills, err := readSkills(root, filepath.Join(home, ".agent-manager", "skills"), opts)
@@ -190,6 +218,101 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 		agent.Skills = append(agent.Skills, skills...)
 	}
 	return agent, true, nil
+}
+
+func BuiltinAgentSettings(home string) ([]BuiltinAgentSetting, error) {
+	config, err := LoadConfig(home)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]BuiltinAgentSetting, 0, len(adapters()))
+	for _, spec := range adapters() {
+		defaults := resolvedSkillRoots(home, spec.skillRoots)
+		current := defaults
+		customized := false
+		if configured := config.AgentSkillRoots[spec.agentType]; len(configured) > 0 {
+			current = resolvedSkillRoots(home, configured)
+			customized = true
+		}
+		result = append(result, BuiltinAgentSetting{
+			AgentType:    spec.agentType,
+			DefaultRoots: defaults,
+			CurrentRoots: current,
+			Customized:   customized,
+		})
+	}
+	return result, nil
+}
+
+func SetBuiltinAgentRoots(home, agentType string, roots []string) error {
+	agentType = strings.TrimSpace(agentType)
+	supported := false
+	for _, spec := range adapters() {
+		if spec.agentType == agentType {
+			supported = true
+			break
+		}
+	}
+	if !supported {
+		return fmt.Errorf("unsupported built-in Agent: %s", agentType)
+	}
+	normalized := resolvedSkillRoots(home, roots)
+	if len(normalized) == 0 {
+		return errors.New("at least one Skill directory is required")
+	}
+	config, err := LoadConfig(home)
+	if err != nil {
+		return err
+	}
+	if config.AgentSkillRoots == nil {
+		config.AgentSkillRoots = map[string][]string{}
+	}
+	config.AgentSkillRoots[agentType] = normalized
+	return SaveConfig(home, config)
+}
+
+func ResetBuiltinAgentRoots(home, agentType string) error {
+	config, err := LoadConfig(home)
+	if err != nil {
+		return err
+	}
+	if config.AgentSkillRoots == nil {
+		return nil
+	}
+	delete(config.AgentSkillRoots, strings.TrimSpace(agentType))
+	return SaveConfig(home, config)
+}
+
+func resolvedSkillRoots(home string, roots []string) []string {
+	result := make([]string, 0, len(roots))
+	seen := map[string]bool{}
+	for _, value := range roots {
+		root := resolveSkillRoot(home, value)
+		if root == "" || seen[root] {
+			continue
+		}
+		seen[root] = true
+		result = append(result, root)
+	}
+	return result
+}
+
+func resolveSkillRoot(home, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if value == "~" {
+		return filepath.Clean(home)
+	}
+	if strings.HasPrefix(value, "~/") || strings.HasPrefix(value, `~\`) {
+		return filepath.Join(home, filepath.FromSlash(value[2:]))
+	}
+	value = filepath.FromSlash(value)
+	if !filepath.IsAbs(value) {
+		value = filepath.Join(home, value)
+	}
+	return filepath.Clean(value)
 }
 
 func readSkills(root, managedRoot string, opts manifest.Options) ([]Skill, error) {
@@ -266,14 +389,4 @@ func pathWithin(path, root string) bool {
 	}
 	rel, err := filepath.Rel(absoluteRoot, absolutePath)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-func commandVersion(path string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	output, err := exec.CommandContext(ctx, path, "--version").CombinedOutput()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(output))
 }

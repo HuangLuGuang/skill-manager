@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="统一凭证中心" sub-title="统一签发模型调用、Agent 运行时、终端和 Scanner 接入凭证" />
+    <a-page-header title="统一凭证中心" sub-title="统一签发模型、MCP 网关、Agent 运行时、终端和 Scanner 接入凭证" />
 
     <a-card style="margin-top: 16px">
       <template #extra>
@@ -10,6 +10,7 @@
             <a-select-option value="agent_runtime">Agent 运行凭证</a-select-option>
             <a-select-option value="scanner">Scanner 接入凭证</a-select-option>
             <a-select-option value="client">终端接入凭证</a-select-option>
+            <a-select-option value="mcp_gateway">MCP 网关凭证</a-select-option>
           </a-select>
           <a-button @click="fetchTokens" :loading="loading">刷新</a-button>
           <a-button type="primary" @click="openCreate">创建凭证</a-button>
@@ -32,6 +33,7 @@
           <template v-else-if="column.key === 'binding'">
             <div>{{ record.bound_agent_id || record.bound_client_id || '-' }}</div>
             <div class="muted" v-if="record.group_id">Group ID: {{ record.group_id }}</div>
+            <div class="muted" v-if="record.allowed_mcp_gateways?.length">{{ record.allowed_mcp_gateways.join(', ') }}</div>
           </template>
           <template v-else-if="column.key === 'scopes'">
             <a-space wrap>
@@ -85,6 +87,7 @@
                 <a-select-option value="agent_runtime">Agent 运行凭证</a-select-option>
                 <a-select-option value="scanner">Scanner 接入凭证</a-select-option>
                 <a-select-option value="client">终端接入凭证</a-select-option>
+                <a-select-option value="mcp_gateway">MCP 网关凭证</a-select-option>
               </a-select>
             </a-form-item>
           </a-col>
@@ -97,6 +100,15 @@
             </a-select-option>
           </a-select>
           <div class="hint">Agent 运行凭证用于识别调用方；如果列表为空，请先到“智能体管理”创建智能体。</div>
+        </a-form-item>
+
+        <a-form-item v-if="form.token_type === 'mcp_gateway'" label="允许访问的 MCP 网关" required>
+          <a-select v-model:value="form.allowed_mcp_gateways" mode="multiple" allow-clear placeholder="选择虚拟 MCP 网关">
+            <a-select-option v-for="gateway in mcpGateways" :key="gateway.slug" :value="gateway.slug">
+              {{ gateway.name }}（{{ gateway.slug }}）
+            </a-select-option>
+          </a-select>
+          <div class="hint">凭证不绑定智能体，只限制可访问的虚拟 MCP 网关。</div>
         </a-form-item>
 
         <a-form-item label="权限范围">
@@ -123,6 +135,11 @@
               <a-select-option value="client:report-events">client:report-events</a-select-option>
               <a-select-option value="client:submit-skill">client:submit-skill</a-select-option>
               <a-select-option value="client:download-approved-skill">client:download-approved-skill</a-select-option>
+            </a-select-opt-group>
+            <a-select-opt-group label="MCP 网关">
+              <a-select-option value="mcp:connect">mcp:connect</a-select-option>
+              <a-select-option value="mcp:list-tools">mcp:list-tools</a-select-option>
+              <a-select-option value="mcp:call-tools">mcp:call-tools</a-select-option>
             </a-select-opt-group>
           </a-select>
           <div class="hint">Agent 运行凭证默认不含 model:chat；只有显式勾选后才能调用模型网关。</div>
@@ -210,6 +227,7 @@ import {
   deleteAccessToken,
   listAccessTokens,
   listAgents,
+  listMcpGateways,
   listModelEndpoints,
   revokeAccessToken,
 } from '../api'
@@ -225,6 +243,7 @@ const actionId = ref(null)
 const tokens = ref([])
 const agents = ref([])
 const models = ref([])
+const mcpGateways = ref([])
 const filters = reactive({ token_type: undefined })
 const form = reactive({
   name: '',
@@ -232,6 +251,7 @@ const form = reactive({
   bound_agent_id: undefined,
   scopes: [],
   allowed_models: [],
+  allowed_mcp_gateways: [],
   allowed_ips: [],
   max_body_kb: 1024,
   max_concurrent_requests: 5,
@@ -257,6 +277,7 @@ const typeDefaults = {
     'client:submit-skill',
     'client:download-approved-skill',
   ],
+  mcp_gateway: ['mcp:connect', 'mcp:list-tools', 'mcp:call-tools'],
 }
 const columns = [
   { title: '名称', dataIndex: 'name' },
@@ -276,6 +297,7 @@ const tokenTypeLabel = (value) => ({
   agent_runtime: 'Agent 运行',
   scanner: 'Scanner 接入',
   client: '终端接入',
+  mcp_gateway: 'MCP 网关',
 }[value] || value)
 const statusLabel = (value) => ({ active: '启用', disabled: '禁用', revoked: '已吊销' }[value] || value)
 const statusColor = (value) => ({ active: 'green', disabled: 'orange', revoked: 'red' }[value] || 'default')
@@ -286,6 +308,7 @@ const formatTime = (value) => value ? new Date(value).toLocaleString() : '-'
 const applyTypeDefaults = () => {
   form.scopes = [...(typeDefaults[form.token_type] || [])]
   if (form.token_type !== 'agent_runtime') form.bound_agent_id = undefined
+  if (form.token_type !== 'mcp_gateway') form.allowed_mcp_gateways = []
 }
 
 const fetchTokens = async () => {
@@ -301,9 +324,10 @@ const fetchTokens = async () => {
 }
 
 const fetchOptions = async () => {
-  const [agentRows, modelRows] = await Promise.all([listAgents(), listModelEndpoints()])
+  const [agentRows, modelRows, gatewayRows] = await Promise.all([listAgents(), listModelEndpoints(), listMcpGateways()])
   agents.value = agentRows || []
   models.value = modelRows || []
+  mcpGateways.value = gatewayRows || []
 }
 
 const openCreate = (defaults = {}) => {
@@ -313,6 +337,7 @@ const openCreate = (defaults = {}) => {
     bound_agent_id: defaults.bound_agent_id,
     scopes: [...typeDefaults.agent_runtime],
     allowed_models: [],
+    allowed_mcp_gateways: [],
     allowed_ips: [],
     max_body_kb: 1024,
     max_concurrent_requests: 5,
@@ -348,6 +373,10 @@ const handleCreate = async () => {
   }
   if (form.token_type === 'agent_runtime' && !form.bound_agent_id) {
     message.warning('请选择绑定智能体')
+    return
+  }
+  if (form.token_type === 'mcp_gateway' && !form.allowed_mcp_gateways.length) {
+    message.warning('请选择至少一个 MCP 网关')
     return
   }
   if (!form.scopes.includes('model:chat')) {

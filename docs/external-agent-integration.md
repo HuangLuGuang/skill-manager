@@ -233,6 +233,22 @@ Authorization: Bearer amat_xxx
 
 - [model-gateway.md](model-gateway.md)
 
+## Mode 4: MCP Gateway
+
+支持 Streamable HTTP 的 Agent 或 MCP Client 可以只连接 Agent Manager，不直接配置各个上游 MCP Server：
+
+```json
+{
+  "type": "streamable-http",
+  "url": "https://agent-manager.example.com/mcp/readonly",
+  "headers": {
+    "Authorization": "Bearer amat_xxx"
+  }
+}
+```
+
+管理员先在 `MCP 服务` 中发现上游 Tool，再在 `MCP 网关` 中选择要发布的 Tool，最后在 `统一凭证中心` 创建 `MCP 网关凭证`。凭证绑定虚拟网关而不是智能体。当前支持 `initialize`、`ping`、`tools/list` 和 `tools/call`；stdio、Resources 和 Prompts 不在首版范围内。
+
 ## Boundaries
 
 这套系统当前负责的是：
@@ -247,11 +263,12 @@ Authorization: Bearer amat_xxx
 - 审计日志
 - LLM 模型调用隐私代理
 - LLM 隐私链路追踪
+- 远程 MCP Tool 聚合、授权和调用审计
 
 这套系统当前不负责的是：
 
 - 真正执行 skill
-- 提供统一 skill runtime
+- 提供统一 skill runtime 或 stdio MCP runtime
 - 远程下发 skill 制品
 - 帮外部 Agent 解析和运行不同框架的 skill
 

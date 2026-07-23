@@ -20,6 +20,11 @@ func TestStorePersistsInventoryAndCompletedTasks(t *testing.T) {
 	if err := store.SaveInventory(Inventory{ClientID: "client-1"}); err != nil {
 		t.Fatal(err)
 	}
+	body, ok, err := store.State("inventory")
+	var cached Inventory
+	if err != nil || !ok || json.Unmarshal([]byte(body), &cached) != nil || cached.DiscoveryVersion != InventoryCacheVersion {
+		t.Fatalf("inventory cache version was not persisted: %q %v %v", body, ok, err)
+	}
 	if err := store.SaveTask(Task{ID: 7, TaskType: "install_skill", Payload: map[string]any{"skill_name": "demo"}}, "succeeded", ""); err != nil {
 		t.Fatal(err)
 	}

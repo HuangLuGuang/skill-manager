@@ -8,6 +8,7 @@ dependencies = [
     "fastapi",
     "httpx",
     "httpx[socks]",
+    "jsonschema",
     "uvicorn",
     "sqlalchemy",
     "pydantic[email]",

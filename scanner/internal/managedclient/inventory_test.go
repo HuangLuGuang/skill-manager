@@ -11,16 +11,23 @@ import (
 func TestDiscoverFindsSupportedAgentsAndSkills(t *testing.T) {
 	home := t.TempDir()
 	roots := map[string]string{
-		"claude-code": ".claude/skills",
-		"codex":       ".codex/skills",
-		"gemini":      ".gemini/skills",
-		"opencode":    ".config/opencode/skills",
-		"openclaw":    ".openclaw/skills",
-		"hermes":      ".hermes/skills",
+		"claude-code":   ".claude/skills",
+		"codex":         ".codex/skills",
+		"gemini":        ".gemini/skills",
+		"opencode":      ".config/opencode/skills",
+		"openclaw":      ".openclaw/skills",
+		"hermes":        ".hermes/skills",
+		"trae-cn":       ".trae-cn/skills",
+		"trae":          ".trae/skills",
+		"cursor":        ".cursor/skills",
+		"global-skills": ".agents/skills",
+		"codebuddy":     ".codebuddy/skills",
+		"workbuddy":     ".workbuddy/skills",
 	}
 	for agentType, root := range roots {
 		writeSkill(t, filepath.Join(home, filepath.FromSlash(root), agentType+"-skill"), agentType+"-skill")
 	}
+	writeSkill(t, filepath.Join(home, ".opencode", "skills", "opencode-user-skill"), "opencode-user-skill")
 	customRoot := filepath.Join(home, "custom-agent", "skills")
 	writeSkill(t, filepath.Join(customRoot, "custom-skill"), "custom-skill")
 	if err := SaveConfig(home, Config{Server: "http://agent-manager", Token: "token"}); err != nil {
@@ -35,8 +42,11 @@ func TestDiscoverFindsSupportedAgentsAndSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inventory.Agents) != 7 {
-		t.Fatalf("expected 7 agents, got %#v", inventory.Agents)
+	if len(inventory.Agents) != 13 {
+		t.Fatalf("expected 13 agents, got %#v", inventory.Agents)
+	}
+	if inventory.Agents[0].AgentType != "global-skills" {
+		t.Fatalf("global Skills must be listed first: %#v", inventory.Agents)
 	}
 	byType := map[string]Agent{}
 	for _, agent := range inventory.Agents {
@@ -45,12 +55,19 @@ func TestDiscoverFindsSupportedAgentsAndSkills(t *testing.T) {
 	if got := byType["codex"].Skills[0].Name; got != "codex-skill" {
 		t.Fatalf("unexpected codex skill %q", got)
 	}
+	if shared, _ := byType["global-skills"].Capabilities["shared_skills"].(bool); !shared {
+		t.Fatalf("global Skills directory was not marked shared: %#v", byType["global-skills"])
+	}
 	for agentType := range roots {
 		agent := byType[agentType]
 		if !agent.SkillManagementSupported {
 			t.Fatalf("%s must support skill management", agentType)
 		}
-		if len(agent.Skills) != 1 {
+		expected := 1
+		if agentType == "opencode" {
+			expected = 2
+		}
+		if len(agent.Skills) != expected {
 			t.Fatalf("%s skill discovery failed: %#v", agentType, byType[agentType])
 		}
 	}
@@ -59,6 +76,27 @@ func TestDiscoverFindsSupportedAgentsAndSkills(t *testing.T) {
 	}
 	if inventory.ClientID != DeviceID(inventory.Hostname, home) {
 		t.Fatal("device ID is not stable")
+	}
+}
+
+func TestDiscoverSkipsBinaryWithoutAgentDirectory(t *testing.T) {
+	home := t.TempDir()
+	bin := t.TempDir()
+	path := filepath.Join(bin, "test-agent")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho test\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	spec := adapter{agentType: "test", binaries: []string{"test-agent"}, skillRoots: []string{".test-agent/skills"}, supportsSkill: true}
+
+	if _, found, err := discoverAgent(home, spec, DefaultManifestOptions()); err != nil || found {
+		t.Fatalf("binary without Agent directory should be hidden: found=%v err=%v", found, err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".test-agent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := discoverAgent(home, spec, DefaultManifestOptions()); err != nil || !found {
+		t.Fatalf("Agent directory should make Agent visible: found=%v err=%v", found, err)
 	}
 }
 
@@ -82,6 +120,53 @@ func TestRemoveCustomAgentKeepsSkillDirectory(t *testing.T) {
 	config, err := LoadConfig(home)
 	if err != nil || len(config.CustomAgents) != 0 {
 		t.Fatalf("custom Agent config was not removed: %#v %v", config.CustomAgents, err)
+	}
+}
+
+func TestBuiltinAgentSkillRootsCanBeCustomizedAndReset(t *testing.T) {
+	home := t.TempDir()
+	if err := SaveConfig(home, Config{Server: "http://agent-manager", Token: "token"}); err != nil {
+		t.Fatal(err)
+	}
+	defaultRoot := filepath.Join(home, ".codex", "skills")
+	customRoot := filepath.Join(home, "custom-codex-skills")
+	writeSkill(t, filepath.Join(defaultRoot, "default-skill"), "default-skill")
+	writeSkill(t, filepath.Join(customRoot, "custom-skill"), "custom-skill")
+
+	if err := SetBuiltinAgentRoots(home, "codex", []string{customRoot}); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := BuiltinAgentSettings(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var codex BuiltinAgentSetting
+	for _, item := range settings {
+		if item.AgentType == "codex" {
+			codex = item
+			break
+		}
+	}
+	if !codex.Customized || len(codex.CurrentRoots) != 1 || codex.CurrentRoots[0] != customRoot || codex.DefaultRoots[0] != defaultRoot {
+		t.Fatalf("unexpected customized setting: %#v", codex)
+	}
+	inventory, err := Discover(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Agents) != 1 || inventory.Agents[0].AgentType != "codex" || inventory.Agents[0].Skills[0].Name != "custom-skill" {
+		t.Fatalf("custom root was not used for discovery: %#v", inventory.Agents)
+	}
+
+	if err := ResetBuiltinAgentRoots(home, "codex"); err != nil {
+		t.Fatal(err)
+	}
+	inventory, err = Discover(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Agents) != 1 || inventory.Agents[0].Skills[0].Name != "default-skill" {
+		t.Fatalf("default root was not restored: %#v", inventory.Agents)
 	}
 }
 

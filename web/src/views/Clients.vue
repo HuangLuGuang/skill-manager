@@ -482,6 +482,12 @@ const agentLabel = (value, record = null) => record?.capabilities?.display_name 
   opencode: 'OpenCode',
   openclaw: 'OpenClaw',
   hermes: 'Hermes',
+  'trae-cn': 'TRAE CN',
+  trae: 'TRAE',
+  cursor: 'Cursor',
+  'global-skills': '通用 Skills',
+  codebuddy: 'CodeBuddy',
+  workbuddy: 'WorkBuddy',
 }[value] || value)
 const policyDescription = mode => ({
   audit: '只审计：发现修改后记录事件，不改动本地文件。',

@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from . import models
 from .auth import get_current_admin_user, get_password_hash
 from .config import settings
-from .routers import access_tokens, agents, auth, clients, config, llm_gateway, system, tasks
+from .routers import access_tokens, agents, auth, clients, config, llm_gateway, mcp_gateway, system, tasks
 from .sqlite_db import Base, SessionLocal, engine
 from .task_runtime import init_default_tasks
 
@@ -47,6 +47,8 @@ app.include_router(system.router, prefix=settings.API_PREFIX)
 app.include_router(tasks.router, prefix=settings.API_PREFIX)
 app.include_router(agents.router, prefix=settings.API_PREFIX)
 app.include_router(access_tokens.router, prefix=f"{settings.API_PREFIX}/v1")
+app.include_router(mcp_gateway.admin_router, prefix=f"{settings.API_PREFIX}/v1", dependencies=[Depends(get_current_admin_user)])
+app.include_router(mcp_gateway.runtime_router)
 app.include_router(clients.router, prefix=settings.API_PREFIX)
 app.include_router(llm_gateway.runtime_router)
 app.include_router(llm_gateway.admin_router, prefix=settings.API_PREFIX)
@@ -74,6 +76,8 @@ def ensure_sqlite_schema() -> None:
         access_token_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(access_tokens)").fetchall()}
         if "bound_client_id" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN bound_client_id VARCHAR(128)")
+        if "allowed_mcp_gateways_json" not in access_token_columns:
+            conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN allowed_mcp_gateways_json TEXT NOT NULL DEFAULT '[]'")
         if "prompt_guard_mode" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN prompt_guard_mode VARCHAR(32) NOT NULL DEFAULT 'off'")
         if "prompt_guard_llm_review" not in access_token_columns:

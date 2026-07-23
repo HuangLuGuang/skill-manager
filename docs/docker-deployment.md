@@ -17,6 +17,8 @@ docker compose ps
 http://localhost
 ```
 
+Compose 入口 Nginx 会把管理 API `/api/` 和 MCP Streamable HTTP 数据面 `/mcp/` 转发到 Backend；MCP Client 应使用 `http(s)://部署域名/mcp/{gateway_slug}`，不需要直接暴露 Backend 端口。旧版 `/sse/` 当前未实现，也不配置转发。
+
 ## 构建脚本
 
 ```bash

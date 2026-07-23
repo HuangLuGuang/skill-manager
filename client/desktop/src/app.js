@@ -20,6 +20,9 @@ let previewSelectionKey = ''
 let takeoverLoading = false
 let autoRefreshBusy = false
 let notificationFilter = 'all'
+let customAgentPendingRemoval = null
+let builtinAgentSettings = []
+let editingBuiltinAgent = null
 const notificationDeliveryAttempts = new Set()
 
 const $ = selector => document.querySelector(selector)
@@ -44,6 +47,7 @@ const showMessageDialog = (title, detail) => {
 }
 
 const isCustomAgent = agent => Boolean(agent?.capabilities?.custom)
+const isSharedSkills = agent => Boolean(agent?.capabilities?.shared_skills)
 
 const showPanel = panel => {
   document.querySelectorAll('.nav-item, .panel').forEach(item => item.classList.remove('active'))
@@ -149,6 +153,34 @@ const editConnection = () => {
   $('#cancel-edit').hidden = false
   $('#server').focus()
 }
+
+const renderBuiltinAgentSettings = () => {
+  const element = $('#builtin-agent-settings')
+  element.innerHTML = builtinAgentSettings.length
+    ? builtinAgentSettings.map(item => `
+      <button class="builtin-agent-row" type="button" data-edit-agent-paths="${escapeHtml(item.agent_type)}">
+        <span class="builtin-agent-name"><strong>${escapeHtml(agentLabel(item.agent_type))}</strong>${item.customized ? '<em>已自定义</em>' : ''}</span>
+        <span class="builtin-agent-roots">${item.current_roots.map(root => `<code title="${escapeHtml(root)}">${escapeHtml(root)}</code>`).join('')}</span>
+        <span class="builtin-agent-edit">修改目录</span>
+      </button>`).join('')
+    : '<div class="empty compact">暂无内置 Agent 配置</div>'
+  document.querySelectorAll('[data-edit-agent-paths]').forEach(button => button.addEventListener('click', () => {
+    editingBuiltinAgent = builtinAgentSettings.find(item => item.agent_type === button.dataset.editAgentPaths) || null
+    if (!editingBuiltinAgent) return
+    $('#agent-paths-title').textContent = `修改 ${agentLabel(editingBuiltinAgent.agent_type)} 扫描目录`
+    $('#agent-paths-input').value = editingBuiltinAgent.current_roots.join('\n')
+    $('#agent-paths-default').textContent = `默认目录：${editingBuiltinAgent.default_roots.join('；')}`
+    $('#reset-agent-paths').disabled = !editingBuiltinAgent.customized
+    $('#agent-paths-dialog').showModal()
+  }))
+}
+
+const loadBuiltinAgentSettings = async (force = false) => {
+  if (builtinAgentSettings.length && !force) return
+  builtinAgentSettings = JSON.parse(await run('agent-settings'))
+  renderBuiltinAgentSettings()
+}
+
 const renderConnected = data => {
   const platform = data.platform || {}
   const agents = data.inventory?.agents || []
@@ -434,6 +466,9 @@ async function refreshConnection() {
     lastInventoryAt = connection.local?.last_inventory_at || lastInventoryAt
     renderConnected(connection)
     renderInventory()
+    await loadBuiltinAgentSettings().catch(error => {
+      $('#builtin-agent-settings').innerHTML = `<div class="inline-error"><strong>读取扫描目录失败</strong><span>${escapeHtml(error)}</span></div>`
+    })
     await loadPending().catch(error => log(error))
   } catch (error) {
     renderDisconnected()
@@ -544,7 +579,7 @@ const renderInventory = () => {
       return `
         <details class="agent-card">
           <summary class="agent-summary">
-            <div class="agent-name"><span class="entity-badge">Agent</span><div><strong>${escapeHtml(agentLabel(agent.agent_type))}</strong><small title="${escapeHtml(isCustomAgent(agent) ? agent.skills_path : agent.version || '未获取版本')}">${escapeHtml(isCustomAgent(agent) ? agent.skills_path : agent.version || '未获取版本')}</small></div></div>
+            <div class="agent-name"><span class="entity-badge">${isSharedSkills(agent) ? '共享' : 'Agent'}</span><div><strong>${escapeHtml(agentLabel(agent.agent_type))}</strong><small title="${escapeHtml(agent.skills_path || 'Skill 目录尚未创建')}">${escapeHtml(agent.skills_path || 'Skill 目录尚未创建')}</small></div></div>
             <div class="capability ${agent.skill_management_supported ? 'supported' : ''}">
               ${agent.skill_management_supported
                 ? `${agent.skills.length} 个 Skill${agent.skills.filter(skill => skill.error).length ? ` · ${agent.skills.filter(skill => skill.error).length} 个待校验` : ''}`
@@ -578,21 +613,104 @@ const renderInventory = () => {
     openInstallDialog({ skill_id: button.dataset.installOther, name: button.dataset.skillName, source_agent_type: button.dataset.sourceAgent })
   }))
   document.querySelectorAll('[data-remove-custom-agent]').forEach(button => button.addEventListener('click', async () => {
-    const name = button.dataset.customAgentName
-    if (!window.confirm(`确认取消“${name}”的自定义 Agent 登记？不会删除 Skill 目录和文件。`)) return
-    setBusy(button, true)
-    try {
-      await run('remove-custom-agent', ['--agent-type', button.dataset.removeCustomAgent])
-      await discover()
-      showMessageDialog('登记已取消', `已取消“${name}”的本地登记，原 Skill 目录和文件没有被删除。`)
-    } catch (error) {
-      showMessageDialog('取消登记失败', String(error))
-    } finally {
-      setBusy(button, false)
+    customAgentPendingRemoval = {
+      agentType: button.dataset.removeCustomAgent,
+      name: button.dataset.customAgentName,
     }
+    $('#remove-custom-agent-name').textContent = customAgentPendingRemoval.name
+    $('#remove-custom-agent-dialog').showModal()
   }))
   updateSelectionSummary()
 }
+
+$('#cancel-remove-custom-agent').addEventListener('click', () => {
+  customAgentPendingRemoval = null
+  $('#remove-custom-agent-dialog').close()
+})
+
+$('#cancel-agent-paths').addEventListener('click', () => {
+  editingBuiltinAgent = null
+  $('#agent-paths-dialog').close()
+})
+
+$('#select-agent-path').addEventListener('click', async event => {
+  const button = event.currentTarget
+  setBusy(button, true)
+  try {
+    const path = await invoke('select_skill_directory')
+    if (path) {
+      const input = $('#agent-paths-input')
+      input.value = path
+      input.setCustomValidity('')
+      input.focus()
+    }
+  } catch (error) {
+    $('#agent-paths-dialog').close()
+    showMessageDialog('选择目录失败', String(error))
+  } finally {
+    setBusy(button, false)
+  }
+})
+
+$('#save-agent-paths').addEventListener('click', async event => {
+  if (!editingBuiltinAgent) return
+  const input = $('#agent-paths-input')
+  const roots = input.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean)
+  input.setCustomValidity(roots.length ? '' : '至少保留一个 Skill 扫描目录')
+  if (!input.reportValidity()) return
+  const button = event.currentTarget
+  setBusy(button, true)
+  try {
+    const args = ['--agent-type', editingBuiltinAgent.agent_type]
+    roots.forEach(root => args.push('--skill-root', root))
+    await run('set-agent-roots', args)
+    editingBuiltinAgent = null
+    $('#agent-paths-dialog').close()
+    await loadBuiltinAgentSettings(true)
+    await discover()
+    showMessageDialog('扫描目录已更新', '新的目录已保存并完成一次 Agent 重新发现。')
+  } catch (error) {
+    showMessageDialog('保存扫描目录失败', String(error))
+  } finally {
+    setBusy(button, false)
+  }
+})
+
+$('#reset-agent-paths').addEventListener('click', async event => {
+  if (!editingBuiltinAgent) return
+  const button = event.currentTarget
+  setBusy(button, true)
+  try {
+    await run('reset-agent-roots', ['--agent-type', editingBuiltinAgent.agent_type])
+    editingBuiltinAgent = null
+    $('#agent-paths-dialog').close()
+    await loadBuiltinAgentSettings(true)
+    await discover()
+    showMessageDialog('已恢复默认目录', '该 Agent 已恢复使用内置的默认 Skill 扫描目录。')
+  } catch (error) {
+    showMessageDialog('恢复默认目录失败', String(error))
+  } finally {
+    setBusy(button, false)
+  }
+})
+
+$('#confirm-remove-custom-agent').addEventListener('click', async event => {
+  if (!customAgentPendingRemoval) return
+  const button = event.currentTarget
+  const item = customAgentPendingRemoval
+  setBusy(button, true)
+  try {
+    await run('remove-custom-agent', ['--agent-type', item.agentType])
+    customAgentPendingRemoval = null
+    $('#remove-custom-agent-dialog').close()
+    await discover()
+    showMessageDialog('登记已取消', `已取消“${item.name}”的本地登记，原 Skill 目录和文件没有被删除。`)
+  } catch (error) {
+    showMessageDialog('取消登记失败', String(error))
+  } finally {
+    setBusy(button, false)
+  }
+})
 
 const discover = async () => {
   const output = await run('inventory')
@@ -1055,6 +1173,12 @@ function agentLabel(value) {
     opencode: 'OpenCode',
     openclaw: 'OpenClaw',
     hermes: 'Hermes',
+    'trae-cn': 'TRAE CN',
+    trae: 'TRAE',
+    cursor: 'Cursor',
+    'global-skills': '通用 Skills',
+    codebuddy: 'CodeBuddy',
+    workbuddy: 'WorkBuddy',
   }[value] || value
 }
 
