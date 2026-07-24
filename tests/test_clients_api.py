@@ -48,6 +48,10 @@ class _Manager:
                 seen.add(id(entry))
         return result
 
+    def list_skills_by_names(self, names):
+        wanted = {name.lower() for name in names}
+        return [entry for entry in self.list_skills() if entry.name.lower() in wanted]
+
 
 def _client(tmp_path, manager=None):
     engine = create_engine(f"sqlite:///{tmp_path / 'clients.db'}", connect_args={"check_same_thread": False})

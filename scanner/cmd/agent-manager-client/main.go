@@ -299,7 +299,17 @@ func run(args []string) error {
 		}
 		return json.NewEncoder(os.Stdout).Encode(item)
 	}
-	inventory, err := managedclient.Discover(*home)
+	var inventory managedclient.Inventory
+	if args[0] == "takeover" && !*confirm {
+		store, storeErr := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
+		if storeErr == nil {
+			inventory, err = loadCachedInventory(store)
+			store.Close()
+		}
+	}
+	if inventory.ClientID == "" {
+		inventory, err = managedclient.Discover(*home)
+	}
 	if err != nil {
 		return err
 	}

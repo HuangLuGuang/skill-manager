@@ -90,6 +90,15 @@ class TestRegistry:
         all_entries = registry.list_all()
         assert len(all_entries) == 2
 
+    def test_list_by_names_only_loads_requested_entries(self, registry):
+        registry.add(_make_entry("alpha"))
+        registry.add(_make_entry("Alpha"))
+        registry.add(_make_entry("beta"))
+
+        entries = registry.list_by_names({"ALPHA"})
+
+        assert {entry.name for entry in entries} == {"Alpha", "alpha"}
+
     def test_dashboard_stats_aggregates_without_loading_entries(self, registry):
         approved = _make_entry("approved", status=SkillStatus.APPROVED)
         approved.vetting = VettingResult(

@@ -1019,7 +1019,13 @@ def compare_inventory(
     result = []
     bindings_changed = False
     signature_cache: dict[str, str | None] = {}
-    registry_entries = manager.list_skills()
+    skill_names = {
+        skill.name
+        for agent_item in body.agents
+        for skill in agent_item.skills
+        if skill.name
+    }
+    registry_entries = manager.list_skills_by_names(skill_names)
     for agent_item in body.agents:
         local_agent = (
             db.query(models.ClientAgent)
