@@ -28,6 +28,8 @@ let pendingRefreshTimer = null
 let pendingRefreshBusy = false
 let pendingSubmissionBusy = false
 let pendingBatchTracking = null
+let pendingClientUpdate = null
+let clientUpdateInstalling = false
 const selectedPendingIDs = new Set()
 const notificationDeliveryAttempts = new Set()
 const operationProgress = new Map()
@@ -52,6 +54,42 @@ const showMessageDialog = (title, detail) => {
   $('#message-dialog-title').textContent = title
   $('#message-dialog-detail').textContent = detail
   $('#message-dialog').showModal()
+}
+
+const formatUpdateBytes = value => {
+  const bytes = Number(value || 0)
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 ** 2).toFixed(1)} MB`
+}
+
+const renderClientUpdateProgress = payload => {
+  const progress = $('#client-update-progress')
+  if (!progress) return
+  const stage = payload?.stage || 'preparing'
+  const downloaded = Number(payload?.downloaded || 0)
+  const total = Number(payload?.total || 0)
+  const percentage = total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : 0
+  const content = {
+    preparing: ['准备更新', '正在暂停后台服务并检查本地状态'],
+    downloading: ['下载更新', total > 0
+      ? `已下载 ${formatUpdateBytes(downloaded)} / ${formatUpdateBytes(total)}`
+      : `已下载 ${formatUpdateBytes(downloaded)}`],
+    installing: ['校验并安装', '更新包已下载，正在校验签名并安装'],
+    restarting: ['重启客户端', '前台即将重启，启动后会自动更新后台服务'],
+  }[stage] || ['处理更新', '正在处理客户端更新']
+  progress.hidden = false
+  progress.classList.toggle('indeterminate', total <= 0 || stage !== 'downloading')
+  progress.querySelector('[data-progress-title]').textContent = content[0]
+  progress.querySelector('[data-progress-detail]').textContent = content[1]
+  progress.querySelector('[data-progress-elapsed]').textContent = total > 0 && stage === 'downloading' ? `${percentage}%` : '处理中'
+  progress.querySelector('[data-progress-bar]').style.width = total > 0 && stage === 'downloading' ? `${percentage}%` : ''
+}
+
+if (window.__TAURI__.event?.listen) {
+  window.__TAURI__.event
+    .listen('client-update-progress', event => renderClientUpdateProgress(event.payload))
+    .catch(error => log(`更新进度监听失败：${error}`))
 }
 
 const startOperationProgress = (selector, { title, detail, current = 0, total = 0 }) => {
@@ -1398,15 +1436,50 @@ $('#check-update').addEventListener('click', async event => {
   try {
     const result = await invoke('check_client_update', { install: false })
     if (!result.available) return log('当前已是最新版本')
-    const notes = result.notes ? `\n\n${result.notes}` : ''
-    if (!window.confirm(`发现新版本 ${result.version}，是否立即下载并安装？${notes}`)) {
-      return log(`发现新版本 ${result.version}`)
-    }
-    const installed = await invoke('check_client_update', { install: true })
-    log(`版本 ${installed.version} 已安装，请重新启动客户端`)
+    pendingClientUpdate = result
+    $('#update-dialog-title').textContent = `发现新版本 ${result.version}`
+    $('#update-dialog-notes').textContent = result.notes || '更新将先暂停后台服务，安装完成后自动重启前台并恢复后台巡检。'
+    $('#client-update-progress').hidden = true
+    $('#cancel-client-update').disabled = false
+    $('#confirm-client-update').disabled = false
+    $('#update-dialog').showModal()
   } catch (error) {
     log(error)
   } finally {
+    setBusy(button, false)
+  }
+})
+
+$('#cancel-client-update').addEventListener('click', () => {
+  if (clientUpdateInstalling) return
+  $('#update-dialog').close()
+  if (pendingClientUpdate?.version) log(`发现新版本 ${pendingClientUpdate.version}，已选择稍后更新`)
+  pendingClientUpdate = null
+})
+$('#update-dialog').addEventListener('cancel', event => {
+  if (clientUpdateInstalling) event.preventDefault()
+})
+
+$('#confirm-client-update').addEventListener('click', async event => {
+  if (clientUpdateInstalling || !pendingClientUpdate) return
+  const button = event.currentTarget
+  clientUpdateInstalling = true
+  $('#cancel-client-update').disabled = true
+  setBusy(button, true)
+  renderClientUpdateProgress({ stage: 'preparing' })
+  try {
+    const result = await invoke('check_client_update', { install: true })
+    if (!result.available) {
+      $('#update-dialog').close()
+      showMessageDialog('无需更新', '当前已经是最新版本。')
+    }
+  } catch (error) {
+    $('#update-dialog').close()
+    showMessageDialog('更新失败', String(error))
+    log(error)
+  } finally {
+    clientUpdateInstalling = false
+    $('#cancel-client-update').disabled = false
     setBusy(button, false)
   }
 })

@@ -176,6 +176,44 @@ func UninstallService(home string) error {
 	return nil
 }
 
+// StopServiceForUpdate stops the running sidecar without removing its service
+// definition. The updated desktop app can then reconcile and restart it.
+func StopServiceForUpdate(home string) (ServiceState, error) {
+	state := ServiceStatus(home)
+	if !state.Installed || !state.Running {
+		return state, nil
+	}
+	path, _, err := ServiceDefinition(home, "", runtime.GOOS)
+	if err != nil {
+		return state, err
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		domain := fmt.Sprintf("gui/%d", os.Getuid())
+		output, stopErr := exec.Command("launchctl", "bootout", domain, path).CombinedOutput()
+		if stopErr != nil {
+			output, stopErr = exec.Command("launchctl", "bootout", domain+"/com.agent-manager.client").CombinedOutput()
+		}
+		if stopErr != nil {
+			return state, fmt.Errorf("launchctl bootout failed: %s", strings.TrimSpace(string(output)))
+		}
+	case "linux":
+		if output, stopErr := exec.Command("systemctl", "--user", "stop", "agent-manager-client.service").CombinedOutput(); stopErr != nil {
+			return state, fmt.Errorf("systemctl stop failed: %s", strings.TrimSpace(string(output)))
+		}
+	case "windows":
+		if output, stopErr := exec.Command("schtasks", "/End", "/TN", "AgentManagerClient").CombinedOutput(); stopErr != nil {
+			return state, fmt.Errorf("schtasks stop failed: %s", strings.TrimSpace(string(output)))
+		}
+	}
+	_ = os.Remove(filepath.Join(home, ".agent-manager", "client.lock"))
+	stopped := ServiceStatus(home)
+	if stopped.Running {
+		return stopped, fmt.Errorf("后台服务未能停止")
+	}
+	return stopped, nil
+}
+
 func ReconcileService(home, executable string) (ServiceReconcileResult, error) {
 	state := ServiceStatus(home)
 	result := ServiceReconcileResult{State: state}

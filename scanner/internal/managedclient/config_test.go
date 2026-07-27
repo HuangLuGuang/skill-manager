@@ -35,6 +35,16 @@ func TestConfigAndServiceDefinitions(t *testing.T) {
 	}
 }
 
+func TestStopServiceForUpdateIsNoopWhenServiceIsNotInstalled(t *testing.T) {
+	state, err := StopServiceForUpdate(t.TempDir())
+	if err != nil {
+		t.Fatalf("stop service without installation: %v", err)
+	}
+	if state.Installed || state.Running {
+		t.Fatalf("unexpected service state: %+v", state)
+	}
+}
+
 func TestServiceRegistrationDetectsExecutableChanges(t *testing.T) {
 	home := t.TempDir()
 	executable := filepath.Join(t.TempDir(), "agent-manager-client")

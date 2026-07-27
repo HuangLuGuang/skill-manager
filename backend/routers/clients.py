@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -680,6 +680,7 @@ def list_client_downloads(
             items.append({
                 "key": path.name.removeprefix("agent-manager-client-"),
                 "filename": path.name,
+                "size": path.stat().st_size,
                 "version": value["version"],
                 "platform": value["platform"],
                 "platform_label": _CLIENT_PLATFORM_LABELS[value["platform"]],
@@ -709,7 +710,22 @@ def download_client_binary(
     path = _CLIENT_RELEASE_DIR / filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail=f"客户端文件不存在: {filename}")
-    return FileResponse(path, filename=filename, media_type="application/octet-stream")
+
+    def iter_file():
+        with path.open("rb") as file:
+            while chunk := file.read(1024 * 1024):
+                yield chunk
+
+    return StreamingResponse(
+        iter_file(),
+        media_type="application/octet-stream",
+        headers={
+            "Accept-Ranges": "none",
+            "Cache-Control": "no-store",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(path.stat().st_size),
+        },
+    )
 
 
 @router.get("/updates/{target}/{arch}/{current_version}", name="check_client_update")

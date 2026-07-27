@@ -291,6 +291,25 @@
         <form method="dialog"><button class="primary icon-button icon-check">知道了</button></form>
       </div>
     </dialog>
+    <dialog id="update-dialog" class="message-dialog update-dialog">
+      <div class="message-dialog-body">
+        <span class="overview-badge">版本更新</span>
+        <h3 id="update-dialog-title">发现新版本</h3>
+        <p id="update-dialog-notes"></p>
+        <div id="client-update-progress" class="operation-progress" aria-live="polite" hidden>
+          <div class="operation-progress-heading">
+            <strong data-progress-title>准备更新</strong>
+            <span data-progress-elapsed>0%</span>
+          </div>
+          <div class="operation-progress-track"><i data-progress-bar></i></div>
+          <p data-progress-detail>正在准备更新环境</p>
+        </div>
+        <div class="dialog-actions">
+          <button id="cancel-client-update" class="icon-button icon-close">稍后更新</button>
+          <button id="confirm-client-update" class="action-success icon-button icon-install" data-busy-text="正在更新...">立即更新并重启</button>
+        </div>
+      </div>
+    </dialog>
     <dialog id="clear-notifications-dialog" class="message-dialog">
       <div class="message-dialog-body">
         <h3>确认清除通知</h3>
