@@ -432,10 +432,19 @@ def test_only_latest_client_installers_are_listed_and_downloadable(tmp_path, mon
         "darwin-aarch64",
         "windows-x86_64",
     }
+    assert all(item["size"] > 0 for item in response.json()["items"])
     key = response.json()["items"][0]["key"]
     downloaded = client.get("/api/v1/clients/downloads/file", params={"platform": key})
     assert downloaded.status_code == 200
     assert downloaded.content in {b"macos", b"new-windows"}
+    partial = client.get(
+        "/api/v1/clients/downloads/file",
+        params={"platform": key},
+        headers={"Range": "bytes=0-2"},
+    )
+    assert partial.status_code == 200
+    assert partial.headers["accept-ranges"] == "none"
+    assert partial.content in {b"macos", b"new-windows"}
 
 
 def test_client_installer_list_is_empty_when_release_directory_has_no_installers(tmp_path, monkeypatch):

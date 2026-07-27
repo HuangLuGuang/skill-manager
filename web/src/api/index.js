@@ -121,7 +121,12 @@ export const createClientTask = (clientId, data) => api.post(`/v1/clients/${clie
 export const cancelClientTask = (clientId, taskId) => api.post(`/v1/clients/${clientId}/tasks/${taskId}/cancel`)
 export const retryClientTask = (clientId, taskId) => api.post(`/v1/clients/${clientId}/tasks/${taskId}/retry`)
 export const listClientDownloads = () => api.get('/v1/clients/downloads/available')
-export const downloadClientBinary = platform => api.get('/v1/clients/downloads/file', { params: { platform }, responseType: 'blob' })
+export const downloadClientBinary = (platform, onDownloadProgress) => api.get('/v1/clients/downloads/file', {
+  params: { platform },
+  responseType: 'blob',
+  timeout: 0,
+  onDownloadProgress,
+})
 export const listModelProviders = () => api.get('/v1/model-providers')
 export const createModelProvider = (data) => api.post('/v1/model-providers', data)
 export const updateModelProvider = (providerId, data) => api.put(`/v1/model-providers/${providerId}`, data)

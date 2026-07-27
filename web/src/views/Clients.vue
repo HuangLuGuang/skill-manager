@@ -208,8 +208,14 @@
               <a-select v-model:value="selectedPlatform" placeholder="选择系统与架构" style="width: 300px">
                 <a-select-option v-for="item in downloadPlatforms" :key="item.key" :value="item.key">{{ item.platform_label }} · {{ item.version }}</a-select-option>
               </a-select>
-              <a-button type="primary" :disabled="!selectedPlatform" @click="downloadSelectedClient">下载</a-button>
+              <a-button type="primary" :disabled="!selectedPlatform" :loading="clientDownloading" @click="downloadSelectedClient">
+                {{ clientDownloading ? '正在下载' : '下载' }}
+              </a-button>
             </a-space>
+            <div v-if="clientDownloading || clientDownloadProgress > 0" class="client-download-progress">
+              <a-progress :percent="clientDownloadProgress" :status="clientDownloadStatus" />
+              <span>{{ clientDownloadDetail }}</span>
+            </div>
           </template>
         </a-step>
         <a-step title="创建客户端接入凭证" description="前往“统一凭证中心”，类型选择“客户端接入凭证”，保留默认 client:* 权限。" />
@@ -257,6 +263,10 @@ const currentGovernance = ref('registry')
 const installForm = reactive({ agent_type: '', managed_agent_id: '', skill_id: '' })
 const downloadPlatforms = ref([])
 const selectedPlatform = ref()
+const clientDownloading = ref(false)
+const clientDownloadProgress = ref(0)
+const clientDownloadStatus = ref('active')
+const clientDownloadDetail = ref('')
 
 const columns = [
   { title: '客户端', key: 'client' },
@@ -444,15 +454,59 @@ const retryTask = async (record) => {
   await refreshDetail()
   message.success('任务已重新进入队列')
 }
+const downloadErrorDetail = async error => {
+  const data = error?.response?.data
+  if (data instanceof Blob) {
+    try {
+      const payload = JSON.parse(await data.text())
+      if (payload?.detail) return String(payload.detail)
+    } catch {
+      // Fall through to the regular network error message.
+    }
+  }
+  return data?.detail || error?.message || '下载失败'
+}
 const downloadClient = async ({ key }) => {
-  const blob = await downloadClientBinary(key)
   const release = downloadPlatforms.value.find(item => item.key === key)
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = release?.filename || `agent-manager-client-${key}`
-  link.click()
-  URL.revokeObjectURL(url)
+  if (!release || clientDownloading.value) return
+  clientDownloading.value = true
+  clientDownloadProgress.value = 0
+  clientDownloadStatus.value = 'active'
+  clientDownloadDetail.value = '正在连接平台'
+  try {
+    const blob = await downloadClientBinary(key, event => {
+      const loaded = Number(event.loaded || 0)
+      const total = Number(event.total || release.size || 0)
+      clientDownloadProgress.value = total > 0 ? Math.min(99, Math.round((loaded / total) * 100)) : 0
+      clientDownloadDetail.value = total > 0
+        ? `已接收 ${formatBytes(loaded)} / ${formatBytes(total)}`
+        : `已接收 ${formatBytes(loaded)}`
+    })
+    if (!(blob instanceof Blob) || blob.size <= 0) {
+      throw new Error('平台返回的安装包为空')
+    }
+    if (release.size && blob.size !== release.size) {
+      throw new Error(`安装包接收不完整：应为 ${formatBytes(release.size)}，实际为 ${formatBytes(blob.size)}`)
+    }
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = release.filename || `agent-manager-client-${key}`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000)
+    clientDownloadProgress.value = 100
+    clientDownloadStatus.value = 'success'
+    clientDownloadDetail.value = `已接收 ${formatBytes(blob.size)}，浏览器正在保存文件`
+    message.success('客户端安装包下载完成')
+  } catch (error) {
+    clientDownloadStatus.value = 'exception'
+    clientDownloadDetail.value = await downloadErrorDetail(error)
+    message.error(`下载安装包失败：${clientDownloadDetail.value}`)
+  } finally {
+    clientDownloading.value = false
+  }
 }
 const downloadSelectedClient = () => downloadClient({ key: selectedPlatform.value })
 
@@ -470,6 +524,12 @@ const formatTime = value => {
   const text = String(value)
   const utcValue = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : `${text}Z`
   return new Date(utcValue).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
+}
+const formatBytes = value => {
+  const bytes = Number(value || 0)
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 ** 2).toFixed(1)} MB`
 }
 const agentKind = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^claude$/, 'claudecode').replace(/^geminicli$/, 'gemini')
 const matchingAgents = agentType => String(agentType || '').startsWith('custom-')
@@ -548,6 +608,16 @@ onMounted(async () => {
 }
 .inline-note {
   margin-left: 8px;
+}
+.client-download-progress {
+  max-width: 470px;
+  margin-top: 14px;
+}
+.client-download-progress span {
+  display: block;
+  margin-top: 3px;
+  color: #7a869a;
+  font-size: 12px;
 }
 .detail-head {
   display: flex;

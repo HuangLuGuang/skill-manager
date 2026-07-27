@@ -302,6 +302,9 @@ button.is-busy, button.is-busy:disabled { cursor: wait; }
 .message-dialog p { margin: 0; color: #5f6d78; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
 .message-dialog-body > form { display: flex; justify-content: flex-end; margin-top: 22px; }
 .install-skill-dialog { width: min(540px, calc(100vw - 48px)); }
+.update-dialog { width: min(520px, calc(100vw - 48px)); }
+.update-dialog .overview-badge { display: inline-block; margin-bottom: 12px; }
+.update-dialog .operation-progress { margin-top: 18px; }
 .custom-agent-dialog { width: min(560px, calc(100vw - 48px)); }
 .agent-paths-dialog { width: min(620px, calc(100vw - 48px)); }
 .custom-agent-dialog .message-dialog-body { display: block; margin: 0; }

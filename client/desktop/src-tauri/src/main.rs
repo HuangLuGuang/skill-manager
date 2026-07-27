@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::plugin::PermissionState;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
@@ -60,6 +60,13 @@ struct UpdateResult {
     notes: Option<String>,
 }
 
+#[derive(Clone, Serialize)]
+struct UpdateProgress {
+    stage: &'static str,
+    downloaded: u64,
+    total: Option<u64>,
+}
+
 fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, String> {
     const ALLOWED: &[&str] = &[
         "configure",
@@ -85,6 +92,7 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "pause-governance",
         "resume-governance",
         "service-status",
+        "prepare-update",
         "reconcile-service",
         "local-status",
         "read-notifications",
@@ -341,10 +349,58 @@ async fn check_client_update(app: AppHandle, install: bool) -> Result<UpdateResu
         notes: update.body.clone(),
     };
     if install {
-        update
-            .download_and_install(|_, _| {}, || {})
-            .await
-            .map_err(|error| format!("安装更新失败: {error}"))?;
+        app.emit(
+            "client-update-progress",
+            UpdateProgress {
+                stage: "preparing",
+                downloaded: 0,
+                total: None,
+            },
+        )
+        .map_err(|error| format!("更新进度通知失败: {error}"))?;
+        execute_client_sync("prepare-update".to_string(), vec![])
+            .map_err(|error| format!("暂停后台服务失败: {error}"))?;
+        let progress_app = app.clone();
+        let finish_app = app.clone();
+        let mut downloaded = 0_u64;
+        let install_result = update
+            .download_and_install(
+                move |chunk_length, content_length| {
+                    downloaded += chunk_length as u64;
+                    let _ = progress_app.emit(
+                        "client-update-progress",
+                        UpdateProgress {
+                            stage: "downloading",
+                            downloaded,
+                            total: content_length,
+                        },
+                    );
+                },
+                move || {
+                    let _ = finish_app.emit(
+                        "client-update-progress",
+                        UpdateProgress {
+                            stage: "installing",
+                            downloaded: 0,
+                            total: None,
+                        },
+                    );
+                },
+            )
+            .await;
+        if let Err(error) = install_result {
+            let _ = execute_client_sync("reconcile-service".to_string(), vec![]);
+            return Err(format!("安装更新失败，原后台服务已恢复: {error}"));
+        }
+        let _ = app.emit(
+            "client-update-progress",
+            UpdateProgress {
+                stage: "restarting",
+                downloaded: 0,
+                total: None,
+            },
+        );
+        app.restart();
     }
     Ok(result)
 }
