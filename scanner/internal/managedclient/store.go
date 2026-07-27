@@ -232,19 +232,28 @@ func (store *Store) PendingItems() ([]PendingItem, error) {
 		if _, err := os.Stat(item.PendingPath); err != nil {
 			continue
 		}
-		known[filepath.Clean(item.PendingPath)] = true
+		known[canonicalExistingPath(item.PendingPath)] = true
 		result = append(result, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	legacy, _ := filepath.Glob(filepath.Join(store.root, "pending", "*", "*"))
+	legacyRoots := []string{
+		filepath.Join(filepath.Dir(store.root), ".river-security", "agent-manager", "pending"),
+		filepath.Join(store.root, "pending"),
+	}
+	legacy := []string{}
+	for _, root := range legacyRoots {
+		items, _ := filepath.Glob(filepath.Join(root, "*", "*"))
+		legacy = append(legacy, items...)
+	}
 	for _, path := range legacy {
 		info, statErr := os.Stat(path)
-		if statErr != nil || !info.IsDir() || known[filepath.Clean(path)] {
+		if statErr != nil || !info.IsDir() || known[canonicalExistingPath(path)] {
 			continue
 		}
+		known[canonicalExistingPath(path)] = true
 		result = append(result, PendingItem{
 			ID:          pendingID(path),
 			AgentType:   filepath.Base(filepath.Dir(path)),
@@ -257,6 +266,13 @@ func (store *Store) PendingItems() ([]PendingItem, error) {
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt > result[j].CreatedAt })
 	return result, nil
+}
+
+func canonicalExistingPath(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return filepath.Clean(path)
 }
 
 func (store *Store) PendingItem(id string) (PendingItem, error) {

@@ -590,7 +590,7 @@ async def submit_scanner_import(
 ):
     if scanner_auth.access_token and scanner_auth.access_token.token_type == "client":
         if not host_id or scanner_auth.access_token.bound_client_id != host_id:
-            raise HTTPException(status_code=403, detail="客户端凭证未绑定当前终端，请先连接并注册")
+            raise HTTPException(status_code=403, detail="当前凭证未绑定此客户端，请先连接并注册")
     max_bytes = scanner_auth.max_upload_mb * 1024 * 1024
     if file.size and file.size > max_bytes:
         raise HTTPException(status_code=413, detail=f"File too large (max {scanner_auth.max_upload_mb} MB)")

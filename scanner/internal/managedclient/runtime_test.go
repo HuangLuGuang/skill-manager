@@ -197,7 +197,8 @@ func TestInstallApprovedSkillSharesReleaseAcrossAgents(t *testing.T) {
 	codexSkills := filepath.Join(home, ".codex", "skills")
 	hermesSkills := filepath.Join(home, ".hermes", "skills")
 	opencodeSkills := filepath.Join(home, ".config", "opencode", "skills")
-	for _, path := range []string{codexSkills, hermesSkills, opencodeSkills} {
+	geminiSkills := filepath.Join(home, ".gemini", "skills")
+	for _, path := range []string{codexSkills, hermesSkills, opencodeSkills, geminiSkills} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -235,6 +236,7 @@ func TestInstallApprovedSkillSharesReleaseAcrossAgents(t *testing.T) {
 			{AgentType: "codex", SkillsPath: codexSkills, SkillManagementSupported: true},
 			{AgentType: "hermes", SkillsPath: hermesSkills, SkillManagementSupported: true},
 			{AgentType: "opencode", SkillsPath: opencodeSkills, SkillManagementSupported: true},
+			{AgentType: "gemini", SkillsPath: geminiSkills, SkillManagementSupported: true},
 		},
 	}
 	policy := Policy{ReleasePublicKey: base64.StdEncoding.EncodeToString(publicKey)}
@@ -248,7 +250,7 @@ func TestInstallApprovedSkillSharesReleaseAcrossAgents(t *testing.T) {
 		t.Fatalf("approved install did not resolve quarantine: %#v %v", items, err)
 	}
 
-	expectedTarget := filepath.Join(home, ".agent-manager", "skills", "skill-1", "release")
+	expectedTarget := filepath.Join(ManagedSkillsRoot(home), "skill-1", "release")
 	expectedTarget, err = filepath.EvalSymlinks(expectedTarget)
 	if err != nil {
 		t.Fatal(err)
@@ -272,6 +274,16 @@ func TestInstallApprovedSkillSharesReleaseAcrossAgents(t *testing.T) {
 			t.Fatalf("%s points to %s, want %s", link, target, expectedTarget)
 		}
 	}
+	brokenLink := filepath.Join(geminiSkills, "safe-skill")
+	if err := os.Symlink(filepath.Join(home, ".agent-manager", "skills", "deleted-skill", "release"), brokenLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallApprovedSkill(context.Background(), home, inventory, policy, api, store, "gemini", "", "skill-1"); err != nil {
+		t.Fatalf("approved install did not replace broken managed link: %v", err)
+	}
+	if target, err := filepath.EvalSymlinks(brokenLink); err != nil || target != expectedTarget {
+		t.Fatalf("broken managed link was not restored: %s %v", target, err)
+	}
 	conflict := filepath.Join(opencodeSkills, "safe-skill")
 	if err := os.MkdirAll(conflict, 0o755); err != nil {
 		t.Fatal(err)
@@ -285,6 +297,30 @@ func TestInstallApprovedSkillSharesReleaseAcrossAgents(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join(conflict, "SKILL.md"))
 	if err != nil || string(body) != "local content" {
 		t.Fatalf("same-name conflict was overwritten: %q %v", body, err)
+	}
+}
+
+func TestManagedSymlinkTargetAcceptsCurrentAndLegacyTakeoverPaths(t *testing.T) {
+	home := t.TempDir()
+	manifest := releaseManifest{ContentSignature: "signature-1"}
+	for _, target := range []string{
+		filepath.Join(ManagedSkillsRoot(home), "skill-1", "release"),
+		filepath.Join(ManagedSkillsRoot(home), "skill-1", "signature-1"),
+		filepath.Join(legacyContentRoot(home, "skills"), "skill-1", "signature-1"),
+	} {
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(t.TempDir(), "safe-skill")
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+		resolved, ok := managedSymlinkTarget(home, Installation{
+			SkillID: "skill-1", TargetPath: link, Manifest: manifest,
+		})
+		if !ok || filepath.Clean(resolved) != filepath.Clean(target) {
+			t.Fatalf("managed target was rejected: target=%s resolved=%s", target, resolved)
+		}
 	}
 }
 

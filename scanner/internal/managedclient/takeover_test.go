@@ -25,10 +25,10 @@ func TestApplyTakeoverManagesAllowedAndMovesDenied(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(backup, "codex", "allowed", "SKILL.md")); err != nil {
 		t.Fatal("allowed skill was not backed up:", err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".agent-manager", "skills", "skill-1", "abc", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(ManagedSkillsRoot(home), "skill-1", "release", "SKILL.md")); err != nil {
 		t.Fatal("allowed skill was not stored:", err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".agent-manager", "pending", "codex", "denied", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(PendingRoot(home), "codex", "denied", "SKILL.md")); err != nil {
 		t.Fatal("denied skill was not moved to pending:", err)
 	}
 	if _, err := os.Stat(filepath.Join(denied, "SKILL.md")); !os.IsNotExist(err) {
@@ -45,6 +45,9 @@ func TestApplyTakeoverManagesAllowedAndMovesDenied(t *testing.T) {
 	installs, err := store.Installations()
 	if err != nil || len(installs) != 1 || installs[0].ManagedAgentID != "codex-agent" {
 		t.Fatalf("takeover install was not recorded: %#v %v", installs, err)
+	}
+	if !verifyManagedInstall(home, installs[0]) {
+		t.Fatal("newly taken-over Skill was immediately treated as modified")
 	}
 	pending, err := store.PendingItems()
 	if err != nil || len(pending) != 1 || pending[0].OriginalPath != denied || pending[0].Status != "pending" {

@@ -4,7 +4,7 @@ set -euo pipefail
 
 bundle_root="${1:-src-tauri/target/release/bundle}"
 signing_mode="${AGENT_MANAGER_MACOS_SIGNING_MODE:-adhoc}"
-app_path="$bundle_root/macos/瑞数智能体安全治理终端.app"
+app_path="$bundle_root/macos/瑞数智能体安全治理客户端.app"
 dmg_path="$(find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
 
 if [[ "$signing_mode" != "adhoc" && "$signing_mode" != "developer-id" ]]; then

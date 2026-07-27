@@ -154,7 +154,7 @@ func Discover(home string) (Inventory, error) {
 		}
 		agent.Capabilities["path_available"] = true
 		agent.Capabilities["skill_roots"] = []string{custom.SkillsPath}
-		agent.Skills, err = readSkills(custom.SkillsPath, filepath.Join(home, ".agent-manager", "skills"), opts)
+		agent.Skills, err = readSkills(custom.SkillsPath, ManagedSkillsRoot(home), opts)
 		if err != nil {
 			return result, fmt.Errorf("%s skill discovery failed at %s: %w", custom.Name, custom.SkillsPath, err)
 		}
@@ -236,7 +236,7 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 		agent.Capabilities["skill_roots"] = roots
 	}
 	for _, root := range roots {
-		skills, err := readSkills(root, filepath.Join(home, ".agent-manager", "skills"), opts)
+		skills, err := readSkills(root, ManagedSkillsRoot(home), opts)
 		if err != nil {
 			return agent, false, fmt.Errorf("%s skill discovery failed at %s: %w", spec.agentType, root, err)
 		}
@@ -350,7 +350,7 @@ func readSkills(root, managedRoot string, opts manifest.Options) ([]Skill, error
 		return nil, err
 	}
 	result := []Skill{}
-	userRoot := filepath.Dir(filepath.Dir(managedRoot))
+	userRoot := homeFromManagedRoot(managedRoot)
 	for _, entry := range entries {
 		path := filepath.Join(root, entry.Name())
 		buildRoot := path
@@ -360,7 +360,21 @@ func readSkills(root, managedRoot string, opts manifest.Options) ([]Skill, error
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			resolved, err := filepath.EvalSymlinks(path)
-			if err != nil || !pathWithin(resolved, userRoot) {
+			if err != nil {
+				target, _ := os.Readlink(path)
+				if target != "" && !filepath.IsAbs(target) {
+					target = filepath.Join(filepath.Dir(path), target)
+				}
+				result = append(result, Skill{
+					Name:         entry.Name(),
+					Path:         path,
+					Status:       "broken_link",
+					SourceTarget: filepath.Clean(target),
+					Error:        "Skill 软链接目标不存在，可能已删除客户端受管目录；请从平台重新安装可信版本",
+				})
+				continue
+			}
+			if !pathWithin(resolved, userRoot) {
 				continue
 			}
 			info, err := os.Stat(resolved)
@@ -398,6 +412,15 @@ func readSkills(root, managedRoot string, opts manifest.Options) ([]Skill, error
 		})
 	}
 	return result, nil
+}
+
+func homeFromManagedRoot(managedRoot string) string {
+	productRoot := filepath.Dir(managedRoot)
+	if filepath.Base(productRoot) == dataProductName &&
+		filepath.Base(filepath.Dir(productRoot)) == dataDirectoryName {
+		return filepath.Dir(filepath.Dir(productRoot))
+	}
+	return filepath.Dir(filepath.Dir(managedRoot))
 }
 
 func symlinkTarget(path, resolved string) string {

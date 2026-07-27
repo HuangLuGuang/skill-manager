@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -111,5 +112,62 @@ func TestSubmitPendingDoesNotLinkSameNameWithDifferentContent(t *testing.T) {
 		if item.ID == "pending-2" && item.SkillID != "" {
 			t.Fatalf("same-name Skill with different content was linked: %#v", item)
 		}
+	}
+}
+
+func TestRefreshPendingDoesNotFingerprintUnsubmittedItems(t *testing.T) {
+	home := t.TempDir()
+	pendingPath := filepath.Join(home, ".agent-manager", "pending", "codex", "demo")
+	writeSkill(t, pendingPath, "demo")
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.SavePending(PendingItem{
+		ID: "pending-1", AgentType: "codex", SkillName: "demo",
+		PendingPath: pendingPath, Reason: "skill_not_found",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := RefreshPending(context.Background(), "http://unused.invalid", "token", store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Fingerprint != "" {
+		t.Fatalf("status refresh should not scan unsubmitted Skill files: %#v", items)
+	}
+}
+
+func TestSubmitPendingRejectsEmptyDirectoryBeforeUpload(t *testing.T) {
+	home := t.TempDir()
+	pendingPath := filepath.Join(home, ".agent-manager", "pending", "codex", "empty")
+	if err := os.MkdirAll(pendingPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.SavePending(PendingItem{
+		ID: "pending-empty", AgentType: "codex", SkillName: "empty",
+		PendingPath: pendingPath, Reason: "legacy_pending",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = SubmitPending(context.Background(), home, "http://unused.invalid", "token", store, "pending-empty")
+	if err == nil || !strings.Contains(err.Error(), "缺少 SKILL.md") {
+		t.Fatalf("expected a clear local validation error, got %v", err)
+	}
+}
+
+func TestClientIDForHomeDoesNotRequireDiscovery(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "missing-home")
+	hostname, _ := os.Hostname()
+	if got, want := clientIDForHome(home), DeviceID(hostname, home); got != want {
+		t.Fatalf("unexpected client ID: got %q want %q", got, want)
 	}
 }

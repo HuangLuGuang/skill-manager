@@ -16,28 +16,31 @@ type Backup struct {
 }
 
 func ListBackups(home string) ([]Backup, error) {
-	root := filepath.Join(home, ".agent-manager", "backups")
-	entries, err := os.ReadDir(root)
-	if os.IsNotExist(err) {
-		return []Backup{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	result := make([]Backup, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), "restore-before-") {
+	result := []Backup{}
+	known := map[string]bool{}
+	for _, root := range backupRoots(home) {
+		entries, err := os.ReadDir(root)
+		if os.IsNotExist(err) {
 			continue
 		}
-		info, err := entry.Info()
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, Backup{
-			Name:      entry.Name(),
-			Path:      filepath.Join(root, entry.Name()),
-			CreatedAt: info.ModTime().UTC().Format(time.RFC3339),
-		})
+		for _, entry := range entries {
+			if !entry.IsDir() || strings.HasPrefix(entry.Name(), "restore-before-") || known[entry.Name()] {
+				continue
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return nil, err
+			}
+			known[entry.Name()] = true
+			result = append(result, Backup{
+				Name:      entry.Name(),
+				Path:      filepath.Join(root, entry.Name()),
+				CreatedAt: info.ModTime().UTC().Format(time.RFC3339),
+			})
+		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt > result[j].CreatedAt })
 	return result, nil
@@ -47,10 +50,18 @@ func RestoreBackup(home, name string) error {
 	if name == "" || filepath.Base(name) != name || name == "." || name == ".." {
 		return fmt.Errorf("invalid backup name")
 	}
-	root := filepath.Join(home, ".agent-manager", "backups")
-	sourceRoot := filepath.Join(root, name)
-	info, err := os.Lstat(sourceRoot)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+	root := ""
+	sourceRoot := ""
+	for _, candidateRoot := range backupRoots(home) {
+		candidate := filepath.Join(candidateRoot, name)
+		info, err := os.Lstat(candidate)
+		if err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+			root = candidateRoot
+			sourceRoot = candidate
+			break
+		}
+	}
+	if sourceRoot == "" {
 		return fmt.Errorf("backup not found: %s", name)
 	}
 	roots := map[string]string{}
@@ -106,4 +117,8 @@ func RestoreBackup(home, name string) error {
 		}
 	}
 	return nil
+}
+
+func backupRoots(home string) []string {
+	return []string{BackupsRoot(home), legacyContentRoot(home, "backups")}
 }

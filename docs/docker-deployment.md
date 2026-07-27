@@ -74,7 +74,7 @@ scanner/releases/agent-manager-client-26.03.15-windows-x86_64.exe
 scanner/releases/agent-manager-client-26.03.15-linux-x86_64.AppImage
 ```
 
-Docker Compose 已将宿主机 `scanner/releases` 只读挂载到后端。部署完成后，管理员可在“终端管理 → 安装客户端”按系统和版本下载；新增版本只需把新的 release 文件复制到该目录，无需重建镜像。
+Docker Compose 已将宿主机 `scanner/releases` 只读挂载到后端。部署完成后，管理员可在“客户端管理 → 安装客户端”按系统和版本下载；新增版本只需把新的 release 文件复制到该目录，无需重建镜像。
 
 ## 35 自动部署与离线发布
 

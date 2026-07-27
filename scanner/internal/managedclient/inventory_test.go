@@ -266,6 +266,29 @@ func TestDiscoverIncludesManagedSymlink(t *testing.T) {
 	}
 }
 
+func TestDiscoverKeepsBrokenManagedSymlinkVisible(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".codex", "skills")
+	target := filepath.Join(home, ".agent-manager", "skills", "deleted", "release")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "deleted-skill")); err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := Discover(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Agents) != 1 || len(inventory.Agents[0].Skills) != 1 {
+		t.Fatalf("broken managed symlink should remain visible: %#v", inventory.Agents)
+	}
+	skill := inventory.Agents[0].Skills[0]
+	if skill.Name != "deleted-skill" || skill.Status != "broken_link" || !strings.Contains(skill.Error, "软链接目标不存在") {
+		t.Fatalf("unexpected broken symlink result: %#v", skill)
+	}
+}
+
 func TestReadSkillsKeepsSkillWhenSignatureLimitsAreExceeded(t *testing.T) {
 	home := t.TempDir()
 	root := filepath.Join(home, ".codex", "skills")

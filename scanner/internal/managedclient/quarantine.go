@@ -24,7 +24,7 @@ func QuarantineSkill(home string, store *Store, agentType, skillName, source, re
 	now := time.Now().UTC()
 	sum := sha256.Sum256([]byte(source + "\x00" + now.Format(time.RFC3339Nano)))
 	id := now.Format("20060102T150405Z") + "-" + hex.EncodeToString(sum[:6])
-	target := filepath.Join(home, ".agent-manager", "quarantine", id, filepath.Base(source))
+	target := filepath.Join(QuarantineRoot(home), id, filepath.Base(source))
 	if err := copyDir(source, target); err != nil {
 		return QuarantineItem{}, err
 	}

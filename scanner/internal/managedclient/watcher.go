@@ -49,7 +49,7 @@ func (watcher *SkillWatcher) Close() error {
 }
 
 func (watcher *SkillWatcher) Refresh(home string, store *Store) error {
-	roots := []string{filepath.Join(home, ".agent-manager", "skills")}
+	roots := managedSkillsRoots(home)
 	for _, spec := range adapters() {
 		for _, root := range spec.skillRoots {
 			roots = append(roots, filepath.Join(home, root))

@@ -1,8 +1,12 @@
 package managedclient
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"html"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +19,16 @@ type ServiceState struct {
 	Installed bool   `json:"installed"`
 	Running   bool   `json:"running"`
 	Detail    string `json:"detail,omitempty"`
+}
+
+type ServiceReconcileResult struct {
+	Restarted bool         `json:"restarted"`
+	State     ServiceState `json:"state"`
+}
+
+type serviceRegistration struct {
+	Executable string `json:"executable"`
+	SHA256     string `json:"sha256"`
 }
 
 func ServiceDefinition(home, executable, goos string) (string, string, error) {
@@ -68,6 +82,10 @@ WantedBy=default.target
 }
 
 func InstallService(home, executable string) (string, error) {
+	executable, err := filepath.Abs(executable)
+	if err != nil {
+		return "", err
+	}
 	path, body, err := ServiceDefinition(home, executable, runtime.GOOS)
 	if err != nil {
 		return "", err
@@ -109,6 +127,9 @@ func InstallService(home, executable string) (string, error) {
 		}
 		_ = exec.Command("schtasks", "/Run", "/TN", "AgentManagerClient").Run()
 	}
+	if err := writeServiceRegistration(home, executable); err != nil {
+		return "", err
+	}
 	return path, nil
 }
 
@@ -149,7 +170,35 @@ func UninstallService(home string) error {
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	if err := os.Remove(serviceRegistrationPath(home)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	return nil
+}
+
+func ReconcileService(home, executable string) (ServiceReconcileResult, error) {
+	state := ServiceStatus(home)
+	result := ServiceReconcileResult{State: state}
+	if !state.Installed {
+		return result, nil
+	}
+	executable, err := filepath.Abs(executable)
+	if err != nil {
+		return result, err
+	}
+	matches, err := serviceRegistrationMatches(home, executable)
+	if err != nil {
+		return result, err
+	}
+	if matches && state.Running {
+		return result, nil
+	}
+	if _, err := InstallService(home, executable); err != nil {
+		return result, err
+	}
+	result.Restarted = true
+	result.State = ServiceStatus(home)
+	return result, nil
 }
 
 func ServiceStatus(home string) ServiceState {
@@ -176,4 +225,57 @@ func ServiceStatus(home string) ServiceState {
 		state.Detail = strings.TrimSpace(string(output))
 	}
 	return state
+}
+
+func serviceRegistrationPath(home string) string {
+	return filepath.Join(home, ".agent-manager", "service.json")
+}
+
+func executableSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func writeServiceRegistration(home, executable string) error {
+	digest, err := executableSHA256(executable)
+	if err != nil {
+		return err
+	}
+	registration := serviceRegistration{Executable: executable, SHA256: digest}
+	body, err := json.MarshalIndent(registration, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := serviceRegistrationPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(body, '\n'), 0o600)
+}
+
+func serviceRegistrationMatches(home, executable string) (bool, error) {
+	body, err := os.ReadFile(serviceRegistrationPath(home))
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var registration serviceRegistration
+	if err := json.Unmarshal(body, &registration); err != nil {
+		return false, nil
+	}
+	digest, err := executableSHA256(executable)
+	if err != nil {
+		return false, err
+	}
+	return registration.Executable == executable && registration.SHA256 == digest, nil
 }

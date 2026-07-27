@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "瑞数智能体安全治理客户端 Dev",
+  "identifier": "com.agent-manager.client.dev",
+  "app": {
+    "windows": [
+      {
+        "title": "瑞数智能体安全治理客户端 Dev",
+        "width": 1080,
+        "height": 720,
+        "minWidth": 900,
+        "minHeight": 620,
+        "resizable": true
+      }
+    ]
+  }
+}

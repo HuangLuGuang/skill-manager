@@ -66,7 +66,7 @@ Agent Manager 用一套“提交、扫描、审批、签名、运行时校验、
 
 ### 3.1 Agent 最终加载的 Skill 永远是本地文件
 
-Agent Manager 管理 Skill 的准入状态、签名和授权，也可以通过 Agent Manager Client 把批准版本安全安装到客户终端。无论通过哪种方式接入，Agent 最终加载的仍是本地目录，不会直接执行平台数据库中的内容。
+Agent Manager 管理 Skill 的准入状态、签名和授权，也可以通过 Agent Manager Client 把批准版本安全安装到客户侧客户端。无论通过哪种方式接入，Agent 最终加载的仍是本地目录，不会直接执行平台数据库中的内容。
 
 平台管理的是：
 
@@ -751,18 +751,18 @@ Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privac
 
 ---
 
-## 13. 终端 Skill 怎么统一接管
+## 13. 客户端 Skill 怎么统一接管
 
 当客户同时使用 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes 或其他支持 Skill 目录的 Agent 时，推荐安装 Agent Manager Client：
 
-1. 在“智能体管理 -> 统一凭证中心”创建终端接入凭证。
+1. 在“智能体管理 -> 统一凭证中心”创建客户端接入凭证。
 2. 安装客户端并输入 Agent Manager 地址和凭证。
-3. 默认使用“终端安全治理”；需要限制每个 Agent 的 Skill 范围时，再切换到“Agent 强授权”并绑定平台智能体。
+3. 默认使用“客户端安全治理”；需要限制每个 Agent 的 Skill 范围时，再切换到“Agent 强授权”并绑定平台智能体。
 4. 客户端自动发现六类内置工具；其他 Agent 可填写名称并选择或输入 Skill 根目录，随后同样可逐项选择接管。
 5. 用户确认后，符合当前治理方式的已批准 Skill 进入安全仓库，其余内容备份后移入待处理目录。
 6. 后台服务持续执行平台任务、完整性巡检和异常隔离；离线事件在恢复连接后补报。
 
-平台入口为“智能体管理 -> 终端管理”，可以查看 Agent 映射、已安装 Skill、任务和异常，也可以从 Skill 详情直接创建“安装到终端”任务。
+平台入口为“智能体管理 -> 客户端管理”，可以查看 Agent 映射、已安装 Skill、任务和异常，也可以从 Skill 详情直接创建“安装到客户端”任务。
 
 详细说明：
 
@@ -855,7 +855,7 @@ sequenceDiagram
   [customer-demo-runbook.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/customer-demo-runbook.md)
 - 客户侧扫描器：
   [skill-scanner.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/skill-scanner.md)
-- 终端 Skill 统一接管：
+- 客户端 Skill 统一接管：
   [agent-manager-client.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/agent-manager-client.md)
 - 管理台与容器化部署：
   [docker-deployment.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/docker-deployment.md)

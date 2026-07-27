@@ -5,7 +5,8 @@
   "scripts": {
     "prepare": "node scripts/prepare-sidecar.mjs",
     "prepare:release": "node scripts/prepare-release-config.mjs",
-    "dev": "npm run prepare && tauri dev",
+    "frontend:dev": "vite src --host 127.0.0.1 --port 1420 --strictPort",
+    "dev": "npm run prepare && tauri dev --config src-tauri/tauri.dev.conf.json",
     "build": "npm run build:mac",
     "build:mac": "npm run prepare && tauri build --bundles app",
     "build:windows": "npm run prepare && tauri build --bundles nsis",
@@ -15,6 +16,7 @@
     "release:linux": "node scripts/build-release.mjs linux"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.0.4"
+    "@tauri-apps/cli": "2.0.4",
+    "vite": "^6.4.3"
   }
 }

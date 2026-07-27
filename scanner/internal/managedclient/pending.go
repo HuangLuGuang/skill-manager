@@ -3,6 +3,7 @@ package managedclient
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -17,7 +18,7 @@ func SubmitPending(ctx context.Context, home, server, token string, store *Store
 	if err != nil {
 		return scannerclient.SubmitResult{}, err
 	}
-	items, err = synchronizePendingGroups(store, items)
+	items, err = linkPendingGroups(store, items)
 	if err != nil {
 		return scannerclient.SubmitResult{}, err
 	}
@@ -43,12 +44,18 @@ func SubmitPending(ctx context.Context, home, server, token string, store *Store
 	if err != nil {
 		return scannerclient.SubmitResult{}, err
 	}
+	if info, statErr := os.Stat(filepath.Join(skillRoot, "SKILL.md")); statErr != nil || info.IsDir() {
+		return scannerclient.SubmitResult{}, fmt.Errorf("待处理 Skill 缺少 SKILL.md，目录可能已被移动或清空")
+	}
 	value, err := manifest.Build(skillRoot, DefaultManifestOptions())
 	if err != nil {
 		return scannerclient.SubmitResult{}, err
 	}
 	item.Fingerprint = value.Fingerprint
 	if err := store.UpdatePendingFingerprint(item.ID, item.Fingerprint); err != nil {
+		return scannerclient.SubmitResult{}, err
+	}
+	if err := fingerprintPendingPeers(store, items, item); err != nil {
 		return scannerclient.SubmitResult{}, err
 	}
 	tmp, err := os.MkdirTemp("", "agent-manager-pending-")
@@ -88,7 +95,7 @@ func RefreshPending(ctx context.Context, server, token string, store *Store) ([]
 	if err != nil {
 		return nil, err
 	}
-	items, err = synchronizePendingGroups(store, items)
+	items, err = linkPendingGroups(store, items)
 	if err != nil {
 		return nil, err
 	}
@@ -115,23 +122,31 @@ func RefreshPending(ctx context.Context, server, token string, store *Store) ([]
 	return items, nil
 }
 
-func synchronizePendingGroups(store *Store, items []PendingItem) ([]PendingItem, error) {
+func fingerprintPendingPeers(store *Store, items []PendingItem, submitted PendingItem) error {
+	for index := range items {
+		candidate := &items[index]
+		if candidate.ID == submitted.ID || candidate.Fingerprint != "" || candidate.SkillName != submitted.SkillName {
+			continue
+		}
+		root, err := filepath.EvalSymlinks(candidate.PendingPath)
+		if err != nil {
+			continue
+		}
+		value, err := manifest.Build(root, DefaultManifestOptions())
+		if err != nil {
+			continue
+		}
+		candidate.Fingerprint = value.Fingerprint
+		if err := store.UpdatePendingFingerprint(candidate.ID, candidate.Fingerprint); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func linkPendingGroups(store *Store, items []PendingItem) ([]PendingItem, error) {
 	groups := map[string][]int{}
 	for index := range items {
-		if items[index].Fingerprint == "" {
-			root, err := filepath.EvalSymlinks(items[index].PendingPath)
-			if err != nil {
-				continue
-			}
-			value, err := manifest.Build(root, DefaultManifestOptions())
-			if err != nil {
-				continue
-			}
-			items[index].Fingerprint = value.Fingerprint
-			if err := store.SavePending(items[index]); err != nil {
-				return nil, err
-			}
-		}
 		if items[index].Fingerprint != "" {
 			groups[items[index].Fingerprint] = append(groups[items[index].Fingerprint], index)
 		}
@@ -172,9 +187,6 @@ func pendingStatusTerminal(status string) bool {
 }
 
 func clientIDForHome(home string) string {
-	inventory, err := Discover(home)
-	if err != nil {
-		return ""
-	}
-	return inventory.ClientID
+	hostname, _ := os.Hostname()
+	return DeviceID(hostname, home)
 }
