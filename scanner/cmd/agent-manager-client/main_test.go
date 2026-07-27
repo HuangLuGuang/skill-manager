@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
@@ -25,6 +28,46 @@ func TestLoadCachedInventoryRejectsOutdatedCache(t *testing.T) {
 	cached, err := loadCachedInventory(store)
 	if err != nil || cached.ClientID != "current-client" {
 		t.Fatalf("current inventory cache was not loaded: %#v %v", cached, err)
+	}
+}
+
+func TestTakeoverPreviewUsesCachedInventory(t *testing.T) {
+	home := t.TempDir()
+	store, err := managedclient.OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveInventory(managedclient.Inventory{
+		ClientID: "cached-client",
+		Agents: []managedclient.Agent{{
+			AgentType:                "codex",
+			SkillManagementSupported: true,
+			Skills:                   []managedclient.Skill{{Name: "cached-skill", Path: "/missing/cached-skill", Signature: "cached-signature"}},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v1/clients/cached-client/inventory":
+			response.WriteHeader(http.StatusOK)
+		case "/api/v1/clients/cached-client/compare":
+			_ = json.NewEncoder(response).Encode(map[string]any{"items": []map[string]any{{
+				"agent_type": "codex", "name": "cached-skill", "local_path": "/missing/cached-skill",
+				"local_signature": "cached-signature", "allowed": false, "reason": "skill_not_found",
+			}}})
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	if err := run([]string{"takeover", "--home", home, "--server", server.URL, "--token", "token", "--skill", "/missing/cached-skill"}); err != nil {
+		t.Fatalf("takeover preview should use cached inventory without reading the missing Skill path: %v", err)
 	}
 }
 

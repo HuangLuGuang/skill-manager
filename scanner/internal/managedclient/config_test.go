@@ -34,3 +34,26 @@ func TestConfigAndServiceDefinitions(t *testing.T) {
 		t.Fatalf("invalid Windows service: %s %s %v", windowsPath, windowsBody, err)
 	}
 }
+
+func TestServiceRegistrationDetectsExecutableChanges(t *testing.T) {
+	home := t.TempDir()
+	executable := filepath.Join(t.TempDir(), "agent-manager-client")
+	if err := os.WriteFile(executable, []byte("first build"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if matches, err := serviceRegistrationMatches(home, executable); err != nil || matches {
+		t.Fatalf("missing registration should not match: %v %v", matches, err)
+	}
+	if err := writeServiceRegistration(home, executable); err != nil {
+		t.Fatal(err)
+	}
+	if matches, err := serviceRegistrationMatches(home, executable); err != nil || !matches {
+		t.Fatalf("fresh registration should match: %v %v", matches, err)
+	}
+	if err := os.WriteFile(executable, []byte("second build"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if matches, err := serviceRegistrationMatches(home, executable); err != nil || matches {
+		t.Fatalf("changed executable should require restart: %v %v", matches, err)
+	}
+}

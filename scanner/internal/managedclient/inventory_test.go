@@ -3,6 +3,7 @@ package managedclient
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"skill-manager/scanner/internal/manifest"
@@ -123,6 +124,34 @@ func TestRemoveCustomAgentKeepsSkillDirectory(t *testing.T) {
 	}
 }
 
+func TestDiscoverDeduplicatesCustomAgentUsingBuiltinRoot(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".trae-cn", "skills")
+	writeSkill(t, filepath.Join(root, "code-review"), "code-review")
+	if err := SaveConfig(home, Config{
+		Server: "http://agent-manager",
+		Token:  "token",
+		CustomAgents: []CustomAgentConfig{{
+			AgentType:  "custom-trae",
+			Name:       "Trae IDE",
+			SkillsPath: root,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	inventory, err := Discover(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Agents) != 1 || inventory.Agents[0].AgentType != "trae-cn" {
+		t.Fatalf("duplicate custom Agent should be hidden in favor of built-in Agent: %#v", inventory.Agents)
+	}
+	if _, err := AddCustomAgent(home, "Trae IDE", root); err == nil || !strings.Contains(err.Error(), "内置 Agent trae-cn") {
+		t.Fatalf("expected duplicate built-in directory error, got %v", err)
+	}
+}
+
 func TestBuiltinAgentSkillRootsCanBeCustomizedAndReset(t *testing.T) {
 	home := t.TempDir()
 	if err := SaveConfig(home, Config{Server: "http://agent-manager", Token: "token"}); err != nil {
@@ -234,6 +263,29 @@ func TestDiscoverIncludesManagedSymlink(t *testing.T) {
 	}
 	if len(inventory.Agents) != 1 || len(inventory.Agents[0].Skills) != 1 {
 		t.Fatalf("managed symlink was not discovered: %#v", inventory.Agents)
+	}
+}
+
+func TestDiscoverKeepsBrokenManagedSymlinkVisible(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".codex", "skills")
+	target := filepath.Join(home, ".agent-manager", "skills", "deleted", "release")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "deleted-skill")); err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := Discover(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Agents) != 1 || len(inventory.Agents[0].Skills) != 1 {
+		t.Fatalf("broken managed symlink should remain visible: %#v", inventory.Agents)
+	}
+	skill := inventory.Agents[0].Skills[0]
+	if skill.Name != "deleted-skill" || skill.Status != "broken_link" || !strings.Contains(skill.Error, "软链接目标不存在") {
+		t.Fatalf("unexpected broken symlink result: %#v", skill)
 	}
 }
 

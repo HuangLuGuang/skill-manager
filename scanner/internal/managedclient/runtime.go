@@ -253,7 +253,7 @@ func InstallApprovedSkill(ctx context.Context, home string, inventory Inventory,
 	if err != nil {
 		return err
 	}
-	target := filepath.Join(home, ".agent-manager", "skills", skillID, "release")
+	target := filepath.Join(ManagedSkillsRoot(home), skillID, "release")
 	manifest, err := VerifyAndExtractPackage(body, policy.ReleasePublicKey, target)
 	if err != nil {
 		return err
@@ -268,6 +268,9 @@ func InstallApprovedSkill(ctx context.Context, home string, inventory Inventory,
 			resolved, resolveErr := filepath.EvalSymlinks(link)
 			resolvedTarget, targetErr := filepath.EvalSymlinks(target)
 			sameInstall = resolveErr == nil && targetErr == nil && filepath.Clean(resolved) == filepath.Clean(resolvedTarget)
+			if resolveErr != nil && brokenManagedSymlink(home, link) {
+				sameInstall = true
+			}
 		}
 		if !sameInstall {
 			installs, listErr := store.Installations()
@@ -315,6 +318,22 @@ func InstallApprovedSkill(ctx context.Context, home string, inventory Inventory,
 	}
 	_ = reportEvent(ctx, api, store, inventory.ClientID, "skill_installed", agentType, manifest.Name, map[string]any{"skill_id": skillID})
 	return nil
+}
+
+func brokenManagedSymlink(home, link string) bool {
+	target, err := os.Readlink(link)
+	if err != nil {
+		return false
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(link), target)
+	}
+	for _, managedRoot := range managedSkillsRoots(home) {
+		if pathWithinLexical(target, managedRoot) {
+			return true
+		}
+	}
+	return false
 }
 
 func patrol(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, fullScan, online bool) error {
@@ -556,8 +575,18 @@ func managedSymlinkTarget(home string, install Installation) (string, bool) {
 	if !filepath.IsAbs(target) {
 		target = filepath.Join(filepath.Dir(install.TargetPath), target)
 	}
-	expected := filepath.Join(home, ".agent-manager", "skills", install.SkillID, "release")
-	return expected, filepath.Clean(target) == filepath.Clean(expected)
+	for _, root := range managedSkillsRoots(home) {
+		candidates := []string{filepath.Join(root, install.SkillID, "release")}
+		if install.Manifest.ContentSignature != "" {
+			candidates = append(candidates, filepath.Join(root, install.SkillID, install.Manifest.ContentSignature))
+		}
+		for _, expected := range candidates {
+			if filepath.Clean(target) == filepath.Clean(expected) {
+				return expected, true
+			}
+		}
+	}
+	return "", false
 }
 
 func verifyManagedInstall(home string, install Installation) bool {

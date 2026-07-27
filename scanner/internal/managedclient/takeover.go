@@ -83,18 +83,25 @@ func RecordTakeover(home string, plan TakeoverPlan, store *Store) error {
 			continue
 		}
 		if item.Action != "manage" {
+			fingerprint := ""
+			if item.PendingPath != "" {
+				if value, err := manifest.Build(item.PendingPath, opts); err == nil {
+					fingerprint = value.Fingerprint
+				}
+			}
 			if err := store.SavePending(PendingItem{
 				AgentType:    item.AgentType,
 				SkillName:    item.Name,
 				OriginalPath: item.Source,
 				PendingPath:  item.PendingPath,
 				Reason:       item.Reason,
+				Fingerprint:  fingerprint,
 			}); err != nil {
 				return err
 			}
 			continue
 		}
-		root := filepath.Join(home, ".agent-manager", "skills", item.SkillID, item.Signature)
+		root := filepath.Join(ManagedSkillsRoot(home), item.SkillID, "release")
 		value, err := manifest.Build(root, opts)
 		if err != nil {
 			return err
@@ -135,9 +142,8 @@ func RestoreTakeover(plan TakeoverPlan, backupRoot string) {
 }
 
 func ApplyTakeover(home string, plan *TakeoverPlan) (string, error) {
-	root := filepath.Join(home, ".agent-manager")
 	stamp := time.Now().UTC().Format("20060102T150405Z")
-	backupRoot := filepath.Join(root, "backups", stamp)
+	backupRoot := filepath.Join(BackupsRoot(home), stamp)
 	processed := []TakeoverItem{}
 	for index := range plan.Items {
 		item := &plan.Items[index]
@@ -151,9 +157,9 @@ func ApplyTakeover(home string, plan *TakeoverPlan) (string, error) {
 		}
 		var err error
 		if item.Action == "manage" {
-			err = manageSkill(root, *item)
+			err = manageSkill(ManagedSkillsRoot(home), *item)
 		} else {
-			item.PendingPath, err = movePending(root, *item)
+			item.PendingPath, err = movePending(PendingRoot(home), *item)
 		}
 		if err != nil {
 			rollback(append(processed, *item), backupRoot)
@@ -168,7 +174,7 @@ func manageSkill(root string, item TakeoverItem) error {
 	if item.SkillID == "" || item.Signature == "" {
 		return fmt.Errorf("missing platform identity for %s", item.Name)
 	}
-	store := filepath.Join(root, "skills", item.SkillID, item.Signature)
+	store := filepath.Join(root, item.SkillID, "release")
 	tmp := store + ".tmp"
 	_ = os.RemoveAll(tmp)
 	if err := copyDir(item.Source, tmp); err != nil {
@@ -191,7 +197,7 @@ func manageSkill(root string, item TakeoverItem) error {
 }
 
 func movePending(root string, item TakeoverItem) (string, error) {
-	target := filepath.Join(root, "pending", item.AgentType, filepath.Base(item.Source))
+	target := filepath.Join(root, item.AgentType, filepath.Base(item.Source))
 	if _, err := os.Stat(target); err == nil {
 		target += "-" + time.Now().UTC().Format("20060102T150405.000000000")
 	}

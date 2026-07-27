@@ -24,7 +24,7 @@ const displayVersion = version.replace(/^client-v/, '').replace(/^v/, '')
 const packageVersion = displayVersion.split('.').map(Number).join('.')
 const manifest = {
   version: packageVersion,
-  notes: `瑞数智能体安全治理终端 ${displayVersion}`,
+  notes: `瑞数智能体安全治理客户端 ${displayVersion}`,
   pub_date: new Date().toISOString(),
   platforms,
 }

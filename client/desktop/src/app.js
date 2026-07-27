@@ -1,6 +1,6 @@
 const invoke = window.__TAURI__.core.invoke
 const titles = {
-  connect: '终端接入',
+  connect: '客户端接入',
   discover: 'Agent 发现',
   takeover: '接管预览',
   status: '运行状态',
@@ -23,11 +23,19 @@ let notificationFilter = 'all'
 let customAgentPendingRemoval = null
 let builtinAgentSettings = []
 let editingBuiltinAgent = null
+let pendingItems = []
+let pendingRefreshTimer = null
+let pendingRefreshBusy = false
+let pendingSubmissionBusy = false
+let pendingBatchTracking = null
+const selectedPendingIDs = new Set()
 const notificationDeliveryAttempts = new Set()
+const operationProgress = new Map()
 
 const $ = selector => document.querySelector(selector)
 const setBusy = (button, busy) => {
   button.disabled = busy
+  button.classList.toggle('is-busy', busy)
   if (busy) {
     button.dataset.original = button.textContent
     button.dataset.busyLabel = button.dataset.busyText || '处理中...'
@@ -45,6 +53,62 @@ const showMessageDialog = (title, detail) => {
   $('#message-dialog-detail').textContent = detail
   $('#message-dialog').showModal()
 }
+
+const startOperationProgress = (selector, { title, detail, current = 0, total = 0 }) => {
+  const element = $(selector)
+  if (!element) return
+  const previous = operationProgress.get(selector)
+  if (previous?.timer) clearInterval(previous.timer)
+  const startedAt = Date.now()
+  const state = {
+    startedAt,
+    timer: setInterval(() => {
+      const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
+      element.querySelector('[data-progress-elapsed]').textContent = `已用时 ${elapsed} 秒`
+    }, 1000),
+  }
+  operationProgress.set(selector, state)
+  element.hidden = false
+  element.classList.toggle('indeterminate', total <= 0)
+  element.querySelector('[data-progress-title]').textContent = title
+  element.querySelector('[data-progress-detail]').textContent = detail
+  element.querySelector('[data-progress-elapsed]').textContent = '已用时 0 秒'
+  element.querySelector('[data-progress-bar]').style.width = total > 0 ? `${Math.round((current / total) * 100)}%` : ''
+}
+
+const updateOperationProgress = (selector, { title, detail, current, total }) => {
+  const element = $(selector)
+  if (!element) return
+  if (title) element.querySelector('[data-progress-title]').textContent = title
+  if (detail) element.querySelector('[data-progress-detail]').textContent = detail
+  if (total > 0) {
+    element.classList.remove('indeterminate')
+    element.querySelector('[data-progress-bar]').style.width = `${Math.round((current / total) * 100)}%`
+  }
+}
+
+const stopOperationProgress = selector => {
+  const state = operationProgress.get(selector)
+  if (state?.timer) clearInterval(state.timer)
+  operationProgress.delete(selector)
+  const element = $(selector)
+  if (element) element.hidden = true
+}
+
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-reveal-path]')
+  if (!button) return
+  event.preventDefault()
+  event.stopPropagation()
+  setBusy(button, true)
+  try {
+    await invoke('reveal_path', { path: button.dataset.revealPath })
+  } catch (error) {
+    showMessageDialog('打开文件夹失败', String(error))
+  } finally {
+    setBusy(button, false)
+  }
+})
 
 const isCustomAgent = agent => Boolean(agent?.capabilities?.custom)
 const isSharedSkills = agent => Boolean(agent?.capabilities?.shared_skills)
@@ -85,6 +149,10 @@ document.querySelectorAll('.nav-item').forEach(button => {
       $('#takeover-list').textContent = '正在加载受管 Agent 和 Skill...'
     }
     takeoverLoading = true
+    startOperationProgress('#takeover-progress', {
+      title: '正在生成接管预览',
+      detail: `正在读取 ${selectedSkillPaths.size} 个已选 Skill，并核对平台状态与内容签名。`,
+    })
     try {
       await preview(false)
       updateSelectionSummary()
@@ -92,6 +160,7 @@ document.querySelectorAll('.nav-item').forEach(button => {
       showTakeoverError(error)
     } finally {
       takeoverLoading = false
+      stopOperationProgress('#takeover-progress')
     }
   })
 })
@@ -115,7 +184,7 @@ $('#connect-form').addEventListener('submit', async event => {
 })
 
 const policyLabel = value => ({ audit: '只审计', repair: '自动恢复', block: '隔离阻断' }[value] || value || '-')
-const governanceLabel = value => ({ registry: '终端安全治理', strict: 'Agent 强授权' }[value] || value || '终端安全治理')
+const governanceLabel = value => ({ registry: '客户端安全治理', strict: 'Agent 强授权' }[value] || value || '客户端安全治理')
 const formatTime = value => {
   if (!value) return '-'
   const text = String(value)
@@ -140,7 +209,7 @@ const renderDisconnected = () => {
   $('#connection-state').textContent = '未接入'
   $('#connection-state').classList.remove('online')
   $('#notification-trigger').hidden = true
-  $('#panel-title').textContent = '终端接入'
+  $('#panel-title').textContent = '客户端接入'
 }
 const editConnection = () => {
   $('#connect-form').hidden = false
@@ -192,7 +261,11 @@ const renderConnected = data => {
   const managedSkills = platformAgents.reduce((count, agent) => count + (agent.skills || []).filter(skill => skill.skill_id).length, 0)
   const todos = []
   const local = data.local || {}
-  const hasTakeover = (local.managed_skills || 0) > 0
+  const hasTakeover = (local.managed_skills || 0) + (local.pending_skills || 0) > 0
+  const governanceEnabled = Boolean(local.governance_enabled)
+  const agentsReady = supported.length > 0 && (!strict || bound.length === supported.length)
+  const scopeConfirmed = agentsReady && hasTakeover
+  const patrolActive = scopeConfirmed && data.service_running && governanceEnabled
   const takeoverTitle = hasTakeover ? 'Skill 治理' : '接管预览'
   titles.takeover = takeoverTitle
   $('#takeover-nav-label').textContent = takeoverTitle
@@ -201,8 +274,8 @@ const renderConnected = data => {
     ? '查看当前受管 Skill，并识别新出现或需要处理的本地 Skill。刷新不会重复接管。'
     : '安全治理模式只校验平台批准状态与内容签名；Agent 强授权模式还会校验智能体允许范围。'
   $('#takeover-state-badge').hidden = !hasTakeover
-  $('#takeover-state-badge').className = `takeover-state-badge${local.governance_enabled ? '' : ' paused'}`
-  $('#takeover-state-badge').textContent = local.governance_enabled ? '接管中' : '治理已暂停'
+  $('#takeover-state-badge').className = `takeover-state-badge${governanceEnabled ? '' : ' paused'}`
+  $('#takeover-state-badge').textContent = governanceEnabled ? '接管中' : '治理已暂停'
   const connectionError = !data.connected
   if (connectionError) {
     todos.push({ title: '平台接入异常', detail: data.error || '无法验证当前接入状态', action: '重试接入', actionType: 'refresh', error: true })
@@ -213,7 +286,7 @@ const renderConnected = data => {
   if (data.connected && strict && supported.length > bound.length) {
     todos.push({ title: `${supported.length - bound.length} 个 Agent 尚未绑定`, detail: '绑定平台智能体后才能统一安装和校验 Skill。', action: '前往绑定', panel: 'discover' })
   }
-  if (data.connected && !data.service_running) {
+  if (data.connected && hasTakeover && !data.service_running) {
     todos.push({
       title: data.service_installed ? '后台巡检未运行' : '后台巡检尚未启用',
       detail: data.service_detail || '关闭桌面应用后将无法持续同步和校验 Skill。',
@@ -245,10 +318,10 @@ const renderConnected = data => {
   $('#panel-title').textContent = titles[activePanel]
   $('#overview-badge').className = `overview-badge${connectionError ? ' error' : ''}`
   $('#overview-badge').textContent = connectionError ? '接入异常' : '已接入'
-  $('#overview-title').textContent = connectionError ? '暂时无法连接 Agent Manager' : '终端已接入 Agent Manager'
+  $('#overview-title').textContent = connectionError ? '暂时无法连接 Agent Manager' : '客户端已接入 Agent Manager'
   $('#overview-subtitle').textContent = connectionError
     ? `${data.error || '平台暂时不可达'}。现有 Skill 不受影响。`
-    : `${platform.name || data.name || data.inventory?.hostname || '当前终端'}已接入 ${data.server}`
+    : `${platform.name || data.name || data.inventory?.hostname || '当前客户端'}已接入 ${data.server}`
   $('#overview-sync').textContent = connectionError ? '重试接入' : '刷新状态'
 
   $('#metric-agents').textContent = agents.length
@@ -259,19 +332,26 @@ const renderConnected = data => {
   $('#progress-summary').textContent = !data.connected
     ? '恢复平台接入后才能继续同步。'
     : supported.length === 0
-      ? '终端已接入，请发现本机 Agent。'
+      ? '客户端已接入，请发现本机 Agent。'
       : strict && bound.length < supported.length
         ? `已发现 ${agents.length} 个 Agent，还有 ${supported.length - bound.length} 个需要绑定。`
-        : !data.service_running
-          ? 'Agent 已完成绑定，请启用后台巡检。'
-          : `${supported.length} 个 Agent 已纳入统一管理。`
+        : !hasTakeover
+          ? 'Agent 已发现，请确认需要治理的 Skill 范围。'
+          : !data.service_running
+            ? '治理范围已确认，请启用后台巡检。'
+            : !governanceEnabled
+              ? '持续治理已暂停，恢复后将继续巡检。'
+              : `${supported.length} 个 Agent 正在持续治理。`
   setProgress('step-connect', data.connected ? 'done' : 'current')
   setProgress('step-discover', agents.length ? 'done' : data.connected ? 'current' : '')
-  $('#step-bind span').textContent = strict ? '绑定智能体' : '确认治理范围'
-  setProgress('step-bind', supported.length && (!strict || bound.length === supported.length) ? 'done' : agents.length ? 'current' : '')
-  setProgress('step-service', data.service_running ? 'done' : supported.length && (!strict || bound.length === supported.length) ? 'current' : '')
+  $('#step-bind span').textContent = strict ? '绑定并确认范围' : '确认治理范围'
+  setProgress('step-bind', scopeConfirmed ? 'done' : agents.length ? 'current' : '')
+  $('#step-service span').textContent = data.service_running && !governanceEnabled && hasTakeover ? '后台巡检已暂停' : '后台巡检'
+  setProgress('step-service', patrolActive ? 'done' : scopeConfirmed ? 'current' : '')
 
-  $('#detail-service').textContent = data.service_running ? '运行中' : data.service_installed ? '已安装但未运行' : '未安装'
+  $('#detail-service').textContent = data.service_running
+    ? governanceEnabled && hasTakeover ? '运行中' : hasTakeover ? '运行中 · 巡检已暂停' : '运行中 · 尚未接管'
+    : data.service_installed ? '已安装但未运行' : '未安装'
   $('#detail-policy').textContent = policyLabel(platform.policy_mode)
   $('#detail-governance').textContent = governanceLabel(platform.governance_mode)
   $('#detail-last-seen').textContent = formatTime(platform.last_seen_at)
@@ -435,7 +515,7 @@ const renderEventHistory = events => {
   element.classList.toggle('empty', !events.length)
   element.innerHTML = events.length ? events.map(event => `<div class="takeover-row task-history-row">
     <div><strong>${escapeHtml(eventTypeLabel(event.event_type))}</strong><p>${escapeHtml(event.skill_name || eventDetail(event.event_type))}</p></div>
-    <span>${escapeHtml(event.agent_type ? agentLabel(event.agent_type) : '当前终端')}</span>
+    <span>${escapeHtml(event.agent_type ? agentLabel(event.agent_type) : '当前客户端')}</span>
     <strong class="task-status-${eventStatus(event.event_type)}">${escapeHtml(eventResultLabel(event.event_type))}</strong>
     <span>${escapeHtml(formatTime(event.created_at))}</span>
   </div>`).join('') : '<div class="empty">暂无巡检与处置记录</div>'
@@ -452,7 +532,7 @@ const renderTaskHistory = tasks => {
       : payload.skill_name || payload.skill_id || (task.task_type === 'rescan' ? '全部 Skill' : '-')
     return `<div class="takeover-row task-history-row">
       <div><strong>${escapeHtml(taskTypeLabel(task))}</strong><p>${escapeHtml(target)}</p></div>
-      <span>${escapeHtml(payload.agent_type ? agentLabel(payload.agent_type) : '当前终端')}</span>
+      <span>${escapeHtml(payload.agent_type ? agentLabel(payload.agent_type) : '当前客户端')}</span>
       <strong class="task-status-${escapeHtml(task.status)}">${escapeHtml(taskStatusLabel(task.status))}</strong>
       <span class="${task.error ? 'task-history-error' : ''}">${escapeHtml(`${formatTime(task.finished_at || task.started_at || task.updated_at || task.created_at)}${task.error ? ` · ${task.error}` : ''}`)}</span>
     </div>`
@@ -512,7 +592,7 @@ $('#refresh-notifications').addEventListener('click', refreshConnection)
 $('#notification-trigger').addEventListener('click', () => showPanel('notifications'))
 $('#test-system-notification').addEventListener('click', async () => {
   try {
-    await invoke('show_system_notification', { title: '瑞数智能体安全治理终端', body: '系统通知已开启，安全事件将及时提醒。' })
+    await invoke('show_system_notification', { title: '瑞数智能体安全治理客户端', body: '系统通知已开启，安全事件将及时提醒。' })
     $('#system-notification-state').hidden = false
     $('#system-notification-state').classList.add('success')
     $('#system-notification-state').textContent = '系统通知已发送。应用位于前台时，macOS 可能只将其收录到通知中心。'
@@ -592,10 +672,13 @@ const renderInventory = () => {
             : ''}
           ${agent.skill_management_supported ? `<div class="skill-inventory">${agent.skills.length ? agent.skills.map(skill => `
             <div class="skill-row">
-              <label class="skill-row-main">
-                <input type="checkbox" data-skill-path="${escapeHtml(skill.path)}" ${skill.error ? '' : 'checked'} />
-                <span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.path)}</small></span>
-              </label>
+              <div class="skill-row-main">
+                <input type="checkbox" aria-label="选择 ${escapeHtml(skill.name)}" data-skill-path="${escapeHtml(skill.path)}" ${skill.error ? 'disabled' : 'checked'} />
+                <span>
+                  <strong>${escapeHtml(skill.name)}</strong>
+                  <button class="path-link" type="button" title="${escapeHtml(skill.path)}" data-reveal-path="${escapeHtml(skill.path)}">${escapeHtml(skill.path)}</button>
+                </span>
+              </div>
               <div class="skill-row-actions">
                 <em class="${skill.error ? 'warning' : 'ok'}">${skill.error ? '待处理' : skill.skill_id ? '已受管' : '待接管'}</em>
                 ${skill.skill_id && !skill.error ? `<button class="icon-button icon-install" type="button" data-install-other="${escapeHtml(skill.skill_id)}" data-skill-name="${escapeHtml(skill.name)}" data-source-agent="${escapeHtml(agent.agent_type)}">安装到其他 Agent</button>` : ''}
@@ -722,14 +805,36 @@ const discover = async () => {
 
 const updateSelectionSummary = () => {
   $('#discover-next').hidden = !inventory?.agents?.some(agent => agent.skill_management_supported)
-  $('#selected-skill-count').textContent = selectedSkillPaths.size
-  $('#open-preview-button').disabled = selectedSkillPaths.size === 0
+  const previewButton = $('#open-preview-button')
+  const discoveredSkills = [...document.querySelectorAll('[data-skill-path]')]
+  const unavailableCount = discoveredSkills.filter(input => input.disabled).length
+  const selectableCount = discoveredSkills.length - unavailableCount
+  const recoveryNeeded = selectableCount === 0 && unavailableCount > 0
+  previewButton.dataset.action = recoveryNeeded ? 'restore' : 'preview'
+  previewButton.disabled = !recoveryNeeded && selectedSkillPaths.size === 0
+  $('#selection-heading').textContent = recoveryNeeded ? '需要恢复 Skill' : '下一步：确认接管范围'
+  $('#selection-guidance').innerHTML = selectableCount === 0
+    ? unavailableCount
+      ? `发现 ${unavailableCount} 个不可用 Skill。请展开 Agent 查看原因，或从平台重新安装可信版本。`
+      : '当前没有发现可接管的 Skill。'
+    : `已选择 <b id="selected-skill-count">${selectedSkillPaths.size}</b> 个 Skill，生成预览后可查看哪些继续启用、哪些需要处理。`
   const currentKey = JSON.stringify([lastInventoryAt, [...selectedSkillPaths].sort()])
-  $('#open-preview-button').textContent = !previewSelectionKey
-    ? '生成接管预览'
-    : previewSelectionKey === currentKey
-      ? '查看接管预览'
-      : '更新接管预览'
+  previewButton.textContent = recoveryNeeded
+    ? '从平台恢复 Skill'
+    : selectableCount === 0
+      ? '暂无可接管 Skill'
+    : !previewSelectionKey
+      ? '生成接管预览'
+      : previewSelectionKey === currentKey
+        ? '查看接管预览'
+        : '更新接管预览'
+  previewButton.title = recoveryNeeded
+    ? '从平台选择已批准的 Skill，重新安装到本机 Agent'
+    : selectableCount === 0
+      ? '当前没有发现可接管的 Skill'
+    : selectedSkillPaths.size === 0
+      ? '请先选择至少一个 Skill'
+      : previewButton.textContent
 }
 
 $('#discover-button').addEventListener('click', async event => {
@@ -844,7 +949,7 @@ const preview = async (confirm, showNoChange = false) => {
           <div class="takeover-column-head"><span>Skill</span><span>接管后状态</span><span>判断依据</span><span>操作</span></div>
           ${group.items.map(item => `
           <div class="takeover-row">
-            <div><strong>${escapeHtml(item.name)}</strong><p title="${escapeHtml(item.source)}">${escapeHtml(item.source)}</p></div>
+            <div><strong>${escapeHtml(item.name)}</strong><button class="path-link" type="button" title="${escapeHtml(item.source)}" data-reveal-path="${escapeHtml(item.source)}">${escapeHtml(item.source)}</button></div>
             <span class="result-status status-${item.action}"><i></i>${item.action === 'managed' ? '已接管' : item.action === 'manage' ? '待接管' : '停用'}</span>
             <span>${escapeHtml(reasonLabel(item.reason))}</span>
             ${['manage', 'managed'].includes(item.action) && item.skill_id ? `<button class="icon-button icon-install" type="button" data-install-preview="${escapeHtml(item.skill_id)}" data-skill-name="${escapeHtml(item.name)}" data-source-agent="${escapeHtml(item.agent_type)}">安装到其他 Agent</button>` : '<span>-</span>'}
@@ -886,16 +991,23 @@ const showTakeoverFeedback = (type, title, detail) => {
 }
 
 const generateAndOpenPreview = async (button, force = false) => {
+  if (takeoverLoading) return
   const currentKey = JSON.stringify([lastInventoryAt, [...selectedSkillPaths].sort()])
   if (!force && previewSelectionKey === currentKey) return showPanel('takeover')
+  takeoverLoading = true
+  showPanel('takeover')
+  startOperationProgress('#takeover-progress', {
+    title: '正在生成接管预览',
+    detail: `正在读取 ${selectedSkillPaths.size} 个已选 Skill，并核对平台状态与内容签名。`,
+  })
   setBusy(button, true)
   try {
     await preview(false, true)
-    showPanel('takeover')
   } catch (error) {
-    showPanel('takeover')
     showTakeoverError(error)
   } finally {
+    takeoverLoading = false
+    stopOperationProgress('#takeover-progress')
     setBusy(button, false)
     updateSelectionSummary()
   }
@@ -904,7 +1016,10 @@ const generateAndOpenPreview = async (button, force = false) => {
 $('#preview-button').addEventListener('click', async event => {
   await generateAndOpenPreview(event.currentTarget, true)
 })
-$('#open-preview-button').addEventListener('click', async event => generateAndOpenPreview(event.currentTarget))
+$('#open-preview-button').addEventListener('click', async event => {
+  if (event.currentTarget.dataset.action === 'restore') return openInstallDialog()
+  return generateAndOpenPreview(event.currentTarget)
+})
 $('#takeover-ack').addEventListener('change', syncApplyState)
 $('#apply-button').addEventListener('click', async event => {
   if (!takeoverReady) return showTakeoverError('请先生成接管预览')
@@ -912,6 +1027,10 @@ $('#apply-button').addEventListener('click', async event => {
   const managedCount = Number($('#manage-count').textContent) || 0
   const pendingCount = Number($('#pending-count').textContent) || 0
   showTakeoverFeedback('processing', '正在执行接管', '正在备份现有目录并应用预览中的处理结果，请稍候。')
+  startOperationProgress('#takeover-progress', {
+    title: '正在执行接管',
+    detail: `正在备份并处理 ${managedCount + pendingCount} 个 Skill，请不要关闭客户端。`,
+  })
   $('#takeover-feedback').scrollIntoView({ behavior: 'smooth', block: 'center' })
   setBusy(button, true)
   try {
@@ -931,57 +1050,138 @@ $('#apply-button').addEventListener('click', async event => {
     showTakeoverFeedback('error', '接管失败', error)
     log(error)
   } finally {
+    stopOperationProgress('#takeover-progress')
     setBusy(button, false)
     syncApplyState()
   }
 })
 
-const loadPending = async (refresh = false) => {
-  const items = JSON.parse(await run(refresh ? 'refresh-pending' : 'pending'))
+const pendingStatusTerminal = status => ['APPROVED', 'REJECTED', 'CANCELLED'].includes(status)
+const pendingNeedsRefresh = item => Boolean(item.skill_id) && !pendingStatusTerminal(item.status)
+const pendingCanSubmit = item => !item.skill_id
+
+const renderPendingBatchStatus = () => {
+  if (!pendingBatchTracking) return
+  const element = $('#pending-batch-status')
+  const tracked = pendingItems.filter(item => pendingBatchTracking.ids.has(item.id))
+  const counts = { detecting: pendingBatchTracking.ids.size - tracked.length, review: 0, approved: 0, rejected: 0, cancelled: 0 }
+  tracked.forEach(item => {
+    if (item.status === 'VETTED') counts.review += 1
+    else if (item.status === 'APPROVED') counts.approved += 1
+    else if (item.status === 'REJECTED') counts.rejected += 1
+    else if (item.status === 'CANCELLED') counts.cancelled += 1
+    else counts.detecting += 1
+  })
+  const total = pendingBatchTracking.ids.size
+  const resolved = total - counts.detecting
+  const finished = counts.detecting === 0 && counts.review === 0
+  element.hidden = false
+  element.className = `takeover-feedback ${finished ? counts.rejected || counts.cancelled ? 'error' : 'success' : 'processing'}`
+  const title = counts.detecting
+    ? `本批检测进度：已出结果 ${resolved}/${total}`
+    : counts.review
+      ? `自动检测已完成：${counts.review} 个待审核`
+      : '本批检测已完成'
+  element.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml([
+    `检测中 ${counts.detecting}`,
+    `待审核 ${counts.review}`,
+    `已批准 ${counts.approved}`,
+    `未通过 ${counts.rejected}`,
+    counts.cancelled ? `已取消 ${counts.cancelled}` : '',
+  ].filter(Boolean).join(' · '))}</span>`
+}
+
+const syncPendingBatchControls = () => {
+  const eligible = pendingItems.filter(pendingCanSubmit)
+  for (const id of [...selectedPendingIDs]) {
+    if (!eligible.some(item => item.id === id)) selectedPendingIDs.delete(id)
+  }
+  const selectAll = $('#pending-select-all')
+  const submitSelected = $('#submit-selected-pending')
+  const refreshPending = $('#refresh-pending')
+  const selectedCount = eligible.filter(item => selectedPendingIDs.has(item.id)).length
+  $('#pending-select-all-wrap').hidden = eligible.length === 0
+  submitSelected.hidden = eligible.length === 0
+  submitSelected.disabled = selectedCount === 0 || pendingSubmissionBusy
+  if (!pendingSubmissionBusy) submitSelected.textContent = `提交所选 ${selectedCount}`
+  selectAll.disabled = pendingSubmissionBusy
+  refreshPending.disabled = pendingSubmissionBusy || pendingRefreshBusy
+  document.querySelectorAll('[data-select-pending]').forEach(input => { input.disabled = pendingSubmissionBusy })
+  selectAll.checked = eligible.length > 0 && selectedCount === eligible.length
+  selectAll.indeterminate = selectedCount > 0 && selectedCount < eligible.length
+}
+
+const schedulePendingRefresh = items => {
+  if (pendingRefreshTimer) clearTimeout(pendingRefreshTimer)
+  pendingRefreshTimer = null
+  if (!items.some(pendingNeedsRefresh)) return
+  const activeAnalysis = items.some(item => pendingNeedsRefresh(item) && item.status !== 'VETTED')
+  pendingRefreshTimer = setTimeout(async () => {
+    if (document.hidden || pendingRefreshBusy || pendingSubmissionBusy) {
+      schedulePendingRefresh(pendingItems)
+      return
+    }
+    try {
+      await loadPending(true, { silent: true })
+    } catch (error) {
+      log(`刷新检测状态失败：${error}`)
+      schedulePendingRefresh(pendingItems)
+    }
+  }, activeAnalysis ? 3000 : 10000)
+}
+
+const loadPending = async (refresh = false, { silent = false } = {}) => {
+  if (refresh && pendingRefreshBusy) return pendingItems
+  if (refresh) pendingRefreshBusy = true
+  let items
+  try {
+    items = JSON.parse(await run(refresh ? 'refresh-pending' : 'pending'))
+  } finally {
+    if (refresh) pendingRefreshBusy = false
+  }
+  pendingItems = items
+  renderPendingBatchStatus()
+  for (const id of [...selectedPendingIDs]) {
+    if (!items.some(item => item.id === id && pendingCanSubmit(item))) selectedPendingIDs.delete(id)
+  }
   $('#pending-list').classList.toggle('empty', !items.length)
   $('#pending-list').innerHTML = items.length
     ? groupTakeoverItems(items.map(item => ({ ...item, agent_type: item.agent_type }))).map(group => `
       <details class="takeover-agent" open>
         <summary class="takeover-agent-summary">
           <div class="takeover-agent-name"><span class="entity-badge">Agent</span><strong>${escapeHtml(agentLabel(group.agentType))}</strong></div>
-          <span>${group.items.length} 个待处理 Skill</span>
+          <span>${escapeHtml(pendingGroupSummary(group.items))}</span>
           <em>展开 / 收起</em>
         </summary>
         <div class="takeover-agent-items">
           ${group.items.map(item => `
             <div class="takeover-row pending-skill-row">
-              <div><strong>${escapeHtml(item.skill_name)}</strong><p>${escapeHtml(item.pending_path)}</p></div>
-              <span class="result-status ${item.status === 'APPROVED' ? 'status-manage' : 'status-pending'}"><i></i>${escapeHtml(pendingStatusLabel(item.status))}</span>
-              <span>${escapeHtml(pendingStatusGuidance(item))}</span>
-              ${item.status === 'APPROVED'
-                ? `<button class="action-success icon-button icon-install" data-install-approved="${escapeHtml(item.id)}" data-agent-type="${escapeHtml(item.agent_type)}" data-skill-id="${escapeHtml(item.skill_id)}">立即安装</button>`
-                : item.skill_id
-                ? `<span class="pending-next">${escapeHtml(pendingNextLabel(item.status))}</span>`
-                : `<button class="primary icon-button icon-submit" data-submit-pending="${escapeHtml(item.id)}">提交平台检测</button>`}
+              ${pendingCanSubmit(item)
+                ? `<label class="pending-skill-select" title="选择 ${escapeHtml(item.skill_name)}"><input type="checkbox" data-select-pending="${escapeHtml(item.id)}"${selectedPendingIDs.has(item.id) ? ' checked' : ''} /></label>`
+                : '<span class="pending-select-placeholder"></span>'}
+              <div><strong>${escapeHtml(item.skill_name)}</strong><button class="path-link" type="button" title="${escapeHtml(item.pending_path)}" data-reveal-path="${escapeHtml(item.pending_path)}">${escapeHtml(item.pending_path)}</button></div>
+              <div class="pending-status-block">
+                <span class="result-status ${escapeHtml(pendingStatusClass(item.status))}"><i></i>${escapeHtml(pendingStatusLabel(item.status))}</span>
+                <small>${escapeHtml(pendingStatusGuidance(item))}</small>
+              </div>
+              <div class="takeover-row-actions">
+                ${item.status === 'APPROVED'
+                  ? `<button class="action-success icon-button icon-install" data-install-approved="${escapeHtml(item.id)}" data-agent-type="${escapeHtml(item.agent_type)}" data-skill-id="${escapeHtml(item.skill_id)}">立即安装</button>`
+                  : item.skill_id
+                  ? `<span class="pending-next">${escapeHtml(pendingNextLabel(item.status))}</span>`
+                  : `<button class="primary icon-button icon-submit" data-submit-pending="${escapeHtml(item.id)}">提交平台检测</button>`}
+              </div>
             </div>`).join('')}
         </div>
       </details>`).join('')
     : '<div class="empty">当前没有停用待处理的 Skill</div>'
+  document.querySelectorAll('[data-select-pending]').forEach(input => input.addEventListener('change', () => {
+    if (input.checked) selectedPendingIDs.add(input.dataset.selectPending)
+    else selectedPendingIDs.delete(input.dataset.selectPending)
+    syncPendingBatchControls()
+  }))
   document.querySelectorAll('[data-submit-pending]').forEach(button => button.addEventListener('click', async () => {
-    setBusy(button, true)
-    try {
-      const result = JSON.parse(await run('submit-pending', ['--id', button.dataset.submitPending]))
-      showTakeoverFeedback('success', '已提交平台检测', `${result.name || 'Skill'} 已进入平台检测队列，可在 Skill 列表中查看进度。`)
-      log(`已提交平台检测：${result.name || result.skill_id}`)
-      await loadPending()
-    } catch (error) {
-      const detail = String(error)
-      if (detail.includes('client:submit-skill') || detail.includes('scanner:submit')) {
-        showMessageDialog('缺少提交权限', '当前终端凭证没有提交 Skill 的权限。请前往 Agent Manager 的“凭证管理”，编辑当前客户端凭证并勾选 client:submit-skill。')
-        showTakeoverFeedback('error', '提交检测失败', '当前终端凭证缺少提交 Skill 权限，请在凭证管理中补充权限。')
-      } else {
-        showMessageDialog('提交平台检测失败', detail)
-        showTakeoverFeedback('error', '提交检测失败', detail)
-      }
-      log(error)
-    } finally {
-      setBusy(button, false)
-    }
+    await submitPendingIDs([button.dataset.submitPending], button)
   }))
   document.querySelectorAll('[data-install-approved]').forEach(button => button.addEventListener('click', async () => {
     setBusy(button, true)
@@ -996,15 +1196,122 @@ const loadPending = async (refresh = false) => {
       setBusy(button, false)
     }
   }))
+  syncPendingBatchControls()
+  schedulePendingRefresh(items)
+  if (refresh && !silent) log(`待处理区共有 ${items.length} 个 Skill`)
   return items
 }
 
+const submitPendingIDs = async (ids, button) => {
+  if (pendingSubmissionBusy || !ids.length) return
+  pendingSubmissionBusy = true
+  const submitted = []
+  const submittedIDs = []
+  const failures = []
+  try {
+    setBusy(button, true)
+    syncPendingBatchControls()
+    const queuedNames = ids
+      .map(id => pendingItems.find(item => item.id === id)?.skill_name)
+      .filter(Boolean)
+    startOperationProgress('#pending-progress', {
+      title: `正在提交平台检测 0/${ids.length}`,
+      detail: queuedNames.length ? `本次共 ${ids.length} 个：${queuedNames.join('、')}` : '正在读取待处理 Skill...',
+      current: 0,
+      total: ids.length,
+    })
+    let currentItems = JSON.parse(await run('pending'))
+    for (let index = 0; index < ids.length; index += 1) {
+      const id = ids[index]
+      button.textContent = ids.length > 1 ? `正在提交 ${index + 1}/${ids.length}` : '正在提交...'
+      const current = currentItems.find(item => item.id === id)
+      if (!current || current.skill_id) continue
+      updateOperationProgress('#pending-progress', {
+        title: `正在提交平台检测 ${index + 1}/${ids.length}`,
+        detail: `当前：${current.skill_name || id}`,
+        current: index,
+        total: ids.length,
+      })
+      try {
+        const result = JSON.parse(await run('submit-pending', ['--id', id]))
+        submitted.push(result.name || current.skill_name || result.skill_id)
+        submittedIDs.push(current.id)
+        selectedPendingIDs.delete(id)
+        currentItems = JSON.parse(await run('pending'))
+      } catch (error) {
+        failures.push({ name: current.skill_name || id, detail: String(error) })
+        if (String(error).includes('client:submit-skill') || String(error).includes('scanner:submit')) break
+      }
+      updateOperationProgress('#pending-progress', {
+        title: `正在提交平台检测 ${index + 1}/${ids.length}`,
+        detail: `已完成 ${index + 1} 个，成功 ${submitted.length} 个，失败 ${failures.length} 个。`,
+        current: index + 1,
+        total: ids.length,
+      })
+    }
+    if (submittedIDs.length) {
+      pendingBatchTracking = { ids: new Set(submittedIDs) }
+    }
+    await loadPending()
+    if (submitted.length) {
+      renderPendingBatchStatus()
+      log(`已提交平台检测：${submitted.join('、')}`)
+    }
+    if (failures.length) {
+      const permissionDenied = failures.some(item => item.detail.includes('client:submit-skill') || item.detail.includes('scanner:submit'))
+      const detail = permissionDenied
+        ? '当前客户端凭证没有提交 Skill 的权限。请前往 Agent Manager 的“凭证管理”，编辑当前客户端凭证并勾选 client:submit-skill。'
+        : failures.map(item => `${item.name}：${item.detail}`).join('\n')
+      showMessageDialog(permissionDenied ? '缺少提交权限' : '部分 Skill 提交失败', detail)
+      showTakeoverFeedback('error', '提交检测未全部完成', detail)
+      log(detail)
+    }
+  } catch (error) {
+    const detail = String(error)
+    showMessageDialog('批量提交失败', detail)
+    showTakeoverFeedback('error', '批量提交失败', detail)
+    log(detail)
+  } finally {
+    stopOperationProgress('#pending-progress')
+    pendingSubmissionBusy = false
+    ids.forEach(id => selectedPendingIDs.delete(id))
+    document.querySelectorAll('[data-select-pending]').forEach(input => {
+      input.checked = selectedPendingIDs.has(input.dataset.selectPending)
+    })
+    button.textContent = button.dataset.busyLabel
+    setBusy(button, false)
+    syncPendingBatchControls()
+  }
+}
+
+$('#pending-select-all').addEventListener('change', event => {
+  const checked = event.currentTarget.checked
+  pendingItems.filter(pendingCanSubmit).forEach(item => {
+    if (checked) selectedPendingIDs.add(item.id)
+    else selectedPendingIDs.delete(item.id)
+  })
+  document.querySelectorAll('[data-select-pending]').forEach(input => { input.checked = checked })
+  syncPendingBatchControls()
+})
+
+$('#submit-selected-pending').addEventListener('click', event => {
+  const checkedIDs = [...document.querySelectorAll('[data-select-pending]:checked')]
+    .map(input => input.dataset.selectPending)
+    .filter(Boolean)
+  selectedPendingIDs.clear()
+  checkedIDs.forEach(id => selectedPendingIDs.add(id))
+  submitPendingIDs(checkedIDs, event.currentTarget)
+})
+
 $('#refresh-pending').addEventListener('click', async event => {
+  if (pendingSubmissionBusy) {
+    showMessageDialog('正在提交平台检测', '批量提交完成后会自动刷新待处理状态，无需重复操作。')
+    return
+  }
   const button = event.currentTarget
   setBusy(button, true)
   try {
-    const items = await loadPending(true)
-    log(`待处理区共有 ${items.length} 个 Skill`)
+    await loadPending(true)
   } catch (error) {
     showMessageDialog('刷新检测状态失败', String(error))
     log(error)
@@ -1047,7 +1354,24 @@ const toggleGovernance = button => {
 $('#toggle-governance').addEventListener('click', event => toggleGovernance(event.currentTarget))
 $('#toggle-takeover').addEventListener('click', event => toggleGovernance(event.currentTarget))
 $('#install-service').addEventListener('click', event => runStatusCommand(event.currentTarget, 'install-service', '后台服务已启用'))
-$('#uninstall-service').addEventListener('click', event => runStatusCommand(event.currentTarget, 'uninstall-service', '后台服务已停止'))
+$('#uninstall-service').addEventListener('click', () => $('#stop-service-dialog').showModal())
+$('#confirm-stop-service').addEventListener('click', async event => {
+  const button = event.currentTarget
+  setBusy(button, true)
+  try {
+    await run('uninstall-service')
+    await refreshConnection()
+    $('#stop-service-dialog').close()
+    showMessageDialog('后台服务已停止', '现在可以安全备份或移动 ~/.agent-manager。重新启用后台服务后，客户端会继续同步任务和巡检 Skill。')
+    log('后台服务已停止')
+  } catch (error) {
+    $('#stop-service-dialog').close()
+    showMessageDialog('停止后台服务失败', String(error))
+    log(error)
+  } finally {
+    setBusy(button, false)
+  }
+})
 $('#refresh-records').addEventListener('click', async event => {
   const button = event.currentTarget
   setBusy(button, true)
@@ -1130,7 +1454,7 @@ const loadQuarantine = async () => {
   $('#quarantine-list').classList.toggle('empty', !items.length)
   $('#quarantine-list').innerHTML = items.length ? items.map(item => `
     <div class="takeover-row quarantine-row">
-      <div><strong>${escapeHtml(item.skill_name)}</strong><p>所属 Agent：${escapeHtml(agentLabel(item.agent_type))} · ${escapeHtml(item.original_path)}</p></div>
+      <div><strong>${escapeHtml(item.skill_name)}</strong><button class="path-link" type="button" title="隔离目录：${escapeHtml(item.quarantine_path)}" data-reveal-path="${escapeHtml(item.quarantine_path)}">所属 Agent：${escapeHtml(agentLabel(item.agent_type))} · ${escapeHtml(item.original_path)}</button></div>
       <strong class="action-pending">已隔离</strong>
       <span>${escapeHtml(reasonLabel(item.reason))}</span>
       <button class="icon-button icon-install" data-install-safe-version="${escapeHtml(item.skill_name)}">选择批准版本</button>
@@ -1185,16 +1509,16 @@ function agentLabel(value) {
 function taskTypeLabel(task) {
   const value = task?.task_type || task
   if (value === 'rescan' && task?.payload?.reason === 'policy_changed') return '同步处理策略'
-  return { install_skill: '安装 Skill', remove_skill: '移除 Skill', repair_skill: '修复 Skill', rescan: '同步终端清单', sync_policy: '同步处理策略' }[value] || value || `平台任务`
+  return { install_skill: '安装 Skill', remove_skill: '移除 Skill', repair_skill: '修复 Skill', rescan: '同步客户端清单', sync_policy: '同步处理策略' }[value] || value || `平台任务`
 }
 
 function taskStatusLabel(value) {
-  return { pending: '等待终端执行', running: '执行中', succeeded: '已完成', failed: '失败', cancelled: '已取消' }[value] || value || '-'
+  return { pending: '等待客户端执行', running: '执行中', succeeded: '已完成', failed: '失败', cancelled: '已取消' }[value] || value || '-'
 }
 
 function eventTypeLabel(value) {
   return {
-    client_registered: '终端注册', takeover_completed: '治理范围更新', unmanaged_skill_found: '发现未受管 Skill',
+    client_registered: '客户端注册', takeover_completed: '治理范围更新', unmanaged_skill_found: '发现未受管 Skill',
     unmanaged_skill_verified: 'Skill 校验通过', skill_installed: '安装 Skill', skill_removed: '移除 Skill',
     skill_modified: '发现 Skill 修改', skill_repaired: '自动恢复 Skill', skill_blocked: '阻断 Skill',
     skill_quarantined: '隔离 Skill', skill_quarantine_restored: '恢复隔离 Skill',
@@ -1220,7 +1544,7 @@ function reasonLabel(value) {
     signature_mismatch: '本地内容与平台签名不一致',
     managed_agent_not_found: '未绑定可用的平台智能体',
     agent_not_authorized: '该智能体未获准使用此 Skill',
-    local_agent_not_found: '本机 Agent 不支持 Skill 管理',
+    local_agent_not_found: '未找到该 Agent 的本地登记信息',
     unmanaged_skill: '未纳入 Agent Manager 治理',
     already_managed: '已完成接管，无需重复处理',
     not_compared: '尚未完成平台比对',
@@ -1236,12 +1560,35 @@ function pendingStatusLabel(value) {
     VETTED: '待人工审核',
     APPROVED: '检测通过',
     REJECTED: '检测未通过',
+    CANCELLED: '检测已取消',
   }[value] || value || '待检测'
 }
 
+function pendingStatusClass(value) {
+  return {
+    submitted: 'status-processing',
+    PENDING: 'status-processing',
+    VETTED: 'status-review',
+    APPROVED: 'status-approved',
+    REJECTED: 'status-rejected',
+    CANCELLED: 'status-cancelled',
+  }[value] || 'status-pending'
+}
+
+function pendingGroupSummary(items) {
+  const actionable = items.filter(pendingCanSubmit).length
+  const review = items.filter(item => item.status === 'VETTED').length
+  return [
+    `${items.length} 个 Skill`,
+    actionable ? `待检测 ${actionable}` : '',
+    review ? `待审核 ${review}` : '',
+  ].filter(Boolean).join(' · ')
+}
+
 function pendingStatusGuidance(item) {
-  if (item.status === 'APPROVED') return '平台已批准，可在终端管理中下发安装'
+  if (item.status === 'APPROVED') return '平台已批准，可在客户端管理中下发安装'
   if (item.status === 'REJECTED') return '平台未通过，继续保持停用；请到 Skill 详情查看判断依据'
+  if (item.status === 'CANCELLED') return '平台检测已取消，继续保持停用'
   if (item.status === 'VETTED') return '自动检测已完成，等待平台人工审核'
   if (item.skill_id) return `平台正在检测${item.skill_id ? ` · ${item.skill_id}` : ''}`
   return reasonLabel(item.reason)
@@ -1249,6 +1596,7 @@ function pendingStatusGuidance(item) {
 
 function pendingNextLabel(status) {
   if (status === 'REJECTED') return '保持停用'
+  if (status === 'CANCELLED') return '保持停用'
   if (status === 'VETTED') return '等待审批'
   return '等待检测'
 }
@@ -1310,7 +1658,7 @@ const loadInstallSkillPreview = async () => {
   }
   const source = installCatalog.find(item => item.items.some(candidate => candidate.skill_id === skill.skill_id))
   if (!source) {
-    $('#install-skill-preview').innerHTML = `<strong>${escapeHtml(skill.name)}</strong><span>当前终端无权读取该 Skill 的详情</span>`
+    $('#install-skill-preview').innerHTML = `<strong>${escapeHtml(skill.name)}</strong><span>当前客户端无权读取该 Skill 的详情</span>`
     return
   }
   const args = ['--skill-id', skill.skill_id, '--agent-type', source.agent.agent_type]
@@ -1346,7 +1694,7 @@ const renderInstallTargets = () => {
   $('#install-agent-targets').innerHTML = installCatalog.map(({ agent, items, error }) => {
     const sourceAgent = lockedInstallSkill?.source_agent_type === agent.agent_type
     const installed = sourceAgent || (agent.skills || []).some(item => item.skill_id === skill.skill_id)
-    const conflict = !installed && (agent.skills || []).some(item => item.name === skill.name)
+    const conflict = !installed && (agent.skills || []).some(item => item.name === skill.name && item.status !== 'broken_link')
     const available = items.some(item => item.skill_id === skill.skill_id)
     const disabled = installed || conflict || !available
     const status = sourceAgent ? '当前所在 Agent' : installed ? '已安装' : conflict ? '存在同名 Skill' : available ? '可安装' : error ? '不可用' : '未授权'
@@ -1463,7 +1811,16 @@ function escapeHtml(value) {
 }
 
 invoke('get_build_version').then(version => { $('#client-build-version').textContent = `版本 ${version}` })
-refreshConnection()
+const initializeClient = async () => {
+  try {
+    const result = JSON.parse(await run('reconcile-service'))
+    if (result.restarted) log('检测到客户端后台程序已更新，后台服务已自动重启')
+  } catch (error) {
+    log(`后台服务自检失败：${error}`)
+  }
+  await refreshConnection()
+}
+initializeClient()
 setInterval(refreshChangedInventory, 3000)
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) refreshChangedInventory()

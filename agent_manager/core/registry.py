@@ -572,6 +572,23 @@ class Registry:
                 ).fetchall()
             return self._entries_from_rows(rows)
 
+    def list_by_names(self, names: list[str] | set[str]) -> list[RegistryEntry]:
+        normalized = sorted({name.strip().lower() for name in names if name and name.strip()})
+        if not normalized:
+            return []
+        placeholders = ", ".join("?" for _ in normalized)
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT skill_id, name, payload, updated_at
+                FROM skill_registry
+                WHERE lower(name) IN ({placeholders})
+                ORDER BY updated_at DESC
+                """,
+                normalized,
+            ).fetchall()
+            return self._entries_from_rows(rows)
+
     def list_skill_summaries(
         self,
         *,

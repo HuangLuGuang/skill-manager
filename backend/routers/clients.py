@@ -73,7 +73,7 @@ def _runtime_token(
 
 def _bind_client(token: models.AccessToken, client_id: str, db: Session) -> None:
     if token.bound_client_id and token.bound_client_id != client_id:
-        raise HTTPException(status_code=403, detail="客户端凭证已绑定其他终端")
+        raise HTTPException(status_code=403, detail="客户端凭证已绑定其他客户端")
     if not token.bound_client_id:
         token.bound_client_id = client_id
         db.commit()
@@ -82,13 +82,13 @@ def _bind_client(token: models.AccessToken, client_id: str, db: Session) -> None
 def _client_or_404(db: Session, client_id: str) -> models.ManagedClient:
     row = db.query(models.ManagedClient).filter(models.ManagedClient.client_id == client_id).first()
     if not row:
-        raise HTTPException(status_code=404, detail="终端不存在")
+        raise HTTPException(status_code=404, detail="客户端不存在")
     return row
 
 
 def _ensure_visible(row: models.ManagedClient, user: models.User) -> None:
     if user.role != "super_admin" and row.registered_by != user.username:
-        raise HTTPException(status_code=404, detail="终端不存在")
+        raise HTTPException(status_code=404, detail="客户端不存在")
 
 
 def _operation(db: Session, user: models.User, action: str, target: str, details: str) -> None:
@@ -138,10 +138,10 @@ def _authorized_client_skill(
         bindings = [binding for binding in bindings if _agent_kind(binding.agent_type) == _agent_kind(agent.channel)]
     binding = bindings[0] if len(bindings) == 1 else None
     if not binding:
-        raise HTTPException(status_code=403, detail="终端未发现支持 Skill 管理的目标 Agent")
+        raise HTTPException(status_code=403, detail="客户端未发现支持 Skill 管理的目标 Agent")
     if client.governance_mode == "strict":
         if not agent or binding.managed_agent_id != managed_agent_id or not _token_can_use_agent(db, token, agent):
-            raise HTTPException(status_code=403, detail="终端未绑定该智能体")
+            raise HTTPException(status_code=403, detail="客户端未绑定该智能体")
         allowed_refs = {str(item) for item in _load(agent.skill_names_json, [])}
         if entry.name not in allowed_refs and entry.skill_id not in allowed_refs:
             raise HTTPException(status_code=403, detail="智能体未授权使用该 Skill")
@@ -792,7 +792,7 @@ def update_client_policy(
     row = _client_or_404(db, client_id)
     _ensure_visible(row, current_user)
     if body.mode is None and body.governance_mode is None:
-        raise HTTPException(status_code=400, detail="至少提供一项终端策略")
+        raise HTTPException(status_code=400, detail="至少提供一项客户端策略")
     if body.mode is not None:
         row.policy_mode = body.mode
     if body.governance_mode is not None:
@@ -800,7 +800,7 @@ def update_client_policy(
     _operation(
         db,
         current_user,
-        "更新终端策略",
+        "更新客户端策略",
         client_id,
         f"mode={row.policy_mode}, governance_mode={row.governance_mode}",
     )
@@ -855,7 +855,7 @@ def bind_client_agent(
         .first()
     )
     if not row:
-        raise HTTPException(status_code=404, detail="终端 Agent 不存在")
+        raise HTTPException(status_code=404, detail="本地 Agent 不存在")
     if body.managed_agent_id:
         agent = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == body.managed_agent_id).first()
         if not agent:
@@ -863,12 +863,12 @@ def bind_client_agent(
         if current_user.role != "super_admin" and agent.created_by != current_user.username:
             raise HTTPException(status_code=404, detail="平台智能体不存在")
         if _agent_kind(agent.channel) != _agent_kind(agent_type):
-            raise HTTPException(status_code=400, detail="平台智能体类型与终端 Agent 不一致")
+            raise HTTPException(status_code=400, detail="平台智能体类型与本地 Agent 不一致")
     row.managed_agent_id = body.managed_agent_id
     _operation(
         db,
         current_user,
-        "更新终端 Agent 映射",
+        "更新本地 Agent 映射",
         client_id,
         f"agent_type={agent_type}, managed_agent_id={body.managed_agent_id or '-'}",
     )
@@ -909,13 +909,13 @@ def create_task(
             Path(entry.skill_path) if getattr(entry, "skill_path", None) else None,
         )[0]
         if not client_agent:
-            raise HTTPException(status_code=400, detail="终端未发现支持 Skill 管理的目标 Agent")
+            raise HTTPException(status_code=400, detail="客户端未发现支持 Skill 管理的目标 Agent")
         if client.governance_mode == "strict":
             agent = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == managed_agent_id).first()
             if not agent:
                 raise HTTPException(status_code=404, detail="智能体不存在")
             if client_agent.managed_agent_id != managed_agent_id:
-                raise HTTPException(status_code=400, detail="终端 Agent 尚未绑定该平台智能体")
+                raise HTTPException(status_code=400, detail="本地 Agent 尚未绑定该平台智能体")
             allowed_refs = {str(item) for item in _load(agent.skill_names_json, [])}
             if entry.name not in allowed_refs and entry.skill_id not in allowed_refs:
                 raise HTTPException(status_code=403, detail="智能体未授权使用该 Skill")
@@ -940,7 +940,7 @@ def create_task(
             .first()
         )
         if not install:
-            raise HTTPException(status_code=400, detail="终端中不存在可移除的受管 Skill")
+            raise HTTPException(status_code=400, detail="客户端中不存在可移除的受管 Skill")
         payload["skill_name"] = install.skill_name
     for pending in (
         db.query(models.ClientTask)
@@ -955,7 +955,7 @@ def create_task(
             return {"id": pending.id, "status": pending.status}
     row = models.ClientTask(client_id=client_id, task_type=body.task_type, payload_json=_dump(payload))
     db.add(row)
-    _operation(db, current_user, "创建终端任务", client_id, f"task_type={body.task_type}")
+    _operation(db, current_user, "创建客户端任务", client_id, f"task_type={body.task_type}")
     db.commit()
     return {"id": row.id, "status": row.status}
 
@@ -976,7 +976,7 @@ def cancel_task(
         raise HTTPException(status_code=400, detail="只有待执行或执行中的任务可以取消")
     row.status = "cancelled"
     row.finished_at = datetime.utcnow()
-    _operation(db, current_user, "取消终端任务", client_id, f"task_id={task_id}")
+    _operation(db, current_user, "取消客户端任务", client_id, f"task_id={task_id}")
     db.commit()
     return {"id": row.id, "status": row.status}
 
@@ -999,7 +999,7 @@ def retry_task(
     row.error = None
     row.started_at = None
     row.finished_at = None
-    _operation(db, current_user, "重试终端任务", client_id, f"task_id={task_id}")
+    _operation(db, current_user, "重试客户端任务", client_id, f"task_id={task_id}")
     db.commit()
     return {"id": row.id, "status": row.status}
 
@@ -1019,7 +1019,13 @@ def compare_inventory(
     result = []
     bindings_changed = False
     signature_cache: dict[str, str | None] = {}
-    registry_entries = manager.list_skills()
+    skill_names = {
+        skill.name
+        for agent_item in body.agents
+        for skill in agent_item.skills
+        if skill.name
+    }
+    registry_entries = manager.list_skills_by_names(skill_names)
     for agent_item in body.agents:
         local_agent = (
             db.query(models.ClientAgent)
@@ -1126,12 +1132,12 @@ def list_available_client_skills(
         .first()
     )
     if not binding:
-        raise HTTPException(status_code=403, detail="终端未发现支持 Skill 管理的目标 Agent")
+        raise HTTPException(status_code=403, detail="客户端未发现支持 Skill 管理的目标 Agent")
 
     if client.governance_mode == "strict":
         agent = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == managed_agent_id).first()
         if not agent or binding.managed_agent_id != managed_agent_id or not _token_can_use_agent(db, token, agent):
-            raise HTTPException(status_code=403, detail="终端未绑定该智能体")
+            raise HTTPException(status_code=403, detail="客户端未绑定该智能体")
         entries = []
         seen = set()
         for ref in _load(agent.skill_names_json, []):

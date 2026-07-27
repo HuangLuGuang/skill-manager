@@ -3,7 +3,7 @@
     <a-page-header :title="detail?.name ? `Skill 详情：${detail.name}` : `Skill 详情：${skillId}`" sub-title="查看 Skill 详情、审核与审计记录">
       <template #extra>
         <a-button v-if="detail?.status === 'APPROVED'" type="primary" @click="openClientInstall">
-          安装到终端
+          安装到客户端
         </a-button>
         <a-button @click="handleDownloadSkill" :loading="downloadingSkill" :disabled="!detail?.skill_id">
           下载 Skill
@@ -752,7 +752,7 @@
 
     <a-modal
       v-model:open="clientInstallOpen"
-      title="安装 Skill 到终端"
+      title="安装 Skill 到客户端"
       ok-text="创建安装任务"
       :confirm-loading="clientInstallLoading"
       @ok="submitClientInstall"
@@ -761,8 +761,8 @@
         <a-form-item label="Skill">
           <a-input :value="detail?.name || ''" disabled />
         </a-form-item>
-        <a-form-item label="目标终端与 Agent" required>
-          <a-select v-model:value="clientInstallTarget" show-search option-filter-prop="label" placeholder="选择支持 Skill 管理的终端 Agent">
+        <a-form-item label="目标客户端与 Agent" required>
+          <a-select v-model:value="clientInstallTarget" show-search option-filter-prop="label" placeholder="选择支持 Skill 管理的本地 Agent">
             <a-select-option v-for="target in clientTargets" :key="target.key" :value="target.key" :label="target.label">
               {{ target.label }}
             </a-select-option>
@@ -950,7 +950,7 @@ const openClientInstall = async () => {
   try {
     managedClients.value = await listClients()
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取终端列表失败')
+    message.error(error.response?.data?.detail || '获取客户端列表失败')
   } finally {
     clientInstallLoading.value = false
   }
@@ -959,7 +959,7 @@ const openClientInstall = async () => {
 const submitClientInstall = async () => {
   const target = clientTargets.value.find(item => item.key === clientInstallTarget.value)
   if (!target) {
-    message.warning('请选择目标终端与 Agent')
+    message.warning('请选择目标客户端与 Agent')
     return
   }
   clientInstallLoading.value = true

@@ -48,6 +48,10 @@ class _Manager:
                 seen.add(id(entry))
         return result
 
+    def list_skills_by_names(self, names):
+        wanted = {name.lower() for name in names}
+        return [entry for entry in self.list_skills() if entry.name.lower() in wanted]
+
 
 def _client(tmp_path, manager=None):
     engine = create_engine(f"sqlite:///{tmp_path / 'clients.db'}", connect_args={"check_same_thread": False})
@@ -115,7 +119,7 @@ def test_client_register_inventory_and_task_round_trip(tmp_path):
     client = _client(tmp_path, manager)
     created = client.post(
         "/api/v1/access/tokens",
-        json={"name": "终端接入", "token_type": "client"},
+        json={"name": "客户端接入", "token_type": "client"},
     )
     assert created.status_code == 200
     token = created.json()["token"]
@@ -126,7 +130,7 @@ def test_client_register_inventory_and_task_round_trip(tmp_path):
         headers=headers,
         json={
             "client_id": "host-001",
-            "name": "研发终端",
+            "name": "研发客户端",
             "hostname": "dev-mac",
             "os": "darwin",
             "arch": "arm64",
@@ -252,7 +256,7 @@ def test_client_register_inventory_and_task_round_trip(tmp_path):
         headers=headers,
         json={
             "client_id": "host-002",
-            "name": "其他终端",
+            "name": "其他客户端",
             "hostname": "other",
             "os": "linux",
             "arch": "amd64",
@@ -260,7 +264,7 @@ def test_client_register_inventory_and_task_round_trip(tmp_path):
         },
     )
     assert other_client.status_code == 403
-    assert "已绑定其他终端" in other_client.json()["detail"]
+    assert "已绑定其他客户端" in other_client.json()["detail"]
 
     task = client.post(
         "/api/v1/clients/host-001/tasks",
@@ -306,7 +310,7 @@ def test_client_register_inventory_and_task_round_trip(tmp_path):
         },
     )
     assert unsafe_remove.status_code == 400
-    assert unsafe_remove.json()["detail"] == "终端中不存在可移除的受管 Skill"
+    assert unsafe_remove.json()["detail"] == "客户端中不存在可移除的受管 Skill"
     takeover = client.post(
         "/api/v1/clients/host-001/takeover-report",
         headers=headers,
@@ -392,7 +396,7 @@ def test_client_update_manifest_and_download_require_client_token(tmp_path, monk
     client = _client(tmp_path)
     token = client.post(
         "/api/v1/access/tokens",
-        json={"name": "终端接入", "token_type": "client"},
+        json={"name": "客户端接入", "token_type": "client"},
     ).json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -451,7 +455,7 @@ def test_disabled_client_token_is_rejected_immediately(tmp_path):
     client = _client(tmp_path)
     created = client.post(
         "/api/v1/access/tokens",
-        json={"name": "终端接入", "token_type": "client"},
+        json={"name": "客户端接入", "token_type": "client"},
     ).json()
     disabled = client.put(
         f"/api/v1/access/tokens/{created['record']['id']}",
@@ -527,7 +531,7 @@ def test_compare_same_name_skills_uses_authorized_signature(tmp_path):
     client = _client(tmp_path, _Manager({"same": first, "skill-1": first, "skill-2": second}))
     token = client.post(
         "/api/v1/access/tokens",
-        json={"name": "终端接入", "token_type": "client"},
+        json={"name": "客户端接入", "token_type": "client"},
     ).json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
     client.post(
@@ -635,7 +639,7 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
 
     token = client.post(
         "/api/v1/access/tokens",
-        json={"name": "终端接入", "token_type": "client"},
+        json={"name": "客户端接入", "token_type": "client"},
     ).json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
     client.post(
@@ -643,7 +647,7 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
         headers=headers,
         json={
             "client_id": "host-001",
-            "name": "研发终端",
+            "name": "研发客户端",
             "hostname": "dev-mac",
             "os": "darwin",
             "arch": "arm64",
@@ -774,7 +778,7 @@ def test_client_cannot_download_skill_for_unbound_agent(tmp_path, monkeypatch):
     client = _client(tmp_path, _Manager({"skill-1": entry}))
     token = client.post(
         "/api/v1/access/tokens",
-        json={"name": "终端接入", "token_type": "client"},
+        json={"name": "客户端接入", "token_type": "client"},
     ).json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
     client.post(
@@ -782,7 +786,7 @@ def test_client_cannot_download_skill_for_unbound_agent(tmp_path, monkeypatch):
         headers=headers,
         json={
             "client_id": "host-001",
-            "name": "研发终端",
+            "name": "研发客户端",
             "hostname": "dev-mac",
             "os": "darwin",
             "arch": "arm64",
@@ -815,7 +819,7 @@ def test_client_cannot_download_skill_for_unbound_agent(tmp_path, monkeypatch):
         headers=headers,
     )
     assert response.status_code == 403
-    assert response.json()["detail"] == "终端未绑定该智能体"
+    assert response.json()["detail"] == "客户端未绑定该智能体"
 
 
 def test_registry_mode_does_not_require_managed_agent_binding(tmp_path, monkeypatch):
@@ -835,7 +839,7 @@ def test_registry_mode_does_not_require_managed_agent_binding(tmp_path, monkeypa
     monkeypatch.setattr(settings, "DATA_DIR", str(tmp_path / "data"))
     private_key.cache_clear()
     client = _client(tmp_path, _Manager({"skill-1": entry, "approved-skill": entry}))
-    token = client.post("/api/v1/access/tokens", json={"name": "终端接入", "token_type": "client"}).json()["token"]
+    token = client.post("/api/v1/access/tokens", json={"name": "客户端接入", "token_type": "client"}).json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
     client.post(
         "/api/v1/clients/register",
@@ -889,7 +893,7 @@ def test_register_auto_matches_only_unique_agent_type(tmp_path):
     database.close()
     token = client.post(
         "/api/v1/access/tokens",
-        json={"name": "终端接入", "token_type": "client"},
+        json={"name": "客户端接入", "token_type": "client"},
     ).json()["token"]
     response = client.post(
         "/api/v1/clients/register",

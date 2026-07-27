@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="统一凭证中心" sub-title="统一签发模型、MCP 网关、Agent 运行时、终端和 Scanner 接入凭证" />
+    <a-page-header title="统一凭证中心" sub-title="统一签发模型、MCP 网关、Agent 运行时、客户端和 Scanner 接入凭证" />
 
     <a-card style="margin-top: 16px">
       <template #extra>
@@ -9,7 +9,7 @@
             <a-select-option value="model_gateway">模型调用凭证</a-select-option>
             <a-select-option value="agent_runtime">Agent 运行凭证</a-select-option>
             <a-select-option value="scanner">Scanner 接入凭证</a-select-option>
-            <a-select-option value="client">终端接入凭证</a-select-option>
+            <a-select-option value="client">客户端接入凭证</a-select-option>
             <a-select-option value="mcp_gateway">MCP 网关凭证</a-select-option>
           </a-select>
           <a-button @click="fetchTokens" :loading="loading">刷新</a-button>
@@ -21,7 +21,7 @@
         type="info"
         show-icon
         message="凭证明文只展示一次"
-        description="服务端只保存 hash。模型调用、Agent 运行时、终端接管和 Scanner 批量提交都在这里创建凭证。"
+        description="服务端只保存 hash。模型调用、Agent 运行时、客户端接管和 Scanner 批量提交都在这里创建凭证。"
         style="margin-bottom: 16px"
       />
 
@@ -86,7 +86,7 @@
                 <a-select-option value="model_gateway">模型调用凭证</a-select-option>
                 <a-select-option value="agent_runtime">Agent 运行凭证</a-select-option>
                 <a-select-option value="scanner">Scanner 接入凭证</a-select-option>
-                <a-select-option value="client">终端接入凭证</a-select-option>
+                <a-select-option value="client">客户端接入凭证</a-select-option>
                 <a-select-option value="mcp_gateway">MCP 网关凭证</a-select-option>
               </a-select>
             </a-form-item>
@@ -296,7 +296,7 @@ const tokenTypeLabel = (value) => ({
   model_gateway: '模型调用',
   agent_runtime: 'Agent 运行',
   scanner: 'Scanner 接入',
-  client: '终端接入',
+  client: '客户端接入',
   mcp_gateway: 'MCP 网关',
 }[value] || value)
 const statusLabel = (value) => ({ active: '启用', disabled: '禁用', revoked: '已吊销' }[value] || value)

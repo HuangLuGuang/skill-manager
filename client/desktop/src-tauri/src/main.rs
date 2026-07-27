@@ -85,6 +85,7 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "pause-governance",
         "resume-governance",
         "service-status",
+        "reconcile-service",
         "local-status",
         "read-notifications",
         "clear-notifications",
@@ -137,7 +138,7 @@ fn show_system_notification(app: AppHandle, title: String, body: String) -> Resu
         != PermissionState::Granted
     {
         return Err(
-            "系统通知权限未开启，请在系统设置中允许瑞数智能体安全治理终端发送通知".to_string(),
+            "系统通知权限未开启，请在系统设置中允许瑞数智能体安全治理客户端发送通知".to_string(),
         );
     }
     notifications
@@ -158,6 +159,51 @@ async fn select_skill_directory() -> Result<Option<String>, String> {
     })
     .await
     .map_err(|error| format!("目录选择器异常: {error}"))?
+}
+
+#[tauri::command]
+async fn reveal_path(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = PathBuf::from(path);
+        if !path.is_absolute() {
+            return Err("只能打开绝对路径".to_string());
+        }
+        if !path.exists() {
+            return Err(format!("路径不存在或已被移动: {}", path.display()));
+        }
+        #[cfg(target_os = "macos")]
+        let status = if path.is_dir() {
+            Command::new("open").arg(&path).status()
+        } else {
+            Command::new("open").arg("-R").arg(&path).status()
+        };
+        #[cfg(target_os = "windows")]
+        let status = if path.is_dir() {
+            Command::new("explorer").arg(&path).status()
+        } else {
+            Command::new("explorer")
+                .arg(format!("/select,{}", path.display()))
+                .status()
+        };
+        #[cfg(target_os = "linux")]
+        let status = Command::new("xdg-open")
+            .arg(if path.is_dir() {
+                path.as_path()
+            } else {
+                path.parent().unwrap_or(path.as_path())
+            })
+            .status();
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+        return Err("当前系统暂不支持打开文件夹".to_string());
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        match status {
+            Ok(value) if value.success() => Ok(()),
+            Ok(value) => Err(format!("系统文件管理器返回失败状态: {value}")),
+            Err(error) => Err(format!("无法打开系统文件管理器: {error}")),
+        }
+    })
+    .await
+    .map_err(|error| format!("打开文件夹操作异常: {error}"))?
 }
 
 #[tauri::command]
@@ -195,7 +241,7 @@ async fn get_connection_status() -> Result<ConnectionStatus, String> {
     let client_id = inventory
         .get("client_id")
         .and_then(|value| value.as_str())
-        .ok_or_else(|| "本机终端 ID 无效".to_string())?;
+        .ok_or_else(|| "本机客户端 ID 无效".to_string())?;
     let url = format!(
         "{}/api/v1/clients/{}/status",
         config.server.trim_end_matches('/'),
@@ -348,7 +394,7 @@ fn try_load_client_config() -> Result<Option<ClientConfig>, String> {
     let config: ClientConfig =
         serde_json::from_slice(&body).map_err(|error| format!("客户端配置格式错误: {error}"))?;
     if config.server.trim().is_empty() || config.token.trim().is_empty() {
-        return Err("客户端尚未配置 Agent Manager 地址或终端凭证".to_string());
+        return Err("尚未配置 Agent Manager 地址或客户端接入凭证".to_string());
     }
     Ok(Some(config))
 }
@@ -442,6 +488,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             execute_client,
             select_skill_directory,
+            reveal_path,
             get_connection_status,
             show_system_notification,
             check_client_update,

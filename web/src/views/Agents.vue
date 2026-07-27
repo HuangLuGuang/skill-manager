@@ -166,7 +166,7 @@
               {{ option.label }}
             </a-select-option>
           </a-select>
-          <div class="field-hint">仅用于终端自动发现和映射，不代表接入方式。</div>
+          <div class="field-hint">仅用于客户端自动发现和映射，不代表接入方式。</div>
         </a-form-item>
         <a-form-item label="默认模型">
           <a-select v-model:value="agentForm.default_model" allow-clear show-search placeholder="选择模型">

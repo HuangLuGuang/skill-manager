@@ -25,7 +25,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|takeover|pending|refresh-pending|submit-pending|available-skills|skill-preview|install-skill|quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|pause-governance|resume-governance|service-status|install-service|uninstall-service> [options]")
+		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|takeover|pending|refresh-pending|submit-pending|available-skills|skill-preview|install-skill|quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|pause-governance|resume-governance|service-status|reconcile-service|install-service|uninstall-service> [options]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
@@ -49,6 +49,9 @@ func run(args []string) error {
 	fs.Var(&skillRoots, "skill-root", "built-in Agent Skill directory; repeat for multiple directories")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
+	}
+	if err := managedclient.EnsureDataLayout(*home); err != nil {
+		return fmt.Errorf("初始化客户端数据目录失败: %w", err)
 	}
 	config, err := managedclient.LoadConfig(*home)
 	if err != nil {
@@ -122,6 +125,17 @@ func run(args []string) error {
 	}
 	if args[0] == "service-status" {
 		return json.NewEncoder(os.Stdout).Encode(managedclient.ServiceStatus(*home))
+	}
+	if args[0] == "reconcile-service" {
+		executable, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		result, err := managedclient.ReconcileService(*home, executable)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(result)
 	}
 	if args[0] == "uninstall-service" {
 		if err := managedclient.UninstallService(*home); err != nil {
@@ -299,7 +313,17 @@ func run(args []string) error {
 		}
 		return json.NewEncoder(os.Stdout).Encode(item)
 	}
-	inventory, err := managedclient.Discover(*home)
+	var inventory managedclient.Inventory
+	if args[0] == "takeover" && !*confirm {
+		store, storeErr := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
+		if storeErr == nil {
+			inventory, err = loadCachedInventory(store)
+			store.Close()
+		}
+	}
+	if inventory.ClientID == "" {
+		inventory, err = managedclient.Discover(*home)
+	}
 	if err != nil {
 		return err
 	}
@@ -376,6 +400,10 @@ func run(args []string) error {
 		compareInventory, excludedPaths := filterInventorySkills(inventory, selectedSkills)
 		api := managedclient.NewAPI(*server, *token, 30*time.Second)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := api.ReportInventory(ctx, inventory); err != nil {
+			cancel()
+			return fmt.Errorf("同步最新 Agent 清单失败: %w", err)
+		}
 		comparisons, err := api.Compare(ctx, compareInventory, mappings)
 		cancel()
 		if err != nil {

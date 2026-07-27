@@ -594,6 +594,9 @@ class AgentManager:
     def list_skills(self, status: SkillStatus | None = None) -> list[RegistryEntry]:
         return self.registry.list_all(status)
 
+    def list_skills_by_names(self, names: list[str] | set[str]) -> list[RegistryEntry]:
+        return self.registry.list_by_names(names)
+
     def list_skills_by_statuses(self, statuses: list[SkillStatus]) -> list[RegistryEntry]:
         return self.registry.list_by_statuses(statuses)
 

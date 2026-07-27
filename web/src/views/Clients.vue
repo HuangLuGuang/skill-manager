@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="终端管理" sub-title="统一发现、安装、校验和隔离本地 Agent Skill">
+    <a-page-header title="客户端管理" sub-title="统一发现、安装、校验和隔离本地 Agent Skill">
       <template #extra>
         <a-button type="primary" @click="installGuideVisible = true">安装客户端</a-button>
         <a-button :loading="loading" @click="loadClients">刷新</a-button>
@@ -8,7 +8,7 @@
     </a-page-header>
 
     <a-row :gutter="[16, 16]" class="summary-row">
-      <a-col :xs="12" :lg="6"><a-card><a-statistic title="受管终端" :value="clients.length" /></a-card></a-col>
+      <a-col :xs="12" :lg="6"><a-card><a-statistic title="受管客户端" :value="clients.length" /></a-card></a-col>
       <a-col :xs="12" :lg="6"><a-card><a-statistic title="在线" :value="onlineCount" /></a-card></a-col>
       <a-col :xs="12" :lg="6"><a-card><a-statistic title="已发现 Agent" :value="agentCount" /></a-card></a-col>
       <a-col :xs="12" :lg="6"><a-card><a-statistic title="异常事件" :value="issueCount" /></a-card></a-col>
@@ -42,7 +42,7 @@
       </a-table>
     </a-card>
 
-    <a-drawer v-model:open="detailVisible" title="终端详情" width="880" :destroy-on-close="true">
+    <a-drawer v-model:open="detailVisible" title="客户端详情" width="880" :destroy-on-close="true">
       <a-spin :spinning="detailLoading">
         <template v-if="detail">
           <div class="detail-head">
@@ -55,7 +55,7 @@
               <label>
                 <span>治理方式</span>
                 <a-select :value="currentGovernance" style="width: 170px" @change="saveGovernance">
-                  <a-select-option value="registry">终端安全治理</a-select-option>
+                  <a-select-option value="registry">客户端安全治理</a-select-option>
                   <a-select-option value="strict">Agent 强授权</a-select-option>
                 </a-select>
               </label>
@@ -177,7 +177,7 @@
               <div class="muted">{{ formatTime(event.created_at) }}</div>
             </a-timeline-item>
           </a-timeline>
-          <a-empty v-else description="暂无终端事件" />
+          <a-empty v-else description="暂无客户端事件" />
           <div v-if="detail.events?.length > eventVisibleCount" class="event-more">
             <a-button type="link" @click="eventVisibleCount += 10">查看更多</a-button>
           </div>
@@ -185,7 +185,7 @@
       </a-spin>
     </a-drawer>
 
-    <a-modal v-model:open="installVisible" title="下发 Skill 到终端" ok-text="下发安装" @ok="createInstall" :confirm-loading="submitting">
+    <a-modal v-model:open="installVisible" title="下发 Skill 到客户端" ok-text="下发安装" @ok="createInstall" :confirm-loading="submitting">
       <a-form layout="vertical">
         <a-form-item label="目标 Agent">
           <a-input :value="agentLabel(installForm.agent_type)" disabled />
@@ -212,7 +212,7 @@
             </a-space>
           </template>
         </a-step>
-        <a-step title="创建终端接入凭证" description="前往“统一凭证中心”，类型选择“终端接入凭证”，保留默认 client:* 权限。" />
+        <a-step title="创建客户端接入凭证" description="前往“统一凭证中心”，类型选择“客户端接入凭证”，保留默认 client:* 权限。" />
         <a-step title="连接并接管" description="打开桌面客户端，填写平台地址与凭证；发现本机 Agent 后勾选需要治理的 Skill。" />
         <a-step title="启用后台巡检" description="完成接管后启用后台服务，客户端会持续校验签名并上报异常。" />
       </a-steps>
@@ -259,7 +259,7 @@ const downloadPlatforms = ref([])
 const selectedPlatform = ref()
 
 const columns = [
-  { title: '终端', key: 'client' },
+  { title: '客户端', key: 'client' },
   { title: '系统', key: 'platform', width: 170 },
   { title: 'Agent', key: 'agents', width: 160 },
   { title: 'Skill', key: 'skills', width: 90 },
@@ -307,7 +307,7 @@ const loadClients = async () => {
   try {
     clients.value = await listClients()
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取终端列表失败')
+    message.error(error.response?.data?.detail || '获取客户端列表失败')
   } finally {
     loading.value = false
   }
@@ -343,14 +343,14 @@ const savePolicy = async (mode) => {
   currentPolicy.value = mode
   detail.value.policy_mode = mode
   await refreshDetail()
-  message.success('处置策略已更新，等待终端同步')
+  message.success('处置策略已更新，等待客户端同步')
 }
 const saveGovernance = async (governanceMode) => {
   await updateClientPolicy(detail.value.client_id, { governance_mode: governanceMode })
   currentGovernance.value = governanceMode
   detail.value.governance_mode = governanceMode
   await refreshDetail()
-  message.success('治理方式已更新，等待终端同步')
+  message.success('治理方式已更新，等待客户端同步')
 }
 const saveBinding = async (record, managedAgentId) => {
   actionKey.value = `bind:${record.agent_type}`
@@ -388,7 +388,7 @@ const createInstall = async () => {
     })
     installVisible.value = false
     await refreshDetail()
-    message.success('安装任务已下发，等待终端执行')
+    message.success('安装任务已下发，等待客户端执行')
     watchTask(task.id).catch(() => {})
   } finally {
     submitting.value = false
@@ -408,7 +408,7 @@ const removeSkill = async (record) => {
       },
     })
     await refreshDetail()
-    message.success('移除任务已下发，等待终端执行')
+    message.success('移除任务已下发，等待客户端执行')
     watchTask(task.id).catch(() => {})
   } finally {
     actionKey.value = ''
@@ -428,7 +428,7 @@ const repairSkill = async (record) => {
       },
     })
     await refreshDetail()
-    message.success('修复任务已下发，等待终端执行')
+    message.success('修复任务已下发，等待客户端执行')
     watchTask(task.id).catch(() => {})
   } finally {
     actionKey.value = ''
@@ -495,12 +495,12 @@ const policyDescription = mode => ({
   block: '隔离阻断：把异常内容移入隔离区，并从 Agent 的 Skill 入口移除。',
 }[mode])
 const governanceDescription = mode => ({
-  registry: '终端安全治理：只要 Skill 已在平台批准且内容签名一致，即可在本机 Agent 使用。',
+  registry: '客户端安全治理：只要 Skill 已在平台批准且内容签名一致，即可在本机 Agent 使用。',
   strict: 'Agent 强授权：除批准状态和签名外，还要求本机 Agent 绑定平台智能体，并校验允许使用的 Skill。',
 }[mode])
 const governanceShortLabel = mode => ({ registry: '安全治理', strict: '强授权' }[mode] || '安全治理')
 const eventLabel = value => ({
-  client_registered: '终端注册',
+  client_registered: '客户端注册',
   takeover_completed: '治理范围更新',
   unmanaged_skill_found: '发现未受管 Skill',
   unmanaged_skill_verified: '未受管 Skill 已通过平台校验',
@@ -519,11 +519,11 @@ const taskLabel = task => {
     install_skill: '下发 Skill',
     remove_skill: '移除 Skill',
     repair_skill: '修复 Skill',
-    rescan: '同步终端清单',
+    rescan: '同步客户端清单',
     sync_policy: '同步处理策略',
   }[task.task_type] || task.task_type)
 }
-const taskStatusLabel = value => ({ pending: '等待终端执行', running: '执行中', succeeded: '已完成', failed: '失败', cancelled: '已取消' }[value] || value)
+const taskStatusLabel = value => ({ pending: '等待客户端执行', running: '执行中', succeeded: '已完成', failed: '失败', cancelled: '已取消' }[value] || value)
 const taskColor = value => ({ pending: 'default', running: 'blue', succeeded: 'green', failed: 'red', cancelled: 'default' }[value] || 'default')
 
 onMounted(async () => {

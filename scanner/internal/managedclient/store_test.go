@@ -1,11 +1,48 @@
 package managedclient
 
 import (
+	"database/sql"
 	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestOpenStoreMigratesPendingContentFingerprint(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "client.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE client_pending (
+		id TEXT PRIMARY KEY,
+		agent_type TEXT NOT NULL,
+		skill_name TEXT NOT NULL,
+		original_path TEXT NOT NULL,
+		pending_path TEXT NOT NULL UNIQUE,
+		reason TEXT NOT NULL,
+		status TEXT NOT NULL,
+		skill_id TEXT,
+		created_at TEXT NOT NULL,
+		submitted_at TEXT
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.db.Exec(`INSERT INTO client_pending(
+		id, agent_type, skill_name, original_path, pending_path, reason, status, content_fingerprint, created_at
+	) VALUES('pending-1', 'codex', 'demo', '', '/tmp/demo', 'test', 'pending', 'sha256:test', '2026-07-23T00:00:00Z')`); err != nil {
+		t.Fatalf("content_fingerprint migration was not applied: %v", err)
+	}
+}
 
 func TestStorePersistsInventoryAndCompletedTasks(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "client.db"))

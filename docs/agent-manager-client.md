@@ -2,9 +2,9 @@
 
 Agent Manager Client 用于统一发现、接管和巡检本机 Agent 的 Skill 目录。它直接管控文件入口，不依赖 Agent 是否遵循提示词、Skill 指令或 Hook。
 
-终端支持两种治理方式：
+客户端支持两种治理方式：
 
-- 终端安全治理（默认）：Skill 已在平台批准且本地内容签名一致即可使用，不要求创建或绑定平台智能体。
+- 客户端安全治理（默认）：Skill 已在平台批准且本地内容签名一致即可使用，不要求创建或绑定平台智能体。
 - Agent 强授权：除批准状态和签名外，还要求本机 Agent 绑定平台智能体，并校验该智能体的 Skill 允许范围。
 
 客户端内置支持以下六类工具：
@@ -46,7 +46,7 @@ agent-manager-client-linux-amd64
 agent-manager-client-linux-arm64
 ```
 
-## 2. 创建终端凭证
+## 2. 创建客户端凭证
 
 管理台进入：
 
@@ -54,9 +54,9 @@ agent-manager-client-linux-arm64
 智能体管理 -> 统一凭证中心 -> 创建凭证
 ```
 
-凭证类型选择“终端接入凭证”。明文只展示一次。
+凭证类型选择“客户端接入凭证”。明文只展示一次。
 
-## 3. 注册终端
+## 3. 注册客户端
 
 ```bash
 export AGENT_MANAGER_CLIENT_SERVER="http://127.0.0.1:8001"
@@ -68,12 +68,12 @@ export AGENT_MANAGER_CLIENT_TOKEN="amat_xxx"
 客户端自动发现本机 Agent 和用户级 Skill，并上报平台。管理台进入：
 
 ```text
-智能体管理 -> 终端管理
+智能体管理 -> 客户端管理
 ```
 
-默认使用“终端安全治理”，无需绑定平台智能体。只有切换为“Agent 强授权”后，才需要在终端详情中选择平台智能体；同类型只有一个候选时平台会自动匹配。
+默认使用“客户端安全治理”，无需绑定平台智能体。只有切换为“Agent 强授权”后，才需要在客户端详情中选择平台智能体；同类型只有一个候选时平台会自动匹配。
 
-不在内置列表中的 Agent，无需开发新适配器。进入“Agent 发现 -> 添加自定义 Agent”，填写便于识别的名称，并选择包含多个 Skill 子目录的绝对路径。移除自定义 Agent 只取消登记，不会删除该目录中的文件。终端安全治理无需在平台重复创建 Agent；Agent 强授权模式下，先在平台创建“自定义 Agent”，再在客户端选择对应的平台智能体。
+不在内置列表中的 Agent，无需开发新适配器。进入“Agent 发现 -> 添加自定义 Agent”，填写便于识别的名称，并选择包含多个 Skill 子目录的绝对路径。移除自定义 Agent 只取消登记，不会删除该目录中的文件。客户端安全治理无需在平台重复创建 Agent；Agent 强授权模式下，先在平台创建“自定义 Agent”，再在客户端选择对应的平台智能体。
 
 ## 4. 首次接管
 
@@ -96,13 +96,15 @@ Agent 强授权模式再增加 `--agent codex=codex-agent`。桌面版会提供�
 
 接管规则：
 
-- 终端安全治理：Skill 为 `APPROVED` 且签名一致时进入 `~/.agent-manager/skills/`。
+- 客户端安全治理：Skill 为 `APPROVED` 且签名一致时进入 `~/.river-security/agent-manager/skills/`。
 - Agent 强授权：还必须通过智能体允许范围校验。
-- 其他 Skill：备份后移入 `~/.agent-manager/pending/`。
+- 其他 Skill：备份后移入 `~/.river-security/agent-manager/pending/`。
 - 用户在选择性接管中明确未勾选的路径保留原状，并记为当前治理范围外；接管完成后新出现的未知 Skill 仍会按策略检测。
-- 原始内容备份到 `~/.agent-manager/backups/`。
+- 原始内容备份到 `~/.river-security/agent-manager/backups/`。
 - 接管失败时恢复原目录。
 - 已接管的 Skill 在刷新预览时显示“已接管”，不会再次复制、备份或替换。
+
+`~/.agent-manager/` 只保存配置、数据库、日志、锁和运行触发文件。升级时，客户端会把旧版 `skills`、`pending`、`quarantine`、`backups` 内容迁入 `~/.river-security/agent-manager/`，并保留旧路径兼容入口，现有 Agent 软链接无需重新接管。
 
 ## 5. 启动后台巡检
 
@@ -124,11 +126,11 @@ Agent 强授权模式再增加 `--agent codex=codex-agent`。桌面版会提供�
 ~/.agent-manager/client.db
 ```
 
-终端详情可设置：
+客户端详情可设置：
 
 - 只审计：发现修改后只记录事件。
 - 自动恢复：重新下载平台批准版本。
-- 隔离阻断：把异常内容移入 `~/.agent-manager/quarantine/` 并移除 Agent 入口。
+- 隔离阻断：把异常内容移入 `~/.river-security/agent-manager/quarantine/` 并移除 Agent 入口。
 
 平台不可达时，客户端不会执行安装、远程修复或授权变更，但会使用最近一次成功同步的策略继续检查已受管 Skill。只审计模式记录本地事件，隔离阻断模式会隔离确认被修改的内容；事件持久保存在本地并在平台恢复后自动补报。首次成功同步前没有策略缓存时，客户端不会自行处置。
 
@@ -141,9 +143,9 @@ Agent 强授权模式再增加 `--agent codex=codex-agent`。桌面版会提供�
 
 ## 6. 平台安装和卸载
 
-在“终端管理”中：
+在“客户端管理”中：
 
-1. 打开终端详情。
+1. 打开客户端详情。
 2. 点击目标 Agent 的“安装 Skill”。
 3. 选择 `APPROVED` Skill。
 
@@ -160,7 +162,7 @@ Agent 强授权模式下，需要先绑定平台智能体，列表只显示该�
 ./agent-manager-client-darwin-arm64 restore --backup 20260716T120000Z --confirm
 ```
 
-恢复前会再次备份当前同名 Skill。备份目录只接受 `~/.agent-manager/backups/` 下的真实目录，不跟随外部软链接；内置和自定义 Agent 均按当前登记的 Skill 根目录恢复。
+恢复前会再次备份当前同名 Skill。备份目录只接受 `~/.river-security/agent-manager/backups/` 下的真实目录；升级后的客户端仍可读取旧版 `~/.agent-manager/backups/`。备份不跟随外部软链接，内置和自定义 Agent 均按当前登记的 Skill 根目录恢复。
 
 被阻断的内容进入独立隔离区，不会在未经验证时直接放回 Agent 目录。桌面版应从平台选择批准版本重新安装；命令行可以只读查看隔离记录：
 
@@ -182,7 +184,7 @@ Agent 强授权模式下，需要先绑定平台智能体，列表只显示该�
 
 ## 9. 客户端自动更新
 
-正式桌面安装包提供“检查更新”。客户端使用本地终端凭证访问 Agent Manager，并由 Tauri Updater 校验 Ed25519 更新签名后安装；无签名、签名错误或平台不匹配的更新包不会安装。
+正式桌面安装包提供“检查更新”。客户端使用本地客户端凭证访问 Agent Manager，并由 Tauri Updater 校验 Ed25519 更新签名后安装；无签名、签名错误或平台不匹配的更新包不会安装。
 
 生成更新签名密钥：
 
@@ -219,6 +221,8 @@ APPLE_TEAM_ID
 
 `APPLE_CERTIFICATE` 是包含私钥的 `.p12` 证书经 `openssl base64 -A` 编码后的完整内容；`APPLE_CERTIFICATE_PASSWORD` 是导出 `.p12` 时设置的密码；`APPLE_PASSWORD` 必须使用 Apple ID 的 App 专用密码。Updater 的 Ed25519 密钥与 Apple 代码签名是两套独立机制，正式发行时缺少任意一套都不能形成可交付的 macOS 自动更新版本。
 
+如果 Actions 报错 `SecKeychainItemImport` 或 `failed to import keychain certificate`，优先检查 `APPLE_CERTIFICATE` 是否误填成 `.cer`、文件路径或文件名，以及 `APPLE_CERTIFICATE_PASSWORD` 是否与 `.p12` 的导出密码一致。正式流水线会在构建前验证 Base64、`.p12` 密码、Developer ID Application 证书类型和私钥是否存在。
+
 版本使用日期格式 `YY.MM.DD`。例如 2026 年 3 月 15 日发布：
 
 ```bash
@@ -243,9 +247,9 @@ scanner/releases/
   agent-manager-client-26.03.15-darwin-x86_64.app.tar.gz
 ```
 
-管理台“终端管理 → 安装客户端”只展示最新版本的 `.dmg`、`.exe` 和 `.AppImage`，历史版本即使仍保存在发布目录中也不会出现在下载列表。Windows 和 Linux 复用安装包执行更新，macOS 的更新压缩包不会出现在手动下载列表。正式构建左下角显示 `版本 26.03.15`，本地 `npm run dev` 或普通 `npm run build` 显示 `版本 dev`。
+管理台“客户端管理 → 安装客户端”只展示最新版本的 `.dmg`、`.exe` 和 `.AppImage`，历史版本即使仍保存在发布目录中也不会出现在下载列表。Windows 和 Linux 复用安装包执行更新，macOS 的更新压缩包不会出现在手动下载列表。正式构建左下角显示 `版本 26.03.15`，本地 `npm run dev` 或普通 `npm run build` 显示 `版本 dev`。
 
-更新检查和文件下载均要求有效的终端接入凭证。内网 HTTP 可以使用，但更新包仍必须通过内置公钥验签；生产环境优先使用 HTTPS。
+更新检查和文件下载均要求有效的客户端接入凭证。内网 HTTP 可以使用，但更新包仍必须通过内置公钥验签；生产环境优先使用 HTTPS。
 
 ## 10. 操作系统代码签名
 
