@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
 
 import { parseReleaseVersion } from './release-version.mjs'
 
@@ -41,9 +43,55 @@ if (platform === 'mac') {
   }
 }
 
+const tauriCli = 'node_modules/@tauri-apps/cli/tauri.js'
+const releaseEnv = { ...env, AGENT_MANAGER_RELEASE_VERSION: displayVersion }
+
+const removeDmgArtifacts = directory => {
+  if (!fs.existsSync(directory)) return
+  for (const entry of fs.readdirSync(directory)) {
+    if (entry.endsWith('.dmg')) {
+      fs.rmSync(path.join(directory, entry), { force: true })
+    }
+  }
+}
+
 execFileSync(process.execPath, ['scripts/prepare-sidecar.mjs'], { env, stdio: 'inherit' })
 execFileSync(process.execPath, ['scripts/prepare-release-config.mjs'], { env, stdio: 'inherit' })
-execFileSync(process.execPath, ['node_modules/@tauri-apps/cli/tauri.js', 'build', '--config', 'src-tauri/tauri.release.conf.json', '--bundles', bundles], {
-  env: { ...env, AGENT_MANAGER_RELEASE_VERSION: displayVersion },
-  stdio: 'inherit',
-})
+
+const buildArgs = [tauriCli, 'build', '--config', 'src-tauri/tauri.release.conf.json', '--bundles', bundles]
+if (platform === 'mac') {
+  buildArgs.push('--ci', '--verbose')
+}
+
+try {
+  execFileSync(process.execPath, buildArgs, {
+    env: releaseEnv,
+    stdio: 'inherit',
+  })
+} catch (error) {
+  if (platform !== 'mac') throw error
+
+  const bundleRoot = path.resolve('src-tauri/target/release/bundle')
+  const macosBundleDir = path.join(bundleRoot, 'macos')
+  const hasApp = fs.existsSync(macosBundleDir)
+    && fs.readdirSync(macosBundleDir).some(name => name.endsWith('.app'))
+  if (!hasApp) throw error
+
+  console.warn('DMG 首次生成失败，应用构建已完成；清理临时镜像后重试 DMG。')
+  removeDmgArtifacts(path.join(bundleRoot, 'dmg'))
+  removeDmgArtifacts(macosBundleDir)
+  execFileSync('sleep', ['3'], { stdio: 'inherit' })
+  execFileSync(process.execPath, [
+    tauriCli,
+    'bundle',
+    '--config',
+    'src-tauri/tauri.release.conf.json',
+    '--bundles',
+    'dmg',
+    '--ci',
+    '--verbose',
+  ], {
+    env: releaseEnv,
+    stdio: 'inherit',
+  })
+}
