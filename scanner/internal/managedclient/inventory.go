@@ -53,24 +53,33 @@ type Inventory struct {
 }
 
 type adapter struct {
-	agentType     string
-	binaries      []string
-	skillRoots    []string
-	supportsSkill bool
-	appPaths      []string
-	sharedSkills  bool
+	agentType          string
+	binaries           []string
+	skillRoots         []string
+	supportsSkill      bool
+	appPaths           []string
+	sharedSkills       bool
+	sharedSkillReaders []string
 }
 
 type BuiltinAgentSetting struct {
-	AgentType    string   `json:"agent_type"`
-	DefaultRoots []string `json:"default_roots"`
-	CurrentRoots []string `json:"current_roots"`
-	Customized   bool     `json:"customized"`
+	AgentType          string   `json:"agent_type"`
+	DefaultRoots       []string `json:"default_roots"`
+	CurrentRoots       []string `json:"current_roots"`
+	Customized         bool     `json:"customized"`
+	SharedSkills       bool     `json:"shared_skills,omitempty"`
+	SharedSkillReaders []string `json:"shared_skill_readers,omitempty"`
 }
 
 func adapters() []adapter {
 	return []adapter{
-		{agentType: "global-skills", skillRoots: []string{".agents/skills"}, supportsSkill: true, sharedSkills: true},
+		{
+			agentType:          "global-skills",
+			skillRoots:         []string{".agents/skills"},
+			supportsSkill:      true,
+			sharedSkills:       true,
+			sharedSkillReaders: []string{"OpenCode", "Cursor"},
+		},
 		{agentType: "claude-code", binaries: []string{"claude"}, skillRoots: []string{".claude/skills"}, supportsSkill: true},
 		{agentType: "codex", binaries: []string{"codex"}, skillRoots: []string{".codex/skills"}, supportsSkill: true},
 		{agentType: "gemini", binaries: []string{"gemini"}, skillRoots: []string{".gemini/skills"}, supportsSkill: true},
@@ -195,6 +204,7 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 	}
 	if spec.sharedSkills {
 		agent.Capabilities["shared_skills"] = true
+		agent.Capabilities["shared_skill_readers"] = spec.sharedSkillReaders
 	}
 	for _, binary := range spec.binaries {
 		if path, err := exec.LookPath(binary); err == nil {
@@ -264,10 +274,12 @@ func builtinAgentSettings(home string, config Config) []BuiltinAgentSetting {
 			customized = true
 		}
 		result = append(result, BuiltinAgentSetting{
-			AgentType:    spec.agentType,
-			DefaultRoots: defaults,
-			CurrentRoots: current,
-			Customized:   customized,
+			AgentType:          spec.agentType,
+			DefaultRoots:       defaults,
+			CurrentRoots:       current,
+			Customized:         customized,
+			SharedSkills:       spec.sharedSkills,
+			SharedSkillReaders: spec.sharedSkillReaders,
 		})
 	}
 	return result

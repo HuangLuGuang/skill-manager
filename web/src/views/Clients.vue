@@ -26,8 +26,9 @@
             <div class="muted">{{ governanceShortLabel(record.governance_mode) }} · Client {{ record.client_version }}</div>
           </template>
           <template v-else-if="column.key === 'agents'">
-            <span>{{ record.agents?.length || 0 }} 个</span>
-            <span class="muted inline-note">支持 Skill：{{ managedAgentCount(record) }}</span>
+            <span>{{ actualAgentCount(record) }} 个</span>
+            <span class="muted inline-note">可治理 Agent：{{ managedAgentCount(record) }}</span>
+            <span v-if="sharedSkillsCount(record)" class="muted inline-note">共用目录：{{ sharedSkillsCount(record) }}</span>
           </template>
           <template v-else-if="column.key === 'skills'">{{ skillCount(record) }}</template>
           <template v-else-if="column.key === 'credentialOwner'">{{ record.registered_by || '-' }}</template>
@@ -79,12 +80,13 @@
             :description="governanceDescription(currentGovernance)"
           />
 
-          <div class="section-title">本机 Agent</div>
+          <div class="section-title">本机 Agent 与共用目录</div>
           <a-table :columns="agentColumns" :data-source="detail.agents || []" row-key="agent_type" size="small" :pagination="false" :expandable="agentTableExpandable">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'type'">
                 <strong>{{ agentLabel(record.agent_type, record) }}</strong>
-                <div class="muted">{{ record.version || '未获取版本' }}</div>
+                <a-tag v-if="isSharedSkillsRecord(record)" color="blue">共用目录</a-tag>
+                <div class="muted">{{ isSharedSkillsRecord(record) ? sharedSkillsDescription(record) : (record.version || '未获取版本') }}</div>
               </template>
               <template v-else-if="column.key === 'capability'">
                 <a-tag :color="record.skill_management_supported ? 'green' : 'default'">
@@ -93,7 +95,7 @@
               </template>
               <template v-else-if="column.key === 'binding'">
                 <a-select
-                  v-if="currentGovernance === 'strict'"
+                  v-if="currentGovernance === 'strict' && !isSharedSkillsRecord(record)"
                   :value="record.managed_agent_id || undefined"
                   allow-clear
                   show-search
@@ -107,13 +109,15 @@
                     {{ agent.name }}（{{ agent.agent_id }}）
                   </a-select-option>
                 </a-select>
+                <span v-else-if="isSharedSkillsRecord(record)" class="muted">共用目录不绑定单个平台智能体</span>
                 <span v-else class="muted">无需绑定，按平台 Skill 状态与签名治理</span>
               </template>
               <template v-else-if="column.key === 'skills'">{{ record.skills?.length || 0 }}</template>
               <template v-else-if="column.key === 'action'">
                 <a-button
                   type="link"
-                  :disabled="!record.skill_management_supported || (currentGovernance === 'strict' && !record.managed_agent_id)"
+                  :disabled="!record.skill_management_supported || (currentGovernance === 'strict' && (isSharedSkillsRecord(record) || !record.managed_agent_id))"
+                  :title="currentGovernance === 'strict' && isSharedSkillsRecord(record) ? '共用目录无法绑定单个平台智能体，请在客户端安全治理模式下下发' : ''"
                   @click="openInstall(record)"
                 >下发 Skill</a-button>
               </template>
@@ -297,7 +301,10 @@ const taskColumns = [
 ]
 
 const onlineCount = computed(() => clients.value.filter(isOnline).length)
-const agentCount = computed(() => clients.value.reduce((sum, item) => sum + (item.agents?.length || 0), 0))
+const isSharedSkillsRecord = record => Boolean(record?.capabilities?.shared_skills)
+const actualAgentCount = record => record.agents?.filter(agent => !isSharedSkillsRecord(agent)).length || 0
+const sharedSkillsCount = record => record.agents?.filter(isSharedSkillsRecord).length || 0
+const agentCount = computed(() => clients.value.reduce((sum, item) => sum + actualAgentCount(item), 0))
 const issueCount = computed(() => clients.value.reduce((sum, item) => sum + (item.issue_count || 0), 0))
 const agentTableExpandable = { rowExpandable: record => Boolean(record.skills?.length) }
 const selectedManagedAgent = computed(() => agents.value.find(agent => agent.agent_id === installForm.managed_agent_id))
@@ -476,8 +483,12 @@ const downloadClient = async ({ key }) => {
 }
 const downloadSelectedClient = () => downloadClient({ key: selectedPlatform.value })
 
-const managedAgentCount = record => record.agents?.filter(agent => agent.skill_management_supported).length || 0
+const managedAgentCount = record => record.agents?.filter(agent => agent.skill_management_supported && !isSharedSkillsRecord(agent)).length || 0
 const skillCount = record => record.agents?.reduce((sum, agent) => sum + (agent.skills?.length || 0), 0) || 0
+const sharedSkillsDescription = record => {
+  const readers = record.capabilities?.shared_skill_readers || []
+  return `${readers.join('、') || '支持 Agent Skills 标准的工具'} 可能读取，实际以版本和配置为准`
+}
 const agentSkills = agent => (agent.skills || []).map(skill => ({ ...skill, agent_type: agent.agent_type }))
 const taskSkillName = task => task.payload?.skill_name
   || (detail.value?.agents || []).flatMap(agent => agent.skills || []).find(skill => skill.skill_id === task.payload?.skill_id)?.name
@@ -511,7 +522,7 @@ const agentLabel = (value, record = null) => record?.capabilities?.display_name 
   'trae-cn': 'TRAE CN',
   trae: 'TRAE',
   cursor: 'Cursor',
-  'global-skills': '通用 Skills',
+  'global-skills': '共用 Skills',
   codebuddy: 'CodeBuddy',
   workbuddy: 'WorkBuddy',
 }[value] || value)

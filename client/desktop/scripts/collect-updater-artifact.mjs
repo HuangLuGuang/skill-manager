@@ -1,10 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { parseReleaseVersion } from './release-version.mjs'
+
 const [platformKey, versionArg, outputDir = 'release-output'] = process.argv.slice(2)
 if (!platformKey) throw new Error('platform key is required')
-const version = (versionArg || process.env.AGENT_MANAGER_CLIENT_VERSION || '').replace(/^client-v/, '').replace(/^v/, '')
-if (!/^\d{2}\.\d{2}\.\d{2}$/.test(version)) throw new Error('version must use YY.MM.DD')
+const { displayVersion: version } = parseReleaseVersion(versionArg || process.env.AGENT_MANAGER_CLIENT_VERSION)
 
 const updaterExtensions = platformKey.startsWith('darwin-')
   ? ['.app.tar.gz']

@@ -54,9 +54,11 @@ struct ConnectionStatus {
 
 #[derive(Serialize)]
 struct UpdateResult {
+    supported: bool,
     available: bool,
     installed: bool,
     version: Option<String>,
+    display_version: Option<String>,
     notes: Option<String>,
 }
 
@@ -65,6 +67,25 @@ struct UpdateProgress {
     stage: &'static str,
     downloaded: u64,
     total: Option<u64>,
+}
+
+fn display_release_version(version: &str) -> String {
+    let parts = version
+        .split('.')
+        .map(str::parse::<u64>)
+        .collect::<Result<Vec<_>, _>>();
+    let Ok(parts) = parts else {
+        return version.to_string();
+    };
+    if parts.len() != 3 {
+        return version.to_string();
+    }
+    let day = parts[2] / 100;
+    let sequence = parts[2] % 100;
+    if !(1..=31).contains(&day) || !(1..=99).contains(&sequence) {
+        return version.to_string();
+    }
+    format!("{:02}.{:02}.{:02}.{}", parts[0], parts[1], day, sequence)
 }
 
 fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, String> {
@@ -312,6 +333,18 @@ async fn get_connection_status() -> Result<ConnectionStatus, String> {
 
 #[tauri::command]
 async fn check_client_update(app: AppHandle, install: bool) -> Result<UpdateResult, String> {
+    if BUILD_VERSION == "dev" {
+        return Ok(UpdateResult {
+            supported: false,
+            available: false,
+            installed: false,
+            version: None,
+            display_version: None,
+            notes: Some(
+                "开发版本不参与在线更新检查；正式发布版本会检查并安装已签名更新。".to_string(),
+            ),
+        });
+    }
     if UPDATER_PUBLIC_KEY.trim().is_empty() {
         return Err("当前安装包未配置更新签名公钥，请使用正式发布版本".to_string());
     }
@@ -336,16 +369,21 @@ async fn check_client_update(app: AppHandle, install: bool) -> Result<UpdateResu
         .map_err(|error| format!("检查更新失败: {error}"))?
     else {
         return Ok(UpdateResult {
+            supported: true,
             available: false,
             installed: false,
             version: None,
+            display_version: None,
             notes: None,
         });
     };
+    let display_version = display_release_version(&update.version);
     let result = UpdateResult {
+        supported: true,
         available: true,
         installed: install,
         version: Some(update.version.clone()),
+        display_version: Some(display_version),
         notes: update.body.clone(),
     };
     if install {
@@ -558,7 +596,20 @@ fn main() {
 mod tests {
     use std::path::Path;
 
-    use super::{client_binary, mask_token, system_home};
+    use super::{client_binary, display_release_version, mask_token, system_home};
+
+    #[test]
+    fn formats_encoded_daily_release_version() {
+        assert_eq!(display_release_version("26.7.2802"), "26.07.28.2");
+        assert_eq!(display_release_version("26.7.2901"), "26.07.29.1");
+    }
+
+    #[test]
+    fn preserves_legacy_or_unexpected_versions() {
+        assert_eq!(display_release_version("26.7.28"), "26.7.28");
+        assert_eq!(display_release_version("0.2.0"), "0.2.0");
+        assert_eq!(display_release_version("dev"), "dev");
+    }
 
     #[test]
     fn token_is_never_returned_in_full() {

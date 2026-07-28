@@ -13,7 +13,8 @@
     "build:linux": "npm run prepare && tauri build --bundles deb,appimage",
     "release:mac": "node scripts/build-release.mjs mac",
     "release:windows": "node scripts/build-release.mjs windows",
-    "release:linux": "node scripts/build-release.mjs linux"
+    "release:linux": "node scripts/build-release.mjs linux",
+    "test:release": "node --test scripts/release-version.test.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.0.4",

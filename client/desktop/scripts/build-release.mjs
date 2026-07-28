@@ -1,11 +1,13 @@
 import { execFileSync } from 'node:child_process'
 
+import { parseReleaseVersion } from './release-version.mjs'
+
 const platform = process.argv[2]
 const bundles = { mac: 'app,dmg', windows: 'nsis', linux: 'appimage' }[platform]
 if (!bundles) throw new Error('usage: build-release <mac|windows|linux>')
 
 const env = { ...process.env }
-const displayVersion = (env.AGENT_MANAGER_CLIENT_VERSION || '').replace(/^client-v/, '').replace(/^v/, '')
+const { displayVersion } = parseReleaseVersion(env.AGENT_MANAGER_CLIENT_VERSION)
 env.AGENT_MANAGER_CLIENT_VERSION = displayVersion
 env.TAURI_UPDATER_PUBLIC_KEY ||= env.AGENT_MANAGER_UPDATER_PUBLIC_KEY
 env.TAURI_SIGNING_PRIVATE_KEY ||= env.AGENT_MANAGER_UPDATER_PRIVATE_KEY

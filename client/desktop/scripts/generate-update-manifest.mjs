@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { parseReleaseVersion } from './release-version.mjs'
+
 const [inputDir, version] = process.argv.slice(2)
 if (!inputDir || !version) throw new Error('usage: generate-update-manifest <input-dir> <version>')
 
@@ -20,8 +22,7 @@ const walk = directory => {
 walk(path.resolve(inputDir))
 if (!Object.keys(platforms).length) throw new Error('no platform updater metadata found')
 
-const displayVersion = version.replace(/^client-v/, '').replace(/^v/, '')
-const packageVersion = displayVersion.split('.').map(Number).join('.')
+const { displayVersion, packageVersion } = parseReleaseVersion(version)
 const manifest = {
   version: packageVersion,
   notes: `瑞数智能体安全治理客户端 ${displayVersion}`,

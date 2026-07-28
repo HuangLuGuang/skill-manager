@@ -225,31 +225,38 @@ APPLE_TEAM_ID
 
 如果 Actions 报错 `SecKeychainItemImport` 或 `failed to import keychain certificate`，优先检查 `APPLE_CERTIFICATE` 是否误填成 `.cer`、文件路径或文件名，以及 `APPLE_CERTIFICATE_PASSWORD` 是否与 `.p12` 的导出密码一致。正式流水线会在构建前验证 Base64、`.p12` 密码、Developer ID Application 证书类型和私钥是否存在。
 
-版本使用日期格式 `YY.MM.DD`。例如 2026 年 3 月 15 日发布：
+版本使用 `YY.MM.DD.N`，最后一段是当天发布序号，从 `1` 开始递增。例如 2026 年 3 月 15 日第一次和第二次发布：
 
 ```bash
-git tag client-v26.03.15
-git push github client-v26.03.15
+git tag client-v26.03.15.1
+git push github client-v26.03.15.1
+
+git tag client-v26.03.15.2
+git push github client-v26.03.15.2
 ```
+
+客户端界面、安装包文件名和发布目录保留四段显示版本。构建脚本会将其转换成 Tauri 使用的三段内部版本，例如 `26.03.15.2` 转换为 `26.3.1502`，用于可靠比较同日多次发布。序号允许 `1`–`99`；不要使用 SemVer 构建元数据 `+N`，因为它不参与版本新旧比较。
 
 推送 `client-v*` 标签后，[GitHub Actions 工作流](/Users/huangluguang/Desktop/Project/skill-manager/.github/workflows/agent-manager-client.yml) 会使用 GitHub 托管的 macOS ARM、macOS Intel、Windows x64 和 Linux x64 Runner 构建安装包。macOS 测试模式会校验完整 ad-hoc 签名和 DMG 完整性；`developer-id` 模式还会强制检查 Developer ID、Hardened Runtime、DMG 公证票据和 Gatekeeper 评估。任何一项失败都会终止整个发布，不会同步到管理台。最终的 `agent-manager-client-update-feed` Artifact 包含安装包、自动更新包和 `latest.json`；也可以在 Actions 页面手动运行工作流，先验证四个平台的普通构建。
 
-生产发布由标签为 `agent-manager-release` 的 GitHub self-hosted runner 自动同步到 35：版本文件保存到 `/home/ubuntu/releases/client-YY.MM.DD`，`client-latest` 指向最新版本，同时复制到 `/home/ubuntu/skill-manager/scanner/releases` 供管理台下载。企业微信通知地址通过 Repository Secret `WECHAT_WEBHOOK_URL` 配置，不写入仓库。
+生产发布由标签为 `agent-manager-release` 的 GitHub self-hosted runner 自动同步到 35：版本文件保存到 `/home/ubuntu/releases/client-YY.MM.DD.N`。流水线比较候选 `latest.json` 与当前内部版本，只有候选版本不低于当前版本时才更新 `/home/ubuntu/skill-manager/scanner/releases` 和 `client-latest`；较旧构建只归档，不会覆盖最新版。企业微信通知地址通过 Repository Secret `WECHAT_WEBHOOK_URL` 配置，不写入仓库。
 
 下载并解压最终 Artifact 后，将其中的文件放入服务端：
 
 ```text
 scanner/releases/
   latest.json
-  agent-manager-client-26.03.15-darwin-aarch64.dmg
-  agent-manager-client-26.03.15-darwin-x86_64.dmg
-  agent-manager-client-26.03.15-windows-x86_64.exe
-  agent-manager-client-26.03.15-linux-x86_64.AppImage
-  agent-manager-client-26.03.15-darwin-aarch64.app.tar.gz
-  agent-manager-client-26.03.15-darwin-x86_64.app.tar.gz
+  agent-manager-client-26.03.15.2-darwin-aarch64.dmg
+  agent-manager-client-26.03.15.2-darwin-x86_64.dmg
+  agent-manager-client-26.03.15.2-windows-x86_64.exe
+  agent-manager-client-26.03.15.2-linux-x86_64.AppImage
+  agent-manager-client-26.03.15.2-darwin-aarch64.app.tar.gz
+  agent-manager-client-26.03.15.2-darwin-x86_64.app.tar.gz
 ```
 
-管理台“客户端管理 → 安装客户端”只展示最新版本的 `.dmg`、`.exe` 和 `.AppImage`，历史版本即使仍保存在发布目录中也不会出现在下载列表。Windows 和 Linux 复用安装包执行更新，macOS 的更新压缩包不会出现在手动下载列表。正式构建左下角显示 `版本 26.03.15`，本地 `npm run dev` 或普通 `npm run build` 显示 `版本 dev`。
+管理台“客户端管理 → 安装客户端”按四段版本比较，只展示最新版本的 `.dmg`、`.exe` 和 `.AppImage`，历史版本即使仍保存在发布目录中也不会出现在下载列表。Windows 和 Linux 复用安装包执行更新，macOS 的更新压缩包不会出现在手动下载列表。正式构建左下角显示完整版本，例如 `版本 26.03.15.2`；本地 `npm run dev` 或普通 `npm run build` 显示 `版本 dev`。
+
+正式客户端在成功接入平台后会静默检查一次更新，运行期间每 6 小时再次检查，重新回到前台时也会在超过检查间隔后补查。发现新版本后会发送一次系统通知，并将“检查更新”按钮改为“可更新 版本号”；客户端不会在启动时强制弹出更新窗口，也不会对同一版本重复发送系统通知。用户点击“可更新”后可查看说明并确认安装。
 
 更新检查和文件下载均要求有效的客户端接入凭证。内网 HTTP 可以使用，但更新包仍必须通过内置公钥验签；生产环境优先使用 HTTPS。
 

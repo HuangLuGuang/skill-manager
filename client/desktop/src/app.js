@@ -30,9 +30,13 @@ let pendingSubmissionBusy = false
 let pendingBatchTracking = null
 let pendingClientUpdate = null
 let clientUpdateInstalling = false
+let clientUpdateCheckBusy = false
+let lastAutomaticUpdateCheckAt = 0
 const selectedPendingIDs = new Set()
 const notificationDeliveryAttempts = new Set()
 const operationProgress = new Map()
+const CLIENT_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
+const CLIENT_UPDATE_NOTIFIED_KEY = 'agent-manager-client-update-notified'
 
 const $ = selector => document.querySelector(selector)
 const setBusy = (button, busy) => {
@@ -264,12 +268,16 @@ const editConnection = () => {
 const renderBuiltinAgentSettings = () => {
   const element = $('#builtin-agent-settings')
   element.innerHTML = builtinAgentSettings.length
-    ? builtinAgentSettings.map(item => `
-      <button class="builtin-agent-row" type="button" data-edit-agent-paths="${escapeHtml(item.agent_type)}">
-        <span class="builtin-agent-name"><strong>${escapeHtml(agentLabel(item.agent_type))}</strong>${item.customized ? '<em>已自定义</em>' : ''}</span>
+    ? builtinAgentSettings.map(item => {
+      const readers = item.shared_skill_readers || []
+      return `
+      <button class="builtin-agent-row${item.shared_skills ? ' shared' : ''}" type="button" data-edit-agent-paths="${escapeHtml(item.agent_type)}">
+        <span class="builtin-agent-name"><strong>${escapeHtml(agentLabel(item.agent_type))}</strong>${item.shared_skills ? '<em class="shared">共用</em>' : ''}${item.customized ? '<em>已自定义</em>' : ''}</span>
         <span class="builtin-agent-roots">${item.current_roots.map(root => `<code title="${escapeHtml(root)}">${escapeHtml(root)}</code>`).join('')}</span>
+        ${item.shared_skills ? `<span class="builtin-agent-hint">可能由 ${escapeHtml(readers.join('、') || '支持 Agent Skills 标准的工具')} 读取，实际以版本和配置为准</span>` : ''}
         <span class="builtin-agent-edit">修改目录</span>
-      </button>`).join('')
+      </button>`
+    }).join('')
     : '<div class="empty compact">暂无内置 Agent 配置</div>'
   document.querySelectorAll('[data-edit-agent-paths]').forEach(button => button.addEventListener('click', () => {
     editingBuiltinAgent = builtinAgentSettings.find(item => item.agent_type === button.dataset.editAgentPaths) || null
@@ -291,9 +299,12 @@ const loadBuiltinAgentSettings = async (force = false) => {
 const renderConnected = data => {
   const platform = data.platform || {}
   const agents = data.inventory?.agents || []
+  const localAgents = agents.filter(agent => !isSharedSkills(agent))
+  const sharedTargets = agents.filter(isSharedSkills)
   const platformAgents = platform.agents || []
   const platformByType = Object.fromEntries(platformAgents.map(agent => [agent.agent_type, agent]))
-  const supported = agents.filter(agent => agent.skill_management_supported)
+  const governableTargets = agents.filter(agent => agent.skill_management_supported)
+  const supported = localAgents.filter(agent => agent.skill_management_supported)
   const bound = supported.filter(agent => platformByType[agent.agent_type]?.managed_agent_id)
   const strict = platform.governance_mode === 'strict'
   const managedSkills = platformAgents.reduce((count, agent) => count + (agent.skills || []).filter(skill => skill.skill_id).length, 0)
@@ -301,7 +312,7 @@ const renderConnected = data => {
   const local = data.local || {}
   const hasTakeover = (local.managed_skills || 0) + (local.pending_skills || 0) > 0
   const governanceEnabled = Boolean(local.governance_enabled)
-  const agentsReady = supported.length > 0 && (!strict || bound.length === supported.length)
+  const agentsReady = governableTargets.length > 0 && (!strict || bound.length === supported.length)
   const scopeConfirmed = agentsReady && hasTakeover
   const patrolActive = scopeConfirmed && data.service_running && governanceEnabled
   const takeoverTitle = hasTakeover ? 'Skill 治理' : '接管预览'
@@ -318,7 +329,7 @@ const renderConnected = data => {
   if (connectionError) {
     todos.push({ title: '平台接入异常', detail: data.error || '无法验证当前接入状态', action: '重试接入', actionType: 'refresh', error: true })
   }
-  if (data.connected && supported.length === 0) {
+  if (data.connected && governableTargets.length === 0) {
     todos.push({ title: '尚未发现可管理的 Agent', detail: '重新发现本机已安装的 Agent。', action: '发现 Agent', panel: 'discover' })
   }
   if (data.connected && strict && supported.length > bound.length) {
@@ -362,28 +373,28 @@ const renderConnected = data => {
     : `${platform.name || data.name || data.inventory?.hostname || '当前客户端'}已接入 ${data.server}`
   $('#overview-sync').textContent = connectionError ? '重试接入' : '刷新状态'
 
-  $('#metric-agents').textContent = agents.length
+  $('#metric-agents').textContent = localAgents.length
   $('#metric-bound').textContent = strict ? `${bound.length} / ${supported.length}` : `${supported.length} / ${supported.length}`
   $('#metric-bound-label').textContent = strict ? '已绑定智能体' : '可治理 Agent'
   $('#metric-skills').textContent = local.managed_skills ?? managedSkills
   $('#metric-todos').textContent = todos.length
   $('#progress-summary').textContent = !data.connected
     ? '恢复平台接入后才能继续同步。'
-    : supported.length === 0
-      ? '客户端已接入，请发现本机 Agent。'
+    : governableTargets.length === 0
+      ? '客户端已接入，请发现本机 Agent 或共用 Skills 目录。'
       : strict && bound.length < supported.length
-        ? `已发现 ${agents.length} 个 Agent，还有 ${supported.length - bound.length} 个需要绑定。`
+        ? `已发现 ${localAgents.length} 个 Agent，还有 ${supported.length - bound.length} 个需要绑定。`
         : !hasTakeover
-          ? 'Agent 已发现，请确认需要治理的 Skill 范围。'
+          ? `${localAgents.length} 个 Agent${sharedTargets.length ? '和共用 Skills 目录' : ''}已发现，请确认治理范围。`
           : !data.service_running
             ? '治理范围已确认，请启用后台巡检。'
             : !governanceEnabled
               ? '持续治理已暂停，恢复后将继续巡检。'
-              : `${supported.length} 个 Agent 正在持续治理。`
+              : `${supported.length} 个 Agent${sharedTargets.length ? '及共用 Skills 目录' : ''}正在持续治理。`
   setProgress('step-connect', data.connected ? 'done' : 'current')
-  setProgress('step-discover', agents.length ? 'done' : data.connected ? 'current' : '')
+  setProgress('step-discover', governableTargets.length ? 'done' : data.connected ? 'current' : '')
   $('#step-bind span').textContent = strict ? '绑定并确认范围' : '确认治理范围'
-  setProgress('step-bind', scopeConfirmed ? 'done' : agents.length ? 'current' : '')
+  setProgress('step-bind', scopeConfirmed ? 'done' : governableTargets.length ? 'current' : '')
   $('#step-service span').textContent = data.service_running && !governanceEnabled && hasTakeover ? '后台巡检已暂停' : '后台巡检'
   setProgress('step-service', patrolActive ? 'done' : scopeConfirmed ? 'current' : '')
 
@@ -588,6 +599,7 @@ async function refreshConnection() {
       $('#builtin-agent-settings').innerHTML = `<div class="inline-error"><strong>读取扫描目录失败</strong><span>${escapeHtml(error)}</span></div>`
     })
     await loadPending().catch(error => log(error))
+    checkClientUpdateAutomatically()
   } catch (error) {
     renderDisconnected()
     log(error)
@@ -680,7 +692,6 @@ $('#confirm-clear-notifications').addEventListener('click', async event => {
 const renderInventory = () => {
   if (!inventory?.agents) return
   const bindings = Object.fromEntries((connection?.platform?.agents || []).map(agent => [agent.agent_type, agent.managed_agent_id || '']))
-  const supported = inventory.agents.filter(agent => agent.skill_management_supported).length
   const strict = connection?.platform?.governance_mode === 'strict'
   const availableAgents = connection?.platform?.available_managed_agents || []
   selectedSkillPaths = new Set(inventory.agents.flatMap(agent => agent.skills || []).filter(skill => !skill.error).map(skill => skill.path))
@@ -694,19 +705,23 @@ const renderInventory = () => {
         ? availableAgents
         : availableAgents.filter(item => agentKind(item.channel) === agentKind(agent.agent_type))
       const binding = bindings[agent.agent_type] || ''
+      const shared = isSharedSkills(agent)
+      const readers = agent.capabilities?.shared_skill_readers || []
+      const requiresBinding = agent.skill_management_supported && strict && !shared
       return `
-        <details class="agent-card">
+        <details class="agent-card${shared ? ' shared-skills-card' : ''}">
           <summary class="agent-summary">
-            <div class="agent-name"><span class="entity-badge">${isSharedSkills(agent) ? '共享' : 'Agent'}</span><div><strong>${escapeHtml(agentLabel(agent.agent_type))}</strong><small title="${escapeHtml(agent.skills_path || 'Skill 目录尚未创建')}">${escapeHtml(agent.skills_path || 'Skill 目录尚未创建')}</small></div></div>
+            <div class="agent-name"><span class="entity-badge">${shared ? '共用' : 'Agent'}</span><div><strong>${escapeHtml(agentLabel(agent.agent_type))}</strong><small title="${escapeHtml(agent.skills_path || 'Skill 目录尚未创建')}">${escapeHtml(agent.skills_path || 'Skill 目录尚未创建')}</small></div></div>
             <div class="capability ${agent.skill_management_supported ? 'supported' : ''}">
               ${agent.skill_management_supported
-                ? `${agent.skills.length} 个 Skill${agent.skills.filter(skill => skill.error).length ? ` · ${agent.skills.filter(skill => skill.error).length} 个待校验` : ''}`
+                ? `${agent.skills.length} 个 Skill${shared ? ' · 多 Agent 共用' : ''}${agent.skills.filter(skill => skill.error).length ? ` · ${agent.skills.filter(skill => skill.error).length} 个待校验` : ''}`
                 : '仅识别客户端，不执行 Skill 接管'}
             </div>
             <span class="fold-label">${agent.skill_management_supported ? '展开 / 收起' : '无可管理 Skill'}</span>
           </summary>
-          ${(agent.skill_management_supported && strict) || isCustomAgent(agent)
-            ? `<div class="agent-settings">${agent.skill_management_supported && strict ? `<label class="mapping">平台智能体<select data-agent="${escapeHtml(agent.agent_type)}"><option value="">请选择</option>${compatible.map(item => `<option value="${escapeHtml(item.agent_id)}" ${item.agent_id === binding ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select></label>` : ''}${isCustomAgent(agent) ? `<button class="custom-agent-remove icon-button icon-remove" type="button" title="只取消本地登记，不删除 Skill 文件" data-remove-custom-agent="${escapeHtml(agent.agent_type)}" data-custom-agent-name="${escapeHtml(agent.display_name)}">取消登记</button>` : ''}</div>`
+          ${shared ? `<div class="shared-skills-note"><strong>这是共用目录，不计入 Agent 数量</strong><span>${escapeHtml(readers.join('、') || '支持 Agent Skills 标准的工具')} 可能读取其中的 Skill，实际以各 Agent 的版本和配置为准；共用目录仅执行状态与内容完整性治理，无法据此识别具体调用方。</span></div>` : ''}
+          ${requiresBinding || isCustomAgent(agent)
+            ? `<div class="agent-settings">${requiresBinding ? `<label class="mapping">平台智能体<select data-agent="${escapeHtml(agent.agent_type)}"><option value="">请选择</option>${compatible.map(item => `<option value="${escapeHtml(item.agent_id)}" ${item.agent_id === binding ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select></label>` : ''}${isCustomAgent(agent) ? `<button class="custom-agent-remove icon-button icon-remove" type="button" title="只取消本地登记，不删除 Skill 文件" data-remove-custom-agent="${escapeHtml(agent.agent_type)}" data-custom-agent-name="${escapeHtml(agent.display_name)}">取消登记</button>` : ''}</div>`
             : ''}
           ${agent.skill_management_supported ? `<div class="skill-inventory">${agent.skills.length ? agent.skills.map(skill => `
             <div class="skill-row">
@@ -837,8 +852,10 @@ const discover = async () => {
   const output = await run('inventory')
   inventory = JSON.parse(output)
   renderInventory()
-  const supported = inventory.agents.filter(agent => agent.skill_management_supported).length
-  log(`发现 ${inventory.agents.length} 个 Agent，其中 ${supported} 个支持 Skill 管理`)
+  const agents = inventory.agents.filter(agent => !isSharedSkills(agent))
+  const supported = agents.filter(agent => agent.skill_management_supported).length
+  const shared = inventory.agents.filter(isSharedSkills).length
+  log(`发现 ${agents.length} 个 Agent，其中 ${supported} 个支持 Skill 管理${shared ? `；另发现 ${shared} 个共用 Skills 目录` : ''}`)
 }
 
 const updateSelectionSummary = () => {
@@ -932,7 +949,10 @@ const mappingArgs = () => [...document.querySelectorAll('[data-agent]')]
 const preview = async (confirm, showNoChange = false) => {
   if (!document.querySelector('[data-skill-path]')) await discover()
   const args = mappingArgs()
-  if (connection?.platform?.governance_mode === 'strict' && !args.length) {
+  const selectedAgentSkills = (inventory?.agents || [])
+    .filter(agent => !isSharedSkills(agent))
+    .some(agent => (agent.skills || []).some(skill => selectedSkillPaths.has(skill.path)))
+  if (connection?.platform?.governance_mode === 'strict' && selectedAgentSkills && !args.length) {
     throw new Error('Agent 强授权模式下，请至少绑定一个平台智能体')
   }
   const selected = [...selectedSkillPaths]
@@ -1430,21 +1450,93 @@ document.querySelectorAll('[data-target-panel]').forEach(button => {
   button.addEventListener('click', () => showPanel(button.dataset.targetPanel))
 })
 
+const clientUpdateVersion = result => result?.display_version || result?.version || ''
+
+const renderClientUpdateAvailability = result => {
+  const button = $('#check-update')
+  const available = Boolean(result?.available)
+  const version = clientUpdateVersion(result)
+  pendingClientUpdate = available ? result : null
+  button.classList.toggle('update-available', available)
+  button.classList.toggle('icon-check', !available)
+  button.classList.toggle('icon-install', available)
+  button.textContent = available ? `可更新 ${version}` : '检查更新'
+  button.title = available ? `发现客户端新版本 ${version}，点击查看并更新` : '检查客户端更新'
+}
+
+const openClientUpdateDialog = result => {
+  const version = clientUpdateVersion(result)
+  $('#update-dialog-title').textContent = `发现新版本 ${version}`
+  $('#update-dialog-notes').textContent = result.notes || '更新将先暂停后台服务，安装完成后自动重启前台并恢复后台巡检。'
+  $('#client-update-progress').hidden = true
+  $('#cancel-client-update').disabled = false
+  $('#confirm-client-update').disabled = false
+  $('#update-dialog').showModal()
+}
+
+const notifyClientUpdate = async result => {
+  const version = clientUpdateVersion(result)
+  if (!version || localStorage.getItem(CLIENT_UPDATE_NOTIFIED_KEY) === version) return
+  await invoke('show_system_notification', {
+    title: `客户端新版本 ${version}`,
+    body: '新版本已可用，打开客户端并点击“可更新”即可查看和安装。',
+  })
+  localStorage.setItem(CLIENT_UPDATE_NOTIFIED_KEY, version)
+}
+
+const checkClientUpdate = async ({ interactive = false, notify = false } = {}) => {
+  if (clientUpdateCheckBusy) {
+    if (interactive) showMessageDialog('正在检查更新', '更新检查正在进行，请稍候。')
+    return
+  }
+  clientUpdateCheckBusy = true
+  lastAutomaticUpdateCheckAt = Date.now()
+  try {
+    const result = await invoke('check_client_update', { install: false })
+    if (!result.available) {
+      renderClientUpdateAvailability(null)
+      if (interactive) {
+        const developmentBuild = result.supported === false
+        const title = developmentBuild ? '当前为开发版本' : '已是最新版本'
+        const detail = result.notes || '当前客户端已经是最新版本，无需更新。'
+        showMessageDialog(title, detail)
+        log(developmentBuild ? '开发版本未执行在线更新检查' : '当前已是最新版本')
+      }
+      return
+    }
+    renderClientUpdateAvailability(result)
+    if (notify) {
+      try {
+        await notifyClientUpdate(result)
+      } catch (error) {
+        log(`新版本通知发送失败：${error}`)
+      }
+    }
+    if (interactive) openClientUpdateDialog(result)
+  } catch (error) {
+    if (interactive) {
+      showMessageDialog('检查更新失败', String(error))
+      log(error)
+    }
+  } finally {
+    clientUpdateCheckBusy = false
+  }
+}
+
+const checkClientUpdateAutomatically = () => {
+  if (!connection?.connected || Date.now() - lastAutomaticUpdateCheckAt < CLIENT_UPDATE_CHECK_INTERVAL_MS) return
+  void checkClientUpdate({ notify: true })
+}
+
 $('#check-update').addEventListener('click', async event => {
+  if (pendingClientUpdate?.available) {
+    openClientUpdateDialog(pendingClientUpdate)
+    return
+  }
   const button = event.currentTarget
   setBusy(button, true)
   try {
-    const result = await invoke('check_client_update', { install: false })
-    if (!result.available) return log('当前已是最新版本')
-    pendingClientUpdate = result
-    $('#update-dialog-title').textContent = `发现新版本 ${result.version}`
-    $('#update-dialog-notes').textContent = result.notes || '更新将先暂停后台服务，安装完成后自动重启前台并恢复后台巡检。'
-    $('#client-update-progress').hidden = true
-    $('#cancel-client-update').disabled = false
-    $('#confirm-client-update').disabled = false
-    $('#update-dialog').showModal()
-  } catch (error) {
-    log(error)
+    await checkClientUpdate({ interactive: true })
   } finally {
     setBusy(button, false)
   }
@@ -1453,8 +1545,7 @@ $('#check-update').addEventListener('click', async event => {
 $('#cancel-client-update').addEventListener('click', () => {
   if (clientUpdateInstalling) return
   $('#update-dialog').close()
-  if (pendingClientUpdate?.version) log(`发现新版本 ${pendingClientUpdate.version}，已选择稍后更新`)
-  pendingClientUpdate = null
+  if (pendingClientUpdate?.version) log(`发现新版本 ${clientUpdateVersion(pendingClientUpdate)}，已选择稍后更新`)
 })
 $('#update-dialog').addEventListener('cancel', event => {
   if (clientUpdateInstalling) event.preventDefault()
@@ -1573,7 +1664,7 @@ function agentLabel(value) {
     'trae-cn': 'TRAE CN',
     trae: 'TRAE',
     cursor: 'Cursor',
-    'global-skills': '通用 Skills',
+    'global-skills': '共用 Skills',
     codebuddy: 'CodeBuddy',
     workbuddy: 'WorkBuddy',
   }[value] || value
@@ -1895,6 +1986,10 @@ const initializeClient = async () => {
 }
 initializeClient()
 setInterval(refreshChangedInventory, 3000)
+setInterval(checkClientUpdateAutomatically, CLIENT_UPDATE_CHECK_INTERVAL_MS)
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) refreshChangedInventory()
+  if (!document.hidden) {
+    refreshChangedInventory()
+    checkClientUpdateAutomatically()
+  }
 })

@@ -51,6 +51,9 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: client/desktop/package-lock.json
+      - name: Validate release version
+        if: ${{ startsWith(github.ref, 'refs/tags/client-v') }}
+        run: node client/desktop/scripts/validate-release-version.mjs "${GITHUB_REF_NAME}"
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -206,12 +209,22 @@ jobs:
     needs: update-manifest
     runs-on: [self-hosted, linux, x64, agent-manager-release]
     timeout-minutes: 15
+    concurrency:
+      group: agent-manager-client-publish-35
+      cancel-in-progress: false
+    outputs:
+      published: ${{ steps.publish.outputs.published }}
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - uses: actions/download-artifact@v4
         with:
           name: agent-manager-client-update-feed
           path: client-updates
       - name: Publish client releases
+        id: publish
         run: |
           version="${GITHUB_REF_NAME#client-v}"
           target="/home/ubuntu/releases/client-${version}"
@@ -223,8 +236,16 @@ jobs:
           test -f "client-updates/agent-manager-client-${version}-linux-x86_64.AppImage"
           mkdir -p "$target" "$live"
           cp -a client-updates/. "$target"/
-          cp -a client-updates/. "$live"/
-          ln -sfn "client-${version}" /home/ubuntu/releases/client-latest
+          decision="$(node client/desktop/scripts/should-publish-update.mjs client-updates/latest.json "$live/latest.json")"
+          if [[ "$decision" == "publish" ]]; then
+            cp -a client-updates/. "$live"/
+            ln -sfn "client-${version}" /home/ubuntu/releases/client-latest
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "Published client ${version} as latest."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "Archived client ${version}; a newer client remains latest."
+          fi
 
   notify-publish-result:
     if: ${{ always() && startsWith(github.ref, 'refs/tags/client-v') }}
@@ -234,11 +255,17 @@ jobs:
       WECHAT_WEBHOOK_URL: ${{ secrets.WECHAT_WEBHOOK_URL }}
     steps:
       - name: Notify success
-        if: ${{ env.WECHAT_WEBHOOK_URL != '' && needs.publish-to-35.result == 'success' }}
+        if: ${{ env.WECHAT_WEBHOOK_URL != '' && needs.publish-to-35.result == 'success' && needs.publish-to-35.outputs.published == 'true' }}
         run: >-
           curl --fail --silent --show-error "$WECHAT_WEBHOOK_URL"
           -H 'Content-Type: application/json'
           -d '{"msgtype":"text","text":{"content":"Agent Manager 客户端 ${{ github.ref_name }} 已同步到 35，管理台可直接下载。"}}'
+      - name: Notify archived older release
+        if: ${{ env.WECHAT_WEBHOOK_URL != '' && needs.publish-to-35.result == 'success' && needs.publish-to-35.outputs.published != 'true' }}
+        run: >-
+          curl --fail --silent --show-error "$WECHAT_WEBHOOK_URL"
+          -H 'Content-Type: application/json'
+          -d '{"msgtype":"text","text":{"content":"Agent Manager 客户端 ${{ github.ref_name }} 已归档；35 上已有更高版本，未替换当前最新版。"}}'
       - name: Notify failure
         if: ${{ env.WECHAT_WEBHOOK_URL != '' && needs.publish-to-35.result != 'success' }}
         run: >-

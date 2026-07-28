@@ -417,17 +417,21 @@ def test_only_latest_client_installers_are_listed_and_downloadable(tmp_path, mon
     older = release_dir / "agent-manager-client-26.03.14-windows-x86_64.exe"
     newer = release_dir / "agent-manager-client-26.03.15-darwin-aarch64.dmg"
     newer_windows = release_dir / "agent-manager-client-26.03.15-windows-x86_64.exe"
+    same_day_newer = release_dir / "agent-manager-client-26.03.15.2-darwin-aarch64.dmg"
+    same_day_newer_windows = release_dir / "agent-manager-client-26.03.15.2-windows-x86_64.exe"
     ignored = release_dir / "agent-manager-client-26.03.15-darwin-aarch64.app.tar.gz"
     older.write_bytes(b"windows")
     newer.write_bytes(b"macos")
     newer_windows.write_bytes(b"new-windows")
+    same_day_newer.write_bytes(b"macos-revision-2")
+    same_day_newer_windows.write_bytes(b"windows-revision-2")
     ignored.write_bytes(b"updater")
     monkeypatch.setattr(clients, "_CLIENT_RELEASE_DIR", release_dir)
     client = _client(tmp_path)
 
     response = client.get("/api/v1/clients/downloads/available")
     assert response.status_code == 200
-    assert {item["version"] for item in response.json()["items"]} == {"26.03.15"}
+    assert {item["version"] for item in response.json()["items"]} == {"26.03.15.2"}
     assert {item["platform"] for item in response.json()["items"]} == {
         "darwin-aarch64",
         "windows-x86_64",
@@ -449,13 +453,13 @@ def test_only_latest_client_installers_are_listed_and_downloadable(tmp_path, mon
     assert ticket_payload["purpose"] == "client_installer_download"
     downloaded = client.get(ticket.json()["url"])
     assert downloaded.status_code == 200
-    assert downloaded.content in {b"macos", b"new-windows"}
+    assert downloaded.content in {b"macos-revision-2", b"windows-revision-2"}
     partial = client.get(
         ticket.json()["url"],
         headers={"Range": "bytes=0-2"},
     )
     assert partial.status_code == 206
-    assert partial.content in {b"mac", b"new"}
+    assert partial.content in {b"mac", b"win"}
 
     other_key = next(item["key"] for item in response.json()["items"] if item["key"] != key)
     mismatch = client.get("/api/v1/clients/downloads/file", params={"platform": other_key})

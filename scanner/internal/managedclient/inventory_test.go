@@ -59,6 +59,9 @@ func TestDiscoverFindsSupportedAgentsAndSkills(t *testing.T) {
 	if shared, _ := byType["global-skills"].Capabilities["shared_skills"].(bool); !shared {
 		t.Fatalf("global Skills directory was not marked shared: %#v", byType["global-skills"])
 	}
+	if readers, _ := byType["global-skills"].Capabilities["shared_skill_readers"].([]string); len(readers) != 2 || readers[0] != "OpenCode" || readers[1] != "Cursor" {
+		t.Fatalf("global Skills readers were not reported: %#v", byType["global-skills"])
+	}
 	for agentType := range roots {
 		agent := byType[agentType]
 		if !agent.SkillManagementSupported {
@@ -169,15 +172,20 @@ func TestBuiltinAgentSkillRootsCanBeCustomizedAndReset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var codex BuiltinAgentSetting
+	var codex, shared BuiltinAgentSetting
 	for _, item := range settings {
 		if item.AgentType == "codex" {
 			codex = item
-			break
+		}
+		if item.AgentType == "global-skills" {
+			shared = item
 		}
 	}
 	if !codex.Customized || len(codex.CurrentRoots) != 1 || codex.CurrentRoots[0] != customRoot || codex.DefaultRoots[0] != defaultRoot {
 		t.Fatalf("unexpected customized setting: %#v", codex)
+	}
+	if !shared.SharedSkills || len(shared.SharedSkillReaders) != 2 {
+		t.Fatalf("unexpected shared Skills setting: %#v", shared)
 	}
 	inventory, err := Discover(home)
 	if err != nil {

@@ -313,7 +313,7 @@ const clientTypeOptions = [
   { value: 'TRAE CN', label: 'TRAE CN' },
   { value: 'TRAE', label: 'TRAE' },
   { value: 'Cursor', label: 'Cursor' },
-  { value: 'Global Skills', label: '通用 Skills' },
+  { value: 'Global Skills', label: '共用 Skills' },
   { value: 'CodeBuddy', label: 'CodeBuddy' },
   { value: 'WorkBuddy', label: 'WorkBuddy' },
   { value: 'Custom', label: '自定义 Agent' },
