@@ -7,12 +7,14 @@ import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse
+from jose import JWTError, jwt
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
+from ..config import settings
 from ..client_signing import (
     build_manifest,
     canonical_manifest,
@@ -35,6 +37,9 @@ router = APIRouter(prefix="/v1/clients", tags=["clients"])
 logger = logging.getLogger(__name__)
 _CLIENT_RELEASE_DIR = Path(__file__).resolve().parents[2] / "scanner" / "releases"
 _CLIENT_ONLINE_WINDOW = timedelta(minutes=10)
+_CLIENT_DOWNLOAD_COOKIE = "agent_manager_client_download"
+_CLIENT_DOWNLOAD_PURPOSE = "client_installer_download"
+_CLIENT_DOWNLOAD_TICKET_TTL = timedelta(minutes=5)
 _CLIENT_INSTALLER_RE = re.compile(
     r"^agent-manager-client-(?P<version>\d{2}\.\d{2}\.\d{2})-"
     r"(?P<platform>darwin-aarch64|darwin-x86_64|windows-x86_64|linux-x86_64)"
@@ -69,6 +74,18 @@ def _runtime_token(
     if token.token_type != "client":
         raise HTTPException(status_code=403, detail="当前凭证不是客户端接入凭证")
     return token
+
+
+def _client_installer_path(platform: str) -> tuple[str, Path]:
+    if "/" in platform or "\\" in platform or ".." in platform:
+        raise HTTPException(status_code=400, detail="无效的客户端平台")
+    filename = f"agent-manager-client-{platform}"
+    if not _CLIENT_INSTALLER_RE.fullmatch(filename):
+        raise HTTPException(status_code=400, detail="无效的客户端安装包")
+    path = _CLIENT_RELEASE_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"客户端文件不存在: {filename}")
+    return filename, path
 
 
 def _bind_client(token: models.AccessToken, client_id: str, db: Session) -> None:
@@ -697,34 +714,59 @@ def list_client_downloads(
     return {"items": latest_items}
 
 
-@router.get("/downloads/file")
-def download_client_binary(
+@router.post("/downloads/ticket")
+def create_client_download_ticket(
+    response: Response,
     platform: str = Query(...),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    if "/" in platform or "\\" in platform or ".." in platform:
-        raise HTTPException(status_code=400, detail="无效的客户端平台")
-    filename = f"agent-manager-client-{platform}"
-    if not _CLIENT_INSTALLER_RE.fullmatch(filename):
-        raise HTTPException(status_code=400, detail="无效的客户端安装包")
-    path = _CLIENT_RELEASE_DIR / filename
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail=f"客户端文件不存在: {filename}")
-
-    def iter_file():
-        with path.open("rb") as file:
-            while chunk := file.read(1024 * 1024):
-                yield chunk
-
-    return StreamingResponse(
-        iter_file(),
-        media_type="application/octet-stream",
-        headers={
-            "Accept-Ranges": "none",
-            "Cache-Control": "no-store",
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Content-Length": str(path.stat().st_size),
+    filename, _ = _client_installer_path(platform)
+    ticket = auth.create_access_token(
+        {
+            "download_user": current_user.username,
+            "purpose": _CLIENT_DOWNLOAD_PURPOSE,
+            "platform": platform,
         },
+        expires_delta=_CLIENT_DOWNLOAD_TICKET_TTL,
+    )
+    response.set_cookie(
+        key=_CLIENT_DOWNLOAD_COOKIE,
+        value=ticket,
+        max_age=int(_CLIENT_DOWNLOAD_TICKET_TTL.total_seconds()),
+        httponly=True,
+        samesite="strict",
+        path="/api/v1/clients/downloads/file",
+    )
+    return {
+        "url": f"/api/v1/clients/downloads/file?platform={platform}",
+        "filename": filename,
+        "expires_in": int(_CLIENT_DOWNLOAD_TICKET_TTL.total_seconds()),
+    }
+
+
+@router.get("/downloads/file")
+def download_client_binary(
+    platform: str = Query(...),
+    download_ticket: str | None = Cookie(None, alias=_CLIENT_DOWNLOAD_COOKIE),
+):
+    if not download_ticket:
+        raise HTTPException(status_code=401, detail="下载票据缺失或已过期，请重新点击下载")
+    try:
+        payload = jwt.decode(download_ticket, settings.SECRET_KEY, algorithms=[auth.ALGORITHM])
+    except JWTError as exc:
+        raise HTTPException(status_code=401, detail="下载票据无效或已过期，请重新点击下载") from exc
+    if (
+        payload.get("purpose") != _CLIENT_DOWNLOAD_PURPOSE
+        or payload.get("platform") != platform
+        or not payload.get("download_user")
+    ):
+        raise HTTPException(status_code=403, detail="下载票据与安装包不匹配，请重新点击下载")
+    filename, path = _client_installer_path(platform)
+    return FileResponse(
+        path,
+        filename=filename,
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "private, no-store"},
     )
 
 

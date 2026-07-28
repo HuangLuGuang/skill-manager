@@ -212,8 +212,8 @@
                 {{ clientDownloading ? '正在下载' : '下载' }}
               </a-button>
             </a-space>
-            <div v-if="clientDownloading || clientDownloadProgress > 0" class="client-download-progress">
-              <a-progress :percent="clientDownloadProgress" :status="clientDownloadStatus" />
+            <div v-if="clientDownloading || clientDownloadDetail" class="client-download-progress">
+              <a-spin v-if="clientDownloading" size="small" />
               <span>{{ clientDownloadDetail }}</span>
             </div>
           </template>
@@ -233,8 +233,8 @@ import { message } from 'ant-design-vue'
 import {
   bindClientAgent,
   cancelClientTask,
+  createClientDownloadTicket,
   createClientTask,
-  downloadClientBinary,
   getClientDetail,
   listAgents,
   listClients,
@@ -264,8 +264,6 @@ const installForm = reactive({ agent_type: '', managed_agent_id: '', skill_id: '
 const downloadPlatforms = ref([])
 const selectedPlatform = ref()
 const clientDownloading = ref(false)
-const clientDownloadProgress = ref(0)
-const clientDownloadStatus = ref('active')
 const clientDownloadDetail = ref('')
 
 const columns = [
@@ -454,55 +452,23 @@ const retryTask = async (record) => {
   await refreshDetail()
   message.success('任务已重新进入队列')
 }
-const downloadErrorDetail = async error => {
-  const data = error?.response?.data
-  if (data instanceof Blob) {
-    try {
-      const payload = JSON.parse(await data.text())
-      if (payload?.detail) return String(payload.detail)
-    } catch {
-      // Fall through to the regular network error message.
-    }
-  }
-  return data?.detail || error?.message || '下载失败'
-}
 const downloadClient = async ({ key }) => {
   const release = downloadPlatforms.value.find(item => item.key === key)
   if (!release || clientDownloading.value) return
   clientDownloading.value = true
-  clientDownloadProgress.value = 0
-  clientDownloadStatus.value = 'active'
-  clientDownloadDetail.value = '正在连接平台'
+  clientDownloadDetail.value = '正在准备安全下载'
   try {
-    const blob = await downloadClientBinary(key, event => {
-      const loaded = Number(event.loaded || 0)
-      const total = Number(event.total || release.size || 0)
-      clientDownloadProgress.value = total > 0 ? Math.min(99, Math.round((loaded / total) * 100)) : 0
-      clientDownloadDetail.value = total > 0
-        ? `已接收 ${formatBytes(loaded)} / ${formatBytes(total)}`
-        : `已接收 ${formatBytes(loaded)}`
-    })
-    if (!(blob instanceof Blob) || blob.size <= 0) {
-      throw new Error('平台返回的安装包为空')
-    }
-    if (release.size && blob.size !== release.size) {
-      throw new Error(`安装包接收不完整：应为 ${formatBytes(release.size)}，实际为 ${formatBytes(blob.size)}`)
-    }
-    const url = URL.createObjectURL(blob)
+    const ticket = await createClientDownloadTicket(key)
     const link = document.createElement('a')
-    link.href = url
-    link.download = release.filename || `agent-manager-client-${key}`
+    link.href = ticket.url
+    link.download = ticket.filename || release.filename || `agent-manager-client-${key}`
     document.body.appendChild(link)
     link.click()
     link.remove()
-    window.setTimeout(() => URL.revokeObjectURL(url), 60000)
-    clientDownloadProgress.value = 100
-    clientDownloadStatus.value = 'success'
-    clientDownloadDetail.value = `已接收 ${formatBytes(blob.size)}，浏览器正在保存文件`
-    message.success('客户端安装包下载完成')
+    clientDownloadDetail.value = `已开始下载 ${formatBytes(release.size)}，可在浏览器下载列表查看进度`
+    message.success('已交给浏览器下载')
   } catch (error) {
-    clientDownloadStatus.value = 'exception'
-    clientDownloadDetail.value = await downloadErrorDetail(error)
+    clientDownloadDetail.value = error?.response?.data?.detail || error?.message || '下载失败'
     message.error(`下载安装包失败：${clientDownloadDetail.value}`)
   } finally {
     clientDownloading.value = false
@@ -610,12 +576,13 @@ onMounted(async () => {
   margin-left: 8px;
 }
 .client-download-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   max-width: 470px;
   margin-top: 14px;
 }
 .client-download-progress span {
-  display: block;
-  margin-top: 3px;
   color: #7a869a;
   font-size: 12px;
 }

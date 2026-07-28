@@ -434,17 +434,32 @@ def test_only_latest_client_installers_are_listed_and_downloadable(tmp_path, mon
     }
     assert all(item["size"] > 0 for item in response.json()["items"])
     key = response.json()["items"][0]["key"]
-    downloaded = client.get("/api/v1/clients/downloads/file", params={"platform": key})
+    denied = client.get("/api/v1/clients/downloads/file", params={"platform": key})
+    assert denied.status_code == 401
+    ticket = client.post("/api/v1/clients/downloads/ticket", params={"platform": key})
+    assert ticket.status_code == 200
+    assert ticket.json()["expires_in"] == 300
+    assert ticket.json()["filename"].startswith("agent-manager-client-")
+    ticket_payload = auth.jwt.decode(
+        client.cookies.get("agent_manager_client_download"),
+        settings.SECRET_KEY,
+        algorithms=[auth.ALGORITHM],
+    )
+    assert "sub" not in ticket_payload
+    assert ticket_payload["purpose"] == "client_installer_download"
+    downloaded = client.get(ticket.json()["url"])
     assert downloaded.status_code == 200
     assert downloaded.content in {b"macos", b"new-windows"}
     partial = client.get(
-        "/api/v1/clients/downloads/file",
-        params={"platform": key},
+        ticket.json()["url"],
         headers={"Range": "bytes=0-2"},
     )
-    assert partial.status_code == 200
-    assert partial.headers["accept-ranges"] == "none"
-    assert partial.content in {b"macos", b"new-windows"}
+    assert partial.status_code == 206
+    assert partial.content in {b"mac", b"new"}
+
+    other_key = next(item["key"] for item in response.json()["items"] if item["key"] != key)
+    mismatch = client.get("/api/v1/clients/downloads/file", params={"platform": other_key})
+    assert mismatch.status_code == 403
 
 
 def test_client_installer_list_is_empty_when_release_directory_has_no_installers(tmp_path, monkeypatch):
