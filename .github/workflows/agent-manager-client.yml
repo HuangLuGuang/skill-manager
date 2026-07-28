@@ -53,7 +53,7 @@ jobs:
           cache-dependency-path: client/desktop/package-lock.json
       - name: Validate release version
         if: ${{ startsWith(github.ref, 'refs/tags/client-v') }}
-        run: node client/desktop/scripts/validate-release-version.mjs "${GITHUB_REF_NAME}"
+        run: node client/desktop/scripts/validate-release-version.mjs
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
