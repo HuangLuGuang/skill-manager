@@ -465,8 +465,8 @@ const downloadClient = async ({ key }) => {
     document.body.appendChild(link)
     link.click()
     link.remove()
-    clientDownloadDetail.value = `已开始下载 ${formatBytes(release.size)}，可在浏览器下载列表查看进度`
-    message.success('已交给浏览器下载')
+    clientDownloadDetail.value = `正在下载 ${formatBytes(release.size)}，可在下载列表查看进度`
+    message.success('下载已开始')
   } catch (error) {
     clientDownloadDetail.value = error?.response?.data?.detail || error?.message || '下载失败'
     message.error(`下载安装包失败：${clientDownloadDetail.value}`)
