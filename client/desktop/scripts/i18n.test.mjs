@@ -5,7 +5,7 @@ import test from 'node:test'
 import vm from 'node:vm'
 
 const require = createRequire(import.meta.url)
-const { parse } = require('../../../web/node_modules/@babel/parser')
+const { parse } = require('@babel/parser')
 const storage = new Map([['agent-manager-client-locale', 'en-US']])
 const context = {
   CustomEvent: class CustomEvent {},
