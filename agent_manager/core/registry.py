@@ -572,6 +572,14 @@ class Registry:
                 ).fetchall()
             return self._entries_from_rows(rows)
 
+    def count_skills(self) -> int:
+        with self._lock, self._connect() as conn:
+            return int(conn.execute("SELECT count(*) FROM skill_registry").fetchone()[0])
+
+    def count_review_queue(self) -> int:
+        with self._lock, self._connect() as conn:
+            return int(conn.execute("SELECT count(*) FROM skill_review_queue").fetchone()[0])
+
     def list_by_names(self, names: list[str] | set[str]) -> list[RegistryEntry]:
         normalized = sorted({name.strip().lower() for name in names if name and name.strip()})
         if not normalized:
@@ -826,6 +834,72 @@ class Registry:
                 "SELECT payload FROM skill_review_queue ORDER BY queued_at ASC"
             ).fetchall()
             return [ReviewRequest.model_validate(json.loads(row["payload"])) for row in rows]
+
+    def list_reviewed_summaries(self) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                """
+                WITH findings AS (
+                    SELECT
+                        skill_id,
+                        sum(critical) AS critical,
+                        sum(high) AS high,
+                        sum(medium) AS medium,
+                        sum(low) AS low
+                    FROM skill_finding_stats
+                    GROUP BY skill_id
+                )
+                SELECT
+                    s.skill_id,
+                    s.name AS skill_name,
+                    s.risk_level,
+                    s.status,
+                    s.submitted_at,
+                    json_extract(s.payload, '$.approved_at') AS approved_at,
+                    coalesce(json_extract(s.payload, '$.approved_at'), s.updated_at) AS reviewed_at,
+                    json_extract(s.payload, '$.approved_by') AS approved_by,
+                    json_extract(s.payload, '$.approval_note') AS approval_note,
+                    json_extract(s.payload, '$.rejection_reason') AS rejection_reason,
+                    coalesce(f.critical, 0) AS critical,
+                    coalesce(f.high, 0) AS high,
+                    coalesce(f.medium, 0) AS medium,
+                    coalesce(f.low, 0) AS low
+                FROM skill_registry s
+                LEFT JOIN findings f ON f.skill_id = s.skill_id
+                WHERE s.status IN (?, ?)
+                """,
+                (SkillStatus.APPROVED.value, SkillStatus.REJECTED.value),
+            ).fetchall()
+
+        items = []
+        for row in rows:
+            review_note = row["rejection_reason"] if row["status"] == SkillStatus.REJECTED.value else row["approval_note"]
+            findings = {key: int(row[key]) for key in ("critical", "high", "medium", "low")}
+            findings["total"] = sum(findings.values())
+            approved_at = row["approved_at"]
+            reviewed_at = row["reviewed_at"]
+            if approved_at and approved_at.endswith("Z"):
+                approved_at = f"{approved_at[:-1]}+00:00"
+            if reviewed_at and reviewed_at.endswith("Z"):
+                reviewed_at = f"{reviewed_at[:-1]}+00:00"
+            items.append({
+                "skill_id": row["skill_id"],
+                "skill_name": row["skill_name"],
+                "risk_level": row["risk_level"],
+                "status": row["status"],
+                "findings_summary": findings,
+                "submitted_at": row["submitted_at"],
+                "queued_at": row["submitted_at"],
+                "reviewed_at": reviewed_at,
+                "sort_at": reviewed_at,
+                "notes": review_note,
+                "review_note": review_note,
+                "approval_note": row["approval_note"],
+                "approved_by": row["approved_by"],
+                "approved_at": approved_at,
+                "rejection_reason": row["rejection_reason"],
+            })
+        return items
 
     # ------------------------------------------------------------------ #
     # Audit log                                                            #
