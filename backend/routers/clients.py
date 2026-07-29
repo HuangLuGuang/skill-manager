@@ -218,11 +218,15 @@ def _update_platform_key(target: str, arch: str) -> str:
     return f"{normalized_target}-{normalized_arch}"
 
 
-def _client_update_manifest() -> dict:
-    path = _CLIENT_RELEASE_DIR / "latest.json"
+def _client_update_manifest(channel: str = "stable") -> dict | None:
+    if channel not in {"stable", "preview"}:
+        raise HTTPException(status_code=400, detail="无效的客户端更新通道")
+    path = _CLIENT_RELEASE_DIR / ("preview.json" if channel == "preview" else "latest.json")
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
+        if channel == "preview":
+            return None
         raise HTTPException(status_code=404, detail="当前没有可用的客户端更新") from exc
     if not isinstance(value, dict) or not isinstance(value.get("platforms"), dict):
         raise HTTPException(status_code=500, detail="客户端更新清单格式错误")
@@ -786,10 +790,13 @@ def check_client_update(
     current_version: str,
     request: Request,
     authorization: str | None = Header(None),
+    channel: str = Query("stable"),
     db: Session = Depends(get_db),
 ):
     _runtime_token("client:read-policy", authorization, request, db)
-    manifest = _client_update_manifest()
+    manifest = _client_update_manifest(channel)
+    if manifest is None:
+        return Response(status_code=204)
     platform = manifest["platforms"].get(_update_platform_key(target, arch))
     if not isinstance(platform, dict):
         raise HTTPException(status_code=404, detail="当前平台没有可用的客户端更新")

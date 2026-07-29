@@ -1,4 +1,6 @@
 import axios from 'axios'
+import { getCurrentLocale } from '../i18n'
+import { getApiErrorCode, localizeApiError } from '../i18n/errors'
 
 const api = axios.create({
   baseURL: '/api',
@@ -16,6 +18,7 @@ export const login = (username, password, captchaId, captchaCode) => {
 
 export const getCaptcha = () => api.get('/auth/captcha')
 export const getMe = () => api.get('/auth/users/me')
+export const updateMyLocale = (locale) => api.put('/auth/users/me/locale', { locale })
 export const changePassword = (oldPassword, newPassword) =>
   api.post('/auth/users/me/password', {
     old_password: oldPassword,
@@ -159,22 +162,39 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
+  config.headers['Accept-Language'] = getCurrentLocale()
   return config
 })
 
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
+    if (error.response?.data?.error_code) {
+      error.apiErrorCode = error.response.data.error_code
+      error.apiErrorParams = error.response.data.error_params || {}
+      error.response.data.detail = localizeApiError(
+        {
+          code: error.apiErrorCode,
+          message: error.response.data.detail,
+          params: error.apiErrorParams,
+        },
+        getCurrentLocale(),
+      )
+    }
     if (error.response?.data?.detail) {
       const detail = error.response.data.detail
       if (Array.isArray(detail)) {
         error.response.data.detail = detail.map(e => e.msg).join('; ')
+      } else if (typeof detail === 'object') {
+        error.apiErrorCode = getApiErrorCode(detail)
+        error.apiErrorParams = detail.params || {}
+        error.response.data.error = detail
+        error.response.data.detail = localizeApiError(detail, getCurrentLocale())
       }
     }
     if (error.response?.status === 401) {
-      const detail = error.response.data?.detail
-      if (detail === 'session_expired_elsewhere') {
-        alert('登录状态已失效，请重新登录')
+      if (error.apiErrorCode === 'auth.session_expired_elsewhere') {
+        alert(error.response.data.detail)
       }
       localStorage.removeItem('token')
       localStorage.removeItem('username')

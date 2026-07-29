@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"skill-manager/scanner/internal/config"
+	"skill-manager/scanner/internal/localize"
 	"skill-manager/scanner/internal/runner"
 )
 
@@ -26,9 +27,17 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("scanned %d skills, submitted %d, failed %d\n", result.Found, result.Submitted, result.Failed)
+	fmt.Printf(
+		localize.Text(
+			"已扫描 %d 个 Skill，已提交 %d 个，失败 %d 个\n",
+			"scanned %d skills, submitted %d, failed %d\n",
+		),
+		result.Found,
+		result.Submitted,
+		result.Failed,
+	)
 	if result.Failed > 0 {
-		fmt.Println("failed skills:")
+		fmt.Println(localize.Text("失败的 Skill：", "failed skills:"))
 		for _, item := range result.Skills {
 			if item.SubmitError == "" {
 				continue
@@ -40,6 +49,6 @@ func run(args []string) error {
 			fmt.Printf("- %s (%s): %s\n", name, item.Path, item.SubmitError)
 		}
 	}
-	fmt.Printf("report: %s\n", outputAbs)
+	fmt.Printf("%s: %s\n", localize.Text("报告", "report"), outputAbs)
 	return nil
 }

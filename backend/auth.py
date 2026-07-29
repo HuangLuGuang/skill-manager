@@ -1,13 +1,14 @@
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from . import models, schemas
+from .api_errors import ApiError
 from .config import settings
 from .sqlite_db import get_db
 
@@ -33,9 +34,11 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+    credentials_exception = ApiError(
+        status.HTTP_401_UNAUTHORIZED,
+        "auth.invalid_token",
+        "登录凭证无效",
+        "Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
@@ -51,9 +54,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     if user is None:
         raise credentials_exception
     if session_id and user.current_session_id and session_id != user.current_session_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="session_expired_elsewhere",
+        raise ApiError(
+            status.HTTP_401_UNAUTHORIZED,
+            "auth.session_expired_elsewhere",
+            "当前账号已在其他位置登录，请重新登录",
+            "This account signed in elsewhere. Sign in again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
@@ -61,11 +66,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
 
 async def get_current_active_user(current_user: Annotated[models.User, Depends(get_current_user)]):
     if not current_user.is_active:
-        raise HTTPException(status_code=400, detail="账号已被禁用")
+        raise ApiError(400, "auth.account_disabled", "账号已被禁用", "The account is disabled")
     return current_user
 
 
 async def get_current_admin_user(current_user: Annotated[models.User, Depends(get_current_active_user)]):
     if current_user.role not in {"admin", "super_admin"}:
-        raise HTTPException(status_code=403, detail="权限不足")
+        raise ApiError(403, "auth.permission_denied", "权限不足", "Permission denied")
     return current_user

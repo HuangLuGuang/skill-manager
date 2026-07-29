@@ -392,6 +392,22 @@ def test_client_update_manifest_and_download_require_client_token(tmp_path, monk
         ),
         encoding="utf-8",
     )
+    (release_dir / "preview.json").write_text(
+        json.dumps(
+            {
+                "version": "0.3.0",
+                "notes": "preview release",
+                "pub_date": "2026-07-17T00:00:00Z",
+                "platforms": {
+                    "darwin-aarch64": {
+                        "file": artifact.name,
+                        "signature": "preview-signature",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     monkeypatch.setattr(clients, "_CLIENT_RELEASE_DIR", release_dir)
     client = _client(tmp_path)
     token = client.post(
@@ -406,9 +422,43 @@ def test_client_update_manifest_and_download_require_client_token(tmp_path, monk
     assert checked.status_code == 200
     assert checked.json()["version"] == "0.2.0"
     assert checked.json()["signature"] == "test-signature"
+    preview = client.get(
+        "/api/v1/clients/updates/darwin/arm64/0.1.0",
+        params={"channel": "preview"},
+        headers=headers,
+    )
+    assert preview.status_code == 200
+    assert preview.json()["version"] == "0.3.0"
+    assert preview.json()["signature"] == "preview-signature"
+    invalid_channel = client.get(
+        "/api/v1/clients/updates/darwin/arm64/0.1.0",
+        params={"channel": "nightly"},
+        headers=headers,
+    )
+    assert invalid_channel.status_code == 400
     downloaded = client.get(checked.json()["url"], headers=headers)
     assert downloaded.status_code == 200
     assert downloaded.content == b"signed-update"
+
+
+def test_preview_update_channel_without_manifest_returns_no_content(tmp_path, monkeypatch):
+    release_dir = tmp_path / "releases"
+    release_dir.mkdir()
+    monkeypatch.setattr(clients, "_CLIENT_RELEASE_DIR", release_dir)
+    client = _client(tmp_path)
+    token = client.post(
+        "/api/v1/access/tokens",
+        json={"name": "客户端接入", "token_type": "client"},
+    ).json()["token"]
+
+    response = client.get(
+        "/api/v1/clients/updates/darwin/arm64/0.1.0",
+        params={"channel": "preview"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 204
+    assert response.content == b""
 
 
 def test_only_latest_client_installers_are_listed_and_downloadable(tmp_path, monkeypatch):

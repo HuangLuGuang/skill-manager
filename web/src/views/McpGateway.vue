@@ -6,8 +6,8 @@
         <a-card>
           <template #extra>
             <a-space>
-              <a-button :loading="loading" @click="fetchAll">刷新</a-button>
-              <a-button type="primary" @click="openServer()">添加 MCP Server</a-button>
+              <a-button :loading="loading" @click="fetchAll">{{ text('刷新', 'Refresh') }}</a-button>
+              <a-button type="primary" @click="openServer()">{{ $t("legacy.1enmtj9") }}</a-button>
             </a-space>
           </template>
           <a-table :data-source="servers" :columns="serverColumns" row-key="id" :loading="loading" size="small">
@@ -25,7 +25,7 @@
                   <a-tag v-for="tool in record.tools || []" :key="tool.id" :color="tool.enabled ? 'blue' : 'default'">
                     {{ tool.name }}
                   </a-tag>
-                  <span v-if="!record.tools?.length" class="muted">尚未发现</span>
+                  <span v-if="!record.tools?.length" class="muted">{{ $t("legacy.1cqmmbo") }}</span>
                 </a-space>
               </template>
               <template v-else-if="column.key === 'status'">
@@ -35,10 +35,10 @@
               </template>
               <template v-else-if="column.key === 'actions'">
                 <a-space>
-                  <a-button type="link" :loading="actionId === `discover-${record.id}`" @click="discover(record)">连接并发现</a-button>
-                  <a-button type="link" @click="openServer(record)">编辑</a-button>
-                  <a-popconfirm title="确认删除这个 MCP Server？" @confirm="removeServer(record)">
-                    <a-button type="link" danger :loading="actionId === `server-${record.id}`">删除</a-button>
+                  <a-button type="link" :loading="actionId === `discover-${record.id}`" @click="discover(record)">{{ $t("legacy.vtu19j") }}</a-button>
+                  <a-button type="link" @click="openServer(record)">{{ $t("legacy.qreyeg") }}</a-button>
+                  <a-popconfirm :title="$t('legacy.1ggc2d8')" @confirm="removeServer(record)">
+                    <a-button type="link" danger :loading="actionId === `server-${record.id}`">{{ $t("legacy.1t2vi4h") }}</a-button>
                   </a-popconfirm>
                 </a-space>
               </template>
@@ -51,8 +51,8 @@
         <a-card>
           <template #extra>
             <a-space>
-              <a-button :loading="loading" @click="fetchAll">刷新</a-button>
-              <a-button type="primary" @click="openGateway()">创建虚拟网关</a-button>
+              <a-button :loading="loading" @click="fetchAll">{{ text('刷新', 'Refresh') }}</a-button>
+              <a-button type="primary" @click="openGateway()">{{ $t("legacy.1cl5f6n") }}</a-button>
             </a-space>
           </template>
           <a-table :data-source="gateways" :columns="gatewayColumns" row-key="id" :loading="loading" size="small">
@@ -64,7 +64,7 @@
               <template v-else-if="column.key === 'tools'">
                 <a-space wrap>
                   <a-tag v-for="tool in gatewayToolNames(record)" :key="tool">{{ tool }}</a-tag>
-                  <span v-if="!gatewayToolNames(record).length" class="muted">未发布 Tool</span>
+                  <span v-if="!gatewayToolNames(record).length" class="muted">{{ $t("legacy.1bmfz89") }}</span>
                 </a-space>
               </template>
               <template v-else-if="column.key === 'status'">
@@ -72,10 +72,10 @@
               </template>
               <template v-else-if="column.key === 'actions'">
                 <a-space>
-                  <a-button type="link" @click="copy(`${origin}/mcp/${record.slug}`)">复制地址</a-button>
-                  <a-button type="link" @click="openGateway(record)">编辑</a-button>
-                  <a-popconfirm title="确认删除这个虚拟 MCP 网关？已有凭证将无法使用。" @confirm="removeGateway(record)">
-                    <a-button type="link" danger :loading="actionId === `gateway-${record.id}`">删除</a-button>
+                  <a-button type="link" @click="copy(`${origin}/mcp/${record.slug}`)">{{ $t("legacy.1vnyd7u") }}</a-button>
+                  <a-button type="link" @click="openGateway(record)">{{ $t("legacy.qreyeg") }}</a-button>
+                  <a-popconfirm :title="$t('legacy.j29c29')" @confirm="removeGateway(record)">
+                    <a-button type="link" danger :loading="actionId === `gateway-${record.id}`">{{ $t("legacy.1t2vi4h") }}</a-button>
                   </a-popconfirm>
                 </a-space>
               </template>
@@ -86,7 +86,7 @@
 
     <template v-else>
         <a-card>
-          <template #extra><a-button :loading="loading" @click="fetchAll">刷新</a-button></template>
+          <template #extra><a-button :loading="loading" @click="fetchAll">{{ text('刷新', 'Refresh') }}</a-button></template>
           <a-table :data-source="auditRows" :columns="auditColumns" row-key="id" :loading="loading" size="small" :pagination="{ pageSize: 20 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'target'">
@@ -102,58 +102,60 @@
         </a-card>
     </template>
 
-    <a-modal v-model:open="serverVisible" :title="editingServerId ? '编辑 MCP Server' : '添加 MCP Server'" width="760px" :confirm-loading="submitting" @ok="saveServer">
+    <a-modal v-model:open="serverVisible" :title="editingServerId ? $t('legacy.irabzr') : $t('legacy.1enmtj9')" width="760px" :confirm-loading="submitting" @ok="saveServer">
       <a-form layout="vertical" :model="serverForm">
         <a-row :gutter="16">
-          <a-col :span="12"><a-form-item label="名称" required><a-input v-model:value="serverForm.name" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="唯一标识" required><a-input v-model:value="serverForm.slug" :disabled="Boolean(editingServerId)" placeholder="例如 github" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item :label="$t('legacy.hzx914')" required><a-input v-model:value="serverForm.name" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item :label="$t('legacy.10w0qab')" required><a-input v-model:value="serverForm.slug" :disabled="Boolean(editingServerId)" :placeholder="$t('legacy.a0rp53')" /></a-form-item></a-col>
         </a-row>
         <a-form-item label="Streamable HTTP Endpoint" required>
           <a-input v-model:value="serverForm.endpoint" placeholder="https://mcp.example.com/mcp" />
           <a-space wrap style="margin-top: 8px">
-            <a-button :loading="serverTesting" @click="testServerForm">保存前测试连接</a-button>
+            <a-button :loading="serverTesting" @click="testServerForm">{{ $t("legacy.17pa11i") }}</a-button>
             <template v-if="serverTestTools">
-              <a-tag color="green">连接成功 · {{ serverTestTools.length }} 个 Tool</a-tag>
+              <a-tag color="green">{{ $t("legacy.13x3opo") }} {{ serverTestTools.length }} {{ $t("legacy.18nntpt") }}</a-tag>
               <a-tag v-for="name in serverTestTools.slice(0, 8)" :key="name">{{ name }}</a-tag>
-              <span v-if="serverTestTools.length > 8" class="muted">还有 {{ serverTestTools.length - 8 }} 个</span>
+              <span v-if="serverTestTools.length > 8" class="muted">{{ $t("legacy.1lfcp9m") }} {{ serverTestTools.length - 8 }} {{ $t("legacy.d5a1x9") }}</span>
             </template>
           </a-space>
         </a-form-item>
         <a-row :gutter="16">
-          <a-col :span="12"><a-form-item label="鉴权 Header"><a-input v-model:value="serverForm.authorization_header" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item :label="editingServerId ? '更新鉴权值（留空保持原值）' : '鉴权值'"><a-input-password v-model:value="serverForm.authorization_value" placeholder="例如 Bearer xxx" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item :label="$t('legacy.17s488l')"><a-input v-model:value="serverForm.authorization_header" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item :label="editingServerId ? $t('legacy.d6ubyh') : $t('legacy.1iwkwic')"><a-input-password v-model:value="serverForm.authorization_value" :placeholder="$t('legacy.1479ky1')" /></a-form-item></a-col>
         </a-row>
         <a-row :gutter="16">
-          <a-col :span="12"><a-form-item label="状态"><a-select v-model:value="serverForm.status"><a-select-option value="draft">草稿</a-select-option><a-select-option value="active">启用</a-select-option><a-select-option value="disabled">停用</a-select-option></a-select></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="超时秒数"><a-input-number v-model:value="serverForm.timeout_seconds" :min="1" :max="300" style="width: 100%" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item :label="$t('legacy.1ccx4t4')"><a-select v-model:value="serverForm.status"><a-select-option value="draft">{{ $t("legacy.oc54qp") }}</a-select-option><a-select-option value="active">{{ $t("legacy.5pm2ma") }}</a-select-option><a-select-option value="disabled">{{ $t("legacy.6q9o5l") }}</a-select-option></a-select></a-form-item></a-col>
+          <a-col :span="12"><a-form-item :label="$t('legacy.tabbi8')"><a-input-number v-model:value="serverForm.timeout_seconds" :min="1" :max="300" style="width: 100%" /></a-form-item></a-col>
         </a-row>
-        <a-form-item label="描述"><a-textarea v-model:value="serverForm.description" :rows="3" /></a-form-item>
+        <a-form-item :label="$t('legacy.1kxyax6')"><a-textarea v-model:value="serverForm.description" :rows="3" /></a-form-item>
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="gatewayVisible" :title="editingGatewayId ? '编辑虚拟 MCP 网关' : '创建虚拟 MCP 网关'" width="820px" :confirm-loading="submitting" @ok="saveGateway">
+    <a-modal v-model:open="gatewayVisible" :title="editingGatewayId ? $t('legacy.cwb4lh') : $t('legacy.1tnkzbx')" width="820px" :confirm-loading="submitting" @ok="saveGateway">
       <a-form layout="vertical" :model="gatewayForm">
         <a-row :gutter="16">
-          <a-col :span="12"><a-form-item label="名称" required><a-input v-model:value="gatewayForm.name" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="唯一标识" required><a-input v-model:value="gatewayForm.slug" :disabled="Boolean(editingGatewayId)" placeholder="例如 readonly" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item :label="$t('legacy.hzx914')" required><a-input v-model:value="gatewayForm.name" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item :label="$t('legacy.10w0qab')" required><a-input v-model:value="gatewayForm.slug" :disabled="Boolean(editingGatewayId)" :placeholder="$t('legacy.dcntg6')" /></a-form-item></a-col>
         </a-row>
-        <a-form-item label="发布的 Tool" required>
-          <a-select v-model:value="gatewayForm.tools" mode="multiple" show-search option-filter-prop="label" placeholder="选择要通过该网关发布的 Tool">
+        <a-form-item :label="$t('legacy.1fxfunn')" required>
+          <a-select v-model:value="gatewayForm.tools" mode="multiple" show-search option-filter-prop="label" :placeholder="$t('legacy.8qb692')">
             <a-select-opt-group v-for="server in activeServers" :key="server.id" :label="server.name">
               <a-select-option v-for="tool in enabledTools(server)" :key="toolKey(server.id, tool.name)" :value="toolKey(server.id, tool.name)" :label="`${server.name} ${tool.name}`">
-                {{ tool.name }}（对外：{{ tool.exposed_name }}）
+                {{ tool.name }}{{ $t("legacy.1qdqea2") }}{{ tool.exposed_name }}）
               </a-select-option>
             </a-select-opt-group>
           </a-select>
         </a-form-item>
-        <a-form-item label="状态"><a-select v-model:value="gatewayForm.status"><a-select-option value="active">启用</a-select-option><a-select-option value="disabled">停用</a-select-option></a-select></a-form-item>
-        <a-form-item label="描述"><a-textarea v-model:value="gatewayForm.description" :rows="3" /></a-form-item>
+        <a-form-item :label="$t('legacy.1ccx4t4')"><a-select v-model:value="gatewayForm.status"><a-select-option value="active">{{ $t("legacy.5pm2ma") }}</a-select-option><a-select-option value="disabled">{{ $t("legacy.6q9o5l") }}</a-select-option></a-select></a-form-item>
+        <a-form-item :label="$t('legacy.1kxyax6')"><a-textarea v-model:value="gatewayForm.description" :rows="3" /></a-form-item>
       </a-form>
     </a-modal>
   </div>
 </template>
 
 <script setup>
+import { translateLegacy as phrase } from '../i18n'
+
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
@@ -171,14 +173,17 @@ import {
   updateMcpGateway,
   updateMcpServer,
 } from '../api'
+import { useLocaleText } from '../i18n/useLocaleText'
+import { formatDateTime } from '../utils/format'
 
 const route = useRoute()
+const { text } = useLocaleText()
 const activePage = computed(() => route.meta.mcpTab || 'servers')
-const pageTitle = computed(() => ({ servers: 'MCP 服务', gateways: 'MCP 网关', audit: 'MCP 调用审计' }[activePage.value]))
+const pageTitle = computed(() => ({ servers: phrase('legacy.lnloo7'), gateways: phrase('legacy.1gcagoh'), audit: phrase('legacy.2pfrfc') }[activePage.value]))
 const pageSubtitle = computed(() => ({
-  servers: '集中接入远程 Streamable HTTP MCP Server，并发现 Tool 能力',
-  gateways: '组合已审核 Tool，通过统一 Endpoint 向任意 MCP Client 发布',
-  audit: '查看 MCP Tool 调用、拒绝和上游错误记录',
+  servers: phrase('legacy.pi6v2j'),
+  gateways: phrase('legacy.3q6zr7'),
+  audit: phrase('legacy.1h856pr'),
 }[activePage.value]))
 const loading = ref(false)
 const submitting = ref(false)
@@ -196,35 +201,43 @@ const origin = window.location.origin
 const serverForm = reactive({ slug: '', name: '', description: '', endpoint: '', authorization_header: 'Authorization', authorization_value: '', status: 'draft', timeout_seconds: 30 })
 const gatewayForm = reactive({ slug: '', name: '', description: '', status: 'active', tools: [] })
 
-const serverColumns = [
+const serverColumns = computed(() => [
   { title: 'MCP Server', key: 'server' },
-  { title: '健康状态', key: 'health', width: 150 },
+  { title: text('健康状态', 'Health'), key: 'health', width: 150 },
   { title: 'Tool', key: 'tools' },
-  { title: '状态', key: 'status', width: 90 },
-  { title: '操作', key: 'actions', width: 260 },
-]
-const gatewayColumns = [
-  { title: '虚拟网关', key: 'gateway', width: 260 },
-  { title: '发布能力', key: 'tools' },
-  { title: '状态', key: 'status', width: 90 },
-  { title: '操作', key: 'actions', width: 210 },
-]
-const auditColumns = [
-  { title: '请求 ID', dataIndex: 'request_id', width: 260 },
-  { title: '调用目标', key: 'target' },
+  { title: text('状态', 'Status'), key: 'status', width: 90 },
+  { title: text('操作', 'Actions'), key: 'actions', width: 260 },
+])
+const gatewayColumns = computed(() => [
+  { title: text('虚拟网关', 'Virtual Gateway'), key: 'gateway', width: 260 },
+  { title: text('发布能力', 'Published Capabilities'), key: 'tools' },
+  { title: text('状态', 'Status'), key: 'status', width: 90 },
+  { title: text('操作', 'Actions'), key: 'actions', width: 210 },
+])
+const auditColumns = computed(() => [
+  { title: text('请求 ID', 'Request ID'), dataIndex: 'request_id', width: 260 },
+  { title: text('调用目标', 'Call Target'), key: 'target' },
   { title: 'Token ID', dataIndex: 'token_id', width: 100 },
-  { title: '耗时 ms', dataIndex: 'duration_ms', width: 100 },
-  { title: '状态', key: 'status', width: 90 },
-  { title: '时间', key: 'time', width: 190 },
-]
+  { title: text('耗时 ms', 'Duration (ms)'), dataIndex: 'duration_ms', width: 100 },
+  { title: text('状态', 'Status'), key: 'status', width: 90 },
+  { title: text('时间', 'Time'), key: 'time', width: 190 },
+])
 
 const activeServers = computed(() => servers.value.filter(item => item.status === 'active'))
 const enabledTools = server => (server.tools || []).filter(tool => tool.enabled)
 const toolKey = (serverId, toolName) => `${serverId}:${toolName}`
-const statusLabel = value => ({ active: '启用', disabled: '停用', draft: '草稿' }[value] || value)
-const healthLabel = value => ({ healthy: '正常', unhealthy: '异常', unknown: '未检测' }[value] || value)
+const statusLabel = value => ({
+  active: text('启用', 'Enabled'),
+  disabled: text('停用', 'Disabled'),
+  draft: text('草稿', 'Draft'),
+}[value] || value)
+const healthLabel = value => ({
+  healthy: text('正常', 'Healthy'),
+  unhealthy: text('异常', 'Unhealthy'),
+  unknown: text('未检测', 'Not Checked'),
+}[value] || value)
 const healthColor = value => ({ healthy: 'green', unhealthy: 'red', unknown: 'default' }[value] || 'default')
-const formatTime = value => value ? new Date(value).toLocaleString() : '-'
+const formatTime = formatDateTime
 const gatewayToolNames = gateway => (gateway.bindings || []).flatMap(binding => binding.allowed_tools.map(name => `${binding.server_slug}__${name}`))
 
 const fetchAll = async () => {
@@ -236,7 +249,7 @@ const fetchAll = async () => {
     gateways.value = gatewayRows || []
     auditRows.value = audits || []
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取 MCP 配置失败')
+    message.error(error.response?.data?.detail || phrase('legacy.1qi24x1'))
   } finally {
     loading.value = false
   }
@@ -254,7 +267,7 @@ const openServer = record => {
 
 const testServerForm = async () => {
   if (serverTesting.value) return
-  if (!serverForm.endpoint.trim()) return message.warning('请填写 Endpoint')
+  if (!serverForm.endpoint.trim()) return message.warning(phrase('legacy.1jvoy6r'))
   serverTesting.value = true
   serverTestTools.value = null
   try {
@@ -270,9 +283,9 @@ const testServerForm = async () => {
     const result = await debugMcpUpstream(payload)
     if (result.response?.error) throw new Error(result.response.error.message)
     serverTestTools.value = (result.response?.result?.tools || []).map(tool => tool.name)
-    message.success('MCP 服务连接成功')
+    message.success(phrase('legacy.1e1auoj'))
   } catch (error) {
-    message.error(error.response?.data?.detail || error.message || 'MCP 服务连接失败')
+    message.error(error.response?.data?.detail || error.message || phrase('legacy.6c3q70'))
   } finally {
     serverTesting.value = false
   }
@@ -280,7 +293,7 @@ const testServerForm = async () => {
 
 const saveServer = async () => {
   if (submitting.value) return
-  if (!serverForm.name.trim() || !serverForm.slug.trim() || !serverForm.endpoint.trim()) return message.warning('请填写名称、标识和 Endpoint')
+  if (!serverForm.name.trim() || !serverForm.slug.trim() || !serverForm.endpoint.trim()) return message.warning(phrase('legacy.g0i7ay'))
   submitting.value = true
   try {
     const payload = { ...serverForm, name: serverForm.name.trim(), slug: serverForm.slug.trim(), endpoint: serverForm.endpoint.trim() }
@@ -289,9 +302,9 @@ const saveServer = async () => {
     else await createMcpServer(payload)
     serverVisible.value = false
     await fetchAll()
-    message.success('MCP Server 已保存')
+    message.success(phrase('legacy.wf80o5'))
   } catch (error) {
-    message.error(error.response?.data?.detail || '保存失败')
+    message.error(error.response?.data?.detail || phrase('legacy.1q9u8le'))
   } finally {
     submitting.value = false
   }
@@ -303,9 +316,9 @@ const discover = async record => {
   try {
     await discoverMcpServer(record.id)
     await fetchAll()
-    message.success('连接成功，Tool 已更新')
+    message.success(phrase('legacy.1r5dof'))
   } catch (error) {
-    message.error(error.response?.data?.detail || '连接发现失败')
+    message.error(error.response?.data?.detail || phrase('legacy.8ufi7f'))
   } finally {
     actionId.value = null
   }
@@ -314,8 +327,8 @@ const discover = async record => {
 const removeServer = async record => {
   if (actionId.value) return
   actionId.value = `server-${record.id}`
-  try { await deleteMcpServer(record.id); await fetchAll(); message.success('已删除') }
-  catch (error) { message.error(error.response?.data?.detail || '删除失败') }
+  try { await deleteMcpServer(record.id); await fetchAll(); message.success(phrase('legacy.1gyqcpd')) }
+  catch (error) { message.error(error.response?.data?.detail || phrase('legacy.1ijrr73')) }
   finally { actionId.value = null }
 }
 
@@ -342,8 +355,8 @@ const gatewayBindings = () => {
 
 const saveGateway = async () => {
   if (submitting.value) return
-  if (!gatewayForm.name.trim() || !gatewayForm.slug.trim()) return message.warning('请填写名称和标识')
-  if (!gatewayForm.tools.length) return message.warning('请至少发布一个 Tool')
+  if (!gatewayForm.name.trim() || !gatewayForm.slug.trim()) return message.warning(phrase('legacy.9ktg78'))
+  if (!gatewayForm.tools.length) return message.warning(phrase('legacy.1m1vd36'))
   submitting.value = true
   try {
     const payload = { slug: gatewayForm.slug.trim(), name: gatewayForm.name.trim(), description: gatewayForm.description, status: gatewayForm.status, bindings: gatewayBindings() }
@@ -351,9 +364,9 @@ const saveGateway = async () => {
     else await createMcpGateway(payload)
     gatewayVisible.value = false
     await fetchAll()
-    message.success('虚拟 MCP 网关已保存')
+    message.success(phrase('legacy.1tvic29'))
   } catch (error) {
-    message.error(error.response?.data?.detail || '保存失败')
+    message.error(error.response?.data?.detail || phrase('legacy.1q9u8le'))
   } finally {
     submitting.value = false
   }
@@ -362,12 +375,12 @@ const saveGateway = async () => {
 const removeGateway = async record => {
   if (actionId.value) return
   actionId.value = `gateway-${record.id}`
-  try { await deleteMcpGateway(record.id); await fetchAll(); message.success('已删除') }
-  catch (error) { message.error(error.response?.data?.detail || '删除失败') }
+  try { await deleteMcpGateway(record.id); await fetchAll(); message.success(phrase('legacy.1gyqcpd')) }
+  catch (error) { message.error(error.response?.data?.detail || phrase('legacy.1ijrr73')) }
   finally { actionId.value = null }
 }
 
-const copy = async value => { await navigator.clipboard.writeText(value); message.success('地址已复制') }
+const copy = async value => { await navigator.clipboard.writeText(value); message.success(phrase('legacy.11bea7m')) }
 onMounted(fetchAll)
 </script>
 

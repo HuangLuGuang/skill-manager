@@ -6,7 +6,7 @@ COPY web/package.json web/package-lock.json* ./
 RUN npm install
 
 COPY web/ ./
-RUN npm run build
+RUN npm run test:i18n && npm run build
 
 FROM nginx:1.27-alpine
 

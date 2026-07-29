@@ -5,7 +5,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tauri::plugin::PermissionState;
@@ -167,7 +167,8 @@ fn show_system_notification(app: AppHandle, title: String, body: String) -> Resu
         != PermissionState::Granted
     {
         return Err(
-            "系统通知权限未开启，请在系统设置中允许瑞数智能体安全治理客户端发送通知".to_string(),
+            "系统通知权限未开启，请在系统设置中允许智能体生命周期管理系统客户端发送通知"
+                .to_string(),
         );
     }
     notifications
@@ -190,49 +191,89 @@ async fn select_skill_directory() -> Result<Option<String>, String> {
     .map_err(|error| format!("目录选择器异常: {error}"))?
 }
 
+fn reveal_path_sync(path: &Path) -> Result<(), String> {
+    if !path.is_absolute() {
+        return Err("只能打开绝对路径".to_string());
+    }
+    if !path.exists() {
+        return Err(format!("路径不存在或已被移动: {}", path.display()));
+    }
+    #[cfg(target_os = "macos")]
+    let status = if path.is_dir() {
+        Command::new("open").arg(path).status()
+    } else {
+        Command::new("open").arg("-R").arg(path).status()
+    };
+    #[cfg(target_os = "windows")]
+    let status = if path.is_dir() {
+        Command::new("explorer").arg(path).status()
+    } else {
+        Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .status()
+    };
+    #[cfg(target_os = "linux")]
+    let status = Command::new("xdg-open")
+        .arg(if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or(path)
+        })
+        .status();
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    return Err("当前系统暂不支持打开文件夹".to_string());
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    match status {
+        Ok(value) if value.success() => Ok(()),
+        Ok(value) => Err(format!("系统文件管理器返回失败状态: {value}")),
+        Err(error) => Err(format!("无法打开系统文件管理器: {error}")),
+    }
+}
+
 #[tauri::command]
 async fn reveal_path(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || reveal_path_sync(&PathBuf::from(path)))
+        .await
+        .map_err(|error| format!("打开文件夹操作异常: {error}"))?
+}
+
+#[tauri::command]
+async fn open_client_location(kind: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let path = PathBuf::from(path);
-        if !path.is_absolute() {
-            return Err("只能打开绝对路径".to_string());
-        }
-        if !path.exists() {
-            return Err(format!("路径不存在或已被移动: {}", path.display()));
-        }
-        #[cfg(target_os = "macos")]
-        let status = if path.is_dir() {
-            Command::new("open").arg(&path).status()
-        } else {
-            Command::new("open").arg("-R").arg(&path).status()
+        let home = system_home().ok_or_else(|| "无法确定当前用户目录".to_string())?;
+        let path = match kind.as_str() {
+            "logs" => home.join(".agent-manager").join("logs"),
+            "data" => home.join(".river-security").join("agent-manager"),
+            _ => return Err("不支持的客户端目录类型".to_string()),
         };
-        #[cfg(target_os = "windows")]
-        let status = if path.is_dir() {
-            Command::new("explorer").arg(&path).status()
-        } else {
-            Command::new("explorer")
-                .arg(format!("/select,{}", path.display()))
-                .status()
-        };
-        #[cfg(target_os = "linux")]
-        let status = Command::new("xdg-open")
-            .arg(if path.is_dir() {
-                path.as_path()
-            } else {
-                path.parent().unwrap_or(path.as_path())
-            })
-            .status();
-        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-        return Err("当前系统暂不支持打开文件夹".to_string());
-        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-        match status {
-            Ok(value) if value.success() => Ok(()),
-            Ok(value) => Err(format!("系统文件管理器返回失败状态: {value}")),
-            Err(error) => Err(format!("无法打开系统文件管理器: {error}")),
-        }
+        fs::create_dir_all(&path).map_err(|error| format!("无法创建客户端目录: {error}"))?;
+        reveal_path_sync(&path)
     })
     .await
-    .map_err(|error| format!("打开文件夹操作异常: {error}"))?
+    .map_err(|error| format!("打开客户端目录异常: {error}"))?
+}
+
+#[tauri::command]
+async fn export_diagnostics(content: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if content.len() > 1024 * 1024 {
+            return Err("诊断报告内容超过 1 MB 限制".to_string());
+        }
+        serde_json::from_str::<serde_json::Value>(&content)
+            .map_err(|error| format!("诊断报告格式无效: {error}"))?;
+        let home = system_home().ok_or_else(|| "无法确定当前用户目录".to_string())?;
+        let output_dir = home.join("Downloads");
+        fs::create_dir_all(&output_dir).map_err(|error| format!("无法创建下载目录: {error}"))?;
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| format!("系统时间无效: {error}"))?
+            .as_secs();
+        let path = output_dir.join(format!("agent-manager-client-diagnostics-{timestamp}.json"));
+        fs::write(&path, content).map_err(|error| format!("无法写入诊断报告: {error}"))?;
+        Ok(path.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|error| format!("导出诊断报告异常: {error}"))?
 }
 
 #[tauri::command]
@@ -332,7 +373,11 @@ async fn get_connection_status() -> Result<ConnectionStatus, String> {
 }
 
 #[tauri::command]
-async fn check_client_update(app: AppHandle, install: bool) -> Result<UpdateResult, String> {
+async fn check_client_update(
+    app: AppHandle,
+    install: bool,
+    channel: Option<String>,
+) -> Result<UpdateResult, String> {
     if BUILD_VERSION == "dev" {
         return Ok(UpdateResult {
             supported: false,
@@ -349,9 +394,13 @@ async fn check_client_update(app: AppHandle, install: bool) -> Result<UpdateResu
         return Err("当前安装包未配置更新签名公钥，请使用正式发布版本".to_string());
     }
     let config = load_client_config()?;
+    let channel = channel.unwrap_or_else(|| "stable".to_string());
+    if !matches!(channel.as_str(), "stable" | "preview") {
+        return Err("无效的客户端更新通道".to_string());
+    }
     let endpoint = Url::parse(&format!(
-        "{}/api/v1/clients/updates/{{{{target}}}}/{{{{arch}}}}/{{{{current_version}}}}",
-        config.server.trim_end_matches('/')
+        "{}/api/v1/clients/updates/{{{{target}}}}/{{{{arch}}}}/{{{{current_version}}}}?channel={channel}",
+        config.server.trim_end_matches('/'),
     ))
     .map_err(|error| format!("Agent Manager 地址无效: {error}"))?;
     let updater = app
@@ -583,6 +632,8 @@ fn main() {
             execute_client,
             select_skill_directory,
             reveal_path,
+            open_client_location,
+            export_diagnostics,
             get_connection_status,
             show_system_notification,
             check_client_update,

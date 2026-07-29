@@ -3,12 +3,20 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import models
+from .api_errors import (
+    ApiError,
+    api_error_handler,
+    http_error_handler,
+    unhandled_error_handler,
+    validation_error_handler,
+)
 from .auth import get_current_admin_user, get_password_hash
 from .config import settings
 from .routers import access_tokens, agents, auth, clients, config, llm_gateway, mcp_gateway, system, tasks
@@ -33,6 +41,10 @@ from agent_manager.api.scanner_router import runtime_router as access_runtime_ro
 from agent_manager.api.scanner_router import router as scanner_router
 
 app = FastAPI(title=settings.APP_NAME, debug=settings.DEBUG)
+app.add_exception_handler(ApiError, api_error_handler)
+app.add_exception_handler(HTTPException, http_error_handler)
+app.add_exception_handler(RequestValidationError, validation_error_handler)
+app.add_exception_handler(Exception, unhandled_error_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -68,6 +80,9 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql("ALTER TABLE privacy_policies ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT 1")
         if "entity_rules_json" not in columns:
             conn.exec_driver_sql("ALTER TABLE privacy_policies ADD COLUMN entity_rules_json TEXT NOT NULL DEFAULT '{}'")
+        user_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(users)").fetchall()}
+        if "preferred_locale" not in user_columns:
+            conn.exec_driver_sql("ALTER TABLE users ADD COLUMN preferred_locale VARCHAR(16)")
         agent_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(managed_agents)").fetchall()}
         if "runtime_token_id" not in agent_columns:
             conn.exec_driver_sql("ALTER TABLE managed_agents ADD COLUMN runtime_token_id INTEGER")

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "瑞数智能体安全治理客户端",
+  "productName": "智能体生命周期管理系统客户端",
   "version": "0.1.0",
   "identifier": "com.agent-manager.client",
   "build": {
@@ -12,7 +12,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "瑞数智能体安全治理客户端",
+        "title": "智能体生命周期管理系统客户端",
         "width": 1080,
         "height": 720,
         "minWidth": 900,
@@ -39,6 +39,10 @@
     "externalBin": [
       "bin/agent-manager-client"
     ],
+    "resources": {
+      "infoplist/en.lproj/InfoPlist.strings": "en.lproj/InfoPlist.strings",
+      "infoplist/zh-Hans.lproj/InfoPlist.strings": "zh-Hans.lproj/InfoPlist.strings"
+    },
     "category": "DeveloperTool",
     "shortDescription": "Manage approved Skills across local AI Agents"
   },

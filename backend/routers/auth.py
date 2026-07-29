@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta
 import uuid
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, Request, status
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
+from ..api_errors import ApiError
 from ..sqlite_db import get_db
 from ..utils.captcha_helper import generate_captcha_image, generate_captcha_text
 
@@ -35,7 +36,12 @@ async def get_captcha():
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     exists = db.query(models.User).filter(models.User.username == user.username).first()
     if exists:
-        raise HTTPException(status_code=400, detail="Username already registered")
+        raise ApiError(
+            400,
+            "auth.username_already_registered",
+            "用户名已存在",
+            "Username is already registered",
+        )
     db_user = models.User(
         username=user.username,
         email=user.email,
@@ -61,26 +67,28 @@ def login_for_access_token(
     ip = forwarded.split(",")[0] if forwarded else request.client.host
 
     if not captcha_id or captcha_id not in CAPTCHA_STORE:
-        raise HTTPException(status_code=400, detail="验证码无效或已过期")
+        raise ApiError(400, "auth.captcha_expired", "验证码无效或已过期", "The verification code is invalid or expired")
     stored = CAPTCHA_STORE.get(captcha_id)
     if stored["code"] != captcha_code.lower():
         CAPTCHA_STORE.pop(captcha_id, None)
-        raise HTTPException(status_code=400, detail="验证码错误")
+        raise ApiError(400, "auth.captcha_incorrect", "验证码错误", "The verification code is incorrect")
     CAPTCHA_STORE.pop(captcha_id, None)
 
     user = db.query(models.User).filter((models.User.username == username) | (models.User.email == username)).first()
     if not user or not auth.verify_password(password, user.hashed_password):
         db.add(models.LoginLog(username=username, ip_address=ip, status="Failed"))
         db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户名或密码错误",
+        raise ApiError(
+            status.HTTP_401_UNAUTHORIZED,
+            "auth.invalid_credentials",
+            "用户名或密码错误",
+            "Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if not user.is_active:
         db.add(models.LoginLog(username=user.username, ip_address=ip, status="Failed (Disabled)"))
         db.commit()
-        raise HTTPException(status_code=400, detail="账号已被禁用")
+        raise ApiError(400, "auth.account_disabled", "账号已被禁用", "The account is disabled")
 
     user.last_login_at = datetime.utcnow()
     user.current_session_id = str(uuid.uuid4())
@@ -101,11 +109,23 @@ async def read_users_me(current_user: models.User = Depends(auth.get_current_use
         "username": current_user.username,
         "email": current_user.email,
         "role": current_user.role,
+        "preferred_locale": current_user.preferred_locale,
         "is_active": current_user.is_active,
         "created_at": current_user.created_at,
         "last_login_at": current_user.last_login_at,
         "default_path": "/config/log-parse",
     }
+
+
+@router.put("/users/me/locale")
+async def update_locale_preference(
+    payload: schemas.LocalePreferenceUpdate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    current_user.preferred_locale = payload.locale
+    db.commit()
+    return {"locale": current_user.preferred_locale}
 
 
 @router.post("/users/me/password")
@@ -115,7 +135,12 @@ async def change_password(
     db: Session = Depends(get_db),
 ):
     if not auth.verify_password(password_data.old_password, current_user.hashed_password):
-        raise HTTPException(status_code=400, detail="Incorrect old password")
+        raise ApiError(
+            400,
+            "auth.old_password_incorrect",
+            "旧密码不正确",
+            "The current password is incorrect",
+        )
     current_user.hashed_password = auth.get_password_hash(password_data.new_password)
     db.add(
         models.OperationLog(

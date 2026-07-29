@@ -1,26 +1,26 @@
 <template>
   <div>
-    <a-page-header title="MCP 调试" sub-title="保存前直连测试 MCP 服务，或验证平台 MCP 网关的凭证与 Tool 调用" />
+    <a-page-header :title="$t('legacy.1o166ch')" :sub-title="$t('legacy.1p8eh88')" />
 
     <a-alert
       type="info"
       show-icon
-      message="调试配置不会保存"
-      description="临时鉴权值只保存在页面内存中；平台网关调用会经过真实权限校验并写入调用审计。"
+      :message="$t('legacy.wr9plc')"
+      :description="$t('legacy.17lol69')"
       style="margin: 16px 0"
     />
 
-    <a-card title="连接配置">
+    <a-card :title="$t('legacy.1qcyuf')">
       <a-radio-group v-model:value="targetMode" button-style="solid" @change="resetConnection">
-        <a-radio-button value="service">直连 MCP 服务</a-radio-button>
-        <a-radio-button value="gateway">平台 MCP 网关</a-radio-button>
+        <a-radio-button value="service">{{ $t("legacy.r4nafb") }}</a-radio-button>
+        <a-radio-button value="gateway">{{ $t("legacy.1akoixy") }}</a-radio-button>
       </a-radio-group>
 
       <a-form v-if="targetMode === 'service'" layout="vertical" style="margin-top: 16px">
         <a-row :gutter="16">
           <a-col :xs="24" :lg="8">
-            <a-form-item label="已有服务（可选）">
-              <a-select v-model:value="serverId" allow-clear placeholder="不选择则测试临时 Endpoint" @change="loadServer">
+            <a-form-item :label="$t('legacy.swalzt')">
+              <a-select v-model:value="serverId" allow-clear :placeholder="$t('legacy.xbjfm4')" @change="loadServer">
                 <a-select-option v-for="server in servers" :key="server.id" :value="server.id">
                   {{ server.name }}（{{ server.slug }}）
                 </a-select-option>
@@ -35,16 +35,16 @@
         </a-row>
         <a-row :gutter="16">
           <a-col :xs="24" :lg="7">
-            <a-form-item label="鉴权 Header"><a-input v-model:value="authorizationHeader" /></a-form-item>
+            <a-form-item :label="$t('legacy.17s488l')"><a-input v-model:value="authorizationHeader" /></a-form-item>
           </a-col>
           <a-col :xs="24" :lg="11">
-            <a-form-item label="鉴权值">
-              <a-input-password v-model:value="authorizationValue" autocomplete="off" placeholder="例如 Bearer xxx" />
+            <a-form-item :label="$t('legacy.1iwkwic')">
+              <a-input-password v-model:value="authorizationValue" autocomplete="off" :placeholder="$t('legacy.1479ky1')" />
               <div class="muted">{{ serviceSecretHint }}</div>
             </a-form-item>
           </a-col>
           <a-col :xs="24" :lg="6">
-            <a-form-item label="超时秒数"><a-input-number v-model:value="timeoutSeconds" :min="1" :max="300" style="width: 100%" /></a-form-item>
+            <a-form-item :label="$t('legacy.tabbi8')"><a-input-number v-model:value="timeoutSeconds" :min="1" :max="300" style="width: 100%" /></a-form-item>
           </a-col>
         </a-row>
       </a-form>
@@ -52,8 +52,8 @@
       <a-form v-else layout="vertical" style="margin-top: 16px">
         <a-row :gutter="16">
           <a-col :xs="24" :lg="9">
-            <a-form-item label="平台网关" required>
-              <a-select v-model:value="gatewaySlug" placeholder="选择已启用的网关" @change="loadGateway">
+            <a-form-item :label="$t('legacy.1hqgzoi')" required>
+              <a-select v-model:value="gatewaySlug" :placeholder="$t('legacy.1iqszp0')" @change="loadGateway">
                 <a-select-option v-for="gateway in activeGateways" :key="gateway.slug" :value="gateway.slug">
                   {{ gateway.name }}（{{ gateway.slug }}）
                 </a-select-option>
@@ -61,8 +61,8 @@
             </a-form-item>
           </a-col>
           <a-col :xs="24" :lg="15">
-            <a-form-item label="MCP 网关凭证" required>
-              <a-input-password v-model:value="gatewayToken" autocomplete="off" placeholder="粘贴 amat_..." @change="resetConnection" @pressEnter="connect" />
+            <a-form-item :label="$t('legacy.1gb7s5r')" required>
+              <a-input-password v-model:value="gatewayToken" autocomplete="off" :placeholder="$t('legacy.1hbgqpx')" @change="resetConnection" @pressEnter="connect" />
             </a-form-item>
           </a-col>
         </a-row>
@@ -72,10 +72,10 @@
       </a-form>
 
       <a-space wrap style="margin-top: 16px">
-        <a-button v-if="!connected" type="primary" :loading="connecting" @click="connect">连接并列出 Tool</a-button>
-        <a-button v-else danger @click="resetConnection">断开连接</a-button>
+        <a-button v-if="!connected" type="primary" :loading="connecting" @click="connect">{{ $t("legacy.bt1d8b") }}</a-button>
+        <a-button v-else danger @click="resetConnection">{{ $t("legacy.2kwd2d") }}</a-button>
         <a-button v-if="connected" :loading="pinging" @click="ping">Ping</a-button>
-        <a-button @click="copyClientConfig">复制客户端配置</a-button>
+        <a-button @click="copyClientConfig">{{ $t("legacy.135fagt") }}</a-button>
         <a-tag :color="connected ? 'green' : 'default'">{{ connectionLabel }}</a-tag>
       </a-space>
     </a-card>
@@ -83,12 +83,12 @@
     <a-row :gutter="16" style="margin-top: 16px">
       <a-col :xs="24" :xl="10">
         <a-card title="Tools" :loading="connecting">
-          <template #extra><span class="muted">{{ tools.length }} 个</span></template>
-          <a-empty v-if="!tools.length" description="连接后显示可调用的 Tool" />
+          <template #extra><span class="muted">{{ tools.length }} {{ $t("legacy.d5a1x9") }}</span></template>
+          <a-empty v-if="!tools.length" :description="$t('legacy.1qrt9zy')" />
           <a-list v-else :data-source="tools" size="small" class="tool-list">
             <template #renderItem="{ item }">
               <a-list-item :class="{ selected: selectedToolName === item.name }" @click="selectedToolName = item.name">
-                <a-list-item-meta :title="item.name" :description="item.description || '无描述'" />
+                <a-list-item-meta :title="item.name" :description="item.description || $t('legacy.1qkgodc')" />
               </a-list-item>
             </template>
           </a-list>
@@ -96,25 +96,25 @@
       </a-col>
 
       <a-col :xs="24" :xl="14">
-        <a-card title="Tool 调用">
-          <a-empty v-if="!selectedTool" description="请选择一个 Tool" />
+        <a-card :title="$t('legacy.1nwtalq')">
+          <a-empty v-if="!selectedTool" :description="$t('legacy.pymhbs')" />
           <template v-else>
             <div class="tool-title">{{ selectedTool.name }}</div>
-            <div class="muted">{{ selectedTool.description || '无描述' }}</div>
+            <div class="muted">{{ selectedTool.description || $t('legacy.1qkgodc') }}</div>
             <a-form layout="vertical" style="margin-top: 16px">
-              <a-empty v-if="!toolFields.length" description="该 Tool 不需要参数" />
+              <a-empty v-if="!toolFields.length" :description="$t('legacy.1en7knw')" />
               <a-form-item v-for="field in toolFields" :key="field.name" :required="field.required">
                 <template #label>
                   <a-space size="small">
                     <span>{{ field.schema.title || field.name }}</span>
-                    <a-tag v-if="!field.required">可选</a-tag>
+                    <a-tag v-if="!field.required">{{ $t("legacy.zflkxh") }}</a-tag>
                   </a-space>
                 </template>
                 <a-select
                   v-if="field.kind === 'enum'"
                   v-model:value="argumentValues[field.name]"
                   allow-clear
-                  :placeholder="field.schema.description || `请选择 ${field.name}`"
+                  :placeholder="field.schema.description || text(`请选择 ${field.name}`, `Select ${field.name}`)"
                 >
                   <a-select-option v-for="option in field.schema.enum" :key="String(option)" :value="option">{{ option }}</a-select-option>
                 </a-select>
@@ -122,7 +122,7 @@
                   v-else-if="field.kind === 'boolean'"
                   v-model:value="argumentValues[field.name]"
                   allow-clear
-                  :placeholder="field.schema.description || `请选择 ${field.name}`"
+                  :placeholder="field.schema.description || text(`请选择 ${field.name}`, `Select ${field.name}`)"
                 >
                   <a-select-option :value="true">true</a-select-option>
                   <a-select-option :value="false">false</a-select-option>
@@ -140,43 +140,46 @@
                   v-else-if="field.kind === 'array'"
                   v-model:value="argumentValues[field.name]"
                   mode="tags"
-                  :placeholder="field.schema.description || '输入后按回车添加'"
+                  :placeholder="field.schema.description || $t('legacy.r7tjvz')"
                 />
                 <a-textarea
                   v-else-if="field.kind === 'complex'"
                   v-model:value="complexArgumentTexts[field.name]"
                   :rows="5"
                   class="code-input"
-                  :placeholder="field.schema.description || `${field.name} 为复杂类型，请填写该字段的 JSON`"
+                  :placeholder="field.schema.description || text(
+                    `${field.name} 为复杂类型，请填写该字段的 JSON`,
+                    `${field.name} is a complex value. Enter JSON for this field.`,
+                  )"
                 />
                 <a-input
                   v-else
                   v-model:value="argumentValues[field.name]"
-                  :placeholder="field.schema.description || `请输入 ${field.name}`"
+                  :placeholder="field.schema.description || text(`请输入 ${field.name}`, `Enter ${field.name}`)"
                 />
                 <div v-if="field.schema.description" class="field-description">{{ field.schema.description }}</div>
               </a-form-item>
               <a-space>
-                <a-button type="primary" :loading="calling" @click="callTool">调用 Tool</a-button>
-                <a-button @click="resetArguments">重置参数</a-button>
+                <a-button type="primary" :loading="calling" @click="callTool">{{ $t("legacy.1tke9d0") }}</a-button>
+                <a-button @click="resetArguments">{{ $t("legacy.c8hbyo") }}</a-button>
               </a-space>
             </a-form>
             <a-collapse style="margin-top: 16px">
               <a-collapse-panel key="schema" header="Input Schema"><pre>{{ pretty(selectedTool.inputSchema || {}) }}</pre></a-collapse-panel>
-              <a-collapse-panel v-if="callResult" key="result" header="最近调用结果"><pre>{{ pretty(callResult) }}</pre></a-collapse-panel>
+              <a-collapse-panel v-if="callResult" key="result" :header="$t('legacy.uqgcyu')"><pre>{{ pretty(callResult) }}</pre></a-collapse-panel>
             </a-collapse>
           </template>
         </a-card>
       </a-col>
     </a-row>
 
-    <a-card title="请求历史" style="margin-top: 16px">
-      <template #extra><a-button type="link" :disabled="!history.length" @click="history = []">清空</a-button></template>
-      <a-empty v-if="!history.length" description="尚无调试请求" />
+    <a-card :title="$t('legacy.1nw1cic')" style="margin-top: 16px">
+      <template #extra><a-button type="link" :disabled="!history.length" @click="history = []">{{ $t("legacy.9mbwb2") }}</a-button></template>
+      <a-empty v-if="!history.length" :description="$t('legacy.1xg7io2')" />
       <a-collapse v-else>
         <a-collapse-panel v-for="item in history" :key="item.key">
           <template #header>
-            <a-space><a-tag :color="item.ok ? 'green' : 'red'">{{ item.ok ? '成功' : '失败' }}</a-tag><span>{{ item.method }}</span><span class="muted">{{ item.duration }} ms · {{ item.time }}</span></a-space>
+            <a-space><a-tag :color="item.ok ? 'green' : 'red'">{{ item.ok ? $t('legacy.1rraohc') : $t('legacy.12db3qz') }}</a-tag><span>{{ item.method }}</span><span class="muted">{{ item.duration }} ms · {{ item.time }}</span></a-space>
           </template>
           <a-row :gutter="16">
             <a-col :xs="24" :lg="12"><div class="json-title">Request</div><pre>{{ pretty(item.request) }}</pre></a-col>
@@ -189,6 +192,8 @@
 </template>
 
 <script setup>
+import { translateLegacy as phrase, translateText as text } from '../i18n'
+
 import { computed, onMounted, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 
@@ -235,12 +240,17 @@ const toolFields = computed(() => {
     return { name, schema: fieldSchema, required: required.has(name), kind }
   })
 })
-const connectionLabel = computed(() => connected.value ? `已连接${protocolVersion.value ? ` · ${protocolVersion.value}` : ''}` : '未连接')
+const connectionLabel = computed(() => connected.value
+  ? text(
+    `已连接${protocolVersion.value ? ` · ${protocolVersion.value}` : ''}`,
+    `Connected${protocolVersion.value ? ` · ${protocolVersion.value}` : ''}`,
+  )
+  : phrase('legacy.1x8ir3o'))
 const serviceSecretHint = computed(() => {
-  if (!selectedServer.value) return '临时鉴权值不会保存。'
+  if (!selectedServer.value) return phrase('legacy.1k1jpui')
   return serviceEndpoint.value === selectedServer.value.endpoint
-    ? '留空将使用该服务已保存的鉴权值。'
-    : 'Endpoint 已变化，留空不会发送原服务的鉴权值。'
+    ? phrase('legacy.vizdqe')
+    : phrase('legacy.1jwdrvc')
 })
 const pretty = value => JSON.stringify(value, null, 2)
 
@@ -365,8 +375,8 @@ const request = (method, params = {}, notification = false) => targetMode.value 
 
 const connect = async () => {
   if (connecting.value) return
-  if (targetMode.value === 'service' && !serviceEndpoint.value.trim()) return message.warning('请填写 MCP Endpoint')
-  if (targetMode.value === 'gateway' && (!gatewaySlug.value || !gatewayEndpoint.value.trim() || !gatewayToken.value.trim())) return message.warning('请选择网关，并填写 Endpoint 和 MCP 网关凭证')
+  if (targetMode.value === 'service' && !serviceEndpoint.value.trim()) return message.warning(phrase('legacy.1lzx3ub'))
+  if (targetMode.value === 'gateway' && (!gatewaySlug.value || !gatewayEndpoint.value.trim() || !gatewayToken.value.trim())) return message.warning(phrase('legacy.1wfq6rv'))
   connecting.value = true
   resetConnection()
   try {
@@ -383,9 +393,12 @@ const connect = async () => {
     tools.value = listed?.result?.tools || []
     selectedToolName.value = tools.value[0]?.name
     connected.value = true
-    message.success(`连接成功，发现 ${tools.value.length} 个 Tool`)
+    message.success(text(
+      `连接成功，发现 ${tools.value.length} 个 Tool`,
+      `Connected. Discovered ${tools.value.length} Tools.`,
+    ))
   } catch (error) {
-    message.error(error.response?.data?.detail || error.message || 'MCP 连接失败')
+    message.error(error.response?.data?.detail || error.message || phrase('legacy.1pcchg2'))
   } finally {
     connecting.value = false
   }
@@ -394,8 +407,8 @@ const connect = async () => {
 const ping = async () => {
   if (pinging.value) return
   pinging.value = true
-  try { await request('ping'); message.success('Ping 成功') }
-  catch (error) { message.error(error.response?.data?.detail || error.message || 'Ping 失败') }
+  try { await request('ping'); message.success(phrase('legacy.16a3m56')) }
+  catch (error) { message.error(error.response?.data?.detail || error.message || phrase('legacy.z5zf9t')) }
   finally { pinging.value = false }
 }
 
@@ -407,26 +420,36 @@ const callTool = async () => {
       let value = field.kind === 'complex' ? complexArgumentTexts.value[field.name] : argumentValues.value[field.name]
       const empty = value === undefined || value === null || value === '' || (Array.isArray(value) && !value.length)
       if (empty) {
-        if (field.required) throw new Error(`请填写必填参数：${field.schema.title || field.name}`)
+        if (field.required) {
+          throw new Error(text(
+            `请填写必填参数：${field.schema.title || field.name}`,
+            `Enter the required argument: ${field.schema.title || field.name}`,
+          ))
+        }
         continue
       }
       if (field.kind === 'complex') value = JSON.parse(value)
       if (field.kind === 'array') {
         const itemType = field.schema.items?.type
         value = value.map(item => itemType === 'string' ? item : Number(item))
-        if (itemType !== 'string' && value.some(Number.isNaN)) throw new Error(`${field.name} 包含无效数字`)
+        if (itemType !== 'string' && value.some(Number.isNaN)) {
+          throw new Error(text(
+            `${field.name} 包含无效数字`,
+            `${field.name} contains an invalid number`,
+          ))
+        }
       }
       args[field.name] = value
     }
   } catch (error) {
-    return message.warning(error instanceof SyntaxError ? '复杂参数不是有效 JSON' : error.message)
+    return message.warning(error instanceof SyntaxError ? phrase('legacy.uw6e11') : error.message)
   }
   calling.value = true
   try {
     callResult.value = await request('tools/call', { name: selectedTool.value.name, arguments: args })
-    message.success('Tool 调用完成')
+    message.success(phrase('legacy.bjv336'))
   } catch (error) {
-    message.error(error.response?.data?.detail || error.message || 'Tool 调用失败')
+    message.error(error.response?.data?.detail || error.message || phrase('legacy.1jj1f5k'))
   } finally {
     calling.value = false
   }
@@ -435,12 +458,12 @@ const callTool = async () => {
 const copyClientConfig = async () => {
   const name = targetMode.value === 'service' ? (selectedServer.value?.slug || 'mcp-server') : gatewaySlug.value
   const url = targetMode.value === 'service' ? serviceEndpoint.value.trim() : gatewayEndpoint.value
-  if (!name || !url) return message.warning('请先填写连接配置')
+  if (!name || !url) return message.warning(phrase('legacy.13u3i1k'))
   const config = { mcpServers: { [name]: { type: 'streamable-http', url } } }
   if (targetMode.value === 'gateway') config.mcpServers[name].headers = { Authorization: 'Bearer amat_xxx' }
   else if (authorizationValue.value || selectedServer.value) config.mcpServers[name].headers = { [authorizationHeader.value || 'Authorization']: '<secret>' }
   await navigator.clipboard.writeText(pretty(config))
-  message.success('客户端配置已复制，密钥使用占位符')
+  message.success(phrase('legacy.ihss14'))
 }
 
 onMounted(async () => {
@@ -451,7 +474,7 @@ onMounted(async () => {
     gatewaySlug.value = activeGateways.value[0]?.slug
     loadGateway()
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取 MCP 配置失败')
+    message.error(error.response?.data?.detail || phrase('legacy.1qi24x1'))
   }
 })
 </script>

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="策略配置" sub-title="维护公司策略、允许工具和风险阈值" />
+    <a-page-header :title="$t('legacy.1p5yvwf')" :sub-title="$t('legacy.1r9oqv3')" />
 
     <a-form layout="vertical" :model="formState" @finish="handleSaveAll">
       <a-alert
@@ -8,14 +8,17 @@
         style="margin-top: 12px"
         type="error"
         show-icon
-        message="策略存在冲突"
-        :description="`这些风险同时配置了人工审核和自动拒绝：${conflictingRiskLevels.join('、')}。实际会自动拒绝，不会进入审核队列。`"
+        :message="$t('legacy.1s2pf8p')"
+        :description="text(
+          `这些风险同时配置了人工审核和自动拒绝：${conflictingRiskLevels.join('、')}。实际会自动拒绝，不会进入审核队列。`,
+          `These risks are configured for both manual review and automatic rejection: ${conflictingRiskLevels.join(', ')}. Automatic rejection takes precedence.`,
+        )"
       />
 
       <a-tabs v-model:activeKey="activeTab" style="margin-top: 16px">
-        <a-tab-pane key="decision" tab="审批决策">
+        <a-tab-pane key="decision" :tab="$t('legacy.15tr9ja')">
           <section class="policy-section">
-            <div class="section-title">判定顺序</div>
+            <div class="section-title">{{ $t("legacy.1qnr6kk") }}</div>
             <a-table
               size="small"
               row-key="step"
@@ -27,7 +30,7 @@
 
           <a-row :gutter="16">
             <a-col :xs="24" :lg="12">
-              <a-form-item label="判定模式（judgement_mode）">
+              <a-form-item :label="$t('legacy.d9qpsd')">
                 <a-select v-model:value="formState.judgement_mode">
                   <a-select-option v-for="item in judgementModeOptions" :key="item.value" :value="item.value">
                     {{ item.label }}
@@ -37,49 +40,49 @@
               </a-form-item>
             </a-col>
             <a-col :xs="24" :lg="12">
-              <a-form-item label="自动批准最大风险（auto_approve_max_risk）">
+              <a-form-item :label="$t('legacy.1drrjfl')">
                 <a-select v-model:value="formState.auto_approve_max_risk">
                   <a-select-option v-for="item in riskOptions" :key="item.value" :value="item.value">
                     {{ item.label }}
                   </a-select-option>
                 </a-select>
-                <div class="field-hint">低于或等于该风险的 skill 会自动批准为可信版本；生产环境通常只建议 benign。</div>
+                <div class="field-hint">{{ $t("legacy.1j17s9m") }}</div>
               </a-form-item>
             </a-col>
             <a-col :xs="24" :lg="12">
-              <a-form-item label="需要人工审核（require_human_review）">
-                <a-select v-model:value="formState.require_human_review" mode="multiple" placeholder="进入审核队列的风险">
+              <a-form-item :label="$t('legacy.mvffxz')">
+                <a-select v-model:value="formState.require_human_review" mode="multiple" :placeholder="$t('legacy.38b653')">
                   <a-select-option v-for="item in riskOptions" :key="item.value" :value="item.value">
                     {{ item.label }}
                   </a-select-option>
                 </a-select>
-                <div class="field-hint">命中后状态变为 VETTED，并出现在审核队列。</div>
+                <div class="field-hint">{{ $t("legacy.1geckvv") }}</div>
               </a-form-item>
             </a-col>
             <a-col :xs="24" :lg="12">
-              <a-form-item label="自动拒绝风险（auto_reject_risk）">
-                <a-select v-model:value="formState.auto_reject_risk" mode="multiple" placeholder="直接拒绝的风险">
+              <a-form-item :label="$t('legacy.1jphvct')">
+                <a-select v-model:value="formState.auto_reject_risk" mode="multiple" :placeholder="$t('legacy.7g5oj8')">
                   <a-select-option v-for="item in riskOptions" :key="item.value" :value="item.value">
                     {{ item.label }}
                   </a-select-option>
                 </a-select>
-                <div class="field-hint">命中后状态直接变为 REJECTED，不进入审核队列。</div>
+                <div class="field-hint">{{ $t("legacy.1r0krhb") }}</div>
               </a-form-item>
             </a-col>
             <a-col :xs="24" :lg="12">
-              <a-form-item label="强制 Sandbox 风险等级">
-                <a-select v-model:value="formState.require_sandbox_for_risk" mode="multiple" placeholder="必须执行 Sandbox 的风险">
+              <a-form-item :label="$t('legacy.1y5kmg7')">
+                <a-select v-model:value="formState.require_sandbox_for_risk" mode="multiple" :placeholder="$t('legacy.m3ilow')">
                   <a-select-option v-for="item in riskOptions" :key="item.value" :value="item.value">
                     {{ item.label }}
                   </a-select-option>
                 </a-select>
-                <div class="field-hint">命中这些风险时，即使提交时没勾选 Sandbox，后台也会尝试执行 Sandbox probe。</div>
+                <div class="field-hint">{{ $t("legacy.12psofi") }}</div>
               </a-form-item>
             </a-col>
           </a-row>
 
           <section class="policy-section">
-            <div class="section-title">风险项目归类</div>
+            <div class="section-title">{{ $t("legacy.1e7mnak") }}</div>
             <a-row :gutter="[16, 16]">
               <a-col v-for="group in riskClassificationGroups" :key="group.key" :xs="24" :lg="8">
                 <div class="risk-class-card">
@@ -93,7 +96,7 @@
                     class="risk-class-select"
                     mode="multiple"
                     option-label-prop="label"
-                    placeholder="选择风险项"
+                    :placeholder="$t('legacy.u81p8d')"
                     @change="value => handleRiskGroupChange(group.key, value)"
                   >
                     <template #tagRender="{ value }">
@@ -112,151 +115,151 @@
           </section>
         </a-tab-pane>
 
-        <a-tab-pane key="admission" tab="准入规则">
+        <a-tab-pane key="admission" :tab="$t('legacy.1wsaxvv')">
           <section class="policy-section">
-            <div class="section-title">工具权限</div>
+            <div class="section-title">{{ $t("legacy.kicus6") }}</div>
             <a-row :gutter="16">
               <a-col :xs="24" :lg="12">
-                <a-form-item label="允许声明工具上限">
+                <a-form-item :label="$t('legacy.4u3gt4')">
                   <a-input-number v-model:value="formState.max_allowed_tools" :min="1" :max="100" style="width: 100%" />
-                  <div class="field-hint">限制 SKILL.md allowed-tools 数量，防止 skill 声明过宽权限面。</div>
+                  <div class="field-hint">{{ $t("legacy.1u4pday") }}</div>
                 </a-form-item>
               </a-col>
             </a-row>
 
-            <a-form-item label="禁止权限/工具">
-              <a-select v-model:value="formState.blocked_permissions" mode="tags" placeholder="例如 read_credentials、write_memory" />
-              <div class="field-hint">命中这里的工具或权限会作为阻断项，优先 REJECTED。</div>
+            <a-form-item :label="$t('legacy.1hcaau6')">
+              <a-select v-model:value="formState.blocked_permissions" mode="tags" :placeholder="$t('legacy.god0gn')" />
+              <div class="field-hint">{{ $t("legacy.kfzse8") }}</div>
             </a-form-item>
 
-            <a-form-item label="允许工具白名单">
-              <a-select v-model:value="formState.allowed_tools_allowlist" mode="tags" placeholder="允许 skill 声明的工具列表" />
-              <div class="field-hint">不在白名单里的 allowed-tools 会记录策略违规；低风险策略拒绝可由管理员人工例外批准。</div>
+            <a-form-item :label="$t('legacy.o8tpn9')">
+              <a-select v-model:value="formState.allowed_tools_allowlist" mode="tags" :placeholder="$t('legacy.unjnyg')" />
+              <div class="field-hint">{{ $t("legacy.r3uboi") }}</div>
             </a-form-item>
           </section>
 
           <section class="policy-section">
-            <div class="section-title">作者与 License</div>
+            <div class="section-title">{{ $t("legacy.pcy7z3") }}</div>
             <a-row :gutter="16">
               <a-col :xs="24" :lg="12">
-                <a-form-item label="必须声明 License">
+                <a-form-item :label="$t('legacy.rwq8ic')">
                   <a-switch v-model:checked="formState.require_license" />
-                  <div class="field-hint">开启后，缺少 license 字段会记录策略违规。</div>
+                  <div class="field-hint">{{ $t("legacy.1fpyfpp") }}</div>
                 </a-form-item>
               </a-col>
             </a-row>
 
-            <a-form-item label="可信作者">
-              <a-select v-model:value="formState.trusted_authors" mode="tags" placeholder="可信作者，可为空" />
-              <div class="field-hint">预留字段；当前主要用于展示和后续策略扩展。</div>
+            <a-form-item :label="$t('legacy.1h5j6c2')">
+              <a-select v-model:value="formState.trusted_authors" mode="tags" :placeholder="$t('legacy.1heopsf')" />
+              <div class="field-hint">{{ $t("legacy.9ukjba") }}</div>
             </a-form-item>
 
-            <a-form-item label="允许 License">
-              <a-select v-model:value="formState.accepted_licenses" mode="tags" placeholder="MIT、Apache-2.0、internal 等" />
-              <div class="field-hint">当“必须声明 License”开启时，用于判断声明的 license 是否可接受。</div>
+            <a-form-item :label="$t('legacy.1lpbftr')">
+              <a-select v-model:value="formState.accepted_licenses" mode="tags" :placeholder="$t('legacy.12c0o98')" />
+              <div class="field-hint">{{ $t("legacy.1xaakez") }}</div>
             </a-form-item>
           </section>
 
         </a-tab-pane>
 
-        <a-tab-pane key="llm" tab="LLM 配置">
-          <a-card title="LLM 分析配置" size="small">
+        <a-tab-pane key="llm" :tab="$t('legacy.kxtxcz')">
+          <a-card :title="$t('legacy.hnbm6t')" size="small">
             <a-row :gutter="16">
               <a-col :xs="24" :md="8">
-                <a-form-item label="启用 LLM 分析">
+                <a-form-item :label="$t('legacy.z86tql')">
                   <a-switch
                     v-model:checked="llmForm.enabled"
-                    checked-children="启用"
-                    un-checked-children="关闭"
+                    :checked-children="$t('legacy.5pm2ma')"
+                    :un-checked-children="$t('legacy.g0fanx')"
                   />
-                  <div class="field-hint">这里控制提交扫描时是否允许使用 LLM 分析。</div>
+                  <div class="field-hint">{{ $t("legacy.u1h4vv") }}</div>
                 </a-form-item>
               </a-col>
               <a-col :xs="24" :md="16">
-                <a-form-item label="模型">
+                <a-form-item :label="$t('legacy.1ow6qt')">
                   <a-select
                     v-model:value="llmForm.model"
                     show-search
                     allow-clear
-                    placeholder="选择模型网关中的模型"
+                    :placeholder="$t('legacy.he8ama')"
                     :options="llmModelOptions"
                   />
-                  <div class="field-hint">选项来自模型网关的模型列表；供应商地址和上游 API Key 在模型网关中维护。</div>
+                  <div class="field-hint">{{ $t("legacy.1irg3nj") }}</div>
                 </a-form-item>
               </a-col>
             </a-row>
 
             <a-row :gutter="16">
               <a-col :xs="24" :md="8">
-                <a-form-item label="超时时间（秒）">
+                <a-form-item :label="$t('legacy.wa5fzx')">
                   <a-input-number v-model:value="llmForm.timeout_seconds" :min="5" :max="180" style="width: 100%" />
                 </a-form-item>
               </a-col>
               <a-col :xs="24" :md="8">
-                <a-form-item label="分析文件数上限">
+                <a-form-item :label="$t('legacy.3a4t3c')">
                   <a-input-number v-model:value="llmForm.max_files" :min="1" :max="20" style="width: 100%" />
                 </a-form-item>
               </a-col>
               <a-col :xs="24" :md="8">
-                <a-form-item label="SKILL.md 截断字符数">
+                <a-form-item :label="$t('legacy.1i9i4qp')">
                   <a-input-number v-model:value="llmForm.max_manifest_chars" :min="2000" :max="50000" :step="1000" style="width: 100%" />
                 </a-form-item>
               </a-col>
             </a-row>
 
-            <a-form-item label="单文件截断字符数">
+            <a-form-item :label="$t('legacy.73z6en')">
               <a-input-number v-model:value="llmForm.max_file_chars" :min="500" :max="20000" :step="500" style="width: 100%" />
             </a-form-item>
           </a-card>
         </a-tab-pane>
 
-        <a-tab-pane key="sandbox" tab="Sandbox 配置">
-          <a-card title="Sandbox 运行配置" size="small">
+        <a-tab-pane key="sandbox" :tab="$t('legacy.1d9ypbb')">
+          <a-card :title="$t('legacy.1ikjgw3')" size="small">
             <a-row :gutter="16">
               <a-col :xs="24" :md="8">
-                <a-form-item label="启用 Sandbox">
+                <a-form-item :label="$t('legacy.u45dd')">
                   <a-switch
                     v-model:checked="sandboxForm.enabled"
-                    checked-children="启用"
-                    un-checked-children="关闭"
+                    :checked-children="$t('legacy.5pm2ma')"
+                    :un-checked-children="$t('legacy.g0fanx')"
                   />
-                  <div class="field-hint">风险等级强制执行仍由审批决策页控制，修改后通过底部按钮统一保存。</div>
+                  <div class="field-hint">{{ $t("legacy.jvxouw") }}</div>
                 </a-form-item>
               </a-col>
               <a-col :xs="24" :md="8">
-                <a-form-item label="后端类型">
+                <a-form-item :label="$t('legacy.1734qnc')">
                   <a-select v-model:value="sandboxForm.runtime">
-                    <a-select-option value="remote">remote（推荐）</a-select-option>
+                    <a-select-option value="remote">{{ $t("legacy.xvarvc") }}</a-select-option>
                     <a-select-option value="docker">docker</a-select-option>
                   </a-select>
                 </a-form-item>
               </a-col>
               <a-col :xs="24" :md="8">
-                <a-form-item label="超时时间（秒）">
+                <a-form-item :label="$t('legacy.wa5fzx')">
                   <a-input-number v-model:value="sandboxForm.timeout_seconds" :min="1" :max="300" style="width: 100%" />
                 </a-form-item>
               </a-col>
             </a-row>
 
-            <a-form-item v-if="sandboxForm.runtime === 'docker'" label="镜像">
+            <a-form-item v-if="sandboxForm.runtime === 'docker'" :label="$t('legacy.mjv24c')">
               <a-select
                 v-model:value="sandboxForm.image"
                 show-search
-                placeholder="选择本机 sandbox 镜像"
+                :placeholder="$t('legacy.19xos27')"
                 :options="sandboxImageOptions"
                 :loading="loading"
               />
-              <div class="field-hint">只显示本机 Docker 镜像名包含 sandbox 的镜像。</div>
+              <div class="field-hint">{{ $t("legacy.1jxy29r") }}</div>
             </a-form-item>
 
             <template v-else>
-              <a-form-item label="远程 Sandbox URL">
+              <a-form-item :label="$t('legacy.18j6yg6')">
                 <a-input-group compact>
                   <a-input v-model:value="sandboxForm.remote_url" style="width: calc(100% - 238px)" placeholder="http://sandbox:8194" />
-                  <a-button html-type="button" @click="useDefaultSandboxUrl">使用默认远程地址</a-button>
-                  <a-button html-type="button" :loading="testingSandbox" @click="handleTestSandboxConnection">测试连接</a-button>
+                  <a-button html-type="button" @click="useDefaultSandboxUrl">{{ $t("legacy.1nf2ljj") }}</a-button>
+                  <a-button html-type="button" :loading="testingSandbox" @click="handleTestSandboxConnection">{{ $t("legacy.1fmxsdg") }}</a-button>
                 </a-input-group>
-                <div class="field-hint">默认推荐 http://sandbox:8194；可以直接编辑为客户环境中的远程 Sandbox 地址。配置文件：{{ sandboxConfig.config_path || '-' }}</div>
+                <div class="field-hint">{{ $t("legacy.bkm8wx") }}{{ sandboxConfig.config_path || '-' }}</div>
               </a-form-item>
 
               <a-alert
@@ -264,25 +267,24 @@
                 class="sandbox-test-result"
                 show-icon
                 :type="sandboxTestResult.available ? 'success' : 'error'"
-                :message="sandboxTestResult.available ? 'Sandbox 连接可用' : 'Sandbox 连接不可用'"
+                :message="sandboxTestResult.available ? $t('legacy.9duapa') : $t('legacy.1scu0xv')"
                 :description="sandboxTestDescription"
               />
 
               <a-collapse ghost size="small" class="sandbox-auth-collapse">
-                <a-collapse-panel key="auth" header="远程访问凭证（可选）">
-                  <a-form-item label="服务 Token">
+                <a-collapse-panel key="auth" :header="$t('legacy.1ikhg58')">
+                  <a-form-item :label="$t('legacy.16kcq9i')">
                     <a-input-password
                       v-model:value="sandboxForm.remote_api_key"
-                      placeholder="仅在远程 Sandbox 服务要求鉴权时填写"
+                      :placeholder="$t('legacy.1io07l0')"
                       autocomplete="new-password"
                     />
-                    <div class="field-hint">
-                      这是 Sandbox 服务自身的访问 Token，不是模型网关凭据；本地演示或未开启鉴权的远程服务可留空。当前状态：{{ sandboxConfig.remote_api_key_configured ? (sandboxConfig.remote_api_key_masked || '已配置') : '未配置' }}
+                    <div class="field-hint"> {{ $t("legacy.110i633") }}{{ sandboxConfig.remote_api_key_configured ? (sandboxConfig.remote_api_key_masked || $t('legacy.1pxgbde')) : $t('legacy.n1gs62') }}
                     </div>
                   </a-form-item>
 
                   <a-form-item>
-                    <a-checkbox v-model:checked="sandboxForm.clear_remote_api_key">清除当前 Sandbox 服务 Token</a-checkbox>
+                    <a-checkbox v-model:checked="sandboxForm.clear_remote_api_key">{{ $t("legacy.1wsjgu") }}</a-checkbox>
                   </a-form-item>
                 </a-collapse-panel>
               </a-collapse>
@@ -290,7 +292,7 @@
 
             <a-row :gutter="16">
               <a-col :xs="24" :md="8">
-                <a-form-item label="网络模式">
+                <a-form-item :label="$t('legacy.iiso9g')">
                   <a-select v-model:value="sandboxForm.network_mode">
                     <a-select-option value="none">none</a-select-option>
                     <a-select-option value="bridge">bridge</a-select-option>
@@ -298,23 +300,23 @@
                 </a-form-item>
               </a-col>
               <a-col :xs="24" :md="8">
-                <a-form-item label="内存限制">
+                <a-form-item :label="$t('legacy.1hksixm')">
                   <a-input v-model:value="sandboxForm.memory_limit" placeholder="256m" />
                 </a-form-item>
               </a-col>
               <a-col :xs="24" :md="8">
-                <a-form-item label="CPU 限制">
+                <a-form-item :label="$t('legacy.1gzg08l')">
                   <a-input v-model:value="sandboxForm.cpu_limit" placeholder="1.0" />
                 </a-form-item>
               </a-col>
             </a-row>
 
-            <a-form-item label="进程数限制">
+            <a-form-item :label="$t('legacy.7ykb07')">
               <a-input-number v-model:value="sandboxForm.pids_limit" :min="1" :max="1024" style="width: 100%" />
             </a-form-item>
 
             <a-form-item>
-              <a-checkbox v-model:checked="sandboxForm.read_only_rootfs">启用只读根文件系统</a-checkbox>
+              <a-checkbox v-model:checked="sandboxForm.read_only_rootfs">{{ $t("legacy.1emuxvv") }}</a-checkbox>
             </a-form-item>
           </a-card>
         </a-tab-pane>
@@ -322,8 +324,8 @@
 
       <div class="bottom-action-bar">
         <a-space wrap>
-          <a-button type="primary" html-type="submit" :loading="saving">保存配置</a-button>
-          <a-button html-type="button" @click="fetchPolicy" :loading="loading" :disabled="saving">重新加载</a-button>
+          <a-button type="primary" html-type="submit" :loading="saving">{{ $t("legacy.6zgubv") }}</a-button>
+          <a-button html-type="button" @click="fetchPolicy" :loading="loading" :disabled="saving">{{ $t("legacy.1ghz5wv") }}</a-button>
         </a-space>
       </div>
     </a-form>
@@ -331,6 +333,8 @@
 </template>
 
 <script setup>
+import { translateLegacy as phrase, translateText as text } from '../i18n'
+
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { onBeforeRouteLeave } from 'vue-router'
@@ -362,32 +366,32 @@ const sandboxTestResult = ref(null)
 const defaultSandboxRemoteUrl = 'http://sandbox:8194'
 
 const riskOptions = [
-  { value: 'benign', label: 'benign（安全）' },
-  { value: 'suspicious', label: 'suspicious（可疑）' },
-  { value: 'malicious', label: 'malicious（恶意）' },
+  { value: 'benign', label: phrase('legacy.1tgumc') },
+  { value: 'suspicious', label: phrase('legacy.iqwiq5') },
+  { value: 'malicious', label: phrase('legacy.1fe99zj') },
 ]
 const judgementModeOptions = [
-  { value: 'strict', label: '严格模式：优先降低漏报风险', description: '对潜在危险行为采取保守判定，适合生产环境、敏感数据场景和外部来源 Skill 准入。' },
-  { value: 'balanced', label: '平衡模式（推荐）：兼顾安全与可操作性', description: '明确恶意自动阻断，可疑行为进入审核，低置信噪声不直接影响最终结论。' },
-  { value: 'permissive', label: '宽松模式：优先减少误报和噪声', description: '仅对明确恶意或策略禁止项阻断，其他风险以提示和人工复核为主。' },
+  { value: 'strict', label: phrase('legacy.1twbn24'), description: phrase('legacy.x3x4mz') },
+  { value: 'balanced', label: phrase('legacy.11ev62m'), description: phrase('legacy.krtp51') },
+  { value: 'permissive', label: phrase('legacy.umwxgy'), description: phrase('legacy.1izj7l6') },
 ]
 const riskClassificationGroups = [
-  { key: 'blocking', label: '阻断项', tag: '阻断', color: 'red', description: '确认命中后会按恶意风险处理，阻止 LLM 降级，通常直接进入拒绝或强制人工处理。' },
-  { key: 'risk', label: '可疑项', tag: '审核', color: 'orange', description: '作为有效风险信号参与综合判定，通常进入审核；在平衡或宽松模式下可结合上下文降级。' },
-  { key: 'noise', label: '噪声', tag: '记录', color: 'default', description: '只作为诊断信息记录，不直接影响最终风险结论，适合环境问题和低价值信号。' },
+  { key: 'blocking', label: phrase('legacy.1y6vbr8'), tag: phrase('legacy.1fsazit'), color: 'red', description: phrase('legacy.nkd29f') },
+  { key: 'risk', label: phrase('legacy.xgpxf0'), tag: phrase('legacy.1ws11do'), color: 'orange', description: phrase('legacy.4e9acf') },
+  { key: 'noise', label: phrase('legacy.m4z27r'), tag: phrase('legacy.cdnjf2'), color: 'default', description: phrase('legacy.1cu0ih4') },
 ]
 const riskItems = [
-  { key: 'data_exfiltration', label: '数据外传', description: '检测到向外部发送数据、采集环境变量、读取敏感信息后可能外传的行为。' },
-  { key: 'supply_chain', label: '供应链风险', description: '检测到下载后执行、远程脚本安装、混淆载荷或不可信依赖引入。' },
-  { key: 'prompt_injection', label: '提示词注入', description: '检测到忽略上级指令、泄露系统提示词、隐藏指令等面向 Agent 的攻击。' },
-  { key: 'tool_misuse', label: '工具滥用', description: '检测到工具投毒、绕过平台校验、诱导 Agent 使用高风险工具等行为。' },
-  { key: 'network', label: '网络访问', description: '检测到代码或运行时尝试访问网络，需结合业务场景判断是否必要。' },
-  { key: 'credential_access', label: '凭据访问', description: '检测到读取密钥、凭据文件、Token、SSH 配置等敏感凭据相关行为。' },
-  { key: 'dynamic_execution', label: '动态执行', description: '检测到 eval、exec、os.system、shell=True 等动态代码或命令执行能力。' },
-  { key: 'excessive_permissions', label: '权限过宽', description: '检测到 allowed-tools 过宽、通配权限或不符合最小权限原则的声明。' },
-  { key: 'documented_external_api', label: '文档型 API 示例', description: 'SKILL.md 或说明文档中列出的固定 API endpoint、curl 示例。通常只记录为噪声，不代表真实数据外传。' },
-  { key: 'dependency', label: '依赖/环境问题', description: '检测到依赖缺失、模块不可导入等环境问题，通常不代表 Skill 本身恶意。' },
-  { key: 'runtime', label: '运行时失败', description: '检测到非零退出、超时或运行环境异常，主要用于辅助排查。' },
+  { key: 'data_exfiltration', label: phrase('legacy.13wlkrx'), description: phrase('legacy.1xngwd2') },
+  { key: 'supply_chain', label: phrase('legacy.33dhvx'), description: phrase('legacy.1hmp9b5') },
+  { key: 'prompt_injection', label: phrase('legacy.v4iti5'), description: phrase('legacy.1frd2ou') },
+  { key: 'tool_misuse', label: phrase('legacy.1bpfkaw'), description: phrase('legacy.1cubpru') },
+  { key: 'network', label: phrase('legacy.1xh2061'), description: phrase('legacy.rg4o7j') },
+  { key: 'credential_access', label: phrase('legacy.1jxzdyj'), description: phrase('legacy.10lmwts') },
+  { key: 'dynamic_execution', label: phrase('legacy.qath61'), description: phrase('legacy.uts9ww') },
+  { key: 'excessive_permissions', label: phrase('legacy.1rc1tey'), description: phrase('legacy.jtwckm') },
+  { key: 'documented_external_api', label: phrase('legacy.1iv6edf'), description: phrase('legacy.13g1cqe') },
+  { key: 'dependency', label: phrase('legacy.19x9ebb'), description: phrase('legacy.edxa12') },
+  { key: 'runtime', label: phrase('legacy.q3x1o3'), description: phrase('legacy.11w6vv5') },
 ]
 const riskItemLabel = (value) => riskItems.find(item => item.key === value)?.label || value
 const defaultRiskClassification = {
@@ -404,21 +408,21 @@ const defaultRiskClassification = {
   runtime: 'noise',
 }
 const severityOptions = [
-  { value: 'MEDIUM', label: 'MEDIUM（中）' },
-  { value: 'HIGH', label: 'HIGH（高）' },
-  { value: 'CRITICAL', label: 'CRITICAL（严重）' },
+  { value: 'MEDIUM', label: phrase('legacy.1y10pck') },
+  { value: 'HIGH', label: phrase('legacy.1c4si50') },
+  { value: 'CRITICAL', label: phrase('legacy.bj99il') },
 ]
 const decisionColumns = [
-  { title: '顺序', dataIndex: 'step', width: 80 },
-  { title: '条件', dataIndex: 'condition' },
-  { title: '结果', dataIndex: 'result', width: 140 },
-  { title: '说明', dataIndex: 'note' },
+  { title: phrase('legacy.bpa6iu'), dataIndex: 'step', width: 80 },
+  { title: phrase('legacy.1haswfi'), dataIndex: 'condition' },
+  { title: phrase('legacy.q9h21m'), dataIndex: 'result', width: 140 },
+  { title: phrase('legacy.1mi4vdj'), dataIndex: 'note' },
 ]
 const decisionRows = [
-  { step: 1, condition: '命中禁止权限/工具', result: 'REJECTED', note: '最高优先级，直接拒绝' },
-  { step: 2, condition: '命中自动拒绝风险（auto_reject_risk）', result: 'REJECTED', note: '不会进入审核队列' },
-  { step: 3, condition: '命中需要人工审核（require_human_review）', result: 'VETTED', note: '进入审核队列，等待人工处理' },
-  { step: 4, condition: '不高于自动批准最大风险（auto_approve_max_risk）', result: 'APPROVED', note: '自动批准为可信版本' },
+  { step: 1, condition: phrase('legacy.ys2uvw'), result: 'REJECTED', note: phrase('legacy.ciz2no') },
+  { step: 2, condition: phrase('legacy.1t40ibb'), result: 'REJECTED', note: phrase('legacy.hbmb3h') },
+  { step: 3, condition: phrase('legacy.1ag3fwd'), result: 'VETTED', note: phrase('legacy.1cpvcnr') },
+  { step: 4, condition: phrase('legacy.17x0rvg'), result: 'APPROVED', note: phrase('legacy.d8mg2e') },
 ]
 
 const formState = reactive({
@@ -488,8 +492,15 @@ const sandboxImageOptions = computed(() => {
 const sandboxTestDescription = computed(() => {
   if (!sandboxTestResult.value) return ''
   const parts = [sandboxTestResult.value.message].filter(Boolean)
-  if (sandboxTestResult.value.target) parts.push(`目标：${sandboxTestResult.value.target}`)
-  if (sandboxTestResult.value.duration_ms != null) parts.push(`耗时：${sandboxTestResult.value.duration_ms} ms`)
+  if (sandboxTestResult.value.target) {
+    parts.push(text(`目标：${sandboxTestResult.value.target}`, `Target: ${sandboxTestResult.value.target}`))
+  }
+  if (sandboxTestResult.value.duration_ms != null) {
+    parts.push(text(
+      `耗时：${sandboxTestResult.value.duration_ms} ms`,
+      `Duration: ${sandboxTestResult.value.duration_ms} ms`,
+    ))
+  }
   return parts.join('；')
 })
 
@@ -648,7 +659,7 @@ const fetchPolicy = async () => {
     policyPath.value = res.policy_path || ''
     applyPolicy(res.policy)
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取策略失败')
+    message.error(error.response?.data?.detail || phrase('legacy.1dmx50b'))
   } finally {
     loading.value = false
   }
@@ -674,9 +685,9 @@ const handleSaveAll = async () => {
     applySandboxConfig(sandboxRes)
     policyPath.value = policyRes.policy_path || ''
     applyPolicy(policyRes.policy)
-    message.success('配置已保存')
+    message.success(phrase('legacy.1ypovr1'))
   } catch (error) {
-    message.error(extractErrorMsg(error, '保存配置失败'))
+    message.error(extractErrorMsg(error, phrase('legacy.jikq9d')))
   } finally {
     saving.value = false
   }
@@ -693,12 +704,12 @@ const handleTestSandboxConnection = async () => {
     })
     sandboxTestResult.value = result || {}
     if (result?.available) {
-      message.success(result.message || 'Sandbox 连接可用')
+      message.success(result.message || phrase('legacy.9duapa'))
     } else {
-      message.error(result?.message || 'Sandbox 连接不可用')
+      message.error(result?.message || phrase('legacy.1scu0xv'))
     }
   } catch (error) {
-    message.error(extractErrorMsg(error, '测试 Sandbox 连接失败'))
+    message.error(extractErrorMsg(error, phrase('legacy.z38xwd')))
   } finally {
     testingSandbox.value = false
   }
@@ -722,7 +733,7 @@ watch([formState, llmForm, sandboxForm], () => {
 
 onBeforeRouteLeave(() => {
   if (!dirty.value) return true
-  return window.confirm('策略配置有未保存修改，确定离开吗？')
+  return window.confirm(phrase('legacy.8h4k7h'))
 })
 
 onMounted(() => {

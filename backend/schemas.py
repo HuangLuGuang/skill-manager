@@ -26,6 +26,7 @@ class User(UserBase):
     id: int
     is_active: bool
     role: str
+    preferred_locale: Optional[str] = None
     group_ids: list[int] = []
     created_at: datetime
     last_login_at: Optional[datetime] = None
@@ -46,6 +47,17 @@ class TokenData(BaseModel):
 class PasswordChange(BaseModel):
     old_password: str
     new_password: str
+
+
+class LocalePreferenceUpdate(BaseModel):
+    locale: str
+
+    @field_validator("locale")
+    @classmethod
+    def validate_locale(cls, value: str) -> str:
+        if value not in {"zh-CN", "en-US"}:
+            raise ValueError("locale must be zh-CN or en-US")
+        return value
 
 
 class LoginLog(BaseModel):

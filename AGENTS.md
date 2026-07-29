@@ -112,6 +112,12 @@ make sandbox-runtime-build
 ## 前端注意事项
 
 - 前端使用 Vue 3 Composition API、Vite、Ant Design Vue。
+- 管理平台和桌面客户端的所有新增或修改页面必须同时提供简体中文和英文。中文系统名固定为“智能体生命周期管理系统”，英文系统名固定为“Agent Manager”。
+- 新增界面文案必须使用语义化 i18n Key 和语言资源，不得依赖 MutationObserver、DOM 扫描或中文原文匹配；`legacy.*` 哈希键只用于已迁移旧页面，不得手写到新页面。
+- 状态、风险类型、审计事件、客户端任务和服务端错误应传递稳定编码，由界面按语言渲染；禁止在前端通过中文或英文提示文本判断业务逻辑。
+- 文件内容、用户输入、Skill 原文、代码、命令输出及证据片段保持原文，不做自动翻译。
+- 桌面客户端的动态文案使用 `t('ui.*')` 或 `tf`，系统通知也必须复用同一语言资源；Scanner 和 Verifier 通过独立环境变量选择语言。
+- 新页面提交前必须执行中英文界面检查和 `npm run test:i18n`，确认英文长文案不会造成按钮、表格、弹窗或移动端布局溢出；后端新增错误必须提供稳定 `error_code`。
 - API 封装在 `web/src/api/index.js`。
 - 页面主要在 `web/src/views/`。
 - 提交 skill 页面支持四种导入方式：ZIP、本地目录、网络下载/GitHub、ClawHub。

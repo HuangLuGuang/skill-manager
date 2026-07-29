@@ -1,12 +1,12 @@
 <template>
   <div class="system-overview">
-    <a-page-header title="系统总览" sub-title="检查治理、运行、模型网关与接入能力是否可用" />
+    <a-page-header :title="$t('legacy.11x0ooc')" :sub-title="$t('legacy.1572cr1')" />
 
     <section class="health-panel">
       <div class="health-main">
         <div>
-          <div class="eyebrow">平台能力体检</div>
-          <div class="health-title">系统健康度</div>
+          <div class="eyebrow">{{ $t("legacy.1fr4rat") }}</div>
+          <div class="health-title">{{ $t("legacy.16kfg6f") }}</div>
           <div class="health-summary">
             <a-tag :color="statusColor(overallHealth.status)">{{ overallHealth.text }}</a-tag>
             <span>{{ overallHealth.message }}</span>
@@ -19,7 +19,7 @@
           </div>
         </div>
       </div>
-      <a-button type="primary" size="small" :loading="loading" @click="fetchStatus">刷新状态</a-button>
+      <a-button type="primary" size="small" :loading="loading" @click="fetchStatus">{{ $t("legacy.2fhcc7") }}</a-button>
     </section>
 
     <section v-for="group in capabilityGroups" :key="group.key" class="capability-section">
@@ -63,11 +63,11 @@
     <section class="recommendation-panel">
       <div class="section-heading">
         <div>
-          <div class="section-title">配置建议</div>
-          <div class="section-subtitle">只展示会影响系统能力闭环的配置项。</div>
+          <div class="section-title">{{ $t("legacy.g2l9ma") }}</div>
+          <div class="section-subtitle">{{ $t("legacy.obze9o") }}</div>
         </div>
       </div>
-      <a-empty v-if="!recommendations.length" description="当前系统能力配置完整，可以支持 Skill 治理、模型调用和 Agent 接入。" />
+      <a-empty v-if="!recommendations.length" :description="$t('legacy.11evyev')" />
       <div v-else class="recommendation-list">
         <div v-for="item in recommendations" :key="item.title" class="recommendation-row">
           <div class="recommendation-main">
@@ -86,6 +86,8 @@
 </template>
 
 <script setup>
+import { translateLegacy as phrase } from '../i18n'
+
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
 
@@ -123,12 +125,12 @@ const toArray = (value) => {
 }
 
 const statusText = (status) => ({
-  ok: '正常',
-  warning: '待配置',
-  error: '异常',
-  disabled: '未启用',
-  unknown: '待检查',
-}[status] || '待检查')
+  ok: phrase('legacy.tt5vxa'),
+  warning: phrase('legacy.1v15qsb'),
+  error: phrase('legacy.1uz4mvb'),
+  disabled: phrase('legacy.1tylsuy'),
+  unknown: phrase('legacy.1w2inwf'),
+}[status] || phrase('legacy.1w2inwf'))
 
 const statusColor = (status) => ({
   ok: 'green',
@@ -179,36 +181,36 @@ const llmItemStatus = computed(() => {
 })
 const llmSource = computed(() =>
   (managerStatus.value.llm_provider || llmConfig.value.provider) === 'model-gateway'
-    ? '模型网关'
+    ? phrase('legacy.15en1a5')
     : (managerStatus.value.llm_provider || llmConfig.value.provider || '-'),
 )
 
 const coreItems = computed(() => [
   {
     key: 'api',
-    title: '后台 API',
+    title: phrase('legacy.tesmjn'),
     status: 'ok',
-    statusText: '可访问',
-    description: '管理台已能读取系统状态接口。',
+    statusText: phrase('legacy.1dd5rmv'),
+    description: phrase('legacy.ua02qd'),
   },
   {
     key: 'signing',
-    title: '内容完整性校验',
+    title: phrase('legacy.f8hw35'),
     status: managerStatus.value.signing_key_configured ? 'ok' : 'warning',
-    statusText: managerStatus.value.signing_key_configured ? '生产密钥' : '开发模式',
+    statusText: managerStatus.value.signing_key_configured ? phrase('legacy.oe97li') : phrase('legacy.i0qje'),
     description: managerStatus.value.signing_key_configured
-      ? '已配置正式完整性校验密钥，适合生产运行时校验。'
-      : '当前使用开发模式，生产环境建议配置正式完整性校验密钥。',
-    actionText: '查看策略',
+      ? phrase('legacy.ufoev8')
+      : phrase('legacy.hibd5j'),
+    actionText: phrase('legacy.1ydn1ts'),
     actionPath: '/policy',
   },
   {
     key: 'audit',
-    title: '审计日志',
+    title: phrase('legacy.179jrgz'),
     status: 'ok',
-    statusText: '可用',
-    description: '审核、凭证、运行校验和网关调用具备统一审计入口。',
-    actionText: '查看审计',
+    statusText: phrase('legacy.18ety4i'),
+    description: phrase('legacy.i26te7'),
+    actionText: phrase('legacy.c63dvn'),
     actionPath: '/audit',
   },
 ])
@@ -219,38 +221,38 @@ const analysisItems = computed(() => [
     title: 'Sandbox',
     status: sandboxItemStatus.value,
     statusText: sandboxEnabled.value
-      ? (managerStatus.value.sandbox_available ? '可用' : '不可用')
-      : '未启用',
-    description: managerStatus.value.sandbox_status_message || '用于受控执行 probe，辅助判断运行时行为。',
+      ? (managerStatus.value.sandbox_available ? phrase('legacy.18ety4i') : phrase('legacy.vub0qv'))
+      : phrase('legacy.1tylsuy'),
+    description: managerStatus.value.sandbox_status_message || phrase('legacy.1pluc6n'),
     meta: [
-      { label: '后端', value: sandboxRuntime.value },
-      { label: '目标', value: sandboxTargetValue.value },
+      { label: phrase('legacy.m51d96'), value: sandboxRuntime.value },
+      { label: phrase('legacy.1xibtz6'), value: sandboxTargetValue.value },
     ],
-    actionText: '去测试连接',
+    actionText: phrase('legacy.1mrz32b'),
     actionPath: '/policy',
   },
   {
     key: 'llm',
-    title: 'LLM 分析',
+    title: phrase('legacy.ka9ulq'),
     status: llmItemStatus.value,
-    statusText: managerStatus.value.llm_enabled ? '已启用' : '未启用',
+    statusText: managerStatus.value.llm_enabled ? phrase('legacy.1w2s4cy') : phrase('legacy.1tylsuy'),
     description: managerStatus.value.llm_enabled
-      ? '深度研判使用模型网关中选择的模型。'
-      : '未启用时只使用基础扫描和规则策略。',
+      ? phrase('legacy.1f6jve4')
+      : phrase('legacy.50t2b9'),
     meta: [
-      { label: '模型', value: managerStatus.value.llm_model || llmConfig.value.model || '-' },
-      { label: '来源', value: llmSource.value },
+      { label: phrase('legacy.1ow6qt'), value: managerStatus.value.llm_model || llmConfig.value.model || '-' },
+      { label: phrase('legacy.2tds9c'), value: llmSource.value },
     ],
-    actionText: '选择模型',
+    actionText: phrase('legacy.13jl62z'),
     actionPath: '/policy',
   },
   {
     key: 'deep-analysis',
-    title: '深度分析',
+    title: phrase('legacy.e67rtk'),
     status: managerStatus.value.skillspector_available ? 'ok' : 'warning',
-    statusText: managerStatus.value.skillspector_available ? '可用' : '未安装',
-    description: '提交时勾选深度分析后，会增加更细的静态与行为信号。',
-    actionText: '提交 Skill',
+    statusText: managerStatus.value.skillspector_available ? phrase('legacy.18ety4i') : phrase('legacy.buf4kb'),
+    description: phrase('legacy.1ov25l9'),
+    actionText: phrase('legacy.knj41c'),
     actionPath: '/submit',
   },
 ])
@@ -258,49 +260,49 @@ const analysisItems = computed(() => [
 const gatewayItems = computed(() => [
   {
     key: 'models',
-    title: '模型管理',
+    title: phrase('legacy.1berpj2'),
     status: activeModels.value.length > 0 ? 'ok' : 'error',
-    statusText: activeModels.value.length > 0 ? '有可用模型' : '无可用模型',
-    description: '平台内部 LLM 分析和 Agent 调用都应从模型网关选择模型。',
+    statusText: activeModels.value.length > 0 ? phrase('legacy.ir2zun') : phrase('legacy.19yuxkw'),
+    description: phrase('legacy.1e4t529'),
     meta: [
-      { label: '供应商', value: `${modelProviders.value.length}` },
-      { label: '可用模型', value: `${activeModels.value.length}` },
+      { label: phrase('legacy.1x7qpl0'), value: `${modelProviders.value.length}` },
+      { label: phrase('legacy.103n846'), value: `${activeModels.value.length}` },
     ],
-    actionText: '去模型管理',
+    actionText: phrase('legacy.h6olrl'),
     actionPath: '/model-gateway/models',
   },
   {
     key: 'credentials',
-    title: '模型调用凭证',
+    title: phrase('legacy.9ooix4'),
     status: activeAccessTokens.value.length > 0 ? 'ok' : 'warning',
-    statusText: activeAccessTokens.value.length > 0 ? '可用' : '待签发',
-    description: '模型网关调用需要有效的模型调用凭证或带 model:chat 的 Agent 凭证。',
+    statusText: activeAccessTokens.value.length > 0 ? phrase('legacy.18ety4i') : phrase('legacy.7mgyvl'),
+    description: phrase('legacy.1rh3475'),
     meta: [
-      { label: '模型凭证', value: `${gatewayTokens.value.length}` },
-      { label: '可调用模型的运行凭证', value: `${agentRuntimeTokens.value.filter(item => item.scopes?.includes('model:chat')).length}` },
+      { label: phrase('legacy.jv7f4r'), value: `${gatewayTokens.value.length}` },
+      { label: phrase('legacy.pfgf5p'), value: `${agentRuntimeTokens.value.filter(item => item.scopes?.includes('model:chat')).length}` },
     ],
-    actionText: '去凭证管理',
+    actionText: phrase('legacy.y9va7n'),
     actionPath: '/credentials',
   },
   {
     key: 'privacy',
-    title: '隐私策略',
+    title: phrase('legacy.jt33j7'),
     status: privacyPolicies.value.length > 0 ? 'ok' : 'warning',
-    statusText: privacyPolicies.value.length > 0 ? '已配置' : '待配置',
-    description: '控制脱敏、路由和审计策略，支撑模型网关合规调用。',
+    statusText: privacyPolicies.value.length > 0 ? phrase('legacy.1pxgbde') : phrase('legacy.1v15qsb'),
+    description: phrase('legacy.wa8e0d'),
     meta: [
-      { label: '策略数', value: `${privacyPolicies.value.length}` },
+      { label: phrase('legacy.17licqk'), value: `${privacyPolicies.value.length}` },
     ],
-    actionText: '去隐私策略',
+    actionText: phrase('legacy.1mv69vw'),
     actionPath: '/model-gateway/policies',
   },
   {
     key: 'prompt-guard',
-    title: 'Prompt 防护测试',
+    title: phrase('legacy.1yae1mb'),
     status: 'ok',
-    statusText: '可用',
-    description: '可在不调用上游模型的情况下测试提示词注入、凭据外传等规则。',
-    actionText: '去测试',
+    statusText: phrase('legacy.18ety4i'),
+    description: phrase('legacy.u2frm5'),
+    actionText: phrase('legacy.12hgt5u'),
     actionPath: '/model-gateway/prompt-guard',
   },
 ])
@@ -308,44 +310,44 @@ const gatewayItems = computed(() => [
 const integrationItems = computed(() => [
   {
     key: 'runtime-token',
-    title: '运行凭证签发',
+    title: phrase('legacy.140y10e'),
     status: boundAgentTokenCount.value > 0 ? 'ok' : 'warning',
-    statusText: boundAgentTokenCount.value > 0 ? '已签发' : '待签发',
-    description: '凭证绑定 Agent 后，才能识别调用方并执行运行时校验。',
+    statusText: boundAgentTokenCount.value > 0 ? phrase('legacy.1ghmee8') : phrase('legacy.7mgyvl'),
+    description: phrase('legacy.14n23nw'),
     meta: [
-      { label: '绑定 Agent', value: `${boundAgentTokenCount.value}` },
+      { label: phrase('legacy.1abb4z'), value: `${boundAgentTokenCount.value}` },
     ],
-    actionText: '去凭证管理',
+    actionText: phrase('legacy.y9va7n'),
     actionPath: '/credentials',
   },
   {
     key: 'runtime-check',
-    title: 'Runtime 校验接口',
+    title: phrase('legacy.kulwtc'),
     status: managerStatus.value.hooks_available ? 'ok' : 'warning',
-    statusText: managerStatus.value.hooks_available ? '可用' : '待接入',
-    description: 'Agent 加载 Skill 前可校验注册状态、审批状态和内容完整性。',
-    actionText: '查看接入',
+    statusText: managerStatus.value.hooks_available ? phrase('legacy.18ety4i') : phrase('legacy.1g1lnce'),
+    description: phrase('legacy.1gnnji7'),
+    actionText: phrase('legacy.tp1mzf'),
     actionPath: '/runtime',
   },
   {
     key: 'scanner',
-    title: 'Scanner 接入',
+    title: phrase('legacy.17bs4x'),
     status: scannerTokens.value.length > 0 ? 'ok' : 'warning',
-    statusText: scannerTokens.value.length > 0 ? '可用' : '待配置',
-    description: '客户侧扫描器通过 Scanner 接入凭证提交 Skill。',
+    statusText: scannerTokens.value.length > 0 ? phrase('legacy.18ety4i') : phrase('legacy.1v15qsb'),
+    description: phrase('legacy.vot61v'),
     meta: [
-      { label: 'Scanner 凭证', value: `${scannerTokens.value.length}` },
+      { label: phrase('legacy.12rtpxx'), value: `${scannerTokens.value.length}` },
     ],
-    actionText: '查看接入说明',
+    actionText: phrase('legacy.192ppzd'),
     actionPath: '/scanner-access',
   },
   {
     key: 'runtime-audit',
-    title: '运行审计链路',
+    title: phrase('legacy.udt5mo'),
     status: 'ok',
-    statusText: '可用',
-    description: '调用方、Agent、模型、Skill 和审核动作可以进入审计链路。',
-    actionText: '查看审计',
+    statusText: phrase('legacy.18ety4i'),
+    description: phrase('legacy.1k1twim'),
+    actionText: phrase('legacy.c63dvn'),
     actionPath: '/audit',
   },
 ])
@@ -354,26 +356,26 @@ const capabilityGroups = computed(() => {
   const groups = [
     {
       key: 'core',
-      title: '核心服务',
-      description: '检查后台 API、完整性校验和审计基础能力。',
+      title: phrase('legacy.is6646'),
+      description: phrase('legacy.9afyo3'),
       items: coreItems.value,
     },
     {
       key: 'analysis',
-      title: '扫描分析',
-      description: '检查 Sandbox、LLM 和深度分析是否可用于 Skill 检测。',
+      title: phrase('legacy.mbjhkh'),
+      description: phrase('legacy.j1wmye'),
       items: analysisItems.value,
     },
     {
       key: 'gateway',
-      title: '模型网关',
-      description: '检查模型、调用凭证、隐私策略和 Prompt 防护测试是否可用。',
+      title: phrase('legacy.15en1a5'),
+      description: phrase('legacy.i6u5ex'),
       items: gatewayItems.value,
     },
     {
       key: 'integration',
-      title: '接入链路',
-      description: '检查运行凭证、Runtime 校验、Scanner 和审计链路是否具备接入条件。',
+      title: phrase('legacy.1p5vv10'),
+      description: phrase('legacy.19ndc48'),
       items: integrationItems.value,
     },
   ]
@@ -386,15 +388,15 @@ const capabilityGroups = computed(() => {
 const overallHealth = computed(() => {
   const statuses = capabilityGroups.value.map((group) => group.status)
   if (statuses.includes('error')) {
-    return { status: 'error', text: '部分异常', message: '存在会影响运行或模型调用的能力异常。' }
+    return { status: 'error', text: phrase('legacy.1yaobox'), message: phrase('legacy.1xk31no') }
   }
   if (statuses.includes('warning')) {
-    return { status: 'warning', text: '待完善', message: '核心能力可用，但仍有配置建议需要处理。' }
+    return { status: 'warning', text: phrase('legacy.1bd07kw'), message: phrase('legacy.d3obsd') }
   }
   if (statuses.includes('unknown')) {
-    return { status: 'unknown', text: '待检查', message: '部分能力状态暂时无法读取。' }
+    return { status: 'unknown', text: phrase('legacy.1w2inwf'), message: phrase('legacy.hlvlfi') }
   }
-  return { status: 'ok', text: '正常', message: '治理、运行、模型网关和接入能力配置完整。' }
+  return { status: 'ok', text: phrase('legacy.tt5vxa'), message: phrase('legacy.1nzlxij') }
 })
 
 const recommendations = computed(() =>
@@ -405,7 +407,7 @@ const recommendations = computed(() =>
       title: `${item.groupTitle}：${item.title} ${item.statusText || statusText(item.status)}`,
       description: item.description,
       actionPath: item.actionPath,
-      actionText: item.actionText || '去处理',
+      actionText: item.actionText || phrase('legacy.azmapg'),
     })),
 )
 
@@ -437,7 +439,7 @@ const fetchStatus = async () => {
     accessTokens.value = toArray(tokens)
     privacyPolicies.value = toArray(policies)
   } catch (error) {
-    message.error(extractErrorMsg(error, '获取系统能力状态失败'))
+    message.error(extractErrorMsg(error, phrase('legacy.q92czh')))
   } finally {
     loading.value = false
   }

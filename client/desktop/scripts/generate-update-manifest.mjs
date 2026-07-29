@@ -3,8 +3,10 @@ import path from 'node:path'
 
 import { parseReleaseVersion } from './release-version.mjs'
 
-const [inputDir, version] = process.argv.slice(2)
-if (!inputDir || !version) throw new Error('usage: generate-update-manifest <input-dir> <version>')
+const [inputDir, version, channel = 'stable'] = process.argv.slice(2)
+if (!inputDir || !version || !['stable', 'preview'].includes(channel)) {
+  throw new Error('usage: generate-update-manifest <input-dir> <version> [stable|preview]')
+}
 
 const platforms = {}
 const walk = directory => {
@@ -25,9 +27,10 @@ if (!Object.keys(platforms).length) throw new Error('no platform updater metadat
 const { displayVersion, packageVersion } = parseReleaseVersion(version)
 const manifest = {
   version: packageVersion,
-  notes: `瑞数智能体安全治理客户端 ${displayVersion}`,
+  notes: `智能体生命周期管理系统客户端 ${displayVersion}`,
   pub_date: new Date().toISOString(),
   platforms,
 }
-fs.writeFileSync(path.join(path.resolve(inputDir), 'latest.json'), JSON.stringify(manifest, null, 2))
-console.log(`latest.json generated for ${Object.keys(platforms).join(', ')}`)
+const manifestName = channel === 'preview' ? 'preview.json' : 'latest.json'
+fs.writeFileSync(path.join(path.resolve(inputDir), manifestName), JSON.stringify(manifest, null, 2))
+console.log(`${manifestName} generated for ${Object.keys(platforms).join(', ')}`)

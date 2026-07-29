@@ -3,49 +3,54 @@
     <div class="login-box">
       <div class="login-header">
         <img :src="logoUrl" alt="Logo" class="login-logo" />
-        <h2 class="login-title">Agent Manager Console</h2>
-        <p class="login-desc">AI 智能体全生命周期管理平台</p>
+        <h2 class="login-title">{{ t('app.name') }}</h2>
+        <p class="login-desc">{{ t('app.subtitle') }}</p>
       </div>
       <a-form layout="vertical" :model="formState" @finish="onFinish">
-        <a-form-item label="用户名/邮箱" name="username" :rules="[{ required: true, message: '请输入用户名或邮箱' }]">
+        <a-form-item :label="$t('legacy.lleewp')" name="username" :rules="[{ required: true, message: $t('legacy.1d52hvl') }]">
           <a-input v-model:value="formState.username" placeholder="admin / email@example.com" size="large">
             <template #prefix><UserOutlined /></template>
           </a-input>
         </a-form-item>
-        <a-form-item label="密码" name="password" :rules="[{ required: true, message: '请输入密码' }]">
-          <a-input-password v-model:value="formState.password" placeholder="请输入密码" size="large">
+        <a-form-item :label="$t('legacy.1aph6eg')" name="password" :rules="[{ required: true, message: $t('legacy.f478sb') }]">
+          <a-input-password v-model:value="formState.password" :placeholder="$t('legacy.f478sb')" size="large">
             <template #prefix><LockOutlined /></template>
           </a-input-password>
         </a-form-item>
-        <a-form-item label="验证码" name="captchaCode" :rules="[{ required: true, message: '请输入验证码' }]">
+        <a-form-item :label="$t('legacy.jyzd1p')" name="captchaCode" :rules="[{ required: true, message: $t('legacy.royb2k') }]">
           <div class="captcha-wrapper">
             <div class="captcha-input-wrapper">
-              <a-input v-model:value="formState.captchaCode" placeholder="请输入验证码" size="large">
+              <a-input v-model:value="formState.captchaCode" :placeholder="$t('legacy.royb2k')" size="large">
                 <template #prefix><SafetyCertificateOutlined /></template>
               </a-input>
-              <a class="captcha-refresh-link" @click="refreshCaptcha">看不清？换一个</a>
+              <a class="captcha-refresh-link" @click="refreshCaptcha">{{ $t("legacy.gfum6v") }}</a>
             </div>
-            <img v-if="captchaImage" :src="captchaImage" alt="验证码" class="captcha-img" @click="refreshCaptcha" />
+            <img v-if="captchaImage" :src="captchaImage" :alt="$t('legacy.jyzd1p')" class="captcha-img" @click="refreshCaptcha" />
           </div>
         </a-form-item>
         <a-form-item>
-          <a-button type="primary" html-type="submit" :loading="loading" block size="large">登录</a-button>
+          <a-button type="primary" html-type="submit" :loading="loading" block size="large">{{ $t("legacy.1yggxgd") }}</a-button>
         </a-form-item>
       </a-form>
-      <div class="login-footer">默认账号 `admin`，默认密码 `Admin@123`</div>
+      <div class="login-footer">{{ $t("legacy.sca5k1") }}</div>
     </div>
   </div>
 </template>
 
 <script setup>
+import { translateLegacy as phrase } from '../i18n'
+
 import { onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { LockOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons-vue'
 
 import { getCaptcha, getLogoInfo, getMe, login } from '../api'
+import { setLocale } from '../i18n'
 
 const router = useRouter()
+const { t } = useI18n()
 const loading = ref(false)
 const captchaImage = ref('')
 const captchaId = ref('')
@@ -64,7 +69,7 @@ const refreshCaptcha = async () => {
     captchaImage.value = res.image
     formState.captchaCode = ''
   } catch {
-    message.error('获取验证码失败')
+    message.error(phrase('legacy.vlz0kc'))
   }
 }
 
@@ -75,10 +80,11 @@ const onFinish = async () => {
     localStorage.setItem('token', res.access_token)
     const me = await getMe()
     localStorage.setItem('username', me.username)
-    message.success('登录成功')
+    if (me.preferred_locale) setLocale(me.preferred_locale)
+    message.success(phrase('legacy.1snukxk'))
     router.push('/dashboard')
   } catch (error) {
-    message.error(error.response?.data?.detail || '登录失败')
+    message.error(error.response?.data?.detail || phrase('legacy.rn5blf'))
     refreshCaptcha()
   } finally {
     loading.value = false

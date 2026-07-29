@@ -764,6 +764,21 @@ Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privac
 
 平台入口为“智能体管理 -> 客户端管理”，可以查看 Agent 映射、已安装 Skill、任务和异常，也可以从 Skill 详情直接创建“安装到客户端”任务。
 
+### 13.1 界面语言
+
+管理平台和桌面客户端支持简体中文与英文：
+
+- 中文系统名为“智能体生命周期管理系统”。
+- 英文系统名为“Agent Manager”。
+- 首次使用时跟随浏览器或操作系统语言，其他语言默认使用简体中文。
+- 用户手动选择后会保存在当前浏览器或客户端本地，重新打开后继续使用。
+- 切换语言只改变界面和日期的显示格式，审计时间仍按北京时间展示。
+- 文件内容、用户输入、命令输出和第三方原始分析详情保持原文；平台生成的错误、状态、检测结论和处置建议按界面语言显示。
+- 登录用户选择的语言会同步到账号；未设置账号偏好时继续使用浏览器语言。
+- 新版 API 错误逐步采用 `error_code`、`error_params` 与本地化 `detail`，调用方应依赖稳定错误码而不是提示文案。
+- Skill 扫描器和 Agent Skill Verifier 会通过 `Accept-Language` 请求对应语言的服务端错误；分别可用 `AGENT_MANAGER_SCANNER_LANG`、`AGENT_MANAGER_VERIFIER_LANG` 覆盖系统语言。
+- 开发约定、错误协议和验证命令见 [国际化与语言支持](i18n.md)。
+
 详细说明：
 
 - [agent-manager-client.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/agent-manager-client.md)

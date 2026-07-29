@@ -2,17 +2,17 @@
   <div class="attack-chain-container">
     <div ref="graphContainer" class="graph-container"></div>
     <div class="steps-detail-container">
-      <h4 style="margin-bottom: 12px;">攻击链步骤详情</h4>
+      <h4 style="margin-bottom: 12px;">{{ $t("legacy.1ek3ttb") }}</h4>
       <a-list :data-source="attackChain" bordered size="small">
         <template #renderItem="{ item }">
           <a-list-item>
             <div class="step-detail-item">
               <div class="step-title">
-                <a-tag color="blue">步骤 {{ item.step }}</a-tag>
+                <a-tag color="blue">{{ $t("legacy.1mwpbt8") }} {{ item.step }}</a-tag>
                 <span class="tactic-name">{{ item.tactic }}</span>
               </div>
               <div class="techniques-container">
-                <span class="label">技术:</span>
+                <span class="label">{{ $t("legacy.10yt7vi") }}</span>
                 <a-space wrap>
                   <a-tag v-for="tech in item.techniques" :key="tech.id" color="orange">
                     {{ tech.name ? `${tech.name} (${tech.id})` : tech.id }}
@@ -20,7 +20,7 @@
                 </a-space>
               </div>
               <div class="description-container">
-                <span class="label">行为描述:</span>
+                <span class="label">{{ $t("legacy.1eopnzm") }}</span>
                 <div class="description-text">{{ item.description }}</div>
               </div>
             </div>

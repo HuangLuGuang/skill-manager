@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"skill-manager/scanner/internal/localize"
 )
 
 type FileEntry struct {
@@ -71,10 +73,21 @@ func Build(root string, opts Options) (Manifest, error) {
 			return nil
 		}
 		if opts.MaxFileBytes > 0 && info.Size() > opts.MaxFileBytes {
-			return fmt.Errorf("file too large: %s (%d bytes)", path, info.Size())
+			return fmt.Errorf(
+				localize.Text("文件过大：%s（%d 字节）", "file too large: %s (%d bytes)"),
+				path,
+				info.Size(),
+			)
 		}
 		if opts.MaxFiles > 0 && len(result.Files) >= opts.MaxFiles {
-			return fmt.Errorf("Skill 文件数量超过限制：当前至少 %d 个，最多允许 %d 个", len(result.Files)+1, opts.MaxFiles)
+			return fmt.Errorf(
+				localize.Text(
+					"Skill 文件数量超过限制：当前至少 %d 个，最多允许 %d 个",
+					"Skill file count exceeds the limit: at least %d files found, maximum %d",
+				),
+				len(result.Files)+1,
+				opts.MaxFiles,
+			)
 		}
 		rel, err := safeRel(absRoot, path)
 		if err != nil {
@@ -86,7 +99,14 @@ func Build(root string, opts Options) (Manifest, error) {
 		}
 		result.TotalBytes += info.Size()
 		if opts.MaxTotalBytes > 0 && result.TotalBytes > opts.MaxTotalBytes {
-			return fmt.Errorf("skill package too large: %s (%d bytes)", absRoot, result.TotalBytes)
+			return fmt.Errorf(
+				localize.Text(
+					"Skill 包过大：%s（%d 字节）",
+					"Skill package too large: %s (%d bytes)",
+				),
+				absRoot,
+				result.TotalBytes,
+			)
 		}
 		result.Files = append(result.Files, FileEntry{
 			Path:   rel,
@@ -114,7 +134,10 @@ func safeRel(root string, path string) (string, error) {
 		return "", err
 	}
 	if rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." || filepath.IsAbs(rel) {
-		return "", fmt.Errorf("path escapes skill root: %s", path)
+		return "", fmt.Errorf(
+			localize.Text("路径超出 Skill 根目录：%s", "path escapes Skill root: %s"),
+			path,
+		)
 	}
 	return filepath.ToSlash(rel), nil
 }

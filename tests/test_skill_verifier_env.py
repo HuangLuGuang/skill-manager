@@ -31,6 +31,15 @@ def test_verifier_prefers_specific_env(monkeypatch):
     assert verifier.resolve_token(args) == "verifier-token"
 
 
+def test_verifier_sends_requested_language(monkeypatch):
+    verifier = _load_verifier()
+    monkeypatch.setenv("AGENT_MANAGER_VERIFIER_LANG", "en-US")
+
+    request = verifier._json_request("GET", "http://agent-manager/api", "amat_test", None)
+
+    assert request.get_header("Accept-language") == "en-US"
+
+
 def test_verifier_command_verify_checks_signature_then_can_load(tmp_path, monkeypatch, capsys):
     verifier = _load_verifier()
     skill_dir = tmp_path / "skill"
@@ -165,6 +174,51 @@ def test_verifier_main_uses_api_skill_status_for_guidance(monkeypatch, capsys):
 
     out = capsys.readouterr().out
     assert "审批通过该 Skill" in out
+
+
+def test_verifier_uses_error_code_for_english_guidance(monkeypatch, capsys):
+    verifier = _load_verifier()
+    monkeypatch.setenv("AGENT_MANAGER_VERIFIER_LANG", "en-US")
+
+    def fail_with_api_error(args):
+        raise verifier.ApiError(
+            403,
+            "The Agent is not authorized to use this Skill",
+            "APPROVED",
+            "agent.skill_not_allowed",
+        )
+
+    monkeypatch.setattr(verifier, "command_status", fail_with_api_error)
+
+    assert verifier.main(["status", "--skill-id", "skill-1"]) == 1
+    out = capsys.readouterr().out
+    assert "Blocked: Agent Manager API returned 403" in out
+    assert "must also be assigned to this Agent" in out
+
+
+def test_verifier_local_block_reason_is_english(monkeypatch, tmp_path, capsys):
+    verifier = _load_verifier()
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: pending-skill\n---\n", encoding="utf-8")
+    monkeypatch.setenv("AGENT_MANAGER_VERIFIER_LANG", "en-US")
+    monkeypatch.setenv("AGENT_MANAGER_VERIFIER_BASE_URL", "http://agent-manager")
+    monkeypatch.setenv("AGENT_MANAGER_VERIFIER_TOKEN", "amat_test")
+    monkeypatch.setenv("AGENT_ID", "risk-agent")
+    monkeypatch.setattr(
+        verifier,
+        "api_request",
+        lambda *args, **kwargs: {
+            "allowed": True,
+            "skill_name": "pending-skill",
+            "status": "PENDING",
+        },
+    )
+
+    assert verifier.main(["verify", "--path", str(skill_dir)]) == 1
+    out = capsys.readouterr().out
+    assert "Blocked: The Skill has not been approved status=PENDING" in out
+    assert "尚未审批" not in out
 
 
 def test_api_request_rejects_non_object_json_response(monkeypatch):

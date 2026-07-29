@@ -1,42 +1,42 @@
 <template>
   <div>
-    <a-page-header title="Skill 列表" sub-title="查看已提交的 Skill 并进入详情页" />
+    <a-page-header :title="$t('legacy.1k48rmt')" :sub-title="$t('legacy.trx6mc')" />
 
     <a-card style="margin-top: 16px">
       <a-space wrap style="margin-bottom: 16px">
         <a-input
           v-model:value="keyword"
-          placeholder="搜索 Skill 名称 / ID / 审批人"
+          :placeholder="$t('legacy.kh4kre')"
           style="width: 280px"
           allow-clear
           @pressEnter="handleKeywordSearch"
           @change="handleKeywordInputChange"
         />
         <a-select v-model:value="status" style="width: 260px">
-          <a-select-option value="all">全部状态</a-select-option>
+          <a-select-option value="all">{{ $t("legacy.igzce8") }}</a-select-option>
           <a-select-option v-for="item in statusOptions" :key="item.value" :value="item.value">
             {{ item.label }}
           </a-select-option>
         </a-select>
         <a-select v-model:value="risk" style="width: 160px">
-          <a-select-option value="all">全部风险</a-select-option>
+          <a-select-option value="all">{{ $t("legacy.hah0r4") }}</a-select-option>
           <a-select-option v-for="item in riskOptions" :key="item.value" :value="item.value">
             {{ item.label }}
           </a-select-option>
         </a-select>
         <a-select v-model:value="sandboxFilter" style="width: 180px">
-          <a-select-option value="all">全部 Sandbox</a-select-option>
-          <a-select-option value="triggered">仅已触发</a-select-option>
-          <a-select-option value="policy">仅策略强制</a-select-option>
+          <a-select-option value="all">{{ $t("legacy.1u4z956") }}</a-select-option>
+          <a-select-option value="triggered">{{ $t("legacy.1da4nqr") }}</a-select-option>
+          <a-select-option value="policy">{{ $t("legacy.s4jlvl") }}</a-select-option>
         </a-select>
-        <a-button type="primary" @click="handleKeywordSearch" :loading="loading">查询</a-button>
-        <a-button @click="resetFilters" :disabled="loading">重置</a-button>
-        <a-button @click="fetchSkills" :loading="loading">刷新</a-button>
-        <a-button type="primary" @click="$router.push('/submit')">提交 Skill</a-button>
+        <a-button type="primary" @click="handleKeywordSearch" :loading="loading">{{ text('查询', 'Search') }}</a-button>
+        <a-button @click="resetFilters" :disabled="loading">{{ text('重置', 'Reset') }}</a-button>
+        <a-button @click="fetchSkills" :loading="loading">{{ text('刷新', 'Refresh') }}</a-button>
+        <a-button type="primary" @click="$router.push('/submit')">{{ text('提交 Skill', 'Submit Skill') }}</a-button>
       </a-space>
 
       <div class="table-meta">
-        共 {{ total }} 条，当前显示第 {{ pagination.current }} 页
+        {{ listMetaText }}
       </div>
 
       <a-table
@@ -45,7 +45,7 @@
         rowKey="skill_id"
         :loading="loading"
         :pagination="pagination"
-        :locale="{ emptyText: '暂无 Skill 数据' }"
+        :locale="{ emptyText: $t('legacy.1exbp9c') }"
         @change="handleTableChange"
       >
         <template #bodyCell="{ column, record }">
@@ -70,17 +70,17 @@
           <template v-else-if="column.key === 'sandbox'">
             <a-space wrap>
               <a-tag v-if="record.sandbox_triggered" color="blue">{{ record.sandbox_runtime || 'sandbox' }}</a-tag>
-              <a-tag v-if="record.sandbox_required_by_policy" color="orange">策略强制</a-tag>
+              <a-tag v-if="record.sandbox_required_by_policy" color="orange">{{ $t("legacy.pf5db8") }}</a-tag>
               <span v-if="!record.sandbox_triggered" style="color: #8c8c8c">-</span>
             </a-space>
           </template>
           <template v-else-if="column.key === 'actions'">
             <a-space class="actions-cell">
-              <a @click="$router.push(`/skills/${record.skill_id}`)">详情</a>
+              <a @click="$router.push(`/skills/${record.skill_id}`)">{{ text('详情', 'Details') }}</a>
               <a-divider type="vertical" />
               <a-dropdown>
                 <a class="ant-dropdown-link" @click.prevent>
-                  更多 <DownOutlined />
+                  {{ text('更多', 'More') }} <DownOutlined />
                 </a>
                 <template #overlay>
                   <a-menu>
@@ -88,14 +88,14 @@
                       :disabled="record.status === 'PENDING' || Boolean(actionKey)"
                       @click="handleRescan(record)"
                     >
-                      {{ actionKey === `rescan:${record.skill_id}` ? '重新检测中...' : '重新检测' }}
+                      {{ actionKey === `rescan:${record.skill_id}` ? text('重新检测中...', 'Rescanning...') : text('重新检测', 'Rescan') }}
                     </a-menu-item>
                     <a-menu-item
                       v-if="record.status === 'PENDING'"
                       :disabled="Boolean(actionKey)"
                       @click="confirmCancel(record)"
                     >
-                      {{ actionKey === `cancel:${record.skill_id}` ? '取消中...' : '取消任务' }}
+                      {{ actionKey === `cancel:${record.skill_id}` ? text('取消中...', 'Cancelling...') : text('取消任务', 'Cancel Task') }}
                     </a-menu-item>
                     <a-menu-divider />
                     <a-menu-item
@@ -103,7 +103,7 @@
                       :disabled="Boolean(actionKey)"
                       @click="confirmDelete(record)"
                     >
-                      {{ actionKey === `delete:${record.skill_id}` ? '删除中...' : '删除' }}
+                      {{ actionKey === `delete:${record.skill_id}` ? text('删除中...', 'Deleting...') : text('删除', 'Delete') }}
                     </a-menu-item>
                   </a-menu>
                 </template>
@@ -118,13 +118,17 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { translateLegacy as phrase } from '../i18n'
+
+import { computed, onMounted, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { DownOutlined } from '@ant-design/icons-vue'
 
 import { deleteSkill, listSkillsPaged, rejectSkill, rescanSkill } from '../api'
+import { useLocaleText } from '../i18n/useLocaleText'
 import { formatDateTime } from '../utils/format'
 
+const { isEnglish, text } = useLocaleText()
 const keyword = ref('')
 const status = ref('all')
 const risk = ref('all')
@@ -140,30 +144,34 @@ const pagination = ref({
   total: 0,
   showSizeChanger: true,
   pageSizeOptions: ['10', '20', '50'],
-  showTotal: (value) => `共 ${value} 条`,
+  showTotal: (value) => text(`共 ${value} 条`, `${value} total`),
 })
-const statusOptions = [
-  { value: 'PENDING,VETTED', label: '待处理（Pending / Vetted）' },
-  { value: 'APPROVED', label: '可使用（Approved）' },
-  { value: 'cancelled', label: 'Cancelled（已取消）' },
-  { value: 'REJECTED', label: '已拒绝（Rejected）' },
-]
-const riskOptions = [
-  { value: 'benign', label: 'benign（安全）' },
-  { value: 'suspicious', label: 'suspicious（可疑）' },
-  { value: 'malicious', label: 'malicious（恶意）' },
-]
+const listMetaText = computed(() => text(
+  `共 ${total.value} 条，当前显示第 ${pagination.value.current} 页`,
+  `${total.value} total, page ${pagination.value.current}`,
+))
+const statusOptions = computed(() => [
+  { value: 'PENDING,VETTED', label: text('待处理（Pending / Vetted）', 'Pending / Vetted') },
+  { value: 'APPROVED', label: text('可使用（Approved）', 'Approved') },
+  { value: 'cancelled', label: text('Cancelled（已取消）', 'Cancelled') },
+  { value: 'REJECTED', label: text('已拒绝（Rejected）', 'Rejected') },
+])
+const riskOptions = computed(() => [
+  { value: 'benign', label: text('benign（安全）', 'benign') },
+  { value: 'suspicious', label: text('suspicious（可疑）', 'suspicious') },
+  { value: 'malicious', label: text('malicious（恶意）', 'malicious') },
+])
 
-const columns = [
-  { title: 'Skill 名称', dataIndex: 'name', key: 'name', sorter: true },
+const columns = computed(() => [
+  { title: text('Skill 名称', 'Skill Name'), dataIndex: 'name', key: 'name', sorter: true },
   { title: 'Skill ID', dataIndex: 'skill_id', key: 'skill_id', width: 110, sorter: true },
-  { title: '状态', dataIndex: 'status', key: 'status', width: 180, sorter: true },
-  { title: '风险', dataIndex: 'risk_level', key: 'risk', width: 160, sorter: true },
+  { title: text('状态', 'Status'), dataIndex: 'status', key: 'status', width: 180, sorter: true },
+  { title: text('风险', 'Risk'), dataIndex: 'risk_level', key: 'risk', width: 160, sorter: true },
   { title: 'Sandbox', key: 'sandbox', width: 180 },
-  { title: '审批人', dataIndex: 'approved_by', key: 'approved_by', width: 160, sorter: true },
-  { title: '扫描时间', dataIndex: 'updated_at', key: 'updated_at', width: 190, sorter: true, customRender: ({ text }) => formatDateTime(text) },
-  { title: '操作', key: 'actions', width: 120 },
-]
+  { title: text('审批人', 'Approver'), dataIndex: 'approved_by', key: 'approved_by', width: 160, sorter: true },
+  { title: text('扫描时间', 'Scan Time'), dataIndex: 'updated_at', key: 'updated_at', width: 190, sorter: true, customRender: ({ text: value }) => formatDateTime(value) },
+  { title: text('操作', 'Actions'), key: 'actions', width: 120 },
+])
 
 const fetchSkills = async () => {
   loading.value = true
@@ -188,7 +196,7 @@ const fetchSkills = async () => {
       pageSize: Number(res.page_size || pagination.value.pageSize),
     }
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取 Skill 列表失败')
+    message.error(error.response?.data?.detail || phrase('legacy.rdg3cq'))
     rows.value = []
     total.value = 0
   } finally {
@@ -246,25 +254,25 @@ const handleRescan = async (record) => {
   actionKey.value = `rescan:${record.skill_id}`
   try {
     await rescanSkill(record.skill_id)
-    message.success('已提交重新检测')
+    message.success(phrase('legacy.1mc7sgd'))
     fetchSkills()
   } catch (error) {
-    message.error(error.response?.data?.detail || '重新检测失败')
+    message.error(error.response?.data?.detail || phrase('legacy.17vebon'))
   } finally {
     actionKey.value = ''
   }
 }
 
 const currentUser = () => localStorage.getItem('username') || 'admin'
-const cancelledReason = '用户取消后台分析任务'
+const cancelledReason = phrase('legacy.1fphrle')
 const isCancelled = (record) => record?.status === 'REJECTED' && record?.rejection_reason === cancelledReason
 
 const confirmCancel = (record) => {
   Modal.confirm({
-    title: `取消分析任务：${record.name}`,
-    content: '取消后该 Skill 将停止等待后台分析结果，并在列表中显示为 Cancelled。',
-    okText: '取消任务',
-    cancelText: '返回',
+    title: text(`取消分析任务：${record.name}`, `Cancel analysis: ${record.name}`),
+    content: phrase('legacy.1qvsm47'),
+    okText: phrase('legacy.1ujkph7'),
+    cancelText: phrase('legacy.omytgn'),
     onOk: () => handleCancel(record),
   })
 }
@@ -276,10 +284,10 @@ const handleCancel = async (record) => {
       reviewer: currentUser(),
       reason: cancelledReason,
     })
-    message.success('已取消分析任务')
+    message.success(phrase('legacy.lkn23t'))
     fetchSkills()
   } catch (error) {
-    message.error(error.response?.data?.detail || '取消任务失败')
+    message.error(error.response?.data?.detail || phrase('legacy.nisji9'))
   } finally {
     actionKey.value = ''
   }
@@ -287,11 +295,11 @@ const handleCancel = async (record) => {
 
 const confirmDelete = (record) => {
   Modal.confirm({
-    title: `删除 Skill：${record.name}`,
-    content: '只删除列表记录，不会删除磁盘上的 Skill 目录。',
-    okText: '删除',
+    title: text(`删除 Skill：${record.name}`, `Delete Skill: ${record.name}`),
+    content: phrase('legacy.1x1o9bb'),
+    okText: phrase('legacy.1t2vi4h'),
     okType: 'danger',
-    cancelText: '取消',
+    cancelText: phrase('legacy.1589w37'),
     onOk: () => handleDelete(record),
   })
 }
@@ -300,13 +308,13 @@ const handleDelete = async (record) => {
   actionKey.value = `delete:${record.skill_id}`
   try {
     await deleteSkill(record.skill_id)
-    message.success('已删除 Skill 记录')
+    message.success(phrase('legacy.1xaqb1r'))
     if (rows.value.length === 1 && pagination.value.current > 1) {
       pagination.value = { ...pagination.value, current: pagination.value.current - 1 }
     }
     fetchSkills()
   } catch (error) {
-    message.error(error.response?.data?.detail || '删除 Skill 失败')
+    message.error(error.response?.data?.detail || phrase('legacy.192fss2'))
   } finally {
     actionKey.value = ''
   }
@@ -329,25 +337,27 @@ const statusColor = (value) =>
 
 const statusTitle = (value) =>
   ({
-    PENDING: '分析中',
-    VETTED: '待审核',
-    APPROVED: '已批准',
-    DEPLOYED: '已部署',
-    REJECTED: '已拒绝',
-    RETIRED: '已退役',
-  }[value] || '未知')
+    PENDING: phrase('legacy.viveky'),
+    VETTED: phrase('legacy.a2uv9t'),
+    APPROVED: phrase('legacy.10hmnl2'),
+    DEPLOYED: phrase('legacy.1t00jqn'),
+    REJECTED: phrase('legacy.16h1qdk'),
+    RETIRED: phrase('legacy.1vdmo1u'),
+  }[value] || phrase('legacy.1lpnuh4'))
 const statusDisplay = (value, record) => {
-  if (isCancelled(record)) return 'Cancelled（已取消）'
+  if (isCancelled(record)) return text('Cancelled（已取消）', 'CANCELLED')
+  if (isEnglish.value) return value || '-'
   return value ? `${value}（${statusTitle(value)}）` : '-'
 }
 const riskDisplay = (value) => {
   const text = String(value || 'unknown')
+  if (isEnglish.value) return text
   const zh = {
-    benign: '安全',
-    suspicious: '可疑',
-    malicious: '恶意',
-    unknown: '未知',
-  }[text.toLowerCase()] || '未知'
+    benign: phrase('legacy.1apxo2s'),
+    suspicious: phrase('legacy.1x3ukv1'),
+    malicious: phrase('legacy.m36raq'),
+    unknown: phrase('legacy.1lpnuh4'),
+  }[text.toLowerCase()] || phrase('legacy.1lpnuh4')
   return `${text}（${zh}）`
 }
 
