@@ -1,8 +1,8 @@
 <template>
   <div>
-    <a-page-header title="平台总览" sub-title="查看智能体、Skill、模型网关与运行时 Prompt 防护状态">
+    <a-page-header :title="$t('legacy.1jy0sj1')" :sub-title="$t('legacy.1urpidh')">
       <template #extra>
-        <a-button type="primary" @click="guideVisible = true">接入向导</a-button>
+        <a-button type="primary" @click="guideVisible = true">{{ $t("legacy.u03t1e") }}</a-button>
       </template>
     </a-page-header>
 
@@ -10,7 +10,7 @@
       <a-col :xs="24" :md="8" v-for="item in moduleCards" :key="item.key">
         <a-card class="module-card" :title="item.title">
           <template #extra>
-            <a-button type="link" size="small" @click="$router.push(item.path)">进入</a-button>
+            <a-button type="link" size="small" @click="$router.push(item.path)">{{ $t("legacy.58gz2l") }}</a-button>
           </template>
           <div class="module-primary">
             <span class="module-value">{{ item.value }}</span>
@@ -25,7 +25,7 @@
             </a-col>
           </a-row>
           <div class="module-flow">
-            <div class="module-flow-title">接入路径</div>
+            <div class="module-flow-title">{{ $t("legacy.1f4me9o") }}</div>
             <div class="module-flow-steps">
               <span v-for="(step, index) in item.flow" :key="step" class="flow-step">
                 {{ step }}<span v-if="index < item.flow.length - 1" class="flow-arrow">→</span>
@@ -38,13 +38,13 @@
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24" :xl="15">
-        <a-card title="待办中心">
+        <a-card :title="$t('legacy.jsrb0i')">
           <a-table
             :data-source="todoRows"
             :columns="todoColumns"
             rowKey="id"
             :pagination="{ pageSize: 8 }"
-            :locale="{ emptyText: '当前没有待处理事项' }"
+            :locale="{ emptyText: $t('legacy.ar9qc8') }"
           >
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'type'">
@@ -61,7 +61,7 @@
                 <a-tag :color="riskColor(record.risk)">{{ riskDisplay(record.risk) }}</a-tag>
               </template>
               <template v-else-if="column.key === 'action'">
-                <a-button type="link" size="small" @click="$router.push(record.path)">处理</a-button>
+                <a-button type="link" size="small" @click="$router.push(record.path)">{{ $t("legacy.1p3h5cf") }}</a-button>
               </template>
             </template>
           </a-table>
@@ -69,14 +69,14 @@
       </a-col>
 
       <a-col :xs="24" :xl="9">
-        <a-card title="近期运行事件">
-          <a-list :data-source="recentEvents" bordered :locale="{ emptyText: '最近没有高风险或阻断事件' }">
+        <a-card :title="$t('legacy.19kwidw')">
+          <a-list :data-source="recentEvents" bordered :locale="{ emptyText: $t('legacy.1mta22k') }">
             <template #renderItem="{ item }">
               <a-list-item>
                 <a-space direction="vertical" size="small">
                   <a-space>
                     <a-tag :color="eventColor(item.event_type)">{{ eventDisplay(item.event_type) }}</a-tag>
-                    <strong>{{ item.skill_name || item.skill_id || '运行事件' }}</strong>
+                    <strong>{{ item.skill_name || item.skill_id || $t('legacy.1rbdzwg') }}</strong>
                   </a-space>
                   <span class="muted-text">{{ item.actor || 'system' }} · {{ formatDateTime(item.timestamp) }}</span>
                   <span class="muted-text">{{ formatDetails(item.details, 3) }}</span>
@@ -90,17 +90,17 @@
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24" :xl="8">
-        <a-card title="治理状态分布">
+        <a-card :title="$t('legacy.1kyn3wu')">
           <Chart :options="governanceStatusChartOptions" height="300px" />
         </a-card>
       </a-col>
       <a-col :xs="24" :xl="8">
-        <a-card title="风险分布">
+        <a-card :title="$t('legacy.1blmte3')">
           <Chart :options="riskChartOptions" height="300px" />
         </a-card>
       </a-col>
       <a-col :xs="24" :xl="8">
-        <a-card title="风险来源发现项">
+        <a-card :title="$t('legacy.1pp4tl3')">
           <Chart :options="riskSourceChartOptions" height="300px" />
         </a-card>
       </a-col>
@@ -108,46 +108,46 @@
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24" :xl="14">
-        <a-card title="模型网关 Token 与压缩趋势">
+        <a-card :title="$t('legacy.zoebks')">
           <Chart :options="gatewayTrendChartOptions" height="320px" />
         </a-card>
       </a-col>
       <a-col :xs="24" :xl="10">
-        <a-card title="模型调用 Top">
+        <a-card :title="$t('legacy.dc6gel')">
           <Chart :options="gatewayModelChartOptions" height="320px" />
         </a-card>
       </a-col>
     </a-row>
 
-    <a-modal v-model:open="guideVisible" title="平台接入向导" width="980px" :footer="null">
+    <a-modal v-model:open="guideVisible" :title="$t('legacy.8y18tl')" width="980px" :footer="null">
       <a-row :gutter="[16, 16]">
         <a-col :xs="24" :lg="12">
-          <a-card size="small" title="用法一：只做 Skill 治理">
+          <a-card size="small" :title="$t('legacy.xlet5m')">
             <a-steps size="small" direction="vertical" :current="3">
-              <a-step title="提交或扫描 Skill" description="上传 ZIP，或用 Skill 扫描器批量扫描本地 skills 目录。" />
-              <a-step title="平台分析风险" description="根据规则、深度分析、Sandbox 和 LLM 分析形成判断依据。" />
-              <a-step title="人工审核" description="审核通过后成为可信版本，可在 Skill 列表和详情中追踪结果。" />
-              <a-step title="治理留痕" description="提交、分析、审核和结论进入审计，便于追踪来源和责任人。" />
+              <a-step :title="$t('legacy.17yp2z2')" :description="$t('legacy.15814ra')" />
+              <a-step :title="$t('legacy.b3qxcp')" :description="$t('legacy.1tj0nfa')" />
+              <a-step :title="$t('legacy.mxm4hl')" :description="$t('legacy.tby29q')" />
+              <a-step :title="$t('legacy.ubr5hi')" :description="$t('legacy.16w5dv8')" />
             </a-steps>
             <a-space class="guide-actions" wrap>
-              <a-button @click="$router.push('/submit')">提交 Skill</a-button>
-              <a-button @click="$router.push('/skills')">查看 Skill 列表</a-button>
+              <a-button @click="$router.push('/submit')">{{ $t("legacy.knj41c") }}</a-button>
+              <a-button @click="$router.push('/skills')">{{ $t("legacy.zg4apj") }}</a-button>
             </a-space>
           </a-card>
         </a-col>
         <a-col :xs="24" :lg="12">
-          <a-card size="small" title="用法二：约束 Agent 运行">
+          <a-card size="small" :title="$t('legacy.ypga3u')">
             <a-steps size="small" direction="vertical" :current="4">
-              <a-step title="先完成 Skill 治理" description="只有已批准的 Skill 才能绑定给 Agent。" />
-              <a-step title="登记 Agent" description="维护部门、负责人、默认模型和允许 Skill 范围。" />
-              <a-step title="签发运行凭证" description="在统一凭证中心创建 Agent 运行凭证，作为运行身份。" />
-              <a-step title="集成 Skill Verifier" description="Agent 加载 Skill 前向平台校验状态、授权和内容指纹。" />
-              <a-step title="审计追踪" description="查看哪个 Agent、哪个 IP、哪个凭证使用或阻断了哪个 Skill。" />
+              <a-step :title="$t('legacy.15vaur7')" :description="$t('legacy.19o7rej')" />
+              <a-step :title="$t('legacy.1sye9u7')" :description="$t('legacy.1oytr3a')" />
+              <a-step :title="$t('legacy.1odwfha')" :description="$t('legacy.e0nfzo')" />
+              <a-step :title="$t('legacy.1y6ts4k')" :description="$t('legacy.c6ttxt')" />
+              <a-step :title="$t('legacy.13omz3w')" :description="$t('legacy.y0e5jz')" />
             </a-steps>
             <a-space class="guide-actions" wrap>
-              <a-button @click="$router.push('/agents')">管理 Agent</a-button>
-              <a-button @click="$router.push('/credentials')">创建凭证</a-button>
-              <a-button type="primary" @click="$router.push('/runtime')">接入与运行</a-button>
+              <a-button @click="$router.push('/agents')">{{ $t("legacy.1dq96hb") }}</a-button>
+              <a-button @click="$router.push('/credentials')">{{ $t("legacy.xm5sv6") }}</a-button>
+              <a-button type="primary" @click="$router.push('/runtime')">{{ $t("legacy.ppwp4v") }}</a-button>
             </a-space>
           </a-card>
         </a-col>
@@ -158,6 +158,8 @@
 </template>
 
 <script setup>
+import { translateLegacy as phrase } from '../i18n'
+
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
 
@@ -174,8 +176,10 @@ import {
   listModelEndpoints,
   listModelProviders,
 } from '../api'
+import { useLocaleText } from '../i18n/useLocaleText'
 import { formatDateTime, formatDetails } from '../utils/format'
 
+const { text } = useLocaleText()
 const skillSummary = ref({ total: 0, status_counts: {}, risk_counts: {}, todos: [] })
 const agentRows = ref([])
 const providerRows = ref([])
@@ -226,44 +230,44 @@ const activeGatewayKeys = computed(() =>
 const moduleCards = computed(() => [
   {
     key: 'skills',
-    title: 'Skill 治理',
+    title: phrase('legacy.1meon5z'),
     path: '/submit',
     value: skillSummary.value.total,
-    label: '已提交 Skill',
-    flow: ['提交', '扫描', '审核', '可信版本'],
+    label: phrase('legacy.36m4ao'),
+    flow: [phrase('legacy.ybr38x'), phrase('legacy.1myljr3'), phrase('legacy.1ws11do'), phrase('legacy.jhvfft')],
     stats: [
-      { label: '待审核', value: skillStatusCount('VETTED') },
-      { label: '可加载', value: skillStatusCount(['APPROVED', 'DEPLOYED']) },
-      { label: '高风险', value: skillRiskCount(['suspicious', 'malicious']) },
-      { label: '已拒绝', value: skillStatusCount('REJECTED') },
+      { label: phrase('legacy.a2uv9t'), value: skillStatusCount('VETTED') },
+      { label: phrase('legacy.f2p4bp'), value: skillStatusCount(['APPROVED', 'DEPLOYED']) },
+      { label: phrase('legacy.197bn2e'), value: skillRiskCount(['suspicious', 'malicious']) },
+      { label: phrase('legacy.16h1qdk'), value: skillStatusCount('REJECTED') },
     ],
   },
   {
     key: 'agents',
-    title: '智能体管理',
+    title: phrase('legacy.5chjsa'),
     path: '/agents',
     value: agentRows.value.length,
-    label: '已登记智能体',
-    flow: ['创建 Agent', '绑定能力', '签发凭证', '接入守卫'],
+    label: phrase('legacy.g72beo'),
+    flow: [phrase('legacy.61qni9'), phrase('legacy.rvmkwi'), phrase('legacy.qiw836'), phrase('legacy.1xi4mpm')],
     stats: [
-      { label: '已启用', value: countByStatus(agentRows.value, 'active') },
-      { label: '绑定凭证', value: agentRows.value.filter((item) => item.runtime_token_id || item.runtime_token_name).length },
-      { label: '绑定 Skill', value: agentRows.value.reduce((sum, item) => sum + (item.skill_names?.length || 0), 0) },
-      { label: '默认模型', value: agentRows.value.filter((item) => item.default_model).length },
+      { label: phrase('legacy.1w2s4cy'), value: countByStatus(agentRows.value, 'active') },
+      { label: phrase('legacy.17bfydg'), value: agentRows.value.filter((item) => item.runtime_token_id || item.runtime_token_name).length },
+      { label: phrase('legacy.1nwtm7'), value: agentRows.value.reduce((sum, item) => sum + (item.skill_names?.length || 0), 0) },
+      { label: phrase('legacy.9tnz09'), value: agentRows.value.filter((item) => item.default_model).length },
     ],
   },
   {
     key: 'gateway',
-    title: '模型网关与 Prompt 防护',
+    title: phrase('legacy.mfpzot'),
     path: '/model-gateway/models',
     value: modelRows.value.length,
-    label: '已配置模型',
-    flow: ['配置供应商', '添加模型', '签发凭证', 'Prompt 防护'],
+    label: phrase('legacy.1aglluu'),
+    flow: [phrase('legacy.15teb0h'), phrase('legacy.17lmhaa'), phrase('legacy.qiw836'), phrase('legacy.5h548n')],
     stats: [
-      { label: '可用模型', value: modelRows.value.filter((item) => item.enabled).length },
-      { label: '供应商', value: providerRows.value.length },
-      { label: 'Prompt 风险', value: privacyStats.value.prompt_guard_events || 0 },
-      { label: '阻断', value: privacyStats.value.prompt_guard_blocked || 0 },
+      { label: phrase('legacy.103n846'), value: modelRows.value.filter((item) => item.enabled).length },
+      { label: phrase('legacy.1x7qpl0'), value: providerRows.value.length },
+      { label: phrase('legacy.tcjr24'), value: privacyStats.value.prompt_guard_events || 0 },
+      { label: phrase('legacy.1fsazit'), value: privacyStats.value.prompt_guard_blocked || 0 },
     ],
   },
 ])
@@ -274,7 +278,7 @@ const todoRows = computed(() => {
       id: `skill-${item.skill_id}`,
       type: 'Skill',
       name: item.name,
-      description: '等待人工审核',
+      description: phrase('legacy.1rgqqjv'),
       status: item.status,
       risk: item.risk_level,
       time: item.submitted_at,
@@ -293,12 +297,12 @@ const recentEvents = computed(() =>
 )
 
 const todoColumns = [
-  { title: '类型', dataIndex: 'type', key: 'type', width: 100 },
-  { title: '对象', dataIndex: 'name', key: 'name' },
-  { title: '状态', dataIndex: 'status', key: 'status', width: 110 },
-  { title: '风险', dataIndex: 'risk', key: 'risk', width: 100 },
-  { title: '时间', dataIndex: 'time', key: 'time', width: 180, customRender: ({ text }) => formatDateTime(text) },
-  { title: '操作', key: 'action', width: 80 },
+  { title: phrase('legacy.anh4cj'), dataIndex: 'type', key: 'type', width: 100 },
+  { title: phrase('legacy.1hptjin'), dataIndex: 'name', key: 'name' },
+  { title: phrase('legacy.1ccx4t4'), dataIndex: 'status', key: 'status', width: 110 },
+  { title: phrase('legacy.1qgsa3s'), dataIndex: 'risk', key: 'risk', width: 100 },
+  { title: phrase('legacy.1f90xvr'), dataIndex: 'time', key: 'time', width: 180, customRender: ({ text }) => formatDateTime(text) },
+  { title: phrase('legacy.501w24'), key: 'action', width: 80 },
 ]
 
 const buildBarChart = (title, items, color) => ({
@@ -326,7 +330,7 @@ const governanceStatusChartOptions = computed(() => {
   return {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
     legend: { top: 0 },
-    xAxis: { type: 'category', data: statuses.map(statusDisplay), axisTick: { show: false } },
+    xAxis: { type: 'category', data: statuses.map(statusDisplay), axisTick: { show: false }, axisLabel: { interval: 0 } },
     yAxis: { type: 'value', minInterval: 1 },
     series: [
       {
@@ -342,23 +346,28 @@ const governanceStatusChartOptions = computed(() => {
 
 const riskChartOptions = computed(() => {
   const rows = [
-    { label: '安全', value: skillRiskCount('benign') },
-    { label: '可疑', value: skillRiskCount('suspicious') },
-    { label: '恶意', value: skillRiskCount('malicious') },
+    { label: text('安全', 'Safe'), value: skillRiskCount('benign') },
+    { label: text('可疑', 'Suspicious'), value: skillRiskCount('suspicious') },
+    { label: text('恶意', 'Malicious'), value: skillRiskCount('malicious') },
   ]
-  return buildBarChart('风险对象', rows, '#d97706')
+  return buildBarChart(text('风险对象', 'Risk Objects'), rows, '#d97706')
 })
 
 const riskSourceChartOptions = computed(() => {
   const fallback = [
-    { key: 'rule', label: '规则分析', count: 0, skills: 0 },
-    { key: 'llm', label: '大模型分析', count: 0, skills: 0 },
+    { key: 'rule', label: text('规则分析', 'Rule Analysis'), count: 0, skills: 0 },
+    { key: 'llm', label: text('大模型分析', 'LLM Analysis'), count: 0, skills: 0 },
     { key: 'sandbox', label: 'Sandbox', count: 0, skills: 0 },
-    { key: 'skillspector', label: '深度分析', count: 0, skills: 0 },
+    { key: 'skillspector', label: text('深度分析', 'Deep Analysis'), count: 0, skills: 0 },
   ]
   const rows = riskSourceRows.value.length ? riskSourceRows.value.map((item) => ({
     ...item,
-    label: item.key === 'skillspector' ? '深度分析' : item.label,
+    label: ({
+      rule: text('规则分析', 'Rule Analysis'),
+      llm: text('大模型分析', 'LLM Analysis'),
+      sandbox: 'Sandbox',
+      skillspector: text('深度分析', 'Deep Analysis'),
+    }[item.key] || item.label),
   })) : fallback
   const colors = {
     rule: '#2563eb',
@@ -374,17 +383,17 @@ const riskSourceChartOptions = computed(() => {
         const row = rows[params?.[0]?.dataIndex] || {}
         return [
           `<strong>${row.label}</strong>`,
-          `发现项：${row.count || 0}`,
-          `涉及 Skill：${row.skills || 0}`,
-          `严重/高/中/低：${row.critical || 0}/${row.high || 0}/${row.medium || 0}/${row.low || 0}`,
+          `${text('发现项', 'Findings')}: ${row.count || 0}`,
+          `${text('涉及 Skill', 'Affected Skills')}: ${row.skills || 0}`,
+          `${text('严重/高/中/低', 'Critical/High/Medium/Low')}: ${row.critical || 0}/${row.high || 0}/${row.medium || 0}/${row.low || 0}`,
         ].join('<br/>')
       },
     },
-    xAxis: { type: 'category', data: rows.map((item) => item.label), axisTick: { show: false } },
+    xAxis: { type: 'category', data: rows.map((item) => item.label), axisTick: { show: false }, axisLabel: { interval: 0 } },
     yAxis: { type: 'value', minInterval: 1 },
     series: [
       {
-        name: '发现项',
+        name: text('发现项', 'Findings'),
         type: 'bar',
         data: rows.map((item) => ({
           value: item.count || 0,
@@ -406,7 +415,7 @@ const gatewayTrendChartOptions = computed(() => {
     yAxis: { type: 'value', minInterval: 1 },
     series: [
       {
-        name: '调用次数',
+        name: text('调用次数', 'Requests'),
         type: 'line',
         smooth: true,
         data: rows.map((item) => item.requests || 0),
@@ -414,7 +423,7 @@ const gatewayTrendChartOptions = computed(() => {
         areaStyle: { color: 'rgba(37, 99, 235, 0.12)' },
       },
       {
-        name: '节省 Token',
+        name: text('节省 Token', 'Tokens Saved'),
         type: 'line',
         smooth: true,
         data: rows.map((item) => item.tokens_saved || 0),
@@ -428,7 +437,7 @@ const gatewayTrendChartOptions = computed(() => {
 const gatewayModelChartOptions = computed(() => {
   const rows = gatewayModelRows.value.slice(0, 8)
   return buildBarChart(
-    '调用次数',
+    text('调用次数', 'Requests'),
     rows.map((item) => ({ label: item.model || 'unknown', value: item.requests || 0 })),
     '#7c3aed',
   )
@@ -472,7 +481,7 @@ const fetchDashboard = async () => {
     gatewayDailyRows.value = toArray(llmDaily, 'series')
     gatewayModelRows.value = toArray(llmByModel, 'models')
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取平台总览数据失败')
+    message.error(error.response?.data?.detail || phrase('legacy.uut6dg'))
   }
 }
 
@@ -500,14 +509,14 @@ const statusColor = (value) =>
 
 const statusDisplay = (value) =>
   ({
-    PENDING: '分析中',
-    VETTED: '待审核',
-    APPROVED: '已批准',
-    DEPLOYED: '已启用',
-    REJECTED: '已拒绝',
-    active: '已启用',
-    inactive: '未启用',
-    revoked: '已吊销',
+    PENDING: text('分析中', 'Analyzing'),
+    VETTED: text('待审核', 'Pending Review'),
+    APPROVED: text('已批准', 'Approved'),
+    DEPLOYED: text('已启用', 'Enabled'),
+    REJECTED: text('已拒绝', 'Rejected'),
+    active: text('已启用', 'Enabled'),
+    inactive: text('未启用', 'Disabled'),
+    revoked: text('已吊销', 'Revoked'),
   }[value] || value || '-')
 
 const riskColor = (value) =>
@@ -519,9 +528,9 @@ const riskColor = (value) =>
 
 const riskDisplay = (value) =>
   ({
-    benign: '安全',
-    suspicious: '可疑',
-    malicious: '恶意',
+    benign: text('安全', 'Safe'),
+    suspicious: text('可疑', 'Suspicious'),
+    malicious: text('恶意', 'Malicious'),
   }[value] || '-')
 
 const eventColor = (value) =>
@@ -534,10 +543,10 @@ const eventColor = (value) =>
 
 const eventDisplay = (value) =>
   ({
-    skill_load_blocked: '加载阻断',
-    skill_tamper_detected: '篡改阻断',
-    tool_blocked: '工具阻断',
-    skill_rejected: '审核拒绝',
+    skill_load_blocked: phrase('legacy.fxy726'),
+    skill_tamper_detected: phrase('legacy.v734gz'),
+    tool_blocked: phrase('legacy.uehlgl'),
+    skill_rejected: phrase('legacy.qwkmdx'),
   }[value] || value)
 
 onMounted(fetchDashboard)

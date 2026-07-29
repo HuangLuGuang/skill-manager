@@ -1,27 +1,38 @@
 <template>
-  <a-config-provider :locale="zhCN">
+  <a-config-provider :locale="antdLocale">
     <div v-if="authChecking" class="app-loading">
-      <a-spin size="large" tip="正在检查登录状态..." />
+      <a-spin size="large" :tip="$t('legacy.1ns3eta')" />
     </div>
     <a-layout v-else class="app-shell">
       <a-layout-header v-if="!isLoginPage" class="app-header">
         <div class="app-brand">
           <img :src="logoUrl" alt="Logo" class="app-logo" />
           <div>
-            <div class="app-title">Agent Manager Console</div>
-            <div class="app-subtitle">AI 智能体全生命周期管理平台</div>
+            <div class="app-title">{{ t('app.name') }}</div>
+            <div class="app-subtitle">{{ t('app.subtitle') }}</div>
           </div>
         </div>
-        <div v-if="userInfo" class="app-user">
+        <div class="app-user">
+          <a-select
+            v-model:value="locale"
+            class="language-select"
+            :aria-label="t('language.label')"
+            @change="handleLocaleChange"
+          >
+            <a-select-option value="zh-CN">{{ t('language.chinese') }}</a-select-option>
+            <a-select-option value="en-US">{{ t('language.english') }}</a-select-option>
+          </a-select>
           <a-dropdown>
+            <template v-if="userInfo">
             <a class="ant-dropdown-link" @click.prevent>
               {{ userInfo.username }}
               <DownOutlined />
             </a>
+            </template>
             <template #overlay>
               <a-menu>
-                <a-menu-item key="password" @click="passwordVisible = true">修改密码</a-menu-item>
-                <a-menu-item key="logout" @click="handleLogout">退出登录</a-menu-item>
+                <a-menu-item key="password" @click="passwordVisible = true">{{ $t("legacy.1pt7oo1") }}</a-menu-item>
+                <a-menu-item key="logout" @click="handleLogout">{{ $t("legacy.12hokt7") }}</a-menu-item>
               </a-menu>
             </template>
           </a-dropdown>
@@ -40,24 +51,33 @@
           />
         </a-layout-sider>
         <a-layout-content class="app-content">
-          <router-view />
+          <router-view :key="locale" />
         </a-layout-content>
       </a-layout>
 
-      <a-layout-content v-else>
-        <router-view />
+      <a-layout-content v-else class="login-content">
+        <a-select
+          v-model:value="locale"
+          class="login-language-select"
+          :aria-label="t('language.label')"
+          @change="handleLocaleChange"
+        >
+          <a-select-option value="zh-CN">{{ t('language.chinese') }}</a-select-option>
+          <a-select-option value="en-US">{{ t('language.english') }}</a-select-option>
+        </a-select>
+        <router-view :key="locale" />
       </a-layout-content>
     </a-layout>
 
-    <a-modal v-model:open="passwordVisible" title="修改密码" @ok="handlePasswordOk">
+    <a-modal v-model:open="passwordVisible" :title="$t('legacy.1pt7oo1')" @ok="handlePasswordOk">
       <a-form layout="vertical">
-        <a-form-item label="旧密码">
+        <a-form-item :label="$t('legacy.ib9p03')">
           <a-input-password v-model:value="passwordForm.oldPassword" />
         </a-form-item>
-        <a-form-item label="新密码">
+        <a-form-item :label="$t('legacy.9sfqbi')">
           <a-input-password v-model:value="passwordForm.newPassword" />
         </a-form-item>
-        <a-form-item label="确认新密码">
+        <a-form-item :label="$t('legacy.1b253gw')">
           <a-input-password v-model:value="passwordForm.confirmPassword" />
         </a-form-item>
       </a-form>
@@ -66,9 +86,13 @@
 </template>
 
 <script setup>
+import { translateLegacy as phrase } from './i18n'
+
 import { computed, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import zhCN from 'ant-design-vue/es/locale/zh_CN'
+import enUS from 'ant-design-vue/es/locale/en_US'
 import { message } from 'ant-design-vue'
 import {
   AuditOutlined,
@@ -88,11 +112,13 @@ import {
   UploadOutlined,
 } from '@ant-design/icons-vue'
 
-import { changePassword, checkSession, getLogoInfo, getMe } from './api'
+import { changePassword, checkSession, getLogoInfo, getMe, updateMyLocale } from './api'
+import { setLocale, translateLegacy } from './i18n'
 import { findMenuOpenKeys, navigationItems, resolveMenuKey } from './navigation'
 
 const router = useRouter()
 const route = useRoute()
+const { t, locale } = useI18n()
 const userInfo = ref(null)
 const authChecking = ref(true)
 const passwordVisible = ref(false)
@@ -123,14 +149,28 @@ const iconMap = {
   upload: UploadOutlined,
 }
 
+const antdLocale = computed(() => locale.value === 'en-US' ? enUS : zhCN)
+
 const buildMenuItem = (item) => ({
   key: item.key,
-  label: item.label,
+  label: translateLegacy(item.label),
   icon: item.icon && iconMap[item.icon] ? h(iconMap[item.icon]) : undefined,
   children: item.children?.map(buildMenuItem),
 })
 
 const menuItems = computed(() => navigationItems.map(buildMenuItem))
+
+const handleLocaleChange = async (value) => {
+  setLocale(value)
+  if (localStorage.getItem('token')) {
+    try {
+      await updateMyLocale(value)
+      if (userInfo.value) userInfo.value.preferred_locale = value
+    } catch {
+      // The local choice remains available when the server is temporarily unreachable.
+    }
+  }
+}
 
 let sessionCheckTimer = null
 
@@ -187,6 +227,12 @@ const stopSessionCheck = () => {
 const loadProfile = async () => {
   const me = await getMe()
   userInfo.value = me
+  if (me.preferred_locale && me.preferred_locale !== locale.value) {
+    setLocale(me.preferred_locale)
+  } else if (!me.preferred_locale) {
+    await updateMyLocale(locale.value)
+    me.preferred_locale = locale.value
+  }
 }
 
 const loadLogo = async () => {
@@ -212,15 +258,15 @@ const handleLogout = () => {
 
 const handlePasswordOk = async () => {
   if (!passwordForm.oldPassword || !passwordForm.newPassword) {
-    message.error('请填写完整密码信息')
+    message.error(phrase('legacy.ot6dw7'))
     return
   }
   if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-    message.error('两次输入的新密码不一致')
+    message.error(phrase('legacy.1c6u5vm'))
     return
   }
   await changePassword(passwordForm.oldPassword, passwordForm.newPassword)
-  message.success('密码已更新，请重新登录')
+  message.success(phrase('legacy.1fshup6'))
   passwordVisible.value = false
   handleLogout()
 }
@@ -310,6 +356,28 @@ onUnmounted(() => stopSessionCheck())
   color: #5a7188;
   line-height: 1.4;
   margin-top: 4px;
+}
+
+.app-user {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.language-select {
+  width: 132px;
+}
+
+.login-content {
+  position: relative;
+}
+
+.login-language-select {
+  position: fixed;
+  z-index: 20;
+  top: 20px;
+  right: 24px;
+  width: 132px;
 }
 
 .app-sider {

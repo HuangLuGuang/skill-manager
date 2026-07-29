@@ -91,7 +91,7 @@ def test_review_queue_all_sorts_pending_and_reviewed_by_sort_at(tmp_path):
     assert rows[1]["review_note"] == "需要人工审核"
 
 
-def test_review_queue_findings_summary_matches_scan_report_findings(tmp_path):
+def test_review_queue_uses_stored_findings_summary(tmp_path):
     client, manager = _client(tmp_path)
     pending = _entry("pending-with-findings", SkillStatus.VETTED, datetime(2026, 1, 2, tzinfo=timezone.utc))
     pending.vetting = VettingResult(
@@ -110,7 +110,7 @@ def test_review_queue_findings_summary_matches_scan_report_findings(tmp_path):
         skill_id=pending.skill_id,
         skill_name=pending.name,
         risk_level=RiskLevel.SUSPICIOUS,
-        findings_summary={"total": 3},
+        findings_summary={"critical": 0, "high": 1, "medium": 0, "low": 2, "total": 3},
         submitted_at=pending.submitted_at,
         queued_at=pending.submitted_at,
     ))

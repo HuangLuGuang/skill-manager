@@ -1,7 +1,7 @@
 [package]
 name = "agent-manager-client-desktop"
 version = "0.1.0"
-description = "瑞数智能体安全治理客户端"
+description = "智能体生命周期管理系统客户端"
 authors = ["瑞数信息"]
 edition = "2021"
 

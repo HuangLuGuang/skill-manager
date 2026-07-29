@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-page-header title="提交技能" :sub-title="submitModeMeta.subtitle" />
+    <a-page-header :title="$t('legacy.v71tm')" :sub-title="submitModeMeta.subtitle" />
 
     <a-card style="margin-top: 16px">
       <a-alert
@@ -12,9 +12,9 @@
       />
 
       <a-tabs v-model:activeKey="submitMode">
-        <a-tab-pane key="zip" tab="上传 ZIP">
+        <a-tab-pane key="zip" :tab="$t('legacy.17o43lg')">
           <a-form layout="vertical" @finish="prepareZipImport">
-            <a-form-item label="Skill ZIP 包">
+            <a-form-item :label="$t('legacy.1vavpyy')">
               <a-upload-dragger
                 class="zip-dragger"
                 accept=".zip,application/zip"
@@ -24,81 +24,79 @@
                 <p class="ant-upload-drag-icon">
                   <InboxOutlined />
                 </p>
-                <p class="ant-upload-text">点击或拖拽 ZIP 文件到这里，选择后自动解析</p>
-                <p class="ant-upload-hint">支持单个 ZIP 上传；如果压缩包里还包含一层 ZIP，系统会自动再解压一层后解析候选技能。</p>
+                <p class="ant-upload-text">{{ $t("legacy.xz9kog") }}</p>
+                <p class="ant-upload-hint">{{ $t("legacy.1em9qzx") }}</p>
               </a-upload-dragger>
-              <div class="field-hint">{{ selectedFile ? `当前文件：${selectedFile.name}` : '尚未选择文件' }}</div>
+              <div class="field-hint">{{ selectedFile ? text(`当前文件：${selectedFile.name}`, `Current file: ${selectedFile.name}`) : text('尚未选择文件', 'No file selected') }}</div>
               <a-space style="margin-top: 8px" wrap>
                 <a-button
                   type="primary"
                   :loading="loadingZipCandidates"
                   :disabled="submitting || loadingZipCandidates || !selectedFile"
                   @click="prepareZipImport"
-                >
-                  重新解析 ZIP
-                </a-button>
-                <a-button @click="resetZip" :disabled="submitting || loadingZipCandidates">重置</a-button>
+                > {{ $t("legacy.1skr69s") }} </a-button>
+                <a-button @click="resetZip" :disabled="submitting || loadingZipCandidates">{{ text('重置', 'Reset') }}</a-button>
               </a-space>
             </a-form-item>
-            <a-form-item v-if="validUploadCandidates.length" label="选择目录">
+            <a-form-item v-if="validUploadCandidates.length" :label="$t('legacy.1xftwp6')">
               <a-select
                 v-model:value="selectedUploadDirectories"
                 class="remote-import-select"
                 mode="multiple"
                 :loading="loadingZipCandidates"
                 allow-clear
-                placeholder="先选择要查看的目录，可多选"
+                :placeholder="$t('legacy.1nya4ux')"
                 :options="uploadDirectorySelectOptions"
                 option-filter-prop="label"
                 option-label-prop="label"
               />
-              <div class="field-hint">先选目录，再从目录中的 技能列表里多选要导入的项。</div>
+              <div class="field-hint">{{ $t("legacy.10xsbdc") }}</div>
               <a-space style="margin-top: 8px" wrap>
-                <a-button size="small" @click="selectAllUploadDirectories" :disabled="!uploadDirectoryOptions.length">全选目录</a-button>
-                <a-button size="small" @click="clearUploadDirectories" :disabled="!selectedUploadDirectories.length">全部清除</a-button>
+                <a-button size="small" @click="selectAllUploadDirectories" :disabled="!uploadDirectoryOptions.length">{{ $t("legacy.cpa1l7") }}</a-button>
+                <a-button size="small" @click="clearUploadDirectories" :disabled="!selectedUploadDirectories.length">{{ $t("legacy.1w6ww0k") }}</a-button>
               </a-space>
             </a-form-item>
-            <a-form-item v-if="validUploadCandidates.length" label="选择要导入的技能">
+            <a-form-item v-if="validUploadCandidates.length" :label="$t('legacy.b8ssec')">
               <a-select
                 v-model:value="selectedUploadPaths"
                 class="remote-import-select"
                 mode="multiple"
                 :loading="loadingZipCandidates"
                 allow-clear
-                :placeholder="selectedUploadDirectories.length ? '从所选目录中多选要导入的技能' : '请先选择目录'"
+                :placeholder="selectedUploadDirectories.length ? $t('legacy.y3xbs4') : $t('legacy.1ca98rx')"
                 :options="uploadSkillSelectOptions"
                 option-filter-prop="label"
                 option-label-prop="label"
               />
-              <div class="field-hint">本次 ZIP 导入会话：{{ uploadImportRootPath || '-' }}</div>
+              <div class="field-hint">{{ $t("legacy.sqr6fl") }}{{ uploadImportRootPath || '-' }}</div>
               <a-space style="margin-top: 8px" wrap>
-                <a-button size="small" @click="selectAllUploadSkills" :disabled="!filteredUploadCandidates.length">全选当前目录技能</a-button>
-                <a-button size="small" @click="clearUploadSkills" :disabled="!selectedUploadPaths.length">全部清除</a-button>
+                <a-button size="small" @click="selectAllUploadSkills" :disabled="!filteredUploadCandidates.length">{{ $t("legacy.qz14l8") }}</a-button>
+                <a-button size="small" @click="clearUploadSkills" :disabled="!selectedUploadPaths.length">{{ $t("legacy.1w6ww0k") }}</a-button>
               </a-space>
             </a-form-item>
             <a-alert
               type="info"
               show-icon
               style="margin-bottom: 16px"
-              :message="`当前提交人：${currentUsername}`"
-              description="当前来源：local（上传 ZIP）"
+              :message="currentSubmitterMessage"
+              :description="$t('legacy.cpri8l')"
             />
             <a-form-item>
               <a-space wrap>
                 <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useBehavioral">{{ $t("legacy.zloh25") }}</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="deepScanTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSkillspector" :disabled="!deepScanReadyForSubmit">启动深度扫描</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useSkillspector" :disabled="!deepScanReadyForSubmit">{{ $t("legacy.1w3zw0n") }}</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">{{ $t("legacy.9un8hd") }}</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="llmTooltip">
-                  <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">{{ $t("legacy.7szg5p") }}</a-checkbox></span>
                 </a-tooltip>
-                <a-tooltip title="强制重新扫描，不复用之前的扫描结果">
-                  <span><a-checkbox v-model:checked="formState.noCache">禁用缓存</a-checkbox></span>
+                <a-tooltip :title="$t('legacy.17o6701')">
+                  <span><a-checkbox v-model:checked="formState.noCache">{{ $t("legacy.um9ay7") }}</a-checkbox></span>
                 </a-tooltip>
               </a-space>
             </a-form-item>
@@ -110,85 +108,81 @@
                   :loading="submitting"
                   :disabled="submitting || !uploadImportSessionId || !selectedUploadPaths.length"
                   @click="handleZipSubmit"
-                >
-                  提交所选技能
-                </a-button>
+                > {{ $t("legacy.dlkvph") }} </a-button>
               </a-space>
             </a-form-item>
           </a-form>
         </a-tab-pane>
 
-        <a-tab-pane v-if="showLocalImport" key="local" tab="本地目录导入">
+        <a-tab-pane v-if="showLocalImport" key="local" :tab="$t('legacy.1iew9t7')">
           <a-space style="margin-bottom: 12px" wrap>
             <a-button
               @click="fetchLocalCandidates"
               :loading="loadingLocalCandidates"
               :disabled="submitting || loadingLocalCandidates"
-            >
-              扫描导入目录
-            </a-button>
-            <span style="color: #8c8c8c">根目录：{{ importRootPath || '-' }}</span>
+            > {{ $t("legacy.9vrw3l") }} </a-button>
+            <span style="color: #8c8c8c">{{ $t("legacy.1x5s5wh") }}{{ importRootPath || '-' }}</span>
           </a-space>
           <a-form layout="vertical" @finish="handleLocalSubmit">
-            <a-form-item v-if="localCandidates.length" label="选择目录">
+            <a-form-item v-if="localCandidates.length" :label="$t('legacy.1xftwp6')">
               <a-select
                 v-model:value="selectedLocalDirectories"
                 class="remote-import-select"
                 mode="multiple"
                 :loading="loadingLocalCandidates"
                 allow-clear
-                placeholder="先选择要查看的目录，可多选"
+                :placeholder="$t('legacy.1nya4ux')"
                 :options="localDirectorySelectOptions"
                 option-filter-prop="label"
                 option-label-prop="label"
               />
-              <div class="field-hint">先选目录，再从目录中的 技能列表里多选要导入的项。</div>
+              <div class="field-hint">{{ $t("legacy.10xsbdc") }}</div>
               <a-space style="margin-top: 8px" wrap>
-                <a-button size="small" @click="selectAllLocalDirectories" :disabled="!localDirectoryOptions.length">全选目录</a-button>
-                <a-button size="small" @click="clearLocalDirectories" :disabled="!selectedLocalDirectories.length">全部清除</a-button>
+                <a-button size="small" @click="selectAllLocalDirectories" :disabled="!localDirectoryOptions.length">{{ $t("legacy.cpa1l7") }}</a-button>
+                <a-button size="small" @click="clearLocalDirectories" :disabled="!selectedLocalDirectories.length">{{ $t("legacy.1w6ww0k") }}</a-button>
               </a-space>
             </a-form-item>
-            <a-form-item label="选择要导入的技能">
+            <a-form-item :label="$t('legacy.b8ssec')">
               <a-select
                 v-model:value="selectedLocalPaths"
                 class="remote-import-select"
                 mode="multiple"
                 :loading="loadingLocalCandidates"
                 allow-clear
-                :placeholder="selectedLocalDirectories.length ? '从所选目录中多选要导入的技能' : '请先选择目录'"
+                :placeholder="selectedLocalDirectories.length ? $t('legacy.y3xbs4') : $t('legacy.1ca98rx')"
                 :options="localSkillSelectOptions"
                 option-filter-prop="label"
                 option-label-prop="label"
               />
-              <div class="field-hint">支持多选，提交后会批量进入后台分析。</div>
+              <div class="field-hint">{{ $t("legacy.yix7k2") }}</div>
               <a-space style="margin-top: 8px" wrap>
-                <a-button size="small" @click="selectAllLocalSkills" :disabled="!filteredLocalCandidates.length">全选当前目录技能</a-button>
-                <a-button size="small" @click="clearLocalSkills" :disabled="!selectedLocalPaths.length">全部清除</a-button>
+                <a-button size="small" @click="selectAllLocalSkills" :disabled="!filteredLocalCandidates.length">{{ $t("legacy.qz14l8") }}</a-button>
+                <a-button size="small" @click="clearLocalSkills" :disabled="!selectedLocalPaths.length">{{ $t("legacy.1w6ww0k") }}</a-button>
               </a-space>
             </a-form-item>
             <a-alert
               type="info"
               show-icon
               style="margin-bottom: 16px"
-              :message="`当前提交人：${currentUsername}`"
-              description="当前来源：local（本地目录导入）"
+              :message="currentSubmitterMessage"
+              :description="$t('legacy.u2f68')"
             />
             <a-form-item>
               <a-space wrap>
                 <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">启动规则分析（默认已启动）</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useBehavioral">{{ $t("legacy.zloh25") }}</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="deepScanTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSkillspector" :disabled="!deepScanReadyForSubmit">启动深度扫描</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useSkillspector" :disabled="!deepScanReadyForSubmit">{{ $t("legacy.1w3zw0n") }}</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">启动 Sandbox</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">{{ $t("legacy.9un8hd") }}</a-checkbox></span>
                 </a-tooltip>
                 <a-tooltip :title="llmTooltip">
-                  <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">启动 LLM 分析</a-checkbox></span>
+                  <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">{{ $t("legacy.7szg5p") }}</a-checkbox></span>
                 </a-tooltip>
-                <a-tooltip title="强制重新扫描，不复用之前的扫描结果">
-                  <span><a-checkbox v-model:checked="formState.noCache">禁用缓存</a-checkbox></span>
+                <a-tooltip :title="$t('legacy.17o6701')">
+                  <span><a-checkbox v-model:checked="formState.noCache">{{ $t("legacy.um9ay7") }}</a-checkbox></span>
                 </a-tooltip>
               </a-space>
             </a-form-item>
@@ -199,29 +193,27 @@
                   :loading="submitting"
                   :disabled="submitting || !selectedLocalPaths.length"
                   @click="handleLocalSubmit"
-                >
-                  导入所选技能
-                </a-button>
-                <a-button @click="resetLocalImport" :disabled="submitting">清空选择</a-button>
+                > {{ $t("legacy.1vqj5mu") }} </a-button>
+                <a-button @click="resetLocalImport" :disabled="submitting">{{ $t("legacy.s0t0zo") }}</a-button>
               </a-space>
             </a-form-item>
           </a-form>
         </a-tab-pane>
 
-        <a-tab-pane key="scanner" tab="Skill 扫描器">
+        <a-tab-pane key="scanner" :tab="$t('legacy.7ucd4c')">
           <ScannerAccess embedded />
         </a-tab-pane>
       </a-tabs>
     </a-card>
 
-    <a-card v-if="submitResults.length" title="提交结果" style="margin-top: 16px">
+    <a-card v-if="submitResults.length" :title="$t('legacy.1prneem')" style="margin-top: 16px">
       <a-alert
         v-if="submitResults.some((item) => item.status === 'PENDING')"
         style="margin-bottom: 16px"
         type="info"
         show-icon
-        message="后台分析中"
-        description="技能已经入库，服务端正在后台执行扫描、LLM、规则分析和 Sandbox。列表页会显示最新状态。"
+        :message="$t('legacy.h472o0')"
+        :description="$t('legacy.1mofivi')"
       />
       <a-table
         :data-source="submitResults"
@@ -236,19 +228,19 @@
           </template>
           <template v-else-if="column.key === 'risk_level'">
             <a-tag v-if="record.status === 'PENDING'" color="default">-</a-tag>
-            <a-tag v-else-if="record.risk_level === 'malicious'" color="red" title="恶意">malicious</a-tag>
-            <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange" title="可疑">suspicious</a-tag>
-            <a-tag v-else-if="record.risk_level === 'benign'" color="green" title="安全">benign</a-tag>
+            <a-tag v-else-if="record.risk_level === 'malicious'" color="red" :title="$t('legacy.m36raq')">malicious</a-tag>
+            <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange" :title="$t('legacy.1x3ukv1')">suspicious</a-tag>
+            <a-tag v-else-if="record.risk_level === 'benign'" color="green" :title="$t('legacy.1apxo2s')">benign</a-tag>
             <a-tag v-else color="default">-</a-tag>
           </template>
           <template v-else-if="column.key === 'sandbox'">
             <a-space wrap>
               <a-tag v-if="record.sandbox_runtime" color="blue">{{ record.sandbox_runtime }}</a-tag>
-              <a-tag v-if="record.sandbox_required_by_policy" color="orange">策略强制</a-tag>
+              <a-tag v-if="record.sandbox_required_by_policy" color="orange">{{ $t("legacy.pf5db8") }}</a-tag>
             </a-space>
           </template>
           <template v-else-if="column.key === 'action'">
-            <a-button type="link" style="padding: 0" @click="goToDetail(record.skill_id)">查看详情</a-button>
+            <a-button type="link" style="padding: 0" @click="goToDetail(record.skill_id)">{{ $t("legacy.ox3r68") }}</a-button>
           </template>
         </template>
       </a-table>
@@ -257,11 +249,14 @@
 </template>
 
 <script setup>
+import { translateLegacy as phrase } from '../i18n'
+
 import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { InboxOutlined } from '@ant-design/icons-vue'
 import ScannerAccess from './ScannerAccess.vue'
+import { useLocaleText } from '../i18n/useLocaleText'
 
 import {
   getLocalImportCandidates,
@@ -273,6 +268,7 @@ import {
 } from '../api'
 
 const router = useRouter()
+const { text } = useLocaleText()
 const submitMode = ref('zip')
 const showLocalImport = false
 const submitting = ref(false)
@@ -293,6 +289,7 @@ const uploadCandidates = ref([])
 const selectedUploadDirectories = ref([])
 const selectedUploadPaths = ref([])
 const currentUsername = localStorage.getItem('username') || 'admin'
+const currentSubmitterMessage = computed(() => `${text('当前提交人', 'Current submitter')}: ${currentUsername}`)
 
 const formState = reactive({
   useBehavioral: true,
@@ -304,19 +301,19 @@ const formState = reactive({
 
 const submitModeMetaMap = {
   zip: {
-    subtitle: '上传 ZIP 包并选择要提交的 Skill',
-    message: 'ZIP 上传说明',
-    description: '拖拽或选择 ZIP 后会自动解析候选 Skill；如果压缩包里包含多个 Skill，可以先选目录再多选提交。提交后先进入 PENDING，后台继续完成规则分析、深度扫描、Sandbox 和 LLM 分析。',
+    subtitle: phrase('legacy.1vom54d'),
+    message: phrase('legacy.18pplhk'),
+    description: phrase('legacy.1nupcv7'),
   },
   local: {
-    subtitle: '从服务端本地导入目录选择 Skill',
-    message: '本地目录导入说明',
-    description: '本地目录导入仅用于服务端已配置导入根目录的场景。一般客户侧批量扫描请使用“Skill 扫描器”tab，通过 CLI 扫描本地 skills 目录并上传。',
+    subtitle: phrase('legacy.5fwpqd'),
+    message: phrase('legacy.1rpk3eh'),
+    description: phrase('legacy.1nduc3h'),
   },
   scanner: {
-    subtitle: '下载 CLI 扫描器，批量扫描本地 skills 目录并上传平台治理',
-    message: 'Skill 扫描器说明',
-    description: '适合命令行、服务器和 CI 场景。先在“凭证管理”创建 Scanner 接入凭证，再用 CLI 扫描本地 skills 目录；上传后在 Skill 列表查看状态和详情。',
+    subtitle: phrase('legacy.k7sk7w'),
+    message: phrase('legacy.g1i2b6'),
+    description: phrase('legacy.17fev6g'),
   },
 }
 const submitModeMeta = computed(() => submitModeMetaMap[submitMode.value] || submitModeMetaMap.zip)
@@ -337,7 +334,7 @@ const localDirectoryOptions = computed(() => {
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([directory, count]) => ({
       value: directory,
-      label: directory === '.' ? '导入根目录' : directory,
+      label: directory === '.' ? phrase('legacy.812gtc') : directory,
       count,
     }))
 })
@@ -345,7 +342,7 @@ const localDirectoryOptions = computed(() => {
 const localDirectorySelectOptions = computed(() =>
   localDirectoryOptions.value.map((item) => ({
     value: item.value,
-    label: `${item.label} (${item.count} 个 skill)`,
+    label: text(`${item.label} (${item.count} 个 Skill)`, `${item.label} (${item.count} Skills)`),
   })),
 )
 
@@ -379,7 +376,7 @@ const uploadDirectoryOptions = computed(() => {
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([directory, count]) => ({
       value: directory,
-      label: directory === '.' ? '压缩包根目录' : directory,
+      label: directory === '.' ? phrase('legacy.1ebf5re') : directory,
       count,
     }))
 })
@@ -390,7 +387,7 @@ const invalidUploadCandidates = computed(() => uploadCandidates.value.filter((it
 const uploadDirectorySelectOptions = computed(() =>
   uploadDirectoryOptions.value.map((item) => ({
     value: item.value,
-    label: `${item.label} (${item.count} 个 skill)`,
+    label: text(`${item.label} (${item.count} 个 Skill)`, `${item.label} (${item.count} Skills)`),
   })),
 )
 
@@ -415,13 +412,13 @@ const allLocalDirectoryValues = computed(() => localDirectoryOptions.value.map((
 const allFilteredLocalPaths = computed(() => filteredLocalCandidates.value.map((item) => item.path))
 
 const resultColumns = [
-  { title: '名称', dataIndex: 'name', key: 'name' },
-  { title: '状态', dataIndex: 'status', key: 'status', width: 120 },
-  { title: '风险', dataIndex: 'risk_level', key: 'risk_level', width: 120 },
-  { title: '发现项', dataIndex: 'findings_count', key: 'findings_count', width: 100 },
+  { title: phrase('legacy.hzx914'), dataIndex: 'name', key: 'name' },
+  { title: phrase('legacy.1ccx4t4'), dataIndex: 'status', key: 'status', width: 120 },
+  { title: phrase('legacy.1qgsa3s'), dataIndex: 'risk_level', key: 'risk_level', width: 120 },
+  { title: phrase('legacy.l6iuzr'), dataIndex: 'findings_count', key: 'findings_count', width: 100 },
   { title: 'Sandbox', key: 'sandbox', width: 180 },
-  { title: '说明', dataIndex: 'message', key: 'message' },
-  { title: '操作', key: 'action', width: 100 },
+  { title: phrase('legacy.1mi4vdj'), dataIndex: 'message', key: 'message' },
+  { title: phrase('legacy.501w24'), key: 'action', width: 100 },
 ]
 
 const llmEnabledInSystem = computed(() => Boolean(managerStatus.value?.llm_enabled))
@@ -430,26 +427,29 @@ const sandboxEnabledInSystem = computed(() => Boolean(managerStatus.value?.sandb
 const sandboxReadyForSubmit = computed(() => Boolean(managerStatus.value?.sandbox_enabled && managerStatus.value?.sandbox_available))
 const deepScanReadyForSubmit = computed(() => Boolean(managerStatus.value?.skillspector_available))
 const llmTooltip = computed(() => {
-  if (loadingSystemStatus.value) return '正在读取系统设置中的 LLM 状态'
-  if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return '尚未获取系统设置，请稍后重试'
-  if (!llmEnabledInSystem.value) return '系统设置里没有启用 LLM 分析，所以这里不能勾选'
-  if (!managerStatus.value?.llm_model) return '策略配置里尚未选择模型网关模型，所以这里不能勾选'
-  return `启用后会使用策略配置中选择的模型：${managerStatus.value.llm_model}`
+  if (loadingSystemStatus.value) return phrase('legacy.11gyk58')
+  if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return phrase('legacy.eh7hm2')
+  if (!llmEnabledInSystem.value) return phrase('legacy.15tlipg')
+  if (!managerStatus.value?.llm_model) return phrase('legacy.z86ri4')
+  return text(
+    `启用后会使用策略配置中选择的模型：${managerStatus.value.llm_model}`,
+    `Uses the model selected in Policy Settings: ${managerStatus.value.llm_model}`,
+  )
 })
-const behavioralTooltip = '默认已启动。会额外扫描 scripts、references、prompts 等目录中的文本代码文件，检测命令执行、敏感文件访问、动态执行等可疑模式'
+const behavioralTooltip = phrase('legacy.er61t5')
 const deepScanTooltip = computed(() => {
-  if (loadingSystemStatus.value) return '正在读取深度扫描状态'
-  if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return '尚未获取系统状态，请稍后重试'
-  if (!managerStatus.value?.skillspector_available) return '当前运行环境不可用，请先检查服务安装状态'
-  if (llmReadyForSubmit.value) return '启用后会执行深度扫描，并自动使用当前 LLM 配置增强分析'
-  return '启用后会执行深度扫描；当前未配置 LLM，因此只运行基础深度扫描'
+  if (loadingSystemStatus.value) return phrase('legacy.ytd7gn')
+  if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return phrase('legacy.s8dbz7')
+  if (!managerStatus.value?.skillspector_available) return phrase('legacy.nxt8hi')
+  if (llmReadyForSubmit.value) return phrase('legacy.87644d')
+  return phrase('legacy.lxs8i8')
 })
 const sandboxTooltip = computed(() => {
-  if (loadingSystemStatus.value) return '正在读取系统设置中的 Sandbox 状态'
-  if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return '尚未获取系统设置，请稍后重试'
-  if (!sandboxEnabledInSystem.value) return '系统设置里已经关闭 Sandbox，所以这里不能勾选'
-  if (!managerStatus.value?.sandbox_available) return 'Sandbox 已启用但当前运行环境不可用，请先检查系统设置'
-  return '启用后会尝试在 Docker 沙箱或远程隔离执行服务中执行一个受控 probe，用于观察 skill 运行时行为'
+  if (loadingSystemStatus.value) return phrase('legacy.1lc1opo')
+  if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return phrase('legacy.eh7hm2')
+  if (!sandboxEnabledInSystem.value) return phrase('legacy.18scr9y')
+  if (!managerStatus.value?.sandbox_available) return phrase('legacy.clcfa1')
+  return phrase('legacy.1dj13ib')
 })
 const effectiveUseSandbox = () => Boolean(sandboxReadyForSubmit.value && formState.useSandbox)
 
@@ -480,7 +480,7 @@ const fetchLocalCandidates = async () => {
     selectedLocalDirectories.value = localDirectoryOptions.value.length === 1 ? [localDirectoryOptions.value[0].value] : []
     selectedLocalPaths.value = localCandidates.value.length === 1 ? [localCandidates.value[0].path] : []
   } catch (error) {
-    message.error(error.response?.data?.detail || '扫描导入目录失败')
+    message.error(error.response?.data?.detail || phrase('legacy.q9ds1b'))
   } finally {
     loadingLocalCandidates.value = false
   }
@@ -489,7 +489,7 @@ const fetchLocalCandidates = async () => {
 const handleBeforeUpload = (file) => {
   const isZip = file.type === 'application/zip' || file.name.toLowerCase().endsWith('.zip')
   if (!isZip) {
-    message.error('只能上传 ZIP 文件')
+    message.error(phrase('legacy.1ndzlv6'))
     return false
   }
   selectedFile.value = file
@@ -525,7 +525,7 @@ const startPolling = () => {
             sandbox_triggered: Boolean(detail.vetting?.sandbox_triggered),
             sandbox_required_by_policy: Boolean(detail.vetting?.sandbox_required_by_policy),
             sandbox_runtime: detail.vetting?.sandbox_runtime || null,
-            message: detail.status === 'PENDING' ? '已提交，后台分析中。请在 Skill 列表查看状态变化。' : '后台分析已完成。',
+            message: detail.status === 'PENDING' ? phrase('legacy.1u7g8m0') : phrase('legacy.1nf87mp'),
           }
         }),
       )
@@ -591,19 +591,19 @@ const clearLocalSkills = () => {
 const handleZipSubmit = async () => {
   if (submitting.value) return
   if (!selectedFile.value) {
-    message.warning('请先选择 skill ZIP 文件')
+    message.warning(phrase('legacy.18gvsoj'))
     return
   }
   if (!uploadImportSessionId.value) {
-    message.warning('请先解析 ZIP 包')
+    message.warning(phrase('legacy.1uzgrft'))
     return
   }
   if (!selectedUploadDirectories.value.length) {
-    message.warning('请先选择要导入的目录')
+    message.warning(phrase('legacy.11n4k6p'))
     return
   }
   if (!selectedUploadPaths.value.length) {
-    message.warning('请先选择要导入的技能')
+    message.warning(phrase('legacy.3oinlv'))
     return
   }
   submitting.value = true
@@ -621,10 +621,13 @@ const handleZipSubmit = async () => {
     })
     submitResults.value = result.results || []
     clearSubmittedZipSelection()
-    message.success(`已提交 ${submitResults.value.length} 个 skills`)
+    message.success(text(
+      `已提交 ${submitResults.value.length} 个 Skill`,
+      `Submitted ${submitResults.value.length} Skills`,
+    ))
     startPolling()
   } catch (error) {
-    message.error(error.response?.data?.detail || 'ZIP 导入失败')
+    message.error(error.response?.data?.detail || phrase('legacy.1kuial'))
   } finally {
     submitting.value = false
   }
@@ -633,7 +636,7 @@ const handleZipSubmit = async () => {
 const prepareZipImport = async () => {
   if (loadingZipCandidates.value || submitting.value) return
   if (!selectedFile.value) {
-    message.warning('请先选择 skill ZIP 文件')
+    message.warning(phrase('legacy.18gvsoj'))
     return
   }
   const formData = new FormData()
@@ -649,21 +652,30 @@ const prepareZipImport = async () => {
     selectedUploadPaths.value = validUploadCandidates.value.length === 1 ? [validUploadCandidates.value[0].path] : []
     if (invalidUploadCandidates.value.length) {
       Modal.warning({
-        title: '部分 Skill 解析失败，已跳过',
+        title: phrase('legacy.xowbev'),
         content: h('div', invalidUploadCandidates.value.map((item) => {
-          const directory = item.relative_path && item.relative_path !== '.' ? `${item.relative_path} 目录` : '压缩包根目录'
-          return h('div', { style: 'margin-bottom: 8px' }, `${directory}解析失败，${item.error}`)
+          const directory = item.relative_path && item.relative_path !== '.'
+            ? text(`${item.relative_path} 目录`, `${item.relative_path} directory`)
+            : phrase('legacy.1ebf5re')
+          return h(
+            'div',
+            { style: 'margin-bottom: 8px' },
+            text(`${directory}解析失败，${item.error}`, `${directory} could not be parsed: ${item.error}`),
+          )
         })),
-        okText: '知道了',
+        okText: phrase('legacy.15plsd9'),
       })
     }
     if (!validUploadCandidates.value.length) {
-      message.warning('ZIP 解析完成，但没有识别到可导入的 skill 目录')
+      message.warning(phrase('legacy.1mik2yg'))
       return
     }
-    message.success(`ZIP 解析完成，识别到 ${validUploadCandidates.value.length} 个可导入 Skill`)
+    message.success(text(
+      `ZIP 解析完成，识别到 ${validUploadCandidates.value.length} 个可导入 Skill`,
+      `ZIP parsing completed. Found ${validUploadCandidates.value.length} importable Skills.`,
+    ))
   } catch (error) {
-    message.error(error.response?.data?.detail || 'ZIP 解析失败')
+    message.error(error.response?.data?.detail || phrase('legacy.6o53hh'))
   } finally {
     loadingZipCandidates.value = false
   }
@@ -688,11 +700,11 @@ const clearUploadSkills = () => {
 const handleLocalSubmit = async () => {
   if (submitting.value) return
   if (!selectedLocalDirectories.value.length) {
-    message.warning('请先选择要导入的目录')
+    message.warning(phrase('legacy.11n4k6p'))
     return
   }
   if (!selectedLocalPaths.value.length) {
-    message.warning('请先多选要导入的技能s')
+    message.warning(phrase('legacy.1iw7jj5'))
     return
   }
   submitting.value = true
@@ -709,10 +721,13 @@ const handleLocalSubmit = async () => {
     })
     submitResults.value = result.results || []
     clearSubmittedLocalSelection()
-    message.success(`已提交 ${submitResults.value.length} 个 skills`)
+    message.success(text(
+      `已提交 ${submitResults.value.length} 个 Skill`,
+      `Submitted ${submitResults.value.length} Skills`,
+    ))
     startPolling()
   } catch (error) {
-    message.error(error.response?.data?.detail || '本地目录导入失败')
+    message.error(error.response?.data?.detail || phrase('legacy.14eyvbl'))
   } finally {
     submitting.value = false
   }
@@ -751,13 +766,13 @@ const statusColor = (value) => ({
 }[value] || 'default')
 
 const statusTitle = (value) => ({
-  PENDING: '分析中',
-  VETTED: '待审核',
-  APPROVED: '已批准',
-  DEPLOYED: '已部署',
-  REJECTED: '已拒绝',
-  RETIRED: '已退役',
-}[value] || '未知')
+  PENDING: phrase('legacy.viveky'),
+  VETTED: phrase('legacy.a2uv9t'),
+  APPROVED: phrase('legacy.10hmnl2'),
+  DEPLOYED: phrase('legacy.1t00jqn'),
+  REJECTED: phrase('legacy.16h1qdk'),
+  RETIRED: phrase('legacy.1vdmo1u'),
+}[value] || phrase('legacy.1lpnuh4'))
 
 const riskColor = (value) => ({
   benign: 'green',

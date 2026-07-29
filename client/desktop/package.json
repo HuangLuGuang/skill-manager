@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "prepare": "node scripts/prepare-sidecar.mjs",
+    "prepare": "npm run i18n:bindings && node scripts/prepare-sidecar.mjs",
     "prepare:release": "node scripts/prepare-release-config.mjs",
     "frontend:dev": "vite src --host 127.0.0.1 --port 1420 --strictPort",
     "dev": "npm run prepare && tauri dev --config src-tauri/tauri.dev.conf.json",
@@ -13,7 +13,10 @@
     "build:linux": "npm run prepare && tauri build --bundles deb,appimage",
     "release:mac": "node scripts/build-release.mjs mac",
     "release:windows": "node scripts/build-release.mjs windows",
-    "release:linux": "node scripts/build-release.mjs linux"
+    "release:linux": "node scripts/build-release.mjs linux",
+    "i18n:bindings": "node scripts/generate-static-i18n-bindings.mjs",
+    "test:i18n": "npm run i18n:bindings && node --test scripts/i18n.test.mjs",
+    "test:release": "node --test scripts/release-version.test.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.0.4",

@@ -4,7 +4,7 @@ set -euo pipefail
 
 bundle_root="${1:-src-tauri/target/release/bundle}"
 signing_mode="${AGENT_MANAGER_MACOS_SIGNING_MODE:-adhoc}"
-app_path="$bundle_root/macos/瑞数智能体安全治理客户端.app"
+app_path="$bundle_root/macos/智能体生命周期管理系统客户端.app"
 dmg_path="$(find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
 
 if [[ "$signing_mode" != "adhoc" && "$signing_mode" != "developer-id" ]]; then
@@ -14,6 +14,24 @@ fi
 
 if [[ ! -d "$app_path" || -z "$dmg_path" ]]; then
   echo "macOS release verification failed: .app or .dmg artifact is missing." >&2
+  exit 1
+fi
+
+english_names="$app_path/Contents/Resources/en.lproj/InfoPlist.strings"
+chinese_names="$app_path/Contents/Resources/zh-Hans.lproj/InfoPlist.strings"
+if [[ ! -f "$english_names" || ! -f "$chinese_names" ]]; then
+  echo "macOS release verification failed: localized application names are missing." >&2
+  exit 1
+fi
+
+english_display_name="$(plutil -extract CFBundleDisplayName raw "$english_names")"
+chinese_display_name="$(plutil -extract CFBundleDisplayName raw "$chinese_names")"
+if [[ "$english_display_name" != "Agent Manager Client" ]]; then
+  echo "macOS release verification failed: unexpected English application name '$english_display_name'." >&2
+  exit 1
+fi
+if [[ "$chinese_display_name" != "智能体生命周期管理系统客户端" ]]; then
+  echo "macOS release verification failed: unexpected Chinese application name '$chinese_display_name'." >&2
   exit 1
 fi
 

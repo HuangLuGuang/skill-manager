@@ -1,8 +1,8 @@
 <template>
   <div>
-    <a-page-header title="智能体管理" sub-title="按部门登记智能体，串起模型、Skill 与运行时接入">
+    <a-page-header :title="$t('legacy.5chjsa')" :sub-title="$t('legacy.8y4kug')">
       <template #extra>
-        <a-button @click="flowVisible = true">接入流程</a-button>
+        <a-button @click="flowVisible = true">{{ $t("legacy.udb4df") }}</a-button>
       </template>
     </a-page-header>
 
@@ -10,64 +10,62 @@
       <a-row :gutter="[16, 16]">
         <a-col :xs="24" :lg="12">
           <div class="flow-section">
-            <div class="flow-title">1. 先治理能力</div>
+            <div class="flow-title">{{ $t("legacy.7t2cwb") }}</div>
             <a-steps size="small" :current="3" direction="horizontal" class="flow-inline-steps">
-              <a-step title="提交" description="Skill" />
-              <a-step title="扫描" description="分析风险" />
-              <a-step title="审核" description="人工确认" />
-              <a-step title="批准" description="可信可用" />
+              <a-step :title="$t('legacy.ybr38x')" description="Skill" />
+              <a-step :title="$t('legacy.1myljr3')" :description="$t('legacy.15rx88y')" />
+              <a-step :title="$t('legacy.1ws11do')" :description="$t('legacy.1whlgcy')" />
+              <a-step :title="$t('legacy.1tmnt86')" :description="$t('legacy.1oxl3ey')" />
             </a-steps>
           </div>
         </a-col>
         <a-col :xs="24" :lg="12">
           <div class="flow-section">
-            <div class="flow-title">2. 再接入 Agent</div>
+            <div class="flow-title">{{ $t("legacy.7aets9") }}</div>
             <a-steps size="small" :current="4" direction="horizontal" class="flow-inline-steps">
-              <a-step title="创建 Agent" description="部门 / 负责人" />
-              <a-step title="绑定范围" description="Skill / 模型" />
-              <a-step title="签发凭证" description="运行身份" />
-              <a-step title="集成守卫" description="加载前校验" />
-              <a-step title="审计追踪" description="记录结果" />
+              <a-step :title="$t('legacy.61qni9')" :description="$t('legacy.2gpy3c')" />
+              <a-step :title="$t('legacy.vlky39')" :description="$t('legacy.1sbtgxh')" />
+              <a-step :title="$t('legacy.qiw836')" :description="$t('legacy.ma87zl')" />
+              <a-step :title="$t('legacy.17adtee')" :description="$t('legacy.s467ck')" />
+              <a-step :title="$t('legacy.13omz3w')" :description="$t('legacy.1d0sbdt')" />
             </a-steps>
           </div>
         </a-col>
       </a-row>
-      <div class="flow-summary">
-        扫描器负责批量接入本地 Skill；Agent 运行时通过 Skill Verifier 或 Runtime API 在加载前向平台校验授权、状态和内容指纹。
-      </div>
+      <div class="flow-summary"> {{ $t("legacy.qhnqxy") }} </div>
     </a-card>
 
     <a-card style="margin-top: 16px">
       <a-row :gutter="[12, 12]">
         <a-col :xs="12" :md="6">
-          <a-statistic title="智能体" :value="agents.length" />
+          <a-statistic :title="$t('legacy.1auoal5')" :value="agents.length" />
         </a-col>
         <a-col :xs="12" :md="6">
-          <a-statistic title="启用中" :value="activeCount" />
+          <a-statistic :title="$t('legacy.o58hfh')" :value="activeCount" />
         </a-col>
         <a-col :xs="12" :md="6">
-          <a-statistic title="涉及部门" :value="departmentCount" />
+          <a-statistic :title="$t('legacy.19hhbpm')" :value="departmentCount" />
         </a-col>
         <a-col :xs="12" :md="6">
-          <a-statistic title="绑定 Skill" :value="skillBindingCount" />
+          <a-statistic :title="$t('legacy.1nwtm7')" :value="skillBindingCount" />
         </a-col>
       </a-row>
     </a-card>
 
     <a-card style="margin-top: 16px">
       <a-space style="margin-bottom: 16px" wrap>
-        <a-select v-model:value="filters.department_group_id" allow-clear placeholder="全部部门" style="width: 180px" @change="fetchAgents">
+        <a-select v-model:value="filters.department_group_id" allow-clear :placeholder="$t('legacy.1qbe72t')" style="width: 180px" @change="fetchAgents">
           <a-select-option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</a-select-option>
         </a-select>
-        <a-select v-model:value="filters.status" allow-clear placeholder="全部状态" style="width: 140px" @change="fetchAgents">
-          <a-select-option value="active">启用</a-select-option>
-          <a-select-option value="disabled">禁用</a-select-option>
-          <a-select-option value="draft">草稿</a-select-option>
+        <a-select v-model:value="filters.status" allow-clear :placeholder="$t('legacy.igzce8')" style="width: 140px" @change="fetchAgents">
+          <a-select-option value="active">{{ $t("legacy.5pm2ma") }}</a-select-option>
+          <a-select-option value="disabled">{{ $t("legacy.1dcdrxo") }}</a-select-option>
+          <a-select-option value="draft">{{ $t("legacy.oc54qp") }}</a-select-option>
         </a-select>
-        <a-input v-model:value="filters.q" placeholder="搜索智能体 / 负责人" style="width: 240px" allow-clear @pressEnter="fetchAgents" />
-        <a-button type="primary" @click="fetchAgents" :loading="loading">查询</a-button>
-        <a-button @click="resetFilters" :disabled="loading">重置</a-button>
-        <a-button type="primary" @click="openAgent()">新增智能体</a-button>
+        <a-input v-model:value="filters.q" :placeholder="$t('legacy.1kyry2m')" style="width: 240px" allow-clear @pressEnter="fetchAgents" />
+        <a-button type="primary" @click="fetchAgents" :loading="loading">{{ $t("legacy.16mfmhy") }}</a-button>
+        <a-button @click="resetFilters" :disabled="loading">{{ $t("legacy.1wq9feq") }}</a-button>
+        <a-button type="primary" @click="openAgent()">{{ $t("legacy.1krdxw3") }}</a-button>
       </a-space>
 
       <a-table :data-source="agents" :columns="columns" rowKey="id" :loading="loading" :pagination="{ pageSize: 10 }">
@@ -77,15 +75,15 @@
             <div class="muted">{{ record.agent_id }}</div>
           </template>
           <template v-else-if="column.key === 'department'">
-            <a-tag>{{ record.department_name || '未分配' }}</a-tag>
+            <a-tag>{{ record.department_name || $t('legacy.1bgs62s') }}</a-tag>
           </template>
           <template v-else-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
           </template>
           <template v-else-if="column.key === 'capabilities'">
             <a-space direction="vertical" size="small">
-              <span>模型：{{ record.default_model || '-' }}</span>
-              <span>Skill：{{ record.skill_names?.length || 0 }} 个</span>
+              <span>{{ $t("legacy.1nqvdwt") }}{{ record.default_model || '-' }}</span>
+              <span>Skill：{{ record.skill_names?.length || 0 }} {{ $t("legacy.d5a1x9") }}</span>
             </a-space>
           </template>
           <template v-else-if="column.key === 'access'">
@@ -96,9 +94,9 @@
           </template>
           <template v-else-if="column.key === 'actions'">
             <a-space>
-              <a @click="openAgent(record)">编辑</a>
-              <a-popconfirm title="确认删除这个智能体档案？" @confirm="handleDelete(record)">
-                <a danger>删除</a>
+              <a @click="openAgent(record)">{{ $t("legacy.qreyeg") }}</a>
+              <a-popconfirm :title="$t('legacy.17y5gsa')" @confirm="handleDelete(record)">
+                <a danger>{{ $t("legacy.1t2vi4h") }}</a>
               </a-popconfirm>
             </a-space>
           </template>
@@ -106,7 +104,7 @@
       </a-table>
     </a-card>
 
-    <a-modal v-model:open="agentVisible" :title="editingAgentId ? '编辑智能体' : '新增智能体'" width="760px" @ok="saveAgent" :confirm-loading="submitting">
+    <a-modal v-model:open="agentVisible" :title="editingAgentId ? $t('legacy.1k1efeu') : $t('legacy.1krdxw3')" width="760px" @ok="saveAgent" :confirm-loading="submitting">
       <a-form layout="vertical" :model="agentForm">
         <a-row :gutter="16">
           <a-col :xs="24" :md="12">
@@ -115,38 +113,38 @@
             </a-form-item>
           </a-col>
           <a-col :xs="24" :md="12">
-            <a-form-item label="名称" required>
-              <a-input v-model:value="agentForm.name" placeholder="风险筛查智能体" />
+            <a-form-item :label="$t('legacy.hzx914')" required>
+              <a-input v-model:value="agentForm.name" :placeholder="$t('legacy.qu7pc2')" />
             </a-form-item>
           </a-col>
         </a-row>
         <a-row :gutter="16">
           <a-col :xs="24" :md="12">
-            <a-form-item label="所属部门">
-              <a-select v-model:value="agentForm.department_group_id" allow-clear placeholder="选择部门">
+            <a-form-item :label="$t('legacy.1sjdnv')">
+              <a-select v-model:value="agentForm.department_group_id" allow-clear :placeholder="$t('legacy.18m3h1b')">
                 <a-select-option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</a-select-option>
               </a-select>
             </a-form-item>
           </a-col>
           <a-col :xs="24" :md="12">
-            <a-form-item label="状态">
+            <a-form-item :label="$t('legacy.1ccx4t4')">
               <a-select v-model:value="agentForm.status">
-                <a-select-option value="active">启用</a-select-option>
-                <a-select-option value="disabled">禁用</a-select-option>
-                <a-select-option value="draft">草稿</a-select-option>
+                <a-select-option value="active">{{ $t("legacy.5pm2ma") }}</a-select-option>
+                <a-select-option value="disabled">{{ $t("legacy.1dcdrxo") }}</a-select-option>
+                <a-select-option value="draft">{{ $t("legacy.oc54qp") }}</a-select-option>
               </a-select>
             </a-form-item>
           </a-col>
         </a-row>
         <a-row :gutter="16">
           <a-col :xs="24" :md="12">
-            <a-form-item label="负责人">
+            <a-form-item :label="$t('legacy.17eokaf')">
               <a-select
                 v-model:value="agentForm.owner"
                 show-search
                 allow-clear
                 option-filter-prop="label"
-                placeholder="选择平台用户"
+                :placeholder="$t('legacy.vopx5l')"
               >
                 <a-select-option
                   v-for="user in activeUsers"
@@ -160,28 +158,28 @@
             </a-form-item>
           </a-col>
         </a-row>
-        <a-form-item label="客户端类型" required>
-          <a-select v-model:value="agentForm.channel" placeholder="选择该智能体运行在哪类客户端">
+        <a-form-item :label="$t('legacy.vf8e1d')" required>
+          <a-select v-model:value="agentForm.channel" :placeholder="$t('legacy.rz3jld')">
             <a-select-option v-for="option in clientTypeOptions" :key="option.value" :value="option.value">
               {{ option.label }}
             </a-select-option>
           </a-select>
-          <div class="field-hint">仅用于客户端自动发现和映射，不代表接入方式。</div>
+          <div class="field-hint">{{ $t("legacy.t60ukl") }}</div>
         </a-form-item>
-        <a-form-item label="默认模型">
-          <a-select v-model:value="agentForm.default_model" allow-clear show-search placeholder="选择模型">
+        <a-form-item :label="$t('legacy.9tnz09')">
+          <a-select v-model:value="agentForm.default_model" allow-clear show-search :placeholder="$t('legacy.13jl62z')">
             <a-select-option v-for="model in models" :key="model.name" :value="model.name">
               {{ model.display_name || model.name }}
             </a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="允许 Skills">
+        <a-form-item :label="$t('legacy.zdumf2')">
           <a-select
             v-model:value="agentForm.skill_refs"
             mode="multiple"
             show-search
             allow-clear
-            placeholder="搜索并选择可用 Skill"
+            :placeholder="$t('legacy.140f3cr')"
             option-filter-prop="label"
             :filter-option="filterOption"
           >
@@ -194,40 +192,40 @@
               {{ skillOptionLabel(skill) }}
             </a-select-option>
           </a-select>
-          <div class="field-hint">只显示已批准或已部署的 Skill。</div>
+          <div class="field-hint">{{ $t("legacy.1ienetp") }}</div>
         </a-form-item>
         <a-alert
           type="info"
           show-icon
-          message="运行凭证请在“凭证管理”中创建。"
+          :message="$t('legacy.ybzs30')"
           style="margin-bottom: 16px"
         />
-        <a-form-item label="描述">
-          <a-textarea v-model:value="agentForm.description" :rows="3" placeholder="说明该智能体的业务职责和使用边界" />
+        <a-form-item :label="$t('legacy.1kxyax6')">
+          <a-textarea v-model:value="agentForm.description" :rows="3" :placeholder="$t('legacy.1zcrx6')" />
         </a-form-item>
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="flowVisible" title="Agent 接入流程" width="980px" :footer="null">
+    <a-modal v-model:open="flowVisible" :title="$t('legacy.10eib88')" width="980px" :footer="null">
       <a-row :gutter="[16, 16]">
         <a-col :xs="24" :lg="12">
-          <a-card size="small" title="能力治理入库">
+          <a-card size="small" :title="$t('legacy.1laqeus')">
             <a-steps size="small" direction="vertical" :current="3">
-              <a-step title="提交 Skill" description="手动提交，或用扫描器批量接入本地 Skill。" />
-              <a-step title="平台扫描分析" description="执行静态扫描、Sandbox 信号、深度分析和 LLM 辅助研判。" />
-              <a-step title="人工审核" description="查看判断依据，确认通过或拒绝。" />
-              <a-step title="批准为可信版本" description="批准后记录内容指纹，后续运行时可校验是否被篡改。" />
+              <a-step :title="$t('legacy.knj41c')" :description="$t('legacy.1ecffk1')" />
+              <a-step :title="$t('legacy.5zetdq')" :description="$t('legacy.ggcbgt')" />
+              <a-step :title="$t('legacy.mxm4hl')" :description="$t('legacy.wfusa5')" />
+              <a-step :title="$t('legacy.hkysa4')" :description="$t('legacy.3hftou')" />
             </a-steps>
           </a-card>
         </a-col>
         <a-col :xs="24" :lg="12">
-          <a-card size="small" title="Agent 接入运行">
+          <a-card size="small" :title="$t('legacy.1fz7t0k')">
             <a-steps size="small" direction="vertical" :current="4">
-              <a-step title="创建 Agent" description="登记部门、负责人和业务用途。" />
-              <a-step title="绑定能力范围" description="约束可用 Skill 和默认模型。" />
-              <a-step title="签发运行凭证" description="凭证绑定 Agent，作为外部运行身份。" />
-              <a-step title="集成 Agent Skill Verifier" description="Agent 加载 Skill 前向平台校验状态、内容指纹和授权。" />
-              <a-step title="审计追踪" description="记录哪个 Agent 通过哪个凭证使用了哪个 Skill。" />
+              <a-step :title="$t('legacy.61qni9')" :description="$t('legacy.16rumca')" />
+              <a-step :title="$t('legacy.1hfbt5h')" :description="$t('legacy.ybnv0i')" />
+              <a-step :title="$t('legacy.1odwfha')" :description="$t('legacy.1giz277')" />
+              <a-step :title="$t('legacy.1a7xapv')" :description="$t('legacy.1noips3')" />
+              <a-step :title="$t('legacy.13omz3w')" :description="$t('legacy.1vl9n7k')" />
             </a-steps>
           </a-card>
         </a-col>
@@ -236,30 +234,32 @@
         type="info"
         show-icon
         class="flow-note"
-        message="推荐路径"
-        description="能力治理 → 智能体管理 → 凭证管理 → 接入与运行 → 审计追踪。扫描器负责把本地 Skill 批量接入平台；Agent Skill Verifier 负责运行时加载前完整性校验。"
+        :message="$t('legacy.2lwr8u')"
+        :description="$t('legacy.1lk2300')"
       />
-      <a-card size="small" title="模型网关接入" class="flow-gateway-card">
+      <a-card size="small" :title="$t('legacy.3ct5nb')" class="flow-gateway-card">
         <a-steps size="small" :current="4">
-          <a-step title="配置供应商" description="维护上游模型地址和密钥" />
-          <a-step title="添加模型" description="对外暴露可选模型列表" />
-          <a-step title="绑定组策略" description="按用户组应用隐私策略" />
-          <a-step title="签发凭证" description="模型调用或 Agent 凭证勾选 model:chat" />
-          <a-step title="修改模型配置" description="将 Agent/SDK 的大模型 API 地址改为平台网关地址，使用已签发凭证调用" />
+          <a-step :title="$t('legacy.15teb0h')" :description="$t('legacy.1bobpp0')" />
+          <a-step :title="$t('legacy.17lmhaa')" :description="$t('legacy.1yydulr')" />
+          <a-step :title="$t('legacy.ua7bgb')" :description="$t('legacy.19qufvh')" />
+          <a-step :title="$t('legacy.qiw836')" :description="$t('legacy.1vcdl0n')" />
+          <a-step :title="$t('legacy.46x8kr')" :description="$t('legacy.lw1t0f')" />
         </a-steps>
       </a-card>
       <a-space class="flow-actions" wrap>
-        <a-button @click="router.push('/submit')">提交 Skill</a-button>
-        <a-button @click="router.push('/agents')">创建 Agent</a-button>
-        <a-button @click="router.push('/credentials')">签发凭证</a-button>
-        <a-button @click="router.push('/model-gateway/models')">配置模型网关</a-button>
-        <a-button type="primary" @click="router.push('/runtime')">查看接入与运行</a-button>
+        <a-button @click="router.push('/submit')">{{ $t("legacy.knj41c") }}</a-button>
+        <a-button @click="router.push('/agents')">{{ $t("legacy.61qni9") }}</a-button>
+        <a-button @click="router.push('/credentials')">{{ $t("legacy.qiw836") }}</a-button>
+        <a-button @click="router.push('/model-gateway/models')">{{ $t("legacy.1jabg1u") }}</a-button>
+        <a-button type="primary" @click="router.push('/runtime')">{{ $t("legacy.t46zf7") }}</a-button>
       </a-space>
     </a-modal>
   </div>
 </template>
 
 <script setup>
+import { translateLegacy as phrase } from '../i18n'
+
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
@@ -313,20 +313,20 @@ const clientTypeOptions = [
   { value: 'TRAE CN', label: 'TRAE CN' },
   { value: 'TRAE', label: 'TRAE' },
   { value: 'Cursor', label: 'Cursor' },
-  { value: 'Global Skills', label: '通用 Skills' },
+  { value: 'Global Skills', label: phrase('legacy.13u0v7i') },
   { value: 'CodeBuddy', label: 'CodeBuddy' },
   { value: 'WorkBuddy', label: 'WorkBuddy' },
-  { value: 'Custom', label: '自定义 Agent' },
+  { value: 'Custom', label: phrase('legacy.rgimjp') },
 ]
 
 const columns = [
-  { title: '智能体', key: 'agent' },
-  { title: '部门', key: 'department', width: 140 },
-  { title: '负责人', dataIndex: 'owner', width: 140 },
-  { title: '状态', key: 'status', width: 100 },
-  { title: '能力绑定', key: 'capabilities', width: 220 },
-  { title: '接入状态', key: 'access', width: 190 },
-  { title: '操作', key: 'actions', width: 120 },
+  { title: phrase('legacy.1auoal5'), key: 'agent' },
+  { title: phrase('legacy.104oyzx'), key: 'department', width: 140 },
+  { title: phrase('legacy.17eokaf'), dataIndex: 'owner', width: 140 },
+  { title: phrase('legacy.1ccx4t4'), key: 'status', width: 100 },
+  { title: phrase('legacy.15fyal2'), key: 'capabilities', width: 220 },
+  { title: phrase('legacy.1phk7cu'), key: 'access', width: 190 },
+  { title: phrase('legacy.501w24'), key: 'actions', width: 120 },
 ]
 
 const activeCount = computed(() => agents.value.filter(item => item.status === 'active').length)
@@ -337,12 +337,12 @@ const skillOptions = computed(() => skills.value.map((skill, index) => ({
   ...skill,
   value: uniqueOptionValue(skill, 'skill', index),
 })))
-const statusText = (status) => ({ active: '启用', disabled: '禁用', draft: '草稿' }[status] || status)
+const statusText = (status) => ({ active: phrase('legacy.5pm2ma'), disabled: phrase('legacy.1dcdrxo'), draft: phrase('legacy.oc54qp') }[status] || status)
 const statusColor = (status) => ({ active: 'green', disabled: 'red', draft: 'orange' }[status] || 'default')
 const userOptionLabel = (user) => `${user.username}${user.email ? `（${user.email}）` : ''}`
 const uniqueOptionValue = (item, type, index) => `${type}:${item.skill_id || item.id || index}:${index}`
 const skillOptionLabel = (skill) => {
-  const statusLabel = skill.status === 'DEPLOYED' ? '已部署' : '已批准'
+  const statusLabel = skill.status === 'DEPLOYED' ? phrase('legacy.1t00jqn') : phrase('legacy.10hmnl2')
   const id = skill.skill_id || skill.id
   return `${skill.name}（${statusLabel}${id ? ` · ${id}` : ''}）`
 }
@@ -394,19 +394,19 @@ const latestRuntimeEventByAgent = computed(() => {
 const agentAccessStatus = (record) => {
   const token = tokenByAgent.value.get(record.agent_id)
   if (!token) {
-    return { color: 'default', text: '未签发凭证', hint: '到凭证管理创建运行凭证' }
+    return { color: 'default', text: phrase('legacy.1w9cudm'), hint: phrase('legacy.1rfhupd') }
   }
   if (token.status !== 'active') {
-    return { color: 'orange', text: '凭证不可用', hint: statusText(token.status) }
+    return { color: 'orange', text: phrase('legacy.88vhrh'), hint: statusText(token.status) }
   }
   const event = latestRuntimeEventByAgent.value.get(record.agent_id)
   if (!event) {
-    return { color: 'blue', text: '已签发凭证', hint: '等待运行时校验' }
+    return { color: 'blue', text: phrase('legacy.lo94w2'), hint: phrase('legacy.1e7tzwm') }
   }
   if (['skill_load_blocked', 'skill_tamper_detected', 'tool_blocked'].includes(event.event_type)) {
-    return { color: 'red', text: '最近被阻断', hint: event.skill_name || event.event_type }
+    return { color: 'red', text: phrase('legacy.5hx75b'), hint: event.skill_name || event.event_type }
   }
-  return { color: 'green', text: '最近校验成功', hint: event.skill_name || event.event_type }
+  return { color: 'green', text: phrase('legacy.118ohr2'), hint: event.skill_name || event.event_type }
 }
 const fetchAgents = async () => {
   loading.value = true
@@ -417,7 +417,7 @@ const fetchAgents = async () => {
       q: filters.q?.trim() || undefined,
     })
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取智能体列表失败')
+    message.error(error.response?.data?.detail || phrase('legacy.nb6eev'))
   } finally {
     loading.value = false
   }
@@ -465,7 +465,7 @@ const openAgent = (record = null) => {
 const saveAgent = async () => {
   if (submitting.value) return
   if (!agentForm.agent_id.trim() || !agentForm.name.trim() || !agentForm.channel) {
-    message.warning('请填写 Agent ID、名称并选择客户端类型')
+    message.warning(phrase('legacy.1jpsp3w'))
     return
   }
   submitting.value = true
@@ -489,10 +489,10 @@ const saveAgent = async () => {
     await fetchAgents()
     if (!editingAgentId.value) {
       Modal.confirm({
-        title: '智能体已创建',
-        content: '下一步到“凭证管理”创建 Agent 运行凭证。',
-        okText: '去创建凭证',
-        cancelText: '稍后再说',
+        title: phrase('legacy.x1jtt8'),
+        content: phrase('legacy.cpvopf'),
+        okText: phrase('legacy.1xo7ne1'),
+        cancelText: phrase('legacy.4uzegb'),
         onOk: () => router.push({
           name: 'credentials',
           query: {
@@ -503,7 +503,7 @@ const saveAgent = async () => {
       })
     }
   } catch (error) {
-    message.error(error.response?.data?.detail || '保存智能体失败')
+    message.error(error.response?.data?.detail || phrase('legacy.1b0loi0'))
   } finally {
     submitting.value = false
   }
@@ -511,7 +511,7 @@ const saveAgent = async () => {
 
 const handleDelete = async (record) => {
   await deleteAgent(record.id)
-  message.success('智能体档案已删除')
+  message.success(phrase('legacy.1s2wkng'))
   await fetchAgents()
 }
 

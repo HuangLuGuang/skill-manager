@@ -1,12 +1,26 @@
 const invoke = window.__TAURI__.core.invoke
-const titles = {
-  connect: '客户端接入',
-  discover: 'Agent 发现',
-  takeover: '接管预览',
-  status: '运行状态',
-  notifications: '安全通知',
-  records: '执行记录',
-}
+const t = window.clientI18n?.t || (value => value)
+const tf = window.clientI18n?.tf || ((strings, ...values) =>
+  strings.reduce((result, value, index) => result + value + (values[index] ?? ''), ''))
+const runtimeText = window.clientI18n?.translateRuntime || (value => String(value ?? ''))
+const isEnglish = () => window.clientI18n?.getLocale?.() === 'en-US'
+const formatList = values => new Intl.ListFormat(window.clientI18n?.getLocale?.() || 'zh-CN').format(values.filter(Boolean))
+const skillCount = count => isEnglish()
+  ? `${count} Skill${Number(count) === 1 ? '' : 's'}`
+  : `${count} 个 Skill`
+const agentCount = count => isEnglish()
+  ? `${count} Agent${Number(count) === 1 ? '' : 's'}`
+  : `${count} 个 Agent`
+let currentTakeoverTitle = t('ui.1aqrn47')
+const panelTitle = panel => ({
+  connect: t('ui.1u7rfgt'),
+  discover: t('ui.zg9dnv'),
+  takeover: currentTakeoverTitle,
+  status: t('ui.1ihgm6s'),
+  notifications: t('ui.1atia5p'),
+  records: t('ui.cn5hhp'),
+  settings: t('设置'),
+}[panel] || panel)
 let inventory = null
 let connection = null
 let selectedSkillPaths = new Set()
@@ -30,9 +44,58 @@ let pendingSubmissionBusy = false
 let pendingBatchTracking = null
 let pendingClientUpdate = null
 let clientUpdateInstalling = false
+let clientUpdateCheckBusy = false
+let lastAutomaticUpdateCheckAt = 0
+let clientBuildVersion = 'dev'
 const selectedPendingIDs = new Set()
 const notificationDeliveryAttempts = new Set()
 const operationProgress = new Map()
+const CLIENT_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
+const CLIENT_UPDATE_NOTIFIED_KEY = 'agent-manager-client-update-notified'
+const CLIENT_SETTINGS_KEY = 'agent-manager-client-settings-v1'
+const DEFAULT_CLIENT_SETTINGS = {
+  defaultPanel: 'connect',
+  systemNotifications: true,
+  notificationLevel: 'info',
+  autoCheckUpdates: true,
+  updateChannel: 'stable',
+}
+const loadClientSettings = () => {
+  try {
+    return { ...DEFAULT_CLIENT_SETTINGS, ...JSON.parse(localStorage.getItem(CLIENT_SETTINGS_KEY) || '{}') }
+  } catch {
+    return { ...DEFAULT_CLIENT_SETTINGS }
+  }
+}
+let clientSettings = loadClientSettings()
+const saveClientSettings = patch => {
+  clientSettings = { ...clientSettings, ...patch }
+  localStorage.setItem(CLIENT_SETTINGS_KEY, JSON.stringify(clientSettings))
+  syncSettingsControls()
+}
+
+const syncSettingsControls = () => {
+  if (!$('#settings-language')) return
+  $('#settings-language').value = window.clientI18n?.getLocale?.() || 'zh-CN'
+  $('#settings-default-panel').value = clientSettings.defaultPanel
+  $('#settings-system-notifications').checked = clientSettings.systemNotifications
+  $('#settings-notification-level').value = clientSettings.notificationLevel
+  $('#settings-notification-level').disabled = !clientSettings.systemNotifications
+  $('#settings-auto-update').checked = clientSettings.autoCheckUpdates
+  $('#settings-update-channel').value = clientSettings.updateChannel
+  $('#settings-background-service').checked = Boolean(connection?.service_installed)
+  $('#settings-background-service').disabled = !connection?.configured
+  $('#settings-service-detail').textContent = !connection?.configured
+    ? t('请先完成客户端接入。')
+    : connection.service_running
+      ? t('后台治理服务正在运行，并会在登录系统后自动启动。')
+      : connection.service_installed
+        ? t('后台治理服务已安装，但当前未运行。')
+        : t('后台治理服务未安装，不会在登录系统后自动启动。')
+  $('#settings-update-status').textContent = pendingClientUpdate?.available
+    ? tf`发现新版本 ${clientUpdateVersion(pendingClientUpdate)}`
+    : tf`当前版本 ${clientBuildVersion} · ${clientSettings.updateChannel === 'preview' ? t('测试通道') : t('正式通道')}`
+}
 
 const $ = selector => document.querySelector(selector)
 const setBusy = (button, busy) => {
@@ -40,7 +103,7 @@ const setBusy = (button, busy) => {
   button.classList.toggle('is-busy', busy)
   if (busy) {
     button.dataset.original = button.textContent
-    button.dataset.busyLabel = button.dataset.busyText || '处理中...'
+    button.dataset.busyLabel = button.dataset.busyText || t('ui.1j4vco4')
     button.textContent = button.dataset.busyLabel
   } else if (button.textContent === button.dataset.busyLabel) {
     button.textContent = button.dataset.original
@@ -48,11 +111,11 @@ const setBusy = (button, busy) => {
 }
 const run = async (command, args = []) => invoke('execute_client', { command, args })
 const log = value => {
-  $('#status-last-operation').textContent = `最近操作：${new Date().toLocaleTimeString()} · ${value || '操作完成'}`
+  $('#status-last-operation').textContent = `${t('ui.png61n')}：${new Date().toLocaleTimeString(window.clientI18n?.getLocale?.() || 'zh-CN')} · ${runtimeText(value || t('ui.rxr1o0'))}`
 }
 const showMessageDialog = (title, detail) => {
   $('#message-dialog-title').textContent = title
-  $('#message-dialog-detail').textContent = detail
+  $('#message-dialog-detail').textContent = runtimeText(detail)
   $('#message-dialog').showModal()
 }
 
@@ -71,25 +134,25 @@ const renderClientUpdateProgress = payload => {
   const total = Number(payload?.total || 0)
   const percentage = total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : 0
   const content = {
-    preparing: ['准备更新', '正在暂停后台服务并检查本地状态'],
-    downloading: ['下载更新', total > 0
-      ? `已下载 ${formatUpdateBytes(downloaded)} / ${formatUpdateBytes(total)}`
-      : `已下载 ${formatUpdateBytes(downloaded)}`],
-    installing: ['校验并安装', '更新包已下载，正在校验签名并安装'],
-    restarting: ['重启客户端', '前台即将重启，启动后会自动更新后台服务'],
-  }[stage] || ['处理更新', '正在处理客户端更新']
+    preparing: [t('ui.wvy19q'), t('ui.1i0h4nk')],
+    downloading: [t('ui.1f0r4xl'), total > 0
+      ? tf`已下载 ${formatUpdateBytes(downloaded)} / ${formatUpdateBytes(total)}`
+      : tf`已下载 ${formatUpdateBytes(downloaded)}`],
+    installing: [t('ui.11861uk'), t('ui.1nkk2ub')],
+    restarting: [t('ui.ldl6iz'), t('ui.1yg1pqe')],
+  }[stage] || [t('ui.4enimb'), t('ui.123u0aw')]
   progress.hidden = false
   progress.classList.toggle('indeterminate', total <= 0 || stage !== 'downloading')
   progress.querySelector('[data-progress-title]').textContent = content[0]
   progress.querySelector('[data-progress-detail]').textContent = content[1]
-  progress.querySelector('[data-progress-elapsed]').textContent = total > 0 && stage === 'downloading' ? `${percentage}%` : '处理中'
+  progress.querySelector('[data-progress-elapsed]').textContent = total > 0 && stage === 'downloading' ? `${percentage}%` : t('ui.1h3kna')
   progress.querySelector('[data-progress-bar]').style.width = total > 0 && stage === 'downloading' ? `${percentage}%` : ''
 }
 
 if (window.__TAURI__.event?.listen) {
   window.__TAURI__.event
     .listen('client-update-progress', event => renderClientUpdateProgress(event.payload))
-    .catch(error => log(`更新进度监听失败：${error}`))
+    .catch(error => log(tf`更新进度监听失败：${error}`))
 }
 
 const startOperationProgress = (selector, { title, detail, current = 0, total = 0 }) => {
@@ -102,7 +165,7 @@ const startOperationProgress = (selector, { title, detail, current = 0, total = 
     startedAt,
     timer: setInterval(() => {
       const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
-      element.querySelector('[data-progress-elapsed]').textContent = `已用时 ${elapsed} 秒`
+      element.querySelector('[data-progress-elapsed]').textContent = tf`已用时 ${elapsed} 秒`
     }, 1000),
   }
   operationProgress.set(selector, state)
@@ -110,7 +173,7 @@ const startOperationProgress = (selector, { title, detail, current = 0, total = 
   element.classList.toggle('indeterminate', total <= 0)
   element.querySelector('[data-progress-title]').textContent = title
   element.querySelector('[data-progress-detail]').textContent = detail
-  element.querySelector('[data-progress-elapsed]').textContent = '已用时 0 秒'
+  element.querySelector('[data-progress-elapsed]').textContent = t('ui.i9ne2h')
   element.querySelector('[data-progress-bar]').style.width = total > 0 ? `${Math.round((current / total) * 100)}%` : ''
 }
 
@@ -142,7 +205,7 @@ document.addEventListener('click', async event => {
   try {
     await invoke('reveal_path', { path: button.dataset.revealPath })
   } catch (error) {
-    showMessageDialog('打开文件夹失败', String(error))
+    showMessageDialog(t('ui.17y2ac'), String(error))
   } finally {
     setBusy(button, false)
   }
@@ -155,12 +218,14 @@ const showPanel = panel => {
   document.querySelectorAll('.nav-item, .panel').forEach(item => item.classList.remove('active'))
   document.querySelector(`.nav-item[data-panel="${panel}"]`)?.classList.add('active')
   $('#notification-trigger').classList.toggle('active', panel === 'notifications')
+  $('#settings-trigger').classList.toggle('active', panel === 'settings')
   $(`#${panel}`).classList.add('active')
-  $('#panel-title').textContent = titles[panel]
+  $('#panel-title').textContent = panelTitle(panel)
   $('.workspace').scrollTop = 0
   if (panel === 'status') loadStatusPage()
   if (panel === 'notifications') refreshConnection()
   if (panel === 'records') refreshConnection()
+  if (panel === 'settings') syncSettingsControls()
 }
 
 const showTakeoverError = error => {
@@ -170,7 +235,7 @@ const showTakeoverError = error => {
   $('#takeover-result-note').hidden = true
   $('#takeover-actions').hidden = true
   $('#takeover-list').classList.remove('empty')
-  $('#takeover-list').innerHTML = `<div class="inline-error"><strong>暂时无法生成预览</strong><span>${escapeHtml(error)}</span><button class="icon-button icon-back" data-back-to-discover>返回选择 Skill</button></div>`
+  $('#takeover-list').innerHTML = tf`<div class="inline-error"><strong>暂时无法生成预览</strong><span>${escapeHtml(runtimeText(error))}</span><button class="icon-button icon-back" data-back-to-discover>返回选择 Skill</button></div>`
   $('[data-back-to-discover]')?.addEventListener('click', () => showPanel('discover'))
   log(error)
 }
@@ -184,12 +249,12 @@ document.querySelectorAll('.nav-item').forEach(button => {
     if (takeoverLoadedAt === inventoryKey || takeoverLoading) return
     if (!takeoverLoadedAt) {
       $('#takeover-list').classList.add('empty')
-      $('#takeover-list').textContent = '正在加载受管 Agent 和 Skill...'
+      $('#takeover-list').textContent = t('ui.1pzntjl')
     }
     takeoverLoading = true
     startOperationProgress('#takeover-progress', {
-      title: '正在生成接管预览',
-      detail: `正在读取 ${selectedSkillPaths.size} 个已选 Skill，并核对平台状态与内容签名。`,
+      title: t('ui.7707sb'),
+      detail: tf`正在读取 ${selectedSkillPaths.size} 个已选 Skill，并核对平台状态与内容签名。`,
     })
     try {
       await preview(false)
@@ -221,13 +286,13 @@ $('#connect-form').addEventListener('submit', async event => {
   }
 })
 
-const policyLabel = value => ({ audit: '只审计', repair: '自动恢复', block: '隔离阻断' }[value] || value || '-')
-const governanceLabel = value => ({ registry: '客户端安全治理', strict: 'Agent 强授权' }[value] || value || '客户端安全治理')
+const policyLabel = value => ({ audit: t('ui.1n7b1v3'), repair: t('ui.1fftepa'), block: t('ui.1lg89ho') }[value] || value || '-')
+const governanceLabel = value => ({ registry: t('ui.12wr3db'), strict: t('ui.1bqmand') }[value] || value || t('ui.12wr3db'))
 const formatTime = value => {
   if (!value) return '-'
   const text = String(value)
   const normalized = /^\d{4}-\d{2}-\d{2}T/.test(text) && !/(Z|[+-]\d{2}:?\d{2})$/.test(text) ? `${text}Z` : text
-  return new Date(normalized).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
+  return new Date(normalized).toLocaleString(window.clientI18n?.getLocale?.() || 'zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
 }
 const setProgress = (id, state) => {
   const element = $(`#${id}`)
@@ -243,11 +308,12 @@ const renderDisconnected = () => {
   $('#token').value = ''
   $('#token').placeholder = 'amat_...'
   $('#cancel-edit').hidden = true
-  $('#connect-submit').textContent = '接入平台'
-  $('#connection-state').textContent = '未接入'
+  $('#connect-submit').textContent = t('ui.nonmak')
+  $('#connection-state').textContent = t('ui.1gwretz')
   $('#connection-state').classList.remove('online')
   $('#notification-trigger').hidden = true
-  $('#panel-title').textContent = '客户端接入'
+  $('#panel-title').textContent = t('ui.1u7rfgt')
+  syncSettingsControls()
 }
 const editConnection = () => {
   $('#connect-form').hidden = false
@@ -255,8 +321,8 @@ const editConnection = () => {
   $('#client-name').value = connection?.name || connection?.platform?.name || ''
   $('#token').value = ''
   $('#token').required = false
-  $('#token').placeholder = '留空表示继续使用现有凭证'
-  $('#connect-submit').textContent = '测试并保存'
+  $('#token').placeholder = t('ui.5k770y')
+  $('#connect-submit').textContent = t('ui.93zfr8')
   $('#cancel-edit').hidden = false
   $('#server').focus()
 }
@@ -264,19 +330,23 @@ const editConnection = () => {
 const renderBuiltinAgentSettings = () => {
   const element = $('#builtin-agent-settings')
   element.innerHTML = builtinAgentSettings.length
-    ? builtinAgentSettings.map(item => `
-      <button class="builtin-agent-row" type="button" data-edit-agent-paths="${escapeHtml(item.agent_type)}">
-        <span class="builtin-agent-name"><strong>${escapeHtml(agentLabel(item.agent_type))}</strong>${item.customized ? '<em>已自定义</em>' : ''}</span>
+    ? builtinAgentSettings.map(item => {
+      const readers = item.shared_skill_readers || []
+      return tf`
+      <button class="builtin-agent-row${item.shared_skills ? ' shared' : ''}" type="button" data-edit-agent-paths="${escapeHtml(item.agent_type)}">
+        <span class="builtin-agent-name"><strong>${escapeHtml(agentLabel(item.agent_type))}</strong>${item.shared_skills ? t('ui.qn1hdp') : ''}${item.customized ? t('ui.xtw2wn') : ''}</span>
         <span class="builtin-agent-roots">${item.current_roots.map(root => `<code title="${escapeHtml(root)}">${escapeHtml(root)}</code>`).join('')}</span>
+        ${item.shared_skills ? tf`<span class="builtin-agent-hint">可能由 ${escapeHtml(formatList(readers) || t('ui.waagmd'))} 读取，实际以版本和配置为准</span>` : ''}
         <span class="builtin-agent-edit">修改目录</span>
-      </button>`).join('')
-    : '<div class="empty compact">暂无内置 Agent 配置</div>'
+      </button>`
+    }).join('')
+    : t('ui.11mm43w')
   document.querySelectorAll('[data-edit-agent-paths]').forEach(button => button.addEventListener('click', () => {
     editingBuiltinAgent = builtinAgentSettings.find(item => item.agent_type === button.dataset.editAgentPaths) || null
     if (!editingBuiltinAgent) return
-    $('#agent-paths-title').textContent = `修改 ${agentLabel(editingBuiltinAgent.agent_type)} 扫描目录`
+    $('#agent-paths-title').textContent = tf`修改 ${agentLabel(editingBuiltinAgent.agent_type)} 扫描目录`
     $('#agent-paths-input').value = editingBuiltinAgent.current_roots.join('\n')
-    $('#agent-paths-default').textContent = `默认目录：${editingBuiltinAgent.default_roots.join('；')}`
+    $('#agent-paths-default').textContent = tf`默认目录：${editingBuiltinAgent.default_roots.join('；')}`
     $('#reset-agent-paths').disabled = !editingBuiltinAgent.customized
     $('#agent-paths-dialog').showModal()
   }))
@@ -291,9 +361,12 @@ const loadBuiltinAgentSettings = async (force = false) => {
 const renderConnected = data => {
   const platform = data.platform || {}
   const agents = data.inventory?.agents || []
+  const localAgents = agents.filter(agent => !isSharedSkills(agent))
+  const sharedTargets = agents.filter(isSharedSkills)
   const platformAgents = platform.agents || []
   const platformByType = Object.fromEntries(platformAgents.map(agent => [agent.agent_type, agent]))
-  const supported = agents.filter(agent => agent.skill_management_supported)
+  const governableTargets = agents.filter(agent => agent.skill_management_supported)
+  const supported = localAgents.filter(agent => agent.skill_management_supported)
   const bound = supported.filter(agent => platformByType[agent.agent_type]?.managed_agent_id)
   const strict = platform.governance_mode === 'strict'
   const managedSkills = platformAgents.reduce((count, agent) => count + (agent.skills || []).filter(skill => skill.skill_id).length, 0)
@@ -301,47 +374,47 @@ const renderConnected = data => {
   const local = data.local || {}
   const hasTakeover = (local.managed_skills || 0) + (local.pending_skills || 0) > 0
   const governanceEnabled = Boolean(local.governance_enabled)
-  const agentsReady = supported.length > 0 && (!strict || bound.length === supported.length)
+  const agentsReady = governableTargets.length > 0 && (!strict || bound.length === supported.length)
   const scopeConfirmed = agentsReady && hasTakeover
   const patrolActive = scopeConfirmed && data.service_running && governanceEnabled
-  const takeoverTitle = hasTakeover ? 'Skill 治理' : '接管预览'
-  titles.takeover = takeoverTitle
+  const takeoverTitle = hasTakeover ? t('ui.1meon5z') : t('ui.1aqrn47')
+  currentTakeoverTitle = takeoverTitle
   $('#takeover-nav-label').textContent = takeoverTitle
   $('#takeover-heading').textContent = takeoverTitle
   $('#takeover-description').textContent = hasTakeover
-    ? '查看当前受管 Skill，并识别新出现或需要处理的本地 Skill。刷新不会重复接管。'
-    : '安全治理模式只校验平台批准状态与内容签名；Agent 强授权模式还会校验智能体允许范围。'
+    ? t('ui.1xrvaa9')
+    : t('ui.6igw3y')
   $('#takeover-state-badge').hidden = !hasTakeover
   $('#takeover-state-badge').className = `takeover-state-badge${governanceEnabled ? '' : ' paused'}`
-  $('#takeover-state-badge').textContent = governanceEnabled ? '接管中' : '治理已暂停'
+  $('#takeover-state-badge').textContent = governanceEnabled ? t('ui.wxg0be') : t('ui.18d9dw')
   const connectionError = !data.connected
   if (connectionError) {
-    todos.push({ title: '平台接入异常', detail: data.error || '无法验证当前接入状态', action: '重试接入', actionType: 'refresh', error: true })
+    todos.push({ title: t('ui.1i3u5zy'), detail: runtimeText(data.error || t('ui.14ahndy')), action: t('ui.xhhfbd'), actionType: 'refresh', error: true })
   }
-  if (data.connected && supported.length === 0) {
-    todos.push({ title: '尚未发现可管理的 Agent', detail: '重新发现本机已安装的 Agent。', action: '发现 Agent', panel: 'discover' })
+  if (data.connected && governableTargets.length === 0) {
+    todos.push({ title: t('ui.1uwxfnn'), detail: t('ui.1syv6zk'), action: t('ui.ooab5x'), panel: 'discover' })
   }
   if (data.connected && strict && supported.length > bound.length) {
-    todos.push({ title: `${supported.length - bound.length} 个 Agent 尚未绑定`, detail: '绑定平台智能体后才能统一安装和校验 Skill。', action: '前往绑定', panel: 'discover' })
+    todos.push({ title: tf`${supported.length - bound.length} 个 Agent 尚未绑定`, detail: t('ui.tq4rjs'), action: t('ui.67hphv'), panel: 'discover' })
   }
   if (data.connected && hasTakeover && !data.service_running) {
     todos.push({
-      title: data.service_installed ? '后台巡检未运行' : '后台巡检尚未启用',
-      detail: data.service_detail || '关闭桌面应用后将无法持续同步和校验 Skill。',
-      action: '启用巡检', actionType: 'install-service', error: data.service_installed,
+      title: data.service_installed ? t('ui.cewtrw') : t('ui.ur9dh5'),
+      detail: runtimeText(data.service_detail || t('ui.17kvfer')),
+      action: t('ui.1ox0viz'), actionType: 'install-service', error: data.service_installed,
     })
   }
   if (data.connected && data.service_running && local.managed_skills > 0 && !local.governance_enabled) {
-    todos.push({ title: '持续治理已暂停', detail: '平台任务仍会同步，但不会巡检或自动处置本地 Skill。', action: '查看状态', panel: 'status' })
+    todos.push({ title: t('ui.1pm2mwm'), detail: t('ui.bj45l'), action: t('ui.g9imto'), panel: 'status' })
   }
   if ((local.quarantined_skills || 0) > 0) {
-    todos.push({ title: `${local.quarantined_skills} 个 Skill 已隔离`, detail: '可在运行状态中查看原因，并从平台选择批准版本重新安装。', action: '查看隔离区', panel: 'status', error: true })
+    todos.push({ title: tf`${skillCount(local.quarantined_skills)} 已隔离`, detail: t('ui.1jypd9c'), action: t('ui.fdodj6'), panel: 'status', error: true })
   }
   if ((local.pending_skills || 0) > 0) {
-    todos.push({ title: `${local.pending_skills} 个 Skill 已停用待检测`, detail: '内容仍安全保留，可直接提交平台检测。', action: '前往处理', panel: 'takeover' })
+    todos.push({ title: tf`${skillCount(local.pending_skills)} 已停用待检测`, detail: t('ui.3rlwg5'), action: t('ui.11srxfq'), panel: 'takeover' })
   }
   if ((local.queued_events || 0) > 0) {
-    todos.push({ title: `${local.queued_events} 条审计事件待补报`, detail: '平台恢复连接后会自动补报。', action: '刷新连接', actionType: 'refresh' })
+    todos.push({ title: tf`${local.queued_events} 条审计事件待补报`, detail: t('ui.1smkxvk'), action: t('ui.1hbudir'), actionType: 'refresh' })
   }
 
   $('#connection-intro').hidden = true
@@ -349,51 +422,57 @@ const renderConnected = data => {
   $('#connect-form').hidden = true
   $('#token').value = ''
   $('#connected-overview').hidden = false
-  $('#connection-state').textContent = data.connected ? '已接入' : '接入异常'
+  $('#connection-state').textContent = data.connected ? t('ui.id9tin') : t('ui.19towct')
   $('#connection-state').classList.toggle('online', data.connected)
   $('#notification-trigger').hidden = false
   const activePanel = document.querySelector('.panel.active')?.id || 'connect'
-  $('#panel-title').textContent = titles[activePanel]
+  $('#panel-title').textContent = panelTitle(activePanel)
   $('#overview-badge').className = `overview-badge${connectionError ? ' error' : ''}`
-  $('#overview-badge').textContent = connectionError ? '接入异常' : '已接入'
-  $('#overview-title').textContent = connectionError ? '暂时无法连接 Agent Manager' : '客户端已接入 Agent Manager'
+  $('#overview-badge').textContent = connectionError ? t('ui.19towct') : t('ui.id9tin')
+  $('#overview-title').textContent = connectionError ? t('ui.gqjsy5') : t('ui.7t7yhn')
   $('#overview-subtitle').textContent = connectionError
-    ? `${data.error || '平台暂时不可达'}。现有 Skill 不受影响。`
-    : `${platform.name || data.name || data.inventory?.hostname || '当前客户端'}已接入 ${data.server}`
-  $('#overview-sync').textContent = connectionError ? '重试接入' : '刷新状态'
+    ? tf`${runtimeText(data.error || t('ui.cvy3o'))}。现有 Skill 不受影响。`
+    : isEnglish()
+      ? `${platform.name || data.name || data.inventory?.hostname || t('ui.13nfgz7')} · Connected to ${data.server}`
+      : `${platform.name || data.name || data.inventory?.hostname || t('ui.13nfgz7')}已接入 ${data.server}`
+  $('#overview-sync').textContent = connectionError ? t('ui.xhhfbd') : t('ui.2fhcc7')
 
-  $('#metric-agents').textContent = agents.length
+  $('#metric-agents').textContent = localAgents.length
   $('#metric-bound').textContent = strict ? `${bound.length} / ${supported.length}` : `${supported.length} / ${supported.length}`
-  $('#metric-bound-label').textContent = strict ? '已绑定智能体' : '可治理 Agent'
+  $('#metric-bound-label').textContent = strict ? t('ui.1idv0ac') : t('ui.16k09ve')
   $('#metric-skills').textContent = local.managed_skills ?? managedSkills
   $('#metric-todos').textContent = todos.length
   $('#progress-summary').textContent = !data.connected
-    ? '恢复平台接入后才能继续同步。'
-    : supported.length === 0
-      ? '客户端已接入，请发现本机 Agent。'
+    ? t('ui.1e2g05i')
+    : governableTargets.length === 0
+      ? t('ui.w7oyqs')
       : strict && bound.length < supported.length
-        ? `已发现 ${agents.length} 个 Agent，还有 ${supported.length - bound.length} 个需要绑定。`
+        ? tf`已发现 ${localAgents.length} 个 Agent，还有 ${supported.length - bound.length} 个需要绑定。`
         : !hasTakeover
-          ? 'Agent 已发现，请确认需要治理的 Skill 范围。'
+          ? isEnglish()
+            ? `${agentCount(localAgents.length)}${sharedTargets.length ? ' and shared Skills directories' : ''} discovered. Confirm the governance scope.`
+            : tf`${localAgents.length} 个 Agent${sharedTargets.length ? t('ui.ysb7y1') : ''}已发现，请确认治理范围。`
           : !data.service_running
-            ? '治理范围已确认，请启用后台巡检。'
+            ? t('ui.es4v92')
             : !governanceEnabled
-              ? '持续治理已暂停，恢复后将继续巡检。'
-              : `${supported.length} 个 Agent 正在持续治理。`
+              ? t('ui.1evu320')
+              : isEnglish()
+                ? `${agentCount(supported.length)}${sharedTargets.length ? ' and shared Skills directories' : ''} are under continuous governance.`
+                : tf`${supported.length} 个 Agent${sharedTargets.length ? t('ui.tamedf') : ''}正在持续治理。`
   setProgress('step-connect', data.connected ? 'done' : 'current')
-  setProgress('step-discover', agents.length ? 'done' : data.connected ? 'current' : '')
-  $('#step-bind span').textContent = strict ? '绑定并确认范围' : '确认治理范围'
-  setProgress('step-bind', scopeConfirmed ? 'done' : agents.length ? 'current' : '')
-  $('#step-service span').textContent = data.service_running && !governanceEnabled && hasTakeover ? '后台巡检已暂停' : '后台巡检'
+  setProgress('step-discover', governableTargets.length ? 'done' : data.connected ? 'current' : '')
+  $('#step-bind span').textContent = strict ? t('ui.1jfg101') : t('ui.1220ih')
+  setProgress('step-bind', scopeConfirmed ? 'done' : governableTargets.length ? 'current' : '')
+  $('#step-service span').textContent = data.service_running && !governanceEnabled && hasTakeover ? t('ui.15hy02m') : t('ui.6tdt5u')
   setProgress('step-service', patrolActive ? 'done' : scopeConfirmed ? 'current' : '')
 
   $('#detail-service').textContent = data.service_running
-    ? governanceEnabled && hasTakeover ? '运行中' : hasTakeover ? '运行中 · 巡检已暂停' : '运行中 · 尚未接管'
-    : data.service_installed ? '已安装但未运行' : '未安装'
+    ? governanceEnabled && hasTakeover ? t('ui.1bywqik') : hasTakeover ? t('ui.uymdom') : t('ui.17y0wdd')
+    : data.service_installed ? t('ui.wfa2b') : t('ui.buf4kb')
   $('#detail-policy').textContent = policyLabel(platform.policy_mode)
   $('#detail-governance').textContent = governanceLabel(platform.governance_mode)
   $('#detail-last-seen').textContent = formatTime(platform.last_seen_at)
-  $('#detail-token-status').textContent = data.connected ? `有效 · ${data.token_hint}` : `需检查 · ${data.token_hint}`
+  $('#detail-token-status').textContent = data.connected ? tf`有效 · ${data.token_hint}` : tf`需检查 · ${data.token_hint}`
   $('#detail-queued-events').textContent = local.queued_events || 0
   $('#detail-local-scan').textContent = formatTime(local.last_inventory_at)
   $('#detail-name').textContent = platform.name || data.name || data.inventory?.hostname || '-'
@@ -425,6 +504,7 @@ const renderConnected = data => {
       }
     })
   })
+  syncSettingsControls()
 }
 
 const renderStatus = data => {
@@ -435,24 +515,24 @@ const renderStatus = data => {
   const findings = local.patrol_findings || []
   const issues = (local.quarantined_skills || 0) + (local.queued_events || 0) + findings.length
   $('#status-service-badge').className = `overview-badge${running ? '' : ' warning'}`
-  $('#status-service-badge').textContent = running ? governanceEnabled ? '治理中' : '服务运行中' : installed ? '运行异常' : '未启用'
-  $('#status-service-title').textContent = running ? governanceEnabled ? '持续治理运行中' : '持续治理已暂停' : installed ? '后台服务未运行' : '后台服务尚未启用'
+  $('#status-service-badge').textContent = running ? governanceEnabled ? t('ui.yp0d17') : t('ui.ihbpsu') : installed ? t('ui.ir5jv') : t('ui.1tylsuy')
+  $('#status-service-title').textContent = running ? governanceEnabled ? t('ui.7cyhwh') : t('ui.1pm2mwm') : installed ? t('ui.1t069n1') : t('ui.1tsoz5i')
   $('#status-service-description').textContent = running
     ? governanceEnabled
-      ? '后台服务持续同步平台任务，并定时巡检受管 Skill；也可以立即执行一次完整巡检。'
-      : '后台服务仍会同步平台任务，但不会巡检、告警、隔离或自动修复本地 Skill。'
-    : installed ? data.service_detail || '请重新启用后台服务。' : '启用后将同步平台任务，并可持续治理受管 Skill。'
+      ? t('ui.1ur37ia')
+      : t('ui.8prxjn')
+    : installed ? runtimeText(data.service_detail || t('ui.lkjgbu')) : t('ui.c1pwr3')
   $('#install-service').hidden = running
-  $('#install-service').textContent = installed ? '重新启用后台服务' : '启用后台服务'
+  $('#install-service').textContent = installed ? t('ui.at9scf') : t('ui.r8dnq')
   $('#uninstall-service').hidden = !installed
   $('#toggle-governance').hidden = !local.managed_skills
-  $('#toggle-governance').textContent = governanceEnabled ? '暂停持续治理' : '恢复持续治理'
+  $('#toggle-governance').textContent = governanceEnabled ? t('ui.16zn63k') : t('ui.ebl6p3')
   $('#toggle-governance').className = `takeover-toggle icon-button ${governanceEnabled ? 'pause icon-pause' : 'resume icon-resume'}`
   $('#toggle-takeover').hidden = !local.managed_skills
-  $('#toggle-takeover').textContent = governanceEnabled ? '暂停接管' : '恢复接管'
+  $('#toggle-takeover').textContent = governanceEnabled ? t('ui.1cm4u1t') : t('ui.m2imlu')
   $('#toggle-takeover').className = `takeover-toggle icon-button ${governanceEnabled ? 'pause icon-pause' : 'resume icon-resume'}`
   $('#run-once').disabled = !governanceEnabled
-  $('#run-once').title = governanceEnabled ? '' : '恢复持续治理后才能执行巡检'
+  $('#run-once').title = governanceEnabled ? '' : t('ui.9qicf')
   $('#status-last-scan').textContent = formatTime(local.last_full_scan_at)
   $('#status-next-scan').textContent = governanceEnabled && running ? formatTime(local.next_full_scan_at) : '-'
   $('#status-managed-count').textContent = local.managed_skills || 0
@@ -460,10 +540,10 @@ const renderStatus = data => {
   $('#status-queued-count').textContent = local.queued_events || 0
   $('#status-attention').className = `status-attention${issues ? ' warning' : ' ok'}`
   $('#status-attention-text').textContent = findings.length
-    ? `最近巡检发现 ${findings.length} 个异常：${findings.map(item => item.skill_name).join('、')}。`
+    ? tf`最近巡检发现 ${findings.length} 个异常：${formatList(findings.map(item => item.skill_name))}。`
     : issues
-    ? `需要处理：${local.quarantined_skills || 0} 个隔离项、${local.queued_events || 0} 条待补报事件。`
-    : '当前没有需要处理的本地事项。'
+    ? tf`需要处理：${local.quarantined_skills || 0} 个隔离项、${local.queued_events || 0} 条待补报事件。`
+    : t('ui.19y0h48')
   const localTasks = local.tasks || []
   const localTasksByID = new Map(localTasks.map(task => [task.id, task]))
   const tasks = data?.platform?.tasks?.length
@@ -495,17 +575,18 @@ const renderNotifications = local => {
   element.classList.toggle('empty', filtered.length === 0)
   element.innerHTML = filtered.length ? filtered.map(item => {
     const action = notificationAction(item.event_type)
+    const copy = localizedNotification(item)
     return `
     <button class="notification-item ${escapeHtml(item.severity)}${item.read_at ? '' : ' unread'}" data-notification-id="${item.id}" data-notification-panel="${action.panel}">
       <i aria-hidden="true"></i>
       <div class="notification-content">
-        <div><strong>${escapeHtml(item.title)}</strong><span class="severity-label">${notificationSeverity(item.severity)}</span>${item.read_at ? '' : '<span>未读</span>'}</div>
-        <p>${escapeHtml(item.message)}</p>
+        <div><strong>${escapeHtml(copy.title)}</strong><span class="severity-label">${notificationSeverity(item.severity)}</span>${item.read_at ? '' : `<span>${t('ui.1grkwxe')}</span>`}</div>
+        <p>${escapeHtml(copy.message)}</p>
         <small>${escapeHtml(agentLabel(item.agent_type))} · ${escapeHtml(item.skill_name)} · ${escapeHtml(formatTime(item.created_at))}</small>
       </div>
       <span class="notification-action">${action.label} →</span>
     </button>`
-  }).join('') : '<div class="empty">当前筛选下暂无通知</div>'
+  }).join('') : `<div class="empty">${t('ui.bfts9h')}</div>`
   document.querySelectorAll('[data-notification-id]').forEach(button => button.addEventListener('click', async () => {
     const panel = button.dataset.notificationPanel
     showPanel(panel)
@@ -513,7 +594,7 @@ const renderNotifications = local => {
       await run('read-notifications', ['--id', button.dataset.notificationId])
       await refreshLocalNotifications()
     } catch (error) {
-      showMessageDialog('操作失败', String(error))
+      showMessageDialog(t('ui.ydow7a'), String(error))
     }
   }))
   deliverDesktopNotification(items.find(item => !item.delivered_at))
@@ -530,33 +611,73 @@ const deliverDesktopNotification = async item => {
   if (!item || notificationDeliveryAttempts.has(item.id)) return
   notificationDeliveryAttempts.add(item.id)
   try {
-    await invoke('show_system_notification', { title: item.title, body: item.message })
+    const severityRank = { info: 0, warning: 1, critical: 2 }
+    const threshold = severityRank[clientSettings.notificationLevel] ?? 0
+    const severity = severityRank[item.severity] ?? 0
+    if (!clientSettings.systemNotifications || severity < threshold) {
+      await run('deliver-notification', ['--id', String(item.id)])
+      return
+    }
+    const copy = localizedNotification(item)
+    await invoke('show_system_notification', { title: copy.title, body: copy.message })
     await run('deliver-notification', ['--id', String(item.id)])
     $('#system-notification-state').hidden = true
   } catch (error) {
     $('#system-notification-state').classList.remove('success')
     $('#system-notification-state').hidden = false
-    $('#system-notification-state').textContent = String(error)
+    $('#system-notification-state').textContent = runtimeText(error)
   }
 }
 
-const notificationSeverity = severity => ({ critical: '严重', warning: '警告', info: '已处置' }[severity] || '提示')
+const notificationSeverity = severity => t(
+  ({ critical: t('ui.s9cfpz'), warning: t('ui.1uwa1ih'), info: t('ui.1ltzzrr') }[severity] || t('ui.1hx7jj')),
+)
 const notificationAction = eventType => ({
-  skill_quarantined: { panel: 'status', label: '查看隔离区' },
-  unmanaged_skill_found: { panel: 'takeover', label: '前往治理' },
-  skill_modified: { panel: 'status', label: '查看状态' },
-  skill_repaired: { panel: 'records', label: '查看记录' },
-}[eventType] || { panel: 'records', label: '查看详情' })
+  skill_quarantined: { panel: 'status', label: t('ui.fdodj6') },
+  unmanaged_skill_found: { panel: 'takeover', label: t('ui.hrqy3h') },
+  skill_modified: { panel: 'status', label: t('ui.g9imto') },
+  skill_repaired: { panel: 'records', label: t('ui.13q7xte') },
+}[eventType] || { panel: 'records', label: t('ui.ox3r68') })
+
+const localizedNotification = item => {
+  const english = window.clientI18n?.getLocale?.() === 'en-US'
+  const agent = agentLabel(item.agent_type)
+  const target = english
+    ? `${agent} Skill ${item.skill_name}`
+    : tf`${agent} 的 Skill ${item.skill_name}`
+  const copies = {
+    skill_repaired: {
+      zh: [t('ui.f8b7hj'), tf`${target} 发生内容变化，已恢复为平台批准版本。`],
+      en: ['Skill Automatically Restored', `${target} changed and was restored to the platform-approved version.`],
+    },
+    skill_quarantined: {
+      zh: [t('ui.n2ip1x'), tf`${target} 未通过完整性或准入校验，已移出 Agent 目录。`],
+      en: ['Skill Quarantined', `${target} failed integrity or admission checks and was removed from the Agent directory.`],
+    },
+    skill_modified: {
+      zh: [t('ui.18hkev'), tf`${target} 与平台批准版本不一致，请查看运行状态。`],
+      en: ['Skill Content Changed', `${target} differs from the platform-approved version. Review Runtime Status.`],
+    },
+    unmanaged_skill_found: {
+      zh: [t('ui.gawr4f'), tf`${target} 尚未纳入平台治理。`],
+      en: ['Unmanaged Skill Found', `${target} is not yet governed by the platform.`],
+    },
+  }
+  const copy = copies[item.event_type]
+  if (!copy) return { title: runtimeText(item.title), message: runtimeText(item.message) }
+  const [title, message] = english ? copy.en : copy.zh
+  return { title, message }
+}
 
 const renderEventHistory = events => {
   const element = $('#event-history-list')
   element.classList.toggle('empty', !events.length)
   element.innerHTML = events.length ? events.map(event => `<div class="takeover-row task-history-row">
     <div><strong>${escapeHtml(eventTypeLabel(event.event_type))}</strong><p>${escapeHtml(event.skill_name || eventDetail(event.event_type))}</p></div>
-    <span>${escapeHtml(event.agent_type ? agentLabel(event.agent_type) : '当前客户端')}</span>
+    <span>${escapeHtml(event.agent_type ? agentLabel(event.agent_type) : t('ui.13nfgz7'))}</span>
     <strong class="task-status-${eventStatus(event.event_type)}">${escapeHtml(eventResultLabel(event.event_type))}</strong>
     <span>${escapeHtml(formatTime(event.created_at))}</span>
-  </div>`).join('') : '<div class="empty">暂无巡检与处置记录</div>'
+  </div>`).join('') : t('ui.1tbkycy')
 }
 
 const renderTaskHistory = tasks => {
@@ -566,15 +687,15 @@ const renderTaskHistory = tasks => {
     const payload = task.payload || {}
     const policySync = task.task_type === 'sync_policy' || (task.task_type === 'rescan' && payload.reason === 'policy_changed')
     const target = policySync
-      ? `处置：${policyLabel(payload.mode)} · 治理：${governanceLabel(payload.governance_mode)}`
-      : payload.skill_name || payload.skill_id || (task.task_type === 'rescan' ? '全部 Skill' : '-')
+      ? tf`处置：${policyLabel(payload.mode)} · 治理：${governanceLabel(payload.governance_mode)}`
+      : payload.skill_name || payload.skill_id || (task.task_type === 'rescan' ? t('ui.1agolmk') : '-')
     return `<div class="takeover-row task-history-row">
       <div><strong>${escapeHtml(taskTypeLabel(task))}</strong><p>${escapeHtml(target)}</p></div>
-      <span>${escapeHtml(payload.agent_type ? agentLabel(payload.agent_type) : '当前客户端')}</span>
+      <span>${escapeHtml(payload.agent_type ? agentLabel(payload.agent_type) : t('ui.13nfgz7'))}</span>
       <strong class="task-status-${escapeHtml(task.status)}">${escapeHtml(taskStatusLabel(task.status))}</strong>
-      <span class="${task.error ? 'task-history-error' : ''}">${escapeHtml(`${formatTime(task.finished_at || task.started_at || task.updated_at || task.created_at)}${task.error ? ` · ${task.error}` : ''}`)}</span>
+      <span class="${task.error ? 'task-history-error' : ''}">${escapeHtml(`${formatTime(task.finished_at || task.started_at || task.updated_at || task.created_at)}${task.error ? ` · ${runtimeText(task.error)}` : ''}`)}</span>
     </div>`
-  }).join('') : '<div class="empty">暂无平台任务记录</div>'
+  }).join('') : t('ui.2jt1e6')
 }
 async function refreshConnection() {
   try {
@@ -585,9 +706,10 @@ async function refreshConnection() {
     renderConnected(connection)
     renderInventory()
     await loadBuiltinAgentSettings().catch(error => {
-      $('#builtin-agent-settings').innerHTML = `<div class="inline-error"><strong>读取扫描目录失败</strong><span>${escapeHtml(error)}</span></div>`
+      $('#builtin-agent-settings').innerHTML = tf`<div class="inline-error"><strong>读取扫描目录失败</strong><span>${escapeHtml(error)}</span></div>`
     })
     await loadPending().catch(error => log(error))
+    checkClientUpdateAutomatically()
   } catch (error) {
     renderDisconnected()
     log(error)
@@ -629,15 +751,22 @@ document.querySelectorAll('[data-notification-filter]').forEach(button => {
 $('#refresh-notifications').addEventListener('click', refreshConnection)
 $('#notification-trigger').addEventListener('click', () => showPanel('notifications'))
 $('#test-system-notification').addEventListener('click', async () => {
+  if (!clientSettings.systemNotifications) {
+    showMessageDialog(t('系统通知已关闭'), t('请在设置中开启系统通知后再测试。'))
+    return
+  }
   try {
-    await invoke('show_system_notification', { title: '瑞数智能体安全治理客户端', body: '系统通知已开启，安全事件将及时提醒。' })
+    await invoke('show_system_notification', {
+      title: window.clientI18n?.getLocale?.() === 'en-US' ? 'Agent Manager Client' : t('ui.7jdhon'),
+      body: t('ui.1rj8d7t'),
+    })
     $('#system-notification-state').hidden = false
     $('#system-notification-state').classList.add('success')
-    $('#system-notification-state').textContent = '系统通知已发送。应用位于前台时，macOS 可能只将其收录到通知中心。'
+    $('#system-notification-state').textContent = t('ui.jswm83')
   } catch (error) {
     $('#system-notification-state').classList.remove('success')
     $('#system-notification-state').hidden = false
-    $('#system-notification-state').textContent = String(error)
+    $('#system-notification-state').textContent = runtimeText(error)
   }
 })
 $('#mark-notifications-read').addEventListener('click', async event => {
@@ -646,12 +775,12 @@ $('#mark-notifications-read').addEventListener('click', async event => {
   try {
     await run('read-notifications')
     const local = await refreshLocalNotifications()
-    if (Number(local.unread_notifications || 0) !== 0) throw new Error('本地通知状态未更新，请重试')
+    if (Number(local.unread_notifications || 0) !== 0) throw new Error(t('ui.1hudnlq'))
     $('#system-notification-state').hidden = false
     $('#system-notification-state').classList.add('success')
-    $('#system-notification-state').textContent = '全部通知已标记为已读。'
+    $('#system-notification-state').textContent = t('ui.15h7kok')
   } catch (error) {
-    showMessageDialog('操作失败', String(error))
+    showMessageDialog(t('ui.ydow7a'), String(error))
   } finally {
     setBusy(button, false)
   }
@@ -664,14 +793,14 @@ $('#confirm-clear-notifications').addEventListener('click', async event => {
   try {
     await run('clear-notifications')
     const local = await refreshLocalNotifications()
-    if ((local.notifications || []).length !== 0) throw new Error('本地通知仍未清空，请重试')
+    if ((local.notifications || []).length !== 0) throw new Error(t('ui.1mk1djv'))
     $('#clear-notifications-dialog').close()
     $('#system-notification-state').hidden = false
     $('#system-notification-state').classList.add('success')
-    $('#system-notification-state').textContent = '本机通知已清除。隔离记录和平台审计未受影响。'
-    log('本机通知已清除')
+    $('#system-notification-state').textContent = t('ui.rlm9bx')
+    log(t('ui.wff6ih'))
   } catch (error) {
-    showMessageDialog('清除失败', String(error))
+    showMessageDialog(t('ui.1osubs6'), String(error))
   } finally {
     setBusy(button, false)
   }
@@ -680,7 +809,6 @@ $('#confirm-clear-notifications').addEventListener('click', async event => {
 const renderInventory = () => {
   if (!inventory?.agents) return
   const bindings = Object.fromEntries((connection?.platform?.agents || []).map(agent => [agent.agent_type, agent.managed_agent_id || '']))
-  const supported = inventory.agents.filter(agent => agent.skill_management_supported).length
   const strict = connection?.platform?.governance_mode === 'strict'
   const availableAgents = connection?.platform?.available_managed_agents || []
   selectedSkillPaths = new Set(inventory.agents.flatMap(agent => agent.skills || []).filter(skill => !skill.error).map(skill => skill.path))
@@ -694,21 +822,25 @@ const renderInventory = () => {
         ? availableAgents
         : availableAgents.filter(item => agentKind(item.channel) === agentKind(agent.agent_type))
       const binding = bindings[agent.agent_type] || ''
+      const shared = isSharedSkills(agent)
+      const readers = agent.capabilities?.shared_skill_readers || []
+      const requiresBinding = agent.skill_management_supported && strict && !shared
       return `
-        <details class="agent-card">
+        <details class="agent-card${shared ? ' shared-skills-card' : ''}">
           <summary class="agent-summary">
-            <div class="agent-name"><span class="entity-badge">${isSharedSkills(agent) ? '共享' : 'Agent'}</span><div><strong>${escapeHtml(agentLabel(agent.agent_type))}</strong><small title="${escapeHtml(agent.skills_path || 'Skill 目录尚未创建')}">${escapeHtml(agent.skills_path || 'Skill 目录尚未创建')}</small></div></div>
+            <div class="agent-name"><span class="entity-badge">${shared ? t('ui.6m4yak') : 'Agent'}</span><div><strong>${escapeHtml(agentLabel(agent.agent_type))}</strong><small title="${escapeHtml(agent.skills_path || t('ui.1d2upau'))}">${escapeHtml(agent.skills_path || t('ui.1d2upau'))}</small></div></div>
             <div class="capability ${agent.skill_management_supported ? 'supported' : ''}">
               ${agent.skill_management_supported
-                ? `${agent.skills.length} 个 Skill${agent.skills.filter(skill => skill.error).length ? ` · ${agent.skills.filter(skill => skill.error).length} 个待校验` : ''}`
-                : '仅识别客户端，不执行 Skill 接管'}
+                ? tf`${skillCount(agent.skills.length)}${shared ? t('ui.1x0ngfg') : ''}${agent.skills.filter(skill => skill.error).length ? tf` · ${agent.skills.filter(skill => skill.error).length} 个待校验` : ''}`
+                : t('ui.9694e6')}
             </div>
-            <span class="fold-label">${agent.skill_management_supported ? '展开 / 收起' : '无可管理 Skill'}</span>
+            <span class="fold-label">${agent.skill_management_supported ? t('ui.172hsfg') : t('ui.1gnqr2m')}</span>
           </summary>
-          ${(agent.skill_management_supported && strict) || isCustomAgent(agent)
-            ? `<div class="agent-settings">${agent.skill_management_supported && strict ? `<label class="mapping">平台智能体<select data-agent="${escapeHtml(agent.agent_type)}"><option value="">请选择</option>${compatible.map(item => `<option value="${escapeHtml(item.agent_id)}" ${item.agent_id === binding ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select></label>` : ''}${isCustomAgent(agent) ? `<button class="custom-agent-remove icon-button icon-remove" type="button" title="只取消本地登记，不删除 Skill 文件" data-remove-custom-agent="${escapeHtml(agent.agent_type)}" data-custom-agent-name="${escapeHtml(agent.display_name)}">取消登记</button>` : ''}</div>`
+          ${shared ? tf`<div class="shared-skills-note"><strong>这是共用目录，不计入 Agent 数量</strong><span>${escapeHtml(formatList(readers) || t('ui.waagmd'))} 可能读取其中的 Skill，实际以各 Agent 的版本和配置为准；共用目录仅执行状态与内容完整性治理，无法据此识别具体调用方。</span></div>` : ''}
+          ${requiresBinding || isCustomAgent(agent)
+            ? `<div class="agent-settings">${requiresBinding ? tf`<label class="mapping">平台智能体<select data-agent="${escapeHtml(agent.agent_type)}"><option value="">请选择</option>${compatible.map(item => `<option value="${escapeHtml(item.agent_id)}" ${item.agent_id === binding ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select></label>` : ''}${isCustomAgent(agent) ? tf`<button class="custom-agent-remove icon-button icon-remove" type="button" title="只取消本地登记，不删除 Skill 文件" data-remove-custom-agent="${escapeHtml(agent.agent_type)}" data-custom-agent-name="${escapeHtml(agent.display_name)}">取消登记</button>` : ''}</div>`
             : ''}
-          ${agent.skill_management_supported ? `<div class="skill-inventory">${agent.skills.length ? agent.skills.map(skill => `
+          ${agent.skill_management_supported ? `<div class="skill-inventory">${agent.skills.length ? agent.skills.map(skill => tf`
             <div class="skill-row">
               <div class="skill-row-main">
                 <input type="checkbox" aria-label="选择 ${escapeHtml(skill.name)}" data-skill-path="${escapeHtml(skill.path)}" ${skill.error ? 'disabled' : 'checked'} />
@@ -718,13 +850,13 @@ const renderInventory = () => {
                 </span>
               </div>
               <div class="skill-row-actions">
-                <em class="${skill.error ? 'warning' : 'ok'}">${skill.error ? '待处理' : skill.skill_id ? '已受管' : '待接管'}</em>
-                ${skill.skill_id && !skill.error ? `<button class="icon-button icon-install" type="button" data-install-other="${escapeHtml(skill.skill_id)}" data-skill-name="${escapeHtml(skill.name)}" data-source-agent="${escapeHtml(agent.agent_type)}">安装到其他 Agent</button>` : ''}
+                <em class="${skill.error ? 'warning' : 'ok'}">${skill.error ? t('ui.titry') : skill.skill_id ? t('ui.wd1ghx') : t('ui.zbxgqi')}</em>
+                ${skill.skill_id && !skill.error ? tf`<button class="icon-button icon-install" type="button" data-install-other="${escapeHtml(skill.skill_id)}" data-skill-name="${escapeHtml(skill.name)}" data-source-agent="${escapeHtml(agent.agent_type)}">安装到其他 Agent</button>` : ''}
               </div>
-            </div>`).join('') : '<div class="empty compact">未发现 Skill</div>'}</div>` : ''}
+            </div>`).join('') : t('ui.1nq630h')}</div>` : ''}
         </details>`
     }).join('')
-    : '<div class="empty">未发现支持的 Agent</div>'
+    : t('ui.1o0lsp0')
   document.querySelectorAll('[data-skill-path]').forEach(input => input.addEventListener('change', () => {
     if (input.checked) selectedSkillPaths.add(input.dataset.skillPath)
     else selectedSkillPaths.delete(input.dataset.skillPath)
@@ -767,7 +899,7 @@ $('#select-agent-path').addEventListener('click', async event => {
     }
   } catch (error) {
     $('#agent-paths-dialog').close()
-    showMessageDialog('选择目录失败', String(error))
+    showMessageDialog(t('ui.xcqz4c'), String(error))
   } finally {
     setBusy(button, false)
   }
@@ -777,7 +909,7 @@ $('#save-agent-paths').addEventListener('click', async event => {
   if (!editingBuiltinAgent) return
   const input = $('#agent-paths-input')
   const roots = input.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean)
-  input.setCustomValidity(roots.length ? '' : '至少保留一个 Skill 扫描目录')
+  input.setCustomValidity(roots.length ? '' : t('ui.1znl4f'))
   if (!input.reportValidity()) return
   const button = event.currentTarget
   setBusy(button, true)
@@ -789,9 +921,9 @@ $('#save-agent-paths').addEventListener('click', async event => {
     $('#agent-paths-dialog').close()
     await loadBuiltinAgentSettings(true)
     await discover()
-    showMessageDialog('扫描目录已更新', '新的目录已保存并完成一次 Agent 重新发现。')
+    showMessageDialog(t('ui.a9933o'), t('ui.14mjvkv'))
   } catch (error) {
-    showMessageDialog('保存扫描目录失败', String(error))
+    showMessageDialog(t('ui.kwr7cx'), String(error))
   } finally {
     setBusy(button, false)
   }
@@ -807,9 +939,9 @@ $('#reset-agent-paths').addEventListener('click', async event => {
     $('#agent-paths-dialog').close()
     await loadBuiltinAgentSettings(true)
     await discover()
-    showMessageDialog('已恢复默认目录', '该 Agent 已恢复使用内置的默认 Skill 扫描目录。')
+    showMessageDialog(t('ui.h1u4jd'), t('ui.1eqvozo'))
   } catch (error) {
-    showMessageDialog('恢复默认目录失败', String(error))
+    showMessageDialog(t('ui.1viosk7'), String(error))
   } finally {
     setBusy(button, false)
   }
@@ -825,9 +957,9 @@ $('#confirm-remove-custom-agent').addEventListener('click', async event => {
     customAgentPendingRemoval = null
     $('#remove-custom-agent-dialog').close()
     await discover()
-    showMessageDialog('登记已取消', `已取消“${item.name}”的本地登记，原 Skill 目录和文件没有被删除。`)
+    showMessageDialog(t('ui.1y3ykai'), tf`已取消“${item.name}”的本地登记，原 Skill 目录和文件没有被删除。`)
   } catch (error) {
-    showMessageDialog('取消登记失败', String(error))
+    showMessageDialog(t('ui.1ykwh3e'), String(error))
   } finally {
     setBusy(button, false)
   }
@@ -837,8 +969,10 @@ const discover = async () => {
   const output = await run('inventory')
   inventory = JSON.parse(output)
   renderInventory()
-  const supported = inventory.agents.filter(agent => agent.skill_management_supported).length
-  log(`发现 ${inventory.agents.length} 个 Agent，其中 ${supported} 个支持 Skill 管理`)
+  const agents = inventory.agents.filter(agent => !isSharedSkills(agent))
+  const supported = agents.filter(agent => agent.skill_management_supported).length
+  const shared = inventory.agents.filter(isSharedSkills).length
+  log(tf`发现 ${agents.length} 个 Agent，其中 ${supported} 个支持 Skill 管理${shared ? tf`；另发现 ${shared} 个共用 Skills 目录` : ''}`)
 }
 
 const updateSelectionSummary = () => {
@@ -850,28 +984,28 @@ const updateSelectionSummary = () => {
   const recoveryNeeded = selectableCount === 0 && unavailableCount > 0
   previewButton.dataset.action = recoveryNeeded ? 'restore' : 'preview'
   previewButton.disabled = !recoveryNeeded && selectedSkillPaths.size === 0
-  $('#selection-heading').textContent = recoveryNeeded ? '需要恢复 Skill' : '下一步：确认接管范围'
+  $('#selection-heading').textContent = recoveryNeeded ? t('ui.9n7ury') : t('ui.1tcut2')
   $('#selection-guidance').innerHTML = selectableCount === 0
     ? unavailableCount
-      ? `发现 ${unavailableCount} 个不可用 Skill。请展开 Agent 查看原因，或从平台重新安装可信版本。`
-      : '当前没有发现可接管的 Skill。'
-    : `已选择 <b id="selected-skill-count">${selectedSkillPaths.size}</b> 个 Skill，生成预览后可查看哪些继续启用、哪些需要处理。`
+      ? tf`发现 ${unavailableCount} 个不可用 Skill。请展开 Agent 查看原因，或从平台重新安装可信版本。`
+      : t('ui.mzo6ro')
+    : tf`已选择 <b id="selected-skill-count">${selectedSkillPaths.size}</b> ${skillCount(selectedSkillPaths.size).replace(/^\d+\s*/, '')}，生成预览后可查看哪些继续启用、哪些需要处理。`
   const currentKey = JSON.stringify([lastInventoryAt, [...selectedSkillPaths].sort()])
   previewButton.textContent = recoveryNeeded
-    ? '从平台恢复 Skill'
+    ? t('ui.ldkfmu')
     : selectableCount === 0
-      ? '暂无可接管 Skill'
+      ? t('ui.78yft3')
     : !previewSelectionKey
-      ? '生成接管预览'
+      ? t('ui.mxuy7s')
       : previewSelectionKey === currentKey
-        ? '查看接管预览'
-        : '更新接管预览'
+        ? t('ui.14bf9qb')
+        : t('ui.443oyz')
   previewButton.title = recoveryNeeded
-    ? '从平台选择已批准的 Skill，重新安装到本机 Agent'
+    ? t('ui.1ydsbxo')
     : selectableCount === 0
-      ? '当前没有发现可接管的 Skill'
+      ? t('ui.10c2cz2')
     : selectedSkillPaths.size === 0
-      ? '请先选择至少一个 Skill'
+      ? t('ui.k57bdv')
       : previewButton.textContent
 }
 
@@ -879,11 +1013,11 @@ $('#discover-button').addEventListener('click', async event => {
   const button = event.currentTarget
   setBusy(button, true)
   $('#agent-list').classList.add('empty')
-  $('#agent-list').textContent = '正在发现本机 Agent 和 Skill...'
+  $('#agent-list').textContent = t('ui.1jhrms5')
   try {
     await discover()
   } catch (error) {
-    $('#agent-list').innerHTML = `<div class="empty discovery-error">发现失败：${escapeHtml(error)}</div>`
+    $('#agent-list').innerHTML = tf`<div class="empty discovery-error">发现失败：${escapeHtml(error)}</div>`
     log(error)
   } finally {
     setBusy(button, false)
@@ -891,7 +1025,7 @@ $('#discover-button').addEventListener('click', async event => {
 })
 
 $('#add-custom-agent-button').addEventListener('click', () => {
-  if (!connection?.configured) return showMessageDialog('请先接入平台', '接入 Agent Manager 后才能添加自定义 Agent。')
+  if (!connection?.configured) return showMessageDialog(t('ui.172wjyr'), t('ui.1ea9uve'))
   $('#custom-agent-form').reset()
   $('#custom-agent-dialog').showModal()
   $('#custom-agent-name').focus()
@@ -904,7 +1038,7 @@ $('#select-custom-agent-path').addEventListener('click', async event => {
     const path = await invoke('select_skill_directory')
     if (path) $('#custom-agent-path').value = path
   } catch (error) {
-    showMessageDialog('选择目录失败', String(error))
+    showMessageDialog(t('ui.xcqz4c'), String(error))
   } finally {
     setBusy(button, false)
   }
@@ -917,9 +1051,9 @@ $('#custom-agent-form').addEventListener('submit', async event => {
     await run('add-custom-agent', ['--name', $('#custom-agent-name').value.trim(), '--skills-path', $('#custom-agent-path').value.trim()])
     $('#custom-agent-dialog').close()
     await discover()
-    showMessageDialog('自定义 Agent 已添加', '已读取该目录中的 Skill。接下来可选择 Skill 并生成接管预览。')
+    showMessageDialog(t('ui.is6ir0'), t('ui.1byen3i'))
   } catch (error) {
-    showMessageDialog('添加自定义 Agent 失败', String(error))
+    showMessageDialog(t('ui.24x3uq'), String(error))
   } finally {
     setBusy(button, false)
   }
@@ -932,8 +1066,11 @@ const mappingArgs = () => [...document.querySelectorAll('[data-agent]')]
 const preview = async (confirm, showNoChange = false) => {
   if (!document.querySelector('[data-skill-path]')) await discover()
   const args = mappingArgs()
-  if (connection?.platform?.governance_mode === 'strict' && !args.length) {
-    throw new Error('Agent 强授权模式下，请至少绑定一个平台智能体')
+  const selectedAgentSkills = (inventory?.agents || [])
+    .filter(agent => !isSharedSkills(agent))
+    .some(agent => (agent.skills || []).some(skill => selectedSkillPaths.has(skill.path)))
+  if (connection?.platform?.governance_mode === 'strict' && selectedAgentSkills && !args.length) {
+    throw new Error(t('ui.1pu7ifd'))
   }
   const selected = [...selectedSkillPaths]
   if (!selected.length) {
@@ -941,9 +1078,9 @@ const preview = async (confirm, showNoChange = false) => {
     $('#pending-count').textContent = '0'
     $('#takeover-summary').hidden = true
     $('#takeover-result-note').hidden = !showNoChange
-    $('#takeover-result-note').textContent = '预览结果：当前没有选择需要接管的 Skill。'
+    $('#takeover-result-note').textContent = t('ui.scaie8')
     $('#takeover-list').classList.add('empty')
-    $('#takeover-list').textContent = '当前没有新选择的 Skill，已停用项仍保留在下方待处理区'
+    $('#takeover-list').textContent = t('ui.1prcba7')
     takeoverReady = false
     $('#takeover-actions').hidden = true
     takeoverLoadedAt = lastInventoryAt || 'current'
@@ -964,10 +1101,10 @@ const preview = async (confirm, showNoChange = false) => {
   $('#takeover-summary').hidden = !hasChanges
   $('#takeover-result-note').hidden = !hasChanges && !showNoChange
   $('#takeover-result-note').textContent = !hasChanges
-    ? '预览结果：没有需要新增接管或停用的 Skill。'
+    ? t('ui.1qtolsc')
     : managed
-      ? `已接管 ${managed} 个 Skill；仅新增或状态异常的 Skill 需要处理。`
-      : '以下为确认接管后的状态预览，展开 Agent 可查看每个 Skill 的判断依据。'
+      ? tf`已接管 ${skillCount(managed)}；仅新增或状态异常的 Skill 需要处理。`
+      : t('ui.19jaci3')
   $('#manage-count').textContent = manage
   $('#pending-count').textContent = pending
   $('#takeover-feedback').hidden = true
@@ -977,10 +1114,10 @@ const preview = async (confirm, showNoChange = false) => {
       const enabled = group.items.filter(item => item.action === 'manage').length
       const existing = group.items.filter(item => item.action === 'managed').length
       const pendingItems = group.items.filter(item => item.action === 'pending').length
-      return `<details class="takeover-agent">
+      return tf`<details class="takeover-agent">
         <summary class="takeover-agent-summary">
           <div class="takeover-agent-name"><span class="entity-badge">Agent</span><strong>${escapeHtml(agentLabel(group.agentType))}</strong></div>
-          <span>${group.items.length} 个 Skill${existing ? ` · ${existing} 个已接管` : ''}${enabled ? ` · ${enabled} 个待接管` : ''}${pendingItems ? ` · ${pendingItems} 个停用` : ''}</span>
+          <span>${skillCount(group.items.length)}${existing ? tf` · ${existing} 个已接管` : ''}${enabled ? tf` · ${enabled} 个待接管` : ''}${pendingItems ? tf` · ${pendingItems} 个停用` : ''}</span>
           <em>展开 / 收起</em>
         </summary>
         <div class="takeover-agent-items">
@@ -988,14 +1125,14 @@ const preview = async (confirm, showNoChange = false) => {
           ${group.items.map(item => `
           <div class="takeover-row">
             <div><strong>${escapeHtml(item.name)}</strong><button class="path-link" type="button" title="${escapeHtml(item.source)}" data-reveal-path="${escapeHtml(item.source)}">${escapeHtml(item.source)}</button></div>
-            <span class="result-status status-${item.action}"><i></i>${item.action === 'managed' ? '已接管' : item.action === 'manage' ? '待接管' : '停用'}</span>
+            <span class="result-status status-${item.action}"><i></i>${item.action === 'managed' ? t('ui.yxyw4j') : item.action === 'manage' ? t('ui.zbxgqi') : t('ui.6q9o5l')}</span>
             <span>${escapeHtml(reasonLabel(item.reason))}</span>
-            ${['manage', 'managed'].includes(item.action) && item.skill_id ? `<button class="icon-button icon-install" type="button" data-install-preview="${escapeHtml(item.skill_id)}" data-skill-name="${escapeHtml(item.name)}" data-source-agent="${escapeHtml(item.agent_type)}">安装到其他 Agent</button>` : '<span>-</span>'}
+            ${['manage', 'managed'].includes(item.action) && item.skill_id ? tf`<button class="icon-button icon-install" type="button" data-install-preview="${escapeHtml(item.skill_id)}" data-skill-name="${escapeHtml(item.name)}" data-source-agent="${escapeHtml(item.agent_type)}">安装到其他 Agent</button>` : '<span>-</span>'}
           </div>`).join('')}
         </div>
       </details>`
     }).join('')
-    : '<div class="empty">没有需要接管的 Skill</div>'
+    : t('ui.n4bxkk')
   takeoverReady = plan.items.some(item => item.action !== 'managed')
   document.querySelectorAll('[data-install-preview]').forEach(button => button.addEventListener('click', () => {
     openInstallDialog({ skill_id: button.dataset.installPreview, name: button.dataset.skillName, source_agent_type: button.dataset.sourceAgent })
@@ -1035,8 +1172,8 @@ const generateAndOpenPreview = async (button, force = false) => {
   takeoverLoading = true
   showPanel('takeover')
   startOperationProgress('#takeover-progress', {
-    title: '正在生成接管预览',
-    detail: `正在读取 ${selectedSkillPaths.size} 个已选 Skill，并核对平台状态与内容签名。`,
+    title: t('ui.7707sb'),
+    detail: tf`正在读取 ${selectedSkillPaths.size} 个已选 Skill，并核对平台状态与内容签名。`,
   })
   setBusy(button, true)
   try {
@@ -1060,14 +1197,14 @@ $('#open-preview-button').addEventListener('click', async event => {
 })
 $('#takeover-ack').addEventListener('change', syncApplyState)
 $('#apply-button').addEventListener('click', async event => {
-  if (!takeoverReady) return showTakeoverError('请先生成接管预览')
+  if (!takeoverReady) return showTakeoverError(t('ui.mupilr'))
   const button = event.currentTarget
   const managedCount = Number($('#manage-count').textContent) || 0
   const pendingCount = Number($('#pending-count').textContent) || 0
-  showTakeoverFeedback('processing', '正在执行接管', '正在备份现有目录并应用预览中的处理结果，请稍候。')
+  showTakeoverFeedback('processing', t('ui.1wihumr'), t('ui.jksjyl'))
   startOperationProgress('#takeover-progress', {
-    title: '正在执行接管',
-    detail: `正在备份并处理 ${managedCount + pendingCount} 个 Skill，请不要关闭客户端。`,
+    title: t('ui.1wihumr'),
+    detail: tf`正在备份并处理 ${skillCount(managedCount + pendingCount)}，请不要关闭客户端。`,
   })
   $('#takeover-feedback').scrollIntoView({ behavior: 'smooth', block: 'center' })
   setBusy(button, true)
@@ -1078,14 +1215,14 @@ $('#apply-button').addEventListener('click', async event => {
     $('#takeover-result-note').hidden = true
     $('#takeover-ack').checked = false
     $('#takeover-actions').hidden = true
-    log(`接管完成：纳入管理 ${managedCount} 个，停用 ${pendingCount} 个`)
+    log(tf`接管完成：纳入管理 ${managedCount} 个，停用 ${pendingCount} 个`)
     await refreshConnection()
-    const detail = `已纳入管理 ${managedCount} 个，可继续使用；已停用 ${pendingCount} 个，已移入下方待处理区。客户端将持续巡检，接管前内容已备份。`
-    $('#takeover-result-note').textContent = '以下为接管后的当前状态；停用的 Skill 已无法被 Agent 加载。'
-    showTakeoverFeedback('success', '接管完成', detail)
-    showMessageDialog('接管完成', detail)
+    const detail = tf`已纳入管理 ${managedCount} 个，可继续使用；已停用 ${pendingCount} 个，已移入下方待处理区。客户端将持续巡检，接管前内容已备份。`
+    $('#takeover-result-note').textContent = t('ui.teyp42')
+    showTakeoverFeedback('success', t('ui.1nqsn'), detail)
+    showMessageDialog(t('ui.1nqsn'), detail)
   } catch (error) {
-    showTakeoverFeedback('error', '接管失败', error)
+    showTakeoverFeedback('error', t('ui.x6xsih'), error)
     log(error)
   } finally {
     stopOperationProgress('#takeover-progress')
@@ -1116,16 +1253,16 @@ const renderPendingBatchStatus = () => {
   element.hidden = false
   element.className = `takeover-feedback ${finished ? counts.rejected || counts.cancelled ? 'error' : 'success' : 'processing'}`
   const title = counts.detecting
-    ? `本批检测进度：已出结果 ${resolved}/${total}`
+    ? tf`本批检测进度：已出结果 ${resolved}/${total}`
     : counts.review
-      ? `自动检测已完成：${counts.review} 个待审核`
-      : '本批检测已完成'
+      ? tf`自动检测已完成：${counts.review} 个待审核`
+      : t('ui.1iebqkf')
   element.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml([
-    `检测中 ${counts.detecting}`,
-    `待审核 ${counts.review}`,
-    `已批准 ${counts.approved}`,
-    `未通过 ${counts.rejected}`,
-    counts.cancelled ? `已取消 ${counts.cancelled}` : '',
+    tf`检测中 ${counts.detecting}`,
+    tf`待审核 ${counts.review}`,
+    tf`已批准 ${counts.approved}`,
+    tf`未通过 ${counts.rejected}`,
+    counts.cancelled ? tf`已取消 ${counts.cancelled}` : '',
   ].filter(Boolean).join(' · '))}</span>`
 }
 
@@ -1141,7 +1278,7 @@ const syncPendingBatchControls = () => {
   $('#pending-select-all-wrap').hidden = eligible.length === 0
   submitSelected.hidden = eligible.length === 0
   submitSelected.disabled = selectedCount === 0 || pendingSubmissionBusy
-  if (!pendingSubmissionBusy) submitSelected.textContent = `提交所选 ${selectedCount}`
+  if (!pendingSubmissionBusy) submitSelected.textContent = tf`提交所选 ${selectedCount}`
   selectAll.disabled = pendingSubmissionBusy
   refreshPending.disabled = pendingSubmissionBusy || pendingRefreshBusy
   document.querySelectorAll('[data-select-pending]').forEach(input => { input.disabled = pendingSubmissionBusy })
@@ -1162,7 +1299,7 @@ const schedulePendingRefresh = items => {
     try {
       await loadPending(true, { silent: true })
     } catch (error) {
-      log(`刷新检测状态失败：${error}`)
+      log(tf`刷新检测状态失败：${error}`)
       schedulePendingRefresh(pendingItems)
     }
   }, activeAnalysis ? 3000 : 10000)
@@ -1184,7 +1321,7 @@ const loadPending = async (refresh = false, { silent = false } = {}) => {
   }
   $('#pending-list').classList.toggle('empty', !items.length)
   $('#pending-list').innerHTML = items.length
-    ? groupTakeoverItems(items.map(item => ({ ...item, agent_type: item.agent_type }))).map(group => `
+    ? groupTakeoverItems(items.map(item => ({ ...item, agent_type: item.agent_type }))).map(group => tf`
       <details class="takeover-agent" open>
         <summary class="takeover-agent-summary">
           <div class="takeover-agent-name"><span class="entity-badge">Agent</span><strong>${escapeHtml(agentLabel(group.agentType))}</strong></div>
@@ -1195,7 +1332,7 @@ const loadPending = async (refresh = false, { silent = false } = {}) => {
           ${group.items.map(item => `
             <div class="takeover-row pending-skill-row">
               ${pendingCanSubmit(item)
-                ? `<label class="pending-skill-select" title="选择 ${escapeHtml(item.skill_name)}"><input type="checkbox" data-select-pending="${escapeHtml(item.id)}"${selectedPendingIDs.has(item.id) ? ' checked' : ''} /></label>`
+                ? tf`<label class="pending-skill-select" title="选择 ${escapeHtml(item.skill_name)}"><input type="checkbox" data-select-pending="${escapeHtml(item.id)}"${selectedPendingIDs.has(item.id) ? ' checked' : ''} /></label>`
                 : '<span class="pending-select-placeholder"></span>'}
               <div><strong>${escapeHtml(item.skill_name)}</strong><button class="path-link" type="button" title="${escapeHtml(item.pending_path)}" data-reveal-path="${escapeHtml(item.pending_path)}">${escapeHtml(item.pending_path)}</button></div>
               <div class="pending-status-block">
@@ -1204,15 +1341,15 @@ const loadPending = async (refresh = false, { silent = false } = {}) => {
               </div>
               <div class="takeover-row-actions">
                 ${item.status === 'APPROVED'
-                  ? `<button class="action-success icon-button icon-install" data-install-approved="${escapeHtml(item.id)}" data-agent-type="${escapeHtml(item.agent_type)}" data-skill-id="${escapeHtml(item.skill_id)}">立即安装</button>`
+                  ? tf`<button class="action-success icon-button icon-install" data-install-approved="${escapeHtml(item.id)}" data-agent-type="${escapeHtml(item.agent_type)}" data-skill-id="${escapeHtml(item.skill_id)}">立即安装</button>`
                   : item.skill_id
                   ? `<span class="pending-next">${escapeHtml(pendingNextLabel(item.status))}</span>`
-                  : `<button class="primary icon-button icon-submit" data-submit-pending="${escapeHtml(item.id)}">提交平台检测</button>`}
+                  : tf`<button class="primary icon-button icon-submit" data-submit-pending="${escapeHtml(item.id)}">提交平台检测</button>`}
               </div>
             </div>`).join('')}
         </div>
       </details>`).join('')
-    : '<div class="empty">当前没有停用待处理的 Skill</div>'
+    : t('ui.iyva04')
   document.querySelectorAll('[data-select-pending]').forEach(input => input.addEventListener('change', () => {
     if (input.checked) selectedPendingIDs.add(input.dataset.selectPending)
     else selectedPendingIDs.delete(input.dataset.selectPending)
@@ -1226,9 +1363,9 @@ const loadPending = async (refresh = false, { silent = false } = {}) => {
     try {
       await installPlatformSkill(button.dataset.agentType, button.dataset.skillId, button.dataset.installApproved)
       await refreshAfterInstall()
-      showMessageDialog('安装完成', 'Skill 已安装到目标 Agent。多个 Agent 安装同一 Skill 时会共用平台内容目录。')
+      showMessageDialog(t('ui.1br1zwn'), t('ui.stci1f'))
     } catch (error) {
-      showMessageDialog('安装失败', String(error))
+      showMessageDialog(t('ui.v4sbw9'), String(error))
       log(error)
     } finally {
       setBusy(button, false)
@@ -1236,7 +1373,7 @@ const loadPending = async (refresh = false, { silent = false } = {}) => {
   }))
   syncPendingBatchControls()
   schedulePendingRefresh(items)
-  if (refresh && !silent) log(`待处理区共有 ${items.length} 个 Skill`)
+  if (refresh && !silent) log(tf`待处理区共有 ${skillCount(items.length)}`)
   return items
 }
 
@@ -1253,20 +1390,20 @@ const submitPendingIDs = async (ids, button) => {
       .map(id => pendingItems.find(item => item.id === id)?.skill_name)
       .filter(Boolean)
     startOperationProgress('#pending-progress', {
-      title: `正在提交平台检测 0/${ids.length}`,
-      detail: queuedNames.length ? `本次共 ${ids.length} 个：${queuedNames.join('、')}` : '正在读取待处理 Skill...',
+      title: tf`正在提交平台检测 0/${ids.length}`,
+      detail: queuedNames.length ? tf`本次共 ${ids.length} 个：${formatList(queuedNames)}` : t('ui.1fn4bpx'),
       current: 0,
       total: ids.length,
     })
     let currentItems = JSON.parse(await run('pending'))
     for (let index = 0; index < ids.length; index += 1) {
       const id = ids[index]
-      button.textContent = ids.length > 1 ? `正在提交 ${index + 1}/${ids.length}` : '正在提交...'
+      button.textContent = ids.length > 1 ? tf`正在提交 ${index + 1}/${ids.length}` : t('ui.q83krs')
       const current = currentItems.find(item => item.id === id)
       if (!current || current.skill_id) continue
       updateOperationProgress('#pending-progress', {
-        title: `正在提交平台检测 ${index + 1}/${ids.length}`,
-        detail: `当前：${current.skill_name || id}`,
+        title: tf`正在提交平台检测 ${index + 1}/${ids.length}`,
+        detail: tf`当前：${current.skill_name || id}`,
         current: index,
         total: ids.length,
       })
@@ -1281,8 +1418,8 @@ const submitPendingIDs = async (ids, button) => {
         if (String(error).includes('client:submit-skill') || String(error).includes('scanner:submit')) break
       }
       updateOperationProgress('#pending-progress', {
-        title: `正在提交平台检测 ${index + 1}/${ids.length}`,
-        detail: `已完成 ${index + 1} 个，成功 ${submitted.length} 个，失败 ${failures.length} 个。`,
+        title: tf`正在提交平台检测 ${index + 1}/${ids.length}`,
+        detail: tf`已完成 ${index + 1} 个，成功 ${submitted.length} 个，失败 ${failures.length} 个。`,
         current: index + 1,
         total: ids.length,
       })
@@ -1293,21 +1430,21 @@ const submitPendingIDs = async (ids, button) => {
     await loadPending()
     if (submitted.length) {
       renderPendingBatchStatus()
-      log(`已提交平台检测：${submitted.join('、')}`)
+      log(tf`已提交平台检测：${formatList(submitted)}`)
     }
     if (failures.length) {
       const permissionDenied = failures.some(item => item.detail.includes('client:submit-skill') || item.detail.includes('scanner:submit'))
       const detail = permissionDenied
-        ? '当前客户端凭证没有提交 Skill 的权限。请前往 Agent Manager 的“凭证管理”，编辑当前客户端凭证并勾选 client:submit-skill。'
+        ? t('ui.1vj1hpi')
         : failures.map(item => `${item.name}：${item.detail}`).join('\n')
-      showMessageDialog(permissionDenied ? '缺少提交权限' : '部分 Skill 提交失败', detail)
-      showTakeoverFeedback('error', '提交检测未全部完成', detail)
+      showMessageDialog(permissionDenied ? t('ui.am251f') : t('ui.6y7is'), detail)
+      showTakeoverFeedback('error', t('ui.1wps06y'), detail)
       log(detail)
     }
   } catch (error) {
     const detail = String(error)
-    showMessageDialog('批量提交失败', detail)
-    showTakeoverFeedback('error', '批量提交失败', detail)
+    showMessageDialog(t('ui.182zhbv'), detail)
+    showTakeoverFeedback('error', t('ui.182zhbv'), detail)
     log(detail)
   } finally {
     stopOperationProgress('#pending-progress')
@@ -1343,7 +1480,7 @@ $('#submit-selected-pending').addEventListener('click', event => {
 
 $('#refresh-pending').addEventListener('click', async event => {
   if (pendingSubmissionBusy) {
-    showMessageDialog('正在提交平台检测', '批量提交完成后会自动刷新待处理状态，无需重复操作。')
+    showMessageDialog(t('ui.1p52cco'), t('ui.15zzqwz'))
     return
   }
   const button = event.currentTarget
@@ -1351,7 +1488,7 @@ $('#refresh-pending').addEventListener('click', async event => {
   try {
     await loadPending(true)
   } catch (error) {
-    showMessageDialog('刷新检测状态失败', String(error))
+    showMessageDialog(t('ui.mjir9s'), String(error))
     log(error)
   } finally {
     setBusy(button, false)
@@ -1367,10 +1504,10 @@ const runStatusCommand = async (button, command, success) => {
     await refreshConnection()
     const findings = connection?.local?.patrol_findings || []
     log(command === 'run-once'
-      ? findings.length ? `巡检完成，发现 ${findings.length} 个异常：${findings.map(item => item.skill_name).join('、')}` : '巡检完成，未发现异常'
+      ? findings.length ? tf`巡检完成，发现 ${findings.length} 个异常：${formatList(findings.map(item => item.skill_name))}` : t('ui.77zeux')
       : success)
   } catch (error) {
-    showMessageDialog('操作失败', String(error))
+    showMessageDialog(t('ui.ydow7a'), String(error))
     log(error)
   } finally {
     setBusy(button, false)
@@ -1382,16 +1519,16 @@ const waitForFullScan = async previous => {
     if (status.last_full_scan_at && status.last_full_scan_at !== previous) return
     await new Promise(resolve => setTimeout(resolve, 1000))
   }
-  throw new Error('完整巡检尚未在 45 秒内完成，请查看后台服务状态或稍后重试')
+  throw new Error(t('ui.1nvd3qf'))
 }
-$('#run-once').addEventListener('click', event => runStatusCommand(event.currentTarget, 'run-once', '巡检已完成'))
+$('#run-once').addEventListener('click', event => runStatusCommand(event.currentTarget, 'run-once', t('ui.1fhr44u')))
 const toggleGovernance = button => {
   const enabled = Boolean(connection?.local?.governance_enabled)
-  runStatusCommand(button, enabled ? 'pause-governance' : 'resume-governance', enabled ? '持续治理已暂停' : '持续治理已恢复')
+  runStatusCommand(button, enabled ? 'pause-governance' : 'resume-governance', enabled ? t('ui.1pm2mwm') : t('ui.1m8sjuh'))
 }
 $('#toggle-governance').addEventListener('click', event => toggleGovernance(event.currentTarget))
 $('#toggle-takeover').addEventListener('click', event => toggleGovernance(event.currentTarget))
-$('#install-service').addEventListener('click', event => runStatusCommand(event.currentTarget, 'install-service', '后台服务已启用'))
+$('#install-service').addEventListener('click', event => runStatusCommand(event.currentTarget, 'install-service', t('ui.1wl6i9a')))
 $('#uninstall-service').addEventListener('click', () => $('#stop-service-dialog').showModal())
 $('#confirm-stop-service').addEventListener('click', async event => {
   const button = event.currentTarget
@@ -1400,20 +1537,124 @@ $('#confirm-stop-service').addEventListener('click', async event => {
     await run('uninstall-service')
     await refreshConnection()
     $('#stop-service-dialog').close()
-    showMessageDialog('后台服务已停止', '现在可以安全备份或移动 ~/.agent-manager。重新启用后台服务后，客户端会继续同步任务和巡检 Skill。')
-    log('后台服务已停止')
+    showMessageDialog(t('ui.duph87'), t('ui.176m8tu'))
+    log(t('ui.duph87'))
   } catch (error) {
     $('#stop-service-dialog').close()
-    showMessageDialog('停止后台服务失败', String(error))
+    showMessageDialog(t('ui.lu1yd5'), String(error))
     log(error)
   } finally {
     setBusy(button, false)
+    syncSettingsControls()
   }
 })
+$('#stop-service-dialog').addEventListener('close', syncSettingsControls)
 $('#refresh-records').addEventListener('click', async event => {
   const button = event.currentTarget
   setBusy(button, true)
   try { await refreshConnection() } finally { setBusy(button, false) }
+})
+
+$('#settings-trigger').addEventListener('click', () => showPanel('settings'))
+$('#settings-language').addEventListener('change', event => {
+  window.clientI18n?.setLocale(event.currentTarget.value)
+})
+$('#settings-default-panel').addEventListener('change', event => {
+  saveClientSettings({ defaultPanel: event.currentTarget.value })
+})
+$('#settings-system-notifications').addEventListener('change', event => {
+  saveClientSettings({ systemNotifications: event.currentTarget.checked })
+})
+$('#settings-notification-level').addEventListener('change', event => {
+  saveClientSettings({ notificationLevel: event.currentTarget.value })
+})
+$('#settings-auto-update').addEventListener('change', event => {
+  saveClientSettings({ autoCheckUpdates: event.currentTarget.checked })
+  if (event.currentTarget.checked) void checkClientUpdateAutomatically()
+})
+$('#settings-update-channel').addEventListener('change', event => {
+  saveClientSettings({ updateChannel: event.currentTarget.value })
+  pendingClientUpdate = null
+  lastAutomaticUpdateCheckAt = 0
+  void checkClientUpdate({ interactive: true })
+})
+$('#settings-background-service').addEventListener('change', async event => {
+  const input = event.currentTarget
+  if (!input.checked) {
+    input.checked = true
+    $('#stop-service-dialog').showModal()
+    return
+  }
+  input.disabled = true
+  try {
+    await run('install-service')
+    await refreshConnection()
+    showMessageDialog(t('后台服务已启用'), t('客户端将在登录系统后自动启动后台治理服务。'))
+  } catch (error) {
+    showMessageDialog(t('启用后台服务失败'), String(error))
+  } finally {
+    syncSettingsControls()
+  }
+})
+$('#settings-check-update').addEventListener('click', async event => {
+  const button = event.currentTarget
+  setBusy(button, true)
+  try {
+    await checkClientUpdate({ interactive: true })
+  } finally {
+    setBusy(button, false)
+  }
+})
+$('#settings-open-logs').addEventListener('click', async () => {
+  try {
+    await invoke('open_client_location', { kind: 'logs' })
+  } catch (error) {
+    showMessageDialog(t('打开日志目录失败'), String(error))
+  }
+})
+$('#settings-open-data').addEventListener('click', async () => {
+  try {
+    await invoke('open_client_location', { kind: 'data' })
+  } catch (error) {
+    showMessageDialog(t('打开数据目录失败'), String(error))
+  }
+})
+$('#settings-export-diagnostics').addEventListener('click', async event => {
+  const button = event.currentTarget
+  setBusy(button, true)
+  try {
+    const local = connection?.local || {}
+    const platform = connection?.platform || {}
+    const report = {
+      generated_at: new Date().toISOString(),
+      client_version: clientBuildVersion,
+      locale: window.clientI18n?.getLocale?.() || 'zh-CN',
+      settings: clientSettings,
+      connection: {
+        configured: Boolean(connection?.configured),
+        connected: Boolean(connection?.connected),
+        server: connection?.server || '',
+        client_id: platform.client_id || connection?.inventory?.client_id || '',
+        client_name: platform.name || connection?.name || '',
+        service_installed: Boolean(connection?.service_installed),
+        service_running: Boolean(connection?.service_running),
+      },
+      runtime: {
+        governance_enabled: Boolean(local.governance_enabled),
+        managed_skills: Number(local.managed_skills || 0),
+        quarantined_skills: Number(local.quarantined_skills || 0),
+        queued_events: Number(local.queued_events || 0),
+        last_inventory_at: local.last_inventory_at || null,
+        last_full_scan_at: local.last_full_scan_at || null,
+      },
+    }
+    const path = await invoke('export_diagnostics', { content: JSON.stringify(report, null, 2) })
+    showMessageDialog(t('诊断报告已导出'), tf`文件已保存到 ${path}`)
+  } catch (error) {
+    showMessageDialog(t('导出诊断报告失败'), String(error))
+  } finally {
+    setBusy(button, false)
+  }
 })
 
 $('#overview-sync').addEventListener('click', async event => {
@@ -1430,21 +1671,99 @@ document.querySelectorAll('[data-target-panel]').forEach(button => {
   button.addEventListener('click', () => showPanel(button.dataset.targetPanel))
 })
 
+const clientUpdateVersion = result => result?.display_version || result?.version || ''
+
+const renderClientUpdateAvailability = result => {
+  const button = $('#check-update')
+  const available = Boolean(result?.available)
+  const version = clientUpdateVersion(result)
+  pendingClientUpdate = available ? result : null
+  button.classList.toggle('update-available', available)
+  button.classList.toggle('icon-check', !available)
+  button.classList.toggle('icon-install', available)
+  button.textContent = available ? tf`可更新 ${version}` : t('ui.10w1l5m')
+  button.title = available ? tf`发现客户端新版本 ${version}，点击查看并更新` : t('ui.1wcdr2e')
+  if ($('#settings-update-status')) {
+    $('#settings-update-status').textContent = available
+      ? tf`发现新版本 ${version}`
+      : t('已是当前通道的最新版本。')
+  }
+}
+
+const openClientUpdateDialog = result => {
+  const version = clientUpdateVersion(result)
+  $('#update-dialog-title').textContent = tf`发现新版本 ${version}`
+  $('#update-dialog-notes').textContent = result.notes || t('ui.1osi4fc')
+  $('#client-update-progress').hidden = true
+  $('#cancel-client-update').disabled = false
+  $('#confirm-client-update').disabled = false
+  $('#update-dialog').showModal()
+}
+
+const notifyClientUpdate = async result => {
+  const version = clientUpdateVersion(result)
+  if (!version || localStorage.getItem(CLIENT_UPDATE_NOTIFIED_KEY) === version) return
+  await invoke('show_system_notification', {
+    title: tf`客户端新版本 ${version}`,
+    body: t('ui.en65u1'),
+  })
+  localStorage.setItem(CLIENT_UPDATE_NOTIFIED_KEY, version)
+}
+
+const checkClientUpdate = async ({ interactive = false, notify = false } = {}) => {
+  if (clientUpdateCheckBusy) {
+    if (interactive) showMessageDialog(t('ui.t1go01'), t('ui.147j41'))
+    return
+  }
+  clientUpdateCheckBusy = true
+  lastAutomaticUpdateCheckAt = Date.now()
+  try {
+    const result = await invoke('check_client_update', { install: false, channel: clientSettings.updateChannel })
+    if (!result.available) {
+      renderClientUpdateAvailability(null)
+      if (interactive) {
+        const developmentBuild = result.supported === false
+        const title = developmentBuild ? t('ui.1bbpt32') : t('ui.16i7quy')
+        const detail = result.notes || t('ui.141nh2n')
+        showMessageDialog(title, detail)
+        log(developmentBuild ? t('ui.1n2cpzt') : t('ui.16cvhj6'))
+      }
+      return
+    }
+    renderClientUpdateAvailability(result)
+    if (notify) {
+      try {
+        await notifyClientUpdate(result)
+      } catch (error) {
+        log(tf`新版本通知发送失败：${error}`)
+      }
+    }
+    if (interactive) openClientUpdateDialog(result)
+  } catch (error) {
+    if ($('#settings-update-status')) $('#settings-update-status').textContent = runtimeText(error)
+    if (interactive) {
+      showMessageDialog(t('ui.1be4nr0'), String(error))
+      log(error)
+    }
+  } finally {
+    clientUpdateCheckBusy = false
+  }
+}
+
+const checkClientUpdateAutomatically = () => {
+  if (!clientSettings.autoCheckUpdates || !connection?.connected || Date.now() - lastAutomaticUpdateCheckAt < CLIENT_UPDATE_CHECK_INTERVAL_MS) return
+  void checkClientUpdate({ notify: true })
+}
+
 $('#check-update').addEventListener('click', async event => {
+  if (pendingClientUpdate?.available) {
+    openClientUpdateDialog(pendingClientUpdate)
+    return
+  }
   const button = event.currentTarget
   setBusy(button, true)
   try {
-    const result = await invoke('check_client_update', { install: false })
-    if (!result.available) return log('当前已是最新版本')
-    pendingClientUpdate = result
-    $('#update-dialog-title').textContent = `发现新版本 ${result.version}`
-    $('#update-dialog-notes').textContent = result.notes || '更新将先暂停后台服务，安装完成后自动重启前台并恢复后台巡检。'
-    $('#client-update-progress').hidden = true
-    $('#cancel-client-update').disabled = false
-    $('#confirm-client-update').disabled = false
-    $('#update-dialog').showModal()
-  } catch (error) {
-    log(error)
+    await checkClientUpdate({ interactive: true })
   } finally {
     setBusy(button, false)
   }
@@ -1453,8 +1772,7 @@ $('#check-update').addEventListener('click', async event => {
 $('#cancel-client-update').addEventListener('click', () => {
   if (clientUpdateInstalling) return
   $('#update-dialog').close()
-  if (pendingClientUpdate?.version) log(`发现新版本 ${pendingClientUpdate.version}，已选择稍后更新`)
-  pendingClientUpdate = null
+  if (pendingClientUpdate?.version) log(tf`发现新版本 ${clientUpdateVersion(pendingClientUpdate)}，已选择稍后更新`)
 })
 $('#update-dialog').addEventListener('cancel', event => {
   if (clientUpdateInstalling) event.preventDefault()
@@ -1468,14 +1786,14 @@ $('#confirm-client-update').addEventListener('click', async event => {
   setBusy(button, true)
   renderClientUpdateProgress({ stage: 'preparing' })
   try {
-    const result = await invoke('check_client_update', { install: true })
+    const result = await invoke('check_client_update', { install: true, channel: clientSettings.updateChannel })
     if (!result.available) {
       $('#update-dialog').close()
-      showMessageDialog('无需更新', '当前已经是最新版本。')
+      showMessageDialog(t('ui.zdzohd'), t('ui.drdmvz'))
     }
   } catch (error) {
     $('#update-dialog').close()
-    showMessageDialog('更新失败', String(error))
+    showMessageDialog(t('ui.10lkv9z'), String(error))
     log(error)
   } finally {
     clientUpdateInstalling = false
@@ -1488,7 +1806,7 @@ const loadBackups = async () => {
   const backups = JSON.parse(await run('backups'))
   $('#backup-select').innerHTML = backups.length
     ? backups.map(item => `<option value="${escapeHtml(item.name)}">${escapeHtml(formatTime(item.created_at))}</option>`).join('')
-    : '<option value="">暂无备份</option>'
+    : t('ui.2jmxw8')
   return backups
 }
 $('#refresh-backups').addEventListener('click', async event => {
@@ -1496,9 +1814,9 @@ $('#refresh-backups').addEventListener('click', async event => {
   setBusy(button, true)
   try {
     const backups = await loadBackups()
-    log(`找到 ${backups.length} 个可恢复备份`)
+    log(tf`找到 ${backups.length} 个可恢复备份`)
   } catch (error) {
-    showMessageDialog('读取备份失败', String(error))
+    showMessageDialog(t('ui.z05bdy'), String(error))
     log(error)
   } finally {
     setBusy(button, false)
@@ -1506,16 +1824,16 @@ $('#refresh-backups').addEventListener('click', async event => {
 })
 $('#restore-backup').addEventListener('click', async event => {
   const backup = $('#backup-select').value
-  if (!backup) return log('请选择要恢复的备份')
-  if (!window.confirm(`确认恢复备份 ${backup}？当前同名 Skill 会先备份。`)) return
+  if (!backup) return log(t('ui.1npxley'))
+  if (!window.confirm(tf`确认恢复备份 ${backup}？当前同名 Skill 会先备份。`)) return
   const button = event.currentTarget
   setBusy(button, true)
   try {
     await run('restore', ['--backup', backup, '--confirm'])
-    log(`备份 ${backup} 已恢复`)
-    showMessageDialog('备份恢复完成', '对应 Agent 的同名 Skill 已恢复。建议立即执行一次同步与巡检。')
+    log(tf`备份 ${backup} 已恢复`)
+    showMessageDialog(t('ui.1q20nls'), t('ui.e38z9k'))
   } catch (error) {
-    showMessageDialog('恢复备份失败', String(error))
+    showMessageDialog(t('ui.6y1l8i'), String(error))
     log(error)
   } finally {
     setBusy(button, false)
@@ -1525,13 +1843,13 @@ $('#restore-backup').addEventListener('click', async event => {
 const loadQuarantine = async () => {
   const items = JSON.parse(await run('quarantine'))
   $('#quarantine-list').classList.toggle('empty', !items.length)
-  $('#quarantine-list').innerHTML = items.length ? items.map(item => `
+  $('#quarantine-list').innerHTML = items.length ? items.map(item => tf`
     <div class="takeover-row quarantine-row">
       <div><strong>${escapeHtml(item.skill_name)}</strong><button class="path-link" type="button" title="隔离目录：${escapeHtml(item.quarantine_path)}" data-reveal-path="${escapeHtml(item.quarantine_path)}">所属 Agent：${escapeHtml(agentLabel(item.agent_type))} · ${escapeHtml(item.original_path)}</button></div>
       <strong class="action-pending">已隔离</strong>
       <span>${escapeHtml(reasonLabel(item.reason))}</span>
       <button class="icon-button icon-install" data-install-safe-version="${escapeHtml(item.skill_name)}">选择批准版本</button>
-    </div>`).join('') : '<div class="empty">当前没有隔离的 Skill</div>'
+    </div>`).join('') : t('ui.w1aoqw')
   document.querySelectorAll('[data-install-safe-version]').forEach(button => button.addEventListener('click', () => {
     openInstallDialog(null, button.dataset.installSafeVersion)
   }))
@@ -1543,9 +1861,9 @@ $('#refresh-quarantine').addEventListener('click', async event => {
   setBusy(button, true)
   try {
     const items = await loadQuarantine()
-    log(`隔离区共有 ${items.filter(item => item.status === 'quarantined').length} 个待处理 Skill`)
+    log(tf`隔离区共有 ${items.filter(item => item.status === 'quarantined').length} 个待处理 Skill`)
   } catch (error) {
-    showMessageDialog('读取隔离区失败', String(error))
+    showMessageDialog(t('ui.vowndr'), String(error))
     log(error)
   } finally {
     setBusy(button, false)
@@ -1573,7 +1891,7 @@ function agentLabel(value) {
     'trae-cn': 'TRAE CN',
     trae: 'TRAE',
     cursor: 'Cursor',
-    'global-skills': '通用 Skills',
+    'global-skills': t('ui.13u0v7i'),
     codebuddy: 'CodeBuddy',
     workbuddy: 'WorkBuddy',
   }[value] || value
@@ -1581,29 +1899,29 @@ function agentLabel(value) {
 
 function taskTypeLabel(task) {
   const value = task?.task_type || task
-  if (value === 'rescan' && task?.payload?.reason === 'policy_changed') return '同步处理策略'
-  return { install_skill: '安装 Skill', remove_skill: '移除 Skill', repair_skill: '修复 Skill', rescan: '同步客户端清单', sync_policy: '同步处理策略' }[value] || value || `平台任务`
+  if (value === 'rescan' && task?.payload?.reason === 'policy_changed') return t('ui.q9utgp')
+  return { install_skill: t('ui.14fftle'), remove_skill: t('ui.s2pmon'), repair_skill: t('ui.14oueep'), rescan: t('ui.1rnx8gk'), sync_policy: t('ui.q9utgp') }[value] || value || tf`平台任务`
 }
 
 function taskStatusLabel(value) {
-  return { pending: '等待客户端执行', running: '执行中', succeeded: '已完成', failed: '失败', cancelled: '已取消' }[value] || value || '-'
+  return { pending: t('ui.1yesuc2'), running: t('ui.6svkbt'), succeeded: t('ui.19j4h'), failed: t('ui.12db3qz'), cancelled: t('ui.1d8x36r') }[value] || value || '-'
 }
 
 function eventTypeLabel(value) {
   return {
-    client_registered: '客户端注册', takeover_completed: '治理范围更新', unmanaged_skill_found: '发现未受管 Skill',
-    unmanaged_skill_verified: 'Skill 校验通过', skill_installed: '安装 Skill', skill_removed: '移除 Skill',
-    skill_modified: '发现 Skill 修改', skill_repaired: '自动恢复 Skill', skill_blocked: '阻断 Skill',
-    skill_quarantined: '隔离 Skill', skill_quarantine_restored: '恢复隔离 Skill',
-  }[value] || value || '安全事件'
+    client_registered: t('ui.444a0v'), takeover_completed: t('ui.1nk4zrj'), unmanaged_skill_found: t('ui.gawr4f'),
+    unmanaged_skill_verified: t('ui.11fi048'), skill_installed: t('ui.14fftle'), skill_removed: t('ui.s2pmon'),
+    skill_modified: t('ui.grb2re'), skill_repaired: t('ui.1dswesb'), skill_blocked: t('ui.ly2ow4'),
+    skill_quarantined: t('ui.1bc6akl'), skill_quarantine_restored: t('ui.1swl6k'),
+  }[value] || value || t('ui.1l0wfyp')
 }
 
 function eventDetail(value) {
-  return { skill_repaired: '已恢复为平台批准版本', skill_modified: '检测到本地内容变化', skill_blocked: '已阻止异常内容继续使用', skill_quarantined: '已移入隔离区' }[value] || '-'
+  return { skill_repaired: t('ui.1nedkoa'), skill_modified: t('ui.111odxs'), skill_blocked: t('ui.l5pb9v'), skill_quarantined: t('ui.1ena7pa') }[value] || '-'
 }
 
 const eventStatus = value => value === 'skill_modified' ? 'running' : ['skill_blocked', 'skill_quarantined'].includes(value) ? 'failed' : 'succeeded'
-const eventResultLabel = value => value === 'skill_modified' ? '已发现' : ['skill_blocked', 'skill_quarantined'].includes(value) ? '已处置' : '已完成'
+const eventResultLabel = value => value === 'skill_modified' ? t('ui.4bymt0') : ['skill_blocked', 'skill_quarantined'].includes(value) ? t('ui.1ltzzrr') : t('ui.19j4h')
 
 function agentKind(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^claude$/, 'claudecode').replace(/^geminicli$/, 'gemini')
@@ -1611,30 +1929,30 @@ function agentKind(value) {
 
 function reasonLabel(value) {
   return {
-    allowed: '已批准且内容一致',
-    skill_not_found: '平台未登记该 Skill',
-    skill_not_approved: 'Skill 尚未审批通过',
-    signature_mismatch: '本地内容与平台签名不一致',
-    managed_agent_not_found: '未绑定可用的平台智能体',
-    agent_not_authorized: '该智能体未获准使用此 Skill',
-    local_agent_not_found: '未找到该 Agent 的本地登记信息',
-    unmanaged_skill: '未纳入 Agent Manager 治理',
-    already_managed: '已完成接管，无需重复处理',
-    not_compared: '尚未完成平台比对',
-    legacy_pending: '接管后已停用，等待提交平台检测',
+    allowed: t('ui.9nqwss'),
+    skill_not_found: t('ui.1cgsepv'),
+    skill_not_approved: t('ui.vtlruf'),
+    signature_mismatch: t('ui.1bxv65w'),
+    managed_agent_not_found: t('ui.15k9sn2'),
+    agent_not_authorized: t('ui.1djc1z3'),
+    local_agent_not_found: t('ui.2oan4k'),
+    unmanaged_skill: t('ui.1o9b1mg'),
+    already_managed: t('ui.r1tok9'),
+    not_compared: t('ui.1psmu0h'),
+    legacy_pending: t('ui.1lrslxp'),
   }[value] || value || '-'
 }
 
 function pendingStatusLabel(value) {
   return {
-    pending: '待检测',
-    submitted: '检测中',
-    PENDING: '检测中',
-    VETTED: '待人工审核',
-    APPROVED: '检测通过',
-    REJECTED: '检测未通过',
-    CANCELLED: '检测已取消',
-  }[value] || value || '待检测'
+    pending: t('ui.pctz4h'),
+    submitted: t('ui.xr2jgj'),
+    PENDING: t('ui.xr2jgj'),
+    VETTED: t('ui.ja05aw'),
+    APPROVED: t('ui.1e2kk7j'),
+    REJECTED: t('ui.1a4ymwt'),
+    CANCELLED: t('ui.1iiq2qc'),
+  }[value] || value || t('ui.pctz4h')
 }
 
 function pendingStatusClass(value) {
@@ -1652,26 +1970,26 @@ function pendingGroupSummary(items) {
   const actionable = items.filter(pendingCanSubmit).length
   const review = items.filter(item => item.status === 'VETTED').length
   return [
-    `${items.length} 个 Skill`,
-    actionable ? `待检测 ${actionable}` : '',
-    review ? `待审核 ${review}` : '',
+    skillCount(items.length),
+    actionable ? tf`待检测 ${actionable}` : '',
+    review ? tf`待审核 ${review}` : '',
   ].filter(Boolean).join(' · ')
 }
 
 function pendingStatusGuidance(item) {
-  if (item.status === 'APPROVED') return '平台已批准，可在客户端管理中下发安装'
-  if (item.status === 'REJECTED') return '平台未通过，继续保持停用；请到 Skill 详情查看判断依据'
-  if (item.status === 'CANCELLED') return '平台检测已取消，继续保持停用'
-  if (item.status === 'VETTED') return '自动检测已完成，等待平台人工审核'
-  if (item.skill_id) return `平台正在检测${item.skill_id ? ` · ${item.skill_id}` : ''}`
+  if (item.status === 'APPROVED') return t('ui.xvle3a')
+  if (item.status === 'REJECTED') return t('ui.1m5rgkv')
+  if (item.status === 'CANCELLED') return t('ui.z61ghp')
+  if (item.status === 'VETTED') return t('ui.14chebx')
+  if (item.skill_id) return tf`平台正在检测${item.skill_id ? ` · ${item.skill_id}` : ''}`
   return reasonLabel(item.reason)
 }
 
 function pendingNextLabel(status) {
-  if (status === 'REJECTED') return '保持停用'
-  if (status === 'CANCELLED') return '保持停用'
-  if (status === 'VETTED') return '等待审批'
-  return '等待检测'
+  if (status === 'REJECTED') return t('ui.18gje6f')
+  if (status === 'CANCELLED') return t('ui.18gje6f')
+  if (status === 'VETTED') return t('ui.17tazct')
+  return t('ui.12iu3xi')
 }
 
 const managedAgentIDFor = agentType => (connection?.platform?.agents || []).find(item => item.agent_type === agentType)?.managed_agent_id || ''
@@ -1682,7 +2000,7 @@ const installPlatformSkill = async (agentType, skillId, pendingId = '') => {
   if (managedAgentID) args.push('--managed-agent-id', managedAgentID)
   if (pendingId) args.push('--id', pendingId)
   await run('install-skill', args)
-  log(`已安装 Skill ${skillId} 到 ${agentLabel(agentType)}`)
+  log(tf`已安装 Skill ${skillId} 到 ${agentLabel(agentType)}`)
 }
 
 const refreshAfterInstall = async () => {
@@ -1699,7 +2017,7 @@ const availableSkillsForAgent = async (agent, query = '') => {
   try {
     return { agent, items: JSON.parse(await run('available-skills', args)), error: '' }
   } catch (error) {
-    return { agent, items: [], error: String(error) }
+    return { agent, items: [], error: runtimeText(error) }
   }
 }
 
@@ -1726,24 +2044,24 @@ const installSkills = () => {
 const loadInstallSkillPreview = async () => {
   const skill = selectedInstallSkill()
   if (!skill) {
-    $('#install-skill-preview').innerHTML = '<span>选择 Skill 后可查看说明</span>'
+    $('#install-skill-preview').innerHTML = t('ui.1ilu5f6')
     return
   }
   const source = installCatalog.find(item => item.items.some(candidate => candidate.skill_id === skill.skill_id))
   if (!source) {
-    $('#install-skill-preview').innerHTML = `<strong>${escapeHtml(skill.name)}</strong><span>当前客户端无权读取该 Skill 的详情</span>`
+    $('#install-skill-preview').innerHTML = tf`<strong>${escapeHtml(skill.name)}</strong><span>当前客户端无权读取该 Skill 的详情</span>`
     return
   }
   const args = ['--skill-id', skill.skill_id, '--agent-type', source.agent.agent_type]
   const managedAgentID = managedAgentIDFor(source.agent.agent_type)
   if (managedAgentID) args.push('--managed-agent-id', managedAgentID)
-  $('#install-skill-preview').innerHTML = `<strong>${escapeHtml(skill.name)}</strong><span>正在读取说明...</span>`
+  $('#install-skill-preview').innerHTML = tf`<strong>${escapeHtml(skill.name)}</strong><span>正在读取说明...</span>`
   try {
     const item = JSON.parse(await run('skill-preview', args))
     if (selectedInstallSkill()?.skill_id !== skill.skill_id) return
-    $('#install-skill-preview').innerHTML = `<strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.description || '该 Skill 未提供说明')}</span><small>状态：已批准${item.risk_level ? ` · 风险等级：${escapeHtml(item.risk_level)}` : ''}${item.submitted_at ? ` · 提交时间：${escapeHtml(formatTime(item.submitted_at))}` : ''}</small>`
+    $('#install-skill-preview').innerHTML = tf`<strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.description || t('ui.4wmnyk'))}</span><small>状态：已批准${item.risk_level ? tf` · 风险等级：${escapeHtml(item.risk_level)}` : ''}${item.submitted_at ? tf` · 提交时间：${escapeHtml(formatTime(item.submitted_at))}` : ''}</small>`
   } catch (error) {
-    $('#install-skill-preview').innerHTML = `<strong>${escapeHtml(skill.name)}</strong><span>说明读取失败：${escapeHtml(error)}</span>`
+    $('#install-skill-preview').innerHTML = tf`<strong>${escapeHtml(skill.name)}</strong><span>说明读取失败：${escapeHtml(error)}</span>`
   }
 }
 
@@ -1752,7 +2070,7 @@ const renderInstallSkillOptions = () => {
   const query = $('#install-skill-search').value.trim().toLowerCase()
   const current = $('#install-platform-skill').value
   const skills = installSkills().filter(item => !query || item.name.toLowerCase().includes(query))
-  $('#install-platform-skill').innerHTML = `<option value="">${skills.length ? '请选择已批准的 Skill' : '没有匹配的 Skill'}</option>${skills.map(item => `<option value="${escapeHtml(item.skill_id)}">${escapeHtml(item.name)}${item.submitted_at ? ` · 提交于 ${escapeHtml(formatTime(item.submitted_at))}` : ''}</option>`).join('')}`
+  $('#install-platform-skill').innerHTML = `<option value="">${skills.length ? t('ui.cnlubu') : t('ui.5jkgiy')}</option>${skills.map(item => `<option value="${escapeHtml(item.skill_id)}">${escapeHtml(item.name)}${item.submitted_at ? tf` · 提交于 ${escapeHtml(formatTime(item.submitted_at))}` : ''}</option>`).join('')}`
   if (skills.some(item => item.skill_id === current)) $('#install-platform-skill').value = current
   renderInstallTargets()
   loadInstallSkillPreview()
@@ -1761,7 +2079,7 @@ const renderInstallSkillOptions = () => {
 const renderInstallTargets = () => {
   const skill = selectedInstallSkill()
   if (!skill) {
-    $('#install-agent-targets').innerHTML = '<span>请先选择 Skill</span>'
+    $('#install-agent-targets').innerHTML = t('ui.icgn8')
     return
   }
   $('#install-agent-targets').innerHTML = installCatalog.map(({ agent, items, error }) => {
@@ -1770,26 +2088,26 @@ const renderInstallTargets = () => {
     const conflict = !installed && (agent.skills || []).some(item => item.name === skill.name && item.status !== 'broken_link')
     const available = items.some(item => item.skill_id === skill.skill_id)
     const disabled = installed || conflict || !available
-    const status = sourceAgent ? '当前所在 Agent' : installed ? '已安装' : conflict ? '存在同名 Skill' : available ? '可安装' : error ? '不可用' : '未授权'
+    const status = sourceAgent ? t('ui.yzzvd8') : installed ? t('ui.hdlzwj') : conflict ? t('ui.1bmno87') : available ? t('ui.1k3oaj4') : error ? t('ui.vub0qv') : t('ui.1rrz078')
     const kind = conflict ? 'conflict' : available && !installed ? 'available' : ''
     return `<label class="install-agent-target ${kind}" title="${escapeHtml(error)}">
       <span><input type="checkbox" data-install-target value="${escapeHtml(agent.agent_type)}" ${disabled ? 'disabled' : ''} />${escapeHtml(agentLabel(agent.agent_type))}</span>
       <em>${status}</em>
     </label>`
-  }).join('') || '<span>没有支持 Skill 管理的 Agent</span>'
+  }).join('') || t('ui.1m6fhil')
 }
 
 const openInstallDialog = async (skill, initialQuery = '') => {
   const agents = (inventory?.agents || []).filter(item => item.skill_management_supported)
-  if (!agents.length) return showMessageDialog('没有可安装目标', '请先发现支持 Skill 管理的 Agent。')
+  if (!agents.length) return showMessageDialog(t('ui.1rloj41'), t('ui.k8dvfk'))
   lockedInstallSkill = skill || null
   installCatalog = []
   $('#install-skill-search').value = initialQuery
   $('#install-skill-search-label').hidden = Boolean(skill)
-  $('#install-skill-title').textContent = skill ? `安装 ${skill.name} 到其他 Agent` : '从平台安装 Skill'
+  $('#install-skill-title').textContent = skill ? tf`安装 ${skill.name} 到其他 Agent` : t('ui.c0s9l')
   $('#install-platform-skill').disabled = true
-  $('#install-platform-skill').innerHTML = `<option value="">${skill ? escapeHtml(skill.name) : '正在读取平台 Skill...'}</option>`
-  $('#install-agent-targets').innerHTML = '<span>正在检查可安装的 Agent...</span>'
+  $('#install-platform-skill').innerHTML = `<option value="">${skill ? escapeHtml(skill.name) : t('ui.12x34mh')}</option>`
+  $('#install-agent-targets').innerHTML = t('ui.hola4k')
   $('#install-skill-dialog').showModal()
   try {
     installCatalog = await loadInstallCatalog(agents, initialQuery)
@@ -1805,7 +2123,7 @@ const openInstallDialog = async (skill, initialQuery = '') => {
     }
   } catch (error) {
     $('#install-skill-dialog').close()
-    showMessageDialog('读取平台 Skill 失败', String(error))
+    showMessageDialog(t('ui.w3jfjg'), String(error))
   }
 }
 
@@ -1816,7 +2134,7 @@ $('#install-skill-search').addEventListener('input', () => {
     const query = $('#install-skill-search').value.trim()
     const agents = (inventory?.agents || []).filter(item => item.skill_management_supported)
     $('#install-platform-skill').disabled = true
-    $('#install-platform-skill').innerHTML = '<option>正在搜索平台 Skill...</option>'
+    $('#install-platform-skill').innerHTML = t('ui.gii72j')
     try {
       const result = await loadInstallCatalog(agents, query)
       if ($('#install-skill-search').value.trim() !== query) return
@@ -1824,8 +2142,8 @@ $('#install-skill-search').addEventListener('input', () => {
       $('#install-platform-skill').disabled = false
       renderInstallSkillOptions()
     } catch (error) {
-      $('#install-platform-skill').innerHTML = '<option>搜索失败</option>'
-      showMessageDialog('搜索 Skill 失败', String(error))
+      $('#install-platform-skill').innerHTML = t('ui.1knpwiu')
+      showMessageDialog(t('ui.11vz1mg'), String(error))
     }
   }, 300)
 })
@@ -1839,9 +2157,9 @@ $('#cancel-install-skill').addEventListener('click', () => {
 })
 $('#confirm-install-skill').addEventListener('click', async event => {
   const skill = selectedInstallSkill()
-  if (!skill) return showMessageDialog('请选择 Skill', '请先选择需要安装的平台 Skill。')
+  if (!skill) return showMessageDialog(t('ui.1xx9z2h'), t('ui.5bo4oh'))
   const targets = [...document.querySelectorAll('[data-install-target]:checked')].map(item => item.value)
-  if (!targets.length) return showMessageDialog('请选择目标 Agent', '至少选择一个需要安装该 Skill 的 Agent。')
+  if (!targets.length) return showMessageDialog(t('ui.1titnia'), t('ui.1ybbgmr'))
   const button = event.currentTarget
   setBusy(button, true)
   const succeeded = []
@@ -1852,18 +2170,18 @@ $('#confirm-install-skill').addEventListener('click', async event => {
         await installPlatformSkill(agentType, skill.skill_id)
         succeeded.push(agentLabel(agentType))
       } catch (error) {
-        failed.push(`${agentLabel(agentType)}：${String(error)}`)
+        failed.push(`${agentLabel(agentType)}：${runtimeText(error)}`)
       }
     }
     await refreshAfterInstall()
     lockedInstallSkill = null
     $('#install-skill-dialog').close()
-    showMessageDialog(!succeeded.length ? '安装失败' : failed.length ? '部分安装完成' : '安装完成', [
-      succeeded.length ? `${skill.name} 已安装到：${succeeded.join('、')}。` : '',
-      failed.length ? `未安装：\n${failed.join('\n')}` : '多个 Agent 共用同一份受管内容。',
+    showMessageDialog(!succeeded.length ? t('ui.v4sbw9') : failed.length ? t('ui.i22ked') : t('ui.1br1zwn'), [
+      succeeded.length ? tf`${skill.name} 已安装到：${formatList(succeeded)}。` : '',
+      failed.length ? tf`未安装：\n${failed.join('\n')}` : t('ui.o11sy8'),
     ].filter(Boolean).join('\n'))
   } catch (error) {
-    showMessageDialog('安装状态刷新失败', `安装命令已经执行，但页面状态刷新失败：${String(error)}`)
+    showMessageDialog(t('ui.12x45mj'), tf`安装命令已经执行，但页面状态刷新失败：${runtimeText(error)}`)
     log(error)
   } finally {
     setBusy(button, false)
@@ -1874,7 +2192,7 @@ function renderCapability(selector, capability) {
   const element = $(selector)
   const enabled = Boolean(capability?.enabled)
   element.className = enabled ? 'available' : 'unavailable'
-  element.textContent = enabled ? `已启用${capability.detail ? ` · ${capability.detail}` : ''}` : '未配置'
+  element.textContent = enabled ? tf`已启用${capability.detail ? ` · ${runtimeText(capability.detail)}` : ''}` : t('ui.n1gs62')
 }
 
 function escapeHtml(value) {
@@ -1883,18 +2201,52 @@ function escapeHtml(value) {
   return node.innerHTML
 }
 
-invoke('get_build_version').then(version => { $('#client-build-version').textContent = `版本 ${version}` })
+invoke('get_build_version').then(version => {
+  clientBuildVersion = version
+  $('#client-build-version').textContent = tf`版本 ${version}`
+  syncSettingsControls()
+})
 const initializeClient = async () => {
   try {
     const result = JSON.parse(await run('reconcile-service'))
-    if (result.restarted) log('检测到客户端后台程序已更新，后台服务已自动重启')
+    if (result.restarted) log(t('ui.1gpi43u'))
   } catch (error) {
-    log(`后台服务自检失败：${error}`)
+    log(tf`后台服务自检失败：${error}`)
   }
   await refreshConnection()
+  if (connection?.configured && document.querySelector(`#${clientSettings.defaultPanel}`)) {
+    showPanel(clientSettings.defaultPanel)
+  }
 }
 initializeClient()
 setInterval(refreshChangedInventory, 3000)
+setInterval(checkClientUpdateAutomatically, CLIENT_UPDATE_CHECK_INTERVAL_MS)
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) refreshChangedInventory()
+  if (!document.hidden) {
+    refreshChangedInventory()
+    checkClientUpdateAutomatically()
+  }
+})
+window.addEventListener('agent-manager-client-locale-change', async () => {
+  const activePanel = document.querySelector('.panel.active')?.id || 'connect'
+  $('#panel-title').textContent = panelTitle(activePanel)
+  if (inventory) renderInventory()
+  if (builtinAgentSettings.length) renderBuiltinAgentSettings()
+  if (selectedSkillPaths.size && $('#takeover-list').children.length) {
+    await preview(false, true)
+  } else if (pendingItems.length) {
+    await loadPending()
+  }
+  if (connection) {
+    renderConnected(connection)
+    renderStatus(connection)
+  } else {
+    renderDisconnected()
+  }
+  if ($('#quarantine-list').children.length) await loadQuarantine()
+  if ($('#install-skill-dialog')?.open) {
+    renderInstallSkillOptions()
+    renderInstallTargets()
+  }
+  syncSettingsControls()
 })

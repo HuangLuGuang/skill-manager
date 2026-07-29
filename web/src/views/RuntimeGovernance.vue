@@ -1,23 +1,23 @@
 <template>
   <div>
-    <a-page-header title="接入与运行" sub-title="指导 Agent 接入运行时守卫，并查看运行时校验审计" />
+    <a-page-header :title="$t('legacy.ppwp4v')" :sub-title="$t('legacy.1n3dozp')" />
 
-    <a-card title="Agent Skill Verifier 接入" style="margin-top: 16px">
+    <a-card :title="$t('legacy.1b4zqhb')" style="margin-top: 16px">
       <template #extra>
-        <a-button type="primary" :loading="guardDownloading" @click="handleSkillGuardDownload">下载 Skill Verifier</a-button>
+        <a-button type="primary" :loading="guardDownloading" @click="handleSkillGuardDownload">{{ $t("legacy.ayz2ay") }}</a-button>
       </template>
       <a-alert
         type="info"
         show-icon
-        message="Agent Skill Verifier 是 Agent 侧验证门禁"
-        description="它安装在 Agent 的 skills 目录中。Agent 加载第三方 Skill 前，先向平台校验 Skill 状态、内容指纹、Agent 授权范围和运行凭证，未通过则阻止加载并写入审计。"
+        :message="$t('legacy.8z0qky')"
+        :description="$t('legacy.17ymjuz')"
         style="margin-bottom: 16px"
       />
       <a-row :gutter="[16, 16]">
         <a-col :xs="24" :lg="8">
           <div class="guard-panel">
-            <div class="guard-panel-title">1. 签发运行凭证</div>
-            <p class="hint">在“统一凭证中心”创建 Agent 运行凭证，绑定目标 Agent，并授予运行时校验权限；如需调用模型网关，再额外勾选 model:chat。</p>
+            <div class="guard-panel-title">{{ $t("legacy.bgbtdd") }}</div>
+            <p class="hint">{{ $t("legacy.tj8mcw") }}</p>
             <a-space wrap>
               <a-tag v-for="scope in skillGuardScopes" :key="scope" color="blue">{{ scope }}</a-tag>
             </a-space>
@@ -25,8 +25,8 @@
         </a-col>
         <a-col :xs="24" :lg="8">
           <div class="guard-panel">
-            <div class="guard-panel-title">2. 安装到 Agent</div>
-            <p class="hint">下载 zip 后解压到 Agent 的 skills 目录。安装完成后重启 Agent 或刷新 skill 列表。</p>
+            <div class="guard-panel-title">{{ $t("legacy.1qkyade") }}</div>
+            <p class="hint">{{ $t("legacy.45l7xs") }}</p>
             <a-tabs size="small">
               <a-tab-pane key="codex" tab="Codex">
                 <pre class="code-block compact">{{ codexGuardInstallCommand }}</pre>
@@ -39,8 +39,8 @@
         </a-col>
         <a-col :xs="24" :lg="8">
           <div class="guard-panel">
-            <div class="guard-panel-title">3. 加载前校验</div>
-            <p class="hint">Agent 使用 Skill 前执行校验。平台会检查是否已批准、内容指纹是否匹配、当前 Agent 是否被授权。</p>
+            <div class="guard-panel-title">{{ $t("legacy.vzsacv") }}</div>
+            <p class="hint">{{ $t("legacy.887oam") }}</p>
             <pre class="code-block compact">{{ guardUsageCommand }}</pre>
           </div>
         </a-col>
@@ -49,20 +49,20 @@
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24">
-        <a-card title="最近运行时事件">
+        <a-card :title="$t('legacy.wz9nkl')">
           <a-space style="margin-bottom: 16px" wrap>
             <a-select v-model:value="eventFilter" style="width: 220px" @change="handleAuditFilterChange">
-              <a-select-option value="all">全部运行时事件</a-select-option>
+              <a-select-option value="all">{{ $t("legacy.1jb5dqs") }}</a-select-option>
               <a-select-option v-for="option in runtimeEventOptions" :key="option.value" :value="option.value">
                 {{ option.label }}
               </a-select-option>
             </a-select>
-            <a-input v-model:value="auditKeyword" placeholder="搜索 Skill / Agent / IP / 凭证" style="width: 240px" allow-clear />
-            <a-button type="primary" @click="fetchRuntimeAudit" :loading="loadingAudit">查询</a-button>
-            <a-button @click="resetAuditFilters" :disabled="loadingAudit">重置</a-button>
+            <a-input v-model:value="auditKeyword" :placeholder="$t('legacy.5yag5')" style="width: 240px" allow-clear />
+            <a-button type="primary" @click="fetchRuntimeAudit" :loading="loadingAudit">{{ $t("legacy.16mfmhy") }}</a-button>
+            <a-button @click="resetAuditFilters" :disabled="loadingAudit">{{ $t("legacy.1wq9feq") }}</a-button>
           </a-space>
 
-          <div class="table-meta">共 {{ auditTotal }} 条运行时事件</div>
+          <div class="table-meta">{{ $t("legacy.1vsm2qk") }} {{ auditTotal }} {{ $t("legacy.1tz183z") }}</div>
 
           <a-table
             :data-source="auditRows"
@@ -70,7 +70,7 @@
             rowKey="event_id"
             :loading="loadingAudit"
             :pagination="auditPagination"
-            :locale="{ emptyText: '最近没有运行时事件' }"
+            :locale="{ emptyText: $t('legacy.1qzv31n') }"
             @change="handleAuditTableChange"
           >
             <template #bodyCell="{ column, record }">
@@ -104,6 +104,8 @@
 </template>
 
 <script setup>
+import { translateLegacy as phrase, translateText as text } from '../i18n'
+
 import { onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
 
@@ -146,26 +148,26 @@ const auditPagination = ref({
   total: 0,
   showSizeChanger: true,
   pageSizeOptions: ['10', '20', '50'],
-  showTotal: (total) => `共 ${total} 条`,
+  showTotal: total => text(`共 ${total} 条`, `${total} total`),
 })
 
 const auditColumns = [
-  { title: '时间', dataIndex: 'timestamp', key: 'timestamp', width: 220, sorter: true, customRender: ({ text }) => formatDateTime(text) },
-  { title: '事件', dataIndex: 'event_type', key: 'event_type', width: 170, sorter: true },
+  { title: phrase('legacy.1f90xvr'), dataIndex: 'timestamp', key: 'timestamp', width: 220, sorter: true, customRender: ({ text }) => formatDateTime(text) },
+  { title: phrase('legacy.q8rrsk'), dataIndex: 'event_type', key: 'event_type', width: 170, sorter: true },
   { title: 'Skill', dataIndex: 'skill_name', key: 'skill_name', width: 180, sorter: true },
   { title: 'Agent', dataIndex: 'agent_id', key: 'agent_id', width: 160 },
-  { title: '来源 IP', dataIndex: 'client_ip', key: 'client_ip', width: 140 },
-  { title: '凭证/Actor', dataIndex: 'actor', key: 'actor', width: 170, sorter: true },
-  { title: '详情', dataIndex: 'details', key: 'details' },
+  { title: phrase('legacy.d22rf5'), dataIndex: 'client_ip', key: 'client_ip', width: 140 },
+  { title: phrase('legacy.19fsh85'), dataIndex: 'actor', key: 'actor', width: 170, sorter: true },
+  { title: phrase('legacy.xc5h04'), dataIndex: 'details', key: 'details' },
 ]
 
 const runtimeEventOptions = [
-  { value: 'skill_signature_verified', label: '完整性校验通过' },
-  { value: 'skill_load_allowed', label: '允许加载 Skill' },
-  { value: 'skill_load_blocked', label: '阻止加载 Skill' },
-  { value: 'skill_tamper_detected', label: '发现内容不一致' },
-  { value: 'tool_invoked', label: '允许工具调用' },
-  { value: 'tool_blocked', label: '阻止工具调用' },
+  { value: 'skill_signature_verified', label: phrase('legacy.niy9wk') },
+  { value: 'skill_load_allowed', label: phrase('legacy.1b6ll1m') },
+  { value: 'skill_load_blocked', label: phrase('legacy.qn8i26') },
+  { value: 'skill_tamper_detected', label: phrase('legacy.1327pp') },
+  { value: 'tool_invoked', label: phrase('legacy.1dc2waf') },
+  { value: 'tool_blocked', label: phrase('legacy.b0w6ir') },
 ]
 const runtimeEventTypes = runtimeEventOptions.map((item) => item.value)
 const runtimeEventLabelMap = Object.fromEntries(runtimeEventOptions.map((item) => [item.value, item.label]))
@@ -183,7 +185,7 @@ const handleSkillGuardDownload = async () => {
     link.remove()
     window.URL.revokeObjectURL(url)
   } catch (error) {
-    message.error(error.response?.data?.detail || '下载 Agent Skill Verifier 失败')
+    message.error(error.response?.data?.detail || phrase('legacy.upa1zl'))
   } finally {
     guardDownloading.value = false
   }
@@ -211,7 +213,7 @@ const fetchRuntimeAudit = async () => {
       pageSize: Number(res.page_size || auditPagination.value.pageSize),
     }
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取运行时事件失败')
+    message.error(error.response?.data?.detail || phrase('legacy.p00w7t'))
     auditRows.value = []
     auditTotal.value = 0
   } finally {
@@ -270,11 +272,11 @@ const auditActor = (record) => {
 }
 const formatRuntimeDetails = (details = {}) => {
   const labels = {
-    status: '状态',
-    reason: '原因',
-    tool: '工具',
-    allowed: '结果',
-    verification_mode: '校验方式',
+    status: phrase('legacy.1ccx4t4'),
+    reason: phrase('legacy.jsgjbe'),
+    tool: phrase('legacy.185ciet'),
+    allowed: phrase('legacy.q9h21m'),
+    verification_mode: phrase('legacy.1x88724'),
   }
   const hidden = new Set([
     'agent_id',
@@ -289,7 +291,7 @@ const formatRuntimeDetails = (details = {}) => {
   ])
   return Object.entries(details || {})
     .filter(([key, value]) => !hidden.has(key) && value !== undefined && value !== null && value !== '')
-    .map(([key, value]) => `${labels[key] || key}: ${value === true ? '允许' : value === false ? '拒绝' : value}`)
+    .map(([key, value]) => `${labels[key] || key}: ${value === true ? phrase('legacy.11bz44c') : value === false ? phrase('legacy.1qrntx4') : value}`)
     .join('；') || '-'
 }
 

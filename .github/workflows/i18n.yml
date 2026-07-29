@@ -1,0 +1,47 @@
+name: Internationalization
+
+on:
+  pull_request:
+    paths:
+      - "web/**"
+      - "client/desktop/**"
+      - "backend/**"
+      - "tests/test_i18n_api.py"
+      - ".github/workflows/i18n.yml"
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - "web/**"
+      - "client/desktop/**"
+      - "backend/**"
+      - "tests/test_i18n_api.py"
+      - ".github/workflows/i18n.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            client/desktop/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+      - name: Validate platform translations
+        run: |
+          npm ci
+          npm run test:i18n
+          npm run build
+        working-directory: web
+      - name: Validate desktop translations
+        run: |
+          npm ci --ignore-scripts
+          npm run test:i18n
+        working-directory: client/desktop
+      - name: Validate localized API errors
+        run: uv run --project backend --with pytest pytest tests/test_i18n_api.py -q

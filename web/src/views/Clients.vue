@@ -1,17 +1,17 @@
 <template>
   <div>
-    <a-page-header title="客户端管理" sub-title="统一发现、安装、校验和隔离本地 Agent Skill">
+    <a-page-header :title="$t('legacy.hx2vnc')" :sub-title="$t('legacy.ud53vr')">
       <template #extra>
-        <a-button type="primary" @click="installGuideVisible = true">安装客户端</a-button>
-        <a-button :loading="loading" @click="loadClients">刷新</a-button>
+        <a-button type="primary" @click="installGuideVisible = true">{{ $t("legacy.18h6c95") }}</a-button>
+        <a-button :loading="loading" @click="loadClients">{{ $t("legacy.12qo56a") }}</a-button>
       </template>
     </a-page-header>
 
     <a-row :gutter="[16, 16]" class="summary-row">
-      <a-col :xs="12" :lg="6"><a-card><a-statistic title="受管客户端" :value="clients.length" /></a-card></a-col>
-      <a-col :xs="12" :lg="6"><a-card><a-statistic title="在线" :value="onlineCount" /></a-card></a-col>
-      <a-col :xs="12" :lg="6"><a-card><a-statistic title="已发现 Agent" :value="agentCount" /></a-card></a-col>
-      <a-col :xs="12" :lg="6"><a-card><a-statistic title="异常事件" :value="issueCount" /></a-card></a-col>
+      <a-col :xs="12" :lg="6"><a-card><a-statistic :title="$t('legacy.1kv2rkb')" :value="clients.length" /></a-card></a-col>
+      <a-col :xs="12" :lg="6"><a-card><a-statistic :title="$t('legacy.hf6go')" :value="onlineCount" /></a-card></a-col>
+      <a-col :xs="12" :lg="6"><a-card><a-statistic :title="$t('legacy.1k2vlh1')" :value="agentCount" /></a-card></a-col>
+      <a-col :xs="12" :lg="6"><a-card><a-statistic :title="$t('legacy.1iz81li')" :value="issueCount" /></a-card></a-col>
     </a-row>
 
     <a-card class="table-card">
@@ -26,48 +26,49 @@
             <div class="muted">{{ governanceShortLabel(record.governance_mode) }} · Client {{ record.client_version }}</div>
           </template>
           <template v-else-if="column.key === 'agents'">
-            <span>{{ record.agents?.length || 0 }} 个</span>
-            <span class="muted inline-note">支持 Skill：{{ managedAgentCount(record) }}</span>
+            <span>{{ actualAgentCount(record) }} {{ $t("legacy.d5a1x9") }}</span>
+            <span class="muted inline-note">{{ $t("legacy.mhoty8") }}{{ managedAgentCount(record) }}</span>
+            <span v-if="sharedSkillsCount(record)" class="muted inline-note">{{ $t("legacy.1mn8gxl") }}{{ sharedSkillsCount(record) }}</span>
           </template>
           <template v-else-if="column.key === 'skills'">{{ skillCount(record) }}</template>
           <template v-else-if="column.key === 'credentialOwner'">{{ record.registered_by || '-' }}</template>
           <template v-else-if="column.key === 'status'">
-            <a-tag :color="isOnline(record) ? 'green' : 'default'">{{ isOnline(record) ? '在线' : '离线' }}</a-tag>
+            <a-tag :color="isOnline(record) ? 'green' : 'default'">{{ isOnline(record) ? $t('legacy.hf6go') : $t('legacy.1hsp9j3') }}</a-tag>
           </template>
           <template v-else-if="column.key === 'lastSeen'">{{ formatTime(record.last_seen_at) }}</template>
           <template v-else-if="column.key === 'action'">
-            <a @click="openDetail(record)">查看</a>
+            <a @click="openDetail(record)">{{ $t("legacy.10fbkvl") }}</a>
           </template>
         </template>
       </a-table>
     </a-card>
 
-    <a-drawer v-model:open="detailVisible" title="客户端详情" width="880" :destroy-on-close="true">
+    <a-drawer v-model:open="detailVisible" :title="$t('legacy.95lv9i')" width="880" :destroy-on-close="true">
       <a-spin :spinning="detailLoading">
         <template v-if="detail">
           <div class="detail-head">
             <div>
               <div class="detail-title">{{ detail.name }}</div>
               <div class="muted">{{ detail.hostname }} · {{ detail.os }}/{{ detail.arch }} · {{ detail.client_id }}</div>
-              <div class="muted">凭据创建人：{{ detail.registered_by || '-' }}</div>
+              <div class="muted">{{ $t("legacy.4xeakj") }}{{ detail.registered_by || '-' }}</div>
             </div>
             <div class="policy-controls">
               <label>
-                <span>治理方式</span>
+                <span>{{ $t("legacy.1bb65oo") }}</span>
                 <a-select :value="currentGovernance" style="width: 170px" @change="saveGovernance">
-                  <a-select-option value="registry">客户端安全治理</a-select-option>
-                  <a-select-option value="strict">Agent 强授权</a-select-option>
+                  <a-select-option value="registry">{{ $t("legacy.12wr3db") }}</a-select-option>
+                  <a-select-option value="strict">{{ $t("legacy.1bqmand") }}</a-select-option>
                 </a-select>
               </label>
               <label>
-                <span>处置策略</span>
+                <span>{{ $t("legacy.7jblw2") }}</span>
                 <a-select :value="currentPolicy" style="width: 150px" @change="savePolicy">
-                  <a-select-option value="audit">只审计</a-select-option>
-                  <a-select-option value="repair">自动恢复</a-select-option>
-                  <a-select-option value="block">隔离阻断</a-select-option>
+                  <a-select-option value="audit">{{ $t("legacy.1n7b1v3") }}</a-select-option>
+                  <a-select-option value="repair">{{ $t("legacy.1fftepa") }}</a-select-option>
+                  <a-select-option value="block">{{ $t("legacy.1lg89ho") }}</a-select-option>
                 </a-select>
               </label>
-              <a-button class="detail-refresh" @click="refreshDetail">刷新状态</a-button>
+              <a-button class="detail-refresh" @click="refreshDetail">{{ $t("legacy.2fhcc7") }}</a-button>
             </div>
           </div>
 
@@ -79,25 +80,26 @@
             :description="governanceDescription(currentGovernance)"
           />
 
-          <div class="section-title">本机 Agent</div>
+          <div class="section-title">{{ $t("legacy.4ig27k") }}</div>
           <a-table :columns="agentColumns" :data-source="detail.agents || []" row-key="agent_type" size="small" :pagination="false" :expandable="agentTableExpandable">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'type'">
                 <strong>{{ agentLabel(record.agent_type, record) }}</strong>
-                <div class="muted">{{ record.version || '未获取版本' }}</div>
+                <a-tag v-if="isSharedSkillsRecord(record)" color="blue">{{ $t("legacy.y5th5l") }}</a-tag>
+                <div class="muted">{{ isSharedSkillsRecord(record) ? sharedSkillsDescription(record) : (record.version || $t('legacy.g4nqyc')) }}</div>
               </template>
               <template v-else-if="column.key === 'capability'">
                 <a-tag :color="record.skill_management_supported ? 'green' : 'default'">
-                  {{ record.skill_management_supported ? '支持 Skill 管理' : '仅识别客户端' }}
+                  {{ record.skill_management_supported ? $t('legacy.1uut84r') : $t('legacy.lp0s29') }}
                 </a-tag>
               </template>
               <template v-else-if="column.key === 'binding'">
                 <a-select
-                  v-if="currentGovernance === 'strict'"
+                  v-if="currentGovernance === 'strict' && !isSharedSkillsRecord(record)"
                   :value="record.managed_agent_id || undefined"
                   allow-clear
                   show-search
-                  placeholder="绑定平台智能体"
+                  :placeholder="$t('legacy.meza8d')"
                   style="width: 220px"
                   :loading="actionKey === `bind:${record.agent_type}`"
                   :disabled="actionKey === `bind:${record.agent_type}`"
@@ -107,15 +109,17 @@
                     {{ agent.name }}（{{ agent.agent_id }}）
                   </a-select-option>
                 </a-select>
-                <span v-else class="muted">无需绑定，按平台 Skill 状态与签名治理</span>
+                <span v-else-if="isSharedSkillsRecord(record)" class="muted">{{ $t("legacy.1jv12q7") }}</span>
+                <span v-else class="muted">{{ $t("legacy.cdw9mi") }}</span>
               </template>
               <template v-else-if="column.key === 'skills'">{{ record.skills?.length || 0 }}</template>
               <template v-else-if="column.key === 'action'">
                 <a-button
                   type="link"
-                  :disabled="!record.skill_management_supported || (currentGovernance === 'strict' && !record.managed_agent_id)"
+                  :disabled="!record.skill_management_supported || (currentGovernance === 'strict' && (isSharedSkillsRecord(record) || !record.managed_agent_id))"
+                  :title="currentGovernance === 'strict' && isSharedSkillsRecord(record) ? $t('legacy.13rv9dd') : ''"
                   @click="openInstall(record)"
-                >下发 Skill</a-button>
+                >{{ $t("legacy.1byrs80") }}</a-button>
               </template>
             </template>
             <template #expandedRowRender="{ record: agentRecord }">
@@ -133,13 +137,13 @@
                         :loading="actionKey === `repair:${record.agent_type}:${record.skill_id}`"
                         :disabled="!record.skill_id"
                         @click="repairSkill(record)"
-                      >修复</a-button>
-                      <a-popconfirm title="确认从该 Agent 移除这个 Skill？" @confirm="removeSkill(record)">
+                      >{{ $t("legacy.1hrhvck") }}</a-button>
+                      <a-popconfirm :title="$t('legacy.1o0qwo1')" @confirm="removeSkill(record)">
                         <a-button
                           type="link"
                           danger
                           :loading="actionKey === `remove:${record.agent_type}:${record.skill_id || record.name}`"
-                        >移除</a-button>
+                        >{{ $t("legacy.7higgq") }}</a-button>
                       </a-popconfirm>
                     </a-space>
                   </template>
@@ -148,7 +152,7 @@
             </template>
           </a-table>
 
-          <div class="section-title">最近任务</div>
+          <div class="section-title">{{ $t("legacy.uiriue") }}</div>
           <a-table :columns="taskColumns" :data-source="detail.tasks || []" row-key="id" size="small" :pagination="{ pageSize: 6 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'type'">
@@ -162,14 +166,14 @@
               <template v-else-if="column.key === 'error'">{{ record.error || '-' }}</template>
               <template v-else-if="column.key === 'action'">
                 <a-space>
-                  <a-button v-if="['pending', 'running'].includes(record.status)" type="link" danger @click="cancelTask(record)">取消</a-button>
-                  <a-button v-if="['failed', 'cancelled'].includes(record.status)" type="link" @click="retryTask(record)">重试</a-button>
+                  <a-button v-if="['pending', 'running'].includes(record.status)" type="link" danger @click="cancelTask(record)">{{ $t("legacy.1589w37") }}</a-button>
+                  <a-button v-if="['failed', 'cancelled'].includes(record.status)" type="link" @click="retryTask(record)">{{ $t("legacy.lswd2v") }}</a-button>
                 </a-space>
               </template>
             </template>
           </a-table>
 
-          <div class="section-title">最近事件</div>
+          <div class="section-title">{{ $t("legacy.1hnc5z3") }}</div>
           <a-timeline v-if="detail.events?.length">
             <a-timeline-item v-for="event in detail.events.slice(0, eventVisibleCount)" :key="event.id" :color="eventColor(event.event_type)">
               <strong>{{ eventLabel(event.event_type) }}</strong>
@@ -177,39 +181,39 @@
               <div class="muted">{{ formatTime(event.created_at) }}</div>
             </a-timeline-item>
           </a-timeline>
-          <a-empty v-else description="暂无客户端事件" />
+          <a-empty v-else :description="$t('legacy.1fxykwc')" />
           <div v-if="detail.events?.length > eventVisibleCount" class="event-more">
-            <a-button type="link" @click="eventVisibleCount += 10">查看更多</a-button>
+            <a-button type="link" @click="eventVisibleCount += 10">{{ $t("legacy.vrh2fz") }}</a-button>
           </div>
         </template>
       </a-spin>
     </a-drawer>
 
-    <a-modal v-model:open="installVisible" title="下发 Skill 到客户端" ok-text="下发安装" @ok="createInstall" :confirm-loading="submitting">
+    <a-modal v-model:open="installVisible" :title="$t('legacy.1mz4184')" :ok-text="$t('legacy.zerco7')" @ok="createInstall" :confirm-loading="submitting">
       <a-form layout="vertical">
-        <a-form-item label="目标 Agent">
+        <a-form-item :label="$t('legacy.5v4zar')">
           <a-input :value="agentLabel(installForm.agent_type)" disabled />
         </a-form-item>
         <a-form-item label="Skill" required>
-          <a-select v-model:value="installForm.skill_id" show-search option-filter-prop="label" :loading="skillsLoading" :placeholder="currentGovernance === 'strict' ? '选择该智能体允许使用的 Skill' : '选择已批准的 Skill'" not-found-content="没有其他可安装的 Skill">
+          <a-select v-model:value="installForm.skill_id" show-search option-filter-prop="label" :loading="skillsLoading" :placeholder="currentGovernance === 'strict' ? $t('legacy.2a0ve3') : $t('legacy.18oqd51')" :not-found-content="$t('legacy.ohbkin')">
             <a-select-option v-for="skill in installableSkills" :key="skill.skill_id" :value="skill.skill_id" :label="skill.name">
-              {{ skill.name }}<span class="skill-option-time">提交于 {{ formatTime(skill.submitted_at) }}</span>
+              {{ skill.name }}<span class="skill-option-time">{{ $t("legacy.zemp4d") }} {{ formatTime(skill.submitted_at) }}</span>
             </a-select-option>
           </a-select>
         </a-form-item>
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="installGuideVisible" title="安装 Agent Manager Client" :footer="null" width="620">
+    <a-modal v-model:open="installGuideVisible" :title="$t('legacy.16nx8w')" :footer="null" width="620">
       <a-steps direction="vertical" size="small" :current="0">
-        <a-step title="下载当前系统版本">
+        <a-step :title="$t('legacy.1xejj4z')">
           <template #description>
             <a-space wrap>
-              <a-select v-model:value="selectedPlatform" placeholder="选择系统与架构" style="width: 300px">
-                <a-select-option v-for="item in downloadPlatforms" :key="item.key" :value="item.key">{{ item.platform_label }} · {{ item.version }}</a-select-option>
+              <a-select v-model:value="selectedPlatform" :placeholder="$t('legacy.99euj3')" style="width: 300px">
+                <a-select-option v-for="item in downloadPlatforms" :key="item.key" :value="item.key">{{ downloadPlatformLabel(item) }} · {{ item.version }}</a-select-option>
               </a-select>
               <a-button type="primary" :disabled="!selectedPlatform" :loading="clientDownloading" @click="downloadSelectedClient">
-                {{ clientDownloading ? '正在下载' : '下载' }}
+                {{ clientDownloading ? $t('legacy.cmznra') : $t('legacy.1osfjit') }}
               </a-button>
             </a-space>
             <div v-if="clientDownloading || clientDownloadDetail" class="client-download-progress">
@@ -218,15 +222,22 @@
             </div>
           </template>
         </a-step>
-        <a-step title="创建客户端接入凭证" description="前往“统一凭证中心”，类型选择“客户端接入凭证”，保留默认 client:* 权限。" />
-        <a-step title="连接并接管" description="打开桌面客户端，填写平台地址与凭证；发现本机 Agent 后勾选需要治理的 Skill。" />
-        <a-step title="启用后台巡检" description="完成接管后启用后台服务，客户端会持续校验签名并上报异常。" />
+        <a-step :title="$t('legacy.vydiwk')" :description="$t('legacy.1xo5pih')" />
+        <a-step :title="$t('legacy.hy1368')" :description="$t('legacy.k9b27o')" />
+        <a-step :title="$t('legacy.1jy5crp')" :description="$t('legacy.1dv7bph')" />
       </a-steps>
     </a-modal>
   </div>
 </template>
 
 <script setup>
+import {
+  getCurrentLocale,
+  translateDomain,
+  translateLegacy as phrase,
+  translateText as text,
+} from '../i18n'
+
 import { computed, onMounted, reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
 
@@ -243,7 +254,6 @@ import {
   retryClientTask,
   updateClientPolicy,
 } from '../api'
-
 const loading = ref(false)
 const detailLoading = ref(false)
 const submitting = ref(false)
@@ -265,39 +275,48 @@ const downloadPlatforms = ref([])
 const selectedPlatform = ref()
 const clientDownloading = ref(false)
 const clientDownloadDetail = ref('')
+const downloadPlatformLabel = item => text(item.platform_label, {
+  'darwin-aarch64': 'macOS Apple Silicon',
+  'darwin-x86_64': 'macOS Intel',
+  'windows-x86_64': 'Windows 64-bit',
+  'linux-x86_64': 'Linux 64-bit',
+}[item.platform] || item.platform_label)
 
 const columns = [
-  { title: '客户端', key: 'client' },
-  { title: '系统', key: 'platform', width: 170 },
+  { title: phrase('legacy.tus94r'), key: 'client' },
+  { title: phrase('legacy.p0ysv3'), key: 'platform', width: 170 },
   { title: 'Agent', key: 'agents', width: 160 },
   { title: 'Skill', key: 'skills', width: 90 },
-  { title: '凭据创建人', key: 'credentialOwner', width: 120 },
-  { title: '状态', key: 'status', width: 90 },
-  { title: '最后心跳', key: 'lastSeen', width: 180 },
-  { title: '操作', key: 'action', width: 80 },
+  { title: phrase('legacy.1mk8o97'), key: 'credentialOwner', width: 120 },
+  { title: phrase('legacy.1ccx4t4'), key: 'status', width: 90 },
+  { title: phrase('legacy.12y43gp'), key: 'lastSeen', width: 180 },
+  { title: phrase('legacy.501w24'), key: 'action', width: 80 },
 ]
 const agentColumns = [
-  { title: '客户端', key: 'type' },
-  { title: '能力', key: 'capability', width: 150 },
-  { title: '平台智能体', key: 'binding', width: 250 },
+  { title: phrase('legacy.tus94r'), key: 'type' },
+  { title: phrase('legacy.uwo0jt'), key: 'capability', width: 150 },
+  { title: phrase('legacy.es5rq0'), key: 'binding', width: 250 },
   { title: 'Skill', key: 'skills', width: 70 },
-  { title: '操作', key: 'action', width: 100 },
+  { title: phrase('legacy.501w24'), key: 'action', width: 100 },
 ]
 const skillColumns = [
   { title: 'Skill', key: 'name' },
-  { title: '状态', key: 'status', width: 100 },
-  { title: '操作', key: 'action', width: 130 },
+  { title: phrase('legacy.1ccx4t4'), key: 'status', width: 100 },
+  { title: phrase('legacy.501w24'), key: 'action', width: 130 },
 ]
 const taskColumns = [
-  { title: '任务', key: 'type', width: 240 },
-  { title: '状态', key: 'status', width: 100 },
-  { title: '创建时间', key: 'created', width: 180 },
-  { title: '失败原因', key: 'error' },
-  { title: '操作', key: 'action', width: 90 },
+  { title: phrase('legacy.cm180x'), key: 'type', width: 240 },
+  { title: phrase('legacy.1ccx4t4'), key: 'status', width: 100 },
+  { title: phrase('legacy.miy8ea'), key: 'created', width: 180 },
+  { title: phrase('legacy.64sn8k'), key: 'error' },
+  { title: phrase('legacy.501w24'), key: 'action', width: 90 },
 ]
 
 const onlineCount = computed(() => clients.value.filter(isOnline).length)
-const agentCount = computed(() => clients.value.reduce((sum, item) => sum + (item.agents?.length || 0), 0))
+const isSharedSkillsRecord = record => Boolean(record?.capabilities?.shared_skills)
+const actualAgentCount = record => record.agents?.filter(agent => !isSharedSkillsRecord(agent)).length || 0
+const sharedSkillsCount = record => record.agents?.filter(isSharedSkillsRecord).length || 0
+const agentCount = computed(() => clients.value.reduce((sum, item) => sum + actualAgentCount(item), 0))
 const issueCount = computed(() => clients.value.reduce((sum, item) => sum + (item.issue_count || 0), 0))
 const agentTableExpandable = { rowExpandable: record => Boolean(record.skills?.length) }
 const selectedManagedAgent = computed(() => agents.value.find(agent => agent.agent_id === installForm.managed_agent_id))
@@ -315,7 +334,7 @@ const loadClients = async () => {
   try {
     clients.value = await listClients()
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取客户端列表失败')
+    message.error(error.response?.data?.detail || phrase('legacy.167k0p'))
   } finally {
     loading.value = false
   }
@@ -351,21 +370,21 @@ const savePolicy = async (mode) => {
   currentPolicy.value = mode
   detail.value.policy_mode = mode
   await refreshDetail()
-  message.success('处置策略已更新，等待客户端同步')
+  message.success(phrase('legacy.emjkq1'))
 }
 const saveGovernance = async (governanceMode) => {
   await updateClientPolicy(detail.value.client_id, { governance_mode: governanceMode })
   currentGovernance.value = governanceMode
   detail.value.governance_mode = governanceMode
   await refreshDetail()
-  message.success('治理方式已更新，等待客户端同步')
+  message.success(phrase('legacy.jzjm0b'))
 }
 const saveBinding = async (record, managedAgentId) => {
   actionKey.value = `bind:${record.agent_type}`
   try {
     await bindClientAgent(detail.value.client_id, record.agent_type, { managed_agent_id: managedAgentId || null })
     await refreshDetail()
-    message.success('Agent 映射已更新')
+    message.success(phrase('legacy.1a8f1u0'))
   } finally {
     actionKey.value = ''
   }
@@ -385,7 +404,7 @@ const openInstall = async (record) => {
 }
 const createInstall = async () => {
   if (!installForm.skill_id) {
-    message.warning('请选择 Skill')
+    message.warning(phrase('legacy.1xx9z2h'))
     return
   }
   submitting.value = true
@@ -396,7 +415,7 @@ const createInstall = async () => {
     })
     installVisible.value = false
     await refreshDetail()
-    message.success('安装任务已下发，等待客户端执行')
+    message.success(phrase('legacy.1f1g3u'))
     watchTask(task.id).catch(() => {})
   } finally {
     submitting.value = false
@@ -416,7 +435,7 @@ const removeSkill = async (record) => {
       },
     })
     await refreshDetail()
-    message.success('移除任务已下发，等待客户端执行')
+    message.success(phrase('legacy.uaj92l'))
     watchTask(task.id).catch(() => {})
   } finally {
     actionKey.value = ''
@@ -436,7 +455,7 @@ const repairSkill = async (record) => {
       },
     })
     await refreshDetail()
-    message.success('修复任务已下发，等待客户端执行')
+    message.success(phrase('legacy.1is7th3'))
     watchTask(task.id).catch(() => {})
   } finally {
     actionKey.value = ''
@@ -445,18 +464,18 @@ const repairSkill = async (record) => {
 const cancelTask = async (record) => {
   await cancelClientTask(detail.value.client_id, record.id)
   await refreshDetail()
-  message.success('任务已取消')
+  message.success(phrase('legacy.1v37glb'))
 }
 const retryTask = async (record) => {
   await retryClientTask(detail.value.client_id, record.id)
   await refreshDetail()
-  message.success('任务已重新进入队列')
+  message.success(phrase('legacy.jtnoyu'))
 }
 const downloadClient = async ({ key }) => {
   const release = downloadPlatforms.value.find(item => item.key === key)
   if (!release || clientDownloading.value) return
   clientDownloading.value = true
-  clientDownloadDetail.value = '正在准备安全下载'
+  clientDownloadDetail.value = phrase('legacy.ix9qyw')
   try {
     const ticket = await createClientDownloadTicket(key)
     const link = document.createElement('a')
@@ -465,19 +484,32 @@ const downloadClient = async ({ key }) => {
     document.body.appendChild(link)
     link.click()
     link.remove()
-    clientDownloadDetail.value = `正在下载 ${formatBytes(release.size)}，可在下载列表查看进度`
-    message.success('下载已开始')
+    clientDownloadDetail.value = text(
+      `正在下载 ${formatBytes(release.size)}，可在下载列表查看进度`,
+      `Downloading ${formatBytes(release.size)}. Track progress in Downloads.`,
+    )
+    message.success(phrase('legacy.9cimn0'))
   } catch (error) {
-    clientDownloadDetail.value = error?.response?.data?.detail || error?.message || '下载失败'
-    message.error(`下载安装包失败：${clientDownloadDetail.value}`)
+    clientDownloadDetail.value = error?.response?.data?.detail || error?.message || phrase('legacy.1dqx4bv')
+    message.error(text(
+      `下载安装包失败：${clientDownloadDetail.value}`,
+      `Installer download failed: ${clientDownloadDetail.value}`,
+    ))
   } finally {
     clientDownloading.value = false
   }
 }
 const downloadSelectedClient = () => downloadClient({ key: selectedPlatform.value })
 
-const managedAgentCount = record => record.agents?.filter(agent => agent.skill_management_supported).length || 0
+const managedAgentCount = record => record.agents?.filter(agent => agent.skill_management_supported && !isSharedSkillsRecord(agent)).length || 0
 const skillCount = record => record.agents?.reduce((sum, agent) => sum + (agent.skills?.length || 0), 0) || 0
+const sharedSkillsDescription = record => {
+  const readers = record.capabilities?.shared_skill_readers || []
+  return text(
+    `${readers.join('、') || phrase('legacy.waagmd')} 可能读取，实际以版本和配置为准`,
+    `${readers.join(', ') || phrase('legacy.waagmd')} may read this directory, depending on version and configuration.`,
+  )
+}
 const agentSkills = agent => (agent.skills || []).map(skill => ({ ...skill, agent_type: agent.agent_type }))
 const taskSkillName = task => task.payload?.skill_name
   || (detail.value?.agents || []).flatMap(agent => agent.skills || []).find(skill => skill.skill_id === task.payload?.skill_id)?.name
@@ -489,7 +521,7 @@ const formatTime = value => {
   if (!value) return '-'
   const text = String(value)
   const utcValue = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : `${text}Z`
-  return new Date(utcValue).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
+  return new Date(utcValue).toLocaleString(getCurrentLocale(), { timeZone: 'Asia/Shanghai', hour12: false })
 }
 const formatBytes = value => {
   const bytes = Number(value || 0)
@@ -511,45 +543,27 @@ const agentLabel = (value, record = null) => record?.capabilities?.display_name 
   'trae-cn': 'TRAE CN',
   trae: 'TRAE',
   cursor: 'Cursor',
-  'global-skills': '通用 Skills',
+  'global-skills': phrase('legacy.13u0v7i'),
   codebuddy: 'CodeBuddy',
   workbuddy: 'WorkBuddy',
 }[value] || value)
 const policyDescription = mode => ({
-  audit: '只审计：发现修改后记录事件，不改动本地文件。',
-  repair: '自动恢复：先记录异常，再恢复平台批准版本。',
-  block: '隔离阻断：把异常内容移入隔离区，并从 Agent 的 Skill 入口移除。',
+  audit: phrase('legacy.mubbv4'),
+  repair: phrase('legacy.1rf6q23'),
+  block: phrase('legacy.souye8'),
 }[mode])
 const governanceDescription = mode => ({
-  registry: '客户端安全治理：只要 Skill 已在平台批准且内容签名一致，即可在本机 Agent 使用。',
-  strict: 'Agent 强授权：除批准状态和签名外，还要求本机 Agent 绑定平台智能体，并校验允许使用的 Skill。',
+  registry: phrase('legacy.f874ug'),
+  strict: phrase('legacy.1kx3oiq'),
 }[mode])
-const governanceShortLabel = mode => ({ registry: '安全治理', strict: '强授权' }[mode] || '安全治理')
-const eventLabel = value => ({
-  client_registered: '客户端注册',
-  takeover_completed: '治理范围更新',
-  unmanaged_skill_found: '发现未受管 Skill',
-  unmanaged_skill_verified: '未受管 Skill 已通过平台校验',
-  skill_installed: 'Skill 安装完成',
-  skill_removed: 'Skill 已移除',
-  skill_modified: '发现 Skill 修改',
-  skill_repaired: '已恢复批准版本',
-  skill_blocked: '已阻断异常 Skill',
-  skill_quarantined: 'Skill 已移入隔离区',
-  skill_quarantine_restored: 'Skill 已从隔离区恢复',
-}[value] || value)
+const governanceShortLabel = mode => ({ registry: phrase('legacy.2kc7ip'), strict: phrase('legacy.y5lawk') }[mode] || phrase('legacy.2kc7ip'))
+const eventLabel = value => translateDomain('auditEvent', value, value)
 const eventColor = value => ['skill_blocked', 'skill_quarantined'].includes(value) ? 'red' : value === 'skill_modified' ? 'orange' : 'green'
 const taskLabel = task => {
-  if (task.task_type === 'rescan' && task.payload?.reason === 'policy_changed') return '同步处理策略'
-  return ({
-    install_skill: '下发 Skill',
-    remove_skill: '移除 Skill',
-    repair_skill: '修复 Skill',
-    rescan: '同步客户端清单',
-    sync_policy: '同步处理策略',
-  }[task.task_type] || task.task_type)
+  if (task.task_type === 'rescan' && task.payload?.reason === 'policy_changed') return phrase('legacy.q9utgp')
+  return translateDomain('taskType', task.task_type, task.task_type)
 }
-const taskStatusLabel = value => ({ pending: '等待客户端执行', running: '执行中', succeeded: '已完成', failed: '失败', cancelled: '已取消' }[value] || value)
+const taskStatusLabel = value => translateDomain('taskStatus', value, value)
 const taskColor = value => ({ pending: 'default', running: 'blue', succeeded: 'green', failed: 'red', cancelled: 'default' }[value] || 'default')
 
 onMounted(async () => {

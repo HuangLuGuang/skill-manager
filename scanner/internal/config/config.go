@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"skill-manager/scanner/internal/localize"
 )
 
 type Config struct {
@@ -32,10 +34,10 @@ type Config struct {
 func Parse(args []string) (Config, error) {
 	var cfg Config
 	if len(args) == 0 {
-		return cfg, fmt.Errorf("missing command")
+		return cfg, fmt.Errorf("%s", localize.Text("缺少命令", "missing command"))
 	}
 	if args[0] != "scan" {
-		return cfg, fmt.Errorf("unknown command %q", args[0])
+		return cfg, fmt.Errorf(localize.Text("未知命令 %q", "unknown command %q"), args[0])
 	}
 
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
@@ -64,7 +66,13 @@ func Parse(args []string) (Config, error) {
 		return cfg, err
 	}
 	if rootArg == "" {
-		return cfg, fmt.Errorf("usage: skill-scanner scan <path> [--server URL] [--token TOKEN] [--upload]")
+		return cfg, fmt.Errorf(
+			"%s",
+			localize.Text(
+				"用法：skill-scanner scan <path> [--server URL] [--token TOKEN] [--upload]",
+				"usage: skill-scanner scan <path> [--server URL] [--token TOKEN] [--upload]",
+			),
+		)
 	}
 
 	root, err := filepath.Abs(rootArg)
@@ -80,7 +88,13 @@ func Parse(args []string) (Config, error) {
 		cfg.Upload = true
 	}
 	if cfg.Upload && cfg.Server == "" {
-		return cfg, fmt.Errorf("--upload requires --server or SKILL_SCANNER_SERVER")
+		return cfg, fmt.Errorf(
+			"%s",
+			localize.Text(
+				"--upload 需要 --server 或 SKILL_SCANNER_SERVER",
+				"--upload requires --server or SKILL_SCANNER_SERVER",
+			),
+		)
 	}
 	return cfg, nil
 }
@@ -110,7 +124,10 @@ func splitScanArgs(args []string) ([]string, string, error) {
 			}
 			if valueFlags[name] && !strings.Contains(arg, "=") {
 				if i+1 >= len(args) {
-					return nil, "", fmt.Errorf("missing value for %s", arg)
+					return nil, "", fmt.Errorf(
+						localize.Text("%s 缺少参数值", "missing value for %s"),
+						arg,
+					)
 				}
 				i++
 				flagArgs = append(flagArgs, args[i])
@@ -118,7 +135,10 @@ func splitScanArgs(args []string) ([]string, string, error) {
 			continue
 		}
 		if root != "" {
-			return nil, "", fmt.Errorf("only one scan path is supported: %s", arg)
+			return nil, "", fmt.Errorf(
+				localize.Text("只支持一个扫描路径：%s", "only one scan path is supported: %s"),
+				arg,
+			)
 		}
 		root = arg
 	}
@@ -126,6 +146,29 @@ func splitScanArgs(args []string) ([]string, string, error) {
 }
 
 func Usage() string {
+	if localize.Locale() == "zh-CN" {
+		return strings.TrimSpace(`
+用法：
+  skill-scanner scan <path> [选项]
+
+选项：
+  --server URL        Agent Manager 地址；设置后自动上传。
+  --token TOKEN       接入凭证，也可使用 SKILL_SCANNER_TOKEN。
+  --output PATH       JSON 报告路径，默认 skill-scan-report.json。
+  --host-id ID        主机标识，也可使用 SKILL_SCANNER_HOST_ID。
+  --upload            上传发现的 Skill。
+  --behavioral        启用规则分析。
+  --deep-scan         启用深度扫描。
+  --sandbox           启用 Sandbox 分析。
+  --llm               启用 LLM 分析。
+  --no-cache          禁用服务端缓存并重新扫描。
+  --judgement-mode M  判定模式：strict、balanced 或 permissive。
+  --max-file-mb N     单文件大小上限，默认 20。
+  --max-total-mb N    Skill 总大小上限，默认 50。
+  --max-files N       文件数量上限，默认 2000。
+  --ignore LIST       逗号分隔的忽略目录。
+`)
+	}
 	return strings.TrimSpace(`
 Usage:
   skill-scanner scan <path> [options]

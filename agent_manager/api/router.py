@@ -33,9 +33,8 @@ from agent_manager.core.manager import AgentManager, findings_summary_from_repor
 from agent_manager.core.models import SkillStatus, SourceInfo, SkillOrigin
 from agent_manager.core.prompt_models import PromptStatus
 from agent_manager.core.policy import CompanyPolicy
-from agent_manager.core.registry import Registry
 from agent_manager.core.sandbox import SandboxConfig, SandboxConnectionTest, test_sandbox_connection
-from agent_manager.core.skillspector import get_skillspector_version, is_skillspector_available
+from agent_manager.core.skillspector import is_skillspector_available
 from agent_manager.core.text_reader import read_text_fallback
 from agent_manager.core.vetting import _load_manifest
 
@@ -771,9 +770,7 @@ def update_policy(body: PolicyPayload):
 
 
 @router.get("/system/status", response_model=SystemStatusResponse)
-def get_system_status():
-    mgr = get_manager()
-    registry = Registry(mgr.registry.data_dir)
+def get_system_status(mgr: AgentManager = Depends(get_manager)):
     llm_config = LLMConfig.load()
     sandbox_config = SandboxConfig.load()
     sandbox_enabled = sandbox_config.enabled
@@ -783,7 +780,6 @@ def get_system_status():
     sandbox_available = bool(sandbox_status and sandbox_status.available)
     scanner_available = importlib.util.find_spec("skill_scanner") is not None
     skillspector_available = is_skillspector_available()
-    skillspector_version = get_skillspector_version() if skillspector_available else None
 
     scan_modes = []
     if scanner_available:
@@ -797,13 +793,13 @@ def get_system_status():
     return SystemStatusResponse(
         data_dir=str(mgr.registry.data_dir),
         policy_path=str(_discover_policy_path()) if _discover_policy_path() else None,
-        registry_entries=len(registry.list_all()),
-        review_queue=len(registry.list_review_queue()),
+        registry_entries=mgr.registry.count_skills(),
+        review_queue=mgr.registry.count_review_queue(),
         signing_key_configured=bool(os.environ.get("AGENT_MANAGER_SIGNING_KEY", "").strip()),
         scanner_available=scanner_available,
         skillspector_enabled=skillspector_available,
         skillspector_available=skillspector_available,
-        skillspector_version=skillspector_version,
+        skillspector_version=None,
         sandbox_enabled=sandbox_enabled,
         sandbox_available=sandbox_available,
         sandbox_runtime=sandbox_config.runtime,
@@ -1636,12 +1632,7 @@ def list_review_queue(
         queue = mgr.list_review_queue()
         for r in queue:
             item = r.model_dump(mode="json")
-            entry = mgr.get_skill(r.skill_id)
-            if entry and entry.vetting:
-                item["findings_summary"] = findings_summary_from_report(
-                    entry.vetting.scan_report,
-                    r.findings_summary,
-                )
+            item["findings_summary"] = findings_summary_from_report(None, r.findings_summary)
             item["status"] = SkillStatus.VETTED.value
             item["approved_by"] = None
             item["approved_at"] = None
@@ -1654,32 +1645,7 @@ def list_review_queue(
 
     # 2) Already reviewed items (APPROVED / REJECTED, from registry)
     if review_status in ("reviewed", "all"):
-        entries = mgr.list_skills_by_statuses([SkillStatus.APPROVED, SkillStatus.REJECTED])
-        for entry in entries:
-            findings_summary = findings_summary_from_report(
-                entry.vetting.scan_report if entry.vetting else None
-            )
-            reviewed_at = entry.approved_at or entry.updated_at
-            review_note = entry.rejection_reason if entry.status == SkillStatus.REJECTED else (entry.approval_note or None)
-            data.append({
-                "skill_id": entry.skill_id,
-                "skill_name": entry.name,
-                "risk_level": entry.risk_level.value if entry.risk_level else None,
-                "status": entry.status.value,
-                "findings_summary": findings_summary,
-                "submitted_at": entry.submitted_at.isoformat() if entry.submitted_at else None,
-                "queued_at": entry.submitted_at.isoformat() if entry.submitted_at else None,
-                "reviewed_at": reviewed_at.isoformat() if reviewed_at else None,
-                "sort_at": reviewed_at.isoformat() if reviewed_at else (
-                    entry.submitted_at.isoformat() if entry.submitted_at else None
-                ),
-                "notes": review_note,
-                "review_note": review_note,
-                "approval_note": entry.approval_note,
-                "approved_by": entry.approved_by,
-                "approved_at": entry.approved_at.isoformat() if entry.approved_at else None,
-                "rejection_reason": entry.rejection_reason,
-            })
+        data.extend(mgr.list_reviewed_summaries())
 
     # 3) Apply filters
     if risk_level:

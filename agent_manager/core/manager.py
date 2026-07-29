@@ -633,6 +633,9 @@ class AgentManager:
     def list_review_queue(self) -> list[ReviewRequest]:
         return self.registry.list_review_queue()
 
+    def list_reviewed_summaries(self) -> list[dict[str, Any]]:
+        return self.registry.list_reviewed_summaries()
+
     def audit(
         self,
         since: datetime | None = None,

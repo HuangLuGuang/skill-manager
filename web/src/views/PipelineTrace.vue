@@ -1,18 +1,18 @@
 <template>
   <div>
-    <a-page-header title="隐私链路追踪" sub-title="查看模型请求的脱敏、智能压缩、响应和还原过程" />
+    <a-page-header :title="$t('legacy.1ngfjb6')" :sub-title="$t('legacy.vpytmv')" />
 
     <a-alert
       type="warning"
       show-icon
-      message="链路详情包含原始隐私数据"
-      description="仅管理员和隐私审计人员应查看此页面。打开原始内容前请确认业务授权。"
+      :message="$t('legacy.1k6rkb4')"
+      :description="$t('legacy.xnr5g4')"
       style="margin-top: 16px"
     />
 
-    <a-card title="最近请求" style="margin-top: 16px">
+    <a-card :title="$t('legacy.1wwptsv')" style="margin-top: 16px">
       <template #extra>
-        <a-button @click="refreshTraces" :loading="loading">刷新</a-button>
+        <a-button @click="refreshTraces" :loading="loading">{{ $t("legacy.12qo56a") }}</a-button>
       </template>
       <a-table
         class="trace-table"
@@ -59,43 +59,46 @@
 
     <a-drawer
       v-model:open="drawerOpen"
-      :title="selectedId || '隐私链路追踪'"
+      :title="selectedId || $t('legacy.1ngfjb6')"
       width="960"
       placement="right"
       destroy-on-close
     >
       <template #extra>
-        <a-segmented v-model:value="viewMode" :options="['文本', 'JSON']" />
+        <a-segmented v-model:value="viewMode" :options="[$t('legacy.rljyf2'), 'JSON']" />
       </template>
       <a-spin :spinning="detailLoading">
         <a-descriptions v-if="detail?.stages?.meta" bordered size="small" style="margin-bottom: 16px">
           <a-descriptions-item label="Tenant">{{ detail.stages.meta.tenant_id }}</a-descriptions-item>
           <a-descriptions-item label="Conversation">{{ detail.stages.meta.conversation_id }}</a-descriptions-item>
           <a-descriptions-item label="Model">{{ detail.stages.meta.model }}</a-descriptions-item>
-          <a-descriptions-item label="用户">{{ detail.stages.meta.api_key_username || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="用户组">{{ formatGroupNames(detail.stages.meta.api_key_group_names) }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('legacy.1in002o')">{{ detail.stages.meta.api_key_username || '-' }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('legacy.19kaip8')">{{ formatGroupNames(detail.stages.meta.api_key_group_names) }}</a-descriptions-item>
           <a-descriptions-item label="API key">{{ detail.stages.meta.api_key_name || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="总耗时">{{ formatMs(detail.stages.meta.request_duration_ms) }}</a-descriptions-item>
-          <a-descriptions-item label="模型耗时">{{ formatMs(detail.stages.meta.upstream_duration_ms) }}</a-descriptions-item>
-          <a-descriptions-item label="平台耗时">{{ formatMs(detail.stages.meta.platform_duration_ms) }}</a-descriptions-item>
-          <a-descriptions-item label="Prompt 防护">{{ promptSecuritySummary(detail.stages.meta) }}</a-descriptions-item>
-          <a-descriptions-item label="原始输入 Token">{{ formatNumber(originalInputTokens) }}</a-descriptions-item>
-          <a-descriptions-item label="发给模型输入 Token">{{ formatNumber(modelInputTokens) }}</a-descriptions-item>
-          <a-descriptions-item label="输出 Token">{{ formatNumber(detail.stages.meta.completion_tokens) }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('legacy.csussz')">{{ formatMs(detail.stages.meta.request_duration_ms) }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('legacy.j2g9ts')">{{ formatMs(detail.stages.meta.upstream_duration_ms) }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('legacy.1yz91un')">{{ formatMs(detail.stages.meta.platform_duration_ms) }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('legacy.5h548n')">{{ promptSecuritySummary(detail.stages.meta) }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('legacy.1dzteri')">{{ formatNumber(originalInputTokens) }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('legacy.3xj6sq')">{{ formatNumber(modelInputTokens) }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('legacy.k6sqb1')">{{ formatNumber(detail.stages.meta.completion_tokens) }}</a-descriptions-item>
         </a-descriptions>
 
         <a-alert
           v-if="detail?.stages?.compressed?.enabled && detail.stages.compressed.tokens_saved > 0"
           type="success"
           show-icon
-          :message="`智能压缩: 节省 ${detail.stages.compressed.tokens_saved} tokens (${detail.stages.compressed.ratio * 100}%), 耗时 ${detail.stages.compressed.duration_ms}ms`"
+          :message="text(
+            `智能压缩：节省 ${detail.stages.compressed.tokens_saved} tokens (${detail.stages.compressed.ratio * 100}%)，耗时 ${detail.stages.compressed.duration_ms}ms`,
+            `Smart compression saved ${detail.stages.compressed.tokens_saved} tokens (${detail.stages.compressed.ratio * 100}%) in ${detail.stages.compressed.duration_ms}ms`,
+          )"
           style="margin-bottom: 16px"
         />
         <a-alert
           v-if="detail?.stages?.compressed?.enabled && !detail.stages.compressed.tokens_saved"
           type="info"
           show-icon
-          message="智能压缩已开启，但本请求无额外压缩空间（内容已足够精简）"
+          :message="$t('legacy.z23rbi')"
           style="margin-bottom: 16px"
         />
 
@@ -103,9 +106,9 @@
           <a-collapse-panel v-for="stage in stageOrder" :key="stage.key" :header="stage.label">
             <template #extra>
               <a-space @click.stop>
-                <a-button size="small" @click="copyStage(stage.key)">复制</a-button>
+                <a-button size="small" @click="copyStage(stage.key)">{{ $t("legacy.1xbipwq") }}</a-button>
                 <a-button v-if="stage.key === 'original'" size="small" danger @click="revealOriginal = !revealOriginal">
-                  {{ revealOriginal ? '隐藏原始内容' : '确认查看' }}
+                  {{ revealOriginal ? $t('legacy.xkgxvo') : $t('legacy.1juapn3') }}
                 </a-button>
               </a-space>
             </template>
@@ -113,7 +116,7 @@
               v-if="stage.key === 'original' && !revealOriginal"
               type="warning"
               show-icon
-              message="原始请求可能包含 PII，点击“确认查看”后展示。"
+              :message="$t('legacy.16r4k88')"
             />
             <pre v-else class="trace-block">{{ renderStage(stage.key) }}</pre>
           </a-collapse-panel>
@@ -124,11 +127,13 @@
 </template>
 
 <script setup>
+import { translateLegacy as phrase, translateText as text } from '../i18n'
+
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
 
 import { getPrivacyTrace, listPrivacyTraces } from '../api'
-import { formatBeijingDateTime } from '../utils/format'
+import { formatBeijingDateTime, formatNumber } from '../utils/format'
 
 const loading = ref(false)
 const detailLoading = ref(false)
@@ -138,12 +143,12 @@ const pagination = ref({
   pageSize: 10,
   total: 0,
   showSizeChanger: true,
-  showTotal: (total) => `共 ${total} 条`,
+  showTotal: total => text(`共 ${total} 条`, `${total} total`),
 })
 const detail = ref(null)
 const selectedId = ref('')
 const drawerOpen = ref(false)
-const viewMode = ref('文本')
+const viewMode = ref(phrase('legacy.rljyf2'))
 const revealOriginal = ref(false)
 const activeStages = ref(['prompt_security', 'masked', 'compressed', 'masked_response', 'final_response'])
 const originalInputTokens = computed(() => {
@@ -155,27 +160,27 @@ const modelInputTokens = computed(() => {
   return compressed?.enabled ? compressed.post_tokens : detail.value?.stages?.meta?.prompt_tokens
 })
 const stageOrder = [
-  { key: 'prompt_security', label: '0. Prompt 防护' },
-  { key: 'original', label: '1. 原始请求（含 PII）' },
-  { key: 'masked', label: '2. 发送给 LLM（已替换）' },
-  { key: 'compressed', label: '3. 智能压缩后（发送上游）' },
-  { key: 'masked_response', label: '4. LLM 返回（含占位符）' },
-  { key: 'final_response', label: '5. 最终响应（已还原）' },
+  { key: 'prompt_security', label: phrase('legacy.18kdjir') },
+  { key: 'original', label: phrase('legacy.1xtckzh') },
+  { key: 'masked', label: phrase('legacy.1wx1lir') },
+  { key: 'compressed', label: phrase('legacy.1ez1d3a') },
+  { key: 'masked_response', label: phrase('legacy.1azc7gd') },
+  { key: 'final_response', label: phrase('legacy.jgj4pf') },
 ]
 
 const traceColumns = [
-  { title: '时间', dataIndex: 'created_at', width: 135, customRender: ({ text }) => formatBeijingDateTime(text) },
-  { title: '用户', key: 'api_key_username', width: 75 },
-  { title: '用户组', key: 'api_key_group_names', width: 115 },
+  { title: phrase('legacy.1f90xvr'), dataIndex: 'created_at', width: 135, customRender: ({ text }) => formatBeijingDateTime(text) },
+  { title: phrase('legacy.1in002o'), key: 'api_key_username', width: 75 },
+  { title: phrase('legacy.19kaip8'), key: 'api_key_group_names', width: 115 },
   { title: 'API Key', key: 'api_key_name', width: 105 },
-  { title: '模型', dataIndex: 'model', width: 110 },
-  { title: '总耗时', dataIndex: 'request_duration_ms', width: 80, customRender: ({ text }) => formatMs(text) },
-  { title: '模型耗时', dataIndex: 'upstream_duration_ms', width: 85, customRender: ({ text }) => formatMs(text) },
-  { title: '平台耗时', dataIndex: 'platform_duration_ms', width: 85, customRender: ({ text }) => formatMs(text) },
-  { title: 'Prompt 防护', key: 'prompt_security', width: 105 },
-  { title: '输入', dataIndex: 'prompt_tokens', width: 75, customRender: ({ text }) => formatNumber(text) },
-  { title: '输出', dataIndex: 'completion_tokens', width: 75, customRender: ({ text }) => formatNumber(text) },
-  { title: '类型', key: 'type', width: 90 },
+  { title: phrase('legacy.1ow6qt'), dataIndex: 'model', width: 110 },
+  { title: phrase('legacy.csussz'), dataIndex: 'request_duration_ms', width: 80, customRender: ({ text }) => formatMs(text) },
+  { title: phrase('legacy.j2g9ts'), dataIndex: 'upstream_duration_ms', width: 85, customRender: ({ text }) => formatMs(text) },
+  { title: phrase('legacy.1yz91un'), dataIndex: 'platform_duration_ms', width: 85, customRender: ({ text }) => formatMs(text) },
+  { title: phrase('legacy.5h548n'), key: 'prompt_security', width: 105 },
+  { title: phrase('legacy.1qtojr9'), dataIndex: 'prompt_tokens', width: 75, customRender: ({ text }) => formatNumber(text) },
+  { title: phrase('legacy.w0yvd4'), dataIndex: 'completion_tokens', width: 75, customRender: ({ text }) => formatNumber(text) },
+  { title: phrase('legacy.anh4cj'), key: 'type', width: 90 },
   { title: 'Request ID', key: 'request_id', width: 90 },
 ]
 
@@ -191,7 +196,7 @@ const fetchTraces = async (page = pagination.value.current, pageSize = paginatio
       total: res.total || 0,
     }
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取链路列表失败')
+    message.error(error.response?.data?.detail || phrase('legacy.1s0pk7m'))
   } finally {
     loading.value = false
   }
@@ -213,7 +218,7 @@ const selectTrace = async (record) => {
   try {
     detail.value = await getPrivacyTrace(record.request_id)
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取链路详情失败')
+    message.error(error.response?.data?.detail || phrase('legacy.zzt7t8'))
   } finally {
     detailLoading.value = false
   }
@@ -231,9 +236,8 @@ const formatGroupNames = (value) => {
   return names.length ? names.join(', ') : '-'
 }
 const formatMs = (value) => value || value === 0 ? `${Number(value).toFixed(1)} ms` : '-'
-const formatNumber = (value) => value || value === 0 ? Number(value).toLocaleString() : '-'
-const promptSecurityRiskLabel = (value) => ({ none: '无风险', LOW: '低风险', MEDIUM: '中风险', HIGH: '高风险' }[value] || '无风险')
-const promptSecurityActionLabel = (value) => ({ off: '关闭', log: '仅记录', pass: '通过', record: '记录', warn: '告警放行', block: '已阻断' }[value] || '关闭')
+const promptSecurityRiskLabel = (value) => ({ none: phrase('legacy.41lnsu'), LOW: phrase('legacy.qy3yng'), MEDIUM: phrase('legacy.pakbe9'), HIGH: phrase('legacy.197bn2e') }[value] || phrase('legacy.41lnsu'))
+const promptSecurityActionLabel = (value) => ({ off: phrase('legacy.g0fanx'), log: phrase('legacy.4drpun'), pass: phrase('legacy.j666m6'), record: phrase('legacy.cdnjf2'), warn: phrase('legacy.gjwe4z'), block: phrase('legacy.14byf2d') }[value] || phrase('legacy.g0fanx'))
 const promptSecurityColor = (value) => ({ LOW: 'blue', MEDIUM: 'orange', HIGH: 'red' }[value] || 'default')
 const promptSecuritySummary = (meta = {}) =>
   `${promptSecurityRiskLabel(meta.prompt_security_risk)} / ${promptSecurityActionLabel(meta.prompt_security_action)}`
@@ -259,16 +263,18 @@ const renderMessages = (messages = []) => messages.map((msg, index) => {
 const renderChoices = (choices = []) => choices.map((choice) => `#${choice.index ?? 0}\n${renderContentPart(choice.content)}`).join('\n\n')
 
 const renderPromptSecurity = (data = {}) => {
-  if (!data.enabled) return 'Prompt 防护未开启'
+  if (!data.enabled) return phrase('legacy.63mr26')
   const lines = [
-    `检测模式：${promptSecurityActionLabel(data.mode)}`,
-    `风险等级：${promptSecurityRiskLabel(data.risk_level)}`,
-    `处理动作：${promptSecurityActionLabel(data.action)}`,
-    `命中数量：${data.findings_count || 0}`,
+    text(`检测模式：${promptSecurityActionLabel(data.mode)}`, `Detection mode: ${promptSecurityActionLabel(data.mode)}`),
+    text(`风险等级：${promptSecurityRiskLabel(data.risk_level)}`, `Risk level: ${promptSecurityRiskLabel(data.risk_level)}`),
+    text(`处理动作：${promptSecurityActionLabel(data.action)}`, `Action: ${promptSecurityActionLabel(data.action)}`),
+    text(`命中数量：${data.findings_count || 0}`, `Findings: ${data.findings_count || 0}`),
   ]
   for (const item of data.findings || []) {
     lines.push(`\n- ${item.reason || item.rule}（${promptSecurityRiskLabel(item.severity)}）`)
-    if (item.snippet) lines.push(`  命中片段：${item.snippet}`)
+    if (item.snippet) {
+      lines.push(text(`  命中片段：${item.snippet}`, `  Matched snippet: ${item.snippet}`))
+    }
   }
   return lines.join('\n')
 }
@@ -284,7 +290,7 @@ const renderStage = (stage) => {
 
 const copyStage = async (stage) => {
   await navigator.clipboard.writeText(renderStage(stage))
-  message.success('已复制')
+  message.success(phrase('legacy.alyyje'))
 }
 
 onMounted(fetchTraces)

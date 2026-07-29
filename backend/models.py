@@ -14,6 +14,7 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     role = Column(String(32), default="admin", nullable=False)
+    preferred_locale = Column(String(16), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     last_login_at = Column(DateTime, nullable=True)
     current_session_id = Column(String(64), nullable=True)

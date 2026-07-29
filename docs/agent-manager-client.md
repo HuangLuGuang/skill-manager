@@ -18,6 +18,26 @@ Agent Manager Client 用于统一发现、接管和巡检本机 Agent 的 Skill 
 
 以上工具支持 Skill 发现、接管、安装和巡检。其他工具可在桌面端点击“添加自定义 Agent”，填写名称并选择或输入 Skill 根目录；自定义 Agent 会复用同一套治理流程。
 
+## 客户端设置
+
+右上角“设置”集中管理当前设备的偏好：
+
+- 显示语言：简体中文或英文。
+- 默认打开页面：客户端读取状态后优先进入的页面。
+- 系统通知：控制是否把安全事件和新版本发送到操作系统通知中心；本地通知记录不受影响。
+- 最低提醒级别：低于所选级别的事件只保留在客户端通知中心。
+- 登录后启动后台治理：安装或移除当前用户级后台服务。
+- 自动检查更新：控制接入平台后的静默更新检查。
+- 更新通道：正式通道或测试通道；测试通道尚未发布版本时按“已是最新版”处理。
+- 诊断：打开日志目录、打开数据目录，或导出不包含凭证明文和 Skill 内容的诊断报告。
+
+客户端不提供通知提示音设置。
+
+客户端内部语言与 macOS Finder 中的应用名称相互独立。Finder 会按照 macOS
+系统首选语言读取安装包内的 `InfoPlist.strings`：中文显示“智能体生命周期管理系统客户端”，
+英文显示“Agent Manager Client”。切换客户端内部语言不会立即重命名 Finder 中的应用。
+各语言共用同一安装包，不需要重复打包。
+
 ## 1. 构建
 
 桌面版（推荐）：
@@ -184,7 +204,7 @@ Agent 强授权模式下，需要先绑定平台智能体，列表只显示该�
 
 ## 9. 客户端自动更新
 
-正式桌面安装包提供“检查更新”。客户端使用本地客户端凭证访问 Agent Manager，并由 Tauri Updater 校验 Ed25519 更新签名；无签名、签名错误或平台不匹配的更新包不会安装。确认更新后，界面会显示下载进度，安装前暂停后台服务，安装完成后自动重启桌面客户端；新版本启动时会校准并恢复后台服务。若下载或安装失败，客户端会恢复原后台服务并显示失败原因。
+正式桌面安装包提供“检查更新”。客户端使用本地客户端凭证访问 Agent Manager，并由 Tauri Updater 校验 Ed25519 更新签名；无签名、签名错误或平台不匹配的更新包不会安装。确认更新后，界面会显示下载进度，安装前暂停后台服务，安装完成后自动重启桌面客户端；新版本启动时会校准并恢复后台服务。若下载或安装失败，客户端会恢复原后台服务并显示失败原因。正式通道读取 `latest.json`，测试通道读取 `preview.json`；未发布测试清单时服务端返回 `204 No Content`，客户端不会将其显示为连接错误。
 
 管理台“安装客户端”会先签发仅对所选安装包有效的短时下载票据，再交给浏览器原生下载；实际进度可在浏览器下载列表中查看。票据保存在 HttpOnly Cookie 中，不会把登录凭证或下载票据暴露在 URL；浏览器可以使用原生 Range 分段下载和续传。Tauri 自动更新使用独立的签名更新端点。
 
@@ -225,31 +245,38 @@ APPLE_TEAM_ID
 
 如果 Actions 报错 `SecKeychainItemImport` 或 `failed to import keychain certificate`，优先检查 `APPLE_CERTIFICATE` 是否误填成 `.cer`、文件路径或文件名，以及 `APPLE_CERTIFICATE_PASSWORD` 是否与 `.p12` 的导出密码一致。正式流水线会在构建前验证 Base64、`.p12` 密码、Developer ID Application 证书类型和私钥是否存在。
 
-版本使用日期格式 `YY.MM.DD`。例如 2026 年 3 月 15 日发布：
+版本使用 `YY.MM.DD.N`，最后一段是当天发布序号，从 `1` 开始递增。例如 2026 年 3 月 15 日第一次和第二次发布：
 
 ```bash
-git tag client-v26.03.15
-git push github client-v26.03.15
+git tag client-v26.03.15.1
+git push github client-v26.03.15.1
+
+git tag client-v26.03.15.2
+git push github client-v26.03.15.2
 ```
+
+客户端界面、安装包文件名和发布目录保留四段显示版本。构建脚本会将其转换成 Tauri 使用的三段内部版本，例如 `26.03.15.2` 转换为 `26.3.1502`，用于可靠比较同日多次发布。序号允许 `1`–`99`；不要使用 SemVer 构建元数据 `+N`，因为它不参与版本新旧比较。
 
 推送 `client-v*` 标签后，[GitHub Actions 工作流](/Users/huangluguang/Desktop/Project/skill-manager/.github/workflows/agent-manager-client.yml) 会使用 GitHub 托管的 macOS ARM、macOS Intel、Windows x64 和 Linux x64 Runner 构建安装包。macOS 测试模式会校验完整 ad-hoc 签名和 DMG 完整性；`developer-id` 模式还会强制检查 Developer ID、Hardened Runtime、DMG 公证票据和 Gatekeeper 评估。任何一项失败都会终止整个发布，不会同步到管理台。最终的 `agent-manager-client-update-feed` Artifact 包含安装包、自动更新包和 `latest.json`；也可以在 Actions 页面手动运行工作流，先验证四个平台的普通构建。
 
-生产发布由标签为 `agent-manager-release` 的 GitHub self-hosted runner 自动同步到 35：版本文件保存到 `/home/ubuntu/releases/client-YY.MM.DD`，`client-latest` 指向最新版本，同时复制到 `/home/ubuntu/skill-manager/scanner/releases` 供管理台下载。企业微信通知地址通过 Repository Secret `WECHAT_WEBHOOK_URL` 配置，不写入仓库。
+生产发布由标签为 `agent-manager-release` 的 GitHub self-hosted runner 自动同步到 35：版本文件保存到 `/home/ubuntu/releases/client-YY.MM.DD.N`。流水线比较候选 `latest.json` 与当前内部版本，只有候选版本不低于当前版本时才更新 `/home/ubuntu/skill-manager/scanner/releases` 和 `client-latest`；较旧构建只归档，不会覆盖最新版。企业微信通知地址通过 Repository Secret `WECHAT_WEBHOOK_URL` 配置，不写入仓库。
 
 下载并解压最终 Artifact 后，将其中的文件放入服务端：
 
 ```text
 scanner/releases/
   latest.json
-  agent-manager-client-26.03.15-darwin-aarch64.dmg
-  agent-manager-client-26.03.15-darwin-x86_64.dmg
-  agent-manager-client-26.03.15-windows-x86_64.exe
-  agent-manager-client-26.03.15-linux-x86_64.AppImage
-  agent-manager-client-26.03.15-darwin-aarch64.app.tar.gz
-  agent-manager-client-26.03.15-darwin-x86_64.app.tar.gz
+  agent-manager-client-26.03.15.2-darwin-aarch64.dmg
+  agent-manager-client-26.03.15.2-darwin-x86_64.dmg
+  agent-manager-client-26.03.15.2-windows-x86_64.exe
+  agent-manager-client-26.03.15.2-linux-x86_64.AppImage
+  agent-manager-client-26.03.15.2-darwin-aarch64.app.tar.gz
+  agent-manager-client-26.03.15.2-darwin-x86_64.app.tar.gz
 ```
 
-管理台“客户端管理 → 安装客户端”只展示最新版本的 `.dmg`、`.exe` 和 `.AppImage`，历史版本即使仍保存在发布目录中也不会出现在下载列表。Windows 和 Linux 复用安装包执行更新，macOS 的更新压缩包不会出现在手动下载列表。正式构建左下角显示 `版本 26.03.15`，本地 `npm run dev` 或普通 `npm run build` 显示 `版本 dev`。
+管理台“客户端管理 → 安装客户端”按四段版本比较，只展示最新版本的 `.dmg`、`.exe` 和 `.AppImage`，历史版本即使仍保存在发布目录中也不会出现在下载列表。Windows 和 Linux 复用安装包执行更新，macOS 的更新压缩包不会出现在手动下载列表。正式构建左下角显示完整版本，例如 `版本 26.03.15.2`；本地 `npm run dev` 或普通 `npm run build` 显示 `版本 dev`。
+
+正式客户端在成功接入平台后会静默检查一次更新，运行期间每 6 小时再次检查，重新回到前台时也会在超过检查间隔后补查。发现新版本后会发送一次系统通知，并将“检查更新”按钮改为“可更新 版本号”；客户端不会在启动时强制弹出更新窗口，也不会对同一版本重复发送系统通知。用户点击“可更新”后可查看说明并确认安装。
 
 更新检查和文件下载均要求有效的客户端接入凭证。内网 HTTP 可以使用，但更新包仍必须通过内置公钥验签；生产环境优先使用 HTTPS。
 

@@ -41,7 +41,7 @@ _CLIENT_DOWNLOAD_COOKIE = "agent_manager_client_download"
 _CLIENT_DOWNLOAD_PURPOSE = "client_installer_download"
 _CLIENT_DOWNLOAD_TICKET_TTL = timedelta(minutes=5)
 _CLIENT_INSTALLER_RE = re.compile(
-    r"^agent-manager-client-(?P<version>\d{2}\.\d{2}\.\d{2})-"
+    r"^agent-manager-client-(?P<version>\d{2}\.\d{2}\.\d{2}(?:\.[1-9]\d?)?)-"
     r"(?P<platform>darwin-aarch64|darwin-x86_64|windows-x86_64|linux-x86_64)"
     r"(?P<extension>\.dmg|\.exe|\.AppImage)$"
 )
@@ -62,6 +62,15 @@ def _load(value: str | None, default):
         return json.loads(value or "")
     except json.JSONDecodeError:
         return default
+
+
+def _client_release_version_key(value: str) -> tuple[int, int, int, int]:
+    parts = tuple(map(int, value.split(".")))
+    if len(parts) == 3:
+        return (*parts, 0)
+    if len(parts) == 4:
+        return parts
+    raise ValueError(f"invalid client release version: {value}")
 
 
 def _runtime_token(
@@ -209,11 +218,15 @@ def _update_platform_key(target: str, arch: str) -> str:
     return f"{normalized_target}-{normalized_arch}"
 
 
-def _client_update_manifest() -> dict:
-    path = _CLIENT_RELEASE_DIR / "latest.json"
+def _client_update_manifest(channel: str = "stable") -> dict | None:
+    if channel not in {"stable", "preview"}:
+        raise HTTPException(status_code=400, detail="无效的客户端更新通道")
+    path = _CLIENT_RELEASE_DIR / ("preview.json" if channel == "preview" else "latest.json")
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
+        if channel == "preview":
+            return None
         raise HTTPException(status_code=404, detail="当前没有可用的客户端更新") from exc
     if not isinstance(value, dict) or not isinstance(value.get("platforms"), dict):
         raise HTTPException(status_code=500, detail="客户端更新清单格式错误")
@@ -704,11 +717,11 @@ def list_client_downloads(
             })
     if not items:
         return {"items": []}
-    latest_version = max(tuple(map(int, item["version"].split("."))) for item in items)
+    latest_version = max(_client_release_version_key(item["version"]) for item in items)
     latest_items = [
         item
         for item in items
-        if tuple(map(int, item["version"].split("."))) == latest_version
+        if _client_release_version_key(item["version"]) == latest_version
     ]
     latest_items.sort(key=lambda item: item["platform"])
     return {"items": latest_items}
@@ -777,10 +790,13 @@ def check_client_update(
     current_version: str,
     request: Request,
     authorization: str | None = Header(None),
+    channel: str = Query("stable"),
     db: Session = Depends(get_db),
 ):
     _runtime_token("client:read-policy", authorization, request, db)
-    manifest = _client_update_manifest()
+    manifest = _client_update_manifest(channel)
+    if manifest is None:
+        return Response(status_code=204)
     platform = manifest["platforms"].get(_update_platform_key(target, arch))
     if not isinstance(platform, dict):
         raise HTTPException(status_code=404, detail="当前平台没有可用的客户端更新")

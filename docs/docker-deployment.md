@@ -68,10 +68,10 @@ agent-manager_v1.0.0_arm.tar.gz
 docker_images/x86/agent-manager-images-v1.0.0.tar.xz
 docker_images/arm/agent-manager-images-v1.0.0.tar.xz
 installers/docker-installer-28.5.2-x86-arm.tar.gz
-scanner/releases/agent-manager-client-26.03.15-darwin-aarch64.dmg
-scanner/releases/agent-manager-client-26.03.15-darwin-x86_64.dmg
-scanner/releases/agent-manager-client-26.03.15-windows-x86_64.exe
-scanner/releases/agent-manager-client-26.03.15-linux-x86_64.AppImage
+scanner/releases/agent-manager-client-26.03.15.1-darwin-aarch64.dmg
+scanner/releases/agent-manager-client-26.03.15.1-darwin-x86_64.dmg
+scanner/releases/agent-manager-client-26.03.15.1-windows-x86_64.exe
+scanner/releases/agent-manager-client-26.03.15.1-linux-x86_64.AppImage
 ```
 
 Docker Compose 已将宿主机 `scanner/releases` 只读挂载到后端。部署完成后，管理员可在“客户端管理 → 安装客户端”按系统和版本下载；新增版本只需把新的 release 文件复制到该目录，无需重建镜像。
@@ -97,7 +97,7 @@ git push origin v1.0.1
 /home/ubuntu/releases/agent-manager_v1.0.1_x86.tar.gz
 ```
 
-如需企业微信通知，在 GitLab 项目的 `Settings → CI/CD → Variables` 中添加掩码变量 `WECHAT_WEBHOOK_URL`。只有在 `v*` 发布标签已配置为 Protected tag 时才同时勾选 Protected，否则标签流水线读不到该变量。正式发布标签使用 `v数字.数字.数字` 格式；`client-vYY.MM.DD` 仍由 GitHub Actions 构建并同步桌面客户端。
+如需企业微信通知，在 GitLab 项目的 `Settings → CI/CD → Variables` 中添加掩码变量 `WECHAT_WEBHOOK_URL`。只有在 `v*` 发布标签已配置为 Protected tag 时才同时勾选 Protected，否则标签流水线读不到该变量。正式发布标签使用 `v数字.数字.数字` 格式；`client-vYY.MM.DD.N` 仍由 GitHub Actions 构建并同步桌面客户端。
 
 35 上 Docker daemon 使用外网代理拉取基础镜像，Backend 的 Debian 与 GitHub 下载分别通过 `BUILD_APT_PROXY`、`BUILD_GIT_PROXY` 使用代理，Python 包通过 `BUILD_PYPI_INDEX` 使用清华源；npm 保持直连。Docker 代理配置位于 `/etc/systemd/system/docker.service.d/http-proxy.conf`；修改后执行 `sudo systemctl daemon-reload && sudo systemctl restart docker`。
 

@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"skill-manager/scanner/internal/localize"
 )
 
 type Client struct {
@@ -176,9 +178,14 @@ func (c Client) GetImport(ctx context.Context, skillID string) (SubmitResult, er
 }
 
 func (c Client) authorize(request *http.Request) {
+	request.Header.Set("Accept-Language", scannerLocale())
 	if strings.TrimSpace(c.token) != "" {
 		request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.token))
 	}
+}
+
+func scannerLocale() string {
+	return localize.Locale()
 }
 
 func boolString(value bool) string {

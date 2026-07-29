@@ -115,7 +115,7 @@ func agentDisplayName(agentType string) string {
 		"claude-code": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI",
 		"opencode": "OpenCode", "openclaw": "OpenClaw", "hermes": "Hermes",
 		"trae-cn": "TRAE CN", "trae": "TRAE", "cursor": "Cursor",
-		"global-skills": "通用 Skills", "codebuddy": "CodeBuddy",
+		"global-skills": "共用 Skills", "codebuddy": "CodeBuddy",
 	}
 	if label := labels[agentType]; label != "" {
 		return label

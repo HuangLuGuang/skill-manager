@@ -5,11 +5,12 @@ import json
 import secrets
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
+from ..api_errors import ApiError
 from ..sqlite_db import get_db
 
 
@@ -68,7 +69,13 @@ def _normalize_scopes(token_type: str, scopes: list[str] | None) -> list[str]:
         if not value:
             continue
         if value not in ALLOWED_SCOPES:
-            raise HTTPException(status_code=400, detail=f"不支持的凭证权限: {value}")
+            raise ApiError(
+                400,
+                "credential.unsupported_scope",
+                f"不支持的凭证权限: {value}",
+                f"Unsupported credential scope: {value}",
+                params={"scope": value},
+            )
         if value not in result:
             result.append(value)
     return result
@@ -110,10 +117,10 @@ def _access_token_response(row: models.AccessToken, token: str | None = None) ->
 
 def _extract_bearer(authorization: str | None) -> str:
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="缺少接入凭证")
+        raise ApiError(401, "credential.missing", "缺少接入凭证", "Missing access credential")
     token = authorization[len("Bearer "):].strip()
     if not token:
-        raise HTTPException(status_code=401, detail="缺少接入凭证")
+        raise ApiError(401, "credential.missing", "缺少接入凭证", "Missing access credential")
     return token
 
 
@@ -150,17 +157,35 @@ def resolve_access_token(
     plain = _extract_bearer(authorization)
     row = db.query(models.AccessToken).filter(models.AccessToken.token_hash == _hash_token(plain)).first()
     if not row or row.status != "active":
-        raise HTTPException(status_code=403, detail="接入凭证无效或已禁用")
+        raise ApiError(
+            403,
+            "credential.invalid_or_disabled",
+            "接入凭证无效或已禁用",
+            "The access credential is invalid or disabled",
+        )
     if row.expires_at and row.expires_at < datetime.utcnow():
-        raise HTTPException(status_code=403, detail="接入凭证已过期")
+        raise ApiError(403, "credential.expired", "接入凭证已过期", "The access credential has expired")
     scopes = _json_loads(row.scopes_json, [])
     required_scopes = (required_scope,) if isinstance(required_scope, str) else required_scope
     if not any(scope in scopes for scope in required_scopes):
-        raise HTTPException(status_code=403, detail=f"接入凭证缺少权限: {' 或 '.join(required_scopes)}")
+        scope_text_zh = " 或 ".join(required_scopes)
+        scope_text_en = " or ".join(required_scopes)
+        raise ApiError(
+            403,
+            "credential.scope_missing",
+            f"接入凭证缺少权限: {scope_text_zh}",
+            f"The access credential requires scope: {scope_text_en}",
+            params={"scopes": list(required_scopes)},
+        )
     allowed_ips = _json_loads(row.allowed_ips_json, [])
     client_ip = request.client.host if request and request.client else None
     if not _ip_allowed(client_ip, allowed_ips):
-        raise HTTPException(status_code=403, detail="接入凭证不允许当前来源 IP")
+        raise ApiError(
+            403,
+            "credential.ip_not_allowed",
+            "接入凭证不允许当前来源 IP",
+            "The source IP is not allowed by this credential",
+        )
     return _touch_last_used(db, row)
 
 
@@ -183,20 +208,30 @@ def resolve_agent_id(query_agent_id: str | None, header_agent_id: str | None) ->
     query_value = (query_agent_id or "").strip()
     header_value = (header_agent_id or "").strip()
     if query_value and header_value and query_value != header_value:
-        raise HTTPException(status_code=400, detail="agent_id 与 X-Agent-ID 不一致")
+        raise ApiError(
+            400,
+            "agent.id_mismatch",
+            "agent_id 与 X-Agent-ID 不一致",
+            "agent_id does not match X-Agent-ID",
+        )
     return header_value or query_value or None
 
 
 def ensure_token_agent_allowed(db: Session, token: models.AccessToken, agent_id: str | None) -> models.ManagedAgent:
     if not agent_id:
-        raise HTTPException(status_code=400, detail="缺少 agent_id")
+        raise ApiError(400, "agent.id_missing", "缺少 agent_id", "Missing agent_id")
     if token.bound_agent_id and token.bound_agent_id != agent_id:
-        raise HTTPException(status_code=403, detail="接入凭证绑定的智能体不匹配")
+        raise ApiError(
+            403,
+            "agent.credential_binding_mismatch",
+            "接入凭证绑定的智能体不匹配",
+            "The credential is bound to a different Agent",
+        )
     agent = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == agent_id).first()
     if not agent:
-        raise HTTPException(status_code=404, detail="智能体不存在")
+        raise ApiError(404, "agent.not_found", "智能体不存在", "Agent not found")
     if agent.status != "active":
-        raise HTTPException(status_code=403, detail="智能体未启用")
+        raise ApiError(403, "agent.disabled", "智能体未启用", "Agent is disabled")
     return agent
 
 
@@ -211,18 +246,35 @@ def agent_prompt_names(agent: models.ManagedAgent) -> list[str]:
 def ensure_agent_skill_allowed(agent: models.ManagedAgent, skill_name: str, skill_id: str | None = None) -> None:
     allowed = set(agent_skill_names(agent))
     if skill_name not in allowed and (not skill_id or skill_id not in allowed):
-        raise HTTPException(status_code=403, detail="智能体未授权使用该 Skill")
+        raise ApiError(
+            403,
+            "agent.skill_not_allowed",
+            "智能体未授权使用该 Skill",
+            "The Agent is not authorized to use this Skill",
+            params={"skill_name": skill_name, "skill_id": skill_id},
+        )
 
 
 def ensure_agent_prompt_allowed(agent: models.ManagedAgent, prompt_name: str) -> None:
     if prompt_name not in agent_prompt_names(agent):
-        raise HTTPException(status_code=403, detail="智能体未授权使用该 Prompt")
+        raise ApiError(
+            403,
+            "agent.prompt_not_allowed",
+            "智能体未授权使用该 Prompt",
+            "The Agent is not authorized to use this Prompt",
+            params={"prompt_name": prompt_name},
+        )
 
 
 def acquire_access_token_slot(token: models.AccessToken) -> None:
     active = ACTIVE_TOKEN_REQUESTS.get(token.id, 0)
     if active >= max(1, token.max_concurrent_requests):
-        raise HTTPException(status_code=429, detail="接入凭证并发请求数已达上限")
+        raise ApiError(
+            429,
+            "credential.concurrency_limit",
+            "接入凭证并发请求数已达上限",
+            "The credential concurrency limit has been reached",
+        )
     ACTIVE_TOKEN_REQUESTS[token.id] = active + 1
 
 
@@ -258,18 +310,25 @@ async def create_access_token(
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
     if not body.name.strip():
-        raise HTTPException(status_code=400, detail="凭证名称不能为空")
+        raise ApiError(400, "credential.name_required", "凭证名称不能为空", "Credential name is required")
     if body.bound_agent_id and not db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == body.bound_agent_id).first():
-        raise HTTPException(status_code=404, detail="绑定的智能体不存在")
+        raise ApiError(404, "agent.bound_not_found", "绑定的智能体不存在", "The bound Agent does not exist")
     if body.user_id and not db.query(models.User).filter(models.User.id == body.user_id).first():
-        raise HTTPException(status_code=404, detail="用户不存在")
+        raise ApiError(404, "user.not_found", "用户不存在", "User not found")
     if body.group_id and not db.query(models.UserGroup).filter(models.UserGroup.id == body.group_id).first():
-        raise HTTPException(status_code=404, detail="用户组不存在")
+        raise ApiError(404, "group.not_found", "用户组不存在", "User group not found")
     if body.token_type == "mcp_gateway":
         existing = {row.slug for row in db.query(models.McpGateway).all()}
         missing = set(body.allowed_mcp_gateways) - existing
         if missing:
-            raise HTTPException(status_code=404, detail=f"MCP 网关不存在: {', '.join(sorted(missing))}")
+            names = ", ".join(sorted(missing))
+            raise ApiError(
+                404,
+                "mcp.gateway_not_found",
+                f"MCP 网关不存在: {names}",
+                f"MCP gateway not found: {names}",
+                params={"gateways": sorted(missing)},
+            )
     scopes = _normalize_scopes(body.token_type, body.scopes)
     plain = _new_token()
     row = models.AccessToken(
@@ -311,7 +370,7 @@ async def update_access_token(
 ):
     row = db.query(models.AccessToken).filter(models.AccessToken.id == token_id).first()
     if not row:
-        raise HTTPException(status_code=404, detail="接入凭证不存在")
+        raise ApiError(404, "credential.not_found", "接入凭证不存在", "Access credential not found")
     data = body.model_dump(exclude_unset=True)
     if "scopes" in data and data["scopes"] is not None:
         row.scopes_json = _json_dumps(_normalize_scopes(row.token_type, data.pop("scopes")))
@@ -322,13 +381,20 @@ async def update_access_token(
         existing = {item.slug for item in db.query(models.McpGateway).all()}
         missing = set(gateways) - existing
         if missing:
-            raise HTTPException(status_code=404, detail=f"MCP 网关不存在: {', '.join(sorted(missing))}")
+            names = ", ".join(sorted(missing))
+            raise ApiError(
+                404,
+                "mcp.gateway_not_found",
+                f"MCP 网关不存在: {names}",
+                f"MCP gateway not found: {names}",
+                params={"gateways": sorted(missing)},
+            )
         row.allowed_mcp_gateways_json = _json_dumps(gateways)
     if "allowed_ips" in data and data["allowed_ips"] is not None:
         row.allowed_ips_json = _json_dumps(data.pop("allowed_ips"))
     if "bound_agent_id" in data and data["bound_agent_id"]:
         if not db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == data["bound_agent_id"]).first():
-            raise HTTPException(status_code=404, detail="绑定的智能体不存在")
+            raise ApiError(404, "agent.bound_not_found", "绑定的智能体不存在", "The bound Agent does not exist")
     for field, value in data.items():
         setattr(row, field, value)
     db.commit()
@@ -344,7 +410,7 @@ async def revoke_access_token(
 ):
     row = db.query(models.AccessToken).filter(models.AccessToken.id == token_id).first()
     if not row:
-        raise HTTPException(status_code=404, detail="接入凭证不存在")
+        raise ApiError(404, "credential.not_found", "接入凭证不存在", "Access credential not found")
     row.status = "revoked"
     row.revoked_at = datetime.utcnow()
     row.revoked_by = current_user.username
@@ -361,7 +427,7 @@ async def delete_access_token(
 ):
     row = db.query(models.AccessToken).filter(models.AccessToken.id == token_id).first()
     if not row:
-        raise HTTPException(status_code=404, detail="接入凭证不存在")
+        raise ApiError(404, "credential.not_found", "接入凭证不存在", "Access credential not found")
     db.delete(row)
     db.commit()
     return {"status": "deleted"}

@@ -1,74 +1,70 @@
 <template>
   <div class="skill-detail-page">
-    <a-page-header :title="detail?.name ? `Skill 详情：${detail.name}` : `Skill 详情：${skillId}`" sub-title="查看 Skill 详情、审核与审计记录">
+    <a-page-header :title="detailPageTitle" :sub-title="text('查看 Skill 详情、审核与审计记录', 'Review Skill details, approval, and audit records')">
       <template #extra>
-        <a-button v-if="detail?.status === 'APPROVED'" type="primary" @click="openClientInstall">
-          安装到客户端
-        </a-button>
-        <a-button @click="handleDownloadSkill" :loading="downloadingSkill" :disabled="!detail?.skill_id">
-          下载 Skill
-        </a-button>
+        <a-button v-if="detail?.status === 'APPROVED'" type="primary" @click="openClientInstall"> {{ $t("legacy.1wbn313") }} </a-button>
+        <a-button @click="handleDownloadSkill" :loading="downloadingSkill" :disabled="!detail?.skill_id"> {{ $t("legacy.fye4hw") }} </a-button>
       </template>
     </a-page-header>
 
-    <a-card title="基础信息" class="basic-info-card" style="margin-top: 16px">
+    <a-card :title="$t('legacy.17qypnb')" class="basic-info-card" style="margin-top: 16px">
       <a-skeleton :loading="loading" active :paragraph="{ rows: 5 }">
         <a-descriptions :column="{ xs: 1, sm: 2, lg: 3, xxl: 4 }" size="small" bordered>
           <a-descriptions-item label="Skill ID" :span="2">{{ detail?.skill_id || skillId }}</a-descriptions-item>
-          <a-descriptions-item label="名称">{{ detail?.name || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="状态">
+          <a-descriptions-item :label="$t('legacy.hzx914')">{{ detail?.name || '-' }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('legacy.1ccx4t4')">
             <a-tag :color="statusColor(detail?.status, detail)">{{ statusDisplay(detail?.status, detail) }}</a-tag>
           </a-descriptions-item>
-          <a-descriptions-item label="安全判定">
+          <a-descriptions-item :label="$t('legacy.13tzib2')">
             <a-tag v-if="detail?.status === 'PENDING'" color="default">-</a-tag>
             <a-tag v-else-if="detail?.risk_level === 'malicious'" color="red">{{ riskDisplay(detail.risk_level) }}</a-tag>
             <a-tag v-else-if="detail?.risk_level === 'suspicious'" color="orange">{{ riskDisplay(detail.risk_level) }}</a-tag>
             <a-tag v-else-if="detail?.risk_level === 'benign'" color="green">{{ riskDisplay(detail.risk_level) }}</a-tag>
             <a-tag v-else color="default">{{ riskDisplay(detail?.risk_level) }}</a-tag>
           </a-descriptions-item>
-          <a-descriptions-item label="作者">{{ detail?.source?.author || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="来源">
+          <a-descriptions-item :label="$t('legacy.41rk3e')">{{ detail?.source?.author || '-' }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('legacy.2tds9c')">
             <a-space wrap>
               <span>{{ sourceLabel(detail) }}</span>
-              <a-tag v-if="detail?.source?.token_name" color="blue">凭证：{{ detail.source.token_name }}</a-tag>
+              <a-tag v-if="detail?.source?.token_name" color="blue">{{ $t("legacy.1tguyk3") }}{{ detail.source.token_name }}</a-tag>
             </a-space>
           </a-descriptions-item>
-          <a-descriptions-item label="工具声明是否合规">
-            <a-tag :color="detail?.declared_tools_valid ? 'green' : 'red'" title="按策略页的允许工具白名单和禁止权限/工具校验">
-              {{ detail?.declared_tools_valid ? '合规' : '不合规' }}
+          <a-descriptions-item :label="$t('legacy.1tv5qh6')">
+            <a-tag :color="detail?.declared_tools_valid ? 'green' : 'red'" :title="$t('legacy.1q4bwse')">
+              {{ detail?.declared_tools_valid ? text('合规', 'Compliant') : text('不合规', 'Noncompliant') }}
             </a-tag>
           </a-descriptions-item>
-          <a-descriptions-item label="SKILL.md 声明工具" :span="2">
-            <span title="来自 SKILL.md 的 allowed-tools 字段，表示 skill 声明可能需要使用的工具权限">
-              {{ detail?.allowed_tools?.join(', ') || '未声明' }}
+          <a-descriptions-item :label="$t('legacy.1rjm8hx')" :span="2">
+            <span :title="$t('legacy.1108kfy')">
+              {{ detail?.allowed_tools?.join(', ') || text('未声明', 'Not Declared') }}
             </span>
           </a-descriptions-item>
-          <a-descriptions-item label="扫描复用" :span="2">
+          <a-descriptions-item :label="$t('legacy.1k07gze')" :span="2">
             <a-space wrap>
               <a-tag :color="detail?.scan_reused ? 'green' : 'default'">
-                {{ detail?.scan_reused ? '已复用' : '未复用' }}
+                {{ detail?.scan_reused ? text('已复用', 'Reused') : text('未复用', 'Not Reused') }}
               </a-tag>
-              <span v-if="detail?.reused_from_skill_id">来源：{{ detail.reused_from_skill_id }}</span>
+              <span v-if="detail?.reused_from_skill_id">{{ $t("legacy.j3wbr2") }}{{ detail.reused_from_skill_id }}</span>
             </a-space>
           </a-descriptions-item>
-          <a-descriptions-item label="Sandbox 已触发">{{ detail?.vetting?.sandbox_triggered ? '是' : '否' }}</a-descriptions-item>
-          <a-descriptions-item label="策略强制 Sandbox">
+          <a-descriptions-item :label="$t('legacy.1s59p3z')">{{ detail?.vetting?.sandbox_triggered ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('legacy.1ftc08b')">
             <a-tag
               :color="detail?.vetting?.sandbox_required_by_policy ? 'orange' : 'default'"
-              title="表示这次 Sandbox 不是用户手动勾选触发的，而是因为风险等级命中了策略页里的“强制 Sandbox 风险等级”，系统自动要求执行"
+              :title="$t('legacy.1d0deqb')"
             >
-              {{ detail?.vetting?.sandbox_required_by_policy ? '是' : '否' }}
+              {{ detail?.vetting?.sandbox_required_by_policy ? $t('legacy.btshni') : $t('legacy.9sspjt') }}
             </a-tag>
           </a-descriptions-item>
-          <a-descriptions-item label="Sandbox 后端">{{ detail?.vetting?.sandbox_runtime || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="Sandbox 镜像">{{ sandboxDisplayImage }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('legacy.1g74qkr')">{{ detail?.vetting?.sandbox_runtime || '-' }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('legacy.7fq7m5')">{{ sandboxDisplayImage }}</a-descriptions-item>
         </a-descriptions>
         <a-alert
           v-if="manualApprovalRequired"
           style="margin-top: 12px"
           type="error"
           show-icon
-          :message="vettingFailed ? '后台分析失败' : '准入策略拒绝'"
+          :message="vettingFailed ? $t('legacy.11ldhwj') : $t('legacy.gobvd0')"
           :description="manualApprovalSummary"
         />
       </a-skeleton>
@@ -77,33 +73,31 @@
     <a-card class="lifecycle-card" style="margin-top: 12px">
       <div class="lifecycle-row">
         <div class="lifecycle-heading">
-          <strong>生命周期与操作</strong>
+          <strong>{{ $t("legacy.1uf97vz") }}</strong>
           <a-tag :color="statusColor(detail?.status, detail)">{{ statusDisplay(detail?.status, detail) }}</a-tag>
         </div>
 
         <a-steps :current="stepIndex" size="small" class="lifecycle-steps" :responsive="false">
-          <a-step title="提交" :description="formatDateTime(detail?.submitted_at)" />
-          <a-step title="审核" :description="detail?.approved_by || '待审核'" />
-          <a-step title="批准" :description="formatDateTime(detail?.approved_at)" />
+          <a-step :title="$t('legacy.ybr38x')" :description="formatDateTime(detail?.submitted_at)" />
+          <a-step :title="$t('legacy.1ws11do')" :description="detail?.approved_by || $t('legacy.a2uv9t')" />
+          <a-step :title="$t('legacy.1tmnt86')" :description="formatDateTime(detail?.approved_at)" />
         </a-steps>
 
         <a-space class="lifecycle-actions" wrap>
-            <a-button @click="fetchDetail" :loading="loading">刷新</a-button>
+            <a-button @click="fetchDetail" :loading="loading">{{ text('刷新', 'Refresh') }}</a-button>
             <a-tooltip :title="signatureVerifyDisabledReason">
               <span>
                 <a-button
                   :disabled="!detail?.signature"
                   :loading="verifyingSignature"
                   @click="handleVerifySignature"
-                >
-                  完整性校验
-                </a-button>
+                > {{ $t("legacy.y6whtf") }} </a-button>
               </span>
             </a-tooltip>
             <a-button v-if="canApproveSkill" type="primary" @click="openApproveModal">
-              {{ manualApprovalRequired ? '例外批准' : '批准' }}
+              {{ manualApprovalRequired ? $t('legacy.8ve3lv') : $t('legacy.1tmnt86') }}
             </a-button>
-            <a-button v-if="detail?.status === 'VETTED'" danger @click="openRejectModal">拒绝</a-button>
+            <a-button v-if="detail?.status === 'VETTED'" danger @click="openRejectModal">{{ $t("legacy.1qrntx4") }}</a-button>
         </a-space>
       </div>
       <a-alert
@@ -111,22 +105,20 @@
         style="margin-top: 12px"
         :type="signatureResult.valid ? 'success' : 'error'"
         show-icon
-        :message="signatureResult.valid ? '完整性校验通过' : '完整性校验失败'"
+        :message="signatureResult.valid ? $t('legacy.niy9wk') : $t('legacy.169xltl')"
         :description="signatureResultReason"
       />
     </a-card>
 
-    <a-card title="安全检测与治理" style="margin-top: 12px">
+    <a-card :title="$t('legacy.17yj1t4')" style="margin-top: 12px">
       <a-tabs v-model:activeKey="activeTab">
-        <a-tab-pane key="vetting" tab="安全检测">
+        <a-tab-pane key="vetting" :tab="$t('legacy.1xjnbvp')">
           <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
             <a-space style="margin-bottom: 12px" wrap>
-              <a-button type="primary" class="refresh-report-button" @click="fetchScanReport" :loading="loadingScanReport">
-                刷新报告
-              </a-button>
+              <a-button type="primary" class="refresh-report-button" @click="fetchScanReport" :loading="loadingScanReport"> {{ $t("legacy.1y2sdbh") }} </a-button>
             </a-space>
             <a-descriptions :column="2" size="small" bordered>
-              <a-descriptions-item label="安全判定">
+              <a-descriptions-item :label="$t('legacy.13tzib2')">
                 <a-tag v-if="detail?.status === 'PENDING'" color="default">
                   -
                 </a-tag>
@@ -141,21 +133,21 @@
                 </a-tag>
                 <a-tag v-else color="default">{{ riskDisplay(detail?.risk_level) }}</a-tag>
               </a-descriptions-item>
-              <a-descriptions-item label="发现项">{{ detail?.vetting?.findings_count ?? 0 }}</a-descriptions-item>
-              <a-descriptions-item label="规则分析器">{{ detail?.vetting?.analyzers_used?.join(', ') || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="耗时">{{ detail?.vetting?.scan_duration_seconds ?? 0 }}s</a-descriptions-item>
-              <a-descriptions-item label="扫描缓存">{{ detail?.scan_reused ? '复用历史结果' : '本次执行扫描' }}</a-descriptions-item>
-              <a-descriptions-item label="缓存 Key">{{ detail?.scan_cache_key || '-' }}</a-descriptions-item>
+              <a-descriptions-item :label="$t('legacy.l6iuzr')">{{ detail?.vetting?.findings_count ?? 0 }}</a-descriptions-item>
+              <a-descriptions-item :label="$t('legacy.13tfl8g')">{{ detail?.vetting?.analyzers_used?.join(', ') || '-' }}</a-descriptions-item>
+              <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ detail?.vetting?.scan_duration_seconds ?? 0 }}s</a-descriptions-item>
+              <a-descriptions-item :label="$t('legacy.15hd6ok')">{{ detail?.scan_reused ? text('复用历史结果', 'Reused Previous Result') : text('本次执行扫描', 'New Scan') }}</a-descriptions-item>
+              <a-descriptions-item :label="$t('legacy.1jezr7l')">{{ detail?.scan_cache_key || '-' }}</a-descriptions-item>
             </a-descriptions>
-            <a-card v-if="judgementSummary" size="small" title="综合研判结论" style="margin-top: 12px">
+            <a-card v-if="judgementSummary" size="small" :title="$t('legacy.18h9kx8')" style="margin-top: 12px">
               <a-descriptions bordered size="small" :column="2">
-                <a-descriptions-item label="判定模式">{{ judgementSummary.mode }}</a-descriptions-item>
-                <a-descriptions-item label="策略">{{ judgementSummary.strategy }}</a-descriptions-item>
-                <a-descriptions-item label="工具初判">{{ riskDisplay(judgementSummary.preRisk) }}</a-descriptions-item>
-                <a-descriptions-item label="最终风险">{{ riskDisplay(judgementSummary.finalRisk) }}</a-descriptions-item>
-                <a-descriptions-item v-if="judgementSummary.llmRisk" label="LLM 研判">{{ riskDisplay(judgementSummary.llmRisk) }}</a-descriptions-item>
-                <a-descriptions-item label="阻断项">{{ judgementSummary.blockingCount }}</a-descriptions-item>
-                <a-descriptions-item v-if="judgementSummary.reason" label="差异解释" :span="2">
+                <a-descriptions-item :label="$t('legacy.1f9s0cj')">{{ judgementSummary.mode }}</a-descriptions-item>
+                <a-descriptions-item :label="$t('legacy.1xza6lg')">{{ judgementSummary.strategy }}</a-descriptions-item>
+                <a-descriptions-item :label="$t('legacy.1xvouvo')">{{ riskDisplay(judgementSummary.preRisk) }}</a-descriptions-item>
+                <a-descriptions-item :label="$t('legacy.5t5taw')">{{ riskDisplay(judgementSummary.finalRisk) }}</a-descriptions-item>
+                <a-descriptions-item v-if="judgementSummary.llmRisk" :label="$t('legacy.8qmekw')">{{ riskDisplay(judgementSummary.llmRisk) }}</a-descriptions-item>
+                <a-descriptions-item :label="$t('legacy.1y6vbr8')">{{ judgementSummary.blockingCount }}</a-descriptions-item>
+                <a-descriptions-item v-if="judgementSummary.reason" :label="$t('legacy.4zn1ks')" :span="2">
                   <div class="markdown-body judgement-reason" v-html="judgementReasonHtml" />
                 </a-descriptions-item>
               </a-descriptions>
@@ -165,19 +157,19 @@
                 size="small"
                 style="margin-top: 12px"
               >
-                <template #header>未采纳的风险提示</template>
+                <template #header>{{ $t("legacy.943eoy") }}</template>
                 <template #renderItem="{ item }">
                   <a-list-item>{{ item }}</a-list-item>
                 </template>
               </a-list>
             </a-card>
-            <a-card v-if="decisionRationaleItems.length" size="small" title="最终判定依据" style="margin-top: 12px">
+            <a-card v-if="decisionRationaleItems.length" size="small" :title="$t('legacy.19ptc9g')" style="margin-top: 12px">
               <a-alert
                 v-if="admissionBlocked"
                 type="warning"
                 show-icon
-                message="安全研判与准入结果是两条线"
-                description="安全判定用于说明内容风险；准入结果还会校验工具白名单、权限边界、许可证等策略。即使安全判定为安全，策略违规仍会导致拒绝。"
+                :message="$t('legacy.1ymm0nv')"
+                :description="$t('legacy.ir5o1o')"
                 style="margin-bottom: 12px"
               />
               <a-list :data-source="decisionRationaleItems" size="small">
@@ -186,9 +178,7 @@
                     <a-space wrap>
                       <a-tag :color="item.color">{{ item.source }}</a-tag>
                       <span>{{ item.text }}</span>
-                      <a-button type="link" size="small" style="padding: 0" @click="jumpToRationale(item.target)">
-                        查看
-                      </a-button>
+                      <a-button type="link" size="small" style="padding: 0" @click="jumpToRationale(item.target)"> {{ $t("legacy.10fbkvl") }} </a-button>
                     </a-space>
                   </a-list-item>
                 </template>
@@ -196,9 +186,9 @@
             </a-card>
             <a-divider />
             <a-collapse id="policy-notes-section">
-              <a-collapse-panel key="policy-notes" :header="`策略说明（${detail?.vetting?.policy_notes?.length || 0}）`">
+              <a-collapse-panel key="policy-notes" :header="text(`策略说明（${detail?.vetting?.policy_notes?.length || 0}）`, `Policy Notes (${detail?.vetting?.policy_notes?.length || 0})`)">
                 <a-list
-                  :data-source="detail?.vetting?.policy_notes?.length ? detail.vetting.policy_notes : ['暂无策略说明']"
+                  :data-source="detail?.vetting?.policy_notes?.length ? detail.vetting.policy_notes : [$t('legacy.xuf598')]"
                   bordered
                   size="small"
                 >
@@ -209,21 +199,21 @@
               </a-collapse-panel>
             </a-collapse>
             <a-divider />
-            <a-card id="rule-analysis-section" size="small" title="规则分析结果">
+            <a-card id="rule-analysis-section" size="small" :title="$t('legacy.1hpgf7r')">
               <template v-if="behavioralAnalysis">
                 <a-descriptions :column="2" size="small" bordered>
-                  <a-descriptions-item label="扫描文件数">
+                  <a-descriptions-item :label="$t('legacy.5p87cu')">
                     {{ localStaticAnalysis?.scanned_file_count ?? behavioralAnalysis.scanned_file_count ?? behavioralScannedFiles.length }}
                   </a-descriptions-item>
-                  <a-descriptions-item label="命中规则数">
+                  <a-descriptions-item :label="$t('legacy.7yxhns')">
                     {{ ruleAnalysisFindings.length }}
                   </a-descriptions-item>
-                  <a-descriptions-item label="最高严重级别">
+                  <a-descriptions-item :label="$t('legacy.syac4h')">
                     <a-tag :color="severityColor(ruleAnalysisMaxSeverity)">
                       {{ ruleAnalysisMaxSeverity || '-' }}
                     </a-tag>
                   </a-descriptions-item>
-                  <a-descriptions-item label="规则分析器">
+                  <a-descriptions-item :label="$t('legacy.13tfl8g')">
                     <a-tag color="blue">behavioral:local</a-tag>
                     <a-tag v-if="localStaticAnalysis" color="cyan">agent-manager-local</a-tag>
                   </a-descriptions-item>
@@ -256,11 +246,11 @@
                                   {{ item.file }}
                                 </a-button>
                                 <a-tag v-if="item.rule" color="default">{{ item.rule }}</a-tag>
-                                <a-tag v-if="findingPolicyLabel(item)" color="cyan">策略项：{{ findingPolicyLabel(item) }}</a-tag>
-                                <a-tag v-if="item.aggregate_count > 1" color="blue">命中 {{ item.aggregate_count }} 处</a-tag>
+                                <a-tag v-if="findingPolicyLabel(item)" color="cyan">{{ text('策略项', 'Policy Category') }}: {{ findingPolicyLabel(item) }}</a-tag>
+                                <a-tag v-if="item.aggregate_count > 1" color="blue">{{ text(`命中 ${item.aggregate_count} 处`, `${item.aggregate_count} matches`) }}</a-tag>
                               </a-space>
                               <div v-if="item.aggregate_lines?.length" class="muted" style="margin-top: 4px">
-                                行号：{{ formatAggregateLines(item.aggregate_lines) }}
+                                {{ text('行号', 'Lines') }}: {{ formatAggregateLines(item.aggregate_lines) }}
                               </div>
                               <div style="margin-top: 6px">{{ ruleFindingExplanation(item) }}</div>
                             </div>
@@ -269,7 +259,7 @@
                       </a-list>
                     </div>
                   </a-collapse-panel>
-                  <a-collapse-panel key="files" :header="`已扫描文件（${behavioralScannedFiles.length}）`">
+                  <a-collapse-panel key="files" :header="text(`已扫描文件（${behavioralScannedFiles.length}）`, `Scanned Files (${behavioralScannedFiles.length})`)">
                     <a-list v-if="behavioralScannedFiles.length" :data-source="behavioralScannedFiles" bordered size="small">
                       <template #renderItem="{ item }">
                         <a-list-item>
@@ -277,44 +267,44 @@
                         </a-list-item>
                       </template>
                     </a-list>
-                    <a-empty v-else :image-style="{ height: '36px' }" description="没有已扫描文件记录" />
+                    <a-empty v-else :image-style="{ height: '36px' }" :description="$t('legacy.by9c6r')" />
                   </a-collapse-panel>
                 </a-collapse>
               </template>
               <a-empty
                 v-else
-                description="当前没有可展示的规则分析结果。若本次提交启用了规则分析，但这里仍为空，请刷新报告。"
+                :description="$t('legacy.bffpo6')"
               />
             </a-card>
             <a-divider />
-            <a-card id="skillspector-section" size="small" title="深度扫描结果">
+            <a-card id="skillspector-section" size="small" :title="$t('legacy.1fvbrzz')">
               <template v-if="skillspectorAnalysis">
                 <a-alert
                   v-if="skillspectorAnalysis.error"
                   type="warning"
                   show-icon
-                  message="深度扫描未完成"
+                  :message="$t('legacy.fe5e82')"
                   :description="deepScanText(skillspectorAnalysis.error)"
                   style="margin-bottom: 12px"
                 />
                 <a-descriptions :column="2" size="small" bordered>
-                  <a-descriptions-item label="扫描器状态">
+                  <a-descriptions-item :label="$t('legacy.1ecjgmg')">
                     <a-tag :color="skillspectorAnalysis.available ? 'green' : 'default'">
-                      {{ skillspectorAnalysis.available ? '可用' : '未安装' }}
+                      {{ skillspectorAnalysis.available ? $t('legacy.18ety4i') : $t('legacy.buf4kb') }}
                     </a-tag>
                   </a-descriptions-item>
-                  <a-descriptions-item label="风险分">{{ skillspectorAnalysis.risk_score ?? '-' }}</a-descriptions-item>
-                  <a-descriptions-item label="风险级别">
+                  <a-descriptions-item :label="$t('legacy.15n4i96')">{{ skillspectorAnalysis.risk_score ?? '-' }}</a-descriptions-item>
+                  <a-descriptions-item :label="$t('legacy.1mlpede')">
                     <a-tag :color="severityColor(skillspectorEffectiveSeverity)">
                       {{ severityDisplay(skillspectorEffectiveSeverity) }}
                     </a-tag>
                   </a-descriptions-item>
-                  <a-descriptions-item v-if="skillspectorRawSeverity && skillspectorRawSeverity !== skillspectorEffectiveSeverity" label="原始风险">
+                  <a-descriptions-item v-if="skillspectorRawSeverity && skillspectorRawSeverity !== skillspectorEffectiveSeverity" :label="$t('legacy.tofxxa')">
                     {{ severityDisplay(skillspectorRawSeverity) }}
                   </a-descriptions-item>
-                  <a-descriptions-item label="建议">{{ recommendationDisplay(skillspectorAnalysis.risk_recommendation) }}</a-descriptions-item>
-                  <a-descriptions-item label="发现项">{{ skillspectorFindings.length }}</a-descriptions-item>
-                  <a-descriptions-item v-if="skillspectorAnalysis.suppressed_findings_count" label="已过滤噪声">
+                  <a-descriptions-item :label="$t('legacy.1qgeq0p')">{{ recommendationDisplay(skillspectorAnalysis.risk_recommendation) }}</a-descriptions-item>
+                  <a-descriptions-item :label="$t('legacy.l6iuzr')">{{ skillspectorFindings.length }}</a-descriptions-item>
+                  <a-descriptions-item v-if="skillspectorAnalysis.suppressed_findings_count" :label="$t('legacy.lglj70')">
                     {{ skillspectorAnalysis.suppressed_findings_count }}
                   </a-descriptions-item>
                 </a-descriptions>
@@ -343,17 +333,17 @@
                                 >
                                   {{ item.file }}{{ item.line || item.start_line ? `:${item.line || item.start_line}` : '' }}
                                 </a-button>
-                                <a-tag v-if="findingPolicyLabel(item)" color="cyan">策略项：{{ findingPolicyLabel(item) }}</a-tag>
-                                <a-tag v-if="item.aggregate_count > 1" color="blue">命中 {{ item.aggregate_count }} 处</a-tag>
+                                <a-tag v-if="findingPolicyLabel(item)" color="cyan">{{ text('策略项', 'Policy Category') }}: {{ findingPolicyLabel(item) }}</a-tag>
+                                <a-tag v-if="item.aggregate_count > 1" color="blue">{{ text(`命中 ${item.aggregate_count} 处`, `${item.aggregate_count} matches`) }}</a-tag>
                               </a-space>
                               <div v-if="item.aggregate_lines?.length" class="muted" style="margin-top: 4px">
-                                行号：{{ formatAggregateLines(item.aggregate_lines) }}
+                                {{ text('行号', 'Lines') }}: {{ formatAggregateLines(item.aggregate_lines) }}
                               </div>
                               <div v-if="item.message || item.explanation" style="margin-top: 6px">
                                 {{ deepScanText(bilingualText(item.message || item.explanation)) }}
                               </div>
                               <div v-if="item.remediation" style="margin-top: 6px; color: #8c8c8c">
-                                建议：{{ deepScanText(bilingualText(item.remediation)) }}
+                                {{ text('建议', 'Recommendation') }}: {{ deepScanText(bilingualText(item.remediation)) }}
                               </div>
                             </div>
                           </a-list-item>
@@ -363,21 +353,21 @@
                   </a-collapse-panel>
                 </a-collapse>
               </template>
-              <a-empty v-else description="本次扫描未启用深度扫描或没有报告。" />
+              <a-empty v-else :description="$t('legacy.pip45f')" />
             </a-card>
             <a-divider />
-            <a-card id="sandbox-section" size="small" title="Sandbox 执行结果">
+            <a-card id="sandbox-section" size="small" :title="$t('legacy.256glc')">
               <template v-if="sandboxAnalysis">
                 <a-alert
                   :type="sandboxRiskAlertType"
                   show-icon
-                  :message="`风险等级：${sandboxDisplayRiskLevel} / 最高严重级别：${sandboxDisplayMaxSeverity}`"
+                  :message="text(`风险等级：${sandboxDisplayRiskLevel} / 最高严重级别：${sandboxDisplayMaxSeverity}`, `Risk Level: ${sandboxDisplayRiskLevel} / Maximum Severity: ${sandboxDisplayMaxSeverity}`)"
                   :description="sandboxDisplaySummary"
                 />
                 <a-list
                   v-if="sandboxSignals.length"
                   style="margin-top: 12px"
-                  header="Sandbox 提取到的运行时信号"
+                  :header="$t('legacy.yq0ehw')"
                   :data-source="sandboxSignals"
                   bordered
                   size="small"
@@ -391,7 +381,7 @@
                           <strong>{{ bilingualText(item.message) }}</strong>
                         </a-space>
                         <div v-if="item.evidence" class="evidence-box">
-                          <div class="evidence-title">判断依据</div>
+                          <div class="evidence-title">{{ $t("legacy.1kyo8cx") }}</div>
                           <div
                             v-for="line in sandboxEvidenceLines(item.evidence)"
                             :key="line"
@@ -407,14 +397,14 @@
                 <a-empty
                   v-else
                   style="margin-top: 12px"
-                  description="Sandbox 未提取到明确运行时风险信号。"
+                  :description="$t('legacy.166yan')"
                 />
                 <a-collapse style="margin-top: 12px">
-                  <a-collapse-panel key="sandbox-debug" header="查看 Sandbox 调试信息">
+                  <a-collapse-panel key="sandbox-debug" :header="$t('legacy.enkq9u')">
                     <a-descriptions :column="2" size="small" bordered>
-                      <a-descriptions-item label="是否执行">{{ sandboxAnalysis.executed ? '是' : '否' }}</a-descriptions-item>
-                      <a-descriptions-item label="运行时">{{ sandboxAnalysis.runtime || '-' }}</a-descriptions-item>
-                      <a-descriptions-item label="入口脚本">
+                      <a-descriptions-item :label="$t('legacy.2xyc8z')">{{ sandboxAnalysis.executed ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
+                      <a-descriptions-item :label="$t('legacy.1sdwzrx')">{{ sandboxAnalysis.runtime || '-' }}</a-descriptions-item>
+                      <a-descriptions-item :label="$t('legacy.1dltjhr')">
                         <a-button
                           v-if="sandboxAnalysis.entrypoint"
                           type="link"
@@ -425,28 +415,28 @@
                         </a-button>
                         <span v-else>-</span>
                       </a-descriptions-item>
-                      <a-descriptions-item label="执行环境">
+                      <a-descriptions-item :label="$t('legacy.destq8')">
                         {{ sandboxAnalysis.runtime === 'docker' ? (sandboxAnalysis.image || 'agent-manager-sandbox-runtime:latest') : (sandboxAnalysis.image || '-') }}
                       </a-descriptions-item>
-                      <a-descriptions-item label="Probe 策略">{{ sandboxAnalysis.probe_strategy || '-' }}</a-descriptions-item>
-                      <a-descriptions-item label="Probe 参数">
+                      <a-descriptions-item :label="$t('legacy.1abimny')">{{ sandboxAnalysis.probe_strategy || '-' }}</a-descriptions-item>
+                      <a-descriptions-item :label="$t('legacy.hvs01l')">
                         {{ Array.isArray(sandboxAnalysis.probe_args) && sandboxAnalysis.probe_args.length ? sandboxAnalysis.probe_args.join(' ') : '-' }}
                       </a-descriptions-item>
-                      <a-descriptions-item label="退出码">{{ sandboxAnalysis.exit_code ?? '-' }}</a-descriptions-item>
-                      <a-descriptions-item label="是否超时">{{ sandboxAnalysis.timed_out ? '是' : '否' }}</a-descriptions-item>
-                      <a-descriptions-item label="耗时">{{ sandboxAnalysis.duration_ms ?? '-' }} ms</a-descriptions-item>
-                      <a-descriptions-item label="网络尝试">{{ sandboxAnalysis.network_attempts ?? 0 }}</a-descriptions-item>
-                      <a-descriptions-item v-if="sandboxAnalysis.reason" label="说明" :span="2">
-                        {{ sandboxAnalysis.reason }}
+                      <a-descriptions-item :label="$t('legacy.1cjrdy2')">{{ sandboxAnalysis.exit_code ?? '-' }}</a-descriptions-item>
+                      <a-descriptions-item :label="$t('legacy.181sskz')">{{ sandboxAnalysis.timed_out ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
+                      <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ sandboxAnalysis.duration_ms ?? '-' }} ms</a-descriptions-item>
+                      <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ sandboxAnalysis.network_attempts ?? 0 }}</a-descriptions-item>
+                      <a-descriptions-item v-if="sandboxAnalysis.reason" :label="$t('legacy.1mi4vdj')" :span="2">
+                        {{ platformResultText(sandboxAnalysis.reason) }}
                       </a-descriptions-item>
-                      <a-descriptions-item v-if="sandboxAnalysis.recommendation" label="建议" :span="2">
-                        {{ sandboxAnalysis.recommendation }}
+                      <a-descriptions-item v-if="sandboxAnalysis.recommendation" :label="$t('legacy.1qgeq0p')" :span="2">
+                        {{ platformResultText(sandboxAnalysis.recommendation) }}
                       </a-descriptions-item>
                     </a-descriptions>
                     <a-list
                       v-if="sandboxDiagnosticSignals.length"
                       style="margin-top: 12px"
-                      header="Sandbox 诊断信息（不计入运行时风险）"
+                      :header="$t('legacy.1jz86ze')"
                       :data-source="sandboxDiagnosticSignals"
                       bordered
                       size="small"
@@ -460,7 +450,7 @@
                               <strong>{{ bilingualText(item.message) }}</strong>
                             </a-space>
                             <div v-if="item.evidence" class="evidence-box">
-                              <div class="evidence-title">判断依据</div>
+                              <div class="evidence-title">{{ $t("legacy.1kyo8cx") }}</div>
                               <div
                                 v-for="line in sandboxEvidenceLines(item.evidence)"
                                 :key="line"
@@ -483,9 +473,7 @@
                       bordered
                       :pagination="false"
                     >
-                      <template #title>
-                        Sandbox 提取到的运行时信号
-                      </template>
+                      <template #title> {{ $t("legacy.yq0ehw") }} </template>
                       <template #bodyCell="{ column, record }">
                         <template v-if="column.key === 'probe'">
                           <a-space direction="vertical" size="small">
@@ -511,7 +499,7 @@
                           <a-tag :color="record.exit_code === 0 ? 'green' : 'orange'">{{ record.exit_code ?? '-' }}</a-tag>
                         </template>
                         <template v-else-if="column.key === 'timeout'">
-                          <a-tag :color="record.timed_out ? 'red' : 'green'">{{ record.timed_out ? '是' : '否' }}</a-tag>
+                          <a-tag :color="record.timed_out ? 'red' : 'green'">{{ record.timed_out ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-tag>
                         </template>
                         <template v-else-if="column.key === 'result'">
                           <a-tag :color="sandboxProbeResultTag(record).color">
@@ -521,14 +509,14 @@
                       </template>
                       <template #expandedRowRender="{ record }">
                     <a-descriptions :column="2" size="small" bordered>
-                      <a-descriptions-item label="执行命令" :span="2">
+                      <a-descriptions-item :label="$t('legacy.54f4h3')" :span="2">
                         <pre class="command-block">{{ formatSandboxCommand(record) }}</pre>
                       </a-descriptions-item>
-                      <a-descriptions-item label="生成来源">{{ record.probe_generated_by || '-' }}</a-descriptions-item>
-                      <a-descriptions-item label="运行时">{{ record.runtime || sandboxAnalysis.runtime || '-' }}</a-descriptions-item>
-                      <a-descriptions-item label="耗时">{{ record.duration_ms ?? '-' }} ms</a-descriptions-item>
-                      <a-descriptions-item label="网络尝试">{{ record.network_attempts ?? 0 }}</a-descriptions-item>
-                      <a-descriptions-item label="执行结果" :span="2">
+                      <a-descriptions-item :label="$t('legacy.c8d7bb')">{{ record.probe_generated_by || '-' }}</a-descriptions-item>
+                      <a-descriptions-item :label="$t('legacy.1sdwzrx')">{{ record.runtime || sandboxAnalysis.runtime || '-' }}</a-descriptions-item>
+                      <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ record.duration_ms ?? '-' }} ms</a-descriptions-item>
+                      <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ record.network_attempts ?? 0 }}</a-descriptions-item>
+                      <a-descriptions-item :label="$t('legacy.1suldox')" :span="2">
                         {{ sandboxProbeResultText(record) }}
                       </a-descriptions-item>
                     </a-descriptions>
@@ -537,16 +525,16 @@
                       style="margin-top: 12px"
                       type="info"
                       show-icon
-                      message="Probe 输入文件缺失"
-                      description="命令引用了示例输入文件，但该文件不在 skill 包或 Sandbox 工作目录中。这类信息通常不代表 skill 存在安全风险，建议补充真实测试输入后再复测。"
+                      :message="$t('legacy.1c0iwtv')"
+                      :description="$t('legacy.708edr')"
                     />
                     <a-alert
                       v-else-if="record.exit_code != null && record.exit_code !== 0"
                       style="margin-top: 12px"
                       type="info"
                       show-icon
-                      message="Probe 诊断"
-                      description="这通常是测试参数、依赖或执行环境不完整导致的诊断信息，不单独计入运行时风险。请优先查看上方提取到的运行时信号。"
+                      :message="$t('legacy.im1knm')"
+                      :description="$t('legacy.dfsc95')"
                     />
                       </template>
                     </a-table>
@@ -555,20 +543,20 @@
               </template>
               <a-empty
                 v-else
-                description="当前没有可展示的 Sandbox 执行结果。若本次提交启用了 Sandbox，请刷新报告。"
+                :description="$t('legacy.13s2o01')"
               />
             </a-card>
           </a-skeleton>
         </a-tab-pane>
 
-        <a-tab-pane key="llm" tab="LLM 分析">
+        <a-tab-pane key="llm" :tab="$t('legacy.ka9ulq')">
           <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
             <template v-if="llmAnalysis">
-              <a-card id="llm-section" size="small" title="LLM 深度分析">
+              <a-card id="llm-section" size="small" :title="$t('legacy.1iy14k9')">
                 <a-descriptions :column="2" size="small" bordered style="margin-bottom: 12px">
-                  <a-descriptions-item label="提供方">{{ llmAnalysis.provider || '-' }}</a-descriptions-item>
-                  <a-descriptions-item label="模型">{{ llmAnalysis.model || '-' }}</a-descriptions-item>
-                  <a-descriptions-item label="判定">
+                  <a-descriptions-item :label="$t('legacy.1l721lr')">{{ llmAnalysis.provider || '-' }}</a-descriptions-item>
+                  <a-descriptions-item :label="$t('legacy.1ow6qt')">{{ llmAnalysis.model || '-' }}</a-descriptions-item>
+                  <a-descriptions-item :label="$t('legacy.c68fez')">
                     <a-tag v-if="llmAnalysis.risk_level === 'malicious'" color="red">{{ riskDisplay(llmAnalysis.risk_level) }}</a-tag>
                     <a-tag v-else-if="llmAnalysis.risk_level === 'suspicious'" color="orange">{{ riskDisplay(llmAnalysis.risk_level) }}</a-tag>
                     <a-tag v-else-if="llmAnalysis.risk_level === 'benign'" color="green">{{ riskDisplay(llmAnalysis.risk_level) }}</a-tag>
@@ -579,28 +567,31 @@
                 <template v-if="llmAnalysis.risk_level === 'malicious' && llmAnalysis.attack_chain?.length">
                   <a-divider />
                   <div>
-                    <h4 style="margin-bottom: 12px">攻击链分析</h4>
+                    <h4 style="margin-bottom: 12px">{{ $t("legacy.bayp6x") }}</h4>
                     <AttackChainGraph :attack-chain="llmAnalysis.attack_chain" />
                   </div>
                 </template>
               </a-card>
             </template>
-            <a-empty v-else description="暂无 LLM 分析结果" />
+            <a-empty v-else :description="$t('legacy.mbiky1')" />
           </a-skeleton>
         </a-tab-pane>
 
-        <a-tab-pane key="governance-card" tab="Governance Card（治理卡片）">
+        <a-tab-pane key="governance-card" :tab="$t('legacy.11y6y7p')">
           <a-space style="margin-bottom: 12px" wrap>
-            <a-button @click="fetchGovernanceCard" :loading="loadingGovernanceCard">刷新</a-button>
-            <a-button type="primary" @click="handleRefreshGovernanceCard" :loading="loadingGovernanceCard">
-              重新生成
-            </a-button>
+            <a-button @click="fetchGovernanceCard" :loading="loadingGovernanceCard">{{ $t("legacy.12qo56a") }}</a-button>
+            <a-button type="primary" @click="handleRefreshGovernanceCard" :loading="loadingGovernanceCard"> {{ $t("legacy.1oqld67") }} </a-button>
             <a-radio-group v-model:value="governanceCardViewMode" button-style="solid">
-              <a-radio-button value="preview">预览</a-radio-button>
-              <a-radio-button value="raw">原文</a-radio-button>
+              <a-radio-button value="preview">{{ $t("legacy.k2jp4x") }}</a-radio-button>
+              <a-radio-button value="raw">{{ $t("legacy.9lvlaj") }}</a-radio-button>
             </a-radio-group>
             <span style="color: #8c8c8c">
-              {{ governanceCard?.generated_at ? `生成时间：${formatDateTime(governanceCard.generated_at)}` : '暂无生成时间' }}
+              {{ governanceCard?.generated_at
+                ? text(
+                  `生成时间：${formatDateTime(governanceCard.generated_at)}`,
+                  `Generated: ${formatDateTime(governanceCard.generated_at)}`,
+                )
+                : $t('legacy.1gshff6') }}
             </span>
           </a-space>
           <a-alert
@@ -623,20 +614,20 @@
           </template>
         </a-tab-pane>
 
-        <a-tab-pane key="signature" tab="完整性校验">
+        <a-tab-pane key="signature" :tab="$t('legacy.y6whtf')">
           <a-descriptions :column="1" size="small" bordered>
-            <a-descriptions-item label="内容指纹是否存在">{{ detail?.signature ? '是' : '否' }}</a-descriptions-item>
-            <a-descriptions-item label="内容指纹预览">{{ detail?.signature ? `${detail.signature.slice(0, 24)}...` : '-' }}</a-descriptions-item>
-            <a-descriptions-item label="最近一次校验">{{ signatureResult ? (signatureResult.valid ? '通过' : '失败') : '未校验' }}</a-descriptions-item>
+            <a-descriptions-item :label="$t('legacy.s9rtfe')">{{ detail?.signature ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
+            <a-descriptions-item :label="$t('legacy.14ju5sj')">{{ detail?.signature ? `${detail.signature.slice(0, 24)}...` : '-' }}</a-descriptions-item>
+            <a-descriptions-item :label="$t('legacy.1a9csig')">{{ signatureResult ? (signatureResult.valid ? $t('legacy.j666m6') : $t('legacy.12db3qz')) : $t('legacy.39zt54') }}</a-descriptions-item>
           </a-descriptions>
         </a-tab-pane>
 
-        <a-tab-pane key="content" tab="技能内容">
+        <a-tab-pane key="content" :tab="$t('legacy.76rr28')">
           <a-space style="margin-bottom: 12px" wrap>
-            <a-button @click="fetchSkillContent" :loading="loadingContent">刷新 SKILL.md</a-button>
+            <a-button @click="fetchSkillContent" :loading="loadingContent">{{ $t("legacy.1hagldm") }}</a-button>
             <a-radio-group v-model:value="contentViewMode" button-style="solid">
-              <a-radio-button value="preview">预览</a-radio-button>
-              <a-radio-button value="raw">原文</a-radio-button>
+              <a-radio-button value="preview">{{ $t("legacy.k2jp4x") }}</a-radio-button>
+              <a-radio-button value="raw">{{ $t("legacy.9lvlaj") }}</a-radio-button>
             </a-radio-group>
           </a-space>
 
@@ -645,7 +636,9 @@
             type="info"
             show-icon
             :message="skillContent.manifest_path"
-            :description="skillContent.encoding ? `编码：${skillContent.encoding}` : undefined"
+            :description="skillContent.encoding
+              ? text(`编码：${skillContent.encoding}`, `Encoding: ${skillContent.encoding}`)
+              : undefined"
             style="margin-bottom: 12px"
           />
 
@@ -653,7 +646,7 @@
             <a-card
               v-if="skillFrontmatter"
               size="small"
-              title="Manifest 元数据"
+              :title="$t('legacy.168y9p7')"
               style="margin-bottom: 12px"
             >
               <pre class="frontmatter-box">{{ skillFrontmatter }}</pre>
@@ -668,10 +661,10 @@
           </div>
         </a-tab-pane>
 
-        <a-tab-pane key="files" tab="文件列表">
+        <a-tab-pane key="files" :tab="$t('legacy.gpyzjr')">
           <a-space style="margin-bottom: 12px" wrap>
-            <a-button @click="fetchSkillFiles">刷新文件列表</a-button>
-            <span style="color: #8c8c8c">共 {{ skillFiles.length }} 个文件</span>
+            <a-button @click="fetchSkillFiles">{{ $t("legacy.17oz484") }}</a-button>
+            <span style="color: #8c8c8c">{{ $t("legacy.1vsm2qk") }} {{ skillFiles.length }} {{ $t("legacy.15u4aw8") }}</span>
           </a-space>
           <a-table
             :data-source="skillFiles"
@@ -688,11 +681,11 @@
           </a-table>
         </a-tab-pane>
 
-        <a-tab-pane key="audit" tab="审计记录">
+        <a-tab-pane key="audit" :tab="$t('legacy.7wyi9c')">
           <a-table :data-source="auditRows" :columns="auditColumns" rowKey="event_id" :pagination="{ pageSize: 5 }">
             <template #bodyCell="{ column, record }">
               <span v-if="column.key === 'event_type'">{{ auditEventLabel(record.event_type) }}</span>
-              <span v-else-if="column.key === 'actor'">{{ record.actor || '系统' }}</span>
+              <span v-else-if="column.key === 'actor'">{{ record.actor || $t('legacy.p0ysv3') }}</span>
               <span v-else-if="column.key === 'details'">{{ formatAuditDetails(record.details) }}</span>
             </template>
           </a-table>
@@ -702,9 +695,9 @@
 
     <a-modal
       v-model:open="approveModalOpen"
-      title="批准技能"
-      ok-text="确认批准"
-      cancel-text="取消"
+      :title="$t('legacy.1xa4yul')"
+      :ok-text="$t('legacy.1srvmx8')"
+      :cancel-text="$t('legacy.1589w37')"
       :confirm-loading="actionLoading"
       @ok="submitApprove"
     >
@@ -713,27 +706,27 @@
           v-if="manualApprovalRequired"
           type="warning"
           show-icon
-          message="这是一次人工例外批准"
-          :description="vettingFailed ? '后台分析未完成，但可以人工确认 Skill 内容后例外批准。批准后会记录内容指纹并进入可绑定状态，请在备注中说明人工判断依据。' : '该 Skill 的安全研判为低风险，但准入策略曾因工具/权限/许可证阻断。批准后会记录内容指纹并进入可绑定状态，请在备注中说明例外依据。'"
+          :message="$t('legacy.1y2twlp')"
+          :description="vettingFailed ? $t('legacy.17wodku') : $t('legacy.afqt0u')"
           style="margin-bottom: 12px"
         />
         <a-form-item label="Skill">
           <a-input :value="detail?.name || ''" disabled />
         </a-form-item>
-        <a-form-item label="审批人">
+        <a-form-item :label="$t('legacy.1lakt7z')">
           <a-input :value="currentUser()" disabled />
         </a-form-item>
-        <a-form-item label="审批备注">
-          <a-textarea v-model:value="approveNote" :rows="4" placeholder="可留空" />
+        <a-form-item :label="$t('legacy.1v900uo')">
+          <a-textarea v-model:value="approveNote" :rows="4" :placeholder="$t('legacy.y7iiel')" />
         </a-form-item>
       </a-form>
     </a-modal>
 
     <a-modal
       v-model:open="rejectModalOpen"
-      title="拒绝技能"
-      ok-text="确认拒绝"
-      cancel-text="取消"
+      :title="$t('legacy.sgs3in')"
+      :ok-text="$t('legacy.iwk43y')"
+      :cancel-text="$t('legacy.1589w37')"
       :confirm-loading="actionLoading"
       @ok="submitReject"
     >
@@ -741,19 +734,19 @@
         <a-form-item label="Skill">
           <a-input :value="detail?.name || ''" disabled />
         </a-form-item>
-        <a-form-item label="审核人">
+        <a-form-item :label="$t('legacy.1gs5bzm')">
           <a-input :value="currentUser()" disabled />
         </a-form-item>
-        <a-form-item label="拒绝原因" required>
-          <a-textarea v-model:value="rejectReason" :rows="4" placeholder="请输入原因" />
+        <a-form-item :label="$t('legacy.1l7e57j')" required>
+          <a-textarea v-model:value="rejectReason" :rows="4" :placeholder="$t('legacy.1gqmn09')" />
         </a-form-item>
       </a-form>
     </a-modal>
 
     <a-modal
       v-model:open="clientInstallOpen"
-      title="安装 Skill 到客户端"
-      ok-text="创建安装任务"
+      :title="$t('legacy.sq6fxa')"
+      :ok-text="$t('legacy.1em7bly')"
       :confirm-loading="clientInstallLoading"
       @ok="submitClientInstall"
     >
@@ -761,8 +754,8 @@
         <a-form-item label="Skill">
           <a-input :value="detail?.name || ''" disabled />
         </a-form-item>
-        <a-form-item label="目标客户端与 Agent" required>
-          <a-select v-model:value="clientInstallTarget" show-search option-filter-prop="label" placeholder="选择支持 Skill 管理的本地 Agent">
+        <a-form-item :label="$t('legacy.xyrx7l')" required>
+          <a-select v-model:value="clientInstallTarget" show-search option-filter-prop="label" :placeholder="$t('legacy.1skpnm2')">
             <a-select-option v-for="target in clientTargets" :key="target.key" :value="target.key" :label="target.label">
               {{ target.label }}
             </a-select-option>
@@ -778,9 +771,9 @@
       destroyOnClose
     >
       <a-space style="margin-bottom: 12px" wrap>
-        <a-button @click="refreshViewedFile" :loading="loadingFileViewer" :disabled="!viewingFilePath">刷新文件</a-button>
+        <a-button @click="refreshViewedFile" :loading="loadingFileViewer" :disabled="!viewingFilePath">{{ $t("legacy.rgtjkr") }}</a-button>
         <span style="color: #8c8c8c">{{ viewedFile?.path || viewingFilePath || '-' }}</span>
-        <a-tag v-if="viewedFile?.encoding">编码：{{ viewedFile.encoding }}</a-tag>
+        <a-tag v-if="viewedFile?.encoding">{{ $t("legacy.11zpbd2") }}{{ viewedFile.encoding }}</a-tag>
       </a-space>
       <div class="code-preview drawer-code-preview">
         <div v-for="line in viewedFileLines" :key="line.no" class="code-line">
@@ -815,10 +808,17 @@ import {
   verifySkillSignature,
 } from '../api'
 import { formatDateTime } from '../utils/format'
+import { translateDomain } from '../i18n'
+import { useLocaleText } from '../i18n/useLocaleText'
 import AttackChainGraph from '../components/AttackChainGraph.vue'
 
+const { isEnglish, phrase, text } = useLocaleText()
 const route = useRoute()
 const skillId = computed(() => route.params.skillId)
+const detailPageTitle = computed(() => {
+  const name = detail.value?.name || skillId.value
+  return text(`Skill 详情：${name}`, `Skill Details: ${name}`)
+})
 const activeTab = ref(route.query.tab || 'vetting')
 const loading = ref(false)
 const loadingScanReport = ref(false)
@@ -862,57 +862,57 @@ const clientTargets = computed(() => managedClients.value.flatMap(client =>
     })),
 ))
 
-const auditColumns = [
-  { title: '时间', dataIndex: 'timestamp', key: 'timestamp', width: 180, customRender: ({ text }) => formatDateTime(text) },
-  { title: '事件', dataIndex: 'event_type', key: 'event_type', width: 180 },
-  { title: '操作人', dataIndex: 'actor', key: 'actor', width: 120 },
-  { title: '详情', dataIndex: 'details', key: 'details' },
-]
+const auditColumns = computed(() => [
+  { title: text('时间', 'Time'), dataIndex: 'timestamp', key: 'timestamp', width: 180, customRender: ({ text: value }) => formatDateTime(value) },
+  { title: text('事件', 'Event'), dataIndex: 'event_type', key: 'event_type', width: 180 },
+  { title: text('操作人', 'Operator'), dataIndex: 'actor', key: 'actor', width: 120 },
+  { title: text('详情', 'Details'), dataIndex: 'details', key: 'details' },
+])
 
 const auditEventLabels = {
-  skill_submitted: '技能已提交',
-  skill_processing_completed: '后台分析完成',
-  skill_queued_for_review: '已进入人工审核',
-  skill_vetted: '安全检测完成',
-  skill_approved: '技能已批准',
-  skill_rejected: '技能已拒绝',
-  skill_deployed: '技能已部署',
-  skill_retired: '技能已退役',
-  skill_signature_verified: '完整性校验通过',
-  skill_tamper_detected: '检测到内容篡改',
-  skill_load_allowed: '允许运行时加载',
-  skill_load_blocked: '阻止运行时加载',
-  tool_invoked: '工具已调用',
-  tool_blocked: '工具调用被阻止',
+  skill_submitted: phrase('legacy.1ctggg0'),
+  skill_processing_completed: phrase('legacy.4q96e1'),
+  skill_queued_for_review: phrase('legacy.13g0wa9'),
+  skill_vetted: phrase('legacy.14mw4ld'),
+  skill_approved: phrase('legacy.1irm9dn'),
+  skill_rejected: phrase('legacy.v95xbp'),
+  skill_deployed: phrase('legacy.10iljsa'),
+  skill_retired: phrase('legacy.xrktp3'),
+  skill_signature_verified: phrase('legacy.niy9wk'),
+  skill_tamper_detected: phrase('legacy.1r553w'),
+  skill_load_allowed: phrase('legacy.13u1sex'),
+  skill_load_blocked: phrase('legacy.1yqcn2t'),
+  tool_invoked: phrase('legacy.13iq9ke'),
+  tool_blocked: phrase('legacy.1hed6yi'),
 }
 
 const auditDetailLabels = {
-  skill_path: '技能路径',
-  status: '状态',
-  risk_level: '风险等级',
-  pre_llm_risk_level: 'LLM 分析前风险',
-  max_severity: '最高严重级别',
-  violations: '策略违规',
-  verification_mode: '校验方式',
-  reason: '原因',
-  note: '备注',
+  skill_path: phrase('legacy.1lv21p9'),
+  status: phrase('legacy.1ccx4t4'),
+  risk_level: phrase('legacy.hm077g'),
+  pre_llm_risk_level: phrase('legacy.s1hoes'),
+  max_severity: phrase('legacy.syac4h'),
+  violations: phrase('legacy.1mfo0dp'),
+  verification_mode: phrase('legacy.1x88724'),
+  reason: phrase('legacy.jsgjbe'),
+  note: phrase('legacy.b5m1l6'),
 }
 
-const fileColumns = [
-  { title: '路径', dataIndex: 'path', key: 'path' },
-  { title: '大小', dataIndex: 'size_bytes', key: 'size_bytes', width: 140, customRender: ({ text }) => formatFileSize(text) },
-  { title: '修改时间', dataIndex: 'modified_at', key: 'modified_at', width: 220, customRender: ({ text }) => formatDateTime(text) },
-]
+const fileColumns = computed(() => [
+  { title: text('路径', 'Path'), dataIndex: 'path', key: 'path' },
+  { title: text('大小', 'Size'), dataIndex: 'size_bytes', key: 'size_bytes', width: 140, customRender: ({ text: value }) => formatFileSize(value) },
+  { title: text('修改时间', 'Modified At'), dataIndex: 'modified_at', key: 'modified_at', width: 220, customRender: ({ text: value }) => formatDateTime(value) },
+])
 
-const sandboxProbeColumns = [
+const sandboxProbeColumns = computed(() => [
   { title: 'Probe', key: 'probe', width: 220 },
-  { title: '入口', key: 'entrypoint', width: 260 },
-  { title: '执行命令', key: 'command' },
-  { title: '退出码', key: 'exit_code', width: 90 },
-  { title: '超时', key: 'timeout', width: 80 },
-  { title: '结果', key: 'result', width: 100 },
-  { title: '耗时', dataIndex: 'duration_ms', key: 'duration_ms', width: 100, customRender: ({ text }) => `${text ?? '-'} ms` },
-]
+  { title: text('入口', 'Entrypoint'), key: 'entrypoint', width: 260 },
+  { title: text('执行命令', 'Command'), key: 'command' },
+  { title: text('退出码', 'Exit Code'), key: 'exit_code', width: 90 },
+  { title: text('超时', 'Timed Out'), key: 'timeout', width: 80 },
+  { title: text('结果', 'Result'), key: 'result', width: 100 },
+  { title: text('耗时', 'Duration'), dataIndex: 'duration_ms', key: 'duration_ms', width: 100, customRender: ({ text: value }) => `${value ?? '-'} ms` },
+])
 
 const fetchDetail = async () => {
   loading.value = true
@@ -937,7 +937,7 @@ const fetchDetail = async () => {
     skillFiles.value = filesResult.status === 'fulfilled' ? (filesResult.value?.files || []) : []
     governanceCard.value = cardResult.status === 'fulfilled' ? (cardResult.value || null) : null
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取技能详情失败')
+    message.error(error.response?.data?.detail || phrase('legacy.qrrlus'))
   } finally {
     loading.value = false
   }
@@ -950,7 +950,7 @@ const openClientInstall = async () => {
   try {
     managedClients.value = await listClients()
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取客户端列表失败')
+    message.error(error.response?.data?.detail || phrase('legacy.167k0p'))
   } finally {
     clientInstallLoading.value = false
   }
@@ -959,7 +959,7 @@ const openClientInstall = async () => {
 const submitClientInstall = async () => {
   const target = clientTargets.value.find(item => item.key === clientInstallTarget.value)
   if (!target) {
-    message.warning('请选择目标客户端与 Agent')
+    message.warning(phrase('legacy.9itypw'))
     return
   }
   clientInstallLoading.value = true
@@ -973,9 +973,9 @@ const submitClientInstall = async () => {
       },
     })
     clientInstallOpen.value = false
-    message.success('安装任务已创建')
+    message.success(phrase('legacy.zqfh0e'))
   } catch (error) {
-    message.error(error.response?.data?.detail || '创建安装任务失败')
+    message.error(error.response?.data?.detail || phrase('legacy.1kcqrgw'))
   } finally {
     clientInstallLoading.value = false
   }
@@ -988,7 +988,7 @@ const fetchScanReport = async () => {
     const data = await getSkillScanReport(detail.value.skill_id)
     scanReport.value = data.scan_report || {}
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取扫描报告失败')
+    message.error(error.response?.data?.detail || phrase('legacy.g9q48r'))
   } finally {
     loadingScanReport.value = false
   }
@@ -1000,7 +1000,7 @@ const fetchSkillContent = async () => {
   try {
     skillContent.value = await getSkillContent(detail.value.skill_id)
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取技能内容失败')
+    message.error(error.response?.data?.detail || phrase('legacy.1iff97n'))
   } finally {
     loadingContent.value = false
   }
@@ -1012,7 +1012,7 @@ const fetchSkillFiles = async () => {
     const data = await getSkillFiles(detail.value.skill_id)
     skillFiles.value = data?.files || []
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取文件列表失败')
+    message.error(error.response?.data?.detail || phrase('legacy.1rirokg'))
   }
 }
 
@@ -1022,7 +1022,7 @@ const fetchGovernanceCard = async () => {
   try {
     governanceCard.value = await getSkillGovernanceCard(detail.value.skill_id)
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取治理卡片失败')
+    message.error(error.response?.data?.detail || phrase('legacy.82xq4f'))
   } finally {
     loadingGovernanceCard.value = false
   }
@@ -1034,9 +1034,9 @@ const handleRefreshGovernanceCard = async () => {
   try {
     governanceCard.value = await refreshSkillGovernanceCard(detail.value.skill_id)
     await fetchScanReport()
-    message.success('治理卡片已刷新')
+    message.success(phrase('legacy.1su23nl'))
   } catch (error) {
-    message.error(error.response?.data?.detail || '刷新治理卡片失败')
+    message.error(error.response?.data?.detail || phrase('legacy.7lzo4d'))
   } finally {
     loadingGovernanceCard.value = false
   }
@@ -1056,9 +1056,9 @@ const handleDownloadSkill = async () => {
     link.click()
     document.body.removeChild(link)
     window.URL.revokeObjectURL(url)
-    message.success('已开始下载 Skill')
+    message.success(phrase('legacy.kguwcl'))
   } catch (error) {
-    message.error(error.response?.data?.detail || '下载 Skill 失败')
+    message.error(error.response?.data?.detail || phrase('legacy.1rt1fc6'))
   } finally {
     downloadingSkill.value = false
   }
@@ -1072,7 +1072,7 @@ const openFileViewer = async (path) => {
   try {
     viewedFile.value = await getSkillFileContent(detail.value.skill_id, path)
   } catch (error) {
-    message.error(error.response?.data?.detail || '获取文件内容失败')
+    message.error(error.response?.data?.detail || phrase('legacy.u64zz9'))
   } finally {
     loadingFileViewer.value = false
   }
@@ -1093,12 +1093,15 @@ const handleVerifySignature = async () => {
   try {
     signatureResult.value = await verifySkillSignature(detail.value.skill_id)
     if (signatureResult.value.valid) {
-      message.success('完整性校验通过')
+      message.success(phrase('legacy.niy9wk'))
     } else {
-      message.error(`完整性校验失败：${signatureResultReason.value}`)
+      message.error(text(
+        `完整性校验失败：${signatureResultReason.value}`,
+        `Integrity verification failed: ${signatureResultReason.value}`,
+      ))
     }
   } catch (error) {
-    message.error(error.response?.data?.detail || '完整性校验失败')
+    message.error(error.response?.data?.detail || phrase('legacy.169xltl'))
   } finally {
     verifyingSignature.value = false
   }
@@ -1122,11 +1125,11 @@ const submitApprove = async () => {
   actionType.value = 'approve'
   try {
     await approveSkill(detail.value.skill_id, { approver: currentUser(), note: approveNote.value.trim() || null })
-    message.success('已批准')
+    message.success(phrase('legacy.10hmnl2'))
     approveModalOpen.value = false
     fetchDetail()
   } catch (error) {
-    message.error(error.response?.data?.detail || '批准失败')
+    message.error(error.response?.data?.detail || phrase('legacy.xx2z1c'))
   } finally {
     actionLoading.value = false
     actionType.value = ''
@@ -1136,18 +1139,18 @@ const submitApprove = async () => {
 const submitReject = async () => {
   if (!detail.value) return
   if (!rejectReason.value.trim()) {
-    message.warning('请输入拒绝原因')
+    message.warning(phrase('legacy.erwuhg'))
     return
   }
   actionLoading.value = true
   actionType.value = 'reject'
   try {
     await rejectSkill(detail.value.skill_id, { reviewer: currentUser(), reason: rejectReason.value.trim() })
-    message.success('已拒绝')
+    message.success(phrase('legacy.16h1qdk'))
     rejectModalOpen.value = false
     fetchDetail()
   } catch (error) {
-    message.error(error.response?.data?.detail || '拒绝失败')
+    message.error(error.response?.data?.detail || phrase('legacy.36obuy'))
   } finally {
     actionLoading.value = false
     actionType.value = ''
@@ -1172,30 +1175,45 @@ const llmAnalysis = computed(() => {
 })
 const llmExplanationHtml = computed(() => {
   const text = llmAnalysis.value?.report || ''
-  if (!text) return '<p>暂无分析说明</p>'
+  if (!text) return phrase('legacy.xsay8c')
   return marked.parse(text)
 })
 const riskReconciliation = computed(() => scanReport.value?.risk_reconciliation || null)
 const riskClassification = computed(() => scanReport.value?.risk_classification || null)
-const findingClassificationGroups = [
-  { key: 'blocking', label: '阻断项' },
-  { key: 'risk', label: '可疑项' },
-  { key: 'noise', label: '噪声' },
-]
+const findingClassificationGroups = computed(() => [
+  { key: 'blocking', label: text('阻断项', 'Blocking') },
+  { key: 'risk', label: text('可疑项', 'Suspicious') },
+  { key: 'noise', label: text('噪声', 'Noise') },
+])
 const findingTypeLabels = {
-  data_exfiltration: '数据外传',
-  supply_chain: '供应链风险',
-  prompt_injection: '提示词注入',
-  tool_misuse: '工具滥用',
-  network: '网络访问',
-  credential_access: '凭据访问',
-  dynamic_execution: '动态执行',
-  excessive_permissions: '权限过宽',
-  documented_external_api: '文档型 API 示例',
-  dependency: '依赖/环境问题',
-  runtime: '运行时失败',
-  other: '其他',
+  data_exfiltration: phrase('legacy.13wlkrx'),
+  supply_chain: phrase('legacy.33dhvx'),
+  prompt_injection: phrase('legacy.v4iti5'),
+  tool_misuse: phrase('legacy.1bpfkaw'),
+  network: phrase('legacy.1xh2061'),
+  credential_access: phrase('legacy.1jxzdyj'),
+  dynamic_execution: phrase('legacy.qath61'),
+  excessive_permissions: phrase('legacy.1rc1tey'),
+  documented_external_api: phrase('legacy.1iv6edf'),
+  dependency: phrase('legacy.19x9ebb'),
+  runtime: phrase('legacy.q3x1o3'),
+  other: phrase('legacy.dcd4ul'),
 }
+const findingTypeLabelsEn = {
+  data_exfiltration: 'Data Exfiltration',
+  supply_chain: 'Supply Chain Risk',
+  prompt_injection: 'Prompt Injection',
+  tool_misuse: 'Tool Misuse',
+  network: 'Network Access',
+  credential_access: 'Credential Access',
+  dynamic_execution: 'Dynamic Execution',
+  excessive_permissions: 'Excessive Permissions',
+  documented_external_api: 'Documented API Example',
+  dependency: 'Dependency / Environment Issue',
+  runtime: 'Runtime Failure',
+  other: 'Other',
+}
+const findingTypeLabel = (key) => (isEnglish.value ? findingTypeLabelsEn[key] : findingTypeLabels[key]) || key
 const findingSignature = (item) => [
   item?.rule || item?.rule_id || '',
   item?.category || '',
@@ -1281,7 +1299,7 @@ const legacyDocumentedExternalApi = (item) => {
   return rule === 'e1'
     && ['skill.md', 'skill-card.md'].includes(file)
     && (text.includes('http://') || text.includes('https://'))
-    && ['curl ', 'api ', 'endpoint', '端点', '接口'].some(token => text.includes(token))
+    && ['curl ', 'api ', 'endpoint', phrase('legacy.llpdyd'), phrase('legacy.19vzoc9')].some(token => text.includes(token))
 }
 const groupFindingSections = (items) => {
   const sections = []
@@ -1289,7 +1307,7 @@ const groupFindingSections = (items) => {
     const key = findingTypeOf(item)
     let section = sections.find(entry => entry.key === key)
     if (!section) {
-      section = { key, label: findingTypeLabels[key] || key, items: [] }
+      section = { key, label: findingTypeLabel(key), items: [] }
       sections.push(section)
     }
     section.items.push(item)
@@ -1297,7 +1315,7 @@ const groupFindingSections = (items) => {
   return sections
 }
 const groupFindingsByClassification = (items) =>
-  findingClassificationGroups.map(group => ({
+  findingClassificationGroups.value.map(group => ({
     ...group,
     items: aggregateFindings(items.filter(item => findingClassificationOf(item) === group.key)),
   })).filter(group => group.items.length).map(group => ({
@@ -1309,7 +1327,7 @@ const judgementSummary = computed(() => {
   if (!rec) return null
   return {
     mode: judgementModeText(rec.judgement_mode || scanReport.value?.judgement_mode),
-    strategy: rec.llm_downgraded ? 'LLM 已解释降级非阻断风险' : (rec.llm_downgrade_blocked ? '阻断项或严格模式阻止降级' : '按工具结果与策略综合判定'),
+    strategy: rec.llm_downgraded ? phrase('legacy.1y0u2y2') : (rec.llm_downgrade_blocked ? phrase('legacy.bn5sxy') : phrase('legacy.9sok78')),
     preRisk: rec.pre_llm_risk_level,
     finalRisk: rec.final_risk_level || detail.value?.risk_level,
     llmRisk: rec.llm_risk_level,
@@ -1320,17 +1338,17 @@ const judgementSummary = computed(() => {
 })
 const judgementReasonHtml = computed(() => marked.parse(judgementSummary.value?.reason || ''))
 const judgementModeText = (mode) => ({
-  strict: '严格模式',
-  balanced: '平衡模式',
-  permissive: '宽松模式',
-}[mode] || '平衡模式')
+  strict: phrase('legacy.zhhsio'),
+  balanced: phrase('legacy.118ugth'),
+  permissive: phrase('legacy.xjfgxu'),
+}[mode] || phrase('legacy.118ugth'))
 const behavioralAnalysis = computed(() => scanReport.value?.behavioral_analysis || null)
 const behavioralFindings = computed(() => behavioralAnalysis.value?.findings || [])
 const behavioralScannedFiles = computed(() => behavioralAnalysis.value?.scanned_files || [])
 const localStaticAnalysis = computed(() => scanReport.value?.local_static_analysis || null)
 const normalizeRuleFinding = (item) => ({
   ...item,
-  title: item.title || item.rule_id || item.rule || '规则命中',
+  title: item.title || item.rule_id || item.rule || phrase('legacy.10qlo3g'),
   message: item.message || item.description || item.remediation || '',
   file: item.file || item.file_path || '',
   line: item.line || item.line_number || item.start_line || null,
@@ -1378,15 +1396,18 @@ const parsePolicyBlock = (note) => {
   if (code === 'tool_not_in_allowlist' && toolMatch) {
     return {
       code,
-      source: '准入策略',
+      source: phrase('legacy.1lz1myh'),
       color: 'red',
       target: 'policy',
-      text: `工具声明不在白名单：${toolMatch[1]}。安全研判可以是安全，但该工具权限未被公司策略允许，因此准入被拒绝。`,
+      text: text(
+        `工具声明不在白名单：${toolMatch[1]}。安全研判可以是安全，但该工具权限未被公司策略允许，因此准入被拒绝。`,
+        `The declared tool is not allowlisted: ${toolMatch[1]}. The security assessment may be safe, but admission was rejected because company policy does not allow this permission.`,
+      ),
     }
   }
   return {
     code,
-    source: '准入策略',
+    source: phrase('legacy.1lz1myh'),
     color: 'red',
     target: 'policy',
     text: `${code}：${message}`,
@@ -1416,13 +1437,20 @@ const canApproveSkill = computed(() => {
 })
 const admissionBlockedSummary = computed(() => {
   if (!admissionBlocked.value) return ''
-  const risk = detail.value?.risk_level ? riskDisplay(detail.value.risk_level) : '未知'
+  const risk = detail.value?.risk_level ? riskDisplay(detail.value.risk_level) : phrase('legacy.1lpnuh4')
   const reasons = policyBlockItems.value.map((item) => item.text).join('；')
-  return `安全判定：${risk}。最终状态为已拒绝，是因为准入策略未通过：${reasons}`
+  return text(
+    `安全判定：${risk}。最终状态为已拒绝，是因为准入策略未通过：${reasons}`,
+    `Security assessment: ${risk}. The final status is Rejected because admission policy failed: ${reasons}`,
+  )
 })
 const manualApprovalSummary = computed(() => {
   if (vettingFailed.value) {
-    return `后台分析失败：${scanReport.value?.vetting_error || detail.value?.rejection_reason || '未知错误'}。可人工确认 Skill 内容后例外批准。`
+    const reason = scanReport.value?.vetting_error || detail.value?.rejection_reason || phrase('legacy.1m4f5ms')
+    return text(
+      `后台分析失败：${reason}。可人工确认 Skill 内容后例外批准。`,
+      `Background analysis failed: ${reason}. The Skill may be approved as an exception after manual review.`,
+    )
   }
   return admissionBlockedSummary.value
 })
@@ -1449,13 +1477,13 @@ const riskRationaleItems = computed(() => {
       source: 'LLM',
       color: 'purple',
       target: 'llm',
-      text: finalRisk === 'malicious' ? 'LLM 判定为恶意，详情见 LLM 分析。' : 'LLM 判定为可疑，详情见 LLM 分析。',
+      text: finalRisk === 'malicious' ? phrase('legacy.hf8tnk') : phrase('legacy.sze5d3'),
     })
   }
 
   if (!items.length && detail.value?.vetting?.policy_notes?.length) {
     items.push({
-      source: '策略',
+      source: phrase('legacy.1xza6lg'),
       color: 'blue',
       target: 'policy',
       text: detail.value.vetting.policy_notes[0],
@@ -1473,7 +1501,7 @@ const decisionRationaleItems = computed(() => {
   const items = [...policyBlockItems.value, ...riskRationaleItems.value]
   if (!items.length && detail.value?.status === 'REJECTED' && detail.value?.rejection_reason) {
     items.push({
-      source: '人工审核',
+      source: phrase('legacy.mxm4hl'),
       color: 'red',
       target: 'policy',
       text: detail.value.rejection_reason,
@@ -1509,14 +1537,14 @@ const hasHighRiskSkillspectorFinding = computed(() =>
 )
 const governanceCardHtml = computed(() => {
   const content = governanceCard.value?.content || ''
-  if (!content) return '<p>暂无治理卡片</p>'
+  if (!content) return phrase('legacy.ppdayt')
   return marked.parse(content)
 })
 const numberedLines = (text) => String(text || '').split('\n').map((line, index) => ({
   no: index + 1,
   text: line,
 }))
-const governanceCardLines = computed(() => numberedLines(governanceCard.value?.content || '暂无治理卡片'))
+const governanceCardLines = computed(() => numberedLines(governanceCard.value?.content || phrase('legacy.nnioji')))
 const sandboxAnalysis = computed(() => scanReport.value?.sandbox_analysis || null)
 const sandboxDiagnosticCategories = new Set(['dependency', 'probe_input', 'runtime', 'execution', 'credentials'])
 const sandboxAllSignals = computed(() => sandboxAnalysis.value?.signals || sandboxAnalysis.value?.suspicious_events || [])
@@ -1534,9 +1562,14 @@ const sandboxDisplayMaxSeverity = computed(() => {
 const sandboxDisplaySummary = computed(() => {
   if (!sandboxAnalysis.value) return ''
   if (!sandboxSignals.value.length && sandboxDiagnosticSignals.value.length) {
-    return 'Sandbox 未提取到明确运行时风险信号；仅发现执行环境或 Probe 诊断信息，可在调试信息中查看。'
+    return text(
+      'Sandbox 未提取到明确运行时风险信号；仅发现执行环境或 Probe 诊断信息，可在调试信息中查看。',
+      'Sandbox found no explicit runtime risk signals. Only environment or Probe diagnostics were recorded; review the debugging details.',
+    )
   }
-  return sandboxAnalysis.value.summary || 'Sandbox 未发现明确风险信号。'
+  return sandboxAnalysis.value.summary
+    ? platformResultText(sandboxAnalysis.value.summary)
+    : text('Sandbox 未发现明确风险信号。', 'Sandbox found no explicit risk signals.')
 })
 const missingProbeInputPattern = /(cannot open\s+[^:\n]+:\s+No such file|No such file or directory)/i
 const isSandboxProbeInputMissing = (record) => {
@@ -1546,11 +1579,11 @@ const isSandboxProbeInputMissing = (record) => {
   return missingProbeInputPattern.test(text)
 }
 const sandboxProbeResultTag = (record) => {
-  if (isSandboxProbeInputMissing(record)) return { text: '输入缺失', color: 'orange' }
-  if (record?.timed_out) return { text: '超时', color: 'red' }
-  if (record?.exit_code === 0) return { text: '已执行', color: 'green' }
-  if (record?.exit_code != null) return { text: '诊断', color: 'default' }
-  return { text: '未执行', color: 'default' }
+  if (isSandboxProbeInputMissing(record)) return { text: text('输入缺失', 'Input Missing'), color: 'orange' }
+  if (record?.timed_out) return { text: text('超时', 'Timed Out'), color: 'red' }
+  if (record?.exit_code === 0) return { text: text('已执行', 'Executed'), color: 'green' }
+  if (record?.exit_code != null) return { text: text('诊断', 'Diagnostic'), color: 'default' }
+  return { text: text('未执行', 'Not Executed'), color: 'default' }
 }
 const sandboxProbeResults = computed(() => {
   const results = sandboxAnalysis.value?.probe_results
@@ -1567,7 +1600,7 @@ const sandboxProbeResults = computed(() => {
   return [{
     key: 'representative',
     probe_name: 'representative',
-    probe_description: sandboxAnalysis.value.reason || '代表性 Sandbox 执行结果',
+    probe_description: sandboxAnalysis.value.reason || text('代表性 Sandbox 执行结果', 'Representative Sandbox Result'),
     probe_entrypoint: sandboxAnalysis.value.entrypoint || '',
     probe_args: Array.isArray(sandboxAnalysis.value.probe_args) ? sandboxAnalysis.value.probe_args : [],
     probe_generated_by: 'summary',
@@ -1594,15 +1627,15 @@ const sandboxRiskAlertType = computed(() => {
 const rationaleSource = (source) => {
   const text = String(source || '').toLowerCase()
   if (text.includes('sandbox')) return { label: 'Sandbox', color: 'orange', target: 'sandbox' }
-  if (text.includes('skillspector')) return { label: '深度扫描', color: 'cyan', target: 'skillspector' }
+  if (text.includes('skillspector')) return { label: isEnglish.value ? 'Deep Analysis' : phrase('legacy.l2wtjk'), color: 'cyan', target: 'skillspector' }
   if (text.includes('llm')) return { label: 'LLM', color: 'purple', target: 'llm' }
-  return { label: '规则', color: 'blue', target: 'rule' }
+  return { label: isEnglish.value ? 'Rules' : phrase('legacy.16w14qm'), color: 'blue', target: 'rule' }
 }
 const deepScanText = (value) =>
   String(value || '')
-    .replace(/SkillSpector/gi, '深度扫描')
-    .replace(/skillspector/gi, '深度扫描')
-    .replace(/\bCLI\b/g, '服务')
+    .replace(/SkillSpector/gi, isEnglish.value ? 'Deep Analysis' : phrase('legacy.l2wtjk'))
+    .replace(/skillspector/gi, isEnglish.value ? 'Deep Analysis' : phrase('legacy.l2wtjk'))
+    .replace(/\bCLI\b/g, isEnglish.value ? 'service' : phrase('legacy.2yn6uz'))
 const severityRank = (value) =>
   ({
     SAFE: 0,
@@ -1621,7 +1654,7 @@ const findingSupportsRisk = (finding, finalRisk) => {
 }
 const rationaleText = (finding) => {
   const severity = String(finding?.severity || '').toUpperCase()
-  const title = finding?.title || finding?.message || finding?.rule || finding?.rule_id || '命中风险规则'
+  const title = finding?.title || finding?.message || finding?.rule || finding?.rule_id || phrase('legacy.1j1qm51')
   const text = bilingualText(title)
   return severity ? `${severity}：${text}` : text
 }
@@ -1645,15 +1678,15 @@ const sandboxDisplayImage = computed(() => {
 })
 
 const signatureReasonLabels = {
-  'No signature stored for this skill': '当前 Skill 未记录内容指纹。只有已批准为可信版本的 Skill 才能做完整性校验。',
-  'No skill path available for verification': '没有可用于完整性校验的 Skill 路径。',
-  'signature valid': '内容指纹匹配，Skill 内容未发生变化。',
-  'signature mismatch': '内容指纹不匹配，Skill 内容可能已发生变化。',
+  'No signature stored for this skill': phrase('legacy.1eyejfi'),
+  'No skill path available for verification': phrase('legacy.1syl1es'),
+  'signature valid': phrase('legacy.7htsrw'),
+  'signature mismatch': phrase('legacy.11kbaiv'),
 }
 const signatureVerifyDisabledReason = computed(() => (
   detail.value?.signature
     ? ''
-    : '当前 Skill 没有内容指纹。被拒绝、待分析或待审核的 Skill 不会生成内容指纹。'
+    : phrase('legacy.jyd49r')
 ))
 const signatureResultReason = computed(() => {
   const reason = signatureResult.value?.reason
@@ -1680,24 +1713,27 @@ const sandboxEvidenceLines = (evidence) => {
   return text
     .replace(/；/g, '\n')
     .split('\n')
-    .map((line) => line.trim())
+    .map((line) => platformResultText(line.trim()))
     .filter(Boolean)
 }
 
 const sandboxProbeResultText = (record) => {
   if (isSandboxProbeInputMissing(record)) {
-    return 'Probe 引用了不存在的示例输入文件，当前结果主要反映测试参数不完整，不应单独作为安全风险判断。'
+    return text(
+      'Probe 引用了不存在的示例输入文件，当前结果主要反映测试参数不完整，不应单独作为安全风险判断。',
+      'The Probe referenced a missing sample input file. This result mainly indicates incomplete test parameters and should not be treated as a security risk on its own.',
+    )
   }
   const parts = [
     record?.summary,
     record?.reason,
     record?.recommendation,
   ].filter((item) => String(item || '').trim())
-  if (parts.length) return parts.join('；')
-  if (record?.timed_out) return '执行超时，建议检查 probe 参数或执行环境限制。'
-  if (record?.exit_code != null && record.exit_code !== 0) return '脚本以非零退出码结束，建议结合规则扫描和风险信号判断。'
-  if (record?.exit_code === 0) return '脚本执行完成，未从输出中提取到明确风险信号。'
-  return '未记录额外执行说明。'
+  if (parts.length) return parts.join(text('；', '; '))
+  if (record?.timed_out) return text('执行超时，建议检查 probe 参数或执行环境限制。', 'Execution timed out. Check Probe parameters and runtime limits.')
+  if (record?.exit_code != null && record.exit_code !== 0) return text('脚本以非零退出码结束，建议结合规则扫描和风险信号判断。', 'The script exited with a non-zero code. Review it together with rule findings and runtime signals.')
+  if (record?.exit_code === 0) return text('脚本执行完成，未从输出中提取到明确风险信号。', 'Execution completed and no explicit risk signals were extracted from the output.')
+  return text('未记录额外执行说明。', 'No additional execution details were recorded.')
 }
 
 const parsedSkillContent = computed(() => {
@@ -1717,225 +1753,257 @@ const parsedSkillContent = computed(() => {
 })
 
 const skillFrontmatter = computed(() => parsedSkillContent.value.frontmatter)
-const viewerTitle = computed(() => (viewingFilePath.value ? `文件内容：${viewingFilePath.value}` : '文件内容'))
+const viewerTitle = computed(() => (viewingFilePath.value
+  ? text(`文件内容：${viewingFilePath.value}`, `File Contents: ${viewingFilePath.value}`)
+  : phrase('legacy.4264pu')))
 const skillContentHtml = computed(() => {
   const body = parsedSkillContent.value.body
-  if (!body) return '<p>该 SKILL.md 只有 manifest，没有额外正文内容。</p>'
+  if (!body) return phrase('legacy.1k82gzg')
   return marked.parse(body)
 })
-const skillContentLines = computed(() => numberedLines(skillContent.value?.content || '点击“加载 SKILL.md”查看技能内容'))
-const viewedFileLines = computed(() => numberedLines(viewedFile.value?.content || '暂无文件内容'))
+const skillContentLines = computed(() => numberedLines(skillContent.value?.content || phrase('legacy.1gvzf2u')))
+const viewedFileLines = computed(() => numberedLines(viewedFile.value?.content || phrase('legacy.osyxq4')))
 
-const statusLabels = {
-  PENDING: '分析中',
-  VETTED: '待审核',
-  APPROVED: '已批准',
-  DEPLOYED: '已部署',
-  REJECTED: '已拒绝',
-  RETIRED: '已退役',
-}
-
-const cancelledReason = '用户取消后台分析任务'
+const cancelledReason = phrase('legacy.1fphrle')
 const isCancelled = (entry) => entry?.status === 'REJECTED' && entry?.rejection_reason === cancelledReason
 
 const severityLabels = {
-  SAFE: '安全',
-  INFO: '提示',
-  LOW: '低',
-  MEDIUM: '中',
-  HIGH: '高',
-  CRITICAL: '严重',
-  EXTREME: '极高',
+  SAFE: phrase('legacy.1apxo2s'),
+  INFO: phrase('legacy.1hx7jj'),
+  LOW: phrase('legacy.1kffmxd'),
+  MEDIUM: phrase('legacy.b7cu2g'),
+  HIGH: phrase('legacy.pk6gtj'),
+  CRITICAL: phrase('legacy.s9cfpz'),
+  EXTREME: phrase('legacy.163y7r0'),
 }
 
 const recommendationLabels = {
-  SAFE: '可安装',
-  CAUTION: '谨慎安装',
-  REVIEW: '需要审核',
-  DO_NOT_INSTALL: '不要安装',
+  SAFE: phrase('legacy.1k3oaj4'),
+  CAUTION: phrase('legacy.lsnmcp'),
+  REVIEW: phrase('legacy.1mmbxob'),
+  DO_NOT_INSTALL: phrase('legacy.qijv1l'),
 }
 
 const termTranslations = {
-  'LOW_ANALYZABILITY': '可分析性不足',
-  'Moderate analyzability score': '中等可分析性评分',
-  'External Transmission': '数据外传',
-  'Data Exfiltration': '数据外传',
-  'Prompt Injection': '提示词注入',
-  'Instruction Override': '覆盖上级指令',
-  'System Prompt Leakage': '系统提示词泄露',
-  'System Prompt Disclosure': '披露系统提示词',
-  'Tool Poisoning': '工具投毒',
-  'Hidden Instructions': '隐藏指令',
-  'Supply Chain': '供应链风险',
-  'External Script Fetching': '下载外部脚本',
-  'Obfuscated Code': '混淆代码',
-  'Wildcard Permission': '通配权限',
-  'Network Access': '网络访问',
-  'File System Access': '文件系统访问',
-  'Sensitive File Access': '敏感文件访问',
-  'Command Execution': '命令执行',
-  'Code Execution': '代码执行',
-  'Dynamic Code Execution': '动态代码执行',
-  'Credential Access': '凭据访问',
-  'Privilege Escalation': '权限提升',
-  Persistence: '持久化',
-  'Encoded Payload': '编码载荷',
-  'Undeclared network usage': '未声明的网络使用',
-  'Potential description-behavior mismatch': '描述与行为可能不一致',
-  'Skill does not specify a license': 'Skill 未声明许可证',
-  'Outbound network request primitives that can transmit data externally': '可能向外部传输数据的网络请求',
-  'MCP Least Privilege': 'MCP 最小权限',
-  'Data Flow': '数据流',
-  'Env Variable Harvesting': '环境变量采集',
-  'Access token': '访问令牌',
+  'LOW_ANALYZABILITY': phrase('legacy.xucvo9'),
+  'Moderate analyzability score': phrase('legacy.18k1139'),
+  'External Transmission': phrase('legacy.13wlkrx'),
+  'Data Exfiltration': phrase('legacy.13wlkrx'),
+  'Prompt Injection': phrase('legacy.v4iti5'),
+  'Instruction Override': phrase('legacy.16xag79'),
+  'System Prompt Leakage': phrase('legacy.1y1bb3m'),
+  'System Prompt Disclosure': phrase('legacy.1hfhk23'),
+  'Tool Poisoning': phrase('legacy.5o0i46'),
+  'Hidden Instructions': phrase('legacy.kl77lf'),
+  'Supply Chain': phrase('legacy.33dhvx'),
+  'External Script Fetching': phrase('legacy.txwthx'),
+  'Obfuscated Code': phrase('legacy.l4itaw'),
+  'Wildcard Permission': phrase('legacy.1dknhaj'),
+  'Network Access': phrase('legacy.1xh2061'),
+  'File System Access': phrase('legacy.ys72kz'),
+  'Sensitive File Access': phrase('legacy.eq1zzb'),
+  'Command Execution': phrase('legacy.1u3dwq7'),
+  'Code Execution': phrase('legacy.1082dwy'),
+  'Dynamic Code Execution': phrase('legacy.1ihewot'),
+  'Credential Access': phrase('legacy.1jxzdyj'),
+  'Privilege Escalation': phrase('legacy.zl59z3'),
+  Persistence: phrase('legacy.4xb5jb'),
+  'Encoded Payload': phrase('legacy.11ji0hk'),
+  'Undeclared network usage': phrase('legacy.cgxrx3'),
+  'Potential description-behavior mismatch': phrase('legacy.1opd4vl'),
+  'Skill does not specify a license': phrase('legacy.iod8ba'),
+  'Outbound network request primitives that can transmit data externally': phrase('legacy.1lylg3v'),
+  'MCP Least Privilege': phrase('legacy.1vp57ev'),
+  'Data Flow': phrase('legacy.gv0kra'),
+  'Env Variable Harvesting': phrase('legacy.vc0w9b'),
+  'Access token': phrase('legacy.14ku9c0'),
 }
 
 const ruleExplanations = {
-  TOOL_ABUSE_UNDECLARED_NETWORK: '代码使用了网络库或外部请求能力，但 Skill 元数据没有声明需要网络访问。建议补充网络权限说明，或确认是否确实需要联网。',
-  SOCIAL_ENG_MISLEADING_DESC: 'Skill 的实际行为和描述不完全一致。这里通常表示功能说明没有覆盖代码里的某些行为，需要补充描述或人工确认。',
-  MANIFEST_MISSING_LICENSE: 'SKILL.md 没有声明 license。它通常是合规提示，不一定代表安全风险。',
-  DATA_EXFIL_NETWORK_REQUESTS: '代码中出现可向外部发送请求的调用，例如 urllib/request/httpx/fetch。该信号表示存在数据外发能力，需要结合目标域名和业务用途判断是否合理。',
-  E1: '检测到外部传输目标或网络请求。可能是正常 API 调用，也可能用于数据外发，需要确认目标地址、传输内容和业务必要性。',
-  LP3: '权限声明不完整，扫描器无法从 manifest 中确认该 Skill 需要哪些能力。建议补充权限或能力声明，降低误判。',
-  TT3: '检测到敏感来源到网络输出的数据流。例如环境变量或凭据进入网络请求，通常需要重点确认是否存在凭据外发。',
-  E2: '代码读取环境变量，可能接触 API Key、Token 等敏感配置。需要确认读取内容是否必要，以及是否会被记录或发送出去。',
-  PE3: '检测到访问令牌、密钥文件或凭据相关内容。需要确认是否为正常配置读取，还是可能存在凭据窃取风险。',
+  TOOL_ABUSE_UNDECLARED_NETWORK: phrase('legacy.b3uz3h'),
+  SOCIAL_ENG_MISLEADING_DESC: phrase('legacy.193vv54'),
+  MANIFEST_MISSING_LICENSE: phrase('legacy.16m8g6s'),
+  DATA_EXFIL_NETWORK_REQUESTS: phrase('legacy.11m0x07'),
+  E1: phrase('legacy.11f7w0r'),
+  LP3: phrase('legacy.rlvl9x'),
+  TT3: phrase('legacy.1fbijdh'),
+  E2: phrase('legacy.wwube7'),
+  PE3: phrase('legacy.1liu94r'),
 }
 
 const sentenceTranslations = [
   {
     pattern: /^Only\s+(\d+)%\s+of skill content could be analyzed\.\s+(\d+)\s+of\s+(\d+)\s+files?\s+(?:is|are)\s+opaque to the scanner\.\s+Some content could not be verified as safe\.?$/i,
-    render: ([, percent, opaque, total]) =>
+    render: ([, percent, opaque, total]) => text(
       `仅有 ${percent}% 的 Skill 内容可被分析。${total} 个文件中有 ${opaque} 个对扫描器不可解析，因此部分内容无法确认安全。`,
+      `Only ${percent}% of the Skill content could be analyzed. ${opaque} of ${total} files are opaque to the scanner, so some content could not be verified as safe.`,
+    ),
   },
   {
     pattern: /^Code or instructions reference external transmission\.\s*文件:\s*(.+)$/i,
-    render: ([, file]) => `代码或指令引用了可能向外部发送数据的调用。文件: ${file}`,
+    render: ([, file]) => text(
+      `代码或指令引用了可能向外部发送数据的调用。文件：${file}`,
+      `Code or instructions reference a call that may send data externally. File: ${file}`,
+    ),
   },
   {
     pattern: /^Code accesses environment variables that may contain secrets\.\s*文件:\s*(.+)$/i,
-    render: ([, file]) => `代码读取环境变量，可能接触密钥或敏感配置。文件: ${file}`,
+    render: ([, file]) => text(
+      `代码读取环境变量，可能接触密钥或敏感配置。文件：${file}`,
+      `Code reads environment variables and may access secrets or sensitive configuration. File: ${file}`,
+    ),
   },
   {
     pattern: /^Skill content asks the agent to ignore higher-priority instructions\.\s*文件:\s*(.+)$/i,
-    render: ([, file]) => `Skill 内容要求忽略上级或系统指令。文件: ${file}`,
+    render: ([, file]) => text(
+      `Skill 内容要求忽略上级或系统指令。文件：${file}`,
+      `The Skill instructs the Agent to ignore higher-priority or system instructions. File: ${file}`,
+    ),
   },
   {
     pattern: /^Tainted flow:\s+'([^']+)'\s+from\s+(.+?)\s+→\s+(.+)$/i,
-    render: ([, variable, source, sink]) => `污点数据流：变量 ${variable} 从 ${source} 流向 ${sink}。需要确认敏感数据是否被发送到网络出口。`,
+    render: ([, variable, source, sink]) => text(
+      `污点数据流：变量 ${variable} 从 ${source} 流向 ${sink}。需要确认敏感数据是否被发送到网络出口。`,
+      `Tainted data flow: ${variable} flows from ${source} to ${sink}. Confirm whether sensitive data is sent to a network sink.`,
+    ),
   },
   {
     pattern: /^Credentials or environment variables flow to a network sink\. This is a high-confidence indicator of credential exfiltration\.?$/i,
-    render: () => '凭据或环境变量流向网络输出点。这是凭据外发的高置信风险信号。',
+    render: () => phrase('legacy.jafom'),
   },
   {
     pattern: /^Without declared permissions the skill's intent is opaque and cannot be validated\.?$/i,
-    render: () => 'Skill 未声明所需权限，平台无法从元数据确认其意图和能力边界。',
+    render: () => phrase('legacy.1cuujuu'),
   },
   {
     pattern: /^Code accesses environment variables that may contain secrets \(API keys, tokens\)\. This is a common pattern for credential theft\.?$/i,
-    render: () => '代码读取可能包含密钥的环境变量（如 API Key、Token），这是凭据窃取场景中的常见模式。',
+    render: () => phrase('legacy.1f5of6n'),
   },
   {
     pattern: /^Code accesses credential files \(SSH keys, AWS credentials, etc\.\)\. This could indicate credential theft attempts\.?$/i,
-    render: () => '代码访问凭据文件（如 SSH Key、云厂商凭据等），可能表示凭据窃取尝试。',
+    render: () => phrase('legacy.11s002q'),
   },
   {
     pattern: /^Data is being sent to an external URL\. This could be legitimate telemetry or data exfiltration\. Manual review is recommended\.?$/i,
-    render: () => '数据会发送到外部 URL。它可能是正常遥测或业务 API，也可能是数据外发，建议人工复核。',
+    render: () => phrase('legacy.1xr4o1d'),
   },
   {
     pattern: /^Add a 'permissions' field to SKILL\.md listing the capabilities this skill requires\.?$/i,
-    render: () => '在 SKILL.md 中添加 permissions 字段，列出该 Skill 所需能力。',
+    render: () => phrase('legacy.u0lbjs'),
   },
   {
     pattern: /^Never send credentials or environment variables over the network\. Use secure credential stores and avoid transmitting secrets in request bodies or URLs\.?$/i,
-    render: () => '不要通过网络发送凭据或环境变量。请使用安全凭据存储，并避免在请求体或 URL 中传输密钥。',
+    render: () => phrase('legacy.129f5y5'),
   },
   {
     pattern: /^Avoid reading sensitive env vars \(API keys, tokens\) unless strictly required\. Use secrets managers or secure config\. Never log or transmit credentials\.?$/i,
-    render: () => '除非确有必要，不要读取敏感环境变量（API Key、Token）。建议使用密钥管理或安全配置，并禁止记录或传输凭据。',
+    render: () => phrase('legacy.ae0ijt'),
   },
   {
     pattern: /^Remove references to credential paths\. Use environment variables or secrets managers\. For docs, use placeholder paths \(e\.g\., \/path\/to\/config\)\. Never load \.env or token files in production code paths\.?$/i,
-    render: () => '移除对凭据路径的直接引用。使用环境变量或密钥管理；文档中使用占位路径，不要在生产代码路径中加载 .env 或 token 文件。',
+    render: () => phrase('legacy.mkthze'),
   },
 ]
 
-const statusTitle = (value) => statusLabels[value] || '未知'
+const statusTitle = (value) => translateDomain('skillStatus', value, phrase('legacy.1lpnuh4'))
 const statusDisplay = (value, entry) => {
-  if (isCancelled(entry)) return 'Cancelled（已取消）'
+  if (isCancelled(entry)) return text('Cancelled（已取消）', 'CANCELLED')
+  if (isEnglish.value) return value || '-'
   return value ? `${value}（${statusTitle(value)}）` : '-'
 }
 const severityDisplay = (value) => {
-  const text = String(value || '').toUpperCase()
-  return text ? `${text}（${severityLabels[text] || '未知'}）` : '-'
+  const displayValue = String(value || '').toUpperCase()
+  if (isEnglish.value) return displayValue || '-'
+  return displayValue
+    ? `${displayValue}（${translateDomain('risk', displayValue.toLowerCase(), severityLabels[displayValue] || phrase('legacy.1lpnuh4'))}）`
+    : '-'
 }
 const recommendationDisplay = (value) => {
-  const text = String(value || '').toUpperCase()
-  return text ? `${text}（${recommendationLabels[text] || '未知'}）` : '-'
+  const displayValue = String(value || '').toUpperCase()
+  if (isEnglish.value) return displayValue || '-'
+  return displayValue ? `${displayValue}（${recommendationLabels[displayValue] || phrase('legacy.1lpnuh4')}）` : '-'
 }
 const riskDisplay = (value) => {
-  const text = String(value || 'unknown')
+  const displayValue = String(value || 'unknown')
+  if (isEnglish.value) return displayValue
   const zh = {
-    benign: '安全',
-    suspicious: '可疑',
-    malicious: '恶意',
-    unknown: '未知',
-  }[text.toLowerCase()] || '未知'
-  return `${text}（${zh}）`
+    benign: phrase('legacy.1apxo2s'),
+    suspicious: phrase('legacy.1x3ukv1'),
+    malicious: phrase('legacy.m36raq'),
+    unknown: phrase('legacy.1lpnuh4'),
+  }[displayValue.toLowerCase()] || phrase('legacy.1lpnuh4')
+  return `${displayValue}（${zh}）`
 }
 const bilingualText = (value) => {
-  const text = String(value || '').trim()
-  if (!text) return '-'
-  if (termTranslations[text]) return `${text}（${termTranslations[text]}）`
+  const displayValue = String(value || '').trim()
+  if (!displayValue) return '-'
+  if (isEnglish.value) return platformResultText(displayValue)
+  if (termTranslations[displayValue]) return `${displayValue}（${termTranslations[displayValue]}）`
   for (const item of sentenceTranslations) {
-    const match = text.match(item.pattern)
+    const match = displayValue.match(item.pattern)
     if (match) return item.render(match)
   }
-  return text
+  return displayValue
+}
+const platformResultText = (value) => {
+  const displayValue = String(value || '').trim()
+  if (!displayValue || !isEnglish.value) return displayValue
+  const translated = phrase(displayValue)
+  if (translated !== displayValue) return translated
+  return displayValue
+    .replace(/^规则：/, 'Rule: ')
+    .replace(/^命中片段：/, 'Matched excerpt: ')
+    .replace(/^判断依据：/, 'Rationale: ')
+    .replace(/^建议：/, 'Recommendation: ')
+    .replace(/^代码读取环境变量，可能接触密钥或敏感配置。\s*文件:\s*/i, 'Code reads environment variables and may access secrets or sensitive configuration. File: ')
+    .replace(/^权限声明包含通配或过宽权限。\s*文件:\s*/i, 'The permission declaration contains wildcard or overly broad permissions. File: ')
 }
 const ruleFindingExplanation = (item) => {
   if (findingTypeOf(item) === 'documented_external_api') {
-    return '文档中声明的固定 API endpoint 或 curl 示例，按策略记录为噪声；不等同于读取用户数据、凭据或文件后进行数据外传。'
+    return text(
+      '文档中声明的固定 API endpoint 或 curl 示例，按策略记录为噪声；不等同于读取用户数据、凭据或文件后进行数据外传。',
+      'A fixed API endpoint or curl example declared in documentation is classified as noise. It does not by itself indicate exfiltration of user data, credentials, or files.',
+    )
   }
   const rule = item?.rule || item?.rule_id || ''
-  if (ruleExplanations[rule]) return ruleExplanations[rule]
+  if (ruleExplanations[rule] && !isEnglish.value) return ruleExplanations[rule]
   return bilingualText(item?.message || item?.description || item?.remediation || '')
 }
-const findingPolicyLabel = (item) => findingTypeLabels[findingTypeOf(item)] || ''
+const findingPolicyLabel = (item) => findingTypeLabel(findingTypeOf(item))
 const formatAggregateLines = (lines) => {
   const unique = [...new Set(lines)].slice(0, 8)
-  const suffix = lines.length > unique.length ? ` 等 ${lines.length} 处` : ''
-  return `${unique.join('、')}${suffix}`
+  const suffix = lines.length > unique.length
+    ? text(` 等 ${lines.length} 处`, ` and ${lines.length - unique.length} more`)
+    : ''
+  return `${unique.join(text('、', ', '))}${suffix}`
 }
 const findingTitle = (item) => {
-  if (findingTypeOf(item) === 'documented_external_api') return '文档型 API 示例'
+  if (findingTypeOf(item) === 'documented_external_api') return text('文档型 API 示例', 'Documented API Example')
   return bilingualText(item?.title || item?.pattern || item?.message || '-')
 }
 const originLabel = (value) => ({
-  local: '本地',
+  local: phrase('legacy.zgeech'),
   github: 'GitHub',
   clawhub: 'ClawHub',
-  internal: '内部',
-  unknown: '未知',
+  internal: phrase('legacy.cr1wqg'),
+  unknown: phrase('legacy.1lpnuh4'),
 }[value] || value || '-')
 const sourceChannelLabel = (value) => ({
-  scanner: 'Skill 扫描器',
+  scanner: phrase('legacy.7ucd4c'),
   agent_manager_client: 'Agent Manager Client',
-  upload_zip: '上传 ZIP',
-  local_import: '本地目录导入',
-  remote_download: '网络下载导入',
-  github: 'GitHub 导入',
-  clawhub: 'ClawHub 导入',
-  direct_submit: '直接提交',
+  upload_zip: phrase('legacy.17o43lg'),
+  local_import: phrase('legacy.1iew9t7'),
+  remote_download: phrase('legacy.1kroevr'),
+  github: phrase('legacy.1uy421t'),
+  clawhub: phrase('legacy.1ck2qj4'),
+  direct_submit: phrase('legacy.1g1oqdi'),
 }[value] || '')
 const sourceLabelFromPath = (value) => {
   const text = String(value || '')
-  if (text.includes('scanner_uploaded_skills')) return 'Skill 扫描器'
-  if (text.includes('uploaded_skills') || text.includes('upload_import_sessions')) return '上传 ZIP'
-  if (text.includes('downloaded_skills') || text.includes('remote_import_sessions')) return '网络下载导入'
-  if (text.includes('clawhub_skills')) return 'ClawHub 导入'
+  if (text.includes('scanner_uploaded_skills')) return phrase('legacy.7ucd4c')
+  if (text.includes('uploaded_skills') || text.includes('upload_import_sessions')) return phrase('legacy.17o43lg')
+  if (text.includes('downloaded_skills') || text.includes('remote_import_sessions')) return phrase('legacy.1kroevr')
+  if (text.includes('clawhub_skills')) return phrase('legacy.1ck2qj4')
   return ''
 }
 const sourceLabel = (entry) => {
@@ -1947,7 +2015,7 @@ const sourceLabel = (entry) => {
   if (pathLabel) return pathLabel
   return originLabel(source.origin)
 }
-const auditEventLabel = (value) => auditEventLabels[value] || value || '-'
+const auditEventLabel = (value) => phrase(auditEventLabels[value] || value || '-')
 
 const formatAuditValue = (key, value) => {
   if (value === null || value === undefined || value === '') return '-'
@@ -1956,11 +2024,11 @@ const formatAuditValue = (key, value) => {
     return riskDisplay(value)
   }
   if (key === 'max_severity') {
-    return severityLabels[String(value).toUpperCase()] || String(value)
+    return isEnglish.value ? String(value).toUpperCase() : (severityLabels[String(value).toUpperCase()] || String(value))
   }
-  if (Array.isArray(value)) return value.length ? value.join('、') : '无'
+  if (Array.isArray(value)) return value.length ? value.join(text('、', ', ')) : text('无', 'None')
   if (typeof value === 'object') return JSON.stringify(value)
-  return String(value)
+  return phrase(String(value))
 }
 
 const formatAuditDetails = (details, limit = 6) => {
@@ -1968,8 +2036,8 @@ const formatAuditDetails = (details, limit = 6) => {
   const entries = Object.entries(details).slice(0, limit)
   if (!entries.length) return '-'
   return entries
-    .map(([key, value]) => `${auditDetailLabels[key] || key}：${formatAuditValue(key, value)}`)
-    .join('；')
+    .map(([key, value]) => `${phrase(auditDetailLabels[key] || key)}${text('：', ': ')}${formatAuditValue(key, value)}`)
+    .join(text('；', '; '))
 }
 
 const statusColor = (value, entry) => {

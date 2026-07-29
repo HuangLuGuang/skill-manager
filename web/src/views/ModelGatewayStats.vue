@@ -1,27 +1,27 @@
 <template>
   <div>
-    <a-page-header title="Token 用量与压缩" sub-title="查看模型调用量、Token 消耗和智能压缩节省效果" />
+    <a-page-header :title="$t('legacy.igys3')" :sub-title="$t('legacy.b7xc44')" />
 
     <!-- 日期范围 + 模型筛选 -->
     <a-space style="margin-bottom: 16px" wrap>
-      <span>统计范围:</span>
+      <span>{{ $t("legacy.11zetu8") }}</span>
       <a-radio-group v-model:value="days" @change="loadAll" button-style="solid" size="small">
-        <a-radio-button :value="7">近 7 天</a-radio-button>
-        <a-radio-button :value="14">近 14 天</a-radio-button>
-        <a-radio-button :value="30">近 30 天</a-radio-button>
-        <a-radio-button :value="90">近 90 天</a-radio-button>
+        <a-radio-button :value="7">{{ $t("legacy.1a30idy") }}</a-radio-button>
+        <a-radio-button :value="14">{{ $t("legacy.1ff0wce") }}</a-radio-button>
+        <a-radio-button :value="30">{{ $t("legacy.98mce4") }}</a-radio-button>
+        <a-radio-button :value="90">{{ $t("legacy.180r88y") }}</a-radio-button>
       </a-radio-group>
       <a-select
         v-model:value="selectedModel"
         style="width: 200px"
-        placeholder="全部模型"
+        :placeholder="$t('legacy.1b657i5')"
         allow-clear
         @change="loadAll"
         size="small"
       >
         <a-select-option v-for="m in availableModels" :key="m" :value="m">{{ m }}</a-select-option>
       </a-select>
-      <a-button size="small" @click="loadAll" :loading="loading">刷新</a-button>
+      <a-button size="small" @click="loadAll" :loading="loading">{{ $t("legacy.12qo56a") }}</a-button>
     </a-space>
 
     <!-- ============================================================ -->
@@ -30,49 +30,46 @@
     <a-row :gutter="[16, 16]" style="margin-bottom: 16px">
       <a-col :xs="24" :sm="12" :lg="6">
         <a-card>
-          <a-statistic title="总请求数" :value="overview.total_requests">
+          <a-statistic :title="$t('legacy.1j9ugd')" :value="overview.total_requests">
             <template #suffix>
-              <span style="font-size: 14px">次</span>
+              <span style="font-size: 14px">{{ $t("legacy.a5jtgs") }}</span>
             </template>
           </a-statistic>
           <div class="stat-sub">
-            <span style="color: #999">错误: {{ overview.error_requests || 0 }}</span>
+            <span style="color: #999">{{ $t("legacy.1iftgzl") }} {{ overview.error_requests || 0 }}</span>
           </div>
         </a-card>
       </a-col>
       <a-col :xs="24" :sm="12" :lg="6">
         <a-card>
-          <a-statistic title="Token 用量" :value="formatNumber(overview.total_tokens)">
+          <a-statistic :title="$t('legacy.p9j46n')" :value="formatNumber(overview.total_tokens)">
             <template #suffix>
               <span style="font-size: 14px">tokens</span>
             </template>
           </a-statistic>
-          <div class="stat-sub">
-            输入 {{ formatNumber(overview.prompt_tokens) }} · 输出 {{ formatNumber(overview.completion_tokens) }}
+          <div class="stat-sub"> {{ $t("legacy.1qtojr9") }} {{ formatNumber(overview.prompt_tokens) }} {{ $t("legacy.1d0qg9n") }} {{ formatNumber(overview.completion_tokens) }}
           </div>
         </a-card>
       </a-col>
       <a-col :xs="24" :sm="12" :lg="6">
         <a-card>
-          <a-statistic title="压缩请求" :value="overview.compression_requests || 0">
+          <a-statistic :title="$t('legacy.1f2hy0o')" :value="overview.compression_requests || 0">
             <template #suffix>
-              <span style="font-size: 14px">次</span>
+              <span style="font-size: 14px">{{ $t("legacy.a5jtgs") }}</span>
             </template>
           </a-statistic>
-          <div class="stat-sub">
-            占比 {{ overview.total_requests ? Math.round(overview.compression_requests / overview.total_requests * 100) : 0 }}%
+          <div class="stat-sub"> {{ $t("legacy.wu2yr5") }} {{ overview.total_requests ? Math.round(overview.compression_requests / overview.total_requests * 100) : 0 }}%
           </div>
         </a-card>
       </a-col>
       <a-col :xs="24" :sm="12" :lg="6">
         <a-card>
-          <a-statistic title="平均响应时间" :value="overview.avg_request_ms || 0" :precision="1">
+          <a-statistic :title="$t('legacy.1a64tsc')" :value="overview.avg_request_ms || 0" :precision="1">
             <template #suffix>
               <span style="font-size: 14px">ms</span>
             </template>
           </a-statistic>
-          <div class="stat-sub">
-            模型 {{ overview.avg_upstream_ms || 0 }}ms · 平台 {{ overview.avg_platform_ms || 0 }}ms
+          <div class="stat-sub"> {{ $t("legacy.1ow6qt") }} {{ overview.avg_upstream_ms || 0 }}{{ $t("legacy.1lz6xcf") }} {{ overview.avg_platform_ms || 0 }}ms
           </div>
         </a-card>
       </a-col>
@@ -81,7 +78,7 @@
       <a-col :span="24">
         <a-card>
           <a-statistic
-            title="Token 节省"
+            :title="$t('legacy.49c9bb')"
             :value="formatNumber(overview.tokens_saved)"
             :value-style="{ color: overview.tokens_saved > 0 ? '#52c41a' : '#999' }"
           >
@@ -89,8 +86,7 @@
               <span style="font-size: 14px">tokens</span>
             </template>
           </a-statistic>
-          <div class="stat-sub" v-if="overview.avg_compression_ratio">
-            平均压缩比 {{ (overview.avg_compression_ratio * 100).toFixed(1) }}% · 平均压缩耗时 {{ overview.avg_compression_ms }}ms
+          <div class="stat-sub" v-if="overview.avg_compression_ratio"> {{ $t("legacy.140axhd") }} {{ (overview.avg_compression_ratio * 100).toFixed(1) }}{{ $t("legacy.hwg8zc") }} {{ overview.avg_compression_ms }}ms
           </div>
         </a-card>
       </a-col>
@@ -101,7 +97,7 @@
     <!-- ============================================================ -->
     <a-row :gutter="[16, 16]" style="margin-bottom: 16px">
       <a-col :span="24">
-        <a-card title="每日 Token 趋势">
+        <a-card :title="$t('legacy.2thvkq')">
           <Chart :options="dailyChartOptions" height="360px" />
         </a-card>
       </a-col>
@@ -112,14 +108,14 @@
     <!-- ============================================================ -->
     <a-row :gutter="[16, 16]" style="margin-bottom: 16px">
       <a-col :xs="24" :xl="14">
-        <a-card title="按模型统计 Token 用量">
+        <a-card :title="$t('legacy.falrie')">
           <Chart :options="modelChartOptions" height="380px" />
         </a-card>
       </a-col>
       <a-col :xs="24" :xl="10">
-        <a-card title="压缩效果对比">
+        <a-card :title="$t('legacy.10mfxp4')">
           <Chart v-if="hasCompressionData" :options="compressionChartOptions" height="380px" />
-          <a-empty v-else description="暂无压缩数据，开启压缩的 API Key 产生请求后可查看" style="padding: 60px 0" />
+          <a-empty v-else :description="$t('legacy.1232jyr')" style="padding: 60px 0" />
         </a-card>
       </a-col>
     </a-row>
@@ -127,7 +123,7 @@
     <!-- ============================================================ -->
     <!-- 表格: 按模型的详细统计 -->
     <!-- ============================================================ -->
-    <a-card title="模型用量明细" style="margin-bottom: 16px">
+    <a-card :title="$t('legacy.1pe8458')" style="margin-bottom: 16px">
       <a-table
         :data-source="modelStats.models"
         :columns="modelTableColumns"
@@ -135,17 +131,20 @@
         :loading="loading"
         :pagination="false"
         size="small"
-        :locale="{ emptyText: '暂无数据' }"
+        :locale="{ emptyText: $t('legacy.6tzr61') }"
       />
     </a-card>
   </div>
 </template>
 
 <script setup>
+import { translateLegacy as phrase, translateText as text } from '../i18n'
+
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import Chart from '../components/Chart.vue'
 import { getLlmStatsOverview, getLlmStatsDaily, getLlmStatsByModel } from '../api'
+import { formatCompactNumber as formatNumber } from '../utils/format'
 
 const days = ref(30)
 const selectedModel = ref(null)
@@ -154,14 +153,6 @@ const overview = ref({})
 const daily = ref({ series: [] })
 const modelStats = ref({ models: [] })
 const availableModels = ref([])
-
-const formatNumber = (n) => {
-  if (!n && n !== 0) return '-'
-  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B'
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K'
-  return String(n)
-}
 
 const buildParams = () => {
   const params = { days: days.value }
@@ -186,7 +177,7 @@ const loadAll = async () => {
       availableModels.value = (bm.models || []).map(m => m.model)
     }
   } catch (e) {
-    message.error('加载统计数据失败')
+    message.error(phrase('legacy.156uaxi'))
   } finally {
     loading.value = false
   }
@@ -202,7 +193,7 @@ const dailyChartOptions = computed(() => {
   const dates = series.map(s => s.date.substring(5)) // MM-DD
   return {
     tooltip: { trigger: 'axis' },
-    legend: { data: ['输入 Token', '输出 Token', '压缩节省'] },
+    legend: { data: [phrase('legacy.6okv1w'), phrase('legacy.k6sqb1'), phrase('legacy.147iclc')] },
     grid: { left: 60, right: 20, top: 30, bottom: 30 },
     xAxis: {
       type: 'category',
@@ -215,7 +206,7 @@ const dailyChartOptions = computed(() => {
     },
     series: [
       {
-        name: '输入 Token',
+        name: phrase('legacy.6okv1w'),
         type: 'line',
         data: series.map(s => s.prompt_tokens),
         smooth: true,
@@ -224,7 +215,7 @@ const dailyChartOptions = computed(() => {
         areaStyle: { color: 'rgba(24,144,255,0.1)' },
       },
       {
-        name: '输出 Token',
+        name: phrase('legacy.k6sqb1'),
         type: 'line',
         data: series.map(s => s.completion_tokens),
         smooth: true,
@@ -233,7 +224,7 @@ const dailyChartOptions = computed(() => {
         areaStyle: { color: 'rgba(82,196,26,0.08)' },
       },
       {
-        name: '压缩节省',
+        name: phrase('legacy.147iclc'),
         type: 'bar',
         data: series.map(s => s.tokens_saved),
         itemStyle: { color: 'rgba(114,46,209,0.5)' },
@@ -250,7 +241,7 @@ const modelChartOptions = computed(() => {
   const names = models.map(m => m.model.length > 20 ? m.model.substring(0, 20) + '...' : m.model)
   return {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    legend: { data: ['输入 Token', '输出 Token'] },
+    legend: { data: [phrase('legacy.6okv1w'), phrase('legacy.k6sqb1')] },
     grid: { left: 10, right: 10, top: 30, bottom: 100 },
     xAxis: {
       type: 'category',
@@ -263,7 +254,7 @@ const modelChartOptions = computed(() => {
     },
     series: [
       {
-        name: '输入 Token',
+        name: phrase('legacy.6okv1w'),
         type: 'bar',
         stack: 'tokens',
         data: models.map(m => m.prompt_tokens),
@@ -271,7 +262,7 @@ const modelChartOptions = computed(() => {
         emphasis: { focus: 'series' },
       },
       {
-        name: '输出 Token',
+        name: phrase('legacy.k6sqb1'),
         type: 'bar',
         stack: 'tokens',
         data: models.map(m => m.completion_tokens),
@@ -292,7 +283,10 @@ const compressionChartOptions = computed(() => {
       axisPointer: { type: 'shadow' },
       formatter: (params) => {
         const m = models[params[0].dataIndex]
-        return `${m.model}<br/>压缩前: ${formatNumber(m.prompt_tokens)}<br/>压缩后: ${formatNumber(m.prompt_tokens - m.tokens_saved)}<br/>节省: ${formatNumber(m.tokens_saved)} (${m.prompt_tokens ? Math.round(m.tokens_saved / m.prompt_tokens * 100) : 0}%)`
+        return text(
+          `${m.model}<br/>压缩前: ${formatNumber(m.prompt_tokens)}<br/>压缩后: ${formatNumber(m.prompt_tokens - m.tokens_saved)}<br/>节省: ${formatNumber(m.tokens_saved)} (${m.prompt_tokens ? Math.round(m.tokens_saved / m.prompt_tokens * 100) : 0}%)`,
+          `${m.model}<br/>Before: ${formatNumber(m.prompt_tokens)}<br/>After: ${formatNumber(m.prompt_tokens - m.tokens_saved)}<br/>Saved: ${formatNumber(m.tokens_saved)} (${m.prompt_tokens ? Math.round(m.tokens_saved / m.prompt_tokens * 100) : 0}%)`,
+        )
       },
     },
     grid: { left: 10, right: 10, top: 30, bottom: 100 },
@@ -307,7 +301,7 @@ const compressionChartOptions = computed(() => {
     },
     series: [
       {
-        name: '压缩后',
+        name: phrase('legacy.1mnhwqd'),
         type: 'bar',
         stack: 'compression',
         data: models.map(m => Math.max(0, m.prompt_tokens - m.tokens_saved)),
@@ -320,7 +314,7 @@ const compressionChartOptions = computed(() => {
         },
       },
       {
-        name: '压缩节省',
+        name: phrase('legacy.147iclc'),
         type: 'bar',
         stack: 'compression',
         data: models.map(m => m.tokens_saved),
@@ -342,25 +336,25 @@ const compressionChartOptions = computed(() => {
 
 // ── 明细表格列 ──────────────────────────────────────────────────
 const modelTableColumns = [
-  { title: '模型', dataIndex: 'model', width: 200 },
+  { title: phrase('legacy.1ow6qt'), dataIndex: 'model', width: 200 },
   {
-    title: '请求数', dataIndex: 'requests', width: 90, align: 'right',
+    title: phrase('legacy.fq51j8'), dataIndex: 'requests', width: 90, align: 'right',
     customRender: ({ text }) => formatNumber(text),
   },
   {
-    title: '输入 Token', dataIndex: 'prompt_tokens', width: 120, align: 'right', sorter: (a, b) => a.prompt_tokens - b.prompt_tokens,
+    title: phrase('legacy.6okv1w'), dataIndex: 'prompt_tokens', width: 120, align: 'right', sorter: (a, b) => a.prompt_tokens - b.prompt_tokens,
     customRender: ({ text }) => formatNumber(text),
   },
   {
-    title: '输出 Token', dataIndex: 'completion_tokens', width: 120, align: 'right', sorter: (a, b) => a.completion_tokens - b.completion_tokens,
+    title: phrase('legacy.k6sqb1'), dataIndex: 'completion_tokens', width: 120, align: 'right', sorter: (a, b) => a.completion_tokens - b.completion_tokens,
     customRender: ({ text }) => formatNumber(text),
   },
   {
-    title: '总 Token', dataIndex: 'total_tokens', width: 120, align: 'right', sorter: (a, b) => a.total_tokens - b.total_tokens,
+    title: phrase('legacy.s8fw9n'), dataIndex: 'total_tokens', width: 120, align: 'right', sorter: (a, b) => a.total_tokens - b.total_tokens,
     customRender: ({ text }) => formatNumber(text),
   },
   {
-    title: '压缩节省', dataIndex: 'tokens_saved', width: 120, align: 'right',
+    title: phrase('legacy.147iclc'), dataIndex: 'tokens_saved', width: 120, align: 'right',
     customRender: ({ text, record }) => {
       if (!text) return '-'
       const pct = record.prompt_tokens ? Math.round(text / record.prompt_tokens * 100) : 0
@@ -368,15 +362,15 @@ const modelTableColumns = [
     },
   },
   {
-    title: '平均响应', dataIndex: 'avg_request_ms', width: 110, align: 'right',
+    title: phrase('legacy.1hzv0va'), dataIndex: 'avg_request_ms', width: 110, align: 'right',
     customRender: ({ text }) => `${text || 0} ms`,
   },
   {
-    title: '模型耗时', dataIndex: 'avg_upstream_ms', width: 110, align: 'right',
+    title: phrase('legacy.j2g9ts'), dataIndex: 'avg_upstream_ms', width: 110, align: 'right',
     customRender: ({ text }) => `${text || 0} ms`,
   },
   {
-    title: '平台耗时', dataIndex: 'avg_platform_ms', width: 110, align: 'right',
+    title: phrase('legacy.1yz91un'), dataIndex: 'avg_platform_ms', width: 110, align: 'right',
     customRender: ({ text }) => `${text || 0} ms`,
   },
 ]
