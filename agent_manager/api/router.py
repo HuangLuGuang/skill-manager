@@ -7,6 +7,7 @@ Provides endpoints for CI/CD pipelines, agent runtimes, and review UIs.
 from __future__ import annotations
 
 import atexit
+import difflib
 import importlib.util
 import json
 import shutil
@@ -248,7 +249,7 @@ def _process_pending_submission_task(
     use_llm: bool,
     use_sandbox: bool,
     use_skillspector: bool,
-    no_cache: bool = False,
+    force_scan: bool = False,
     judgement_mode: str | None = None,
 ) -> None:
     try:
@@ -258,7 +259,7 @@ def _process_pending_submission_task(
             use_llm=use_llm,
             use_sandbox=use_sandbox,
             use_skillspector=use_skillspector,
-            no_cache=no_cache,
+            force_scan=force_scan,
             judgement_mode=judgement_mode,
         )
     except Exception as exc:
@@ -274,23 +275,54 @@ def _submit_directory_for_processing(
     use_llm: bool,
     use_sandbox: bool,
     use_skillspector: bool,
-    no_cache: bool = False,
     judgement_mode: str | None = None,
 ) -> SubmitResponse:
-    entry = mgr.create_pending_submission(skill_dir, source=source)
-    _scan_executor.submit(
-        _process_pending_submission_task,
-        mgr,
-        entry.skill_id,
-        use_behavioral,
-        use_llm,
-        use_sandbox,
-        use_skillspector,
-        no_cache,
-        judgement_mode,
+    entry, should_process, resolution = mgr.prepare_submission(
+        skill_dir,
+        source=source,
+        use_behavioral=use_behavioral,
+        use_llm=use_llm,
+        use_sandbox=use_sandbox,
+        use_skillspector=use_skillspector,
+        judgement_mode=judgement_mode,
     )
+    if should_process:
+        _scan_executor.submit(
+            _process_pending_submission_task,
+            mgr,
+            entry.skill_id,
+            use_behavioral,
+            use_llm,
+            use_sandbox,
+            use_skillspector,
+            False,
+            judgement_mode,
+        )
+    if Path(entry.skill_path or "").resolve() != skill_dir.resolve():
+        generated_roots = {
+            (mgr.registry.data_dir / name).resolve()
+            for name in (
+                "uploaded_skills",
+                "downloaded_skills",
+                "clawhub_skills",
+                "scanner_uploaded_skills",
+            )
+        }
+        if any(root in skill_dir.resolve().parents for root in generated_roots):
+            shutil.rmtree(skill_dir, ignore_errors=True)
+    messages = {
+        "new_version": "已创建新版本，后台分析中。",
+        "existing_version_rescan": "检测上下文已变化，正在重新检测现有版本。",
+        "scan_in_progress": "相同内容版本正在检测，已复用现有任务。",
+        "existing_version_reused": "相同内容和检测配置已存在，已复用可信检测结果。",
+    }
     return SubmitResponse(
-        skill_id=entry.skill_id,
+        skill_id=entry.family_id or entry.skill_id,
+        version_id=entry.skill_id,
+        version_no=entry.version_no,
+        source_version=entry.source_version,
+        deduplicated=resolution != "new_version",
+        scan_reused=resolution == "existing_version_reused",
         name=entry.name,
         status=entry.status.value,
         risk_level=entry.risk_level.value if entry.risk_level else None,
@@ -298,7 +330,7 @@ def _submit_directory_for_processing(
         sandbox_triggered=entry.vetting.sandbox_triggered if entry.vetting else False,
         sandbox_required_by_policy=entry.vetting.sandbox_required_by_policy if entry.vetting else False,
         sandbox_runtime=entry.vetting.sandbox_runtime if entry.vetting else None,
-        message="已提交，后台分析中。请在技能注册表查看状态变化。",
+        message=messages[resolution],
     )
 
 
@@ -324,6 +356,11 @@ async def _download_remote_archive(url: str, tmp_dir: Path) -> tuple[Path, str]:
 
 class SubmitResponse(BaseModel):
     skill_id: str
+    version_id: str
+    version_no: int
+    source_version: str | None = None
+    deduplicated: bool = False
+    scan_reused: bool = False
     name: str
     status: str
     risk_level: str | None
@@ -360,7 +397,6 @@ class LocalImportSubmitRequest(BaseModel):
     use_llm: bool = False
     use_sandbox: bool = False
     use_skillspector: bool = False
-    no_cache: bool = False
     judgement_mode: str | None = None
 
 
@@ -372,7 +408,6 @@ class UrlSubmitRequest(BaseModel):
     use_llm: bool = False
     use_sandbox: bool = False
     use_skillspector: bool = False
-    no_cache: bool = False
     judgement_mode: str | None = None
 
 
@@ -400,7 +435,6 @@ class RemoteImportSubmitRequest(BaseModel):
     use_llm: bool = False
     use_sandbox: bool = False
     use_skillspector: bool = False
-    no_cache: bool = False
     judgement_mode: str | None = None
 
 
@@ -415,12 +449,12 @@ class UploadZipPrepareResponse(BaseModel):
 class ClawHubSubmitRequest(BaseModel):
     url: str
     author: str | None = None
+    version: str | None = None
     token: str | None = None
     use_behavioral: bool = False
     use_llm: bool = False
     use_sandbox: bool = False
     use_skillspector: bool = False
-    no_cache: bool = False
     judgement_mode: str | None = None
 
 
@@ -470,6 +504,7 @@ class VerifySkillSignatureResponse(BaseModel):
 
 
 class PolicyPayload(BaseModel):
+    scan_result_reuse_enabled: bool = True
     auto_approve_max_risk: str
     require_human_review: list[str]
     auto_reject_risk: list[str]
@@ -830,7 +865,6 @@ async def submit_skill_zip(
     use_llm: bool = Query(False),
     use_sandbox: bool = Query(False),
     use_skillspector: bool = Query(False),
-    no_cache: bool = Query(False),
     judgement_mode: str | None = Query(None),
     mgr: AgentManager = Depends(get_manager),
 ):
@@ -872,7 +906,6 @@ async def submit_skill_zip(
             use_llm,
             use_sandbox,
             use_skillspector,
-            no_cache,
             judgement_mode,
         )
     finally:
@@ -947,7 +980,6 @@ def submit_local_skills(
             body.use_llm,
             body.use_sandbox,
             body.use_skillspector,
-            body.no_cache,
             body.judgement_mode,
         ))
 
@@ -985,7 +1017,6 @@ async def submit_skill_url(
             body.use_llm,
             body.use_sandbox,
             body.use_skillspector,
-            body.no_cache,
             body.judgement_mode,
         )
     except httpx.HTTPError as exc:
@@ -1058,7 +1089,6 @@ def submit_remote_selected(
             body.use_llm,
             body.use_sandbox,
             body.use_skillspector,
-            body.no_cache,
             body.judgement_mode,
         ))
     return BatchSubmitResponse(results=results)
@@ -1096,7 +1126,6 @@ def submit_upload_selected(
             body.use_llm,
             body.use_sandbox,
             body.use_skillspector,
-            body.no_cache,
             body.judgement_mode,
         ))
     return BatchSubmitResponse(results=results)
@@ -1142,7 +1171,13 @@ async def submit_skill_clawhub(
         persistent_dir = mgr.registry.data_dir / "clawhub_skills" / uuid.uuid4().hex
         persistent_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(skill_root, persistent_dir)
-        source = SourceInfo(origin=SkillOrigin.CLAWHUB, author=body.author, channel="clawhub", url=body.url)
+        source = SourceInfo(
+            origin=SkillOrigin.CLAWHUB,
+            author=body.author,
+            channel="clawhub",
+            url=body.url,
+            version=body.version,
+        )
         return _submit_directory_for_processing(
             mgr,
             background_tasks,
@@ -1152,7 +1187,6 @@ async def submit_skill_clawhub(
             body.use_llm,
             body.use_sandbox,
             body.use_skillspector,
-            body.no_cache,
             body.judgement_mode,
         )
     except httpx.HTTPError as exc:
@@ -1328,7 +1362,13 @@ def get_skill(skill_id_or_name: str, mgr: AgentManager = Depends(get_manager)):
     entry = mgr.get_skill(skill_id_or_name)
     if entry is None:
         raise HTTPException(status_code=404, detail="Skill not found")
-    return entry.model_dump(mode="json", exclude={"vetting": {"scan_report"}})
+    payload = entry.model_dump(mode="json", exclude={"vetting": {"scan_report"}})
+    payload["version_id"] = entry.skill_id
+    payload["skill_id"] = entry.family_id or entry.skill_id
+    trusted = mgr.get_trusted_skill(entry.family_id or skill_id_or_name)
+    payload["latest_trusted_version_id"] = trusted.skill_id if trusted else None
+    payload["latest_trusted_version_no"] = trusted.version_no if trusted else None
+    return payload
 
 
 @router.get("/skills/{skill_id_or_name}/scan-report")
@@ -1337,9 +1377,155 @@ def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manag
     if entry is None:
         raise HTTPException(status_code=404, detail="Skill not found")
     return {
-        "skill_id": entry.skill_id,
+        "skill_id": entry.family_id or entry.skill_id,
+        "version_id": entry.skill_id,
+        "version_no": entry.version_no,
         "name": entry.name,
         "scan_report": entry.vetting.scan_report if entry.vetting else {},
+    }
+
+
+def _version_summary(entry) -> dict[str, Any]:
+    return {
+        "skill_id": entry.family_id or entry.skill_id,
+        "version_id": entry.skill_id,
+        "version_no": entry.version_no,
+        "source_version": entry.source_version,
+        "status": entry.status.value,
+        "risk_level": entry.risk_level.value if entry.risk_level else None,
+        "content_fingerprint": entry.content_fingerprint,
+        "scan_context_fingerprint": entry.scan_context_fingerprint,
+        "scan_reused": entry.scan_reused,
+        "latest": entry.latest_version,
+        "latest_trusted": entry.latest_trusted_version,
+        "submitted_at": entry.submitted_at,
+        "updated_at": entry.updated_at,
+        "approved_at": entry.approved_at,
+        "approved_by": entry.approved_by,
+    }
+
+
+@router.get("/skills/{skill_id_or_name}/versions")
+def list_skill_versions(skill_id_or_name: str, mgr: AgentManager = Depends(get_manager)):
+    versions = mgr.list_skill_versions(skill_id_or_name)
+    if not versions:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    items = []
+    for entry in versions:
+        item = _version_summary(entry)
+        item["scan_pending"] = any(run.status == "PENDING" for run in mgr.list_scan_runs(entry.skill_id))
+        items.append(item)
+    return {
+        "skill_id": versions[0].family_id or versions[0].skill_id,
+        "name": versions[0].name,
+        "items": items,
+    }
+
+
+def _resolve_version_ref(versions: list[Any], value: str | None, *, default_index: int) -> Any:
+    if value is None:
+        return versions[min(default_index, len(versions) - 1)]
+    normalized = value.strip().lower()
+    for entry in versions:
+        if normalized in {
+            entry.skill_id.lower(),
+            str(entry.version_no),
+            f"v{entry.version_no}",
+            str(entry.source_version or "").lower(),
+            f"v{str(entry.source_version or '').lower()}",
+        }:
+            return entry
+    raise HTTPException(status_code=404, detail=f"Skill version not found: {value}")
+
+
+def _version_text_files(entry) -> dict[str, list[str]]:
+    if not entry.skill_path:
+        return {}
+    root = Path(entry.skill_path).resolve()
+    if not root.is_dir():
+        return {}
+    result: dict[str, list[str]] = {}
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        rel = path.relative_to(root)
+        if any(part in {".git", ".venv", "node_modules", "__pycache__", "dist", "build"} for part in rel.parts):
+            continue
+        if path.stat().st_size > 1024 * 1024:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        result[rel.as_posix()] = text.splitlines(keepends=True)
+    return result
+
+
+@router.get("/skills/{skill_id_or_name}/diff")
+def diff_skill_versions(
+    skill_id_or_name: str,
+    base: str | None = Query(None),
+    target: str | None = Query(None),
+    mgr: AgentManager = Depends(get_manager),
+):
+    versions = mgr.list_skill_versions(skill_id_or_name)
+    if not versions:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    target_entry = _resolve_version_ref(versions, target, default_index=0)
+    base_entry = _resolve_version_ref(versions, base, default_index=1 if len(versions) > 1 else 0)
+    base_files = _version_text_files(base_entry)
+    target_files = _version_text_files(target_entry)
+    items = []
+    for path in sorted(set(base_files) | set(target_files)):
+        before = base_files.get(path, [])
+        after = target_files.get(path, [])
+        if before == after:
+            continue
+        status = "added" if path not in base_files else "deleted" if path not in target_files else "changed"
+        diff_lines = list(difflib.unified_diff(
+            before,
+            after,
+            fromfile=f"v{base_entry.version_no}/{path}",
+            tofile=f"v{target_entry.version_no}/{path}",
+            lineterm="\n",
+        ))
+        additions = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
+        deletions = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
+        diff_text = "".join(
+            line if line.endswith(("\n", "\r")) else f"{line}\n"
+            for line in diff_lines
+        )
+        items.append({
+            "path": path,
+            "status": status,
+            "additions": additions,
+            "deletions": deletions,
+            "before": "".join(before),
+            "after": "".join(after),
+            "diff": diff_text,
+        })
+    return {
+        "skill_id": versions[0].family_id or versions[0].skill_id,
+        "base": _version_summary(base_entry),
+        "target": _version_summary(target_entry),
+        "items": items,
+    }
+
+
+@router.get("/skills/{skill_id_or_name}/versions/{version_id}/scan-runs")
+def list_version_scan_runs(
+    skill_id_or_name: str,
+    version_id: str,
+    mgr: AgentManager = Depends(get_manager),
+):
+    versions = mgr.list_skill_versions(skill_id_or_name)
+    version = next((entry for entry in versions if entry.skill_id == version_id), None)
+    if version is None:
+        raise HTTPException(status_code=404, detail="Skill version not found")
+    return {
+        "skill_id": version.family_id or version.skill_id,
+        "version_id": version.skill_id,
+        "items": [run.model_dump(mode="json") for run in mgr.list_scan_runs(version.skill_id)],
     }
 
 
@@ -1361,7 +1547,6 @@ def rescan_skill(
     use_llm: bool | None = Query(None),
     use_sandbox: bool | None = Query(None),
     use_skillspector: bool | None = Query(None),
-    no_cache: bool = Query(True),
     mgr: AgentManager = Depends(get_manager),
 ):
     previous = mgr.get_skill(skill_id)
@@ -1369,25 +1554,31 @@ def rescan_skill(
         raise HTTPException(status_code=404, detail="Skill not found")
     previous_options = _previous_scan_options(previous)
     try:
-        entry = mgr.rescan_skill(skill_id)
+        entry, started = mgr.request_rescan(skill_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    _scan_executor.submit(
-        _process_pending_submission_task,
-        mgr,
-        entry.skill_id,
-        previous_options["use_behavioral"] if use_behavioral is None else use_behavioral,
-        previous_options["use_llm"] if use_llm is None else use_llm,
-        previous_options["use_sandbox"] if use_sandbox is None else use_sandbox,
-        previous_options["use_skillspector"] if use_skillspector is None else use_skillspector,
-        no_cache,
-    )
+    if started:
+        _scan_executor.submit(
+            _process_pending_submission_task,
+            mgr,
+            entry.skill_id,
+            previous_options["use_behavioral"] if use_behavioral is None else use_behavioral,
+            previous_options["use_llm"] if use_llm is None else use_llm,
+            previous_options["use_sandbox"] if use_sandbox is None else use_sandbox,
+            previous_options["use_skillspector"] if use_skillspector is None else use_skillspector,
+            True,
+        )
     current = mgr.get_skill(entry.skill_id) or entry
     return SubmitResponse(
-        skill_id=current.skill_id,
+        skill_id=current.family_id or current.skill_id,
+        version_id=current.skill_id,
+        version_no=current.version_no,
+        source_version=current.source_version,
+        deduplicated=True,
+        scan_reused=False,
         name=current.name,
         status=current.status.value,
         risk_level=current.risk_level.value if current.risk_level else None,
@@ -1395,7 +1586,11 @@ def rescan_skill(
         sandbox_triggered=current.vetting.sandbox_triggered if current.vetting else False,
         sandbox_required_by_policy=current.vetting.sandbox_required_by_policy if current.vetting else False,
         sandbox_runtime=current.vetting.sandbox_runtime if current.vetting else None,
-        message="已提交重新检测，后台分析中。请刷新技能注册表查看状态变化。",
+        message=(
+            "已提交重新检测，后台分析中。请刷新技能注册表查看状态变化。"
+            if started
+            else "该版本正在检测中，无需重复提交。"
+        ),
     )
 
 
@@ -1525,9 +1720,17 @@ def get_skill_file_content(
 def download_skill_archive(
     skill_id_or_name: str,
     background_tasks: BackgroundTasks,
+    version: str | None = Query(None),
+    trusted: bool = Query(False),
     mgr: AgentManager = Depends(get_manager),
 ):
-    entry = mgr.get_skill(skill_id_or_name)
+    if version:
+        versions = mgr.list_skill_versions(skill_id_or_name)
+        entry = _resolve_version_ref(versions, version, default_index=0) if versions else None
+    elif trusted:
+        entry = mgr.get_trusted_skill(skill_id_or_name)
+    else:
+        entry = mgr.get_skill(skill_id_or_name)
     if entry is None:
         raise HTTPException(status_code=404, detail="Skill not found")
     if not entry.skill_path:

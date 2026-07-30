@@ -114,6 +114,9 @@ class RegistryEntry(BaseModel):
     """A skill record in the registry."""
 
     skill_id: str                       # UUID
+    family_id: Optional[str] = None      # Stable identity shared by all versions
+    version_no: int = 1
+    source_version: Optional[str] = None
     name: str                           # From SKILL.md manifest
     description: str                    # From SKILL.md manifest
     source: SourceInfo
@@ -146,6 +149,8 @@ class RegistryEntry(BaseModel):
     scan_cache_key: Optional[str] = None
     scan_reused: bool = False
     reused_from_skill_id: Optional[str] = None
+    latest_version: bool = False
+    latest_trusted_version: bool = False
 
     @field_validator("name")
     @classmethod
@@ -160,7 +165,10 @@ class RegistryEntry(BaseModel):
 
     def summary(self) -> dict[str, Any]:
         return {
-            "skill_id": self.skill_id,
+            "skill_id": self.family_id or self.skill_id,
+            "version_id": self.skill_id,
+            "version_no": self.version_no,
+            "source_version": self.source_version,
             "name": self.name,
             "status": self.status.value,
             "risk_level": self.risk_level.value if self.risk_level else None,
@@ -179,6 +187,20 @@ class RegistryEntry(BaseModel):
             "approved_at": self.approved_at.isoformat() if self.approved_at else None,
             "deployed_at": self.deployed_at.isoformat() if self.deployed_at else None,
         }
+
+
+class ScanRun(BaseModel):
+    """One persistent scan execution record for a concrete Skill version."""
+
+    scan_run_id: str
+    version_id: str
+    scan_context_fingerprint: str
+    status: str = "PENDING"
+    forced: bool = False
+    reused_from_scan_run_id: Optional[str] = None
+    started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    finished_at: Optional[datetime] = None
+    result: dict[str, Any] = Field(default_factory=dict)
 
 
 class AuditEvent(BaseModel):

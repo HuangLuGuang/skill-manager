@@ -97,7 +97,11 @@ class RuntimeGuard:
         Returns:
             (allowed: bool, entry: RegistryEntry | None, reason: str)
         """
-        entry = self.registry.get_by_id(skill_name) or self.registry.get_by_name(skill_name)
+        entry = (
+            self.registry.get_by_id(skill_name)
+            or self.registry.get_trusted_by_name(skill_name)
+            or self.registry.get_by_name(skill_name)
+        )
 
         if entry is None:
             reason = f"Skill {skill_name!r} is not in the registry"
@@ -137,7 +141,7 @@ class RuntimeGuard:
         declarations). This preserves backwards-compatibility with unmanaged skills
         that were approved before tool-level enforcement was introduced.
         """
-        entry = self.registry.get_by_name(skill_name)
+        entry = self.registry.get_trusted_by_name(skill_name)
 
         if entry is None or not entry.is_loadable():
             self._emit_tool_blocked(skill_name, tool_name, agent_id, "skill not loadable", audit_metadata)
@@ -180,7 +184,20 @@ class RuntimeGuard:
         the registry, then submits it here for comparison against the approved
         signature stored in the registry.
         """
-        entry = self.registry.get_by_id(skill_id) if skill_id else self.registry.get_by_name(skill_name)
+        if skill_id:
+            entry = self.registry.get_by_id(skill_id)
+        else:
+            submitted_signature = local_signature.strip()
+            entry = next(
+                (
+                    candidate
+                    for candidate in self.registry.list_versions(skill_name)
+                    if candidate.is_loadable()
+                    and candidate.signature
+                    and hmac.compare_digest(submitted_signature, candidate.signature)
+                ),
+                None,
+            ) or self.registry.get_trusted_by_name(skill_name) or self.registry.get_by_name(skill_name)
 
         if entry is None:
             reason = f"Skill {skill_name!r} is not in the registry"

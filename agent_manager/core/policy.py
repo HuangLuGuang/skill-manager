@@ -35,6 +35,7 @@ DEFAULT_RISK_CLASSIFICATION: dict[str, str] = {
 _VALID_FINDING_CLASSIFICATIONS = {"blocking", "risk", "noise"}
 
 _DEFAULT_POLICY: dict[str, Any] = {
+    "scan_result_reuse_enabled": True,
     "auto_approve_max_risk": "benign",
     "require_human_review": ["suspicious"],
     "auto_reject_risk": ["malicious"],
@@ -119,6 +120,10 @@ class CompanyPolicy:
     @property
     def require_sandbox_for_risk(self) -> list[RiskLevel]:
         return [RiskLevel(r) for r in self._data.get("require_sandbox_for_risk", [])]
+
+    @property
+    def scan_result_reuse_enabled(self) -> bool:
+        return bool(self._data.get("scan_result_reuse_enabled", True))
 
     @property
     def blocked_permissions(self) -> list[str]:

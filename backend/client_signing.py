@@ -45,7 +45,17 @@ def public_key_base64() -> str:
     return base64.b64encode(raw).decode("ascii")
 
 
-def build_manifest(skill_id: str, name: str, skill_root: Path, content_signature: str | None) -> dict:
+def build_manifest(
+    skill_id: str,
+    name: str,
+    skill_root: Path,
+    content_signature: str | None,
+    *,
+    version_id: str | None = None,
+    version_no: int | None = None,
+    source_version: str | None = None,
+    content_fingerprint: str | None = None,
+) -> dict:
     files = []
     for path in sorted(skill_root.rglob("*")):
         if not path.is_file() or path.is_symlink():
@@ -59,8 +69,12 @@ def build_manifest(skill_id: str, name: str, skill_root: Path, content_signature
                 digest.update(chunk)
         files.append({"path": rel.as_posix(), "size": path.stat().st_size, "sha256": digest.hexdigest()})
     return {
-        "version": 1,
+        "version": 2,
         "skill_id": skill_id,
+        "version_id": version_id or skill_id,
+        "version_no": version_no or 1,
+        "source_version": source_version,
+        "content_fingerprint": content_fingerprint,
         "name": name,
         "content_signature": content_signature,
         "files": files,

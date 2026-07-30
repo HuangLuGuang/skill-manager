@@ -135,18 +135,45 @@ def _token_can_use_agent(db: Session, token: models.AccessToken, agent: models.M
     return bool(owner and owner.role == "super_admin")
 
 
+def _manager_trusted_skill(manager, skill_id: str):
+    if hasattr(manager, "get_trusted_skill"):
+        return manager.get_trusted_skill(skill_id)
+    return manager.get_skill(skill_id)
+
+
+def _manager_skill_versions(manager, skill_id: str):
+    if hasattr(manager, "list_skill_versions"):
+        return manager.list_skill_versions(skill_id)
+    entry = manager.get_skill(skill_id)
+    return [entry] if entry else []
+
+
+def _manager_skills_by_names(manager, names: set[str]):
+    if hasattr(manager, "list_skills_by_names"):
+        return manager.list_skills_by_names(names)
+    return [
+        entry
+        for entry in manager.list_skills()
+        if entry.name in names
+    ]
+
+
 def _authorized_client_skill(
     db: Session,
     manager: AgentManager,
     client: models.ManagedClient,
     token: models.AccessToken,
     skill_id: str,
+    version_id: str | None,
     agent_type: str | None,
     managed_agent_id: str | None,
 ):
-    entry = manager.get_skill(skill_id)
+    entry = manager.registry.get_by_id(version_id) if version_id and hasattr(manager, "registry") else _manager_trusted_skill(manager, skill_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Skill 不存在")
+    entry_family_id = getattr(entry, "family_id", None)
+    if version_id and entry_family_id and entry_family_id != skill_id and entry.skill_id != skill_id:
+        raise HTTPException(status_code=404, detail="Skill 版本不存在")
     agent = None
     if managed_agent_id:
         agent = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == managed_agent_id).first()
@@ -169,9 +196,9 @@ def _authorized_client_skill(
         if not agent or binding.managed_agent_id != managed_agent_id or not _token_can_use_agent(db, token, agent):
             raise HTTPException(status_code=403, detail="客户端未绑定该智能体")
         allowed_refs = {str(item) for item in _load(agent.skill_names_json, [])}
-        if entry.name not in allowed_refs and entry.skill_id not in allowed_refs:
+        if entry.name not in allowed_refs and entry.skill_id not in allowed_refs and (entry_family_id or "") not in allowed_refs:
             raise HTTPException(status_code=403, detail="智能体未授权使用该 Skill")
-    if entry.status != SkillStatus.APPROVED or not entry.skill_path:
+    if entry.status not in (SkillStatus.APPROVED, SkillStatus.DEPLOYED) or not entry.skill_path:
         raise HTTPException(status_code=403, detail="Skill 尚未批准或文件不可用")
     return entry
 
@@ -295,6 +322,9 @@ def _replace_inventory(db: Session, client_id: str, agents: list[schemas.ClientA
                     client_id=client_id,
                     agent_type=agent.agent_type,
                     skill_id=skill.skill_id,
+                    version_id=skill.version_id,
+                    version_no=skill.version_no,
+                    source_version=skill.source_version,
                     skill_name=skill.name,
                     skill_path=skill.path,
                     signature=skill.signature,
@@ -372,6 +402,9 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
                 "skills": [
                     {
                         "skill_id": skill.skill_id,
+                        "version_id": skill.version_id,
+                        "version_no": skill.version_no,
+                        "source_version": skill.source_version,
                         "name": skill.skill_name,
                         "path": skill.skill_path,
                         "signature": skill.signature,
@@ -965,7 +998,8 @@ def create_task(
         skill_id = str(payload.get("skill_id") or "")
         managed_agent_id = str(payload.get("managed_agent_id") or "")
         agent_type = str(payload.get("agent_type") or "")
-        entry = manager.get_skill(skill_id)
+        version_id = str(payload.get("version_id") or "")
+        entry = manager.registry.get_by_id(version_id) if version_id and hasattr(manager, "registry") else _manager_trusted_skill(manager, skill_id)
         client_agent = (
             db.query(models.ClientAgent)
             .filter(
@@ -975,8 +1009,13 @@ def create_task(
             )
             .first()
         )
-        if not entry or entry.status != SkillStatus.APPROVED:
+        entry_family_id = getattr(entry, "family_id", None) if entry else None
+        if version_id and entry and entry.skill_id != skill_id and entry_family_id != skill_id:
+            raise HTTPException(status_code=400, detail="指定版本不属于该 Skill")
+        if not entry or entry.status not in (SkillStatus.APPROVED, SkillStatus.DEPLOYED):
             raise HTTPException(status_code=400, detail="只能安装已批准的 Skill")
+        payload["skill_id"] = entry_family_id or entry.skill_id
+        payload["version_id"] = entry.skill_id
         payload["skill_name"] = _skill_display_metadata(
             entry.name,
             getattr(entry, "description", ""),
@@ -991,7 +1030,7 @@ def create_task(
             if client_agent.managed_agent_id != managed_agent_id:
                 raise HTTPException(status_code=400, detail="本地 Agent 尚未绑定该平台智能体")
             allowed_refs = {str(item) for item in _load(agent.skill_names_json, [])}
-            if entry.name not in allowed_refs and entry.skill_id not in allowed_refs:
+            if entry.name not in allowed_refs and entry.skill_id not in allowed_refs and (getattr(entry, "family_id", None) or "") not in allowed_refs:
                 raise HTTPException(status_code=403, detail="智能体未授权使用该 Skill")
         else:
             payload.pop("managed_agent_id", None)
@@ -1099,7 +1138,7 @@ def compare_inventory(
         for skill in agent_item.skills
         if skill.name
     }
-    registry_entries = manager.list_skills_by_names(skill_names)
+    registry_entries = _manager_skills_by_names(manager, skill_names)
     for agent_item in body.agents:
         local_agent = (
             db.query(models.ClientAgent)
@@ -1215,13 +1254,17 @@ def list_available_client_skills(
         entries = []
         seen = set()
         for ref in _load(agent.skill_names_json, []):
-            entry = manager.get_skill(str(ref))
+            entry = _manager_trusted_skill(manager, str(ref))
             if entry and entry.skill_id not in seen and entry.status == SkillStatus.APPROVED and entry.skill_path:
                 display_name, _description = _skill_display_metadata(entry.name, entry.description, Path(entry.skill_path))
                 item = {
-                    "skill_id": entry.skill_id,
+                    "skill_id": getattr(entry, "family_id", None) or entry.skill_id,
+                    "version_id": entry.skill_id,
+                    "version_no": getattr(entry, "version_no", 1),
+                    "source_version": getattr(entry, "source_version", None),
                     "name": display_name,
                     "status": entry.status.value,
+                    "submitted_by": getattr(getattr(entry, "source", None), "author", None),
                 }
                 if getattr(entry, "submitted_at", None):
                     item["submitted_at"] = entry.submitted_at
@@ -1232,19 +1275,29 @@ def list_available_client_skills(
             page=1,
             page_size=100,
             statuses=[SkillStatus.APPROVED],
+            trusted_only=True,
             q=q,
-            sort_by="name",
-            sort_order="asc",
+            sort_by="submitted_at",
+            sort_order="desc",
         )["items"]
-        entries.sort(key=lambda item: item["name"].lower())
+        for item in entries:
+            entry = _manager_trusted_skill(manager, item["version_id"])
+            if entry and entry.skill_path:
+                item["name"], _description = _skill_display_metadata(
+                    entry.name,
+                    getattr(entry, "description", "") or "",
+                    Path(entry.skill_path),
+                )
     if q and client.governance_mode == "strict":
         needle = q.lower()
         entries = [item for item in entries if needle in item["name"].lower() or needle in item["skill_id"].lower()]
+    if client.governance_mode == "strict":
+        entries.sort(key=lambda item: str(item.get("submitted_at") or ""), reverse=True)
     return {"items": entries}
 
 
-@router.get("/{client_id}/skills/{skill_id}/preview")
-def preview_client_skill(
+@router.get("/{client_id}/skills/{skill_id}/versions")
+def list_available_client_skill_versions(
     client_id: str,
     skill_id: str,
     request: Request,
@@ -1257,7 +1310,58 @@ def preview_client_skill(
     token = _runtime_token("client:download-approved-skill", authorization, request, db)
     _bind_client(token, client_id, db)
     client = _client_or_404(db, client_id)
-    entry = _authorized_client_skill(db, manager, client, token, skill_id, agent_type, managed_agent_id)
+    selected = _authorized_client_skill(
+        db,
+        manager,
+        client,
+        token,
+        skill_id,
+        None,
+        agent_type,
+        managed_agent_id,
+    )
+    versions = [
+        entry
+        for entry in _manager_skill_versions(manager, getattr(selected, "family_id", None) or selected.skill_id)
+        if entry.status in (SkillStatus.APPROVED, SkillStatus.DEPLOYED) and entry.skill_path
+    ]
+    return {
+        "skill_id": getattr(selected, "family_id", None) or selected.skill_id,
+        "default_version_id": selected.skill_id,
+        "items": [
+            {
+                "version_id": entry.skill_id,
+                "version_no": getattr(entry, "version_no", 1),
+                "source_version": getattr(entry, "source_version", None),
+                "status": entry.status.value,
+                "risk_level": entry.risk_level.value if entry.risk_level else None,
+                "latest_trusted": entry.skill_id == selected.skill_id,
+                "approved_at": entry.approved_at,
+                "approved_by": entry.approved_by,
+                "submitted_at": entry.submitted_at,
+                "submitted_by": getattr(getattr(entry, "source", None), "author", None),
+            }
+            for entry in versions
+        ],
+    }
+
+
+@router.get("/{client_id}/skills/{skill_id}/preview")
+def preview_client_skill(
+    client_id: str,
+    skill_id: str,
+    request: Request,
+    agent_type: str | None = Query(None),
+    managed_agent_id: str | None = Query(None),
+    version_id: str | None = Query(None),
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+    manager: AgentManager = Depends(get_manager),
+):
+    token = _runtime_token("client:download-approved-skill", authorization, request, db)
+    _bind_client(token, client_id, db)
+    client = _client_or_404(db, client_id)
+    entry = _authorized_client_skill(db, manager, client, token, skill_id, version_id, agent_type, managed_agent_id)
     risk_level = getattr(entry, "risk_level", None)
     display_name, description = _skill_display_metadata(
         entry.name,
@@ -1265,12 +1369,16 @@ def preview_client_skill(
         Path(entry.skill_path),
     )
     return {
-        "skill_id": entry.skill_id,
+        "skill_id": getattr(entry, "family_id", None) or entry.skill_id,
+        "version_id": entry.skill_id,
+        "version_no": getattr(entry, "version_no", 1),
+        "source_version": getattr(entry, "source_version", None),
         "name": display_name,
         "description": description,
         "status": entry.status.value,
         "risk_level": getattr(risk_level, "value", risk_level),
         "submitted_at": getattr(entry, "submitted_at", None),
+        "submitted_by": getattr(getattr(entry, "source", None), "author", None),
     }
 
 
@@ -1282,6 +1390,7 @@ def download_client_skill_package(
     request: Request,
     agent_type: str | None = Query(None),
     managed_agent_id: str | None = Query(None),
+    version_id: str | None = Query(None),
     authorization: str | None = Header(None),
     db: Session = Depends(get_db),
     manager: AgentManager = Depends(get_manager),
@@ -1289,10 +1398,19 @@ def download_client_skill_package(
     token = _runtime_token("client:download-approved-skill", authorization, request, db)
     _bind_client(token, client_id, db)
     client = _client_or_404(db, client_id)
-    entry = _authorized_client_skill(db, manager, client, token, skill_id, agent_type, managed_agent_id)
+    entry = _authorized_client_skill(db, manager, client, token, skill_id, version_id, agent_type, managed_agent_id)
     root = Path(entry.skill_path).resolve()
     display_name, _description = _skill_display_metadata(entry.name, getattr(entry, "description", "") or "", root)
-    manifest = build_manifest(entry.skill_id, display_name, root, compute_content_signature(root))
+    manifest = build_manifest(
+        getattr(entry, "family_id", None) or entry.skill_id,
+        display_name,
+        root,
+        compute_content_signature(root),
+        version_id=entry.skill_id,
+        version_no=getattr(entry, "version_no", 1),
+        source_version=getattr(entry, "source_version", None),
+        content_fingerprint=getattr(entry, "content_fingerprint", None),
+    )
     signature = sign_manifest(manifest)
     tmp = tempfile.NamedTemporaryFile(prefix="agent-manager-client-skill-", suffix=".zip", delete=False)
     tmp_path = Path(tmp.name)

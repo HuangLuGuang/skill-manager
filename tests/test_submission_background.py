@@ -120,12 +120,16 @@ def test_safe_extract_zip_rejects_symlinks(tmp_path):
 
 def test_list_skills_can_filter_cancelled_tasks(tmp_path):
     manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
-    cancelled = manager.create_pending_submission(tmp_path)
+    cancelled_path = tmp_path / "cancelled-skill"
+    cancelled_path.mkdir()
+    rejected_path = tmp_path / "rejected-skill"
+    rejected_path.mkdir()
+    cancelled = manager.create_pending_submission(cancelled_path)
     cancelled.status = SkillStatus.REJECTED
     cancelled.risk_level = RiskLevel.BENIGN
     cancelled.rejection_reason = "用户取消后台分析任务"
     manager.registry.update(cancelled)
-    rejected = manager.create_pending_submission(tmp_path)
+    rejected = manager.create_pending_submission(rejected_path)
     rejected.status = SkillStatus.REJECTED
     rejected.risk_level = RiskLevel.SUSPICIOUS
     rejected.rejection_reason = "策略拒绝"
@@ -139,7 +143,8 @@ def test_list_skills_can_filter_cancelled_tasks(tmp_path):
 
     assert response.status_code == 200
     rows = response.json()
-    assert [row["skill_id"] for row in rows] == [cancelled.skill_id]
+    assert [row["skill_id"] for row in rows] == [cancelled.family_id]
+    assert rows[0]["version_id"] == cancelled.skill_id
     assert rows[0]["rejection_reason"] == "用户取消后台分析任务"
 
 
@@ -168,5 +173,6 @@ def test_list_skills_paginated_uses_summary_query(tmp_path, monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 1
-    assert body["items"][0]["skill_id"] == second.skill_id
+    assert body["items"][0]["skill_id"] == second.family_id
+    assert body["items"][0]["version_id"] == second.skill_id
     assert body["items"][0]["rejection_reason"] == "用户取消后台分析任务"

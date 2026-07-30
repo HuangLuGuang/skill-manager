@@ -22,7 +22,6 @@ type Config struct {
 	UseSkillspector bool
 	UseSandbox      bool
 	UseLLM          bool
-	NoCache         bool
 	JudgementMode   string
 	Timeout         time.Duration
 	MaxFileBytes    int64
@@ -50,7 +49,6 @@ func Parse(args []string) (Config, error) {
 	fs.BoolVar(&cfg.UseSkillspector, "deep-scan", false, "request deep scan analysis")
 	fs.BoolVar(&cfg.UseSandbox, "sandbox", false, "request sandbox analysis")
 	fs.BoolVar(&cfg.UseLLM, "llm", false, "request LLM analysis")
-	fs.BoolVar(&cfg.NoCache, "no-cache", false, "force server-side rescan without cache")
 	fs.StringVar(&cfg.JudgementMode, "judgement-mode", getenv("SKILL_SCANNER_JUDGEMENT_MODE", ""), "judgement mode: strict, balanced, or permissive")
 	timeout := fs.Duration("timeout", 120*time.Second, "HTTP timeout")
 	maxFileMB := fs.Int64("max-file-mb", 20, "maximum single file size included in package")
@@ -161,7 +159,6 @@ func Usage() string {
   --deep-scan         启用深度扫描。
   --sandbox           启用 Sandbox 分析。
   --llm               启用 LLM 分析。
-  --no-cache          禁用服务端缓存并重新扫描。
   --judgement-mode M  判定模式：strict、balanced 或 permissive。
   --max-file-mb N     单文件大小上限，默认 20。
   --max-total-mb N    Skill 总大小上限，默认 50。
@@ -183,7 +180,6 @@ Options:
   --deep-scan         Request deep scan analysis.
   --sandbox           Request sandbox analysis.
   --llm               Request LLM analysis.
-  --no-cache          Force server-side rescan without cache.
   --judgement-mode M  Judgement mode: strict, balanced, or permissive. Can also use SKILL_SCANNER_JUDGEMENT_MODE.
   --max-file-mb N     Maximum single file size. Default: 20.
   --max-total-mb N    Maximum total skill size. Default: 50.

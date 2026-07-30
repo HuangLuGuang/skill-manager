@@ -20,14 +20,17 @@ var Version = "dev"
 const InventoryCacheVersion = "2"
 
 type Skill struct {
-	SkillID      string `json:"skill_id,omitempty"`
-	Name         string `json:"name"`
-	Path         string `json:"path"`
-	Signature    string `json:"signature,omitempty"`
-	Status       string `json:"status"`
-	InstallMode  string `json:"install_mode,omitempty"`
-	SourceTarget string `json:"-"`
-	Error        string `json:"error,omitempty"`
+	SkillID       string `json:"skill_id,omitempty"`
+	VersionID     string `json:"version_id,omitempty"`
+	VersionNo     int    `json:"version_no,omitempty"`
+	SourceVersion string `json:"source_version,omitempty"`
+	Name          string `json:"name"`
+	Path          string `json:"path"`
+	Signature     string `json:"signature,omitempty"`
+	Status        string `json:"status"`
+	InstallMode   string `json:"install_mode,omitempty"`
+	SourceTarget  string `json:"-"`
+	Error         string `json:"error,omitempty"`
 }
 
 type Agent struct {

@@ -696,6 +696,10 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
             "risk_level": None,
             "signature": "local-signature",
             "skill_path": str(skill_root),
+            "source": type("Source", (), {"author": "alice"})(),
+            "submitted_at": datetime(2026, 7, 30, 3, 0, 0),
+            "approved_at": datetime(2026, 7, 30, 3, 5, 0),
+            "approved_by": "reviewer",
         },
     )()
     rejected = type(
@@ -804,6 +808,7 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
     assert install_task.status_code == 200
     task = client.get("/api/v1/clients/host-001").json()["tasks"][0]
     assert task["payload"]["skill_name"] == "approved-skill"
+    assert task["payload"]["version_id"] == "skill-1"
 
     policy = client.get("/api/v1/clients/host-001/policy", headers=headers).json()
     available = client.get(
@@ -812,7 +817,16 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
         headers=headers,
     )
     assert available.status_code == 200
-    assert available.json()["items"] == [{"skill_id": "skill-1", "name": "approved-skill", "status": "APPROVED"}]
+    assert available.json()["items"] == [{
+        "skill_id": "skill-1",
+        "version_id": "skill-1",
+        "version_no": 1,
+        "source_version": None,
+        "name": "approved-skill",
+        "status": "APPROVED",
+        "submitted_by": "alice",
+        "submitted_at": "2026-07-30T03:00:00",
+    }]
     preview = client.get(
         "/api/v1/clients/host-001/skills/skill-1/preview",
         params={"managed_agent_id": "codex-agent"},
@@ -820,6 +834,17 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
     )
     assert preview.status_code == 200
     assert preview.json()["description"] == "用于安全地审查代码变更"
+    assert preview.json()["submitted_by"] == "alice"
+    assert preview.json()["submitted_at"] == "2026-07-30T03:00:00"
+    versions = client.get(
+        "/api/v1/clients/host-001/skills/skill-1/versions",
+        params={"agent_type": "codex", "managed_agent_id": "codex-agent"},
+        headers=headers,
+    )
+    assert versions.status_code == 200
+    assert versions.json()["items"][0]["version_no"] == 1
+    assert versions.json()["items"][0]["submitted_by"] == "alice"
+    assert versions.json()["items"][0]["submitted_at"] == "2026-07-30T03:00:00"
     package = client.get(
         "/api/v1/clients/host-001/skills/skill-1/package",
         params={"managed_agent_id": "codex-agent"},
@@ -951,6 +976,113 @@ def test_registry_mode_does_not_require_managed_agent_binding(tmp_path, monkeypa
         headers=headers,
     )
     assert package.status_code == 200
+
+
+def test_registry_available_skills_use_display_names_and_latest_submission_order(tmp_path):
+    class SummaryManager(_Manager):
+        def list_skill_summaries(self, **kwargs):
+            assert kwargs["sort_by"] == "submitted_at"
+            assert kwargs["sort_order"] == "desc"
+            assert kwargs["trusted_only"] is True
+            ordered = sorted(
+                self.list_skills(),
+                key=lambda entry: entry.submitted_at,
+                reverse=True,
+            )
+            return {
+                "items": [
+                    {
+                        "skill_id": entry.family_id,
+                        "version_id": entry.skill_id,
+                        "version_no": entry.version_no,
+                        "source_version": None,
+                        "name": entry.name,
+                        "status": entry.status.value,
+                        "submitted_by": entry.source.author,
+                        "submitted_at": entry.submitted_at,
+                    }
+                    for entry in ordered
+                ]
+            }
+
+        def get_trusted_skill(self, value):
+            return self.entries.get(value)
+
+    def make_entry(version_id, family_id, generated_name, heading, submitted_at):
+        skill_root = tmp_path / generated_name
+        skill_root.mkdir()
+        (skill_root / "SKILL.md").write_text(f"# {heading}\n", encoding="utf-8")
+        return type(
+            "Entry",
+            (),
+            {
+                "skill_id": version_id,
+                "family_id": family_id,
+                "version_no": 1,
+                "name": generated_name,
+                "description": "",
+                "status": SkillStatus.APPROVED,
+                "skill_path": str(skill_root),
+                "submitted_at": submitted_at,
+                "source": type("Source", (), {"author": "admin"})(),
+            },
+        )()
+
+    older = make_entry(
+        "version-old",
+        "family-old",
+        "063abf7c7194468c8c6c69b160acebe9",
+        "older-friendly-name",
+        "2026-07-01T03:00:00",
+    )
+    newer = make_entry(
+        "version-new",
+        "family-new",
+        "f48649032a594c019e09b74c741c68cc",
+        "newer-friendly-name",
+        "2026-07-30T03:00:00",
+    )
+    manager = SummaryManager({
+        older.skill_id: older,
+        older.family_id: older,
+        newer.skill_id: newer,
+        newer.family_id: newer,
+    })
+    client = _client(tmp_path, manager)
+    token = client.post(
+        "/api/v1/access/tokens",
+        json={"name": "客户端接入", "token_type": "client"},
+    ).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    client.post(
+        "/api/v1/clients/register",
+        headers=headers,
+        json={
+            "client_id": "registry-host",
+            "name": "Registry Host",
+            "hostname": "registry-host",
+            "os": "darwin",
+            "arch": "arm64",
+            "client_version": "0.1.0",
+            "agents": [{"agent_type": "codex", "skill_management_supported": True}],
+        },
+    )
+
+    response = client.get(
+        "/api/v1/clients/registry-host/skills/available",
+        params={"agent_type": "codex"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert [item["name"] for item in response.json()["items"]] == [
+        "newer-friendly-name",
+        "older-friendly-name",
+    ]
+    assert [item["submitted_at"] for item in response.json()["items"]] == [
+        "2026-07-30T03:00:00",
+        "2026-07-01T03:00:00",
+    ]
 
 
 def test_register_auto_matches_only_unique_agent_type(tmp_path):

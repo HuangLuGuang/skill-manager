@@ -132,7 +132,6 @@ const parameterRows = computed(() => [
   { name: '--deep-scan', required: text('否', 'No'), usage: text('请求服务端启用深度扫描。服务端配置了模型网关模型时，会同时启用深度扫描中的 LLM 能力。', 'Enable deep analysis. If a gateway model is configured, its LLM capability is also used.'), example: '--deep-scan' },
   { name: '--sandbox', required: text('否', 'No'), usage: text('请求服务端启用 Sandbox probe，观察受控运行时行为。', 'Enable the Sandbox probe to observe controlled runtime behavior.'), example: '--sandbox' },
   { name: '--llm', required: text('否', 'No'), usage: text('请求服务端启用 LLM 分析。服务端会使用策略配置中选择的模型网关模型。', 'Enable LLM analysis using the gateway model selected in Policy Settings.'), example: '--llm' },
-  { name: '--no-cache', required: text('否', 'No'), usage: text('禁用服务端缓存，强制重新扫描和分析。', 'Disable server-side cache and force a new scan and analysis.'), example: '--no-cache' },
   { name: '--max-file-mb', required: text('否', 'No'), usage: text('本地打包前限制单文件大小。', 'Limit individual file size before packaging.'), example: '--max-file-mb 20' },
   { name: '--max-total-mb', required: text('否', 'No'), usage: text('本地打包前限制单个 skill 总大小。', 'Limit total size of one skill before packaging.'), example: '--max-total-mb 50' },
   { name: '--max-files', required: text('否', 'No'), usage: text('本地打包前限制单个 skill 文件数量。', 'Limit the number of files in one skill before packaging.'), example: '--max-files 2000' },
@@ -149,7 +148,7 @@ export SKILL_SCANNER_TOKEN="amat_xxx"
 ./skill-scanner scan /path/to/skills --behavioral
 
 # ${text('启用全部分析能力', 'Enable all analysis capabilities')}:
-./skill-scanner scan /path/to/skills --behavioral --deep-scan --sandbox --llm --no-cache`)
+./skill-scanner scan /path/to/skills --behavioral --deep-scan --sandbox --llm`)
 const basicCommand = computed(() => `# ${text('只做本地发现和轻量预检，不上传', 'Local discovery and lightweight precheck only; do not upload')}
 ./skill-scanner scan /path/to/customer/skills \\
   --output skill-scan-report.json`)
@@ -163,7 +162,6 @@ export SKILL_SCANNER_HOST_ID="customer-prod-01"
   --deep-scan \\
   --sandbox \\
   --llm \\
-  --no-cache \\
   --output skill-scan-report.json`)
 
 const switchesCommand = computed(() => `# ${text('启动规则分析', 'Enable rule analysis')}
@@ -178,16 +176,12 @@ const switchesCommand = computed(() => `# ${text('启动规则分析', 'Enable r
 # ${text('启动 LLM 分析', 'Enable LLM analysis')}
 ./skill-scanner scan /path/to/customer/skills --llm
 
-# ${text('禁用缓存，强制重新扫描', 'Disable cache and force a new scan')}
-./skill-scanner scan /path/to/customer/skills --no-cache
-
 # ${text('组合使用', 'Combined example')}
 ./skill-scanner scan /path/to/customer/skills \\
   --behavioral \\
   --deep-scan \\
   --sandbox \\
   --llm \\
-  --no-cache \\
   --output skill-scan-report.json`)
 
 const envCommand = computed(() => `# ${text('本地调试示例，后端端口按你的 dev_server 配置填写', 'Local debugging example; use the port configured for dev_server')}
@@ -200,7 +194,6 @@ export SKILL_SCANNER_HOST_ID="customer-prod-01"
   --deep-scan \\
   --sandbox \\
   --llm \\
-  --no-cache \\
   --output skill-scan-report.json`)
 
 const fetchDownloads = async () => {

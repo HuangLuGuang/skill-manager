@@ -26,6 +26,7 @@ from .models import (
     AuditEvent,
     RegistryEntry,
     ReviewRequest,
+    ScanRun,
     SkillStatus,
 )
 from .prompt_registry import PromptRegistry
@@ -68,6 +69,7 @@ class Registry:
             self._lock = _LOCKS.setdefault(self._db_file.resolve(), threading.RLock())
         self._init_db()
         self._migrate_legacy_files()
+        self._migrate_skill_families()
         self._migrate_inline_scan_reports()
         self._checkpoint()
 
@@ -99,6 +101,53 @@ class Registry:
                 CREATE INDEX IF NOT EXISTS idx_skill_registry_status ON skill_registry(status);
                 CREATE INDEX IF NOT EXISTS idx_skill_registry_submitted_at ON skill_registry(submitted_at);
                 CREATE INDEX IF NOT EXISTS idx_skill_registry_updated_at ON skill_registry(updated_at);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_registry_family_fingerprint
+                    ON skill_registry(
+                        json_extract(payload, '$.family_id'),
+                        json_extract(payload, '$.content_fingerprint')
+                    )
+                    WHERE json_extract(payload, '$.family_id') IS NOT NULL
+                      AND json_extract(payload, '$.content_fingerprint') IS NOT NULL;
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_registry_family_version
+                    ON skill_registry(
+                        json_extract(payload, '$.family_id'),
+                        CAST(json_extract(payload, '$.version_no') AS INTEGER)
+                    )
+                    WHERE json_extract(payload, '$.family_id') IS NOT NULL
+                      AND json_extract(payload, '$.version_no') IS NOT NULL;
+
+                CREATE TABLE IF NOT EXISTS skill_families (
+                    family_id TEXT PRIMARY KEY,
+                    normalized_name TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    latest_version_id TEXT,
+                    latest_trusted_version_id TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_skill_families_updated_at
+                    ON skill_families(updated_at);
+
+                CREATE TABLE IF NOT EXISTS registry_migrations (
+                    migration_name TEXT PRIMARY KEY,
+                    applied_at TEXT NOT NULL,
+                    details TEXT NOT NULL DEFAULT '{}'
+                );
+
+                CREATE TABLE IF NOT EXISTS skill_scan_runs (
+                    scan_run_id TEXT PRIMARY KEY,
+                    version_id TEXT NOT NULL,
+                    scan_context_fingerprint TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    forced INTEGER NOT NULL DEFAULT 0,
+                    reused_from_scan_run_id TEXT,
+                    started_at TEXT NOT NULL,
+                    finished_at TEXT,
+                    result TEXT NOT NULL DEFAULT '{}'
+                );
+                CREATE INDEX IF NOT EXISTS idx_skill_scan_runs_version
+                    ON skill_scan_runs(version_id, started_at DESC);
 
                 CREATE TABLE IF NOT EXISTS skill_scan_reports (
                     skill_id TEXT PRIMARY KEY,
@@ -203,6 +252,203 @@ class Registry:
                         continue
                     self._insert_audit(conn, event, ignore_existing=True)
 
+    def _migrate_skill_families(self) -> None:
+        """Convert pre-versioning Skill rows into name families exactly once."""
+        migration_name = "skill_families_v1"
+        duplicate_ids: list[str] = []
+        migrated_versions = 0
+        created_families = 0
+
+        with self._lock, self._connect() as conn:
+            applied = conn.execute(
+                "SELECT 1 FROM registry_migrations WHERE migration_name = ?",
+                (migration_name,),
+            ).fetchone()
+            if applied:
+                return
+
+            legacy_rows = conn.execute(
+                """
+                SELECT skill_id, name, status, submitted_at, updated_at, payload
+                FROM skill_registry
+                WHERE nullif(json_extract(payload, '$.family_id'), '') IS NULL
+                ORDER BY submitted_at ASC, skill_id ASC
+                """
+            ).fetchall()
+            if not legacy_rows:
+                conn.execute(
+                    """
+                    INSERT INTO registry_migrations (migration_name, applied_at, details)
+                    VALUES (?, ?, ?)
+                    """,
+                    (
+                        migration_name,
+                        datetime.now(timezone.utc).isoformat(),
+                        json.dumps({"families": 0, "versions": 0, "duplicates_removed": 0}),
+                    ),
+                )
+                return
+
+            groups: dict[str, list[sqlite3.Row]] = {}
+            for row in legacy_rows:
+                groups.setdefault(self._normalized_skill_name(row["name"]), []).append(row)
+
+            for normalized_name, rows in groups.items():
+                newest = max(rows, key=lambda row: (row["submitted_at"], row["skill_id"]))
+                newest_payload = json.loads(newest["payload"])
+                family = conn.execute(
+                    """
+                    SELECT family_id, latest_version_id, latest_trusted_version_id
+                    FROM skill_families
+                    WHERE normalized_name = ?
+                    """,
+                    (normalized_name,),
+                ).fetchone()
+                if family:
+                    family_id = family["family_id"]
+                else:
+                    family_id = str(uuid.uuid4())
+                    created_families += 1
+                    conn.execute(
+                        """
+                        INSERT INTO skill_families (
+                            family_id, normalized_name, name, description,
+                            latest_version_id, latest_trusted_version_id,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)
+                        """,
+                        (
+                            family_id,
+                            normalized_name,
+                            newest["name"],
+                            str(newest_payload.get("description") or ""),
+                            min(row["submitted_at"] for row in rows),
+                            max(row["updated_at"] for row in rows),
+                        ),
+                    )
+
+                existing_rows = conn.execute(
+                    """
+                    SELECT skill_id,
+                           json_extract(payload, '$.content_fingerprint') AS content_fingerprint,
+                           CAST(coalesce(json_extract(payload, '$.version_no'), 0) AS INTEGER) AS version_no
+                    FROM skill_registry
+                    WHERE json_extract(payload, '$.family_id') = ?
+                    """,
+                    (family_id,),
+                ).fetchall()
+                existing_fingerprints = {
+                    row["content_fingerprint"]
+                    for row in existing_rows
+                    if row["content_fingerprint"]
+                }
+                next_version_no = max((int(row["version_no"]) for row in existing_rows), default=0) + 1
+
+                kept_by_fingerprint: dict[str, sqlite3.Row] = {}
+                rows_without_fingerprint: list[sqlite3.Row] = []
+                for row in rows:
+                    payload = json.loads(row["payload"])
+                    fingerprint = payload.get("content_fingerprint")
+                    if not fingerprint:
+                        rows_without_fingerprint.append(row)
+                        continue
+                    previous = kept_by_fingerprint.get(fingerprint)
+                    if previous is None or (row["submitted_at"], row["skill_id"]) > (
+                        previous["submitted_at"],
+                        previous["skill_id"],
+                    ):
+                        if previous is not None:
+                            duplicate_ids.append(previous["skill_id"])
+                        kept_by_fingerprint[fingerprint] = row
+                    else:
+                        duplicate_ids.append(row["skill_id"])
+
+                kept_rows = [
+                    *(
+                        row
+                        for fingerprint, row in kept_by_fingerprint.items()
+                        if fingerprint not in existing_fingerprints
+                    ),
+                    *rows_without_fingerprint,
+                ]
+                duplicate_ids.extend(
+                    row["skill_id"]
+                    for fingerprint, row in kept_by_fingerprint.items()
+                    if fingerprint in existing_fingerprints
+                )
+                kept_rows.sort(key=lambda row: (row["submitted_at"], row["skill_id"]))
+
+                if duplicate_ids:
+                    self._delete_version_rows(conn, duplicate_ids)
+                    duplicate_ids.clear()
+
+                for row in kept_rows:
+                    conn.execute(
+                        """
+                        UPDATE skill_registry
+                        SET payload = json_set(
+                            payload,
+                            '$.family_id', ?,
+                            '$.version_no', ?
+                        )
+                        WHERE skill_id = ?
+                        """,
+                        (family_id, next_version_no, row["skill_id"]),
+                    )
+                    next_version_no += 1
+                    migrated_versions += 1
+
+                conn.execute(
+                    """
+                    UPDATE skill_families
+                    SET name = ?, description = ?, updated_at = ?
+                    WHERE family_id = ?
+                    """,
+                    (
+                        newest["name"],
+                        str(newest_payload.get("description") or ""),
+                        max(row["updated_at"] for row in rows),
+                        family_id,
+                    ),
+                )
+                self._sync_family_pointers(conn, family_id)
+
+            details = {
+                "families": created_families,
+                "versions": migrated_versions,
+                "duplicates_removed": len(legacy_rows) - migrated_versions,
+            }
+            conn.execute(
+                """
+                INSERT INTO registry_migrations (migration_name, applied_at, details)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    migration_name,
+                    datetime.now(timezone.utc).isoformat(),
+                    json.dumps(details, ensure_ascii=False),
+                ),
+            )
+            logger.info(
+                "Migrated legacy Skills into version families: families=%s versions=%s duplicates_removed=%s",
+                details["families"],
+                details["versions"],
+                details["duplicates_removed"],
+            )
+
+    @staticmethod
+    def _delete_version_rows(conn: sqlite3.Connection, skill_ids: list[str]) -> None:
+        if not skill_ids:
+            return
+        unique_ids = sorted(set(skill_ids))
+        placeholders = ",".join("?" for _ in unique_ids)
+        params = tuple(unique_ids)
+        conn.execute(f"DELETE FROM skill_registry WHERE skill_id IN ({placeholders})", params)
+        conn.execute(f"DELETE FROM skill_review_queue WHERE skill_id IN ({placeholders})", params)
+        conn.execute(f"DELETE FROM skill_scan_reports WHERE skill_id IN ({placeholders})", params)
+        conn.execute(f"DELETE FROM skill_finding_stats WHERE skill_id IN ({placeholders})", params)
+        conn.execute(f"DELETE FROM skill_scan_runs WHERE version_id IN ({placeholders})", params)
+
     def _checkpoint(self) -> None:
         try:
             with self._lock, self._connect() as conn:
@@ -302,6 +548,7 @@ class Registry:
                 )
 
     def _upsert_entry(self, conn: sqlite3.Connection, entry: RegistryEntry) -> None:
+        self._ensure_family(conn, entry)
         entry.updated_at = datetime.now(timezone.utc)
         payload_data = entry.model_dump(mode="json")
         scan_report = None
@@ -386,6 +633,100 @@ class Registry:
         else:
             conn.execute("DELETE FROM skill_scan_reports WHERE skill_id = ?", (entry.skill_id,))
             conn.execute("DELETE FROM skill_finding_stats WHERE skill_id = ?", (entry.skill_id,))
+        self._sync_family_pointers(conn, entry.family_id)
+
+    @staticmethod
+    def _normalized_skill_name(name: str) -> str:
+        return name.strip().casefold()
+
+    def _ensure_family(self, conn: sqlite3.Connection, entry: RegistryEntry) -> None:
+        normalized = self._normalized_skill_name(entry.name)
+        row = None
+        if entry.family_id:
+            row = conn.execute(
+                "SELECT family_id FROM skill_families WHERE family_id = ?",
+                (entry.family_id,),
+            ).fetchone()
+        if row is None:
+            row = conn.execute(
+                "SELECT family_id FROM skill_families WHERE normalized_name = ?",
+                (normalized,),
+            ).fetchone()
+        now = datetime.now(timezone.utc).isoformat()
+        if row is None:
+            entry.family_id = entry.family_id or str(uuid.uuid4())
+            conn.execute(
+                """
+                INSERT INTO skill_families (
+                    family_id, normalized_name, name, description,
+                    latest_version_id, latest_trusted_version_id, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)
+                """,
+                (entry.family_id, normalized, entry.name, entry.description, now, now),
+            )
+        else:
+            entry.family_id = row["family_id"]
+            conn.execute(
+                """
+                UPDATE skill_families
+                SET name = ?, description = ?, updated_at = ?
+                WHERE family_id = ?
+                """,
+                (entry.name, entry.description, now, entry.family_id),
+            )
+
+        if entry.version_no < 1:
+            entry.version_no = 1
+        existing = conn.execute(
+            """
+            SELECT 1 FROM skill_registry
+            WHERE json_extract(payload, '$.family_id') = ?
+              AND CAST(coalesce(json_extract(payload, '$.version_no'), 1) AS INTEGER) = ?
+              AND skill_id != ?
+            """,
+            (entry.family_id, entry.version_no, entry.skill_id),
+        ).fetchone()
+        if existing:
+            row = conn.execute(
+                """
+                SELECT coalesce(max(CAST(json_extract(payload, '$.version_no') AS INTEGER)), 0) + 1 AS next_no
+                FROM skill_registry
+                WHERE json_extract(payload, '$.family_id') = ?
+                """,
+                (entry.family_id,),
+            ).fetchone()
+            entry.version_no = int(row["next_no"])
+
+    def _sync_family_pointers(self, conn: sqlite3.Connection, family_id: str | None) -> None:
+        if not family_id:
+            return
+        versions = conn.execute(
+            """
+            SELECT skill_id, status,
+                   CAST(coalesce(json_extract(payload, '$.version_no'), 1) AS INTEGER) AS version_no
+            FROM skill_registry
+            WHERE json_extract(payload, '$.family_id') = ?
+            ORDER BY version_no DESC, submitted_at DESC
+            """,
+            (family_id,),
+        ).fetchall()
+        latest = versions[0]["skill_id"] if versions else None
+        trusted = next(
+            (
+                row["skill_id"]
+                for row in versions
+                if row["status"] in (SkillStatus.APPROVED.value, SkillStatus.DEPLOYED.value)
+            ),
+            None,
+        )
+        conn.execute(
+            """
+            UPDATE skill_families
+            SET latest_version_id = ?, latest_trusted_version_id = ?, updated_at = ?
+            WHERE family_id = ?
+            """,
+            (latest, trusted, datetime.now(timezone.utc).isoformat(), family_id),
+        )
 
     def _entry_from_row(self, row: sqlite3.Row) -> RegistryEntry:
         payload = json.loads(row["payload"])
@@ -512,12 +853,26 @@ class Registry:
 
     def delete(self, skill_id: str) -> None:
         with self._lock, self._connect() as conn:
+            row = conn.execute(
+                "SELECT json_extract(payload, '$.family_id') AS family_id FROM skill_registry WHERE skill_id = ?",
+                (skill_id,),
+            ).fetchone()
             cur = conn.execute("DELETE FROM skill_registry WHERE skill_id = ?", (skill_id,))
             if cur.rowcount == 0:
                 raise KeyError(f"skill_id {skill_id!r} not found")
             conn.execute("DELETE FROM skill_review_queue WHERE skill_id = ?", (skill_id,))
             conn.execute("DELETE FROM skill_scan_reports WHERE skill_id = ?", (skill_id,))
             conn.execute("DELETE FROM skill_finding_stats WHERE skill_id = ?", (skill_id,))
+            conn.execute("DELETE FROM skill_scan_runs WHERE version_id = ?", (skill_id,))
+            family_id = row["family_id"] if row else None
+            self._sync_family_pointers(conn, family_id)
+            if family_id:
+                remaining = conn.execute(
+                    "SELECT 1 FROM skill_registry WHERE json_extract(payload, '$.family_id') = ? LIMIT 1",
+                    (family_id,),
+                ).fetchone()
+                if not remaining:
+                    conn.execute("DELETE FROM skill_families WHERE family_id = ?", (family_id,))
 
     def get_by_id(self, skill_id: str) -> RegistryEntry | None:
         with self._lock, self._connect() as conn:
@@ -533,20 +888,185 @@ class Registry:
             return self._safe_entry_from_row(row)
 
     def get_by_name(self, name: str) -> RegistryEntry | None:
-        """Return the most recently submitted entry with matching name."""
+        """Return the latest version of the named Skill family."""
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
+                FROM skill_families f
+                JOIN skill_registry s ON s.skill_id = f.latest_version_id
+                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                WHERE f.normalized_name = ?
+                """,
+                (self._normalized_skill_name(name),),
+            ).fetchone()
+            return self._safe_entry_from_row(row)
+
+    def get_trusted_by_name(self, name: str) -> RegistryEntry | None:
+        """Return the latest approved or deployed version of the named Skill family."""
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
+                FROM skill_families f
+                JOIN skill_registry s ON s.skill_id = f.latest_trusted_version_id
+                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                WHERE f.normalized_name = ?
+                """,
+                (self._normalized_skill_name(name),),
+            ).fetchone()
+            return self._safe_entry_from_row(row)
+
+    def get_by_family_id(self, family_id: str, *, trusted: bool = False) -> RegistryEntry | None:
+        pointer = "latest_trusted_version_id" if trusted else "latest_version_id"
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
+                FROM skill_families f
+                JOIN skill_registry s ON s.skill_id = f.{pointer}
+                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                WHERE f.family_id = ?
+                """,
+                (family_id,),
+            ).fetchone()
+            return self._safe_entry_from_row(row)
+
+    def list_versions(self, family_id_or_name: str) -> list[RegistryEntry]:
+        with self._lock, self._connect() as conn:
+            family = conn.execute(
+                """
+                SELECT family_id, latest_version_id, latest_trusted_version_id
+                FROM skill_families
+                WHERE family_id = ? OR normalized_name = ?
+                """,
+                (family_id_or_name, self._normalized_skill_name(family_id_or_name)),
+            ).fetchone()
+            if not family:
+                version = self.get_by_id(family_id_or_name)
+                if not version or not version.family_id:
+                    return []
+                family = conn.execute(
+                    """
+                    SELECT family_id, latest_version_id, latest_trusted_version_id
+                    FROM skill_families WHERE family_id = ?
+                    """,
+                    (version.family_id,),
+                ).fetchone()
+            rows = conn.execute(
+                """
+                SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
+                FROM skill_registry s
+                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
+                WHERE json_extract(s.payload, '$.family_id') = ?
+                ORDER BY CAST(coalesce(json_extract(s.payload, '$.version_no'), 1) AS INTEGER) DESC
+                """,
+                (family["family_id"],),
+            ).fetchall()
+            entries = self._entries_from_rows(rows)
+            for entry in entries:
+                entry.latest_version = entry.skill_id == family["latest_version_id"]
+                entry.latest_trusted_version = entry.skill_id == family["latest_trusted_version_id"]
+            return entries
+
+    def find_version_by_content(self, name: str, content_fingerprint: str) -> RegistryEntry | None:
         with self._lock, self._connect() as conn:
             row = conn.execute(
                 """
                 SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
                 FROM skill_registry s
+                JOIN skill_families f
+                  ON f.family_id = json_extract(s.payload, '$.family_id')
                 LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
-                WHERE lower(s.name) = lower(?)
-                ORDER BY s.submitted_at DESC
+                WHERE f.normalized_name = ?
+                  AND json_extract(s.payload, '$.content_fingerprint') = ?
                 LIMIT 1
                 """,
-                (name,),
+                (self._normalized_skill_name(name), content_fingerprint),
             ).fetchone()
             return self._safe_entry_from_row(row)
+
+    def next_version_no(self, name: str) -> tuple[str | None, int]:
+        with self._lock, self._connect() as conn:
+            family = conn.execute(
+                "SELECT family_id FROM skill_families WHERE normalized_name = ?",
+                (self._normalized_skill_name(name),),
+            ).fetchone()
+            if not family:
+                return None, 1
+            row = conn.execute(
+                """
+                SELECT coalesce(max(CAST(json_extract(payload, '$.version_no') AS INTEGER)), 0) + 1 AS next_no
+                FROM skill_registry
+                WHERE json_extract(payload, '$.family_id') = ?
+                """,
+                (family["family_id"],),
+            ).fetchone()
+            return family["family_id"], int(row["next_no"])
+
+    def add_scan_run(self, run: ScanRun) -> None:
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO skill_scan_runs (
+                    scan_run_id, version_id, scan_context_fingerprint, status, forced,
+                    reused_from_scan_run_id, started_at, finished_at, result
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run.scan_run_id,
+                    run.version_id,
+                    run.scan_context_fingerprint,
+                    run.status,
+                    1 if run.forced else 0,
+                    run.reused_from_scan_run_id,
+                    run.started_at.isoformat(),
+                    run.finished_at.isoformat() if run.finished_at else None,
+                    json.dumps(run.result, ensure_ascii=False, default=str),
+                ),
+            )
+
+    def update_scan_run(self, run: ScanRun) -> None:
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE skill_scan_runs
+                SET status = ?, reused_from_scan_run_id = ?, finished_at = ?, result = ?
+                WHERE scan_run_id = ?
+                """,
+                (
+                    run.status,
+                    run.reused_from_scan_run_id,
+                    run.finished_at.isoformat() if run.finished_at else None,
+                    json.dumps(run.result, ensure_ascii=False, default=str),
+                    run.scan_run_id,
+                ),
+            )
+
+    def list_scan_runs(self, version_id: str) -> list[ScanRun]:
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM skill_scan_runs
+                WHERE version_id = ?
+                ORDER BY started_at DESC
+                """,
+                (version_id,),
+            ).fetchall()
+        return [
+            ScanRun(
+                scan_run_id=row["scan_run_id"],
+                version_id=row["version_id"],
+                scan_context_fingerprint=row["scan_context_fingerprint"],
+                status=row["status"],
+                forced=bool(row["forced"]),
+                reused_from_scan_run_id=row["reused_from_scan_run_id"],
+                started_at=datetime.fromisoformat(row["started_at"]),
+                finished_at=datetime.fromisoformat(row["finished_at"]) if row["finished_at"] else None,
+                result=json.loads(row["result"] or "{}"),
+            )
+            for row in rows
+        ]
 
     def list_all(self, status: SkillStatus | None = None) -> list[RegistryEntry]:
         with self._lock, self._connect() as conn:
@@ -574,7 +1094,7 @@ class Registry:
 
     def count_skills(self) -> int:
         with self._lock, self._connect() as conn:
-            return int(conn.execute("SELECT count(*) FROM skill_registry").fetchone()[0])
+            return int(conn.execute("SELECT count(*) FROM skill_families").fetchone()[0])
 
     def count_review_queue(self) -> int:
         with self._lock, self._connect() as conn:
@@ -609,6 +1129,7 @@ class Registry:
         risk_level: str | None = None,
         sandbox_triggered: bool | None = None,
         sandbox_required_by_policy: bool | None = None,
+        trusted_only: bool = False,
         q: str | None = None,
         sort_by: str = "updated_at",
         sort_order: str = "desc",
@@ -618,40 +1139,40 @@ class Registry:
 
         if statuses:
             placeholders = ",".join("?" for _ in statuses)
-            where.append(f"status IN ({placeholders})")
+            where.append(f"s.status IN ({placeholders})")
             params.extend(status.value for status in statuses)
         if loadable_only:
-            where.append("status IN (?, ?)")
+            where.append("s.status IN (?, ?)")
             params.extend([SkillStatus.APPROVED.value, SkillStatus.DEPLOYED.value])
         if cancelled_only:
-            where.append("json_extract(payload, '$.rejection_reason') = ?")
+            where.append("json_extract(s.payload, '$.rejection_reason') = ?")
             params.append(cancelled_reason)
         if risk_level:
-            where.append("risk_level = ?")
+            where.append("s.risk_level = ?")
             params.append(risk_level)
         if sandbox_triggered is not None:
-            where.append("coalesce(json_extract(payload, '$.vetting.sandbox_triggered'), 0) = ?")
+            where.append("coalesce(json_extract(s.payload, '$.vetting.sandbox_triggered'), 0) = ?")
             params.append(1 if sandbox_triggered else 0)
         if sandbox_required_by_policy is not None:
-            where.append("coalesce(json_extract(payload, '$.vetting.sandbox_required_by_policy'), 0) = ?")
+            where.append("coalesce(json_extract(s.payload, '$.vetting.sandbox_required_by_policy'), 0) = ?")
             params.append(1 if sandbox_required_by_policy else 0)
         if q:
             needle = f"%{q.lower()}%"
             where.append(
-                "(lower(name) LIKE ? OR lower(skill_id) LIKE ? OR "
-                "lower(coalesce(json_extract(payload, '$.approved_by'), '')) LIKE ?)"
+                "(lower(s.name) LIKE ? OR lower(f.family_id) LIKE ? OR "
+                "lower(coalesce(json_extract(s.payload, '$.approved_by'), '')) LIKE ?)"
             )
             params.extend([needle, needle, needle])
 
         where_sql = f"WHERE {' AND '.join(where)}" if where else ""
         sort_columns = {
-            "name": "lower(name)",
-            "skill_id": "lower(skill_id)",
-            "status": "status",
-            "risk_level": "coalesce(risk_level, '')",
-            "approved_by": "lower(coalesce(json_extract(payload, '$.approved_by'), ''))",
-            "submitted_at": "submitted_at",
-            "updated_at": "updated_at",
+            "name": "lower(s.name)",
+            "skill_id": "lower(f.family_id)",
+            "status": "s.status",
+            "risk_level": "coalesce(s.risk_level, '')",
+            "approved_by": "lower(coalesce(json_extract(s.payload, '$.approved_by'), ''))",
+            "submitted_at": "s.submitted_at",
+            "updated_at": "s.updated_at",
         }
         sort_expr = sort_columns.get(sort_by, "updated_at")
         direction = "ASC" if sort_order.lower() == "asc" else "DESC"
@@ -660,30 +1181,45 @@ class Registry:
         offset = (safe_page - 1) * safe_page_size
 
         with self._lock, self._connect() as conn:
+            version_pointer = "latest_trusted_version_id" if trusted_only else "latest_version_id"
             total = conn.execute(
-                f"SELECT count(*) FROM skill_registry {where_sql}",
+                f"""
+                SELECT count(*)
+                FROM skill_families f
+                JOIN skill_registry s ON s.skill_id = f.{version_pointer}
+                {where_sql}
+                """,
                 tuple(params),
             ).fetchone()[0]
             rows = conn.execute(
                 f"""
                 SELECT
-                    skill_id,
-                    name,
-                    status,
-                    risk_level,
-                    submitted_at,
-                    updated_at,
-                    json_type(payload, '$.vetting') AS vetting_type,
-                    json_extract(payload, '$.vetting.sandbox_triggered') AS sandbox_triggered,
-                    json_extract(payload, '$.vetting.sandbox_required_by_policy') AS sandbox_required_by_policy,
-                    json_extract(payload, '$.vetting.sandbox_runtime') AS sandbox_runtime,
-                    json_extract(payload, '$.approved_by') AS approved_by,
-                    json_extract(payload, '$.rejection_reason') AS rejection_reason,
-                    json_extract(payload, '$.approved_at') AS approved_at,
-                    json_extract(payload, '$.deployed_at') AS deployed_at
-                FROM skill_registry
+                    f.family_id AS skill_id,
+                    s.skill_id AS version_id,
+                    CAST(coalesce(json_extract(s.payload, '$.version_no'), 1) AS INTEGER) AS version_no,
+                    json_extract(s.payload, '$.source_version') AS source_version,
+                    f.latest_trusted_version_id,
+                    tv.status AS latest_trusted_status,
+                    CAST(coalesce(json_extract(tv.payload, '$.version_no'), 0) AS INTEGER) AS latest_trusted_version_no,
+                    s.name,
+                    s.status,
+                    s.risk_level,
+                    s.submitted_at,
+                    s.updated_at,
+                    json_type(s.payload, '$.vetting') AS vetting_type,
+                    json_extract(s.payload, '$.vetting.sandbox_triggered') AS sandbox_triggered,
+                    json_extract(s.payload, '$.vetting.sandbox_required_by_policy') AS sandbox_required_by_policy,
+                    json_extract(s.payload, '$.vetting.sandbox_runtime') AS sandbox_runtime,
+                    json_extract(s.payload, '$.approved_by') AS approved_by,
+                    json_extract(s.payload, '$.source.author') AS submitted_by,
+                    json_extract(s.payload, '$.rejection_reason') AS rejection_reason,
+                    json_extract(s.payload, '$.approved_at') AS approved_at,
+                    json_extract(s.payload, '$.deployed_at') AS deployed_at
+                FROM skill_families f
+                JOIN skill_registry s ON s.skill_id = f.{version_pointer}
+                LEFT JOIN skill_registry tv ON tv.skill_id = f.latest_trusted_version_id
                 {where_sql}
-                ORDER BY {sort_expr} {direction}, updated_at DESC
+                ORDER BY {sort_expr} {direction}, s.updated_at DESC
                 LIMIT ? OFFSET ?
                 """,
                 tuple([*params, safe_page_size, offset]),
@@ -697,6 +1233,12 @@ class Registry:
             sandbox_runtime_value = row["sandbox_runtime"] if has_vetting else None
             items.append({
                 "skill_id": row["skill_id"],
+                "version_id": row["version_id"],
+                "version_no": row["version_no"],
+                "source_version": row["source_version"],
+                "latest_trusted_version_id": row["latest_trusted_version_id"],
+                "latest_trusted_version_no": row["latest_trusted_version_no"] or None,
+                "latest_trusted_status": row["latest_trusted_status"],
                 "name": row["name"],
                 "status": row["status"],
                 "risk_level": row["risk_level"],
@@ -709,6 +1251,7 @@ class Registry:
                 "sandbox_required_by_policy": sandbox_required_value,
                 "sandbox_runtime": sandbox_runtime_value,
                 "approved_by": row["approved_by"],
+                "submitted_by": row["submitted_by"],
                 "rejection_reason": row["rejection_reason"],
                 "submitted_at": row["submitted_at"],
                 "updated_at": row["updated_at"],
@@ -727,17 +1270,19 @@ class Registry:
         with self._lock, self._connect() as conn:
             grouped = conn.execute(
                 """
-                SELECT status, risk_level, count(*) AS count
-                FROM skill_registry
-                GROUP BY status, risk_level
+                SELECT s.status, s.risk_level, count(*) AS count
+                FROM skill_families f
+                JOIN skill_registry s ON s.skill_id = f.latest_version_id
+                GROUP BY s.status, s.risk_level
                 """
             ).fetchall()
             todos = conn.execute(
                 """
-                SELECT skill_id, name, status, risk_level, submitted_at
-                FROM skill_registry
-                WHERE status = ?
-                ORDER BY submitted_at DESC
+                SELECT s.skill_id, s.name, s.status, s.risk_level, s.submitted_at
+                FROM skill_families f
+                JOIN skill_registry s ON s.skill_id = f.latest_version_id
+                WHERE s.status = ?
+                ORDER BY s.submitted_at DESC
                 LIMIT 20
                 """,
                 (SkillStatus.VETTED.value,),
@@ -752,7 +1297,8 @@ class Registry:
                     sum(high) AS high,
                     sum(medium) AS medium,
                     sum(low) AS low
-                FROM skill_finding_stats
+                FROM skill_finding_stats fs
+                JOIN skill_families f ON f.latest_version_id = fs.skill_id
                 GROUP BY source_key
                 """
             ).fetchall()

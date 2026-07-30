@@ -25,7 +25,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|takeover|pending|refresh-pending|submit-pending|available-skills|skill-preview|install-skill|quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|pause-governance|resume-governance|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
+		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|takeover|pending|refresh-pending|submit-pending|available-skills|skill-preview|skill-versions|install-skill|quarantine|queue-quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|pause-governance|resume-governance|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
@@ -39,6 +39,7 @@ func run(args []string) error {
 	agentType := fs.String("agent-type", "", "local agent type")
 	managedAgentID := fs.String("managed-agent-id", "", "managed Agent ID")
 	skillID := fs.String("skill-id", "", "platform Skill ID")
+	versionID := fs.String("version-id", "", "trusted platform Skill version ID")
 	query := fs.String("query", "", "Skill name search")
 	interval := fs.Duration("interval", 5*time.Minute, "daemon polling interval")
 	var agentMappings stringList
@@ -57,6 +58,8 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	previousServer := strings.TrimRight(strings.TrimSpace(config.Server), "/")
+	previousToken := strings.TrimSpace(config.Token)
 	if *server == "" {
 		*server = config.Server
 	}
@@ -67,11 +70,23 @@ func run(args []string) error {
 		*name = config.Name
 	}
 	if args[0] == "configure" {
-		config.Server = *server
-		config.Token = *token
+		config.Server = strings.TrimRight(strings.TrimSpace(*server), "/")
+		config.Token = strings.TrimSpace(*token)
 		config.Name = *name
 		if err := managedclient.SaveConfig(*home, config); err != nil {
 			return err
+		}
+		connectionChanged := previousServer != "" && previousToken != "" &&
+			(previousServer != config.Server || previousToken != config.Token)
+		if connectionChanged {
+			store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
+			if err != nil {
+				return fmt.Errorf("连接配置已保存，但无法暂停旧连接的治理状态: %w", err)
+			}
+			defer store.Close()
+			if err := store.PauseForConnectionChange(); err != nil {
+				return fmt.Errorf("连接配置已保存，但无法暂停旧连接的治理状态: %w", err)
+			}
 		}
 		fmt.Println("configuration saved")
 		return nil
@@ -168,7 +183,7 @@ func run(args []string) error {
 		fmt.Println("backup restored:", *backup)
 		return nil
 	}
-	if args[0] == "pending" || args[0] == "refresh-pending" || args[0] == "submit-pending" || args[0] == "quarantine" {
+	if args[0] == "pending" || args[0] == "refresh-pending" || args[0] == "submit-pending" || args[0] == "quarantine" || args[0] == "queue-quarantine" {
 		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
 		if err != nil {
 			return err
@@ -187,7 +202,7 @@ func run(args []string) error {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
-			items, err := managedclient.RefreshPending(ctx, *server, *token, store)
+			items, err := managedclient.RefreshPendingIncludingTerminal(ctx, *server, *token, store)
 			if err != nil {
 				return err
 			}
@@ -211,6 +226,16 @@ func run(args []string) error {
 				return err
 			}
 			return json.NewEncoder(os.Stdout).Encode(items)
+		}
+		if args[0] == "queue-quarantine" {
+			if strings.TrimSpace(*itemID) == "" {
+				return fmt.Errorf("queue-quarantine requires --id")
+			}
+			item, err := managedclient.QueueQuarantineForDetection(*home, store, *itemID)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(os.Stdout).Encode(item)
 		}
 	}
 	if args[0] == "local-status" {
@@ -295,7 +320,7 @@ func run(args []string) error {
 		}
 		return nil
 	}
-	if args[0] == "available-skills" || args[0] == "skill-preview" {
+	if args[0] == "available-skills" || args[0] == "skill-preview" || args[0] == "skill-versions" {
 		if *server == "" || *token == "" || strings.TrimSpace(*agentType) == "" {
 			return fmt.Errorf("%s requires --server, --token and --agent-type", args[0])
 		}
@@ -312,9 +337,16 @@ func run(args []string) error {
 			return json.NewEncoder(os.Stdout).Encode(items)
 		}
 		if strings.TrimSpace(*skillID) == "" {
-			return fmt.Errorf("skill-preview requires --skill-id")
+			return fmt.Errorf("%s requires --skill-id", args[0])
 		}
-		item, err := api.SkillPreview(ctx, clientID, *skillID, *agentType, *managedAgentID)
+		if args[0] == "skill-versions" {
+			item, err := api.SkillVersions(ctx, clientID, *skillID, *agentType, *managedAgentID)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(os.Stdout).Encode(item)
+		}
+		item, err := api.SkillPreview(ctx, clientID, *skillID, *versionID, *agentType, *managedAgentID)
 		if err != nil {
 			return err
 		}
@@ -378,7 +410,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := managedclient.InstallApprovedSkill(ctx, *home, inventory, policy, api, store, *agentType, *managedAgentID, *skillID); err != nil {
+		if err := managedclient.InstallApprovedSkillVersion(ctx, *home, inventory, policy, api, store, *agentType, *managedAgentID, *skillID, *versionID); err != nil {
 			return err
 		}
 		if strings.TrimSpace(*itemID) != "" {

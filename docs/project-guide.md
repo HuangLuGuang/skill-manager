@@ -102,11 +102,14 @@ LLM 分析生成详细的安全报告，如果是恶意skill，还会生成攻�
 
 ### 3.4 扫描缓存与强制重扫
 
-为了提升效率，服务端会复用指纹一致的扫描结果。但在调整规则或排查问题时，你可以使用：
-- `--no-cache` (CLI)
-- 或勾选 **“禁用缓存”** (UI)
+为了提升效率，Skill 按“名称族 + 内容版本”管理：
 
-来强制系统忽略历史记录，执行一次完整的全新分析。
+- 同名且内容指纹相同的提交复用已有版本，不重复创建记录。
+- 检测配置也一致且全局启用了“复用检测结果”时，不再重复执行扫描。
+- 同名但内容不同会创建递增版本，历史版本内容使用服务端快照保存。
+- 是否复用只在“策略配置”全局控制，提交页和客户端不再提供单次“禁用缓存”。
+- 如需重新检测，在 Skill 详情的版本列表中点击“重新检测”。重扫会新增 Scan Run，不会创建内容版本；重扫完成前或重扫失败时，上一份可信结果继续有效。
+- 升级旧数据库时，Registry 会在首次启动时把旧 Skill 按名称归入版本族；同名同内容只保留提交时间最新的一条，同名不同内容按提交时间生成版本号。迁移记录写入 `registry_migrations`，后续启动不会重复迁移，也不会重新扫描。
 
 ### 3.5 Sandbox 是补充验证，不是唯一裁判
 
@@ -200,7 +203,7 @@ flowchart TB
 - [agent_manager/core/policy.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/policy.py)
   策略配置
 - [agent_manager/core/registry.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/registry.py)
-  SQLite 持久化，启动时可从旧 `registry.json`、`review.json`、`audit.jsonl` 自动迁移
+  SQLite 持久化，启动时可从旧 `registry.json`、`review.json`、`audit.jsonl` 自动迁移，并一次性把旧 Skill 记录迁移到名称族和内容版本模型
 - [agent_manager/core/runtime.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/runtime.py)
   运行时治理
 - [agent_manager/core/prompt_manager.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/prompt_manager.py)
@@ -635,7 +638,8 @@ make sandbox-runtime-build
 
 看：
 
-- 已提交 Skill 的当前状态
+- 每个同名 Skill 只显示一条，状态取最新内容版本
+- 最新版本号与最新可信版本号
 - 风险等级
 - Sandbox 是否触发
 - 是否策略强制
@@ -653,6 +657,9 @@ make sandbox-runtime-build
 - sandbox 风险摘要
 - 原始报告 JSON
 - 文件列表与文件内容
+- 同名 Skill 的完整版本历史、来源版本和可信状态
+- 任意两个版本之间的文件级 Diff
+- 指定内容版本的检测执行记录（Scan Run）
 
 ### 12.4 提交技能
 
@@ -763,6 +770,10 @@ Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privac
 6. 后台服务持续执行平台任务、完整性巡检和异常隔离；离线事件在恢复连接后补报。
 
 平台入口为“智能体管理 -> 客户端管理”，可以查看 Agent 映射、已安装 Skill、任务和异常，也可以从 Skill 详情直接创建“安装到客户端”任务。
+
+安装或恢复同名 Skill 时，客户端默认选择最新可信版本，也可以在桌面端或平台任务中指定其他可信版本。受管目录按版本保存内容，兼容入口只指向当前选中的版本；完整性巡检修复时会固定恢复已安装的 `version_id`，不会静默升级到另一个版本。
+
+如果完整性巡检发现本地 Skill 内容被修改，客户端会先把它移入隔离区。操作员可以在隔离区选择“提交当前版本检测”：客户端把隔离内容复制到待处理区，并按名称和内容指纹作为新版本提交；原隔离副本在检测和审核期间保持不变。该提交版本成为可信版本（`APPROVED`）后，客户端后台服务会按提交返回的 `version_id` 自动安装并解除对应隔离；自动安装失败时保留待处理记录并稍后重试，操作员也可以手动安装。不能仅凭扫描任务完成或进入待审核状态就自动恢复运行。
 
 ### 13.1 界面语言
 

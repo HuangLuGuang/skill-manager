@@ -681,6 +681,159 @@
           </a-table>
         </a-tab-pane>
 
+        <a-tab-pane key="versions" :tab="$t('skillVersions.versions')">
+          <a-alert
+            type="info"
+            show-icon
+            :message="$t('skillVersions.trustedOnlyHint')"
+            style="margin-bottom: 12px"
+          />
+          <a-table
+            :data-source="skillVersions"
+            :columns="versionColumns"
+            rowKey="version_id"
+            :loading="loadingVersions"
+            :pagination="false"
+            size="small"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'version'">
+                <a-space wrap>
+                  <strong>v{{ record.version_no }}</strong>
+                  <a-tag v-if="record.latest" color="blue">{{ $t('skillVersions.latest') }}</a-tag>
+                  <a-tag v-if="record.latest_trusted" color="green">{{ $t('skillVersions.latestTrusted') }}</a-tag>
+                </a-space>
+              </template>
+              <template v-else-if="column.key === 'status'">
+                <a-tag :color="statusColor(record.status, record)">{{ statusDisplay(record.status, record) }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'risk'">
+                <a-tag :color="riskColor(record.risk_level)">{{ riskDisplay(record.risk_level) }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'actions'">
+                <a-space>
+                  <a-button size="small" @click="downloadVersion(record)">{{ $t('skillVersions.download') }}</a-button>
+                  <a-button size="small" @click="openScanRuns(record)">{{ $t('skillVersions.scanRuns') }}</a-button>
+                  <a-button
+                    size="small"
+                    :loading="rescanningVersionId === record.version_id"
+                    :disabled="record.scan_pending"
+                    @click="rescanVersion(record)"
+                  >
+                    {{ record.scan_pending ? $t('skillVersions.scanning') : $t('skillVersions.rescan') }}
+                  </a-button>
+                </a-space>
+              </template>
+            </template>
+          </a-table>
+        </a-tab-pane>
+
+        <a-tab-pane key="diff" :tab="$t('skillVersions.diff')">
+          <div class="version-diff-toolbar">
+            <a-space wrap>
+              <span>{{ $t('skillVersions.baseVersion') }}</span>
+              <a-select v-model:value="diffBaseVersion" style="width: 190px" @change="fetchVersionDiff">
+                <a-select-option v-for="item in skillVersions" :key="item.version_id" :value="item.version_id">
+                  v{{ item.version_no }}{{ item.source_version ? ` · ${item.source_version}` : '' }}
+                </a-select-option>
+              </a-select>
+              <a-tooltip :title="$t('skillVersions.swapVersions')">
+                <a-button
+                  class="version-diff-swap"
+                  shape="circle"
+                  :aria-label="$t('skillVersions.swapVersions')"
+                  :disabled="!diffBaseVersion || !diffTargetVersion"
+                  @click="swapDiffVersions"
+                >
+                  <template #icon><SwapOutlined /></template>
+                </a-button>
+              </a-tooltip>
+              <span>{{ $t('skillVersions.targetVersion') }}</span>
+              <a-select v-model:value="diffTargetVersion" style="width: 190px" @change="fetchVersionDiff">
+                <a-select-option v-for="item in skillVersions" :key="item.version_id" :value="item.version_id">
+                  v{{ item.version_no }}{{ item.source_version ? ` · ${item.source_version}` : '' }}
+                </a-select-option>
+              </a-select>
+            </a-space>
+            <a-radio-group v-model:value="diffViewMode" button-style="solid">
+              <a-radio-button value="side-by-side">{{ $t('skillVersions.sideBySide') }}</a-radio-button>
+              <a-radio-button value="inline">{{ $t('skillVersions.inline') }}</a-radio-button>
+            </a-radio-group>
+          </div>
+          <a-empty v-if="!versionDiffItems.length && !loadingVersionDiff" :description="$t('skillVersions.noChanges')" />
+          <a-spin v-else :spinning="loadingVersionDiff">
+            <div v-if="selectedVersionDiffItem" class="version-diff-file">
+              <div class="version-diff-file-toolbar">
+                <a-space wrap>
+                  <span>{{ $t('skillVersions.file') }}</span>
+                  <a-select
+                    v-model:value="selectedDiffPath"
+                    show-search
+                    option-filter-prop="label"
+                    class="version-diff-file-select"
+                    :placeholder="$t('skillVersions.selectFile')"
+                  >
+                    <a-select-option
+                      v-for="item in versionDiffItems"
+                      :key="item.path"
+                      :value="item.path"
+                      :label="item.path"
+                    >
+                      {{ item.path }}
+                    </a-select-option>
+                  </a-select>
+                </a-space>
+                <a-space>
+                  <a-tag>{{ diffFileStatus(selectedVersionDiffItem.status) }}</a-tag>
+                  <a-tag color="green">+{{ selectedVersionDiffItem.additions }}</a-tag>
+                  <a-tag color="red">-{{ selectedVersionDiffItem.deletions }}</a-tag>
+                </a-space>
+              </div>
+              <div v-if="diffViewMode === 'side-by-side'" class="version-diff-scroll">
+                <div class="version-diff-grid version-diff-grid--header">
+                  <div>{{ $t('skillVersions.before') }}</div>
+                  <div>{{ $t('skillVersions.after') }}</div>
+                </div>
+                <div
+                  v-for="row in selectedVersionDiffItem.diffRows"
+                  :key="row.key"
+                  class="version-diff-grid version-diff-row"
+                  :class="{ 'version-diff-row--hunk': row.kind === 'hunk' }"
+                >
+                  <template v-if="row.kind === 'hunk'">
+                    <div class="version-diff-hunk">{{ row.text }}</div>
+                  </template>
+                  <template v-else>
+                    <div class="version-diff-line" :class="`version-diff-line--${row.left?.kind || 'empty'}`">
+                      <span class="version-diff-line-no">{{ row.left?.lineNo || '' }}</span>
+                      <span class="version-diff-marker">{{ row.left?.marker || '' }}</span>
+                      <span class="version-diff-text">{{ row.left?.text || ' ' }}</span>
+                    </div>
+                    <div class="version-diff-line" :class="`version-diff-line--${row.right?.kind || 'empty'}`">
+                      <span class="version-diff-line-no">{{ row.right?.lineNo || '' }}</span>
+                      <span class="version-diff-marker">{{ row.right?.marker || '' }}</span>
+                      <span class="version-diff-text">{{ row.right?.text || ' ' }}</span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+              <div v-else class="version-diff-scroll version-diff-scroll--inline">
+                <div
+                  v-for="row in selectedVersionDiffItem.inlineRows"
+                  :key="row.key"
+                  class="version-diff-line version-diff-line--inline"
+                  :class="`version-diff-line--${row.kind}`"
+                >
+                  <span class="version-diff-line-no">{{ row.oldLineNo || '' }}</span>
+                  <span class="version-diff-line-no">{{ row.newLineNo || '' }}</span>
+                  <span class="version-diff-marker">{{ row.marker }}</span>
+                  <span class="version-diff-text">{{ row.text || ' ' }}</span>
+                </div>
+              </div>
+            </div>
+          </a-spin>
+        </a-tab-pane>
+
         <a-tab-pane key="audit" :tab="$t('legacy.7wyi9c')">
           <a-table :data-source="auditRows" :columns="auditColumns" rowKey="event_id" :pagination="{ pageSize: 5 }">
             <template #bodyCell="{ column, record }">
@@ -712,6 +865,18 @@
         />
         <a-form-item label="Skill">
           <a-input :value="detail?.name || ''" disabled />
+        </a-form-item>
+        <a-form-item :label="$t('skillVersions.version')" required>
+          <a-select v-model:value="clientInstallVersion">
+            <a-select-option
+              v-for="item in trustedSkillVersions"
+              :key="item.version_id"
+              :value="item.version_id"
+            >
+              v{{ item.version_no }}{{ item.source_version ? ` · ${item.source_version}` : '' }}
+              {{ item.latest_trusted ? ` · ${$t('skillVersions.latestTrusted')}` : '' }}
+            </a-select-option>
+          </a-select>
         </a-form-item>
         <a-form-item :label="$t('legacy.1lakt7z')">
           <a-input :value="currentUser()" disabled />
@@ -764,6 +929,22 @@
       </a-form>
     </a-modal>
 
+    <a-modal
+      v-model:open="scanRunsOpen"
+      :title="$t('skillVersions.scanRuns')"
+      :footer="null"
+      width="900px"
+    >
+      <a-table
+        :data-source="scanRuns"
+        :columns="scanRunColumns"
+        rowKey="scan_run_id"
+        :loading="loadingScanRuns"
+        :pagination="false"
+        size="small"
+      />
+    </a-modal>
+
     <a-drawer
       v-model:open="fileViewerOpen"
       :title="viewerTitle"
@@ -789,6 +970,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
+import { SwapOutlined } from '@ant-design/icons-vue'
 import { marked } from 'marked'
 
 import {
@@ -802,17 +984,22 @@ import {
   getSkillFiles,
   getSkillGovernanceCard,
   getSkillScanReport,
+  getSkillVersionDiff,
+  getSkillVersionScanRuns,
+  getSkillVersions,
   listClients,
   refreshSkillGovernanceCard,
   rejectSkill,
+  rescanSkill,
   verifySkillSignature,
 } from '../api'
 import { formatDateTime } from '../utils/format'
+import { parseUnifiedDiff } from '../utils/diff'
 import { translateDomain } from '../i18n'
 import { useLocaleText } from '../i18n/useLocaleText'
 import AttackChainGraph from '../components/AttackChainGraph.vue'
 
-const { isEnglish, phrase, text } = useLocaleText()
+const { isEnglish, phrase, text, t } = useLocaleText()
 const route = useRoute()
 const skillId = computed(() => route.params.skillId)
 const detailPageTitle = computed(() => {
@@ -823,6 +1010,9 @@ const activeTab = ref(route.query.tab || 'vetting')
 const loading = ref(false)
 const loadingScanReport = ref(false)
 const loadingContent = ref(false)
+const loadingVersions = ref(false)
+const loadingVersionDiff = ref(false)
+const loadingScanRuns = ref(false)
 const loadingGovernanceCard = ref(false)
 const verifyingSignature = ref(false)
 const downloadingSkill = ref(false)
@@ -834,6 +1024,15 @@ const scanReport = ref(null)
 const governanceCard = ref(null)
 const skillContent = ref(null)
 const skillFiles = ref([])
+const skillVersions = ref([])
+const versionDiffItems = ref([])
+const scanRuns = ref([])
+const scanRunsOpen = ref(false)
+const diffBaseVersion = ref('')
+const diffTargetVersion = ref('')
+const diffViewMode = ref('side-by-side')
+const selectedDiffPath = ref('')
+const rescanningVersionId = ref('')
 const signatureResult = ref(null)
 const fileViewerOpen = ref(false)
 const loadingFileViewer = ref(false)
@@ -849,6 +1048,7 @@ const rejectReason = ref('')
 const clientInstallOpen = ref(false)
 const clientInstallLoading = ref(false)
 const clientInstallTarget = ref('')
+const clientInstallVersion = ref('')
 const managedClients = ref([])
 const clientTargets = computed(() => managedClients.value.flatMap(client =>
   (client.agents || [])
@@ -861,6 +1061,27 @@ const clientTargets = computed(() => managedClients.value.flatMap(client =>
       managedAgentId: agent.managed_agent_id,
     })),
 ))
+const trustedSkillVersions = computed(() =>
+  skillVersions.value.filter(item => ['APPROVED', 'DEPLOYED'].includes(item.status)),
+)
+
+const selectedVersionDiffItem = computed(() => {
+  const item = versionDiffItems.value.find(row => row.path === selectedDiffPath.value)
+    || versionDiffItems.value[0]
+  if (!item) return null
+  const parsed = parseUnifiedDiff(item.diff)
+  return {
+    ...item,
+    diffRows: parsed.sideRows,
+    inlineRows: parsed.inlineRows,
+  }
+})
+
+const diffFileStatus = status => ({
+  added: t('skillVersions.fileAdded'),
+  deleted: t('skillVersions.fileDeleted'),
+  changed: t('skillVersions.fileChanged'),
+}[status] || status)
 
 const auditColumns = computed(() => [
   { title: text('时间', 'Time'), dataIndex: 'timestamp', key: 'timestamp', width: 180, customRender: ({ text: value }) => formatDateTime(value) },
@@ -903,6 +1124,120 @@ const fileColumns = computed(() => [
   { title: text('大小', 'Size'), dataIndex: 'size_bytes', key: 'size_bytes', width: 140, customRender: ({ text: value }) => formatFileSize(value) },
   { title: text('修改时间', 'Modified At'), dataIndex: 'modified_at', key: 'modified_at', width: 220, customRender: ({ text: value }) => formatDateTime(value) },
 ])
+const versionColumns = computed(() => [
+  { title: t('skillVersions.version'), key: 'version', width: 220 },
+  { title: t('skillVersions.sourceVersion'), dataIndex: 'source_version', key: 'sourceVersion', width: 140 },
+  { title: t('skillVersions.status'), dataIndex: 'status', key: 'status', width: 130 },
+  { title: t('skillVersions.risk'), dataIndex: 'risk_level', key: 'risk', width: 120 },
+  { title: t('skillVersions.scannedAt'), dataIndex: 'updated_at', key: 'updatedAt', width: 190, customRender: ({ text: value }) => formatDateTime(value) },
+  { title: t('skillVersions.actions'), key: 'actions', width: 330 },
+])
+const scanRunColumns = computed(() => [
+  { title: t('skillVersions.runStatus'), dataIndex: 'status', key: 'status', width: 120 },
+  { title: t('skillVersions.startedAt'), dataIndex: 'started_at', key: 'startedAt', width: 190, customRender: ({ text: value }) => formatDateTime(value) },
+  { title: t('skillVersions.finishedAt'), dataIndex: 'finished_at', key: 'finishedAt', width: 190, customRender: ({ text: value }) => formatDateTime(value) },
+  { title: t('skillVersions.forced'), dataIndex: 'forced', key: 'forced', width: 90, customRender: ({ text: value }) => value ? t('skillVersions.yes') : t('skillVersions.no') },
+  { title: t('skillVersions.reusedFrom'), dataIndex: 'reused_from_scan_run_id', key: 'reusedFrom' },
+])
+
+const initializeVersionDiff = () => {
+  if (!skillVersions.value.length) {
+    diffBaseVersion.value = ''
+    diffTargetVersion.value = ''
+    versionDiffItems.value = []
+    return
+  }
+  diffTargetVersion.value = skillVersions.value[0].version_id
+  diffBaseVersion.value = skillVersions.value[Math.min(1, skillVersions.value.length - 1)].version_id
+  fetchVersionDiff()
+}
+
+const fetchVersions = async () => {
+  if (!detail.value?.skill_id) return
+  loadingVersions.value = true
+  try {
+    const result = await getSkillVersions(detail.value.skill_id)
+    skillVersions.value = result?.items || []
+    initializeVersionDiff()
+  } catch (error) {
+    message.error(error.response?.data?.detail || t('skillVersions.loadFailed'))
+  } finally {
+    loadingVersions.value = false
+  }
+}
+
+const fetchVersionDiff = async () => {
+  if (!detail.value?.skill_id || !diffBaseVersion.value || !diffTargetVersion.value) return
+  loadingVersionDiff.value = true
+  try {
+    const result = await getSkillVersionDiff(detail.value.skill_id, {
+      base: diffBaseVersion.value,
+      target: diffTargetVersion.value,
+    })
+    const items = result?.items || []
+    versionDiffItems.value = items
+    if (!items.some(item => item.path === selectedDiffPath.value)) {
+      selectedDiffPath.value = items[0]?.path || ''
+    }
+  } catch (error) {
+    message.error(error.response?.data?.detail || t('skillVersions.diffLoadFailed'))
+  } finally {
+    loadingVersionDiff.value = false
+  }
+}
+
+const swapDiffVersions = () => {
+  const previousBase = diffBaseVersion.value
+  diffBaseVersion.value = diffTargetVersion.value
+  diffTargetVersion.value = previousBase
+  fetchVersionDiff()
+}
+
+const downloadVersion = async (record) => {
+  downloadingSkill.value = true
+  try {
+    const blob = await downloadSkill(detail.value.skill_id, { version: record.version_id })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${detail.value.name}-v${record.version_no}.zip`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    message.error(error.response?.data?.detail || t('skillVersions.downloadFailed'))
+  } finally {
+    downloadingSkill.value = false
+  }
+}
+
+const rescanVersion = async (record) => {
+  rescanningVersionId.value = record.version_id
+  try {
+    const result = await rescanSkill(record.version_id)
+    message.success(result?.message || t('skillVersions.rescanSubmitted'))
+    await fetchVersions()
+  } catch (error) {
+    message.error(error.response?.data?.detail || t('skillVersions.rescanFailed'))
+  } finally {
+    rescanningVersionId.value = ''
+  }
+}
+
+const openScanRuns = async (record) => {
+  scanRunsOpen.value = true
+  loadingScanRuns.value = true
+  scanRuns.value = []
+  try {
+    const result = await getSkillVersionScanRuns(detail.value.skill_id, record.version_id)
+    scanRuns.value = result?.items || []
+  } catch (error) {
+    message.error(error.response?.data?.detail || t('skillVersions.scanRunsLoadFailed'))
+  } finally {
+    loadingScanRuns.value = false
+  }
+}
 
 const sandboxProbeColumns = computed(() => [
   { title: 'Probe', key: 'probe', width: 220 },
@@ -920,12 +1255,13 @@ const fetchDetail = async () => {
     const data = await getSkillDetail(skillId.value)
     detail.value = data
     signatureResult.value = null
-    const [auditResult, reportResult, contentResult, filesResult, cardResult] = await Promise.allSettled([
+    const [auditResult, reportResult, contentResult, filesResult, cardResult, versionsResult] = await Promise.allSettled([
       getAudit({ skill_id: data.skill_id, since_hours: 720, limit: 50 }),
       getSkillScanReport(data.skill_id),
       getSkillContent(data.skill_id),
       getSkillFiles(data.skill_id),
       getSkillGovernanceCard(data.skill_id),
+      getSkillVersions(data.skill_id),
     ])
     auditRows.value = auditResult.status === 'fulfilled' && Array.isArray(auditResult.value)
       ? auditResult.value
@@ -936,6 +1272,8 @@ const fetchDetail = async () => {
     skillContent.value = contentResult.status === 'fulfilled' ? (contentResult.value || null) : null
     skillFiles.value = filesResult.status === 'fulfilled' ? (filesResult.value?.files || []) : []
     governanceCard.value = cardResult.status === 'fulfilled' ? (cardResult.value || null) : null
+    skillVersions.value = versionsResult.status === 'fulfilled' ? (versionsResult.value?.items || []) : []
+    initializeVersionDiff()
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.qrrlus'))
   } finally {
@@ -945,6 +1283,9 @@ const fetchDetail = async () => {
 
 const openClientInstall = async () => {
   clientInstallTarget.value = ''
+  clientInstallVersion.value = trustedSkillVersions.value.find(item => item.latest_trusted)?.version_id
+    || trustedSkillVersions.value[0]?.version_id
+    || ''
   clientInstallOpen.value = true
   clientInstallLoading.value = true
   try {
@@ -970,6 +1311,7 @@ const submitClientInstall = async () => {
         agent_type: target.agentType,
         managed_agent_id: target.managedAgentId,
         skill_id: detail.value.skill_id,
+        version_id: clientInstallVersion.value,
       },
     })
     clientInstallOpen.value = false
@@ -2569,5 +2911,205 @@ watch(
   flex: 0 0 auto;
   padding: 0 12px;
   white-space: pre;
+}
+
+.version-diff-toolbar,
+.version-diff-file-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.version-diff-toolbar {
+  margin-bottom: 12px;
+}
+
+.version-diff-swap {
+  color: #2563eb;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.version-diff-swap:hover,
+.version-diff-swap:focus-visible {
+  color: #1d4ed8;
+  border-color: #60a5fa;
+  background: #dbeafe;
+}
+
+.version-diff-file {
+  overflow: hidden;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.version-diff-file-toolbar {
+  min-height: 48px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border-bottom: 1px solid #d8e0ea;
+}
+
+.version-diff-file-select {
+  width: min(460px, 52vw);
+}
+
+.version-diff-grid {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
+}
+
+.version-diff-scroll {
+  max-height: 560px;
+  overflow: auto;
+  color: #334155;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 20px;
+  background: #fff;
+}
+
+.version-diff-grid--header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-width: 840px;
+  color: #475569;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 34px;
+  background: #f8fafc;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+.version-diff-grid--header > div {
+  padding: 0 12px;
+}
+
+.version-diff-grid--header > div + div,
+.version-diff-row > .version-diff-line + .version-diff-line {
+  border-left: 1px solid #cbd5e1;
+}
+
+.version-diff-row {
+  min-width: 840px;
+}
+
+.version-diff-row--hunk {
+  display: block;
+}
+
+.version-diff-hunk {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 840px;
+  padding: 2px 12px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-top: 1px solid #dbeafe;
+  border-bottom: 1px solid #dbeafe;
+}
+
+.version-diff-line {
+  display: grid;
+  grid-template-columns: 52px 22px max-content;
+  min-width: 0;
+  white-space: pre;
+}
+
+.version-diff-line--inline {
+  grid-template-columns: 52px 52px 22px max-content;
+  width: max-content;
+  min-width: 100%;
+}
+
+.version-diff-line-no {
+  padding: 0 8px;
+  color: #94a3b8;
+  text-align: right;
+  user-select: none;
+  background: rgb(248 250 252 / 82%);
+  border-right: 1px solid rgb(203 213 225 / 72%);
+}
+
+.version-diff-marker {
+  color: #64748b;
+  text-align: center;
+  user-select: none;
+}
+
+.version-diff-text {
+  padding-right: 16px;
+}
+
+.version-diff-line--removed {
+  color: #7f1d1d;
+  background: #fee2e2;
+}
+
+.version-diff-line--removed .version-diff-line-no {
+  color: #b91c1c;
+  background: #fecaca;
+}
+
+.version-diff-line--removed .version-diff-marker {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.version-diff-line--added {
+  color: #14532d;
+  background: #dcfce7;
+}
+
+.version-diff-line--added .version-diff-line-no {
+  color: #15803d;
+  background: #bbf7d0;
+}
+
+.version-diff-line--added .version-diff-marker {
+  color: #15803d;
+  font-weight: 700;
+}
+
+.version-diff-line--empty {
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      #f8fafc,
+      #f8fafc 4px,
+      #f1f5f9 4px,
+      #f1f5f9 8px
+    );
+}
+
+.version-diff-scroll--inline .version-diff-line--hunk {
+  display: grid;
+  grid-template-columns: 52px 52px 22px max-content;
+  width: max-content;
+  min-width: 100%;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-top: 1px solid #dbeafe;
+  border-bottom: 1px solid #dbeafe;
+}
+
+@media (max-width: 900px) {
+  .version-diff-toolbar,
+  .version-diff-file-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .version-diff-file-select {
+    width: min(560px, 72vw);
+  }
+
+  .version-diff-scroll {
+    max-height: 480px;
+  }
 }
 </style>

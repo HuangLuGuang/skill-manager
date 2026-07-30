@@ -183,7 +183,8 @@ def test_scanner_import_accepts_bound_client_token(tmp_path):
             headers={"Authorization": f"Bearer {token}"},
         )
         assert result.status_code == 200
-        assert result.json()["skill_id"] == entry.skill_id
+        assert result.json()["skill_id"] == (entry.family_id or entry.skill_id)
+        assert result.json()["version_id"] == entry.skill_id
     finally:
         api_router._manager = previous_manager
 

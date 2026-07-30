@@ -186,7 +186,6 @@ def run_one_cli(label: str, scan_root: Path, token: str, args: argparse.Namespac
         "--deep-scan",
         "--sandbox",
         "--llm",
-        "--no-cache",
     ]
 
     # 分开处理以避免 f-string 问题

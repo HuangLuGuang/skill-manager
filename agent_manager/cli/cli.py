@@ -98,12 +98,10 @@ def main(ctx: click.Context, policy_path: str | None):
               help="Enable LLM semantic analysis (requires API key)")
 @click.option("--sandbox", is_flag=True, default=False,
               help="Enable Docker sandbox execution probe (requires Docker)")
-@click.option("--no-cache", is_flag=True, default=False,
-              help="Bypass scan cache and force a fresh analysis")
 @click.option("--json", "output_json", is_flag=True, default=False,
               help="Output result as JSON")
 @click.pass_context
-def submit(ctx, skill_path, author, origin, behavioral, llm, sandbox, no_cache, output_json):
+def submit(ctx, skill_path, author, origin, behavioral, llm, sandbox, output_json):
     """Vet and submit a skill to the registry."""
     from agent_manager.core.models import SourceInfo, SkillOrigin
 
@@ -122,7 +120,6 @@ def submit(ctx, skill_path, author, origin, behavioral, llm, sandbox, no_cache, 
                 use_behavioral=behavioral,
                 use_llm=llm,
                 use_sandbox=sandbox,
-                no_cache=no_cache,
             )
         except Exception as e:
             err_console.print(f"[red]Error:[/red] {e}")

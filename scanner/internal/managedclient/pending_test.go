@@ -2,6 +2,9 @@ package managedclient
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,7 +12,103 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestReconcileApprovedPendingAutomaticallyInstallsExactVersion(t *testing.T) {
+	home := t.TempDir()
+	skillsRoot := filepath.Join(home, ".codex", "skills")
+	source := filepath.Join(skillsRoot, "safe-skill")
+	writeSkill(t, source, "safe-skill")
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	quarantined, err := QuarantineSkill(home, store, "codex", "safe-skill", source, "skill_modified")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := QueueQuarantineForDetection(home, store, quarantined.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkPendingSubmitted(pending, "skill-1", "skill-version-2"); err != nil {
+		t.Fatal(err)
+	}
+
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageBody := signedPackage(t, privateKey)
+	packageRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/scanner/imports/skill-version-2":
+			_ = json.NewEncoder(response).Encode(map[string]any{
+				"skill_id": "skill-1", "version_id": "skill-version-2", "name": "safe-skill", "status": "APPROVED",
+			})
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/clients/client-1/skills/skill-1/package":
+			packageRequests++
+			if got := request.URL.Query().Get("version_id"); got != "skill-version-2" {
+				t.Errorf("installed version %q instead of submitted version", got)
+			}
+			response.Header().Set("Content-Type", "application/zip")
+			_, _ = response.Write(packageBody)
+		case request.Method == http.MethodPost:
+			response.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected request: %s %s", request.Method, request.URL.String())
+			response.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	inventory := Inventory{
+		ClientID: "client-1",
+		Agents: []Agent{{
+			AgentType: "codex", SkillsPath: skillsRoot, SkillManagementSupported: true,
+		}},
+	}
+	policy := Policy{ReleasePublicKey: base64.StdEncoding.EncodeToString(publicKey)}
+	changed, err := ReconcileApprovedPending(
+		context.Background(), home, NewAPI(server.URL, "token", 5*time.Second), store, inventory, policy,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || packageRequests != 1 {
+		t.Fatalf("approved pending Skill was not installed exactly once: changed=%v requests=%d", changed, packageRequests)
+	}
+	if items, err := store.PendingItems(); err != nil || len(items) != 0 {
+		t.Fatalf("installed pending record was not cleared: %#v %v", items, err)
+	}
+	if items, err := store.QuarantineItems(); err != nil || len(items) != 0 {
+		t.Fatalf("installed Skill was not released from quarantine: %#v %v", items, err)
+	}
+	if _, err := filepath.EvalSymlinks(filepath.Join(skillsRoot, "safe-skill")); err != nil {
+		t.Fatalf("trusted Skill was not restored to the Agent: %v", err)
+	}
+	fresh, err := Discover(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.EnrichInventory(&fresh); err != nil {
+		t.Fatal(err)
+	}
+	codex, ok := findAgent(fresh, "codex")
+	if !ok || len(codex.Skills) != 1 {
+		t.Fatalf("installed Skill was not rediscovered under Codex: %#v", fresh.Agents)
+	}
+	if codex.Skills[0].Status != "managed" || codex.Skills[0].SkillID != "skill-1" {
+		t.Fatalf("rediscovered Skill was not enriched as managed: %#v", codex.Skills[0])
+	}
+	notifications, err := store.Notifications(10)
+	if err != nil || len(notifications) == 0 || notifications[0].EventType != "skill_auto_installed" {
+		t.Fatalf("automatic install notification was not recorded: %#v %v", notifications, err)
+	}
+}
 
 func TestSubmitAndRefreshPendingUsesFullDetection(t *testing.T) {
 	home := t.TempDir()
@@ -38,16 +137,26 @@ func TestSubmitAndRefreshPendingUsesFullDetection(t *testing.T) {
 				response.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			for _, field := range []string{"use_behavioral", "use_skillspector", "use_deep_scan", "use_sandbox", "use_llm", "no_cache"} {
+			for _, field := range []string{"use_behavioral", "use_skillspector", "use_deep_scan", "use_sandbox", "use_llm"} {
 				if request.FormValue(field) != "true" {
 					t.Errorf("%s was not enabled", field)
 				}
 			}
-			_ = json.NewEncoder(response).Encode(map[string]any{"skill_id": "skill-1", "name": "demo", "status": "PENDING"})
+			if _, exists := request.MultipartForm.Value["no_cache"]; exists {
+				t.Errorf("no_cache must be controlled only by the platform global policy")
+			}
+			_ = json.NewEncoder(response).Encode(map[string]any{
+				"skill_id": "skill-family-1", "version_id": "skill-version-2", "name": "demo", "status": "PENDING",
+			})
 			return
 		}
+		if request.URL.Path != "/api/v1/scanner/imports/skill-version-2" {
+			t.Errorf("status was read from the family instead of the submitted version: %s", request.URL.Path)
+		}
 		getCount++
-		_ = json.NewEncoder(response).Encode(map[string]any{"skill_id": "skill-1", "name": "demo", "status": "APPROVED"})
+		_ = json.NewEncoder(response).Encode(map[string]any{
+			"skill_id": "skill-family-1", "version_id": "skill-version-2", "name": "demo", "status": "APPROVED",
+		})
 	}))
 	defer server.Close()
 
@@ -59,7 +168,7 @@ func TestSubmitAndRefreshPendingUsesFullDetection(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, pending := range submitted {
-		if pending.SkillID != "skill-1" || pending.Status != "submitted" {
+		if pending.SkillID != "skill-family-1" || pending.VersionID != "skill-version-2" || pending.Status != "submitted" {
 			t.Fatalf("duplicate pending Skill did not share submission: %#v", submitted)
 		}
 	}
@@ -72,6 +181,51 @@ func TestSubmitAndRefreshPendingUsesFullDetection(t *testing.T) {
 	}
 	if getCount != 1 {
 		t.Fatalf("same platform Skill status was queried %d times", getCount)
+	}
+}
+
+func TestManualRefreshRechecksRejectedVersionAfterPlatformRescan(t *testing.T) {
+	home := t.TempDir()
+	pendingPath := filepath.Join(home, ".agent-manager", "pending", "codex", "understand-domain")
+	writeSkill(t, pendingPath, "understand-domain")
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	item := PendingItem{
+		ID: "pending-1", AgentType: "codex", SkillName: "understand-domain",
+		PendingPath: pendingPath, Status: "REJECTED",
+		SkillID: "family-1", VersionID: "version-1",
+	}
+	if err := store.SavePending(item); err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests++
+		if request.URL.Path != "/api/v1/scanner/imports/version-1" {
+			t.Errorf("unexpected status path: %s", request.URL.Path)
+		}
+		_ = json.NewEncoder(response).Encode(map[string]any{
+			"skill_id": "version-1", "name": "understand-domain", "status": "APPROVED",
+		})
+	}))
+	defer server.Close()
+
+	items, err := RefreshPending(context.Background(), server.URL, "token", store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 0 || len(items) != 1 || items[0].Status != "REJECTED" {
+		t.Fatalf("background refresh should preserve terminal result: requests=%d items=%#v", requests, items)
+	}
+	items, err = RefreshPendingIncludingTerminal(context.Background(), server.URL, "token", store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 || len(items) != 1 || items[0].Status != "APPROVED" {
+		t.Fatalf("manual refresh did not observe platform approval: requests=%d items=%#v", requests, items)
 	}
 }
 

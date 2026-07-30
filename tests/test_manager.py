@@ -221,15 +221,17 @@ class TestListAndAudit:
 
         assert mgr.get_skill(entry.skill_id) is None
 
-    def test_rescan_skill_resets_pending_and_can_process(self, mgr, skill_dir):
+    def test_rescan_skill_preserves_effective_result_until_process_completes(self, mgr, skill_dir):
         entry = mgr.submit(skill_dir)
 
         pending = mgr.rescan_skill(entry.skill_id)
 
-        assert pending.status == SkillStatus.PENDING
-        assert pending.vetting is None
-        processed = mgr.process_pending_submission(entry.skill_id, no_cache=True)
+        assert pending.status == SkillStatus.APPROVED
+        assert pending.vetting is not None
+        assert mgr.list_scan_runs(entry.skill_id)[0].status == "PENDING"
+        processed = mgr.process_pending_submission(entry.skill_id, force_scan=True)
         assert processed.status == SkillStatus.APPROVED
+        assert mgr.list_scan_runs(entry.skill_id)[0].status == "COMPLETED"
 
     def test_processing_does_not_override_cancelled_pending_skill(self, mgr, skill_dir, monkeypatch):
         pending = mgr.create_pending_submission(skill_dir)
@@ -243,7 +245,7 @@ class TestListAndAudit:
 
         monkeypatch.setattr(mgr.vetting, "vet", vet_after_cancel)
 
-        processed = mgr.process_pending_submission(pending.skill_id, no_cache=True)
+        processed = mgr.process_pending_submission(pending.skill_id, force_scan=True)
 
         assert processed.status == SkillStatus.REJECTED
         assert processed.rejection_reason == "用户取消后台分析任务"

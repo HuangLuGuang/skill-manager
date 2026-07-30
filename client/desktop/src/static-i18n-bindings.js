@@ -33,8 +33,8 @@ window.clientStaticI18nBindings = [
   {
     "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(1)",
     "nodeIndex": 1,
-    "key": "ui.1u7rfgt",
-    "source": "客户端接入"
+    "key": "ui.wu8jgp",
+    "source": "客户端概览"
   },
   {
     "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(2)",
@@ -81,8 +81,8 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#panel-title",
     "nodeIndex": 0,
-    "key": "ui.1u7rfgt",
-    "source": "客户端接入"
+    "key": "ui.wu8jgp",
+    "source": "客户端概览"
   },
   {
     "selector": "#settings-trigger",
@@ -181,12 +181,6 @@ window.clientStaticI18nBindings = [
     "source": "刷新状态"
   },
   {
-    "selector": "#check-update",
-    "nodeIndex": 0,
-    "key": "ui.10w1l5m",
-    "source": "检查更新"
-  },
-  {
     "selector": "#edit-connection",
     "nodeIndex": 0,
     "key": "ui.1w5pstx",
@@ -279,8 +273,8 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#connected-overview>section:nth-of-type(5)>div:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.1xm13ij",
-    "source": "提交待处理 Skill 时，将启用平台当前可用的全部检测能力并禁用缓存。"
+    "key": "ui.196wlb9",
+    "source": "提交待处理 Skill 时，将启用平台当前可用的全部检测能力，并遵循平台全局检测结果复用策略。"
   },
   {
     "selector": "#connected-overview>section:nth-of-type(5)>div:nth-of-type(2)>div:nth-of-type(1)>span:nth-of-type(1)",
@@ -431,12 +425,6 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "ui.nonmak",
     "source": "接入平台"
-  },
-  {
-    "selector": "#cancel-edit",
-    "nodeIndex": 0,
-    "key": "ui.1589w37",
-    "source": "取消"
   },
   {
     "selector": "#discover>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
@@ -1071,8 +1059,8 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#settings-default-panel>option:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.1u7rfgt",
-    "source": "客户端接入"
+    "key": "ui.wu8jgp",
+    "source": "客户端概览"
   },
   {
     "selector": "#settings-default-panel>option:nth-of-type(2)",
@@ -1285,6 +1273,60 @@ window.clientStaticI18nBindings = [
     "source": "知道了"
   },
   {
+    "selector": "#edit-connection-form>h3:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.1pa4fpb",
+    "source": "修改 Agent Manager 连接"
+  },
+  {
+    "selector": "#edit-connection-form>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.1g7kdr3",
+    "source": "测试成功后保存新的平台地址和客户端名称；凭据留空表示继续使用现有凭据。"
+  },
+  {
+    "selector": "#edit-connection-form>label:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.1kbs7oz",
+    "source": "Agent Manager 地址"
+  },
+  {
+    "selector": "#edit-connection-form>label:nth-of-type(2)",
+    "nodeIndex": 0,
+    "key": "ui.11044ab",
+    "source": "客户端接入凭证"
+  },
+  {
+    "selector": "#edit-token",
+    "attribute": "placeholder",
+    "key": "ui.wrpj57",
+    "source": "留空表示继续使用现有凭据"
+  },
+  {
+    "selector": "#edit-connection-form>label:nth-of-type(3)",
+    "nodeIndex": 0,
+    "key": "ui.8r4dti",
+    "source": "客户端名称"
+  },
+  {
+    "selector": "#edit-client-name",
+    "attribute": "placeholder",
+    "key": "ui.15c688q",
+    "source": "研发客户端"
+  },
+  {
+    "selector": "#cancel-edit-connection",
+    "nodeIndex": 0,
+    "key": "ui.1589w37",
+    "source": "取消"
+  },
+  {
+    "selector": "#edit-connection-form>div:nth-of-type(1)>button:nth-of-type(2)",
+    "nodeIndex": 0,
+    "key": "ui.93zfr8",
+    "source": "测试并保存"
+  },
+  {
     "selector": "#update-dialog>div:nth-of-type(1)>span:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.1jyi6ml",
@@ -1481,6 +1523,18 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "ui.12x34mh",
     "source": "正在读取平台 Skill..."
+  },
+  {
+    "selector": "#install-skill-dialog>div:nth-of-type(1)>label:nth-of-type(3)",
+    "nodeIndex": 0,
+    "key": "ui.jhvfft",
+    "source": "可信版本"
+  },
+  {
+    "selector": "#install-platform-version>option:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.rlmw3h",
+    "source": "请先选择 Skill"
   },
   {
     "selector": "#install-skill-preview>span:nth-of-type(1)",

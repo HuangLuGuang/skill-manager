@@ -60,6 +60,18 @@
           <template v-else-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusDisplay(record.status, record) }}</a-tag>
           </template>
+          <template v-else-if="column.key === 'version'">
+            <a-space wrap>
+              <a-tag color="blue">v{{ record.version_no || 1 }}</a-tag>
+              <a-tag v-if="record.source_version">{{ record.source_version }}</a-tag>
+            </a-space>
+          </template>
+          <template v-else-if="column.key === 'trustedVersion'">
+            <a-tag v-if="record.latest_trusted_version_no" color="green">
+              v{{ record.latest_trusted_version_no }}
+            </a-tag>
+            <span v-else style="color: #8c8c8c">-</span>
+          </template>
           <template v-else-if="column.key === 'risk'">
             <a-tag v-if="record.status === 'PENDING'" color="default">-</a-tag>
             <a-tag v-else-if="record.risk_level === 'malicious'" color="red">{{ riskDisplay(record.risk_level) }}</a-tag>
@@ -165,6 +177,8 @@ const riskOptions = computed(() => [
 const columns = computed(() => [
   { title: text('Skill 名称', 'Skill Name'), dataIndex: 'name', key: 'name', sorter: true },
   { title: 'Skill ID', dataIndex: 'skill_id', key: 'skill_id', width: 110, sorter: true },
+  { title: text('最新版本', 'Latest Version'), key: 'version', width: 140 },
+  { title: text('最新可信', 'Latest Trusted'), key: 'trustedVersion', width: 130 },
   { title: text('状态', 'Status'), dataIndex: 'status', key: 'status', width: 180, sorter: true },
   { title: text('风险', 'Risk'), dataIndex: 'risk_level', key: 'risk', width: 160, sorter: true },
   { title: 'Sandbox', key: 'sandbox', width: 180 },
