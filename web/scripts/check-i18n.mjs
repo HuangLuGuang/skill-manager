@@ -4,6 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { parse as parseScript } from '@babel/parser'
+import { baseCompile } from '@intlify/message-compiler'
 import { baseParse, NodeTypes } from '@vue/compiler-dom'
 import { parse } from '@vue/compiler-sfc'
 
@@ -135,6 +136,15 @@ assert.ok(!i18nRuntime.includes('createTreeWalker'))
 
 for (const [source, english] of Object.entries(enPhrases)) {
   if (chinesePattern.test(english)) failures.push(`English translation contains Chinese: ${source} -> ${english}`)
+}
+
+for (const [locale, messages] of Object.entries(legacyMessages)) {
+  for (const [key, message] of Object.entries(messages)) {
+    if (!message.includes('@')) continue
+    baseCompile(message, {
+      onError: error => failures.push(`${locale} legacy.${key}: invalid Vue I18n message (${error.code})`),
+    })
+  }
 }
 
 if (failures.length) {

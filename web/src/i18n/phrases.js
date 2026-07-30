@@ -50,7 +50,6 @@ export const enPhrases = {
   '看不清？换一个': 'Refresh code',
   '登录': 'Sign In',
   '登 录': 'Sign In',
-  '默认账号 `admin`，默认密码 `Admin@123`': 'Default account: `admin`; default password: `Admin@123`',
   '获取验证码失败': 'Failed to load the verification code',
   '登录成功': 'Signed in',
   '登录失败': 'Sign-in failed',

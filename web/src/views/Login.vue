@@ -32,7 +32,7 @@
           <a-button type="primary" html-type="submit" :loading="loading" block size="large">{{ $t("legacy.1yggxgd") }}</a-button>
         </a-form-item>
       </a-form>
-      <div class="login-footer">{{ $t("legacy.sca5k1") }}</div>
+      <div class="login-footer">{{ t('login.defaultCredentials', { at: '@' }) }}</div>
     </div>
   </div>
 </template>
