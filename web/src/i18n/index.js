@@ -27,6 +27,9 @@ export const i18n = createI18n({
         chinese: '简体中文',
         english: 'English',
       },
+      login: {
+        defaultCredentials: '默认账号 `admin`，默认密码 `Admin{at}123`',
+      },
       skillVersions: {
         versions: '版本',
         diff: '版本差异',
@@ -89,6 +92,9 @@ export const i18n = createI18n({
         label: 'Language',
         chinese: '简体中文',
         english: 'English',
+      },
+      login: {
+        defaultCredentials: 'Default account: `admin`; default password: `Admin{at}123`',
       },
       skillVersions: {
         versions: 'Versions',
