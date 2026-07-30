@@ -3,6 +3,7 @@ const t = window.clientI18n?.t || (value => value)
 const tf = window.clientI18n?.tf || ((strings, ...values) =>
   strings.reduce((result, value, index) => result + value + (values[index] ?? ''), ''))
 const runtimeText = window.clientI18n?.translateRuntime || (value => String(value ?? ''))
+const connectionErrorText = window.clientI18n?.connectionErrorText || runtimeText
 const isEnglish = () => window.clientI18n?.getLocale?.() === 'en-US'
 const formatList = values => new Intl.ListFormat(window.clientI18n?.getLocale?.() || 'zh-CN').format(values.filter(Boolean))
 const skillCount = count => isEnglish()
@@ -13,7 +14,7 @@ const agentCount = count => isEnglish()
   : `${count} 个 Agent`
 let currentTakeoverTitle = t('ui.1aqrn47')
 const panelTitle = panel => ({
-  connect: t('ui.1u7rfgt'),
+  connect: t('ui.wu8jgp'),
   discover: t('ui.zg9dnv'),
   takeover: currentTakeoverTitle,
   status: t('ui.1ihgm6s'),
@@ -26,6 +27,7 @@ let connection = null
 let selectedSkillPaths = new Set()
 let takeoverReady = false
 let installCatalog = []
+let installVersions = []
 let lockedInstallSkill = null
 let installSearchTimer = null
 let lastInventoryAt = ''
@@ -268,22 +270,44 @@ document.querySelectorAll('.nav-item').forEach(button => {
   })
 })
 
-$('#connect-form').addEventListener('submit', async event => {
-  event.preventDefault()
-  const button = event.submitter
+const saveConnection = async ({ button, server, token, name, onSuccess }) => {
   setBusy(button, true)
+  let saved = false
   try {
-    const args = ['--server', $('#server').value, '--token', $('#token').value]
-    if ($('#client-name').value.trim()) args.push('--name', $('#client-name').value.trim())
+    const args = ['--server', server, '--token', token]
+    if (name.trim()) args.push('--name', name.trim())
+    log(await run('register', args))
     await run('configure', args)
-    log(await run('register'))
+    saved = true
+    const service = JSON.parse(await run('service-status'))
+    if (service.installed) {
+      await run('prepare-update')
+      await run('reconcile-service')
+    }
     await refreshConnection()
-    showPanel('connect')
+    onSuccess()
   } catch (error) {
+    showMessageDialog(
+      saved ? t('ui.6vfjws') : t('ui.1jl22hu'),
+      saved
+        ? tf`连接配置已经保存，但暂时无法刷新状态。\n${connectionErrorText(error)}`
+        : tf`设置尚未保存。\n${connectionErrorText(error)}`,
+    )
     log(error)
   } finally {
     setBusy(button, false)
   }
+}
+
+$('#connect-form').addEventListener('submit', async event => {
+  event.preventDefault()
+  await saveConnection({
+    button: event.submitter,
+    server: $('#server').value,
+    token: $('#token').value,
+    name: $('#client-name').value,
+    onSuccess: () => showPanel('connect'),
+  })
 })
 
 const policyLabel = value => ({ audit: t('ui.1n7b1v3'), repair: t('ui.1fftepa'), block: t('ui.1lg89ho') }[value] || value || '-')
@@ -307,25 +331,36 @@ const renderDisconnected = () => {
   $('#token').required = true
   $('#token').value = ''
   $('#token').placeholder = 'amat_...'
-  $('#cancel-edit').hidden = true
   $('#connect-submit').textContent = t('ui.nonmak')
   $('#connection-state').textContent = t('ui.1gwretz')
   $('#connection-state').classList.remove('online')
   $('#notification-trigger').hidden = true
-  $('#panel-title').textContent = t('ui.1u7rfgt')
+  $('#panel-title').textContent = t('ui.wu8jgp')
   syncSettingsControls()
 }
 const editConnection = () => {
-  $('#connect-form').hidden = false
-  $('#server').value = connection?.server || ''
-  $('#client-name').value = connection?.name || connection?.platform?.name || ''
-  $('#token').value = ''
-  $('#token').required = false
-  $('#token').placeholder = t('ui.5k770y')
-  $('#connect-submit').textContent = t('ui.93zfr8')
-  $('#cancel-edit').hidden = false
-  $('#server').focus()
+  $('#edit-server').value = connection?.server || ''
+  $('#edit-client-name').value = connection?.name || connection?.platform?.name || ''
+  $('#edit-token').value = ''
+  $('#edit-connection-dialog').showModal()
+  $('#edit-server').focus()
 }
+
+$('#edit-connection-form').addEventListener('submit', async event => {
+  event.preventDefault()
+  await saveConnection({
+    button: event.submitter,
+    server: $('#edit-server').value,
+    token: $('#edit-token').value,
+    name: $('#edit-client-name').value,
+    onSuccess: () => $('#edit-connection-dialog').close(),
+  })
+})
+
+$('#cancel-edit-connection').addEventListener('click', () => {
+  $('#edit-token').value = ''
+  $('#edit-connection-dialog').close()
+})
 
 const renderBuiltinAgentSettings = () => {
   const element = $('#builtin-agent-settings')
@@ -637,6 +672,9 @@ const notificationAction = eventType => ({
   unmanaged_skill_found: { panel: 'takeover', label: t('ui.hrqy3h') },
   skill_modified: { panel: 'status', label: t('ui.g9imto') },
   skill_repaired: { panel: 'records', label: t('ui.13q7xte') },
+  skill_auto_installed: { panel: 'records', label: t('ui.13q7xte') },
+  skill_auto_install_failed: { panel: 'takeover', label: t('ui.hrqy3h') },
+  connection_changed_governance_paused: { panel: 'connect', label: t('ui.ox3r68') },
 }[eventType] || { panel: 'records', label: t('ui.ox3r68') })
 
 const localizedNotification = item => {
@@ -661,6 +699,18 @@ const localizedNotification = item => {
     unmanaged_skill_found: {
       zh: [t('ui.gawr4f'), tf`${target} 尚未纳入平台治理。`],
       en: ['Unmanaged Skill Found', `${target} is not yet governed by the platform.`],
+    },
+    skill_auto_installed: {
+      zh: [t('ui.cfjni5'), tf`${target} 已通过平台审批并自动安装可信版本。`],
+      en: ['Skill Automatically Enabled', `${target} passed platform approval and the trusted version was installed automatically.`],
+    },
+    skill_auto_install_failed: {
+      zh: [t('ui.1kb5hmk'), tf`${target} 已通过平台审批，但自动安装失败；客户端将稍后重试，也可以在待处理区手动安装。`],
+      en: ['Skill Automatic Installation Failed', `${target} passed platform approval, but automatic installation failed. The client will retry later, or you can install it manually from Pending Skills.`],
+    },
+    connection_changed_governance_paused: {
+      zh: ['平台连接已变更', '为避免使用旧平台策略处置本地 Skill，持续治理已自动暂停。请确认新平台配置和治理范围后再恢复。'],
+      en: ['Platform Connection Changed', 'Continuous governance was paused to prevent the previous platform policy from changing local Skills. Confirm the new platform configuration and governance scope before resuming.'],
     },
   }
   const copy = copies[item.event_type]
@@ -981,29 +1031,23 @@ const updateSelectionSummary = () => {
   const discoveredSkills = [...document.querySelectorAll('[data-skill-path]')]
   const unavailableCount = discoveredSkills.filter(input => input.disabled).length
   const selectableCount = discoveredSkills.length - unavailableCount
-  const recoveryNeeded = selectableCount === 0 && unavailableCount > 0
-  previewButton.dataset.action = recoveryNeeded ? 'restore' : 'preview'
-  previewButton.disabled = !recoveryNeeded && selectedSkillPaths.size === 0
-  $('#selection-heading').textContent = recoveryNeeded ? t('ui.9n7ury') : t('ui.1tcut2')
+  previewButton.disabled = selectedSkillPaths.size === 0
+  $('#selection-heading').textContent = t('ui.1tcut2')
   $('#selection-guidance').innerHTML = selectableCount === 0
     ? unavailableCount
-      ? tf`发现 ${unavailableCount} 个不可用 Skill。请展开 Agent 查看原因，或从平台重新安装可信版本。`
+      ? tf`发现 ${unavailableCount} 个不可用 Skill。请展开 Agent 查看原因；平台恢复和安装请前往 Skill 治理。`
       : t('ui.mzo6ro')
     : tf`已选择 <b id="selected-skill-count">${selectedSkillPaths.size}</b> ${skillCount(selectedSkillPaths.size).replace(/^\d+\s*/, '')}，生成预览后可查看哪些继续启用、哪些需要处理。`
   const currentKey = JSON.stringify([lastInventoryAt, [...selectedSkillPaths].sort()])
-  previewButton.textContent = recoveryNeeded
-    ? t('ui.ldkfmu')
-    : selectableCount === 0
-      ? t('ui.78yft3')
+  previewButton.textContent = selectableCount === 0
+    ? t('ui.78yft3')
     : !previewSelectionKey
       ? t('ui.mxuy7s')
       : previewSelectionKey === currentKey
         ? t('ui.14bf9qb')
         : t('ui.443oyz')
-  previewButton.title = recoveryNeeded
-    ? t('ui.1ydsbxo')
-    : selectableCount === 0
-      ? t('ui.10c2cz2')
+  previewButton.title = selectableCount === 0
+    ? t('ui.10c2cz2')
     : selectedSkillPaths.size === 0
       ? t('ui.k57bdv')
       : previewButton.textContent
@@ -1192,7 +1236,6 @@ $('#preview-button').addEventListener('click', async event => {
   await generateAndOpenPreview(event.currentTarget, true)
 })
 $('#open-preview-button').addEventListener('click', async event => {
-  if (event.currentTarget.dataset.action === 'restore') return openInstallDialog()
   return generateAndOpenPreview(event.currentTarget)
 })
 $('#takeover-ack').addEventListener('change', syncApplyState)
@@ -1238,13 +1281,15 @@ const pendingCanSubmit = item => !item.skill_id
 const renderPendingBatchStatus = () => {
   if (!pendingBatchTracking) return
   const element = $('#pending-batch-status')
-  const tracked = pendingItems.filter(item => pendingBatchTracking.ids.has(item.id))
-  const counts = { detecting: pendingBatchTracking.ids.size - tracked.length, review: 0, approved: 0, rejected: 0, cancelled: 0 }
-  tracked.forEach(item => {
-    if (item.status === 'VETTED') counts.review += 1
-    else if (item.status === 'APPROVED') counts.approved += 1
-    else if (item.status === 'REJECTED') counts.rejected += 1
-    else if (item.status === 'CANCELLED') counts.cancelled += 1
+  const counts = { detecting: 0, review: 0, approved: 0, rejected: 0, cancelled: 0 }
+  pendingBatchTracking.ids.forEach(id => {
+    const item = pendingItems.find(candidate => candidate.id === id)
+    if (item) pendingBatchTracking.statuses.set(id, item.status)
+    const status = item?.status || pendingBatchTracking.statuses.get(id) || 'submitted'
+    if (status === 'VETTED') counts.review += 1
+    else if (status === 'APPROVED') counts.approved += 1
+    else if (status === 'REJECTED') counts.rejected += 1
+    else if (status === 'CANCELLED') counts.cancelled += 1
     else counts.detecting += 1
   })
   const total = pendingBatchTracking.ids.size
@@ -1264,6 +1309,15 @@ const renderPendingBatchStatus = () => {
     tf`未通过 ${counts.rejected}`,
     counts.cancelled ? tf`已取消 ${counts.cancelled}` : '',
   ].filter(Boolean).join(' · '))}</span>`
+}
+
+const pendingBatchIsActive = () => {
+  if (!pendingBatchTracking) return false
+  return [...pendingBatchTracking.ids].some(id => {
+    const item = pendingItems.find(candidate => candidate.id === id)
+    const status = item?.status || pendingBatchTracking.statuses.get(id) || 'submitted'
+    return !pendingStatusTerminal(status)
+  })
 }
 
 const syncPendingBatchControls = () => {
@@ -1341,7 +1395,7 @@ const loadPending = async (refresh = false, { silent = false } = {}) => {
               </div>
               <div class="takeover-row-actions">
                 ${item.status === 'APPROVED'
-                  ? tf`<button class="action-success icon-button icon-install" data-install-approved="${escapeHtml(item.id)}" data-agent-type="${escapeHtml(item.agent_type)}" data-skill-id="${escapeHtml(item.skill_id)}">立即安装</button>`
+                  ? tf`<button class="action-success icon-button icon-install" data-install-approved="${escapeHtml(item.id)}" data-agent-type="${escapeHtml(item.agent_type)}" data-skill-id="${escapeHtml(item.skill_id)}" data-version-id="${escapeHtml(item.version_id || '')}">立即安装</button>`
                   : item.skill_id
                   ? `<span class="pending-next">${escapeHtml(pendingNextLabel(item.status))}</span>`
                   : tf`<button class="primary icon-button icon-submit" data-submit-pending="${escapeHtml(item.id)}">提交平台检测</button>`}
@@ -1361,7 +1415,7 @@ const loadPending = async (refresh = false, { silent = false } = {}) => {
   document.querySelectorAll('[data-install-approved]').forEach(button => button.addEventListener('click', async () => {
     setBusy(button, true)
     try {
-      await installPlatformSkill(button.dataset.agentType, button.dataset.skillId, button.dataset.installApproved)
+      await installPlatformSkill(button.dataset.agentType, button.dataset.skillId, button.dataset.installApproved, button.dataset.versionId)
       await refreshAfterInstall()
       showMessageDialog(t('ui.1br1zwn'), t('ui.stci1f'))
     } catch (error) {
@@ -1425,7 +1479,14 @@ const submitPendingIDs = async (ids, button) => {
       })
     }
     if (submittedIDs.length) {
-      pendingBatchTracking = { ids: new Set(submittedIDs) }
+      const tracking = pendingBatchIsActive()
+        ? pendingBatchTracking
+        : { ids: new Set(), statuses: new Map() }
+      submittedIDs.forEach(id => {
+        tracking.ids.add(id)
+        tracking.statuses.set(id, 'submitted')
+      })
+      pendingBatchTracking = tracking
     }
     await loadPending()
     if (submitted.length) {
@@ -1597,6 +1658,10 @@ $('#settings-background-service').addEventListener('change', async event => {
   }
 })
 $('#settings-check-update').addEventListener('click', async event => {
+  if (pendingClientUpdate?.available) {
+    openClientUpdateDialog(pendingClientUpdate)
+    return
+  }
   const button = event.currentTarget
   setBusy(button, true)
   try {
@@ -1663,10 +1728,6 @@ $('#overview-sync').addEventListener('click', async event => {
   try { await refreshConnection() } finally { setBusy(button, false) }
 })
 $('#edit-connection').addEventListener('click', editConnection)
-$('#cancel-edit').addEventListener('click', () => {
-  $('#connect-form').hidden = true
-  $('#token').value = ''
-})
 document.querySelectorAll('[data-target-panel]').forEach(button => {
   button.addEventListener('click', () => showPanel(button.dataset.targetPanel))
 })
@@ -1674,14 +1735,14 @@ document.querySelectorAll('[data-target-panel]').forEach(button => {
 const clientUpdateVersion = result => result?.display_version || result?.version || ''
 
 const renderClientUpdateAvailability = result => {
-  const button = $('#check-update')
+  const button = $('#settings-check-update')
   const available = Boolean(result?.available)
   const version = clientUpdateVersion(result)
   pendingClientUpdate = available ? result : null
   button.classList.toggle('update-available', available)
   button.classList.toggle('icon-check', !available)
   button.classList.toggle('icon-install', available)
-  button.textContent = available ? tf`可更新 ${version}` : t('ui.10w1l5m')
+  button.textContent = available ? tf`可更新 ${version}` : t('ui.re5xvw')
   button.title = available ? tf`发现客户端新版本 ${version}，点击查看并更新` : t('ui.1wcdr2e')
   if ($('#settings-update-status')) {
     $('#settings-update-status').textContent = available
@@ -1754,20 +1815,6 @@ const checkClientUpdateAutomatically = () => {
   if (!clientSettings.autoCheckUpdates || !connection?.connected || Date.now() - lastAutomaticUpdateCheckAt < CLIENT_UPDATE_CHECK_INTERVAL_MS) return
   void checkClientUpdate({ notify: true })
 }
-
-$('#check-update').addEventListener('click', async event => {
-  if (pendingClientUpdate?.available) {
-    openClientUpdateDialog(pendingClientUpdate)
-    return
-  }
-  const button = event.currentTarget
-  setBusy(button, true)
-  try {
-    await checkClientUpdate({ interactive: true })
-  } finally {
-    setBusy(button, false)
-  }
-})
 
 $('#cancel-client-update').addEventListener('click', () => {
   if (clientUpdateInstalling) return
@@ -1848,8 +1895,26 @@ const loadQuarantine = async () => {
       <div><strong>${escapeHtml(item.skill_name)}</strong><button class="path-link" type="button" title="隔离目录：${escapeHtml(item.quarantine_path)}" data-reveal-path="${escapeHtml(item.quarantine_path)}">所属 Agent：${escapeHtml(agentLabel(item.agent_type))} · ${escapeHtml(item.original_path)}</button></div>
       <strong class="action-pending">已隔离</strong>
       <span>${escapeHtml(reasonLabel(item.reason))}</span>
-      <button class="icon-button icon-install" data-install-safe-version="${escapeHtml(item.skill_name)}">选择批准版本</button>
+      <div class="takeover-row-actions">
+        <button class="primary icon-button icon-submit" data-submit-quarantine="${escapeHtml(item.id)}">提交当前版本检测</button>
+        <button class="icon-button icon-install" data-install-safe-version="${escapeHtml(item.skill_name)}">选择批准版本</button>
+      </div>
     </div>`).join('') : t('ui.w1aoqw')
+  document.querySelectorAll('[data-submit-quarantine]').forEach(button => button.addEventListener('click', async () => {
+    setBusy(button, true)
+    try {
+      const pending = JSON.parse(await run('queue-quarantine', ['--id', button.dataset.submitQuarantine]))
+      setBusy(button, false)
+      showPanel('takeover')
+      await loadPending()
+      await submitPendingIDs([pending.id], button)
+    } catch (error) {
+      showMessageDialog(t('ui.1wvf48w'), String(error))
+      log(error)
+    } finally {
+      setBusy(button, false)
+    }
+  }))
   document.querySelectorAll('[data-install-safe-version]').forEach(button => button.addEventListener('click', () => {
     openInstallDialog(null, button.dataset.installSafeVersion)
   }))
@@ -1940,6 +2005,7 @@ function reasonLabel(value) {
     already_managed: t('ui.r1tok9'),
     not_compared: t('ui.1psmu0h'),
     legacy_pending: t('ui.1lrslxp'),
+    quarantine_rescan: t('ui.18kgpq0'),
   }[value] || value || '-'
 }
 
@@ -1977,7 +2043,7 @@ function pendingGroupSummary(items) {
 }
 
 function pendingStatusGuidance(item) {
-  if (item.status === 'APPROVED') return t('ui.xvle3a')
+  if (item.status === 'APPROVED') return t('ui.lq6pi3')
   if (item.status === 'REJECTED') return t('ui.1m5rgkv')
   if (item.status === 'CANCELLED') return t('ui.z61ghp')
   if (item.status === 'VETTED') return t('ui.14chebx')
@@ -1994,16 +2060,22 @@ function pendingNextLabel(status) {
 
 const managedAgentIDFor = agentType => (connection?.platform?.agents || []).find(item => item.agent_type === agentType)?.managed_agent_id || ''
 
-const installPlatformSkill = async (agentType, skillId, pendingId = '') => {
+const installPlatformSkill = async (agentType, skillId, pendingId = '', versionId = '') => {
   const args = ['--agent-type', agentType, '--skill-id', skillId]
   const managedAgentID = managedAgentIDFor(agentType)
   if (managedAgentID) args.push('--managed-agent-id', managedAgentID)
   if (pendingId) args.push('--id', pendingId)
+  if (versionId) args.push('--version-id', versionId)
   await run('install-skill', args)
   log(tf`已安装 Skill ${skillId} 到 ${agentLabel(agentType)}`)
 }
 
 const refreshAfterInstall = async () => {
+  // install-skill updates the filesystem and installation registry, but the
+  // cached inventory still describes the state before installation. Discover
+  // first so the governance preview can immediately render the installed
+  // Skill under its Agent instead of showing an empty selection.
+  await discover()
   await refreshConnection()
   if ($('#takeover').classList.contains('active')) await preview(false)
 }
@@ -2034,11 +2106,45 @@ const selectedInstallSkill = () => {
   return lockedInstallSkill || installCatalog.flatMap(item => item.items).find(item => item.skill_id === skillId)
 }
 
+const installSubmitter = item => item?.submitted_by || t('ui.13nfgz7')
+const installVersion = item => item?.version_no ? `v${item.version_no}` : 'v-'
+const installSubmittedAt = item => item?.submitted_at ? formatTime(item.submitted_at) : t('ui.13nfgz7')
+
 const installSkills = () => {
   const skills = new Map()
   installCatalog.flatMap(item => item.items).forEach(item => skills.set(item.skill_id, item))
   if (lockedInstallSkill) skills.set(lockedInstallSkill.skill_id, lockedInstallSkill)
   return [...skills.values()]
+}
+
+const loadInstallSkillVersions = async () => {
+  const skill = selectedInstallSkill()
+  const select = $('#install-platform-version')
+  installVersions = []
+  select.disabled = true
+  select.innerHTML = `<option value="">${skill ? '正在读取可信版本...' : t('请先选择 Skill')}</option>`
+  if (!skill) return
+  const source = installCatalog.find(item => item.items.some(candidate => candidate.skill_id === skill.skill_id))
+  if (!source) {
+    select.innerHTML = '<option value="">当前客户端无权读取可信版本</option>'
+    return
+  }
+  const args = ['--skill-id', skill.skill_id, '--agent-type', source.agent.agent_type]
+  const managedAgentID = managedAgentIDFor(source.agent.agent_type)
+  if (managedAgentID) args.push('--managed-agent-id', managedAgentID)
+  try {
+    const response = JSON.parse(await run('skill-versions', args))
+    if (selectedInstallSkill()?.skill_id !== skill.skill_id) return
+    installVersions = response.items || []
+    select.innerHTML = installVersions.length
+      ? installVersions.map(item => `<option value="${escapeHtml(item.version_id)}">${escapeHtml(installVersion(item))}${item.source_version ? ` · ${escapeHtml(item.source_version)}` : ''}${item.latest_trusted ? ' · 最新可信' : ''} · ${escapeHtml(tf`提交人：${installSubmitter(item)}`)} · ${escapeHtml(tf`提交时间：${installSubmittedAt(item)}`)}</option>`).join('')
+      : '<option value="">暂无可信版本</option>'
+    select.value = response.default_version_id || installVersions[0]?.version_id || ''
+    select.disabled = !installVersions.length
+    await loadInstallSkillPreview()
+  } catch (error) {
+    select.innerHTML = `<option value="">${escapeHtml(runtimeText(error))}</option>`
+  }
 }
 
 const loadInstallSkillPreview = async () => {
@@ -2053,13 +2159,15 @@ const loadInstallSkillPreview = async () => {
     return
   }
   const args = ['--skill-id', skill.skill_id, '--agent-type', source.agent.agent_type]
+  const versionID = $('#install-platform-version').value
+  if (versionID) args.push('--version-id', versionID)
   const managedAgentID = managedAgentIDFor(source.agent.agent_type)
   if (managedAgentID) args.push('--managed-agent-id', managedAgentID)
   $('#install-skill-preview').innerHTML = tf`<strong>${escapeHtml(skill.name)}</strong><span>正在读取说明...</span>`
   try {
     const item = JSON.parse(await run('skill-preview', args))
     if (selectedInstallSkill()?.skill_id !== skill.skill_id) return
-    $('#install-skill-preview').innerHTML = tf`<strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.description || t('ui.4wmnyk'))}</span><small>状态：已批准${item.risk_level ? tf` · 风险等级：${escapeHtml(item.risk_level)}` : ''}${item.submitted_at ? tf` · 提交时间：${escapeHtml(formatTime(item.submitted_at))}` : ''}</small>`
+    $('#install-skill-preview').innerHTML = tf`<strong>${escapeHtml(item.name)} · ${escapeHtml(installVersion(item))}</strong><span>${escapeHtml(item.description || t('ui.4wmnyk'))}</span><small>状态：已批准${item.risk_level ? tf` · 风险等级：${escapeHtml(item.risk_level)}` : ''} · 提交人：${escapeHtml(installSubmitter(item))} · 提交时间：${escapeHtml(installSubmittedAt(item))}</small>`
   } catch (error) {
     $('#install-skill-preview').innerHTML = tf`<strong>${escapeHtml(skill.name)}</strong><span>说明读取失败：${escapeHtml(error)}</span>`
   }
@@ -2070,10 +2178,10 @@ const renderInstallSkillOptions = () => {
   const query = $('#install-skill-search').value.trim().toLowerCase()
   const current = $('#install-platform-skill').value
   const skills = installSkills().filter(item => !query || item.name.toLowerCase().includes(query))
-  $('#install-platform-skill').innerHTML = `<option value="">${skills.length ? t('ui.cnlubu') : t('ui.5jkgiy')}</option>${skills.map(item => `<option value="${escapeHtml(item.skill_id)}">${escapeHtml(item.name)}${item.submitted_at ? tf` · 提交于 ${escapeHtml(formatTime(item.submitted_at))}` : ''}</option>`).join('')}`
+  $('#install-platform-skill').innerHTML = `<option value="">${skills.length ? t('ui.cnlubu') : t('ui.5jkgiy')}</option>${skills.map(item => `<option value="${escapeHtml(item.skill_id)}">${escapeHtml(item.name)} · ${escapeHtml(installVersion(item))} · ${escapeHtml(tf`提交人：${installSubmitter(item)}`)} · ${escapeHtml(tf`提交时间：${installSubmittedAt(item)}`)}</option>`).join('')}`
   if (skills.some(item => item.skill_id === current)) $('#install-platform-skill').value = current
   renderInstallTargets()
-  loadInstallSkillPreview()
+  loadInstallSkillVersions()
 }
 
 const renderInstallTargets = () => {
@@ -2102,11 +2210,14 @@ const openInstallDialog = async (skill, initialQuery = '') => {
   if (!agents.length) return showMessageDialog(t('ui.1rloj41'), t('ui.k8dvfk'))
   lockedInstallSkill = skill || null
   installCatalog = []
+  installVersions = []
   $('#install-skill-search').value = initialQuery
   $('#install-skill-search-label').hidden = Boolean(skill)
   $('#install-skill-title').textContent = skill ? tf`安装 ${skill.name} 到其他 Agent` : t('ui.c0s9l')
   $('#install-platform-skill').disabled = true
   $('#install-platform-skill').innerHTML = `<option value="">${skill ? escapeHtml(skill.name) : t('ui.12x34mh')}</option>`
+  $('#install-platform-version').disabled = true
+  $('#install-platform-version').innerHTML = `<option value="">${t('请先选择 Skill')}</option>`
   $('#install-agent-targets').innerHTML = t('ui.hola4k')
   $('#install-skill-dialog').showModal()
   try {
@@ -2116,7 +2227,7 @@ const openInstallDialog = async (skill, initialQuery = '') => {
       $('#install-platform-skill').value = skill.skill_id
       $('#install-platform-skill').disabled = true
       renderInstallTargets()
-      loadInstallSkillPreview()
+      loadInstallSkillVersions()
     } else {
       $('#install-platform-skill').disabled = false
       renderInstallSkillOptions()
@@ -2149,8 +2260,9 @@ $('#install-skill-search').addEventListener('input', () => {
 })
 $('#install-platform-skill').addEventListener('change', () => {
   renderInstallTargets()
-  loadInstallSkillPreview()
+  loadInstallSkillVersions()
 })
+$('#install-platform-version').addEventListener('change', loadInstallSkillPreview)
 $('#cancel-install-skill').addEventListener('click', () => {
   lockedInstallSkill = null
   $('#install-skill-dialog').close()
@@ -2160,6 +2272,8 @@ $('#confirm-install-skill').addEventListener('click', async event => {
   if (!skill) return showMessageDialog(t('ui.1xx9z2h'), t('ui.5bo4oh'))
   const targets = [...document.querySelectorAll('[data-install-target]:checked')].map(item => item.value)
   if (!targets.length) return showMessageDialog(t('ui.1titnia'), t('ui.1ybbgmr'))
+  const versionId = $('#install-platform-version').value
+  if (!versionId) return showMessageDialog('请选择可信版本', '恢复或安装必须绑定一个可信版本。')
   const button = event.currentTarget
   setBusy(button, true)
   const succeeded = []
@@ -2167,7 +2281,7 @@ $('#confirm-install-skill').addEventListener('click', async event => {
   try {
     for (const agentType of targets) {
       try {
-        await installPlatformSkill(agentType, skill.skill_id)
+        await installPlatformSkill(agentType, skill.skill_id, '', versionId)
         succeeded.push(agentLabel(agentType))
       } catch (error) {
         failed.push(`${agentLabel(agentType)}：${runtimeText(error)}`)

@@ -302,9 +302,10 @@ func TestInstallApprovedSkillSharesReleaseAcrossAgents(t *testing.T) {
 
 func TestManagedSymlinkTargetAcceptsCurrentAndLegacyTakeoverPaths(t *testing.T) {
 	home := t.TempDir()
-	manifest := releaseManifest{ContentSignature: "signature-1"}
+	manifest := releaseManifest{VersionID: "version-2", ContentSignature: "signature-1"}
 	for _, target := range []string{
 		filepath.Join(ManagedSkillsRoot(home), "skill-1", "release"),
+		filepath.Join(ManagedSkillsRoot(home), "skill-1", "versions", "version-2", "release"),
 		filepath.Join(ManagedSkillsRoot(home), "skill-1", "signature-1"),
 		filepath.Join(legacyContentRoot(home, "skills"), "skill-1", "signature-1"),
 	} {

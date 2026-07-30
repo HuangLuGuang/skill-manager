@@ -34,7 +34,7 @@ def _skill_dir(tmp_path):
 
 def test_generate_governance_card_contains_core_sections(tmp_path):
     mgr = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
-    entry = mgr.submit(_skill_dir(tmp_path), SourceInfo(origin=SkillOrigin.LOCAL), no_cache=True)
+    entry = mgr.submit(_skill_dir(tmp_path), SourceInfo(origin=SkillOrigin.LOCAL))
     card = generate_governance_card(entry, mgr.registry)
 
     assert "# Governance Card（治理卡片）：card-skill" in card
@@ -52,7 +52,7 @@ def test_generate_governance_card_contains_core_sections(tmp_path):
 
 def test_manager_generates_governance_card_after_vetting(tmp_path):
     mgr = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
-    entry = mgr.submit(_skill_dir(tmp_path), SourceInfo(origin=SkillOrigin.LOCAL), no_cache=True)
+    entry = mgr.submit(_skill_dir(tmp_path), SourceInfo(origin=SkillOrigin.LOCAL))
 
     path = governance_card_path(mgr.registry.data_dir, entry.skill_id)
 
@@ -65,7 +65,7 @@ def test_manager_generates_governance_card_after_vetting(tmp_path):
 
 def test_manager_regenerates_legacy_english_governance_card(tmp_path):
     mgr = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
-    entry = mgr.submit(_skill_dir(tmp_path), SourceInfo(origin=SkillOrigin.LOCAL), no_cache=True)
+    entry = mgr.submit(_skill_dir(tmp_path), SourceInfo(origin=SkillOrigin.LOCAL))
     path = governance_card_path(mgr.registry.data_dir, entry.skill_id)
     path.write_text("# Governance Skill Card: card-skill\n\nGenerated at: old\n", encoding="utf-8")
 
@@ -77,7 +77,7 @@ def test_manager_regenerates_legacy_english_governance_card(tmp_path):
 
 def test_governance_card_api_get_and_refresh(tmp_path):
     mgr = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
-    entry = mgr.submit(_skill_dir(tmp_path), SourceInfo(origin=SkillOrigin.LOCAL), no_cache=True)
+    entry = mgr.submit(_skill_dir(tmp_path), SourceInfo(origin=SkillOrigin.LOCAL))
 
     app = FastAPI()
     app.include_router(api_router.router, prefix="/api/v1")

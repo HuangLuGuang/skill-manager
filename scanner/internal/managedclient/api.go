@@ -47,18 +47,27 @@ type Task struct {
 }
 
 type AvailableSkill struct {
-	SkillID     string `json:"skill_id"`
-	Name        string `json:"name"`
-	SubmittedAt string `json:"submitted_at,omitempty"`
+	SkillID                string `json:"skill_id"`
+	VersionID              string `json:"version_id,omitempty"`
+	VersionNo              int    `json:"version_no,omitempty"`
+	SourceVersion          string `json:"source_version,omitempty"`
+	LatestTrustedVersionID string `json:"latest_trusted_version_id,omitempty"`
+	Name                   string `json:"name"`
+	SubmittedBy            string `json:"submitted_by,omitempty"`
+	SubmittedAt            string `json:"submitted_at,omitempty"`
 }
 
 type SkillPreview struct {
-	SkillID     string `json:"skill_id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
-	RiskLevel   string `json:"risk_level,omitempty"`
-	SubmittedAt string `json:"submitted_at,omitempty"`
+	SkillID       string `json:"skill_id"`
+	VersionID     string `json:"version_id,omitempty"`
+	VersionNo     int    `json:"version_no,omitempty"`
+	SourceVersion string `json:"source_version,omitempty"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	Status        string `json:"status"`
+	RiskLevel     string `json:"risk_level,omitempty"`
+	SubmittedBy   string `json:"submitted_by,omitempty"`
+	SubmittedAt   string `json:"submitted_at,omitempty"`
 }
 
 func NewAPI(server, token string, timeout time.Duration) API {
@@ -150,9 +159,16 @@ func (api API) Heartbeat(ctx context.Context, inventory Inventory) (Policy, erro
 }
 
 func (api API) DownloadPackage(ctx context.Context, clientID, skillID, agentType, managedAgentID string) ([]byte, error) {
+	return api.DownloadPackageVersion(ctx, clientID, skillID, "", agentType, managedAgentID)
+}
+
+func (api API) DownloadPackageVersion(ctx context.Context, clientID, skillID, versionID, agentType, managedAgentID string) ([]byte, error) {
 	query := url.Values{"agent_type": []string{agentType}}
 	if managedAgentID != "" {
 		query.Set("managed_agent_id", managedAgentID)
+	}
+	if versionID != "" {
+		query.Set("version_id", versionID)
 	}
 	path := fmt.Sprintf("/api/v1/clients/%s/skills/%s/package?%s", clientID, skillID, query.Encode())
 	request, err := api.request(ctx, http.MethodGet, path, nil)
@@ -171,6 +187,35 @@ func (api API) DownloadPackage(ctx context.Context, clientID, skillID, agentType
 	return io.ReadAll(io.LimitReader(response.Body, 100*1024*1024))
 }
 
+type SkillVersion struct {
+	VersionID     string `json:"version_id"`
+	VersionNo     int    `json:"version_no"`
+	SourceVersion string `json:"source_version,omitempty"`
+	Status        string `json:"status"`
+	RiskLevel     string `json:"risk_level,omitempty"`
+	LatestTrusted bool   `json:"latest_trusted"`
+	ApprovedAt    string `json:"approved_at,omitempty"`
+	ApprovedBy    string `json:"approved_by,omitempty"`
+	SubmittedAt   string `json:"submitted_at,omitempty"`
+	SubmittedBy   string `json:"submitted_by,omitempty"`
+}
+
+type SkillVersions struct {
+	SkillID          string         `json:"skill_id"`
+	DefaultVersionID string         `json:"default_version_id"`
+	Items            []SkillVersion `json:"items"`
+}
+
+func (api API) SkillVersions(ctx context.Context, clientID, skillID, agentType, managedAgentID string) (SkillVersions, error) {
+	query := url.Values{"agent_type": []string{agentType}}
+	if managedAgentID != "" {
+		query.Set("managed_agent_id", managedAgentID)
+	}
+	var result SkillVersions
+	err := api.getJSON(ctx, fmt.Sprintf("/api/v1/clients/%s/skills/%s/versions?%s", clientID, skillID, query.Encode()), &result)
+	return result, err
+}
+
 func (api API) AvailableSkills(ctx context.Context, clientID, agentType, managedAgentID, search string) ([]AvailableSkill, error) {
 	query := url.Values{"agent_type": []string{agentType}}
 	if managedAgentID != "" {
@@ -186,10 +231,13 @@ func (api API) AvailableSkills(ctx context.Context, clientID, agentType, managed
 	return result.Items, err
 }
 
-func (api API) SkillPreview(ctx context.Context, clientID, skillID, agentType, managedAgentID string) (SkillPreview, error) {
+func (api API) SkillPreview(ctx context.Context, clientID, skillID, versionID, agentType, managedAgentID string) (SkillPreview, error) {
 	query := url.Values{"agent_type": []string{agentType}}
 	if managedAgentID != "" {
 		query.Set("managed_agent_id", managedAgentID)
+	}
+	if versionID != "" {
+		query.Set("version_id", versionID)
 	}
 	var result SkillPreview
 	err := api.getJSON(ctx, fmt.Sprintf("/api/v1/clients/%s/skills/%s/preview?%s", clientID, skillID, query.Encode()), &result)

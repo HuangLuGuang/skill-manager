@@ -580,7 +580,6 @@ async def submit_scanner_import(
     use_sandbox: bool = Form(False),
     use_skillspector: bool = Form(False),
     use_deep_scan: bool = Form(False),
-    no_cache: bool = Form(False),
     judgement_mode: str | None = Form(None),
     scanner_version: str | None = Form(None),
     host_id: str | None = Form(None),
@@ -640,7 +639,6 @@ async def submit_scanner_import(
             author=scanner_auth.author or scanner_auth.name,
             channel="agent_manager_client" if scanner_auth.access_token and scanner_auth.access_token.token_type == "client" else "scanner",
             token_name=scanner_auth.token_name,
-            version=scanner_version,
         )
         deep_scan_enabled = use_deep_scan or use_skillspector
         response = _submit_directory_for_processing(
@@ -652,7 +650,6 @@ async def submit_scanner_import(
             use_llm,
             use_sandbox,
             deep_scan_enabled,
-            no_cache,
             judgement_mode,
         )
         store.log_event(
@@ -671,7 +668,7 @@ async def submit_scanner_import(
                     "deep_scan": deep_scan_enabled,
                     "sandbox": use_sandbox,
                     "llm": use_llm,
-                    "no_cache": no_cache,
+                    "scan_result_reuse": mgr.policy.scan_result_reuse_enabled,
                 },
             },
         )
@@ -692,4 +689,7 @@ def get_scanner_import(
     allowed_owners = {scanner_auth.name, scanner_auth.author or "", scanner_auth.token_name or ""}
     if entry.source.author not in allowed_owners and entry.source.token_name not in allowed_owners:
         raise HTTPException(status_code=403, detail="scanner token can only read own submissions")
-    return entry.model_dump(mode="json", exclude={"vetting": {"scan_report"}})
+    payload = entry.model_dump(mode="json", exclude={"vetting": {"scan_report"}})
+    payload["skill_id"] = entry.family_id or entry.skill_id
+    payload["version_id"] = entry.skill_id
+    return payload

@@ -468,6 +468,9 @@ class McpUpstreamDebugRequest(BaseModel):
 
 class ClientSkillInventory(BaseModel):
     skill_id: Optional[str] = None
+    version_id: Optional[str] = None
+    version_no: Optional[int] = None
+    source_version: Optional[str] = None
     name: str
     path: str
     signature: Optional[str] = None

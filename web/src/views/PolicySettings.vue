@@ -18,6 +18,14 @@
       <a-tabs v-model:activeKey="activeTab" style="margin-top: 16px">
         <a-tab-pane key="decision" :tab="$t('legacy.15tr9ja')">
           <section class="policy-section">
+            <div class="section-title">{{ $t('policySettings.submissionAndScan') }}</div>
+            <a-form-item :label="$t('policySettings.reuseScanResults')">
+              <a-switch v-model:checked="formState.scan_result_reuse_enabled" />
+              <div class="field-hint">{{ $t('policySettings.reuseScanResultsHint') }}</div>
+            </a-form-item>
+          </section>
+
+          <section class="policy-section">
             <div class="section-title">{{ $t("legacy.1qnr6kk") }}</div>
             <a-table
               size="small"
@@ -426,6 +434,7 @@ const decisionRows = [
 ]
 
 const formState = reactive({
+  scan_result_reuse_enabled: true,
   auto_approve_max_risk: 'benign',
   require_human_review: ['suspicious'],
   auto_reject_risk: ['malicious'],
@@ -545,6 +554,7 @@ const handleRiskGroupChange = (targetGroup, values) => {
 }
 
 const buildPayload = () => ({
+  scan_result_reuse_enabled: formState.scan_result_reuse_enabled,
   auto_approve_max_risk: formState.auto_approve_max_risk,
   require_human_review: formState.require_human_review,
   auto_reject_risk: formState.auto_reject_risk,
@@ -600,6 +610,7 @@ const markSaved = () => {
 }
 
 const applyPolicy = (policy) => {
+  formState.scan_result_reuse_enabled = policy.scan_result_reuse_enabled !== false
   formState.auto_approve_max_risk = policy.auto_approve_max_risk
   formState.require_human_review = [...(policy.require_human_review || [])]
   formState.auto_reject_risk = [...(policy.auto_reject_risk || [])]

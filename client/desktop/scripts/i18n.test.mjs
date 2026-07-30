@@ -9,7 +9,11 @@ const { parse } = require('@babel/parser')
 const storage = new Map([['agent-manager-client-locale', 'en-US']])
 const context = {
   CustomEvent: class CustomEvent {},
-  document: {},
+  document: {
+    documentElement: {},
+    querySelector: () => null,
+    querySelectorAll: () => [],
+  },
   localStorage: {
     getItem: key => storage.get(key) || null,
     setItem: (key, value) => storage.set(key, value),
@@ -36,6 +40,7 @@ test('translates core desktop navigation and product name', () => {
   const { t } = context.window.clientI18n
   assert.equal(t('智能体生命周期管理系统'), 'Agent Manager')
   assert.equal(t('客户端接入'), 'Client Access')
+  assert.equal(t('客户端概览'), 'Client Overview')
   assert.equal(t('Agent 发现'), 'Agent Discovery')
   assert.equal(t('Skill 治理'), 'Skill Governance')
   assert.equal(t('运行状态'), 'Runtime Status')
@@ -56,6 +61,24 @@ test('localizes runtime errors while preserving technical details', () => {
   assert.equal(
     translateRuntime('无法读取后台服务状态: exit status 1'),
     'Unable to read the background service status: exit status 1',
+  )
+})
+
+test('turns connection failures into friendly messages without JSON payloads', () => {
+  const { connectionErrorText, setLocale } = context.window.clientI18n
+  setLocale('zh-CN')
+  assert.equal(
+    connectionErrorText('error: Agent Manager 返回 403 Forbidden: {"detail":"接入凭证无效或已禁用","error_code":"credential.invalid_or_disabled","error_params":{}}'),
+    '客户端接入凭证无效或已禁用，请更换有效凭证后重试。',
+  )
+  assert.equal(
+    connectionErrorText('error: Post "http://127.0.0.1:8000/api/v1/clients/register": dial tcp 127.0.0.1:8000: connect: connection refused'),
+    '无法连接 Agent Manager。请确认平台地址和端口填写正确，并确认平台服务已启动。',
+  )
+  setLocale('en-US')
+  assert.equal(
+    connectionErrorText('error: Agent Manager 返回 403 Forbidden: {"detail":"接入凭证无效或已禁用","error_code":"credential.invalid_or_disabled","error_params":{}}'),
+    'The client credential is invalid or disabled. Replace it with an active credential and try again.',
   )
 })
 
@@ -145,6 +168,28 @@ test('keeps language selection inside client settings', () => {
   assert.doesNotMatch(indexHtml, /id="locale-switch"/)
   assert.match(indexHtml, /id="settings-language"/)
   assert.match(appSource, /\$\('#settings-language'\)\.value = window\.clientI18n/)
+})
+
+test('edits an existing connection in a modal without reopening the inline form', () => {
+  assert.match(indexHtml, /<dialog id="edit-connection-dialog"/)
+  assert.match(indexHtml, /<form id="edit-connection-form"/)
+  assert.match(appSource, /\$\('#edit-connection-dialog'\)\.showModal\(\)/)
+  assert.match(appSource, /run\('service-status'\)[\s\S]*run\('prepare-update'\)[\s\S]*run\('reconcile-service'\)/)
+  assert.equal(appSource.includes("$('#connect-form').hidden = false\n  $('#server').value = connection"), false)
+})
+
+test('keeps platform recovery out of Agent discovery', () => {
+  assert.doesNotMatch(indexHtml, /id="discover-platform-install-button"/)
+  assert.match(indexHtml, /id="open-preview-button"[^>]*>生成接管预览</)
+  assert.match(appSource, /previewButton\.disabled = selectedSkillPaths\.size === 0/)
+  assert.doesNotMatch(appSource, /previewButton\.dataset\.action/)
+})
+
+test('rediscovers local Agents before refreshing governance after an install', () => {
+  assert.match(
+    appSource,
+    /const refreshAfterInstall = async \(\) => \{[\s\S]*await discover\(\)[\s\S]*await refreshConnection\(\)[\s\S]*await preview\(false\)/,
+  )
 })
 
 test('bundles localized macOS application names', () => {

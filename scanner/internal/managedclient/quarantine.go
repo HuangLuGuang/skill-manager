@@ -3,9 +3,12 @@ package managedclient
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
+
+	"skill-manager/scanner/internal/manifest"
 )
 
 type QuarantineItem struct {
@@ -76,4 +79,59 @@ func (store *Store) ResolveQuarantine(agentType, skillName string) error {
 		time.Now().UTC().Format(time.RFC3339Nano), agentType, skillName,
 	)
 	return err
+}
+
+func QueueQuarantineForDetection(home string, store *Store, id string) (PendingItem, error) {
+	items, err := store.QuarantineItems()
+	if err != nil {
+		return PendingItem{}, err
+	}
+	var quarantine QuarantineItem
+	for _, candidate := range items {
+		if candidate.ID == id {
+			quarantine = candidate
+			break
+		}
+	}
+	if quarantine.ID == "" {
+		return PendingItem{}, fmt.Errorf("quarantined Skill not found: %s", id)
+	}
+	if info, statErr := os.Stat(filepath.Join(quarantine.QuarantinePath, "SKILL.md")); statErr != nil || info.IsDir() {
+		return PendingItem{}, fmt.Errorf("隔离内容缺少 SKILL.md，无法提交检测")
+	}
+
+	target := filepath.Join(
+		PendingRoot(home),
+		quarantine.AgentType,
+		filepath.Base(quarantine.QuarantinePath)+"-quarantine-"+quarantine.ID,
+	)
+	pendingItemID := pendingID(target)
+	if existing, existingErr := store.PendingItem(pendingItemID); existingErr == nil {
+		return existing, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		return PendingItem{}, err
+	}
+	if err := copyDir(quarantine.QuarantinePath, target); err != nil {
+		return PendingItem{}, err
+	}
+	value, err := manifest.Build(target, DefaultManifestOptions())
+	if err != nil {
+		_ = os.RemoveAll(target)
+		return PendingItem{}, err
+	}
+	pending := PendingItem{
+		ID:           pendingItemID,
+		AgentType:    quarantine.AgentType,
+		SkillName:    quarantine.SkillName,
+		OriginalPath: quarantine.OriginalPath,
+		PendingPath:  target,
+		Reason:       "quarantine_rescan",
+		Fingerprint:  value.Fingerprint,
+	}
+	if err := store.SavePending(pending); err != nil {
+		_ = os.RemoveAll(target)
+		return PendingItem{}, err
+	}
+	return store.PendingItem(pending.ID)
 }

@@ -69,6 +69,9 @@ func runOnce(ctx context.Context, home string, api API, store *Store, forceFullS
 	if err := executeTasks(ctx, home, inventory, policy, api, store, tasks); err != nil {
 		return err
 	}
+	if online {
+		_, _ = ReconcileApprovedPending(ctx, home, api, store, inventory, policy)
+	}
 	fullInterval := time.Duration(policy.FullScanSeconds) * time.Second
 	if fullInterval <= 0 {
 		fullInterval = 30 * time.Minute
@@ -135,18 +138,28 @@ func PollTasks(ctx context.Context, home string, api API, store *Store) error {
 		return policyErr
 	}
 	tasks, err := api.Tasks(ctx, cached.ClientID)
-	if err != nil || len(tasks) == 0 {
-		return err
-	}
-	inventory, err := Discover(home)
 	if err != nil {
 		return err
 	}
-	if err := store.EnrichInventory(&inventory); err != nil {
-		return err
+	inventory := cached
+	if len(tasks) > 0 {
+		inventory, err = Discover(home)
+		if err != nil {
+			return err
+		}
+		if err := store.EnrichInventory(&inventory); err != nil {
+			return err
+		}
 	}
 	if err := executeTasks(ctx, home, inventory, policy, api, store, tasks); err != nil {
 		return err
+	}
+	pendingChanged, pendingErr := ReconcileApprovedPending(ctx, home, api, store, inventory, policy)
+	if pendingErr != nil {
+		return pendingErr
+	}
+	if len(tasks) == 0 && !pendingChanged {
+		return nil
 	}
 	fresh, err := Discover(home)
 	if err != nil {
@@ -208,10 +221,11 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 		agentType := stringValue(task.Payload, "agent_type")
 		managedAgentID := stringValue(task.Payload, "managed_agent_id")
 		skillID := stringValue(task.Payload, "skill_id")
+		versionID := stringValue(task.Payload, "version_id")
 		if agentType == "" || skillID == "" || (policy.GovernanceMode == "strict" && managedAgentID == "") {
 			return fmt.Errorf("install task is missing required agent or skill information")
 		}
-		return InstallApprovedSkill(ctx, home, inventory, policy, api, store, agentType, managedAgentID, skillID)
+		return InstallApprovedSkillVersion(ctx, home, inventory, policy, api, store, agentType, managedAgentID, skillID, versionID)
 	case "remove_skill":
 		agent, ok := findAgent(inventory, stringValue(task.Payload, "agent_type"))
 		if !ok || !agent.SkillManagementSupported || agent.SkillsPath == "" {
@@ -242,6 +256,10 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 }
 
 func InstallApprovedSkill(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, agentType, managedAgentID, skillID string) error {
+	return InstallApprovedSkillVersion(ctx, home, inventory, policy, api, store, agentType, managedAgentID, skillID, "")
+}
+
+func InstallApprovedSkillVersion(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, agentType, managedAgentID, skillID, versionID string) error {
 	if agentType == "" || skillID == "" || (policy.GovernanceMode == "strict" && managedAgentID == "") {
 		return fmt.Errorf("install requires agent and skill information")
 	}
@@ -249,13 +267,48 @@ func InstallApprovedSkill(ctx context.Context, home string, inventory Inventory,
 	if !ok || !agent.SkillManagementSupported || agent.SkillsPath == "" {
 		return fmt.Errorf("agent %s does not support managed skills", agentType)
 	}
-	body, err := api.DownloadPackage(ctx, inventory.ClientID, skillID, agentType, managedAgentID)
+	body, err := api.DownloadPackageVersion(ctx, inventory.ClientID, skillID, versionID, agentType, managedAgentID)
 	if err != nil {
 		return err
 	}
-	target := filepath.Join(ManagedSkillsRoot(home), skillID, "release")
-	manifest, err := VerifyAndExtractPackage(body, policy.ReleasePublicKey, target)
+	incoming := filepath.Join(ManagedSkillsRoot(home), skillID, fmt.Sprintf(".incoming-%d", time.Now().UnixNano()))
+	manifest, err := VerifyAndExtractPackage(body, policy.ReleasePublicKey, incoming)
 	if err != nil {
+		return err
+	}
+	resolvedVersionID := manifest.VersionID
+	if resolvedVersionID == "" {
+		resolvedVersionID = skillID
+	}
+	target := filepath.Join(ManagedSkillsRoot(home), skillID, "versions", resolvedVersionID, "release")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		_ = os.RemoveAll(incoming)
+		return err
+	}
+	if _, err := os.Stat(target); os.IsNotExist(err) {
+		if err := os.Rename(incoming, target); err != nil {
+			_ = os.RemoveAll(incoming)
+			return err
+		}
+	} else if err != nil {
+		_ = os.RemoveAll(incoming)
+		return err
+	} else {
+		previous := target + fmt.Sprintf(".previous-%d", time.Now().UnixNano())
+		if err := os.Rename(target, previous); err != nil {
+			_ = os.RemoveAll(incoming)
+			return err
+		}
+		if err := os.Rename(incoming, target); err != nil {
+			_ = os.Rename(previous, target)
+			_ = os.RemoveAll(incoming)
+			return err
+		}
+		_ = os.RemoveAll(previous)
+	}
+	currentAlias := filepath.Join(ManagedSkillsRoot(home), skillID, "release")
+	_ = os.RemoveAll(currentAlias)
+	if err := os.Symlink(target, currentAlias); err != nil {
 		return err
 	}
 	link := filepath.Join(agent.SkillsPath, filepath.Base(manifest.Name))
@@ -316,7 +369,9 @@ func InstallApprovedSkill(ctx context.Context, home string, inventory Inventory,
 	if err := store.ResolveQuarantine(agentType, manifest.Name); err != nil {
 		return err
 	}
-	_ = reportEvent(ctx, api, store, inventory.ClientID, "skill_installed", agentType, manifest.Name, map[string]any{"skill_id": skillID})
+	_ = reportEvent(ctx, api, store, inventory.ClientID, "skill_installed", agentType, manifest.Name, map[string]any{
+		"skill_id": skillID, "version_id": manifest.VersionID, "version_no": manifest.VersionNo,
+	})
 	return nil
 }
 
@@ -489,6 +544,7 @@ func patrol(ctx context.Context, home string, inventory Inventory, policy Policy
 				"agent_type":       install.AgentType,
 				"managed_agent_id": install.ManagedAgentID,
 				"skill_id":         install.SkillID,
+				"version_id":       install.Manifest.VersionID,
 			}}
 			if err := executeTask(ctx, home, inventory, policy, api, store, task); err != nil {
 				return err
@@ -577,6 +633,9 @@ func managedSymlinkTarget(home string, install Installation) (string, bool) {
 	}
 	for _, root := range managedSkillsRoots(home) {
 		candidates := []string{filepath.Join(root, install.SkillID, "release")}
+		if install.Manifest.VersionID != "" {
+			candidates = append(candidates, filepath.Join(root, install.SkillID, "versions", install.Manifest.VersionID, "release"))
+		}
 		if install.Manifest.ContentSignature != "" {
 			candidates = append(candidates, filepath.Join(root, install.SkillID, install.Manifest.ContentSignature))
 		}
@@ -631,7 +690,8 @@ func handleSharedInstallMismatch(
 	}
 	if online && policy.Mode == "repair" {
 		task := Task{TaskType: "repair_skill", Payload: map[string]any{
-			"agent_type": primary.AgentType, "managed_agent_id": primary.ManagedAgentID, "skill_id": primary.SkillID,
+			"agent_type": primary.AgentType, "managed_agent_id": primary.ManagedAgentID,
+			"skill_id": primary.SkillID, "version_id": primary.Manifest.VersionID,
 		}}
 		if err := executeTask(ctx, home, inventory, policy, api, store, task); err != nil {
 			return err

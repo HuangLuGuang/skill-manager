@@ -110,6 +110,13 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql("ALTER TABLE managed_clients ADD COLUMN policy_mode VARCHAR(32) NOT NULL DEFAULT 'audit'")
         if managed_client_columns and "governance_mode" not in managed_client_columns:
             conn.exec_driver_sql("ALTER TABLE managed_clients ADD COLUMN governance_mode VARCHAR(32) NOT NULL DEFAULT 'registry'")
+        client_skill_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(client_skill_installs)").fetchall()}
+        if client_skill_columns and "version_id" not in client_skill_columns:
+            conn.exec_driver_sql("ALTER TABLE client_skill_installs ADD COLUMN version_id VARCHAR(128)")
+        if client_skill_columns and "version_no" not in client_skill_columns:
+            conn.exec_driver_sql("ALTER TABLE client_skill_installs ADD COLUMN version_no INTEGER")
+        if client_skill_columns and "source_version" not in client_skill_columns:
+            conn.exec_driver_sql("ALTER TABLE client_skill_installs ADD COLUMN source_version VARCHAR(128)")
 
     # Headroom 压缩字段 migration
     from backend.migrate_compression import migrate as migrate_compression

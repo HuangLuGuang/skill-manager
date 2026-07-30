@@ -10,6 +10,78 @@ import (
 	"skill-manager/scanner/internal/managedclient"
 )
 
+func TestConfigureConnectionChangePausesGovernanceAndClearsPlatformState(t *testing.T) {
+	home := t.TempDir()
+	if err := managedclient.SaveConfig(home, managedclient.Config{
+		Server: "http://old.example",
+		Token:  "old-token",
+		Name:   "test client",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store, err := managedclient.OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetGovernanceEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetState("policy", `{"mode":"block"}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetState("patrol_findings", `[{"event_type":"skill_modified"}]`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueueEvent(managedclient.QueuedEvent{
+		ClientID: "client-1", EventType: "skill_modified", AgentType: "codex", SkillName: "demo",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := run([]string{
+		"configure", "--home", home,
+		"--server", "http://new.example/",
+		"--token", "new-token",
+		"--name", "test client",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	config, err := managedclient.LoadConfig(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Server != "http://new.example" || config.Token != "new-token" {
+		t.Fatalf("unexpected saved config: %#v", config)
+	}
+	store, err = managedclient.OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if enabled, err := store.GovernanceEnabled(); err != nil || enabled {
+		t.Fatalf("governance was not paused: enabled=%v err=%v", enabled, err)
+	}
+	for _, key := range []string{"policy", "patrol_findings"} {
+		if _, ok, err := store.State(key); err != nil || ok {
+			t.Fatalf("%s was not cleared: ok=%v err=%v", key, ok, err)
+		}
+	}
+	if events, err := store.QueuedEvents(); err != nil || len(events) != 0 {
+		t.Fatalf("events from the previous platform were retained: %#v err=%v", events, err)
+	}
+	notifications, err := store.Notifications(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notifications) != 1 || notifications[0].EventType != "connection_changed_governance_paused" {
+		t.Fatalf("connection change notification was not recorded: %#v", notifications)
+	}
+}
+
 func TestLoadCachedInventoryRejectsOutdatedCache(t *testing.T) {
 	store, err := managedclient.OpenStore(filepath.Join(t.TempDir(), "client.db"))
 	if err != nil {

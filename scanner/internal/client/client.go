@@ -27,7 +27,6 @@ type SubmitOptions struct {
 	UseSkillspector bool
 	UseSandbox      bool
 	UseLLM          bool
-	NoCache         bool
 	JudgementMode   string
 	ManifestJSON    string
 	ScannerVersion  string
@@ -36,6 +35,7 @@ type SubmitOptions struct {
 
 type SubmitResult struct {
 	SkillID       string `json:"skill_id,omitempty"`
+	VersionID     string `json:"version_id,omitempty"`
 	Name          string `json:"name,omitempty"`
 	Status        string `json:"status,omitempty"`
 	RiskLevel     string `json:"risk_level,omitempty"`
@@ -46,6 +46,7 @@ type SubmitResult struct {
 
 type importResult struct {
 	SkillID   string `json:"skill_id"`
+	VersionID string `json:"version_id"`
 	Name      string `json:"name"`
 	Status    string `json:"status"`
 	RiskLevel string `json:"risk_level"`
@@ -103,7 +104,6 @@ func (c Client) SubmitZip(ctx context.Context, zipPath string, opts SubmitOption
 	_ = writer.WriteField("use_deep_scan", boolString(opts.UseSkillspector))
 	_ = writer.WriteField("use_sandbox", boolString(opts.UseSandbox))
 	_ = writer.WriteField("use_llm", boolString(opts.UseLLM))
-	_ = writer.WriteField("no_cache", boolString(opts.NoCache))
 	if opts.JudgementMode != "" {
 		_ = writer.WriteField("judgement_mode", opts.JudgementMode)
 	}
@@ -164,6 +164,7 @@ func (c Client) GetImport(ctx context.Context, skillID string) (SubmitResult, er
 	}
 	result = SubmitResult{
 		SkillID:   payload.SkillID,
+		VersionID: payload.VersionID,
 		Name:      payload.Name,
 		Status:    payload.Status,
 		RiskLevel: payload.RiskLevel,

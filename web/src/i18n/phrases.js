@@ -439,7 +439,6 @@ export const enPhrases = {
   '启用全部分析能力': 'Enable All Analysis Capabilities',
   '只做本地发现和轻量预检，不上传': 'Run local discovery and lightweight prechecks without uploading',
   '启动规则分析': 'Enable Rule Analysis',
-  '禁用缓存，强制重新扫描': 'Disable Cache and Force a New Scan',
   '组合使用': 'Combined Usage',
   '本地调试示例，后端端口按你的 dev_server 配置填写': 'Local debugging example. Use the backend port configured for dev_server.',
   '当前提交人': 'Current Submitter',

@@ -217,7 +217,7 @@ python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_ver
 
 默认策略是阻断优先：未提交、扫描中、待审核、已拒绝、未形成可信版本、内容不匹配、状态不可加载或 API 错误，脚本都会返回非 `0`，并输出中文阻断原因。Agent 不应提供“用户确认后继续”的默认绕过路径。
 
-`submit` 不再默认启用 LLM。需要更完整分析时显式增加 `--deep-scan`、`--sandbox`、`--llm` 或 `--no-cache`。
+`submit` 不再默认启用 LLM。需要更完整分析时显式增加 `--deep-scan`、`--sandbox` 或 `--llm`。检测结果是否复用由平台“策略配置”全局控制；需要强制重新检测时，在平台 Skill 版本列表中发起。
 
 ---
 
@@ -280,7 +280,6 @@ export SKILL_SCANNER_HOST_ID="customer-prod-01"
 | `--behavioral` | 启用服务端规则分析。界面里显示为“规则分析”。 |
 | `--sandbox` | 启用服务端 sandbox 动态执行验证。 |
 | `--llm` | 启用服务端 LLM 分析。需要系统设置里已配置 LLM，或已通过模型网关环境变量配置隐私路由。 |
-| `--no-cache` | 禁用扫描缓存。强制服务端重新执行完整分析，不复用历史结果。 |
 | `--timeout` | HTTP 请求超时时间，默认 `120s`。 |
 | `--max-file-mb` | 单文件打包大小上限，默认 `20`。 |
 | `--max-total-mb` | 单个 skill 包总大小上限，默认 `50`。 |

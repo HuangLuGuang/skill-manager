@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestOpenStoreMigratesPendingContentFingerprint(t *testing.T) {
+func TestOpenStoreMigratesPendingVersionFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "client.db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -38,9 +38,9 @@ func TestOpenStoreMigratesPendingContentFingerprint(t *testing.T) {
 	}
 	defer store.Close()
 	if _, err := store.db.Exec(`INSERT INTO client_pending(
-		id, agent_type, skill_name, original_path, pending_path, reason, status, content_fingerprint, created_at
-	) VALUES('pending-1', 'codex', 'demo', '', '/tmp/demo', 'test', 'pending', 'sha256:test', '2026-07-23T00:00:00Z')`); err != nil {
-		t.Fatalf("content_fingerprint migration was not applied: %v", err)
+		id, agent_type, skill_name, original_path, pending_path, reason, status, version_id, content_fingerprint, created_at
+	) VALUES('pending-1', 'codex', 'demo', '', '/tmp/demo', 'test', 'pending', 'version-2', 'sha256:test', '2026-07-23T00:00:00Z')`); err != nil {
+		t.Fatalf("pending version migrations were not applied: %v", err)
 	}
 }
 
@@ -71,7 +71,7 @@ func TestStorePersistsInventoryAndCompletedTasks(t *testing.T) {
 		SkillID:    "skill-1",
 		SkillName:  "managed",
 		TargetPath: managedPath,
-		Manifest:   releaseManifest{Name: "managed"},
+		Manifest:   releaseManifest{Name: "managed", VersionID: "version-2", VersionNo: 2, SourceVersion: "1.4.0"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestStorePersistsInventoryAndCompletedTasks(t *testing.T) {
 	if err := store.EnrichInventory(&inventory); err != nil {
 		t.Fatal(err)
 	}
-	if got := inventory.Agents[0].Skills[0]; got.SkillID != "skill-1" || got.Status != "managed" {
+	if got := inventory.Agents[0].Skills[0]; got.SkillID != "skill-1" || got.VersionID != "version-2" || got.VersionNo != 2 || got.SourceVersion != "1.4.0" || got.Status != "managed" {
 		t.Fatalf("installation metadata was not merged into inventory: %#v", got)
 	}
 	completed, err := store.TaskCompleted(7)

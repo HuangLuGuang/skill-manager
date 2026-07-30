@@ -95,9 +95,6 @@
                 <a-tooltip :title="llmTooltip">
                   <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">{{ $t("legacy.7szg5p") }}</a-checkbox></span>
                 </a-tooltip>
-                <a-tooltip :title="$t('legacy.17o6701')">
-                  <span><a-checkbox v-model:checked="formState.noCache">{{ $t("legacy.um9ay7") }}</a-checkbox></span>
-                </a-tooltip>
               </a-space>
             </a-form-item>
             <a-form-item>
@@ -180,9 +177,6 @@
                 </a-tooltip>
                 <a-tooltip :title="llmTooltip">
                   <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">{{ $t("legacy.7szg5p") }}</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="$t('legacy.17o6701')">
-                  <span><a-checkbox v-model:checked="formState.noCache">{{ $t("legacy.um9ay7") }}</a-checkbox></span>
                 </a-tooltip>
               </a-space>
             </a-form-item>
@@ -296,7 +290,6 @@ const formState = reactive({
   useSkillspector: false,
   useSandbox: false,
   useLlm: false,
-  noCache: false,
 })
 
 const submitModeMetaMap = {
@@ -617,7 +610,6 @@ const handleZipSubmit = async () => {
       use_skillspector: formState.useSkillspector,
       use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
-      no_cache: formState.noCache,
     })
     submitResults.value = result.results || []
     clearSubmittedZipSelection()
@@ -717,7 +709,6 @@ const handleLocalSubmit = async () => {
       use_skillspector: formState.useSkillspector,
       use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
-      no_cache: formState.noCache,
     })
     submitResults.value = result.results || []
     clearSubmittedLocalSelection()

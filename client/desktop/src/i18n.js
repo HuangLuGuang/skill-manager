@@ -9,6 +9,9 @@
     '语言': 'Language',
     '客户端流程': 'Client workflow',
     '客户端接入': 'Client Access',
+    '客户端概览': 'Client Overview',
+    '平台连接已变更': 'Platform Connection Changed',
+    '为避免使用旧平台策略处置本地 Skill，持续治理已自动暂停。请确认新平台配置和治理范围后再恢复。': 'Continuous governance was paused to prevent the previous platform policy from changing local Skills. Confirm the new platform configuration and governance scope before resuming.',
     'Agent 发现': 'Agent Discovery',
     '接管预览': 'Governance Preview',
     'Skill 治理': 'Skill Governance',
@@ -45,7 +48,7 @@
     '需要处理': 'Action Required',
     '完成以下事项后，客户端即可按当前配置运行。': 'Complete the following items to run the client with the current settings.',
     '平台检测能力': 'Platform Scanning Capabilities',
-    '提交待处理 Skill 时，将启用平台当前可用的全部检测能力并禁用缓存。': 'Pending Skills use all currently available platform scans with cache disabled.',
+    '提交待处理 Skill 时，将启用平台当前可用的全部检测能力，并遵循平台全局检测结果复用策略。': 'Pending Skills use all currently available platform scans and follow the platform-wide scan result reuse policy.',
     '规则扫描': 'Rule Scan',
     '深度扫描': 'Deep Scan',
     'LLM 分析': 'LLM Analysis',
@@ -72,6 +75,14 @@
     '确认': 'Confirm',
     '处理中...': 'Processing...',
     '版本': 'Version',
+    '可信版本': 'Trusted Version',
+    '请先选择 Skill': 'Select a Skill first',
+    '正在读取可信版本...': 'Loading trusted versions...',
+    '当前客户端无权读取可信版本': 'This client is not authorized to read trusted versions',
+    '· 最新可信': '· Latest trusted',
+    '暂无可信版本': 'No trusted versions',
+    '请选择可信版本': 'Select a trusted version',
+    '恢复或安装必须绑定一个可信版本。': 'Restore or installation must target a trusted version.',
     '操作完成': 'Completed',
     '最近操作': 'Last operation',
     '系统通知已开启，安全事件将及时提醒。': 'System notifications are enabled. Security events will be reported promptly.',
@@ -143,6 +154,7 @@
 
     '本机 Agent 与 Skill': 'Local Agents & Skills',
     '查看发现路径、校验状态，并选择需要纳入治理的 Skill。': 'Review discovery paths and validation status, then select the Skills to govern.',
+    ' 个不可用 Skill。请展开 Agent 查看原因；平台恢复和安装请前往 Skill 治理。': ' unavailable Skills. Expand an Agent to view the reason. Restore or install platform Skills from Skill Governance.',
     '添加 Agent': 'Add Agent',
     '添加自定义 Agent': 'Add Custom Agent',
     '重新发现': 'Discover Again',
@@ -334,7 +346,20 @@
     '客户端安全治理': 'Client Security Governance',
     'Agent 强授权': 'Strict Agent Authorization',
     '留空表示继续使用现有凭证': 'Leave blank to keep the current credential',
+    '留空表示继续使用现有凭据': 'Leave blank to keep the current credential',
     '测试并保存': 'Test and Save',
+    '修改 Agent Manager 连接': 'Edit Agent Manager Connection',
+    '测试成功后保存新的平台地址和客户端名称；凭据留空表示继续使用现有凭据。': 'Test the new platform address before saving it. Leave the credential blank to keep the existing credential.',
+    '连接测试失败': 'Connection Test Failed',
+    '连接状态刷新失败': 'Connection Status Refresh Failed',
+    '设置尚未保存，请检查平台地址和客户端接入凭证后重试：': 'Settings were not saved. Check the platform address and client credential, then try again: ',
+    '连接配置已经保存，但暂时无法刷新状态：': 'The connection settings were saved, but status could not be refreshed: ',
+    '设置尚未保存。': 'Settings were not saved.',
+    '连接配置已经保存，但暂时无法刷新状态。': 'The connection settings were saved, but status could not be refreshed.',
+    '客户端接入凭证无效或已禁用，请更换有效凭证后重试。': 'The client credential is invalid or disabled. Replace it with an active credential and try again.',
+    '无法连接 Agent Manager。请确认平台地址和端口填写正确，并确认平台服务已启动。': 'Unable to connect to Agent Manager. Check the platform address and port, and make sure the service is running.',
+    '连接 Agent Manager 超时。请检查网络和平台服务状态后重试。': 'The Agent Manager connection timed out. Check the network and platform service, then try again.',
+    '无法解析 Agent Manager 地址。请检查地址中的主机名是否正确。': 'Unable to resolve the Agent Manager address. Check that the hostname is correct.',
     '共用': 'Shared',
     '已自定义': 'Customized',
     '支持 Agent Skills 标准的工具': 'Tools supporting the Agent Skills standard',
@@ -558,6 +583,10 @@
     '检测未通过': 'Scan Failed',
     '检测已取消': 'Scan Cancelled',
     '平台已批准，可在客户端管理中下发安装': 'Approved by the platform and ready for client installation',
+    '平台已批准，后台服务将自动安装；也可以立即安装。': 'Approved by the platform. The background service will install it automatically, or you can install it now.',
+    'Skill 已自动启用': 'Skill Automatically Enabled',
+    'Skill 自动安装失败': 'Skill Automatic Installation Failed',
+    '平台已批准，但客户端自动安装失败；将稍后重试，也可以在待处理区手动安装。': 'The Skill was approved, but automatic installation failed. The client will retry later, or you can install it manually from Pending Skills.',
     '平台未通过，继续保持停用；请到 Skill 详情查看判断依据': 'Not approved by the platform. Keep it disabled and review the decision in Skill Details.',
     '平台检测已取消，继续保持停用': 'The platform scan was cancelled. Keep the Skill disabled.',
     '自动检测已完成，等待平台人工审核': 'Automated scanning is complete and awaiting platform review',
@@ -622,6 +651,8 @@
     '说明读取失败': 'Could not load description',
     '风险等级': 'Risk level',
     '提交时间': 'Submitted at',
+    '提交人：': 'Submitted by: ',
+    ' · 提交人：': ' · Submitted by: ',
     '提交于': 'Submitted',
     '状态': 'Status',
     '已批准': 'Approved',
@@ -738,6 +769,9 @@
     '所属 Agent': 'Agent',
     '已隔离': 'Quarantined',
     '选择批准版本': 'Select Approved Version',
+    '提交当前版本检测': 'Submit Current Version',
+    '提交隔离内容失败': 'Failed to Submit Quarantined Content',
+    '隔离内容等待重新检测': 'Quarantined Content Awaiting Rescan',
     '已安装 Skill': 'Installed Skill',
     '安装到其他 Agent': 'Install to Other Agents',
     '安装': 'Install',
@@ -751,6 +785,8 @@
     '返回选择 Skill': 'Return to Skill selection',
     '发生内容变化，已恢复为平台批准版本。': 'changed and was restored to the platform-approved version.',
     '未通过完整性或准入校验，已移出 Agent 目录。': 'failed integrity or admission checks and was removed from the Agent directory.',
+    '已通过平台审批并自动安装可信版本。': 'passed platform approval and the trusted version was installed automatically.',
+    '已通过平台审批，但自动安装失败；客户端将稍后重试，也可以在待处理区手动安装。': 'passed platform approval, but automatic installation failed. The client will retry later, or you can install it manually from Pending Skills.',
     '与平台批准版本不一致，请查看运行状态。': 'differs from the platform-approved version. Review Runtime Status.',
     '尚未纳入平台治理。': 'is not yet governed by the platform.',
     '版本': 'Version',
@@ -794,6 +830,29 @@
     if (locale !== 'en-US' || !source) return source
     const exact = t(source)
     return exact !== source ? exact : translateFragment(source)
+  }
+
+  const connectionErrorText = value => {
+    let source = String(value ?? '').trim().replace(/^error:\s*/i, '')
+    let detail = ''
+    let errorCode = ''
+    const jsonStart = source.indexOf('{')
+    if (jsonStart >= 0) {
+      try {
+        const payload = JSON.parse(source.slice(jsonStart))
+        detail = typeof payload?.detail === 'string' ? payload.detail.trim() : ''
+        errorCode = typeof payload?.error_code === 'string' ? payload.error_code.trim() : ''
+      } catch {
+        // Never expose an unparsed server payload in the connection dialog.
+      }
+      source = source.slice(0, jsonStart).replace(/:\s*$/, '').trim()
+    }
+    if (errorCode === 'credential.invalid_or_disabled') return t('ui.fy1toc')
+    if (/connection refused|actively refused/i.test(source)) return t('ui.1v2w25q')
+    if (/timed out|timeout|deadline exceeded/i.test(source)) return t('ui.1dgxrl6')
+    if (/no such host|failed to lookup address|name or service not known|nodename nor servname/i.test(source)) return t('ui.v1pxh6')
+    if (detail) return translateRuntime(detail)
+    return translateRuntime(source)
   }
 
   const tf = (strings, ...values) =>
@@ -853,6 +912,7 @@
     tf,
     translateFragment,
     translateRuntime,
+    connectionErrorText,
   }
   window.addEventListener('DOMContentLoaded', start, { once: true })
 })()

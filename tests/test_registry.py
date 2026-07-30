@@ -350,6 +350,139 @@ class TestRegistry:
         r2 = Registry(data_dir=tmp_path)
         assert r2.get_by_name("persistent-skill") is not None
 
+    def test_legacy_skill_rows_migrate_to_families_once(self, tmp_path):
+        registry = Registry(data_dir=tmp_path)
+        submitted_at = [
+            datetime(2024, 1, day, tzinfo=timezone.utc)
+            for day in (1, 2, 3, 4)
+        ]
+        entries = [
+            _make_entry("Demo Skill", SkillStatus.APPROVED),
+            _make_entry("Demo Skill", SkillStatus.REJECTED),
+            _make_entry("demo skill", SkillStatus.APPROVED),
+            _make_entry("Other Skill", SkillStatus.APPROVED),
+        ]
+        fingerprints = ["same-content", "same-content", "changed-content", "other-content"]
+        for index, entry in enumerate(entries):
+            entry.skill_id = f"legacy-{index + 1}"
+            entry.submitted_at = submitted_at[index]
+            entry.updated_at = submitted_at[index]
+            entry.content_fingerprint = fingerprints[index]
+
+        with registry._connect() as conn:
+            conn.execute("DELETE FROM registry_migrations WHERE migration_name = 'skill_families_v1'")
+            for entry in entries:
+                payload = entry.model_dump(mode="json")
+                payload.pop("family_id", None)
+                payload.pop("version_no", None)
+                conn.execute(
+                    """
+                    INSERT INTO skill_registry (
+                        skill_id, name, status, risk_level, submitted_at, updated_at, payload
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        entry.skill_id,
+                        entry.name,
+                        entry.status.value,
+                        entry.risk_level.value,
+                        entry.submitted_at.isoformat(),
+                        entry.updated_at.isoformat(),
+                        json.dumps(payload, default=str),
+                    ),
+                )
+            conn.execute(
+                """
+                INSERT INTO skill_review_queue (
+                    skill_id, skill_name, risk_level, submitted_at, queued_at, payload
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "legacy-1",
+                    "Demo Skill",
+                    "malicious",
+                    submitted_at[0].isoformat(),
+                    submitted_at[0].isoformat(),
+                    "{}",
+                ),
+            )
+            conn.execute(
+                "INSERT INTO skill_scan_reports (skill_id, report, updated_at) VALUES (?, ?, ?)",
+                ("legacy-1", "{}", submitted_at[0].isoformat()),
+            )
+            conn.execute(
+                """
+                INSERT INTO skill_finding_stats (
+                    skill_id, source_key, count, critical, high, medium, low
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("legacy-1", "rule", 1, 0, 1, 0, 0),
+            )
+            conn.execute(
+                """
+                INSERT INTO skill_scan_runs (
+                    scan_run_id, version_id, scan_context_fingerprint, status,
+                    forced, started_at, result
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "legacy-run",
+                    "legacy-1",
+                    "context",
+                    "COMPLETED",
+                    0,
+                    submitted_at[0].isoformat(),
+                    "{}",
+                ),
+            )
+
+        migrated = Registry(data_dir=tmp_path)
+
+        demo_versions = migrated.list_versions("demo skill")
+        summaries = migrated.list_skill_summaries(page=1, page_size=10)
+        assert migrated.count_skills() == 2
+        assert summaries["total"] == 2
+        assert [entry.skill_id for entry in demo_versions] == ["legacy-3", "legacy-2"]
+        assert [entry.version_no for entry in demo_versions] == [2, 1]
+        assert migrated.get_by_id("legacy-1") is None
+        with migrated._connect() as conn:
+            details = json.loads(
+                conn.execute(
+                    """
+                    SELECT details FROM registry_migrations
+                    WHERE migration_name = 'skill_families_v1'
+                    """
+                ).fetchone()["details"]
+            )
+            related_counts = [
+                conn.execute(
+                    f"SELECT count(*) FROM {table} WHERE {column} = 'legacy-1'"
+                ).fetchone()[0]
+                for table, column in (
+                    ("skill_review_queue", "skill_id"),
+                    ("skill_scan_reports", "skill_id"),
+                    ("skill_finding_stats", "skill_id"),
+                    ("skill_scan_runs", "version_id"),
+                )
+            ]
+        assert details == {"families": 2, "versions": 3, "duplicates_removed": 1}
+        assert related_counts == [0, 0, 0, 0]
+
+        migrated_again = Registry(data_dir=tmp_path)
+
+        assert migrated_again.count_skills() == 2
+        assert [entry.skill_id for entry in migrated_again.list_versions("demo skill")] == [
+            "legacy-3",
+            "legacy-2",
+        ]
+        with migrated_again._connect() as conn:
+            assert conn.execute(
+                """
+                SELECT count(*) FROM registry_migrations
+                WHERE migration_name = 'skill_families_v1'
+                """
+            ).fetchone()[0] == 1
+
     def test_recovers_registry_with_extra_json_data(self, tmp_path):
         entry = _make_entry("recoverable")
         registry_file = tmp_path / "registry.json"

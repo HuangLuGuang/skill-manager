@@ -123,6 +123,7 @@ func OpenStore(path string) (*Store, error) {
 			reason TEXT NOT NULL,
 			status TEXT NOT NULL,
 			skill_id TEXT,
+			version_id TEXT,
 			content_fingerprint TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,
 			submitted_at TEXT
@@ -164,6 +165,10 @@ func OpenStore(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if _, err := db.Exec(`ALTER TABLE client_pending ADD COLUMN version_id TEXT`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		db.Close()
+		return nil, err
+	}
 	return &Store{db: db, root: filepath.Dir(path)}, nil
 }
 
@@ -176,6 +181,7 @@ type PendingItem struct {
 	Reason       string `json:"reason"`
 	Status       string `json:"status"`
 	SkillID      string `json:"skill_id,omitempty"`
+	VersionID    string `json:"version_id,omitempty"`
 	Fingerprint  string `json:"content_fingerprint,omitempty"`
 	CreatedAt    string `json:"created_at"`
 	SubmittedAt  string `json:"submitted_at,omitempty"`
@@ -197,8 +203,8 @@ func (store *Store) SavePending(item PendingItem) error {
 		item.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	_, err := store.db.Exec(
-		`INSERT INTO client_pending(id, agent_type, skill_name, original_path, pending_path, reason, status, skill_id, content_fingerprint, created_at, submitted_at)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO client_pending(id, agent_type, skill_name, original_path, pending_path, reason, status, skill_id, version_id, content_fingerprint, created_at, submitted_at)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(pending_path) DO UPDATE SET
 		   original_path=excluded.original_path,
 		   reason=excluded.reason,
@@ -207,7 +213,7 @@ func (store *Store) SavePending(item PendingItem) error {
 		     ELSE client_pending.content_fingerprint
 		   END`,
 		item.ID, item.AgentType, item.SkillName, item.OriginalPath, item.PendingPath,
-		item.Reason, item.Status, item.SkillID, item.Fingerprint, item.CreatedAt, nullableString(item.SubmittedAt),
+		item.Reason, item.Status, item.SkillID, item.VersionID, item.Fingerprint, item.CreatedAt, nullableString(item.SubmittedAt),
 	)
 	return err
 }
@@ -215,7 +221,7 @@ func (store *Store) SavePending(item PendingItem) error {
 func (store *Store) PendingItems() ([]PendingItem, error) {
 	rows, err := store.db.Query(
 		`SELECT id, agent_type, skill_name, original_path, pending_path, reason, status,
-		        COALESCE(skill_id, ''), COALESCE(content_fingerprint, ''), created_at, COALESCE(submitted_at, '')
+		        COALESCE(skill_id, ''), COALESCE(version_id, ''), COALESCE(content_fingerprint, ''), created_at, COALESCE(submitted_at, '')
 		 FROM client_pending ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -226,7 +232,7 @@ func (store *Store) PendingItems() ([]PendingItem, error) {
 	known := map[string]bool{}
 	for rows.Next() {
 		var item PendingItem
-		if err := rows.Scan(&item.ID, &item.AgentType, &item.SkillName, &item.OriginalPath, &item.PendingPath, &item.Reason, &item.Status, &item.SkillID, &item.Fingerprint, &item.CreatedAt, &item.SubmittedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.AgentType, &item.SkillName, &item.OriginalPath, &item.PendingPath, &item.Reason, &item.Status, &item.SkillID, &item.VersionID, &item.Fingerprint, &item.CreatedAt, &item.SubmittedAt); err != nil {
 			return nil, err
 		}
 		if _, err := os.Stat(item.PendingPath); err != nil {
@@ -288,25 +294,30 @@ func (store *Store) PendingItem(id string) (PendingItem, error) {
 	return PendingItem{}, fmt.Errorf("pending skill not found: %s", id)
 }
 
-func (store *Store) MarkPendingSubmitted(item PendingItem, skillID string) error {
+func (store *Store) MarkPendingSubmitted(item PendingItem, skillID, versionID string) error {
 	item.Status = "submitted"
 	item.SkillID = skillID
+	item.VersionID = versionID
 	item.SubmittedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	if err := store.SavePending(item); err != nil {
 		return err
 	}
-	query := `UPDATE client_pending SET status = ?, skill_id = ?, submitted_at = ? WHERE pending_path = ?`
-	args := []any{item.Status, item.SkillID, item.SubmittedAt, item.PendingPath}
+	query := `UPDATE client_pending SET status = ?, skill_id = ?, version_id = ?, submitted_at = ? WHERE pending_path = ?`
+	args := []any{item.Status, item.SkillID, item.VersionID, item.SubmittedAt, item.PendingPath}
 	if item.Fingerprint != "" {
-		query = `UPDATE client_pending SET status = ?, skill_id = ?, submitted_at = ? WHERE content_fingerprint = ?`
-		args = []any{item.Status, item.SkillID, item.SubmittedAt, item.Fingerprint}
+		query = `UPDATE client_pending SET status = ?, skill_id = ?, version_id = ?, submitted_at = ? WHERE content_fingerprint = ?`
+		args = []any{item.Status, item.SkillID, item.VersionID, item.SubmittedAt, item.Fingerprint}
 	}
 	_, err := store.db.Exec(query, args...)
 	return err
 }
 
-func (store *Store) UpdatePendingStatusBySkillID(skillID, status string) error {
-	_, err := store.db.Exec(`UPDATE client_pending SET status = ? WHERE skill_id = ?`, status, skillID)
+func (store *Store) UpdatePendingStatus(skillID, versionID, status string) error {
+	if versionID != "" {
+		_, err := store.db.Exec(`UPDATE client_pending SET status = ? WHERE skill_id = ? AND version_id = ?`, status, skillID, versionID)
+		return err
+	}
+	_, err := store.db.Exec(`UPDATE client_pending SET status = ? WHERE skill_id = ? AND COALESCE(version_id, '') = ''`, status, skillID)
 	return err
 }
 
@@ -315,12 +326,12 @@ func (store *Store) UpdatePendingFingerprint(id, fingerprint string) error {
 	return err
 }
 
-func (store *Store) LinkPendingGroup(fingerprint, status, skillID, submittedAt string) error {
+func (store *Store) LinkPendingGroup(fingerprint, status, skillID, versionID, submittedAt string) error {
 	_, err := store.db.Exec(
 		`UPDATE client_pending
-		 SET status = ?, skill_id = ?, submitted_at = ?
+		 SET status = ?, skill_id = ?, version_id = ?, submitted_at = ?
 		 WHERE content_fingerprint = ?`,
-		status, skillID, nullableString(submittedAt), fingerprint,
+		status, skillID, versionID, nullableString(submittedAt), fingerprint,
 	)
 	return err
 }
@@ -426,6 +437,9 @@ func (store *Store) EnrichInventory(inventory *Inventory) error {
 				continue
 			}
 			skill.SkillID = install.SkillID
+			skill.VersionID = install.Manifest.VersionID
+			skill.VersionNo = install.Manifest.VersionNo
+			skill.SourceVersion = install.Manifest.SourceVersion
 			skill.Status = "managed"
 			skill.InstallMode = "copy"
 			if info, statErr := os.Lstat(skill.Path); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
@@ -643,6 +657,40 @@ func (store *Store) State(key string) (string, bool, error) {
 		return "", false, nil
 	}
 	return value, err == nil, err
+}
+
+func (store *Store) PauseForConnectionChange() error {
+	tx, err := store.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := tx.Exec(
+		`INSERT INTO client_state(key, value, updated_at) VALUES('governance_enabled', '0', ?)
+		 ON CONFLICT(key) DO UPDATE SET value='0', updated_at=excluded.updated_at`,
+		now,
+	); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM client_state WHERE key IN ('policy', 'patrol_findings')`); err != nil {
+		return err
+	}
+	// Events produced for the previous platform must never be replayed to the
+	// newly configured platform.
+	if _, err := tx.Exec(`DELETE FROM client_events_queue`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO client_notifications(severity, event_type, agent_type, skill_name, title, message, created_at)
+		 VALUES('warning', 'connection_changed_governance_paused', '', '', ?, ?, ?)`,
+		"平台连接已变更",
+		"为避免使用旧平台策略处置本地 Skill，持续治理已自动暂停。请确认新平台配置和治理范围后再恢复。",
+		now,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 type QueuedEvent struct {

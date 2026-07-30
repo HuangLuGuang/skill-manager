@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	scannerclient "skill-manager/scanner/internal/client"
@@ -34,10 +35,11 @@ func SubmitPending(ctx context.Context, home, server, token string, store *Store
 	}
 	if item.SkillID != "" {
 		return scannerclient.SubmitResult{
-			SkillID: item.SkillID,
-			Name:    item.SkillName,
-			Status:  item.Status,
-			Message: "相同内容的 Skill 已提交平台检测",
+			SkillID:   item.SkillID,
+			VersionID: item.VersionID,
+			Name:      item.SkillName,
+			Status:    item.Status,
+			Message:   "相同内容的 Skill 已提交平台检测",
 		}, nil
 	}
 	skillRoot, err := filepath.EvalSymlinks(item.PendingPath)
@@ -76,7 +78,6 @@ func SubmitPending(ctx context.Context, home, server, token string, store *Store
 		UseSkillspector: true,
 		UseSandbox:      true,
 		UseLLM:          true,
-		NoCache:         true,
 		ManifestJSON:    string(payload),
 		ScannerVersion:  "agent-manager-client",
 		HostID:          clientIDForHome(home),
@@ -84,13 +85,25 @@ func SubmitPending(ctx context.Context, home, server, token string, store *Store
 	if err != nil {
 		return result, err
 	}
-	if err := store.MarkPendingSubmitted(item, result.SkillID); err != nil {
+	if err := store.MarkPendingSubmitted(item, result.SkillID, result.VersionID); err != nil {
 		return result, err
 	}
 	return result, nil
 }
 
 func RefreshPending(ctx context.Context, server, token string, store *Store) ([]PendingItem, error) {
+	return refreshPending(ctx, server, token, store, false)
+}
+
+// RefreshPendingIncludingTerminal rechecks versions that previously reached a
+// terminal result. The platform can rescan the same immutable version and an
+// administrator can approve it afterwards, so a user-initiated refresh must
+// not treat REJECTED or CANCELLED as permanently final.
+func RefreshPendingIncludingTerminal(ctx context.Context, server, token string, store *Store) ([]PendingItem, error) {
+	return refreshPending(ctx, server, token, store, true)
+}
+
+func refreshPending(ctx context.Context, server, token string, store *Store, includeTerminal bool) ([]PendingItem, error) {
 	items, err := store.PendingItems()
 	if err != nil {
 		return nil, err
@@ -102,24 +115,87 @@ func RefreshPending(ctx context.Context, server, token string, store *Store) ([]
 	api := scannerclient.New(server, token, 30*time.Second)
 	statuses := map[string]string{}
 	for index := range items {
-		if items[index].SkillID == "" || pendingStatusTerminal(items[index].Status) {
+		if items[index].SkillID == "" || (!includeTerminal && pendingStatusTerminal(items[index].Status)) {
 			continue
 		}
-		status, ok := statuses[items[index].SkillID]
+		statusID := items[index].VersionID
+		if statusID == "" {
+			statusID = items[index].SkillID
+		}
+		status, ok := statuses[statusID]
 		if !ok {
-			result, err := api.GetImport(ctx, items[index].SkillID)
+			result, err := api.GetImport(ctx, statusID)
 			if err != nil {
 				return nil, err
 			}
 			status = result.Status
-			statuses[items[index].SkillID] = status
-			if err := store.UpdatePendingStatusBySkillID(items[index].SkillID, status); err != nil {
+			statuses[statusID] = status
+			if err := store.UpdatePendingStatus(items[index].SkillID, items[index].VersionID, status); err != nil {
 				return nil, err
 			}
 		}
 		items[index].Status = status
 	}
 	return items, nil
+}
+
+func ReconcileApprovedPending(ctx context.Context, home string, api API, store *Store, inventory Inventory, policy Policy) (bool, error) {
+	items, err := RefreshPending(ctx, api.server, api.token, store)
+	if err != nil {
+		return false, err
+	}
+	changed := false
+	for _, item := range items {
+		if item.Status != "APPROVED" || item.SkillID == "" {
+			continue
+		}
+		managedAgentID := strings.TrimSpace(policy.AgentBindings[item.AgentType])
+		if policy.GovernanceMode == "strict" && managedAgentID == "" {
+			continue
+		}
+		retryKey := "pending:auto-install:" + item.ID
+		due, err := store.Due(retryKey, time.Minute)
+		if err != nil {
+			return changed, err
+		}
+		if !due {
+			continue
+		}
+		if err := store.MarkSchedule(retryKey); err != nil {
+			return changed, err
+		}
+		if err := InstallApprovedSkillVersion(
+			ctx, home, inventory, policy, api, store,
+			item.AgentType, managedAgentID, item.SkillID, item.VersionID,
+		); err != nil {
+			if notificationErr := store.RecordNotification(LocalNotification{
+				Severity:  "warning",
+				EventType: "skill_auto_install_failed",
+				AgentType: item.AgentType,
+				SkillName: item.SkillName,
+				Title:     "Skill 自动安装失败",
+				Message:   "平台已批准，但客户端自动安装失败；将稍后重试，也可以在待处理区手动安装。",
+			}); notificationErr != nil {
+				return changed, notificationErr
+			}
+			continue
+		}
+		if err := store.RemovePending(item.ID); err != nil {
+			return changed, err
+		}
+		if err := store.RecordNotification(LocalNotification{
+			Severity:  "info",
+			EventType: "skill_auto_installed",
+			AgentType: item.AgentType,
+			SkillName: item.SkillName,
+			Title:     "Skill 已自动启用",
+			Message:   "已通过平台审批并自动安装可信版本。",
+		}); err != nil {
+			return changed, err
+		}
+		changed = true
+	}
+	return changed, nil
 }
 
 func fingerprintPendingPeers(store *Store, items []PendingItem, submitted PendingItem) error {
@@ -165,12 +241,13 @@ func linkPendingGroups(store *Store, items []PendingItem) ([]PendingItem, error)
 			continue
 		}
 		source := items[anchor]
-		if err := store.LinkPendingGroup(fingerprint, source.Status, source.SkillID, source.SubmittedAt); err != nil {
+		if err := store.LinkPendingGroup(fingerprint, source.Status, source.SkillID, source.VersionID, source.SubmittedAt); err != nil {
 			return nil, err
 		}
 		for _, index := range indexes {
 			items[index].Status = source.Status
 			items[index].SkillID = source.SkillID
+			items[index].VersionID = source.VersionID
 			items[index].SubmittedAt = source.SubmittedAt
 		}
 	}

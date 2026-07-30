@@ -132,15 +132,15 @@ p { margin: 0; color: #687684; font-size: 13px; line-height: 1.55; }
   background: #fff;
 }
 .overview-hero > div:first-child { min-width: 0; }
-.overview-hero .actions { max-width: 430px; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; }
+.overview-hero .actions { max-width: 430px; margin-left: auto; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; }
 .overview-hero .actions button { flex: 0 0 auto; }
-#check-update.update-available {
+#settings-check-update.update-available {
   border-color: #28715e;
   color: #fff;
   background: #28715e;
   box-shadow: 0 0 0 3px rgb(40 113 94 / 12%);
 }
-#check-update.update-available:hover { border-color: #1f5d4d; background: #1f5d4d; }
+#settings-check-update.update-available:hover { border-color: #1f5d4d; background: #1f5d4d; }
 .overview-hero h2 { margin: 6px 0 3px; font-size: 20px; }
 .overview-badge {
   display: inline-block;
@@ -327,6 +327,9 @@ button.is-busy, button.is-busy:disabled { cursor: wait; }
 .update-dialog .operation-progress { margin-top: 18px; }
 .custom-agent-dialog { width: min(560px, calc(100vw - 48px)); }
 .agent-paths-dialog { width: min(620px, calc(100vw - 48px)); }
+.connection-dialog { width: min(540px, calc(100vw - 48px)); }
+.connection-dialog label { display: block; margin-top: 16px; color: #34434f; font-size: 12px; font-weight: 700; }
+.connection-dialog label > input { width: 100%; margin-top: 7px; }
 .custom-agent-dialog .message-dialog-body { display: block; margin: 0; }
 .agent-paths-dialog label { display: block; margin-top: 18px; }
 .directory-editor { display: grid; align-items: start; margin-top: 7px; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
@@ -875,9 +878,9 @@ html[lang="en-US"] #preview-button {
   }
   .overview-hero .actions,
   .status-actions {
-    width: 100%;
     max-width: none;
-    justify-content: flex-start;
+    margin-left: auto;
+    justify-content: flex-end;
   }
   .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

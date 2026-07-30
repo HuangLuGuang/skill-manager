@@ -9,5 +9,5 @@ export const useLocaleText = () => {
   const text = (zh, en) => (isEnglish.value ? en : zh)
   const phrase = value => t(String(value).startsWith('legacy.') ? value : legacyKey(value))
 
-  return { locale, isEnglish, text, phrase }
+  return { locale, isEnglish, text, phrase, t }
 }

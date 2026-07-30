@@ -385,7 +385,6 @@ export const generatedEnPhrases = {
   "确认拒绝": "Confirm rejection",
   "确认退役": "Confirm retirement",
   "禁止权限/工具": "Disable permissions/tools",
-  "禁用缓存": "Disable caching",
   "移除": "Remove",
   "策略": "Strategy",
   "策略可以绑定到用户组。用户通过 API Key 请求模型网关时，会按其所属用户组解析隐私策略；留空表示默认策略。": "Policies can be bound to user groups. When a user requests the model gateway through the API Key, the privacy policy will be parsed according to the user group to which it belongs; leaving it blank indicates the default policy.",

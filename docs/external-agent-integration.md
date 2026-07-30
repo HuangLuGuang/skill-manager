@@ -170,19 +170,16 @@ sequenceDiagram
     SM-->>AG: allow / deny
 ```
 
-### Limitation
+### 版本与下载
 
-当前这个 demo 还没有正式提供这些能力：
+平台已按 Skill 名称族管理内容版本：
 
-- 下载 skill ZIP
-- 导出 skill 目录
-- 获取最新已部署版本文件
-- 多环境发布地址
+- `GET /api/v1/skills/{skill_id}/versions` 查询所有内容版本。
+- `GET /api/v1/skills/{skill_id}/diff?base=...&target=...` 比较两个版本。
+- `GET /api/v1/skills/{skill_id}/download?version=...` 下载指定版本。
+- 客户端接口默认解析到最新可信版本，也可以显式传 `version_id` 下载或恢复历史可信版本。
 
-所以现在更现实的落地方式仍然是：
-
-- 外部系统自己管理 skill 文件
-- Agent Manager 负责审批、验签、运行时放行与审计
+外部 Agent 做 name-only 校验时解析最新可信版本；如果本地内容属于较旧的可信版本，应同时传版本 ID 或内容签名，以免把“最新版本”误当成“本机实际版本”。多环境发布地址仍需由外部分发系统管理。
 
 ## Mode 3: LLM Privacy Proxy
 
@@ -302,16 +299,11 @@ flowchart TD
 
 ## What To Build Next
 
-如果要让外部系统更容易接入，建议下一步补这些接口：
+后续可以继续补充：
 
-1. `GET /api/v1/skills/{id}/files`
-   返回 skill 内文件列表
-2. `GET /api/v1/skills/{id}/download`
-   下载 skill ZIP
-3. `GET /api/v1/skills/deployed/latest?name=...`
-   返回某个 skill 的最新已部署版本
-4. 面向外部 Agent 的独立 token / API key 鉴权
-5. 按环境区分 `dev / staging / prod`
+1. 面向外部 Agent 的细粒度独立 token / API key 鉴权。
+2. 按环境区分 `dev / staging / prod` 的发布指针。
+3. 版本保留、归档和存储配额策略。
 
 模型网关方向的后续增强：
 

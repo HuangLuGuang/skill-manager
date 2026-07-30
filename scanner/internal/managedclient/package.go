@@ -22,11 +22,15 @@ type releaseFile struct {
 }
 
 type releaseManifest struct {
-	Version          int           `json:"version"`
-	SkillID          string        `json:"skill_id"`
-	Name             string        `json:"name"`
-	ContentSignature string        `json:"content_signature"`
-	Files            []releaseFile `json:"files"`
+	Version            int           `json:"version"`
+	SkillID            string        `json:"skill_id"`
+	VersionID          string        `json:"version_id"`
+	VersionNo          int           `json:"version_no"`
+	SourceVersion      string        `json:"source_version,omitempty"`
+	ContentFingerprint string        `json:"content_fingerprint,omitempty"`
+	Name               string        `json:"name"`
+	ContentSignature   string        `json:"content_signature"`
+	Files              []releaseFile `json:"files"`
 }
 
 func VerifyAndExtractPackage(body []byte, publicKeyBase64, target string) (releaseManifest, error) {
