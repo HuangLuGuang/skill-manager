@@ -1,6 +1,8 @@
 import io
 import json
+import os
 import zipfile
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -9,12 +11,13 @@ from sqlalchemy.orm import sessionmaker
 
 import agent_manager.api.router as api_router
 from agent_manager.api.router import get_manager
+from agent_manager.api.router import runtime_router as agent_runtime_router
 from agent_manager.api.scanner_router import _scanner_release_dir, admin_router, router, runtime_router
 from agent_manager.core.manager import AgentManager
 from agent_manager.core.models import SkillOrigin, SourceInfo
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.registry import make_event
-from agent_manager.core.signer import compute_signature
+from agent_manager.core.signer import compute_content_digest
 from backend import models
 from backend.routers.access_tokens import _hash_token
 from backend.sqlite_db import Base, get_db
@@ -43,6 +46,34 @@ def test_scanner_import_requires_token(tmp_path):
 def test_scanner_release_dir_points_to_project_scanner_releases():
     assert (_scanner_release_dir().parent / "go.mod").exists()
     assert _scanner_release_dir().name == "releases"
+
+
+def test_runtime_exposes_ed25519_public_key():
+    app = FastAPI()
+    app.include_router(agent_runtime_router, prefix="/api/v1")
+    client = TestClient(app)
+
+    response = client.get("/api/v1/runtime/signing-public-key")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["algorithm"] == "Ed25519"
+    assert payload["key_id"]
+    assert payload["public_key"]
+
+
+def test_runtime_public_key_endpoint_does_not_create_private_key():
+    private_key_path = Path(os.environ["AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH"])
+    private_key_path.unlink()
+    app = FastAPI()
+    app.include_router(agent_runtime_router, prefix="/api/v1")
+    client = TestClient(app)
+
+    response = client.get("/api/v1/runtime/signing-public-key")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "signing public key is not initialized"
+    assert not private_key_path.exists()
 
 
 def _assert_skill_verifier_zip(content: bytes):
@@ -251,7 +282,7 @@ def test_access_runtime_routes_accept_runtime_token(tmp_path):
             json={
                 "skill_name": "runtime-skill",
                 "skill_id": entry.skill_id,
-                "local_signature": compute_signature(skill_dir),
+                "local_signature": compute_content_digest(skill_dir),
                 "agent_id": "agno-demo",
             },
         )
@@ -351,7 +382,7 @@ def test_runtime_unauthorized_skill_is_audited(tmp_path):
             json={
                 "skill_name": "blocked-skill",
                 "skill_id": entry.skill_id,
-                "local_signature": compute_signature(skill_dir),
+                "local_signature": compute_content_digest(skill_dir),
                 "agent_id": "risk-agent",
             },
         )

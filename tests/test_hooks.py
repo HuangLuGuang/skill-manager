@@ -249,14 +249,16 @@ class TestPreToolUse:
              mock.patch("agent_manager.hooks.agent_hook._get_active_skills_from_state", return_value=[]):
             handle_pre_tool_use(event)  # No exception
 
-    def test_allows_all_tools_when_skill_has_no_declarations(self, registry):
+    def test_blocks_all_tools_when_skill_has_no_declarations(self, registry):
         _make_entry(registry, "open-skill", tools=[])
 
         event = {"hook_event_name": "PreToolUse", "tool_name": "AnythingAtAll", "session_id": "s1"}
 
         with mock.patch("agent_manager.hooks.agent_hook._get_registry", return_value=registry), \
              mock.patch("agent_manager.hooks.agent_hook._get_active_skills_from_state", return_value=["open-skill"]):
-            handle_pre_tool_use(event)  # No exception
+            with pytest.raises(SystemExit) as exc:
+                handle_pre_tool_use(event)
+            assert exc.value.code == 2
 
     def test_union_of_tools_for_multiple_active_skills(self, registry):
         _make_entry(registry, "skill-a", tools=["Read"])

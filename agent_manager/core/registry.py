@@ -828,29 +828,6 @@ class Registry:
                 raise KeyError(f"skill_id {entry.skill_id!r} not found")
             self._upsert_entry(conn, entry)
 
-    def refresh_signature_if_current(
-        self,
-        skill_id: str,
-        old_signature: str,
-        new_signature: str,
-    ) -> RegistryEntry | None:
-        with self._lock, self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT s.skill_id, s.name, s.payload, s.updated_at, r.report AS scan_report
-                FROM skill_registry s
-                LEFT JOIN skill_scan_reports r ON r.skill_id = s.skill_id
-                WHERE s.skill_id = ?
-                """,
-                (skill_id,),
-            ).fetchone()
-            entry = self._safe_entry_from_row(row)
-            if not entry or entry.signature != old_signature or not entry.is_loadable():
-                return entry
-            entry.signature = new_signature
-            self._upsert_entry(conn, entry)
-            return entry
-
     def delete(self, skill_id: str) -> None:
         with self._lock, self._connect() as conn:
             row = conn.execute(

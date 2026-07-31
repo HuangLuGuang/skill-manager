@@ -12,10 +12,13 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "Agent Manager Admin Starter"
     API_PREFIX: str = "/api"
-    DEBUG: bool = True
+    DEBUG: bool = False
 
     SECRET_KEY: str = Field("change-me-in-production", description="JWT signing key")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8
+    ENFORCE_SECURE_STARTUP: bool = False
+    INITIAL_ADMIN_USERNAME: str = "admin"
+    INITIAL_ADMIN_PASSWORD: str | None = None
 
     DATA_DIR: str = Field(default=str(BASE_DIR / "data"))
     UPLOADS_DIR: str = Field(default=str(BASE_DIR / "uploads"))

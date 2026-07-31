@@ -74,11 +74,7 @@ export AGENT_MANAGER_BASE_URL="http://127.0.0.1:8080"
 export DEEPSEEK_API_KEY="your-deepseek-key"
 ```
 
-如果 Agent Manager 服务端设置了 `AGENT_MANAGER_SIGNING_KEY`，这里也要设置同一个值：
-
-```bash
-export AGENT_MANAGER_SIGNING_KEY="same-key-used-by-agent-manager"
-```
+Agent 只计算无密钥内容摘要，不需要也不允许持有 Agent Manager 的签名私钥。
 
 ### 4. 提交一个真实 skill
 
@@ -145,11 +141,10 @@ export DEEPSEEK_API_KEY="your-deepseek-key"
 export AGNO_MODEL_ID="deepseek-chat"
 export AGNO_MODEL_BASE_URL="https://api.deepseek.com"
 export AGNO_API_KEY="$DEEPSEEK_API_KEY"
-export AGENT_MANAGER_SIGNING_KEY="same-key-used-by-agent-manager"
 export AGENT_ID="agno-demo-agent"
 ```
 
-如果服务端启用了 `AGENT_MANAGER_SIGNING_KEY`，Agent 端必须用同样的 key 计算本地签名。
+Agent 端只计算本地内容摘要并提交给 Runtime API。
 
 这个 demo 默认使用：
 

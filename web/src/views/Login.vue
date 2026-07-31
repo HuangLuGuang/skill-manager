@@ -58,7 +58,7 @@ const logoUrl = ref('/logo.png')
 
 const formState = reactive({
   username: 'admin',
-  password: 'Admin@123',
+  password: '',
   captchaCode: '',
 })
 

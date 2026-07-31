@@ -49,14 +49,10 @@ uv sync
 `AGENT_MANAGER_DATA_DIR/audit.jsonl`，通过 .env 配置。
 默认日志文件位置： ``Path.home() / ".agent-manager/audit.jsonl"`
 
-### 3 设置签名密钥
+### 3. 签名验证说明
 
-为了测试签名验证，先设置签名密钥：
-
-```bash
-# 在项目根目录的 .env 文件中添加
-AGENT_MANAGER_SIGNING_KEY="your-secret-key-here-change-this-in-production"
-```
+Agent Hook 只计算无密钥内容摘要，不配置或持有服务端签名私钥。服务端使用
+Ed25519 私钥签名，Agent 侧无需增加签名环境变量。
 ### 4. 准备示例 skill
 
 将 demo 目录下的 code-review skill 复制到 `.claude/skills/` 目录：

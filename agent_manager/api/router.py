@@ -555,6 +555,12 @@ class SystemStatusResponse(BaseModel):
     service: str
 
 
+class SigningPublicKeyResponse(BaseModel):
+    algorithm: str = "Ed25519"
+    key_id: str
+    public_key: str
+
+
 class LLMConfigPayload(BaseModel):
     enabled: bool = False
     provider: str = "deepseek"
@@ -830,7 +836,12 @@ def get_system_status(mgr: AgentManager = Depends(get_manager)):
         policy_path=str(_discover_policy_path()) if _discover_policy_path() else None,
         registry_entries=mgr.registry.count_skills(),
         review_queue=mgr.registry.count_review_queue(),
-        signing_key_configured=bool(os.environ.get("AGENT_MANAGER_SIGNING_KEY", "").strip()),
+        signing_key_configured=bool(
+            os.environ.get("AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH", "").strip()
+            or os.environ.get("AGENT_MANAGER_SIGNING_PUBLIC_KEY", "").strip()
+            or os.environ.get("AGENT_MANAGER_SIGNING_PUBLIC_KEY_PATH", "").strip()
+            or os.environ.get("AGENT_MANAGER_SIGNING_KEY", "").strip()
+        ),
         scanner_available=scanner_available,
         skillspector_enabled=skillspector_available,
         skillspector_available=skillspector_available,
@@ -2008,6 +2019,23 @@ def runtime_check_tool(
         audit_metadata={"agent_id": agent_id, "client_ip": request.client.host if request.client else None},
     )
     return ToolCheckResponse(allowed=allowed, skill_name=skill_name, tool_name=tool_name)
+
+
+@runtime_router.get("/runtime/signing-public-key", response_model=SigningPublicKeyResponse)
+def runtime_signing_public_key():
+    """Return the non-secret public key used for offline Skill verification."""
+    from agent_manager.core.signer import signing_key_id, signing_public_key_base64
+
+    try:
+        return SigningPublicKeyResponse(
+            key_id=signing_key_id(),
+            public_key=signing_public_key_base64(),
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="signing public key is not initialized",
+        ) from exc
 
 
 # --------------------------------------------------------------------------- #

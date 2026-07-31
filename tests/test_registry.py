@@ -278,18 +278,6 @@ class TestRegistry:
         assert json.loads(report_row["report"]) == large_report
         assert migrated.get_by_id(entry.skill_id).vetting.scan_report == large_report
 
-    def test_refresh_signature_if_current_does_not_reactivate_changed_status(self, registry):
-        entry = _make_entry("signed")
-        entry.signature = "old"
-        registry.add(entry)
-        entry.status = SkillStatus.REJECTED
-        registry.update(entry)
-
-        refreshed = registry.refresh_signature_if_current(entry.skill_id, "old", "new")
-
-        assert refreshed.status == SkillStatus.REJECTED
-        assert registry.get_by_id(entry.skill_id).signature == "old"
-
     def test_update_missing_raises(self, registry):
         entry = _make_entry("ghost")
         with pytest.raises(KeyError):

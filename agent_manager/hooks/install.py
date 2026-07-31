@@ -98,8 +98,8 @@ def main(global_scope: bool, strict: bool, dry_run: bool):
     click.echo("  PreToolUse: enforce allowed_tools for active skills")
     click.echo()
     click.echo("Next steps:")
-    click.echo("  export AGENT_MANAGER_SIGNING_KEY=$(openssl rand -hex 32)")
     click.echo("  agent-manager submit ./my-skill")
+    click.echo("  Agent hooks do not configure or receive the server signing private key")
 
 
 if __name__ == "__main__":

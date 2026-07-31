@@ -47,10 +47,7 @@ async function handleBootstrap(event: HookEvent): Promise<void> {
 
   for (const skill of visibleSkills) {
     try {
-      const localSignature = await computeSkillSignature(
-        skill.path,
-        process.env.AGENT_MANAGER_SIGNING_KEY,
-      );
+      const localSignature = await computeSkillSignature(skill.path);
 
       const verifyResult: VerifySkillSignatureResponse = await verifySkillSignature(baseUrl, accessToken, {
         skill_name: skill.name,

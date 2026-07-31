@@ -49,7 +49,7 @@ build_frontend() {
 
 build_sandbox() {
     step "Building ${SANDBOX_IMAGE}"
-    docker buildx build $(docker_buildx_proxy_args) --load -f services/isolated-sandbox-service/Dockerfile --platform "${PLATFORM}" -t "${SANDBOX_IMAGE}" .
+    docker buildx build $(docker_buildx_proxy_args) --load -f services/isolated-sandbox-service/Dockerfile.nsjail --platform "${PLATFORM}" -t "${SANDBOX_IMAGE}" .
 }
 
 build_runtime() {

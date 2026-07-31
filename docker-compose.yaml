@@ -2,10 +2,14 @@ services:
   backend:
     image: agent-manager-backend:${TAG:-latest}
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
+      # Local Compose is bootable without a prepared .env. Production must set
+      # ENFORCE_SECURE_STARTUP=true and replace all placeholder credentials.
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       DEBUG: ${DEBUG:-false}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       DATA_DIR: /app/runtime/data
       UPLOADS_DIR: /app/runtime/uploads
       SQLITE_PATH: /app/runtime/sqlite/admin_starter.db
@@ -14,6 +18,8 @@ services:
       AGENT_MANAGER_SANDBOX_RUNTIME: ${AGENT_MANAGER_SANDBOX_RUNTIME:-remote}
       AGENT_MANAGER_SANDBOX_URL: ${AGENT_MANAGER_SANDBOX_URL:-http://sandbox:8194}
       AGENT_MANAGER_SANDBOX_API_KEY: ${AGENT_MANAGER_SANDBOX_API_KEY:-sandbox-change-me}
+      AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH: ${AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH:-/app/runtime/agent_manager/signing/skill-ed25519.pem}
+      ENFORCE_SECURE_STARTUP: ${ENFORCE_SECURE_STARTUP:-false}
     depends_on:
       sandbox:
         condition: service_healthy
@@ -23,6 +29,9 @@ services:
       - backend_sqlite:/app/runtime/sqlite
       - agent_manager_registry:/app/runtime/agent_manager
       - ./scanner/releases:/app/scanner/releases:ro
+    networks:
+      - app
+      - sandbox-control
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"]
       interval: 15s
@@ -40,17 +49,43 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - app
 
   sandbox:
     image: agent-manager-sandbox:${TAG:-latest}
     ports:
       - 127.0.0.1:8194:8194
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
-      SANDBOX_SERVICE_BACKEND: ${SANDBOX_SERVICE_BACKEND:-subprocess}
-      SANDBOX_SERVICE_API_KEY: ${SANDBOX_SERVICE_API_KEY:-sandbox-change-me}
+      SANDBOX_SERVICE_BACKEND: nsjail
+      SANDBOX_SERVICE_API_KEY: ${AGENT_MANAGER_SANDBOX_API_KEY:-sandbox-change-me}
+      SANDBOX_SERVICE_ENFORCE_SECURE_STARTUP: ${ENFORCE_SECURE_STARTUP:-false}
       SANDBOX_SERVICE_WORK_ROOT: /tmp/isolated-sandbox-service
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_ADMIN
+      - SYS_CHROOT
+      - SETUID
+      - SETGID
+      - SETPCAP
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    networks:
+      - sandbox-control
+      # Also attach the service process to a regular bridge so 127.0.0.1:8194
+      # works when frontend/backend run on the host. Executed code still runs
+      # inside nsjail's separate network namespace with networking disabled.
+      - app
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8194/health', timeout=3).read()"]
       interval: 15s
@@ -77,9 +112,16 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+    networks:
+      - app
 
 volumes:
   backend_data:
   backend_uploads:
   backend_sqlite:
   agent_manager_registry:
+
+networks:
+  app:
+  sandbox-control:
+    internal: true

@@ -102,7 +102,7 @@ Developer / External Source
    [REVIEW]  ──── Human reviewer approves or rejects (suspicious)
         │
         ▼
-   [SIGN]    ──── HMAC-SHA256 over full content tree → stored in registry
+   [SIGN]    ──── Ed25519 over the full content-tree digest → stored in registry
         │
         ▼
    [DEPLOY]  ──── agent-manager deploy my-skill
@@ -152,11 +152,14 @@ pip install -e ".[scanner]"
 pip install -e ".[dev]"
 ```
 
-Set the signing key (required in production):
+Configure the server-only Ed25519 private-key path (required in production):
 
 ```bash
-export AGENT_MANAGER_SIGNING_KEY="$(openssl rand -hex 32)"
+export AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH="/var/lib/agent-manager/signing/skill-ed25519.pem"
 ```
+
+Agent clients never receive this private key; they submit a keyless content
+digest or verify signatures using `/api/v1/runtime/signing-public-key`.
 
 Override the default data directory (`~/.agent-manager/`):
 

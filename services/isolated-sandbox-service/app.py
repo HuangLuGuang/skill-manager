@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 class ServiceConfig(BaseModel):
     backend: str = "nsjail"
     api_key: str | None = None
+    enforce_secure_startup: bool = False
     work_root: str = "/tmp/isolated-sandbox-service"
     default_timeout_seconds: int = 15
     max_code_bytes: int = 200_000
@@ -29,9 +30,12 @@ class ServiceConfig(BaseModel):
 
     @classmethod
     def load(cls) -> "ServiceConfig":
-        return cls(
+        config = cls(
             backend=os.getenv("SANDBOX_SERVICE_BACKEND", "nsjail"),
             api_key=os.getenv("SANDBOX_SERVICE_API_KEY") or None,
+            enforce_secure_startup=os.getenv(
+                "SANDBOX_SERVICE_ENFORCE_SECURE_STARTUP", ""
+            ).strip().lower() in {"1", "true", "yes", "on"},
             work_root=os.getenv("SANDBOX_SERVICE_WORK_ROOT", "/tmp/isolated-sandbox-service"),
             default_timeout_seconds=int(os.getenv("SANDBOX_SERVICE_DEFAULT_TIMEOUT_SECONDS", "15")),
             max_code_bytes=int(os.getenv("SANDBOX_SERVICE_MAX_CODE_BYTES", "200000")),
@@ -43,6 +47,16 @@ class ServiceConfig(BaseModel):
             cpu_limit_seconds=int(os.getenv("SANDBOX_SERVICE_CPU_LIMIT_SECONDS", "10")),
             max_output_chars=int(os.getenv("SANDBOX_SERVICE_MAX_OUTPUT_CHARS", "8000")),
         )
+        config.validate_security()
+        return config
+
+    def validate_security(self) -> None:
+        if not self.enforce_secure_startup:
+            return
+        if self.backend != "nsjail":
+            raise RuntimeError("secure startup requires SANDBOX_SERVICE_BACKEND=nsjail")
+        if not self.api_key or self.api_key in {"sandbox-change-me", "change-me"}:
+            raise RuntimeError("secure startup requires a non-placeholder SANDBOX_SERVICE_API_KEY")
 
 
 class RunCodeFile(BaseModel):
@@ -116,6 +130,11 @@ class Workspace:
         if self.request.preload.strip():
             payload = f"{self.request.preload.rstrip()}\n\n{payload}"
         self.source_path.write_text(payload, encoding="utf-8")
+        # nsjail drops the child to nobody. Expose the prepared snapshot as
+        # read-only input while keeping all writable activity in the jail's /tmp.
+        for path in self.root.rglob("*"):
+            path.chmod(0o555 if path.is_dir() else 0o444)
+        self.root.chmod(0o555)
         return self.source_path
 
     def _safe_file_path(self, relative_path: str) -> Path:
@@ -128,6 +147,10 @@ class Workspace:
         return target
 
     def cleanup(self) -> None:
+        if self.root.exists():
+            self.root.chmod(0o700)
+            for path in self.root.rglob("*"):
+                path.chmod(0o700 if path.is_dir() else 0o600)
         self.root_context.cleanup()
 
 
@@ -300,9 +323,18 @@ class NsjailExecutor:
         cmd = [
             self._resolve_binary(self.config.nsjail_bin),
             "--mode", "o",
+            "--chroot", "/",
             "--cwd", "/workspace",
             "--time_limit", str(self.config.default_timeout_seconds),
             "--hostname", "sandbox",
+            # Docker already provides the outer user boundary. Creating another
+            # user namespace conflicts with no-new-privileges on common runtimes;
+            # nsjail still drops the child to nobody and keeps the remaining
+            # network/mount/PID/IPC/UTS namespaces.
+            "--disable_clone_newuser",
+            # Docker's default seccomp profile blocks pivot_root. Use nsjail's
+            # mount-move + chroot path inside the dedicated mount namespace.
+            "--no_pivotroot",
             "--user", "65534",
             "--group", "65534",
             "--rlimit_as", str(self.config.memory_limit_mb),
@@ -346,6 +378,14 @@ def require_api_key(
 
 
 app = FastAPI(title="Isolated Sandbox Service", version="0.1.0")
+
+
+@app.on_event("startup")
+def validate_startup_security() -> None:
+    config = ServiceConfig.load()
+    executor = get_executor(config)
+    if config.enforce_secure_startup and not executor.is_available():
+        raise RuntimeError("secure sandbox executor is not available")
 
 
 @app.get("/health")

@@ -68,7 +68,7 @@ http://10.10.71.33
 默认账号：
 
 ```text
-admin / Admin@123
+admin / `<INITIAL_ADMIN_PASSWORD 中配置的一次性强密码>`
 ```
 
 扫描器和 Agent Demo 也默认连接这个地址：
@@ -111,7 +111,7 @@ http://127.0.0.1:5174
 默认账号：
 
 ```text
-admin / Admin@123
+admin / `<INITIAL_ADMIN_PASSWORD 中配置的一次性强密码>`
 ```
 
 Agno runtime demo 推荐另起无后台登录态 API：
@@ -137,11 +137,11 @@ docker compose ps
 ```bash
 SECRET_KEY=replace-with-random-secret
 DEBUG=false
-AGENT_MANAGER_SIGNING_KEY=replace-with-random-signing-key
+INITIAL_ADMIN_PASSWORD=replace-with-a-strong-one-time-password
+AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH=/app/runtime/agent_manager/signing/skill-ed25519.pem
 AGENT_MANAGER_SANDBOX_RUNTIME=remote
 AGENT_MANAGER_SANDBOX_URL=http://sandbox:8194
 AGENT_MANAGER_SANDBOX_API_KEY=replace-with-random-sandbox-key
-SANDBOX_SERVICE_API_KEY=replace-with-random-sandbox-key
 ```
 
 compose 只引用已构建镜像；生产环境同样先构建镜像再启动：
@@ -469,7 +469,7 @@ export AGNO_MODEL_ID="deepseek-chat"
 如果服务端配置了签名 key：
 
 ```bash
-export AGENT_MANAGER_SIGNING_KEY="same-key-used-by-agent-manager"
+# Agent 只计算无密钥内容摘要，不配置服务端签名私钥。
 ```
 
 ### 8.2 提交 demo skills

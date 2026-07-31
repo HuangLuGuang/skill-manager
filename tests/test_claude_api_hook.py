@@ -1,6 +1,5 @@
 import importlib.util
 import hashlib
-import hmac
 import io
 import json
 import os
@@ -72,9 +71,8 @@ def test_hook_extracts_skill_name_from_claude_and_trae_payloads(tool_input, expe
     }) == expected
 
 
-def test_hook_signature_normalizes_legacy_zip_mojibake_paths(tmp_path, monkeypatch):
+def test_hook_signature_normalizes_legacy_zip_mojibake_paths(tmp_path):
     hook = _load_hook()
-    monkeypatch.setenv("AGENT_MANAGER_SIGNING_KEY", "test-key")
     normal = tmp_path / "normal"
     mojibake = tmp_path / "mojibake"
     (normal / "references").mkdir(parents=True)
@@ -87,9 +85,8 @@ def test_hook_signature_normalizes_legacy_zip_mojibake_paths(tmp_path, monkeypat
     )
 
 
-def test_hook_signature_sorts_by_canonical_relative_path(tmp_path, monkeypatch):
+def test_hook_signature_sorts_by_canonical_relative_path(tmp_path):
     hook = _load_hook()
-    monkeypatch.setenv("AGENT_MANAGER_SIGNING_KEY", "test-key")
     files = {
         "SKILL.md": b"skill",
         "_meta.json": b"meta",
@@ -102,14 +99,11 @@ def test_hook_signature_sorts_by_canonical_relative_path(tmp_path, monkeypatch):
         for name in sorted(files)
     ).encode()
 
-    assert hook.compute_skill_signature(tmp_path, hook.DEFAULT_IGNORES) == hmac.new(
-        b"test-key", payload, hashlib.sha256
-    ).hexdigest()
+    assert hook.compute_skill_signature(tmp_path, hook.DEFAULT_IGNORES) == hashlib.sha256(payload).hexdigest()
 
 
-def test_hook_signature_ignores_macos_finder_metadata(tmp_path, monkeypatch):
+def test_hook_signature_ignores_macos_finder_metadata(tmp_path):
     hook = _load_hook()
-    monkeypatch.setenv("AGENT_MANAGER_SIGNING_KEY", "test-key")
     (tmp_path / "SKILL.md").write_text("---\nname: test\n---\n", encoding="utf-8")
     before = hook.compute_skill_signature(tmp_path, hook.DEFAULT_IGNORES)
     (tmp_path / ".DS_Store").write_bytes(b"finder metadata")

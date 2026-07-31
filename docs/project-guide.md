@@ -515,7 +515,7 @@ flowchart LR
 3. 每个文件算 `SHA256`
 4. 汇总成一个稳定文本
 5. 最终做：
-   - `HMAC-SHA256`（有 key）
+   - 服务端 `Ed25519` 签名信封
    - 或 `SHA256`（开发模式）
 
 用途是：
@@ -603,8 +603,8 @@ npm run dev
 
 默认登录：
 
-- 用户名：`admin`
-- 密码：`Admin@123`
+- 用户名：默认 `admin`，可通过 `INITIAL_ADMIN_USERNAME` 修改
+- 密码：首次部署必须通过 `INITIAL_ADMIN_PASSWORD` 设置；系统不提供固定默认密码
 
 ### 11.2 本地使用 docker sandbox
 

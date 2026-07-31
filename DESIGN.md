@@ -81,7 +81,7 @@ Use when the skill directory is already trusted — for example, a read-only com
 ```python
 can_load("my-skill", skill_path="/path/to/skill")
 ```
-Registry lookup, then recomputes HMAC-SHA256 over every file in the directory and compares to the signature stored at approval time. Catches any modification since approval: added files, changed files, removed files.
+Registry lookup, then recomputes the SHA256 content-tree digest and verifies the Ed25519 envelope stored at approval time. Catches any modification since approval: added files, changed files, removed files.
 
 Use when the skill directory is writable — developer workstations, shared network mounts, or any environment where files could change between approval and load.
 
@@ -136,7 +136,7 @@ The "company-controlled directory" pattern works like this: CI/CD runs `agent-ma
 | `core/models.py` | Core data types for skills: `RegistryEntry`, `RiskLevel`, `SkillStatus` |
 | `core/prompt_models.py` | Data types for prompts: `PromptEntry`, `PromptStatus` |
 | `core/policy.py` | Load and enforce `company-policy.yaml` |
-| `core/signer.py` | HMAC-SHA256 signatures for both skills and prompts |
+| `core/signer.py` | Ed25519 signature envelopes and content digests for skills and prompts |
 | `core/vetting.py` | Skill vetting orchestration |
 | `core/prompt_manager.py` | Prompt vetting, approval, and lifecycle management |
 | `core/registry.py` | High-level SQLite registry orchestrator |
@@ -185,13 +185,13 @@ The "company-controlled directory" pattern works like this: CI/CD runs `agent-ma
 Every skill load is gated by `RuntimeGuard.can_load()`. The guard checks:
 1. The skill name is present in the registry
 2. The registry entry has status `APPROVED` or `DEPLOYED`
-3. (Optionally) the local files' HMAC-SHA256 matches the signature stored at approval time
+3. (Optionally) the local files' SHA256 content-tree digest matches the digest authenticated by the Ed25519 signature stored at approval time
 
 If any check fails, the load is blocked and logged. There is no bypass path.
 
 The registry is the **single source of truth**. There is no in-memory allowlist, no environment flag that skips the check, no fallback to "allow if the file exists."
 
-The signature check is optional and governed by whether the caller provides a `skill_path`. This is intentional: when a company-controlled directory is in use (only CI/CD can write, only approved skills are present), a name-only check is sufficient and the directory itself provides tamper protection. When skills are on a writable path, the caller passes the path and the HMAC is verified. See *"Where Skills Live"* above for the full decision table.
+The signature check is optional and governed by whether the caller provides a `skill_path`. This is intentional: when a company-controlled directory is in use (only CI/CD can write, only approved skills are present), a name-only check is sufficient and the directory itself provides tamper protection. When skills are on a writable path, the caller passes the path and the Ed25519 envelope is verified against the recomputed content digest. See *"Where Skills Live"* above for the full decision table.
 
 #### Implementation
 
@@ -211,7 +211,7 @@ def can_load(self, skill_name, skill_path=None, agent_id=None, verify_sig=True):
         return False, entry, reason
 
     if verify_sig and skill_path and entry.signature:
-        # skill_path provided → verify local files against stored HMAC
+        # skill_path provided → verify local digest against stored Ed25519 envelope
         if not verify_signature(skill_path, entry.signature):
             # Content changed since approval → blocked as tamper
             return False, entry, reason
@@ -302,33 +302,27 @@ If they differ, the load is blocked and a `skill_tamper_detected` audit event is
 
 ```python
 def compute_signature(skill_path):
-    root = Path(skill_path)
-    parts = []
-    for fpath in sorted(root.rglob("*")):       # sorted → deterministic
-        if fpath.is_file():
-            rel = fpath.relative_to(root).as_posix()
-            file_hash = _content_hash(fpath)     # SHA256 of file contents
-            parts.append(f"{rel}:{file_hash}\n") # "relative/path:sha256hex\n"
-
-    content = "".join(parts).encode()
-
-    if key := _get_key():
-        return hmac.new(key, content, hashlib.sha256).hexdigest()  # authenticated
-    else:
-        return hashlib.sha256(content).hexdigest()                 # dev fallback
+    digest = compute_content_digest(skill_path)
+    signature = private_key.sign(f"agent-manager:skill:v1:{digest}".encode())
+    return f"ed25519:v1:{key_id}:{digest}:{base64(signature)}"
 ```
 
-The signature is a single hex string covering the *entire directory tree*: every file's relative path and content hash. Adding, removing, or modifying any file changes the signature.
+The envelope covers the *entire directory tree*: every file's relative path and
+content hash. Adding, removing, or modifying any file changes the embedded digest.
 
-**HMAC vs plain SHA256:** In production (when `AGENT_MANAGER_SIGNING_KEY` is set), the signature is an HMAC-SHA256. An attacker who can write to disk could forge a plain SHA256 by recomputing it; they cannot forge an HMAC without the key. The key is an environment variable, kept out of the registry and the codebase.
+**Ed25519 signing:** only Agent Manager holds the private key. Agents calculate a
+keyless SHA256 content digest for online comparison, or verify the envelope with
+the public key. They cannot mint a new trusted signature.
 
-**Timing-safe comparison** in `core/signer.py` — `verify_signature()`:
+**Signature verification** in `core/signer.py` checks both the content digest and
+the Ed25519 signature:
 
 ```python
-return hmac.compare_digest(actual, expected_signature)
+public_key.verify(signature, signed_message)
 ```
 
-`hmac.compare_digest` is constant-time, preventing timing oracle attacks against the signature comparison.
+Legacy HMAC/SHA256 records remain read-only compatible; new signatures are always
+Ed25519.
 
 `core/runtime.py` — tamper detection emits a distinct event:
 
@@ -605,8 +599,8 @@ can_load("my-skill", skill_path="/path/to/skill")
     ├─► verify_signature("/path/to/skill", entry.signature)
     │       ├─► Walk all files in /path/to/skill, sorted by relative path
     │       ├─► SHA256 each file → "relpath:sha256hex\n" lines
-    │       ├─► HMAC-SHA256(key, concatenated lines)
-    │       └─► hmac.compare_digest(actual, stored)
+    │       ├─► SHA256 the canonical file list into a content digest
+    │       └─► Verify the digest and Ed25519 signature with the public key
     │               └─► False → BLOCKED (skill_tamper_detected event)
     │
     └─► True → ALLOWED
@@ -639,13 +633,20 @@ The "Lingxi Enterprise Assistant" scenario (located in `demo/enterprise-governan
 - **Malicious Skill Detection**: Identifying hidden data exfiltration in a welfare calculation tool.
 - **Closed-Loop Verification**: An Agno-based agent that refuses to start if its instructions or tools have been tampered with.
 
-### Fail-Open for Empty `allowed_tools`
+### Fail-Closed for Empty `allowed_tools`
 
-Skills with no `allowed-tools` declaration are allowed to invoke any tool. The alternative — blocking all tool calls from undeclared skills — would break every existing skill written before this system existed. The right long-term posture is to require declarations via policy (`require_tool_declarations: true`), giving teams a migration window.
+Skills with no `allowed-tools` declaration cannot invoke tools. Approval does not
+implicitly grant every tool capability; Runtime and Hooks audit and reject empty,
+unknown, unapproved, and mismatched declarations.
 
-### HMAC Key Stored in Environment
+### Ed25519 Private Key
 
-The signing key is read from `AGENT_MANAGER_SIGNING_KEY` at runtime. This is a deliberate choice: the key must not be in the codebase, and it must be rotatable without a code change. In production, inject it via your secrets manager (Vault, AWS Secrets Manager, etc.).
+The private-key path is read from `AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH`.
+Production startup rejects a missing or uninitialized key. Operators explicitly
+provision it with `agent-manager signing-key init`; newly created files use mode
+`0600`. All production replicas must mount the same identity. Agents only receive
+the public key or calculate content digests, so key rotation does not distribute
+a shared signing secret to clients.
 
 ---
 

@@ -16,7 +16,6 @@ Exit codes:
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 import os
 import sys
@@ -41,8 +40,6 @@ _DEFAULT_LOG_FILE = _DEFAULT_BASE_DIR / "logs" / "agent_guard_hook.log"
 
 # Default ignores for signature calculation
 DEFAULT_IGNORES = {".git", ".venv", "node_modules", "__pycache__", "dist", "build", ".DS_Store"}
-SIGNING_KEY_ENV = "AGENT_MANAGER_SIGNING_KEY"
-_ENV_LOADED = False
 
 
 def _log(msg: str) -> None:
@@ -120,18 +117,6 @@ def _is_skill_verified(session_id: str, skill_name: str) -> bool:
 # Verify functions from agent_manager_skill_guard.py                          #
 # --------------------------------------------------------------------------- #
 
-def signing_key() -> str:
-    global _ENV_LOADED
-    if not _ENV_LOADED and not os.environ.get("ENV_LOADED"):
-        try:
-            from dotenv import load_dotenv
-            load_dotenv()
-        except ImportError:
-            pass
-        _ENV_LOADED = True
-    return os.environ.get(SIGNING_KEY_ENV, "").strip()
-
-
 def file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -178,9 +163,6 @@ def compute_skill_signature(skill_dir: str | Path, ignores: set[str] | None = No
         parts.append(f"{rel}:{file_sha256(path)}\n")
 
     content = "".join(parts).encode()
-    key = signing_key()
-    if key:
-        return hmac.new(key.encode(), content, hashlib.sha256).hexdigest()
     return hashlib.sha256(content).hexdigest()
 
 

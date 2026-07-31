@@ -14,7 +14,10 @@ from agent_manager.core.models import (
 )
 from agent_manager.core.registry import Registry
 from agent_manager.core.runtime import RuntimeGuard
-from agent_manager.core.signer import compute_content_digest, compute_signature
+from agent_manager.core.signer import (
+    compute_content_digest,
+    compute_signature,
+)
 
 
 def _make_entry(name, status=SkillStatus.APPROVED, tools=None, sig=None):
@@ -114,7 +117,9 @@ class TestRuntimeGuard:
         entry = _make_entry("signed", sig=sig)
         registry.add(entry)
 
-        allowed, matched_entry, reason = guard.verify_local_signature("signed", sig, agent_id="agent-1")
+        allowed, matched_entry, reason = guard.verify_local_signature(
+            "signed", compute_content_digest(skill_dir), agent_id="agent-1"
+        )
         assert allowed, reason
         assert matched_entry is not None
         assert matched_entry.name == "signed"
@@ -132,26 +137,41 @@ class TestRuntimeGuard:
         assert not allowed
         assert "tamper" in reason.lower() or "mismatch" in reason.lower()
 
-    def test_verify_local_signature_refreshes_legacy_mojibake_signature(self, guard, registry, tmp_path):
+    def test_verify_local_signature_rejects_replayed_server_envelope(self, guard, registry, tmp_path):
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: signed\n---\n", encoding="utf-8")
+        server_envelope = compute_signature(skill_dir)
+        registry.add(_make_entry("signed", sig=server_envelope))
+
+        allowed, _, reason = guard.verify_local_signature("signed", server_envelope)
+
+        assert not allowed
+        assert "mismatch" in reason.lower()
+
+    def test_verify_local_signature_never_migrates_legacy_signature(self, guard, registry, tmp_path):
         local_dir = tmp_path / "local"
         stored_dir = tmp_path / "stored"
         (local_dir / "references").mkdir(parents=True)
         (stored_dir / "references").mkdir(parents=True)
         (local_dir / "references" / "常用查询模板.md").write_text("select 1", encoding="utf-8")
         (stored_dir / "references" / "σ╕╕τö¿µƒÑΦ»óµ¿íµ¥┐.md").write_text("select 1", encoding="utf-8")
-        local_sig = compute_signature(local_dir)
+        local_digest = compute_content_digest(local_dir)
         entry = _make_entry("signed", sig="legacy-signature")
         entry.skill_path = str(stored_dir)
         registry.add(entry)
 
-        allowed, matched_entry, reason = guard.verify_local_signature("signed", local_sig, agent_id="agent-1")
+        allowed, matched_entry, reason = guard.verify_local_signature(
+            "signed", local_digest, agent_id="agent-1"
+        )
 
-        assert allowed
-        assert reason == "signature verified"
-        assert matched_entry.signature == local_sig
-        assert registry.get_by_id(entry.skill_id).signature == local_sig
+        assert not allowed
+        assert "mismatch" in reason
+        assert matched_entry.signature == "legacy-signature"
+        assert registry.get_by_id(entry.skill_id).signature == "legacy-signature"
+        assert "skill_tamper_detected" in {event.event_type for event in registry.read_audit()}
 
-    def test_verify_local_signature_refresh_io_error_is_not_tamper(self, guard, registry, tmp_path):
+    def test_verify_local_signature_does_not_read_server_disk_on_mismatch(self, guard, registry, tmp_path):
         skill_dir = tmp_path / "skill"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text("---\nname: signed\n---\n", encoding="utf-8")
@@ -159,28 +179,53 @@ class TestRuntimeGuard:
         entry.skill_path = str(tmp_path / "missing")
         registry.add(entry)
 
-        allowed, _, reason = guard.verify_local_signature("signed", compute_signature(skill_dir), agent_id="agent-1")
+        allowed, _, reason = guard.verify_local_signature(
+            "signed", compute_content_digest(skill_dir), agent_id="agent-1"
+        )
 
         assert not allowed
-        assert "could not be refreshed" in reason
-        assert "skill_tamper_detected" not in {event.event_type for event in registry.read_audit()}
+        assert "mismatch" in reason
+        assert "skill_tamper_detected" in {event.event_type for event in registry.read_audit()}
 
-    def test_verify_local_signature_reports_missing_client_signing_key(self, guard, registry, tmp_path, monkeypatch):
+    def test_verify_local_signature_never_resigns_tampered_approved_snapshot(
+        self, guard, registry, tmp_path
+    ):
+        skill_dir = tmp_path / "skill"
+        skill_dir.mkdir()
+        manifest = skill_dir / "SKILL.md"
+        manifest.write_text("---\nname: signed\n---\n# approved\n", encoding="utf-8")
+        approved_signature = compute_signature(skill_dir)
+        entry = _make_entry("signed", sig=approved_signature)
+        entry.skill_path = str(skill_dir)
+        registry.add(entry)
+
+        manifest.write_text("---\nname: signed\n---\n# tampered\n", encoding="utf-8")
+        tampered_digest = compute_content_digest(skill_dir)
+        allowed, matched_entry, reason = guard.verify_local_signature(
+            "signed", tampered_digest, skill_id=entry.skill_id, agent_id="agent-1"
+        )
+
+        assert not allowed
+        assert "mismatch" in reason
+        assert matched_entry.signature == approved_signature
+        assert registry.get_by_id(entry.skill_id).signature == approved_signature
+        assert "skill_tamper_detected" in {event.event_type for event in registry.read_audit()}
+
+    def test_verify_local_digest_does_not_require_server_private_key(
+        self, guard, registry, tmp_path, monkeypatch
+    ):
         skill_dir = tmp_path / "skill"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text("---\nname: signed\n---\n", encoding="utf-8")
-        monkeypatch.setenv("AGENT_MANAGER_SIGNING_KEY", "server-key")
         entry = _make_entry("signed", sig=compute_signature(skill_dir))
-        entry.skill_path = str(skill_dir)
         registry.add(entry)
 
         allowed, _, reason = guard.verify_local_signature(
             "signed", compute_content_digest(skill_dir), agent_id="agent-1"
         )
 
-        assert not allowed
-        assert "AGENT_MANAGER_SIGNING_KEY" in reason
-        assert "skill_tamper_detected" not in {event.event_type for event in registry.read_audit()}
+        assert allowed
+        assert reason == "signature verified"
 
     def test_verify_local_signature_blocks_non_loadable_status(self, guard, registry, tmp_path):
         skill_dir = tmp_path / "skill"
@@ -208,9 +253,15 @@ class TestRuntimeGuard:
         assert guard.check_tool("bash-parent", "Bash(python:*)")
         assert guard.check_tool("bash-child", "Bash")
 
-    def test_check_tool_no_declarations_allows_all(self, guard, registry):
+    def test_check_tool_no_declarations_blocks_all(self, guard, registry):
         registry.add(_make_entry("open-skill", tools=[]))
-        assert guard.check_tool("open-skill", "AnythingAtAll")
+        assert not guard.check_tool("open-skill", "AnythingAtAll")
+        events = registry.read_audit()
+        assert any(
+            event.event_type == "tool_blocked"
+            and event.details.get("reason") == "Skill 'open-skill' declares no allowed_tools"
+            for event in events
+        )
 
     def test_check_tool_unregistered_blocks(self, guard):
         assert not guard.check_tool("ghost", "Read")

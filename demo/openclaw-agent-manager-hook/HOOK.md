@@ -34,7 +34,7 @@ Runtime tool gating via `before_tool_call` is provided separately in the plugin 
 
 - `AGENT_MANAGER_BASE_URL`
 - `AGENT_MANAGER_ACCESS_TOKEN`
-- Optional `AGENT_MANAGER_SIGNING_KEY`
+- No server signing secret is required; the hook submits a keyless content digest.
 
 ## Status
 

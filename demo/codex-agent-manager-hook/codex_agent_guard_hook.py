@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import hmac
 import json
 import os
 import sys
@@ -78,8 +77,7 @@ def compute_signature(skill_dir: Path) -> str:
         rel = "/".join(_normalize_path_part(part) for part in relative.parts)
         parts.append(f"{rel}:{digest.hexdigest()}\n")
     content = "".join(parts).encode()
-    key = os.environ.get("AGENT_MANAGER_SIGNING_KEY", "").strip()
-    return hmac.new(key.encode(), content, hashlib.sha256).hexdigest() if key else hashlib.sha256(content).hexdigest()
+    return hashlib.sha256(content).hexdigest()
 
 
 def skill_roots(cwd: Path) -> list[Path]:

@@ -1,4 +1,5 @@
 import os
+import secrets
 import sys
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from .api_errors import (
 )
 from .auth import get_current_admin_user, get_password_hash
 from .config import settings
+from .security import initialize_signing_identity, validate_security_settings
 from .routers import access_tokens, agents, auth, clients, config, llm_gateway, mcp_gateway, system, tasks
 from .sqlite_db import Base, SessionLocal, engine
 from .task_runtime import init_default_tasks
@@ -69,6 +71,7 @@ app.include_router(agent_runtime_router, prefix="/api/v1")
 app.include_router(agent_manager_router, prefix="/api/v1", dependencies=[Depends(get_current_admin_user)])
 app.include_router(scanner_admin_router, dependencies=[Depends(get_current_admin_user)])
 app.include_router(scanner_router)
+
 
 def ensure_sqlite_schema() -> None:
     Base.metadata.create_all(bind=engine)
@@ -123,6 +126,8 @@ def ensure_sqlite_schema() -> None:
     migrate_compression()
 
 
+validate_security_settings(settings)
+initialize_signing_identity(allow_create=not settings.ENFORCE_SECURE_STARTUP)
 ensure_sqlite_schema()
 get_agent_manager()
 
@@ -140,13 +145,34 @@ if frontend_dist.exists():
 def bootstrap_admin_user() -> None:
     db = SessionLocal()
     try:
-        admin = db.query(models.User).filter(models.User.username == "admin").first()
+        username = settings.INITIAL_ADMIN_USERNAME.strip() or "admin"
+        admin = db.query(models.User).filter(models.User.username == username).first()
         if not admin:
+            password = settings.INITIAL_ADMIN_PASSWORD
+            if settings.ENFORCE_SECURE_STARTUP:
+                if not password or len(password) < 12:
+                    raise RuntimeError(
+                        "first secure startup requires INITIAL_ADMIN_PASSWORD with at least 12 characters"
+                    )
+            elif not password:
+                password_path = Path(settings.DATA_DIR) / "initial-admin-password"
+                password_path.parent.mkdir(parents=True, exist_ok=True)
+                if password_path.exists():
+                    password = password_path.read_text(encoding="utf-8").strip()
+                else:
+                    password = secrets.token_urlsafe(24)
+                    password_path.write_text(password, encoding="utf-8")
+                    password_path.chmod(0o600)
+                    print(
+                        f"Initial admin password was written to {password_path}; "
+                        "delete the file after the first successful login.",
+                        file=sys.stderr,
+                    )
             db.add(
                 models.User(
-                    username="admin",
+                    username=username,
                     email="admin@example.com",
-                    hashed_password=get_password_hash("Admin@123"),
+                    hashed_password=get_password_hash(password),
                     role="super_admin",
                 )
             )

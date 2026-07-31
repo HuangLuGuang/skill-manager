@@ -31,7 +31,6 @@
 ```bash
 export AGENT_MANAGER_BASE_URL="http://127.0.0.1:8080"
 export AGENT_MANAGER_ACCESS_TOKEN="smsc_live_xxx"
-export AGENT_MANAGER_SIGNING_KEY="same-key-as-agent-manager"
 ```
 
 ## Hook Types

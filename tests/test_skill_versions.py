@@ -10,7 +10,7 @@ from agent_manager.api import router as api_router
 from agent_manager.core.manager import AgentManager
 from agent_manager.core.models import SkillStatus
 from agent_manager.core.policy import CompanyPolicy
-from agent_manager.core.signer import compute_signature
+from agent_manager.core.signer import compute_content_digest, compute_signature
 
 
 def _write_skill(path: Path, body: str) -> None:
@@ -157,7 +157,7 @@ def test_runtime_name_lookup_and_signature_accept_latest_matching_trusted_versio
     allowed, resolved, _ = manager.runtime.can_load(first.name, verify_sig=False)
     signature_allowed, signature_entry, _ = manager.runtime.verify_local_signature(
         first.name,
-        first.signature,
+        compute_content_digest(first.skill_path),
     )
 
     assert allowed is True

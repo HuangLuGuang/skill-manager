@@ -50,7 +50,7 @@ def approved_skill(base_url: str, agent_id: str) -> None:
     print(f"skill_path={skill_path}")
 
     log_step("2. 本地计算 skill 内容签名")
-    print(compute_local_signature(skill_path, os.getenv("AGENT_MANAGER_SIGNING_KEY")))
+    print(compute_local_signature(skill_path))
 
     log_step("3. 调用 Agent Manager 验签 + can-load，通过后创建真实 Agno Agent")
     answer = run_demo(
@@ -104,7 +104,7 @@ def tampered_skill(base_url: str, agent_id: str) -> None:
         print(f"tampered_path={tampered_path}")
 
         log_step("2. Agno Agent 计算篡改后签名并提交给 Agent Manager")
-        print(compute_local_signature(tampered_path, os.getenv("AGENT_MANAGER_SIGNING_KEY")))
+        print(compute_local_signature(tampered_path))
 
         try:
             run_demo(
