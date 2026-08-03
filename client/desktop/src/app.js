@@ -45,6 +45,7 @@ let pendingRefreshTimer = null
 let pendingRefreshBusy = false
 let pendingSubmissionBusy = false
 let pendingBatchTracking = null
+const pendingPlatformVersionCache = new Map()
 let pendingClientUpdate = null
 let clientUpdateInstalling = false
 let clientUpdateCheckBusy = false
@@ -1364,6 +1365,54 @@ const schedulePendingRefresh = items => {
   }, activeAnalysis ? 3000 : 10000)
 }
 
+const pendingPlatformVersionFor = async (item, force = false) => {
+  if (!connection?.connected || !item.skill_id || item.status === 'APPROVED') return null
+  const agent = (inventory?.agents || []).find(candidate => candidate.agent_type === item.agent_type && candidate.skill_management_supported)
+  if (!agent) return null
+  const cacheKey = `${item.agent_type}:${managedAgentIDFor(item.agent_type)}:${item.skill_id}`
+  const cached = pendingPlatformVersionCache.get(cacheKey)
+  if (!force && cached && cached.expiresAt > Date.now()) return cached.value
+  const result = await exactAvailableSkillForAgent(agent, { skill_id: item.skill_id, name: item.skill_name })
+  const trusted = result.items.find(candidate => candidate.skill_id === item.skill_id && candidate.version_id)
+    || result.items.find(candidate => candidate.version_id)
+    || null
+  const value = trusted ? {
+    skill_id: trusted.skill_id || item.skill_id,
+    version_id: trusted.version_id,
+    version_no: trusted.version_no || 0,
+  } : null
+  pendingPlatformVersionCache.set(cacheKey, { value, expiresAt: Date.now() + 10000 })
+  return value
+}
+
+const enrichPendingPlatformVersions = async (items, force = false) => Promise.all(items.map(async item => {
+  if (item.status === 'APPROVED') {
+    return {
+      ...item,
+      platform_skill_id: item.skill_id,
+      platform_version_id: item.version_id || '',
+      platform_installable: Boolean(item.skill_id),
+    }
+  }
+  try {
+    const trusted = await pendingPlatformVersionFor(item, force)
+    return trusted ? {
+      ...item,
+      platform_skill_id: trusted.skill_id,
+      platform_version_id: trusted.version_id,
+      platform_version_no: trusted.version_no,
+      platform_installable: true,
+    } : item
+  } catch (error) {
+    log(tf`平台可信版本读取失败：${item.skill_name} · ${runtimeText(error)}`)
+    return item
+  }
+}))
+
+const pendingPlatformInstallTitle = item => item.platform_version_no
+  ? tf`安装平台可信版本 v${item.platform_version_no}`
+  : t('从平台安装 Skill')
+
 const loadPending = async (refresh = false, { silent = false } = {}) => {
   if (refresh && pendingRefreshBusy) return pendingItems
   if (refresh) pendingRefreshBusy = true
@@ -1373,6 +1422,7 @@ const loadPending = async (refresh = false, { silent = false } = {}) => {
   } finally {
     if (refresh) pendingRefreshBusy = false
   }
+  items = await enrichPendingPlatformVersions(items, refresh && !silent)
   pendingItems = items
   renderPendingBatchStatus()
   for (const id of [...selectedPendingIDs]) {
@@ -1393,17 +1443,20 @@ const loadPending = async (refresh = false, { silent = false } = {}) => {
               ${pendingCanSubmit(item)
                 ? tf`<label class="pending-skill-select" title="选择 ${escapeHtml(item.skill_name)}"><input type="checkbox" data-select-pending="${escapeHtml(item.id)}"${selectedPendingIDs.has(item.id) ? ' checked' : ''} /></label>`
                 : '<span class="pending-select-placeholder"></span>'}
-              <div><strong>${escapeHtml(item.skill_name)}</strong><button class="path-link" type="button" title="${escapeHtml(item.pending_path)}" data-reveal-path="${escapeHtml(item.pending_path)}">${escapeHtml(item.pending_path)}</button></div>
-              <div class="pending-status-block">
+              <div class="pending-skill-identity">
+                <strong>${escapeHtml(item.skill_name)}</strong>
+                <button class="path-link" type="button" title="${escapeHtml(item.pending_path)}" data-reveal-path="${escapeHtml(item.pending_path)}">${escapeHtml(item.pending_path)}</button>
+              </div>
+              <div class="pending-skill-status">
                 <span class="result-status ${escapeHtml(pendingStatusClass(item.status))}"><i></i>${escapeHtml(pendingStatusLabel(item.status))}</span>
                 <small>${escapeHtml(pendingStatusGuidance(item))}</small>
               </div>
-              <div class="takeover-row-actions">
-                ${item.status === 'APPROVED'
-                  ? tf`<button class="action-success icon-button icon-install" data-install-approved="${escapeHtml(item.id)}" data-agent-type="${escapeHtml(item.agent_type)}" data-skill-id="${escapeHtml(item.skill_id)}" data-version-id="${escapeHtml(item.version_id || '')}">立即安装</button>`
-                  : item.skill_id
-                  ? `<span class="pending-next">${escapeHtml(pendingNextLabel(item.status))}</span>`
-                  : tf`<button class="primary icon-button icon-submit" data-submit-pending="${escapeHtml(item.id)}">提交平台检测</button>`}
+              <div class="takeover-row-actions pending-inline-actions">
+                ${item.platform_installable
+                  ? tf`<button class="action-success icon-button icon-install" data-install-approved="${escapeHtml(item.id)}" data-agent-type="${escapeHtml(item.agent_type)}" data-skill-id="${escapeHtml(item.platform_skill_id || item.skill_id)}" data-version-id="${escapeHtml(item.platform_version_id || '')}" title="${escapeHtml(pendingPlatformInstallTitle(item))}">从平台安装</button>`
+                  : pendingCanSubmit(item)
+                  ? tf`<button class="primary icon-button icon-submit" data-submit-pending="${escapeHtml(item.id)}">提交平台检测</button>`
+                  : ''}
                 ${tf`<button class="pending-discard-button icon-button icon-remove" data-discard-pending="${escapeHtml(item.id)}" title="删除本地副本">删除副本</button>`}
               </div>
             </div>`).join('')}
@@ -1938,12 +1991,12 @@ const loadQuarantine = async () => {
       : null
     return tf`
     <div class="takeover-row quarantine-row">
-      <div><strong>${escapeHtml(item.skill_name)}</strong><button class="path-link" type="button" title="隔离目录：${escapeHtml(item.quarantine_path)}" data-reveal-path="${escapeHtml(item.quarantine_path)}">所属 Agent：${escapeHtml(agentLabel(item.agent_type))} · ${escapeHtml(item.original_path)}</button></div>
+      <div class="quarantine-skill-identity"><strong>${escapeHtml(item.skill_name)}</strong><button class="path-link" type="button" title="隔离目录：${escapeHtml(item.quarantine_path)}" data-reveal-path="${escapeHtml(item.quarantine_path)}">所属 Agent：${escapeHtml(agentLabel(item.agent_type))} · ${escapeHtml(item.original_path)}</button></div>
       ${detection
-        ? `<strong class="result-status ${escapeHtml(pendingStatusClass(detection.status))}"><i></i>${escapeHtml(pendingStatusLabel(detection.status))}</strong>`
-        : `<strong class="action-pending">${escapeHtml(t('ui.75sttk'))}</strong>`}
-      <span>${escapeHtml(detection ? quarantineDetectionGuidance(detection) : reasonLabel(item.reason))}</span>
-      <div class="takeover-row-actions">
+        ? `<strong class="quarantine-status result-status ${escapeHtml(pendingStatusClass(detection.status))}"><i></i>${escapeHtml(pendingStatusLabel(detection.status))}</strong>`
+        : `<strong class="quarantine-status action-pending">${escapeHtml(t('ui.75sttk'))}</strong>`}
+      <span class="quarantine-guidance">${escapeHtml(detection ? quarantineDetectionGuidance(detection) : reasonLabel(item.reason))}</span>
+      <div class="takeover-row-actions quarantine-actions">
         ${!item.skill_id
           ? `<button class="primary icon-button icon-submit" data-submit-quarantine="${escapeHtml(item.id)}">提交当前版本检测</button>`
           : `<span class="pending-next">${escapeHtml(quarantineNextLabel(item.detection_status))}</span>`}
@@ -2098,7 +2151,7 @@ function pendingStatusGuidance(item) {
   if (item.status === 'REJECTED') return t('ui.1m5rgkv')
   if (item.status === 'CANCELLED') return t('ui.z61ghp')
   if (item.status === 'VETTED') return t('ui.14chebx')
-  if (item.skill_id) return t('ui.10hw1zw')
+  if (item.skill_id) return t('status.platform_scanning')
   return reasonLabel(item.reason)
 }
 

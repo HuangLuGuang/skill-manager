@@ -35,6 +35,7 @@ vm.runInNewContext(
 )
 const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8')
 const indexHtml = fs.readFileSync(new URL('../src/index.html', import.meta.url), 'utf8')
+const stylesSource = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
 
 test('translates core desktop navigation and product name', () => {
   const { t } = context.window.clientI18n
@@ -86,6 +87,7 @@ test('turns connection failures into friendly messages without JSON payloads', (
 
 test('supports stable desktop message keys', () => {
   assert.equal(context.window.clientI18n.t('ui.png61n'), 'Last operation')
+  assert.equal(context.window.clientI18n.t('status.platform_scanning'), 'Platform scan in progress')
 })
 
 test('does not expose an internal key for generated static bindings', () => {
@@ -149,11 +151,12 @@ test('keeps governance columns aligned across supported window widths', () => {
   const styles = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
   assert.match(styles, /\.agent-summary\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\) 250px 104px/)
   assert.match(styles, /@media \(min-width: 1000px\) and \(max-width: 1100px\)/)
-  assert.match(styles, /\.pending-skill-row\s*\{[^}]*grid-template-columns: 24px minmax\(190px, 1fr\)[^}]*minmax\(210px, auto\)/)
+  assert.match(styles, /\.pending-skill-row\s*\{[^}]*grid-template-columns: 24px minmax\(160px, \.85fr\) minmax\(170px, 1\.15fr\) 206px/)
   assert.match(styles, /html\[lang="en-US"\] \.builtin-agent-settings/)
   assert.match(styles, /@media \(max-width: 1100px\)/)
-  assert.match(styles, /\.pending-skill-row[\s\S]*grid-template-columns: 24px minmax\(0, 1fr\)/)
-  assert.match(styles, /\.pending-skill-row > :nth-child\(4\)[^}]*grid-column: 2 \/ 4/)
+  assert.match(styles, /@media \(max-width: 1100px\)[\s\S]*\.pending-skill-row\s*\{[^}]*grid-template-columns: 24px minmax\(160px, \.85fr\) minmax\(170px, 1\.15fr\) 206px/)
+  assert.match(styles, /\.pending-skill-row > :nth-child\(3\)[^}]*grid-row: auto[^}]*grid-column: auto[^}]*justify-self: stretch/)
+  assert.match(styles, /\.pending-skill-row > :nth-child\(4\)[^}]*grid-row: auto[^}]*grid-column: auto[^}]*justify-self: end/)
   assert.match(styles, /\.metric-grid\s*\{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/)
   assert.match(styles, /\.status-metrics\s*\{\s*grid-template-columns: repeat\(6, minmax\(0, 1fr\)\)/)
   assert.match(styles, /\.status-metrics > :nth-child\(n \+ 3\) \{ grid-column: span 2; \}/)
@@ -225,7 +228,11 @@ test('shows quarantine detection progress without offering duplicate submission'
   assert.ok(submitHandler)
   assert.doesNotMatch(submitHandler, /showPanel\('takeover'\)/)
   assert.match(submitHandler, /await submitPendingIDs\(\[pending\.id\], button\)[\s\S]*await refreshConnection\(\)[\s\S]*await loadQuarantine\(\)/)
-  assert.match(appSource, /if \(item\.skill_id\) return t\('ui\.10hw1zw'\)/)
+  assert.match(appSource, /if \(item\.skill_id\) return t\('status\.platform_scanning'\)/)
+  assert.doesNotMatch(appSource, /ui\.10hw1zw/)
+  assert.match(appSource, /quarantine-skill-identity[\s\S]*quarantine-status[\s\S]*quarantine-guidance[\s\S]*quarantine-actions/)
+  assert.match(stylesSource, /\.quarantine-row\s*\{[^}]*grid-template-columns: minmax\(260px, 1fr\) 100px minmax\(220px, \.65fr\) 210px/)
+  assert.match(stylesSource, /\.quarantine-actions\s*\{[^}]*width:\s*210px/)
   assert.doesNotMatch(appSource, /平台正在检测\$\{item\.skill_id/)
 })
 
@@ -243,6 +250,21 @@ test('requires confirmation before discarding one local pending copy', () => {
   )
   assert.doesNotMatch(appSource, /确定永久删除这个本地停用副本吗/)
   assert.match(indexHtml, /id="discard-pending-dialog"[\s\S]*平台检测版本和审计记录会保留/)
+})
+
+test('renders compact pending rows with inline platform actions', () => {
+  assert.match(
+    appSource,
+    /pending-skill-identity[\s\S]*pending-skill-status[\s\S]*takeover-row-actions pending-inline-actions[\s\S]*item\.platform_installable[\s\S]*从平台安装[\s\S]*data-submit-pending[\s\S]*data-discard-pending/,
+  )
+  assert.match(appSource, /pendingPlatformVersionFor[\s\S]*exactAvailableSkillForAgent/)
+  assert.match(appSource, /enrichPendingPlatformVersions[\s\S]*items = await enrichPendingPlatformVersions/)
+  assert.match(appSource, /item\.status === 'APPROVED'[\s\S]*platform_version_id: item\.version_id \|\| ''[\s\S]*platform_installable: Boolean\(item\.skill_id\)/)
+  assert.match(appSource, /data-version-id="\$\{escapeHtml\(item\.platform_version_id \|\| ''\)\}"/)
+  assert.match(appSource, /const installPlatformSkill = async[\s\S]*if \(versionId\) args\.push\('--version-id', versionId\)/)
+  assert.match(stylesSource, /\.pending-inline-actions\s*\{[^}]*display:\s*flex[^}]*width:\s*206px[^}]*justify-content:\s*flex-end/)
+  assert.match(stylesSource, /\.pending-inline-actions button\s*\{[^}]*width:\s*100px[^}]*height:\s*34px/)
+  assert.doesNotMatch(appSource, /pending-primary-slot|pending-action-placeholder/)
 })
 
 test('bundles localized macOS application names', () => {

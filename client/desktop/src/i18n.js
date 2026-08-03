@@ -169,6 +169,8 @@
     '安全治理模式只校验平台批准状态与内容签名；Agent 强授权模式还会校验智能体允许范围。': 'Security governance validates platform approval and content signatures. Strict Agent authorization also validates the Agent allowlist.',
     '从平台安装': 'Install from Platform',
     '从平台安装 Skill': 'Install Skill from Platform',
+    '安装平台可信版本 v': 'Install trusted platform version v',
+    '平台可信版本读取失败：': 'Failed to load trusted platform version: ',
     '暂停接管': 'Pause Governance',
     '恢复接管': 'Resume Governance',
     '刷新预览': 'Refresh Preview',
@@ -822,8 +824,16 @@
 
   let locale = detectLocale()
 
+  const semanticMessages = {
+    'status.platform_scanning': {
+      'zh-CN': '平台正在检测',
+      'en-US': 'Platform scan in progress',
+    },
+  }
+
   const t = value => {
     if (typeof value !== 'string') return value
+    if (semanticMessages[value]) return semanticMessages[value][locale] || semanticMessages[value]['zh-CN']
     const source = value.startsWith('ui.') ? sourceByKey[value] : value
     if (!source) return value
     if (locale !== 'en-US') return source
