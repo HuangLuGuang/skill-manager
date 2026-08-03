@@ -451,6 +451,15 @@ class AgentManager:
             entry.signature = compute_signature(skill_path)
             entry.approved_at = datetime.now(timezone.utc)
             entry.approved_by = "auto-policy"
+        else:
+            # A completed rescan replaces the previous effective decision. Do
+            # not leave stale approval evidence or a usable signature attached
+            # to a version that is now pending review or rejected.
+            entry.signature = None
+            entry.approved_at = None
+            entry.approved_by = None
+            entry.approval_note = None
+            entry.deployed_at = None
 
         card = write_governance_card(entry, self.registry)
         if entry.vetting:
@@ -828,6 +837,12 @@ class AgentManager:
     def list_scan_runs(self, version_id: str) -> list[ScanRun]:
         return self.registry.list_scan_runs(version_id)
 
+    def list_scan_runs_for_versions(self, version_ids: list[str]) -> dict[str, list[ScanRun]]:
+        return self.registry.list_scan_runs_for_versions(version_ids)
+
+    def skill_version_activity(self, version_ids: list[str]) -> dict[str, dict[str, int | bool]]:
+        return self.registry.skill_version_activity(version_ids)
+
     def get_governance_card(self, skill_id_or_name: str) -> dict[str, Any]:
         entry = self.get_skill(skill_id_or_name)
         if entry is None:
@@ -867,9 +882,12 @@ class AgentManager:
     # ------------------------------------------------------------------ #
 
     def _require_entry(self, skill_id: str) -> RegistryEntry:
-        entry = self.registry.get_by_id(skill_id) or self.registry.get_by_family_id(skill_id)
+        # Lifecycle mutations must target one immutable version. Resolving a
+        # family ID here can silently apply an action intended for an older
+        # version to the family's latest version instead.
+        entry = self.registry.get_by_id(skill_id)
         if entry is None:
-            raise KeyError(f"Skill ID {skill_id!r} not found in registry")
+            raise KeyError(f"Skill version ID {skill_id!r} not found in registry")
         return entry
 
     def _find_completed_scan_match(

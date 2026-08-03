@@ -266,10 +266,11 @@ Key endpoints:
 |--------|------|-------------|
 | `POST` | `/api/v1/skills/submit-zip` | Submit a skill ZIP for vetting |
 | `GET`  | `/api/v1/skills` | List registry entries |
-| `POST` | `/api/v1/skills/{id}/approve` | Approve a vetted skill |
-| `POST` | `/api/v1/skills/{id}/reject` | Reject a vetted skill |
-| `POST` | `/api/v1/skills/{id}/deploy` | Mark a skill as deployed |
-| `POST` | `/api/v1/skills/{id}/retire` | Retire a skill immediately |
+| `POST` | `/api/v1/skills/{version_id}/approve` | Approve one immutable vetted version |
+| `POST` | `/api/v1/skills/{version_id}/reject` | Reject one immutable version |
+| `POST` | `/api/v1/skills/{version_id}/rescan` | Rescan one immutable version |
+| `POST` | `/api/v1/skills/{version_id}/deploy` | Mark one approved version as deployed |
+| `POST` | `/api/v1/skills/{version_id}/retire` | Retire one immutable version immediately |
 | `POST` | `/api/v1/scanner/imports` | Token-auth scanner upload for third-party skills |
 | `GET`  | `/api/v1/scanner/imports/{id}` | Read own scanner submission result |
 | `GET`  | `/api/v1/scanner/skill-verifier/download` | Download the generic Agent Manager Skill Verifier ZIP |

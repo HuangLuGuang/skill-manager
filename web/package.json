@@ -8,6 +8,7 @@
     "build": "vite build",
     "test:diff": "node scripts/check-diff.mjs",
     "test:i18n": "node scripts/check-i18n.mjs",
+    "test:skill-versions": "node --test scripts/skill-versions.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

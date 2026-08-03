@@ -12,9 +12,16 @@ from sqlalchemy.orm import sessionmaker
 import agent_manager.api.router as api_router
 from agent_manager.api.router import get_manager
 from agent_manager.api.router import runtime_router as agent_runtime_router
-from agent_manager.api.scanner_router import _scanner_release_dir, admin_router, router, runtime_router
+from agent_manager.api.scanner_router import (
+    ScannerAuthContext,
+    _scanner_release_dir,
+    admin_router,
+    get_scanner_import,
+    router,
+    runtime_router,
+)
 from agent_manager.core.manager import AgentManager
-from agent_manager.core.models import SkillOrigin, SourceInfo
+from agent_manager.core.models import SkillOrigin, SkillStatus, SourceInfo
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.registry import make_event
 from agent_manager.core.signer import compute_content_digest
@@ -218,6 +225,40 @@ def test_scanner_import_accepts_bound_client_token(tmp_path):
         assert result.json()["version_id"] == entry.skill_id
     finally:
         api_router._manager = previous_manager
+
+
+def test_scanner_result_reports_pending_while_approved_version_is_being_rescanned(tmp_path):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: rescan-approved\ndescription: test\n---\n",
+        encoding="utf-8",
+    )
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    entry = manager.submit(
+        skill,
+        source=SourceInfo(origin=SkillOrigin.LOCAL, author="desktop-client", token_name="desktop-token"),
+    )
+    assert entry.status == SkillStatus.APPROVED
+    pending, started = manager.request_rescan(entry.skill_id)
+    assert started is True
+    assert pending.status == SkillStatus.APPROVED
+
+    payload = get_scanner_import(
+        entry.skill_id,
+        scanner_auth=ScannerAuthContext(
+            name="desktop-client",
+            author="desktop-client",
+            token_name="desktop-token",
+            max_upload_mb=50,
+        ),
+        mgr=manager,
+    )
+
+    assert payload["status"] == "PENDING"
+    assert payload["scan_pending"] is True
+    assert payload["effective_status"] == "APPROVED"
+    assert manager.get_skill(entry.skill_id).status == SkillStatus.APPROVED
 
 
 def test_access_runtime_routes_accept_runtime_token(tmp_path):

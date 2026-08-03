@@ -233,6 +233,33 @@ class TestListAndAudit:
         assert processed.status == SkillStatus.APPROVED
         assert mgr.list_scan_runs(entry.skill_id)[0].status == "COMPLETED"
 
+    def test_completed_nonapproved_rescan_clears_previous_trust_evidence(self, mgr, skill_dir, monkeypatch):
+        entry = mgr.submit(skill_dir)
+        assert entry.status == SkillStatus.APPROVED
+        assert entry.signature is not None
+
+        def vet_for_review(*_args, **_kwargs):
+            return VettingResult(
+                risk_level=RiskLevel.SUSPICIOUS,
+                findings_count=1,
+                policy_notes=["[LLM] analysis skipped: invalid JSON"],
+                scan_report={"pre_llm_risk_level": "suspicious", "findings": []},
+            ), [], "my-skill", "needs review", ["Read"]
+
+        monkeypatch.setattr(mgr.vetting, "vet", vet_for_review)
+        monkeypatch.setattr(mgr.policy, "decide", lambda *_args, **_kwargs: SkillStatus.VETTED)
+        mgr.rescan_skill(entry.skill_id)
+
+        processed = mgr.process_pending_submission(entry.skill_id, force_scan=True)
+
+        assert processed.status == SkillStatus.VETTED
+        assert processed.signature is None
+        assert processed.approved_at is None
+        assert processed.approved_by is None
+        assert processed.approval_note is None
+        assert processed.deployed_at is None
+        assert mgr.get_trusted_skill(entry.family_id) is None
+
     def test_processing_does_not_override_cancelled_pending_skill(self, mgr, skill_dir, monkeypatch):
         pending = mgr.create_pending_submission(skill_dir)
 

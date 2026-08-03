@@ -348,6 +348,26 @@ func (store *Store) RemovePending(id string) error {
 	return err
 }
 
+// ResolvePendingForInstall removes disabled-source records superseded by a
+// trusted installation at the same Agent path. The path constraint prevents
+// one Agent or custom root from clearing another same-name pending Skill.
+func (store *Store) ResolvePendingForInstall(agentType, skillName, targetPath string) error {
+	items, err := store.PendingItems()
+	if err != nil {
+		return err
+	}
+	targetPath = filepath.Clean(targetPath)
+	for _, item := range items {
+		if item.AgentType != agentType || item.SkillName != skillName || filepath.Clean(item.OriginalPath) != targetPath {
+			continue
+		}
+		if err := store.RemovePending(item.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func nullableString(value string) any {
 	if value == "" {
 		return nil
@@ -369,7 +389,21 @@ func (store *Store) SaveInstall(install Installation) error {
 	if err != nil {
 		return err
 	}
-	_, err = store.db.Exec(
+	tx, err := store.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(
+		`DELETE FROM client_installs
+		 WHERE agent_type = ? AND target_path = ? AND skill_id <> ?`,
+		install.AgentType,
+		install.TargetPath,
+		install.SkillID,
+	); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(
 		`INSERT INTO client_installs(agent_type, managed_agent_id, skill_id, skill_name, target_path, manifest_json, updated_at)
 		 VALUES(?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(agent_type, skill_id) DO UPDATE SET
@@ -385,8 +419,10 @@ func (store *Store) SaveInstall(install Installation) error {
 		install.TargetPath,
 		string(body),
 		time.Now().UTC().Format(time.RFC3339Nano),
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (store *Store) Installations() ([]Installation, error) {

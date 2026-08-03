@@ -15,6 +15,27 @@
           <a-descriptions-item :label="$t('legacy.1ccx4t4')">
             <a-tag :color="statusColor(detail?.status, detail)">{{ statusDisplay(detail?.status, detail) }}</a-tag>
           </a-descriptions-item>
+          <a-descriptions-item :label="$t('skillVersions.currentVersion')" :span="2">
+            <div class="current-version-rail">
+              <a-space wrap>
+                <strong class="current-version-number">v{{ detail?.version_no || '-' }}</strong>
+                <a-tag v-if="currentVersionRecord?.latest" color="blue">{{ $t('skillVersions.latest') }}</a-tag>
+                <a-tag v-if="currentVersionRecord?.latest_trusted" color="green">{{ $t('skillVersions.latestTrusted') }}</a-tag>
+              </a-space>
+              <a-select
+                class="current-version-select"
+                :value="detail?.version_id"
+                :placeholder="$t('skillVersions.switchVersion')"
+                :loading="loadingVersions"
+                @change="switchVersion"
+              >
+                <a-select-option v-for="item in skillVersions" :key="item.version_id" :value="item.version_id">
+                  v{{ item.version_no }} · {{ statusDisplay(item.status, item) }}
+                  {{ item.latest_trusted ? ` · ${$t('skillVersions.latestTrusted')}` : '' }}
+                </a-select-option>
+              </a-select>
+            </div>
+          </a-descriptions-item>
           <a-descriptions-item :label="$t('legacy.13tzib2')">
             <a-tag v-if="detail?.status === 'PENDING'" color="default">-</a-tag>
             <a-tag v-else-if="detail?.risk_level === 'malicious'" color="red">{{ riskDisplay(detail.risk_level) }}</a-tag>
@@ -694,6 +715,7 @@
             rowKey="version_id"
             :loading="loadingVersions"
             :pagination="false"
+            :scroll="{ x: 1410 }"
             size="small"
           >
             <template #bodyCell="{ column, record }">
@@ -702,13 +724,37 @@
                   <strong>v{{ record.version_no }}</strong>
                   <a-tag v-if="record.latest" color="blue">{{ $t('skillVersions.latest') }}</a-tag>
                   <a-tag v-if="record.latest_trusted" color="green">{{ $t('skillVersions.latestTrusted') }}</a-tag>
+                  <a-tag v-if="record.rescanned" color="purple">{{ $t('skillVersions.rescanned') }}</a-tag>
                 </a-space>
               </template>
               <template v-else-if="column.key === 'status'">
                 <a-tag :color="statusColor(record.status, record)">{{ statusDisplay(record.status, record) }}</a-tag>
               </template>
               <template v-else-if="column.key === 'risk'">
-                <a-tag :color="riskColor(record.risk_level)">{{ riskDisplay(record.risk_level) }}</a-tag>
+                <div class="version-risk-chain">
+                  <div class="version-risk-stage">
+                    <small>{{ $t('skillVersions.staticAssessment') }}</small>
+                    <a-tag :color="riskColor(versionRiskChain(record).static_risk_level)">
+                      {{ riskDisplay(versionRiskChain(record).static_risk_level) }}
+                    </a-tag>
+                  </div>
+                  <span class="version-risk-arrow" aria-hidden="true">→</span>
+                  <div class="version-risk-stage">
+                    <small>{{ $t('skillVersions.llmReview') }}</small>
+                    <a-tooltip :title="versionRiskChain(record).llm_note || versionRiskChain(record).downgrade_reason || ''">
+                      <a-tag :color="llmStageColor(versionRiskChain(record))">
+                        {{ llmStageLabel(versionRiskChain(record)) }}
+                      </a-tag>
+                    </a-tooltip>
+                  </div>
+                  <span class="version-risk-arrow" aria-hidden="true">→</span>
+                  <div class="version-risk-stage">
+                    <small>{{ $t('skillVersions.finalAssessment') }}</small>
+                    <a-tag :color="riskColor(versionRiskChain(record).final_risk_level)">
+                      {{ riskDisplay(versionRiskChain(record).final_risk_level) }}
+                    </a-tag>
+                  </div>
+                </div>
               </template>
               <template v-else-if="column.key === 'actions'">
                 <a-space>
@@ -968,7 +1014,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { SwapOutlined } from '@ant-design/icons-vue'
 import { marked } from 'marked'
@@ -1001,6 +1047,7 @@ import AttackChainGraph from '../components/AttackChainGraph.vue'
 
 const { isEnglish, phrase, text, t } = useLocaleText()
 const route = useRoute()
+const router = useRouter()
 const skillId = computed(() => route.params.skillId)
 const detailPageTitle = computed(() => {
   const name = detail.value?.name || skillId.value
@@ -1064,6 +1111,40 @@ const clientTargets = computed(() => managedClients.value.flatMap(client =>
 const trustedSkillVersions = computed(() =>
   skillVersions.value.filter(item => ['APPROVED', 'DEPLOYED'].includes(item.status)),
 )
+const currentVersionRecord = computed(() =>
+  skillVersions.value.find(item => item.version_id === detail.value?.version_id) || null,
+)
+const currentVersionId = computed(() => detail.value?.version_id || skillId.value)
+
+const versionRiskChain = record => record?.risk_chain || {
+  static_risk_level: record?.risk_level,
+  llm_status: 'not_run',
+  llm_risk_level: null,
+  final_risk_level: record?.risk_level,
+}
+
+const llmStageLabel = chain => {
+  if (chain.llm_status === 'completed') return chain.llm_risk_level ? riskDisplay(chain.llm_risk_level) : t('skillVersions.llmCompleted')
+  if (chain.llm_status === 'skipped') return t('skillVersions.llmSkipped')
+  if (chain.llm_status === 'failed') return t('skillVersions.llmFailed')
+  return t('skillVersions.llmNotRun')
+}
+
+const llmStageColor = chain => {
+  if (chain.llm_status === 'completed') return riskColor(chain.llm_risk_level)
+  if (chain.llm_status === 'skipped') return 'orange'
+  if (chain.llm_status === 'failed') return 'red'
+  return 'default'
+}
+
+const switchVersion = async versionId => {
+  if (!versionId || versionId === detail.value?.version_id) return
+  await router.push({
+    name: 'skill-detail',
+    params: { skillId: versionId },
+    query: route.query,
+  })
+}
 
 const selectedVersionDiffItem = computed(() => {
   const item = versionDiffItems.value.find(row => row.path === selectedDiffPath.value)
@@ -1125,11 +1206,12 @@ const fileColumns = computed(() => [
   { title: text('修改时间', 'Modified At'), dataIndex: 'modified_at', key: 'modified_at', width: 220, customRender: ({ text: value }) => formatDateTime(value) },
 ])
 const versionColumns = computed(() => [
-  { title: t('skillVersions.version'), key: 'version', width: 220 },
-  { title: t('skillVersions.sourceVersion'), dataIndex: 'source_version', key: 'sourceVersion', width: 140 },
+  { title: t('skillVersions.version'), key: 'version', width: 240 },
+  { title: t('skillVersions.sourceVersion'), dataIndex: 'source_version', key: 'sourceVersion', width: 130 },
   { title: t('skillVersions.status'), dataIndex: 'status', key: 'status', width: 130 },
-  { title: t('skillVersions.risk'), dataIndex: 'risk_level', key: 'risk', width: 120 },
-  { title: t('skillVersions.scannedAt'), dataIndex: 'updated_at', key: 'updatedAt', width: 190, customRender: ({ text: value }) => formatDateTime(value) },
+  { title: t('skillVersions.risk'), key: 'risk', width: 390 },
+  { title: t('skillVersions.submittedAt'), dataIndex: 'submitted_at', key: 'submittedAt', width: 190, customRender: ({ text: value }) => formatDateTime(value) },
+  { title: t('skillVersions.scannedAt'), dataIndex: 'last_scanned_at', key: 'scannedAt', width: 190, customRender: ({ text: value }) => formatDateTime(value) },
   { title: t('skillVersions.actions'), key: 'actions', width: 330 },
 ])
 const scanRunColumns = computed(() => [
@@ -1254,13 +1336,14 @@ const fetchDetail = async () => {
   try {
     const data = await getSkillDetail(skillId.value)
     detail.value = data
+    const versionId = data.version_id || skillId.value
     signatureResult.value = null
     const [auditResult, reportResult, contentResult, filesResult, cardResult, versionsResult] = await Promise.allSettled([
-      getAudit({ skill_id: data.skill_id, since_hours: 720, limit: 50 }),
-      getSkillScanReport(data.skill_id),
-      getSkillContent(data.skill_id),
-      getSkillFiles(data.skill_id),
-      getSkillGovernanceCard(data.skill_id),
+      getAudit({ skill_id: versionId, since_hours: 720, limit: 50 }),
+      getSkillScanReport(versionId),
+      getSkillContent(versionId),
+      getSkillFiles(versionId),
+      getSkillGovernanceCard(versionId),
       getSkillVersions(data.skill_id),
     ])
     auditRows.value = auditResult.status === 'fulfilled' && Array.isArray(auditResult.value)
@@ -1327,7 +1410,7 @@ const fetchScanReport = async () => {
   if (!detail.value) return
   loadingScanReport.value = true
   try {
-    const data = await getSkillScanReport(detail.value.skill_id)
+    const data = await getSkillScanReport(currentVersionId.value)
     scanReport.value = data.scan_report || {}
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.g9q48r'))
@@ -1340,7 +1423,7 @@ const fetchSkillContent = async () => {
   if (!detail.value) return
   loadingContent.value = true
   try {
-    skillContent.value = await getSkillContent(detail.value.skill_id)
+    skillContent.value = await getSkillContent(currentVersionId.value)
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.1iff97n'))
   } finally {
@@ -1351,7 +1434,7 @@ const fetchSkillContent = async () => {
 const fetchSkillFiles = async () => {
   if (!detail.value) return
   try {
-    const data = await getSkillFiles(detail.value.skill_id)
+    const data = await getSkillFiles(currentVersionId.value)
     skillFiles.value = data?.files || []
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.1rirokg'))
@@ -1362,7 +1445,7 @@ const fetchGovernanceCard = async () => {
   if (!detail.value) return
   loadingGovernanceCard.value = true
   try {
-    governanceCard.value = await getSkillGovernanceCard(detail.value.skill_id)
+    governanceCard.value = await getSkillGovernanceCard(currentVersionId.value)
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.82xq4f'))
   } finally {
@@ -1374,7 +1457,7 @@ const handleRefreshGovernanceCard = async () => {
   if (!detail.value) return
   loadingGovernanceCard.value = true
   try {
-    governanceCard.value = await refreshSkillGovernanceCard(detail.value.skill_id)
+    governanceCard.value = await refreshSkillGovernanceCard(currentVersionId.value)
     await fetchScanReport()
     message.success(phrase('legacy.1su23nl'))
   } catch (error) {
@@ -1388,7 +1471,7 @@ const handleDownloadSkill = async () => {
   if (!detail.value?.skill_id) return
   downloadingSkill.value = true
   try {
-    const blob = await downloadSkill(detail.value.skill_id)
+    const blob = await downloadSkill(currentVersionId.value)
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     const safeName = String(detail.value.name || detail.value.skill_id || 'skill').replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '') || 'skill'
@@ -1412,7 +1495,7 @@ const openFileViewer = async (path) => {
   fileViewerOpen.value = true
   loadingFileViewer.value = true
   try {
-    viewedFile.value = await getSkillFileContent(detail.value.skill_id, path)
+    viewedFile.value = await getSkillFileContent(currentVersionId.value, path)
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.u64zz9'))
   } finally {
@@ -1433,7 +1516,7 @@ const handleVerifySignature = async () => {
   }
   verifyingSignature.value = true
   try {
-    signatureResult.value = await verifySkillSignature(detail.value.skill_id)
+    signatureResult.value = await verifySkillSignature(currentVersionId.value)
     if (signatureResult.value.valid) {
       message.success(phrase('legacy.niy9wk'))
     } else {
@@ -1466,7 +1549,7 @@ const submitApprove = async () => {
   actionLoading.value = true
   actionType.value = 'approve'
   try {
-    await approveSkill(detail.value.skill_id, { approver: currentUser(), note: approveNote.value.trim() || null })
+    await approveSkill(currentVersionId.value, { approver: currentUser(), note: approveNote.value.trim() || null })
     message.success(phrase('legacy.10hmnl2'))
     approveModalOpen.value = false
     fetchDetail()
@@ -1487,7 +1570,7 @@ const submitReject = async () => {
   actionLoading.value = true
   actionType.value = 'reject'
   try {
-    await rejectSkill(detail.value.skill_id, { reviewer: currentUser(), reason: rejectReason.value.trim() })
+    await rejectSkill(currentVersionId.value, { reviewer: currentUser(), reason: rejectReason.value.trim() })
     message.success(phrase('legacy.16h1qdk'))
     rejectModalOpen.value = false
     fetchDetail()
@@ -2397,11 +2480,14 @@ const statusColor = (value, entry) => {
 const riskColor = (value) =>
   ({
     SAFE: 'green',
+    BENIGN: 'green',
     LOW: 'green',
+    SUSPICIOUS: 'orange',
     MEDIUM: 'orange',
+    MALICIOUS: 'red',
     HIGH: 'red',
     EXTREME: 'magenta',
-  }[value] || 'default')
+  }[(value || '').toUpperCase()] || 'default')
 
 const severityColor = (value) =>
   ({
@@ -2664,6 +2750,53 @@ watch(
   overflow-wrap: anywhere;
 }
 
+.current-version-rail {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.current-version-number {
+  color: #1d4ed8;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 15px;
+}
+
+.current-version-select {
+  width: min(320px, 100%);
+}
+
+.version-risk-chain {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 350px;
+}
+
+.version-risk-stage {
+  display: grid;
+  gap: 3px;
+  min-width: 84px;
+}
+
+.version-risk-stage small {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.version-risk-stage :deep(.ant-tag) {
+  width: fit-content;
+  margin-inline-end: 0;
+}
+
+.version-risk-arrow {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
 .path-value {
   color: #475569;
   overflow-wrap: anywhere;
@@ -2715,6 +2848,15 @@ watch(
 }
 
 @media (max-width: 640px) {
+  .current-version-rail {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .current-version-select {
+    width: 100%;
+  }
+
   .lifecycle-steps {
     overflow-x: auto;
   }

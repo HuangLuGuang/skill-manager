@@ -42,7 +42,7 @@ _ED25519_SIGNATURE_BYTES = 64
 SKILL_IGNORE_DIRS = frozenset({".git", ".venv", "node_modules", "__pycache__", "dist", "build", ".DS_Store"})
 
 
-def _normalize_zip_mojibake(value: str) -> str:
+def normalize_zip_mojibake(value: str) -> str:
     try:
         return value.encode("cp437").decode("utf-8")
     except UnicodeError:
@@ -69,7 +69,7 @@ def _signature_content(skill_path: str | Path) -> bytes:
         relative_parts = file_path.relative_to(root).parts
         if any(part in SKILL_IGNORE_DIRS for part in relative_parts):
             continue
-        relative = "/".join(_normalize_zip_mojibake(part) for part in relative_parts)
+        relative = "/".join(normalize_zip_mojibake(part) for part in relative_parts)
         files.append((relative, file_path))
 
     lines = [

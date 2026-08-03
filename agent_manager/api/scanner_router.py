@@ -29,7 +29,7 @@ from agent_manager.api.router import (
     get_manager,
 )
 from agent_manager.core.manager import AgentManager
-from agent_manager.core.models import AuditEvent, RegistryEntry, SkillOrigin, SourceInfo
+from agent_manager.core.models import AuditEvent, RegistryEntry, SkillOrigin, SkillStatus, SourceInfo
 from agent_manager.core.scanner_tokens import DEFAULT_SCOPES, ScannerToken, ScannerTokenStore
 from agent_manager.core.vetting import _load_manifest
 from backend.models import AccessToken
@@ -692,4 +692,12 @@ def get_scanner_import(
     payload = entry.model_dump(mode="json", exclude={"vetting": {"scan_report"}})
     payload["skill_id"] = entry.family_id or entry.skill_id
     payload["version_id"] = entry.skill_id
+    scan_pending = any(run.status == "PENDING" for run in mgr.list_scan_runs(entry.skill_id))
+    payload["scan_pending"] = scan_pending
+    if scan_pending:
+        # A rescan intentionally preserves the previous effective decision
+        # until it completes. Scanner clients, however, must observe the job
+        # state so they do not auto-install an old APPROVED result mid-scan.
+        payload["effective_status"] = entry.status.value
+        payload["status"] = SkillStatus.PENDING.value
     return payload

@@ -321,6 +321,28 @@ button.is-busy, button.is-busy:disabled { cursor: wait; }
 .message-dialog h3 { margin: 0 0 10px; color: #263846; font-size: 17px; }
 .message-dialog p { margin: 0; color: #5f6d78; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
 .message-dialog-body > form { display: flex; justify-content: flex-end; margin-top: 22px; }
+.discard-pending-dialog { width: min(500px, calc(100vw - 48px)); }
+.dialog-danger-label {
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 3px 7px;
+  color: #9c372c;
+  background: #ffebe7;
+  font: 750 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .04em;
+}
+.discard-pending-summary {
+  display: grid;
+  gap: 5px;
+  margin: 16px 0 12px;
+  padding: 13px 14px;
+  border-left: 3px solid #dc674f;
+  background: #f7f9fa;
+}
+.discard-pending-summary strong { color: #263846; font-size: 14px; }
+.discard-pending-summary span { color: #5d6c78; font-size: 11px; }
+.discard-pending-summary code { overflow: hidden; color: #7b8893; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.message-dialog .dialog-audit-note { color: #28715e; font-size: 11px; }
 .install-skill-dialog { width: min(540px, calc(100vw - 48px)); }
 .update-dialog { width: min(520px, calc(100vw - 48px)); }
 .update-dialog .overview-badge { display: inline-block; margin-bottom: 12px; }
@@ -713,7 +735,7 @@ button.is-busy, button.is-busy:disabled { cursor: wait; }
 }
 .pending-select-all input, .pending-skill-select input { width: 16px; height: 16px; margin: 0; }
 .pending-skill-row {
-  grid-template-columns: 24px minmax(180px, 1fr) minmax(150px, 220px) 126px;
+  grid-template-columns: 24px minmax(190px, 1fr) minmax(190px, 240px) minmax(210px, auto);
   min-height: 76px;
   padding-top: 11px;
   padding-bottom: 11px;
@@ -722,6 +744,9 @@ button.is-busy, button.is-busy:disabled { cursor: wait; }
 .pending-skill-select { display: flex; align-items: center; justify-content: center; }
 .pending-select-placeholder { width: 16px; }
 .pending-skill-row button { white-space: nowrap; }
+.pending-skill-row .takeover-row-actions { min-width: 0; flex-wrap: wrap; }
+.pending-discard-button { border-color: transparent; color: #a0473b; background: transparent; }
+.pending-discard-button:hover { border-color: #e2b2aa; color: #84352c; background: #fff3f0; }
 .pending-next { justify-self: start; color: #65737e; font-size: 12px; font-weight: 700; }
 .pending-status-block { display: grid; min-width: 0; gap: 5px; align-content: center; }
 .pending-status-block small {
@@ -969,11 +994,15 @@ html[lang="en-US"] #preview-button {
     justify-self: end;
   }
   .pending-skill-row {
-    grid-template-columns: 24px minmax(180px, 1fr) minmax(150px, 210px) 126px;
+    grid-template-columns: 24px minmax(0, 1fr) minmax(190px, 250px);
   }
-  .pending-skill-row > :nth-child(3),
+  .pending-skill-row > :nth-child(3) {
+    grid-row: 1;
+    grid-column: 3;
+  }
   .pending-skill-row > :nth-child(4) {
-    grid-row: auto;
-    grid-column: auto;
+    grid-row: 2;
+    grid-column: 2 / 4;
+    justify-self: end;
   }
 }

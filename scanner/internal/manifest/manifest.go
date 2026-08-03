@@ -12,7 +12,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
+	"golang.org/x/text/encoding/charmap"
 	"skill-manager/scanner/internal/localize"
 )
 
@@ -56,10 +58,13 @@ func Build(root string, opts Options) (Manifest, error) {
 		if path == absRoot {
 			return nil
 		}
-		if entry.IsDir() {
-			if opts.IgnoreDirs[entry.Name()] {
+		if opts.IgnoreDirs[entry.Name()] {
+			if entry.IsDir() {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if entry.IsDir() {
 			return nil
 		}
 		info, err := entry.Info()
@@ -142,6 +147,14 @@ func safeRel(root string, path string) (string, error) {
 	return filepath.ToSlash(rel), nil
 }
 
+func normalizeZipMojibake(value string) string {
+	encoded, err := charmap.CodePage437.NewEncoder().Bytes([]byte(value))
+	if err != nil || !utf8.Valid(encoded) {
+		return value
+	}
+	return string(encoded)
+}
+
 func fileSHA256(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -156,8 +169,20 @@ func fileSHA256(path string) (string, error) {
 }
 
 func ContentSignature(files []FileEntry) string {
+	canonical := make([]FileEntry, len(files))
+	for index, file := range files {
+		parts := strings.Split(file.Path, "/")
+		for partIndex, part := range parts {
+			parts[partIndex] = normalizeZipMojibake(part)
+		}
+		canonical[index] = file
+		canonical[index].Path = strings.Join(parts, "/")
+	}
+	sort.Slice(canonical, func(i, j int) bool {
+		return canonical[i].Path < canonical[j].Path
+	})
 	hash := sha256.New()
-	for _, file := range files {
+	for _, file := range canonical {
 		io.WriteString(hash, file.Path+":"+file.SHA256+"\n")
 	}
 	return hex.EncodeToString(hash.Sum(nil))

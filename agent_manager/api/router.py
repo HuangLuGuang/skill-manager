@@ -1396,7 +1396,45 @@ def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manag
     }
 
 
-def _version_summary(entry) -> dict[str, Any]:
+def _version_summary(
+    entry,
+    *,
+    scan_runs=None,
+    audit_events=None,
+    processing_count: int | None = None,
+    rescan_requested: bool | None = None,
+) -> dict[str, Any]:
+    runs = list(scan_runs or [])
+    events = list(audit_events or [])
+    report = entry.vetting.scan_report if entry.vetting else {}
+    llm_analysis = report.get("llm_analysis") if isinstance(report.get("llm_analysis"), dict) else None
+    policy_notes = list(entry.vetting.policy_notes if entry.vetting else [])
+    llm_note = next((str(note) for note in policy_notes if str(note).startswith("[LLM]")), None)
+    analyzers = {str(item).lower() for item in report.get("analyzers_used", [])}
+    if llm_analysis:
+        llm_status = "completed"
+    elif llm_note:
+        llm_status = "skipped"
+    elif any(item.startswith("llm:") for item in analyzers):
+        llm_status = "failed"
+    else:
+        llm_status = "not_run"
+    effective_processing_count = (
+        processing_count
+        if processing_count is not None
+        else sum(1 for event in events if event.event_type == "skill_processing_completed")
+    )
+    effective_rescan_requested = (
+        rescan_requested
+        if rescan_requested is not None
+        else any(event.event_type == "skill_rescan_requested" for event in events)
+    )
+    rescanned = (
+        len(runs) > 1
+        or effective_processing_count > 1
+        or effective_rescan_requested
+    )
+    latest_run = runs[0] if runs else None
     return {
         "skill_id": entry.family_id or entry.skill_id,
         "version_id": entry.skill_id,
@@ -1413,6 +1451,22 @@ def _version_summary(entry) -> dict[str, Any]:
         "updated_at": entry.updated_at,
         "approved_at": entry.approved_at,
         "approved_by": entry.approved_by,
+        "last_scanned_at": (
+            latest_run.finished_at or latest_run.started_at
+            if latest_run
+            else entry.updated_at
+        ),
+        "scan_run_count": max(len(runs), effective_processing_count),
+        "rescanned": rescanned,
+        "risk_chain": {
+            "static_risk_level": report.get("pre_llm_risk_level") or (entry.risk_level.value if entry.risk_level else None),
+            "llm_status": llm_status,
+            "llm_risk_level": llm_analysis.get("risk_level") if llm_analysis else None,
+            "final_risk_level": entry.risk_level.value if entry.risk_level else None,
+            "llm_note": llm_note,
+            "downgrade_reason": llm_analysis.get("downgrade_reason") if llm_analysis else None,
+            "dismissed_findings": llm_analysis.get("dismissed_findings", []) if llm_analysis else [],
+        },
     }
 
 
@@ -1421,10 +1475,20 @@ def list_skill_versions(skill_id_or_name: str, mgr: AgentManager = Depends(get_m
     versions = mgr.list_skill_versions(skill_id_or_name)
     if not versions:
         raise HTTPException(status_code=404, detail="Skill not found")
+    version_ids = [entry.skill_id for entry in versions]
+    runs_by_version = mgr.list_scan_runs_for_versions(version_ids)
+    activity_by_version = mgr.skill_version_activity(version_ids)
     items = []
     for entry in versions:
-        item = _version_summary(entry)
-        item["scan_pending"] = any(run.status == "PENDING" for run in mgr.list_scan_runs(entry.skill_id))
+        runs = runs_by_version.get(entry.skill_id, [])
+        activity = activity_by_version.get(entry.skill_id, {})
+        item = _version_summary(
+            entry,
+            scan_runs=runs,
+            processing_count=int(activity.get("processing_count", 0)),
+            rescan_requested=bool(activity.get("rescan_requested", False)),
+        )
+        item["scan_pending"] = any(run.status == "PENDING" for run in runs)
         items.append(item)
     return {
         "skill_id": versions[0].family_id or versions[0].skill_id,

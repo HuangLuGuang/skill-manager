@@ -40,6 +40,7 @@ let customAgentPendingRemoval = null
 let builtinAgentSettings = []
 let editingBuiltinAgent = null
 let pendingItems = []
+let pendingDiscardItem = null
 let pendingRefreshTimer = null
 let pendingRefreshBusy = false
 let pendingSubmissionBusy = false
@@ -774,15 +775,19 @@ const refreshChangedInventory = async () => {
     const changedAt = local.last_inventory_at || ''
     const taskChanged = local.tasks?.[0]?.updated_at !== connection.local?.tasks?.[0]?.updated_at
     const notificationChanged = local.notifications?.[0]?.id !== connection.local?.notifications?.[0]?.id || local.unread_notifications !== connection.local?.unread_notifications
-    if ((!changedAt || changedAt === lastInventoryAt) && !taskChanged && !notificationChanged) return
+    const quarantineChanged = local.quarantined_skills !== connection.local?.quarantined_skills
+    const refreshQuarantine = $('#status').classList.contains('active')
+    if ((!changedAt || changedAt === lastInventoryAt) && !taskChanged && !notificationChanged && !quarantineChanged) return
     if (changedAt === lastInventoryAt) {
       connection.local = local
       renderStatus(connection)
+      if (refreshQuarantine) await loadQuarantine()
       return
     }
     const refreshTakeover = $('#takeover').classList.contains('active')
     await refreshConnection()
     if (refreshTakeover) await preview(false)
+    if (refreshQuarantine) await loadQuarantine()
   } catch (_) {
     // The normal connection refresh remains responsible for surfacing errors.
   } finally {
@@ -1399,6 +1404,7 @@ const loadPending = async (refresh = false, { silent = false } = {}) => {
                   : item.skill_id
                   ? `<span class="pending-next">${escapeHtml(pendingNextLabel(item.status))}</span>`
                   : tf`<button class="primary icon-button icon-submit" data-submit-pending="${escapeHtml(item.id)}">提交平台检测</button>`}
+                ${tf`<button class="pending-discard-button icon-button icon-remove" data-discard-pending="${escapeHtml(item.id)}" title="删除本地副本">删除副本</button>`}
               </div>
             </div>`).join('')}
         </div>
@@ -1411,6 +1417,15 @@ const loadPending = async (refresh = false, { silent = false } = {}) => {
   }))
   document.querySelectorAll('[data-submit-pending]').forEach(button => button.addEventListener('click', async () => {
     await submitPendingIDs([button.dataset.submitPending], button)
+  }))
+  document.querySelectorAll('[data-discard-pending]').forEach(button => button.addEventListener('click', async () => {
+    const item = pendingItems.find(candidate => candidate.id === button.dataset.discardPending)
+    if (!item) return
+    pendingDiscardItem = item
+    $('#discard-pending-name').textContent = item.skill_name
+    $('#discard-pending-agent').textContent = tf`所属 Agent：${agentLabel(item.agent_type)}`
+    $('#discard-pending-path').textContent = item.pending_path
+    $('#discard-pending-dialog').showModal()
   }))
   document.querySelectorAll('[data-install-approved]').forEach(button => button.addEventListener('click', async () => {
     setBusy(button, true)
@@ -1430,6 +1445,33 @@ const loadPending = async (refresh = false, { silent = false } = {}) => {
   if (refresh && !silent) log(tf`待处理区共有 ${skillCount(items.length)}`)
   return items
 }
+
+$('#cancel-discard-pending').addEventListener('click', () => {
+  $('#discard-pending-dialog').close()
+  pendingDiscardItem = null
+})
+
+$('#confirm-discard-pending').addEventListener('click', async event => {
+  const item = pendingDiscardItem
+  if (!item) return
+  const button = event.currentTarget
+  setBusy(button, true)
+  try {
+    await run('discard-pending', ['--id', item.id, '--confirm'])
+    selectedPendingIDs.delete(item.id)
+    pendingDiscardItem = null
+    $('#discard-pending-dialog').close()
+    await loadPending()
+    await loadQuarantine()
+    await refreshConnection()
+    showMessageDialog(t('删除完成'), t('本地停用副本已删除，平台检测和审计记录仍然保留。'))
+  } catch (error) {
+    showMessageDialog(t('删除失败'), String(error))
+    log(error)
+  } finally {
+    setBusy(button, false)
+  }
+})
 
 const submitPendingIDs = async (ids, button) => {
   if (pendingSubmissionBusy || !ids.length) return
@@ -1890,24 +1932,33 @@ $('#restore-backup').addEventListener('click', async event => {
 const loadQuarantine = async () => {
   const items = JSON.parse(await run('quarantine'))
   $('#quarantine-list').classList.toggle('empty', !items.length)
-  $('#quarantine-list').innerHTML = items.length ? items.map(item => tf`
+  $('#quarantine-list').innerHTML = items.length ? items.map(item => {
+    const detection = item.detection_status
+      ? { ...item, status: item.detection_status }
+      : null
+    return tf`
     <div class="takeover-row quarantine-row">
       <div><strong>${escapeHtml(item.skill_name)}</strong><button class="path-link" type="button" title="隔离目录：${escapeHtml(item.quarantine_path)}" data-reveal-path="${escapeHtml(item.quarantine_path)}">所属 Agent：${escapeHtml(agentLabel(item.agent_type))} · ${escapeHtml(item.original_path)}</button></div>
-      <strong class="action-pending">已隔离</strong>
-      <span>${escapeHtml(reasonLabel(item.reason))}</span>
+      ${detection
+        ? `<strong class="result-status ${escapeHtml(pendingStatusClass(detection.status))}"><i></i>${escapeHtml(pendingStatusLabel(detection.status))}</strong>`
+        : `<strong class="action-pending">${escapeHtml(t('ui.75sttk'))}</strong>`}
+      <span>${escapeHtml(detection ? quarantineDetectionGuidance(detection) : reasonLabel(item.reason))}</span>
       <div class="takeover-row-actions">
-        <button class="primary icon-button icon-submit" data-submit-quarantine="${escapeHtml(item.id)}">提交当前版本检测</button>
+        ${!item.skill_id
+          ? `<button class="primary icon-button icon-submit" data-submit-quarantine="${escapeHtml(item.id)}">提交当前版本检测</button>`
+          : `<span class="pending-next">${escapeHtml(quarantineNextLabel(item.detection_status))}</span>`}
         <button class="icon-button icon-install" data-install-safe-version="${escapeHtml(item.skill_name)}">选择批准版本</button>
       </div>
-    </div>`).join('') : t('ui.w1aoqw')
+    </div>`
+  }).join('') : t('ui.w1aoqw')
   document.querySelectorAll('[data-submit-quarantine]').forEach(button => button.addEventListener('click', async () => {
     setBusy(button, true)
     try {
       const pending = JSON.parse(await run('queue-quarantine', ['--id', button.dataset.submitQuarantine]))
-      setBusy(button, false)
-      showPanel('takeover')
       await loadPending()
       await submitPendingIDs([pending.id], button)
+      await refreshConnection()
+      await loadQuarantine()
     } catch (error) {
       showMessageDialog(t('ui.1wvf48w'), String(error))
       log(error)
@@ -2047,7 +2098,7 @@ function pendingStatusGuidance(item) {
   if (item.status === 'REJECTED') return t('ui.1m5rgkv')
   if (item.status === 'CANCELLED') return t('ui.z61ghp')
   if (item.status === 'VETTED') return t('ui.14chebx')
-  if (item.skill_id) return tf`平台正在检测${item.skill_id ? ` · ${item.skill_id}` : ''}`
+  if (item.skill_id) return t('ui.10hw1zw')
   return reasonLabel(item.reason)
 }
 
@@ -2056,6 +2107,16 @@ function pendingNextLabel(status) {
   if (status === 'CANCELLED') return t('ui.18gje6f')
   if (status === 'VETTED') return t('ui.17tazct')
   return t('ui.12iu3xi')
+}
+
+function quarantineDetectionGuidance(item) {
+  if (item.status === 'REJECTED') return t('ui.8lsmup')
+  return pendingStatusGuidance(item)
+}
+
+function quarantineNextLabel(status) {
+  if (status === 'REJECTED' || status === 'CANCELLED') return t('ui.114uhtn')
+  return pendingNextLabel(status)
 }
 
 const managedAgentIDFor = agentType => (connection?.platform?.agents || []).find(item => item.agent_type === agentType)?.managed_agent_id || ''
@@ -2080,20 +2141,64 @@ const refreshAfterInstall = async () => {
   if ($('#takeover').classList.contains('active')) await preview(false)
 }
 
-const availableSkillsForAgent = async (agent, query = '') => {
+const availableSkillsForAgent = async (agent, query = '', skillId = '') => {
   const agentType = agent.agent_type
   const args = ['--agent-type', agentType]
   const managedAgentID = managedAgentIDFor(agentType)
   if (managedAgentID) args.push('--managed-agent-id', managedAgentID)
   if (query) args.push('--query', query)
+  if (skillId) args.push('--skill-id', skillId)
   try {
     return { agent, items: JSON.parse(await run('available-skills', args)), error: '' }
   } catch (error) {
-    return { agent, items: [], error: runtimeText(error) }
+    const rawError = String(error ?? '')
+    return {
+      agent,
+      items: [],
+      error: runtimeText(error),
+      unauthorized: /\b403\b/.test(rawError),
+    }
   }
 }
 
-const loadInstallCatalog = async (agents, query = '') => {
+const skillVersionsForAgent = async (agent, skillId) => {
+  const args = ['--skill-id', skillId, '--agent-type', agent.agent_type]
+  const managedAgentID = managedAgentIDFor(agent.agent_type)
+  if (managedAgentID) args.push('--managed-agent-id', managedAgentID)
+  return JSON.parse(await run('skill-versions', args))
+}
+
+const exactAvailableSkillForAgent = async (agent, skill) => {
+  const result = await availableSkillsForAgent(agent, '', skill.skill_id)
+  if (result.items.some(item => item.skill_id === skill.skill_id)) return result
+  if (result.error) return result
+  // Older sidecars accept --skill-id but silently omit it from the request and
+  // return the paginated catalog. Fall back to the existing exact versions
+  // endpoint so catalog pagination never decides target authorization.
+  try {
+    const versions = await skillVersionsForAgent(agent, skill.skill_id)
+    const trusted = (versions.items || []).find(item => item.version_id === versions.default_version_id) || versions.items?.[0]
+    return {
+      agent,
+      items: trusted ? [{ ...skill, skill_id: versions.skill_id || skill.skill_id, ...trusted }] : [],
+      versions,
+      error: '',
+    }
+  } catch (error) {
+    const rawError = String(error ?? '')
+    return {
+      agent,
+      items: [],
+      error: runtimeText(error),
+      unauthorized: /\b403\b/.test(rawError),
+    }
+  }
+}
+
+const loadInstallCatalog = async (agents, query = '', skill = null) => {
+  if (skill?.skill_id) {
+    return Promise.all(agents.map(agent => exactAvailableSkillForAgent(agent, skill)))
+  }
   if (connection?.platform?.governance_mode !== 'strict') {
     const result = await availableSkillsForAgent(agents[0], query)
     return agents.map(agent => ({ ...result, agent }))
@@ -2110,6 +2215,13 @@ const installSubmitter = item => item?.submitted_by || t('ui.13nfgz7')
 const installVersion = item => item?.version_no ? `v${item.version_no}` : 'v-'
 const installSubmittedAt = item => item?.submitted_at ? formatTime(item.submitted_at) : t('ui.13nfgz7')
 
+const installCatalogSourceFor = skill => {
+  const candidates = installCatalog.filter(item => item.items.some(candidate => candidate.skill_id === skill.skill_id))
+  return candidates.find(item => item.agent.agent_type === lockedInstallSkill?.source_agent_type) || candidates[0]
+}
+
+const installCatalogError = () => installCatalog.find(item => item.error)?.error || ''
+
 const installSkills = () => {
   const skills = new Map()
   installCatalog.flatMap(item => item.items).forEach(item => skills.set(item.skill_id, item))
@@ -2124,16 +2236,16 @@ const loadInstallSkillVersions = async () => {
   select.disabled = true
   select.innerHTML = `<option value="">${skill ? '正在读取可信版本...' : t('请先选择 Skill')}</option>`
   if (!skill) return
-  const source = installCatalog.find(item => item.items.some(candidate => candidate.skill_id === skill.skill_id))
+  const source = installCatalogSourceFor(skill)
   if (!source) {
-    select.innerHTML = '<option value="">当前客户端无权读取可信版本</option>'
+    select.innerHTML = `<option value="">${escapeHtml(installCatalogError() || t('ui.1roebpj'))}</option>`
     return
   }
   const args = ['--skill-id', skill.skill_id, '--agent-type', source.agent.agent_type]
   const managedAgentID = managedAgentIDFor(source.agent.agent_type)
   if (managedAgentID) args.push('--managed-agent-id', managedAgentID)
   try {
-    const response = JSON.parse(await run('skill-versions', args))
+    const response = source.versions || JSON.parse(await run('skill-versions', args))
     if (selectedInstallSkill()?.skill_id !== skill.skill_id) return
     installVersions = response.items || []
     select.innerHTML = installVersions.length
@@ -2153,9 +2265,9 @@ const loadInstallSkillPreview = async () => {
     $('#install-skill-preview').innerHTML = t('ui.1ilu5f6')
     return
   }
-  const source = installCatalog.find(item => item.items.some(candidate => candidate.skill_id === skill.skill_id))
+  const source = installCatalogSourceFor(skill)
   if (!source) {
-    $('#install-skill-preview').innerHTML = tf`<strong>${escapeHtml(skill.name)}</strong><span>当前客户端无权读取该 Skill 的详情</span>`
+    $('#install-skill-preview').innerHTML = tf`<strong>${escapeHtml(skill.name)}</strong><span>${escapeHtml(installCatalogError() || t('ui.1roebpj'))}</span>`
     return
   }
   const args = ['--skill-id', skill.skill_id, '--agent-type', source.agent.agent_type]
@@ -2190,13 +2302,13 @@ const renderInstallTargets = () => {
     $('#install-agent-targets').innerHTML = t('ui.icgn8')
     return
   }
-  $('#install-agent-targets').innerHTML = installCatalog.map(({ agent, items, error }) => {
+  $('#install-agent-targets').innerHTML = installCatalog.map(({ agent, items, error, unauthorized }) => {
     const sourceAgent = lockedInstallSkill?.source_agent_type === agent.agent_type
     const installed = sourceAgent || (agent.skills || []).some(item => item.skill_id === skill.skill_id)
     const conflict = !installed && (agent.skills || []).some(item => item.name === skill.name && item.status !== 'broken_link')
     const available = items.some(item => item.skill_id === skill.skill_id)
     const disabled = installed || conflict || !available
-    const status = sourceAgent ? t('ui.yzzvd8') : installed ? t('ui.hdlzwj') : conflict ? t('ui.1bmno87') : available ? t('ui.1k3oaj4') : error ? t('ui.vub0qv') : t('ui.1rrz078')
+    const status = sourceAgent ? t('ui.yzzvd8') : installed ? t('ui.hdlzwj') : conflict ? t('ui.1bmno87') : available ? t('ui.1k3oaj4') : unauthorized ? t('ui.1rrz078') : t('ui.vub0qv')
     const kind = conflict ? 'conflict' : available && !installed ? 'available' : ''
     return `<label class="install-agent-target ${kind}" title="${escapeHtml(error)}">
       <span><input type="checkbox" data-install-target value="${escapeHtml(agent.agent_type)}" ${disabled ? 'disabled' : ''} />${escapeHtml(agentLabel(agent.agent_type))}</span>
@@ -2221,7 +2333,7 @@ const openInstallDialog = async (skill, initialQuery = '') => {
   $('#install-agent-targets').innerHTML = t('ui.hola4k')
   $('#install-skill-dialog').showModal()
   try {
-    installCatalog = await loadInstallCatalog(agents, initialQuery)
+    installCatalog = await loadInstallCatalog(agents, initialQuery, skill)
     if (skill) {
       $('#install-platform-skill').innerHTML = `<option value="${escapeHtml(skill.skill_id)}">${escapeHtml(skill.name)}</option>`
       $('#install-platform-skill').value = skill.skill_id

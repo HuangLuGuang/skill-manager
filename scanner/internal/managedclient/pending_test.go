@@ -36,6 +36,9 @@ func TestReconcileApprovedPendingAutomaticallyInstallsExactVersion(t *testing.T)
 	if err := store.MarkPendingSubmitted(pending, "skill-1", "skill-version-2"); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.UpdatePendingStatus("skill-1", "skill-version-2", "REJECTED"); err != nil {
+		t.Fatal(err)
+	}
 
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

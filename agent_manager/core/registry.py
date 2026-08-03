@@ -70,6 +70,7 @@ class Registry:
         self._init_db()
         self._migrate_legacy_files()
         self._migrate_skill_families()
+        self._repair_nontrusted_approval_evidence()
         self._migrate_inline_scan_reports()
         self._checkpoint()
 
@@ -546,6 +547,56 @@ class Registry:
                         row["skill_id"],
                     ),
                 )
+
+    def _repair_nontrusted_approval_evidence(self) -> None:
+        """Remove stale trust evidence from versions that are no longer trusted."""
+        migration_name = "clear_nontrusted_approval_evidence_v1"
+        trusted_statuses = (SkillStatus.APPROVED.value, SkillStatus.DEPLOYED.value)
+
+        with self._lock, self._connect() as conn:
+            applied = conn.execute(
+                "SELECT 1 FROM registry_migrations WHERE migration_name = ?",
+                (migration_name,),
+            ).fetchone()
+            if applied:
+                return
+
+            cursor = conn.execute(
+                """
+                UPDATE skill_registry
+                SET payload = json_set(
+                    payload,
+                    '$.signature', NULL,
+                    '$.approved_at', NULL,
+                    '$.approved_by', NULL,
+                    '$.approval_note', NULL,
+                    '$.deployed_at', NULL
+                )
+                WHERE status NOT IN (?, ?)
+                  AND (
+                      json_extract(payload, '$.signature') IS NOT NULL
+                      OR json_extract(payload, '$.approved_at') IS NOT NULL
+                      OR json_extract(payload, '$.approved_by') IS NOT NULL
+                      OR json_extract(payload, '$.approval_note') IS NOT NULL
+                      OR json_extract(payload, '$.deployed_at') IS NOT NULL
+                  )
+                """,
+                trusted_statuses,
+            )
+            repaired = max(cursor.rowcount, 0)
+            conn.execute(
+                """
+                INSERT INTO registry_migrations (migration_name, applied_at, details)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    migration_name,
+                    datetime.now(timezone.utc).isoformat(),
+                    json.dumps({"repaired_versions": repaired}),
+                ),
+            )
+            if repaired:
+                logger.warning("Cleared stale approval evidence from %s non-trusted Skill versions", repaired)
 
     def _upsert_entry(self, conn: sqlite3.Connection, entry: RegistryEntry) -> None:
         self._ensure_family(conn, entry)
@@ -1044,6 +1095,71 @@ class Registry:
             )
             for row in rows
         ]
+
+    def list_scan_runs_for_versions(self, version_ids: list[str]) -> dict[str, list[ScanRun]]:
+        normalized = list(dict.fromkeys(value for value in version_ids if value))
+        result: dict[str, list[ScanRun]] = {value: [] for value in normalized}
+        if not normalized:
+            return result
+        rows = []
+        with self._lock, self._connect() as conn:
+            for offset in range(0, len(normalized), 500):
+                batch = normalized[offset:offset + 500]
+                placeholders = ",".join("?" for _ in batch)
+                rows.extend(conn.execute(
+                    f"""
+                    SELECT * FROM skill_scan_runs
+                    WHERE version_id IN ({placeholders})
+                    ORDER BY version_id, started_at DESC
+                    """,
+                    tuple(batch),
+                ).fetchall())
+        for row in rows:
+            result[row["version_id"]].append(ScanRun(
+                scan_run_id=row["scan_run_id"],
+                version_id=row["version_id"],
+                scan_context_fingerprint=row["scan_context_fingerprint"],
+                status=row["status"],
+                forced=bool(row["forced"]),
+                reused_from_scan_run_id=row["reused_from_scan_run_id"],
+                started_at=datetime.fromisoformat(row["started_at"]),
+                finished_at=datetime.fromisoformat(row["finished_at"]) if row["finished_at"] else None,
+                result=json.loads(row["result"] or "{}"),
+            ))
+        return result
+
+    def skill_version_activity(self, version_ids: list[str]) -> dict[str, dict[str, int | bool]]:
+        normalized = list(dict.fromkeys(value for value in version_ids if value))
+        result: dict[str, dict[str, int | bool]] = {
+            value: {"processing_count": 0, "rescan_requested": False}
+            for value in normalized
+        }
+        if not normalized:
+            return result
+        rows = []
+        with self._lock, self._connect() as conn:
+            for offset in range(0, len(normalized), 500):
+                batch = normalized[offset:offset + 500]
+                placeholders = ",".join("?" for _ in batch)
+                rows.extend(conn.execute(
+                    f"""
+                    SELECT
+                        skill_id,
+                        sum(CASE WHEN event_type = 'skill_processing_completed' THEN 1 ELSE 0 END) AS processing_count,
+                        max(CASE WHEN event_type = 'skill_rescan_requested' THEN 1 ELSE 0 END) AS rescan_requested
+                    FROM skill_audit_events
+                    WHERE skill_id IN ({placeholders})
+                      AND event_type IN ('skill_processing_completed', 'skill_rescan_requested')
+                    GROUP BY skill_id
+                    """,
+                    tuple(batch),
+                ).fetchall())
+        for row in rows:
+            result[row["skill_id"]] = {
+                "processing_count": int(row["processing_count"] or 0),
+                "rescan_requested": bool(row["rescan_requested"]),
+            }
+        return result
 
     def list_all(self, status: SkillStatus | None = None) -> list[RegistryEntry]:
         with self._lock, self._connect() as conn:

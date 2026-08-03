@@ -78,6 +78,94 @@ func TestQueueQuarantineForDetectionKeepsOriginalUntilApprovedInstall(t *testing
 	if repeated.ID != pending.ID || repeated.PendingPath != pending.PendingPath {
 		t.Fatalf("queue operation was not idempotent: %#v %#v", pending, repeated)
 	}
+	items, err := store.QuarantineItems()
+	if err != nil || len(items) != 1 {
+		t.Fatalf("queued quarantine item disappeared: %#v %v", items, err)
+	}
+	if items[0].PendingID != pending.ID || items[0].DetectionStatus != "pending" {
+		t.Fatalf("quarantine item did not expose detection progress: %#v", items[0])
+	}
+	if err := store.MarkPendingSubmitted(pending, "family-1", "version-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdatePendingStatus("family-1", "version-1", "REJECTED"); err != nil {
+		t.Fatal(err)
+	}
+	items, err = store.QuarantineItems()
+	if err != nil || len(items) != 1 || items[0].DetectionStatus != "REJECTED" || items[0].SkillID != "family-1" || items[0].VersionID != "version-1" {
+		t.Fatalf("terminal detection result was not exposed in quarantine: %#v %v", items, err)
+	}
+}
+
+func TestDiscardPendingRemovesLinkedQuarantineButKeepsInstalledSkill(t *testing.T) {
+	home := t.TempDir()
+	source := filepath.Join(home, ".codex", "skills", "changed")
+	writeSkill(t, source, "untrusted")
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	quarantine, err := QuarantineSkill(home, store, "codex", "changed", source, "signature_mismatch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := QueueQuarantineForDetection(home, store, quarantine.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A trusted version may have been installed at the original path while a
+	// stale disabled record remains visible. Discard must never delete it.
+	writeSkill(t, source, "trusted")
+	if _, err := store.DiscardPending(pending.ID); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(source, "SKILL.md"))
+	if err != nil || string(content) != "---\nname: trusted\ndescription: test\n---\n" {
+		t.Fatalf("installed Skill was changed: %q %v", content, err)
+	}
+	if _, err := os.Stat(pending.PendingPath); !os.IsNotExist(err) {
+		t.Fatalf("pending copy still exists: %v", err)
+	}
+	if _, err := os.Stat(quarantine.QuarantinePath); !os.IsNotExist(err) {
+		t.Fatalf("linked quarantine copy still exists: %v", err)
+	}
+	if items, err := store.PendingItems(); err != nil || len(items) != 0 {
+		t.Fatalf("pending record still exists: %#v %v", items, err)
+	}
+	if items, err := store.QuarantineItems(); err != nil || len(items) != 0 {
+		t.Fatalf("quarantine record still exists: %#v %v", items, err)
+	}
+}
+
+func TestDiscardPendingOnlyRemovesSelectedAgentCopy(t *testing.T) {
+	home := t.TempDir()
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	items := []PendingItem{
+		{ID: "codex-copy", AgentType: "codex", SkillName: "demo", OriginalPath: filepath.Join(home, ".codex", "skills", "demo"), PendingPath: filepath.Join(home, "pending", "codex")},
+		{ID: "claude-copy", AgentType: "claude-code", SkillName: "demo", OriginalPath: filepath.Join(home, ".claude", "skills", "demo"), PendingPath: filepath.Join(home, "pending", "claude")},
+	}
+	for _, item := range items {
+		writeSkill(t, item.PendingPath, item.SkillName)
+		if err := store.SavePending(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.DiscardPending(items[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	remaining, err := store.PendingItems()
+	if err != nil || len(remaining) != 1 || remaining[0].ID != items[1].ID {
+		t.Fatalf("discard affected another Agent copy: %#v %v", remaining, err)
+	}
+	if _, err := os.Stat(items[1].PendingPath); err != nil {
+		t.Fatalf("another Agent copy was deleted: %v", err)
+	}
 }
 
 func TestQueuedEventsPersistUntilDeleted(t *testing.T) {

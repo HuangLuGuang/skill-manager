@@ -92,7 +92,7 @@ func SubmitPending(ctx context.Context, home, server, token string, store *Store
 }
 
 func RefreshPending(ctx context.Context, server, token string, store *Store) ([]PendingItem, error) {
-	return refreshPending(ctx, server, token, store, false)
+	return refreshPending(ctx, server, token, store, false, nil)
 }
 
 // RefreshPendingIncludingTerminal rechecks versions that previously reached a
@@ -100,10 +100,28 @@ func RefreshPending(ctx context.Context, server, token string, store *Store) ([]
 // administrator can approve it afterwards, so a user-initiated refresh must
 // not treat REJECTED or CANCELLED as permanently final.
 func RefreshPendingIncludingTerminal(ctx context.Context, server, token string, store *Store) ([]PendingItem, error) {
-	return refreshPending(ctx, server, token, store, true)
+	return refreshPending(ctx, server, token, store, true, nil)
 }
 
-func refreshPending(ctx context.Context, server, token string, store *Store, includeTerminal bool) ([]PendingItem, error) {
+// refreshPendingForReconciliation also rechecks terminal results that still
+// protect an active quarantine item. An administrator can approve a previously
+// rejected immutable version, and that approval must unblock automatic install
+// without polling every historical terminal pending record forever.
+func refreshPendingForReconciliation(ctx context.Context, server, token string, store *Store) ([]PendingItem, error) {
+	quarantined, err := store.QuarantineItems()
+	if err != nil {
+		return nil, err
+	}
+	activePendingIDs := make(map[string]struct{}, len(quarantined))
+	for _, item := range quarantined {
+		if item.PendingID != "" {
+			activePendingIDs[item.PendingID] = struct{}{}
+		}
+	}
+	return refreshPending(ctx, server, token, store, false, activePendingIDs)
+}
+
+func refreshPending(ctx context.Context, server, token string, store *Store, includeTerminal bool, activePendingIDs map[string]struct{}) ([]PendingItem, error) {
 	items, err := store.PendingItems()
 	if err != nil {
 		return nil, err
@@ -115,7 +133,8 @@ func refreshPending(ctx context.Context, server, token string, store *Store, inc
 	api := scannerclient.New(server, token, 30*time.Second)
 	statuses := map[string]string{}
 	for index := range items {
-		if items[index].SkillID == "" || (!includeTerminal && pendingStatusTerminal(items[index].Status)) {
+		_, activeQuarantine := activePendingIDs[items[index].ID]
+		if items[index].SkillID == "" || (!includeTerminal && pendingStatusTerminal(items[index].Status) && !activeQuarantine) {
 			continue
 		}
 		statusID := items[index].VersionID
@@ -140,7 +159,7 @@ func refreshPending(ctx context.Context, server, token string, store *Store, inc
 }
 
 func ReconcileApprovedPending(ctx context.Context, home string, api API, store *Store, inventory Inventory, policy Policy) (bool, error) {
-	items, err := RefreshPending(ctx, api.server, api.token, store)
+	items, err := refreshPendingForReconciliation(ctx, api.server, api.token, store)
 	if err != nil {
 		return false, err
 	}
@@ -179,9 +198,6 @@ func ReconcileApprovedPending(ctx context.Context, home string, api API, store *
 				return changed, notificationErr
 			}
 			continue
-		}
-		if err := store.RemovePending(item.ID); err != nil {
-			return changed, err
 		}
 		if err := store.RecordNotification(LocalNotification{
 			Severity:  "info",

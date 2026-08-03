@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 from agent_manager.api.router import get_manager
 from agent_manager.core.models import SkillStatus
+from agent_manager.core.signer import compute_content_digest
 from backend import auth, models, schemas
 from backend.config import settings
 from backend.client_signing import compute_content_signature, private_key
@@ -80,7 +81,13 @@ def _client(tmp_path, manager=None):
 
 
 def test_compare_reuses_platform_skill_signature(monkeypatch):
-    entry = type("Entry", (), {"skill_id": "skill-1", "name": "shared", "skill_path": "/skills/shared"})()
+    entry = type("Entry", (), {
+        "skill_id": "skill-1",
+        "version_no": 1,
+        "name": "shared",
+        "skill_path": "/skills/shared",
+        "status": SkillStatus.APPROVED,
+    })()
     calls = 0
 
     def signature(_path):
@@ -97,6 +104,44 @@ def test_compare_reuses_platform_skill_signature(monkeypatch):
     assert clients._matching_skill_entry(manager, local, signature_cache=cache, registry_entries=entries) is entry
     assert calls == 1
     assert manager.list_calls == 1
+
+
+def test_compare_prefers_reported_approved_version_when_signatures_collide(monkeypatch):
+    rejected = type("Entry", (), {
+        "skill_id": "version-1",
+        "version_no": 1,
+        "name": "shared",
+        "skill_path": "/skills/rejected",
+        "status": SkillStatus.REJECTED,
+    })()
+    approved = type("Entry", (), {
+        "skill_id": "version-2",
+        "version_no": 2,
+        "name": "shared",
+        "skill_path": "/skills/approved",
+        "status": SkillStatus.APPROVED,
+    })()
+    monkeypatch.setattr(clients, "compute_content_signature", lambda _path: "same-signature")
+    manager = _Manager({"rejected": rejected, "approved": approved})
+    entries = manager.list_skills()
+
+    exact = clients._matching_skill_entry(
+        manager,
+        schemas.ClientSkillCompareItem(
+            name="shared",
+            signature="same-signature",
+            version_id="version-2",
+        ),
+        registry_entries=entries,
+    )
+    legacy = clients._matching_skill_entry(
+        manager,
+        schemas.ClientSkillCompareItem(name="shared", signature="same-signature"),
+        registry_entries=entries,
+    )
+
+    assert exact is approved
+    assert legacy is approved
 
 
 def test_generated_registry_name_uses_skill_metadata(tmp_path):
@@ -589,6 +634,23 @@ def test_client_content_signature_cache_invalidates_after_file_change(tmp_path):
     assert compute_content_signature(root) != first
 
 
+def test_client_content_signature_normalizes_legacy_zip_mojibake_paths(tmp_path):
+    normal = tmp_path / "normal"
+    mojibake = tmp_path / "mojibake"
+    (normal / "references").mkdir(parents=True)
+    (mojibake / "references").mkdir(parents=True)
+    (normal / "SKILL.md").write_text("---\nname: demo\n---\n", encoding="utf-8")
+    (mojibake / "SKILL.md").write_text("---\nname: demo\n---\n", encoding="utf-8")
+    (normal / "references" / "常用查询模板.md").write_text("select 1", encoding="utf-8")
+    mojibake_name = "σ╕╕τö¿µƒÑΦ»óµ¿íµ¥┐.md"
+    (mojibake / "references" / mojibake_name).write_text("select 1", encoding="utf-8")
+
+    assert compute_content_signature(normal) == compute_content_signature(mojibake)
+    assert compute_content_signature(mojibake) == compute_content_digest(mojibake)
+    manifest = clients.build_manifest("skill-1", "demo", mojibake, None)
+    assert f"references/{mojibake_name}" in {item["path"] for item in manifest["files"]}
+
+
 def test_compare_same_name_skills_uses_authorized_signature(tmp_path):
     first_root = tmp_path / "first"
     second_root = tmp_path / "second"
@@ -604,9 +666,15 @@ def test_compare_same_name_skills_uses_authorized_signature(tmp_path):
     second = type(
         "Entry",
         (),
-        {"skill_id": "skill-2", "name": "same", "status": SkillStatus.APPROVED, "skill_path": str(second_root)},
+        {
+            "skill_id": "skill-2",
+            "family_id": "family-2",
+            "name": "same",
+            "status": SkillStatus.APPROVED,
+            "skill_path": str(second_root),
+        },
     )()
-    client = _client(tmp_path, _Manager({"same": first, "skill-1": first, "skill-2": second}))
+    client = _client(tmp_path, _Manager({"same": first, "skill-1": first, "skill-2": second, "family-2": second}))
     token = client.post(
         "/api/v1/access/tokens",
         json={"name": "客户端接入", "token_type": "client"},
@@ -632,7 +700,7 @@ def test_compare_same_name_skills_uses_authorized_signature(tmp_path):
             name="Codex Agent",
             channel="Codex",
             status="active",
-            skill_names_json='["skill-2"]',
+            skill_names_json='["family-2"]',
             prompt_names_json="[]",
         )
     )
@@ -677,7 +745,8 @@ def test_compare_same_name_skills_uses_authorized_signature(tmp_path):
     assert items[0]["allowed"] is False
     assert items[0]["reason"] == "signature_mismatch"
     assert items[1]["local_path"] == "/skills/second"
-    assert items[1]["skill_id"] == "skill-2"
+    assert items[1]["skill_id"] == "family-2"
+    assert items[1]["version_id"] == "skill-2"
     assert items[1]["allowed"] is True
 
 
@@ -827,6 +896,17 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
         "submitted_by": "alice",
         "submitted_at": "2026-07-30T03:00:00",
     }]
+    exact_available = client.get(
+        "/api/v1/clients/host-001/skills/available",
+        params={
+            "agent_type": "codex",
+            "managed_agent_id": "codex-agent",
+            "skill_id": "skill-1",
+        },
+        headers=headers,
+    )
+    assert exact_available.status_code == 200
+    assert exact_available.json() == available.json()
     preview = client.get(
         "/api/v1/clients/host-001/skills/skill-1/preview",
         params={"managed_agent_id": "codex-agent"},
@@ -923,6 +1003,18 @@ def test_client_cannot_download_skill_for_unbound_agent(tmp_path, monkeypatch):
     )
     assert response.status_code == 403
     assert response.json()["detail"] == "客户端未绑定该智能体"
+
+    exact_available = client.get(
+        "/api/v1/clients/host-001/skills/available",
+        params={
+            "agent_type": "codex",
+            "managed_agent_id": "other-agent",
+            "skill_id": "skill-1",
+        },
+        headers=headers,
+    )
+    assert exact_available.status_code == 403
+    assert exact_available.json()["detail"] == "客户端未绑定该智能体"
 
 
 def test_registry_mode_does_not_require_managed_agent_binding(tmp_path, monkeypatch):
@@ -1083,6 +1175,71 @@ def test_registry_available_skills_use_display_names_and_latest_submission_order
         "2026-07-30T03:00:00",
         "2026-07-01T03:00:00",
     ]
+
+
+def test_registry_available_skills_exact_query_bypasses_catalog_page(tmp_path):
+    skill_root = tmp_path / "older-skill"
+    skill_root.mkdir()
+    (skill_root / "SKILL.md").write_text("# Older Skill\n", encoding="utf-8")
+    entry = type(
+        "Entry",
+        (),
+        {
+            "skill_id": "version-old",
+            "family_id": "family-old",
+            "version_no": 3,
+            "source_version": "3.0.0",
+            "name": "older-skill",
+            "description": "",
+            "status": SkillStatus.APPROVED,
+            "skill_path": str(skill_root),
+            "submitted_at": "2026-06-01T03:00:00",
+            "source": type("Source", (), {"author": "admin"})(),
+        },
+    )()
+
+    class ExactManager(_Manager):
+        def list_skill_summaries(self, **_kwargs):
+            raise AssertionError("exact lookup must not read the paginated catalog")
+
+    manager = ExactManager({entry.skill_id: entry, entry.family_id: entry})
+    client = _client(tmp_path, manager)
+    token = client.post(
+        "/api/v1/access/tokens",
+        json={"name": "客户端接入", "token_type": "client"},
+    ).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    client.post(
+        "/api/v1/clients/register",
+        headers=headers,
+        json={
+            "client_id": "registry-host",
+            "name": "Registry Host",
+            "hostname": "registry-host",
+            "os": "darwin",
+            "arch": "arm64",
+            "client_version": "0.1.0",
+            "agents": [{"agent_type": "codex", "skill_management_supported": True}],
+        },
+    )
+
+    response = client.get(
+        "/api/v1/clients/registry-host/skills/available",
+        params={"agent_type": "codex", "skill_id": "family-old"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == [{
+        "skill_id": "family-old",
+        "version_id": "version-old",
+        "version_no": 3,
+        "source_version": "3.0.0",
+        "name": "older-skill",
+        "status": "APPROVED",
+        "submitted_by": "admin",
+        "submitted_at": "2026-06-01T03:00:00",
+    }]
 
 
 def test_register_auto_matches_only_unique_agent_type(tmp_path):

@@ -180,6 +180,8 @@ sequenceDiagram
 - `GET /api/v1/skills/{skill_id}/download?version=...` 下载指定版本。
 - 客户端接口默认解析到最新可信版本，也可以显式传 `version_id` 下载或恢复历史可信版本。
 
+查询接口中的 `skill_id` 表示 Skill 家族，`version_id` 表示一个不可变内容版本。审批、拒绝、重新检测、部署和退役等生命周期写操作必须使用 `version_id`；平台不会把家族 ID 自动解析为最新版，避免并发产生新版本时误操作其他内容。删除整个 Skill 家族时才使用家族 `skill_id`。
+
 外部 Agent 做 name-only 校验时解析最新可信版本；如果本地内容属于较旧的可信版本，应同时传版本 ID 或内容签名，以免把“最新版本”误当成“本机实际版本”。多环境发布地址仍需由外部分发系统管理。
 
 ## Mode 3: LLM Privacy Proxy

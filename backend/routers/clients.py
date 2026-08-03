@@ -158,6 +158,26 @@ def _manager_skills_by_names(manager, names: set[str]):
     ]
 
 
+def _available_skill_item(entry) -> dict:
+    display_name, _description = _skill_display_metadata(
+        entry.name,
+        getattr(entry, "description", "") or "",
+        Path(entry.skill_path),
+    )
+    item = {
+        "skill_id": getattr(entry, "family_id", None) or entry.skill_id,
+        "version_id": entry.skill_id,
+        "version_no": getattr(entry, "version_no", 1),
+        "source_version": getattr(entry, "source_version", None),
+        "name": display_name,
+        "status": entry.status.value,
+        "submitted_by": getattr(getattr(entry, "source", None), "author", None),
+    }
+    if getattr(entry, "submitted_at", None):
+        item["submitted_at"] = entry.submitted_at
+    return item
+
+
 def _authorized_client_skill(
     db: Session,
     manager: AgentManager,
@@ -271,15 +291,50 @@ def _matching_skill_entry(
         entry
         for entry in (registry_entries if registry_entries is not None else manager.list_skills())
         if entry.name == local_skill.name
-        and (allowed_refs is None or entry.skill_id in allowed_refs or entry.name in allowed_refs)
+        and (
+            allowed_refs is None
+            or entry.skill_id in allowed_refs
+            or (getattr(entry, "family_id", None) or "") in allowed_refs
+            or entry.name in allowed_refs
+        )
     ]
-    fallback = candidates[0] if candidates else manager.get_skill(local_skill.name)
+    if local_skill.version_id:
+        exact_version = next(
+            (entry for entry in candidates if entry.skill_id == local_skill.version_id),
+            None,
+        )
+        if exact_version is not None:
+            return exact_version
+
+    matching_content = []
     for candidate in candidates:
         if not candidate.skill_path or not local_skill.signature:
             continue
         if _cached_skill_signature(candidate.skill_path, signature_cache) == local_skill.signature:
-            return candidate
-    return fallback
+            matching_content.append(candidate)
+
+    def newest_version(entries):
+        return max(entries, key=lambda entry: int(getattr(entry, "version_no", 0) or 0))
+
+    if matching_content:
+        trusted_matches = [
+            entry
+            for entry in matching_content
+            if entry.status in (SkillStatus.APPROVED, SkillStatus.DEPLOYED)
+        ]
+        # Multiple immutable versions may have the same governed content when
+        # they differ only by ignored metadata such as .DS_Store. In that case
+        # the matching approved version is the valid trust anchor.
+        return newest_version(trusted_matches or matching_content)
+
+    trusted_candidates = [
+        entry
+        for entry in candidates
+        if entry.status in (SkillStatus.APPROVED, SkillStatus.DEPLOYED)
+    ]
+    if trusted_candidates:
+        return newest_version(trusted_candidates)
+    return candidates[0] if candidates else manager.get_skill(local_skill.name)
 
 
 def _cached_skill_signature(skill_path: str, cache: dict[str, str | None] | None = None) -> str | None:
@@ -1178,13 +1233,14 @@ def compare_inventory(
                 signature_cache,
                 registry_entries,
             )
+            family_id = (getattr(entry, "family_id", None) or entry.skill_id) if entry else None
             expected_signature = _cached_skill_signature(entry.skill_path, signature_cache) if entry and entry.skill_path else None
             authorized = bool(
                 not strict
                 or (
                     managed_agent
                     and allowed_refs is not None
-                    and (entry and (entry.name in allowed_refs or entry.skill_id in allowed_refs))
+                    and (entry and (entry.name in allowed_refs or entry.skill_id in allowed_refs or family_id in allowed_refs))
                 )
             )
             allowed = bool(local_agent and entry and authorized and entry.status == SkillStatus.APPROVED and expected_signature and local_skill.signature == expected_signature)
@@ -1194,7 +1250,7 @@ def compare_inventory(
                 reason = "managed_agent_not_found"
             elif not entry:
                 reason = "skill_not_found"
-            elif strict and allowed_refs is not None and entry.name not in allowed_refs and entry.skill_id not in allowed_refs:
+            elif strict and allowed_refs is not None and entry.name not in allowed_refs and entry.skill_id not in allowed_refs and family_id not in allowed_refs:
                 reason = "agent_not_authorized"
             elif entry.status != SkillStatus.APPROVED:
                 reason = "skill_not_approved"
@@ -1209,7 +1265,8 @@ def compare_inventory(
                     "name": local_skill.name,
                     "local_path": local_skill.path,
                     "local_signature": local_skill.signature,
-                    "skill_id": entry.skill_id if entry else None,
+                    "skill_id": family_id,
+                    "version_id": entry.skill_id if entry else None,
                     "status": entry.status.value if entry else None,
                     "expected_signature": expected_signature,
                     "allowed": allowed,
@@ -1227,6 +1284,7 @@ def list_available_client_skills(
     request: Request,
     agent_type: str = Query(...),
     managed_agent_id: str | None = Query(None),
+    skill_id: str | None = Query(None),
     q: str | None = Query(None),
     authorization: str | None = Header(None),
     db: Session = Depends(get_db),
@@ -1247,6 +1305,19 @@ def list_available_client_skills(
     if not binding:
         raise HTTPException(status_code=403, detail="客户端未发现支持 Skill 管理的目标 Agent")
 
+    if skill_id:
+        entry = _authorized_client_skill(
+            db,
+            manager,
+            client,
+            token,
+            skill_id,
+            None,
+            agent_type,
+            managed_agent_id,
+        )
+        return {"items": [_available_skill_item(entry)]}
+
     if client.governance_mode == "strict":
         agent = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == managed_agent_id).first()
         if not agent or binding.managed_agent_id != managed_agent_id or not _token_can_use_agent(db, token, agent):
@@ -1256,19 +1327,7 @@ def list_available_client_skills(
         for ref in _load(agent.skill_names_json, []):
             entry = _manager_trusted_skill(manager, str(ref))
             if entry and entry.skill_id not in seen and entry.status == SkillStatus.APPROVED and entry.skill_path:
-                display_name, _description = _skill_display_metadata(entry.name, entry.description, Path(entry.skill_path))
-                item = {
-                    "skill_id": getattr(entry, "family_id", None) or entry.skill_id,
-                    "version_id": entry.skill_id,
-                    "version_no": getattr(entry, "version_no", 1),
-                    "source_version": getattr(entry, "source_version", None),
-                    "name": display_name,
-                    "status": entry.status.value,
-                    "submitted_by": getattr(getattr(entry, "source", None), "author", None),
-                }
-                if getattr(entry, "submitted_at", None):
-                    item["submitted_at"] = entry.submitted_at
-                entries.append(item)
+                entries.append(_available_skill_item(entry))
                 seen.add(entry.skill_id)
     else:
         entries = manager.list_skill_summaries(

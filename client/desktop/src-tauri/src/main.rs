@@ -103,6 +103,7 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "pending",
         "refresh-pending",
         "submit-pending",
+        "discard-pending",
         "queue-quarantine",
         "available-skills",
         "skill-preview",

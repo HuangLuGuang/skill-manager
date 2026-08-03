@@ -7,10 +7,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"skill-manager/scanner/internal/managedclient"
@@ -25,7 +27,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|takeover|pending|refresh-pending|submit-pending|available-skills|skill-preview|skill-versions|install-skill|quarantine|queue-quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|pause-governance|resume-governance|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
+		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|takeover|pending|refresh-pending|submit-pending|discard-pending|available-skills|skill-preview|skill-versions|install-skill|quarantine|queue-quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|pause-governance|resume-governance|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
@@ -34,6 +36,7 @@ func run(args []string) error {
 	name := fs.String("name", "", "client display name")
 	skillsPath := fs.String("skills-path", "", "custom Agent Skill directory")
 	confirm := fs.Bool("confirm", false, "apply takeover after showing the plan")
+	forceServiceRestart := fs.Bool("force-restart", false, "restart an installed background service even when its binary is current")
 	backup := fs.String("backup", "", "backup name to restore")
 	itemID := fs.String("id", "", "pending or quarantine item ID")
 	agentType := fs.String("agent-type", "", "local agent type")
@@ -153,7 +156,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		result, err := managedclient.ReconcileService(*home, executable)
+		result, err := managedclient.ReconcileService(*home, executable, *forceServiceRestart)
 		if err != nil {
 			return err
 		}
@@ -183,7 +186,7 @@ func run(args []string) error {
 		fmt.Println("backup restored:", *backup)
 		return nil
 	}
-	if args[0] == "pending" || args[0] == "refresh-pending" || args[0] == "submit-pending" || args[0] == "quarantine" || args[0] == "queue-quarantine" {
+	if args[0] == "pending" || args[0] == "refresh-pending" || args[0] == "submit-pending" || args[0] == "discard-pending" || args[0] == "quarantine" || args[0] == "queue-quarantine" {
 		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
 		if err != nil {
 			return err
@@ -219,6 +222,16 @@ func run(args []string) error {
 				return err
 			}
 			return json.NewEncoder(os.Stdout).Encode(result)
+		}
+		if args[0] == "discard-pending" {
+			if strings.TrimSpace(*itemID) == "" || !*confirm {
+				return fmt.Errorf("discard-pending requires --id and --confirm")
+			}
+			item, err := store.DiscardPending(*itemID)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(os.Stdout).Encode(item)
 		}
 		if args[0] == "quarantine" {
 			items, err := store.QuarantineItems()
@@ -330,7 +343,7 @@ func run(args []string) error {
 		defer cancel()
 		api := managedclient.NewAPI(*server, *token, 30*time.Second)
 		if args[0] == "available-skills" {
-			items, err := api.AvailableSkills(ctx, clientID, *agentType, *managedAgentID, strings.TrimSpace(*query))
+			items, err := api.AvailableSkills(ctx, clientID, *agentType, *managedAgentID, strings.TrimSpace(*query), strings.TrimSpace(*skillID))
 			if err != nil {
 				return err
 			}
@@ -521,8 +534,16 @@ func run(args []string) error {
 			}
 		}
 		forceFullScan := args[0] == "run-once"
+		runContext := context.Background()
+		stopSignals := func() {}
+		if args[0] == "run" {
+			var stop context.CancelFunc
+			runContext, stop = signal.NotifyContext(runContext, os.Interrupt, syscall.SIGTERM)
+			stopSignals = stop
+		}
+		defer stopSignals()
 		for {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			ctx, cancel := context.WithTimeout(runContext, 30*time.Second)
 			var err error
 			if forceFullScan {
 				err = managedclient.RunFullScan(ctx, *home, api, store)
@@ -542,16 +563,22 @@ func run(args []string) error {
 				}
 			}
 			managedclient.DeliverPendingNotifications(store)
+			if runContext.Err() != nil {
+				return nil
+			}
 			if args[0] == "run-once" {
 				return nil
 			}
-			forceFullScan = managedclient.WaitForRunOrChange(*home, *interval, func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			forceFullScan = managedclient.WaitForRunOrChangeContext(runContext, *home, *interval, func() {
+				ctx, cancel := context.WithTimeout(runContext, 20*time.Second)
 				defer cancel()
 				if err := managedclient.PollTasks(ctx, *home, api, store); err != nil {
 					fmt.Fprintln(os.Stderr, "task poll error:", err)
 				}
 			}, watcher.Changes())
+			if runContext.Err() != nil {
+				return nil
+			}
 		}
 	default:
 		return fmt.Errorf("unknown command %q", args[0])

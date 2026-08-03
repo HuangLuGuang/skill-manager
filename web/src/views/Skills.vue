@@ -139,6 +139,7 @@ import { DownOutlined } from '@ant-design/icons-vue'
 import { deleteSkill, listSkillsPaged, rejectSkill, rescanSkill } from '../api'
 import { useLocaleText } from '../i18n/useLocaleText'
 import { formatDateTime } from '../utils/format'
+import { lifecycleVersionId } from '../utils/skillVersions'
 
 const { isEnglish, text } = useLocaleText()
 const keyword = ref('')
@@ -267,7 +268,7 @@ const resetFilters = () => {
 const handleRescan = async (record) => {
   actionKey.value = `rescan:${record.skill_id}`
   try {
-    await rescanSkill(record.skill_id)
+    await rescanSkill(lifecycleVersionId(record))
     message.success(phrase('legacy.1mc7sgd'))
     fetchSkills()
   } catch (error) {
@@ -294,7 +295,7 @@ const confirmCancel = (record) => {
 const handleCancel = async (record) => {
   actionKey.value = `cancel:${record.skill_id}`
   try {
-    await rejectSkill(record.skill_id, {
+    await rejectSkill(lifecycleVersionId(record), {
       reviewer: currentUser(),
       reason: cancelledReason,
     })

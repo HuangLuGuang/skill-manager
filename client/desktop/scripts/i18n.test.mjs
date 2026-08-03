@@ -45,6 +45,8 @@ test('translates core desktop navigation and product name', () => {
   assert.equal(t('Skill 治理'), 'Skill Governance')
   assert.equal(t('运行状态'), 'Runtime Status')
   assert.equal(t('执行记录'), 'Activity Records')
+  assert.equal(t('ui.75sttk'), 'Quarantined')
+  assert.equal(t('ui.8lsmup'), 'The submitted version was not approved and remains disabled. If the platform has an approved version, select it for installation.')
 })
 
 test('keeps code-like values unchanged', () => {
@@ -147,10 +149,11 @@ test('keeps governance columns aligned across supported window widths', () => {
   const styles = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
   assert.match(styles, /\.agent-summary\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\) 250px 104px/)
   assert.match(styles, /@media \(min-width: 1000px\) and \(max-width: 1100px\)/)
-  assert.match(styles, /\.pending-skill-row\s*\{[^}]*grid-template-columns: 24px minmax\(180px, 1fr\)/)
+  assert.match(styles, /\.pending-skill-row\s*\{[^}]*grid-template-columns: 24px minmax\(190px, 1fr\)[^}]*minmax\(210px, auto\)/)
   assert.match(styles, /html\[lang="en-US"\] \.builtin-agent-settings/)
   assert.match(styles, /@media \(max-width: 1100px\)/)
   assert.match(styles, /\.pending-skill-row[\s\S]*grid-template-columns: 24px minmax\(0, 1fr\)/)
+  assert.match(styles, /\.pending-skill-row > :nth-child\(4\)[^}]*grid-column: 2 \/ 4/)
   assert.match(styles, /\.metric-grid\s*\{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/)
   assert.match(styles, /\.status-metrics\s*\{\s*grid-template-columns: repeat\(6, minmax\(0, 1fr\)\)/)
   assert.match(styles, /\.status-metrics > :nth-child\(n \+ 3\) \{ grid-column: span 2; \}/)
@@ -190,6 +193,56 @@ test('rediscovers local Agents before refreshing governance after an install', (
     appSource,
     /const refreshAfterInstall = async \(\) => \{[\s\S]*await discover\(\)[\s\S]*await refreshConnection\(\)[\s\S]*await preview\(false\)/,
   )
+})
+
+test('falls back to exact trusted versions when an older sidecar ignores skill-id', () => {
+  assert.match(
+    appSource,
+    /const exactAvailableSkillForAgent = async[\s\S]*availableSkillsForAgent\(agent, '', skill\.skill_id\)[\s\S]*skillVersionsForAgent\(agent, skill\.skill_id\)/,
+  )
+  assert.match(
+    appSource,
+    /Promise\.all\(agents\.map\(agent => exactAvailableSkillForAgent\(agent, skill\)\)\)/,
+  )
+})
+
+test('reconciles the governance service without restarting an unchanged binary', () => {
+  assert.match(
+    appSource,
+    /const initializeClient = async[\s\S]*run\('reconcile-service'\)/,
+  )
+  assert.doesNotMatch(appSource, /initializeClient[\s\S]*reconcile-service', \['--force-restart'\]/)
+})
+
+test('shows quarantine detection progress without offering duplicate submission', () => {
+  assert.match(
+    appSource,
+    /const loadQuarantine = async[\s\S]*item\.detection_status[\s\S]*pendingStatusLabel\(detection\.status\)[\s\S]*!item\.skill_id/,
+  )
+  const submitHandler = appSource.match(
+    /document\.querySelectorAll\('\[data-submit-quarantine\]'\)[\s\S]*?document\.querySelectorAll\('\[data-install-safe-version\]'/,
+  )?.[0]
+  assert.ok(submitHandler)
+  assert.doesNotMatch(submitHandler, /showPanel\('takeover'\)/)
+  assert.match(submitHandler, /await submitPendingIDs\(\[pending\.id\], button\)[\s\S]*await refreshConnection\(\)[\s\S]*await loadQuarantine\(\)/)
+  assert.match(appSource, /if \(item\.skill_id\) return t\('ui\.10hw1zw'\)/)
+  assert.doesNotMatch(appSource, /平台正在检测\$\{item\.skill_id/)
+})
+
+test('refreshes the visible quarantine list after background status changes', () => {
+  assert.match(
+    appSource,
+    /const refreshChangedInventory = async[\s\S]*const quarantineChanged = local\.quarantined_skills !== connection\.local\?\.quarantined_skills[\s\S]*if \(refreshQuarantine\) await loadQuarantine\(\)/,
+  )
+})
+
+test('requires confirmation before discarding one local pending copy', () => {
+  assert.match(
+    appSource,
+    /data-discard-pending[\s\S]*discard-pending-dialog'\)\.showModal\(\)[\s\S]*confirm-discard-pending[\s\S]*run\('discard-pending', \['--id', item\.id, '--confirm'\]\)[\s\S]*await loadPending\(\)[\s\S]*await loadQuarantine\(\)[\s\S]*await refreshConnection\(\)/,
+  )
+  assert.doesNotMatch(appSource, /确定永久删除这个本地停用副本吗/)
+  assert.match(indexHtml, /id="discard-pending-dialog"[\s\S]*平台检测版本和审计记录会保留/)
 })
 
 test('bundles localized macOS application names', () => {

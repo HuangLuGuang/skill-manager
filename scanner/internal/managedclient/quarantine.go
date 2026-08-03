@@ -6,21 +6,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"skill-manager/scanner/internal/localize"
 	"skill-manager/scanner/internal/manifest"
 )
 
 type QuarantineItem struct {
-	ID             string `json:"id"`
-	AgentType      string `json:"agent_type"`
-	SkillName      string `json:"skill_name"`
-	OriginalPath   string `json:"original_path"`
-	QuarantinePath string `json:"quarantine_path"`
-	Reason         string `json:"reason"`
-	Status         string `json:"status"`
-	CreatedAt      string `json:"created_at"`
-	RestoredAt     string `json:"restored_at,omitempty"`
+	ID              string `json:"id"`
+	AgentType       string `json:"agent_type"`
+	SkillName       string `json:"skill_name"`
+	OriginalPath    string `json:"original_path"`
+	QuarantinePath  string `json:"quarantine_path"`
+	Reason          string `json:"reason"`
+	Status          string `json:"status"`
+	CreatedAt       string `json:"created_at"`
+	RestoredAt      string `json:"restored_at,omitempty"`
+	PendingID       string `json:"pending_id,omitempty"`
+	DetectionStatus string `json:"detection_status,omitempty"`
+	SkillID         string `json:"skill_id,omitempty"`
+	VersionID       string `json:"version_id,omitempty"`
 }
 
 func QuarantineSkill(home string, store *Store, agentType, skillName, source, reason string) (QuarantineItem, error) {
@@ -54,8 +60,20 @@ func QuarantineSkill(home string, store *Store, agentType, skillName, source, re
 
 func (store *Store) QuarantineItems() ([]QuarantineItem, error) {
 	rows, err := store.db.Query(
-		`SELECT id, agent_type, skill_name, original_path, quarantine_path, reason, status, created_at, COALESCE(restored_at, '')
-		 FROM client_quarantine WHERE status = 'quarantined' ORDER BY created_at DESC`,
+		`SELECT q.id, q.agent_type, q.skill_name, q.original_path, q.quarantine_path,
+		        q.reason, q.status, q.created_at, COALESCE(q.restored_at, ''),
+		        COALESCE(p.id, ''), COALESCE(p.status, ''),
+		        COALESCE(p.skill_id, ''), COALESCE(p.version_id, '')
+		 FROM client_quarantine q
+		 LEFT JOIN client_pending p ON p.id = (
+		   SELECT p2.id FROM client_pending p2
+		   WHERE p2.agent_type = q.agent_type
+		     AND p2.original_path = q.original_path
+		     AND p2.reason = 'quarantine_rescan'
+		     AND p2.pending_path LIKE '%-quarantine-' || q.id
+		   ORDER BY p2.created_at DESC LIMIT 1
+		 )
+		 WHERE q.status = 'quarantined' ORDER BY q.created_at DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -64,7 +82,12 @@ func (store *Store) QuarantineItems() ([]QuarantineItem, error) {
 	result := []QuarantineItem{}
 	for rows.Next() {
 		var item QuarantineItem
-		if err := rows.Scan(&item.ID, &item.AgentType, &item.SkillName, &item.OriginalPath, &item.QuarantinePath, &item.Reason, &item.Status, &item.CreatedAt, &item.RestoredAt); err != nil {
+		if err := rows.Scan(
+			&item.ID, &item.AgentType, &item.SkillName, &item.OriginalPath,
+			&item.QuarantinePath, &item.Reason, &item.Status, &item.CreatedAt,
+			&item.RestoredAt, &item.PendingID, &item.DetectionStatus,
+			&item.SkillID, &item.VersionID,
+		); err != nil {
 			return nil, err
 		}
 		result = append(result, item)
@@ -79,6 +102,71 @@ func (store *Store) ResolveQuarantine(agentType, skillName string) error {
 		time.Now().UTC().Format(time.RFC3339Nano), agentType, skillName,
 	)
 	return err
+}
+
+// DiscardPending permanently removes one disabled local copy. If the pending
+// item was created from an active quarantine item, that exact quarantine copy
+// is removed as well. The original Agent path is deliberately never touched:
+// it may already contain a subsequently installed trusted version.
+func (store *Store) DiscardPending(id string) (PendingItem, error) {
+	item, err := store.PendingItem(id)
+	if err != nil {
+		return PendingItem{}, err
+	}
+
+	var linkedQuarantine *QuarantineItem
+	quarantined, err := store.QuarantineItems()
+	if err != nil {
+		return PendingItem{}, err
+	}
+	for index := range quarantined {
+		if quarantined[index].PendingID == item.ID {
+			linkedQuarantine = &quarantined[index]
+			break
+		}
+	}
+
+	if strings.TrimSpace(item.PendingPath) == "" {
+		return PendingItem{}, fmt.Errorf("pending skill has no local path: %s", id)
+	}
+	if err := os.RemoveAll(item.PendingPath); err != nil {
+		return PendingItem{}, fmt.Errorf(
+			localize.Text("删除待处理副本失败: %w", "failed to remove pending copy: %w"),
+			err,
+		)
+	}
+	if linkedQuarantine != nil {
+		if strings.TrimSpace(linkedQuarantine.QuarantinePath) == "" {
+			return PendingItem{}, fmt.Errorf("quarantine item has no local path: %s", linkedQuarantine.ID)
+		}
+		if err := os.RemoveAll(linkedQuarantine.QuarantinePath); err != nil {
+			return PendingItem{}, fmt.Errorf(
+				localize.Text("删除关联隔离副本失败: %w", "failed to remove linked quarantine copy: %w"),
+				err,
+			)
+		}
+		// The parent is dedicated to one quarantine event. Remove it only when
+		// empty so an unexpected sibling can never be deleted recursively.
+		_ = os.Remove(filepath.Dir(linkedQuarantine.QuarantinePath))
+	}
+
+	tx, err := store.db.Begin()
+	if err != nil {
+		return PendingItem{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM client_pending WHERE id = ?`, item.ID); err != nil {
+		return PendingItem{}, err
+	}
+	if linkedQuarantine != nil {
+		if _, err := tx.Exec(`DELETE FROM client_quarantine WHERE id = ? AND status = 'quarantined'`, linkedQuarantine.ID); err != nil {
+			return PendingItem{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return PendingItem{}, err
+	}
+	return item, nil
 }
 
 func QueueQuarantineForDetection(home string, store *Store, id string) (PendingItem, error) {

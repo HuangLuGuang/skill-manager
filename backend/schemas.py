@@ -535,6 +535,8 @@ class ClientTaskResult(BaseModel):
 
 
 class ClientSkillCompareItem(BaseModel):
+    skill_id: Optional[str] = None
+    version_id: Optional[str] = None
     name: str
     path: Optional[str] = None
     signature: Optional[str] = None
