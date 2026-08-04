@@ -11,7 +11,12 @@ RUN pip install --index-url "$PYPI_INDEX" uv
 ARG APT_PROXY
 ARG GIT_PROXY
 RUN if [ -n "$APT_PROXY" ]; then printf 'Acquire::http::Proxy "%s";\n' "$APT_PROXY" > /etc/apt/apt.conf.d/99build-proxy; fi \
-    && apt-get -o Acquire::Retries=5 update \
+    && for attempt in 1 2 3; do \
+      rm -rf /var/lib/apt/lists/*; \
+      if apt-get -o Acquire::Retries=5 -o APT::Update::Error-Mode=any update; then break; fi; \
+      if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+      sleep "$((attempt * 5))"; \
+    done \
     && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
       git make build-essential \
     && rm -f /etc/apt/apt.conf.d/99build-proxy \
