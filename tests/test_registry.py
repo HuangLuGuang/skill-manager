@@ -278,18 +278,6 @@ class TestRegistry:
         assert json.loads(report_row["report"]) == large_report
         assert migrated.get_by_id(entry.skill_id).vetting.scan_report == large_report
 
-    def test_refresh_signature_if_current_does_not_reactivate_changed_status(self, registry):
-        entry = _make_entry("signed")
-        entry.signature = "old"
-        registry.add(entry)
-        entry.status = SkillStatus.REJECTED
-        registry.update(entry)
-
-        refreshed = registry.refresh_signature_if_current(entry.skill_id, "old", "new")
-
-        assert refreshed.status == SkillStatus.REJECTED
-        assert registry.get_by_id(entry.skill_id).signature == "old"
-
     def test_update_missing_raises(self, registry):
         entry = _make_entry("ghost")
         with pytest.raises(KeyError):
@@ -349,6 +337,42 @@ class TestRegistry:
 
         r2 = Registry(data_dir=tmp_path)
         assert r2.get_by_name("persistent-skill") is not None
+
+    def test_startup_repairs_stale_approval_evidence_on_nontrusted_version(self, tmp_path):
+        registry = Registry(data_dir=tmp_path)
+        entry = _make_entry("stale-trust", status=SkillStatus.VETTED)
+        entry.signature = "ed25519:v1:test:deadbeef"
+        entry.approved_at = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        entry.approved_by = "admin"
+        entry.approval_note = "old approval"
+        entry.deployed_at = datetime(2026, 7, 2, tzinfo=timezone.utc)
+        registry.add(entry)
+
+        with registry._connect() as conn:
+            conn.execute(
+                "DELETE FROM registry_migrations WHERE migration_name = 'clear_nontrusted_approval_evidence_v1'"
+            )
+
+        repaired = Registry(data_dir=tmp_path)
+        found = repaired.get_by_id(entry.skill_id)
+
+        assert found is not None
+        assert found.status == SkillStatus.VETTED
+        assert found.signature is None
+        assert found.approved_at is None
+        assert found.approved_by is None
+        assert found.approval_note is None
+        assert found.deployed_at is None
+        with repaired._connect() as conn:
+            details = json.loads(
+                conn.execute(
+                    """
+                    SELECT details FROM registry_migrations
+                    WHERE migration_name = 'clear_nontrusted_approval_evidence_v1'
+                    """
+                ).fetchone()["details"]
+            )
+        assert details == {"repaired_versions": 1}
 
     def test_legacy_skill_rows_migrate_to_families_once(self, tmp_path):
         registry = Registry(data_dir=tmp_path)

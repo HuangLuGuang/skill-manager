@@ -369,6 +369,9 @@ func InstallApprovedSkillVersion(ctx context.Context, home string, inventory Inv
 	if err := store.ResolveQuarantine(agentType, manifest.Name); err != nil {
 		return err
 	}
+	if err := store.ResolvePendingForInstall(agentType, manifest.Name, link); err != nil {
+		return err
+	}
 	_ = reportEvent(ctx, api, store, inventory.ClientID, "skill_installed", agentType, manifest.Name, map[string]any{
 		"skill_id": skillID, "version_id": manifest.VersionID, "version_no": manifest.VersionNo,
 	})
@@ -399,6 +402,17 @@ func patrol(ctx context.Context, home string, inventory Inventory, policy Policy
 	installs, err := store.Installations()
 	if err != nil {
 		return err
+	}
+	installs, err = reconcileDuplicateInstallPaths(home, store, installs)
+	if err != nil {
+		return err
+	}
+	for _, install := range installs {
+		if installPathPresent(install) && verifyManagedInstall(home, install) {
+			if err := store.ResolvePendingForInstall(install.AgentType, install.SkillName, install.TargetPath); err != nil {
+				return err
+			}
+		}
 	}
 	knownPaths := map[string]bool{}
 	mappings := map[string]string{}
@@ -655,6 +669,52 @@ func verifyManagedInstall(home string, install Installation) bool {
 		}
 	}
 	return verifyInstalled(install)
+}
+
+func reconcileDuplicateInstallPaths(home string, store *Store, installs []Installation) ([]Installation, error) {
+	groups := map[string][]Installation{}
+	order := []string{}
+	for _, install := range installs {
+		key := install.AgentType + "\x00" + filepath.Clean(install.TargetPath)
+		if _, exists := groups[key]; !exists {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], install)
+	}
+	result := make([]Installation, 0, len(installs))
+	for _, key := range order {
+		group := groups[key]
+		if len(group) == 1 {
+			result = append(result, group[0])
+			continue
+		}
+		validIndex := -1
+		for index, install := range group {
+			if !installPathPresent(install) || !verifyManagedInstall(home, install) {
+				continue
+			}
+			if validIndex < 0 || (group[validIndex].Manifest.VersionID == "" && install.Manifest.VersionID != "") {
+				validIndex = index
+			}
+		}
+		if validIndex < 0 {
+			// Preserve all evidence when no registration verifies. The normal
+			// tamper path remains responsible for the policy decision.
+			result = append(result, group...)
+			continue
+		}
+		valid := group[validIndex]
+		for index, stale := range group {
+			if index == validIndex {
+				continue
+			}
+			if err := store.RemoveInstall(stale.AgentType, stale.SkillID); err != nil {
+				return nil, err
+			}
+		}
+		result = append(result, valid)
+	}
+	return result, nil
 }
 
 func handleSharedInstallMismatch(

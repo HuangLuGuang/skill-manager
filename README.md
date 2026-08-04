@@ -102,7 +102,7 @@ Developer / External Source
    [REVIEW]  ──── Human reviewer approves or rejects (suspicious)
         │
         ▼
-   [SIGN]    ──── HMAC-SHA256 over full content tree → stored in registry
+   [SIGN]    ──── Ed25519 over the full content-tree digest → stored in registry
         │
         ▼
    [DEPLOY]  ──── agent-manager deploy my-skill
@@ -152,11 +152,14 @@ pip install -e ".[scanner]"
 pip install -e ".[dev]"
 ```
 
-Set the signing key (required in production):
+Configure the server-only Ed25519 private-key path (required in production):
 
 ```bash
-export AGENT_MANAGER_SIGNING_KEY="$(openssl rand -hex 32)"
+export AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH="/var/lib/agent-manager/signing/skill-ed25519.pem"
 ```
+
+Agent clients never receive this private key; they submit a keyless content
+digest or verify signatures using `/api/v1/runtime/signing-public-key`.
 
 Override the default data directory (`~/.agent-manager/`):
 
@@ -263,10 +266,11 @@ Key endpoints:
 |--------|------|-------------|
 | `POST` | `/api/v1/skills/submit-zip` | Submit a skill ZIP for vetting |
 | `GET`  | `/api/v1/skills` | List registry entries |
-| `POST` | `/api/v1/skills/{id}/approve` | Approve a vetted skill |
-| `POST` | `/api/v1/skills/{id}/reject` | Reject a vetted skill |
-| `POST` | `/api/v1/skills/{id}/deploy` | Mark a skill as deployed |
-| `POST` | `/api/v1/skills/{id}/retire` | Retire a skill immediately |
+| `POST` | `/api/v1/skills/{version_id}/approve` | Approve one immutable vetted version |
+| `POST` | `/api/v1/skills/{version_id}/reject` | Reject one immutable version |
+| `POST` | `/api/v1/skills/{version_id}/rescan` | Rescan one immutable version |
+| `POST` | `/api/v1/skills/{version_id}/deploy` | Mark one approved version as deployed |
+| `POST` | `/api/v1/skills/{version_id}/retire` | Retire one immutable version immediately |
 | `POST` | `/api/v1/scanner/imports` | Token-auth scanner upload for third-party skills |
 | `GET`  | `/api/v1/scanner/imports/{id}` | Read own scanner submission result |
 | `GET`  | `/api/v1/scanner/skill-verifier/download` | Download the generic Agent Manager Skill Verifier ZIP |

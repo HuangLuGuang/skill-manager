@@ -376,6 +376,20 @@
         <div class="dialog-actions"><button id="cancel-clear-notifications" class="icon-button icon-close">取消</button><button id="confirm-clear-notifications" class="subtle-danger icon-button icon-remove" data-busy-text="正在清除...">确认清除</button></div>
       </div>
     </dialog>
+    <dialog id="discard-pending-dialog" class="message-dialog discard-pending-dialog">
+      <div class="message-dialog-body">
+        <span class="dialog-danger-label">本地永久删除</span>
+        <h3>删除本地副本</h3>
+        <p>该 Skill 将从停用待处理区永久删除；关联的隔离副本也会一并清理。</p>
+        <div class="discard-pending-summary">
+          <strong id="discard-pending-name"></strong>
+          <span id="discard-pending-agent"></span>
+          <code id="discard-pending-path"></code>
+        </div>
+        <p class="dialog-audit-note">平台检测版本和审计记录会保留，已经安装的可信版本不受影响。</p>
+        <div class="dialog-actions"><button id="cancel-discard-pending" class="icon-button icon-close">取消</button><button id="confirm-discard-pending" class="danger icon-button icon-remove" data-busy-text="正在删除...">确认删除</button></div>
+      </div>
+    </dialog>
     <dialog id="stop-service-dialog" class="message-dialog">
       <div class="message-dialog-body">
         <h3>停止后台服务</h3>

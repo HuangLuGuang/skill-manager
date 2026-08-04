@@ -361,9 +361,8 @@ def handle_pre_tool_use(event: dict) -> None:
 
     Policy:
     - If no skills are active → allow all tools (no skill context)
-    - If skills are active and ALL have empty allowed_tools → allow all tools
-    - If ANY active skill declares allowed_tools, compute the UNION of permissions
-      from all active skills and enforce it
+    - If any active Skill has empty allowed_tools → block tools (fail closed)
+    - Otherwise compute the UNION of declared permissions from active Skills
     """
     session_id = event.get("session_id", "")
     tool_name = event.get("tool_name", "")
@@ -375,7 +374,7 @@ def handle_pre_tool_use(event: dict) -> None:
 
     registry = _get_registry()
     all_allowed: set[str] = set(["Skill"])
-    any_has_declarations = False
+    missing_declarations: list[str] = []
 
     for skill_name in active:
         entry = registry.get_by_name(skill_name)
@@ -404,24 +403,27 @@ def handle_pre_tool_use(event: dict) -> None:
                 f"(status: {entry.status.value}). Possible retirement mid-session."
             )
 
-        if entry.allowed_tools:
-            any_has_declarations = True
+        if not entry.allowed_tools:
+            missing_declarations.append(skill_name)
+        else:
             all_allowed.update(entry.allowed_tools)
 
     _log(f"Allowed tools: {all_allowed}")
 
-    if not any_has_declarations:
-        # Emit tool_invoked for all active skills with no restrictions
-        for skill_name in active:
+    if missing_declarations:
+        for skill_name in missing_declarations:
             entry = registry.get_by_name(skill_name)
             if entry:
                 _emit_audit_event(
-                    "tool_invoked",
+                    "tool_blocked",
                     entry=entry,
                     session_id=session_id,
-                    details={"tool": tool_name, "allowed": True}
+                    details={"tool": tool_name, "reason": "Skill declares no allowed_tools"}
                 )
-        return  # All active skills have no restrictions
+        _block(
+            f"[agent-manager] Tool {tool_name!r} is blocked because active Skill(s) "
+            f"{', '.join(repr(name) for name in missing_declarations)} declare no allowed_tools."
+        )
 
     if not _tool_allowed(all_allowed, tool_name):
         # Emit tool_blocked for all active skills

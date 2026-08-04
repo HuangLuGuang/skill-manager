@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import hmac
 import json
 import mimetypes
 import os
@@ -22,8 +21,6 @@ from typing import Any
 
 DEFAULT_IGNORES = {".git", ".venv", "node_modules", "__pycache__", "dist", "build", ".DS_Store"}
 LOADABLE_STATUSES = {"APPROVED", "DEPLOYED"}
-SIGNING_KEY_ENV = "AGENT_MANAGER_SIGNING_KEY"
-_ENV_LOADED = False
 
 
 class VerifierError(RuntimeError):
@@ -57,18 +54,6 @@ def request_locale() -> str:
 
 def ui_text(zh: str, en: str) -> str:
     return en if request_locale() == "en-US" else zh
-
-
-def signing_key() -> str:
-    global _ENV_LOADED
-    if not _ENV_LOADED and not os.environ.get("ENV_LOADED"):
-        try:
-            from dotenv import load_dotenv
-            load_dotenv()
-        except ImportError:
-            pass
-        _ENV_LOADED = True
-    return os.environ.get(SIGNING_KEY_ENV, "").strip()
 
 
 def file_sha256(path: Path) -> str:
@@ -143,9 +128,6 @@ def compute_skill_signature(skill_dir: str | Path, ignores: set[str] | None = No
         parts.append(f"{rel}:{file_sha256(path)}\n")
 
     content = "".join(parts).encode()
-    key = signing_key()
-    if key:
-        return hmac.new(key.encode(), content, hashlib.sha256).hexdigest()
     return hashlib.sha256(content).hexdigest()
 
 

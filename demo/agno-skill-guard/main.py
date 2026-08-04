@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
-import hmac
 import os
 import shutil
 import tempfile
@@ -14,6 +12,7 @@ from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from agno.skills import LocalSkills, Skills
 from pydantic import BaseModel, Field
+from agent_manager.core.signer import compute_content_digest
 
 
 class SkillVerificationResult(BaseModel):
@@ -101,29 +100,8 @@ class AgentManagerRuntimeClient:
         return ToolCheckResult.model_validate(response.json())
 
 
-def file_sha256(path: Path) -> str:
-    hasher = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for chunk in iter(lambda: handle.read(65536), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
-
-
-def compute_local_signature(skill_path: str | Path, signing_key: str | None = None) -> str:
-    root = Path(skill_path).resolve()
-    if not root.is_dir():
-        raise ValueError(f"Skill path is not a directory: {root}")
-
-    parts: list[str] = []
-    for file_path in sorted(root.rglob("*")):
-        if file_path.is_file():
-            rel = file_path.relative_to(root).as_posix()
-            parts.append(f"{rel}:{file_sha256(file_path)}\n")
-
-    content = "".join(parts).encode()
-    if signing_key:
-        return hmac.new(signing_key.encode(), content, hashlib.sha256).hexdigest()
-    return hashlib.sha256(content).hexdigest()
+def compute_local_signature(skill_path: str | Path) -> str:
+    return compute_content_digest(Path(skill_path).resolve())
 
 
 def ensure_skill_can_load(
@@ -133,10 +111,7 @@ def ensure_skill_can_load(
     agent_id: str,
     skill_id: str | None = None,
 ) -> SkillVerificationResult:
-    local_signature = compute_local_signature(
-        skill_path,
-        signing_key=os.getenv("AGENT_MANAGER_SIGNING_KEY"),
-    )
+    local_signature = compute_local_signature(skill_path)
 
     verify_result = client.verify_skill_signature(
         skill_name=skill_name,

@@ -24,7 +24,7 @@ export AGENT_ID="your-agent-id"
 
 不要复用 `SKILL_SCANNER_TOKEN`；Verifier 需要 Agent 运行凭证。
 
-如果服务端配置了 `AGENT_MANAGER_SIGNING_KEY`，Agent 环境也必须使用同一个值。
+Agent 环境只计算无密钥内容摘要，不得复制或配置 Agent Manager 的签名私钥。
 
 ## 阻断口径
 

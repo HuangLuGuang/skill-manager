@@ -358,6 +358,7 @@ class McpServerCreate(BaseModel):
     authorization_value: Optional[str] = None
     status: str = Field(default="draft", pattern="^(draft|active|disabled)$")
     timeout_seconds: int = Field(default=30, ge=1, le=300)
+    max_response_kb: int = Field(default=1024, ge=1, le=10240)
 
 
 class McpServerUpdate(BaseModel):
@@ -369,6 +370,7 @@ class McpServerUpdate(BaseModel):
     authorization_value: Optional[str] = None
     status: Optional[str] = Field(default=None, pattern="^(draft|active|disabled)$")
     timeout_seconds: Optional[int] = Field(default=None, ge=1, le=300)
+    max_response_kb: Optional[int] = Field(default=None, ge=1, le=10240)
 
 
 class McpToolResponse(BaseModel):
@@ -380,6 +382,10 @@ class McpToolResponse(BaseModel):
     input_schema: dict[str, Any] = {}
     schema_hash: str
     enabled: bool
+    risk_level: str = "low"
+    rate_limit_per_minute: int = 60
+    max_concurrent: int = 5
+    requires_approval: bool = False
     discovered_at: datetime
 
 
@@ -394,6 +400,7 @@ class McpServerResponse(BaseModel):
     status: str
     health_status: str
     timeout_seconds: int
+    max_response_kb: int
     last_checked_at: Optional[datetime] = None
     created_by: Optional[str] = None
     created_at: datetime
@@ -466,6 +473,123 @@ class McpUpstreamDebugRequest(BaseModel):
     params: dict[str, Any] = {}
 
 
+class McpToolPolicyUpdate(BaseModel):
+    risk_level: str = Field(pattern="^(low|medium|high)$")
+    rate_limit_per_minute: int = Field(default=60, ge=1, le=10000)
+    max_concurrent: int = Field(default=5, ge=1, le=100)
+    requires_approval: bool = False
+
+
+class McpToolApprovalCreate(BaseModel):
+    token_id: int
+    gateway_slug: str
+    tool_name: str
+    arguments: dict[str, Any] = {}
+    ttl_seconds: int = Field(default=300, ge=10, le=600)
+
+
+class McpToolApprovalResponse(BaseModel):
+    approval_token: str
+    expires_at: datetime
+
+
+class RuntimePolicyUpdate(BaseModel):
+    max_steps: int = Field(default=50, ge=1, le=10000)
+    max_retries: int = Field(default=3, ge=0, le=100)
+    max_delegation_depth: int = Field(default=2, ge=0, le=32)
+    max_cost_microunits: int = Field(default=1_000_000, ge=0)
+    max_data_bytes: int = Field(default=10 * 1024 * 1024, ge=0)
+    max_duration_seconds: int = Field(default=1800, ge=1, le=604800)
+    circuit_failure_threshold: int = Field(default=5, ge=1, le=1000)
+    circuit_cooldown_seconds: int = Field(default=300, ge=1, le=86400)
+    goal_drift_threshold: float = Field(default=0.85, ge=0, le=1)
+
+
+class RuntimeTaskStart(BaseModel):
+    agent_id: str
+    tenant_id: str
+    user_id: str
+    session_id: str
+    original_goal: str = Field(min_length=1, max_length=20000)
+    allowed_actions: list[str] = []
+    allowed_targets: list[str] = []
+    preview: bool = False
+
+
+class RuntimeActionAuthorize(BaseModel):
+    parent_action_id: Optional[str] = None
+    stage: str = Field(default="executor", pattern="^(planner|executor)$")
+    action_type: str
+    target: str
+    resource: Optional[str] = None
+    risk_level: str = Field(default="low", pattern="^(low|medium|high)$")
+    plan_step: str = Field(min_length=1, max_length=20000)
+    parameters: dict[str, Any] = {}
+    expected_side_effects: list[str] = []
+    approval_context: dict[str, Any] = {}
+    retry_count: int = Field(default=0, ge=0)
+    delegation_depth: int = Field(default=0, ge=0)
+    estimated_cost_microunits: int = Field(default=0, ge=0)
+    estimated_data_bytes: int = Field(default=0, ge=0)
+    network_access: bool = False
+    state_change: bool = False
+
+
+class RuntimeActionConsume(BaseModel):
+    authorization_token: str
+    parameters: dict[str, Any] = {}
+
+
+class RuntimeApprovalCreate(BaseModel):
+    task_id: str
+    action_type: str
+    target: str
+    parameters: dict[str, Any] = {}
+    ttl_seconds: int = Field(default=300, ge=10, le=3600)
+
+
+class RuntimeActionResult(BaseModel):
+    status: str = Field(pattern="^(succeeded|failed|cancelled)$")
+    result: dict[str, Any] = {}
+    actual_data_bytes: int = Field(default=0, ge=0)
+    actual_cost_microunits: int = Field(default=0, ge=0)
+    error: Optional[str] = None
+
+
+class RuntimeTaskComplete(BaseModel):
+    status: str = Field(default="completed", pattern="^(completed|failed|cancelled)$")
+    reason: Optional[str] = None
+
+
+class RuntimeKillSwitchCreate(BaseModel):
+    scope_type: str = Field(pattern="^(global|tenant|user|agent|tool)$")
+    scope_id: str = "*"
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class RuntimeMemoryIngest(BaseModel):
+    memory_id: Optional[str] = None
+    agent_id: str
+    tenant_id: str
+    user_id: str
+    session_id: str
+    source_type: str = Field(pattern="^(user|tool|rag|file|web|model_output)$")
+    source_ref: Optional[str] = None
+    content: str = Field(min_length=1, max_length=1_000_000)
+    provenance: dict[str, Any] = {}
+    expires_at: Optional[datetime] = None
+    preview: bool = False
+
+
+class RuntimeMemoryReview(BaseModel):
+    trust_status: str = Field(pattern="^(trusted|untrusted|quarantined)$")
+    reason: Optional[str] = None
+
+
+class RuntimeMemoryRollback(BaseModel):
+    version: int = Field(ge=1)
+
+
 class ClientSkillInventory(BaseModel):
     skill_id: Optional[str] = None
     version_id: Optional[str] = None
@@ -535,6 +659,8 @@ class ClientTaskResult(BaseModel):
 
 
 class ClientSkillCompareItem(BaseModel):
+    skill_id: Optional[str] = None
+    version_id: Optional[str] = None
     name: str
     path: Optional[str] = None
     signature: Optional[str] = None

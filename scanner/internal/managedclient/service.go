@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type ServiceState struct {
@@ -23,12 +24,14 @@ type ServiceState struct {
 
 type ServiceReconcileResult struct {
 	Restarted bool         `json:"restarted"`
+	Reason    string       `json:"reason"`
 	State     ServiceState `json:"state"`
 }
 
 type serviceRegistration struct {
-	Executable string `json:"executable"`
-	SHA256     string `json:"sha256"`
+	Executable  string `json:"executable"`
+	SHA256      string `json:"sha256"`
+	RestartedAt string `json:"restarted_at,omitempty"`
 }
 
 func ServiceDefinition(home, executable, goos string) (string, string, error) {
@@ -214,13 +217,18 @@ func StopServiceForUpdate(home string) (ServiceState, error) {
 	return stopped, nil
 }
 
-func ReconcileService(home, executable string) (ServiceReconcileResult, error) {
+func ReconcileService(home, executable string, force bool) (ServiceReconcileResult, error) {
+	release, err := acquireServiceReconcileLock(home)
+	if err != nil {
+		return ServiceReconcileResult{}, err
+	}
+	defer release()
 	state := ServiceStatus(home)
-	result := ServiceReconcileResult{State: state}
+	result := ServiceReconcileResult{Reason: "not_installed", State: state}
 	if !state.Installed {
 		return result, nil
 	}
-	executable, err := filepath.Abs(executable)
+	executable, err = filepath.Abs(executable)
 	if err != nil {
 		return result, err
 	}
@@ -228,15 +236,84 @@ func ReconcileService(home, executable string) (ServiceReconcileResult, error) {
 	if err != nil {
 		return result, err
 	}
-	if matches && state.Running {
+	recent, err := serviceRecentlyRestarted(home, 10*time.Second)
+	if err != nil {
+		return result, err
+	}
+	restart, reason := serviceReconcileDecision(state, matches, force, recent)
+	result.Reason = reason
+	if !restart {
 		return result, nil
 	}
 	if _, err := InstallService(home, executable); err != nil {
 		return result, err
 	}
 	result.Restarted = true
-	result.State = ServiceStatus(home)
+	result.State = waitForServiceRunning(home, 5*time.Second)
+	if !result.State.Running {
+		return result, fmt.Errorf("后台服务重启后未进入运行状态: %s", result.State.Detail)
+	}
+	// A new or recovered binary gets one full validation pass. Routine desktop
+	// launches already run an immediate light patrol when the daemon starts, so
+	// they should not force an expensive full scan every time.
+	if reason != "forced" {
+		if err := RequestFullScan(home); err != nil {
+			return result, fmt.Errorf("后台服务已重启，但无法请求完整巡检: %w", err)
+		}
+	}
 	return result, nil
+}
+
+func serviceReconcileDecision(state ServiceState, matches, force, recentlyRestarted bool) (bool, string) {
+	if !state.Running {
+		return true, "not_running"
+	}
+	if !matches {
+		return true, "binary_changed"
+	}
+	if force && !recentlyRestarted {
+		return true, "forced"
+	}
+	if force {
+		return false, "recently_restarted"
+	}
+	return false, "already_current"
+}
+
+func waitForServiceRunning(home string, timeout time.Duration) ServiceState {
+	deadline := time.Now().Add(timeout)
+	state := ServiceStatus(home)
+	for !state.Running && time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+		state = ServiceStatus(home)
+	}
+	return state
+}
+
+func acquireServiceReconcileLock(home string) (func(), error) {
+	root := filepath.Join(home, ".agent-manager")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(root, "service-reconcile.lock")
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			_, _ = fmt.Fprintf(file, "%d\n", os.Getpid())
+			_ = file.Close()
+			return func() { _ = os.Remove(path) }, nil
+		}
+		if !os.IsExist(err) {
+			return nil, err
+		}
+		if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > 30*time.Second {
+			_ = os.Remove(path)
+			continue
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return nil, fmt.Errorf("后台服务正在由另一个客户端实例重启")
 }
 
 func ServiceStatus(home string) ServiceState {
@@ -256,13 +333,33 @@ func ServiceStatus(home string) ServiceState {
 	case "linux":
 		output, err = exec.Command("systemctl", "--user", "is-active", "agent-manager-client.service").CombinedOutput()
 	case "windows":
-		output, err = exec.Command("schtasks", "/Query", "/TN", "AgentManagerClient").CombinedOutput()
+		output, err = exec.Command(
+			"powershell", "-NoProfile", "-NonInteractive", "-Command",
+			"(Get-ScheduledTask -TaskName 'AgentManagerClient').State",
+		).CombinedOutput()
 	}
-	state.Running = err == nil
-	if err != nil {
+	state.Running = serviceCommandIsRunning(runtime.GOOS, output, err)
+	if err != nil || !state.Running {
 		state.Detail = strings.TrimSpace(string(output))
 	}
 	return state
+}
+
+func serviceCommandIsRunning(goos string, output []byte, commandErr error) bool {
+	if commandErr != nil {
+		return false
+	}
+	detail := strings.TrimSpace(string(output))
+	switch goos {
+	case "darwin":
+		return strings.Contains(detail, "state = running")
+	case "linux":
+		return detail == "active"
+	case "windows":
+		return strings.EqualFold(detail, "running")
+	default:
+		return false
+	}
 }
 
 func serviceRegistrationPath(home string) string {
@@ -287,7 +384,11 @@ func writeServiceRegistration(home, executable string) error {
 	if err != nil {
 		return err
 	}
-	registration := serviceRegistration{Executable: executable, SHA256: digest}
+	registration := serviceRegistration{
+		Executable:  executable,
+		SHA256:      digest,
+		RestartedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}
 	body, err := json.MarshalIndent(registration, "", "  ")
 	if err != nil {
 		return err
@@ -297,6 +398,25 @@ func writeServiceRegistration(home, executable string) error {
 		return err
 	}
 	return os.WriteFile(path, append(body, '\n'), 0o600)
+}
+
+func serviceRecentlyRestarted(home string, within time.Duration) (bool, error) {
+	body, err := os.ReadFile(serviceRegistrationPath(home))
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var registration serviceRegistration
+	if json.Unmarshal(body, &registration) != nil || registration.RestartedAt == "" {
+		return false, nil
+	}
+	restartedAt, err := time.Parse(time.RFC3339Nano, registration.RestartedAt)
+	if err != nil {
+		return false, nil
+	}
+	return time.Since(restartedAt) >= 0 && time.Since(restartedAt) <= within, nil
 }
 
 func serviceRegistrationMatches(home, executable string) (bool, error) {

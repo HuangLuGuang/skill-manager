@@ -38,7 +38,7 @@ class PromptEntry(BaseModel):
     vetting: Optional[VettingResult] = None
 
     # Signing
-    signature: Optional[str] = None     # HMAC-SHA256 over content
+    signature: Optional[str] = None     # Ed25519 envelope over the content digest
 
     # Timestamps
     submitted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

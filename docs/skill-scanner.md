@@ -164,9 +164,9 @@ Skill Verifier 首版使用一个合并 token。至少需要：
 export AGENT_MANAGER_VERIFIER_BASE_URL="http://localhost:8001"
 export AGENT_MANAGER_VERIFIER_TOKEN="amat_xxx"
 export AGENT_ID="<agent-id>"
-# 仅当服务端启用 AGENT_MANAGER_SIGNING_KEY 时需要，且必须与服务端一致
-export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 ```
+
+Verifier 只提交无密钥内容摘要，不需要也不允许持有服务端签名私钥。
 
 旧版本变量 `AGENT_MANAGER_BASE_URL`、`AGENT_MANAGER_API_TOKEN`、`AGENT_MANAGER_ACCESS_TOKEN` 仍兼容，但不推荐继续使用。
 

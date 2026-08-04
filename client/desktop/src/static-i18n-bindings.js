@@ -1387,6 +1387,42 @@ window.clientStaticI18nBindings = [
     "source": "确认清除"
   },
   {
+    "selector": "#discard-pending-dialog>div:nth-of-type(1)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.ov02f2",
+    "source": "本地永久删除"
+  },
+  {
+    "selector": "#discard-pending-dialog>div:nth-of-type(1)>h3:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.kl4geu",
+    "source": "删除本地副本"
+  },
+  {
+    "selector": "#discard-pending-dialog>div:nth-of-type(1)>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.1hpyspl",
+    "source": "该 Skill 将从停用待处理区永久删除；关联的隔离副本也会一并清理。"
+  },
+  {
+    "selector": "#discard-pending-dialog>div:nth-of-type(1)>p:nth-of-type(2)",
+    "nodeIndex": 0,
+    "key": "ui.14g8b7d",
+    "source": "平台检测版本和审计记录会保留，已经安装的可信版本不受影响。"
+  },
+  {
+    "selector": "#cancel-discard-pending",
+    "nodeIndex": 0,
+    "key": "ui.1589w37",
+    "source": "取消"
+  },
+  {
+    "selector": "#confirm-discard-pending",
+    "nodeIndex": 0,
+    "key": "ui.d4pkd7",
+    "source": "确认删除"
+  },
+  {
     "selector": "#stop-service-dialog>div:nth-of-type(1)>h3:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.1pjn73n",

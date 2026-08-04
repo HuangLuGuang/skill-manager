@@ -30,8 +30,8 @@ How to connect a new agent with skills to the agent manager, and how the company
 │                                                                      │
 │   can_load("my-skill", skill_path="/path/to/skill")                 │
 │                                                                      │
-│   Registry lookup, then recomputes HMAC-SHA256 over every file in   │
-│   the directory and compares to the hash stored at approval time.   │
+│   Registry lookup, recomputes the SHA256 content-tree digest, then  │
+│   verifies the Ed25519 envelope stored at approval time.            │
 │   Blocks if any file was added, removed, or changed since approval. │
 │                                                                      │
 │   Use when: the skill directory is writable (developer workstation, │
@@ -371,7 +371,7 @@ Agent session starts
         ├─ Agent loads a skill (e.g., file-reader)
         │      [ConfigChange hook, source=skills]
         │      → registry.get_by_name("file-reader")
-        │      → verify HMAC-SHA256 signature
+        │      → verify SHA256 content digest and Ed25519 signature
         │      → not registered or tampered? → exit 2 (block)
         │      → registered? → write AGENT_MANAGER_ACTIVE_SKILLS=file-reader to $CLAUDE_ENV_FILE
         │
@@ -416,7 +416,7 @@ jobs:
 
       - name: Vet changed skills
         env:
-          AGENT_MANAGER_SIGNING_KEY: ${{ secrets.AGENT_MANAGER_SIGNING_KEY }}
+          AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH: ${{ runner.temp }}/agent-manager-ed25519.pem
         run: |
           for skill_dir in $(git diff --name-only HEAD~1 | grep 'skills/' | xargs -I{} dirname {} | sort -u); do
             echo "Vetting $skill_dir..."
@@ -437,7 +437,7 @@ jobs:
       - name: Deploy approved skills (on main branch only)
         if: github.ref == 'refs/heads/main'
         env:
-          AGENT_MANAGER_SIGNING_KEY: ${{ secrets.AGENT_MANAGER_SIGNING_KEY }}
+          AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH: ${{ runner.temp }}/agent-manager-ed25519.pem
         run: |
           python -m agent_manager.hooks.deploy \
             --dest /mnt/company-skills \
@@ -608,12 +608,16 @@ agent-manager submit ./my-skill  # creates a new registry entry
 agent-manager deploy my-skill
 ```
 
-**"AGENT_MANAGER_SIGNING_KEY not set — using unsigned SHA256"**
-Set the key in your environment. Without it, signatures are not authenticated:
+**"Secure startup requires AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH"**
+Set a persistent private-key path writable only during explicit key provisioning:
 ```bash
-export AGENT_MANAGER_SIGNING_KEY="$(openssl rand -hex 32)"
-# Save this key somewhere permanent (Vault, AWS Secrets Manager, etc.)
+export AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH=/var/lib/agent-manager/signing/skill-ed25519.pem
+agent-manager signing-key init
 ```
+Secure production startup never creates a missing identity. All replicas must
+mount the same pre-provisioned key; the public-key endpoint is read-only.
+Agents and Hooks never receive this private key; they submit a keyless content
+digest or verify with the public key.
 
 **Hook not firing**
 ```bash

@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from .config import settings
-from agent_manager.core.signer import SKILL_IGNORE_DIRS
+from agent_manager.core.signer import SKILL_IGNORE_DIRS, normalize_zip_mojibake
 
 
 
@@ -102,7 +102,13 @@ def _tree_version(skill_root: Path) -> tuple:
 @lru_cache(maxsize=256)
 def _cached_content_signature(skill_root: str, tree_version: tuple) -> str:
     manifest = build_manifest("", "", Path(skill_root), None)
-    content = "".join(f"{item['path']}:{item['sha256']}\n" for item in manifest["files"]).encode()
+    canonical_files = []
+    for item in manifest["files"]:
+        canonical_path = "/".join(normalize_zip_mojibake(part) for part in item["path"].split("/"))
+        canonical_files.append((canonical_path, item["sha256"]))
+    content = "".join(
+        f"{path}:{digest}\n" for path, digest in sorted(canonical_files, key=lambda item: item[0])
+    ).encode()
     return hashlib.sha256(content).hexdigest()
 
 

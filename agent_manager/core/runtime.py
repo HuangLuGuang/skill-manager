@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import hmac
 import logging
-from pathlib import Path
 from typing import Any
 
 from .models import RegistryEntry, SkillStatus
 from .registry import Registry, make_event
-from .signer import compute_content_digest, compute_signature, verify_signature
+from .signer import (
+    signature_content_digest,
+    verify_signature,
+)
 from .utils import tool_matches
 
 logger = logging.getLogger(__name__)
@@ -71,8 +73,8 @@ class RuntimeGuard:
            ──────────────────────────────────────────────────────
            can_load("my-skill", skill_path="/path/to/skill")
 
-           Same as above, then recomputes the HMAC-SHA256 over the on-disk
-           file tree and compares it to the signature stored at approval time.
+           Same as above, then recomputes the SHA256 content-tree digest and
+           verifies it against the Ed25519 envelope stored at approval time.
            Blocks if any file was added, removed, or modified since approval.
            Use this when the skill directory is writable (developer workstation,
            shared network mount, etc.).
@@ -137,9 +139,9 @@ class RuntimeGuard:
         Check whether a skill is permitted to invoke a tool.
 
         Returns True if allowed, False if blocked.
-        An empty allowed_tools list means all tools are permitted (skill made no
-        declarations). This preserves backwards-compatibility with unmanaged skills
-        that were approved before tool-level enforcement was introduced.
+        An empty allowed_tools list means no tools are permitted. Runtime
+        authorization is fail-closed: approval of a Skill does not implicitly grant
+        every tool capability.
         """
         entry = self.registry.get_trusted_by_name(skill_name)
 
@@ -148,10 +150,10 @@ class RuntimeGuard:
             return False
 
         if not entry.allowed_tools:
-            # No declarations — allow all (emit INFO-level log)
-            logger.debug("Tool %r: no restrictions on skill %r", tool_name, skill_name)
-            self._emit_tool_event(entry, tool_name, agent_id, allowed=True, metadata=audit_metadata)
-            return True
+            reason = f"Skill {skill_name!r} declares no allowed_tools"
+            logger.warning("BLOCKED tool: %s", reason)
+            self._emit_tool_blocked(skill_name, tool_name, agent_id, reason, audit_metadata)
+            return False
 
         allowed = any(tool_matches(allowed_tool, tool_name) for allowed_tool in entry.allowed_tools)
         if not allowed:
@@ -176,13 +178,13 @@ class RuntimeGuard:
         audit_metadata: dict[str, Any] | None = None,
     ) -> tuple[bool, RegistryEntry | None, str]:
         """
-        Verify a signature computed locally by an agent.
+        Verify a keyless content digest computed locally by an agent.
 
         This is intended for distributed setups where the Agent Manager service
         cannot read the agent's local filesystem directly. The agent computes a
         signature over its local skill directory using the same algorithm as
         the registry, then submits it here for comparison against the approved
-        signature stored in the registry.
+        digest embedded in the server-signed registry envelope.
         """
         if skill_id:
             entry = self.registry.get_by_id(skill_id)
@@ -194,7 +196,19 @@ class RuntimeGuard:
                     for candidate in self.registry.list_versions(skill_name)
                     if candidate.is_loadable()
                     and candidate.signature
-                    and hmac.compare_digest(submitted_signature, candidate.signature)
+                    and (
+                        (
+                            signature_content_digest(candidate.signature) is not None
+                            and hmac.compare_digest(
+                                submitted_signature,
+                                signature_content_digest(candidate.signature) or "",
+                            )
+                        )
+                        or (
+                            signature_content_digest(candidate.signature) is None
+                            and hmac.compare_digest(submitted_signature, candidate.signature)
+                        )
+                    )
                 ),
                 None,
             ) or self.registry.get_trusted_by_name(skill_name) or self.registry.get_by_name(skill_name)
@@ -233,55 +247,17 @@ class RuntimeGuard:
             return False, entry, reason
 
         submitted_signature = local_signature.strip()
-        if not hmac.compare_digest(submitted_signature, entry.signature):
-            previous_signature = entry.signature
-            if entry.skill_path:
-                try:
-                    refreshed_signature = compute_signature(Path(entry.skill_path))
-                    content_digest = compute_content_digest(Path(entry.skill_path))
-                except Exception as exc:
-                    refreshed_signature = None
-                    logger.warning("Could not refresh stored signature for %r: %s", entry.name, exc)
-                    reason = f"Skill {entry.name!r} stored signature could not be refreshed"
-                    self._emit_blocked_entry(entry, agent_id, reason, metadata=audit_metadata)
-                    return False, entry, reason
-                if (
-                    hmac.compare_digest(submitted_signature, content_digest)
-                    and not hmac.compare_digest(content_digest, refreshed_signature)
-                ):
-                    reason = (
-                        f"Skill {entry.name!r} content matches, but signature mode differs — "
-                        "configure the same AGENT_MANAGER_SIGNING_KEY on the client and server"
-                    )
-                    logger.warning("BLOCKED signature verify: %s", reason)
-                    self._emit_blocked_entry(entry, agent_id, reason, metadata=audit_metadata)
-                    return False, entry, reason
-                if refreshed_signature and hmac.compare_digest(submitted_signature, refreshed_signature):
-                    refreshed_entry = self.registry.refresh_signature_if_current(
-                        entry.skill_id,
-                        previous_signature,
-                        refreshed_signature,
-                    )
-                    if not refreshed_entry or not refreshed_entry.is_loadable():
-                        reason = (
-                            f"Skill {entry.name!r} has status "
-                            f"{refreshed_entry.status.value if refreshed_entry else 'UNKNOWN'} "
-                            "— only APPROVED/DEPLOYED skills may load"
-                        )
-                        logger.warning("BLOCKED signature verify: %s", reason)
-                        self._emit_blocked_entry(refreshed_entry or entry, agent_id, reason, metadata=audit_metadata)
-                        return False, refreshed_entry or entry, reason
-                    entry = refreshed_entry
-                else:
-                    reason = f"Skill {entry.name!r} signature mismatch — possible tampering"
-                    logger.error("BLOCKED signature verify (tamper): %s", reason)
-                    self._emit_blocked_entry(entry, agent_id, reason, tamper=True, metadata=audit_metadata)
-                    return False, entry, reason
-            else:
-                reason = f"Skill {entry.name!r} signature mismatch — possible tampering"
-                logger.error("BLOCKED signature verify (tamper): %s", reason)
-                self._emit_blocked_entry(entry, agent_id, reason, tamper=True, metadata=audit_metadata)
-                return False, entry, reason
+        stored_digest = signature_content_digest(entry.signature)
+        matches_stored = (
+            hmac.compare_digest(submitted_signature, stored_digest)
+            if stored_digest is not None
+            else hmac.compare_digest(submitted_signature, entry.signature)
+        )
+        if not matches_stored:
+            reason = f"Skill {entry.name!r} signature mismatch — possible tampering"
+            logger.error("BLOCKED signature verify (tamper): %s", reason)
+            self._emit_blocked_entry(entry, agent_id, reason, tamper=True, metadata=audit_metadata)
+            return False, entry, reason
 
         self.registry.log_event(make_event(
             "skill_signature_verified", entry, actor=agent_id,

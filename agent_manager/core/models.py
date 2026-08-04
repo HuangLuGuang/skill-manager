@@ -128,7 +128,7 @@ class RegistryEntry(BaseModel):
     declared_tools_valid: bool = True   # All declared tools are in policy allowlist
 
     # Signing
-    signature: Optional[str] = None        # HMAC-SHA256 of skill content tree
+    signature: Optional[str] = None        # Ed25519 envelope over the content-tree digest
 
     # Timestamps
     submitted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

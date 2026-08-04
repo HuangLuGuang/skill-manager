@@ -25,6 +25,7 @@ type CompareItem struct {
 	LocalPath         string `json:"local_path,omitempty"`
 	LocalSignature    string `json:"local_signature,omitempty"`
 	SkillID           string `json:"skill_id,omitempty"`
+	VersionID         string `json:"version_id,omitempty"`
 	Status            string `json:"status,omitempty"`
 	ExpectedSignature string `json:"expected_signature,omitempty"`
 	Allowed           bool   `json:"allowed"`
@@ -216,13 +217,16 @@ func (api API) SkillVersions(ctx context.Context, clientID, skillID, agentType, 
 	return result, err
 }
 
-func (api API) AvailableSkills(ctx context.Context, clientID, agentType, managedAgentID, search string) ([]AvailableSkill, error) {
+func (api API) AvailableSkills(ctx context.Context, clientID, agentType, managedAgentID, search, skillID string) ([]AvailableSkill, error) {
 	query := url.Values{"agent_type": []string{agentType}}
 	if managedAgentID != "" {
 		query.Set("managed_agent_id", managedAgentID)
 	}
 	if search != "" {
 		query.Set("q", search)
+	}
+	if skillID != "" {
+		query.Set("skill_id", skillID)
 	}
 	var result struct {
 		Items []AvailableSkill `json:"items"`

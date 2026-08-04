@@ -95,6 +95,7 @@ import { message } from 'ant-design-vue'
 
 import { deploySkill, listSkillsPaged, retireSkill } from '../api'
 import { formatDateTime } from '../utils/format'
+import { lifecycleVersionId } from '../utils/skillVersions'
 
 const activeTab = ref('ready')
 const risk = ref('all')
@@ -167,7 +168,7 @@ const handleDeploy = async (record) => {
   actionLoading.value = true
   deployMode.value = true
   try {
-    await deploySkill(record.skill_id)
+    await deploySkill(lifecycleVersionId(record))
     message.success(text(`已部署 ${record.name}`, `Deployed ${record.name}`))
     fetchRows()
   } catch (error) {
@@ -192,7 +193,7 @@ const submitRetire = async () => {
   }
   actionLoading.value = true
   try {
-    await retireSkill(selectedRecord.value.skill_id, { actor: currentUser(), reason: retireReason.value.trim() })
+    await retireSkill(lifecycleVersionId(selectedRecord.value), { actor: currentUser(), reason: retireReason.value.trim() })
     message.success(text(`已退役 ${selectedRecord.value.name}`, `Retired ${selectedRecord.value.name}`))
     retireModalOpen.value = false
     fetchRows()

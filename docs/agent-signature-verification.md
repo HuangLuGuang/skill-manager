@@ -6,9 +6,9 @@
 
 更安全的接法是：
 
-1. Agent 在本地对 skill 目录计算签名
-2. 把本地签名发送给 Agent Manager
-3. Agent Manager 用 registry 中存储的签名做比对
+1. Agent 在本地对 skill 目录计算无密钥内容摘要
+2. 把本地摘要通过 `local_signature` 字段发送给 Agent Manager
+3. Agent Manager 与服务端 Ed25519 签名信封中的摘要做比对
 4. 一致才允许加载
 
 当前接口：
@@ -40,7 +40,8 @@ token 鉴权的 `can-load` 不接受 `skill_path`，避免外部 token 探测服
 
 ## Signature Algorithm
 
-Agent 侧必须和 Agent Manager 使用同样的签名算法。
+Agent 不持有服务端私钥。服务端批准 Skill 时使用 Ed25519 私钥签名，
+Agent 侧只计算确定性的 SHA256 内容摘要。
 
 当前算法定义在 [signer.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/signer.py)：
 
@@ -54,10 +55,23 @@ relative/path/to/file:FILE_SHA256
 ```
 
 5. 把所有行按顺序拼接，并在每行末尾追加 `\n`
-6. 如果配置了 `AGENT_MANAGER_SIGNING_KEY`
-   使用 `HMAC-SHA256`
-7. 如果没有配置 signing key
-   使用普通 `SHA256`
+6. Agent 对拼接结果计算 SHA256，并通过 `local_signature` 提交摘要
+7. 服务端把摘要放入 `ed25519:v1:<key-id>:<digest>:<signature>` 信封并签名
+
+服务端公钥可通过 `GET /api/v1/runtime/signing-public-key` 获取，返回
+`Ed25519` 算法、`key_id`（公钥 SHA256 前 16 位）和 `public_key`（Raw 格式
+Base64）。该端点无需认证：公钥本身是公开信息，返回它不泄露任何机密；端点
+只读、不触发私钥创建，服务启动时由 `initialize_signing_identity()` 显式完成
+密钥初始化。
+
+私钥只允许存在于 Agent Manager 服务端，禁止复制到 Agent、Scanner 或 Hook。
+
+> **多副本部署**：多副本（或多进程）部署时，所有副本必须通过
+> `AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH` 指向**同一个私钥文件**（例如挂载
+> 到共享卷）。否则每个副本会各自生成不同的 Ed25519 身份，导致 A 副本批准的
+> Skill 签名在 B 副本上验证失败——这是静默失败，日志只会出现 signature
+> mismatch，不会显式报错。建议部署后先调用一次 `signing-public-key` 确认各
+> 副本返回相同的 `key_id`。
 
 ## Python Example
 
@@ -67,8 +81,6 @@ relative/path/to/file:FILE_SHA256
 from __future__ import annotations
 
 import hashlib
-import hmac
-import os
 from pathlib import Path
 
 
@@ -80,7 +92,7 @@ def file_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def compute_skill_signature(skill_path: str | Path, signing_key: str | None = None) -> str:
+def compute_skill_digest(skill_path: str | Path) -> str:
     root = Path(skill_path)
     parts: list[str] = []
 
@@ -91,15 +103,12 @@ def compute_skill_signature(skill_path: str | Path, signing_key: str | None = No
 
     content = "".join(parts).encode()
 
-    if signing_key:
-        return hmac.new(signing_key.encode(), content, hashlib.sha256).hexdigest()
     return hashlib.sha256(content).hexdigest()
 
 
 if __name__ == "__main__":
     skill_dir = "/path/to/skill"
-    key = os.environ.get("AGENT_MANAGER_SIGNING_KEY")
-    print(compute_skill_signature(skill_dir, signing_key=key))
+    print(compute_skill_digest(skill_dir))
 ```
 
 ## Request Example
@@ -153,7 +162,7 @@ sequenceDiagram
     participant SM as "Agent Manager"
 
     AG->>FS: 读取本地 skill 文件树
-    AG->>AG: 计算 local_signature
+    AG->>AG: 计算无密钥内容摘要
     AG->>SM: POST /access/runtime/verify-skill-signature
     SM-->>AG: allowed / denied
     alt allowed

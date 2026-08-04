@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 
 from .sqlite_db import Base
 
@@ -147,6 +147,193 @@ class AccessToken(Base):
     revoked_by = Column(String(128), nullable=True)
 
 
+class RequestLease(Base):
+    __tablename__ = "request_leases"
+
+    lease_id = Column(String(64), primary_key=True)
+    subject_type = Column(String(32), index=True, nullable=False)
+    subject_id = Column(String(128), index=True, nullable=False)
+    purpose = Column(String(64), index=True, nullable=False)
+    expires_at = Column(DateTime, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class SecurityAuditEvent(Base):
+    __tablename__ = "security_audit_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(String(64), unique=True, index=True, nullable=False)
+    timestamp = Column(DateTime, index=True, nullable=False)
+    event_type = Column(String(64), index=True, nullable=False)
+    actor = Column(String(128), index=True, nullable=False)
+    resource_type = Column(String(64), index=True, nullable=False)
+    resource_id = Column(String(512), nullable=False)
+    action = Column(String(16), nullable=False)
+    outcome = Column(String(16), nullable=False)
+    details_json = Column(Text, default="{}", nullable=False)
+    prev_hash = Column(String(64), nullable=False)
+    event_hash = Column(String(64), unique=True, nullable=False)
+    key_id = Column(String(16), nullable=False)
+    signature = Column(Text, nullable=False)
+
+
+class RuntimePolicy(Base):
+    __tablename__ = "runtime_policies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    agent_id = Column(String(128), unique=True, index=True, nullable=False)
+    max_steps = Column(Integer, default=50, nullable=False)
+    max_retries = Column(Integer, default=3, nullable=False)
+    max_delegation_depth = Column(Integer, default=2, nullable=False)
+    max_cost_microunits = Column(Integer, default=1_000_000, nullable=False)
+    max_data_bytes = Column(Integer, default=10 * 1024 * 1024, nullable=False)
+    max_duration_seconds = Column(Integer, default=1800, nullable=False)
+    circuit_failure_threshold = Column(Integer, default=5, nullable=False)
+    circuit_cooldown_seconds = Column(Integer, default=300, nullable=False)
+    goal_drift_threshold = Column(Float, default=0.85, nullable=False)
+    created_by = Column(String(128), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class RuntimeTask(Base):
+    __tablename__ = "runtime_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(String(64), unique=True, index=True, nullable=False)
+    token_id = Column(Integer, ForeignKey("access_tokens.id"), index=True, nullable=False)
+    agent_id = Column(String(128), index=True, nullable=False)
+    tenant_id = Column(String(128), index=True, nullable=False)
+    user_id = Column(String(128), index=True, nullable=False)
+    session_id = Column(String(128), index=True, nullable=False)
+    original_goal = Column(Text, nullable=False)
+    goal_digest = Column(String(64), nullable=False)
+    allowed_actions_json = Column(Text, default="[]", nullable=False)
+    allowed_targets_json = Column(Text, default="[]", nullable=False)
+    status = Column(String(32), default="active", index=True, nullable=False)
+    preview = Column(Boolean, default=False, nullable=False)
+    step_count = Column(Integer, default=0, nullable=False)
+    retry_count = Column(Integer, default=0, nullable=False)
+    max_delegation_seen = Column(Integer, default=0, nullable=False)
+    cost_microunits = Column(Integer, default=0, nullable=False)
+    data_bytes = Column(Integer, default=0, nullable=False)
+    policy_snapshot_json = Column(Text, default="{}", nullable=False)
+    stop_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+
+
+class RuntimeAction(Base):
+    __tablename__ = "runtime_actions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    action_id = Column(String(64), unique=True, index=True, nullable=False)
+    task_id = Column(String(64), ForeignKey("runtime_tasks.task_id"), index=True, nullable=False)
+    parent_action_id = Column(String(64), index=True, nullable=True)
+    stage = Column(String(16), nullable=False)
+    action_type = Column(String(128), index=True, nullable=False)
+    target = Column(String(1024), nullable=False)
+    resource = Column(String(1024), nullable=True)
+    risk_level = Column(String(16), index=True, nullable=False)
+    plan_step = Column(Text, nullable=False)
+    parameters_hash = Column(String(64), nullable=False)
+    parameters_json = Column(Text, default="{}", nullable=False)
+    expected_side_effects_json = Column(Text, default="[]", nullable=False)
+    estimated_cost_microunits = Column(Integer, default=0, nullable=False)
+    estimated_data_bytes = Column(Integer, default=0, nullable=False)
+    approval_context_json = Column(Text, default="{}", nullable=False)
+    decision = Column(String(16), index=True, nullable=False)
+    decision_reasons_json = Column(Text, default="[]", nullable=False)
+    drift_score = Column(Float, default=0.0, nullable=False)
+    authorization_hash = Column(String(64), unique=True, nullable=True)
+    authorization_expires_at = Column(DateTime, nullable=True)
+    authorization_used_at = Column(DateTime, nullable=True)
+    status = Column(String(32), default="planned", index=True, nullable=False)
+    result_json = Column(Text, default="{}", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+
+
+class RuntimeApproval(Base):
+    __tablename__ = "runtime_approvals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    approval_id = Column(String(64), unique=True, index=True, nullable=False)
+    task_id = Column(String(64), ForeignKey("runtime_tasks.task_id"), index=True, nullable=False)
+    action_type = Column(String(128), nullable=False)
+    target = Column(String(1024), nullable=False)
+    parameters_hash = Column(String(64), nullable=False)
+    status = Column(String(16), default="active", index=True, nullable=False)
+    expires_at = Column(DateTime, index=True, nullable=False)
+    approved_by = Column(String(128), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+
+
+class RuntimeCircuit(Base):
+    __tablename__ = "runtime_circuits"
+    __table_args__ = (UniqueConstraint("subject_type", "subject_id", name="uq_runtime_circuit_subject"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    subject_type = Column(String(32), index=True, nullable=False)
+    subject_id = Column(String(384), index=True, nullable=False)
+    state = Column(String(16), default="closed", index=True, nullable=False)
+    failure_count = Column(Integer, default=0, nullable=False)
+    opened_at = Column(DateTime, nullable=True)
+    open_until = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class RuntimeKillSwitch(Base):
+    __tablename__ = "runtime_kill_switches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    scope_type = Column(String(32), index=True, nullable=False)
+    scope_id = Column(String(384), index=True, nullable=False)
+    reason = Column(Text, nullable=False)
+    active = Column(Boolean, default=True, index=True, nullable=False)
+    created_by = Column(String(128), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    released_by = Column(String(128), nullable=True)
+    released_at = Column(DateTime, nullable=True)
+
+
+class RuntimeMemory(Base):
+    __tablename__ = "runtime_memories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    memory_id = Column(String(64), unique=True, index=True, nullable=False)
+    tenant_id = Column(String(128), index=True, nullable=False)
+    user_id = Column(String(128), index=True, nullable=False)
+    session_id = Column(String(128), index=True, nullable=False)
+    agent_id = Column(String(128), index=True, nullable=False)
+    source_type = Column(String(32), index=True, nullable=False)
+    source_ref = Column(String(1024), nullable=True)
+    trust_status = Column(String(32), default="untrusted", index=True, nullable=False)
+    current_version = Column(Integer, default=1, nullable=False)
+    expires_at = Column(DateTime, index=True, nullable=True)
+    quarantined_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class RuntimeMemoryRevision(Base):
+    __tablename__ = "runtime_memory_revisions"
+    __table_args__ = (UniqueConstraint("memory_id", "version", name="uq_runtime_memory_version"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    memory_id = Column(String(64), ForeignKey("runtime_memories.memory_id"), index=True, nullable=False)
+    version = Column(Integer, nullable=False)
+    content = Column(Text, nullable=False)
+    content_hash = Column(String(64), index=True, nullable=False)
+    provenance_json = Column(Text, default="{}", nullable=False)
+    scan_findings_json = Column(Text, default="[]", nullable=False)
+    created_by = Column(String(128), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class McpServer(Base):
     __tablename__ = "mcp_servers"
 
@@ -160,6 +347,7 @@ class McpServer(Base):
     status = Column(String(32), default="draft", index=True, nullable=False)
     health_status = Column(String(32), default="unknown", nullable=False)
     timeout_seconds = Column(Integer, default=30, nullable=False)
+    max_response_kb = Column(Integer, default=1024, nullable=False)
     last_checked_at = Column(DateTime, nullable=True)
     created_by = Column(String(128), index=True, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -177,6 +365,10 @@ class McpTool(Base):
     input_schema_json = Column(Text, default="{}", nullable=False)
     schema_hash = Column(String(64), index=True, nullable=False)
     enabled = Column(Boolean, default=True, nullable=False)
+    risk_level = Column(String(16), default="low", nullable=False)
+    rate_limit_per_minute = Column(Integer, default=60, nullable=False)
+    max_concurrent = Column(Integer, default=5, nullable=False)
+    requires_approval = Column(Boolean, default=False, nullable=False)
     discovered_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -217,6 +409,22 @@ class McpCallAudit(Base):
     duration_ms = Column(Float, default=0.0, nullable=False)
     error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True, nullable=False)
+
+
+class McpToolApproval(Base):
+    __tablename__ = "mcp_tool_approvals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    approval_hash = Column(String(64), unique=True, index=True, nullable=False)
+    token_id = Column(Integer, ForeignKey("access_tokens.id"), index=True, nullable=False)
+    gateway_slug = Column(String(128), index=True, nullable=False)
+    tool_name = Column(String(384), index=True, nullable=False)
+    arguments_hash = Column(String(64), nullable=False)
+    status = Column(String(16), default="active", index=True, nullable=False)
+    expires_at = Column(DateTime, index=True, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_by = Column(String(128), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class ManagedClient(Base):

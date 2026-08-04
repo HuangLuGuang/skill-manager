@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from datetime import datetime, timezone
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -10,7 +11,7 @@ from agent_manager.api import router as api_router
 from agent_manager.core.manager import AgentManager
 from agent_manager.core.models import SkillStatus
 from agent_manager.core.policy import CompanyPolicy
-from agent_manager.core.signer import compute_signature
+from agent_manager.core.signer import compute_content_digest, compute_signature
 
 
 def _write_skill(path: Path, body: str) -> None:
@@ -137,11 +138,91 @@ def test_versions_and_diff_api(tmp_path):
     versions = client.get(f"/skills/{first.family_id}/versions")
     first_summary = next(item for item in versions.json()["items"] if item["version_id"] == first.skill_id)
     assert first_summary["scan_pending"] is True
+    assert first_summary["rescanned"] is True
+    assert first_summary["scan_run_count"] >= 2
+    assert first_summary["submitted_at"]
+    assert first_summary["last_scanned_at"]
+    assert first_summary["risk_chain"]["static_risk_level"]
+    assert first_summary["risk_chain"]["final_risk_level"]
 
     duplicate = client.post(f"/skills/{pending_entry.skill_id}/rescan")
     assert duplicate.status_code == 200
     assert duplicate.json()["message"] == "该版本正在检测中，无需重复提交。"
     assert len([run for run in manager.list_scan_runs(first.skill_id) if run.status == "PENDING"]) == 1
+
+
+def test_versions_api_uses_batch_scan_and_activity_queries(tmp_path, monkeypatch):
+    skill = tmp_path / "skill"
+    _write_skill(skill, "# First")
+    manager = _manager(tmp_path)
+    first = manager.submit(skill)
+    _write_skill(skill, "# Second")
+    second = manager.submit(skill)
+
+    calls = {"runs": 0, "activity": 0}
+    original_runs = manager.list_scan_runs_for_versions
+    original_activity = manager.skill_version_activity
+
+    def batch_runs(version_ids):
+        calls["runs"] += 1
+        assert set(version_ids) == {first.skill_id, second.skill_id}
+        return original_runs(version_ids)
+
+    def batch_activity(version_ids):
+        calls["activity"] += 1
+        assert set(version_ids) == {first.skill_id, second.skill_id}
+        return original_activity(version_ids)
+
+    monkeypatch.setattr(manager, "list_scan_runs_for_versions", batch_runs)
+    monkeypatch.setattr(manager, "skill_version_activity", batch_activity)
+    monkeypatch.setattr(manager, "list_scan_runs", lambda _version_id: pytest.fail("per-version scan query used"))
+    monkeypatch.setattr(manager, "audit", lambda **_kwargs: pytest.fail("per-version audit query used"))
+
+    app = FastAPI()
+    app.include_router(api_router.router)
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+    response = TestClient(app).get(f"/skills/{first.family_id}/versions")
+
+    assert response.status_code == 200
+    assert len(response.json()["items"]) == 2
+    assert calls == {"runs": 1, "activity": 1}
+
+
+def test_manual_approval_targets_selected_version_not_latest_family_version(tmp_path):
+    skill = tmp_path / "skill"
+    _write_skill(skill, "# First")
+    manager = _manager(tmp_path)
+    first = manager.submit(skill)
+    first.status = SkillStatus.VETTED
+    first.signature = None
+    first.approved_at = None
+    first.approved_by = None
+    manager.registry.update(first)
+
+    _write_skill(skill, "# Second")
+    second = _ensure_trusted(manager, manager.submit(skill))
+    assert second.status == SkillStatus.APPROVED
+
+    app = FastAPI()
+    app.include_router(api_router.router)
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+    client = TestClient(app)
+
+    ambiguous = client.post(
+        f"/skills/{first.family_id}/approve",
+        json={"approver": "admin", "note": "wrong identifier"},
+    )
+    approved = client.post(
+        f"/skills/{first.skill_id}/approve",
+        json={"approver": "admin", "note": "reviewed V1"},
+    )
+
+    assert ambiguous.status_code == 400
+    assert "Skill version ID" in ambiguous.json()["detail"]
+    assert approved.status_code == 200
+    assert approved.json()["skill_id"] == first.skill_id
+    assert manager.get_skill(first.skill_id).status == SkillStatus.APPROVED
+    assert manager.get_skill(second.skill_id).status == SkillStatus.APPROVED
 
 
 def test_runtime_name_lookup_and_signature_accept_latest_matching_trusted_version(tmp_path):
@@ -157,7 +238,7 @@ def test_runtime_name_lookup_and_signature_accept_latest_matching_trusted_versio
     allowed, resolved, _ = manager.runtime.can_load(first.name, verify_sig=False)
     signature_allowed, signature_entry, _ = manager.runtime.verify_local_signature(
         first.name,
-        first.signature,
+        compute_content_digest(first.skill_path),
     )
 
     assert allowed is True

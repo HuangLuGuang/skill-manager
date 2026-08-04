@@ -321,6 +321,28 @@ button.is-busy, button.is-busy:disabled { cursor: wait; }
 .message-dialog h3 { margin: 0 0 10px; color: #263846; font-size: 17px; }
 .message-dialog p { margin: 0; color: #5f6d78; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
 .message-dialog-body > form { display: flex; justify-content: flex-end; margin-top: 22px; }
+.discard-pending-dialog { width: min(500px, calc(100vw - 48px)); }
+.dialog-danger-label {
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 3px 7px;
+  color: #9c372c;
+  background: #ffebe7;
+  font: 750 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .04em;
+}
+.discard-pending-summary {
+  display: grid;
+  gap: 5px;
+  margin: 16px 0 12px;
+  padding: 13px 14px;
+  border-left: 3px solid #dc674f;
+  background: #f7f9fa;
+}
+.discard-pending-summary strong { color: #263846; font-size: 14px; }
+.discard-pending-summary span { color: #5d6c78; font-size: 11px; }
+.discard-pending-summary code { overflow: hidden; color: #7b8893; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.message-dialog .dialog-audit-note { color: #28715e; font-size: 11px; }
 .install-skill-dialog { width: min(540px, calc(100vw - 48px)); }
 .update-dialog { width: min(520px, calc(100vw - 48px)); }
 .update-dialog .overview-badge { display: inline-block; margin-bottom: 12px; }
@@ -713,25 +735,42 @@ button.is-busy, button.is-busy:disabled { cursor: wait; }
 }
 .pending-select-all input, .pending-skill-select input { width: 16px; height: 16px; margin: 0; }
 .pending-skill-row {
-  grid-template-columns: 24px minmax(180px, 1fr) minmax(150px, 220px) 126px;
-  min-height: 76px;
-  padding-top: 11px;
-  padding-bottom: 11px;
+  grid-template-columns: 24px minmax(160px, .85fr) minmax(170px, 1.15fr) 206px;
+  min-height: 62px;
+  gap: 12px;
+  padding: 10px 16px;
 }
-.pending-skill-row > div:nth-child(2) > strong { overflow-wrap: anywhere; }
 .pending-skill-select { display: flex; align-items: center; justify-content: center; }
 .pending-select-placeholder { width: 16px; }
-.pending-skill-row button { white-space: nowrap; }
-.pending-next { justify-self: start; color: #65737e; font-size: 12px; font-weight: 700; }
-.pending-status-block { display: grid; min-width: 0; gap: 5px; align-content: center; }
-.pending-status-block small {
-  display: -webkit-box;
+.pending-skill-identity,
+.pending-skill-status { display: grid; min-width: 0; align-content: center; gap: 5px; }
+.pending-skill-identity > strong { overflow-wrap: anywhere; color: #2d3b46; font-size: 13.5px; font-weight: 700; }
+.pending-skill-identity .path-link { margin: 0; }
+.pending-skill-status small {
   overflow: hidden;
+  min-width: 0;
   color: #788690;
   font-size: 10.5px;
   line-height: 1.45;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pending-inline-actions { display: flex; width: 206px; align-items: center; justify-content: flex-end; gap: 6px; }
+.pending-inline-actions button {
+  width: 100px;
+  height: 34px;
+  padding: 4px 7px;
+  font-size: 10.5px;
+  line-height: 1.15;
+  white-space: normal;
+}
+.pending-discard-button { border-color: #e0c1bb; color: #a0473b; background: #fff9f7; }
+.pending-discard-button:hover { border-color: #e2b2aa; color: #84352c; background: #fff3f0; }
+.pending-next {
+  justify-self: start;
+  color: #65737e;
+  font-size: 12px;
+  font-weight: 700;
 }
 .result-status.status-processing i { background: #3276a8; }
 .result-status.status-review i { background: #c47b24; }
@@ -739,7 +778,16 @@ button.is-busy, button.is-busy:disabled { cursor: wait; }
 .result-status.status-rejected i { background: #c84e3d; }
 .result-status.status-cancelled i { background: #89949d; }
 .quarantine-heading { margin-top: 24px; }
-.quarantine-row { grid-template-columns: minmax(260px, 1fr) 90px 180px auto; }
+.quarantine-row { grid-template-columns: minmax(260px, 1fr) 100px minmax(220px, .65fr) 210px; }
+.quarantine-skill-identity { min-width: 0; }
+.quarantine-status { justify-self: start; }
+.quarantine-guidance {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quarantine-actions { width: 210px; }
 
 .status-hero {
   display: flex;
@@ -908,30 +956,36 @@ html[lang="en-US"] #preview-button {
     justify-self: end;
   }
   .pending-skill-row {
-    grid-template-columns: 24px minmax(0, 1fr) minmax(160px, auto);
+    grid-template-columns: 24px minmax(160px, .85fr) minmax(170px, 1.15fr) 206px;
+    align-items: center;
   }
   .pending-skill-row > :nth-child(3) {
-    grid-row: 1;
-    grid-column: 3;
+    grid-row: auto;
+    grid-column: auto;
+    align-self: center;
+    justify-self: stretch;
   }
   .pending-skill-row > :nth-child(4) {
-    grid-row: 2;
-    grid-column: 2 / 4;
+    grid-row: auto;
+    grid-column: auto;
+    align-self: center;
+    justify-self: end;
   }
-  .quarantine-row,
   .task-history-row {
     grid-template-columns: minmax(0, 1fr) minmax(160px, auto);
   }
-  .quarantine-row > :nth-child(3),
   .task-history-row > :nth-child(3) {
     grid-row: 2;
     grid-column: 1;
   }
-  .quarantine-row > :nth-child(4),
   .task-history-row > :nth-child(4) {
     grid-row: 2;
     grid-column: 2;
   }
+  .quarantine-row { grid-template-columns: minmax(0, 1fr) 210px; }
+  .quarantine-row > :nth-child(2) { grid-row: 1; grid-column: 2; }
+  .quarantine-row > :nth-child(3) { grid-row: 2; grid-column: 1; }
+  .quarantine-row > :nth-child(4) { grid-row: 2; grid-column: 2; }
   .takeover-agent-summary {
     grid-template-columns: 180px minmax(0, 1fr) 104px;
   }
@@ -969,11 +1023,20 @@ html[lang="en-US"] #preview-button {
     justify-self: end;
   }
   .pending-skill-row {
-    grid-template-columns: 24px minmax(180px, 1fr) minmax(150px, 210px) 126px;
+    grid-template-columns: 24px minmax(160px, .85fr) minmax(170px, 1.15fr) 206px;
   }
-  .pending-skill-row > :nth-child(3),
+  .pending-skill-row > :nth-child(3) {
+    grid-row: auto;
+    grid-column: auto;
+    justify-self: stretch;
+  }
   .pending-skill-row > :nth-child(4) {
     grid-row: auto;
     grid-column: auto;
+    justify-self: end;
   }
+  .quarantine-row { grid-template-columns: minmax(0, 1fr) 210px; }
+  .quarantine-row > :nth-child(2) { grid-row: 1; grid-column: 2; }
+  .quarantine-row > :nth-child(3) { grid-row: 2; grid-column: 1; }
+  .quarantine-row > :nth-child(4) { grid-row: 2; grid-column: 2; }
 }

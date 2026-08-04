@@ -147,8 +147,13 @@ MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟�
 - `能力治理 / MCP 网关` 把多个 Server 的部分 Tool 组合为 `/mcp/{gateway_slug}`。
 - `能力治理 / MCP 调试` 可以在保存前使用临时 Endpoint 直连服务，也可以使用真实网关凭证执行 Tool 发现和调用，并展示原始 JSON 请求历史。
 - 调用方使用 `MCP 网关凭证`，凭证限制可访问网关、IP、有效期、请求大小和并发数，不要求绑定 `ManagedAgent`。
+- 上游连接默认强制 HTTPS，并在每次调用前校验 DNS 解析结果和出站白名单；Tool 还可以配置速率、并发、响应大小和逐次审批。
 - Tool 对外名称为 `{server_slug}__{tool_name}`；Schema 变化后暂停暴露，重新保存网关配置才会批准新 Hash。
 - 当前数据面实现 `initialize`、`ping`、`tools/list` 和 `tools/call`，不托管 stdio MCP。
+
+### 3.8 可验证安全审计
+
+管理面的 Token、Agent、MCP、模型和策略写操作会进入统一安全审计链。每条事件包含前一条事件哈希，并使用独立 Ed25519 审计密钥签名。管理员可调用 `GET /api/v1/security-audit/verify`，或在 Backend 环境执行 `python -m backend.security_audit verify` 检查完整性。配置 `SECURITY_AUDIT_EXPORT_PATH` 后，同一事件还会追加写入 JSONL，供外部日志平台采集。
 
 ---
 
@@ -515,7 +520,7 @@ flowchart LR
 3. 每个文件算 `SHA256`
 4. 汇总成一个稳定文本
 5. 最终做：
-   - `HMAC-SHA256`（有 key）
+   - 服务端 `Ed25519` 签名信封
    - 或 `SHA256`（开发模式）
 
 用途是：
@@ -603,8 +608,8 @@ npm run dev
 
 默认登录：
 
-- 用户名：`admin`
-- 密码：`Admin@123`
+- 用户名：默认 `admin`，可通过 `INITIAL_ADMIN_USERNAME` 修改
+- 密码：首次部署必须通过 `INITIAL_ADMIN_PASSWORD` 设置；系统不提供固定默认密码
 
 ### 11.2 本地使用 docker sandbox
 
@@ -827,15 +832,28 @@ sequenceDiagram
 
 ---
 
-## 15. 常见问题
+## 15. Agent 运行时安全治理
 
-### 15.1 为什么 sandbox 是 LOW，但 LLM 是 malicious？
+“运行时治理”页面同时展示原有 Skill 加载审计和 P2 任务治理能力：
+
+- 任务以 Agent、租户、用户、会话和原始目标建立安全契约，策略快照固定步骤、重试、委派、费用、数据量和时长上限。
+- Planner 计划与 Executor 实际动作都要经过策略门；高风险动作需要管理员创建与参数绑定的审批，再消费短期一次性授权。
+- 动作以父动作 ID 形成 Lineage；连续失败打开 Agent/Tool 熔断器，管理员可按全局、租户、用户、Agent 或 Tool 启用 Kill Switch。
+- 隔离回放只重新计算策略决定，不访问网络、不执行动作、不改变业务状态，用于识别策略变化影响的动作范围。
+- Memory 写入记录来源、内容哈希和扫描发现，按租户、用户、会话和 Agent 精确隔离。模型输出不会自动成为可信记忆；支持过期、隔离、版本查看和回滚。
+- Preview 任务不签发可执行动作授权；带网络访问、状态变更或明显写操作的动作会被服务端拒绝。Memory Preview 只扫描、不落库。
+
+Agent Manager 不执行外部 Agent 的业务动作。外部 Runtime 必须在执行点调用一次性授权消费接口并服从拒绝、熔断和停止结果；否则平台只能记录风险，无法形成强制控制。
+
+## 16. 常见问题
+
+### 16.1 为什么 sandbox 是 LOW，但 LLM 是 malicious？
 
 因为 sandbox 只观察“这次 probe 实际跑出来的行为”，
 而 LLM 会从整体语义上判断恶意意图，并生成详细的攻击链分析。
 二者不一致是正常的，最终看合并风险。
 
-### 15.2 为什么系统设置里改了 sandbox，提交结果还是旧镜像？
+### 16.2 为什么系统设置里改了 sandbox，提交结果还是旧镜像？
 
 说明实际生效的配置还没更新。  
 现在系统设置和详情页都能显示：
@@ -845,7 +863,7 @@ sequenceDiagram
 
 优先看“技能详情里的当前实际执行环境”。
 
-### 15.3 为什么一个恶意 skill 不进入审核队列？
+### 16.3 为什么一个恶意 skill 不进入审核队列？
 
 因为：
 
@@ -854,7 +872,7 @@ sequenceDiagram
 
 例如 `malicious` 风险通常会被策略直接拒绝。
 
-### 15.4 为什么重复提交没有复用？
+### 16.4 为什么重复提交没有复用？
 
 扫描复用不是按 skill name 判断，而是按：
 
@@ -875,7 +893,7 @@ sequenceDiagram
 
 ---
 
-## 16. 相关专题文档
+## 17. 相关专题文档
 
 - 客户演示 Runbook：
   [customer-demo-runbook.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/customer-demo-runbook.md)

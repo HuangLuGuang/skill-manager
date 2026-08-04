@@ -22,8 +22,9 @@
               </template>
               <template v-else-if="column.key === 'tools'">
                 <a-space wrap>
-                  <a-tag v-for="tool in record.tools || []" :key="tool.id" :color="tool.enabled ? 'blue' : 'default'">
-                    {{ tool.name }}
+                  <a-tag v-for="tool in record.tools || []" :key="tool.id" :color="tool.risk_level === 'high' ? 'red' : tool.risk_level === 'medium' ? 'orange' : tool.enabled ? 'blue' : 'default'">
+                    <a-button type="link" size="small" @click="openToolPolicy(tool)">{{ tool.name }}</a-button>
+                    <span v-if="tool.requires_approval"> · {{ $t('mcpSecurity.approvalRequired') }}</span>
                   </a-tag>
                   <span v-if="!record.tools?.length" class="muted">{{ $t("legacy.1cqmmbo") }}</span>
                 </a-space>
@@ -126,8 +127,27 @@
         <a-row :gutter="16">
           <a-col :span="12"><a-form-item :label="$t('legacy.1ccx4t4')"><a-select v-model:value="serverForm.status"><a-select-option value="draft">{{ $t("legacy.oc54qp") }}</a-select-option><a-select-option value="active">{{ $t("legacy.5pm2ma") }}</a-select-option><a-select-option value="disabled">{{ $t("legacy.6q9o5l") }}</a-select-option></a-select></a-form-item></a-col>
           <a-col :span="12"><a-form-item :label="$t('legacy.tabbi8')"><a-input-number v-model:value="serverForm.timeout_seconds" :min="1" :max="300" style="width: 100%" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item :label="$t('mcpSecurity.maximumResponseKb')"><a-input-number v-model:value="serverForm.max_response_kb" :min="1" :max="10240" style="width: 100%" /></a-form-item></a-col>
         </a-row>
         <a-form-item :label="$t('legacy.1kxyax6')"><a-textarea v-model:value="serverForm.description" :rows="3" /></a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal v-model:open="toolPolicyVisible" :title="$t('mcpSecurity.title')" :confirm-loading="submitting" @ok="saveToolPolicy">
+      <a-form layout="vertical" :model="toolPolicyForm">
+        <a-form-item :label="$t('mcpSecurity.riskLevel')">
+          <a-select v-model:value="toolPolicyForm.risk_level">
+            <a-select-option value="low">{{ $t('mcpSecurity.low') }}</a-select-option>
+            <a-select-option value="medium">{{ $t('mcpSecurity.medium') }}</a-select-option>
+            <a-select-option value="high">{{ $t('mcpSecurity.high') }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-row :gutter="16">
+          <a-col :span="12"><a-form-item :label="$t('mcpSecurity.callsPerMinute')"><a-input-number v-model:value="toolPolicyForm.rate_limit_per_minute" :min="1" :max="10000" style="width: 100%" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item :label="$t('mcpSecurity.maximumConcurrency')"><a-input-number v-model:value="toolPolicyForm.max_concurrent" :min="1" :max="100" style="width: 100%" /></a-form-item></a-col>
+        </a-row>
+        <a-form-item :label="$t('mcpSecurity.preExecutionApproval')"><a-switch v-model:checked="toolPolicyForm.requires_approval" :disabled="toolPolicyForm.risk_level === 'high'" /></a-form-item>
+        <a-alert v-if="toolPolicyForm.risk_level === 'high'" type="warning" show-icon :message="$t('mcpSecurity.highRiskHint')" />
       </a-form>
     </a-modal>
 
@@ -158,6 +178,7 @@ import { translateLegacy as phrase } from '../i18n'
 
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 
 import {
@@ -172,11 +193,13 @@ import {
   listMcpServers,
   updateMcpGateway,
   updateMcpServer,
+  updateMcpToolPolicy,
 } from '../api'
 import { useLocaleText } from '../i18n/useLocaleText'
 import { formatDateTime } from '../utils/format'
 
 const route = useRoute()
+const { t } = useI18n()
 const { text } = useLocaleText()
 const activePage = computed(() => route.meta.mcpTab || 'servers')
 const pageTitle = computed(() => ({ servers: phrase('legacy.lnloo7'), gateways: phrase('legacy.1gcagoh'), audit: phrase('legacy.2pfrfc') }[activePage.value]))
@@ -195,11 +218,13 @@ const serverTesting = ref(false)
 const serverTestTools = ref(null)
 const serverVisible = ref(false)
 const gatewayVisible = ref(false)
+const toolPolicyVisible = ref(false)
 const editingServerId = ref(null)
 const editingGatewayId = ref(null)
 const origin = window.location.origin
-const serverForm = reactive({ slug: '', name: '', description: '', endpoint: '', authorization_header: 'Authorization', authorization_value: '', status: 'draft', timeout_seconds: 30 })
+const serverForm = reactive({ slug: '', name: '', description: '', endpoint: '', authorization_header: 'Authorization', authorization_value: '', status: 'draft', timeout_seconds: 30, max_response_kb: 1024 })
 const gatewayForm = reactive({ slug: '', name: '', description: '', status: 'active', tools: [] })
+const toolPolicyForm = reactive({ id: null, risk_level: 'low', rate_limit_per_minute: 60, max_concurrent: 5, requires_approval: false })
 
 const serverColumns = computed(() => [
   { title: 'MCP Server', key: 'server' },
@@ -260,6 +285,7 @@ const openServer = record => {
   Object.assign(serverForm, {
     slug: record?.slug || '', name: record?.name || '', description: record?.description || '', endpoint: record?.endpoint || '',
     authorization_header: record?.authorization_header || 'Authorization', authorization_value: '', status: record?.status || 'draft', timeout_seconds: record?.timeout_seconds || 30,
+    max_response_kb: record?.max_response_kb || 1024,
   })
   serverTestTools.value = null
   serverVisible.value = true
@@ -321,6 +347,37 @@ const discover = async record => {
     message.error(error.response?.data?.detail || phrase('legacy.8ufi7f'))
   } finally {
     actionId.value = null
+  }
+}
+
+const openToolPolicy = tool => {
+  Object.assign(toolPolicyForm, {
+    id: tool.id,
+    risk_level: tool.risk_level || 'low',
+    rate_limit_per_minute: tool.rate_limit_per_minute || 60,
+    max_concurrent: tool.max_concurrent || 5,
+    requires_approval: Boolean(tool.requires_approval),
+  })
+  toolPolicyVisible.value = true
+}
+
+const saveToolPolicy = async () => {
+  if (submitting.value || !toolPolicyForm.id) return
+  submitting.value = true
+  try {
+    await updateMcpToolPolicy(toolPolicyForm.id, {
+      risk_level: toolPolicyForm.risk_level,
+      rate_limit_per_minute: toolPolicyForm.rate_limit_per_minute,
+      max_concurrent: toolPolicyForm.max_concurrent,
+      requires_approval: toolPolicyForm.risk_level === 'high' || toolPolicyForm.requires_approval,
+    })
+    toolPolicyVisible.value = false
+    await fetchAll()
+    message.success(t('mcpSecurity.updated'))
+  } catch (error) {
+    message.error(error.response?.data?.detail || t('mcpSecurity.updateFailed'))
+  } finally {
+    submitting.value = false
   }
 }
 

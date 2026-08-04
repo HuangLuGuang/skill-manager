@@ -7,17 +7,24 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from .. import auth, models, schemas
 from ..api_errors import ApiError
 from ..sqlite_db import get_db
+from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
 
 
 router = APIRouter(prefix="/access/tokens", tags=["access-tokens"])
 
 SCANNER_SCOPES = ["scanner:submit", "scanner:read-own-results", "scanner:read-own-sessions"]
-RUNTIME_SCOPES = ["runtime:verify-signature", "runtime:can-load", "runtime:check-tool"]
+RUNTIME_SCOPES = [
+    "runtime:verify-signature",
+    "runtime:can-load",
+    "runtime:check-tool",
+    "runtime:govern",
+    "runtime:memory",
+]
 MODEL_SCOPES = ["model:chat"]
 MCP_SCOPES = ["mcp:connect", "mcp:list-tools", "mcp:call-tools"]
 CLIENT_SCOPES = [
@@ -38,8 +45,15 @@ DEFAULT_SCOPES_BY_TYPE = {
     "client": list(CLIENT_SCOPES),
     "mcp_gateway": list(MCP_SCOPES),
 }
-ACTIVE_TOKEN_REQUESTS: dict[int, int] = {}
 LAST_USED_WRITE_INTERVAL = timedelta(minutes=5)
+
+SCOPE_TOKEN_TYPES = {
+    **{scope: {"scanner"} for scope in SCANNER_SCOPES},
+    **{scope: {"agent_runtime"} for scope in RUNTIME_SCOPES},
+    "model:chat": {"model_gateway", "agent_runtime"},
+    **{scope: {"mcp_gateway"} for scope in MCP_SCOPES},
+    **{scope: {"client"} for scope in CLIENT_SCOPES},
+}
 
 
 def _json_loads(value: str | None, default):
@@ -153,6 +167,7 @@ def resolve_access_token(
     *,
     required_scope: str | tuple[str, ...],
     request: Request | None = None,
+    allowed_token_types: set[str] | None = None,
 ) -> models.AccessToken:
     plain = _extract_bearer(authorization)
     row = db.query(models.AccessToken).filter(models.AccessToken.token_hash == _hash_token(plain)).first()
@@ -176,6 +191,19 @@ def resolve_access_token(
             f"接入凭证缺少权限: {scope_text_zh}",
             f"The access credential requires scope: {scope_text_en}",
             params={"scopes": list(required_scopes)},
+        )
+    expected_types = allowed_token_types or {
+        token_type
+        for scope in required_scopes
+        for token_type in SCOPE_TOKEN_TYPES.get(scope, set())
+    }
+    if expected_types and row.token_type not in expected_types:
+        raise ApiError(
+            403,
+            "credential.type_mismatch",
+            "接入凭证类型不允许访问当前接口",
+            "The credential type is not allowed for this endpoint",
+            params={"allowed_token_types": sorted(expected_types), "token_type": row.token_type},
         )
     allowed_ips = _json_loads(row.allowed_ips_json, [])
     client_ip = request.client.host if request and request.client else None
@@ -267,23 +295,36 @@ def ensure_agent_prompt_allowed(agent: models.ManagedAgent, prompt_name: str) ->
 
 
 def acquire_access_token_slot(token: models.AccessToken) -> None:
-    active = ACTIVE_TOKEN_REQUESTS.get(token.id, 0)
-    if active >= max(1, token.max_concurrent_requests):
+    session = object_session(token)
+    bind = session.get_bind() if session is not None else None
+    try:
+        lease_id = acquire_lease(
+            "access_token",
+            token.id,
+            "request",
+            token.max_concurrent_requests,
+            **({"bind": bind} if bind is not None else {}),
+        )
+    except LeaseLimitExceeded:
         raise ApiError(
             429,
             "credential.concurrency_limit",
             "接入凭证并发请求数已达上限",
             "The credential concurrency limit has been reached",
         )
-    ACTIVE_TOKEN_REQUESTS[token.id] = active + 1
+    leases = getattr(token, "_request_lease_ids", None)
+    if leases is None:
+        leases = []
+        setattr(token, "_request_lease_ids", leases)
+    leases.append((lease_id, bind))
 
 
 def release_access_token_slot(token: models.AccessToken) -> None:
-    active = ACTIVE_TOKEN_REQUESTS.get(token.id, 0)
-    if active <= 1:
-        ACTIVE_TOKEN_REQUESTS.pop(token.id, None)
-    else:
-        ACTIVE_TOKEN_REQUESTS[token.id] = active - 1
+    leases = getattr(token, "_request_lease_ids", None) or []
+    lease = leases.pop() if leases else None
+    if lease:
+        lease_id, bind = lease
+        release_lease(lease_id, **({"bind": bind} if bind is not None else {}))
 
 
 def verify_plain_token(row: models.AccessToken, plain: str) -> bool:
@@ -351,7 +392,11 @@ async def create_access_token(
         max_concurrent_jobs=body.max_concurrent_jobs,
         enable_compression=body.enable_compression,
         compression_level=body.compression_level,
-        prompt_guard_mode=body.prompt_guard_mode,
+        prompt_guard_mode=(
+            "block"
+            if body.token_type == "agent_runtime" and "prompt_guard_mode" not in body.model_fields_set
+            else body.prompt_guard_mode
+        ),
         prompt_guard_llm_review=body.prompt_guard_llm_review,
         created_by=current_user.username,
     )

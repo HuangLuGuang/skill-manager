@@ -1,14 +1,18 @@
 """Tests for Prompt signing and signature verification."""
 
-import os
-import tempfile
+import hashlib
+import hmac
 from pathlib import Path
 
 import pytest
 
 from agent_manager.core.signer import (
+    _decode_envelope,
+    _verify_envelope,
+    compute_prompt_content_digest,
     compute_prompt_file_signature,
     compute_prompt_signature,
+    signature_content_digest,
     verify_prompt_signature,
 )
 
@@ -26,17 +30,17 @@ class TestComputePromptSignature:
 
     def test_empty_string(self):
         sig = compute_prompt_signature("")
-        assert sig and len(sig) == 64  # SHA256 hex is 64 chars
+        assert sig.startswith("ed25519:v1:")
 
     def test_unicode_content(self):
         content = "你好，我是AI助手。请安全地处理用户请求。🚀"
         sig = compute_prompt_signature(content)
-        assert sig and len(sig) == 64
+        assert sig.startswith("ed25519:v1:")
 
     def test_large_prompt(self):
         content = "A" * 100000  # 100KB prompt
         sig = compute_prompt_signature(content)
-        assert sig and len(sig) == 64
+        assert sig.startswith("ed25519:v1:")
 
     def test_sensitive_to_whitespace(self):
         sig1 = compute_prompt_signature("prompt")
@@ -51,18 +55,21 @@ class TestComputePromptSignature:
         sig2 = compute_prompt_signature("line1\n\nline2")
         assert sig1 != sig2
 
-    def test_with_signing_key(self, monkeypatch):
+    def test_legacy_hmac_environment_does_not_change_new_signature(self, monkeypatch):
+        baseline = compute_prompt_signature("secret prompt")
         monkeypatch.setenv("AGENT_MANAGER_SIGNING_KEY", "test-signing-key-32bytes-long!!")
         sig = compute_prompt_signature("secret prompt")
-        assert sig and len(sig) == 64
+        assert sig == baseline
 
-    def test_with_signing_key_different_from_without(self, monkeypatch):
+    def test_legacy_hmac_record_remains_verifiable(self, monkeypatch):
         content = "test content"
         monkeypatch.setenv("AGENT_MANAGER_SIGNING_KEY", "test-signing-key-32bytes-long!!")
-        sig_with_key = compute_prompt_signature(content)
-        monkeypatch.delenv("AGENT_MANAGER_SIGNING_KEY", raising=False)
-        sig_without_key = compute_prompt_signature(content)
-        assert sig_with_key != sig_without_key
+        legacy = hmac.new(
+            b"test-signing-key-32bytes-long!!",
+            content.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        assert verify_prompt_signature(content, legacy)
 
 
 class TestComputePromptFileSignature:
@@ -96,6 +103,43 @@ class TestVerifyPromptSignature:
     def test_non_matching_content_fails(self):
         sig = compute_prompt_signature("Original content")
         assert not verify_prompt_signature("Tampered content", sig)
+
+    @pytest.mark.parametrize(
+        ("field", "replacement"),
+        [
+            (2, "中文"),
+            (2, "f"),
+            (3, "Z" * 64),
+            (3, "a" * 63),
+            (4, "eA=="),
+        ],
+    )
+    def test_malformed_ed25519_envelope_is_rejected(self, field, replacement):
+        content = "Strict envelope validation"
+        parts = compute_prompt_signature(content).split(":")
+        parts[field] = replacement
+        malformed = ":".join(parts)
+
+        assert _decode_envelope(malformed) is None
+        assert signature_content_digest(malformed) is None
+        assert not verify_prompt_signature(content, malformed)
+
+    def test_envelope_verifier_never_raises_for_untrusted_text(self):
+        digest = compute_prompt_content_digest("content")
+        malformed = f"ed25519:v1:中文:{digest}:eA=="
+
+        assert _verify_envelope("prompt", digest, malformed) is False
+        assert _verify_envelope("prompt", "中文", malformed) is False
+
+    def test_wrong_public_key_fails(self, tmp_path, monkeypatch):
+        content = "Signed by the original server identity"
+        sig = compute_prompt_signature(content)
+        monkeypatch.setenv(
+            "AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH",
+            str(tmp_path / "other-server-ed25519.pem"),
+        )
+
+        assert not verify_prompt_signature(content, sig)
 
     def test_matching_file_passes(self, tmp_path):
         content = "File content for verification."
@@ -154,14 +198,12 @@ class TestVerifyPromptSignature:
         f.write_text("This is the approved prompt text!", encoding="utf-8")
         assert not verify_prompt_signature(f, sig)
 
-    def test_with_signing_key_enabled(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("AGENT_MANAGER_SIGNING_KEY", "a-very-secret-key-for-signing")
-        content = "Protected prompt with HMAC."
+    def test_with_ed25519_signing_enabled(self, tmp_path):
+        content = "Protected prompt with Ed25519."
         sig = compute_prompt_signature(content)
         assert verify_prompt_signature(content, sig)
-        # Different key would not match (test with wrong content)
         assert not verify_prompt_signature("Wrong content", sig)
 
-        f = tmp_path / "hmac-file.txt"
+        f = tmp_path / "ed25519-file.txt"
         f.write_text(content, encoding="utf-8")
         assert verify_prompt_signature(f, sig)

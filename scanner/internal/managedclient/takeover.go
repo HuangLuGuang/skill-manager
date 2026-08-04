@@ -16,6 +16,7 @@ type TakeoverItem struct {
 	Name           string `json:"name"`
 	Source         string `json:"source"`
 	SkillID        string `json:"skill_id,omitempty"`
+	VersionID      string `json:"version_id,omitempty"`
 	ManagedAgentID string `json:"managed_agent_id,omitempty"`
 	Signature      string `json:"signature,omitempty"`
 	Action         string `json:"action"`
@@ -50,7 +51,8 @@ func BuildTakeoverPlan(inventory Inventory, comparisons []CompareItem) TakeoverP
 				reason = result.Reason
 				if result.Allowed {
 					action = "manage"
-					if skill.Status == "managed" && skill.SkillID != "" && skill.SkillID == result.SkillID {
+					if skill.Status == "managed" && skill.SkillID != "" &&
+						(skill.SkillID == result.SkillID || skill.SkillID == result.VersionID) {
 						action = "managed"
 						reason = "already_managed"
 					}
@@ -61,6 +63,7 @@ func BuildTakeoverPlan(inventory Inventory, comparisons []CompareItem) TakeoverP
 				Name:           skill.Name,
 				Source:         skill.Path,
 				SkillID:        result.SkillID,
+				VersionID:      result.VersionID,
 				ManagedAgentID: result.ManagedAgentID,
 				Signature:      skill.Signature,
 				Action:         action,
@@ -78,6 +81,8 @@ func comparisonKey(agentType, name, path, signature string) string {
 
 func RecordTakeover(home string, plan TakeoverPlan, store *Store) error {
 	opts := DefaultManifestOptions()
+	installs := make([]Installation, 0, len(plan.Items))
+	pending := make([]PendingItem, 0, len(plan.Items))
 	for _, item := range plan.Items {
 		if item.Action == "managed" {
 			continue
@@ -89,16 +94,14 @@ func RecordTakeover(home string, plan TakeoverPlan, store *Store) error {
 					fingerprint = value.Fingerprint
 				}
 			}
-			if err := store.SavePending(PendingItem{
+			pending = append(pending, PendingItem{
 				AgentType:    item.AgentType,
 				SkillName:    item.Name,
 				OriginalPath: item.Source,
 				PendingPath:  item.PendingPath,
 				Reason:       item.Reason,
 				Fingerprint:  fingerprint,
-			}); err != nil {
-				return err
-			}
+			})
 			continue
 		}
 		root := filepath.Join(ManagedSkillsRoot(home), item.SkillID, "release")
@@ -110,20 +113,35 @@ func RecordTakeover(home string, plan TakeoverPlan, store *Store) error {
 		for _, file := range value.Files {
 			files = append(files, releaseFile{Path: file.Path, Size: file.Size, SHA256: file.SHA256})
 		}
-		if err := store.SaveInstall(Installation{
+		actualSignature := manifest.ContentSignature(value.Files)
+		if actualSignature != item.Signature {
+			return fmt.Errorf("skill %s changed after platform verification", item.Name)
+		}
+		installs = append(installs, Installation{
 			AgentType:      item.AgentType,
 			ManagedAgentID: item.ManagedAgentID,
 			SkillID:        item.SkillID,
 			SkillName:      item.Name,
 			TargetPath:     item.Source,
 			Manifest: releaseManifest{
-				Version:          1,
+				Version:          2,
 				SkillID:          item.SkillID,
+				VersionID:        item.VersionID,
 				Name:             item.Name,
 				ContentSignature: item.Signature,
 				Files:            files,
 			},
-		}); err != nil {
+		})
+	}
+	// Validate every copied Skill before changing local governance state. This
+	// prevents a later validation failure from leaving earlier items registered.
+	for _, item := range pending {
+		if err := store.SavePending(item); err != nil {
+			return err
+		}
+	}
+	for _, install := range installs {
+		if err := store.SaveInstall(install); err != nil {
 			return err
 		}
 	}

@@ -1,9 +1,11 @@
 import hashlib
 import ipaddress
 import json
+import secrets
+import socket
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
 import httpx
@@ -12,6 +14,8 @@ from jsonschema import ValidationError, validate
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
+from ..config import settings
+from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
 from ..sqlite_db import get_db
 from .access_tokens import (
     _json_loads,
@@ -40,6 +44,8 @@ def _validate_endpoint(endpoint: str) -> str:
     parsed = urlsplit(value)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
         raise HTTPException(status_code=400, detail="MCP Endpoint 必须是有效的 HTTP/HTTPS 地址")
+    if parsed.scheme == "http" and not settings.MCP_ALLOW_HTTP:
+        raise HTTPException(status_code=400, detail="MCP Endpoint 必须使用 HTTPS；开发环境可显式启用 MCP_ALLOW_HTTP")
     if parsed.hostname.lower() == "localhost":
         raise HTTPException(status_code=400, detail="MCP Endpoint 不允许 localhost")
     try:
@@ -49,6 +55,68 @@ def _validate_endpoint(endpoint: str) -> str:
     if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
         raise HTTPException(status_code=400, detail="MCP Endpoint 不允许环回、链路本地或组播地址")
     return value
+
+
+def _outbound_allowlist() -> list[str]:
+    return [item.strip().lower() for item in settings.MCP_OUTBOUND_ALLOWLIST.split(",") if item.strip()]
+
+
+def _allowlist_matches(hostname: str, address: ipaddress.IPv4Address | ipaddress.IPv6Address | None = None) -> bool:
+    hostname = hostname.lower().rstrip(".")
+    for item in _outbound_allowlist():
+        if item.startswith("*.") and (hostname == item[2:] or hostname.endswith(item[1:])):
+            return True
+        if item == hostname:
+            return True
+        if address is not None:
+            try:
+                if address in ipaddress.ip_network(item, strict=False):
+                    return True
+            except ValueError:
+                pass
+    return False
+
+
+def _address_explicitly_allowed(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    for item in _outbound_allowlist():
+        try:
+            if address in ipaddress.ip_network(item, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _validate_resolved_endpoint(endpoint: str) -> list[str]:
+    parsed = urlsplit(_validate_endpoint(endpoint))
+    hostname = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        records = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"MCP Endpoint DNS 解析失败: {hostname}") from exc
+    addresses = sorted({record[4][0] for record in records})
+    if not addresses:
+        raise HTTPException(status_code=400, detail=f"MCP Endpoint DNS 未返回地址: {hostname}")
+    for raw in addresses:
+        address = ipaddress.ip_address(raw)
+        forbidden = (
+            address.is_private
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_multicast
+            or address.is_unspecified
+            or address.is_reserved
+        )
+        # A hostname allowlist alone must never authorize rebinding to a private
+        # address. Private enterprise targets require an explicit IP/CIDR entry.
+        if forbidden and not _address_explicitly_allowed(address):
+            raise HTTPException(status_code=400, detail=f"MCP Endpoint 解析到不允许的地址: {raw}")
+    if _outbound_allowlist() and not any(
+        _allowlist_matches(hostname, ipaddress.ip_address(raw)) for raw in addresses
+    ):
+        raise HTTPException(status_code=400, detail="MCP Endpoint 不在出站白名单中")
+    return addresses
 
 
 def _validate_header(name: str) -> str:
@@ -63,6 +131,11 @@ def _schema_hash(schema: dict) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _arguments_hash(arguments: dict) -> str:
+    canonical = json.dumps(arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def _tool_response(row: models.McpTool) -> schemas.McpToolResponse:
     return schemas.McpToolResponse(
         id=row.id,
@@ -73,6 +146,10 @@ def _tool_response(row: models.McpTool) -> schemas.McpToolResponse:
         input_schema=_json(row.input_schema_json, {}),
         schema_hash=row.schema_hash,
         enabled=row.enabled,
+        risk_level=row.risk_level,
+        rate_limit_per_minute=row.rate_limit_per_minute,
+        max_concurrent=row.max_concurrent,
+        requires_approval=row.requires_approval,
         discovered_at=row.discovered_at,
     )
 
@@ -90,6 +167,7 @@ def _server_response(db: Session, row: models.McpServer) -> schemas.McpServerRes
         status=row.status,
         health_status=row.health_status,
         timeout_seconds=row.timeout_seconds,
+        max_response_kb=row.max_response_kb,
         last_checked_at=row.last_checked_at,
         created_by=row.created_by,
         created_at=row.created_at,
@@ -186,6 +264,7 @@ async def _post_upstream(
     session_id: str | None = None,
     protocol_version: str = MCP_PROTOCOL_VERSION,
 ) -> tuple[dict, str | None]:
+    _validate_resolved_endpoint(server.endpoint)
     headers = {
         "Accept": "application/json, text/event-stream",
         "Content-Type": "application/json",
@@ -196,9 +275,21 @@ async def _post_upstream(
         headers[server.authorization_header] = secret
     if session_id:
         headers["Mcp-Session-Id"] = session_id
+    max_bytes = max(1, int(getattr(server, "max_response_kb", settings.MCP_MAX_RESPONSE_KB) or settings.MCP_MAX_RESPONSE_KB)) * 1024
     async with httpx.AsyncClient(timeout=server.timeout_seconds, follow_redirects=False) as client:
-        response = await client.post(server.endpoint, json=payload, headers=headers)
-    return _parse_upstream_response(response, payload.get("id")), response.headers.get("Mcp-Session-Id") or session_id
+        async with client.stream("POST", server.endpoint, json=payload, headers=headers) as response:
+            content = bytearray()
+            async for chunk in response.aiter_bytes():
+                content.extend(chunk)
+                if len(content) > max_bytes:
+                    raise ValueError(f"上游 MCP 响应超过限制: {max_bytes // 1024} KB")
+            buffered = httpx.Response(
+                status_code=response.status_code,
+                headers=response.headers,
+                content=bytes(content),
+                request=response.request,
+            )
+    return _parse_upstream_response(buffered, payload.get("id")), buffered.headers.get("Mcp-Session-Id") or session_id
 
 
 async def _call_upstream(server: models.McpServer, method: str, params: dict) -> dict:
@@ -259,6 +350,7 @@ async def create_server(
         authorization_value=_protect_secret(body.authorization_value),
         status=body.status,
         timeout_seconds=body.timeout_seconds,
+        max_response_kb=body.max_response_kb,
         created_by=current_user.username,
     )
     if not row.name:
@@ -364,6 +456,67 @@ async def discover_server(server_id: int, db: Session = Depends(get_db)):
 @admin_router.get("/gateways", response_model=list[schemas.McpGatewayResponse])
 async def list_gateways(db: Session = Depends(get_db)):
     return [_gateway_response(db, row) for row in db.query(models.McpGateway).order_by(models.McpGateway.id.desc()).all()]
+
+
+@admin_router.put("/tools/{tool_id}/policy", response_model=schemas.McpToolResponse)
+async def update_tool_policy(
+    tool_id: int,
+    body: schemas.McpToolPolicyUpdate,
+    db: Session = Depends(get_db),
+):
+    tool = db.query(models.McpTool).filter(models.McpTool.id == tool_id).first()
+    if not tool:
+        raise HTTPException(status_code=404, detail="MCP Tool 不存在")
+    tool.risk_level = body.risk_level
+    tool.rate_limit_per_minute = body.rate_limit_per_minute
+    tool.max_concurrent = body.max_concurrent
+    tool.requires_approval = body.requires_approval or body.risk_level == "high"
+    db.commit()
+    db.refresh(tool)
+    return _tool_response(tool)
+
+
+@admin_router.post("/approvals", response_model=schemas.McpToolApprovalResponse)
+async def create_tool_approval(
+    body: schemas.McpToolApprovalCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    token = db.query(models.AccessToken).filter(
+        models.AccessToken.id == body.token_id,
+        models.AccessToken.token_type == "mcp_gateway",
+        models.AccessToken.status == "active",
+    ).first()
+    if not token:
+        raise HTTPException(status_code=404, detail="MCP 接入凭证不存在或未启用")
+    gateway = db.query(models.McpGateway).filter(
+        models.McpGateway.slug == body.gateway_slug,
+        models.McpGateway.status == "active",
+    ).first()
+    if not gateway:
+        raise HTTPException(status_code=404, detail="MCP 网关不存在或未启用")
+    match = next((item for item in _gateway_tools(db, gateway) if item[1].exposed_name == body.tool_name), None)
+    if not match:
+        raise HTTPException(status_code=404, detail="MCP Tool 未在网关中授权")
+    tool = match[1]
+    if not tool.requires_approval:
+        raise HTTPException(status_code=400, detail="该 MCP Tool 不需要高风险审批")
+    allowed_gateways = _json_loads(token.allowed_mcp_gateways_json, [])
+    if body.gateway_slug not in allowed_gateways:
+        raise HTTPException(status_code=403, detail="凭证未授权访问该 MCP 网关")
+    plain = "mcpap_" + secrets.token_urlsafe(24)
+    expires_at = datetime.utcnow() + timedelta(seconds=body.ttl_seconds)
+    db.add(models.McpToolApproval(
+        approval_hash=hashlib.sha256(plain.encode("utf-8")).hexdigest(),
+        token_id=token.id,
+        gateway_slug=gateway.slug,
+        tool_name=tool.exposed_name,
+        arguments_hash=_arguments_hash(body.arguments),
+        expires_at=expires_at,
+        created_by=current_user.username,
+    ))
+    db.commit()
+    return schemas.McpToolApprovalResponse(approval_token=plain, expires_at=expires_at)
 
 
 @admin_router.post("/gateways", response_model=schemas.McpGatewayResponse)
@@ -538,6 +691,53 @@ def _record_denied_call(
     db.commit()
 
 
+def _consume_tool_approval(
+    db: Session,
+    *,
+    token: models.AccessToken,
+    gateway_slug: str,
+    tool: models.McpTool,
+    arguments: dict,
+    approval_token: str | None,
+) -> str | None:
+    if not tool.requires_approval:
+        return None
+    if not approval_token:
+        return "高风险 Tool 需要一次性审批凭证"
+    approval_hash = hashlib.sha256(approval_token.encode("utf-8")).hexdigest()
+    row = db.query(models.McpToolApproval).filter(
+        models.McpToolApproval.approval_hash == approval_hash,
+        models.McpToolApproval.token_id == token.id,
+        models.McpToolApproval.gateway_slug == gateway_slug,
+        models.McpToolApproval.tool_name == tool.exposed_name,
+        models.McpToolApproval.status == "active",
+    ).first()
+    if not row or row.expires_at < datetime.utcnow():
+        return "高风险 Tool 审批凭证无效或已过期"
+    if row.arguments_hash != _arguments_hash(arguments):
+        return "高风险 Tool 审批参数与调用参数不一致"
+    consumed = db.query(models.McpToolApproval).filter(
+        models.McpToolApproval.id == row.id,
+        models.McpToolApproval.status == "active",
+    ).update({"status": "used", "used_at": datetime.utcnow()}, synchronize_session=False)
+    if consumed != 1:
+        db.rollback()
+        return "高风险 Tool 审批凭证已被使用"
+    db.commit()
+    return None
+
+
+def _tool_rate_limit_exceeded(db: Session, tool: models.McpTool) -> bool:
+    since = datetime.utcnow() - timedelta(minutes=1)
+    count = db.query(models.McpCallAudit).filter(
+        models.McpCallAudit.server_slug == tool.exposed_name.partition("__")[0],
+        models.McpCallAudit.tool_name == tool.name,
+        models.McpCallAudit.created_at >= since,
+        models.McpCallAudit.status.in_(["running", "success", "error"]),
+    ).count()
+    return count >= max(1, tool.rate_limit_per_minute)
+
+
 @runtime_router.post("/{gateway_slug}")
 async def invoke_gateway(
     gateway_slug: str,
@@ -560,9 +760,13 @@ async def invoke_gateway(
     }.get(method)
     if not required_scope:
         return _jsonrpc_error(request_id, -32601, "Method not found")
-    token = resolve_access_token(db, authorization, required_scope=required_scope, request=request)
-    if token.token_type != "mcp_gateway":
-        raise HTTPException(status_code=403, detail="凭证类型不是 MCP 网关凭证")
+    token = resolve_access_token(
+        db,
+        authorization,
+        required_scope=required_scope,
+        request=request,
+        allowed_token_types={"mcp_gateway"},
+    )
     allowed_gateways = _json_loads(token.allowed_mcp_gateways_json, [])
     if gateway_slug not in allowed_gateways:
         raise HTTPException(status_code=403, detail="凭证未授权访问该 MCP 网关")
@@ -655,6 +859,29 @@ async def invoke_gateway(
         )
         return _jsonrpc_error(request_id, -32602, "Tool 参数不符合 Schema", exc.message)
 
+    approval_meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
+    approval_error = _consume_tool_approval(
+        db,
+        token=token,
+        gateway_slug=gateway.slug,
+        tool=tool,
+        arguments=arguments,
+        approval_token=approval_meta.get("agent_manager_approval"),
+    )
+    if approval_error:
+        _record_denied_call(
+            db, token, gateway.slug, tool.name, approval_error,
+            server_slug=server.slug, schema_hash=tool.schema_hash,
+        )
+        return _jsonrpc_error(request_id, -32002, approval_error)
+    if _tool_rate_limit_exceeded(db, tool):
+        error = "MCP Tool 每分钟调用次数已达上限"
+        _record_denied_call(
+            db, token, gateway.slug, tool.name, error,
+            server_slug=server.slug, schema_hash=tool.schema_hash,
+        )
+        return _jsonrpc_error(request_id, -32003, error)
+
     started = time.perf_counter()
     audit = models.McpCallAudit(
         request_id=uuid.uuid4().hex,
@@ -666,7 +893,16 @@ async def invoke_gateway(
         status="running",
     )
     acquire_access_token_slot(token)
+    tool_lease_id = None
     try:
+        try:
+            tool_lease_id = acquire_lease(
+                "mcp_tool", tool.id, "call", tool.max_concurrent, ttl_seconds=server.timeout_seconds + 30, bind=db.get_bind()
+            )
+        except LeaseLimitExceeded:
+            audit.status = "denied"
+            audit.error = "MCP Tool 并发调用数已达上限"
+            return _jsonrpc_error(request_id, -32004, audit.error)
         upstream = await _call_upstream(server, "tools/call", {"name": tool.name, "arguments": arguments})
         audit.status = "error" if upstream.get("error") else "success"
         if upstream.get("error"):
@@ -678,6 +914,7 @@ async def invoke_gateway(
         audit.error = str(exc)[:1000]
         return _jsonrpc_error(request_id, -32000, "上游 MCP 调用失败")
     finally:
+        release_lease(tool_lease_id, bind=db.get_bind())
         release_access_token_slot(token)
         audit.duration_ms = round((time.perf_counter() - started) * 1000, 2)
         db.add(audit)

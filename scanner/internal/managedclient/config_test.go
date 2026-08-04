@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestConfigAndServiceDefinitions(t *testing.T) {
@@ -57,6 +58,9 @@ func TestServiceRegistrationDetectsExecutableChanges(t *testing.T) {
 	if err := writeServiceRegistration(home, executable); err != nil {
 		t.Fatal(err)
 	}
+	if recent, err := serviceRecentlyRestarted(home, 10*time.Second); err != nil || !recent {
+		t.Fatalf("fresh service registration did not record its restart: %v %v", recent, err)
+	}
 	if matches, err := serviceRegistrationMatches(home, executable); err != nil || !matches {
 		t.Fatalf("fresh registration should match: %v %v", matches, err)
 	}
@@ -65,5 +69,46 @@ func TestServiceRegistrationDetectsExecutableChanges(t *testing.T) {
 	}
 	if matches, err := serviceRegistrationMatches(home, executable); err != nil || matches {
 		t.Fatalf("changed executable should require restart: %v %v", matches, err)
+	}
+}
+
+func TestServiceReconcileDecision(t *testing.T) {
+	tests := []struct {
+		name       string
+		state      ServiceState
+		matches    bool
+		force      bool
+		recent     bool
+		restart    bool
+		reasonWant string
+	}{
+		{name: "stopped", state: ServiceState{Installed: true}, matches: true, restart: true, reasonWant: "not_running"},
+		{name: "changed", state: ServiceState{Installed: true, Running: true}, restart: true, reasonWant: "binary_changed"},
+		{name: "current", state: ServiceState{Installed: true, Running: true}, matches: true, reasonWant: "already_current"},
+		{name: "forced", state: ServiceState{Installed: true, Running: true}, matches: true, force: true, restart: true, reasonWant: "forced"},
+		{name: "coalesced", state: ServiceState{Installed: true, Running: true}, matches: true, force: true, recent: true, reasonWant: "recently_restarted"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			restart, reason := serviceReconcileDecision(test.state, test.matches, test.force, test.recent)
+			if restart != test.restart || reason != test.reasonWant {
+				t.Fatalf("unexpected decision: restart=%v reason=%s", restart, reason)
+			}
+		})
+	}
+}
+
+func TestServiceCommandRequiresAnActuallyRunningProcess(t *testing.T) {
+	if !serviceCommandIsRunning("darwin", []byte("state = running\npid = 42"), nil) {
+		t.Fatal("running launchd service was not detected")
+	}
+	if serviceCommandIsRunning("darwin", []byte("state = waiting"), nil) {
+		t.Fatal("loaded but stopped launchd service was reported as running")
+	}
+	if !serviceCommandIsRunning("linux", []byte("active\n"), nil) {
+		t.Fatal("active systemd service was not detected")
+	}
+	if !serviceCommandIsRunning("windows", []byte("Running\r\n"), nil) {
+		t.Fatal("running scheduled task was not detected")
 	}
 }

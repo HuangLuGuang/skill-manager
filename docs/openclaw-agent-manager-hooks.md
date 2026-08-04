@@ -286,7 +286,7 @@ const handler = async (event) => {
     const blockedSkills = {}
 
     for (const skill of discoveredSkills) {
-      const localSignature = await computeSkillSignature(skill.path, process.env.AGENT_MANAGER_SIGNING_KEY)
+      const localSignature = await computeSkillSignature(skill.path)
       const verify = await verifySkillSignature(baseUrl, {
         skill_name: skill.name,
         local_signature: localSignature,
@@ -363,7 +363,7 @@ export default handler
 ## Security Notes
 
 - hook 代码运行在 gateway 里，属于 trusted local code
-- `AGENT_MANAGER_SIGNING_KEY` 必须和 Agent Manager 保持一致
+- Hook 只计算无密钥内容摘要，不持有 Agent Manager 的签名私钥
 - 如果 Agent Manager API 不可用，建议默认 fail closed：
   - 不验证成功，就不要加载 skill
 - 对外部 skill 目录，建议配合只读目录或 CI/CD 发布流程

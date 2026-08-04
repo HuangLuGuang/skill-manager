@@ -7,6 +7,7 @@ def test_access_token_admin_routes_are_mounted_under_api_v1():
     assert 'app.include_router(access_tokens.router, prefix=f"{settings.API_PREFIX}/v1")' in main_py
     assert 'app.include_router(mcp_gateway.admin_router, prefix=f"{settings.API_PREFIX}/v1"' in main_py
     assert "app.include_router(mcp_gateway.runtime_router)" in main_py
+    assert "app.include_router(security_audit.router, prefix=settings.API_PREFIX)" in main_py
 
 
 def test_mcp_runtime_is_proxied_in_dev_and_deployment():

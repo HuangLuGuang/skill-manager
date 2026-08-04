@@ -2,13 +2,19 @@
 
 以下命令都在当前项目根目录执行。
 
-## 在线部署
+## 本地开箱启动
 
 ```bash
-cp .env.example .env
 ./build.sh --all
 docker compose up -d
 docker compose ps
+```
+
+本地测试不要求先创建 `.env`。Compose 会使用仅限本机开发的占位密钥，并关闭生产
+安全启动校验；首次创建管理员时，随机密码保存在持久化数据卷中，可执行以下命令读取：
+
+```bash
+docker compose exec backend cat /app/runtime/data/initial-admin-password
 ```
 
 访问：
@@ -17,9 +23,37 @@ docker compose ps
 http://localhost
 ```
 
+## 生产部署
+
+生产环境必须创建 `.env`，替换所有 `replace-with-*` 值，并保持
+`ENFORCE_SECURE_STARTUP=true`：
+
+```bash
+cp .env.example .env
+./build.sh --all
+docker compose run --rm --no-deps backend agent-manager signing-key init
+docker compose up -d
+docker compose ps
+```
+
+生产模式不会接受本地占位密钥，也不会恢复公开固定管理员密码。签名私钥必须在启动
+服务前通过上述显式命令预置；生产副本不会在启动或公钥查询时各自生成身份。多副本
+部署必须挂载同一份只读私钥或由统一密钥管理系统下发。
+
+升级前执行以下只读检查，确认不存在已批准或已部署但未声明工具权限的 Skill：
+
+```bash
+uv run agent-manager registry audit-tool-permissions
+```
+
+命令发现条目时退出码为 `2`。这些条目升级后会被 fail-closed 授权阻断，应先补充
+`allowed_tools` 并重新审批，不能通过恢复“空声明全放行”绕过。
+
 Compose 入口 Nginx 会把管理 API `/api/` 和 MCP Streamable HTTP 数据面 `/mcp/` 转发到 Backend；MCP Client 应使用 `http(s)://部署域名/mcp/{gateway_slug}`，不需要直接暴露 Backend 端口。旧版 `/sse/` 当前未实现，也不配置转发。
 
 Backend 启动时会检查旧版 Skill 数据。首次升级到版本化模型时，会把同名 Skill 合并为一个名称族、把不同内容转换为递增版本，并删除同名同内容的旧重复记录及其待审/报告/统计/扫描运行关联数据。迁移完成后会写入 `registry_migrations.skill_families_v1` 标记，后续 `docker compose up` 或容器重启不会重复执行，也不会触发重新检测。Skill 内容目录和审计日志不会被自动删除。
+
+P1 安全配置默认使用 SQLite，不新增数据库服务。`request_leases` 表协调共享同一 SQLite 文件的多 Worker 并发额度；它不支持多个主机各自使用独立 SQLite 文件时共享额度。MCP 上游默认只允许 HTTPS，可用 `MCP_OUTBOUND_ALLOWLIST` 配置允许的域名、通配域名或 CIDR。审计签名密钥通过 `AUDIT_SIGNING_PRIVATE_KEY_PATH` 持久化，`SECURITY_AUDIT_EXPORT_PATH` 是可选的追加式 JSONL 导出位置。
 
 ## 构建脚本
 
@@ -127,6 +161,6 @@ docker compose down -v
 ## 默认账号
 
 ```text
-用户名：admin
-密码：Admin@123
+用户名：默认 admin
+密码：部署前在 `.env` 中设置的 `INITIAL_ADMIN_PASSWORD`
 ```

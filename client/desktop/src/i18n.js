@@ -169,6 +169,8 @@
     '安全治理模式只校验平台批准状态与内容签名；Agent 强授权模式还会校验智能体允许范围。': 'Security governance validates platform approval and content signatures. Strict Agent authorization also validates the Agent allowlist.',
     '从平台安装': 'Install from Platform',
     '从平台安装 Skill': 'Install Skill from Platform',
+    '安装平台可信版本 v': 'Install trusted platform version v',
+    '平台可信版本读取失败：': 'Failed to load trusted platform version: ',
     '暂停接管': 'Pause Governance',
     '恢复接管': 'Resume Governance',
     '刷新预览': 'Refresh Preview',
@@ -263,6 +265,7 @@
     '<span>选择 Skill 后可查看说明</span>': '<span>Select a Skill to View Its Description</span>',
     'Skill 已自动恢复': 'Skill Automatically Restored',
     'Skill 已隔离': 'Skill Quarantined',
+    '已隔离': 'Quarantined',
     '发现 Skill 内容变化': 'Skill Content Changed',
 
     '操作提示': 'Notice',
@@ -588,9 +591,11 @@
     'Skill 自动安装失败': 'Skill Automatic Installation Failed',
     '平台已批准，但客户端自动安装失败；将稍后重试，也可以在待处理区手动安装。': 'The Skill was approved, but automatic installation failed. The client will retry later, or you can install it manually from Pending Skills.',
     '平台未通过，继续保持停用；请到 Skill 详情查看判断依据': 'Not approved by the platform. Keep it disabled and review the decision in Skill Details.',
+    '当前提交版本未通过，继续保持停用；平台已有批准版本时，可点击“选择批准版本”安装': 'The submitted version was not approved and remains disabled. If the platform has an approved version, select it for installation.',
     '平台检测已取消，继续保持停用': 'The platform scan was cancelled. Keep the Skill disabled.',
     '自动检测已完成，等待平台人工审核': 'Automated scanning is complete and awaiting platform review',
     '保持停用': 'Keep Disabled',
+    '当前版本保持停用': 'Keep Current Version Disabled',
     '等待审批': 'Awaiting Approval',
     '等待检测': 'Awaiting Scan',
     '该 Skill 未提供说明': 'No description is available for this Skill',
@@ -625,6 +630,20 @@
     '立即安装': 'Install Now',
     '提交平台检测': 'Submit for Platform Scan',
     '平台任务': 'Platform Task',
+    '所属 Agent': 'Agent',
+    '路径': 'Path',
+    '删除本地副本': 'Delete Local Copy',
+    '删除副本': 'Delete Copy',
+    '本地永久删除': 'PERMANENT LOCAL DELETION',
+    '该 Skill 将从停用待处理区永久删除；关联的隔离副本也会一并清理。': 'This Skill will be permanently removed from Pending Skills, together with any linked quarantine copy.',
+    '平台检测版本和审计记录会保留，已经安装的可信版本不受影响。': 'Platform scan versions and audit records will be retained. Installed trusted versions are not affected.',
+    '确认删除': 'Delete Permanently',
+    '正在删除...': 'Deleting...',
+    '确定永久删除这个本地停用副本吗？': 'Permanently delete this local disabled copy?',
+    '关联的隔离副本会一并删除；平台检测和审计记录会保留。': 'Any linked quarantine copy will also be deleted. Platform scan and audit records will be retained.',
+    '删除完成': 'Deletion Complete',
+    '本地停用副本已删除，平台检测和审计记录仍然保留。': 'The local disabled copy was deleted. Platform scan and audit records were retained.',
+    '删除失败': 'Deletion Failed',
   })
 
   const hashText = value => {
@@ -805,8 +824,16 @@
 
   let locale = detectLocale()
 
+  const semanticMessages = {
+    'status.platform_scanning': {
+      'zh-CN': '平台正在检测',
+      'en-US': 'Platform scan in progress',
+    },
+  }
+
   const t = value => {
     if (typeof value !== 'string') return value
+    if (semanticMessages[value]) return semanticMessages[value][locale] || semanticMessages[value]['zh-CN']
     const source = value.startsWith('ui.') ? sourceByKey[value] : value
     if (!source) return value
     if (locale !== 'en-US') return source

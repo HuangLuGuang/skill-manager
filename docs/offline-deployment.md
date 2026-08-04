@@ -97,8 +97,8 @@ http://<服务器IP>
 默认账号：
 
 ```text
-用户名：admin
-密码：Admin@123
+用户名：默认 admin
+密码：部署前在 `.env` 中设置的 `INITIAL_ADMIN_PASSWORD`
 ```
 
 ## 常用运维命令

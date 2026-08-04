@@ -83,6 +83,28 @@ def main(ctx: click.Context, policy_path: str | None):
 
 
 # --------------------------------------------------------------------------- #
+# signing-key                                                                   #
+# --------------------------------------------------------------------------- #
+
+@main.group("signing-key")
+def signing_key():
+    """Manage the server Ed25519 signing identity."""
+
+
+@signing_key.command("init")
+def signing_key_init():
+    """Create the signing key if it does not already exist."""
+    from agent_manager.core.signer import ensure_signing_key, signing_key_id
+
+    path = ensure_signing_key()
+    click.echo(json.dumps({
+        "path": str(path),
+        "key_id": signing_key_id(),
+        "created_or_existing": True,
+    }, ensure_ascii=False))
+
+
+# --------------------------------------------------------------------------- #
 # submit                                                                        #
 # --------------------------------------------------------------------------- #
 
@@ -343,6 +365,53 @@ def registry_show(ctx, skill_id_or_name, output_json):
         if v.policy_notes:
             for note in v.policy_notes:
                 console.print(f"    [yellow]{note}[/yellow]")
+
+
+@registry.command("audit-tool-permissions")
+@click.option("--json", "output_json", is_flag=True, default=False)
+@click.pass_context
+def registry_audit_tool_permissions(ctx, output_json):
+    """Find loadable skills that declare no allowed_tools."""
+    mgr = _load_manager(ctx.obj["policy_path"])
+    affected = [
+        entry
+        for entry in mgr.list_skills()
+        if entry.is_loadable() and not entry.allowed_tools
+    ]
+    payload = [
+        {
+            "skill_id": entry.skill_id,
+            "name": entry.name,
+            "status": entry.status.value,
+            "version_no": entry.version_no,
+        }
+        for entry in affected
+    ]
+    if output_json:
+        click.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+    elif affected:
+        table = Table(box=box.SIMPLE_HEAD, show_header=True, header_style="bold")
+        table.add_column("ID (short)", style="dim")
+        table.add_column("Name")
+        table.add_column("Status")
+        table.add_column("Version")
+        for entry in affected:
+            table.add_row(
+                entry.skill_id[:8],
+                entry.name,
+                entry.status.value,
+                str(entry.version_no or "—"),
+            )
+        console.print(table)
+        err_console.print(
+            "[red]These loadable skills declare no allowed_tools and will be blocked "
+            "by fail-closed runtime authorization.[/red]"
+        )
+    else:
+        console.print("[green]No loadable skills with empty allowed_tools.[/green]")
+
+    if affected:
+        ctx.exit(2)
 
 
 # --------------------------------------------------------------------------- #

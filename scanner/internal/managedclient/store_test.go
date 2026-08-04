@@ -3,6 +3,7 @@ package managedclient
 import (
 	"database/sql"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -116,5 +117,69 @@ func TestStorePersistsInventoryAndCompletedTasks(t *testing.T) {
 	next, nextErr := time.Parse(time.RFC3339Nano, status.NextFullScanAt)
 	if err != nil || lastErr != nil || nextErr != nil || next.Sub(last) != 2*time.Minute {
 		t.Fatalf("unexpected patrol schedule: %#v %v %v %v", status, err, lastErr, nextErr)
+	}
+}
+
+func TestSaveInstallReplacesStaleIdentityForSameAgentPath(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	target := filepath.Join(t.TempDir(), ".codex", "skills", "safe")
+	for _, install := range []Installation{
+		{AgentType: "codex", SkillID: "family-1", SkillName: "safe", TargetPath: target, Manifest: releaseManifest{VersionID: "version-1"}},
+		{AgentType: "codex", SkillID: "family-2", SkillName: "safe", TargetPath: target, Manifest: releaseManifest{VersionID: "version-2"}},
+	} {
+		if err := store.SaveInstall(install); err != nil {
+			t.Fatal(err)
+		}
+	}
+	installs, err := store.Installations()
+	if err != nil || len(installs) != 1 || installs[0].SkillID != "family-2" {
+		t.Fatalf("stale target identity was retained: %#v %v", installs, err)
+	}
+}
+
+func TestResolvePendingForInstallOnlyClearsMatchingAgentPath(t *testing.T) {
+	home := t.TempDir()
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	target := filepath.Join(home, ".claude", "skills", "google-scholar-search")
+	items := []PendingItem{
+		{ID: "matching", AgentType: "claude-code", SkillName: "google-scholar-search", OriginalPath: target, PendingPath: filepath.Join(home, "pending", "matching"), Status: "REJECTED"},
+		{ID: "other-agent", AgentType: "opencode", SkillName: "google-scholar-search", OriginalPath: filepath.Join(home, ".opencode", "skills", "google-scholar-search"), PendingPath: filepath.Join(home, "pending", "other-agent"), Status: "REJECTED"},
+		{ID: "other-path", AgentType: "claude-code", SkillName: "google-scholar-search", OriginalPath: filepath.Join(home, "custom", "google-scholar-search"), PendingPath: filepath.Join(home, "pending", "other-path"), Status: "REJECTED"},
+	}
+	for _, item := range items {
+		if err := os.MkdirAll(item.PendingPath, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SavePending(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := store.ResolvePendingForInstall("claude-code", "google-scholar-search", target); err != nil {
+		t.Fatal(err)
+	}
+
+	remaining, err := store.PendingItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 2 {
+		t.Fatalf("unexpected pending count after trusted install: %#v", remaining)
+	}
+	for _, item := range remaining {
+		if item.ID == "matching" {
+			t.Fatalf("matching pending record was not resolved: %#v", remaining)
+		}
+	}
+	if _, err := os.Stat(items[0].PendingPath); !os.IsNotExist(err) {
+		t.Fatalf("resolved pending content was not removed: %v", err)
 	}
 }

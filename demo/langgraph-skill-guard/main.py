@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
-import hmac
 import json
 import os
 import subprocess
@@ -12,6 +10,7 @@ import httpx
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
+from agent_manager.core.signer import compute_content_digest
 
 
 class AgentManagerRuntimeClient:
@@ -57,29 +56,8 @@ class AgentManagerRuntimeClient:
         return response.json()
 
 
-def file_sha256(path: Path) -> str:
-    hasher = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for chunk in iter(lambda: handle.read(65536), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
-
-
-def compute_local_signature(skill_path: str | Path, signing_key: str | None = None) -> str:
-    root = Path(skill_path).resolve()
-    if not root.is_dir():
-        raise ValueError(f"Skill path is not a directory: {root}")
-
-    parts: list[str] = []
-    for file_path in sorted(root.rglob("*")):
-        if file_path.is_file():
-            rel = file_path.relative_to(root).as_posix()
-            parts.append(f"{rel}:{file_sha256(file_path)}\n")
-
-    content = "".join(parts).encode()
-    if signing_key:
-        return hmac.new(signing_key.encode(), content, hashlib.sha256).hexdigest()
-    return hashlib.sha256(content).hexdigest()
+def compute_local_signature(skill_path: str | Path) -> str:
+    return compute_content_digest(Path(skill_path).resolve())
 
 
 class LoadedSkill:
@@ -146,10 +124,7 @@ def verify_and_load_skill(
         base_url=base_url,
         token=os.getenv("AGENT_MANAGER_API_TOKEN") or os.getenv("AGENT_MANAGER_ACCESS_TOKEN"),
     )
-    local_signature = compute_local_signature(
-        skill_path,
-        signing_key=os.getenv("AGENT_MANAGER_SIGNING_KEY"),
-    )
+    local_signature = compute_local_signature(skill_path)
     verify_result = runtime_client.verify_skill_signature(
         skill_name=skill_name,
         local_signature=local_signature,

@@ -410,6 +410,63 @@ func TestRunOnceUsesCachedPolicyAndQueuesOfflineEvents(t *testing.T) {
 	}
 }
 
+func TestPatrolKeepsValidRegistrationWhenLegacyAliasSharesTarget(t *testing.T) {
+	home := t.TempDir()
+	versionID := "version-2"
+	release := filepath.Join(ManagedSkillsRoot(home), versionID, "release")
+	content := []byte("---\nname: safe\n---\n")
+	if err := os.MkdirAll(release, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(release, "SKILL.md"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(home, ".codex", "skills", "safe")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(release, target); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(content)
+	files := []releaseFile{{Path: "SKILL.md", Size: int64(len(content)), SHA256: hex.EncodeToString(sum[:])}}
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for index, install := range []Installation{
+		{AgentType: "codex", SkillID: "family-1", SkillName: "safe", TargetPath: target, Manifest: releaseManifest{SkillID: "family-1", VersionID: versionID, Files: files}},
+		{AgentType: "codex", SkillID: versionID, SkillName: "safe", TargetPath: target, Manifest: releaseManifest{SkillID: versionID, Files: files}},
+	} {
+		body, _ := json.Marshal(install.Manifest)
+		if _, err := store.db.Exec(
+			`INSERT INTO client_installs(agent_type, managed_agent_id, skill_id, skill_name, target_path, manifest_json, updated_at)
+			 VALUES(?, '', ?, ?, ?, ?, ?)`,
+			install.AgentType, install.SkillID, install.SkillName, install.TargetPath, string(body), time.Now().Add(time.Duration(index)*time.Second).Format(time.RFC3339Nano),
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.SetGovernanceEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	inventory := Inventory{ClientID: "host", Agents: []Agent{{
+		AgentType: "codex", SkillManagementSupported: true,
+		Skills: []Skill{{Name: "safe", Path: target, Signature: "sig", Status: "managed"}},
+	}}}
+	if err := patrol(context.Background(), home, inventory, Policy{Mode: "block"}, API{}, store, true, false); err != nil {
+		t.Fatal(err)
+	}
+	installs, err := store.Installations()
+	if err != nil || len(installs) != 1 || installs[0].SkillID != versionID {
+		t.Fatalf("valid registration was not retained: %#v %v", installs, err)
+	}
+	if quarantined, err := store.QuarantineItems(); err != nil || len(quarantined) != 0 {
+		t.Fatalf("valid target was quarantined because of a stale alias: %#v %v", quarantined, err)
+	}
+}
+
 func TestUnknownSkillIsComparedBeforeBlockModeQuarantine(t *testing.T) {
 	home := t.TempDir()
 	target := filepath.Join(home, ".codex", "skills", "local-skill")

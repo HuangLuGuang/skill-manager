@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +12,43 @@ await fs.mkdir(safeSkillDir, { recursive: true });
 await fs.mkdir(blockedSkillDir, { recursive: true });
 await fs.writeFile(path.join(safeSkillDir, "SKILL.md"), "---\nname: safe-skill\ndescription: ok\n---\n");
 await fs.writeFile(path.join(blockedSkillDir, "SKILL.md"), "---\nname: blocked-skill\ndescription: bad\n---\n");
+
+const { computeSkillSignature } = await import("./lib/signer.ts");
+const digestBeforeIgnoredFiles = await computeSkillSignature(safeSkillDir);
+await fs.writeFile(path.join(safeSkillDir, ".DS_Store"), "ignored");
+await fs.mkdir(path.join(safeSkillDir, "__pycache__"));
+await fs.writeFile(path.join(safeSkillDir, "__pycache__", "cache.pyc"), "ignored");
+try {
+  await fs.symlink(
+    path.join(safeSkillDir, "SKILL.md"),
+    path.join(safeSkillDir, "linked-skill.md"),
+  );
+} catch (error) {
+  if (!["EPERM", "EACCES", "UNKNOWN"].includes(error?.code)) throw error;
+}
+assert.equal(
+  await computeSkillSignature(safeSkillDir),
+  digestBeforeIgnoredFiles,
+  "ignored files and symbolic links must not change the digest",
+);
+
+const normalNamesDir = path.join(tempRoot, "normal-names");
+const mojibakeNamesDir = path.join(tempRoot, "mojibake-names");
+await fs.mkdir(path.join(normalNamesDir, "references"), { recursive: true });
+await fs.mkdir(path.join(mojibakeNamesDir, "references"), { recursive: true });
+await fs.writeFile(
+  path.join(normalNamesDir, "references", "常用查询模板.md"),
+  "select 1",
+);
+await fs.writeFile(
+  path.join(mojibakeNamesDir, "references", "σ╕╕τö¿µƒÑΦ»óµ¿íµ¥┐.md"),
+  "select 1",
+);
+assert.equal(
+  await computeSkillSignature(normalNamesDir),
+  await computeSkillSignature(mojibakeNamesDir),
+  "ZIP mojibake normalization must match the server",
+);
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", "http://127.0.0.1");

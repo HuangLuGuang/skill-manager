@@ -52,9 +52,9 @@ agent-manager-skill-verifier.zip
 export AGENT_MANAGER_VERIFIER_BASE_URL="http://localhost:8001"
 export AGENT_MANAGER_VERIFIER_TOKEN="amat_xxx"
 export AGENT_ID="<agent-id>"
-# 仅当服务端启用 AGENT_MANAGER_SIGNING_KEY 时需要，且必须与服务端一致
-export AGENT_MANAGER_SIGNING_KEY="和服务器 .env 中保持一致"
 ```
+
+Verifier 仅计算无密钥内容摘要，不持有 Agent Manager 的 Ed25519 私钥。
 
 不要复用 `SKILL_SCANNER_TOKEN`；Verifier 需要 Agent 运行凭证。
 

@@ -2,7 +2,9 @@ import asyncio
 import json
 
 import httpx
+import pytest
 from fastapi import Depends, FastAPI
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -58,6 +60,27 @@ def test_upstream_negotiated_protocol_version_is_reused(monkeypatch):
         ("notifications/initialized", "2025-06-18"),
         ("tools/list", "2025-06-18"),
     ]
+
+
+def test_endpoint_requires_https_and_rejects_private_dns(monkeypatch):
+    with pytest.raises(HTTPException):
+        mcp_gateway._validate_endpoint("http://public.example.com/mcp")
+
+    monkeypatch.setattr(
+        mcp_gateway.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [(2, 1, 6, "", ("127.0.0.1", 443))],
+    )
+    with pytest.raises(HTTPException) as exc:
+        mcp_gateway._validate_resolved_endpoint("https://public.example.com/mcp")
+    assert "不允许的地址" in str(exc.value.detail)
+
+    monkeypatch.setattr(mcp_gateway.settings, "MCP_OUTBOUND_ALLOWLIST", "public.example.com")
+    with pytest.raises(HTTPException):
+        mcp_gateway._validate_resolved_endpoint("https://public.example.com/mcp")
+
+    monkeypatch.setattr(mcp_gateway.settings, "MCP_OUTBOUND_ALLOWLIST", "public.example.com,127.0.0.1/32")
+    assert mcp_gateway._validate_resolved_endpoint("https://public.example.com/mcp") == ["127.0.0.1"]
 
 
 def _client(tmp_path, monkeypatch):
@@ -306,3 +329,57 @@ def test_mcp_gateway_blocks_schema_drift_and_wrong_gateway_token(tmp_path, monke
         json={"jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": {}},
     )
     assert forbidden.status_code == 403
+
+
+def test_high_risk_tool_requires_single_use_argument_bound_approval(tmp_path, monkeypatch):
+    client, _testing_session = _client(tmp_path, monkeypatch)
+    _configured_gateway(client)
+    servers = client.get("/api/v1/mcp/servers").json()
+    search_tool = next(tool for tool in servers[0]["tools"] if tool["name"] == "search")
+    policy = client.put(
+        f"/api/v1/mcp/tools/{search_tool['id']}/policy",
+        json={
+            "risk_level": "high",
+            "rate_limit_per_minute": 10,
+            "max_concurrent": 1,
+            "requires_approval": True,
+        },
+    )
+    assert policy.status_code == 200
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "approved-client",
+            "token_type": "mcp_gateway",
+            "allowed_mcp_gateways": ["readonly"],
+        },
+    ).json()
+    headers = {"Authorization": f"Bearer {created['token']}"}
+    call = {
+        "jsonrpc": "2.0",
+        "id": 21,
+        "method": "tools/call",
+        "params": {"name": "crm__search", "arguments": {"query": "approved"}},
+    }
+
+    missing = client.post("/mcp/readonly", headers=headers, json=call)
+    assert missing.json()["error"]["code"] == -32002
+
+    approval = client.post(
+        "/api/v1/mcp/approvals",
+        json={
+            "token_id": created["record"]["id"],
+            "gateway_slug": "readonly",
+            "tool_name": "crm__search",
+            "arguments": {"query": "approved"},
+            "ttl_seconds": 60,
+        },
+    )
+    assert approval.status_code == 200
+    call["params"]["_meta"] = {"agent_manager_approval": approval.json()["approval_token"]}
+
+    allowed = client.post("/mcp/readonly", headers=headers, json=call)
+    replayed = client.post("/mcp/readonly", headers=headers, json=call)
+
+    assert allowed.json()["result"]["content"][0]["text"] == "approved"
+    assert replayed.json()["error"]["code"] == -32002
