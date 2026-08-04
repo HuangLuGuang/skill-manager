@@ -232,6 +232,103 @@ func TestManualRefreshRechecksRejectedVersionAfterPlatformRescan(t *testing.T) {
 	}
 }
 
+func TestManualRefreshDetachesSubmissionMissingFromCurrentPlatform(t *testing.T) {
+	home := t.TempDir()
+	pendingPath := filepath.Join(home, ".agent-manager", "pending", "codex", "old-skill")
+	writeSkill(t, pendingPath, "old-skill")
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.SavePending(PendingItem{
+		ID: "old-pending", AgentType: "codex", SkillName: "old-skill",
+		PendingPath: pendingPath, Status: "REJECTED",
+		SkillID: "old-family", VersionID: "old-version", SubmittedAt: "2026-08-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		http.Error(response, `{"detail":"Skill not found"}`, http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	items, err := RefreshPendingIncludingTerminal(context.Background(), server.URL, "token", store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Status != "pending" || items[0].SkillID != "" || items[0].VersionID != "" || items[0].SubmittedAt != "" {
+		t.Fatalf("missing platform submission was not detached: %#v", items)
+	}
+}
+
+func TestManualRefreshDetachesSubmissionOwnedByDifferentScannerToken(t *testing.T) {
+	home := t.TempDir()
+	pendingPath := filepath.Join(home, ".agent-manager", "pending", "codex", "old-skill")
+	writeSkill(t, pendingPath, "old-skill")
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.SavePending(PendingItem{
+		ID: "old-pending", AgentType: "codex", SkillName: "old-skill",
+		PendingPath: pendingPath, Status: "PENDING",
+		SkillID: "old-family", VersionID: "old-version", SubmittedAt: "2026-08-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		response.WriteHeader(http.StatusForbidden)
+		_, _ = response.Write([]byte(`{"detail":"scanner token can only read own submissions","error_code":"http.403","error_params":{}}`))
+	}))
+	defer server.Close()
+
+	items, err := RefreshPendingIncludingTerminal(context.Background(), server.URL, "new-token", store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Status != "pending" || items[0].SkillID != "" || items[0].VersionID != "" || items[0].SubmittedAt != "" {
+		t.Fatalf("submission owned by another token was not detached: %#v", items)
+	}
+}
+
+func TestManualRefreshKeepsSubmissionOnUnrelatedForbidden(t *testing.T) {
+	home := t.TempDir()
+	pendingPath := filepath.Join(home, ".agent-manager", "pending", "codex", "current-skill")
+	writeSkill(t, pendingPath, "current-skill")
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.SavePending(PendingItem{
+		ID: "current-pending", AgentType: "codex", SkillName: "current-skill",
+		PendingPath: pendingPath, Status: "PENDING",
+		SkillID: "current-family", VersionID: "current-version", SubmittedAt: "2026-08-04T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		response.WriteHeader(http.StatusForbidden)
+		_, _ = response.Write([]byte(`{"detail":"missing required scope","error_code":"auth.permission_denied","error_params":{}}`))
+	}))
+	defer server.Close()
+
+	if _, err := RefreshPendingIncludingTerminal(context.Background(), server.URL, "bad-token", store); err == nil {
+		t.Fatal("unrelated authorization failure was silently detached")
+	}
+	items, err := store.PendingItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].SkillID != "current-family" || items[0].VersionID != "current-version" {
+		t.Fatalf("unrelated authorization failure changed submission linkage: %#v", items)
+	}
+}
+
 func TestSubmitPendingDoesNotLinkSameNameWithDifferentContent(t *testing.T) {
 	home := t.TempDir()
 	firstPath := filepath.Join(home, ".agent-manager", "pending", "codex", "demo")

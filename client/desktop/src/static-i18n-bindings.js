@@ -25,6 +25,12 @@ window.clientStaticI18nBindings = [
     "source": "智能体生命周期管理系统"
   },
   {
+    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.54j3hc",
+    "source": "统一治理智能体配置、能力与运行安全。"
+  },
+  {
     "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)",
     "attribute": "aria-label",
     "key": "ui.mecesf",
@@ -71,12 +77,6 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "ui.1hp88mq",
     "source": "版本 dev"
-  },
-  {
-    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>div:nth-of-type(2)>span:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.54j3hc",
-    "source": "统一治理智能体配置、能力与运行安全。"
   },
   {
     "selector": "#panel-title",

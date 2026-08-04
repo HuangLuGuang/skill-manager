@@ -1284,7 +1284,25 @@ const pendingStatusTerminal = status => ['APPROVED', 'REJECTED', 'CANCELLED'].in
 const pendingNeedsRefresh = item => Boolean(item.skill_id) && !pendingStatusTerminal(item.status)
 const pendingCanSubmit = item => !item.skill_id
 
+const reconcilePendingBatchTracking = () => {
+  if (!pendingBatchTracking) return
+  for (const id of [...pendingBatchTracking.ids]) {
+    const item = pendingItems.find(candidate => candidate.id === id)
+    // A 404 or submission-ownership 403 detaches stale platform IDs. Once the
+    // local item is submit-ready again, it no longer belongs in this batch.
+    if (item && !item.skill_id) {
+      pendingBatchTracking.ids.delete(id)
+      pendingBatchTracking.statuses.delete(id)
+    }
+  }
+  if (pendingBatchTracking.ids.size === 0) {
+    pendingBatchTracking = null
+    $('#pending-batch-status').hidden = true
+  }
+}
+
 const renderPendingBatchStatus = () => {
+  reconcilePendingBatchTracking()
   if (!pendingBatchTracking) return
   const element = $('#pending-batch-status')
   const counts = { detecting: 0, review: 0, approved: 0, rejected: 0, cancelled: 0 }
@@ -1318,6 +1336,7 @@ const renderPendingBatchStatus = () => {
 }
 
 const pendingBatchIsActive = () => {
+  reconcilePendingBatchTracking()
   if (!pendingBatchTracking) return false
   return [...pendingBatchTracking.ids].some(id => {
     const item = pendingItems.find(candidate => candidate.id === id)

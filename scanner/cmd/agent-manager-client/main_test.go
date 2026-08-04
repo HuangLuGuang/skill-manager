@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -32,8 +33,36 @@ func TestConfigureConnectionChangePausesGovernanceAndClearsPlatformState(t *test
 	if err := store.SetState("patrol_findings", `[{"event_type":"skill_modified"}]`); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.SetState("inventory", `{"client_id":"old-client"}`); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"patrol:full", "tasks:poll", "pending:auto-install:old-pending"} {
+		if err := store.MarkSchedule(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.SaveTask(managedclient.Task{ID: 42, TaskType: "install_skill"}, "succeeded", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveInstall(managedclient.Installation{
+		AgentType: "codex", ManagedAgentID: "old-agent", SkillID: "old-family",
+		SkillName: "old-installed", TargetPath: filepath.Join(home, ".codex", "skills", "old-installed"),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.QueueEvent(managedclient.QueuedEvent{
 		ClientID: "client-1", EventType: "skill_modified", AgentType: "codex", SkillName: "demo",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pendingPath := filepath.Join(home, "pending", "demo")
+	if err := os.MkdirAll(pendingPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SavePending(managedclient.PendingItem{
+		ID: "old-pending", AgentType: "codex", SkillName: "demo",
+		PendingPath: pendingPath, Status: "REJECTED",
+		SkillID: "old-family", VersionID: "old-version", SubmittedAt: "2026-08-01T00:00:00Z",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -65,13 +94,26 @@ func TestConfigureConnectionChangePausesGovernanceAndClearsPlatformState(t *test
 	if enabled, err := store.GovernanceEnabled(); err != nil || enabled {
 		t.Fatalf("governance was not paused: enabled=%v err=%v", enabled, err)
 	}
-	for _, key := range []string{"policy", "patrol_findings"} {
+	for _, key := range []string{"policy", "patrol_findings", "inventory", "patrol:full", "tasks:poll", "pending:auto-install:old-pending"} {
 		if _, ok, err := store.State(key); err != nil || ok {
 			t.Fatalf("%s was not cleared: ok=%v err=%v", key, ok, err)
 		}
 	}
+	if tasks, err := store.TaskHistory(10); err != nil || len(tasks) != 0 {
+		t.Fatalf("tasks from the previous platform were retained: %#v err=%v", tasks, err)
+	}
+	if installs, err := store.Installations(); err != nil || len(installs) != 0 {
+		t.Fatalf("install associations from the previous platform were retained: %#v err=%v", installs, err)
+	}
 	if events, err := store.QueuedEvents(); err != nil || len(events) != 0 {
 		t.Fatalf("events from the previous platform were retained: %#v err=%v", events, err)
+	}
+	pending, err := store.PendingItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].Status != "pending" || pending[0].SkillID != "" || pending[0].VersionID != "" || pending[0].SubmittedAt != "" {
+		t.Fatalf("pending submission remained bound to the previous platform: %#v", pending)
 	}
 	notifications, err := store.Notifications(10)
 	if err != nil {

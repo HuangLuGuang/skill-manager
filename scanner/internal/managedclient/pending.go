@@ -145,6 +145,16 @@ func refreshPending(ctx context.Context, server, token string, store *Store, inc
 		if !ok {
 			result, err := api.GetImport(ctx, statusID)
 			if err != nil {
+				if scannerclient.IsNotFound(err) || scannerclient.IsSubmissionNotOwned(err) {
+					if resetErr := store.ResetPendingSubmission(items[index].ID); resetErr != nil {
+						return nil, resetErr
+					}
+					items[index].Status = "pending"
+					items[index].SkillID = ""
+					items[index].VersionID = ""
+					items[index].SubmittedAt = ""
+					continue
+				}
 				return nil, err
 			}
 			status = result.Status

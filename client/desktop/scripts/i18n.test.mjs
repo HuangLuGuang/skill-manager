@@ -160,6 +160,11 @@ test('keeps governance columns aligned across supported window widths', () => {
   assert.match(styles, /\.metric-grid\s*\{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/)
   assert.match(styles, /\.status-metrics\s*\{\s*grid-template-columns: repeat\(6, minmax\(0, 1fr\)\)/)
   assert.match(styles, /\.status-metrics > :nth-child\(n \+ 3\) \{ grid-column: span 2; \}/)
+  assert.match(styles, /\.rail-note > div\s*\{[^}]*display:\s*grid/)
+  assert.match(styles, /\.rail-note strong\s*\{[^}]*white-space:\s*nowrap/)
+  assert.match(indexHtml, /class="rail-tagline">统一治理智能体配置、能力与运行安全。<\/p>[\s\S]*<nav/)
+  assert.doesNotMatch(indexHtml, /class="rail-note"[^>]*>[\s\S]*统一治理智能体配置、能力与运行安全。/)
+  assert.match(styles, /\.rail-tagline\s*\{[^}]*font-size:\s*10px/)
 })
 
 test('persists functional client settings without a sound preference', () => {
@@ -241,6 +246,14 @@ test('refreshes the visible quarantine list after background status changes', ()
     appSource,
     /const refreshChangedInventory = async[\s\S]*const quarantineChanged = local\.quarantined_skills !== connection\.local\?\.quarantined_skills[\s\S]*if \(refreshQuarantine\) await loadQuarantine\(\)/,
   )
+})
+
+test('drops detached submissions from the current pending batch count', () => {
+  assert.match(
+    appSource,
+    /const reconcilePendingBatchTracking = \(\) => \{[\s\S]*if \(item && !item\.skill_id\)[\s\S]*pendingBatchTracking\.ids\.delete\(id\)[\s\S]*pendingBatchTracking\.statuses\.delete\(id\)/,
+  )
+  assert.match(appSource, /const renderPendingBatchStatus = \(\) => \{\s*reconcilePendingBatchTracking\(\)/)
 })
 
 test('requires confirmation before discarding one local pending copy', () => {
