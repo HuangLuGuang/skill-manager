@@ -25,7 +25,7 @@ Agent Manager 的治理对象从单个 Skill 扩展到智能体。平台需要�
 | 类型 | 默认权限 | 用途 |
 |---|---|---|
 | 模型调用凭证 | `model:chat` | 调用模型网关 |
-| Agent 运行凭证 | `runtime:verify-signature`, `runtime:can-load`, `runtime:check-tool` | 外部 Agent 运行时校验 |
+| Agent 运行凭证 | `runtime:verify-signature`, `runtime:can-load`, `runtime:check-tool`, `runtime:govern`, `runtime:memory` | 外部 Agent 加载校验、任务逐次授权和受治理 Memory |
 | Scanner 接入凭证 | `scanner:submit`, `scanner:read-own-results`, `scanner:read-own-sessions` | 客户侧扫描器提交 Skill |
 
 Agent 运行凭证默认不能调用模型网关。只有显式勾选 `model:chat` 后，它才可以作为模型调用凭证使用。

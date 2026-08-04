@@ -1,4 +1,5 @@
 import os
+import logging
 import secrets
 import sys
 from pathlib import Path
@@ -21,7 +22,8 @@ from .api_errors import (
 from .auth import get_current_admin_user, get_password_hash
 from .config import settings
 from .security import initialize_signing_identity, validate_security_settings
-from .routers import access_tokens, agents, auth, clients, config, llm_gateway, mcp_gateway, system, tasks
+from .routers import access_tokens, agents, auth, clients, config, llm_gateway, mcp_gateway, runtime_governance, security_audit, system, tasks
+from .security_audit import append_security_audit, ensure_audit_signing_key
 from .sqlite_db import Base, SessionLocal, engine
 from .task_runtime import init_default_tasks
 
@@ -43,6 +45,7 @@ from agent_manager.api.scanner_router import runtime_router as access_runtime_ro
 from agent_manager.api.scanner_router import router as scanner_router
 
 app = FastAPI(title=settings.APP_NAME, debug=settings.DEBUG)
+logger = logging.getLogger(__name__)
 app.add_exception_handler(ApiError, api_error_handler)
 app.add_exception_handler(HTTPException, http_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
@@ -61,6 +64,8 @@ app.include_router(system.router, prefix=settings.API_PREFIX)
 app.include_router(tasks.router, prefix=settings.API_PREFIX)
 app.include_router(agents.router, prefix=settings.API_PREFIX)
 app.include_router(access_tokens.router, prefix=f"{settings.API_PREFIX}/v1")
+app.include_router(security_audit.router, prefix=settings.API_PREFIX)
+app.include_router(runtime_governance.router, prefix=settings.API_PREFIX)
 app.include_router(mcp_gateway.admin_router, prefix=f"{settings.API_PREFIX}/v1", dependencies=[Depends(get_current_admin_user)])
 app.include_router(mcp_gateway.runtime_router)
 app.include_router(clients.router, prefix=settings.API_PREFIX)
@@ -71,6 +76,44 @@ app.include_router(agent_runtime_router, prefix="/api/v1")
 app.include_router(agent_manager_router, prefix="/api/v1", dependencies=[Depends(get_current_admin_user)])
 app.include_router(scanner_admin_router, dependencies=[Depends(get_current_admin_user)])
 app.include_router(scanner_router)
+
+
+_AUDITED_ADMIN_PREFIXES = (
+    "/api/config/",
+    "/api/agents",
+    "/api/v1/access/tokens",
+    "/api/v1/mcp/",
+    "/api/v1/users",
+    "/api/v1/groups",
+    "/api/v1/model-providers",
+    "/api/v1/models",
+    "/api/v1/llm-api-keys",
+    "/api/v1/privacy-policies",
+    "/api/v1/runtime-governance/",
+)
+
+
+@app.middleware("http")
+async def append_admin_security_audit(request, call_next):
+    response = await call_next(request)
+    if (
+        request.method in {"POST", "PUT", "PATCH", "DELETE"}
+        and any(request.url.path.startswith(prefix) for prefix in _AUDITED_ADMIN_PREFIXES)
+        and response.status_code < 500
+    ):
+        try:
+            append_security_audit(
+                event_type="admin_mutation",
+                actor=getattr(request.state, "security_actor", "authenticated-admin"),
+                resource_type="http_route",
+                resource_id=request.url.path,
+                action=request.method.lower(),
+                outcome="success" if response.status_code < 400 else "denied",
+                details={"status_code": response.status_code},
+            )
+        except Exception:
+            logger.exception("Failed to append security audit event for %s %s", request.method, request.url.path)
+    return response
 
 
 def ensure_sqlite_schema() -> None:
@@ -100,6 +143,19 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN prompt_guard_mode VARCHAR(32) NOT NULL DEFAULT 'off'")
         if "prompt_guard_llm_review" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN prompt_guard_llm_review BOOLEAN NOT NULL DEFAULT 0")
+        conn.exec_driver_sql(
+            "CREATE TABLE IF NOT EXISTS backend_schema_migrations (name VARCHAR(128) PRIMARY KEY, applied_at DATETIME NOT NULL)"
+        )
+        migration = conn.exec_driver_sql(
+            "SELECT name FROM backend_schema_migrations WHERE name = 'agent_runtime_prompt_guard_block_v1'"
+        ).first()
+        if not migration:
+            conn.exec_driver_sql(
+                "UPDATE access_tokens SET prompt_guard_mode = 'block' WHERE token_type = 'agent_runtime' AND prompt_guard_mode = 'off'"
+            )
+            conn.exec_driver_sql(
+                "INSERT INTO backend_schema_migrations (name, applied_at) VALUES ('agent_runtime_prompt_guard_block_v1', CURRENT_TIMESTAMP)"
+            )
         llm_key_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(llm_api_keys)").fetchall()}
         if "prompt_guard_mode" not in llm_key_columns:
             conn.exec_driver_sql("ALTER TABLE llm_api_keys ADD COLUMN prompt_guard_mode VARCHAR(32) NOT NULL DEFAULT 'off'")
@@ -108,6 +164,18 @@ def ensure_sqlite_schema() -> None:
         audit_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(llm_request_audit)").fetchall()}
         if "prompt_guard_result_json" not in audit_columns:
             conn.exec_driver_sql("ALTER TABLE llm_request_audit ADD COLUMN prompt_guard_result_json TEXT NOT NULL DEFAULT '{}'")
+        mcp_server_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mcp_servers)").fetchall()}
+        if mcp_server_columns and "max_response_kb" not in mcp_server_columns:
+            conn.exec_driver_sql("ALTER TABLE mcp_servers ADD COLUMN max_response_kb INTEGER NOT NULL DEFAULT 1024")
+        mcp_tool_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mcp_tools)").fetchall()}
+        if mcp_tool_columns and "risk_level" not in mcp_tool_columns:
+            conn.exec_driver_sql("ALTER TABLE mcp_tools ADD COLUMN risk_level VARCHAR(16) NOT NULL DEFAULT 'low'")
+        if mcp_tool_columns and "rate_limit_per_minute" not in mcp_tool_columns:
+            conn.exec_driver_sql("ALTER TABLE mcp_tools ADD COLUMN rate_limit_per_minute INTEGER NOT NULL DEFAULT 60")
+        if mcp_tool_columns and "max_concurrent" not in mcp_tool_columns:
+            conn.exec_driver_sql("ALTER TABLE mcp_tools ADD COLUMN max_concurrent INTEGER NOT NULL DEFAULT 5")
+        if mcp_tool_columns and "requires_approval" not in mcp_tool_columns:
+            conn.exec_driver_sql("ALTER TABLE mcp_tools ADD COLUMN requires_approval BOOLEAN NOT NULL DEFAULT 0")
         managed_client_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(managed_clients)").fetchall()}
         if managed_client_columns and "policy_mode" not in managed_client_columns:
             conn.exec_driver_sql("ALTER TABLE managed_clients ADD COLUMN policy_mode VARCHAR(32) NOT NULL DEFAULT 'audit'")
@@ -128,6 +196,7 @@ def ensure_sqlite_schema() -> None:
 
 validate_security_settings(settings)
 initialize_signing_identity(allow_create=not settings.ENFORCE_SECURE_STARTUP)
+ensure_audit_signing_key()
 ensure_sqlite_schema()
 get_agent_manager()
 

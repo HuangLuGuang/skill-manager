@@ -53,6 +53,8 @@ Compose 入口 Nginx 会把管理 API `/api/` 和 MCP Streamable HTTP 数据面 
 
 Backend 启动时会检查旧版 Skill 数据。首次升级到版本化模型时，会把同名 Skill 合并为一个名称族、把不同内容转换为递增版本，并删除同名同内容的旧重复记录及其待审/报告/统计/扫描运行关联数据。迁移完成后会写入 `registry_migrations.skill_families_v1` 标记，后续 `docker compose up` 或容器重启不会重复执行，也不会触发重新检测。Skill 内容目录和审计日志不会被自动删除。
 
+P1 安全配置默认使用 SQLite，不新增数据库服务。`request_leases` 表协调共享同一 SQLite 文件的多 Worker 并发额度；它不支持多个主机各自使用独立 SQLite 文件时共享额度。MCP 上游默认只允许 HTTPS，可用 `MCP_OUTBOUND_ALLOWLIST` 配置允许的域名、通配域名或 CIDR。审计签名密钥通过 `AUDIT_SIGNING_PRIVATE_KEY_PATH` 持久化，`SECURITY_AUDIT_EXPORT_PATH` 是可选的追加式 JSONL 导出位置。
+
 ## 构建脚本
 
 ```bash

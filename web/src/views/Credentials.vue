@@ -262,13 +262,13 @@ const form = reactive({
   max_concurrent_jobs: 2,
   enable_compression: false,
   compression_level: 'auto',
-  prompt_guard_mode: 'off',
+  prompt_guard_mode: 'block',
   prompt_guard_llm_review: false,
 })
 
 const typeDefaults = {
   model_gateway: ['model:chat'],
-  agent_runtime: ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool'],
+  agent_runtime: ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool', 'runtime:govern', 'runtime:memory'],
   scanner: ['scanner:submit', 'scanner:read-own-results', 'scanner:read-own-sessions'],
   client: [
     'client:register',
@@ -310,6 +310,7 @@ const formatTime = formatDateTime
 
 const applyTypeDefaults = () => {
   form.scopes = [...(typeDefaults[form.token_type] || [])]
+  form.prompt_guard_mode = form.token_type === 'agent_runtime' ? 'block' : 'off'
   if (form.token_type !== 'agent_runtime') form.bound_agent_id = undefined
   if (form.token_type !== 'mcp_gateway') form.allowed_mcp_gateways = []
 }
@@ -348,7 +349,7 @@ const openCreate = (defaults = {}) => {
     max_concurrent_jobs: 2,
     enable_compression: false,
     compression_level: 'auto',
-    prompt_guard_mode: 'off',
+    prompt_guard_mode: 'block',
     prompt_guard_llm_review: false,
   })
   applyTypeDefaults()
@@ -382,7 +383,7 @@ const handleCreate = async () => {
     message.warning(phrase('legacy.68wepu'))
     return
   }
-  if (!form.scopes.includes('model:chat')) {
+  if (form.token_type !== 'agent_runtime' && !form.scopes.includes('model:chat')) {
     form.prompt_guard_mode = 'off'
   }
   form.prompt_guard_llm_review = false

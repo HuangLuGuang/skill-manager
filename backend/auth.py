@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional
 
-from fastapi import Depends, status
+from fastapi import Depends, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -33,7 +33,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def get_current_user(request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = ApiError(
         status.HTTP_401_UNAUTHORIZED,
         "auth.invalid_token",
@@ -61,6 +61,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
             "This account signed in elsewhere. Sign in again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    request.state.security_actor = user.username
     return user
 
 

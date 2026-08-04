@@ -249,6 +249,24 @@ Authorization: Bearer amat_xxx
 
 管理员先在 `MCP 服务` 中发现上游 Tool，再在 `MCP 网关` 中选择要发布的 Tool，最后在 `统一凭证中心` 创建 `MCP 网关凭证`。凭证绑定虚拟网关而不是智能体。当前支持 `initialize`、`ping`、`tools/list` 和 `tools/call`；stdio、Resources 和 Prompts 不在首版范围内。
 
+生产环境的上游 MCP Endpoint 默认只允许 HTTPS。每次连接前会重新解析 DNS，拒绝私网、回环、链路本地、保留地址和不在 `MCP_OUTBOUND_ALLOWLIST` 中的目标；HTTP 只能通过开发配置显式启用。响应大小、Tool 每分钟调用量和并发数均有独立限制。
+
+标记为高风险或要求审批的 Tool 必须携带一次性审批凭证：管理员通过 `POST /api/v1/mcp/approvals` 创建凭证，凭证绑定 MCP Token、Gateway、Tool、参数摘要和短期过期时间；调用方放在 `params._meta.agent_manager_approval`。凭证使用一次后立即失效，修改参数或重放都会被拒绝。
+
+## Runtime Governance Contract
+
+需要治理完整 Agent 任务时，为 `agent_runtime` 凭证增加 `runtime:govern`，并按以下顺序接入：
+
+1. `POST /api/v1/runtime-governance/tasks/start`：提交 Agent、租户、用户、会话、原始目标、允许动作和允许目标；返回不可变目标摘要与任务策略快照。
+2. Planner 和 Executor 分别调用 `POST /api/v1/runtime-governance/tasks/{task_id}/actions/authorize`。平台检查目标偏离、资源范围、步骤、重试、委派、费用、数据量、熔断和 Kill Switch。
+3. 高风险动作先由管理员调用 `POST /api/v1/runtime-governance/approvals`。审批绑定任务、动作、目标和参数摘要，不接受 Agent 自报的审批人。
+4. Executor 在真正执行前调用 `POST /api/v1/runtime-governance/tasks/{task_id}/actions/{action_id}/consume`。动作授权只有 60 秒有效期、只能使用一次，参数变化、任务终止或 Kill Switch 启用都会拒绝执行。
+5. 执行后调用 `.../result` 写入真实费用、数据量和结果；连续失败会打开 Agent 与 Tool 熔断器。
+
+平台只做授权决策，外部 Runtime 必须在动作执行点强制调用并遵守结果。仅在日志中上报、执行后补报，或允许 Agent 绕过适配器，都不能形成安全边界。
+
+Memory/RAG 接入使用 `runtime:memory`：`POST /memory/ingest` 会按租户、用户、会话和 Agent 隔离，扫描内容并记录来源；模型输出默认不可信，命中风险规则的内容进入隔离区。只有管理员设为可信且未过期的内容才会由 `/memory/query` 返回。`preview=true` 只返回扫描结果，不写入数据库。
+
 ## Boundaries
 
 这套系统当前负责的是：
@@ -264,6 +282,8 @@ Authorization: Bearer amat_xxx
 - LLM 模型调用隐私代理
 - LLM 隐私链路追踪
 - 远程 MCP Tool 聚合、授权和调用审计
+- Agent 任务安全契约、逐次授权、预算、熔断、Lineage、Kill Switch 和隔离回放
+- 受治理的 Memory/RAG 来源、信任、过期、隔离、版本和回滚
 
 这套系统当前不负责的是：
 

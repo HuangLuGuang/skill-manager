@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     UPLOADS_DIR: str = Field(default=str(BASE_DIR / "uploads"))
     SQLITE_PATH: str = Field(default=str(BASE_DIR / "sqlite" / "admin_starter.db"))
 
+    MCP_ALLOW_HTTP: bool = False
+    MCP_OUTBOUND_ALLOWLIST: str = ""
+    MCP_MAX_RESPONSE_KB: int = 1024
+    AUDIT_SIGNING_PRIVATE_KEY_PATH: str | None = None
+    SECURITY_AUDIT_EXPORT_PATH: str | None = None
+
     # Headroom 智能压缩全局默认
     HEADROOM_COMPRESSION_ENABLED_BY_DEFAULT: bool = False
     HEADROOM_COMPRESSION_LEVEL: str = "auto"  # auto | conservative | aggressive

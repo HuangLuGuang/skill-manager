@@ -203,7 +203,7 @@ Prompt 不再作为主流程里的独立上传资产。平台默认在模型网�
 - key 是否过期
 - 请求模型是否在 key 的允许模型范围内
 - 请求体是否超过 `max_body_kb`
-- 当前进程内该 key 的并发请求数是否超过限制
+- SQLite 原子租约中该 key 的活动请求数是否超过限制；多个 Worker 共享同一数据库文件时使用同一上限，异常退出后的租约会自动过期
 
 ---
 
@@ -309,6 +309,7 @@ export AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID="vetting-session"
 
 ## 10. 安全边界
 
+- Prompt Guard 支持在请求 `metadata.content_sources` 中按消息顺序传入来源数组，或按消息索引传入对象；可选值为 `system`、`user`、`assistant`、`tool`、`rag`、`file`、`web`。未声明时回退到消息 `role`，其中 `tool`、`rag`、`file`、`web` 按不可信内容处理。
 - `stream=true` 支持 SSE 透传和增量反替换；如果客户端中途断开，已完成的并发槽会释放，但未完成请求可能不会写完整 Trace。
 - 未知 OpenAI 参数默认拒绝。
 - LLM API Key 明文无法找回，只能吊销重建。

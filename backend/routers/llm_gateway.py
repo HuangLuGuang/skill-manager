@@ -16,7 +16,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from .. import auth, models, schemas
 from ..anthropic_compat import (
@@ -29,7 +29,9 @@ from ..anthropic_compat import (
 )
 from ..compression import compress_messages
 from ..config import settings
+from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
 from ..sqlite_db import get_db
+from .access_tokens import resolve_access_token
 
 
 admin_router = APIRouter(prefix="/v1", tags=["llm-gateway-admin"])
@@ -72,7 +74,6 @@ PLACEHOLDER_PRESERVATION_SYSTEM_PROMPT = (
     "Do not explain that they are placeholders."
 )
 TRACE_STAGES = ["meta", "prompt_security", "original", "masked", "compressed", "masked_response", "final_response"]
-ACTIVE_KEY_REQUESTS: dict[int, int] = {}
 MESSAGE_TEXT_FIELDS = ("content", "reasoning_content")
 PROMPT_GUARD_RULES = [
     ("prompt_injection", "HIGH", "要求忽略或覆盖系统指令", r"(?i)(ignore|disregard|forget)\s+(all\s+)?(previous|prior|above|system)\s+(instructions?|prompts?)|(忽略|无视|忘记|不要遵守|不用遵守|别管).{0,16}(以上|之前|前面|所有|系统|开发者|平台).{0,16}(指令|提示词|规则|要求)|(覆盖|重写|替换).{0,12}(系统|开发者|平台).{0,8}(指令|提示词|规则)"),
@@ -187,7 +188,33 @@ def _prompt_guard_mode(key) -> str:
     return mode if mode in {"off", "log", "warn", "block"} else "off"
 
 
-def _scan_prompt_security(messages: list[dict[str, Any]], *, mode: str, llm_review: bool = False) -> dict[str, Any]:
+PROMPT_CONTENT_SOURCES = {"system", "user", "assistant", "tool", "rag", "file", "web"}
+UNTRUSTED_PROMPT_SOURCES = {"tool", "rag", "file", "web"}
+
+
+def _message_content_sources(messages: list[dict[str, Any]], metadata: dict[str, Any] | None) -> list[str]:
+    declared = (metadata or {}).get("content_sources")
+    result = []
+    for index, message in enumerate(messages):
+        role = str(message.get("role") or "user").lower()
+        fallback = role if role in {"system", "user", "assistant", "tool"} else "user"
+        value = None
+        if isinstance(declared, list) and index < len(declared):
+            value = declared[index]
+        elif isinstance(declared, dict):
+            value = declared.get(str(index), declared.get(index))
+        source = str(value or fallback).lower()
+        result.append(source if source in PROMPT_CONTENT_SOURCES else fallback)
+    return result
+
+
+def _scan_prompt_security(
+    messages: list[dict[str, Any]],
+    *,
+    mode: str,
+    llm_review: bool = False,
+    sources: list[str] | None = None,
+) -> dict[str, Any]:
     started = time.perf_counter()
     findings: list[dict[str, Any]] = []
     max_risk = "none"
@@ -209,9 +236,30 @@ def _scan_prompt_security(messages: list[dict[str, Any]], *, mode: str, llm_revi
                     "severity": severity,
                     "reason": reason,
                     "role": message.get("role") or "unknown",
+                    "source": sources[index] if sources and index < len(sources) else (message.get("role") or "unknown"),
                     "message_index": index,
                     "snippet": snippet[:240],
                 })
+        combined = "\n".join(_text_from_message_content(message.get("content")) for message in messages)
+        existing_rules = {item["rule"] for item in findings}
+        for rule_id, severity, reason, pattern in PROMPT_GUARD_RULES:
+            if rule_id in existing_rules:
+                continue
+            match = re.search(pattern, combined)
+            if not match:
+                continue
+            if RISK_ORDER[severity] > RISK_ORDER[max_risk]:
+                max_risk = severity
+            start, end = match.span()
+            findings.append({
+                "rule": rule_id,
+                "severity": severity,
+                "reason": f"跨消息组合命中：{reason}",
+                "role": "combined",
+                "source": "mixed",
+                "message_index": None,
+                "snippet": combined[max(0, start - 30): min(len(combined), end + 30)][:240],
+            })
     action = "off"
     blocked = False
     if mode == "log":
@@ -219,7 +267,11 @@ def _scan_prompt_security(messages: list[dict[str, Any]], *, mode: str, llm_revi
     elif mode == "warn":
         action = "warn" if findings else "pass"
     elif mode == "block":
-        blocked = max_risk == "HIGH"
+        untrusted_medium = any(
+            item["severity"] == "MEDIUM" and item.get("source") in UNTRUSTED_PROMPT_SOURCES
+            for item in findings
+        )
+        blocked = max_risk == "HIGH" or untrusted_medium
         action = "block" if blocked else ("warn" if findings else "pass")
     return {
         "enabled": mode != "off",
@@ -231,6 +283,7 @@ def _scan_prompt_security(messages: list[dict[str, Any]], *, mode: str, llm_revi
         "blocked": blocked,
         "findings": findings[:20],
         "findings_count": len(findings),
+        "sources": sources or [],
         "duration_ms": round((time.perf_counter() - started) * 1000, 2),
     }
 
@@ -514,7 +567,7 @@ def _resolve_policy(db: Session, key) -> models.PrivacyPolicy:
     return _get_default_policy(db)
 
 
-def _resolve_api_key(db: Session, authorization: str | None):
+def _resolve_api_key(db: Session, authorization: str | None, request: Request | None = None):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="缺少 LLM API Key")
     raw = authorization[len("Bearer "):].strip()
@@ -529,16 +582,13 @@ def _resolve_api_key(db: Session, authorization: str | None):
             raise HTTPException(status_code=401, detail="LLM API Key 已过期")
         key.last_used_at = _now()
         return key
-    access_token = db.query(models.AccessToken).filter(models.AccessToken.token_hash == key_hash).first()
-    if not access_token or access_token.status != "active":
-        raise HTTPException(status_code=401, detail="LLM API Key 无效或已禁用")
-    if access_token.expires_at and access_token.expires_at < _now():
-        raise HTTPException(status_code=401, detail="LLM API Key 已过期")
-    scopes = _json_loads(access_token.scopes_json, [])
-    if "model:chat" not in scopes:
-        raise HTTPException(status_code=403, detail="接入凭证缺少权限: model:chat")
-    access_token.last_used_at = _now()
-    return access_token
+    return resolve_access_token(
+        db,
+        authorization,
+        required_scope="model:chat",
+        request=request,
+        allowed_token_types={"model_gateway", "agent_runtime"},
+    )
 
 
 async def _check_request_size(request: Request, key: models.LlmApiKey) -> None:
@@ -549,18 +599,32 @@ async def _check_request_size(request: Request, key: models.LlmApiKey) -> None:
 
 
 def _acquire_key_slot(key: models.LlmApiKey) -> None:
-    active = ACTIVE_KEY_REQUESTS.get(key.id, 0)
-    if active >= max(1, key.max_concurrent_requests):
+    session = object_session(key)
+    bind = session.get_bind() if session is not None else None
+    subject_type = "access_token" if isinstance(key, models.AccessToken) else "llm_api_key"
+    try:
+        lease_id = acquire_lease(
+            subject_type,
+            key.id,
+            "model_chat",
+            key.max_concurrent_requests,
+            **({"bind": bind} if bind is not None else {}),
+        )
+    except LeaseLimitExceeded:
         raise HTTPException(status_code=429, detail="API Key 并发请求数已达上限")
-    ACTIVE_KEY_REQUESTS[key.id] = active + 1
+    leases = getattr(key, "_request_lease_ids", None)
+    if leases is None:
+        leases = []
+        setattr(key, "_request_lease_ids", leases)
+    leases.append((lease_id, bind))
 
 
 def _release_key_slot(key: models.LlmApiKey) -> None:
-    active = ACTIVE_KEY_REQUESTS.get(key.id, 0)
-    if active <= 1:
-        ACTIVE_KEY_REQUESTS.pop(key.id, None)
-    else:
-        ACTIVE_KEY_REQUESTS[key.id] = active - 1
+    leases = getattr(key, "_request_lease_ids", None) or []
+    lease = leases.pop() if leases else None
+    if lease:
+        lease_id, bind = lease
+        release_lease(lease_id, **({"bind": bind} if bind is not None else {}))
 
 
 def _resolve_model(db: Session, requested_model: str | None, key) -> models.ModelEndpoint:
@@ -1763,7 +1827,8 @@ async def test_prompt_guard(
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
     messages = [_strip_undefined_values(message.model_dump()) for message in body.messages]
-    return _scan_prompt_security(messages, mode=body.mode, llm_review=body.llm_review)
+    sources = _message_content_sources(messages, {})
+    return _scan_prompt_security(messages, mode=body.mode, llm_review=body.llm_review, sources=sources)
 
 
 @admin_router.get("/llm-api-keys", response_model=list[schemas.LlmApiKeyResponse])
@@ -2514,7 +2579,7 @@ async def _chat_completions_impl(
     authorization: str | None,
     db: Session,
 ) -> dict[str, Any]:
-    key = _resolve_api_key(db, authorization)
+    key = _resolve_api_key(db, authorization, request)
     await _check_request_size(request, key)
     _acquire_key_slot(key)
     if payload.stream:
@@ -2560,10 +2625,12 @@ async def _chat_completions_with_key(
     bypass_pii = requested_bypass or not privacy_enabled
 
     original_messages = [_strip_undefined_values(message.model_dump()) for message in payload.messages]
+    content_sources = _message_content_sources(original_messages, payload.metadata)
     prompt_security = _scan_prompt_security(
         original_messages,
         mode=_prompt_guard_mode(key),
         llm_review=bool(getattr(key, "prompt_guard_llm_review", False)),
+        sources=content_sources,
     )
     if prompt_security["blocked"]:
         _record_prompt_guard_block(

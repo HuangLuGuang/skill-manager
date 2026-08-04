@@ -120,6 +120,7 @@ def test_create_access_token_returns_plaintext_once_and_lists_masked_record(tmp_
     assert body["record"]["token_hash"] is None
     assert body["record"]["bound_agent_id"] == "risk-agent"
     assert body["record"]["scopes"] == ["runtime:can-load"]
+    assert body["record"]["prompt_guard_mode"] == "block"
 
     listed = client.get("/api/v1/access/tokens")
     assert listed.status_code == 200
@@ -128,6 +129,21 @@ def test_create_access_token_returns_plaintext_once_and_lists_masked_record(tmp_
     assert rows[0]["token"] is None
     assert rows[0]["token_hash"] is None
     assert rows[0]["token_prefix"] == body["record"]["token_prefix"]
+
+
+def test_agent_runtime_can_explicitly_select_non_blocking_prompt_guard(tmp_path):
+    client = _client(tmp_path)
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "temporary-audit-only",
+            "token_type": "agent_runtime",
+            "prompt_guard_mode": "warn",
+        },
+    )
+
+    assert created.status_code == 200
+    assert created.json()["record"]["prompt_guard_mode"] == "warn"
 
 
 def test_last_used_lock_does_not_block_token_authentication():
@@ -251,6 +267,26 @@ def test_runtime_missing_scope_error_identifies_token(tmp_path):
     assert detail == "接入凭证缺少权限: runtime:verify-signature"
     assert "scanner-only" not in detail
     assert created["record"]["token_prefix"] not in detail
+
+
+def test_runtime_rejects_wrong_token_type_even_with_scope(tmp_path):
+    client = _client(tmp_path)
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "scanner-with-runtime-scope",
+            "token_type": "scanner",
+            "scopes": ["runtime:can-load"],
+        },
+    ).json()
+
+    response = client.get(
+        "/api/v1/access/runtime/can-load/risk-skill",
+        headers={"Authorization": f"Bearer {created['token']}", "X-Agent-ID": "risk-agent"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "接入凭证类型不允许访问当前接口"
 
 
 def test_agent_runtime_token_enforces_bound_prompt(tmp_path):
