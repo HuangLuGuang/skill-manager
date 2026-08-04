@@ -14,6 +14,7 @@ stages:
     S3_BUCKET: condi
     S3_REGION: cn-northwest-1
     S3_ENDPOINT: https://s3.cn-northwest-1.amazonaws.com.cn
+    BUILD_DOCKER_PROXY: http://10.10.8.66:1081
     BUILD_APT_PROXY: http://10.10.8.66:1081
     BUILD_GIT_PROXY: http://10.10.8.66:1081
     BUILD_PYPI_INDEX: https://pypi.tuna.tsinghua.edu.cn/simple
@@ -48,7 +49,9 @@ deploy-35:
 
       test -f "$DEPLOY_DIR/.env"
       docker info >/dev/null
-      ./build.sh -t "$IMAGE_TAG" -p linux/amd64 --all
+      HTTP_PROXY="$BUILD_DOCKER_PROXY" \
+      HTTPS_PROXY="$BUILD_DOCKER_PROXY" \
+        ./build.sh -t "$IMAGE_TAG" -p linux/amd64 --all
 
       install -m 0644 docker-compose.yaml "$DEPLOY_DIR/docker-compose.yaml"
       install -d "$DEPLOY_DIR/deploy/nginx"
@@ -129,13 +132,15 @@ offline-package:
       X86_ARCHIVE="$RELEASE_DIR/agent-manager_${CI_COMMIT_TAG}_x86.tar.gz"
       ARM_ARCHIVE="$RELEASE_DIR/agent-manager_${CI_COMMIT_TAG}_arm.tar.gz"
 
-      ./package-release.sh \
-        -v "$CI_COMMIT_TAG" \
-        -b "$CI_COMMIT_TAG" \
-        -p linux/amd64 \
-        -i "$DOCKER_INSTALLER" \
-        -c "$CLIENT_RELEASES" \
-        -o "$RELEASE_DIR"
+      HTTP_PROXY="$BUILD_DOCKER_PROXY" \
+      HTTPS_PROXY="$BUILD_DOCKER_PROXY" \
+        ./package-release.sh \
+          -v "$CI_COMMIT_TAG" \
+          -b "$CI_COMMIT_TAG" \
+          -p linux/amd64 \
+          -i "$DOCKER_INSTALLER" \
+          -c "$CLIENT_RELEASES" \
+          -o "$RELEASE_DIR"
 
       test -s "$X86_ARCHIVE"
 
@@ -147,13 +152,15 @@ offline-package:
       }
       trap restore_x86_images EXIT
 
-      ./package-release.sh \
-        -v "$CI_COMMIT_TAG" \
-        -b "$CI_COMMIT_TAG" \
-        -p linux/arm64 \
-        -i "$DOCKER_INSTALLER" \
-        -c "$CLIENT_RELEASES" \
-        -o "$RELEASE_DIR"
+      HTTP_PROXY="$BUILD_DOCKER_PROXY" \
+      HTTPS_PROXY="$BUILD_DOCKER_PROXY" \
+        ./package-release.sh \
+          -v "$CI_COMMIT_TAG" \
+          -b "$CI_COMMIT_TAG" \
+          -p linux/arm64 \
+          -i "$DOCKER_INSTALLER" \
+          -c "$CLIENT_RELEASES" \
+          -o "$RELEASE_DIR"
 
       test -s "$ARM_ARCHIVE"
       restore_x86_images
