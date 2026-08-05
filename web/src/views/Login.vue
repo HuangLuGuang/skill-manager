@@ -4,7 +4,6 @@
       <div class="login-header">
         <img :src="logoUrl" alt="Logo" class="login-logo" />
         <h2 class="login-title">{{ t('app.name') }}</h2>
-        <p class="login-desc">{{ t('app.subtitle') }}</p>
       </div>
       <a-form layout="vertical" :model="formState" @finish="onFinish">
         <a-form-item :label="$t('legacy.lleewp')" name="username" :rules="[{ required: true, message: $t('legacy.1d52hvl') }]">
@@ -32,7 +31,6 @@
           <a-button type="primary" html-type="submit" :loading="loading" block size="large">{{ $t("legacy.1yggxgd") }}</a-button>
         </a-form-item>
       </a-form>
-      <div class="login-footer">{{ t('login.defaultCredentials', { at: '@' }) }}</div>
     </div>
   </div>
 </template>
@@ -135,11 +133,6 @@ onMounted(async () => {
   margin-bottom: 8px;
 }
 
-.login-desc {
-  color: #8c8c8c;
-  font-size: 13px;
-}
-
 .captcha-wrapper {
   display: flex;
   gap: 12px;
@@ -161,12 +154,5 @@ onMounted(async () => {
   border: 1px solid #d9d9d9;
   border-radius: 6px;
   cursor: pointer;
-}
-
-.login-footer {
-  margin-top: 16px;
-  font-size: 12px;
-  color: #8c8c8c;
-  text-align: center;
 }
 </style>

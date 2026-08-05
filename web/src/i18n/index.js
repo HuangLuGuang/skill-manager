@@ -20,15 +20,11 @@ export const i18n = createI18n({
     'zh-CN': {
       app: {
         name: '智能体生命周期管理系统',
-        subtitle: 'AI 智能体全生命周期管理平台',
       },
       language: {
         label: '语言',
         chinese: '简体中文',
         english: 'English',
-      },
-      login: {
-        defaultCredentials: '首次启动密码由部署配置提供，或写入受限的一次性密码文件。',
       },
       mcpSecurity: {
         title: 'MCP Tool 安全策略',
@@ -166,15 +162,11 @@ export const i18n = createI18n({
     'en-US': {
       app: {
         name: 'Agent Manager',
-        subtitle: 'AI agent lifecycle governance platform',
       },
       language: {
         label: 'Language',
         chinese: '简体中文',
         english: 'English',
-      },
-      login: {
-        defaultCredentials: 'The first-start password comes from deployment configuration or a restricted one-time password file.',
       },
       mcpSecurity: {
         title: 'MCP Tool Security Policy',
