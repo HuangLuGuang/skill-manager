@@ -140,7 +140,6 @@ for (const [source, english] of Object.entries(enPhrases)) {
 
 for (const [locale, messages] of Object.entries(legacyMessages)) {
   for (const [key, message] of Object.entries(messages)) {
-    if (!message.includes('@')) continue
     baseCompile(message, {
       onError: error => failures.push(`${locale} legacy.${key}: invalid Vue I18n message (${error.code})`),
     })
