@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -20,6 +21,44 @@ type Client struct {
 	server     string
 	token      string
 	httpClient *http.Client
+}
+
+type HTTPStatusError struct {
+	Operation  string
+	Status     string
+	StatusCode int
+	Body       string
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("%s failed: %s: %s", e.Operation, e.Status, e.Body)
+}
+
+func IsNotFound(err error) bool {
+	var statusError *HTTPStatusError
+	return errors.As(err, &statusError) && statusError.StatusCode == http.StatusNotFound
+}
+
+// IsSubmissionNotOwned distinguishes a stale submission reference from other
+// authorization failures. A client can retain a version ID after switching
+// Agent Manager addresses or Scanner Tokens, but the new token must not be
+// allowed to read a submission created by another token.
+func IsSubmissionNotOwned(err error) bool {
+	var statusError *HTTPStatusError
+	if !errors.As(err, &statusError) || statusError.StatusCode != http.StatusForbidden {
+		return false
+	}
+	var payload struct {
+		Detail    string `json:"detail"`
+		ErrorCode string `json:"error_code"`
+	}
+	if json.Unmarshal([]byte(statusError.Body), &payload) == nil {
+		if payload.ErrorCode == "scanner.submission_not_owned" {
+			return true
+		}
+		return strings.Contains(strings.ToLower(payload.Detail), "only read own submissions")
+	}
+	return strings.Contains(strings.ToLower(statusError.Body), "only read own submissions")
 }
 
 type SubmitOptions struct {
@@ -156,7 +195,12 @@ func (c Client) GetImport(ctx context.Context, skillID string) (SubmitResult, er
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		payload, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return result, fmt.Errorf("read result failed: %s: %s", response.Status, strings.TrimSpace(string(payload)))
+		return result, &HTTPStatusError{
+			Operation:  "read result",
+			Status:     response.Status,
+			StatusCode: response.StatusCode,
+			Body:       strings.TrimSpace(string(payload)),
+		}
 	}
 	var payload importResult
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {

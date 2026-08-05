@@ -9,7 +9,6 @@
           <img :src="logoUrl" alt="Logo" class="app-logo" />
           <div>
             <div class="app-title">{{ t('app.name') }}</div>
-            <div class="app-subtitle">{{ t('app.subtitle') }}</div>
           </div>
         </div>
         <div class="app-user">
@@ -349,13 +348,6 @@ onUnmounted(() => stopSessionCheck())
   font-weight: 700;
   color: #16324f;
   line-height: 1.3;
-}
-
-.app-subtitle {
-  font-size: 12px;
-  color: #5a7188;
-  line-height: 1.4;
-  margin-top: 4px;
 }
 
 .app-user {

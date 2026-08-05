@@ -1,6 +1,5 @@
 // Generated baseline translations for legacy JavaScript UI messages. Curated phrases override these values.
 export const generatedScriptEnPhrases = {
-  "(?<![A-Z0-9\\u4e00-\\u9fff])[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼][A-HJ-NP-Z](?:[DF][A-HJ-NP-Z0-9]\\d{4}|\\d{5}[DF]|[A-HJ-NP-Z0-9]{5})(?![A-Z0-9])": "(?<![A-Z0-9\\u4e00-\\u9fff])[Beijing, Tianjin, Shanghai, Chongqing, Hebei, Yunnan, Liaoning, Hunan, Anhui, New Jiangsu, Zhejiang, Gansu, Hubei, Guangxi, Gansu, Shanxi, Meng, Shaanxi, Jilin, Fujian, Guangdong, Qinghai, Tibet, Sichuan, Ningqiong][A-HJ-NP- Z](?:[DF][A-HJ-NP-Z0-9]\\d{4}|\\d{5}[DF]|[A-HJ-NP-Z0-9]{5})(?![A-Z0-9])",
   "0. Prompt 防护": "0. Prompt protection",
   "1. 原始请求（含 PII）": "1. Original request (including PII)",
   "2. 发送给 LLM（已替换）": "2. Send to LLM (replaced)",
@@ -65,9 +64,6 @@ export const generatedScriptEnPhrases = {
   "ZIP 导入失败": "ZIP import failed",
   "ZIP 解析失败": "ZIP parsing failed",
   "ZIP 解析完成，但没有识别到可导入的 skill 目录": "ZIP parsing completed, but no importable skill directory was identified",
-  "\\b(?:ACCT|Account|账号)[-_:# ]?[A-Za-z0-9]{4,}\\b": "\\b(?:ACCT|Account|Account)[-_:# ]?[A-Za-z0-9]{4,}\\b",
-  "\\b(?:CUST|Customer|客户)[-_:# ]?[A-Za-z0-9]{4,}\\b": "\\b(?:CUST|Customer|Customer)[-_:# ]?[A-Za-z0-9]{4,}\\b",
-  "\\b(?:EMP|Employee|员工)[-_:# ]?[A-Za-z0-9]{4,}\\b": "\\b(?:EMP|Employee|Employee)[-_:# ]?[A-Za-z0-9]{4,}\\b",
   "benign（安全）": "benign (security)",
   "malicious（恶意）": "malicious",
   "suspicious（可疑）": "suspicious",

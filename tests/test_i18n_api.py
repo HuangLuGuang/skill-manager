@@ -103,6 +103,23 @@ def test_http_error_is_classified_and_localized():
     assert english.json()["error_code"] == "skill.not_found"
 
 
+def test_scanner_submission_ownership_error_has_stable_code():
+    app = FastAPI()
+    app.add_exception_handler(HTTPException, http_error_handler)
+
+    @app.get("/scanner-result")
+    def scanner_result():
+        raise HTTPException(403, "scanner token can only read own submissions")
+
+    response = TestClient(app).get("/scanner-result", headers={"Accept-Language": "zh-CN"})
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "当前凭证无权读取该提交记录",
+        "error_code": "scanner.submission_not_owned",
+        "error_params": {},
+    }
+
+
 def test_user_locale_preference_is_persisted():
     client, session_factory, user_id = _client()
 

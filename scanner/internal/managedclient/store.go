@@ -321,6 +321,16 @@ func (store *Store) UpdatePendingStatus(skillID, versionID, status string) error
 	return err
 }
 
+func (store *Store) ResetPendingSubmission(id string) error {
+	_, err := store.db.Exec(
+		`UPDATE client_pending
+		 SET status = 'pending', skill_id = NULL, version_id = NULL, submitted_at = NULL
+		 WHERE id = ?`,
+		id,
+	)
+	return err
+}
+
 func (store *Store) UpdatePendingFingerprint(id, fingerprint string) error {
 	_, err := store.db.Exec(`UPDATE client_pending SET content_fingerprint = ? WHERE id = ?`, fingerprint, id)
 	return err
@@ -709,12 +719,32 @@ func (store *Store) PauseForConnectionChange() error {
 	); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM client_state WHERE key IN ('policy', 'patrol_findings')`); err != nil {
+	if _, err := tx.Exec(
+		`DELETE FROM client_state
+		 WHERE key IN ('policy', 'patrol_findings', 'inventory', 'patrol:full', 'tasks:poll')
+		    OR key LIKE 'pending:auto-install:%'`,
+	); err != nil {
+		return err
+	}
+	// Task IDs and installation IDs are allocated by a platform. Keeping them
+	// across connections can suppress a new task with the same numeric ID or
+	// make a local Skill appear governed by an unrelated registry.
+	if _, err := tx.Exec(`DELETE FROM client_tasks`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM client_installs`); err != nil {
 		return err
 	}
 	// Events produced for the previous platform must never be replayed to the
 	// newly configured platform.
 	if _, err := tx.Exec(`DELETE FROM client_events_queue`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`UPDATE client_pending
+		 SET status = 'pending', skill_id = NULL, version_id = NULL, submitted_at = NULL
+		 WHERE skill_id IS NOT NULL OR version_id IS NOT NULL`,
+	); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(

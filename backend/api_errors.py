@@ -14,6 +14,7 @@ SUPPORTED_LOCALES = {"zh-CN", "en-US"}
 logger = logging.getLogger(__name__)
 
 _ERROR_PATTERNS: tuple[tuple[re.Pattern[str], str, str, str], ...] = (
+    (re.compile(r"scanner token can only read own submissions", re.I), "scanner.submission_not_owned", "当前凭证无权读取该提交记录", "The current credential cannot read this submission"),
     (re.compile(r"Skill not found|Skill 不存在", re.I), "skill.not_found", "Skill 不存在", "Skill not found"),
     (re.compile(r"SKILL\.md not found|SKILL\.md 不存在", re.I), "skill.manifest_not_found", "SKILL.md 不存在", "SKILL.md not found"),
     (re.compile(r"Skill path is not available|Skill 路径不可用", re.I), "skill.path_unavailable", "Skill 路径不可用", "Skill path is unavailable"),

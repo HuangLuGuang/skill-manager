@@ -735,12 +735,12 @@ const defaultRules = {
   CN_BANK_CARD: '(?<!\\d)(?:\\d[ -]?){15,18}\\d(?!\\d)',
   EMAIL_ADDRESS: '\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b',
   IP_ADDRESS: '(?<![\\w.])(?:\\d{1,3}\\.){3}\\d{1,3}(?![\\w.])|(?<![\\w:])(?:[0-9A-Fa-f]{1,4}:){2,7}[0-9A-Fa-f]{0,4}(?![\\w:])',
-  CN_LICENSE_PLATE: phrase('legacy.li5y3'),
+  CN_LICENSE_PLATE: '(?<![A-Z0-9\\u4e00-\\u9fff])[\\u4eac\\u6d25\\u6caa\\u6e1d\\u5180\\u8c6b\\u4e91\\u8fbd\\u9ed1\\u6e58\\u7696\\u9c81\\u65b0\\u82cf\\u6d59\\u8d63\\u9102\\u6842\\u7518\\u664b\\u8499\\u9655\\u5409\\u95fd\\u8d35\\u7ca4\\u9752\\u85cf\\u5ddd\\u5b81\\u743c][A-HJ-NP-Z](?:[DF][A-HJ-NP-Z0-9]\\d{4}|\\d{5}[DF]|[A-HJ-NP-Z0-9]{5})(?![A-Z0-9])',
   CN_USCC: '(?<![0-9A-Z])[0-9A-HJ-NPQRTUWXY]{18}(?![0-9A-Z])',
   CN_ADDRESS: '',
-  EMPLOYEE_ID: phrase('legacy.11f9wn4'),
-  CUSTOMER_ID: phrase('legacy.1h69zst'),
-  ACCOUNT_ID: phrase('legacy.1lp9cd2'),
+  EMPLOYEE_ID: '\\b(?:EMP|Employee|\\u5458\\u5de5)[-_:# ]?[A-Za-z0-9]{4,}\\b',
+  CUSTOMER_ID: '\\b(?:CUST|Customer|\\u5ba2\\u6237)[-_:# ]?[A-Za-z0-9]{4,}\\b',
+  ACCOUNT_ID: '\\b(?:ACCT|Account|\\u8d26\\u53f7)[-_:# ]?[A-Za-z0-9]{4,}\\b',
 }
 
 const providerColumns = [
