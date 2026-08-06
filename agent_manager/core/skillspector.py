@@ -343,6 +343,44 @@ def _skillspector_llm_env(
     return env, None
 
 
+def _adapt_deepseek_structured_output(payload: dict[str, Any]) -> dict[str, Any]:
+    """Translate OpenAI JSON Schema output into DeepSeek JSON mode.
+
+    DeepSeek supports ``response_format.type=json_object`` but not the
+    ``json_schema`` variant emitted by ChatOpenAI structured output. Preserve
+    the schema as a system instruction so SkillSpector can still validate the
+    returned object locally.
+    """
+    model = str(payload.get("model") or "").lower()
+    response_format = payload.get("response_format")
+    if not model.startswith("deepseek-") or not isinstance(response_format, dict):
+        return payload
+    if response_format.get("type") != "json_schema":
+        return payload
+
+    adapted = dict(payload)
+    adapted["response_format"] = {"type": "json_object"}
+    json_schema = response_format.get("json_schema")
+    schema = json_schema.get("schema") if isinstance(json_schema, dict) else None
+    if not isinstance(schema, dict):
+        return adapted
+
+    schema_text = json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+    schema_name = str(json_schema.get("name") or "response")
+    instruction = (
+        "Return only one valid JSON object matching the JSON Schema named "
+        f"{schema_name!r}. Do not include markdown or explanatory text. "
+        f"JSON Schema: {schema_text}"
+    )
+    messages = adapted.get("messages")
+    if isinstance(messages, list):
+        adapted["messages"] = [
+            {"role": "system", "content": instruction},
+            *[dict(item) if isinstance(item, dict) else item for item in messages],
+        ]
+    return adapted
+
+
 @contextlib.contextmanager
 def _internal_model_gateway_proxy(config: LLMConfig):
     token = secrets.token_urlsafe(24)
@@ -388,6 +426,7 @@ def _internal_model_gateway_proxy(config: LLMConfig):
                 payload = json.loads(raw.decode("utf-8") or "{}")
                 if not payload.get("model"):
                     payload["model"] = config.model
+                payload = _adapt_deepseek_structured_output(payload)
                 from .llm import _call_model_gateway_sync
 
                 response = _call_model_gateway_sync(payload)
