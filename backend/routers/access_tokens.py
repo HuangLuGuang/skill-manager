@@ -90,8 +90,33 @@ def _normalize_scopes(token_type: str, scopes: list[str] | None) -> list[str]:
                 f"Unsupported credential scope: {value}",
                 params={"scope": value},
             )
+        if token_type not in SCOPE_TOKEN_TYPES[value]:
+            raise ApiError(
+                400,
+                "credential.scope_type_mismatch",
+                f"凭证类型 {token_type} 不支持权限: {value}",
+                f"Credential type {token_type} does not support scope: {value}",
+                params={"token_type": token_type, "scope": value},
+            )
         if value not in result:
             result.append(value)
+    return result
+
+
+def _normalize_allowed_models(token_type: str, scopes: list[str], allowed_models: list[str] | None) -> list[str]:
+    result: list[str] = []
+    for model in allowed_models or []:
+        value = str(model).strip()
+        if value and value not in result:
+            result.append(value)
+    if result and (token_type not in {"model_gateway", "agent_runtime"} or "model:chat" not in scopes):
+        raise ApiError(
+            400,
+            "credential.models_not_applicable",
+            "当前凭证类型或权限不支持配置允许的模型",
+            "Allowed models are not applicable to this credential type or scope",
+            params={"token_type": token_type},
+        )
     return result
 
 
@@ -382,7 +407,7 @@ async def create_access_token(
         bound_client_id=body.bound_client_id,
         user_id=body.user_id or current_user.id if body.token_type == "model_gateway" else body.user_id,
         group_id=body.group_id,
-        allowed_models_json=_json_dumps(body.allowed_models),
+        allowed_models_json=_json_dumps(_normalize_allowed_models(body.token_type, scopes, body.allowed_models)),
         allowed_mcp_gateways_json=_json_dumps(body.allowed_mcp_gateways),
         allowed_ips_json=_json_dumps(body.allowed_ips),
         expires_at=body.expires_at,
@@ -417,10 +442,16 @@ async def update_access_token(
     if not row:
         raise ApiError(404, "credential.not_found", "接入凭证不存在", "Access credential not found")
     data = body.model_dump(exclude_unset=True)
+    scopes = _json_loads(row.scopes_json, [])
     if "scopes" in data and data["scopes"] is not None:
-        row.scopes_json = _json_dumps(_normalize_scopes(row.token_type, data.pop("scopes")))
+        scopes = _normalize_scopes(row.token_type, data.pop("scopes"))
+        row.scopes_json = _json_dumps(scopes)
+        if "model:chat" not in scopes:
+            row.allowed_models_json = "[]"
     if "allowed_models" in data and data["allowed_models"] is not None:
-        row.allowed_models_json = _json_dumps(data.pop("allowed_models"))
+        row.allowed_models_json = _json_dumps(
+            _normalize_allowed_models(row.token_type, scopes, data.pop("allowed_models"))
+        )
     if "allowed_mcp_gateways" in data and data["allowed_mcp_gateways"] is not None:
         gateways = data.pop("allowed_mcp_gateways")
         existing = {item.slug for item in db.query(models.McpGateway).all()}

@@ -41,15 +41,17 @@
             </a-space>
           </template>
           <template v-else-if="column.key === 'models'">
-            <a-space wrap>
+            <a-space v-if="recordSupportsModels(record)" wrap>
               <a-tag v-for="model in record.allowed_models || []" :key="model">{{ model }}</a-tag>
               <span v-if="!record.allowed_models?.length" class="muted">{{ $t("legacy.heq3bi") }}</span>
             </a-space>
+            <span v-else class="muted">-</span>
           </template>
           <template v-else-if="column.key === 'promptGuard'">
-            <a-tag :color="promptGuardColor(record.prompt_guard_mode)">
+            <a-tag v-if="recordSupportsModels(record)" :color="promptGuardColor(record.prompt_guard_mode)">
               {{ promptGuardLabel(record.prompt_guard_mode) }}
             </a-tag>
+            <span v-else class="muted">-</span>
           </template>
           <template v-else-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
@@ -112,40 +114,13 @@
         </a-form-item>
 
         <a-form-item :label="$t('legacy.13dp9dd')">
-          <a-select v-model:value="form.scopes" mode="multiple" style="width: 100%">
-            <a-select-opt-group :label="$t('legacy.15en1a5')">
-              <a-select-option value="model:chat">model:chat</a-select-option>
-            </a-select-opt-group>
-            <a-select-opt-group label="Agent Runtime">
-              <a-select-option value="runtime:verify-signature">runtime:verify-signature</a-select-option>
-              <a-select-option value="runtime:can-load">runtime:can-load</a-select-option>
-              <a-select-option value="runtime:check-tool">runtime:check-tool</a-select-option>
-            </a-select-opt-group>
-            <a-select-opt-group label="Scanner">
-              <a-select-option value="scanner:submit">scanner:submit</a-select-option>
-              <a-select-option value="scanner:read-own-results">scanner:read-own-results</a-select-option>
-              <a-select-option value="scanner:read-own-sessions">scanner:read-own-sessions</a-select-option>
-            </a-select-opt-group>
-            <a-select-opt-group label="Agent Manager Client">
-              <a-select-option value="client:register">client:register</a-select-option>
-              <a-select-option value="client:heartbeat">client:heartbeat</a-select-option>
-              <a-select-option value="client:read-policy">client:read-policy</a-select-option>
-              <a-select-option value="client:read-tasks">client:read-tasks</a-select-option>
-              <a-select-option value="client:report-inventory">client:report-inventory</a-select-option>
-              <a-select-option value="client:report-events">client:report-events</a-select-option>
-              <a-select-option value="client:submit-skill">client:submit-skill</a-select-option>
-              <a-select-option value="client:download-approved-skill">client:download-approved-skill</a-select-option>
-            </a-select-opt-group>
-            <a-select-opt-group :label="$t('legacy.1gcagoh')">
-              <a-select-option value="mcp:connect">mcp:connect</a-select-option>
-              <a-select-option value="mcp:list-tools">mcp:list-tools</a-select-option>
-              <a-select-option value="mcp:call-tools">mcp:call-tools</a-select-option>
-            </a-select-opt-group>
+          <a-select v-model:value="form.scopes" mode="multiple" style="width: 100%" @change="handleScopesChange">
+            <a-select-option v-for="scope in availableScopes" :key="scope" :value="scope">{{ scope }}</a-select-option>
           </a-select>
           <div class="hint">{{ $t("legacy.141vff0") }}</div>
         </a-form-item>
 
-        <a-form-item :label="$t('legacy.1o3mles')">
+        <a-form-item v-if="supportsModels" :label="$t('legacy.1o3mles')">
           <a-select v-model:value="form.allowed_models" mode="multiple" allow-clear :placeholder="$t('legacy.ws9xsw')">
             <a-select-option v-for="model in models" :key="model.name" :value="model.name">{{ model.display_name || model.name }}</a-select-option>
           </a-select>
@@ -220,7 +195,7 @@
 <script setup>
 import { translateLegacy as phrase, translateText as text } from '../i18n'
 
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { formatDateTime } from '../utils/format'
@@ -282,6 +257,16 @@ const typeDefaults = {
   ],
   mcp_gateway: ['mcp:connect', 'mcp:list-tools', 'mcp:call-tools'],
 }
+const scopeOptionsByType = {
+  ...typeDefaults,
+  agent_runtime: [...typeDefaults.agent_runtime, 'model:chat'],
+}
+const availableScopes = computed(() => scopeOptionsByType[form.token_type] || [])
+const supportsModels = computed(() =>
+  ['model_gateway', 'agent_runtime'].includes(form.token_type) && form.scopes.includes('model:chat')
+)
+const recordSupportsModels = record =>
+  ['model_gateway', 'agent_runtime'].includes(record.token_type) && record.scopes?.includes('model:chat')
 const columns = [
   { title: phrase('legacy.hzx914'), dataIndex: 'name' },
   { title: phrase('legacy.anh4cj'), key: 'type', width: 140 },
@@ -310,9 +295,20 @@ const formatTime = formatDateTime
 
 const applyTypeDefaults = () => {
   form.scopes = [...(typeDefaults[form.token_type] || [])]
+  form.allowed_models = []
+  form.enable_compression = false
+  form.compression_level = 'auto'
   form.prompt_guard_mode = form.token_type === 'agent_runtime' ? 'block' : 'off'
   if (form.token_type !== 'agent_runtime') form.bound_agent_id = undefined
   if (form.token_type !== 'mcp_gateway') form.allowed_mcp_gateways = []
+}
+
+const handleScopesChange = () => {
+  if (form.scopes.includes('model:chat')) return
+  form.allowed_models = []
+  form.enable_compression = false
+  form.compression_level = 'auto'
+  if (form.token_type !== 'agent_runtime') form.prompt_guard_mode = 'off'
 }
 
 const fetchTokens = async () => {

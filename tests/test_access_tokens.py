@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from agent_manager.api import scanner_router
 from backend import auth, models
+from backend.api_errors import ApiError, api_error_handler
 from backend.routers import access_tokens, agents
 from backend.sqlite_db import Base, get_db
 
@@ -86,6 +87,7 @@ def _client(tmp_path):
             session.close()
 
     app = FastAPI()
+    app.add_exception_handler(ApiError, api_error_handler)
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(
         id=1,
@@ -269,7 +271,7 @@ def test_runtime_missing_scope_error_identifies_token(tmp_path):
     assert created["record"]["token_prefix"] not in detail
 
 
-def test_runtime_rejects_wrong_token_type_even_with_scope(tmp_path):
+def test_create_rejects_scope_for_wrong_token_type(tmp_path):
     client = _client(tmp_path)
     created = client.post(
         "/api/v1/access/tokens",
@@ -278,15 +280,68 @@ def test_runtime_rejects_wrong_token_type_even_with_scope(tmp_path):
             "token_type": "scanner",
             "scopes": ["runtime:can-load"],
         },
-    ).json()
-
-    response = client.get(
-        "/api/v1/access/runtime/can-load/risk-skill",
-        headers={"Authorization": f"Bearer {created['token']}", "X-Agent-ID": "risk-agent"},
     )
 
-    assert response.status_code == 403
-    assert response.json()["detail"] == "接入凭证类型不允许访问当前接口"
+    assert created.status_code == 400
+    assert created.json()["error_code"] == "credential.scope_type_mismatch"
+
+
+def test_allowed_models_require_model_capable_type_and_scope(tmp_path):
+    client = _client(tmp_path)
+
+    scanner = client.post(
+        "/api/v1/access/tokens",
+        json={"name": "scanner", "token_type": "scanner", "allowed_models": ["gpt-test"]},
+    )
+    assert scanner.status_code == 400
+    assert scanner.json()["error_code"] == "credential.models_not_applicable"
+
+    runtime_without_chat = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "runtime-no-chat",
+            "token_type": "agent_runtime",
+            "bound_agent_id": "risk-agent",
+            "allowed_models": ["gpt-test"],
+        },
+    )
+    assert runtime_without_chat.status_code == 400
+    assert runtime_without_chat.json()["error_code"] == "credential.models_not_applicable"
+
+    runtime_with_chat = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "runtime-chat",
+            "token_type": "agent_runtime",
+            "bound_agent_id": "risk-agent",
+            "scopes": ["runtime:can-load", "model:chat"],
+            "allowed_models": ["gpt-test"],
+        },
+    )
+    assert runtime_with_chat.status_code == 200
+    assert runtime_with_chat.json()["record"]["allowed_models"] == ["gpt-test"]
+
+
+def test_removing_model_scope_clears_allowed_models(tmp_path):
+    client = _client(tmp_path)
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "runtime-chat",
+            "token_type": "agent_runtime",
+            "bound_agent_id": "risk-agent",
+            "scopes": ["runtime:can-load", "model:chat"],
+            "allowed_models": ["gpt-test"],
+        },
+    ).json()
+
+    updated = client.put(
+        f"/api/v1/access/tokens/{created['record']['id']}",
+        json={"scopes": ["runtime:can-load"]},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["allowed_models"] == []
 
 
 def test_agent_runtime_token_enforces_bound_prompt(tmp_path):
