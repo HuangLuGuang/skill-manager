@@ -1,0 +1,12 @@
+{
+  "incident_id": "INC-DEMO-2026-001",
+  "occurred_at": "2026-08-10T09:30:00+08:00",
+  "severity": "high",
+  "source": "demo-endpoint-01",
+  "summary": "演示终端检测到异常外连尝试",
+  "evidence": [
+    "process=unknown-client",
+    "destination=198.51.100.10:443",
+    "action=blocked"
+  ]
+}

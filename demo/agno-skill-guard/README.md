@@ -164,6 +164,59 @@ uv run python main.py \
   --question "总结这个 skill 的用途，并说明它是否可以安全加载"
 ```
 
+## Business Expense Gateway Demo
+
+`travel-expense-calculator` is a low-risk business Skill that calculates a
+Shanghai travel reimbursement against a bundled, versioned company policy. The
+demo verifies the local Skill signature, checks `can-load`, checks the declared
+`Bash` permission before executing the deterministic calculator, and then sends
+the result through the Agent Manager model gateway with Skill metadata.
+
+Submit and approve the Skill first:
+
+```bash
+cd /Users/huangluguang/Desktop/Project/skill-manager
+uv run agent-manager submit \
+  demo/agno-skill-guard/sample_skills/travel-expense-calculator \
+  --sandbox
+```
+
+Configure separate runtime and model-call credentials:
+
+```bash
+cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
+export AGENT_MANAGER_BASE_URL="http://127.0.0.1:8000"
+export AGENT_MANAGER_ACCESS_TOKEN="your-agent-runtime-token"
+export AGNO_MODEL_BASE_URL="http://127.0.0.1:8000/v1"
+export AGNO_MODEL_ID="deepseek-chat"
+export AGNO_API_KEY="your-model-call-token"
+uv run --project ../.. python expense_gateway_demo.py
+```
+
+Expected business result:
+
+- reimbursable total: CNY 2,293
+- employee-paid excess: CNY 100
+- model-gateway audit includes `travel-expense-calculator` as caller-declared
+  Skill context
+
+The model gateway records and assesses caller-declared Skill context. It does
+not replace the local signature verification performed before execution.
+
+## Meaningful High-Risk Sandbox Demo
+
+`incident-evidence-uploader` represents a legitimate but high-impact SOC
+workflow. Its default probe performs a real connectivity check to the reserved
+`collector.invalid` domain. No evidence can reach a real collector, while the
+Sandbox can still observe the network attempt.
+
+```bash
+cd /Users/huangluguang/Desktop/Project/skill-manager
+uv run agent-manager submit \
+  demo/agno-skill-guard/sample_skills/incident-evidence-uploader \
+  --behavioral --sandbox
+```
+
 ## Real Cookbook Example
 
 这个 demo 现在还附带了一个直接可测的真实样例：

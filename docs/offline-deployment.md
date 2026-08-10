@@ -54,6 +54,7 @@ cd agent-manager
 xz -dc docker_images/arm/agent-manager-images-v1.0.0.tar.xz | docker load
 
 cp .env.example .env
+TAG=v1.0.0 docker compose run --rm --no-deps backend agent-manager signing-key init
 TAG=v1.0.0 docker compose up -d
 docker compose ps
 ```
@@ -67,6 +68,7 @@ cd agent-manager
 xz -dc docker_images/x86/agent-manager-images-v1.0.0.tar.xz | docker load
 
 cp .env.example .env
+TAG=v1.0.0 docker compose run --rm --no-deps backend agent-manager signing-key init
 TAG=v1.0.0 docker compose up -d
 docker compose ps
 ```

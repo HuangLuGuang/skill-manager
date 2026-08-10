@@ -373,6 +373,16 @@ demo/agno-skill-guard/sample_skills/read-only-script
 demo/agno-skill-guard/sample_skills/rejected-exfiltrator
 ```
 
+还可以使用两个更贴近企业业务的对比样例：
+
+```text
+demo/agno-skill-guard/sample_skills/travel-expense-calculator
+demo/agno-skill-guard/sample_skills/incident-evidence-uploader
+```
+
+- `travel-expense-calculator`：纯本地报销计算，预期 Sandbox 为低风险。
+- `incident-evidence-uploader`：证据上传连接预检，预期 Sandbox 捕获网络访问并判为高风险；默认使用保留域名，不会上传到真实服务。
+
 服务器演示建议用管理台上传或扫描器提交，这样记录会进入 `http://10.10.71.33` 的管理台。
 
 如果临时做本地备用演示，可以用 CLI 提交到本地 registry：
@@ -499,6 +509,23 @@ uv run agent-manager submit demo/agno-skill-guard/sample_skills/rejected-exfiltr
 ```bash
 uv run python customer_demo.py all
 ```
+
+### 8.4 差旅报销模型网关场景
+
+先提交并审核通过 `travel-expense-calculator`，然后分别配置 Agent 运行凭证和模型调用凭证：
+
+```bash
+export AGENT_MANAGER_BASE_URL="http://127.0.0.1:8000"
+export AGENT_MANAGER_ACCESS_TOKEN="your-agent-runtime-token"
+export AGNO_MODEL_BASE_URL="http://127.0.0.1:8000/v1"
+export AGNO_MODEL_ID="deepseek-chat"
+export AGNO_API_KEY="your-model-call-token"
+
+cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
+uv run --project ../.. python expense_gateway_demo.py
+```
+
+预期业务结果为可报销 `2293` 元、个人承担 `100` 元。模型网关审计中应记录调用方声明的 `travel-expense-calculator` Skill 上下文；该声明只用于关联和告警，不等同于网关完成了本地内容验签。
 
 ---
 
