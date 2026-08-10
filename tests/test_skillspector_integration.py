@@ -391,6 +391,65 @@ def test_internal_model_gateway_proxy_forwards_chat_completion(monkeypatch):
     assert body["choices"][0]["message"]["content"] == "ok"
 
 
+def test_internal_model_gateway_proxy_adapts_deepseek_json_schema(monkeypatch):
+    from agent_manager.core.skillspector import _internal_model_gateway_proxy
+
+    captured = {}
+
+    def fake_call(payload):
+        captured["payload"] = payload
+        return {"choices": [{"message": {"content": '{"risk":"safe"}'}}]}
+
+    monkeypatch.setattr("agent_manager.core.llm._call_model_gateway_sync", fake_call)
+    config = LLMConfig(enabled=True, provider="model-gateway", model="deepseek-v4-flash")
+    schema = {
+        "type": "object",
+        "properties": {"risk": {"type": "string"}},
+        "required": ["risk"],
+    }
+
+    with _internal_model_gateway_proxy(config) as env:
+        req = urllib.request.Request(
+            f"{env['OPENAI_BASE_URL']}/v1/chat/completions",
+            data=json.dumps({
+                "messages": [{"role": "user", "content": "analyze"}],
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {"name": "risk_result", "strict": True, "schema": schema},
+                },
+            }).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {env['OPENAI_API_KEY']}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=3):
+            pass
+
+    assert captured["payload"]["model"] == "deepseek-v4-flash"
+    assert captured["payload"]["response_format"] == {"type": "json_object"}
+    assert captured["payload"]["messages"][0]["role"] == "system"
+    assert "JSON Schema" in captured["payload"]["messages"][0]["content"]
+    assert '"risk"' in captured["payload"]["messages"][0]["content"]
+    assert captured["payload"]["messages"][1] == {"role": "user", "content": "analyze"}
+
+
+def test_deepseek_structured_output_adapter_leaves_other_models_unchanged():
+    from agent_manager.core.skillspector import _adapt_deepseek_structured_output
+
+    payload = {
+        "model": "gpt-5.4",
+        "messages": [{"role": "user", "content": "analyze"}],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": "result", "schema": {"type": "object"}},
+        },
+    }
+
+    assert _adapt_deepseek_structured_output(payload) is payload
+
+
 def test_skillspector_safe_low_without_findings_stays_benign(tmp_path, monkeypatch):
     skill_dir = _skill_dir(tmp_path)
     payload = {

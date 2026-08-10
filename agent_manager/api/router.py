@@ -46,6 +46,13 @@ runtime_router = APIRouter(tags=["agent-manager-runtime"])
 _manager: AgentManager | None = None
 
 
+def _legacy_runtime_endpoint_removed() -> None:
+    raise HTTPException(
+        status_code=410,
+        detail="旧 Runtime 接口已停用，请使用带 Agent 运行凭证的 /api/v1/access/runtime/... 接口",
+    )
+
+
 def _scan_worker_count() -> int:
     try:
         return max(1, int(os.environ.get("AGENT_MANAGER_SCAN_WORKERS", "2")))
@@ -2028,6 +2035,7 @@ def runtime_can_load(
     mgr: AgentManager = Depends(get_manager),
 ):
     """Check whether an agent may load a skill (enforces registry + signature)."""
+    _legacy_runtime_endpoint_removed()
     allowed, entry, reason = mgr.runtime.can_load(
         skill_name,
         skill_path=skill_path,
@@ -2049,6 +2057,7 @@ def runtime_verify_skill_signature(
     mgr: AgentManager = Depends(get_manager),
 ):
     """Verify a locally computed skill signature sent by an external agent."""
+    _legacy_runtime_endpoint_removed()
     allowed, entry, reason = mgr.runtime.verify_local_signature(
         body.skill_name or "",
         body.local_signature,
@@ -2076,6 +2085,7 @@ def runtime_check_tool(
     mgr: AgentManager = Depends(get_manager),
 ):
     """Check whether a skill is permitted to invoke a tool."""
+    _legacy_runtime_endpoint_removed()
     allowed = mgr.runtime.check_tool(
         skill_name,
         tool_name,
@@ -2356,6 +2366,7 @@ def verify_prompt(
     local_file_path: str | None = Query(None),
     mgr: AgentManager = Depends(get_manager),
 ):
+    _legacy_runtime_endpoint_removed()
     result = mgr.verify_prompt_signature(
         prompt_name=prompt_name,
         local_content=local_content,
@@ -2366,6 +2377,7 @@ def verify_prompt(
 
 @runtime_router.post("/runtime/verify-prompt-signature")
 def verify_prompt_signature_endpoint(body: PromptVerifyPayload, mgr: AgentManager = Depends(get_manager)):
+    _legacy_runtime_endpoint_removed()
     result = mgr.verify_prompt_signature(
         prompt_name=body.prompt_name,
         local_content=body.local_content,
@@ -2381,6 +2393,7 @@ def can_load_prompt(
     agent_id: str | None = Query(None),
     mgr: AgentManager = Depends(get_manager),
 ):
+    _legacy_runtime_endpoint_removed()
     entry = mgr.get_prompt(prompt_name)
     if not entry:
         return {"allowed": False, "status": None, "reason": f"Prompt {prompt_name!r} not found in registry"}

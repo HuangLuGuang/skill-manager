@@ -39,7 +39,7 @@ const stylesSource = fs.readFileSync(new URL('../src/styles.css', import.meta.ur
 
 test('translates core desktop navigation and product name', () => {
   const { t } = context.window.clientI18n
-  assert.equal(t('智能体生命周期管理系统'), 'Agent Manager')
+  assert.equal(t('AI智能体全生命周期管理平台'), 'Agent Manager')
   assert.equal(t('客户端接入'), 'Client Access')
   assert.equal(t('客户端概览'), 'Client Overview')
   assert.equal(t('Agent 发现'), 'Agent Discovery')
@@ -160,6 +160,9 @@ test('keeps governance columns aligned across supported window widths', () => {
   assert.match(styles, /\.metric-grid\s*\{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/)
   assert.match(styles, /\.status-metrics\s*\{\s*grid-template-columns: repeat\(6, minmax\(0, 1fr\)\)/)
   assert.match(styles, /\.status-metrics > :nth-child\(n \+ 3\) \{ grid-column: span 2; \}/)
+  assert.match(styles, /\.task-history-columns > :nth-child\(2\),[\s\S]*\.task-history-row > :nth-child\(3\)[^{]*\{[^}]*text-align: center/)
+  assert.match(styles, /\.task-history-columns > :nth-child\(4\),[\s\S]*\.task-history-row > :nth-child\(4\)[^{]*\{[^}]*text-align: right/)
+  assert.match(styles, /\.takeover-column-head\.task-history-columns,\s*\.takeover-list \.takeover-row\.task-history-row\s*\{[^}]*grid-template-columns: minmax\(220px, 1fr\) 120px 90px 160px[^}]*gap: 14px[^}]*padding-left: 16px/)
   assert.match(styles, /\.rail-note > div\s*\{[^}]*display:\s*grid/)
   assert.match(styles, /\.rail-note strong\s*\{[^}]*white-space:\s*nowrap/)
   assert.match(indexHtml, /class="rail-tagline">统一治理智能体配置、能力与运行安全。<\/p>[\s\S]*<nav/)
@@ -292,7 +295,7 @@ test('bundles localized macOS application names', () => {
   )
   assert.match(
     fs.readFileSync(new URL('../src-tauri/infoplist/zh-Hans.lproj/InfoPlist.strings', import.meta.url), 'utf8'),
-    /CFBundleDisplayName = "智能体生命周期管理系统客户端"/,
+    /CFBundleDisplayName = "AI智能体全生命周期管理平台客户端"/,
   )
 })
 

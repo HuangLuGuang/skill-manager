@@ -18,11 +18,13 @@
 
 ```bash
 export AGENT_MANAGER_VERIFIER_BASE_URL="http://agent-manager.example.com"
-export AGENT_MANAGER_VERIFIER_TOKEN="amat_xxx"
+export AGENT_MANAGER_AGENT_RUNTIME_TOKEN="amat_xxx"
 export AGENT_ID="your-agent-id"
 ```
 
 不要复用 `SKILL_SCANNER_TOKEN`；Verifier 需要 Agent 运行凭证。
+
+只有执行 `submit` 或 `status` 子命令时才使用独立的 Scanner 接入凭证，可通过 `AGENT_MANAGER_SCANNER_TOKEN` 或该子命令的 `--token` 传入。
 
 Agent 环境只计算无密钥内容摘要，不得复制或配置 Agent Manager 的签名私钥。
 

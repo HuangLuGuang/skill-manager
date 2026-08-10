@@ -25,7 +25,9 @@ from agent_manager.core.models import SkillOrigin, SkillStatus, SourceInfo
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.registry import make_event
 from agent_manager.core.signer import compute_content_digest
+from agent_manager.core.scanner_tokens import ScannerTokenStore
 from backend import models
+from backend.api_errors import ApiError, api_error_handler
 from backend.routers.access_tokens import _hash_token
 from backend.sqlite_db import Base, get_db
 
@@ -124,9 +126,7 @@ def test_scanner_import_accepts_scanner_token(tmp_path):
         app.include_router(router)
         client = TestClient(app)
 
-        token_response = client.post("/api/v1/scanner/tokens", json={"name": "customer-a"})
-        assert token_response.status_code == 200
-        token = token_response.json()["token"]
+        _record, token = ScannerTokenStore(manager.registry.data_dir).create(name="customer-a")
 
         response = client.post(
             "/api/v1/scanner/imports",
@@ -165,6 +165,33 @@ def test_scanner_import_accepts_scanner_token(tmp_path):
         assert payload["status"] == "PENDING"
     finally:
         api_router._manager = previous_manager
+
+
+def test_legacy_scanner_token_issuance_is_removed(tmp_path):
+    app = FastAPI()
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    app.add_exception_handler(ApiError, api_error_handler)
+    app.dependency_overrides[get_manager] = lambda: manager
+    app.include_router(admin_router)
+    client = TestClient(app)
+
+    response = client.post("/api/v1/scanner/tokens", json={"name": "customer-a"})
+
+    assert response.status_code == 410
+    assert response.json()["error_code"] == "credential.legacy_scanner_token_issuance_removed"
+
+
+def test_legacy_runtime_governance_routes_are_removed(tmp_path):
+    app = FastAPI()
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    app.dependency_overrides[get_manager] = lambda: manager
+    app.include_router(agent_runtime_router, prefix="/api/v1")
+    client = TestClient(app)
+
+    response = client.get("/api/v1/runtime/can-load/example")
+
+    assert response.status_code == 410
+    assert "/api/v1/access/runtime/" in response.json()["detail"]
 
 
 def test_scanner_import_accepts_bound_client_token(tmp_path):

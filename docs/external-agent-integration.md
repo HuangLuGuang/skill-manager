@@ -59,7 +59,7 @@ flowchart LR
 - `GET /api/v1/access/runtime/can-load/{skill_name}`，需要 `runtime:can-load`
 - `GET /api/v1/access/runtime/check-tool`，需要 `runtime:check-tool`
 
-旧的 `/api/v1/runtime/...` 路径仍保留给内部或已有集成使用。外部 Agent 不建议使用管理员 JWT。
+旧的 `/api/v1/runtime/...` 治理路径已停止使用并返回 `410 Gone`。所有 Agent 都应迁移到带 Agent 运行凭证的 `/api/v1/access/runtime/...`；管理员 JWT 只用于管理面。
 
 注意：`/api/v1/access/runtime/can-load/{skill_name}` 不接受 `skill_path`。外部 Agent 应先本地计算签名并调用 `verify-skill-signature`，再做 name-only `can-load`。
 
@@ -191,7 +191,7 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     A["外部应用 / Agent"] --> B["POST /v1/chat/completions"]
-    B --> C["LLM API Key 校验"]
+    B --> C["模型调用凭证校验"]
     C --> D["用户组隐私策略"]
     D --> E["PII 检测 / 伪匿名"]
     E --> F["上游模型供应商"]
@@ -209,7 +209,7 @@ flowchart LR
 - `POST /chat/completions`
   兼容部分客户端把 `base_url` 配成不含 `/v1` 时直接拼接的路径。
 - `GET /v1/models` / `GET /models`
-  OpenAI-compatible 模型列表，只返回当前 LLM API Key 允许访问的启用模型。
+  OpenAI-compatible 模型列表，只返回当前模型调用凭证允许访问的启用模型。
 - `POST /api/v1/llm/chat/completions`
   Agent Manager 命名空间路径，适合内部服务显式调用。
 - `POST /v1/messages`
@@ -251,7 +251,21 @@ Authorization: Bearer amat_xxx
 
 生产环境的上游 MCP Endpoint 默认只允许 HTTPS。每次连接前会重新解析 DNS，拒绝私网、回环、链路本地、保留地址和不在 `MCP_OUTBOUND_ALLOWLIST` 中的目标；HTTP 只能通过开发配置显式启用。响应大小、Tool 每分钟调用量和并发数均有独立限制。
 
-标记为高风险或要求审批的 Tool 必须携带一次性审批凭证：管理员通过 `POST /api/v1/mcp/approvals` 创建凭证，凭证绑定 MCP Token、Gateway、Tool、参数摘要和短期过期时间；调用方放在 `params._meta.agent_manager_approval`。凭证使用一次后立即失效，修改参数或重放都会被拒绝。
+标记为高风险或要求审批的 Tool 会进入限时 Tool 级审批流程：首次 `tools/call` 返回 JSON-RPC `-32002`，并在 `error.data.approval_request_id` 中给出申请 ID。管理员在 `能力治理 / MCP 调用审批` 查看首次调用上下文并批准或拒绝。批准后，网关会自动按 MCP Token、Gateway、Tool 和 Schema 匹配有效授权；调用方无需回传申请 ID，并可在有效期内使用不同参数重复调用同一 Tool。参数仅作为审批和审计上下文，不是授权匹配条件。Schema 变化、授权到期、Token 或网关失效后必须重新审批。调用方也可以使用同一个 MCP 网关凭证访问 `GET /mcp/{gateway_slug}/approvals/{request_id}` 查询状态。
+
+原有 `POST /api/v1/mcp/approvals` 直接签发一次性凭证的接口继续保留，调用方仍可通过 `params._meta.agent_manager_approval` 消费，但它主要用于已有集成和受控调试；正式人工审批应使用调用自动产生的待办流程。
+
+如果 MCP Tool 调用由某个 Skill 发起，调用方可以在 `tools/call` 的 `params._meta` 中声明 Skill：
+
+```json
+{
+  "agent_manager_skill_id": "skill-family-id",
+  "agent_manager_skill_version_id": "skill-version-id",
+  "agent_manager_skill_name": "risk-screening"
+}
+```
+
+MCP 网关会核对 Skill 的登记状态，并把结果写入 MCP 调用审计。由于 MCP 凭证不绑定 Agent，这些字段仍属于调用方声明，只用于疑似告警，不用于证明 Agent 或 Skill 身份，也不会阻断 Tool 调用。
 
 ## Runtime Governance Contract
 

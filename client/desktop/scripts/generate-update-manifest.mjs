@@ -27,7 +27,7 @@ if (!Object.keys(platforms).length) throw new Error('no platform updater metadat
 const { displayVersion, packageVersion } = parseReleaseVersion(version)
 const manifest = {
   version: packageVersion,
-  notes: `智能体生命周期管理系统客户端 ${displayVersion}`,
+  notes: `AI智能体全生命周期管理平台客户端 ${displayVersion}`,
   pub_date: new Date().toISOString(),
   platforms,
 }

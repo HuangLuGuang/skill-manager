@@ -99,6 +99,8 @@ def main():
     print_step("4. 系统治理环境配置完成")
     print(f"   后续操作：")
     print(f"   - 登录治理控制台查看审计报告: {BASE_URL.replace('/api', '')}")
+    print(f"   - 在智能体管理中创建 demo-agent，并在统一凭证中心签发对应的 Agent 运行凭证")
+    print(f"   - 设置 AGENT_MANAGER_AGENT_RUNTIME_TOKEN 后再启动演示 Agent")
     print(f"   - 启动受控 Agent 业务实例: python3 demo/enterprise-governance-demo/run_agent_demo.py safe")
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from agent_manager.api import scanner_router
 from backend import auth, models
+from backend.api_errors import ApiError, api_error_handler
 from backend.routers import access_tokens, agents
 from backend.sqlite_db import Base, get_db
 
@@ -45,6 +46,12 @@ class _Manager:
             {"status": type("Status", (), {"value": "APPROVED"})(), "is_loadable": lambda self: True},
         )()
 
+    def verify_prompt_signature(self, *, prompt_name, local_content=None, local_file_path=None):
+        return {
+            "valid": prompt_name == "risk-prompt" and local_content == "approved prompt" and local_file_path is None,
+            "prompt_name": prompt_name,
+        }
+
 
 def _client(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'access.db'}", connect_args={"check_same_thread": False})
@@ -75,6 +82,7 @@ def _client(tmp_path):
             prompt_names_json="[]",
         )
     )
+    db.add(models.McpGateway(slug="readonly", name="Readonly Gateway", status="active"))
     db.commit()
     db.close()
 
@@ -86,6 +94,7 @@ def _client(tmp_path):
             session.close()
 
     app = FastAPI()
+    app.add_exception_handler(ApiError, api_error_handler)
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(
         id=1,
@@ -138,12 +147,103 @@ def test_agent_runtime_can_explicitly_select_non_blocking_prompt_guard(tmp_path)
         json={
             "name": "temporary-audit-only",
             "token_type": "agent_runtime",
+            "bound_agent_id": "risk-agent",
             "prompt_guard_mode": "warn",
         },
     )
 
     assert created.status_code == 200
     assert created.json()["record"]["prompt_guard_mode"] == "warn"
+
+
+def test_agent_runtime_requires_existing_agent_and_uses_minimum_default_scopes(tmp_path):
+    client = _client(tmp_path)
+
+    missing_binding = client.post(
+        "/api/v1/access/tokens",
+        json={"name": "unbound-runtime", "token_type": "agent_runtime"},
+    )
+    assert missing_binding.status_code == 400
+    assert missing_binding.json()["error_code"] == "credential.agent_binding_required"
+
+    missing_agent = client.post(
+        "/api/v1/access/tokens",
+        json={"name": "missing-agent", "token_type": "agent_runtime", "bound_agent_id": "missing"},
+    )
+    assert missing_agent.status_code == 404
+    assert missing_agent.json()["error_code"] == "agent.bound_not_found"
+
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={"name": "minimum-runtime", "token_type": "agent_runtime", "bound_agent_id": "risk-agent"},
+    )
+    assert created.status_code == 200
+    assert created.json()["record"]["scopes"] == [
+        "runtime:verify-signature",
+        "runtime:can-load",
+        "runtime:check-tool",
+    ]
+
+
+def test_credential_bindings_must_match_token_type(tmp_path):
+    client = _client(tmp_path)
+
+    agent_on_scanner = client.post(
+        "/api/v1/access/tokens",
+        json={"name": "bad-scanner", "token_type": "scanner", "bound_agent_id": "risk-agent"},
+    )
+    assert agent_on_scanner.status_code == 400
+    assert agent_on_scanner.json()["error_code"] == "credential.agent_binding_not_applicable"
+
+    mcp_without_gateway = client.post(
+        "/api/v1/access/tokens",
+        json={"name": "unbound-mcp", "token_type": "mcp_gateway"},
+    )
+    assert mcp_without_gateway.status_code == 400
+    assert mcp_without_gateway.json()["error_code"] == "credential.mcp_gateway_binding_required"
+
+    normalized_gateway = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "normalized-mcp",
+            "token_type": "mcp_gateway",
+            "allowed_mcp_gateways": [" readonly ", "readonly"],
+        },
+    )
+    assert normalized_gateway.status_code == 200
+    assert normalized_gateway.json()["record"]["allowed_mcp_gateways"] == ["readonly"]
+
+
+def test_existing_unbound_agent_runtime_credential_is_rejected(tmp_path):
+    client = _client(tmp_path)
+    raw_token = "amat_legacy_unbound"
+    engine = create_engine(f"sqlite:///{tmp_path / 'access.db'}", connect_args={"check_same_thread": False})
+    session = sessionmaker(bind=engine)()
+    try:
+        session.add(
+            models.AccessToken(
+                name="legacy-unbound-runtime",
+                token_type="agent_runtime",
+                token_hash=access_tokens._hash_token(raw_token),
+                token_prefix=raw_token[:12],
+                bound_agent_id=None,
+                scopes_json='["runtime:can-load"]',
+                allowed_models_json="[]",
+                allowed_mcp_gateways_json="[]",
+                allowed_ips_json="[]",
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.get(
+        "/api/v1/access/runtime/can-load/risk-skill",
+        headers={"Authorization": f"Bearer {raw_token}", "X-Agent-ID": "risk-agent"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error_code"] == "credential.agent_binding_required"
 
 
 def test_last_used_lock_does_not_block_token_authentication():
@@ -174,7 +274,7 @@ def test_agent_runtime_token_enforces_bound_agent_and_allowed_skill(tmp_path):
             "name": "risk-agent-runtime",
             "token_type": "agent_runtime",
             "bound_agent_id": "risk-agent",
-            "scopes": ["runtime:can-load"],
+            "scopes": ["runtime:can-load", "runtime:verify-signature"],
         },
     ).json()["token"]
 
@@ -269,7 +369,7 @@ def test_runtime_missing_scope_error_identifies_token(tmp_path):
     assert created["record"]["token_prefix"] not in detail
 
 
-def test_runtime_rejects_wrong_token_type_even_with_scope(tmp_path):
+def test_create_rejects_scope_for_wrong_token_type(tmp_path):
     client = _client(tmp_path)
     created = client.post(
         "/api/v1/access/tokens",
@@ -278,15 +378,68 @@ def test_runtime_rejects_wrong_token_type_even_with_scope(tmp_path):
             "token_type": "scanner",
             "scopes": ["runtime:can-load"],
         },
-    ).json()
-
-    response = client.get(
-        "/api/v1/access/runtime/can-load/risk-skill",
-        headers={"Authorization": f"Bearer {created['token']}", "X-Agent-ID": "risk-agent"},
     )
 
-    assert response.status_code == 403
-    assert response.json()["detail"] == "接入凭证类型不允许访问当前接口"
+    assert created.status_code == 400
+    assert created.json()["error_code"] == "credential.scope_type_mismatch"
+
+
+def test_allowed_models_require_model_capable_type_and_scope(tmp_path):
+    client = _client(tmp_path)
+
+    scanner = client.post(
+        "/api/v1/access/tokens",
+        json={"name": "scanner", "token_type": "scanner", "allowed_models": ["gpt-test"]},
+    )
+    assert scanner.status_code == 400
+    assert scanner.json()["error_code"] == "credential.models_not_applicable"
+
+    runtime_without_chat = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "runtime-no-chat",
+            "token_type": "agent_runtime",
+            "bound_agent_id": "risk-agent",
+            "allowed_models": ["gpt-test"],
+        },
+    )
+    assert runtime_without_chat.status_code == 400
+    assert runtime_without_chat.json()["error_code"] == "credential.models_not_applicable"
+
+    runtime_with_chat = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "runtime-chat",
+            "token_type": "agent_runtime",
+            "bound_agent_id": "risk-agent",
+            "scopes": ["runtime:can-load", "model:chat"],
+            "allowed_models": ["gpt-test"],
+        },
+    )
+    assert runtime_with_chat.status_code == 200
+    assert runtime_with_chat.json()["record"]["allowed_models"] == ["gpt-test"]
+
+
+def test_removing_model_scope_clears_allowed_models(tmp_path):
+    client = _client(tmp_path)
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "runtime-chat",
+            "token_type": "agent_runtime",
+            "bound_agent_id": "risk-agent",
+            "scopes": ["runtime:can-load", "model:chat"],
+            "allowed_models": ["gpt-test"],
+        },
+    ).json()
+
+    updated = client.put(
+        f"/api/v1/access/tokens/{created['record']['id']}",
+        json={"scopes": ["runtime:can-load"]},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["allowed_models"] == []
 
 
 def test_agent_runtime_token_enforces_bound_prompt(tmp_path):
@@ -297,7 +450,7 @@ def test_agent_runtime_token_enforces_bound_prompt(tmp_path):
             "name": "risk-agent-runtime",
             "token_type": "agent_runtime",
             "bound_agent_id": "risk-agent",
-            "scopes": ["runtime:can-load"],
+            "scopes": ["runtime:can-load", "runtime:verify-signature"],
         },
     ).json()["token"]
 
@@ -314,3 +467,11 @@ def test_agent_runtime_token_enforces_bound_prompt(tmp_path):
     )
     assert unbound.status_code == 403
     assert "未授权使用该 Prompt" in unbound.json()["detail"]
+
+    verified = client.post(
+        "/api/v1/access/runtime/verify-prompt-signature",
+        headers={"Authorization": f"Bearer {token}", "X-Agent-ID": "risk-agent"},
+        json={"prompt_name": "risk-prompt", "local_content": "approved prompt"},
+    )
+    assert verified.status_code == 200
+    assert verified.json()["valid"] is True

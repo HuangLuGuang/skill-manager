@@ -25,6 +25,11 @@ RUNTIME_SCOPES = [
     "runtime:govern",
     "runtime:memory",
 ]
+AGENT_VERIFICATION_SCOPES = [
+    "runtime:verify-signature",
+    "runtime:can-load",
+    "runtime:check-tool",
+]
 MODEL_SCOPES = ["model:chat"]
 MCP_SCOPES = ["mcp:connect", "mcp:list-tools", "mcp:call-tools"]
 CLIENT_SCOPES = [
@@ -40,7 +45,7 @@ CLIENT_SCOPES = [
 ALLOWED_SCOPES = set(SCANNER_SCOPES + RUNTIME_SCOPES + MODEL_SCOPES + MCP_SCOPES + CLIENT_SCOPES)
 DEFAULT_SCOPES_BY_TYPE = {
     "model_gateway": ["model:chat"],
-    "agent_runtime": list(RUNTIME_SCOPES),
+    "agent_runtime": list(AGENT_VERIFICATION_SCOPES),
     "scanner": list(SCANNER_SCOPES),
     "client": list(CLIENT_SCOPES),
     "mcp_gateway": list(MCP_SCOPES),
@@ -90,9 +95,101 @@ def _normalize_scopes(token_type: str, scopes: list[str] | None) -> list[str]:
                 f"Unsupported credential scope: {value}",
                 params={"scope": value},
             )
+        if token_type not in SCOPE_TOKEN_TYPES[value]:
+            raise ApiError(
+                400,
+                "credential.scope_type_mismatch",
+                f"凭证类型 {token_type} 不支持权限: {value}",
+                f"Credential type {token_type} does not support scope: {value}",
+                params={"token_type": token_type, "scope": value},
+            )
         if value not in result:
             result.append(value)
     return result
+
+
+def _normalize_allowed_models(token_type: str, scopes: list[str], allowed_models: list[str] | None) -> list[str]:
+    result: list[str] = []
+    for model in allowed_models or []:
+        value = str(model).strip()
+        if value and value not in result:
+            result.append(value)
+    if result and (token_type not in {"model_gateway", "agent_runtime"} or "model:chat" not in scopes):
+        raise ApiError(
+            400,
+            "credential.models_not_applicable",
+            "当前凭证类型或权限不支持配置允许的模型",
+            "Allowed models are not applicable to this credential type or scope",
+            params={"token_type": token_type},
+        )
+    return result
+
+
+def _validate_subject_bindings(
+    db: Session,
+    *,
+    token_type: str,
+    bound_agent_id: str | None,
+    bound_client_id: str | None,
+    allowed_mcp_gateways: list[str] | None,
+) -> list[str]:
+    if token_type == "agent_runtime":
+        if not bound_agent_id:
+            raise ApiError(
+                400,
+                "credential.agent_binding_required",
+                "Agent 运行凭证必须绑定智能体",
+                "Agent runtime credentials must be bound to an Agent",
+            )
+        if not db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == bound_agent_id).first():
+            raise ApiError(404, "agent.bound_not_found", "绑定的智能体不存在", "The bound Agent does not exist")
+    elif bound_agent_id:
+        raise ApiError(
+            400,
+            "credential.agent_binding_not_applicable",
+            "当前凭证类型不能绑定智能体",
+            "This credential type cannot be bound to an Agent",
+            params={"token_type": token_type},
+        )
+
+    if token_type != "client" and bound_client_id:
+        raise ApiError(
+            400,
+            "credential.client_binding_not_applicable",
+            "当前凭证类型不能绑定客户端",
+            "This credential type cannot be bound to a client",
+            params={"token_type": token_type},
+        )
+
+    gateways = [str(item).strip() for item in (allowed_mcp_gateways or []) if str(item).strip()]
+    if token_type == "mcp_gateway":
+        if not gateways:
+            raise ApiError(
+                400,
+                "credential.mcp_gateway_binding_required",
+                "MCP 网关凭证必须至少授权一个网关",
+                "MCP gateway credentials must allow at least one gateway",
+            )
+        existing = {row.slug for row in db.query(models.McpGateway).all()}
+        missing = set(gateways) - existing
+        if missing:
+            names = ", ".join(sorted(missing))
+            raise ApiError(
+                404,
+                "mcp.gateway_not_found",
+                f"MCP 网关不存在: {names}",
+                f"MCP gateway not found: {names}",
+                params={"gateways": sorted(missing)},
+            )
+    elif gateways:
+        raise ApiError(
+            400,
+            "credential.mcp_gateway_binding_not_applicable",
+            "当前凭证类型不能配置 MCP 网关范围",
+            "This credential type cannot configure MCP gateway access",
+            params={"token_type": token_type},
+        )
+    return list(dict.fromkeys(gateways))
 
 
 def _access_token_response(row: models.AccessToken, token: str | None = None) -> schemas.AccessTokenResponse:
@@ -204,6 +301,13 @@ def resolve_access_token(
             "接入凭证类型不允许访问当前接口",
             "The credential type is not allowed for this endpoint",
             params={"allowed_token_types": sorted(expected_types), "token_type": row.token_type},
+        )
+    if row.token_type == "agent_runtime" and not (row.bound_agent_id or "").strip():
+        raise ApiError(
+            403,
+            "credential.agent_binding_required",
+            "Agent 运行凭证未绑定智能体，请重新签发或绑定后再使用",
+            "The Agent runtime credential is not bound to an Agent; reissue or bind it before use",
         )
     allowed_ips = _json_loads(row.allowed_ips_json, [])
     client_ip = request.client.host if request and request.client else None
@@ -352,24 +456,17 @@ async def create_access_token(
 ):
     if not body.name.strip():
         raise ApiError(400, "credential.name_required", "凭证名称不能为空", "Credential name is required")
-    if body.bound_agent_id and not db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == body.bound_agent_id).first():
-        raise ApiError(404, "agent.bound_not_found", "绑定的智能体不存在", "The bound Agent does not exist")
+    allowed_mcp_gateways = _validate_subject_bindings(
+        db,
+        token_type=body.token_type,
+        bound_agent_id=body.bound_agent_id,
+        bound_client_id=body.bound_client_id,
+        allowed_mcp_gateways=body.allowed_mcp_gateways,
+    )
     if body.user_id and not db.query(models.User).filter(models.User.id == body.user_id).first():
         raise ApiError(404, "user.not_found", "用户不存在", "User not found")
     if body.group_id and not db.query(models.UserGroup).filter(models.UserGroup.id == body.group_id).first():
         raise ApiError(404, "group.not_found", "用户组不存在", "User group not found")
-    if body.token_type == "mcp_gateway":
-        existing = {row.slug for row in db.query(models.McpGateway).all()}
-        missing = set(body.allowed_mcp_gateways) - existing
-        if missing:
-            names = ", ".join(sorted(missing))
-            raise ApiError(
-                404,
-                "mcp.gateway_not_found",
-                f"MCP 网关不存在: {names}",
-                f"MCP gateway not found: {names}",
-                params={"gateways": sorted(missing)},
-            )
     scopes = _normalize_scopes(body.token_type, body.scopes)
     plain = _new_token()
     row = models.AccessToken(
@@ -382,8 +479,8 @@ async def create_access_token(
         bound_client_id=body.bound_client_id,
         user_id=body.user_id or current_user.id if body.token_type == "model_gateway" else body.user_id,
         group_id=body.group_id,
-        allowed_models_json=_json_dumps(body.allowed_models),
-        allowed_mcp_gateways_json=_json_dumps(body.allowed_mcp_gateways),
+        allowed_models_json=_json_dumps(_normalize_allowed_models(body.token_type, scopes, body.allowed_models)),
+        allowed_mcp_gateways_json=_json_dumps(allowed_mcp_gateways),
         allowed_ips_json=_json_dumps(body.allowed_ips),
         expires_at=body.expires_at,
         max_body_kb=body.max_body_kb,
@@ -417,29 +514,34 @@ async def update_access_token(
     if not row:
         raise ApiError(404, "credential.not_found", "接入凭证不存在", "Access credential not found")
     data = body.model_dump(exclude_unset=True)
+    next_bound_agent_id = data.get("bound_agent_id", row.bound_agent_id)
+    next_bound_client_id = data.get("bound_client_id", row.bound_client_id)
+    next_allowed_mcp_gateways = data.get(
+        "allowed_mcp_gateways",
+        _json_loads(row.allowed_mcp_gateways_json, []),
+    )
+    normalized_mcp_gateways = _validate_subject_bindings(
+        db,
+        token_type=row.token_type,
+        bound_agent_id=next_bound_agent_id,
+        bound_client_id=next_bound_client_id,
+        allowed_mcp_gateways=next_allowed_mcp_gateways,
+    )
+    scopes = _json_loads(row.scopes_json, [])
     if "scopes" in data and data["scopes"] is not None:
-        row.scopes_json = _json_dumps(_normalize_scopes(row.token_type, data.pop("scopes")))
+        scopes = _normalize_scopes(row.token_type, data.pop("scopes"))
+        row.scopes_json = _json_dumps(scopes)
+        if "model:chat" not in scopes:
+            row.allowed_models_json = "[]"
     if "allowed_models" in data and data["allowed_models"] is not None:
-        row.allowed_models_json = _json_dumps(data.pop("allowed_models"))
+        row.allowed_models_json = _json_dumps(
+            _normalize_allowed_models(row.token_type, scopes, data.pop("allowed_models"))
+        )
     if "allowed_mcp_gateways" in data and data["allowed_mcp_gateways"] is not None:
-        gateways = data.pop("allowed_mcp_gateways")
-        existing = {item.slug for item in db.query(models.McpGateway).all()}
-        missing = set(gateways) - existing
-        if missing:
-            names = ", ".join(sorted(missing))
-            raise ApiError(
-                404,
-                "mcp.gateway_not_found",
-                f"MCP 网关不存在: {names}",
-                f"MCP gateway not found: {names}",
-                params={"gateways": sorted(missing)},
-            )
-        row.allowed_mcp_gateways_json = _json_dumps(gateways)
+        data.pop("allowed_mcp_gateways")
+        row.allowed_mcp_gateways_json = _json_dumps(normalized_mcp_gateways)
     if "allowed_ips" in data and data["allowed_ips"] is not None:
         row.allowed_ips_json = _json_dumps(data.pop("allowed_ips"))
-    if "bound_agent_id" in data and data["bound_agent_id"]:
-        if not db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == data["bound_agent_id"]).first():
-            raise ApiError(404, "agent.bound_not_found", "绑定的智能体不存在", "The bound Agent does not exist")
     for field, value in data.items():
         setattr(row, field, value)
     db.commit()

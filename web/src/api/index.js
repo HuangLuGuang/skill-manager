@@ -65,8 +65,6 @@ export const deploySkill = (skillId) => api.post(`/v1/skills/${skillId}/deploy`)
 export const retireSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/retire`, data)
 export const rescanSkill = (skillId) => api.post(`/v1/skills/${skillId}/rescan`)
 export const deleteSkill = (skillId) => api.delete(`/v1/skills/${skillId}`)
-export const runtimeCanLoad = (skillName, params = {}) => api.get(`/v1/runtime/can-load/${skillName}`, { params })
-export const runtimeCheckTool = (params) => api.get('/v1/runtime/check-tool', { params })
 export const getDashboardRiskSourceStats = () => api.get('/v1/dashboard/risk-source-stats')
 export const getAudit = (params = {}) => api.get('/v1/audit', { params })
 export const getAuditPaged = (params = {}) => api.get('/v1/audit', { params: { ...params, page: params.page || 1, page_size: params.page_size || 10 } })
@@ -94,6 +92,14 @@ export const deleteMcpServer = (serverId) => api.delete(`/v1/mcp/servers/${serve
 export const discoverMcpServer = (serverId) => api.post(`/v1/mcp/servers/${serverId}/discover`)
 export const updateMcpToolPolicy = (toolId, data) => api.put(`/v1/mcp/tools/${toolId}/policy`, data)
 export const createMcpToolApproval = (data) => api.post('/v1/mcp/approvals', data)
+export const listMcpApprovalRequests = (params = {}) => api.get('/v1/mcp/approval-requests', { params })
+export const getMcpApprovalRequest = (requestId, revealArguments = false) =>
+  api.get(`/v1/mcp/approval-requests/${requestId}`, { params: { reveal_arguments: revealArguments } })
+export const getMcpApprovalRequestStats = () => api.get('/v1/mcp/approval-requests/stats')
+export const approveMcpApprovalRequest = (requestId, data) =>
+  api.post(`/v1/mcp/approval-requests/${requestId}/approve`, data)
+export const rejectMcpApprovalRequest = (requestId, data) =>
+  api.post(`/v1/mcp/approval-requests/${requestId}/reject`, data)
 export const listMcpGateways = () => api.get('/v1/mcp/gateways')
 export const createMcpGateway = (data) => api.post('/v1/mcp/gateways', data)
 export const updateMcpGateway = (gatewayId, data) => api.put(`/v1/mcp/gateways/${gatewayId}`, data)

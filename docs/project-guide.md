@@ -54,7 +54,7 @@ Agent Manager 用一套“提交、扫描、审批、签名、运行时校验、
 对于 LLM 调用，Agent Manager 还内置了一个模型网关：
 
 - 外部应用可以用 OpenAI-compatible `POST /v1/chat/completions` 访问模型。
-- 网关会先校验 LLM API Key、模型范围、请求大小和并发限制。
+- 网关会先校验模型调用凭证、模型范围、请求大小和并发限制。
 - 请求进入上游模型前会做 PII 检测和伪匿名 token 替换。
 - 模型响应会按会话映射还原后再返回给调用方。
 - 管理台可以通过“隐私链路追踪”查看 Prompt 防护、脱敏、压缩、模型响应和最终还原结果。
@@ -129,7 +129,7 @@ sandbox 的作用是看：
 
 LLM 模型网关负责保护发送给外部模型供应商的数据：
 
-- LLM API Key 明文只展示一次，服务端只保存 hash。
+- 模型调用凭证明文只展示一次，服务端只保存 hash。
 - 模型供应商 API Key 加密落库，接口只返回掩码。
 - 用户组可绑定隐私策略，控制实体类型、是否扫描 system 消息、是否允许 bypass、映射 TTL 和差分隐私统计参数。
 - `stream=true` 支持 OpenAI-compatible SSE；网关会对流式 `delta.content` 做增量反替换，并在流结束后写入 audit、usage metric 和隐私链路追踪。
@@ -145,9 +145,11 @@ MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟�
 
 - 管理台在 `能力治理 / MCP 服务` 中登记 Endpoint，连接后保存 `tools/list` Schema 快照。
 - `能力治理 / MCP 网关` 把多个 Server 的部分 Tool 组合为 `/mcp/{gateway_slug}`。
+- `能力治理 / MCP 调用审批` 接收真实高风险调用产生的待办；管理员查看脱敏参数后批准或拒绝该 Token 对指定网关、Tool 和 Schema 的限时调用权限，查看原始参数会写入安全审计。
 - `能力治理 / MCP 调试` 可以在保存前使用临时 Endpoint 直连服务，也可以使用真实网关凭证执行 Tool 发现和调用，并展示原始 JSON 请求历史。
 - 调用方使用 `MCP 网关凭证`，凭证限制可访问网关、IP、有效期、请求大小和并发数，不要求绑定 `ManagedAgent`。
-- 上游连接默认强制 HTTPS，并在每次调用前校验 DNS 解析结果和出站白名单；Tool 还可以配置速率、并发、响应大小和逐次审批。
+- 上游连接默认强制 HTTPS，并在每次调用前校验 DNS 解析结果和出站白名单；Tool 还可以配置速率、并发、响应大小和限时审批。
+- 高风险调用首次被网关阻断时会返回 `approval_request_id`；批准后，网关自动按 MCP 凭证、Gateway、Tool 和 Schema 匹配有效授权，不要求调用方回传申请 ID。有效期内允许使用不同参数重复调用，参数仅保留为审批和审计上下文。
 - Tool 对外名称为 `{server_slug}__{tool_name}`；Schema 变化后暂停暴露，重新保存网关配置才会批准新 Hash。
 - 当前数据面实现 `initialize`、`ping`、`tools/list` 和 `tools/call`，不托管 stdio MCP。
 
@@ -186,7 +188,7 @@ flowchart TB
     G --> A["Agent Runtime"]
 
     subgraph ModelGateway
-      M1["LLM API Key"]
+      M1["模型调用凭证"]
       M2["PII 检测 / 伪匿名"]
       M3["OpenAI-compatible 上游模型"]
       M4["反替换 / Trace / DP 统计"]
@@ -243,7 +245,7 @@ flowchart TB
 - [web/src/views/ScannerAccess.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/ScannerAccess.vue)
   客户侧扫描器接入、Token、CLI/GUI 下载
 - [web/src/views/ModelGateway.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/ModelGateway.vue)
-  模型供应商、模型端点、LLM API Key、用户组和隐私策略管理
+  模型供应商、模型端点、旧模型凭证查询与吊销、用户组和隐私策略管理
 - [web/src/views/PipelineTrace.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/PipelineTrace.vue)
   查看隐私路由四阶段报文
 - [web/src/views/McpGateway.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/McpGateway.vue)
@@ -263,7 +265,7 @@ flowchart TB
 - [agent_manager/api/scanner_router.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/api/scanner_router.py)
   Scanner 专用 API 与下载接口
 - [agent_manager/core/scanner_tokens.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/scanner_tokens.py)
-  Scanner Token 存储、校验和审计
+  旧 Scanner Token 的兼容校验和吊销
 - [agent_manager/core/scan_cache.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/scan_cache.py)
   重复扫描复用缓存
 
@@ -321,7 +323,7 @@ sequenceDiagram
 2. 后台继续分析
 3. 列表和详情页看到状态变化
 
-客户侧扫描器使用专用 Scanner Token，不使用管理员登录态。
+客户侧扫描器使用统一凭证中心签发的 Scanner 接入凭证，不使用管理员登录态。
 详细说明见：
 
 - [skill-scanner.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/skill-scanner.md)
@@ -409,7 +411,7 @@ LLM 现在做这些事：
 
 ```bash
 export AGENT_MANAGER_LLM_GATEWAY_URL="http://127.0.0.1:8000/v1/chat/completions"
-export AGENT_MANAGER_LLM_GATEWAY_API_KEY="amk_xxx"
+export AGENT_MANAGER_LLM_GATEWAY_API_KEY="amat_xxx"
 ```
 
 可选 metadata：
@@ -695,7 +697,7 @@ make sandbox-runtime-build
 
 用于客户侧批量扫描本地 skills：
 
-- 创建和吊销 Scanner Token
+- 在统一凭证中心创建和吊销 Scanner 接入凭证
 - 下载 CLI 扫描器
 - 下载 Agent Skill Verifier
 - 查看安装命令和参数说明
@@ -710,14 +712,7 @@ Skill Verifier 下载位置：
 - `接入与运行`
 - `下载 Skill Verifier`
 
-它需要一个同时包含 scanner 和 runtime 权限的接入 Token：
-
-- `scanner:submit`
-- `scanner:read-own-results`
-- `scanner:read-own-sessions`
-- `runtime:verify-signature`
-- `runtime:can-load`
-- `runtime:check-tool`
+提交和查询扫描结果时使用 Scanner 接入凭证；加载前验签时使用绑定当前 Agent 的运行凭证。两类权限不能合并到同一凭证。脚本分别读取 `AGENT_MANAGER_SCANNER_TOKEN` 和 `AGENT_MANAGER_AGENT_RUNTIME_TOKEN`，也可在对应子命令上传入 `--token`。
 
 详细说明见：
 
@@ -729,7 +724,7 @@ Skill Verifier 下载位置：
 
 - 模型供应商：OpenAI-compatible `base_url`、供应商 API Key、超时、启用状态
 - 模型端点：模型名、默认模型、上下文窗口、最大输出 token
-- LLM API Key：绑定用户 / 用户组、允许模型、过期时间、请求体大小和并发限制
+- 模型调用凭证：在统一凭证中心配置允许模型、过期时间、请求体大小和并发限制
 - 用户与用户组：用于分配模型访问权限和隐私策略
 - 隐私策略：按用户组绑定，配置实体类型、每类实体正则规则、system 消息检测、bypass 权限、映射 TTL、差分隐私统计参数
 - 隐私审计：DP 统计、PII 命中、token 创建/复用、会话映射查询和删除
@@ -784,7 +779,7 @@ Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privac
 
 管理平台和桌面客户端支持简体中文与英文：
 
-- 中文系统名为“智能体生命周期管理系统”。
+- 中文系统名为“AI智能体全生命周期管理平台”。
 - 英文系统名为“Agent Manager”。
 - 首次使用时跟随浏览器或操作系统语言，其他语言默认使用简体中文。
 - 用户手动选择后会保存在当前浏览器或客户端本地，重新打开后继续使用。

@@ -14,7 +14,7 @@
 当前接口：
 
 - 推荐外部 Agent 使用：`POST /api/v1/access/runtime/verify-skill-signature`
-- 兼容内部或已有集成：`POST /api/v1/runtime/verify-skill-signature`
+- 旧接口 `POST /api/v1/runtime/verify-skill-signature` 已停用并返回 `410 Gone`
 
 `/api/v1/access/runtime/...` 使用管理台 `智能体管理 / 统一凭证中心` 创建的 Agent 运行凭证，不需要管理员登录态。创建凭证时至少勾选：
 
@@ -200,6 +200,5 @@ sequenceDiagram
 
 ## Notes
 
-- 如果服务端和 Agent 在同一台机器，也可以继续用内部兼容接口：
-  - `GET /api/v1/runtime/can-load/{skill_name}?skill_path=...`
-- 但对于外部 Agent，更推荐 `local_signature` 模式，因为服务端通常无法直接访问 Agent 的本地目录。
+- 旧的 `/api/v1/runtime/...` 治理接口已停用。无论 Agent 是否和服务端同机，都应使用 Agent 运行凭证访问 `/api/v1/access/runtime/...`。
+- `/api/v1/access/runtime/can-load/{skill_name}` 不接收 `skill_path`；先在 Agent 本地计算 `local_signature` 并调用 `verify-skill-signature`，再进行加载许可检查。

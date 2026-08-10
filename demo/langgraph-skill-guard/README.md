@@ -48,7 +48,7 @@ export AGENT_MANAGER_ACCESS_TOKEN="smsc_live_xxx"
 export AGENT_ID="langgraph-skill-guard-demo"
 ```
 
-如果不设置 `AGENT_MANAGER_ACCESS_TOKEN`，demo 会走旧的 `/api/v1/runtime/...` 兼容路径；接入后台服务或生产环境时应使用带 runtime scope 的接入 Token。
+`AGENT_MANAGER_ACCESS_TOKEN` 为必填项。请在统一凭证中心创建绑定当前 Agent 的运行凭证；旧的 `/api/v1/runtime/...` 治理路径已停用。
 
 ## Agent Manager API
 

@@ -55,9 +55,9 @@ How to connect a new agent with skills to the agent manager, and how the company
 | Developer workstation | `./my-skill` (writable) | Mode 2 (with path + sig verify) |
 | Team shared server | `/mnt/team-skills` (writable by team) | Mode 2 (with path + sig verify) |
 | Company controlled dir | `/company-skills` (CI/CD only) | Mode 1 (name-only) — directory IS the guard |
-| Fully remote API check | Agent calls REST API | Mode 1 via `GET /api/v1/runtime/can-load/{name}` |
+| Fully remote API check | Agent calls REST API | Local digest verification, then `GET /api/v1/access/runtime/can-load/{name}` |
 
-> **Note:** Runtime endpoints under `/api/v1/runtime/` are accessible by Agents without admin authentication. Management endpoints (POST/PUT/DELETE) remain protected.
+> **Note:** Governance endpoints under `/api/v1/runtime/` are retired and return `410 Gone`. Agents must use an Agent-bound runtime credential with `/api/v1/access/runtime/`; administrator JWTs remain management-plane credentials only.
 
 ---
 
@@ -76,13 +76,17 @@ In addition to skills, Agent Manager provides a **Prompt Registry** to govern th
 
 **Check status & loadability:**
 ```bash
-curl "http://agent-manager:8080/api/v1/runtime/can-load-prompt/my-prompt"
+curl "http://agent-manager:8080/api/v1/access/runtime/can-load-prompt/my-prompt?agent_id=my-agent-v1" \
+  -H "Authorization: Bearer $AGENT_MANAGER_AGENT_RUNTIME_TOKEN"
 # {"allowed": true, "status": "APPROVED"}
 ```
 
 **Verify content integrity:**
 ```bash
-curl "http://agent-manager:8080/api/v1/runtime/verify-prompt?prompt_name=my-prompt&local_content=..."
+curl -X POST "http://agent-manager:8080/api/v1/access/runtime/verify-prompt-signature?agent_id=my-agent-v1" \
+  -H "Authorization: Bearer $AGENT_MANAGER_AGENT_RUNTIME_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt_name":"my-prompt","local_content":"..."}'
 # {"valid": true, "reason": "签名校验通过"}
 ```
 
@@ -248,12 +252,20 @@ if not mgr.runtime.check_tool("file-reader", "Read", agent_id="my-agent-v1"):
 **Via API (for agents without direct Python access):**
 
 ```bash
-# Load check
-curl "http://agent-manager:8080/api/v1/runtime/can-load/file-reader?agent_id=my-agent-v1"
+# Verify the locally computed content digest first
+curl -X POST "http://agent-manager:8080/api/v1/access/runtime/verify-skill-signature" \
+  -H "Authorization: Bearer $AGENT_MANAGER_AGENT_RUNTIME_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"skill_name":"file-reader","local_signature":"<sha256>","agent_id":"my-agent-v1"}'
+
+# Then check registry loadability
+curl "http://agent-manager:8080/api/v1/access/runtime/can-load/file-reader?agent_id=my-agent-v1" \
+  -H "Authorization: Bearer $AGENT_MANAGER_AGENT_RUNTIME_TOKEN"
 # {"allowed": true, "reason": "allowed", "status": "DEPLOYED", "risk_level": "LOW"}
 
 # Tool permission check
-curl "http://agent-manager:8080/api/v1/runtime/check-tool?skill_name=file-reader&tool_name=Read"
+curl "http://agent-manager:8080/api/v1/access/runtime/check-tool?skill_name=file-reader&tool_name=Read&agent_id=my-agent-v1" \
+  -H "Authorization: Bearer $AGENT_MANAGER_AGENT_RUNTIME_TOKEN"
 # {"allowed": true, "skill_name": "file-reader", "tool_name": "Read"}
 ```
 

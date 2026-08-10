@@ -35,6 +35,7 @@ def _client(tmp_path, monkeypatch):
     client = TestClient(app)
     created = client.post("/api/v1/access/tokens", json={
         "name": "runtime", "token_type": "agent_runtime", "bound_agent_id": "agent-1",
+        "scopes": ["runtime:govern", "runtime:memory"],
     })
     assert created.status_code == 200
     headers = {"Authorization": f"Bearer {created.json()['token']}"}

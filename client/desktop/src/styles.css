@@ -818,8 +818,6 @@ button.is-busy, button.is-busy:disabled { cursor: wait; }
 .status-attention.warning { border-left-color: #dc674f; color: #9b3f30; background: #fff3ef; }
 .operation-result { margin-top: 8px; color: #72808b; font-size: 11px; }
 .task-history-heading { margin-top: 24px; }
-.task-history-columns,
-.task-history-row { grid-template-columns: minmax(220px, 1fr) 120px 90px 160px; }
 .task-history-row > span { color: #53616c; font-size: 12.5px; }
 
 .notification-hero { margin-bottom: 16px; }
@@ -1039,4 +1037,26 @@ html[lang="en-US"] #preview-button {
   .quarantine-row > :nth-child(2) { grid-row: 1; grid-column: 2; }
   .quarantine-row > :nth-child(3) { grid-row: 2; grid-column: 1; }
   .quarantine-row > :nth-child(4) { grid-row: 2; grid-column: 2; }
+}
+
+@media (min-width: 1000px) {
+  .takeover-column-head.task-history-columns,
+  .takeover-list .takeover-row.task-history-row {
+    grid-template-columns: minmax(220px, 1fr) 120px 90px 160px;
+    gap: 14px;
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+  .task-history-columns > :nth-child(2),
+  .task-history-row > :nth-child(2),
+  .task-history-columns > :nth-child(3),
+  .task-history-row > :nth-child(3) {
+    justify-self: stretch;
+    text-align: center;
+  }
+  .task-history-columns > :nth-child(4),
+  .task-history-row > :nth-child(4) {
+    justify-self: stretch;
+    text-align: right;
+  }
 }

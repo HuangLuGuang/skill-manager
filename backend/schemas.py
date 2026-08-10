@@ -225,8 +225,6 @@ class ManagedAgentCreate(BaseModel):
     default_model: Optional[str] = None
     skill_names: list[str] = []
     prompt_names: list[str] = []
-    runtime_token_id: Optional[int] = None
-    runtime_token_name: Optional[str] = None
 
 
 class ManagedAgentUpdate(BaseModel):
@@ -240,8 +238,6 @@ class ManagedAgentUpdate(BaseModel):
     default_model: Optional[str] = None
     skill_names: Optional[list[str]] = None
     prompt_names: Optional[list[str]] = None
-    runtime_token_id: Optional[int] = None
-    runtime_token_name: Optional[str] = None
 
 
 class ManagedAgentResponse(BaseModel):
@@ -457,6 +453,15 @@ class McpCallAuditResponse(BaseModel):
     server_slug: Optional[str] = None
     tool_name: Optional[str] = None
     schema_hash: Optional[str] = None
+    approval_request_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    skill_id: Optional[str] = None
+    skill_version_id: Optional[str] = None
+    skill_name: Optional[str] = None
+    skill_context_source: Optional[str] = None
+    skill_trust_state: Optional[str] = None
+    skill_alert_severity: Optional[str] = None
+    skill_alert_codes: list[str] = []
     status: str
     duration_ms: float
     error: Optional[str] = None
@@ -491,6 +496,67 @@ class McpToolApprovalCreate(BaseModel):
 class McpToolApprovalResponse(BaseModel):
     approval_token: str
     expires_at: datetime
+
+
+class McpApprovalRequestReview(BaseModel):
+    ttl_seconds: int = Field(default=300, ge=60, le=600)
+    comment: Optional[str] = Field(default=None, max_length=1000)
+
+
+class McpApprovalRequestReject(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class McpApprovalRequestResponse(BaseModel):
+    request_id: str
+    token_id: int
+    token_name: str
+    token_prefix: str
+    gateway_slug: str
+    gateway_name: Optional[str] = None
+    server_slug: Optional[str] = None
+    tool_id: Optional[int] = None
+    tool_name: str
+    tool_description: Optional[str] = None
+    risk_level: str = "high"
+    schema_hash: Optional[str] = None
+    current_schema_hash: Optional[str] = None
+    schema_changed: bool = False
+    arguments: dict[str, Any] = {}
+    arguments_revealed: bool = False
+    client_ip: Optional[str] = None
+    status: str
+    expires_at: datetime
+    created_by: str
+    created_at: datetime
+    reviewed_by: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    review_comment: Optional[str] = None
+    used_at: Optional[datetime] = None
+    use_count: int = 0
+    first_used_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+
+
+class McpApprovalRequestListResponse(BaseModel):
+    items: list[McpApprovalRequestResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class McpApprovalRequestStatsResponse(BaseModel):
+    pending: int = 0
+    approved_today: int = 0
+    rejected_today: int = 0
+    expired: int = 0
+
+
+class McpApprovalRuntimeStatusResponse(BaseModel):
+    request_id: str
+    status: str
+    expires_at: datetime
+    review_comment: Optional[str] = None
 
 
 class RuntimePolicyUpdate(BaseModel):

@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend import models
 from backend import auth
+from backend.api_errors import ApiError, api_error_handler
 from backend.routers import llm_gateway
 from backend.sqlite_db import Base, get_db
 
@@ -77,6 +78,7 @@ def _client(tmp_path, monkeypatch, *, max_body_kb: int = 1024, max_concurrent_re
             session.close()
 
     app = FastAPI()
+    app.add_exception_handler(ApiError, api_error_handler)
     app.dependency_overrides[get_db] = override_get_db
     app.include_router(llm_gateway.runtime_router)
     app.include_router(llm_gateway.admin_router)
@@ -759,6 +761,113 @@ def test_agent_access_token_with_model_chat_can_use_agent_default_model(tmp_path
     assert response.status_code == 200
     assert response.json()["model"] == "mock-model"
 
+    db = session_factory()
+    try:
+        audit = db.query(models.LlmRequestAudit).order_by(models.LlmRequestAudit.id.desc()).first()
+        assert audit.credential_type == "agent_runtime"
+        assert audit.agent_id == "risk-agent"
+        meta = (
+            db.query(models.LlmPipelineTrace)
+            .filter(models.LlmPipelineTrace.request_id == audit.request_id, models.LlmPipelineTrace.stage == "meta")
+            .first()
+        )
+        meta_payload = llm_gateway._json_loads(meta.payload_json, {})
+        assert meta_payload["credential_type"] == "agent_runtime"
+        assert meta_payload["agent_id"] == "risk-agent"
+        assert meta_payload["agent_name"] == "风险智能体"
+        assert meta_payload["agent_identity_source"] == "credential_binding"
+    finally:
+        db.close()
+
+
+def test_agent_model_call_records_declared_skill_warning(tmp_path, monkeypatch):
+    client, _token, session_factory = _client(tmp_path, monkeypatch)
+    entry = type(
+        "Entry",
+        (),
+        {
+            "skill_id": "skill-version-1",
+            "family_id": "skill-family-1",
+            "name": "approved-skill",
+            "is_loadable": lambda self: True,
+        },
+    )()
+    manager = type(
+        "Manager",
+        (),
+        {"get_skill": lambda self, identifier: entry if identifier in {"skill-family-1", "skill-version-1", "approved-skill"} else None},
+    )()
+    monkeypatch.setattr("agent_manager.api.router.get_manager", lambda: manager)
+
+    db = session_factory()
+    try:
+        raw = "amat_skill_context"
+        agent = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == "risk-agent").one()
+        agent.skill_names_json = '["skill-family-1"]'
+        db.add(
+            models.AccessToken(
+                name="risk-agent-model-skill",
+                token_type="agent_runtime",
+                token_hash=llm_gateway._hash_token(raw),
+                token_prefix=raw[:12],
+                bound_agent_id="risk-agent",
+                scopes_json='["model:chat"]',
+                allowed_models_json="[]",
+                allowed_ips_json="[]",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": "Bearer amat_skill_context"},
+        json={
+            "messages": [{"role": "user", "content": "Jane email is jane@example.com"}],
+            "metadata": {
+                "agent_manager_skill_id": "skill-family-1",
+                "agent_manager_skill_version_id": "skill-version-1",
+                "agent_manager_skill_name": "approved-skill",
+            },
+        },
+    )
+    assert response.status_code == 200
+
+    db = session_factory()
+    try:
+        audit = db.query(models.LlmRequestAudit).order_by(models.LlmRequestAudit.id.desc()).first()
+        assert audit.skill_id == "skill-family-1"
+        assert audit.skill_version_id == "skill-version-1"
+        assert audit.skill_name == "approved-skill"
+        assert audit.skill_trust_state == "declared_trusted"
+        assert llm_gateway._json_loads(audit.skill_alert_codes_json, []) == ["gateway.skill_context_unverified"]
+        meta = db.query(models.LlmPipelineTrace).filter(
+            models.LlmPipelineTrace.request_id == audit.request_id,
+            models.LlmPipelineTrace.stage == "meta",
+        ).one()
+        assert llm_gateway._json_loads(meta.payload_json, {})["skill_trust_state"] == "declared_trusted"
+    finally:
+        db.close()
+
+    suspicious = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": "Bearer amat_skill_context"},
+        json={
+            "messages": [{"role": "user", "content": "Jane email is jane@example.com"}],
+            "metadata": {"agent_manager_skill_name": "unregistered-skill"},
+        },
+    )
+    assert suspicious.status_code == 200
+
+    db = session_factory()
+    try:
+        audit = db.query(models.LlmRequestAudit).order_by(models.LlmRequestAudit.id.desc()).first()
+        assert audit.skill_trust_state == "suspicious"
+        assert llm_gateway._json_loads(audit.skill_alert_codes_json, []) == ["gateway.skill_unknown"]
+    finally:
+        db.close()
+
 
 def test_unknown_chat_completion_fields_are_rejected(tmp_path, monkeypatch):
     client, token, _session_factory = _client(tmp_path, monkeypatch)
@@ -1216,7 +1325,7 @@ def test_group_response_includes_bound_policy(tmp_path, monkeypatch):
         db.close()
 
 
-def test_create_api_key_binds_current_user_not_group(tmp_path, monkeypatch):
+def test_legacy_llm_api_key_issuance_is_removed(tmp_path, monkeypatch):
     client, _token, session_factory = _client(tmp_path, monkeypatch)
     db = session_factory()
     try:
@@ -1248,10 +1357,8 @@ def test_create_api_key_binds_current_user_not_group(tmp_path, monkeypatch):
         },
     )
 
-    assert response.status_code == 200
-    data = response.json()
-    assert data["user_id"] == user_id
-    assert data["group_id"] is None
+    assert response.status_code == 410
+    assert response.json()["error_code"] == "credential.legacy_llm_key_issuance_removed"
 
 
 def test_api_key_list_and_mutations_are_owner_scoped(tmp_path, monkeypatch):

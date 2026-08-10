@@ -2,6 +2,14 @@
   <div>
     <a-page-header :title="$t('legacy.97xff4')" :sub-title="$t('legacy.zt36j')" />
 
+    <a-alert
+      type="info"
+      show-icon
+      :message="$t('credentials.usageTitle')"
+      :description="$t('credentials.usageDescription')"
+      style="margin-top: 16px"
+    />
+
     <a-card style="margin-top: 16px">
       <template #extra>
         <a-space>
@@ -41,15 +49,17 @@
             </a-space>
           </template>
           <template v-else-if="column.key === 'models'">
-            <a-space wrap>
+            <a-space v-if="recordSupportsModels(record)" wrap>
               <a-tag v-for="model in record.allowed_models || []" :key="model">{{ model }}</a-tag>
               <span v-if="!record.allowed_models?.length" class="muted">{{ $t("legacy.heq3bi") }}</span>
             </a-space>
+            <span v-else class="muted">-</span>
           </template>
           <template v-else-if="column.key === 'promptGuard'">
-            <a-tag :color="promptGuardColor(record.prompt_guard_mode)">
+            <a-tag v-if="recordSupportsModels(record)" :color="promptGuardColor(record.prompt_guard_mode)">
               {{ promptGuardLabel(record.prompt_guard_mode) }}
             </a-tag>
+            <span v-else class="muted">-</span>
           </template>
           <template v-else-if="column.key === 'status'">
             <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
@@ -93,6 +103,16 @@
           </a-col>
         </a-row>
 
+        <a-form-item v-if="form.token_type === 'agent_runtime'" :label="$t('credentials.agentPreset')">
+          <a-select v-model:value="form.agent_preset" @change="applyAgentPreset">
+            <a-select-option value="verification">{{ $t('credentials.verificationPreset') }}</a-select-option>
+            <a-select-option value="governance">{{ $t('credentials.governancePreset') }}</a-select-option>
+            <a-select-option value="governance_model">{{ $t('credentials.governanceModelPreset') }}</a-select-option>
+            <a-select-option value="custom">{{ $t('credentials.customPreset') }}</a-select-option>
+          </a-select>
+          <div class="hint">{{ $t('credentials.verificationHint') }}</div>
+        </a-form-item>
+
         <a-form-item v-if="form.token_type === 'agent_runtime'" :label="$t('legacy.hues6c')" required>
           <a-select v-model:value="form.bound_agent_id" show-search allow-clear option-filter-prop="label" :placeholder="$t('legacy.bn0dh2')">
             <a-select-option v-for="agent in agents" :key="agent.agent_id" :value="agent.agent_id" :label="`${agent.name} ${agent.agent_id}`">
@@ -112,40 +132,13 @@
         </a-form-item>
 
         <a-form-item :label="$t('legacy.13dp9dd')">
-          <a-select v-model:value="form.scopes" mode="multiple" style="width: 100%">
-            <a-select-opt-group :label="$t('legacy.15en1a5')">
-              <a-select-option value="model:chat">model:chat</a-select-option>
-            </a-select-opt-group>
-            <a-select-opt-group label="Agent Runtime">
-              <a-select-option value="runtime:verify-signature">runtime:verify-signature</a-select-option>
-              <a-select-option value="runtime:can-load">runtime:can-load</a-select-option>
-              <a-select-option value="runtime:check-tool">runtime:check-tool</a-select-option>
-            </a-select-opt-group>
-            <a-select-opt-group label="Scanner">
-              <a-select-option value="scanner:submit">scanner:submit</a-select-option>
-              <a-select-option value="scanner:read-own-results">scanner:read-own-results</a-select-option>
-              <a-select-option value="scanner:read-own-sessions">scanner:read-own-sessions</a-select-option>
-            </a-select-opt-group>
-            <a-select-opt-group label="Agent Manager Client">
-              <a-select-option value="client:register">client:register</a-select-option>
-              <a-select-option value="client:heartbeat">client:heartbeat</a-select-option>
-              <a-select-option value="client:read-policy">client:read-policy</a-select-option>
-              <a-select-option value="client:read-tasks">client:read-tasks</a-select-option>
-              <a-select-option value="client:report-inventory">client:report-inventory</a-select-option>
-              <a-select-option value="client:report-events">client:report-events</a-select-option>
-              <a-select-option value="client:submit-skill">client:submit-skill</a-select-option>
-              <a-select-option value="client:download-approved-skill">client:download-approved-skill</a-select-option>
-            </a-select-opt-group>
-            <a-select-opt-group :label="$t('legacy.1gcagoh')">
-              <a-select-option value="mcp:connect">mcp:connect</a-select-option>
-              <a-select-option value="mcp:list-tools">mcp:list-tools</a-select-option>
-              <a-select-option value="mcp:call-tools">mcp:call-tools</a-select-option>
-            </a-select-opt-group>
+          <a-select v-model:value="form.scopes" mode="multiple" style="width: 100%" @change="handleScopesChange">
+            <a-select-option v-for="scope in availableScopes" :key="scope" :value="scope">{{ scope }}</a-select-option>
           </a-select>
           <div class="hint">{{ $t("legacy.141vff0") }}</div>
         </a-form-item>
 
-        <a-form-item :label="$t('legacy.1o3mles')">
+        <a-form-item v-if="supportsModels" :label="$t('legacy.1o3mles')">
           <a-select v-model:value="form.allowed_models" mode="multiple" allow-clear :placeholder="$t('legacy.ws9xsw')">
             <a-select-option v-for="model in models" :key="model.name" :value="model.name">{{ model.display_name || model.name }}</a-select-option>
           </a-select>
@@ -220,7 +213,7 @@
 <script setup>
 import { translateLegacy as phrase, translateText as text } from '../i18n'
 
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { formatDateTime } from '../utils/format'
@@ -251,6 +244,7 @@ const filters = reactive({ token_type: undefined })
 const form = reactive({
   name: '',
   token_type: 'agent_runtime',
+  agent_preset: 'verification',
   bound_agent_id: undefined,
   scopes: [],
   allowed_models: [],
@@ -266,9 +260,14 @@ const form = reactive({
   prompt_guard_llm_review: false,
 })
 
+const agentScopePresets = {
+  verification: ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool'],
+  governance: ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool', 'runtime:govern', 'runtime:memory'],
+  governance_model: ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool', 'runtime:govern', 'runtime:memory', 'model:chat'],
+}
 const typeDefaults = {
   model_gateway: ['model:chat'],
-  agent_runtime: ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool', 'runtime:govern', 'runtime:memory'],
+  agent_runtime: [...agentScopePresets.verification],
   scanner: ['scanner:submit', 'scanner:read-own-results', 'scanner:read-own-sessions'],
   client: [
     'client:register',
@@ -282,6 +281,16 @@ const typeDefaults = {
   ],
   mcp_gateway: ['mcp:connect', 'mcp:list-tools', 'mcp:call-tools'],
 }
+const scopeOptionsByType = {
+  ...typeDefaults,
+  agent_runtime: [...agentScopePresets.governance_model],
+}
+const availableScopes = computed(() => scopeOptionsByType[form.token_type] || [])
+const supportsModels = computed(() =>
+  ['model_gateway', 'agent_runtime'].includes(form.token_type) && form.scopes.includes('model:chat')
+)
+const recordSupportsModels = record =>
+  ['model_gateway', 'agent_runtime'].includes(record.token_type) && record.scopes?.includes('model:chat')
 const columns = [
   { title: phrase('legacy.hzx914'), dataIndex: 'name' },
   { title: phrase('legacy.anh4cj'), key: 'type', width: 140 },
@@ -308,11 +317,37 @@ const promptGuardLabel = (value) => ({ off: phrase('legacy.g0fanx'), log: phrase
 const promptGuardColor = (value) => ({ off: 'default', log: 'blue', warn: 'orange', block: 'red' }[value] || 'default')
 const formatTime = formatDateTime
 
+const sameScopes = (left, right) =>
+  left.length === right.length && [...left].sort().every((scope, index) => scope === [...right].sort()[index])
+
+const applyAgentPreset = () => {
+  const scopes = agentScopePresets[form.agent_preset]
+  if (!scopes) return
+  form.scopes = [...scopes]
+  handleScopesChange()
+}
+
 const applyTypeDefaults = () => {
+  form.agent_preset = 'verification'
   form.scopes = [...(typeDefaults[form.token_type] || [])]
+  form.allowed_models = []
+  form.enable_compression = false
+  form.compression_level = 'auto'
   form.prompt_guard_mode = form.token_type === 'agent_runtime' ? 'block' : 'off'
   if (form.token_type !== 'agent_runtime') form.bound_agent_id = undefined
   if (form.token_type !== 'mcp_gateway') form.allowed_mcp_gateways = []
+}
+
+const handleScopesChange = () => {
+  if (form.token_type === 'agent_runtime') {
+    const matched = Object.entries(agentScopePresets).find(([, scopes]) => sameScopes(form.scopes, scopes))
+    form.agent_preset = matched?.[0] || 'custom'
+  }
+  if (form.scopes.includes('model:chat')) return
+  form.allowed_models = []
+  form.enable_compression = false
+  form.compression_level = 'auto'
+  if (form.token_type !== 'agent_runtime') form.prompt_guard_mode = 'off'
 }
 
 const fetchTokens = async () => {
@@ -338,6 +373,7 @@ const openCreate = (defaults = {}) => {
   Object.assign(form, {
     name: defaults.name || '',
     token_type: defaults.token_type || 'agent_runtime',
+    agent_preset: 'verification',
     bound_agent_id: defaults.bound_agent_id,
     scopes: [...typeDefaults.agent_runtime],
     allowed_models: [],
@@ -389,7 +425,9 @@ const handleCreate = async () => {
   form.prompt_guard_llm_review = false
   creating.value = true
   try {
-    const data = await createAccessToken({ ...form, name: form.name.trim() })
+    const payload = { ...form, name: form.name.trim() }
+    delete payload.agent_preset
+    const data = await createAccessToken(payload)
     createdToken.value = data.token
     createVisible.value = false
     createdVisible.value = true

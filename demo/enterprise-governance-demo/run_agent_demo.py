@@ -13,24 +13,36 @@ from pydantic import BaseModel, Field
 # --------------------------------------------------------------------------- #
 
 class AgentManagerRuntimeClient:
-    def __init__(self, base_url: str, token: str | None = None):
+    def __init__(self, base_url: str, agent_id: str, token: str | None = None):
+        if not token:
+            raise ValueError(
+                "AGENT_MANAGER_AGENT_RUNTIME_TOKEN or AGENT_MANAGER_ACCESS_TOKEN is required; "
+                "create an Agent runtime credential in Credential Center"
+            )
+        if not agent_id.strip():
+            raise ValueError("AGENT_ID is required")
         self.base_url = base_url.rstrip("/")
-        self.runtime_prefix = "/api/v1/access/runtime" if token else "/api/v1/runtime"
-        headers = {"Authorization": f"Bearer {token}"} if token else None
+        self.agent_id = agent_id.strip()
+        self.runtime_prefix = "/api/v1/access/runtime"
+        headers = {"Authorization": f"Bearer {token}"}
         self.http = httpx.Client(base_url=self.base_url, timeout=20.0, headers=headers)
 
     def verify_prompt(self, prompt_name: str, local_content: str) -> dict:
         """Verify local prompt content against registry signature."""
-        res = self.http.get(
-            "/api/v1/runtime/verify-prompt",
-            params={"prompt_name": prompt_name, "local_content": local_content}
+        res = self.http.post(
+            f"{self.runtime_prefix}/verify-prompt-signature",
+            params={"agent_id": self.agent_id},
+            json={"prompt_name": prompt_name, "local_content": local_content},
         )
         res.raise_for_status()
         return res.json()
 
     def can_load_prompt(self, prompt_name: str) -> bool:
         """Check if prompt is allowed to load (APPROVED/DEPLOYED)."""
-        res = self.http.get(f"/api/v1/runtime/can-load-prompt/{prompt_name}")
+        res = self.http.get(
+            f"{self.runtime_prefix}/can-load-prompt/{prompt_name}",
+            params={"agent_id": self.agent_id},
+        )
         res.raise_for_status()
         return res.json().get("allowed", False)
 
@@ -38,7 +50,7 @@ class AgentManagerRuntimeClient:
         """Verify skill directory signature."""
         res = self.http.post(
             f"{self.runtime_prefix}/verify-skill-signature",
-            json={"skill_name": skill_name, "local_signature": local_signature, "agent_id": "demo-agent"}
+            json={"skill_name": skill_name, "local_signature": local_signature, "agent_id": self.agent_id}
         )
         res.raise_for_status()
         return res.json().get("allowed", False)
@@ -68,9 +80,15 @@ def run_governed_agent(scenario="safe"):
     print(f"========================================================\n")
 
     BASE_URL = os.environ.get("AGENT_MANAGER_BASE_URL", "http://localhost:8000")
+    agent_id = os.environ.get("AGENT_ID", "demo-agent")
     client = AgentManagerRuntimeClient(
         BASE_URL,
-        token=os.getenv("AGENT_MANAGER_API_TOKEN") or os.getenv("AGENT_MANAGER_ACCESS_TOKEN"),
+        agent_id=agent_id,
+        token=(
+            os.getenv("AGENT_MANAGER_AGENT_RUNTIME_TOKEN")
+            or os.getenv("AGENT_MANAGER_ACCESS_TOKEN")
+            or os.getenv("AGENT_MANAGER_API_TOKEN")
+        ),
     )
 
     # 1. 验证提示词 (Prompt)
@@ -81,7 +99,10 @@ def run_governed_agent(scenario="safe"):
     print(f"正在执行指令集 '{prompt_name}' 运行时验证...")
     try:
         # 检查加载状态
-        res = client.http.get(f"/api/v1/runtime/can-load-prompt/{prompt_name}")
+        res = client.http.get(
+            f"{client.runtime_prefix}/can-load-prompt/{prompt_name}",
+            params={"agent_id": client.agent_id},
+        )
         res.raise_for_status()
         load_info = res.json()
 
