@@ -251,7 +251,9 @@ Authorization: Bearer amat_xxx
 
 生产环境的上游 MCP Endpoint 默认只允许 HTTPS。每次连接前会重新解析 DNS，拒绝私网、回环、链路本地、保留地址和不在 `MCP_OUTBOUND_ALLOWLIST` 中的目标；HTTP 只能通过开发配置显式启用。响应大小、Tool 每分钟调用量和并发数均有独立限制。
 
-标记为高风险或要求审批的 Tool 必须携带一次性审批凭证：管理员通过 `POST /api/v1/mcp/approvals` 创建凭证，凭证绑定 MCP Token、Gateway、Tool、参数摘要和短期过期时间；调用方放在 `params._meta.agent_manager_approval`。凭证使用一次后立即失效，修改参数或重放都会被拒绝。
+标记为高风险或要求审批的 Tool 会进入限时 Tool 级审批流程：首次 `tools/call` 返回 JSON-RPC `-32002`，并在 `error.data.approval_request_id` 中给出申请 ID。管理员在 `能力治理 / MCP 调用审批` 查看首次调用上下文并批准或拒绝。批准后，网关会自动按 MCP Token、Gateway、Tool 和 Schema 匹配有效授权；调用方无需回传申请 ID，并可在有效期内使用不同参数重复调用同一 Tool。参数仅作为审批和审计上下文，不是授权匹配条件。Schema 变化、授权到期、Token 或网关失效后必须重新审批。调用方也可以使用同一个 MCP 网关凭证访问 `GET /mcp/{gateway_slug}/approvals/{request_id}` 查询状态。
+
+原有 `POST /api/v1/mcp/approvals` 直接签发一次性凭证的接口继续保留，调用方仍可通过 `params._meta.agent_manager_approval` 消费，但它主要用于已有集成和受控调试；正式人工审批应使用调用自动产生的待办流程。
 
 如果 MCP Tool 调用由某个 Skill 发起，调用方可以在 `tools/call` 的 `params._meta` 中声明 Skill：
 

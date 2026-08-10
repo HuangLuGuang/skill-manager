@@ -9,6 +9,7 @@ const routes = [
   { path: '/credentials', name: 'credentials', component: () => import('../views/Credentials.vue'), meta: { requiresAuth: true } },
   { path: '/mcp-governance/servers', name: 'mcp-servers', component: () => import('../views/McpGateway.vue'), meta: { requiresAuth: true, mcpTab: 'servers' } },
   { path: '/mcp-governance/gateways', name: 'mcp-gateways', component: () => import('../views/McpGateway.vue'), meta: { requiresAuth: true, mcpTab: 'gateways' } },
+  { path: '/mcp-governance/approvals', name: 'mcp-approvals', component: () => import('../views/McpApprovals.vue'), meta: { requiresAuth: true } },
   { path: '/mcp-governance/debug', name: 'mcp-debug', component: () => import('../views/McpDebug.vue'), meta: { requiresAuth: true } },
   { path: '/mcp-governance/audit', name: 'mcp-audit', component: () => import('../views/McpGateway.vue'), meta: { requiresAuth: true, mcpTab: 'audit' } },
   { path: '/skills', name: 'skills', component: () => import('../views/Skills.vue'), meta: { requiresAuth: true } },

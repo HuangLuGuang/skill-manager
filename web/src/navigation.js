@@ -23,6 +23,7 @@ export const navigationItems = [
         children: [
           { key: '/mcp-governance/servers', label: 'MCP 服务', icon: 'api' },
           { key: '/mcp-governance/gateways', label: 'MCP 网关', icon: 'deployment' },
+          { key: '/mcp-governance/approvals', label: 'mcpApproval.menu', icon: 'checkSquare', badge: 'mcpApprovals' },
           { key: '/mcp-governance/debug', label: 'MCP 调试', icon: 'safety' },
           { key: '/mcp-governance/audit', label: '调用审计', icon: 'audit' },
         ],

@@ -145,9 +145,11 @@ MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟�
 
 - 管理台在 `能力治理 / MCP 服务` 中登记 Endpoint，连接后保存 `tools/list` Schema 快照。
 - `能力治理 / MCP 网关` 把多个 Server 的部分 Tool 组合为 `/mcp/{gateway_slug}`。
+- `能力治理 / MCP 调用审批` 接收真实高风险调用产生的待办；管理员查看脱敏参数后批准或拒绝该 Token 对指定网关、Tool 和 Schema 的限时调用权限，查看原始参数会写入安全审计。
 - `能力治理 / MCP 调试` 可以在保存前使用临时 Endpoint 直连服务，也可以使用真实网关凭证执行 Tool 发现和调用，并展示原始 JSON 请求历史。
 - 调用方使用 `MCP 网关凭证`，凭证限制可访问网关、IP、有效期、请求大小和并发数，不要求绑定 `ManagedAgent`。
-- 上游连接默认强制 HTTPS，并在每次调用前校验 DNS 解析结果和出站白名单；Tool 还可以配置速率、并发、响应大小和逐次审批。
+- 上游连接默认强制 HTTPS，并在每次调用前校验 DNS 解析结果和出站白名单；Tool 还可以配置速率、并发、响应大小和限时审批。
+- 高风险调用首次被网关阻断时会返回 `approval_request_id`；批准后，网关自动按 MCP 凭证、Gateway、Tool 和 Schema 匹配有效授权，不要求调用方回传申请 ID。有效期内允许使用不同参数重复调用，参数仅保留为审批和审计上下文。
 - Tool 对外名称为 `{server_slug}__{tool_name}`；Schema 变化后暂停暴露，重新保存网关配置才会批准新 Hash。
 - 当前数据面实现 `initialize`、`ping`、`tools/list` 和 `tools/call`，不托管 stdio MCP。
 
@@ -777,7 +779,7 @@ Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privac
 
 管理平台和桌面客户端支持简体中文与英文：
 
-- 中文系统名为“智能体生命周期管理系统”。
+- 中文系统名为“AI智能体全生命周期管理平台”。
 - 英文系统名为“Agent Manager”。
 - 首次使用时跟随浏览器或操作系统语言，其他语言默认使用简体中文。
 - 用户手动选择后会保存在当前浏览器或客户端本地，重新打开后继续使用。

@@ -39,7 +39,7 @@ const stylesSource = fs.readFileSync(new URL('../src/styles.css', import.meta.ur
 
 test('translates core desktop navigation and product name', () => {
   const { t } = context.window.clientI18n
-  assert.equal(t('智能体生命周期管理系统'), 'Agent Manager')
+  assert.equal(t('AI智能体全生命周期管理平台'), 'Agent Manager')
   assert.equal(t('客户端接入'), 'Client Access')
   assert.equal(t('客户端概览'), 'Client Overview')
   assert.equal(t('Agent 发现'), 'Agent Discovery')
@@ -295,7 +295,7 @@ test('bundles localized macOS application names', () => {
   )
   assert.match(
     fs.readFileSync(new URL('../src-tauri/infoplist/zh-Hans.lproj/InfoPlist.strings', import.meta.url), 'utf8'),
-    /CFBundleDisplayName = "智能体生命周期管理系统客户端"/,
+    /CFBundleDisplayName = "AI智能体全生命周期管理平台客户端"/,
   )
 })
 

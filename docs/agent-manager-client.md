@@ -34,7 +34,7 @@ Agent Manager Client 用于统一发现、接管和巡检本机 Agent 的 Skill 
 客户端不提供通知提示音设置。
 
 客户端内部语言与 macOS Finder 中的应用名称相互独立。Finder 会按照 macOS
-系统首选语言读取安装包内的 `InfoPlist.strings`：中文显示“智能体生命周期管理系统客户端”，
+系统首选语言读取安装包内的 `InfoPlist.strings`：中文显示“AI智能体全生命周期管理平台客户端”，
 英文显示“Agent Manager Client”。切换客户端内部语言不会立即重命名 Finder 中的应用。
 各语言共用同一安装包，不需要重复打包。
 

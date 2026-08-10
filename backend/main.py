@@ -183,6 +183,7 @@ def ensure_sqlite_schema() -> None:
         mcp_audit_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mcp_call_audits)").fetchall()}
         mcp_gateway_skill_columns = {
             "agent_id": "VARCHAR(128)",
+            "approval_request_id": "VARCHAR(64)",
             **gateway_skill_audit_columns,
         }
         for column_name, column_type in mcp_gateway_skill_columns.items():
@@ -200,6 +201,40 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql("ALTER TABLE mcp_tools ADD COLUMN max_concurrent INTEGER NOT NULL DEFAULT 5")
         if mcp_tool_columns and "requires_approval" not in mcp_tool_columns:
             conn.exec_driver_sql("ALTER TABLE mcp_tools ADD COLUMN requires_approval BOOLEAN NOT NULL DEFAULT 0")
+        mcp_approval_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mcp_tool_approvals)").fetchall()}
+        mcp_approval_request_columns = {
+            "request_id": "VARCHAR(64)",
+            "server_slug": "VARCHAR(128)",
+            "tool_id": "INTEGER",
+            "schema_hash": "VARCHAR(64)",
+            "arguments_encrypted": "TEXT",
+            "client_ip": "VARCHAR(128)",
+            "reviewed_by": "VARCHAR(128)",
+            "reviewed_at": "DATETIME",
+            "review_comment": "TEXT",
+            "use_count": "INTEGER NOT NULL DEFAULT 0",
+            "first_used_at": "DATETIME",
+            "last_used_at": "DATETIME",
+        }
+        for column_name, column_type in mcp_approval_request_columns.items():
+            if mcp_approval_columns and column_name not in mcp_approval_columns:
+                conn.exec_driver_sql(f"ALTER TABLE mcp_tool_approvals ADD COLUMN {column_name} {column_type}")
+        if mcp_approval_columns:
+            conn.exec_driver_sql(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_mcp_tool_approvals_request_id "
+                "ON mcp_tool_approvals (request_id) WHERE request_id IS NOT NULL"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_mcp_tool_approvals_server_slug ON mcp_tool_approvals (server_slug)"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_mcp_tool_approvals_tool_id ON mcp_tool_approvals (tool_id)"
+            )
+        if mcp_audit_columns:
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_mcp_call_audits_approval_request_id "
+                "ON mcp_call_audits (approval_request_id)"
+            )
         managed_client_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(managed_clients)").fetchall()}
         if managed_client_columns and "policy_mode" not in managed_client_columns:
             conn.exec_driver_sql("ALTER TABLE managed_clients ADD COLUMN policy_mode VARCHAR(32) NOT NULL DEFAULT 'audit'")

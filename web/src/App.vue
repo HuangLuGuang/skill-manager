@@ -111,7 +111,7 @@ import {
   UploadOutlined,
 } from '@ant-design/icons-vue'
 
-import { changePassword, checkSession, getLogoInfo, getMe, updateMyLocale } from './api'
+import { changePassword, checkSession, getLogoInfo, getMcpApprovalRequestStats, getMe, updateMyLocale } from './api'
 import { setLocale, translateLegacy } from './i18n'
 import { findMenuOpenKeys, navigationItems, resolveMenuKey } from './navigation'
 
@@ -124,6 +124,7 @@ const passwordVisible = ref(false)
 const logoUrl = ref('/logo.png')
 const selectedKeys = ref([route.path])
 const openKeys = ref(['capability-governance'])
+const pendingMcpApprovals = ref(0)
 const passwordForm = reactive({
   oldPassword: '',
   newPassword: '',
@@ -150,9 +151,20 @@ const iconMap = {
 
 const antdLocale = computed(() => locale.value === 'en-US' ? enUS : zhCN)
 
+const buildMenuLabel = item => {
+  const label = item.label.includes('.') ? t(item.label) : translateLegacy(item.label)
+  if (item.badge !== 'mcpApprovals' || pendingMcpApprovals.value <= 0) return label
+  return h('span', { style: 'display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px' }, [
+    h('span', label),
+    h('span', {
+      style: 'min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:#cf1322;color:#fff;font-size:12px;line-height:20px;text-align:center',
+    }, pendingMcpApprovals.value > 99 ? '99+' : String(pendingMcpApprovals.value)),
+  ])
+}
+
 const buildMenuItem = (item) => ({
   key: item.key,
-  label: translateLegacy(item.label),
+  label: buildMenuLabel(item),
   icon: item.icon && iconMap[item.icon] ? h(iconMap[item.icon]) : undefined,
   children: item.children?.map(buildMenuItem),
 })
@@ -172,6 +184,7 @@ const handleLocaleChange = async (value) => {
 }
 
 let sessionCheckTimer = null
+let approvalStatsTimer = null
 
 const isLoginPage = computed(() => route.name === 'login')
 
@@ -192,6 +205,7 @@ watch(
       try {
         await loadProfile()
         startSessionCheck()
+        startApprovalStatsCheck()
       } catch {
         localStorage.removeItem('token')
         userInfo.value = null
@@ -201,6 +215,7 @@ watch(
     if (isLogin) {
       userInfo.value = null
       stopSessionCheck()
+      stopApprovalStatsCheck()
     }
   },
 )
@@ -221,6 +236,33 @@ const stopSessionCheck = () => {
     clearInterval(sessionCheckTimer)
     sessionCheckTimer = null
   }
+}
+
+const refreshApprovalStats = async () => {
+  try {
+    const data = await getMcpApprovalRequestStats()
+    pendingMcpApprovals.value = Number(data.pending || 0)
+  } catch {
+    // Keep navigation available when the stats request temporarily fails.
+  }
+}
+
+const startApprovalStatsCheck = () => {
+  if (approvalStatsTimer) return
+  refreshApprovalStats()
+  approvalStatsTimer = setInterval(refreshApprovalStats, 15000)
+}
+
+const stopApprovalStatsCheck = () => {
+  if (approvalStatsTimer) {
+    clearInterval(approvalStatsTimer)
+    approvalStatsTimer = null
+  }
+  pendingMcpApprovals.value = 0
+}
+
+const handleApprovalStatsEvent = event => {
+  pendingMcpApprovals.value = Number(event.detail?.pending || 0)
 }
 
 const loadProfile = async () => {
@@ -252,6 +294,7 @@ const handleLogout = () => {
   localStorage.removeItem('username')
   userInfo.value = null
   stopSessionCheck()
+  stopApprovalStatsCheck()
   router.push('/login')
 }
 
@@ -285,6 +328,7 @@ onMounted(async () => {
     await loadProfile()
     await loadLogo()
     startSessionCheck()
+    startApprovalStatsCheck()
   } catch {
     localStorage.removeItem('token')
     localStorage.removeItem('username')
@@ -295,7 +339,13 @@ onMounted(async () => {
   }
 })
 
-onUnmounted(() => stopSessionCheck())
+onMounted(() => window.addEventListener('mcp-approval-stats', handleApprovalStatsEvent))
+
+onUnmounted(() => {
+  stopSessionCheck()
+  stopApprovalStatsCheck()
+  window.removeEventListener('mcp-approval-stats', handleApprovalStatsEvent)
+})
 </script>
 
 <style scoped>

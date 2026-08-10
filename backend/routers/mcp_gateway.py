@@ -1,6 +1,7 @@
 import hashlib
 import ipaddress
 import json
+import logging
 import secrets
 import socket
 import time
@@ -11,6 +12,7 @@ from urllib.parse import urlsplit
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from jsonschema import ValidationError, validate
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
@@ -21,6 +23,7 @@ from ..gateway_skill_context import (
     evaluate_gateway_skill_context,
 )
 from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
+from ..security_audit import append_security_audit
 from ..sqlite_db import get_db
 from .access_tokens import (
     _json_loads,
@@ -35,6 +38,9 @@ admin_router = APIRouter(prefix="/mcp", tags=["mcp-admin"])
 runtime_router = APIRouter(prefix="/mcp", tags=["mcp-gateway"])
 MCP_PROTOCOL_VERSION = "2025-11-25"
 SUPPORTED_MCP_PROTOCOL_VERSIONS = {MCP_PROTOCOL_VERSION, "2025-06-18", "2025-03-26"}
+APPROVAL_REQUEST_TTL_SECONDS = 600
+MAX_PENDING_APPROVALS_PER_TOKEN = 100
+logger = logging.getLogger(__name__)
 
 
 def _json(value: str | None, default):
@@ -524,6 +530,295 @@ async def create_tool_approval(
     return schemas.McpToolApprovalResponse(approval_token=plain, expires_at=expires_at)
 
 
+_SENSITIVE_ARGUMENT_PARTS = (
+    "password", "passwd", "secret", "token", "authorization", "api_key",
+    "apikey", "access_key", "private_key", "credential",
+)
+
+
+def _mask_approval_arguments(value, key: str = ""):
+    normalized_key = key.lower().replace("-", "_")
+    if key and any(part in normalized_key for part in _SENSITIVE_ARGUMENT_PARTS):
+        return "******"
+    if isinstance(value, dict):
+        return {str(item_key): _mask_approval_arguments(item_value, str(item_key)) for item_key, item_value in value.items()}
+    if isinstance(value, list):
+        return [_mask_approval_arguments(item) for item in value]
+    return value
+
+
+def _approval_arguments(row: models.McpToolApproval) -> dict:
+    decrypted = _unprotect_secret(row.arguments_encrypted)
+    return _json(decrypted, {}) if decrypted else {}
+
+
+def _append_approval_audit(
+    db: Session,
+    row: models.McpToolApproval,
+    event_type: str,
+    actor: str,
+    action: str,
+    outcome: str = "success",
+) -> None:
+    try:
+        append_security_audit(
+            event_type=event_type,
+            actor=actor,
+            resource_type="mcp_approval_request",
+            resource_id=row.request_id or str(row.id),
+            action=action,
+            outcome=outcome,
+            details={
+                "token_id": row.token_id,
+                "gateway_slug": row.gateway_slug,
+                "server_slug": row.server_slug,
+                "tool_name": row.tool_name,
+                "arguments_hash": row.arguments_hash,
+                "schema_hash": row.schema_hash,
+                "status": row.status,
+            },
+            bind=db.get_bind(),
+        )
+    except Exception:
+        logger.exception("Failed to append MCP approval audit event for %s", row.request_id or row.id)
+
+
+def _expire_approval_requests(db: Session) -> None:
+    now = datetime.utcnow()
+    rows = db.query(models.McpToolApproval).filter(
+        models.McpToolApproval.request_id.is_not(None),
+        models.McpToolApproval.status.in_(["pending", "approved"]),
+        models.McpToolApproval.expires_at < now,
+    ).all()
+    if not rows:
+        return
+    for row in rows:
+        row.status = "expired"
+    db.commit()
+    for row in rows:
+        _append_approval_audit(db, row, "mcp.approval.expired", "system", "expire")
+
+
+def _approval_request_response(
+    db: Session,
+    row: models.McpToolApproval,
+    *,
+    reveal_arguments: bool = False,
+) -> schemas.McpApprovalRequestResponse:
+    token = db.query(models.AccessToken).filter(models.AccessToken.id == row.token_id).first()
+    gateway = db.query(models.McpGateway).filter(models.McpGateway.slug == row.gateway_slug).first()
+    tool = db.query(models.McpTool).filter(models.McpTool.id == row.tool_id).first() if row.tool_id else None
+    arguments = _approval_arguments(row)
+    return schemas.McpApprovalRequestResponse(
+        request_id=row.request_id or "",
+        token_id=row.token_id,
+        token_name=token.name if token else f"Token #{row.token_id}",
+        token_prefix=token.token_prefix if token else "",
+        gateway_slug=row.gateway_slug,
+        gateway_name=gateway.name if gateway else None,
+        server_slug=row.server_slug,
+        tool_id=row.tool_id,
+        tool_name=row.tool_name,
+        tool_description=tool.description if tool else None,
+        risk_level=tool.risk_level if tool else "high",
+        schema_hash=row.schema_hash,
+        current_schema_hash=tool.schema_hash if tool else None,
+        schema_changed=bool(tool and row.schema_hash and tool.schema_hash != row.schema_hash),
+        arguments=arguments if reveal_arguments else _mask_approval_arguments(arguments),
+        arguments_revealed=reveal_arguments,
+        client_ip=row.client_ip,
+        status=row.status,
+        expires_at=row.expires_at,
+        created_by=row.created_by,
+        created_at=row.created_at,
+        reviewed_by=row.reviewed_by,
+        reviewed_at=row.reviewed_at,
+        review_comment=row.review_comment,
+        used_at=row.used_at,
+        use_count=row.use_count or 0,
+        first_used_at=row.first_used_at,
+        last_used_at=row.last_used_at,
+    )
+
+
+@admin_router.get("/approval-requests/stats", response_model=schemas.McpApprovalRequestStatsResponse)
+async def approval_request_stats(db: Session = Depends(get_db)):
+    _expire_approval_requests(db)
+    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    query = db.query(models.McpToolApproval).filter(models.McpToolApproval.request_id.is_not(None))
+    return schemas.McpApprovalRequestStatsResponse(
+        pending=query.filter(models.McpToolApproval.status == "pending").count(),
+        approved_today=query.filter(
+            models.McpToolApproval.status.in_(["approved", "used", "expired"]),
+            models.McpToolApproval.reviewed_at >= today,
+        ).count(),
+        rejected_today=query.filter(
+            models.McpToolApproval.status == "rejected",
+            models.McpToolApproval.reviewed_at >= today,
+        ).count(),
+        expired=query.filter(models.McpToolApproval.status == "expired").count(),
+    )
+
+
+@admin_router.get("/approval-requests", response_model=schemas.McpApprovalRequestListResponse)
+async def list_approval_requests(
+    status: str | None = None,
+    gateway_slug: str | None = None,
+    tool_name: str | None = None,
+    token_name: str | None = None,
+    token_id: int | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    db: Session = Depends(get_db),
+):
+    _expire_approval_requests(db)
+    page = max(1, page)
+    page_size = min(max(1, page_size), 100)
+    query = db.query(models.McpToolApproval).outerjoin(
+        models.AccessToken, models.AccessToken.id == models.McpToolApproval.token_id
+    ).filter(models.McpToolApproval.request_id.is_not(None))
+    if status:
+        statuses = [item.strip() for item in status.split(",") if item.strip()]
+        if statuses:
+            query = query.filter(models.McpToolApproval.status.in_(statuses))
+    if gateway_slug:
+        query = query.filter(models.McpToolApproval.gateway_slug == gateway_slug)
+    if tool_name:
+        query = query.filter(models.McpToolApproval.tool_name.ilike(f"%{tool_name.strip()}%"))
+    if token_name:
+        query = query.filter(models.AccessToken.name.ilike(f"%{token_name.strip()}%"))
+    if token_id is not None:
+        query = query.filter(models.McpToolApproval.token_id == token_id)
+    if created_from:
+        query = query.filter(models.McpToolApproval.created_at >= created_from)
+    if created_to:
+        query = query.filter(models.McpToolApproval.created_at <= created_to)
+    if q and q.strip():
+        pattern = f"%{q.strip()}%"
+        query = query.filter(or_(
+            models.McpToolApproval.request_id.ilike(pattern),
+            models.McpToolApproval.tool_name.ilike(pattern),
+            models.McpToolApproval.gateway_slug.ilike(pattern),
+            models.AccessToken.name.ilike(pattern),
+        ))
+    total = query.count()
+    rows = query.order_by(models.McpToolApproval.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return schemas.McpApprovalRequestListResponse(
+        items=[_approval_request_response(db, row) for row in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@admin_router.get("/approval-requests/{request_id}", response_model=schemas.McpApprovalRequestResponse)
+async def get_approval_request(
+    request_id: str,
+    reveal_arguments: bool = False,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    _expire_approval_requests(db)
+    row = db.query(models.McpToolApproval).filter(models.McpToolApproval.request_id == request_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="MCP 审批申请不存在")
+    if reveal_arguments:
+        _append_approval_audit(db, row, "mcp.approval.arguments_revealed", current_user.username, "read")
+    return _approval_request_response(db, row, reveal_arguments=reveal_arguments)
+
+
+def _reviewable_approval_request(db: Session, request_id: str) -> models.McpToolApproval:
+    _expire_approval_requests(db)
+    row = db.query(models.McpToolApproval).filter(models.McpToolApproval.request_id == request_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="MCP 审批申请不存在")
+    if row.status != "pending":
+        raise HTTPException(status_code=409, detail="MCP 审批申请已被处理或已过期")
+    return row
+
+
+@admin_router.post("/approval-requests/{request_id}/approve", response_model=schemas.McpApprovalRequestResponse)
+async def approve_approval_request(
+    request_id: str,
+    body: schemas.McpApprovalRequestReview,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    row = _reviewable_approval_request(db, request_id)
+    token = db.query(models.AccessToken).filter(
+        models.AccessToken.id == row.token_id,
+        models.AccessToken.token_type == "mcp_gateway",
+        models.AccessToken.status == "active",
+    ).first()
+    gateway = db.query(models.McpGateway).filter(
+        models.McpGateway.slug == row.gateway_slug,
+        models.McpGateway.status == "active",
+    ).first()
+    tool = db.query(models.McpTool).filter(
+        models.McpTool.id == row.tool_id,
+        models.McpTool.enabled.is_(True),
+    ).first()
+    if not token or (token.expires_at and token.expires_at < datetime.utcnow()):
+        raise HTTPException(status_code=409, detail="MCP 接入凭证已失效，不能批准")
+    if not gateway:
+        raise HTTPException(status_code=409, detail="MCP 网关已停用，不能批准")
+    match = next((item for item in _gateway_tools(db, gateway) if item[1].id == row.tool_id), None)
+    if not tool or not match or not tool.requires_approval:
+        raise HTTPException(status_code=409, detail="MCP Tool 已停用、移除或不再需要审批")
+    if tool.schema_hash != row.schema_hash or match[2] != tool.schema_hash:
+        raise HTTPException(status_code=409, detail="MCP Tool Schema 已变化，需要重新发起调用")
+    if row.gateway_slug not in _json_loads(token.allowed_mcp_gateways_json, []):
+        raise HTTPException(status_code=409, detail="MCP 接入凭证不再允许访问该网关")
+    now = datetime.utcnow()
+    updated = db.query(models.McpToolApproval).filter(
+        models.McpToolApproval.id == row.id,
+        models.McpToolApproval.status == "pending",
+    ).update({
+        "status": "approved",
+        "expires_at": now + timedelta(seconds=body.ttl_seconds),
+        "reviewed_by": current_user.username,
+        "reviewed_at": now,
+        "review_comment": body.comment,
+    }, synchronize_session=False)
+    if updated != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="MCP 审批申请已被其他管理员处理")
+    db.commit()
+    db.refresh(row)
+    _append_approval_audit(db, row, "mcp.approval.approved", current_user.username, "approve")
+    return _approval_request_response(db, row)
+
+
+@admin_router.post("/approval-requests/{request_id}/reject", response_model=schemas.McpApprovalRequestResponse)
+async def reject_approval_request(
+    request_id: str,
+    body: schemas.McpApprovalRequestReject,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    row = _reviewable_approval_request(db, request_id)
+    now = datetime.utcnow()
+    updated = db.query(models.McpToolApproval).filter(
+        models.McpToolApproval.id == row.id,
+        models.McpToolApproval.status == "pending",
+    ).update({
+        "status": "rejected",
+        "reviewed_by": current_user.username,
+        "reviewed_at": now,
+        "review_comment": body.reason.strip(),
+    }, synchronize_session=False)
+    if updated != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="MCP 审批申请已被其他管理员处理")
+    db.commit()
+    db.refresh(row)
+    _append_approval_audit(db, row, "mcp.approval.rejected", current_user.username, "reject")
+    return _approval_request_response(db, row)
+
+
 @admin_router.post("/gateways", response_model=schemas.McpGatewayResponse)
 async def create_gateway(
     body: schemas.McpGatewayCreate,
@@ -594,6 +889,7 @@ async def list_audit(limit: int = 100, db: Session = Depends(get_db)):
             server_slug=row.server_slug,
             tool_name=row.tool_name,
             schema_hash=row.schema_hash,
+            approval_request_id=row.approval_request_id,
             agent_id=row.agent_id,
             skill_id=row.skill_id,
             skill_version_id=row.skill_version_id,
@@ -687,6 +983,7 @@ def _record_denied_call(
     *,
     server_slug: str | None = None,
     schema_hash: str | None = None,
+    approval_request_id: str | None = None,
     skill_assessment: GatewaySkillAssessment | None = None,
 ) -> None:
     db.add(
@@ -697,6 +994,7 @@ def _record_denied_call(
             server_slug=server_slug[:128] if server_slug else None,
             tool_name=tool_name[:255] or None,
             schema_hash=schema_hash,
+            approval_request_id=approval_request_id,
             **(skill_assessment or GatewaySkillAssessment()).audit_fields(),
             status="denied",
             duration_ms=0,
@@ -706,40 +1004,201 @@ def _record_denied_call(
     db.commit()
 
 
-def _consume_tool_approval(
+def _ensure_approval_request(
+    db: Session,
+    *,
+    token: models.AccessToken,
+    gateway_slug: str,
+    server: models.McpServer,
+    tool: models.McpTool,
+    arguments: dict,
+    client_ip: str | None,
+) -> tuple[models.McpToolApproval | None, str | None]:
+    _expire_approval_requests(db)
+    arguments_hash = _arguments_hash(arguments)
+    existing = db.query(models.McpToolApproval).filter(
+        models.McpToolApproval.request_id.is_not(None),
+        models.McpToolApproval.token_id == token.id,
+        models.McpToolApproval.gateway_slug == gateway_slug,
+        models.McpToolApproval.tool_id == tool.id,
+        models.McpToolApproval.schema_hash == tool.schema_hash,
+        models.McpToolApproval.status == "pending",
+        models.McpToolApproval.expires_at > datetime.utcnow(),
+    ).order_by(models.McpToolApproval.id.desc()).first()
+    if existing:
+        return existing, None
+    pending_count = db.query(models.McpToolApproval).filter(
+        models.McpToolApproval.token_id == token.id,
+        models.McpToolApproval.request_id.is_not(None),
+        models.McpToolApproval.status == "pending",
+    ).count()
+    if pending_count >= MAX_PENDING_APPROVALS_PER_TOKEN:
+        return None, "该 MCP 凭证的待审批申请数量已达上限"
+    row = models.McpToolApproval(
+        approval_hash=hashlib.sha256(secrets.token_bytes(32)).hexdigest(),
+        request_id="mcpapr_" + uuid.uuid4().hex,
+        token_id=token.id,
+        gateway_slug=gateway_slug,
+        server_slug=server.slug,
+        tool_id=tool.id,
+        tool_name=tool.exposed_name,
+        schema_hash=tool.schema_hash,
+        arguments_hash=arguments_hash,
+        arguments_encrypted=_protect_secret(json.dumps(arguments, ensure_ascii=False, sort_keys=True)),
+        client_ip=client_ip,
+        status="pending",
+        expires_at=datetime.utcnow() + timedelta(seconds=APPROVAL_REQUEST_TTL_SECONDS),
+        created_by=f"mcp-token:{token.id}",
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    _append_approval_audit(db, row, "mcp.approval.requested", f"mcp-token:{token.id}", "request")
+    return row, None
+
+
+def _approval_error_data(row: models.McpToolApproval) -> dict:
+    return {
+        "approval_required": True,
+        "approval_request_id": row.request_id,
+        "status": row.status,
+        "expires_at": row.expires_at.isoformat(),
+    }
+
+
+def _record_approval_request_use(db: Session, row: models.McpToolApproval) -> bool:
+    now = datetime.utcnow()
+    updated = db.query(models.McpToolApproval).filter(
+        models.McpToolApproval.id == row.id,
+        models.McpToolApproval.status == "approved",
+        models.McpToolApproval.expires_at > now,
+    ).update({
+        "use_count": models.McpToolApproval.use_count + 1,
+        "first_used_at": func.coalesce(models.McpToolApproval.first_used_at, now),
+        "last_used_at": now,
+    }, synchronize_session=False)
+    if updated != 1:
+        db.rollback()
+        return False
+    db.commit()
+    db.refresh(row)
+    _append_approval_audit(db, row, "mcp.approval.used", f"mcp-token:{row.token_id}", "authorize")
+    return True
+
+
+def _approved_tool_authorization(
     db: Session,
     *,
     token: models.AccessToken,
     gateway_slug: str,
     tool: models.McpTool,
-    arguments: dict,
-    approval_token: str | None,
-) -> str | None:
-    if not tool.requires_approval:
-        return None
-    if not approval_token:
-        return "高风险 Tool 需要一次性审批凭证"
-    approval_hash = hashlib.sha256(approval_token.encode("utf-8")).hexdigest()
-    row = db.query(models.McpToolApproval).filter(
-        models.McpToolApproval.approval_hash == approval_hash,
+) -> models.McpToolApproval | None:
+    _expire_approval_requests(db)
+    return db.query(models.McpToolApproval).filter(
+        models.McpToolApproval.request_id.is_not(None),
         models.McpToolApproval.token_id == token.id,
         models.McpToolApproval.gateway_slug == gateway_slug,
-        models.McpToolApproval.tool_name == tool.exposed_name,
-        models.McpToolApproval.status == "active",
+        models.McpToolApproval.tool_id == tool.id,
+        models.McpToolApproval.schema_hash == tool.schema_hash,
+        models.McpToolApproval.status == "approved",
+        models.McpToolApproval.expires_at > datetime.utcnow(),
+    ).order_by(
+        models.McpToolApproval.reviewed_at.desc(),
+        models.McpToolApproval.id.desc(),
     ).first()
-    if not row or row.expires_at < datetime.utcnow():
-        return "高风险 Tool 审批凭证无效或已过期"
-    if row.arguments_hash != _arguments_hash(arguments):
-        return "高风险 Tool 审批参数与调用参数不一致"
-    consumed = db.query(models.McpToolApproval).filter(
-        models.McpToolApproval.id == row.id,
-        models.McpToolApproval.status == "active",
-    ).update({"status": "used", "used_at": datetime.utcnow()}, synchronize_session=False)
-    if consumed != 1:
-        db.rollback()
-        return "高风险 Tool 审批凭证已被使用"
-    db.commit()
-    return None
+
+
+def _consume_tool_approval(
+    db: Session,
+    *,
+    token: models.AccessToken,
+    gateway_slug: str,
+    server: models.McpServer,
+    tool: models.McpTool,
+    arguments: dict,
+    approval_token: str | None,
+    approval_request_id: str | None,
+    client_ip: str | None,
+) -> tuple[str | None, dict | None, str | None]:
+    if not tool.requires_approval:
+        return None, None, None
+    _expire_approval_requests(db)
+    if approval_request_id:
+        row = db.query(models.McpToolApproval).filter(
+            models.McpToolApproval.request_id == approval_request_id,
+            models.McpToolApproval.token_id == token.id,
+            models.McpToolApproval.gateway_slug == gateway_slug,
+            models.McpToolApproval.tool_name == tool.exposed_name,
+        ).first()
+        if not row:
+            return "高风险 Tool 审批申请无效", None, approval_request_id
+        if row.status in {"pending", "approved"} and row.expires_at < datetime.utcnow():
+            row.status = "expired"
+            db.commit()
+            _append_approval_audit(db, row, "mcp.approval.expired", "system", "expire")
+        if row.status == "pending":
+            return "MCP Tool 调用等待管理员审批", _approval_error_data(row), row.request_id
+        if row.status == "rejected":
+            data = _approval_error_data(row)
+            data["reason"] = row.review_comment
+            return "MCP Tool 调用已被管理员拒绝", data, row.request_id
+        if row.status == "expired":
+            return "高风险 Tool 审批申请已过期", _approval_error_data(row), row.request_id
+        if row.status == "used":
+            return "高风险 Tool 审批申请已被使用", _approval_error_data(row), row.request_id
+        if row.status != "approved":
+            return "高风险 Tool 审批申请状态无效", _approval_error_data(row), row.request_id
+        if row.schema_hash != tool.schema_hash:
+            return "高风险 Tool 审批时的 Schema 已变化", _approval_error_data(row), row.request_id
+        if not _record_approval_request_use(db, row):
+            _expire_approval_requests(db)
+            return "高风险 Tool 审批申请已过期", _approval_error_data(row), row.request_id
+        return None, None, row.request_id
+    approved = _approved_tool_authorization(
+        db,
+        token=token,
+        gateway_slug=gateway_slug,
+        tool=tool,
+    )
+    if approved:
+        if not _record_approval_request_use(db, approved):
+            _expire_approval_requests(db)
+            return "高风险 Tool 审批申请已过期", _approval_error_data(approved), approved.request_id
+        return None, None, approved.request_id
+    if approval_token:
+        approval_hash = hashlib.sha256(approval_token.encode("utf-8")).hexdigest()
+        row = db.query(models.McpToolApproval).filter(
+            models.McpToolApproval.approval_hash == approval_hash,
+            models.McpToolApproval.token_id == token.id,
+            models.McpToolApproval.gateway_slug == gateway_slug,
+            models.McpToolApproval.tool_name == tool.exposed_name,
+            models.McpToolApproval.status == "active",
+        ).first()
+        if not row or row.expires_at < datetime.utcnow():
+            return "高风险 Tool 审批凭证无效或已过期", None, None
+        if row.arguments_hash != _arguments_hash(arguments):
+            return "高风险 Tool 审批参数与调用参数不一致", None, None
+        consumed = db.query(models.McpToolApproval).filter(
+            models.McpToolApproval.id == row.id,
+            models.McpToolApproval.status == "active",
+        ).update({"status": "used", "used_at": datetime.utcnow()}, synchronize_session=False)
+        if consumed != 1:
+            db.rollback()
+            return "高风险 Tool 审批凭证已被使用", None, None
+        db.commit()
+        return None, None, None
+    row, create_error = _ensure_approval_request(
+        db,
+        token=token,
+        gateway_slug=gateway_slug,
+        server=server,
+        tool=tool,
+        arguments=arguments,
+        client_ip=client_ip,
+    )
+    if create_error:
+        return create_error, None, None
+    return "MCP Tool 调用等待管理员审批", _approval_error_data(row), row.request_id
 
 
 def _tool_rate_limit_exceeded(db: Session, tool: models.McpTool) -> bool:
@@ -751,6 +1210,43 @@ def _tool_rate_limit_exceeded(db: Session, tool: models.McpTool) -> bool:
         models.McpCallAudit.status.in_(["running", "success", "error"]),
     ).count()
     return count >= max(1, tool.rate_limit_per_minute)
+
+
+@runtime_router.get(
+    "/{gateway_slug}/approvals/{request_id}",
+    response_model=schemas.McpApprovalRuntimeStatusResponse,
+)
+async def get_runtime_approval_status(
+    gateway_slug: str,
+    request_id: str,
+    request: Request,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    token = resolve_access_token(
+        db,
+        authorization,
+        required_scope="mcp:call-tools",
+        request=request,
+        allowed_token_types={"mcp_gateway"},
+    )
+    row = db.query(models.McpToolApproval).filter(
+        models.McpToolApproval.request_id == request_id,
+        models.McpToolApproval.token_id == token.id,
+        models.McpToolApproval.gateway_slug == gateway_slug,
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="MCP 审批申请不存在")
+    if row.status in {"pending", "approved"} and row.expires_at < datetime.utcnow():
+        row.status = "expired"
+        db.commit()
+        _append_approval_audit(db, row, "mcp.approval.expired", "system", "expire")
+    return schemas.McpApprovalRuntimeStatusResponse(
+        request_id=row.request_id,
+        status=row.status,
+        expires_at=row.expires_at,
+        review_comment=row.review_comment if row.status == "rejected" else None,
+    )
 
 
 @runtime_router.post("/{gateway_slug}")
@@ -892,25 +1388,30 @@ async def invoke_gateway(
         return _jsonrpc_error(request_id, -32602, "Tool 参数不符合 Schema", exc.message)
 
     approval_meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
-    approval_error = _consume_tool_approval(
+    approval_error, approval_data, approval_request_id = _consume_tool_approval(
         db,
         token=token,
         gateway_slug=gateway.slug,
+        server=server,
         tool=tool,
         arguments=arguments,
         approval_token=approval_meta.get("agent_manager_approval"),
+        approval_request_id=approval_meta.get("agent_manager_approval_request"),
+        client_ip=request.client.host if request.client else None,
     )
     if approval_error:
         _record_denied_call(
             db, token, gateway.slug, tool.name, approval_error,
-            server_slug=server.slug, schema_hash=tool.schema_hash, skill_assessment=skill_assessment,
+            server_slug=server.slug, schema_hash=tool.schema_hash,
+            approval_request_id=approval_request_id, skill_assessment=skill_assessment,
         )
-        return _jsonrpc_error(request_id, -32002, approval_error)
+        return _jsonrpc_error(request_id, -32002, approval_error, approval_data)
     if _tool_rate_limit_exceeded(db, tool):
         error = "MCP Tool 每分钟调用次数已达上限"
         _record_denied_call(
             db, token, gateway.slug, tool.name, error,
-            server_slug=server.slug, schema_hash=tool.schema_hash, skill_assessment=skill_assessment,
+            server_slug=server.slug, schema_hash=tool.schema_hash,
+            approval_request_id=approval_request_id, skill_assessment=skill_assessment,
         )
         return _jsonrpc_error(request_id, -32003, error)
 
@@ -922,6 +1423,7 @@ async def invoke_gateway(
         server_slug=server.slug,
         tool_name=tool.name,
         schema_hash=tool.schema_hash,
+        approval_request_id=approval_request_id,
         **skill_assessment.audit_fields(),
         status="running",
     )

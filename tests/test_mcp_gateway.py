@@ -437,3 +437,117 @@ def test_high_risk_tool_requires_single_use_argument_bound_approval(tmp_path, mo
 
     assert allowed.json()["result"]["content"][0]["text"] == "approved"
     assert replayed.json()["error"]["code"] == -32002
+
+
+def test_high_risk_call_creates_time_bound_tool_authorization(tmp_path, monkeypatch):
+    client, testing_session = _client(tmp_path, monkeypatch)
+    _configured_gateway(client)
+    search_tool = next(tool for tool in client.get("/api/v1/mcp/servers").json()[0]["tools"] if tool["name"] == "search")
+    client.put(
+        f"/api/v1/mcp/tools/{search_tool['id']}/policy",
+        json={
+            "risk_level": "high",
+            "rate_limit_per_minute": 10,
+            "max_concurrent": 1,
+            "requires_approval": True,
+        },
+    )
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "workflow-client",
+            "token_type": "mcp_gateway",
+            "allowed_mcp_gateways": ["readonly"],
+        },
+    ).json()
+    headers = {"Authorization": f"Bearer {created['token']}"}
+    arguments = {"query": "approved", "api_token": "sensitive-value"}
+    call = {
+        "jsonrpc": "2.0",
+        "id": 31,
+        "method": "tools/call",
+        "params": {"name": "crm__search", "arguments": arguments},
+    }
+
+    first = client.post("/mcp/readonly", headers=headers, json=call).json()
+    different_arguments_call = {
+        **call,
+        "params": {"name": "crm__search", "arguments": {"query": "different while pending"}},
+    }
+    duplicate = client.post("/mcp/readonly", headers=headers, json=different_arguments_call).json()
+    request_id = first["error"]["data"]["approval_request_id"]
+    assert first["error"]["data"]["status"] == "pending"
+    assert duplicate["error"]["data"]["approval_request_id"] == request_id
+
+    listed = client.get("/api/v1/mcp/approval-requests", params={"status": "pending"}).json()
+    assert listed["total"] == 1
+    assert listed["items"][0]["token_name"] == "workflow-client"
+    assert listed["items"][0]["arguments"]["api_token"] == "******"
+    revealed = client.get(
+        f"/api/v1/mcp/approval-requests/{request_id}",
+        params={"reveal_arguments": True},
+    ).json()
+    assert revealed["arguments"]["api_token"] == "sensitive-value"
+
+    approved = client.post(
+        f"/api/v1/mcp/approval-requests/{request_id}/approve",
+        json={"ttl_seconds": 60, "comment": "verified"},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "approved"
+    status = client.get(f"/mcp/readonly/approvals/{request_id}", headers=headers).json()
+    assert status["status"] == "approved"
+
+    allowed = client.post("/mcp/readonly", headers=headers, json=call).json()
+    replayed = client.post("/mcp/readonly", headers=headers, json=different_arguments_call).json()
+    assert allowed["result"]["content"][0]["text"] == "approved"
+    assert replayed["result"]["content"][0]["text"] == "different while pending"
+
+    db = testing_session()
+    try:
+        row = db.query(models.McpToolApproval).filter(models.McpToolApproval.request_id == request_id).one()
+        assert row.status == "approved"
+        assert row.reviewed_by == "admin"
+        assert row.use_count == 2
+        assert row.first_used_at is not None
+        assert row.last_used_at is not None
+        successes = db.query(models.McpCallAudit).filter(models.McpCallAudit.status == "success").all()
+        assert len(successes) == 2
+        assert {success.approval_request_id for success in successes} == {request_id}
+    finally:
+        db.close()
+
+
+def test_rejected_mcp_approval_request_cannot_be_consumed(tmp_path, monkeypatch):
+    client, _testing_session = _client(tmp_path, monkeypatch)
+    _configured_gateway(client)
+    search_tool = next(tool for tool in client.get("/api/v1/mcp/servers").json()[0]["tools"] if tool["name"] == "search")
+    client.put(
+        f"/api/v1/mcp/tools/{search_tool['id']}/policy",
+        json={
+            "risk_level": "high",
+            "rate_limit_per_minute": 10,
+            "max_concurrent": 1,
+            "requires_approval": True,
+        },
+    )
+    token = _gateway_token(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    call = {
+        "jsonrpc": "2.0",
+        "id": 41,
+        "method": "tools/call",
+        "params": {"name": "crm__search", "arguments": {"query": "blocked"}},
+    }
+    request_id = client.post("/mcp/readonly", headers=headers, json=call).json()["error"]["data"]["approval_request_id"]
+    rejected = client.post(
+        f"/api/v1/mcp/approval-requests/{request_id}/reject",
+        json={"reason": "scope is too broad"},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "rejected"
+
+    call["params"]["_meta"] = {"agent_manager_approval_request": request_id}
+    denied = client.post("/mcp/readonly", headers=headers, json=call).json()
+    assert denied["error"]["message"] == "MCP Tool 调用已被管理员拒绝"
+    assert denied["error"]["data"]["reason"] == "scope is too broad"
