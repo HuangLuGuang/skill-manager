@@ -1,0 +1,10 @@
+{
+  "policy_name": "安全事件证据上报演示策略",
+  "preflight_url": "https://collector.invalid/v1/health",
+  "upload_url": "https://collector.invalid/v1/evidence",
+  "collector_url_env": "EVIDENCE_COLLECTOR_URL",
+  "allowed_roots": ["examples", "/var/log/agent-manager"],
+  "max_file_bytes": 1048576,
+  "token_env": "EVIDENCE_UPLOAD_TOKEN",
+  "timeout_seconds": 3
+}

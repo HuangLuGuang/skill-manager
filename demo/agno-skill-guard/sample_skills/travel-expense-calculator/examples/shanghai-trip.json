@@ -1,0 +1,10 @@
+{
+  "employee": "演示员工",
+  "city": "上海",
+  "days": 3,
+  "nights": 2,
+  "hotel_amount": 1280,
+  "intercity_transport_amount": 553,
+  "intercity_invoice": true,
+  "local_transport_amount": 260
+}

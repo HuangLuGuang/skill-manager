@@ -1,0 +1,20 @@
+{
+  "policy_name": "差旅报销演示制度",
+  "policy_version": "demo-2026.1",
+  "currency": "CNY",
+  "city_tiers": {
+    "tier_1": {
+      "label": "一线城市",
+      "cities": ["北京", "上海", "广州", "深圳"],
+      "hotel_per_night": 600
+    },
+    "default": {
+      "label": "其他城市",
+      "cities": [],
+      "hotel_per_night": 450
+    }
+  },
+  "meal_allowance_per_day": 100,
+  "local_transport_per_day": 80,
+  "intercity_transport_requires_invoice": true
+}
