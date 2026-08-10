@@ -98,7 +98,7 @@ Checks registry but skips signature verification. Useful for debugging or when d
 | `./my-skill` (developer workstation) | Developer | Mode 2 — directory is writable, verify sig |
 | `/mnt/team-skills` (shared mount) | Team members | Mode 2 — multiple writers, verify sig |
 | `/company-skills/` (CI/CD only, read-only) | CI/CD service account | Mode 1 — directory ownership is sufficient |
-| Agent has no local disk | — | Mode 1 via REST: `GET /api/v1/runtime/can-load/{name}` |
+| Agent has no local disk | — | Local digest verification plus `GET /api/v1/access/runtime/can-load/{name}` |
 
 The "company-controlled directory" pattern works like this: CI/CD runs `agent-manager-deploy --dest /company-skills --clean` after each approval. Agents read from `/company-skills/` but cannot write to it. Because only approved skills were ever deployed there, a name-only registry check confirms the skill is sanctioned.
 
@@ -693,11 +693,20 @@ if not allowed:
     raise RuntimeError(f"Skill {skill_name!r} blocked: {reason}")
 ```
 
-Or via the API (for agents that don't have direct Python access):
+Or via the authenticated API (for agents that don't have direct Python access):
 
+```http
+POST /api/v1/access/runtime/verify-skill-signature
+Authorization: Bearer <agent-runtime-token>
+Content-Type: application/json
+
+{"skill_name":"my-skill","local_signature":"<sha256>","agent_id":"agent-1"}
+
+GET /api/v1/access/runtime/can-load/my-skill?agent_id=agent-1
+Authorization: Bearer <agent-runtime-token>
 ```
-GET /api/v1/runtime/can-load/my-skill?skill_path=/path/to/skill&agent_id=agent-1
-```
+
+The authenticated `can-load` endpoint does not accept a server-side `skill_path`. The Agent computes the local digest and verifies it first, then performs the name-only loadability check.
 
 ### Audit Monitoring
 

@@ -32,7 +32,7 @@ sequenceDiagram
     participant LLM as "上游模型供应商"
 
     Client->>GW: POST /v1/chat/completions
-    GW->>GW: 校验 LLM API Key / 模型范围 / 请求大小 / 并发
+    GW->>GW: 校验模型调用凭证 / 模型范围 / 请求大小 / 并发
     GW->>GW: Prompt 防护规则检测
     alt 高风险阻断
         GW->>DB: 写阻断审计与隐私链路追踪
@@ -73,19 +73,19 @@ Trace 阶段：
 | `POST /chat/completions` | 兼容部分客户端把 `base_url` 配成不含 `/v1` 时直接拼接的路径 |
 | `POST /api/v1/llm/chat/completions` | Agent Manager 命名空间路径，适合内部系统显式调用 |
 | `POST /v1/messages` | Anthropic Messages 兼容路径，适合 Claude Code 和 Anthropic SDK |
-| `GET /v1/models` | OpenAI-compatible 模型列表，只返回当前 LLM API Key 允许访问的启用模型 |
+| `GET /v1/models` | OpenAI-compatible 模型列表，只返回当前模型调用凭证允许访问的启用模型 |
 | `GET /models` | 兼容不含 `/v1` 的模型列表路径 |
 
 客户端配置建议：
 
 - OpenAI SDK / Cherry Studio：优先把 Base URL 配成 `http://127.0.0.1:8000/v1`。
 - Hermes 或其他只接受根地址的客户端：可配 `http://127.0.0.1:8000`；如果客户端直接 POST 根地址，网关会兼容 `POST /`，如果客户端自动拼接路径，网关也会兼容 `/chat/completions` 和 `/models`。
-- Claude Code：设置 `ANTHROPIC_BASE_URL=http://127.0.0.1:8000`、`ANTHROPIC_AUTH_TOKEN=amk_xxx`，并把 Claude Code 使用的模型名设置为管理台登记的模型名。
+- Claude Code：设置 `ANTHROPIC_BASE_URL=http://127.0.0.1:8000`、`ANTHROPIC_AUTH_TOKEN=amat_xxx`，并把 Claude Code 使用的模型名设置为管理台登记的模型名。
 
 请求必须携带模型调用凭证。凭证统一在管理台 `智能体管理 / 统一凭证中心` 创建，类型选择 `模型调用凭证`：
 
 ```http
-Authorization: Bearer amk_xxx
+Authorization: Bearer amat_xxx
 ```
 
 最小请求示例：
@@ -96,13 +96,24 @@ Authorization: Bearer amk_xxx
   "conversation_id": "conv-001",
   "metadata": {
     "tenant_id": "customer-a",
-    "user_id": "alice"
+    "user_id": "alice",
+    "agent_manager_skill_id": "skill-family-id",
+    "agent_manager_skill_version_id": "skill-version-id",
+    "agent_manager_skill_name": "risk-screening"
   },
   "messages": [
     {"role": "user", "content": "张三的邮箱是 zhangsan@example.com"}
   ]
 }
 ```
+
+当调用方使用绑定 Agent 的运行凭证时，建议同时提交以上三个 `agent_manager_skill_*` 字段。网关会用凭证绑定关系确定 Agent，再核对 Skill Registry 状态和 Agent 的 Skill 授权范围。第一期仅记录告警，不阻断模型调用：
+
+- `missing`：Agent 请求没有声明 Skill。
+- `declared_trusted`：名称、版本、Registry 状态和 Agent 授权匹配，但未验证调用方本地内容。
+- `suspicious`：Skill 未登记、名称与 ID 不一致、状态不可加载或未授权给当前 Agent。
+
+这些结果会写入模型调用审计和隐私链路追踪。`declared_trusted` 不能等同于签名验证通过。
 
 当前允许透传的 OpenAI 参数包括：
 
@@ -292,7 +303,7 @@ PII 检测默认按中国业务场景精准率优先：
 
 ```bash
 export AGENT_MANAGER_LLM_GATEWAY_URL="http://127.0.0.1:8000/v1/chat/completions"
-export AGENT_MANAGER_LLM_GATEWAY_API_KEY="amk_xxx"
+export AGENT_MANAGER_LLM_GATEWAY_API_KEY="amat_xxx"
 ```
 
 可选 metadata：
@@ -312,7 +323,7 @@ export AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID="vetting-session"
 - Prompt Guard 支持在请求 `metadata.content_sources` 中按消息顺序传入来源数组，或按消息索引传入对象；可选值为 `system`、`user`、`assistant`、`tool`、`rag`、`file`、`web`。未声明时回退到消息 `role`，其中 `tool`、`rag`、`file`、`web` 按不可信内容处理。
 - `stream=true` 支持 SSE 透传和增量反替换；如果客户端中途断开，已完成的并发槽会释放，但未完成请求可能不会写完整 Trace。
 - 未知 OpenAI 参数默认拒绝。
-- LLM API Key 明文无法找回，只能吊销重建。
+- 模型调用凭证明文无法找回，只能吊销重建。旧 LLM API Key 仅保留查询和吊销，不再签发。
 - Trace 含原始 PII，应按审计权限和 TTL 管控。
 - 差分隐私仅保护统计视图，不等于删除原始审计数据。
 
@@ -334,7 +345,7 @@ export AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID="vetting-session"
 
 ```bash
 curl -s -D - http://127.0.0.1:8000/v1/chat/completions \
-  -H "Authorization: Bearer amk_xxx" \
+  -H "Authorization: Bearer amat_xxx" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]}' \
   | grep -i x-compression

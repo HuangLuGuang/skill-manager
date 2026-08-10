@@ -164,6 +164,30 @@ def ensure_sqlite_schema() -> None:
         audit_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(llm_request_audit)").fetchall()}
         if "prompt_guard_result_json" not in audit_columns:
             conn.exec_driver_sql("ALTER TABLE llm_request_audit ADD COLUMN prompt_guard_result_json TEXT NOT NULL DEFAULT '{}'")
+        if "credential_type" not in audit_columns:
+            conn.exec_driver_sql("ALTER TABLE llm_request_audit ADD COLUMN credential_type VARCHAR(32)")
+        if "agent_id" not in audit_columns:
+            conn.exec_driver_sql("ALTER TABLE llm_request_audit ADD COLUMN agent_id VARCHAR(128)")
+        gateway_skill_audit_columns = {
+            "skill_id": "VARCHAR(128)",
+            "skill_version_id": "VARCHAR(128)",
+            "skill_name": "VARCHAR(255)",
+            "skill_context_source": "VARCHAR(32)",
+            "skill_trust_state": "VARCHAR(32)",
+            "skill_alert_severity": "VARCHAR(16)",
+            "skill_alert_codes_json": "TEXT NOT NULL DEFAULT '[]'",
+        }
+        for column_name, column_type in gateway_skill_audit_columns.items():
+            if column_name not in audit_columns:
+                conn.exec_driver_sql(f"ALTER TABLE llm_request_audit ADD COLUMN {column_name} {column_type}")
+        mcp_audit_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mcp_call_audits)").fetchall()}
+        mcp_gateway_skill_columns = {
+            "agent_id": "VARCHAR(128)",
+            **gateway_skill_audit_columns,
+        }
+        for column_name, column_type in mcp_gateway_skill_columns.items():
+            if mcp_audit_columns and column_name not in mcp_audit_columns:
+                conn.exec_driver_sql(f"ALTER TABLE mcp_call_audits ADD COLUMN {column_name} {column_type}")
         mcp_server_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mcp_servers)").fetchall()}
         if mcp_server_columns and "max_response_kb" not in mcp_server_columns:
             conn.exec_driver_sql("ALTER TABLE mcp_servers ADD COLUMN max_response_kb INTEGER NOT NULL DEFAULT 1024")

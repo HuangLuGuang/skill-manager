@@ -19,6 +19,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, object_session
 
 from .. import auth, models, schemas
+from ..api_errors import ApiError
 from ..anthropic_compat import (
     anthropic_stream_event_to_openai,
     anthropic_to_openai_request,
@@ -29,6 +30,11 @@ from ..anthropic_compat import (
 )
 from ..compression import compress_messages
 from ..config import settings
+from ..gateway_skill_context import (
+    GatewaySkillAssessment,
+    declared_skill_context,
+    evaluate_gateway_skill_context,
+)
 from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
 from ..sqlite_db import get_db
 from .access_tokens import resolve_access_token
@@ -416,8 +422,10 @@ def _key_owner_meta(db: Session, key) -> dict[str, Any]:
         )
     else:
         groups = []
-    if not groups and isinstance(key, models.AccessToken) and key.bound_agent_id:
+    agent = None
+    if isinstance(key, models.AccessToken) and key.bound_agent_id:
         agent = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == key.bound_agent_id).first()
+    if not groups and agent:
         if agent and agent.department_group_id:
             groups = db.query(models.UserGroup).filter(models.UserGroup.id == agent.department_group_id).all()
     return {
@@ -429,6 +437,18 @@ def _key_owner_meta(db: Session, key) -> dict[str, Any]:
         "api_key_group_id": key.group_id,
         "api_key_group_ids": [group.id for group in groups],
         "api_key_group_names": [group.name for group in groups],
+        "credential_type": key.token_type if isinstance(key, models.AccessToken) else "legacy_llm_api_key",
+        "agent_id": key.bound_agent_id if isinstance(key, models.AccessToken) else None,
+        "agent_name": agent.name if agent else None,
+        "agent_status": agent.status if agent else None,
+        "agent_identity_source": "credential_binding" if agent else None,
+    }
+
+
+def _audit_identity_fields(key) -> dict[str, Any]:
+    return {
+        "credential_type": key.token_type if isinstance(key, models.AccessToken) else "legacy_llm_api_key",
+        "agent_id": key.bound_agent_id if isinstance(key, models.AccessToken) else None,
     }
 
 
@@ -1168,6 +1188,7 @@ async def _stream_upstream(
     compression_level: str = "auto",
     compression_result: Any = None,
     prompt_security: dict[str, Any] | None = None,
+    skill_assessment: GatewaySkillAssessment | None = None,
     request_started_at: float | None = None,
 ):
     provider = db.query(models.ModelProvider).filter(models.ModelProvider.id == model.provider_id).first()
@@ -1252,6 +1273,7 @@ async def _stream_upstream(
                                 compression_result=compression_result,
                                 compressed_messages=payload["messages"],
                                 prompt_security=prompt_security,
+                                skill_assessment=skill_assessment,
                                 request_duration_ms=(time.perf_counter() - started_at) * 1000,
                                 upstream_duration_ms=(time.perf_counter() - upstream_started_at) * 1000,
                             )
@@ -1318,6 +1340,7 @@ async def _stream_upstream(
                 compression_result=compression_result,
                 compressed_messages=payload["messages"],
                 prompt_security=prompt_security,
+                skill_assessment=skill_assessment,
                 request_duration_ms=(time.perf_counter() - started_at) * 1000,
                 upstream_duration_ms=(time.perf_counter() - upstream_started_at) * 1000,
             )
@@ -1334,6 +1357,7 @@ async def _stream_upstream(
                 error=str(exc.detail),
                 compression_enabled=compression_enabled,
                 compression_level=compression_level,
+                skill_assessment=skill_assessment,
                 request_duration_ms=(time.perf_counter() - started_at) * 1000,
                 upstream_duration_ms=(time.perf_counter() - upstream_started_at) * 1000,
             )
@@ -1374,6 +1398,7 @@ def _record_llm_success(
     compression_result: Any = None,
     compressed_messages: list[dict[str, Any]] | None = None,
     prompt_security: dict[str, Any] | None = None,
+    skill_assessment: GatewaySkillAssessment | None = None,
     request_duration_ms: float = 0.0,
     upstream_duration_ms: float = 0.0,
 ) -> None:
@@ -1387,6 +1412,8 @@ def _record_llm_success(
             user_ref=user_ref,
             group_id=key.group_id,
             api_key_id=key.id,
+            **_audit_identity_fields(key),
+            **(skill_assessment or GatewaySkillAssessment()).audit_fields(),
             model=model_name,
             traffic_type="pii_bypass" if bypass_pii else "pii_checked",
             prompt_tokens=int(usage.get("prompt_tokens") or 0),
@@ -1440,6 +1467,7 @@ def _record_llm_success(
                 "model": model_name,
                 "bypass_pii": bypass_pii,
                 **owner_meta,
+                **(skill_assessment or GatewaySkillAssessment()).trace_fields(),
                 "created_at": int(time.time()),
                 "request_duration_ms": round(request_duration_ms, 2),
                 "upstream_duration_ms": round(upstream_duration_ms, 2),
@@ -1483,6 +1511,7 @@ def _record_llm_error(
     error: str,
     compression_enabled: bool = False,
     compression_level: str = "auto",
+    skill_assessment: GatewaySkillAssessment | None = None,
     request_duration_ms: float = 0.0,
     upstream_duration_ms: float = 0.0,
 ) -> None:
@@ -1495,6 +1524,8 @@ def _record_llm_error(
             user_ref=user_ref,
             group_id=key.group_id,
             api_key_id=key.id,
+            **_audit_identity_fields(key),
+            **(skill_assessment or GatewaySkillAssessment()).audit_fields(),
             model=model_name,
             traffic_type="pii_bypass" if bypass_pii else "pii_checked",
             status="error",
@@ -1522,6 +1553,7 @@ def _record_prompt_guard_block(
     policy: models.PrivacyPolicy,
     original_messages: list[dict[str, Any]],
     prompt_security: dict[str, Any],
+    skill_assessment: GatewaySkillAssessment | None,
     request_duration_ms: float,
 ) -> None:
     owner_meta = _key_owner_meta(db, key)
@@ -1533,6 +1565,8 @@ def _record_prompt_guard_block(
             user_ref=user_ref,
             group_id=key.group_id,
             api_key_id=key.id,
+            **_audit_identity_fields(key),
+            **(skill_assessment or GatewaySkillAssessment()).audit_fields(),
             model=model_name,
             traffic_type="prompt_blocked",
             detected_counts_json="{}",
@@ -1560,6 +1594,7 @@ def _record_prompt_guard_block(
                 "model": model_name,
                 "bypass_pii": bypass_pii,
                 **owner_meta,
+                **(skill_assessment or GatewaySkillAssessment()).trace_fields(),
                 "created_at": int(time.time()),
                 "request_duration_ms": round(request_duration_ms, 2),
                 "upstream_duration_ms": 0.0,
@@ -1843,26 +1878,12 @@ async def create_llm_api_key(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    token = _new_api_key()
-    row = models.LlmApiKey(
-        name=body.name,
-        key_hash=_hash_token(token),
-        key_prefix=token[:8],
-        user_id=current_user.id,
-        group_id=None,
-        allowed_models_json=_json_dumps(body.allowed_models),
-        expires_at=body.expires_at,
-        max_body_kb=body.max_body_kb,
-        max_concurrent_requests=body.max_concurrent_requests,
-        enable_compression=body.enable_compression,
-        compression_level=body.compression_level,
-        prompt_guard_mode=body.prompt_guard_mode,
-        prompt_guard_llm_review=body.prompt_guard_llm_review,
+    raise ApiError(
+        410,
+        "credential.legacy_llm_key_issuance_removed",
+        "旧 LLM API Key 已停止签发，请在统一凭证中心创建模型调用凭证",
+        "Legacy LLM API Key issuance has been removed; create a model gateway credential in the Credential Center",
     )
-    db.add(row)
-    db.commit()
-    db.refresh(row)
-    return _api_key_response(row, token=token)
 
 
 @admin_router.put("/llm-api-keys/{key_id}", response_model=schemas.LlmApiKeyResponse)
@@ -2603,6 +2624,19 @@ async def _chat_completions_with_key(
     request_started_at = time.perf_counter()
     model = _resolve_model(db, payload.model, key)
     policy = _resolve_policy(db, key)
+    declared_skill = declared_skill_context(payload.metadata)
+    manager = None
+    if any(declared_skill.values()):
+        from agent_manager.api.router import get_manager
+
+        manager = get_manager()
+    skill_assessment = evaluate_gateway_skill_context(
+        db,
+        key,
+        payload.metadata,
+        manager=manager,
+        source="caller_metadata",
+    )
 
     # 解析压缩策略: API Key 设置 > Provider 设置 > 全局默认
     provider = db.query(models.ModelProvider).filter(
@@ -2645,6 +2679,7 @@ async def _chat_completions_with_key(
             policy=policy,
             original_messages=original_messages,
             prompt_security=prompt_security,
+            skill_assessment=skill_assessment,
             request_duration_ms=(time.perf_counter() - request_started_at) * 1000,
         )
         response.headers["x-request-id"] = request_id
@@ -2781,6 +2816,7 @@ async def _chat_completions_with_key(
             compression_level=compression_level,
             compression_result=compression_result,
             prompt_security=prompt_security,
+            skill_assessment=skill_assessment,
             request_started_at=request_started_at,
         )
         return StreamingResponse(
@@ -2843,6 +2879,8 @@ async def _chat_completions_with_key(
             user_ref=user_ref,
             group_id=key.group_id,
             api_key_id=key.id,
+            **_audit_identity_fields(key),
+            **skill_assessment.audit_fields(),
             model=model.name,
             traffic_type="pii_bypass" if bypass_pii else "pii_checked",
             prompt_tokens=int(usage.get("prompt_tokens") or 0),
@@ -2896,6 +2934,7 @@ async def _chat_completions_with_key(
                     "model": model.name,
                     "bypass_pii": bypass_pii,
                     **_key_owner_meta(db, key),
+                    **skill_assessment.trace_fields(),
                     "created_at": int(time.time()),
                     "request_duration_ms": round(request_duration_ms, 2),
                     "upstream_duration_ms": round(upstream_duration_ms, 2),
@@ -2955,6 +2994,8 @@ async def _chat_completions_with_key(
                 user_ref=user_ref,
                 group_id=key.group_id,
                 api_key_id=key.id,
+                **_audit_identity_fields(key),
+                **skill_assessment.audit_fields(),
                 model=model.name,
                 traffic_type="pii_bypass" if bypass_pii else "pii_checked",
                 status="error",

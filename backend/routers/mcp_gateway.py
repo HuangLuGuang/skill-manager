@@ -15,6 +15,11 @@ from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
 from ..config import settings
+from ..gateway_skill_context import (
+    GatewaySkillAssessment,
+    declared_skill_context,
+    evaluate_gateway_skill_context,
+)
 from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
 from ..sqlite_db import get_db
 from .access_tokens import (
@@ -589,6 +594,14 @@ async def list_audit(limit: int = 100, db: Session = Depends(get_db)):
             server_slug=row.server_slug,
             tool_name=row.tool_name,
             schema_hash=row.schema_hash,
+            agent_id=row.agent_id,
+            skill_id=row.skill_id,
+            skill_version_id=row.skill_version_id,
+            skill_name=row.skill_name,
+            skill_context_source=row.skill_context_source,
+            skill_trust_state=row.skill_trust_state,
+            skill_alert_severity=row.skill_alert_severity,
+            skill_alert_codes=_json(row.skill_alert_codes_json, []),
             status=row.status,
             duration_ms=row.duration_ms,
             error=row.error,
@@ -674,6 +687,7 @@ def _record_denied_call(
     *,
     server_slug: str | None = None,
     schema_hash: str | None = None,
+    skill_assessment: GatewaySkillAssessment | None = None,
 ) -> None:
     db.add(
         models.McpCallAudit(
@@ -683,6 +697,7 @@ def _record_denied_call(
             server_slug=server_slug[:128] if server_slug else None,
             tool_name=tool_name[:255] or None,
             schema_hash=schema_hash,
+            **(skill_assessment or GatewaySkillAssessment()).audit_fields(),
             status="denied",
             duration_ms=0,
             error=error[:1000],
@@ -820,6 +835,20 @@ async def invoke_gateway(
     params = body.get("params") or {}
     if not isinstance(params, dict):
         return _jsonrpc_error(request_id, -32602, "Invalid params")
+    call_meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
+    declared_skill = declared_skill_context(call_meta)
+    manager = None
+    if any(declared_skill.values()):
+        from agent_manager.api.router import get_manager
+
+        manager = get_manager()
+    skill_assessment = evaluate_gateway_skill_context(
+        db,
+        token,
+        call_meta,
+        manager=manager,
+        source="mcp_meta",
+    )
     exposed_name = str(params.get("name", ""))
     match = next((item for item in tools if item[1].exposed_name == exposed_name), None)
     if not match:
@@ -830,6 +859,7 @@ async def invoke_gateway(
             exposed_name,
             "Tool 未授权或不存在",
             server_slug=exposed_name.partition("__")[0] or None,
+            skill_assessment=skill_assessment,
         )
         return _jsonrpc_error(request_id, -32602, "Tool 未授权或不存在")
     server, tool, approved_hash = match
@@ -842,6 +872,7 @@ async def invoke_gateway(
             "Tool Schema 已变化，需要重新审核",
             server_slug=server.slug,
             schema_hash=tool.schema_hash,
+            skill_assessment=skill_assessment,
         )
         return _jsonrpc_error(request_id, -32001, "Tool Schema 已变化，需要重新审核")
     arguments = params.get("arguments") or {}
@@ -856,6 +887,7 @@ async def invoke_gateway(
             "Tool 参数不符合 Schema",
             server_slug=server.slug,
             schema_hash=tool.schema_hash,
+            skill_assessment=skill_assessment,
         )
         return _jsonrpc_error(request_id, -32602, "Tool 参数不符合 Schema", exc.message)
 
@@ -871,14 +903,14 @@ async def invoke_gateway(
     if approval_error:
         _record_denied_call(
             db, token, gateway.slug, tool.name, approval_error,
-            server_slug=server.slug, schema_hash=tool.schema_hash,
+            server_slug=server.slug, schema_hash=tool.schema_hash, skill_assessment=skill_assessment,
         )
         return _jsonrpc_error(request_id, -32002, approval_error)
     if _tool_rate_limit_exceeded(db, tool):
         error = "MCP Tool 每分钟调用次数已达上限"
         _record_denied_call(
             db, token, gateway.slug, tool.name, error,
-            server_slug=server.slug, schema_hash=tool.schema_hash,
+            server_slug=server.slug, schema_hash=tool.schema_hash, skill_assessment=skill_assessment,
         )
         return _jsonrpc_error(request_id, -32003, error)
 
@@ -890,6 +922,7 @@ async def invoke_gateway(
         server_slug=server.slug,
         tool_name=tool.name,
         schema_hash=tool.schema_hash,
+        **skill_assessment.audit_fields(),
         status="running",
     )
     acquire_access_token_slot(token)

@@ -35,6 +35,19 @@ python3 demo/enterprise-governance-demo/prepare_demo.py
 ### 第四步：闭环 Agent 运行演示
 在终端运行受控 Agent 脚本，模拟真实生产环境下的加载校验。
 
+首次运行前，在管理台完成以下配置：
+
+1. 在“智能体管理”创建启用状态的 `demo-agent`。
+2. 为该 Agent 分配 `safe-advisor`、`malicious-advisor` 两个 Prompt，以及 `welfare-tools`、`data-logger` 两个 Skill。恶意对象仍由 Registry 状态负责阻断；这里的分配仅表示允许 Agent 发起加载校验。
+3. 在“统一凭证中心”为 `demo-agent` 创建“Skill 校验接入”Agent 运行凭证，并保存创建后仅展示一次的明文。
+4. 设置运行环境：
+
+```bash
+export AGENT_MANAGER_BASE_URL="http://localhost:8000"
+export AGENT_ID="demo-agent"
+export AGENT_MANAGER_AGENT_RUNTIME_TOKEN="amat_xxx"
+```
+
 **1. 运行安全场景 (Safe)**
 ```bash
 python3 demo/enterprise-governance-demo/run_agent_demo.py safe
@@ -53,4 +66,3 @@ python3 demo/enterprise-governance-demo/run_agent_demo.py malicious
 1.  **语义 + 执行双重拦截**：不仅能拦住带毒的代码，还能拦住带毒的对话指令。
 2.  **电子签名防篡改**：本地文件一旦被私自篡改，Agent 毫秒级识别并拒载。
 3.  **治理原子化**：治理逻辑与 Agent 业务逻辑完全解耦，零成本接入现有 Agent 框架。
-

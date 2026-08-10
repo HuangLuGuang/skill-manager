@@ -230,7 +230,7 @@ LLM 不替代规则扫描。
 
 ```bash
 export AGENT_MANAGER_LLM_GATEWAY_URL="http://127.0.0.1:8000/v1/chat/completions"
-export AGENT_MANAGER_LLM_GATEWAY_API_KEY="amk_xxx"
+export AGENT_MANAGER_LLM_GATEWAY_API_KEY="amat_xxx"
 ```
 
 ### 3.2 Sandbox 配置
@@ -654,7 +654,7 @@ supports_native_structured_outputs=False
 
 排查：
 
-- `401`：LLM API Key 缺失、无效、过期或已吊销。
+- `401`：模型调用凭证缺失、无效、过期或已吊销。
 - `403`：API Key 不允许访问请求里的模型，或隐私策略不允许 bypass。
 - `413`：请求体超过 API Key 的 `max_body_kb`。
 - `429`：该 API Key 的并发请求数超过 `max_concurrent_requests`。

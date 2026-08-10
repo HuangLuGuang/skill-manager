@@ -2,6 +2,14 @@
   <div>
     <a-page-header :title="$t('legacy.97xff4')" :sub-title="$t('legacy.zt36j')" />
 
+    <a-alert
+      type="info"
+      show-icon
+      :message="$t('credentials.usageTitle')"
+      :description="$t('credentials.usageDescription')"
+      style="margin-top: 16px"
+    />
+
     <a-card style="margin-top: 16px">
       <template #extra>
         <a-space>
@@ -94,6 +102,16 @@
             </a-form-item>
           </a-col>
         </a-row>
+
+        <a-form-item v-if="form.token_type === 'agent_runtime'" :label="$t('credentials.agentPreset')">
+          <a-select v-model:value="form.agent_preset" @change="applyAgentPreset">
+            <a-select-option value="verification">{{ $t('credentials.verificationPreset') }}</a-select-option>
+            <a-select-option value="governance">{{ $t('credentials.governancePreset') }}</a-select-option>
+            <a-select-option value="governance_model">{{ $t('credentials.governanceModelPreset') }}</a-select-option>
+            <a-select-option value="custom">{{ $t('credentials.customPreset') }}</a-select-option>
+          </a-select>
+          <div class="hint">{{ $t('credentials.verificationHint') }}</div>
+        </a-form-item>
 
         <a-form-item v-if="form.token_type === 'agent_runtime'" :label="$t('legacy.hues6c')" required>
           <a-select v-model:value="form.bound_agent_id" show-search allow-clear option-filter-prop="label" :placeholder="$t('legacy.bn0dh2')">
@@ -226,6 +244,7 @@ const filters = reactive({ token_type: undefined })
 const form = reactive({
   name: '',
   token_type: 'agent_runtime',
+  agent_preset: 'verification',
   bound_agent_id: undefined,
   scopes: [],
   allowed_models: [],
@@ -241,9 +260,14 @@ const form = reactive({
   prompt_guard_llm_review: false,
 })
 
+const agentScopePresets = {
+  verification: ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool'],
+  governance: ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool', 'runtime:govern', 'runtime:memory'],
+  governance_model: ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool', 'runtime:govern', 'runtime:memory', 'model:chat'],
+}
 const typeDefaults = {
   model_gateway: ['model:chat'],
-  agent_runtime: ['runtime:verify-signature', 'runtime:can-load', 'runtime:check-tool', 'runtime:govern', 'runtime:memory'],
+  agent_runtime: [...agentScopePresets.verification],
   scanner: ['scanner:submit', 'scanner:read-own-results', 'scanner:read-own-sessions'],
   client: [
     'client:register',
@@ -259,7 +283,7 @@ const typeDefaults = {
 }
 const scopeOptionsByType = {
   ...typeDefaults,
-  agent_runtime: [...typeDefaults.agent_runtime, 'model:chat'],
+  agent_runtime: [...agentScopePresets.governance_model],
 }
 const availableScopes = computed(() => scopeOptionsByType[form.token_type] || [])
 const supportsModels = computed(() =>
@@ -293,7 +317,18 @@ const promptGuardLabel = (value) => ({ off: phrase('legacy.g0fanx'), log: phrase
 const promptGuardColor = (value) => ({ off: 'default', log: 'blue', warn: 'orange', block: 'red' }[value] || 'default')
 const formatTime = formatDateTime
 
+const sameScopes = (left, right) =>
+  left.length === right.length && [...left].sort().every((scope, index) => scope === [...right].sort()[index])
+
+const applyAgentPreset = () => {
+  const scopes = agentScopePresets[form.agent_preset]
+  if (!scopes) return
+  form.scopes = [...scopes]
+  handleScopesChange()
+}
+
 const applyTypeDefaults = () => {
+  form.agent_preset = 'verification'
   form.scopes = [...(typeDefaults[form.token_type] || [])]
   form.allowed_models = []
   form.enable_compression = false
@@ -304,6 +339,10 @@ const applyTypeDefaults = () => {
 }
 
 const handleScopesChange = () => {
+  if (form.token_type === 'agent_runtime') {
+    const matched = Object.entries(agentScopePresets).find(([, scopes]) => sameScopes(form.scopes, scopes))
+    form.agent_preset = matched?.[0] || 'custom'
+  }
   if (form.scopes.includes('model:chat')) return
   form.allowed_models = []
   form.enable_compression = false
@@ -334,6 +373,7 @@ const openCreate = (defaults = {}) => {
   Object.assign(form, {
     name: defaults.name || '',
     token_type: defaults.token_type || 'agent_runtime',
+    agent_preset: 'verification',
     bound_agent_id: defaults.bound_agent_id,
     scopes: [...typeDefaults.agent_runtime],
     allowed_models: [],
@@ -385,7 +425,9 @@ const handleCreate = async () => {
   form.prompt_guard_llm_review = false
   creating.value = true
   try {
-    const data = await createAccessToken({ ...form, name: form.name.trim() })
+    const payload = { ...form, name: form.name.trim() }
+    delete payload.agent_preset
+    const data = await createAccessToken(payload)
     createdToken.value = data.token
     createVisible.value = false
     createdVisible.value = true

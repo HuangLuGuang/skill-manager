@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
+from ..api_errors import ApiError
 from ..sqlite_db import get_db
 
 
@@ -31,6 +32,15 @@ def _department_name(db: Session, group_id: int | None) -> str | None:
 
 
 def _agent_response(db: Session, row: models.ManagedAgent) -> schemas.ManagedAgentResponse:
+    runtime_token = (
+        db.query(models.AccessToken)
+        .filter(
+            models.AccessToken.token_type == "agent_runtime",
+            models.AccessToken.bound_agent_id == row.agent_id,
+        )
+        .order_by(models.AccessToken.id.desc())
+        .first()
+    )
     return schemas.ManagedAgentResponse(
         id=row.id,
         agent_id=row.agent_id,
@@ -44,8 +54,8 @@ def _agent_response(db: Session, row: models.ManagedAgent) -> schemas.ManagedAge
         default_model=row.default_model,
         skill_names=_json_list(row.skill_names_json),
         prompt_names=_json_list(row.prompt_names_json),
-        runtime_token_id=row.runtime_token_id,
-        runtime_token_name=row.runtime_token_name,
+        runtime_token_id=runtime_token.id if runtime_token else None,
+        runtime_token_name=runtime_token.name if runtime_token else None,
         created_by=row.created_by,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -110,8 +120,6 @@ async def create_agent(
         default_model=body.default_model,
         skill_names_json=_dump_list(body.skill_names),
         prompt_names_json=_dump_list(body.prompt_names),
-        runtime_token_id=body.runtime_token_id,
-        runtime_token_name=body.runtime_token_name,
         created_by=current_user.username,
     )
     db.add(row)
@@ -137,6 +145,17 @@ async def update_agent(
         existing = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == data["agent_id"]).first()
         if existing and existing.id != row.id:
             raise HTTPException(status_code=400, detail="智能体 ID 已存在")
+        if data["agent_id"] != row.agent_id and db.query(models.AccessToken).filter(
+            models.AccessToken.bound_agent_id == row.agent_id,
+        ).first():
+            raise ApiError(
+                409,
+                "agent.id_bound_to_credentials",
+                "智能体已签发运行凭证，不能修改智能体 ID",
+                "The Agent ID cannot be changed after runtime credentials have been issued",
+            )
+    data.pop("runtime_token_id", None)
+    data.pop("runtime_token_name", None)
     if "skill_names" in data:
         row.skill_names_json = _dump_list(data.pop("skill_names"))
     if "prompt_names" in data:
@@ -158,6 +177,13 @@ async def delete_agent(
     row = _owned_agents(db, current_user).filter(models.ManagedAgent.id == agent_pk).first()
     if not row:
         raise HTTPException(status_code=404, detail="智能体不存在")
+    if db.query(models.AccessToken).filter(models.AccessToken.bound_agent_id == row.agent_id).first():
+        raise ApiError(
+            409,
+            "agent.credentials_still_bound",
+            "智能体仍绑定接入凭证，请先吊销并删除相关凭证",
+            "Revoke and delete credentials bound to this Agent before deleting it",
+        )
     db.delete(row)
     db.commit()
     return {"ok": True}

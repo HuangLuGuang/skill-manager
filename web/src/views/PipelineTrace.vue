@@ -22,7 +22,7 @@
         :loading="loading"
         size="small"
         :pagination="pagination"
-        :scroll="{ x: 1120, y: 400 }"
+        :scroll="{ x: 1580, y: 400 }"
         :customRow="traceRowProps"
         @change="handleTableChange"
       >
@@ -37,6 +37,20 @@
           </template>
           <template v-else-if="column.key === 'api_key_name'">
             {{ record.api_key_name || '-' }}
+          </template>
+          <template v-else-if="column.key === 'agent'">
+            <div>{{ record.agent_name || '-' }}</div>
+            <div v-if="record.agent_id" class="muted">{{ record.agent_id }}</div>
+          </template>
+          <template v-else-if="column.key === 'skill'">
+            <div>{{ record.skill_name || '-' }}</div>
+            <div v-if="record.skill_version_id || record.skill_id" class="muted">{{ record.skill_version_id || record.skill_id }}</div>
+          </template>
+          <template v-else-if="column.key === 'skillTrust'">
+            <a-tag v-if="record.skill_trust_state" :color="skillTrustColor(record.skill_trust_state)">
+              {{ skillTrustLabel(record.skill_trust_state) }}
+            </a-tag>
+            <span v-else>-</span>
           </template>
           <template v-else-if="column.key === 'api_key_group_names'">
             <a-space v-if="normalizeGroupNames(record.api_key_group_names).length" size="small" wrap>
@@ -74,7 +88,31 @@
           <a-descriptions-item label="Model">{{ detail.stages.meta.model }}</a-descriptions-item>
           <a-descriptions-item :label="$t('legacy.1in002o')">{{ detail.stages.meta.api_key_username || '-' }}</a-descriptions-item>
           <a-descriptions-item :label="$t('legacy.19kaip8')">{{ formatGroupNames(detail.stages.meta.api_key_group_names) }}</a-descriptions-item>
-          <a-descriptions-item label="API key">{{ detail.stages.meta.api_key_name || '-' }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('pipelineTrace.credential')">{{ detail.stages.meta.api_key_name || '-' }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('pipelineTrace.credentialType')">{{ detail.stages.meta.credential_type || '-' }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('pipelineTrace.agent')">
+            {{ detail.stages.meta.agent_name || detail.stages.meta.agent_id || '-' }}
+          </a-descriptions-item>
+          <a-descriptions-item :label="$t('gatewaySkill.skill')">
+            {{ detail.stages.meta.skill_name || '-' }}
+            <span v-if="detail.stages.meta.skill_version_id || detail.stages.meta.skill_id" class="muted">
+              · {{ detail.stages.meta.skill_version_id || detail.stages.meta.skill_id }}
+            </span>
+          </a-descriptions-item>
+          <a-descriptions-item :label="$t('gatewaySkill.trustState')">
+            <a-tag v-if="detail.stages.meta.skill_trust_state" :color="skillTrustColor(detail.stages.meta.skill_trust_state)">
+              {{ skillTrustLabel(detail.stages.meta.skill_trust_state) }}
+            </a-tag>
+            <span v-else>-</span>
+          </a-descriptions-item>
+          <a-descriptions-item :label="$t('gatewaySkill.alerts')" :span="3">
+            <a-space v-if="detail.stages.meta.skill_alert_codes?.length" wrap>
+              <a-tag v-for="code in detail.stages.meta.skill_alert_codes" :key="code" :color="skillAlertColor(detail.stages.meta.skill_alert_severity)">
+                {{ skillAlertLabel(code) }}
+              </a-tag>
+            </a-space>
+            <span v-else>-</span>
+          </a-descriptions-item>
           <a-descriptions-item :label="$t('legacy.csussz')">{{ formatMs(detail.stages.meta.request_duration_ms) }}</a-descriptions-item>
           <a-descriptions-item :label="$t('legacy.j2g9ts')">{{ formatMs(detail.stages.meta.upstream_duration_ms) }}</a-descriptions-item>
           <a-descriptions-item :label="$t('legacy.1yz91un')">{{ formatMs(detail.stages.meta.platform_duration_ms) }}</a-descriptions-item>
@@ -130,11 +168,13 @@
 import { translateLegacy as phrase, translateText as text } from '../i18n'
 
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 
 import { getPrivacyTrace, listPrivacyTraces } from '../api'
 import { formatBeijingDateTime, formatNumber } from '../utils/format'
 
+const { t } = useI18n()
 const loading = ref(false)
 const detailLoading = ref(false)
 const traces = ref([])
@@ -172,7 +212,10 @@ const traceColumns = [
   { title: phrase('legacy.1f90xvr'), dataIndex: 'created_at', width: 135, customRender: ({ text }) => formatBeijingDateTime(text) },
   { title: phrase('legacy.1in002o'), key: 'api_key_username', width: 75 },
   { title: phrase('legacy.19kaip8'), key: 'api_key_group_names', width: 115 },
-  { title: 'API Key', key: 'api_key_name', width: 105 },
+  { title: t('pipelineTrace.credential'), key: 'api_key_name', width: 105 },
+  { title: t('pipelineTrace.agent'), key: 'agent', width: 130 },
+  { title: t('gatewaySkill.skill'), key: 'skill', width: 150 },
+  { title: t('gatewaySkill.trustState'), key: 'skillTrust', width: 150 },
   { title: phrase('legacy.1ow6qt'), dataIndex: 'model', width: 110 },
   { title: phrase('legacy.csussz'), dataIndex: 'request_duration_ms', width: 80, customRender: ({ text }) => formatMs(text) },
   { title: phrase('legacy.j2g9ts'), dataIndex: 'upstream_duration_ms', width: 85, customRender: ({ text }) => formatMs(text) },
@@ -241,6 +284,22 @@ const promptSecurityActionLabel = (value) => ({ off: phrase('legacy.g0fanx'), lo
 const promptSecurityColor = (value) => ({ LOW: 'blue', MEDIUM: 'orange', HIGH: 'red' }[value] || 'default')
 const promptSecuritySummary = (meta = {}) =>
   `${promptSecurityRiskLabel(meta.prompt_security_risk)} / ${promptSecurityActionLabel(meta.prompt_security_action)}`
+const skillTrustLabel = value => ({
+  missing: t('gatewaySkill.missing'),
+  declared_trusted: t('gatewaySkill.declaredTrusted'),
+  suspicious: t('gatewaySkill.suspicious'),
+}[value] || value)
+const skillTrustColor = value => ({ missing: 'default', declared_trusted: 'orange', suspicious: 'red' }[value] || 'default')
+const skillAlertColor = value => ({ info: 'default', medium: 'orange', high: 'red' }[value] || 'default')
+const skillAlertLabel = code => ({
+  'gateway.skill_context_missing': t('gatewaySkill.contextMissing'),
+  'gateway.skill_unknown': t('gatewaySkill.unknown'),
+  'gateway.skill_id_mismatch': t('gatewaySkill.idMismatch'),
+  'gateway.skill_name_mismatch': t('gatewaySkill.nameMismatch'),
+  'gateway.skill_not_loadable': t('gatewaySkill.notLoadable'),
+  'gateway.skill_not_allowed_for_agent': t('gatewaySkill.notAllowed'),
+  'gateway.skill_context_unverified': t('gatewaySkill.unverified'),
+}[code] || code)
 
 const renderContentPart = (part) => {
   if (part === null || part === undefined) return ''

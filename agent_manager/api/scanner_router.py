@@ -13,12 +13,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from agent_manager.api.router import (
     RuntimeCheckResponse,
+    PromptVerifyPayload,
     SubmitResponse,
     ToolCheckResponse,
     VerifySkillSignatureRequest,
@@ -33,6 +34,7 @@ from agent_manager.core.models import AuditEvent, RegistryEntry, SkillOrigin, Sk
 from agent_manager.core.scanner_tokens import DEFAULT_SCOPES, ScannerToken, ScannerTokenStore
 from agent_manager.core.vetting import _load_manifest
 from backend.models import AccessToken
+from backend.api_errors import ApiError
 from backend.routers.access_tokens import (
     ensure_agent_prompt_allowed,
     ensure_agent_skill_allowed,
@@ -343,21 +345,12 @@ def list_scanner_tokens(store: ScannerTokenStore = Depends(get_token_store)):
 
 @admin_router.post("/scanner/tokens", response_model=ScannerTokenCreateResponse)
 def create_scanner_token(body: ScannerTokenCreateRequest, store: ScannerTokenStore = Depends(get_token_store)):
-    if not body.name.strip():
-        raise HTTPException(status_code=400, detail="Token name is required")
-    try:
-        record, plain = store.create(
-            name=body.name,
-            scopes=body.scopes,
-            expires_at=body.expires_at,
-            allowed_ips=body.allowed_ips,
-            max_upload_mb=body.max_upload_mb,
-            max_concurrent_jobs=body.max_concurrent_jobs,
-            created_by=body.created_by,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return ScannerTokenCreateResponse(token=plain, record=record.public_dict())
+    raise ApiError(
+        410,
+        "credential.legacy_scanner_token_issuance_removed",
+        "旧 Scanner Token 已停止签发，请在统一凭证中心创建 Scanner 接入凭证",
+        "Legacy Scanner Token issuance has been removed; create a Scanner credential in the Credential Center",
+    )
 
 
 @admin_router.post("/scanner/tokens/{token_id}/revoke")
@@ -511,6 +504,71 @@ def token_runtime_can_load_prompt(
     if not entry.is_loadable():
         return {"allowed": False, "status": entry.status.value, "reason": f"Prompt {prompt_name!r} is {entry.status.value}"}
     return {"allowed": True, "status": entry.status.value, "reason": "allowed"}
+
+
+def _verify_bound_prompt(
+    *,
+    prompt_name: str,
+    local_content: str | None,
+    local_file_path: str | None,
+    agent_id: str | None,
+    x_agent_id: str | None,
+    token: AccessToken,
+    db: Session,
+    mgr: AgentManager,
+):
+    resolved_agent_id = resolve_agent_id(agent_id, x_agent_id)
+    agent = ensure_token_agent_allowed(db, token, resolved_agent_id)
+    ensure_agent_prompt_allowed(agent, prompt_name)
+    return mgr.verify_prompt_signature(
+        prompt_name=prompt_name,
+        local_content=local_content,
+        local_file_path=Path(local_file_path) if local_file_path else None,
+    )
+
+
+@runtime_router.get("/runtime/verify-prompt")
+def token_runtime_verify_prompt(
+    prompt_name: str = Query(...),
+    local_content: str | None = Query(None),
+    local_file_path: str | None = Query(None),
+    agent_id: str | None = Query(None),
+    x_agent_id: str | None = Header(None, alias="X-Agent-ID"),
+    token: AccessToken = Depends(require_runtime_verify_token),
+    db: Session = Depends(get_db),
+    mgr: AgentManager = Depends(get_manager),
+):
+    return _verify_bound_prompt(
+        prompt_name=prompt_name,
+        local_content=local_content,
+        local_file_path=local_file_path,
+        agent_id=agent_id,
+        x_agent_id=x_agent_id,
+        token=token,
+        db=db,
+        mgr=mgr,
+    )
+
+
+@runtime_router.post("/runtime/verify-prompt-signature")
+def token_runtime_verify_prompt_signature(
+    body: PromptVerifyPayload,
+    agent_id: str | None = Query(None),
+    x_agent_id: str | None = Header(None, alias="X-Agent-ID"),
+    token: AccessToken = Depends(require_runtime_verify_token),
+    db: Session = Depends(get_db),
+    mgr: AgentManager = Depends(get_manager),
+):
+    return _verify_bound_prompt(
+        prompt_name=body.prompt_name,
+        local_content=body.local_content,
+        local_file_path=body.local_file_path,
+        agent_id=agent_id,
+        x_agent_id=x_agent_id,
+        token=token,
+        db=db,
+        mgr=mgr,
+    )
 
 
 @admin_router.get("/scanner/downloads", response_model=ScannerDownloadInfo)

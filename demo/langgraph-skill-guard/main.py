@@ -15,9 +15,11 @@ from agent_manager.core.signer import compute_content_digest
 
 class AgentManagerRuntimeClient:
     def __init__(self, base_url: str, timeout: float = 20.0, token: str | None = None):
+        if not token:
+            raise ValueError("AGENT_MANAGER_ACCESS_TOKEN is required; create an Agent runtime credential in Credential Center")
         self.base_url = base_url.rstrip("/")
-        self.runtime_prefix = "/api/v1/access/runtime" if token else "/api/v1/runtime"
-        headers = {"Authorization": f"Bearer {token}"} if token else None
+        self.runtime_prefix = "/api/v1/access/runtime"
+        headers = {"Authorization": f"Bearer {token}"}
         self.http = httpx.Client(base_url=self.base_url, timeout=timeout, headers=headers)
 
     def verify_skill_signature(

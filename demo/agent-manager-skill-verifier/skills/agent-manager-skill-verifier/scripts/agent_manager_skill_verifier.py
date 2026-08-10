@@ -270,9 +270,11 @@ def resolve_server(args: argparse.Namespace) -> str:
     return normalize_base_url(server)
 
 
-def resolve_token(args: argparse.Namespace) -> str:
+def resolve_token(args: argparse.Namespace, *, purpose: str = "runtime") -> str:
+    preferred_env = "AGENT_MANAGER_SCANNER_TOKEN" if purpose == "scanner" else "AGENT_MANAGER_AGENT_RUNTIME_TOKEN"
     token = (
         args.token
+        or os.environ.get(preferred_env)
         or os.environ.get("AGENT_MANAGER_VERIFIER_TOKEN")
         or os.environ.get("AGENT_MANAGER_API_TOKEN")
         or os.environ.get("AGENT_MANAGER_ACCESS_TOKEN")
@@ -280,8 +282,8 @@ def resolve_token(args: argparse.Namespace) -> str:
     if not token:
         raise VerifierError(
             ui_text(
-                "缺少接入凭证，请设置 AGENT_MANAGER_VERIFIER_TOKEN、旧版 AGENT_MANAGER_API_TOKEN/AGENT_MANAGER_ACCESS_TOKEN，或传入 --token",
-                "Missing access credential. Set AGENT_MANAGER_VERIFIER_TOKEN, the legacy AGENT_MANAGER_API_TOKEN/AGENT_MANAGER_ACCESS_TOKEN, or pass --token.",
+                f"缺少接入凭证，请设置 {preferred_env}，或传入 --token",
+                f"Missing access credential. Set {preferred_env}, or pass --token.",
             )
         )
     return token
@@ -289,7 +291,7 @@ def resolve_token(args: argparse.Namespace) -> str:
 
 def command_submit(args: argparse.Namespace) -> int:
     server = resolve_server(args)
-    token = resolve_token(args)
+    token = resolve_token(args, purpose="scanner")
     ignores = set(DEFAULT_IGNORES)
     if args.ignore:
         ignores.update(part.strip() for part in args.ignore.split(",") if part.strip())
@@ -325,7 +327,7 @@ def command_submit(args: argparse.Namespace) -> int:
 
 def command_status(args: argparse.Namespace) -> int:
     server = resolve_server(args)
-    token = resolve_token(args)
+    token = resolve_token(args, purpose="scanner")
     payload = api_request("GET", f"{server}/api/v1/scanner/imports/{args.skill_id}", token)
     print(f"Skill: {payload.get('name', '-')} ({payload.get('skill_id', args.skill_id)})")
     print(f"{ui_text('状态', 'Status')}: {payload.get('status', '-')}")
@@ -380,7 +382,7 @@ def _print_block(reason: str, status: str | None = None) -> None:
 
 def command_verify(args: argparse.Namespace) -> int:
     server = resolve_server(args)
-    token = resolve_token(args)
+    token = resolve_token(args, purpose="runtime")
     ignores = set(DEFAULT_IGNORES)
     if args.ignore:
         ignores.update(part.strip() for part in args.ignore.split(",") if part.strip())

@@ -225,8 +225,6 @@ class ManagedAgentCreate(BaseModel):
     default_model: Optional[str] = None
     skill_names: list[str] = []
     prompt_names: list[str] = []
-    runtime_token_id: Optional[int] = None
-    runtime_token_name: Optional[str] = None
 
 
 class ManagedAgentUpdate(BaseModel):
@@ -240,8 +238,6 @@ class ManagedAgentUpdate(BaseModel):
     default_model: Optional[str] = None
     skill_names: Optional[list[str]] = None
     prompt_names: Optional[list[str]] = None
-    runtime_token_id: Optional[int] = None
-    runtime_token_name: Optional[str] = None
 
 
 class ManagedAgentResponse(BaseModel):
@@ -457,6 +453,14 @@ class McpCallAuditResponse(BaseModel):
     server_slug: Optional[str] = None
     tool_name: Optional[str] = None
     schema_hash: Optional[str] = None
+    agent_id: Optional[str] = None
+    skill_id: Optional[str] = None
+    skill_version_id: Optional[str] = None
+    skill_name: Optional[str] = None
+    skill_context_source: Optional[str] = None
+    skill_trust_state: Optional[str] = None
+    skill_alert_severity: Optional[str] = None
+    skill_alert_codes: list[str] = []
     status: str
     duration_ms: float
     error: Optional[str] = None
