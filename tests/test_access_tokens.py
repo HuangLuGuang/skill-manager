@@ -34,7 +34,11 @@ class _Manager:
         return type(
             "Skill",
             (),
-            {"skill_id": "risk-skill-id", "name": "risk-skill"},
+            {
+                "skill_id": "risk-skill-id",
+                "family_id": "risk-skill-family-id",
+                "name": "risk-skill",
+            },
         )()
 
     def get_prompt(self, prompt_name):
@@ -316,7 +320,7 @@ def test_agent_runtime_token_enforces_bound_agent_and_allowed_skill(tmp_path):
     assert "未启用" in disabled.json()["detail"]
 
 
-def test_agent_runtime_token_allows_skill_id_binding(tmp_path):
+def test_agent_runtime_token_allows_version_and_family_id_bindings(tmp_path):
     client = _client(tmp_path)
     token = client.post(
         "/api/v1/access/tokens",
@@ -328,18 +332,19 @@ def test_agent_runtime_token_allows_skill_id_binding(tmp_path):
         },
     ).json()["token"]
 
-    response = client.put(
-        "/agents/1",
-        json={"skill_names": ["risk-skill-id"]},
-    )
-    assert response.status_code == 200
+    for skill_ref in ("risk-skill-id", "risk-skill-family-id"):
+        response = client.put(
+            "/agents/1",
+            json={"skill_names": [skill_ref]},
+        )
+        assert response.status_code == 200
 
-    allowed = client.get(
-        "/api/v1/access/runtime/can-load/risk-skill",
-        headers={"Authorization": f"Bearer {token}", "X-Agent-ID": "risk-agent"},
-    )
-    assert allowed.status_code == 200
-    assert allowed.json()["allowed"] is True
+        allowed = client.get(
+            "/api/v1/access/runtime/can-load/risk-skill",
+            headers={"Authorization": f"Bearer {token}", "X-Agent-ID": "risk-agent"},
+        )
+        assert allowed.status_code == 200
+        assert allowed.json()["allowed"] is True
 
 
 def test_runtime_missing_scope_error_identifies_token(tmp_path):

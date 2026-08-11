@@ -333,6 +333,13 @@ def test_access_runtime_routes_accept_runtime_token(tmp_path):
     skill_dir.mkdir()
     (skill_dir / "SKILL.md").write_text("---\nname: runtime-skill\ndescription: Runtime test\n---\n", encoding="utf-8")
     entry = manager.submit(skill_dir)
+    assert entry.family_id
+
+    db = TestingSessionLocal()
+    agent = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == "agno-demo").one()
+    agent.skill_names_json = json.dumps([entry.family_id])
+    db.commit()
+    db.close()
 
     previous_manager = api_router._manager
     api_router._manager = manager
@@ -358,7 +365,7 @@ def test_access_runtime_routes_accept_runtime_token(tmp_path):
         assert verify_response.json()["allowed"] is True
 
         can_load_response = client.get(
-            f"/api/v1/access/runtime/can-load/{entry.skill_id}",
+            "/api/v1/access/runtime/can-load/runtime-skill",
             headers={"Authorization": f"Bearer {token}"},
             params={"agent_id": "agno-demo"},
         )

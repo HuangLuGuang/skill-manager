@@ -375,15 +375,21 @@ def agent_prompt_names(agent: models.ManagedAgent) -> list[str]:
     return [str(item) for item in _json_loads(agent.prompt_names_json, [])]
 
 
-def ensure_agent_skill_allowed(agent: models.ManagedAgent, skill_name: str, skill_id: str | None = None) -> None:
+def ensure_agent_skill_allowed(
+    agent: models.ManagedAgent,
+    skill_name: str,
+    skill_id: str | None = None,
+    family_id: str | None = None,
+) -> None:
     allowed = set(agent_skill_names(agent))
-    if skill_name not in allowed and (not skill_id or skill_id not in allowed):
+    accepted_refs = {ref for ref in (skill_name, skill_id, family_id) if ref}
+    if allowed.isdisjoint(accepted_refs):
         raise ApiError(
             403,
             "agent.skill_not_allowed",
             "智能体未授权使用该 Skill",
             "The Agent is not authorized to use this Skill",
-            params={"skill_name": skill_name, "skill_id": skill_id},
+            params={"skill_name": skill_name, "skill_id": skill_id, "family_id": family_id},
         )
 
 
