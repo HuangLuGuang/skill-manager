@@ -181,12 +181,10 @@ def ensure_sqlite_schema() -> None:
             if column_name not in audit_columns:
                 conn.exec_driver_sql(f"ALTER TABLE llm_request_audit ADD COLUMN {column_name} {column_type}")
         mcp_audit_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mcp_call_audits)").fetchall()}
-        mcp_gateway_skill_columns = {
-            "agent_id": "VARCHAR(128)",
+        mcp_audit_additive_columns = {
             "approval_request_id": "VARCHAR(64)",
-            **gateway_skill_audit_columns,
         }
-        for column_name, column_type in mcp_gateway_skill_columns.items():
+        for column_name, column_type in mcp_audit_additive_columns.items():
             if mcp_audit_columns and column_name not in mcp_audit_columns:
                 conn.exec_driver_sql(f"ALTER TABLE mcp_call_audits ADD COLUMN {column_name} {column_type}")
         mcp_server_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mcp_servers)").fetchall()}

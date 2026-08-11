@@ -31,6 +31,7 @@ const routes = [
   { path: '/model-gateway/policy-bindings', name: 'model-gateway-policy-bindings', component: () => import('../views/ModelGateway.vue'), meta: { requiresAuth: true, gatewayTab: 'policy-bindings' } },
   { path: '/model-gateway/policies', name: 'model-gateway-policies', component: () => import('../views/ModelGateway.vue'), meta: { requiresAuth: true, gatewayTab: 'policies' } },
   { path: '/model-gateway/prompt-guard', name: 'model-gateway-prompt-guard', component: () => import('../views/ModelGateway.vue'), meta: { requiresAuth: true, gatewayTab: 'prompt-guard' } },
+  { path: '/model-gateway/skill-alerts', name: 'model-gateway-skill-alerts', component: () => import('../views/ModelSkillAlerts.vue'), meta: { requiresAuth: true } },
   { path: '/model-gateway/audit', name: 'model-gateway-audit', component: () => import('../views/ModelGateway.vue'), meta: { requiresAuth: true, gatewayTab: 'audit' } },
   { path: '/model-gateway/stats', name: 'model-gateway-stats', component: () => import('../views/ModelGatewayStats.vue'), meta: { requiresAuth: true } },
   { path: '/model-gateway/user-stats', name: 'model-gateway-user-stats', component: () => import('../views/UserTokenStats.vue'), meta: { requiresAuth: true } },

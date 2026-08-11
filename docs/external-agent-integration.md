@@ -255,18 +255,6 @@ Authorization: Bearer amat_xxx
 
 原有 `POST /api/v1/mcp/approvals` 直接签发一次性凭证的接口继续保留，调用方仍可通过 `params._meta.agent_manager_approval` 消费，但它主要用于已有集成和受控调试；正式人工审批应使用调用自动产生的待办流程。
 
-如果 MCP Tool 调用由某个 Skill 发起，调用方可以在 `tools/call` 的 `params._meta` 中声明 Skill：
-
-```json
-{
-  "agent_manager_skill_id": "skill-family-id",
-  "agent_manager_skill_version_id": "skill-version-id",
-  "agent_manager_skill_name": "risk-screening"
-}
-```
-
-MCP 网关会核对 Skill 的登记状态，并把结果写入 MCP 调用审计。由于 MCP 凭证不绑定 Agent，这些字段仍属于调用方声明，只用于疑似告警，不用于证明 Agent 或 Skill 身份，也不会阻断 Tool 调用。
-
 ## Runtime Governance Contract
 
 需要治理完整 Agent 任务时，为 `agent_runtime` 凭证增加 `runtime:govern`，并按以下顺序接入：

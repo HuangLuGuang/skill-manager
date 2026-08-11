@@ -97,17 +97,6 @@
               <template v-else-if="column.key === 'status'">
                 <a-tag :color="record.status === 'success' ? 'green' : 'red'">{{ record.status }}</a-tag>
               </template>
-              <template v-else-if="column.key === 'skill'">
-                <div>{{ record.skill_name || '-' }}</div>
-                <div v-if="record.skill_version_id || record.skill_id" class="muted">{{ record.skill_version_id || record.skill_id }}</div>
-              </template>
-              <template v-else-if="column.key === 'skillTrust'">
-                <template v-if="record.skill_trust_state">
-                  <a-tag :color="skillTrustColor(record.skill_trust_state)">{{ skillTrustLabel(record.skill_trust_state) }}</a-tag>
-                  <div v-if="record.skill_alert_codes?.length" class="muted">{{ skillAlertLabel(record.skill_alert_codes[0]) }}</div>
-                </template>
-                <span v-else>-</span>
-              </template>
               <template v-else-if="column.key === 'time'">{{ formatTime(record.created_at) }}</template>
             </template>
           </a-table>
@@ -253,8 +242,6 @@ const gatewayColumns = computed(() => [
 const auditColumns = computed(() => [
   { title: text('请求 ID', 'Request ID'), dataIndex: 'request_id', width: 260 },
   { title: text('调用目标', 'Call Target'), key: 'target' },
-  { title: t('gatewaySkill.skill'), key: 'skill', width: 160 },
-  { title: t('gatewaySkill.trustState'), key: 'skillTrust', width: 170 },
   { title: 'Token ID', dataIndex: 'token_id', width: 100 },
   { title: text('耗时 ms', 'Duration (ms)'), dataIndex: 'duration_ms', width: 100 },
   { title: text('状态', 'Status'), key: 'status', width: 90 },
@@ -275,21 +262,6 @@ const healthLabel = value => ({
   unknown: text('未检测', 'Not Checked'),
 }[value] || value)
 const healthColor = value => ({ healthy: 'green', unhealthy: 'red', unknown: 'default' }[value] || 'default')
-const skillTrustLabel = value => ({
-  missing: t('gatewaySkill.missing'),
-  declared_trusted: t('gatewaySkill.declaredTrusted'),
-  suspicious: t('gatewaySkill.suspicious'),
-}[value] || value)
-const skillTrustColor = value => ({ missing: 'default', declared_trusted: 'orange', suspicious: 'red' }[value] || 'default')
-const skillAlertLabel = code => ({
-  'gateway.skill_context_missing': t('gatewaySkill.contextMissing'),
-  'gateway.skill_unknown': t('gatewaySkill.unknown'),
-  'gateway.skill_id_mismatch': t('gatewaySkill.idMismatch'),
-  'gateway.skill_name_mismatch': t('gatewaySkill.nameMismatch'),
-  'gateway.skill_not_loadable': t('gatewaySkill.notLoadable'),
-  'gateway.skill_not_allowed_for_agent': t('gatewaySkill.notAllowed'),
-  'gateway.skill_context_unverified': t('gatewaySkill.unverified'),
-}[code] || code)
 const formatTime = formatDateTime
 const gatewayToolNames = gateway => (gateway.bindings || []).flatMap(binding => binding.allowed_tools.map(name => `${binding.server_slug}__${name}`))
 

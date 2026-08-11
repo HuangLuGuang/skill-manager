@@ -454,14 +454,6 @@ class McpCallAuditResponse(BaseModel):
     tool_name: Optional[str] = None
     schema_hash: Optional[str] = None
     approval_request_id: Optional[str] = None
-    agent_id: Optional[str] = None
-    skill_id: Optional[str] = None
-    skill_version_id: Optional[str] = None
-    skill_name: Optional[str] = None
-    skill_context_source: Optional[str] = None
-    skill_trust_state: Optional[str] = None
-    skill_alert_severity: Optional[str] = None
-    skill_alert_codes: list[str] = []
     status: str
     duration_ms: float
     error: Optional[str] = None
@@ -863,6 +855,41 @@ class LlmApiKeyResponse(BaseModel):
     prompt_guard_llm_review: bool = False
     created_at: datetime
     last_used_at: Optional[datetime] = None
+
+
+class ModelSkillAlertItem(BaseModel):
+    id: int
+    request_id: str
+    created_at: datetime
+    severity: Optional[str] = None
+    trust_state: Optional[str] = None
+    alert_codes: list[str] = Field(default_factory=list)
+    agent_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    skill_id: Optional[str] = None
+    skill_version_id: Optional[str] = None
+    skill_name: Optional[str] = None
+    context_source: Optional[str] = None
+    model: str
+    credential_type: Optional[str] = None
+    credential_name: Optional[str] = None
+    request_status: str
+
+
+class ModelSkillAlertSummary(BaseModel):
+    actionable: int = 0
+    missing: int = 0
+    observations: int = 0
+    affected_agents: int = 0
+
+
+class ModelSkillAlertListResponse(BaseModel):
+    items: list[ModelSkillAlertItem] = Field(default_factory=list)
+    total: int
+    page: int
+    page_size: int
+    days: int
+    summary: ModelSkillAlertSummary
 
 
 class PrivacyPolicyPayload(BaseModel):

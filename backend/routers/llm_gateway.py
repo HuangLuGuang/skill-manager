@@ -2006,6 +2006,136 @@ async def delete_privacy_policy(
     return {"status": "deleted"}
 
 
+@admin_router.get("/model-gateway/skill-alerts", response_model=schemas.ModelSkillAlertListResponse)
+async def list_model_skill_alerts(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    days: int = Query(default=7, ge=1, le=90),
+    category: str = Query(default="actionable", pattern="^(actionable|missing|observation|all)$"),
+    severity: str | None = Query(default=None, pattern="^(info|medium|high)$"),
+    alert_code: str | None = Query(default=None, max_length=128),
+    agent_id: str | None = Query(default=None, max_length=128),
+    skill_name: str | None = Query(default=None, max_length=255),
+    model: str | None = Query(default=None, max_length=128),
+    q: str | None = Query(default=None, max_length=255),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(_get_privacy_audit_user),
+):
+    del current_user
+    since = _now() - timedelta(days=days)
+    visible_states = ("suspicious", "missing", "declared_trusted")
+    base_query = db.query(models.LlmRequestAudit).filter(
+        models.LlmRequestAudit.created_at >= since,
+        models.LlmRequestAudit.skill_trust_state.in_(visible_states),
+    )
+    summary = schemas.ModelSkillAlertSummary(
+        actionable=base_query.filter(models.LlmRequestAudit.skill_trust_state == "suspicious").count(),
+        missing=base_query.filter(models.LlmRequestAudit.skill_trust_state == "missing").count(),
+        observations=base_query.filter(models.LlmRequestAudit.skill_trust_state == "declared_trusted").count(),
+        affected_agents=(
+            base_query.filter(
+                models.LlmRequestAudit.skill_trust_state == "suspicious",
+                models.LlmRequestAudit.agent_id.is_not(None),
+            )
+            .with_entities(func.count(func.distinct(models.LlmRequestAudit.agent_id)))
+            .scalar()
+            or 0
+        ),
+    )
+
+    query = base_query
+    state_by_category = {
+        "actionable": "suspicious",
+        "missing": "missing",
+        "observation": "declared_trusted",
+    }
+    if category in state_by_category:
+        query = query.filter(models.LlmRequestAudit.skill_trust_state == state_by_category[category])
+    if severity:
+        query = query.filter(models.LlmRequestAudit.skill_alert_severity == severity)
+    if alert_code:
+        query = query.filter(models.LlmRequestAudit.skill_alert_codes_json.contains(f'"{alert_code}"'))
+    if agent_id:
+        query = query.filter(models.LlmRequestAudit.agent_id == agent_id)
+    if skill_name:
+        query = query.filter(models.LlmRequestAudit.skill_name.ilike(f"%{skill_name.strip()}%"))
+    if model:
+        query = query.filter(models.LlmRequestAudit.model == model)
+    if q and q.strip():
+        keyword = f"%{q.strip()}%"
+        query = query.filter(
+            or_(
+                models.LlmRequestAudit.request_id.ilike(keyword),
+                models.LlmRequestAudit.agent_id.ilike(keyword),
+                models.LlmRequestAudit.skill_id.ilike(keyword),
+                models.LlmRequestAudit.skill_version_id.ilike(keyword),
+                models.LlmRequestAudit.skill_name.ilike(keyword),
+            )
+        )
+
+    total = query.count()
+    rows = (
+        query.order_by(models.LlmRequestAudit.created_at.desc(), models.LlmRequestAudit.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    access_token_ids = {
+        row.api_key_id for row in rows
+        if row.api_key_id is not None and row.credential_type != "legacy_llm_api_key"
+    }
+    llm_key_ids = {
+        row.api_key_id for row in rows
+        if row.api_key_id is not None and row.credential_type == "legacy_llm_api_key"
+    }
+    agent_ids = {row.agent_id for row in rows if row.agent_id}
+    access_token_names = {
+        row.id: row.name
+        for row in db.query(models.AccessToken).filter(models.AccessToken.id.in_(access_token_ids)).all()
+    } if access_token_ids else {}
+    llm_key_names = {
+        row.id: row.name
+        for row in db.query(models.LlmApiKey).filter(models.LlmApiKey.id.in_(llm_key_ids)).all()
+    } if llm_key_ids else {}
+    agent_names = {
+        row.agent_id: row.name
+        for row in db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id.in_(agent_ids)).all()
+    } if agent_ids else {}
+
+    items = []
+    for row in rows:
+        credential_names = llm_key_names if row.credential_type == "legacy_llm_api_key" else access_token_names
+        items.append(
+            schemas.ModelSkillAlertItem(
+                id=row.id,
+                request_id=row.request_id,
+                created_at=row.created_at,
+                severity=row.skill_alert_severity,
+                trust_state=row.skill_trust_state,
+                alert_codes=_json_loads(row.skill_alert_codes_json, []),
+                agent_id=row.agent_id,
+                agent_name=agent_names.get(row.agent_id),
+                skill_id=row.skill_id,
+                skill_version_id=row.skill_version_id,
+                skill_name=row.skill_name,
+                context_source=row.skill_context_source,
+                model=row.model,
+                credential_type=row.credential_type,
+                credential_name=credential_names.get(row.api_key_id),
+                request_status=row.status,
+            )
+        )
+    return schemas.ModelSkillAlertListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        days=days,
+        summary=summary,
+    )
+
+
 @admin_router.get("/privacy/traces")
 async def list_traces(
     page: int = 1,

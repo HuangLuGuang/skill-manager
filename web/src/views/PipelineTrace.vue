@@ -22,7 +22,7 @@
         :loading="loading"
         size="small"
         :pagination="pagination"
-        :scroll="{ x: 1580, y: 400 }"
+        :scroll="{ x: 1280, y: 400 }"
         :customRow="traceRowProps"
         @change="handleTableChange"
       >
@@ -41,16 +41,6 @@
           <template v-else-if="column.key === 'agent'">
             <div>{{ record.agent_name || '-' }}</div>
             <div v-if="record.agent_id" class="muted">{{ record.agent_id }}</div>
-          </template>
-          <template v-else-if="column.key === 'skill'">
-            <div>{{ record.skill_name || '-' }}</div>
-            <div v-if="record.skill_version_id || record.skill_id" class="muted">{{ record.skill_version_id || record.skill_id }}</div>
-          </template>
-          <template v-else-if="column.key === 'skillTrust'">
-            <a-tag v-if="record.skill_trust_state" :color="skillTrustColor(record.skill_trust_state)">
-              {{ skillTrustLabel(record.skill_trust_state) }}
-            </a-tag>
-            <span v-else>-</span>
           </template>
           <template v-else-if="column.key === 'api_key_group_names'">
             <a-space v-if="normalizeGroupNames(record.api_key_group_names).length" size="small" wrap>
@@ -169,12 +159,14 @@ import { translateLegacy as phrase, translateText as text } from '../i18n'
 
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 
 import { getPrivacyTrace, listPrivacyTraces } from '../api'
 import { formatBeijingDateTime, formatNumber } from '../utils/format'
 
 const { t } = useI18n()
+const route = useRoute()
 const loading = ref(false)
 const detailLoading = ref(false)
 const traces = ref([])
@@ -214,8 +206,6 @@ const traceColumns = [
   { title: phrase('legacy.19kaip8'), key: 'api_key_group_names', width: 115 },
   { title: t('pipelineTrace.credential'), key: 'api_key_name', width: 105 },
   { title: t('pipelineTrace.agent'), key: 'agent', width: 130 },
-  { title: t('gatewaySkill.skill'), key: 'skill', width: 150 },
-  { title: t('gatewaySkill.trustState'), key: 'skillTrust', width: 150 },
   { title: phrase('legacy.1ow6qt'), dataIndex: 'model', width: 110 },
   { title: phrase('legacy.csussz'), dataIndex: 'request_duration_ms', width: 80, customRender: ({ text }) => formatMs(text) },
   { title: phrase('legacy.j2g9ts'), dataIndex: 'upstream_duration_ms', width: 85, customRender: ({ text }) => formatMs(text) },
@@ -352,7 +342,11 @@ const copyStage = async (stage) => {
   message.success(phrase('legacy.alyyje'))
 }
 
-onMounted(fetchTraces)
+onMounted(async () => {
+  await fetchTraces()
+  const requestId = Array.isArray(route.query.request_id) ? route.query.request_id[0] : route.query.request_id
+  if (requestId) await selectTrace({ request_id: String(requestId) })
+})
 </script>
 
 <style scoped>

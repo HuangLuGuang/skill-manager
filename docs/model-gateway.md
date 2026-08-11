@@ -113,7 +113,9 @@ Authorization: Bearer amat_xxx
 - `declared_trusted`：名称、版本、Registry 状态和 Agent 授权匹配，但未验证调用方本地内容。
 - `suspicious`：Skill 未登记、名称与 ID 不一致、状态不可加载或未授权给当前 Agent。
 
-这些结果会写入模型调用审计和隐私链路追踪。`declared_trusted` 不能等同于签名验证通过。
+这些结果会写入模型调用审计，并在管理台 `模型网关 / Skill 告警`（`/model-gateway/skill-alerts`）集中展示。页面默认只显示 `suspicious`，`missing` 和 `declared_trusted` 分别归入“未声明”和“观察事件”；请求 ID 可以跳转到隐私链路追踪查看上下文。`declared_trusted` 不能等同于签名验证通过。
+
+管理接口 `GET /api/v1/model-gateway/skill-alerts` 支持按时间范围、分类、级别、告警编码、Agent、Skill 名称和模型分页筛选。接口只返回审计元数据，不返回原始 Prompt 或模型响应。
 
 当前允许透传的 OpenAI 参数包括：
 
