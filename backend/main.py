@@ -34,6 +34,7 @@ if str(base_dir) not in sys.path:
 
 os.environ.setdefault("AGENT_MANAGER_REGISTRY_SQLITE_PATH", settings.SQLITE_PATH)
 
+from agent_manager.api.lifecycle import lifespan_with_startup
 from agent_manager.api.router import (
     get_manager as get_agent_manager,
     router as agent_manager_router,
@@ -44,7 +45,6 @@ from agent_manager.api.scanner_router import router as scanner_router
 from agent_manager.api.scanner_router import runtime_router as access_runtime_router
 from agent_manager.core.vetting import warmup_scanner
 
-app = FastAPI(title=settings.APP_NAME, debug=settings.DEBUG)
 logger = logging.getLogger(__name__)
 
 
@@ -53,7 +53,11 @@ def warmup_skill_scanner() -> None:
     warmup_scanner(manager.policy.scanner_policy)
 
 
-app.add_event_handler("startup", warmup_skill_scanner)
+app = FastAPI(
+    title=settings.APP_NAME,
+    debug=settings.DEBUG,
+    lifespan=lifespan_with_startup(warmup_skill_scanner),
+)
 app.add_exception_handler(ApiError, api_error_handler)
 app.add_exception_handler(HTTPException, http_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
