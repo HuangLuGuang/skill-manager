@@ -15,7 +15,7 @@ from .policy import CompanyPolicy
 from .sandbox import SandboxConfig
 from .skillspector import get_skillspector_version
 
-SCAN_CACHE_SCHEMA_VERSION = "1"
+SCAN_CACHE_SCHEMA_VERSION = "2"
 
 
 def compute_content_fingerprint(skill_path: str | Path) -> str:
@@ -51,9 +51,13 @@ def compute_scan_context_fingerprint(
     judgement_mode: str | None = None,
 ) -> str:
     """Fingerprint scanner capabilities and selected scan options."""
+    policy_payload = policy.to_dict()
+    # SkillSpector no longer performs its own model calls. Keep accepting the
+    # legacy policy field without letting it create distinct cache entries.
+    policy_payload.pop("skillspector_use_llm", None)
     payload: dict[str, Any] = {
         "schema_version": SCAN_CACHE_SCHEMA_VERSION,
-        "policy": policy.to_dict(),
+        "policy": policy_payload,
         "scan_options": {
             "use_behavioral": use_behavioral,
             "use_llm": use_llm,
@@ -68,7 +72,7 @@ def compute_scan_context_fingerprint(
         },
         "skillspector": {
             "enabled": use_skillspector,
-            "use_llm": LLMConfig.load().is_ready if use_skillspector else False,
+            "use_llm": False,
             "version": get_skillspector_version() if use_skillspector else None,
             "timeout_seconds": policy.skillspector_timeout_seconds,
             "adapter_source": _file_hash(Path(__file__).with_name("skillspector.py")),

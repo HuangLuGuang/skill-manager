@@ -92,14 +92,12 @@ flowchart LR
 GET /api/v1/scanner/skill-verifier/download
 ```
 
-凭证至少需要这些权限：
+执行 `verify` 的 Agent 运行凭证至少需要这些权限：
 
-- `scanner:submit`
-- `scanner:read-own-results`
-- `scanner:read-own-sessions`
 - `runtime:verify-signature`
 - `runtime:can-load`
-- `runtime:check-tool`
+
+如果运行时还会在每次 Tool 调用前执行权限检查，再增加 `runtime:check-tool`。`submit` 和 `status` 使用独立的 Scanner 接入凭证，不应与 Agent 运行凭证混用。
 
 安装到 Codex：
 
@@ -119,7 +117,7 @@ unzip agent-manager-skill-verifier.zip -d ~/.claude/skills/
 
 ```bash
 export AGENT_MANAGER_VERIFIER_BASE_URL="http://localhost:8001"
-export AGENT_MANAGER_VERIFIER_TOKEN="amat_xxx"
+export AGENT_MANAGER_AGENT_RUNTIME_TOKEN="amat_xxx"
 export AGENT_ID="<agent-id>"
 ```
 
@@ -148,7 +146,46 @@ python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_ver
   --path /path/to/third-party-skill
 ```
 
-这类接法依赖 Agent 遵循 skill 指令和脚本退出码，不是平台级强制拦截。如果需要强制拦截，应在具体平台上再接 hook 或 runtime adapter。
+这类接法依赖 Agent 遵循 Skill 指令和脚本退出码。需要事件自动触发时，在具体 Agent 的生命周期事件上接 Hook 或 runtime adapter。
+
+### Event Hook
+
+Hook 的接入点应与检查目标一一对应：
+
+| 事件点 | 必须执行的检查 | 通过条件 |
+|---|---|---|
+| Skill 读取或加载前 | 本地计算内容摘要，依次调用 `verify-skill-signature` 和 `can-load` | 两个接口均返回 `allowed=true`，状态为可加载状态 |
+| Tool 执行前 | 调用 `check-tool`，传入 Skill 名称、Tool 名称和稳定的 Agent ID | 接口返回 `allowed=true` |
+
+Claude Code 和 Trae 可参考 `demo/claude-code-api-hook/agent_guard_hook.py`，在 `PreToolUse` 中使用绝对路径启动脚本：
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+该示例读取 `AGENT_MANAGER_BASE_URL`、`AGENT_MANAGER_API_TOKEN` 和 `AGENT_ID`。`AGENT_MANAGER_API_TOKEN` 的值必须是绑定该 Agent 的运行凭证。对于能识别出的 Skill 调用，内容不一致、未授权、API 错误或网络错误会以退出码 `2` 阻止；成功时返回 `0`。诊断日志位于 `~/.agent-manager/logs/agent_guard_hook.log`。无法解析的输入和非 Skill 调用不进入 Skill 校验，因此上线前必须用目标 Agent 的真实事件验证 Skill 名称与目录提取结果。
+
+OpenClaw 示例位于 `demo/openclaw-agent-manager-hook/`：
+
+- `agent:bootstrap` 内部 Hook 枚举可见 Skill，执行签名和加载许可检查。
+- `before_tool_call` 通过插件 Hook 调用 `check-tool`，必须接入实际 OpenClaw 插件工程。
+- 事件中的会话身份必须稳定映射到平台登记的 Agent ID，不能直接假设任意 session key 就是 Agent ID。
+
+推广前至少演练平台不可达、凭证过期、Skill 路径缺失、内容变化和 Tool 未授权五类场景，并同时核对 Agent 侧结果、Hook 日志与平台运行审计。
 
 ## Mode 2: Registry As Artifact Catalog
 
@@ -255,32 +292,6 @@ Authorization: Bearer amat_xxx
 
 原有 `POST /api/v1/mcp/approvals` 直接签发一次性凭证的接口继续保留，调用方仍可通过 `params._meta.agent_manager_approval` 消费，但它主要用于已有集成和受控调试；正式人工审批应使用调用自动产生的待办流程。
 
-如果 MCP Tool 调用由某个 Skill 发起，调用方可以在 `tools/call` 的 `params._meta` 中声明 Skill：
-
-```json
-{
-  "agent_manager_skill_id": "skill-family-id",
-  "agent_manager_skill_version_id": "skill-version-id",
-  "agent_manager_skill_name": "risk-screening"
-}
-```
-
-MCP 网关会核对 Skill 的登记状态，并把结果写入 MCP 调用审计。由于 MCP 凭证不绑定 Agent，这些字段仍属于调用方声明，只用于疑似告警，不用于证明 Agent 或 Skill 身份，也不会阻断 Tool 调用。
-
-## Runtime Governance Contract
-
-需要治理完整 Agent 任务时，为 `agent_runtime` 凭证增加 `runtime:govern`，并按以下顺序接入：
-
-1. `POST /api/v1/runtime-governance/tasks/start`：提交 Agent、租户、用户、会话、原始目标、允许动作和允许目标；返回不可变目标摘要与任务策略快照。
-2. Planner 和 Executor 分别调用 `POST /api/v1/runtime-governance/tasks/{task_id}/actions/authorize`。平台检查目标偏离、资源范围、步骤、重试、委派、费用、数据量、熔断和 Kill Switch。
-3. 高风险动作先由管理员调用 `POST /api/v1/runtime-governance/approvals`。审批绑定任务、动作、目标和参数摘要，不接受 Agent 自报的审批人。
-4. Executor 在真正执行前调用 `POST /api/v1/runtime-governance/tasks/{task_id}/actions/{action_id}/consume`。动作授权只有 60 秒有效期、只能使用一次，参数变化、任务终止或 Kill Switch 启用都会拒绝执行。
-5. 执行后调用 `.../result` 写入真实费用、数据量和结果；连续失败会打开 Agent 与 Tool 熔断器。
-
-平台只做授权决策，外部 Runtime 必须在动作执行点强制调用并遵守结果。仅在日志中上报、执行后补报，或允许 Agent 绕过适配器，都不能形成安全边界。
-
-Memory/RAG 接入使用 `runtime:memory`：`POST /memory/ingest` 会按租户、用户、会话和 Agent 隔离，扫描内容并记录来源；模型输出默认不可信，命中风险规则的内容进入隔离区。只有管理员设为可信且未过期的内容才会由 `/memory/query` 返回。`preview=true` 只返回扫描结果，不写入数据库。
-
 ## Boundaries
 
 这套系统当前负责的是：
@@ -296,14 +307,12 @@ Memory/RAG 接入使用 `runtime:memory`：`POST /memory/ingest` 会按租户、
 - LLM 模型调用隐私代理
 - LLM 隐私链路追踪
 - 远程 MCP Tool 聚合、授权和调用审计
-- Agent 任务安全契约、逐次授权、预算、熔断、Lineage、Kill Switch 和隔离回放
-- 受治理的 Memory/RAG 来源、信任、过期、隔离、版本和回滚
+- Agent Manager Client 的本地 Agent 发现、可信 Skill 下发、持续巡检、恢复、隔离和移除
 
 这套系统当前不负责的是：
 
 - 真正执行 skill
 - 提供统一 skill runtime 或 stdio MCP runtime
-- 远程下发 skill 制品
 - 帮外部 Agent 解析和运行不同框架的 skill
 
 ## Recommended Integration Pattern

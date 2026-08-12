@@ -52,6 +52,7 @@ export const navigationItems = [
       { key: '/model-gateway/policy-bindings', label: '组策略绑定', icon: 'team' },
       { key: '/model-gateway/policies', label: '隐私策略', icon: 'setting' },
       { key: '/model-gateway/prompt-guard', label: 'Prompt 防护测试', icon: 'safety' },
+      { key: '/model-gateway/skill-alerts', label: 'skillAlerts.menu', icon: 'safety' },
       { key: '/model-gateway/audit', label: '隐私审计', icon: 'audit' },
       { key: '/model-gateway/stats', label: 'Token 压缩统计', icon: 'barChart' },
       { key: '/model-gateway/user-stats', label: '用户 Token 分析', icon: 'team' },
@@ -65,6 +66,7 @@ export const navigationItems = [
     children: [
       { key: '/users-groups', label: '用户与组', icon: 'team' },
       { key: '/settings', label: '系统总览', icon: 'setting' },
+      { key: '/docs-settings', label: 'docsAssistantSettings.menu', icon: 'fileText' },
     ],
   },
 ]

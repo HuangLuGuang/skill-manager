@@ -546,15 +546,16 @@ def _extract_risk_items(
 
     # Rule findings
     for finding in rule_results.get("findings", []):
-        source = finding.get("source", "rule")
-        if source not in (None, "scanner", "basic", "rule"):
+        source = finding.get("source") or "rule"
+        if source in {"behavioral", "sandbox", "llm"}:
             continue
         items.append({
-            "source": "rule",
+            "source": str(source),
             "file": finding.get("file", ""),
             "severity": finding.get("severity", ""),
             "title": finding.get("title", ""),
-            "description": finding.get("message", ""),
+            "description": finding.get("message") or finding.get("finding", ""),
+            "evidence": finding.get("evidence") or finding.get("code_snippet", ""),
         })
 
     # Behavioural findings

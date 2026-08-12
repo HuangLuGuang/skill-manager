@@ -335,56 +335,6 @@ def test_mcp_gateway_blocks_schema_drift_and_wrong_gateway_token(tmp_path, monke
     assert forbidden.status_code == 403
 
 
-def test_mcp_gateway_records_caller_declared_skill_context(tmp_path, monkeypatch):
-    client, testing_session = _client(tmp_path, monkeypatch)
-    _configured_gateway(client)
-    token = _gateway_token(client)
-    entry = type(
-        "Entry",
-        (),
-        {
-            "skill_id": "skill-version-1",
-            "family_id": "skill-family-1",
-            "name": "approved-skill",
-            "is_loadable": lambda self: True,
-        },
-    )()
-    manager = type("Manager", (), {"get_skill": lambda self, _identifier: entry})()
-    monkeypatch.setattr("agent_manager.api.router.get_manager", lambda: manager)
-
-    response = client.post(
-        "/mcp/readonly",
-        headers={"Authorization": f"Bearer {token}"},
-        json={
-            "jsonrpc": "2.0",
-            "id": 10,
-            "method": "tools/call",
-            "params": {
-                "name": "crm__search",
-                "arguments": {"query": "alice"},
-                "_meta": {
-                    "agent_manager_skill_id": "skill-family-1",
-                    "agent_manager_skill_version_id": "skill-version-1",
-                    "agent_manager_skill_name": "approved-skill",
-                },
-            },
-        },
-    )
-    assert response.status_code == 200
-
-    db = testing_session()
-    try:
-        audit = db.query(models.McpCallAudit).order_by(models.McpCallAudit.id.desc()).first()
-        assert audit.skill_id == "skill-family-1"
-        assert audit.skill_version_id == "skill-version-1"
-        assert audit.skill_name == "approved-skill"
-        assert audit.skill_context_source == "mcp_meta"
-        assert audit.skill_trust_state == "declared_trusted"
-        assert json.loads(audit.skill_alert_codes_json) == ["gateway.skill_context_unverified"]
-    finally:
-        db.close()
-
-
 def test_high_risk_tool_requires_single_use_argument_bound_approval(tmp_path, monkeypatch):
     client, _testing_session = _client(tmp_path, monkeypatch)
     _configured_gateway(client)

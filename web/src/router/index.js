@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 const routes = [
   { path: '/', redirect: '/dashboard' },
   { path: '/login', name: 'login', component: () => import('../views/Login.vue') },
+  { path: '/docs/:pathMatch(.*)*', name: 'docs', component: () => import('../views/HelpDocs.vue'), meta: { requiresAuth: true, layout: 'docs' } },
   { path: '/dashboard', name: 'dashboard', component: () => import('../views/Dashboard.vue'), meta: { requiresAuth: true } },
   { path: '/agents', name: 'agents', component: () => import('../views/Agents.vue'), meta: { requiresAuth: true } },
   { path: '/clients', name: 'clients', component: () => import('../views/Clients.vue'), meta: { requiresAuth: true } },
@@ -31,11 +32,13 @@ const routes = [
   { path: '/model-gateway/policy-bindings', name: 'model-gateway-policy-bindings', component: () => import('../views/ModelGateway.vue'), meta: { requiresAuth: true, gatewayTab: 'policy-bindings' } },
   { path: '/model-gateway/policies', name: 'model-gateway-policies', component: () => import('../views/ModelGateway.vue'), meta: { requiresAuth: true, gatewayTab: 'policies' } },
   { path: '/model-gateway/prompt-guard', name: 'model-gateway-prompt-guard', component: () => import('../views/ModelGateway.vue'), meta: { requiresAuth: true, gatewayTab: 'prompt-guard' } },
+  { path: '/model-gateway/skill-alerts', name: 'model-gateway-skill-alerts', component: () => import('../views/ModelSkillAlerts.vue'), meta: { requiresAuth: true } },
   { path: '/model-gateway/audit', name: 'model-gateway-audit', component: () => import('../views/ModelGateway.vue'), meta: { requiresAuth: true, gatewayTab: 'audit' } },
   { path: '/model-gateway/stats', name: 'model-gateway-stats', component: () => import('../views/ModelGatewayStats.vue'), meta: { requiresAuth: true } },
   { path: '/model-gateway/user-stats', name: 'model-gateway-user-stats', component: () => import('../views/UserTokenStats.vue'), meta: { requiresAuth: true } },
   { path: '/pipeline-trace', name: 'pipeline-trace', component: () => import('../views/PipelineTrace.vue'), meta: { requiresAuth: true } },
   { path: '/settings', name: 'settings', component: () => import('../views/SystemSettings.vue'), meta: { requiresAuth: true } },
+  { path: '/docs-settings', name: 'docs-settings', component: () => import('../views/DocsSettings.vue'), meta: { requiresAuth: true } },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('../views/NotFound.vue'), meta: { requiresAuth: true } },
 ]
 

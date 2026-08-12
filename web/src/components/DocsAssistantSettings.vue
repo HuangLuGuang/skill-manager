@@ -1,0 +1,313 @@
+<template>
+  <section class="assistant-settings">
+    <div class="settings-accent" aria-hidden="true">
+      <RobotOutlined />
+    </div>
+    <div class="settings-content">
+      <div class="settings-header">
+        <div>
+          <div class="settings-title-row">
+            <h2>{{ t('docsAssistantSettings.title') }}</h2>
+            <a-tag :color="form.enabled ? 'blue' : 'default'">
+              {{ form.enabled ? t('docsAssistantSettings.active') : t('docsAssistantSettings.inactive') }}
+            </a-tag>
+          </div>
+          <p>{{ t('docsAssistantSettings.subtitle') }}</p>
+        </div>
+        <a-button @click="openDocsPreview">
+          <ExportOutlined />
+          {{ t('docsAssistantSettings.preview') }}
+        </a-button>
+      </div>
+
+      <a-skeleton v-if="loading" active :paragraph="{ rows: 6 }" />
+      <template v-else>
+        <div class="enable-row">
+          <div>
+            <strong>{{ t('docsAssistantSettings.enabled') }}</strong>
+            <span>{{ t('docsAssistantSettings.enabledHint') }}</span>
+          </div>
+          <a-switch v-model:checked="form.enabled" />
+        </div>
+
+        <div class="settings-grid">
+          <label class="field-block">
+            <span class="field-label">{{ t('docsAssistantSettings.model') }}</span>
+            <a-select
+              v-model:value="form.model"
+              allow-clear
+              show-search
+              option-filter-prop="label"
+              :disabled="!form.enabled"
+              :placeholder="t('docsAssistantSettings.modelPlaceholder')"
+              :options="modelOptions"
+            />
+            <small>{{ t('docsAssistantSettings.modelHint') }}</small>
+            <router-link class="inline-link" to="/model-gateway/models">
+              {{ t('docsAssistantSettings.configureModels') }} <ArrowRightOutlined />
+            </router-link>
+          </label>
+
+          <label class="field-block compact-field">
+            <span class="field-label">{{ t('docsAssistantSettings.maxContext') }}</span>
+            <a-select v-model:value="form.max_context_sections" :options="contextOptions" />
+            <small>{{ t('docsAssistantSettings.maxContextHint') }}</small>
+          </label>
+        </div>
+
+        <div class="localized-grid">
+          <label class="field-block">
+            <span class="field-label">{{ t('docsAssistantSettings.welcomeZh') }}</span>
+            <a-textarea v-model:value="form.welcome_zh" :rows="2" :maxlength="300" show-count />
+          </label>
+          <label class="field-block">
+            <span class="field-label">{{ t('docsAssistantSettings.welcomeEn') }}</span>
+            <a-textarea v-model:value="form.welcome_en" :rows="2" :maxlength="300" show-count />
+          </label>
+          <label class="field-block">
+            <span class="field-label">{{ t('docsAssistantSettings.instructionZh') }}</span>
+            <a-textarea v-model:value="form.instruction_zh" :rows="3" :maxlength="1000" show-count />
+          </label>
+          <label class="field-block">
+            <span class="field-label">{{ t('docsAssistantSettings.instructionEn') }}</span>
+            <a-textarea v-model:value="form.instruction_en" :rows="3" :maxlength="1000" show-count />
+          </label>
+        </div>
+
+        <div class="questions-section">
+          <div class="questions-heading">
+            <div>
+              <strong>{{ t('docsAssistantSettings.commonQuestions') }}</strong>
+              <span>{{ t('docsAssistantSettings.commonQuestionsHint') }}</span>
+            </div>
+            <a-button :disabled="form.common_questions.length >= 8" @click="addQuestion">
+              <PlusOutlined /> {{ t('docsAssistantSettings.addQuestion') }}
+            </a-button>
+          </div>
+
+          <div v-if="form.common_questions.length" class="question-list">
+            <div v-for="(question, index) in form.common_questions" :key="question.id" class="question-row">
+              <span class="question-index">{{ String(index + 1).padStart(2, '0') }}</span>
+              <a-input v-model:value="question.question_zh" :maxlength="200" :placeholder="t('docsAssistantSettings.questionZh')" />
+              <a-input v-model:value="question.question_en" :maxlength="200" :placeholder="t('docsAssistantSettings.questionEn')" />
+              <a-button
+                type="text"
+                danger
+                :aria-label="t('docsAssistantSettings.removeQuestion')"
+                @click="removeQuestion(index)"
+              >
+                <DeleteOutlined />
+              </a-button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-footer">
+          <a-button type="primary" :loading="saving" @click="saveSettings">
+            <SaveOutlined />
+            {{ saving ? t('docsAssistantSettings.saving') : t('docsAssistantSettings.save') }}
+          </a-button>
+        </div>
+      </template>
+    </div>
+  </section>
+</template>
+
+<script setup>
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { message } from 'ant-design-vue'
+import {
+  ArrowRightOutlined,
+  DeleteOutlined,
+  ExportOutlined,
+  PlusOutlined,
+  RobotOutlined,
+  SaveOutlined,
+} from '@ant-design/icons-vue'
+
+import { getDocsAssistantConfig, listModelEndpoints, updateDocsAssistantConfig } from '../api'
+
+const { t } = useI18n()
+const loading = ref(true)
+const saving = ref(false)
+const models = ref([])
+const form = reactive({
+  enabled: false,
+  model: undefined,
+  welcome_zh: '',
+  welcome_en: '',
+  instruction_zh: '',
+  instruction_en: '',
+  max_context_sections: 4,
+  common_questions: [],
+})
+
+const modelOptions = computed(() => models.value
+  .filter(item => item.enabled !== false)
+  .map(item => ({
+    value: item.name,
+    label: item.display_name ? `${item.display_name} · ${item.name}` : item.name,
+  })))
+const contextOptions = [2, 3, 4, 5, 6].map(value => ({ value, label: String(value) }))
+
+const errorText = (error, fallback) => error?.response?.data?.detail || fallback
+const assignConfig = config => {
+  Object.assign(form, {
+    enabled: Boolean(config.enabled),
+    model: config.model || undefined,
+    welcome_zh: config.welcome_zh || '',
+    welcome_en: config.welcome_en || '',
+    instruction_zh: config.instruction_zh || '',
+    instruction_en: config.instruction_en || '',
+    max_context_sections: config.max_context_sections || 4,
+    common_questions: (config.common_questions || []).map(item => ({ ...item })),
+  })
+}
+
+const loadSettings = async () => {
+  loading.value = true
+  try {
+    const [config, modelRows] = await Promise.all([
+      getDocsAssistantConfig(),
+      listModelEndpoints(),
+    ])
+    assignConfig(config)
+    models.value = Array.isArray(modelRows) ? modelRows : []
+  } catch (error) {
+    message.error(errorText(error, t('docsAssistantSettings.loadFailed')))
+  } finally {
+    loading.value = false
+  }
+}
+
+const addQuestion = () => {
+  if (form.common_questions.length >= 8) return
+  const suffix = `${Date.now()}-${form.common_questions.length}`
+  form.common_questions.push({ id: `question-${suffix}`, question_zh: '', question_en: '' })
+}
+const removeQuestion = index => form.common_questions.splice(index, 1)
+const openDocsPreview = () => window.open('/docs', '_blank', 'noopener,noreferrer')
+
+const validate = () => {
+  if (form.enabled && !form.model) {
+    message.warning(t('docsAssistantSettings.modelRequired'))
+    return false
+  }
+  if (form.common_questions.some(item => !item.question_zh.trim() || !item.question_en.trim())) {
+    message.warning(t('docsAssistantSettings.questionRequired'))
+    return false
+  }
+  return true
+}
+
+const saveSettings = async () => {
+  if (!validate()) return
+  saving.value = true
+  try {
+    await updateDocsAssistantConfig({
+      ...form,
+      model: form.model || null,
+      common_questions: form.common_questions.map(item => ({
+        ...item,
+        question_zh: item.question_zh.trim(),
+        question_en: item.question_en.trim(),
+      })),
+    })
+    message.success(t('docsAssistantSettings.saved'))
+  } catch (error) {
+    message.error(errorText(error, t('docsAssistantSettings.saveFailed')))
+  } finally {
+    saving.value = false
+  }
+}
+
+onMounted(loadSettings)
+</script>
+
+<style scoped>
+.assistant-settings {
+  position: relative;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  margin-top: 18px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #f7fbff 0, #fff 38%);
+  border: 1px solid #d8e5f4;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(23, 50, 79, 0.05);
+}
+
+.settings-accent {
+  display: grid;
+  align-content: start;
+  justify-content: center;
+  padding-top: 24px;
+  color: #1f5fbf;
+  background: linear-gradient(180deg, #e9f3ff, #f5f9ff);
+  border-right: 1px solid #d8e5f4;
+  font-size: 25px;
+}
+
+.settings-accent::after {
+  width: 4px;
+  height: 34px;
+  margin: 16px auto 0;
+  background: #2d6cdf;
+  border-radius: 999px;
+  content: '';
+}
+
+.settings-content { padding: 22px 24px 24px; }
+.settings-header,
+.settings-title-row,
+.enable-row,
+.questions-heading,
+.settings-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.settings-title-row { justify-content: flex-start; gap: 10px; }
+.settings-header h2 { margin: 0; color: #15324d; font-size: 19px; font-weight: 680; }
+.settings-header p { margin: 5px 0 0; color: #64778a; font-size: 13px; }
+
+.enable-row {
+  margin: 20px 0;
+  padding: 15px 16px;
+  background: #f7faff;
+  border: 1px solid #dfe9f5;
+  border-radius: 9px;
+}
+.enable-row > div,
+.questions-heading > div { display: flex; flex-direction: column; gap: 4px; }
+.enable-row strong,
+.questions-heading strong { color: #1e3852; }
+.enable-row span,
+.questions-heading span { color: #718196; font-size: 12px; line-height: 1.5; }
+
+.settings-grid { display: grid; grid-template-columns: minmax(300px, 1fr) 180px; gap: 18px; }
+.localized-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 20px; }
+.field-block { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
+.field-label { color: #314a62; font-size: 13px; font-weight: 630; }
+.field-block small { color: #7b8a9a; font-size: 11px; line-height: 1.55; }
+.inline-link { display: inline-flex; align-items: center; gap: 4px; width: fit-content; color: #2663b8; font-size: 12px; }
+.compact-field { align-self: start; }
+
+.questions-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid #e8edf3; }
+.question-list { display: grid; gap: 9px; margin-top: 14px; }
+.question-row { display: grid; grid-template-columns: 32px 1fr 1fr 34px; gap: 10px; align-items: center; }
+.question-index { color: #7990a7; font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; }
+.settings-footer { justify-content: flex-end; margin-top: 22px; padding-top: 18px; border-top: 1px solid #e8edf3; }
+
+@media (max-width: 900px) {
+  .assistant-settings { grid-template-columns: 1fr; }
+  .settings-accent { display: none; }
+  .settings-grid,
+  .localized-grid { grid-template-columns: 1fr; }
+  .question-row { grid-template-columns: 28px 1fr 34px; }
+  .question-row :deep(.ant-input:nth-of-type(2)) { grid-column: 2; }
+}
+
+@media (max-width: 560px) {
+  .settings-content { padding: 18px 15px; }
+  .settings-header { align-items: flex-start; flex-direction: column; }
+  .questions-heading { align-items: flex-start; flex-direction: column; }
+}
+</style>

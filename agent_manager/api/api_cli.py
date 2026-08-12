@@ -11,10 +11,13 @@ import uvicorn
 def main(host: str, port: int, reload: bool):
     """Start the agent manager API server."""
     from fastapi import FastAPI
-    from .router import router
+
+    from agent_manager.core.vetting import warmup_scanner
+
+    from .router import get_manager, router
     from .scanner_router import admin_router as scanner_admin_router
-    from .scanner_router import runtime_router as access_runtime_router
     from .scanner_router import router as scanner_router
+    from .scanner_router import runtime_router as access_runtime_router
 
     app = FastAPI(
         title="Agent Manager API",
@@ -25,5 +28,9 @@ def main(host: str, port: int, reload: bool):
     app.include_router(scanner_admin_router)
     app.include_router(access_runtime_router)
     app.include_router(scanner_router)
+    app.add_event_handler(
+        "startup",
+        lambda: warmup_scanner(get_manager().policy.scanner_policy),
+    )
 
     uvicorn.run(app, host=host, port=port, reload=reload)

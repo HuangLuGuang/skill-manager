@@ -7,14 +7,25 @@ Falls back to a basic static check if skill-scanner is not installed.
 
 from __future__ import annotations
 
+import atexit
 import logging
+import os
 import re
+import tempfile
+import threading
+import time
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from .llm import (
+    LLMConfig,
+    _build_skill_snapshot,  # noqa: F401 - used via llm module
+    analyze_skill_with_llm_single_round,
+)
 from .local_analyzers import run_local_static_analysis
-from .llm import LLMConfig, analyze_skill_with_llm_single_round, generate_sandbox_probes_with_llm
-from .llm import _build_skill_snapshot  # noqa: F401 - used via llm module
 from .models import PolicyViolation, RiskLevel, SourceInfo, VettingResult
 from .sandbox import (
     build_probe_plan,
@@ -98,6 +109,63 @@ _NOISE_RULES = {"DEPENDENCY_MISSING", "MISSING_DEPENDENCY"}
 _NOISE_CATEGORIES = {"dependency", "runtime"}
 
 
+def _analyzer_worker_count() -> int:
+    try:
+        return max(1, int(os.environ.get("AGENT_MANAGER_ANALYZER_WORKERS", "8")))
+    except ValueError:
+        return 8
+
+
+def _skillspector_concurrency() -> int:
+    try:
+        return max(1, int(os.environ.get("AGENT_MANAGER_SKILLSPECTOR_CONCURRENCY", "2")))
+    except ValueError:
+        return 2
+
+
+_analyzer_executor = ThreadPoolExecutor(
+    max_workers=_analyzer_worker_count(),
+    thread_name_prefix="agent-manager-analyzer",
+)
+_skillspector_slots = threading.BoundedSemaphore(_skillspector_concurrency())
+
+
+def _shutdown_analyzer_executor() -> None:
+    _analyzer_executor.shutdown(wait=True, cancel_futures=False)
+
+
+atexit.register(_shutdown_analyzer_executor)
+
+
+@dataclass(frozen=True)
+class AnalyzerExecution:
+    """One analyzer result returned without mutating the shared scan report."""
+
+    name: str
+    result: dict[str, Any]
+    duration_seconds: float
+
+
+@dataclass
+class SandboxExecution:
+    result: dict[str, Any]
+    findings: list[dict[str, Any]] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    runtime: str | None = None
+    max_severity: str = "SAFE"
+    duration_seconds: float = 0.0
+
+
+def _timed_analyzer(name: str, callback: Callable[[], dict[str, Any]]) -> AnalyzerExecution:
+    started = time.monotonic()
+    result = callback()
+    return AnalyzerExecution(
+        name=name,
+        result=result,
+        duration_seconds=time.monotonic() - started,
+    )
+
+
 def _normalize_llm_probe_entrypoint(
     skill_path: Path,
     candidate: str | None,
@@ -135,6 +203,25 @@ def _try_import_scanner():
         return None, None
 
 
+_scanner_instances: dict[tuple[type, str], tuple[Any, threading.Lock]] = {}
+_scanner_instances_lock = threading.Lock()
+
+
+def _scanner_instance(SkillScanner: type, ScanPolicy: type, scanner_policy_name: str) -> tuple[Any, threading.Lock]:
+    key = (SkillScanner, scanner_policy_name)
+    with _scanner_instances_lock:
+        cached = _scanner_instances.get(key)
+        if cached is not None:
+            return cached
+        try:
+            policy = ScanPolicy.from_preset(scanner_policy_name)
+        except Exception:
+            policy = ScanPolicy.default()
+        cached = (SkillScanner(policy=policy), threading.Lock())
+        _scanner_instances[key] = cached
+        return cached
+
+
 def _run_scanner(skill_path: Path, scanner_policy_name: str) -> dict:
     """Run skill-scanner and return the serialized ScanResult dict."""
     SkillScanner, ScanPolicy = _try_import_scanner()
@@ -142,14 +229,13 @@ def _run_scanner(skill_path: Path, scanner_policy_name: str) -> dict:
         logger.warning("skill-scanner not installed — using basic file check only")
         return {}
 
+    scanner, scan_lock = _scanner_instance(SkillScanner, ScanPolicy, scanner_policy_name)
     try:
-        policy = ScanPolicy.from_preset(scanner_policy_name)
-    except Exception:
-        policy = ScanPolicy.default()
-
-    scanner = SkillScanner(policy=policy)
-    try:
-        result = scanner.scan_skill(str(skill_path))
+        # The upstream scanner does not document thread safety. Reuse removes
+        # repeated model/analyzer initialization while serializing access to the
+        # shared instance.
+        with scan_lock:
+            result = scanner.scan_skill(str(skill_path))
         return result.to_dict()
     except Exception as exc:
         logger.warning("skill-scanner failed for %s; continuing with local analyzers: %s", skill_path, exc)
@@ -159,6 +245,23 @@ def _run_scanner(skill_path: Path, scanner_policy_name: str) -> dict:
             "analyzers_used": ["scanner:error"],
             "scanner_error": str(exc),
         }
+
+
+def warmup_scanner(scanner_policy_name: str = "balanced") -> None:
+    """Load and exercise the base scanner before the first user submission."""
+    started = time.monotonic()
+    try:
+        with tempfile.TemporaryDirectory(prefix="agent-manager-scanner-warmup-") as tmp_dir:
+            skill_path = Path(tmp_dir)
+            (skill_path / "SKILL.md").write_text(
+                "---\nname: agent-manager-scanner-warmup\ndescription: scanner warmup\n---\n",
+                encoding="utf-8",
+            )
+            _run_scanner(skill_path, scanner_policy_name)
+    except Exception:
+        logger.exception("Base scanner warmup failed")
+    else:
+        logger.info("Base scanner warmup completed in %.3fs", time.monotonic() - started)
 
 
 # --------------------------------------------------------------------------- #
@@ -437,12 +540,147 @@ def _run_behavioral_analysis(skill_path: Path) -> dict[str, object]:
     }
 
 
+def _run_behavioral_bundle(skill_path: Path) -> dict[str, Any]:
+    local_static_result = run_local_static_analysis(skill_path)
+    behavioral_result = _run_behavioral_analysis(skill_path)
+    findings = [
+        *behavioral_result.get("findings", []),
+        *local_static_result.get("findings", []),
+    ]
+    return {
+        "behavioral_analysis": behavioral_result,
+        "local_static_analysis": local_static_result,
+        "findings": findings,
+        "max_severity": _max_severity(
+            str(behavioral_result.get("max_severity", "SAFE")),
+            str(local_static_result.get("max_severity", "SAFE")),
+        ),
+    }
+
+
+def _run_skillspector_without_llm(skill_path: Path, timeout_seconds: int) -> dict[str, Any]:
+    # SkillSpector is an expensive subprocess. Limit concurrent processes and
+    # keep all model use in the final Agent Manager judgement.
+    with _skillspector_slots:
+        return run_skillspector_scan(
+            skill_path,
+            timeout_seconds=timeout_seconds,
+            use_llm=False,
+        )
+
+
+def _run_sandbox_analysis(skill_path: Path) -> SandboxExecution:
+    runtime: str | None = None
+    entrypoint: str | None = None
+    try:
+        runner = get_sandbox_runner()
+        runtime = runner.config.runtime
+        entrypoint = discover_probe_entrypoint(skill_path)
+        if not entrypoint:
+            return SandboxExecution(
+                runtime=runtime,
+                result={
+                    "executed": False,
+                    "runtime": runtime,
+                    "available": True,
+                    "reason": (
+                        "No supported executable script found. "
+                        "SKILL.md command examples are not executed as Sandbox probes."
+                    ),
+                },
+                notes=["[SANDBOX] no supported executable script found; skipped SKILL.md command examples"],
+            )
+
+        probe_plan = build_probe_plan(skill_path, entrypoint)
+        probe_case = {
+            "name": "default",
+            "description": f"default sandbox probe strategy={probe_plan.strategy}",
+            "entrypoint": probe_plan.entrypoint,
+            "args": probe_plan.args,
+            "generated_by": "default",
+        }
+        sandbox_exec = runner.run_probe(
+            skill_path,
+            entrypoint=probe_plan.entrypoint,
+            args=probe_plan.args,
+        )
+        result_payload = sandbox_exec.model_dump(mode="json")
+        result_payload.update({
+            "probe_name": probe_case["name"],
+            "probe_description": probe_case["description"],
+            "probe_entrypoint": probe_plan.entrypoint,
+            "probe_args": probe_plan.args,
+            "probe_generated_by": "default",
+        })
+        events = list(sandbox_exec.signals or sandbox_exec.suspicious_events)
+        max_severity = _max_severity(*(event.severity for event in events))
+        findings = [
+            {
+                "severity": event.severity,
+                "title": event.message,
+                "message": event.message,
+                "file": probe_plan.entrypoint,
+                "source": "sandbox",
+                "probe": "default",
+                "probe_entrypoint": probe_plan.entrypoint,
+                "category": event.category,
+                "evidence": event.evidence,
+            }
+            for event in events
+        ]
+        sandbox_result = sandbox_exec.model_dump(mode="json")
+        sandbox_result.update({
+            "probe_strategy": probe_plan.strategy,
+            "probe_args": probe_plan.args,
+            "probe_cases": [probe_case],
+            "probe_results": [result_payload],
+            "llm_probe_plan": None,
+        })
+        notes = []
+        if sandbox_exec.executed:
+            notes.append(
+                f"[SANDBOX] executed {entrypoint} strategy={probe_plan.strategy} "
+                f"cases=1 exit_code={sandbox_exec.exit_code} timeout={sandbox_exec.timed_out} "
+                f"duration_ms={sandbox_exec.duration_ms}"
+            )
+        else:
+            notes.append(f"[SANDBOX] skipped: {sandbox_exec.reason or 'not executed'}")
+        notes.extend(f"[SANDBOX] default {event.category}: {event.message}" for event in events)
+        return SandboxExecution(
+            result=sandbox_result,
+            findings=findings,
+            notes=notes,
+            runtime=runtime,
+            max_severity=max_severity,
+        )
+    except Exception as exc:
+        logger.warning("Sandbox analysis skipped for %s: %s", skill_path, exc)
+        return SandboxExecution(
+            runtime=runtime,
+            result={
+                "executed": False,
+                "runtime": runtime or "unknown",
+                "available": False,
+                "entrypoint": entrypoint,
+                "reason": f"Sandbox analysis skipped: {exc}",
+            },
+            notes=[f"[SANDBOX] analysis skipped: {exc}"],
+        )
+
+
+def _timed_sandbox(skill_path: Path) -> SandboxExecution:
+    started = time.monotonic()
+    result = _run_sandbox_analysis(skill_path)
+    result.duration_seconds = time.monotonic() - started
+    return result
+
+
 # --------------------------------------------------------------------------- #
 # Main vetting entry point                                                      #
 # --------------------------------------------------------------------------- #
 
 class VettingPipeline:
-    """Orchestrates scanning and policy checks to produce a VettingResult."""
+    """Run independent analyzers concurrently, then reconcile once."""
 
     def __init__(self, policy: "CompanyPolicy"):
         self.policy = policy
@@ -457,37 +695,74 @@ class VettingPipeline:
         use_skillspector: bool | None = None,
         judgement_mode: str | None = None,
     ) -> tuple[VettingResult, list[PolicyViolation], str, str, list[str]]:
-        """
-        Run the full vetting pipeline.
-
-        Returns:
-            (VettingResult, violations, name, description, allowed_tools)
-        """
+        """Run selected analyzers and return the final policy-ready result."""
+        started = time.monotonic()
         skill_path = Path(skill_path).resolve()
-        effective_judgement_mode = judgement_mode if judgement_mode in {"strict", "balanced", "permissive"} else self.policy.judgement_mode
+        effective_judgement_mode = (
+            judgement_mode
+            if judgement_mode in {"strict", "balanced", "permissive"}
+            else self.policy.judgement_mode
+        )
 
-        # 1. Parse manifest
         try:
             name, description, allowed_tools, license_val = _load_manifest(skill_path)
-        except ValueError as e:
-            raise ValueError(f"Cannot vet skill: {e}") from e
+        except ValueError as exc:
+            raise ValueError(f"Cannot vet skill: {exc}") from exc
 
-        # 2. Run scanner
-        scan_report = _run_scanner(skill_path, self.policy.scanner_policy)
-        skillspector_notes: list[str] = []
-        should_run_skillspector = self.policy.skillspector_enabled if use_skillspector is None else use_skillspector
-        if should_run_skillspector:
-            skillspector_result = run_skillspector_scan(
-                skill_path,
-                timeout_seconds=self.policy.skillspector_timeout_seconds,
-                use_llm=LLMConfig.load().is_ready,
+        should_run_skillspector = (
+            self.policy.skillspector_enabled
+            if use_skillspector is None
+            else use_skillspector
+        )
+        futures: dict[str, Future[Any]] = {
+            "scanner": _analyzer_executor.submit(
+                _timed_analyzer,
+                "scanner",
+                lambda: _run_scanner(skill_path, self.policy.scanner_policy),
+            ),
+        }
+        if use_behavioral:
+            futures["behavioral"] = _analyzer_executor.submit(
+                _timed_analyzer,
+                "behavioral",
+                lambda: _run_behavioral_bundle(skill_path),
             )
+        if should_run_skillspector:
+            futures["skillspector"] = _analyzer_executor.submit(
+                _timed_analyzer,
+                "skillspector",
+                lambda: _run_skillspector_without_llm(
+                    skill_path,
+                    self.policy.skillspector_timeout_seconds,
+                ),
+            )
+        if use_sandbox:
+            futures["sandbox"] = _analyzer_executor.submit(_timed_sandbox, skill_path)
+
+        analyzer_timings: dict[str, dict[str, Any]] = {}
+        scanner_execution: AnalyzerExecution = futures["scanner"].result()
+        scan_report = dict(scanner_execution.result or {})
+        scan_report.setdefault("max_severity", "SAFE")
+        scan_report.setdefault("findings", [])
+        scan_report.setdefault("analyzers_used", ["basic"])
+        analyzer_timings["scanner"] = {
+            "status": "failed" if scan_report.get("scanner_error") else "completed",
+            "duration_seconds": scanner_execution.duration_seconds,
+        }
+
+        skillspector_notes: list[str] = []
+        if should_run_skillspector:
+            execution: AnalyzerExecution = futures["skillspector"].result()
+            skillspector_result = execution.result
             analyzer_name = "skillspector:cli"
+            analyzer_status = "completed"
             if not skillspector_result.get("available"):
                 analyzer_name = "skillspector:unavailable"
+                analyzer_status = "skipped"
                 skillspector_notes.append("[DEEP_SCAN] 深度扫描不可用，已跳过")
             elif skillspector_result.get("error"):
                 analyzer_name = "skillspector:error"
+                analyzer_status = "failed"
                 skillspector_notes.append(f"[DEEP_SCAN] 深度扫描失败: {skillspector_result['error']}")
             else:
                 skillspector_notes.append(
@@ -495,11 +770,13 @@ class VettingPipeline:
                     f"risk={skillspector_result.get('risk_severity', 'SAFE')} "
                     f"score={skillspector_result.get('risk_score', '-')}"
                 )
-
-            scan_report = {
-                **scan_report,
+            analyzer_timings["skillspector"] = {
+                "status": analyzer_status,
+                "duration_seconds": execution.duration_seconds,
+            }
+            scan_report.update({
                 "max_severity": _max_severity(
-                    scan_report.get("max_severity", "SAFE"),
+                    str(scan_report.get("max_severity", "SAFE")),
                     str(skillspector_result.get("max_severity", "SAFE")),
                 ),
                 "findings": [
@@ -511,301 +788,150 @@ class VettingPipeline:
                     analyzer_name,
                 ],
                 "skillspector_analysis": skillspector_result,
-            }
-            scan_report["risk_max_severity"] = _risk_max_severity(
-                scan_report.get("findings", []),
-                scan_report.get("max_severity", "SAFE"),
-            )
+            })
+
         behavioral_notes: list[str] = []
-        behavioral_result = None
+        behavioral_result: dict[str, Any] | None = None
+        behavioral_for_llm: dict[str, Any] | None = None
         if use_behavioral:
-            local_static_result = run_local_static_analysis(skill_path)
-            behavioral_result = _run_behavioral_analysis(skill_path)
-            combined_behavioral_findings = [
-                *behavioral_result.get("findings", []),
-                *local_static_result.get("findings", []),
-            ]
-            combined_behavioral_max = _max_severity(
-                str(behavioral_result.get("max_severity", "SAFE")),
-                str(local_static_result.get("max_severity", "SAFE")),
-            )
-            scan_report = {
-                **scan_report,
+            execution = futures["behavioral"].result()
+            bundle = execution.result
+            behavioral_result = bundle["behavioral_analysis"]
+            combined_findings = bundle.get("findings", [])
+            behavioral_for_llm = {
+                **behavioral_result,
+                "findings": combined_findings,
+            }
+            analyzer_timings["behavioral"] = {
+                "status": "completed",
+                "duration_seconds": execution.duration_seconds,
+            }
+            scan_report.update({
                 "max_severity": _max_severity(
-                    scan_report.get("max_severity", "SAFE"),
-                    combined_behavioral_max,
+                    str(scan_report.get("max_severity", "SAFE")),
+                    str(bundle.get("max_severity", "SAFE")),
                 ),
-                "findings": [
-                    *scan_report.get("findings", []),
-                    *combined_behavioral_findings,
-                ],
+                "findings": [*scan_report.get("findings", []), *combined_findings],
                 "analyzers_used": [
                     *scan_report.get("analyzers_used", ["basic"]),
                     "behavioral:local",
                     "agent-manager-local",
                 ],
                 "behavioral_analysis": behavioral_result,
-                "local_static_analysis": local_static_result,
-            }
-            scan_report["risk_max_severity"] = _risk_max_severity(
-                scan_report.get("findings", []),
-                scan_report.get("max_severity", "SAFE"),
-            )
+                "local_static_analysis": bundle["local_static_analysis"],
+            })
             behavioral_notes.append(
                 "[BEHAVIORAL] "
                 f"scanned {behavioral_result.get('scanned_file_count', 0)} files"
             )
-            if combined_behavioral_findings:
+            if combined_findings:
                 behavioral_notes.append(
-                    "[BEHAVIORAL] "
-                    f"found {len(combined_behavioral_findings)} suspicious patterns"
+                    f"[BEHAVIORAL] found {len(combined_findings)} suspicious patterns"
                 )
-        # 3. Sandbox Analysis (before LLM so LLM can use sandbox results)
+
+        # First deterministic merge decides whether policy adds Sandbox when
+        # the user did not explicitly request it.
         scan_report["risk_max_severity"] = _risk_max_severity(
             scan_report.get("findings", []),
-            scan_report.get("max_severity", "SAFE"),
+            str(scan_report.get("max_severity", "SAFE")),
         )
-        interim_risk_level = RiskLevel.from_severity(scan_report.get("risk_max_severity", "SAFE"))
-        scan_report = {
-            **scan_report,
-            "interim_risk_level": interim_risk_level.value,
-        }
+        interim_risk_level = RiskLevel.from_severity(scan_report["risk_max_severity"])
+        scan_report["interim_risk_level"] = interim_risk_level.value
         sandbox_required_by_policy = self.policy.requires_sandbox(interim_risk_level)
         effective_use_sandbox = use_sandbox or sandbox_required_by_policy
         sandbox_notes: list[str] = []
-        sandbox_runtime: str | None = None
         sandbox_result: dict[str, Any] | None = None
+        sandbox_runtime: str | None = None
         if sandbox_required_by_policy:
             sandbox_notes.append(
                 f"[SANDBOX] required by policy for risk level {interim_risk_level.value}"
             )
         if effective_use_sandbox:
-            sandbox_runtime = get_sandbox_runner().config.runtime
-            sandbox_skill_path = skill_path
+            if "sandbox" not in futures:
+                futures["sandbox"] = _analyzer_executor.submit(_timed_sandbox, skill_path)
+            sandbox_execution: SandboxExecution = futures["sandbox"].result()
+            sandbox_result = sandbox_execution.result
+            sandbox_runtime = sandbox_execution.runtime
+            sandbox_notes.extend(sandbox_execution.notes)
+            analyzer_timings["sandbox"] = {
+                "status": (
+                    "failed"
+                    if sandbox_result.get("available") is False
+                    else "completed" if sandbox_result.get("executed") else "skipped"
+                ),
+                "duration_seconds": sandbox_execution.duration_seconds,
+            }
+            scan_report.update({
+                "max_severity": _max_severity(
+                    str(scan_report.get("max_severity", "SAFE")),
+                    sandbox_execution.max_severity,
+                ),
+                "findings": [
+                    *scan_report.get("findings", []),
+                    *sandbox_execution.findings,
+                ],
+                "analyzers_used": [
+                    *scan_report.get("analyzers_used", ["basic"]),
+                    "sandbox:docker",
+                ],
+                "sandbox_analysis": sandbox_result,
+            })
 
-            entrypoint = discover_probe_entrypoint(sandbox_skill_path)
-            if not entrypoint:
-                sandbox_result = {
-                    "executed": False,
-                    "runtime": sandbox_runtime,
-                    "available": True,
-                    "reason": "No supported executable script found. SKILL.md command examples are not executed as Sandbox probes.",
-                }
-                scan_report = {
-                    **scan_report,
-                    "sandbox_analysis": sandbox_result,
-                    "analyzers_used": [
-                        *scan_report.get("analyzers_used", ["basic"]),
-                        "sandbox:docker",
-                    ],
-                }
-                sandbox_notes.append("[SANDBOX] no supported executable script found; skipped SKILL.md command examples")
-            else:
-                try:
-                    runner = get_sandbox_runner()
-                    sandbox_runtime = runner.config.runtime
-                    probe_plan = build_probe_plan(sandbox_skill_path, entrypoint)
-                    probe_cases = []
-                    probe_cases.append({
-                        "name": "default",
-                        "description": f"default sandbox probe strategy={probe_plan.strategy}",
-                        "entrypoint": probe_plan.entrypoint,
-                        "args": probe_plan.args,
-                        "generated_by": "default",
-                    })
-                    llm_probe_plan = None
-                    if use_llm:
-                        try:
-                            llm_probe_plan = generate_sandbox_probes_with_llm(skill_path, probe_plan.entrypoint, LLMConfig.load())
-                            for case in llm_probe_plan.probes:
-                                case_entrypoint = _normalize_llm_probe_entrypoint(
-                                    sandbox_skill_path,
-                                    case.entrypoint,
-                                    probe_plan.entrypoint,
-                                )
-                                if not case_entrypoint:
-                                    sandbox_notes.append(
-                                        f"[SANDBOX] skipped LLM probe {case.name}: invalid entrypoint {case.entrypoint!r}"
-                                    )
-                                    continue
-                                if not _llm_probe_args_safe(case.args):
-                                    sandbox_notes.append(
-                                        f"[SANDBOX] skipped LLM probe {case.name}: contains shell control arguments"
-                                    )
-                                    continue
-                                if not any(
-                                    existing["entrypoint"] == case_entrypoint and existing["args"] == case.args
-                                    for existing in probe_cases
-                                ):
-                                    probe_cases.append({
-                                        "name": case.name,
-                                        "description": case.description,
-                                        "entrypoint": case_entrypoint,
-                                        "args": case.args,
-                                        "generated_by": f"llm:{llm_probe_plan.provider}",
-                                    })
-                            if llm_probe_plan.probes:
-                                sandbox_notes.append(f"[SANDBOX] LLM generated {len(llm_probe_plan.probes)} probe cases")
-                        except Exception as exc:
-                            sandbox_notes.append(f"[SANDBOX] LLM probe generation skipped: {exc}")
-
-                    sandbox_exec_results = []
-                    all_sandbox_events = []
-                    max_sandbox_severity = "SAFE"
-                    representative_exec = None
-                    for case in probe_cases:
-                        sandbox_exec = runner.run_probe(
-                            sandbox_skill_path,
-                            entrypoint=case.get("entrypoint") or probe_plan.entrypoint,
-                            args=case["args"],
-                        )
-                        result_payload = sandbox_exec.model_dump(mode="json")
-                        result_payload["probe_name"] = case["name"]
-                        result_payload["probe_description"] = case["description"]
-                        result_payload["probe_entrypoint"] = case.get("entrypoint") or probe_plan.entrypoint
-                        result_payload["probe_args"] = case["args"]
-                        result_payload["probe_generated_by"] = case["generated_by"]
-                        sandbox_exec_results.append(result_payload)
-                        for event in sandbox_exec.signals or sandbox_exec.suspicious_events:
-                            all_sandbox_events.append((case, event))
-                            max_sandbox_severity = _max_severity(max_sandbox_severity, event.severity)
-                        if representative_exec is None:
-                            representative_exec = sandbox_exec
-                        elif _SEVERITY_ORDER.get(sandbox_exec.max_severity.upper(), 0) > _SEVERITY_ORDER.get(representative_exec.max_severity.upper(), 0):
-                            representative_exec = sandbox_exec
-
-                    sandbox_exec = representative_exec
-                    sandbox_result = sandbox_exec.model_dump(mode="json") if sandbox_exec else {
-                        "executed": False,
-                        "runtime": sandbox_runtime,
-                        "reason": "No sandbox probe executed",
-                    }
-                    sandbox_result["probe_strategy"] = "multi-case" if len(probe_cases) > 1 else probe_plan.strategy
-                    sandbox_result["probe_args"] = probe_cases[0]["args"]
-                    sandbox_result["probe_cases"] = probe_cases
-                    sandbox_result["probe_results"] = sandbox_exec_results
-                    sandbox_result["llm_probe_plan"] = llm_probe_plan.model_dump(mode="json") if llm_probe_plan else None
-                    sandbox_events = [
-                        {
-                            "severity": event.severity,
-                            "title": event.message,
-                            "message": event.message,
-                            "file": case.get("entrypoint") or probe_plan.entrypoint,
-                            "source": "sandbox",
-                            "probe": case["name"],
-                            "probe_entrypoint": case.get("entrypoint") or probe_plan.entrypoint,
-                            "category": event.category,
-                            "evidence": event.evidence,
-                        }
-                        for case, event in all_sandbox_events
-                    ]
-
-                    scan_report = {
-                        **scan_report,
-                        "max_severity": _max_severity(
-                            scan_report.get("max_severity", "SAFE"),
-                            max_sandbox_severity,
-                        ),
-                        "findings": [
-                            *scan_report.get("findings", []),
-                            *sandbox_events,
-                        ],
-                        "analyzers_used": [
-                            *scan_report.get("analyzers_used", ["basic"]),
-                            "sandbox:docker",
-                        ],
-                        "sandbox_analysis": sandbox_result,
-                    }
-                    scan_report["risk_max_severity"] = _risk_max_severity(
-                        scan_report.get("findings", []),
-                        scan_report.get("max_severity", "SAFE"),
-                    )
-                    if sandbox_exec.executed:
-                        sandbox_notes.append(
-                            f"[SANDBOX] executed {entrypoint} strategy={sandbox_result['probe_strategy']} "
-                            f"cases={len(probe_cases)} "
-                            f"exit_code={sandbox_exec.exit_code} timeout={sandbox_exec.timed_out} "
-                            f"duration_ms={sandbox_exec.duration_ms}"
-                        )
-                    else:
-                        sandbox_notes.append(f"[SANDBOX] skipped: {sandbox_exec.reason or 'not executed'}")
-                    for case, event in all_sandbox_events:
-                        sandbox_notes.append(f"[SANDBOX] {case['name']} {event.category}: {event.message}")
-                except Exception as exc:
-                    logger.warning("Sandbox analysis skipped for %s: %s", skill_path, exc)
-                    sandbox_result = {
-                        "executed": False,
-                        "runtime": sandbox_runtime or "unknown",
-                        "available": False,
-                        "entrypoint": entrypoint,
-                        "reason": f"Sandbox analysis skipped: {exc}",
-                    }
-                    scan_report = {
-                        **scan_report,
-                        "sandbox_analysis": sandbox_result,
-                        "analyzers_used": [
-                            *scan_report.get("analyzers_used", ["basic"]),
-                            "sandbox:docker",
-                        ],
-                    }
-                    sandbox_notes.append(f"[SANDBOX] analysis skipped: {exc}")
-
-        # 4. LLM multi-round analysis (after sandbox, with all prior results)
         scan_report["risk_max_severity"] = _risk_max_severity(
             scan_report.get("findings", []),
-            scan_report.get("max_severity", "SAFE"),
+            str(scan_report.get("max_severity", "SAFE")),
         )
         risk_classification = _classify_findings(scan_report.get("findings", []), self.policy)
         pre_llm_risk_level, pre_llm_reason = _risk_from_classification(
             risk_classification,
             effective_judgement_mode,
         )
-        scan_report = {
-            **scan_report,
+        scan_report.update({
             "pre_llm_risk_level": pre_llm_risk_level.value,
             "judgement_mode": effective_judgement_mode,
             "risk_classification": risk_classification,
-        }
+        })
+
+        # Exactly one model call, after every selected deterministic analyzer.
         llm_notes: list[str] = []
         llm_result = None
         if use_llm:
+            llm_started = time.monotonic()
             try:
                 llm_config = LLMConfig.load()
-                # Build skill snapshot for LLM
                 from .llm import _build_skill_snapshot as _build_snapshot
-                skill_snapshot = _build_snapshot(skill_path, llm_config)
-                # Extract rule findings from scan report
-                rule_findings = {
-                    "max_severity": scan_report.get("max_severity", "SAFE"),
-                    "findings": [
-                        f for f in scan_report.get("findings", [])
-                        if f.get("source") in (None, "scanner", "basic")
-                    ],
-                }
+
                 llm_result = analyze_skill_with_llm_single_round(
-                    skill_snapshot=skill_snapshot,
-                    rule_results=rule_findings,
-                    behavioural_result=behavioral_result if use_behavioral else None,
+                    skill_snapshot=_build_snapshot(skill_path, llm_config),
+                    rule_results={
+                        "max_severity": scan_report.get("max_severity", "SAFE"),
+                        "findings": [
+                            finding
+                            for finding in scan_report.get("findings", [])
+                            if finding.get("source") not in {"behavioral", "sandbox"}
+                        ],
+                    },
+                    behavioural_result=behavioral_for_llm,
                     sandbox_result=sandbox_result,
                     config=llm_config,
                 )
-                # Merge LLM result into scan report
-                scan_report = {
-                    **scan_report,
-                    "analyzers_used": [
-                        *scan_report.get("analyzers_used", ["basic"]),
-                        f"llm:{llm_result.provider}",
-                    ],
-                    "llm_analysis": llm_result.model_dump(mode="json"),
-                }
+                scan_report["analyzers_used"] = [
+                    *scan_report.get("analyzers_used", ["basic"]),
+                    f"llm:{llm_result.provider}",
+                ]
+                scan_report["llm_analysis"] = llm_result.model_dump(mode="json")
                 if llm_result.report:
                     llm_notes.append(f"[LLM] {llm_result.report}")
+                llm_status = "completed"
             except Exception as exc:
                 logger.warning("LLM analysis skipped for %s: %s", skill_path, exc)
                 llm_notes.append(f"[LLM] analysis skipped: {exc}")
+                llm_status = "failed"
+            analyzer_timings["llm"] = {
+                "status": llm_status,
+                "duration_seconds": time.monotonic() - llm_started,
+            }
 
-        # 5. Reconcile risk. Blocking findings stay malicious; non-blocking
-        # findings may be downgraded by LLM in balanced/permissive modes.
         llm_risk_level = RiskLevel(llm_result.risk_level) if llm_result else None
         has_blocking_findings = bool(risk_classification.get("blocking_count"))
         llm_downgraded = bool(
@@ -819,17 +945,22 @@ class VettingPipeline:
             and not llm_risk_level.is_at_least(pre_llm_risk_level)
             and not llm_downgraded
         )
-        if llm_risk_level and (llm_risk_level.is_at_least(pre_llm_risk_level) or llm_downgraded):
-            final_risk_level = llm_risk_level
-        else:
-            final_risk_level = pre_llm_risk_level
-        if llm_downgraded:
-            downgrade_reason = llm_result.downgrade_reason or llm_result.report or "LLM judged the risk signal non-exploitable"
+        final_risk_level = (
+            llm_risk_level
+            if llm_risk_level
+            and (llm_risk_level.is_at_least(pre_llm_risk_level) or llm_downgraded)
+            else pre_llm_risk_level
+        )
+        if llm_downgraded and llm_result:
+            downgrade_reason = (
+                llm_result.downgrade_reason
+                or llm_result.report
+                or "LLM judged the risk signal non-exploitable"
+            )
             llm_notes.append(
                 "[LLM] non-blocking risk downgraded: "
                 f"tool risk={pre_llm_risk_level.value}, "
-                f"LLM risk={llm_risk_level.value}; "
-                f"reason={downgrade_reason}"
+                f"LLM risk={llm_risk_level.value}; reason={downgrade_reason}"
             )
         elif llm_downgrade_blocked:
             llm_notes.append(
@@ -838,46 +969,50 @@ class VettingPipeline:
                 f"LLM risk={llm_risk_level.value}; "
                 f"reason={'blocking finding present' if has_blocking_findings else 'strict mode'}"
             )
-        scan_report = {
-            **scan_report,
-            "risk_reconciliation": {
-                "strategy": "mode_aware_llm_judgement",
-                "judgement_mode": effective_judgement_mode,
-                "pre_llm_reason": pre_llm_reason,
-                "pre_llm_risk_level": pre_llm_risk_level.value,
-                "llm_risk_level": llm_risk_level.value if llm_risk_level else None,
-                "final_risk_level": final_risk_level.value,
-                "llm_downgraded": llm_downgraded,
-                "llm_downgrade_blocked": llm_downgrade_blocked,
-                "downgrade_reason": (
-                    (llm_result.downgrade_reason or llm_result.report)
-                    if llm_downgraded and llm_result
-                    else None
-                ),
-                "dismissed_findings": llm_result.dismissed_findings if llm_result else [],
-                "accepted_findings": llm_result.accepted_findings if llm_result else [],
-            },
+
+        reconciliation_strategy = (
+            "mode_aware_llm_judgement"
+            if llm_result
+            else "llm_unavailable_deterministic_fallback"
+            if use_llm
+            else "deterministic_policy_merge"
+        )
+        scan_report["risk_reconciliation"] = {
+            "strategy": reconciliation_strategy,
+            "judgement_mode": effective_judgement_mode,
+            "pre_llm_reason": pre_llm_reason,
+            "pre_llm_risk_level": pre_llm_risk_level.value,
+            "llm_risk_level": llm_risk_level.value if llm_risk_level else None,
+            "final_risk_level": final_risk_level.value,
+            "llm_downgraded": llm_downgraded,
+            "llm_downgrade_blocked": llm_downgrade_blocked,
+            "downgrade_reason": (
+                (llm_result.downgrade_reason or llm_result.report)
+                if llm_downgraded and llm_result
+                else None
+            ),
+            "dismissed_findings": llm_result.dismissed_findings if llm_result else [],
+            "accepted_findings": llm_result.accepted_findings if llm_result else [],
         }
-        findings = scan_report.get("findings", [])
 
-        # 6. Policy checks
         violations = _check_manifest_policy(allowed_tools, license_val, self.policy)
-
-        policy_notes: list[str] = []
-        for v in violations:
-            prefix = "[BLOCK]" if v.blocking else "[WARN]"
-            policy_notes.append(f"{prefix} {v.rule}: {v.message}")
+        policy_notes = [
+            f"{'[BLOCK]' if violation.blocking else '[WARN]'} {violation.rule}: {violation.message}"
+            for violation in violations
+        ]
         policy_notes.extend(skillspector_notes)
         policy_notes.extend(behavioral_notes)
         policy_notes.extend(llm_notes)
         policy_notes.extend(sandbox_notes)
 
-        scan_report = {
-            **scan_report,
+        findings = scan_report.get("findings", [])
+        total_duration = time.monotonic() - started
+        scan_report.update({
             "risk_level": final_risk_level.value,
-        }
-
-        # 7. Build result
+            "analyzer_timings": analyzer_timings,
+            "scan_duration_seconds": total_duration,
+            "execution_strategy": "parallel_analyzers_single_reconciliation",
+        })
         result = VettingResult(
             risk_level=final_risk_level,
             findings_count=len(findings),
@@ -885,9 +1020,8 @@ class VettingPipeline:
             sandbox_triggered=effective_use_sandbox,
             sandbox_required_by_policy=sandbox_required_by_policy,
             sandbox_runtime=sandbox_runtime,
-            scan_duration_seconds=scan_report.get("scan_duration_seconds", 0.0),
+            scan_duration_seconds=total_duration,
             scan_report=scan_report,
             policy_notes=policy_notes,
         )
-
         return result, violations, name, description, allowed_tools

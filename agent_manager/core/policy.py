@@ -160,6 +160,7 @@ class CompanyPolicy:
 
     @property
     def skillspector_use_llm(self) -> bool:
+        """Legacy config field; SkillSpector model calls are disabled by vetting."""
         return bool(self._data.get("skillspector_use_llm", False))
 
     @property

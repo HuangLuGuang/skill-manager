@@ -4,7 +4,7 @@
       <a-spin size="large" :tip="$t('legacy.1ns3eta')" />
     </div>
     <a-layout v-else class="app-shell">
-      <a-layout-header v-if="!isLoginPage" class="app-header">
+      <a-layout-header v-if="!isLoginPage && !isDocsPage" class="app-header">
         <div class="app-brand">
           <img :src="logoUrl" alt="Logo" class="app-logo" />
           <div>
@@ -30,15 +30,26 @@
             </template>
             <template #overlay>
               <a-menu>
-                <a-menu-item key="password" @click="passwordVisible = true">{{ $t("legacy.1pt7oo1") }}</a-menu-item>
-                <a-menu-item key="logout" @click="handleLogout">{{ $t("legacy.12hokt7") }}</a-menu-item>
+                <a-menu-item key="help" @click="openDocs">
+                  <QuestionCircleOutlined />
+                  {{ t('docsUi.help') }}
+                </a-menu-item>
+                <a-menu-divider />
+                <a-menu-item key="password" @click="passwordVisible = true">
+                  <LockOutlined />
+                  {{ $t("legacy.1pt7oo1") }}
+                </a-menu-item>
+                <a-menu-item key="logout" @click="handleLogout">
+                  <LogoutOutlined />
+                  {{ $t("legacy.12hokt7") }}
+                </a-menu-item>
               </a-menu>
             </template>
           </a-dropdown>
         </div>
       </a-layout-header>
 
-      <a-layout v-if="!isLoginPage" class="app-main-layout">
+      <a-layout v-if="!isLoginPage && !isDocsPage" class="app-main-layout">
         <a-layout-sider width="240" class="app-sider">
           <a-menu
             :items="menuItems"
@@ -54,7 +65,7 @@
         </a-layout-content>
       </a-layout>
 
-      <a-layout-content v-else class="login-content">
+      <a-layout-content v-else-if="isLoginPage" class="login-content">
         <a-select
           v-model:value="locale"
           class="login-language-select"
@@ -65,6 +76,10 @@
           <a-select-option value="en-US">{{ t('language.english') }}</a-select-option>
         </a-select>
         <router-view :key="locale" />
+      </a-layout-content>
+
+      <a-layout-content v-else class="docs-content">
+        <router-view :key="locale" :logo-url="logoUrl" />
       </a-layout-content>
     </a-layout>
 
@@ -105,6 +120,9 @@ import {
   FileSearchOutlined,
   FileTextOutlined,
   KeyOutlined,
+  LockOutlined,
+  LogoutOutlined,
+  QuestionCircleOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
   TeamOutlined,
@@ -187,6 +205,7 @@ let sessionCheckTimer = null
 let approvalStatsTimer = null
 
 const isLoginPage = computed(() => route.name === 'login')
+const isDocsPage = computed(() => route.meta.layout === 'docs')
 
 watch(
   () => route.path,
@@ -288,6 +307,11 @@ const loadLogo = async () => {
 }
 
 const handleMenuClick = ({ key }) => router.push(key)
+
+const openDocs = () => {
+  const url = router.resolve('/docs').href
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
 
 const handleLogout = () => {
   localStorage.removeItem('token')
@@ -412,6 +436,13 @@ onUnmounted(() => {
 
 .login-content {
   position: relative;
+}
+
+.docs-content {
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #f6f8fb;
 }
 
 .login-language-select {

@@ -869,6 +869,95 @@ def test_agent_model_call_records_declared_skill_warning(tmp_path, monkeypatch):
         db.close()
 
 
+def test_model_skill_alerts_lists_actionable_events_and_summary(tmp_path, monkeypatch):
+    client, _token, session_factory = _client(tmp_path, monkeypatch)
+    db = session_factory()
+    try:
+        runtime_token = models.AccessToken(
+            name="risk-agent-runtime",
+            token_type="agent_runtime",
+            token_hash=llm_gateway._hash_token("amat_alert_page"),
+            token_prefix="amat_alert",
+            bound_agent_id="risk-agent",
+            scopes_json='["model:chat"]',
+            allowed_models_json='["mock-model"]',
+            allowed_ips_json="[]",
+        )
+        db.add(runtime_token)
+        db.flush()
+        common = {
+            "tenant_id": "tenant-a",
+            "conversation_id": "conv-alerts",
+            "user_ref": "risk-agent",
+            "api_key_id": runtime_token.id,
+            "credential_type": "agent_runtime",
+            "agent_id": "risk-agent",
+            "model": "mock-model",
+            "status": "success",
+        }
+        db.add_all(
+            [
+                models.LlmRequestAudit(
+                    request_id="alert-suspicious",
+                    skill_name="unknown-skill",
+                    skill_context_source="caller_metadata",
+                    skill_trust_state="suspicious",
+                    skill_alert_severity="high",
+                    skill_alert_codes_json='["gateway.skill_unknown"]',
+                    **common,
+                ),
+                models.LlmRequestAudit(
+                    request_id="alert-missing",
+                    skill_context_source="missing",
+                    skill_trust_state="missing",
+                    skill_alert_severity="info",
+                    skill_alert_codes_json='["gateway.skill_context_missing"]',
+                    **common,
+                ),
+                models.LlmRequestAudit(
+                    request_id="alert-observation",
+                    skill_id="skill-family-1",
+                    skill_version_id="skill-version-1",
+                    skill_name="approved-skill",
+                    skill_context_source="caller_metadata",
+                    skill_trust_state="declared_trusted",
+                    skill_alert_severity="medium",
+                    skill_alert_codes_json='["gateway.skill_context_unverified"]',
+                    **common,
+                ),
+            ]
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    async def override_current_user():
+        return models.User(username="auditor", hashed_password="unused", role="privacy_auditor", is_active=True)
+
+    client.app.dependency_overrides[auth.get_current_active_user] = override_current_user
+
+    response = client.get("/v1/model-gateway/skill-alerts")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["request_id"] == "alert-suspicious"
+    assert payload["items"][0]["agent_name"] == "风险智能体"
+    assert payload["items"][0]["credential_name"] == "risk-agent-runtime"
+    assert payload["summary"] == {
+        "actionable": 1,
+        "missing": 1,
+        "observations": 1,
+        "affected_agents": 1,
+    }
+
+    observation = client.get(
+        "/v1/model-gateway/skill-alerts",
+        params={"category": "observation", "skill_name": "approved"},
+    )
+    assert observation.status_code == 200
+    assert observation.json()["items"][0]["request_id"] == "alert-observation"
+
+
 def test_unknown_chat_completion_fields_are_rejected(tmp_path, monkeypatch):
     client, token, _session_factory = _client(tmp_path, monkeypatch)
 

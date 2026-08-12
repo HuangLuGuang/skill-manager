@@ -25,10 +25,10 @@ Agent Guard Hook (`agent_guard_hook.py`) 仅使用 verify 功能，逻辑与 `ag
    # Agent Manager 服务地址（必需）
    AGENT_MANAGER_BASE_URL=http://your-agent-manager-server:port
 
-   # API Token（必需）
-   AGENT_MANAGER_API_TOKEN=your-token-here
+   # 绑定目标 Agent 的运行凭证（必需）
+   AGENT_MANAGER_API_TOKEN=amat_xxx
 
-   # Agent ID（可选；不设置时按会话自动生成）
+   # 已在 Agent Manager 登记、且与运行凭证绑定一致的 Agent ID（必需）
    AGENT_ID=your-agent-id
 
    ```
@@ -48,7 +48,7 @@ Agent Guard Hook (`agent_guard_hook.py`) 仅使用 verify 功能，逻辑与 `ag
         "hooks": [
           {
             "type": "command",
-            "command": "python3 skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"
+            "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"
           }
         ]
       }
@@ -62,8 +62,8 @@ Agent Guard Hook (`agent_guard_hook.py`) 仅使用 verify 功能，逻辑与 `ag
 | 环境变量 | 必需 | 说明 |
 |----------|------|------|
 | `AGENT_MANAGER_BASE_URL` | ✅ | Agent Manager 服务地址 |
-| `AGENT_MANAGER_API_TOKEN` | ✅ | API 访问 Token |
-| `AGENT_ID` | ❌ | Agent ID；不设置时按会话自动生成 |
+| `AGENT_MANAGER_API_TOKEN` | ✅ | 绑定目标 Agent 的运行凭证 |
+| `AGENT_ID` | ✅ | 与运行凭证绑定一致的平台 Agent ID |
 | `AGENT_MANAGER_MANAGED_SKILLS_DIR` | ❌ | 受管 Skill 根目录，默认 `~/.agent-manager/skills` |
 
 ## 工作原理

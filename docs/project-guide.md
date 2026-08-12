@@ -308,14 +308,10 @@ sequenceDiagram
 
 # 6.1 提交
 
-当前提交支持多种入口：
+当前主要提交入口：
 
-- CLI
 - 管理台上传 ZIP
-- 管理台本地目录导入
-- 管理台网络 / GitHub / ClawHub 导入
 - 客户侧 Go Scanner CLI
-- 客户侧原生 GUI Scanner
 
 上传后不会再阻塞前端等待全部分析跑完，而是：
 
@@ -330,13 +326,18 @@ sequenceDiagram
 
 ### 6.2 Vetting
 
-`vet()` 会依次做：
+`vet()` 会按以下阶段执行：
 
 1. `SKILL.md` frontmatter 解析
-2. `cisco-ai-skill-scanner` 静态扫描
-3. behavioral 本地规则扫描
-4. OpenAI-compatible LLM 语义分析（可直连，也可走模型网关）
-5. sandbox 动态执行验证
+2. 并行启动已勾选且相互独立的分析器：`cisco-ai-skill-scanner`、behavioral 本地规则、SkillSpector 静态深度扫描，以及用户明确勾选的 Sandbox
+3. 汇总静态、行为和 Sandbox 证据；如果策略根据中间风险强制 Sandbox，则在这一阶段补跑 Sandbox
+4. 勾选 LLM 时，等待前面所有分析完成后只调用一次 OpenAI-compatible LLM 做最终语义判定和报告汇总；未勾选时直接使用确定性策略汇总
+
+基础 Scanner 在 Backend 启动时预热，并在后续任务中复用已初始化实例。并行度可通过以下环境变量调整：
+
+- `AGENT_MANAGER_SCAN_WORKERS`：同时处理的后台提交数，默认 `2`
+- `AGENT_MANAGER_ANALYZER_WORKERS`：单次/多次提交共享的分析器线程数，默认 `8`
+- `AGENT_MANAGER_SKILLSPECTOR_CONCURRENCY`：SkillSpector 子进程全局并发上限，默认 `2`
 
 ### 6.3 Policy Gate
 
@@ -394,18 +395,17 @@ behavioral 分析主要扫文本代码文件，优先：
 
 LLM 现在做这些事：
 
-1. scanner、behavioral、sandbox 分析完成后的分析结果和完整的skill内容一起输入 LLM 做最后的风险判断，benign/suspicious/malicious
+1. scanner、behavioral、SkillSpector、sandbox 分析完成后的结果和完整 skill 内容一起输入 LLM，做最后的 benign/suspicious/malicious 风险判断
 2. 生成一篇专业的安全分析报告
 3. **生成详细的攻击链分析**，如果是恶意skill, 会生成攻击链并映射到 MITRE ATT&CK（传统网络安全）和 MITRE ATLAS（AI 安全）框架
-4. 当 sandbox 和 LLM 同时启用时，结合 `SKILL.md` 使用说明生成一组安全的 sandbox probe 用例
 
+SkillSpector 和 Sandbox 不再各自发起前置 LLM 请求。Sandbox 使用确定性的 probe 计划执行；LLM 只在所有已选分析器结束后调用一次。
 
 所以 LLM 结果里你会看到：
 
 - `risk_level`
 - `report`
 - `attack_chain`
-- `sandbox_analysis.llm_probe_plan`，仅在 LLM probe 生成成功时出现
 
 如果配置了模型网关环境变量，LLM vetting 会优先走隐私路由：
 
@@ -756,6 +756,27 @@ Skill Verifier 下载位置：
 
 Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privacy_auditor`。
 
+### 12.10 帮助文档与文档助手
+
+帮助文档使用独立根路由 `/docs`，不是嵌入管理台内容区。文档配置使用独立的 `/docs-settings` 页面，入口位于“系统管理 -> 文档设置”，不与系统总览混排。管理员可以配置：
+
+- 是否在帮助文档顶部显示“问问 AI”入口，默认关闭。
+- 使用模型网关中哪个已启用模型回答。
+- 每次最多提供给模型的文档小节数量，范围为 2 到 6。
+- 中英文欢迎语和附加回答要求。
+- 最多 8 个中英文常见问题。
+
+文档助手的工作边界：
+
+1. 浏览器在当前语言的内置帮助文档中检索相关小节，并把有限片段作为上下文提交。
+2. 服务端要求模型只能依据这些片段回答；上下文不足时应明确说明，不能补写未确认能力。
+3. 回答下方的相关文档链接由前端文档索引生成，不使用模型自行生成的 URL。
+4. AI 回答使用 GitHub Flavored Markdown 渲染，支持标题、列表、引用、代码块、表格和安全链接；渲染前执行 HTML 标签与属性白名单清洗。
+5. 普通已登录用户可以读取启用状态并问答；只有管理员能保存配置。
+6. 问题和回答不会写入普通操作日志；配置变更会记录管理员操作。
+
+这项功能用于缩短查找路径，不替代正式文档。涉及部署、权限、安全边界和当前启用状态时，以文档正文、系统设置和实际运行结果为准。
+
 ---
 
 ## 13. 客户端 Skill 怎么统一接管
@@ -827,18 +848,13 @@ sequenceDiagram
 
 ---
 
-## 15. Agent 运行时安全治理
+## 15. Agent 运行侧接入
 
-“运行时治理”页面同时展示原有 Skill 加载审计和 P2 任务治理能力：
+当前管理台启用的是 Skill 运行校验和客户端治理：
 
-- 任务以 Agent、租户、用户、会话和原始目标建立安全契约，策略快照固定步骤、重试、委派、费用、数据量和时长上限。
-- Planner 计划与 Executor 实际动作都要经过策略门；高风险动作需要管理员创建与参数绑定的审批，再消费短期一次性授权。
-- 动作以父动作 ID 形成 Lineage；连续失败打开 Agent/Tool 熔断器，管理员可按全局、租户、用户、Agent 或 Tool 启用 Kill Switch。
-- 隔离回放只重新计算策略决定，不访问网络、不执行动作、不改变业务状态，用于识别策略变化影响的动作范围。
-- Memory 写入记录来源、内容哈希和扫描发现，按租户、用户、会话和 Agent 精确隔离。模型输出不会自动成为可信记忆；支持过期、隔离、版本查看和回滚。
-- Preview 任务不签发可执行动作授权；带网络访问、状态变更或明显写操作的动作会被服务端拒绝。Memory Preview 只扫描、不落库。
-
-Agent Manager 不执行外部 Agent 的业务动作。外部 Runtime 必须在执行点调用一次性授权消费接口并服从拒绝、熔断和停止结果；否则平台只能记录风险，无法形成强制控制。
+- Skill Verifier 在 Agent 使用 Skill 前执行签名、加载许可和 Tool 权限检查，并写入运行审计。
+- Agent Manager Client 发现本地 Agent 与 Skill 目录，可下发平台批准版本，并按策略审计、恢复或隔离异常内容。
+- 客户端页面中的任务用于安装、恢复、移除 Skill 和同步策略；执行后应在客户端详情中核对目标、状态和事件。
 
 ## 16. 常见问题
 
