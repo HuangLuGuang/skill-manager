@@ -66,6 +66,7 @@ export const navigationItems = [
     children: [
       { key: '/users-groups', label: '用户与组', icon: 'team' },
       { key: '/settings', label: '系统总览', icon: 'setting' },
+      { key: '/docs-settings', label: 'docsAssistantSettings.menu', icon: 'fileText' },
     ],
   },
 ]

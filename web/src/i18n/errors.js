@@ -95,6 +95,26 @@ const errorMessages = {
     'zh-CN': '智能体未授权使用该 Prompt',
     'en-US': 'The Agent is not authorized to use this Prompt',
   },
+  'docs_assistant.disabled': {
+    'zh-CN': '文档助手当前未启用',
+    'en-US': 'The documentation assistant is currently disabled',
+  },
+  'docs_assistant.model_required': {
+    'zh-CN': '启用文档助手前请选择模型',
+    'en-US': 'Select a model before enabling the documentation assistant',
+  },
+  'docs_assistant.model_unavailable': {
+    'zh-CN': '文档助手配置的模型当前不可用',
+    'en-US': 'The model configured for the documentation assistant is unavailable',
+  },
+  'docs_assistant.upstream_failed': {
+    'zh-CN': '文档助手暂时无法调用所选模型',
+    'en-US': 'The documentation assistant could not call the selected model',
+  },
+  'docs_assistant.empty_response': {
+    'zh-CN': '模型没有返回可用的文档回答',
+    'en-US': 'The model did not return a usable documentation answer',
+  },
 }
 
 const interpolate = (value, params = {}, locale = 'zh-CN') =>

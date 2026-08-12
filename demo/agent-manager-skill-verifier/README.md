@@ -35,26 +35,29 @@ GET /api/v1/scanner/skill-verifier/download
 agent-manager-skill-verifier.zip
 ```
 
-## Token 权限
+## 凭证权限
 
-在管理台 `智能体管理 -> 凭证管理` 创建 Agent 运行凭证，绑定目标 Agent。至少需要：
+执行 `verify` 时，在管理台 `智能体管理 -> 凭证管理` 创建 Agent 运行凭证并绑定目标 Agent。至少需要：
+
+- `runtime:verify-signature`
+- `runtime:can-load`
+
+执行 `submit` 或 `status` 时使用独立的 Scanner 接入凭证，按需授予：
 
 - `scanner:submit`
 - `scanner:read-own-results`
 - `scanner:read-own-sessions`
-- `runtime:verify-signature`
-- `runtime:can-load`
-- `runtime:check-tool`
 
 配置环境变量：
 
 ```bash
 export AGENT_MANAGER_VERIFIER_BASE_URL="http://localhost:8001"
-export AGENT_MANAGER_VERIFIER_TOKEN="amat_xxx"
+export AGENT_MANAGER_AGENT_RUNTIME_TOKEN="amat_xxx"
+export AGENT_MANAGER_SCANNER_TOKEN="amat_xxx"
 export AGENT_ID="<agent-id>"
 ```
 
-Verifier 仅计算无密钥内容摘要，不持有 Agent Manager 的 Ed25519 私钥。
+只执行 `verify` 时不需要设置 `AGENT_MANAGER_SCANNER_TOKEN`。Verifier 仅计算无密钥内容摘要，不持有 Agent Manager 的 Ed25519 私钥。
 
 不要复用 `SKILL_SCANNER_TOKEN`；Verifier 需要 Agent 运行凭证。
 

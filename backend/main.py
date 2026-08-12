@@ -27,7 +27,6 @@ from .security_audit import append_security_audit, ensure_audit_signing_key
 from .sqlite_db import Base, SessionLocal, engine
 from .task_runtime import init_default_tasks
 
-
 load_dotenv(override=True)
 base_dir = Path(__file__).resolve().parent.parent
 if str(base_dir) not in sys.path:
@@ -41,11 +40,20 @@ from agent_manager.api.router import (
     runtime_router as agent_runtime_router,
 )
 from agent_manager.api.scanner_router import admin_router as scanner_admin_router
-from agent_manager.api.scanner_router import runtime_router as access_runtime_router
 from agent_manager.api.scanner_router import router as scanner_router
+from agent_manager.api.scanner_router import runtime_router as access_runtime_router
+from agent_manager.core.vetting import warmup_scanner
 
 app = FastAPI(title=settings.APP_NAME, debug=settings.DEBUG)
 logger = logging.getLogger(__name__)
+
+
+def warmup_skill_scanner() -> None:
+    manager = get_agent_manager()
+    warmup_scanner(manager.policy.scanner_policy)
+
+
+app.add_event_handler("startup", warmup_skill_scanner)
 app.add_exception_handler(ApiError, api_error_handler)
 app.add_exception_handler(HTTPException, http_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)

@@ -120,6 +120,53 @@ class ModelConfigUpdate(BaseModel):
     ts_cluster_group_cnt_thresh: int = 9
 
 
+class DocsAssistantFaq(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    question_zh: str = Field(min_length=1, max_length=200)
+    question_en: str = Field(min_length=1, max_length=200)
+
+
+class DocsAssistantConfigUpdate(BaseModel):
+    enabled: bool = False
+    model: Optional[str] = Field(default=None, max_length=128)
+    welcome_zh: str = Field(default="你好，我可以根据当前帮助文档帮你定位功能和操作步骤。", max_length=300)
+    welcome_en: str = Field(default="Hi, I can help you find features and steps in the current documentation.", max_length=300)
+    instruction_zh: str = Field(default="回答简洁、务实，优先给出可执行步骤；文档没有说明时请明确告知。", max_length=1000)
+    instruction_en: str = Field(default="Be concise and practical. Prefer actionable steps and say clearly when the docs do not establish an answer.", max_length=1000)
+    max_context_sections: int = Field(default=4, ge=2, le=6)
+    common_questions: list[DocsAssistantFaq] = Field(default_factory=list, max_length=8)
+
+    @field_validator("model")
+    @classmethod
+    def normalize_docs_model(cls, value: Optional[str]) -> Optional[str]:
+        normalized = (value or "").strip()
+        return normalized or None
+
+
+class DocsAssistantContext(BaseModel):
+    slug: str = Field(max_length=160)
+    article_title: str = Field(min_length=1, max_length=200)
+    section_title: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class DocsAssistantHistoryMessage(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class DocsAssistantAskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+    locale: str = Field(default="zh-CN", pattern="^(zh-CN|en-US)$")
+    contexts: list[DocsAssistantContext] = Field(min_length=1, max_length=6)
+    history: list[DocsAssistantHistoryMessage] = Field(default_factory=list, max_length=6)
+
+
+class DocsAssistantAnswer(BaseModel):
+    answer: str
+    model: str
+
+
 class ScheduledTaskBase(BaseModel):
     display_name: str
     description: Optional[str] = None

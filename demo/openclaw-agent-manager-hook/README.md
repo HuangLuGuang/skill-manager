@@ -30,8 +30,10 @@
 
 ```bash
 export AGENT_MANAGER_BASE_URL="http://127.0.0.1:8080"
-export AGENT_MANAGER_ACCESS_TOKEN="smsc_live_xxx"
+export AGENT_MANAGER_ACCESS_TOKEN="amat_xxx"
 ```
+
+`AGENT_MANAGER_ACCESS_TOKEN` 必须是绑定目标 Agent 的运行凭证。接入时还要把 OpenClaw 事件中的会话身份稳定映射到平台登记的 Agent ID；不能直接假设任意 session key 与 Agent ID 相同。
 
 ## Hook Types
 

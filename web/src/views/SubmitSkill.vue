@@ -273,6 +273,7 @@ const selectedFile = ref(null)
 const submitResults = ref([])
 const managerStatus = ref({})
 const pollingTimer = ref(null)
+const pollingInFlight = ref(false)
 const importRootPath = ref('')
 const localCandidates = ref([])
 const selectedLocalDirectories = ref([])
@@ -500,34 +501,45 @@ const stopPolling = () => {
   }
 }
 
+const refreshPendingResults = async () => {
+  if (pollingInFlight.value) return
+  if (!submitResults.value.some((item) => item.status === 'PENDING')) {
+    stopPolling()
+    return
+  }
+  pollingInFlight.value = true
+  try {
+    const updated = await Promise.all(
+      submitResults.value.map(async (item) => {
+        if (item.status !== 'PENDING') return item
+        const detail = await getSkillDetail(item.skill_id)
+        return {
+          ...item,
+          name: detail.name,
+          status: detail.status,
+          risk_level: detail.risk_level,
+          findings_count: detail.vetting?.findings_count || 0,
+          sandbox_triggered: Boolean(detail.vetting?.sandbox_triggered),
+          sandbox_required_by_policy: Boolean(detail.vetting?.sandbox_required_by_policy),
+          sandbox_runtime: detail.vetting?.sandbox_runtime || null,
+          message: detail.status === 'PENDING' ? phrase('legacy.1u7g8m0') : phrase('legacy.1nf87mp'),
+        }
+      }),
+    )
+    submitResults.value = updated
+    if (!updated.some((item) => item.status === 'PENDING')) stopPolling()
+  } catch (_error) {
+    // ignore transient polling errors
+  } finally {
+    pollingInFlight.value = false
+  }
+}
+
 const startPolling = () => {
   stopPolling()
   if (!submitResults.value.some((item) => item.status === 'PENDING')) return
-  pollingTimer.value = setInterval(async () => {
-    try {
-      const updated = await Promise.all(
-        submitResults.value.map(async (item) => {
-          if (item.status !== 'PENDING') return item
-          const detail = await getSkillDetail(item.skill_id)
-          return {
-            ...item,
-            name: detail.name,
-            status: detail.status,
-            risk_level: detail.risk_level,
-            findings_count: detail.vetting?.findings_count || 0,
-            sandbox_triggered: Boolean(detail.vetting?.sandbox_triggered),
-            sandbox_required_by_policy: Boolean(detail.vetting?.sandbox_required_by_policy),
-            sandbox_runtime: detail.vetting?.sandbox_runtime || null,
-            message: detail.status === 'PENDING' ? phrase('legacy.1u7g8m0') : phrase('legacy.1nf87mp'),
-          }
-        }),
-      )
-      submitResults.value = updated
-      if (!updated.some((item) => item.status === 'PENDING')) stopPolling()
-    } catch (_error) {
-      // ignore transient polling errors
-    }
-  }, 3000)
+  void refreshPendingResults()
+  pollingTimer.value = setInterval(refreshPendingResults, 1000)
 }
 
 const clearZipAnalysis = () => {

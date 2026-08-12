@@ -9,8 +9,8 @@ import urllib.request
 
 import pytest
 
-from agent_manager.core.models import RiskLevel, SkillOrigin, SourceInfo
 from agent_manager.core.llm import LLMConfig
+from agent_manager.core.models import RiskLevel, SkillOrigin, SourceInfo
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.scan_cache import compute_scan_context_fingerprint
 from agent_manager.core.vetting import VettingPipeline
@@ -233,7 +233,7 @@ def test_skillspector_top_level_high_with_only_noise_requires_review(tmp_path, m
     assert analysis["suppressed_findings_count"] == 2
 
 
-def test_skillspector_llm_uses_agent_manager_llm_config(tmp_path, monkeypatch):
+def test_vetting_keeps_skillspector_llm_disabled_even_when_policy_requests_it(tmp_path, monkeypatch):
     skill_dir = _skill_dir(tmp_path)
     payload = {"risk_assessment": {"score": 0, "severity": "LOW", "recommendation": "SAFE"}, "issues": []}
     captured = {}
@@ -260,19 +260,19 @@ def test_skillspector_llm_uses_agent_manager_llm_config(tmp_path, monkeypatch):
     monkeypatch.setattr("agent_manager.core.vetting.LLMConfig.load", lambda: ready_llm_config)
     monkeypatch.setattr("agent_manager.core.skillspector.LLMConfig.load", lambda: ready_llm_config)
 
-    VettingPipeline(CompanyPolicy({
+    result, _violations, _name, _desc, _tools = VettingPipeline(CompanyPolicy({
         "skillspector_enabled": True,
         "skillspector_use_llm": True,
     })).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
-    assert "--no-llm" not in captured["cmd"]
-    assert captured["env"]["SKILLSPECTOR_PROVIDER"] == "openai"
-    assert captured["env"]["OPENAI_BASE_URL"] == "https://api.deepseek.com"
-    assert captured["env"]["OPENAI_API_KEY"] == "secret"
-    assert captured["env"]["SKILLSPECTOR_MODEL"] == "deepseek-chat"
+    analysis = result.scan_report["skillspector_analysis"]
+    assert "--no-llm" in captured["cmd"]
+    assert captured["env"] is None
+    assert analysis["llm_requested"] is False
+    assert analysis["llm_enabled"] is False
 
 
-def test_skillspector_model_gateway_without_external_key_uses_internal_proxy(tmp_path, monkeypatch):
+def test_vetting_does_not_start_internal_model_gateway_proxy_for_skillspector(tmp_path, monkeypatch):
     skill_dir = _skill_dir(tmp_path)
     payload = {"risk_assessment": {"score": 0, "severity": "LOW", "recommendation": "SAFE"}, "issues": []}
     captured = {}
@@ -307,18 +307,15 @@ def test_skillspector_model_gateway_without_external_key_uses_internal_proxy(tmp
     })).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     analysis = result.scan_report["skillspector_analysis"]
-    assert "--no-llm" not in captured["cmd"]
-    assert captured["env"]["SKILLSPECTOR_PROVIDER"] == "openai"
-    assert captured["env"]["OPENAI_BASE_URL"].startswith("http://127.0.0.1:")
-    assert captured["env"]["OPENAI_API_KEY"]
-    assert captured["env"]["SKILLSPECTOR_MODEL"] == "deepseek-chat"
-    assert analysis["llm_requested"] is True
-    assert analysis["llm_enabled"] is True
-    assert "内置模型网关代理" in analysis["llm_note"]
+    assert "--no-llm" in captured["cmd"]
+    assert captured["env"] is None
+    assert analysis["llm_requested"] is False
+    assert analysis["llm_enabled"] is False
+    assert analysis["llm_note"] is None
     assert "skillspector:error" not in result.analyzers_used
 
 
-def test_skillspector_model_gateway_env_is_exposed_as_openai_endpoint(tmp_path, monkeypatch):
+def test_vetting_ignores_external_gateway_env_for_skillspector(tmp_path, monkeypatch):
     skill_dir = _skill_dir(tmp_path)
     payload = {"risk_assessment": {"score": 0, "severity": "LOW", "recommendation": "SAFE"}, "issues": []}
     captured = {}
@@ -353,13 +350,10 @@ def test_skillspector_model_gateway_env_is_exposed_as_openai_endpoint(tmp_path, 
     })).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True)
 
     analysis = result.scan_report["skillspector_analysis"]
-    assert "--no-llm" not in captured["cmd"]
-    assert captured["env"]["SKILLSPECTOR_PROVIDER"] == "openai"
-    assert captured["env"]["OPENAI_BASE_URL"] == "http://127.0.0.1:8001"
-    assert captured["env"]["OPENAI_API_KEY"] == "gateway-token"
-    assert captured["env"]["SKILLSPECTOR_MODEL"] == "deepseek-chat"
-    assert analysis["llm_requested"] is True
-    assert analysis["llm_enabled"] is True
+    assert "--no-llm" in captured["cmd"]
+    assert captured["env"] is None
+    assert analysis["llm_requested"] is False
+    assert analysis["llm_enabled"] is False
 
 
 def test_internal_model_gateway_proxy_forwards_chat_completion(monkeypatch):

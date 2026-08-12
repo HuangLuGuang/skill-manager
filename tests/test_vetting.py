@@ -1,14 +1,14 @@
 """Tests for the vetting pipeline and policy enforcement."""
 
-import textwrap
 import sys
+import textwrap
+import threading
 import types
-from pathlib import Path
 
 import pytest
 
-from agent_manager.core.models import RiskLevel, SkillOrigin, SkillStatus, SourceInfo
 from agent_manager.core.llm import LLMAnalysisResult, LLMConfig
+from agent_manager.core.models import RiskLevel, SkillOrigin, SkillStatus, SourceInfo
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.sandbox import SandboxConfig, SandboxResult
 from agent_manager.core.vetting import (
@@ -157,6 +157,45 @@ class TestScannerIntegration:
         assert report["analyzers_used"] == ["scanner:error"]
         assert report["scanner_error"] == "bad frontmatter"
 
+    def test_run_scanner_reuses_initialized_scanner(self, tmp_path, monkeypatch):
+        calls = {"constructed": 0, "scanned": 0}
+
+        class FakeResult:
+            @staticmethod
+            def to_dict():
+                return {
+                    "max_severity": "SAFE",
+                    "findings": [],
+                    "analyzers_used": ["scanner"],
+                }
+
+        class FakeScanner:
+            def __init__(self, policy):
+                calls["constructed"] += 1
+                self.policy = policy
+
+            def scan_skill(self, _path):
+                calls["scanned"] += 1
+                return FakeResult()
+
+        class FakePolicy:
+            @staticmethod
+            def from_preset(_name):
+                return object()
+
+            @staticmethod
+            def default():
+                return object()
+
+        monkeypatch.setattr("agent_manager.core.vetting._try_import_scanner", lambda: (FakeScanner, FakePolicy))
+
+        first = _run_scanner(tmp_path, "reuse-test")
+        second = _run_scanner(tmp_path, "reuse-test")
+
+        assert first["max_severity"] == "SAFE"
+        assert second["max_severity"] == "SAFE"
+        assert calls == {"constructed": 1, "scanned": 2}
+
 
 class TestPolicyChecks:
     def test_allowed_tools_pass(self):
@@ -274,6 +313,171 @@ class TestVettingPipeline:
         source = SourceInfo(origin=SkillOrigin.LOCAL)
         with pytest.raises(ValueError):
             pipeline.vet(tmp_path / "nonexistent", source)
+
+    def test_selected_deterministic_analyzers_start_in_parallel(self, skill_dir, monkeypatch):
+        barrier = threading.Barrier(3, timeout=2)
+
+        def synchronized(result):
+            def run(*_args, **_kwargs):
+                barrier.wait()
+                return result
+
+            return run
+
+        monkeypatch.setattr(
+            "agent_manager.core.vetting._run_scanner",
+            synchronized({
+                "max_severity": "SAFE",
+                "findings": [],
+                "analyzers_used": ["scanner"],
+            }),
+        )
+        monkeypatch.setattr(
+            "agent_manager.core.vetting._run_behavioral_bundle",
+            synchronized({
+                "behavioral_analysis": {
+                    "max_severity": "SAFE",
+                    "findings": [],
+                    "scanned_file_count": 1,
+                },
+                "local_static_analysis": {"max_severity": "SAFE", "findings": []},
+                "findings": [],
+                "max_severity": "SAFE",
+            }),
+        )
+        monkeypatch.setattr(
+            "agent_manager.core.vetting._run_skillspector_without_llm",
+            synchronized({
+                "available": True,
+                "max_severity": "SAFE",
+                "findings": [],
+                "risk_severity": "SAFE",
+                "risk_score": 0,
+            }),
+        )
+
+        result, _violations, _name, _desc, _tools = VettingPipeline(
+            CompanyPolicy({"require_sandbox_for_risk": []})
+        ).vet(
+            skill_dir,
+            SourceInfo(origin=SkillOrigin.LOCAL),
+            use_behavioral=True,
+            use_skillspector=True,
+        )
+
+        assert result.scan_report["execution_strategy"] == "parallel_analyzers_single_reconciliation"
+        assert result.scan_report["risk_reconciliation"]["strategy"] == "deterministic_policy_merge"
+        assert set(result.scan_report["analyzer_timings"]) == {
+            "scanner",
+            "behavioral",
+            "skillspector",
+        }
+
+    def test_llm_runs_once_after_all_selected_analyzers(self, skill_dir, monkeypatch):
+        scripts_dir = skill_dir / "scripts"
+        scripts_dir.mkdir()
+        (scripts_dir / "run.py").write_text("print('ok')\n", encoding="utf-8")
+        completed = {
+            "scanner": False,
+            "behavioral": False,
+            "skillspector": False,
+            "sandbox": False,
+        }
+        llm_calls = []
+
+        def scanner(*_args, **_kwargs):
+            completed["scanner"] = True
+            return {
+                "max_severity": "SAFE",
+                "findings": [],
+                "analyzers_used": ["scanner"],
+            }
+
+        def behavioral(*_args, **_kwargs):
+            completed["behavioral"] = True
+            return {
+                "behavioral_analysis": {
+                    "max_severity": "SAFE",
+                    "findings": [],
+                    "scanned_file_count": 1,
+                },
+                "local_static_analysis": {"max_severity": "SAFE", "findings": []},
+                "findings": [],
+                "max_severity": "SAFE",
+            }
+
+        def skillspector(*_args, **_kwargs):
+            completed["skillspector"] = True
+            return {
+                "available": True,
+                "max_severity": "MEDIUM",
+                "findings": [{
+                    "severity": "MEDIUM",
+                    "title": "Deep scan signal",
+                    "message": "SkillSpector evidence",
+                    "source": "skillspector",
+                }],
+                "risk_severity": "MEDIUM",
+                "risk_score": 5,
+            }
+
+        class FakeRunner:
+            config = SandboxConfig(runtime="docker")
+
+            def run_probe(self, skill_path, entrypoint, args=None):
+                completed["sandbox"] = True
+                return SandboxResult(
+                    executed=True,
+                    runtime="docker",
+                    entrypoint=entrypoint,
+                    exit_code=0,
+                )
+
+        def llm(**kwargs):
+            assert all(completed.values())
+            assert any(
+                finding.get("source") == "skillspector"
+                for finding in kwargs["rule_results"]["findings"]
+            )
+            assert kwargs["sandbox_result"]["executed"] is True
+            llm_calls.append(kwargs)
+            return LLMAnalysisResult(
+                provider="test",
+                model="test-model",
+                risk_level="suspicious",
+                report="Combined all selected analyzer evidence.",
+            )
+
+        monkeypatch.setattr("agent_manager.core.vetting._run_scanner", scanner)
+        monkeypatch.setattr("agent_manager.core.vetting._run_behavioral_bundle", behavioral)
+        monkeypatch.setattr("agent_manager.core.vetting._run_skillspector_without_llm", skillspector)
+        monkeypatch.setattr("agent_manager.core.vetting.get_sandbox_runner", lambda: FakeRunner())
+        monkeypatch.setattr(
+            "agent_manager.core.vetting.LLMConfig.load",
+            lambda: LLMConfig(enabled=True, api_key="test-key"),
+        )
+        monkeypatch.setattr("agent_manager.core.vetting.analyze_skill_with_llm_single_round", llm)
+
+        result, _violations, _name, _desc, _tools = VettingPipeline(
+            CompanyPolicy({"require_sandbox_for_risk": []})
+        ).vet(
+            skill_dir,
+            SourceInfo(origin=SkillOrigin.LOCAL),
+            use_behavioral=True,
+            use_skillspector=True,
+            use_sandbox=True,
+            use_llm=True,
+        )
+
+        assert len(llm_calls) == 1
+        assert set(result.scan_report["analyzer_timings"]) == {
+            "scanner",
+            "behavioral",
+            "skillspector",
+            "sandbox",
+            "llm",
+        }
+        assert result.scan_report["analyzer_timings"]["llm"]["status"] == "completed"
 
     def test_behavioral_analysis_disabled_by_default(self, skill_dir, default_policy):
         scripts_dir = skill_dir / "scripts"
