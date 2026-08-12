@@ -10,8 +10,7 @@ import DocsAssistantSettings from '../components/DocsAssistantSettings.vue'
 
 <style scoped>
 .docs-settings-page {
-  width: min(1280px, 100%);
-  margin: 0 auto;
+  width: 100%;
 }
 
 .docs-settings-page :deep(.assistant-settings) {

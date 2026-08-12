@@ -1,8 +1,5 @@
 <template>
   <section class="assistant-settings">
-    <div class="settings-accent" aria-hidden="true">
-      <RobotOutlined />
-    </div>
     <div class="settings-content">
       <div class="settings-header">
         <div>
@@ -114,15 +111,15 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import {
   ArrowRightOutlined,
   DeleteOutlined,
   ExportOutlined,
   PlusOutlined,
-  RobotOutlined,
   SaveOutlined,
 } from '@ant-design/icons-vue'
 
@@ -131,6 +128,8 @@ import { getDocsAssistantConfig, listModelEndpoints, updateDocsAssistantConfig }
 const { t } = useI18n()
 const loading = ref(true)
 const saving = ref(false)
+const dirty = ref(false)
+const savedSnapshot = ref('')
 const models = ref([])
 const form = reactive({
   enabled: false,
@@ -145,13 +144,37 @@ const form = reactive({
 
 const modelOptions = computed(() => models.value
   .filter(item => item.enabled !== false)
-  .map(item => ({
-    value: item.name,
-    label: item.display_name ? `${item.display_name} · ${item.name}` : item.name,
-  })))
+  .map(item => {
+    const name = String(item.name || '').trim()
+    const displayName = String(item.display_name || '').trim()
+    return {
+      value: item.name,
+      label: displayName && displayName !== name ? `${displayName} · ${name}` : name,
+    }
+  }))
 const contextOptions = [2, 3, 4, 5, 6].map(value => ({ value, label: String(value) }))
 
 const errorText = (error, fallback) => error?.response?.data?.detail || fallback
+const buildSettingsPayload = () => ({
+  enabled: Boolean(form.enabled),
+  model: form.model || null,
+  welcome_zh: form.welcome_zh,
+  welcome_en: form.welcome_en,
+  instruction_zh: form.instruction_zh,
+  instruction_en: form.instruction_en,
+  max_context_sections: Number(form.max_context_sections || 4),
+  common_questions: form.common_questions.map(item => ({
+    ...item,
+    question_zh: item.question_zh,
+    question_en: item.question_en,
+  })),
+})
+
+const markSaved = () => {
+  savedSnapshot.value = JSON.stringify(buildSettingsPayload())
+  dirty.value = false
+}
+
 const assignConfig = config => {
   Object.assign(form, {
     enabled: Boolean(config.enabled),
@@ -173,6 +196,7 @@ const loadSettings = async () => {
       listModelEndpoints(),
     ])
     assignConfig(config)
+    markSaved()
     models.value = Array.isArray(modelRows) ? modelRows : []
   } catch (error) {
     message.error(errorText(error, t('docsAssistantSettings.loadFailed')))
@@ -205,15 +229,17 @@ const saveSettings = async () => {
   if (!validate()) return
   saving.value = true
   try {
-    await updateDocsAssistantConfig({
-      ...form,
-      model: form.model || null,
+    const payload = {
+      ...buildSettingsPayload(),
       common_questions: form.common_questions.map(item => ({
         ...item,
         question_zh: item.question_zh.trim(),
         question_en: item.question_en.trim(),
       })),
-    })
+    }
+    await updateDocsAssistantConfig(payload)
+    assignConfig(payload)
+    markSaved()
     message.success(t('docsAssistantSettings.saved'))
   } catch (error) {
     message.error(errorText(error, t('docsAssistantSettings.saveFailed')))
@@ -222,43 +248,35 @@ const saveSettings = async () => {
   }
 }
 
-onMounted(loadSettings)
+const handleBeforeUnload = event => {
+  if (!dirty.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+watch(form, () => {
+  dirty.value = Boolean(savedSnapshot.value && JSON.stringify(buildSettingsPayload()) !== savedSnapshot.value)
+}, { deep: true })
+
+onBeforeRouteLeave(() => {
+  if (!dirty.value) return true
+  return window.confirm(t('docsAssistantSettings.unsavedChanges'))
+})
+
+onMounted(() => {
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  loadSettings()
+})
+onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnload))
 </script>
 
 <style scoped>
 .assistant-settings {
   position: relative;
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
   margin-top: 18px;
-  overflow: hidden;
-  background: linear-gradient(135deg, #f7fbff 0, #fff 38%);
-  border: 1px solid #d8e5f4;
-  border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(23, 50, 79, 0.05);
 }
 
-.settings-accent {
-  display: grid;
-  align-content: start;
-  justify-content: center;
-  padding-top: 24px;
-  color: #1f5fbf;
-  background: linear-gradient(180deg, #e9f3ff, #f5f9ff);
-  border-right: 1px solid #d8e5f4;
-  font-size: 25px;
-}
-
-.settings-accent::after {
-  width: 4px;
-  height: 34px;
-  margin: 16px auto 0;
-  background: #2d6cdf;
-  border-radius: 999px;
-  content: '';
-}
-
-.settings-content { padding: 22px 24px 24px; }
+.settings-content { padding: 0 0 24px; }
 .settings-header,
 .settings-title-row,
 .enable-row,
@@ -297,8 +315,6 @@ onMounted(loadSettings)
 .settings-footer { justify-content: flex-end; margin-top: 22px; padding-top: 18px; border-top: 1px solid #e8edf3; }
 
 @media (max-width: 900px) {
-  .assistant-settings { grid-template-columns: 1fr; }
-  .settings-accent { display: none; }
   .settings-grid,
   .localized-grid { grid-template-columns: 1fr; }
   .question-row { grid-template-columns: 28px 1fr 34px; }
