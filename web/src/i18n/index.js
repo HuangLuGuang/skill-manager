@@ -99,6 +99,9 @@ export const i18n = createI18n({
         active: '已启用',
         inactive: '未启用',
       },
+      scanOptions: {
+        deepScanHint: '执行静态深度扫描，不会调用模型；需要语义研判时请单独勾选“启动 LLM 分析”。',
+      },
       mcpSecurity: {
         title: 'MCP Tool 安全策略',
         approvalRequired: '需审批',
@@ -452,6 +455,9 @@ export const i18n = createI18n({
         preview: 'Open docs preview',
         active: 'Enabled',
         inactive: 'Disabled',
+      },
+      scanOptions: {
+        deepScanHint: 'Runs a static deep scan without calling a model. Select Start LLM analysis separately for semantic assessment.',
       },
       mcpSecurity: {
         title: 'MCP Tool Security Policy',

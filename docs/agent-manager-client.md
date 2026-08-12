@@ -7,7 +7,7 @@ Agent Manager Client 用于统一发现、接管和巡检本机 Agent 的 Skill 
 - 客户端安全治理（默认）：Skill 已在平台批准且本地内容签名一致即可使用，不要求创建或绑定平台智能体。
 - Agent 强授权：除批准状态和签名外，还要求本机 Agent 绑定平台智能体，并校验该智能体的 Skill 允许范围。
 
-客户端内置支持以下六类工具：
+客户端当前内置支持以下 Agent：
 
 - Claude Code
 - Codex
@@ -15,8 +15,13 @@ Agent Manager Client 用于统一发现、接管和巡检本机 Agent 的 Skill 
 - OpenCode
 - OpenClaw
 - Hermes
+- TRAE CN
+- TRAE
+- Cursor
+- CodeBuddy
+- WorkBuddy
 
-以上工具支持 Skill 发现、接管、安装和巡检。其他工具可在桌面端点击“添加自定义 Agent”，填写名称并选择或输入 Skill 根目录；自定义 Agent 会复用同一套治理流程。
+客户端还识别可由 OpenCode、Cursor 等读取的共用 `.agents/skills` 目录，并在界面中单独标明共享边界。以上 Agent 和目录支持 Skill 发现、接管、安装和巡检。其他工具可在桌面端点击“添加自定义 Agent”，填写名称并选择或输入 Skill 根目录；自定义 Agent 会复用同一套治理流程。
 
 ## 客户端设置
 
@@ -79,7 +84,7 @@ agent-manager-client-linux-arm64
 ## 3. 注册客户端
 
 ```bash
-export AGENT_MANAGER_CLIENT_SERVER="http://127.0.0.1:8001"
+export AGENT_MANAGER_CLIENT_SERVER="http://127.0.0.1"
 export AGENT_MANAGER_CLIENT_TOKEN="amat_xxx"
 
 ./agent-manager-client-darwin-arm64 register
@@ -259,7 +264,7 @@ git push github client-v26.03.15.2
 
 客户端界面、安装包文件名和发布目录保留四段显示版本。构建脚本会将其转换成 Tauri 使用的三段内部版本，例如 `26.03.15.2` 转换为 `26.3.1502`，用于可靠比较同日多次发布。序号允许 `1`–`99`；不要使用 SemVer 构建元数据 `+N`，因为它不参与版本新旧比较。
 
-推送 `client-v*` 标签后，[GitHub Actions 工作流](/Users/huangluguang/Desktop/Project/skill-manager/.github/workflows/agent-manager-client.yml) 会使用 GitHub 托管的 macOS ARM、macOS Intel、Windows x64 和 Linux x64 Runner 构建安装包。macOS 测试模式会校验完整 ad-hoc 签名和 DMG 完整性；`developer-id` 模式还会强制检查 Developer ID、Hardened Runtime、DMG 公证票据和 Gatekeeper 评估。任何一项失败都会终止整个发布，不会同步到管理台。最终的 `agent-manager-client-update-feed` Artifact 包含安装包、自动更新包和 `latest.json`；也可以在 Actions 页面手动运行工作流，先验证四个平台的普通构建。
+推送 `client-v*` 标签后，[GitHub Actions 工作流](../.github/workflows/agent-manager-client.yml) 会使用 GitHub 托管的 macOS ARM、macOS Intel、Windows x64 和 Linux x64 Runner 构建安装包。macOS 测试模式会校验完整 ad-hoc 签名和 DMG 完整性；`developer-id` 模式还会强制检查 Developer ID、Hardened Runtime、DMG 公证票据和 Gatekeeper 评估。任何一项失败都会终止整个发布，不会同步到管理台。最终的 `agent-manager-client-update-feed` Artifact 包含安装包、自动更新包和 `latest.json`；也可以在 Actions 页面手动运行工作流，先验证四个平台的普通构建。
 
 生产发布由标签为 `agent-manager-release` 的 GitHub self-hosted runner 自动同步到 35：版本文件保存到 `/home/ubuntu/releases/client-YY.MM.DD.N`。流水线比较候选 `latest.json` 与当前内部版本，只有候选版本不低于当前版本时才更新 `/home/ubuntu/skill-manager/scanner/releases` 和 `client-latest`；较旧构建只归档，不会覆盖最新版。企业微信通知地址通过 Repository Secret `WECHAT_WEBHOOK_URL` 配置，不写入仓库。
 

@@ -68,7 +68,6 @@ Trace 阶段：
 
 | 路径 | 用途 |
 |---|---|
-| `POST /` | 兼容把 `base_url` 当作完整请求地址直接 POST 的客户端，例如部分自定义 provider |
 | `POST /v1/chat/completions` | OpenAI SDK 兼容路径，适合把 `base_url` 指到 Agent Manager |
 | `POST /chat/completions` | 兼容部分客户端把 `base_url` 配成不含 `/v1` 时直接拼接的路径 |
 | `POST /api/v1/llm/chat/completions` | Agent Manager 命名空间路径，适合内部系统显式调用 |
@@ -78,9 +77,9 @@ Trace 阶段：
 
 客户端配置建议：
 
-- OpenAI SDK / Cherry Studio：优先把 Base URL 配成 `http://127.0.0.1:8000/v1`。
-- Hermes 或其他只接受根地址的客户端：可配 `http://127.0.0.1:8000`；如果客户端直接 POST 根地址，网关会兼容 `POST /`，如果客户端自动拼接路径，网关也会兼容 `/chat/completions` 和 `/models`。
-- Claude Code：设置 `ANTHROPIC_BASE_URL=http://127.0.0.1:8000`、`ANTHROPIC_AUTH_TOKEN=amat_xxx`，并把 Claude Code 使用的模型名设置为管理台登记的模型名。
+- OpenAI SDK / Cherry Studio：Docker Compose 默认把 Base URL 配成 `http://127.0.0.1/v1`。
+- Hermes 或其他从根地址自动拼接路径的客户端：可配 `http://127.0.0.1`，网关对外提供 `/chat/completions` 和 `/models`。当前 Compose 的根路径由管理台前端使用，不适合会直接 POST 根地址的客户端。
+- Claude Code：设置 `ANTHROPIC_BASE_URL=http://127.0.0.1`、`ANTHROPIC_AUTH_TOKEN=amat_xxx`，并把 Claude Code 使用的模型名设置为管理台登记的模型名。
 
 请求必须携带模型调用凭证。凭证统一在管理台 `智能体管理 / 统一凭证中心` 创建，类型选择 `模型调用凭证`：
 
@@ -158,7 +157,7 @@ Prompt 不再作为主流程里的独立上传资产。平台默认在模型网�
 
 ### 开启方式
 
-在管理台 `凭证管理` 创建或编辑模型调用凭证，勾选 `model:chat` 后选择 `Prompt 防护`：
+在管理台 `智能体管理 / 统一凭证中心` 创建或编辑模型调用凭证，勾选 `model:chat` 后选择 `Prompt 防护`：
 
 | 模式 | 行为 |
 |---|---|
@@ -167,7 +166,7 @@ Prompt 不再作为主流程里的独立上传资产。平台默认在模型网�
 | 告警放行 | 命中规则时标记告警并放行 |
 | 高风险阻断 | 命中高风险规则时返回 `403`，并写入审计和链路追踪 |
 
-旧的 `模型网关 / API Key 管理` 页面也保留同样配置，但新接入方建议统一使用 `凭证管理`。
+新接入方统一在 `智能体管理 / 统一凭证中心` 管理模型调用凭证。
 
 ### 测试方式
 
@@ -206,14 +205,14 @@ Prompt 不再作为主流程里的独立上传资产。平台默认在模型网�
 - 明文只展示一次。
 - 服务端只保存 SHA-256 hash 和 key prefix。
 - 创建时自动绑定当前登录用户；运行时按该用户所属用户组解析隐私策略。
-- 可配置允许模型列表、过期时间、最大请求体大小 `max_body_kb`、最大并发请求数 `max_concurrent_requests`。
-- 可编辑名称、模型范围、过期时间、状态和限额；明文 token 仍只在创建后展示一次。
+- 可配置允许模型列表、最大请求体大小 `max_body_kb`、最大并发请求数 `max_concurrent_requests`、Prompt 防护和可选压缩。
+- 管理台当前提供创建、吊销和删除，不提供找回明文或就地编辑；需要调整绑定或限额时应创建替代凭证，再吊销旧凭证。
 - Agent 运行凭证默认不能调用模型；只有显式勾选 `model:chat` 后，才可以调用模型网关。
 
 运行时会检查：
 
 - key 是否存在且状态为 `active`
-- key 是否过期
+- key 是否过期（仅对通过 API 设置了 `expires_at` 的兼容凭证生效；当前统一凭证中心不展示有效期字段）
 - 请求模型是否在 key 的允许模型范围内
 - 请求体是否超过 `max_body_kb`
 - SQLite 原子租约中该 key 的活动请求数是否超过限制；多个 Worker 共享同一数据库文件时使用同一上限，异常退出后的租约会自动过期
@@ -304,7 +303,7 @@ PII 检测默认按中国业务场景精准率优先：
 `agent_manager/core/llm.py` 和 prompt vetting 支持通过环境变量走模型网关；sandbox probe 生成也会在配置了网关时优先走隐私代理：
 
 ```bash
-export AGENT_MANAGER_LLM_GATEWAY_URL="http://127.0.0.1:8000/v1/chat/completions"
+export AGENT_MANAGER_LLM_GATEWAY_URL="http://127.0.0.1/v1/chat/completions"
 export AGENT_MANAGER_LLM_GATEWAY_API_KEY="amat_xxx"
 ```
 
@@ -333,20 +332,20 @@ export AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID="vetting-session"
 
 ## 11. 智能上下文压缩
 
-> 详细实施文档见 [headroom-compression-integration.md](headroom-compression-integration.md)
+> 历史实施记录见 [headroom-compression-integration.md](headroom-compression-integration.md)，当前行为以本节和实际链路追踪为准。
 
-模型网关集成 [Headroom](https://github.com/chopratejas/headroom) 智能压缩，自动压缩发送给 LLM 的消息内容（工具输出、日志、代码等），节省 60-95% Token。压缩在 PII 伪匿名化之后执行，按模型调用凭证粒度可选开启。
+模型网关集成 [Headroom](https://github.com/chopratejas/headroom) 上下文压缩，在 PII 伪匿名化之后、请求发送给上游模型之前处理 messages。实际节省量取决于内容类型和长度，短上下文可能完全不变；压缩失败时会使用原始 messages 继续调用，因此不能承诺固定节省比例或答案质量不变。
 
 ### 开启方式
 
-在管理台 `智能体管理 / 统一凭证中心` 创建模型调用凭证时，打开“开启智能压缩”开关并选择压缩级别（均衡/保守/激进）。
+可以在供应商管理中全局启用压缩，也可以在 `智能体管理 / 统一凭证中心` 为带 `model:chat` 的模型调用凭证或 Agent 运行凭证单独启用，并选择均衡、保守或激进。只有供应商启用而凭证没有指定级别时，运行时使用 `auto`。
 
 ### 如何看到效果
 
 **方式 1 — HTTP 响应头（最快）**:
 
 ```bash
-curl -s -D - http://127.0.0.1:8000/v1/chat/completions \
+curl -s -D - http://127.0.0.1/v1/chat/completions \
   -H "Authorization: Bearer amat_xxx" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]}' \
@@ -361,18 +360,16 @@ x-compression-ratio: 92.4
 x-compression-ms: 45
 ```
 
-关闭或未生效时:
+启用但本次没有产生变换时：
 ```
-x-compression: off
+x-compression: enabled-noop
 ```
+
+未启用时返回 `x-compression: off`。
 
 **方式 2 — 管理台隐私链路追踪**:
 
 进入 `隐私链路追踪` 页面，展开一次请求:
 
-- 详情顶部显示绿色提示条：「智能压缩: 节省 2094 tokens (92.4%), 耗时 45ms」
+- 详情顶部显示本次是否压缩、节省 Token 和耗时；具体数值取决于请求内容
 - 展开第 3 阶段「智能压缩后」可对比压缩前后的 messages 差异
-
-**方式 3 — 管理台 API Key 列表**:
-
-API Key 表格中「压缩」列显示当前状态: 紫色标签 `auto` / `conservative` / `aggressive`，或灰色「关闭」。

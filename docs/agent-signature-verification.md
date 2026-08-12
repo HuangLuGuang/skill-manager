@@ -43,7 +43,7 @@ token 鉴权的 `can-load` 不接受 `skill_path`，避免外部 token 探测服
 Agent 不持有服务端私钥。服务端批准 Skill 时使用 Ed25519 私钥签名，
 Agent 侧只计算确定性的 SHA256 内容摘要。
 
-当前算法定义在 [signer.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/signer.py)：
+当前算法定义在 [signer.py](../agent_manager/core/signer.py)：
 
 1. 递归遍历 skill 根目录下所有文件
 2. 按相对路径排序
@@ -127,7 +127,7 @@ if __name__ == "__main__":
 调用示例：
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/access/runtime/verify-skill-signature" \
+curl -X POST "http://localhost/api/v1/access/runtime/verify-skill-signature" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer amat_xxx" \
   -d '{

@@ -1,9 +1,9 @@
-# Headroom 智能压缩集成 — 实施计划
+# Headroom 上下文压缩集成 — 历史实施记录
 
-> **状态**: 核心已实施，待前端构建 + 集成联调
+> **状态**: 历史实施记录，不作为当前配置或验收手册
 > **创建日期**: 2026-06-10
 > **实施日期**: 2026-06-10
-> **目标**: 在模型网关中集成 Headroom 智能上下文压缩，作为可选项让用户按 API Key 粒度开启/关闭
+> **当前文档**: 请以 [model-gateway.md](model-gateway.md) 的“智能上下文压缩”和当前代码、链路追踪为准
 
 ---
 
@@ -11,7 +11,7 @@
 
 ### 1.1 什么是 Headroom
 
-[Headroom](https://github.com/chopratejas/headroom) 是一个 AI Agent 上下文压缩层，在 LLM 请求发送前自动压缩 tool outputs、日志、RAG chunks、文件内容、对话历史，节省 60-95% Token 同时保持答案质量不变。
+[Headroom](https://github.com/chopratejas/headroom) 是一个上下文压缩库，可在 LLM 请求发送前处理 tool outputs、日志、RAG chunks、文件内容和对话历史。节省量和输出影响取决于具体内容，必须使用实际请求评估，不能把项目宣传数字当成当前环境保证。
 
 - 本地运行，数据不离开用户机器
 - Apache 2.0 开源协议
@@ -591,7 +591,7 @@ compression_level=body.compression_level,
     onChange={(e) => setEnableCompression(e.target.checked)}
   />
   <FormHelperText>
-    开启后自动压缩工具输出、日志、代码等，节省 60-95% Token
+    开启后按内容尝试压缩工具输出、日志、代码等；实际节省量以链路追踪为准
   </FormHelperText>
 </FormControl>
 
@@ -604,7 +604,7 @@ compression_level=body.compression_level,
       <option value="aggressive">激进 — 全部算法 + ML 模型</option>
     </Select>
     <FormHelperText>
-      保守: 零质量影响 | 均衡: ~70% Token 节省 | 激进: ~90% 节省，可能略微影响输出
+      保守、均衡和激进会采用不同处理强度；应使用代表性请求评估节省量和输出影响
     </FormHelperText>
   </FormControl>
 )}

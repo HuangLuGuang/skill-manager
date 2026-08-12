@@ -23,7 +23,7 @@ Sandbox 负责执行：
 - 记录 stdout / stderr / exit code
 - 观察网络、文件系统、动态执行等信号
 - 把结果回填到 `scan_report.sandbox_analysis`
-- 在 LLM 启用时，支持由 LLM 生成额外的安全 probe 参数用例
+- 从 Skill 中选择一个真实脚本入口，执行一个保守的默认 probe
 
 ## 架构对比
 
@@ -49,8 +49,8 @@ flowchart TB
 
 代码位置：
 
-- [agent_manager/core/sandbox.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/sandbox.py)
-- [agent_manager/core/vetting.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/vetting.py)
+- [agent_manager/core/sandbox.py](../agent_manager/core/sandbox.py)
+- [agent_manager/core/vetting.py](../agent_manager/core/vetting.py)
 
 当前已经支持：
 
@@ -58,7 +58,7 @@ flowchart TB
 - `RemoteSandboxRunner`
 - `get_sandbox_runner()` 工厂切换
 - 一个生产版独立服务基线实现：
-  [services/isolated-sandbox-service/README.md](/Users/huangluguang/Desktop/Project/skill-manager/services/isolated-sandbox-service/README.md)
+  [services/isolated-sandbox-service/README.md](../services/isolated-sandbox-service/README.md)
 
 说明：
 
@@ -75,17 +75,15 @@ sequenceDiagram
     participant Runner as "Sandbox Backend"
 
     Submit->>Vetting: vet(..., use_sandbox)
-    Vetting->>Vetting: scanner / behavioral / llm
+    Vetting->>Vetting: 并行执行 scanner / behavioral / deep scan
     Vetting->>Vetting: 根据风险和策略判断是否强制 sandbox
     Vetting->>Factory: 读取 SandboxConfig
     Factory-->>Vetting: DockerSandboxRunner or RemoteSandboxRunner
     Vetting->>Vetting: discover entrypoint + default probe
-    opt LLM enabled
-      Vetting->>Vetting: LLM 生成安全 probe 参数用例
-    end
-    loop 每个 probe case
-      Vetting->>Runner: run_probe(skill_path, entrypoint, args)
-      Runner-->>Vetting: SandboxResult
+    Vetting->>Runner: run_probe(skill_path, entrypoint, args)
+    Runner-->>Vetting: SandboxResult
+    opt 勾选 LLM
+      Vetting->>Vetting: 汇总确定性证据后调用一次 LLM
     end
     Vetting->>Vetting: 合并到 scan_report.sandbox_analysis
 ```
@@ -94,35 +92,11 @@ sequenceDiagram
 
 默认情况下，sandbox 会先做保守 probe：
 
-- 自动发现 `scripts/*.py`、`scripts/*.sh`、`scripts/*.js`
+- 从 `scripts/` 和 Skill 根目录自动发现一个 `.py`、`.sh` 或 `.js` 入口
 - 如果入口脚本看起来是 CLI，例如使用 `argparse`、`click`、`typer`，默认 probe 会用 `--help`
 - 否则用空参数执行一次
 
-如果 skill 没有脚本入口，但 `SKILL.md` 里存在 bash/sh fenced code block，系统会把这些命令块写入 sandbox 临时拷贝中的 `.sh` probe 脚本，然后交给 sandbox 执行。
-这个过程不会修改原始 skill 目录。
-
-当提交时同时启用 `Sandbox` 和 `LLM 分析` 时，Agent Manager 会额外请求 LLM 结合 `SKILL.md` 使用说明、命令示例和文件清单生成最多 4 组 probe case。
-这不是让 LLM 生成代码，而是只允许它选择 skill 包中已经存在的入口文件，并生成参数列表，例如：
-
-```json
-{
-  "probes": [
-    {
-      "name": "safe-file-input",
-      "description": "用 /tmp 下的占位文件触发文件读取路径",
-      "entrypoint": "tools/check.py",
-      "args": ["--input", "/tmp/nonexistent.txt"]
-    }
-  ]
-}
-```
-
-限制：
-
-- 不允许生成 shell 管道
-- 入口文件必须是 skill 目录中真实存在的 `.py`、`.sh` 或 `.js`
-- 不允许生成真实凭证
-- 不允许生成真实内网目标
+当前 Vetting 流程只执行这一个默认 probe。没有支持的入口时会跳过，不执行 `SKILL.md` 中的 shell 命令块，也不调用 LLM 生成额外 probe。LLM 只在所选确定性分析器完成后做一次最终语义研判。
 - 不允许生成破坏性参数
 - 不保证覆盖所有恶意分支
 

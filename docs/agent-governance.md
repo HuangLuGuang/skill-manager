@@ -34,7 +34,7 @@ Agent 运行凭证必须绑定一个已登记 Agent。默认采用“Skill 校�
 
 MCP Client 仍使用独立 MCP 网关凭证，并绑定允许访问的网关列表。它不冒充 Agent 身份；Agent 若同时使用 MCP，需要分别持有 Agent 运行凭证和 MCP 网关凭证。
 
-对象关系上以 Agent 为主档案：先登记 Agent 并绑定默认模型、Prompt 和允许使用的 Skill；随后在凭证管理中为这个 Agent 签发运行凭证。不要在创建 Agent 时反向选择凭证，避免出现新建流程的循环依赖。
+对象关系上以 Agent 为主档案：先登记 Agent 并绑定默认模型、Prompt 和允许使用的 Skill；随后在统一凭证中心为这个 Agent 签发运行凭证。不要在创建 Agent 时反向选择凭证，避免出现新建流程的循环依赖。
 
 ## 接入流程
 
@@ -51,7 +51,7 @@ MCP Client 仍使用独立 MCP 网关凭证，并绑定允许访问的网关列�
   ↓
 绑定默认模型、Prompt、允许 Skill
   ↓
-在凭证管理中创建 Agent 运行凭证并绑定 Agent
+在统一凭证中心创建 Agent 运行凭证并绑定 Agent
   ↓
 外部 Agent 使用 agent_id + access_token 接入运行时校验
 ```

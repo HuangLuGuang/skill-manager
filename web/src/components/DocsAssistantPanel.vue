@@ -92,7 +92,9 @@
             rows="2"
             :placeholder="t('docsAssistant.inputPlaceholder')"
             :disabled="asking"
-            @keydown.enter.exact.prevent="submitQuestion(questionInput)"
+            @compositionstart="composing = true"
+            @compositionend="composing = false"
+            @keydown="handleComposerKeydown"
           />
           <button
             type="button"
@@ -126,6 +128,8 @@ import {
 } from '@ant-design/icons-vue'
 
 import { askDocsAssistant } from '../api'
+import { shouldSubmitComposerOnEnter } from '../utils/composerKeyboard'
+import { rankDocsContexts } from '../utils/docsSearch'
 import { renderSafeMarkdown } from '../utils/markdown'
 
 const props = defineProps({
@@ -141,6 +145,7 @@ const { t } = useI18n()
 const questionInput = ref('')
 const messages = ref([])
 const asking = ref(false)
+const composing = ref(false)
 const conversationScroller = ref(null)
 const inputElement = ref(null)
 
@@ -149,57 +154,6 @@ const questions = computed(() => (props.config.common_questions || []).map(item 
   id: item.id,
   label: props.locale === 'en-US' ? item.question_en : item.question_zh,
 })).filter(item => item.label))
-
-const flattenText = value => {
-  if (typeof value === 'string' || typeof value === 'number') return String(value)
-  if (Array.isArray(value)) return value.map(flattenText).filter(Boolean).join(' ')
-  if (value && typeof value === 'object') return Object.values(value).map(flattenText).filter(Boolean).join(' ')
-  return ''
-}
-
-const queryTokens = query => {
-  const normalized = query.toLocaleLowerCase().trim()
-  const words = normalized.match(/[a-z0-9][a-z0-9_-]+/g) || []
-  const chinese = normalized.match(/[\u3400-\u9fff]+/g) || []
-  const grams = chinese.flatMap(group => {
-    if (group.length <= 2) return [group]
-    return Array.from({ length: group.length - 1 }, (_, index) => group.slice(index, index + 2))
-  })
-  return [...new Set([...words, ...grams].filter(token => token.length > 1))]
-}
-
-const rankContexts = query => {
-  const tokens = queryTokens(query)
-  const candidates = []
-  for (const [slug, article] of Object.entries(props.content.articles || {})) {
-    for (const section of article.sections || []) {
-      const content = flattenText({
-        paragraphs: section.paragraphs,
-        bullets: section.bullets,
-        steps: section.steps,
-        table: section.table,
-        callout: section.callout,
-        code: section.code,
-      }).replace(/\s+/g, ' ').trim()
-      if (!content) continue
-      const titleText = `${article.title} ${section.title}`.toLocaleLowerCase()
-      const bodyText = content.toLocaleLowerCase()
-      let score = slug === props.currentSlug ? 1.5 : 0
-      for (const token of tokens) {
-        if (titleText.includes(token)) score += 5 + Math.min(token.length, 5)
-        if (bodyText.includes(token)) score += 1 + Math.min(token.length / 2, 3)
-      }
-      candidates.push({
-        slug,
-        article_title: article.title,
-        section_title: section.title,
-        content: content.slice(0, 4000),
-        score,
-      })
-    }
-  }
-  return candidates.sort((left, right) => right.score - left.score)
-}
 
 const buildRelated = contexts => {
   const seen = new Set()
@@ -219,6 +173,12 @@ const scrollToBottom = async () => {
   conversationScroller.value?.scrollTo({ top: conversationScroller.value.scrollHeight, behavior: 'smooth' })
 }
 
+const handleComposerKeydown = event => {
+  if (!shouldSubmitComposerOnEnter(event, composing.value)) return
+  event.preventDefault()
+  submitQuestion(questionInput.value)
+}
+
 const submitQuestion = async (rawQuestion, retry = false) => {
   const question = String(rawQuestion || '').trim()
   if (!question || asking.value) return
@@ -228,7 +188,11 @@ const submitQuestion = async (rawQuestion, retry = false) => {
   await scrollToBottom()
 
   const limit = Math.min(Math.max(props.config.max_context_sections || 4, 2), 6)
-  const contexts = rankContexts(question).slice(0, limit)
+  const contexts = rankDocsContexts({
+    content: props.content,
+    query: question,
+    currentSlug: props.currentSlug,
+  }).slice(0, limit)
   const history = messages.value
     .filter(item => !item.error)
     .slice(retry ? -7 : -7, -1)
