@@ -62,6 +62,12 @@ deploy-35:
           response.raise_for_status()
       '
 
+      docker run --rm --entrypoint sh "agent-manager-frontend:${IMAGE_TAG}" -c '
+      nginx
+      wget -qO- http://127.0.0.1/docs >/dev/null
+      wget -qO- http://127.0.0.1/docs/ >/dev/null
+      '
+
       install -m 0644 docker-compose.yaml "$DEPLOY_DIR/docker-compose.yaml"
       install -d "$DEPLOY_DIR/deploy/nginx"
       install -m 0644 deploy/nginx/default.conf "$DEPLOY_DIR/deploy/nginx/default.conf"
