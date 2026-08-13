@@ -1,0 +1,377 @@
+{
+  "started_at": "2026-08-13T00:42:10Z",
+  "runner": {
+    "python": "3.12.13",
+    "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.41"
+  },
+  "method": {
+    "concurrency_levels": [
+      1,
+      2,
+      5,
+      10,
+      20,
+      40
+    ],
+    "gateway_requests_per_level": 20,
+    "mock_upstream_delay_ms": 50,
+    "sections": [
+      "mcp"
+    ]
+  },
+  "model_gateway": [],
+  "model_upstream_direct": [],
+  "mcp_initialize": [
+    {
+      "case": "mcp-initialize",
+      "concurrency": 1,
+      "requests": 20,
+      "successes": 20,
+      "errors": 0,
+      "status_counts": {
+        "200": 20
+      },
+      "elapsed_s": 0.269,
+      "throughput_rps": 74.37,
+      "latency_ms": {
+        "mean": 13.39,
+        "p50": 9.5,
+        "p95": 15.39,
+        "p99": 71.29,
+        "max": 85.27
+      }
+    },
+    {
+      "case": "mcp-initialize",
+      "concurrency": 2,
+      "requests": 20,
+      "successes": 20,
+      "errors": 0,
+      "status_counts": {
+        "200": 20
+      },
+      "elapsed_s": 0.173,
+      "throughput_rps": 115.37,
+      "latency_ms": {
+        "mean": 16.41,
+        "p50": 16.3,
+        "p95": 19.69,
+        "p99": 23.29,
+        "max": 24.2
+      }
+    },
+    {
+      "case": "mcp-initialize",
+      "concurrency": 5,
+      "requests": 20,
+      "successes": 20,
+      "errors": 0,
+      "status_counts": {
+        "200": 20
+      },
+      "elapsed_s": 0.155,
+      "throughput_rps": 129.2,
+      "latency_ms": {
+        "mean": 36.02,
+        "p50": 33.51,
+        "p95": 54.82,
+        "p99": 55.21,
+        "max": 55.31
+      }
+    },
+    {
+      "case": "mcp-initialize",
+      "concurrency": 10,
+      "requests": 20,
+      "successes": 20,
+      "errors": 0,
+      "status_counts": {
+        "200": 20
+      },
+      "elapsed_s": 0.193,
+      "throughput_rps": 103.76,
+      "latency_ms": {
+        "mean": 83.36,
+        "p50": 78.1,
+        "p95": 115.07,
+        "p99": 117.01,
+        "max": 117.49
+      }
+    },
+    {
+      "case": "mcp-initialize",
+      "concurrency": 20,
+      "requests": 40,
+      "successes": 40,
+      "errors": 0,
+      "status_counts": {
+        "200": 40
+      },
+      "elapsed_s": 0.394,
+      "throughput_rps": 101.59,
+      "latency_ms": {
+        "mean": 170.16,
+        "p50": 162.12,
+        "p95": 255.46,
+        "p99": 260.67,
+        "max": 261.97
+      }
+    },
+    {
+      "case": "mcp-initialize",
+      "concurrency": 40,
+      "requests": 80,
+      "successes": 0,
+      "errors": 80,
+      "status_counts": {
+        "error:ReadTimeout": 40,
+        "error:ReadError": 40
+      },
+      "elapsed_s": 48.114,
+      "throughput_rps": 0.0,
+      "latency_ms": {
+        "mean": 24039.42,
+        "p50": 24048.25,
+        "p95": 30137.37,
+        "p99": 30142.1,
+        "max": 30146.82
+      }
+    }
+  ],
+  "mcp_tools_list": [
+    {
+      "case": "mcp-tools-list",
+      "concurrency": 1,
+      "requests": 20,
+      "successes": 20,
+      "errors": 0,
+      "status_counts": {
+        "200": 20
+      },
+      "elapsed_s": 0.297,
+      "throughput_rps": 67.29,
+      "latency_ms": {
+        "mean": 14.79,
+        "p50": 13.76,
+        "p95": 17.57,
+        "p99": 27.06,
+        "max": 29.43
+      }
+    },
+    {
+      "case": "mcp-tools-list",
+      "concurrency": 2,
+      "requests": 20,
+      "successes": 20,
+      "errors": 0,
+      "status_counts": {
+        "200": 20
+      },
+      "elapsed_s": 0.217,
+      "throughput_rps": 92.17,
+      "latency_ms": {
+        "mean": 21.04,
+        "p50": 20.24,
+        "p95": 24.11,
+        "p99": 24.78,
+        "max": 24.95
+      }
+    },
+    {
+      "case": "mcp-tools-list",
+      "concurrency": 5,
+      "requests": 20,
+      "successes": 20,
+      "errors": 0,
+      "status_counts": {
+        "200": 20
+      },
+      "elapsed_s": 0.228,
+      "throughput_rps": 87.76,
+      "latency_ms": {
+        "mean": 52.8,
+        "p50": 56.32,
+        "p95": 61.36,
+        "p99": 61.99,
+        "max": 62.15
+      }
+    },
+    {
+      "case": "mcp-tools-list",
+      "concurrency": 10,
+      "requests": 20,
+      "successes": 20,
+      "errors": 0,
+      "status_counts": {
+        "200": 20
+      },
+      "elapsed_s": 0.267,
+      "throughput_rps": 75.01,
+      "latency_ms": {
+        "mean": 115.23,
+        "p50": 114.42,
+        "p95": 156.18,
+        "p99": 158.87,
+        "max": 159.54
+      }
+    },
+    {
+      "case": "mcp-tools-list",
+      "concurrency": 20,
+      "requests": 40,
+      "successes": 20,
+      "errors": 20,
+      "status_counts": {
+        "200": 20,
+        "error:ReadTimeout": 20
+      },
+      "elapsed_s": 30.33,
+      "throughput_rps": 0.66,
+      "latency_ms": {
+        "mean": 15105.74,
+        "p50": 15154.07,
+        "p95": 30122.38,
+        "p99": 30143.17,
+        "max": 30147.56
+      }
+    },
+    {
+      "case": "mcp-tools-list",
+      "concurrency": 40,
+      "requests": 80,
+      "successes": 0,
+      "errors": 80,
+      "status_counts": {
+        "error:ConnectError": 80
+      },
+      "elapsed_s": 0.184,
+      "throughput_rps": 0.0,
+      "latency_ms": {
+        "mean": 76.49,
+        "p50": 78.16,
+        "p95": 105.83,
+        "p99": 109.42,
+        "max": 111.06
+      }
+    }
+  ],
+  "mcp_tool_call": [
+    {
+      "case": "mcp-tool-call",
+      "concurrency": 1,
+      "requests": 20,
+      "successes": 20,
+      "errors": 0,
+      "status_counts": {
+        "200": 20
+      },
+      "elapsed_s": 5.699,
+      "throughput_rps": 3.51,
+      "latency_ms": {
+        "mean": 284.86,
+        "p50": 282.55,
+        "p95": 305.88,
+        "p99": 321.51,
+        "max": 325.41
+      }
+    },
+    {
+      "case": "mcp-tool-call",
+      "concurrency": 2,
+      "requests": 20,
+      "successes": 20,
+      "errors": 0,
+      "status_counts": {
+        "200": 20
+      },
+      "elapsed_s": 3.775,
+      "throughput_rps": 5.3,
+      "latency_ms": {
+        "mean": 376.85,
+        "p50": 376.74,
+        "p95": 400.83,
+        "p99": 401.25,
+        "max": 401.36
+      }
+    },
+    {
+      "case": "mcp-tool-call",
+      "concurrency": 5,
+      "requests": 20,
+      "successes": 20,
+      "errors": 0,
+      "status_counts": {
+        "200": 20
+      },
+      "elapsed_s": 2.613,
+      "throughput_rps": 7.66,
+      "latency_ms": {
+        "mean": 615.53,
+        "p50": 655.93,
+        "p95": 699.39,
+        "p99": 699.9,
+        "max": 700.03
+      }
+    },
+    {
+      "case": "mcp-tool-call",
+      "concurrency": 10,
+      "requests": 20,
+      "successes": 20,
+      "errors": 0,
+      "status_counts": {
+        "200": 20
+      },
+      "elapsed_s": 2.513,
+      "throughput_rps": 7.96,
+      "latency_ms": {
+        "mean": 1209.52,
+        "p50": 1189.46,
+        "p95": 1324.51,
+        "p99": 1325.68,
+        "max": 1325.97
+      }
+    },
+    {
+      "case": "mcp-tool-call",
+      "concurrency": 20,
+      "requests": 40,
+      "successes": 0,
+      "errors": 40,
+      "status_counts": {
+        "error:ReadTimeout": 40
+      },
+      "elapsed_s": 60.137,
+      "throughput_rps": 0.0,
+      "latency_ms": {
+        "mean": 30059.78,
+        "p50": 30060.73,
+        "p95": 30074.42,
+        "p99": 30075.66,
+        "max": 30076.26
+      }
+    },
+    {
+      "case": "mcp-tool-call",
+      "concurrency": 40,
+      "requests": 80,
+      "successes": 0,
+      "errors": 80,
+      "status_counts": {
+        "error:ConnectError": 80
+      },
+      "elapsed_s": 1.148,
+      "throughput_rps": 0.0,
+      "latency_ms": {
+        "mean": 514.96,
+        "p50": 60.69,
+        "p95": 1122.85,
+        "p99": 1126.64,
+        "max": 1130.4
+      }
+    }
+  ],
+  "runtime_signature_verification": [],
+  "skill_detection": [],
+  "finished_at": "2026-08-13T00:44:47Z"
+}

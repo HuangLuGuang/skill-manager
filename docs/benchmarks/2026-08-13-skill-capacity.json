@@ -1,0 +1,29 @@
+{
+  "synthetic_skills_requested": 50000,
+  "total_skill_families": 50012,
+  "insert_seconds": 1.939,
+  "database_size_mib": 59.97,
+  "iterations": 50,
+  "queries": {
+    "page_first": {
+      "p50_ms": 63.005,
+      "p95_ms": 75.82,
+      "mean_ms": 68.163
+    },
+    "page_middle": {
+      "p50_ms": 89.063,
+      "p95_ms": 111.01,
+      "mean_ms": 93.228
+    },
+    "search_exact": {
+      "p50_ms": 77.648,
+      "p95_ms": 89.029,
+      "mean_ms": 81.314
+    },
+    "dashboard_group": {
+      "p50_ms": 86.746,
+      "p95_ms": 145.338,
+      "mean_ms": 97.198
+    }
+  }
+}

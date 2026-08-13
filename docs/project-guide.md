@@ -619,6 +619,9 @@ make sandbox-runtime-build
 完整容器化启动见：
 
 - [docker-deployment.md](../docs/docker-deployment.md)
+- [performance-benchmark.md](../docs/performance-benchmark.md)：单节点并发、Skill 数量和客户端 Inventory 实测
+
+配置允许的最大并发不等于稳定处理能力。容量评估应同时检查 P95、错误率、SQLite 写等待、上游延迟和审计增长。
 
 ---
 

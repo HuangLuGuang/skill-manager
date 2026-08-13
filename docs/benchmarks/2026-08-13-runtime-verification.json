@@ -1,0 +1,145 @@
+{
+  "started_at": "2026-08-13T00:45:20Z",
+  "runner": {
+    "python": "3.12.13",
+    "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.41"
+  },
+  "method": {
+    "concurrency_levels": [
+      1,
+      2,
+      5,
+      10,
+      20,
+      40
+    ],
+    "gateway_requests_per_level": 40,
+    "mock_upstream_delay_ms": 50,
+    "sections": [
+      "runtime"
+    ]
+  },
+  "model_gateway": [],
+  "model_upstream_direct": [],
+  "mcp_initialize": [],
+  "mcp_tools_list": [],
+  "mcp_tool_call": [],
+  "runtime_signature_verification": [
+    {
+      "case": "runtime-signature-verification",
+      "concurrency": 1,
+      "requests": 40,
+      "successes": 40,
+      "errors": 0,
+      "status_counts": {
+        "200": 40
+      },
+      "elapsed_s": 1.289,
+      "throughput_rps": 31.04,
+      "latency_ms": {
+        "mean": 32.15,
+        "p50": 30.02,
+        "p95": 39.83,
+        "p99": 68.42,
+        "max": 86.59
+      }
+    },
+    {
+      "case": "runtime-signature-verification",
+      "concurrency": 2,
+      "requests": 40,
+      "successes": 40,
+      "errors": 0,
+      "status_counts": {
+        "200": 40
+      },
+      "elapsed_s": 1.108,
+      "throughput_rps": 36.09,
+      "latency_ms": {
+        "mean": 54.98,
+        "p50": 54.63,
+        "p95": 74.13,
+        "p99": 78.84,
+        "max": 79.52
+      }
+    },
+    {
+      "case": "runtime-signature-verification",
+      "concurrency": 5,
+      "requests": 40,
+      "successes": 40,
+      "errors": 0,
+      "status_counts": {
+        "200": 40
+      },
+      "elapsed_s": 1.176,
+      "throughput_rps": 34.03,
+      "latency_ms": {
+        "mean": 142.1,
+        "p50": 136.88,
+        "p95": 192.18,
+        "p99": 214.79,
+        "max": 223.87
+      }
+    },
+    {
+      "case": "runtime-signature-verification",
+      "concurrency": 10,
+      "requests": 40,
+      "successes": 40,
+      "errors": 0,
+      "status_counts": {
+        "200": 40
+      },
+      "elapsed_s": 1.152,
+      "throughput_rps": 34.73,
+      "latency_ms": {
+        "mean": 269.93,
+        "p50": 258.39,
+        "p95": 376.35,
+        "p99": 533.96,
+        "max": 615.14
+      }
+    },
+    {
+      "case": "runtime-signature-verification",
+      "concurrency": 20,
+      "requests": 40,
+      "successes": 40,
+      "errors": 0,
+      "status_counts": {
+        "200": 40
+      },
+      "elapsed_s": 1.278,
+      "throughput_rps": 31.3,
+      "latency_ms": {
+        "mean": 538.9,
+        "p50": 508.16,
+        "p95": 881.9,
+        "p99": 969.44,
+        "max": 1000.08
+      }
+    },
+    {
+      "case": "runtime-signature-verification",
+      "concurrency": 40,
+      "requests": 80,
+      "successes": 80,
+      "errors": 0,
+      "status_counts": {
+        "200": 80
+      },
+      "elapsed_s": 2.507,
+      "throughput_rps": 31.92,
+      "latency_ms": {
+        "mean": 1035.9,
+        "p50": 1060.79,
+        "p95": 1446.71,
+        "p99": 1696.61,
+        "max": 1697.28
+      }
+    }
+  ],
+  "skill_detection": [],
+  "finished_at": "2026-08-13T00:45:29Z"
+}
