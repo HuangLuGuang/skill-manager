@@ -1,6 +1,13 @@
 from pathlib import Path
 
 
+def test_nginx_configs_hide_version_tokens():
+    for config_path in (Path("deploy/nginx/default.conf"), Path("web/nginx.conf")):
+        nginx_config = config_path.read_text(encoding="utf-8")
+
+        assert "server_tokens off;" in nginx_config
+
+
 def test_docs_spa_entry_does_not_collide_with_screenshot_directory():
     nginx_config = Path("web/nginx.conf").read_text(encoding="utf-8")
 

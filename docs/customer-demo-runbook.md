@@ -89,14 +89,14 @@ export AGENT_MANAGER_BASE_URL="http://10.10.71.33"
 后端管理台：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /path/to/agent-manager
 uv run --project backend uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 前端：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/web
+cd /path/to/agent-manager/web
 source ~/.nvm/nvm.sh
 nvm use 22.21.1
 npm run dev
@@ -117,7 +117,7 @@ admin / `<INITIAL_ADMIN_PASSWORD 中配置的一次性强密码>`
 Agno runtime demo 推荐另起无后台登录态 API：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /path/to/agent-manager
 uv run agent-manager-api --host 0.0.0.0 --port 8080
 ```
 
@@ -188,11 +188,11 @@ Agent 仍然运行在客户自己的环境里。
 5. `智能体管理 / 智能体列表`
    - 登记业务 Agent、负责人和部门
    - 绑定允许加载的 Skill 范围
-   - 创建后到 `凭证管理` 签发 Agent 运行凭证
+   - 创建后到 `统一凭证中心` 签发 Agent 运行凭证
 
 6. `模型网关`
    - 管理供应商、模型、组策略绑定和隐私策略
-   - 在凭证管理中创建模型调用凭证，可开启 Prompt 防护和智能压缩
+   - 在统一凭证中心创建模型调用凭证，可开启 Prompt 防护和智能压缩
    - 通过 `Token 压缩统计`、`用户 Token 分析`、`隐私链路追踪` 查看调用效果
 
 7. `智能体管理 / 审计追踪`
@@ -229,7 +229,7 @@ LLM 不替代规则扫描。
 内部 vetting 走模型网关时，设置：
 
 ```bash
-export AGENT_MANAGER_LLM_GATEWAY_URL="http://127.0.0.1:8000/v1/chat/completions"
+export AGENT_MANAGER_LLM_GATEWAY_URL="http://127.0.0.1/v1/chat/completions"
 export AGENT_MANAGER_LLM_GATEWAY_API_KEY="amat_xxx"
 ```
 
@@ -245,7 +245,7 @@ image: agent-manager-sandbox-runtime:latest
 构建本地 runtime 镜像：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /path/to/agent-manager
 make sandbox-runtime-build
 ```
 
@@ -273,7 +273,7 @@ Sandbox 是动态试跑，不是唯一裁判。
 管理台进入：
 
 ```text
-智能体治理 -> 凭证管理 -> 创建凭证 -> Scanner 接入凭证
+智能体管理 -> 统一凭证中心 -> 创建凭证 -> Scanner 接入凭证
 ```
 
 建议参数：
@@ -302,7 +302,7 @@ Scanner 接入凭证是客户侧最小权限凭证。
 本地构建：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
+cd /path/to/agent-manager/scanner
 go test ./...
 go build -o skill-scanner ./cmd/skill-scanner
 ```
@@ -310,12 +310,12 @@ go build -o skill-scanner ./cmd/skill-scanner
 扫描样例目录：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
+cd /path/to/agent-manager/scanner
 
 export SKILL_SCANNER_TOKEN="amat_xxx"
 export SKILL_SCANNER_HOST_ID="customer-demo-host"
 
-./skill-scanner scan /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard/sample_skills \
+./skill-scanner scan /path/to/agent-manager/demo/agno-skill-guard/sample_skills \
   --server http://10.10.71.33 \
   --token "$SKILL_SCANNER_TOKEN" \
   --behavioral \
@@ -324,10 +324,10 @@ export SKILL_SCANNER_HOST_ID="customer-demo-host"
   --output customer-demo-scan-report.json
 ```
 
-如果临时切到本地开发环境，再把 server 改成：
+如果在本机通过 Docker Compose 演示，再把 server 改成：
 
 ```bash
---server http://127.0.0.1:8000
+--server http://127.0.0.1
 ```
 
 预期结果：
@@ -347,7 +347,7 @@ export SKILL_SCANNER_HOST_ID="customer-demo-host"
 
 ## 5. 模型网关 Prompt 防护演示
 
-进入 `智能体管理 / 凭证管理`，创建 `模型调用凭证`，打开 Prompt 防护：
+进入 `智能体管理 / 统一凭证中心`，创建 `模型调用凭证`，打开 Prompt 防护：
 
 ```text
 仅记录：适合灰度观察，不影响业务请求
@@ -388,7 +388,7 @@ demo/agno-skill-guard/sample_skills/incident-evidence-uploader
 如果临时做本地备用演示，可以用 CLI 提交到本地 registry：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /path/to/agent-manager
 
 uv run agent-manager submit demo/agno-skill-guard/sample_skills/approved-helper
 uv run agent-manager submit demo/agno-skill-guard/sample_skills/read-only-script
@@ -434,14 +434,13 @@ Sandbox 负责在受限环境观察实际运行信号。
 - `判断依据`
 - `命中片段`
 
-对于只有 `SKILL.md` 命令块、没有 scripts 的 skill，系统会把 fenced bash/sh code block 转成临时 `.sh` probe，在 sandbox 临时拷贝里执行。
+对于只有 `SKILL.md` 命令块、没有真实 `.py`、`.sh` 或 `.js` 入口的 Skill，当前 Sandbox 会明确跳过，不执行文档中的命令示例。
 
 讲解话术：
 
 ```text
-很多 skill 的风险不在脚本文件里，而写在 SKILL.md 的命令说明里。
-系统会把 SKILL.md 里的 shell 命令块也纳入 sandbox probe。
-这些临时 probe 只写入 sandbox 拷贝，不修改原始 skill。
+Sandbox 只执行 Skill 包中真实存在的脚本入口，不会直接执行 SKILL.md 里的命令说明。
+如果没有可支持的入口，报告会显示跳过；这不代表 Skill 安全，仍需结合规则、深度扫描和 LLM 结果。
 ```
 
 ---
@@ -459,14 +458,14 @@ export AGENT_MANAGER_BASE_URL="http://10.10.71.33"
 如果临时切到本地开发环境，再启动 Agent Manager runtime API：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /path/to/agent-manager
 uv run agent-manager-api --host 0.0.0.0 --port 8080
 ```
 
 配置 Agno demo：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
+cd /path/to/agent-manager/demo/agno-skill-guard
 uv sync
 
 export AGENT_MANAGER_BASE_URL="http://10.10.71.33"
@@ -495,7 +494,7 @@ demo/agno-skill-guard/sample_skills/rejected-exfiltrator
 如果临时做本地备用演示，再用 CLI 提交：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /path/to/agent-manager
 
 uv run agent-manager submit demo/agno-skill-guard/sample_skills/approved-helper
 uv run agent-manager submit demo/agno-skill-guard/sample_skills/read-only-script
@@ -515,13 +514,13 @@ uv run python customer_demo.py all
 先提交并审核通过 `travel-expense-calculator`，然后分别配置 Agent 运行凭证和模型调用凭证：
 
 ```bash
-export AGENT_MANAGER_BASE_URL="http://127.0.0.1:8000"
+export AGENT_MANAGER_BASE_URL="http://127.0.0.1"
 export AGENT_MANAGER_ACCESS_TOKEN="your-agent-runtime-token"
-export AGNO_MODEL_BASE_URL="http://127.0.0.1:8000/v1"
+export AGNO_MODEL_BASE_URL="http://127.0.0.1/v1"
 export AGNO_MODEL_ID="deepseek-chat"
 export AGNO_API_KEY="your-model-call-token"
 
-cd /Users/huangluguang/Desktop/Project/skill-manager/demo/agno-skill-guard
+cd /path/to/agent-manager/demo/agno-skill-guard
 uv run --project ../.. python expense_gateway_demo.py
 ```
 

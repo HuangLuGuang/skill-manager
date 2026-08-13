@@ -14,13 +14,18 @@ agent-manager_v1.0.0_x86.tar.gz    # x86 服务器
 安装包内通常包含：
 
 ```text
-docker-compose.yml
+docker-compose.yaml
 .env.example
 docker_images/<arch>/agent-manager-images-v1.0.0.tar.xz
 installers/docker-installer-28.5.2-x86-arm.tar.gz
 ```
 
 ## 部署前检查
+
+单节点生产环境建议从 `16 vCPU`、`32 GiB` 内存和 `500 GiB` 可用 SSD/NVMe
+容量起步。该规格是初始容量基线，不是最低运行门槛；Skill 数量、平均包体积、历史版本、
+扫描报告、审计数据和日志保留越多，所需磁盘容量越大。现场应结合数据保留周期完成容量
+评估，并至少保留 `30%` 磁盘余量，避免镜像加载、升级回滚或扫描临时文件耗尽空间。
 
 确认服务器架构：
 
@@ -54,6 +59,7 @@ cd agent-manager
 xz -dc docker_images/arm/agent-manager-images-v1.0.0.tar.xz | docker load
 
 cp .env.example .env
+# 编辑 .env，替换全部 replace-with-* 占位值，并保持 ENFORCE_SECURE_STARTUP=true
 TAG=v1.0.0 docker compose run --rm --no-deps backend agent-manager signing-key init
 TAG=v1.0.0 docker compose up -d
 docker compose ps
@@ -68,6 +74,7 @@ cd agent-manager
 xz -dc docker_images/x86/agent-manager-images-v1.0.0.tar.xz | docker load
 
 cp .env.example .env
+# 编辑 .env，替换全部 replace-with-* 占位值，并保持 ENFORCE_SECURE_STARTUP=true
 TAG=v1.0.0 docker compose run --rm --no-deps backend agent-manager signing-key init
 TAG=v1.0.0 docker compose up -d
 docker compose ps
@@ -133,5 +140,6 @@ docker compose logs -f sandbox
 
 - `TAG` 必须和安装包版本一致，例如 `v1.0.0`。
 - ARM 和 x86 安装包不要混用。
-- 如果客户现场需要修改端口、数据目录或外部地址，先修改 `.env`，再执行 `docker compose up -d`。
+- 当前交付的 `docker-compose.yaml` 固定使用宿主机 80 端口，并用四个 Docker 命名卷保存后端数据、上传文件、SQLite 和 Registry 数据；这些配置不是 `.env` 变量。现场确需调整时，应修改 `docker-compose.yaml`，记录现场差异后再启动。
+- 域名、TLS 证书和外部负载均衡属于 Compose 入口之外的现场网络配置，不要只修改 `.env` 后假定已经生效。
 - 镜像文件是 `.tar.xz`，需要用 `xz -dc ... | docker load` 加载。

@@ -5,7 +5,7 @@
 ## 1. 启动 mock sandbox 服务
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/demo/remote-sandbox-mock
+cd /path/to/agent-manager/demo/remote-sandbox-mock
 uv sync
 uv run uvicorn app:app --host 0.0.0.0 --port 8194 --reload
 ```
@@ -19,7 +19,7 @@ uv run uvicorn app:app --host 0.0.0.0 --port 8194 --reload
 如果你用集成后台：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /path/to/agent-manager
 UV_CACHE_DIR=/tmp/uv-cache uv run --project backend uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
@@ -43,7 +43,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run --project backend uvicorn backend.main:app --h
 
 例如：
 
-- `/Users/huangluguang/Desktop/Project/skill-manager/tests/skills/exfiltrator.zip`
+- `/path/to/agent-manager/tests/skills/exfiltrator.zip`
 
 如果该 skill 触发了 sandbox，你在详情页应该能看到：
 

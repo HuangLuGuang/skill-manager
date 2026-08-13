@@ -324,17 +324,30 @@ const DocsNavigation = defineComponent({
   },
   emits: ['navigate'],
   setup(props, { emit }) {
-    return () => h('nav', { class: 'docs-nav' }, props.groups.map(group =>
-      h('div', { class: 'nav-group', key: group.title }, [
-        h('div', { class: 'nav-group-title' }, group.title),
-        ...group.items.map(item => h('button', {
+    return () => h('nav', { class: 'docs-nav' }, props.groups.map(group => {
+      let previousSubgroup = null
+      const items = group.items.flatMap(item => {
+        const nodes = []
+        if (item.subgroup && item.subgroup !== previousSubgroup) {
+          nodes.push(h('div', {
+            class: 'nav-subgroup-title',
+            key: `${group.title}-${item.subgroup}`,
+          }, item.subgroup))
+        }
+        previousSubgroup = item.subgroup || null
+        nodes.push(h('button', {
           type: 'button',
-          class: ['nav-item', item.slug === props.currentSlug ? 'active' : ''],
+          class: ['nav-item', item.subgroup ? 'nested' : '', item.slug === props.currentSlug ? 'active' : ''],
           key: item.slug,
           onClick: () => emit('navigate', item.slug),
-        }, [h('span', item.title), h('small', item.summary)])),
-      ]),
-    ))
+        }, [h('span', item.title), h('small', item.summary)]))
+        return nodes
+      })
+      return h('div', { class: 'nav-group', key: group.title }, [
+        h('div', { class: 'nav-group-title' }, group.title),
+        ...items,
+      ])
+    }))
   },
 })
 
@@ -615,7 +628,10 @@ onBeforeUnmount(() => {
 .docs-sidebar { overflow-y: auto; padding: 28px 20px 48px 24px; background: #f6f8fb; border-right: 1px solid var(--docs-line); }
 :deep(.docs-nav) { display: flex; flex-direction: column; gap: 22px; }
 :deep(.nav-group-title) { margin: 0 10px 8px; color: #7a8999; font-size: 11px; font-weight: 750; letter-spacing: 0.1em; text-transform: uppercase; }
+:deep(.nav-subgroup-title) { display: flex; align-items: center; gap: 8px; margin: 12px 10px 5px; color: #526579; font-size: 12px; font-weight: 720; }
+:deep(.nav-subgroup-title)::after { flex: 1; height: 1px; background: #dfe6ee; content: ''; }
 :deep(.nav-item) { display: flex; width: 100%; flex-direction: column; gap: 2px; padding: 9px 10px; color: #33485f; text-align: left; background: transparent; border: 0; border-radius: 8px; cursor: pointer; }
+:deep(.nav-item.nested) { margin-left: 8px; width: calc(100% - 8px); padding-left: 12px; }
 :deep(.nav-item:hover) { background: #edf2f8; }
 :deep(.nav-item.active) { color: #174ea6; background: #e8f0ff; box-shadow: inset 3px 0 0 var(--docs-blue); }
 :deep(.nav-item span) { font-size: 14px; font-weight: 650; }

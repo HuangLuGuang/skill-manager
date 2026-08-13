@@ -137,7 +137,7 @@ LLM 模型网关负责保护发送给外部模型供应商的数据：
 
 详细说明见：
 
-- [model-gateway.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/model-gateway.md)
+- [model-gateway.md](../docs/model-gateway.md)
 
 ### 3.7 MCP 能力总线
 
@@ -147,7 +147,7 @@ MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟�
 - `能力治理 / MCP 网关` 把多个 Server 的部分 Tool 组合为 `/mcp/{gateway_slug}`。
 - `能力治理 / MCP 调用审批` 接收真实高风险调用产生的待办；管理员查看脱敏参数后批准或拒绝该 Token 对指定网关、Tool 和 Schema 的限时调用权限，查看原始参数会写入安全审计。
 - `能力治理 / MCP 调试` 可以在保存前使用临时 Endpoint 直连服务，也可以使用真实网关凭证执行 Tool 发现和调用，并展示原始 JSON 请求历史。
-- 调用方使用 `MCP 网关凭证`，凭证限制可访问网关、IP、有效期、请求大小和并发数，不要求绑定 `ManagedAgent`。
+- 调用方使用 `MCP 网关凭证`，凭证限制可访问网关、IP、请求大小和并发数，不要求绑定 `ManagedAgent`。
 - 上游连接默认强制 HTTPS，并在每次调用前校验 DNS 解析结果和出站白名单；Tool 还可以配置速率、并发、响应大小和限时审批。
 - 高风险调用首次被网关阻断时会返回 `approval_request_id`；批准后，网关自动按 MCP 凭证、Gateway、Tool 和 Schema 匹配有效授权，不要求调用方回传申请 ID。有效期内允许使用不同参数重复调用，参数仅保留为审批和审计上下文。
 - Tool 对外名称为 `{server_slug}__{tool_name}`；Schema 变化后暂停暴露，重新保存网关配置才会批准新 Hash。
@@ -203,70 +203,70 @@ flowchart TB
 
 ### 5.1 核心治理后端
 
-- [agent_manager/core/manager.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/manager.py)
+- [agent_manager/core/manager.py](../agent_manager/core/manager.py)
   生命周期总控
-- [agent_manager/core/vetting.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/vetting.py)
+- [agent_manager/core/vetting.py](../agent_manager/core/vetting.py)
   扫描与风险判定
-- [agent_manager/core/policy.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/policy.py)
+- [agent_manager/core/policy.py](../agent_manager/core/policy.py)
   策略配置
-- [agent_manager/core/registry.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/registry.py)
+- [agent_manager/core/registry.py](../agent_manager/core/registry.py)
   SQLite 持久化，启动时可从旧 `registry.json`、`review.json`、`audit.jsonl` 自动迁移，并一次性把旧 Skill 记录迁移到名称族和内容版本模型
-- [agent_manager/core/runtime.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/runtime.py)
+- [agent_manager/core/runtime.py](../agent_manager/core/runtime.py)
   运行时治理
-- [agent_manager/core/prompt_manager.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/prompt_manager.py)
+- [agent_manager/core/prompt_manager.py](../agent_manager/core/prompt_manager.py)
   历史 Prompt Registry 兼容能力；新主流程使用模型网关运行时 Prompt 防护
-- [agent_manager/core/prompt_registry.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/prompt_registry.py)
+- [agent_manager/core/prompt_registry.py](../agent_manager/core/prompt_registry.py)
   历史 Prompt Registry 持久化存储
-- [agent_manager/core/signer.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/signer.py)
+- [agent_manager/core/signer.py](../agent_manager/core/signer.py)
   目录签名
-- [agent_manager/core/llm.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/llm.py)
+- [agent_manager/core/llm.py](../agent_manager/core/llm.py)
   OpenAI-compatible LLM 分析；可直连模型供应商，也可通过内置模型网关隐私路由
-- [agent_manager/core/sandbox.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/sandbox.py)
+- [agent_manager/core/sandbox.py](../agent_manager/core/sandbox.py)
   Docker / remote sandbox
 
 ### 5.2 API 层
 
-- [agent_manager/api/router.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/api/router.py)
+- [agent_manager/api/router.py](../agent_manager/api/router.py)
   Agent Manager API
-- [backend/main.py](/Users/huangluguang/Desktop/Project/skill-manager/backend/main.py)
+- [backend/main.py](../backend/main.py)
   管理后台 + Agent Manager API 集成入口
-- [backend/routers/llm_gateway.py](/Users/huangluguang/Desktop/Project/skill-manager/backend/routers/llm_gateway.py)
+- [backend/routers/llm_gateway.py](../backend/routers/llm_gateway.py)
   内置模型网关、OpenAI-compatible 代理、PII 伪匿名、Trace 与管理 API
-- [backend/routers/mcp_gateway.py](/Users/huangluguang/Desktop/Project/skill-manager/backend/routers/mcp_gateway.py)
+- [backend/routers/mcp_gateway.py](../backend/routers/mcp_gateway.py)
   MCP Server 发现、虚拟网关、Tool 路由、凭证校验与调用审计
 
 ### 5.3 管理台前端
 
-- [web/src/views/Skills.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/Skills.vue)
-- [web/src/views/SkillDetail.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/SkillDetail.vue)
-- [web/src/views/SubmitSkill.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/SubmitSkill.vue)
-- [web/src/views/ReviewQueue.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/ReviewQueue.vue)
-- [web/src/views/SystemSettings.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/SystemSettings.vue)
-- [web/src/views/ScannerAccess.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/ScannerAccess.vue)
+- [web/src/views/Skills.vue](../web/src/views/Skills.vue)
+- [web/src/views/SkillDetail.vue](../web/src/views/SkillDetail.vue)
+- [web/src/views/SubmitSkill.vue](../web/src/views/SubmitSkill.vue)
+- [web/src/views/ReviewQueue.vue](../web/src/views/ReviewQueue.vue)
+- [web/src/views/SystemSettings.vue](../web/src/views/SystemSettings.vue)
+- [web/src/views/ScannerAccess.vue](../web/src/views/ScannerAccess.vue)
   客户侧扫描器接入、Token、CLI/GUI 下载
-- [web/src/views/ModelGateway.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/ModelGateway.vue)
+- [web/src/views/ModelGateway.vue](../web/src/views/ModelGateway.vue)
   模型供应商、模型端点、旧模型凭证查询与吊销、用户组和隐私策略管理
-- [web/src/views/PipelineTrace.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/PipelineTrace.vue)
+- [web/src/views/PipelineTrace.vue](../web/src/views/PipelineTrace.vue)
   查看隐私路由四阶段报文
-- [web/src/views/McpGateway.vue](/Users/huangluguang/Desktop/Project/skill-manager/web/src/views/McpGateway.vue)
+- [web/src/views/McpGateway.vue](../web/src/views/McpGateway.vue)
   MCP Server、虚拟网关和调用审计管理
 
 ### 5.4 独立执行服务
 
-- [services/isolated-sandbox-service/app.py](/Users/huangluguang/Desktop/Project/skill-manager/services/isolated-sandbox-service/app.py)
+- [services/isolated-sandbox-service/app.py](../services/isolated-sandbox-service/app.py)
   生产版远程 sandbox 服务基线
 
 ### 5.5 客户侧扫描器
 
-- [scanner/cmd/skill-scanner/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner/main.go)
+- [scanner/cmd/skill-scanner/main.go](../scanner/cmd/skill-scanner/main.go)
   Go CLI 扫描器入口
-- [scanner/cmd/skill-scanner-gui/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner-gui/main.go)
+- [scanner/cmd/skill-scanner-gui/main.go](../scanner/cmd/skill-scanner-gui/main.go)
   原生桌面 GUI 扫描器入口
-- [agent_manager/api/scanner_router.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/api/scanner_router.py)
+- [agent_manager/api/scanner_router.py](../agent_manager/api/scanner_router.py)
   Scanner 专用 API 与下载接口
-- [agent_manager/core/scanner_tokens.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/scanner_tokens.py)
+- [agent_manager/core/scanner_tokens.py](../agent_manager/core/scanner_tokens.py)
   旧 Scanner Token 的兼容校验和吊销
-- [agent_manager/core/scan_cache.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/scan_cache.py)
+- [agent_manager/core/scan_cache.py](../agent_manager/core/scan_cache.py)
   重复扫描复用缓存
 
 ---
@@ -322,14 +322,14 @@ sequenceDiagram
 客户侧扫描器使用统一凭证中心签发的 Scanner 接入凭证，不使用管理员登录态。
 详细说明见：
 
-- [skill-scanner.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/skill-scanner.md)
+- [skill-scanner.md](../docs/skill-scanner.md)
 
 ### 6.2 Vetting
 
 `vet()` 会按以下阶段执行：
 
 1. `SKILL.md` frontmatter 解析
-2. 并行启动已勾选且相互独立的分析器：`cisco-ai-skill-scanner`、behavioral 本地规则、SkillSpector 静态深度扫描，以及用户明确勾选的 Sandbox
+2. 并行启动已勾选且相互独立的分析器：`cisco-ai-skill-scanner`、behavioral 本地规则、静态深度扫描，以及用户明确勾选的 Sandbox
 3. 汇总静态、行为和 Sandbox 证据；如果策略根据中间风险强制 Sandbox，则在这一阶段补跑 Sandbox
 4. 勾选 LLM 时，等待前面所有分析完成后只调用一次 OpenAI-compatible LLM 做最终语义判定和报告汇总；未勾选时直接使用确定性策略汇总
 
@@ -337,7 +337,6 @@ sequenceDiagram
 
 - `AGENT_MANAGER_SCAN_WORKERS`：同时处理的后台提交数，默认 `2`
 - `AGENT_MANAGER_ANALYZER_WORKERS`：单次/多次提交共享的分析器线程数，默认 `8`
-- `AGENT_MANAGER_SKILLSPECTOR_CONCURRENCY`：SkillSpector 子进程全局并发上限，默认 `2`
 
 ### 6.3 Policy Gate
 
@@ -395,11 +394,11 @@ behavioral 分析主要扫文本代码文件，优先：
 
 LLM 现在做这些事：
 
-1. scanner、behavioral、SkillSpector、sandbox 分析完成后的结果和完整 skill 内容一起输入 LLM，做最后的 benign/suspicious/malicious 风险判断
+1. scanner、behavioral、深度扫描、sandbox 分析完成后的结果和完整 skill 内容一起输入 LLM，做最后的 benign/suspicious/malicious 风险判断
 2. 生成一篇专业的安全分析报告
 3. **生成详细的攻击链分析**，如果是恶意skill, 会生成攻击链并映射到 MITRE ATT&CK（传统网络安全）和 MITRE ATLAS（AI 安全）框架
 
-SkillSpector 和 Sandbox 不再各自发起前置 LLM 请求。Sandbox 使用确定性的 probe 计划执行；LLM 只在所有已选分析器结束后调用一次。
+深度扫描和 Sandbox 不再各自发起前置 LLM 请求。Sandbox 使用确定性的 probe 计划执行；LLM 只在所有已选分析器结束后调用一次。
 
 所以 LLM 结果里你会看到：
 
@@ -410,7 +409,7 @@ SkillSpector 和 Sandbox 不再各自发起前置 LLM 请求。Sandbox 使用确
 如果配置了模型网关环境变量，LLM vetting 会优先走隐私路由：
 
 ```bash
-export AGENT_MANAGER_LLM_GATEWAY_URL="http://127.0.0.1:8000/v1/chat/completions"
+export AGENT_MANAGER_LLM_GATEWAY_URL="http://127.0.0.1/v1/chat/completions"
 export AGENT_MANAGER_LLM_GATEWAY_API_KEY="amat_xxx"
 ```
 
@@ -427,19 +426,14 @@ export AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID="vetting-session"
 ### 7.4 Sandbox
 
 Sandbox 负责“受限环境试跑”。  
-它不再只依赖默认 `--help`。当前执行顺序是：
+当前执行顺序是：
 
-1. 先发现一个 probe 入口，例如 `scripts/*.py`、`scripts/*.sh`、`scripts/*.js`
-2. 如果 `SKILL.md` 中存在 bash/sh fenced code block，会生成临时 `.sh` probe 脚本
-3. 生成默认 probe，如果脚本像 CLI，会优先生成 `--help`
-4. 如果提交时同时启用了 LLM，会让 LLM 阅读 `SKILL.md` 的用法示例，生成额外的安全 probe 用例
-5. 对每个 probe case 分别执行 sandbox
-6. 汇总所有 case 的输出和风险信号
+1. 从 `scripts/` 和 Skill 根目录中发现一个真实存在的 `.py`、`.sh` 或 `.js` 入口
+2. 生成一个默认 probe；如果脚本像 CLI，会使用 `--help`，否则使用空参数
+3. 在本地 Docker runtime 或远程隔离服务中执行
+4. 汇总输出、退出码、超时、网络尝试和风险信号
 
-LLM 可以从 `SKILL.md` 里识别“已有入口文件 + 参数”，但入口必须是 skill 目录中真实存在的 `.py`、`.sh` 或 `.js` 文件。
-它不能生成代码、shell 管道、真实凭证、真实外部目标或破坏性命令。
-
-`SKILL.md` 命令 probe 会写入 sandbox 临时拷贝，不会修改原始 skill 目录。
+当前 Vetting 流程不会执行 `SKILL.md` 中的命令块，也不会让 LLM 生成额外 probe。LLM 分析是所有已选确定性分析器结束后的单次最终研判，与 Sandbox probe 生成分开。
 
 它现在会给出两层结果：
 
@@ -460,14 +454,12 @@ LLM 可以从 `SKILL.md` 里识别“已有入口文件 + 参数”，但入口�
 
 ```mermaid
 flowchart LR
-    A["发现入口脚本"] --> B["默认 probe"]
-    A --> C{"LLM 是否启用"}
-    C -->|是| D["LLM 生成安全参数用例"]
-    C -->|否| E["只执行默认 probe"]
-    B --> F["多 case 执行"]
-    D --> F
-    E --> F
-    F --> G["stdout / stderr / exit_code / timeout"]
+    A["发现一个入口脚本"] --> B{"是否像 CLI"}
+    B -->|是| C["使用 --help"]
+    B -->|否| D["使用空参数"]
+    C --> E["执行一个默认 probe"]
+    D --> E
+    E --> G["stdout / stderr / exit_code / timeout"]
     G --> H["信号提取"]
     H --> I1["network"]
     H --> I2["execution"]
@@ -499,13 +491,13 @@ flowchart LR
 1. 代码里静态上已经明显恶意
 2. 但 sandbox 这次 probe 没有触发到真正的恶意分支
 3. 或 sandbox 禁网 / 参数仍然不够覆盖真实输入条件
-4. 即使启用了 LLM probe，也不能保证覆盖所有恶意分支
+4. 当前只执行一个默认 probe，不能保证覆盖所有恶意分支
 
 所以最终风险看的是“合并后的最高风险”，不是只信某一个分析器。
 
 如果要验证 sandbox 展示链路，可以上传这个测试样本：
 
-- [tests/skills/sandbox-runtime-signal.zip](/Users/huangluguang/Desktop/Project/skill-manager/tests/skills/sandbox-runtime-signal.zip)
+- [tests/skills/sandbox-runtime-signal.zip](../tests/skills/sandbox-runtime-signal.zip)
 
 它会在默认 probe 中主动暴露网络、文件系统、动态执行、凭证关键词和非零退出码等信号。
 
@@ -531,7 +523,7 @@ flowchart LR
 - 运行时检测本地 skill 是否被篡改
 
 更详细的 agent 侧签名对接，见：
-- [agent-signature-verification.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/agent-signature-verification.md)
+- [agent-signature-verification.md](../docs/agent-signature-verification.md)
 
 ---
 
@@ -580,11 +572,11 @@ flowchart TB
 
 当前服务基线在：
 
-- [services/isolated-sandbox-service/README.md](/Users/huangluguang/Desktop/Project/skill-manager/services/isolated-sandbox-service/README.md)
+- [services/isolated-sandbox-service/README.md](../services/isolated-sandbox-service/README.md)
 
 更详细架构说明：
 
-- [sandbox-service-architecture.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/sandbox-service-architecture.md)
+- [sandbox-service-architecture.md](../docs/sandbox-service-architecture.md)
 
 ---
 
@@ -595,7 +587,7 @@ flowchart TB
 后端：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /path/to/agent-manager
 uv sync --project backend
 uv run --project backend python -m backend.dev_server --host 0.0.0.0 --port 8000
 ```
@@ -603,7 +595,7 @@ uv run --project backend python -m backend.dev_server --host 0.0.0.0 --port 8000
 前端：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/web
+cd /path/to/agent-manager/web
 npm install
 npm run dev
 ```
@@ -618,7 +610,7 @@ npm run dev
 如果系统设置里选的是 `docker`，先构建项目自带镜像：
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager
+cd /path/to/agent-manager
 make sandbox-runtime-build
 ```
 
@@ -626,7 +618,10 @@ make sandbox-runtime-build
 
 完整容器化启动见：
 
-- [docker-deployment.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/docker-deployment.md)
+- [docker-deployment.md](../docs/docker-deployment.md)
+- [performance-benchmark.md](../docs/performance-benchmark.md)：单节点并发、Skill 数量和客户端 Inventory 实测
+
+配置允许的最大并发不等于稳定处理能力。容量评估应同时检查 P95、错误率、SQLite 写等待、上游延迟和审计增长。
 
 ---
 
@@ -686,19 +681,29 @@ make sandbox-runtime-build
 
 ### 12.6 策略配置
 
-配置：
+管理台按实际检测顺序集中配置四类内容：
 
-- Skill 判定策略
-- LLM 模型选择
-- Sandbox 连接配置
-- 当前 sandbox 后端和镜像
+- 风险判定：扫描结果复用、严格 / 平衡 / 宽松模式、人工审核风险、自动拒绝风险、强制 Sandbox 风险和发现项归类。
+- 准入约束：Skill 声明工具数量、工具允许列表、禁止权限、许可证要求和接受列表。
+- LLM：是否允许 Skill LLM 分析、模型网关模型、超时和内容快照上限。
+- Sandbox：远程服务或本地 Docker runtime、镜像、超时、网络、内存、CPU、进程和只读根文件系统。
+
+发现项先按策略归入三类，再形成最终风险：
+
+- `blocking`：阻断项。默认包含数据外传和供应链风险；任意阻断项都会形成 `malicious` 确定性风险，LLM 不能降级。
+- `risk`：可疑项。默认包含提示词注入、工具滥用、网络、凭据访问、动态执行和过度权限；结合严重度和判定模式形成风险。
+- `noise`：噪声。默认包含文档中的外部 API 示例、依赖和运行环境问题；证据仍保留在报告中，但不直接提高确定性风险。
+
+最终准入顺序为：阻断型声明违规直接拒绝；命中自动拒绝风险进入 `REJECTED`；命中人工审核风险进入 `VETTED`；安全兜底仍保证 `malicious` 拒绝、`suspicious` 审核、`benign` 批准。自动拒绝与人工审核冲突时，自动拒绝优先。
+
+当前实现边界：`auto_approve_max_risk` 只参与 Prompt 自动批准，不参与 Skill 状态判定；`trusted_authors` 会保存但尚未用于 Skill 免检或自动放行。许可证缺失或不被接受、工具数量超限、工具不在允许列表目前为非阻断告警，只有命中明确禁止权限会生成阻断型违规。
 
 ### 12.7 扫描器接入
 
 用于客户侧批量扫描本地 skills：
 
 - 在统一凭证中心创建和吊销 Scanner 接入凭证
-- 下载 CLI 扫描器
+- 从“能力治理 -> Skill 治理 -> 提交 Skill”的 Scanner 接入区域下载 CLI 扫描器
 - 下载 Agent Skill Verifier
 - 查看安装命令和参数说明
 - 获取配置模板
@@ -716,7 +721,7 @@ Skill Verifier 下载位置：
 
 详细说明见：
 
-- [skill-scanner.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/skill-scanner.md)
+- [skill-scanner.md](../docs/skill-scanner.md)
 
 ### 12.8 模型网关
 
@@ -724,24 +729,25 @@ Skill Verifier 下载位置：
 
 - 模型供应商：OpenAI-compatible `base_url`、供应商 API Key、超时、启用状态
 - 模型端点：模型名、默认模型、上下文窗口、最大输出 token
-- 模型调用凭证：在统一凭证中心配置允许模型、过期时间、请求体大小和并发限制
+- 模型调用凭证：在统一凭证中心配置允许模型、请求体大小、并发、Prompt 防护和可选 Token 压缩
 - 用户与用户组：用于分配模型访问权限和隐私策略
 - 隐私策略：按用户组绑定，配置实体类型、每类实体正则规则、system 消息检测、bypass 权限、映射 TTL、差分隐私统计参数
 - 隐私审计：DP 统计、PII 命中、token 创建/复用、会话映射查询和删除
 
-管理台菜单已拆成 `模型网关` 子菜单：供应商管理、模型管理、组策略绑定、隐私策略、隐私审计、Token 压缩统计、用户 Token 分析和隐私链路追踪。
+管理台菜单已拆成 `模型网关` 子菜单：供应商管理、模型管理、组策略绑定、隐私策略、Prompt 防护测试、Skill 告警、隐私审计、Token 压缩统计、用户 Token 分析和隐私链路追踪。模型调用凭证统一在“智能体管理 -> 统一凭证中心”创建。
 
 运行时接口：
 
-- `POST /`：兼容把配置地址当作完整 Chat Completions 请求地址直接 POST 的客户端
 - `POST /v1/chat/completions`：OpenAI SDK 兼容路径
 - `POST /chat/completions`：兼容 base URL 不带 `/v1` 的客户端
 - `GET /v1/models` / `GET /models`：OpenAI-compatible 模型列表
 - `POST /api/v1/llm/chat/completions`：Agent Manager 命名空间路径
 
+Docker Compose 的根路径 `/` 由管理台前端使用；外部模型客户端应使用 `/v1`，或使用会自动拼接 `/chat/completions` 的根地址配置，不要直接 POST `/`。
+
 详细说明见：
 
-- [model-gateway.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/model-gateway.md)
+- [model-gateway.md](../docs/model-gateway.md)
 
 ### 12.9 隐私链路追踪
 
@@ -788,7 +794,7 @@ Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privac
 1. 在“智能体管理 -> 统一凭证中心”创建客户端接入凭证。
 2. 安装客户端并输入 Agent Manager 地址和凭证。
 3. 默认使用“客户端安全治理”；需要限制每个 Agent 的 Skill 范围时，再切换到“Agent 强授权”并绑定平台智能体。
-4. 客户端自动发现六类内置工具；其他 Agent 可填写名称并选择或输入 Skill 根目录，随后同样可逐项选择接管。
+4. 客户端自动发现内置 Agent 和共用 Skills 目录；其他 Agent 可填写名称并选择或输入 Skill 根目录，随后同样可逐项选择接管。
 5. 用户确认后，符合当前治理方式的已批准 Skill 进入安全仓库，其余内容备份后移入待处理目录。
 6. 后台服务持续执行平台任务、完整性巡检和异常隔离；离线事件在恢复连接后补报。
 
@@ -815,8 +821,8 @@ Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privac
 
 详细说明：
 
-- [agent-manager-client.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/agent-manager-client.md)
-- [agent-manager-client-implementation-plan.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/agent-manager-client-implementation-plan.md)
+- [agent-manager-client.md](../docs/agent-manager-client.md)
+- [agent-manager-client-implementation-plan.md](../docs/agent-manager-client-implementation-plan.md)
 
 ## 14. 外部 Agent 怎么接
 
@@ -838,13 +844,13 @@ sequenceDiagram
 
 更详细说明：
 
-- [external-agent-integration.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/external-agent-integration.md)
-- [agent-signature-verification.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/agent-signature-verification.md)
+- [external-agent-integration.md](../docs/external-agent-integration.md)
+- [agent-signature-verification.md](../docs/agent-signature-verification.md)
 
 如果外部 Agent 支持本地 skill 指令，也可以直接使用示例 `Agent Skill Verifier`：
 
-- [demo/agent-manager-skill-verifier/README.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-verifier/README.md)
-- [demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/SKILL.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/SKILL.md)
+- [demo/agent-manager-skill-verifier/README.md](../demo/agent-manager-skill-verifier/README.md)
+- [demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/SKILL.md](../demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/SKILL.md)
 
 它不做平台级 hook，适合 Codex、Claude Code 等 Agent 的通用接入；如果需要强制拦截，再按具体平台补 hook 或 adapter。
 
@@ -909,22 +915,22 @@ sequenceDiagram
 ## 17. 相关专题文档
 
 - 客户演示 Runbook：
-  [customer-demo-runbook.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/customer-demo-runbook.md)
+  [customer-demo-runbook.md](../docs/customer-demo-runbook.md)
 - 客户侧扫描器：
-  [skill-scanner.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/skill-scanner.md)
+  [skill-scanner.md](../docs/skill-scanner.md)
 - 客户端 Skill 统一接管：
-  [agent-manager-client.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/agent-manager-client.md)
+  [agent-manager-client.md](../docs/agent-manager-client.md)
 - 管理台与容器化部署：
-  [docker-deployment.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/docker-deployment.md)
+  [docker-deployment.md](../docs/docker-deployment.md)
 - 外部 Agent 接入：
-  [external-agent-integration.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/external-agent-integration.md)
+  [external-agent-integration.md](../docs/external-agent-integration.md)
 - Agent 验签：
-  [agent-signature-verification.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/agent-signature-verification.md)
+  [agent-signature-verification.md](../docs/agent-signature-verification.md)
 - Sandbox 架构：
-  [sandbox-service-architecture.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/sandbox-service-architecture.md)
+  [sandbox-service-architecture.md](../docs/sandbox-service-architecture.md)
 - Remote mock 联调：
-  [remote-sandbox-mock-quickstart.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/remote-sandbox-mock-quickstart.md)
+  [remote-sandbox-mock-quickstart.md](../docs/remote-sandbox-mock-quickstart.md)
 - OpenClaw Hook 接入：
-  [openclaw-agent-manager-hooks.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/openclaw-agent-manager-hooks.md)
+  [openclaw-agent-manager-hooks.md](../docs/openclaw-agent-manager-hooks.md)
 - 模型网关、Prompt 防护与隐私链路：
-  [model-gateway.md](/Users/huangluguang/Desktop/Project/skill-manager/docs/model-gateway.md)
+  [model-gateway.md](../docs/model-gateway.md)

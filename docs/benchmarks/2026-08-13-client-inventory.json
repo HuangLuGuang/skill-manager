@@ -1,0 +1,36 @@
+{
+  "binary": "origin/dev d6ec8a5b",
+  "host_os": "linux/amd64",
+  "cases": [
+    {
+      "skills": 100,
+      "discovered": 100,
+      "iterations": 10,
+      "p50_ms": 86.87,
+      "p95_ms": 94.74,
+      "mean_ms": 91.94,
+      "max_ms": 131.26,
+      "inventory_json_kib": 21.4
+    },
+    {
+      "skills": 500,
+      "discovered": 500,
+      "iterations": 10,
+      "p50_ms": 239.86,
+      "p95_ms": 245.01,
+      "mean_ms": 244.89,
+      "max_ms": 317.36,
+      "inventory_json_kib": 104.99
+    },
+    {
+      "skills": 1000,
+      "discovered": 1000,
+      "iterations": 10,
+      "p50_ms": 414.51,
+      "p95_ms": 439.15,
+      "mean_ms": 422.36,
+      "max_ms": 524.31,
+      "inventory_json_kib": 210.46
+    }
+  ]
+}

@@ -1,0 +1,260 @@
+{
+  "started_at": "2026-08-13T00:38:49Z",
+  "runner": {
+    "python": "3.12.13",
+    "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.41"
+  },
+  "method": {
+    "concurrency_levels": [
+      1,
+      2,
+      5,
+      10,
+      20,
+      40
+    ],
+    "gateway_requests_per_level": 40,
+    "mock_upstream_delay_ms": 50,
+    "sections": [
+      "model"
+    ]
+  },
+  "model_gateway": [
+    {
+      "case": "model-gateway",
+      "concurrency": 1,
+      "requests": 40,
+      "successes": 40,
+      "errors": 0,
+      "status_counts": {
+        "200": 40
+      },
+      "elapsed_s": 4.967,
+      "throughput_rps": 8.05,
+      "latency_ms": {
+        "mean": 124.09,
+        "p50": 122.3,
+        "p95": 138.72,
+        "p99": 173.89,
+        "max": 192.2
+      }
+    },
+    {
+      "case": "model-gateway",
+      "concurrency": 2,
+      "requests": 40,
+      "successes": 40,
+      "errors": 0,
+      "status_counts": {
+        "200": 40
+      },
+      "elapsed_s": 2.89,
+      "throughput_rps": 13.84,
+      "latency_ms": {
+        "mean": 143.32,
+        "p50": 139.99,
+        "p95": 172.89,
+        "p99": 183.8,
+        "max": 186.19
+      }
+    },
+    {
+      "case": "model-gateway",
+      "concurrency": 5,
+      "requests": 40,
+      "successes": 40,
+      "errors": 0,
+      "status_counts": {
+        "200": 40
+      },
+      "elapsed_s": 2.457,
+      "throughput_rps": 16.28,
+      "latency_ms": {
+        "mean": 303.07,
+        "p50": 335.29,
+        "p95": 391.31,
+        "p99": 393.25,
+        "max": 393.71
+      }
+    },
+    {
+      "case": "model-gateway",
+      "concurrency": 10,
+      "requests": 40,
+      "successes": 40,
+      "errors": 0,
+      "status_counts": {
+        "200": 40
+      },
+      "elapsed_s": 2.626,
+      "throughput_rps": 15.23,
+      "latency_ms": {
+        "mean": 638.77,
+        "p50": 625.17,
+        "p95": 758.27,
+        "p99": 929.52,
+        "max": 930.17
+      }
+    },
+    {
+      "case": "model-gateway",
+      "concurrency": 20,
+      "requests": 40,
+      "successes": 0,
+      "errors": 40,
+      "status_counts": {
+        "error:ReadTimeout": 40
+      },
+      "elapsed_s": 60.764,
+      "throughput_rps": 0.0,
+      "latency_ms": {
+        "mean": 30059.91,
+        "p50": 30034.81,
+        "p95": 30077.64,
+        "p99": 30492.41,
+        "max": 30755.73
+      }
+    },
+    {
+      "case": "model-gateway",
+      "concurrency": 40,
+      "requests": 80,
+      "successes": 0,
+      "errors": 80,
+      "status_counts": {
+        "error:ReadTimeout": 80
+      },
+      "elapsed_s": 60.215,
+      "throughput_rps": 0.0,
+      "latency_ms": {
+        "mean": 30086.22,
+        "p50": 30086.06,
+        "p95": 30117.69,
+        "p99": 30120.97,
+        "max": 30121.98
+      }
+    }
+  ],
+  "model_upstream_direct": [
+    {
+      "case": "mock-openai-direct",
+      "concurrency": 1,
+      "requests": 40,
+      "successes": 40,
+      "errors": 0,
+      "status_counts": {
+        "200": 40
+      },
+      "elapsed_s": 3.759,
+      "throughput_rps": 10.64,
+      "latency_ms": {
+        "mean": 93.91,
+        "p50": 93.89,
+        "p95": 94.28,
+        "p99": 95.18,
+        "max": 95.53
+      }
+    },
+    {
+      "case": "mock-openai-direct",
+      "concurrency": 2,
+      "requests": 40,
+      "successes": 40,
+      "errors": 0,
+      "status_counts": {
+        "200": 40
+      },
+      "elapsed_s": 1.863,
+      "throughput_rps": 21.48,
+      "latency_ms": {
+        "mean": 92.85,
+        "p50": 94.77,
+        "p95": 95.86,
+        "p99": 96.1,
+        "max": 96.15
+      }
+    },
+    {
+      "case": "mock-openai-direct",
+      "concurrency": 5,
+      "requests": 40,
+      "successes": 40,
+      "errors": 0,
+      "status_counts": {
+        "200": 40
+      },
+      "elapsed_s": 0.742,
+      "throughput_rps": 53.94,
+      "latency_ms": {
+        "mean": 90.76,
+        "p50": 93.94,
+        "p95": 97.32,
+        "p99": 98.78,
+        "max": 99.65
+      }
+    },
+    {
+      "case": "mock-openai-direct",
+      "concurrency": 10,
+      "requests": 40,
+      "successes": 40,
+      "errors": 0,
+      "status_counts": {
+        "200": 40
+      },
+      "elapsed_s": 0.38,
+      "throughput_rps": 105.24,
+      "latency_ms": {
+        "mean": 89.41,
+        "p50": 93.92,
+        "p95": 98.6,
+        "p99": 99.37,
+        "max": 99.57
+      }
+    },
+    {
+      "case": "mock-openai-direct",
+      "concurrency": 20,
+      "requests": 40,
+      "successes": 40,
+      "errors": 0,
+      "status_counts": {
+        "200": 40
+      },
+      "elapsed_s": 0.265,
+      "throughput_rps": 151.12,
+      "latency_ms": {
+        "mean": 105.6,
+        "p50": 102.83,
+        "p95": 138.71,
+        "p99": 142.59,
+        "max": 142.84
+      }
+    },
+    {
+      "case": "mock-openai-direct",
+      "concurrency": 40,
+      "requests": 80,
+      "successes": 80,
+      "errors": 0,
+      "status_counts": {
+        "200": 80
+      },
+      "elapsed_s": 1.176,
+      "throughput_rps": 68.05,
+      "latency_ms": {
+        "mean": 282.62,
+        "p50": 179.74,
+        "p95": 1138.01,
+        "p99": 1147.42,
+        "max": 1148.14
+      }
+    }
+  ],
+  "mcp_initialize": [],
+  "mcp_tools_list": [],
+  "mcp_tool_call": [],
+  "runtime_signature_verification": [],
+  "skill_detection": [],
+  "finished_at": "2026-08-13T00:41:12Z"
+}

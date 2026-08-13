@@ -116,7 +116,7 @@ unzip agent-manager-skill-verifier.zip -d ~/.claude/skills/
 配置运行环境：
 
 ```bash
-export AGENT_MANAGER_VERIFIER_BASE_URL="http://localhost:8001"
+export AGENT_MANAGER_VERIFIER_BASE_URL="http://localhost"
 export AGENT_MANAGER_AGENT_RUNTIME_TOKEN="amat_xxx"
 export AGENT_ID="<agent-id>"
 ```
@@ -241,8 +241,6 @@ flowchart LR
 
 - `POST /v1/chat/completions`
   OpenAI SDK 兼容路径，适合把 SDK 的 `base_url` 指到 Agent Manager。
-- `POST /`
-  兼容把配置地址当作完整 Chat Completions 请求地址直接 POST 的客户端。
 - `POST /chat/completions`
   兼容部分客户端把 `base_url` 配成不含 `/v1` 时直接拼接的路径。
 - `GET /v1/models` / `GET /models`
@@ -262,9 +260,11 @@ Authorization: Bearer amat_xxx
 
 - 可绑定用户或用户组
 - 可限制可访问模型
-- 可设置过期时间
 - 可限制请求体大小和并发数
+- 可配置 Prompt 防护和可选 Token 压缩
 - 明文只展示一次，服务端只保存 hash
+
+Docker Compose 的根路径 `/` 由管理台前端使用。外部模型客户端应使用 `/v1`，或使用会自动拼接 `/chat/completions` 的根地址配置，不要直接 POST `/`。
 
 完整说明见：
 

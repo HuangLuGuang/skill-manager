@@ -63,8 +63,8 @@ Scanner 和外部 Agent Runtime 都不应该使用管理员登录态，而是使
 
 管理台进入：
 
-- `智能体治理`
-- `凭证管理`
+- `智能体管理`
+- `统一凭证中心`
 - 创建凭证，类型选择 `Scanner 接入凭证`
 
 创建后只展示一次明文凭证。服务端只保存 hash。
@@ -83,12 +83,12 @@ Runtime Agent 加载校验权限：
 - `runtime:can-load`
 - `runtime:check-tool`
 
-常见配置：
+凭证必须按用途拆分：
 
 - 客户本地扫描器：只选 scanner 权限。
 - Agno / LangGraph 等外部 Agent：只选 runtime 权限。
-- Codex / Claude Code 等通用 Skill Verifier：选择 `scanner:submit`、`scanner:read-own-results` 和全部 runtime 权限。
-- 同一个测试环境既扫描又加载：可以同时选择 scanner 和 runtime 权限。
+- Codex / Claude Code 等通用 Skill Verifier：`submit` 和 `status` 使用 Scanner 凭证，`verify` 使用绑定当前 Agent 的运行凭证。
+- 同一个测试环境既扫描又加载：仍然创建两张凭证，不把 scanner 和 runtime 权限合并到同一张凭证。
 
 不要给接入凭证授予：
 
@@ -103,13 +103,12 @@ Runtime Agent 加载校验权限：
 接入凭证支持：
 
 - 禁用 / 吊销
-- 过期时间
 - 允许 IP / CIDR
 - 最大上传大小
 - 最大并发任务数
 - 审计日志
 
-凭证明文可以通过 CLI 参数或环境变量配置，不应硬编码到二进制里。Go Scanner 使用 `SKILL_SCANNER_TOKEN`，Agent Skill Verifier 使用 `AGENT_MANAGER_VERIFIER_TOKEN`，避免 scanner 凭证和运行时凭证混用。
+凭证明文可以通过 CLI 参数或环境变量配置，不应硬编码到二进制里。Go Scanner 使用 `SKILL_SCANNER_TOKEN`；Agent Skill Verifier 分别使用 `AGENT_MANAGER_SCANNER_TOKEN` 和 `AGENT_MANAGER_AGENT_RUNTIME_TOKEN`，避免 scanner 凭证和运行时凭证混用。
 
 ---
 
@@ -126,8 +125,9 @@ Runtime Agent 加载校验权限：
 
 管理台进入：
 
-- `扫描器接入`
-- `Agent Skill Verifier 接入`
+- `智能体管理`
+- `接入与运行`
+- 找到 `Skill Verifier 接入`
 - 点击 `下载 Skill Verifier`
 
 对应后端接口：
@@ -149,11 +149,16 @@ ZIP 内包含：
 
 ### 4.2 Token 权限
 
-Skill Verifier 首版使用一个合并 token。至少需要：
+Skill Verifier 使用两张最小权限凭证：
+
+Scanner 凭证用于 `submit` 和 `status`，至少需要：
 
 - `scanner:submit`
 - `scanner:read-own-results`
 - `scanner:read-own-sessions`
+
+Agent 运行凭证用于 `verify`，必须绑定当前 Agent，并至少需要：
+
 - `runtime:verify-signature`
 - `runtime:can-load`
 - `runtime:check-tool`
@@ -161,16 +166,17 @@ Skill Verifier 首版使用一个合并 token。至少需要：
 环境变量示例：
 
 ```bash
-export AGENT_MANAGER_VERIFIER_BASE_URL="http://localhost:8001"
-export AGENT_MANAGER_VERIFIER_TOKEN="amat_xxx"
+export AGENT_MANAGER_VERIFIER_BASE_URL="http://localhost"
+export AGENT_MANAGER_AGENT_RUNTIME_TOKEN="amat_runtime_xxx"
+export AGENT_MANAGER_SCANNER_TOKEN="amat_scanner_xxx"
 export AGENT_ID="<agent-id>"
 ```
 
-Verifier 只提交无密钥内容摘要，不需要也不允许持有服务端签名私钥。
+只执行 `verify` 时不需要设置 `AGENT_MANAGER_SCANNER_TOKEN`。Verifier 只提交无密钥内容摘要，不需要也不允许持有服务端签名私钥。
 
-旧版本变量 `AGENT_MANAGER_BASE_URL`、`AGENT_MANAGER_API_TOKEN`、`AGENT_MANAGER_ACCESS_TOKEN` 仍兼容，但不推荐继续使用。
+旧版本变量仍作为兼容回退保留，但新接入应使用上面的用途专用变量。
 
-不要复用 `SKILL_SCANNER_TOKEN`；Verifier 需要 Agent 运行凭证。
+不要把 Go Scanner 使用的 `SKILL_SCANNER_TOKEN` 当作 Agent 运行凭证。
 
 ### 4.3 安装到 Codex
 
@@ -227,8 +233,8 @@ python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_ver
 
 管理台进入：
 
-- `扫描器接入`
-- `下载扫描器`
+- `能力治理 -> Skill 治理 -> 提交 Skill`
+- 打开 Scanner 接入区域并选择 `下载扫描器`
 
 选择对应平台的 CLI 文件，例如：
 
@@ -248,7 +254,7 @@ python <skills-dir>/agent-manager-skill-verifier/scripts/agent_manager_skill_ver
 ```bash
 chmod +x skill-scanner-cli-darwin-arm64
 ./skill-scanner-cli-darwin-arm64 scan /path/to/skills \
-  --server http://localhost:8000 \
+  --server http://localhost \
   --token "$SKILL_SCANNER_TOKEN" \
   --host-id customer-prod-01 \
   --behavioral \
@@ -260,7 +266,7 @@ chmod +x skill-scanner-cli-darwin-arm64
 也可以使用环境变量：
 
 ```bash
-export SKILL_SCANNER_SERVER="http://localhost:8000"
+export SKILL_SCANNER_SERVER="http://localhost"
 export SKILL_SCANNER_TOKEN="amat_xxx"
 export SKILL_SCANNER_HOST_ID="customer-prod-01"
 
@@ -278,6 +284,7 @@ export SKILL_SCANNER_HOST_ID="customer-prod-01"
 | `--host-id ID` | 客户侧主机或环境标识，方便服务端审计来源。 |
 | `--upload` | 显式上传到服务端。配置 `--server` 时会自动上传。 |
 | `--behavioral` | 启用服务端规则分析。界面里显示为“规则分析”。 |
+| `--deep-scan` | 启用服务端深度扫描；不会自动启用 LLM。 |
 | `--sandbox` | 启用服务端 sandbox 动态执行验证。 |
 | `--llm` | 启用服务端 LLM 分析。需要系统设置里已配置 LLM，或已通过模型网关环境变量配置隐私路由。 |
 | `--timeout` | HTTP 请求超时时间，默认 `120s`。 |
@@ -430,7 +437,7 @@ Authorization: Bearer <scanner-token>
 ### 9.1 本地构建
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
+cd /path/to/agent-manager/scanner
 go test ./...
 go build -o skill-scanner ./cmd/skill-scanner
 ```
@@ -438,7 +445,7 @@ go build -o skill-scanner ./cmd/skill-scanner
 ### 9.2 生成发布目录
 
 ```bash
-cd /Users/huangluguang/Desktop/Project/skill-manager/scanner
+cd /path/to/agent-manager/scanner
 ./scripts/package.sh
 ```
 
@@ -454,14 +461,14 @@ scanner/releases/2026.04.16-399cdd8c/
 scanner/releases/
 ```
 
-管理台“扫描器接入”页面只读取 `scanner/releases/` 下的顶层文件：
+管理台提交 Skill 页中的 Scanner 接入区域只读取 `scanner/releases/` 下的顶层文件：
 
 - `skill-scanner-cli-*`
 
 所以如果页面显示“当前可下载文件为空”，先检查：
 
 ```bash
-ls -lh /Users/huangluguang/Desktop/Project/skill-manager/scanner/releases
+ls -lh /path/to/agent-manager/scanner/releases
 ```
 
 ### 9.3 支持的平台
@@ -483,7 +490,7 @@ BUILD_WINDOWS_CLI=1 ./scripts/package.sh
 
 ## 10. 服务端页面
 
-管理台 `扫描器接入` 页面提供：
+管理台提交 Skill 页中的 Scanner 接入区域提供：
 
 - CLI 下载
 - Agent Skill Verifier 下载
@@ -493,7 +500,7 @@ BUILD_WINDOWS_CLI=1 ./scripts/package.sh
 - 配置模板
 - 最近扫描会话和结果入口
 
-接入凭证的创建、查看和吊销统一在 `智能体管理 / 凭证管理` 页面完成。
+接入凭证的创建、查看和吊销统一在 `智能体管理 / 统一凭证中心` 页面完成。
 
 扫描完成后看结果的位置：
 
@@ -505,10 +512,10 @@ BUILD_WINDOWS_CLI=1 ./scripts/package.sh
 
 ## 11. 相关代码
 
-- [scanner/cmd/skill-scanner/main.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/cmd/skill-scanner/main.go)
-- [scanner/internal/runner/runner.go](/Users/huangluguang/Desktop/Project/skill-manager/scanner/internal/runner/runner.go)
-- [demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/SKILL.md](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/SKILL.md)
-- [demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py](/Users/huangluguang/Desktop/Project/skill-manager/demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py)
-- [agent_manager/api/scanner_router.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/api/scanner_router.py)
-- [agent_manager/core/scanner_tokens.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/scanner_tokens.py)
-- [agent_manager/core/scan_cache.py](/Users/huangluguang/Desktop/Project/skill-manager/agent_manager/core/scan_cache.py)
+- [scanner/cmd/skill-scanner/main.go](../scanner/cmd/skill-scanner/main.go)
+- [scanner/internal/runner/runner.go](../scanner/internal/runner/runner.go)
+- [demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/SKILL.md](../demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/SKILL.md)
+- [demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py](../demo/agent-manager-skill-verifier/skills/agent-manager-skill-verifier/scripts/agent_manager_skill_verifier.py)
+- [agent_manager/api/scanner_router.py](../agent_manager/api/scanner_router.py)
+- [agent_manager/core/scanner_tokens.py](../agent_manager/core/scanner_tokens.py)
+- [agent_manager/core/scan_cache.py](../agent_manager/core/scan_cache.py)

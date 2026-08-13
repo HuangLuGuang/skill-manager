@@ -1,0 +1,126 @@
+{
+  "started_at": "2026-08-13T01:48:21Z",
+  "runner": {
+    "python": "3.12.13",
+    "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.41"
+  },
+  "method": {
+    "concurrency_levels": [
+      1,
+      2,
+      5,
+      10,
+      20,
+      40
+    ],
+    "gateway_requests_per_level": 1,
+    "mock_upstream_delay_ms": 50,
+    "sections": [
+      "scan"
+    ]
+  },
+  "model_gateway": [],
+  "model_upstream_direct": [],
+  "mcp_initialize": [],
+  "mcp_tools_list": [],
+  "mcp_tool_call": [],
+  "runtime_signature_verification": [],
+  "skill_detection": [
+    {
+      "case": "rules-single-warm",
+      "parallel_submissions": 1,
+      "elapsed_s": 0.294,
+      "completed_per_minute": 204.36,
+      "acceptance_latency_ms": {
+        "p50": 129.44,
+        "p95": 129.44
+      },
+      "end_to_end_latency_ms": {
+        "p50": 293.4,
+        "p95": 293.4
+      },
+      "reported_scan_ms": {
+        "p50": 22.66,
+        "p95": 22.66
+      },
+      "analyzer_ms_mean": {}
+    },
+    {
+      "case": "rules-parallel-4",
+      "parallel_submissions": 4,
+      "elapsed_s": 0.817,
+      "completed_per_minute": 293.61,
+      "acceptance_latency_ms": {
+        "p50": 550.68,
+        "p95": 554.28
+      },
+      "end_to_end_latency_ms": {
+        "p50": 683.61,
+        "p95": 797.83
+      },
+      "reported_scan_ms": {
+        "p50": 18.91,
+        "p95": 21.98
+      },
+      "analyzer_ms_mean": {}
+    },
+    {
+      "case": "deep-single",
+      "parallel_submissions": 1,
+      "elapsed_s": 11.991,
+      "completed_per_minute": 5.0,
+      "acceptance_latency_ms": {
+        "p50": 5755.19,
+        "p95": 5755.19
+      },
+      "end_to_end_latency_ms": {
+        "p50": 11990.87,
+        "p95": 11990.87
+      },
+      "reported_scan_ms": {
+        "p50": 6080.12,
+        "p95": 6080.12
+      },
+      "analyzer_ms_mean": {}
+    },
+    {
+      "case": "deep-parallel-4",
+      "parallel_submissions": 4,
+      "elapsed_s": 12.809,
+      "completed_per_minute": 18.74,
+      "acceptance_latency_ms": {
+        "p50": 379.76,
+        "p95": 381.44
+      },
+      "end_to_end_latency_ms": {
+        "p50": 9698.73,
+        "p95": 12805.5
+      },
+      "reported_scan_ms": {
+        "p50": 6088.21,
+        "p95": 6221.92
+      },
+      "analyzer_ms_mean": {}
+    },
+    {
+      "case": "sandbox-single",
+      "parallel_submissions": 1,
+      "elapsed_s": 0.412,
+      "completed_per_minute": 145.73,
+      "acceptance_latency_ms": {
+        "p50": 71.13,
+        "p95": 71.13
+      },
+      "end_to_end_latency_ms": {
+        "p50": 411.49,
+        "p95": 411.49
+      },
+      "reported_scan_ms": {
+        "p50": 186.58,
+        "p95": 186.58
+      },
+      "analyzer_ms_mean": {}
+    }
+  ],
+  "finished_at": "2026-08-13T01:48:48Z"
+}

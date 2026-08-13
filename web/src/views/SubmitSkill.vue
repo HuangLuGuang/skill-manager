@@ -246,6 +246,7 @@
 import { translateLegacy as phrase } from '../i18n'
 
 import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { InboxOutlined } from '@ant-design/icons-vue'
@@ -262,6 +263,7 @@ import {
 } from '../api'
 
 const router = useRouter()
+const { t } = useI18n()
 const { text } = useLocaleText()
 const submitMode = ref('zip')
 const showLocalImport = false
@@ -435,8 +437,7 @@ const deepScanTooltip = computed(() => {
   if (loadingSystemStatus.value) return phrase('legacy.ytd7gn')
   if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return phrase('legacy.s8dbz7')
   if (!managerStatus.value?.skillspector_available) return phrase('legacy.nxt8hi')
-  if (llmReadyForSubmit.value) return phrase('legacy.87644d')
-  return phrase('legacy.lxs8i8')
+  return t('scanOptions.deepScanHint')
 })
 const sandboxTooltip = computed(() => {
   if (loadingSystemStatus.value) return phrase('legacy.1lc1opo')
