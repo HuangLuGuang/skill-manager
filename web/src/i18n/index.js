@@ -19,7 +19,7 @@ export const i18n = createI18n({
   messages: {
     'zh-CN': {
       app: {
-        name: 'AI智能体全生命周期管理平台',
+        name: '智能体生命周期管理系统',
       },
       language: {
         label: '语言',

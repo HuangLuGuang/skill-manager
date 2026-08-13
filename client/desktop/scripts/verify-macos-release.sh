@@ -4,7 +4,7 @@ set -euo pipefail
 
 bundle_root="${1:-src-tauri/target/release/bundle}"
 signing_mode="${AGENT_MANAGER_MACOS_SIGNING_MODE:-adhoc}"
-app_path="$bundle_root/macos/AI智能体全生命周期管理平台客户端.app"
+app_path="$bundle_root/macos/智能体生命周期管理系统客户端.app"
 dmg_path="$(find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
 
 if [[ "$signing_mode" != "adhoc" && "$signing_mode" != "developer-id" ]]; then
@@ -30,7 +30,7 @@ if [[ "$english_display_name" != "Agent Manager Client" ]]; then
   echo "macOS release verification failed: unexpected English application name '$english_display_name'." >&2
   exit 1
 fi
-if [[ "$chinese_display_name" != "AI智能体全生命周期管理平台客户端" ]]; then
+if [[ "$chinese_display_name" != "智能体生命周期管理系统客户端" ]]; then
   echo "macOS release verification failed: unexpected Chinese application name '$chinese_display_name'." >&2
   exit 1
 fi

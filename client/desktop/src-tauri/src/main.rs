@@ -170,7 +170,7 @@ fn show_system_notification(app: AppHandle, title: String, body: String) -> Resu
         != PermissionState::Granted
     {
         return Err(
-            "系统通知权限未开启，请在系统设置中允许AI智能体全生命周期管理平台客户端发送通知"
+            "系统通知权限未开启，请在系统设置中允许智能体生命周期管理系统客户端发送通知"
                 .to_string(),
         );
     }

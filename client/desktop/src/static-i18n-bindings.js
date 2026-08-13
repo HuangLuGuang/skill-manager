@@ -3,8 +3,8 @@ window.clientStaticI18nBindings = [
   {
     "selector": "html:nth-of-type(1)>head:nth-of-type(1)>title:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.gy1la4",
-    "source": "AI智能体全生命周期管理平台客户端"
+    "key": "ui.7jdhon",
+    "source": "智能体生命周期管理系统客户端"
   },
   {
     "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>div:nth-of-type(1)>img:nth-of-type(1)",
@@ -21,8 +21,8 @@ window.clientStaticI18nBindings = [
   {
     "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>div:nth-of-type(1)>div:nth-of-type(1)>small:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.i572jc",
-    "source": "AI智能体全生命周期管理平台"
+    "key": "ui.1s7qqi1",
+    "source": "智能体生命周期管理系统"
   },
   {
     "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>p:nth-of-type(1)",
@@ -69,8 +69,8 @@ window.clientStaticI18nBindings = [
   {
     "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>div:nth-of-type(2)>div:nth-of-type(1)>strong:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.i572jc",
-    "source": "AI智能体全生命周期管理平台"
+    "key": "ui.1s7qqi1",
+    "source": "智能体生命周期管理系统"
   },
   {
     "selector": "#client-build-version",
