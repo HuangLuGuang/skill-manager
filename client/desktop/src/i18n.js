@@ -2,7 +2,7 @@
   const STORAGE_KEY = 'agent-manager-client-locale'
   const supported = new Set(['zh-CN', 'en-US'])
   const phrases = {
-    'AI智能体全生命周期管理平台': 'Agent Manager',
+    '智能体生命周期管理系统': 'Agent Manager',
     '客户端': 'Client',
     '瑞数信息': 'RIVER SECURITY',
     '统一治理智能体配置、能力与运行安全。': 'Unified governance for agent configuration, capabilities, and runtime security.',
@@ -329,7 +329,7 @@
   }
 
   Object.assign(phrases, {
-    'AI智能体全生命周期管理平台客户端': 'Agent Manager Client',
+    '智能体生命周期管理系统客户端': 'Agent Manager Client',
     '简体中文': 'Simplified Chinese',
     '正在暂停后台服务并检查本地状态': 'Pausing the background service and checking local status',
     '下载更新': 'Download Update',
@@ -912,9 +912,9 @@
 
   const updateBrand = () => {
     document.documentElement.lang = locale
-    document.title = locale === 'en-US' ? 'Agent Manager Client' : 'AI智能体全生命周期管理平台客户端'
+    document.title = locale === 'en-US' ? 'Agent Manager Client' : '智能体生命周期管理系统客户端'
     document.querySelectorAll('[data-system-name]').forEach(element => {
-      element.textContent = locale === 'en-US' ? 'Agent Manager' : 'AI智能体全生命周期管理平台'
+      element.textContent = locale === 'en-US' ? 'Agent Manager' : '智能体生命周期管理系统'
     })
   }
 
