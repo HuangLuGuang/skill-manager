@@ -30,6 +30,7 @@ docker_images/
 test_data/
 CLAUDE.md
 *.zip
+!web/public/examples/*.zip
 data/
 projects/
 mitre_attack_atlas/

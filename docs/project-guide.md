@@ -163,39 +163,57 @@ MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟�
 
 ```mermaid
 flowchart TB
-    U["开发者 / 外部来源"] --> S["提交技能"]
-    S --> V["Vetting Pipeline"]
-    V --> P["Policy Gate"]
-    P --> R["Registry / Review / Audit"]
-    R --> D["Deploy / Runtime Governance"]
-    R --> M["LLM Model Gateway / Privacy Router"]
-
-    subgraph Vetting
-      V1["Manifest 解析"]
-      V2["Cisco skill-scanner"]
-      V3["Behavioral 分析"]
-      V4["LLM 分析"]
-      V5["Sandbox 执行验证"]
+    subgraph Callers["调用方与管理入口"]
+      Admin["管理员 / 审核员"]
+      Scanner["Scanner / CI"]
+      Agent["Agent / Agent Manager Client"]
+      ModelApp["模型应用"]
+      McpClient["MCP Client"]
     end
 
-    V --> V1
-    V --> V2
-    V --> V3
-    V --> V4
-    V --> V5
+    Entry["Nginx 统一入口<br/>管理 API · 模型 API · MCP 数据面"]
+    Callers --> Entry
 
-    D --> G["can-load / verify-signature / check-tool"]
-    G --> A["Agent Runtime"]
-
-    subgraph ModelGateway
-      M1["模型调用凭证"]
-      M2["PII 检测 / 伪匿名"]
-      M3["OpenAI-compatible 上游模型"]
-      M4["反替换 / Trace / DP 统计"]
+    subgraph Control["治理控制面"]
+      Identity["用户、组、Agent 与最小权限凭证"]
+      Policy["Skill 准入、Agent 授权、模型与 Tool 策略"]
+      Console["管理台、审核、配置与文档"]
+      Tasks["扫描队列、客户端任务与高风险审批"]
     end
+    Entry --> Control
 
-    M --> M1 --> M2 --> M3 --> M4
+    subgraph Runtime["运行数据面"]
+      Skill["Skill 准入治理<br/>规则 / 深度扫描 / 可选 Sandbox / LLM<br/>策略判定 → 审核 → 签名版本"]
+      Client["Agent 与客户端治理<br/>发现 → 绑定 → 下发 / 恢复<br/>Verifier / Hook 运行校验"]
+      Model["模型网关<br/>凭证与模型范围 → Prompt 防护<br/>PII 替换 → 可选压缩 → 上游模型"]
+      MCP["MCP 网关<br/>凭证与网关范围 → Tool Schema<br/>并发控制 → 高风险审批 → MCP Server"]
+    end
+    Control --> Skill
+    Control --> Client
+    Control --> Model
+    Control --> MCP
+
+    Sandbox["隔离 Sandbox / nsjail"]
+    Upstream["外部模型供应商"]
+    Servers["外部 MCP Server"]
+    Skill -. "动态检测" .-> Sandbox
+    Model --> Upstream
+    MCP --> Servers
+
+    subgraph Evidence["信任与证据基础"]
+      Registry["Registry、内容版本、指纹、状态与签名"]
+      Trace["报告、客户端任务、模型 Trace、MCP 调用与用量"]
+      Audit["哈希链与 Ed25519 签名安全审计"]
+    end
+    Skill --> Evidence
+    Client --> Evidence
+    Model --> Evidence
+    MCP --> Evidence
 ```
+
+帮助中心首页使用同一架构边界绘制可响应的中英文架构图。图中的控制面负责准入、授权、
+路由与证据记录；Agent 仍从本地目录加载 Skill，Sandbox、外部模型供应商和 MCP Server
+分别保持隔离或外部执行边界。
 
 ---
 
@@ -913,6 +931,29 @@ sequenceDiagram
 ---
 
 ## 17. 相关专题文档
+
+面向新用户的可复现场景案例统一维护在帮助中心“场景实践”分组，包括：
+
+- 差旅报销 Skill 的提交、审核、Agent 授权与运行校验
+- 合法但高影响的安全事件证据上传 Skill 审核
+- 恶意数据外传 Skill 的准入拒绝
+- 已批准 Skill 被本地篡改后的运行阻断与恢复
+- MCP 客户查询与暂停服务的高风险调用审批
+- 多 Agent 工作站的客户端模块化治理：按本机 Agent、Skill 根目录、平台 Agent 授权和
+  处置策略分层管理，并验证单个 Skill 的异常不会跨目录影响其他 Agent
+- 客服对话的模型网关隐私与上下文压缩：用虚构数据核对 PII 伪匿名化、压缩前后
+  Token、响应还原和隐私链路访问边界
+
+客户端与模型网关案例的演练数据位于 `web/public/examples/client-modular-governance-plan.json`、
+`web/public/examples/approved-helper.zip` 和
+`web/public/examples/model-privacy-compression-request.json`。客户端计划是配置与验收清单，
+不会自动修改客户端；`approved-helper.zip` 是第二个 Agent 使用的只读演示 Skill；模型请求
+必须把占位值替换为当前环境实际启用且凭证允许的模型，压缩结果以响应头和对应请求的
+链路追踪为准，不承诺固定节省比例。
+
+MCP 案例的确定性演示服务和调用脚本位于
+`demo/mcp-customer-operations/`。示例只使用虚构客户数据，并通过 Docker Compose
+`examples` profile 按需启动；默认生产部署不会启动该服务。
 
 - 客户演示 Runbook：
   [customer-demo-runbook.md](../docs/customer-demo-runbook.md)

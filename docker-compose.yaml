@@ -60,6 +60,22 @@ services:
     networks:
       - app
 
+  mcp-demo:
+    profiles: ["examples"]
+    image: agent-manager-backend:${TAG:-latest}
+    command: ["python", "/app/demo/mcp-customer-operations/server.py"]
+    environment:
+      MCP_DEMO_TOKEN: ${MCP_DEMO_TOKEN:-mcp-demo-change-me}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - app
+
   sandbox:
     image: agent-manager-sandbox:${TAG:-latest}
     ports:

@@ -1,0 +1,18 @@
+{
+  "model": "replace-with-enabled-model",
+  "conversation_id": "training-support-001",
+  "metadata": {
+    "tenant_id": "training-tenant",
+    "user_id": "support-demo-user"
+  },
+  "messages": [
+    {
+      "role": "system",
+      "content": "Summarize the fictitious support conversation. Preserve decisions and action items, and do not invent customer facts."
+    },
+    {
+      "role": "user",
+      "content": "Fictitious customer CUST-1001 uses demo.user@example.com. The customer reports that the same service interruption occurred on Monday, Tuesday, and Wednesday. For every occurrence, support verified the account, checked the service status, reviewed the same recovery checklist, confirmed that no billing change was requested, and recorded that the next action is a technical follow-up. Summarize the repeated history, retain the customer reference and contact channel, and list the single next action. This payload contains demonstration data only."
+    }
+  ]
+}

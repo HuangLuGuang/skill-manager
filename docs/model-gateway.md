@@ -367,6 +367,16 @@ x-compression: enabled-noop
 
 未启用时返回 `x-compression: off`。
 
+不要只根据统计页或“已启用”判断单次调用。生产验收应按同一个 `x-request-id` 交叉核对
+响应头、`original`、`masked`、`compressed`、`masked_response` 和
+`final_response`：PII 替换先于压缩；`masked` 和 `compressed` 不应包含原始隐私值；
+只有 `x-compression: on` 才表示本次产生了压缩变换。`enabled-noop` 是有效结果，不应
+填充虚假的节省量。压缩效果还需要同时验证事实保留、延迟和错误率，不能把单一样本的
+压缩比例作为服务承诺。
+
+帮助中心“场景实践 → 模型隐私与压缩”提供使用虚构客户编号、保留域名邮箱和重复客服
+记录的请求样本。原始 Trace 仍会保留演练输入，因此示例也不应替换成真实客户数据。
+
 **方式 2 — 管理台隐私链路追踪**:
 
 进入 `隐私链路追踪` 页面，展开一次请求:
