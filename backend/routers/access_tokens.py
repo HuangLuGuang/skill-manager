@@ -56,7 +56,7 @@ SCOPE_TOKEN_TYPES = {
     **{scope: {"scanner"} for scope in SCANNER_SCOPES},
     **{scope: {"agent_runtime"} for scope in RUNTIME_SCOPES},
     "model:chat": {"model_gateway", "agent_runtime"},
-    **{scope: {"mcp_gateway"} for scope in MCP_SCOPES},
+    **{scope: {"mcp_gateway", "agent_runtime"} for scope in MCP_SCOPES},
     **{scope: {"client"} for scope in CLIENT_SCOPES},
 }
 
@@ -125,6 +125,17 @@ def _normalize_allowed_models(token_type: str, scopes: list[str], allowed_models
     return result
 
 
+def _validate_agent_credential_issuance(token_type: str, allowed: bool) -> None:
+    if allowed and token_type != "client":
+        raise ApiError(
+            400,
+            "credential.agent_issuance_not_applicable",
+            "只有客户端接入凭证可以代客户端为绑定 Agent 创建运行凭证",
+            "Only Client access credentials may create runtime credentials for bound Agents",
+            params={"token_type": token_type},
+        )
+
+
 def _validate_subject_bindings(
     db: Session,
     *,
@@ -132,6 +143,7 @@ def _validate_subject_bindings(
     bound_agent_id: str | None,
     bound_client_id: str | None,
     allowed_mcp_gateways: list[str] | None,
+    scopes: list[str] | None = None,
 ) -> list[str]:
     if token_type == "agent_runtime":
         if not bound_agent_id:
@@ -162,14 +174,19 @@ def _validate_subject_bindings(
         )
 
     gateways = [str(item).strip() for item in (allowed_mcp_gateways or []) if str(item).strip()]
-    if token_type == "mcp_gateway":
+    uses_mcp = token_type == "mcp_gateway" or any(scope in MCP_SCOPES for scope in (scopes or []))
+    if token_type == "agent_runtime" and not uses_mcp:
+        return []
+    if token_type in {"mcp_gateway", "agent_runtime"}:
         if not gateways:
-            raise ApiError(
-                400,
-                "credential.mcp_gateway_binding_required",
-                "MCP 网关凭证必须至少授权一个网关",
-                "MCP gateway credentials must allow at least one gateway",
-            )
+            if uses_mcp:
+                raise ApiError(
+                    400,
+                    "credential.mcp_gateway_binding_required",
+                    "使用 MCP 权限的凭证必须至少授权一个网关",
+                    "Credentials with MCP scopes must allow at least one gateway",
+                )
+            return []
         existing = {row.slug for row in db.query(models.McpGateway).all()}
         missing = set(gateways) - existing
         if missing:
@@ -202,6 +219,8 @@ def _access_token_response(row: models.AccessToken, token: str | None = None) ->
         token_hash=None,
         bound_agent_id=row.bound_agent_id,
         bound_client_id=row.bound_client_id,
+        allow_agent_credential_issuance=getattr(row, "allow_agent_credential_issuance", False),
+        issued_by_client_token_id=getattr(row, "issued_by_client_token_id", None),
         user_id=row.user_id,
         group_id=row.group_id,
         scopes=_json_loads(row.scopes_json, []),
@@ -462,18 +481,20 @@ async def create_access_token(
 ):
     if not body.name.strip():
         raise ApiError(400, "credential.name_required", "凭证名称不能为空", "Credential name is required")
+    _validate_agent_credential_issuance(body.token_type, body.allow_agent_credential_issuance)
+    scopes = _normalize_scopes(body.token_type, body.scopes)
     allowed_mcp_gateways = _validate_subject_bindings(
         db,
         token_type=body.token_type,
         bound_agent_id=body.bound_agent_id,
         bound_client_id=body.bound_client_id,
         allowed_mcp_gateways=body.allowed_mcp_gateways,
+        scopes=scopes,
     )
     if body.user_id and not db.query(models.User).filter(models.User.id == body.user_id).first():
         raise ApiError(404, "user.not_found", "用户不存在", "User not found")
     if body.group_id and not db.query(models.UserGroup).filter(models.UserGroup.id == body.group_id).first():
         raise ApiError(404, "group.not_found", "用户组不存在", "User group not found")
-    scopes = _normalize_scopes(body.token_type, body.scopes)
     plain = _new_token()
     row = models.AccessToken(
         name=body.name.strip(),
@@ -483,6 +504,7 @@ async def create_access_token(
         scopes_json=_json_dumps(scopes),
         bound_agent_id=body.bound_agent_id,
         bound_client_id=body.bound_client_id,
+        allow_agent_credential_issuance=body.allow_agent_credential_issuance,
         user_id=body.user_id or current_user.id if body.token_type == "model_gateway" else body.user_id,
         group_id=body.group_id,
         allowed_models_json=_json_dumps(_normalize_allowed_models(body.token_type, scopes, body.allowed_models)),
@@ -520,11 +542,18 @@ async def update_access_token(
     if not row:
         raise ApiError(404, "credential.not_found", "接入凭证不存在", "Access credential not found")
     data = body.model_dump(exclude_unset=True)
+    if "allow_agent_credential_issuance" in data:
+        _validate_agent_credential_issuance(row.token_type, bool(data["allow_agent_credential_issuance"]))
     next_bound_agent_id = data.get("bound_agent_id", row.bound_agent_id)
     next_bound_client_id = data.get("bound_client_id", row.bound_client_id)
     next_allowed_mcp_gateways = data.get(
         "allowed_mcp_gateways",
         _json_loads(row.allowed_mcp_gateways_json, []),
+    )
+    next_scopes = (
+        _normalize_scopes(row.token_type, data["scopes"])
+        if "scopes" in data and data["scopes"] is not None
+        else _json_loads(row.scopes_json, [])
     )
     normalized_mcp_gateways = _validate_subject_bindings(
         db,
@@ -532,10 +561,11 @@ async def update_access_token(
         bound_agent_id=next_bound_agent_id,
         bound_client_id=next_bound_client_id,
         allowed_mcp_gateways=next_allowed_mcp_gateways,
+        scopes=next_scopes,
     )
-    scopes = _json_loads(row.scopes_json, [])
+    scopes = next_scopes
     if "scopes" in data and data["scopes"] is not None:
-        scopes = _normalize_scopes(row.token_type, data.pop("scopes"))
+        data.pop("scopes")
         row.scopes_json = _json_dumps(scopes)
         if "model:chat" not in scopes:
             row.allowed_models_json = "[]"
@@ -545,6 +575,7 @@ async def update_access_token(
         )
     if "allowed_mcp_gateways" in data and data["allowed_mcp_gateways"] is not None:
         data.pop("allowed_mcp_gateways")
+    if row.token_type in {"mcp_gateway", "agent_runtime"}:
         row.allowed_mcp_gateways_json = _json_dumps(normalized_mcp_gateways)
     if "allowed_ips" in data and data["allowed_ips"] is not None:
         row.allowed_ips_json = _json_dumps(data.pop("allowed_ips"))
@@ -567,6 +598,18 @@ async def revoke_access_token(
     row.status = "revoked"
     row.revoked_at = datetime.utcnow()
     row.revoked_by = current_user.username
+    if row.token_type == "client":
+        db.query(models.AccessToken).filter(
+            models.AccessToken.issued_by_client_token_id == row.id,
+            models.AccessToken.status == "active",
+        ).update(
+            {
+                "status": "revoked",
+                "revoked_at": row.revoked_at,
+                "revoked_by": current_user.username,
+            },
+            synchronize_session=False,
+        )
     db.commit()
     db.refresh(row)
     return _access_token_response(row)
@@ -581,6 +624,15 @@ async def delete_access_token(
     row = db.query(models.AccessToken).filter(models.AccessToken.id == token_id).first()
     if not row:
         raise ApiError(404, "credential.not_found", "接入凭证不存在", "Access credential not found")
+    if row.token_type == "client":
+        now = datetime.utcnow()
+        db.query(models.AccessToken).filter(
+            models.AccessToken.issued_by_client_token_id == row.id,
+            models.AccessToken.status == "active",
+        ).update(
+            {"status": "revoked", "revoked_at": now, "revoked_by": current_user.username},
+            synchronize_session=False,
+        )
     db.delete(row)
     db.commit()
     return {"status": "deleted"}

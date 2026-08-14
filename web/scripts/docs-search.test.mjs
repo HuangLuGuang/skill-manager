@@ -40,6 +40,19 @@ const governanceCases = [
   },
 ]
 
+const scenarioCases = [
+  {
+    locale: 'zh-CN',
+    clientQuery: '如何在一台工作站上按 Agent 和 Skill 目录做模块化治理？',
+    modelQuery: '如何验证模型网关先保护隐私再压缩上下文？',
+  },
+  {
+    locale: 'en-US',
+    clientQuery: 'How do I govern local Skills by Agent and root on one workstation?',
+    modelQuery: 'How do I verify privacy replacement before model context compression?',
+  },
+]
+
 test('scanning capabilities are present in navigation and article order', () => {
   assert.ok(docsArticleOrder.includes('scan-capabilities'))
   for (const { locale } of cases) {
@@ -63,6 +76,20 @@ test('Ask AI ranks the scanning overview first for analyzer comparison questions
     const [first] = rankDocsContexts({ content: docsContent[locale], query })
     assert.equal(first.slug, 'scan-capabilities')
     assert.equal(first.section_title, docsContent[locale].articles['scan-capabilities'].sections[0].title)
+  }
+})
+
+test('Skill detection logic diagram follows the implemented reconciliation stages', () => {
+  for (const { locale } of cases) {
+    const section = docsContent[locale].articles['scan-capabilities'].sections
+      .find(item => item.id === 'detection-logic')
+    assert.ok(section)
+    assert.equal(section.diagram, 'skill-scan-logic')
+    const serialized = JSON.stringify(section).toLocaleLowerCase()
+    const requiredTerms = locale === 'zh-CN'
+      ? ['分析器', '策略', 'sandbox', '发现项归类', 'llm', '准入']
+      : ['analyzer', 'policy', 'sandbox', 'classification', 'llm', 'admission']
+    for (const term of requiredTerms) assert.match(serialized, new RegExp(term, 'i'))
   }
 })
 
@@ -120,6 +147,44 @@ test('Ask AI finds Scanner, Credential Center, and Audit trail guidance', () => 
   }
 })
 
+test('system architecture covers every major runtime domain and ranks for Ask AI', () => {
+  const cases = {
+    'zh-CN': '系统总体架构是什么，模型网关、MCP网关、客户端和Skill是什么关系？',
+    'en-US': 'What is the system architecture across Skills Clients Model Gateway and MCP Gateway?',
+  }
+  for (const [locale, query] of Object.entries(cases)) {
+    const section = docsContent[locale].articles[''].sections.find(item => item.id === 'system-architecture')
+    assert.ok(section)
+    assert.equal(section.diagram, 'architecture')
+    const serialized = JSON.stringify(section).toLocaleLowerCase()
+    const requiredTerms = locale === 'zh-CN'
+      ? ['skill', '客户端', '模型', 'mcp', 'sandbox', '审计']
+      : ['skill', 'client', 'model', 'mcp', 'sandbox', 'audit']
+    for (const term of requiredTerms) assert.match(serialized, new RegExp(term, 'i'))
+    const [first] = rankDocsContexts({ content: docsContent[locale], query })
+    assert.equal(first.slug, '')
+    assert.equal(first.section_title, section.title)
+  }
+})
+
+test('scenario guides stay in one ungrouped list and rank for Ask AI', () => {
+  for (const { locale, clientQuery, modelQuery } of scenarioCases) {
+    const group = docsContent[locale].groups.find(item => item.items.some(entry => entry.slug === 'case-client-modular-governance'))
+    assert.ok(group)
+    const scenarioItems = group.items
+    assert.deepEqual(scenarioItems.slice(-2).map(item => item.slug), [
+      'case-client-modular-governance',
+      'case-model-privacy-compression',
+    ])
+    assert.ok(scenarioItems.every(item => !item.subgroup))
+
+    const [clientContext] = rankDocsContexts({ content: docsContent[locale], query: clientQuery })
+    const [modelContext] = rankDocsContexts({ content: docsContent[locale], query: modelQuery })
+    assert.equal(clientContext.slug, 'case-client-modular-governance')
+    assert.equal(modelContext.slug, 'case-model-privacy-compression')
+  }
+})
+
 test('documentation navigation, tables, links, and screenshots stay internally valid', () => {
   const routerSource = fs.readFileSync(path.join(webRoot, 'src/router/index.js'), 'utf8')
   const routePaths = new Set([...routerSource.matchAll(/path:\s*['"]([^'"]+)['"]/g)].map(match => match[1]))
@@ -153,6 +218,9 @@ test('documentation navigation, tables, links, and screenshots stay internally v
         if (typeof node.path === 'string' && node.path.startsWith('/docs/')) {
           const targetSlug = node.path.slice('/docs/'.length).split('#')[0]
           assert.ok(content.articles[targetSlug], `${locale}/${slug}: missing docs target ${node.path}`)
+        } else if (typeof node.path === 'string' && node.path.startsWith('/examples/')) {
+          const download = path.join(webRoot, 'public', node.path.replace(/^\//, ''))
+          assert.ok(fs.existsSync(download), `${locale}/${slug}: missing download ${node.path}`)
         } else if (typeof node.path === 'string' && node.path.startsWith('/')) {
           assert.ok(routePaths.has(node.path), `${locale}/${slug}: missing app route ${node.path}`)
         }

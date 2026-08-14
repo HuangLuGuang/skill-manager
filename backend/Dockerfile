@@ -35,6 +35,7 @@ COPY pyproject.toml README.md company-policy.example.yaml ./
 COPY agent_manager ./agent_manager
 COPY backend ./backend
 COPY demo/agent-manager-skill-verifier ./demo/agent-manager-skill-verifier
+COPY demo/mcp-customer-operations ./demo/mcp-customer-operations
 
 RUN UV_DEFAULT_INDEX="$PYPI_INDEX" uv pip install --system -e ".[scanner,compression]" && \
     UV_DEFAULT_INDEX="$PYPI_INDEX" uv pip install --system \

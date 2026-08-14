@@ -217,6 +217,25 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 			return err
 		}
 		return RequestFullScan(home)
+	case "apply_model_config":
+		agentType := stringValue(task.Payload, "agent_type")
+		localAgentID := stringValue(task.Payload, "local_agent_id")
+		model := stringValue(task.Payload, "model")
+		if agentType == "" || localAgentID == "" || model == "" {
+			return fmt.Errorf("model config task is missing target Agent or model")
+		}
+		credential := ""
+		if boolValue(task.Payload, "auto_issue_credential") {
+			issued, err := api.IssueAgentCredential(ctx, inventory.ClientID, task.ID)
+			if err != nil {
+				return fmt.Errorf("issue Agent runtime credential: %w", err)
+			}
+			credential = issued.Token
+			if credential == "" {
+				return fmt.Errorf("Agent Manager returned an empty Agent runtime credential")
+			}
+		}
+		return ApplyModelConfig(home, api.server, localAgentID, agentType, model, credential)
 	case "install_skill", "repair_skill":
 		agentType := stringValue(task.Payload, "agent_type")
 		managedAgentID := stringValue(task.Payload, "managed_agent_id")
@@ -881,5 +900,10 @@ func findAgent(inventory Inventory, agentType string) (Agent, bool) {
 
 func stringValue(payload map[string]any, key string) string {
 	value, _ := payload[key].(string)
+	return value
+}
+
+func boolValue(payload map[string]any, key string) bool {
+	value, _ := payload[key].(bool)
 	return value
 }

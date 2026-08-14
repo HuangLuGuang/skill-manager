@@ -195,10 +195,13 @@
 import { translateLegacy as phrase, translateText as text } from '../i18n'
 
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 
 import { debugMcpUpstream, listMcpGateways, listMcpServers } from '../api'
+import { copyText, promptManualCopy } from '../utils/clipboard'
 
+const { t } = useI18n()
 const targetMode = ref('service')
 const servers = ref([])
 const gateways = ref([])
@@ -462,8 +465,14 @@ const copyClientConfig = async () => {
   const config = { mcpServers: { [name]: { type: 'streamable-http', url } } }
   if (targetMode.value === 'gateway') config.mcpServers[name].headers = { Authorization: 'Bearer amat_xxx' }
   else if (authorizationValue.value || selectedServer.value) config.mcpServers[name].headers = { [authorizationHeader.value || 'Authorization']: '<secret>' }
-  await navigator.clipboard.writeText(pretty(config))
-  message.success(phrase('legacy.ihss14'))
+  const configText = pretty(config)
+  try {
+    await copyText(configText)
+    message.success(phrase('legacy.ihss14'))
+  } catch {
+    message.warning(t('clipboard.copyFailed'))
+    promptManualCopy(configText, t('clipboard.manualCopyPrompt'))
+  }
 }
 
 onMounted(async () => {

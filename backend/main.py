@@ -149,6 +149,16 @@ def ensure_sqlite_schema() -> None:
         access_token_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(access_tokens)").fetchall()}
         if "bound_client_id" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN bound_client_id VARCHAR(128)")
+        if "allow_agent_credential_issuance" not in access_token_columns:
+            conn.exec_driver_sql(
+                "ALTER TABLE access_tokens ADD COLUMN allow_agent_credential_issuance BOOLEAN NOT NULL DEFAULT 0"
+            )
+        if "issued_by_client_token_id" not in access_token_columns:
+            conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN issued_by_client_token_id INTEGER")
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_access_tokens_issued_by_client_token_id "
+                "ON access_tokens (issued_by_client_token_id)"
+            )
         if "allowed_mcp_gateways_json" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN allowed_mcp_gateways_json TEXT NOT NULL DEFAULT '[]'")
         if "prompt_guard_mode" not in access_token_columns:
@@ -250,6 +260,18 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql("ALTER TABLE managed_clients ADD COLUMN policy_mode VARCHAR(32) NOT NULL DEFAULT 'audit'")
         if managed_client_columns and "governance_mode" not in managed_client_columns:
             conn.exec_driver_sql("ALTER TABLE managed_clients ADD COLUMN governance_mode VARCHAR(32) NOT NULL DEFAULT 'registry'")
+        client_agent_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(client_agents)").fetchall()}
+        client_agent_additions = {
+            "local_agent_id": "VARCHAR(128)",
+            "desired_model": "VARCHAR(128)",
+            "applied_model": "VARCHAR(128)",
+            "model_config_status": "VARCHAR(32) NOT NULL DEFAULT 'not_configured'",
+            "model_config_error": "TEXT",
+            "model_config_updated_at": "DATETIME",
+        }
+        for column, definition in client_agent_additions.items():
+            if client_agent_columns and column not in client_agent_columns:
+                conn.exec_driver_sql(f"ALTER TABLE client_agents ADD COLUMN {column} {definition}")
         client_skill_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(client_skill_installs)").fetchall()}
         if client_skill_columns and "version_id" not in client_skill_columns:
             conn.exec_driver_sql("ALTER TABLE client_skill_installs ADD COLUMN version_id VARCHAR(128)")

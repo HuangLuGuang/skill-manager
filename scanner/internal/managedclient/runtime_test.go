@@ -19,6 +19,59 @@ import (
 	"time"
 )
 
+func TestModelConfigTaskRetrievesAgentCredentialOutsideTaskPayload(t *testing.T) {
+	home := t.TempDir()
+	requestedPath := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		requestedPath = request.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"token":          "amat_task_bound_agent_secret",
+			"token_prefix":   "amat_task_bo",
+			"bound_agent_id": "managed-claude",
+			"allowed_models": []string{"claude-managed"},
+		})
+	}))
+	defer server.Close()
+
+	err := executeTask(
+		context.Background(),
+		home,
+		Inventory{ClientID: "host-1"},
+		Policy{},
+		NewAPI(server.URL, "client-token", time.Second),
+		nil,
+		Task{
+			ID:       42,
+			TaskType: "apply_model_config",
+			Payload: map[string]any{
+				"local_agent_id":        "claude-main",
+				"agent_type":            "claude-code",
+				"model":                 "claude-managed",
+				"auto_issue_credential": true,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requestedPath != "/api/v1/clients/host-1/tasks/42/agent-credential" {
+		t.Fatalf("unexpected credential endpoint: %s", requestedPath)
+	}
+	body, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(body, &settings); err != nil {
+		t.Fatal(err)
+	}
+	env, _ := settings["env"].(map[string]any)
+	if env["ANTHROPIC_AUTH_TOKEN"] != "amat_task_bound_agent_secret" {
+		t.Fatalf("task-issued credential was not applied: %#v", env)
+	}
+}
+
 func TestRunOnceInstallsSignedTaskAndRecordsCompletion(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".codex", "skills"), 0o755); err != nil {

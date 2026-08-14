@@ -291,6 +291,51 @@ def test_mcp_gateway_discovers_filters_calls_and_audits(tmp_path, monkeypatch):
     assert success["tool_name"] == "search"
 
 
+def test_agent_runtime_composite_token_can_use_bound_mcp_gateway(tmp_path, monkeypatch):
+    client, testing_session = _client(tmp_path, monkeypatch)
+    _configured_gateway(client)
+    db = testing_session()
+    db.add(
+        models.ManagedAgent(
+            agent_id="research-agent",
+            name="Research Agent",
+            status="active",
+            skill_names_json="[]",
+            prompt_names_json="[]",
+        )
+    )
+    db.commit()
+    db.close()
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "research-runtime",
+            "token_type": "agent_runtime",
+            "bound_agent_id": "research-agent",
+            "scopes": [
+                "runtime:verify-signature",
+                "runtime:can-load",
+                "runtime:check-tool",
+                "model:chat",
+                "mcp:connect",
+                "mcp:list-tools",
+                "mcp:call-tools",
+            ],
+            "allowed_mcp_gateways": ["readonly"],
+        },
+    )
+    assert created.status_code == 200
+
+    listed = client.post(
+        "/mcp/readonly",
+        headers={"Authorization": f"Bearer {created.json()['token']}"},
+        json={"jsonrpc": "2.0", "id": 7, "method": "tools/list", "params": {}},
+    )
+
+    assert listed.status_code == 200
+    assert [tool["name"] for tool in listed.json()["result"]["tools"]] == ["crm__search"]
+
+
 def test_mcp_gateway_blocks_schema_drift_and_wrong_gateway_token(tmp_path, monkeypatch):
     client, testing_session = _client(tmp_path, monkeypatch)
     _configured_gateway(client)

@@ -160,6 +160,32 @@ def test_agent_runtime_can_explicitly_select_non_blocking_prompt_guard(tmp_path)
     assert created.json()["record"]["prompt_guard_mode"] == "warn"
 
 
+def test_only_client_credential_can_allow_agent_credential_issuance(tmp_path):
+    client = _client(tmp_path)
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "managed-host",
+            "token_type": "client",
+            "allow_agent_credential_issuance": True,
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["record"]["allow_agent_credential_issuance"] is True
+
+    invalid = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "invalid-runtime",
+            "token_type": "agent_runtime",
+            "bound_agent_id": "risk-agent",
+            "allow_agent_credential_issuance": True,
+        },
+    )
+    assert invalid.status_code == 400
+    assert invalid.json()["error_code"] == "credential.agent_issuance_not_applicable"
+
+
 def test_agent_runtime_requires_existing_agent_and_uses_minimum_default_scopes(tmp_path):
     client = _client(tmp_path)
 
@@ -187,6 +213,49 @@ def test_agent_runtime_requires_existing_agent_and_uses_minimum_default_scopes(t
         "runtime:can-load",
         "runtime:check-tool",
     ]
+
+
+def test_agent_runtime_can_combine_governance_model_and_mcp_scopes(tmp_path):
+    client = _client(tmp_path)
+
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "composite-agent-runtime",
+            "token_type": "agent_runtime",
+            "bound_agent_id": "risk-agent",
+            "scopes": [
+                "runtime:verify-signature",
+                "runtime:can-load",
+                "runtime:check-tool",
+                "model:chat",
+                "mcp:connect",
+                "mcp:list-tools",
+                "mcp:call-tools",
+            ],
+            "allowed_models": ["claude-sonnet"],
+            "allowed_mcp_gateways": ["readonly"],
+        },
+    )
+
+    assert created.status_code == 200
+    record = created.json()["record"]
+    assert record["bound_agent_id"] == "risk-agent"
+    assert record["allowed_models"] == ["claude-sonnet"]
+    assert record["allowed_mcp_gateways"] == ["readonly"]
+    assert {"model:chat", "mcp:connect", "mcp:list-tools", "mcp:call-tools"}.issubset(record["scopes"])
+
+    missing_gateway = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "unbound-composite-runtime",
+            "token_type": "agent_runtime",
+            "bound_agent_id": "risk-agent",
+            "scopes": ["runtime:can-load", "mcp:connect"],
+        },
+    )
+    assert missing_gateway.status_code == 400
+    assert missing_gateway.json()["error_code"] == "credential.mcp_gateway_binding_required"
 
 
 def test_credential_bindings_must_match_token_type(tmp_path):

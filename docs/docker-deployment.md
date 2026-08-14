@@ -70,6 +70,26 @@ uv run agent-manager registry audit-tool-permissions
 
 Compose 入口 Nginx 会把管理 API `/api/` 和 MCP Streamable HTTP 数据面 `/mcp/` 转发到 Backend；MCP Client 应使用 `http(s)://部署域名/mcp/{gateway_slug}`，不需要直接暴露 Backend 端口。旧版 `/sse/` 当前未实现，也不配置转发。
 
+## 可选 MCP 业务案例
+
+源码和离线包包含一个使用虚构客户数据的 MCP 客户操作案例，用于演练 Tool 发现、虚拟
+网关发布、接入凭证、高风险操作审批和调用审计。该服务位于 Compose 的 `examples`
+profile，执行常规 `docker compose up -d` 时不会启动，也不会向宿主机发布端口。
+
+首次使用包含该案例的源码版本时，需要重新构建 Backend 镜像，再按需启动：
+
+```bash
+./build.sh --backend
+docker compose --profile examples up -d mcp-demo backend nginx
+docker compose ps mcp-demo
+```
+
+案例完整配置、演练步骤和恢复方式见
+[`demo/mcp-customer-operations/README.md`](../demo/mcp-customer-operations/README.md)。
+案例为了在隔离的 Compose 网络中复现 HTTP MCP 调用，需要显式配置 HTTP 和准确的私网
+CIDR 白名单；这些配置不得照搬到生产。生产 MCP Server 应使用 HTTPS、安全注入的上游
+凭证和限制到明确目标的出站白名单。
+
 Compose 入口 Nginx 和前端静态站点均关闭了 `server_tokens`，默认错误页和 `Server` 响应头不会暴露具体 Nginx 版本。部署在外部负载均衡、Ingress 或 CDN 后面时，还需要在对应入口单独关闭版本信息。
 
 Backend 启动时会检查旧版 Skill 数据。首次升级到版本化模型时，会把同名 Skill 合并为一个名称族、把不同内容转换为递增版本，并删除同名同内容的旧重复记录及其待审/报告/统计/扫描运行关联数据。迁移完成后会写入 `registry_migrations.skill_families_v1` 标记，后续 `docker compose up` 或容器重启不会重复执行，也不会触发重新检测。Skill 内容目录和审计日志不会被自动删除。

@@ -125,6 +125,8 @@ class AccessToken(Base):
     scopes_json = Column(Text, default="[]", nullable=False)
     bound_agent_id = Column(String(128), index=True, nullable=True)
     bound_client_id = Column(String(128), index=True, nullable=True)
+    allow_agent_credential_issuance = Column(Boolean, default=False, nullable=False)
+    issued_by_client_token_id = Column(Integer, index=True, nullable=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     group_id = Column(Integer, ForeignKey("user_groups.id"), index=True, nullable=True)
     allowed_models_json = Column(Text, default="[]", nullable=False)
@@ -463,6 +465,7 @@ class ClientAgent(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     client_id = Column(String(128), ForeignKey("managed_clients.client_id"), index=True, nullable=False)
+    local_agent_id = Column(String(128), index=True, nullable=True)
     agent_type = Column(String(64), index=True, nullable=False)
     managed_agent_id = Column(String(128), index=True, nullable=True)
     agent_version = Column(String(128), nullable=True)
@@ -470,6 +473,11 @@ class ClientAgent(Base):
     skills_path = Column(String(1024), nullable=True)
     skill_management_supported = Column(Boolean, default=True, nullable=False)
     capabilities_json = Column(Text, default="{}", nullable=False)
+    desired_model = Column(String(128), nullable=True)
+    applied_model = Column(String(128), nullable=True)
+    model_config_status = Column(String(32), default="not_configured", nullable=False)
+    model_config_error = Column(Text, nullable=True)
+    model_config_updated_at = Column(DateTime, nullable=True)
     takeover_status = Column(String(32), default="discovered", nullable=False)
     last_scanned_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

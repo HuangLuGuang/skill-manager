@@ -1,0 +1,40 @@
+{
+  "scenario": "multi-agent-workstation-governance",
+  "data_classification": "fictitious-demo-data",
+  "client": {
+    "name": "training-workstation-01",
+    "governance_mode": "strict",
+    "policy_rollout": [
+      "audit",
+      "repair"
+    ]
+  },
+  "agent_bindings": [
+    {
+      "local_agent_type": "codex",
+      "managed_agent_id": "finance-expense-agent",
+      "allowed_skills": [
+        "travel-expense-calculator"
+      ]
+    },
+    {
+      "local_agent_type": "claude-code",
+      "managed_agent_id": "developer-assistant",
+      "allowed_skills": [
+        "approved-helper"
+      ]
+    }
+  ],
+  "shared_root": {
+    "path": "~/.agents/skills",
+    "handling": "inventory-and-integrity-only",
+    "identity_warning": "A shared directory does not prove which Agent loaded a Skill."
+  },
+  "acceptance": [
+    "Each supported local Agent is bound to the intended platform Agent.",
+    "Each Agent can install only its authorized approved Skill.",
+    "A modification to one managed Skill creates an event for that Skill and Agent.",
+    "Repair restores the approved version without changing the other Agent root.",
+    "Shared roots remain visibly separate from Agent identity and authorization."
+  ]
+}

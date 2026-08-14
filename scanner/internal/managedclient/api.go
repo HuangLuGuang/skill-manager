@@ -18,6 +18,14 @@ type API struct {
 	http   *http.Client
 }
 
+type AgentCredential struct {
+	Token              string   `json:"token"`
+	TokenPrefix        string   `json:"token_prefix"`
+	BoundAgentID       string   `json:"bound_agent_id"`
+	AllowedModels      []string `json:"allowed_models"`
+	AllowedMCPGateways []string `json:"allowed_mcp_gateways"`
+}
+
 type CompareItem struct {
 	AgentType         string `json:"agent_type"`
 	ManagedAgentID    string `json:"managed_agent_id"`
@@ -39,6 +47,17 @@ type Policy struct {
 	FullScanSeconds  int               `json:"full_scan_seconds"`
 	ReleasePublicKey string            `json:"release_public_key"`
 	AgentBindings    map[string]string `json:"agent_bindings"`
+	AgentProfiles    []AgentProfile    `json:"agent_profiles,omitempty"`
+}
+
+type AgentProfile struct {
+	LocalAgentID       string   `json:"local_agent_id"`
+	AgentType          string   `json:"agent_type"`
+	ManagedAgentID     string   `json:"managed_agent_id"`
+	DefaultModel       string   `json:"default_model,omitempty"`
+	AllowedModels      []string `json:"allowed_models,omitempty"`
+	AllowedMCPGateways []string `json:"allowed_mcp_gateways,omitempty"`
+	AutoApplySupported bool     `json:"auto_apply_supported"`
 }
 
 type Task struct {
@@ -126,6 +145,17 @@ func (api API) ReportTask(ctx context.Context, clientID string, taskID int64, st
 		"status": status,
 		"error":  taskError,
 	})
+}
+
+func (api API) IssueAgentCredential(ctx context.Context, clientID string, taskID int64) (AgentCredential, error) {
+	var result AgentCredential
+	err := api.postJSON(
+		ctx,
+		fmt.Sprintf("/api/v1/clients/%s/tasks/%d/agent-credential", clientID, taskID),
+		map[string]any{},
+		&result,
+	)
+	return result, err
 }
 
 func (api API) ReportEvent(ctx context.Context, clientID, eventType, agentType, skillName string, details map[string]any) error {

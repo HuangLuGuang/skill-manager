@@ -20,19 +20,19 @@ Agent Manager 的治理对象从单个 Skill 扩展到智能体。平台需要�
 
 ## 凭证类型
 
-统一在管理台 `智能体管理 / 统一凭证中心` 创建凭证。
+统一在管理台 `智能体管理 / 统一凭证中心` 创建凭证。页面先按真实调用者提供五条路线：Agent、普通模型应用、非 Agent MCP Client、Skill Scanner 和客户端；选择路线后再配置身份绑定、资源范围与高级安全限制，不需要先记住内部凭证类型。
 
 | 类型 | 默认权限 | 用途 |
 |---|---|---|
 | 模型调用凭证 | `model:chat` | 非 Agent 应用调用模型网关 |
-| Agent 运行凭证 | `runtime:verify-signature`, `runtime:can-load`, `runtime:check-tool` | 已登记 Agent 的 Skill、Prompt 和 Tool 运行时校验 |
+| Agent 运行凭证 | `runtime:*`；可增加 `model:chat`、`mcp:*` | 已登记 Agent 的 Skill、Prompt、Tool、模型和 MCP 运行时访问 |
 | Scanner 接入凭证 | `scanner:submit`, `scanner:read-own-results`, `scanner:read-own-sessions` | 客户侧扫描器提交 Skill |
 | 客户端接入凭证 | `client:*` 最小集合 | 桌面客户端注册、心跳、策略、任务、清单和事件上报 |
 | MCP 网关凭证 | `mcp:connect`, `mcp:list-tools`, `mcp:call-tools` | MCP Client 访问明确授权的虚拟网关 |
 
-Agent 运行凭证必须绑定一个已登记 Agent。默认采用“Skill 校验接入”最小权限；需要逐次治理与受治理 Memory 时选择“完整运行治理”，需要同时调用模型时选择“完整运行治理 + 模型调用”或显式增加 `model:chat`。这样同一个 Agent 不需要再持有一枚模型调用凭证。
+Agent 运行凭证必须绑定一个已登记 Agent。默认采用“Skill 校验接入”最小权限；需要逐次治理时选择“完整运行治理”，需要同时调用模型和 MCP 时选择“完整运行治理 + 模型 + MCP”，或显式增加 `model:chat`、所需 `mcp:*`，并限制允许模型与网关。这样同一个 Agent 可以使用一张复合运行凭证，身份仍由 `bound_agent_id` 唯一确定。Memory 接口当前不在默认方案中，只有明确接入时才应通过自定义权限授予 `runtime:memory`。
 
-MCP Client 仍使用独立 MCP 网关凭证，并绑定允许访问的网关列表。它不冒充 Agent 身份；Agent 若同时使用 MCP，需要分别持有 Agent 运行凭证和 MCP 网关凭证。
+非 Agent MCP Client 仍使用独立 MCP 网关凭证，并绑定允许访问的网关列表。已登记 Agent 可以直接使用带 MCP scope 和网关允许列表的复合运行凭证，不需要再持有第二张 MCP 凭证。客户端接入凭证只负责主机注册和任务同步，不能替代 Agent 运行凭证调用模型或 MCP；创建客户端凭证时可显式允许它通过具体配置任务，为本机已绑定 Agent 自动创建独立运行凭证。该授权默认关闭，吊销父客户端凭证时会自动吊销它生成的运行凭证。
 
 对象关系上以 Agent 为主档案：先登记 Agent 并绑定默认模型、Prompt 和允许使用的 Skill；随后在统一凭证中心为这个 Agent 签发运行凭证。不要在创建 Agent 时反向选择凭证，避免出现新建流程的循环依赖。
 

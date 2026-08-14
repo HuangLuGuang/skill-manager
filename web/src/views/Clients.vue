@@ -43,7 +43,7 @@
       </a-table>
     </a-card>
 
-    <a-drawer v-model:open="detailVisible" :title="$t('legacy.95lv9i')" width="880" :destroy-on-close="true">
+    <a-drawer v-model:open="detailVisible" :title="$t('legacy.95lv9i')" width="1080" :destroy-on-close="true">
       <a-spin :spinning="detailLoading">
         <template v-if="detail">
           <div class="detail-head">
@@ -81,7 +81,7 @@
           />
 
           <div class="section-title">{{ $t("legacy.4ig27k") }}</div>
-          <a-table :columns="agentColumns" :data-source="detail.agents || []" row-key="agent_type" size="small" :pagination="false" :expandable="agentTableExpandable">
+          <a-table :columns="agentColumns" :data-source="detail.agents || []" :row-key="row => row.local_agent_id || row.agent_type" size="small" :pagination="false" :expandable="agentTableExpandable">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'type'">
                 <strong>{{ agentLabel(record.agent_type, record) }}</strong>
@@ -112,14 +112,29 @@
                 <span v-else-if="isSharedSkillsRecord(record)" class="muted">{{ $t("legacy.1jv12q7") }}</span>
                 <span v-else class="muted">{{ $t("legacy.cdw9mi") }}</span>
               </template>
+              <template v-else-if="column.key === 'model'">
+                <div>{{ record.applied_model || record.desired_model || managedAgentDefaultModel(record) || '-' }}</div>
+                <a-tag v-if="record.model_config_status && record.model_config_status !== 'not_configured'" :color="modelConfigColor(record.model_config_status)">
+                  {{ modelConfigStatusLabel(record.model_config_status) }}
+                </a-tag>
+                <div v-if="record.model_config_error" class="muted model-error">{{ record.model_config_error }}</div>
+              </template>
               <template v-else-if="column.key === 'skills'">{{ record.skills?.length || 0 }}</template>
               <template v-else-if="column.key === 'action'">
-                <a-button
-                  type="link"
-                  :disabled="!record.skill_management_supported || (currentGovernance === 'strict' && (isSharedSkillsRecord(record) || !record.managed_agent_id))"
-                  :title="currentGovernance === 'strict' && isSharedSkillsRecord(record) ? $t('legacy.13rv9dd') : ''"
-                  @click="openInstall(record)"
-                >{{ $t("legacy.1byrs80") }}</a-button>
+                <a-space direction="vertical" size="small">
+                  <a-button
+                    type="link"
+                    :disabled="!record.skill_management_supported || (currentGovernance === 'strict' && (isSharedSkillsRecord(record) || !record.managed_agent_id))"
+                    :title="currentGovernance === 'strict' && isSharedSkillsRecord(record) ? $t('legacy.13rv9dd') : ''"
+                    @click="openInstall(record)"
+                  >{{ $t("legacy.1byrs80") }}</a-button>
+                  <a-button
+                    type="link"
+                    :disabled="!canConfigureModel(record)"
+                    :title="modelConfigDisabledReason(record)"
+                    @click="openModelConfig(record)"
+                  >{{ $t('clientModelConfig.action') }}</a-button>
+                </a-space>
               </template>
             </template>
             <template #expandedRowRender="{ record: agentRecord }">
@@ -157,7 +172,7 @@
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'type'">
                 <strong>{{ taskLabel(record) }}</strong>
-                <div v-if="taskSkillName(record)" class="muted">{{ taskSkillName(record) }} · {{ agentLabel(record.payload?.agent_type) }}</div>
+                <div v-if="taskTargetLabel(record)" class="muted">{{ taskTargetLabel(record) }}</div>
               </template>
               <template v-else-if="column.key === 'status'">
                 <a-tag :color="taskColor(record.status)">{{ taskStatusLabel(record.status) }}</a-tag>
@@ -204,6 +219,34 @@
       </a-form>
     </a-modal>
 
+    <a-modal
+      v-model:open="modelConfigVisible"
+      :title="$t('clientModelConfig.title')"
+      :ok-text="$t('clientModelConfig.apply')"
+      :confirm-loading="modelConfigSubmitting"
+      @ok="createModelConfig"
+    >
+      <a-alert
+        type="info"
+        show-icon
+        class="policy-note"
+        :message="$t('clientModelConfig.securityTitle')"
+        :description="$t('clientModelConfig.securityDescription')"
+      />
+      <a-form layout="vertical">
+        <a-form-item :label="$t('clientModelConfig.agent')">
+          <a-input :value="agentLabel(modelConfigForm.agent_type)" disabled />
+        </a-form-item>
+        <a-form-item :label="$t('clientModelConfig.model')" required>
+          <a-select v-model:value="modelConfigForm.model" show-search option-filter-prop="label" :placeholder="$t('clientModelConfig.modelPlaceholder')">
+            <a-select-option v-for="model in configurableModels" :key="model.name" :value="model.name" :label="model.display_name || model.name">
+              {{ model.display_name || model.name }}<span v-if="model.display_name" class="skill-option-time">{{ model.name }}</span>
+            </a-select-option>
+          </a-select>
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
     <a-modal v-model:open="installGuideVisible" :title="$t('legacy.16nx8w')" :footer="null" width="620">
       <a-steps direction="vertical" size="small" :current="0">
         <a-step :title="$t('legacy.1xejj4z')">
@@ -233,6 +276,7 @@
 <script setup>
 import {
   getCurrentLocale,
+  i18n,
   translateDomain,
   translateLegacy as phrase,
   translateText as text,
@@ -247,9 +291,11 @@ import {
   createClientDownloadTicket,
   createClientTask,
   getClientDetail,
+  listAccessTokens,
   listAgents,
   listClients,
   listClientDownloads,
+  listModelEndpoints,
   listSkills,
   retryClientTask,
   updateClientPolicy,
@@ -261,9 +307,13 @@ const actionKey = ref('')
 const eventVisibleCount = ref(10)
 const detailVisible = ref(false)
 const installVisible = ref(false)
+const modelConfigVisible = ref(false)
+const modelConfigSubmitting = ref(false)
 const installGuideVisible = ref(false)
 const clients = ref([])
 const agents = ref([])
+const accessTokens = ref([])
+const modelEndpoints = ref([])
 const skills = ref([])
 const skillsLoading = ref(false)
 const targetInstalledSkills = ref([])
@@ -271,6 +321,7 @@ const detail = ref(null)
 const currentPolicy = ref('audit')
 const currentGovernance = ref('registry')
 const installForm = reactive({ agent_type: '', managed_agent_id: '', skill_id: '' })
+const modelConfigForm = reactive({ local_agent_id: '', agent_type: '', managed_agent_id: '', model: '' })
 const downloadPlatforms = ref([])
 const selectedPlatform = ref()
 const clientDownloading = ref(false)
@@ -296,8 +347,9 @@ const agentColumns = [
   { title: phrase('legacy.tus94r'), key: 'type' },
   { title: phrase('legacy.uwo0jt'), key: 'capability', width: 150 },
   { title: phrase('legacy.es5rq0'), key: 'binding', width: 250 },
+  { title: i18n.global.t('clientModelConfig.model'), key: 'model', width: 160 },
   { title: 'Skill', key: 'skills', width: 70 },
-  { title: phrase('legacy.501w24'), key: 'action', width: 100 },
+  { title: phrase('legacy.501w24'), key: 'action', width: 120 },
 ]
 const skillColumns = [
   { title: 'Skill', key: 'name' },
@@ -320,6 +372,32 @@ const agentCount = computed(() => clients.value.reduce((sum, item) => sum + actu
 const issueCount = computed(() => clients.value.reduce((sum, item) => sum + (item.issue_count || 0), 0))
 const agentTableExpandable = { rowExpandable: record => Boolean(record.skills?.length) }
 const selectedManagedAgent = computed(() => agents.value.find(agent => agent.agent_id === installForm.managed_agent_id))
+const tokenNotExpired = token => {
+  if (!token.expires_at) return true
+  const raw = String(token.expires_at)
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? raw : `${raw}Z`
+  return new Date(normalized).getTime() > Date.now()
+}
+const modelRuntimeToken = computed(() => accessTokens.value
+  .filter(token => token.token_type === 'agent_runtime'
+    && token.bound_agent_id === modelConfigForm.managed_agent_id
+    && token.status === 'active'
+    && tokenNotExpired(token)
+    && (token.scopes || []).includes('model:chat'))
+  .sort((left, right) => Number(right.id) - Number(left.id))[0])
+const clientIssuanceToken = computed(() => accessTokens.value
+  .filter(token => token.token_type === 'client'
+    && token.bound_client_id === detail.value?.client_id
+    && token.status === 'active'
+    && tokenNotExpired(token)
+    && token.allow_agent_credential_issuance)
+  .sort((left, right) => Number(right.id) - Number(left.id))[0])
+const configurableModels = computed(() => {
+  const token = modelRuntimeToken.value
+  if (!token) return clientIssuanceToken.value ? modelEndpoints.value.filter(model => model.enabled) : []
+  const allowed = new Set(token.allowed_models || [])
+  return modelEndpoints.value.filter(model => model.enabled && (!allowed.size || allowed.has(model.name)))
+})
 const installableSkills = computed(() => {
   const installedIDs = new Set(targetInstalledSkills.value.map(skill => skill.skill_id).filter(Boolean))
   const installedNames = new Set(targetInstalledSkills.value.map(skill => skill.name).filter(Boolean))
@@ -400,6 +478,59 @@ const openInstall = async (record) => {
     skills.value = Array.isArray(rows.items) ? rows.items : rows
   } finally {
     skillsLoading.value = false
+  }
+}
+const runtimeTokenFor = record => accessTokens.value
+  .filter(token => token.token_type === 'agent_runtime'
+    && token.bound_agent_id === record.managed_agent_id
+    && token.status === 'active'
+    && tokenNotExpired(token)
+    && (token.scopes || []).includes('model:chat'))
+  .sort((left, right) => Number(right.id) - Number(left.id))[0]
+const canConfigureModel = record => record.agent_type === 'claude-code'
+  && Boolean(record.managed_agent_id)
+  && Boolean(runtimeTokenFor(record) || clientIssuanceToken.value)
+const modelConfigDisabledReason = record => {
+  if (record.agent_type !== 'claude-code') return i18n.global.t('clientModelConfig.onlyClaude')
+  if (!record.managed_agent_id) return i18n.global.t('clientModelConfig.bindFirst')
+  if (!runtimeTokenFor(record) && !clientIssuanceToken.value) return i18n.global.t('clientModelConfig.credentialRequired')
+  return ''
+}
+const openModelConfig = record => {
+  if (!canConfigureModel(record)) {
+    message.warning(modelConfigDisabledReason(record))
+    return
+  }
+  Object.assign(modelConfigForm, {
+    local_agent_id: record.local_agent_id || record.agent_type,
+    agent_type: record.agent_type,
+    managed_agent_id: record.managed_agent_id,
+    model: record.desired_model || record.applied_model || managedAgentDefaultModel(record) || '',
+  })
+  if (!configurableModels.value.some(model => model.name === modelConfigForm.model)) {
+    modelConfigForm.model = configurableModels.value[0]?.name || ''
+  }
+  modelConfigVisible.value = true
+}
+const createModelConfig = async () => {
+  if (!modelConfigForm.model) {
+    message.warning(i18n.global.t('clientModelConfig.selectModel'))
+    return
+  }
+  modelConfigSubmitting.value = true
+  try {
+    const task = await createClientTask(detail.value.client_id, {
+      task_type: 'apply_model_config',
+      payload: { ...modelConfigForm },
+    })
+    modelConfigVisible.value = false
+    await refreshDetail()
+    message.success(i18n.global.t('clientModelConfig.taskCreated'))
+    watchTask(task.id).catch(() => {})
+  } catch (error) {
+    message.error(error.response?.data?.detail || i18n.global.t('clientModelConfig.createFailed'))
+  } finally {
+    modelConfigSubmitting.value = false
   }
 }
 const createInstall = async () => {
@@ -516,6 +647,9 @@ const taskSkillName = task => task.payload?.skill_name
   || skills.value.find(skill => skill.skill_id === task.payload?.skill_id)?.name
   || task.payload?.skill_id
   || ''
+const taskTargetLabel = task => task.task_type === 'apply_model_config'
+  ? `${task.payload?.model || '-'} · ${agentLabel(task.payload?.agent_type)}`
+  : taskSkillName(task) ? `${taskSkillName(task)} · ${agentLabel(task.payload?.agent_type)}` : ''
 const isOnline = record => record.status === 'online'
 const formatTime = value => {
   if (!value) return '-'
@@ -533,6 +667,9 @@ const agentKind = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/
 const matchingAgents = agentType => String(agentType || '').startsWith('custom-')
   ? agents.value
   : agents.value.filter(agent => agentKind(agent.channel) === agentKind(agentType))
+const managedAgentDefaultModel = record => agents.value.find(agent => agent.agent_id === record.managed_agent_id)?.default_model || ''
+const modelConfigStatusLabel = value => i18n.global.t(`clientModelConfig.status.${value}`)
+const modelConfigColor = value => ({ pending: 'default', applying: 'blue', applied: 'green', failed: 'red', cancelled: 'default' }[value] || 'default')
 const agentLabel = (value, record = null) => record?.capabilities?.display_name || ({
   'claude-code': 'Claude Code',
   codex: 'Codex',
@@ -567,13 +704,17 @@ const taskStatusLabel = value => translateDomain('taskStatus', value, value)
 const taskColor = value => ({ pending: 'default', running: 'blue', succeeded: 'green', failed: 'red', cancelled: 'default' }[value] || 'default')
 
 onMounted(async () => {
-  const [agentRows, downloads] = await Promise.all([
+  const [agentRows, downloads, tokenRows, models] = await Promise.all([
     listAgents(),
     listClientDownloads(),
+    listAccessTokens(),
+    listModelEndpoints(),
     loadClients(),
   ])
   agents.value = agentRows || []
   downloadPlatforms.value = downloads.items || []
+  accessTokens.value = tokenRows.items || []
+  modelEndpoints.value = models || []
 })
 </script>
 
@@ -585,6 +726,10 @@ onMounted(async () => {
 .muted {
   color: #7a869a;
   font-size: 12px;
+}
+.model-error {
+  max-width: 160px;
+  word-break: break-word;
 }
 .inline-note {
   margin-left: 8px;

@@ -70,6 +70,14 @@
             <p>{{ article.summary }}</p>
           </div>
 
+          <div v-if="article.scenario" class="scenario-brief" :aria-label="article.scenario.label">
+            <div class="scenario-brief-mark"><SafetyCertificateOutlined /></div>
+            <div v-for="item in article.scenario.items" :key="item.label" class="scenario-brief-item">
+              <small>{{ item.label }}</small>
+              <strong>{{ item.value }}</strong>
+            </div>
+          </div>
+
           <div v-if="article.roles?.length" class="role-grid">
             <button v-for="role in article.roles" :key="role.title" type="button" @click="navigateToArticle(role.slug)">
               <span class="role-mark"><UserOutlined /></span>
@@ -88,10 +96,95 @@
               <li v-for="bullet in section.bullets" :key="bullet">{{ bullet }}</li>
             </ul>
 
+            <div v-if="section.flow?.length" class="scenario-flow" role="list">
+              <template v-for="(node, index) in section.flow" :key="`${section.id}-flow-${index}`">
+                <div :class="['scenario-flow-node', node.type || 'default']" role="listitem">
+                  <small>{{ node.label }}</small>
+                  <strong>{{ node.value }}</strong>
+                </div>
+                <ArrowRightOutlined v-if="index < section.flow.length - 1" class="scenario-flow-arrow" />
+              </template>
+            </div>
+
             <div v-if="section.diagram === 'governance'" class="governance-diagram">
               <div v-for="(label, index) in governanceLabels" :key="label" class="governance-step">
                 <span>{{ index + 1 }}</span>
                 <strong>{{ label }}</strong>
+              </div>
+            </div>
+
+            <div
+              v-if="section.diagram === 'skill-scan-logic'"
+              :class="['skill-scan-logic', { fullscreen: scanLogicFullscreen }]"
+              :aria-label="scanLogicLabels.title"
+              :aria-modal="scanLogicFullscreen || undefined"
+              :role="scanLogicFullscreen ? 'dialog' : 'group'"
+            >
+              <button
+                type="button"
+                class="diagram-fullscreen-button"
+                :aria-label="scanLogicFullscreen ? scanLogicLabels.exitFullscreen : scanLogicLabels.enterFullscreen"
+                :title="scanLogicFullscreen ? scanLogicLabels.exitFullscreen : scanLogicLabels.enterFullscreen"
+                @click="scanLogicFullscreen = !scanLogicFullscreen"
+              >
+                <FullscreenExitOutlined v-if="scanLogicFullscreen" />
+                <FullscreenOutlined v-else />
+              </button>
+
+              <div class="scan-logic-start">
+                <small>{{ scanLogicLabels.input }}</small>
+                <strong>{{ scanLogicLabels.pending }}</strong>
+                <span>{{ scanLogicLabels.pendingDetail }}</span>
+              </div>
+
+              <div class="scan-logic-connector"><span>{{ scanLogicLabels.dispatch }}</span></div>
+
+              <div class="scan-logic-stage">
+                <div class="scan-logic-heading"><strong>{{ scanLogicLabels.deterministic }}</strong><span>{{ scanLogicLabels.deterministicDetail }}</span></div>
+                <div class="scan-analyzer-grid">
+                  <div class="required"><FileSearchOutlined /><strong>{{ scanLogicLabels.scanner }}</strong><span>{{ scanLogicLabels.always }}</span></div>
+                  <div><SafetyCertificateOutlined /><strong>{{ scanLogicLabels.rules }}</strong><span>{{ scanLogicLabels.selected }}</span></div>
+                  <div><SearchOutlined /><strong>{{ scanLogicLabels.deep }}</strong><span>{{ scanLogicLabels.availableSelected }}</span></div>
+                  <div><DesktopOutlined /><strong>Sandbox</strong><span>{{ scanLogicLabels.selectedOrPolicy }}</span></div>
+                </div>
+              </div>
+
+              <div class="scan-logic-connector"><span>{{ scanLogicLabels.interimRisk }}</span></div>
+
+              <div class="scan-policy-row">
+                <div><small>{{ scanLogicLabels.policyCheck }}</small><strong>{{ scanLogicLabels.sandboxRequired }}</strong></div>
+                <ArrowRightOutlined />
+                <div class="decision"><small>{{ scanLogicLabels.ifMatched }}</small><strong>{{ scanLogicLabels.runSandbox }}</strong></div>
+                <ArrowRightOutlined />
+                <div><small>{{ scanLogicLabels.merge }}</small><strong>{{ scanLogicLabels.allFindings }}</strong></div>
+              </div>
+
+              <div class="scan-logic-connector"><span>{{ scanLogicLabels.classify }}</span></div>
+
+              <div class="scan-logic-stage classification-stage">
+                <div class="scan-logic-heading"><strong>{{ scanLogicLabels.classification }}</strong><span>{{ scanLogicLabels.mapping }}</span></div>
+                <div class="scan-classification-grid">
+                  <div class="blocked"><strong>{{ scanLogicLabels.blocking }}</strong><span>{{ scanLogicLabels.blockingDetail }}</span></div>
+                  <div class="suspicious"><strong>{{ scanLogicLabels.suspicious }}</strong><span>{{ scanLogicLabels.suspiciousDetail }}</span></div>
+                  <div class="noise"><strong>{{ scanLogicLabels.noise }}</strong><span>{{ scanLogicLabels.noiseDetail }}</span></div>
+                </div>
+                <div class="scan-deterministic-result"><span>{{ scanLogicLabels.mode }}</span><strong>{{ scanLogicLabels.preLlmRisk }}</strong></div>
+              </div>
+
+              <div class="scan-logic-connector"><span>{{ scanLogicLabels.llmRequested }}</span></div>
+
+              <div class="scan-llm-row">
+                <div class="scan-llm-card"><ApiOutlined /><span><small>{{ scanLogicLabels.optional }}</small><strong>{{ scanLogicLabels.llm }}</strong></span></div>
+                <div class="scan-llm-guard"><SafetyCertificateOutlined /><span><strong>{{ scanLogicLabels.guard }}</strong><small>{{ scanLogicLabels.guardDetail }}</small></span></div>
+                <div class="scan-final-risk"><small>{{ scanLogicLabels.reconcile }}</small><strong>benign / suspicious / malicious</strong></div>
+              </div>
+
+              <div class="scan-logic-connector"><span>{{ scanLogicLabels.admissionPolicy }}</span></div>
+
+              <div class="scan-admission-grid">
+                <div class="approved"><CheckCircleOutlined /><strong>APPROVED</strong><span>{{ scanLogicLabels.approved }}</span></div>
+                <div class="vetted"><UserOutlined /><strong>VETTED</strong><span>{{ scanLogicLabels.vetted }}</span></div>
+                <div class="rejected"><WarningOutlined /><strong>REJECTED</strong><span>{{ scanLogicLabels.rejected }}</span></div>
               </div>
             </div>
 
@@ -114,6 +207,108 @@
               </div>
             </div>
 
+            <div
+              v-if="section.diagram === 'architecture'"
+              :class="['system-architecture', { fullscreen: architectureFullscreen }]"
+              :aria-label="architectureLabels.title"
+              :aria-modal="architectureFullscreen || undefined"
+              :role="architectureFullscreen ? 'dialog' : 'group'"
+            >
+              <button
+                type="button"
+                class="architecture-fullscreen-button"
+                :aria-label="architectureFullscreen ? architectureLabels.exitFullscreen : architectureLabels.enterFullscreen"
+                :title="architectureFullscreen ? architectureLabels.exitFullscreen : architectureLabels.enterFullscreen"
+                @click="architectureFullscreen = !architectureFullscreen"
+              >
+                <FullscreenExitOutlined v-if="architectureFullscreen" />
+                <FullscreenOutlined v-else />
+              </button>
+
+              <div class="architecture-callers">
+                <div class="architecture-band-label"><strong>{{ architectureLabels.callers }}</strong></div>
+                <div class="architecture-caller-grid">
+                  <div><UserOutlined /><span>{{ architectureLabels.admins }}</span></div>
+                  <div><FileSearchOutlined /><span>{{ architectureLabels.scanner }}</span></div>
+                  <div><DesktopOutlined /><span>{{ architectureLabels.agents }}</span></div>
+                  <div><ApiOutlined /><span>{{ architectureLabels.modelApps }}</span></div>
+                  <div><SafetyCertificateOutlined /><span>{{ architectureLabels.mcpClients }}</span></div>
+                </div>
+              </div>
+
+              <div class="architecture-ingress-link"><span>{{ architectureLabels.secureTraffic }}</span></div>
+
+              <div class="architecture-ingress">
+                <div><small>{{ architectureLabels.unifiedEntry }}</small><strong>Nginx</strong></div>
+                <div class="architecture-ingress-roles">
+                  <span v-for="role in architectureLabels.ingressRoles" :key="role">{{ role }}</span>
+                </div>
+              </div>
+
+              <div class="architecture-control-plane">
+                <div class="architecture-plane-heading">
+                  <strong>{{ architectureLabels.controlPlane }}</strong>
+                  <small>{{ architectureLabels.controlSummary }}</small>
+                </div>
+                <div class="architecture-control-grid">
+                  <div><strong>{{ architectureLabels.identity }}</strong><span>{{ architectureLabels.identityDetail }}</span></div>
+                  <div><strong>{{ architectureLabels.policy }}</strong><span>{{ architectureLabels.policyDetail }}</span></div>
+                  <div><strong>{{ architectureLabels.console }}</strong><span>{{ architectureLabels.consoleDetail }}</span></div>
+                  <div><strong>{{ architectureLabels.orchestration }}</strong><span>{{ architectureLabels.orchestrationDetail }}</span></div>
+                </div>
+              </div>
+
+              <div class="architecture-plane-link"><span>{{ architectureLabels.policyEnforcement }}</span></div>
+
+              <div class="architecture-runtime-plane">
+                <div class="architecture-plane-heading">
+                  <strong>{{ architectureLabels.runtimePlane }}</strong>
+                  <small>{{ architectureLabels.runtimeSummary }}</small>
+                </div>
+                <div class="architecture-domain-grid">
+                  <div class="architecture-domain skill-domain">
+                    <div class="architecture-domain-head"><FileSearchOutlined /><span><small>SKILL</small><strong>{{ architectureLabels.skillDomain }}</strong></span></div>
+                    <p>{{ architectureLabels.skillFlow }}</p>
+                    <div class="architecture-domain-output">{{ architectureLabels.skillOutput }}</div>
+                  </div>
+                  <div class="architecture-domain client-domain">
+                    <div class="architecture-domain-head"><DesktopOutlined /><span><small>AGENT / CLIENT</small><strong>{{ architectureLabels.clientDomain }}</strong></span></div>
+                    <p>{{ architectureLabels.clientFlow }}</p>
+                    <div class="architecture-domain-output">{{ architectureLabels.clientOutput }}</div>
+                  </div>
+                  <div class="architecture-domain model-domain">
+                    <div class="architecture-domain-head"><ApiOutlined /><span><small>MODEL</small><strong>{{ architectureLabels.modelDomain }}</strong></span></div>
+                    <p>{{ architectureLabels.modelFlow }}</p>
+                    <div class="architecture-domain-output">{{ architectureLabels.modelOutput }}</div>
+                  </div>
+                  <div class="architecture-domain mcp-domain">
+                    <div class="architecture-domain-head"><SafetyCertificateOutlined /><span><small>MCP</small><strong>{{ architectureLabels.mcpDomain }}</strong></span></div>
+                    <p>{{ architectureLabels.mcpFlow }}</p>
+                    <div class="architecture-domain-output">{{ architectureLabels.mcpOutput }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="architecture-foundation-link"><span>{{ architectureLabels.evidenceWrite }}</span></div>
+
+              <div class="architecture-foundation">
+                <div class="architecture-plane-heading">
+                  <strong>{{ architectureLabels.foundation }}</strong>
+                  <small>{{ architectureLabels.foundationSummary }}</small>
+                </div>
+                <div class="architecture-foundation-grid">
+                  <div><strong>{{ architectureLabels.registry }}</strong><span>{{ architectureLabels.registryDetail }}</span></div>
+                  <div><strong>{{ architectureLabels.traces }}</strong><span>{{ architectureLabels.tracesDetail }}</span></div>
+                  <div><strong>{{ architectureLabels.audit }}</strong><span>{{ architectureLabels.auditDetail }}</span></div>
+                </div>
+              </div>
+
+              <div class="architecture-dependencies">
+                <span>{{ architectureLabels.dependencies }}</span>
+                <div><b>Sandbox / nsjail</b><b>{{ architectureLabels.upstreamModels }}</b><b>{{ architectureLabels.mcpServers }}</b></div>
+              </div>
+            </div>
+
             <div v-if="section.diagram === 'docker'" class="docker-topology">
               <div class="topology-zone topology-entry">
                 <div class="topology-zone-label"><span>ENTRY</span><strong>{{ dockerLabels.entry }}</strong></div>
@@ -127,7 +322,7 @@
               <div class="topology-downlink"><span>{{ dockerLabels.httpTraffic }}</span></div>
 
               <div class="topology-ingress">
-                <div><small>{{ dockerLabels.publicIngress }}</small><strong>Nginx <b>:80</b></strong></div>
+                <div><small>{{ dockerLabels.publicIngress }}</small><strong>Nginx</strong></div>
                 <span>{{ dockerLabels.nginxRole }}</span>
               </div>
 
@@ -226,6 +421,17 @@
               {{ section.link.label }}
               <ArrowRightOutlined />
             </a-button>
+
+            <a
+              v-if="section.download"
+              class="example-download"
+              :href="section.download.path"
+              :download="section.download.filename || true"
+            >
+              <DownloadOutlined />
+              <span><strong>{{ section.download.label }}</strong><small>{{ section.download.hint }}</small></span>
+              <ArrowRightOutlined />
+            </a>
           </section>
 
           <nav class="article-pagination" :aria-label="t('docsUi.docs')">
@@ -281,7 +487,10 @@ import {
   CheckCircleOutlined,
   CheckOutlined,
   DesktopOutlined,
+  DownloadOutlined,
   FileSearchOutlined,
+  FullscreenExitOutlined,
+  FullscreenOutlined,
   InfoCircleOutlined,
   MenuOutlined,
   RobotOutlined,
@@ -296,6 +505,7 @@ import DocsAssistantPanel from '../components/DocsAssistantPanel.vue'
 import { docsArticleOrder, docsContent } from '../docs/content'
 import { setLocale } from '../i18n'
 import { useLocaleText } from '../i18n/useLocaleText'
+import { copyText, promptManualCopy } from '../utils/clipboard'
 
 defineProps({
   logoUrl: { type: String, default: '/logo.png' },
@@ -315,6 +525,8 @@ const failedImages = ref(new Set())
 const imagePreviewOpen = ref(false)
 const previewImage = ref(null)
 const assistantOpen = ref(false)
+const architectureFullscreen = ref(false)
+const scanLogicFullscreen = ref(false)
 const docsAssistantConfig = ref({ enabled: false, common_questions: [], max_context_sections: 4 })
 
 const DocsNavigation = defineComponent({
@@ -382,6 +594,52 @@ const governanceLabels = computed(() => [
   text('运行校验', 'Runtime check'),
   text('审计追踪', 'Audit'),
 ])
+const scanLogicLabels = computed(() => ({
+  title: text('Skill 检测逻辑', 'Skill detection logic'),
+  enterFullscreen: text('全屏查看检测逻辑图', 'View detection logic in full screen'),
+  exitFullscreen: text('退出全屏', 'Exit full screen'),
+  input: text('Skill 内容与扫描选项', 'Skill content and scan options'),
+  pending: 'PENDING',
+  pendingDetail: text('保存内容版本并创建后台检测任务', 'Store the content version and create a background scan task'),
+  dispatch: text('按本次扫描上下文调度', 'Dispatch from the current scan context'),
+  deterministic: text('确定性分析器', 'Deterministic analyzers'),
+  deterministicDetail: text('独立执行并保留各自状态：completed / skipped / unavailable / failed', 'Run independently and preserve completed / skipped / unavailable / failed status'),
+  scanner: text('基础 Scanner', 'Base Scanner'),
+  always: text('每次启动', 'Always starts'),
+  rules: text('规则分析', 'Rule analysis'),
+  selected: text('按选择执行', 'Runs when selected'),
+  deep: text('深度扫描', 'Deep scan'),
+  availableSelected: text('可用且已选择', 'Available and selected'),
+  selectedOrPolicy: text('手动选择或策略补跑', 'Selected or policy-triggered'),
+  interimRisk: text('先合并静态发现，计算中间风险', 'Merge static findings and calculate interim risk'),
+  policyCheck: text('策略检查', 'Policy check'),
+  sandboxRequired: text('该风险等级是否必须运行 Sandbox？', 'Does this risk require Sandbox?'),
+  ifMatched: text('命中时', 'When matched'),
+  runSandbox: text('补跑一次 Sandbox', 'Run one Sandbox probe'),
+  merge: text('执行后', 'After execution'),
+  allFindings: text('合并全部发现项与运行证据', 'Merge all findings and runtime evidence'),
+  classify: text('按规则、类别、证据和严重度逐条归类', 'Classify each item by rule, category, evidence, and severity'),
+  classification: text('风险项目归类', 'Finding classification'),
+  mapping: text('管理员映射优先，其次使用安全回退与严重度规则', 'Administrator mapping first, then security fallbacks and severity rules'),
+  blocking: text('阻断项', 'Blocking'),
+  blockingDetail: text('确定性高危；直接形成 malicious', 'Deterministic high risk; produces malicious'),
+  suspicious: text('可疑项', 'Suspicious'),
+  suspiciousDetail: text('结合最高严重度与判定模式', 'Uses highest severity and judgement mode'),
+  noise: text('噪声', 'Noise'),
+  noiseDetail: text('保留证据，不直接抬升风险', 'Evidence retained; no direct risk escalation'),
+  mode: text('严格 / 平衡 / 宽松模式', 'Strict / balanced / permissive mode'),
+  preLlmRisk: text('形成 LLM 前风险', 'Produce pre-LLM risk'),
+  llmRequested: text('仅在本次请求启用 LLM 时调用一次；失败则使用确定性结果', 'Call once only when LLM is requested; fall back to deterministic result on failure'),
+  optional: text('可选语义研判', 'Optional semantic judgement'),
+  llm: text('LLM 分析内容与已有证据', 'LLM analyzes content and collected evidence'),
+  guard: text('降级保护', 'Downgrade guard'),
+  guardDetail: text('阻断项和严格模式不可降级', 'Blocking findings and strict mode cannot be downgraded'),
+  reconcile: text('风险汇总', 'Risk reconciliation'),
+  admissionPolicy: text('最终风险 + Manifest 阻断约束进入准入策略', 'Final risk + blocking manifest constraints enter admission policy'),
+  approved: text('自动批准并签名', 'Auto-approve and sign'),
+  vetted: text('进入人工审核', 'Queue for human review'),
+  rejected: text('拒绝准入', 'Reject admission'),
+}))
 const platformPillars = computed(() => [
   { title: text('Skill 可信治理', 'Trusted Skill governance'), summary: text('准入检测、审核、签名与版本', 'Scanning, review, signatures, and versions'), slug: 'skill-governance', icon: FileSearchOutlined },
   { title: text('Agent 与客户端', 'Agents and clients'), summary: text('授权绑定、本地下发与持续巡检', 'Authorization, local delivery, and inspection'), slug: 'client-management', icon: DesktopOutlined },
@@ -392,6 +650,61 @@ const platformFoundation = computed(() => ({
   credentials: text('统一凭证', 'Credentials'),
   policy: text('策略与授权', 'Policy & authorization'),
   audit: text('全链路审计', 'End-to-end audit'),
+}))
+const architectureLabels = computed(() => ({
+  title: text('Agent Manager 系统总体架构', 'Agent Manager system architecture'),
+  enterFullscreen: text('全屏查看架构图', 'View architecture in full screen'),
+  exitFullscreen: text('退出全屏', 'Exit full screen'),
+  callers: text('调用方与管理入口', 'Callers and management entry'),
+  admins: text('管理员 / 审核员', 'Administrators / reviewers'),
+  scanner: text('Scanner / CI', 'Scanner / CI'),
+  agents: text('Agent / 客户端', 'Agents / Clients'),
+  modelApps: text('模型应用', 'Model applications'),
+  mcpClients: text('MCP Client', 'MCP Clients'),
+  secureTraffic: text('管理 API · 模型 API · MCP 数据面', 'Management API · Model API · MCP data plane'),
+  unifiedEntry: text('统一入口', 'Unified entry'),
+  ingressRoles: [
+    text('认证与访问入口', 'Authentication and access'),
+    text('静态文档与管理台', 'Docs and admin console'),
+    text('API 与网关路径分流', 'API and gateway routing'),
+  ],
+  controlPlane: text('治理控制面', 'Governance control plane'),
+  controlSummary: text('统一定义身份、策略、授权、任务与审计边界', 'Defines identity, policy, authorization, tasks, and audit boundaries'),
+  identity: text('身份与凭证', 'Identity and credentials'),
+  identityDetail: text('用户、组、Agent 及最小权限 Token', 'Users, groups, Agents, and least-privilege tokens'),
+  policy: text('策略与授权', 'Policy and authorization'),
+  policyDetail: text('Skill 准入、Agent 绑定、模型与 Tool 范围', 'Skill admission, Agent binding, model and Tool scopes'),
+  console: text('管理台与文档', 'Console and documentation'),
+  consoleDetail: text('审核、配置、追踪、运维与使用指导', 'Review, configuration, tracing, operations, and guidance'),
+  orchestration: text('任务编排', 'Task orchestration'),
+  orchestrationDetail: text('扫描队列、客户端任务和高风险审批', 'Scan queue, Client tasks, and high-risk approvals'),
+  policyEnforcement: text('下发策略 · 校验身份 · 记录请求上下文', 'Distribute policy · verify identity · record request context'),
+  runtimePlane: text('四条运行数据面', 'Four runtime data planes'),
+  runtimeSummary: text('不同流量独立执行控制，共享统一身份、策略和审计', 'Independent enforcement with shared identity, policy, and audit'),
+  skillDomain: text('Skill 准入治理', 'Skill admission'),
+  skillFlow: text('提交 → 规则 / 深度扫描 → 可选 Sandbox / LLM → 策略判定', 'Submit → rules / deep scan → optional Sandbox / LLM → policy decision'),
+  skillOutput: text('报告 · 审核 · 签名版本', 'Report · review · signed version'),
+  clientDomain: text('Agent 与客户端治理', 'Agent and Client governance'),
+  clientFlow: text('发现本地目录 → Agent 绑定 → 下发 / 恢复 → Verifier / Hook 校验', 'Discover roots → bind Agent → deliver / repair → Verifier / Hook checks'),
+  clientOutput: text('可信本地 Skill · 任务与事件', 'Trusted local Skills · tasks and events'),
+  modelDomain: text('模型网关', 'Model gateway'),
+  modelFlow: text('凭证与模型范围 → Prompt 防护 → PII 替换 → 可选压缩 → 上游', 'Credential and model scope → Prompt protection → PII replacement → optional compression → upstream'),
+  modelOutput: text('响应还原 · 用量 · Pipeline Trace', 'Response restoration · usage · Pipeline Trace'),
+  mcpDomain: text('MCP 网关', 'MCP gateway'),
+  mcpFlow: text('凭证与网关范围 → Tool Schema → 并发控制 → 高风险审批 → Server', 'Credential and gateway scope → Tool Schema → concurrency → high-risk approval → Server'),
+  mcpOutput: text('受控 Tool 调用 · 调用审计', 'Controlled Tool calls · call audit'),
+  evidenceWrite: text('所有准入、运行和管理结果写入可信证据层', 'Admission, runtime, and management outcomes enter the trust layer'),
+  foundation: text('信任与证据基础', 'Trust and evidence foundation'),
+  foundationSummary: text('可信状态不是页面标签，而是可追踪、可校验的持久化记录', 'Trust is a traceable and verifiable record, not a UI label'),
+  registry: text('Registry 与版本', 'Registry and versions'),
+  registryDetail: text('内容指纹、状态、签名、报告与策略上下文', 'Digests, states, signatures, reports, and policy context'),
+  traces: text('任务、事件与 Trace', 'Tasks, events, and traces'),
+  tracesDetail: text('客户端任务、模型链路、MCP 调用和用量', 'Client tasks, model pipeline, MCP calls, and usage'),
+  audit: text('签名安全审计', 'Signed security audit'),
+  auditDetail: text('哈希链、Ed25519 签名和可选 JSONL 导出', 'Hash chain, Ed25519 signatures, and optional JSONL export'),
+  dependencies: text('隔离与外部运行依赖', 'Isolation and external runtime dependencies'),
+  upstreamModels: text('上游模型供应商', 'Upstream model providers'),
+  mcpServers: text('外部 MCP Server', 'External MCP Servers'),
 }))
 const dockerLabels = computed(() => ({
   entry: text('调用入口', 'Callers'),
@@ -474,30 +787,26 @@ const openImage = image => {
   previewImage.value = image
   imagePreviewOpen.value = true
 }
-const copyWithFallback = code => {
-  const textarea = document.createElement('textarea')
-  textarea.value = code
-  textarea.setAttribute('readonly', '')
-  textarea.style.position = 'fixed'
-  textarea.style.opacity = '0'
-  document.body.appendChild(textarea)
-  textarea.select()
-  document.execCommand('copy')
-  textarea.remove()
-}
 const copyCode = async code => {
   try {
-    if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable')
-    await navigator.clipboard.writeText(code)
+    await copyText(code)
   } catch {
-    copyWithFallback(code)
+    promptManualCopy(code, t('clipboard.manualCopyPrompt'))
+    return
   }
   copiedVisible.value = true
   if (copyTimer.value) window.clearTimeout(copyTimer.value)
   copyTimer.value = window.setTimeout(() => { copiedVisible.value = false }, 1600)
 }
+const handleDocumentKeydown = event => {
+  if (event.key !== 'Escape') return
+  architectureFullscreen.value = false
+  scanLogicFullscreen.value = false
+}
 
 watch(currentSlug, async slug => {
+  architectureFullscreen.value = false
+  scanLogicFullscreen.value = false
   if (!content.value.articles[slug]) {
     router.replace('/docs')
     return
@@ -508,6 +817,7 @@ watch(currentSlug, async slug => {
 }, { immediate: true })
 
 onMounted(async () => {
+  document.addEventListener('keydown', handleDocumentKeydown)
   if (route.hash) nextTick(() => document.querySelector(route.hash)?.scrollIntoView({ block: 'start' }))
   try {
     docsAssistantConfig.value = await getDocsAssistantConfig()
@@ -516,6 +826,7 @@ onMounted(async () => {
   }
 })
 onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleDocumentKeydown)
   if (copyTimer.value) window.clearTimeout(copyTimer.value)
 })
 </script>
@@ -620,17 +931,16 @@ onBeforeUnmount(() => {
 
 .docs-layout {
   display: grid;
-  grid-template-columns: 268px minmax(0, 1fr) 224px;
+  grid-template-columns: 252px minmax(0, 1fr) 224px;
   height: calc(100vh - 68px);
-  max-width: 1600px;
-  margin: 0 auto;
+  width: 100%;
 }
-.docs-sidebar { overflow-y: auto; padding: 28px 20px 48px 24px; background: #f6f8fb; border-right: 1px solid var(--docs-line); }
+.docs-sidebar { overflow-y: auto; padding: 28px 14px 48px 16px; background: #f6f8fb; border-right: 1px solid var(--docs-line); }
 :deep(.docs-nav) { display: flex; flex-direction: column; gap: 22px; }
-:deep(.nav-group-title) { margin: 0 10px 8px; color: #7a8999; font-size: 11px; font-weight: 750; letter-spacing: 0.1em; text-transform: uppercase; }
-:deep(.nav-subgroup-title) { display: flex; align-items: center; gap: 8px; margin: 12px 10px 5px; color: #526579; font-size: 12px; font-weight: 720; }
+:deep(.nav-group-title) { margin: 0 6px 8px; color: #7a8999; font-size: 11px; font-weight: 750; letter-spacing: 0.1em; text-transform: uppercase; }
+:deep(.nav-subgroup-title) { display: flex; align-items: center; gap: 8px; margin: 12px 6px 5px; color: #526579; font-size: 12px; font-weight: 720; }
 :deep(.nav-subgroup-title)::after { flex: 1; height: 1px; background: #dfe6ee; content: ''; }
-:deep(.nav-item) { display: flex; width: 100%; flex-direction: column; gap: 2px; padding: 9px 10px; color: #33485f; text-align: left; background: transparent; border: 0; border-radius: 8px; cursor: pointer; }
+:deep(.nav-item) { display: flex; width: 100%; flex-direction: column; gap: 2px; padding: 9px 8px; color: #33485f; text-align: left; background: transparent; border: 0; border-radius: 8px; cursor: pointer; }
 :deep(.nav-item.nested) { margin-left: 8px; width: calc(100% - 8px); padding-left: 12px; }
 :deep(.nav-item:hover) { background: #edf2f8; }
 :deep(.nav-item.active) { color: #174ea6; background: #e8f0ff; box-shadow: inset 3px 0 0 var(--docs-blue); }
@@ -644,6 +954,12 @@ onBeforeUnmount(() => {
 .eyebrow { margin-bottom: 13px; color: var(--docs-blue); font-size: 12px; font-weight: 760; letter-spacing: 0.12em; text-transform: uppercase; }
 .article-heading h1 { margin: 0; color: var(--docs-ink); font-size: clamp(34px, 4vw, 48px); font-weight: 760; letter-spacing: -0.035em; line-height: 1.08; }
 .article-heading p { max-width: 720px; margin: 18px 0 0; color: var(--docs-muted); font-size: 17px; line-height: 1.8; }
+
+.scenario-brief { display: grid; grid-template-columns: 44px repeat(3, minmax(0, 1fr)); align-items: stretch; margin: -1px 0 46px; color: #dce9f5; background: #102c46; border-radius: 0 0 12px 12px; }
+.scenario-brief-mark { display: grid; place-items: center; color: #8fc5ff; background: #173c5d; font-size: 18px; }
+.scenario-brief-item { display: flex; min-width: 0; flex-direction: column; gap: 5px; padding: 14px 16px; border-left: 1px solid #2d4d69; }
+.scenario-brief-item small { color: #91aac0; font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; }
+.scenario-brief-item strong { overflow: hidden; font-size: 12px; font-weight: 650; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 
 .role-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 0 0 54px; }
 .role-grid button { position: relative; display: flex; min-height: 150px; flex-direction: column; align-items: flex-start; gap: 9px; padding: 20px; color: inherit; text-align: left; background: #f8fafc; border: 1px solid var(--docs-line); border-radius: 12px; cursor: pointer; transition: 160ms ease; }
@@ -661,10 +977,83 @@ onBeforeUnmount(() => {
 .doc-list { display: grid; gap: 10px; margin: 18px 0; padding-left: 21px; color: #3d5268; line-height: 1.75; }
 .doc-list li::marker { color: var(--docs-blue); }
 
+.scenario-flow { display: flex; align-items: stretch; gap: 7px; margin: 22px 0; padding: 14px; overflow-x: auto; background: #f5f8fb; border: 1px solid var(--docs-line); border-radius: 12px; }
+.scenario-flow-node { display: flex; min-width: 112px; flex: 1 0 112px; flex-direction: column; justify-content: center; gap: 5px; min-height: 72px; padding: 11px 12px; background: #fff; border: 1px solid #d7e0e9; border-top: 3px solid #6e8ba6; border-radius: 8px; }
+.scenario-flow-node small { color: #75889a; font-size: 9px; font-weight: 750; letter-spacing: 0.07em; text-transform: uppercase; }
+.scenario-flow-node strong { color: #2d445a; font-size: 11px; line-height: 1.45; }
+.scenario-flow-node.success { border-top-color: #2c8464; background: #f4fbf7; }
+.scenario-flow-node.decision { border-top-color: #d08a24; background: #fffaf1; }
+.scenario-flow-node.blocked { border-top-color: #c24747; background: #fff6f6; }
+.scenario-flow-arrow { align-self: center; flex: 0 0 auto; color: #8aa0b4; font-size: 11px; }
+
 .governance-diagram { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 24px 0; }
 .governance-step { position: relative; display: flex; min-height: 86px; flex-direction: column; justify-content: center; gap: 8px; padding: 13px; background: #f5f8fc; border: 1px solid var(--docs-line); border-radius: 9px; }
 .governance-step span { color: var(--docs-blue); font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; }
 .governance-step strong { font-size: 12px; }
+
+.skill-scan-logic { --scan-blue: #2f6fad; --scan-green: #4c806d; --scan-amber: #ad7b35; --scan-red: #a95050; position: relative; box-sizing: border-box; width: 100%; margin: 26px 0; padding: 18px; color: #29445b; background: #f7f9fc; border: 1px solid #d5e0ea; border-radius: 14px; box-shadow: 0 12px 30px rgba(35, 66, 93, .06); }
+.skill-scan-logic.fullscreen { position: fixed; z-index: 1000; inset: 0; width: 100vw; height: 100vh; margin: 0; padding: 24px max(24px, calc((100vw - 1180px) / 2)); overflow: auto; border: 0; border-radius: 0; box-shadow: none; }
+.skill-scan-logic.fullscreen .diagram-fullscreen-button { position: fixed; top: 18px; right: 20px; width: 40px; height: 40px; font-size: 17px; }
+.diagram-fullscreen-button { position: absolute; z-index: 2; top: 12px; right: 12px; display: grid; width: 34px; height: 34px; place-items: center; color: #47647c; background: rgba(255, 255, 255, .9); border: 1px solid #cfdae4; border-radius: 8px; box-shadow: 0 5px 14px rgba(35, 66, 93, .08); cursor: pointer; transition: 160ms ease; }
+.diagram-fullscreen-button:hover { color: #1f5f96; background: #fff; border-color: #9ebbd3; }
+.diagram-fullscreen-button:focus-visible { outline: 3px solid rgba(47, 111, 173, .24); outline-offset: 2px; }
+.scan-logic-start { display: grid; grid-template-columns: minmax(140px, .5fr) minmax(110px, .4fr) minmax(0, 1.4fr); align-items: center; gap: 12px; min-height: 68px; padding: 13px 16px; color: #285374; background: #e8f2fb; border: 1px solid #c5dced; border-left: 4px solid var(--scan-blue); border-radius: 9px; }
+.scan-logic-start small { color: #6886a1; font-size: 9px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
+.scan-logic-start strong { font-size: 16px; }
+.scan-logic-start span { color: #557087; font-size: 11px; line-height: 1.55; }
+.scan-logic-connector { position: relative; display: grid; min-height: 46px; place-items: center; color: #71879a; font-size: 10px; line-height: 1.4; text-align: center; }
+.scan-logic-connector::before { position: absolute; top: 0; bottom: 7px; left: 50%; width: 1px; background: #9eb1c2; content: ''; }
+.scan-logic-connector::after { position: absolute; bottom: 5px; left: calc(50% - 4px); width: 8px; height: 8px; border-right: 1px solid #9eb1c2; border-bottom: 1px solid #9eb1c2; content: ''; transform: rotate(45deg); }
+.scan-logic-connector span { z-index: 1; max-width: 88%; padding: 3px 9px; background: #f7f9fc; }
+.scan-logic-stage { padding: 15px; background: #fff; border: 1px solid #d2dde7; border-top: 4px solid #76a7d2; border-radius: 10px; }
+.scan-logic-heading { display: grid; grid-template-columns: minmax(170px, .65fr) minmax(0, 1.35fr); align-items: center; gap: 13px; margin-bottom: 13px; }
+.scan-logic-heading strong { color: #263f56; font-size: 15px; line-height: 1.35; }
+.scan-logic-heading span { color: #6c8193; font-size: 11px; line-height: 1.55; }
+.scan-analyzer-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+.scan-analyzer-grid > div { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 3px 9px; min-width: 0; min-height: 76px; padding: 12px; background: #f7f9fc; border: 1px solid #dbe4ec; border-radius: 8px; }
+.scan-analyzer-grid .anticon { grid-row: 1 / 3; color: #5d7890; font-size: 18px; }
+.scan-analyzer-grid strong { color: #304b62; font-size: 11.5px; line-height: 1.35; }
+.scan-analyzer-grid span { color: #74899b; font-size: 9.5px; line-height: 1.4; }
+.scan-analyzer-grid .required { background: #edf5fc; border-color: #cbdfee; }
+.scan-analyzer-grid .required .anticon { color: var(--scan-blue); }
+.scan-policy-row { display: grid; grid-template-columns: minmax(0, 1fr) 18px minmax(0, .72fr) 18px minmax(0, .9fr); align-items: stretch; gap: 8px; }
+.scan-policy-row > div { display: flex; min-width: 0; min-height: 70px; flex-direction: column; justify-content: center; gap: 5px; padding: 12px 14px; background: #fff; border: 1px solid #d7e1ea; border-radius: 8px; }
+.scan-policy-row > .anticon { align-self: center; color: #91a5b6; }
+.scan-policy-row small { color: #7a8ea0; font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.scan-policy-row strong { color: #304b62; font-size: 11px; line-height: 1.45; }
+.scan-policy-row .decision { background: #fdf8ee; border-color: #e6d7b8; }
+.scan-policy-row .decision strong { color: #785925; }
+.classification-stage { border-top-color: #7ca9a0; }
+.scan-classification-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.scan-classification-grid > div { display: flex; min-width: 0; min-height: 74px; flex-direction: column; justify-content: center; gap: 5px; padding: 12px 14px; border: 1px solid; border-radius: 8px; }
+.scan-classification-grid strong { font-size: 12px; }
+.scan-classification-grid span { font-size: 10px; line-height: 1.45; }
+.scan-classification-grid .blocked { color: #844545; background: #fff4f4; border-color: #edcece; }
+.scan-classification-grid .suspicious { color: #806027; background: #fdf8ee; border-color: #e6d7b8; }
+.scan-classification-grid .noise { color: #607588; background: #f3f6f8; border-color: #d9e1e7; }
+.scan-deterministic-result { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; padding: 10px 13px; color: #49677e; background: #edf4f9; border-radius: 7px; font-size: 10px; }
+.scan-deterministic-result strong { color: #2f536e; font-size: 11px; }
+.scan-llm-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr); gap: 10px; }
+.scan-llm-row > div { display: flex; min-width: 0; min-height: 78px; align-items: center; gap: 11px; padding: 12px 14px; background: #fff; border: 1px solid #d7e1ea; border-radius: 8px; }
+.scan-llm-row .anticon { flex: 0 0 auto; color: var(--scan-blue); font-size: 18px; }
+.scan-llm-row span { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.scan-llm-row small { color: #768b9d; font-size: 9.5px; line-height: 1.4; }
+.scan-llm-row strong { color: #304b62; font-size: 10.5px; line-height: 1.45; }
+.scan-llm-guard { background: #fff7f3 !important; border-color: #ead6ca !important; }
+.scan-llm-guard .anticon { color: var(--scan-red); }
+.scan-final-risk { flex-direction: column; align-items: flex-start !important; justify-content: center; background: #edf5fc !important; border-color: #cbdfee !important; }
+.scan-final-risk strong { color: #285374; }
+.scan-admission-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.scan-admission-grid > div { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 3px 9px; min-width: 0; min-height: 78px; padding: 12px 14px; background: #fff; border: 1px solid #d7e1ea; border-top: 4px solid; border-radius: 9px; }
+.scan-admission-grid .anticon { grid-row: 1 / 3; font-size: 18px; }
+.scan-admission-grid strong { font-size: 12px; }
+.scan-admission-grid span { color: #718698; font-size: 10px; line-height: 1.4; }
+.scan-admission-grid .approved { border-top-color: var(--scan-green); }
+.scan-admission-grid .approved .anticon, .scan-admission-grid .approved strong { color: #3d755f; }
+.scan-admission-grid .vetted { border-top-color: var(--scan-amber); }
+.scan-admission-grid .vetted .anticon, .scan-admission-grid .vetted strong { color: #856224; }
+.scan-admission-grid .rejected { border-top-color: var(--scan-red); }
+.scan-admission-grid .rejected .anticon, .scan-admission-grid .rejected strong { color: #914747; }
 
 .platform-map { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 24px 0; }
 .platform-pillar { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 96px; padding: 17px; color: var(--docs-ink); text-align: left; background: #f8fafc; border: 1px solid var(--docs-line); border-radius: 11px; cursor: pointer; transition: 160ms ease; }
@@ -678,6 +1067,64 @@ onBeforeUnmount(() => {
 .platform-foundation { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); overflow: hidden; color: #dce9f5; background: var(--docs-ink); border-radius: 9px; }
 .platform-foundation span { padding: 11px 14px; font-size: 11px; font-weight: 650; letter-spacing: 0.04em; text-align: center; }
 .platform-foundation span + span { border-left: 1px solid #36536e; }
+
+.system-architecture { --arch-blue: #2f6fad; --arch-cyan: #397f8a; --arch-green: #4c806d; --arch-amber: #ad7b35; position: relative; box-sizing: border-box; width: 100%; margin: 26px 0; padding: 18px; color: #253f55; background: #f7f9fc; border: 1px solid #d5e0ea; border-radius: 14px; box-shadow: 0 12px 30px rgba(35, 66, 93, 0.06); }
+.system-architecture.fullscreen { position: fixed; z-index: 1000; inset: 0; width: 100vw; height: 100vh; margin: 0; padding: 24px; overflow: auto; border: 0; border-radius: 0; box-shadow: none; }
+.architecture-fullscreen-button { position: absolute; z-index: 2; top: 12px; right: 12px; display: grid; width: 34px; height: 34px; place-items: center; color: #47647c; background: rgba(255, 255, 255, .9); border: 1px solid #cfdae4; border-radius: 8px; box-shadow: 0 5px 14px rgba(35, 66, 93, .08); cursor: pointer; transition: 160ms ease; }
+.architecture-fullscreen-button:hover { color: #1f5f96; background: #fff; border-color: #9ebbd3; }
+.architecture-fullscreen-button:focus-visible { outline: 3px solid rgba(47, 111, 173, .24); outline-offset: 2px; }
+.system-architecture.fullscreen .architecture-fullscreen-button { position: fixed; top: 18px; right: 20px; width: 40px; height: 40px; font-size: 17px; }
+.architecture-band-label { display: flex; align-items: center; margin-bottom: 12px; color: #263f56; }
+.architecture-band-label strong { font-size: 15px; line-height: 1.35; }
+.architecture-caller-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.architecture-caller-grid > div { display: flex; min-width: 0; min-height: 54px; align-items: center; justify-content: center; gap: 8px; padding: 9px 10px; color: #3f5870; background: #fff; border: 1px solid #d8e2eb; border-radius: 8px; font-size: 11px; font-weight: 680; line-height: 1.4; text-align: center; }
+.architecture-caller-grid .anticon { flex: 0 0 auto; color: var(--arch-blue); font-size: 17px; }
+.architecture-ingress-link, .architecture-plane-link, .architecture-foundation-link { position: relative; display: grid; min-height: 46px; place-items: center; color: #71879a; font-size: 10px; line-height: 1.4; text-align: center; }
+.architecture-ingress-link::before, .architecture-plane-link::before, .architecture-foundation-link::before { position: absolute; top: 0; bottom: 7px; left: 50%; width: 1px; background: #9eb1c2; content: ''; }
+.architecture-ingress-link::after, .architecture-plane-link::after, .architecture-foundation-link::after { position: absolute; bottom: 5px; left: calc(50% - 4px); width: 8px; height: 8px; border-right: 1px solid #9eb1c2; border-bottom: 1px solid #9eb1c2; content: ''; transform: rotate(45deg); }
+.architecture-ingress-link span, .architecture-plane-link span, .architecture-foundation-link span { z-index: 1; max-width: 86%; padding: 3px 9px; background: #f7f9fc; }
+.architecture-ingress { display: grid; grid-template-columns: minmax(130px, .55fr) minmax(0, 2.45fr); align-items: stretch; gap: 16px; min-height: 70px; padding: 14px 16px; color: #294a66; background: #e8f2fb; border: 1px solid #c5dced; border-left: 4px solid var(--arch-blue); border-radius: 9px; }
+.architecture-ingress > div { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.architecture-ingress small { color: #6886a1; font-size: 9px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.architecture-ingress strong { color: #1f527c; font-size: 18px; }
+.architecture-ingress > .architecture-ingress-roles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.architecture-ingress-roles span { display: flex; min-width: 0; align-items: center; justify-content: center; padding: 8px 10px; color: #4e6c85; background: rgba(255, 255, 255, .62); border: 1px solid #d1e2f0; border-radius: 7px; font-size: 10.5px; font-weight: 650; line-height: 1.45; text-align: center; }
+.architecture-control-plane, .architecture-runtime-plane, .architecture-foundation { padding: 15px; background: #fff; border: 1px solid #d2dde7; border-radius: 10px; }
+.architecture-control-plane { border-top: 4px solid #76a7d2; }
+.architecture-runtime-plane { border-top: 4px solid #72a9ae; }
+.architecture-foundation { color: #29465e; background: #edf4f9; border-color: #cbdce8; border-top: 4px solid #83aeca; }
+.architecture-plane-heading { display: grid; grid-template-columns: minmax(180px, .65fr) minmax(0, 1.35fr); align-items: center; gap: 13px; margin-bottom: 13px; }
+.architecture-plane-heading > strong { color: #263f56; font-size: 15px; line-height: 1.35; }
+.architecture-plane-heading > small { min-width: 0; color: #6c8193; font-size: 11px; line-height: 1.55; }
+.architecture-foundation .architecture-plane-heading > strong { color: #29465e; }
+.architecture-foundation .architecture-plane-heading > small { color: #667f92; }
+.architecture-control-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.architecture-control-grid > div, .architecture-foundation-grid > div { display: flex; min-width: 0; min-height: 80px; flex-direction: column; justify-content: center; gap: 7px; padding: 14px 16px; background: #f6f9fc; border: 1px solid #dbe4ec; border-radius: 8px; }
+.architecture-control-grid strong, .architecture-foundation-grid strong { color: #304b62; font-size: 12px; line-height: 1.35; }
+.architecture-control-grid span, .architecture-foundation-grid span { color: #6c8193; font-size: 11px; line-height: 1.55; }
+.architecture-domain-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.architecture-domain { display: flex; min-width: 0; min-height: 164px; flex-direction: column; padding: 14px; background: #f9fbfd; border: 1px solid #d7e1ea; border-left: 4px solid var(--arch-blue); border-radius: 9px; }
+.architecture-domain.client-domain { border-left-color: var(--arch-green); }
+.architecture-domain.model-domain { border-left-color: var(--arch-cyan); }
+.architecture-domain.mcp-domain { border-left-color: var(--arch-amber); }
+.architecture-domain-head { display: flex; min-width: 0; align-items: center; gap: 11px; }
+.architecture-domain-head > .anticon { display: grid; width: 36px; height: 36px; flex: 0 0 36px; place-items: center; color: #fff; background: var(--arch-blue); border-radius: 8px; font-size: 16px; }
+.client-domain .architecture-domain-head > .anticon { background: var(--arch-green); }
+.model-domain .architecture-domain-head > .anticon { background: var(--arch-cyan); }
+.mcp-domain .architecture-domain-head > .anticon { background: var(--arch-amber); }
+.architecture-domain-head > span { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.architecture-domain-head small { color: #8193a3; font-family: "SFMono-Regular", Consolas, monospace; font-size: 8px; letter-spacing: .08em; }
+.architecture-domain-head strong { color: #29445b; font-size: 13px; line-height: 1.35; }
+.architecture-domain p { flex: 1; margin: 14px 0; color: #5f7689; font-size: 11.5px; line-height: 1.75; }
+.architecture-domain-output { padding-top: 10px; color: #3f5f78; border-top: 1px dashed #c8d5df; font-size: 10.5px; font-weight: 700; line-height: 1.5; }
+.architecture-foundation-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.architecture-foundation-grid > div { background: #fff; border-color: #d1dfe9; }
+.architecture-foundation-grid strong { color: #2d4b63; }
+.architecture-foundation-grid span { color: #698194; }
+.architecture-dependencies { display: grid; grid-template-columns: minmax(150px, auto) minmax(0, 1fr); align-items: center; gap: 16px; margin-top: 12px; padding: 12px 14px; color: #60788b; background: #eef2f6; border: 1px solid #dbe3ea; border-radius: 8px; font-size: 10px; }
+.architecture-dependencies > span { font-weight: 750; letter-spacing: .04em; }
+.architecture-dependencies > div { display: flex; min-width: 0; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.architecture-dependencies b { padding: 7px 10px; color: #4b6579; background: #fff; border: 1px solid #d1dce5; border-radius: 6px; font-size: 10px; font-weight: 650; }
 
 .docker-topology { --topology-navy: #17334f; --topology-blue: #2e68b2; --topology-green: #28715e; margin: 24px 0; padding: 22px; overflow: hidden; background: #f6f8fb; border: 1px solid #d8e0e9; border-radius: 14px; }
 .topology-zone { position: relative; padding: 38px 14px 14px; background: rgba(255, 255, 255, 0.78); border: 1px solid #cfdae5; border-radius: 10px; }
@@ -756,6 +1203,12 @@ onBeforeUnmount(() => {
 .doc-figure figcaption { padding: 11px 14px; color: #6b7b8b; font-size: 12px; border-top: 1px solid var(--docs-line); }
 .preview-image { display: block; width: 100%; max-height: 82vh; object-fit: contain; }
 .feature-link { margin-top: 8px; }
+.example-download { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-top: 16px; padding: 14px 16px; color: #174f91; background: #f3f8ff; border: 1px solid #cbdcf0; border-radius: 10px; transition: 160ms ease; }
+.example-download:hover { color: #123f75; border-color: #8fb4df; box-shadow: 0 8px 22px rgba(23, 79, 145, 0.09); transform: translateY(-1px); }
+.example-download > .anticon:first-child { display: grid; width: 34px; height: 34px; place-items: center; background: #e1edfb; border-radius: 8px; font-size: 17px; }
+.example-download > span { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.example-download strong { font-size: 13px; }
+.example-download small { overflow: hidden; color: #607c98; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 
 .article-pagination { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 70px; padding-top: 24px; border-top: 1px solid var(--docs-line); }
 .article-pagination button { display: flex; min-height: 74px; flex-direction: column; align-items: flex-start; gap: 6px; padding: 14px 16px; color: var(--docs-ink); text-align: left; background: #f8fafc; border: 1px solid var(--docs-line); border-radius: 10px; cursor: pointer; }
@@ -789,10 +1242,32 @@ onBeforeUnmount(() => {
   .docs-article-scroll { height: 100%; }
   .docs-article { width: min(100% - 32px, 760px); padding-top: 40px; }
   .article-heading h1 { font-size: 34px; }
+  .scenario-brief { grid-template-columns: 40px 1fr; }
+  .scenario-brief-mark { grid-row: 1 / 4; }
+  .scenario-brief-item { padding: 10px 13px; }
+  .scenario-flow { flex-direction: column; overflow-x: visible; }
+  .scenario-flow-node { min-width: 0; flex: none; width: 100%; min-height: 62px; }
+  .scenario-flow-arrow { transform: rotate(90deg); }
   .governance-diagram { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .skill-scan-logic { padding: 14px; }
+  .skill-scan-logic.fullscreen { padding: 64px 14px 20px; }
+  .scan-logic-start, .scan-logic-heading { grid-template-columns: 1fr; }
+  .scan-analyzer-grid, .scan-classification-grid, .scan-llm-row, .scan-admission-grid { grid-template-columns: 1fr; }
+  .scan-policy-row { grid-template-columns: 1fr; }
+  .scan-policy-row > .anticon { transform: rotate(90deg); }
+  .scan-deterministic-result { align-items: flex-start; flex-direction: column; }
   .role-grid { grid-template-columns: 1fr; }
   .platform-map { grid-template-columns: 1fr; }
   .platform-foundation { grid-column: 1; }
+  .system-architecture { padding: 14px; }
+  .system-architecture.fullscreen { padding: 64px 14px 20px; }
+  .architecture-caller-grid, .architecture-control-grid, .architecture-domain-grid, .architecture-foundation-grid { grid-template-columns: 1fr; }
+  .architecture-ingress { grid-template-columns: 1fr; gap: 5px; }
+  .architecture-ingress > .architecture-ingress-roles { grid-template-columns: 1fr; }
+  .architecture-plane-heading { grid-template-columns: 1fr; }
+  .architecture-plane-heading > small { grid-column: 1; }
+  .architecture-dependencies { grid-template-columns: 1fr; }
+  .architecture-dependencies > div { flex-wrap: wrap; justify-content: flex-start; }
   .topology-entry-nodes { grid-template-columns: 1fr; }
   .topology-ingress { grid-template-columns: 1fr; gap: 5px; }
   .topology-control, .topology-bottom, .topology-backend-links { grid-template-columns: 1fr; }

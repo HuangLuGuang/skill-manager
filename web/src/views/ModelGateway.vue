@@ -639,9 +639,11 @@ import { translateLegacy as phrase } from '../i18n'
 
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import { useLocaleText } from '../i18n/useLocaleText'
+import { copyText, promptManualCopy } from '../utils/clipboard'
 import { formatBeijingDateTime } from '../utils/format'
 
 import {
@@ -676,6 +678,7 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const { isEnglish, text } = useLocaleText()
 const activeTab = ref(route.meta.gatewayTab || 'providers')
 const loading = ref(false)
@@ -1294,22 +1297,12 @@ watch(
 
 const copy = async (text) => {
   try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-    } else {
-      throw new Error('clipboard api unavailable')
-    }
+    await copyText(text)
+    message.success(phrase('legacy.alyyje'))
   } catch {
-    const el = document.createElement('textarea')
-    el.value = text
-    el.style.position = 'fixed'
-    el.style.opacity = '0'
-    document.body.appendChild(el)
-    el.select()
-    document.execCommand('copy')
-    document.body.removeChild(el)
+    message.warning(t('clipboard.copyFailed'))
+    promptManualCopy(text, t('clipboard.manualCopyPrompt'))
   }
-  message.success(phrase('legacy.alyyje'))
 }
 
 onMounted(loadAll)

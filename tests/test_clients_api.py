@@ -16,6 +16,7 @@ from agent_manager.api.router import get_manager
 from agent_manager.core.models import SkillStatus
 from agent_manager.core.signer import compute_content_digest
 from backend import auth, models, schemas
+from backend.api_errors import ApiError, api_error_handler
 from backend.config import settings
 from backend.client_signing import compute_content_signature, private_key
 from backend.routers import access_tokens, clients
@@ -67,6 +68,7 @@ def _client(tmp_path, manager=None):
             session.close()
 
     app = FastAPI()
+    app.add_exception_handler(ApiError, api_error_handler)
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(
         id=1,
@@ -414,6 +416,326 @@ def test_client_register_inventory_and_task_round_trip(tmp_path):
     assert database.query(models.ClientEvent).filter_by(client_id="host-001", event_type="takeover_completed").count() == 1
     assert database.query(models.OperationLog).count() >= 2
     database.close()
+
+
+def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_path):
+    client = _client(tmp_path)
+    client_credential = client.post(
+        "/api/v1/access/tokens",
+        json={"name": "model-host", "token_type": "client"},
+    ).json()["token"]
+    headers = {"Authorization": f"Bearer {client_credential}"}
+
+    database = next(client.app.dependency_overrides[get_db]())
+    provider = models.ModelProvider(
+        name="platform-gateway",
+        base_url="https://models.example.com/v1",
+        api_format="anthropic",
+        enabled=True,
+    )
+    database.add(provider)
+    database.flush()
+    database.add(
+        models.ModelEndpoint(
+            provider_id=provider.id,
+            name="claude-sonnet",
+            display_name="Claude Sonnet",
+            enabled=True,
+        )
+    )
+    database.add(models.McpGateway(slug="readonly", name="Readonly", status="active"))
+    database.add(
+        models.ManagedAgent(
+            agent_id="claude-research",
+            name="Claude Research",
+            channel="Claude Code",
+            status="active",
+            skill_names_json="[]",
+            prompt_names_json="[]",
+        )
+    )
+    database.commit()
+    database.close()
+
+    runtime_credential = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "claude-composite-runtime",
+            "token_type": "agent_runtime",
+            "bound_agent_id": "claude-research",
+            "scopes": [
+                "runtime:verify-signature",
+                "runtime:can-load",
+                "runtime:check-tool",
+                "model:chat",
+                "mcp:connect",
+                "mcp:list-tools",
+                "mcp:call-tools",
+            ],
+            "allowed_models": ["claude-sonnet"],
+            "allowed_mcp_gateways": ["readonly"],
+        },
+    )
+    assert runtime_credential.status_code == 200
+
+    registered = client.post(
+        "/api/v1/clients/register",
+        headers=headers,
+        json={
+            "client_id": "host-model",
+            "name": "Model Host",
+            "hostname": "model-mac",
+            "os": "darwin",
+            "arch": "arm64",
+            "client_version": "0.2.0",
+            "agents": [
+                {
+                    "local_agent_id": "claude-main",
+                    "agent_type": "claude-code",
+                    "skills_path": "/tmp/home/.claude/skills",
+                    "capabilities": {"model_config_auto_apply": True},
+                }
+            ],
+        },
+    )
+    assert registered.status_code == 200
+    assert registered.json()["agents"][0]["local_agent_id"] == "claude-main"
+    bound = client.put(
+        "/api/v1/clients/host-model/agents/claude-code",
+        json={"managed_agent_id": "claude-research"},
+    )
+    assert bound.status_code == 200
+
+    policy = client.get("/api/v1/clients/host-model/policy", headers=headers)
+    assert policy.status_code == 200
+    assert policy.json()["agent_profiles"] == [
+        {
+            "local_agent_id": "claude-main",
+            "agent_type": "claude-code",
+            "managed_agent_id": "claude-research",
+            "default_model": None,
+            "allowed_models": ["claude-sonnet"],
+            "allowed_mcp_gateways": ["readonly"],
+            "auto_apply_supported": True,
+        }
+    ]
+
+    task = client.post(
+        "/api/v1/clients/host-model/tasks",
+        json={
+            "task_type": "apply_model_config",
+            "payload": {
+                "local_agent_id": "claude-main",
+                "agent_type": "claude-code",
+                "managed_agent_id": "ignored-by-server",
+                "model": "claude-sonnet",
+                "token": "must-not-be-forwarded",
+            },
+        },
+    )
+    assert task.status_code == 200
+    polled = client.get("/api/v1/clients/host-model/tasks", headers=headers).json()
+    assert polled == [
+        {
+            "id": task.json()["id"],
+            "task_type": "apply_model_config",
+            "payload": {
+                "local_agent_id": "claude-main",
+                "agent_type": "claude-code",
+                "managed_agent_id": "claude-research",
+                "model": "claude-sonnet",
+            },
+        }
+    ]
+    assert runtime_credential.json()["token"] not in json.dumps(polled)
+    completed = client.post(
+        f"/api/v1/clients/host-model/tasks/{task.json()['id']}/result",
+        headers=headers,
+        json={"status": "succeeded"},
+    )
+    assert completed.status_code == 200
+
+    repeated = client.post(
+        "/api/v1/clients/host-model/tasks",
+        json={
+            "task_type": "apply_model_config",
+            "payload": {
+                "local_agent_id": "claude-main",
+                "agent_type": "claude-code",
+                "model": "claude-sonnet",
+            },
+        },
+    )
+    cancelled = client.post(f"/api/v1/clients/host-model/tasks/{repeated.json()['id']}/cancel")
+    assert cancelled.json()["status"] == "cancelled"
+    assert client.get("/api/v1/clients/host-model").json()["agents"][0]["model_config_status"] == "cancelled"
+    retried = client.post(f"/api/v1/clients/host-model/tasks/{repeated.json()['id']}/retry")
+    assert retried.json()["status"] == "pending"
+    assert client.get("/api/v1/clients/host-model").json()["agents"][0]["model_config_status"] == "pending"
+    assert client.post(
+        f"/api/v1/clients/host-model/tasks/{repeated.json()['id']}/result",
+        headers=headers,
+        json={"status": "succeeded"},
+    ).status_code == 200
+
+    detail = client.get("/api/v1/clients/host-model").json()
+    local_agent = detail["agents"][0]
+    assert local_agent["desired_model"] == "claude-sonnet"
+    assert local_agent["applied_model"] == "claude-sonnet"
+    assert local_agent["model_config_status"] == "applied"
+    database = next(client.app.dependency_overrides[get_db]())
+    assert database.query(models.ManagedAgent).filter_by(agent_id="claude-research").one().default_model == "claude-sonnet"
+    database.close()
+
+
+def test_client_can_issue_task_bound_agent_runtime_credential_when_explicitly_allowed(tmp_path):
+    client = _client(tmp_path)
+    created_client_credential = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "auto-model-host",
+            "token_type": "client",
+            "allow_agent_credential_issuance": True,
+        },
+    )
+    assert created_client_credential.status_code == 200
+    client_token = created_client_credential.json()["token"]
+    client_token_id = created_client_credential.json()["record"]["id"]
+    headers = {"Authorization": f"Bearer {client_token}"}
+
+    database = next(client.app.dependency_overrides[get_db]())
+    provider = models.ModelProvider(
+        name="auto-provider",
+        base_url="https://models.example.com/v1",
+        api_format="anthropic",
+        enabled=True,
+    )
+    database.add(provider)
+    database.flush()
+    database.add(models.ModelEndpoint(provider_id=provider.id, name="claude-auto", enabled=True))
+    database.add(
+        models.ManagedAgent(
+            agent_id="claude-auto-agent",
+            name="Claude Auto",
+            channel="Claude Code",
+            status="active",
+            skill_names_json="[]",
+            prompt_names_json="[]",
+        )
+    )
+    database.commit()
+    database.close()
+
+    registered = client.post(
+        "/api/v1/clients/register",
+        headers=headers,
+        json={
+            "client_id": "auto-model-host",
+            "name": "Auto Model Host",
+            "hostname": "auto-model-host",
+            "os": "darwin",
+            "arch": "arm64",
+            "client_version": "0.2.0",
+            "agents": [
+                {
+                    "local_agent_id": "claude-main",
+                    "agent_type": "claude-code",
+                    "skills_path": "/tmp/home/.claude/skills",
+                    "capabilities": {"model_config_auto_apply": True},
+                }
+            ],
+        },
+    )
+    assert registered.status_code == 200
+    assert client.put(
+        "/api/v1/clients/auto-model-host/agents/claude-code",
+        json={"managed_agent_id": "claude-auto-agent"},
+    ).status_code == 200
+
+    task = client.post(
+        "/api/v1/clients/auto-model-host/tasks",
+        json={
+            "task_type": "apply_model_config",
+            "payload": {
+                "local_agent_id": "claude-main",
+                "agent_type": "claude-code",
+                "model": "claude-auto",
+            },
+        },
+    )
+    assert task.status_code == 200
+    polled = client.get("/api/v1/clients/auto-model-host/tasks", headers=headers).json()
+    assert polled[0]["payload"]["auto_issue_credential"] is True
+    assert "token" not in polled[0]["payload"]
+    assert client.post(
+        f"/api/v1/clients/auto-model-host/tasks/{task.json()['id']}/result",
+        headers=headers,
+        json={"status": "running"},
+    ).status_code == 200
+
+    issued = client.post(
+        f"/api/v1/clients/auto-model-host/tasks/{task.json()['id']}/agent-credential",
+        headers=headers,
+        json={},
+    )
+    assert issued.status_code == 200
+    assert issued.json()["token"].startswith("amat_")
+    assert issued.json()["bound_agent_id"] == "claude-auto-agent"
+    assert issued.json()["allowed_models"] == ["claude-auto"]
+
+    database = next(client.app.dependency_overrides[get_db]())
+    runtime = database.query(models.AccessToken).filter(
+        models.AccessToken.issued_by_client_token_id == client_token_id,
+        models.AccessToken.status == "active",
+    ).one()
+    assert runtime.bound_agent_id == "claude-auto-agent"
+    assert json.loads(runtime.scopes_json) == [
+        "runtime:verify-signature",
+        "runtime:can-load",
+        "runtime:check-tool",
+        "model:chat",
+    ]
+    assert json.loads(runtime.allowed_models_json) == ["claude-auto"]
+    database.close()
+
+    revoked = client.post(f"/api/v1/access/tokens/{client_token_id}/revoke")
+    assert revoked.status_code == 200
+    database = next(client.app.dependency_overrides[get_db]())
+    assert database.query(models.AccessToken).filter(
+        models.AccessToken.issued_by_client_token_id == client_token_id,
+        models.AccessToken.status == "active",
+    ).count() == 0
+    database.close()
+
+
+def test_client_without_permission_cannot_issue_agent_runtime_credential(tmp_path):
+    client = _client(tmp_path)
+    client_token = client.post(
+        "/api/v1/access/tokens",
+        json={"name": "restricted-host", "token_type": "client"},
+    ).json()["token"]
+    headers = {"Authorization": f"Bearer {client_token}"}
+    registered = client.post(
+        "/api/v1/clients/register",
+        headers=headers,
+        json={
+            "client_id": "restricted-host",
+            "name": "Restricted Host",
+            "hostname": "restricted-host",
+            "os": "darwin",
+            "arch": "arm64",
+            "client_version": "0.2.0",
+            "agents": [],
+        },
+    )
+    assert registered.status_code == 200
+    denied = client.post(
+        "/api/v1/clients/restricted-host/tasks/999/agent-credential",
+        headers=headers,
+        json={},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["error_code"] == "client.agent_credential_issuance_disabled"
 
 
 def test_client_update_manifest_and_download_require_client_token(tmp_path, monkeypatch):

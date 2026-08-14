@@ -163,6 +163,7 @@ import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 
 import { getPrivacyTrace, listPrivacyTraces } from '../api'
+import { copyText, promptManualCopy } from '../utils/clipboard'
 import { formatBeijingDateTime, formatNumber } from '../utils/format'
 
 const { t } = useI18n()
@@ -338,8 +339,14 @@ const renderStage = (stage) => {
 }
 
 const copyStage = async (stage) => {
-  await navigator.clipboard.writeText(renderStage(stage))
-  message.success(phrase('legacy.alyyje'))
+  const text = renderStage(stage)
+  try {
+    await copyText(text)
+    message.success(phrase('legacy.alyyje'))
+  } catch {
+    message.warning(t('clipboard.copyFailed'))
+    promptManualCopy(text, t('clipboard.manualCopyPrompt'))
+  }
 }
 
 onMounted(async () => {

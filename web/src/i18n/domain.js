@@ -35,6 +35,7 @@ export const domainMessages = {
       repair_skill: '恢复可信版本',
       rescan: '重新巡检',
       sync_policy: '同步处置策略',
+      apply_model_config: '应用模型配置',
     },
     auditEvent: {
       skill_submitted: '提交 Skill',
@@ -50,6 +51,7 @@ export const domainMessages = {
       tool_invoked: '允许工具调用',
       tool_blocked: '工具调用阻断',
       client_registered: '客户端注册',
+      agent_credential_issued: '自动创建 Agent 运行凭证',
       client_event: '客户端安全事件',
       takeover_completed: '完成首次接管',
       unmanaged_skill_found: '发现未受管 Skill',
@@ -99,6 +101,7 @@ export const domainMessages = {
       repair_skill: 'Restore Trusted Version',
       rescan: 'Run Inspection Again',
       sync_policy: 'Sync Response Policy',
+      apply_model_config: 'Apply Model Configuration',
     },
     auditEvent: {
       skill_submitted: 'Skill Submitted',
@@ -114,6 +117,7 @@ export const domainMessages = {
       tool_invoked: 'Tool Invocation Allowed',
       tool_blocked: 'Tool Call Blocked',
       client_registered: 'Client Registered',
+      agent_credential_issued: 'Agent Runtime Credential Issued',
       client_event: 'Client Security Event',
       takeover_completed: 'Initial Governance Completed',
       unmanaged_skill_found: 'Unmanaged Skill Found',
