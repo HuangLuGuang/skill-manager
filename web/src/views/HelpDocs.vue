@@ -505,6 +505,7 @@ import DocsAssistantPanel from '../components/DocsAssistantPanel.vue'
 import { docsArticleOrder, docsContent } from '../docs/content'
 import { setLocale } from '../i18n'
 import { useLocaleText } from '../i18n/useLocaleText'
+import { copyText, promptManualCopy } from '../utils/clipboard'
 
 defineProps({
   logoUrl: { type: String, default: '/logo.png' },
@@ -786,23 +787,12 @@ const openImage = image => {
   previewImage.value = image
   imagePreviewOpen.value = true
 }
-const copyWithFallback = code => {
-  const textarea = document.createElement('textarea')
-  textarea.value = code
-  textarea.setAttribute('readonly', '')
-  textarea.style.position = 'fixed'
-  textarea.style.opacity = '0'
-  document.body.appendChild(textarea)
-  textarea.select()
-  document.execCommand('copy')
-  textarea.remove()
-}
 const copyCode = async code => {
   try {
-    if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable')
-    await navigator.clipboard.writeText(code)
+    await copyText(code)
   } catch {
-    copyWithFallback(code)
+    promptManualCopy(code, t('clipboard.manualCopyPrompt'))
+    return
   }
   copiedVisible.value = true
   if (copyTimer.value) window.clearTimeout(copyTimer.value)

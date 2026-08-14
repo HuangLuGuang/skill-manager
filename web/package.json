@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "test:diff": "node scripts/check-diff.mjs",
+    "test:clipboard": "node --test scripts/clipboard.test.mjs",
     "test:composer": "node --test scripts/composer-keyboard.test.mjs",
     "test:docs-search": "node --test scripts/docs-search.test.mjs",
     "test:i18n": "node scripts/check-i18n.mjs",

@@ -364,6 +364,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 
 import { i18n } from '../i18n'
+import { copyText, promptManualCopy } from '../utils/clipboard'
 import { formatDateTime } from '../utils/format'
 import {
   createAccessToken,
@@ -707,8 +708,14 @@ const handleDelete = async record => {
   }
 }
 const copy = async value => {
-  await navigator.clipboard.writeText(value || '')
-  message.success(t('credentials.copied'))
+  const text = value || ''
+  try {
+    await copyText(text)
+    message.success(t('credentials.copied'))
+  } catch {
+    message.warning(t('clipboard.copyFailed'))
+    promptManualCopy(text, t('clipboard.manualCopyPrompt'))
+  }
 }
 
 onMounted(async () => {

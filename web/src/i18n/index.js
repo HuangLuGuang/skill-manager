@@ -26,6 +26,10 @@ export const i18n = createI18n({
         chinese: '简体中文',
         english: 'English',
       },
+      clipboard: {
+        copyFailed: '自动复制失败，请在弹出的文本框中手动复制。',
+        manualCopyPrompt: '自动复制失败，请按 Ctrl/Cmd+C 手动复制以下内容：',
+      },
       docsUi: {
         help: '帮助文档',
         docs: '文档',
@@ -563,6 +567,10 @@ export const i18n = createI18n({
         label: 'Language',
         chinese: '简体中文',
         english: 'English',
+      },
+      clipboard: {
+        copyFailed: 'Automatic copy failed. Copy the text manually from the prompt.',
+        manualCopyPrompt: 'Automatic copy failed. Press Ctrl/Cmd+C to copy the following text:',
       },
       docsUi: {
         help: 'Help Docs',

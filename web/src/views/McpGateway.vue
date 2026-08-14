@@ -196,6 +196,7 @@ import {
   updateMcpToolPolicy,
 } from '../api'
 import { useLocaleText } from '../i18n/useLocaleText'
+import { copyText, promptManualCopy } from '../utils/clipboard'
 import { formatDateTime } from '../utils/format'
 
 const route = useRoute()
@@ -437,7 +438,15 @@ const removeGateway = async record => {
   finally { actionId.value = null }
 }
 
-const copy = async value => { await navigator.clipboard.writeText(value); message.success(phrase('legacy.11bea7m')) }
+const copy = async value => {
+  try {
+    await copyText(value)
+    message.success(phrase('legacy.11bea7m'))
+  } catch {
+    message.warning(t('clipboard.copyFailed'))
+    promptManualCopy(value, t('clipboard.manualCopyPrompt'))
+  }
+}
 onMounted(fetchAll)
 </script>
 
