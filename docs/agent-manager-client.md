@@ -97,7 +97,7 @@ agent-manager-client-linux-arm64
 智能体管理 -> 统一凭证中心 -> 创建凭证
 ```
 
-凭证类型选择“客户端接入凭证”。明文只展示一次。
+在统一凭证中心选择“给客户端使用”。如果希望客户端自动下发 Agent 模型配置，同时勾选“允许客户端为已绑定 Agent 自动创建运行凭证”。该选项默认关闭；客户端凭证明文仍只展示一次。
 
 ## 3. 注册客户端
 
@@ -115,6 +115,19 @@ export AGENT_MANAGER_CLIENT_TOKEN="amat_xxx"
 ```
 
 默认使用“客户端安全治理”，无需绑定平台智能体。只有切换为“Agent 强授权”后，才需要在客户端详情中选择平台智能体；同类型只有一个候选时平台会自动匹配。
+
+### 按本机 Agent 配置模型
+
+管理台客户端详情可以为已绑定的 Claude Code 选择并下发模型，适合一台主机上的不同 Agent 使用不同默认模型。操作前必须满足：
+
+- 本机 Claude Code 已绑定一个同类型、启用中的平台 Agent。
+- 以下条件满足其一：平台 Agent 已有包含 `model:chat` 且允许目标模型的有效运行凭证；或当前客户端凭证已开启自动创建 Agent 运行凭证。
+- 开启自动创建时，客户端通过具体模型配置任务一次性领取绑定目标 Agent 的运行凭证。客户端接入凭证本身不能调用模型。
+- 自动创建的 Agent 凭证固定包含 `runtime:verify-signature`、`runtime:can-load`、`runtime:check-tool` 和 `model:chat`，并且只允许任务选择的模型；不包含 `runtime:govern` 或任何 `mcp:*` 权限。
+
+下发任务只包含本机 Agent 标识、平台 Agent 标识和模型名，不包含任何凭证明文。开启自动创建时，客户端执行任务才通过受控接口领取一次性明文。客户端执行前备份 `~/.claude/settings.json` 到 `~/.agent-manager/config-backups/`，然后合并写入模型网关地址 `ANTHROPIC_BASE_URL`、模型名 `ANTHROPIC_MODEL` 和自动生成的 Agent 独立 `ANTHROPIC_AUTH_TOKEN`；其他设置保持不变。
+
+当前只自动配置 Claude Code。Codex 依赖 Responses API，而当前模型网关尚未提供该兼容端点，因此不会写入一份实际不可调用的 Codex 配置。其他 Agent 要在配置格式与协议验证完成后再开放。
 
 不在内置列表中的 Agent，无需开发新适配器。进入“Agent 发现 -> 添加自定义 Agent”，填写便于识别的名称，并选择包含多个 Skill 子目录的绝对路径。移除自定义 Agent 只取消登记，不会删除该目录中的文件。客户端安全治理无需在平台重复创建 Agent；Agent 强授权模式下，先在平台创建“自定义 Agent”，再在客户端选择对应的平台智能体。
 

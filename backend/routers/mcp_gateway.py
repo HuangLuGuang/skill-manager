@@ -1213,7 +1213,7 @@ async def get_runtime_approval_status(
         authorization,
         required_scope="mcp:call-tools",
         request=request,
-        allowed_token_types={"mcp_gateway"},
+        allowed_token_types={"mcp_gateway", "agent_runtime"},
     )
     row = db.query(models.McpToolApproval).filter(
         models.McpToolApproval.request_id == request_id,
@@ -1261,7 +1261,7 @@ async def invoke_gateway(
         authorization,
         required_scope=required_scope,
         request=request,
-        allowed_token_types={"mcp_gateway"},
+        allowed_token_types={"mcp_gateway", "agent_runtime"},
     )
     allowed_gateways = _json_loads(token.allowed_mcp_gateways_json, [])
     if gateway_slug not in allowed_gateways:

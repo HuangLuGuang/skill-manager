@@ -629,7 +629,7 @@ const zh = {
           steps: [
             { title: '创建 Agent', body: '设置稳定且唯一的 Agent ID、名称、所属部门、负责人、客户端类型和启用状态。运行环境中的 Agent ID 必须与这里一致。' },
             { title: '绑定能力', body: '选择默认模型和允许使用的已批准或已部署 Skill。下拉项会显示具体 Skill 标识；保存后运行校验按该 Agent 的绑定范围判断。' },
-            { title: '创建运行凭证', body: '在统一凭证中心选择 Agent 运行凭证并绑定目标 Agent。' },
+            { title: '创建运行凭证', body: '在统一凭证中心选择“给 Agent 使用”，绑定目标 Agent，再按需选择运行治理、模型和 MCP 能力。' },
             { title: '交给运行环境', body: '只把一次性显示的凭证明文交给对应 Agent，不能使用管理员登录 Token。' },
           ],
           link: { path: '/agents', label: '打开智能体列表' },
@@ -741,7 +741,7 @@ const zh = {
             columns: ['使用位置', '主要职责'],
             rows: [
               ['桌面客户端', '发现本机Agent和Skill目录，选择接管范围，安装可信版本，持续巡检并执行恢复、隔离或只审计。'],
-              ['平台管理台', '集中查看多台客户端，配置治理方式和处置策略，绑定平台Agent，远程下发安装、修复、移除和策略同步任务。'],
+              ['平台管理台', '集中查看多台客户端，配置治理方式和处置策略，绑定平台Agent，远程下发安装、修复、移除、模型配置和策略同步任务。'],
             ],
           },
           image: { name: 'client-app-overview', alt: 'Agent Manager桌面客户端概览', caption: '桌面客户端概览集中显示接入进度、本机 Agent、受管 Skill、平台检测能力和后台巡检状态。截图使用示例数据。' },
@@ -751,7 +751,7 @@ const zh = {
           title: '安装与接入顺序',
           steps: [
             { title: '下载对应平台安装包', body: '管理台当前提供macOS Apple Silicon、macOS Intel、Windows x64和Linux x64安装包，具体以当前发布列表为准。' },
-            { title: '创建客户端接入凭证', body: '在统一凭证中心选择客户端类型，保留默认client:*最小权限；凭证明文只展示一次。' },
+            { title: '创建客户端接入凭证', body: '在统一凭证中心选择“给客户端使用”。如果需要自动下发 Agent 模型配置，显式开启“允许客户端为已绑定 Agent 自动创建运行凭证”；凭证明文只展示一次。' },
             { title: '连接平台并发现 Agent', body: '在客户端填写平台地址与凭证，确认发现的Agent、共用目录和Skill路径。' },
             { title: '确认治理范围并启用后台巡检', body: '先生成接管预览，确认需要继续启用和停用待处理的Skill，再安装后台服务。', expected: '关闭客户端窗口后，已经安装的后台服务仍会持续同步任务、巡检文件和上报事件。' },
           ],
@@ -807,9 +807,21 @@ const zh = {
           title: '管理台如何集中管理客户端',
           paragraphs: ['管理台客户端列表用于查看所有受管主机的在线状态、版本、Agent与Skill数量、安全事件和最后心跳；客户端详情再展开治理方式、本机Agent、任务与事件。'],
           image: { name: 'client-list', alt: '管理台客户端列表', caption: '管理台列表用于跨主机查看客户端状态和治理规模。示例数据以实际环境为准。' },
-          bullets: ['客户端详情可以切换客户端安全治理或Agent强授权，并配置只审计、自动恢复或隔离阻断。', '按本机Agent选择平台批准Skill，可以远程下发、修复或移除。', '失败或取消的客户端任务可以重试；本地巡检和处置结果进入事件及统一审计。'],
-          callout: { type: 'note', title: '任务的具体用途', body: '客户端任务用于安装、恢复、移除Skill和同步策略。执行后应在客户端详情中核对目标Agent、Skill、任务状态和最新事件。' },
+          bullets: ['客户端详情可以切换客户端安全治理或Agent强授权，并配置只审计、自动恢复或隔离阻断。', '按本机Agent选择平台批准Skill，可以远程下发、修复或移除；Claude Code 还可选择运行凭证允许的模型并下发配置。', '失败或取消的客户端任务可以重试；本地巡检和处置结果进入事件及统一审计。'],
+          callout: { type: 'note', title: '任务的具体用途', body: '客户端任务用于安装、恢复、移除Skill、应用受支持的模型配置和同步策略。执行后应在客户端详情中核对目标Agent、资源、任务状态和最新事件。' },
           link: { path: '/clients', label: '打开客户端管理' },
+        },
+        {
+          id: 'agent-model-config',
+          title: '按本机 Agent 下发模型配置',
+          steps: [
+            { title: '绑定平台 Agent', body: '在客户端详情中把本机 Claude Code 绑定到同类型、已启用的平台 Agent。' },
+            { title: '选择凭证提供方式', body: '可以预先为平台 Agent 创建“治理 + 模型”运行凭证，也可以让已显式授权的客户端凭证自动创建。客户端凭证本身不能调用模型。' },
+            { title: '通过任务安全领取', body: '开启自动创建后，任务只包含目标 Agent 和模型名。客户端执行任务时才通过受控接口一次性领取绑定该 Agent 的独立运行凭证，明文不进入任务记录。' },
+            { title: '选择并下发模型', body: '点击目标 Agent 的“配置模型”。已有运行凭证时只能选择其允许模型；允许自动创建时可以选择当前启用模型。任务完成后核对“已应用”状态。', expected: '客户端先备份 ~/.claude/settings.json，再更新 ANTHROPIC_BASE_URL、ANTHROPIC_MODEL 和自动生成的 Agent 独立 ANTHROPIC_AUTH_TOKEN。' },
+          ],
+          callout: { type: 'warning', title: '首期自动配置边界', body: '当前只自动应用 Claude Code 配置。Codex 依赖 Responses API，而当前模型网关尚未提供该兼容端点，因此页面不会生成不可用的 Codex 配置。其他 Agent 也要在配置格式和调用协议验证后再开放。' },
+          link: { path: '/credentials', label: '创建带自动签发授权的客户端凭证' },
         },
         {
           id: 'console-client-detail',
@@ -823,13 +835,26 @@ const zh = {
     'credential-management': {
       eyebrow: '智能体管理',
       title: '统一凭证中心',
-      summary: '按调用主体选择凭证类型、绑定对象和最小权限，并限制模型、网关、来源 IP、请求大小与并发。',
+      summary: '先回答“谁会使用这张凭证”，再配置它能访问的模型、MCP 网关和接口；原始 scope 与容量限制放在高级设置中。',
       sections: [
         {
+          id: 'choose-caller',
+          title: '不要先猜凭证类型，先选真实调用者',
+          paragraphs: ['页面顶部的“凭证路线图”按调用场景创建凭证。这里的调用者是实际携带 Bearer 凭证发请求的程序，不是负责配置系统的管理员。'],
+          table: { columns: ['路线图入口', '什么时候选', '不要混用'], rows: [
+            ['给 Agent 使用', '已在平台登记的 Agent 需要运行校验，并可能同时调用模型或 MCP', '不要再给同一 Agent 额外创建普通模型凭证来冒充身份'],
+            ['给应用调用模型', '非 Agent 的服务、脚本或业务应用只调用模型', '不能作为已登记 Agent 的可信身份'],
+            ['给 MCP 客户端', '不代表平台 Agent 的 MCP Client 调用已发布 Tool', '不能访问未选择的虚拟网关'],
+            ['给 Skill Scanner', '客户侧扫描器上传 Skill 并轮询自己的结果', '不能审批、部署或读取他人结果'],
+            ['给客户端使用', '桌面或后台客户端注册、心跳、同步清单和执行任务', '客户端凭证不能调用模型；可显式允许它通过配置任务为本机已绑定 Agent 自动创建独立运行凭证'],
+          ] },
+          link: { path: '/credentials', label: '打开凭证路线图' },
+        },
+        {
           id: 'credential-types',
-          title: '不同接入凭证类型与用途',
+          title: '路线图背后的凭证类型',
           table: { columns: ['凭证类型', '必须绑定或限制', '默认用途'], rows: [
-            ['Agent 运行凭证', '必须绑定一个 Agent', '验签、加载许可和 Tool 调用检查；可选治理、记忆或模型调用权限'],
+            ['Agent 运行凭证', '必须绑定一个 Agent；使用 MCP 时选择允许网关', '验签、加载许可和 Tool 调用检查；可组合治理、模型及 MCP 权限'],
             ['Scanner 接入凭证', '只读取自己提交的结果', '批量上传 Skill 和轮询自己的扫描结果'],
             ['Client 接入凭证', '注册后关联具体客户端', '注册、心跳、策略、任务、清单、事件和批准版本下载'],
             ['模型调用凭证', '可限制允许模型', '调用模型网关；可选 Token 压缩和 Prompt 防护'],
@@ -838,19 +863,31 @@ const zh = {
         },
         {
           id: 'create',
-          title: '创建凭证的正确顺序',
+          title: '按页面顺序创建一张凭证',
           steps: [
-            { title: '先创建被绑定对象', body: 'Agent 运行凭证要先创建 Agent；MCP 凭证要先创建网关。不要用空绑定绕过身份边界。' },
-            { title: '选择类型和预设', body: 'Agent 运行凭证优先使用“运行校验”“治理”或“治理 + 模型”预设，再按实际需要收窄权限。' },
-            { title: '设置资源边界', body: '按类型限制 Agent、MCP 网关、模型、允许 IP / CIDR、请求体或上传大小，以及请求或任务并发。' },
-            { title: '保存并立即复制', body: '明文只在创建后展示一次。写入调用方的安全配置后关闭窗口，不要放进源码、截图或普通日志。', expected: '列表只显示凭证前缀、类型、绑定、权限和状态，不再显示完整明文。' },
+            { title: '在路线图中选择调用者', body: '页面会自动带入对应凭证类型和最小权限。Agent 运行凭证要先创建 Agent；使用 MCP 前要先发布网关。' },
+            { title: '填写可审计名称并建立身份绑定', body: '名称应能识别环境和用途，例如“客服 Agent 生产运行凭证”。Agent 场景必须选择它代表的已登记 Agent。' },
+            { title: '选择能力和资源范围', body: 'Agent 从“只做运行校验”开始，按需增加治理、模型或 MCP；模型和 MCP 场景再选择允许资源。' },
+            { title: '必要时展开高级安全设置', body: '原始 scope、Prompt 防护、上下文压缩、来源 IP、请求大小和并发都在高级设置。不了解调用规模时保留默认值。' },
+            { title: '保存并立即复制', body: '明文只在创建后展示一次。写入调用方的安全配置后关闭窗口，不要放进源码、截图或普通日志。', expected: '列表只显示凭证前缀、使用者、可访问能力和状态；展开一行可核对 scope、资源范围和安全限制。' },
           ],
-          link: { path: '/credentials', label: '打开统一凭证中心' },
         },
         {
           id: 'model-controls',
           title: '带 model:chat 的凭证',
           bullets: ['模型调用凭证默认包含 model:chat；Agent 运行凭证只有显式选择“治理 + 模型”或手工添加后才能调用模型。', '可限制允许模型；列表为空表示不在凭证层限定模型，不代表绕过模型启用状态或组策略。', 'Token 压缩级别和 Prompt 防护模式跟随凭证；Prompt 防护可选关闭、记录、警告或阻断。', '请求仍要通过凭证状态、绑定、模型范围、请求大小、来源 IP 和并发校验。'],
+        },
+        {
+          id: 'client-agent-issuance',
+          title: '客户端如何自动创建 Agent 运行凭证',
+          paragraphs: ['创建客户端凭证时可以开启“允许客户端为已绑定 Agent 自动创建运行凭证”。该选项默认关闭，并不把 model:chat 或 mcp:* 直接授予客户端凭证。'],
+          bullets: ['本机 Agent 必须先发现并绑定到启用中的平台 Agent。', '只有服务端已创建的具体配置任务才能触发领取，凭证明文不进入任务载荷或列表接口。', '生成的凭证固定包含 runtime:verify-signature、runtime:can-load、runtime:check-tool 和 model:chat，并且只允许任务选择的模型；不包含 runtime:govern 或任何 mcp:* 权限。', '吊销或删除父客户端凭证时，会吊销由它自动生成的有效 Agent 凭证。', '当前自动写入仅支持 Claude Code 模型配置；MCP 和其他 Agent 需等待对应配置适配。'],
+        },
+        {
+          id: 'composite-agent-runtime',
+          title: '一个 Agent 如何共用一张运行凭证',
+          paragraphs: ['同一张 Agent 运行凭证可以同时携带 runtime:*、model:chat 和 mcp:* 权限，但它仍只代表绑定的那个 Agent。模型和 MCP 网关允许列表继续分别生效。'],
+          bullets: ['模型请求使用同一 Bearer 凭证，并由 bound_agent_id 建立可信 Agent 身份。', 'MCP 请求使用同一 Bearer 凭证，但只能访问 allowed_mcp_gateways 中的网关。', '客户端接入凭证只负责主机管理和任务同步，不能拿去调用模型或 MCP；开启代申请授权后，客户端仍领取并写入绑定具体 Agent 的独立运行凭证。', '非 Agent 应用仍应使用模型调用凭证或 MCP 网关凭证，不要伪装成 Agent。'],
         },
         {
           id: 'lifecycle',
@@ -1408,13 +1445,14 @@ const en = {
     'client-management': {
       eyebrow: 'Feature guide', title: 'Client management', summary: 'The desktop Client discovers, enrolls, and continuously governs local Agents and Skills; the console provides fleet visibility, policy configuration, and remote task delivery.',
       sections: [
-        { id: 'desktop-and-console', title: 'Separate the desktop Client from the console', paragraphs: ['Install Agent Manager Client on every workstation or server whose local Skills need governance. It registers with a Client access credential, sends heartbeats, and reports local Agents, Skill inventory, and security events. It is not a reduced version of the admin console; the two surfaces have different responsibilities.'], table: { columns: ['Where you work', 'Primary responsibility'], rows: [['Desktop Client', 'Discover local Agents and Skill roots, choose governance scope, install trusted versions, and continuously audit, restore, or quarantine local content.'], ['Platform console', 'View multiple Clients, configure governance and enforcement, bind managed Agents, and remotely deliver install, repair, remove, and policy-sync tasks.']] }, image: { name: 'client-app-overview', alt: 'Agent Manager desktop Client overview', caption: 'Client Overview combines connection progress, local Agents, managed Skills, platform scanning capabilities, and background inspection state. The screenshot uses example data.' } },
-        { id: 'install-register', title: 'Install and connect', steps: [{ title: 'Download the matching installer', body: 'The console currently lists macOS Apple Silicon, macOS Intel, Windows x64, and Linux x64 packages; actual availability depends on the current release.' }, { title: 'Create a Client access credential', body: 'Choose the Client type in Credential Center and keep the least-privilege client:* scopes. The secret is shown only once.' }, { title: 'Connect and discover Agents', body: 'Enter the platform address and credential in the Client, then confirm discovered Agents, shared roots, and Skill paths.' }, { title: 'Confirm scope and enable background inspection', body: 'Generate a governance preview, confirm which Skills remain enabled or move to pending, then install the background service.', expected: 'After the desktop window closes, an installed background service continues syncing tasks, inspecting files, and reporting events.' }] },
+        { id: 'desktop-and-console', title: 'Separate the desktop Client from the console', paragraphs: ['Install Agent Manager Client on every workstation or server whose local Skills need governance. It registers with a Client access credential, sends heartbeats, and reports local Agents, Skill inventory, and security events. It is not a reduced version of the admin console; the two surfaces have different responsibilities.'], table: { columns: ['Where you work', 'Primary responsibility'], rows: [['Desktop Client', 'Discover local Agents and Skill roots, choose governance scope, install trusted versions, and continuously audit, restore, or quarantine local content.'], ['Platform console', 'View multiple Clients, configure governance and enforcement, bind managed Agents, and remotely deliver install, repair, remove, model-configuration, and policy-sync tasks.']] }, image: { name: 'client-app-overview', alt: 'Agent Manager desktop Client overview', caption: 'Client Overview combines connection progress, local Agents, managed Skills, platform scanning capabilities, and background inspection state. The screenshot uses example data.' } },
+        { id: 'install-register', title: 'Install and connect', steps: [{ title: 'Download the matching installer', body: 'The console currently lists macOS Apple Silicon, macOS Intel, Windows x64, and Linux x64 packages; actual availability depends on the current release.' }, { title: 'Create a Client access credential', body: 'Choose “For Agent Manager Client” in Credential Center. Enable automatic Agent credential issuance only when this Client should deliver model configuration. The secret is shown only once.' }, { title: 'Connect and discover Agents', body: 'Enter the platform address and credential in the Client, then confirm discovered Agents, shared roots, and Skill paths.' }, { title: 'Confirm scope and enable background inspection', body: 'Generate a governance preview, confirm which Skills remain enabled or move to pending, then install the background service.', expected: 'After the desktop window closes, an installed background service continues syncing tasks, inspecting files, and reporting events.' }] },
         { id: 'client-pages', title: 'What each desktop page provides', table: { columns: ['Page or entry', 'What you can do'], rows: [['Client Overview', 'Inspect connection, enrollment progress, local Agents, managed Skills, action items, and platform scanning capabilities.'], ['Agent Discovery', 'Discover built-in Agents, shared Skill roots, and custom Agents, then review paths and select Skills for governance.'], ['Skill Governance', 'Preview enrollment, install approved versions, move unknown or unapproved content safely to pending, and submit it for scanning.'], ['Runtime Status', 'Run an inspection, pause or resume continuous governance, inspect quarantine, and use pre-enrollment backups for advanced recovery.'], ['Activity Records', 'Separate local inspection and remediation from platform-delivered install, repair, remove, and policy tasks.'], ['Security Notifications', 'Review automatic recovery, isolation block, and audit-only alerts, filtered by unread or severity.'], ['Settings', 'Choose language and start page, configure system notifications and background start, select update channel, and export diagnostics without plaintext credentials.']] } },
         { id: 'discover-govern', title: 'Discover and enroll local Skills', paragraphs: ['The Client recognizes Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, Hermes, TRAE CN, TRAE, Cursor, CodeBuddy, and WorkBuddy, and separately marks shared Skill roots that multiple Agents may read. Unsupported tools can be registered as custom Agents.'], bullets: ['Expand an Agent to review its real scan roots, Skill names, and validation state before selecting governance scope.', 'The preview separates trusted, enrollable, and pending content, and requires explicit confirmation before changes.', 'Disabled does not mean deleted: content is removed from the Agent entry point, kept safely, and can be submitted for platform scanning.', 'When installing from the platform, choose an approved version and one or more target Agents; the Client verifies release signature and file hashes.'], image: { name: 'client-app-discovery', alt: 'Desktop Client Agent Discovery page', caption: 'Agent Discovery groups Skill roots, discovery results, and platform state by local Agent. The screenshot uses example paths and data.' }, callout: { type: 'note', title: 'Shared-root identity boundary', body: 'Multiple Agents may read the same shared Skill root. The Client can govern its state and content integrity, but the directory alone does not identify the actual caller.' } },
         { id: 'governance-modes', title: 'Governance modes and enforcement policies', table: { columns: ['Setting', 'Actual effect'], rows: [['Client security governance', 'A local Skill may be used when it is a trusted platform version and its signature matches; a platform Agent binding is not required.'], ['Strict Agent authorization', 'The local Agent must be bound to a managed Agent and may install only Skills authorized for that Agent.'], ['Audit only', 'Record and report abnormal content without changing local files.'], ['Automatic recovery', 'Restore the approved platform version when a managed Skill becomes abnormal.'], ['Isolation block', 'Move abnormal content into quarantine and remove it from the Agent Skill entry point.']] }, callout: { type: 'warning', title: 'Confirm the affected paths first', body: 'Automatic recovery and isolation modify local Skill directories. Observe path detection and events in Audit only mode before enabling them in production.' } },
         { id: 'continuous-governance', title: 'Continuous inspection, quarantine, and recovery', paragraphs: ['The background service periodically syncs platform policy and tasks, then checks whether managed Skills were modified, revoked, or replaced. If the platform is temporarily unavailable, the Client continues with the last successfully synced policy and reports queued events after reconnection.'], bullets: ['Run Inspection Now performs a full check; pausing continuous governance does not delete managed content.', 'Quarantine preserves the abnormal copy and reason without restoring unconfirmed content to the Agent entry point.', 'Prefer an approved platform version for recovery. Pre-enrollment backups are reserved for explicit emergency rollback.', 'Activity Records and Security Notifications provide evidence for local inspection, automatic remediation, and platform tasks.'], image: { name: 'client-app-status', alt: 'Desktop Client Runtime Status page', caption: 'Runtime Status shows background inspection, managed and quarantined counts, queued events, and follow-up actions for quarantined content. The screenshot uses example data.' } },
-        { id: 'console-management', title: 'Manage the Client fleet from the console', paragraphs: ['The console list provides fleet-wide online state, version, Agent and Skill counts, security events, and last heartbeat. Client details then expose governance mode, local Agents, tasks, and events.'], image: { name: 'client-list', alt: 'Console Client list', caption: 'The console list compares Client state and governance scale across hosts. Values shown are example environment data.' }, bullets: ['Client details switch between Client security governance and Strict Agent authorization and configure Audit only, Automatic recovery, or Isolation block.', 'Select an approved platform Skill under a local Agent to deliver, repair, or remove it remotely.', 'Failed or cancelled Client tasks can be retried; local inspection and remediation enter events and unified audit.'], callout: { type: 'note', title: 'What Client tasks do', body: 'Client tasks install, restore, or remove Skills and synchronize policy. After execution, verify the target Agent, Skill, task state, and latest event in Client details.' }, link: { path: '/clients', label: 'Open Client management' } },
+        { id: 'console-management', title: 'Manage the Client fleet from the console', paragraphs: ['The console list provides fleet-wide online state, version, Agent and Skill counts, security events, and last heartbeat. Client details then expose governance mode, local Agents, tasks, and events.'], image: { name: 'client-list', alt: 'Console Client list', caption: 'The console list compares Client state and governance scale across hosts. Values shown are example environment data.' }, bullets: ['Client details switch between Client security governance and Strict Agent authorization and configure Audit only, Automatic recovery, or Isolation block.', 'Select an approved platform Skill under a local Agent to deliver, repair, or remove it remotely. Claude Code can also receive a model allowed by its runtime credential.', 'Failed or cancelled Client tasks can be retried; local inspection and remediation enter events and unified audit.'], callout: { type: 'note', title: 'What Client tasks do', body: 'Client tasks install, restore, or remove Skills, apply supported model settings, and synchronize policy. After execution, verify the target Agent, resource, task state, and latest event in Client details.' }, link: { path: '/clients', label: 'Open Client management' } },
+        { id: 'agent-model-config', title: 'Deliver a model configuration per local Agent', steps: [{ title: 'Bind a managed Agent', body: 'In Client details, bind local Claude Code to an active managed Agent of the same type.' }, { title: 'Choose credential provisioning', body: 'Pre-create a Governance + model runtime credential, or explicitly allow the Client credential to create runtime credentials for bound Agents. The Client credential itself cannot call models.' }, { title: 'Retrieve through the task', body: 'With automatic issuance enabled, the task contains only non-secret Agent and model identifiers. During execution the Client retrieves one-time plaintext for a separate Agent-bound runtime credential; plaintext is never stored in the task.' }, { title: 'Select and deliver the model', body: 'Existing runtime credentials constrain the model list; automatic issuance allows enabled models. Verify Applied after completion and read the task error when it fails.', expected: 'The Client backs up ~/.claude/settings.json, then updates ANTHROPIC_BASE_URL, ANTHROPIC_MODEL, and the automatically generated Agent-specific ANTHROPIC_AUTH_TOKEN.' }], callout: { type: 'warning', title: 'Initial automatic-configuration boundary', body: 'Automatic application currently supports Claude Code only. Codex depends on the Responses API, which the current model gateway does not expose, so the console does not generate a non-working Codex configuration. Other Agents remain disabled until their configuration format and protocol are verified.' }, link: { path: '/credentials', label: 'Create a Client credential with Agent issuance authorization' } },
         { id: 'console-client-detail', title: 'Verify tasks and events in Client details', paragraphs: ['After a remote operation, verify the target Agent, Skill, task state, and latest event in the same details drawer instead of relying only on the button confirmation.'], image: { name: 'client-detail', alt: 'Console Client detail page', caption: 'Client details combine governance mode, enforcement policy, local Agents, recent tasks, and security events.' }, link: { path: '/clients', label: 'View Client details' } },
       ],
     },
@@ -1530,12 +1568,24 @@ en.articles['scanner-access'] = {
 en.articles['credential-management'] = {
   eyebrow: 'Agent management',
   title: 'Credential center and access credentials',
-  summary: 'Choose credential type, binding, and least-privilege scopes by caller, then constrain models, gateways, source IPs, request size, and concurrency.',
+  summary: 'Start with who will use the credential, then define models, MCP gateways, and API access. Raw scopes and capacity limits stay in Advanced security settings.',
   sections: [
     {
-      id: 'credential-types', title: 'Create least-privilege access credentials by type',
+      id: 'choose-caller', title: 'Choose the real caller instead of guessing a credential type',
+      paragraphs: ['The Credential routes at the top create by calling scenario. The caller is the running program that sends the Bearer credential, not the administrator configuring the system.'],
+      table: { columns: ['Route', 'Choose it when', 'Do not mix it with'], rows: [
+        ['For an Agent', 'A registered Agent needs runtime checks and may also call models or MCP', 'Do not add a regular model credential to impersonate the same Agent'],
+        ['For an application calling models', 'A non-Agent service, script, or business application only calls models', 'It cannot establish trusted registered-Agent identity'],
+        ['For an MCP client', 'An MCP Client that is not a platform Agent calls published Tools', 'It cannot reach gateways outside its allowlist'],
+        ['For Skill Scanner', 'A customer-side Scanner uploads Skills and polls its own results', 'It cannot approve, deploy, or read results owned by others'],
+        ['For Agent Manager Client', 'A desktop or background Client registers, heartbeats, syncs inventory, and executes tasks', 'It cannot call models or MCP; explicit authorization may let it issue separate credentials for locally bound Agents through configuration tasks'],
+      ] },
+      link: { path: '/credentials', label: 'Open Credential routes' },
+    },
+    {
+      id: 'credential-types', title: 'Credential types behind the routes',
       table: { columns: ['Credential type', 'Required binding or boundary', 'Default purpose'], rows: [
-        ['Agent runtime', 'Must bind one Agent', 'Signature, load, and Tool checks; optional governance, memory, or model scopes'],
+        ['Agent runtime', 'Must bind one Agent; select allowed gateways when using MCP', 'Signature, load, and Tool checks; composable governance, model, and MCP scopes'],
         ['Scanner access', 'Reads only owned submissions', 'Batch Skill upload and owned-result polling'],
         ['Client access', 'Associates with a Client after registration', 'Registration, heartbeat, policy, tasks, inventory, events, and approved downloads'],
         ['Model gateway', 'May restrict allowed models', 'Model calls with optional token compression and Prompt Guard'],
@@ -1543,18 +1593,28 @@ en.articles['credential-management'] = {
       ] },
     },
     {
-      id: 'create', title: 'Create a credential in the right order',
+      id: 'create', title: 'Create a credential in page order',
       steps: [
-        { title: 'Create the bound object first', body: 'Create the Agent before an Agent runtime credential and the gateway before an MCP credential. Do not use empty bindings to bypass identity.' },
-        { title: 'Choose type and preset', body: 'For Agent runtime, start with Verification, Governance, or Governance + Model, then narrow scopes to actual needs.' },
-        { title: 'Set resource boundaries', body: 'Constrain Agent, MCP gateways, models, allowed IP / CIDR, request or upload size, and request or job concurrency as applicable.' },
-        { title: 'Save and copy immediately', body: 'The secret appears once. Store it in the caller secure configuration, never source, screenshots, or normal logs.', expected: 'The list retains only prefix, type, binding, scopes, and status—not the full secret.' },
+        { title: 'Choose the caller from Credential routes', body: 'The page supplies the matching credential type and minimum permissions. Create the Agent before an Agent runtime credential and publish a gateway before enabling MCP.' },
+        { title: 'Use an auditable name and bind identity', body: 'Include purpose and environment, such as “Support Agent production runtime.” Agent routes must select the registered Agent represented by the credential.' },
+        { title: 'Choose capabilities and resource boundaries', body: 'Start an Agent with Runtime checks only, then add governance, models, or MCP when needed. Model and MCP routes select their allowed resources.' },
+        { title: 'Open Advanced security settings only when needed', body: 'Raw scopes, Prompt Guard, context compression, source IP, body size, and concurrency live there. Keep defaults when caller scale is unknown.' },
+        { title: 'Save and copy immediately', body: 'The secret appears once. Store it in the caller secure configuration, never source, screenshots, or normal logs.', expected: 'The list shows prefix, caller, accessible capabilities, and status. Expand a row to verify scopes, resources, and security limits.' },
       ],
-      link: { path: '/credentials', label: 'Open Credential Center' },
     },
     {
       id: 'model-controls', title: 'Credentials with model:chat',
       bullets: ['Model gateway credentials include model:chat by default. Agent runtime credentials require Governance + Model or an explicit model:chat scope.', 'Allowed models may be restricted. An empty list means no credential-level model restriction, not a bypass of model state or group policy.', 'Token-compression level and Prompt Guard mode follow the credential. Prompt Guard supports off, log, warn, or block.', 'Requests still pass credential status, binding, model range, body size, source IP, and concurrency checks.'],
+    },
+    {
+      id: 'client-agent-issuance', title: 'How a Client automatically creates Agent runtime credentials',
+      paragraphs: ['A Client credential may enable “Allow the Client to create runtime credentials for bound Agents.” It is off by default and does not grant model:chat or mcp:* directly to the Client credential.'],
+      bullets: ['The local Agent must first be discovered and bound to an active managed Agent.', 'Only a concrete server-created configuration task may retrieve the secret; plaintext never enters task payloads or list responses.', 'The generated credential includes runtime:verify-signature, runtime:can-load, runtime:check-tool, and model:chat, restricted to the model selected by the task. It does not include runtime:govern or any mcp:* permission.', 'Revoking or deleting the parent Client credential revokes active Agent credentials it generated.', 'Automatic writing currently covers Claude Code model configuration only; MCP and other Agents require their configuration adapters.'],
+    },
+    {
+      id: 'composite-agent-runtime', title: 'Use one runtime credential for one Agent',
+      paragraphs: ['One Agent runtime credential may combine runtime:*, model:chat, and mcp:* scopes, but it still represents only its bound Agent. Model and MCP gateway allowlists remain independently enforced.'],
+      bullets: ['Model requests use the same Bearer credential and derive trusted Agent identity from bound_agent_id.', 'MCP requests use the same Bearer credential but can reach only allowed_mcp_gateways.', 'The Client access credential manages the host and task sync; it cannot call models or MCP. With delegated issuance enabled, the Client still installs a separate credential bound to the target Agent.', 'Non-Agent applications should keep model gateway or MCP gateway credentials instead of impersonating an Agent.'],
     },
     {
       id: 'lifecycle', title: 'Revoke, delete, and troubleshoot',

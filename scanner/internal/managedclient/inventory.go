@@ -17,7 +17,7 @@ import (
 
 var Version = "dev"
 
-const InventoryCacheVersion = "2"
+const InventoryCacheVersion = "3"
 
 type Skill struct {
 	SkillID       string `json:"skill_id,omitempty"`
@@ -34,6 +34,7 @@ type Skill struct {
 }
 
 type Agent struct {
+	LocalAgentID             string         `json:"local_agent_id"`
 	AgentType                string         `json:"agent_type"`
 	DisplayName              string         `json:"display_name,omitempty"`
 	Version                  string         `json:"version,omitempty"`
@@ -151,6 +152,7 @@ func Discover(home string) (Inventory, error) {
 			continue
 		}
 		agent := Agent{
+			LocalAgentID:             custom.AgentType,
 			AgentType:                custom.AgentType,
 			DisplayName:              custom.Name,
 			SkillsPath:               custom.SkillsPath,
@@ -200,10 +202,14 @@ func DeviceID(hostname, home string) string {
 
 func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, bool, error) {
 	agent := Agent{
+		LocalAgentID:             spec.agentType,
 		AgentType:                spec.agentType,
 		SkillManagementSupported: spec.supportsSkill,
 		Capabilities:             map[string]any{"skill_management": spec.supportsSkill},
 		Skills:                   []Skill{},
+	}
+	if spec.agentType == "claude-code" {
+		agent.Capabilities["model_config_auto_apply"] = true
 	}
 	if spec.sharedSkills {
 		agent.Capabilities["shared_skills"] = true

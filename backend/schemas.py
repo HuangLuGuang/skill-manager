@@ -312,6 +312,7 @@ class AccessTokenCreate(BaseModel):
     token_type: str = Field(pattern="^(model_gateway|agent_runtime|scanner|client|mcp_gateway)$")
     bound_agent_id: Optional[str] = None
     bound_client_id: Optional[str] = None
+    allow_agent_credential_issuance: bool = False
     user_id: Optional[int] = None
     group_id: Optional[int] = None
     scopes: list[str] = []
@@ -333,6 +334,7 @@ class AccessTokenUpdate(BaseModel):
     name: Optional[str] = None
     bound_agent_id: Optional[str] = None
     bound_client_id: Optional[str] = None
+    allow_agent_credential_issuance: Optional[bool] = None
     user_id: Optional[int] = None
     group_id: Optional[int] = None
     scopes: Optional[list[str]] = None
@@ -360,6 +362,8 @@ class AccessTokenResponse(BaseModel):
     token_hash: Optional[str] = None
     bound_agent_id: Optional[str] = None
     bound_client_id: Optional[str] = None
+    allow_agent_credential_issuance: bool = False
+    issued_by_client_token_id: Optional[int] = None
     user_id: Optional[int] = None
     group_id: Optional[int] = None
     scopes: list[str] = []
@@ -708,6 +712,7 @@ class ClientSkillInventory(BaseModel):
 
 
 class ClientAgentInventory(BaseModel):
+    local_agent_id: Optional[str] = None
     agent_type: str
     version: Optional[str] = None
     install_path: Optional[str] = None
@@ -754,13 +759,21 @@ class ClientEventCreate(BaseModel):
 
 
 class ClientTaskCreate(BaseModel):
-    task_type: str = Field(pattern="^(install_skill|remove_skill|rescan|repair_skill)$")
+    task_type: str = Field(pattern="^(install_skill|remove_skill|rescan|repair_skill|apply_model_config)$")
     payload: dict[str, Any] = {}
 
 
 class ClientTaskResult(BaseModel):
     status: str = Field(pattern="^(running|succeeded|failed|cancelled)$")
     error: Optional[str] = None
+
+
+class ClientAgentCredentialResponse(BaseModel):
+    token: str
+    token_prefix: str
+    bound_agent_id: str
+    allowed_models: list[str] = []
+    allowed_mcp_gateways: list[str] = []
 
 
 class ClientSkillCompareItem(BaseModel):

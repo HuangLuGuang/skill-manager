@@ -809,7 +809,7 @@ Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privac
 
 当客户同时使用 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes 或其他支持 Skill 目录的 Agent 时，推荐安装 Agent Manager Client：
 
-1. 在“智能体管理 -> 统一凭证中心”创建客户端接入凭证。
+1. 在“智能体管理 -> 统一凭证中心”选择“给客户端使用”创建客户端接入凭证；需要自动配置 Agent 模型时，显式开启“允许客户端为已绑定 Agent 自动创建运行凭证”。
 2. 安装客户端并输入 Agent Manager 地址和凭证。
 3. 默认使用“客户端安全治理”；需要限制每个 Agent 的 Skill 范围时，再切换到“Agent 强授权”并绑定平台智能体。
 4. 客户端自动发现内置 Agent 和共用 Skills 目录；其他 Agent 可填写名称并选择或输入 Skill 根目录，随后同样可逐项选择接管。
@@ -817,6 +817,8 @@ Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privac
 6. 后台服务持续执行平台任务、完整性巡检和异常隔离；离线事件在恢复连接后补报。
 
 平台入口为“智能体管理 -> 客户端管理”，可以查看 Agent 映射、已安装 Skill、任务和异常，也可以从 Skill 详情直接创建“安装到客户端”任务。
+
+客户端详情还可以按本机 Agent 下发模型配置。首期仅支持 Claude Code：本机 Agent 必须先绑定平台 Agent；该平台 Agent 可以已有包含 `model:chat` 且允许目标模型的有效运行凭证，也可以由已显式授权的客户端凭证在执行具体任务时自动创建。任务载荷只携带非敏感标识和模型名，不携带凭证明文；客户端通过任务绑定接口一次性领取生成的 Agent 运行凭证，先备份再合并 `~/.claude/settings.json`。Codex 需要当前网关尚未提供的 Responses API，因此暂不自动写配置。
 
 安装或恢复同名 Skill 时，客户端默认选择最新可信版本，也可以在桌面端或平台任务中指定其他可信版本。受管目录按版本保存内容，兼容入口只指向当前选中的版本；完整性巡检修复时会固定恢复已安装的 `version_id`，不会静默升级到另一个版本。
 
@@ -876,11 +878,12 @@ sequenceDiagram
 
 ## 15. Agent 运行侧接入
 
-当前管理台启用的是 Skill 运行校验和客户端治理：
+当前管理台启用的是 Skill 运行校验、复合 Agent 运行凭证和客户端治理。统一凭证中心按真实调用者提供 Agent、普通模型应用、MCP Client、Skill Scanner 和客户端五条创建路线；原始 scope、IP 和容量参数收在高级安全设置中：
 
 - Skill Verifier 在 Agent 使用 Skill 前执行签名、加载许可和 Tool 权限检查，并写入运行审计。
+- 一张绑定 Agent 的运行凭证可以组合 `runtime:*`、`model:chat` 和 `mcp:*`；模型与 MCP 网关允许列表分别校验，客户端接入凭证不能替代它。
 - Agent Manager Client 发现本地 Agent 与 Skill 目录，可下发平台批准版本，并按策略审计、恢复或隔离异常内容。
-- 客户端页面中的任务用于安装、恢复、移除 Skill 和同步策略；执行后应在客户端详情中核对目标、状态和事件。
+- 客户端页面中的任务用于安装、恢复、移除 Skill、应用已支持的模型配置和同步策略；执行后应在客户端详情中核对目标、状态和事件。
 
 ## 16. 常见问题
 

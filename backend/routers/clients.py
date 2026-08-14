@@ -14,6 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
+from ..api_errors import ApiError
 from ..config import settings
 from ..client_signing import (
     build_manifest,
@@ -23,7 +24,7 @@ from ..client_signing import (
     sign_manifest,
 )
 from ..sqlite_db import get_db
-from .access_tokens import resolve_access_token
+from .access_tokens import _hash_token, _new_token, resolve_access_token
 from agent_manager.api.router import get_manager
 from agent_manager.core.manager import AgentManager
 from agent_manager.core.llm import LLMConfig
@@ -62,6 +63,155 @@ def _load(value: str | None, default):
         return json.loads(value or "")
     except json.JSONDecodeError:
         return default
+
+
+def _local_agent_id(value: str | None, agent_type: str) -> str:
+    return (value or agent_type).strip() or agent_type
+
+
+def _active_runtime_token(
+    db: Session,
+    agent_id: str,
+    required_scope: str | None = None,
+) -> models.AccessToken | None:
+    rows = (
+        db.query(models.AccessToken)
+        .filter(
+            models.AccessToken.token_type == "agent_runtime",
+            models.AccessToken.bound_agent_id == agent_id,
+            models.AccessToken.status == "active",
+        )
+        .order_by(models.AccessToken.id.desc())
+        .all()
+    )
+    now = datetime.utcnow()
+    return next(
+        (
+            row
+            for row in rows
+            if (not row.expires_at or row.expires_at >= now)
+            and (not required_scope or required_scope in _load(row.scopes_json, []))
+        ),
+        None,
+    )
+
+
+def _client_issuance_token(db: Session, client_id: str) -> models.AccessToken | None:
+    now = datetime.utcnow()
+    rows = (
+        db.query(models.AccessToken)
+        .filter(
+            models.AccessToken.token_type == "client",
+            models.AccessToken.bound_client_id == client_id,
+            models.AccessToken.status == "active",
+            models.AccessToken.allow_agent_credential_issuance.is_(True),
+        )
+        .order_by(models.AccessToken.id.desc())
+        .all()
+    )
+    return next((row for row in rows if not row.expires_at or row.expires_at >= now), None)
+
+
+def _issue_agent_runtime_credential(
+    db: Session,
+    *,
+    client_token: models.AccessToken,
+    client_id: str,
+    agent: models.ManagedAgent,
+    model_name: str,
+    allowed_mcp_gateways: list[str] | None = None,
+) -> tuple[str, models.AccessToken]:
+    now = datetime.utcnow()
+    db.query(models.AccessToken).filter(
+        models.AccessToken.token_type == "agent_runtime",
+        models.AccessToken.bound_agent_id == agent.agent_id,
+        models.AccessToken.issued_by_client_token_id == client_token.id,
+        models.AccessToken.status == "active",
+    ).update(
+        {
+            "status": "revoked",
+            "revoked_at": now,
+            "revoked_by": f"client:{client_id}:rotation",
+        },
+        synchronize_session=False,
+    )
+    gateways = list(dict.fromkeys(str(item).strip() for item in (allowed_mcp_gateways or []) if str(item).strip()))
+    scopes = ["runtime:verify-signature", "runtime:can-load", "runtime:check-tool", "model:chat"]
+    if gateways:
+        scopes.extend(["mcp:connect", "mcp:list-tools", "mcp:call-tools"])
+    owner_id = client_token.user_id
+    if not owner_id and client_token.created_by:
+        owner = db.query(models.User).filter(models.User.username == client_token.created_by).first()
+        owner_id = owner.id if owner else None
+    plain = _new_token()
+    row = models.AccessToken(
+        name=f"{agent.name} · {client_id} 自动运行凭证",
+        token_type="agent_runtime",
+        token_hash=_hash_token(plain),
+        token_prefix=plain[:12],
+        scopes_json=_dump(scopes),
+        bound_agent_id=agent.agent_id,
+        issued_by_client_token_id=client_token.id,
+        user_id=owner_id,
+        group_id=client_token.group_id,
+        allowed_models_json=_dump([model_name]),
+        allowed_mcp_gateways_json=_dump(gateways),
+        allowed_ips_json=client_token.allowed_ips_json,
+        expires_at=client_token.expires_at,
+        max_body_kb=client_token.max_body_kb,
+        max_concurrent_requests=client_token.max_concurrent_requests,
+        prompt_guard_mode="block",
+        created_by=f"client:{client_id}",
+    )
+    db.add(row)
+    db.flush()
+    agent.runtime_token_id = row.id
+    agent.default_model = model_name
+    agent.updated_at = now
+    db.add(
+        models.ClientEvent(
+            client_id=client_id,
+            event_type="agent_credential_issued",
+            agent_type=agent.channel,
+            details_json=_dump(
+                {
+                    "managed_agent_id": agent.agent_id,
+                    "token_prefix": row.token_prefix,
+                    "allowed_models": [model_name],
+                    "allowed_mcp_gateways": gateways,
+                }
+            ),
+        )
+    )
+    db.commit()
+    db.refresh(row)
+    return plain, row
+
+
+def _agent_model_names(db: Session, agent: models.ManagedAgent) -> list[str]:
+    token = _active_runtime_token(db, agent.agent_id, "model:chat")
+    if not token:
+        return []
+    allowed = [str(item) for item in _load(token.allowed_models_json, []) if str(item).strip()]
+    query = db.query(models.ModelEndpoint).filter(models.ModelEndpoint.enabled.is_(True))
+    if allowed:
+        query = query.filter(models.ModelEndpoint.name.in_(allowed))
+    return [row.name for row in query.order_by(models.ModelEndpoint.name.asc()).all()]
+
+
+def _agent_gateway_names(db: Session, agent: models.ManagedAgent) -> list[str]:
+    token = _active_runtime_token(db, agent.agent_id, "mcp:connect")
+    if not token or not any(scope.startswith("mcp:") for scope in _load(token.scopes_json, [])):
+        return []
+    allowed = {str(item) for item in _load(token.allowed_mcp_gateways_json, [])}
+    return [
+        row.slug
+        for row in db.query(models.McpGateway)
+        .filter(models.McpGateway.status == "active")
+        .order_by(models.McpGateway.slug.asc())
+        .all()
+        if row.slug in allowed
+    ]
 
 
 def _client_release_version_key(value: str) -> tuple[int, int, int, int]:
@@ -350,24 +500,32 @@ def _cached_skill_signature(skill_path: str, cache: dict[str, str | None] | None
 
 
 def _replace_inventory(db: Session, client_id: str, agents: list[schemas.ClientAgentInventory]) -> None:
-    existing_bindings = {
-        row.agent_type: row.managed_agent_id
+    existing = {
+        _local_agent_id(row.local_agent_id, row.agent_type): row
         for row in db.query(models.ClientAgent).filter(models.ClientAgent.client_id == client_id).all()
     }
     db.query(models.ClientSkillInstall).filter(models.ClientSkillInstall.client_id == client_id).delete()
     db.query(models.ClientAgent).filter(models.ClientAgent.client_id == client_id).delete()
     now = datetime.utcnow()
     for agent in agents:
+        local_agent_id = _local_agent_id(agent.local_agent_id, agent.agent_type)
+        previous = existing.get(local_agent_id)
         db.add(
             models.ClientAgent(
                 client_id=client_id,
+                local_agent_id=local_agent_id,
                 agent_type=agent.agent_type,
-                managed_agent_id=agent.managed_agent_id or existing_bindings.get(agent.agent_type),
+                managed_agent_id=agent.managed_agent_id or (previous.managed_agent_id if previous else None),
                 agent_version=agent.version,
                 install_path=agent.install_path,
                 skills_path=agent.skills_path,
                 skill_management_supported=agent.skill_management_supported,
                 capabilities_json=_dump(agent.capabilities),
+                desired_model=previous.desired_model if previous else None,
+                applied_model=previous.applied_model if previous else None,
+                model_config_status=previous.model_config_status if previous else "not_configured",
+                model_config_error=previous.model_config_error if previous else None,
+                model_config_updated_at=previous.model_config_updated_at if previous else None,
                 last_scanned_at=now,
             )
         )
@@ -446,6 +604,7 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
         "issue_count": issue_count,
         "agents": [
             {
+                "local_agent_id": _local_agent_id(agent.local_agent_id, agent.agent_type),
                 "agent_type": agent.agent_type,
                 "managed_agent_id": agent.managed_agent_id,
                 "version": agent.agent_version,
@@ -453,6 +612,11 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
                 "skills_path": agent.skills_path,
                 "skill_management_supported": agent.skill_management_supported,
                 "capabilities": _load(agent.capabilities_json, {}),
+                "desired_model": agent.desired_model,
+                "applied_model": agent.applied_model,
+                "model_config_status": agent.model_config_status,
+                "model_config_error": agent.model_config_error,
+                "model_config_updated_at": agent.model_config_updated_at,
                 "takeover_status": agent.takeover_status,
                 "skills": [
                     {
@@ -477,6 +641,24 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
 
 def _client_policy_response(db: Session, row: models.ManagedClient) -> dict:
     bindings = db.query(models.ClientAgent).filter(models.ClientAgent.client_id == row.client_id).all()
+    profiles = []
+    for binding in bindings:
+        if not binding.managed_agent_id:
+            continue
+        agent = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == binding.managed_agent_id).first()
+        if not agent or agent.status != "active":
+            continue
+        profiles.append(
+            {
+                "local_agent_id": _local_agent_id(binding.local_agent_id, binding.agent_type),
+                "agent_type": binding.agent_type,
+                "managed_agent_id": agent.agent_id,
+                "default_model": agent.default_model,
+                "allowed_models": _agent_model_names(db, agent),
+                "allowed_mcp_gateways": _agent_gateway_names(db, agent),
+                "auto_apply_supported": binding.agent_type == "claude-code",
+            }
+        )
     return {
         "mode": row.policy_mode,
         "governance_mode": row.governance_mode,
@@ -488,6 +670,7 @@ def _client_policy_response(db: Session, row: models.ManagedClient) -> dict:
             for binding in bindings
             if binding.managed_agent_id
         },
+        "agent_profiles": profiles,
     }
 
 
@@ -511,6 +694,31 @@ def _task_history(db: Session, client_id: str, limit: int = 100) -> list[dict]:
             .all()
         )
     ]
+
+
+def _update_model_config_state(
+    db: Session,
+    client_id: str,
+    payload: dict,
+    status: str,
+    error: str | None = None,
+) -> None:
+    local_agent_id = _local_agent_id(payload.get("local_agent_id"), str(payload.get("agent_type") or ""))
+    client_agent = (
+        db.query(models.ClientAgent)
+        .filter(
+            models.ClientAgent.client_id == client_id,
+            models.ClientAgent.local_agent_id == local_agent_id,
+        )
+        .first()
+    )
+    if not client_agent:
+        return
+    client_agent.model_config_status = status
+    client_agent.model_config_error = error
+    client_agent.model_config_updated_at = datetime.utcnow()
+    if status == "applied":
+        client_agent.applied_model = str(payload.get("model") or "") or None
 
 
 def _event_history(db: Session, client_id: str, limit: int = 100) -> list[dict]:
@@ -745,6 +953,103 @@ def poll_tasks(
     return [{"id": row.id, "task_type": row.task_type, "payload": _load(row.payload_json, {})} for row in rows]
 
 
+@router.post(
+    "/{client_id}/tasks/{task_id}/agent-credential",
+    response_model=schemas.ClientAgentCredentialResponse,
+)
+def issue_task_agent_credential(
+    client_id: str,
+    task_id: int,
+    request: Request,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    client_token = _runtime_token("client:read-tasks", authorization, request, db)
+    _bind_client(client_token, client_id, db)
+    _client_or_404(db, client_id)
+    if not client_token.allow_agent_credential_issuance:
+        raise ApiError(
+            403,
+            "client.agent_credential_issuance_disabled",
+            "当前客户端凭证未开启为 Agent 自动创建运行凭证的权限",
+            "This Client credential cannot automatically create Agent runtime credentials",
+        )
+    task = (
+        db.query(models.ClientTask)
+        .filter(models.ClientTask.id == task_id, models.ClientTask.client_id == client_id)
+        .first()
+    )
+    if not task:
+        raise ApiError(404, "client.task_not_found", "客户端任务不存在", "Client task not found")
+    if task.task_type != "apply_model_config":
+        raise ApiError(
+            400,
+            "client.task_credential_not_applicable",
+            "当前任务不需要创建 Agent 运行凭证",
+            "This task does not require an Agent runtime credential",
+        )
+    if task.status not in {"pending", "running"}:
+        raise ApiError(
+            409,
+            "client.task_not_active",
+            "只有待执行或执行中的任务可以领取 Agent 运行凭证",
+            "Only pending or running tasks may issue an Agent runtime credential",
+        )
+    payload = _load(task.payload_json, {})
+    if not payload.get("auto_issue_credential"):
+        raise ApiError(
+            403,
+            "client.task_credential_issuance_not_authorized",
+            "该任务未授权自动创建 Agent 运行凭证",
+            "This task is not authorized to create an Agent runtime credential",
+        )
+    agent_type = str(payload.get("agent_type") or "").strip()
+    local_agent_id = _local_agent_id(payload.get("local_agent_id"), agent_type)
+    model_name = str(payload.get("model") or "").strip()
+    client_agent = (
+        db.query(models.ClientAgent)
+        .filter(
+            models.ClientAgent.client_id == client_id,
+            models.ClientAgent.local_agent_id == local_agent_id,
+            models.ClientAgent.agent_type == agent_type,
+        )
+        .first()
+    )
+    if not client_agent or not client_agent.managed_agent_id:
+        raise ApiError(
+            400,
+            "client.agent_binding_required",
+            "本机 Agent 尚未绑定平台 Agent",
+            "The local Agent is not bound to a managed Agent",
+        )
+    agent = db.query(models.ManagedAgent).filter(
+        models.ManagedAgent.agent_id == client_agent.managed_agent_id,
+        models.ManagedAgent.status == "active",
+    ).first()
+    if not agent:
+        raise ApiError(404, "agent.bound_not_found", "绑定的 Agent 不存在或未启用", "The bound Agent is missing or disabled")
+    model = db.query(models.ModelEndpoint).filter(
+        models.ModelEndpoint.name == model_name,
+        models.ModelEndpoint.enabled.is_(True),
+    ).first()
+    if not model:
+        raise ApiError(404, "model.not_found", "模型不存在或未启用", "The model is missing or disabled")
+    plain, credential = _issue_agent_runtime_credential(
+        db,
+        client_token=client_token,
+        client_id=client_id,
+        agent=agent,
+        model_name=model.name,
+    )
+    return schemas.ClientAgentCredentialResponse(
+        token=plain,
+        token_prefix=credential.token_prefix,
+        bound_agent_id=agent.agent_id,
+        allowed_models=[model.name],
+        allowed_mcp_gateways=[],
+    )
+
+
 @router.post("/{client_id}/tasks/{task_id}/result")
 def report_task_result(
     client_id: str,
@@ -767,6 +1072,17 @@ def report_task_result(
         return {"ok": True, "ignored": True}
     row.status = body.status
     row.error = body.error
+    payload = _load(row.payload_json, {})
+    if row.task_type == "apply_model_config":
+        _update_model_config_state(
+            db,
+            client_id,
+            payload,
+            {"running": "applying", "succeeded": "applied", "failed": "failed", "cancelled": "cancelled"}[
+                body.status
+            ],
+            body.error,
+        )
     if body.status == "running":
         row.started_at = datetime.utcnow()
     else:
@@ -1049,7 +1365,61 @@ def create_task(
     client = _client_or_404(db, client_id)
     _ensure_visible(client, current_user)
     payload = dict(body.payload)
-    if body.task_type in {"install_skill", "repair_skill"}:
+    if body.task_type == "apply_model_config":
+        agent_type = str(payload.get("agent_type") or "").strip()
+        local_agent_id = _local_agent_id(payload.get("local_agent_id"), agent_type)
+        model_name = str(payload.get("model") or "").strip()
+        if not agent_type or not model_name:
+            raise HTTPException(status_code=400, detail="模型配置任务缺少目标 Agent 或模型")
+        client_agent = (
+            db.query(models.ClientAgent)
+            .filter(
+                models.ClientAgent.client_id == client_id,
+                models.ClientAgent.local_agent_id == local_agent_id,
+                models.ClientAgent.agent_type == agent_type,
+            )
+            .first()
+        )
+        if not client_agent or not client_agent.managed_agent_id:
+            raise HTTPException(status_code=400, detail="本地 Agent 尚未绑定平台智能体")
+        if agent_type != "claude-code":
+            raise HTTPException(status_code=400, detail="当前版本仅支持自动应用 Claude Code 模型配置")
+        agent = db.query(models.ManagedAgent).filter(
+            models.ManagedAgent.agent_id == client_agent.managed_agent_id,
+        ).first()
+        if not agent or agent.status != "active":
+            raise HTTPException(status_code=404, detail="绑定的智能体不存在或未启用")
+        issuance_token = _client_issuance_token(db, client_id)
+        allowed_models = _agent_model_names(db, agent)
+        if model_name not in allowed_models:
+            model = db.query(models.ModelEndpoint).filter(
+                models.ModelEndpoint.name == model_name,
+                models.ModelEndpoint.enabled.is_(True),
+            ).first()
+            if not model:
+                raise ApiError(404, "model.not_found", "模型不存在或未启用", "The model is missing or disabled")
+            if not issuance_token:
+                raise ApiError(
+                    403,
+                    "client.agent_model_not_authorized",
+                    "Agent 运行凭证未授权访问该模型，客户端凭证也未开启自动创建权限",
+                    "The Agent runtime credential does not allow this model and the Client credential cannot create one",
+                )
+        payload = {
+            "local_agent_id": local_agent_id,
+            "agent_type": agent_type,
+            "managed_agent_id": agent.agent_id,
+            "model": model_name,
+        }
+        if issuance_token:
+            payload["auto_issue_credential"] = True
+        client_agent.desired_model = model_name
+        client_agent.model_config_status = "pending"
+        client_agent.model_config_error = None
+        client_agent.model_config_updated_at = datetime.utcnow()
+        agent.default_model = model_name
+        agent.updated_at = datetime.utcnow()
+    elif body.task_type in {"install_skill", "repair_skill"}:
         skill_id = str(payload.get("skill_id") or "")
         managed_agent_id = str(payload.get("managed_agent_id") or "")
         agent_type = str(payload.get("agent_type") or "")
@@ -1144,6 +1514,8 @@ def cancel_task(
         raise HTTPException(status_code=400, detail="只有待执行或执行中的任务可以取消")
     row.status = "cancelled"
     row.finished_at = datetime.utcnow()
+    if row.task_type == "apply_model_config":
+        _update_model_config_state(db, client_id, _load(row.payload_json, {}), "cancelled")
     _operation(db, current_user, "取消客户端任务", client_id, f"task_id={task_id}")
     db.commit()
     return {"id": row.id, "status": row.status}
@@ -1167,6 +1539,8 @@ def retry_task(
     row.error = None
     row.started_at = None
     row.finished_at = None
+    if row.task_type == "apply_model_config":
+        _update_model_config_state(db, client_id, _load(row.payload_json, {}), "pending")
     _operation(db, current_user, "重试客户端任务", client_id, f"task_id={task_id}")
     db.commit()
     return {"id": row.id, "status": row.status}
