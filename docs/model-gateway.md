@@ -72,6 +72,7 @@ Trace 阶段：
 | `POST /chat/completions` | 兼容部分客户端把 `base_url` 配成不含 `/v1` 时直接拼接的路径 |
 | `POST /api/v1/llm/chat/completions` | Agent Manager 命名空间路径，适合内部系统显式调用 |
 | `POST /v1/messages` | Anthropic Messages 兼容路径，适合 Claude Code 和 Anthropic SDK |
+| `POST /v1/responses` | OpenAI Responses 兼容路径，适合 Codex 自定义 model provider；请求在网关内转换后复用同一模型校验、隐私与审计链路 |
 | `GET /v1/models` | OpenAI-compatible 模型列表，只返回当前模型调用凭证允许访问的启用模型 |
 | `GET /models` | 兼容不含 `/v1` 的模型列表路径 |
 
@@ -80,6 +81,7 @@ Trace 阶段：
 - OpenAI SDK / Cherry Studio：Docker Compose 默认把 Base URL 配成 `http://127.0.0.1/v1`。
 - Hermes 或其他从根地址自动拼接路径的客户端：可配 `http://127.0.0.1`，网关对外提供 `/chat/completions` 和 `/models`。当前 Compose 的根路径由管理台前端使用，不适合会直接 POST 根地址的客户端。
 - Claude Code：设置 `ANTHROPIC_BASE_URL=http://127.0.0.1`、`ANTHROPIC_AUTH_TOKEN=amat_xxx`，并把 Claude Code 使用的模型名设置为管理台登记的模型名。
+- Codex：在 `~/.codex/config.toml` 配置自定义 `model_provider`，`base_url` 使用 `http://127.0.0.1/v1`，`wire_api = "responses"`。桌面客户端“模型切换”可以自动完成该配置。
 
 请求必须携带带有模型调用能力的凭证。在管理台 `智能体管理 / 统一凭证中心` 的路线图中，普通服务或脚本选择“给应用调用模型”；已登记 Agent 选择“给 Agent 使用”，再选择包含模型能力的方案：
 
@@ -138,6 +140,8 @@ Authorization: Bearer amat_xxx
 - `verbosity`
 
 未知字段会被拒绝，避免把高成本或未审计参数无意透传给上游供应商。
+
+`/v1/responses` 当前兼容文本与图片输入、function/custom/namespace 工具、工具结果、常用采样与 reasoning/text 参数，以及文本和工具调用 SSE。它不承诺 Responses API 的服务端内置工具、文件输入、后台任务、会话持久化或 WebSocket 语义；即使请求字段因兼容而被接收，也不会绕过模型网关的参数白名单、凭证、模型范围、请求大小、并发、隐私处理和审计。
 
 为了兼容部分客户端的占位空值，网关会把请求字段或消息扩展字段中的 `"[undefined]"` / `"undefined"` 清理掉，不会继续透传给上游模型供应商。
 

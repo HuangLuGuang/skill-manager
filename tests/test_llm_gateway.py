@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -218,6 +218,92 @@ def test_anthropic_messages_streams_anthropic_sse(tmp_path, monkeypatch):
     assert '"type": "text_delta", "text": "Hi"' in response.text
     assert '"stop_reason": "end_turn"' in response.text
     assert "event: message_stop" in response.text
+
+
+def test_responses_endpoint_supports_codex_non_streaming_requests(tmp_path, monkeypatch):
+    client, token, _session_factory = _client(tmp_path, monkeypatch)
+    response = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "model": "mock-model",
+            "instructions": "Be concise.",
+            "input": "Jane's email is jane@example.com",
+            "max_output_tokens": 128,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["object"] == "response"
+    assert body["status"] == "completed"
+    assert body["output"][0]["type"] == "message"
+    assert "jane@example.com" in body["output"][0]["content"][0]["text"]
+    assert body["usage"]["total_tokens"] == 15
+
+
+def test_responses_endpoint_streams_codex_lifecycle(tmp_path, monkeypatch):
+    client, token, _session_factory = _client(tmp_path, monkeypatch)
+
+    async def fake_stream(_db, _model, _payload, **_kwargs):
+        async def events():
+            yield 'data: {"id":"chatcmpl-1","model":"mock-model","choices":[{"index":0,"delta":{"role":"assistant","content":"Hi"},"finish_reason":null}]}\n\n'
+            yield 'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}\n\n'
+            yield "data: [DONE]\n\n"
+
+        return events()
+
+    monkeypatch.setattr(llm_gateway, "_stream_upstream", fake_stream)
+    response = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"model": "mock-model", "input": "Hello", "stream": True},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "event: response.output_text.delta" in response.text
+    assert "event: response.output_item.done" in response.text
+    assert "event: response.completed" in response.text
+
+
+def test_responses_endpoint_returns_openai_error_for_invalid_credential(tmp_path, monkeypatch):
+    client, _token, _session_factory = _client(tmp_path, monkeypatch)
+    response = client.post(
+        "/v1/responses",
+        headers={"Authorization": "Bearer invalid", "Accept-Language": "en-US"},
+        json={"model": "mock-model", "input": "Hello"},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "error": {
+            "message": "The access credential is invalid or disabled",
+            "type": "authentication_error",
+            "code": "credential.invalid_or_disabled",
+        }
+    }
+
+
+def test_responses_endpoint_returns_openai_error_for_upstream_failure(tmp_path, monkeypatch):
+    client, token, _session_factory = _client(tmp_path, monkeypatch)
+
+    async def fail_upstream(_db, _model, _payload):
+        raise HTTPException(status_code=502, detail="upstream unavailable")
+
+    monkeypatch.setattr(llm_gateway, "_call_upstream", fail_upstream)
+    response = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"model": "mock-model", "input": "Hello"},
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "error": {
+            "message": "upstream unavailable",
+            "type": "api_error",
+            "code": "http.502",
+        }
+    }
 
 
 def test_anthropic_upstream_request_uses_native_endpoint_and_headers():

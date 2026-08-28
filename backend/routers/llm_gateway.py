@@ -15,11 +15,12 @@ import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import ValidationError
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, object_session
 
 from .. import auth, models, schemas
-from ..api_errors import ApiError
+from ..api_errors import ApiError, request_locale
 from ..anthropic_compat import (
     anthropic_stream_event_to_openai,
     anthropic_to_openai_request,
@@ -36,6 +37,12 @@ from ..gateway_skill_context import (
     evaluate_gateway_skill_context,
 )
 from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
+from ..responses_compat import (
+    openai_stream_to_responses,
+    openai_to_responses_response,
+    response_tool_kinds,
+    responses_to_openai_request,
+)
 from ..sqlite_db import get_db
 from .access_tokens import resolve_access_token
 
@@ -3209,6 +3216,48 @@ async def anthropic_messages_compat(
             headers=headers,
         )
     return openai_to_anthropic_response(result)
+
+
+@runtime_router.post("/v1/responses", summary="OpenAI-compatible Responses endpoint for Codex")
+async def responses_compat(
+    payload: dict[str, Any],
+    request: Request,
+    response: Response,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    try:
+        converted = schemas.ChatCompletionRequest.model_validate(responses_to_openai_request(payload))
+    except (ValueError, ValidationError) as exc:
+        return JSONResponse(status_code=400, content={"error": {"message": str(exc), "type": "invalid_request_error", "code": "responses.invalid_request"}})
+    tool_kinds = response_tool_kinds(payload)
+    try:
+        result = await _chat_completions_impl(converted, request, response, authorization, db)
+    except HTTPException as exc:
+        error_type = {
+            401: "authentication_error",
+            403: "permission_error",
+            404: "not_found_error",
+            409: "conflict_error",
+            429: "rate_limit_error",
+        }.get(exc.status_code, "api_error" if exc.status_code >= 500 else "invalid_request_error")
+        if isinstance(exc, ApiError):
+            message = exc.en_message if request_locale(request) == "en-US" else exc.zh_message
+            error_code = exc.code
+            if error_code in {"credential.invalid_or_disabled", "credential.expired"}:
+                error_type = "authentication_error"
+        else:
+            message = str(exc.detail)
+            error_code = f"http.{exc.status_code}"
+        return JSONResponse(
+            status_code=exc.status_code,
+            headers=exc.headers,
+            content={"error": {"message": message, "type": error_type, "code": error_code}},
+        )
+    if isinstance(result, StreamingResponse):
+        headers = {key: value for key, value in result.headers.items() if key.lower() not in {"content-type", "content-length"}}
+        return StreamingResponse(openai_stream_to_responses(result.body_iterator, payload.get("model"), tool_kinds), media_type="text/event-stream", headers=headers)
+    return openai_to_responses_response(result, tool_kinds)
 
 
 @runtime_router.post(
