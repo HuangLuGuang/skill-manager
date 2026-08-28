@@ -3,6 +3,13 @@
     <a-page-header :title="detailPageTitle" :sub-title="text('查看 Skill 详情、审核与审计记录', 'Review Skill details, approval, and audit records')">
       <template #extra>
         <a-button v-if="detail?.status === 'APPROVED'" type="primary" @click="openClientInstall"> {{ $t("legacy.1wbn313") }} </a-button>
+        <a-button
+          @click="handleExportScanReport"
+          :loading="exportingScanReport"
+          :disabled="!detail?.vetting || detail?.status === 'PENDING'"
+        >
+          {{ $t('scanReportExport.button') }}
+        </a-button>
         <a-button @click="handleDownloadSkill" :loading="downloadingSkill" :disabled="!detail?.skill_id"> {{ $t("legacy.fye4hw") }} </a-button>
       </template>
     </a-page-header>
@@ -1023,6 +1030,7 @@ import {
   approveSkill,
   createClientTask,
   downloadSkill,
+  exportSkillScanReportPdf,
   getAudit,
   getSkillContent,
   getSkillDetail,
@@ -1063,6 +1071,7 @@ const loadingScanRuns = ref(false)
 const loadingGovernanceCard = ref(false)
 const verifyingSignature = ref(false)
 const downloadingSkill = ref(false)
+const exportingScanReport = ref(false)
 const actionLoading = ref(false)
 const actionType = ref('')
 const detail = ref(null)
@@ -1486,6 +1495,33 @@ const handleDownloadSkill = async () => {
     message.error(error.response?.data?.detail || phrase('legacy.1rt1fc6'))
   } finally {
     downloadingSkill.value = false
+  }
+}
+
+const handleExportScanReport = async () => {
+  if (!detail.value?.vetting || detail.value?.status === 'PENDING') return
+  exportingScanReport.value = true
+  try {
+    const blob = await exportSkillScanReportPdf(
+      currentVersionId.value,
+      isEnglish.value ? 'en-US' : 'zh-CN',
+    )
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const safeName = String(detail.value.name || detail.value.skill_id || 'skill')
+      .replace(/[^A-Za-z0-9_.-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'skill'
+    link.href = url
+    link.download = `${safeName}-v${detail.value.version_no || 1}-${t('scanReportExport.fileSuffix')}.pdf`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    message.success(t('scanReportExport.success'))
+  } catch (error) {
+    message.error(error.response?.data?.detail || t('scanReportExport.failed'))
+  } finally {
+    exportingScanReport.value = false
   }
 }
 

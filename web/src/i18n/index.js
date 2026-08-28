@@ -106,6 +106,12 @@ export const i18n = createI18n({
       scanOptions: {
         deepScanHint: '执行静态深度扫描，不会调用模型；需要语义研判时请单独勾选“启动 LLM 分析”。',
       },
+      scanReportExport: {
+        button: '导出 PDF 报告',
+        success: 'PDF 扫描报告已生成',
+        failed: '导出 PDF 扫描报告失败',
+        fileSuffix: '扫描报告',
+      },
       mcpSecurity: {
         title: 'MCP Tool 安全策略',
         approvalRequired: '需审批',
@@ -647,6 +653,12 @@ export const i18n = createI18n({
       },
       scanOptions: {
         deepScanHint: 'Runs a static deep scan without calling a model. Select Start LLM analysis separately for semantic assessment.',
+      },
+      scanReportExport: {
+        button: 'Export PDF Report',
+        success: 'PDF scan report generated',
+        failed: 'Failed to export PDF scan report',
+        fileSuffix: 'scan-report',
       },
       mcpSecurity: {
         title: 'MCP Tool Security Policy',

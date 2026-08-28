@@ -40,6 +40,11 @@ export const getSkillFiles = (skillIdOrName) => api.get(`/v1/skills/${skillIdOrN
 export const getSkillFileContent = (skillIdOrName, path) => api.get(`/v1/skills/${skillIdOrName}/file-content`, { params: { path } })
 export const downloadSkill = (skillIdOrName, params = {}) => api.get(`/v1/skills/${skillIdOrName}/download`, { params, responseType: 'blob' })
 export const getSkillScanReport = (skillIdOrName) => api.get(`/v1/skills/${skillIdOrName}/scan-report`)
+export const exportSkillScanReportPdf = (skillIdOrName, language = 'zh-CN') =>
+  api.get(`/v1/skills/${skillIdOrName}/scan-report.pdf`, {
+    params: { language },
+    responseType: 'blob',
+  })
 export const getSkillVersions = (skillIdOrName) => api.get(`/v1/skills/${skillIdOrName}/versions`)
 export const getSkillVersionDiff = (skillIdOrName, params = {}) => api.get(`/v1/skills/${skillIdOrName}/diff`, { params })
 export const getSkillVersionScanRuns = (skillIdOrName, versionId) =>

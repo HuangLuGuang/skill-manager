@@ -38,5 +38,6 @@ mitre_attack_atlas/
 agent-manager/
 client/desktop/src-tauri/tauri.release.conf.json
 client/desktop/release-output/
+/output/
 # Reasonix editor artifacts
 .reasonix/

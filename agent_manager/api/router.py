@@ -10,31 +10,32 @@ import atexit
 import difflib
 import importlib.util
 import json
+import mimetypes
+import os
+import re
 import shutil
+import stat
 import subprocess
 import tempfile
 import uuid
-import os
-import mimetypes
-import re
-import stat
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from agent_manager.core.llm import LLMConfig
 from agent_manager.core.manager import AgentManager, findings_summary_from_report
-from agent_manager.core.models import SkillStatus, SourceInfo, SkillOrigin
-from agent_manager.core.prompt_models import PromptStatus
+from agent_manager.core.models import SkillOrigin, SkillStatus, SourceInfo
 from agent_manager.core.policy import CompanyPolicy
+from agent_manager.core.prompt_models import PromptStatus
 from agent_manager.core.sandbox import SandboxConfig, SandboxConnectionTest, test_sandbox_connection
+from agent_manager.core.scan_report_pdf import build_scan_report_pdf
 from agent_manager.core.skillspector import is_skillspector_available
 from agent_manager.core.text_reader import read_text_fallback
 from agent_manager.core.vetting import _load_manifest
@@ -1401,6 +1402,33 @@ def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manag
         "name": entry.name,
         "scan_report": entry.vetting.scan_report if entry.vetting else {},
     }
+
+
+@router.get("/skills/{skill_id_or_name}/scan-report.pdf")
+def export_scan_report_pdf(
+    skill_id_or_name: str,
+    language: str = Query("zh-CN", pattern="^(zh-CN|en-US)$"),
+    mgr: AgentManager = Depends(get_manager),
+):
+    entry = mgr.get_skill(skill_id_or_name)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    if entry.vetting is None or entry.status == SkillStatus.PENDING:
+        raise HTTPException(status_code=409, detail="Scan result is not available yet")
+
+    document = build_scan_report_pdf(
+        entry,
+        scan_runs=mgr.list_scan_runs(entry.skill_id),
+        audit_events=mgr.audit(skill_id=entry.skill_id, limit=100),
+        language=language,
+    )
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", entry.name or entry.skill_id).strip("-") or "skill"
+    filename = f"{safe_name}-v{entry.version_no}-scan-report.pdf"
+    return Response(
+        content=document,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _version_summary(
