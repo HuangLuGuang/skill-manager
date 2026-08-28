@@ -49,19 +49,25 @@ window.clientStaticI18nBindings = [
     "source": "Agent 发现"
   },
   {
+    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(3)",
+    "nodeIndex": 1,
+    "key": "ui.1eoi8rw",
+    "source": "模型切换"
+  },
+  {
     "selector": "#takeover-nav-label",
     "nodeIndex": 0,
     "key": "ui.1aqrn47",
     "source": "接管预览"
   },
   {
-    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(4)",
+    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(5)",
     "nodeIndex": 1,
     "key": "ui.1ihgm6s",
     "source": "运行状态"
   },
   {
-    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(5)",
+    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(6)",
     "nodeIndex": 1,
     "key": "ui.cn5hhp",
     "source": "执行记录"
@@ -497,6 +503,54 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "ui.mxuy7s",
     "source": "生成接管预览"
+  },
+  {
+    "selector": "#models>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.1eoi8rw",
+    "source": "模型切换"
+  },
+  {
+    "selector": "#models>div:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.1racutn",
+    "source": "查看本机 Agent 的实际配置，并切换到当前客户端凭证允许配置给 Agent 的网关模型。"
+  },
+  {
+    "selector": "#refresh-models",
+    "nodeIndex": 0,
+    "key": "ui.1a959hi",
+    "source": "刷新模型"
+  },
+  {
+    "selector": "#model-agent-tabs",
+    "attribute": "aria-label",
+    "key": "ui.uja3bo",
+    "source": "可配置模型的本机 Agent"
+  },
+  {
+    "selector": "#models>div:nth-of-type(4)>label:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.1m8z7wp",
+    "source": "筛选模型"
+  },
+  {
+    "selector": "#model-search",
+    "attribute": "placeholder",
+    "key": "ui.sw5n6t",
+    "source": "输入模型或供应商名称"
+  },
+  {
+    "selector": "#model-result-count",
+    "nodeIndex": 0,
+    "key": "ui.8npenp",
+    "source": "0 个模型"
+  },
+  {
+    "selector": "#model-catalog",
+    "nodeIndex": 0,
+    "key": "ui.2yjr9g",
+    "source": "正在读取可用模型"
   },
   {
     "selector": "#takeover-heading",
@@ -1071,17 +1125,23 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#settings-default-panel>option:nth-of-type(3)",
     "nodeIndex": 0,
+    "key": "ui.1eoi8rw",
+    "source": "模型切换"
+  },
+  {
+    "selector": "#settings-default-panel>option:nth-of-type(4)",
+    "nodeIndex": 0,
     "key": "ui.1meon5z",
     "source": "Skill 治理"
   },
   {
-    "selector": "#settings-default-panel>option:nth-of-type(4)",
+    "selector": "#settings-default-panel>option:nth-of-type(5)",
     "nodeIndex": 0,
     "key": "ui.1ihgm6s",
     "source": "运行状态"
   },
   {
-    "selector": "#settings-default-panel>option:nth-of-type(5)",
+    "selector": "#settings-default-panel>option:nth-of-type(6)",
     "nodeIndex": 0,
     "key": "ui.cn5hhp",
     "source": "执行记录"

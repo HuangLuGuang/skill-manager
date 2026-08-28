@@ -394,7 +394,12 @@ const clientIssuanceToken = computed(() => accessTokens.value
   .sort((left, right) => Number(right.id) - Number(left.id))[0])
 const configurableModels = computed(() => {
   const token = modelRuntimeToken.value
-  if (!token) return clientIssuanceToken.value ? modelEndpoints.value.filter(model => model.enabled) : []
+  if (!token) {
+    const clientToken = clientIssuanceToken.value
+    if (!clientToken) return []
+    const allowed = new Set(clientToken.allowed_models || [])
+    return modelEndpoints.value.filter(model => model.enabled && (!allowed.size || allowed.has(model.name)))
+  }
   const allowed = new Set(token.allowed_models || [])
   return modelEndpoints.value.filter(model => model.enabled && (!allowed.size || allowed.has(model.name)))
 })
@@ -487,11 +492,13 @@ const runtimeTokenFor = record => accessTokens.value
     && tokenNotExpired(token)
     && (token.scopes || []).includes('model:chat'))
   .sort((left, right) => Number(right.id) - Number(left.id))[0]
-const canConfigureModel = record => record.agent_type === 'claude-code'
+const supportedModelConfigAgents = new Set(['claude-code', 'codex', 'hermes'])
+const canConfigureModel = record => supportedModelConfigAgents.has(record.agent_type)
+  && Boolean(record.capabilities?.model_config_auto_apply)
   && Boolean(record.managed_agent_id)
   && Boolean(runtimeTokenFor(record) || clientIssuanceToken.value)
 const modelConfigDisabledReason = record => {
-  if (record.agent_type !== 'claude-code') return i18n.global.t('clientModelConfig.onlyClaude')
+  if (!supportedModelConfigAgents.has(record.agent_type) || !record.capabilities?.model_config_auto_apply) return i18n.global.t('clientModelConfig.unsupportedAgent')
   if (!record.managed_agent_id) return i18n.global.t('clientModelConfig.bindFirst')
   if (!runtimeTokenFor(record) && !clientIssuanceToken.value) return i18n.global.t('clientModelConfig.credentialRequired')
   return ''

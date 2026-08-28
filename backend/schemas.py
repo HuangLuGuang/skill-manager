@@ -768,6 +768,13 @@ class ClientTaskResult(BaseModel):
     error: Optional[str] = None
 
 
+class ClientModelConfigurationRequest(BaseModel):
+    local_agent_id: Optional[str] = None
+    agent_type: str
+    managed_agent_id: Optional[str] = None
+    model: str
+
+
 class ClientAgentCredentialResponse(BaseModel):
     token: str
     token_prefix: str

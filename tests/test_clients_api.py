@@ -708,6 +708,224 @@ def test_client_can_issue_task_bound_agent_runtime_credential_when_explicitly_al
     database.close()
 
 
+def test_client_model_switch_catalog_binding_and_task_credential_are_self_service(tmp_path):
+    client = _client(tmp_path)
+    database = next(client.app.dependency_overrides[get_db]())
+    provider = models.ModelProvider(
+        name="gateway-provider",
+        base_url="https://models.example.com/v1",
+        api_format="openai",
+        enabled=True,
+    )
+    database.add(provider)
+    database.flush()
+    database.add_all([
+        models.ModelEndpoint(provider_id=provider.id, name="codex-allowed", display_name="Codex Allowed", enabled=True),
+        models.ModelEndpoint(provider_id=provider.id, name="codex-hidden", display_name="Codex Hidden", enabled=True),
+        models.ManagedAgent(agent_id="codex-primary", name="Primary Codex", channel="Codex", status="active", created_by="admin"),
+        models.ManagedAgent(agent_id="codex-secondary", name="Secondary Codex", channel="Codex", status="active", created_by="admin"),
+        models.McpGateway(slug="developer-tools", name="Developer Tools", status="active"),
+    ])
+    database.commit()
+    database.close()
+
+    mcp_runtime = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "codex-existing-runtime",
+            "token_type": "agent_runtime",
+            "bound_agent_id": "codex-primary",
+            "scopes": ["runtime:can-load", "mcp:connect", "mcp:list-tools", "mcp:call-tools"],
+            "allowed_mcp_gateways": ["developer-tools"],
+        },
+    )
+    assert mcp_runtime.status_code == 200
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "codex-model-switcher",
+            "token_type": "client",
+            "allow_agent_credential_issuance": True,
+            "allowed_models": ["codex-allowed"],
+        },
+    )
+    assert created.status_code == 200
+    headers = {"Authorization": f"Bearer {created.json()['token']}"}
+    registered = client.post(
+        "/api/v1/clients/register",
+        headers=headers,
+        json={
+            "client_id": "codex-switch-host",
+            "name": "Codex Switch Host",
+            "hostname": "codex-switch-host",
+            "os": "darwin",
+            "arch": "arm64",
+            "client_version": "0.3.0",
+            "agents": [{
+                "local_agent_id": "codex",
+                "agent_type": "codex",
+                "skills_path": "/tmp/home/.codex/skills",
+                "capabilities": {"model_config_auto_apply": True},
+            }],
+        },
+    )
+    assert registered.status_code == 200
+    assert registered.json()["agents"][0]["managed_agent_id"] is None
+
+    status = client.get("/api/v1/clients/codex-switch-host/status", headers=headers)
+    assert status.status_code == 200
+    assert [item["name"] for item in status.json()["model_configuration"]["models"]] == ["codex-allowed"]
+    assert len(status.json()["available_managed_agents"]) == 2
+
+    task = client.post(
+        "/api/v1/clients/codex-switch-host/model-configurations",
+        headers=headers,
+        json={
+            "local_agent_id": "codex",
+            "agent_type": "codex",
+            "managed_agent_id": "codex-primary",
+            "model": "codex-allowed",
+        },
+    )
+    assert task.status_code == 200
+    assert task.json()["task_type"] == "apply_model_config"
+    assert task.json()["payload"]["auto_issue_credential"] is True
+    assert "token" not in task.json()["payload"]
+
+    denied = client.post(
+        "/api/v1/clients/codex-switch-host/model-configurations",
+        headers=headers,
+        json={"local_agent_id": "codex", "agent_type": "codex", "model": "codex-hidden"},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["error_code"] == "client.model_not_delegated"
+
+    issued = client.post(
+        f"/api/v1/clients/codex-switch-host/tasks/{task.json()['id']}/agent-credential",
+        headers=headers,
+        json={},
+    )
+    assert issued.status_code == 200
+    assert issued.json()["bound_agent_id"] == "codex-primary"
+    assert issued.json()["allowed_models"] == ["codex-allowed"]
+    assert issued.json()["allowed_mcp_gateways"] == ["developer-tools"]
+    database = next(client.app.dependency_overrides[get_db]())
+    runtime = database.query(models.AccessToken).filter(
+        models.AccessToken.issued_by_client_token_id == created.json()["record"]["id"],
+        models.AccessToken.status == "active",
+    ).one()
+    assert set(json.loads(runtime.scopes_json)) == {
+        "runtime:verify-signature",
+        "runtime:can-load",
+        "runtime:check-tool",
+        "model:chat",
+        "mcp:connect",
+        "mcp:list-tools",
+        "mcp:call-tools",
+    }
+    stale_task = database.query(models.ClientTask).filter(models.ClientTask.id == task.json()["id"]).one()
+    stale_task.started_at = datetime.utcnow() - timedelta(minutes=11)
+    database.commit()
+    database.close()
+
+    retried = client.post(
+        "/api/v1/clients/codex-switch-host/model-configurations",
+        headers=headers,
+        json={"local_agent_id": "codex", "agent_type": "codex", "model": "codex-allowed"},
+    )
+    assert retried.status_code == 200
+    assert retried.json()["id"] != task.json()["id"]
+    database = next(client.app.dependency_overrides[get_db]())
+    stale_task = database.query(models.ClientTask).filter(models.ClientTask.id == task.json()["id"]).one()
+    assert stale_task.status == "failed"
+    assert stale_task.error == "客户端未在限定时间内完成模型切换"
+    database.close()
+
+
+def test_client_model_switch_auto_creates_runtime_identity_when_unbound(tmp_path):
+    client = _client(tmp_path)
+    database = next(client.app.dependency_overrides[get_db]())
+    provider = models.ModelProvider(
+        name="auto-identity-provider",
+        base_url="https://models.example.com/v1",
+        api_format="openai",
+        enabled=True,
+    )
+    database.add(provider)
+    database.flush()
+    database.add(models.ModelEndpoint(provider_id=provider.id, name="claude-auto", enabled=True))
+    database.commit()
+    database.close()
+
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "auto-identity-client",
+            "token_type": "client",
+            "allow_agent_credential_issuance": True,
+            "allowed_models": ["claude-auto"],
+        },
+    )
+    headers = {"Authorization": f"Bearer {created.json()['token']}"}
+    registered = client.post(
+        "/api/v1/clients/register",
+        headers=headers,
+        json={
+            "client_id": "designer-mac",
+            "name": "Designer Mac",
+            "hostname": "designer-mac",
+            "os": "darwin",
+            "arch": "arm64",
+            "client_version": "0.3.0",
+            "agents": [{
+                "local_agent_id": "claude-code",
+                "agent_type": "claude-code",
+                "skills_path": "/tmp/home/.claude/skills",
+                "capabilities": {"model_config_auto_apply": True},
+            }],
+        },
+    )
+    assert registered.status_code == 200
+    assert registered.json()["agents"][0]["managed_agent_id"] is None
+
+    switched = client.post(
+        "/api/v1/clients/designer-mac/model-configurations",
+        headers=headers,
+        json={"local_agent_id": "claude-code", "agent_type": "claude-code", "model": "claude-auto"},
+    )
+    assert switched.status_code == 200
+    managed_agent_id = switched.json()["payload"]["managed_agent_id"]
+    assert managed_agent_id.startswith("client-designer-mac-claude-code-")
+    assert "token" not in switched.json()["payload"]
+
+    database = next(client.app.dependency_overrides[get_db]())
+    local_agent = database.query(models.ClientAgent).filter(
+        models.ClientAgent.client_id == "designer-mac",
+        models.ClientAgent.local_agent_id == "claude-code",
+    ).one()
+    runtime_identity = database.query(models.ManagedAgent).filter(
+        models.ManagedAgent.agent_id == managed_agent_id,
+    ).one()
+    assert local_agent.managed_agent_id == managed_agent_id
+    assert runtime_identity.name == "Designer Mac · Claude Code"
+    assert runtime_identity.channel == "Claude Code"
+    assert runtime_identity.created_by == "admin"
+    assert database.query(models.ClientEvent).filter(
+        models.ClientEvent.client_id == "designer-mac",
+        models.ClientEvent.event_type == "managed_agent_auto_created",
+    ).count() == 1
+    database.close()
+
+    issued = client.post(
+        f"/api/v1/clients/designer-mac/tasks/{switched.json()['id']}/agent-credential",
+        headers=headers,
+        json={},
+    )
+    assert issued.status_code == 200
+    assert issued.json()["bound_agent_id"] == managed_agent_id
+    assert issued.json()["allowed_models"] == ["claude-auto"]
+
+
 def test_client_without_permission_cannot_issue_agent_runtime_credential(tmp_path):
     client = _client(tmp_path)
     client_token = client.post(

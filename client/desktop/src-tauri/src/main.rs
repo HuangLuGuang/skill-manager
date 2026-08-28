@@ -99,6 +99,7 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "inventory",
         "cached-inventory",
         "register",
+        "switch-model",
         "takeover",
         "pending",
         "refresh-pending",

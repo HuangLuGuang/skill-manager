@@ -831,7 +831,7 @@ Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privac
 
 当客户同时使用 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes 或其他支持 Skill 目录的 Agent 时，推荐安装 Agent Manager Client：
 
-1. 在“智能体管理 -> 统一凭证中心”选择“给客户端使用”创建客户端接入凭证；需要自动配置 Agent 模型时，显式开启“允许客户端为已绑定 Agent 自动创建运行凭证”。
+1. 在“智能体管理 -> 统一凭证中心”选择“给客户端使用”创建客户端接入凭证；需要自动配置 Agent 模型时，显式开启“允许客户端为本机 Agent 自动创建运行凭证”。
 2. 安装客户端并输入 Agent Manager 地址和凭证。
 3. 默认使用“客户端安全治理”；需要限制每个 Agent 的 Skill 范围时，再切换到“Agent 强授权”并绑定平台智能体。
 4. 客户端自动发现内置 Agent 和共用 Skills 目录；其他 Agent 可填写名称并选择或输入 Skill 根目录，随后同样可逐项选择接管。
@@ -840,7 +840,7 @@ Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privac
 
 平台入口为“智能体管理 -> 客户端管理”，可以查看 Agent 映射、已安装 Skill、任务和异常，也可以从 Skill 详情直接创建“安装到客户端”任务。
 
-客户端详情还可以按本机 Agent 下发模型配置。首期仅支持 Claude Code：本机 Agent 必须先绑定平台 Agent；该平台 Agent 可以已有包含 `model:chat` 且允许目标模型的有效运行凭证，也可以由已显式授权的客户端凭证在执行具体任务时自动创建。任务载荷只携带非敏感标识和模型名，不携带凭证明文；客户端通过任务绑定接口一次性领取生成的 Agent 运行凭证，先备份再合并 `~/.claude/settings.json`。Codex 需要当前网关尚未提供的 Responses API，因此暂不自动写配置。
+桌面客户端还提供“模型切换”页。它按本机 Claude Code、Codex、Hermes 展示从实际配置文件读取的当前模型，并只列出客户端凭证允许配置的启用网关模型。首次切换且尚无运行身份时，平台自动创建归属当前客户端的托管 Agent 并完成绑定，不要求用户预先创建或选择同类型 Agent；该身份用于凭证绑定和审计，不限制可选模型类型。任务载荷只携带非敏感标识和模型名，sidecar 在进程内一次性领取绑定目标 Agent 的独立运行凭证并备份、合并本机配置，桌面渲染进程不会拿到凭证明文。Claude Code 走 `/v1/messages`，Codex 走 `/v1/responses`，Hermes 走 `/v1/chat/completions`。客户端凭证本身不能调用模型或 MCP。
 
 安装或恢复同名 Skill 时，客户端默认选择最新可信版本，也可以在桌面端或平台任务中指定其他可信版本。受管目录按版本保存内容，兼容入口只指向当前选中的版本；完整性巡检修复时会固定恢复已安装的 `version_id`，不会静默升级到另一个版本。
 
