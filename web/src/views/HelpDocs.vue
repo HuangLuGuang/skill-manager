@@ -406,6 +406,20 @@
               <div><strong>{{ section.callout.title }}</strong><p>{{ section.callout.body }}</p></div>
             </div>
 
+            <div v-if="section.references?.length" class="official-references">
+              <strong>{{ t('docsUi.officialReferences') }}</strong>
+              <a
+                v-for="reference in section.references"
+                :key="reference.url"
+                :href="reference.url"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {{ reference.label }}
+                <ArrowRightOutlined />
+              </a>
+            </div>
+
             <figure v-if="section.image && !failedImages.has(section.image.name)" class="doc-figure">
               <img
                 :src="screenshotUrl(section.image.name)"
@@ -976,6 +990,10 @@ onBeforeUnmount(() => {
 .article-section > p { margin: 0 0 16px; color: #3d5268; font-size: 15px; line-height: 1.85; }
 .doc-list { display: grid; gap: 10px; margin: 18px 0; padding-left: 21px; color: #3d5268; line-height: 1.75; }
 .doc-list li::marker { color: var(--docs-blue); }
+.official-references { display: grid; gap: 8px; margin: 20px 0; padding: 16px 18px; border: 1px solid #dce7f0; border-radius: 12px; background: #f7fafc; }
+.official-references > strong { color: var(--docs-ink); font-size: 14px; }
+.official-references a { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--docs-blue); line-height: 1.5; }
+.official-references a:hover { color: #174f92; }
 
 .scenario-flow { display: flex; align-items: stretch; gap: 7px; margin: 22px 0; padding: 14px; overflow-x: auto; background: #f5f8fb; border: 1px solid var(--docs-line); border-radius: 12px; }
 .scenario-flow-node { display: flex; min-width: 112px; flex: 1 0 112px; flex-direction: column; justify-content: center; gap: 5px; min-height: 72px; padding: 11px 12px; background: #fff; border: 1px solid #d7e0e9; border-top: 3px solid #6e8ba6; border-radius: 8px; }

@@ -1,6 +1,6 @@
-# Claude Code Agent and Trae IDE Guard Hook
+# Claude Code Agent Guard Hook（TraeCode 适配候选）
 
-这个目录包含使用 agent-manager-skill-verifier 逻辑的 Claude Code Hook 和 Trae IDE Hook 实现。
+这个目录包含使用 agent-manager-skill-verifier 逻辑的 Claude Code Hook 实现。TraeCode 官方 Hook 协议与该脚本有部分兼容基础，但尚未在真实 TraeCode 中完成端到端验证，不应将本目录当作已验收的 TraeCode 集成。
 
 ## 功能特性
 
@@ -35,10 +35,9 @@ Agent Guard Hook (`agent_guard_hook.py`) 仅使用 verify 功能，逻辑与 `ag
 
    Hook 只计算无密钥内容摘要，不需要也不允许持有服务端签名私钥。
 
-## 配置 Claude Code or Trae IDE Hook
+## 配置 Claude Code Hook
 
 在 `.claude/settings.json` 中配置（仅需 PreToolUse）：使用 `agent_guard_hook.py` 脚本的绝对路径。
-在 `.trae-cn/hooks.json` 中配置（仅需 PreToolUse）：使用 `agent_guard_hook.py` 脚本的绝对路径。
 ```json
 {
   "hooks": {
@@ -56,6 +55,8 @@ Agent Guard Hook (`agent_guard_hook.py`) 仅使用 verify 功能，逻辑与 `ag
   }
 }
 ```
+
+TraeCode 的项目级配置位置是 `.trae/hooks.json`，macOS / Linux 用户级配置是 `~/.trae-cn/hooks.json`，且原生配置需要 `"version": 1`。待验证配置和官方来源见 [`docs/hook-integration.md`](../../docs/hook-integration.md#4-traecode--trae-cn-接入状态)。
 
 ## 环境变量
 

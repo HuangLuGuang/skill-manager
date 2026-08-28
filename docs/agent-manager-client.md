@@ -126,6 +126,20 @@ export AGENT_MANAGER_CLIENT_TOKEN="amat_xxx"
 4. 点击“切换”。如果该本机 Agent 尚无运行身份，平台会自动创建一个归属当前客户端的托管 Agent 并完成绑定，不要求预先在管理台创建。
 5. 客户端执行后重新读取本机配置；页面展示的“当前实际配置”不是平台期望值。
 
+![桌面客户端模型切换页面](../web/public/docs/screenshots/zh-CN/client-app-models.png)
+
+> 截图使用脱敏示例数据。页面中的“网关地址”和“配置文件”来自本机实际配置。
+
+#### 网关地址从哪里来
+
+桌面客户端不提供单独的“模型网关地址”输入框。首次接入或在“客户端概览 -> 修改连接”中填写的 **Agent Manager 地址**，同时作为自动写入模型配置时的网关根地址：
+
+- Claude Code 直接把该地址写入 `ANTHROPIC_BASE_URL`，调用 `POST /v1/messages`。
+- Codex 和 Hermes 会把该地址规范化为以 `/v1` 结尾的 Base URL，分别调用 `POST /v1/responses` 和 `POST /v1/chat/completions`。
+- 如果接入地址本身已经以 `/v1` 结尾，客户端不会重复追加。
+
+这里的 Agent Manager 地址不是上游模型供应商地址。管理员仍需在“模型网关 -> 供应商 / 模型”中配置 OpenAI、Anthropic、DeepSeek 等上游地址和密钥；桌面客户端只把本机 Agent 指向 Agent Manager 网关。部署时应确保客户端所在主机能够访问该地址，并且反向代理已经转发上述模型协议路径。
+
 客户端接入凭证本身不能调用模型或 MCP。切换时，sidecar 通过具体任务一次性领取绑定目标 Agent 的独立运行凭证，凭证明文不进入任务载荷、客户端状态接口或桌面渲染进程。自动创建的托管 Agent 只是运行身份和审计载体，不表示模型需要与 Agent 类型匹配；模型范围仍由客户端凭证委派范围和网关启用状态决定。生成的凭证固定包含 `runtime:verify-signature`、`runtime:can-load`、`runtime:check-tool` 和 `model:chat`，且只允许本次选择的模型；不包含 `runtime:govern`。如果该平台 Agent 已有允许的 MCP 网关，生成凭证还会带上 `mcp:connect`、`mcp:list-tools`、`mcp:call-tools`，并保留相同网关允许列表；MCP 服务器配置仍由单独的 MCP 功能管理。
 
 当前写入范围：

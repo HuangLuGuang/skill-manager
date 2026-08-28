@@ -107,8 +107,8 @@ test('Skill docs follow the console capability-governance grouping and order', (
 
 test('Agent docs follow the console agent-management grouping and order', () => {
   const expected = {
-    'zh-CN': { title: '智能体管理', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'audit-trail'] },
-    'en-US': { title: 'Agent management', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'audit-trail'] },
+    'zh-CN': { title: '智能体管理', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'audit-trail'] },
+    'en-US': { title: 'Agent management', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'audit-trail'] },
   }
   for (const [locale, { title, slugs }] of Object.entries(expected)) {
     const group = docsContent[locale].groups.find(item => item.title === title)
@@ -144,6 +144,36 @@ test('Ask AI finds Scanner, Credential Center, and Audit trail guidance', () => 
       const [first] = rankDocsContexts({ content: docsContent[locale], query })
       assert.equal(first.slug, expectedSlug, `${locale}: ${query}`)
     }
+  }
+})
+
+test('Ask AI finds the dedicated Hook integration guide', () => {
+  const questions = {
+    'zh-CN': 'Claude Code、Codex 和 OpenClaw 的 Hook 怎么配置和验证？',
+    'en-US': 'How do I configure and validate Hooks for Claude Code Codex and OpenClaw?',
+  }
+  for (const [locale, query] of Object.entries(questions)) {
+    const [first] = rankDocsContexts({ content: docsContent[locale], query })
+    assert.equal(first.slug, 'hook-integration')
+  }
+})
+
+test('Hook guide includes official Claude Code, TraeCode, and Codex references', () => {
+  const expectedUrls = [
+    'https://code.claude.com/docs/en/hooks-guide',
+    'https://code.claude.com/docs/en/hooks',
+    'https://code.claude.com/docs/en/permissions',
+    'https://docs.trae.cn/ide_automate-actions-with-hooks',
+    'https://docs.trae.cn/ide_hook-configuration-reference',
+    'https://docs.trae.cn/ide_changelog',
+    'https://learn.chatgpt.com/docs/hooks',
+    'https://learn.chatgpt.com/docs/config-file/config-reference',
+  ]
+
+  for (const [locale, content] of Object.entries(docsContent)) {
+    const references = content.articles['hook-integration'].sections.flatMap(section => section.references || [])
+    const urls = new Set(references.map(reference => reference.url))
+    for (const url of expectedUrls) assert.ok(urls.has(url), `${locale}: missing official reference ${url}`)
   }
 })
 
@@ -209,6 +239,12 @@ test('documentation navigation, tables, links, and screenshots stay internally v
         if (node.table) {
           for (const row of node.table.rows) {
             assert.equal(row.length, node.table.columns.length, `${locale}/${slug}: table column mismatch`)
+          }
+        }
+        if (node.references) {
+          for (const reference of node.references) {
+            assert.ok(reference.label, `${locale}/${slug}: reference label is required`)
+            assert.match(reference.url, /^https:\/\//, `${locale}/${slug}: reference must use HTTPS`)
           }
         }
         if (node.image?.name) {

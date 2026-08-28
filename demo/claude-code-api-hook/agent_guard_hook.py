@@ -433,7 +433,8 @@ def _extract_skill_name_from_event(event: dict) -> str | None:
     # Try to extract skill name from tool_input
     tool_input = event.get("tool_input", {})
     if isinstance(tool_input, dict):
-        # 兼容 Claude Code and Trae IDE
+        # Accept common Skill argument keys. TraeCode compatibility still needs
+        # validation against a real TraeCode Skill event payload.
         skill_name = tool_input.get("skill", None) or tool_input.get("name", None)
         if skill_name:
             return skill_name

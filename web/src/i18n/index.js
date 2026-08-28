@@ -48,6 +48,7 @@ export const i18n = createI18n({
         expectedResult: '预期结果',
         note: '说明',
         warning: '注意',
+        officialReferences: '官方参考文档',
       },
       docsAssistant: {
         askAi: '问问 AI',
@@ -598,6 +599,7 @@ export const i18n = createI18n({
         expectedResult: 'Expected result',
         note: 'Note',
         warning: 'Warning',
+        officialReferences: 'Official references',
       },
       docsAssistant: {
         askAi: 'Ask AI',
