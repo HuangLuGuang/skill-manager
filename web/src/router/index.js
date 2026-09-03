@@ -1,10 +1,36 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+import { getSystemCapabilities } from '../api'
+
 const routes = [
   { path: '/', redirect: '/dashboard' },
   { path: '/login', name: 'login', component: () => import('../views/Login.vue') },
   { path: '/docs/:pathMatch(.*)*', name: 'docs', component: () => import('../views/HelpDocs.vue'), meta: { requiresAuth: true, layout: 'docs' } },
   { path: '/dashboard', name: 'dashboard', component: () => import('../views/Dashboard.vue'), meta: { requiresAuth: true } },
+  {
+    path: '/agent-security/scans',
+    name: 'agent-security-scans',
+    component: () => import('../views/AgentSecurityScans.vue'),
+    meta: { requiresAuth: true, feature: 'agent_security_scanning' },
+  },
+  {
+    path: '/agent-security/baseline',
+    name: 'agent-security-baseline',
+    component: () => import('../views/AgentSecurityBaseline.vue'),
+    meta: { requiresAuth: true, feature: 'agent_security_scanning', baselineKind: 'agent-security' },
+  },
+  {
+    path: '/runtime-traces',
+    name: 'runtime-traces',
+    component: () => import('../views/RuntimeTraceExplorer.vue'),
+    meta: { requiresAuth: true, feature: 'runtime_trace' },
+  },
+  {
+    path: '/runtime-traces/baseline',
+    name: 'runtime-trace-baseline',
+    component: () => import('../views/AgentSecurityBaseline.vue'),
+    meta: { requiresAuth: true, feature: 'runtime_trace', baselineKind: 'runtime-trace' },
+  },
   { path: '/agents', name: 'agents', component: () => import('../views/Agents.vue'), meta: { requiresAuth: true } },
   { path: '/clients', name: 'clients', component: () => import('../views/Clients.vue'), meta: { requiresAuth: true } },
   { path: '/credentials', name: 'credentials', component: () => import('../views/Credentials.vue'), meta: { requiresAuth: true } },
@@ -47,7 +73,7 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const token = localStorage.getItem('token')
   if (!to.meta.requiresAuth) {
     next()
@@ -56,6 +82,18 @@ router.beforeEach((to, from, next) => {
   if (!token) {
     next('/login')
     return
+  }
+  if (to.meta.feature) {
+    try {
+      const capabilities = await getSystemCapabilities()
+      if (capabilities.features?.[to.meta.feature] !== true) {
+        next('/dashboard')
+        return
+      }
+    } catch {
+      next('/dashboard')
+      return
+    }
   }
   next()
 })

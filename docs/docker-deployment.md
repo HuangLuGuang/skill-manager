@@ -70,6 +70,166 @@ uv run agent-manager registry audit-tool-permissions
 
 Compose 入口 Nginx 会把管理 API `/api/` 和 MCP Streamable HTTP 数据面 `/mcp/` 转发到 Backend；MCP Client 应使用 `http(s)://部署域名/mcp/{gateway_slug}`，不需要直接暴露 Backend 端口。旧版 `/sse/` 当前未实现，也不配置转发。
 
+### 智能体安全能力
+
+安全能力基线和轨迹能力基线安装后默认启用，不需要在 `.env` 配置功能开关。登录后管理台
+直接显示“智能体安全”菜单。以下变量仅作为紧急关停手段保留，不进入常规 Compose 配置：
+
+```ini
+AGENT_SECURITY_SCANNING_ENABLED=false
+RUNTIME_TRACE_ENABLED=false
+```
+
+只有通过 Compose override 或容器编排系统显式注入上述值时，对应菜单才隐藏，API 返回稳定
+的 feature-disabled 错误。普通安装和升级不要把它们写入 `.env`。从早期 P0 版本升级时，
+如果旧 `.env` 已经保存了值为 `false` 的同名变量，必须删除这两行并重建 Backend 容器，
+否则环境变量仍会覆盖新的默认开启值。
+
+当前页面和 API 已提供版本基线、四类扫描目标、策略、Agent/MCP/LLM/AI 基础设施扫描任务、Worker 协议和
+统一 Finding 模型，并执行锁定的 AI-Infra-Guard Agent Scan、模型红队、基础设施扫描及 MCP 元数据适配器。P4 已提供统一
+轨迹 API、Agent SDK 和模型/MCP/治理发布；P5 已提供对话/轨迹双视图、证据检索和受控导出，
+但不宣称等同于完整 DeepSeek Harness 前端。
+Backend 从镜像内的
+`/app/deploy/agent-security/upstreams.lock.json` 读取版本清单，请勿把该路径改为网络地址。
+详细边界见[智能体安全平台 P0 技术基线](agent-security-p0-baseline.md)。
+
+### 独立扫描 Worker 与 AI-Infra-Guard 内部服务
+
+Worker 同时运行 `control_plane_validation`、`agent_risk_scan`、`dify_asset_inventory`、
+`mcp_risk_scan`、`llm_redteam_scan` 和 `ai_infrastructure_vulnerability_scan`。模型红队和基础设施任务由固定版本的 `aig-scan-service` 在私有
+`aig-control` 网络执行，服务端口不映射到宿主机。内置 Worker 无需先在
+管理台创建身份：在项目根目录 `.env` 只配置一次 `AGENT_SECURITY_WORKER_TOKEN`，Backend 建表后会以
+固定名称 `builtin-security-worker` 幂等注册，Worker 容器读取同一个值。令牌必须以 `amsw_` 开头，
+前缀后至少包含 32 个 URL-safe 字符；不要使用示例占位值。可用
+`printf 'amsw_%s\n' "$(openssl rand -hex 32)"` 生成。未配置时 Backend 仍正常启动，但不会注册内置身份。
+
+再为 Worker 配置一个 OpenAI-compatible 评估模型，并生成独立的内部服务 Token；推荐使用本平台模型网关，
+并为专用 LLM API Key 只授权扫描所需模型。仅执行 MCP 元数据扫描时不需要评估模型；执行 Agent
+风险扫描、LLM 红队或需要模型辅助的基础设施扫描时必须配置。`AIG_SCAN_SERVICE_TOKEN` 至少包含 32 个
+随机 URL-safe 字符，只在 Worker 与内部服务之间使用，不能和 Worker Token、评估模型 Key 或目标凭据混用。然后执行：
+
+```bash
+./build.sh --security-worker
+# 先把 Worker Token、AIG_SCAN_SERVICE_TOKEN 与评估模型配置写入项目根目录 .env
+docker compose --profile agent-security up -d
+docker compose ps agent-security-worker
+```
+
+Dify 资产清单不增加 `.env` 密钥。管理员在“扫描管理 → 扫描目标”创建 Dify 目标，并按用途把 Admin API
+Key 保存为加密的 `dify_console_api` 目标凭据；需要授权知识库检查时另存 `dify_knowledge_api`。部署网络必须
+允许 Worker 访问显式 Console Base URL，私网地址还必须同时满足目标 CIDR 和策略出站 CIDR。不要把 Admin
+API Key 写入 Compose、环境变量、目标配置或验收日志。
+
+Worker 镜像内置健康检查，Compose 也会执行同一检查。成功领取任务、空闲心跳以及长任务期间的成功
+续租都会刷新健康标记；控制面持续不可达时不会刷新。`docker compose ps agent-security-worker`
+显示 `healthy` 只证明 Worker、内部引擎和控制面租约通道正常，不等于任何外部目标已完成风险扫描。
+
+Compose 默认使用非 root、只读根文件系统、`/tmp` tmpfs、`init`、删除全部 capability 和
+`no-new-privileges`，并限制为 128 个进程、512 MiB 内存、1 个 CPU。可按实测通过
+`AGENT_SECURITY_WORKER_TMPFS_SIZE`、`AGENT_SECURITY_WORKER_PIDS_LIMIT`、
+`AGENT_SECURITY_WORKER_MEMORY_LIMIT`、`AGENT_SECURITY_WORKER_CPU_LIMIT`、
+`AGENT_SECURITY_WORKER_STOP_GRACE_PERIOD`、`AGENT_SECURITY_WORKER_LOG_MAX_SIZE` 和
+`AGENT_SECURITY_WORKER_LOG_MAX_FILES` 调整；默认值是安全起点，不是银行生产容量或 SLA。
+
+`AGENT_SECURITY_WORKER_TOKEN` 和评估模型 API Key 都是运行凭据，不是页面功能开关，不能写入
+镜像或提交到 Git。根目录 `.env` 适合本地和受控离线部署；生产环境可由 Secret 管理能力以同名
+环境变量注入。评估模型 Key、Worker Token 和扫描目标凭据是三类独立凭据，不能混用。
+吊销 Worker 后旧 Token 立即失效。
+目标长期凭据保存在 Backend；领取任务时才通过 Worker 临时公钥生成租约绑定的密封信封。
+
+#### Worker 生命周期运维
+
+页面默认启用与 Worker 是否启动是两件事：管理页面和 API 无需 `.env` 开关；只有实际执行异步
+扫描时才需要 Worker 和运行凭据。环境管理的内置身份由 Backend 自动维护；外部或扩容 Worker
+仍可使用下列接口手工创建，示例中的管理
+JWT 和 `token_once` 都必须通过现场 Secret 管理流程传递，不能进入命令历史、工单正文或普通日志：
+
+```http
+POST /api/v1/agent-security/workers
+Authorization: Bearer <admin-jwt>
+Content-Type: application/json
+
+{"name":"bank-scan-worker-01","capabilities":["agent_risk_scan","mcp_risk_scan"],"max_concurrency":1}
+```
+
+只有手工创建响应包含只显示一次的 `token_once`；自动注册身份不会通过 API 返回明文。
+`GET /api/v1/agent-security/workers` 可检查 `status`、
+`last_heartbeat_at`、公钥指纹和登记时间；`POST /api/v1/agent-security/workers/{worker_id}/revoke`
+用于吊销。手工身份仍没有原地轮换 Token 的接口，需创建新身份后迁移。内置身份则通过修改根目录
+`.env` 中的 Token 并重建 Backend 与 Worker 完成原地轮换：Worker ID 保持不变，旧 Token 立即失效，
+公钥和心跳状态会清空并由 Worker 重新登记。相同 Token 的已吊销身份不会自动恢复；必须换成新 Token
+才会重新激活。若同名身份已由管理员手工创建，Backend 会拒绝启动且不会覆盖该记录。
+
+启动后按以下顺序验收，证据中只记录 Worker ID、Token 前缀、时间和状态，不记录明文 Token：
+
+1. `docker compose ps agent-security-worker` 显示 `healthy`。
+2. 管理接口中 `last_heartbeat_at` 持续更新，且公钥指纹非空。
+3. 分别提交一个授权的 Agent Mock、Dify 资产清单、MCP 元数据、受控 LLM 红队和授权网络端点扫描，确认任务从
+   `pending` 进入 `running`，最终形成对应 Case、Finding/零 Finding或证据不足说明和原始产物摘要。
+   Dify 项还应核对 `dify-asset-inventory@1` 加密产物、字段来源、Workspace ID 脱敏和五类覆盖状态；
+   Console API 成功不代表 MCP、知识库和运行轨迹均已验证。
+4. 核对 `docker compose logs --since 10m agent-security-worker`；日志不得出现 Worker Token、模型
+   API Key、目标凭据或原始 Prompt/Response。
+
+中断恢复必须使用可重复的非生产验收任务。先记录任务 ID 和当前 `attempt`，停止 Worker，
+等待该任务策略的 `lease_seconds` 到期，再由管理员调用 `POST /api/v1/agent-security/workers/recover`，
+或启动 Worker 让下一次领取自动执行同一恢复逻辑。若尚有重试次数，预期旧租约被清除、任务回到
+`pending` 并在退避后由 Worker 重新领取；重试耗尽则应为 `failed`，不能把不完整结果标为安全。
+
+```bash
+docker compose stop agent-security-worker
+# 等待该任务租约到期后，由管理员执行 recover API
+docker compose --profile agent-security start agent-security-worker
+docker compose ps agent-security-worker
+```
+
+升级 Worker 前先加载目标架构镜像并运行离线镜像门禁，再只重建 Worker，不联动重启 Backend。
+以下命令必须在相同的 Secret 注入上下文中执行；`OLD_TAG` 和 `NEW_TAG` 使用已经校验的明确版本：
+
+```bash
+./scripts/verify-agent-security-worker-image.sh agent-manager-security-worker:<new-tag> <amd64-or-arm64>
+TAG=<new-tag> docker compose --profile agent-security up -d --no-deps agent-security-worker
+docker compose ps agent-security-worker
+```
+
+升级验收需要记录容器镜像 ID、Worker 心跳、公钥重新登记、升级前后各一项扫描结果。若健康检查或
+任务回归失败，使用已保留的旧镜像明确回滚：
+
+```bash
+TAG=<old-tag> docker compose --profile agent-security up -d --no-deps agent-security-worker
+docker compose ps agent-security-worker
+```
+
+不要删除运行中的任务或数据库记录来制造“恢复成功”。升级期间停止领取的新任务会保留在队列；
+已领取任务由租约到期和重试策略收敛。完成切换后再吊销不再使用的旧 Worker 身份。
+
+费用预算需要计费时，可设置
+`AGENT_SECURITY_EVALUATOR_INPUT_COST_MICRO_PER_MILLION` 和
+`AGENT_SECURITY_EVALUATOR_OUTPUT_COST_MICRO_PER_MILLION`。未设置时费用记为 0，Token 仍按
+Worker 估算上报；模型网关服务端计量才是正式审计依据。
+
+`dev` 分支和正式版本 tag 的 `deploy-35` 流水线会显式启用 `agent-security` profile，并等待
+管理入口、`agent-security-worker` 和 `aig-scan-service` 同时健康后才报告部署成功。缺少运行
+Token 或任一新增服务无法通过健康检查时，部署会失败并收集对应容器日志；日志中仍不得输出凭据。
+
+通用 HTTP 目标至少配置带 `{{prompt}}` 的请求体和响应文本路径。例如：
+
+```json
+{
+  "target_type": "http",
+  "endpoint_url": "https://agent.example.com/chat",
+  "config": {
+    "body": {"message": "{{prompt}}"},
+    "transform_response": "reply",
+    "session_request_path": "conversation_id",
+    "session_response_path": "conversation_id"
+  }
+}
+```
+
+内网目标仍需目标与策略双重 CIDR 白名单。TLS 校验不可关闭。外部 SaaS 的字段以锁定版本 Provider
+清单和目标创建接口校验为准；没有账号、授权目标和评估模型时，镜像健康不等于真实扫描已验收。
+
 ## 可选 MCP 业务案例
 
 源码和离线包包含一个使用虚构客户数据的 MCP 客户操作案例，用于演练 Tool 发现、虚拟
@@ -119,6 +279,26 @@ P1 安全配置默认使用 SQLite，不新增数据库服务。`request_leases`
 - `agent-manager-frontend:<tag>`
 - `agent-manager-sandbox:<tag>`
 - `agent-manager-sandbox-runtime:<tag>`
+- `agent-manager-security-worker:<tag>`
+- `agent-manager-aig-scan-service:<tag>`
+
+安全 Worker 和 AI-Infra-Guard 内部服务已加入 `--all` 和 `--save`，因此 x86/ARM 离线包会包含这两个镜像。联网 CI 在镜像中
+写入锁定的 AI-Infra-Guard Agent Scan/MCP Scan 源码、约束依赖、LICENSE、NOTICE 和 SPDX SBOM；客户
+现场启动时不得访问 GitHub 或 PyPI。构建会先用与测试相同的确定性整树算法校验 Agent Scan 和
+MCP Scan vendored source；任一未登记文件变化都会使镜像构建失败。
+
+正式离线发布流水线在生成每个架构的归档后，会从归档执行 `docker load`，再运行：
+
+```bash
+./scripts/verify-agent-security-worker-image.sh agent-manager-security-worker:<tag> amd64
+./scripts/verify-aig-scan-service-image.sh agent-manager-aig-scan-service:<tag> amd64
+./scripts/verify-agent-security-worker-image.sh agent-manager-security-worker:<tag> arm64
+./scripts/verify-aig-scan-service-image.sh agent-manager-aig-scan-service:<tag> arm64
+```
+
+该门禁不拉取镜像且禁用容器网络，核对架构、非 root 用户、健康命令、许可证和 SBOM，并在只读
+根文件系统及默认资源限制下实际启动。构建节点必须能原生运行目标架构，或提供经过验证的模拟器。
+它验证的是安全 Worker 镜像和离线归档，不替代整个平台在客户服务器上的安装、数据迁移和业务回归。
 
 ## 打包发布
 
@@ -159,6 +339,8 @@ Docker Compose 已将宿主机 `scanner/releases` 只读挂载到后端。部署
 
 - 快速部署任务：只构建 x86 镜像、更新 Compose 并执行健康检查。代码合并并推送到 `dev` 时自动执行，镜像版本为 `dev-提交短哈希`。
 - `offline-package`：推送正式版本标签时，在快速部署成功后自动生成 x86、ARM 离线包并上传 S3。
+  上传前会分别验证两个包中的 `release-provenance.json`，要求版本等于 tag、Commit 等于流水线
+  Commit、架构匹配，并且来自干净的 `git_clone`；任一不一致都会阻止发布。
 
 ```bash
 git tag v1.0.1

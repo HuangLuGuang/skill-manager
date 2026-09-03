@@ -18,6 +18,7 @@ const zh = {
       { slug: 'credential-management', title: '统一凭证中心', summary: '按调用主体签发最小权限凭证' },
       { slug: 'runtime-integration', title: '接入与运行', summary: 'Skill Verifier、事件 Hook 与结果判断' },
       { slug: 'hook-integration', title: 'Hook 接入', summary: 'Claude Code、Codex 与 OpenClaw 事件拦截配置' },
+      { slug: 'agent-security-runtime', title: '智能体安全与调用轨迹', summary: 'Agent、MCP、大模型与 AI 基础设施测评、Worker、证据解释与统一轨迹' },
       { slug: 'audit-trail', title: '审计追踪', summary: '查询 Skill、Agent、客户端与 Tool 事件' },
     ] },
     { title: '模型网关', items: [
@@ -1003,6 +1004,68 @@ const zh = {
         },
       ],
     },
+    'agent-security-runtime': {
+      eyebrow: '智能体管理',
+      title: '智能体安全扫描与统一调用轨迹',
+      summary: '配置 Agent、MCP、大模型与 AI 基础设施安全测评，正确解释用例和 Finding，并用脱敏统一轨迹关联模型、Tool、治理与知识检索事件。',
+      sections: [
+        {
+          id: 'enabled-scope',
+          title: '当前已启用的范围',
+          paragraphs: ['“智能体安全”下的扫描管理、能力基线、调用轨迹和轨迹能力基线页面默认开启，不需要在 .env 中配置页面开关。扫描执行仍需要管理员创建目标、策略和独立 Worker；页面可见不等于外部目标已经通过验收。'],
+          table: { columns: ['能力', '当前行为', '不能据此声称'], rows: [
+            ['Agent 风险扫描', '在出站、预算、超时和能力策略内向已授权目标发送测试对话', '不覆盖未执行的场景，也不是无限制攻击链复现'],
+            ['MCP 风险扫描', '读取任务创建时冻结的 Gateway、Server、Tool 描述和 Schema 元数据', '不执行 tools/call，不验证 Tool 的真实副作用'],
+            ['大模型红队', '使用锁定数据集或自定义 Prompt 真实调用目标模型和独立评估模型，并按 Prompt 形成用例', '通过只表示本次攻击未观察到越狱，不代表模型绝对安全'],
+            ['AI 基础设施扫描', '主动访问显式授权 URL，识别组件指纹并按具体版本匹配 CVE 规则', '端口或未知版本不是已确认漏洞，也不能解释为安全'],
+            ['统一调用轨迹', '保存 Agent SDK、模型网关、MCP 网关和运行治理实际发布的事件', '不能从只有 Gateway 的流量推断完整 Agent Turn/Step'],
+            ['TC260 映射', '把平台已有控制能力映射到 TC260-003 附录 A 风险项，并显示证据状态', '不是合规认证，也不替代逐控制项目标测评'],
+          ] },
+          link: { path: '/agent-security/baseline', label: '查看安全能力基线' },
+        },
+        {
+          id: 'scan-workflow',
+          title: '发起并复核一次安全扫描',
+          steps: [
+            { title: '创建目标', body: '选择目标类型和环境，填写允许的能力与连接配置。内网地址必须同时满足目标与策略 CIDR 白名单；不能关闭 TLS 校验。' },
+            { title: '选择执行策略', body: '确认轮次、Token、费用、响应大小、并发、时长、租约、重试和出站边界。只读模式会在服务端阻断写 Tool，并留下治理事件。' },
+            { title: '选择扫描类型', body: 'Agent 风险扫描和大模型红队需要可访问的目标及评估模型；MCP 只分析冻结快照；AI 基础设施扫描会主动访问经授权 URL，并要求 HTTP、DNS 和双重 CIDR 边界。' },
+            { title: '观察任务而不是重复提交', body: '任务会经历 pending、running 和终态。使用刷新、取消或 Kill Switch；Kill Switch 阻止后续请求，已经发出的请求按目标或评估器超时结束。' },
+            { title: '从任务复核证据链', body: '同时查看执行用例、Finding、证据、原始产物摘要、引擎版本、覆盖快照和停止原因。Finding 有真实 trace_id 与 event_id 时才能跳转到对应事件。', expected: '每个结论都能定位到用例、事件或明确的“未验证”原因。' },
+          ],
+          link: { path: '/agent-security/scans', label: '打开智能体安全扫描' },
+        },
+        {
+          id: 'interpret-results',
+          title: '正确解释成功、通过和零 Finding',
+          bullets: ['任务 succeeded 只表示执行契约完成，不表示目标安全。', '用例 passed 表示本次执行没有观察到对应风险；blocked 或 error 必须保持未验证。', '零 Finding 不能自动解释为安全；还要检查用例覆盖、引擎、预算、停止原因和证据完整度。', '比较结果只有在两次任务都成功、引擎和覆盖配置等价时，才可显示“已解决”或“未复现”。', '历史记录缺少用例、事件、证据或规则版本时显示不完整，平台不会倒填不存在的证据。'],
+          callout: { type: 'warning', title: '扫描结论有明确边界', body: 'Agent 动态扫描只覆盖实际规则和轮次；MCP 只覆盖冻结描述与 Schema；大模型红队只覆盖真实执行的 Prompt；基础设施 Finding 必须有组件、版本和 CVE 规则证据。任何证据不足项都保持“未验证”。' },
+        },
+        {
+          id: 'worker-operations',
+          title: 'Worker 的身份与运行状态',
+          paragraphs: ['管理员先创建 Worker 身份并安全保存只展示一次的 Token，再通过现场 Secret 管理方式注入容器。Worker Token 和评估模型 Key 是运行凭据，不是页面功能开关，不能写进镜像、源码或普通日志。'],
+          bullets: ['healthy 只证明 Worker 进程与控制面的心跳/租约通道正常，不证明外部目标扫描已通过。', '当前 Token 不支持原地轮换：创建新 Worker、切换并确认心跳和公钥指纹后，再吊销旧身份。', 'Worker 中断后，运行任务由租约到期和重试策略恢复；重试耗尽应明确失败，不能生成虚假安全结论。', '生产 Worker 默认使用非 root、只读根文件系统、临时目录、无额外 capability 和资源上限；调整前应先在目标环境压测。'],
+        },
+        {
+          id: 'trace-completeness',
+          title: '按真实事件源理解轨迹完整度',
+          table: { columns: ['完整度', '可观察来源', '缺少的上下文'], rows: [
+            ['full', 'Agent SDK 加上关联的模型、MCP 或治理事件', '仍只代表接入方实际上报的生命周期'],
+            ['model_only', '只有模型网关事件', '没有 Agent Turn、Step、Tool 和知识检索上下文'],
+            ['mcp_only', '只有 MCP 网关事件', '没有模型推理和 Agent 生命周期'],
+            ['gateway_partial', '存在多类网关事件但缺少 Agent SDK 层', '不能重建完整对话意图和步骤边界'],
+          ] },
+          paragraphs: ['自研 Runtime 应使用 Runtime Trace SDK 创建 Trace，并把同一组 trace_id、turn_id、step_id、call_id 和 parent_call_id 放入模型 metadata 与 MCP params._meta。普通模型或 MCP 凭证不能冒充已登记 Agent；可信 Agent 身份来自绑定的 Agent 运行凭证。'],
+          link: { path: '/runtime-traces', label: '打开统一调用轨迹' },
+        },
+        {
+          id: 'privacy-evidence',
+          title: '搜索、查看和导出证据的隐私边界',
+          bullets: ['轨迹列表、对话视图、事件详情和搜索只使用服务端脱敏投影，不读取原始 Prompt、响应或 Tool 参数。', '脱敏 JSON/PDF 可用于普通审阅；PDF 不支持原始级别。', '原始 JSON 只允许管理员、超级管理员或隐私审计角色在重新验证当前密码后获得 5 分钟、单次有效授权，所有操作写入安全审计。', '安全审计员只能查看脱敏内容。原始 Payload 独立加密保存，普通应用日志只记录 ID、稳定错误码和脱敏摘要。'],
+        },
+      ],
+    },
     'audit-trail': {
       eyebrow: '智能体管理',
       title: '审计追踪',
@@ -1293,6 +1356,7 @@ const en = {
       { slug: 'credential-management', title: 'Credential center', summary: 'Issue least-privilege credentials by caller' },
       { slug: 'runtime-integration', title: 'Access and runtime', summary: 'Skill Verifier, event Hooks, and result handling' },
       { slug: 'hook-integration', title: 'Hook integration', summary: 'Configure event enforcement for Claude Code, Codex, and OpenClaw' },
+      { slug: 'agent-security-runtime', title: 'Agent security and runtime traces', summary: 'Agent, MCP, LLM, and AI infrastructure assessments, Worker operations, evidence, and unified traces' },
       { slug: 'audit-trail', title: 'Audit trail', summary: 'Query Skill, Agent, Client, and Tool events' },
     ] },
     { title: 'Model gateway', items: [
@@ -1758,6 +1822,63 @@ en.articles['credential-management'] = {
   ],
 }
 
+en.articles['agent-security-runtime'] = {
+  eyebrow: 'Agent management',
+  title: 'Agent security scanning and unified runtime traces',
+  summary: 'Configure Agent, MCP, LLM, and AI infrastructure security assessments, interpret cases and findings correctly, and correlate redacted model, Tool, governance, and retrieval evidence in unified traces.',
+  sections: [
+    {
+      id: 'enabled-scope', title: 'Capabilities enabled now',
+      paragraphs: ['Scan Management, Security Capability Baseline, Runtime Traces, and Trace Capability Baseline are enabled by default under Agent Security. No .env page flag is required. Executing scans still requires an administrator to create targets, policies, and an independent Worker; a visible page is not evidence that an external target passed acceptance.'],
+      table: { columns: ['Capability', 'Current behavior', 'What it does not prove'], rows: [
+        ['Agent risk scan', 'Sends test conversations to an authorized target within outbound, budget, timeout, and capability policy', 'It does not cover unexecuted scenarios or reproduce an unlimited attack chain'],
+        ['MCP risk scan', 'Reads the Gateway, Server, Tool descriptions, and Schema metadata frozen when the task was created', 'It does not execute tools/call or verify real Tool side effects'],
+        ['LLM red team', 'Calls the target and an independent evaluator with a locked dataset or custom prompt, creating one case per prompt', 'A passed case means that attack did not observe a jailbreak; it does not prove absolute safety'],
+        ['AI infrastructure scan', 'Actively visits explicitly authorized URLs, fingerprints components, and matches CVE rules to concrete versions', 'An open port or unknown version is neither a confirmed vulnerability nor proof of safety'],
+        ['Unified runtime trace', 'Stores events actually published by the Agent SDK, Model Gateway, MCP Gateway, and Runtime Governance', 'Gateway-only traffic cannot establish a complete Agent Turn/Step trace'],
+        ['TC260 mapping', 'Maps existing platform controls to TC260-003 Appendix A risks and shows evidence status', 'It is not a compliance certification or a per-control target assessment'],
+      ] },
+      link: { path: '/agent-security/baseline', label: 'Open Security Capability Baseline' },
+    },
+    {
+      id: 'scan-workflow', title: 'Run and review one security scan',
+      steps: [
+        { title: 'Create a target', body: 'Choose its type and environment, then declare allowed capabilities and connection settings. Private destinations require matching target and policy CIDR allowlists. TLS verification cannot be disabled.' },
+        { title: 'Choose an execution policy', body: 'Confirm round, token, cost, response-size, concurrency, duration, lease, retry, and outbound boundaries. Read-only mode blocks write Tools at the server and records a governance event.' },
+        { title: 'Choose a scan type', body: 'Agent scans and LLM red-team tasks need reachable targets and an evaluator. MCP analyzes a frozen snapshot only. AI infrastructure scans actively visit authorized URLs under HTTP, DNS, and dual-CIDR controls.' },
+        { title: 'Observe the task instead of resubmitting', body: 'A task moves through pending, running, and a terminal state. Use refresh, cancel, or Kill Switch. Kill Switch prevents subsequent requests; in-flight calls end through target or evaluator timeouts.' },
+        { title: 'Review the evidence chain', body: 'Read cases, findings, evidence, raw-artifact summary, engine version, coverage snapshot, and stop reason together. A Finding links to an event only when the server stored a valid trace_id and event_id pair.', expected: 'Every conclusion resolves to a case, event, or an explicit Unverified reason.' },
+      ],
+      link: { path: '/agent-security/scans', label: 'Open Agent Security Scans' },
+    },
+    {
+      id: 'interpret-results', title: 'Interpret success, passed cases, and zero Findings correctly',
+      bullets: ['Task succeeded means the execution contract completed; it does not mean the target is safe.', 'Case passed means that execution did not observe the risk. Blocked and error cases remain Unverified.', 'Zero Findings cannot be treated as safe without checking cases, coverage, engine, budgets, stop reason, and evidence completeness.', 'Resolved or not reproduced is valid only when both scans succeeded with equivalent engines and coverage.', 'Historical records missing a case, event, evidence, or rule version remain incomplete; the platform does not invent evidence retroactively.'],
+      callout: { type: 'warning', title: 'Every scan conclusion has a boundary', body: 'Agent scans cover only executed rules and rounds; MCP covers frozen descriptions and Schemas; LLM red team covers executed prompts; infrastructure Findings require component, version, and CVE-rule evidence. Anything without sufficient evidence remains Unverified.' },
+    },
+    {
+      id: 'worker-operations', title: 'Worker identity and runtime state',
+      paragraphs: ['An administrator creates a Worker identity and stores its one-time Token, then injects it through the site Secret-management process. Worker Tokens and evaluator keys are runtime credentials, not page flags, and must not enter images, source, or normal logs.'],
+      bullets: ['healthy proves only the Worker process and control-plane heartbeat/lease channel. It does not prove an external target passed scanning.', 'Tokens cannot be rotated in place. Create a new Worker, switch and verify heartbeat plus public-key fingerprint, then revoke the old identity.', 'After interruption, running tasks converge through lease expiry and retry policy. Exhausted retries fail explicitly instead of producing a false safe conclusion.', 'Production defaults use non-root, a read-only root filesystem, temporary storage, no extra capabilities, and resource limits. Tune only after tests in the target environment.'],
+    },
+    {
+      id: 'trace-completeness', title: 'Read completeness from real event sources',
+      table: { columns: ['Completeness', 'Observed sources', 'Missing context'], rows: [
+        ['full', 'Agent SDK plus associated model, MCP, or governance events', 'It still represents only lifecycle events actually reported by the integration'],
+        ['model_only', 'Model Gateway events only', 'No Agent Turn, Step, Tool, or retrieval context'],
+        ['mcp_only', 'MCP Gateway events only', 'No model reasoning or Agent lifecycle'],
+        ['gateway_partial', 'Multiple gateway event types without the Agent SDK layer', 'Cannot reconstruct complete conversational intent or Step boundaries'],
+      ] },
+      paragraphs: ['A custom Runtime should create the Trace with the Runtime Trace SDK and place the same trace_id, turn_id, step_id, call_id, and parent_call_id in model metadata and MCP params._meta. Ordinary model or MCP credentials cannot impersonate a registered Agent; trusted identity comes from the bound Agent runtime credential.'],
+      link: { path: '/runtime-traces', label: 'Open Unified Runtime Traces' },
+    },
+    {
+      id: 'privacy-evidence', title: 'Privacy boundaries for search, viewing, and export',
+      bullets: ['Trace lists, conversation view, event details, and search use server-redacted projections and do not read raw prompts, responses, or Tool arguments.', 'Redacted JSON and PDF support ordinary review. PDF does not support raw classification.', 'Raw JSON is limited to administrators, super administrators, or privacy auditors after current-password verification creates a five-minute, one-use authorization. Every action is security-audited.', 'Security auditors see redacted content only. Raw payloads are encrypted separately; ordinary application logs contain IDs, stable error codes, and redacted summaries.'],
+    },
+  ],
+}
+
 en.articles['audit-trail'] = {
   eyebrow: 'Agent management',
   title: 'Audit trail',
@@ -1939,6 +2060,7 @@ export const docsArticleOrder = [
   'credential-management',
   'runtime-integration',
   'hook-integration',
+  'agent-security-runtime',
   'audit-trail',
   'model-gateway',
   'system-management',

@@ -1,0 +1,13 @@
+{
+  "schema": "agent-security-bank-remaining-issues@1",
+  "summary": {"open": 7, "resolved": 0, "accepted": 0},
+  "issues": [
+    {"id": "GAP-01", "status": "open", "title": "Bank acceptance environment is not yet deployed.", "reason": "Bank deployment evidence is pending.", "owner": "replace-with-owner", "closure_condition": "Resolve after BANK-12 and BANK-13 evidence is accepted."},
+    {"id": "GAP-02", "status": "open", "title": "Authorized real Agent has not yet been exercised.", "reason": "Authorized target evidence is pending.", "owner": "replace-with-owner", "closure_condition": "Resolve after BANK-04 evidence is accepted."},
+    {"id": "GAP-03", "status": "open", "title": "Worker resilience is not field-verified.", "reason": "Bank field evidence is pending.", "owner": "replace-with-owner", "closure_condition": "Resolve after BANK-10 and BANK-11 evidence is accepted."},
+    {"id": "GAP-04", "status": "open", "title": "Formal dual-architecture installation is not field-verified.", "reason": "Native bank installation evidence is pending.", "owner": "replace-with-owner", "closure_condition": "Resolve after BANK-12 and BANK-13 evidence is accepted."},
+    {"id": "GAP-05", "status": "open", "title": "Socket-level DNS pinning is not implemented.", "reason": "A connection can resolve DNS again.", "owner": "replace-with-owner", "closure_condition": "Implement pinned transport or obtain time-bounded risk acceptance."},
+    {"id": "GAP-06", "status": "open", "title": "Automatic OpenTelemetry bridging is not implemented.", "reason": "Only platform correlation fields are available.", "owner": "replace-with-owner", "closure_condition": "Implement bridging or obtain time-bounded risk acceptance."},
+    {"id": "GAP-07", "status": "open", "title": "A deprecation-warning baseline remains.", "reason": "Deprecated dependency APIs remain in use.", "owner": "replace-with-owner", "closure_condition": "Migrate affected APIs or obtain time-bounded risk acceptance."}
+  ]
+}

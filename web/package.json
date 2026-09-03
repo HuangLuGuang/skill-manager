@@ -10,7 +10,10 @@
     "test:clipboard": "node --test scripts/clipboard.test.mjs",
     "test:composer": "node --test scripts/composer-keyboard.test.mjs",
     "test:docs-search": "node --test scripts/docs-search.test.mjs",
-    "test:i18n": "node scripts/check-i18n.mjs",
+    "test:features": "node --test scripts/feature-flags.test.mjs",
+    "test:agent-security-ui": "node --test scripts/agent-security-ui.test.mjs",
+    "test:runtime-trace-ui": "node --test scripts/runtime-trace-ui.test.mjs",
+    "test:i18n": "node scripts/check-i18n.mjs && node --test scripts/agent-security-i18n.test.mjs",
     "test:skill-versions": "node --test scripts/skill-versions.test.mjs",
     "preview": "vite preview"
   },
@@ -19,7 +22,7 @@
     "@antv/x6": "^2.18.1",
     "@antv/x6-vue-shape": "^2.0.7",
     "ant-design-vue": "^4.2.6",
-    "axios": "^1.13.2",
+    "axios": "^1.20.0",
     "dayjs": "^1.11.19",
     "echarts": "^6.0.0",
     "marked": "^17.0.1",
@@ -28,10 +31,13 @@
     "vue-router": "^4.6.3"
   },
   "overrides": {
-    "@antv/x6-geometry": "2.0.5"
+    "@antv/x6-geometry": "2.0.5",
+    "esbuild": "^0.28.1",
+    "nanoid": "^3.3.18",
+    "postcss": "^8.5.23"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.1",
-    "vite": "^7.2.4"
+    "vite": "^7.3.6"
   }
 }

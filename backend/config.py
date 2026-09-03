@@ -3,7 +3,6 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -29,6 +28,17 @@ class Settings(BaseSettings):
     MCP_MAX_RESPONSE_KB: int = 1024
     AUDIT_SIGNING_PRIVATE_KEY_PATH: str | None = None
     SECURITY_AUDIT_EXPORT_PATH: str | None = None
+
+    # Baseline pages are enabled by default. Operators may still override these
+    # settings as emergency kill switches outside the normal Compose workflow.
+    AGENT_SECURITY_SCANNING_ENABLED: bool = True
+    RUNTIME_TRACE_ENABLED: bool = True
+    AGENT_SECURITY_UPSTREAM_LOCK_PATH: str = Field(
+        default=str(BASE_DIR / "deploy" / "agent-security" / "upstreams.lock.json")
+    )
+    AGENT_SECURITY_WORKER_TOKEN: str | None = None
+    AIG_SERVICE_URL: str = ""
+    AIG_SERVICE_TOKEN: str | None = None
 
     # Headroom 智能压缩全局默认
     HEADROOM_COMPRESSION_ENABLED_BY_DEFAULT: bool = False

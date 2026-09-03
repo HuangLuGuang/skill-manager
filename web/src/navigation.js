@@ -1,6 +1,37 @@
 export const navigationItems = [
   { key: '/dashboard', label: '平台总览', icon: 'dashboard' },
   {
+    key: 'agent-security-vnext',
+    label: 'agentSecurityBaseline.groupMenu',
+    icon: 'safety',
+    children: [
+      {
+        key: '/agent-security/scans',
+        label: 'agentSecurityScans.menu',
+        icon: 'fileSearch',
+        feature: 'agent_security_scanning',
+      },
+      {
+        key: '/agent-security/baseline',
+        label: 'agentSecurityBaseline.menu',
+        icon: 'safety',
+        feature: 'agent_security_scanning',
+      },
+      {
+        key: '/runtime-traces',
+        label: 'runtimeTraceExplorer.menu',
+        icon: 'audit',
+        feature: 'runtime_trace',
+      },
+      {
+        key: '/runtime-traces/baseline',
+        label: 'runtimeTraceBaseline.menu',
+        icon: 'audit',
+        feature: 'runtime_trace',
+      },
+    ],
+  },
+  {
     key: 'capability-governance',
     label: '能力治理',
     icon: 'fileSearch',

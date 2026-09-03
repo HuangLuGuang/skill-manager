@@ -13,11 +13,13 @@ usage() {
     echo "Options:"
     echo "  -t, --tag TAG       Image tag (default: latest)"
     echo "  -p, --platform P    Platform (default: linux/amd64)"
-    echo "  -a, --all           Build backend, frontend, sandbox, and sandbox runtime"
+    echo "  -a, --all           Build backend, frontend, sandbox, sandbox runtime, security worker, and AIG scan service"
     echo "  -b, --backend       Build backend image"
     echo "  -f, --frontend      Build frontend image"
     echo "  -s, --sandbox       Build isolated sandbox service image"
     echo "  -r, --runtime       Build local sandbox runtime image"
+    echo "  -w, --security-worker Build Agent Security worker image"
+    echo "  -g, --aig-scan-service Build fixed AI-Infra-Guard internal service image"
     echo "  --save              Save all runtime images to docker_images/<arch>/ as tar.xz"
     echo "  -h, --help          Show this help"
 }
@@ -57,6 +59,16 @@ build_runtime() {
     docker buildx build $(docker_buildx_proxy_args) --load -f services/local-sandbox-runtime/Dockerfile --platform "${PLATFORM}" -t "${SANDBOX_RUNTIME_IMAGE}" .
 }
 
+build_security_worker() {
+    step "Building ${SECURITY_WORKER_IMAGE}"
+    docker buildx build $(docker_buildx_proxy_args) --load -f services/agent-security-worker/Dockerfile --platform "${PLATFORM}" -t "${SECURITY_WORKER_IMAGE}" .
+}
+
+build_aig_scan_service() {
+    step "Building ${AIG_SCAN_SERVICE_IMAGE}"
+    docker buildx build $(docker_buildx_proxy_args) --load -f services/aig-scan-service/Dockerfile --platform "${PLATFORM}" -t "${AIG_SCAN_SERVICE_IMAGE}" .
+}
+
 arch_dir() {
     case "${PLATFORM}" in
         linux/amd64) echo "x86" ;;
@@ -94,6 +106,8 @@ save_images() {
     ensure_image "${FRONTEND_IMAGE}"
     ensure_image "${SANDBOX_IMAGE}"
     ensure_image "${SANDBOX_RUNTIME_IMAGE}"
+    ensure_image "${SECURITY_WORKER_IMAGE}"
+    ensure_image "${AIG_SCAN_SERVICE_IMAGE}"
     ensure_image "nginx:1.27-alpine"
     step "Saving images to ${output}"
     rm -f "$tmp" "${tmp}.xz" "$output"
@@ -102,6 +116,8 @@ save_images() {
         "${FRONTEND_IMAGE}" \
         "${SANDBOX_IMAGE}" \
         "${SANDBOX_RUNTIME_IMAGE}" \
+        "${SECURITY_WORKER_IMAGE}" \
+        "${AIG_SCAN_SERVICE_IMAGE}" \
         nginx:1.27-alpine
     xz -vf -2 -T 4 "$tmp"
     mv "${tmp}.xz" "$output"
@@ -111,6 +127,8 @@ BUILD_BACKEND=false
 BUILD_FRONTEND=false
 BUILD_SANDBOX=false
 BUILD_RUNTIME=false
+BUILD_SECURITY_WORKER=false
+BUILD_AIG_SCAN_SERVICE=false
 SAVE_IMAGES=false
 
 if [ $# -eq 0 ]; then
@@ -133,6 +151,8 @@ while [[ $# -gt 0 ]]; do
             BUILD_FRONTEND=true
             BUILD_SANDBOX=true
             BUILD_RUNTIME=true
+            BUILD_SECURITY_WORKER=true
+            BUILD_AIG_SCAN_SERVICE=true
             shift
             ;;
         -b|--backend)
@@ -149,6 +169,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         -r|--runtime)
             BUILD_RUNTIME=true
+            shift
+            ;;
+        -w|--security-worker)
+            BUILD_SECURITY_WORKER=true
+            shift
+            ;;
+        -g|--aig-scan-service)
+            BUILD_AIG_SCAN_SERVICE=true
             shift
             ;;
         --save)
@@ -171,8 +199,10 @@ BACKEND_IMAGE=agent-manager-backend:${TAG}
 FRONTEND_IMAGE=agent-manager-frontend:${TAG}
 SANDBOX_IMAGE=agent-manager-sandbox:${TAG}
 SANDBOX_RUNTIME_IMAGE=agent-manager-sandbox-runtime:${TAG}
+SECURITY_WORKER_IMAGE=agent-manager-security-worker:${TAG}
+AIG_SCAN_SERVICE_IMAGE=agent-manager-aig-scan-service:${TAG}
 
-if $BUILD_BACKEND || $BUILD_SANDBOX || $BUILD_RUNTIME; then
+if $BUILD_BACKEND || $BUILD_SANDBOX || $BUILD_RUNTIME || $BUILD_SECURITY_WORKER || $BUILD_AIG_SCAN_SERVICE; then
     step "Pulling python:3.12-slim for ${PLATFORM}"
     docker pull --platform "${PLATFORM}" python:3.12-slim
 fi
@@ -186,6 +216,8 @@ $BUILD_BACKEND && build_backend
 $BUILD_FRONTEND && build_frontend
 $BUILD_SANDBOX && build_sandbox
 $BUILD_RUNTIME && build_runtime
+$BUILD_SECURITY_WORKER && build_security_worker
+$BUILD_AIG_SCAN_SERVICE && build_aig_scan_service
 $SAVE_IMAGES && save_images
 
 step "Done"

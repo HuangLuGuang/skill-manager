@@ -107,8 +107,8 @@ test('Skill docs follow the console capability-governance grouping and order', (
 
 test('Agent docs follow the console agent-management grouping and order', () => {
   const expected = {
-    'zh-CN': { title: '智能体管理', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'audit-trail'] },
-    'en-US': { title: 'Agent management', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'audit-trail'] },
+    'zh-CN': { title: '智能体管理', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'agent-security-runtime', 'audit-trail'] },
+    'en-US': { title: 'Agent management', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'agent-security-runtime', 'audit-trail'] },
   }
   for (const [locale, { title, slugs }] of Object.entries(expected)) {
     const group = docsContent[locale].groups.find(item => item.title === title)
@@ -130,12 +130,12 @@ test('Ask AI finds Scanner, Credential Center, and Audit trail guidance', () => 
   const questions = {
     'zh-CN': [
       ['如何批量扫描服务器上的 Skill？', 'scanner-access'],
-      ['不同类型的接入凭证怎么创建和限制权限？', 'credential-management'],
+      ['统一凭证中心如何按调用方创建不同类型凭证并限制权限？', 'credential-management'],
       ['如何查询 Skill 被阻断的审计事件？', 'audit-trail'],
     ],
     'en-US': [
       ['How do I batch scan Skills on a server?', 'scanner-access'],
-      ['How do I create access credentials with least privilege?', 'credential-management'],
+      ['How does Credential Center create credential types and restrict permissions by caller?', 'credential-management'],
       ['How do I find an audit event for a blocked Skill?', 'audit-trail'],
     ],
   }
@@ -155,6 +155,30 @@ test('Ask AI finds the dedicated Hook integration guide', () => {
   for (const [locale, query] of Object.entries(questions)) {
     const [first] = rankDocsContexts({ content: docsContent[locale], query })
     assert.equal(first.slug, 'hook-integration')
+  }
+})
+
+test('Agent Security help is bilingual and describes only enabled evidence boundaries', () => {
+  const expected = {
+    'zh-CN': ['页面默认开启', '不执行 tools/call', '任务 succeeded 只表示执行契约完成', '当前 Token 不支持原地轮换', 'PDF 不支持原始级别'],
+    'en-US': ['enabled by default', 'does not execute tools/call', 'Task succeeded means the execution contract completed', 'Tokens cannot be rotated in place', 'PDF does not support raw classification'],
+  }
+  for (const [locale, phrases] of Object.entries(expected)) {
+    const article = docsContent[locale].articles['agent-security-runtime']
+    assert.ok(article)
+    const serialized = JSON.stringify(article)
+    for (const phrase of phrases) assert.ok(serialized.includes(phrase), `${locale}: missing ${phrase}`)
+  }
+})
+
+test('Ask AI finds Agent Security scanning and runtime-trace guidance in both languages', () => {
+  const questions = {
+    'zh-CN': '智能体安全扫描 succeeded 和零 Finding 是不是代表安全，调用轨迹完整度怎么看？',
+    'en-US': 'Do Agent Security scan succeeded and zero Findings mean safe, and how do I read runtime trace completeness?',
+  }
+  for (const [locale, query] of Object.entries(questions)) {
+    const [first] = rankDocsContexts({ content: docsContent[locale], query })
+    assert.equal(first.slug, 'agent-security-runtime')
   }
 })
 

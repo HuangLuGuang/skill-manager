@@ -16,9 +16,12 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
+from ..api_errors import ApiError
 from ..config import settings
 from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
+from ..runtime_trace_schemas import RuntimeTraceInternalEvent
 from ..security_audit import append_security_audit
+from ..services.runtime_traces import best_effort_trace_publisher, publish_events_best_effort
 from ..sqlite_db import get_db
 from .access_tokens import (
     _json_loads,
@@ -28,7 +31,6 @@ from .access_tokens import (
 )
 from .llm_gateway import _mask_secret, _protect_secret, _unprotect_secret
 
-
 admin_router = APIRouter(prefix="/mcp", tags=["mcp-admin"])
 runtime_router = APIRouter(prefix="/mcp", tags=["mcp-gateway"])
 MCP_PROTOCOL_VERSION = "2025-11-25"
@@ -36,6 +38,79 @@ SUPPORTED_MCP_PROTOCOL_VERSIONS = {MCP_PROTOCOL_VERSION, "2025-06-18", "2025-03-
 APPROVAL_REQUEST_TTL_SECONDS = 600
 MAX_PENDING_APPROVALS_PER_TOKEN = 100
 logger = logging.getLogger(__name__)
+
+
+@best_effort_trace_publisher
+def _publish_mcp_runtime_trace(
+    db: Session,
+    *,
+    token: models.AccessToken,
+    meta: dict,
+    request_id,
+    gateway_slug: str,
+    tool_name: str,
+    arguments: dict | None = None,
+    result: dict | None = None,
+    error: str | None = None,
+    error_code: str | None = None,
+    schema_hash: str | None = None,
+    approval_request_id: str | None = None,
+    duration_ms: float = 0.0,
+) -> None:
+    call_id = str(meta.get("call_id") or request_id or f"mcp_{uuid.uuid4().hex}")[:128]
+    trusted_agent_id = token.bound_agent_id if token.token_type == "agent_runtime" else None
+    common = {
+        "trace_id": meta.get("trace_id") if trusted_agent_id else None,
+        "tenant_id": str(token.group_id) if token.group_id is not None else "default",
+        "agent_id": trusted_agent_id,
+        "session_id": str(meta.get("session_id") or f"mcp-token-{token.id}"),
+        "owner_user_id": token.user_id,
+        "owner_group_id": token.group_id,
+        "source": "mcp_gateway",
+        "turn_id": meta.get("turn_id"),
+        "step_id": meta.get("step_id"),
+        "request_id": str(request_id) if request_id is not None else None,
+        "call_id": call_id,
+        "parent_call_id": meta.get("parent_call_id"),
+        "tool_name": tool_name or None,
+    }
+    events = [
+        RuntimeTraceInternalEvent(
+            **common,
+            type="mcp.call",
+            status="submitted" if not error else "denied",
+            risk_codes=[error_code] if error_code else [],
+            payload={
+                "gateway": gateway_slug,
+                "tool": tool_name,
+                "arguments": arguments or {},
+                "schema_hash": schema_hash,
+                "approval_request_id": approval_request_id,
+                "error_code": error_code,
+            },
+        )
+    ]
+    if approval_request_id:
+        events.append(
+            RuntimeTraceInternalEvent(
+                **common,
+                type="approval.requested" if error and "等待" in error else "approval.resolved",
+                status="pending" if error and "等待" in error else ("denied" if error else "approved"),
+                payload={"approval_request_id": approval_request_id, "message": error},
+            )
+        )
+    events.append(
+        RuntimeTraceInternalEvent(
+            **common,
+            type="mcp.error" if error else "mcp.result",
+            status="error" if error else "completed",
+            risk_codes=[error_code] if error_code else [],
+            duration_ms=max(0.0, duration_ms),
+            payload={"result": result} if not error else {"error": error, "error_code": error_code},
+            redacted_payload={"result": result} if not error else {"error": "[mcp-error]", "error_code": error_code},
+        )
+    )
+    publish_events_best_effort(db, events)
 
 
 def _json(value: str | None, default):
@@ -152,6 +227,7 @@ def _tool_response(row: models.McpTool) -> schemas.McpToolResponse:
         input_schema=_json(row.input_schema_json, {}),
         schema_hash=row.schema_hash,
         enabled=row.enabled,
+        access_mode=row.access_mode,
         risk_level=row.risk_level,
         rate_limit_per_minute=row.rate_limit_per_minute,
         max_concurrent=row.max_concurrent,
@@ -200,6 +276,9 @@ def _gateway_response(db: Session, row: models.McpGateway) -> schemas.McpGateway
         slug=row.slug,
         name=row.name,
         description=row.description,
+        environment=row.environment,
+        execution_mode=row.execution_mode,
+        production_tool_denylist=_json(row.production_tool_denylist_json, []),
         status=row.status,
         bindings=[_binding_response(db, binding) for binding in bindings],
         created_by=row.created_by,
@@ -230,6 +309,63 @@ def _save_bindings(db: Session, gateway: models.McpGateway, bindings: list[schem
                 ),
             )
         )
+
+
+def _bound_gateway_tool_names(db: Session, gateway: models.McpGateway) -> set[str]:
+    db.flush()
+    names: set[str] = set()
+    bindings = db.query(models.McpGatewayBinding).filter(models.McpGatewayBinding.gateway_id == gateway.id).all()
+    for binding in bindings:
+        server = db.query(models.McpServer).filter(models.McpServer.id == binding.server_id).first()
+        if server:
+            names.update(f"{server.slug}__{name}" for name in _json(binding.allowed_tools_json, []))
+    return names
+
+
+def _apply_gateway_execution_policy(
+    db: Session,
+    gateway: models.McpGateway,
+    *,
+    environment: str,
+    execution_mode: str,
+    production_tool_denylist: list[str],
+) -> None:
+    if environment == "production" and execution_mode == "active_full":
+        raise ApiError(
+            422,
+            "mcp.production_active_full_forbidden",
+            "生产 MCP 网关禁止使用完整主动模式",
+            "Active-full mode is forbidden for production MCP gateways",
+        )
+    normalized = list(dict.fromkeys(item.strip() for item in production_tool_denylist if item.strip()))
+    invalid = sorted(set(normalized) - _bound_gateway_tool_names(db, gateway))
+    if invalid:
+        raise ApiError(
+            422,
+            "mcp.production_tool_denylist_invalid",
+            "生产 Tool denylist 包含未绑定到当前网关的 Tool",
+            "The production Tool denylist contains tools not bound to this gateway",
+            params={"invalid_tools": invalid},
+        )
+    gateway.environment = environment
+    gateway.execution_mode = execution_mode
+    gateway.production_tool_denylist_json = json.dumps(normalized, ensure_ascii=False)
+
+
+def _runtime_tool_policy_denial(
+    gateway: models.McpGateway,
+    tool: models.McpTool,
+) -> tuple[int, str, str] | None:
+    if gateway.environment == "production" and gateway.execution_mode == "active_full":
+        return -32005, "生产 MCP 网关禁止使用完整主动模式", "mcp.production_active_full_forbidden"
+    if gateway.execution_mode == "passive":
+        return -32005, "被动 MCP 网关禁止调用 Tool", "mcp.tool_blocked_by_passive_mode"
+    if gateway.execution_mode == "read_only" and tool.access_mode != "read":
+        return -32005, "只读 MCP 网关禁止调用非只读 Tool", "mcp.write_tool_blocked_by_read_only_mode"
+    denylist = set(_json(gateway.production_tool_denylist_json, []))
+    if gateway.environment == "production" and tool.exposed_name in denylist:
+        return -32006, "Tool 已被生产环境 denylist 阻断", "mcp.tool_blocked_by_production_denylist"
+    return None
 
 
 def _parse_upstream_response(response: httpx.Response, request_id=None) -> dict:
@@ -473,10 +609,11 @@ async def update_tool_policy(
     tool = db.query(models.McpTool).filter(models.McpTool.id == tool_id).first()
     if not tool:
         raise HTTPException(status_code=404, detail="MCP Tool 不存在")
+    tool.access_mode = body.access_mode
     tool.risk_level = body.risk_level
     tool.rate_limit_per_minute = body.rate_limit_per_minute
     tool.max_concurrent = body.max_concurrent
-    tool.requires_approval = body.requires_approval or body.risk_level == "high"
+    tool.requires_approval = body.requires_approval or body.risk_level == "high" or body.access_mode == "destructive"
     db.commit()
     db.refresh(tool)
     return _tool_response(tool)
@@ -826,6 +963,8 @@ async def create_gateway(
         slug=body.slug,
         name=body.name.strip(),
         description=body.description,
+        environment=body.environment,
+        execution_mode=body.execution_mode,
         status=body.status,
         created_by=current_user.username,
     )
@@ -834,6 +973,13 @@ async def create_gateway(
     db.add(row)
     db.flush()
     _save_bindings(db, row, body.bindings)
+    _apply_gateway_execution_policy(
+        db,
+        row,
+        environment=body.environment,
+        execution_mode=body.execution_mode,
+        production_tool_denylist=body.production_tool_denylist,
+    )
     db.commit()
     db.refresh(row)
     return _gateway_response(db, row)
@@ -849,12 +995,26 @@ async def update_gateway(gateway_id: int, body: schemas.McpGatewayUpdate, db: Se
         raise HTTPException(status_code=400, detail="MCP 网关标识创建后不可修改")
     data.pop("slug", None)
     bindings = data.pop("bindings", None)
+    production_tool_denylist = data.pop("production_tool_denylist", None)
+    environment = data.pop("environment", row.environment)
+    execution_mode = data.pop("execution_mode", row.execution_mode)
     if "name" in data and not data["name"].strip():
         raise HTTPException(status_code=400, detail="MCP 网关名称不能为空")
     for field, value in data.items():
         setattr(row, field, value.strip() if field == "name" else value)
     if bindings is not None:
         _save_bindings(db, row, [schemas.McpGatewayBindingInput(**item) for item in bindings])
+    _apply_gateway_execution_policy(
+        db,
+        row,
+        environment=environment,
+        execution_mode=execution_mode,
+        production_tool_denylist=(
+            production_tool_denylist
+            if production_tool_denylist is not None
+            else _json(row.production_tool_denylist_json, [])
+        ),
+    )
     row.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(row)
@@ -1308,7 +1468,7 @@ async def invoke_gateway(
                         "inputSchema": _json(tool.input_schema_json, {}),
                     }
                     for _server, tool, approved_hash in tools
-                    if approved_hash == tool.schema_hash
+                    if approved_hash == tool.schema_hash and _runtime_tool_policy_denial(gateway, tool) is None
                 ]
             },
         }
@@ -1316,6 +1476,7 @@ async def invoke_gateway(
     params = body.get("params") or {}
     if not isinstance(params, dict):
         return _jsonrpc_error(request_id, -32602, "Invalid params")
+    approval_meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
     exposed_name = str(params.get("name", ""))
     match = next((item for item in tools if item[1].exposed_name == exposed_name), None)
     if not match:
@@ -1327,8 +1488,37 @@ async def invoke_gateway(
             "Tool 未授权或不存在",
             server_slug=exposed_name.partition("__")[0] or None,
         )
+        _publish_mcp_runtime_trace(
+            db, token=token, meta=approval_meta, request_id=request_id,
+            gateway_slug=gateway.slug, tool_name=exposed_name, error="Tool 未授权或不存在",
+        )
         return _jsonrpc_error(request_id, -32602, "Tool 未授权或不存在")
     server, tool, approved_hash = match
+    policy_denial = _runtime_tool_policy_denial(gateway, tool)
+    if policy_denial:
+        rpc_code, error, error_code = policy_denial
+        _record_denied_call(
+            db,
+            token,
+            gateway.slug,
+            tool.name,
+            error,
+            server_slug=server.slug,
+            schema_hash=tool.schema_hash,
+        )
+        _publish_mcp_runtime_trace(
+            db,
+            token=token,
+            meta=approval_meta,
+            request_id=request_id,
+            gateway_slug=gateway.slug,
+            tool_name=tool.name,
+            arguments=params.get("arguments") if isinstance(params.get("arguments"), dict) else {},
+            error=error,
+            error_code=error_code,
+            schema_hash=tool.schema_hash,
+        )
+        return _jsonrpc_error(request_id, rpc_code, error, {"error_code": error_code})
     if approved_hash != tool.schema_hash:
         _record_denied_call(
             db,
@@ -1338,6 +1528,11 @@ async def invoke_gateway(
             "Tool Schema 已变化，需要重新审核",
             server_slug=server.slug,
             schema_hash=tool.schema_hash,
+        )
+        _publish_mcp_runtime_trace(
+            db, token=token, meta=approval_meta, request_id=request_id,
+            gateway_slug=gateway.slug, tool_name=tool.name,
+            error="Tool Schema 已变化，需要重新审核", schema_hash=tool.schema_hash,
         )
         return _jsonrpc_error(request_id, -32001, "Tool Schema 已变化，需要重新审核")
     arguments = params.get("arguments") or {}
@@ -1353,9 +1548,13 @@ async def invoke_gateway(
             server_slug=server.slug,
             schema_hash=tool.schema_hash,
         )
+        _publish_mcp_runtime_trace(
+            db, token=token, meta=approval_meta, request_id=request_id,
+            gateway_slug=gateway.slug, tool_name=tool.name, arguments=arguments,
+            error="Tool 参数不符合 Schema", schema_hash=tool.schema_hash,
+        )
         return _jsonrpc_error(request_id, -32602, "Tool 参数不符合 Schema", exc.message)
 
-    approval_meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
     approval_error, approval_data, approval_request_id = _consume_tool_approval(
         db,
         token=token,
@@ -1373,12 +1572,24 @@ async def invoke_gateway(
             server_slug=server.slug, schema_hash=tool.schema_hash,
             approval_request_id=approval_request_id,
         )
+        _publish_mcp_runtime_trace(
+            db, token=token, meta=approval_meta, request_id=request_id,
+            gateway_slug=gateway.slug, tool_name=tool.name, arguments=arguments,
+            error=approval_error, schema_hash=tool.schema_hash,
+            approval_request_id=approval_request_id,
+        )
         return _jsonrpc_error(request_id, -32002, approval_error, approval_data)
     if _tool_rate_limit_exceeded(db, tool):
         error = "MCP Tool 每分钟调用次数已达上限"
         _record_denied_call(
             db, token, gateway.slug, tool.name, error,
             server_slug=server.slug, schema_hash=tool.schema_hash,
+            approval_request_id=approval_request_id,
+        )
+        _publish_mcp_runtime_trace(
+            db, token=token, meta=approval_meta, request_id=request_id,
+            gateway_slug=gateway.slug, tool_name=tool.name, arguments=arguments,
+            error=error, schema_hash=tool.schema_hash,
             approval_request_id=approval_request_id,
         )
         return _jsonrpc_error(request_id, -32003, error)
@@ -1396,6 +1607,7 @@ async def invoke_gateway(
     )
     acquire_access_token_slot(token)
     tool_lease_id = None
+    trace_result = None
     try:
         try:
             tool_lease_id = acquire_lease(
@@ -1406,6 +1618,7 @@ async def invoke_gateway(
             audit.error = "MCP Tool 并发调用数已达上限"
             return _jsonrpc_error(request_id, -32004, audit.error)
         upstream = await _call_upstream(server, "tools/call", {"name": tool.name, "arguments": arguments})
+        trace_result = upstream
         audit.status = "error" if upstream.get("error") else "success"
         if upstream.get("error"):
             audit.error = str(upstream["error"].get("message", "上游 MCP 返回错误"))[:1000]
@@ -1421,3 +1634,17 @@ async def invoke_gateway(
         audit.duration_ms = round((time.perf_counter() - started) * 1000, 2)
         db.add(audit)
         db.commit()
+        _publish_mcp_runtime_trace(
+            db,
+            token=token,
+            meta=approval_meta,
+            request_id=request_id,
+            gateway_slug=gateway.slug,
+            tool_name=tool.name,
+            arguments=arguments,
+            result=trace_result,
+            error=audit.error,
+            schema_hash=tool.schema_hash,
+            approval_request_id=approval_request_id,
+            duration_ms=audit.duration_ms,
+        )

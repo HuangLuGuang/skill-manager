@@ -1,0 +1,35 @@
+app:
+  description: Synthetic fixture for the read-only collector
+  mode: advanced-chat
+  name: Customer support assistant
+kind: app
+version: 0.3.0
+workflow:
+  graph:
+    edges: []
+    nodes:
+      - id: llm-1
+        data:
+          type: llm
+          title: Answer customer
+          prompt_template:
+            - role: system
+              text: Answer only from approved support material.
+            - role: user
+              text: "{{#sys.query#}}"
+      - id: knowledge-1
+        data:
+          type: knowledge-retrieval
+          title: Product knowledge
+          dataset_ids:
+            - dataset-product-docs
+          retrieval_mode: multiple
+      - id: tool-1
+        data:
+          type: tool
+          title: Search tickets
+          provider_id: support/ticketing
+          provider_name: ticketing
+          provider_type: builtin
+          tool_name: search_tickets
+          tool_label: Search tickets

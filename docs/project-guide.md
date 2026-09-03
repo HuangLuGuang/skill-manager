@@ -12,29 +12,34 @@
 
 如果你第一次接触这个项目，先看这份文档，再按需要跳转到更细的专题文档。
 
+当前正在执行的下一版本建设清单见 [智能体安全平台下一版本实施计划](agent-security-vnext-implementation-plan.md)。该清单按实现和验收进度逐项勾选。
+
 ---
 
 ## 1. 项目定位
 
-Agent Manager 不是一个“帮你写 skill 的平台”，而是一个：
+Agent Manager 不是一个“帮你写 Skill 的平台”，也不再只是 Skill 扫描器。它是面向 AI Agent
+全生命周期的治理平台，当前包含：
 
-- `skill 准入中心`
-- `skill 风险治理中心`
-- `skill 运行时验票中心`
+- `Skill 准入、签名和运行时验票`
+- `Agent、MCP、大模型与 AI 基础设施风险扫描`
+- `模型网关和 MCP 能力治理`
+- `统一调用轨迹、证据和运行时控制`
+- `客户侧 Agent/Skill 接管和持续完整性巡检`
 
-它服务的对象不是普通软件包，而是 AI Agent 的技能包，也就是一组本地文件：
+Skill 治理服务的对象不是普通软件包，而是 AI Agent 的技能目录，也就是一组本地文件：
 
 - `SKILL.md`
 - `scripts/`
 - `references/`
 - 其他资源文件
 
-项目的核心目标是：
+平台的核心目标是：
 
-1. skill 先审查再使用
-2. skill 内容批准后不能被偷偷改
-3. skill 在运行时只能调用被允许的 tool
-4. 风险和审计过程可追踪、可撤销
+1. Skill 先审查再使用，批准内容被修改后不能继续冒充可信版本。
+2. Agent、MCP、大模型和 AI 基础设施扫描只能针对已授权目标，并受环境、能力、预算、审批和 Kill Switch 约束。
+3. 模型和 Tool 调用经过最小权限凭证、隐私保护、Schema 与高风险审批治理。
+4. 调用链、Finding、证据、报告规则和审计事件可关联、可复核；没有证据时明确显示“未验证”。
 
 ---
 
@@ -59,6 +64,62 @@ Agent Manager 用一套“提交、扫描、审批、签名、运行时校验、
 - 模型响应会按会话映射还原后再返回给调用方。
 - 管理台可以通过“隐私链路追踪”查看 Prompt 防护、脱敏、压缩、模型响应和最终还原结果。
 - Prompt 不再作为独立上传资产进入主流程；提示词注入、系统提示词泄露、凭据外传等风险在模型网关运行时检测。
+
+### 2.1 当前产品能力地图
+
+| 能力域 | 管理台入口 | 当前已启用能力 | 明确边界 |
+|---|---|---|---|
+| Skill 治理 | 能力治理 → Skill 治理 | 提交、扫描、版本、审核、签名、部署、运行验签、PDF 报告 | Sandbox 和 LLM 是辅助信号，不能单独证明安全 |
+| 智能体安全扫描 | 智能体安全 → 扫描管理 | Agent 动态风险扫描、MCP 元数据扫描、大模型红队、AI 基础设施指纹/CVE 扫描、预览、审批、Kill Switch、Finding、对比和报告 | MCP 扫描不执行 `tools/call`；动态扫描只覆盖真实执行并留有证据的输入与目标 |
+| 统一调用轨迹 | 智能体安全 → 调用轨迹 | 对话/轨迹双视图、Turn/Step/Call 层级、证据搜索、Finding 跳转、脱敏和受控原始导出 | 缺少 SDK 事件时保持部分轨迹，不补造 Turn/Step |
+| 模型治理 | 模型网关 | 供应商、模型、最小权限调用凭证、Prompt 防护、PII 伪匿名、可选压缩、用量与隐私链路 | 原始 PII 只允许受控角色查看，不进入普通日志 |
+| MCP 治理 | 能力治理 → MCP 治理 | Server 发现、虚拟 Gateway、Tool Schema、读写属性、审批、限流、生产禁用清单和审计 | 不托管 stdio MCP；生产环境禁止 `active_full` |
+| 客户端治理 | 智能体管理 → 客户端管理 | Agent/Skill 发现、接管、版本安装、巡检、隔离、恢复和模型切换 | Agent 最终仍加载本地目录；客户端凭证不能直接调用模型或 MCP |
+| 证据与审计 | 安全审计、扫描报告、调用轨迹 | 哈希链、Ed25519 签名、版本化规则、TC260 能力映射和脱敏证据 | 能力映射不是目标合规结论，未逐项测评时保持“未验证” |
+
+页面功能默认开启，不需要在 `.env` 增加启用开关。运行 Worker、访问模型或调用目标所需的 Token、
+API Key 和授权仍必须单独配置；“页面可见”不等于“外部目标已经验收”。
+
+### 2.2 三条核心业务流程
+
+三条流程可以独立使用，也可以通过 `trace_id`、`event_id`、任务 ID、用例 ID 和 Finding ID 形成证据闭环：
+
+```mermaid
+flowchart LR
+    subgraph SkillFlow["Skill 准入链"]
+      S1["提交 Skill"] --> S2["多分析器扫描"] --> S3{"策略判定"}
+      S3 -->|APPROVED| S4["签名与部署"]
+      S3 -->|VETTED| S5["人工审核"] --> S4
+      S3 -->|REJECTED| S6["拒绝加载"]
+      S4 --> S7["Agent 加载前验签与 Tool 校验"]
+    end
+
+    subgraph ScanFlow["Agent / MCP 测评链"]
+      A1["登记授权目标与凭据"] --> A2["配置环境、能力和预算策略"] --> A3["只读执行预览"]
+      A3 --> A4{"生产主动扫描?"}
+      A4 -->|是| A5["单次人工审批"] --> A6["创建任务"]
+      A4 -->|否| A6
+      A6 --> A7["隔离 Worker 执行"] --> A8["用例、Finding、报告与版本对比"]
+    end
+
+    subgraph RuntimeFlow["运行治理与证据链"]
+      R1["Agent SDK / 模型网关 / MCP 网关"] --> R2["统一脱敏事件"] --> R3["对话与调用轨迹"]
+      R3 --> R4["风险、审批、阻断和 Kill Switch 证据"] --> R5["受控导出与审计"]
+    end
+
+    A8 -. "精确证据关联" .-> R3
+    S7 -. "运行事件" .-> R2
+```
+
+实际操作顺序：
+
+1. 平台管理员先配置用户组、最小权限凭证、模型/MCP 资源和审计密钥。
+2. Skill 管理员完成 Skill 准入；Agent 管理员完成客户端或外部 Agent 的运行身份绑定。
+3. 安全管理员在“扫描管理”登记目标和加密凭据，选择与目标环境及授权能力匹配的策略，先预览再创建任务。
+4. 生产环境的 `active_safe` 扫描必须在维护窗口内使用绑定目标、策略和当前凭据版本的单次审批；`active_full` 被拒绝。
+5. Worker 领取不可变任务快照并执行；操作员可以取消任务，管理员可在紧急情况下启用不可撤销的任务级 Kill Switch。
+6. 安全审计人员在 Finding、版本对比、TC260 能力矩阵和调用轨迹中复核证据。任务成功或零 Finding 都不自动等于“安全”。
+7. 修复后使用同目标、同类型、同覆盖和同引擎的较新任务复测；条件不一致时结果显示“无法复测”，不冒充“已修复”。
 
 ---
 
@@ -187,18 +248,29 @@ flowchart TB
       Client["Agent 与客户端治理<br/>发现 → 绑定 → 下发 / 恢复<br/>Verifier / Hook 运行校验"]
       Model["模型网关<br/>凭证与模型范围 → Prompt 防护<br/>PII 替换 → 可选压缩 → 上游模型"]
       MCP["MCP 网关<br/>凭证与网关范围 → Tool Schema<br/>并发控制 → 高风险审批 → MCP Server"]
+      AgentScan["Agent / MCP 安全扫描<br/>目标与策略 → 预览 / 审批<br/>隔离 Worker → Finding / 报告"]
+      RuntimeTrace["统一调用轨迹<br/>SDK · 模型 · MCP · 治理事件<br/>脱敏查询 → 证据关联 / 导出"]
     end
     Control --> Skill
     Control --> Client
     Control --> Model
     Control --> MCP
+    Control --> AgentScan
+    Control --> RuntimeTrace
 
     Sandbox["隔离 Sandbox / nsjail"]
+    SecurityWorker["Agent Security Worker<br/>非 root · 只读 · 资源限制"]
     Upstream["外部模型供应商"]
     Servers["外部 MCP Server"]
+    Targets["经授权的 Agent 目标"]
     Skill -. "动态检测" .-> Sandbox
+    AgentScan --> SecurityWorker
+    SecurityWorker --> Targets
     Model --> Upstream
     MCP --> Servers
+    Model -. "模型事件" .-> RuntimeTrace
+    MCP -. "Tool 事件" .-> RuntimeTrace
+    AgentScan -. "Finding 证据" .-> RuntimeTrace
 
     subgraph Evidence["信任与证据基础"]
       Registry["Registry、内容版本、指纹、状态与签名"]
@@ -209,6 +281,8 @@ flowchart TB
     Client --> Evidence
     Model --> Evidence
     MCP --> Evidence
+    AgentScan --> Evidence
+    RuntimeTrace --> Evidence
 ```
 
 帮助中心首页使用同一架构边界绘制可响应的中英文架构图。图中的控制面负责准入、授权、
@@ -252,6 +326,10 @@ flowchart TB
   内置模型网关、OpenAI-compatible 代理、PII 伪匿名、Trace 与管理 API
 - [backend/routers/mcp_gateway.py](../backend/routers/mcp_gateway.py)
   MCP Server 发现、虚拟网关、Tool 路由、凭证校验与调用审计
+- [backend/routers/security_scans.py](../backend/routers/security_scans.py)
+  Agent/MCP 安全目标、策略、审批、任务、Worker 协议、Finding、报告和 Kill Switch
+- [backend/routers/runtime_traces.py](../backend/routers/runtime_traces.py)
+  统一调用轨迹、事件查询、证据导出、留存清理和指标
 
 ### 5.3 管理台前端
 
@@ -268,11 +346,19 @@ flowchart TB
   查看隐私路由四阶段报文
 - [web/src/views/McpGateway.vue](../web/src/views/McpGateway.vue)
   MCP Server、虚拟网关和调用审计管理
+- [web/src/views/AgentSecurityScans.vue](../web/src/views/AgentSecurityScans.vue)
+  Agent/MCP 扫描目标、策略、任务、Finding 和报告工作台
+- [web/src/views/AgentSecurityBaseline.vue](../web/src/views/AgentSecurityBaseline.vue)
+  Agent Security 与 Runtime Trace 锁定版本和能力边界
+- [web/src/views/RuntimeTraceExplorer.vue](../web/src/views/RuntimeTraceExplorer.vue)
+  对话/轨迹双视图、证据搜索、Finding 关联和受控导出
 
 ### 5.4 独立执行服务
 
 - [services/isolated-sandbox-service/app.py](../services/isolated-sandbox-service/app.py)
   生产版远程 sandbox 服务基线
+- [services/agent-security-worker/worker.py](../services/agent-security-worker/worker.py)
+  独立安全扫描 Worker，负责租约、心跳、Agent Scan/MCP 元数据 Adapter 和结果回传
 
 ### 5.5 客户侧扫描器
 
@@ -289,7 +375,7 @@ flowchart TB
 
 ---
 
-## 6. 一条 Skill 的生命周期
+## 6. 核心业务流程
 
 ```mermaid
 sequenceDiagram
@@ -324,7 +410,7 @@ sequenceDiagram
     API-->>Agent: 允许 / 拦截
 ```
 
-# 6.1 提交
+### 6.1 Skill 提交
 
 当前主要提交入口：
 
@@ -404,6 +490,584 @@ agent 接入时一般用：
 - `verify-skill-signature`
 - `can-load`
 - `check-tool`
+
+### 6.7 四类安全扫描目标与执行引擎
+
+平台在 P1 控制面之上支持 `agent`、`mcp`、`llm` 和 `ai_infrastructure` 四类资产。Agent 与 MCP
+使用 Worker 内置的锁定适配器；大模型红队和 AI 基础设施扫描通过仅在内部网络开放、需要服务 Token
+认证的固定 AI-Infra-Guard `v4.6.0` 服务执行。当前可用能力包括：
+
+- Agent 可选择 Dify、Coze、OpenAI-compatible、通用 HTTP 或 WebSocket 连接器；MCP 关联现有 Gateway；
+  LLM 使用 OpenAI-compatible 模型端点；AI 基础设施使用一个或多个经过显式授权的网络端点。资产类型和
+  连接器类型是独立稳定字段，旧 `target_type` 只作为兼容投影返回。
+- 大模型红队支持锁定数据集或单条自定义 Prompt、固定随机种子、限制后的攻击技术和独立评估模型。每个
+  实际执行并完成评估的 Prompt 生成一个 Case；`passed` 只表示该次攻击未观察到越狱，`failed` 表示评估器
+  检出越狱信号，异常或缺少评估证据保持 `error/unverified`。原始 Prompt/Response 不进入普通日志或列表。
+- AI 基础设施扫描会主动访问用户明确授权的 URL，并在任务创建和实际下发前重复校验 HTTP 授权、DNS
+  解析结果、目标 CIDR 与策略 CIDR。只有同时具备组件、具体版本和版本规则命中的 CVE 才生成 Finding；
+  只有端口或无法确认版本的指纹必须显示 `unverified`，不能推断为漏洞或安全。
+
+- 安全目标、加密凭据、扫描策略、扫描任务、用例、Finding 和产物模型。
+- 新扫描按所选 detection skill 生成独立用例，而不是把完整对话轨迹作为唯一“通过”用例。每条规则保存稳定
+  `aig-rule:<skill-name>`、Worker 阶段、实际目标调用数、确认 Finding 数和脱敏错误。`passed` 仅表示该规则
+  正常完成、至少发生一次目标调用且本次未观察到关联风险；`unverified` 表示没有目标调用或缺少逐规则执行证据。
+  对话 transcript 只保存在受控的 `aig-agent-scan-report` 产物中，不计入规则通过数。
+- Finding 只通过 Worker 上下文生成的 opaque source reference 关联 detection skill；Reviewer 返回的引用必须能在
+  Worker 持有的映射中解析，否则关联到独立的 `unmapped` 证据不足用例，不按标题或描述猜测来源。
+- 本行为只适用于新扫描。历史数据库记录和缺少 `detection_executions` 的旧报告不会自动重算，也不会展开成虚假
+  passed 用例；查看这类结果时统一保持 `unverified` 语义。
+- 任务幂等创建、查询、取消、超时、租约、心跳、失败重试和僵尸任务回收。
+- 独立 `agent-manager-security-worker` 镜像，以及 `control_plane_validation` 和
+  `agent_risk_scan` 两类任务。
+- Dify、Coze、OpenAI-compatible、Anthropic、Google、Cohere、Hugging Face、Replicate、
+  通用 HTTP/WebSocket 等锁定版本声明的 21 类 Provider。
+- 单轮、多轮、前序任务会话延续和显式会话重置；请求和响应证据按用例、轮次归一化保存。
+- 扫描目标和策略均保存稳定环境编码 `sandbox`、`test`、`staging` 或 `production`；目标声明授权能力，
+  策略声明本次允许能力。创建任务时服务端要求环境一致，并拒绝策略能力超出目标授权范围。
+- 当前允许能力编码为 `conversation`、`multi_turn`、`tool_read`、`tool_write`、`network_egress`、
+  `file_read`、`file_write`、`code_execution` 和 `persistent_memory`。任务创建后会把目标、策略和
+  两者交集形成不可变快照并下发给 Worker，同时写入安全审计。
+- 生产环境禁止 `active_full`。策略创建、策略更新和任务创建入口都会返回稳定错误码
+  `agent_security.production_active_full_forbidden`；因此历史数据库中遗留的非法策略也不能用于新任务。
+- 生产环境使用 `active_safe` 时，策略必须同时配置精确目标 ID 白名单、开始和结束时间明确且最长 24 小时的
+  UTC 维护窗口，以及不包含凭据明文的专用身份引用。服务端在策略创建、更新、审批和任务创建入口重复校验。
+- 每次生产 `active_safe` 任务必须携带管理员签发的单次人工审批。审批绑定目标、策略、维护窗口、专用身份、
+  当前活动凭据 ID 和版本；只能在维护窗口内使用，成功创建一个任务后即标记为已使用。相同幂等键的请求
+  可以安全重试，但审批不能用于其他任务、目标或凭据版本。任务超时不会超过维护窗口结束时间；任务创建后
+  如果目标凭据发生轮换，Worker 领取时会以 `agent_security.production_dedicated_credential_changed` 阻断。
+  这里的“专用身份”是可审计引用，真正认证仍使用目标单独加密保存的活动凭据；Tool denylist 属于 P6-04。
+- 轮次、Token、费用、并发、持续时间和响应字节六类预算；超过任一预算后不再允许新工作。
+- URL/CIDR、云元数据、DNS Pin 和出站策略双重校验。公网默认允许；内网目标必须同时在
+  目标和扫描策略中显式允许，云元数据地址不能通过白名单绕过。
+- 管理员可管理目标、凭据、策略和 Worker；`security_auditor` 可只读查看；普通用户只能读取
+  或提交其本人/用户组被授权目标的任务。
+- 目标凭据使用 Fernet 加密，创建响应只展示一次明文，其余接口只返回掩码。领取 Agent 任务时，
+  Backend 生成与 Worker、任务、凭据和租约绑定的 X25519/AES-GCM 短期密封信封。
+- 上游风险映射为平台稳定风险编码；未知类型进入 `unmapped` 且最低按中风险处理。上游总分只作为
+  原始信号，不直接作为银行正式风险评级。
+- 原始 AIG 产物加密保存；普通任务详情只返回脱敏证据。原始内容只允许管理员或安全审计角色
+  显式读取，读取动作进入审计链。
+- 创建、更新、凭据轮换/吊销、任务创建/取消/导出和 Worker 操作进入防篡改安全审计链。
+
+主要管理 API 位于 `/api/v1/agent-security`：
+
+- `POST/GET/PATCH /targets`
+- `POST /targets/{target_id}/credentials`
+- `PATCH/POST /credentials/{credential_id}`
+- `POST/GET/PATCH /policies`
+- `POST/GET /scan-approvals`
+- `POST/GET /tasks`、`POST /tasks/{task_id}/cancel|export`、
+  `GET /tasks/{task_id}/compare/{baseline_task_id}`
+- `PATCH /findings/{finding_id}`、`GET /tasks/{task_id}/artifacts/{artifact_id}/content`
+- `POST/GET /workers`、`POST /workers/{worker_id}/revoke`
+
+Worker 数据面为 `/worker/key`、`/worker/heartbeat`、`/worker/claim`、
+`/worker/tasks/{task_id}/heartbeat|complete`，只接受创建 Worker 时生成的 `amsw_` Token。
+内置 Worker 可在项目根 `.env` 配置一次 `AGENT_SECURITY_WORKER_TOKEN`，Backend 建表后自动幂等注册，
+Compose 把同一个值注入 Worker；外部 Worker 仍可由管理 API 创建且只返回一次 `token_once`。
+数据库只保存 Worker Token 的 SHA-256。内置 Token 变化时保留 Worker ID 并清空旧公钥/心跳；
+已吊销身份不会被相同 Token 自动恢复。实际 Agent 扫描还需要配置评估模型，并且只能对经授权的
+目标执行；`control_plane_validation` 仍只证明控制面协议。完成接口在进入 Pydantic 解析前限制为
+16 MiB，成功结果还必须匹配任务类型对应的锁定引擎、版本、用例和产物契约，不能用任意成功 JSON
+绕过真实扫描结果校验。
+
+Worker 镜像内置健康检查和 SIGTERM 停止语义，Compose 默认使用非 root、
+只读根文件系统、`/tmp` tmpfs、无额外 capability、`no-new-privileges`、进程/内存/CPU 上限以及
+有界日志轮转。空闲控制面心跳和长任务成功续租都会刷新健康标记；控制面持续不可达时健康检查失败。
+同一任务重试时，轮次、Token、费用、最大并发和响应字节按任务累计；Worker 从领取响应中的已有用量
+继续计数，Backend 仍拒绝任何用量倒退。后台续租会容忍单次受控网络/解析错误并继续尝试，明确收到
+租约失效后阻止后续模型/目标请求；已经发出的请求仍由客户端超时边界结束。租约重试耗尽时保留已有原始错误码，仅在没有原错误时使用
+`agent_security.worker_lease_lost`。
+当前交付门禁已在 ARM64 构建机上原生构建 ARM64、通过容器模拟构建 x86_64，并分别执行压缩归档导出、
+移除标签、离线重新导入及 `--network none` 受限运行。正式离线发布流水线也会在加载两种架构归档后
+执行同一 Worker 门禁。该验证只覆盖安全 Worker 镜像；完整平台离线安装、真实 Compose 服务的中断、
+恢复和升级仍需要在目标部署环境单独验收，不能由镜像自检替代。
+
+P2 不包含 DeepSeek Harness 风格的完整调用轨迹；统一调用轨迹后端已在 P4 实现，P5-02 已提供
+“对话 / 轨迹”基础双视图，P5-03 已补充 Turn/Step 分组、调用树和状态，P5-04 已提供六页签脱敏事件
+详情，P5-05 已提供 Token 与真实采集的耗时信号，P5-06 已提供风险与治理标记，P5-07 已提供事件与 Finding 的显式双向跳转，P5-08 已提供五维证据搜索，P5-09 已提供大轨迹按需加载和虚拟滚动，P5-10 已提供受控证据导出，P5-11 已完成新增页面语义化中英文门禁，P5-12 已完成桌面与移动端布局总验收。当前事件轨仍不能表述成完整 Harness 前端能力。
+
+### 6.8 统一调用轨迹后端（P4）
+
+P4 提供 `runtime-trace@1` 统一事件模型，以及 Trace Session、Event、加密 Payload、幂等批次和
+导出记录。Agent SDK 上报 Turn、Step、Message、Tool 与知识检索事件；模型网关发布请求、响应、
+错误、Token、耗时和 Prompt Security；MCP 网关发布调用、结果、错误、Schema 和审批；Runtime
+Governance 发布策略决定、预算、阻断和终止事件。
+
+主要接口：
+
+- `POST /api/v1/runtime-traces`
+- `POST /api/v1/runtime-traces/{trace_id}/events:batch`
+- `GET /api/v1/runtime-traces`，支持 Session、Agent、时间、风险、Tool、request ID 查询
+- `GET /api/v1/runtime-traces/{trace_id}/events`
+- `GET /api/v1/runtime-traces/{trace_id}/events/{event_id}/raw-payload`
+- `POST /api/v1/runtime-traces/{trace_id}/exports`
+- `GET /api/v1/runtime-traces/metrics`
+- `POST /api/v1/runtime-traces/maintenance/cleanup`
+
+服务端 `seq` 只按接收顺序分配，客户端时钟只保留为 `event_time`。原始 Payload 使用平台密钥加密，
+普通查询只返回脱敏投影；原始查看和导出限管理员、隐私审计角色并写安全审计，安全审计角色只读取
+脱敏投影。过期轨迹在 Backend 启动时清理，并由运行期每小时留存任务继续清理；管理员接口用于手动
+补偿执行。网关事件发布失败不会阻塞主请求，但会计入失败指标。完整度只根据真实事件源计算为
+`full`、`gateway_partial`、`model_only` 或 `mcp_only`，不会为了展示效果伪造 Agent Step。
+
+外部 SDK 创建轨迹时留存期最多 30 天；单条轨迹最多接收 100,000 个事件和 256 MiB 原始 Payload。
+同步 JSON 导出最多包含 20,000 个事件或 64 MiB 原始 Payload，PDF 额外限制为 5,000 个事件；超过上限返回稳定错误，后续应由异步导出
+任务承接。上述是单轨迹保护，不等同于租户级磁盘配额；租户总量、速率和磁盘高水位属于后续生产
+加固范围。
+
+P7-04 增加了隔离数据库的有界负载回归：扫描领取会在并发请求下原子遵守 Worker `max_concurrency`；长会话结果覆盖 120 个用例、
+120 个 Finding、1200 轮计数和 2 MiB 加密产物；轨迹覆盖单请求最大 1000 事件批次、100 个 Turn 和 4 MiB 原始 Payload。每个 Agent 运行凭证
+仍先受 `max_body_kb` 约束，默认为 1024 KiB，管理端可配置范围为 1～10240 KiB；4 MiB 回归显式把隔离测试凭证设为 10240 KiB，没有绕过凭证边界。
+
+这些测试的 30 秒门槛只是用于发现明显的性能退化和死锁，不是 SLA、建议 P95 或生产容量。多实例、真实 Provider/工具、持续 30～60 分钟的稳态压测、
+CPU/内存/磁盘/SQLite 锁等指标，仍必须在银行验收环境记录，不能由单机 TestClient 结果推导。
+
+P4 的后端验收入口是 API、`demo/runtime-trace-sdk/` 和 `tests/test_runtime_traces.py`；P5-02 已在
+`/runtime-traces` 增加“对话 / 轨迹”双视图，P5-09 进一步使用事件游标分页；这些界面能力仍不属于 P4 后端范围。
+
+P7-01 新增 `demo/agent-security-full-integration/` 完整关联示例：Agent SDK 先创建 Trace 和 Turn/Step，知识检索只
+上报脱敏摘要；模型请求把关联字段放入 OpenAI-compatible `metadata`；本地 Tool 仅由 SDK 记录；MCP Tool 同时由
+SDK 和 MCP Gateway 使用相同 `call_id` 关联。高风险 Tool 返回待审批时示例立即停止，管理员批准后必须显式携带
+`approval_request_id` 再次运行，不会绕过审批。示例只输出关联 ID、状态和接收数量，不输出 Token、模型正文或
+Tool 结果。该 Demo 已通过确定性契约测试和真实网关模块回归，但没有使用客户的真实模型/MCP 凭证，不能替代
+客户环境实测。P7-03 已另行完成 Worker Finding 到轨迹证据的内部端到端验收。
+
+P7-02 新增 `demo/agent-security-gateway-only/` 部分轨迹示例，提供 `model`、`mcp` 和 `combined` 三种模式。
+它不调用 Runtime Trace SDK，也不发送 `turn_id` 或 `step_id`：只有模型事件时完整度为 `model_only`，只有 MCP
+事件时为 `mcp_only`，两类网关事件使用同一可信 Trace 但仍缺少 Agent SDK 时为 `gateway_partial`。可选的登录
+只读令牌只用于回查服务端完整度、事件来源和空层级；没有回查令牌时脚本返回 `submitted_unverified`，不会把网关
+请求成功冒充为完整度已经验证。自动化已覆盖真实持久化计算，但尚未在登录后的客户页面运行，因此不提前完成
+E2E-05。
+
+### 6.9 MCP Server 和 Tool 风险扫描（P3）
+
+P3 在同一 Worker 中新增 `mcp_risk_scan`，扫描对象直接绑定现有 MCP Gateway，不绑定 Agent。
+创建 `mcp_gateway` 类型安全目标时，`endpoint_url` 使用 `mcp-gateway://{gateway_slug}`，`config`
+只保存 `gateway_id`。创建任务时 Backend 冻结 Gateway、Server、允许暴露的 Tool、当前 Schema
+Hash、已批准 Schema Hash、风险等级和审批状态；Worker 不持有 MCP Server 凭据，也不重新连接
+Server。冻结前会删除描述和 Schema 中常见凭据/PII 值，生成限深、限长投影并保留原始内容
+SHA-256；已知危险信号在完整原文上先提取为无原文摘要。发生截断、丢项、限深或完整分析达到上限时，
+任务会生成 `mcp_metadata_projection_incomplete` 高风险 Finding，不能静默判定安全。Gateway 没有任何
+已绑定 Tool 时任务创建会失败，也不会形成“零 Finding 即安全”的假阴性。
+
+检测项包括：
+
+- Tool 描述中的模型指令、Prompt Injection 和工具投毒信号。
+- 命令、文件路径、外部地址、凭据、SQL 和金融账户/金额等危险参数。普通 `query` 只有同时存在
+  SQL、数据库、语句执行等上下文时才归类为查询执行信号；搜索关键词、`search query`、无数据库
+  上下文的 `filter query` 和仅凭字段名出现的 GraphQL query 不作该判定。
+- 写入、删除、执行、转账、支付、上传、发送和导出等副作用操作是否缺少高风险标记或审批。
+- 当前 Schema Hash 与 Gateway Binding 中已批准 Schema Hash 的漂移，以及绑定 Tool 丢失。
+
+锁定版 AI-Infra-Guard MCP Scan 的动态模式会真实调用远程 Tool。为满足生产默认安全边界，P3
+使用本平台元数据 Adapter，只引用上游分类体系中与元数据检查相关的标签及描述净化契约，不执行
+完整上游 MCP Scan。Adapter 强制使用 `metadata_snapshot_only`，不暴露 `tools/call`；报告固定记录
+`tool_calls_performed=0`，机器可读 `source` 也明确标识为平台元数据检查器。Finding 可生成 `require_approval`、
+`disable_tool`、`restrict_call_policy`、`review_schema` 等 `suggestion_only` 建议，但没有自动执行
+策略变更的接口。
+
+MCP Tool 用例保留旧版 `status=passed/failed` 字段供既有客户端兼容，但管理台和新版详情响应把
+语义拆为两层：`execution_status` 表示元数据分析是否完成、异常、阻断或证据不足；
+`assessment_status` 表示未观察到风险信号、发现待确认信号、误报、接受风险、已解决或证据不足。
+`failed` 兼容值在这里表示扫描规则命中，不表示 Tool 调用失败，也不表示漏洞已可利用。详情接口按
+当前关联 Finding 的 `open`、`false_positive`、`accepted`、`resolved` 状态实时计算评估摘要，人工
+处置不会修改原始加密扫描产物。即使任务成功且没有 Finding，也只能解释为“本次元数据快照未观察到
+风险信号”，不能解释为目标绝对安全。
+
+外部 URL 参数只说明存在外部地址输入面；报告会明确记录未执行 Tool、未确认 SSRF，并提示验证协议
+限制、DNS 重解析、私网地址拦截及 URL/UUID 绑定。扫描器同时记录已存在的审批、风险等级、访问模式、
+限流和并发限制等补偿控制；已经启用审批时不会重复建议 `require_approval`，但不会因此隐藏底层攻击面。
+`access_mode=unknown` 作为“访问模式尚未分类”的治理信号单独展示，不推断 Tool 具有破坏性。
+
+在现有任务、Finding 和加密产物 API 之外，可用：
+
+```http
+GET /api/v1/agent-security/tasks/{task_id}/mcp-assessment
+```
+
+该接口返回 Gateway/Server/Tool/Schema Hash 定位、检测结果和去重后的处置建议。它是扫描时快照，
+不等同于当前生产配置；是否审批、禁用或调整调用策略仍由管理员在现有 MCP 管理流程中决定。
+
+#### MCP Tool 读写边界和生产禁用清单（P6-04）
+
+MCP Server 完成 Tool 发现后，管理员需要在“能力治理 / MCP Server”中为每个 Tool 设置稳定的
+`access_mode`：`read`（只读）、`write`（写入）、`destructive`（破坏性）或 `unknown`（未分类）。
+平台不会仅凭 Tool 名称自动修改该属性；元数据扫描给出的副作用信号仍是处置建议。历史 Tool 默认迁移为
+`unknown`，因此只读网关按失败关闭原则拒绝它，而不是把未知能力当成只读。
+
+每个虚拟 MCP Gateway 同时保存可信的环境和执行模式：
+
+- `passive`：不发布、也不执行任何 Tool。
+- `read_only`：只发布和执行明确标记为 `read` 的 Tool；`unknown`、`write` 和 `destructive` 均被阻断。
+- `active_safe`：允许已发布 Tool 进入原有风险、审批、限流和并发控制；`destructive` 强制开启执行前审批。
+- `active_full`：保留给非生产受控环境，生产 Gateway 在创建和更新时均拒绝该模式；历史数据库中即使遗留
+  非法组合，运行入口也会隐藏并阻断全部 Tool。
+
+生产 Gateway 还可以配置按当前 `exposed_name` 精确匹配的 `production_tool_denylist`。配置项必须来自该
+Gateway 的实际绑定，删除绑定时也不能遗留无效项。命中的 Tool 会从 `tools/list` 隐藏，并在
+`tools/call` 的审批、限流和上游转发之前由服务端拒绝；拒绝结果写入 MCP 调用审计和 Runtime Trace，
+稳定错误码分别为 `mcp.tool_blocked_by_passive_mode`、`mcp.write_tool_blocked_by_read_only_mode` 和
+`mcp.tool_blocked_by_production_denylist`。调用方 `_meta` 中自报的环境或模式不参与判定。
+
+已有 Gateway 默认迁移为 `test + active_safe + 空 denylist`，避免升级后意外中断现有调用；管理员应按
+真实部署环境完成重新分类。创建 MCP 安全扫描目标时，目标环境必须与 Gateway 环境一致，扫描快照会冻结
+Gateway 环境、执行模式、生产 denylist 和各 Tool 的读写属性，防止用测试目标伪装生产 Gateway。
+
+#### 扫描任务执行预览（P6-05）
+
+管理台在创建任务前先调用：
+
+```http
+POST /api/v1/agent-security/tasks/preview
+```
+
+预览和正式创建复用同一套目标权限、目标/策略状态、环境、能力、扫描类型、会话继续、生产审批、DNS Pin
+和 MCP 快照校验。响应使用 `scan-preview@1`，展示目标与策略、计划用例、Tool 计划、六类主要预算、重试和
+任务超时、安全限制及预览边界。该调用只读：不会创建任务、不会消费生产单次审批、不会调用目标或 MCP Tool，
+附加测试 Prompt 只进入指纹计算，不会原样返回页面。
+
+不同扫描类型的预览精度不同：
+
+- 控制面验证是确定的单用例，不执行真实攻击或目标 Tool。
+- Agent 风险扫描可以确定信息收集、选中的检测 Skill 和风险复核三阶段，但具体攻击 Prompt、每个 Skill
+  的实际对话轮次以及目标 Agent 的本地 Tool 清单由 AI-Infra-Guard 在运行时生成。页面必须明确显示
+  “运行时动态”，不能把策略 `max_rounds` 冒充预计轮数。
+- MCP 风险扫描按冻结快照为每个绑定 Tool 生成确定的元数据检查用例，展示 Tool 读写属性和风险等级，
+  同时明确 `will_call=false` 和 `side_effect_tool_calls=forbidden`。
+
+服务端为预览返回 `preview_fingerprint`。管理台正式创建时回传该值；如果目标、策略、审批、扫描参数、MCP
+Tool 快照或预算已变化，创建入口以 `agent_security.scan_preview_stale` 拒绝并要求重新预览。为保持已有 API
+客户端兼容，未传指纹的直接创建请求仍按原有完整服务端校验执行；管理台则强制先生成有效预览才启用创建按钮。
+
+#### 扫描任务 Kill Switch（P6-06）
+
+任务级 Kill Switch 与普通“取消”是两种独立控制。只有管理员和超级管理员可以调用：
+
+```http
+POST /api/v1/agent-security/tasks/{task_id}/kill-switch
+Content-Type: application/json
+
+{"reason":"发现目标返回敏感数据"}
+```
+
+原因必填并进入安全审计。服务端保存启用状态、操作人、时间和原因，重复提交保持幂等；终止状态任务不能再启用。
+排队任务会立即进入 `cancelled`，停止原因为 `kill_switch.activated_before_start`，Worker 领取查询及原子更新均会
+排除该任务。运行任务先保留当前租约并标记 `kill_switch.activated`，Worker 在下一次心跳得到
+`continue_allowed=false` 后停止；即使 Worker 随后上报成功，服务端也不会覆盖 Kill Switch 的取消结果。Worker
+失联时，租约回收会把任务收敛为取消，而不会重新排队。
+
+Kill Switch 的真实中断边界是协作式停止：扫描运行时会在每次目标请求和评估请求前后执行心跳，因此启用后不会
+发起下一次请求。已经发出的远端请求无法由控制面安全地强制断开，它会按目标配置中的 `timeout_ms`（默认 30 秒）
+或评估器客户端自身的请求超时结束；请求返回后，任务时长和总超时校验继续阻止后续请求。管理台弹窗明确展示
+该限制，不能把“停止新请求”描述为“立即终止所有网络连接”。
+任务详情会显示操作人、启用时间和原因；审计事件使用稳定类型
+`security_scan_task.kill_switch_activated`，Worker 通过完成入口收敛时记录
+`security_scan_task.kill_switch_stopped`。
+
+#### OWASP ASI 风险编码映射（P6-07）
+
+平台将扫描 Finding 和运行事件的稳定内部风险码映射到 OWASP Agentic Security Initiative 的
+“Top Ten for Agentic Applications – 1st Public Draft”。当前基线固定到官方仓库 Commit
+`e1deaca619dd35608645c0ca8ffce1cc4a019193`，框架版本保存为 `first-public-draft`，平台映射规则版本保存为
+`agent-manager-asi-map@1`。这里不能简称为已经正式定稿的“OWASP ASI 2026”：上游当前公开材料仍明确标记为
+第一版公开草案，固定 Commit 和映射版本是为了让历史报告在上游调整编号或名称后仍可复核。
+
+映射只接受两类输入：合法的 `ASI01`～`ASI10` 编码，以及平台代码中逐项审核过的稳定风险码。平台不会从标题、
+描述、证据或任意上游字符串中做模糊猜测。未知风险码保持 `unmapped`；一组风险码中只有部分可映射时保存
+`partial`，不能因为其中一项命中就把整组描述为已覆盖。完整映射快照包含框架、上游 Commit、映射规则版本、
+源风险码、ASI 编码、双语分类名称和映射状态。
+
+- 扫描 Finding 保留原始 `finding_code`，并新增 `risk_codes`（只含已确认的 ASI 编码）和 `risk_mapping` 快照。
+- Runtime Trace 事件保留调用方提交的原始风险码，同时追加已确认的 ASI 编码；事件保存各自的
+  `risk_mapping` 快照，会话保存聚合后的风险码和 `risk_mapping_version`。
+- 管理台安全发现、扫描报告和调用轨迹以 `ASIxx · 分类名称` 展示中英文标签；无映射和历史无版本记录会明确提示，
+  不会用 ASI10 或其他类别兜底。
+
+P6-07 只建立版本化风险分类与展示追溯。它还不等于完整的报告判定口径快照：用例、证据和规则版本的逐项闭环
+仍由 P6-09/A6-04 验收，因此不能提前宣称每个报告风险已经满足完整审计追溯。
+
+#### 扫描版本对比报告（P6-08）
+
+同一目标、同一扫描类型的较新任务可以通过
+`GET /api/v1/agent-security/tasks/{task_id}/compare/{baseline_task_id}` 与更早任务比较。响应固定为
+`security-scan-comparison@1`，按 Finding 指纹和已保存的外部用例范围进行多重匹配，避免重复指纹被字典覆盖，
+并返回四组结果：
+
+- `new`：当前任务检出、基线中没有匹配项的风险；界面表述为“新增/本次检出”。
+- `unchanged`：当前与基线的 Finding 指纹及用例范围均匹配。
+- `resolved`：基线风险本次未出现，并且当前任务成功、扫描覆盖配置一致、引擎名称和版本一致；界面表述为
+  “已修复/未复现”，不把它夸大为代码层面已经证明彻底修复。
+- `unable_to_retest`：基线风险本次未出现，但基线或当前任务未成功、覆盖配置变化或扫描引擎变化，因此没有足够
+  证据判定已修复。每一项携带稳定 `reason_code`。
+
+覆盖指纹只对服务端保存的扫描类型、检测 Skill、会话模式、重置方式、附加目标 Prompt 的不可逆摘要、元数据模式
+和关键策略边界计算，API 不返回原始 Prompt。当前任务与基线必须属于同一目标、同一扫描类型，基线必须更早，
+也不能把任务与自身比较。管理台扫描报告页只提供符合这些条件的较早成功任务作为基线候选，并展示覆盖配置和
+引擎是否一致。
+
+Agent 风险扫描的具体 Prompt 和运行路径可能动态生成。因此，即使进入 `resolved`，其准确含义也只是“在本次同覆盖、
+同引擎扫描中未再观察到”。P6-08 不替代人工复核，也不提前实现 P6-09 的报告规则版本快照。
+
+#### 报告模板与判定口径快照（P6-09）
+
+平台在创建扫描任务时冻结 `security-report-contract@1`，而不是在查看或导出报告时临时套用最新规则。当前首版包含：
+
+- 报告模板版本 `agent-security-report-template@1`，固定摘要、覆盖范围、判定口径、用例、Finding、产物和限制的章节顺序，
+  以及 Finding 字段和版本对比分组。
+- 判定口径版本 `agent-security-decision-criteria@2`。任务 `succeeded` 只表示 Worker 结果契约完成；空 Finding 列表只表示
+  本次未观察到风险；用例 `blocked` 或 `error`、以及缺少证据的 Finding 均保持“未验证”语义。
+- 每种扫描类型单独冻结范围限制：控制面验证不验证动态风险；Agent 动态扫描只覆盖实际执行的用例和轮次；MCP 扫描
+  只检查冻结的元数据快照，不执行有副作用的 `tools/call`。
+- 每个新 Finding 保存所属任务的判定口径版本。任务详情和审计型 JSON 导出返回同一份持久化快照，平台升级不会改变
+  历史报告的解释规则。
+
+升级前创建的任务没有真实快照，API 和管理台明确显示 `legacy_unversioned`，不会用当前规则倒填历史记录。P6-09 建立了
+规则版本追溯，但没有凭空补齐缺失的精确轨迹事件或证据；当时 A6-04、A6-05 均未提前勾选，A6-05 后续由 P6-10
+通过逐项“未验证”状态闭环。
+
+#### TC260-003 五大类 31 种风险覆盖映射（P6-10）
+
+客户提供的 `TC260.pdf` 已确认是全国网络安全标准化技术委员会技术文件 `TC260-003《生成式人工智能服务安全基本
+要求》`，发布日期为 2024-02-29。这里的“5 大类 31 小类”不是智能体生命周期条款，而是规范性附录 A 中的
+31 种“语料及生成内容的主要安全风险”：违反社会主义核心价值观 8 种、歧视性内容 9 种、商业违法违规 5 种、
+侵犯他人合法权益 7 种、无法满足特定服务类型安全需求 2 种。
+
+P6-10 固定 `TC260-003-2024-02-29@1` 映射和来源 PDF SHA-256，并将报告模板升级为
+`agent-security-report-template@2` / `security-report-contract@2`。每个新任务在创建时冻结完整 31 项矩阵，任务详情
+和审计型 JSON 导出返回同一快照。历史 `@1` 报告不会被动态改写。
+
+逐 detection skill 用例与 `unverified` 状态上线后，新任务进一步使用
+`agent-security-report-template@3` / `security-report-contract@3` / `agent-security-decision-criteria@2`；历史 `@1/@2`
+快照和数据库用例均不自动重算。
+
+覆盖状态描述的是“当前 Agent Manager 平台能力”，不是扫描目标的合规结论：
+
+- `verified`：只有存在逐项 TC260 测试能力和充分证据时才能使用；当前为 0 项。
+- `partial`：现有 Agent Scan 或模型网关只有相邻信号，不能完成 TC260 原条款判定；当前为 7 项，包括虚假有害信息、
+  商业秘密泄露、身心健康危害、隐私权、个人信息权益以及高安全需求场景的准确性和可靠性。
+- `uncovered`：当前未集成对应内容安全评测器和逐项测试题库；当前为 24 项。
+
+当前虽已接入 AI-Infra-Guard Agent Scan 和大模型红队，但锁定红队数据集并不是 TC260 31 项内容安全题库，
+因此不能因为执行了越狱评测就标记本平台已逐项覆盖。矩阵不计算覆盖率，避免把“部分信号”换算成虚假百分比。每个控制项的目标测评状态默认都是
+`unverified`；没有逐项测试证据时，管理台明确显示“未验证”，不会显示“通过”。这完成 A6-05。P7-03 后，新任务中的
+每个 Finding 还必须关联精确用例、证据、轨迹事件和冻结的判定口径版本，由 A6-04 验收。
+
+### 6.10 安全扫描管理界面（P5-01）
+
+管理台“智能体安全 → 扫描管理”提供 `/agent-security/scans` 工作台，按真实扫描生命周期组织为：
+
+1. 扫描目标：查询、新建、编辑、启停四类目标，配置连接器、环境和授权能力，并单独轮换加密凭据；MCP 目标从现有 Gateway 选择。
+2. 执行策略：配置适用环境、执行模式、允许能力、出站 CIDR、轮次、Token、费用、并发、时长、响应大小、重试和租约；
+   生产 `active_safe` 还必须配置目标白名单、UTC 维护窗口和专用身份引用。
+3. 扫描任务：按状态、目标和类型筛选，发起控制面验证、Agent 风险扫描、MCP 元数据扫描、大模型红队或 AI 基础设施扫描，并查看、取消任务；
+   管理员可以填写原因并启用不可撤销的任务级 Kill Switch，详情展示操作人、时间和原因；
+   生产 `active_safe` 任务必须选择尚未使用的有效审批，管理员也可在任务弹窗中为当前目标和策略批准本次扫描。
+4. 安全发现：按任务查看严重度、置信度、脱敏证据、OWASP ASI 编码/映射版本和处置状态；只有管理员可以更新处置。
+5. 扫描报告：查看终止任务的摘要、冻结的报告模板/判定口径版本、TC260-003 五大类 31 项覆盖矩阵、用例、Finding、
+   OWASP ASI 映射和产物，并导出经过审计且携带同一规则快照的 JSON 报告；旧任务明确显示为历史无版本记录。
+
+页面按后端权限保持相同边界：管理员可以管理配置和处置，安全审计角色只读；普通用户只能看到其本人
+或用户组有权访问的目标和任务。原始扫描产物不会在列表中显示，只在后端判定具备安全读取角色时提供
+显式入口，读取动作仍由后端记录安全审计。所有页面文案使用语义化 i18n Key，支持简体中文和英文。
+
+发起任务时，页面只列出与所选目标环境一致且能力不越界的已启用策略；这只是提前减少误选，服务端仍会独立校验
+环境一致性和能力子集关系。已有数据库升级后按 `test` 环境和兼容能力集迁移，新建目标和策略也使用
+相同默认值，管理员应按实际环境收紧能力，而不是长期保留兼容默认值。
+策略编辑器在生产环境禁用“完整主动”选项；从其他环境切换为生产时，如果当前模式是 `active_full`，
+页面会回退到 `read_only` 并展示生产边界提示。该交互不能替代上述服务端三层校验。
+生产 `active_safe` 策略会在列表中显示白名单数量、维护窗口和专用身份；任务弹窗只显示与当前目标、策略、
+维护窗口和凭据版本匹配的未使用审批。页面将 `datetime-local` 输入按 UTC 提交，并明确标注时区，避免浏览器
+本地时区与服务端窗口语义不一致。
+
+扫描管理页本身不承载调用时间线，也不生成 PDF 或异步大报告；调用上下文通过 Finding 精确跳转到
+“调用轨迹”，审计型扫描报告当前导出 JSON。Skill 生命周期的 PDF 扫描报告是另一条产品链路，
+不能与四类目标的安全扫描报告混用。
+
+#### Dify 智能体资产清单
+
+`dify_asset_inventory` 是独立的只读扫描类型，不复用仅用于 Worker 租约和控制面协议检查的
+`control_plane_validation`。Dify 目标配置显式保存 Console Base URL、Workspace ID、App ID、可选
+Workflow ID、责任人、责任组、管理员声明意图、Dify Provider 到 MCP Server 的绑定，以及可选的 DSL
+知识库引用到 Dataset UUID 的精确绑定；认证信息不进入
+目标配置。默认由 Worker 使用 `dify_console_api` 凭据调用应用详情和
+`GET /console/api/apps/{app_id}/export?include_secret=false`，手动上传 DSL 只作为回退方式，不使用浏览器
+Cookie 自动登录。
+
+凭据按 `target_id + purpose` 选择活动版本，支持 `agent_runtime`、`dify_app_api`、
+`dify_console_api`、`dify_knowledge_api` 和 `mcp_discovery`。历史 Dify 目标凭据迁移为
+`dify_app_api`，不影响原有 Agent 风险扫描。Console 和 Knowledge API Key 加密保存且创建响应不回显，
+只在对应任务领取时通过现有密封信封交给 Worker；列表只返回用途、状态、版本和掩码。管理台可按用途轮换、
+停用或重新启用最新凭据，轮换、停用、启用与吊销均写审计；Worker 始终只领取活动凭据。
+
+每次成功采集持久化一个不可变快照及其资产和证据：
+
+- `security_asset_inventory_snapshots`：智能体档案、汇总、五类来源覆盖状态和局限。
+- `security_asset_inventory_items`：节点、Prompt、MCP、其他 Tool 和知识库引用；分别保存
+  `configured`、`discovered`、`executed` 与 `verification_status`，不使用单一状态替代四类事实。
+- `security_asset_inventory_evidence`：DSL 路径、Console/Knowledge API、MCP `tools/list` 和 Runtime Trace
+  等多条来源证据。
+
+稳定资产 ID 使用 `agent:{app_id}`、`node:{node_id}`、`prompt:{node_id}:{role}:{location_hash}`、
+`tool:{node_id}:{provider_id}:{tool_name}` 和 `knowledge:{dsl_reference_hash}:{node_id}`。Finding 通过 `asset_id`
+关联资产，表示待研判风险信号，不直接表述为已确认漏洞。MCP 的完整工具清单只接受平台已有 MCP Server
+真实发现的 `tools/list` 快照，必须通过 Provider ID 显式绑定；不按名称相似度猜测。`executed` 只接受
+Runtime Trace 的明确节点 ID，或在工具名全局唯一且事件没有节点 ID 时补充，运行事实不能覆盖 DSL 配置事实。
+
+Dify 目标编辑器中的 MCP 绑定采用结构化配置：Provider ID 和配置的 Tool 名称来自该目标最近一次
+`dify_asset_inventory` 快照，MCP Server 候选来自平台现存 Server 及其最近一次 `tools/list` 状态。系统不会
+自动选择 Server，也不会按名称相似度建立绑定；管理员必须逐项明确选择。保存时服务端再次校验 `server_id`
+真实存在，不存在时返回稳定错误码 `dify_inventory.mcp_server_not_found`。如果所选 Server 的当前工具快照中
+没有 DSL 配置的 Tool，绑定仍可保存，但标记为 `configured_tool_not_discovered`，后续扫描预览分别显示已验证、
+未绑定和 Tool 未发现数量；“已验证”仅表示配置 Tool 存在于该 Server 当前发现结果，不表示 Tool 安全。
+现有 `mcp_bindings` JSON 请求字段及其数组结构保持兼容，结构化编辑器只是该字段的管理台交互方式。
+
+智能体档案的每个字段都返回 `value/source/status/collected_at/missing_reason`。管理员填写的意图为
+`declared`，Dify 或 DSL 明确字段为 `verified`；没有可靠来源时为 `unverified`。管理员可以在创建
+`dify_asset_inventory` 任务时选择“允许系统推断智能体意图”，该选项默认关闭且只有管理员可启用。
+启用后，Worker 只在内存中从应用名称、简介、Prompt、节点连接、Tool/MCP、知识库引用、输入变量和能力标签
+构造最小摘要，先删除凭据、连接串和个人信息，再通过 Worker 身份和任务租约保护的内部接口调用平台已有模型
+配置。知识库原文、完整 DSL、模型完整输入、模型原始响应和 Prompt 副本都不会写入日志、任务参数或 Artifact。
+后端按任务所属用户或用户组解析现有隐私策略，对启用的实体类型和自定义规则执行不可逆替换；该调用不会创建
+`PseudonymMapping`，因此既不会保存脱敏前原文，也不提供反向还原能力。
+Prompt 在模型提示中始终标记为不可信待分析数据，模型输出必须严格符合 `intent/confidence/evidence_summary`
+结构和大小边界。首次调用在模型支持时优先使用严格 JSON Schema，明确不支持时回退 `json_object`。解析层只兼容单层
+JSON Markdown 代码块、结构化对象、OpenAI 兼容的文本 content 数组和合法数字字符串置信度，不接受额外字段、
+缺失字段、越界置信度或超长内容。首次输出不合格时最多执行一次格式修复请求；修复调用改用严格的
+`INTENT / CONFIDENCE / EVIDENCE` 纯文本协议，服务端解析后仍执行同一结构校验，不接受任意自然语言。
+第一次输出按不可信数据处理且不会再次发送给模型，
+不会写入数据库、日志、审计或 Artifact。两次调用的轮次、Token、费用和响应大小全部累计。最终仍无效时仅保存
+`empty_content/json_decode_failed/unexpected_fields/confidence_invalid/evidence_invalid/output_too_large` 等无原文诊断。
+
+意图有效值按 `verified > declared > inferred > unverified` 选择，同时始终保留 `verified_intent`、
+`declared_intent` 和 `inferred_intent`。推断结果保存 `source=system_inference`、模型、供应商、
+`intent-inference@1` 规则版本、置信度和依据摘要；声明与推断不一致时只标记“可能不一致”，不会覆盖声明或
+自动形成 Finding。模型不可用、超时、策略阻止或输出无效只会形成稳定错误码和覆盖局限，不会让资产清单任务
+失败；但模型轮次、Token、费用和响应大小仍计入任务累计预算，预算、租约、取消和 Kill Switch 继续生效。
+DSL 没有创建时间时不会用扫描时间代替，而是保存
+`not_exposed_by_source`。Workspace ID 在普通详情响应中默认脱敏。
+
+Prompt 默认只保存角色、长度、SHA-256 和变量引用。管理员明确启用原文采集后，原文仍与普通资产 JSON
+分离加密保存；查看需要管理员权限、再次确认并产生审计事件。知识库内容检查默认关闭，启用时要求明确授权和
+独立 `dify_knowledge_api` 凭据，通过 `/v1/datasets`、文档和分段分页接口采集，并受文档数、分段数、字节数、
+任务并发和超时边界限制；首版在单个任务内串行读取分页。产物只保存内容哈希、大小、脱敏元数据和风险信号，
+不保存知识库原文。DSL 中的知识库引用不一定是真实 Dataset ID：只有规范 UUID、管理员配置的精确引用绑定或
+Dify 官方接口暴露的稳定原始 ID 才能标记为 `resolved`，禁止按名称相似度映射。Knowledge API 可访问但引用
+无法可靠映射时标记 `unmapped`（多个可靠候选为 `ambiguous`），对应资产和 Case 保持 `unverified`，覆盖状态为
+`partial`，任务继续成功；原 DSL 引用只作为证据保留，不作为知识库名称或真实 Dataset ID 展示。数据集的 403/404
+分别使用 `dify_inventory.dataset_forbidden` 和 `dify_inventory.dataset_not_found`，不再解释为应用不存在。
+对于导出 DSL 将 Dataset ID 替换为不透明引用的 Dify 版本，Worker 额外只读调用
+`GET /console/api/apps/{app_id}/workflows/draft`。只有导出 DSL 与草稿中的节点 ID 相同、两侧节点类型均为
+`knowledge-retrieval`，且草稿只提供可唯一确定的合法 Dataset UUID 时才建立映射；多个 UUID 无法唯一对应时保持
+`ambiguous`，不按列表位置、知识库名称或字符串相似度猜测。完整草稿工作流只在内存中使用，不写入 Artifact 或
+日志；导出 DSL 的不透明引用仅以 SHA-256 摘要保留。映射唯一后才使用真实 UUID 调用
+`/v1/datasets/{dataset_id}`，稳定资产 ID 也改用该 UUID 与节点 ID。映射来源保存为
+`dify_console_draft_workflow`，同时固定记录 `draft_may_differ_from_published_workflow`，因为草稿不能证明等同于
+当前发布版本。草稿接口 404/405 或结构无效分别保存 `dify_inventory.draft_workflow_unavailable` 和
+`dify_inventory.draft_workflow_invalid`，知识库保持未验证且资产清单主体继续完成。
+
+Worker 生成加密的 `dify-asset-inventory` Artifact，Schema 为 `dify-asset-inventory@1`，引擎为
+`agent-manager-dify-inventory`。任务详情“资产清单”页签展示智能体档案、覆盖状态、分类资产、来源筛选和
+上次快照差异。`verified/declared/inferred/unverified/unavailable` 描述字段证据状态；即使任务成功，
+MCP、Knowledge API 或 Runtime Trace 仍可能是 `partial/unavailable/error`，不能解释为资产全部验证完成或目标安全。
+资产主表将 `configured/discovered/executed/verification_status/sources` 合并为紧凑的“验证摘要”，例如
+“DSL 已确认 · 未发现执行证据”或“MCP tools/list 已确认”。`executed=false` 只表示当前没有执行证据，
+不会显示为“从未执行”；完整资产事实和全部来源仍可在详情抽屉查看，来源和验证状态筛选保持不变。
+
+### 6.11 统一调用轨迹界面（P5-02～P5-12）
+
+管理台“智能体安全 → 调用轨迹”提供 `/runtime-traces` 页面。页面先分页读取当前角色有权查看的
+Trace Session，再读取所选轨迹的元数据和首批脱敏事件投影，提供两个基础视图：
+
+1. 对话视图：只从 `message.user`、`context.injected`、`model.response` 和 `model.error` 投影用户、
+   上下文、模型响应和错误；缺少 Agent 事件时保持缺失，不根据模型网关内容补写 Turn 或消息。
+2. 轨迹视图：按服务端 `seq` 展示事件，并稳定映射到 Input、Model、Tools、MCP、Knowledge、Policy
+   六条泳道。客户端 `event_time` 只用于显示，不参与事件排序。
+
+P5-03 在轨迹视图上增加 Turn、Step 和 Call 三层结构。只有事件实际带有 `turn_id` 或 `step_id` 时才
+显示对应分组；Gateway-only 等缺少关联 ID 的事件明确显示为“未分组”或“直属事件”，不会构造假的
+Turn/Step。分组采用连续事件片段，同一 ID 被其他片段打断时会形成新的显示段，因此展开状态下的
+事件顺序始终和服务端 `seq` 一致，`turn.start`/`turn.end` 不会被错误搬到一起。
+
+调用层级只根据 `call_id` 和 `parent_call_id` 计算。父调用可以折叠或展开全部子调用；父子调用即使
+位于不同 Step，折叠关系仍在整条轨迹范围生效，子事件会提示父调用位于其他分组。事件状态按稳定
+状态码显示成功、运行中、失败/阻断和中性样式；未知供应商状态原样展示，不依赖中文或英文文本判断。
+
+P5-04 允许从对话消息或事件卡片打开右侧详情抽屉，以 Summary、Payload、Result、Schema、Timing、Security
+六个页签组织当前事件。Summary 展示关联 ID 和协议字段；Payload 仅显示事件列表 API 已返回的脱敏投影；Result
+按稳定事件类型提取结果、错误或策略决定；Schema 仅列出当前投影内已有的 Schema 字段；Timing 仅显示
+`event_time`、`received_at`、已有 `duration_ms` 以及 P5-05 真实采集的 Token/分段耗时；Security 仅显示已脱敏状态、稳定风险编码和现有安全投影。
+
+P5-05 在轨迹顶部增加五项性能信号：当前已加载 `model.response` 事件的总 Token 求和，以及 TTFT、上游模型耗时、
+平台内耗时和 Tool/MCP 结果耗时的平均值。每项都显示实际样本数，只在有采集值时参与计算，缺失值显示“未采集”而不记为 0。
+平台耗时是模型网关总耗时减去上游模型耗时；TTFT 从请求进入网关起算，仅在流式响应中首个有效文本、推理文本或工具参数块到达时记录，
+不把角色、usage 或结束控制块误当首字，也不为非流式请求伪造 TTFT。详情抽屉 Timing 页签同步显示单事件的 Token 与耗时字段。
+
+P5-06 在会话列表和详情中同时显示轨迹完整度与聚合风险等级。完整度直接使用服务端的 `full`、
+`gateway_partial`、`model_only` 或 `mcp_only`，不根据页面是否出现某类卡片推测；风险等级和风险编码同样来自
+轨迹元数据及事件稳定字段。详情治理信号带汇总审批请求/处理/批准/拒绝、`runtime.blocked`、Kill Switch 生效观察和
+`runtime.killed`。审批待处理数只通过 `approval_request_id` 等稳定审批 ID 配对请求与解决事件；Kill Switch 只识别
+`kill_switch_active` 状态或 `runtime.kill_switch_active` 风险编码，不读取中英文提示文本。该区域是只读轨迹标记，
+不新增审批执行或 Kill Switch 控制入口。
+
+P5-07 为安全扫描 Finding 增加可选的 `trace_id` 和 `event_id` 精确关联。两个字段必须同时存在；Worker
+回传结果时，服务端校验轨迹和事件确实存在，并要求它们与扫描任务的用户及用户组归属完全一致，否则以
+稳定错误码拒绝结果。Finding 详情通过受保护的单项接口读取；按事件反查 Finding 时，服务端只返回当前角色
+有权访问的扫描任务结果。管理台可从 Finding 弹窗打开对应轨迹的 Security 页签，也可从事件 Security 页签
+打开关联 Finding。历史 Finding 或缺少关联字段的结果明确显示未绑定，不根据标题、严重度、风险码或证据文本猜测。
+
+P7-03 在此基础上收紧新 Finding 契约：Worker 回传的每个风险必须引用本次回传中存在的用例，包含非空的
+可审计证据，并继承任务创建时冻结的判定口径版本；任一项缺失均以稳定错误码拒绝整次完成结果。Worker 如果已回传同归属的
+`trace_id` / `event_id`，服务端继续使用该精确目标事件；如果实际扫描引擎未产生目标 Agent 运行事件，服务端创建来源为 `security_worker`、类型为
+`security.finding` 的扫描证据事件，只记录任务/Finding/用例 ID、证据摘要和版本，不伪造 Agent Turn 或 Step。
+
+Finding API 和审计型 JSON 导出统一返回 `traceability`，包含 `complete|incomplete`、用例、轨迹/事件、证据 SHA-256、判定口径版本和
+缺失项列表。管理台在一处展示这些信息。新任务必须完整；升级前的历史记录按实际缺项显示 `incomplete`，不倒填事件或证据。
+
+P5-08 在轨迹工作台增加五维证据检索带。Turn ID、Tool 名称和 Request ID 使用协议字段精确匹配；风险等级
+使用 Trace Session 的稳定枚举；“仅含错误”只匹配事件类型后缀 `*.error` 或稳定状态 `error`、`failed`、
+`timed_out`。会话列表的多个条件按轨迹范围取交集：一条轨迹必须分别包含所有事件条件；选择轨迹后，事件
+列表继续在单事件范围对 Turn、Tool、Request ID 和错误条件取交集，风险等级仍只约束会话。搜索条件同步到
+URL，可逐项移除或整体清除。搜索不读取 Prompt、响应、工具参数、Payload 文本或中英文显示文案。
+
+P5-09 将事件首批大小从 1,000 条收紧为 200 条，并为事件接口增加基于服务端唯一 `seq` 的
+`after_seq` 前向游标。响应同时返回 `has_more` 和 `next_after_seq`；前端仅在用户接近当前窗口底部或
+点击“加载下一批”时继续读取，合并时按 `event_id` 去重并保持 `seq` 顺序。筛选条件在每一批继续生效，
+因此总数表示全部匹配事件，游标只推进当前匹配集合。对话和六泳道轨迹都只物化当前可视窗口及少量
+overscan 项，滚动空间以占位高度维持；性能和治理汇总仍明确只基于已经加载的脱敏事件，不伪装成全量统计。
+
+P5-10 增加“导出证据”闸门。脱敏 JSON 保存完整机器可读脱敏投影；脱敏 PDF 使用随包字体生成横向
+A4 报告，包含数据分级、轨迹概览、顺序事件表、重复表头和页码，事件超过 5,000 条时拒绝同步生成。
+PDF 不支持原始级别。原始 JSON 只允许 `admin`、`super_admin` 或 `privacy_auditor`：用户必须确认高敏
+数据责任并重新输入当前密码，服务端才签发绑定当前用户和当前轨迹、5 分钟有效、只能消费一次的随机
+授权令牌。密码失败、授权成功和实际导出都进入安全审计；前端不保存密码或授权令牌，也没有原始内容
+查看开关。脱敏导出、原始导出和下载仍由服务端重复校验轨迹读取权限。
+
+页面使用 `/api/v1/runtime-traces`、`/api/v1/runtime-traces/{trace_id}`、
+`/api/v1/runtime-traces/{trace_id}/events`、`/api/v1/agent-security/findings/{finding_id}` 和
+`/api/v1/agent-security/findings/links` 以及受控导出接口。日常页面不调用原始 Payload 接口；事件卡片内容来自服务端
+脱敏投影；原始 Prompt、响应、工具参数和结果不会因打开此页而读取。页面路由和菜单受
+`runtime_trace` 能力控制，能力默认开启，无需新增 `.env` 页面开关。
+
+P5-09 的自动化验收直接构造 10,000 事件会话，在 Tool 条件下得到
+5,000 条匹配事件，并验证两批各 200 条的游标连续性、无重复、稳定排序和 Payload 未加载；前端
+10,000 项窗口计算只返回少于 32 个物化项。该结果证明数据和渲染路径具备大轨迹边界，但不替代真实
+浏览器、目标部署和客户数据下的交互性能验证。
+
+P5-10 自动化验收覆盖无授权拒绝、错误密码拒绝、一次性授权成功、令牌重放拒绝、原始 JSON 内容、
+脱敏 PDF 下载和敏感值排除。代表性中文 PDF 经过 Poppler 四页渲染检查，未发现字体缺失、裁切、重叠、
+表格越界或页码异常。真实部署仍应使用具备对应角色的测试账号复验浏览器下载、审计记录和组织侧文件管控。
+
+P5-11 将安全基线、扫描管理和调用轨迹页面残留的展示常量迁移到语义化 i18n Key，并把专项检查接入
+`npm run test:i18n`。门禁要求四个新增安全命名空间的简体中文和英文叶子键完全一致，新增页面不得使用
+`legacy.*`，也不得把 `t(...)` 的显示结果用于条件、相等比较或 `includes` 等文本匹配。协议状态、风险、
+轨迹层级和权限判断继续只使用稳定编码。
+
+P5-12 在 1440×900 桌面和 390×844 移动视口完成真实中英文页面总验收。全局侧栏在 `md` 以下折叠为
+可恢复的零宽导航，主内容不再被固定 240px 侧栏压缩；移动端页头、操作区和筛选器纵向排列，宽表与六泳道
+仍只在各自容器内横向滚动。扫描生命周期的英文说明允许自然换行，长 Trace Session ID 和日期可换行，
+不会撑宽页面。目标弹窗、普通/原始导出弹窗可纵向滚动到操作区，事件抽屉的六个页签保留溢出导航。
+中英文五类扫描空状态均给出明确下一步，真实轨迹数据、弹窗、抽屉和浏览器控制台通过验收。
 
 ---
 
@@ -763,7 +1427,40 @@ Skill Verifier 下载位置：
 
 - [skill-scanner.md](../docs/skill-scanner.md)
 
-### 12.8 模型网关
+### 12.8 智能体安全
+
+“智能体安全”菜单包含四个已启用入口：
+
+- “扫描管理”：目标、凭据、策略、生产审批、任务预览/执行、Kill Switch、Finding、报告和版本对比。
+- “安全能力基线”：核对锁定的 AI-Infra-Guard 版本、Commit、许可证、Provider 和已知限制。
+- “调用轨迹”：查看当前角色有权访问的脱敏对话与执行轨迹，搜索证据并在 Finding 与事件间跳转。
+- “轨迹能力基线”：核对 Runtime Trace 参考版本、采集来源和完整度边界。
+
+任务详情分别展示错误码、错误说明、停止原因、attempt、累计用量、最后心跳和租约时间。失败任务若
+没有 Case、Finding 和 Artifact，会明确标记为“未形成最终扫描报告”，其中的 0 不表示未发现风险；
+成功任务有 Case 和 Artifact 但 Finding 为 0 时，则说明本次未产生安全发现，同时保留覆盖范围有限、
+不能解释为绝对安全的提示。
+
+首次使用建议按以下顺序：
+
+1. 内置部署在项目根 `.env` 配置一次 Worker Token 并启动 `agent-security` Compose profile；外部 Worker 才需要管理员创建并保存只展示一次的 Token。
+2. 在“扫描管理 → 扫描目标”登记经授权的 Agent，或选择已经存在的 MCP Gateway；目标凭据单独加密保存。
+3. 创建与目标环境一致、能力不越界的执行策略。生产环境优先 `read_only`；确需 `active_safe` 时配置目标白名单、UTC 维护窗口和专用身份。
+4. 发起任务前检查只读预览。生产主动扫描还要创建并选择绑定当前目标、策略、窗口和凭据版本的单次审批。
+5. 创建任务后观察排队、运行、重试和终止状态。普通取消用于正常停止；发现敏感数据外发等紧急情况时，由管理员填写原因启用 Kill Switch。
+6. 在“安全发现”处理 Finding，在“扫描报告”复核用例、证据、判定口径、TC260 能力矩阵和版本对比；需要调用上下文时跳转“调用轨迹”。
+
+Dify 资产清单另按以下顺序配置：创建 Dify 目标并填写 Console Base URL、Workspace ID 和 App ID，
+以 `dify_console_api` 用途保存 Admin API Key，选择只读策略后发起 `dify_asset_inventory`。仅在 Console
+导出不可用时选择手动 DSL；需要知识库内容检查时，再取得明确授权、配置独立 `dify_knowledge_api` 凭据并
+设置采集上限。需要补充意图时可由管理员显式启用系统推断并选择模型；未选择模型时使用平台默认启用模型。
+扫描完成后在任务详情“资产清单”核对已验证意图、管理员声明、系统推断、字段来源、验证摘要和覆盖缺口，
+而不是只看任务状态。
+
+只有控制面验证成功不能证明目标安全；MCP 元数据扫描不会调用 Tool；Agent 动态扫描也只对实际执行的
+用例和轮次负责。外部 Provider、生产网络和客户账号必须在验收环境单独实测。
+
+### 12.9 模型网关
 
 用于统一管理 LLM 供应商和隐私路由：
 
@@ -789,7 +1486,7 @@ Docker Compose 的根路径 `/` 由管理台前端使用；外部模型客户端
 
 - [model-gateway.md](../docs/model-gateway.md)
 
-### 12.9 隐私链路追踪
+### 12.10 隐私链路追踪
 
 用于查看一次 LLM 请求的隐私处理链路：
 
@@ -802,7 +1499,7 @@ Docker Compose 的根路径 `/` 由管理台前端使用；外部模型客户端
 
 Trace 保存原始 PII，默认只应开放给 `admin`、`super_admin`、`privacy_auditor`。
 
-### 12.10 帮助文档与文档助手
+### 12.11 帮助文档与文档助手
 
 帮助文档使用独立根路由 `/docs`，不是嵌入管理台内容区。文档配置使用独立的 `/docs-settings` 页面，入口位于“系统管理 -> 文档设置”，不与系统总览混排。管理员可以配置：
 

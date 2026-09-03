@@ -247,6 +247,7 @@ def test_agent_runtime_requires_existing_agent_and_uses_minimum_default_scopes(t
         "runtime:verify-signature",
         "runtime:can-load",
         "runtime:check-tool",
+        "runtime:trace",
     ]
 
 

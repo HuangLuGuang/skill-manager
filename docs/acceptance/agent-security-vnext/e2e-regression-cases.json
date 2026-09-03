@@ -1,0 +1,81 @@
+{
+  "schema": "agent-security-e2e-regression@1",
+  "scope": "local_repository_regression",
+  "bank_environment_equivalent": false,
+  "cases": [
+    {
+      "id": "E2E-01",
+      "title": "Prompt Injection finding and trace evidence stay linked",
+      "tests": [
+        "tests/test_ai_infra_guard_adapter.py::test_p7_worker_api_finding_traceability_round_trip"
+      ]
+    },
+    {
+      "id": "E2E-02",
+      "title": "Approved MCP tool call and result share one call identifier",
+      "tests": [
+        "tests/test_agent_security_full_demo.py::test_full_demo_correlates_sdk_model_mcp_local_tool_and_knowledge",
+        "tests/test_agent_security_full_demo.py::test_full_demo_passes_explicit_mcp_approval_request"
+      ]
+    },
+    {
+      "id": "E2E-03",
+      "title": "Local tools appear through SDK trace events without MCP",
+      "tests": [
+        "tests/test_agent_security_full_demo.py::test_full_demo_correlates_sdk_model_mcp_local_tool_and_knowledge"
+      ]
+    },
+    {
+      "id": "E2E-04",
+      "title": "Knowledge base, document and chunk references use a redacted projection",
+      "tests": [
+        "tests/test_agent_security_full_demo.py::test_full_demo_correlates_sdk_model_mcp_local_tool_and_knowledge"
+      ]
+    },
+    {
+      "id": "E2E-05",
+      "title": "Gateway-only traces remain partial without fabricated turn or step identifiers",
+      "tests": [
+        "tests/test_agent_security_gateway_only_demo.py::test_combined_gateway_only_is_partial_and_never_sends_turn_or_step"
+      ]
+    },
+    {
+      "id": "E2E-06",
+      "title": "Unapproved production active-full scanning is rejected",
+      "tests": [
+        "tests/test_agent_security_p1.py::test_p6_production_active_full_is_rejected_on_policy_mutations_and_task_creation"
+      ]
+    },
+    {
+      "id": "E2E-07",
+      "title": "Kill Switch prevents new calls and read-only mode blocks writes with trace evidence",
+      "tests": [
+        "tests/test_ai_infra_guard_adapter.py::test_kill_switch_heartbeat_prevents_next_target_request",
+        "tests/test_agent_security_p1.py::test_task_kill_switch_stops_pending_and_running_work_without_success_overwrite",
+        "tests/test_mcp_gateway.py::test_p6_tool_access_modes_and_production_denylist_are_enforced_before_upstream"
+      ]
+    },
+    {
+      "id": "E2E-08",
+      "title": "Scan comparison separates new, unchanged, resolved and unable-to-retest findings",
+      "tests": [
+        "tests/test_ai_infra_guard_adapter.py::test_completion_sanitizes_evidence_encrypts_raw_artifact_and_supports_disposition_and_compare"
+      ]
+    },
+    {
+      "id": "E2E-09",
+      "title": "Raw sensitive data requires one-time authorization and redacted PDF stays safe",
+      "tests": [
+        "tests/test_runtime_traces.py::test_runtime_trace_batch_idempotency_server_sequence_and_permissions",
+        "tests/test_runtime_traces.py::test_completeness_query_export_cleanup_and_metrics"
+      ]
+    },
+    {
+      "id": "E2E-10",
+      "title": "Expired Worker leases retry and then fail explicitly without hanging",
+      "tests": [
+        "tests/test_agent_security_p1.py::test_worker_lease_expiry_retries_then_fails_explicitly"
+      ]
+    }
+  ]
+}

@@ -24,11 +24,13 @@ RUNTIME_SCOPES = [
     "runtime:check-tool",
     "runtime:govern",
     "runtime:memory",
+    "runtime:trace",
 ]
 AGENT_VERIFICATION_SCOPES = [
     "runtime:verify-signature",
     "runtime:can-load",
     "runtime:check-tool",
+    "runtime:trace",
 ]
 MODEL_SCOPES = ["model:chat"]
 MCP_SCOPES = ["mcp:connect", "mcp:list-tools", "mcp:call-tools"]

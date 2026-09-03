@@ -43,7 +43,7 @@
               <template v-else-if="column.key === 'action'">
                 <a-space>
                   <a-button type="link" @click="openProvider(record)">{{ $t("legacy.qreyeg") }}</a-button>
-                  <a-button type="link" @click="handleTestProvider(record)">{{ $t("legacy.11y31ql") }}</a-button>
+                  <a-button type="link" @click="openProviderTest(record)">{{ $t('modelGateway.providerTest.action') }}</a-button>
                   <a-popconfirm :title="$t('legacy.r37yo3')" @confirm="handleDeleteProvider(record)">
                     <a-button type="link" danger>{{ $t("legacy.1t2vi4h") }}</a-button>
                   </a-popconfirm>
@@ -389,7 +389,9 @@
     <a-modal v-model:open="providerVisible" :title="$t('legacy.1vcp6w4')" @ok="saveProvider" :confirm-loading="submitting">
       <a-form layout="vertical" :model="providerForm">
         <a-form-item :label="$t('legacy.hzx914')" required><a-input v-model:value="providerForm.name" /></a-form-item>
-        <a-form-item label="Base URL" required><a-input v-model:value="providerForm.base_url" :placeholder="$t('legacy.1hux6km')" /></a-form-item>
+        <a-form-item label="Base URL" required :extra="$t('modelGateway.provider.baseUrlHelp')">
+          <a-input v-model:value="providerForm.base_url" :placeholder="$t('modelGateway.provider.baseUrlPlaceholder')" />
+        </a-form-item>
         <a-form-item :label="$t('legacy.849biy')" required>
           <a-select v-model:value="providerForm.api_format">
             <a-select-option value="openai">OpenAI-compatible</a-select-option>
@@ -404,6 +406,39 @@
           <div style="color: #888; font-size: 12px; margin-top: 4px">{{ $t("legacy.1y0xlm4") }}</div>
         </a-form-item>
         <a-form-item><a-checkbox v-model:checked="providerForm.enabled">{{ $t("legacy.5pm2ma") }}</a-checkbox></a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal
+      v-model:open="providerTestVisible"
+      :title="$t('modelGateway.providerTest.title')"
+      :ok-text="$t('modelGateway.providerTest.submit')"
+      :confirm-loading="testingProvider"
+      @ok="runProviderTest"
+    >
+      <a-descriptions size="small" bordered :column="1" style="margin-bottom: 16px">
+        <a-descriptions-item :label="$t('modelGateway.providerTest.provider')">
+          {{ providerUnderTest?.name }}
+        </a-descriptions-item>
+        <a-descriptions-item label="Base URL">
+          {{ providerUnderTest?.base_url }}
+        </a-descriptions-item>
+      </a-descriptions>
+      <a-alert
+        type="warning"
+        show-icon
+        :message="$t('modelGateway.providerTest.realRequestWarning')"
+        style="margin-bottom: 16px"
+      />
+      <a-form layout="vertical" :model="providerTestForm">
+        <a-form-item :label="$t('modelGateway.providerTest.model')" required>
+          <a-auto-complete
+            v-model:value="providerTestForm.model"
+            :options="providerTestModelOptions"
+            :placeholder="$t('modelGateway.providerTest.modelPlaceholder')"
+            allow-clear
+          />
+        </a-form-item>
       </a-form>
     </a-modal>
 
@@ -497,7 +532,7 @@
       <a-form layout="vertical" :model="userForm">
         <a-form-item :label="$t('legacy.u9jq8n')" required><a-input v-model:value="userForm.username" :disabled="!!editingUserId" /></a-form-item>
         <a-form-item :label="$t('legacy.185tvls')" required><a-input v-model:value="userForm.email" /></a-form-item>
-        <a-form-item :label="$t('legacy.1x858ed')"><a-select v-model:value="userForm.role"><a-select-option value="admin">admin</a-select-option><a-select-option value="super_admin">super_admin</a-select-option><a-select-option value="privacy_auditor">privacy_auditor</a-select-option></a-select></a-form-item>
+        <a-form-item :label="$t('legacy.1x858ed')"><a-select v-model:value="userForm.role"><a-select-option value="admin">admin</a-select-option><a-select-option value="super_admin">super_admin</a-select-option><a-select-option value="privacy_auditor">privacy_auditor</a-select-option><a-select-option value="security_auditor">security_auditor</a-select-option></a-select></a-form-item>
         <a-form-item :label="$t('legacy.2qkjxx')">
           <a-select v-model:value="userForm.group_ids" mode="multiple" :placeholder="$t('legacy.f5lws8')">
             <a-select-option v-for="item in groups" :key="item.id" :value="item.id">{{ item.name }}</a-select-option>
@@ -812,6 +847,9 @@ const policyColumns = computed(() => [
 ])
 
 const providerVisible = ref(false)
+const providerTestVisible = ref(false)
+const testingProvider = ref(false)
+const providerUnderTest = ref(null)
 const modelVisible = ref(false)
 const keyVisible = ref(false)
 const createdKeyVisible = ref(false)
@@ -829,6 +867,10 @@ const selectedGroup = ref(null)
 const policyRuleRows = ref([])
 
 const providerForm = reactive({ name: '', base_url: '', api_format: 'openai', api_key: '', clear_api_key: false, enabled: true, timeout_seconds: 60, enable_compression: false })
+const providerTestForm = reactive({ model: '' })
+const providerTestModelOptions = computed(() => models.value
+  .filter(item => item.provider_id === providerUnderTest.value?.id && item.enabled)
+  .map(item => ({ value: item.name })))
 const modelForm = reactive({ provider_id: null, name: '', display_name: '', enabled: true, context_window: null, max_output_tokens: null, is_default: false })
 const keyForm = reactive({
   name: '',
@@ -1020,13 +1062,47 @@ const saveProvider = async () => {
   }
 }
 
-const handleTestProvider = async (record) => {
-  const res = await testModelProvider(record.id)
-  message[res.ok ? 'success' : 'warning'](
-    res.ok
-      ? text(`连接返回 ${res.status_code}`, `Connection returned ${res.status_code}`)
-      : (res.error || phrase('legacy.13c4qw6')),
-  )
+const openProviderTest = (record) => {
+  providerUnderTest.value = record
+  providerTestForm.model = models.value.find(item => item.provider_id === record.id && item.enabled)?.name || ''
+  providerTestVisible.value = true
+}
+
+const providerTestFailureMessage = (result) => {
+  const key = {
+    'model_provider_test.connection_failed': 'modelGateway.providerTest.errors.connectionFailed',
+    'model_provider_test.upstream_http_error': 'modelGateway.providerTest.errors.upstreamHttp',
+    'model_provider_test.invalid_response': 'modelGateway.providerTest.errors.invalidResponse',
+  }[result.error_code] || 'modelGateway.providerTest.errors.unknown'
+  const summary = t(key, { status: result.status_code ?? '-' })
+  return result.error ? `${summary}: ${result.error}` : summary
+}
+
+const runProviderTest = async () => {
+  if (testingProvider.value || !providerUnderTest.value) return
+  const model = providerTestForm.model.trim()
+  if (!model) {
+    message.warning(t('modelGateway.providerTest.modelRequired'))
+    return
+  }
+  testingProvider.value = true
+  try {
+    const result = await testModelProvider(providerUnderTest.value.id, { model })
+    if (result.ok) {
+      message.success(t('modelGateway.providerTest.success', {
+        model: result.model,
+        status: result.status_code,
+        duration: result.duration_ms,
+      }))
+      providerTestVisible.value = false
+      return
+    }
+    message.warning(providerTestFailureMessage(result))
+  } catch (error) {
+    message.error(error.response?.data?.detail || t('modelGateway.providerTest.errors.requestFailed'))
+  } finally {
+    testingProvider.value = false
+  }
 }
 
 const handleDeleteProvider = async (record) => {

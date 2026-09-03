@@ -1,7 +1,9 @@
-import os
+import asyncio
 import logging
+import os
 import secrets
 import sys
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -19,11 +21,31 @@ from .api_errors import (
     unhandled_error_handler,
     validation_error_handler,
 )
-from .auth import get_current_admin_user, get_password_hash
+from .auth import get_current_admin_user, get_current_security_reader, get_password_hash
 from .config import settings
+from .request_limits import WorkerCompletionBodyLimitMiddleware
+from .routers import (
+    access_tokens,
+    agent_security,
+    agents,
+    auth,
+    clients,
+    config,
+    llm_gateway,
+    mcp_gateway,
+    runtime_governance,
+    runtime_traces,
+    security_audit,
+    security_scans,
+    system,
+    tasks,
+)
 from .security import initialize_signing_identity, validate_security_settings
-from .routers import access_tokens, agents, auth, clients, config, llm_gateway, mcp_gateway, runtime_governance, security_audit, system, tasks
 from .security_audit import append_security_audit, ensure_audit_signing_key
+from .security_target_migration import migrate_security_target_classification
+from .dify_inventory_migration import migrate_dify_asset_inventory
+from .security_worker_bootstrap import bootstrap_builtin_security_worker_once
+from .services.runtime_traces import cleanup_expired
 from .sqlite_db import Base, SessionLocal, engine
 from .task_runtime import init_default_tasks
 
@@ -34,10 +56,13 @@ if str(base_dir) not in sys.path:
 
 os.environ.setdefault("AGENT_MANAGER_REGISTRY_SQLITE_PATH", settings.SQLITE_PATH)
 
-from agent_manager.api.lifecycle import lifespan_with_startup
 from agent_manager.api.router import (
     get_manager as get_agent_manager,
+)
+from agent_manager.api.router import (
     router as agent_manager_router,
+)
+from agent_manager.api.router import (
     runtime_router as agent_runtime_router,
 )
 from agent_manager.api.scanner_router import admin_router as scanner_admin_router
@@ -53,15 +78,46 @@ def warmup_skill_scanner() -> None:
     warmup_scanner(manager.policy.scanner_policy)
 
 
+def cleanup_runtime_traces_once() -> None:
+    db = SessionLocal()
+    try:
+        cleanup_expired(db)
+    finally:
+        db.close()
+
+
+async def runtime_trace_retention_loop() -> None:
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            cleanup_runtime_traces_once()
+        except Exception as exc:
+            logger.warning("runtime trace retention cleanup failed: %s", type(exc).__name__)
+
+
+@asynccontextmanager
+async def application_lifespan(_: FastAPI):
+    warmup_skill_scanner()
+    cleanup_runtime_traces_once()
+    retention_task = asyncio.create_task(runtime_trace_retention_loop())
+    try:
+        yield
+    finally:
+        retention_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await retention_task
+
+
 app = FastAPI(
     title=settings.APP_NAME,
     debug=settings.DEBUG,
-    lifespan=lifespan_with_startup(warmup_skill_scanner),
+    lifespan=application_lifespan,
 )
 app.add_exception_handler(ApiError, api_error_handler)
 app.add_exception_handler(HTTPException, http_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
 app.add_exception_handler(Exception, unhandled_error_handler)
+app.add_middleware(WorkerCompletionBodyLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -77,7 +133,12 @@ app.include_router(tasks.router, prefix=settings.API_PREFIX)
 app.include_router(agents.router, prefix=settings.API_PREFIX)
 app.include_router(access_tokens.router, prefix=f"{settings.API_PREFIX}/v1")
 app.include_router(security_audit.router, prefix=settings.API_PREFIX)
+app.include_router(
+    agent_security.router, prefix=settings.API_PREFIX, dependencies=[Depends(get_current_security_reader)]
+)
+app.include_router(security_scans.router, prefix=settings.API_PREFIX)
 app.include_router(runtime_governance.router, prefix=settings.API_PREFIX)
+app.include_router(runtime_traces.router, prefix=settings.API_PREFIX)
 app.include_router(mcp_gateway.admin_router, prefix=f"{settings.API_PREFIX}/v1", dependencies=[Depends(get_current_admin_user)])
 app.include_router(mcp_gateway.runtime_router)
 app.include_router(clients.router, prefix=settings.API_PREFIX)
@@ -102,6 +163,8 @@ _AUDITED_ADMIN_PREFIXES = (
     "/api/v1/llm-api-keys",
     "/api/v1/privacy-policies",
     "/api/v1/runtime-governance/",
+    "/api/v1/agent-security/",
+    "/api/v1/runtime-traces/",
 )
 
 
@@ -165,8 +228,163 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN prompt_guard_mode VARCHAR(32) NOT NULL DEFAULT 'off'")
         if "prompt_guard_llm_review" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN prompt_guard_llm_review BOOLEAN NOT NULL DEFAULT 0")
+        runtime_task_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(runtime_tasks)").fetchall()}
+        if runtime_task_columns and "trace_id" not in runtime_task_columns:
+            conn.exec_driver_sql("ALTER TABLE runtime_tasks ADD COLUMN trace_id VARCHAR(64)")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_runtime_tasks_trace_id ON runtime_tasks (trace_id)")
+        runtime_trace_session_columns = {
+            row[1] for row in conn.exec_driver_sql("PRAGMA table_info(runtime_trace_sessions)").fetchall()
+        }
+        if runtime_trace_session_columns and "risk_mapping_version" not in runtime_trace_session_columns:
+            conn.exec_driver_sql("ALTER TABLE runtime_trace_sessions ADD COLUMN risk_mapping_version VARCHAR(64)")
+        runtime_trace_event_columns = {
+            row[1] for row in conn.exec_driver_sql("PRAGMA table_info(runtime_trace_events)").fetchall()
+        }
+        if runtime_trace_event_columns and "risk_mapping_json" not in runtime_trace_event_columns:
+            conn.exec_driver_sql("ALTER TABLE runtime_trace_events ADD COLUMN risk_mapping_json TEXT NOT NULL DEFAULT '{}'")
         conn.exec_driver_sql(
             "CREATE TABLE IF NOT EXISTS backend_schema_migrations (name VARCHAR(128) PRIMARY KEY, applied_at DATETIME NOT NULL)"
+        )
+        conn.exec_driver_sql(
+            "INSERT OR IGNORE INTO backend_schema_migrations (name, applied_at) "
+            "VALUES ('agent_security_p1_v1', CURRENT_TIMESTAMP)"
+        )
+        security_task_columns = {
+            row[1] for row in conn.exec_driver_sql("PRAGMA table_info(security_scan_tasks)").fetchall()
+        }
+        security_target_columns = {
+            row[1] for row in conn.exec_driver_sql("PRAGMA table_info(security_targets)").fetchall()
+        }
+        security_target_additive_columns = {
+            "environment": "VARCHAR(32) NOT NULL DEFAULT 'test'",
+            "allowed_capabilities_json": "TEXT NOT NULL DEFAULT '[\"conversation\",\"multi_turn\",\"tool_read\",\"tool_write\",\"network_egress\",\"file_read\",\"file_write\",\"code_execution\",\"persistent_memory\"]'",
+        }
+        for column_name, column_type in security_target_additive_columns.items():
+            if security_target_columns and column_name not in security_target_columns:
+                conn.exec_driver_sql(f"ALTER TABLE security_targets ADD COLUMN {column_name} {column_type}")
+        if security_target_columns:
+            migrate_security_target_classification(conn)
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_security_targets_environment ON security_targets (environment)"
+            )
+        security_policy_columns = {
+            row[1] for row in conn.exec_driver_sql("PRAGMA table_info(security_scan_policies)").fetchall()
+        }
+        security_policy_additive_columns = {
+            "environment": "VARCHAR(32) NOT NULL DEFAULT 'test'",
+            "allowed_capabilities_json": "TEXT NOT NULL DEFAULT '[\"conversation\",\"multi_turn\",\"tool_read\",\"tool_write\",\"network_egress\",\"file_read\",\"file_write\",\"code_execution\",\"persistent_memory\"]'",
+            "production_target_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+            "maintenance_window_start": "DATETIME",
+            "maintenance_window_end": "DATETIME",
+            "dedicated_identity_ref": "VARCHAR(128)",
+        }
+        for column_name, column_type in security_policy_additive_columns.items():
+            if security_policy_columns and column_name not in security_policy_columns:
+                conn.exec_driver_sql(f"ALTER TABLE security_scan_policies ADD COLUMN {column_name} {column_type}")
+        if security_policy_columns:
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_security_scan_policies_environment "
+                "ON security_scan_policies (environment)"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_security_scan_policies_maintenance_window_end "
+                "ON security_scan_policies (maintenance_window_end)"
+            )
+        migrate_dify_asset_inventory(conn)
+        conn.exec_driver_sql(
+            "INSERT OR IGNORE INTO backend_schema_migrations (name, applied_at) "
+            "VALUES ('agent_security_p6_environment_capabilities_v1', CURRENT_TIMESTAMP)"
+        )
+        conn.exec_driver_sql(
+            "INSERT OR IGNORE INTO backend_schema_migrations (name, applied_at) "
+            "VALUES ('agent_security_p6_production_approval_v1', CURRENT_TIMESTAMP)"
+        )
+        security_task_additive_columns = {
+            "approval_id": "VARCHAR(64)",
+            "scan_options_encrypted": "TEXT",
+            "continued_from_task_id": "VARCHAR(64)",
+            "session_state_encrypted": "TEXT",
+            "engine_name": "VARCHAR(128)",
+            "engine_version": "VARCHAR(128)",
+            "report_template_version": "VARCHAR(64)",
+            "decision_criteria_version": "VARCHAR(64)",
+            "report_contract_json": "TEXT NOT NULL DEFAULT '{}'",
+            "kill_switch_activated": "BOOLEAN NOT NULL DEFAULT 0",
+            "kill_switch_activated_at": "DATETIME",
+            "kill_switch_activated_by": "VARCHAR(128)",
+            "kill_switch_reason": "TEXT",
+        }
+        for column_name, column_type in security_task_additive_columns.items():
+            if security_task_columns and column_name not in security_task_columns:
+                conn.exec_driver_sql(f"ALTER TABLE security_scan_tasks ADD COLUMN {column_name} {column_type}")
+        if security_task_columns:
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_security_scan_tasks_approval_id ON security_scan_tasks (approval_id)"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_security_scan_tasks_kill_switch_activated "
+                "ON security_scan_tasks (kill_switch_activated)"
+            )
+        conn.exec_driver_sql(
+            "INSERT OR IGNORE INTO backend_schema_migrations (name, applied_at) "
+            "VALUES ('agent_security_p6_kill_switch_v1', CURRENT_TIMESTAMP)"
+        )
+        security_finding_columns = {
+            row[1] for row in conn.exec_driver_sql("PRAGMA table_info(security_findings)").fetchall()
+        }
+        security_finding_additive_columns = {
+            "fingerprint": "VARCHAR(64) NOT NULL DEFAULT ''",
+            "disposition_comment": "TEXT",
+            "disposition_by": "VARCHAR(128)",
+            "disposition_at": "DATETIME",
+            "trace_id": "VARCHAR(64)",
+            "event_id": "VARCHAR(64)",
+            "risk_codes_json": "TEXT NOT NULL DEFAULT '[]'",
+            "risk_mapping_json": "TEXT NOT NULL DEFAULT '{}'",
+            "decision_criteria_version": "VARCHAR(64)",
+        }
+        for column_name, column_type in security_finding_additive_columns.items():
+            if security_finding_columns and column_name not in security_finding_columns:
+                conn.exec_driver_sql(f"ALTER TABLE security_findings ADD COLUMN {column_name} {column_type}")
+        if security_finding_columns:
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_security_findings_trace_id ON security_findings (trace_id)"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_security_findings_event_id ON security_findings (event_id)"
+            )
+        security_artifact_columns = {
+            row[1] for row in conn.exec_driver_sql("PRAGMA table_info(security_scan_artifacts)").fetchall()
+        }
+        if security_artifact_columns and "content_encrypted" not in security_artifact_columns:
+            conn.exec_driver_sql("ALTER TABLE security_scan_artifacts ADD COLUMN content_encrypted TEXT")
+        security_worker_columns = {
+            row[1] for row in conn.exec_driver_sql("PRAGMA table_info(security_scan_workers)").fetchall()
+        }
+        security_worker_additive_columns = {
+            "public_key_algorithm": "VARCHAR(64)",
+            "public_key": "TEXT",
+            "public_key_fingerprint": "VARCHAR(64)",
+            "public_key_registered_at": "DATETIME",
+        }
+        for column_name, column_type in security_worker_additive_columns.items():
+            if security_worker_columns and column_name not in security_worker_columns:
+                conn.exec_driver_sql(f"ALTER TABLE security_scan_workers ADD COLUMN {column_name} {column_type}")
+        conn.exec_driver_sql(
+            "INSERT OR IGNORE INTO backend_schema_migrations (name, applied_at) "
+            "VALUES ('agent_security_p2_v1', CURRENT_TIMESTAMP)"
+        )
+        conn.exec_driver_sql(
+            "INSERT OR IGNORE INTO backend_schema_migrations (name, applied_at) "
+            "VALUES ('agent_security_p6_asi_mapping_v1', CURRENT_TIMESTAMP)"
+        )
+        conn.exec_driver_sql(
+            "INSERT OR IGNORE INTO backend_schema_migrations (name, applied_at) "
+            "VALUES ('agent_security_p6_report_contract_v1', CURRENT_TIMESTAMP)"
+        )
+        conn.exec_driver_sql(
+            "INSERT OR IGNORE INTO backend_schema_migrations (name, applied_at) "
+            "VALUES ('runtime_trace_p4_v1', CURRENT_TIMESTAMP)"
         )
         migration = conn.exec_driver_sql(
             "SELECT name FROM backend_schema_migrations WHERE name = 'agent_runtime_prompt_guard_block_v1'"
@@ -213,6 +431,9 @@ def ensure_sqlite_schema() -> None:
         if mcp_server_columns and "max_response_kb" not in mcp_server_columns:
             conn.exec_driver_sql("ALTER TABLE mcp_servers ADD COLUMN max_response_kb INTEGER NOT NULL DEFAULT 1024")
         mcp_tool_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mcp_tools)").fetchall()}
+        if mcp_tool_columns and "access_mode" not in mcp_tool_columns:
+            conn.exec_driver_sql("ALTER TABLE mcp_tools ADD COLUMN access_mode VARCHAR(32) NOT NULL DEFAULT 'unknown'")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_mcp_tools_access_mode ON mcp_tools (access_mode)")
         if mcp_tool_columns and "risk_level" not in mcp_tool_columns:
             conn.exec_driver_sql("ALTER TABLE mcp_tools ADD COLUMN risk_level VARCHAR(16) NOT NULL DEFAULT 'low'")
         if mcp_tool_columns and "rate_limit_per_minute" not in mcp_tool_columns:
@@ -221,6 +442,21 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql("ALTER TABLE mcp_tools ADD COLUMN max_concurrent INTEGER NOT NULL DEFAULT 5")
         if mcp_tool_columns and "requires_approval" not in mcp_tool_columns:
             conn.exec_driver_sql("ALTER TABLE mcp_tools ADD COLUMN requires_approval BOOLEAN NOT NULL DEFAULT 0")
+        mcp_gateway_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mcp_gateways)").fetchall()}
+        mcp_gateway_additive_columns = {
+            "environment": "VARCHAR(32) NOT NULL DEFAULT 'test'",
+            "execution_mode": "VARCHAR(32) NOT NULL DEFAULT 'active_safe'",
+            "production_tool_denylist_json": "TEXT NOT NULL DEFAULT '[]'",
+        }
+        for column_name, column_type in mcp_gateway_additive_columns.items():
+            if mcp_gateway_columns and column_name not in mcp_gateway_columns:
+                conn.exec_driver_sql(f"ALTER TABLE mcp_gateways ADD COLUMN {column_name} {column_type}")
+        if mcp_gateway_columns:
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_mcp_gateways_environment ON mcp_gateways (environment)")
+        conn.exec_driver_sql(
+            "INSERT OR IGNORE INTO backend_schema_migrations (name, applied_at) "
+            "VALUES ('agent_security_p6_tool_policy_v1', CURRENT_TIMESTAMP)"
+        )
         mcp_approval_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mcp_tool_approvals)").fetchall()}
         mcp_approval_request_columns = {
             "request_id": "VARCHAR(64)",
@@ -289,6 +525,7 @@ validate_security_settings(settings)
 initialize_signing_identity(allow_create=not settings.ENFORCE_SECURE_STARTUP)
 ensure_audit_signing_key()
 ensure_sqlite_schema()
+bootstrap_builtin_security_worker_once(settings, SessionLocal)
 get_agent_manager()
 
 uploads_dir = Path(settings.UPLOADS_DIR)

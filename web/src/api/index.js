@@ -27,7 +27,63 @@ export const changePassword = (oldPassword, newPassword) =>
 export const checkSession = () => api.get('/auth/session-check')
 
 export const getSystemInfo = () => api.get('/system/info')
+export const getSystemCapabilities = () => api.get('/system/capabilities')
 export const getLogoInfo = () => api.get('/system/logo')
+export const getAgentSecurityBaseline = () => api.get('/v1/agent-security/baseline')
+export const getRuntimeTraceBaseline = () => api.get('/v1/runtime-traces/baseline')
+export const listRuntimeTraces = (params = {}) => api.get('/v1/runtime-traces', { params })
+export const getRuntimeTrace = traceId => api.get(`/v1/runtime-traces/${traceId}`)
+export const listRuntimeTraceEvents = (traceId, params = {}) =>
+  api.get(`/v1/runtime-traces/${traceId}/events`, { params })
+export const authorizeRawRuntimeTraceExport = (traceId, data) =>
+  api.post(`/v1/runtime-traces/${traceId}/exports/raw-authorization`, data)
+export const createRuntimeTraceExport = (traceId, data) =>
+  api.post(`/v1/runtime-traces/${traceId}/exports`, data)
+export const downloadRuntimeTraceExport = exportId =>
+  api.get(`/v1/runtime-traces/exports/${exportId}/download`, { responseType: 'blob' })
+export const listSecurityTargets = () => api.get('/v1/agent-security/targets')
+export const createSecurityTarget = data => api.post('/v1/agent-security/targets', data)
+export const updateSecurityTarget = (targetId, data) => api.patch(`/v1/agent-security/targets/${targetId}`, data)
+export const getDifyMcpBindingOptions = targetId =>
+  api.get(`/v1/agent-security/targets/${targetId}/dify-mcp-binding-options`)
+export const setSecurityTargetCredential = (targetId, data) =>
+  api.post(`/v1/agent-security/targets/${targetId}/credentials`, data)
+export const updateSecurityTargetCredentialStatus = (credentialId, status) =>
+  api.patch(`/v1/agent-security/credentials/${credentialId}/status`, { status })
+export const listSecurityPolicies = () => api.get('/v1/agent-security/policies')
+export const createSecurityPolicy = data => api.post('/v1/agent-security/policies', data)
+export const updateSecurityPolicy = (policyId, data) =>
+  api.patch(`/v1/agent-security/policies/${policyId}`, data)
+export const listSecurityScanApprovals = (params = {}) => api.get('/v1/agent-security/scan-approvals', { params })
+export const createSecurityScanApproval = data => api.post('/v1/agent-security/scan-approvals', data)
+export const listSecurityTasks = (params = {}) => api.get('/v1/agent-security/tasks', { params })
+export const previewSecurityTask = data => api.post('/v1/agent-security/tasks/preview', data)
+export const createSecurityTask = data => api.post('/v1/agent-security/tasks', data)
+export const getSecurityTask = taskId => api.get(`/v1/agent-security/tasks/${taskId}`)
+export const getSecurityTaskInventory = (taskId, params = {}) =>
+  api.get(`/v1/agent-security/tasks/${taskId}/inventory`, { params })
+export const compareSecurityTaskInventory = (taskId, baselineTaskId = null) =>
+  api.get(`/v1/agent-security/tasks/${taskId}/inventory/compare`, {
+    params: baselineTaskId ? { baseline_task_id: baselineTaskId } : {},
+  })
+export const getSecurityInventoryPromptContent = (taskId, itemId) =>
+  api.get(`/v1/agent-security/tasks/${taskId}/inventory/items/${itemId}/content`, {
+    params: { confirm: true },
+  })
+export const cancelSecurityTask = taskId => api.post(`/v1/agent-security/tasks/${taskId}/cancel`)
+export const activateSecurityTaskKillSwitch = (taskId, data) =>
+  api.post(`/v1/agent-security/tasks/${taskId}/kill-switch`, data)
+export const exportSecurityTask = taskId => api.post(`/v1/agent-security/tasks/${taskId}/export`)
+export const compareSecurityTasks = (taskId, baselineTaskId) =>
+  api.get(`/v1/agent-security/tasks/${taskId}/compare/${baselineTaskId}`)
+export const listSecurityTaskFindings = taskId => api.get(`/v1/agent-security/tasks/${taskId}/findings`)
+export const getSecurityFinding = findingId => api.get(`/v1/agent-security/findings/${findingId}`)
+export const listSecurityFindingsForTraceEvent = (traceId, eventId) =>
+  api.get('/v1/agent-security/findings/links', { params: { trace_id: traceId, event_id: eventId } })
+export const updateSecurityFinding = (findingId, data) =>
+  api.patch(`/v1/agent-security/findings/${findingId}`, data)
+export const getSecurityArtifactContent = (taskId, artifactId) =>
+  api.get(`/v1/agent-security/tasks/${taskId}/artifacts/${artifactId}/content`)
 export const getDocsAssistantConfig = () => api.get('/config/docs-assistant')
 export const updateDocsAssistantConfig = (data) => api.post('/config/docs-assistant', data)
 export const askDocsAssistant = (data) => api.post('/config/docs-assistant/ask', data)
@@ -162,7 +218,7 @@ export const listModelProviders = () => api.get('/v1/model-providers')
 export const createModelProvider = (data) => api.post('/v1/model-providers', data)
 export const updateModelProvider = (providerId, data) => api.put(`/v1/model-providers/${providerId}`, data)
 export const deleteModelProvider = (providerId) => api.delete(`/v1/model-providers/${providerId}`)
-export const testModelProvider = (providerId) => api.post(`/v1/model-providers/${providerId}/test`)
+export const testModelProvider = (providerId, data) => api.post(`/v1/model-providers/${providerId}/test`, data)
 export const listModelEndpoints = () => api.get('/v1/models')
 export const createModelEndpoint = (data) => api.post('/v1/models', data)
 export const updateModelEndpoint = (modelId, data) => api.put(`/v1/models/${modelId}`, data)

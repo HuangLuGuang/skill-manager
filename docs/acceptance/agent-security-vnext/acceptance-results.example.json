@@ -1,0 +1,43 @@
+{
+  "schema": "agent-security-bank-acceptance@1",
+  "environment": "replace-with-bank-environment",
+  "platform_version": "replace-with-release-tag",
+  "git_commit": "replace-with-full-commit",
+  "architectures": ["amd64", "arm64"],
+  "started_at": "replace-with-ISO-8601",
+  "completed_at": null,
+  "operator": "replace-with-authorized-operator",
+  "reviewer": "replace-with-independent-reviewer",
+  "sensitive_data_reviewed": false,
+  "sha256_manifest": "manifest.sha256",
+  "release_provenance": {
+    "amd64": "provenance/amd64/release-provenance.json",
+    "arm64": "provenance/arm64/release-provenance.json"
+  },
+  "execution_starts": {},
+  "remaining_issues": "remaining-issues.json",
+  "overall_conclusion": "unverified",
+  "summary": {
+    "passed": 0,
+    "failed": 0,
+    "unverified": 15,
+    "not_applicable": 0
+  },
+  "cases": [
+    {"id": "BANK-01", "status": "unverified", "evidence": [], "reason": "replace-with-reason", "owner": "replace-with-owner", "closure_condition": "replace-with-closure-condition"},
+    {"id": "BANK-02", "status": "unverified", "evidence": [], "reason": "replace-with-reason", "owner": "replace-with-owner", "closure_condition": "replace-with-closure-condition"},
+    {"id": "BANK-03", "status": "unverified", "evidence": [], "reason": "replace-with-reason", "owner": "replace-with-owner", "closure_condition": "replace-with-closure-condition"},
+    {"id": "BANK-04", "status": "unverified", "evidence": [], "reason": "replace-with-reason", "owner": "replace-with-owner", "closure_condition": "replace-with-closure-condition"},
+    {"id": "BANK-05", "status": "unverified", "evidence": [], "reason": "replace-with-reason", "owner": "replace-with-owner", "closure_condition": "replace-with-closure-condition"},
+    {"id": "BANK-06", "status": "unverified", "evidence": [], "reason": "replace-with-reason", "owner": "replace-with-owner", "closure_condition": "replace-with-closure-condition"},
+    {"id": "BANK-07", "status": "unverified", "evidence": [], "reason": "replace-with-reason", "owner": "replace-with-owner", "closure_condition": "replace-with-closure-condition"},
+    {"id": "BANK-08", "status": "unverified", "evidence": [], "reason": "replace-with-reason", "owner": "replace-with-owner", "closure_condition": "replace-with-closure-condition"},
+    {"id": "BANK-09", "status": "unverified", "evidence": [], "reason": "replace-with-reason", "owner": "replace-with-owner", "closure_condition": "replace-with-closure-condition"},
+    {"id": "BANK-10", "status": "unverified", "evidence": [], "reason": "replace-with-reason", "owner": "replace-with-owner", "closure_condition": "replace-with-closure-condition"},
+    {"id": "BANK-11", "status": "unverified", "evidence": [], "reason": "replace-with-reason", "owner": "replace-with-owner", "closure_condition": "replace-with-closure-condition"},
+    {"id": "BANK-12", "status": "unverified", "evidence": [], "reason": "replace-with-reason", "owner": "replace-with-owner", "closure_condition": "replace-with-closure-condition"},
+    {"id": "BANK-13", "status": "unverified", "evidence": [], "reason": "replace-with-reason", "owner": "replace-with-owner", "closure_condition": "replace-with-closure-condition"},
+    {"id": "BANK-14", "status": "unverified", "evidence": [], "reason": "replace-with-reason", "owner": "replace-with-owner", "closure_condition": "replace-with-closure-condition"},
+    {"id": "BANK-15", "status": "unverified", "evidence": [], "reason": "replace-with-reason", "owner": "replace-with-owner", "closure_condition": "replace-with-closure-condition"}
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "schema": "agent-security-bank-execution-plan@1",
+  "mutation_classes": ["read_only", "creates_records", "authorized_target_calls", "service_change", "platform_install"],
+  "cases": [
+    {"id": "BANK-01", "phase": "preflight", "mutation_class": "read_only", "evidence_dir": "supply-chain", "required_roles": ["administrator", "security_auditor"]},
+    {"id": "BANK-02", "phase": "preflight", "mutation_class": "read_only", "evidence_dir": "access-control", "required_roles": ["administrator", "security_auditor", "ordinary_user"]},
+    {"id": "BANK-03", "phase": "functional", "mutation_class": "creates_records", "evidence_dir": "business-cases/agent-mock", "required_roles": ["administrator", "security_operator"]},
+    {"id": "BANK-04", "phase": "authorized-target", "mutation_class": "authorized_target_calls", "evidence_dir": "business-cases/authorized-agent", "required_roles": ["administrator", "security_operator", "target_owner"]},
+    {"id": "BANK-05", "phase": "functional", "mutation_class": "creates_records", "evidence_dir": "business-cases/mcp-metadata", "required_roles": ["administrator", "security_operator", "mcp_owner"], "tools_call_zero_required": true},
+    {"id": "BANK-06", "phase": "governance", "mutation_class": "creates_records", "evidence_dir": "governance/environments", "required_roles": ["administrator", "security_auditor"]},
+    {"id": "BANK-07", "phase": "authorized-target", "mutation_class": "authorized_target_calls", "evidence_dir": "governance/kill-switch-read-only", "required_roles": ["administrator", "security_operator", "target_owner"]},
+    {"id": "BANK-08", "phase": "functional", "mutation_class": "creates_records", "evidence_dir": "runtime-traces/completeness", "required_roles": ["administrator", "security_auditor"]},
+    {"id": "BANK-09", "phase": "privacy", "mutation_class": "creates_records", "evidence_dir": "runtime-traces/privacy-exports", "required_roles": ["administrator", "security_auditor", "ordinary_user"]},
+    {"id": "BANK-10", "phase": "resilience", "mutation_class": "service_change", "evidence_dir": "resilience/interruption-recovery", "required_roles": ["administrator", "platform_operator"]},
+    {"id": "BANK-11", "phase": "resilience", "mutation_class": "service_change", "evidence_dir": "resilience/upgrade-rollback", "required_roles": ["administrator", "platform_operator"]},
+    {"id": "BANK-12", "phase": "deployment", "mutation_class": "platform_install", "evidence_dir": "deployment/amd64", "required_roles": ["platform_operator", "security_auditor"]},
+    {"id": "BANK-13", "phase": "deployment", "mutation_class": "platform_install", "evidence_dir": "deployment/arm64", "required_roles": ["platform_operator", "security_auditor"]},
+    {"id": "BANK-14", "phase": "review", "mutation_class": "read_only", "evidence_dir": "review/report-semantics", "required_roles": ["security_auditor", "ordinary_user"]},
+    {"id": "BANK-15", "phase": "regression", "mutation_class": "creates_records", "evidence_dir": "regression", "required_roles": ["administrator", "security_auditor"]}
+  ]
+}

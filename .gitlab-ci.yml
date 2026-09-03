@@ -79,22 +79,29 @@ deploy-35:
       fi
 
       cd "$DEPLOY_DIR"
-      docker compose up -d --remove-orphans
+      docker compose --profile agent-security up -d --remove-orphans
       docker compose up -d --force-recreate --no-deps nginx
 
-      for attempt in $(seq 1 30); do
-        if curl --fail --silent --show-error --max-time 5 http://127.0.0.1/ >/dev/null; then
+      for attempt in $(seq 1 40); do
+        worker_id="$(docker compose --profile agent-security ps -q agent-security-worker)"
+        aig_service_id="$(docker compose --profile agent-security ps -q aig-scan-service)"
+        worker_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$worker_id" 2>/dev/null || true)"
+        aig_service_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$aig_service_id" 2>/dev/null || true)"
+        if curl --fail --silent --show-error --max-time 5 http://127.0.0.1/ >/dev/null \
+          && [ "$worker_health" = "healthy" ] \
+          && [ "$aig_service_health" = "healthy" ]; then
           break
         fi
-        if [ "$attempt" -eq 30 ]; then
-          docker compose ps
-          docker compose logs --tail=100 backend frontend nginx sandbox
+        if [ "$attempt" -eq 40 ]; then
+          docker compose --profile agent-security ps
+          docker compose --profile agent-security logs --tail=100 \
+            backend frontend nginx sandbox agent-security-worker aig-scan-service
           exit 1
         fi
         sleep 5
       done
 
-      docker compose ps
+      docker compose --profile agent-security ps
       notify "Agent Manager ${IMAGE_TAG} 已部署并通过健康检查\n${CI_PIPELINE_URL}"
   after_script:
     - |
@@ -158,6 +165,18 @@ offline-package:
           -o "$RELEASE_DIR"
 
       test -s "$X86_ARCHIVE"
+      tar -xOf "$X86_ARCHIVE" "agent-manager/release-provenance.json" \
+        | python3 scripts/verify-agent-manager-release-provenance.py \
+            --file - \
+            --version "$CI_COMMIT_TAG" \
+            --commit "$CI_COMMIT_SHA" \
+            --platform linux/amd64 \
+            --require-clean-clone
+      tar -xOf "$X86_ARCHIVE" "agent-manager/docker_images/x86/agent-manager-images-${CI_COMMIT_TAG}.tar.xz" \
+        | xz -dc \
+        | docker load >/dev/null
+      ./scripts/verify-agent-security-worker-image.sh "agent-manager-security-worker:${CI_COMMIT_TAG}" amd64
+      ./scripts/verify-aig-scan-service-image.sh "agent-manager-aig-scan-service:${CI_COMMIT_TAG}" amd64
 
       restore_x86_images() {
         tar -xOf "$X86_ARCHIVE" "agent-manager/docker_images/x86/agent-manager-images-${CI_COMMIT_TAG}.tar.xz" \
@@ -178,7 +197,21 @@ offline-package:
           -o "$RELEASE_DIR"
 
       test -s "$ARM_ARCHIVE"
+      tar -xOf "$ARM_ARCHIVE" "agent-manager/release-provenance.json" \
+        | python3 scripts/verify-agent-manager-release-provenance.py \
+            --file - \
+            --version "$CI_COMMIT_TAG" \
+            --commit "$CI_COMMIT_SHA" \
+            --platform linux/arm64 \
+            --require-clean-clone
+      tar -xOf "$ARM_ARCHIVE" "agent-manager/docker_images/arm/agent-manager-images-${CI_COMMIT_TAG}.tar.xz" \
+        | xz -dc \
+        | docker load >/dev/null
+      ./scripts/verify-agent-security-worker-image.sh "agent-manager-security-worker:${CI_COMMIT_TAG}" arm64
+      ./scripts/verify-aig-scan-service-image.sh "agent-manager-aig-scan-service:${CI_COMMIT_TAG}" arm64
       restore_x86_images
+      ./scripts/verify-agent-security-worker-image.sh "agent-manager-security-worker:${CI_COMMIT_TAG}" amd64
+      ./scripts/verify-aig-scan-service-image.sh "agent-manager-aig-scan-service:${CI_COMMIT_TAG}" amd64
       trap - EXIT
 
       for archive in "$X86_ARCHIVE" "$ARM_ARCHIVE"; do
