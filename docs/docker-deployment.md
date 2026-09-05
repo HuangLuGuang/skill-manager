@@ -25,12 +25,15 @@ Skill 总量、日增版本数、平均包体积、报告与审计保留周期�
 
 ```bash
 ./build.sh --all
+cp .env.example .env
 docker compose up -d
 docker compose ps
 ```
 
-本地测试不要求先创建 `.env`。Compose 会使用仅限本机开发的占位密钥，并关闭生产
-安全启动校验；首次创建管理员时，随机密码保存在持久化数据卷中，可执行以下命令读取：
+镜像已构建或加载后，复制 `.env.example` 即可直接启动全部基础服务，包括扫描 Worker 和
+AI-Infra-Guard 内部服务，无需额外 profile。Apple Silicon 构建时使用
+`./build.sh --all --platform linux/arm64`。示例和 Compose 缺省值使用公开的本地开发占位密钥，
+并关闭生产安全启动校验；首次创建管理员时，随机密码保存在持久化数据卷中，可执行以下命令读取：
 
 ```bash
 docker compose exec backend cat /app/runtime/data/initial-admin-password
@@ -44,11 +47,14 @@ http://localhost
 
 ## 生产部署
 
-生产环境必须创建 `.env`，替换所有 `replace-with-*` 值，并保持
-`ENFORCE_SECURE_STARTUP=true`：
+生产环境必须创建 `.env`，为 `SECRET_KEY`、`AGENT_MANAGER_SANDBOX_API_KEY`、
+`AGENT_SECURITY_WORKER_TOKEN` 和 `AIG_SCAN_SERVICE_TOKEN` 分别设置独立随机凭据，
+并设置 `ENFORCE_SECURE_STARTUP=true`。`AIG_SERVICE_TOKEN` 默认引用 `AIG_SCAN_SERVICE_TOKEN`。
+空的 `INITIAL_ADMIN_PASSWORD` 会生成随机初始密码，也可以设置自己的强密码：
 
 ```bash
 cp .env.example .env
+# 编辑 .env，设置独立随机凭据和 ENFORCE_SECURE_STARTUP=true
 ./build.sh --all
 docker compose run --rm --no-deps backend agent-manager signing-key init
 docker compose up -d
@@ -100,20 +106,24 @@ Worker 同时运行 `control_plane_validation`、`agent_risk_scan`、`dify_asset
 `aig-control` 网络执行，服务端口不映射到宿主机。内置 Worker 无需先在
 管理台创建身份：在项目根目录 `.env` 只配置一次 `AGENT_SECURITY_WORKER_TOKEN`，Backend 建表后会以
 固定名称 `builtin-security-worker` 幂等注册，Worker 容器读取同一个值。令牌必须以 `amsw_` 开头，
-前缀后至少包含 32 个 URL-safe 字符；不要使用示例占位值。可用
-`printf 'amsw_%s\n' "$(openssl rand -hex 32)"` 生成。未配置时 Backend 仍正常启动，但不会注册内置身份。
+前缀后至少包含 32 个 URL-safe 字符。示例已提供本地开发占位值；生产用
+`printf 'amsw_%s\n' "$(openssl rand -hex 32)"` 生成独立随机值。生产安全启动会拒绝公开的开发凭据。
 
 再为 Worker 配置一个 OpenAI-compatible 评估模型，并生成独立的内部服务 Token；推荐使用本平台模型网关，
 并为专用 LLM API Key 只授权扫描所需模型。仅执行 MCP 元数据扫描时不需要评估模型；执行 Agent
 风险扫描、LLM 红队或需要模型辅助的基础设施扫描时必须配置。`AIG_SCAN_SERVICE_TOKEN` 至少包含 32 个
-随机 URL-safe 字符，只在 Worker 与内部服务之间使用，不能和 Worker Token、评估模型 Key 或目标凭据混用。然后执行：
+随机 URL-safe 字符，由 Backend 健康检查、Worker 与内部服务共同使用，不能和 Worker Token、评估模型 Key 或目标凭据混用。然后执行：
 
 ```bash
-./build.sh --security-worker
-# 先把 Worker Token、AIG_SCAN_SERVICE_TOKEN 与评估模型配置写入项目根目录 .env
-docker compose --profile agent-security up -d
-docker compose ps agent-security-worker
+./build.sh --all
+docker compose up -d
+docker compose ps agent-security-worker aig-scan-service
 ```
+
+`.env.example` 列出 `AIG_SERVICE_URL`、`AIG_SERVICE_TOKEN` 和 Worker 控制面地址。
+Compose 默认使用容器 DNS：`http://aig-scan-service:8093` 和 `http://backend:8000/api/v1/agent-security`。
+本地源码运行 Backend/Worker 时，将它们改为可访问的宿主机地址，并为内部服务发布仅本机可访问的端口。
+评估模型 Key 和模型名默认为空，不影响服务启动、控制面验证和 MCP 元数据扫描；实际模型扫描前必须配置真实值。
 
 Dify 资产清单不增加 `.env` 密钥。管理员在“扫描管理 → 扫描目标”创建 Dify 目标，并按用途把 Admin API
 Key 保存为加密的 `dify_console_api` 目标凭据；需要授权知识库检查时另存 `dify_knowledge_api`。部署网络必须
@@ -179,7 +189,7 @@ Content-Type: application/json
 ```bash
 docker compose stop agent-security-worker
 # 等待该任务租约到期后，由管理员执行 recover API
-docker compose --profile agent-security start agent-security-worker
+docker compose start agent-security-worker
 docker compose ps agent-security-worker
 ```
 
@@ -188,7 +198,7 @@ docker compose ps agent-security-worker
 
 ```bash
 ./scripts/verify-agent-security-worker-image.sh agent-manager-security-worker:<new-tag> <amd64-or-arm64>
-TAG=<new-tag> docker compose --profile agent-security up -d --no-deps agent-security-worker
+TAG=<new-tag> docker compose up -d --no-deps agent-security-worker
 docker compose ps agent-security-worker
 ```
 
@@ -196,7 +206,7 @@ docker compose ps agent-security-worker
 任务回归失败，使用已保留的旧镜像明确回滚：
 
 ```bash
-TAG=<old-tag> docker compose --profile agent-security up -d --no-deps agent-security-worker
+TAG=<old-tag> docker compose up -d --no-deps agent-security-worker
 docker compose ps agent-security-worker
 ```
 
@@ -208,7 +218,7 @@ docker compose ps agent-security-worker
 `AGENT_SECURITY_EVALUATOR_OUTPUT_COST_MICRO_PER_MILLION`。未设置时费用记为 0，Token 仍按
 Worker 估算上报；模型网关服务端计量才是正式审计依据。
 
-`dev` 分支和正式版本 tag 的 `deploy-35` 流水线会显式启用 `agent-security` profile，并等待
+`dev` 分支和正式版本 tag 的 `deploy-35` 流水线会启动默认 Compose 服务，并等待
 管理入口、`agent-security-worker` 和 `aig-scan-service` 同时健康后才报告部署成功。缺少运行
 Token 或任一新增服务无法通过健康检查时，部署会失败并收集对应容器日志；日志中仍不得输出凭据。
 

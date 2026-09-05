@@ -16,7 +16,7 @@ COPY services/agent-security-worker/constraints.txt /opt/agent-security-worker-c
 COPY services/agent-security-worker/verify_vendor_tree.py /opt/verify_vendor_tree.py
 COPY deploy/agent-security/upstreams.lock.json /opt/agent-security-upstreams.lock.json
 RUN cd /opt/ai-infra-guard && \
-    python /opt/verify_vendor_tree.py --lock /opt/agent-security-upstreams.lock.json --vendor-base /opt/ai-infra-guard && \
+    python /opt/verify_vendor_tree.py --lock /opt/agent-security-upstreams.lock.json --vendor-base /opt/ai-infra-guard --component agent-scan --component mcp-scan && \
     echo "6b4b9a4bd1f7107f47059bac748a94e98600c7d69411f74ce35823a1430aeace  agent-scan/agent_scan/core/agent_adapter/providers.yaml" | sha256sum -c - && \
     echo "5c57fd31f08515bac290c3f958df4289a2017d5a90b17cdf283b22dee2f79dca  agent-scan/agent_scan/core/agent_adapter/adapter.py" | sha256sum -c - && \
     echo "a2ad10f92a5ad0180fecd5f17ea5ef2d90335426e1a323b4035380fec359606e  agent-scan/requirements.txt" | sha256sum -c - && \
@@ -39,6 +39,10 @@ COPY services/agent-security-worker/aig_service_client.py /app/aig_service_clien
 COPY services/agent-security-worker/aig_scan_common.py /app/aig_scan_common.py
 COPY services/agent-security-worker/llm_redteam_adapter.py /app/llm_redteam_adapter.py
 COPY services/agent-security-worker/ai_infrastructure_adapter.py /app/ai_infrastructure_adapter.py
+COPY services/agent-security-worker/dify_inventory_adapter.py /app/dify_inventory_adapter.py
+COPY agent_manager/__init__.py agent_manager/security_redaction.py /app/agent_manager/
+COPY agent_manager/core/__init__.py agent_manager/core/dify_console_client.py agent_manager/core/mcp_parameter_risk.py /app/agent_manager/core/
+COPY agent_manager/core/dify_inventory /app/agent_manager/core/dify_inventory
 COPY services/agent-security-worker/credential_envelope.py /app/credential_envelope.py
 COPY services/agent-security-worker/generate_sbom.py /app/generate_sbom.py
 RUN mkdir -p /app/licenses && \

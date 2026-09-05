@@ -12,7 +12,7 @@
 
 ## 调用与安全边界
 
-服务只在 Compose 的 `aig-control` 网络中提供 `8093` 端口，不映射到宿主机。包括 `/healthz` 在内的健康、任务创建、查询、结果和取消接口都要求 `Authorization: Bearer <AIG_SCAN_SERVICE_TOKEN>`。Worker 和服务必须配置同一个高强度随机 Token；这不是页面功能开关。
+服务随默认 `docker compose up -d` 启动，只在 Compose 的 `aig-control` 网络中提供 `8093` 端口，不映射到宿主机。包括 `/healthz` 在内的健康、任务创建、查询、结果和取消接口都要求 `Authorization: Bearer <AIG_SCAN_SERVICE_TOKEN>`。Backend、Worker 和服务使用同一个 Token；`.env.example` 提供本地开发占位值，生产需设置独立的高强度随机 Token。`AIG_SERVICE_URL` 配置调用地址，`AIG_SERVICE_TOKEN` 默认引用 `AIG_SCAN_SERVICE_TOKEN`。
 
 容器以 UID/GID `10002:10002`、只读根文件系统、删除全部 Linux capability 和 `no-new-privileges` 运行。`/tmp` 用于上游临时数据库及报告，`/var/lib/aig-wrapper` 只保存不含目标凭据的任务恢复状态。上游日志和数据库写入路径已修改，禁止记录模型 Token、目标凭据、原始 Prompt 或原始 Response。
 

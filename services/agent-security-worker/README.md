@@ -33,10 +33,14 @@ Worker、任务、凭据和租约到期时间绑定的 AES-GCM 密封信封。�
 ## 构建与运行
 
 ```bash
-./build.sh --security-worker
-# 先在项目根目录 .env 配置 Worker Token 和需要的评估模型参数
-docker compose --profile agent-security up -d
+./build.sh --all
+cp .env.example .env
+docker compose up -d
 ```
+
+默认 Compose 会同时启动 Worker 和 `aig-scan-service`。示例包含可用的本地开发凭据；
+生产需设置独立随机 Token 并启用安全启动校验。评估模型参数为空时服务可正常启动，
+调用模型的扫描仍需配置真实模型与 API Key。源码运行时，控制面和 AIG 地址应改为宿主机可访问的地址。
 
 默认评估入口是本平台 OpenAI-compatible 模型网关 `/v1`。如果改为其他兼容端点，仍需单独
 控制目标、网络和凭据边界。页面功能默认开启，不需要在 `.env` 配置功能开关；以上变量是 Worker
@@ -112,9 +116,11 @@ Agent Scan 的测试用例按所选 detection skill 生成。Vendored 执行链�
 次数；明确收到租约无效或过期后阻止该 attempt 的后续请求，已发出的请求由客户端超时结束；日志不记录
 Token、目标凭据或原始对话。
 
-当前 DNS 防护会在任务创建、领取以及每次目标调用前重新解析并核对固定地址集合，但 HTTPX 和
+Agent 动态扫描会在任务创建、领取以及每次目标调用前重新解析并核对固定地址集合，但 HTTPX 和
 WebSocket 在实际建连时仍由传输库再次解析，因此尚不是 socket 级 IP 固定。生产环境必须同时用
-Worker 出站网络策略限制可达目标；后续若实现自定义固定解析传输层，再移除此限制说明。
+Worker 出站网络策略限制可达目标。
+Dify 资产采集的 Console/Knowledge API 客户端直接连接已验证的 IP，重定向逐跳校验；HTTPS 保持
+原域名的 Host、SNI 和证书校验。该客户端不使用环境代理。
 
 ## 上游修改和交付物
 

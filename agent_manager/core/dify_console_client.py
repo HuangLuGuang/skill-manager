@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import json
 import socket
@@ -59,17 +60,88 @@ def _allowed_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address, cid
 
 
 class _ValidatedRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def __init__(self, validator: Callable[[str, bool], None]):
+    def __init__(self, validator: Callable[[str, bool], tuple[str, ...]], pinner):  # noqa: ANN001
         super().__init__()
         self._validator = validator
+        self._pinner = pinner
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
-        self._validator(newurl, True)
+        resolved = self._validator(newurl, True)
         redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
         if redirected is not None:
+            self._pinner(redirected, resolved=resolved)
             redirected.add_unredirected_header("Authorization", req.get_header("Authorization"))
             redirected.add_unredirected_header("X-WORKSPACE-ID", req.get_header("X-workspace-id"))
         return redirected
+
+
+def _connect_pinned(
+    addresses: tuple[str, ...],
+    port: int,
+    timeout: float,
+    source_address,
+):
+    last_error = None
+    for address in addresses:
+        sock = None
+        try:
+            family = socket.AF_INET6 if ":" in address else socket.AF_INET
+            sock = socket.socket(family, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            sock.connect((address, port))
+            return sock
+        except OSError as exc:
+            last_error = exc
+            if sock is not None:
+                sock.close()
+    raise last_error or OSError("no validated upstream address")
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, host, *, validated_ips: tuple[str, ...], **kwargs):  # noqa: ANN001
+        super().__init__(host, **kwargs)
+        self._validated_ips = validated_ips
+
+    def connect(self) -> None:
+        self.sock = _connect_pinned(self._validated_ips, self.port, self.timeout, self.source_address)
+        if self._tunnel_host:
+            self._tunnel()
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, host, *, validated_ips: tuple[str, ...], **kwargs):  # noqa: ANN001
+        super().__init__(host, **kwargs)
+        self._validated_ips = validated_ips
+
+    def connect(self) -> None:
+        self.sock = _connect_pinned(self._validated_ips, self.port, self.timeout, self.source_address)
+        if self._tunnel_host:
+            self._tunnel()
+        try:
+            self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
+        except OSError:
+            self.sock.close()
+            raise
+
+
+class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):  # noqa: ANN001
+        return self.do_open(
+            lambda host, **kwargs: _PinnedHTTPConnection(
+                host, validated_ips=req._dify_valid_ips, **kwargs,
+            ), req,
+        )
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):  # noqa: ANN001
+        return self.do_open(
+            lambda host, **kwargs: _PinnedHTTPSConnection(
+                host, validated_ips=req._dify_valid_ips, **kwargs,
+            ), req, context=self._context,
+        )
 
 
 class DifyConsoleClient:
@@ -81,8 +153,10 @@ class DifyConsoleClient:
         self._allowed_hosts = {self._base_host, *(value.lower() for value in config.allowed_redirect_hosts)}
         self._validate_url(self._base, False)
         self._opener = urllib.request.build_opener(
-            urllib.request.HTTPSHandler(context=ssl.create_default_context()),
-            _ValidatedRedirectHandler(self._validate_url),
+            urllib.request.ProxyHandler({}),
+            _PinnedHTTPHandler(),
+            _PinnedHTTPSHandler(context=ssl.create_default_context()),
+            _ValidatedRedirectHandler(self._validate_url, self._pin_request),
         )
 
     def _resolve(self, hostname: str, port: int | None) -> tuple[str, ...]:
@@ -102,7 +176,7 @@ class DifyConsoleClient:
                 raise DifyConsoleError("dify_inventory.upstream_unavailable")
         return values
 
-    def _validate_url(self, url: str, redirect: bool) -> None:
+    def _validate_url(self, url: str, redirect: bool) -> tuple[str, ...]:
         parsed = urllib.parse.urlsplit(url)
         scheme = parsed.scheme.lower()
         if scheme != "https" and not (scheme == "http" and self.config.allow_insecure_transport):
@@ -115,6 +189,18 @@ class DifyConsoleClient:
         resolved = self._resolve(hostname, parsed.port)
         if not redirect and self.config.expected_ips and set(resolved) != set(self.config.expected_ips):
             raise DifyConsoleError("dify_inventory.upstream_unavailable")
+        return resolved
+
+    def _pin_request(
+        self,
+        request: urllib.request.Request,
+        *,
+        resolved: tuple[str, ...],
+        enforce_expected: bool = False,
+    ) -> None:
+        if enforce_expected and self.config.expected_ips and set(resolved) != set(self.config.expected_ips):
+            raise DifyConsoleError("dify_inventory.upstream_unavailable")
+        request._dify_valid_ips = resolved
 
     @staticmethod
     def _error_for_status(status: int) -> DifyConsoleError:
@@ -156,7 +242,7 @@ class DifyConsoleClient:
         url = f"{self._base}{path}"
         if query:
             url = f"{url}?{urllib.parse.urlencode(query)}"
-        self._validate_url(url, False)
+        resolved = self._validate_url(url, False)
         request = urllib.request.Request(
             url,
             headers={
@@ -166,6 +252,7 @@ class DifyConsoleClient:
             },
             method="GET",
         )
+        self._pin_request(request, resolved=resolved, enforce_expected=True)
         for attempt in range(self.config.max_retries + 1):
             try:
                 with self._opener.open(
@@ -198,6 +285,17 @@ class DifyConsoleClient:
         if not isinstance(payload, dict):
             raise DifyConsoleError("dify_inventory.response_invalid")
         return payload.get("data", payload)
+
+    @classmethod
+    def _paged_items(cls, payload: Any) -> tuple[Any, bool]:
+        envelope = payload if isinstance(payload, dict) else None
+        data = cls._data(payload)
+        if isinstance(data, dict):
+            envelope = data
+            items = data.get("data") or data.get("items") or []
+        else:
+            items = data
+        return items, bool(envelope and envelope.get("has_more"))
 
     def get_app_detail(self, app_id: str | None = None) -> dict[str, Any]:
         selected = urllib.parse.quote(app_id or self.config.app_id, safe="")
@@ -274,21 +372,18 @@ class DifyConsoleClient:
 
     def list_datasets(self, *, limit: int = 100) -> list[dict[str, Any]]:
         page = 1
+        page_size = min(100, limit)
         rows: list[dict[str, Any]] = []
         while len(rows) < limit:
             try:
-                data = self._data(self._request_json(
-                    "/v1/datasets", query={"page": page, "limit": min(100, limit - len(rows))},
-                ))
+                payload = self._request_json(
+                    "/v1/datasets", query={"page": page, "limit": page_size},
+                )
             except DifyConsoleError as exc:
                 if exc.code == "dify_inventory.console_forbidden":
                     raise DifyConsoleError("dify_inventory.dataset_forbidden", status=exc.status) from exc
                 raise
-            if isinstance(data, dict):
-                items = data.get("data") or data.get("items") or []
-                has_more = bool(data.get("has_more"))
-            else:
-                items, has_more = data, False
+            items, has_more = self._paged_items(payload)
             if not isinstance(items, list):
                 raise DifyConsoleError("dify_inventory.response_invalid")
             rows.extend(item for item in items if isinstance(item, dict))
@@ -300,24 +395,21 @@ class DifyConsoleClient:
     def list_dataset_documents(self, dataset_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
         selected = urllib.parse.quote(dataset_id, safe="")
         page = 1
+        page_size = min(100, limit)
         rows: list[dict[str, Any]] = []
         while len(rows) < limit:
             try:
-                data = self._data(self._request_json(
+                payload = self._request_json(
                     f"/v1/datasets/{selected}/documents",
-                    query={"page": page, "limit": min(100, limit - len(rows))},
-                ))
+                    query={"page": page, "limit": page_size},
+                )
             except DifyConsoleError as exc:
                 if exc.code == "dify_inventory.app_not_found":
                     raise DifyConsoleError("dify_inventory.dataset_not_found", status=exc.status) from exc
                 if exc.code == "dify_inventory.console_forbidden":
                     raise DifyConsoleError("dify_inventory.dataset_forbidden", status=exc.status) from exc
                 raise
-            if isinstance(data, dict):
-                items = data.get("data") or data.get("items") or []
-                has_more = bool(data.get("has_more"))
-            else:
-                items, has_more = data, False
+            items, has_more = self._paged_items(payload)
             if not isinstance(items, list):
                 raise DifyConsoleError("dify_inventory.response_invalid")
             rows.extend(item for item in items if isinstance(item, dict))
@@ -336,24 +428,21 @@ class DifyConsoleClient:
         selected_dataset = urllib.parse.quote(dataset_id, safe="")
         selected_document = urllib.parse.quote(document_id, safe="")
         page = 1
+        page_size = min(100, limit)
         rows: list[dict[str, Any]] = []
         while len(rows) < limit:
             try:
-                data = self._data(self._request_json(
+                payload = self._request_json(
                     f"/v1/datasets/{selected_dataset}/documents/{selected_document}/segments",
-                    query={"page": page, "limit": min(100, limit - len(rows))},
-                ))
+                    query={"page": page, "limit": page_size},
+                )
             except DifyConsoleError as exc:
                 if exc.code == "dify_inventory.app_not_found":
                     raise DifyConsoleError("dify_inventory.dataset_not_found", status=exc.status) from exc
                 if exc.code == "dify_inventory.console_forbidden":
                     raise DifyConsoleError("dify_inventory.dataset_forbidden", status=exc.status) from exc
                 raise
-            if isinstance(data, dict):
-                items = data.get("data") or data.get("items") or []
-                has_more = bool(data.get("has_more"))
-            else:
-                items, has_more = data, False
+            items, has_more = self._paged_items(payload)
             if not isinstance(items, list):
                 raise DifyConsoleError("dify_inventory.response_invalid")
             rows.extend(item for item in items if isinstance(item, dict))

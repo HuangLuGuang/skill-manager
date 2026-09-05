@@ -54,6 +54,7 @@ def _publish_governance_event(
     call_id: str | None = None,
     parent_call_id: str | None = None,
     risk_codes: list[str] | None = None,
+    severity: str | None = None,
 ) -> None:
     publish_events_best_effort(
         db,
@@ -70,6 +71,7 @@ def _publish_governance_event(
                 call_id=call_id,
                 parent_call_id=parent_call_id,
                 status=status,
+                severity=severity,
                 risk_codes=risk_codes or [],
                 payload=payload,
             )
@@ -528,6 +530,7 @@ async def authorize_runtime_action(
         request_id=row.action_id,
         call_id=row.action_id,
         parent_call_id=row.parent_action_id,
+        severity=row.risk_level,
         risk_codes=[f"runtime.{reason}" for reason in reasons],
         payload={
             "action_id": row.action_id,
@@ -553,6 +556,7 @@ async def authorize_runtime_action(
             request_id=row.action_id,
             call_id=row.action_id,
             parent_call_id=row.parent_action_id,
+            severity=row.risk_level,
             risk_codes=[f"runtime.{reason}" for reason in reasons],
             payload={"action_id": row.action_id, "reasons": reasons},
         )

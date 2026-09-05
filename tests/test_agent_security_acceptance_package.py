@@ -153,7 +153,7 @@ def test_p7_acceptance_manifest_and_collector_are_secret_safe_and_non_destructiv
     for required in (
         "--output-dir must be an explicit absolute path",
         "Refusing to overwrite non-empty evidence directory",
-        "docker compose --env-file /dev/null --profile agent-security",
+        "docker compose --env-file /dev/null",
         '"${COMPOSE[@]}" config --no-env-resolution --quiet',
         'label=com.docker.compose.project=${COMPOSE_PROJECT}',
         "--compose-project must use lowercase letters",
@@ -1070,7 +1070,7 @@ def test_evidence_collector_uses_offline_provenance_without_compose_env_resoluti
         "if [[ \"$1 $2\" == 'compose version' ]]; then echo 'Docker Compose version v5'; exit 0; fi\n"
         "case \"$*\" in\n"
         "  *'--services') echo backend;;\n"
-        "  *'--profiles') echo agent-security;;\n"
+        "  *'--profiles') echo examples;;\n"
         "  *'--images') echo agent-manager-backend:v7.12.0;;\n"
         "esac\n",
         encoding="utf-8",
@@ -1092,6 +1092,6 @@ def test_evidence_collector_uses_offline_provenance_without_compose_env_resoluti
     assert "source=release_provenance" in (output / "git-state.txt").read_text(encoding="utf-8")
     assert json.loads((output / "release-provenance.json").read_text(encoding="utf-8")) == provenance
     docker_calls = call_log.read_text(encoding="utf-8")
-    assert "compose --env-file /dev/null --profile agent-security" in docker_calls
+    assert "compose --env-file /dev/null" in docker_calls
     assert "config --no-env-resolution" in docker_calls
-    assert "compose --env-file /dev/null --profile agent-security ps" not in docker_calls
+    assert "compose --env-file /dev/null ps" not in docker_calls

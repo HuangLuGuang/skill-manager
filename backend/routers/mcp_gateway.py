@@ -56,6 +56,7 @@ def _publish_mcp_runtime_trace(
     schema_hash: str | None = None,
     approval_request_id: str | None = None,
     duration_ms: float = 0.0,
+    severity: str | None = None,
 ) -> None:
     call_id = str(meta.get("call_id") or request_id or f"mcp_{uuid.uuid4().hex}")[:128]
     trusted_agent_id = token.bound_agent_id if token.token_type == "agent_runtime" else None
@@ -78,6 +79,7 @@ def _publish_mcp_runtime_trace(
         RuntimeTraceInternalEvent(
             **common,
             type="mcp.call",
+            severity=severity,
             status="submitted" if not error else "denied",
             risk_codes=[error_code] if error_code else [],
             payload={
@@ -95,6 +97,7 @@ def _publish_mcp_runtime_trace(
             RuntimeTraceInternalEvent(
                 **common,
                 type="approval.requested" if error and "等待" in error else "approval.resolved",
+                severity=severity,
                 status="pending" if error and "等待" in error else ("denied" if error else "approved"),
                 payload={"approval_request_id": approval_request_id, "message": error},
             )
@@ -103,6 +106,7 @@ def _publish_mcp_runtime_trace(
         RuntimeTraceInternalEvent(
             **common,
             type="mcp.error" if error else "mcp.result",
+            severity=severity,
             status="error" if error else "completed",
             risk_codes=[error_code] if error_code else [],
             duration_ms=max(0.0, duration_ms),
@@ -1515,6 +1519,7 @@ async def invoke_gateway(
             tool_name=tool.name,
             arguments=params.get("arguments") if isinstance(params.get("arguments"), dict) else {},
             error=error,
+            severity=tool.risk_level,
             error_code=error_code,
             schema_hash=tool.schema_hash,
         )
@@ -1533,6 +1538,7 @@ async def invoke_gateway(
             db, token=token, meta=approval_meta, request_id=request_id,
             gateway_slug=gateway.slug, tool_name=tool.name,
             error="Tool Schema 已变化，需要重新审核", schema_hash=tool.schema_hash,
+            severity=tool.risk_level,
         )
         return _jsonrpc_error(request_id, -32001, "Tool Schema 已变化，需要重新审核")
     arguments = params.get("arguments") or {}
@@ -1552,6 +1558,7 @@ async def invoke_gateway(
             db, token=token, meta=approval_meta, request_id=request_id,
             gateway_slug=gateway.slug, tool_name=tool.name, arguments=arguments,
             error="Tool 参数不符合 Schema", schema_hash=tool.schema_hash,
+            severity=tool.risk_level,
         )
         return _jsonrpc_error(request_id, -32602, "Tool 参数不符合 Schema", exc.message)
 
@@ -1577,6 +1584,7 @@ async def invoke_gateway(
             gateway_slug=gateway.slug, tool_name=tool.name, arguments=arguments,
             error=approval_error, schema_hash=tool.schema_hash,
             approval_request_id=approval_request_id,
+            severity=tool.risk_level,
         )
         return _jsonrpc_error(request_id, -32002, approval_error, approval_data)
     if _tool_rate_limit_exceeded(db, tool):
@@ -1591,6 +1599,7 @@ async def invoke_gateway(
             gateway_slug=gateway.slug, tool_name=tool.name, arguments=arguments,
             error=error, schema_hash=tool.schema_hash,
             approval_request_id=approval_request_id,
+            severity=tool.risk_level,
         )
         return _jsonrpc_error(request_id, -32003, error)
 
@@ -1647,4 +1656,5 @@ async def invoke_gateway(
             schema_hash=tool.schema_hash,
             approval_request_id=approval_request_id,
             duration_ms=audit.duration_ms,
+            severity=tool.risk_level,
         )

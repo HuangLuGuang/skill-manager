@@ -25,8 +25,8 @@ release-provenance.json
 修改。离线包删除 `.git` 后，现场证据采集仍以该文件核对真实构建来源；正式发布的
 `worktree_dirty` 必须为 `false`。
 
-镜像归档同时包含 `agent-manager-security-worker:<tag>`。该 Worker 使用 Compose
-`agent-security` profile，常规 `docker compose up -d` 不会启动。
+镜像归档同时包含 `agent-manager-security-worker:<tag>` 和 `agent-manager-aig-scan-service:<tag>`。
+常规 `docker compose up -d` 会一起启动 Worker 和内部扫描服务。
 
 正式发布应从已验证的 Git tag/分支生成。仅在提交前验收当前工作树时，可以显式使用
 `--source-dir`；该模式复制 Git 已跟踪文件和未被忽略的新增文件，不复制 `.env`、构建缓存等
@@ -88,7 +88,7 @@ xz -dc docker_images/arm/agent-manager-images-v1.0.0.tar.xz | docker load
 ./scripts/verify-agent-security-worker-image.sh agent-manager-security-worker:v1.0.0 arm64
 
 cp .env.example .env
-# 编辑 .env，替换全部 replace-with-* 占位值，并保持 ENFORCE_SECURE_STARTUP=true
+# 生产部署：设置独立随机密钥和 Token，并设置 ENFORCE_SECURE_STARTUP=true
 TAG=v1.0.0 docker compose run --rm --no-deps backend agent-manager signing-key init
 TAG=v1.0.0 docker compose up -d
 docker compose ps
@@ -105,7 +105,7 @@ xz -dc docker_images/x86/agent-manager-images-v1.0.0.tar.xz | docker load
 ./scripts/verify-agent-security-worker-image.sh agent-manager-security-worker:v1.0.0 amd64
 
 cp .env.example .env
-# 编辑 .env，替换全部 replace-with-* 占位值，并保持 ENFORCE_SECURE_STARTUP=true
+# 生产部署：设置独立随机密钥和 Token，并设置 ENFORCE_SECURE_STARTUP=true
 TAG=v1.0.0 docker compose run --rm --no-deps backend agent-manager signing-key init
 TAG=v1.0.0 docker compose up -d
 docker compose ps
@@ -182,7 +182,7 @@ docker compose logs -f sandbox
 
 ```bash
 TAG=v1.0.0 \
-  docker compose --profile agent-security up -d
+  docker compose up -d
 docker compose ps agent-security-worker
 ```
 
@@ -240,14 +240,14 @@ agent-security-worker`，等待该策略的 `lease_seconds` 到期后，由管�
 
 ```bash
 ./scripts/verify-agent-security-worker-image.sh agent-manager-security-worker:<new-tag> <amd64-or-arm64>
-TAG=<new-tag> docker compose --profile agent-security up -d --no-deps agent-security-worker
+TAG=<new-tag> docker compose up -d --no-deps agent-security-worker
 docker compose ps agent-security-worker
 ```
 
 确认健康、心跳、公钥登记和升级后扫描回归，再结束变更窗口。失败时使用保留的旧镜像回滚：
 
 ```bash
-TAG=<old-tag> docker compose --profile agent-security up -d --no-deps agent-security-worker
+TAG=<old-tag> docker compose up -d --no-deps agent-security-worker
 docker compose ps agent-security-worker
 ```
 

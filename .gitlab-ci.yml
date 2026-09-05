@@ -79,12 +79,12 @@ deploy-35:
       fi
 
       cd "$DEPLOY_DIR"
-      docker compose --profile agent-security up -d --remove-orphans
+      docker compose up -d --remove-orphans
       docker compose up -d --force-recreate --no-deps nginx
 
       for attempt in $(seq 1 40); do
-        worker_id="$(docker compose --profile agent-security ps -q agent-security-worker)"
-        aig_service_id="$(docker compose --profile agent-security ps -q aig-scan-service)"
+        worker_id="$(docker compose ps -q agent-security-worker)"
+        aig_service_id="$(docker compose ps -q aig-scan-service)"
         worker_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$worker_id" 2>/dev/null || true)"
         aig_service_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$aig_service_id" 2>/dev/null || true)"
         if curl --fail --silent --show-error --max-time 5 http://127.0.0.1/ >/dev/null \
@@ -93,15 +93,15 @@ deploy-35:
           break
         fi
         if [ "$attempt" -eq 40 ]; then
-          docker compose --profile agent-security ps
-          docker compose --profile agent-security logs --tail=100 \
+          docker compose ps
+          docker compose logs --tail=100 \
             backend frontend nginx sandbox agent-security-worker aig-scan-service
           exit 1
         fi
         sleep 5
       done
 
-      docker compose --profile agent-security ps
+      docker compose ps
       notify "Agent Manager ${IMAGE_TAG} 已部署并通过健康检查\n${CI_PIPELINE_URL}"
   after_script:
     - |

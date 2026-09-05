@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import secrets
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -24,6 +25,7 @@ from backend.services import dify_intent_inference
 from backend.security_scan_controls import (
     hash_value,
     json_dumps,
+    protect_secret,
     resolve_target_endpoint,
     unprotect_secret,
     verify_dns_pin,
@@ -150,6 +152,210 @@ def _create_worker(client: TestClient, name: str = "p1-worker"):
     )
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def _claim_control_plane_task(client: TestClient):
+    target = _create_target(client)
+    policy = _create_policy(client, lease_seconds=30, suffix=secrets.token_hex(8))
+    task = _create_task(client, target["target_id"], policy["policy_id"], key=f"p1-task-{secrets.token_hex(8)}")
+    worker = _create_worker(client, name=f"p1-worker-{secrets.token_hex(8)}")
+    headers = {"Authorization": f"Bearer {worker['token_once']}"}
+    claimed = client.post("/api/v1/agent-security/worker/claim", headers=headers, json={})
+    assert claimed.status_code == 200, claimed.text
+    return task["task_id"], headers, claimed.json()["lease_token"]
+
+
+def _completion_finding():
+    return {
+        "case_external_id": "case-1",
+        "finding_code": "prompt_injection.detected",
+        "severity": "high",
+        "title": "Injection accepted",
+        "description": "Injection accepted",
+        "evidence": {"observed": True},
+        "source": "review",
+        "confidence": 0.9,
+    }
+
+
+def test_worker_absolute_timeout_stops_heartbeat(p1_api):
+    client, factory, _, _ = p1_api
+    task_id, headers, lease_token = _claim_control_plane_task(client)
+    with factory() as db:
+        task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
+        task.timeout_at = datetime.utcnow() - timedelta(seconds=1)
+        db.commit()
+    heartbeat = client.post(
+        f"/api/v1/agent-security/worker/tasks/{task_id}/heartbeat",
+        headers=headers,
+        json={"lease_token": lease_token, "usage": {}},
+    )
+    assert heartbeat.status_code == 200
+    assert heartbeat.json()["status"] == "timed_out"
+    assert heartbeat.json()["stop_reason"] == "task_timeout"
+
+
+def test_worker_cancel_wins_over_completion(p1_api):
+    client, factory, _, _ = p1_api
+    task_id, headers, lease_token = _claim_control_plane_task(client)
+    cancelled = client.post(f"/api/v1/agent-security/tasks/{task_id}/cancel")
+    assert cancelled.json()["cancel_requested"] is True
+    completed = client.post(
+        f"/api/v1/agent-security/worker/tasks/{task_id}/complete",
+        headers=headers,
+        json={"lease_token": lease_token, "status": "succeeded", "usage": {}, "cases": [], "findings": []},
+    )
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "cancelled"
+
+
+@pytest.mark.parametrize("pending", [False, True])
+def test_worker_cancel_is_persisted_on_lease_recovery(p1_api, pending):
+    client, factory, _, _ = p1_api
+    task_id, _, _ = _claim_control_plane_task(client)
+    assert client.post(f"/api/v1/agent-security/tasks/{task_id}/cancel").status_code == 200
+    with factory() as db:
+        task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
+        task.lease_expires_at = datetime.utcnow() - timedelta(seconds=1)
+        if pending:
+            task.status = "pending"
+            security_scans._clear_lease(task)
+        db.commit()
+        security_scans.recover_stale_tasks(db)
+    with factory() as db:
+        task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
+        assert task.status == "cancelled"
+        assert task.stop_reason == "cancel_requested"
+        assert task.worker_id is None
+        assert task.lease_token_hash is None
+
+
+@pytest.mark.parametrize("endpoint", ["heartbeat", "complete", "infer-intent"])
+def test_worker_deadline_with_capped_expired_lease(p1_api, monkeypatch, endpoint):
+    client, factory, _, _ = p1_api
+
+    class Clock(datetime):
+        current = datetime.utcnow()
+
+        @classmethod
+        def utcnow(cls):
+            return cls.current
+
+    monkeypatch.setattr(security_scans, "datetime", Clock)
+    target = _create_target(client)
+    policy = _create_policy(client, lease_seconds=30, task_timeout_seconds=10)
+    task = _create_task(client, target["target_id"], policy["policy_id"])
+    worker = _create_worker(client)
+    headers = {"Authorization": f"Bearer {worker['token_once']}"}
+    claimed = client.post("/api/v1/agent-security/worker/claim", headers=headers, json={})
+    assert claimed.status_code == 200, claimed.text
+    with factory() as db:
+        row = db.query(models.SecurityScanTask).filter_by(task_id=task["task_id"]).one()
+        deadline = row.timeout_at
+        assert row.lease_expires_at == deadline == Clock.current + timedelta(seconds=10)
+        if endpoint == "infer-intent":
+            row.scan_kind = "dify_asset_inventory"
+            row.scan_options_encrypted = protect_secret(json_dumps({"infer_agent_intent": True}))
+            db.commit()
+
+    async def unexpected_inference(*args, **kwargs):
+        pytest.fail("An expired task must not invoke the intent model")
+
+    monkeypatch.setattr(security_scans, "run_intent_inference", unexpected_inference)
+    Clock.current = deadline + timedelta(seconds=1)
+    payload = {"lease_token": claimed.json()["lease_token"], "usage": {}}
+    if endpoint == "complete":
+        payload["status"] = "succeeded"
+    elif endpoint == "infer-intent":
+        payload["summary"] = {}
+    response = client.post(
+        f"/api/v1/agent-security/worker/tasks/{task['task_id']}/{endpoint}", headers=headers, json=payload,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["stop_reason"] == "task_timeout"
+    with factory() as db:
+        row = db.query(models.SecurityScanTask).filter_by(task_id=task["task_id"]).one()
+        assert row.status == "timed_out"
+        assert row.worker_id is None
+        assert row.lease_token_hash is None
+        assert row.lease_expires_at is None
+
+
+@pytest.mark.parametrize("finding_count", [1001, 2000])
+def test_worker_completion_accepts_large_findings_and_batches_trace_events(p1_api, finding_count):
+    client, factory, _, _ = p1_api
+    task_id, headers, lease_token = _claim_control_plane_task(client)
+    response = client.post(
+        f"/api/v1/agent-security/worker/tasks/{task_id}/complete",
+        headers=headers,
+        json={
+            "lease_token": lease_token,
+            "status": "succeeded",
+            "usage": {},
+            "cases": [{"external_case_id": "case-1", "category": "prompt_injection", "title": "Injection", "status": "failed"}],
+            "findings": [_completion_finding() for _ in range(finding_count)],
+        },
+    )
+    assert response.status_code == 200, response.text
+    with factory() as db:
+        stored_task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
+        assert stored_task.status == "succeeded"
+        assert db.query(models.SecurityFinding).filter_by(task_id=task_id).count() == finding_count
+        trace_id = f"trc_scan_{task_id}"
+        assert db.query(models.RuntimeTraceSession).filter_by(trace_id=trace_id).count() == 1
+        events = db.query(models.RuntimeTraceEvent).filter_by(trace_id=trace_id).order_by(models.RuntimeTraceEvent.seq).all()
+        assert len(events) == finding_count
+        assert [event.seq for event in events] == list(range(1, finding_count + 1))
+        assert db.query(models.RuntimeTracePayload).filter_by(trace_id=trace_id).count() == finding_count
+        assert db.query(models.RuntimeTraceIngestBatch).filter_by(trace_id=trace_id).count() == 2
+        assert db.query(models.RuntimeTraceSession).filter_by(trace_id=trace_id, risk_level="high").count() == 1
+
+
+def test_worker_completion_rolls_back_all_batches_and_can_retry(p1_api, monkeypatch):
+    client, factory, _, _ = p1_api
+    task_id, headers, lease_token = _claim_control_plane_task(client)
+    payload = {
+        "lease_token": lease_token, "status": "succeeded", "usage": {},
+        "cases": [{"external_case_id": "case-1", "category": "prompt_injection", "title": "Injection", "status": "failed"}],
+        "findings": [_completion_finding() for _ in range(1001)],
+    }
+    ingest = security_scans.ingest_runtime_trace_batch
+    calls = 0
+
+    def fail_after_second_batch(*args, **kwargs):
+        nonlocal calls
+        result = ingest(*args, **kwargs)
+        calls += 1
+        if calls == 2:
+            raise ApiError(503, "test.batch_failure", "批次故障测试", "Injected batch failure")
+        return result
+
+    monkeypatch.setattr(security_scans, "ingest_runtime_trace_batch", fail_after_second_batch)
+    url = f"/api/v1/agent-security/worker/tasks/{task_id}/complete"
+    response = client.post(url, headers=headers, json=payload)
+    assert response.status_code == 503, response.text
+    assert calls == 2
+    trace_id = f"trc_scan_{task_id}"
+    with factory() as db:
+        task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
+        assert task.status == "running"
+        assert task.completed_at is None
+        assert task.lease_token_hash == hash_value(lease_token)
+        for model in (models.SecurityFinding, models.SecurityScanCase, models.SecurityScanArtifact):
+            assert db.query(model).filter_by(task_id=task_id).count() == 0
+        for model in (
+            models.RuntimeTraceSession, models.RuntimeTraceEvent,
+            models.RuntimeTracePayload, models.RuntimeTraceIngestBatch,
+        ):
+            assert db.query(model).filter_by(trace_id=trace_id).count() == 0
+
+    monkeypatch.setattr(security_scans, "ingest_runtime_trace_batch", ingest)
+    retried = client.post(url, headers=headers, json=payload)
+    assert retried.status_code == 200, retried.text
+    with factory() as db:
+        assert db.query(models.SecurityScanTask).filter_by(task_id=task_id).one().status == "succeeded"
+        assert db.query(models.SecurityFinding).filter_by(task_id=task_id).count() == 1001
+        assert db.query(models.RuntimeTraceEvent).filter_by(trace_id=trace_id).count() == 1001
 
 
 def _worker_settings(token: str | None) -> Settings:

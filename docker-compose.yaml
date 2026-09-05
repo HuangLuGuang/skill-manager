@@ -28,9 +28,9 @@ services:
       MCP_OUTBOUND_ALLOWLIST: ${MCP_OUTBOUND_ALLOWLIST:-}
       MCP_MAX_RESPONSE_KB: ${MCP_MAX_RESPONSE_KB:-1024}
       AGENT_SECURITY_UPSTREAM_LOCK_PATH: /app/deploy/agent-security/upstreams.lock.json
-      AGENT_SECURITY_WORKER_TOKEN: ${AGENT_SECURITY_WORKER_TOKEN:-}
-      AIG_SERVICE_URL: http://aig-scan-service:8093
-      AIG_SERVICE_TOKEN: ${AIG_SCAN_SERVICE_TOKEN:-}
+      AGENT_SECURITY_WORKER_TOKEN: ${AGENT_SECURITY_WORKER_TOKEN:-amsw_local-development-only-change-before-production}
+      AIG_SERVICE_URL: ${AIG_SERVICE_URL:-http://aig-scan-service:8093}
+      AIG_SERVICE_TOKEN: ${AIG_SERVICE_TOKEN:-${AIG_SCAN_SERVICE_TOKEN:-aigs_local-development-only-change-before-production}}
       ENFORCE_SECURE_STARTUP: ${ENFORCE_SECURE_STARTUP:-false}
     depends_on:
       sandbox:
@@ -54,11 +54,10 @@ services:
     restart: unless-stopped
 
   agent-security-worker:
-    profiles: ["agent-security"]
     image: agent-manager-security-worker:${TAG:-latest}
     environment:
-      AGENT_SECURITY_CONTROL_PLANE_URL: http://backend:8000/api/v1/agent-security
-      AGENT_SECURITY_WORKER_TOKEN: ${AGENT_SECURITY_WORKER_TOKEN:-}
+      AGENT_SECURITY_CONTROL_PLANE_URL: ${AGENT_SECURITY_CONTROL_PLANE_URL:-http://backend:8000/api/v1/agent-security}
+      AGENT_SECURITY_WORKER_TOKEN: ${AGENT_SECURITY_WORKER_TOKEN:-amsw_local-development-only-change-before-production}
       AGENT_SECURITY_WORKER_POLL_SECONDS: ${AGENT_SECURITY_WORKER_POLL_SECONDS:-5}
       AGENT_SECURITY_EVALUATOR_API_KEY: ${AGENT_SECURITY_EVALUATOR_API_KEY:-}
       AGENT_SECURITY_EVALUATOR_MODEL: ${AGENT_SECURITY_EVALUATOR_MODEL:-}
@@ -66,8 +65,8 @@ services:
       AGENT_SECURITY_EVALUATOR_INPUT_COST_MICRO_PER_MILLION: ${AGENT_SECURITY_EVALUATOR_INPUT_COST_MICRO_PER_MILLION:-0}
       AGENT_SECURITY_EVALUATOR_OUTPUT_COST_MICRO_PER_MILLION: ${AGENT_SECURITY_EVALUATOR_OUTPUT_COST_MICRO_PER_MILLION:-0}
       AIG_AGENT_SCAN_LOG_LEVEL: ${AIG_AGENT_SCAN_LOG_LEVEL:-WARNING}
-      AIG_SERVICE_URL: http://aig-scan-service:8093
-      AIG_SERVICE_TOKEN: ${AIG_SCAN_SERVICE_TOKEN:-}
+      AIG_SERVICE_URL: ${AIG_SERVICE_URL:-http://aig-scan-service:8093}
+      AIG_SERVICE_TOKEN: ${AIG_SERVICE_TOKEN:-${AIG_SCAN_SERVICE_TOKEN:-aigs_local-development-only-change-before-production}}
     depends_on:
       backend:
         condition: service_healthy
@@ -102,10 +101,9 @@ services:
       - aig-control
 
   aig-scan-service:
-    profiles: ["agent-security"]
     image: agent-manager-aig-scan-service:${TAG:-latest}
     environment:
-      AIG_WRAPPER_TOKEN: ${AIG_SCAN_SERVICE_TOKEN:-}
+      AIG_WRAPPER_TOKEN: ${AIG_SCAN_SERVICE_TOKEN:-aigs_local-development-only-change-before-production}
       AIG_WRAPPER_DB: /var/lib/aig-wrapper/jobs.db
       AIG_WRAPPER_MAX_JOBS: ${AIG_SCAN_SERVICE_MAX_JOBS:-100}
       AIG_AGENT_READY_SECONDS: ${AIG_SCAN_SERVICE_AGENT_READY_SECONDS:-2}

@@ -145,6 +145,8 @@ def _publish_model_runtime_trace(
         "parent_call_id": trace_context.get("parent_call_id"),
     }
     risk_codes = [str(item) for item in (prompt_security or {}).get("risk_codes", [])]
+    prompt_severity = str((prompt_security or {}).get("risk_level") or "").lower()
+    prompt_severity = prompt_severity if prompt_severity in {"low", "medium", "high", "critical"} else None
     request_duration_ms = max(0.0, duration_ms) if duration_ms is not None else None
     model_duration_ms = max(0.0, upstream_duration_ms) if upstream_duration_ms is not None else None
     performance = {
@@ -168,6 +170,7 @@ def _publish_model_runtime_trace(
                 **common,
                 type="model.request",
                 status="blocked" if blocked else "submitted",
+                severity=prompt_severity,
                 risk_codes=risk_codes,
                 payload={"model": model_name, "request": request_payload, "prompt_security": prompt_security or {}},
                 redacted_payload={"model": model_name, "request": redacted_request or {}, "prompt_security": prompt_security or {}},
@@ -179,6 +182,7 @@ def _publish_model_runtime_trace(
                 **common,
                 type="model.error",
                 status="blocked" if blocked else "error",
+                severity=prompt_severity,
                 duration_ms=request_duration_ms,
                 risk_codes=risk_codes,
                 payload={"model": model_name, "error": error, "prompt_security": prompt_security or {}, "performance": performance},
@@ -191,6 +195,7 @@ def _publish_model_runtime_trace(
                 **common,
                 type="model.response",
                 status="completed",
+                severity=prompt_severity,
                 duration_ms=request_duration_ms,
                 risk_codes=risk_codes,
                 payload={"model": model_name, "response": response_payload, "usage": usage or {}, "performance": performance},
@@ -203,6 +208,7 @@ def _publish_model_runtime_trace(
                 **common,
                 type="security.finding",
                 status="blocked" if blocked else "observed",
+                severity=prompt_severity,
                 risk_codes=risk_codes,
                 payload={"component": "prompt_security", **prompt_security},
                 redacted_payload={"component": "prompt_security", **prompt_security},

@@ -53,6 +53,9 @@ class RuntimeTraceEventInput(BaseModel):
     status: str | None = Field(default=None, max_length=32)
     tool_name: str | None = Field(default=None, max_length=256)
     duration_ms: float | None = Field(default=None, ge=0)
+    # Producers that have a classified finding should pass its decision through
+    # explicitly. Older SDKs may omit this field.
+    severity: Literal["info", "low", "medium", "high", "critical"] | None = None
     risk_codes: list[str] = Field(default_factory=list, max_length=100)
     payload: dict[str, Any] = Field(default_factory=dict)
     redacted_payload: dict[str, Any] | None = None
@@ -96,6 +99,7 @@ class RuntimeTraceInternalEvent(BaseModel):
     status: str | None = None
     tool_name: str | None = None
     duration_ms: float | None = None
+    severity: Literal["info", "low", "medium", "high", "critical"] | None = None
     risk_codes: list[str] = Field(default_factory=list)
     payload: dict[str, Any] = Field(default_factory=dict)
     redacted_payload: dict[str, Any] | None = None

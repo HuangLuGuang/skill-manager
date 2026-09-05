@@ -95,6 +95,7 @@ from ..security_scan_schemas import (
 )
 from ..services.runtime_traces import create_trace as create_runtime_trace_session
 from ..services.runtime_traces import ingest_batch as ingest_runtime_trace_batch
+from ..services.runtime_traces import ingest_transaction as runtime_trace_transaction
 from ..services.dify_inventory import (
     inventory_artifact_projection,
     persist_inventory_snapshot,
@@ -2743,16 +2744,22 @@ def _create_scan_finding_trace(
                 type="security.finding",
                 status="observed",
                 risk_codes=[row.finding_code],
+                severity=row.severity,
                 payload=payload,
                 redacted_payload=payload,
             )
         )
-    ingest_runtime_trace_batch(
-        db,
-        trace,
-        RuntimeTraceBatchCreate(batch_id=f"bat_scan_{task.task_id}", events=events),
-        allowed_sources={"security_worker"},
-    )
+    for batch_number, offset in enumerate(range(0, len(events), 1000), start=1):
+        ingest_runtime_trace_batch(
+            db,
+            trace,
+            RuntimeTraceBatchCreate(
+                batch_id=f"bat_scan_{task.task_id}_{batch_number}",
+                events=events[offset : offset + 1000],
+            ),
+            allowed_sources={"security_worker"},
+            commit=False,
+        )
 
 
 def _artifact_payload(row: models.SecurityScanArtifact) -> dict[str, Any]:
@@ -3488,7 +3495,12 @@ def _verify_lease(task: models.SecurityScanTask, worker: models.SecurityScanWork
         )
     if not task.lease_token_hash or not secrets.compare_digest(task.lease_token_hash, hash_value(lease_token)):
         raise ApiError(401, "agent_security.task_lease_invalid", "任务租约令牌无效", "Task lease token is invalid")
-    if task.lease_expires_at and task.lease_expires_at < datetime.utcnow():
+    now = datetime.utcnow()
+    if (
+        task.lease_expires_at
+        and task.lease_expires_at < now
+        and (not task.timeout_at or task.timeout_at > now)
+    ):
         raise ApiError(409, "agent_security.task_lease_expired", "任务租约已过期", "Task lease has expired")
 
 
@@ -3527,6 +3539,8 @@ def _task_usage(task: models.SecurityScanTask) -> SecurityTaskUsage:
 
 
 def _budget_reason(task: models.SecurityScanTask, now: datetime) -> str | None:
+    if task.timeout_at and task.timeout_at <= now:
+        return "task_timeout"
     policy = json_loads(task.policy_snapshot_json, {})
     request_entry_checks = (
         ("max_rounds", task.rounds_used),
@@ -3592,15 +3606,28 @@ def recover_stale_tasks(db: Session, *, now: datetime | None = None) -> dict[str
     kill_switch_cancelled = False
     pending = (
         db.query(models.SecurityScanTask)
-        .filter(models.SecurityScanTask.status == "pending", models.SecurityScanTask.timeout_at <= current)
+        .filter(
+            models.SecurityScanTask.status == "pending",
+            or_(
+                models.SecurityScanTask.cancel_requested.is_(True),
+                models.SecurityScanTask.timeout_at <= current,
+            ),
+        )
         .all()
     )
     for task in pending:
-        task.status = "timed_out"
-        task.stop_reason = "task_timeout"
+        if task.cancel_requested:
+            task.status = "cancelled"
+            task.stop_reason = "cancel_requested"
+            kill_switch_cancelled = True
+        elif task.timeout_at <= current:
+            task.status = "timed_out"
+            task.stop_reason = "task_timeout"
+            timed_out += 1
+        else:
+            continue
         task.completed_at = current
         task.updated_at = current
-        timed_out += 1
     expired = (
         db.query(models.SecurityScanTask)
         .filter(
@@ -3614,6 +3641,11 @@ def recover_stale_tasks(db: Session, *, now: datetime | None = None) -> dict[str
         if task.kill_switch_activated:
             task.status = "cancelled"
             task.stop_reason = "kill_switch.activated"
+            task.completed_at = current
+            kill_switch_cancelled = True
+        elif task.cancel_requested:
+            task.status = "cancelled"
+            task.stop_reason = "cancel_requested"
             task.completed_at = current
             kill_switch_cancelled = True
         elif task.timeout_at <= current:
@@ -3812,7 +3844,7 @@ async def claim_task(
                     "status": "running",
                     "worker_id": worker.worker_id,
                     "lease_token_hash": hash_value(lease_plain),
-                    "lease_expires_at": now + timedelta(seconds=lease_seconds),
+                    "lease_expires_at": min(now + timedelta(seconds=lease_seconds), candidate.timeout_at),
                     "heartbeat_at": now,
                     "attempt": candidate.attempt + 1,
                     "started_at": candidate.started_at or now,
@@ -3921,7 +3953,7 @@ async def task_heartbeat(
         return SecurityWorkerHeartbeatResponse(continue_allowed=False, status=task.status, stop_reason=task.stop_reason)
     reason = _budget_reason(task, now)
     if reason:
-        task.status = "blocked"
+        task.status = "timed_out" if reason == "task_timeout" else "blocked"
         task.stop_reason = reason
         task.completed_at = now
         _clear_lease(task)
@@ -3930,7 +3962,8 @@ async def task_heartbeat(
         return SecurityWorkerHeartbeatResponse(continue_allowed=False, status=task.status, stop_reason=reason)
     policy = json_loads(task.policy_snapshot_json, {})
     task.heartbeat_at = now
-    task.lease_expires_at = now + timedelta(seconds=int(policy.get("lease_seconds", 60)))
+    lease_expires_at = now + timedelta(seconds=int(policy.get("lease_seconds", 60)))
+    task.lease_expires_at = min(lease_expires_at, task.timeout_at)
     task.updated_at = now
     worker.last_heartbeat_at = now
     db.commit()
@@ -3974,7 +4007,11 @@ async def infer_dify_agent_intent(
             else "cancel_requested" if task.cancel_requested
             else reason
         )
-        task.status = "cancelled" if task.kill_switch_activated or task.cancel_requested else "blocked"
+        task.status = (
+            "cancelled"
+            if task.kill_switch_activated or task.cancel_requested
+            else "timed_out" if reason == "task_timeout" else "blocked"
+        )
         task.stop_reason = stop_reason
         task.completed_at = now
         task.updated_at = now
@@ -3991,7 +4028,7 @@ async def infer_dify_agent_intent(
 
     policy = json_loads(task.policy_snapshot_json, {})
     task.heartbeat_at = now
-    task.lease_expires_at = now + timedelta(seconds=int(policy.get("lease_seconds", 60)))
+    task.lease_expires_at = min(now + timedelta(seconds=int(policy.get("lease_seconds", 60))), task.timeout_at)
     task.updated_at = now
     worker.last_heartbeat_at = now
     db.commit()
@@ -4029,7 +4066,7 @@ async def infer_dify_agent_intent(
             task.status = "cancelled"
             stop_reason = "cancel_requested"
         else:
-            task.status = "blocked"
+            task.status = "timed_out" if reason == "task_timeout" else "blocked"
         task.stop_reason = stop_reason
         task.completed_at = completed_at
         _clear_lease(task)
@@ -4041,7 +4078,9 @@ async def infer_dify_agent_intent(
         }
     else:
         task.heartbeat_at = completed_at
-        task.lease_expires_at = completed_at + timedelta(seconds=int(policy.get("lease_seconds", 60)))
+        task.lease_expires_at = min(
+            completed_at + timedelta(seconds=int(policy.get("lease_seconds", 60))), task.timeout_at
+        )
     task.updated_at = completed_at
     worker.last_heartbeat_at = completed_at
     db.commit()
@@ -4110,10 +4149,29 @@ async def complete_task(
             details={"status": task.status, "stop_reason": task.stop_reason},
         )
         return _task_response(task)
+    if task.cancel_requested:
+        task.status = "cancelled"
+        task.stop_reason = "cancel_requested"
+        task.completed_at = now
+        _clear_lease(task)
+        task.updated_at = now
+        worker.last_heartbeat_at = now
+        db.commit()
+        db.refresh(task)
+        _audit(
+            db,
+            event_type="security_scan_task.cancelled",
+            actor=f"worker:{worker.worker_id}",
+            resource_type="security_scan_task",
+            resource_id=task.task_id,
+            action="complete",
+            details={"status": task.status, "stop_reason": task.stop_reason},
+        )
+        return _task_response(task)
     _validate_worker_result_contract(task, body)
     budget_reason = _budget_reason(task, now)
     if budget_reason:
-        task.status = "blocked"
+        task.status = "timed_out" if budget_reason == "task_timeout" else "blocked"
         task.stop_reason = budget_reason
         task.completed_at = now
     elif body.status == "failed" and body.retryable and task.attempt < task.max_attempts:
@@ -4277,7 +4335,8 @@ async def complete_task(
     task.updated_at = now
     worker.last_heartbeat_at = now
     if auto_trace_findings:
-        _create_scan_finding_trace(db, task, auto_trace_findings, now=now)
+        with runtime_trace_transaction(db):
+            _create_scan_finding_trace(db, task, auto_trace_findings, now=now)
     else:
         db.commit()
     db.refresh(task)

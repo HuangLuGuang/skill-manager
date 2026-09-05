@@ -4,6 +4,8 @@ import io
 import json
 import socket
 import urllib.error
+import urllib.parse
+import urllib.request
 
 import pytest
 
@@ -11,6 +13,9 @@ from agent_manager.core.dify_console_client import (
     DifyConsoleClient,
     DifyConsoleClientConfig,
     DifyConsoleError,
+    _PinnedHTTPSConnection,
+    _connect_pinned,
+    _ValidatedRedirectHandler,
 )
 
 
@@ -45,7 +50,7 @@ class _Opener:
 
 
 def _client(monkeypatch, responses, **overrides):
-    monkeypatch.setattr(DifyConsoleClient, "_validate_url", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(DifyConsoleClient, "_validate_url", lambda *_args, **_kwargs: ("8.8.8.8",))
     config = DifyConsoleClientConfig(
         base_url="https://dify.example.test",
         workspace_id="workspace-test",
@@ -201,3 +206,162 @@ def test_document_and_segment_pagination_respects_limits(monkeypatch):
     assert [item["id"] for item in client.list_document_segments("dataset", "document", limit=2)] == ["s1", "s2"]
     assert "/v1/datasets/dataset/documents?" in client._opener.requests[0][0].full_url
     assert "/segments?" in client._opener.requests[-1][0].full_url
+
+
+@pytest.mark.parametrize("kind", ["datasets", "documents", "segments"])
+def test_top_level_pagination_envelope_preserves_has_more(monkeypatch, kind):
+    client = _client(monkeypatch, [
+        _Response({"data": [{"id": "one"}], "has_more": True}),
+        _Response({"data": [{"id": "two"}], "has_more": False}),
+    ])
+    if kind == "datasets":
+        rows = client.list_datasets(limit=2)
+    elif kind == "documents":
+        rows = client.list_dataset_documents("dataset", limit=2)
+    else:
+        rows = client.list_document_segments("dataset", "document", limit=2)
+    assert [row["id"] for row in rows] == ["one", "two"]
+    assert len(client._opener.requests) == 2
+
+
+@pytest.mark.parametrize("kind", ["datasets", "documents", "segments"])
+@pytest.mark.parametrize("requested_limit", [101, 150])
+def test_pagination_uses_fixed_page_size_for_offset_apis(monkeypatch, kind, requested_limit):
+    client = _client(monkeypatch, [])
+    source = [{"id": str(index)} for index in range(150)]
+
+    class PagingOpener:
+        def __init__(self):
+            self.requests = []
+
+        def open(self, request, timeout):
+            self.requests.append((request, timeout))
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(request.full_url).query)
+            page = int(query["page"][0])
+            page_size = int(query["limit"][0])
+            start = (page - 1) * page_size
+            end = min(start + page_size, len(source))
+            return _Response({"data": source[start:end], "has_more": end < len(source)})
+
+    client._opener = PagingOpener()
+    if kind == "datasets":
+        rows = client.list_datasets(limit=requested_limit)
+    elif kind == "documents":
+        rows = client.list_dataset_documents("dataset", limit=requested_limit)
+    else:
+        rows = client.list_document_segments("dataset", "document", limit=requested_limit)
+
+    assert [row["id"] for row in rows] == [str(index) for index in range(requested_limit)]
+    assert {urllib.parse.parse_qs(urllib.parse.urlsplit(request.full_url).query)["limit"][0]
+            for request, _timeout in client._opener.requests} == {str(min(100, requested_limit))}
+
+
+def test_pinned_https_keeps_hostname_for_sni_and_connects_to_ip(monkeypatch):
+    connected = []
+
+    class FakeSocket:
+        def settimeout(self, timeout):
+            pass
+
+        def connect(self, address):
+            connected.append(address)
+
+    class FakeContext:
+        def wrap_socket(self, sock, *, server_hostname):
+            assert server_hostname == "dify.example.test"
+            return sock
+
+    monkeypatch.setattr(socket, "socket", lambda *_args: FakeSocket())
+    connection = _PinnedHTTPSConnection(
+        "dify.example.test", port=443, validated_ips=("203.0.113.7",), context=FakeContext(),
+    )
+    connection.connect()
+
+    assert connected == [("203.0.113.7", 443)]
+
+
+def test_pinned_connect_tries_all_validated_ips_and_closes_failed_socket(monkeypatch):
+    sockets = []
+
+    class FakeSocket:
+        def __init__(self, should_fail):
+            self.should_fail = should_fail
+            self.closed = False
+
+        def settimeout(self, timeout):
+            pass
+
+        def connect(self, address):
+            if self.should_fail:
+                raise OSError("unreachable")
+
+        def close(self):
+            self.closed = True
+
+    def make_socket(*_args):
+        sock = FakeSocket(not sockets)
+        sockets.append(sock)
+        return sock
+
+    monkeypatch.setattr(socket, "socket", make_socket)
+    result = _connect_pinned(("203.0.113.7", "203.0.113.8"), 443, 1.0, None)
+
+    assert result is sockets[1]
+    assert sockets[0].closed is True
+
+
+def test_dns_rebinding_after_validation_cannot_change_connect_target(monkeypatch):
+    resolutions = []
+    connections = []
+
+    def resolve(host, port, **_kwargs):
+        resolutions.append(host)
+        address = "8.8.8.8" if len(resolutions) <= 2 else "127.0.0.1"
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, port or 80))]
+
+    class FakeSocket:
+        def settimeout(self, timeout):
+            pass
+
+        def connect(self, address):
+            connections.append(address)
+            raise OSError("network disabled")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    monkeypatch.setattr(socket, "socket", lambda *_args: FakeSocket())
+    client = DifyConsoleClient(DifyConsoleClientConfig(
+        base_url="http://dify.example.test", workspace_id="workspace", app_id="app",
+        admin_api_key="secret", allow_insecure_transport=True,
+        expected_ips=("8.8.8.8",), max_retries=0,
+    ))
+
+    with pytest.raises(DifyConsoleError):
+        client.get_app_detail()
+    assert connections == [("8.8.8.8", 80)]
+    assert len(resolutions) == 2
+
+
+def test_redirect_validation_pins_each_new_request():
+    validated = []
+    pinned = []
+
+    def validate(url, redirect):
+        validated.append((url, redirect))
+        return ("203.0.113.8",)
+
+    def pin(request, *, resolved):
+        pinned.append((request.full_url, resolved))
+
+    handler = _ValidatedRedirectHandler(validate, pin)
+    request = urllib.request.Request("http://dify.example.test/start")
+    redirected = handler.redirect_request(
+        request, None, 302, "Found", {"Location": "http://dify.example.test/next"},
+        "http://dify.example.test/next",
+    )
+
+    assert redirected is not None
+    assert validated == [("http://dify.example.test/next", True)]
+    assert pinned == [("http://dify.example.test/next", ("203.0.113.8",))]

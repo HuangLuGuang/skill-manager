@@ -186,3 +186,13 @@ make sandbox-runtime-build
 - Docker Hub 基础镜像通过 35 的 Docker daemon 代理拉取；Backend 构建中的 apt、GitHub、PyPI 分别使用 `BUILD_APT_PROXY`、`BUILD_GIT_PROXY`、`BUILD_PYPI_INDEX`。PyPI 默认使用清华源，不要给 GitLab Runner 设置全局代理。
 - ARM 构建会临时覆盖同名镜像 tag，离线任务必须在成功或失败退出时恢复 x86 tag。发布后检查所有运行镜像为 `amd64`、`docker compose ps` 全部健康，并验证 `http://127.0.0.1/`。
 - 具体操作和现场离线部署分别维护在 `docs/docker-deployment.md`、`docs/offline-deployment.md`；不要在文档或 CI 中记录密码、Runner token、Webhook 完整地址或 S3 密钥。
+
+
+以“当前有效要求”为成品的唯一依据。
+用户的补充、撤回和修正用于更新当前有效要求；成品只表达更新后的当前状态。
+- 最终代码、文档、测试、注释和提交信息只表达当前有效要求。
+- 用户的修正替换旧要求，不自动形成新的否定要求。
+- 被撤回、否决或由 Agent 擅自提出的概念，不得以否定说明、保护分支、fallback、配置、类型、测试或解释性注释残留在成品中。
+- 只有当前业务契约、真实外部输入、信任边界、可达数据流、已知事故、回归测试或兼容性要求能够证明必要时，才加入否定约束或防御代码。
+- 修改要求后，按当前有效要求正向重写受影响内容。
+- 完成前检查最终 diff；任何只能由已被否决方案解释的改动都应删除。

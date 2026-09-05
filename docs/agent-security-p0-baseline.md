@@ -118,7 +118,7 @@ Phase 1 已新增独立镜像 `agent-manager-security-worker:<TAG>`：
 5. 离线验收通过断网启动、健康检查和一个本地 Mock 扫描任务证明。
 
 后端基线读取本地 lock 文件，启动和请求处理均不访问上游仓库。P2 Worker 已加入
-`build.sh --all`、Compose `agent-security` profile 和离线镜像保存清单；锁定源码和 Python
+`build.sh --all`、默认 Compose 服务和离线镜像保存清单；锁定源码和 Python
 依赖在联网构建阶段进入镜像，运行时不会访问 GitHub 或 PyPI。
 
 ## 8. P0 可测试接口

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from io import BytesIO
+from threading import Event
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -17,8 +21,8 @@ from agent_manager.runtime_trace import RuntimeTraceClient, RuntimeTraceError
 from backend import auth, models
 from backend.api_errors import ApiError, api_error_handler, http_error_handler, validation_error_handler
 from backend.config import settings
-from backend.routers import llm_gateway, runtime_traces
-from backend.runtime_trace_schemas import RuntimeTraceInternalEvent
+from backend.routers import llm_gateway, mcp_gateway, runtime_governance, runtime_traces
+from backend.runtime_trace_schemas import RuntimeTraceBatchCreate, RuntimeTraceEventInput, RuntimeTraceInternalEvent
 from backend.services import runtime_traces as trace_service
 from backend.sqlite_db import Base, get_db
 
@@ -205,6 +209,239 @@ def test_runtime_trace_batch_idempotency_server_sequence_and_permissions(trace_a
         assert db.query(models.SecurityAuditEvent).filter(
             models.SecurityAuditEvent.event_type == "runtime_trace.raw_payload_viewed"
         ).count() == 1
+
+
+def test_trace_severity_uses_explicit_producer_classification(trace_api):
+    client, session_factory, _state, _users, plain = trace_api
+    trace_id = _create(client, plain)
+    headers = {"Authorization": f"Bearer {plain}"}
+    response = client.post(
+        f"/api/v1/runtime-traces/{trace_id}/events:batch",
+        headers=headers,
+        json={
+            "batch_id": "severity-explicit",
+            "events": [{
+                "event_id": "severity-event",
+                "event_time": "2026-08-29T00:00:00Z",
+                "source": "agent_sdk",
+                "type": "security.finding",
+                "severity": "high",
+                "risk_codes": ["a-code-containing-high-text"],
+                "payload": {},
+            }],
+        },
+    )
+    assert response.status_code == 200, response.text
+    with session_factory() as db:
+        trace = db.query(models.RuntimeTraceSession).filter_by(trace_id=trace_id).one()
+        event = db.query(models.RuntimeTraceEvent).filter_by(event_id="severity-event").one()
+        assert trace.risk_level == "high"
+        assert json.loads(event.risk_mapping_json)["severity"] == "high"
+
+    unknown_trace = _create(client, plain)
+    unknown = client.post(
+        f"/api/v1/runtime-traces/{unknown_trace}/events:batch",
+        headers=headers,
+        json={
+            "batch_id": "severity-unknown",
+            "events": [{
+                "event_id": "unknown-severity-event",
+                "event_time": "2026-08-29T00:00:00Z",
+                "source": "agent_sdk",
+                "type": "security.finding",
+                "risk_codes": ["high-looking-but-unclassified"],
+                "payload": {},
+            }],
+        },
+    )
+    assert unknown.status_code == 200, unknown.text
+    with session_factory() as db:
+        trace = db.query(models.RuntimeTraceSession).filter_by(trace_id=unknown_trace).one()
+        assert trace.risk_level == "low"
+
+
+def test_ingest_batch_can_join_an_outer_transaction(trace_api):
+    _client, session_factory, _state, _users, _plain = trace_api
+    with session_factory() as db:
+        trace = trace_service.create_trace(
+            db, tenant_id="tenant", agent_id="agent", session_id="session",
+            owner_user_id=None, owner_group_id=None, created_by="test", commit=False,
+            trace_id="outer-transaction-trace",
+        )
+        result = trace_service.ingest_batch(
+            db, trace,
+            RuntimeTraceBatchCreate(batch_id="outer-batch", events=[RuntimeTraceEventInput(
+                event_id="outer-event", event_time=datetime.utcnow(), source="agent_sdk",
+                type="message.user", payload={},
+            )]),
+            commit=False,
+        )
+        assert result["accepted_count"] == 1
+        db.rollback()
+    with session_factory() as db:
+        assert db.query(models.RuntimeTraceSession).filter_by(trace_id="outer-transaction-trace").count() == 0
+
+
+def test_multi_batch_transaction_serializes_concurrent_writer(trace_api, monkeypatch):
+    _client, factory, _state, _users, _plain = trace_api
+    with factory() as db:
+        for trace_id in ("multi-writer", "other-writer"):
+            trace_service.create_trace(
+                db, tenant_id="test", agent_id=None, session_id=trace_id,
+                trace_id=trace_id, owner_user_id=None, owner_group_id=None, created_by="test",
+            )
+    first_written = Event()
+    other_started = Event()
+    other_entered = Event()
+    locked_ingest = trace_service._ingest_batch_locked
+
+    def observe_ingest(db, trace, *args, **kwargs):
+        if trace.trace_id == "other-writer":
+            other_entered.set()
+        return locked_ingest(db, trace, *args, **kwargs)
+
+    monkeypatch.setattr(trace_service, "_ingest_batch_locked", observe_ingest)
+
+    def batch(event_id):
+        return RuntimeTraceBatchCreate(batch_id=event_id, events=[RuntimeTraceEventInput(
+            event_id=event_id, event_time=datetime.utcnow(), source="agent_sdk", type="message.user",
+        )])
+
+    def multi_writer():
+        with factory() as db, trace_service.ingest_transaction(db):
+            trace = db.query(models.RuntimeTraceSession).filter_by(trace_id="multi-writer").one()
+            trace_service.ingest_batch(db, trace, batch("first"), commit=False)
+            first_written.set()
+            assert other_started.wait(2)
+            # Give the competing request a chance to enter its write path.
+            assert not other_entered.wait(0.1)
+            trace_service.ingest_batch(db, trace, batch("second"), commit=False)
+
+    def other_writer():
+        assert first_written.wait(2)
+        with factory() as db:
+            trace = db.query(models.RuntimeTraceSession).filter_by(trace_id="other-writer").one()
+            other_started.set()
+            trace_service.ingest_batch(db, trace, batch("other"))
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(multi_writer), executor.submit(other_writer)]
+        for future in futures:
+            future.result(timeout=5)
+    assert other_entered.is_set()
+    with factory() as db:
+        assert db.query(models.RuntimeTraceSession).filter_by(trace_id="multi-writer").one().event_count == 2
+        assert db.query(models.RuntimeTraceSession).filter_by(trace_id="other-writer").one().event_count == 1
+
+
+def test_legacy_event_and_batch_fingerprints_replay_after_severity_upgrade(trace_api):
+    client, session_factory, _state, _users, plain = trace_api
+    trace_id = _create(client, plain)
+    event = RuntimeTraceEventInput(
+        event_id="legacy-event", event_time=datetime.utcnow(), source="agent_sdk",
+        type="message.user", payload={"content": "legacy"},
+    )
+    legacy_event = event.model_dump(mode="json")
+    legacy_event.pop("severity", None)
+    legacy_batch = {"schema_version": "runtime-trace@1", "batch_id": "legacy-batch", "events": [legacy_event]}
+    with session_factory() as db:
+        trace = db.query(models.RuntimeTraceSession).filter_by(trace_id=trace_id).one()
+        db.add(models.RuntimeTraceEvent(
+            event_id=event.event_id,
+            content_fingerprint=trace_service._fingerprint(legacy_event),
+            trace_id=trace_id, seq=1, schema_version="runtime-trace@1",
+            event_time=event.event_time, received_at=datetime.utcnow(), tenant_id=trace.tenant_id,
+            agent_id=trace.agent_id, session_id=trace.session_id, source=event.source,
+            type=event.type, risk_codes_json="[]", risk_mapping_json="{}",
+        ))
+        db.add(models.RuntimeTraceIngestBatch(
+            trace_id=trace_id, batch_id="legacy-batch",
+            request_fingerprint=trace_service._fingerprint(legacy_batch), accepted_count=1,
+            duplicate_count=0, first_seq=1, last_seq=1,
+        ))
+        trace.event_count = 1
+        trace.next_seq = 2
+        db.commit()
+    headers = {"Authorization": f"Bearer {plain}"}
+    replay = client.post(f"/api/v1/runtime-traces/{trace_id}/events:batch", headers=headers, json=legacy_batch)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["replayed"] is True
+    new_batch = {**legacy_batch, "batch_id": "new-batch"}
+    duplicate = client.post(f"/api/v1/runtime-traces/{trace_id}/events:batch", headers=headers, json=new_batch)
+    assert duplicate.status_code == 200, duplicate.text
+    assert duplicate.json()["accepted_count"] == 0
+    assert duplicate.json()["duplicate_count"] == 1
+
+
+def test_severity_conflict_and_maximum_aggregation_are_explicit(trace_api):
+    client, session_factory, _state, _users, plain = trace_api
+    trace_id = _create(client, plain)
+    headers = {"Authorization": f"Bearer {plain}"}
+    base = {
+        "event_id": "severity-conflict-event", "event_time": "2026-08-29T00:00:00Z",
+        "source": "agent_sdk", "type": "security.finding", "payload": {},
+    }
+    high = {"batch_id": "severity-high", "events": [{**base, "severity": "high", "risk_codes": ["critical-looking"]}]}
+    assert client.post(f"/api/v1/runtime-traces/{trace_id}/events:batch", headers=headers, json=high).status_code == 200
+    low = {"batch_id": "severity-low", "events": [{**base, "severity": "low", "risk_codes": ["critical-looking"]}]}
+    conflict = client.post(f"/api/v1/runtime-traces/{trace_id}/events:batch", headers=headers, json=low)
+    assert conflict.status_code == 409
+
+    same_batch_trace = _create(client, plain)
+    same_batch = client.post(
+        f"/api/v1/runtime-traces/{same_batch_trace}/events:batch", headers=headers,
+        json={"batch_id": "same-batch-severity", "events": [
+            {**base, "event_id": "same-batch-event", "severity": "high", "risk_codes": ["same-signal"]},
+            {**base, "event_id": "same-batch-event", "severity": "low", "risk_codes": ["same-signal"]},
+        ]},
+    )
+    assert same_batch.status_code == 409
+
+    lower_trace = _create(client, plain)
+    explicit_low = {"batch_id": "explicit-low", "events": [{**base, "event_id": "explicit-low-event", "severity": "low", "risk_codes": ["critical"]}]}
+    response = client.post(f"/api/v1/runtime-traces/{lower_trace}/events:batch", headers=headers, json=explicit_low)
+    assert response.status_code == 200, response.text
+    lower_event = {**base, "event_id": "explicit-lower-event", "severity": "low", "risk_codes": ["another-signal"]}
+    lower_batch = client.post(
+        f"/api/v1/runtime-traces/{lower_trace}/events:batch", headers=headers,
+        json={"batch_id": "explicit-lower", "events": [lower_event]},
+    )
+    assert lower_batch.status_code == 200, lower_batch.text
+    with session_factory() as db:
+        assert db.query(models.RuntimeTraceSession).filter_by(trace_id=trace_id).one().risk_level == "high"
+        assert db.query(models.RuntimeTraceSession).filter_by(trace_id=lower_trace).one().risk_level == "low"
+
+
+def test_runtime_publishers_and_sdk_transmit_severity(monkeypatch):
+    published = []
+    monkeypatch.setattr(llm_gateway, "publish_events_best_effort", lambda _db, events: published.extend(events))
+    llm_gateway._publish_model_runtime_trace(
+        None, key=None, trace_context={"session_id": "s"}, tenant_id="t", request_id="r",
+        model_name="model", prompt_security={"risk_level": "HIGH", "risk_codes": ["prompt_injection"]},
+        request_payload={},
+    )
+    assert published and published[-1].severity == "high"
+
+    published.clear()
+    token = SimpleNamespace(token_type="agent_runtime", bound_agent_id="agent", group_id=None, user_id=None, id=1)
+    monkeypatch.setattr(mcp_gateway, "publish_events_best_effort", lambda _db, events: published.extend(events))
+    mcp_gateway._publish_mcp_runtime_trace(
+        None, token=token, meta={}, request_id="r", gateway_slug="g", tool_name="tool", severity="high",
+        error="denied", error_code="mcp_dangerous_tool_unprotected",
+    )
+    assert published and all(event.severity == "high" for event in published)
+
+    published.clear()
+    task = SimpleNamespace(trace_id="tr", tenant_id="t", agent_id="a", session_id="s", user_id="1", task_id="task")
+    monkeypatch.setattr(runtime_governance, "publish_events_best_effort", lambda _db, events: published.extend(events))
+    runtime_governance._publish_governance_event(None, task, "policy.decision", status="deny", payload={}, severity="medium")
+    assert published and published[0].severity == "medium"
+
+    sdk = RuntimeTraceClient("http://example.test", "token")
+    sdk.emit("security.finding", risk_codes=["signal"])
+    assert "severity" not in sdk._events[-1]
+    sdk.emit("security.finding", severity="high", risk_codes=["signal"])
+    assert sdk._events[-1]["severity"] == "high"
 
 
 def test_runtime_trace_ten_thousand_event_cursor_pagination(trace_api):

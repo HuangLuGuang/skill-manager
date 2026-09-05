@@ -4,7 +4,7 @@ import hashlib
 import json
 import logging
 import uuid
-from collections.abc import Iterable
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from threading import RLock
@@ -39,6 +39,19 @@ _RISK_ORDER = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 _INGEST_LOCK = RLock()
 MAX_RUNTIME_TRACE_EVENTS = 100_000
 MAX_RUNTIME_TRACE_PAYLOAD_BYTES = 256 * 1024 * 1024
+
+
+@contextmanager
+def ingest_transaction(db: Session):
+    """Serialize a multi-batch ingest through commit so SQLite writers cannot interleave."""
+    with _INGEST_LOCK:
+        try:
+            yield
+        except Exception:
+            db.rollback()
+            raise
+        else:
+            db.commit()
 
 
 def _record_publish_failure(exc: Exception) -> None:
@@ -121,14 +134,22 @@ def _completeness(trace: models.RuntimeTraceSession) -> str:
     return "gateway_partial"
 
 
-def _risk_level(risk_codes: Iterable[str]) -> str:
-    level = "info"
-    for raw in risk_codes:
-        value = str(raw).lower()
-        candidate = next((item for item in _RISK_ORDER if item in value), "low")
-        if _RISK_ORDER[candidate] > _RISK_ORDER[level]:
-            level = candidate
-    return level
+def _risk_level(severity: str | None, *, has_signal: bool = False) -> str:
+    """Use an explicit producer level; an unclassified signal has a stable low baseline."""
+    value = str(severity or "").strip().lower()
+    return value if value in _RISK_ORDER else ("low" if has_signal else "info")
+
+
+def _fingerprint_payload(value: Any) -> Any:
+    """Keep replay fingerprints compatible with events before severity existed."""
+    payload = value.model_dump(mode="json") if hasattr(value, "model_dump") else value
+    if isinstance(payload, dict):
+        payload = dict(payload)
+        if payload.get("severity") is None:
+            payload.pop("severity", None)
+        if isinstance(payload.get("events"), list):
+            payload["events"] = [_fingerprint_payload(item) for item in payload["events"]]
+    return payload
 
 
 def create_trace(
@@ -189,7 +210,7 @@ def create_trace(
 
 
 def _event_fingerprint(event: RuntimeTraceEventInput) -> str:
-    return _fingerprint(event.model_dump(mode="json"))
+    return _fingerprint(_fingerprint_payload(event))
 
 
 def _ingest_batch_locked(
@@ -199,9 +220,10 @@ def _ingest_batch_locked(
     *,
     expected_agent_id: str | None = None,
     allowed_sources: set[str] | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
     _normalize_schema_version(batch.schema_version)
-    batch_fingerprint = _fingerprint(batch.model_dump(mode="json"))
+    batch_fingerprint = _fingerprint(_fingerprint_payload(batch))
     existing_batch = (
         db.query(models.RuntimeTraceIngestBatch)
         .filter(
@@ -244,6 +266,7 @@ def _ingest_batch_locked(
     for event in batch.events:
         _validate_event(event)
         enriched_risk_codes, risk_mapping = enrich_risk_codes(event.risk_codes)
+        risk_mapping = {**risk_mapping, "severity": _risk_level(event.severity, has_signal=bool(event.risk_codes))}
         if allowed_sources is not None and event.source not in allowed_sources:
             raise ApiError(
                 422,
@@ -368,7 +391,7 @@ def _ingest_batch_locked(
         trace.risk_codes_json = _json_dumps(sorted(existing_codes))
         if enriched_risk_codes:
             trace.risk_mapping_version = MAPPING_VERSION
-        candidate = _risk_level(existing_codes)
+        candidate = _risk_level(event.severity, has_signal=bool(event.risk_codes))
         if _RISK_ORDER[candidate] > _RISK_ORDER.get(trace.risk_level, 0):
             trace.risk_level = candidate
 
@@ -384,7 +407,10 @@ def _ingest_batch_locked(
         last_seq=accepted[-1].seq if accepted else None,
     )
     db.add(batch_row)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     _METRICS["events_accepted"] += len(accepted)
     _METRICS["events_deduplicated"] += duplicate_count
     return {
@@ -406,6 +432,7 @@ def ingest_batch(
     *,
     expected_agent_id: str | None = None,
     allowed_sources: set[str] | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
     # The production backend currently uses one SQLite writer process. Serialize
     # sequence allocation inside that process so concurrent request threads cannot
@@ -418,6 +445,7 @@ def ingest_batch(
             batch,
             expected_agent_id=expected_agent_id,
             allowed_sources=allowed_sources,
+            commit=commit,
         )
 
 
@@ -454,6 +482,7 @@ def publish_events_best_effort(db: Session, events: list[RuntimeTraceInternalEve
                 status=item.status,
                 tool_name=item.tool_name,
                 duration_ms=item.duration_ms,
+                severity=item.severity,
                 risk_codes=item.risk_codes,
                 payload=item.payload,
                 redacted_payload=item.redacted_payload,

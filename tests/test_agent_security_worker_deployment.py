@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -28,6 +30,9 @@ def test_p7_worker_image_has_offline_supply_chain_and_runtime_health_contract():
         "FROM python:3.12-slim",
         "verify_vendor_tree.py",
         "upstreams.lock.json",
+        "COPY services/agent-security-worker/dify_inventory_adapter.py /app/dify_inventory_adapter.py",
+        "COPY agent_manager/core/dify_inventory /app/agent_manager/core/dify_inventory",
+        "--component agent-scan --component mcp-scan",
         "generate_sbom.py",
         "USER 10001:10001",
         "PYTHONDONTWRITEBYTECODE=1",
@@ -77,7 +82,7 @@ def test_p7_worker_compose_has_safe_defaults_and_tunable_resource_limits():
     compose = yaml.safe_load((ROOT / "docker-compose.yaml").read_text(encoding="utf-8"))
     backend = compose["services"]["backend"]
     worker = compose["services"]["agent-security-worker"]
-    assert worker["profiles"] == ["agent-security"]
+    assert not worker.get("profiles")
     assert worker["depends_on"]["backend"]["condition"] == "service_healthy"
     assert worker["read_only"] is True
     assert worker["init"] is True
@@ -98,9 +103,9 @@ def test_p7_worker_compose_has_safe_defaults_and_tunable_resource_limits():
         },
     }
     environment = worker["environment"]
-    assert environment["AGENT_SECURITY_WORKER_TOKEN"] == "${AGENT_SECURITY_WORKER_TOKEN:-}"
+    assert environment["AGENT_SECURITY_WORKER_TOKEN"] == "${AGENT_SECURITY_WORKER_TOKEN:-amsw_local-development-only-change-before-production}"
     assert backend["environment"]["AGENT_SECURITY_WORKER_TOKEN"] == environment["AGENT_SECURITY_WORKER_TOKEN"]
-    assert environment["AGENT_SECURITY_CONTROL_PLANE_URL"] == "http://backend:8000/api/v1/agent-security"
+    assert environment["AGENT_SECURITY_CONTROL_PLANE_URL"] == "${AGENT_SECURITY_CONTROL_PLANE_URL:-http://backend:8000/api/v1/agent-security}"
 
 
 def test_aig_scan_service_image_is_fixed_offline_and_cross_architecture():
@@ -163,11 +168,11 @@ def test_aig_scan_service_compose_is_private_authenticated_and_restricted():
     worker = compose["services"]["agent-security-worker"]
     service = compose["services"]["aig-scan-service"]
 
-    assert service["profiles"] == ["agent-security"]
+    assert not service.get("profiles")
     assert "ports" not in service
-    assert service["environment"]["AIG_WRAPPER_TOKEN"] == "${AIG_SCAN_SERVICE_TOKEN:-}"
-    assert worker["environment"]["AIG_SERVICE_TOKEN"] == "${AIG_SCAN_SERVICE_TOKEN:-}"
-    assert worker["environment"]["AIG_SERVICE_URL"] == "http://aig-scan-service:8093"
+    assert service["environment"]["AIG_WRAPPER_TOKEN"] == "${AIG_SCAN_SERVICE_TOKEN:-aigs_local-development-only-change-before-production}"
+    assert worker["environment"]["AIG_SERVICE_TOKEN"] == "${AIG_SERVICE_TOKEN:-${AIG_SCAN_SERVICE_TOKEN:-aigs_local-development-only-change-before-production}}"
+    assert worker["environment"]["AIG_SERVICE_URL"] == "${AIG_SERVICE_URL:-http://aig-scan-service:8093}"
     assert worker["depends_on"]["aig-scan-service"]["condition"] == "service_healthy"
     assert service["read_only"] is True
     assert service["init"] is True
@@ -177,6 +182,39 @@ def test_aig_scan_service_compose_is_private_authenticated_and_restricted():
     assert "aig-control" in worker["networks"]
     assert "aig-control" in backend["networks"]
     assert service["healthcheck"]["test"] == ["CMD", "python", "/opt/service/healthcheck.py"]
+
+
+def test_copied_env_example_resolves_a_complete_default_stack(tmp_path):
+    import pytest
+
+    if not shutil.which("docker"):
+        pytest.skip("Docker Compose is required to validate environment interpolation")
+    shutil.copyfile(ROOT / "docker-compose.yaml", tmp_path / "docker-compose.yaml")
+    shutil.copyfile(ROOT / ".env.example", tmp_path / ".env")
+    environment = {key: os.environ[key] for key in ("PATH", "HOME", "DOCKER_CONFIG") if key in os.environ}
+    command = ["docker", "compose", "--project-name", "env-example-test", "config"]
+    result = subprocess.run(
+        [*command, "--format", "json"], cwd=tmp_path, env=environment,
+        capture_output=True, text=True, timeout=30, check=True,
+    )
+    services = json.loads(result.stdout)["services"]
+    assert set(services) == {"backend", "frontend", "nginx", "sandbox", "agent-security-worker", "aig-scan-service"}
+    backend = services["backend"]["environment"]
+    worker = services["agent-security-worker"]["environment"]
+    aig = services["aig-scan-service"]["environment"]
+    sandbox = services["sandbox"]["environment"]
+    assert backend["AIG_SERVICE_TOKEN"] == worker["AIG_SERVICE_TOKEN"] == aig["AIG_WRAPPER_TOKEN"]
+    assert backend["AIG_SERVICE_TOKEN"]
+    assert backend["AGENT_SECURITY_WORKER_TOKEN"] == worker["AGENT_SECURITY_WORKER_TOKEN"]
+    from backend.config import Settings
+    from backend.security_worker_bootstrap import _configured_token
+
+    assert _configured_token(Settings(_env_file=None, **backend)) == worker["AGENT_SECURITY_WORKER_TOKEN"]
+    assert backend["AGENT_MANAGER_SANDBOX_API_KEY"] == sandbox["SANDBOX_SERVICE_API_KEY"]
+    assert backend["AIG_SERVICE_URL"] == worker["AIG_SERVICE_URL"] == "http://aig-scan-service:8093"
+    assert backend["ENFORCE_SECURE_STARTUP"] == sandbox["SANDBOX_SERVICE_ENFORCE_SECURE_STARTUP"] == "false"
+    assert not backend["INITIAL_ADMIN_PASSWORD"]
+    assert not worker["AGENT_SECURITY_EVALUATOR_API_KEY"]
 
 
 def test_offline_pipeline_verifies_both_aig_scan_service_architectures():
@@ -267,8 +305,8 @@ def test_p7_worker_deployment_docs_cover_identity_recovery_upgrade_and_evidence(
         "POST /api/v1/agent-security/workers/{worker_id}/revoke",
         "POST /api/v1/agent-security/workers/recover",
         "等待该任务策略的 `lease_seconds` 到期",
-        "TAG=<new-tag> docker compose --profile agent-security up -d --no-deps agent-security-worker",
-        "TAG=<old-tag> docker compose --profile agent-security up -d --no-deps agent-security-worker",
+        "TAG=<new-tag> docker compose up -d --no-deps agent-security-worker",
+        "TAG=<old-tag> docker compose up -d --no-deps agent-security-worker",
         "不能把不完整结果标为安全",
     ):
         assert required in online

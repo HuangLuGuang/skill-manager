@@ -82,7 +82,7 @@ else
   exit 1
 fi
 
-COMPOSE=(docker compose --env-file /dev/null --profile agent-security)
+COMPOSE=(docker compose --env-file /dev/null)
 "${COMPOSE[@]}" config --no-env-resolution --quiet
 {
   echo "services:"
