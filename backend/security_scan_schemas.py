@@ -677,6 +677,19 @@ class SecurityFindingResponse(BaseModel):
     updated_at: datetime
 
 
+class SecurityFindingListItem(SecurityFindingResponse):
+    target_id: str
+    target_name: str
+    scan_kind: str
+    scan_created_at: datetime
+
+
+class SecurityFindingListResponse(BaseModel):
+    items: list[SecurityFindingListItem]
+    total: int
+    severity_counts: dict[str, int]
+
+
 class SecurityComparisonUnavailableItem(BaseModel):
     finding: SecurityFindingResponse
     reason_code: Literal[

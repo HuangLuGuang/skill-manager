@@ -145,6 +145,40 @@ def _create_task(client: TestClient, target_id: str, policy_id: str, key: str = 
     return response.json()
 
 
+def test_findings_summary_paginates_and_respects_task_visibility(p1_api):
+    client, factory, state, users = p1_api
+    target = _create_target(client)
+    policy = _create_policy(client)
+    with factory() as db:
+        for index, (owner, group, severity) in enumerate([
+            (users['owner'].id, None, 'high'),
+            (users['admin'].id, users['group'].id, 'low'),
+            (users['other'].id, None, 'critical'),
+        ]):
+            task_id = f'summary-task-{index}'
+            db.add(models.SecurityScanTask(task_id=task_id, target_id=target['target_id'],
+                   policy_id=policy['policy_id'], idempotency_key=task_id, request_fingerprint=task_id,
+                   created_by='admin', owner_user_id=owner, owner_group_id=group,
+                   timeout_at=datetime.utcnow() + timedelta(hours=1)))
+            db.add(models.SecurityFinding(finding_id=f'summary-finding-{index}', task_id=task_id,
+                   finding_code='test.risk', severity=severity, title='Risk', description='Evidence', source='test'))
+        db.commit()
+    state['user'] = users['owner']
+    first = client.get('/api/v1/agent-security/findings', params={'limit': 1}).json()
+    assert first['total'] == 2
+    assert first['severity_counts'] == {'high': 1, 'low': 1}
+    assert first['items'][0]['task_id'] == 'summary-task-1'
+    assert first['items'][0]['target_name'] == target['name']
+    assert first['items'][0]['scan_created_at']
+    second = client.get('/api/v1/agent-security/findings', params={'limit': 1, 'offset': 1}).json()
+    assert second['items'][0]['task_id'] == 'summary-task-0'
+    state['user'] = users['other']
+    assert client.get('/api/v1/agent-security/findings').json()['total'] == 1
+    state['user'] = users['auditor']
+    assert client.get('/api/v1/agent-security/findings').json()['total'] == 3
+    assert client.get('/api/v1/agent-security/findings', params={'limit': 101}).status_code == 422
+
+
 def _create_worker(client: TestClient, name: str = "p1-worker"):
     response = client.post(
         "/api/v1/agent-security/workers",

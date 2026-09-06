@@ -66,6 +66,8 @@ from ..security_scan_schemas import (
     SecurityCredentialUpdate,
     SecurityFindingDisposition,
     SecurityFindingResponse,
+    SecurityFindingListItem,
+    SecurityFindingListResponse,
     SecurityIntentInferenceRequest,
     SecurityIntentInferenceResponse,
     SecurityPolicyCreate,
@@ -3189,6 +3191,31 @@ async def list_task_findings(
     _require_task_access(db, current_user, task)
     rows = db.query(models.SecurityFinding).filter(models.SecurityFinding.task_id == task_id).all()
     return [_finding_payload(row) for row in rows]
+
+
+@router.get("/findings", response_model=SecurityFindingListResponse)
+async def list_findings(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    accessible_ids = _accessible_tasks_query(db, current_user).with_entities(models.SecurityScanTask.task_id)
+    query = db.query(models.SecurityFinding).filter(models.SecurityFinding.task_id.in_(accessible_ids))
+    total = query.count()
+    severity_counts = dict(query.with_entities(models.SecurityFinding.severity, func.count(models.SecurityFinding.id))
+                           .group_by(models.SecurityFinding.severity).all())
+    rows = (query.join(models.SecurityScanTask, models.SecurityFinding.task_id == models.SecurityScanTask.task_id)
+            .join(models.SecurityTarget, models.SecurityScanTask.target_id == models.SecurityTarget.target_id)
+            .with_entities(models.SecurityFinding, models.SecurityScanTask, models.SecurityTarget.name)
+            .order_by(models.SecurityFinding.id.desc()).offset(offset).limit(limit).all())
+    return SecurityFindingListResponse(
+        items=[SecurityFindingListItem(**_finding_payload(finding).model_dump(), target_id=task.target_id,
+                                       target_name=target_name, scan_kind=task.scan_kind, scan_created_at=task.created_at)
+               for finding, task, target_name in rows],
+        total=total,
+        severity_counts=severity_counts,
+    )
 
 
 @router.get("/findings/links", response_model=list[SecurityFindingResponse])

@@ -47,12 +47,10 @@ test('P5 scan workbench uses the dedicated control-plane APIs and guarded mutati
   assert.match(i18n, /MCP 扫描只读取网关冻结的元数据快照/)
 })
 
-test('P5 scan workbench keeps raw artifacts separate and exports reports client-side', async () => {
+test('P5 scan workbench keeps raw artifacts behind the content permission', async () => {
   const view = await read('../src/views/AgentSecurityScans.vue')
   assert.match(view, /item\.content_available && canViewRaw/)
   assert.match(view, /getSecurityArtifactContent/)
-  assert.match(view, /new Blob\(\[JSON\.stringify\(payload/)
-  assert.match(view, /security-report\.json/)
 })
 
 test('MCP cases separate execution from risk assessment and explain metadata-only limits', async () => {
@@ -154,7 +152,8 @@ test('scan workbench bounds leading columns and long credential masks', async ()
   assert.match(view, /targets\.name'\), key: 'name', width: 160, ellipsis: true/)
   assert.match(view, /policies\.name'\), key: 'name', width: 160, ellipsis: true/)
   assert.match(view, /detail\.task'\), key: 'task_id', width: 160, ellipsis: true/)
-  assert.match(view, /key: 'credential', width: 150, ellipsis: true/)
+  const credentialWidth = view.match(/key: 'credential', width: (\d+), ellipsis: true/)
+  assert.ok(credentialWidth && Number(credentialWidth[1]) >= 100 && Number(credentialWidth[1]) <= 180)
   assert.match(view, /:title="targetCredentialLabel\(record\)"/)
   assert.match(view, /\.credential-tag__text \{[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/)
 })

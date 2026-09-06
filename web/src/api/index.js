@@ -75,10 +75,10 @@ export const getSecurityInventoryPromptContent = (taskId, itemId) =>
 export const cancelSecurityTask = taskId => api.post(`/v1/agent-security/tasks/${taskId}/cancel`)
 export const activateSecurityTaskKillSwitch = (taskId, data) =>
   api.post(`/v1/agent-security/tasks/${taskId}/kill-switch`, data)
-export const exportSecurityTask = taskId => api.post(`/v1/agent-security/tasks/${taskId}/export`)
 export const compareSecurityTasks = (taskId, baselineTaskId) =>
   api.get(`/v1/agent-security/tasks/${taskId}/compare/${baselineTaskId}`)
 export const listSecurityTaskFindings = taskId => api.get(`/v1/agent-security/tasks/${taskId}/findings`)
+export const listSecurityFindings = params => api.get('/v1/agent-security/findings', { params })
 export const getSecurityFinding = findingId => api.get(`/v1/agent-security/findings/${findingId}`)
 export const listSecurityFindingsForTraceEvent = (traceId, eventId) =>
   api.get('/v1/agent-security/findings/links', { params: { trace_id: traceId, event_id: eventId } })
