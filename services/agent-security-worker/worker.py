@@ -215,6 +215,7 @@ def _evaluator_config() -> EvaluatorConfig:
 
 
 def _complete_failure(claim: dict[str, Any], *, code: str, retryable: bool) -> None:
+    from aig_service_client import AIG_FAILURE_MESSAGES
     task_id = claim["task"]["task_id"]
     _request(
         f"/worker/tasks/{task_id}/complete",
@@ -223,7 +224,7 @@ def _complete_failure(claim: dict[str, Any], *, code: str, retryable: bool) -> N
             "status": "failed",
             "retryable": retryable,
             "error_code": code[:128],
-            "error_message": "Security scan Worker execution failed; inspect the stable error code and Worker health.",
+            "error_message": AIG_FAILURE_MESSAGES.get(code, "Security scan Worker execution failed; inspect the stable error code and Worker health."),
             "usage": claim.get("last_usage") or _task_usage_baseline(claim["task"]),
             "cases": [],
             "findings": [],
@@ -633,7 +634,8 @@ def run() -> int:
                     # after the control plane denied continuation.
                     pass
                 except AigServiceError as exc:
-                    print(f"agent-security worker AIG service error: code={exc.code}", file=sys.stderr)
+                    reason = _aig_service_client.AIG_FAILURE_MESSAGES.get(exc.code, "Check scanning service availability.")
+                    print(f"agent-security worker AIG service error: code={exc.code}; reason={reason}", file=sys.stderr)
                     _complete_failure(claim, code=exc.code, retryable=exc.retryable)
                 except DifyConsoleError as exc:
                     print(f"agent-security worker Dify inventory error: code={exc.code}", file=sys.stderr)

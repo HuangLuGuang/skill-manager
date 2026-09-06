@@ -33,7 +33,10 @@ MAX_REQUEST_BYTES = 1024 * 1024
 MAX_UPSTREAM_RESPONSE_BYTES = 8 * 1024 * 1024
 MAX_TARGETS = 32
 MAX_PROMPTS = 100
-ALLOWED_DATASETS = {"JailBench-Tiny", "JailbreakPrompts-Tiny"}
+DATASET_DIRECTORY = Path(
+    os.environ.get("AIG_RUNTIME_DIR", str(Path(__file__).parent / "vendor" / "ai-infra-guard"))
+) / "data" / "eval"
+ALLOWED_DATASETS = {path.stem for path in DATASET_DIRECTORY.glob("*.json") if path.is_file()}
 ALLOWED_TECHNIQUES = {
     "Raw",
     "BaseEncoding",
@@ -52,6 +55,24 @@ class ServiceError(RuntimeError):
         self.status = status
         self.code = code
         super().__init__(code)
+
+
+def _failure_code(message: str) -> str:
+    # Upstream errors may contain request bodies or credentials; return only classifications.
+    text = message[:65536].lower()
+    if "404" in text:
+        return "agent_security.aig_model_not_found"
+    if "401" in text or "403" in text:
+        return "agent_security.aig_model_auth_failed"
+    if "429" in text:
+        return "agent_security.aig_model_rate_limited"
+    if "timeout" in text or "timed out" in text:
+        return "agent_security.aig_model_timeout"
+    if "connection" in text or "connecterror" in text:
+        return "agent_security.aig_model_connection_failed"
+    if "加载模型" in text:
+        return "agent_security.aig_model_initialization_failed"
+    return "agent_security.aig_task_failed"
 
 
 class TaskCreate(BaseModel):
@@ -84,11 +105,13 @@ def _bounded_int(value: Any, *, minimum: int, maximum: int, default: int | None 
     return normalized
 
 
-def _validate_model(value: Any) -> None:
+def _validate_model(value: Any, *, require_token: bool = True) -> None:
     if not isinstance(value, dict) or set(value) - {"model", "token", "base_url", "limit"}:
         raise ServiceError(422, "agent_security.aig_task_failed")
     _bounded_string(value.get("model"), maximum=256)
-    _bounded_string(value.get("token"), maximum=8192)
+    if isinstance(value.get("token"), str) and any(char in value["token"] for char in "\r\n\x00"):
+        raise ServiceError(422, "agent_security.aig_task_failed")
+    _bounded_string(value.get("token"), minimum=1 if require_token else 0, maximum=8192)
     base_url = _bounded_string(value.get("base_url"), maximum=2048)
     parsed = urlsplit(base_url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
@@ -182,7 +205,7 @@ def _validate_task_content(task_type: str, content: dict[str, Any]) -> None:
     if not isinstance(models, list) or not 1 <= len(models) <= 4:
         raise ServiceError(422, "agent_security.aig_task_failed")
     for model in models:
-        _validate_model(model)
+        _validate_model(model, require_token=False)
     _validate_model(content.get("eval_model"))
     dataset = content.get("dataset")
     if not isinstance(dataset, dict) or set(dataset) - {"dataFile", "numPrompts", "randomSeed", "promptColumn"}:
@@ -511,7 +534,10 @@ class Runtime:
         if status not in ACTIVE_STATUSES | TERMINAL_STATUSES:
             raise ServiceError(502, "agent_security.aig_result_invalid")
         self.registry.update_status(session_id, status)
-        return data
+        result = {key: data[key] for key in ("session_id", "status", "created_at", "updated_at") if key in data}
+        if status in {"error", "failed"}:
+            result["error_code"] = _failure_code(str(data.get("error_message") or ""))
+        return result
 
     def result(self, session_id: str) -> dict[str, Any]:
         self._validate_session_id(session_id)

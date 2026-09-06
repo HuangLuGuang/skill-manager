@@ -17,6 +17,29 @@ if str(WORKER_DIR) not in sys.path:
 from aig_service_client import AigServiceClient, AigServiceError  # noqa: E402
 
 
+@pytest.mark.parametrize(("code", "retryable"), [
+    ("agent_security.aig_model_not_found", False),
+    ("agent_security.aig_model_auth_failed", False),
+    ("agent_security.aig_model_timeout", True),
+    ("secret untrusted error", False),
+])
+def test_failed_scan_preserves_recognized_reason(code, retryable):
+    from aig_scan_common import run_upstream_task
+
+    class Client:
+        def get_status(self, session):
+            return {"status": "error", "progress": {"error_code": code}}
+
+    with pytest.raises(AigServiceError) as error:
+        run_upstream_task(
+            claim={"scan_options": {"upstream_session_id": "session-1"}},
+            client=Client(), task_type="model_redteam_report", content={},
+            heartbeat=lambda *_: {"continue_allowed": True}, initial_usage={},
+        )
+    assert error.value.code == (code if code.startswith("agent_security.") else "agent_security.aig_task_failed")
+    assert error.value.retryable is retryable
+
+
 class _Response:
     def __init__(self, body: dict | list | str, *, content_length: int | None = None):
         raw = body.encode() if isinstance(body, str) else json.dumps(body).encode()

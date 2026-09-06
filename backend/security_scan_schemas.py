@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .feature_flags import EXECUTION_MODES
+from .security_redteam_catalog import LLM_REDTEAM_DATASETS
 from .security_scan_controls import (
     AGENT_SCAN_SKILLS,
     DEFAULT_SECURITY_SCAN_CAPABILITIES,
@@ -267,7 +268,7 @@ class SecurityTaskPlanRequest(BaseModel):
     conversation_mode: Literal["single_turn", "multi_turn"] = "single_turn"
     continue_from_task_id: str | None = Field(default=None, min_length=1, max_length=64)
     reset_session: bool = True
-    datasets: list[str] = Field(default_factory=list, max_length=2)
+    datasets: list[str] = Field(default_factory=list, max_length=len(LLM_REDTEAM_DATASETS))
     num_prompts: int = Field(default=10, ge=1, le=100)
     random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
     techniques: list[str] = Field(default_factory=list, max_length=7)
@@ -303,9 +304,8 @@ class SecurityTaskPlanRequest(BaseModel):
     @field_validator("datasets")
     @classmethod
     def validate_datasets(cls, values: list[str]) -> list[str]:
-        allowed = {"JailBench-Tiny", "JailbreakPrompts-Tiny"}
         normalized = list(dict.fromkeys(values))
-        if any(value not in allowed for value in normalized):
+        if any(value not in LLM_REDTEAM_DATASETS for value in normalized):
             raise ValueError("unsupported LLM red-team dataset")
         return normalized
 

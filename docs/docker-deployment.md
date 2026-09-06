@@ -101,6 +101,8 @@ Backend 从镜像内的
 
 ### 独立扫描 Worker 与 AI-Infra-Guard 内部服务
 
+Backend 镜像同时包含锁定版本的 `data/eval` 数据集及 LICENSE、NOTICE，供登录用户分页查看评测集 Prompt 原文。
+
 Worker 同时运行 `control_plane_validation`、`agent_risk_scan`、`dify_asset_inventory`、
 `mcp_risk_scan`、`llm_redteam_scan` 和 `ai_infrastructure_vulnerability_scan`。模型红队和基础设施任务由固定版本的 `aig-scan-service` 在私有
 `aig-control` 网络执行，服务端口不映射到宿主机。内置 Worker 无需先在

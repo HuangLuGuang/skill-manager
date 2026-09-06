@@ -353,6 +353,21 @@ func TestGetTaskStatus_ExistingSession(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // GetTaskResult
+func TestGetTaskStatus_ErrorEvent(t *testing.T) {
+	tm, cleanup := newTestTaskManager(t)
+	defer cleanup()
+	require.NoError(t, tm.taskStore.CreateUser(&database.User{UserID: "error-user", Username: "erroruser", Email: "error@t.com"}))
+	require.NoError(t, tm.taskStore.CreateSession(&database.Session{ID: "failed-session", Username: "erroruser", TaskType: "model_redteam_report", Status: "error"}))
+	require.NoError(t, tm.taskStore.CreateTaskMessage(&database.TaskMessage{
+		ID: "error-event", SessionID: "failed-session", Type: "error",
+		EventData: datatypes.JSON([]byte(`{"message":"model failed: 404 page not found"}`)), Timestamp: 1000,
+	}))
+	recorder := httptest.NewRecorder()
+	newRouter(tm).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/app/taskapi/status/failed-session", nil))
+	data := decodeAPIResponse(t, recorder)["data"].(map[string]interface{})
+	assert.Equal(t, "model failed: 404 page not found", data["error_message"])
+}
+
 // ---------------------------------------------------------------------------
 
 func TestGetTaskResult_InvalidIDFormat(t *testing.T) {

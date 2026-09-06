@@ -26,6 +26,7 @@ from ..config import settings
 from ..runtime_trace_schemas import RuntimeTraceBatchCreate, RuntimeTraceEventInput
 from ..security_audit import append_security_audit
 from ..security_report_contract import build_report_contract, legacy_unversioned_report_contract
+from ..security_redteam_catalog import LLM_REDTEAM_DATASETS, LLM_REDTEAM_DATASET_METADATA, load_dataset_records
 from ..security_scan_controls import (
     AGENT_SCAN_SKILLS,
     ASSET_SCAN_KINDS,
@@ -811,6 +812,53 @@ async def create_target(
         },
     )
     return _target_response(db, row)
+
+
+def _evaluation_models_query(db: Session):
+    return db.query(models.ModelEndpoint, models.ModelProvider).join(
+        models.ModelProvider, models.ModelEndpoint.provider_id == models.ModelProvider.id
+    ).filter(models.ModelEndpoint.enabled.is_(True), models.ModelProvider.enabled.is_(True))
+
+
+@router.get("/redteam-options")
+async def get_redteam_options(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return {
+        "datasets": list(LLM_REDTEAM_DATASETS),
+        "dataset_details": LLM_REDTEAM_DATASET_METADATA,
+        "evaluation_models": [
+            {
+                "id": model.id,
+                "name": model.name,
+                "display_name": model.display_name,
+                "provider_name": provider.name,
+            }
+            for model, provider in _evaluation_models_query(db).order_by(models.ModelEndpoint.name).all()
+        ],
+    }
+
+
+@router.get("/redteam-datasets/{name}")
+async def get_redteam_dataset(
+    name: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    if name not in LLM_REDTEAM_DATASETS:
+        raise ApiError(404, "agent_security.dataset_not_found", "评测集不存在", "Dataset not found")
+    try:
+        records = load_dataset_records(name)
+    except (OSError, ValueError, KeyError):
+        raise ApiError(503, "agent_security.dataset_unavailable", "评测集暂时不可用", "Dataset temporarily unavailable") from None
+    start = (page - 1) * page_size
+    return {
+        "name": name, "total": len(records), "page": page, "page_size": page_size,
+        "items": [{"index": start + index + 1, "prompt": record["prompt"]}
+                  for index, record in enumerate(records[start:start + page_size])],
+    }
 
 
 @router.get("/targets", response_model=list[SecurityTargetResponse])
@@ -1897,6 +1945,14 @@ def _validate_scan_task_request(
             json_loads(target.config_json, {}),
             require_complete=True,
         )
+        if body.evaluation_model and not _evaluation_models_query(db).filter(
+            models.ModelEndpoint.name == body.evaluation_model
+        ).first():
+            raise ApiError(
+                422, "agent_security.evaluation_model_invalid",
+                "所选评估模型或其供应商不存在或未启用",
+                "The selected evaluator model is unavailable or its provider is disabled",
+            )
         if policy.execution_mode == "passive":
             raise ApiError(
                 409,
@@ -2173,7 +2229,7 @@ def _build_scan_task_plan(
         limitations.append("metadata_only_no_tool_calls")
     elif body.scan_kind == "llm_redteam_scan":
         selected_datasets = body.datasets or (["JailBench-Tiny"] if not body.prompt else [])
-        planned_count = body.num_prompts if selected_datasets else 1
+        planned_count = body.num_prompts * len(selected_datasets) if selected_datasets else 1
         cases.extend(
             {
                 "case_key": f"llm-attack:{index + 1}",

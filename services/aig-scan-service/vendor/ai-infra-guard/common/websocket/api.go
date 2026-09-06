@@ -603,13 +603,28 @@ func GetTaskStatus(c *gin.Context, tm *TaskManager) {
 	}
 
 	// Build status response
+	errorMessage := ""
+	if session.Status == "error" || session.Status == "failed" {
+		errors, err := tm.taskStore.GetSessionEventsByType(sessionId, "error")
+		if err == nil {
+			for _, event := range errors {
+				var detail struct {
+					Message string `json:"message"`
+				}
+				if json.Unmarshal([]byte(event.EventData.String()), &detail) == nil && detail.Message != "" {
+					errorMessage = detail.Message
+				}
+			}
+		}
+	}
 	statusData := gin.H{
-		"session_id": session.ID,
-		"status":     session.Status,
-		"title":      session.Title,
-		"created_at": session.CreatedAt,
-		"updated_at": session.UpdatedAt,
-		"log":        msg,
+		"error_message": errorMessage,
+		"session_id":    session.ID,
+		"status":        session.Status,
+		"title":         session.Title,
+		"created_at":    session.CreatedAt,
+		"updated_at":    session.UpdatedAt,
+		"log":           msg,
 	}
 
 	c.JSON(http.StatusOK, gin.H{

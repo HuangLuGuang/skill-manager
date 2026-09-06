@@ -84,7 +84,7 @@
           "status": "integrated_fixed_engine_service",
           "vendored_path": "services/aig-scan-service/vendor/ai-infra-guard",
           "verification_subpath": ".",
-          "vendored_tree_sha256": "570974b9610d9d6e4b9af1a414a2a671760c9a368b8e4c65b1207f5a50268a04",
+          "vendored_tree_sha256": "e03f8da7f1031dd2a64f83177f574f5f30b4832da18fb5ec9173376b60dc89ec",
           "python_lock": {
             "generator": "uv 0.6.10",
             "path": "AIG-PromptSecurity/uv.lock",
@@ -99,6 +99,21 @@
             "python": "python:3.12.9-slim-bookworm@sha256:48a11b7ba705fd53bf15248d1f94d36c39549903c5d59edcfa2f3f84126e7b44"
           },
           "local_modifications": [
+            {
+              "path": "AIG-PromptSecurity/cli/model_utils/openailike.py",
+              "reason": "Support explicit unauthenticated model targets in synchronous, asynchronous and connection-test requests while omitting Authorization and ambient credentials.",
+              "sha256": "212893843d9fbce67ea198343d52ad23692cef66ca46d3db905b18ac6bf39d9e"
+            },
+            {
+              "path": "common/websocket/api.go",
+              "reason": "Expose failed-session error events to the loopback wrapper for safe diagnostic classification.",
+              "sha256": "289fbcf9bbf31c88184e1b1dee4442b6be7622c43df9cb119b9b0c296eb2dd41"
+            },
+            {
+              "path": "common/websocket/api_test.go",
+              "reason": "Verify failed-session error events are returned by the internal status API.",
+              "sha256": "9b1829729cbbb678a5819cf5898a48fa8075af0c947a40c7db42f457760cd5a4"
+            },
             {
               "path": "cmd/agent/main.go",
               "reason": "Register only the AI infrastructure and model red-team task handlers exposed by the dedicated internal service.",

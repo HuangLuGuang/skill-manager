@@ -42,6 +42,8 @@ export const createRuntimeTraceExport = (traceId, data) =>
 export const downloadRuntimeTraceExport = exportId =>
   api.get(`/v1/runtime-traces/exports/${exportId}/download`, { responseType: 'blob' })
 export const listSecurityTargets = () => api.get('/v1/agent-security/targets')
+export const getSecurityRedteamOptions = () => api.get('/v1/agent-security/redteam-options')
+export const getSecurityRedteamDataset = (name, params = {}) => api.get(`/v1/agent-security/redteam-datasets/${encodeURIComponent(name)}`, { params })
 export const createSecurityTarget = data => api.post('/v1/agent-security/targets', data)
 export const updateSecurityTarget = (targetId, data) => api.patch(`/v1/agent-security/targets/${targetId}`, data)
 export const getDifyMcpBindingOptions = targetId =>

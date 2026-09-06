@@ -18,7 +18,7 @@
 
 import time
 import asyncio
-from openai import OpenAI, AsyncOpenAI
+from openai import OpenAI, AsyncOpenAI, omit
 from .base import BaseLLM
 
 class OpenaiAlikeModel(BaseLLM):
@@ -31,8 +31,18 @@ class OpenaiAlikeModel(BaseLLM):
         self.load_model()
     
     def load_model(self):
-        self.client = OpenAI(base_url=self.base_url, api_key=self.api_key)
-        self.async_client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
+        client_options = {"api_key": self.api_key}
+        async_client_options = {"api_key": self.api_key}
+        self.request_options = {}
+        if not self.api_key:
+            # Agent Manager: explicit unauthenticated targets must not inherit ambient credentials.
+            client_options = {"api_key": lambda: ""}
+            async def empty_api_key():
+                return ""
+            async_client_options = {"api_key": empty_api_key}
+            self.request_options = {"extra_headers": {"Authorization": omit}}
+        self.client = OpenAI(base_url=self.base_url, **client_options)
+        self.async_client = AsyncOpenAI(base_url=self.base_url, **async_client_options)
         self.default_params = {
             "reasoning_effort": "low",
             "frequency_penalty": 1.0,
@@ -55,6 +65,7 @@ class OpenaiAlikeModel(BaseLLM):
                 response = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=[{"role": "user", "content": "only return 1"}],
+                    **self.request_options,
                     **current_params
                 )
                 # 如果成功，返回成功的信息和使用的参数
@@ -84,6 +95,7 @@ class OpenaiAlikeModel(BaseLLM):
                 response = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=_messages,
+                    **self.request_options,
                     **self.default_params
                 )
                 content = response.choices[0].message.content
@@ -111,6 +123,7 @@ class OpenaiAlikeModel(BaseLLM):
                     response = await self.async_client.chat.completions.create(
                         model=self.model_name,
                         messages=_messages,
+                        **self.request_options,
                         **self.default_params
                     )
                     content = response.choices[0].message.content

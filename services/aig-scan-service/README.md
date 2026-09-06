@@ -12,11 +12,17 @@
 
 ## 调用与安全边界
 
+失败状态从上游会话的 `error` 事件提取原因，封装层只输出稳定错误码，不透传原始日志或异常正文。Worker 保存可读说明，任务列表和详情按中英文展示原因；HTTP 404 提示检查接口路径及模型名称，401/403 提示检查鉴权，429、连接失败及超时提供对应诊断。无法识别的异常需按任务的上游会话 ID 检查错误事件。此能力需重新构建扫描服务镜像并重启 Worker；历史失败记录不会自动回填。
+
 服务随默认 `docker compose up -d` 启动，只在 Compose 的 `aig-control` 网络中提供 `8093` 端口，不映射到宿主机。包括 `/healthz` 在内的健康、任务创建、查询、结果和取消接口都要求 `Authorization: Bearer <AIG_SCAN_SERVICE_TOKEN>`。Backend、Worker 和服务使用同一个 Token；`.env.example` 提供本地开发占位值，生产需设置独立的高强度随机 Token。`AIG_SERVICE_URL` 配置调用地址，`AIG_SERVICE_TOKEN` 默认引用 `AIG_SCAN_SERVICE_TOKEN`。
 
 容器以 UID/GID `10002:10002`、只读根文件系统、删除全部 Linux capability 和 `no-new-privileges` 运行。`/tmp` 用于上游临时数据库及报告，`/var/lib/aig-wrapper` 只保存不含目标凭据的任务恢复状态。上游日志和数据库写入路径已修改，禁止记录模型 Token、目标凭据、原始 Prompt 或原始 Response。
 
-请求采用严格白名单和大小限制：模型红队只允许内置的小型数据集、限定攻击技术及最多 100 条 Prompt；基础设施扫描限制目标数量、超时、Header 和模型字段。Worker 仍须在把结果写入平台前执行响应结构校验和敏感字段处理。
+请求采用严格白名单和大小限制：模型红队允许锁定版本的 17 个内置数据集、限定攻击技术及每个数据集最多 100 条 Prompt；基础设施扫描限制目标数量、超时、Header 和模型字段。Worker 仍须在把结果写入平台前执行响应结构校验和敏感字段处理。
+
+免鉴权目标（例如本地 Ollama）可以不配置目标凭据，Worker 传递空 Token，模型客户端显式省略 Authorization 头。目标配置了凭据时继续发送 Bearer Token；独立评估模型及内部扫描服务仍要求有效凭据。上游 `cli/model_utils/openailike.py` 包含该免鉴权适配，修改摘要和哈希记录在 `upstreams.lock.json`。
+
+目标地址填写服务根地址（如 `http://192.168.1.166:11434`）时，Worker 根据目标的 Chat Completions Path（默认 `/v1/chat/completions`）提取 SDK 所需的 `/v1` 前缀；已填写 API 前缀的地址直接使用。
 
 ## 任务恢复与 Kill Switch
 
@@ -46,7 +52,7 @@ uv run pytest \
 
 ## 已知边界
 
-- 模型红队是动态测试，必须提供可访问的模型端点和短期凭据；扫描会真实消耗目标模型与评估模型额度。
+- 模型红队是动态测试，必须提供可访问的模型端点；目标需要鉴权时配置对应凭据，评估模型配置独立凭据。扫描会真实消耗目标模型与评估模型额度。
 - 基础设施扫描会主动访问目标地址。部署方必须通过网络策略限制允许的目标范围，不能把容器隔离当成目标授权。
 - Wrapper 会在下发前校验 DNS 和双重 CIDR，但该校验不等同于内核级出站防火墙；生产环境仍应在容器网络或主机侧限制实际 egress。
 - 当前上游报告不保证提供完整目标/评估模型 Token 计量；缺失时平台明确标记 `unavailable_from_upstream`，不估算或伪造用量。

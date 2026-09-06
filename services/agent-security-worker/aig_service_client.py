@@ -11,6 +11,16 @@ from urllib.parse import quote, urlsplit
 SUPPORTED_TASK_TYPES = {"model_redteam_report", "ai_infra_scan"}
 TERMINAL_STATUSES = {"complete", "completed", "done", "error", "failed", "cancelled", "terminated"}
 DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+AIG_FAILURE_MESSAGES = {
+    "agent_security.aig_model_not_found": "Model request returned HTTP 404. Check the API base URL, chat_completions_path and model name.",
+    "agent_security.aig_model_auth_failed": "Model request returned HTTP 401/403. Check model credentials and access permissions.",
+    "agent_security.aig_model_rate_limited": "Model request returned HTTP 429. Check model quota and concurrency.",
+    "agent_security.aig_model_timeout": "Model request timed out. Check model availability and response time.",
+    "agent_security.aig_model_connection_failed": "Could not connect to the model service. Check connectivity from the scanner container.",
+    "agent_security.aig_model_initialization_failed": "Model initialization failed. Check target and evaluator configuration and scanner session logs.",
+    "agent_security.aig_scan_timeout": "The scan exceeded the task duration limit.",
+    "agent_security.aig_task_failed": "AI-Infra-Guard failed without a recognized diagnostic. Inspect the upstream session error events.",
+}
 
 
 @dataclass(frozen=True)

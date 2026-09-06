@@ -145,6 +145,41 @@ def test_llm_execute_uses_separate_target_and_evaluator_credentials_and_persists
     assert "evaluator-only-secret" not in str(result)
 
 
+@pytest.mark.parametrize(("endpoint", "chat_path", "expected"), [
+    ("http://192.168.1.166:11434", "/v1/chat/completions", "http://192.168.1.166:11434/v1"),
+    ("http://192.168.1.166:11434/", "/v1/chat/completions", "http://192.168.1.166:11434/v1"),
+    ("https://model.example", "/api/v2/chat/completions", "https://model.example/api/v2"),
+    ("https://model.example/v1", "/v1/chat/completions", "https://model.example/v1"),
+])
+def test_unauthenticated_target_origin_uses_configured_api_prefix(endpoint, chat_path, expected):
+    claim = _claim()
+    claim["target"]["endpoint_url"] = endpoint
+    claim["target"]["config"]["chat_completions_path"] = chat_path
+    client = _Client()
+    execute_llm_redteam_scan(
+        claim, None,
+        SimpleNamespace(api_key="eval-key", model="eval", base_url="https://gateway/v1"),
+        lambda *_args: {"continue_allowed": True}, initial_usage={}, client=client,
+    )
+    target = client.created[0]["content"]["model"][0]
+    assert target["base_url"] == expected
+    assert target["token"] == ""
+
+
+def test_selected_gateway_model_does_not_require_worker_default():
+    client = _Client()
+    result = execute_llm_redteam_scan(
+        _claim(evaluation_model="gateway-judge", datasets=["advbench", "cnsafe", "safebench"]),
+        "target-secret",
+        SimpleNamespace(api_key="gateway-key", model="", base_url="http://backend:8000/v1"),
+        lambda *_args: {"continue_allowed": True}, initial_usage={}, client=client,
+    )
+    assert client.created[0]["content"]["eval_model"] == {
+        "model": "gateway-judge", "token": "gateway-key", "base_url": "http://backend:8000/v1", "limit": 1,
+    }
+    assert result["artifacts"][0]["metadata"]["planned_cases"] == 6
+
+
 def test_llm_retry_resumes_existing_session_without_duplicate_create():
     client = _Client(resumed=True)
     claim = _claim(upstream_session_id="existing-session")

@@ -5,7 +5,7 @@ import json
 import time
 from typing import Any, Callable
 
-from aig_service_client import AigServiceClient, AigServiceError, TERMINAL_STATUSES
+from aig_service_client import AIG_FAILURE_MESSAGES, AigServiceClient, AigServiceError, TERMINAL_STATUSES
 
 
 ENGINE_TAG = "v4.6.0"
@@ -98,7 +98,14 @@ def run_upstream_task(
         status = str(status_body.get("status") or "").strip().lower()
         if status in TERMINAL_STATUSES:
             if status not in {"complete", "completed", "done"}:
-                raise AigServiceError("agent_security.aig_task_failed", retryable=status in {"error", "failed"})
+                progress = status_body.get("progress") or {}
+                code = progress.get("error_code") if isinstance(progress, dict) else None
+                if code not in AIG_FAILURE_MESSAGES:
+                    code = "agent_security.aig_task_failed"
+                raise AigServiceError(code, retryable=code in {
+                    "agent_security.aig_model_rate_limited", "agent_security.aig_model_timeout",
+                    "agent_security.aig_model_connection_failed",
+                })
             return session_id, client.get_result(session_id)
         response = heartbeat(initial_usage, session_id)
         if not response.get("continue_allowed", False):
@@ -107,7 +114,7 @@ def run_upstream_task(
         sleeper(max(0.1, float(poll_seconds)))
 
     client.cancel_task(session_id)
-    raise AigServiceError("agent_security.aig_task_failed", retryable=True)
+    raise AigServiceError("agent_security.aig_scan_timeout", retryable=True)
 
 
 def sha256_text(value: Any) -> str | None:

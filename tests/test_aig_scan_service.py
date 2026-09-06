@@ -61,6 +61,26 @@ class FakeSupervisor:
         return True
 
 
+@pytest.mark.parametrize(("message", "suffix"), [
+    ("加载模型：qwen3:1.7b 失败: 404 page not found", "model_not_found"),
+    ("Error code: 401 invalid key secret", "model_auth_failed"),
+    ("Error code: 429", "model_rate_limited"),
+    ("Connection error", "model_connection_failed"),
+    ("Request timed out", "model_timeout"),
+    ("加载模型失败 secret", "model_initialization_failed"),
+    ("unexpected secret prompt", "task_failed"),
+])
+def test_failure_status_classifies_without_exposing_upstream_content(tmp_path, message, suffix):
+    runtime, upstream, _ = _runtime(tmp_path)
+    runtime.create("model_redteam_report", _redteam_content(), "failure-test-key")
+    upstream.status = lambda session: {
+        "session_id": session, "status": "error", "error_message": message,
+        "log": "Authorization: Bearer secret; private prompt",
+    }
+    result = runtime.status("session-1")
+    assert result == {"session_id": "session-1", "status": "error", "error_code": f"agent_security.aig_{suffix}"}
+
+
 def _runtime(tmp_path):
     upstream = FakeUpstream()
     supervisor = FakeSupervisor()
@@ -95,6 +115,46 @@ def _redteam_content(token="plaintext-target-secret"):
         "prompt": "",
         "techniques": ["Raw"],
     }
+
+
+def test_redteam_target_accepts_empty_token_but_evaluator_requires_credentials():
+    content = _redteam_content(token="")
+    service._validate_task_content("model_redteam_report", content)
+    content["eval_model"]["token"] = ""
+    with pytest.raises(service.ServiceError) as error:
+        service._validate_task_content("model_redteam_report", content)
+    assert error.value.status == 422
+
+
+@pytest.mark.parametrize("token", [None, 123, "\r\n", "x" * 8193])
+def test_redteam_target_still_validates_token_type_and_header_safety(token):
+    with pytest.raises(service.ServiceError):
+        service._validate_task_content("model_redteam_report", _redteam_content(token=token))
+
+
+def test_all_bundled_datasets_are_accepted_by_backend_and_service():
+    import json
+    from backend.security_redteam_catalog import LLM_REDTEAM_DATASETS, LLM_REDTEAM_DATASET_METADATA
+    from backend.security_scan_schemas import SecurityTaskPlanRequest
+
+    assert set(LLM_REDTEAM_DATASETS) == service.ALLOWED_DATASETS
+    request = SecurityTaskPlanRequest(
+        target_id="target", policy_id="policy", scan_kind="llm_redteam_scan",
+        datasets=list(LLM_REDTEAM_DATASETS),
+    )
+    assert len(request.datasets) == 17
+    metadata = {item["name"]: item for item in LLM_REDTEAM_DATASET_METADATA}
+    for name in request.datasets:
+        dataset = json.loads((service.DATASET_DIRECTORY / f"{name}.json").read_text())
+        assert dataset["name"] == name
+        assert metadata[name]["count"] == len(dataset["data"])
+        for key in ("description", "description_zh", "tags", "recommendation", "language"):
+            assert metadata[name][key] == dataset.get(key, [] if key == "tags" else "")
+        assert "data" not in metadata[name]
+        assert dataset["data"] and all(isinstance(item["prompt"], str) for item in dataset["data"])
+        content = _redteam_content()
+        content["dataset"]["dataFile"] = [name]
+        service._validate_task_content("model_redteam_report", content)
 
 
 def test_wrapper_is_idempotent_serialized_and_does_not_persist_task_secrets(tmp_path):

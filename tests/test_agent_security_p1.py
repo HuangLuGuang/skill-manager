@@ -2175,6 +2175,78 @@ def test_scan_kind_is_checked_against_asset_and_engine_availability(p1_api, monk
     assert unavailable.json()["error_code"] == "agent_security.aig_service_unavailable"
 
 
+def test_redteam_dataset_details_are_paginated_original_prompts(p1_api):
+    from backend.security_redteam_catalog import load_dataset_records
+    client, _, state, users = p1_api
+    state["user"] = users["owner"]
+    records = load_dataset_records("cnsafe")
+    for page in (1, 2, 152, 153):
+        response = client.get(f"/api/v1/agent-security/redteam-datasets/cnsafe?page={page}")
+        assert response.status_code == 200
+        result = response.json()
+        assert result["total"] == 3030
+        start = (page - 1) * 20
+        assert result["items"] == [
+            {"index": start + i + 1, "prompt": record["prompt"]}
+            for i, record in enumerate(records[start:start + 20])
+        ]
+    assert client.get("/api/v1/agent-security/redteam-datasets/unknown").json()["error_code"] == "agent_security.dataset_not_found"
+    assert client.get("/api/v1/agent-security/redteam-datasets/cnsafe?page=0").status_code == 422
+    assert client.get("/api/v1/agent-security/redteam-datasets/cnsafe?page_size=101").status_code == 422
+    del client.app.dependency_overrides[auth.get_current_active_user]
+    assert client.get("/api/v1/agent-security/redteam-datasets/cnsafe").status_code == 401
+
+
+def test_redteam_options_and_selected_gateway_model_validation(p1_api, monkeypatch):
+    client, session_factory, state, users = p1_api
+    monkeypatch.setattr(settings, "AIG_SERVICE_URL", "http://aig-scan-service:8093")
+    monkeypatch.setattr(settings, "AIG_SERVICE_TOKEN", "internal-service-token")
+    monkeypatch.setattr(security_scans, "_aig_engine_available", lambda: True)
+    with session_factory() as db:
+        provider = models.ModelProvider(name="enabled-provider", base_url="https://provider.example/v1", api_key="secret")
+        disabled = models.ModelProvider(name="disabled-provider", base_url="https://disabled.example/v1", enabled=False)
+        db.add_all([provider, disabled])
+        db.flush()
+        db.add_all([
+            models.ModelEndpoint(provider_id=provider.id, name="judge", display_name="Gateway Judge"),
+            models.ModelEndpoint(provider_id=provider.id, name="disabled-model", enabled=False),
+            models.ModelEndpoint(provider_id=disabled.id, name="disabled-provider-model"),
+        ])
+        db.commit()
+    state["user"] = users["owner"]
+    response = client.get("/api/v1/agent-security/redteam-options")
+    assert response.status_code == 200
+    assert len(response.json()["datasets"]) == 17
+    assert {item["name"] for item in response.json()["dataset_details"]} == set(response.json()["datasets"])
+    assert next(item for item in response.json()["dataset_details"] if item["name"] == "cnsafe")["count"] == 3030
+    assert [item["name"] for item in response.json()["evaluation_models"]] == ["judge"]
+    assert set(response.json()["evaluation_models"][0]) == {"id", "name", "display_name", "provider_name"}
+    state["user"] = users["admin"]
+    target = _create_target(client, target_type=None, asset_type="llm", connector_type="openai_compatible", config={"model": "target"})
+    policy = _create_policy(client, suffix="redteam-options")
+    payload = {
+        "target_id": target["target_id"], "policy_id": policy["policy_id"],
+        "scan_kind": "llm_redteam_scan", "evaluation_model": "judge",
+        "datasets": ["advbench", "cnsafe", "safebench"], "num_prompts": 2,
+    }
+    preview = client.post("/api/v1/agent-security/tasks/preview", json=payload)
+    assert preview.status_code == 200, preview.text
+    assert len(preview.json()["cases"]) == 6
+    for name in ("missing", "disabled-model", "disabled-provider-model"):
+        rejected = client.post("/api/v1/agent-security/tasks/preview", json={**payload, "evaluation_model": name})
+        assert rejected.status_code == 422
+        assert rejected.json()["error_code"] == "agent_security.evaluation_model_invalid"
+    created = client.post("/api/v1/agent-security/tasks", json={**payload, "idempotency_key": "gateway-evaluator"})
+    assert created.status_code == 200, created.text
+    with session_factory() as db:
+        provider = db.query(models.ModelProvider).filter_by(name="enabled-provider").one()
+        provider.enabled = False
+        db.commit()
+    rejected = client.post("/api/v1/agent-security/tasks", json={**payload, "idempotency_key": "disabled-evaluator"})
+    assert rejected.status_code == 422
+    assert rejected.json()["error_code"] == "agent_security.evaluation_model_invalid"
+
+
 def test_llm_task_preview_contract_and_upstream_session_survive_worker_retry(p1_api, monkeypatch):
     client, session_factory, _, _ = p1_api
     monkeypatch.setattr(settings, "AIG_SERVICE_URL", "http://aig-scan-service:8093")

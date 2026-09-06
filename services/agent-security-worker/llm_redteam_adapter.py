@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from typing import Any, Callable
+from urllib.parse import urlsplit, urlunsplit
 
 from aig_scan_common import (
     ENGINE_COMMIT,
@@ -154,9 +155,14 @@ def normalize_llm_redteam_result(
         concurrency=int((claim.get("scan_options") or {}).get("scan_concurrency") or 1),
     )
     denominator = completed_evaluations
+    options = claim.get("scan_options") or {}
+    planned_cases = (
+        1 if options.get("prompt")
+        else int(options.get("num_prompts") or len(cases)) * max(1, len(options.get("datasets") or []))
+    )
     metadata = {
         "scan_mode": "dynamic_model_redteam",
-        "planned_cases": int((claim.get("scan_options") or {}).get("num_prompts") or len(cases)),
+        "planned_cases": planned_cases,
         "executed_cases": sum(item["round_count"] for item in cases),
         "completed_evaluations": completed_evaluations,
         "attack_resisted": completed_evaluations - jailbreaks,
@@ -199,12 +205,18 @@ def execute_llm_redteam_scan(
     options = claim.get("scan_options") or {}
     if not target.get("endpoint_url") or not config.get("model"):
         raise AigServiceError("agent_security.llm_target_required")
-    if not getattr(evaluator, "api_key", "") or not getattr(evaluator, "model", ""):
+    evaluation_model = options.get("evaluation_model") or getattr(evaluator, "model", "")
+    if not getattr(evaluator, "api_key", "") or not evaluation_model:
         raise AigServiceError("agent_security.llm_evaluator_unavailable", retryable=True)
+    endpoint = urlsplit(target["endpoint_url"])
+    chat_path = config.get("chat_completions_path") or "/v1/chat/completions"
+    if endpoint.path in {"", "/"} and chat_path.endswith("/chat/completions"):
+        # The SDK appends /chat/completions to its API base, not to the server origin.
+        endpoint = endpoint._replace(path=chat_path.removesuffix("/chat/completions"))
     content = {
         "model": [
             {
-                "base_url": target["endpoint_url"],
+                "base_url": urlunsplit(endpoint),
                 "token": credential_secret or "",
                 "model": config["model"],
                 "limit": int(options.get("scan_concurrency") or 1),
@@ -213,7 +225,7 @@ def execute_llm_redteam_scan(
         "eval_model": {
             "base_url": evaluator.base_url,
             "token": evaluator.api_key,
-            "model": options.get("evaluation_model") or evaluator.model,
+            "model": evaluation_model,
             "limit": 1,
         },
         "dataset": {
