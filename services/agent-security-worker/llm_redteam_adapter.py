@@ -160,6 +160,8 @@ def normalize_llm_redteam_result(
         1 if options.get("prompt")
         else int(options.get("num_prompts") or len(cases)) * max(1, len(options.get("datasets") or []))
     )
+    if not options.get("prompt") and options.get("num_prompts") == -1:
+        planned_cases = options.get("planned_prompt_count") or sum(_safe_int(report.get("baseTotal")) for report in reports)
     metadata = {
         "scan_mode": "dynamic_model_redteam",
         "planned_cases": planned_cases,
@@ -231,7 +233,7 @@ def execute_llm_redteam_scan(
         "dataset": {
             "dataFile": list(options.get("datasets") or []),
             "numPrompts": int(options.get("num_prompts") or 10),
-            "randomSeed": int(options.get("random_seed") or 42),
+            "randomSeed": int(options.get("random_seed", 42)),
             "promptColumn": "prompt",
         },
         "prompt": str(options.get("prompt") or ""),

@@ -1,13 +1,14 @@
+import asyncio
 import json
 from datetime import datetime, timedelta
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend import auth, models
+from backend import auth, models, schemas
 from backend.api_errors import ApiError, api_error_handler
 from backend.routers import llm_gateway
 from backend.runtime_trace_schemas import RuntimeTraceBatchCreate, RuntimeTraceEventInput
@@ -86,6 +87,86 @@ def _client(tmp_path, monkeypatch, *, max_body_kb: int = 1024, max_concurrent_re
     app.include_router(llm_gateway.runtime_router)
     app.include_router(llm_gateway.admin_router)
     return TestClient(app), token, TestingSessionLocal
+
+
+def test_gateway_aggregates_history_without_reusing_privacy_identity(tmp_path, monkeypatch):
+    client, token, factory = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(llm_gateway.settings, "RUNTIME_TRACE_ENABLED", True)
+    original_upstream = llm_gateway._call_upstream
+
+    async def observe_pending(db, model, body):
+        with factory() as check:
+            assert check.query(models.GatewaySessionRequest).filter_by(status="running").count() == 1
+        assert "metadata" not in body and "conversation_id" not in body
+        return await original_upstream(db, model, body)
+
+    monkeypatch.setattr(llm_gateway, "_call_upstream", observe_pending)
+    history = [{"role": "user", "content": "jane@example.com"}]
+    for count in [63, 66, 68, 70, 72, 74, 76, 78]:
+        while len(history) < count:
+            history.append({"role": "user", "content": f"message-{len(history)}"})
+        result = client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {token}"},
+                             json={"model": "mock-model", "messages": history})
+        assert result.status_code == 200
+    result = client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {token}"},
+                         json={"model": "mock-model", "messages": [
+                             {"role": "system", "content": "new"},
+                             {"role": "user", "content": "jane@example.com"}]})
+    assert result.status_code == 200
+    with factory() as db:
+        assert sorted(row.request_count for row in db.query(models.GatewaySessionGroup).all()) == [1, 8]
+        assert db.query(models.GatewaySessionRequest).filter_by(status="completed").count() == 9
+        assert db.query(models.LlmRequestAudit.conversation_id).distinct().count() == 9
+        assert sorted(row.event_count for row in db.query(models.RuntimeTraceSession).all()) == [2, 16]
+
+
+def test_gateway_header_id_and_early_failure_are_recorded(tmp_path, monkeypatch):
+    client, token, factory = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(llm_gateway.settings, "RUNTIME_TRACE_ENABLED", True)
+    headers = {"Authorization": f"Bearer {token}", "X-Hermes-Session-Id": "hermes-test-session"}
+    for content in ["jane@example.com", "changed history jane@example.com"]:
+        assert client.post("/v1/chat/completions", headers=headers,
+                           json={"model": "mock-model", "messages": [{"role": "user", "content": content}]}).status_code == 200
+    response = client.post("/v1/chat/completions", headers=headers, json={
+        "model": "mock-model", "messages": [{"role": "user", "content": "jane@example.com"}],
+        "metadata": {"bypass_pii_check": True},
+    })
+    assert response.status_code == 403
+    with factory() as db:
+        assert db.query(models.GatewaySessionGroup).one().request_count == 3
+        assert db.query(models.GatewaySessionRequest).filter_by(status="error").count() == 1
+        assert db.query(models.RuntimeTraceEvent).filter_by(type="model.error").count() == 1
+
+
+def test_gateway_stream_close_records_failure_and_closes_upstream(tmp_path, monkeypatch):
+    _, _, factory = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(llm_gateway.settings, "RUNTIME_TRACE_ENABLED", True)
+    closed = []
+
+    async def fake_stream(*args, **kwargs):
+        async def generate():
+            try:
+                yield 'data: {"choices":[]}\n\n'
+                yield 'data: [DONE]\n\n'
+            finally:
+                closed.append(True)
+        return generate()
+
+    monkeypatch.setattr(llm_gateway, "_stream_upstream", fake_stream)
+
+    async def exercise():
+        with factory() as db:
+            key = db.query(models.LlmApiKey).one()
+            payload = schemas.ChatCompletionRequest(model="mock-model", stream=True,
+                messages=[{"role":"user", "content":"jane@example.com"}])
+            response = await llm_gateway._chat_completions_with_key(payload, Response(), key, db)
+            await anext(response.body_iterator)
+            await response.body_iterator.aclose()
+        with factory() as db:
+            assert db.query(models.GatewaySessionRequest).one().status == "error"
+            assert db.query(models.RuntimeTraceEvent).filter_by(type="model.error").count() == 1
+    asyncio.run(exercise())
+    assert closed == [True]
 
 
 def test_chat_completions_pseudonymizes_and_saves_trace(tmp_path, monkeypatch):

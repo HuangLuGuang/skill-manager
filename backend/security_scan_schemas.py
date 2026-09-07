@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -269,7 +269,7 @@ class SecurityTaskPlanRequest(BaseModel):
     continue_from_task_id: str | None = Field(default=None, min_length=1, max_length=64)
     reset_session: bool = True
     datasets: list[str] = Field(default_factory=list, max_length=len(LLM_REDTEAM_DATASETS))
-    num_prompts: int = Field(default=10, ge=1, le=100)
+    num_prompts: Literal[-1] | Annotated[int, Field(ge=1, le=100)] = 10
     random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
     techniques: list[str] = Field(default_factory=list, max_length=7)
     evaluation_model: str | None = Field(default=None, max_length=128)

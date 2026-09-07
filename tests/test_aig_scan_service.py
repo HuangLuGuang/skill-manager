@@ -126,6 +126,21 @@ def test_redteam_target_accepts_empty_token_but_evaluator_requires_credentials()
     assert error.value.status == 422
 
 
+@pytest.mark.parametrize("count", [-1, 1, 10, 20, 37, 100])
+def test_redteam_sample_count_accepts_all_and_custom_counts(count):
+    content = _redteam_content()
+    content["dataset"]["numPrompts"] = count
+    service._validate_task_content("model_redteam_report", content)
+
+
+@pytest.mark.parametrize("count", [-2, 0, 101, True])
+def test_redteam_sample_count_rejects_invalid_counts(count):
+    content = _redteam_content()
+    content["dataset"]["numPrompts"] = count
+    with pytest.raises(service.ServiceError):
+        service._validate_task_content("model_redteam_report", content)
+
+
 @pytest.mark.parametrize("token", [None, 123, "\r\n", "x" * 8193])
 def test_redteam_target_still_validates_token_type_and_header_safety(token):
     with pytest.raises(service.ServiceError):

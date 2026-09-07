@@ -12,7 +12,7 @@
     "test:docs-search": "node --test scripts/docs-search.test.mjs",
     "test:features": "node --test scripts/feature-flags.test.mjs",
     "test:agent-security-ui": "node --test scripts/agent-security-ui.test.mjs",
-    "test:runtime-trace-ui": "node --test scripts/runtime-trace-ui.test.mjs",
+    "test:runtime-trace-ui": "node --test scripts/runtime-trace-ui.test.mjs scripts/trajectory-projection.test.mjs",
     "test:i18n": "node scripts/check-i18n.mjs && node --test scripts/agent-security-i18n.test.mjs",
     "test:skill-versions": "node --test scripts/skill-versions.test.mjs",
     "preview": "vite preview"

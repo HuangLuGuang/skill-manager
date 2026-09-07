@@ -26,6 +26,7 @@ from ..runtime_trace_schemas import (
 )
 from ..security_audit import append_security_audit
 from ..security_scan_controls import protect_secret, unprotect_secret
+from ..services import gateway_sessions
 from ..services.runtime_traces import cleanup_expired, create_trace, ingest_batch, metrics_snapshot
 from ..sqlite_db import get_db
 from .access_tokens import (
@@ -326,7 +327,10 @@ def list_runtime_traces(
         query = query.filter(models.RuntimeTraceSession.trace_id.in_(error_traces))
     total = query.count()
     rows = query.order_by(models.RuntimeTraceSession.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
-    return {"items": [_trace_dict(row) for row in rows], "total": total, "page": page, "page_size": page_size}
+    associations = gateway_sessions.summaries(db, [row.trace_id for row in rows])
+    return {"items": [{**_trace_dict(row), "aggregation": associations.get(row.trace_id),
+                       "status": associations.get(row.trace_id, {}).get("status", row.status)} for row in rows],
+            "total": total, "page": page, "page_size": page_size}
 
 
 @router.get("/metrics")
@@ -389,7 +393,32 @@ def get_runtime_trace(
 ):
     row = _require_trace(db, trace_id)
     _ensure_read_allowed(db, row, user)
-    return _trace_dict(row)
+    aggregation = gateway_sessions.summaries(db, [trace_id]).get(trace_id)
+    return {**_trace_dict(row), "aggregation": aggregation,
+            "status": aggregation["status"] if aggregation else row.status}
+
+
+@router.get("/{trace_id}/requests")
+def list_gateway_session_requests(
+    trace_id: str,
+    after_index: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(auth.get_current_active_user),
+):
+    row = _require_trace(db, trace_id)
+    _ensure_read_allowed(db, row, user)
+    requests = db.query(models.GatewaySessionRequest).filter(
+        models.GatewaySessionRequest.trace_id == trace_id,
+        models.GatewaySessionRequest.request_index > after_index,
+    ).order_by(models.GatewaySessionRequest.request_index).limit(limit + 1).all()
+    return {"items": [{"request_id": item.request_id, "request_index": item.request_index,
+                       "status": item.status, "match_reason": item.match_reason,
+                       "matched_request_id": item.matched_request_id,
+                       "matched_message_count": item.matched_message_count,
+                       "message_count": item.message_count, "created_at": item.created_at,
+                       "completed_at": item.completed_at} for item in requests[:limit]],
+            "has_more": len(requests) > limit}
 
 
 @router.get("/{trace_id}/events")

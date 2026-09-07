@@ -180,6 +180,20 @@ def test_selected_gateway_model_does_not_require_worker_default():
     assert result["artifacts"][0]["metadata"]["planned_cases"] == 6
 
 
+def test_llm_all_samples_and_zero_seed_reach_engine_and_keep_positive_plan_count():
+    client = _Client()
+    result = execute_llm_redteam_scan(
+        _claim(num_prompts=-1, planned_prompt_count=3030, random_seed=0),
+        "target-secret",
+        SimpleNamespace(api_key="eval-secret", model="eval", base_url="https://gateway/v1"),
+        lambda *_args: {"continue_allowed": True}, initial_usage={}, client=client,
+    )
+    dataset = client.created[0]["content"]["dataset"]
+    assert dataset["numPrompts"] == -1
+    assert dataset["randomSeed"] == 0
+    assert result["artifacts"][0]["metadata"]["planned_cases"] == 3030
+
+
 def test_llm_retry_resumes_existing_session_without_duplicate_create():
     client = _Client(resumed=True)
     claim = _claim(upstream_session_id="existing-session")

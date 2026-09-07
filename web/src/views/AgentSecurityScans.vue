@@ -628,7 +628,18 @@
           </a-form-item>
           <a-form-item v-else :label="t('agentSecurityScans.tasks.redteamPrompt')" required><a-textarea v-model:value="taskForm.prompt" :rows="4" :maxlength="4096" /></a-form-item>
           <a-row :gutter="16">
-            <a-col v-if="taskForm.llm_input_mode === 'dataset'" :xs="24" :md="12"><a-form-item :label="t('agentSecurityScans.tasks.numPrompts')"><a-input-number v-model:value="taskForm.num_prompts" :min="1" :max="100" class="number-input" /></a-form-item></a-col>
+            <a-col v-if="taskForm.llm_input_mode === 'dataset'" :xs="24" :md="12">
+              <a-form-item :label="t('agentSecurityScans.tasks.numPrompts')">
+                <div class="sample-count-control">
+                  <a-radio-group v-model:value="taskForm.num_prompts" :aria-label="t('agentSecurityScans.tasks.samplePresets')">
+                    <a-radio-button :value="10">{{ t('agentSecurityScans.tasks.sampleCount', { count: 10 }) }}</a-radio-button>
+                    <a-radio-button :value="20">{{ t('agentSecurityScans.tasks.sampleCount', { count: 20 }) }}</a-radio-button>
+                    <a-radio-button :value="-1">{{ t('agentSecurityScans.tasks.allSamples') }}</a-radio-button>
+                  </a-radio-group>
+                  <a-input-number :value="taskForm.num_prompts === -1 ? null : taskForm.num_prompts" :min="1" :max="100" :precision="0" :aria-label="t('agentSecurityScans.tasks.customSampleCount')" :placeholder="t('agentSecurityScans.tasks.customSampleCount')" @change="value => { taskForm.num_prompts = value }" />
+                </div>
+              </a-form-item>
+            </a-col>
             <a-col :xs="24" :md="12"><a-form-item :label="t('agentSecurityScans.tasks.randomSeed')"><a-input-number v-model:value="taskForm.random_seed" :min="0" :max="2147483647" class="number-input" /></a-form-item></a-col>
             <a-col :xs="24" :md="24">
               <a-form-item :label="t('agentSecurityScans.tasks.evaluationModel')">
@@ -640,7 +651,16 @@
               </a-form-item>
             </a-col>
           </a-row>
-          <a-form-item :label="t('agentSecurityScans.tasks.techniques')"><a-select v-model:value="taskForm.techniques" mode="multiple" :max-tag-count="3"><a-select-option v-for="technique in llmTechniques" :key="technique" :value="technique">{{ technique }}</a-select-option></a-select></a-form-item>
+          <a-form-item :label="t('agentSecurityScans.tasks.techniques')">
+            <a-select v-model:value="taskForm.techniques" mode="multiple" :max-tag-count="3" option-label-prop="label" option-filter-prop="label">
+              <a-select-option v-for="technique in llmTechniques" :key="technique" :value="technique" :label="t(`agentSecurityScans.tasks.techniqueOptions.${technique}.label`)">
+                <div class="technique-option">
+                  <span>{{ t(`agentSecurityScans.tasks.techniqueOptions.${technique}.label`) }}</span>
+                  <small>{{ t(`agentSecurityScans.tasks.techniqueOptions.${technique}.description`) }}</small>
+                </div>
+              </a-select-option>
+            </a-select>
+          </a-form-item>
         </template>
         <template v-else-if="taskForm.scan_kind === 'ai_infrastructure_vulnerability_scan'">
           <a-alert class="modal-alert" type="warning" show-icon :message="t('agentSecurityScans.tasks.infrastructureBoundary')" />
@@ -695,7 +715,7 @@
               <a-descriptions-item :label="t('agentSecurityScans.environment')">{{ environmentLabel(taskPreview.target.environment) }}</a-descriptions-item>
               <a-descriptions-item :label="t('agentSecurityScans.tasks.policy')">{{ taskPreview.policy.name }}</a-descriptions-item>
               <a-descriptions-item :label="t('agentSecurityScans.policies.mode')">{{ executionModeLabel(taskPreview.policy.execution_mode) }}</a-descriptions-item>
-              <a-descriptions-item :label="t('agentSecurityScans.tasks.plannedCases')">{{ taskPreview.cases.length }}</a-descriptions-item>
+              <a-descriptions-item :label="t('agentSecurityScans.tasks.plannedCases')">{{ taskPreview.cases.reduce((total, item) => total + (item.sample_count ?? 1), 0) }}</a-descriptions-item>
               <a-descriptions-item :label="t('agentSecurityScans.tasks.plannedTools')">{{ taskPreview.tool_plan.tools.length }}</a-descriptions-item>
             </a-descriptions>
             <div v-if="taskPreview.tool_plan.dify_mcp_bindings" class="preview-binding-summary">
@@ -762,7 +782,7 @@
             :description="t('agentSecurityScans.detail.noFinalReportDescription', { rounds: formatNumber(taskDetail.task.usage?.rounds), tokens: formatNumber(taskDetail.task.usage?.tokens) })"
           />
           <a-alert
-            v-else-if="successfulTaskHasNoFindings"
+            v-else-if="successfulTaskHasNoFindings && !isLlmTaskDetail"
             class="modal-alert"
             type="info"
             show-icon
@@ -771,6 +791,13 @@
           />
           <a-tabs>
             <a-tab-pane key="summary" :tab="t('agentSecurityScans.detail.summary')">
+              <div v-if="isLlmTaskDetail" class="assessment-result">
+                <span>{{ t('agentSecurityScans.detail.assessmentResult') }}</span>
+                <strong>{{ llmAssessmentLabel }}</strong>
+                <a-tooltip :title="t('agentSecurityScans.detail.assessmentScope')">
+                  <a-button type="text" size="small" :aria-label="t('agentSecurityScans.detail.assessmentScope')"><InfoCircleOutlined /></a-button>
+                </a-tooltip>
+              </div>
               <section v-if="llmReportMetadata" class="report-overview" :aria-label="t('agentSecurityScans.detail.resultsOverview')">
                 <h3>{{ t('agentSecurityScans.detail.resultsOverview') }}</h3>
                 <dl class="report-metrics">
@@ -1021,7 +1048,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { PlusOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { InfoCircleOutlined, PlusOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -1234,7 +1261,7 @@ const submittingTask = ref(false)
 const previewingTask = ref(false)
 const taskPreview = ref(null)
 const submittingApproval = ref(false)
-const taskForm = reactive({ target_id: undefined, policy_id: undefined, approval_id: undefined, scan_kind: 'control_plane_validation', skills: [], prompt: '', conversation_mode: 'single_turn', continue_from_task_id: undefined, llm_input_mode: 'dataset', datasets: ['JailBench-Tiny'], num_prompts: 10, random_seed: 42, techniques: [], evaluation_model: undefined, http_authorized: false, private_network_authorized: false, scan_timeout_seconds: 30, scan_concurrency: 2, inventory_source: 'console_api', manual_dsl: '', include_prompt_text: false, infer_agent_intent: false, intent_inference_model: undefined, knowledge_content_authorized: false, max_knowledge_documents: 100, max_knowledge_segments: 1000, max_knowledge_bytes: 10485760 })
+const taskForm = reactive({ target_id: undefined, policy_id: undefined, approval_id: undefined, scan_kind: 'control_plane_validation', skills: [], prompt: '', conversation_mode: 'single_turn', continue_from_task_id: undefined, llm_input_mode: 'dataset', datasets: ['JailBench-Tiny'], num_prompts: 10, random_seed: 42, techniques: ['Raw'], evaluation_model: undefined, http_authorized: false, private_network_authorized: false, scan_timeout_seconds: 30, scan_concurrency: 2, inventory_source: 'console_api', manual_dsl: '', include_prompt_text: false, infer_agent_intent: false, intent_inference_model: undefined, knowledge_content_authorized: false, max_knowledge_documents: 100, max_knowledge_segments: 1000, max_knowledge_bytes: 10485760 })
 const killSwitchModalOpen = ref(false)
 const killSwitchTask = ref(null)
 const killSwitchReason = ref('')
@@ -1264,6 +1291,7 @@ const previewCaseLabel = item => {
   if (te(key)) return t(key)
   if (String(item.case_key).startsWith('mcp_tool:')) return t('agentSecurityScans.tasks.mcpToolCase', { value: String(item.case_key).slice(9) })
   if (String(item.case_key).startsWith('llm-attack:')) return t('agentSecurityScans.tasks.llmAttackCase', { value: String(item.case_key).slice(11) })
+  if (item.category === 'llm_redteam_dataset') return t('agentSecurityScans.tasks.allDatasetCase', { dataset: item.dataset, count: item.sample_count })
   if (String(item.case_key).startsWith('infra-endpoint:')) return t('agentSecurityScans.tasks.infrastructureEndpointCase', { value: item.endpoint || String(item.case_key).slice(15) })
   return item.case_key
 }
@@ -1290,6 +1318,12 @@ const successfulTaskHasNoFindings = computed(() => Boolean(
 const isMcpTaskDetail = computed(() => taskDetail.value?.task?.scan_kind === 'mcp_risk_scan')
 const isLlmTaskDetail = computed(() => taskDetail.value?.task?.scan_kind === 'llm_redteam_scan')
 const llmReportMetadata = computed(() => taskDetail.value?.artifacts?.find(item => item.artifact_type === 'aig-llm-redteam-report')?.metadata)
+const llmAssessmentLabel = computed(() => {
+  const count = taskDetail.value?.findings?.length || 0
+  if (count > 0) return t('agentSecurityScans.detail.risksFound', { count })
+  if (successfulTaskHasNoFindings.value && llmReportMetadata.value?.completed_evaluations > 0 && llmReportMetadata.value?.jailbreak_signals === 0) return t('agentSecurityScans.detail.noRiskFound')
+  return t('agentSecurityScans.detail.assessmentUnavailable')
+})
 const isInfrastructureTaskDetail = computed(() => taskDetail.value?.task?.scan_kind === 'ai_infrastructure_vulnerability_scan')
 const mcpCaseSummary = computed(() => {
   const cases = taskDetail.value?.cases || []
@@ -1577,7 +1611,7 @@ const policyPayload = () => ({
 const savePolicy = async () => { if (submittingPolicy.value || !policyForm.name.trim()) return message.warning(t('agentSecurityScans.requiredFields')); if (policyForm.environment === 'production' && policyForm.execution_mode === 'active_safe' && (!policyForm.production_target_ids.length || !policyForm.maintenance_window_start || !policyForm.maintenance_window_end || !policyForm.dedicated_identity_ref.trim())) return message.warning(t('agentSecurityScans.policies.productionControlsRequired')); submittingPolicy.value = true; const payload = policyPayload(); try { if (editingPolicy.value) { delete payload.name; await updateSecurityPolicy(editingPolicy.value.policy_id, payload) } else await createSecurityPolicy(payload); policyModalOpen.value = false; await loadCoreData(); message.success(t('agentSecurityScans.saved')) } catch (error) { message.error(errorText(error)) } finally { submittingPolicy.value = false } }
 const togglePolicy = async record => { try { await updateSecurityPolicy(record.policy_id, { enabled: !record.enabled }); await loadCoreData(); message.success(t('agentSecurityScans.saved')) } catch (error) { message.error(errorText(error)) } }
 
-const resetTaskOptions = () => Object.assign(taskForm, { skills: [], prompt: '', conversation_mode: 'single_turn', continue_from_task_id: undefined, llm_input_mode: 'dataset', datasets: ['JailBench-Tiny'], num_prompts: 10, random_seed: 42, techniques: [], evaluation_model: undefined, http_authorized: false, private_network_authorized: false, scan_timeout_seconds: 30, scan_concurrency: 2, inventory_source: 'console_api', manual_dsl: '', include_prompt_text: false, infer_agent_intent: false, intent_inference_model: undefined, knowledge_content_authorized: false, max_knowledge_documents: 100, max_knowledge_segments: 1000, max_knowledge_bytes: 10485760 })
+const resetTaskOptions = () => Object.assign(taskForm, { skills: [], prompt: '', conversation_mode: 'single_turn', continue_from_task_id: undefined, llm_input_mode: 'dataset', datasets: ['JailBench-Tiny'], num_prompts: 10, random_seed: 42, techniques: ['Raw'], evaluation_model: undefined, http_authorized: false, private_network_authorized: false, scan_timeout_seconds: 30, scan_concurrency: 2, inventory_source: 'console_api', manual_dsl: '', include_prompt_text: false, infer_agent_intent: false, intent_inference_model: undefined, knowledge_content_authorized: false, max_knowledge_documents: 100, max_knowledge_segments: 1000, max_knowledge_bytes: 10485760 })
 const openTaskModal = async () => {
   const target = activeTargets.value.find(item => enabledPolicies.value.some(policy => policyCompatibleWithTarget(policy, item)))
   const compatiblePolicies = enabledPolicies.value.filter(item => policyCompatibleWithTarget(item, target))
@@ -1642,6 +1676,7 @@ const loadTaskPreview = async () => {
   if (previewingTask.value || submittingTask.value) return
   if (!taskForm.target_id || !taskForm.policy_id) return message.warning(t('agentSecurityScans.requiredFields'))
   if (taskForm.scan_kind === 'llm_redteam_scan' && taskForm.llm_input_mode === 'dataset' && !taskForm.datasets.length) return message.warning(t('agentSecurityScans.requiredFields'))
+  if (taskForm.scan_kind === 'llm_redteam_scan' && taskForm.llm_input_mode === 'dataset' && taskForm.num_prompts !== -1 && (!Number.isInteger(taskForm.num_prompts) || taskForm.num_prompts < 1 || taskForm.num_prompts > 100)) return message.warning(t('agentSecurityScans.tasks.invalidSampleCount'))
   if (requiresProductionApproval.value && !taskForm.approval_id) return message.warning(t('agentSecurityScans.tasks.productionApprovalRequired'))
   const payload = taskPlanPayload()
   const requestKey = JSON.stringify(payload)
@@ -1878,6 +1913,11 @@ watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null 
 .severity-dot { width: 8px; height: 8px; border-radius: 50%; }
 .severity-critical { background: #cf1322; }.severity-high { background: #fa541c; }.severity-medium { background: #fa8c16; }.severity-low { background: #fadb14; }.severity-info { background: #1677ff; }
 .number-input { width: 100%; }.code-input, .raw-block, .evidence-block { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sample-count-control { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.technique-option { white-space: normal; overflow-wrap: anywhere; }
+.technique-option small { display: block; color: #595959; line-height: 1.5; }
+.sample-count-control > .ant-radio-group { flex-shrink: 0; }
+.sample-count-control > .ant-input-number { flex: 1; min-width: 115px; }
 .mcp-binding-editor { display: grid; gap: 10px; }
 .mcp-binding-summary, .preview-binding-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .mcp-binding-summary span, .preview-binding-summary span { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; color: #64748b; background: #f7f9fc; border: 1px solid #e2e8f0; border-radius: 6px; }
@@ -1914,6 +1954,9 @@ watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null 
 .preview-limit { margin-top: 14px; }
 .preview-empty { margin: 18px 0 4px; padding: 14px; border: 1px dashed #d7e0eb; border-radius: 9px; }
 .detail-identity { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; padding: 12px 14px; background: #f4f7fb; border-left: 3px solid #1668dc; }
+.assessment-result { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.assessment-result > span { color: #74869d; }
+.assessment-result > strong { overflow-wrap: anywhere; }
 .detail-identity > div { display: grid; gap: 3px; min-width: 0; }
 .detail-identity code { overflow-wrap: anywhere; }
 .detail-identity > .ant-tag { flex-shrink: 0; margin-right: 0; }

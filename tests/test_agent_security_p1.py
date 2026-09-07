@@ -2281,6 +2281,40 @@ def test_redteam_options_and_selected_gateway_model_validation(p1_api, monkeypat
     assert rejected.json()["error_code"] == "agent_security.evaluation_model_invalid"
 
 
+def test_llm_all_samples_preview_is_grouped_and_plan_is_preserved(p1_api, monkeypatch):
+    from backend.security_redteam_catalog import LLM_REDTEAM_DATASET_METADATA
+
+    client, factory, _, _ = p1_api
+    monkeypatch.setattr(settings, "AIG_SERVICE_URL", "http://aig-scan-service:8093")
+    monkeypatch.setattr(settings, "AIG_SERVICE_TOKEN", "internal-service-token")
+    monkeypatch.setattr(security_scans, "_aig_engine_available", lambda: True)
+    target = _create_target(client, target_type=None, asset_type="llm", connector_type="openai_compatible", config={"model": "target"})
+    policy = _create_policy(client, suffix="all-samples")
+    payload = {
+        "target_id": target["target_id"], "policy_id": policy["policy_id"],
+        "scan_kind": "llm_redteam_scan", "datasets": ["advbench", "cnsafe"], "num_prompts": -1,
+    }
+    preview = client.post("/api/v1/agent-security/tasks/preview", json=payload)
+    assert preview.status_code == 200, preview.text
+    cases = preview.json()["cases"]
+    assert [item["dataset"] for item in cases] == payload["datasets"]
+    expected = sum(item["count"] for item in LLM_REDTEAM_DATASET_METADATA if item["name"] in payload["datasets"])
+    assert sum(item["sample_count"] for item in cases) == expected
+    created = client.post("/api/v1/agent-security/tasks", json={**payload, "idempotency_key": "all-samples-test"})
+    assert created.status_code == 200, created.text
+    with factory() as db:
+        task = db.query(models.SecurityScanTask).filter_by(task_id=created.json()["task_id"]).one()
+        options = json.loads(unprotect_secret(task.scan_options_encrypted))
+        assert options["num_prompts"] == -1
+        assert options["planned_prompt_count"] == expected
+    for count in (-2, 0, 101, 2.5):
+        rejected = client.post("/api/v1/agent-security/tasks/preview", json={**payload, "num_prompts": count})
+        assert rejected.status_code == 422
+    custom = client.post("/api/v1/agent-security/tasks/preview", json={**payload, "num_prompts": 37})
+    assert custom.status_code == 200, custom.text
+    assert len(custom.json()["cases"]) == 74
+
+
 def test_llm_task_preview_contract_and_upstream_session_survive_worker_retry(p1_api, monkeypatch):
     client, session_factory, _, _ = p1_api
     monkeypatch.setattr(settings, "AIG_SERVICE_URL", "http://aig-scan-service:8093")

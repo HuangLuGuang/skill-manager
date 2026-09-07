@@ -193,6 +193,8 @@ async def append_admin_security_audit(request, call_next):
 
 def ensure_sqlite_schema() -> None:
     Base.metadata.create_all(bind=engine)
+    for index in models.GatewaySessionRequest.__table__.indexes:
+        index.create(bind=engine, checkfirst=True)
     if engine.dialect.name != "sqlite":
         return
     with engine.begin() as conn:

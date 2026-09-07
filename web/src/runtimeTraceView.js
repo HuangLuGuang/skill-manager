@@ -398,7 +398,7 @@ const preferredPayloadValue = (payload) => {
   if (Array.isArray(payload)) {
     return payload.map(preferredPayloadValue).filter(Boolean).join('\n')
   }
-  for (const key of ['content', 'text', 'message', 'response', 'result', 'summary']) {
+  for (const key of ['content', 'text', 'message', 'response', 'result', 'error', 'summary']) {
     if (payload[key] !== undefined) {
       const value = preferredPayloadValue(payload[key])
       if (value) return value
@@ -420,4 +420,42 @@ export const payloadPreview = (payload, maxLength = 240) => {
   }
   const normalized = text.replace(/\s+/g, ' ').trim()
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}…` : normalized
+}
+
+const firstPresent = (...values) => values.find(value => typeof value === 'string' && value.trim()) || ''
+
+export const traceDisplayIdentity = (trace = {}) => {
+  const sessionId = firstPresent(trace.session_id, trace.trace_id)
+  const separator = sessionId.indexOf(':')
+  const knownPrefixes = new Set(['security-scan', 'scan', 'model'])
+  const category = separator > 0 && knownPrefixes.has(sessionId.slice(0, separator)) ? sessionId.slice(0, separator) : 'trace'
+  const rawId = category === 'trace' ? sessionId : sessionId.slice(separator + 1)
+  return {
+    category: category || 'trace',
+    shortId: rawId.length > 12 ? `${rawId.slice(0, 8)}…${rawId.slice(-4)}` : rawId,
+    fullId: sessionId,
+  }
+}
+
+export const eventDisplaySummary = (event = {}, maxLength = 220) => {
+  const payload = payloadObject(event)
+  const riskCodes = Array.isArray(event.risk_codes) ? event.risk_codes.filter(Boolean) : []
+  const semanticValue = event.type === 'security.finding'
+    ? firstPresent(payload?.summary, payload?.title, payload?.finding_code, payload?.code)
+    : preferredPayloadValue(payload)
+  const normalized = semanticValue.replace(/\s+/g, ' ').trim()
+  const semantic = normalized.length > maxLength ? `${normalized.slice(0, maxLength)}…` : normalized
+  return {
+    semantic,
+    riskCodes,
+    toolName: firstPresent(event.tool_name, payload?.tool_name),
+    model: firstPresent(payload?.model, payload?.model_name, payload?.provider_model),
+  }
+}
+
+export const eventSemanticSummary = (event = {}, maxLength = 220) => {
+  const summary = eventDisplaySummary(event, maxLength)
+  if (summary.semantic) return summary.semantic
+  if (summary.riskCodes.length) return summary.riskCodes.join(', ')
+  return ''
 }

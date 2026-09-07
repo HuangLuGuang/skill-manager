@@ -213,7 +213,8 @@ def _validate_task_content(task_type: str, content: dict[str, Any]) -> None:
     data_files = dataset.get("dataFile") or []
     if not isinstance(data_files, list) or any(item not in ALLOWED_DATASETS for item in data_files):
         raise ServiceError(422, "agent_security.aig_task_failed")
-    _bounded_int(dataset.get("numPrompts"), minimum=1, maximum=MAX_PROMPTS)
+    if _bounded_int(dataset.get("numPrompts"), minimum=-1, maximum=MAX_PROMPTS) == 0:
+        raise ServiceError(422, "agent_security.aig_task_failed")
     _bounded_int(dataset.get("randomSeed"), minimum=0, maximum=2_147_483_647, default=42)
     if dataset.get("promptColumn") not in {None, "prompt"}:
         raise ServiceError(422, "agent_security.aig_task_failed")

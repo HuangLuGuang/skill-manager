@@ -33,6 +33,7 @@ export const getAgentSecurityBaseline = () => api.get('/v1/agent-security/baseli
 export const getRuntimeTraceBaseline = () => api.get('/v1/runtime-traces/baseline')
 export const listRuntimeTraces = (params = {}) => api.get('/v1/runtime-traces', { params })
 export const getRuntimeTrace = traceId => api.get(`/v1/runtime-traces/${traceId}`)
+export const listRuntimeTraceRequests = (traceId, params) => api.get(`/v1/runtime-traces/${traceId}/requests`, { params })
 export const listRuntimeTraceEvents = (traceId, params = {}) =>
   api.get(`/v1/runtime-traces/${traceId}/events`, { params })
 export const authorizeRawRuntimeTraceExport = (traceId, data) =>

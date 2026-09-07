@@ -2,9 +2,7 @@
   <section class="trace-page">
     <header class="trace-header">
       <div>
-        <div class="eyebrow">{{ t('runtimeTraceExplorer.eyebrow') }}</div>
         <h1>{{ t('runtimeTraceExplorer.title') }}</h1>
-        <p>{{ t('runtimeTraceExplorer.subtitle') }}</p>
       </div>
       <a-button :loading="loading || detailLoading" @click="refresh">
         <template #icon><ReloadOutlined /></template>
@@ -21,10 +19,11 @@
       :description="error"
     />
 
+    <details class="query-disclosure" :open="isSearchActive">
+      <summary>{{ t('runtimeTraceExplorer.search.title') }} <span>{{ t('runtimeTraceExplorer.search.sessionsMatched', { count: total }) }}</span></summary>
     <form class="trace-query-ribbon" @submit.prevent="applyTraceSearch">
       <div class="query-ribbon-heading">
         <div>
-          <span class="trace-kicker">{{ t('runtimeTraceExplorer.search.eyebrow') }}</span>
           <strong>{{ t('runtimeTraceExplorer.search.title') }}</strong>
           <small>{{ t('runtimeTraceExplorer.search.description') }}</small>
         </div>
@@ -48,6 +47,7 @@
         <a-select
           v-model:value="searchDraft.risk_level"
           :aria-label="t('runtimeTraceExplorer.search.risk')"
+          :title="t('runtimeTraceExplorer.search.boundary')"
           :options="riskSearchOptions"
         />
         <a-input
@@ -67,7 +67,7 @@
         </a-button>
         <a-button :disabled="!isSearchActive && !hasSearchDraft" @click="resetTraceSearch">{{ t('runtimeTraceExplorer.search.reset') }}</a-button>
       </div>
-      <div class="query-ledger" :class="{ empty: !activeSearchEntries.length }">
+      <div v-if="activeSearchEntries.length" class="query-ledger">
         <span class="query-ledger-label">{{ t('runtimeTraceExplorer.search.active') }}</span>
         <template v-if="activeSearchEntries.length">
           <button
@@ -83,10 +83,10 @@
         </template>
         <span v-else>{{ t('runtimeTraceExplorer.search.none') }}</span>
       </div>
-      <p>{{ isSearchActive ? t('runtimeTraceExplorer.search.filteredBoundary') : t('runtimeTraceExplorer.search.boundary') }}</p>
     </form>
+    </details>
 
-    <div class="trace-workspace">
+    <div class="trace-workspace" :class="{ 'detail-visible': detailOpen }">
       <aside class="session-panel">
         <div class="panel-title">
           <div>
@@ -108,10 +108,12 @@
             >
               <span class="session-leading">
                 <span class="session-pulse" />
-                <strong>{{ trace.session_id }}</strong>
+                <strong>{{ traceTitle(trace) }}</strong>
               </span>
-              <code>{{ trace.agent_id }}</code>
+              <span v-if="trace.agent_id" class="session-subtitle">{{ trace.agent_id }}</span>
+              <code class="session-id" :title="trace.session_id">{{ shortId(trace.session_id) }}</code>
               <span class="session-badges">
+                <span v-if="trace.aggregation" class="trace-badge">{{ t(`runtimeTraceExplorer.aggregation.${trace.aggregation.method}`) }}</span>
                 <span class="trace-badge" :class="`completeness-${completenessTone(trace.completeness)}`">
                   {{ completenessLabel(trace.completeness) }}
                 </span>
@@ -120,7 +122,8 @@
                 </span>
               </span>
               <span class="session-meta">
-                <span>{{ t('runtimeTraceExplorer.sessions.events', { count: trace.event_count || 0 }) }}</span>
+                <span v-if="trace.aggregation">{{ t('runtimeTraceExplorer.aggregation.count', { count: trace.aggregation.request_count }) }}</span>
+                <span v-else>{{ t('runtimeTraceExplorer.sessions.events', { count: trace.event_count || 0 }) }}</span>
                 <time>{{ formatDateTime(trace.updated_at || trace.created_at) }}</time>
               </span>
             </button>
@@ -144,9 +147,8 @@
           <template v-if="selectedTrace">
             <div class="stage-heading">
               <div class="trace-identity">
-                <span class="trace-kicker">{{ t('runtimeTraceExplorer.traceLabel') }}</span>
-                <h2>{{ selectedTrace.session_id }}</h2>
-                <code>{{ selectedTrace.trace_id }}</code>
+                <h2 :title="selectedTrace.trace_id">{{ traceTitle(selectedTrace) }}</h2>
+                <span class="trace-subtitle">{{ selectedTraceSubtitle }}</span>
               </div>
               <div class="stage-actions">
                 <a-button @click="openExportGate">
@@ -157,10 +159,12 @@
               </div>
             </div>
 
+            <details class="trace-metadata">
+              <summary>{{ t('runtimeTraceExplorer.stream.sessionDetails') }}</summary>
             <div class="trace-facts">
               <div>
                 <small>{{ t('runtimeTraceExplorer.agent') }}</small>
-                <strong>{{ selectedTrace.agent_id }}</strong>
+                <strong>{{ selectedTrace.agent_id || t('runtimeTraceExplorer.agentUnavailable') }}</strong>
               </div>
               <div>
                 <small>{{ t('runtimeTraceExplorer.eventCount') }}</small>
@@ -176,6 +180,34 @@
               </div>
             </div>
 
+            <details v-if="selectedTrace.aggregation" class="gateway-requests">
+              <summary>{{ t(`runtimeTraceExplorer.aggregation.${selectedTrace.aggregation.method}`) }} · {{ t('runtimeTraceExplorer.aggregation.count', { count: selectedTrace.aggregation.request_count }) }}</summary>
+              <div class="gateway-request-scroll">
+                <table>
+                  <thead><tr>
+                    <th>{{ t('runtimeTraceExplorer.aggregation.request') }}</th>
+                    <th>{{ t('runtimeTraceExplorer.status') }}</th>
+                    <th>{{ t('runtimeTraceExplorer.aggregation.reason') }}</th>
+                    <th>{{ t('runtimeTraceExplorer.aggregation.messages') }}</th>
+                    <th>{{ t('runtimeTraceExplorer.aggregation.started') }}</th>
+                  </tr></thead>
+                  <tbody><tr v-for="item in gatewayRequests" :key="item.request_id">
+                    <td><span :title="item.request_id">#{{ item.request_index }} <code>{{ item.request_id }}</code></span></td>
+                    <td>{{ t(`runtimeTraceExplorer.aggregation.${item.status}`) }}</td>
+                    <td>{{ t(`runtimeTraceExplorer.aggregation.${item.match_reason}`) }}<span v-if="item.matched_message_count" :title="item.matched_request_id"> ({{ item.matched_message_count }})</span></td>
+                    <td>{{ item.message_count }}</td>
+                    <td>{{ formatDateTime(item.created_at) }}</td>
+                  </tr></tbody>
+                </table>
+              </div>
+              <div class="session-pagination">
+                <a-button size="small" :disabled="requestPage === 0 || requestsLoading" @click="changeRequestPage(-1)">{{ t('runtimeTraceExplorer.previous') }}</a-button>
+                <a-button size="small" :disabled="!requestsHaveMore || requestsLoading" @click="changeRequestPage(1)">{{ t('runtimeTraceExplorer.next') }}</a-button>
+              </div>
+            </details>
+
+            <details class="secondary-summary">
+              <summary>{{ t('runtimeTraceExplorer.secondaryDetails') }}</summary>
             <section class="security-posture" aria-labelledby="trace-security-title">
               <div class="security-heading">
                 <div>
@@ -245,164 +277,17 @@
                 </article>
               </div>
             </section>
+            </details>
+            </details>
 
-            <section v-if="activeView === 'conversation'" class="conversation-view">
-              <div class="view-intro">
-                <div>
-                  <h3>{{ t('runtimeTraceExplorer.conversation.title') }}</h3>
-                  <p>{{ t('runtimeTraceExplorer.conversation.description') }}</p>
-                </div>
-                <span>{{ t('runtimeTraceExplorer.conversation.count', { count: conversationEvents.length }) }}</span>
-              </div>
-
-              <div
-                v-if="conversationEvents.length"
-                class="conversation-stream"
-                tabindex="0"
-                :aria-label="t('runtimeTraceExplorer.pagination.conversationRegion')"
-                @scroll="handleConversationScroll"
-              >
-                <div aria-hidden="true" :style="{ height: `${conversationWindow.topPadding}px` }" />
-                <article
-                  v-for="event in conversationWindow.items"
-                  :key="event.event_id"
-                  class="message-row"
-                  :class="[conversationRole(event), { selected: event.event_id === selectedEvent?.event_id }]"
-                  role="button"
-                  tabindex="0"
-                  @click="openEventDetail(event)"
-                  @keydown.enter="openEventDetail(event)"
-                  @keydown.space.prevent="openEventDetail(event)"
-                >
-                  <div class="message-meta">
-                    <span>{{ conversationRoleLabel(event) }}</span>
-                    <code>#{{ event.seq }}</code>
-                    <time>{{ formatEventTime(event.event_time) }}</time>
-                  </div>
-                  <div class="message-bubble">
-                    {{ payloadPreview(event.payload, 1200) || t('runtimeTraceExplorer.payloadUnavailable') }}
-                  </div>
-                </article>
-                <div aria-hidden="true" :style="{ height: `${conversationWindow.bottomPadding}px` }" />
-              </div>
-              <a-empty v-else :description="isEventSearchActive ? t('runtimeTraceExplorer.search.noEventResults') : t('runtimeTraceExplorer.conversation.empty')" />
-            </section>
-
-            <section v-else class="timeline-view">
-              <div class="view-intro">
-                <div>
-                  <h3>{{ t('runtimeTraceExplorer.timeline.title') }}</h3>
-                  <p>{{ t('runtimeTraceExplorer.timeline.description') }}</p>
-                </div>
-                <span>{{ t('runtimeTraceExplorer.timeline.serverOrder') }}</span>
-              </div>
-
-              <div
-                v-if="sortedEvents.length"
-                class="rail-scroll"
-                tabindex="0"
-                :aria-label="t('runtimeTraceExplorer.pagination.traceRegion')"
-                @scroll="handleTraceScroll"
-              >
-                <div class="trace-rail">
-                  <div class="rail-header">
-                    <span class="seq-heading">{{ t('runtimeTraceExplorer.timeline.sequence') }}</span>
-                    <span class="time-heading">{{ t('runtimeTraceExplorer.timeline.time') }}</span>
-                    <span v-for="lane in TRACE_LANES" :key="lane" class="lane-heading" :class="`lane-${lane}`">
-                      <i />{{ t(`runtimeTraceExplorer.lanes.${lane}`) }}
-                    </span>
-                  </div>
-                  <div class="virtual-spacer" aria-hidden="true" :style="{ height: `${timelineWindow.topPadding}px` }" />
-                  <div v-for="turn in traceGroups" :key="turn.key" class="turn-group">
-                    <button
-                      type="button"
-                      class="group-bar turn-bar"
-                      :aria-expanded="!collapsedTurns.has(turn.key)"
-                      @click="toggleTurn(turn.key)"
-                    >
-                      <DownOutlined v-if="!collapsedTurns.has(turn.key)" />
-                      <RightOutlined v-else />
-                      <span class="group-kind">{{ turn.isUnscoped ? t('runtimeTraceExplorer.hierarchy.unscoped') : t('runtimeTraceExplorer.hierarchy.turn') }}</span>
-                      <strong>{{ turnLabel(turn) }}</strong>
-                      <code>{{ seqRange(turn) }}</code>
-                      <span>{{ t('runtimeTraceExplorer.hierarchy.events', { count: turn.eventCount }) }}</span>
-                    </button>
-
-                    <template v-if="!collapsedTurns.has(turn.key)">
-                      <div v-for="step in turn.steps" :key="step.key" class="step-group">
-                        <button
-                          type="button"
-                          class="group-bar step-bar"
-                          :aria-expanded="!collapsedSteps.has(step.key)"
-                          @click="toggleStep(step.key)"
-                        >
-                          <DownOutlined v-if="!collapsedSteps.has(step.key)" />
-                          <RightOutlined v-else />
-                          <span class="group-kind">{{ step.isUnscoped ? t('runtimeTraceExplorer.hierarchy.direct') : t('runtimeTraceExplorer.hierarchy.step') }}</span>
-                          <strong>{{ stepLabel(step) }}</strong>
-                          <code>{{ seqRange(step) }}</code>
-                          <span>{{ t('runtimeTraceExplorer.hierarchy.events', { count: step.eventCount }) }}</span>
-                        </button>
-
-                        <template v-if="!collapsedSteps.has(step.key)">
-                          <div v-for="row in step.rows" :key="row.event.event_id" class="event-row">
-                            <code class="event-seq">{{ String(row.event.seq).padStart(3, '0') }}</code>
-                            <time class="event-time">{{ formatEventTime(row.event.event_time) }}</time>
-                            <div v-for="lane in TRACE_LANES" :key="lane" class="lane-cell" :class="`lane-${lane}`">
-                              <article
-                                v-if="classifyTraceEvent(row.event) === lane"
-                                class="event-card"
-                                :class="{ 'nested-call': row.depth > 0, selected: row.event.event_id === selectedEvent?.event_id }"
-                                :style="callDepthStyle(row.depth)"
-                                role="button"
-                                tabindex="0"
-                                @click="openEventDetail(row.event)"
-                                @keydown.enter="openEventDetail(row.event)"
-                                @keydown.space.prevent="openEventDetail(row.event)"
-                              >
-                                <div class="event-card-heading">
-                                  <div class="event-title">
-                                    <button
-                                      v-if="row.isCallHead && row.hasChildren"
-                                      type="button"
-                                      class="call-toggle"
-                                      :aria-expanded="!row.isCollapsed"
-                                      :aria-label="callToggleLabel(row)"
-                                      @click.stop="toggleCall(row.event.call_id)"
-                                    >
-                                      <DownOutlined v-if="!row.isCollapsed" />
-                                      <RightOutlined v-else />
-                                    </button>
-                                    <span v-else-if="row.depth > 0" class="call-branch">↳</span>
-                                    <strong>{{ row.event.type }}</strong>
-                                  </div>
-                                  <span
-                                    v-if="row.event.status"
-                                    class="status-pill"
-                                    :class="`status-${eventStatusTone(row.event.status)}`"
-                                  >{{ eventStatusLabel(row.event.status) }}</span>
-                                </div>
-                                <div v-if="row.event.call_id" class="call-meta">
-                                  <code>{{ shortId(row.event.call_id) }}</code>
-                                  <span v-if="row.event.parent_call_id">
-                                    {{ t('runtimeTraceExplorer.hierarchy.parent') }} {{ shortId(row.event.parent_call_id) }}
-                                  </span>
-                                  <span v-if="row.hasExternalParent">{{ t('runtimeTraceExplorer.hierarchy.externalParent') }}</span>
-                                </div>
-                                <code v-if="row.event.tool_name">{{ row.event.tool_name }}</code>
-                                <p>{{ payloadPreview(row.event.payload) || t('runtimeTraceExplorer.payloadUnavailable') }}</p>
-                              </article>
-                            </div>
-                          </div>
-                        </template>
-                      </div>
-                    </template>
-                  </div>
-                  <div class="virtual-spacer" aria-hidden="true" :style="{ height: `${timelineWindow.bottomPadding}px` }" />
-                </div>
-              </div>
-              <a-empty v-else :description="isEventSearchActive ? t('runtimeTraceExplorer.search.noEventResults') : t('runtimeTraceExplorer.timeline.empty')" />
-            </section>
+            <TrajectoryStream
+              :key="selectedTraceId"
+              :rows="trajectoryRows"
+              :mode="activeView"
+              :selected-id="selectedNode?.id"
+              @select="openTrajectoryNode"
+              @load-more="loadMoreEvents"
+            />
 
             <div v-if="eventTotal" class="event-pagination" aria-live="polite">
               <div>
@@ -423,45 +308,60 @@
           <a-empty v-else class="stage-empty" :description="t('runtimeTraceExplorer.selectTrace')" />
         </a-spin>
       </main>
-    </div>
-
-    <a-drawer
-      v-model:open="detailOpen"
-      class="trace-detail-drawer"
-      width="min(680px, calc(100vw - 16px))"
-      :title="t('runtimeTraceExplorer.detail.title')"
-      destroy-on-close
-    >
+    <aside v-if="detailOpen" class="trace-detail-panel" :aria-label="t('runtimeTraceExplorer.detail.title')">
+      <div class="detail-panel-heading">
+        <strong>{{ t('runtimeTraceExplorer.detail.title') }}</strong>
+        <a-tooltip :title="t('runtimeTraceExplorer.stream.close')"><a-button :aria-label="t('runtimeTraceExplorer.stream.close')" @click="detailOpen = false"><CloseOutlined /></a-button></a-tooltip>
+      </div>
       <template v-if="selectedEvent">
         <div class="detail-event-heading">
           <div>
             <span>{{ t('runtimeTraceExplorer.detail.event') }} #{{ selectedEvent.seq }}</span>
-            <strong>{{ selectedEvent.type }}</strong>
+            <strong>{{ selectedNode ? nodeLabel(selectedNode) : eventTypeLabel(selectedEvent.type) }}</strong>
             <code>{{ selectedEvent.event_id }}</code>
           </div>
           <span
-            v-if="selectedEvent.status"
+            v-if="selectedNode ? selectedNode.status : selectedEvent.status"
             class="status-pill"
-            :class="`status-${eventStatusTone(selectedEvent.status)}`"
-          >{{ eventStatusLabel(selectedEvent.status) }}</span>
+            :class="`status-${eventStatusTone(selectedNode ? selectedNode.status : selectedEvent.status)}`"
+          >{{ eventStatusLabel(selectedNode ? selectedNode.status : selectedEvent.status) }}</span>
         </div>
 
-        <a-alert
-          class="detail-boundary"
-          type="info"
-          show-icon
-          :message="t('runtimeTraceExplorer.detail.redactedTitle')"
-          :description="t('runtimeTraceExplorer.detail.redactedDescription')"
-        />
+        <span class="detail-boundary" :title="t('runtimeTraceExplorer.detail.redactedDescription')">
+          {{ t('runtimeTraceExplorer.detail.redactedTitle') }}
+        </span>
+
+        <section v-if="!selectedNode" class="event-readable-summary">
+          <div class="event-readable-heading">
+            <strong>{{ eventTypeLabel(selectedEvent.type) }}</strong>
+            <span v-if="eventReadableSummary.toolName">{{ eventReadableSummary.toolName }}</span>
+            <span v-if="eventReadableSummary.model">{{ eventReadableSummary.model }}</span>
+          </div>
+          <p>{{ eventSummaryText(selectedEvent) || t('runtimeTraceExplorer.payloadUnavailable') }}</p>
+          <a-space v-if="eventReadableSummary.riskCodes.length" wrap>
+            <a-tag v-for="code in eventReadableSummary.riskCodes" :key="code">{{ agenticRiskLabel(code, t, te) }}</a-tag>
+          </a-space>
+        </section>
 
         <a-tabs v-model:active-key="activeDetailTab" class="detail-tabs">
           <a-tab-pane key="summary" :tab="t('runtimeTraceExplorer.detailTabs.summary')">
+            <template v-if="selectedNode">
+              <a-tag v-if="selectedNode.observed">{{ t('runtimeTraceExplorer.stream.observed') }}</a-tag>
+              <pre class="json-panel readable-content">{{ readableProjection(selectedNode.content) }}</pre>
+              <div class="node-evidence">
+                <span>{{ t('runtimeTraceExplorer.stream.evidence') }}</span>
+                <a-button v-for="event in selectedNode.events" :key="event.event_id" size="small" :type="selectedEvent.event_id === event.event_id ? 'primary' : 'default'" @click="selectEvidence(event)">#{{ event.seq }}</a-button>
+              </div>
+            </template>
+            <details class="technical-details">
+              <summary>{{ t('runtimeTraceExplorer.detail.technicalDetails') }}</summary>
             <dl class="detail-grid">
               <div v-for="(value, key) in detailSummary" :key="key">
                 <dt>{{ detailFieldLabel(key) }}</dt>
                 <dd><code>{{ displayDetailValue(value) }}</code></dd>
               </div>
             </dl>
+            </details>
           </a-tab-pane>
 
           <a-tab-pane key="payload" :tab="t('runtimeTraceExplorer.detailTabs.payload')">
@@ -473,16 +373,20 @@
             <a-empty v-else :description="t('runtimeTraceExplorer.detail.noPayload')" />
           </a-tab-pane>
 
+          <a-tab-pane v-if="selectedNode && ['request', 'tool'].includes(selectedNode.kind)" key="arguments" :tab="t(selectedNode.kind === 'tool' ? 'runtimeTraceExplorer.stream.arguments' : 'runtimeTraceExplorer.stream.options')">
+            <pre class="json-panel">{{ readableProjection(nodeArguments) }}</pre>
+          </a-tab-pane>
+
           <a-tab-pane key="result" :tab="t('runtimeTraceExplorer.detailTabs.result')">
-            <pre v-if="detailResult !== null" class="json-panel">{{ jsonProjection(detailResult) }}</pre>
+            <pre v-if="detailResult !== null" class="json-panel">{{ readableProjection(detailResult) }}</pre>
             <a-empty v-else :description="t('runtimeTraceExplorer.detail.noResult')" />
           </a-tab-pane>
 
-          <a-tab-pane key="schema" :tab="t('runtimeTraceExplorer.detailTabs.schema')">
+          <a-tab-pane v-if="!selectedNode || ['request', 'tool', 'event'].includes(selectedNode.kind)" key="schema" :tab="t('runtimeTraceExplorer.detailTabs.schema')">
             <pre class="json-panel">{{ jsonProjection(detailSchema) }}</pre>
           </a-tab-pane>
 
-          <a-tab-pane key="timing" :tab="t('runtimeTraceExplorer.detailTabs.timing')">
+          <a-tab-pane v-if="!selectedNode?.observed" key="timing" :tab="t('runtimeTraceExplorer.detailTabs.timing')">
             <dl class="detail-grid">
               <div v-for="(value, key) in detailTiming" :key="key">
                 <dt>{{ detailFieldLabel(key) }}</dt>
@@ -513,8 +417,8 @@
                   <article v-for="finding in linkedFindings" :key="finding.finding_id" class="provenance-item">
                     <span class="provenance-node" aria-hidden="true" />
                     <div>
-                      <span>{{ riskLevelLabel(finding.severity) }} · {{ finding.source }}</span>
-                      <strong>{{ finding.title }}</strong>
+                      <span>{{ riskLevelLabel(finding.severity) }} · {{ findingSourceLabel(finding.source) }}</span>
+                      <strong>{{ findingTitle(finding) }}</strong>
                       <code>{{ finding.finding_id }}</code>
                     </div>
                     <a-button type="link" size="small" @click="openLinkedFinding(finding)">
@@ -524,7 +428,7 @@
                 </div>
                 <a-empty v-else :description="t('runtimeTraceExplorer.links.empty')" />
               </a-spin>
-              <p>{{ t('runtimeTraceExplorer.links.boundary') }}</p>
+              <p :title="t('runtimeTraceExplorer.links.boundaryHelp')">{{ t('runtimeTraceExplorer.links.boundary') }}</p>
             </section>
             <div class="security-code-list">
               <span>{{ t('runtimeTraceExplorer.detail.riskCodes') }}</span>
@@ -538,7 +442,8 @@
           </a-tab-pane>
         </a-tabs>
       </template>
-    </a-drawer>
+    </aside>
+    </div>
 
     <a-modal
       v-model:open="exportGateOpen"
@@ -612,11 +517,13 @@
 </template>
 
 <script setup>
-import { DownloadOutlined, DownOutlined, ReloadOutlined, RightOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import { CloseOutlined, DownloadOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import TrajectoryStream from '../components/TrajectoryStream.vue'
+import { buildTrajectoryRows } from '../trajectoryProjection'
 
 import {
   authorizeRawRuntimeTraceExport,
@@ -624,30 +531,27 @@ import {
   downloadRuntimeTraceExport,
   getMe,
   getRuntimeTrace,
+  listRuntimeTraceRequests,
   listRuntimeTraceEvents,
   listRuntimeTraces,
   listSecurityFindingsForTraceEvent,
 } from '../api'
 import { agenticRiskLabel, isAgenticRiskCode } from '../agenticRiskTaxonomy'
 import {
-  TRACE_LANES,
-  buildCallRows,
-  classifyTraceEvent,
-  conversationRole,
   eventResultProjection,
   eventSchemaProjection,
   eventSecurityProjection,
   eventStatusTone,
   eventSummaryProjection,
   eventTimingProjection,
-  groupTraceEvents,
-  payloadPreview,
   runtimeTraceEventSearchParams,
   runtimeTraceSearchParams,
   sortTraceEvents,
   tracePerformanceSummary,
   traceSecuritySummary,
-  virtualTraceWindow,
+  traceDisplayIdentity,
+  eventDisplaySummary,
+  eventSemanticSummary,
 } from '../runtimeTraceView'
 
 const { t, te, locale } = useI18n()
@@ -662,22 +566,88 @@ const page = ref(1)
 const pageSize = 20
 const selectedTraceId = ref('')
 const selectedTraceDetail = ref(null)
+const gatewayRequests = ref([])
+const requestPage = ref(0)
+const requestsHaveMore = ref(false)
+const requestsLoading = ref(false)
+let requestPageGeneration = 0
+let liveTimer
+let liveBusy = false
+
+const refreshGatewayRequests = async () => {
+  const traceId = selectedTraceId.value
+  const generation = ++requestPageGeneration
+  requestsLoading.value = true
+  try {
+    const result = await listRuntimeTraceRequests(traceId, { after_index: requestPage.value * 100, limit: 100 })
+    if (traceId === selectedTraceId.value && generation === requestPageGeneration) {
+      gatewayRequests.value = result.items || []
+      requestsHaveMore.value = result.has_more === true
+    }
+  } finally {
+    if (generation === requestPageGeneration) requestsLoading.value = false
+  }
+}
+const changeRequestPage = async delta => {
+  if (requestsLoading.value) return
+  requestPage.value = Math.max(0, requestPage.value + delta)
+  try { await refreshGatewayRequests() } catch (e) { error.value = errorMessage(e) }
+}
+
+const refreshLiveTrace = async () => {
+  if (liveBusy || document.hidden || detailLoading.value || !selectedTrace.value?.aggregation) return
+  liveBusy = true
+  const traceId = selectedTraceId.value
+  const generation = detailRequest
+  try {
+    const detail = await getRuntimeTrace(traceId)
+    if (traceId !== selectedTraceId.value || generation !== detailRequest) return
+    selectedTraceDetail.value = detail
+    traces.value = traces.value.map(item => item.trace_id === traceId ? detail : item)
+    await refreshGatewayRequests()
+    if (traceId !== selectedTraceId.value || generation !== detailRequest || hasMoreEvents.value || eventsLoadingMore.value) return
+    const result = await listRuntimeTraceEvents(traceId, {
+      ...runtimeTraceEventSearchParams(activeSearch.value),
+      after_seq: events.value.reduce((seq, item) => Math.max(seq, item.seq), 0), page_size: eventPageSize,
+    })
+    if (traceId !== selectedTraceId.value || generation !== detailRequest) return
+    const known = new Set(events.value.map(item => item.event_id))
+    const additions = (result.items || []).filter(item => !known.has(item.event_id))
+    if (additions.length) events.value = sortTraceEvents([...events.value, ...additions])
+    eventTotal.value = result.total || 0
+    hasMoreEvents.value = result.has_more === true
+    nextEventCursor.value = result.next_after_seq ?? null
+  } catch (e) {
+    if (traceId === selectedTraceId.value && generation === detailRequest) error.value = errorMessage(e)
+  } finally { liveBusy = false }
+}
 const events = ref([])
 const eventTotal = ref(0)
 const eventPageSize = 200
 const eventsLoadingMore = ref(false)
 const hasMoreEvents = ref(false)
 const nextEventCursor = ref(null)
-const traceScrollTop = ref(0)
-const traceViewportHeight = ref(640)
-const conversationScrollTop = ref(0)
-const conversationViewportHeight = ref(640)
 const activeView = ref('trace')
-const collapsedTurns = ref(new Set())
-const collapsedSteps = ref(new Set())
-const collapsedCalls = ref(new Set())
 const detailOpen = ref(false)
 const selectedEvent = ref(null)
+const selectedNodeId = ref(null)
+const trajectoryRows = computed(() => buildTrajectoryRows(events.value))
+const selectedNode = computed(() => trajectoryRows.value.find(row => row.id === selectedNodeId.value))
+const nodeLabel = node => node.kind === 'request' ? t('runtimeTraceExplorer.stream.request', { number: node.number }) : t(`runtimeTraceExplorer.stream.roles.${node.kind}`)
+const nodeArguments = computed(() => {
+  if (selectedNode.value?.kind !== 'request') return selectedNode.value?.content
+  const { messages: _messages, ...options } = selectedNode.value.content || {}
+  return options
+})
+const readableProjection = value => typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+const openTrajectoryNode = node => {
+  openEventDetail(node.event)
+  selectedNodeId.value = node.id
+}
+const selectEvidence = event => {
+  selectedEvent.value = event
+  loadLinkedFindings(event)
+}
 const activeDetailTab = ref('summary')
 const linkedFindings = ref([])
 const linkedFindingsLoading = ref(false)
@@ -693,6 +663,8 @@ const exporting = ref(false)
 const exportError = ref('')
 let detailRequest = 0
 let linkedFindingRequest = 0
+let routeSyncRequest = 0
+let listRequest = 0
 
 const selectedTrace = computed(() => selectedTraceDetail.value
   || traces.value.find(item => item.trace_id === selectedTraceId.value)
@@ -700,7 +672,6 @@ const selectedTrace = computed(() => selectedTraceDetail.value
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 const isSearchActive = computed(() => Object.keys(activeSearch.value).length > 0)
 const hasSearchDraft = computed(() => Object.keys(runtimeTraceSearchParams(searchDraft)).length > 0)
-const isEventSearchActive = computed(() => Object.keys(runtimeTraceEventSearchParams(activeSearch.value)).length > 0)
 const canRawExport = computed(() => ['admin', 'super_admin', 'privacy_auditor'].includes(currentUser.value?.role))
 const canSubmitExport = computed(() => Boolean(
   selectedTraceId.value
@@ -721,24 +692,11 @@ const activeSearchEntries = computed(() => [
   key, value, label: t(`runtimeTraceExplorer.search.${labelKey}`),
 })))
 const sortedEvents = computed(() => sortTraceEvents(events.value))
-const conversationEvents = computed(() => sortedEvents.value.filter(event => conversationRole(event)))
-const timelineWindow = computed(() => virtualTraceWindow(
-  sortedEvents.value, traceScrollTop.value, traceViewportHeight.value, { rowHeight: 96, overscan: 8 },
-))
-const conversationWindow = computed(() => virtualTraceWindow(
-  conversationEvents.value, conversationScrollTop.value, conversationViewportHeight.value, { rowHeight: 112, overscan: 6 },
-))
-const traceGroups = computed(() => groupTraceEvents(timelineWindow.value.items).map(turn => ({
-  ...turn,
-  steps: turn.steps.map(step => ({
-    ...step,
-    rows: buildCallRows(step.events, collapsedCalls.value, sortedEvents.value),
-  })),
-})))
 const detailSummary = computed(() => eventSummaryProjection(selectedEvent.value || {}))
-const detailResult = computed(() => eventResultProjection(selectedEvent.value || {}))
+const eventReadableSummary = computed(() => eventDisplaySummary(selectedEvent.value || {}))
+const detailResult = computed(() => selectedNode.value?.result ?? eventResultProjection(selectedEvent.value || {}))
 const detailSchema = computed(() => eventSchemaProjection(selectedEvent.value || {}))
-const detailTiming = computed(() => eventTimingProjection(selectedEvent.value || {}))
+const detailTiming = computed(() => eventTimingProjection(selectedNode.value?.events.at(-1) || selectedEvent.value || {}))
 const detailSecurity = computed(() => eventSecurityProjection(selectedEvent.value || {}))
 const performanceSummary = computed(() => tracePerformanceSummary(sortedEvents.value))
 const securitySummary = computed(() => traceSecuritySummary(sortedEvents.value, selectedTrace.value || {}))
@@ -783,29 +741,66 @@ const viewOptions = computed(() => [
   { label: t('runtimeTraceExplorer.views.trace'), value: 'trace' },
 ])
 
+const traceTitle = trace => {
+  const identity = traceDisplayIdentity(trace)
+  const key = `runtimeTraceExplorer.traceKinds.${identity.category}`
+  return te(key) ? t(key, { id: identity.shortId }) : `${identity.category} · ${identity.shortId}`
+}
+const eventSummaryText = (event, maxLength = 220) => {
+  const payload = event?.payload
+  const hasSummary = [payload?.summary, payload?.title].some(value => typeof value === 'string' && value.trim())
+  if (event?.type === 'security.finding' && !hasSummary && (payload?.finding_code || payload?.code) === 'llm_redteam.jailbreak_signal') {
+    return t('agentSecurityScans.detail.findingTitles.jailbreakSignal')
+  }
+  return eventSemanticSummary(event, maxLength)
+}
+const selectedTraceSubtitle = computed(() => {
+  if (selectedTrace.value?.agent_id) return selectedTrace.value.agent_id
+  const model = sortedEvents.value.map(event => eventDisplaySummary(event).model).find(Boolean)
+  return model || t('runtimeTraceExplorer.agentUnavailable')
+})
+const eventTypeLabel = value => {
+  const key = `runtimeTraceExplorer.eventTypes.${String(value || '').replaceAll('.', '_')}`
+  return te(key) ? t(key) : value || t('runtimeTraceExplorer.detail.unknownEvent')
+}
+const findingSourceLabel = value => value === 'ai-infra-guard' ? t('runtimeTraceExplorer.links.scannerSource') : value
+const findingTitle = finding => {
+  if ((finding.finding_code || finding.code) === 'llm_redteam.jailbreak_signal') return t('agentSecurityScans.detail.findingTitles.jailbreakSignal')
+  return finding.title
+}
+
 const errorMessage = requestError => requestError.response?.data?.detail || requestError.message || t('runtimeTraceExplorer.loadFailed')
 
 const loadTracePage = async (preserveSelection = true) => {
+  const requestId = ++listRequest
   loading.value = true
   error.value = ''
   try {
     const result = await listRuntimeTraces({ ...activeSearch.value, page: page.value, page_size: pageSize })
+    if (requestId !== listRequest) return
     traces.value = result.items || []
     total.value = result.total || 0
-    const next = preserveSelection
-      ? traces.value.find(item => item.trace_id === selectedTraceId.value) || traces.value[0]
+    const selectedOnPage = traces.value.find(item => item.trace_id === selectedTraceId.value)
+    const next = preserveSelection && selectedTraceId.value
+      ? (selectedOnPage || { trace_id: selectedTraceId.value, session_id: selectedTrace.value?.session_id, agent_id: selectedTrace.value?.agent_id })
       : traces.value[0]
     if (next) await selectTrace(next)
     else {
+      detailRequest += 1
+      linkedFindingRequest += 1
+      detailLoading.value = false
+      linkedFindingsLoading.value = false
       selectedTraceId.value = ''
       selectedTraceDetail.value = null
       events.value = []
       eventTotal.value = 0
+      selectedEvent.value = null
+      detailOpen.value = false
     }
   } catch (requestError) {
-    error.value = errorMessage(requestError)
+    if (requestId === listRequest) error.value = errorMessage(requestError)
   } finally {
-    loading.value = false
+    if (requestId === listRequest) loading.value = false
   }
 }
 
@@ -813,9 +808,10 @@ const selectTrace = async (trace) => {
   if (!trace?.trace_id) return
   selectedTraceId.value = trace.trace_id
   selectedTraceDetail.value = trace
-  collapsedTurns.value = new Set()
-  collapsedSteps.value = new Set()
-  collapsedCalls.value = new Set()
+  requestPage.value = 0
+  gatewayRequests.value = []
+  requestsHaveMore.value = false
+  requestPageGeneration += 1
   detailOpen.value = false
   selectedEvent.value = null
   linkedFindings.value = []
@@ -824,11 +820,10 @@ const selectTrace = async (trace) => {
   eventTotal.value = 0
   hasMoreEvents.value = false
   nextEventCursor.value = null
-  traceScrollTop.value = 0
-  conversationScrollTop.value = 0
   detailLoading.value = true
   error.value = ''
   const requestId = ++detailRequest
+  linkedFindingRequest += 1
   try {
     const [detail, eventResult] = await Promise.all([
       getRuntimeTrace(trace.trace_id),
@@ -842,6 +837,7 @@ const selectTrace = async (trace) => {
     eventTotal.value = eventResult.total || 0
     hasMoreEvents.value = eventResult.has_more === true
     nextEventCursor.value = eventResult.next_after_seq ?? null
+    if (detail.aggregation) await refreshGatewayRequests()
   } catch (requestError) {
     if (requestId === detailRequest) error.value = errorMessage(requestError)
   } finally {
@@ -875,14 +871,6 @@ const loadMoreEvents = async () => {
   }
 }
 
-const updateVirtualViewport = (event, scrollTopRef, viewportRef) => {
-  const target = event.currentTarget
-  scrollTopRef.value = target.scrollTop
-  viewportRef.value = target.clientHeight || 640
-  if (target.scrollTop + target.clientHeight >= target.scrollHeight - target.clientHeight) loadMoreEvents()
-}
-const handleTraceScroll = event => updateVirtualViewport(event, traceScrollTop, traceViewportHeight)
-const handleConversationScroll = event => updateVirtualViewport(event, conversationScrollTop, conversationViewportHeight)
 
 const refresh = () => loadTracePage(true)
 const changePage = (value) => {
@@ -913,9 +901,6 @@ const removeTraceSearch = async key => {
 const formatDateTime = (value) => value
   ? new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
   : '—'
-const formatEventTime = (value) => value
-  ? new Intl.DateTimeFormat(locale.value, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(value))
-  : '—'
 const formatInteger = value => new Intl.NumberFormat(locale.value, { maximumFractionDigits: 0 }).format(value || 0)
 const formatDurationMetric = (value) => {
   if (value === null || value === undefined) return t('runtimeTraceExplorer.performance.unavailable')
@@ -933,30 +918,11 @@ const riskLevelLabel = (value) => {
   return te(key) ? t(key) : value
 }
 const riskTone = value => ['critical', 'high', 'medium', 'low'].includes(value) ? value : 'info'
-const conversationRoleLabel = event => t(`runtimeTraceExplorer.roles.${conversationRole(event)}`)
-const turnLabel = turn => turn.isUnscoped ? t('runtimeTraceExplorer.hierarchy.unscopedEvents') : turn.turnId
-const stepLabel = step => step.isUnscoped ? t('runtimeTraceExplorer.hierarchy.directEvents') : step.stepId
-const seqRange = group => group.startSeq === group.endSeq ? `#${group.startSeq}` : `#${group.startSeq}–${group.endSeq}`
 const shortId = value => value?.length > 18 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value
-const callDepthStyle = depth => ({ '--call-indent': `${Math.min(Number(depth || 0), 5) * 18}px` })
 const eventStatusLabel = (value) => {
   const key = `runtimeTraceExplorer.statuses.${value || 'unknown'}`
   return te(key) ? t(key) : value
 }
-const callToggleLabel = row => t(
-  row.isCollapsed ? 'runtimeTraceExplorer.hierarchy.expandCall' : 'runtimeTraceExplorer.hierarchy.collapseCall',
-  { callId: shortId(row.event.call_id) },
-)
-
-const toggleSetValue = (holder, key) => {
-  const next = new Set(holder.value)
-  if (next.has(key)) next.delete(key)
-  else next.add(key)
-  holder.value = next
-}
-const toggleTurn = key => toggleSetValue(collapsedTurns, key)
-const toggleStep = key => toggleSetValue(collapsedSteps, key)
-const toggleCall = key => toggleSetValue(collapsedCalls, key)
 const loadLinkedFindings = async (event) => {
   const traceId = event?.trace_id || selectedTraceId.value
   if (!traceId || !event?.event_id) return
@@ -974,6 +940,7 @@ const loadLinkedFindings = async (event) => {
   }
 }
 const openEventDetail = (event, tab = 'summary') => {
+  selectedNodeId.value = null
   selectedEvent.value = event
   activeDetailTab.value = tab
   detailOpen.value = true
@@ -985,19 +952,24 @@ const openLinkedFinding = finding => router.push({
 })
 const queryValue = value => Array.isArray(value) ? value[0] : value
 const openEventFromRoute = async () => {
+  const syncRequest = ++routeSyncRequest
+  if (route.name !== 'runtime-traces') return
   const traceId = queryValue(route.query.trace_id)
   const eventId = queryValue(route.query.event_id)
-  if (!traceId || !eventId) return
+  if (!traceId) return
   if (selectedTraceId.value !== traceId) await selectTrace({ trace_id: traceId })
+  if (syncRequest !== routeSyncRequest || route.name !== 'runtime-traces') return
+  if (!eventId) return
   let event = events.value.find(item => item.event_id === eventId)
   if (!event) {
     try {
       const result = await listRuntimeTraceEvents(traceId, { event_id: eventId, page: 1, page_size: 1 })
       event = result.items?.[0]
     } catch (requestError) {
-      error.value = errorMessage(requestError)
+      if (syncRequest === routeSyncRequest && route.name === 'runtime-traces' && selectedTraceId.value === traceId) error.value = errorMessage(requestError)
     }
   }
+  if (syncRequest !== routeSyncRequest || route.name !== 'runtime-traces' || selectedTraceId.value !== traceId) return
   if (event) openEventDetail(event, 'security')
 }
 const detailFieldLabel = (key) => {
@@ -1061,6 +1033,7 @@ const submitTraceExport = async () => {
 }
 
 onMounted(async () => {
+  liveTimer = window.setInterval(refreshLiveTrace, 3000)
   Object.assign(searchDraft, {
     turn_id: queryValue(route.query.turn_id) || '',
     tool_name: queryValue(route.query.tool_name) || '',
@@ -1073,10 +1046,24 @@ onMounted(async () => {
   if (profileResult.status === 'fulfilled') currentUser.value = profileResult.value
   await openEventFromRoute()
 })
-watch(() => [route.query.trace_id, route.query.event_id], openEventFromRoute)
+watch(() => [route.name, route.query.trace_id, route.query.event_id], openEventFromRoute)
+onBeforeUnmount(() => {
+  window.clearInterval(liveTimer)
+  detailRequest += 1
+  requestPageGeneration += 1
+})
 </script>
 
 <style scoped>
+.gateway-requests { margin: 16px 0; border-block: 1px solid #e5e7eb; padding: 12px 0; }
+.gateway-requests summary { cursor: pointer; font-weight: 600; }
+.gateway-request-scroll { overflow-x: auto; max-height: 320px; margin-top: 12px; }
+.gateway-requests table { width: 100%; min-width: 680px; border-collapse: collapse; font-size: 12px; }
+.gateway-requests th, .gateway-requests td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+.gateway-requests th { position: sticky; top: 0; background: #f9fafb; }
+.gateway-requests td:first-child { max-width: 190px; }
+.gateway-requests td:first-child span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gateway-requests code { font-size: 11px; }
 .trace-page {
   max-width: 1560px;
   margin: 0 auto;
@@ -1102,7 +1089,7 @@ watch(() => [route.query.trace_id, route.query.event_id], openEventFromRoute)
 
 .trace-header h1 {
   margin: 4px 0 6px;
-  font-size: clamp(25px, 3vw, 34px);
+  font-size: 22px;
   line-height: 1.15;
 }
 
@@ -1115,13 +1102,11 @@ watch(() => [route.query.trace_id, route.query.event_id], openEventFromRoute)
 .trace-alert { margin-bottom: 16px; }
 
 .trace-query-ribbon {
-  margin-bottom: 16px;
+  margin-bottom: 8px;
   overflow: hidden;
   border: 1px solid #d7dfeb;
-  border-left: 4px solid #3156a3;
-  border-radius: 14px;
+  border-radius: 4px;
   background: #fff;
-  box-shadow: 0 8px 24px rgba(36, 59, 101, .055);
 }
 .query-ribbon-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 16px 10px; background: linear-gradient(100deg, #f3f7ff, #fff 60%); }
 .query-ribbon-heading > div { display: grid; gap: 2px; }
@@ -1143,22 +1128,36 @@ watch(() => [route.query.trace_id, route.query.event_id], openEventFromRoute)
 
 .trace-workspace {
   display: grid;
-  grid-template-columns: 292px minmax(0, 1fr);
+  grid-template-columns: 210px minmax(0, 1fr);
   min-height: 690px;
   overflow: hidden;
   border: 1px solid #dfe4ed;
-  border-radius: 18px;
-  background: #f7f8fb;
-  box-shadow: 0 14px 40px rgba(20, 36, 65, .08);
+  border-radius: 4px;
+  background: #fff;
 }
+.trace-workspace.detail-visible { grid-template-columns: 210px minmax(0, 1fr) minmax(300px, 36%); }
+.query-disclosure { margin-bottom: 12px; font-size: 12px; }
+.query-disclosure > summary { cursor: pointer; padding: 6px 0; color: #596579; }
+.query-disclosure > summary span { margin-left: 12px; color: #7b8496; }
+.trace-metadata { margin-bottom: 12px; font-size: 12px; }
+.trace-metadata > summary { cursor: pointer; color: #69717c; padding: 6px 0; }
+.trace-detail-panel { min-width: 0; padding: 14px; border-left: 1px solid #dfe4ed; background: #fff; max-height: calc(100vh - 110px); overflow: auto; position: sticky; top: 0; }
+.detail-panel-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 16px; font-size: 13px; }
+.detail-panel-heading .ant-btn { width: 28px; height: 28px; padding: 0; }
+.node-evidence { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 12px 0; font-size: 12px; }
+.detail-event-heading code { overflow-wrap: anywhere; font-size: 10px; color: #7b8496; }
 
 .session-panel {
   display: flex;
   flex-direction: column;
   min-width: 0;
   border-right: 1px solid #dfe4ed;
-  background: #f1f4f8;
+  background: #fafbfc;
+  min-height: 0;
+  overflow: hidden;
 }
+.session-panel > :deep(.ant-spin-nested-loading),
+.session-panel :deep(.ant-spin-container) { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: hidden; }
 
 .panel-title {
   display: flex;
@@ -1183,36 +1182,38 @@ watch(() => [route.query.trace_id, route.query.event_id], openEventFromRoute)
   font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.session-list { padding: 8px; }
+.session-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; }
 .session-item {
   display: grid;
   width: 100%;
   gap: 7px;
   padding: 13px 12px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: 6px;
   color: inherit;
   text-align: left;
   background: transparent;
   cursor: pointer;
-  transition: background .18s ease, border-color .18s ease, transform .18s ease;
+  transition: background .18s ease, border-color .18s ease;
 }
 
-.session-item:hover { background: rgba(255, 255, 255, .7); transform: translateY(-1px); }
-.session-item.selected { border-color: #bcccf0; background: #fff; box-shadow: 0 5px 18px rgba(35, 65, 120, .08); }
+.session-item:hover { background: #f0f3f7; }
+.session-item.selected { border-color: #cbd9eb; background: #edf3fa; }
 .session-leading { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .session-leading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-pulse { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #3e68c2; box-shadow: 0 0 0 4px #e1e9fb; }
 .session-item code { overflow: hidden; color: #68758b; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.session-badges { display: flex; flex-wrap: wrap; gap: 5px; }
+.session-badges { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 5px; }
 .session-meta { display: flex; justify-content: space-between; gap: 8px; color: #8a93a2; font-size: 11px; }
 .session-pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding: 12px; border-top: 1px solid #dfe4ed; color: #667085; font-size: 11px; }
 
-.trace-stage { min-width: 0; padding: 24px; background: #fff; }
-.stage-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.trace-stage { min-width: 0; padding: 14px; background: #fff; }
+.stage-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .stage-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; }
 .trace-identity { min-width: 0; }
-.trace-identity h2 { margin: 4px 0 2px; font-size: 22px; overflow-wrap: anywhere; }
+.trace-identity h2 { margin: 0 0 2px; font-size: 18px; overflow-wrap: anywhere; }
+.detail-visible .trace-identity { flex-basis: 100%; }
+.trace-subtitle { display: block; color: #68758b; font-size: 11px; }
 .trace-identity code { display: block; overflow: hidden; color: #7b8496; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 
 .trace-facts {
@@ -1229,6 +1230,13 @@ watch(() => [route.query.trace_id, route.query.event_id], openEventFromRoute)
 .trace-facts > div { display: grid; gap: 5px; min-width: 0; padding: 13px 15px; background: #fafbfc; }
 .trace-facts small { color: #7b8496; }
 .trace-facts strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.session-subtitle { overflow: hidden; color: #68758b; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.secondary-summary { margin: 0 0 18px; border: 1px solid #d9dee8; border-radius: 12px; background: #fff; }
+.secondary-summary > summary { padding: 11px 15px; color: #4c5a70; cursor: pointer; font-size: 12px; font-weight: 750; }
+.secondary-summary[open] > summary { border-bottom: 1px solid #e3e7ee; }
+.secondary-summary .security-posture,
+.secondary-summary .performance-panel { margin: 0; border: 0; border-radius: 0; box-shadow: none; }
 
 .trace-badge {
   display: inline-flex;
@@ -1298,120 +1306,35 @@ watch(() => [route.query.trace_id, route.query.event_id], openEventFromRoute)
 .signal-card strong.unavailable { color: #a0a8b5; font-size: 15px; }
 .signal-card small { overflow: hidden; color: #8a93a2; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 
-.conversation-view,
-.timeline-view { min-height: 460px; }
-.view-intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 16px; }
-.view-intro h3 { margin: 0 0 4px; font-size: 16px; }
-.view-intro > span { color: #7b8496; font-size: 12px; white-space: nowrap; }
-
-.conversation-stream { display: grid; max-height: 680px; gap: 15px; overflow-y: auto; padding: 8px 8px 28px 2px; }
-.conversation-stream:focus-visible,
-.rail-scroll:focus-visible { outline: 2px solid #4c74ca; outline-offset: 3px; }
-.message-row { display: grid; max-width: 78%; gap: 5px; cursor: pointer; }
-.message-row.user { justify-self: end; }
-.message-row.assistant,
-.message-row.context,
-.message-row.error { justify-self: start; }
-.message-meta { display: flex; align-items: center; gap: 9px; padding: 0 4px; color: #7b8496; font-size: 11px; }
-.message-row.user .message-meta { justify-content: flex-end; }
-.message-meta span { font-weight: 700; color: #4c5a70; }
-.message-bubble { padding: 13px 15px; border: 1px solid #dde4ee; border-radius: 4px 14px 14px; background: #f7f9fc; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
-.message-row.user .message-bubble { border-color: #345bb0; border-radius: 14px 4px 14px 14px; background: #345bb0; color: #fff; }
-.message-row.context .message-bubble { border-color: #abdcd2; background: #f0faf7; }
-.message-row.error .message-bubble { border-color: #efc0c0; background: #fff4f4; }
-.message-row:hover .message-bubble,
-.message-row.selected .message-bubble { box-shadow: 0 0 0 2px rgba(49, 86, 163, .22), 0 8px 22px rgba(23, 32, 51, .08); }
-.message-row:focus-visible { outline: 2px solid #4c74ca; outline-offset: 4px; border-radius: 8px; }
-
-.rail-scroll { max-height: 680px; overflow: auto; border: 1px solid #e2e6ee; border-radius: 13px; background: #fbfcfe; }
-.trace-rail { min-width: 1240px; }
-.virtual-spacer { width: 100%; pointer-events: none; }
-.rail-header,
-.event-row {
-  display: grid;
-  grid-template-columns: 58px 96px repeat(6, minmax(150px, 1fr));
-}
-.rail-header { position: sticky; top: 0; z-index: 2; border-bottom: 1px solid #dfe4ed; background: #f1f4f8; }
-.rail-header > span { display: flex; min-height: 46px; align-items: center; padding: 0 10px; border-right: 1px solid #dfe4ed; color: #596579; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
-.lane-heading i { width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: currentColor; }
-.turn-group + .turn-group { border-top: 1px solid #ccd5e3; }
-.group-bar {
-  display: grid;
-  width: 100%;
-  min-width: 1240px;
-  grid-template-columns: 18px 92px minmax(180px, 1fr) auto auto;
-  align-items: center;
-  gap: 10px;
-  border: 0;
-  color: #42506a;
-  text-align: left;
-  cursor: pointer;
-}
-.group-bar:focus-visible,
-.call-toggle:focus-visible { outline: 2px solid #4c74ca; outline-offset: -2px; }
-.turn-bar { padding: 11px 15px; background: #e8edf5; }
-.step-bar { padding: 8px 18px 8px 36px; border-top: 1px solid #e1e6ef; background: #f5f7fa; }
-.group-bar:hover { filter: brightness(.985); }
-.group-bar svg { font-size: 11px; }
-.group-kind { color: #68758b; font: 800 10px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
-.group-bar strong { overflow: hidden; color: #24344f; font: 700 12px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
-.group-bar code,
-.group-bar > span:last-child { color: #7a8598; font-size: 10px; }
-.event-row { min-height: 74px; border-bottom: 1px solid #edf0f5; }
-.event-row:last-child { border-bottom: 0; }
-.event-seq,
-.event-time { display: flex; align-items: flex-start; justify-content: center; padding: 17px 6px; color: #7b8496; font-size: 11px; }
-.lane-cell { position: relative; min-width: 0; padding: 8px; border-left: 1px solid #edf0f5; }
-.lane-cell::before { position: absolute; top: 0; bottom: 0; left: 18px; width: 1px; background: #dbe1ea; content: ''; }
-.event-card { position: relative; z-index: 1; width: calc(100% - var(--call-indent, 0px)); min-width: 0; margin-left: var(--call-indent, 0px); padding: 10px 11px; border: 1px solid currentColor; border-radius: 9px; background: #fff; box-shadow: 0 3px 10px rgba(23, 32, 51, .06); cursor: pointer; transition: box-shadow .16s ease, transform .16s ease; }
-.event-card:hover,
-.event-card.selected { box-shadow: 0 0 0 2px currentColor, 0 8px 20px rgba(23, 32, 51, .12); transform: translateY(-1px); }
-.event-card:focus-visible { outline: 2px solid #172033; outline-offset: 2px; }
-.event-card.nested-call::before { position: absolute; top: 50%; left: -13px; width: 10px; border-top: 1px solid #aeb8c8; content: ''; }
-.event-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.event-title { display: flex; min-width: 0; align-items: center; gap: 5px; }
-.event-title strong { overflow: hidden; font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
-.call-toggle { display: grid; width: 18px; height: 18px; flex: 0 0 auto; place-items: center; padding: 0; border: 1px solid currentColor; border-radius: 5px; color: inherit; background: rgba(255, 255, 255, .8); cursor: pointer; }
-.call-toggle svg { font-size: 9px; }
-.call-branch { color: #7f8aa0; font-size: 12px; }
-.status-pill { flex: 0 0 auto; padding: 2px 6px; border: 1px solid transparent; border-radius: 999px; font-size: 9px; font-weight: 750; text-transform: none; }
+.status-pill { display: inline-flex; width: fit-content; flex: 0 0 auto; padding: 2px 6px; border: 1px solid transparent; border-radius: 999px; font-size: 9px; font-weight: 750; text-transform: none; }
 .status-success { border-color: #9ad6b7; color: #217a4a; background: #effaf4; }
 .status-active { border-color: #a9c4ea; color: #315f9d; background: #f0f6ff; }
 .status-danger { border-color: #e6acb1; color: #a43c47; background: #fff2f3; }
 .status-neutral { border-color: #ccd3de; color: #667085; background: #f5f6f8; }
-.call-meta { display: flex; min-width: 0; align-items: center; gap: 6px; margin-top: 6px; color: #7b8496; font-size: 9px; }
-.call-meta code { overflow: hidden; color: inherit; text-overflow: ellipsis; white-space: nowrap; }
-.call-meta span { white-space: nowrap; }
-.event-card > code { display: block; margin-top: 5px; overflow: hidden; color: inherit; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.event-card p { margin: 6px 0 0; overflow: hidden; color: #657086; font-size: 11px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
-.lane-input { color: #3f64b4; }
-.lane-model { color: #6f52b5; }
-.lane-tools { color: #b56a22; }
-.lane-mcp { color: #ce7724; }
-.lane-knowledge { color: #268578; }
-.lane-policy { color: #9a486f; }
-.lane-input .event-card { background: #f5f8ff; }
-.lane-model .event-card { background: #faf7ff; }
-.lane-tools .event-card,
-.lane-mcp .event-card { background: #fff9f2; }
-.lane-knowledge .event-card { background: #f2fbf8; }
-.lane-policy .event-card { background: #fff6fa; }
 
 .detail-event-heading { display: grid; gap: 5px; padding-bottom: 14px; }
 .detail-event-heading > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .detail-event-heading > div > span:first-child { color: #3156a3; font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
 .detail-event-heading strong { font: 750 16px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .detail-event-heading > code { overflow: hidden; color: #7b8496; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.detail-boundary { margin-bottom: 8px; }
+.detail-boundary { display: inline-block; margin-bottom: 10px; color: #7b8496; font-size: 10px; cursor: help; }
+.event-readable-summary { margin-bottom: 14px; padding-block: 10px; border-bottom: 1px solid #dfe5ef; }
+.event-readable-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.event-readable-heading strong { color: #26364f; font-size: 14px; }
+.event-readable-heading span { color: #68758b; font-size: 11px; }
+.event-readable-summary p { margin: 7px 0 0; color: #34425a; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.technical-details { margin-top: 2px; }
+.technical-details > summary { margin-bottom: 10px; color: #68758b; cursor: pointer; font-size: 11px; font-weight: 700; }
 .detail-tabs { margin-top: 6px; }
-.detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; }
-.detail-grid > div { min-width: 0; padding: 12px 13px; border: 1px solid #e1e6ee; border-radius: 10px; background: #f8fafc; }
+.detail-grid { display: grid; grid-template-columns: 1fr; gap: 0; margin: 0; }
+.detail-grid > div { min-width: 0; padding: 8px 0; border-bottom: 1px solid #e1e6ee; }
 .detail-grid dt { margin-bottom: 5px; color: #7b8496; font-size: 11px; }
-.detail-grid dd { margin: 0; overflow: hidden; color: #26364f; text-overflow: ellipsis; white-space: nowrap; }
+.detail-grid dd { margin: 0; color: #26364f; overflow-wrap: anywhere; }
 .detail-grid code { font-size: 12px; }
 .projection-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .projection-heading span { padding: 3px 8px; border-radius: 999px; color: #315f9d; background: #edf4ff; font-size: 10px; font-weight: 700; }
-.json-panel { max-height: calc(100vh - 290px); margin: 0; overflow: auto; padding: 15px; border: 1px solid #dfe4ed; border-radius: 11px; color: #dce7ff; background: #172033; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.json-panel { max-height: calc(100vh - 290px); margin: 0; overflow: auto; padding: 12px; border: 1px solid #e4e7eb; border-radius: 4px; color: #303640; background: #fafbfc; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.readable-content { font-family: inherit; background: #fff; border: 0; padding: 0; }
 .security-code-list { display: grid; gap: 8px; margin-bottom: 12px; }
 .security-code-list > span:first-child { color: #596579; font-size: 11px; font-weight: 750; text-transform: uppercase; }
 .finding-provenance { margin-bottom: 16px; overflow: hidden; border: 1px solid #dfe5ef; border-radius: 12px; background: #fbfcfe; }
@@ -1462,9 +1385,10 @@ watch(() => [route.query.trace_id, route.query.event_id], openEventFromRoute)
 @media (max-width: 1100px) {
   .query-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .error-query-toggle { justify-content: center; }
-  .trace-workspace { grid-template-columns: 1fr; }
-  .session-panel { max-height: 330px; border-right: 0; border-bottom: 1px solid #dfe4ed; }
-  .session-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .trace-workspace, .trace-workspace.detail-visible { grid-template-columns: 1fr; }
+  .trace-detail-panel { position: fixed; inset: 56px 0 0 auto; width: min(440px, 100%); max-height: none; z-index: 100; box-shadow: -8px 0 24px #17203318; }
+  .session-panel { height: 180px; max-height: 180px; border-right: 0; border-bottom: 1px solid #dfe4ed; }
+  .session-list { display: grid; align-content: start; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .governance-ledger { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .performance-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
@@ -1476,12 +1400,15 @@ watch(() => [route.query.trace_id, route.query.event_id], openEventFromRoute)
   .stage-actions { align-items: stretch; flex-direction: column-reverse; }
   .stage-actions :deep(.ant-btn) { width: 100%; }
   .trace-stage { padding: 16px; }
+  .trace-header p,
+  .conversation-view .view-intro p { display: none; }
   .query-ribbon-heading { align-items: flex-start; flex-direction: column; }
   .query-controls { grid-template-columns: 1fr; }
   .query-controls :deep(.ant-btn) { width: 100%; }
   .query-ledger { align-items: flex-start; flex-direction: column; padding-left: 30px; }
   .query-token { max-width: 100%; }
   .session-list { grid-template-columns: 1fr; }
+  .session-id { display: none; }
   .trace-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .trace-facts strong { white-space: normal; overflow-wrap: anywhere; }
   .security-heading { align-items: flex-start; flex-direction: column; }
@@ -1490,7 +1417,6 @@ watch(() => [route.query.trace_id, route.query.event_id], openEventFromRoute)
   .performance-heading { align-items: flex-start; flex-direction: column; }
   .performance-heading p { text-align: left; }
   .performance-grid { grid-template-columns: 1fr 1fr; }
-  .message-row { max-width: 94%; }
   .detail-grid { grid-template-columns: 1fr; }
   .event-pagination { align-items: stretch; flex-direction: column; }
   .event-pagination :deep(.ant-btn) { width: 100%; }

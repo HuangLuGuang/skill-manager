@@ -457,7 +457,7 @@ def sanitize_mcp_metadata_text(value: str, *, max_length: int = 8_192) -> tuple[
     return safe, truncated
 
 
-def sanitize_mcp_metadata_value(value: Any) -> tuple[Any, dict[str, int]]:
+def sanitize_mcp_metadata_value(value: Any, *, max_depth: int = 8, max_items: int | None = 100) -> tuple[Any, dict[str, int]]:
     stats = {
         "truncated_strings": 0,
         "dropped_items": 0,
@@ -475,7 +475,7 @@ def sanitize_mcp_metadata_value(value: Any) -> tuple[Any, dict[str, int]]:
         if force_redact:
             stats["redacted_sensitive_values"] += 1
             return "[REDACTED]"
-        if depth >= 8:
+        if depth >= max_depth:
             stats["depth_limited"] += 1
             return "[depth-limited]"
         if isinstance(item, str):
@@ -483,12 +483,12 @@ def sanitize_mcp_metadata_value(value: Any) -> tuple[Any, dict[str, int]]:
             stats["truncated_strings"] += int(truncated)
             return safe
         if isinstance(item, list):
-            stats["dropped_items"] += max(0, len(item) - 100)
-            return [walk(value, depth=depth + 1, sensitive_context=sensitive_context) for value in item[:100]]
+            stats["dropped_items"] += max(0, len(item) - max_items) if max_items is not None else 0
+            return [walk(value, depth=depth + 1, sensitive_context=sensitive_context) for value in item[:max_items]]
         if isinstance(item, dict):
-            stats["dropped_items"] += max(0, len(item) - 100)
+            stats["dropped_items"] += max(0, len(item) - max_items) if max_items is not None else 0
             sanitized: dict[str, Any] = {}
-            for raw_key, child in list(item.items())[:100]:
+            for raw_key, child in list(item.items())[:max_items]:
                 raw_key_text = str(raw_key)
                 safe_key, key_truncated = sanitize_mcp_metadata_text(raw_key_text, max_length=128)
                 stats["truncated_strings"] += int(key_truncated)

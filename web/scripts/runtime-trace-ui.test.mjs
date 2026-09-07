@@ -22,6 +22,9 @@ import {
   sortTraceEvents,
   tracePerformanceSummary,
   traceSecuritySummary,
+  traceDisplayIdentity,
+  eventDisplaySummary,
+  eventSemanticSummary,
   virtualTraceWindow,
 } from '../src/runtimeTraceView.js'
 
@@ -52,6 +55,19 @@ test('conversation projection and payload preview use protocol codes rather than
   assert.deepEqual(sortTraceEvents([{ seq: 8 }, { seq: 2 }]).map(item => item.seq), [2, 8])
   assert.equal(payloadPreview({ content: 'hello\nworld' }), 'hello world')
   assert.match(payloadPreview({ nested: { secret: '[REDACTED]' } }), /REDACTED/)
+})
+
+test('trace display identities and event summaries use only available fields', () => {
+  assert.deepEqual(traceDisplayIdentity({ session_id: 'security-scan:asj_1234567890' }), {
+    category: 'security-scan', shortId: 'asj_1234…7890', fullId: 'security-scan:asj_1234567890',
+  })
+  assert.deepEqual(eventDisplaySummary({
+    type: 'security.finding', risk_codes: ['ASI01'], payload: { summary: 'observed signal', model: 'model-a' },
+  }), { semantic: 'observed signal', riskCodes: ['ASI01'], toolName: '', model: 'model-a' })
+  assert.equal(traceDisplayIdentity({ session_id: 'customer:session:name' }).category, 'trace')
+  assert.equal(eventSemanticSummary({ type: 'security.finding', payload: { finding_code: 'JAILBREAK' } }), 'JAILBREAK')
+  assert.equal(eventSemanticSummary({ type: 'model.error', payload: { error: '[upstream-error]' } }), '[upstream-error]')
+  assert.equal(eventSemanticSummary({ type: 'tool.result', payload: { opaque_field: { hash: 'abc' } } }), '')
 })
 
 test('P5-03 groups only explicit Turn and Step ids and keeps unscoped gateway events honest', () => {
@@ -208,12 +224,9 @@ test('P5-02 page is feature-protected, bilingual, and reads only redacted projec
   assert.match(router, /path: '\/runtime-traces'/)
   assert.match(router, /feature: 'runtime_trace'/)
   assert.match(navigation, /key: '\/runtime-traces'/)
-  assert.match(view, /activeView === 'conversation'/)
+  assert.match(view, /:mode="activeView"/)
   assert.match(view, /value: 'trace'/)
-  assert.match(view, /traceGroups/)
-  assert.match(view, /toggleTurn/)
-  assert.match(view, /toggleStep/)
-  assert.match(view, /toggleCall/)
+  assert.match(view, /buildTrajectoryRows/)
   assert.match(view, /eventStatusTone/)
   for (const tab of ['summary', 'payload', 'result', 'schema', 'timing', 'security']) {
     assert.match(view, new RegExp(`detailTabs\\.${tab}`))
@@ -310,9 +323,10 @@ test('P5-09 page uses cursor-based lazy loading and visible-window rendering', a
   assert.match(backend, /next_after_seq/)
   assert.match(backend, /limit\(page_size \+ 1\)/)
   assert.match(view, /loadMoreEvents/)
-  assert.match(view, /virtualTraceWindow/)
+  const stream = await read('../src/components/TrajectoryStream.vue')
+  assert.match(stream, /visibleRows.value.slice\(start.value, end.value\)/)
   assert.match(view, /nextEventCursor/)
-  assert.match(view, /@scroll="handleTraceScroll"/)
+  assert.match(stream, /@scroll="onScroll"/)
   assert.match(i18n, /按需加载/)
   assert.match(i18n, /loaded on demand/)
 })

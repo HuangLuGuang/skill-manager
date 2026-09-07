@@ -103,7 +103,8 @@ test('P5-11 moves the remaining trace and scan labels behind semantic keys', asy
   for (const literal of ['P5 · EVIDENCE QUERY', 'P5 · GOVERNANCE', 'P5 · PERFORMANCE', "'TURN'", "'STEP'"]) {
     assert.doesNotMatch(trace, new RegExp(literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
-  assert.match(trace, /runtimeTraceExplorer\.timeline\.sequence/)
+  const stream = await readFile(new URL('../src/components/TrajectoryStream.vue', import.meta.url), 'utf8')
+  assert.match(stream, /runtimeTraceExplorer\.stream\.overview/)
   assert.match(scans, /agentSecurityScans\.targets\.credentialTypes/)
   assert.match(scans, /agentSecurityScans\.targets\.targetTypes/)
   assert.doesNotMatch(scans, />Bearer<|>API Key<|>Basic<|>Custom</)

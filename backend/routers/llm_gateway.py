@@ -1,6 +1,7 @@
 import hashlib
 import ipaddress
 import json
+import logging
 import math
 import random
 import re
@@ -16,7 +17,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, update
 from sqlalchemy.orm import Session, object_session
 
 from .. import auth, models, schemas
@@ -44,7 +45,8 @@ from ..responses_compat import (
     responses_to_openai_request,
 )
 from ..runtime_trace_schemas import RuntimeTraceInternalEvent
-from ..services.runtime_traces import best_effort_trace_publisher, publish_events_best_effort
+from ..services import gateway_sessions
+from ..services.runtime_traces import best_effort_trace_publisher, ingest_transaction, publish_events_best_effort
 from ..sqlite_db import get_db
 from .access_tokens import resolve_access_token
 
@@ -131,7 +133,7 @@ def _publish_model_runtime_trace(
         elif tenant_id == "group-default":
             trace_tenant_id = "default"
     common = {
-        "trace_id": trace_context.get("trace_id") if agent_id else None,
+        "trace_id": trace_context.get("gateway_trace_id") or (trace_context.get("trace_id") if agent_id else None),
         "tenant_id": trace_tenant_id,
         "agent_id": agent_id,
         "session_id": str(trace_context.get("session_id") or request_id),
@@ -214,7 +216,18 @@ def _publish_model_runtime_trace(
                 redacted_payload={"component": "prompt_security", **prompt_security},
             )
         )
-    publish_events_best_effort(db, events)
+    if trace_context.get("gateway_trace_id"):
+        with ingest_transaction(db):
+            db.execute(update(models.RuntimeTraceSession).where(
+                models.RuntimeTraceSession.trace_id == trace_context["gateway_trace_id"]
+            ).values(updated_at=datetime.utcnow()))
+            db.expire_all()
+            publish_events_best_effort(db, events)
+    else:
+        publish_events_best_effort(db, events)
+    if trace_context.get("gateway_trace_id") and (error is not None or response_payload is not None):
+        gateway_sessions.finish(db, request_id, "blocked" if blocked else "error" if error is not None else "completed")
+        trace_context["gateway_finished"] = True
 PROMPT_GUARD_RULES = [
     ("prompt_injection", "HIGH", "要求忽略或覆盖系统指令", r"(?i)(ignore|disregard|forget)\s+(all\s+)?(previous|prior|above|system)\s+(instructions?|prompts?)|(忽略|无视|忘记|不要遵守|不用遵守|别管).{0,16}(以上|之前|前面|所有|系统|开发者|平台).{0,16}(指令|提示词|规则|要求)|(覆盖|重写|替换).{0,12}(系统|开发者|平台).{0,8}(指令|提示词|规则)"),
     ("system_prompt_leak", "HIGH", "要求泄露系统提示词或内部指令", r"(?i)(reveal|show|print|dump|output|return).{0,40}(system[_ -]?prompt|developer[_ -]?(message|prompt)|hidden (instructions?|rules?)|internal (instructions?|config|policy))|(system[_ -]?prompt|developer[_ -]?(message|prompt)|hidden (instructions?|rules?)|internal (instructions?|config|policy)).{0,40}(reveal|show|print|dump|output|return)|(泄露|显示|输出|打印|复述|逐字|返回).{0,30}(system[_ -]?prompt|developer[_ -]?prompt|系统提示词|系统指令|开发者消息|开发者提示词|隐藏规则|隐藏指令|内部指令|内部配置|初始提示词|完整提示词)|(system[_ -]?prompt|developer[_ -]?prompt|系统提示词|系统指令|开发者消息|开发者提示词|隐藏规则|隐藏指令|内部指令|内部配置|初始提示词|完整提示词).{0,40}(泄露|显示|输出|打印|复述|逐字|返回)"),
@@ -3052,12 +3065,12 @@ async def _chat_completions_impl(
     _acquire_key_slot(key)
     if payload.stream:
         try:
-            return await _chat_completions_with_key(payload, response, key, db)
+            return await _chat_completions_with_key(payload, response, key, db, request=request)
         except Exception:
             _release_key_slot(key)
             raise
     try:
-        return await _chat_completions_with_key(payload, response, key, db)
+        return await _chat_completions_with_key(payload, response, key, db, request=request)
     finally:
         _release_key_slot(key)
 
@@ -3067,8 +3080,73 @@ async def _chat_completions_with_key(
     response: Response,
     key: models.LlmApiKey,
     db: Session,
+    request: Request | None = None,
 ) -> dict[str, Any]:
     request_started_at = time.perf_counter()
+    request_id = f"req_{uuid.uuid4().hex[:12]}"
+    context = {}
+    metadata = payload.metadata or {}
+    tenant_id = str(metadata.get("tenant_id") or f"group-{key.group_id or 'default'}")
+    if isinstance(key, models.AccessToken):
+        tenant_id = str(key.group_id) if key.group_id is not None else ("default" if tenant_id == "group-default" else tenant_id)
+    _resolve_model(db, payload.model, key)
+    messages = [_strip_undefined_values(message.model_dump()) for message in payload.messages]
+    if settings.RUNTIME_TRACE_ENABLED and not (getattr(key, "bound_agent_id", None) and metadata.get("trace_id")):
+        declared = [("metadata.session_id", metadata.get("session_id")),
+                    ("x-hermes-session-id", request.headers.get("x-hermes-session-id") if request else None),
+                    ("conversation_id", payload.conversation_id),
+                    ("metadata.conversation_id", metadata.get("conversation_id"))]
+        source, explicit_id = next(((name, str(value).strip()) for name, value in declared if value and str(value).strip()), (None, None))
+        try:
+            context = gateway_sessions.associate(db, key=key, tenant_id=tenant_id, messages=messages,
+                                                 request_id=request_id, explicit_id=explicit_id, source=source)
+        except Exception as exc:
+            db.rollback()
+            # Trace association follows the existing best-effort tracing contract.
+            logging.getLogger(__name__).warning("gateway session association failed: %s", type(exc).__name__)
+            context = {}
+
+    def record_unfinished(error):
+        if context.get("gateway_trace_id") and not context.get("gateway_finished"):
+            _publish_model_runtime_trace(db, key=key, trace_context=context, tenant_id=tenant_id,
+                                         request_id=request_id, model_name=payload.model or "",
+                                         request_payload={"messages": messages}, error=error,
+                                         duration_ms=(time.perf_counter() - request_started_at) * 1000)
+
+    try:
+        result = await _execute_chat_completions_with_key(payload, response, key, db,
+                                                         request_id=request_id, gateway_context=context,
+                                                         request_started_at=request_started_at)
+    except BaseException:
+        record_unfinished("gateway.request_interrupted")
+        raise
+    if isinstance(result, StreamingResponse):
+        original_iterator = result.body_iterator
+
+        async def observe_stream():
+            try:
+                async for chunk in original_iterator:
+                    yield chunk
+            finally:
+                try:
+                    await original_iterator.aclose()
+                finally:
+                    record_unfinished("gateway.stream_interrupted")
+
+        result.body_iterator = observe_stream()
+    return result
+
+
+async def _execute_chat_completions_with_key(
+    payload: schemas.ChatCompletionRequest,
+    response: Response,
+    key: models.LlmApiKey,
+    db: Session,
+    *,
+    request_id: str,
+    gateway_context: dict,
+    request_started_at: float,
+) -> dict[str, Any]:
     model = _resolve_model(db, payload.model, key)
     policy = _resolve_policy(db, key)
     declared_skill = declared_skill_context(payload.metadata)
@@ -3094,12 +3172,15 @@ async def _chat_completions_with_key(
         or getattr(provider, "enable_compression", False)
     )
     compression_level = str(getattr(key, "compression_level", None) or "auto")
-    request_id = f"req_{uuid.uuid4().hex[:12]}"
     metadata = {str(k): str(v) for k, v in (payload.metadata or {}).items()}
     tenant_id = metadata.get("tenant_id") or f"group-{key.group_id or 'default'}"
     user_ref = metadata.get("user_id") or (f"user-{key.user_id}" if key.user_id else f"key-{key.id}")
     conversation_id = payload.conversation_id or metadata.get("conversation_id") or f"conv-{uuid.uuid4().hex}"
     trace_context = _runtime_trace_context(metadata, conversation_id)
+    trace_context.update(gateway_context)
+    # Share completion state with the outer streaming/error observer.
+    gateway_context.update(trace_context)
+    trace_context = gateway_context
     privacy_enabled = bool(policy.enabled)
     requested_bypass = str(metadata.get("bypass_pii_check", "")).lower() in {"1", "true", "yes", "on"}
     if privacy_enabled and requested_bypass and not policy.allow_bypass:

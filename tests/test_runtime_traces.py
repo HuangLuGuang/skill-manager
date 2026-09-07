@@ -95,6 +95,32 @@ def trace_api(tmp_path, monkeypatch):
     engine.dispose()
 
 
+def test_gateway_request_details_preserve_trace_permissions_and_pagination(trace_api):
+    from backend.services.gateway_sessions import associate, finish
+    client, factory, state, users, _ = trace_api
+    with factory() as db:
+        key = models.LlmApiKey(id=100, user_id=users['owner'].id, group_id=None)
+        for i in range(3):
+            context = associate(db, key=key, tenant_id='owner', request_id=f'req-view-{i}',
+                                messages=[{'role':'user','content':'private-test'}])
+            finish(db, f'req-view-{i}', 'completed')
+    trace_id = context['gateway_trace_id']
+    state['user'] = users['owner']
+    url = f'/api/v1/runtime-traces/{trace_id}'
+    detail = client.get(url).json()
+    assert detail['aggregation']['request_count'] == 3
+    assert detail['status'] == 'completed'
+    first = client.get(url + '/requests', params={'limit':2}).json()
+    assert first['has_more'] is True
+    assert [r['request_index'] for r in first['items']] == [1, 2]
+    assert 'private-test' not in json.dumps(first)
+    second = client.get(url + '/requests', params={'after_index':2}).json()
+    assert [r['request_index'] for r in second['items']] == [3]
+    assert second['has_more'] is False
+    state['user'] = users['other']
+    assert client.get(url + '/requests').status_code == 403
+
+
 def _create(client: TestClient, plain: str) -> str:
     response = client.post(
         "/api/v1/runtime-traces",
@@ -742,6 +768,38 @@ def test_completeness_query_export_cleanup_and_metrics(trace_api):
     cleaned = client.post("/api/v1/runtime-traces/maintenance/cleanup")
     assert cleaned.status_code == 200
     assert cleaned.json()["traces"] == 1
+
+
+def test_trace_projection_preserves_long_history_and_nested_tools_with_secret_redaction(trace_api):
+    from backend.security_scan_controls import sanitize_mcp_metadata_value
+
+    _, factory, _, _, _ = trace_api
+    history = [{"role": "user", "content": f"message {index}"} for index in range(150)]
+    response = {"choices": [{"message": {"role": "assistant", "tool_calls": [{
+        "id": "call-long", "type": "function", "function": {
+            "name": "read_configuration", "arguments": '{"password":"private-password"}',
+        },
+    }]}}]}
+    for supplied_projection in (False, True):
+        payload = {"request": {"messages": history}, "response": response, "api_key": "private-key"}
+        event_id = f"long-projection-{supplied_projection}"
+        with factory() as db:
+            trace_service.publish_events_best_effort(db, [RuntimeTraceInternalEvent(
+                event_id=event_id, session_id="long-projection", source="model_gateway", type="model.response",
+                payload=payload, redacted_payload=payload if supplied_projection else None,
+            )])
+            stored = db.query(models.RuntimeTracePayload).filter_by(event_id=event_id).one()
+            projected = json.loads(stored.redacted_json)
+            assert len(projected["request"]["messages"]) == 150
+            assert projected["request"]["messages"][-1]["content"] == "message 149"
+            function = projected["response"]["choices"][0]["message"]["tool_calls"][0]["function"]
+            assert function["name"] == "read_configuration"
+            assert "private-password" not in stored.redacted_json
+            assert "private-key" not in stored.redacted_json
+            assert projected["api_key"] == "[REDACTED]"
+    metadata, stats = sanitize_mcp_metadata_value({"messages": history})
+    assert len(metadata["messages"]) == 100
+    assert stats["dropped_items"] == 50
 
 
 def test_gateway_publish_failure_is_non_blocking_and_counted(trace_api, monkeypatch):

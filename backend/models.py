@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 
 from .sqlite_db import Base
 
@@ -676,6 +676,46 @@ class RuntimeTraceSession(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     expires_at = Column(DateTime, index=True, nullable=False)
+
+
+class GatewaySessionScope(Base):
+    __tablename__ = "gateway_session_scopes"
+
+    scope_id = Column(String(64), primary_key=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class GatewaySessionGroup(Base):
+    __tablename__ = "gateway_session_groups"
+    __table_args__ = (Index("ix_gateway_group_explicit", "scope_id", "explicit_digest"),)
+
+    trace_id = Column(String(64), ForeignKey("runtime_trace_sessions.trace_id"), primary_key=True)
+    scope_id = Column(String(64), nullable=False)
+    explicit_digest = Column(String(64), nullable=True)
+    method = Column(String(32), nullable=False)
+    source = Column(String(64), nullable=False)
+    request_count = Column(Integer, default=0, nullable=False)
+
+
+class GatewaySessionRequest(Base):
+    __tablename__ = "gateway_session_requests"
+    __table_args__ = (
+        Index("ix_gateway_request_prefix", "scope_id", "history_digest"),
+        Index("ix_gateway_request_order", "trace_id", "request_index", unique=True),
+    )
+
+    request_id = Column(String(128), primary_key=True)
+    trace_id = Column(String(64), ForeignKey("gateway_session_groups.trace_id"), index=True, nullable=False)
+    scope_id = Column(String(64), nullable=False)
+    history_digest = Column(String(64), nullable=False)
+    message_count = Column(Integer, nullable=False)
+    request_index = Column(Integer, nullable=False)
+    match_reason = Column(String(32), nullable=False)
+    matched_request_id = Column(String(128), nullable=True)
+    matched_message_count = Column(Integer, default=0, nullable=False)
+    status = Column(String(32), default="running", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
 
 
 class RuntimeTraceEvent(Base):

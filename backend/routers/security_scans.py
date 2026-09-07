@@ -2061,6 +2061,10 @@ def _validate_scan_task_request(
         "approval_id": body.approval_id,
         "datasets": body.datasets or (["JailBench-Tiny"] if body.scan_kind == "llm_redteam_scan" and not body.prompt else []),
         "num_prompts": body.num_prompts,
+        **({"planned_prompt_count": sum(
+            item["count"] for item in LLM_REDTEAM_DATASET_METADATA
+            if item["name"] in (body.datasets or ["JailBench-Tiny"])
+        )} if body.scan_kind == "llm_redteam_scan" and body.num_prompts == -1 and not body.prompt else {}),
         "random_seed": body.random_seed,
         "techniques": body.techniques,
         "evaluation_model": body.evaluation_model,
@@ -2231,16 +2235,23 @@ def _build_scan_task_plan(
         limitations.append("metadata_only_no_tool_calls")
     elif body.scan_kind == "llm_redteam_scan":
         selected_datasets = body.datasets or (["JailBench-Tiny"] if not body.prompt else [])
-        planned_count = body.num_prompts * len(selected_datasets) if selected_datasets else 1
-        cases.extend(
-            {
-                "case_key": f"llm-attack:{index + 1}",
-                "category": "llm_redteam_prompt",
-                "dynamic": True,
-                "planned_rounds": 1,
-            }
-            for index in range(planned_count)
-        )
+        if selected_datasets and body.num_prompts == -1:
+            counts = {item["name"]: item["count"] for item in LLM_REDTEAM_DATASET_METADATA}
+            cases.extend({
+                "case_key": f"llm-dataset:{name}", "category": "llm_redteam_dataset",
+                "dataset": name, "sample_count": counts[name], "dynamic": True, "planned_rounds": 1,
+            } for name in selected_datasets)
+        else:
+            planned_count = body.num_prompts * len(selected_datasets) if selected_datasets else 1
+            cases.extend(
+                {
+                    "case_key": f"llm-attack:{index + 1}",
+                    "category": "llm_redteam_prompt",
+                    "dynamic": True,
+                    "planned_rounds": 1,
+                }
+                for index in range(planned_count)
+            )
         tool_mode = "runtime_dynamic"
         tools.append(
             {

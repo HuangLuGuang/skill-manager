@@ -330,10 +330,11 @@ def _ingest_batch_locked(
                 params={"max_payload_bytes": MAX_RUNTIME_TRACE_PAYLOAD_BYTES},
             )
         accepted_payload_bytes += raw_size
+        # Trace quotas bound storage; message histories need more space than MCP metadata.
         if event.redacted_payload is None:
-            redacted, _ = sanitize_mcp_metadata_value(event.payload)
+            redacted, _ = sanitize_mcp_metadata_value(event.payload, max_depth=16, max_items=None)
         else:
-            redacted, _ = sanitize_mcp_metadata_value(event.redacted_payload)
+            redacted, _ = sanitize_mcp_metadata_value(event.redacted_payload, max_depth=16, max_items=None)
         payload_id = _new_id("rtp")
         payload = models.RuntimeTracePayload(
             payload_id=payload_id,
@@ -518,6 +519,11 @@ def cleanup_expired(db: Session, *, now: datetime | None = None) -> dict[str, in
     if not trace_ids:
         db.commit()
         return {"traces": 0, "events": 0, "payloads": 0, "exports": expired_export_count, "batches": 0}
+    db.query(models.GatewaySessionRequest).filter(models.GatewaySessionRequest.trace_id.in_(trace_ids)).delete(synchronize_session=False)
+    db.query(models.GatewaySessionGroup).filter(models.GatewaySessionGroup.trace_id.in_(trace_ids)).delete(synchronize_session=False)
+    db.query(models.GatewaySessionScope).filter(~db.query(models.GatewaySessionGroup).filter(
+        models.GatewaySessionGroup.scope_id == models.GatewaySessionScope.scope_id
+    ).exists()).delete(synchronize_session=False)
     counts = {
         "events": db.query(models.RuntimeTraceEvent).filter(models.RuntimeTraceEvent.trace_id.in_(trace_ids)).delete(synchronize_session=False),
         "payloads": db.query(models.RuntimeTracePayload).filter(models.RuntimeTracePayload.trace_id.in_(trace_ids)).delete(synchronize_session=False),
