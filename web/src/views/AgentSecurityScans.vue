@@ -723,7 +723,7 @@
               <a-descriptions-item v-if="taskPreview.scan_kind !== 'llm_redteam_scan'" :label="t('agentSecurityScans.tasks.plannedTools')">{{ taskPreview.tool_plan.tools.length }}</a-descriptions-item>
               <template v-else>
                 <a-descriptions-item :label="t('agentSecurityScans.scope.evaluator')">{{ taskForm.evaluation_model || t('agentSecurityScans.scope.defaultEvaluator') }}</a-descriptions-item>
-                <a-descriptions-item :label="t('agentSecurityScans.scope.methods')">{{ (taskForm.techniques.length ? taskForm.techniques : ['Raw']).join(', ') }}</a-descriptions-item>
+                <a-descriptions-item :label="t('agentSecurityScans.scope.methods')">{{ (taskForm.techniques.length ? taskForm.techniques : ['Raw']).map(value => promptTransformationLabel(value, t, te)).join(', ') }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.scope.seed')">{{ taskForm.random_seed }}</a-descriptions-item>
               </template>
             </a-descriptions>
@@ -817,28 +817,7 @@
             :message="t('agentSecurityScans.detail.noFindingsTitle')"
             :description="t('agentSecurityScans.detail.noFindingsDescription')"
           />
-          <a-tabs>
-            <a-tab-pane v-if="isLlmTaskDetail && taskDetail.task.progress?.cases?.length" key="live" :tab="t('agentSecurityScans.live.cases')">
-              <p class="muted">{{ t('agentSecurityScans.live.recent') }}</p>
-              <a-list :data-source="taskDetail.task.progress.cases" :pagination="{ pageSize: 10, showSizeChanger: false }">
-                <template #renderItem="{ item }">
-                  <a-list-item :key="item.case_id">
-                    <div class="live-case">
-                      <div class="case-title-row"><strong>{{ item.attack_method }} · {{ item.vulnerability }}</strong><a-tag>{{ t(`agentSecurityScans.live.statuses.${item.status}`) }}</a-tag></div>
-                      <a-collapse ghost>
-                        <a-collapse-panel key="content" :header="t('agentSecurityScans.detail.caseDetails')">
-                          <dl class="case-detail-grid">
-                            <dt>{{ t('agentSecurityScans.detail.casePrompt') }}</dt><dd class="source-text">{{ item.prompt }}</dd>
-                            <template v-if="item.response"><dt>{{ t('agentSecurityScans.detail.caseResponse') }}</dt><dd class="source-text">{{ item.response }}</dd></template>
-                            <template v-if="item.reason"><dt>{{ t('agentSecurityScans.detail.caseReason') }}</dt><dd class="source-text">{{ item.reason }}</dd></template>
-                          </dl>
-                        </a-collapse-panel>
-                      </a-collapse>
-                    </div>
-                  </a-list-item>
-                </template>
-              </a-list>
-            </a-tab-pane>
+          <a-tabs v-model:activeKey="detailTab">
             <a-tab-pane key="summary" :tab="t('agentSecurityScans.detail.summary')">
               <div v-if="isLlmTaskDetail" class="assessment-result">
                 <span>{{ t('agentSecurityScans.detail.assessmentResult') }}</span>
@@ -893,42 +872,11 @@
               </a-descriptions>
               </a-collapse-panel></a-collapse>
             </a-tab-pane>
-            <a-tab-pane key="criteria" :tab="t('agentSecurityScans.detail.decisionCriteria')">
-              <a-alert
-                class="modal-alert"
-                show-icon
-                :type="taskDetail.report_contract?.snapshot_status === 'frozen' ? 'info' : 'warning'"
-                :message="taskDetail.report_contract?.snapshot_status === 'frozen' ? t('agentSecurityScans.detail.frozenCriteriaHint') : t('agentSecurityScans.detail.legacyCriteriaHint')"
-              />
-              <a-list :data-source="taskDetail.report_contract?.decision_criteria || []" bordered>
-                <template #renderItem="{ item }"><a-list-item><div><strong>{{ criteriaRuleLabel(item.rule_id) }}</strong><div class="muted"><code>{{ item.rule_id }}</code> · {{ item.outcome }}</div></div></a-list-item></template>
-                <template #empty><a-empty :description="t('agentSecurityScans.detail.noCriteriaSnapshot')" /></template>
-              </a-list>
-            </a-tab-pane>
-            <a-tab-pane key="tc260" :tab="t('agentSecurityScans.tc260.title')">
-              <template v-if="tc260Profile">
-                <a-alert class="modal-alert" type="warning" show-icon :message="t('agentSecurityScans.tc260.boundary')" />
-                <a-descriptions bordered :column="2" size="small">
-                  <a-descriptions-item :label="t('agentSecurityScans.tc260.profileVersion')"><code>{{ tc260Profile.profile_version }}</code></a-descriptions-item>
-                  <a-descriptions-item :label="t('agentSecurityScans.tc260.sourceType')">{{ t('agentSecurityScans.tc260.technicalDocument') }}</a-descriptions-item>
-                  <a-descriptions-item :label="t('agentSecurityScans.tc260.platformCoverage')" :span="2">
-                    <a-space wrap><a-tag color="green">{{ t('agentSecurityScans.tc260.statuses.verified') }} {{ tc260Profile.summary.verified }}</a-tag><a-tag color="orange">{{ t('agentSecurityScans.tc260.statuses.partial') }} {{ tc260Profile.summary.partial }}</a-tag><a-tag>{{ t('agentSecurityScans.tc260.statuses.uncovered') }} {{ tc260Profile.summary.uncovered }}</a-tag></a-space>
-                  </a-descriptions-item>
-                  <a-descriptions-item :label="t('agentSecurityScans.tc260.catalog')" :span="2">{{ t('agentSecurityScans.tc260.catalogSummary', { categories: tc260Profile.catalog.category_count, controls: tc260Profile.catalog.control_count }) }}</a-descriptions-item>
-                </a-descriptions>
-                <a-table class="tc260-table" :columns="tc260Columns" :data-source="tc260Profile.controls" :pagination="false" row-key="control_id" size="small" :scroll="{ x: 900 }">
-                  <template #bodyCell="{ column, record }">
-                    <template v-if="column.key === 'category'">{{ tc260CategoryLabel(record.category) }}</template>
-                    <template v-else-if="column.key === 'title'">{{ tc260ControlLabel(record.title_code) }}</template>
-                    <template v-else-if="column.key === 'coverage'"> <a-tag :color="tc260CoverageColor(record.coverage_status)">{{ tc260CoverageLabel(record.coverage_status) }}</a-tag></template>
-                    <template v-else-if="column.key === 'assessment'"><a-tag>{{ t(`agentSecurityScans.tc260.assessmentStatuses.${record.target_assessment_status}`, record.target_assessment_status) }}</a-tag></template>
-                    <template v-else-if="column.key === 'basis'"><span>{{ tc260BasisLabel(record) }}</span></template>
-                  </template>
-                </a-table>
-              </template>
-              <a-empty v-else :description="t('agentSecurityScans.tc260.legacyMissing')" />
-            </a-tab-pane>
-            <a-tab-pane key="cases" :tab="`${t('agentSecurityScans.detail.cases')} (${taskDetail.cases.length})`">
+            <a-tab-pane key="cases" :tab="`${t('agentSecurityScans.detail.cases')} (${displayCases.length})`">
+              <p v-if="showProgressCases" class="muted">{{ t(terminalStatuses.has(taskDetail.task.status) ? 'agentSecurityScans.live.processRecords' : 'agentSecurityScans.live.recent', { count: displayCases.length }) }}</p>
+              <a-alert v-if="caseContentError" class="modal-alert" type="warning" :message="caseContentError">
+                <template #action><a-button size="small" :loading="caseContentLoading" @click="loadCaseContent">{{ t('agentSecurityScans.detail.retryArtifact') }}</a-button></template>
+              </a-alert>
               <a-alert
                 v-if="isMcpTaskDetail"
                 class="modal-alert"
@@ -947,7 +895,7 @@
                 <a-descriptions-item :label="t('agentSecurityScans.detail.mcpCaseSummary.resolved')">{{ mcpCaseSummary.resolved }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.mcpCaseSummary.unverified')">{{ mcpCaseSummary.unverified }}</a-descriptions-item>
               </a-descriptions>
-              <dl v-else class="case-coverage-summary case-statistics">
+              <dl v-else-if="!showProgressCases" class="case-coverage-summary case-statistics">
                 <div><dt>{{ t(taskDetail.task.scan_kind === 'agent_risk_scan' ? 'agentSecurityScans.detail.caseSummary.planned' : 'agentSecurityScans.detail.caseSummary.plannedCases') }}</dt><dd>{{ caseCoverage.planned_cases }}</dd></div>
                 <div><dt>{{ t('agentSecurityScans.detail.caseSummary.passed') }}</dt><dd>{{ caseCoverage.passed_cases }}</dd></div>
                 <div><dt>{{ t('agentSecurityScans.detail.caseSummary.failed') }}</dt><dd>{{ caseCoverage.failed_cases }}</dd></div>
@@ -956,12 +904,12 @@
                 <div><dt>{{ t('agentSecurityScans.detail.caseSummary.unverified') }}</dt><dd>{{ caseCoverage.unverified_cases }}</dd></div>
               </dl>
               <a-alert v-if="!isMcpTaskDetail && !isLlmTaskDetail && !isInfrastructureTaskDetail" class="modal-alert" type="info" show-icon :message="t('agentSecurityScans.detail.casePassedBoundary')" />
-              <a-list :data-source="taskDetail.cases" item-layout="horizontal" class="case-list" :pagination="taskDetail.cases.length > 10 ? { pageSize: 10, showSizeChanger: false } : false">
+              <a-list :data-source="displayCases" :row-key="item => item.case_id" item-layout="horizontal" class="case-list" :pagination="casePagination">
                 <template #renderItem="{ item }">
-                  <a-list-item>
+                  <a-list-item :key="item.case_id">
                     <a-list-item-meta>
                       <template #title>
-                        <div class="case-title-row"><strong>{{ caseTitle(item) }}</strong><a-tag :color="isMcpTaskDetail ? caseAssessmentColor(item.assessment_status) : caseStatusColor(item.status)">{{ isMcpTaskDetail ? caseAssessmentLabel(item.assessment_status) : caseLegacyStatusLabel(item.status) }}</a-tag></div>
+                        <div class="case-title-row"><strong>{{ caseTitle(item) }}</strong><a-tag :color="isMcpTaskDetail ? caseAssessmentColor(item.assessment_status) : caseStatusColor(item.status)">{{ showProgressCases ? t(`agentSecurityScans.live.statuses.${item.status}`) : isMcpTaskDetail ? caseAssessmentLabel(item.assessment_status) : caseLegacyStatusLabel(item.status) }}</a-tag></div>
                       </template>
                       <template #description>
                         <template v-if="isMcpTaskDetail">
@@ -971,15 +919,18 @@
                           <div class="muted">{{ t('agentSecurityScans.detail.mcpCaseBoundary') }}</div>
                         </template>
                         <template v-else>
+                          <div v-if="isLlmTaskDetail" class="case-meta-line">{{ t('agentSecurityScans.tasks.techniques') }}: {{ promptTransformationLabel(item.request_summary?.attack_method, t, te) }}</div>
                           <div v-if="item.request_summary?.stage_id" class="case-meta-line">{{ t('agentSecurityScans.detail.caseStage', { value: item.request_summary.stage_id }) }}</div>
-                          <div>{{ t('agentSecurityScans.detail.caseCalls', { value: item.response_summary?.dialogue_calls ?? item.round_count ?? 0 }) }} · {{ t('agentSecurityScans.detail.caseFindingCount', { value: item.finding_count ?? item.response_summary?.finding_count ?? 0 }) }}</div>
-                          <a-collapse v-if="caseHasDetails(item)" class="case-details" ghost>
+                          <div v-if="!showProgressCases">{{ t('agentSecurityScans.detail.caseCalls', { value: item.response_summary?.dialogue_calls ?? item.round_count ?? 0 }) }} · {{ t('agentSecurityScans.detail.caseFindingCount', { value: item.finding_count ?? item.response_summary?.finding_count ?? 0 }) }}</div>
+                          <a-collapse v-if="caseHasDetails(item) || canLoadCaseContent" :active-key="expandedCases[item.case_id] || []" class="case-details" ghost @change="keys => expandCase(item.case_id, keys)">
                             <a-collapse-panel key="details" :header="t('agentSecurityScans.detail.caseDetails')">
                               <dl class="case-detail-grid">
+                                <template v-if="item.request_summary?.original_prompt"><dt>{{ t('agentSecurityScans.detail.originalPrompt') }}</dt><dd class="source-text">{{ item.request_summary.original_prompt }}</dd></template>
                                 <template v-if="item.request_summary?.prompt"><dt>{{ t('agentSecurityScans.detail.casePrompt') }}</dt><dd class="source-text">{{ item.request_summary.prompt }}</dd></template>
                                 <template v-if="item.response_summary?.response"><dt>{{ t('agentSecurityScans.detail.caseResponse') }}</dt><dd class="source-text">{{ item.response_summary.response }}</dd></template>
                                 <template v-if="item.response_summary?.evaluator_reason"><dt>{{ t('agentSecurityScans.detail.caseReason') }}</dt><dd>{{ item.response_summary.evaluator_reason }}</dd></template>
                               </dl>
+                              <a-spin v-if="caseContentLoading" size="small" />
                             </a-collapse-panel>
                           </a-collapse>
                         </template>
@@ -999,16 +950,7 @@
                 <a-collapse-panel v-for="item in taskDetail.findings" :key="item.finding_id">
                   <template #header><a-space wrap><a-tag :color="severityColor(item.severity)">{{ severityLabel(item.severity) }}</a-tag><span>{{ findingTitle(item) }}</span><a-tag v-for="code in item.risk_codes" :key="code" color="blue">{{ agenticRiskLabel(code, t, te) }}</a-tag></a-space></template>
                   <p>{{ findingDescription(item) }}</p>
-                  <dl v-if="item.finding_code === 'llm_redteam.jailbreak_signal'" class="case-detail-grid">
-                    <dt>{{ t('agentSecurityScans.detail.case') }}</dt><dd>{{ findingCase(item) ? caseTitle(findingCase(item)) : '—' }}</dd>
-                    <dt>{{ t('agentSecurityScans.detail.testContext') }}</dt><dd>{{ item.evidence?.vulnerability || '—' }}</dd>
-                    <template v-if="findingCase(item)?.response_summary?.evaluator_reason"><dt>{{ t('agentSecurityScans.detail.caseReason') }}</dt><dd class="source-text">{{ findingCase(item).response_summary.evaluator_reason }}</dd></template>
-                  </dl>
-                  <details class="report-evidence"><summary>{{ t('agentSecurityScans.detail.evidenceDetails') }}</summary>
-                    <p class="mapping-version">{{ t('agentSecurityScans.findings.mappingVersion') }}: {{ item.risk_mapping?.mapping_version || t('agentSecurityScans.findings.legacyUnmapped') }}</p>
-                    <p class="mapping-version">{{ t('agentSecurityScans.detail.decisionCriteriaVersion') }}: {{ item.decision_criteria_version || t('agentSecurityScans.detail.legacyUnversioned') }}</p>
-                    <pre class="evidence-block">{{ prettyJson(item.evidence) }}</pre>
-                  </details>
+                  <FindingEvidence :finding="item" :related-case="findingCase(item)" @open-case="openFindingCase" @open-trace="openFindingTrace" />
                 </a-collapse-panel>
               </a-collapse>
             </a-tab-pane>
@@ -1023,14 +965,12 @@
       </a-spin>
     </a-drawer>
 
-    <a-modal v-model:open="findingDetailOpen" :title="selectedFinding && findingTitle(selectedFinding)" width="760px" :footer="null">
+    <a-modal v-model:open="findingDetailOpen" :title="selectedFinding && findingTitle(selectedFinding)" width="min(760px, 96vw)" :footer="null">
       <a-descriptions v-if="selectedFinding" bordered :column="1" size="small">
         <a-descriptions-item :label="t('agentSecurityScans.findings.severity')"><a-tag :color="severityColor(selectedFinding.severity)">{{ severityLabel(selectedFinding.severity) }}</a-tag></a-descriptions-item>
         <a-descriptions-item :label="t('agentSecurityScans.findings.status')">{{ findingStatusLabel(selectedFinding.status) }}</a-descriptions-item>
         <a-descriptions-item :label="t('agentSecurityScans.findings.descriptionLabel')">{{ findingDescription(selectedFinding) }}</a-descriptions-item>
-        <a-descriptions-item :label="t('agentSecurityScans.detail.testContext')">{{ selectedFinding.evidence?.vulnerability || '—' }}</a-descriptions-item>
         <a-descriptions-item :label="t('agentSecurityScans.detail.task')"><code :title="selectedFinding.task_id">{{ selectedFinding.task_id }}</code> · {{ selectedFinding.target_name || targetName(tasks.find(item => item.task_id === selectedFinding.task_id)?.target_id) }}</a-descriptions-item>
-        <a-descriptions-item v-if="selectedFinding.evidence?.reason" :label="t('agentSecurityScans.detail.caseReason')"><span class="source-text">{{ selectedFinding.evidence.reason }}</span></a-descriptions-item>
         <a-descriptions-item :label="t('agentSecurityScans.findings.agenticRisks')"><a-space v-if="selectedFinding.risk_codes?.length" wrap><a-tag v-for="code in selectedFinding.risk_codes" :key="code" color="blue">{{ agenticRiskLabel(code, t, te) }}</a-tag></a-space><span v-else class="muted">{{ t('agentSecurityScans.findings.unmappedRisk') }}</span></a-descriptions-item>
         <a-descriptions-item :label="t('agentSecurityScans.findings.traceability')">
           <div class="traceability-summary">
@@ -1039,14 +979,8 @@
           </div>
         </a-descriptions-item>
         <a-descriptions-item :label="t('agentSecurityScans.findings.linkedCase')"><code v-if="selectedFindingTraceability.caseId">{{ selectedFindingTraceability.caseId }}</code><span v-else class="muted">—</span></a-descriptions-item>
-        <a-descriptions-item v-if="selectedFindingTraceability.traceId && selectedFindingTraceability.eventId" :label="t('agentSecurityScans.findings.runtimeEvidence')">
-          <div class="trace-evidence-link">
-            <div><span>{{ t('agentSecurityScans.findings.exactEvent') }}</span><code>{{ selectedFindingTraceability.traceId }}</code><code>{{ selectedFindingTraceability.eventId }}</code></div>
-            <a-button type="link" size="small" @click="openFindingTrace(selectedFinding)">{{ t('agentSecurityScans.findings.openTrace') }}</a-button>
-          </div>
-        </a-descriptions-item>
-        <a-descriptions-item v-else :label="t('agentSecurityScans.findings.runtimeEvidence')"><span class="muted">{{ t('agentSecurityScans.findings.noRuntimeEvidence') }}</span></a-descriptions-item>
-        <a-descriptions-item :label="t('agentSecurityScans.findings.evidence')"><a-collapse><a-collapse-panel key="audit" :header="t('agentSecurityScans.detail.evidenceDetails')"><p>{{ t('agentSecurityScans.findings.mappingVersion') }}: <code>{{ selectedFinding.risk_mapping?.mapping_version || t('agentSecurityScans.findings.legacyUnmapped') }}</code></p><p>{{ t('agentSecurityScans.detail.decisionCriteriaVersion') }}: <code>{{ selectedFindingTraceability.decisionCriteriaVersion || t('agentSecurityScans.detail.legacyUnversioned') }}</code></p><p>{{ t('agentSecurityScans.findings.evidenceSha256') }}: <code>{{ selectedFindingTraceability.evidenceSha256 || '—' }}</code></p><pre class="evidence-block">{{ prettyJson(selectedFinding.evidence) }}</pre></a-collapse-panel></a-collapse></a-descriptions-item>
+        <a-descriptions-item v-if="!selectedFindingTraceability.traceId || !selectedFindingTraceability.eventId" :label="t('agentSecurityScans.findings.runtimeEvidence')"><span class="muted">{{ t('agentSecurityScans.findings.noRuntimeEvidence') }}</span></a-descriptions-item>
+        <a-descriptions-item :label="t('agentSecurityScans.findings.evidence')" :span="3"><FindingEvidence :finding="selectedFinding" :related-case="selectedFindingCase" @open-case="openFindingCase" @open-trace="openFindingTrace" /></a-descriptions-item>
       </a-descriptions>
     </a-modal>
 
@@ -1104,9 +1038,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { agenticRiskLabel } from '../agenticRiskTaxonomy'
 import { normalizeFindingTraceability } from '../securityFindingTraceability'
 import { comparisonCandidates, mergeLlmConfigFromForm, normalizeLlmConfigForForm, selectCompatiblePolicyId } from '../securityScanWorkflow'
-import { parseRedteamArtifact, summarizeCaseCoverage, summarizeRedteamRows } from '../securityScanReport'
+import { parseRedteamArtifact, projectScanCases, promptTransformationLabel, summarizeCaseCoverage, summarizeRedteamRows } from '../securityScanReport'
 import DifyAssetInventory from './components/DifyAssetInventory.vue'
 import RedteamDatasetPicker from './components/RedteamDatasetPicker.vue'
+import FindingEvidence from './components/FindingEvidence.vue'
 import {
   activateSecurityTaskKillSwitch,
   cancelSecurityTask,
@@ -1143,7 +1078,11 @@ const router = useRouter()
 const loading = ref(true)
 const refreshing = ref(false)
 const loadError = ref('')
-const activeStage = ref('targets')
+const activeStage = computed(() => {
+  const stage = routeValue(route.query.stage)
+  if (['targets', 'policies', 'tasks', 'findings', 'reports'].includes(stage)) return stage
+  return routeValue(route.query.task_id) || routeValue(route.query.finding_id) ? 'findings' : 'targets'
+})
 const currentUser = ref(null)
 const targets = ref([])
 const policies = ref([])
@@ -1201,7 +1140,6 @@ const reportTasks = computed(() => tasks.value.filter(item => terminalStatuses.h
   && (!reportTargetFilter.value || item.target_id === reportTargetFilter.value)
   && (reportStatusFilter.value === 'all' || item.status === reportStatusFilter.value)
   && (!reportKindFilter.value || item.scan_kind === reportKindFilter.value)))
-const tc260Profile = computed(() => taskDetail.value?.report_contract?.standards?.tc260 || null)
 const filteredTargets = computed(() => {
   const query = targetSearch.value.trim().toLowerCase()
   if (!query) return targets.value
@@ -1235,14 +1173,6 @@ const findingColumns = computed(() => [
 ])
 const reportColumns = computed(() => [
   { title: t('agentSecurityScans.tasks.target'), key: 'target_id', width: 200 }, { title: t('agentSecurityScans.tasks.kind'), key: 'scan_kind', width: 190 }, { title: t('agentSecurityScans.status'), key: 'status', width: 120 }, { title: t('agentSecurityScans.reports.engine'), key: 'engine', width: 220 }, { title: t('agentSecurityScans.reports.completedAt'), key: 'completed_at', width: 190 }, { title: t('agentSecurityScans.actions'), key: 'actions', width: 260, fixed: 'right' },
-])
-const tc260Columns = computed(() => [
-  { title: t('agentSecurityScans.tc260.controlId'), dataIndex: 'control_id', key: 'control_id', width: 90 },
-  { title: t('agentSecurityScans.tc260.category'), key: 'category', width: 170 },
-  { title: t('agentSecurityScans.tc260.control'), key: 'title', width: 220 },
-  { title: t('agentSecurityScans.tc260.platformCoverage'), key: 'coverage', width: 130 },
-  { title: t('agentSecurityScans.tc260.targetAssessment'), key: 'assessment', width: 120 },
-  { title: t('agentSecurityScans.tc260.basis'), key: 'basis', width: 300 },
 ])
 
 const comparisonModalOpen = ref(false)
@@ -1348,8 +1278,45 @@ const dispositionFinding = ref(null)
 const submittingDisposition = ref(false)
 const dispositionForm = reactive({ status: 'open', comment: '' })
 const detailDrawerOpen = ref(false)
+const detailTab = ref('summary')
 const taskDetailLoading = ref(false)
 const taskDetail = ref(null)
+const casePage = ref(1)
+const expandedCases = ref({})
+const caseReportRows = ref([])
+const caseContentLoading = ref(false)
+const caseContentError = ref('')
+const caseContentLoaded = ref(false)
+let caseContentRequest = 0
+const caseProjection = computed(() => projectScanCases(taskDetail.value, caseReportRows.value))
+const showProgressCases = computed(() => caseProjection.value.source === 'progress')
+const caseOrder = ref([])
+const displayCases = computed(() => {
+  const order = new Map(caseOrder.value.map((key, index) => [key, index]))
+  return [...caseProjection.value.rows].sort((a, b) => (order.get(a.case_id) ?? Infinity) - (order.get(b.case_id) ?? Infinity))
+})
+const casePagination = computed(() => ({ current: casePage.value, pageSize: 10, showSizeChanger: false, hideOnSinglePage: true, onChange: page => { casePage.value = page } }))
+const caseReportArtifact = computed(() => taskDetail.value?.artifacts?.find(item => item.artifact_type === 'aig-llm-redteam-report' && item.content_available))
+const canLoadCaseContent = computed(() => !showProgressCases.value && canViewRaw.value && Boolean(caseReportArtifact.value))
+const loadCaseContent = async () => {
+  if (!canLoadCaseContent.value || caseContentLoading.value || caseContentLoaded.value) return
+  const request = ++caseContentRequest
+  const taskId = taskDetail.value.task.task_id
+  caseContentLoading.value = true
+  caseContentError.value = ''
+  try {
+    const payload = await getSecurityArtifactContent(taskId, caseReportArtifact.value.artifact_id)
+    if (request !== caseContentRequest) return
+    caseReportRows.value = parseRedteamArtifact(payload.content).rows
+    caseContentLoaded.value = true
+  } catch (error) {
+    if (request === caseContentRequest) caseContentError.value = errorText(error)
+  } finally { if (request === caseContentRequest) caseContentLoading.value = false }
+}
+const expandCase = (caseId, keys) => {
+  expandedCases.value[caseId] = keys
+  if (keys.length) loadCaseContent()
+}
 const liveRefreshError = ref('')
 let liveRefreshTimer
 let liveRefreshBusy = false
@@ -1425,6 +1392,7 @@ const caseCoverage = computed(() => {
 })
 const findingDetailOpen = ref(false)
 const selectedFinding = ref(null)
+const selectedFindingCase = ref(null)
 const selectedFindingTraceability = computed(() => normalizeFindingTraceability(selectedFinding.value))
 const artifactModalOpen = ref(false)
 const artifactLoading = ref(false)
@@ -1488,7 +1456,7 @@ const findingTitle = finding => {
   if (finding?.finding_code === 'llm_redteam.jailbreak_signal') return t('agentSecurityScans.detail.findingTitles.jailbreakSignal')
   return finding?.title || finding?.finding_code || '—'
 }
-const findingCase = finding => taskDetail.value?.cases?.find(item => item.case_id === finding.case_id)
+const findingCase = finding => displayCases.value.find(item => item.case_id === normalizeFindingTraceability(finding).caseId)
 const findingDescription = finding => {
   if (finding?.finding_code === 'llm_redteam.jailbreak_signal') return t('agentSecurityScans.detail.findingDescriptions.jailbreakSignal')
   return finding?.description || '—'
@@ -1542,16 +1510,6 @@ const caseLegacyStatusLabel = value => t(`agentSecurityScans.detail.caseLegacySt
 const caseExecutionLabel = value => t(`agentSecurityScans.detail.caseExecutionStatuses.${value}`, value)
 const caseAssessmentLabel = value => t(`agentSecurityScans.detail.caseAssessmentStatuses.${value}`, value)
 const scanModeLabel = value => t(`agentSecurityScans.detail.scanModes.${value}`, value || '—')
-const criteriaRuleLabel = value => t(`agentSecurityScans.detail.criteriaRules.${value}`, value)
-const tc260CategoryLabel = value => t(`agentSecurityScans.tc260.categories.${value}`, value)
-const tc260ControlLabel = value => t(`agentSecurityScans.tc260.controls.${value}`, value)
-const tc260CoverageLabel = value => t(`agentSecurityScans.tc260.statuses.${value}`, value)
-const tc260CoverageColor = value => ({ verified: 'green', partial: 'orange', uncovered: 'default' }[value] || 'default')
-const tc260BasisLabel = record => {
-  if (record.coverage_status === 'verified') return t('agentSecurityScans.tc260.verifiedBasis', { count: record.evidence_refs.length })
-  if (record.coverage_status === 'partial') return t(`agentSecurityScans.tc260.limitations.${record.limitations[0]}`, record.limitations[0])
-  return t(`agentSecurityScans.tc260.gaps.${record.gap_code}`, record.gap_code)
-}
 const severityLabel = value => t(`agentSecurityScans.severities.${value}`, value)
 const findingStatusLabel = value => t(`agentSecurityScans.findingStatuses.${value}`, value)
 const executionModeLabel = value => t(`agentSecurityScans.executionModes.${value}`, value)
@@ -1778,7 +1736,7 @@ const saveTask = async () => {
     const created = await createSecurityTask(payload)
     taskModalOpen.value = false
     await loadCoreData()
-    activeStage.value = 'tasks'
+    await selectStage('tasks')
     message.success(t('agentSecurityScans.tasks.created'))
     openTaskDetail(created.task_id)
   } catch (error) {
@@ -1820,10 +1778,34 @@ const loadFindings = async (page = 1, pageSize = findingPageSize.value) => {
     if (requestId === findingsRequestId) findingsLoading.value = false
   }
 }
-const openFindingDetail = record => { selectedFinding.value = record; findingDetailOpen.value = true }
+const openFindingDetail = async record => {
+  selectedFinding.value = record
+  selectedFindingCase.value = findingCase(record) || null
+  findingDetailOpen.value = true
+  const caseId = normalizeFindingTraceability(record).caseId
+  if (!record.task_id || !caseId || selectedFindingCase.value) return
+  try {
+    const detail = await getSecurityTask(record.task_id)
+    if (selectedFinding.value?.finding_id === record.finding_id) selectedFindingCase.value = detail.cases.find(item => item.case_id === caseId) || null
+  } catch (error) { if (selectedFinding.value?.finding_id === record.finding_id) message.error(errorText(error)) }
+}
+const openFindingCase = async finding => {
+  const caseId = normalizeFindingTraceability(finding).caseId
+  if (!caseId || !finding.task_id) return
+  if (taskDetail.value?.task?.task_id !== finding.task_id) await openTaskDetail(finding.task_id)
+  const index = displayCases.value.findIndex(item => item.case_id === caseId)
+  if (index < 0) return message.warning(t('agentSecurityScans.evidence.caseUnavailable'))
+  findingDetailOpen.value = false
+  detailDrawerOpen.value = true
+  detailTab.value = 'cases'
+  casePage.value = Math.floor(index / 10) + 1
+  expandCase(caseId, ['details'])
+}
 const selectStage = async stage => {
-  activeStage.value = stage
-  if (stage === 'findings') await loadFindings(findingPage.value)
+  const query = { ...route.query, stage }
+  delete query.task_id
+  delete query.finding_id
+  await router.replace({ query })
 }
 const openFindingTrace = finding => {
   const traceability = normalizeFindingTraceability(finding)
@@ -1835,7 +1817,6 @@ const openFindingFromRoute = async () => {
   const stage = routeValue(route.query.stage)
   const taskId = routeValue(route.query.task_id)
   const findingId = routeValue(route.query.finding_id)
-  if (stage === 'findings' || taskId || findingId) activeStage.value = 'findings'
   if (findingId) {
     try {
       const finding = await getSecurityFinding(findingId)
@@ -1846,7 +1827,7 @@ const openFindingFromRoute = async () => {
     await loadFindings()
     await openTaskDetail(taskId)
   } else if (stage === 'findings') {
-    await selectStage('findings')
+    await loadFindings(findingPage.value)
   }
 }
 const openDispositionModal = record => { dispositionFinding.value = record; Object.assign(dispositionForm, { status: record.status, comment: record.disposition_comment || '' }); dispositionModalOpen.value = true }
@@ -1892,12 +1873,28 @@ onMounted(async () => {
 })
 onUnmounted(() => { scanViewUnmounted = true; window.clearInterval(liveRefreshTimer) })
 watch(() => [route.query.stage, route.query.task_id, route.query.finding_id], openFindingFromRoute)
+watch(() => taskDetail.value?.task?.task_id, () => {
+  detailTab.value = 'summary'
+  caseContentRequest += 1
+  casePage.value = 1
+  expandedCases.value = {}
+  caseOrder.value = []
+  caseReportRows.value = []
+  caseContentLoaded.value = false
+  caseContentLoading.value = false
+  caseContentError.value = ''
+}, { flush: 'sync' })
+watch(() => caseProjection.value.rows.map(item => item.case_id), keys => {
+  const current = new Set(keys)
+  const previous = new Set(caseOrder.value)
+  caseOrder.value = [...caseOrder.value.filter(key => current.has(key)), ...keys.filter(key => !previous.has(key))]
+  casePage.value = Math.min(casePage.value, Math.max(1, Math.ceil(keys.length / 10)))
+}, { flush: 'sync' })
 watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null })
 </script>
 
 <style scoped>
 .live-scan-progress { padding: 12px 0 20px; display: flex; flex-direction: column; gap: 6px; }
-.live-case { width: 100%; min-width: 0; overflow-wrap: anywhere; }
 .report-overview { padding: 0 0 20px; }
 .report-overview h3 { margin: 0 0 14px; font-size: 16px; }
 .report-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 0; }
@@ -1911,8 +1908,6 @@ watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null 
 .case-statistics dd { margin: 4px 0 0; font-size: 20px; font-weight: 600; white-space: nowrap; }
 @media (max-width: 900px) { .case-statistics { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 480px) { .case-statistics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.report-evidence { margin-top: 16px; color: #5c6573; }
-.report-evidence summary { cursor: pointer; }
 .report-findings { overflow-wrap: anywhere; }
 @media (max-width: 640px) { .report-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .scan-page { max-width: 1480px; margin: 0 auto; color: #17233d; }
@@ -1949,11 +1944,6 @@ watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null 
   :deep(.ant-table-cell-fix-right), :deep(.ant-table-cell-fix-right-first), :deep(.ant-table-cell-fix-right-last) { position: static !important; right: auto !important; }
   :deep(.ant-table-ping-right .ant-table-cell-fix-right::after) { display: none; }
 }
-.trace-evidence-link { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.trace-evidence-link > div { position: relative; display: grid; min-width: 0; gap: 3px; padding-left: 18px; }
-.trace-evidence-link > div::before { position: absolute; top: 4px; bottom: 4px; left: 3px; border-left: 1px dashed #8fa7cf; content: ''; }
-.trace-evidence-link span { color: #4e6590; font-size: 11px; font-weight: 700; }
-.trace-evidence-link code { overflow: hidden; color: #6e7c91; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .traceability-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .stage-panel { min-height: 430px; padding: 22px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 10px 32px rgba(30, 55, 90, .05); }
 .panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
@@ -2021,7 +2011,6 @@ watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null 
 .approval-select { min-width: 0; flex: 1 1 auto; }
 .field-help-error { margin-top: 6px; color: #cf1322; font-size: 12px; }
 .modal-alert { margin-bottom: 16px; }
-.tc260-table { margin-top: 16px; }
 .kill-switch-form { margin-top: 16px; }
 .task-preview { margin-top: 18px; padding: 16px; border: 1px solid #dbe5f1; border-radius: 10px; background: #f8fbff; }
 .preview-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
@@ -2054,8 +2043,6 @@ watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null 
 .raw-block { min-height: 260px; max-height: 60vh; }
 @media (max-width: 1050px) { .scan-pipeline { grid-template-columns: 1fr; }.pipeline-stage { min-height: 58px; border-right: 0; border-bottom: 1px solid #e8edf4; }.pipeline-stage:last-child { border-bottom: 0; }.pipeline-stage.active { box-shadow: inset 3px 0 #1668dc; } }
 @media (max-width: 720px) {
-  .trace-evidence-link { align-items: stretch; flex-direction: column; gap: 8px; }
-  .trace-evidence-link code { overflow-wrap: anywhere; white-space: normal; }
   .ops-header, .panel-heading { align-items: stretch; flex-direction: column; }
   .ops-header :deep(.ant-space), .panel-heading :deep(.ant-space) { width: 100%; }
   .ops-header :deep(.ant-space-item), .panel-heading :deep(.ant-space-item) { flex: 1 1 auto; }

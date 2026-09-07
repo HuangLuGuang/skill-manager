@@ -28,7 +28,6 @@ def test_report_contract_is_versioned_and_scan_kind_specific():
             "error",
             "unverified",
         ]
-        assert snapshot["standards"]["tc260"]["profile_version"] == "TC260-003-2024-02-29@1"
 
 
 def test_report_contract_does_not_equate_success_or_empty_findings_with_safety():

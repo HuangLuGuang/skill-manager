@@ -82,7 +82,7 @@ test('P5-07 finding details navigate to explicitly bound runtime events', async 
   assert.match(api, /getSecurityFinding/)
   assert.match(view, /route\.query\.finding_id/)
   assert.match(view, /getSecurityFinding\(findingId\)/)
-  assert.match(view, /selectedFindingTraceability\.traceId && selectedFindingTraceability\.eventId/)
+  assert.match(await read('../src/views/components/FindingEvidence.vue'), /traceability\.traceId && traceability\.eventId/)
   assert.match(view, /name: 'runtime-traces'/)
   assert.match(view, /trace_id: traceability\.traceId, event_id: traceability\.eventId/)
   assert.match(i18n, /未绑定运行时轨迹事件；系统不会猜测关联/)
@@ -336,7 +336,7 @@ test('P6-07 displays pinned OWASP ASI mappings without guessing unknown findings
   ])
 
   assert.match(view, /record\.risk_codes/)
-  assert.match(view, /item\.risk_mapping\?\.mapping_version/)
+  assert.match(await read('../src/views/components/FindingEvidence.vue'), /finding\.risk_mapping\?\.mapping_version/)
   assert.match(view, /selectedFinding\.risk_codes/)
   assert.match(view, /agenticRiskLabel/)
   assert.match(taxonomy, /ASI_CODE = \/\^ASI/)
@@ -374,16 +374,16 @@ test('P6-09 displays the frozen report template and decision criteria versions',
     read('../src/i18n/index.js'),
   ])
 
-  assert.match(contract, /security-report-contract@3/)
-  assert.match(contract, /agent-security-report-template@3/)
+  assert.match(contract, /security-report-contract@4/)
+  assert.match(contract, /agent-security-report-template@4/)
   assert.match(contract, /agent-security-decision-criteria@2/)
   assert.match(contract, /empty_findings_is_not_safe/)
   assert.match(contract, /case_blocked_or_error_is_unverified/)
-  assert.match(view, /taskDetail\.report_contract\?\.decision_criteria/)
+  assert.match(view, /taskDetail\.task\.decision_criteria_version/)
   assert.match(view, /taskDetail\.task\.report_template_version/)
-  assert.match(view, /selectedFindingTraceability\.decisionCriteriaVersion/)
-  assert.match(i18n, /后续平台升级不会改变本报告的解释规则/)
-  assert.match(i18n, /Later platform upgrades do not change how this report is interpreted/)
+  assert.match(await read('../src/views/components/FindingEvidence.vue'), /traceability\.decisionCriteriaVersion/)
+  assert.match(i18n, /判定口径版本/)
+  assert.match(i18n, /Decision criteria version/)
 })
 
 test('P7-03 presents complete traceability and keeps legacy gaps explicit', async () => {
@@ -423,31 +423,12 @@ test('P7-03 presents complete traceability and keeps legacy gaps explicit', asyn
     read('../src/i18n/index.js'),
   ])
   assert.match(view, /normalizeFindingTraceability/)
-  assert.match(view, /selectedFindingTraceability\.evidenceSha256/)
+  assert.match(await read('../src/views/components/FindingEvidence.vue'), /traceability\.evidenceSha256/)
   assert.match(view, /selectedFindingTraceability\.missing/)
   assert.match(i18n, /完整可追溯/)
   assert.match(i18n, /Complete and traceable/)
 })
 
-test('P6-10 shows evidence-bound TC260 coverage without inventing a percentage', async () => {
-  const [view, coverage, contract, i18n] = await Promise.all([
-    read('../src/views/AgentSecurityScans.vue'),
-    read('../../backend/tc260_coverage.py'),
-    read('../../backend/security_report_contract.py'),
-    read('../src/i18n/index.js'),
-  ])
-
-  assert.match(coverage, /TC260-003-2024-02-29@1/)
-  assert.match(coverage, /"is_national_standard": False/)
-  assert.match(coverage, /"control_count": len\(_CONTROLS\)/)
-  assert.match(coverage, /"coverage_percentage": None/)
-  assert.match(contract, /"standards": \{"tc260": build_tc260_coverage_profile\(\)\}/)
-  assert.match(view, /tc260Profile\.summary\.verified/)
-  assert.match(view, /tc260Profile\.catalog\.control_count/)
-  assert.match(view, /target_assessment_status/)
-  assert.match(i18n, /Agent Scan 不等同于 TC260 内容安全评测/)
-  assert.match(i18n, /Agent Scan is not a TC260 content-safety evaluation/)
-})
 
 test('failed scan details separate execution failure from a successful zero-finding report', async () => {
   const [view, i18n] = await Promise.all([

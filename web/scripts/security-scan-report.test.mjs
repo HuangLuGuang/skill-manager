@@ -1,7 +1,73 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { parseRedteamArtifact, summarizeCaseCoverage, summarizeRedteamRows } from '../src/securityScanReport.js'
+import { parseRedteamArtifact, projectScanCases, promptTransformationLabel, summarizeCaseCoverage, summarizeRedteamRows } from '../src/securityScanReport.js'
+
+test('prompt transformations display localized labels', () => {
+  const key = 'agentSecurityScans.tasks.techniqueOptions.Raw.label'
+  for (const label of ['原始问题', 'Original prompt']) {
+    assert.equal(promptTransformationLabel('Raw', () => label, value => value === key), label)
+    assert.equal(promptTransformationLabel('RedTeam', () => label, value => value === key), label)
+  }
+  assert.equal(promptTransformationLabel('CustomMethod', () => '', () => false), 'CustomMethod')
+  assert.equal(promptTransformationLabel('', () => 'Raw', () => true), '—')
+})
+
+test('upstream display names resolve to configured transformation translations', () => {
+  const labels = {
+    'agentSecurityScans.tasks.techniqueOptions.PromptInjection.label': '指令干扰',
+    'agentSecurityScans.tasks.techniqueOptions.SystemOverride.label': '伪装高权限指令',
+  }
+  const t = key => labels[key]
+  const te = key => Object.hasOwn(labels, key)
+  assert.equal(promptTransformationLabel('Prompt Injection', t, te), '指令干扰')
+  assert.equal(promptTransformationLabel('System Override', t, te), '伪装高权限指令')
+})
+
+test('live and final case projections preserve the recorded transformation', () => {
+  const detail = { task: { scan_kind: 'llm_redteam_scan', status: 'running', progress: { cases: [{ case_id: '1', attack_method: 'Roleplay' }] } }, cases: [] }
+  assert.equal(projectScanCases(detail).rows[0].request_summary.attack_method, 'Roleplay')
+  detail.task.status = 'succeeded'
+  detail.cases = [{ case_id: 'final', external_case_id: 'aig-llm-prompt:1', request_summary: { attack_method: 'Raw' } }]
+  const reports = [{ _index: 1, attackMethod: 'Roleplay' }]
+  assert.equal(projectScanCases(detail, reports).rows[0].request_summary.attack_method, 'Raw')
+  delete detail.cases[0].request_summary.attack_method
+  assert.equal(projectScanCases(detail, reports).rows[0].request_summary.attack_method, 'Roleplay')
+})
+
+test('running LLM tasks show progress records and completed tasks select final cases', () => {
+  const detail = { task: { scan_kind: 'llm_redteam_scan', status: 'running', progress: { cases: [{ case_id: '1', status: 'running', prompt: 'input', response: 'output' }] } }, cases: [{ case_id: 'final', external_case_id: 'aig-llm-prompt:1', status: 'passed' }] }
+  const live = projectScanCases(detail)
+  assert.equal(live.source, 'progress')
+  assert.equal(live.rows.length, 1)
+  assert.equal(live.rows[0].request_summary.prompt, 'input')
+  assert.equal(live.rows[0].response_summary.response, 'output')
+  detail.task.status = 'succeeded'
+  assert.deepEqual(projectScanCases(detail).rows, detail.cases)
+})
+
+test('terminal tasks retain process records only when final cases are unavailable', () => {
+  for (const status of ['failed', 'cancelled', 'timed_out', 'blocked']) {
+    const detail = { task: { scan_kind: 'llm_redteam_scan', status, progress: { cases: [{ case_id: '1', status: 'error' }] } }, cases: [] }
+    assert.equal(projectScanCases(detail).rows.length, 1)
+    detail.cases = [{ case_id: 'final', status: 'error' }]
+    assert.equal(projectScanCases(detail).source, 'final')
+  }
+  assert.deepEqual(projectScanCases({ task: { scan_kind: 'mcp_risk_scan' }, cases: [{ case_id: 'mcp' }] }).rows, [{ case_id: 'mcp' }])
+})
+
+test('final report bodies match external IDs rather than database case order', () => {
+  const detail = { task: { scan_kind: 'llm_redteam_scan', status: 'succeeded' }, cases: [
+    { case_id: 'second', external_case_id: 'aig-llm-prompt:2', response_summary: { evaluator_reason: 'short' } },
+    { case_id: 'first', external_case_id: 'aig-llm-prompt:1' },
+  ] }
+  const rows = parseRedteamArtifact({ results: [{ input: 'one', output: 'response one' }, { input: 'two', output: 'response two', reason: 'full reason' }] }).rows
+  const result = projectScanCases(detail, rows).rows
+  assert.equal(result[0].request_summary.prompt, 'two')
+  assert.equal(result[0].response_summary.evaluator_reason, 'full reason')
+  assert.equal(result[1].response_summary.response, 'response one')
+  assert.equal(detail.cases[0].response_summary.evaluator_reason, 'short')
+})
 
 test('summarizes the real red-team result as 8 safe and 2 risks', () => {
   const rows = [...Array(8)].map(() => ({ status: 'Safe' })).concat([...Array(2)].map(() => ({ status: 'Jailbreak' })))

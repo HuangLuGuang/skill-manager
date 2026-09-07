@@ -14,22 +14,10 @@ const routes = [
     meta: { requiresAuth: true, feature: 'agent_security_scanning' },
   },
   {
-    path: '/agent-security/baseline',
-    name: 'agent-security-baseline',
-    component: () => import('../views/AgentSecurityBaseline.vue'),
-    meta: { requiresAuth: true, feature: 'agent_security_scanning', baselineKind: 'agent-security' },
-  },
-  {
     path: '/runtime-traces',
     name: 'runtime-traces',
     component: () => import('../views/RuntimeTraceExplorer.vue'),
     meta: { requiresAuth: true, feature: 'runtime_trace' },
-  },
-  {
-    path: '/runtime-traces/baseline',
-    name: 'runtime-trace-baseline',
-    component: () => import('../views/AgentSecurityBaseline.vue'),
-    meta: { requiresAuth: true, feature: 'runtime_trace', baselineKind: 'runtime-trace' },
   },
   { path: '/agents', name: 'agents', component: () => import('../views/Agents.vue'), meta: { requiresAuth: true } },
   { path: '/clients', name: 'clients', component: () => import('../views/Clients.vue'), meta: { requiresAuth: true } },

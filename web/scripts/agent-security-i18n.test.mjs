@@ -14,13 +14,12 @@ if (!globalThis.navigator) {
 
 const { i18n } = await import('../src/i18n/index.js')
 const focusedNamespaces = [
-  'agentSecurityBaseline',
-  'runtimeTraceBaseline',
+  'agentSecurity',
   'agentSecurityScans',
   'runtimeTraceExplorer',
 ]
 const focusedViews = [
-  '../src/views/AgentSecurityBaseline.vue',
+  '../src/views/components/FindingEvidence.vue',
   '../src/views/AgentSecurityScans.vue',
   '../src/views/RuntimeTraceExplorer.vue',
 ]

@@ -17,9 +17,7 @@ test('agent security UI fails closed only before capabilities are loaded', () =>
   const keys = flattenKeys(filterNavigationByFeatures(navigationItems, normalizeFeatureFlags()))
   assert.ok(!keys.includes('agent-security-vnext'))
   assert.ok(!keys.includes('/agent-security/scans'))
-  assert.ok(!keys.includes('/agent-security/baseline'))
   assert.ok(!keys.includes('/runtime-traces'))
-  assert.ok(!keys.includes('/runtime-traces/baseline'))
 })
 
 test('each enabled feature reveals only its own menu', () => {
@@ -28,8 +26,6 @@ test('each enabled feature reveals only its own menu', () => {
   }))
   assert.ok(scanKeys.includes('agent-security-vnext'))
   assert.ok(scanKeys.includes('/agent-security/scans'))
-  assert.ok(scanKeys.includes('/agent-security/baseline'))
-  assert.ok(!scanKeys.includes('/runtime-traces/baseline'))
   assert.ok(!scanKeys.includes('/runtime-traces'))
 
   const traceKeys = flattenKeys(filterNavigationByFeatures(navigationItems, {
@@ -37,8 +33,6 @@ test('each enabled feature reveals only its own menu', () => {
   }))
   assert.ok(traceKeys.includes('agent-security-vnext'))
   assert.ok(!traceKeys.includes('/agent-security/scans'))
-  assert.ok(!traceKeys.includes('/agent-security/baseline'))
-  assert.ok(traceKeys.includes('/runtime-traces/baseline'))
   assert.ok(traceKeys.includes('/runtime-traces'))
 })
 

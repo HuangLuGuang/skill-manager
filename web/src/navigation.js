@@ -2,7 +2,7 @@ export const navigationItems = [
   { key: '/dashboard', label: '平台总览', icon: 'dashboard' },
   {
     key: 'agent-security-vnext',
-    label: 'agentSecurityBaseline.groupMenu',
+    label: 'agentSecurity.groupMenu',
     icon: 'safety',
     children: [
       {
@@ -12,20 +12,8 @@ export const navigationItems = [
         feature: 'agent_security_scanning',
       },
       {
-        key: '/agent-security/baseline',
-        label: 'agentSecurityBaseline.menu',
-        icon: 'safety',
-        feature: 'agent_security_scanning',
-      },
-      {
         key: '/runtime-traces',
         label: 'runtimeTraceExplorer.menu',
-        icon: 'audit',
-        feature: 'runtime_trace',
-      },
-      {
-        key: '/runtime-traces/baseline',
-        label: 'runtimeTraceBaseline.menu',
         icon: 'audit',
         feature: 'runtime_trace',
       },

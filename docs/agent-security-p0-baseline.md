@@ -45,9 +45,9 @@ DeepSeek Harness 为 MIT。本项目 P0 仅参考设计，不引入其包或源�
 - 直接调用受控后端 API 返回 404 和稳定 `error_code`，避免暴露未启用接口。
 - 前端读取能力失败时按全部关闭处理，不使用上次缓存放行。
 
-P2 已启用 AI-Infra-Guard Agent Scan Adapter，P3 已启用 MCP 元数据扫描 Adapter，P4 已启用统一
-轨迹 API、Agent SDK 和网关发布。DeepSeek Harness 风格的对话/轨迹可视化仍属于 P5；基线页面
-必须明确展示该边界，不能把 P4 后端能力表述成前端时间线已经完成。
+扫描管理已接入 AI-Infra-Guard Agent Scan Adapter 和 MCP 元数据扫描 Adapter；调用轨迹提供
+对话与执行轨迹双视图，数据来自统一轨迹 API、Agent SDK 和网关实际发布的事件。采集范围和
+完整度取决于真实事件源。
 
 ## 4. 稳定编码
 

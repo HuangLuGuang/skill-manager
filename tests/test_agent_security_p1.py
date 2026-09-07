@@ -1303,7 +1303,7 @@ def test_worker_claim_heartbeat_completion_and_unified_results(p1_api):
     ).json()
     policy = _create_policy(client, lease_seconds=30)
     task = _create_task(client, target["target_id"], policy["policy_id"])
-    assert task["report_template_version"] == "agent-security-report-template@3"
+    assert task["report_template_version"] == "agent-security-report-template@4"
     assert task["decision_criteria_version"] == "agent-security-decision-criteria@2"
     assert task["report_contract_status"] == "frozen"
     worker = _create_worker(client)
@@ -1399,14 +1399,6 @@ def test_worker_claim_heartbeat_completion_and_unified_results(p1_api):
     assert detail["artifacts"][0]["redacted"] is True
     assert detail["report_contract"]["snapshot_status"] == "frozen"
     assert detail["report_contract"]["scan_kind"] == "control_plane_validation"
-    assert detail["report_contract"]["standards"]["tc260"]["catalog"]["control_count"] == 31
-    assert detail["report_contract"]["standards"]["tc260"]["summary"] == {
-        "verified": 0,
-        "partial": 7,
-        "uncovered": 24,
-        "total": 31,
-        "coverage_percentage": None,
-    }
     exported = client.post(f"/api/v1/agent-security/tasks/{task['task_id']}/export").json()
     assert exported["report_contract"] == detail["report_contract"]
 

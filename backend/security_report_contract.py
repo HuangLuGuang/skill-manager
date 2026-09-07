@@ -3,10 +3,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from .tc260_coverage import build_tc260_coverage_profile
-
-REPORT_CONTRACT_SCHEMA_VERSION = "security-report-contract@3"
-REPORT_TEMPLATE_VERSION = "agent-security-report-template@3"
+REPORT_CONTRACT_SCHEMA_VERSION = "security-report-contract@4"
+REPORT_TEMPLATE_VERSION = "agent-security-report-template@4"
 DECISION_CRITERIA_VERSION = "agent-security-decision-criteria@2"
 
 _SUPPORTED_SCAN_KINDS = {
@@ -23,7 +21,6 @@ _TEMPLATE = {
         "task_summary",
         "scope_and_coverage",
         "decision_criteria",
-        "standards_coverage",
         "cases",
         "findings",
         "artifacts",
@@ -149,7 +146,6 @@ def build_report_contract(scan_kind: str) -> dict[str, Any]:
             "scan_kind": scan_kind,
             "template": _TEMPLATE,
             "decision_criteria": [*_COMMON_CRITERIA, _SCAN_KIND_CRITERIA[scan_kind]],
-            "standards": {"tc260": build_tc260_coverage_profile()},
             "severity_values": ["critical", "high", "medium", "low", "info"],
             "case_status_values": ["passed", "failed", "blocked", "error", "unverified"],
             "finding_status_values": ["open", "accepted", "resolved", "false_positive"],

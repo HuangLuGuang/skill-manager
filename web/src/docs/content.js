@@ -1012,16 +1012,15 @@ const zh = {
         {
           id: 'enabled-scope',
           title: '当前已启用的范围',
-          paragraphs: ['“智能体安全”下的扫描管理、能力基线、调用轨迹和轨迹能力基线页面默认开启，不需要在 .env 中配置页面开关。扫描执行仍需要管理员创建目标、策略和独立 Worker；页面可见不等于外部目标已经通过验收。'],
+          paragraphs: ['“智能体安全”下的扫描管理和调用轨迹页面默认开启，不需要在 .env 中配置页面开关。扫描执行仍需要管理员创建目标、策略和独立 Worker；页面可见不等于外部目标已经通过验收。'],
           table: { columns: ['能力', '当前行为', '不能据此声称'], rows: [
             ['Agent 风险扫描', '在出站、预算、超时和能力策略内向已授权目标发送测试对话', '不覆盖未执行的场景，也不是无限制攻击链复现'],
             ['MCP 风险扫描', '读取任务创建时冻结的 Gateway、Server、Tool 描述和 Schema 元数据', '不执行 tools/call，不验证 Tool 的真实副作用'],
             ['大模型红队', '使用锁定数据集或自定义 Prompt 真实调用目标模型和独立评估模型，并按 Prompt 形成用例', '通过只表示本次攻击未观察到越狱，不代表模型绝对安全'],
             ['AI 基础设施扫描', '主动访问显式授权 URL，识别组件指纹并按具体版本匹配 CVE 规则', '端口或未知版本不是已确认漏洞，也不能解释为安全'],
             ['统一调用轨迹', '保存 Agent SDK、模型网关、MCP 网关和运行治理实际发布的事件', '不能从只有 Gateway 的流量推断完整 Agent Turn/Step'],
-            ['TC260 映射', '把平台已有控制能力映射到 TC260-003 附录 A 风险项，并显示证据状态', '不是合规认证，也不替代逐控制项目标测评'],
           ] },
-          link: { path: '/agent-security/baseline', label: '查看安全能力基线' },
+          link: { path: '/agent-security/scans', label: '打开扫描管理' },
         },
         {
           id: 'scan-workflow',
@@ -1829,16 +1828,15 @@ en.articles['agent-security-runtime'] = {
   sections: [
     {
       id: 'enabled-scope', title: 'Capabilities enabled now',
-      paragraphs: ['Scan Management, Security Capability Baseline, Runtime Traces, and Trace Capability Baseline are enabled by default under Agent Security. No .env page flag is required. Executing scans still requires an administrator to create targets, policies, and an independent Worker; a visible page is not evidence that an external target passed acceptance.'],
+      paragraphs: ['Scan Management and Runtime Traces are enabled by default under Agent Security. No .env page flag is required. Executing scans still requires an administrator to create targets, policies, and an independent Worker; a visible page is not evidence that an external target passed acceptance.'],
       table: { columns: ['Capability', 'Current behavior', 'What it does not prove'], rows: [
         ['Agent risk scan', 'Sends test conversations to an authorized target within outbound, budget, timeout, and capability policy', 'It does not cover unexecuted scenarios or reproduce an unlimited attack chain'],
         ['MCP risk scan', 'Reads the Gateway, Server, Tool descriptions, and Schema metadata frozen when the task was created', 'It does not execute tools/call or verify real Tool side effects'],
         ['LLM red team', 'Calls the target and an independent evaluator with a locked dataset or custom prompt, creating one case per prompt', 'A passed case means that attack did not observe a jailbreak; it does not prove absolute safety'],
         ['AI infrastructure scan', 'Actively visits explicitly authorized URLs, fingerprints components, and matches CVE rules to concrete versions', 'An open port or unknown version is neither a confirmed vulnerability nor proof of safety'],
         ['Unified runtime trace', 'Stores events actually published by the Agent SDK, Model Gateway, MCP Gateway, and Runtime Governance', 'Gateway-only traffic cannot establish a complete Agent Turn/Step trace'],
-        ['TC260 mapping', 'Maps existing platform controls to TC260-003 Appendix A risks and shows evidence status', 'It is not a compliance certification or a per-control target assessment'],
       ] },
-      link: { path: '/agent-security/baseline', label: 'Open Security Capability Baseline' },
+      link: { path: '/agent-security/scans', label: 'Open Scan Management' },
     },
     {
       id: 'scan-workflow', title: 'Run and review one security scan',
