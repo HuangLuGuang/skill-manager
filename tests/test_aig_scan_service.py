@@ -61,6 +61,16 @@ class FakeSupervisor:
         return True
 
 
+def test_status_exposes_structured_live_progress(tmp_path):
+    runtime, upstream, _ = _runtime(tmp_path)
+    runtime.create("model_redteam_report", _redteam_content(), "progress-key")
+    progress = {"observed_total": 10, "completed": 3, "running": 1, "errors": 0, "cases": []}
+    upstream.status = lambda session: {"status": "running", "scan_progress": progress, "log": "private-log"}
+    result = runtime.status("session-1")
+    assert result["scan_progress"] == progress
+    assert "log" not in result
+
+
 @pytest.mark.parametrize(("message", "suffix"), [
     ("加载模型：qwen3:1.7b 失败: 404 page not found", "model_not_found"),
     ("Error code: 401 invalid key secret", "model_auth_failed"),

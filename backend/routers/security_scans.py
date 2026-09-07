@@ -536,7 +536,7 @@ def _report_contract_snapshot(row: models.SecurityScanTask) -> dict[str, Any]:
     return legacy_unversioned_report_contract()
 
 
-def _task_response(row: models.SecurityScanTask) -> SecurityTaskResponse:
+def _task_response(row: models.SecurityScanTask, *, include_live_cases: bool = False) -> SecurityTaskResponse:
     protected_options = unprotect_secret(row.scan_options_encrypted)
     raw_options = json_loads(protected_options, {}) if protected_options else {}
     safe_options = {
@@ -567,6 +567,16 @@ def _task_response(row: models.SecurityScanTask) -> SecurityTaskResponse:
         "max_knowledge_segments": raw_options.get("max_knowledge_segments"),
         "max_knowledge_bytes": raw_options.get("max_knowledge_bytes"),
     }
+    progress = dict(raw_options.get("live_progress") or {})
+    if row.scan_kind == "llm_redteam_scan":
+        base_total = raw_options.get("planned_prompt_count")
+        if base_total is None and raw_options.get("prompt"):
+            base_total = 1
+        if base_total is None and (raw_options.get("num_prompts") or 0) > 0:
+            base_total = raw_options["num_prompts"] * max(1, len(raw_options.get("datasets") or []))
+        progress["planned"] = max(int(base_total or 0) * max(1, len(raw_options.get("techniques") or [])), progress.get("observed_total", 0))
+    if not include_live_cases:
+        progress.pop("cases", None)
     return SecurityTaskResponse(
         task_id=row.task_id,
         target_id=row.target_id,
@@ -594,6 +604,7 @@ def _task_response(row: models.SecurityScanTask) -> SecurityTaskResponse:
             "concurrent_requests": row.max_concurrency_seen,
             "response_bytes": row.response_bytes_used,
         },
+        progress=progress,
         created_at=row.created_at,
         updated_at=row.updated_at,
         started_at=row.started_at,
@@ -2062,9 +2073,10 @@ def _validate_scan_task_request(
         "datasets": body.datasets or (["JailBench-Tiny"] if body.scan_kind == "llm_redteam_scan" and not body.prompt else []),
         "num_prompts": body.num_prompts,
         **({"planned_prompt_count": sum(
-            item["count"] for item in LLM_REDTEAM_DATASET_METADATA
+            item["count"] if body.num_prompts == -1 else min(body.num_prompts, item["count"])
+            for item in LLM_REDTEAM_DATASET_METADATA
             if item["name"] in (body.datasets or ["JailBench-Tiny"])
-        )} if body.scan_kind == "llm_redteam_scan" and body.num_prompts == -1 and not body.prompt else {}),
+        )} if body.scan_kind == "llm_redteam_scan" and not body.prompt else {}),
         "random_seed": body.random_seed,
         "techniques": body.techniques,
         "evaluation_model": body.evaluation_model,
@@ -2235,23 +2247,16 @@ def _build_scan_task_plan(
         limitations.append("metadata_only_no_tool_calls")
     elif body.scan_kind == "llm_redteam_scan":
         selected_datasets = body.datasets or (["JailBench-Tiny"] if not body.prompt else [])
-        if selected_datasets and body.num_prompts == -1:
+        if selected_datasets:
             counts = {item["name"]: item["count"] for item in LLM_REDTEAM_DATASET_METADATA}
             cases.extend({
                 "case_key": f"llm-dataset:{name}", "category": "llm_redteam_dataset",
-                "dataset": name, "sample_count": counts[name], "dynamic": True, "planned_rounds": 1,
+                "dataset": name, "sample_count": counts[name] if body.num_prompts == -1 else min(body.num_prompts, counts[name]),
+                "dynamic": True, "planned_rounds": 1,
             } for name in selected_datasets)
         else:
-            planned_count = body.num_prompts * len(selected_datasets) if selected_datasets else 1
-            cases.extend(
-                {
-                    "case_key": f"llm-attack:{index + 1}",
-                    "category": "llm_redteam_prompt",
-                    "dynamic": True,
-                    "planned_rounds": 1,
-                }
-                for index in range(planned_count)
-            )
+            cases.append({"case_key": "llm-custom-prompt", "category": "llm_redteam_prompt",
+                          "sample_count": 1, "dynamic": True, "planned_rounds": 1})
         tool_mode = "runtime_dynamic"
         tools.append(
             {
@@ -2866,7 +2871,7 @@ def _task_detail(db: Session, task: models.SecurityScanTask) -> dict[str, Any]:
         models.SecurityAssetInventorySnapshot.task_id == task.task_id
     ).first()
     return {
-        "task": _task_response(task).model_dump(),
+        "task": _task_response(task, include_live_cases=True).model_dump(),
         "report_contract": _report_contract_snapshot(task),
         "cases": [
             _case_payload(
@@ -4029,6 +4034,11 @@ async def task_heartbeat(
     _apply_usage(task, body.usage)
     if body.session_state:
         task.session_state_encrypted = protect_secret(body.session_state)
+    if body.scan_progress is not None and task.scan_kind == "llm_redteam_scan":
+        options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
+        options["live_progress"] = sanitize_untrusted_value(body.scan_progress.model_dump())
+        options["live_progress"]["updated_at"] = now.isoformat() + "Z"
+        task.scan_options_encrypted = protect_secret(json_dumps(options))
     if task.kill_switch_activated:
         task.status = "cancelled"
         task.stop_reason = "kill_switch.activated"
@@ -4263,6 +4273,15 @@ async def complete_task(
         )
         return _task_response(task)
     _validate_worker_result_contract(task, body)
+    if task.scan_kind == "llm_redteam_scan" and body.status == "succeeded":
+        options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
+        progress = options.get("live_progress") or {}
+        executed_cases = [item for item in body.cases if item.category == "llm_redteam_prompt"]
+        progress.update(observed_total=len(executed_cases), completed=len(executed_cases),
+                        running=0, errors=sum(item.status == "error" for item in executed_cases),
+                        updated_at=now.isoformat() + "Z")
+        options["live_progress"] = progress
+        task.scan_options_encrypted = protect_secret(json_dumps(options))
     budget_reason = _budget_reason(task, now)
     if budget_reason:
         task.status = "timed_out" if budget_reason == "task_timeout" else "blocked"

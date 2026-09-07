@@ -193,6 +193,13 @@ export const i18n = createI18n({
         },
       },
       agentSecurityScans: {
+        scope: { title: '测试范围', methods: '攻击方法', seed: '抽样种子', evaluator: '评估模型', defaultEvaluator: '系统默认', all: '全部 {count} 条样本', sampled: '抽取 {count} 条样本' },
+        live: {
+          count: '已完成 {completed} / 计划 {total} 用例', preparing: '准备测试用例', report: '汇总扫描报告',
+          running: '执行中 {running} · 执行错误 {errors}', cases: '实时用例', recent: '最近更新的 50 条用例',
+          updated: '更新于 {value}', refreshFailed: '进度刷新失败，正在重试', unavailable: '无进度记录',
+          statuses: { queued: '待执行', running: '执行中', passed: '攻击未成功', failed: '发现风险', error: '执行错误', unverified: '未评估' },
+        },
         menu: '扫描管理', eyebrow: 'Agent Security Operations', title: '智能体安全扫描',
         subtitle: '管理扫描入口、执行边界与风险处置，并从任务追溯到原始报告。', pipelineLabel: '安全扫描生命周期',
         refresh: '刷新', newTask: '发起扫描', status: '状态', actions: '操作', createdAt: '创建时间', updatedAt: '更新时间', environment: '环境', allowedCapabilities: '允许能力', capabilityCount: '{value} 项能力',
@@ -301,10 +308,10 @@ export const i18n = createI18n({
             SystemOverride: { label: '伪装高权限指令', description: '伪装成系统或管理员指令，尝试改变模型行为。' },
           },
           samplePresets: '快捷抽样条数', sampleCount: '{count} 条', allSamples: '全部', customSampleCount: '自定义条数',
-          invalidSampleCount: '请输入 1–100 的整数，或选择全部。', allDatasetCase: '{dataset}：全部（最多 {count} 条）',
+          invalidSampleCount: '请输入 1–100 的整数，或选择全部。',
           defaultEvaluationModel: '使用扫描服务默认评估模型', noEvaluationModels: '网关暂无可用模型，请启用模型及其供应商',
           scanTimeout: '单端点超时（秒）', scanConcurrency: '扫描并发', httpAuthorized: '我确认已明确授权通过 HTTP（非 HTTPS）探测该目标', privateNetworkAuthorized: '我确认已明确授权探测目标声明的私网地址',
-          previewLimitations: '预览边界说明', mcpToolCase: '检查 MCP Tool 元数据：{value}', llmAttackCase: 'LLM 红队测试 Prompt {value}', infrastructureEndpointCase: '基础设施端点：{value}',
+          previewLimitations: '预览边界说明', mcpToolCase: '检查 MCP Tool 元数据：{value}', infrastructureEndpointCase: '基础设施端点：{value}',
           previewCases: { control_plane_validation: '控制面调度、租约和回传验证', agent_info_collection: 'Agent 能力与攻击面信息收集', agent_vulnerability_review: '风险复核与报告归一化' },
           previewLimitationsMap: {
             control_plane_only: '控制面验证不执行真实风险攻击',
@@ -1154,6 +1161,13 @@ export const i18n = createI18n({
         },
       },
       agentSecurityScans: {
+        scope: { title: 'Test scope', methods: 'Attack methods', seed: 'Sampling seed', evaluator: 'Evaluator model', defaultEvaluator: 'System default', all: 'All {count} samples', sampled: '{count} sampled inputs' },
+        live: {
+          count: '{completed} completed / {total} planned cases', preparing: 'Preparing test cases', report: 'Generating scan report',
+          running: '{running} running · {errors} execution errors', cases: 'Live cases', recent: '50 most recently updated cases',
+          updated: 'Updated {value}', refreshFailed: 'Progress refresh failed. Retrying.', unavailable: 'No progress recorded',
+          statuses: { queued: 'Queued', running: 'Running', passed: 'Attack resisted', failed: 'Risk detected', error: 'Execution error', unverified: 'Not evaluated' },
+        },
         menu: 'Scan Management', eyebrow: 'Agent Security Operations', title: 'Agent Security Scanning',
         subtitle: 'Manage scan entry points, execution boundaries, risk disposition, and traceable reports.', pipelineLabel: 'Security scan lifecycle',
         refresh: 'Refresh', newTask: 'Start scan', status: 'Status', actions: 'Actions', createdAt: 'Created', updatedAt: 'Updated', environment: 'Environment', allowedCapabilities: 'Allowed capabilities', capabilityCount: '{value} capabilities',
@@ -1253,7 +1267,7 @@ export const i18n = createI18n({
             SystemOverride: { label: 'Impersonated system instructions', description: 'Impersonate system or administrator instructions to change model behavior.' },
           },
           samplePresets: 'Sample count presets', sampleCount: '{count} samples', allSamples: 'All', customSampleCount: 'Custom count',
-          invalidSampleCount: 'Enter an integer from 1 to 100, or select All.', allDatasetCase: '{dataset}: all (up to {count} samples)',
+          invalidSampleCount: 'Enter an integer from 1 to 100, or select All.',
           defaultEvaluationModel: 'Use the scan service default evaluator', noEvaluationModels: 'No gateway models available. Enable a model and its provider.',
           scanTimeout: 'Per-endpoint timeout (seconds)', scanConcurrency: 'Scan concurrency', httpAuthorized: 'I confirm explicit authorization to probe this target over HTTP (not HTTPS)', privateNetworkAuthorized: 'I confirm explicit authorization to probe the target\'s declared private addresses',
           productionApproval: 'Scan approval', productionApprovalRequired: 'A valid one-time human approval is required for an active-safe production scan.',
@@ -1265,7 +1279,7 @@ export const i18n = createI18n({
           previewRequired: 'Generate a task preview and confirm its cases, tools, and budgets before creating the task.', plannedCases: 'Planned cases', plannedTools: 'Tools involved',
           casePlan: 'Case plan', toolPlan: 'Tool plan', budgetPlan: 'Budget limits', runtimeDynamic: 'Runtime dynamic', deterministic: 'Deterministic',
           mayCall: 'May be called during the scan', willNotCall: 'Metadata inspection only; never called', noTools: 'This task does not call target tools.',
-          previewLimitations: 'Preview boundaries', mcpToolCase: 'Inspect MCP Tool metadata: {value}', llmAttackCase: 'LLM red-team prompt {value}', infrastructureEndpointCase: 'Infrastructure endpoint: {value}',
+          previewLimitations: 'Preview boundaries', mcpToolCase: 'Inspect MCP Tool metadata: {value}', infrastructureEndpointCase: 'Infrastructure endpoint: {value}',
           previewCases: { control_plane_validation: 'Control-plane dispatch, lease, and result-delivery validation', agent_info_collection: 'Agent capability and attack-surface discovery', agent_vulnerability_review: 'Risk review and report normalization' },
           previewLimitationsMap: {
             control_plane_only: 'Control-plane validation does not run real risk attacks',

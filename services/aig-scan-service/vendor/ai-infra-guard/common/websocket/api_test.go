@@ -17,6 +17,7 @@ package websocket
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -366,6 +367,37 @@ func TestGetTaskStatus_ErrorEvent(t *testing.T) {
 	newRouter(tm).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/app/taskapi/status/failed-session", nil))
 	data := decodeAPIResponse(t, recorder)["data"].(map[string]interface{})
 	assert.Equal(t, "model failed: 404 page not found", data["error_message"])
+}
+
+func TestGetTaskStatus_LiveCases(t *testing.T) {
+	tm, cleanup := newTestTaskManager(t)
+	defer cleanup()
+	require.NoError(t, tm.taskStore.CreateUser(&database.User{UserID: "live-user", Username: "liveuser", Email: "live@t.com"}))
+	require.NoError(t, tm.taskStore.CreateSession(&database.Session{ID: "live-session", Username: "liveuser", TaskType: "model_redteam_report", Status: "doing"}))
+	for i := 0; i < 60; i++ {
+		for j, status := range []string{"queued", "running", "error"} {
+			item, err := json.Marshal(map[string]interface{}{"case_id": fmt.Sprint(i), "status": status, "prompt": "test input"})
+			require.NoError(t, err)
+			event, err := json.Marshal(map[string]string{"tool": "scan_case", "actionLog": string(item)})
+			require.NoError(t, err)
+			require.NoError(t, tm.taskStore.CreateTaskMessage(&database.TaskMessage{
+				ID: fmt.Sprintf("live-%d-%d", i, j), SessionID: "live-session", Type: "actionLog",
+				EventData: datatypes.JSON(event), Timestamp: int64(i*3 + j),
+			}))
+		}
+	}
+	recorder := httptest.NewRecorder()
+	newRouter(tm).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/app/taskapi/status/live-session", nil))
+	data := decodeAPIResponse(t, recorder)["data"].(map[string]interface{})
+	progress := data["scan_progress"].(map[string]interface{})
+	assert.Equal(t, float64(60), progress["observed_total"])
+	assert.Equal(t, float64(60), progress["completed"])
+	assert.Equal(t, float64(60), progress["errors"])
+	assert.Equal(t, float64(0), progress["running"])
+	items := progress["cases"].([]interface{})
+	assert.Len(t, items, 50)
+	assert.Equal(t, "59", items[0].(map[string]interface{})["case_id"])
+	assert.Equal(t, "", data["log"])
 }
 
 // ---------------------------------------------------------------------------

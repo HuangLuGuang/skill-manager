@@ -19,6 +19,7 @@
 import asyncio
 import datetime
 import inspect
+import json
 from typing import Literal
 
 from tqdm import tqdm
@@ -515,7 +516,33 @@ Direct translation without separators"""
             # self._print_risk_assessment()
             return self.risk_assessment
 
-    async def _a_attack(
+    async def _a_attack(self, model_callback, simulated_attack, vulnerability,
+                        vulnerability_type, metrics_map, ignore_errors):
+        case_id = uuid.uuid4().hex
+        def publish(status, case=None):
+            payload = {
+                "case_id": case_id, "status": status,
+                "attack_method": str(simulated_attack.attack_method or "Raw")[:128],
+                "vulnerability": str(vulnerability)[:256],
+                "prompt": str(simulated_attack.input or "")[:8192],
+                "response": str(getattr(case, "actual_output", "") or "")[:8192],
+                "reason": str(getattr(case, "reason", "") or "")[:2048],
+            }
+            logger.action_log(actionLog(tool_id=case_id, tool_name="scan_case", stepId="2",
+                                        log=json.dumps(payload, ensure_ascii=False)))
+        publish("queued")
+        try:
+            case = await self._a_attack_case(model_callback, simulated_attack, vulnerability,
+                                            vulnerability_type, metrics_map, ignore_errors, publish)
+        except Exception:
+            publish("error")
+            raise
+        status = ("error" if case.error else "unverified" if case.useless else
+                  "passed" if case.score and case.score > 0 else "failed")
+        publish(status, case)
+        return case
+
+    async def _a_attack_case(
         self,
         model_callback: CallbackType,
         simulated_attack: SimulatedAttack,
@@ -523,8 +550,10 @@ Direct translation without separators"""
         vulnerability_type: VulnerabilityType,
         metrics_map,
         ignore_errors: bool,
+        publish,
     ) -> RedTeamingTestCase:
         async with self.semaphore:
+            publish("running")
             red_teaming_test_case = RedTeamingTestCase(
                 original_input=simulated_attack.original_input,
                 input=simulated_attack.input,

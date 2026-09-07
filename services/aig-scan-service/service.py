@@ -536,6 +536,8 @@ class Runtime:
             raise ServiceError(502, "agent_security.aig_result_invalid")
         self.registry.update_status(session_id, status)
         result = {key: data[key] for key in ("session_id", "status", "created_at", "updated_at") if key in data}
+        if isinstance(data.get("scan_progress"), dict):
+            result["scan_progress"] = data["scan_progress"]
         if status in {"error", "failed"}:
             result["error_code"] = _failure_code(str(data.get("error_message") or ""))
         return result

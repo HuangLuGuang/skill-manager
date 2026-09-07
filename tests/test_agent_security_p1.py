@@ -229,6 +229,33 @@ def test_worker_absolute_timeout_stops_heartbeat(p1_api):
     assert heartbeat.json()["stop_reason"] == "task_timeout"
 
 
+def test_llm_live_progress_is_encrypted_redacted_and_detail_only(p1_api):
+    client, sessions, _, _ = p1_api
+    task_id, headers, lease_token = _claim_control_plane_task(client)
+    with sessions() as db:
+        task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
+        task.scan_kind = "llm_redteam_scan"
+        task.scan_options_encrypted = protect_secret(json_dumps({"planned_prompt_count": 10, "techniques": ["Raw", "Roleplay"]}))
+        db.commit()
+    progress = {"observed_total": 20, "completed": 2, "errors": 1, "running": 1,
+                "cases": [{"case_id": "live-1", "status": "running", "prompt": "api_key=super-secret-value"}]}
+    result = client.post(f"/api/v1/agent-security/worker/tasks/{task_id}/heartbeat", headers=headers,
+                         json={"lease_token": lease_token, "scan_progress": progress})
+    assert result.status_code == 200, result.text
+    detail = client.get(f"/api/v1/agent-security/tasks/{task_id}").json()
+    assert detail["task"]["progress"]["planned"] == 20
+    assert detail["task"]["progress"]["completed"] == 2
+    assert "super-secret-value" not in json.dumps(detail)
+    assert detail["task"]["progress"]["cases"][0]["case_id"] == "live-1"
+    with sessions() as db:
+        task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
+        assert "live-1" not in task.scan_options_encrypted
+        assert "cases" not in security_scans._task_response(task).progress
+    invalid = client.post(f"/api/v1/agent-security/worker/tasks/{task_id}/heartbeat", headers=headers,
+                          json={"lease_token": lease_token, "scan_progress": {**progress, "completed": 30}})
+    assert invalid.status_code == 422
+
+
 def test_worker_cancel_wins_over_completion(p1_api):
     client, factory, _, _ = p1_api
     task_id, headers, lease_token = _claim_control_plane_task(client)
@@ -2265,7 +2292,8 @@ def test_redteam_options_and_selected_gateway_model_validation(p1_api, monkeypat
     }
     preview = client.post("/api/v1/agent-security/tasks/preview", json=payload)
     assert preview.status_code == 200, preview.text
-    assert len(preview.json()["cases"]) == 6
+    assert [item["dataset"] for item in preview.json()["cases"]] == payload["datasets"]
+    assert sum(item["sample_count"] for item in preview.json()["cases"]) == 6
     for name in ("missing", "disabled-model", "disabled-provider-model"):
         rejected = client.post("/api/v1/agent-security/tasks/preview", json={**payload, "evaluation_model": name})
         assert rejected.status_code == 422
@@ -2312,7 +2340,8 @@ def test_llm_all_samples_preview_is_grouped_and_plan_is_preserved(p1_api, monkey
         assert rejected.status_code == 422
     custom = client.post("/api/v1/agent-security/tasks/preview", json={**payload, "num_prompts": 37})
     assert custom.status_code == 200, custom.text
-    assert len(custom.json()["cases"]) == 74
+    assert len(custom.json()["cases"]) == 2
+    assert [item["sample_count"] for item in custom.json()["cases"]] == [37, 37]
 
 
 def test_llm_task_preview_contract_and_upstream_session_survive_worker_retry(p1_api, monkeypatch):
@@ -2338,7 +2367,9 @@ def test_llm_task_preview_contract_and_upstream_session_survive_worker_retry(p1_
     }
     preview = client.post("/api/v1/agent-security/tasks/preview", json=request)
     assert preview.status_code == 200, preview.text
-    assert len(preview.json()["cases"]) == 3
+    assert len(preview.json()["cases"]) == 1
+    assert preview.json()["cases"][0]["dataset"] == "JailBench-Tiny"
+    assert preview.json()["cases"][0]["sample_count"] == 3
     assert preview.json()["limitations"] == ["attack_resisted_is_prompt_scoped", "evaluator_required"]
 
     created = client.post(

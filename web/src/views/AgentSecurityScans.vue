@@ -250,7 +250,11 @@
               </template>
               <template v-else-if="column.key === 'progress'">
                 <div class="usage-cell">
-                  <span>{{ t('agentSecurityScans.tasks.roundUsage', { value: record.usage?.rounds || 0 }) }}</span>
+                  <template v-if="record.scan_kind === 'llm_redteam_scan'">
+                    <span>{{ progressLabel(record) }}</span>
+                    <a-progress v-if="!terminalStatuses.has(record.status) || record.progress?.completed != null" :percent="progressPercent(record)" :show-info="false" size="small" />
+                  </template>
+                  <span v-else>{{ t('agentSecurityScans.tasks.roundUsage', { value: record.usage?.rounds || 0 }) }}</span>
                   <span>{{ t('agentSecurityScans.tasks.tokenUsage', { value: formatNumber(record.usage?.tokens || 0) }) }}</span>
                 </div>
               </template>
@@ -715,14 +719,30 @@
               <a-descriptions-item :label="t('agentSecurityScans.environment')">{{ environmentLabel(taskPreview.target.environment) }}</a-descriptions-item>
               <a-descriptions-item :label="t('agentSecurityScans.tasks.policy')">{{ taskPreview.policy.name }}</a-descriptions-item>
               <a-descriptions-item :label="t('agentSecurityScans.policies.mode')">{{ executionModeLabel(taskPreview.policy.execution_mode) }}</a-descriptions-item>
-              <a-descriptions-item :label="t('agentSecurityScans.tasks.plannedCases')">{{ taskPreview.cases.reduce((total, item) => total + (item.sample_count ?? 1), 0) }}</a-descriptions-item>
-              <a-descriptions-item :label="t('agentSecurityScans.tasks.plannedTools')">{{ taskPreview.tool_plan.tools.length }}</a-descriptions-item>
+              <a-descriptions-item :label="t('agentSecurityScans.tasks.plannedCases')">{{ taskPreview.cases.reduce((total, item) => total + (item.sample_count ?? 1), 0) * (taskPreview.scan_kind === 'llm_redteam_scan' ? Math.max(1, taskForm.techniques.length) : 1) }}</a-descriptions-item>
+              <a-descriptions-item v-if="taskPreview.scan_kind !== 'llm_redteam_scan'" :label="t('agentSecurityScans.tasks.plannedTools')">{{ taskPreview.tool_plan.tools.length }}</a-descriptions-item>
+              <template v-else>
+                <a-descriptions-item :label="t('agentSecurityScans.scope.evaluator')">{{ taskForm.evaluation_model || t('agentSecurityScans.scope.defaultEvaluator') }}</a-descriptions-item>
+                <a-descriptions-item :label="t('agentSecurityScans.scope.methods')">{{ (taskForm.techniques.length ? taskForm.techniques : ['Raw']).join(', ') }}</a-descriptions-item>
+                <a-descriptions-item :label="t('agentSecurityScans.scope.seed')">{{ taskForm.random_seed }}</a-descriptions-item>
+              </template>
             </a-descriptions>
             <div v-if="taskPreview.tool_plan.dify_mcp_bindings" class="preview-binding-summary">
               <span>{{ t('agentSecurityScans.inventory.mcpBindingVerified') }}<strong>{{ taskPreview.tool_plan.dify_mcp_bindings.verified }}</strong></span>
               <span>{{ t('agentSecurityScans.inventory.mcpBindingUnbound') }}<strong>{{ taskPreview.tool_plan.dify_mcp_bindings.unbound }}</strong></span>
               <span>{{ t('agentSecurityScans.inventory.mcpBindingToolMissing') }}<strong>{{ taskPreview.tool_plan.dify_mcp_bindings.configured_tool_not_discovered }}</strong></span>
             </div>
+            <template v-if="taskPreview.scan_kind === 'llm_redteam_scan'">
+              <h4>{{ t('agentSecurityScans.scope.title') }}</h4>
+              <div v-if="taskForm.llm_input_mode === 'dataset'" class="preview-list">
+                <div v-for="item in taskPreview.cases" :key="item.case_key" class="preview-row">
+                  <strong>{{ item.dataset }}</strong>
+                  <span>{{ t(taskForm.num_prompts === -1 ? 'agentSecurityScans.scope.all' : 'agentSecurityScans.scope.sampled', { count: item.sample_count }) }}</span>
+                </div>
+              </div>
+              <div v-else class="source-text preview-prompt">{{ taskForm.prompt }}</div>
+            </template>
+            <template v-else>
             <h4>{{ t('agentSecurityScans.tasks.casePlan') }}</h4>
             <div class="preview-list">
               <div v-for="item in taskPreview.cases" :key="item.case_key" class="preview-row">
@@ -738,6 +758,7 @@
               </div>
             </div>
             <span v-else class="muted">{{ t('agentSecurityScans.tasks.noTools') }}</span>
+            </template>
             <h4>{{ t('agentSecurityScans.tasks.budgetPlan') }}</h4>
             <div class="preview-budget">
               <span>{{ t('agentSecurityScans.policies.maxRounds') }}<strong>{{ formatNumber(taskPreview.budget.max_rounds) }}</strong></span>
@@ -771,10 +792,17 @@
       <a-spin :spinning="taskDetailLoading">
         <template v-if="taskDetail">
           <div class="detail-identity"><div><span>{{ t('agentSecurityScans.detail.task') }}</span><code>{{ taskDetail.task.task_id }}</code></div><a-tag :color="statusColor(taskDetail.task.status)">{{ statusLabel(taskDetail.task.status) }}</a-tag></div>
+          <section v-if="isLlmTaskDetail" class="live-scan-progress">
+            <strong>{{ progressLabel(taskDetail.task) }}</strong>
+            <span>{{ livePhaseLabel }}</span>
+            <a-progress v-if="!terminalStatuses.has(taskDetail.task.status) || taskDetail.task.progress?.completed != null" :percent="progressPercent(taskDetail.task)" :show-info="false" />
+            <span v-if="taskDetail.task.progress?.updated_at" class="muted">{{ t('agentSecurityScans.live.updated', { value: formatDateTime(taskDetail.task.progress.updated_at) }) }}</span>
+            <a-alert v-if="liveRefreshError" type="warning" :message="liveRefreshError" />
+          </section>
           <a-alert v-if="taskDetail.task.error_code" class="modal-alert" type="error" show-icon
             :message="taskErrorExplanation(taskDetail.task)" :description="taskDetail.task.error_code" />
           <a-alert
-            v-if="taskHasNoFinalReport"
+            v-if="taskHasNoFinalReport && terminalStatuses.has(taskDetail.task.status)"
             class="modal-alert"
             type="warning"
             show-icon
@@ -790,6 +818,27 @@
             :description="t('agentSecurityScans.detail.noFindingsDescription')"
           />
           <a-tabs>
+            <a-tab-pane v-if="isLlmTaskDetail && taskDetail.task.progress?.cases?.length" key="live" :tab="t('agentSecurityScans.live.cases')">
+              <p class="muted">{{ t('agentSecurityScans.live.recent') }}</p>
+              <a-list :data-source="taskDetail.task.progress.cases" :pagination="{ pageSize: 10, showSizeChanger: false }">
+                <template #renderItem="{ item }">
+                  <a-list-item :key="item.case_id">
+                    <div class="live-case">
+                      <div class="case-title-row"><strong>{{ item.attack_method }} · {{ item.vulnerability }}</strong><a-tag>{{ t(`agentSecurityScans.live.statuses.${item.status}`) }}</a-tag></div>
+                      <a-collapse ghost>
+                        <a-collapse-panel key="content" :header="t('agentSecurityScans.detail.caseDetails')">
+                          <dl class="case-detail-grid">
+                            <dt>{{ t('agentSecurityScans.detail.casePrompt') }}</dt><dd class="source-text">{{ item.prompt }}</dd>
+                            <template v-if="item.response"><dt>{{ t('agentSecurityScans.detail.caseResponse') }}</dt><dd class="source-text">{{ item.response }}</dd></template>
+                            <template v-if="item.reason"><dt>{{ t('agentSecurityScans.detail.caseReason') }}</dt><dd class="source-text">{{ item.reason }}</dd></template>
+                          </dl>
+                        </a-collapse-panel>
+                      </a-collapse>
+                    </div>
+                  </a-list-item>
+                </template>
+              </a-list>
+            </a-tab-pane>
             <a-tab-pane key="summary" :tab="t('agentSecurityScans.detail.summary')">
               <div v-if="isLlmTaskDetail" class="assessment-result">
                 <span>{{ t('agentSecurityScans.detail.assessmentResult') }}</span>
@@ -1046,7 +1095,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { InfoCircleOutlined, PlusOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -1290,8 +1339,6 @@ const previewCaseLabel = item => {
   const key = `agentSecurityScans.tasks.previewCases.${item.case_key}`
   if (te(key)) return t(key)
   if (String(item.case_key).startsWith('mcp_tool:')) return t('agentSecurityScans.tasks.mcpToolCase', { value: String(item.case_key).slice(9) })
-  if (String(item.case_key).startsWith('llm-attack:')) return t('agentSecurityScans.tasks.llmAttackCase', { value: String(item.case_key).slice(11) })
-  if (item.category === 'llm_redteam_dataset') return t('agentSecurityScans.tasks.allDatasetCase', { dataset: item.dataset, count: item.sample_count })
   if (String(item.case_key).startsWith('infra-endpoint:')) return t('agentSecurityScans.tasks.infrastructureEndpointCase', { value: item.endpoint || String(item.case_key).slice(15) })
   return item.case_key
 }
@@ -1303,6 +1350,41 @@ const dispositionForm = reactive({ status: 'open', comment: '' })
 const detailDrawerOpen = ref(false)
 const taskDetailLoading = ref(false)
 const taskDetail = ref(null)
+const liveRefreshError = ref('')
+let liveRefreshTimer
+let liveRefreshBusy = false
+let scanViewUnmounted = false
+const progressLabel = task => terminalStatuses.has(task.status) && task.progress?.completed == null
+  ? t('agentSecurityScans.live.unavailable') : task.progress?.planned
+  ? t('agentSecurityScans.live.count', { completed: task.progress.completed ?? 0, total: task.progress.planned })
+  : t('agentSecurityScans.live.preparing')
+const progressPercent = task => task.progress?.planned
+  ? Math.min(100, Math.round((task.progress.completed ?? 0) / task.progress.planned * 100)) : 0
+const livePhaseLabel = computed(() => {
+  const task = taskDetail.value?.task
+  if (!task) return ''
+  if (terminalStatuses.has(task.status)) return statusLabel(task.status)
+  if (!task.progress?.observed_total) return t('agentSecurityScans.live.preparing')
+  if (task.progress.completed >= task.progress.planned && !task.progress.running) return t('agentSecurityScans.live.report')
+  return t('agentSecurityScans.live.running', { running: task.progress.running ?? 0, errors: task.progress.errors ?? 0 })
+})
+const refreshLiveScans = async () => {
+  if (liveRefreshBusy || document.hidden) return
+  liveRefreshBusy = true
+  try {
+    if (tasks.value.some(task => !terminalStatuses.has(task.status))) {
+      const rows = await listSecurityTasks({ limit: 500 })
+      if (!scanViewUnmounted) tasks.value = rows
+    }
+    const taskId = taskDetail.value?.task?.task_id
+    if (detailDrawerOpen.value && taskId && !terminalStatuses.has(taskDetail.value.task.status)) {
+      const detail = await getSecurityTask(taskId)
+      if (!scanViewUnmounted && detailDrawerOpen.value && taskDetail.value?.task?.task_id === taskId) taskDetail.value = detail
+    }
+    liveRefreshError.value = ''
+  } catch (error) { liveRefreshError.value = t('agentSecurityScans.live.refreshFailed') }
+  finally { liveRefreshBusy = false }
+}
 const taskHasNoFinalReport = computed(() => Boolean(
   taskDetail.value
   && taskDetail.value.task.status !== 'succeeded'
@@ -1795,6 +1877,7 @@ const viewArtifact = async (taskId, artifact) => {
 const retryArtifact = () => { if (selectedArtifact.value) viewArtifact(selectedArtifact.value.taskId, selectedArtifact.value.artifact) }
 
 onMounted(async () => {
+  liveRefreshTimer = window.setInterval(refreshLiveScans, 3000)
   try {
     const [userResult, gatewayResult] = await Promise.allSettled([getMe(), listMcpGateways()])
     if (userResult.status === 'fulfilled') currentUser.value = userResult.value
@@ -1807,11 +1890,14 @@ onMounted(async () => {
     await openFindingFromRoute()
   } catch (error) { loadError.value = errorText(error) } finally { loading.value = false }
 })
+onUnmounted(() => { scanViewUnmounted = true; window.clearInterval(liveRefreshTimer) })
 watch(() => [route.query.stage, route.query.task_id, route.query.finding_id], openFindingFromRoute)
 watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null })
 </script>
 
 <style scoped>
+.live-scan-progress { padding: 12px 0 20px; display: flex; flex-direction: column; gap: 6px; }
+.live-case { width: 100%; min-width: 0; overflow-wrap: anywhere; }
 .report-overview { padding: 0 0 20px; }
 .report-overview h3 { margin: 0 0 14px; font-size: 16px; }
 .report-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 0; }
@@ -1942,6 +2028,9 @@ watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null 
 .preview-heading > div { display: grid; gap: 3px; }
 .preview-heading span { color: #64748b; font-size: 12px; line-height: 1.5; }
 .task-preview h4 { margin: 16px 0 8px; }
+.preview-prompt { max-height: 220px; overflow: auto; overflow-wrap: anywhere; }
+.preview-row strong { min-width: 0; overflow-wrap: anywhere; }
+.preview-row > span { overflow-wrap: anywhere; }
 .preview-list { display: grid; max-height: 190px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; }
 .preview-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 8px 10px; border-bottom: 1px solid #eef2f7; }
 .preview-row:last-child { border-bottom: 0; }

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import sys
+import ast
+import asyncio
+import json
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -118,6 +122,44 @@ class _Client:
 
     def cancel_task(self, session_id):
         self.cancelled.append(session_id)
+
+
+def test_live_progress_reaches_heartbeat_before_final_report():
+    claim = _claim()
+    client = _Client()
+    progress = {"observed_total": 4, "completed": 4, "errors": 1, "running": 0, "cases": []}
+    client.get_status = lambda session_id: {"status": "done", "progress": {"scan_progress": progress}}
+    snapshots = []
+    def heartbeat(usage, session):
+        snapshots.append(claim.get("scan_progress"))
+        return {"continue_allowed": True}
+    execute_llm_redteam_scan(claim, "", SimpleNamespace(model="judge", api_key="test", base_url="https://judge.example/v1"),
+                            heartbeat, initial_usage={}, client=client)
+    assert snapshots[-1] == progress
+
+
+@pytest.mark.parametrize(("error", "useless", "score", "expected"), [
+    (None, False, 1, "passed"), (None, False, 0, "failed"),
+    ("timeout", False, None, "error"), (None, True, None, "unverified"),
+])
+def test_engine_publishes_case_lifecycle_even_for_unevaluated_cases(error, useless, score, expected):
+    path = Path("services/aig-scan-service/vendor/ai-infra-guard/AIG-PromptSecurity/deepteam/red_teamer/red_teamer.py")
+    tree = ast.parse(path.read_text())
+    method = next(node for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef) and node.name == "_a_attack")
+    events = []
+    namespace = {"uuid": uuid, "json": json, "actionLog": lambda **kwargs: kwargs,
+                 "logger": SimpleNamespace(action_log=lambda item: events.append(json.loads(item["log"])))}
+    exec(compile(ast.Module(body=[method], type_ignores=[]), str(path), "exec"), namespace)
+    async def execute(*args):
+        args[-1]("running")
+        return SimpleNamespace(error=error, useless=useless, score=score, actual_output="response", reason="evaluation")
+    scanner = SimpleNamespace(_a_attack_case=execute)
+    attack = SimpleNamespace(attack_method="Raw", input="test prompt")
+    asyncio.run(namespace["_a_attack"](scanner, None, attack, "Harm", None, {}, True))
+    assert [event["status"] for event in events] == ["queued", "running", expected]
+    assert len({event["case_id"] for event in events}) == 1
+    assert events[-1]["prompt"] == "test prompt"
+    assert events[-1]["response"] == "response"
 
 
 def test_llm_execute_uses_separate_target_and_evaluator_credentials_and_persists_session():

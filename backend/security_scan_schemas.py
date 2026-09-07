@@ -394,6 +394,30 @@ class SecurityTaskPreviewResponse(BaseModel):
     limitations: list[str] = Field(default_factory=list)
 
 
+class SecurityLiveCase(BaseModel):
+    case_id: str = Field(min_length=1, max_length=128)
+    status: Literal["queued", "running", "passed", "failed", "error", "unverified"]
+    attack_method: str = Field(default="", max_length=128)
+    vulnerability: str = Field(default="", max_length=256)
+    prompt: str = Field(default="", max_length=8192)
+    response: str = Field(default="", max_length=8192)
+    reason: str = Field(default="", max_length=2048)
+
+
+class SecurityLiveProgress(BaseModel):
+    observed_total: int = Field(default=0, ge=0)
+    completed: int = Field(default=0, ge=0)
+    errors: int = Field(default=0, ge=0)
+    running: int = Field(default=0, ge=0)
+    cases: list[SecurityLiveCase] = Field(default_factory=list, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_counts(self):
+        if self.completed + self.running > self.observed_total or self.errors > self.completed:
+            raise ValueError("Invalid scan progress counts")
+        return self
+
+
 class SecurityTaskResponse(BaseModel):
     task_id: str
     target_id: str
@@ -415,6 +439,7 @@ class SecurityTaskResponse(BaseModel):
     error_code: str | None
     error_message: str | None
     usage: dict[str, int]
+    progress: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None
@@ -523,6 +548,7 @@ class SecurityWorkerHeartbeatRequest(BaseModel):
     lease_token: str = Field(min_length=16, max_length=512)
     usage: SecurityTaskUsage = Field(default_factory=SecurityTaskUsage)
     session_state: str | None = Field(default=None, max_length=2048)
+    scan_progress: SecurityLiveProgress | None = None
 
 
 class SecurityWorkerHeartbeatResponse(BaseModel):

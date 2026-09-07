@@ -273,7 +273,9 @@ func (a *Agent) processMessage(data []byte) error {
 					},
 					ToolUseLogCallback: func(actionId, tool, planStepId, actionLog string) {
 						a.SendsToolUsedLog(task.SessionId, actionId, tool, planStepId, actionLog)
-						gologger.Debugln("ToolUseLogCallback", actionId, tool, planStepId, actionLog)
+						if tool != "scan_case" {
+							gologger.Debugln("ToolUseLogCallback", actionId, tool, planStepId, actionLog)
+						}
 					},
 					ToolUsedCallback: func(planStepId, statusId, description string, tools []Tool) {
 						a.SendToolUsed(task.SessionId, planStepId, statusId, description, tools)

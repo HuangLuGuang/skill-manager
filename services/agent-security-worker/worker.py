@@ -509,12 +509,16 @@ def _run_aig_service_scan(
             }
             if claim.get("upstream_session_id"):
                 payload["session_state"] = claim["upstream_session_id"]
+            if claim.get("scan_progress") and claim["scan_progress"] != claim.get("reported_scan_progress"):
+                payload["scan_progress"] = claim["scan_progress"]
             response = _request(
                 f"/worker/tasks/{claim['task']['task_id']}/heartbeat",
                 payload,
             )
             _touch_health()
             claim["last_usage"] = monotonic_usage
+            if "scan_progress" in payload:
+                claim["reported_scan_progress"] = payload["scan_progress"]
             if not response.get("continue_allowed", False):
                 claim["background_stop_reason"] = response.get("stop_reason") or "task_stopped"
             return response

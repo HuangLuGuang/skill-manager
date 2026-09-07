@@ -96,6 +96,15 @@ def run_upstream_task(
             raise AigScanStopped(str(claim["background_stop_reason"]))
         status_body = client.get_status(session_id)
         status = str(status_body.get("status") or "").strip().lower()
+        progress_body = status_body.get("progress")
+        progress = progress_body.get("scan_progress") if isinstance(progress_body, dict) else None
+        has_live_progress = task_type == "model_redteam_report" and isinstance(progress, dict)
+        if has_live_progress:
+            claim["scan_progress"] = progress
+            response = heartbeat(initial_usage, session_id)
+            if not response.get("continue_allowed", False):
+                client.cancel_task(session_id)
+                raise AigScanStopped(str(response.get("stop_reason") or "task_stopped"))
         if status in TERMINAL_STATUSES:
             if status not in {"complete", "completed", "done"}:
                 progress = status_body.get("progress") or {}
@@ -107,10 +116,11 @@ def run_upstream_task(
                     "agent_security.aig_model_connection_failed",
                 })
             return session_id, client.get_result(session_id)
-        response = heartbeat(initial_usage, session_id)
-        if not response.get("continue_allowed", False):
-            client.cancel_task(session_id)
-            raise AigScanStopped(str(response.get("stop_reason") or "task_stopped"))
+        if not has_live_progress:
+            response = heartbeat(initial_usage, session_id)
+            if not response.get("continue_allowed", False):
+                client.cancel_task(session_id)
+                raise AigScanStopped(str(response.get("stop_reason") or "task_stopped"))
         sleeper(max(0.1, float(poll_seconds)))
 
     client.cancel_task(session_id)

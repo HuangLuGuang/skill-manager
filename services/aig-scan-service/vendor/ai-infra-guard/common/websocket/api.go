@@ -33,6 +33,7 @@ package websocket
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -590,16 +591,38 @@ func GetTaskStatus(c *gin.Context, tm *TaskManager) {
 	}
 
 	msg := ""
+	liveCases := map[string]map[string]interface{}{}
+	lastCaseEvent := map[string]int{}
+	caseOrder := []string{}
 	type logStruct struct {
 		ActionLog string `json:"actionLog"`
+		Tool      string `json:"tool"`
 	}
-	for _, m := range messages {
+	for eventIndex, m := range messages {
 		var x logStruct
 		err = json.Unmarshal([]byte(m.EventData.String()), &x)
 		if err != nil {
 			continue
 		}
-		msg += x.ActionLog
+		if x.Tool == "scan_case" {
+			var item map[string]interface{}
+			if json.Unmarshal([]byte(x.ActionLog), &item) == nil {
+				if id, ok := item["case_id"].(string); ok && id != "" {
+					if previous, exists := liveCases[id]; exists {
+						if previous["status"] != "queued" && (item["status"] == "queued" || item["status"] == "running" && previous["status"] != "running") {
+							continue
+						}
+					}
+					if _, exists := liveCases[id]; !exists {
+						caseOrder = append(caseOrder, id)
+					}
+					lastCaseEvent[id] = eventIndex
+					liveCases[id] = item
+				}
+			}
+		} else {
+			msg += x.ActionLog
+		}
 	}
 
 	// Build status response
@@ -625,6 +648,28 @@ func GetTaskStatus(c *gin.Context, tm *TaskManager) {
 		"created_at":    session.CreatedAt,
 		"updated_at":    session.UpdatedAt,
 		"log":           msg,
+	}
+	if len(liveCases) > 0 {
+		sort.Slice(caseOrder, func(i, j int) bool { return lastCaseEvent[caseOrder[i]] > lastCaseEvent[caseOrder[j]] })
+		completed, failed, running := 0, 0, 0
+		items := []map[string]interface{}{}
+		for _, id := range caseOrder {
+			item := liveCases[id]
+			switch item["status"] {
+			case "passed", "failed", "error", "unverified":
+				completed++
+			case "running":
+				running++
+			}
+			if item["status"] == "error" {
+				failed++
+			}
+			items = append(items, item)
+		}
+		if len(items) > 50 {
+			items = items[:50]
+		}
+		statusData["scan_progress"] = gin.H{"observed_total": len(liveCases), "completed": completed, "errors": failed, "running": running, "cases": items}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

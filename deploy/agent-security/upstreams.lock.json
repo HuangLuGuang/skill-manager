@@ -84,7 +84,7 @@
           "status": "integrated_fixed_engine_service",
           "vendored_path": "services/aig-scan-service/vendor/ai-infra-guard",
           "verification_subpath": ".",
-          "vendored_tree_sha256": "e03f8da7f1031dd2a64f83177f574f5f30b4832da18fb5ec9173376b60dc89ec",
+          "vendored_tree_sha256": "c0992f904265baaa95202716451fde6bf43ab4b09c3016971fde42bfb9b30dda",
           "python_lock": {
             "generator": "uv 0.6.10",
             "path": "AIG-PromptSecurity/uv.lock",
@@ -106,13 +106,13 @@
             },
             {
               "path": "common/websocket/api.go",
-              "reason": "Expose failed-session error events to the loopback wrapper for safe diagnostic classification.",
-              "sha256": "289fbcf9bbf31c88184e1b1dee4442b6be7622c43df9cb119b9b0c296eb2dd41"
+              "reason": "Expose failure diagnostics and bounded structured live case progress to the loopback wrapper.",
+              "sha256": "bfd931797acb4b0542e90842b27cd3a5570eba8a51baa9e0fccdb47b0942692f"
             },
             {
               "path": "common/websocket/api_test.go",
-              "reason": "Verify failed-session error events are returned by the internal status API.",
-              "sha256": "9b1829729cbbb678a5819cf5898a48fa8075af0c947a40c7db42f457760cd5a4"
+              "reason": "Verify failure diagnostics and live case aggregation, counts and bounded recent results.",
+              "sha256": "ca8531334ff32a66b5fd15eda1763d50380136f819a397eaa1d1c2abce5f4457"
             },
             {
               "path": "cmd/agent/main.go",
@@ -146,8 +146,8 @@
             },
             {
               "path": "common/agent/agent.go",
-              "reason": "Log WebSocket frame size instead of raw task frames that can contain credentials or prompts.",
-              "sha256": "7f72882ee094f08a539806b30f0f744f641ad867e7c64e8cecabb1dc1813f8f0"
+              "reason": "Keep raw task frames and structured live case content out of ordinary debug logs.",
+              "sha256": "0cfb1109e395d73ee0665d2b38da1bbbb4d81441f5cbf04acbca939474a41636"
             },
             {
               "path": "common/agent/tasks.go",
@@ -181,8 +181,8 @@
             },
             {
               "path": "AIG-PromptSecurity/deepteam/red_teamer/red_teamer.py",
-              "reason": "Preserve every actually executed red-team prompt in the result so Agent Manager can create one auditable Case per prompt.",
-              "sha256": "417c59b4c28d86aaa1a3394b362277eff3907345d876ae062f3a2a868be7196c"
+              "reason": "Preserve all executed prompts in final reports and emit structured queued, running and terminal case events.",
+              "sha256": "9923df936b6d291d8b87331484a5e2177f498fc434dd9e53c529b2f28de68d2c"
             },
             {
               "path": "trpc_go.yaml",
