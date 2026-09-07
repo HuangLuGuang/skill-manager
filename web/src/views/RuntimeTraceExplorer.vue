@@ -4,10 +4,17 @@
       <div>
         <h1>{{ t('runtimeTraceExplorer.title') }}</h1>
       </div>
+      <div class="trace-header-actions">
+      <span class="header-session-count">{{ t('runtimeTraceExplorer.search.sessionsMatched', { count: total }) }}</span>
+      <a-button :aria-expanded="searchOpen" aria-controls="trace-query" @click="searchOpen = !searchOpen">
+        <template #icon><SearchOutlined /></template>
+        {{ t('runtimeTraceExplorer.search.title') }}
+      </a-button>
       <a-button :loading="loading || detailLoading" @click="refresh">
         <template #icon><ReloadOutlined /></template>
         {{ t('runtimeTraceExplorer.refresh') }}
       </a-button>
+      </div>
     </header>
 
     <a-alert
@@ -19,19 +26,11 @@
       :description="error"
     />
 
-    <details class="query-disclosure" :open="isSearchActive">
-      <summary>{{ t('runtimeTraceExplorer.search.title') }} <span>{{ t('runtimeTraceExplorer.search.sessionsMatched', { count: total }) }}</span></summary>
-    <form class="trace-query-ribbon" @submit.prevent="applyTraceSearch">
-      <div class="query-ribbon-heading">
-        <div>
-          <strong>{{ t('runtimeTraceExplorer.search.title') }}</strong>
-          <small>{{ t('runtimeTraceExplorer.search.description') }}</small>
-        </div>
-        <span class="query-result-count">{{ t('runtimeTraceExplorer.search.sessionsMatched', { count: total }) }}</span>
-      </div>
+    <form v-show="searchOpen" id="trace-query" class="trace-query-ribbon" @submit.prevent="applyTraceSearch">
       <div class="query-controls">
         <a-input
           v-model:value="searchDraft.turn_id"
+          @pressEnter.prevent="applyTraceSearch"
           allow-clear
           :maxlength="128"
           :aria-label="t('runtimeTraceExplorer.search.turn')"
@@ -39,6 +38,7 @@
         />
         <a-input
           v-model:value="searchDraft.tool_name"
+          @pressEnter.prevent="applyTraceSearch"
           allow-clear
           :maxlength="256"
           :aria-label="t('runtimeTraceExplorer.search.tool')"
@@ -46,26 +46,40 @@
         />
         <a-select
           v-model:value="searchDraft.risk_level"
+          @change="applyTraceSearch"
           :aria-label="t('runtimeTraceExplorer.search.risk')"
           :title="t('runtimeTraceExplorer.search.boundary')"
           :options="riskSearchOptions"
         />
         <a-input
           v-model:value="searchDraft.request_id"
+          @pressEnter.prevent="applyTraceSearch"
           allow-clear
           :maxlength="128"
           :aria-label="t('runtimeTraceExplorer.search.request')"
           :placeholder="t('runtimeTraceExplorer.search.requestPlaceholder')"
         />
         <label class="error-query-toggle">
-          <a-switch v-model:checked="searchDraft.has_error" size="small" />
+          <a-switch v-model:checked="searchDraft.has_error" size="small" @change="applyTraceSearch" />
           <span>{{ t('runtimeTraceExplorer.search.errorsOnly') }}</span>
         </label>
+        <a-range-picker
+          v-model:value="searchDates"
+          class="query-date-range"
+          show-time
+          format="YYYY-MM-DD HH:mm"
+          value-format="YYYY-MM-DDTHH:mm:ss"
+          :placeholder="[t('runtimeTraceExplorer.search.createdFrom'), t('runtimeTraceExplorer.search.createdTo')]"
+          :title="t('runtimeTraceExplorer.search.beijingTime')"
+          @change="applyDateSearch"
+        />
+        <div class="query-actions">
         <a-button type="primary" html-type="submit" :loading="loading">
           <template #icon><SearchOutlined /></template>
           {{ t('runtimeTraceExplorer.search.apply') }}
         </a-button>
         <a-button :disabled="!isSearchActive && !hasSearchDraft" @click="resetTraceSearch">{{ t('runtimeTraceExplorer.search.reset') }}</a-button>
+        </div>
       </div>
       <div v-if="activeSearchEntries.length" class="query-ledger">
         <span class="query-ledger-label">{{ t('runtimeTraceExplorer.search.active') }}</span>
@@ -84,7 +98,6 @@
         <span v-else>{{ t('runtimeTraceExplorer.search.none') }}</span>
       </div>
     </form>
-    </details>
 
     <div class="trace-workspace" :class="{ 'detail-visible': detailOpen }">
       <aside class="session-panel">
@@ -522,6 +535,8 @@ import { message } from 'ant-design-vue'
 import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import dayjs from 'dayjs'
+import utc from 'dayjs/plugin/utc'
 import TrajectoryStream from '../components/TrajectoryStream.vue'
 import { buildTrajectoryRows } from '../trajectoryProjection'
 
@@ -555,6 +570,7 @@ import {
 } from '../runtimeTraceView'
 
 const { t, te, locale } = useI18n()
+dayjs.extend(utc)
 const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
@@ -653,6 +669,8 @@ const linkedFindings = ref([])
 const linkedFindingsLoading = ref(false)
 const linkedFindingsError = ref('')
 const searchDraft = reactive({ turn_id: '', tool_name: '', risk_level: 'all', has_error: false, request_id: '' })
+const searchDates = ref(null)
+const searchOpen = ref(false)
 const activeSearch = ref({})
 const currentUser = ref(null)
 const exportGateOpen = ref(false)
@@ -688,6 +706,8 @@ const activeSearchEntries = computed(() => [
   ['risk_level', 'risk', activeSearch.value.risk_level ? riskLevelLabel(activeSearch.value.risk_level) : null],
   ['has_error', 'error', activeSearch.value.has_error ? t('runtimeTraceExplorer.search.errorValue') : null],
   ['request_id', 'request', activeSearch.value.request_id],
+  ['created_from', 'createdFrom', activeSearch.value.created_from ? formatDateTime(activeSearch.value.created_from) : null],
+  ['created_to', 'createdTo', activeSearch.value.created_to ? formatDateTime(activeSearch.value.created_to) : null],
 ].filter(([, , value]) => value).map(([key, labelKey, value]) => ({
   key, value, label: t(`runtimeTraceExplorer.search.${labelKey}`),
 })))
@@ -885,6 +905,9 @@ const applyTraceSearch = async () => {
   await loadTracePage(false)
 }
 const resetTraceSearch = async () => {
+  searchDates.value = null
+  searchDraft.created_from = ''
+  searchDraft.created_to = ''
   Object.assign(searchDraft, { turn_id: '', tool_name: '', risk_level: 'all', has_error: false, request_id: '' })
   activeSearch.value = {}
   page.value = 1
@@ -892,14 +915,24 @@ const resetTraceSearch = async () => {
   await loadTracePage(false)
 }
 const removeTraceSearch = async key => {
+  if (key === 'created_from' || key === 'created_to') {
+    searchDates.value = null
+    searchDraft.created_from = ''
+    searchDraft.created_to = ''
+  }
   if (key === 'risk_level') searchDraft.risk_level = 'all'
   else if (key === 'has_error') searchDraft.has_error = false
   else searchDraft[key] = ''
   await applyTraceSearch()
 }
 
+const applyDateSearch = () => {
+  searchDraft.created_from = searchDates.value?.[0] ? `${searchDates.value[0]}+08:00` : ''
+  searchDraft.created_to = searchDates.value?.[1] ? `${searchDates.value[1]}+08:00` : ''
+  return applyTraceSearch()
+}
 const formatDateTime = (value) => value
-  ? new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  ? new Intl.DateTimeFormat(locale.value, { timeZone: 'Asia/Shanghai', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(value) ? value : `${value}Z`))
   : '—'
 const formatInteger = value => new Intl.NumberFormat(locale.value, { maximumFractionDigits: 0 }).format(value || 0)
 const formatDurationMetric = (value) => {
@@ -1040,8 +1073,15 @@ onMounted(async () => {
     risk_level: queryValue(route.query.risk_level) || 'all',
     has_error: queryValue(route.query.has_error) === 'true',
     request_id: queryValue(route.query.request_id) || '',
+    created_from: queryValue(route.query.created_from) || '',
+    created_to: queryValue(route.query.created_to) || '',
   })
   activeSearch.value = runtimeTraceSearchParams(searchDraft)
+  if (searchDraft.created_from && searchDraft.created_to) {
+    searchDates.value = [searchDraft.created_from, searchDraft.created_to]
+      .map(value => dayjs(value).utcOffset(480).format('YYYY-MM-DDTHH:mm:ss'))
+  }
+  searchOpen.value = isSearchActive.value
   const [profileResult] = await Promise.allSettled([getMe(), loadTracePage(false)])
   if (profileResult.status === 'fulfilled') currentUser.value = profileResult.value
   await openEventFromRoute()
@@ -1065,18 +1105,28 @@ onBeforeUnmount(() => {
 .gateway-requests td:first-child span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gateway-requests code { font-size: 11px; }
 .trace-page {
-  max-width: 1560px;
-  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  width: 100%;
+  min-width: 0;
   color: #172033;
 }
 
 .trace-header {
+  flex-shrink: 0;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  min-height: 32px;
+  margin-bottom: 12px;
 }
+.trace-header-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.header-session-count { margin-right: 4px; color: #667085; font-size: 12px; }
 
 .eyebrow,
 .trace-kicker {
@@ -1088,9 +1138,12 @@ onBeforeUnmount(() => {
 }
 
 .trace-header h1 {
-  margin: 4px 0 6px;
+  margin: 0;
   font-size: 22px;
-  line-height: 1.15;
+  font-weight: 600;
+  line-height: 32px;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
 }
 
 .trace-header p,
@@ -1099,21 +1152,22 @@ onBeforeUnmount(() => {
   color: #667085;
 }
 
-.trace-alert { margin-bottom: 16px; }
+.trace-alert { margin-bottom: 16px; flex-shrink: 0; max-height: 25%; overflow: auto; }
 
 .trace-query-ribbon {
-  margin-bottom: 8px;
-  overflow: hidden;
+  flex-shrink: 0;
+  max-height: 35%;
+  margin-bottom: 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid #d7dfeb;
   border-radius: 4px;
   background: #fff;
 }
-.query-ribbon-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 16px 10px; background: linear-gradient(100deg, #f3f7ff, #fff 60%); }
-.query-ribbon-heading > div { display: grid; gap: 2px; }
-.query-ribbon-heading strong { color: #24344f; font-size: 15px; }
-.query-ribbon-heading small { color: #738096; font-size: 11px; }
-.query-result-count { padding: 4px 9px; border: 1px solid #c9d5e9; border-radius: 999px; color: #31568f; background: #f7faff; font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
-.query-controls { display: grid; grid-template-columns: minmax(130px, .9fr) minmax(130px, .9fr) minmax(130px, .7fr) minmax(160px, 1.15fr) auto auto auto; align-items: center; gap: 8px; padding: 11px 14px; border-top: 1px solid #e5eaf2; border-bottom: 1px solid #e5eaf2; }
+.query-controls { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: center; gap: 8px; padding: 11px 14px; border-top: 1px solid #e5eaf2; border-bottom: 1px solid #e5eaf2; }
+.query-controls > * { min-width: 0; }
+.query-date-range { grid-column: span 2; width: 100%; }
+.query-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .error-query-toggle { display: flex; min-height: 32px; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid #d9d9d9; border-radius: 6px; color: #4f5d72; background: #fafbfc; font-size: 12px; white-space: nowrap; cursor: pointer; }
 .query-ledger { position: relative; display: flex; min-height: 42px; align-items: center; flex-wrap: wrap; gap: 7px; padding: 8px 14px 8px 28px; color: #788397; background: #fbfcfe; font-size: 11px; }
 .query-ledger::before { position: absolute; top: 0; bottom: 0; left: 18px; border-left: 1px dashed #9aaccc; content: ''; }
@@ -1127,21 +1181,20 @@ onBeforeUnmount(() => {
 .trace-query-ribbon > p { margin: 0; padding: 8px 14px; border-top: 1px solid #e8ecf3; color: #7d8798; font-size: 10px; line-height: 1.5; }
 
 .trace-workspace {
+  flex: 1;
   display: grid;
+  grid-template-rows: minmax(0, 1fr);
   grid-template-columns: 210px minmax(0, 1fr);
-  min-height: 690px;
+  min-height: 0;
   overflow: hidden;
   border: 1px solid #dfe4ed;
   border-radius: 4px;
   background: #fff;
 }
 .trace-workspace.detail-visible { grid-template-columns: 210px minmax(0, 1fr) minmax(300px, 36%); }
-.query-disclosure { margin-bottom: 12px; font-size: 12px; }
-.query-disclosure > summary { cursor: pointer; padding: 6px 0; color: #596579; }
-.query-disclosure > summary span { margin-left: 12px; color: #7b8496; }
-.trace-metadata { margin-bottom: 12px; font-size: 12px; }
+.trace-metadata { margin-bottom: 12px; font-size: 12px; flex-shrink: 0; max-height: 35%; overflow: auto; overscroll-behavior: contain; }
 .trace-metadata > summary { cursor: pointer; color: #69717c; padding: 6px 0; }
-.trace-detail-panel { min-width: 0; padding: 14px; border-left: 1px solid #dfe4ed; background: #fff; max-height: calc(100vh - 110px); overflow: auto; position: sticky; top: 0; }
+.trace-detail-panel { min-width: 0; min-height: 0; padding: 14px; border-left: 1px solid #dfe4ed; background: #fff; overflow: auto; overscroll-behavior: contain; }
 .detail-panel-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 16px; font-size: 13px; }
 .detail-panel-heading .ant-btn { width: 28px; height: 28px; padding: 0; }
 .node-evidence { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 12px 0; font-size: 12px; }
@@ -1182,7 +1235,7 @@ onBeforeUnmount(() => {
   font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.session-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; }
+.session-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px; }
 .session-item {
   display: grid;
   width: 100%;
@@ -1207,7 +1260,11 @@ onBeforeUnmount(() => {
 .session-meta { display: flex; justify-content: space-between; gap: 8px; color: #8a93a2; font-size: 11px; }
 .session-pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding: 12px; border-top: 1px solid #dfe4ed; color: #667085; font-size: 11px; }
 
-.trace-stage { min-width: 0; padding: 14px; background: #fff; }
+.trace-stage { min-width: 0; min-height: 0; padding: 14px; background: #fff; overflow: auto; overscroll-behavior: contain; }
+.trace-stage > :deep(.ant-spin-nested-loading),
+.trace-stage > :deep(.ant-spin-nested-loading > .ant-spin-container) { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.trace-stage :deep(.trajectory-stream) { flex: 1; min-height: 320px; }
+.stage-heading, .event-pagination, .privacy-note { flex-shrink: 0; }
 .stage-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .stage-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; }
 .trace-identity { min-width: 0; }
@@ -1385,15 +1442,17 @@ onBeforeUnmount(() => {
 @media (max-width: 1100px) {
   .query-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .error-query-toggle { justify-content: center; }
-  .trace-workspace, .trace-workspace.detail-visible { grid-template-columns: 1fr; }
+  .trace-workspace, .trace-workspace.detail-visible { grid-template-columns: 1fr; grid-template-rows: minmax(0, 200px) minmax(0, 1fr); }
   .trace-detail-panel { position: fixed; inset: 56px 0 0 auto; width: min(440px, 100%); max-height: none; z-index: 100; box-shadow: -8px 0 24px #17203318; }
-  .session-panel { height: 180px; max-height: 180px; border-right: 0; border-bottom: 1px solid #dfe4ed; }
+  .session-panel { border-right: 0; border-bottom: 1px solid #dfe4ed; }
   .session-list { display: grid; align-content: start; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .governance-ledger { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .performance-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 680px) {
+  .trace-header-actions { gap: 6px; }
+  .header-session-count { margin-right: 0; font-size: 11px; }
   .trace-header,
   .stage-heading,
   .view-intro { align-items: stretch; flex-direction: column; }
@@ -1402,8 +1461,8 @@ onBeforeUnmount(() => {
   .trace-stage { padding: 16px; }
   .trace-header p,
   .conversation-view .view-intro p { display: none; }
-  .query-ribbon-heading { align-items: flex-start; flex-direction: column; }
   .query-controls { grid-template-columns: 1fr; }
+  .query-date-range { grid-column: span 1; }
   .query-controls :deep(.ant-btn) { width: 100%; }
   .query-ledger { align-items: flex-start; flex-direction: column; padding-left: 30px; }
   .query-token { max-width: 100%; }

@@ -116,20 +116,20 @@ const errorMessages = {
     'en-US': 'The model did not return a usable documentation answer',
   },
   'agent_security.feature_disabled': {
-    'zh-CN': '智能体安全扫描功能未启用',
-    'en-US': 'Agent security scanning is not enabled',
+    'zh-CN': 'AI 安全扫描功能未启用',
+    'en-US': 'AI security scanning is not enabled',
   },
   'runtime_trace.feature_disabled': {
     'zh-CN': '统一调用轨迹功能未启用',
     'en-US': 'Runtime trace is not enabled',
   },
   'agent_security.baseline_unavailable': {
-    'zh-CN': '智能体安全上游版本清单不存在',
-    'en-US': 'The Agent Security upstream lock is unavailable',
+    'zh-CN': 'AI 安全上游版本清单不存在',
+    'en-US': 'The AI Security upstream lock is unavailable',
   },
   'agent_security.baseline_invalid': {
-    'zh-CN': '智能体安全上游版本清单校验失败',
-    'en-US': 'The Agent Security upstream lock is invalid',
+    'zh-CN': 'AI 安全上游版本清单校验失败',
+    'en-US': 'The AI Security upstream lock is invalid',
   },
   'agent_security.usage_not_monotonic': {
     'zh-CN': 'Worker 上报的累计用量不能减少',

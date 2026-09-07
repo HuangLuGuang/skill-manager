@@ -43,7 +43,6 @@ export const i18n = createI18n({
         },
       },
       agentSecurity: {
-        groupMenu: '智能体安全',
       },
       agenticRiskTaxonomy: {
         framework: 'OWASP 智能体应用 Top 10（首个公开草案）',
@@ -88,12 +87,13 @@ export const i18n = createI18n({
         },
         search: {
           eyebrow: '搜索', title: '证据检索', description: '按协议字段筛选会话和事件。', sessionsMatched: '{count} 个会话',
+          createdFrom: '创建开始时间（北京）', createdTo: '创建结束时间（北京）', beijingTime: '会话创建时间（北京时间 UTC+8）',
           turn: 'Turn ID', turnPlaceholder: '精确 Turn ID', tool: 'Tool', toolPlaceholder: '精确 Tool 名称',
           risk: '风险等级', allRisks: '全部风险', error: '错误', errorsOnly: '仅含错误', errorValue: '是',
           request: 'Request ID', requestPlaceholder: '精确 Request ID', apply: '搜索', reset: '清除', active: '已生效条件',
           none: '未设置搜索条件', noResults: '没有会话同时满足当前条件。', noEventResults: '当前会话没有事件同时满足这些事件条件。', remove: '移除{field}条件',
-          boundary: '按稳定协议字段筛选；风险等级作用于会话，其余条件作用于事件。',
-          filteredBoundary: '风险等级作用于会话，其余条件作用于事件；仅显示已加载的脱敏事件。',
+          boundary: '时间和风险等级筛选会话，其余条件筛选事件。',
+          filteredBoundary: '时间和风险等级作用于会话，其余条件作用于事件；仅显示已加载的脱敏事件。',
         },
         sessions: { title: '会话轨迹', total: '共 {total} 条', events: '{count} 个事件', empty: '还没有可查看的调用轨迹' },
         views: { conversation: '对话', trace: '轨迹' },
@@ -182,7 +182,7 @@ export const i18n = createI18n({
           updated: '更新于 {value}', refreshFailed: '进度刷新失败，正在重试', unavailable: '无进度记录',
           statuses: { queued: '待执行', running: '执行中', passed: '攻击未成功', failed: '发现风险', error: '执行错误', unverified: '未评估' },
         },
-        menu: '扫描管理', eyebrow: 'Agent Security Operations', title: '智能体安全扫描',
+        menu: '安全扫描', eyebrow: 'AI Security Operations', title: 'AI 安全扫描',
         subtitle: '管理扫描入口、执行边界与风险处置，并从任务追溯到原始报告。', pipelineLabel: '安全扫描生命周期',
         refresh: '刷新', newTask: '发起扫描', status: '状态', actions: '操作', createdAt: '创建时间', updatedAt: '更新时间', environment: '环境', allowedCapabilities: '允许能力', capabilityCount: '{value} 项能力',
         edit: '编辑', view: '查看', enable: '启用', disable: '停用', enabled: '已启用', disabled: '已停用', readOnly: '只读',
@@ -250,7 +250,7 @@ export const i18n = createI18n({
           datasetCatalog: {
             title: '越狱评测集', choose: '选择数据集', selected: '已选 {count} 个',
             search: '搜索名称、描述、标签', searchAction: '搜索', total: '共 {count} 个评测集',
-            samples: '共 {count} 条', recommendation: '推荐指数', rating: '推荐指数 {value} / 5',
+            samples: '共 {count} 条',
             empty: '没有匹配的评测集', details: '评测集详情：{name}', prompt: 'Prompt',
             retry: '重试', emptyPrompts: '暂无 Prompt', loadFailed: '评测集加载失败，请重试',
             selectDataset: '选择 {name}', done: '完成选择',
@@ -969,7 +969,6 @@ export const i18n = createI18n({
         },
       },
       agentSecurity: {
-        groupMenu: 'Agent Security',
       },
       agenticRiskTaxonomy: {
         framework: 'OWASP Top 10 for Agentic Applications (1st Public Draft)',
@@ -1014,12 +1013,13 @@ export const i18n = createI18n({
         },
         search: {
           eyebrow: 'Search', title: 'Evidence query', description: 'Filter sessions and events by protocol fields.', sessionsMatched: '{count} sessions',
+          createdFrom: 'Created from (UTC+8)', createdTo: 'Created to (UTC+8)', beijingTime: 'Session creation time (Beijing, UTC+8)',
           turn: 'Turn ID', turnPlaceholder: 'Exact Turn ID', tool: 'Tool', toolPlaceholder: 'Exact tool name',
           risk: 'Risk level', allRisks: 'All risks', error: 'Error', errorsOnly: 'Errors only', errorValue: 'Yes',
           request: 'Request ID', requestPlaceholder: 'Exact Request ID', apply: 'Search', reset: 'Clear', active: 'Active conditions',
           none: 'No search conditions', noResults: 'No session matches all active conditions.', noEventResults: 'No event in this session matches all event conditions.', remove: 'Remove {field} condition',
-          boundary: 'Filter by stable protocol fields; risk level filters sessions, other conditions filter event fields.',
-          filteredBoundary: 'Risk level applies to sessions; other conditions apply to events. Only loaded redacted events are shown.',
+          boundary: 'Time and risk level filter sessions; other conditions filter events.',
+          filteredBoundary: 'Time and risk level apply to sessions; other conditions apply to events. Only loaded redacted events are shown.',
         },
         sessions: { title: 'Session traces', total: '{total} total', events: '{count} events', empty: 'No runtime traces are available yet' },
         views: { conversation: 'Conversation', trace: 'Trace' },
@@ -1108,7 +1108,7 @@ export const i18n = createI18n({
           updated: 'Updated {value}', refreshFailed: 'Progress refresh failed. Retrying.', unavailable: 'No progress recorded',
           statuses: { queued: 'Queued', running: 'Running', passed: 'Attack resisted', failed: 'Risk detected', error: 'Execution error', unverified: 'Not evaluated' },
         },
-        menu: 'Scan Management', eyebrow: 'Agent Security Operations', title: 'Agent Security Scanning',
+        menu: 'Security Scanning', eyebrow: 'AI Security Operations', title: 'AI Security Scanning',
         subtitle: 'Manage scan entry points, execution boundaries, risk disposition, and traceable reports.', pipelineLabel: 'Security scan lifecycle',
         refresh: 'Refresh', newTask: 'Start scan', status: 'Status', actions: 'Actions', createdAt: 'Created', updatedAt: 'Updated', environment: 'Environment', allowedCapabilities: 'Allowed capabilities', capabilityCount: '{value} capabilities',
         edit: 'Edit', view: 'View', enable: 'Enable', disable: 'Disable', enabled: 'Enabled', disabled: 'Disabled', readOnly: 'Read only',
@@ -1176,7 +1176,7 @@ export const i18n = createI18n({
           datasetCatalog: {
             title: 'Jailbreak evaluation datasets', choose: 'Choose datasets', selected: '{count} selected',
             search: 'Search names, descriptions, tags', searchAction: 'Search', total: '{count} datasets',
-            samples: '{count} samples', recommendation: 'Recommendation', rating: 'Recommendation {value} / 5',
+            samples: '{count} samples',
             empty: 'No matching datasets', details: 'Dataset details: {name}', prompt: 'Prompt',
             retry: 'Retry', emptyPrompts: 'No prompts', loadFailed: 'Unable to load dataset. Please retry.',
             selectDataset: 'Select {name}', done: 'Done',

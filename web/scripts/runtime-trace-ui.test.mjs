@@ -267,8 +267,10 @@ test('P5-08 normalizes stable trace and event search fields without display-text
   const filters = {
     turn_id: '  turn-7  ', tool_name: ' search ', request_id: ' req-9 ',
     risk_level: 'high', has_error: true,
+    created_from: '2026-09-07T00:00:00+08:00', created_to: '2026-09-07T23:59:59+08:00',
   }
   assert.deepEqual(runtimeTraceSearchParams(filters), {
+    created_from: '2026-09-07T00:00:00+08:00', created_to: '2026-09-07T23:59:59+08:00',
     turn_id: 'turn-7', tool_name: 'search', request_id: 'req-9', risk_level: 'high', has_error: true,
   })
   assert.deepEqual(runtimeTraceEventSearchParams(filters), {
@@ -294,8 +296,8 @@ test('P5-08 exposes the five-field evidence search ribbon and server-side filter
   assert.match(backend, /has_error: bool = False/)
   assert.match(backend, /errors_only: bool = False/)
   assert.match(backend, /RuntimeTraceEvent\.type\.like\("%\.error"\)/)
-  assert.match(i18n, /稳定协议字段/)
-  assert.match(i18n, /stable protocol fields/)
+  assert.match(i18n, /时间和风险等级筛选会话/)
+  assert.match(i18n, /Time and risk level filter sessions/)
 })
 
 test('P5-09 virtualizes a 10k-event trace without materializing every event row', () => {

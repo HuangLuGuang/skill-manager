@@ -18,7 +18,7 @@ const zh = {
       { slug: 'credential-management', title: '统一凭证中心', summary: '按调用主体签发最小权限凭证' },
       { slug: 'runtime-integration', title: '接入与运行', summary: 'Skill Verifier、事件 Hook 与结果判断' },
       { slug: 'hook-integration', title: 'Hook 接入', summary: 'Claude Code、Codex 与 OpenClaw 事件拦截配置' },
-      { slug: 'agent-security-runtime', title: '智能体安全与调用轨迹', summary: 'Agent、MCP、大模型与 AI 基础设施测评、Worker、证据解释与统一轨迹' },
+      { slug: 'agent-security-runtime', title: 'AI 安全与调用轨迹', summary: 'Agent、MCP、大模型与 AI 基础设施测评、Worker、证据解释与统一轨迹' },
       { slug: 'audit-trail', title: '审计追踪', summary: '查询 Skill、Agent、客户端与 Tool 事件' },
     ] },
     { title: '模型网关', items: [
@@ -1006,13 +1006,13 @@ const zh = {
     },
     'agent-security-runtime': {
       eyebrow: '智能体管理',
-      title: '智能体安全扫描与统一调用轨迹',
+      title: 'AI 安全扫描与统一调用轨迹',
       summary: '配置 Agent、MCP、大模型与 AI 基础设施安全测评，正确解释用例和 Finding，并用脱敏统一轨迹关联模型、Tool、治理与知识检索事件。',
       sections: [
         {
           id: 'enabled-scope',
           title: '当前已启用的范围',
-          paragraphs: ['“智能体安全”下的扫描管理和调用轨迹页面默认开启，不需要在 .env 中配置页面开关。扫描执行仍需要管理员创建目标、策略和独立 Worker；页面可见不等于外部目标已经通过验收。'],
+          paragraphs: ['侧边栏的“安全扫描”和“调用轨迹”是独立入口，位于模型网关之后、系统管理之前，页面默认开启，不需要在 .env 中配置页面开关。扫描执行仍需要管理员创建目标、策略和独立 Worker；页面可见不等于外部目标已经通过验收。'],
           table: { columns: ['能力', '当前行为', '不能据此声称'], rows: [
             ['Agent 风险扫描', '在出站、预算、超时和能力策略内向已授权目标发送测试对话', '不覆盖未执行的场景，也不是无限制攻击链复现'],
             ['MCP 风险扫描', '读取任务创建时冻结的 Gateway、Server、Tool 描述和 Schema 元数据', '不执行 tools/call，不验证 Tool 的真实副作用'],
@@ -1020,7 +1020,7 @@ const zh = {
             ['AI 基础设施扫描', '主动访问显式授权 URL，识别组件指纹并按具体版本匹配 CVE 规则', '端口或未知版本不是已确认漏洞，也不能解释为安全'],
             ['统一调用轨迹', '保存 Agent SDK、模型网关、MCP 网关和运行治理实际发布的事件', '不能从只有 Gateway 的流量推断完整 Agent Turn/Step'],
           ] },
-          link: { path: '/agent-security/scans', label: '打开扫描管理' },
+          link: { path: '/agent-security/scans', label: '打开安全扫描' },
         },
         {
           id: 'scan-workflow',
@@ -1032,7 +1032,7 @@ const zh = {
             { title: '观察任务而不是重复提交', body: '任务会经历 pending、running 和终态。使用刷新、取消或 Kill Switch；Kill Switch 阻止后续请求，已经发出的请求按目标或评估器超时结束。' },
             { title: '从任务复核证据链', body: '同时查看执行用例、Finding、证据、原始产物摘要、引擎版本、覆盖快照和停止原因。Finding 有真实 trace_id 与 event_id 时才能跳转到对应事件。', expected: '每个结论都能定位到用例、事件或明确的“未验证”原因。' },
           ],
-          link: { path: '/agent-security/scans', label: '打开智能体安全扫描' },
+          link: { path: '/agent-security/scans', label: '打开 AI 安全扫描' },
         },
         {
           id: 'interpret-results',
@@ -1355,7 +1355,7 @@ const en = {
       { slug: 'credential-management', title: 'Credential center', summary: 'Issue least-privilege credentials by caller' },
       { slug: 'runtime-integration', title: 'Access and runtime', summary: 'Skill Verifier, event Hooks, and result handling' },
       { slug: 'hook-integration', title: 'Hook integration', summary: 'Configure event enforcement for Claude Code, Codex, and OpenClaw' },
-      { slug: 'agent-security-runtime', title: 'Agent security and runtime traces', summary: 'Agent, MCP, LLM, and AI infrastructure assessments, Worker operations, evidence, and unified traces' },
+      { slug: 'agent-security-runtime', title: 'AI security and runtime traces', summary: 'Agent, MCP, LLM, and AI infrastructure assessments, Worker operations, evidence, and unified traces' },
       { slug: 'audit-trail', title: 'Audit trail', summary: 'Query Skill, Agent, Client, and Tool events' },
     ] },
     { title: 'Model gateway', items: [
@@ -1823,12 +1823,12 @@ en.articles['credential-management'] = {
 
 en.articles['agent-security-runtime'] = {
   eyebrow: 'Agent management',
-  title: 'Agent security scanning and unified runtime traces',
+  title: 'AI security scanning and unified runtime traces',
   summary: 'Configure Agent, MCP, LLM, and AI infrastructure security assessments, interpret cases and findings correctly, and correlate redacted model, Tool, governance, and retrieval evidence in unified traces.',
   sections: [
     {
       id: 'enabled-scope', title: 'Capabilities enabled now',
-      paragraphs: ['Scan Management and Runtime Traces are enabled by default under Agent Security. No .env page flag is required. Executing scans still requires an administrator to create targets, policies, and an independent Worker; a visible page is not evidence that an external target passed acceptance.'],
+      paragraphs: ['Security Scanning and Runtime Traces are direct sidebar entries after Model Gateway and before System Management, enabled by default. No .env page flag is required. Executing scans still requires an administrator to create targets, policies, and an independent Worker; a visible page is not evidence that an external target passed acceptance.'],
       table: { columns: ['Capability', 'Current behavior', 'What it does not prove'], rows: [
         ['Agent risk scan', 'Sends test conversations to an authorized target within outbound, budget, timeout, and capability policy', 'It does not cover unexecuted scenarios or reproduce an unlimited attack chain'],
         ['MCP risk scan', 'Reads the Gateway, Server, Tool descriptions, and Schema metadata frozen when the task was created', 'It does not execute tools/call or verify real Tool side effects'],
@@ -1836,7 +1836,7 @@ en.articles['agent-security-runtime'] = {
         ['AI infrastructure scan', 'Actively visits explicitly authorized URLs, fingerprints components, and matches CVE rules to concrete versions', 'An open port or unknown version is neither a confirmed vulnerability nor proof of safety'],
         ['Unified runtime trace', 'Stores events actually published by the Agent SDK, Model Gateway, MCP Gateway, and Runtime Governance', 'Gateway-only traffic cannot establish a complete Agent Turn/Step trace'],
       ] },
-      link: { path: '/agent-security/scans', label: 'Open Scan Management' },
+      link: { path: '/agent-security/scans', label: 'Open Security Scanning' },
     },
     {
       id: 'scan-workflow', title: 'Run and review one security scan',
@@ -1847,7 +1847,7 @@ en.articles['agent-security-runtime'] = {
         { title: 'Observe the task instead of resubmitting', body: 'A task moves through pending, running, and a terminal state. Use refresh, cancel, or Kill Switch. Kill Switch prevents subsequent requests; in-flight calls end through target or evaluator timeouts.' },
         { title: 'Review the evidence chain', body: 'Read cases, findings, evidence, raw-artifact summary, engine version, coverage snapshot, and stop reason together. A Finding links to an event only when the server stored a valid trace_id and event_id pair.', expected: 'Every conclusion resolves to a case, event, or an explicit Unverified reason.' },
       ],
-      link: { path: '/agent-security/scans', label: 'Open Agent Security Scans' },
+      link: { path: '/agent-security/scans', label: 'Open AI Security Scanning' },
     },
     {
       id: 'interpret-results', title: 'Interpret success, passed cases, and zero Findings correctly',

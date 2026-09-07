@@ -10,6 +10,8 @@ export const TRACE_LANES = Object.freeze([
 const cleanSearchValue = value => typeof value === 'string' && value.trim() ? value.trim() : undefined
 
 export const runtimeTraceSearchParams = (filters = {}) => ({
+  ...(cleanSearchValue(filters.created_from) ? { created_from: cleanSearchValue(filters.created_from) } : {}),
+  ...(cleanSearchValue(filters.created_to) ? { created_to: cleanSearchValue(filters.created_to) } : {}),
   ...(cleanSearchValue(filters.turn_id) ? { turn_id: cleanSearchValue(filters.turn_id) } : {}),
   ...(cleanSearchValue(filters.tool_name) ? { tool_name: cleanSearchValue(filters.tool_name) } : {}),
   ...(cleanSearchValue(filters.request_id) ? { request_id: cleanSearchValue(filters.request_id) } : {}),
@@ -21,7 +23,7 @@ export const runtimeTraceSearchParams = (filters = {}) => ({
 
 export const runtimeTraceEventSearchParams = (filters = {}) => {
   const params = runtimeTraceSearchParams(filters)
-  const { risk_level: _riskLevel, has_error: hasError, ...eventParams } = params
+  const { risk_level: _riskLevel, created_from: _createdFrom, created_to: _createdTo, has_error: hasError, ...eventParams } = params
   return { ...eventParams, ...(hasError ? { errors_only: true } : {}) }
 }
 

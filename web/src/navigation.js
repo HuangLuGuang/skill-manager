@@ -1,25 +1,6 @@
 export const navigationItems = [
   { key: '/dashboard', label: '平台总览', icon: 'dashboard' },
   {
-    key: 'agent-security-vnext',
-    label: 'agentSecurity.groupMenu',
-    icon: 'safety',
-    children: [
-      {
-        key: '/agent-security/scans',
-        label: 'agentSecurityScans.menu',
-        icon: 'fileSearch',
-        feature: 'agent_security_scanning',
-      },
-      {
-        key: '/runtime-traces',
-        label: 'runtimeTraceExplorer.menu',
-        icon: 'audit',
-        feature: 'runtime_trace',
-      },
-    ],
-  },
-  {
     key: 'capability-governance',
     label: '能力治理',
     icon: 'fileSearch',
@@ -77,6 +58,18 @@ export const navigationItems = [
       { key: '/model-gateway/user-stats', label: '用户 Token 分析', icon: 'team' },
       { key: '/pipeline-trace', label: '隐私链路追踪', icon: 'audit' },
     ],
+  },
+  {
+    key: '/agent-security/scans',
+    label: 'agentSecurityScans.menu',
+    icon: 'fileSearch',
+    feature: 'agent_security_scanning',
+  },
+  {
+    key: '/runtime-traces',
+    label: 'runtimeTraceExplorer.menu',
+    icon: 'audit',
+    feature: 'runtime_trace',
   },
   {
     key: 'system-admin',

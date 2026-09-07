@@ -158,7 +158,7 @@ test('Ask AI finds the dedicated Hook integration guide', () => {
   }
 })
 
-test('Agent Security help is bilingual and describes only enabled evidence boundaries', () => {
+test('AI Security help is bilingual and describes only enabled evidence boundaries', () => {
   const expected = {
     'zh-CN': ['页面默认开启', '不执行 tools/call', '任务 succeeded 只表示执行契约完成', '当前 Token 不支持原地轮换', 'PDF 不支持原始级别'],
     'en-US': ['enabled by default', 'does not execute tools/call', 'Task succeeded means the execution contract completed', 'Tokens cannot be rotated in place', 'PDF does not support raw classification'],
@@ -171,10 +171,10 @@ test('Agent Security help is bilingual and describes only enabled evidence bound
   }
 })
 
-test('Ask AI finds Agent Security scanning and runtime-trace guidance in both languages', () => {
+test('Ask AI finds AI Security scanning and runtime-trace guidance in both languages', () => {
   const questions = {
-    'zh-CN': '智能体安全扫描 succeeded 和零 Finding 是不是代表安全，调用轨迹完整度怎么看？',
-    'en-US': 'Do Agent Security scan succeeded and zero Findings mean safe, and how do I read runtime trace completeness?',
+    'zh-CN': 'AI 安全扫描 succeeded 和零 Finding 是不是代表安全，调用轨迹完整度怎么看？',
+    'en-US': 'Do AI Security scan succeeded and zero Findings mean safe, and how do I read runtime trace completeness?',
   }
   for (const [locale, query] of Object.entries(questions)) {
     const [first] = rankDocsContexts({ content: docsContent[locale], query })

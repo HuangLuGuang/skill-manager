@@ -10,11 +10,12 @@
     </div>
   </div>
 
-  <a-drawer v-model:open="open" width="min(980px, 100vw)" :title="t('agentSecurityScans.tasks.datasetCatalog.title')" :body-style="{ padding: '20px' }">
+  <a-drawer v-model:open="open" width="min(980px, 100vw)" :title="t('agentSecurityScans.tasks.datasetCatalog.title')" :body-style="{ padding: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }">
     <div class="catalog-toolbar">
       <a-input-search v-model:value="query" allow-clear :placeholder="t('agentSecurityScans.tasks.datasetCatalog.search')" :enter-button="t('agentSecurityScans.tasks.datasetCatalog.searchAction')" @search="applySearch" @change="handleSearchChange" />
       <span class="catalog-total">{{ t('agentSecurityScans.tasks.datasetCatalog.total', { count: filteredDatasets.length }) }}</span>
     </div>
+    <div class="catalog-results">
     <a-spin :spinning="loading">
       <div class="dataset-list">
         <article v-for="dataset in pageDatasets" :key="dataset.name" class="dataset-entry" :class="{ 'is-selected': modelValue.includes(dataset.name) }">
@@ -24,18 +25,17 @@
             <span v-if="dataset.language" class="dataset-language">{{ dataset.language }}</span>
             <span class="dataset-samples">{{ t('agentSecurityScans.tasks.datasetCatalog.samples', { count: dataset.count.toLocaleString(locale) }) }}</span>
           </header>
-          <div class="dataset-recommendation">
-            <span>{{ t('agentSecurityScans.tasks.datasetCatalog.recommendation') }}</span>
-            <a-rate :value="dataset.recommendation" disabled :aria-label="t('agentSecurityScans.tasks.datasetCatalog.rating', { value: dataset.recommendation })" />
-          </div>
+          <div class="dataset-content" tabindex="0">
           <div v-if="dataset.tags.length" class="dataset-tags">
             <a-tag v-for="tag in dataset.tags" :key="tag">{{ tag }}</a-tag>
           </div>
           <p class="dataset-description">{{ description(dataset) }}</p>
+          </div>
         </article>
         <a-empty v-if="!loading && !filteredDatasets.length" :description="t('agentSecurityScans.tasks.datasetCatalog.empty')" />
       </div>
     </a-spin>
+    </div>
     <div class="catalog-pagination">
       <a-pagination v-model:current="page" :total="filteredDatasets.length" :page-size="pageSize" :show-size-changer="false" :hide-on-single-page="true" />
     </div>
@@ -77,7 +77,7 @@ const open = ref(false)
 const query = ref('')
 const search = ref('')
 const page = ref(1)
-const pageSize = 3
+const pageSize = 4
 const description = dataset => locale.value === 'zh-CN' ? dataset.description_zh || dataset.description : dataset.description || dataset.description_zh
 const filteredDatasets = computed(() => {
   const needle = search.value.trim().toLocaleLowerCase()
@@ -129,20 +129,23 @@ watch(() => props.datasets, () => { page.value = 1 })
 .selection-count, .catalog-total { color: #697180; font-size: 13px; }
 .selected-datasets { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
 .selected-datasets :deep(.ant-tag) { margin: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
-.catalog-toolbar { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+.catalog-toolbar { display: flex; flex-shrink: 0; align-items: center; gap: 16px; margin-bottom: 12px; }
 .catalog-total { flex-shrink: 0; }
-.dataset-list { display: grid; gap: 16px; }
-.dataset-entry { min-width: 0; padding: 22px; border: 1px solid #dce2eb; border-radius: 8px; background: #fff; }
+.catalog-results { flex: 1; min-height: 0; overflow: hidden; }
+.catalog-results :deep(.ant-spin-nested-loading),
+.catalog-results :deep(.ant-spin-container) { height: 100%; min-height: 0; }
+.dataset-list { display: grid; grid-template-rows: repeat(4, minmax(132px, 1fr)); gap: 10px; height: 100%; overflow: auto; overscroll-behavior: contain; }
+.dataset-entry { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 8px; min-width: 0; min-height: 0; padding: 12px 14px; border: 1px solid #dce2eb; border-radius: 6px; background: #fff; }
+.dataset-content { min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .dataset-entry.is-selected { border-color: #1677ff; box-shadow: inset 3px 0 #1677ff; }
 .dataset-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; }
-.dataset-heading h3 { min-width: 0; margin: 0; font-size: 20px; line-height: 1.4; font-weight: 650; color: #17202e; overflow-wrap: anywhere; }
+.dataset-heading h3 { flex: 1; min-width: 0; margin: 0; max-height: 48px; overflow: auto; font-size: 16px; line-height: 24px; font-weight: 650; color: #17202e; overflow-wrap: anywhere; }
 .dataset-language { padding: 3px 10px; border-radius: 6px; background: #202124; color: #fff; font-size: 13px; font-weight: 600; }
 .dataset-samples { color: #697180; font-size: 14px; margin-left: auto; }
-.dataset-recommendation { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; color: #a96b00; font-size: 13px; }
-.dataset-recommendation :deep(.ant-rate) { color: #e6a817; font-size: 19px; }
-.dataset-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.dataset-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.dataset-tags :deep(.ant-tag) { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .dataset-tags :deep(.ant-tag) { margin: 0; color: #515b6a; background: #f7f8fa; border-color: #e0e4ea; }
-.dataset-description { margin: 16px 0; color: #3d4756; font-size: 14px; line-height: 1.75; overflow-wrap: anywhere; white-space: pre-wrap; }
+.dataset-description { margin: 6px 0 0; color: #3d4756; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
 .dataset-name { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
 .dataset-name:hover { color: #1677ff; text-decoration: underline; }
 .dataset-name:focus-visible { outline: 2px solid #1677ff; outline-offset: 4px; }
@@ -150,13 +153,13 @@ watch(() => props.datasets, () => { page.value = 1 })
 .dataset-prompts :deep(table) { table-layout: fixed; }
 .detail-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
 .detail-error { margin-bottom: 12px; }
-.catalog-pagination { display: flex; justify-content: center; margin: 24px 0 4px; }
+.catalog-pagination { display: flex; flex-shrink: 0; justify-content: center; min-height: 32px; margin-top: 12px; }
 .catalog-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 @media (max-width: 600px) {
   .catalog-toolbar { align-items: stretch; flex-direction: column; gap: 8px; }
-  .dataset-entry { padding: 16px; }
+  .dataset-entry { padding: 10px; }
   .dataset-heading { gap: 8px; }
-  .dataset-heading h3 { font-size: 17px; flex-basis: calc(100% - 28px); }
+  .dataset-heading h3 { font-size: 16px; flex-basis: calc(100% - 28px); }
   .dataset-samples { margin-left: 0; }
   .dataset-description { font-size: 13px; }
 }

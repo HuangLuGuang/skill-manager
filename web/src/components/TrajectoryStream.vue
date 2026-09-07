@@ -45,7 +45,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { DownOutlined, ExpandAltOutlined, EyeOutlined, RightOutlined, SearchOutlined, ShrinkOutlined, UpOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons-vue'
 import { eventStatusTone } from '../runtimeTraceView'
@@ -61,6 +61,15 @@ const toggleAll = () => { closedGroups.value = new Set(); collapsed.value = !col
 const follow = ref(false)
 const scrollTop = ref(0)
 const height = ref(600)
+let viewportObserver
+onMounted(() => {
+  viewportObserver = new ResizeObserver(() => {
+    height.value = viewport.value.clientHeight
+    scrollTop.value = viewport.value.scrollTop
+  })
+  viewportObserver.observe(viewport.value)
+})
+onBeforeUnmount(() => viewportObserver?.disconnect())
 const matchIndex = ref(0)
 const rowHeight = computed(() => props.mode === 'conversation' ? 88 : 40)
 const requestGroups = computed(() => new Set(props.rows.filter(row => row.kind === 'request' && row.group).map(row => row.group)))
@@ -135,7 +144,8 @@ watch([collapsed, closedGroups, () => props.mode], () => { scrollTop.value = 0; 
 </script>
 
 <style scoped>
-.trajectory-stream { min-width: 0; border-top: 1px solid #e4e7eb; }
+.trajectory-stream { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-top: 1px solid #e4e7eb; }
+.stream-toolbar, .stream-overview, .stream-footer { flex-shrink: 0; }
 .stream-toolbar { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; padding: 10px 0; }
 .stream-toolbar > .ant-input-affix-wrapper { width: 200px; flex: 1; min-width: 120px; }
 .stream-toolbar > .ant-btn { width: 30px; padding: 0; flex-shrink: 0; }
@@ -147,7 +157,7 @@ watch([collapsed, closedGroups, () => props.mode], () => { scrollTop.value = 0; 
 .overview-lane > span { font-size: 10px; width: 64px; color: #69717c; }
 .overview-track { position: relative; flex: 1; height: 10px; background: #f5f6f8; }
 .overview-track button { position: absolute; width: 1%; min-width: 3px; height: 10px; border: 0; cursor: pointer; padding: 0; background: var(--lane-ink); opacity: .6; }
-.stream-viewport { height: min(62vh, 720px); min-height: 300px; overflow: auto; overscroll-behavior: contain; }
+.stream-viewport { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .stream-entry { position: relative; }
 .request-toggle { position: absolute; left: 2px; top: 50%; transform: translateY(-50%); width: 22px; height: 26px; padding: 0; border: 0; background: transparent; z-index: 1; color: #69717c; cursor: pointer; font-size: 10px; }
 .stream-row { width: 100%; height: 100%; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 27px; text-align: left; border: 0; border-bottom: 1px solid #eef0f3; background: #fff; color: #303640; cursor: pointer; font: inherit; font-size: 12px; }
