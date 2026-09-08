@@ -36,6 +36,12 @@ def _validate_allowed_capabilities(values: list[str]) -> list[str]:
     return normalized
 
 
+class SecurityTargetConnectivityRequest(BaseModel):
+    endpoint_url: str = Field(min_length=1, max_length=2048)
+    allowed_cidrs: list[str] = Field(default_factory=list, max_length=32)
+    allow_insecure_transport: bool = False
+
+
 class SecurityTargetCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     asset_type: str | None = Field(default=None, max_length=32)

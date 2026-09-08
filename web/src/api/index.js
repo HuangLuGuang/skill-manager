@@ -44,6 +44,7 @@ export const listSecurityTargets = () => api.get('/v1/agent-security/targets')
 export const getSecurityRedteamOptions = () => api.get('/v1/agent-security/redteam-options')
 export const getSecurityRedteamDataset = (name, params = {}) => api.get(`/v1/agent-security/redteam-datasets/${encodeURIComponent(name)}`, { params })
 export const createSecurityTarget = data => api.post('/v1/agent-security/targets', data)
+export const testSecurityTargetConnectivity = data => api.post('/v1/agent-security/targets/test-connectivity', data)
 export const updateSecurityTarget = (targetId, data) => api.patch(`/v1/agent-security/targets/${targetId}`, data)
 export const getDifyMcpBindingOptions = targetId =>
   api.get(`/v1/agent-security/targets/${targetId}/dify-mcp-binding-options`)
@@ -85,6 +86,8 @@ export const updateSecurityFinding = (findingId, data) =>
   api.patch(`/v1/agent-security/findings/${findingId}`, data)
 export const getSecurityArtifactContent = (taskId, artifactId) =>
   api.get(`/v1/agent-security/tasks/${taskId}/artifacts/${artifactId}/content`)
+export const exportSecurityScanReportPdf = (taskId, language = 'zh-CN') =>
+  api.get(`/v1/agent-security/tasks/${taskId}/scan-report.pdf`, { params: { language }, responseType: 'blob' })
 export const getDocsAssistantConfig = () => api.get('/config/docs-assistant')
 export const updateDocsAssistantConfig = (data) => api.post('/config/docs-assistant', data)
 export const askDocsAssistant = (data) => api.post('/config/docs-assistant/ask', data)

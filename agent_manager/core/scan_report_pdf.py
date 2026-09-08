@@ -557,7 +557,7 @@ def _styles(language: str) -> dict[str, ParagraphStyle]:
 
 
 class ScanReportTemplate(BaseDocTemplate):
-    def __init__(self, buffer: BytesIO, *, language: str, title: str):
+    def __init__(self, buffer: BytesIO, *, language: str, title: str, report_heading: str | None = None):
         super().__init__(
             buffer,
             pagesize=A4,
@@ -567,9 +567,10 @@ class ScanReportTemplate(BaseDocTemplate):
             bottomMargin=BOTTOM_MARGIN,
             title=title,
             author="River Security",
-            subject="Skill security scan report",
+            subject=report_heading or "Skill security scan report",
         )
         self.language = language
+        self.report_heading = report_heading
         frame = Frame(
             LEFT_MARGIN,
             BOTTOM_MARGIN,
@@ -602,7 +603,7 @@ class ScanReportTemplate(BaseDocTemplate):
                 )
             canvas.setFont(FONT, 8.5)
             canvas.setFillColor(MUTED)
-            header = "Skill 安全扫描报告" if self.language == "zh-CN" else "Skill Security Scan Report"
+            header = self.report_heading or ("Skill 安全扫描报告" if self.language == "zh-CN" else "Skill Security Scan Report")
             canvas.drawRightString(PAGE_WIDTH - RIGHT_MARGIN, PAGE_HEIGHT - 14 * mm, header)
             canvas.setStrokeColor(LINE)
             canvas.setLineWidth(0.6)

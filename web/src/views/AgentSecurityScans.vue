@@ -409,6 +409,7 @@
       v-model:open="targetModalOpen"
       :title="editingTarget ? t('agentSecurityScans.targets.editTitle') : t('agentSecurityScans.targets.createTitle')"
       :confirm-loading="submittingTarget"
+      :ok-button-props="{ disabled: submittingTarget || testingConnectivity }"
       width="min(920px, 94vw)"
       @ok="saveTarget"
     >
@@ -435,7 +436,13 @@
             <a-select-option v-for="gateway in mcpGateways" :key="gateway.id" :value="gateway.id" :label="gateway.name || gateway.slug">{{ gateway.name || gateway.slug }} · {{ gateway.slug }}</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item v-else :label="t('agentSecurityScans.targets.endpoint')" required><a-input v-model:value="targetForm.endpoint_url" :placeholder="t('agentSecurityScans.targets.endpointPlaceholder')" /></a-form-item>
+        <a-form-item v-else :label="t('agentSecurityScans.targets.endpoint')" required>
+          <div class="endpoint-connectivity">
+            <a-input v-model:value="targetForm.endpoint_url" :placeholder="t('agentSecurityScans.targets.endpointPlaceholder')" />
+            <a-button :loading="testingConnectivity" :disabled="testingConnectivity || !targetForm.endpoint_url.trim()" @click="testTargetConnectivity"><template #icon><PlayCircleOutlined /></template>{{ t('agentSecurityScans.targets.testConnectivity') }}</a-button>
+          </div>
+          <a-alert v-if="connectivityResult" class="modal-alert" show-icon :type="connectivityResult.type" :message="connectivityResult.error || t(`agentSecurityScans.targets.${connectivityResult.key}`, { ms: connectivityResult.latency_ms })" />
+        </a-form-item>
         <template v-if="targetForm.connector_type === 'dify'">
           <a-alert class="modal-alert" type="info" show-icon :message="t('agentSecurityScans.inventory.targetConfigBoundary')" />
           <a-row :gutter="16">
@@ -787,6 +794,7 @@
     </a-modal>
 
     <a-drawer v-model:open="detailDrawerOpen" width="min(1440px, 96vw)" :title="t('agentSecurityScans.detail.title')">
+      <template #extra><a-button :loading="exportingReport" :disabled="exportingReport || taskDetailLoading || !taskDetail" @click="exportReport"><template #icon><DownloadOutlined /></template>{{ t('agentSecurityScans.detail.exportPdf') }}</a-button></template>
       <a-spin :spinning="taskDetailLoading">
         <template v-if="taskDetail">
           <div class="detail-identity"><div><span>{{ t('agentSecurityScans.detail.task') }}</span><code>{{ taskDetail.task.task_id }}</code></div><a-tag :color="statusColor(taskDetail.task.status)">{{ statusLabel(taskDetail.task.status) }}</a-tag></div>
@@ -1028,8 +1036,8 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { message } from 'ant-design-vue'
-import { InfoCircleOutlined, PlusOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { message, Modal } from 'ant-design-vue'
+import { DownloadOutlined, InfoCircleOutlined, PlusOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -1047,6 +1055,8 @@ import {
   createSecurityPolicy,
   createSecurityScanApproval,
   createSecurityTarget,
+  exportSecurityScanReportPdf,
+  testSecurityTargetConnectivity,
   createSecurityTask,
   getDifyMcpBindingOptions,
   getMe,
@@ -1071,6 +1081,24 @@ import {
 import { formatDateTime } from '../utils/format'
 
 const { t, te, locale } = useI18n()
+const exportingReport = ref(false)
+const exportReport = async () => {
+  if (exportingReport.value || taskDetailLoading.value || !taskDetail.value) return
+  const taskId = taskDetail.value.task.task_id
+  exportingReport.value = true
+  try {
+    const blob = await exportSecurityScanReportPdf(taskId, locale.value === 'en-US' ? 'en-US' : 'zh-CN')
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${taskId}-scan-report.pdf`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+    message.success(t('scanReportExport.success'))
+  } catch { message.error(t('scanReportExport.failed')) } finally { exportingReport.value = false }
+}
 const route = useRoute()
 const router = useRouter()
 const loading = ref(true)
@@ -1552,6 +1580,25 @@ const loadDifyMcpBindings = async record => {
     difyMcpBindingsLoading.value = false
   }
 }
+const testingConnectivity = ref(false)
+const connectivityResult = ref(null)
+let connectivityGeneration = 0
+watch(() => [targetForm.endpoint_url, targetForm.allowed_cidrs, targetForm.allow_insecure_transport, targetModalOpen.value], () => {
+  connectivityGeneration += 1
+  connectivityResult.value = null
+})
+const testTargetConnectivity = async () => {
+  if (testingConnectivity.value || !targetForm.endpoint_url.trim()) return
+  const generation = connectivityGeneration
+  testingConnectivity.value = true
+  connectivityResult.value = null
+  try {
+    const data = await testSecurityTargetConnectivity({ endpoint_url: targetForm.endpoint_url.trim(), allowed_cidrs: splitList(targetForm.allowed_cidrs), allow_insecure_transport: Boolean(targetForm.allow_insecure_transport) })
+    if (generation === connectivityGeneration) connectivityResult.value = { type: data.reachable ? 'success' : 'error', key: data.reachable ? 'connectivitySuccess' : 'connectivityFailed', latency_ms: data.latency_ms }
+  } catch (error) {
+    if (generation === connectivityGeneration) connectivityResult.value = { type: 'error', error: errorText(error) }
+  } finally { testingConnectivity.value = false }
+}
 const openTargetModal = record => {
   editingTarget.value = record || null
   const config = record?.config || {}
@@ -1576,7 +1623,7 @@ const handleAssetTypeChange = () => { targetForm.connector_type = connectorTypes
 const handleConnectorTypeChange = () => { targetForm.endpoint_url = ''; targetForm.gateway_id = undefined; targetForm.llm_model = ''; targetForm.llm_chat_completions_path = '/v1/chat/completions'; targetForm.llm_timeout_ms = 30000; targetForm.config_json = '{}'; Object.assign(targetForm, emptyDifyTargetFields()) }
 const handleGatewayChange = id => { const gateway = mcpGateways.value.find(item => item.id === id); targetForm.endpoint_url = gateway ? `mcp-gateway://${gateway.slug}` : '' }
 const saveTarget = async () => {
-  if (submittingTarget.value) return
+  if (submittingTarget.value || testingConnectivity.value) return
   if (!targetForm.name.trim() || (!targetForm.endpoint_url.trim() && targetForm.connector_type !== 'mcp_gateway')) return message.warning(t('agentSecurityScans.requiredFields'))
   let config
   try { config = targetForm.connector_type === 'mcp_gateway' ? { gateway_id: targetForm.gateway_id } : JSON.parse(targetForm.config_json || '{}') } catch { return message.error(t('agentSecurityScans.targets.invalidJson')) }
@@ -1604,7 +1651,26 @@ const saveTarget = async () => {
   if (targetForm.connector_type === 'mcp_gateway' && !targetForm.gateway_id) return message.warning(t('agentSecurityScans.requiredFields'))
   const payload = { name: targetForm.name.trim(), asset_type: targetForm.asset_type, connector_type: targetForm.connector_type, environment: targetForm.environment, allowed_capabilities: [...targetForm.allowed_capabilities], endpoint_url: targetForm.endpoint_url.trim(), allowed_cidrs: splitList(targetForm.allowed_cidrs), allow_insecure_transport: Boolean(targetForm.allow_insecure_transport), config }
   submittingTarget.value = true
-  try { if (editingTarget.value) await updateSecurityTarget(editingTarget.value.target_id, payload); else await createSecurityTarget(payload); targetModalOpen.value = false; await loadCoreData(); message.success(t('agentSecurityScans.saved')) } catch (error) { message.error(errorText(error)) } finally { submittingTarget.value = false }
+  try {
+    if (targetForm.connector_type !== 'mcp_gateway' && !connectivityResult.value) {
+      const confirmed = await new Promise(resolve => {
+        Modal.confirm({
+          title: t('agentSecurityScans.targets.connectivityUntestedTitle'),
+          content: t('agentSecurityScans.targets.connectivityUntestedContent'),
+          okText: t('agentSecurityScans.targets.saveWithoutTest'),
+          cancelText: t('agentSecurityScans.targets.returnToTest'),
+          onOk: () => { resolve(true) },
+          onCancel: () => { resolve(false) },
+        })
+      })
+      if (!confirmed) return
+    }
+    if (editingTarget.value) await updateSecurityTarget(editingTarget.value.target_id, payload)
+    else await createSecurityTarget(payload)
+    targetModalOpen.value = false
+    await loadCoreData()
+    message.success(t('agentSecurityScans.saved'))
+  } catch (error) { message.error(errorText(error)) } finally { submittingTarget.value = false }
 }
 const toggleTarget = async record => { try { await updateSecurityTarget(record.target_id, { status: record.status === 'active' ? 'disabled' : 'active' }); await loadCoreData(); message.success(t('agentSecurityScans.saved')) } catch (error) { message.error(errorText(error)) } }
 const openCredentialModal = record => { credentialTarget.value = record; Object.assign(credentialForm, { credential_type: 'bearer', purpose: record.connector_type === 'dify' ? 'dify_app_api' : 'agent_runtime', secret: '' }); credentialModalOpen.value = true }
@@ -1892,6 +1958,8 @@ watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null 
 </script>
 
 <style scoped>
+.endpoint-connectivity { display: flex; gap: 8px; flex-wrap: wrap; }
+.endpoint-connectivity > .ant-input { flex: 1 1 240px; min-width: 0; }
 .live-scan-progress { padding: 12px 0 20px; display: flex; flex-direction: column; gap: 6px; }
 .report-overview { padding: 0 0 20px; }
 .report-overview h3 { margin: 0 0 14px; font-size: 16px; }

@@ -5,6 +5,7 @@ import ipaddress
 import logging
 import re
 import secrets
+import socket
 import threading
 import time
 import urllib.error
@@ -14,7 +15,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Header, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -76,6 +77,7 @@ from ..security_scan_schemas import (
     SecurityScanApprovalCreate,
     SecurityScanApprovalResponse,
     SecurityTargetCreate,
+    SecurityTargetConnectivityRequest,
     SecurityTargetResponse,
     SecurityTargetUpdate,
     SecurityTaskComparisonResponse,
@@ -739,6 +741,39 @@ def _validate_infrastructure_endpoints(
     normalized["endpoints"] = endpoints
     normalized["allow_insecure_transport"] = allow_insecure_transport
     return normalized, resolved_ips
+
+
+@router.post("/targets/test-connectivity")
+def test_target_connectivity(
+    body: SecurityTargetConnectivityRequest,
+    current_user: models.User = Depends(auth.get_current_security_admin),
+):
+    try:
+        parsed = urlsplit(body.endpoint_url)
+        port = parsed.port
+        if port == 0:
+            raise ValueError("invalid port")
+    except ValueError as exc:
+        raise ApiError(422, "agent_security.target_url_invalid", "目标地址或端口无效", "Invalid target URL or port") from exc
+    addresses = resolve_target_endpoint(
+        body.endpoint_url,
+        allowed_cidrs=body.allowed_cidrs,
+        allow_insecure_transport=body.allow_insecure_transport,
+    )
+    port = port or (443 if parsed.scheme.lower() in {"https", "wss"} else 80)
+    started = time.monotonic()
+    deadline = started + 5
+    for address in addresses:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            # Connect only to validated IPs, without resolving the hostname again.
+            with socket.create_connection((address, port), timeout=remaining):
+                return {"reachable": True, "latency_ms": round((time.monotonic() - started) * 1000)}
+        except OSError:
+            continue
+    return {"reachable": False, "error_code": "agent_security.target_connection_failed"}
 
 
 @router.post("/targets", response_model=SecurityTargetResponse)
@@ -2911,6 +2946,31 @@ async def get_task(
     return _task_detail(db, task)
 
 
+@router.get("/tasks/{task_id}/scan-report.pdf")
+def export_security_scan_pdf(
+    task_id: str,
+    language: str = Query("zh-CN", pattern="^(zh-CN|en-US)$"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    from ..security_scan_pdf import build_security_scan_pdf
+
+    task = _task_or_404(db, task_id)
+    _require_task_access(db, current_user, task)
+    detail = _task_detail(db, task)
+    snapshot = json_loads(getattr(task, "target_snapshot_json", "{}"), {})
+    detail["target"] = {"endpoint_url": snapshot.get("endpoint_url")}
+    document = build_security_scan_pdf(detail, language=language)
+    _audit(db, event_type="security_scan_report.exported", actor=current_user.username,
+           resource_type="security_scan_task", resource_id=task.task_id, action="export_pdf",
+           details={"format": "pdf", "language": language})
+    safe_id = re.sub(r"[^A-Za-z0-9_-]", "-", task.task_id)
+    return Response(content=document, media_type="application/pdf", headers={
+        "Content-Disposition": f'attachment; filename="{safe_id}-scan-report.pdf"',
+        "Cache-Control": "no-store",
+    })
+
+
 def _inventory_snapshot_or_404(db: Session, task_id: str) -> models.SecurityAssetInventorySnapshot:
     row = db.query(models.SecurityAssetInventorySnapshot).filter(
         models.SecurityAssetInventorySnapshot.task_id == task_id
@@ -3437,16 +3497,16 @@ async def get_artifact_content(
         raise ApiError(
             404,
             "agent_security.artifact_content_not_found",
-            "扫描产物原始内容不存在",
-            "The raw scan artifact content is not available",
+            "扫描报告原始内容不存在",
+            "The raw scan report content is not available",
         )
     content = unprotect_secret(row.content_encrypted)
     if content is None:
         raise ApiError(
             503,
             "agent_security.artifact_decryption_failed",
-            "扫描产物无法解密",
-            "The scan artifact could not be decrypted",
+            "扫描报告无法解密",
+            "The scan report could not be decrypted",
         )
     _audit(
         db,
@@ -4400,7 +4460,7 @@ async def complete_task(
                     raise ApiError(
                         422,
                         "agent_security.artifact_integrity_mismatch",
-                        "扫描产物的哈希或大小校验失败",
+                        "扫描报告的哈希或大小校验失败",
                         "The scan artifact hash or size does not match its content",
                     )
                 if task.scan_kind == "dify_asset_inventory" and item.artifact_type == "dify-asset-inventory":
