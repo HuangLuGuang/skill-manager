@@ -50,7 +50,7 @@
           <div class="panel-heading">
             <div>
               <h2>{{ t('agentSecurityScans.targets.title') }}</h2>
-              <p>{{ t('agentSecurityScans.targets.description') }}</p>
+              <p>{{ t('agentSecurityScans.targets.description') }} {{ t('agentSecurityScans.listTimeZone') }}</p>
             </div>
             <a-space wrap>
               <a-input-search
@@ -68,12 +68,13 @@
           </div>
 
           <a-table
+            class="target-table"
             :columns="targetColumns"
             :data-source="filteredTargets"
             :pagination="tablePagination"
             row-key="target_id"
             table-layout="fixed"
-            :scroll="{ x: 1260 }"
+            :scroll="{ x: targetColumns.reduce((total, column) => total + column.width, 0) }"
             :locale="{ emptyText: t('agentSecurityScans.targets.empty') }"
           >
             <template #bodyCell="{ column, record }">
@@ -83,8 +84,14 @@
                   <code>{{ record.target_id }}</code>
                 </div>
               </template>
-              <template v-else-if="column.key === 'latest_scan'"><a v-if="tasks.find(x => x.target_id === record.target_id)" @click="openTaskDetail(tasks.find(x => x.target_id === record.target_id).task_id)">{{ formatDateTime(tasks.find(x => x.target_id === record.target_id).created_at) }}</a><span v-else>—</span></template>
-              <template v-else-if="column.key === 'risk'"><a-button v-if="record.asset_type === 'agent'" type="link" @click="governance.openTarget(record)">{{ targetRisks[record.target_id]?.score ?? '—' }} · {{ t('scanSchedule.targetRisk') }}</a-button><span v-else>—</span><small v-if="targetRisks[record.target_id]">{{ t(`assetLifecycle.states.${targetRisks[record.target_id].status}`) }}</small></template>
+              <template v-else-if="column.key === 'latest_scan'"><a v-if="tasks.find(x => x.target_id === record.target_id)" @click="openTaskDetail(tasks.find(x => x.target_id === record.target_id).task_id)">{{ formatBeijingDateTime(tasks.find(x => x.target_id === record.target_id).created_at) }}</a><span v-else>—</span></template>
+              <template v-else-if="column.key === 'risk'">
+                <div v-if="record.asset_type === 'agent'" class="target-risk-cell">
+                  <a-button type="link" size="small" class="target-risk-link" @click="governance.openTarget(record)"><strong>{{ targetRisks[record.target_id]?.score ?? '—' }}</strong><span>{{ t('scanSchedule.targetRisk') }}</span></a-button>
+                  <a-tag v-if="targetRisks[record.target_id]" class="target-risk-status">{{ t(`assetLifecycle.states.${targetRisks[record.target_id].status}`) }}</a-tag>
+                </div>
+                <span v-else>—</span>
+              </template>
               <template v-else-if="column.key === 'target_type'">
                 <div class="target-classification">
                   <a-tag color="blue">{{ assetTypeLabel(record.asset_type) }}</a-tag>
@@ -118,7 +125,7 @@
                 </a-tag>
               </template>
               <template v-else-if="column.key === 'updated_at'">
-                {{ formatDateTime(record.updated_at) }}
+                {{ formatBeijingDateTime(record.updated_at) }}
               </template>
               <template v-else-if="column.key === 'actions'">
                 <a-space v-if="canAdmin" wrap>
@@ -277,7 +284,7 @@
           <div class="panel-heading">
             <div>
               <h2>{{ t('agentSecurityScans.findings.title') }}</h2>
-              <p>{{ t('agentSecurityScans.findings.description') }}</p>
+              <p>{{ t('agentSecurityScans.findings.description') }} {{ t('agentSecurityScans.listTimeZone') }}</p>
             </div>
           </div>
 
@@ -316,7 +323,7 @@
                 <div class="finding-scan">
                   <a-tooltip v-for="origin in (record.origins || []).filter(item => item.kind === 'scheduled')" :key="origin.schedule_id" :title="origin.name"><a-tag color="blue">{{ t('scanSchedule.resultTag') }}</a-tag></a-tooltip>
                   <a-button type="link" size="small" @click="openTaskDetail(record.task_id)">{{ record.target_name }}</a-button>
-                  <span class="cell-subtext">{{ scanKindLabel(record.scan_kind) }} · {{ formatDateTime(record.scan_created_at) }}</span>
+                  <span class="cell-subtext">{{ scanKindLabel(record.scan_kind) }} · {{ formatBeijingDateTime(record.scan_created_at) }}</span>
                   <code class="cell-subtext" :title="record.task_id">{{ shortId(record.task_id) }}</code>
                 </div>
               </template>
@@ -334,7 +341,7 @@
           <div class="panel-heading">
             <div>
               <h2>{{ t('agentSecurityScans.reports.title') }}</h2>
-              <p>{{ t('agentSecurityScans.reports.description') }}</p>
+              <p>{{ t('agentSecurityScans.reports.description') }} {{ t('agentSecurityScans.listTimeZone') }}</p>
             </div>
           </div>
           <div class="filter-row">
@@ -351,11 +358,11 @@
             :locale="{ emptyText: t('agentSecurityScans.reports.empty') }"
           >
             <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'target_id'"><div>{{ targetName(record.target_id) }} <a-tooltip v-for="origin in (record.origins || []).filter(item => item.kind === 'scheduled')" :key="origin.schedule_id" :title="origin.name"><a-tag color="blue">{{ t('scanSchedule.resultTag') }}</a-tag></a-tooltip></div><small class="cell-subtext" :title="record.task_id">{{ formatDateTime(record.created_at) }} · {{ shortId(record.task_id) }}</small></template>
+              <template v-if="column.key === 'target_id'"><div>{{ targetName(record.target_id) }} <a-tooltip v-for="origin in (record.origins || []).filter(item => item.kind === 'scheduled')" :key="origin.schedule_id" :title="origin.name"><a-tag color="blue">{{ t('scanSchedule.resultTag') }}</a-tag></a-tooltip></div><small class="cell-subtext" :title="record.task_id">{{ formatBeijingDateTime(record.created_at) }} · {{ shortId(record.task_id) }}</small></template>
               <template v-else-if="column.key === 'scan_kind'">{{ scanKindLabel(record.scan_kind) }}</template>
               <template v-else-if="column.key === 'status'"><a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag></template>
               <template v-else-if="column.key === 'engine'">{{ engineLabel(record.engine?.name || record.engine?.engine_name) }}</template>
-              <template v-else-if="column.key === 'completed_at'">{{ formatDateTime(record.completed_at || record.updated_at) }}</template>
+              <template v-else-if="column.key === 'completed_at'">{{ formatBeijingDateTime(record.completed_at || record.updated_at) }}</template>
               <template v-else-if="column.key === 'actions'">
                 <a-space>
                   <a-button type="link" size="small" @click="openTaskDetail(record.task_id)">{{ record.status === 'succeeded' ? t('agentSecurityScans.reports.open') : t('agentSecurityScans.reports.viewDetails') }}</a-button>
@@ -372,16 +379,29 @@
     <a-modal v-model:open="comparisonModalOpen" :title="t('agentSecurityScans.comparison.title')" width="920px" :footer="null">
       <a-alert class="modal-alert" type="info" show-icon :message="t('agentSecurityScans.comparison.boundary')" />
       <div class="comparison-controls">
-        <a-select v-model:value="comparisonBaselineId" :placeholder="t('agentSecurityScans.comparison.selectBaseline')" show-search option-filter-prop="label">
-          <a-select-option v-for="item in comparisonBaselines" :key="item.task_id" :value="item.task_id" :label="`${item.task_id} ${formatDateTime(item.completed_at)}`">
-            {{ formatDateTime(item.completed_at) }} · {{ item.task_id }}
+        <a-select v-model:value="comparisonBaselineId" @change="loadComparison" :placeholder="t('agentSecurityScans.comparison.selectBaseline')" show-search option-filter-prop="label">
+          <a-select-option v-for="item in comparisonBaselines" :key="item.task_id" :value="item.task_id" :label="`${item.task_id} ${formatBeijingDateTime(item.created_at || item.completed_at)}`">
+            {{ formatBeijingDateTime(item.created_at || item.completed_at) }} · {{ item.task_id }}
           </a-select-option>
         </a-select>
-        <a-button type="primary" :loading="comparisonLoading" :disabled="!comparisonBaselineId" @click="loadComparison">{{ t('agentSecurityScans.comparison.run') }}</a-button>
       </div>
       <a-empty v-if="!comparisonBaselines.length" :description="t('agentSecurityScans.comparison.noBaseline')" />
       <a-spin v-else :spinning="comparisonLoading">
         <template v-if="comparisonResult">
+          <div class="comparison-grid comparison-overview">
+            <section v-for="side in ['baseline', 'current']" :key="side" class="comparison-bucket">
+              <h3>{{ t(`agentSecurityScans.comparison.${side}`) }}</h3>
+              <template v-if="comparisonResult[`${side}_summary`]?.task_id">
+                <code>{{ comparisonResult[`${side}_summary`].task_id }}</code>
+                <p>{{ formatBeijingDateTime(comparisonResult[`${side}_summary`].created_at) }} · {{ statusLabel(comparisonResult[`${side}_summary`].status) }}</p>
+                <p>{{ t('agentSecurityScans.comparison.caseCounts', { completed: comparisonResult[`${side}_summary`].completed_cases, planned: comparisonResult[`${side}_summary`].planned_cases, findings: comparisonResult[`${side}_summary`].finding_count }) }}</p>
+                <p v-if="comparisonResult[`${side}_summary`].scan_options?.datasets?.length">{{ t('agentSecurityScans.comparison.datasets') }}: {{ comparisonResult[`${side}_summary`].scan_options.datasets.join(', ') }}</p>
+                <p v-if="comparisonResult[`${side}_summary`].scan_options?.num_prompts != null">{{ t('agentSecurityScans.comparison.sampling', { count: comparisonResult[`${side}_summary`].scan_options.num_prompts === -1 ? t('agentSecurityScans.tasks.allSamples') : comparisonResult[`${side}_summary`].scan_options.num_prompts, seed: comparisonResult[`${side}_summary`].scan_options.random_seed ?? '—' }) }}</p>
+                <p v-if="comparisonResult[`${side}_summary`].scan_options?.techniques?.length">{{ t('agentSecurityScans.comparison.techniques') }}: {{ comparisonResult[`${side}_summary`].scan_options.techniques.join(', ') }}</p>
+              </template>
+            </section>
+          </div>
+          <a-alert v-if="comparisonResult.unavailable_reason" class="modal-alert" type="warning" show-icon :message="comparisonReasonLabel(comparisonResult.unavailable_reason)" />
           <a-alert
             class="modal-alert"
             :type="comparisonResult.comparison_status === 'complete' ? 'success' : 'warning'"
@@ -392,12 +412,13 @@
           <div class="comparison-grid">
             <section v-for="bucket in comparisonBuckets" :key="bucket.key" class="comparison-bucket">
               <header><span>{{ bucket.label }}</span><strong>{{ comparisonResult.summary?.[bucket.key] || 0 }}</strong></header>
-              <a-list :data-source="comparisonResult[bucket.key] || []" size="small">
+              <a-list v-if="comparisonResult[bucket.key]?.length" :data-source="comparisonResult[bucket.key] || []" size="small" :pagination="{ pageSize: 5, size: 'small', hideOnSinglePage: true }">
                 <template #renderItem="{ item }">
                   <a-list-item>
-                    <a-list-item-meta :title="comparisonFinding(item, bucket.key).title" :description="comparisonFinding(item, bucket.key).finding_code" />
+                    <a-list-item-meta :title="findingTitle(comparisonFinding(item, bucket.key))" :description="comparisonFinding(item, bucket.key).finding_code" />
                     <a-tag v-if="bucket.key === 'unable_to_retest'" color="orange">{{ comparisonReasonLabel(item.reason_code) }}</a-tag>
                     <a-tag v-else :color="comparisonBucketColor(bucket.key)">{{ severityLabel(comparisonFinding(item, bucket.key).severity) }}</a-tag>
+                    <p v-if="comparisonFinding(item, bucket.key).evidence?.attack_method" class="comparison-evidence">{{ comparisonFinding(item, bucket.key).evidence.attack_method }} · {{ comparisonFinding(item, bucket.key).evidence.vulnerability }}<br />{{ t('agentSecurityScans.comparison.inputFingerprint') }}: <code>{{ comparisonFinding(item, bucket.key).evidence.prompt_sha256?.slice(0, 12) }}</code></p>
                   </a-list-item>
                 </template>
               </a-list>
@@ -1091,7 +1112,7 @@ import {
   updateSecurityPolicy,
   updateSecurityTarget,
 } from '../api'
-import { formatDateTime } from '../utils/format'
+import { formatDateTime, formatBeijingDateTime } from '../utils/format'
 
 const { t, te, locale } = useI18n()
 const exportingReport = ref(false)
@@ -1200,7 +1221,7 @@ const stageItems = computed(() => [
 ])
 
 const targetColumns = computed(() => [
-  { title: t('agentSecurityScans.targets.name'), key: 'name', width: 160, ellipsis: true }, { title: t('scanSchedule.currentScore'), key: 'risk', width: 160 }, { title: t('scanSchedule.latestScan'), key: 'latest_scan', width: 190 }, { title: t('agentSecurityScans.targets.assetType'), key: 'target_type', width: 140 }, { title: t('agentSecurityScans.environment'), key: 'environment', width: 100 }, { title: t('agentSecurityScans.allowedCapabilities'), key: 'allowed_capabilities', width: 100 }, { title: t('agentSecurityScans.targets.endpoint'), key: 'endpoint_url', width: 200 }, { title: t('agentSecurityScans.status'), key: 'status', width: 100 }, { title: t('agentSecurityScans.targets.credential'), key: 'credential', width: 120, ellipsis: true }, { title: t('agentSecurityScans.updatedAt'), key: 'updated_at', width: 150 }, { title: t('agentSecurityScans.actions'), key: 'actions', width: 190, fixed: 'right' },
+  { title: t('agentSecurityScans.targets.name'), key: 'name', width: 160, ellipsis: true }, { title: t('scanSchedule.currentScore'), key: 'risk', width: 200 }, { title: t('scanSchedule.latestScan'), key: 'latest_scan', width: 190 }, { title: t('agentSecurityScans.targets.assetType'), key: 'target_type', width: 140 }, { title: t('agentSecurityScans.environment'), key: 'environment', width: 140 }, { title: t('agentSecurityScans.allowedCapabilities'), key: 'allowed_capabilities', width: 160 }, { title: t('agentSecurityScans.targets.endpoint'), key: 'endpoint_url', width: 200 }, { title: t('agentSecurityScans.status'), key: 'status', width: 100 }, { title: t('agentSecurityScans.targets.credential'), key: 'credential', width: 120, ellipsis: true }, { title: t('agentSecurityScans.updatedAt'), key: 'updated_at', width: 190 }, { title: t('agentSecurityScans.actions'), key: 'actions', width: 190, fixed: 'right' },
 ])
 const policyColumns = computed(() => [
   { title: t('agentSecurityScans.policies.name'), key: 'name', width: 160, ellipsis: true }, { title: t('agentSecurityScans.environment'), key: 'environment', width: 175 }, { title: t('agentSecurityScans.policies.mode'), key: 'execution_mode', width: 140 }, { title: t('agentSecurityScans.allowedCapabilities'), key: 'allowed_capabilities', width: 120 }, { title: t('agentSecurityScans.policies.budget'), key: 'budget', width: 220 }, { title: t('agentSecurityScans.policies.network'), key: 'network', width: 250 }, { title: t('agentSecurityScans.status'), key: 'enabled', width: 110 }, { title: t('agentSecurityScans.actions'), key: 'actions', width: 160, fixed: 'right' },
@@ -1944,8 +1965,24 @@ const openDispositionModal = record => { dispositionFinding.value = record; Obje
 const saveDisposition = async () => { if (submittingDisposition.value) return; submittingDisposition.value = true; try { await updateSecurityFinding(dispositionFinding.value.finding_id, { ...dispositionForm }); dispositionModalOpen.value = false; await loadFindings(findingPage.value); message.success(t('agentSecurityScans.saved')) } catch (error) { message.error(errorText(error)) } finally { submittingDisposition.value = false } }
 
 const openTaskDetail = async taskId => { detailDrawerOpen.value = true; taskDetailLoading.value = true; taskDetail.value = null; try { taskDetail.value = await getSecurityTask(taskId) } catch (error) { message.error(errorText(error)) } finally { taskDetailLoading.value = false } }
-const openComparison = record => { comparisonTask.value = record; comparisonResult.value = null; comparisonBaselineId.value = undefined; comparisonModalOpen.value = true; if (comparisonBaselines.value.length) comparisonBaselineId.value = comparisonBaselines.value[0].task_id }
-const loadComparison = async () => { if (!comparisonTask.value || !comparisonBaselineId.value || comparisonLoading.value) return; comparisonLoading.value = true; comparisonResult.value = null; try { comparisonResult.value = await compareSecurityTasks(comparisonTask.value.task_id, comparisonBaselineId.value) } catch (error) { message.error(errorText(error)) } finally { comparisonLoading.value = false } }
+const openComparison = async record => { comparisonTask.value = record; comparisonResult.value = null; comparisonBaselineId.value = undefined; comparisonModalOpen.value = true; if (comparisonBaselines.value.length) comparisonBaselineId.value = comparisonBaselines.value[0].task_id; await loadComparison() }
+let comparisonRequestId = 0
+const loadComparison = async () => {
+  const requestId = ++comparisonRequestId
+  const taskId = comparisonTask.value?.task_id
+  const baselineId = comparisonBaselineId.value
+  comparisonResult.value = null
+  if (!taskId || !baselineId) { comparisonLoading.value = false; return }
+  comparisonLoading.value = true
+  try {
+    const result = await compareSecurityTasks(taskId, baselineId)
+    if (requestId === comparisonRequestId && comparisonModalOpen.value) comparisonResult.value = result
+  } catch (error) {
+    if (requestId === comparisonRequestId && comparisonModalOpen.value) message.error(errorText(error))
+  } finally {
+    if (requestId === comparisonRequestId) comparisonLoading.value = false
+  }
+}
 const comparisonFinding = (item, bucket) => bucket === 'unable_to_retest' ? item.finding : item
 const comparisonReasonLabel = reason => t(`agentSecurityScans.comparison.reasons.${reason}`)
 const comparisonBucketColor = bucket => ({ new: 'red', unchanged: 'blue', resolved: 'green' }[bucket] || 'default')
@@ -2007,6 +2044,12 @@ watch(() => route.query.schedule_id, async id => { if (id) { await nextTick(); a
 </script>
 
 <style scoped>
+.target-table :deep(th) { word-break: normal; overflow-wrap: normal; }
+.target-risk-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.target-risk-link { display: inline-flex; align-items: center; gap: 10px; height: auto; padding: 0; white-space: nowrap; }
+.target-risk-link strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.target-risk-status { margin: 0; white-space: nowrap; }
+
 .endpoint-connectivity { display: flex; gap: 8px; flex-wrap: wrap; }
 .endpoint-connectivity > .ant-input { flex: 1 1 240px; min-width: 0; }
 .live-scan-progress { padding: 12px 0 20px; display: flex; flex-direction: column; gap: 6px; }
@@ -2026,7 +2069,10 @@ watch(() => route.query.schedule_id, async id => { if (id) { await nextTick(); a
 .report-findings { overflow-wrap: anywhere; }
 @media (max-width: 640px) { .report-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .scan-page { width: 100%; min-width: 0; color: #172033; }
-.comparison-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; margin: 16px 0; }
+.comparison-overview code, .comparison-overview p { overflow-wrap: anywhere; }
+.comparison-bucket :deep(.ant-list-item) { flex-wrap: wrap; gap: 8px; }
+.comparison-evidence { flex-basis: 100%; overflow-wrap: anywhere; font-size: 12px; }
+.comparison-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin: 16px 0; }
 .comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .comparison-bucket { min-width: 0; padding: 12px; border: 1px solid #e3e9f2; border-radius: 10px; background: #fbfcfe; }
 .comparison-bucket header { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid #edf1f6; font-weight: 650; }

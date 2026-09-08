@@ -192,7 +192,7 @@ export const i18n = createI18n({
         },
         menu: '安全扫描', eyebrow: 'AI Security Operations', title: 'AI 安全扫描',
         subtitle: '管理扫描入口、执行边界与风险处置，并从任务追溯到原始报告。', pipelineLabel: '安全扫描生命周期',
-        refresh: '刷新', newTask: '发起扫描', status: '状态', actions: '操作', createdAt: '创建时间', updatedAt: '更新时间', environment: '环境', allowedCapabilities: '允许能力', capabilityCount: '{value} 项能力',
+        listTimeZone: '列表时间均为北京时间（UTC+8）。', refresh: '刷新', newTask: '发起扫描', status: '状态', actions: '操作', createdAt: '创建时间', updatedAt: '更新时间', environment: '环境', allowedCapabilities: '允许能力', capabilityCount: '{value} 项能力',
         edit: '编辑', view: '查看', enable: '启用', disable: '停用', enabled: '已启用', disabled: '已停用', readOnly: '只读',
         saved: '已保存', loadFailed: '读取扫描数据失败', operationFailed: '操作失败', requiredFields: '请填写所有必填项', allStatuses: '全部状态',
         pipeline: {
@@ -333,12 +333,12 @@ export const i18n = createI18n({
           open: '查看报告', compare: '版本对比',
         },
         comparison: {
-          title: '扫描版本对比', selectBaseline: '选择较早的成功任务作为基线', run: '生成对比', noBaseline: '没有同一目标、同一扫描类型且更早完成的成功任务。',
-          boundary: '只有当前任务成功，且扫描覆盖配置和引擎版本都与基线一致时，基线中未再次出现的风险才标记为“已修复/未复现”。其他情况进入“无法复测”。',
+          title: '扫描版本对比', baseline: '基线扫描', current: '本次扫描', datasets: '测试集', techniques: '问题变换方式', inputFingerprint: '测试输入标识', sampling: '每集抽样 {count} 条；随机种子 {seed}', caseCounts: '完成评估 {completed} / 计划 {planned} 条；检出风险 {findings} 条', selectBaseline: '选择较早的成功任务作为基线', noBaseline: '没有同一目标、同一扫描类型且更早创建的成功任务。',
+          boundary: '对比同一目标的两次扫描。模型扫描按测试输入、变换方式和风险类别匹配；完整评估、测试范围及引擎一致时，才将历史风险标记为“本次未复现”。',
           complete: '对比完成', partial: '部分可对比', statusDetail: '覆盖配置：{coverage}；扫描引擎：{engine}', matched: '一致', changed: '已变化',
-          new: '新增/本次检出', unchanged: '未变化', resolved: '已修复/未复现', unable: '无法复测', emptyBucket: '无',
-          dynamicLimit: 'Agent 风险扫描的具体 Prompt 和运行路径可能动态变化；“已修复/未复现”表示在本次同覆盖扫描中未再观察到，不等同于代码层面已证明彻底修复。',
-          reasons: { baseline_not_succeeded: '基线任务未成功', current_not_succeeded: '当前任务未成功', coverage_changed: '覆盖配置已变化', engine_changed: '扫描引擎已变化' },
+          new: '仅本次检出', unchanged: '两次均检出', resolved: '本次未复现', unable: '无法确认是否消失', emptyBucket: '无',
+          dynamicLimit: '“仅本次检出”可能来自新增测试范围；“本次未复现”表示同覆盖条件下此次未再观察到，不证明问题已彻底修复。动态扫描结果可能随输入及运行路径变化。',
+          reasons: { baseline_not_succeeded: '基线任务未成功', current_not_succeeded: '当前任务未成功', coverage_changed: '测试配置或实际测试输入不同，无法确认历史风险是否消失', coverage_incomplete: '测试用例缺失、评估未完成或缺少输入证据，无法确认历史风险是否消失', engine_changed: '扫描引擎已变化' },
         },
         detail: {
           exportPdf: '导出 PDF 报告',
@@ -1127,7 +1127,7 @@ export const i18n = createI18n({
         },
         menu: 'Security Scanning', eyebrow: 'AI Security Operations', title: 'AI Security Scanning',
         subtitle: 'Manage scan entry points, execution boundaries, risk disposition, and traceable reports.', pipelineLabel: 'Security scan lifecycle',
-        refresh: 'Refresh', newTask: 'Start scan', status: 'Status', actions: 'Actions', createdAt: 'Created', updatedAt: 'Updated', environment: 'Environment', allowedCapabilities: 'Allowed capabilities', capabilityCount: '{value} capabilities',
+        listTimeZone: 'All list times are in Beijing time (UTC+8).', refresh: 'Refresh', newTask: 'Start scan', status: 'Status', actions: 'Actions', createdAt: 'Created', updatedAt: 'Updated', environment: 'Environment', allowedCapabilities: 'Allowed capabilities', capabilityCount: '{value} capabilities',
         edit: 'Edit', view: 'View', enable: 'Enable', disable: 'Disable', enabled: 'Enabled', disabled: 'Disabled', readOnly: 'Read only',
         saved: 'Saved', loadFailed: 'Failed to load scan data', operationFailed: 'Operation failed', requiredFields: 'Complete all required fields', allStatuses: 'All statuses',
         pipeline: {
@@ -1268,12 +1268,12 @@ export const i18n = createI18n({
           open: 'Open report', compare: 'Compare versions',
         },
         comparison: {
-          title: 'Scan version comparison', selectBaseline: 'Select an earlier successful task as the baseline', run: 'Generate comparison', noBaseline: 'No earlier successful task has the same target and scan type.',
-          boundary: 'A baseline risk absent from the current result is marked resolved/not reproduced only when the current task succeeded and both coverage configuration and engine version match. Otherwise it is unable to retest.',
+          title: 'Scan version comparison', baseline: 'Baseline scan', current: 'Current scan', datasets: 'Datasets', techniques: 'Prompt transformations', inputFingerprint: 'Test input ID', sampling: '{count} samples per dataset; random seed {seed}', caseCounts: '{completed} evaluated / {planned} planned cases; {findings} findings', selectBaseline: 'Select an earlier successful task as the baseline', noBaseline: 'No earlier successful task has the same target and scan type.',
+          boundary: 'Compare scans of the same target. LLM findings are matched by test input, transformation and risk category. Complete evaluations, matching coverage and engine versions are required to confirm a finding was not reproduced.',
           complete: 'Comparison complete', partial: 'Partially comparable', statusDetail: 'Coverage configuration: {coverage}; scan engine: {engine}', matched: 'matched', changed: 'changed',
-          new: 'New/currently detected', unchanged: 'Unchanged', resolved: 'Resolved/not reproduced', unable: 'Unable to retest', emptyBucket: 'None',
-          dynamicLimit: 'Agent risk scans may generate dynamic prompts and runtime paths. Resolved/not reproduced means the risk was not observed under this comparable scan; it does not prove a complete code-level fix.',
-          reasons: { baseline_not_succeeded: 'Baseline task did not succeed', current_not_succeeded: 'Current task did not succeed', coverage_changed: 'Coverage configuration changed', engine_changed: 'Scan engine changed' },
+          new: 'Detected only in current scan', unchanged: 'Detected in both scans', resolved: 'Not reproduced this time', unable: 'Absence cannot be confirmed', emptyBucket: 'None',
+          dynamicLimit: 'Findings detected only in the current scan may come from added test coverage. Not reproduced means the finding was not observed this time under matching coverage; it does not prove a permanent fix. Dynamic inputs and execution paths can affect results.',
+          reasons: { baseline_not_succeeded: 'Baseline task did not succeed', current_not_succeeded: 'Current task did not succeed', coverage_changed: 'Test settings or actual inputs differ; absence of previous findings cannot be confirmed', coverage_incomplete: 'Cases, completed evaluations or input evidence are missing; absence of previous findings cannot be confirmed', engine_changed: 'Scan engine changed' },
         },
         detail: {
           exportPdf: 'Export PDF report',

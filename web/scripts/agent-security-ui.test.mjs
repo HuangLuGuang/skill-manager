@@ -39,7 +39,7 @@ test('P5 scan workbench uses the dedicated control-plane APIs and guarded mutati
 
   assert.match(view, /const canAdmin = computed/)
   assert.match(view, /const canViewRaw = computed/)
-  assert.match(view, /if \(submittingTarget\.value\) return/)
+  assert.match(view, /if \(submittingTarget\.value \|\| testingConnectivity\.value\) return/)
   assert.match(view, /if \(submittingPolicy\.value/)
   assert.match(view, /if \(submittingTask\.value\) return/)
   assert.match(view, /agentSecurityScans\.tasks\.mcpSafety/)
@@ -300,7 +300,7 @@ test('P6-05 requires a server-derived scan preview before task creation', async 
 
   assert.match(api, /\/v1\/agent-security\/tasks\/preview/)
   assert.match(view, /previewSecurityTask\(payload\)/)
-  assert.match(view, /:disabled="!taskPreview \|\| previewingTask"/)
+  assert.match(view, /:disabled="submittingTask \|\| previewingTask \|\| \(executionMode === \'now\' \? !taskPreview/)
   assert.match(view, /preview_fingerprint: taskPreview\.value\.preview_fingerprint/)
   assert.match(view, /error_code === 'agent_security\.scan_preview_stale'/)
   assert.match(view, /taskPreview\.cases/)
@@ -363,8 +363,8 @@ test('P6-08 separates resolved findings from risks that could not be retested', 
   assert.match(backend, /current_not_succeeded/)
   assert.match(backend, /coverage_changed/)
   assert.match(backend, /engine_changed/)
-  assert.match(i18n, /其他情况进入“无法复测”/)
-  assert.match(i18n, /Otherwise it is unable to retest/)
+  assert.match(i18n, /测试范围及引擎一致时/)
+  assert.match(i18n, /Complete evaluations, matching coverage and engine versions/)
 })
 
 test('P6-09 displays the frozen report template and decision criteria versions', async () => {
@@ -444,7 +444,7 @@ test('failed scan details separate execution failure from a successful zero-find
   assert.match(view, /taskHasNoFinalReport/)
   assert.match(view, /successfulTaskHasNoFindings/)
   assert.match(i18n, /本任务未形成最终扫描报告/)
-  assert.match(i18n, /这里的 0 不代表“未发现风险”/)
+  assert.match(i18n, /实时记录显示已完成/)
   assert.match(i18n, /No final scan report was produced/)
   assert.match(i18n, /must not be interpreted as proof that the target is absolutely safe/)
   for (const code of [

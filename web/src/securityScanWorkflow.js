@@ -21,8 +21,8 @@ const parseUtc = value => {
 }
 
 export const comparisonCandidates = (tasks, record) => {
-  const currentTime = parseUtc(record.completed_at || record.created_at)
+  const currentTime = parseUtc(record.created_at || record.completed_at)
   if (!Number.isFinite(currentTime)) return []
-  return tasks.filter(item => item.task_id !== record.task_id && item.target_id === record.target_id && item.scan_kind === record.scan_kind && item.status === 'succeeded' && Number.isFinite(parseUtc(item.completed_at || item.created_at)) && parseUtc(item.completed_at || item.created_at) <= currentTime)
-    .sort((a, b) => parseUtc(b.completed_at || b.created_at) - parseUtc(a.completed_at || a.created_at))
+  return tasks.filter(item => item.task_id !== record.task_id && item.target_id === record.target_id && item.scan_kind === record.scan_kind && item.status === 'succeeded' && Number.isFinite(parseUtc(item.created_at || item.completed_at)) && parseUtc(item.created_at || item.completed_at) <= currentTime)
+    .sort((a, b) => parseUtc(b.created_at || b.completed_at) - parseUtc(a.created_at || a.completed_at))
 }

@@ -45,3 +45,12 @@ test('comparison dates treat naive timestamps as UTC and reject invalid dates', 
   assert.deepEqual(comparisonCandidates(mixed, current).map(item => item.task_id), ['earlier', 'naive'])
   assert.deepEqual(comparisonCandidates(mixed, { ...current, created_at: 'invalid' }), [])
 })
+
+test('comparison baseline order follows creation time even when jobs finish out of order', () => {
+  const current = { task_id: 'current', target_id: 't', scan_kind: 'k', created_at: '2026-01-02T00:00:00Z', completed_at: '2026-01-04T00:00:00Z' }
+  const tasks = [
+    { ...current, task_id: 'older', status: 'succeeded', created_at: '2026-01-01T00:00:00Z', completed_at: '2026-01-05T00:00:00Z' },
+    { ...current, task_id: 'newer', status: 'succeeded', created_at: '2026-01-03T00:00:00Z' },
+  ]
+  assert.deepEqual(comparisonCandidates(tasks, current).map(item => item.task_id), ['older'])
+})

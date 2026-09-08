@@ -730,11 +730,15 @@ class SecurityComparisonUnavailableItem(BaseModel):
         "baseline_not_succeeded",
         "current_not_succeeded",
         "coverage_changed",
+        "coverage_incomplete",
         "engine_changed",
     ]
 
 
 class SecurityTaskComparisonResponse(BaseModel):
+    unavailable_reason: str | None = None
+    current_summary: dict[str, Any] = Field(default_factory=dict)
+    baseline_summary: dict[str, Any] = Field(default_factory=dict)
     schema_version: Literal["security-scan-comparison@1"] = "security-scan-comparison@1"
     task_id: str
     baseline_task_id: str

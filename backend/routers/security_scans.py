@@ -2800,7 +2800,22 @@ def _comparison_coverage(task: models.SecurityScanTask) -> tuple[str, dict[str, 
         },
         "policy": {field: policy.get(field) for field in _COMPARISON_POLICY_FIELDS},
     }
+    if task.scan_kind == "llm_redteam_scan":
+        profile["scan_options"].update({
+            "datasets": sorted(options.get("datasets") or []),
+            "num_prompts": options.get("num_prompts"),
+            "random_seed": options.get("random_seed"),
+            "techniques": sorted(options.get("techniques") or []),
+            "evaluation_model": options.get("evaluation_model"),
+        })
     return request_fingerprint(profile), profile
+
+
+def _llm_case_identity(case):
+    request = json_loads(case.request_summary_json, {})
+    if not request.get("prompt_sha256"):
+        return None
+    return request_fingerprint({key: request.get(key) for key in ("prompt_sha256", "attack_method", "vulnerability")})
 
 
 def _finding_comparison_key(
@@ -2808,6 +2823,8 @@ def _finding_comparison_key(
     cases_by_id: dict[str, models.SecurityScanCase],
 ) -> tuple[str, str]:
     case = cases_by_id.get(row.case_id or "")
+    if case and case.category == "llm_redteam_prompt":
+        return row.finding_code, _llm_case_identity(case) or case.case_id
     scope = (case.external_case_id or "") if case else ""
     return row.fingerprint, scope
 
@@ -3491,6 +3508,19 @@ async def compare_tasks(
 
     current_coverage, _ = _comparison_coverage(current)
     baseline_coverage, _ = _comparison_coverage(baseline)
+    coverage_complete = True
+    if current.scan_kind == "llm_redteam_scan":
+        fingerprints = []
+        for task, configured in [(current, current_coverage), (baseline, baseline_coverage)]:
+            cases = [case for case in case_rows if case.task_id == task.task_id and case.category == "llm_redteam_prompt"]
+            planned = _task_response(task).progress.get("planned", 0)
+            coverage_complete = coverage_complete and bool(planned) and len(cases) >= planned and all(
+                case.status in {"passed", "failed"} and _llm_case_identity(case) for case in cases
+            )
+            fingerprints.append(request_fingerprint({"configuration": configured, "inputs": sorted(
+                _llm_case_identity(case) or case.case_id for case in cases
+            )}))
+        current_coverage, baseline_coverage = fingerprints
     coverage_match = current_coverage == baseline_coverage
     engine_match = (current.engine_name or "", current.engine_version or "") == (
         baseline.engine_name or "",
@@ -3501,6 +3531,8 @@ async def compare_tasks(
         unable_reason = "baseline_not_succeeded"
     elif current.status != "succeeded":
         unable_reason = "current_not_succeeded"
+    elif not coverage_complete:
+        unable_reason = "coverage_incomplete"
     elif not coverage_match:
         unable_reason = "coverage_changed"
     elif not engine_match:
@@ -3508,8 +3540,19 @@ async def compare_tasks(
     resolved_rows = [] if unable_reason else missing_baseline_rows
     unable_rows = missing_baseline_rows if unable_reason else []
     comparison_status = "partial" if unable_reason else "complete"
+    def scan_summary(task, findings):
+        cases = [case for case in case_rows if case.task_id == task.task_id]
+        response = _task_response(task)
+        return {"task_id": task.task_id, "status": task.status, "created_at": task.created_at,
+                "completed_at": task.completed_at, "scan_options": response.scan_options,
+                "planned_cases": response.progress.get("planned", len(cases)),
+                "completed_cases": sum(case.status in {"passed", "failed"} for case in cases),
+                "finding_count": len(findings)}
     result = {
         "schema_version": "security-scan-comparison@1",
+        "unavailable_reason": unable_reason,
+        "current_summary": scan_summary(current, current_rows),
+        "baseline_summary": scan_summary(baseline, baseline_rows),
         "task_id": task_id,
         "baseline_task_id": baseline_task_id,
         "comparison_status": comparison_status,
