@@ -269,3 +269,56 @@ def test_llm_invalid_or_empty_report_is_never_reported_as_safe():
         normalize_llm_redteam_result(
             claim=_claim(), raw_result={"unexpected": []}, session_id="s", initial_usage={}
         )
+
+
+@pytest.mark.parametrize('options,expected', [
+    ({'datasets': ['a', 'b'], 'num_prompts': 10}, 40),
+    ({'datasets': ['a', 'b'], 'num_prompts': 10, 'planned_prompt_count': 13}, 26),
+    ({'num_prompts': -1, 'planned_prompt_count': 30}, 60),
+    ({'prompt': 'custom question'}, 2),
+])
+def test_plan_counts_each_selected_transformation(options, expected):
+    result = normalize_llm_redteam_result(
+        claim=_claim(techniques=['Raw', 'BaseEncoding'], **options),
+        raw_result=_raw_result(), session_id='test', initial_usage={},
+    )
+    assert result['artifacts'][0]['metadata']['planned_cases'] == expected
+    assert len(result['cases']) == 4
+
+
+def test_runner_executes_all_selected_techniques_for_each_model():
+    source = Path('services/aig-scan-service/vendor/ai-infra-guard/AIG-PromptSecurity/cli/red_team_runner.py').read_text()
+    tree = ast.parse(source)
+    loop = next(node for node in ast.walk(tree) if isinstance(node, ast.For)
+                and isinstance(node.target, ast.Name) and node.target.id == 'model'
+                and isinstance(node.iter, ast.Name) and node.iter.id == 'models')
+    calls = []
+    model = SimpleNamespace(max_concurrent=2, generate=lambda: 'refused', get_model_name=lambda: 'test')
+    engine = SimpleNamespace(max_concurrent=1, risk_assessment=None,
+                             red_team=lambda **kwargs: calls.append(kwargs))
+    selected = [SimpleNamespace(get_name=lambda: 'Raw'), SimpleNamespace(get_name=lambda: 'BaseEncoding')]
+    namespace = dict(models=[model], red_teamer=engine, async_mode=False, attacks=selected,
+                     vulnerabilities=list(range(20)), choice='parallel', all_risk_assessments=[])
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[loop], type_ignores=[])), '<runner>', 'exec'), namespace)
+    assert len(calls) == 1
+    assert calls[0]['attacks'] == selected
+    assert len(calls[0]['vulnerabilities']) == 20
+    assert calls[0]['choice'] == 'parallel'
+
+
+def test_report_export_preserves_original_evidence_without_model_calls():
+    import datetime
+    tree = ast.parse(Path('services/aig-scan-service/vendor/ai-infra-guard/AIG-PromptSecurity/deepteam/red_teamer/red_teamer.py').read_text())
+    method = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == 'get_risk_assessment_json')
+    namespace = {'pd': SimpleNamespace(DataFrame=lambda rows: SimpleNamespace(to_csv=lambda *a, **k: None)),
+                 'datetime': datetime, 'uuid': uuid}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[])), '<report>', 'exec'), namespace)
+    case = SimpleNamespace(score=1, error=None, useless=False, original_input='Original question',
+                           input='Encoded evidence 原文', actual_output='Original response',
+                           attack_method='BaseEncoding', vulnerability='test', reason='refused')
+    assessment = SimpleNamespace(test_cases=[case], overview=SimpleNamespace(
+        attack_method_results=[], vulnerability_type_results=[]))
+    report, _ = namespace['get_risk_assessment_json'](SimpleNamespace(), assessment, 'model')
+    assert report['results'][0]['input'] == case.input
+    assert report['results'][0]['originalInput'] == case.original_input
+    assert report['results'][0]['output'] == case.actual_output

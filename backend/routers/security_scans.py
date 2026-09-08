@@ -20,14 +20,16 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from agent_manager.core.mcp_parameter_risk import classify_mcp_parameter, normalize_mcp_identifier
+
 from .. import auth, models
 from ..agentic_risk_taxonomy import map_risk_codes
 from ..api_errors import ApiError
 from ..config import settings
 from ..runtime_trace_schemas import RuntimeTraceBatchCreate, RuntimeTraceEventInput
 from ..security_audit import append_security_audit
+from ..security_redteam_catalog import LLM_REDTEAM_DATASET_METADATA, LLM_REDTEAM_DATASETS, load_dataset_records
 from ..security_report_contract import build_report_contract, legacy_unversioned_report_contract
-from ..security_redteam_catalog import LLM_REDTEAM_DATASETS, LLM_REDTEAM_DATASET_METADATA, load_dataset_records
 from ..security_scan_controls import (
     AGENT_SCAN_SKILLS,
     ASSET_SCAN_KINDS,
@@ -52,8 +54,8 @@ from ..security_scan_controls import (
     seal_secret_for_worker,
     unprotect_secret,
     validate_agent_target_config,
-    validate_dify_inventory_target_config,
     validate_asset_connector,
+    validate_dify_inventory_target_config,
     validate_infrastructure_target_config,
     validate_llm_target_config,
     validate_target_type_scheme,
@@ -66,9 +68,9 @@ from ..security_scan_schemas import (
     SecurityCredentialStatusUpdate,
     SecurityCredentialUpdate,
     SecurityFindingDisposition,
-    SecurityFindingResponse,
     SecurityFindingListItem,
     SecurityFindingListResponse,
+    SecurityFindingResponse,
     SecurityIntentInferenceRequest,
     SecurityIntentInferenceResponse,
     SecurityPolicyCreate,
@@ -76,8 +78,8 @@ from ..security_scan_schemas import (
     SecurityPolicyUpdate,
     SecurityScanApprovalCreate,
     SecurityScanApprovalResponse,
-    SecurityTargetCreate,
     SecurityTargetConnectivityRequest,
+    SecurityTargetCreate,
     SecurityTargetResponse,
     SecurityTargetUpdate,
     SecurityTaskComparisonResponse,
@@ -98,18 +100,17 @@ from ..security_scan_schemas import (
     SecurityWorkerKeyResponse,
     SecurityWorkerResponse,
 )
-from ..services.runtime_traces import create_trace as create_runtime_trace_session
-from ..services.runtime_traces import ingest_batch as ingest_runtime_trace_batch
-from ..services.runtime_traces import ingest_transaction as runtime_trace_transaction
+from ..services.dify_intent_inference import run_intent_inference
 from ..services.dify_inventory import (
     inventory_artifact_projection,
     persist_inventory_snapshot,
     snapshot_payload,
     validate_inventory_report,
 )
-from ..services.dify_intent_inference import run_intent_inference
+from ..services.runtime_traces import create_trace as create_runtime_trace_session
+from ..services.runtime_traces import ingest_batch as ingest_runtime_trace_batch
+from ..services.runtime_traces import ingest_transaction as runtime_trace_transaction
 from ..sqlite_db import get_db
-from agent_manager.core.mcp_parameter_risk import classify_mcp_parameter, normalize_mcp_identifier
 
 router = APIRouter(prefix="/v1/agent-security", tags=["agent-security"])
 logger = logging.getLogger(__name__)
@@ -304,7 +305,11 @@ def _active_credential(
         query = query.filter(models.SecurityTargetCredential.purpose == purpose)
     else:
         query = query.filter(models.SecurityTargetCredential.purpose.in_(("agent_runtime", "dify_app_api")))
-    return query.order_by(models.SecurityTargetCredential.version.desc()).first()
+    credential = query.order_by(models.SecurityTargetCredential.version.desc()).first()
+    if credential is None and purpose in {"dify_console_api", "dify_knowledge_api"}:
+        from ..services.asset_sync import inherited_credential
+        credential = inherited_credential(db, target_id, purpose)
+    return credential
 
 
 def _active_credentials(db: Session, target_id: str) -> list[models.SecurityTargetCredential]:
@@ -2434,6 +2439,17 @@ async def create_task(
             "continue_from_task_id": body.continue_from_task_id,
         }
     )
+    automatic = body.idempotency_key.startswith(("schedule:", "asset-change:"))
+    if automatic:
+        db.query(models.SecurityTarget).filter_by(target_id=target.target_id).update(
+            {"status": models.SecurityTarget.status}, synchronize_session=False
+        )
+        trigger = db.query(models.SecurityTaskTrigger).filter_by(actor=current_user.username, request_key=body.idempotency_key).first()
+        if trigger:
+            previous = _task_or_404(db, trigger.task_id)
+            if previous.request_fingerprint != fingerprint:
+                raise ApiError(409, "agent_security.idempotency_conflict", "幂等键已用于不同请求", "Idempotency key already used for another request")
+            return _task_response(previous)
     existing = (
         db.query(models.SecurityScanTask)
         .filter(
@@ -2465,6 +2481,20 @@ async def create_task(
     approval = plan["_approval"]
     snapshot = plan["_target_snapshot"]
     policy_snapshot = plan["_policy_snapshot"]
+    if automatic:
+        from ..services.agent_risk import _configuration
+        for candidate in db.query(models.SecurityScanTask).filter(
+            models.SecurityScanTask.target_id == target.target_id,
+            models.SecurityScanTask.request_fingerprint == fingerprint,
+            models.SecurityScanTask.status.in_(["pending", "running"]),
+        ).all():
+            if (_configuration(json_loads(candidate.target_snapshot_json, {})) == _configuration(snapshot)
+                    and json_loads(candidate.policy_snapshot_json, {}) == policy_snapshot):
+                db.add(models.SecurityTaskTrigger(trigger_id=new_resource_id("str"), actor=current_user.username,
+                    request_key=body.idempotency_key, task_id=candidate.task_id,
+                    kind="asset_change" if body.idempotency_key.startswith("asset-change:") else "scheduled"))
+                db.commit()
+                return _task_response(candidate)
     effective_capabilities = context["effective_capabilities"]
     timeout_at = now + timedelta(seconds=policy.task_timeout_seconds)
     if approval:
@@ -2519,7 +2549,14 @@ async def create_task(
                 "The production active-safe approval has already been used or expired",
             )
     db.add(row)
+    from ..services.agent_risk import bind_scan
     try:
+        bind_scan(db, row, scan_options)
+        if automatic:
+            db.flush()
+            db.add(models.SecurityTaskTrigger(trigger_id=new_resource_id("str"), actor=current_user.username,
+                request_key=body.idempotency_key, task_id=row.task_id,
+                kind="asset_change" if body.idempotency_key.startswith("asset-change:") else "scheduled"))
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -2592,10 +2629,21 @@ async def list_tasks(
         query = query.filter(models.SecurityScanTask.target_id == target_id)
     if scan_kind:
         query = query.filter(models.SecurityScanTask.scan_kind == scan_kind)
-    return [
-        _task_response(row)
-        for row in query.order_by(models.SecurityScanTask.id.desc()).offset(offset).limit(limit).all()
-    ]
+    rows = query.order_by(models.SecurityScanTask.id.desc()).offset(offset).limit(limit).all()
+    from ..services.task_risk import origins_for_tasks
+    provenance = origins_for_tasks(db, rows)
+    counts = dict(db.query(models.SecurityScanCase.task_id, func.count(models.SecurityScanCase.id)).filter(
+        models.SecurityScanCase.task_id.in_([row.task_id for row in rows]),
+        models.SecurityScanCase.category == "llm_redteam_prompt",
+    ).group_by(models.SecurityScanCase.task_id).all())
+    results = []
+    for row in rows:
+        item = _task_response(row)
+        item.origins = provenance[row.task_id]
+        if row.scan_kind == "llm_redteam_scan" and row.status in TASK_TERMINAL_STATUSES:
+            item.progress["completed"] = max(item.progress.get("completed", 0), counts.get(row.task_id, 0))
+        results.append(item)
+    return results
 
 
 _CASE_EXECUTION_STATUSES = {"completed", "error", "blocked", "unverified"}
@@ -2886,6 +2934,8 @@ def _artifact_payload(row: models.SecurityScanArtifact) -> dict[str, Any]:
 
 
 def _task_detail(db: Session, task: models.SecurityScanTask) -> dict[str, Any]:
+    from ..services.task_risk import report_score, origins
+
     case_rows = (
         db.query(models.SecurityScanCase)
         .filter(models.SecurityScanCase.task_id == task.task_id)
@@ -2905,9 +2955,15 @@ def _task_detail(db: Session, task: models.SecurityScanTask) -> dict[str, Any]:
     inventory_snapshot = db.query(models.SecurityAssetInventorySnapshot).filter(
         models.SecurityAssetInventorySnapshot.task_id == task.task_id
     ).first()
+    response = _task_response(task, include_live_cases=True)
+    response.origins = origins(db, task)
+    if task.scan_kind == "llm_redteam_scan" and task.status in TASK_TERMINAL_STATUSES:
+        response.progress["completed"] = max(response.progress.get("completed", 0), sum(row.category == "llm_redteam_prompt" for row in case_rows))
     return {
-        "task": _task_response(task, include_live_cases=True).model_dump(),
+        "task": response.model_dump(),
         "report_contract": _report_contract_snapshot(task),
+        "risk_score": report_score(db, task),
+        "origins": origins(db, task),
         "cases": [
             _case_payload(
                 row,
@@ -2943,7 +2999,9 @@ async def get_task(
     recover_stale_tasks(db)
     task = _task_or_404(db, task_id)
     _require_task_access(db, current_user, task)
-    return _task_detail(db, task)
+    detail = _task_detail(db, task)
+    db.commit()
+    return detail
 
 
 @router.get("/tasks/{task_id}/scan-report.pdf")
@@ -3285,9 +3343,11 @@ async def list_findings(
             .join(models.SecurityTarget, models.SecurityScanTask.target_id == models.SecurityTarget.target_id)
             .with_entities(models.SecurityFinding, models.SecurityScanTask, models.SecurityTarget.name)
             .order_by(models.SecurityFinding.id.desc()).offset(offset).limit(limit).all())
+    from ..services.task_risk import origins_for_tasks
+    provenance = origins_for_tasks(db, [task for _, task, _ in rows])
     return SecurityFindingListResponse(
         items=[SecurityFindingListItem(**_finding_payload(finding).model_dump(), target_id=task.target_id,
-                                       target_name=target_name, scan_kind=task.scan_kind, scan_created_at=task.created_at)
+                                       target_name=target_name, scan_kind=task.scan_kind, scan_created_at=task.created_at, origins=provenance[task.task_id])
                for finding, task, target_name in rows],
         total=total,
         severity_counts=severity_counts,
@@ -3350,6 +3410,8 @@ async def dispose_finding(
     row.disposition_by = current_user.username
     row.disposition_at = now
     row.updated_at = now
+    from ..services.agent_risk import enqueue
+    enqueue(db, task.target_id, kind="finding_updated", task_id=task.task_id)
     db.commit()
     db.refresh(row)
     _audit(
@@ -4342,6 +4404,13 @@ async def complete_task(
                         updated_at=now.isoformat() + "Z")
         options["live_progress"] = progress
         task.scan_options_encrypted = protect_secret(json_dumps(options))
+        planned = _task_response(task).progress.get("planned", 0)
+        if len(executed_cases) < planned:
+            body = body.model_copy(update={
+                "status": "failed", "retryable": False,
+                "error_code": "agent_security.llm_coverage_incomplete",
+                "error_message": f"测试覆盖不完整：已执行 {len(executed_cases)} / 计划 {planned} 用例",
+            })
     budget_reason = _budget_reason(task, now)
     if budget_reason:
         task.status = "timed_out" if budget_reason == "task_timeout" else "blocked"
@@ -4503,10 +4572,17 @@ async def complete_task(
                     422, "dify_inventory.response_invalid",
                     "Dify 资产清单任务缺少可持久化产物", "The Dify inventory task has no persistable artifact",
                 )
-            persist_inventory_snapshot(db, task, inventory_report)
+            snapshot = persist_inventory_snapshot(db, task, inventory_report)
+            from ..services.agent_risk import record_inventory
+            record_inventory(db, task, inventory_report, snapshot.snapshot_id)
     _clear_lease(task)
     task.updated_at = now
     worker.last_heartbeat_at = now
+    from ..services.agent_risk import enqueue
+    enqueue(db, task.target_id, kind="scan_completed", task_id=task.task_id)
+    from ..services.task_risk import report_score
+    db.flush()
+    report_score(db, task)
     if auto_trace_findings:
         with runtime_trace_transaction(db):
             _create_scan_finding_trace(db, task, auto_trace_findings, now=now)

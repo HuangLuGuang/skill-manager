@@ -2,6 +2,23 @@ from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 
+from .asset_lifecycle_models import (  # noqa: F401
+    AgentAssetLink,
+    AgentRiskAssessment,
+    AgentRiskIssue,
+    AgentScanBinding,
+    AssetLifecycleEvent,
+    AssetSource,
+    AssetSyncRun,
+    AssetSyncRunItem,
+    SecurityAgentAsset,
+)
+from .scan_schedule_models import (  # noqa: F401
+    SecurityScanSchedule,
+    SecurityScanScheduleRun,
+    SecurityTaskRiskScore,
+    SecurityTaskTrigger,
+)
 from .sqlite_db import Base
 
 

@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { getSystemCapabilities } from '../api'
 
 const routes = [
+  { path: '/agent-security/assets', redirect: '/agent-security/scans?stage=targets' },
   { path: '/', redirect: '/dashboard' },
   { path: '/login', name: 'login', component: () => import('../views/Login.vue') },
   { path: '/docs/:pathMatch(.*)*', name: 'docs', component: () => import('../views/HelpDocs.vue'), meta: { requiresAuth: true, layout: 'docs' } },

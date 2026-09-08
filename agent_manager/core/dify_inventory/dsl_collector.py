@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from typing import Any
 
@@ -24,6 +25,26 @@ _CAPABILITY_FINDINGS = {
     "network_access": ("dify_inventory.network_access_surface", "medium", "Asset can access external networks"),
     "data_exfiltration_surface": ("dify_inventory.data_exfiltration_surface", "high", "Asset can send data externally"),
 }
+
+
+def configuration_digest(document: dict[str, Any]) -> str:
+    """Hash execution configuration, including code, without storing another raw copy."""
+    workflow = dict(document.get("workflow") or {})
+    graph = workflow.get("graph") or {}
+    workflow["graph"] = {
+        "nodes": sorted(
+            ({"id": node.get("id"), "data": node.get("data")} for node in graph.get("nodes", []) if isinstance(node, dict)),
+            key=lambda node: str(node["id"]),
+        ),
+        "edges": sorted(
+            ({key: edge.get(key) for key in ("source", "target", "sourceHandle", "targetHandle")} for edge in graph.get("edges", []) if isinstance(edge, dict)),
+            key=lambda edge: json.dumps(edge, sort_keys=True),
+        ),
+    }
+    for key in ("created_at", "updated_at", "id", "version"):
+        workflow.pop(key, None)
+    content = {"workflow": workflow, "model_config": document.get("model_config"), "dependencies": document.get("dependencies", [])}
+    return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
 
 
 def _dict(value: Any) -> dict[str, Any]:
@@ -248,6 +269,7 @@ def collect_dsl(
     ]
     return {
         "app": app,
+        "configuration_sha256": configuration_digest(document),
         "workflow": {
             "workflow_id": workflow.get("id") or document.get("workflow_id"),
             "version": workflow.get("version") or document.get("version"),

@@ -99,6 +99,12 @@ def build_security_scan_pdf(detail: dict[str, Any], *, language: str = "zh-CN") 
         (t("导出时间（UTC）", "Exported (UTC)"), when(datetime.now(timezone.utc))),
     ], styles))
     section("01  关键结论", "01  Key conclusions")
+    risk_score = detail.get("risk_score")
+    if risk_score:
+        value = risk_score.get("score")
+        paragraph(t("本次扫描风险分", "This scan's risk score") + ": " + (str(value) + " / 100" if value is not None else t("未评估", "Unassessed")))
+        paragraph(t("检测覆盖", "Check coverage") + f": {risk_score.get('completed_checks', 0)} / {risk_score.get('total_checks', 0)}")
+        paragraph(t("分数越高，风险越高；仅代表本次检测范围。", "Higher scores indicate higher risk within this scan's scope."))
     risk_cases = {c.get("case_id") for c in cases if c.get("response_summary", {}).get("assessment_status") == "jailbreak_signal_detected" or c.get("assessment_status") == "risk_signal_detected"}
     evaluated = [c for c in cases if c.get("response_summary", {}).get("assessment_status") in {"jailbreak_signal_detected", "attack_resisted"} or c.get("assessment_status") in {"risk_signal_detected", "no_risk_observed", "risk_accepted", "resolved", "false_positive"}]
     rate = f"{len(risk_cases) / len(evaluated):.0%}" if evaluated else t("未计算", "N/A")

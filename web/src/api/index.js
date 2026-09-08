@@ -18,6 +18,19 @@ export const login = (username, password, captchaId, captchaCode) => {
 
 export const getCaptcha = () => api.get('/auth/captcha')
 export const getMe = () => api.get('/auth/users/me')
+export const listAssetSources = () => api.get('/v1/agent-security/asset-sources')
+export const createAssetSource = body => api.post('/v1/agent-security/asset-sources', body)
+export const updateAssetSource = (id, body) => api.put(`/v1/agent-security/asset-sources/${id}`, body)
+export const startAssetSync = (id, key) => api.post(`/v1/agent-security/asset-sources/${id}/sync-runs`, { idempotency_key: key })
+export const listAssetSyncRuns = id => api.get(`/v1/agent-security/asset-sources/${id}/sync-runs`)
+export const getAssetSyncRun = id => api.get(`/v1/agent-security/asset-sync-runs/${id}`)
+export const cancelAssetSyncRun = id => api.post(`/v1/agent-security/asset-sync-runs/${id}/cancel`)
+export const listManagedAgentRisks = params => api.get('/v1/agent-security/managed-agents', { params })
+export const getManagedAgentRisk = id => api.get(`/v1/agent-security/managed-agents/${id}/risk`)
+export const getManagedAgentRiskHistory = id => api.get(`/v1/agent-security/managed-agents/${id}/risk-history`)
+export const getManagedAgentRiskIssues = id => api.get(`/v1/agent-security/managed-agents/${id}/risk-issues`)
+export const reviewManagedAgentRisk = (id, issueId, body) => api.patch(`/v1/agent-security/managed-agents/${id}/risk-issues/${issueId}`, body)
+export const setManagedAgentRelatedTargets = (id, targetIds) => api.put(`/v1/agent-security/managed-agents/${id}/related-targets`, { target_ids: targetIds })
 export const updateMyLocale = (locale) => api.put('/auth/users/me/locale', { locale })
 export const changePassword = (oldPassword, newPassword) =>
   api.post('/auth/users/me/password', {
@@ -301,3 +314,12 @@ api.interceptors.response.use(
 )
 
 export default api
+
+export const listScanSchedules = () => api.get('/v1/agent-security/scan-schedules')
+export const createScanSchedule = body => api.post('/v1/agent-security/scan-schedules', body)
+export const updateScanSchedule = (id, body) => api.put(`/v1/agent-security/scan-schedules/${id}`, body)
+export const deleteScanSchedule = id => api.delete(`/v1/agent-security/scan-schedules/${id}`)
+export const triggerScanSchedule = (id, key) => api.post(`/v1/agent-security/scan-schedules/${id}/runs`, { idempotency_key: key })
+export const listScanScheduleRuns = id => api.get(`/v1/agent-security/scan-schedules/${id}/runs`)
+export const previewScanTiming = body => api.post('/v1/agent-security/scan-schedules/preview', body)
+export const getTargetRiskProfile = id => api.get(`/v1/agent-security/targets/${id}/risk-profile`)

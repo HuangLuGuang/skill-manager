@@ -17,11 +17,16 @@ const focusedNamespaces = [
   'agentSecurity',
   'agentSecurityScans',
   'runtimeTraceExplorer',
+  'assetLifecycle',
+  'scanSchedule',
 ]
 const focusedViews = [
   '../src/views/components/FindingEvidence.vue',
   '../src/views/AgentSecurityScans.vue',
   '../src/views/RuntimeTraceExplorer.vue',
+  '../src/views/components/TargetGovernance.vue',
+  '../src/views/components/ScanTimingFields.vue',
+  '../src/views/components/ScanSchedules.vue',
 ]
 const chinesePattern = /[\u3400-\u9fff]/
 

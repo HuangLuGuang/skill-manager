@@ -3017,3 +3017,54 @@ def test_dify_intent_inference_two_invalid_outputs_return_diagnostic_without_raw
         assert result["usage_delta"]["rounds"] == 2
         assert result["usage_delta"]["tokens"] == 10
         assert "invalid-one" not in json.dumps(result)
+
+
+@pytest.mark.parametrize('count,expected_status', [(10, 'failed'), (20, 'succeeded')])
+def test_llm_completion_requires_planned_case_coverage(p1_api, count, expected_status):
+    client, sessions, _, _ = p1_api
+    task_id, headers, lease_token = _claim_control_plane_task(client)
+    with sessions() as db:
+        task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
+        task.scan_kind = 'llm_redteam_scan'
+        task.scan_options_encrypted = protect_secret(json_dumps({
+            'datasets': ['JailBench-Tiny', 'cnsafe'], 'num_prompts': 5,
+            'planned_prompt_count': 10, 'techniques': ['Raw', 'BaseEncoding'],
+        }))
+        db.commit()
+    response = client.post(f'/api/v1/agent-security/worker/tasks/{task_id}/complete', headers=headers,
+        json={'lease_token': lease_token, 'status': 'succeeded',
+              'engine_name': 'tencent-ai-infra-guard-model-redteam', 'engine_version': 'v4.6.0',
+              'artifacts': [{'artifact_type': 'aig-llm-redteam-report', 'uri': 'test://coverage', 'sha256': '0' * 64}],
+              'cases': [
+            {'external_case_id': f'case-{i}', 'category': 'llm_redteam_prompt',
+             'title': 'Test', 'status': 'passed', 'round_count': 1} for i in range(count)
+        ]})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data['status'] == expected_status
+    assert data['progress']['completed'] == count
+    assert data['progress']['planned'] == 20
+    assert data['error_code'] == ('agent_security.llm_coverage_incomplete' if count == 10 else None)
+    detail = client.get(f'/api/v1/agent-security/tasks/{task_id}').json()
+    assert len(detail['cases']) == count
+
+
+def test_blocked_llm_task_retains_live_completion_without_final_cases(p1_api):
+    client, sessions, _, _ = p1_api
+    task_id, _, _ = _claim_control_plane_task(client)
+    with sessions() as db:
+        task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
+        task.scan_kind = 'llm_redteam_scan'
+        task.status = 'blocked'
+        task.stop_reason = 'budget.max_duration_seconds_exceeded'
+        task.scan_options_encrypted = protect_secret(json_dumps({
+            'planned_prompt_count': 10, 'techniques': ['Raw', 'BaseEncoding'],
+            'live_progress': {'completed': 20, 'observed_total': 20},
+        }))
+        db.commit()
+    detail = client.get(f'/api/v1/agent-security/tasks/{task_id}').json()
+    listed = next(t for t in client.get('/api/v1/agent-security/tasks').json() if t['task_id'] == task_id)
+    assert detail['cases'] == []
+    for task in [listed, detail['task']]:
+        assert task['progress']['completed'] == task['progress']['planned'] == 20
+        assert task['status'] == 'blocked'

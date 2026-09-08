@@ -13,11 +13,11 @@ def test_p7_project_guide_describes_enabled_capabilities_and_business_flows():
         "Agent / MCP 测评链",
         "运行治理与证据链",
         "页面功能默认开启",
-        "### 12.8 智能体安全",
+        "### 12.8 安全扫描与调用轨迹",
         "扫描管理",
-        "安全能力基线",
+        "上游集成基线说明",
         "调用轨迹",
-        "轨迹能力基线",
+        "定时扫描、资产来源与风险评分",
         "任务成功或零 Finding 都不自动等于“安全”",
         "完整平台离线安装、真实 Compose 服务的中断",
     ):
@@ -29,12 +29,14 @@ def test_p7_project_guide_describes_enabled_capabilities_and_business_flows():
     assert guide.index("### 6.10 安全扫描管理界面") < guide.index("### 6.11 统一调用轨迹界面")
 
 
-def test_agent_security_baseline_copy_does_not_claim_trace_ui_is_future_work():
+def test_security_navigation_has_enabled_pages_and_translations():
     messages = (ROOT / "web/src/i18n/index.js").read_text(encoding="utf-8")
-    assert "完整调用轨迹可视化将在后续阶段提供" not in messages
-    assert "complete trace visualization will arrive in a later phase" not in messages
-    assert "扫描管理和统一调用轨迹双视图均已启用" in messages
-    assert "Scan management and unified dual-view traces are enabled" in messages
+    assert "menu: '安全扫描'" in messages
+    assert "menu: '调用轨迹'" in messages
+    assert "menu: 'Runtime Traces'" in messages
+    navigation = (ROOT / "web/src/navigation.js").read_text(encoding="utf-8")
+    for key in ("agentSecurityScans.menu", "runtimeTraceExplorer.menu"):
+        assert key in navigation
 
 
 def test_p7_model_gateway_doc_covers_trace_correlation_headers_and_privacy_boundaries():

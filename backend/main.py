@@ -23,11 +23,13 @@ from .api_errors import (
 )
 from .auth import get_current_admin_user, get_current_security_reader, get_password_hash
 from .config import settings
+from .dify_inventory_migration import migrate_dify_asset_inventory
 from .request_limits import WorkerCompletionBodyLimitMiddleware
 from .routers import (
     access_tokens,
     agent_security,
     agents,
+    asset_lifecycle,
     auth,
     clients,
     config,
@@ -37,13 +39,13 @@ from .routers import (
     runtime_traces,
     security_audit,
     security_scans,
+    scan_schedules,
     system,
     tasks,
 )
 from .security import initialize_signing_identity, validate_security_settings
 from .security_audit import append_security_audit, ensure_audit_signing_key
 from .security_target_migration import migrate_security_target_classification
-from .dify_inventory_migration import migrate_dify_asset_inventory
 from .security_worker_bootstrap import bootstrap_builtin_security_worker_once
 from .services.runtime_traces import cleanup_expired
 from .sqlite_db import Base, SessionLocal, engine
@@ -100,10 +102,15 @@ async def application_lifespan(_: FastAPI):
     warmup_skill_scanner()
     cleanup_runtime_traces_once()
     retention_task = asyncio.create_task(runtime_trace_retention_loop())
+    from .services.asset_sync import lifecycle_loop
+    asset_task = asyncio.create_task(lifecycle_loop())
     try:
         yield
     finally:
         retention_task.cancel()
+        asset_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await asset_task
         with suppress(asyncio.CancelledError):
             await retention_task
 
@@ -137,6 +144,8 @@ app.include_router(
     agent_security.router, prefix=settings.API_PREFIX, dependencies=[Depends(get_current_security_reader)]
 )
 app.include_router(security_scans.router, prefix=settings.API_PREFIX)
+app.include_router(asset_lifecycle.router, prefix=settings.API_PREFIX)
+app.include_router(scan_schedules.router, prefix=settings.API_PREFIX)
 app.include_router(runtime_governance.router, prefix=settings.API_PREFIX)
 app.include_router(runtime_traces.router, prefix=settings.API_PREFIX)
 app.include_router(mcp_gateway.admin_router, prefix=f"{settings.API_PREFIX}/v1", dependencies=[Depends(get_current_admin_user)])
@@ -193,6 +202,9 @@ async def append_admin_security_audit(request, call_next):
 
 def ensure_sqlite_schema() -> None:
     Base.metadata.create_all(bind=engine)
+    from .asset_lifecycle_migrations import upgrade_asset_lifecycle_schema
+
+    upgrade_asset_lifecycle_schema(engine)
     for index in models.GatewaySessionRequest.__table__.indexes:
         index.create(bind=engine, checkfirst=True)
     if engine.dialect.name != "sqlite":

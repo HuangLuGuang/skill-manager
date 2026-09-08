@@ -290,6 +290,7 @@ def build_inventory(
     }
     return {
         "schema_version": "dify-asset-inventory@1",
+        "configuration_sha256": dsl.get("configuration_sha256"),
         "engine_name": "agent-manager-dify-inventory",
         "agent_profile": profile,
         "summary": {

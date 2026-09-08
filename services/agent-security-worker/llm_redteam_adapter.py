@@ -156,12 +156,15 @@ def normalize_llm_redteam_result(
     )
     denominator = completed_evaluations
     options = claim.get("scan_options") or {}
-    planned_cases = (
-        1 if options.get("prompt")
-        else int(options.get("num_prompts") or len(cases)) * max(1, len(options.get("datasets") or []))
-    )
-    if not options.get("prompt") and options.get("num_prompts") == -1:
-        planned_cases = options.get("planned_prompt_count") or sum(_safe_int(report.get("baseTotal")) for report in reports)
+    base_count = options.get("planned_prompt_count")
+    if options.get("prompt"):
+        base_count = 1
+    elif base_count is None:
+        if options.get("num_prompts") == -1:
+            base_count = sum(_safe_int(report.get("baseTotal")) for report in reports)
+        else:
+            base_count = int(options.get("num_prompts") or 0) * max(1, len(options.get("datasets") or []))
+    planned_cases = int(base_count or 0) * max(1, len(options.get("techniques") or []))
     metadata = {
         "scan_mode": "dynamic_model_redteam",
         "planned_cases": planned_cases,

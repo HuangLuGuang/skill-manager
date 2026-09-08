@@ -45,6 +45,7 @@
 
     <a-spin :spinning="loading">
       <div class="stage-panel">
+        <ScanSchedules v-if="activeStage === 'schedules'" ref="schedulesPanel" :targets="targets" :can-admin="canAdmin" @count="scheduleCount = $event" @edit="editSchedule" @task="openTaskDetail" />
         <template v-if="activeStage === 'targets'">
           <div class="panel-heading">
             <div>
@@ -58,6 +59,7 @@
                 class="search-control"
                 :placeholder="t('agentSecurityScans.targets.search')"
               />
+              <a-button @click="governance.openSources()">{{ t('scanSchedule.sources') }}</a-button>
               <a-button v-if="canAdmin" type="primary" @click="openTargetModal()">
                 <template #icon><PlusOutlined /></template>
                 {{ t('agentSecurityScans.targets.create') }}
@@ -81,6 +83,8 @@
                   <code>{{ record.target_id }}</code>
                 </div>
               </template>
+              <template v-else-if="column.key === 'latest_scan'"><a v-if="tasks.find(x => x.target_id === record.target_id)" @click="openTaskDetail(tasks.find(x => x.target_id === record.target_id).task_id)">{{ formatDateTime(tasks.find(x => x.target_id === record.target_id).created_at) }}</a><span v-else>—</span></template>
+              <template v-else-if="column.key === 'risk'"><a-button v-if="record.asset_type === 'agent'" type="link" @click="governance.openTarget(record)">{{ targetRisks[record.target_id]?.score ?? '—' }} · {{ t('scanSchedule.targetRisk') }}</a-button><span v-else>—</span><small v-if="targetRisks[record.target_id]">{{ t(`assetLifecycle.states.${targetRisks[record.target_id].status}`) }}</small></template>
               <template v-else-if="column.key === 'target_type'">
                 <div class="target-classification">
                   <a-tag color="blue">{{ assetTypeLabel(record.asset_type) }}</a-tag>
@@ -253,7 +257,6 @@
                     <a-progress v-if="!terminalStatuses.has(record.status) || record.progress?.completed != null" :percent="progressPercent(record)" :show-info="false" size="small" />
                   </template>
                   <span v-else>{{ t('agentSecurityScans.tasks.roundUsage', { value: record.usage?.rounds || 0 }) }}</span>
-                  <span>{{ t('agentSecurityScans.tasks.tokenUsage', { value: formatNumber(record.usage?.tokens || 0) }) }}</span>
                 </div>
               </template>
               <template v-else-if="column.key === 'created_at'">{{ formatDateTime(record.created_at) }}</template>
@@ -311,6 +314,7 @@
               <template v-else-if="column.key === 'source'">{{ record.source === 'ai-infra-guard' ? t('agentSecurityScans.findings.scanEngine') : record.source }}</template>
               <template v-else-if="column.key === 'scan'">
                 <div class="finding-scan">
+                  <a-tooltip v-for="origin in (record.origins || []).filter(item => item.kind === 'scheduled')" :key="origin.schedule_id" :title="origin.name"><a-tag color="blue">{{ t('scanSchedule.resultTag') }}</a-tag></a-tooltip>
                   <a-button type="link" size="small" @click="openTaskDetail(record.task_id)">{{ record.target_name }}</a-button>
                   <span class="cell-subtext">{{ scanKindLabel(record.scan_kind) }} · {{ formatDateTime(record.scan_created_at) }}</span>
                   <code class="cell-subtext" :title="record.task_id">{{ shortId(record.task_id) }}</code>
@@ -326,7 +330,7 @@
           </a-table>
         </template>
 
-        <template v-else>
+        <template v-else-if="activeStage === 'reports'">
           <div class="panel-heading">
             <div>
               <h2>{{ t('agentSecurityScans.reports.title') }}</h2>
@@ -347,7 +351,7 @@
             :locale="{ emptyText: t('agentSecurityScans.reports.empty') }"
           >
             <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'target_id'"><div>{{ targetName(record.target_id) }}</div><small class="cell-subtext" :title="record.task_id">{{ formatDateTime(record.created_at) }} · {{ shortId(record.task_id) }}</small></template>
+              <template v-if="column.key === 'target_id'"><div>{{ targetName(record.target_id) }} <a-tooltip v-for="origin in (record.origins || []).filter(item => item.kind === 'scheduled')" :key="origin.schedule_id" :title="origin.name"><a-tag color="blue">{{ t('scanSchedule.resultTag') }}</a-tag></a-tooltip></div><small class="cell-subtext" :title="record.task_id">{{ formatDateTime(record.created_at) }} · {{ shortId(record.task_id) }}</small></template>
               <template v-else-if="column.key === 'scan_kind'">{{ scanKindLabel(record.scan_kind) }}</template>
               <template v-else-if="column.key === 'status'"><a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag></template>
               <template v-else-if="column.key === 'engine'">{{ engineLabel(record.engine?.name || record.engine?.engine_name) }}</template>
@@ -591,13 +595,16 @@
       </a-form>
     </a-modal>
 
+    <TargetGovernance ref="governance" />
     <a-modal v-model:open="taskModalOpen" :title="t('agentSecurityScans.tasks.createTitle')" width="820px">
       <template #footer>
         <a-button @click="taskModalOpen = false">{{ t('agentSecurityScans.tasks.close') }}</a-button>
         <a-button :loading="previewingTask" :disabled="submittingTask" @click="loadTaskPreview">{{ t('agentSecurityScans.tasks.preview') }}</a-button>
-        <a-button type="primary" :loading="submittingTask" :disabled="!taskPreview || previewingTask" @click="saveTask">{{ t('agentSecurityScans.tasks.createConfirmed') }}</a-button>
+        <a-button type="primary" :loading="submittingTask" :disabled="submittingTask || previewingTask || (executionMode === 'now' ? !taskPreview : !timingValid || !scheduleName.trim())" @click="saveTask">{{ executionMode === 'now' ? t('agentSecurityScans.tasks.createConfirmed') : editingSchedule ? t('assetLifecycle.save') : t('scanSchedule.create') }}</a-button>
       </template>
       <a-form layout="vertical">
+        <a-form-item :label="t('scanSchedule.execution')"><a-radio-group v-model:value="executionMode" :disabled="!!editingSchedule"><a-radio value="now">{{ t('scanSchedule.now') }}</a-radio><a-radio v-if="canAdmin" value="scheduled">{{ t('scanSchedule.scheduled') }}</a-radio></a-radio-group></a-form-item>
+        <template v-if="executionMode === 'scheduled'"><a-form-item :label="t('scanSchedule.name')" required><a-input v-model:value="scheduleName" :maxlength="128" /></a-form-item><ScanTimingFields v-model="scanTiming" @valid="timingValid = $event" /><a-checkbox v-if="!editingSchedule" v-model:checked="runImmediately">{{ t('scanSchedule.immediately') }}</a-checkbox><p>{{ t('scanSchedule.note') }}</p></template>
         <a-row :gutter="16">
           <a-col :xs="24" :md="12"><a-form-item :label="t('agentSecurityScans.tasks.target')" required><a-select v-model:value="taskForm.target_id" @change="handleTaskTargetChange"><a-select-option v-for="target in activeTargets" :key="target.target_id" :value="target.target_id">{{ target.name }}</a-select-option></a-select></a-form-item></a-col>
           <a-col :xs="24" :md="12"><a-form-item :label="t('agentSecurityScans.tasks.policy')" required><a-select v-model:value="taskForm.policy_id" @change="handleTaskPolicyChange"><a-select-option v-for="policy in availablePolicies" :key="policy.policy_id" :value="policy.policy_id">{{ policy.name }}</a-select-option></a-select></a-form-item></a-col>
@@ -621,7 +628,7 @@
           <a-form-item :label="t('agentSecurityScans.tasks.prompt')"><a-textarea v-model:value="taskForm.prompt" :rows="3" :maxlength="4096" /></a-form-item>
           <a-row :gutter="16">
             <a-col :xs="24" :md="12"><a-form-item :label="t('agentSecurityScans.tasks.conversationMode')"><a-select v-model:value="taskForm.conversation_mode"><a-select-option value="single_turn">{{ t('agentSecurityScans.tasks.singleTurn') }}</a-select-option><a-select-option value="multi_turn">{{ t('agentSecurityScans.tasks.multiTurn') }}</a-select-option></a-select></a-form-item></a-col>
-            <a-col :xs="24" :md="12"><a-form-item :label="t('agentSecurityScans.tasks.continueFrom')"><a-select v-model:value="taskForm.continue_from_task_id" allow-clear><a-select-option v-for="task in resumableTasks" :key="task.task_id" :value="task.task_id">{{ task.task_id }}</a-select-option></a-select></a-form-item></a-col>
+            <a-col :xs="24" :md="12"><a-form-item :label="t('agentSecurityScans.tasks.continueFrom')"><a-select v-model:value="taskForm.continue_from_task_id" allow-clear :disabled="executionMode === 'scheduled'"><a-select-option v-for="task in resumableTasks" :key="task.task_id" :value="task.task_id">{{ task.task_id }}</a-select-option></a-select></a-form-item></a-col>
           </a-row>
         </template>
         <template v-else-if="taskForm.scan_kind === 'llm_redteam_scan'">
@@ -685,7 +692,7 @@
           <a-form-item :label="t('agentSecurityScans.inventory.collectionMode')">
             <a-radio-group v-model:value="taskForm.inventory_source">
               <a-radio-button value="console_api">{{ t('agentSecurityScans.inventory.consoleMode') }}</a-radio-button>
-              <a-radio-button value="manual_dsl">{{ t('agentSecurityScans.inventory.manualMode') }}</a-radio-button>
+              <a-radio-button value="manual_dsl" :disabled="executionMode === 'scheduled'">{{ t('agentSecurityScans.inventory.manualMode') }}</a-radio-button>
             </a-radio-group>
           </a-form-item>
           <template v-if="taskForm.inventory_source === 'manual_dsl'">
@@ -797,6 +804,8 @@
       <template #extra><a-button :loading="exportingReport" :disabled="exportingReport || taskDetailLoading || !taskDetail" @click="exportReport"><template #icon><DownloadOutlined /></template>{{ t('agentSecurityScans.detail.exportPdf') }}</a-button></template>
       <a-spin :spinning="taskDetailLoading">
         <template v-if="taskDetail">
+          <section v-if="taskDetail.risk_score" class="task-risk-summary"><h3>{{ t('scanSchedule.taskScore') }} <strong>{{ taskDetail.risk_score.score ?? '—' }} / 100</strong></h3><a-tag>{{ t(`assetLifecycle.states.${taskDetail.risk_score.status}`) }}</a-tag><span>{{ t('scanSchedule.checks', { completed: taskDetail.risk_score.completed_checks, total: taskDetail.risk_score.total_checks }) }}</span><p>{{ t('scanSchedule.scoreHelp') }}</p><a-button v-if="targets.find(x => x.target_id === taskDetail.task.target_id)?.asset_type === 'agent'" @click="governance.openTarget({ target_id: taskDetail.task.target_id })">{{ t('scanSchedule.currentRisk') }}</a-button><a-collapse ghost><a-collapse-panel key="score" :header="t('scanSchedule.evidence')"><p>{{ t('assetLifecycle.formula') }}</p><a-list :data-source="taskDetail.risk_score.contributions"><template #renderItem="{ item }"><a-list-item><a @click="detailTab = 'findings'">{{ item.finding_id }}</a><span>{{ t(`assetLifecycle.states.${item.severity}`) }} · {{ item.points }}</span></a-list-item></template></a-list></a-collapse-panel></a-collapse></section>
+          <p v-if="taskDetail.origins">{{ t('scanSchedule.origin') }}: <span v-for="(origin, i) in taskDetail.origins" :key="i"><a v-if="origin.schedule_id && !origin.deleted" @click="openOriginSchedule(origin.schedule_id)">{{ origin.name }}</a><span v-else>{{ origin.name || t(`scanSchedule.${origin.kind}`) }}</span> </span></p>
           <div class="detail-identity"><div><span>{{ t('agentSecurityScans.detail.task') }}</span><code>{{ taskDetail.task.task_id }}</code></div><a-tag :color="statusColor(taskDetail.task.status)">{{ statusLabel(taskDetail.task.status) }}</a-tag></div>
           <section v-if="isLlmTaskDetail" class="live-scan-progress">
             <strong>{{ progressLabel(taskDetail.task) }}</strong>
@@ -807,13 +816,15 @@
           </section>
           <a-alert v-if="taskDetail.task.error_code" class="modal-alert" type="error" show-icon
             :message="taskErrorExplanation(taskDetail.task)" :description="taskDetail.task.error_code" />
+          <a-alert v-if="taskDetail.task.stop_reason && !taskDetail.task.error_code" class="modal-alert" type="warning" show-icon
+            :message="taskReasonLabel(taskDetail.task.stop_reason)" />
           <a-alert
             v-if="taskHasNoFinalReport && terminalStatuses.has(taskDetail.task.status)"
             class="modal-alert"
             type="warning"
             show-icon
             :message="t('agentSecurityScans.detail.noFinalReportTitle')"
-            :description="t('agentSecurityScans.detail.noFinalReportDescription', { rounds: formatNumber(taskDetail.task.usage?.rounds), tokens: formatNumber(taskDetail.task.usage?.tokens) })"
+            :description="isLlmTaskDetail && taskDetail.task.progress?.completed != null ? t('agentSecurityScans.detail.noFinalReportProgress', { completed: formatNumber(taskDetail.task.progress.completed), total: formatNumber(taskDetail.task.progress.planned) }) : t('agentSecurityScans.detail.noFinalReportDescription')"
           />
           <a-alert
             v-else-if="successfulTaskHasNoFindings && !isLlmTaskDetail"
@@ -848,8 +859,7 @@
                 <a-descriptions-item :label="t('agentSecurityScans.tasks.policy')">{{ policyName(taskDetail.task.policy_id) }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.started')">{{ formatDateTime(taskDetail.task.started_at) }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.completed')">{{ formatDateTime(taskDetail.task.completed_at) }}</a-descriptions-item>
-                <a-descriptions-item :label="t('agentSecurityScans.detail.roundsUsed')">{{ formatNumber(taskDetail.task.usage?.rounds) }}</a-descriptions-item>
-                <a-descriptions-item :label="t('agentSecurityScans.detail.tokensUsed')">{{ llmReportMetadata?.token_accounting === 'unavailable_from_upstream' ? t('agentSecurityScans.detail.tokensNotReported') : formatNumber(taskDetail.task.usage?.tokens) }}</a-descriptions-item>
+                <a-descriptions-item v-if="!isLlmTaskDetail" :label="t('agentSecurityScans.detail.roundsUsed')">{{ formatNumber(taskDetail.task.usage?.rounds) }}</a-descriptions-item>
               </a-descriptions>
               <a-collapse class="report-technical" ghost><a-collapse-panel key="technical" :header="t('agentSecurityScans.detail.technicalDetails')">
               <a-descriptions bordered :column="{ xs: 1, sm: 1, md: 2 }" size="small">
@@ -864,8 +874,7 @@
                 <a-descriptions-item :label="t('agentSecurityScans.detail.stopReason')">{{ taskReasonLabel(taskDetail.task.stop_reason) }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.attempt')">{{ formatNumber(taskDetail.task.attempt) }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.maxAttempts')">{{ formatNumber(taskDetail.task.max_attempts) }}</a-descriptions-item>
-                <a-descriptions-item :label="t('agentSecurityScans.detail.roundsUsed')">{{ formatNumber(taskDetail.task.usage?.rounds) }}</a-descriptions-item>
-                <a-descriptions-item :label="t('agentSecurityScans.detail.tokensUsed')">{{ llmReportMetadata?.token_accounting === 'unavailable_from_upstream' ? t('agentSecurityScans.detail.tokensNotReported') : formatNumber(taskDetail.task.usage?.tokens) }}</a-descriptions-item>
+                <a-descriptions-item v-if="!isLlmTaskDetail" :label="t('agentSecurityScans.detail.roundsUsed')">{{ formatNumber(taskDetail.task.usage?.rounds) }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.lastHeartbeat')">{{ formatDateTime(taskDetail.task.heartbeat_at) }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.leaseExpiresAt')">{{ formatDateTime(taskDetail.task.lease_expires_at) }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.started')">{{ formatDateTime(taskDetail.task.started_at) }}</a-descriptions-item>
@@ -1035,7 +1044,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { nextTick, computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { DownloadOutlined, InfoCircleOutlined, PlusOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -1048,6 +1057,10 @@ import { parseRedteamArtifact, projectScanCases, promptTransformationLabel, summ
 import DifyAssetInventory from './components/DifyAssetInventory.vue'
 import RedteamDatasetPicker from './components/RedteamDatasetPicker.vue'
 import FindingEvidence from './components/FindingEvidence.vue'
+import TargetGovernance from './components/TargetGovernance.vue'
+import ScanSchedules from './components/ScanSchedules.vue'
+import ScanTimingFields from './components/ScanTimingFields.vue'
+import { createScanSchedule, updateScanSchedule, listManagedAgentRisks, listScanSchedules } from '../api'
 import {
   activateSecurityTaskKillSwitch,
   cancelSecurityTask,
@@ -1106,8 +1119,8 @@ const refreshing = ref(false)
 const loadError = ref('')
 const activeStage = computed(() => {
   const stage = routeValue(route.query.stage)
-  if (['targets', 'policies', 'tasks', 'findings', 'reports'].includes(stage)) return stage
-  return routeValue(route.query.task_id) || routeValue(route.query.finding_id) ? 'findings' : 'targets'
+  if (['targets', 'policies', 'tasks', 'schedules', 'findings', 'reports'].includes(stage)) return stage
+  return routeValue(route.query.finding_id) ? 'findings' : 'tasks'
 })
 const currentUser = ref(null)
 const targets = ref([])
@@ -1176,16 +1189,18 @@ const filteredTasks = computed(() => tasks.value.filter(item =>
   && (!taskTargetFilter.value || item.target_id === taskTargetFilter.value)
   && (!taskKindFilter.value || item.scan_kind === taskKindFilter.value)))
 const severityCounts = ref({})
+onMounted(loadTargetRisks)
 const stageItems = computed(() => [
   { key: 'targets', label: t('agentSecurityScans.pipeline.targets'), description: t('agentSecurityScans.pipeline.targetsHint'), count: targets.value.length },
   { key: 'policies', label: t('agentSecurityScans.pipeline.policies'), description: t('agentSecurityScans.pipeline.policiesHint'), count: enabledPolicies.value.length },
   { key: 'tasks', label: t('agentSecurityScans.pipeline.tasks'), description: t('agentSecurityScans.pipeline.tasksHint'), count: tasks.value.length },
+  { key: 'schedules', label: t('scanSchedule.title'), description: t('scanSchedule.hint'), count: scheduleCount.value },
   { key: 'findings', label: t('agentSecurityScans.pipeline.findings'), description: t('agentSecurityScans.pipeline.findingsHint'), count: findingTotal.value },
   { key: 'reports', label: t('agentSecurityScans.pipeline.reports'), description: t('agentSecurityScans.pipeline.reportsHint'), count: reportTasks.value.length },
 ])
 
 const targetColumns = computed(() => [
-  { title: t('agentSecurityScans.targets.name'), key: 'name', width: 160, ellipsis: true }, { title: t('agentSecurityScans.targets.assetType'), key: 'target_type', width: 140 }, { title: t('agentSecurityScans.environment'), key: 'environment', width: 100 }, { title: t('agentSecurityScans.allowedCapabilities'), key: 'allowed_capabilities', width: 100 }, { title: t('agentSecurityScans.targets.endpoint'), key: 'endpoint_url', width: 200 }, { title: t('agentSecurityScans.status'), key: 'status', width: 100 }, { title: t('agentSecurityScans.targets.credential'), key: 'credential', width: 120, ellipsis: true }, { title: t('agentSecurityScans.updatedAt'), key: 'updated_at', width: 150 }, { title: t('agentSecurityScans.actions'), key: 'actions', width: 190, fixed: 'right' },
+  { title: t('agentSecurityScans.targets.name'), key: 'name', width: 160, ellipsis: true }, { title: t('scanSchedule.currentScore'), key: 'risk', width: 160 }, { title: t('scanSchedule.latestScan'), key: 'latest_scan', width: 190 }, { title: t('agentSecurityScans.targets.assetType'), key: 'target_type', width: 140 }, { title: t('agentSecurityScans.environment'), key: 'environment', width: 100 }, { title: t('agentSecurityScans.allowedCapabilities'), key: 'allowed_capabilities', width: 100 }, { title: t('agentSecurityScans.targets.endpoint'), key: 'endpoint_url', width: 200 }, { title: t('agentSecurityScans.status'), key: 'status', width: 100 }, { title: t('agentSecurityScans.targets.credential'), key: 'credential', width: 120, ellipsis: true }, { title: t('agentSecurityScans.updatedAt'), key: 'updated_at', width: 150 }, { title: t('agentSecurityScans.actions'), key: 'actions', width: 190, fixed: 'right' },
 ])
 const policyColumns = computed(() => [
   { title: t('agentSecurityScans.policies.name'), key: 'name', width: 160, ellipsis: true }, { title: t('agentSecurityScans.environment'), key: 'environment', width: 175 }, { title: t('agentSecurityScans.policies.mode'), key: 'execution_mode', width: 140 }, { title: t('agentSecurityScans.allowedCapabilities'), key: 'allowed_capabilities', width: 120 }, { title: t('agentSecurityScans.policies.budget'), key: 'budget', width: 220 }, { title: t('agentSecurityScans.policies.network'), key: 'network', width: 250 }, { title: t('agentSecurityScans.status'), key: 'enabled', width: 110 }, { title: t('agentSecurityScans.actions'), key: 'actions', width: 160, fixed: 'right' },
@@ -1266,6 +1281,17 @@ const submittingTask = ref(false)
 const previewingTask = ref(false)
 const taskPreview = ref(null)
 const submittingApproval = ref(false)
+const governance = ref(null), schedulesPanel = ref(null), scheduleCount = ref(0), targetRisks = ref({})
+const executionMode = ref('now'), editingSchedule = ref(null), scheduleName = ref(''), scheduleKey = ref(''), runImmediately = ref(false), timingValid = ref(false)
+const scanTiming = ref({ kind: 'daily', timezone: 'Asia/Shanghai', interval_minutes: 360, time: '02:00', weekday: 1, cron: '0 2 * * *' })
+async function openOriginSchedule(id) { detailDrawerOpen.value = false; await selectStage('schedules'); await nextTick(); await schedulesPanel.value?.open(id) }
+async function editSchedule(row) { await openTaskModal(); editingSchedule.value = row; executionMode.value = 'scheduled'; scheduleName.value = row.name; scanTiming.value = { ...row.timing }; Object.assign(taskForm, row.task); taskForm.llm_input_mode = row.task.datasets?.length ? 'dataset' : 'prompt'; taskPreview.value = null }
+async function saveSchedule() {
+  if (submittingTask.value || !timingValid.value || !scheduleName.value.trim()) return
+  submittingTask.value = true
+  try { const body = { name: scheduleName.value.trim(), timing: scanTiming.value, task: taskPlanPayload(), enabled: editingSchedule.value?.enabled ?? true }; if (editingSchedule.value) await updateScanSchedule(editingSchedule.value.schedule_id, { ...body, version: editingSchedule.value.version }); else await createScanSchedule({ ...body, run_immediately: runImmediately.value, idempotency_key: scheduleKey.value }); taskModalOpen.value = false; await selectStage('schedules'); await nextTick(); await schedulesPanel.value?.load(); message.success(t('scanSchedule.saved')) } catch(e) { message.error(errorText(e)) } finally { submittingTask.value = false }
+}
+async function loadTargetRisks() { try { const map = {}; let offset = 0; while (true) { const data = await listManagedAgentRisks({ limit: 200, offset }); for (const x of data.items) map[x.target_id] = x.risk; offset += data.items.length; if (!data.items.length || offset >= data.total) break }; targetRisks.value = map } catch(e) { message.error(errorText(e)) } }
 const taskForm = reactive({ target_id: undefined, policy_id: undefined, approval_id: undefined, scan_kind: 'control_plane_validation', skills: [], prompt: '', conversation_mode: 'single_turn', continue_from_task_id: undefined, llm_input_mode: 'dataset', datasets: ['JailBench-Tiny'], num_prompts: 10, random_seed: 42, techniques: ['Raw'], evaluation_model: undefined, http_authorized: false, private_network_authorized: false, scan_timeout_seconds: 30, scan_concurrency: 2, inventory_source: 'console_api', manual_dsl: '', include_prompt_text: false, infer_agent_intent: false, intent_inference_model: undefined, knowledge_content_authorized: false, max_knowledge_documents: 100, max_knowledge_segments: 1000, max_knowledge_bytes: 10485760 })
 const killSwitchModalOpen = ref(false)
 const killSwitchTask = ref(null)
@@ -1438,6 +1464,23 @@ const parseUtc = value => Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(String(value || 
 const toDateTimeLocal = value => value ? String(value).replace(/Z$/, '').slice(0, 16) : ''
 const formatUtcDateTime = value => value ? `${new Intl.DateTimeFormat(locale.value, { timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(parseUtc(value)))} UTC` : '—'
 const taskReasonKeys = {
+  'budget.max_duration_seconds_exceeded': 'maxDurationExceeded',
+  'budget.max_rounds_exceeded': 'maxRoundsExceeded',
+  'budget.max_concurrent_requests_exceeded': 'maxConcurrencyExceeded',
+  'budget.max_cost_microunits_exceeded': 'maxCostExceeded',
+  'budget.max_response_bytes_exceeded': 'maxResponseBytesExceeded',
+  'task_timeout': 'taskTimeout',
+  'cancelled_by_user': 'cancelledByUser',
+  'cancel_requested': 'cancelRequested',
+  'kill_switch.activated': 'killSwitchActivated',
+  'kill_switch.activated_before_start': 'killSwitchBeforeStart',
+  'worker_reported_failure': 'workerReportedFailure',
+  'target_disabled': 'targetDisabled',
+  'dns_rebinding_detected': 'dnsRebindingDetected',
+  'required_credential_unavailable': 'requiredCredentialUnavailable',
+  'dedicated_credential_changed': 'dedicatedCredentialChanged',
+  'credential_decryption_failed': 'credentialDecryptionFailed',
+
   'agent_security.aig_model_not_found': 'aigModelNotFound',
   'agent_security.aig_model_auth_failed': 'aigModelAuthFailed',
   'agent_security.aig_model_rate_limited': 'aigModelRateLimited',
@@ -1551,15 +1594,16 @@ const caseExecutionColor = value => ({ completed: 'green', error: 'red', blocked
 const caseAssessmentColor = value => ({ no_risk_observed: 'green', risk_signal_detected: 'orange', false_positive: 'default', risk_accepted: 'gold', resolved: 'blue', unverified: 'default' }[value] || 'default')
 
 const loadCoreData = async () => {
-  const [targetRows, policyRows, taskRows, approvalRows] = await Promise.all([listSecurityTargets(), listSecurityPolicies(), listSecurityTasks({ limit: 500 }), listSecurityScanApprovals({ limit: 500 })])
+  const [targetRows, policyRows, taskRows, approvalRows, scheduleRows] = await Promise.all([listSecurityTargets(), listSecurityPolicies(), listSecurityTasks({ limit: 500 }), listSecurityScanApprovals({ limit: 500 }), listScanSchedules()])
   targets.value = targetRows
   policies.value = policyRows
   tasks.value = taskRows
   scanApprovals.value = approvalRows
+  scheduleCount.value = scheduleRows.length
 }
 const refreshAll = async () => {
   refreshing.value = true; loadError.value = ''
-  try { await loadCoreData(); await loadFindings(findingPage.value) } catch (error) { loadError.value = errorText(error) } finally { refreshing.value = false }
+  try { await loadCoreData(); await loadFindings(findingPage.value); if (activeStage.value === 'targets') await loadTargetRisks(); await schedulesPanel.value?.load() } catch (error) { loadError.value = errorText(error) } finally { refreshing.value = false }
 }
 
 const loadDifyMcpBindings = async record => {
@@ -1717,6 +1761,7 @@ const togglePolicy = async record => { try { await updateSecurityPolicy(record.p
 
 const resetTaskOptions = () => Object.assign(taskForm, { skills: [], prompt: '', conversation_mode: 'single_turn', continue_from_task_id: undefined, llm_input_mode: 'dataset', datasets: ['JailBench-Tiny'], num_prompts: 10, random_seed: 42, techniques: ['Raw'], evaluation_model: undefined, http_authorized: false, private_network_authorized: false, scan_timeout_seconds: 30, scan_concurrency: 2, inventory_source: 'console_api', manual_dsl: '', include_prompt_text: false, infer_agent_intent: false, intent_inference_model: undefined, knowledge_content_authorized: false, max_knowledge_documents: 100, max_knowledge_segments: 1000, max_knowledge_bytes: 10485760 })
 const openTaskModal = async () => {
+  executionMode.value = 'now'; editingSchedule.value = null; scheduleName.value = ''; scheduleKey.value = crypto.randomUUID(); runImmediately.value = false
   const target = activeTargets.value.find(item => enabledPolicies.value.some(policy => policyCompatibleWithTarget(policy, item)))
   const compatiblePolicies = enabledPolicies.value.filter(item => policyCompatibleWithTarget(item, target))
   const policy = compatiblePolicies.find(item => item.policy_id === selectCompatiblePolicyId(compatiblePolicies)) || null
@@ -1793,6 +1838,7 @@ const loadTaskPreview = async () => {
 }
 const saveTask = async () => {
   if (submittingTask.value) return
+  if (executionMode.value === 'scheduled') return saveSchedule()
   if (!taskPreview.value) return message.warning(t('agentSecurityScans.tasks.previewRequired'))
   submittingTask.value = true
   const payload = { ...taskPlanPayload(), preview_fingerprint: taskPreview.value.preview_fingerprint, idempotency_key: `web-${Date.now()}-${crypto.randomUUID().slice(0, 8)}` }
@@ -1955,6 +2001,9 @@ watch(() => caseProjection.value.rows.map(item => item.case_id), keys => {
   casePage.value = Math.min(casePage.value, Math.max(1, Math.ceil(keys.length / 10)))
 }, { flush: 'sync' })
 watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null })
+watch(executionMode, value => { if (value === 'scheduled') { taskForm.continue_from_task_id = undefined; taskForm.inventory_source = 'console_api'; taskPreview.value = null } })
+watch(activeStage, value => { if (value === 'targets') loadTargetRisks() })
+watch(() => route.query.schedule_id, async id => { if (id) { await nextTick(); await schedulesPanel.value?.open(String(id)) } })
 </script>
 
 <style scoped>
@@ -1987,7 +2036,8 @@ watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null 
 .ops-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; min-height: 32px; margin-bottom: 12px; }
 .ops-header h1 { margin: 0; font-size: 22px; font-weight: 600; line-height: 32px; letter-spacing: 0; overflow-wrap: anywhere; }
 .panel-heading p { margin: 0; color: #64748b; }
-.scan-pipeline { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 12px; overflow: hidden; border: 1px solid #dce4ef; border-radius: 4px; background: #fff; }
+.task-risk-summary { padding: 16px; margin-bottom: 20px; background: #f5f7fa; border-left: 3px solid #b42318; overflow-wrap: anywhere; }
+.scan-pipeline { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); margin-bottom: 12px; overflow: hidden; border: 1px solid #dce4ef; border-radius: 4px; background: #fff; }
 .pipeline-stage { position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 9px; min-height: 60px; padding: 8px 12px; color: #4b5f7a; text-align: left; background: transparent; border: 0; border-right: 1px solid #e8edf4; cursor: pointer; transition: background .18s ease, color .18s ease; }
 .pipeline-stage:last-child { border-right: 0; }
 .pipeline-stage:hover { background: #f7faff; }
@@ -2107,7 +2157,7 @@ watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null 
 .detail-identity span { color: #74869d; font-size: 12px; }
 .evidence-block, .raw-block { max-width: 100%; margin: 0; padding: 14px; overflow: auto; color: #d7e4f5; font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; background: #182638; border-radius: 8px; }
 .raw-block { min-height: 260px; max-height: 60vh; }
-@media (max-width: 1050px) { .scan-pipeline { grid-template-columns: repeat(5, minmax(190px, 1fr)); overflow-x: auto; } }
+@media (max-width: 1050px) { .scan-pipeline { grid-template-columns: repeat(6, minmax(190px, 1fr)); overflow-x: auto; } }
 @media (max-width: 720px) {
   .ops-header, .panel-heading { align-items: stretch; flex-direction: column; }
   .ops-header :deep(.ant-space), .panel-heading :deep(.ant-space) { width: 100%; }

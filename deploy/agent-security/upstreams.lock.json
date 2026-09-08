@@ -84,7 +84,7 @@
           "status": "integrated_fixed_engine_service",
           "vendored_path": "services/aig-scan-service/vendor/ai-infra-guard",
           "verification_subpath": ".",
-          "vendored_tree_sha256": "c0992f904265baaa95202716451fde6bf43ab4b09c3016971fde42bfb9b30dda",
+          "vendored_tree_sha256": "87e6aa9650c764cd1ea0e913aad9e30ea3b6cccf42ea9a31504ffc175b4693d2",
           "python_lock": {
             "generator": "uv 0.6.10",
             "path": "AIG-PromptSecurity/uv.lock",
@@ -176,13 +176,13 @@
             },
             {
               "path": "AIG-PromptSecurity/cli/red_team_runner.py",
-              "reason": "Place generated attachment data under the ephemeral runtime directory.",
-              "sha256": "306faa70e05830578f5e434bfcf0f53f55c731337450086916e3261717f5edd0"
+              "reason": "Place generated attachments under the ephemeral runtime directory and execute every selected transformation in the formal scan.",
+              "sha256": "7f037e6194c4f41d443af483ea0123cf6dc8c813bcb28686f8de6101f9106a97"
             },
             {
               "path": "AIG-PromptSecurity/deepteam/red_teamer/red_teamer.py",
-              "reason": "Preserve all executed prompts in final reports and emit structured queued, running and terminal case events.",
-              "sha256": "9923df936b6d291d8b87331484a5e2177f498fc434dd9e53c529b2f28de68d2c"
+              "reason": "Preserve all executed prompts and original evidence in final reports, export without translation calls, and emit structured queued, running and terminal case events.",
+              "sha256": "39c5ad67acb67610ee18b8a75efd3f1def7650881e100d339388581cfafa90d4"
             },
             {
               "path": "trpc_go.yaml",

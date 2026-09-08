@@ -304,6 +304,32 @@ class DifyConsoleClient:
             raise DifyConsoleError("dify_inventory.response_invalid")
         return data
 
+    def list_apps(self, *, max_apps: int = 1000) -> list[dict[str, Any]]:
+        """Enumerate a bounded workspace; truncation is an error, never a full inventory."""
+        result: dict[str, dict[str, Any]] = {}
+        deadline = time.monotonic() + 120
+        for page in range(1, max_apps + 2):
+            if time.monotonic() > deadline:
+                raise DifyConsoleError("asset_sync.discovery_timeout", retryable=True)
+            payload = self._request_json("/console/api/apps", query={"page": page, "limit": 100})
+            if not isinstance(payload, dict) or "has_more" not in payload:
+                raise DifyConsoleError("asset_sync.pagination_invalid")
+            items, has_more = self._paged_items(payload)
+            if not isinstance(items, list) or (has_more and not items):
+                raise DifyConsoleError("asset_sync.pagination_invalid")
+            previous_count = len(result)
+            for item in items:
+                if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not 0 < len(item["id"]) <= 128:
+                    raise DifyConsoleError("asset_sync.pagination_invalid")
+                result[item["id"]] = {"id": item["id"], "name": str(item.get("name") or item["id"])[:128]}
+                if len(result) > max_apps:
+                    raise DifyConsoleError("asset_sync.scope_limit_exceeded")
+            if not has_more:
+                return list(result.values())
+            if len(result) == previous_count:
+                raise DifyConsoleError("asset_sync.pagination_invalid")
+        raise DifyConsoleError("asset_sync.scope_limit_exceeded")
+
     def export_dsl(self, app_id: str | None = None, workflow_id: str | None = None) -> dict[str, Any]:
         selected = urllib.parse.quote(app_id or self.config.app_id, safe="")
         query: dict[str, Any] = {"include_secret": "false"}

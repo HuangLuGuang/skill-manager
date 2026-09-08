@@ -425,6 +425,7 @@ class SecurityLiveProgress(BaseModel):
 
 
 class SecurityTaskResponse(BaseModel):
+    origins: list[dict[str, Any]] = Field(default_factory=list)
     task_id: str
     target_id: str
     policy_id: str
@@ -710,6 +711,7 @@ class SecurityFindingResponse(BaseModel):
 
 
 class SecurityFindingListItem(SecurityFindingResponse):
+    origins: list[dict[str, Any]] = Field(default_factory=list)
     target_id: str
     target_name: str
     scan_kind: str
