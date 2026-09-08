@@ -1452,6 +1452,17 @@ Skill Verifier 下载位置：
 
 ### 12.8 安全扫描与调用轨迹
 
+帮助中心保留 `/docs/agent-security-runtime` 总览，并提供四份中英文操作指南：
+
+- `/docs/security-scan-guide`：六个工作区、目标字段、策略预算、六种扫描、任务详情、Finding 与报告。
+- `/docs/dify-security-access`：App API、Console Admin API、Knowledge API 获取步骤，地址与 ID、资产清单及排错。
+- `/docs/security-operations`：定时计划、Dify 来源同步、两类风险分、人工处置、修复验证及 Worker 排错。
+- `/docs/runtime-trace-guide`：会话查询、事件字段、聚合与完整度、性能和脱敏/原始导出。
+
+指南中的页面截图使用当前组件和明确标识的示例数据，凭据均为掩码。
+Dify 部署端 Admin API Key 的版本条件和配置步骤见
+[Dify 凭据获取说明](external-agent-integration.md#三种凭据的获取与配置)。
+
 侧边栏在“模型网关”之后、“系统管理”之前提供两个已启用的入口：
 
 - “安全扫描”：目标、凭据、策略、生产审批、任务预览/执行、定时计划、Dify 来源管理、风险评分、Kill Switch、Finding、报告和版本对比。

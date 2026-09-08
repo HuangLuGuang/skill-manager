@@ -375,6 +375,100 @@ Docker Compose 的根路径 `/` 由管理台前端使用。外部模型客户端
 
 ## Dify 资产清单接入
 
+### 三种凭据的获取与配置
+
+帮助中心的 `/docs/dify-security-access` 提供中英文逐步操作、连接字段截图和排错表。
+三种用途分别保存在“安全扫描 → 扫描目标 → 凭据”中，选择 `Bearer 令牌` 类型，
+填入原始 Key（不包含 `Bearer ` 前缀）；不要把密钥写入目标的高级 JSON。
+
+| 用途 | 获取位置 | 调用范围 |
+|---|---|---|
+| `dify_app_api` | Dify 工作室 → 目标应用 → 访问 API → API 密钥，由有权限的人员创建 | 已发布应用的动态调用 |
+| `dify_console_api` | 支持 Admin API Key 的自托管部署配置，由部署管理员提供 | Console 应用信息、DSL、草稿及应用枚举 |
+| `dify_knowledge_api` | 当前官方入口为知识库列表右上角 Service API；部分版本从单库 API Access 进入 | 创建账号可见的知识库 API，内容采集另外要求授权 |
+
+App Key 绑定具体应用，Knowledge Key 的范围可能覆盖创建账号可见的多个知识库，并非默认单库只读。
+单库 API Access 还可控制该库是否允许 API 访问。入口和权限应与正在运行的 Dify 版本核对。
+参考 [Dify API 入门](https://docs.dify.ai/en/api-reference/guides/get-started) 和
+[Knowledge API](https://docs.dify.ai/en/api-reference/guides/knowledge)。
+
+**App API：**先发布并验证目标应用，在访问 API 页复制服务 API 基址，例如
+`https://dify.example.com/v1`，保存为目标运行地址。不要填编排页或分享链接。
+当前动态适配器用 `config.extra.dify_type` 选择 `chat` 或 `workflow`，通过
+`extra.inputs` 传入业务变量，并将测试 Prompt 放进 `query`；Workflow 必须兼容该输入约定。
+新发现应用需要自己的 App Key，不继承来源模板应用的运行凭据。
+
+**Console Admin API：**已核对 Dify 1.6.0 的
+[配置定义](https://github.com/langgenius/dify/blob/1.6.0/api/configs/feature/__init__.py) 和
+[认证实现](https://github.com/langgenius/dify/blob/1.6.0/api/extensions/ext_login.py)。
+支持该认证机制的部署由管理员配置以下变量。使用分服务环境文件的目录结构时，
+编辑 `dify/docker/envs/core-services/api.env`，确认 Compose 的 `api` 服务通过 `env_file`
+引用该文件；不同版本的配置文件位置以实际部署为准：
+
+```dotenv
+ADMIN_API_KEY_ENABLE=true
+ADMIN_API_KEY=<ADMIN_KEY_FROM_SECRET_STORE>
+```
+
+两个变量默认未启用/未设置。密钥由安全随机源生成并存入部署 Secret。
+`env_file` 在创建容器时注入；`docker restart` 或 `docker compose restart api` 不会重新读取
+修改后的值。由部署管理员在 `dify/docker` 目录重新创建 API 容器：
+
+```bash
+cd dify/docker
+docker compose up -d --no-deps --force-recreate api
+```
+
+若原部署使用 `-f`、`-p` 或 `--profile`，更新时保留相同参数，以操作正确的 Compose 项目。
+容器启动后按下方只读接口验证配置是否生效，不能只凭容器处于运行状态判断。
+此认证可按 `X-WORKSPACE-ID` 选定工作空间 owner 身份，属于高权限凭据。
+Dify Cloud、其他版本及定制版本须核对同版本支持情况，不能假定都有这一机制。
+
+Console Base URL 填 API 服务根地址（例如 `https://dify.example.com`），不附带 `/v1` 或
+`/console/api`。App ID 取自 `/app/<APP_ID>/workflow` 等应用 URL 中的 UUID。
+Workspace ID 为工作空间 tenant UUID，不是名称；由部署管理员确认，或由有权限的用户在浏览器
+Network 中核对当前工作空间响应的 `id` 与 `name`。不要复制 Cookie 或整份网络日志。
+在有权限且能访问 Dify 的终端，将下面前四行替换为实际服务根地址、Workspace UUID、App UUID
+和 Admin Key，复制整段执行（Bash / Zsh）。地址使用实际协议、域名/IP 与端口；Key 不含 `Bearer ` 前缀。
+两条请求均为只读 GET，不执行应用：
+
+```bash
+DIFY_CONSOLE_BASE_URL='https://dify.example.com'
+DIFY_WORKSPACE_ID='<WORKSPACE_ID>'
+DIFY_APP_ID='<APP_ID>'
+DIFY_ADMIN_KEY='<ADMIN_KEY>'
+
+curl --silent --show-error --include \
+  --connect-timeout 10 --max-time 30 \
+  --header "Authorization: Bearer ${DIFY_ADMIN_KEY}" \
+  --header "X-WORKSPACE-ID: ${DIFY_WORKSPACE_ID}" \
+  --header 'Accept: application/json' \
+  "${DIFY_CONSOLE_BASE_URL%/}/console/api/apps/${DIFY_APP_ID}"
+
+curl --silent --show-error --include \
+  --connect-timeout 10 --max-time 30 \
+  --header "Authorization: Bearer ${DIFY_ADMIN_KEY}" \
+  --header "X-WORKSPACE-ID: ${DIFY_WORKSPACE_ID}" \
+  --header 'Accept: application/json' \
+  "${DIFY_CONSOLE_BASE_URL%/}/console/api/apps/${DIFY_APP_ID}/export?include_secret=false"
+
+unset DIFY_ADMIN_KEY
+```
+
+`--include` 显示 HTTP 状态和响应头；连接超时为 10 秒，单次请求最长 30 秒。
+第一条应返回 HTTP 200 和应用详情，核对 `id`/`name`；第二条应返回 HTTP 200 和包含 DSL 内容的 JSON：外层 `data` 字段是 YAML 字符串，
+解析后可看到 `app`、`kind: app`、`version` 和 `workflow` 等内容；其中 `version` 是 DSL 格式版本。
+原始 JSON 中的 `\n`、`\uXXXX` 是换行和 Unicode 转义，不是乱码或导出失败。
+401 先检查开关、API 进程环境变量、Key 与 Workspace ID；403/404 检查权限、App ID 与路由。
+HTML 或 3xx 不算验证成功；curl 退出码 0 也可能对应 HTTP 401，应以实际 HTTP 状态和响应内容判断。
+不支持该认证或导出的版本可使用不含密钥的手动 DSL 进行即时采集，在线定时采集仍需 Console 支持。
+
+**Knowledge API：**保存独立 Knowledge Key 后，通过 `GET /v1/datasets?page=1&limit=20`
+分页核对可见数据集和 UUID。需要内容检查时，在资产清单任务中明确确认授权并限制文档、分段和字节数。
+配置凭据不等于授权内容读取；隐藏的 DSL 知识库引用也不一定是可直接调用的 Dataset UUID。
+
+### 采集内容与证据边界
+
 Dify 智能体使用扫描管理中的独立 `dify_asset_inventory` 类型采集资产。目标运行地址继续服务原有动态
 Agent 扫描；资产采集另外要求显式配置 Console Base URL、Workspace ID 和 App ID。默认采集链路是：
 

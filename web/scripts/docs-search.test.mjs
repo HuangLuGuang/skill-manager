@@ -107,8 +107,8 @@ test('Skill docs follow the console capability-governance grouping and order', (
 
 test('Agent docs follow the console agent-management grouping and order', () => {
   const expected = {
-    'zh-CN': { title: '智能体管理', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'agent-security-runtime', 'audit-trail'] },
-    'en-US': { title: 'Agent management', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'agent-security-runtime', 'audit-trail'] },
+    'zh-CN': { title: '智能体管理', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'agent-security-runtime', 'security-scan-guide', 'dify-security-access', 'security-operations', 'runtime-trace-guide', 'audit-trail'] },
+    'en-US': { title: 'Agent management', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'agent-security-runtime', 'security-scan-guide', 'dify-security-access', 'security-operations', 'runtime-trace-guide', 'audit-trail'] },
   }
   for (const [locale, { title, slugs }] of Object.entries(expected)) {
     const group = docsContent[locale].groups.find(item => item.title === title)
@@ -155,6 +155,27 @@ test('Ask AI finds the dedicated Hook integration guide', () => {
   for (const [locale, query] of Object.entries(questions)) {
     const [first] = rankDocsContexts({ content: docsContent[locale], query })
     assert.equal(first.slug, 'hook-integration')
+  }
+})
+
+test('Ask AI finds Dify credential acquisition and operational guides in both languages', () => {
+  const queries = {
+    'zh-CN': [
+      ['Dify App API Console Admin API Knowledge API 凭据怎么获取？', 'dify-security-access'],
+      ['定时计划 Dify 来源同步 风险处置 修复验证', 'security-operations'],
+      ['调用轨迹 事件详情 参数 Schema 原始 JSON 导出', 'runtime-trace-guide'],
+    ],
+    'en-US': [
+      ['How do I obtain Dify App API Console Admin API Knowledge API credentials?', 'dify-security-access'],
+      ['Schedules Dify source sync risk disposition remediation verification', 'security-operations'],
+      ['Runtime trace event details arguments Schema raw JSON export', 'runtime-trace-guide'],
+    ],
+  }
+  for (const [locale, cases] of Object.entries(queries)) {
+    for (const [query, slug] of cases) {
+      const [first] = rankDocsContexts({ content: docsContent[locale], query })
+      assert.equal(first.slug, slug, `${locale}: ${query}`)
+    }
   }
 })
 
