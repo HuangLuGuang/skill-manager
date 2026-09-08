@@ -20,6 +20,10 @@ export const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
+      skillUpload: {
+        zipSizeHint: 'ZIP 压缩包大小上限为 50 MiB，建议略小于上限。',
+        zipTooLarge: '上传失败：压缩包超过服务器上传大小限制。当前上限为 50 MiB，请缩小压缩包后重试。',
+      },
       assetLifecycle: assetLifecycleMessages['zh-CN'],
       scanSchedule: scanScheduleMessages['zh-CN'],
       app: {
@@ -951,6 +955,10 @@ export const i18n = createI18n({
       legacy: legacyMessages['zh-CN'],
     },
     'en-US': {
+      skillUpload: {
+        zipSizeHint: 'ZIP size limit: 50 MiB. Keep the file slightly below the limit.',
+        zipTooLarge: 'Upload failed: the ZIP exceeds the server upload size limit. The current limit is 50 MiB. Reduce the ZIP size and try again.',
+      },
       assetLifecycle: assetLifecycleMessages['en-US'],
       scanSchedule: scanScheduleMessages['en-US'],
       app: {

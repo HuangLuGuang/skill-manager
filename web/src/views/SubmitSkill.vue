@@ -26,6 +26,7 @@
                 </p>
                 <p class="ant-upload-text">{{ $t("legacy.xz9kog") }}</p>
                 <p class="ant-upload-hint">{{ $t("legacy.1em9qzx") }}</p>
+                <p class="ant-upload-hint">{{ t('skillUpload.zipSizeHint') }}</p>
               </a-upload-dragger>
               <div class="field-hint">{{ selectedFile ? text(`当前文件：${selectedFile.name}`, `Current file: ${selectedFile.name}`) : text('尚未选择文件', 'No file selected') }}</div>
               <a-space style="margin-top: 8px" wrap>
@@ -680,7 +681,9 @@ const prepareZipImport = async () => {
       `ZIP parsing completed. Found ${validUploadCandidates.value.length} importable Skills.`,
     ))
   } catch (error) {
-    message.error(error.response?.data?.detail || phrase('legacy.6o53hh'))
+    message.error(error.response?.status === 413
+      ? t('skillUpload.zipTooLarge')
+      : error.response?.data?.detail || phrase('legacy.6o53hh'))
   } finally {
     loadingZipCandidates.value = false
   }
