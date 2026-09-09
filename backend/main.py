@@ -161,6 +161,7 @@ app.include_router(scanner_router)
 
 
 _AUDITED_ADMIN_PREFIXES = (
+    "/api/v1/skills/submit-upload-selected",
     "/api/config/",
     "/api/agents",
     "/api/v1/access/tokens",

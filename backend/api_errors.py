@@ -14,6 +14,9 @@ SUPPORTED_LOCALES = {"zh-CN", "en-US"}
 logger = logging.getLogger(__name__)
 
 _ERROR_PATTERNS: tuple[tuple[re.Pattern[str], str, str, str], ...] = (
+    (re.compile(r"Upload import job is active", re.I), "upload.job_active", "导入任务正在执行，暂时无法删除上传会话", "The import job is active; its upload session cannot be deleted yet"),
+    (re.compile(r"ZIP symlink confirmation required", re.I), "upload.symlink_confirmation_required", "请先确认跳过软链接", "Confirm skipping symbolic links first"),
+    (re.compile(r"Upload import session not found", re.I), "upload.session_not_found", "上传会话不存在，请重新选择 ZIP", "Upload session not found. Select the ZIP again"),
     (re.compile(r"scanner token can only read own submissions", re.I), "scanner.submission_not_owned", "当前凭证无权读取该提交记录", "The current credential cannot read this submission"),
     (re.compile(r"Skill not found|Skill 不存在", re.I), "skill.not_found", "Skill 不存在", "Skill not found"),
     (re.compile(r"SKILL\.md not found|SKILL\.md 不存在", re.I), "skill.manifest_not_found", "SKILL.md 不存在", "SKILL.md not found"),
@@ -98,15 +101,22 @@ async def http_error_handler(request: Request, exc: HTTPException) -> JSONRespon
     detail = exc.detail
     code, zh_message, en_message = classify_http_error(exc.status_code, detail)
     locale = request_locale(request)
+    params = {}
+    if code == "upload.symlink_not_allowed" and isinstance(detail, str):
+        prefix = "Symlinks are not allowed in ZIP: "
+        if detail.startswith(prefix):
+            params["path"] = detail[len(prefix):]
     if zh_message and en_message:
         detail = en_message if locale == "en-US" else zh_message
+        if "path" in params:
+            detail = f"{detail}: {params['path']}"
     return JSONResponse(
         status_code=exc.status_code,
         headers=exc.headers,
         content={
             "detail": jsonable_encoder(detail),
             "error_code": code,
-            "error_params": {},
+            "error_params": params,
         },
     )
 

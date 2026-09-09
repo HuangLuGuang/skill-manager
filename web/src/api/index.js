@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { createUploadProgressReader } from '../utils/uploadProgress'
 import { getCurrentLocale } from '../i18n'
 import { getApiErrorCode, localizeApiError } from '../i18n/errors'
 
@@ -132,13 +133,29 @@ export const submitSkillZip = (formData, params = {}) =>
     params,
     headers: { 'Content-Type': 'multipart/form-data' },
   })
-export const prepareUploadZip = (formData) =>
-  api.post('/v1/skills/prepare-upload-zip', formData, {
+export const prepareUploadZip = async (formData, params = {}, onUploadProgress, onProgress) => {
+  const reader = createUploadProgressReader(onProgress)
+  const response = await api.post('/v1/skills/prepare-upload-zip', formData, {
+    params: { ...params, stream: true },
+    onUploadProgress,
+    responseType: 'text',
+    onDownloadProgress: ({ event }) => reader.feed(event.target.responseText),
     headers: { 'Content-Type': 'multipart/form-data' },
   })
+  return reader.finish(response)
+}
 export const getLocalImportCandidates = () => api.get('/v1/skills/import-candidates')
+export const confirmUploadZip = async (sessionId, confirmed, onProgress) => {
+  const reader = createUploadProgressReader(onProgress)
+  const response = await api.post('/v1/skills/confirm-upload-zip', { session_id: sessionId, confirmed }, {
+    params: { stream: true }, responseType: 'text',
+    onDownloadProgress: ({ event }) => reader.feed(event.target.responseText),
+  })
+  return reader.finish(response)
+}
 export const submitLocalSkills = (data) => api.post('/v1/skills/submit-local', data)
 export const submitUploadSelected = (data) => api.post('/v1/skills/submit-upload-selected', data)
+export const getUploadImportJobs = () => api.get('/v1/skills/upload-import-jobs')
 export const submitSkillUrl = (data) => api.post('/v1/skills/submit-url', data)
 export const approveSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/approve`, data)
 export const rejectSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/reject`, data)

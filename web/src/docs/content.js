@@ -116,16 +116,58 @@ const zh = {
           link: { path: '/dashboard', label: '打开平台总览' },
         },
         {
-          id: 'submit-zip',
-          title: '2. 上传 ZIP 并选择 Skill',
-          paragraphs: ['当前管理台提交入口支持 ZIP 上传和 Scanner 接入。上传 ZIP 后，系统先解析其中可导入的 Skill，再由你选择需要提交的条目。'],
-          steps: [
-            { title: '选择 ZIP', body: 'ZIP 中的 Skill 目录必须包含 SKILL.md。' },
-            { title: '解析内容', body: '点击解析按钮，确认系统识别出的目录和 Skill。' },
-            { title: '选择检测项并提交', body: '不可用的检测项会保持禁用；不要为了完成示例强行开启未配置服务。', expected: '提交结果先显示 PENDING，后台继续执行检测。' },
+          "id": "submit-zip",
+          "title": "2. 上传 ZIP 并选择 Skill",
+          "paragraphs": [
+            "选择 ZIP 后自动整理并解析，上传上限为 100 MiB。浏览器会移除 __MACOSX/ 开头的条目，再校验大小；本地原文件不变。超过上限时，页面汇总第一、第二级目录中压缩后大小最大的 10 项，便于移除大文件后重新打包。",
+            "整理、上传、解压和识别按阶段展示进度；百分比表示当前阶段的进度。ZIP 包含软链接时，确认窗口列出具体路径，可跳过并继续或取消，无需再次上传。"
           ],
-          image: { name: 'submit-skill', alt: '提交 Skill 页面', caption: '上传 ZIP、解析内容并选择需要检测的 Skill。' },
-          link: { path: '/submit', label: '打开提交 Skill' },
+          "steps": [
+            {
+              "title": "选择目录和技能",
+              "body": "每个 Skill 目录必须包含 SKILL.md。解析完成后，选择需要导入的目录和技能。"
+            },
+            {
+              "title": "选择检测项并提交",
+              "body": "按环境选择可用检测项，点击“提交所选技能”。",
+              "expected": "提示“后台任务已创建”，后台继续准备内容并安排检测。"
+            }
+          ],
+          "image": {
+            "name": "submit-skill",
+            "alt": "ZIP 解析后的提交页面",
+            "caption": "示例数据：选择技能后提交，右侧入口可打开历史提交记录。"
+          },
+          "link": {
+            "path": "/submit",
+            "label": "打开提交 Skill"
+          }
+        },
+        {
+          "id": "submission-history",
+          "title": "历史提交记录",
+          "paragraphs": [
+            "点击“提交所选技能”右侧的“历史提交记录”。弹窗展示最近 50 个任务的编号、ZIP 包名称、导入时间、状态及已处理/总数，刷新页面仍可查询。旧记录未保存 ZIP 名称时显示“—”。",
+            "导入完成表示所选内容已处理，最终检测状态请查看导入结果或 Skill 详情。"
+          ],
+          "image": {
+            "name": "submission-history",
+            "alt": "历史提交记录弹窗",
+            "caption": "示例数据：按 ZIP 名称和导入时间查找提交，再点击“查看结果”。"
+          }
+        },
+        {
+          "id": "submission-results",
+          "title": "查看导入结果与返回记录",
+          "paragraphs": [
+            "点击记录的“查看结果”，查看处理数量、成功导入的 Skill 及失败路径。单个 Skill 导入失败不会阻止其他项目继续处理。",
+            "点击“返回历史提交记录”回到列表，可继续查看其他提交。导入成功后的检测可能仍在进行，PENDING 表示等待或正在检测。"
+          ],
+          "image": {
+            "name": "submission-results",
+            "alt": "导入结果弹窗与返回按钮",
+            "caption": "示例数据：结果弹窗展示部分失败，并提供返回历史提交记录入口。"
+          }
         },
         {
           id: 'review-result',
@@ -1406,7 +1448,60 @@ const en = {
       eyebrow: 'Get started', title: 'Complete your first Skill governance flow', summary: 'Use a test ZIP with no production secrets or personal data to complete submission, scanning, review, Agent authorization, and runtime verification.',
       sections: [
         { id: 'check-system', title: '1. Check platform status', paragraphs: ['Open the dashboard and system overview first. LLM and Sandbox checks depend on administrator configuration; unavailable checks remain disabled on the submission page.'], image: { name: 'dashboard', alt: 'Platform dashboard', caption: 'The dashboard highlights pending Skills, risk distribution, and recent events.' }, link: { path: '/dashboard', label: 'Open dashboard' } },
-        { id: 'submit-zip', title: '2. Upload a ZIP and select Skills', paragraphs: ['The current console supports ZIP upload and Scanner access. The platform parses importable Skills first, then lets you choose which entries to submit.'], steps: [{ title: 'Choose a ZIP', body: 'Each Skill directory must contain SKILL.md.' }, { title: 'Parse content', body: 'Confirm the directories and Skills found by the platform.' }, { title: 'Choose checks and submit', body: 'Do not force-enable an unavailable dependency.', expected: 'The result starts as PENDING while background checks continue.' }], image: { name: 'submit-skill', alt: 'Submit Skill page', caption: 'Upload a ZIP, parse its content, and select the Skills to scan.' }, link: { path: '/submit', label: 'Open Submit Skill' } },
+        {
+          "id": "submit-zip",
+          "title": "2. Upload a ZIP and select Skills",
+          "paragraphs": [
+            "Selecting a ZIP automatically prepares and parses it. The upload limit is 100 MiB. The browser removes entries starting with __MACOSX/ before checking the size, without changing the local file. Oversized archives show the 10 largest first- and second-level directories by compressed size to help you trim and repackage them.",
+            "Preparation, upload, extraction, and Skill identification display separate progress stages. Percentages apply to the current stage. If symlinks are found, a confirmation lists their paths and lets you skip them or cancel without uploading again."
+          ],
+          "steps": [
+            {
+              "title": "Select directories and Skills",
+              "body": "Each Skill directory must contain SKILL.md. After parsing, select the directories and Skills to import."
+            },
+            {
+              "title": "Choose checks and submit",
+              "body": "Choose available checks and click Submit selected Skills.",
+              "expected": "The “Background task created” message confirms acceptance. Content preparation and scan scheduling continue in the background."
+            }
+          ],
+          "image": {
+            "name": "submit-skill",
+            "alt": "Submission page after ZIP parsing",
+            "caption": "Example data: submit the selected Skills or open Submission history using the adjacent button."
+          },
+          "link": {
+            "path": "/submit",
+            "label": "Open Submit Skill"
+          }
+        },
+        {
+          "id": "submission-history",
+          "title": "Submission history",
+          "paragraphs": [
+            "Click Submission history next to the submit button. The dialog shows the latest 50 tasks with their IDs, ZIP filenames, import times, statuses, and processed/total counts. Records remain available after a refresh. Older records without a saved ZIP filename display “—”.",
+            "Import completion means the selected content has been processed. Check import results or Skill details for the security scan status."
+          ],
+          "image": {
+            "name": "submission-history",
+            "alt": "Submission history dialog",
+            "caption": "Example data: locate a submission by ZIP filename and import time, then click View results."
+          }
+        },
+        {
+          "id": "submission-results",
+          "title": "View import results and return to history",
+          "paragraphs": [
+            "Click View results to inspect processed counts, imported Skills, and failed paths. A failure for one Skill does not stop the remaining items.",
+            "Click Back to submission history to return to the list and inspect another submission. Scanning may still be running after import; PENDING indicates a queued or ongoing scan."
+          ],
+          "image": {
+            "name": "submission-results",
+            "alt": "Import results dialog with a back button",
+            "caption": "Example data: a partially failed import with a button to return to submission history."
+          }
+        },
         { id: 'review-result', title: '3. Read the report and decide', paragraphs: ['Review final risk, evidence, analyzer results, files, and version history. VETTED needs human review, APPROVED is trusted, and REJECTED does not enter the review queue.', 'For records or security review, use Export PDF Report in the Skill details header. The localized report includes River Security branding, an executive summary, clear finding cards, Sandbox and LLM results, admission policy, integrity information, and assessment limitations.'], callout: { type: 'note', title: 'Report boundary', body: 'The PDF report applies only to the identified version and fingerprint. It redacts common credentials and truncates logs. Security risk and admission status are separate conclusions; policy can reject a low-risk Skill.' }, image: { name: 'skill-list', alt: 'Skill list page', caption: 'The list shows the latest content version, trusted version, status, and risk.' }, link: { path: '/skills', label: 'Open Skill list' } },
         { id: 'verify-runtime', title: '4. Connect an Agent and verify local content', paragraphs: ['Create an Agent, bind approved Skills, issue an Agent-bound runtime credential, and run Skill Verifier before the Agent uses local content.'], callout: { type: 'note', title: 'Verification order', body: 'Verify the local content digest first, then check the current Agent load permission. With an event Hook, also check Tool permission before Tool execution.' }, image: { name: 'runtime', alt: 'Access and Runtime page', caption: 'Runtime audit shows signature, load, tamper, and Tool events.' }, link: { path: '/runtime', label: 'Open Access & Runtime' } },
         { id: 'next-paths', title: '5. Continue based on your integration', paragraphs: ['This page covers only the first Skill governance flow. Choose a runtime verification method first, then configure the Client, Model Gateway, or MCP Gateway as required.'], table: { columns: ['Next goal', 'Continue with'], rows: [['Understand rules, deep scan, Sandbox, and LLM differences', { label: 'Skill scanning capabilities', path: '/docs/scan-capabilities' }], ['Batch-discover and submit Skills from servers or CI', { label: 'Scanner access', path: '/docs/scanner-access' }], ['Understand how findings become final risk', { label: 'Finding classification', path: '/docs/risk-classification' }], ['Configure enterprise risk and admission constraints', { label: 'Skill policy settings', path: '/docs/skill-policy' }], ['Embed checks into Agent load and Tool-call flows', { label: 'Agent runtime integration', path: '/docs/runtime-integration' }], ['Govern local Skills across multiple hosts', { label: 'Client management', path: '/docs/client-management' }], ['Protect model requests and measure token savings', { label: 'Model gateway', path: '/docs/model-gateway' }], ['Publish MCP Tools through controlled gateways', { label: 'MCP governance', path: '/docs/mcp-governance' }]] } },

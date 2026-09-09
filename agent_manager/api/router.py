@@ -17,6 +17,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import threading
 import uuid
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -28,6 +29,8 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
+from agent_manager.api.upload_progress import stream_upload_progress
 
 from agent_manager.core.llm import LLMConfig
 from agent_manager.core.manager import AgentManager, findings_summary_from_report
@@ -39,12 +42,40 @@ from agent_manager.core.scan_report_pdf import build_scan_report_pdf
 from agent_manager.core.skillspector import is_skillspector_available
 from agent_manager.core.text_reader import read_text_fallback
 from agent_manager.core.vetting import _load_manifest
+from agent_manager.core.upload_jobs import UploadImportJobs
 
 router = APIRouter(tags=["agent-manager"])
 runtime_router = APIRouter(tags=["agent-manager-runtime"])
 
 # Module-level singleton (overridable in tests via dependency injection)
 _manager: AgentManager | None = None
+_upload_jobs: dict[Path, UploadImportJobs] = {}
+_upload_jobs_lock = threading.Lock()
+
+
+def _get_upload_jobs(mgr):
+    root = mgr.registry.data_dir
+    with _upload_jobs_lock:
+        if root not in _upload_jobs:
+            def process_item(payload, raw_path):
+                body = RemoteImportSubmitRequest(**payload)
+                skill_dir = Path(raw_path).resolve()
+                session_root = root / "upload_import_sessions" / body.session_id
+                if not _is_within_root(skill_dir, session_root):
+                    raise ValueError("Path is outside upload import session")
+                result = _submit_directory_for_processing(
+                    mgr, BackgroundTasks(), skill_dir,
+                    SourceInfo(origin=SkillOrigin(body.origin), author=body.author, channel="upload_zip"),
+                    body.use_behavioral, body.use_llm, body.use_sandbox, body.use_skillspector, body.judgement_mode,
+                )
+                return result.model_dump(mode="json")
+            _upload_jobs[root] = UploadImportJobs(root, process_item)
+        return _upload_jobs[root]
+
+
+def _shutdown_upload_jobs():
+    for queue in list(_upload_jobs.values()):
+        queue.close()
 
 
 def _legacy_runtime_endpoint_removed() -> None:
@@ -72,6 +103,7 @@ def _shutdown_scan_executor() -> None:
 
 
 atexit.register(_shutdown_scan_executor)
+atexit.register(_shutdown_upload_jobs)
 
 
 def _discover_policy_path() -> Path | None:
@@ -87,6 +119,7 @@ def get_manager() -> AgentManager:
         policy_path = _discover_policy_path()
         policy = CompanyPolicy.load(policy_path) if policy_path else CompanyPolicy.default()
         _manager = AgentManager(policy=policy)
+    _get_upload_jobs(_manager)
     return _manager
 
 
@@ -124,20 +157,26 @@ def _resolve_skill_root(extract_dir: Path) -> Path:
     )
 
 
-def _safe_extract_zip(zip_path: Path, extract_dir: Path) -> None:
+def _safe_extract_zip(zip_path: Path, extract_dir: Path, *, skipped_symlinks: list[str] | None = None, archive_prefix: str = "", progress=None) -> None:
     extract_root = extract_dir.resolve()
     with zipfile.ZipFile(zip_path) as zf:
-        for info in zf.infolist():
+        entries = zf.infolist()
+        for index, info in enumerate(entries):
+            if progress:
+                progress("extracting", index, len(entries))
             name = info.filename
             if ".." in name or name.startswith("/"):
                 raise HTTPException(status_code=400, detail=f"Unsafe path in ZIP: {name}")
-            if stat.S_ISLNK(info.external_attr >> 16):
-                raise HTTPException(status_code=400, detail=f"Symlinks are not allowed in ZIP: {name}")
             if not info.flag_bits & 0x800:
                 try:
                     name = name.encode("cp437").decode("utf-8")
                 except UnicodeError:
                     pass
+            if stat.S_ISLNK(info.external_attr >> 16):
+                if skipped_symlinks is not None:
+                    skipped_symlinks.append(f"{archive_prefix}{name}")
+                    continue
+                raise HTTPException(status_code=400, detail=f"Symlinks are not allowed in ZIP: {name}")
             target = (extract_root / name).resolve()
             try:
                 target.relative_to(extract_root)
@@ -149,17 +188,19 @@ def _safe_extract_zip(zip_path: Path, extract_dir: Path) -> None:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(info) as src, target.open("wb") as dst:
                     shutil.copyfileobj(src, dst)
+        if progress:
+            progress("extracting", len(entries), len(entries))
 
 
-def _extract_zip_with_nested_archives(zip_path: Path, extract_dir: Path) -> None:
-    _safe_extract_zip(zip_path, extract_dir)
+def _extract_zip_with_nested_archives(zip_path: Path, extract_dir: Path, *, skipped_symlinks: list[str] | None = None, progress=None) -> None:
+    _safe_extract_zip(zip_path, extract_dir, skipped_symlinks=skipped_symlinks, progress=progress)
     nested_archives = sorted(path for path in extract_dir.rglob("*.zip") if path.is_file())
     for nested_zip in nested_archives:
         if not zipfile.is_zipfile(nested_zip):
             continue
         nested_target = nested_zip.with_suffix("")
         nested_target.mkdir(parents=True, exist_ok=True)
-        _safe_extract_zip(nested_zip, nested_target)
+        _safe_extract_zip(nested_zip, nested_target, skipped_symlinks=skipped_symlinks, archive_prefix=f"{nested_zip.relative_to(extract_dir).as_posix()}!/", progress=progress)
 
 
 def _import_root() -> Path:
@@ -176,13 +217,18 @@ def _is_within_root(path: Path, root: Path) -> bool:
         return False
 
 
-def _collect_import_candidates(root: Path) -> list[dict[str, str]]:
+def _collect_import_candidates(root: Path, progress=None) -> list[dict[str, str]]:
     root = root.resolve()
     if not root.exists() or not root.is_dir():
         return []
     candidates: list[dict[str, str]] = []
     seen: set[str] = set()
-    for manifest in sorted(root.rglob("SKILL.md")):
+    if progress:
+        progress("discovering", 0, 0)
+    manifests = sorted(root.rglob("SKILL.md"))
+    for index, manifest in enumerate(manifests):
+        if progress:
+            progress("identifying", index, len(manifests))
         skill_dir = manifest.parent.resolve()
         key = str(skill_dir)
         if key in seen:
@@ -207,6 +253,8 @@ def _collect_import_candidates(root: Path) -> list[dict[str, str]]:
             "description": description,
             "error": "",
         })
+    if progress:
+        progress("identifying", len(manifests), len(manifests))
     return candidates
 
 
@@ -381,6 +429,7 @@ class SubmitResponse(BaseModel):
 
 class BatchSubmitResponse(BaseModel):
     results: list[SubmitResponse]
+    skipped_symlinks: list[str] = Field(default_factory=list)
 
 
 class LocalImportCandidate(BaseModel):
@@ -435,7 +484,7 @@ class RemoteImportPrepareResponse(BaseModel):
 
 
 class RemoteImportSubmitRequest(BaseModel):
-    session_id: str
+    session_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     paths: list[str]
     author: str | None = None
     origin: str = "unknown"
@@ -452,6 +501,13 @@ class UploadZipPrepareResponse(BaseModel):
     root_path: str
     count: int
     items: list[LocalImportCandidate]
+    requires_symlink_confirmation: bool = False
+    skipped_symlinks: list[str] = Field(default_factory=list)
+
+
+class UploadZipConfirmationRequest(BaseModel):
+    session_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    confirmed: bool
 
 
 class ClawHubSubmitRequest(BaseModel):
@@ -892,8 +948,8 @@ async def submit_skill_zip(
 
     The ZIP must contain a SKILL.md at its root.
     """
-    if file.size and file.size > 50 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
+    if file.size and file.size > 100 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 100 MiB)")
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="agent-manager-"))
     try:
@@ -934,35 +990,86 @@ async def submit_skill_zip(
 @router.post("/skills/prepare-upload-zip", response_model=UploadZipPrepareResponse)
 async def prepare_upload_zip(
     file: UploadFile = File(...),
+    skip_symlinks: bool = Query(False),
+    stream: bool = Query(False),
     mgr: AgentManager = Depends(get_manager),
 ):
-    if file.size and file.size > 50 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
+    if file.size and file.size > 100 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 100 MiB)")
 
+    content = await file.read()
+    work = lambda progress: _prepare_uploaded_zip(content, file.filename or "skill.zip", skip_symlinks, mgr, progress)
+    if stream:
+        return stream_upload_progress(work)
+    return await run_in_threadpool(work, None)
+
+
+def _prepare_uploaded_zip(content, filename, skip_symlinks, mgr, progress=None):
     tmp_dir = Path(tempfile.mkdtemp(prefix="agent-manager-prepare-upload-"))
     try:
         zip_path = tmp_dir / "skill.zip"
         with open(zip_path, "wb") as f:
-            content = await file.read()
             f.write(content)
 
         extract_dir = tmp_dir / "skill"
-        _extract_zip_with_nested_archives(zip_path, extract_dir)
+        skipped_symlinks: list[str] = []
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        _extract_zip_with_nested_archives(zip_path, extract_dir, skipped_symlinks=skipped_symlinks, progress=progress)
+        requires_confirmation = bool(skipped_symlinks and not skip_symlinks)
 
         session_id = uuid.uuid4().hex
         session_root = mgr.registry.data_dir / "upload_import_sessions" / session_id
         session_root.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(extract_dir, session_root)
-        items = [LocalImportCandidate(**item) for item in _collect_import_candidates(session_root)]
+        if progress:
+            progress("persisting", 0, 0)
+        shutil.move(str(extract_dir), session_root)
+        metadata_root = mgr.registry.data_dir / "upload_import_metadata"
+        metadata_root.mkdir(parents=True, exist_ok=True)
+        (metadata_root / f"{session_id}.json").write_text(
+            json.dumps({"skipped_symlinks": skipped_symlinks, "requires_confirmation": requires_confirmation,
+                        "filename": filename}, ensure_ascii=False), encoding="utf-8",
+        )
+        items = [] if requires_confirmation else [LocalImportCandidate(**item) for item in _collect_import_candidates(session_root, progress=progress)]
         return UploadZipPrepareResponse(
             session_id=session_id,
-            filename=file.filename or "skill.zip",
+            filename=filename,
+            skipped_symlinks=skipped_symlinks,
+            requires_symlink_confirmation=requires_confirmation,
             root_path=str(session_root),
             count=len(items),
             items=items,
         )
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@router.post("/skills/confirm-upload-zip", response_model=UploadZipPrepareResponse)
+async def confirm_upload_zip(body: UploadZipConfirmationRequest, stream: bool = Query(False), mgr: AgentManager = Depends(get_manager)):
+    work = lambda progress: _confirm_uploaded_zip(body, mgr, progress)
+    if stream:
+        return stream_upload_progress(work, initial_stage="discovering")
+    return await run_in_threadpool(work, None)
+
+
+def _confirm_uploaded_zip(body, mgr, progress=None):
+    session_root = mgr.registry.data_dir / "upload_import_sessions" / body.session_id
+    metadata_path = mgr.registry.data_dir / "upload_import_metadata" / f"{body.session_id}.json"
+    if not session_root.is_dir() or not metadata_path.is_file():
+        raise HTTPException(status_code=404, detail="Upload import session not found")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if not body.confirmed:
+        if _get_upload_jobs(mgr).active_session(body.session_id):
+            raise HTTPException(status_code=409, detail="Upload import job is active")
+        shutil.rmtree(session_root)
+        metadata_path.unlink()
+        return UploadZipPrepareResponse(session_id="", filename=metadata["filename"], root_path="", count=0, items=[])
+    items = [LocalImportCandidate(**item) for item in _collect_import_candidates(session_root, progress=progress)]
+    metadata["requires_confirmation"] = False
+    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
+    return UploadZipPrepareResponse(
+        session_id=body.session_id, filename=metadata["filename"], root_path=str(session_root),
+        count=len(items), items=items, skipped_symlinks=metadata.get("skipped_symlinks", []),
+    )
 
 
 @router.get("/skills/import-candidates", response_model=LocalImportCandidatesResponse)
@@ -1113,7 +1220,12 @@ def submit_remote_selected(
     return BatchSubmitResponse(results=results)
 
 
-@router.post("/skills/submit-upload-selected", response_model=BatchSubmitResponse)
+@router.get("/skills/upload-import-jobs")
+def list_upload_import_jobs(mgr: AgentManager = Depends(get_manager)):
+    return {"items": _get_upload_jobs(mgr).list()}
+
+
+@router.post("/skills/submit-upload-selected", status_code=202)
 def submit_upload_selected(
     body: RemoteImportSubmitRequest,
     background_tasks: BackgroundTasks,
@@ -1122,32 +1234,26 @@ def submit_upload_selected(
     session_root = (mgr.registry.data_dir / "upload_import_sessions" / body.session_id).resolve()
     if not session_root.exists() or not session_root.is_dir():
         raise HTTPException(status_code=404, detail="Upload import session not found")
+    metadata_path = mgr.registry.data_dir / "upload_import_metadata" / f"{session_root.name}.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+    if metadata.get("requires_confirmation"):
+        raise HTTPException(status_code=409, detail="ZIP symlink confirmation required")
     if not body.paths:
         raise HTTPException(status_code=400, detail="No skill paths selected")
 
-    source = SourceInfo(origin=SkillOrigin(body.origin), author=body.author, channel="upload_zip")
-    results: list[SubmitResponse] = []
+    SkillOrigin(body.origin)
+    paths = []
     for raw_path in body.paths:
         skill_dir = Path(raw_path).expanduser().resolve()
         if not _is_within_root(skill_dir, session_root):
             raise HTTPException(status_code=400, detail=f"Path is outside upload import session: {skill_dir}")
         if not (skill_dir / "SKILL.md").exists():
             raise HTTPException(status_code=400, detail=f"SKILL.md not found: {skill_dir}")
-        persistent_dir = mgr.registry.data_dir / "uploaded_skills" / uuid.uuid4().hex
-        persistent_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(skill_dir, persistent_dir)
-        results.append(_submit_directory_for_processing(
-            mgr,
-            background_tasks,
-            persistent_dir,
-            source,
-            body.use_behavioral,
-            body.use_llm,
-            body.use_sandbox,
-            body.use_skillspector,
-            body.judgement_mode,
-        ))
-    return BatchSubmitResponse(results=results)
+        paths.append(str(skill_dir))
+    payload = body.model_dump(mode="json")
+    payload["paths"] = sorted(set(paths))
+    payload["filename"] = metadata.get("filename", "")
+    return _get_upload_jobs(mgr).submit(payload)
 
 
 @router.post("/skills/submit-clawhub", response_model=SubmitResponse)
