@@ -417,6 +417,7 @@ class SubmitResponse(BaseModel):
     source_version: str | None = None
     deduplicated: bool = False
     scan_reused: bool = False
+    outcome: str | None = None
     name: str
     status: str
     risk_level: str | None
@@ -530,6 +531,10 @@ class ApproveRequest(BaseModel):
 class RejectRequest(BaseModel):
     reviewer: str
     reason: str
+
+
+class CancelScanRequest(BaseModel):
+    reviewer: str
 
 
 class RetireRequest(BaseModel):
@@ -771,7 +776,7 @@ def get_policy(mgr: AgentManager = Depends(get_manager)):
     policy_path = _discover_policy_path()
     return PolicyResponse(
         policy_path=str(policy_path) if policy_path else None,
-        policy=PolicyPayload(**mgr.policy.to_dict()),
+        policy=PolicyPayload(**{**mgr.policy.to_dict(), "risk_classification": mgr.policy.risk_classification}),
     )
 
 
@@ -1327,6 +1332,7 @@ async def submit_skill_clawhub(
 @router.get("/skills")
 def list_skills(
     status: str | None = Query(None),
+    scanning: bool | None = Query(None),
     loadable_only: bool = Query(False),
     risk_level: str | None = Query(None),
     sandbox_triggered: bool | None = Query(None),
@@ -1356,6 +1362,7 @@ def list_skills(
             page=page or 1,
             page_size=page_size or 10,
             statuses=status_values or None,
+            scanning=scanning,
             cancelled_only=cancelled_only,
             cancelled_reason=CANCELLED_SKILL_REASON,
             loadable_only=loadable_only,
@@ -1367,6 +1374,14 @@ def list_skills(
             sort_order=sort_order,
         )
     entries = mgr.list_skills()
+    if scanning is not None:
+        runs_by_version = mgr.list_scan_runs_for_versions([entry.skill_id for entry in entries])
+        entries = [
+            entry for entry in entries
+            if (entry.status == SkillStatus.PENDING or any(
+                run.status == "PENDING" for run in runs_by_version.get(entry.skill_id, [])
+            )) == scanning
+        ]
     if status_values:
         allowed_statuses = set(status_values)
         entries = [e for e in entries if e.status in allowed_statuses]
@@ -1489,6 +1504,8 @@ def get_skill(skill_id_or_name: str, mgr: AgentManager = Depends(get_manager)):
         raise HTTPException(status_code=404, detail="Skill not found")
     payload = entry.model_dump(mode="json", exclude={"vetting": {"scan_report"}})
     payload["version_id"] = entry.skill_id
+    payload["scan_options"] = _previous_scan_options(entry) if entry.scan_options is not None or entry.vetting else None
+    payload["scan_options_source"] = "submitted" if entry.scan_options is not None else "report" if entry.vetting else "unknown"
     payload["skill_id"] = entry.family_id or entry.skill_id
     trusted = mgr.get_trusted_skill(entry.family_id or skill_id_or_name)
     payload["latest_trusted_version_id"] = trusted.skill_id if trusted else None
@@ -1746,6 +1763,8 @@ def list_version_scan_runs(
 
 
 def _previous_scan_options(entry) -> dict[str, bool]:
+    if entry.scan_options is not None:
+        return dict(entry.scan_options)
     report = entry.vetting.scan_report if entry.vetting else {}
     analyzers = {str(item).lower() for item in report.get("analyzers_used", [])}
     return {
@@ -1769,8 +1788,14 @@ def rescan_skill(
     if previous is None:
         raise HTTPException(status_code=404, detail="Skill not found")
     previous_options = _previous_scan_options(previous)
+    scan_options = {
+        "use_behavioral": previous_options["use_behavioral"] if use_behavioral is None else use_behavioral,
+        "use_llm": previous_options["use_llm"] if use_llm is None else use_llm,
+        "use_sandbox": previous_options["use_sandbox"] if use_sandbox is None else use_sandbox,
+        "use_skillspector": previous_options["use_skillspector"] if use_skillspector is None else use_skillspector,
+    }
     try:
-        entry, started = mgr.request_rescan(skill_id)
+        entry, started = mgr.request_rescan(skill_id, scan_options=scan_options)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -1781,10 +1806,10 @@ def rescan_skill(
             _process_pending_submission_task,
             mgr,
             entry.skill_id,
-            previous_options["use_behavioral"] if use_behavioral is None else use_behavioral,
-            previous_options["use_llm"] if use_llm is None else use_llm,
-            previous_options["use_sandbox"] if use_sandbox is None else use_sandbox,
-            previous_options["use_skillspector"] if use_skillspector is None else use_skillspector,
+            scan_options["use_behavioral"],
+            scan_options["use_llm"],
+            scan_options["use_sandbox"],
+            scan_options["use_skillspector"],
             True,
         )
     current = mgr.get_skill(entry.skill_id) or entry
@@ -1795,6 +1820,7 @@ def rescan_skill(
         source_version=current.source_version,
         deduplicated=True,
         scan_reused=False,
+        outcome="rescan_submitted" if started else "already_scanning",
         name=current.name,
         status=current.status.value,
         risk_level=current.risk_level.value if current.risk_level else None,
@@ -2128,6 +2154,27 @@ def reject_skill(
         return {"skill_id": entry.skill_id, "status": entry.status.value, "message": "Rejected"}
     except (ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/skills/{skill_id}/cancel")
+def cancel_skill_scan(
+    skill_id: str,
+    body: CancelScanRequest,
+    mgr: AgentManager = Depends(get_manager),
+):
+    try:
+        entry, cancelled = mgr.cancel_scan(skill_id, reviewer=body.reviewer)
+        scan_pending = any(run.status == "PENDING" for run in mgr.list_scan_runs(entry.skill_id))
+        return {
+            "skill_id": entry.skill_id,
+            "status": entry.status.value,
+            "scan_pending": scan_pending,
+            "outcome": "cancelled" if cancelled else "no_pending_scan",
+        }
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail={
+            "error_code": "skill_not_found", "message": "Skill 不存在",
+        }) from exc
 
 
 # --------------------------------------------------------------------------- #

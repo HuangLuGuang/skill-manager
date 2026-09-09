@@ -19,10 +19,10 @@ test('legacy records without version_id keep their exact skill ID', () => {
 test('family list actions pass immutable version IDs to lifecycle APIs', () => {
   const skills = fs.readFileSync(new URL('../src/views/Skills.vue', import.meta.url), 'utf8')
   const deployments = fs.readFileSync(new URL('../src/views/Deployments.vue', import.meta.url), 'utf8')
-  assert.match(skills, /rescanSkill\(lifecycleVersionId\(record\)\)/)
-  assert.match(skills, /rejectSkill\(lifecycleVersionId\(record\),/)
+  assert.match(skills, /rescanSkill\(lifecycleVersionId\(record\), options\)/)
+  assert.match(skills, /cancelSkillScan\(lifecycleVersionId\(record\),/)
   assert.match(deployments, /deploySkill\(lifecycleVersionId\(record\)\)/)
   assert.match(deployments, /retireSkill\(lifecycleVersionId\(selectedRecord\.value\),/)
-  assert.doesNotMatch(skills, /(?:rescanSkill|rejectSkill)\(record\.skill_id/)
+  assert.doesNotMatch(skills, /(?:rescanSkill|cancelSkillScan)\(record\.skill_id/)
   assert.doesNotMatch(deployments, /(?:deploySkill|retireSkill)\([^\n]*\.skill_id/)
 })

@@ -173,6 +173,10 @@ class AgentManager:
             judgement_mode=judgement_mode,
         )
         existing = self.registry.find_version_by_content(name, content_fingerprint)
+        scan_options = {
+            "use_behavioral": use_behavioral, "use_llm": use_llm,
+            "use_sandbox": use_sandbox, "use_skillspector": use_skillspector,
+        }
         reuse_enabled = self.policy.scan_result_reuse_enabled
         if existing:
             if any(run.status == "PENDING" for run in self.registry.list_scan_runs(existing.skill_id)):
@@ -199,6 +203,7 @@ class AgentManager:
                     }
                 return reused, False, "existing_version_reused"
             entry = existing
+            entry.scan_options = scan_options
             entry.scan_context_fingerprint = scan_context_fingerprint
             entry.scan_cache_key = compute_scan_cache_key(content_fingerprint, scan_context_fingerprint)
             entry.scan_reused = False
@@ -223,6 +228,7 @@ class AgentManager:
             source=source,
             skill_path=str(snapshot_path),
             status=SkillStatus.PENDING,
+            scan_options=scan_options,
             allowed_tools=allowed_tools,
             content_fingerprint=content_fingerprint,
             scan_context_fingerprint=scan_context_fingerprint,
@@ -350,6 +356,10 @@ class AgentManager:
         judgement_mode: str | None = None,
     ) -> RegistryEntry:
         entry = self._require_entry(skill_id)
+        runs = self.registry.list_scan_runs(entry.skill_id)
+        if runs and runs[0].status == "CANCELLED":
+            return entry
+        active_run_id = next((run.scan_run_id for run in runs if run.status == "PENDING"), None)
         skill_path = Path(entry.skill_path or "").resolve()
         source = entry.source
         content_fingerprint = compute_content_fingerprint(skill_path)
@@ -362,10 +372,15 @@ class AgentManager:
             judgement_mode=judgement_mode,
         )
         scan_cache_key = compute_scan_cache_key(content_fingerprint, scan_context_fingerprint)
-        entry.content_fingerprint = content_fingerprint
+        if entry.content_fingerprint is not None:
+            entry.content_fingerprint = content_fingerprint
         entry.scan_context_fingerprint = scan_context_fingerprint
         entry.scan_cache_key = scan_cache_key
-        self.registry.update(entry)
+        entry.scan_options = {
+            "use_behavioral": use_behavioral, "use_llm": use_llm,
+            "use_sandbox": use_sandbox, "use_skillspector": use_skillspector,
+        }
+        self.registry.update(entry, backfill_content_fingerprint=content_fingerprint)
 
         reuse_enabled = self.policy.scan_result_reuse_enabled and not force_scan
         if reuse_enabled:
@@ -373,7 +388,7 @@ class AgentManager:
             if cached:
                 cached_entry = self.registry.get_by_id(cached.get("skill_id", ""))
                 if cached_entry and cached_entry.vetting and cached_entry.status != SkillStatus.PENDING:
-                    reused = self._reuse_scan_result(entry, cached_entry, skill_path)
+                    reused = self._reuse_scan_result(entry, cached_entry, skill_path, content_fingerprint)
                     source_runs = self.registry.list_scan_runs(cached_entry.skill_id)
                     self._finish_scan_run(
                         reused,
@@ -394,7 +409,7 @@ class AgentManager:
                     content_fingerprint,
                     scan_context_fingerprint,
                 )
-                reused = self._reuse_scan_result(entry, matching_entry, skill_path)
+                reused = self._reuse_scan_result(entry, matching_entry, skill_path, content_fingerprint)
                 source_runs = self.registry.list_scan_runs(matching_entry.skill_id)
                 self._finish_scan_run(
                     reused,
@@ -416,7 +431,8 @@ class AgentManager:
         )
         current_entry = self.registry.get_by_id(skill_id)
         pending_run = next(
-            (run for run in self.registry.list_scan_runs(skill_id) if run.status == "PENDING"),
+            (run for run in self.registry.list_scan_runs(skill_id)
+             if run.status == "PENDING" and (active_run_id is None or run.scan_run_id == active_run_id)),
             None,
         )
         if current_entry and pending_run is None:
@@ -443,6 +459,7 @@ class AgentManager:
         entry.description = description
         entry.status = status
         entry.risk_level = vetting_result.risk_level
+        entry.rejection_reason = None
         entry.vetting = vetting_result
         entry.allowed_tools = allowed_tools
         entry.declared_tools_valid = declared_tools_valid
@@ -508,11 +525,13 @@ class AgentManager:
         entry: RegistryEntry,
         cached_entry: RegistryEntry,
         skill_path: Path,
+        content_fingerprint: str,
     ) -> RegistryEntry:
         entry.name = cached_entry.name
         entry.description = cached_entry.description
         entry.status = cached_entry.status
         entry.risk_level = cached_entry.risk_level
+        entry.rejection_reason = cached_entry.rejection_reason
         entry.vetting = cached_entry.vetting.model_copy(deep=True) if cached_entry.vetting else None
         entry.allowed_tools = list(cached_entry.allowed_tools)
         entry.declared_tools_valid = cached_entry.declared_tools_valid
@@ -524,7 +543,7 @@ class AgentManager:
                 "scan_reused": True,
                 "reused_from_skill_id": cached_entry.skill_id,
                 "reused_from_skill_name": cached_entry.name,
-                "content_fingerprint": entry.content_fingerprint,
+                "content_fingerprint": content_fingerprint,
                 "scan_context_fingerprint": entry.scan_context_fingerprint,
                 "scan_cache_key": entry.scan_cache_key,
             }
@@ -554,7 +573,7 @@ class AgentManager:
             entry,
             details={
                 "reused_from_skill_id": cached_entry.skill_id,
-                "content_fingerprint": entry.content_fingerprint,
+                "content_fingerprint": content_fingerprint,
                 "scan_context_fingerprint": entry.scan_context_fingerprint,
                 "scan_cache_key": entry.scan_cache_key,
                 "status": entry.status.value,
@@ -575,6 +594,9 @@ class AgentManager:
 
     def mark_submission_failed(self, skill_id: str, reason: str, actor: str | None = None) -> RegistryEntry:
         entry = self._require_entry(skill_id)
+        runs = self.registry.list_scan_runs(entry.skill_id)
+        if runs and runs[0].status == "CANCELLED":
+            return entry
         if entry.status != SkillStatus.PENDING and entry.vetting is not None:
             self._finish_scan_run(entry, status="FAILED")
             self.registry.log_event(make_event(
@@ -689,6 +711,22 @@ class AgentManager:
             for note in blocking_notes
         )
 
+    def cancel_scan(self, skill_id: str, reviewer: str) -> tuple[RegistryEntry, bool]:
+        """Cancel scanning while preserving a completed version's effective decision."""
+        entry = self._require_entry(skill_id)
+        if entry.status == SkillStatus.PENDING:
+            return self.reject(entry.skill_id, reviewer, "用户取消后台分析任务"), True
+        pending = [run for run in self.registry.list_scan_runs(entry.skill_id) if run.status == "PENDING"]
+        for run in pending:
+            run.status = "CANCELLED"
+            run.finished_at = datetime.now(timezone.utc)
+            self.registry.update_scan_run(run)
+            self.registry.log_event(make_event(
+                "skill_scan_cancelled", entry, actor=reviewer,
+                details={"scan_run_id": run.scan_run_id},
+            ))
+        return entry, bool(pending)
+
     def reject(
         self,
         skill_id: str,
@@ -706,6 +744,11 @@ class AgentManager:
 
         self.registry.update(entry)
         self.registry.dequeue_review(skill_id)
+        for run in self.registry.list_scan_runs(entry.skill_id):
+            if run.status == "PENDING":
+                run.status = "CANCELLED"
+                run.finished_at = datetime.now(timezone.utc)
+                self.registry.update_scan_run(run)
         self.registry.log_event(make_event(
             "skill_rejected", entry, actor=reviewer,
             details={"reason": reason},
@@ -788,7 +831,10 @@ class AgentManager:
             raise ValueError(f"Skill version {entry.skill_id!r} already has a pending scan")
         return entry
 
-    def request_rescan(self, skill_id: str, actor: str | None = None) -> tuple[RegistryEntry, bool]:
+    def request_rescan(
+        self, skill_id: str, actor: str | None = None,
+        scan_options: dict[str, bool] | None = None,
+    ) -> tuple[RegistryEntry, bool]:
         """Start a rescan, or return the existing in-progress request."""
         entry = self._require_entry(skill_id)
         if not entry.skill_path or not Path(entry.skill_path).exists():
@@ -796,6 +842,9 @@ class AgentManager:
 
         if any(run.status == "PENDING" for run in self.registry.list_scan_runs(entry.skill_id)):
             return entry, False
+        if scan_options is not None:
+            entry.scan_options = dict(scan_options)
+            self.registry.update(entry)
         self._start_scan_run(entry, forced=True)
         self.registry.log_event(make_event("skill_rescan_requested", entry, actor=actor))
         return entry, True

@@ -1,6 +1,9 @@
 import { createI18n } from 'vue-i18n'
 import { scanScheduleMessages } from './scanSchedule.js'
 import { assetLifecycleMessages } from './assetLifecycle.js'
+import { skillBatchMessages } from './skillBatch.js'
+import { decisionFlowMessages } from './decisionFlow.js'
+import { skillColumnMessages } from './skillColumns.js'
 
 import { domainKey, domainMessages } from './domain.js'
 import { legacyKey, legacyMessages } from './legacy.js'
@@ -58,6 +61,14 @@ export const i18n = createI18n({
         zipTooLarge: '上传失败：压缩包超过服务器上传大小限制。当前上限为 100 MiB，请缩小压缩包后重试。',
       },
       assetLifecycle: assetLifecycleMessages['zh-CN'],
+      skillBatch: skillBatchMessages['zh-CN'],
+      decisionFlow: decisionFlowMessages['zh-CN'],
+      skillColumns: skillColumnMessages['zh-CN'],
+      skillFilters: {
+        all: 'ALL（全部状态）', scanning: 'SCANNING（检测中）', awaitingReview: 'VETTED（待审核）',
+        approved: 'APPROVED（已批准）', cancelled: 'CANCELLED（已取消）',
+        rejected: 'REJECTED（已拒绝）', deployed: 'DEPLOYED（已部署）', retired: 'RETIRED（已退役）',
+      },
       scanSchedule: scanScheduleMessages['zh-CN'],
       app: {
         name: '智能体生命周期管理系统',
@@ -496,6 +507,11 @@ export const i18n = createI18n({
         inactive: '未启用',
       },
       scanOptions: {
+        rules: '启动规则分析', deepScan: '启动深度扫描', sandbox: '启动 Sandbox', llm: '启动 LLM 分析',
+        rulesHint: '规则分析为必选项，始终开启。扫描 scripts、references、prompts 等目录中的文本代码文件，检测命令执行、敏感文件访问、动态执行等可疑模式。',
+        sandboxHint: '在 Docker 沙箱或远程隔离执行服务中运行受控 probe，观察 Skill 的运行时行为。',
+        llmHint: '使用策略配置中选择的模型进行 LLM 分析：{model}',
+        loading: '正在获取检测能力配置。',
         deepScanHint: '执行静态深度扫描，不会调用模型；需要语义研判时请单独勾选“启动 LLM 分析”。',
       },
       scanReportExport: {
@@ -1026,6 +1042,14 @@ export const i18n = createI18n({
         zipTooLarge: 'Upload failed: the ZIP exceeds the server upload size limit. The current limit is 100 MiB. Reduce the ZIP size and try again.',
       },
       assetLifecycle: assetLifecycleMessages['en-US'],
+      skillBatch: skillBatchMessages['en-US'],
+      decisionFlow: decisionFlowMessages['en-US'],
+      skillColumns: skillColumnMessages['en-US'],
+      skillFilters: {
+        all: 'ALL（全部状态）', scanning: 'SCANNING（检测中）', awaitingReview: 'VETTED（待审核）',
+        approved: 'APPROVED（已批准）', cancelled: 'CANCELLED（已取消）',
+        rejected: 'REJECTED（已拒绝）', deployed: 'DEPLOYED（已部署）', retired: 'RETIRED（已退役）',
+      },
       scanSchedule: scanScheduleMessages['en-US'],
       app: {
         name: 'Agent Manager',
@@ -1464,6 +1488,11 @@ export const i18n = createI18n({
         inactive: 'Disabled',
       },
       scanOptions: {
+        rules: 'Start rule analysis', deepScan: 'Start deep scan', sandbox: 'Start Sandbox', llm: 'Start LLM analysis',
+        rulesHint: 'Rule analysis is required and always enabled. It scans text and code in scripts, references, prompts and other directories for suspicious patterns such as command execution, sensitive file access and dynamic execution.',
+        sandboxHint: 'Runs a controlled probe in a Docker sandbox or remote isolation service to observe the Skill’s runtime behavior.',
+        llmHint: 'Uses the model selected in Policy Settings for LLM analysis: {model}',
+        loading: 'Loading scanning capabilities.',
         deepScanHint: 'Runs a static deep scan without calling a model. Select Start LLM analysis separately for semantic assessment.',
       },
       scanReportExport: {

@@ -114,20 +114,7 @@
               :description="$t('legacy.cpri8l')"
             />
             <a-form-item>
-              <a-space wrap>
-                <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">{{ $t("legacy.zloh25") }}</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="deepScanTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSkillspector" :disabled="!deepScanReadyForSubmit">{{ $t("legacy.1w3zw0n") }}</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">{{ $t("legacy.9un8hd") }}</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="llmTooltip">
-                  <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">{{ $t("legacy.7szg5p") }}</a-checkbox></span>
-                </a-tooltip>
-              </a-space>
+              <SkillScanOptions v-model="submissionScanOptions" :status="managerStatus" :loading="loadingSystemStatus" :disabled="submitting" />
             </a-form-item>
             <a-form-item>
               <a-space wrap>
@@ -198,20 +185,7 @@
               :description="$t('legacy.u2f68')"
             />
             <a-form-item>
-              <a-space wrap>
-                <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">{{ $t("legacy.zloh25") }}</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="deepScanTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSkillspector" :disabled="!deepScanReadyForSubmit">{{ $t("legacy.1w3zw0n") }}</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">{{ $t("legacy.9un8hd") }}</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="llmTooltip">
-                  <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">{{ $t("legacy.7szg5p") }}</a-checkbox></span>
-                </a-tooltip>
-              </a-space>
+              <SkillScanOptions v-model="submissionScanOptions" :status="managerStatus" :loading="loadingSystemStatus" :disabled="submitting" />
             </a-form-item>
             <a-form-item>
               <a-space wrap>
@@ -302,6 +276,8 @@ import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { InboxOutlined } from '@ant-design/icons-vue'
 import ScannerAccess from './ScannerAccess.vue'
+import SkillScanOptions from '../components/SkillScanOptions.vue'
+import { rescanCapabilities } from '../utils/skillRescan'
 import { analyzeZipSize, formatZipSize, isZipTooLarge, removeMacOSMetadata } from '../utils/zipSize'
 import { useLocaleText } from '../i18n/useLocaleText'
 
@@ -420,7 +396,6 @@ const currentUsername = localStorage.getItem('username') || 'admin'
 const currentSubmitterMessage = computed(() => `${text('当前提交人', 'Current submitter')}: ${currentUsername}`)
 
 const formState = reactive({
-  useBehavioral: true,
   useSkillspector: false,
   useSandbox: false,
   useLlm: false,
@@ -548,35 +523,21 @@ const resultColumns = [
   { title: phrase('legacy.501w24'), key: 'action', width: 100 },
 ]
 
-const llmEnabledInSystem = computed(() => Boolean(managerStatus.value?.llm_enabled))
-const llmReadyForSubmit = computed(() => Boolean(managerStatus.value?.llm_enabled && managerStatus.value?.llm_model))
-const sandboxEnabledInSystem = computed(() => Boolean(managerStatus.value?.sandbox_enabled))
-const sandboxReadyForSubmit = computed(() => Boolean(managerStatus.value?.sandbox_enabled && managerStatus.value?.sandbox_available))
-const deepScanReadyForSubmit = computed(() => Boolean(managerStatus.value?.skillspector_available))
-const llmTooltip = computed(() => {
-  if (loadingSystemStatus.value) return phrase('legacy.11gyk58')
-  if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return phrase('legacy.eh7hm2')
-  if (!llmEnabledInSystem.value) return phrase('legacy.15tlipg')
-  if (!managerStatus.value?.llm_model) return phrase('legacy.z86ri4')
-  return text(
-    `启用后会使用策略配置中选择的模型：${managerStatus.value.llm_model}`,
-    `Uses the model selected in Policy Settings: ${managerStatus.value.llm_model}`,
-  )
+const submissionScanOptions = computed({
+  get: () => ({
+    use_behavioral: true, use_skillspector: formState.useSkillspector,
+    use_sandbox: formState.useSandbox, use_llm: formState.useLlm,
+  }),
+  set: options => {
+    formState.useSkillspector = options.use_skillspector
+    formState.useSandbox = options.use_sandbox
+    formState.useLlm = options.use_llm
+  },
 })
-const behavioralTooltip = phrase('legacy.er61t5')
-const deepScanTooltip = computed(() => {
-  if (loadingSystemStatus.value) return phrase('legacy.ytd7gn')
-  if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return phrase('legacy.s8dbz7')
-  if (!managerStatus.value?.skillspector_available) return phrase('legacy.nxt8hi')
-  return t('scanOptions.deepScanHint')
-})
-const sandboxTooltip = computed(() => {
-  if (loadingSystemStatus.value) return phrase('legacy.1lc1opo')
-  if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return phrase('legacy.eh7hm2')
-  if (!sandboxEnabledInSystem.value) return phrase('legacy.18scr9y')
-  if (!managerStatus.value?.sandbox_available) return phrase('legacy.clcfa1')
-  return phrase('legacy.1dj13ib')
-})
+const scanCapabilities = computed(() => rescanCapabilities(managerStatus.value))
+const llmReadyForSubmit = computed(() => scanCapabilities.value.use_llm)
+const sandboxReadyForSubmit = computed(() => scanCapabilities.value.use_sandbox)
+const deepScanReadyForSubmit = computed(() => scanCapabilities.value.use_skillspector)
 const effectiveUseSandbox = () => Boolean(sandboxReadyForSubmit.value && formState.useSandbox)
 
 const fetchSystemStatus = async () => {
@@ -778,7 +739,7 @@ const handleZipSubmit = async () => {
       paths: selectedUploadPaths.value,
       author: currentUsername,
       origin: 'local',
-      use_behavioral: formState.useBehavioral,
+      use_behavioral: true,
       use_skillspector: formState.useSkillspector,
       use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
@@ -903,7 +864,7 @@ const handleLocalSubmit = async () => {
       paths: selectedLocalPaths.value,
       author: currentUsername,
       origin: 'local',
-      use_behavioral: formState.useBehavioral,
+      use_behavioral: true,
       use_skillspector: formState.useSkillspector,
       use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,

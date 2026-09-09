@@ -40,6 +40,122 @@ def _ensure_trusted(manager: AgentManager, entry):
     return entry
 
 
+@pytest.mark.parametrize("status", [SkillStatus.APPROVED, SkillStatus.VETTED, SkillStatus.REJECTED])
+def test_cancel_rescan_preserves_effective_decision(tmp_path, status):
+    skill = tmp_path / "skill"
+    _write_skill(skill, "# First")
+    manager = _manager(tmp_path)
+    entry = manager.submit(skill)
+    entry.status = status
+    manager.registry.update(entry)
+    manager.request_rescan(entry.skill_id)
+    before = manager.get_skill(entry.skill_id).model_dump()
+    app = FastAPI()
+    app.include_router(api_router.router)
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+    client = TestClient(app)
+
+    response = client.post(f"/skills/{entry.skill_id}/cancel", json={"reviewer": "admin"})
+    assert response.status_code == 200
+    assert response.json()["outcome"] == "cancelled"
+    assert manager.get_skill(entry.skill_id).model_dump() == before
+    assert manager.list_scan_runs(entry.skill_id)[0].status == "CANCELLED"
+    assert manager.list_skill_summaries(page=1, page_size=10)["items"][0]["scan_pending"] is False
+    repeated = client.post(f"/skills/{entry.skill_id}/cancel", json={"reviewer": "admin"})
+    assert repeated.status_code == 200
+    assert repeated.json()["outcome"] == "no_pending_scan"
+    manager.mark_submission_failed(entry.skill_id, "late worker failure")
+    assert manager.get_skill(entry.skill_id).model_dump() == before
+    assert manager.list_scan_runs(entry.skill_id)[0].status == "CANCELLED"
+
+
+def test_cancel_api_marks_initial_scan_cancelled(tmp_path):
+    skill = tmp_path / "skill"
+    _write_skill(skill, "# First")
+    manager = _manager(tmp_path)
+    entry, _, _ = manager.prepare_submission(skill)
+    app = FastAPI()
+    app.include_router(api_router.router)
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+    client = TestClient(app)
+    assert client.post(f"/skills/{entry.skill_id}/cancel", json={"reviewer": "admin"}).status_code == 200
+    assert manager.get_skill(entry.skill_id).status == SkillStatus.REJECTED
+    assert manager.list_scan_runs(entry.skill_id)[0].status == "CANCELLED"
+    response = client.post("/skills/missing/cancel", json={"reviewer": "admin"})
+    assert response.status_code == 404
+    assert response.json()["detail"]["error_code"] == "skill_not_found"
+
+
+@pytest.mark.parametrize("overrides,expected", [
+    ({}, (True, True, True, True, True)),
+    ({"use_behavioral": False, "use_llm": False, "use_sandbox": False, "use_skillspector": False}, (False, False, False, False, True)),
+    ({"use_behavioral": False, "use_llm": True, "use_sandbox": True, "use_skillspector": True}, (False, True, True, True, True)),
+])
+def test_rescan_options_are_forwarded_to_worker(tmp_path, monkeypatch, overrides, expected):
+    from types import SimpleNamespace
+
+    skill = tmp_path / "skill"
+    _write_skill(skill, "# First")
+    manager = _manager(tmp_path)
+    entry = manager.submit(skill)
+    entry.vetting.scan_report = {
+        "analyzers_used": ["behavioral:local", "llm:test", "sandbox:local", "skillspector:test"],
+    }
+    entry.scan_options = None
+    manager.registry.update(entry)
+    calls = []
+    monkeypatch.setattr(api_router, "_scan_executor", SimpleNamespace(
+        submit=lambda fn, mgr, version_id, *options: calls.append((version_id, options)),
+    ))
+    app = FastAPI()
+    app.include_router(api_router.router)
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+    response = TestClient(app).post(f"/skills/{entry.skill_id}/rescan", params=overrides)
+    assert response.status_code == 200
+    assert calls == [(entry.skill_id, expected)]
+    detail = TestClient(app).get(f"/skills/{entry.skill_id}").json()
+    assert detail["scan_options_source"] == "submitted"
+    assert detail["scan_options"] == dict(zip(
+        ("use_behavioral", "use_llm", "use_sandbox", "use_skillspector"), expected[:4],
+    ))
+
+
+def test_detail_options_available_before_scan_and_preserved_for_duplicate(tmp_path):
+    skill = tmp_path / "skill"
+    _write_skill(skill, "# First")
+    manager = _manager(tmp_path)
+    entry, _, _ = manager.prepare_submission(skill, use_skillspector=True, use_llm=True)
+    app = FastAPI()
+    app.include_router(api_router.router)
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+    client = TestClient(app)
+    detail = client.get(f"/skills/{entry.skill_id}").json()
+    assert detail["scan_options_source"] == "submitted"
+    assert detail["scan_options"] == {
+        "use_behavioral": False, "use_llm": True, "use_sandbox": False, "use_skillspector": True,
+    }
+    client.post(f"/skills/{entry.skill_id}/rescan", params={"use_llm": False})
+    assert client.get(f"/skills/{entry.skill_id}").json()["scan_options"] == detail["scan_options"]
+
+
+def test_detail_legacy_options_use_report_with_source(tmp_path):
+    skill = tmp_path / "skill"
+    _write_skill(skill, "# First")
+    manager = _manager(tmp_path)
+    entry = manager.submit(skill)
+    entry.scan_options = None
+    entry.vetting.scan_report = {"analyzers_used": ["llm:test", "sandbox:local"]}
+    manager.registry.update(entry)
+    app = FastAPI()
+    app.include_router(api_router.router)
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+    result = TestClient(app).get(f"/skills/{entry.skill_id}").json()
+    assert result["scan_options_source"] == "report"
+    assert result["scan_options"]["use_llm"] is True
+    assert result["scan_options"]["use_sandbox"] is True
+    assert result["scan_options"]["use_skillspector"] is False
+
+
 def test_same_content_reuses_one_version_and_one_scan(tmp_path):
     skill = tmp_path / "skill"
     _write_skill(skill, "# First")
@@ -147,6 +263,7 @@ def test_versions_and_diff_api(tmp_path):
 
     duplicate = client.post(f"/skills/{pending_entry.skill_id}/rescan")
     assert duplicate.status_code == 200
+    assert duplicate.json()["outcome"] == "already_scanning"
     assert duplicate.json()["message"] == "该版本正在检测中，无需重复提交。"
     assert len([run for run in manager.list_scan_runs(first.skill_id) if run.status == "PENDING"]) == 1
 
@@ -260,3 +377,36 @@ def test_delete_family_removes_all_versions_and_snapshots(tmp_path):
 
     assert manager.list_skill_versions(first.family_id) == []
     assert all(not path.exists() for path in snapshots)
+
+
+@pytest.mark.parametrize("force_scan", [True, False])
+def test_legacy_duplicate_without_fingerprint_can_be_scanned(tmp_path, force_scan):
+    from agent_manager.core.models import RegistryEntry, SourceInfo, SkillOrigin
+    from agent_manager.core.scan_cache import compute_content_fingerprint
+
+    skill = tmp_path / "skill"
+    _write_skill(skill, "# Historical duplicate")
+    manager = _manager(tmp_path, require_sandbox_for_risk=[])
+    owner = manager.submit(skill)
+    owner_before = manager.registry.get_by_id(owner.skill_id).model_dump()
+    legacy = RegistryEntry(
+        skill_id="legacy-duplicate", name=owner.name, family_id=owner.family_id,
+        description=owner.description,
+        version_no=2, skill_path=str(skill), source=SourceInfo(origin=SkillOrigin.LOCAL),
+        status=SkillStatus.REJECTED,
+        rejection_reason="后台分析失败: UNIQUE constraint failed: index 'idx_skill_registry_family_fingerprint'",
+    )
+    manager.registry.add(legacy)
+    manager.request_rescan(legacy.skill_id)
+
+    result = manager.process_pending_submission(legacy.skill_id, force_scan=force_scan)
+
+    assert result.skill_id == legacy.skill_id
+    assert result.content_fingerprint is None
+    assert result.rejection_reason is None
+    assert result.vetting.scan_report["content_fingerprint"] == compute_content_fingerprint(skill)
+    assert not result.vetting.scan_report.get("vetting_failed")
+    assert manager.list_scan_runs(legacy.skill_id)[0].status == ("COMPLETED" if force_scan else "REUSED")
+    assert manager.registry.get_by_id(owner.skill_id).model_dump() == owner_before
+    assert len(manager.registry.list_versions(owner.name)) == 2
+    assert manager.registry.find_version_by_content(owner.name, owner.content_fingerprint).skill_id == owner.skill_id

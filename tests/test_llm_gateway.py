@@ -1579,6 +1579,33 @@ def test_api_key_body_size_limit_is_enforced(tmp_path, monkeypatch):
     assert response.status_code == 413
 
 
+def test_skill_analysis_keeps_gateway_metadata_out_of_provider_request(tmp_path, monkeypatch):
+    from agent_manager.core.llm import _call_model_gateway_sync
+    from backend import sqlite_db
+
+    _, _, session_factory = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(sqlite_db, "SessionLocal", session_factory)
+    payload = {
+        "model": "mock-model",
+        "messages": [{"role": "user", "content": 'Return {"ok": true}.'}],
+        "metadata": {"tenant_id": "agent-manager-internal", "user_id": "agent-manager-vetting"},
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"},
+        "stream": False,
+    }
+    original = json.loads(json.dumps(payload))
+    response = {"choices": [{"message": {"content": '{"ok": true}'}}]}
+
+    async def provider(_db, model, body):
+        assert model.name == "mock-model"
+        assert body == {key: value for key, value in original.items() if key != "metadata"}
+        return response
+
+    monkeypatch.setattr(llm_gateway, "_call_upstream", provider)
+    assert _call_model_gateway_sync(payload) == response
+    assert payload == original
+
+
 def test_api_key_concurrency_counter_is_enforced_across_sessions(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'leases.db'}", connect_args={"check_same_thread": False})
     Base.metadata.create_all(bind=engine)

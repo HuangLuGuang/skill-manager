@@ -38,7 +38,7 @@
 
           <a-row :gutter="16">
             <a-col :xs="24" :lg="12">
-              <a-form-item :label="$t('legacy.d9qpsd')">
+              <a-form-item id="decision-mode" :label="$t('legacy.d9qpsd')" :class="{ 'decision-focus': route.query.focus === 'mode' }">
                 <a-select v-model:value="formState.judgement_mode">
                   <a-select-option v-for="item in judgementModeOptions" :key="item.value" :value="item.value">
                     {{ item.label }}
@@ -93,7 +93,7 @@
             <div class="section-title">{{ $t("legacy.1e7mnak") }}</div>
             <a-row :gutter="[16, 16]">
               <a-col v-for="group in riskClassificationGroups" :key="group.key" :xs="24" :lg="8">
-                <div class="risk-class-card">
+                <div class="risk-class-card" :id="`risk-class-${group.key}`" :class="{ 'decision-focus': route.query.focus === group.key }">
                   <div class="risk-class-header">
                     <span>{{ group.label }}</span>
                     <a-tag :color="group.color">{{ group.tag }}</a-tag>
@@ -108,7 +108,7 @@
                     @change="value => handleRiskGroupChange(group.key, value)"
                   >
                     <template #tagRender="{ value }">
-                      <a-tag class="risk-class-tag">{{ riskItemLabel(value) }}</a-tag>
+                      <a-tag class="risk-class-tag" :color="focusedCategories.includes(value) ? 'gold' : undefined">{{ riskItemLabel(value) }}</a-tag>
                     </template>
                     <a-select-option v-for="item in riskItems" :key="item.key" :value="item.key" :label="item.label">
                       <div class="risk-option">
@@ -343,9 +343,9 @@
 <script setup>
 import { translateLegacy as phrase, translateText as text } from '../i18n'
 
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { onBeforeRouteLeave } from 'vue-router'
+import { onBeforeRouteLeave, useRoute } from 'vue-router'
 
 import {
   getLlmConfig,
@@ -365,6 +365,16 @@ const dirty = ref(false)
 const savedSnapshot = ref('')
 const policyPath = ref('')
 const activeTab = ref('decision')
+const route = useRoute()
+const focusedCategories = computed(() => String(route.query.categories || '').split(',').filter(Boolean))
+const focusDecisionConfig = async () => {
+  if (route.query.tab !== 'decision') return
+  activeTab.value = 'decision'
+  await nextTick()
+  const id = { mode: 'decision-mode', blocking: 'risk-class-blocking' }[route.query.focus]
+  if (id) document.getElementById(id)?.scrollIntoView({ block: 'center' })
+}
+watch(() => route.query, focusDecisionConfig)
 const llmConfig = ref({})
 const sandboxConfig = ref({})
 const modelEndpoints = ref([])
@@ -747,14 +757,16 @@ onBeforeRouteLeave(() => {
   return window.confirm(phrase('legacy.8h4k7h'))
 })
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('beforeunload', handleBeforeUnload)
-  fetchPolicy()
+  await fetchPolicy()
+  await focusDecisionConfig()
 })
 onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnload))
 </script>
 
 <style scoped>
+.decision-focus { outline: 2px solid #c49a46; outline-offset: 5px; border-radius: 6px; scroll-margin-top: 90px; }
 .bottom-action-bar {
   background: #fff;
   border: 1px solid #f0f0f0;

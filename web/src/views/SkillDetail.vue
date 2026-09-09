@@ -15,6 +15,17 @@
     </a-page-header>
 
     <a-card :title="$t('legacy.17qypnb')" class="basic-info-card" style="margin-top: 16px">
+      <template #extra>
+        <a-space wrap class="basic-scan-options">
+          <a-tooltip :title="$t(`skillBatch.optionsSource_${detail?.scan_options_source || 'unknown'}`)">
+            <span class="scan-options-label">{{ $t('skillBatch.scanOptionsLabel') }}</span>
+          </a-tooltip>
+          <a-checkbox :checked="Boolean(detail?.scan_options?.use_skillspector)" :indeterminate="!detail?.scan_options" disabled>{{ $t('skillBatch.deepScan') }}</a-checkbox>
+          <a-checkbox :checked="Boolean(detail?.scan_options?.use_sandbox)" :indeterminate="!detail?.scan_options" disabled>{{ $t('skillBatch.sandbox') }}</a-checkbox>
+          <a-checkbox :checked="Boolean(detail?.scan_options?.use_llm)" :indeterminate="!detail?.scan_options" disabled>{{ $t('skillBatch.llm') }}</a-checkbox>
+          <span v-if="detail?.scan_options_source === 'report'" class="scan-options-label">{{ $t('skillBatch.fromReport') }}</span>
+        </a-space>
+      </template>
       <a-skeleton :loading="loading" active :paragraph="{ rows: 5 }">
         <a-descriptions :column="{ xs: 1, sm: 2, lg: 3, xxl: 4 }" size="small" bordered>
           <a-descriptions-item label="Skill ID" :span="2">{{ detail?.skill_id || skillId }}</a-descriptions-item>
@@ -87,14 +98,6 @@
           <a-descriptions-item :label="$t('legacy.1g74qkr')">{{ detail?.vetting?.sandbox_runtime || '-' }}</a-descriptions-item>
           <a-descriptions-item :label="$t('legacy.7fq7m5')">{{ sandboxDisplayImage }}</a-descriptions-item>
         </a-descriptions>
-        <a-alert
-          v-if="manualApprovalRequired"
-          style="margin-top: 12px"
-          type="error"
-          show-icon
-          :message="vettingFailed ? $t('legacy.11ldhwj') : $t('legacy.gobvd0')"
-          :description="manualApprovalSummary"
-        />
       </a-skeleton>
     </a-card>
 
@@ -138,334 +141,284 @@
       />
     </a-card>
 
-    <a-card :title="$t('legacy.17yj1t4')" style="margin-top: 12px">
+    <a-card :title="$t('decisionFlow.reportTitle')" style="margin-top: 12px">
+      <template #extra>
+        <a-button type="primary" class="refresh-report-button" @click="fetchScanReport" :loading="loadingScanReport"> {{ $t("legacy.1y2sdbh") }} </a-button>
+      </template>
       <a-tabs v-model:activeKey="activeTab">
-        <a-tab-pane key="vetting" :tab="$t('legacy.1xjnbvp')">
-          <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
-            <a-space style="margin-bottom: 12px" wrap>
-              <a-button type="primary" class="refresh-report-button" @click="fetchScanReport" :loading="loadingScanReport"> {{ $t("legacy.1y2sdbh") }} </a-button>
-            </a-space>
-            <a-descriptions :column="2" size="small" bordered>
-              <a-descriptions-item :label="$t('legacy.13tzib2')">
-                <a-tag v-if="detail?.status === 'PENDING'" color="default">
-                  -
-                </a-tag>
-                <a-tag v-else-if="detail?.risk_level === 'malicious'" color="red">
-                  {{ riskDisplay(detail.risk_level) }}
-                </a-tag>
-                <a-tag v-else-if="detail?.risk_level === 'suspicious'" color="orange">
-                  {{ riskDisplay(detail.risk_level) }}
-                </a-tag>
-                <a-tag v-else-if="detail?.risk_level === 'benign'" color="green">
-                  {{ riskDisplay(detail.risk_level) }}
-                </a-tag>
-                <a-tag v-else color="default">{{ riskDisplay(detail?.risk_level) }}</a-tag>
-              </a-descriptions-item>
-              <a-descriptions-item :label="$t('legacy.l6iuzr')">{{ detail?.vetting?.findings_count ?? 0 }}</a-descriptions-item>
-              <a-descriptions-item :label="$t('legacy.13tfl8g')">{{ detail?.vetting?.analyzers_used?.join(', ') || '-' }}</a-descriptions-item>
-              <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ detail?.vetting?.scan_duration_seconds ?? 0 }}s</a-descriptions-item>
-              <a-descriptions-item :label="$t('legacy.15hd6ok')">{{ detail?.scan_reused ? text('复用历史结果', 'Reused Previous Result') : text('本次执行扫描', 'New Scan') }}</a-descriptions-item>
-              <a-descriptions-item :label="$t('legacy.1jezr7l')">{{ detail?.scan_cache_key || '-' }}</a-descriptions-item>
-            </a-descriptions>
-            <a-card v-if="judgementSummary" size="small" :title="$t('legacy.18h9kx8')" style="margin-top: 12px">
-              <a-descriptions bordered size="small" :column="2">
-                <a-descriptions-item :label="$t('legacy.1f9s0cj')">{{ judgementSummary.mode }}</a-descriptions-item>
-                <a-descriptions-item :label="$t('legacy.1xza6lg')">{{ judgementSummary.strategy }}</a-descriptions-item>
-                <a-descriptions-item :label="$t('legacy.1xvouvo')">{{ riskDisplay(judgementSummary.preRisk) }}</a-descriptions-item>
-                <a-descriptions-item :label="$t('legacy.5t5taw')">{{ riskDisplay(judgementSummary.finalRisk) }}</a-descriptions-item>
-                <a-descriptions-item v-if="judgementSummary.llmRisk" :label="$t('legacy.8qmekw')">{{ riskDisplay(judgementSummary.llmRisk) }}</a-descriptions-item>
-                <a-descriptions-item :label="$t('legacy.1y6vbr8')">{{ judgementSummary.blockingCount }}</a-descriptions-item>
-                <a-descriptions-item v-if="judgementSummary.reason" :label="$t('legacy.4zn1ks')" :span="2">
-                  <div class="markdown-body judgement-reason" v-html="judgementReasonHtml" />
+        <a-tab-pane key="decision" :tab="$t('decisionFlow.title')">
+          <SkillDecisionFlow v-if="scanReport" :report="scanReport" style="margin: 0" @navigate="jumpToRationale" />
+          <a-skeleton v-else-if="loading || loadingScanReport" active />
+          <a-empty v-else :description="$t('decisionFlow.missing')" />
+          <a-alert
+            v-if="manualApprovalRequired"
+            style="margin-top: 12px"
+            type="error"
+            show-icon
+            :message="vettingFailed ? $t('legacy.11ldhwj') : $t('legacy.gobvd0')"
+            :description="manualApprovalSummary"
+          />
+          <div class="decision-summary" style="margin-top: 20px">
+            <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
+              <a-descriptions :column="{ xs: 1, sm: 2 }" size="small" bordered>
+                <a-descriptions-item :label="$t('legacy.13tzib2')">
+                  <a-tag v-if="detail?.status === 'PENDING'" color="default">
+                    -
+                  </a-tag>
+                  <a-tag v-else-if="detail?.risk_level === 'malicious'" color="red">
+                    {{ riskDisplay(detail.risk_level) }}
+                  </a-tag>
+                  <a-tag v-else-if="detail?.risk_level === 'suspicious'" color="orange">
+                    {{ riskDisplay(detail.risk_level) }}
+                  </a-tag>
+                  <a-tag v-else-if="detail?.risk_level === 'benign'" color="green">
+                    {{ riskDisplay(detail.risk_level) }}
+                  </a-tag>
+                  <a-tag v-else color="default">{{ riskDisplay(detail?.risk_level) }}</a-tag>
                 </a-descriptions-item>
+                <a-descriptions-item :label="$t('legacy.l6iuzr')">{{ detail?.vetting?.findings_count ?? 0 }}</a-descriptions-item>
+                <a-descriptions-item :label="$t('legacy.13tfl8g')">{{ detail?.vetting?.analyzers_used?.join(', ') || '-' }}</a-descriptions-item>
+                <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ detail?.vetting?.scan_duration_seconds ?? 0 }}s</a-descriptions-item>
+                <a-descriptions-item :label="$t('legacy.15hd6ok')">{{ detail?.scan_reused ? text('复用历史结果', 'Reused Previous Result') : text('本次执行扫描', 'New Scan') }}</a-descriptions-item>
+                <a-descriptions-item :label="$t('legacy.1jezr7l')">{{ detail?.scan_cache_key || '-' }}</a-descriptions-item>
               </a-descriptions>
-              <a-list
-                v-if="judgementSummary.dismissedFindings.length"
-                :data-source="judgementSummary.dismissedFindings"
-                size="small"
-                style="margin-top: 12px"
-              >
-                <template #header>{{ $t("legacy.943eoy") }}</template>
-                <template #renderItem="{ item }">
-                  <a-list-item>{{ item }}</a-list-item>
-                </template>
-              </a-list>
-            </a-card>
-            <a-card v-if="decisionRationaleItems.length" size="small" :title="$t('legacy.19ptc9g')" style="margin-top: 12px">
-              <a-alert
-                v-if="admissionBlocked"
-                type="warning"
-                show-icon
-                :message="$t('legacy.1ymm0nv')"
-                :description="$t('legacy.ir5o1o')"
-                style="margin-bottom: 12px"
-              />
-              <a-list :data-source="decisionRationaleItems" size="small">
-                <template #renderItem="{ item }">
-                  <a-list-item>
-                    <a-space wrap>
-                      <a-tag :color="item.color">{{ item.source }}</a-tag>
-                      <span>{{ item.text }}</span>
-                      <a-button type="link" size="small" style="padding: 0" @click="jumpToRationale(item.target)"> {{ $t("legacy.10fbkvl") }} </a-button>
-                    </a-space>
-                  </a-list-item>
-                </template>
-              </a-list>
-            </a-card>
-            <a-divider />
-            <a-collapse id="policy-notes-section">
-              <a-collapse-panel key="policy-notes" :header="text(`策略说明（${detail?.vetting?.policy_notes?.length || 0}）`, `Policy Notes (${detail?.vetting?.policy_notes?.length || 0})`)">
+              <a-card v-if="judgementSummary" size="small" :title="$t('legacy.18h9kx8')" style="margin-top: 12px">
+                <a-descriptions bordered size="small" :column="{ xs: 1, sm: 2 }">
+                  <a-descriptions-item :label="$t('legacy.1f9s0cj')">{{ judgementSummary.mode }}</a-descriptions-item>
+                  <a-descriptions-item :label="$t('legacy.1xza6lg')">{{ judgementSummary.strategy }}</a-descriptions-item>
+                  <a-descriptions-item :label="$t('legacy.1xvouvo')">{{ riskDisplay(judgementSummary.preRisk) }}</a-descriptions-item>
+                  <a-descriptions-item :label="$t('legacy.5t5taw')">{{ riskDisplay(judgementSummary.finalRisk) }}</a-descriptions-item>
+                  <a-descriptions-item v-if="judgementSummary.llmRisk" :label="$t('legacy.8qmekw')">{{ riskDisplay(judgementSummary.llmRisk) }}</a-descriptions-item>
+                  <a-descriptions-item :label="$t('legacy.1y6vbr8')">{{ judgementSummary.blockingCount }}</a-descriptions-item>
+                  <a-descriptions-item v-if="judgementSummary.reason" :label="$t('legacy.4zn1ks')" :span="2">
+                    <div class="markdown-body judgement-reason" v-html="judgementReasonHtml" />
+                  </a-descriptions-item>
+                </a-descriptions>
                 <a-list
-                  :data-source="detail?.vetting?.policy_notes?.length ? detail.vetting.policy_notes : [$t('legacy.xuf598')]"
-                  bordered
+                  v-if="judgementSummary.dismissedFindings.length"
+                  :data-source="judgementSummary.dismissedFindings"
                   size="small"
+                  style="margin-top: 12px"
                 >
+                  <template #header>{{ $t("legacy.943eoy") }}</template>
                   <template #renderItem="{ item }">
-                    <a-list-item>{{ policyNoteText(item) }}</a-list-item>
+                    <a-list-item>{{ item }}</a-list-item>
                   </template>
                 </a-list>
-              </a-collapse-panel>
-            </a-collapse>
-            <a-divider />
-            <a-card id="rule-analysis-section" size="small" :title="$t('legacy.1hpgf7r')">
-              <template v-if="behavioralAnalysis">
-                <a-descriptions :column="2" size="small" bordered>
-                  <a-descriptions-item :label="$t('legacy.5p87cu')">
-                    {{ localStaticAnalysis?.scanned_file_count ?? behavioralAnalysis.scanned_file_count ?? behavioralScannedFiles.length }}
-                  </a-descriptions-item>
-                  <a-descriptions-item :label="$t('legacy.7yxhns')">
-                    {{ ruleAnalysisFindings.length }}
-                  </a-descriptions-item>
-                  <a-descriptions-item :label="$t('legacy.syac4h')">
-                    <a-tag :color="severityColor(ruleAnalysisMaxSeverity)">
-                      {{ ruleAnalysisMaxSeverity || '-' }}
-                    </a-tag>
-                  </a-descriptions-item>
-                  <a-descriptions-item :label="$t('legacy.13tfl8g')">
-                    <a-tag color="blue">behavioral:local</a-tag>
-                    <a-tag v-if="localStaticAnalysis" color="cyan">agent-manager-local</a-tag>
-                  </a-descriptions-item>
-                </a-descriptions>
-                <a-collapse
-                  style="margin-top: 12px"
-                  :default-active-key="ruleAnalysisFindings.length ? nonEmptyRuleClassificationKeys : []"
-                >
-                  <a-collapse-panel
-                    v-for="group in groupedRuleAnalysisFindings"
-                    :key="group.key"
-                    :header="`${group.label}（${group.items.length}）`"
-                  >
-                    <div v-for="section in group.sections" :key="section.key" class="finding-section">
-                      <div class="finding-section-title">{{ section.label }}（{{ section.items.length }}）</div>
-                      <a-list :data-source="section.items" bordered size="small">
-                        <template #renderItem="{ item }">
-                          <a-list-item>
-                            <div style="width: 100%">
-                              <a-space wrap>
-                                <a-tag :color="severityColor(item.severity)">{{ item.severity }}</a-tag>
-                                <strong>{{ findingTitle(item) }}</strong>
-                                <a-button
-                                  v-if="item.file"
-                                  type="link"
-                                  size="small"
-                                  style="padding: 0"
-                                  @click="openFileViewer(item.file)"
-                                >
-                                  {{ item.file }}
-                                </a-button>
-                                <a-tag v-if="item.rule" color="default">{{ item.rule }}</a-tag>
-                                <a-tag v-if="findingPolicyLabel(item)" color="cyan">{{ text('策略项', 'Policy Category') }}: {{ findingPolicyLabel(item) }}</a-tag>
-                                <a-tag v-if="item.aggregate_count > 1" color="blue">{{ text(`命中 ${item.aggregate_count} 处`, `${item.aggregate_count} matches`) }}</a-tag>
-                              </a-space>
-                              <div v-if="item.aggregate_lines?.length" class="muted" style="margin-top: 4px">
-                                {{ text('行号', 'Lines') }}: {{ formatAggregateLines(item.aggregate_lines) }}
-                              </div>
-                              <div style="margin-top: 6px">{{ ruleFindingExplanation(item) }}</div>
-                            </div>
-                          </a-list-item>
-                        </template>
-                      </a-list>
-                    </div>
-                  </a-collapse-panel>
-                  <a-collapse-panel key="files" :header="text(`已扫描文件（${behavioralScannedFiles.length}）`, `Scanned Files (${behavioralScannedFiles.length})`)">
-                    <a-list v-if="behavioralScannedFiles.length" :data-source="behavioralScannedFiles" bordered size="small">
-                      <template #renderItem="{ item }">
-                        <a-list-item>
-                          <a-button type="link" style="padding: 0" @click="openFileViewer(item)">{{ item }}</a-button>
-                        </a-list-item>
-                      </template>
-                    </a-list>
-                    <a-empty v-else :image-style="{ height: '36px' }" :description="$t('legacy.by9c6r')" />
-                  </a-collapse-panel>
-                </a-collapse>
-              </template>
-              <a-empty
-                v-else
-                :description="$t('legacy.bffpo6')"
-              />
-            </a-card>
-            <a-divider />
-            <a-card id="skillspector-section" size="small" :title="$t('legacy.1fvbrzz')">
-              <template v-if="skillspectorAnalysis">
+              </a-card>
+              <a-card v-if="decisionRationaleItems.length" size="small" :title="$t('legacy.19ptc9g')" style="margin-top: 12px">
                 <a-alert
-                  v-if="skillspectorAnalysis.error"
+                  v-if="admissionBlocked"
                   type="warning"
                   show-icon
-                  :message="$t('legacy.fe5e82')"
-                  :description="deepScanText(skillspectorAnalysis.error)"
+                  :message="$t('legacy.1ymm0nv')"
+                  :description="$t('legacy.ir5o1o')"
                   style="margin-bottom: 12px"
                 />
-                <a-descriptions :column="2" size="small" bordered>
-                  <a-descriptions-item :label="$t('legacy.1ecjgmg')">
-                    <a-tag :color="skillspectorAnalysis.available ? 'green' : 'default'">
-                      {{ skillspectorAnalysis.available ? $t('legacy.18ety4i') : $t('legacy.buf4kb') }}
-                    </a-tag>
-                  </a-descriptions-item>
-                  <a-descriptions-item :label="$t('legacy.15n4i96')">{{ skillspectorAnalysis.risk_score ?? '-' }}</a-descriptions-item>
-                  <a-descriptions-item :label="$t('legacy.1mlpede')">
-                    <a-tag :color="severityColor(skillspectorEffectiveSeverity)">
-                      {{ severityDisplay(skillspectorEffectiveSeverity) }}
-                    </a-tag>
-                  </a-descriptions-item>
-                  <a-descriptions-item v-if="skillspectorRawSeverity && skillspectorRawSeverity !== skillspectorEffectiveSeverity" :label="$t('legacy.tofxxa')">
-                    {{ severityDisplay(skillspectorRawSeverity) }}
-                  </a-descriptions-item>
-                  <a-descriptions-item :label="$t('legacy.1qgeq0p')">{{ recommendationDisplay(skillspectorAnalysis.risk_recommendation) }}</a-descriptions-item>
-                  <a-descriptions-item :label="$t('legacy.l6iuzr')">{{ skillspectorFindings.length }}</a-descriptions-item>
-                  <a-descriptions-item v-if="skillspectorAnalysis.suppressed_findings_count" :label="$t('legacy.lglj70')">
-                    {{ skillspectorAnalysis.suppressed_findings_count }}
-                  </a-descriptions-item>
-                </a-descriptions>
-                <a-collapse v-if="skillspectorFindings.length" v-model:activeKey="skillspectorFindingsActiveKey" style="margin-top: 12px">
-                  <a-collapse-panel
-                    v-for="group in groupedSkillspectorFindings"
-                    :key="`skillspector-${group.key}`"
-                    :header="`${group.label}（${group.items.length}）`"
-                  >
-                    <div v-for="section in group.sections" :key="section.key" class="finding-section">
-                      <div class="finding-section-title">{{ section.label }}（{{ section.items.length }}）</div>
-                      <a-list :data-source="section.items" bordered size="small">
-                        <template #renderItem="{ item }">
-                          <a-list-item>
-                            <div style="width: 100%">
-                              <a-space wrap>
-                                <a-tag :color="severityColor(item.severity)">{{ item.severity || '-' }}</a-tag>
-                                <a-tag color="default">{{ item.rule || item.rule_id || '-' }}</a-tag>
-                                <strong>{{ findingTitle(item) }}</strong>
-                                <a-button
-                                  v-if="item.file"
-                                  type="link"
-                                  size="small"
-                                  style="padding: 0"
-                                  @click="openFileViewer(item.file)"
-                                >
-                                  {{ item.file }}{{ item.line || item.start_line ? `:${item.line || item.start_line}` : '' }}
-                                </a-button>
-                                <a-tag v-if="findingPolicyLabel(item)" color="cyan">{{ text('策略项', 'Policy Category') }}: {{ findingPolicyLabel(item) }}</a-tag>
-                                <a-tag v-if="item.aggregate_count > 1" color="blue">{{ text(`命中 ${item.aggregate_count} 处`, `${item.aggregate_count} matches`) }}</a-tag>
-                              </a-space>
-                              <div v-if="item.aggregate_lines?.length" class="muted" style="margin-top: 4px">
-                                {{ text('行号', 'Lines') }}: {{ formatAggregateLines(item.aggregate_lines) }}
-                              </div>
-                              <div v-if="item.message || item.explanation" style="margin-top: 6px">
-                                {{ deepScanText(bilingualText(item.message || item.explanation)) }}
-                              </div>
-                              <div v-if="item.remediation" style="margin-top: 6px; color: #8c8c8c">
-                                {{ text('建议', 'Recommendation') }}: {{ deepScanText(bilingualText(item.remediation)) }}
-                              </div>
-                            </div>
-                          </a-list-item>
-                        </template>
-                      </a-list>
-                    </div>
-                  </a-collapse-panel>
-                </a-collapse>
-              </template>
-              <a-empty v-else :description="$t('legacy.pip45f')" />
-            </a-card>
-            <a-divider />
-            <a-card id="sandbox-section" size="small" :title="$t('legacy.256glc')">
-              <template v-if="sandboxAnalysis">
-                <a-alert
-                  :type="sandboxRiskAlertType"
-                  show-icon
-                  :message="text(`风险等级：${sandboxDisplayRiskLevel} / 最高严重级别：${sandboxDisplayMaxSeverity}`, `Risk Level: ${sandboxDisplayRiskLevel} / Maximum Severity: ${sandboxDisplayMaxSeverity}`)"
-                  :description="sandboxDisplaySummary"
-                />
-                <a-list
-                  v-if="sandboxSignals.length"
-                  style="margin-top: 12px"
-                  :header="$t('legacy.yq0ehw')"
-                  :data-source="sandboxSignals"
-                  bordered
-                  size="small"
-                >
+                <a-list :data-source="decisionRationaleItems" size="small">
                   <template #renderItem="{ item }">
                     <a-list-item>
-                      <div style="width: 100%">
-                        <a-space wrap>
-                          <a-tag :color="severityColor(item.severity)">{{ item.severity }}</a-tag>
-                          <a-tag color="default">{{ bilingualText(item.category) }}</a-tag>
-                          <strong>{{ bilingualText(item.message) }}</strong>
-                        </a-space>
-                        <div v-if="item.evidence" class="evidence-box">
-                          <div class="evidence-title">{{ $t("legacy.1kyo8cx") }}</div>
-                          <div
-                            v-for="line in sandboxEvidenceLines(item.evidence)"
-                            :key="line"
-                            class="evidence-line"
-                          >
-                            {{ line }}
-                          </div>
-                        </div>
-                      </div>
+                      <a-space wrap>
+                        <a-tag :color="item.color">{{ item.source }}</a-tag>
+                        <span>{{ item.text }}</span>
+                        <a-button type="link" size="small" style="padding: 0" @click="jumpToRationale(item.target)"> {{ $t("legacy.10fbkvl") }} </a-button>
+                      </a-space>
                     </a-list-item>
                   </template>
                 </a-list>
-                <a-empty
-                  v-else
-                  style="margin-top: 12px"
-                  :description="$t('legacy.166yan')"
-                />
-                <a-collapse style="margin-top: 12px">
-                  <a-collapse-panel key="sandbox-debug" :header="$t('legacy.enkq9u')">
-                    <a-descriptions :column="2" size="small" bordered>
-                      <a-descriptions-item :label="$t('legacy.2xyc8z')">{{ sandboxAnalysis.executed ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
-                      <a-descriptions-item :label="$t('legacy.1sdwzrx')">{{ sandboxAnalysis.runtime || '-' }}</a-descriptions-item>
-                      <a-descriptions-item :label="$t('legacy.1dltjhr')">
-                        <a-button
-                          v-if="sandboxAnalysis.entrypoint"
-                          type="link"
-                          style="padding: 0"
-                          @click="openFileViewer(sandboxAnalysis.entrypoint)"
-                        >
-                          {{ sandboxAnalysis.entrypoint }}
-                        </a-button>
-                        <span v-else>-</span>
+              </a-card>
+              <a-divider />
+              <a-collapse id="policy-notes-section">
+                <a-collapse-panel key="policy-notes" :header="text(`策略说明（${detail?.vetting?.policy_notes?.length || 0}）`, `Policy Notes (${detail?.vetting?.policy_notes?.length || 0})`)">
+                  <a-list
+                    :data-source="detail?.vetting?.policy_notes?.length ? detail.vetting.policy_notes : [$t('legacy.xuf598')]"
+                    bordered
+                    size="small"
+                  >
+                    <template #renderItem="{ item }">
+                      <a-list-item>{{ policyNoteText(item) }}</a-list-item>
+                    </template>
+                  </a-list>
+                </a-collapse-panel>
+              </a-collapse>
+            </a-skeleton>
+          </div>
+        </a-tab-pane>
+        <a-tab-pane key="vetting" :tab="$t('decisionFlow.scanResults')">
+          <a-tabs v-model:activeKey="analysisTab" class="analysis-result-tabs" type="card">
+            <a-tab-pane key="rule" :tab="$t('decisionFlow.ruleScan')">
+                <a-card id="rule-analysis-section" size="small" :title="$t('legacy.1hpgf7r')">
+                  <template v-if="behavioralAnalysis">
+                    <a-descriptions :column="{ xs: 1, sm: 2 }" size="small" bordered>
+                      <a-descriptions-item :label="$t('legacy.5p87cu')">
+                        {{ localStaticAnalysis?.scanned_file_count ?? behavioralAnalysis.scanned_file_count ?? behavioralScannedFiles.length }}
                       </a-descriptions-item>
-                      <a-descriptions-item :label="$t('legacy.destq8')">
-                        {{ sandboxAnalysis.runtime === 'docker' ? (sandboxAnalysis.image || 'agent-manager-sandbox-runtime:latest') : (sandboxAnalysis.image || '-') }}
+                      <a-descriptions-item :label="$t('legacy.7yxhns')">
+                        {{ ruleAnalysisFindings.length }}
                       </a-descriptions-item>
-                      <a-descriptions-item :label="$t('legacy.1abimny')">{{ sandboxAnalysis.probe_strategy || '-' }}</a-descriptions-item>
-                      <a-descriptions-item :label="$t('legacy.hvs01l')">
-                        {{ Array.isArray(sandboxAnalysis.probe_args) && sandboxAnalysis.probe_args.length ? sandboxAnalysis.probe_args.join(' ') : '-' }}
+                      <a-descriptions-item :label="$t('legacy.syac4h')">
+                        <a-tag :color="severityColor(ruleAnalysisMaxSeverity)">
+                          {{ ruleAnalysisMaxSeverity || '-' }}
+                        </a-tag>
                       </a-descriptions-item>
-                      <a-descriptions-item :label="$t('legacy.1cjrdy2')">{{ sandboxAnalysis.exit_code ?? '-' }}</a-descriptions-item>
-                      <a-descriptions-item :label="$t('legacy.181sskz')">{{ sandboxAnalysis.timed_out ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
-                      <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ sandboxAnalysis.duration_ms ?? '-' }} ms</a-descriptions-item>
-                      <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ sandboxAnalysis.network_attempts ?? 0 }}</a-descriptions-item>
-                      <a-descriptions-item v-if="sandboxAnalysis.reason" :label="$t('legacy.1mi4vdj')" :span="2">
-                        {{ platformResultText(sandboxAnalysis.reason) }}
-                      </a-descriptions-item>
-                      <a-descriptions-item v-if="sandboxAnalysis.recommendation" :label="$t('legacy.1qgeq0p')" :span="2">
-                        {{ platformResultText(sandboxAnalysis.recommendation) }}
+                      <a-descriptions-item :label="$t('legacy.13tfl8g')">
+                        <a-tag color="blue">behavioral:local</a-tag>
+                        <a-tag v-if="localStaticAnalysis" color="cyan">agent-manager-local</a-tag>
                       </a-descriptions-item>
                     </a-descriptions>
-                    <a-list
-                      v-if="sandboxDiagnosticSignals.length"
+                    <a-collapse
                       style="margin-top: 12px"
-                      :header="$t('legacy.1jz86ze')"
-                      :data-source="sandboxDiagnosticSignals"
+                      :default-active-key="ruleAnalysisFindings.length ? nonEmptyRuleClassificationKeys : []"
+                    >
+                      <a-collapse-panel
+                        v-for="group in groupedRuleAnalysisFindings"
+                        :key="group.key"
+                        :header="`${group.label}（${group.items.length}）`"
+                      >
+                        <div v-for="section in group.sections" :key="section.key" class="finding-section">
+                          <div class="finding-section-title">{{ section.label }}（{{ section.items.length }}）</div>
+                          <a-list :data-source="section.items" bordered size="small">
+                            <template #renderItem="{ item }">
+                              <a-list-item>
+                                <div style="width: 100%">
+                                  <a-space wrap>
+                                    <a-tag :color="severityColor(item.severity)">{{ item.severity }}</a-tag>
+                                    <strong>{{ findingTitle(item) }}</strong>
+                                    <a-button
+                                      v-if="item.file"
+                                      type="link"
+                                      size="small"
+                                      style="padding: 0"
+                                      @click="openFileViewer(item.file)"
+                                    >
+                                      {{ item.file }}
+                                    </a-button>
+                                    <a-tag v-if="item.rule" color="default">{{ item.rule }}</a-tag>
+                                    <a-tag v-if="findingPolicyLabel(item)" color="cyan">{{ text('策略项', 'Policy Category') }}: {{ findingPolicyLabel(item) }}</a-tag>
+                                    <a-tag v-if="item.aggregate_count > 1" color="blue">{{ text(`命中 ${item.aggregate_count} 处`, `${item.aggregate_count} matches`) }}</a-tag>
+                                  </a-space>
+                                  <div v-if="item.aggregate_lines?.length" class="muted" style="margin-top: 4px">
+                                    {{ text('行号', 'Lines') }}: {{ formatAggregateLines(item.aggregate_lines) }}
+                                  </div>
+                                  <div style="margin-top: 6px">{{ ruleFindingExplanation(item) }}</div>
+                                </div>
+                              </a-list-item>
+                            </template>
+                          </a-list>
+                        </div>
+                      </a-collapse-panel>
+                      <a-collapse-panel key="files" :header="text(`已扫描文件（${behavioralScannedFiles.length}）`, `Scanned Files (${behavioralScannedFiles.length})`)">
+                        <a-list v-if="behavioralScannedFiles.length" :data-source="behavioralScannedFiles" bordered size="small">
+                          <template #renderItem="{ item }">
+                            <a-list-item>
+                              <a-button type="link" style="padding: 0" @click="openFileViewer(item)">{{ item }}</a-button>
+                            </a-list-item>
+                          </template>
+                        </a-list>
+                        <a-empty v-else :image-style="{ height: '36px' }" :description="$t('legacy.by9c6r')" />
+                      </a-collapse-panel>
+                    </a-collapse>
+                  </template>
+                  <a-empty
+                    v-else
+                    :description="$t('legacy.bffpo6')"
+                  />
+                </a-card>
+            </a-tab-pane>
+            <a-tab-pane key="skillspector" :tab="$t('decisionFlow.deep')">
+                <a-card id="skillspector-section" size="small" :title="$t('legacy.1fvbrzz')">
+                  <template v-if="skillspectorAnalysis">
+                    <a-alert
+                      v-if="skillspectorAnalysis.error"
+                      type="warning"
+                      show-icon
+                      :message="$t('legacy.fe5e82')"
+                      :description="deepScanText(skillspectorAnalysis.error)"
+                      style="margin-bottom: 12px"
+                    />
+                    <a-descriptions :column="{ xs: 1, sm: 2 }" size="small" bordered>
+                      <a-descriptions-item :label="$t('legacy.1ecjgmg')">
+                        <a-tag :color="skillspectorAnalysis.available ? 'green' : 'default'">
+                          {{ skillspectorAnalysis.available ? $t('legacy.18ety4i') : $t('legacy.buf4kb') }}
+                        </a-tag>
+                      </a-descriptions-item>
+                      <a-descriptions-item :label="$t('legacy.15n4i96')">{{ skillspectorAnalysis.risk_score ?? '-' }}</a-descriptions-item>
+                      <a-descriptions-item :label="$t('legacy.1mlpede')">
+                        <a-tag :color="severityColor(skillspectorEffectiveSeverity)">
+                          {{ severityDisplay(skillspectorEffectiveSeverity) }}
+                        </a-tag>
+                      </a-descriptions-item>
+                      <a-descriptions-item v-if="skillspectorRawSeverity && skillspectorRawSeverity !== skillspectorEffectiveSeverity" :label="$t('legacy.tofxxa')">
+                        {{ severityDisplay(skillspectorRawSeverity) }}
+                      </a-descriptions-item>
+                      <a-descriptions-item :label="$t('legacy.1qgeq0p')">{{ recommendationDisplay(skillspectorAnalysis.risk_recommendation) }}</a-descriptions-item>
+                      <a-descriptions-item :label="$t('legacy.l6iuzr')">{{ skillspectorFindings.length }}</a-descriptions-item>
+                      <a-descriptions-item v-if="skillspectorAnalysis.suppressed_findings_count" :label="$t('legacy.lglj70')">
+                        {{ skillspectorAnalysis.suppressed_findings_count }}
+                      </a-descriptions-item>
+                    </a-descriptions>
+                    <a-collapse v-if="skillspectorFindings.length" v-model:activeKey="skillspectorFindingsActiveKey" style="margin-top: 12px">
+                      <a-collapse-panel
+                        v-for="group in groupedSkillspectorFindings"
+                        :key="`skillspector-${group.key}`"
+                        :header="`${group.label}（${group.items.length}）`"
+                      >
+                        <div v-for="section in group.sections" :key="section.key" class="finding-section">
+                          <div class="finding-section-title">{{ section.label }}（{{ section.items.length }}）</div>
+                          <a-list :data-source="section.items" bordered size="small">
+                            <template #renderItem="{ item }">
+                              <a-list-item>
+                                <div style="width: 100%">
+                                  <a-space wrap>
+                                    <a-tag :color="severityColor(item.severity)">{{ item.severity || '-' }}</a-tag>
+                                    <a-tag color="default">{{ item.rule || item.rule_id || '-' }}</a-tag>
+                                    <strong>{{ findingTitle(item) }}</strong>
+                                    <a-button
+                                      v-if="item.file"
+                                      type="link"
+                                      size="small"
+                                      style="padding: 0"
+                                      @click="openFileViewer(item.file)"
+                                    >
+                                      {{ item.file }}{{ item.line || item.start_line ? `:${item.line || item.start_line}` : '' }}
+                                    </a-button>
+                                    <a-tag v-if="findingPolicyLabel(item)" color="cyan">{{ text('策略项', 'Policy Category') }}: {{ findingPolicyLabel(item) }}</a-tag>
+                                    <a-tag v-if="item.aggregate_count > 1" color="blue">{{ text(`命中 ${item.aggregate_count} 处`, `${item.aggregate_count} matches`) }}</a-tag>
+                                  </a-space>
+                                  <div v-if="item.aggregate_lines?.length" class="muted" style="margin-top: 4px">
+                                    {{ text('行号', 'Lines') }}: {{ formatAggregateLines(item.aggregate_lines) }}
+                                  </div>
+                                  <div v-if="item.message || item.explanation" style="margin-top: 6px">
+                                    {{ deepScanText(bilingualText(item.message || item.explanation)) }}
+                                  </div>
+                                  <div v-if="item.remediation" style="margin-top: 6px; color: #8c8c8c">
+                                    {{ text('建议', 'Recommendation') }}: {{ deepScanText(bilingualText(item.remediation)) }}
+                                  </div>
+                                </div>
+                              </a-list-item>
+                            </template>
+                          </a-list>
+                        </div>
+                      </a-collapse-panel>
+                    </a-collapse>
+                  </template>
+                  <a-empty v-else :description="$t('legacy.pip45f')" />
+                </a-card>
+            </a-tab-pane>
+            <a-tab-pane key="sandbox" :tab="$t('decisionFlow.sandbox')">
+                <a-card id="sandbox-section" size="small" :title="$t('legacy.256glc')">
+                  <template v-if="sandboxAnalysis">
+                    <a-alert
+                      :type="sandboxRiskAlertType"
+                      show-icon
+                      :message="text(`风险等级：${sandboxDisplayRiskLevel} / 最高严重级别：${sandboxDisplayMaxSeverity}`, `Risk Level: ${sandboxDisplayRiskLevel} / Maximum Severity: ${sandboxDisplayMaxSeverity}`)"
+                      :description="sandboxDisplaySummary"
+                    />
+                    <a-list
+                      v-if="sandboxSignals.length"
+                      style="margin-top: 12px"
+                      :header="$t('legacy.yq0ehw')"
+                      :data-source="sandboxSignals"
                       bordered
                       size="small"
                     >
@@ -473,7 +426,7 @@
                         <a-list-item>
                           <div style="width: 100%">
                             <a-space wrap>
-                              <a-tag :color="severityColor(item.severity)">{{ item.severity || 'INFO' }}</a-tag>
+                              <a-tag :color="severityColor(item.severity)">{{ item.severity }}</a-tag>
                               <a-tag color="default">{{ bilingualText(item.category) }}</a-tag>
                               <strong>{{ bilingualText(item.message) }}</strong>
                             </a-space>
@@ -491,118 +444,187 @@
                         </a-list-item>
                       </template>
                     </a-list>
-                    <a-table
-                      v-if="sandboxProbeResults.length"
+                    <a-empty
+                      v-else
                       style="margin-top: 12px"
-                      :data-source="sandboxProbeResults"
-                      :columns="sandboxProbeColumns"
-                      row-key="key"
-                      size="small"
-                      bordered
-                      :pagination="false"
-                    >
-                      <template #title> {{ $t("legacy.yq0ehw") }} </template>
-                      <template #bodyCell="{ column, record }">
-                        <template v-if="column.key === 'probe'">
-                          <a-space direction="vertical" size="small">
-                            <strong>{{ record.probe_name }}</strong>
-                            <span class="muted">{{ record.probe_description || '-' }}</span>
-                          </a-space>
-                        </template>
-                        <template v-else-if="column.key === 'entrypoint'">
-                          <a-button
-                            v-if="record.probe_entrypoint"
-                            type="link"
-                            style="padding: 0"
-                            @click="openFileViewer(record.probe_entrypoint)"
-                          >
-                            {{ record.probe_entrypoint }}
-                          </a-button>
-                          <span v-else>-</span>
-                        </template>
-                        <template v-else-if="column.key === 'command'">
-                          <code class="inline-command">{{ formatSandboxCommand(record) }}</code>
-                        </template>
-                        <template v-else-if="column.key === 'exit_code'">
-                          <a-tag :color="record.exit_code === 0 ? 'green' : 'orange'">{{ record.exit_code ?? '-' }}</a-tag>
-                        </template>
-                        <template v-else-if="column.key === 'timeout'">
-                          <a-tag :color="record.timed_out ? 'red' : 'green'">{{ record.timed_out ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-tag>
-                        </template>
-                        <template v-else-if="column.key === 'result'">
-                          <a-tag :color="sandboxProbeResultTag(record).color">
-                            {{ sandboxProbeResultTag(record).text }}
-                          </a-tag>
-                        </template>
-                      </template>
-                      <template #expandedRowRender="{ record }">
-                    <a-descriptions :column="2" size="small" bordered>
-                      <a-descriptions-item :label="$t('legacy.54f4h3')" :span="2">
-                        <pre class="command-block">{{ formatSandboxCommand(record) }}</pre>
-                      </a-descriptions-item>
-                      <a-descriptions-item :label="$t('legacy.c8d7bb')">{{ record.probe_generated_by || '-' }}</a-descriptions-item>
-                      <a-descriptions-item :label="$t('legacy.1sdwzrx')">{{ record.runtime || sandboxAnalysis.runtime || '-' }}</a-descriptions-item>
-                      <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ record.duration_ms ?? '-' }} ms</a-descriptions-item>
-                      <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ record.network_attempts ?? 0 }}</a-descriptions-item>
-                      <a-descriptions-item :label="$t('legacy.1suldox')" :span="2">
-                        {{ sandboxProbeResultText(record) }}
-                      </a-descriptions-item>
-                    </a-descriptions>
-                    <a-alert
-                      v-if="isSandboxProbeInputMissing(record)"
-                      style="margin-top: 12px"
-                      type="info"
-                      show-icon
-                      :message="$t('legacy.1c0iwtv')"
-                      :description="$t('legacy.708edr')"
+                      :description="$t('legacy.166yan')"
                     />
-                    <a-alert
-                      v-else-if="record.exit_code != null && record.exit_code !== 0"
-                      style="margin-top: 12px"
-                      type="info"
-                      show-icon
-                      :message="$t('legacy.im1knm')"
-                      :description="$t('legacy.dfsc95')"
-                    />
+                    <a-collapse style="margin-top: 12px">
+                      <a-collapse-panel key="sandbox-debug" :header="$t('legacy.enkq9u')">
+                        <a-descriptions :column="{ xs: 1, sm: 2 }" size="small" bordered>
+                          <a-descriptions-item :label="$t('legacy.2xyc8z')">{{ sandboxAnalysis.executed ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.1sdwzrx')">{{ sandboxAnalysis.runtime || '-' }}</a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.1dltjhr')">
+                            <a-button
+                              v-if="sandboxAnalysis.entrypoint"
+                              type="link"
+                              style="padding: 0"
+                              @click="openFileViewer(sandboxAnalysis.entrypoint)"
+                            >
+                              {{ sandboxAnalysis.entrypoint }}
+                            </a-button>
+                            <span v-else>-</span>
+                          </a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.destq8')">
+                            {{ sandboxAnalysis.runtime === 'docker' ? (sandboxAnalysis.image || 'agent-manager-sandbox-runtime:latest') : (sandboxAnalysis.image || '-') }}
+                          </a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.1abimny')">{{ sandboxAnalysis.probe_strategy || '-' }}</a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.hvs01l')">
+                            {{ Array.isArray(sandboxAnalysis.probe_args) && sandboxAnalysis.probe_args.length ? sandboxAnalysis.probe_args.join(' ') : '-' }}
+                          </a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.1cjrdy2')">{{ sandboxAnalysis.exit_code ?? '-' }}</a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.181sskz')">{{ sandboxAnalysis.timed_out ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ sandboxAnalysis.duration_ms ?? '-' }} ms</a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ sandboxAnalysis.network_attempts ?? 0 }}</a-descriptions-item>
+                          <a-descriptions-item v-if="sandboxAnalysis.reason" :label="$t('legacy.1mi4vdj')" :span="2">
+                            {{ platformResultText(sandboxAnalysis.reason) }}
+                          </a-descriptions-item>
+                          <a-descriptions-item v-if="sandboxAnalysis.recommendation" :label="$t('legacy.1qgeq0p')" :span="2">
+                            {{ platformResultText(sandboxAnalysis.recommendation) }}
+                          </a-descriptions-item>
+                        </a-descriptions>
+                        <a-list
+                          v-if="sandboxDiagnosticSignals.length"
+                          style="margin-top: 12px"
+                          :header="$t('legacy.1jz86ze')"
+                          :data-source="sandboxDiagnosticSignals"
+                          bordered
+                          size="small"
+                        >
+                          <template #renderItem="{ item }">
+                            <a-list-item>
+                              <div style="width: 100%">
+                                <a-space wrap>
+                                  <a-tag :color="severityColor(item.severity)">{{ item.severity || 'INFO' }}</a-tag>
+                                  <a-tag color="default">{{ bilingualText(item.category) }}</a-tag>
+                                  <strong>{{ bilingualText(item.message) }}</strong>
+                                </a-space>
+                                <div v-if="item.evidence" class="evidence-box">
+                                  <div class="evidence-title">{{ $t("legacy.1kyo8cx") }}</div>
+                                  <div
+                                    v-for="line in sandboxEvidenceLines(item.evidence)"
+                                    :key="line"
+                                    class="evidence-line"
+                                  >
+                                    {{ line }}
+                                  </div>
+                                </div>
+                              </div>
+                            </a-list-item>
+                          </template>
+                        </a-list>
+                        <a-table
+                          v-if="sandboxProbeResults.length"
+                          style="margin-top: 12px"
+                          :data-source="sandboxProbeResults"
+                          :columns="sandboxProbeColumns"
+                          row-key="key"
+                          size="small"
+                          bordered
+                          :pagination="false"
+                        >
+                          <template #title> {{ $t("legacy.yq0ehw") }} </template>
+                          <template #bodyCell="{ column, record }">
+                            <template v-if="column.key === 'probe'">
+                              <a-space direction="vertical" size="small">
+                                <strong>{{ record.probe_name }}</strong>
+                                <span class="muted">{{ record.probe_description || '-' }}</span>
+                              </a-space>
+                            </template>
+                            <template v-else-if="column.key === 'entrypoint'">
+                              <a-button
+                                v-if="record.probe_entrypoint"
+                                type="link"
+                                style="padding: 0"
+                                @click="openFileViewer(record.probe_entrypoint)"
+                              >
+                                {{ record.probe_entrypoint }}
+                              </a-button>
+                              <span v-else>-</span>
+                            </template>
+                            <template v-else-if="column.key === 'command'">
+                              <code class="inline-command">{{ formatSandboxCommand(record) }}</code>
+                            </template>
+                            <template v-else-if="column.key === 'exit_code'">
+                              <a-tag :color="record.exit_code === 0 ? 'green' : 'orange'">{{ record.exit_code ?? '-' }}</a-tag>
+                            </template>
+                            <template v-else-if="column.key === 'timeout'">
+                              <a-tag :color="record.timed_out ? 'red' : 'green'">{{ record.timed_out ? $t('legacy.btshni') : $t('legacy.9sspjt') }}</a-tag>
+                            </template>
+                            <template v-else-if="column.key === 'result'">
+                              <a-tag :color="sandboxProbeResultTag(record).color">
+                                {{ sandboxProbeResultTag(record).text }}
+                              </a-tag>
+                            </template>
+                          </template>
+                          <template #expandedRowRender="{ record }">
+                        <a-descriptions :column="{ xs: 1, sm: 2 }" size="small" bordered>
+                          <a-descriptions-item :label="$t('legacy.54f4h3')" :span="2">
+                            <pre class="command-block">{{ formatSandboxCommand(record) }}</pre>
+                          </a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.c8d7bb')">{{ record.probe_generated_by || '-' }}</a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.1sdwzrx')">{{ record.runtime || sandboxAnalysis.runtime || '-' }}</a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.12sj4tc')">{{ record.duration_ms ?? '-' }} ms</a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.1v67ot2')">{{ record.network_attempts ?? 0 }}</a-descriptions-item>
+                          <a-descriptions-item :label="$t('legacy.1suldox')" :span="2">
+                            {{ sandboxProbeResultText(record) }}
+                          </a-descriptions-item>
+                        </a-descriptions>
+                        <a-alert
+                          v-if="isSandboxProbeInputMissing(record)"
+                          style="margin-top: 12px"
+                          type="info"
+                          show-icon
+                          :message="$t('legacy.1c0iwtv')"
+                          :description="$t('legacy.708edr')"
+                        />
+                        <a-alert
+                          v-else-if="record.exit_code != null && record.exit_code !== 0"
+                          style="margin-top: 12px"
+                          type="info"
+                          show-icon
+                          :message="$t('legacy.im1knm')"
+                          :description="$t('legacy.dfsc95')"
+                        />
+                          </template>
+                        </a-table>
+                      </a-collapse-panel>
+                    </a-collapse>
+                  </template>
+                  <a-empty
+                    v-else
+                    :description="$t('legacy.13s2o01')"
+                  />
+                </a-card>
+            </a-tab-pane>
+            <a-tab-pane key="llm" :tab="$t('decisionFlow.llmAnalysis')">
+                <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
+                  <template v-if="llmAnalysis">
+                    <a-card id="llm-section" size="small" :title="$t('legacy.1iy14k9')">
+                      <a-descriptions :column="{ xs: 1, sm: 2 }" size="small" bordered style="margin-bottom: 12px">
+                        <a-descriptions-item :label="$t('legacy.1l721lr')">{{ llmAnalysis.provider || '-' }}</a-descriptions-item>
+                        <a-descriptions-item :label="$t('legacy.1ow6qt')">{{ llmAnalysis.model || '-' }}</a-descriptions-item>
+                        <a-descriptions-item :label="$t('legacy.c68fez')">
+                          <a-tag v-if="llmAnalysis.risk_level === 'malicious'" color="red">{{ riskDisplay(llmAnalysis.risk_level) }}</a-tag>
+                          <a-tag v-else-if="llmAnalysis.risk_level === 'suspicious'" color="orange">{{ riskDisplay(llmAnalysis.risk_level) }}</a-tag>
+                          <a-tag v-else-if="llmAnalysis.risk_level === 'benign'" color="green">{{ riskDisplay(llmAnalysis.risk_level) }}</a-tag>
+                          <a-tag v-else color="default">{{ riskDisplay(llmAnalysis.risk_level) }}</a-tag>
+                        </a-descriptions-item>
+                      </a-descriptions>
+                      <div v-if="llmAnalysis.report" class="llm-explanation" v-html="llmExplanationHtml" />
+                      <template v-if="llmAnalysis.risk_level === 'malicious' && llmAnalysis.attack_chain?.length">
+                        <a-divider />
+                        <div>
+                          <h4 style="margin-bottom: 12px">{{ $t("legacy.bayp6x") }}</h4>
+                          <AttackChainGraph :attack-chain="llmAnalysis.attack_chain" />
+                        </div>
                       </template>
-                    </a-table>
-                  </a-collapse-panel>
-                </a-collapse>
-              </template>
-              <a-empty
-                v-else
-                :description="$t('legacy.13s2o01')"
-              />
-            </a-card>
-          </a-skeleton>
-        </a-tab-pane>
-
-        <a-tab-pane key="llm" :tab="$t('legacy.ka9ulq')">
-          <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
-            <template v-if="llmAnalysis">
-              <a-card id="llm-section" size="small" :title="$t('legacy.1iy14k9')">
-                <a-descriptions :column="2" size="small" bordered style="margin-bottom: 12px">
-                  <a-descriptions-item :label="$t('legacy.1l721lr')">{{ llmAnalysis.provider || '-' }}</a-descriptions-item>
-                  <a-descriptions-item :label="$t('legacy.1ow6qt')">{{ llmAnalysis.model || '-' }}</a-descriptions-item>
-                  <a-descriptions-item :label="$t('legacy.c68fez')">
-                    <a-tag v-if="llmAnalysis.risk_level === 'malicious'" color="red">{{ riskDisplay(llmAnalysis.risk_level) }}</a-tag>
-                    <a-tag v-else-if="llmAnalysis.risk_level === 'suspicious'" color="orange">{{ riskDisplay(llmAnalysis.risk_level) }}</a-tag>
-                    <a-tag v-else-if="llmAnalysis.risk_level === 'benign'" color="green">{{ riskDisplay(llmAnalysis.risk_level) }}</a-tag>
-                    <a-tag v-else color="default">{{ riskDisplay(llmAnalysis.risk_level) }}</a-tag>
-                  </a-descriptions-item>
-                </a-descriptions>
-                <div v-if="llmAnalysis.report" class="llm-explanation" v-html="llmExplanationHtml" />
-                <template v-if="llmAnalysis.risk_level === 'malicious' && llmAnalysis.attack_chain?.length">
-                  <a-divider />
-                  <div>
-                    <h4 style="margin-bottom: 12px">{{ $t("legacy.bayp6x") }}</h4>
-                    <AttackChainGraph :attack-chain="llmAnalysis.attack_chain" />
-                  </div>
-                </template>
-              </a-card>
-            </template>
-            <a-empty v-else :description="$t('legacy.mbiky1')" />
-          </a-skeleton>
+                    </a-card>
+                  </template>
+                  <a-empty v-else :description="$t('legacy.mbiky1')" />
+                </a-skeleton>
+            </a-tab-pane>
+          </a-tabs>
         </a-tab-pane>
 
         <a-tab-pane key="governance-card" :tab="$t('legacy.11y6y7p')">
@@ -622,13 +644,6 @@
                 : $t('legacy.1gshff6') }}
             </span>
           </a-space>
-          <a-alert
-            v-if="governanceCard?.path"
-            type="info"
-            show-icon
-            :message="governanceCard.path"
-            style="margin-bottom: 12px"
-          />
           <template v-if="governanceCardViewMode === 'preview'">
             <div class="markdown-body governance-card-preview" v-html="governanceCardHtml" />
           </template>
@@ -660,13 +675,10 @@
           </a-space>
 
           <a-alert
-            v-if="skillContent?.manifest_path"
+            v-if="skillContent?.encoding"
             type="info"
             show-icon
-            :message="skillContent.manifest_path"
-            :description="skillContent.encoding
-              ? text(`编码：${skillContent.encoding}`, `Encoding: ${skillContent.encoding}`)
-              : undefined"
+            :message="text(`编码：${skillContent.encoding}`, `Encoding: ${skillContent.encoding}`)"
             style="margin-bottom: 12px"
           />
 
@@ -1020,6 +1032,7 @@
 </template>
 
 <script setup>
+import SkillDecisionFlow from '../components/SkillDecisionFlow.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
@@ -1061,7 +1074,8 @@ const detailPageTitle = computed(() => {
   const name = detail.value?.name || skillId.value
   return text(`Skill 详情：${name}`, `Skill Details: ${name}`)
 })
-const activeTab = ref(route.query.tab || 'vetting')
+const activeTab = ref(route.query.tab === 'llm' ? 'vetting' : route.query.tab || 'decision')
+const analysisTab = ref(route.query.tab === 'llm' ? 'llm' : 'rule')
 const loading = ref(false)
 const loadingScanReport = ref(false)
 const loadingContent = ref(false)
@@ -2120,8 +2134,11 @@ const rationaleText = (finding) => {
   return severity ? `${severity}：${text}` : text
 }
 const jumpToRationale = async (target) => {
-  if (target === 'llm') activeTab.value = 'llm'
-  else activeTab.value = 'vetting'
+  if (target === 'policy') activeTab.value = 'decision'
+  else {
+    activeTab.value = 'vetting'
+    analysisTab.value = target
+  }
   await nextTick()
   const id = {
     rule: 'rule-analysis-section',
@@ -2561,7 +2578,8 @@ watch(
 watch(
   () => route.query.tab,
   (value) => {
-    activeTab.value = value || 'vetting'
+    activeTab.value = value === 'llm' ? 'vetting' : value || 'decision'
+    if (value === 'llm') analysisTab.value = 'llm'
   },
 )
 
@@ -2779,6 +2797,21 @@ watch(
 .basic-info-card :deep(.ant-descriptions-item-label) {
   width: 124px;
   white-space: nowrap;
+}
+
+.basic-info-card :deep(.ant-card-head-wrapper) {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.basic-info-card :deep(.ant-card-extra) {
+  max-width: 100%;
+}
+.basic-scan-options :deep(.ant-checkbox-disabled + span) {
+  color: rgba(0, 0, 0, 0.65);
+}
+.scan-options-label {
+  color: #6b7280;
+  font-size: 12px;
 }
 
 .basic-info-card :deep(.ant-descriptions-item-content) {

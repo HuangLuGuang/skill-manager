@@ -261,7 +261,7 @@ class TestListAndAudit:
         assert mgr.get_trusted_skill(entry.family_id) is None
 
     def test_processing_does_not_override_cancelled_pending_skill(self, mgr, skill_dir, monkeypatch):
-        pending = mgr.create_pending_submission(skill_dir)
+        pending, _, _ = mgr.prepare_submission(skill_dir)
 
         def vet_after_cancel(*_args, **_kwargs):
             mgr.reject(pending.skill_id, reviewer="admin", reason="用户取消后台分析任务")
@@ -276,3 +276,17 @@ class TestListAndAudit:
 
         assert processed.status == SkillStatus.REJECTED
         assert processed.rejection_reason == "用户取消后台分析任务"
+        assert mgr.list_scan_runs(pending.skill_id)[0].status == "CANCELLED"
+        assert mgr.list_skill_summaries(page=1, page_size=10)["items"][0]["scan_pending"] is False
+
+    def test_cancelled_queued_task_does_not_start_scanning(self, mgr, skill_dir, monkeypatch):
+        pending, _, _ = mgr.prepare_submission(skill_dir)
+        mgr.reject(pending.skill_id, reviewer="admin", reason="用户取消后台分析任务")
+
+        def unexpected_scan(*_args, **_kwargs):
+            raise AssertionError("Cancelled task started scanning")
+
+        monkeypatch.setattr(mgr.vetting, "vet", unexpected_scan)
+        processed = mgr.process_pending_submission(pending.skill_id)
+        assert processed.status == SkillStatus.REJECTED
+        assert mgr.list_scan_runs(pending.skill_id)[0].status == "CANCELLED"

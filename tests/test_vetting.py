@@ -592,6 +592,10 @@ class TestVettingPipeline:
 
         assert result.risk_level == RiskLevel.BENIGN
         assert result.scan_report["risk_reconciliation"] == {
+            "policy_snapshot": {
+                "judgement_mode": "balanced",
+                "risk_classification": CompanyPolicy({}).risk_classification,
+            },
             "strategy": "mode_aware_llm_judgement",
             "judgement_mode": "balanced",
             "pre_llm_reason": "risk",
@@ -778,4 +782,5 @@ class TestVettingPipeline:
 
         sandbox_analysis = result.scan_report["sandbox_analysis"]
         assert sandbox_analysis["executed"] is False
+        assert sandbox_analysis["reason_code"] == "no_executable_script"
         assert "SKILL.md command examples are not executed" in sandbox_analysis["reason"]

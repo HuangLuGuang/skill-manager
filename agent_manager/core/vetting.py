@@ -583,6 +583,7 @@ def _run_sandbox_analysis(skill_path: Path) -> SandboxExecution:
                     "executed": False,
                     "runtime": runtime,
                     "available": True,
+                    "reason_code": "no_executable_script",
                     "reason": (
                         "No supported executable script found. "
                         "SKILL.md command examples are not executed as Sandbox probes."
@@ -978,6 +979,10 @@ class VettingPipeline:
             else "deterministic_policy_merge"
         )
         scan_report["risk_reconciliation"] = {
+            "policy_snapshot": {
+                "judgement_mode": effective_judgement_mode,
+                "risk_classification": dict(self.policy.risk_classification),
+            },
             "strategy": reconciliation_strategy,
             "judgement_mode": effective_judgement_mode,
             "pre_llm_reason": pre_llm_reason,

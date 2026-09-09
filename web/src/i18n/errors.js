@@ -1,5 +1,6 @@
 import { scanScheduleMessages } from './scanSchedule.js'
 const errorMessages = {
+  'skill_not_found': { 'zh-CN': 'Skill 不存在', 'en-US': 'Skill not found' },
   'agent_security.llm_coverage_incomplete': { 'zh-CN': '测试覆盖不完整：实际用例少于计划数量，请检查扫描引擎并重新扫描', 'en-US': 'Incomplete test coverage: fewer cases than planned. Check the scan engine and run again.' },
   ...Object.fromEntries(Object.keys(scanScheduleMessages['zh-CN'].errors).map(code => [code, { 'zh-CN': scanScheduleMessages['zh-CN'].errors[code], 'en-US': scanScheduleMessages['en-US'].errors[code] }])),
   'asset_sync.source_busy': { 'zh-CN': '该来源已有同步批次运行中', 'en-US': 'A synchronization run is already active for this source' },

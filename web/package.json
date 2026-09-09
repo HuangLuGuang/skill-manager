@@ -4,6 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:skill-columns": "node --test scripts/skill-columns.test.mjs",
+    "test:decision-flow": "node --test scripts/decision-flow.test.mjs",
     "dev": "vite",
     "build": "vite build",
     "test:diff": "node scripts/check-diff.mjs",
@@ -15,6 +17,7 @@
     "test:runtime-trace-ui": "node --test scripts/runtime-trace-ui.test.mjs scripts/trajectory-projection.test.mjs",
     "test:i18n": "node scripts/check-i18n.mjs && node --test scripts/agent-security-i18n.test.mjs",
     "test:skill-versions": "node --test scripts/skill-versions.test.mjs",
+    "test:skill-batch": "node --test scripts/skill-batch.test.mjs scripts/skill-rescan.test.mjs",
     "test:zip-size": "node --test scripts/zip-size.test.mjs",
     "test:upload-progress": "node --test scripts/upload-progress.test.mjs",
     "preview": "vite preview"
