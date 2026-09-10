@@ -98,7 +98,7 @@ guide('security-scan-guide', ['安全扫描操作指南', 'Security scanning gui
     ['scan-kinds', {
       title: '六种扫描的输入、操作与产出',
       table: { columns: ['类型', '如何配置', '如何理解结果'], rows: [
-        ['控制面验证', '选择目标与策略，执行前预览连接配置、许可与预算边界。', '验证控制面执行契约，不等于已经完成动态攻击测试。'],
+        ['扫描链路自检', '选择目标与策略，执行前预览连接配置、许可与预算边界。', '检查任务调度、Worker 租约、心跳与结果回传，不代表目标安全。'],
         ['Agent 风险扫描', '选择测试规则，填写测试 Prompt；选择单轮或多轮。即时扫描可选择可继续的历史任务；定时扫描使用独立会话。', '查看真实测试对话、轮次和评估理由。规则名称是测试能力，不是向目标部署业务 Skill。'],
         ['Dify 资产清单', '选择在线 Console 采集或手动 DSL；按授权决定是否采集 Prompt 原文、推断意图、检查知识库内容。', '输出档案、模型、节点、Prompt、Tool、MCP、知识库及其来源和验证状态。配置存在和实际执行分别取证。'],
         ['MCP 风险扫描', '选择登记的 MCP Gateway，核对已发现的 Server、Tool 和 Schema。', '分析任务创建时的冻结元数据快照；不执行 tools/call。先更新发现结果才能检查新工具。'],
@@ -108,7 +108,7 @@ guide('security-scan-guide', ['安全扫描操作指南', 'Security scanning gui
     }, {
       title: 'Inputs, operation, and output for six scan types',
       table: { columns: ['Type', 'Configuration', 'Interpretation'], rows: [
-        ['Control-plane validation', 'Choose target and policy; preview connection settings, permissions, and budgets.', 'Validates the execution contract, not a completed dynamic attack assessment.'],
+        ['Scan pipeline self-check', 'Choose target and policy; preview connection settings, permissions, and budgets.', 'Checks task dispatch, Worker leases, heartbeats, and result delivery; does not establish target safety.'],
         ['Agent risk scan', 'Choose test rules and a prompt; select single or multiple turns. Immediate scans can continue eligible prior tasks; scheduled scans use independent sessions.', 'Inspect real conversations, rounds, and evaluator reasons. Test-rule names identify scanning capabilities, not business Skills installed into the target.'],
         ['Dify asset inventory', 'Choose Console collection or manual DSL, then explicitly authorize prompt text, intent inference, or knowledge content as needed.', 'Produces profiles, models, nodes, prompts, tools, MCP, and knowledge references with source and verification status. Configuration and execution require separate evidence.'],
         ['MCP risk scan', 'Choose a registered Gateway and verify discovered Servers, Tools, and Schemas.', 'Analyzes a frozen metadata snapshot without tools/call. Refresh discovery before assessing new tools.'],

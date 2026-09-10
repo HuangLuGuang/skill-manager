@@ -245,7 +245,7 @@
             :pagination="tablePagination"
             row-key="task_id"
             table-layout="fixed"
-            :scroll="{ x: 1220 }"
+            :scroll="{ x: 1440 }"
             :locale="{ emptyText: t('agentSecurityScans.tasks.empty') }"
           >
             <template #bodyCell="{ column, record }">
@@ -253,6 +253,7 @@
                 <button class="id-link" type="button" :title="record.task_id" @click="openTaskDetail(record.task_id)">{{ record.task_id }}</button>
               </template>
               <template v-else-if="column.key === 'target_id'">{{ targetName(record.target_id) }}</template>
+              <template v-else-if="column.key === 'evaluation_model'"><a-tooltip :title="record.scan_options?.evaluation_model"><span>{{ record.scan_options?.evaluation_model || '—' }}</span></a-tooltip></template>
               <template v-else-if="column.key === 'scan_kind'"><a-tag color="geekblue">{{ scanKindLabel(record.scan_kind) }}</a-tag></template>
               <template v-else-if="column.key === 'status'">
                 <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
@@ -268,7 +269,7 @@
               </template>
               <template v-else-if="column.key === 'created_at'">{{ formatDateTime(record.created_at) }}</template>
               <template v-else-if="column.key === 'actions'">
-                <a-space>
+                <a-space wrap>
                   <a-button type="link" size="small" @click="openTaskDetail(record.task_id)">{{ t('agentSecurityScans.view') }}</a-button>
                   <a-popconfirm v-if="canCancel(record)" :title="t('agentSecurityScans.tasks.cancelConfirm')" @confirm="cancelTask(record)">
                     <a-button type="link" size="small" danger>{{ t('agentSecurityScans.tasks.cancel') }}</a-button>
@@ -652,7 +653,7 @@
           </a-select>
         </a-form-item>
         <template v-if="taskForm.scan_kind === 'agent_risk_scan'">
-          <a-form-item :label="t('agentSecurityScans.tasks.skills')"><a-select v-model:value="taskForm.skills" mode="multiple" :max-tag-count="3"><a-select-option v-for="skill in agentScanSkills" :key="skill" :value="skill">{{ skill }}</a-select-option></a-select></a-form-item>
+          <a-form-item :label="t('agentSecurityScans.tasks.skills')"><a-select v-model:value="taskForm.skills" mode="multiple" :max-tag-count="3" option-filter-prop="label"><a-select-option v-for="skill in agentScanSkills" :key="skill" :value="skill" :label="t(`assetLifecycle.ruleNames.${skill}`)">{{ t(`assetLifecycle.ruleNames.${skill}`) }}</a-select-option></a-select></a-form-item>
           <a-form-item :label="t('agentSecurityScans.tasks.prompt')"><a-textarea v-model:value="taskForm.prompt" :rows="3" :maxlength="4096" /></a-form-item>
           <a-row :gutter="16">
             <a-col :xs="24" :md="12"><a-form-item :label="t('agentSecurityScans.tasks.conversationMode')"><a-select v-model:value="taskForm.conversation_mode"><a-select-option value="single_turn">{{ t('agentSecurityScans.tasks.singleTurn') }}</a-select-option><a-select-option value="multi_turn">{{ t('agentSecurityScans.tasks.multiTurn') }}</a-select-option></a-select></a-form-item></a-col>
@@ -875,6 +876,7 @@
               <a-descriptions class="report-summary" bordered :column="{ xs: 1, sm: 1, md: 2 }" size="small">
                 <a-descriptions-item :label="t('agentSecurityScans.tasks.target')">{{ targetName(taskDetail.task.target_id) }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.tasks.kind')">{{ scanKindLabel(taskDetail.task.scan_kind) }}</a-descriptions-item>
+                <a-descriptions-item :label="t('agentSecurityScans.scope.evaluator')"><span class="evaluation-model-name">{{ taskDetail.task.scan_options?.evaluation_model || '—' }}</span></a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.status')">{{ taskDetail.task.status === 'succeeded' ? t('agentSecurityScans.detail.completedExecution') : statusLabel(taskDetail.task.status) }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.tasks.policy')">{{ policyName(taskDetail.task.policy_id) }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.started')">{{ formatDateTime(taskDetail.task.started_at) }}</a-descriptions-item>
@@ -1227,7 +1229,14 @@ const policyColumns = computed(() => [
   { title: t('agentSecurityScans.policies.name'), key: 'name', width: 160, ellipsis: true }, { title: t('agentSecurityScans.environment'), key: 'environment', width: 175 }, { title: t('agentSecurityScans.policies.mode'), key: 'execution_mode', width: 140 }, { title: t('agentSecurityScans.allowedCapabilities'), key: 'allowed_capabilities', width: 120 }, { title: t('agentSecurityScans.policies.budget'), key: 'budget', width: 220 }, { title: t('agentSecurityScans.policies.network'), key: 'network', width: 250 }, { title: t('agentSecurityScans.status'), key: 'enabled', width: 110 }, { title: t('agentSecurityScans.actions'), key: 'actions', width: 160, fixed: 'right' },
 ])
 const taskColumns = computed(() => [
-  { title: t('agentSecurityScans.detail.task'), key: 'task_id', width: 160, ellipsis: true }, { title: t('agentSecurityScans.tasks.target'), key: 'target_id', width: 170 }, { title: t('agentSecurityScans.tasks.kind'), key: 'scan_kind', width: 210 }, { title: t('agentSecurityScans.status'), key: 'status', width: 120 }, { title: t('agentSecurityScans.tasks.usage'), key: 'progress', width: 150 }, { title: t('agentSecurityScans.createdAt'), key: 'created_at', width: 180 }, { title: t('agentSecurityScans.actions'), key: 'actions', width: 240, fixed: 'right' },
+  { title: t('agentSecurityScans.detail.task'), key: 'task_id', width: 190, ellipsis: true },
+  { title: t('agentSecurityScans.tasks.target'), key: 'target_id', width: 150, ellipsis: true },
+  { title: t('agentSecurityScans.tasks.kind'), key: 'scan_kind', width: 200 },
+  { title: t('agentSecurityScans.scope.evaluator'), key: 'evaluation_model', width: 180, ellipsis: true },
+  { title: t('agentSecurityScans.status'), key: 'status', width: 110 },
+  { title: t('agentSecurityScans.tasks.usage'), key: 'progress', width: 220 },
+  { title: t('agentSecurityScans.createdAt'), key: 'created_at', width: 210 },
+  { title: t('agentSecurityScans.actions'), key: 'actions', width: 180, fixed: 'right' },
 ])
 const findingColumns = computed(() => [
   { title: t('agentSecurityScans.findings.scan'), key: 'scan', width: 280 },
@@ -1966,7 +1975,7 @@ const openFindingFromRoute = async () => {
 const openDispositionModal = record => { dispositionFinding.value = record; Object.assign(dispositionForm, { status: record.status, comment: record.disposition_comment || '' }); dispositionModalOpen.value = true }
 const saveDisposition = async () => { if (submittingDisposition.value) return; submittingDisposition.value = true; try { await updateSecurityFinding(dispositionFinding.value.finding_id, { ...dispositionForm }); dispositionModalOpen.value = false; await loadFindings(findingPage.value); message.success(t('agentSecurityScans.saved')) } catch (error) { message.error(errorText(error)) } finally { submittingDisposition.value = false } }
 
-const openTaskDetail = async taskId => { detailDrawerOpen.value = true; taskDetailLoading.value = true; taskDetail.value = null; try { taskDetail.value = await getSecurityTask(taskId) } catch (error) { message.error(errorText(error)) } finally { taskDetailLoading.value = false } }
+const openTaskDetail = async taskId => { detailTab.value = 'summary'; detailDrawerOpen.value = true; taskDetailLoading.value = true; taskDetail.value = null; try { taskDetail.value = await getSecurityTask(taskId) } catch (error) { message.error(errorText(error)) } finally { taskDetailLoading.value = false } }
 const openComparison = async record => { comparisonTask.value = record; comparisonResult.value = null; comparisonBaselineId.value = undefined; comparisonModalOpen.value = true; if (comparisonBaselines.value.length) comparisonBaselineId.value = comparisonBaselines.value[0].task_id; await loadComparison() }
 let comparisonRequestId = 0
 const loadComparison = async () => {
@@ -2072,6 +2081,7 @@ watch(() => route.query.schedule_id, async id => { if (id) { await nextTick(); a
 @media (max-width: 640px) { .report-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .scan-page { width: 100%; min-width: 0; color: #172033; }
 .comparison-overview code, .comparison-overview p { overflow-wrap: anywhere; }
+.evaluation-model-name { overflow-wrap: anywhere; }
 .comparison-bucket :deep(.ant-list-item) { flex-wrap: wrap; gap: 8px; }
 .comparison-evidence { flex-basis: 100%; overflow-wrap: anywhere; font-size: 12px; }
 .comparison-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin: 16px 0; }

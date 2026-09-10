@@ -1380,7 +1380,7 @@ const zh = {
           title: '当前已启用的范围',
           paragraphs: ['侧边栏的“安全扫描”和“调用轨迹”是独立入口，位于模型网关之后、系统管理之前，页面默认开启，不需要在 .env 中配置页面开关。扫描执行仍需要管理员创建目标、策略和独立 Worker；页面可见不等于外部目标已经通过验收。'],
           table: { columns: ['能力', '当前行为', '不能据此声称'], rows: [
-            ['控制面验证', '检查目标与策略的执行契约和边界', '不能替代动态扫描或证明目标安全'],
+            ['扫描链路自检', '检查任务调度、Worker 租约、心跳与结果回传链路', '不能替代动态扫描或证明目标安全'],
             ['Agent 风险扫描', '在出站、预算、超时和能力策略内向已授权目标发送测试对话', '不覆盖未执行的场景，也不是无限制攻击链复现'],
             ['Dify 资产清单', '采集应用配置、DSL、节点、模型、Tool、MCP 和知识库引用，并标注字段来源与验证状态', '配置存在不表示实际执行；系统推断意图不等于已验证事实'],
             ['MCP 风险扫描', '读取任务创建时冻结的 Gateway、Server、Tool 描述和 Schema 元数据', '不执行 tools/call，不验证 Tool 的真实副作用'],
@@ -2518,7 +2518,7 @@ en.articles['agent-security-runtime'] = {
       id: 'enabled-scope', title: 'Capabilities enabled now',
       paragraphs: ['Security Scanning and Runtime Traces are direct sidebar entries after Model Gateway and before System Management, enabled by default. No .env page flag is required. Executing scans still requires an administrator to create targets, policies, and an independent Worker; a visible page is not evidence that an external target passed acceptance.'],
       table: { columns: ['Capability', 'Current behavior', 'What it does not prove'], rows: [
-        ['Control-plane validation', 'Checks the target/policy execution contract and boundaries', 'Does not replace dynamic scanning or establish target safety'],
+        ['Scan pipeline self-check', 'Checks task dispatch, Worker leases, heartbeats, and result delivery', 'Does not replace dynamic scanning or establish target safety'],
         ['Agent risk scan', 'Sends test conversations to an authorized target within outbound, budget, timeout, and capability policy', 'It does not cover unexecuted scenarios or reproduce an unlimited attack chain'],
         ['Dify asset inventory', 'Collects app configuration, DSL, nodes, models, Tools, MCP, and knowledge references with source and verification status', 'Configuration does not prove execution; inferred intent is not a verified fact'],
         ['MCP risk scan', 'Reads the Gateway, Server, Tool descriptions, and Schema metadata frozen when the task was created', 'It does not execute tools/call or verify real Tool side effects'],
