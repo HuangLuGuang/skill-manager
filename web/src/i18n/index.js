@@ -894,9 +894,9 @@ export const i18n = createI18n({
             access: '运行 / 模型 / MCP',
           },
           model: {
-            title: '给应用调用模型',
-            description: '非 Agent 服务、脚本或业务应用只通过模型网关调用模型。',
-            caller: '普通应用',
+            title: '大模型凭证',
+            description: '用于通过模型网关调用大模型。',
+            caller: '应用',
             access: '模型网关',
           },
           mcp: {
@@ -1875,9 +1875,9 @@ export const i18n = createI18n({
             access: 'Runtime / model / MCP',
           },
           model: {
-            title: 'For an application calling models',
-            description: 'A non-Agent service, script, or business application calls models through the gateway.',
-            caller: 'Regular application',
+            title: 'LLM Credential',
+            description: 'Call large language models through the model gateway.',
+            caller: 'Application',
             access: 'Model gateway',
           },
           mcp: {

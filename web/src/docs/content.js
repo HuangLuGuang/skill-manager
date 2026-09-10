@@ -1023,7 +1023,7 @@ const zh = {
               ['Agent 运行凭证', '验签、加载许可和 Tool 调用检查'],
               ['Scanner 接入凭证', '客户侧提交和读取自己的扫描结果'],
               ['Client 接入凭证', '桌面客户端注册、心跳、任务和事件上报'],
-              ['模型调用凭证', '普通应用调用模型网关'],
+              ['大模型凭证', '应用通过模型网关调用大模型'],
               ['MCP 网关凭证', 'MCP Client访问授权网关和Tool'],
             ],
           },
@@ -1309,12 +1309,13 @@ const zh = {
           paragraphs: ['页面顶部的“凭证路线图”按调用场景创建凭证。这里的调用者是实际携带 Bearer 凭证发请求的程序，不是负责配置系统的管理员。'],
           table: { columns: ['路线图入口', '什么时候选', '不要混用'], rows: [
             ['给 Agent 使用', '已在平台登记的 Agent 需要运行校验，并可能同时调用模型或 MCP', '不要再给同一 Agent 额外创建普通模型凭证来冒充身份'],
-            ['给应用调用模型', '非 Agent 的服务、脚本或业务应用只调用模型', '不能作为已登记 Agent 的可信身份'],
+            ['大模型凭证', '用于通过模型网关调用大模型', '不能作为已登记 Agent 的可信身份'],
             ['给 MCP 客户端', '不代表平台 Agent 的 MCP Client 调用已发布 Tool', '不能访问未选择的虚拟网关'],
             ['给 Skill Scanner', '客户侧扫描器上传 Skill 并轮询自己的结果', '不能审批、部署或读取他人结果'],
             ['给客户端使用', '桌面或后台客户端注册、心跳、同步清单和执行任务', '客户端凭证不能调用模型；可显式允许它通过配置任务为本机 Agent 自动建立运行身份并创建独立凭证'],
           ] },
           link: { path: '/credentials', label: '打开凭证路线图' },
+          image: { name: 'credential-center', alt: '统一凭证中心的大模型凭证入口', caption: '选择“大模型凭证”，供应用通过模型网关调用大模型。' },
         },
         {
           id: 'credential-types',
@@ -2245,7 +2246,7 @@ const en = {
       sections: [
         { id: 'agent-record', title: 'Register the Agent before issuing credentials', steps: [{ title: 'Create an Agent', body: 'Set a stable unique Agent ID, name, department, owner, Client type, and state. Runtime Agent ID must match this record.' }, { title: 'Bind capabilities', body: 'Choose the default model and allowed approved or deployed Skills. The list shows the concrete Skill identifier used for the binding.' }, { title: 'Issue a runtime credential', body: 'Create an Agent runtime credential bound to the Agent.' }, { title: 'Configure the runtime', body: 'Give the one-time secret only to that Agent; never use an administrator login token.' }], link: { path: '/agents', label: 'Open Agents' } },
         { id: 'status-and-binding', title: 'What state, binding, and credential control', table: { columns: ['Control', 'Effect', 'Common mistake'], rows: [['Agent state', 'Only active should carry production use; disabled or draft is not deleted', 'Do not infer state from deletion or credential revocation'], ['Skill binding', 'Defines which Skills this Agent may load', 'An approved Skill is not automatically available to every Agent'], ['Agent runtime credential', 'Establishes trusted Agent identity and runtime scopes', 'Caller metadata.agent_id cannot replace credential binding'], ['Default model', 'Records the Agent default model choice', 'model:chat scope and an enabled model are still required']] }, link: { path: '/docs/credential-management', label: 'Read Credential center' } },
-        { id: 'credential-types', title: 'Choose credentials by caller', table: { columns: ['Credential', 'Purpose'], rows: [['Agent runtime', 'Signature, load, and Tool checks'], ['Scanner access', 'Submit and read owned scan results'], ['Client access', 'Desktop client registration, tasks, and events'], ['Model gateway', 'Model calls from regular applications'], ['MCP gateway', 'MCP Client access to allowed gateways and Tools']] }, callout: { type: 'warning', title: 'Secrets are shown once', body: 'If lost, revoke and create a new credential. Never store real secrets in screenshots, docs, or source control.' } },
+        { id: 'credential-types', title: 'Choose credentials by caller', table: { columns: ['Credential', 'Purpose'], rows: [['Agent runtime', 'Signature, load, and Tool checks'], ['Scanner access', 'Submit and read owned scan results'], ['Client access', 'Desktop client registration, tasks, and events'], ['LLM Credential', 'Applications call large language models through the model gateway'], ['MCP gateway', 'MCP Client access to allowed gateways and Tools']] }, callout: { type: 'warning', title: 'Secrets are shown once', body: 'If lost, revoke and create a new credential. Never store real secrets in screenshots, docs, or source control.' } },
         { id: 'next-runtime', title: 'Next: choose a runtime verification method', paragraphs: ['After the Agent record, Skill bindings, and runtime credential are ready, choose Verifier, Hook, or Agent Manager Client based on whether the Agent supports Skill instructions, lifecycle events, or a background Client.'], link: { path: '/docs/runtime-integration', label: 'Read Agent runtime integration' } },
       ],
     },
@@ -2452,12 +2453,13 @@ en.articles['credential-management'] = {
       paragraphs: ['The Credential routes at the top create by calling scenario. The caller is the running program that sends the Bearer credential, not the administrator configuring the system.'],
       table: { columns: ['Route', 'Choose it when', 'Do not mix it with'], rows: [
         ['For an Agent', 'A registered Agent needs runtime checks and may also call models or MCP', 'Do not add a regular model credential to impersonate the same Agent'],
-        ['For an application calling models', 'A non-Agent service, script, or business application only calls models', 'It cannot establish trusted registered-Agent identity'],
+        ['LLM Credential', 'Call large language models through the model gateway', 'It cannot establish trusted registered-Agent identity'],
         ['For an MCP client', 'An MCP Client that is not a platform Agent calls published Tools', 'It cannot reach gateways outside its allowlist'],
         ['For Skill Scanner', 'A customer-side Scanner uploads Skills and polls its own results', 'It cannot approve, deploy, or read results owned by others'],
         ['For Agent Manager Client', 'A desktop or background Client registers, heartbeats, syncs inventory, and executes tasks', 'It cannot call models or MCP; explicit authorization may let it issue separate credentials for locally bound Agents through configuration tasks'],
       ] },
       link: { path: '/credentials', label: 'Open Credential routes' },
+      image: { name: 'credential-center', alt: 'LLM Credential entry in the credential center', caption: 'Select LLM Credential for an application to call large language models through the model gateway.' },
     },
     {
       id: 'credential-types', title: 'Credential types behind the routes',
