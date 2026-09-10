@@ -17,8 +17,14 @@ RUN if [ -n "$APT_PROXY" ]; then printf 'Acquire::http::Proxy "%s";\n' "$APT_PRO
       if [ "$attempt" -eq 3 ]; then exit 1; fi; \
       sleep "$((attempt * 5))"; \
     done \
-    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
-      git make build-essential \
+    && for attempt in 1 2 3 4 5; do \
+      if apt-get -o Acquire::Retries=5 --download-only install -y --no-install-recommends \
+        git make build-essential; then break; fi; \
+      if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+      echo "APT dependency download failed (attempt ${attempt}/5); retrying in $((attempt * 5))s"; \
+      sleep "$((attempt * 5))"; \
+    done \
+    && apt-get --no-download install -y --no-install-recommends git make build-essential \
     && rm -f /etc/apt/apt.conf.d/99build-proxy \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /app/tools \
