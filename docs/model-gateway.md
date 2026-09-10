@@ -534,3 +534,11 @@ x-compression: enabled-noop
 
 - 详情顶部显示本次是否压缩、节省 Token 和耗时；具体数值取决于请求内容
 - 展开第 3 阶段「智能压缩后」可对比压缩前后的 messages 差异
+
+## MCP 扫描模型
+
+MCP 源码、动态和多轮红队任务从已启用的网关模型中选择评估模型，并可分别指定分析模型和攻击模型。
+元数据检查不需要模型。任务冻结模型名称，Worker 使用任务租约访问
+`/api/v1/agent-security/worker/tasks/{task_id}/evaluator/v1/chat/completions`；
+Backend 校验任务所有者、租约、所选模型、预算和并发后复用模型网关隐私链路。供应商密钥不下发给 Worker。
+MCP 服务调用证据与模型推断分开保存，真实工具响应并不自动证明模型给出的漏洞判断成立。

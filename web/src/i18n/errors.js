@@ -1,5 +1,13 @@
 import { scanScheduleMessages } from './scanSchedule.js'
 const errorMessages = {
+  'mcp_scan.engine_failed': { 'zh-CN': 'MCP 扫描执行失败，请检查模型连通性和工具调用证据。', 'en-US': 'MCP scan execution failed. Check model connectivity and tool-call evidence.' },
+  'mcp_scan.engine_terminated': { 'zh-CN': 'MCP 扫描进程已终止，请检查 Worker 资源和健康状态。', 'en-US': 'The MCP scan process terminated. Check Worker resources and health.' },
+  'mcp_scan.execution_denied': { 'zh-CN': 'MCP 执行被租约、权限或预算限制阻止，请检查任务状态和授权范围。', 'en-US': 'MCP execution was denied by lease, permission or budget controls. Check task status and scope.' },
+  'mcp_scan.no_successful_tool_calls': { 'zh-CN': '没有成功的 MCP 工具调用，无法形成动态扫描结论。', 'en-US': 'No MCP tool calls succeeded, so no dynamic assessment can be made.' },
+  'mcp_scan.review_output_invalid': { 'zh-CN': '评估模型未生成有效的 MCP 复核报告，请调整模型后重试。', 'en-US': 'The evaluator did not produce a valid MCP review. Choose a suitable model and retry.' },
+  'mcp_scan.model_empty_response': { 'zh-CN': 'MCP 评估模型返回空内容，请检查模型配置。', 'en-US': 'The MCP evaluator returned empty content. Check model settings.' },
+  'mcp_scan.source_hash_mismatch': { 'zh-CN': 'MCP 源码完整性校验失败，请重新导入源码。', 'en-US': 'MCP source integrity verification failed. Import the source again.' },
+  'mcp_scan.source_path_invalid': { 'zh-CN': 'MCP 源码包含无效路径，请检查源码包。', 'en-US': 'MCP source contains an invalid path. Check the source bundle.' },
   'policy.simulation_invalid': { 'zh-CN': '模拟参数无效，请检查分析器状态、发现项和策略配置。', 'en-US': 'Invalid simulation inputs. Check analyzer states, findings, and policy settings.' },
   'skill_not_found': { 'zh-CN': 'Skill 不存在', 'en-US': 'Skill not found' },
   'agent_security.llm_coverage_incomplete': { 'zh-CN': '测试覆盖不完整：实际用例少于计划数量，请检查扫描引擎并重新扫描', 'en-US': 'Incomplete test coverage: fewer cases than planned. Check the scan engine and run again.' },

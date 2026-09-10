@@ -73,7 +73,7 @@
         {
           "component": "mcp-scan",
           "mode": "isolated_worker_source",
-          "status": "integrated_p3_metadata_adapter",
+          "status": "integrated_task_scoped_mcp_scanner",
           "vendored_path": "services/agent-security-worker/vendor/ai-infra-guard/mcp-scan",
           "vendored_tree_sha256": "5a8971b90605b3c36515056b57ca5914b267b40a8fa9bddf66e6fca4fb167c8f",
           "local_modifications": []
@@ -277,9 +277,9 @@
           "en-US": "Insecure TLS is not enabled by the Agent Manager integration baseline."
         },
         {
-          "code": "mcp_dynamic_tool_calls_disabled",
-          "zh-CN": "锁定版 MCP Scan 动态模式会执行真实工具调用；P3 仅复用其风险分类和描述净化契约，并强制使用 Gateway 元数据快照，禁用动态 tools/call。",
-          "en-US": "The locked MCP Scan dynamic mode performs real tool calls; P3 only reuses its risk taxonomy and description sanitization contract, forces Gateway metadata snapshots, and disables dynamic tools/call."
+          "code": "mcp_task_scoped_execution",
+          "zh-CN": "源码审计使用只读文件工具；动态和红队扫描通过任务租约调用已授权 MCP 工具。红队策略复用上游 Crescendo/TAP，目标执行器使用真实工具返回。",
+          "en-US": "Source audits use read-only file tools. Dynamic and red-team scans call authorized MCP tools through task leases. Red-team scanning reuses upstream Crescendo/TAP with a target runner backed by real tool responses."
         }
       ]
     },

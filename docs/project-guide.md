@@ -80,7 +80,7 @@ Agent Manager 用一套“提交、扫描、审批、签名、运行时校验、
 | 能力域 | 管理台入口 | 当前已启用能力 | 明确边界 |
 |---|---|---|---|
 | Skill 治理 | 能力治理 → Skill 治理 | 提交、扫描、版本、审核、签名、部署、运行验签、PDF 报告 | Sandbox 和 LLM 是辅助信号，不能单独证明安全 |
-| AI 安全扫描 | 安全扫描 | Agent 动态风险扫描、MCP 元数据扫描、大模型红队、AI 基础设施指纹/CVE 扫描、预览、审批、Kill Switch、Finding、对比和报告 | MCP 扫描不执行 `tools/call`；动态扫描只覆盖真实执行并留有证据的输入与目标 |
+| AI 安全扫描 | 安全扫描 | Agent 动态风险扫描、MCP 元数据/源码/动态/红队扫描、大模型红队、AI 基础设施指纹/CVE 扫描、预览、审批、Kill Switch、Finding、对比和报告 | 动态扫描只覆盖真实执行并留有证据的输入与目标 |
 | 统一调用轨迹 | 调用轨迹 | 对话/轨迹双视图、Turn/Step/Call 层级、证据搜索、Finding 跳转、脱敏和受控原始导出 | 缺少 SDK 事件时保持部分轨迹，不补造 Turn/Step |
 | 模型治理 | 模型网关 | 供应商、模型、最小权限调用凭证、Prompt 防护、PII 伪匿名、可选压缩、用量与隐私链路 | 原始 PII 只允许受控角色查看，不进入普通日志 |
 | MCP 治理 | 能力治理 → MCP 治理 | Server 发现、虚拟 Gateway、Tool Schema、读写属性、审批、限流、生产禁用清单和审计 | 不托管 stdio MCP；生产环境禁止 `active_full` |
@@ -373,7 +373,7 @@ flowchart TB
 - [services/isolated-sandbox-service/app.py](../services/isolated-sandbox-service/app.py)
   生产版远程 sandbox 服务基线
 - [services/agent-security-worker/worker.py](../services/agent-security-worker/worker.py)
-  独立安全扫描 Worker，负责租约、心跳、Agent Scan/MCP 元数据 Adapter 和结果回传
+  独立安全扫描 Worker，负责租约、心跳、Agent Scan/MCP 扫描执行器和结果回传
 
 ### 5.5 客户侧扫描器
 
@@ -666,18 +666,18 @@ P7-02 新增 `demo/agent-security-gateway-only/` 部分轨迹示例，提供 `mo
 请求成功冒充为完整度已经验证。自动化已覆盖真实持久化计算，但尚未在登录后的客户页面运行，因此不提前完成
 E2E-05。
 
-### 6.9 MCP Server 和 Tool 风险扫描（P3）
+### 6.9 MCP Server 和 Tool 风险扫描
 
-P3 在同一 Worker 中新增 `mcp_risk_scan`，扫描对象直接绑定现有 MCP Gateway，不绑定 Agent。
+`mcp_risk_scan` 支持元数据检查、源码审计、动态扫描和多轮红队，使用任务创建时冻结的扫描范围。
 创建 `mcp_gateway` 类型安全目标时，`endpoint_url` 使用 `mcp-gateway://{gateway_slug}`，`config`
-只保存 `gateway_id`。创建任务时 Backend 冻结 Gateway、Server、允许暴露的 Tool、当前 Schema
-Hash、已批准 Schema Hash、风险等级和审批状态；Worker 不持有 MCP Server 凭据，也不重新连接
-Server。冻结前会删除描述和 Schema 中常见凭据/PII 值，生成限深、限长投影并保留原始内容
+保存 `gateway_id` 和传输设置。创建任务时 Backend 冻结 Gateway、Server、允许暴露的 Tool、当前 Schema
+Hash、已批准 Schema Hash、风险等级和审批状态；Worker 不持有 MCP Server 凭据，真实调用由 Backend
+执行。冻结前会删除描述和 Schema 中常见凭据/PII 值，生成限深、限长投影并保留原始内容
 SHA-256；已知危险信号在完整原文上先提取为无原文摘要。发生截断、丢项、限深或完整分析达到上限时，
 任务会生成 `mcp_metadata_projection_incomplete` 高风险 Finding，不能静默判定安全。Gateway 没有任何
 已绑定 Tool 时任务创建会失败，也不会形成“零 Finding 即安全”的假阴性。
 
-检测项包括：
+元数据检查项包括：
 
 - Tool 描述中的模型指令、Prompt Injection 和工具投毒信号。
 - 命令、文件路径、外部地址、凭据、SQL 和金融账户/金额等危险参数。普通 `query` 只有同时存在
@@ -686,12 +686,35 @@ SHA-256；已知危险信号在完整原文上先提取为无原文摘要。发�
 - 写入、删除、执行、转账、支付、上传、发送和导出等副作用操作是否缺少高风险标记或审批。
 - 当前 Schema Hash 与 Gateway Binding 中已批准 Schema Hash 的漂移，以及绑定 Tool 丢失。
 
-锁定版 AI-Infra-Guard MCP Scan 的动态模式会真实调用远程 Tool。为满足生产默认安全边界，P3
-使用本平台元数据 Adapter，只引用上游分类体系中与元数据检查相关的标签及描述净化契约，不执行
-完整上游 MCP Scan。Adapter 强制使用 `metadata_snapshot_only`，不暴露 `tools/call`；报告固定记录
-`tool_calls_performed=0`，机器可读 `source` 也明确标识为平台元数据检查器。Finding 可生成 `require_approval`、
-`disable_tool`、`restrict_call_policy`、`review_schema` 等 `suggestion_only` 建议，但没有自动执行
-策略变更的接口。
+扫描引擎固定为 Tencent Zhuque Lab / AI-Infra-Guard `v4.6.0`，提交
+`e8931cc68001b66ad024fd87ef07394e9e96524a`。各模式的执行范围如下：
+
+| 模式 | 输入和模型 | 实际执行 |
+| --- | --- | --- |
+| 元数据检查 | 已登记网关快照，无需模型 | 平台规则分析描述、Schema 和治理配置，不调用 Tool |
+| 源码审计 | ZIP 或公开 GitHub 仓库、网关评估模型，可另选分析模型 | 上游单阶段快速审计或三阶段完整审计；只允许读取/列举/搜索源码文件 |
+| 动态扫描 | 已登记网关中的明确 Tool 范围、模型、调用次数和路径 | 上游信息收集、恶意行为检测、漏洞检测和复核四阶段；通过任务租约调用真实工具 |
+| 多轮红队 | 动态范围、Crescendo/TAP、评估/分析/攻击模型 | 复用上游策略；分析模型把攻击转换为符合 Schema 的调用，评估模型分析真实工具返回 |
+
+发起扫描时选择模型网关中已启用的模型，分析和攻击模型可默认使用评估模型。请求复用网关的隐私处理和审计，
+Worker 只得到任务租约，不接收供应商密钥。上游默认红队目标是模型模拟器，本集成替换为实际工具调用目标执行器。
+模型判断统一视为待复核风险信号，不等同于已确认漏洞。
+
+源码通过管理台上传 ZIP（最大 20 MiB、1000 个文件、单文件 1 MiB），或导入公开 GitHub HTTPS 仓库；
+GitHub 的分支/Tag 先解析为 Commit，再下载固定版本。其他 Git 服务或私有仓库可上传 ZIP。
+可创建 `mcp_source` 源码目标，地址为 `mcp-source://{source_id}`；也可为已登记网关附加本次源码快照。
+源码包禁止越界路径和软链接，二进制文件只保留路径及哈希，并在报告中列为未审计覆盖。
+Worker 在独立临时进程中审计，不执行上传的代码、Shell 或模型生成的代码。源码快照位于数据目录
+`mcp-scan-sources/`，应随平台数据备份。
+
+动态路径可选“经网关测试”或“已登记服务测试”，工具范围均来自所选网关的绑定。
+前者包含网关执行模式、生产禁用清单和绑定 Schema 审批；后者调用绑定服务的原生工具，用于评估服务本身。
+两者均校验扫描能力范围、目标和策略网络白名单、冻结的地址/DNS/Schema、工具参数、敏感工具审批、限流和并发。
+每次调用先持久化唯一调用 ID 并消耗调用预算，重复 ID 不会再次执行；取消、租约失效或达到预算时停止。
+原始工具请求/响应加密保存，安全管理员可通过任务调用证据接口读取，读取操作写入审计。
+
+源码/动态扫描输出阶段结果、平台 Finding、JSON 原始报告和 SARIF；任务对比包含模式、源码哈希、版本、工具范围、
+路径和角色模型，范围变化时不把旧 Finding 的缺失认定为修复。修复建议由人工处理，不自动修改生产策略。
 
 MCP Tool 用例保留旧版 `status=passed/failed` 字段供既有客户端兼容，但管理台和新版详情响应把
 语义拆为两层：`execution_status` 表示元数据分析是否完成、异常、阻断或证据不足；
@@ -761,8 +784,8 @@ POST /api/v1/agent-security/tasks/preview
 - Agent 风险扫描可以确定信息收集、选中的检测 Skill 和风险复核三阶段，但具体攻击 Prompt、每个 Skill
   的实际对话轮次以及目标 Agent 的本地 Tool 清单由 AI-Infra-Guard 在运行时生成。页面必须明确显示
   “运行时动态”，不能把策略 `max_rounds` 冒充预计轮数。
-- MCP 风险扫描按冻结快照为每个绑定 Tool 生成确定的元数据检查用例，展示 Tool 读写属性和风险等级，
-  同时明确 `will_call=false` 和 `side_effect_tool_calls=forbidden`。
+- MCP 风险扫描按模式展示源码审计或冻结 Tool 的检查范围，动态模式列出授权调用工具、读写属性和风险等级，
+  并明确本次是否可能调用工具。源码审计和元数据检查的工具副作用权限为 `forbidden`，动态和红队为 `policy_bounded`。
 
 服务端为预览返回 `preview_fingerprint`。管理台正式创建时回传该值；如果目标、策略、审批、扫描参数、MCP
 Tool 快照或预算已变化，创建入口以 `agent_security.scan_preview_stale` 拒绝并要求重新预览。为保持已有 API
@@ -877,7 +900,7 @@ Prompt、模型回复和评估理由。完成数量包含执行错误和未评�
 1. 扫描目标：查询、新建、编辑、启停四类目标，配置连接器、环境和授权能力，并单独轮换加密凭据；MCP 目标从现有 Gateway 选择。
 2. 执行策略：配置适用环境、执行模式、允许能力、出站 CIDR、轮次、Token、费用、并发、时长、响应大小、重试和租约；
    生产 `active_safe` 还必须配置目标白名单、UTC 维护窗口和专用身份引用。
-3. 扫描任务：按状态、目标和类型筛选，发起扫描链路自检、Agent 风险扫描、MCP 元数据扫描、大模型红队或 AI 基础设施扫描，并查看、取消任务；
+3. 扫描任务：按状态、目标和类型筛选，发起扫描链路自检、Agent 风险扫描、MCP 风险扫描、大模型红队或 AI 基础设施扫描，并查看、取消任务；
    管理员可以填写原因并启用不可撤销的任务级 Kill Switch，详情展示操作人、时间和原因；
    生产 `active_safe` 任务必须选择尚未使用的有效审批，管理员也可在任务弹窗中为当前目标和策略批准本次扫描。
 4. 安全发现：分页汇总全部有权访问的扫描发现，统计全量严重度分布；“所属扫描”列显示目标、扫描类型、时间和任务编号，
@@ -1657,7 +1680,7 @@ App；超限、重复页、权限失败均形成明确失败，不能当作完�
 引用、覆盖检查、资产版本、评分版本和历史 JSON，并能跳转扫描证据。
 
 Agent 扫描和同一目标的 Dify 配置风险自动进入评分。管理员可显式关联相同用户和用户组归属的 MCP
-扫描目标，其风险计入关联智能体；MCP 仍只表示现有元数据扫描的覆盖。Skill 与智能体的运行装载关系
+扫描目标，其风险计入关联智能体；MCP 覆盖范围由实际选择的扫描模式和执行证据决定。Skill 与智能体的运行装载关系
 应由接入方提供明确证据，聚合 Skill 报告仍需接入方提供可验证的装载关系。
 
 没有评估时分数为空；部分完成但未发现计分风险时仍为空。只有配置范围内检查完成且无计分风险时显示

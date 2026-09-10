@@ -410,7 +410,10 @@ async def _post_upstream(
     session_id: str | None = None,
     protocol_version: str = MCP_PROTOCOL_VERSION,
 ) -> tuple[dict, str | None]:
-    _validate_resolved_endpoint(server.endpoint)
+    resolved = _validate_resolved_endpoint(server.endpoint)
+    scan_addresses = getattr(server, "_scan_resolved_ips", None)
+    if scan_addresses is not None and set(resolved) != set(scan_addresses):
+        raise ValueError("MCP scan DNS snapshot changed")
     headers = {
         "Accept": "application/json, text/event-stream",
         "Content-Type": "application/json",
@@ -422,8 +425,15 @@ async def _post_upstream(
     if session_id:
         headers["Mcp-Session-Id"] = session_id
     max_bytes = max(1, int(getattr(server, "max_response_kb", settings.MCP_MAX_RESPONSE_KB) or settings.MCP_MAX_RESPONSE_KB)) * 1024
-    async with httpx.AsyncClient(timeout=server.timeout_seconds, follow_redirects=False) as client:
-        async with client.stream("POST", server.endpoint, json=payload, headers=headers) as response:
+    endpoint = server.endpoint
+    extensions = {}
+    if scan_addresses:
+        original = httpx.URL(endpoint)
+        headers["Host"] = original.netloc.decode("ascii")
+        extensions["sni_hostname"] = original.host
+        endpoint = str(original.copy_with(host=scan_addresses[0]))
+    async with httpx.AsyncClient(timeout=server.timeout_seconds, follow_redirects=False, trust_env=not bool(scan_addresses)) as client:
+        async with client.stream("POST", endpoint, json=payload, headers=headers, extensions=extensions) as response:
             content = bytearray()
             async for chunk in response.aiter_bytes():
                 content.extend(chunk)
@@ -1427,6 +1437,32 @@ async def invoke_gateway(
         request=request,
         allowed_token_types={"mcp_gateway", "agent_runtime"},
     )
+    return await invoke_gateway_with_token(gateway_slug, body, request, response, token, db)
+
+
+async def invoke_gateway_with_token(
+    gateway_slug: str,
+    body: dict,
+    request: Request,
+    response: Response,
+    token: models.AccessToken,
+    db: Session,
+    *,
+    apply_gateway_policy: bool = True,
+):
+    if body.get("jsonrpc") != "2.0" or not isinstance(body.get("method"), str):
+        return _jsonrpc_error(body.get("id"), -32600, "Invalid Request")
+    method = body.get("method")
+    request_id = body.get("id")
+    required_scope = {
+        "initialize": "mcp:connect",
+        "notifications/initialized": "mcp:connect",
+        "ping": "mcp:connect",
+        "tools/list": "mcp:list-tools",
+        "tools/call": "mcp:call-tools",
+    }.get(method)
+    if not required_scope:
+        return _jsonrpc_error(request_id, -32601, "Method not found")
     allowed_gateways = _json_loads(token.allowed_mcp_gateways_json, [])
     if gateway_slug not in allowed_gateways:
         raise HTTPException(status_code=403, detail="凭证未授权访问该 MCP 网关")
@@ -1498,7 +1534,7 @@ async def invoke_gateway(
         )
         return _jsonrpc_error(request_id, -32602, "Tool 未授权或不存在")
     server, tool, approved_hash = match
-    policy_denial = _runtime_tool_policy_denial(gateway, tool)
+    policy_denial = _runtime_tool_policy_denial(gateway, tool) if apply_gateway_policy else None
     if policy_denial:
         rpc_code, error, error_code = policy_denial
         _record_denied_call(
@@ -1524,7 +1560,7 @@ async def invoke_gateway(
             schema_hash=tool.schema_hash,
         )
         return _jsonrpc_error(request_id, rpc_code, error, {"error_code": error_code})
-    if approved_hash != tool.schema_hash:
+    if apply_gateway_policy and approved_hash != tool.schema_hash:
         _record_denied_call(
             db,
             token,

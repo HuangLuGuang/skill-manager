@@ -1,4 +1,5 @@
 import { createI18n } from 'vue-i18n'
+import { mcpScanMessages } from './mcpScan.js'
 import { scanScheduleMessages } from './scanSchedule.js'
 import { assetLifecycleMessages } from './assetLifecycle.js'
 import { skillBatchMessages } from './skillBatch.js'
@@ -26,6 +27,7 @@ export const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
+      mcpScan: mcpScanMessages['zh-CN'],
       skillUpload: {
         jobs: {
           title: '历史提交记录', backToRecords: '返回历史提交记录', filename: 'ZIP 包名称', createdAt: '导入时间', id: '任务编号', state: '状态', progress: '已处理 / 总数', results: '结果',
@@ -424,7 +426,7 @@ export const i18n = createI18n({
           approval: '扫描审批 ID',
           reportTemplateVersion: '报告模板版本', decisionCriteriaVersion: '判定口径版本', legacyUnversioned: '历史记录未保存版本',
         },
-        scanKinds: { control_plane_validation: '扫描链路自检', agent_risk_scan: 'Agent 风险扫描', dify_asset_inventory: 'Dify 资产清单', mcp_risk_scan: 'MCP 元数据扫描', llm_redteam_scan: '大模型红队扫描', ai_infrastructure_vulnerability_scan: 'AI 基础设施漏洞扫描' },
+        scanKinds: { control_plane_validation: '扫描链路自检', agent_risk_scan: 'Agent 风险扫描', dify_asset_inventory: 'Dify 资产清单', mcp_risk_scan: 'MCP 风险扫描', llm_redteam_scan: '大模型红队扫描', ai_infrastructure_vulnerability_scan: 'AI 基础设施漏洞扫描' },
         executionModes: { passive: '被动', read_only: '只读', active_safe: '主动安全', active_full: '完整主动' },
         environments: { sandbox: '沙箱', test: '测试', staging: '预生产', production: '生产' },
         capabilities: { conversation: '对话测试', multi_turn: '多轮会话', tool_read: '只读工具', tool_write: '写入工具', network_egress: '网络出站', file_read: '文件读取', file_write: '文件写入', code_execution: '代码执行', persistent_memory: '持久记忆' },
@@ -1007,6 +1009,7 @@ export const i18n = createI18n({
       legacy: legacyMessages['zh-CN'],
     },
     'en-US': {
+      mcpScan: mcpScanMessages['en-US'],
       skillUpload: {
         jobs: {
           title: 'Submission history', backToRecords: 'Back to submission history', filename: 'ZIP filename', createdAt: 'Import time', id: 'Job ID', state: 'Status', progress: 'Processed / total', results: 'Results',
@@ -1405,7 +1408,7 @@ export const i18n = createI18n({
           approval: 'Scan approval ID',
           reportTemplateVersion: 'Report template version', decisionCriteriaVersion: 'Decision criteria version', legacyUnversioned: 'Legacy record without a saved version',
         },
-        scanKinds: { control_plane_validation: 'Scan pipeline self-check', agent_risk_scan: 'Agent risk scan', dify_asset_inventory: 'Dify asset inventory', mcp_risk_scan: 'MCP metadata scan', llm_redteam_scan: 'LLM red-team scan', ai_infrastructure_vulnerability_scan: 'AI infrastructure vulnerability scan' },
+        scanKinds: { control_plane_validation: 'Scan pipeline self-check', agent_risk_scan: 'Agent risk scan', dify_asset_inventory: 'Dify asset inventory', mcp_risk_scan: 'MCP risk scan', llm_redteam_scan: 'LLM red-team scan', ai_infrastructure_vulnerability_scan: 'AI infrastructure vulnerability scan' },
         executionModes: { passive: 'Passive', read_only: 'Read only', active_safe: 'Active safe', active_full: 'Active full' },
         environments: { sandbox: 'Sandbox', test: 'Test', staging: 'Staging', production: 'Production' },
         capabilities: { conversation: 'Conversation testing', multi_turn: 'Multi-turn sessions', tool_read: 'Read-only tools', tool_write: 'Write tools', network_egress: 'Network egress', file_read: 'File read', file_write: 'File write', code_execution: 'Code execution', persistent_memory: 'Persistent memory' },

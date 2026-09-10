@@ -131,7 +131,7 @@
                 <a-space v-if="canAdmin" wrap>
                   <a-button type="link" size="small" @click="openTargetModal(record)">{{ t('agentSecurityScans.edit') }}</a-button>
                   <a-button
-                    v-if="record.target_type !== 'mcp_gateway'"
+                    v-if="!['mcp_gateway', 'mcp_source'].includes(record.target_type)"
                     type="link"
                     size="small"
                     @click="openCredentialModal(record)"
@@ -462,6 +462,9 @@
             <a-select-option v-for="gateway in mcpGateways" :key="gateway.id" :value="gateway.id" :label="gateway.name || gateway.slug">{{ gateway.name || gateway.slug }} · {{ gateway.slug }}</a-select-option>
           </a-select>
         </a-form-item>
+        <a-form-item v-else-if="targetForm.connector_type === 'mcp_source'" :label="t('mcpScan.sourceTarget')" required>
+          <McpSourceInput :model-value="targetForm.endpoint_url.replace('mcp-source://', '')" @imported="setTargetSource" />
+        </a-form-item>
         <a-form-item v-else :label="t('agentSecurityScans.targets.endpoint')" required>
           <div class="endpoint-connectivity">
             <a-input v-model:value="targetForm.endpoint_url" :placeholder="t('agentSecurityScans.targets.endpointPlaceholder')" />
@@ -542,10 +545,10 @@
           <a-row :gutter="16"><a-col :xs="24" :md="8"><a-form-item :label="t('agentSecurityScans.targets.model')" required><a-input v-model:value="targetForm.llm_model" /></a-form-item></a-col><a-col :xs="24" :md="10"><a-form-item :label="t('agentSecurityScans.targets.chatCompletionsPath')"><a-input v-model:value="targetForm.llm_chat_completions_path" /></a-form-item></a-col><a-col :xs="24" :md="6"><a-form-item :label="t('agentSecurityScans.targets.timeoutMs')"><a-input-number v-model:value="targetForm.llm_timeout_ms" :min="1000" :max="120000" class="number-input" /></a-form-item></a-col></a-row>
           <a-form-item :label="t('agentSecurityScans.targets.advancedConfig')" :extra="targetConfigHelp"><a-textarea v-model:value="targetForm.config_json" class="code-input" :rows="5" /></a-form-item>
         </template>
-        <a-form-item v-else-if="targetForm.connector_type !== 'mcp_gateway'" :label="targetForm.connector_type === 'dify' ? t('agentSecurityScans.inventory.advancedConfig') : t('agentSecurityScans.targets.config')" :extra="targetConfigHelp"><a-textarea v-model:value="targetForm.config_json" class="code-input" :rows="6" /></a-form-item>
+        <a-form-item v-else-if="!['mcp_gateway', 'mcp_source'].includes(targetForm.connector_type)" :label="targetForm.connector_type === 'dify' ? t('agentSecurityScans.inventory.advancedConfig') : t('agentSecurityScans.targets.config')" :extra="targetConfigHelp"><a-textarea v-model:value="targetForm.config_json" class="code-input" :rows="6" /></a-form-item>
         <a-alert v-if="targetForm.asset_type === 'llm'" class="modal-alert" type="info" show-icon :message="t('agentSecurityScans.targets.llmConfigBoundary')" />
         <a-alert v-if="targetForm.asset_type === 'ai_infrastructure'" class="modal-alert" type="warning" show-icon :message="t('agentSecurityScans.targets.infrastructureConfigBoundary')" />
-        <a-form-item v-if="targetForm.connector_type !== 'mcp_gateway'">
+        <a-form-item v-if="targetForm.connector_type !== 'mcp_source'">
           <a-checkbox v-model:checked="targetForm.allow_insecure_transport">{{ t('agentSecurityScans.targets.allowInsecure') }}</a-checkbox>
         </a-form-item>
       </a-form>
@@ -645,7 +648,9 @@
           </a-form-item>
         </template>
         <a-form-item :label="t('agentSecurityScans.tasks.kind')" required><a-select v-model:value="taskForm.scan_kind" :disabled="availableScanKinds.length === 1"><a-select-option v-for="kind in availableScanKinds" :key="kind" :value="kind">{{ scanKindLabel(kind) }}</a-select-option></a-select></a-form-item>
-        <a-form-item v-if="['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind)" :label="t('agentSecurityScans.tasks.evaluationModel')" required :extra="t('agentSecurityScans.tasks.evaluationModelHelp')">
+        <McpScanOptions v-if="taskForm.scan_kind === 'mcp_risk_scan'" v-model="mcpForm" :target="selectedTaskTarget" :models="evaluationModels" :can-import="canAdmin" />
+        <a-form-item v-if="taskForm.scan_kind === 'mcp_risk_scan' && needsEvaluator" :label="t('agentSecurityScans.tasks.prompt')"><a-textarea v-model:value="taskForm.prompt" :rows="3" :maxlength="4096" /></a-form-item>
+        <a-form-item v-if="needsEvaluator" :label="t('agentSecurityScans.tasks.evaluationModel')" required :extra="t('agentSecurityScans.tasks.evaluationModelHelp')">
           <a-select v-model:value="taskForm.evaluation_model" show-search option-filter-prop="label" :loading="redteamOptionsLoading" :disabled="redteamOptionsLoading" :placeholder="t('agentSecurityScans.tasks.selectEvaluationModel')" :not-found-content="t('agentSecurityScans.tasks.noEvaluationModels')">
             <a-select-option v-for="model in evaluationModels" :key="model.id" :value="model.name" :label="`${model.display_name || model.name} (${model.name}) · ${model.provider_name}`">
               {{ model.display_name || model.name }} ({{ model.name }}) · {{ model.provider_name }}
@@ -919,10 +924,11 @@
                 class="modal-alert"
                 type="info"
                 show-icon
-                :message="t('agentSecurityScans.detail.mcpMetadataBoundary')"
+                :message="t(taskDetail.task.scan_options?.metadata_only ? 'agentSecurityScans.detail.mcpMetadataBoundary' : 'mcpScan.boundary')"
               />
               <a-alert v-else-if="isLlmTaskDetail" class="modal-alert" type="warning" show-icon :message="t('agentSecurityScans.detail.llmRedteamBoundary')" />
               <a-alert v-else-if="isInfrastructureTaskDetail" class="modal-alert" type="warning" show-icon :message="t('agentSecurityScans.detail.infrastructureBoundary')" />
+              <McpCallEvidence v-if="isMcpTaskDetail && canAdmin && !taskDetail.task.scan_options?.metadata_only" :task-id="taskDetail.task.task_id" />
               <a-descriptions v-if="isMcpTaskDetail" class="case-coverage-summary" bordered size="small" :column="{ xs: 2, sm: 3, md: 4 }">
                 <a-descriptions-item :label="t('agentSecurityScans.detail.mcpCaseSummary.planned')">{{ mcpCaseSummary.planned }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.mcpCaseSummary.noRiskObserved')">{{ mcpCaseSummary.no_risk_observed }}</a-descriptions-item>
@@ -953,7 +959,7 @@
                           <div>{{ t('agentSecurityScans.detail.mcpToolName') }}：{{ item.request_summary?.asset?.exposed_name || item.request_summary?.asset?.tool_name || item.title }}</div>
                           <div>{{ t('agentSecurityScans.detail.caseFindingCount', { value: item.finding_count ?? 0 }) }} · {{ t('agentSecurityScans.detail.activeFindingCount', { value: item.active_finding_count ?? 0 }) }}</div>
                           <div>{{ t('agentSecurityScans.detail.scanMode') }}：{{ scanModeLabel(item.scan_mode) }} · {{ t('agentSecurityScans.detail.mcpToolCalls', { value: item.tool_calls_performed ?? 0 }) }}</div>
-                          <div class="muted">{{ t('agentSecurityScans.detail.mcpCaseBoundary') }}</div>
+                          <div class="muted">{{ t(taskDetail.task.scan_options?.metadata_only ? 'agentSecurityScans.detail.mcpCaseBoundary' : 'mcpScan.boundary') }}</div>
                         </template>
                         <template v-else>
                           <div v-if="isLlmTaskDetail" class="case-meta-line">{{ t('agentSecurityScans.tasks.techniques') }}: {{ promptTransformationLabel(item.request_summary?.attack_method, t, te) }}</div>
@@ -1078,6 +1084,9 @@ import { normalizeFindingTraceability } from '../securityFindingTraceability'
 import { comparisonCandidates, mergeLlmConfigFromForm, normalizeLlmConfigForForm, selectCompatiblePolicyId } from '../securityScanWorkflow'
 import { parseRedteamArtifact, projectScanCases, promptTransformationLabel, summarizeCaseCoverage, summarizeRedteamRows } from '../securityScanReport'
 import DifyAssetInventory from './components/DifyAssetInventory.vue'
+import McpScanOptions from '../components/McpScanOptions.vue'
+import McpSourceInput from '../components/McpSourceInput.vue'
+import McpCallEvidence from '../components/McpCallEvidence.vue'
 import RedteamDatasetPicker from './components/RedteamDatasetPicker.vue'
 import FindingEvidence from './components/FindingEvidence.vue'
 import TargetGovernance from './components/TargetGovernance.vue'
@@ -1168,7 +1177,7 @@ const findingsLoading = ref(false)
 const assetTypes = ['agent', 'mcp', 'llm', 'ai_infrastructure']
 const connectorTypesByAsset = {
   agent: ['dify', 'coze', 'openai_compatible', 'custom_http', 'websocket'],
-  mcp: ['mcp_gateway'],
+  mcp: ['mcp_gateway', 'mcp_source'],
   llm: ['openai_compatible'],
   ai_infrastructure: ['network_endpoint'],
 }
@@ -1315,7 +1324,15 @@ const governance = ref(null), schedulesPanel = ref(null), scheduleCount = ref(0)
 const executionMode = ref('now'), editingSchedule = ref(null), scheduleName = ref(''), scheduleKey = ref(''), runImmediately = ref(false), timingValid = ref(false)
 const scanTiming = ref({ kind: 'daily', timezone: 'Asia/Shanghai', interval_minutes: 360, time: '02:00', weekday: 1, cron: '0 2 * * *' })
 async function openOriginSchedule(id) { detailDrawerOpen.value = false; await selectStage('schedules'); await nextTick(); await schedulesPanel.value?.open(id) }
-async function editSchedule(row) { await openTaskModal(); editingSchedule.value = row; executionMode.value = 'scheduled'; scheduleName.value = row.name; scanTiming.value = { ...row.timing }; Object.assign(taskForm, row.task); taskForm.llm_input_mode = row.task.datasets?.length ? 'dataset' : 'prompt'; taskPreview.value = null }
+async function editSchedule(row) {
+  await openTaskModal()
+  editingSchedule.value = row; executionMode.value = 'scheduled'; scheduleName.value = row.name
+  scanTiming.value = { ...row.timing }
+  Object.assign(taskForm, row.task)
+  mcpForm.value = Object.fromEntries(Object.entries(emptyMcpOptions()).map(([key, value]) => [key, row.task[key] ?? value]))
+  taskForm.llm_input_mode = row.task.datasets?.length ? 'dataset' : 'prompt'
+  taskPreview.value = null
+}
 async function saveSchedule() {
   if (submittingTask.value || !timingValid.value || !scheduleName.value.trim()) return
   submittingTask.value = true
@@ -1323,7 +1340,10 @@ async function saveSchedule() {
 }
 async function loadTargetRisks() { try { const map = {}; let offset = 0; while (true) { const data = await listManagedAgentRisks({ limit: 200, offset }); for (const x of data.items) map[x.target_id] = x.risk; offset += data.items.length; if (!data.items.length || offset >= data.total) break }; targetRisks.value = map } catch(e) { message.error(errorText(e)) } }
 const taskForm = reactive({ target_id: undefined, policy_id: undefined, approval_id: undefined, scan_kind: 'control_plane_validation', skills: [], prompt: '', conversation_mode: 'single_turn', continue_from_task_id: undefined, llm_input_mode: 'dataset', datasets: ['JailBench-Tiny'], num_prompts: 10, random_seed: 42, techniques: ['Raw'], evaluation_model: undefined, http_authorized: false, private_network_authorized: false, scan_timeout_seconds: 30, scan_concurrency: 2, inventory_source: 'console_api', manual_dsl: '', include_prompt_text: false, infer_agent_intent: false, intent_inference_model: undefined, knowledge_content_authorized: false, max_knowledge_documents: 100, max_knowledge_segments: 1000, max_knowledge_bytes: 10485760 })
-const evaluatorSelectionMissing = computed(() => ['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind) && (redteamOptionsLoading.value || !taskForm.evaluation_model))
+const emptyMcpOptions = () => ({ mcp_mode: 'metadata', mcp_depth: 'full', mcp_source_id: null, mcp_tools: [], mcp_call_limit: 20, mcp_route: 'gateway', mcp_strategy: 'crescendo', analysis_model: null, attack_model: null })
+const mcpForm = ref(emptyMcpOptions())
+const needsEvaluator = computed(() => ['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind) || (taskForm.scan_kind === 'mcp_risk_scan' && mcpForm.value.mcp_mode !== 'metadata'))
+const evaluatorSelectionMissing = computed(() => needsEvaluator.value && (redteamOptionsLoading.value || !taskForm.evaluation_model))
 const killSwitchModalOpen = ref(false)
 const killSwitchTask = ref(null)
 const killSwitchReason = ref('')
@@ -1342,13 +1362,15 @@ const availableScanKinds = computed(() => {
 })
 const resumableTasks = computed(() => tasks.value.filter(item => item.target_id === taskForm.target_id && item.scan_kind === 'agent_risk_scan' && item.session_continuation_available))
 const taskSafetyMessage = computed(() => ({
-  mcp_risk_scan: t('agentSecurityScans.tasks.mcpSafety'),
+  mcp_risk_scan: t(mcpForm.value.mcp_mode === 'metadata' ? 'agentSecurityScans.tasks.mcpSafety' : 'mcpScan.boundary'),
   agent_risk_scan: t('agentSecurityScans.tasks.agentSafety'),
   llm_redteam_scan: t('agentSecurityScans.tasks.llmSafety'),
   ai_infrastructure_vulnerability_scan: t('agentSecurityScans.tasks.infrastructureSafety'),
   dify_asset_inventory: t('agentSecurityScans.inventory.taskSafety'),
 }[taskForm.scan_kind] || t('agentSecurityScans.tasks.controlSafety')))
 const previewCaseLabel = item => {
+  if (item.category === 'mcp_source') return t('mcpScan.source')
+  if (item.dynamic && String(item.case_key).startsWith('mcp_tool:')) return t('mcpScan.toolCase', { value: String(item.case_key).slice(9) })
   const key = `agentSecurityScans.tasks.previewCases.${item.case_key}`
   if (te(key)) return t(key)
   if (String(item.case_key).startsWith('mcp_tool:')) return t('agentSecurityScans.tasks.mcpToolCase', { value: String(item.case_key).slice(9) })
@@ -1563,6 +1585,7 @@ const findingDescription = finding => {
 }
 const caseHasDetails = item => Boolean(item?.request_summary?.prompt || item?.response_summary?.response || item?.response_summary?.evaluator_reason)
 const caseTitle = item => {
+  if (String(item?.case_id).startsWith('progress:mcp-stage-')) return t('mcpScan.stage', { value: item.case_id.slice('progress:mcp-stage-'.length) })
   if (item?.category !== 'llm_redteam_prompt') return item?.title || t('agentSecurityScans.detail.case')
   const match = String(item?.external_case_id || '').match(/:(\d+)$/)
   const number = match ? match[1] : (taskDetail.value?.cases.indexOf(item) ?? -1) + 1
@@ -1571,7 +1594,7 @@ const caseTitle = item => {
 const artifactStatusLabel = value => ({ Safe: t('agentSecurityScans.detail.artifactStatuses.safe'), Jailbreak: t('agentSecurityScans.detail.artifactStatuses.jailbreak'), Exception: t('agentSecurityScans.detail.artifactStatuses.exception'), SimulationFailed: t('agentSecurityScans.detail.artifactStatuses.simulationFailed') }[value] || value || '—')
 const artifactStatusColor = value => ({ Safe: 'green', Jailbreak: 'red', Exception: 'orange', SimulationFailed: 'default' }[value] || 'default')
 const artifactRowTitle = item => `${t('agentSecurityScans.detail.artifactCase')} #${item._index} · ${item.vulnerability || '—'}`
-const artifactTitle = item => t(`agentSecurityScans.detail.artifactTypes.${item.artifact_type}`, item.artifact_type || t('agentSecurityScans.detail.artifact'))
+const artifactTitle = item => item.artifact_type === 'mcp-aig-report' ? t('mcpScan.report') : item.artifact_type === 'mcp-sarif-report' ? t('mcpScan.sarif') : t(`agentSecurityScans.detail.artifactTypes.${item.artifact_type}`, item.artifact_type || t('agentSecurityScans.detail.artifact'))
 const artifactSummary = item => {
   const metadata = item.metadata || {}
   const parts = []
@@ -1584,13 +1607,15 @@ const artifactSummary = item => {
 const targetName = id => targets.value.find(item => item.target_id === id)?.name || id
 const policyName = id => policies.value.find(item => item.policy_id === id)?.name || id
 const targetTypeLabel = (value) => {
+  if (value === 'mcp_source') return t('mcpScan.sourceTarget')
   const key = `agentSecurityScans.targets.targetTypes.${value}`
   return te(key) ? t(key) : value
 }
 const assetTypeLabel = value => t(`agentSecurityScans.targets.assetTypes.${value}`, value)
-const connectorTypeLabel = value => t(`agentSecurityScans.targets.connectorTypes.${value}`, value)
+const connectorTypeLabel = value => value === 'mcp_source' ? t('mcpScan.sourceTarget') : t(`agentSecurityScans.targets.connectorTypes.${value}`, value)
 const shortId = value => value ? `${String(value).slice(0, 12)}…` : '—'
 const engineDisplayNames = {
+  'ai-infra-guard-mcp-scan': 'mcpScan.engine',
   'agent-manager-dify-inventory': 'agentSecurityScans.engines.difyInventory',
   'tencent-ai-infra-guard-model-redteam': 'agentSecurityScans.engines.llmRedteam',
   'tencent-ai-infra-guard-agent-scan': 'agentSecurityScans.engines.agentRisk',
@@ -1604,12 +1629,12 @@ const targetCredentialLabel = record => record.target_type === 'mcp_gateway'
   : record.credential_configured
     ? record.credential_masked
     : t('agentSecurityScans.targets.notConfigured')
-const scanKindLabel = value => t(`agentSecurityScans.scanKinds.${value}`)
+const scanKindLabel = value => value === 'mcp_risk_scan' ? t('mcpScan.title') : t(`agentSecurityScans.scanKinds.${value}`)
 const statusLabel = value => t(`agentSecurityScans.statuses.${value}`, value)
 const caseLegacyStatusLabel = value => t(`agentSecurityScans.detail.caseLegacyStatuses.${value}`, value)
 const caseExecutionLabel = value => t(`agentSecurityScans.detail.caseExecutionStatuses.${value}`, value)
 const caseAssessmentLabel = value => t(`agentSecurityScans.detail.caseAssessmentStatuses.${value}`, value)
-const scanModeLabel = value => t(`agentSecurityScans.detail.scanModes.${value}`, value || '—')
+const scanModeLabel = value => ['source', 'dynamic', 'redteam'].includes(value) ? t(`mcpScan.${value}`) : t(`agentSecurityScans.detail.scanModes.${value}`, value || '—')
 const severityLabel = value => t(`agentSecurityScans.severities.${value}`, value)
 const findingStatusLabel = value => t(`agentSecurityScans.findingStatuses.${value}`, value)
 const executionModeLabel = value => t(`agentSecurityScans.executionModes.${value}`, value)
@@ -1695,6 +1720,7 @@ const openTargetModal = record => {
   loadDifyMcpBindings(record)
 }
 const handleAssetTypeChange = () => { targetForm.connector_type = connectorTypesByAsset[targetForm.asset_type][0]; handleConnectorTypeChange() }
+const setTargetSource = source => { targetForm.endpoint_url = `mcp-source://${source.source_id}`; targetForm.config_json = JSON.stringify({ source_id: source.source_id }) }
 const handleConnectorTypeChange = () => { targetForm.endpoint_url = ''; targetForm.gateway_id = undefined; targetForm.llm_model = ''; targetForm.llm_chat_completions_path = '/v1/chat/completions'; targetForm.llm_timeout_ms = 30000; targetForm.config_json = '{}'; Object.assign(targetForm, emptyDifyTargetFields()) }
 const handleGatewayChange = id => { const gateway = mcpGateways.value.find(item => item.id === id); targetForm.endpoint_url = gateway ? `mcp-gateway://${gateway.slug}` : '' }
 const saveTarget = async () => {
@@ -1727,7 +1753,7 @@ const saveTarget = async () => {
   const payload = { name: targetForm.name.trim(), asset_type: targetForm.asset_type, connector_type: targetForm.connector_type, environment: targetForm.environment, allowed_capabilities: [...targetForm.allowed_capabilities], endpoint_url: targetForm.endpoint_url.trim(), allowed_cidrs: splitList(targetForm.allowed_cidrs), allow_insecure_transport: Boolean(targetForm.allow_insecure_transport), config }
   submittingTarget.value = true
   try {
-    if (targetForm.connector_type !== 'mcp_gateway' && !connectivityResult.value) {
+    if (!['mcp_gateway', 'mcp_source'].includes(targetForm.connector_type) && !connectivityResult.value) {
       const confirmed = await new Promise(resolve => {
         Modal.confirm({
           title: t('agentSecurityScans.targets.connectivityUntestedTitle'),
@@ -1792,6 +1818,7 @@ const togglePolicy = async record => { try { await updateSecurityPolicy(record.p
 
 const resetTaskOptions = () => Object.assign(taskForm, { skills: [], prompt: '', conversation_mode: 'single_turn', continue_from_task_id: undefined, llm_input_mode: 'dataset', datasets: ['JailBench-Tiny'], num_prompts: 10, random_seed: 42, techniques: ['Raw'], evaluation_model: undefined, http_authorized: false, private_network_authorized: false, scan_timeout_seconds: 30, scan_concurrency: 2, inventory_source: 'console_api', manual_dsl: '', include_prompt_text: false, infer_agent_intent: false, intent_inference_model: undefined, knowledge_content_authorized: false, max_knowledge_documents: 100, max_knowledge_segments: 1000, max_knowledge_bytes: 10485760 })
 const openTaskModal = async () => {
+  mcpForm.value = emptyMcpOptions()
   executionMode.value = 'now'; editingSchedule.value = null; scheduleName.value = ''; scheduleKey.value = createRequestId(); runImmediately.value = false
   const target = activeTargets.value.find(item => enabledPolicies.value.some(policy => policyCompatibleWithTarget(policy, item)))
   const compatiblePolicies = enabledPolicies.value.filter(item => policyCompatibleWithTarget(item, target))
@@ -1823,13 +1850,19 @@ const approveProductionScan = async () => {
   } catch (error) { message.error(errorText(error)) } finally { submittingApproval.value = false }
 }
 const taskPlanPayload = () => ({
+  ...(taskForm.scan_kind === 'mcp_risk_scan' ? { ...mcpForm.value,
+    analysis_model: mcpForm.value.mcp_mode === 'metadata' ? null : mcpForm.value.analysis_model,
+    attack_model: mcpForm.value.mcp_mode === 'redteam' ? mcpForm.value.attack_model : null,
+    mcp_tools: ['dynamic', 'redteam'].includes(mcpForm.value.mcp_mode) ? mcpForm.value.mcp_tools : [],
+    mcp_source_id: mcpForm.value.mcp_mode === 'source' ? mcpForm.value.mcp_source_id : null,
+  } : {}),
   target_id: taskForm.target_id,
   policy_id: taskForm.policy_id,
   approval_id: requiresProductionApproval.value ? taskForm.approval_id : null,
   scan_kind: taskForm.scan_kind,
   language: locale.value === 'en-US' ? 'en' : 'zh',
   skills: taskForm.scan_kind === 'agent_risk_scan' ? taskForm.skills : [],
-  prompt: ['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind) ? taskForm.prompt : '',
+  prompt: needsEvaluator.value ? taskForm.prompt : '',
   conversation_mode: taskForm.scan_kind === 'agent_risk_scan' ? taskForm.conversation_mode : 'single_turn',
   continue_from_task_id: taskForm.scan_kind === 'agent_risk_scan' ? taskForm.continue_from_task_id || null : null,
   reset_session: !taskForm.continue_from_task_id,
@@ -1837,7 +1870,7 @@ const taskPlanPayload = () => ({
   num_prompts: taskForm.num_prompts,
   random_seed: taskForm.random_seed,
   techniques: taskForm.scan_kind === 'llm_redteam_scan' ? taskForm.techniques : [],
-  evaluation_model: ['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind) ? taskForm.evaluation_model || null : null,
+  evaluation_model: needsEvaluator.value ? taskForm.evaluation_model || null : null,
   http_authorized: taskForm.scan_kind === 'ai_infrastructure_vulnerability_scan' && taskForm.http_authorized,
   private_network_authorized: taskForm.scan_kind === 'ai_infrastructure_vulnerability_scan' && taskForm.private_network_authorized,
   scan_timeout_seconds: taskForm.scan_kind === 'ai_infrastructure_vulnerability_scan' ? taskForm.scan_timeout_seconds : null,
@@ -1855,7 +1888,7 @@ const taskPlanPayload = () => ({
 const loadTaskPreview = async () => {
   if (previewingTask.value || submittingTask.value) return
   if (!taskForm.target_id || !taskForm.policy_id) return message.warning(t('agentSecurityScans.requiredFields'))
-  if (['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind) && !taskForm.evaluation_model) return message.warning(t('agentSecurityScans.tasks.selectEvaluationModel'))
+  if (needsEvaluator.value && !taskForm.evaluation_model) return message.warning(t('agentSecurityScans.tasks.selectEvaluationModel'))
   if (taskForm.scan_kind === 'llm_redteam_scan' && taskForm.llm_input_mode === 'dataset' && !taskForm.datasets.length) return message.warning(t('agentSecurityScans.requiredFields'))
   if (taskForm.scan_kind === 'llm_redteam_scan' && taskForm.llm_input_mode === 'dataset' && taskForm.num_prompts !== -1 && (!Number.isInteger(taskForm.num_prompts) || taskForm.num_prompts < 1 || taskForm.num_prompts > 100)) return message.warning(t('agentSecurityScans.tasks.invalidSampleCount'))
   if (requiresProductionApproval.value && !taskForm.approval_id) return message.warning(t('agentSecurityScans.tasks.productionApprovalRequired'))
@@ -2049,6 +2082,7 @@ watch(() => caseProjection.value.rows.map(item => item.case_id), keys => {
   casePage.value = Math.min(casePage.value, Math.max(1, Math.ceil(keys.length / 10)))
 }, { flush: 'sync' })
 watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null })
+watch(() => taskForm.target_id, () => { mcpForm.value = { ...emptyMcpOptions(), mcp_mode: selectedTaskTarget.value?.connector_type === 'mcp_source' ? 'source' : 'metadata' } }, { flush: 'sync' })
 watch(executionMode, value => { if (value === 'scheduled') { taskForm.continue_from_task_id = undefined; taskForm.inventory_source = 'console_api'; taskPreview.value = null } })
 watch(activeStage, value => { if (value === 'targets') loadTargetRisks() })
 watch(() => route.query.schedule_id, async id => { if (id) { await nextTick(); await schedulesPanel.value?.open(String(id)) } })

@@ -42,6 +42,8 @@ if WORKER_DIR not in sys.path:
 
 _aig_adapter = importlib.import_module("aig_adapter")
 _mcp_adapter = importlib.import_module("mcp_adapter")
+_mcp_executor = importlib.import_module("mcp_executor")
+McpExecutionError = _mcp_executor.McpExecutionError
 _llm_redteam_adapter = importlib.import_module("llm_redteam_adapter")
 _ai_infrastructure_adapter = importlib.import_module("ai_infrastructure_adapter")
 _dify_inventory_adapter = importlib.import_module("dify_inventory_adapter")
@@ -335,13 +337,18 @@ def _run_mcp_scan(claim: dict[str, Any]) -> None:
         monotonic_usage = _monotonic_usage(claim.get("last_usage") or initial_usage, usage)
         response = _request(
             f"/worker/tasks/{task_id}/heartbeat",
-            {"lease_token": lease_token, "usage": monotonic_usage},
+            {"lease_token": lease_token, "usage": monotonic_usage,
+             **({"scan_progress": claim["mcp_progress"]} if claim.get("mcp_progress") else {})},
         )
         claim["last_usage"] = monotonic_usage
         _touch_health()
         return response
 
-    result = execute_mcp_scan(claim, heartbeat, initial_usage=initial_usage)
+    if (claim.get("scan_options") or {}).get("mcp_mode", "metadata") == "metadata":
+        result = execute_mcp_scan(claim, heartbeat, initial_usage=initial_usage)
+    else:
+        from mcp_executor import execute_mcp_aig_scan
+        result = execute_mcp_aig_scan(claim, heartbeat, _evaluator_config(claim), initial_usage=initial_usage)
     _request(
         f"/worker/tasks/{task_id}/complete",
         {"lease_token": lease_token, **result},
@@ -638,6 +645,8 @@ def run() -> int:
                     reason = _aig_service_client.AIG_FAILURE_MESSAGES.get(exc.code, "Check scanning service availability.")
                     print(f"agent-security worker AIG service error: code={exc.code}; reason={reason}", file=sys.stderr)
                     _complete_failure(claim, code=exc.code, retryable=exc.retryable)
+                except McpExecutionError as exc:
+                    _complete_failure(claim, code=exc.code, retryable=False)
                 except DifyConsoleError as exc:
                     print(f"agent-security worker Dify inventory error: code={exc.code}", file=sys.stderr)
                     _complete_failure(claim, code=exc.code, retryable=exc.retryable)

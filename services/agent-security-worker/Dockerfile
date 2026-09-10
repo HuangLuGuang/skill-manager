@@ -35,6 +35,7 @@ COPY services/agent-security-worker/worker.py /app/worker.py
 COPY agent_manager/security_redaction.py /app/security_redaction.py
 COPY services/agent-security-worker/aig_adapter.py /app/aig_adapter.py
 COPY services/agent-security-worker/mcp_adapter.py /app/mcp_adapter.py
+COPY services/agent-security-worker/mcp_executor.py /app/mcp_executor.py
 COPY services/agent-security-worker/aig_service_client.py /app/aig_service_client.py
 COPY services/agent-security-worker/aig_scan_common.py /app/aig_scan_common.py
 COPY services/agent-security-worker/llm_redteam_adapter.py /app/llm_redteam_adapter.py

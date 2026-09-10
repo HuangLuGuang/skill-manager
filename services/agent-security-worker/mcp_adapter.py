@@ -17,6 +17,8 @@ AIG_COMMIT = "e8931cc68001b66ad024fd87ef07394e9e96524a"
 MCP_METADATA_ENGINE_NAME = "agent-manager-mcp-metadata-adapter"
 MCP_METADATA_REPORT_SCHEMA = "agent-security-mcp-metadata-report@1"
 VENDOR_ROOT = Path(__file__).resolve().parent / "vendor" / "ai-infra-guard" / "mcp-scan"
+if not VENDOR_ROOT.is_dir():
+    VENDOR_ROOT = Path("/opt/ai-infra-guard/mcp-scan")
 
 MCP_RULES = {
     "MCP02": "Privilege Escalation & Scope Creep",

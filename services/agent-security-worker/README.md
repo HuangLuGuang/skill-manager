@@ -4,19 +4,22 @@
 
 - `control_plane_validation`：P1 任务领取、租约、预算和回传协议验证。
 - `agent_risk_scan`：锁定 AI-Infra-Guard `v4.6.0` 的 Agent 动态风险扫描。
-- `mcp_risk_scan`：读取现有 MCP Gateway 的 Server、Tool、描述、当前 Schema Hash 和已批准
-  Schema Hash 快照，检查工具描述注入/投毒、危险参数、高风险操作和 Schema 漂移。
+- `mcp_risk_scan`：元数据检查、只读源码快速/完整审计、四阶段动态扫描及 Crescendo/TAP 多轮红队。
+  发起任务时选择模型网关中已启用的评估模型，并可分别选择分析模型和攻击模型。
 
 AI-Infra-Guard Agent Scan 和 MCP Scan 源码随镜像交付，不在容器启动时下载。Worker 使用非 root、只读根文件
 系统、`/tmp` tmpfs 和资源上限运行；它不会引入上游 Web Server、账号体系或前端。
 
-P3 不直接运行上游 MCP 动态验证模式。锁定版动态模式会向远程 Server 发起真实 `tools/call`，
-可能触发写入、删除、转账或外发。P3 Adapter 只读取任务创建时冻结的 Gateway 元数据快照，复用
-上游 MCP 分类标签和 Tool 描述净化契约；风险规则、严重度和建议由本平台元数据检查器产生，
-不标记成完整上游扫描结果。快照在入库前删除常见凭据/PII 值、限深、限长并保留原文 hash；
-完整原文只用于 Backend 提取无原文危险信号。投影被裁剪或完整分析达到上限会产生高风险 Finding，
-空 Tool 集合 fail-closed。报告固定记录 `tool_calls_performed=0`。审批、禁用和调用策略只作为
-`suggestion_only` 返回，不会自动修改生产配置。
+元数据模式保留平台规则检查器，并记录 `tool_calls_performed=0`。其他模式在独立任务进程内调用
+Tencent Zhuque Lab / AI-Infra-Guard `v4.6.0` 的扫描入口。源码执行器只提供作用域内的文件读取、
+列举和文本搜索，不执行源码或模型生成的代码。动态工具通过 Backend 的任务租约接口调用，
+由 Backend 校验冻结地址、DNS、Schema、工具范围、策略能力、网络白名单、敏感工具审批和调用预算。
+源码快照和模型请求复用平台的存储/网关机制，供应商和 MCP 服务凭据保留在 Backend。
+
+红队复用上游 Crescendo/TAP 策略，并用真实工具调用替换其默认的模型模拟目标。
+报告包含阶段结果、调用 ID、JSON 和 SARIF；模型意见作为待复核风险信号。原始工具请求和返回加密存储，
+安全管理员读取时记入审计。取消或预算停止后终止任务进程并清理临时目录。
+功能范围及操作说明见 [项目指南](../../docs/project-guide.md#69-mcp-server-和-tool-风险扫描)。
 
 ## 凭据边界
 
@@ -127,3 +130,11 @@ Dify 资产采集的 Console/Knowledge API 客户端直接连接已验证的 IP�
 
 Agent 本地 Mock 位于 `demo/agent-security-mock-target/`；MCP 恶意描述、危险参数、Schema 漂移和
 副作用零调用 Mock 位于 `tests/test_ai_infra_guard_mcp_adapter.py`。Mock 不伪造扫描 Finding。
+
+MCP 源码、四阶段动态扫描和红队执行链的回归使用真实上游代码及确定性的模型/工具响应：
+
+```bash
+uv run --with mcp==2.0.0 --with loguru==0.7.3 python -m pytest tests/test_mcp_scan_execution.py -q
+```
+
+缺少这两个 Worker 依赖时，上游执行链测试会跳过；该回归不替代真实模型与业务 MCP 目标的集成验收。

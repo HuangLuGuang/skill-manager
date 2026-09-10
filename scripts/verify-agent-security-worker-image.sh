@@ -47,6 +47,6 @@ docker run --rm --pull never \
     --cpus 1 \
     --entrypoint python \
     "$IMAGE" \
-    -c "import pathlib,sys; sys.path.insert(0, '/app'); import worker; worker._touch_health(); assert worker._healthcheck() == 0; assert pathlib.Path('/app/licenses/LICENSE').is_file(); assert pathlib.Path('/app/licenses/NOTICE').is_file(); assert pathlib.Path('/app/licenses/sbom.spdx.json').is_file()"
+    -c "import os,pathlib,sys,tempfile; sys.path.insert(0, '/app'); os.chdir(tempfile.mkdtemp(dir='/tmp')); import worker; import mcp_executor; from mcp_scan.agent.agent import Agent; from mcp_scan.redteam.orchestrator import RedTeamOrchestrator; from mcp_scan.utils.prompt_manager import prompt_manager; assert prompt_manager.load_template('agents/code_audit'); assert prompt_manager.load_template('agents/dynamic/general_analyzing_prompt_template'); assert worker._mcp_adapter._upstream_description_contract(); worker._touch_health(); assert worker._healthcheck() == 0; assert pathlib.Path('/app/licenses/LICENSE').is_file(); assert pathlib.Path('/app/licenses/NOTICE').is_file(); assert pathlib.Path('/app/licenses/sbom.spdx.json').is_file()"
 
 echo "Verified ${IMAGE}: arch=${EXPECTED_ARCH}, user=${IMAGE_USER}, offline restricted healthcheck=ok"

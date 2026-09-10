@@ -16,7 +16,7 @@ export function projectScanCases(detail, reportRows = []) {
   const task = detail?.task
   const finalCases = detail?.cases || []
   const terminal = ['succeeded', 'failed', 'cancelled', 'timed_out', 'blocked'].includes(task?.status)
-  const live = task?.scan_kind === 'llm_redteam_scan' && (!terminal || !finalCases.length)
+  const live = ['llm_redteam_scan', 'mcp_risk_scan'].includes(task?.scan_kind) && (!terminal || !finalCases.length) && Boolean(task?.progress?.cases?.length || task?.scan_kind === 'llm_redteam_scan')
   if (live) return {
     source: 'progress',
     rows: (task.progress?.cases || []).map(item => ({
