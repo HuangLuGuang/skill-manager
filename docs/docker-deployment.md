@@ -374,7 +374,7 @@ git push origin v1.0.1
 
 Backend、Sandbox（nsjail 编译阶段和运行阶段）、AIG Scan Service 镜像构建先下载 Debian 依赖，再从已下载的包执行安装。索引更新最多尝试 3 次，依赖下载最多尝试 5 次，下载失败后依次等待 5、10、15、20 秒，并复用本次构建中已下载成功的包；连续失败会终止构建。该重试用于应对依赖下载链路的临时 503 或连接超时，持续网络故障仍需排查代理及网络链路。
 
-`build.sh` 中的基础镜像拉取（包括离线打包前的 nginx 拉取）最多尝试 5 次，失败后依次等待 5、10、15、20 秒。重试保持指定的镜像和目标架构；全部失败会终止任务。该重试覆盖 Docker Hub 鉴权请求的临时 EOF 等拉取错误。
+`build.sh` 中的基础镜像拉取（包括离线打包前的 nginx 拉取）最多尝试 5 次，失败后依次等待 5、10、15、20 秒。Sandbox 构建前也会显式拉取 `buildpack-deps:bookworm` 和 `debian:bookworm-slim`，纳入同一重试流程。重试保持指定的镜像和目标架构；全部失败会终止任务。该重试覆盖 Docker Hub 鉴权请求的临时 EOF 等拉取错误。
 
 35 的 AIG Go 编译阶段通过 `BUILD_GOPROXY=https://goproxy.cn` 下载模块，保留 `go.sum` 和 Go 校验数据库校验。该变量由 `build.sh` 传入 Docker 构建参数，不修改 Runner 的全局代理。
 
