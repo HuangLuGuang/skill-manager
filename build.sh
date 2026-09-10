@@ -228,6 +228,11 @@ if $BUILD_FRONTEND; then
     pull_image node:22-alpine
     pull_image nginx:1.27-alpine
 fi
+if $BUILD_SANDBOX; then
+    step "Pulling nsjail base images for ${PLATFORM}"
+    pull_image buildpack-deps:bookworm
+    pull_image debian:bookworm-slim
+fi
 
 $BUILD_BACKEND && build_backend
 $BUILD_FRONTEND && build_frontend
