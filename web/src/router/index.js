@@ -41,7 +41,7 @@ const routes = [
   { path: '/scanner-access', name: 'scanner-access', component: () => import('../views/ScannerAccess.vue'), meta: { requiresAuth: true } },
   { path: '/model-gateway', redirect: '/model-gateway/providers' },
   { path: '/model-gateway/providers', name: 'model-gateway-providers', component: () => import('../views/ModelGateway.vue'), meta: { requiresAuth: true, gatewayTab: 'providers' } },
-  { path: '/model-gateway/models', name: 'model-gateway-models', component: () => import('../views/ModelGateway.vue'), meta: { requiresAuth: true, gatewayTab: 'models' } },
+  { path: '/model-gateway/models', redirect: '/model-gateway/providers' },
   { path: '/model-gateway/keys', name: 'model-gateway-keys', component: () => import('../views/ModelGateway.vue'), meta: { requiresAuth: true, gatewayTab: 'keys' } },
   { path: '/model-gateway/groups', redirect: '/model-gateway/policy-bindings' },
   { path: '/model-gateway/policy-bindings', name: 'model-gateway-policy-bindings', component: () => import('../views/ModelGateway.vue'), meta: { requiresAuth: true, gatewayTab: 'policy-bindings' } },

@@ -2054,6 +2054,49 @@ async def delete_model_provider(
     return {"status": "deleted"}
 
 
+@admin_router.get("/model-providers/{provider_id}/models")
+async def discover_provider_models(
+    provider_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    row = db.query(models.ModelProvider).filter(models.ModelProvider.id == provider_id).first()
+    if not row:
+        raise ApiError(404, "model.provider_not_found", "模型供应商不存在", "Model provider not found")
+    base = row.base_url.rstrip("/")
+    for suffix in ("/chat/completions", "/messages"):
+        if base.endswith(suffix):
+            base = base[:-len(suffix)]
+            break
+    _, _, headers = _upstream_request(row, {"model": "", "messages": []})
+    found = {}
+    params = {}
+    try:
+        async with httpx.AsyncClient(timeout=min(row.timeout_seconds, 15)) as client:
+            for _ in range(100):
+                response = await client.get(f"{base}/models", headers=headers, params=params)
+                if not 200 <= response.status_code < 300:
+                    raise ApiError(502, "model_discovery.upstream_http_error", "供应商模型列表接口请求失败，可自定义添加模型", "Provider model listing failed; models can be added manually")
+                payload = response.json()
+                if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+                    raise ValueError("Invalid model list")
+                for item in payload["data"]:
+                    if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"].strip():
+                        raise ValueError("Invalid model ID")
+                    found[item["id"]] = {"name": item["id"], "display_name": item.get("display_name") if isinstance(item.get("display_name"), str) else None}
+                if not payload.get("has_more"):
+                    return {"models": sorted(found.values(), key=lambda item: item["name"])}
+                cursor = payload.get("last_id")
+                if not isinstance(cursor, str) or not cursor or cursor == params.get("after_id"):
+                    raise ValueError("Invalid model cursor")
+                params = {"after_id": cursor}
+            raise ValueError("Model list pagination limit exceeded")
+    except httpx.RequestError:
+        raise ApiError(502, "model_discovery.connection_failed", "无法连接供应商，可重试或自定义添加模型", "Could not connect to the provider; retry or add models manually") from None
+    except ValueError:
+        raise ApiError(502, "model_discovery.invalid_response", "供应商模型列表格式无效，可自定义添加模型", "Invalid provider model list; models can be added manually") from None
+
+
 @admin_router.post("/model-providers/{provider_id}/test")
 async def test_model_provider(
     provider_id: int,

@@ -24,67 +24,85 @@
     </a-row>
 
     <div style="margin-top: 16px">
-      <section v-if="activeTab === 'providers'">
-        <a-card>
-          <template #extra>
-            <a-space>
-              <a-button @click="loadAll" :loading="loading">{{ $t("legacy.12qo56a") }}</a-button>
-              <a-button type="primary" @click="openProvider()">{{ $t("legacy.15381me") }}</a-button>
-            </a-space>
-          </template>
-          <a-table :data-source="providers" :columns="providerColumns" row-key="id" :loading="loading" size="small">
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'enabled'">
-                <a-tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? $t('legacy.5pm2ma') : $t('legacy.1dcdrxo') }}</a-tag>
-              </template>
-              <template v-else-if="column.key === 'api_key'">
-                {{ record.api_key_masked || $t('legacy.n1gs62') }}
-              </template>
-              <template v-else-if="column.key === 'action'">
-                <a-space>
-                  <a-button type="link" @click="openProvider(record)">{{ $t("legacy.qreyeg") }}</a-button>
-                  <a-button type="link" @click="openProviderTest(record)">{{ $t('modelGateway.providerTest.action') }}</a-button>
-                  <a-popconfirm :title="$t('legacy.r37yo3')" @confirm="handleDeleteProvider(record)">
-                    <a-button type="link" danger>{{ $t("legacy.1t2vi4h") }}</a-button>
+      <section v-if="activeTab === 'providers'" class="provider-catalog">
+        <div class="catalog-toolbar">
+          <span class="catalog-summary">{{ $t('modelGateway.catalog.summary', { providers: providers.length, models: models.length }) }}</span>
+          <a-space wrap>
+            <a-button :loading="loading" @click="loadAll">{{ $t('modelGateway.catalog.refresh') }}</a-button>
+            <a-button type="primary" @click="openProvider()">{{ $t('modelGateway.catalog.addProvider') }}</a-button>
+          </a-space>
+        </div>
+        <a-spin :spinning="loading">
+          <a-empty v-if="!providers.length" :description="$t('modelGateway.catalog.emptyProviders')" />
+          <div class="provider-groups">
+            <article v-for="provider in providerGroups" :key="provider.id" class="provider-group" :class="{ 'provider-group-default': provider.defaultModel }">
+              <div class="provider-heading">
+                <div class="provider-identity">
+                  <span class="provider-avatar" aria-hidden="true">{{ provider.name.slice(0, 1).toUpperCase() }}</span>
+                  <div class="provider-details">
+                    <div class="provider-name-line">
+                      <h2>{{ provider.name }}</h2>
+                      <a-tooltip v-if="provider.defaultModel" :title="$t('modelGateway.catalog.defaultProviderHelp')">
+                        <a-tag class="default-badge"><StarFilled aria-hidden="true" /> {{ $t('modelGateway.catalog.defaultProvider') }}</a-tag>
+                      </a-tooltip>
+                      <a-tag :color="provider.enabled ? 'green' : 'default'">{{ $t(provider.enabled ? 'modelGateway.catalog.enabled' : 'modelGateway.catalog.disabled') }}</a-tag>
+                    </div>
+                    <div class="provider-url">{{ provider.base_url }}</div>
+                    <div class="provider-tags">
+                      <a-tag>{{ provider.api_format === 'anthropic' ? 'Anthropic' : 'OpenAI-compatible' }}</a-tag>
+                      <a-tag>LLM</a-tag>
+                      <a-tag v-if="provider.enable_compression">{{ $t('modelGateway.catalog.compression') }}</a-tag>
+                    </div>
+                  </div>
+                </div>
+                <a-space class="provider-actions" :size="6">
+                  <a-button class="configure-button" @click="openProvider(provider)">{{ $t('modelGateway.catalog.configure') }}</a-button>
+                  <a-popconfirm :title="$t('modelGateway.catalog.deleteProviderConfirm')" @confirm="handleDeleteProvider(provider)">
+                    <a-button class="delete-button" type="text" :title="$t('modelGateway.catalog.deleteProvider')" :aria-label="$t('modelGateway.catalog.deleteProvider')"><DeleteOutlined /></a-button>
                   </a-popconfirm>
                 </a-space>
-              </template>
-            </template>
-          </a-table>
-        </a-card>
-      </section>
-
-      <section v-if="activeTab === 'models'">
-        <a-card>
-          <template #extra>
-            <a-space>
-              <a-button @click="router.push('/credentials')">{{ $t("legacy.ntpgmd") }}</a-button>
-              <a-button type="primary" @click="openModel()">{{ $t("legacy.1lwnsgn") }}</a-button>
-            </a-space>
-          </template>
-          <a-alert
-            type="info"
-            show-icon
-            :message="$t('legacy.1t8ay4r')"
-            style="margin-bottom: 16px"
-          />
-          <a-table :data-source="models" :columns="modelColumns" row-key="id" :loading="loading" size="small">
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'enabled'">
-                <a-tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? $t('legacy.5pm2ma') : $t('legacy.1dcdrxo') }}</a-tag>
-                <a-tag v-if="record.is_default" color="blue">{{ $t("legacy.1ybnnw9") }}</a-tag>
-              </template>
-              <template v-else-if="column.key === 'action'">
-                <a-space>
-                  <a-button type="link" @click="openModel(record)">{{ $t("legacy.qreyeg") }}</a-button>
-                  <a-popconfirm :title="$t('legacy.55t2gw')" @confirm="handleDeleteModel(record)">
-                    <a-button type="link" danger>{{ $t("legacy.1t2vi4h") }}</a-button>
-                  </a-popconfirm>
+              </div>
+              <div class="provider-model-toolbar">
+                <div class="model-overview">
+                <button class="model-expander" :aria-expanded="expandedProviders.has(provider.id)" :aria-controls="'provider-models-' + provider.id" @click="toggleProviderModels(provider.id)">
+                  <DownOutlined v-if="expandedProviders.has(provider.id)" /><RightOutlined v-else />
+                  {{ $t('modelGateway.catalog.modelCount', { count: provider.models.length }) }}
+                </button>
+                <span v-if="provider.defaultModel" class="default-model-summary"><StarFilled aria-hidden="true" /><span>{{ $t('modelGateway.catalog.defaultModelLabel', { model: provider.defaultModel.name }) }}</span></span>
+                </div>
+                <a-space class="model-management-actions" wrap :size="8">
+                  <a-button class="fetch-models-button" :loading="discoveringProviderId === provider.id" :disabled="discoveringProviderId !== null" @click="fetchProviderModels(provider)"><ReloadOutlined aria-hidden="true" />{{ $t('modelGateway.catalog.fetch') }}</a-button>
+                  <a-button class="add-model-button" type="primary" ghost @click="openModel(null, provider.id)"><PlusOutlined aria-hidden="true" />{{ $t('modelGateway.catalog.addModel') }}</a-button>
                 </a-space>
-              </template>
-            </template>
-          </a-table>
-        </a-card>
+              </div>
+              <div v-show="expandedProviders.has(provider.id)" :id="'provider-models-' + provider.id" class="provider-models">
+                <p v-if="!provider.models.length" class="provider-model-empty">{{ $t('modelGateway.catalog.emptyModels') }}</p>
+                <div v-for="model in provider.models" :key="model.id" class="provider-model-row">
+                  <div class="model-description">
+                    <span class="model-symbol" aria-hidden="true"><ApiOutlined /></span>
+                    <div class="model-labels">
+                      <span class="model-name">{{ model.name }}</span>
+                      <span v-if="model.display_name && model.display_name !== model.name" class="model-display-name">{{ model.display_name }}</span>
+                      <a-tag>CHAT</a-tag>
+                      <a-tooltip v-if="model.context_window" :title="$t('modelGateway.catalog.contextWindow', { count: model.context_window })"><a-tag>{{ formatContextWindow(model.context_window) }}</a-tag></a-tooltip>
+                      <a-tag v-if="model.is_default" class="default-badge"><StarFilled aria-hidden="true" /> {{ $t('modelGateway.catalog.defaultModel') }}</a-tag>
+                    </div>
+                  </div>
+                  <div class="model-actions">
+                    <a-button class="test-model-button" size="small" :disabled="testingProvider" @click="openModelTest(model)"><PlayCircleOutlined aria-hidden="true" />{{ $t('modelGateway.providerTest.action') }}</a-button>
+                    <a-button class="edit-model-button" type="text" size="small" @click="openModel(model)">{{ $t('modelGateway.catalog.edit') }}</a-button>
+                    <a-popconfirm :title="$t('modelGateway.catalog.deleteModelConfirm')" @confirm="handleDeleteModel(model)">
+                      <a-button class="delete-button" type="text" size="small" :title="$t('modelGateway.catalog.deleteModel')" :aria-label="$t('modelGateway.catalog.deleteModel')"><DeleteOutlined /></a-button>
+                    </a-popconfirm>
+                    <a-tooltip :title="$t(model.enabled ? 'modelGateway.catalog.enabled' : 'modelGateway.catalog.disabled')">
+                      <a-switch :checked="model.enabled" :loading="updatingModelIds.has(model.id)" :disabled="updatingModelIds.has(model.id)" :aria-label="$t('modelGateway.catalog.toggleModel', { model: model.name })" @change="value => toggleModelEnabled(model, value)" />
+                    </a-tooltip>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </a-spin>
       </section>
 
       <section v-if="activeTab === 'keys'">
@@ -386,7 +404,26 @@
       </section>
     </div>
 
-    <a-modal v-model:open="providerVisible" :title="$t('legacy.1vcp6w4')" @ok="saveProvider" :confirm-loading="submitting">
+    <a-modal v-model:open="discoveryVisible" :title="$t('modelGateway.catalog.discovered', { provider: discoveryProvider?.name })" :footer="null" :closable="!addingDiscovered" :mask-closable="!addingDiscovered" :keyboard="!addingDiscovered" width="800px">
+      <a-alert type="info" show-icon :message="$t('modelGateway.catalog.discoveryHelp')" style="margin-bottom: 16px" />
+      <a-alert v-if="discoveryError" type="warning" show-icon :message="discoveryError" style="margin-bottom: 16px" />
+      <a-alert v-if="failedDiscoveredNames.length" type="warning" show-icon :message="$t('modelGateway.catalog.batchFailed', { names: failedDiscoveredNames.join(', ') })" style="margin-bottom: 16px" />
+      <a-space wrap style="margin-bottom: 16px">
+        <a-button :loading="discoveringProviderId !== null" :disabled="discoveringProviderId !== null || addingDiscovered" @click="fetchProviderModels(discoveryProvider)">{{ $t('modelGateway.catalog.fetch') }}</a-button>
+        <a-button :disabled="addingDiscovered" @click="openDiscoveredModel()">{{ $t('modelGateway.catalog.custom') }}</a-button>
+        <a-button type="primary" :loading="addingDiscovered" :disabled="addingDiscovered || submitting || !selectedDiscoveredNames.length" @click="addSelectedModels">{{ $t('modelGateway.catalog.addSelected', { count: selectedDiscoveredNames.length }) }}</a-button>
+      </a-space>
+      <a-table :data-source="discoveredModels" :columns="discoveryColumns" :row-selection="discoveryRowSelection" row-key="name" :loading="discoveringProviderId !== null" :scroll="{ x: 550 }" size="small">
+        <template #bodyCell="{ column, record }">
+          <a-space v-if="column.key === 'action'" wrap>
+            <a-button type="link" :disabled="addingDiscovered || models.some(item => item.name === record.name)" @click="openDiscoveredModel(record)">{{ $t(models.some(item => item.name === record.name) ? 'modelGateway.catalog.registered' : 'modelGateway.catalog.add') }}</a-button>
+            <a-button type="link" @click="openModelTest({ ...record, provider_id: discoveryProvider.id })">{{ $t('modelGateway.providerTest.action') }}</a-button>
+          </a-space>
+        </template>
+      </a-table>
+    </a-modal>
+
+    <a-modal v-model:open="providerVisible" :title="$t('legacy.1vcp6w4')" @ok="saveProvider" :confirm-loading="submitting" :ok-button-props="{ disabled: submitting }">
       <a-form layout="vertical" :model="providerForm">
         <a-form-item :label="$t('legacy.hzx914')" required><a-input v-model:value="providerForm.name" /></a-form-item>
         <a-form-item label="Base URL" required :extra="$t('modelGateway.provider.baseUrlHelp')">
@@ -414,6 +451,7 @@
       :title="$t('modelGateway.providerTest.title')"
       :ok-text="$t('modelGateway.providerTest.submit')"
       :confirm-loading="testingProvider"
+      :ok-button-props="{ disabled: testingProvider }"
       @ok="runProviderTest"
     >
       <a-descriptions size="small" bordered :column="1" style="margin-bottom: 16px">
@@ -442,7 +480,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="modelVisible" :title="$t('legacy.1ow6qt')" @ok="saveModel" :confirm-loading="submitting">
+    <a-modal v-model:open="modelVisible" :title="$t('legacy.1ow6qt')" @ok="saveModel" :confirm-loading="submitting" :ok-button-props="{ disabled: submitting }">
       <a-form layout="vertical" :model="modelForm">
         <a-form-item :label="$t('legacy.1x7qpl0')" required>
           <a-select v-model:value="modelForm.provider_id">
@@ -676,6 +714,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
+import { ApiOutlined, DeleteOutlined, DownOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, RightOutlined, StarFilled } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
 import { useLocaleText } from '../i18n/useLocaleText'
 import { copyText, promptManualCopy } from '../utils/clipboard'
@@ -699,6 +738,7 @@ import {
   listManagedUsers,
   listModelEndpoints,
   listModelProviders,
+  discoverModelProviderModels,
   listPrivacyPolicies,
   revokeLlmApiKey,
   savePrivacyPolicy,
@@ -720,7 +760,48 @@ const loading = ref(false)
 const submitting = ref(false)
 const mappingLoading = ref(false)
 const providers = ref([])
+const expandedProviders = reactive(new Set())
+const updatingModelIds = reactive(new Set())
+const discoveryVisible = ref(false)
+const discoveryProvider = ref(null)
+const discoveredModels = ref([])
+const discoveringProviderId = ref(null)
+const discoveryError = ref('')
+const addingDiscovered = ref(false)
+const selectedDiscoveredNames = ref([])
+const failedDiscoveredNames = ref([])
+const discoveryRowSelection = computed(() => ({
+  selectedRowKeys: selectedDiscoveredNames.value,
+  onChange: keys => { selectedDiscoveredNames.value = keys },
+  getCheckboxProps: record => ({ disabled: addingDiscovered.value || models.value.some(item => item.name === record.name) }),
+}))
+const discoveryColumns = computed(() => [
+  { title: t('modelGateway.catalog.modelName'), dataIndex: 'name' },
+  { title: t('modelGateway.catalog.actions'), key: 'action', width: 240 },
+])
 const models = ref([])
+const providerGroups = computed(() => providers.value.map(provider => ({
+  ...provider,
+  defaultModel: models.value.find(model => model.provider_id === provider.id && model.is_default),
+  models: models.value.filter(model => model.provider_id === provider.id),
+})))
+const toggleProviderModels = (id) => {
+  if (expandedProviders.has(id)) expandedProviders.delete(id)
+  else expandedProviders.add(id)
+}
+const formatContextWindow = (count) => count >= 1000 ? `${Number((count / 1000).toFixed(1))}K` : String(count)
+const toggleModelEnabled = async (model, enabled) => {
+  if (updatingModelIds.has(model.id)) return
+  updatingModelIds.add(model.id)
+  try {
+    const updated = await updateModelEndpoint(model.id, { enabled })
+    models.value = models.value.map(item => item.id === model.id ? updated : item)
+  } catch {
+    message.error(t('modelGateway.catalog.updateFailed'))
+  } finally {
+    updatingModelIds.delete(model.id)
+  }
+}
 const apiKeys = ref([])
 const users = ref([])
 const groups = ref([])
@@ -781,21 +862,6 @@ const defaultRules = {
   ACCOUNT_ID: '\\b(?:ACCT|Account|\\u8d26\\u53f7)[-_:# ]?[A-Za-z0-9]{4,}\\b',
 }
 
-const providerColumns = [
-  { title: phrase('legacy.hzx914'), dataIndex: 'name' },
-  { title: phrase('legacy.7j43ow'), dataIndex: 'api_format', width: 130 },
-  { title: 'Base URL', dataIndex: 'base_url' },
-  { title: 'Key', key: 'api_key', width: 180 },
-  { title: phrase('legacy.1ccx4t4'), key: 'enabled', width: 120 },
-  { title: phrase('legacy.501w24'), key: 'action', width: 220 },
-]
-const modelColumns = [
-  { title: phrase('legacy.1hmiuig'), dataIndex: 'name' },
-  { title: phrase('legacy.1x7qpl0'), dataIndex: 'provider_name' },
-  { title: phrase('legacy.1m2bn1g'), dataIndex: 'display_name' },
-  { title: phrase('legacy.1ccx4t4'), key: 'enabled', width: 160 },
-  { title: phrase('legacy.501w24'), key: 'action', width: 160 },
-]
 const keyColumns = [
   { title: phrase('legacy.hzx914'), dataIndex: 'name' },
   { title: phrase('legacy.z7wyiw'), dataIndex: 'key_prefix', width: 110 },
@@ -910,13 +976,15 @@ const unboundOrCurrentPolicies = computed(() =>
 const unboundOrCurrentBindingPolicies = computed(() =>
   policies.value.filter(item => !item.is_default && (!item.group_id || item.id === groupPolicyForm.privacy_policy_id)),
 )
-const pageTitle = computed(() => activeTab.value === 'users-groups' ? phrase('legacy.1wqfb8q') : phrase('legacy.15en1a5'))
+const pageTitle = computed(() => activeTab.value === 'providers' ? t('modelGateway.catalog.title') : activeTab.value === 'users-groups' ? phrase('legacy.1wqfb8q') : phrase('legacy.15en1a5'))
 const pageSubtitle = computed(() =>
-  activeTab.value === 'users-groups'
+  activeTab.value === 'providers'
+    ? t('modelGateway.catalog.subtitle')
+    : activeTab.value === 'users-groups'
     ? phrase('legacy.btrjcn')
     : phrase('legacy.1tdfp6x'),
 )
-const showGatewayStats = computed(() => !['users-groups', 'prompt-guard'].includes(activeTab.value))
+const showGatewayStats = computed(() => !['providers', 'users-groups', 'prompt-guard'].includes(activeTab.value))
 const groupNameMap = computed(() => new Map(groups.value.map(item => [item.id, item.name])))
 const policyDisplayName = (policy) => {
   if (policy?.is_default && policy?.name === '默认隐私策略') return text('默认隐私策略', 'Default Privacy Policy')
@@ -1051,10 +1119,11 @@ const saveProvider = async () => {
   try {
     const payload = { ...providerForm }
     if (!payload.api_key) delete payload.api_key
-    if (editingProviderId.value) await updateModelProvider(editingProviderId.value, payload)
-    else await createModelProvider(payload)
+    const isNew = !editingProviderId.value
+    const saved = isNew ? await createModelProvider(payload) : await updateModelProvider(editingProviderId.value, payload)
     providerVisible.value = false
     await loadAll()
+    if (isNew) await fetchProviderModels(saved)
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.8ujjnl'))
   } finally {
@@ -1062,7 +1131,72 @@ const saveProvider = async () => {
   }
 }
 
+const fetchProviderModels = async (provider) => {
+  if (discoveringProviderId.value !== null || addingDiscovered.value || !provider) return
+  discoveringProviderId.value = provider.id
+  discoveryProvider.value = provider
+  discoveredModels.value = []
+  selectedDiscoveredNames.value = []
+  failedDiscoveredNames.value = []
+  discoveryError.value = ''
+  discoveryVisible.value = true
+  try {
+    const result = await discoverModelProviderModels(provider.id)
+    discoveredModels.value = result.models
+  } catch (error) {
+    const code = error.response?.data?.error_code
+    const key = {
+      'model_discovery.connection_failed': 'connectionFailed',
+      'model_discovery.upstream_http_error': 'upstreamFailed',
+      'model_discovery.invalid_response': 'invalidResponse',
+    }[code] || 'fetchFailed'
+    discoveryError.value = t(`modelGateway.catalog.${key}`)
+  } finally {
+    discoveringProviderId.value = null
+  }
+}
+
+const addSelectedModels = async () => {
+  if (addingDiscovered.value || submitting.value || !discoveryProvider.value) return
+  const providerId = discoveryProvider.value.id
+  const selected = discoveredModels.value.filter(item => selectedDiscoveredNames.value.includes(item.name)
+    && !models.value.some(model => model.name === item.name))
+  if (!selected.length) return
+  addingDiscovered.value = true
+  failedDiscoveredNames.value = []
+  let added = 0
+  try {
+    for (const item of selected) {
+      try {
+        const model = await createModelEndpoint({ provider_id: providerId, name: item.name, display_name: item.display_name })
+        models.value.push(model)
+        added += 1
+      } catch {
+        failedDiscoveredNames.value.push(item.name)
+      }
+    }
+    selectedDiscoveredNames.value = [...failedDiscoveredNames.value]
+    if (added) message.success(t('modelGateway.catalog.batchAdded', { count: added }))
+  } finally {
+    addingDiscovered.value = false
+  }
+}
+
+const openDiscoveredModel = (record = null) => {
+  openModel(null, discoveryProvider.value.id)
+  modelForm.name = record?.name || ''
+  modelForm.display_name = record?.display_name || ''
+}
+
+const openModelTest = (record) => {
+  const provider = providers.value.find(item => item.id === record.provider_id)
+  if (!provider || testingProvider.value) return
+  openProviderTest(provider)
+  providerTestForm.model = record.name
+}
+
 const openProviderTest = (record) => {
+  if (testingProvider.value) return
   providerUnderTest.value = record
   providerTestForm.model = models.value.find(item => item.provider_id === record.id && item.enabled)?.name || ''
   providerTestVisible.value = true
@@ -1110,10 +1244,10 @@ const handleDeleteProvider = async (record) => {
   await loadAll()
 }
 
-const openModel = (record = null) => {
+const openModel = (record = null, providerId = null) => {
   editingModelId.value = record?.id || null
   Object.assign(modelForm, {
-    provider_id: record?.provider_id || providers.value[0]?.id || null,
+    provider_id: record?.provider_id || providerId || providers.value[0]?.id || null,
     name: record?.name || '',
     display_name: record?.display_name || '',
     enabled: record?.enabled ?? true,
@@ -1130,6 +1264,7 @@ const saveModel = async () => {
   try {
     if (editingModelId.value) await updateModelEndpoint(editingModelId.value, { ...modelForm })
     else await createModelEndpoint({ ...modelForm })
+    selectedDiscoveredNames.value = selectedDiscoveredNames.value.filter(name => name !== modelForm.name)
     modelVisible.value = false
     await loadAll()
   } catch (error) {
@@ -1385,6 +1520,75 @@ onMounted(loadAll)
 </script>
 
 <style scoped>
+.provider-catalog {
+  --catalog-border: #e5e7eb;
+  --catalog-muted: #64748b;
+  --catalog-ink: #1e293b;
+  --catalog-blue: #2563eb;
+  color: var(--catalog-ink);
+}
+.catalog-toolbar, .provider-heading, .provider-model-toolbar, .provider-model-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.catalog-toolbar { margin-bottom: 18px; flex-wrap: wrap; }
+.catalog-summary { color: var(--catalog-muted); font-size: 13px; }
+.provider-groups { display: grid; gap: 16px; }
+.provider-group { border: 1px solid var(--catalog-border); border-radius: 14px; overflow: hidden; background: #f8fafc; }
+.provider-group-default { border-color: #b9cdf9; }
+.provider-group :deep(.default-badge) { display: inline-flex; align-items: center; gap: 4px; color: #2457be; background: #edf3ff; border-color: #cddcff; font-weight: 500; }
+.provider-group :deep(.default-badge .anticon) { font-size: 10px; }
+.provider-heading { padding: 22px 24px 18px; align-items: flex-start; }
+.provider-identity { display: flex; gap: 14px; min-width: 0; }
+.provider-avatar { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; border-radius: 11px; background: #e8efff; color: var(--catalog-blue); font-size: 21px; font-weight: 650; }
+.provider-details { min-width: 0; }
+.provider-name-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.provider-name-line h2 { font-size: 17px; font-weight: 650; margin: 0; overflow-wrap: anywhere; }
+.provider-url { margin: 5px 0 10px; font-size: 12px; color: var(--catalog-muted); overflow-wrap: anywhere; }
+.provider-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.provider-group :deep(.ant-tag) { margin: 0; font-size: 11px; border-radius: 5px; line-height: 20px; }
+.provider-actions { flex-shrink: 0; margin-left: auto; }
+.provider-catalog :deep(.ant-btn) { border-radius: 7px; box-shadow: none; font-size: 13px; }
+.provider-actions :deep(.ant-btn), .model-management-actions :deep(.ant-btn) { height: 32px; }
+.provider-actions :deep(.configure-button) { padding-inline: 15px; border-color: #dce2eb; color: #475569; background: #fff; }
+.provider-catalog :deep(.delete-button) { width: 30px; padding: 0; color: #94a3b8; }
+.provider-catalog :deep(.delete-button:hover) { color: #dc2626; background: #fff1f0; }
+.provider-actions :deep(.delete-button) { margin-left: 4px; }
+.model-management-actions :deep(.fetch-models-button) { color: #475569; border-color: #dce2eb; background: #fff; }
+.model-management-actions :deep(.add-model-button) { background: #edf3ff; border-color: #cddcff; color: #2457be; }
+.model-management-actions :deep(.add-model-button:hover) { background: #e1ebff; border-color: #8eadef; }
+.provider-model-toolbar { padding: 10px 24px; border-top: 1px solid var(--catalog-border); flex-wrap: wrap; }
+.model-overview { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; min-width: 0; flex: 1; }
+.default-model-summary { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: #5270a8; font-size: 12px; }
+.default-model-summary > span:last-child { overflow-wrap: anywhere; }
+.default-model-summary :deep(.anticon) { font-size: 10px; flex-shrink: 0; }
+.model-expander { display: inline-flex; align-items: center; gap: 8px; border: 0; padding: 6px 0; background: transparent; color: var(--catalog-muted); font: inherit; font-size: 13px; cursor: pointer; }
+.model-expander:focus-visible { outline: 2px solid var(--catalog-blue); outline-offset: 4px; border-radius: 3px; }
+.provider-models { margin: 0 12px 12px; border-radius: 9px; background: #fff; }
+.provider-model-empty { padding: 18px 12px; margin: 0; font-size: 13px; color: var(--catalog-muted); }
+.provider-model-row { padding: 14px 12px; }
+.provider-model-row + .provider-model-row { border-top: 1px solid #f1f5f9; }
+.model-description { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.model-symbol { color: var(--catalog-blue); font-size: 18px; }
+.model-labels { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; min-width: 0; }
+.model-name { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
+.model-display-name { color: var(--catalog-muted); font-size: 12px; overflow-wrap: anywhere; }
+.model-actions { display: flex; align-items: center; flex-shrink: 0; gap: 8px; }
+.model-actions :deep(.ant-btn) { height: 28px; }
+.model-actions :deep(.test-model-button) { color: #2457be; border-color: #dce6f8; background: #f8faff; padding-inline: 10px; }
+.model-actions :deep(.edit-model-button) { color: #64748b; padding-inline: 6px; }
+.model-actions :deep(.ant-switch) { margin-left: 10px; }
+@media (max-width: 768px) {
+  .provider-heading { padding: 16px; flex-wrap: wrap; }
+  .provider-model-toolbar { padding: 10px 16px; gap: 8px; }
+  .model-overview { flex-basis: 100%; }
+  .model-management-actions { margin-left: auto; }
+  .provider-model-row { flex-wrap: wrap; gap: 10px; }
+  .model-actions { margin-left: auto; }
+}
+
 .muted {
   color: #8c8c8c;
 }

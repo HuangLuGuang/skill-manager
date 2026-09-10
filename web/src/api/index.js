@@ -257,6 +257,7 @@ export const retryClientTask = (clientId, taskId) => api.post(`/v1/clients/${cli
 export const listClientDownloads = () => api.get('/v1/clients/downloads/available')
 export const createClientDownloadTicket = platform => api.post('/v1/clients/downloads/ticket', null, { params: { platform } })
 export const listModelProviders = () => api.get('/v1/model-providers')
+export const discoverModelProviderModels = (providerId) => api.get(`/v1/model-providers/${providerId}/models`, { timeout: 120000 })
 export const createModelProvider = (data) => api.post('/v1/model-providers', data)
 export const updateModelProvider = (providerId, data) => api.put(`/v1/model-providers/${providerId}`, data)
 export const deleteModelProvider = (providerId) => api.delete(`/v1/model-providers/${providerId}`)
