@@ -376,6 +376,8 @@ Backend、Sandbox（nsjail 编译阶段和运行阶段）、AIG Scan Service 镜
 
 `build.sh` 中的基础镜像拉取（包括离线打包前的 nginx 拉取）最多尝试 5 次，失败后依次等待 5、10、15、20 秒。重试保持指定的镜像和目标架构；全部失败会终止任务。该重试覆盖 Docker Hub 鉴权请求的临时 EOF 等拉取错误。
 
+35 的 AIG Go 编译阶段通过 `BUILD_GOPROXY=https://goproxy.cn` 下载模块，保留 `go.sum` 和 Go 校验数据库校验。该变量由 `build.sh` 传入 Docker 构建参数，不修改 Runner 的全局代理。
+
 ## 离线部署
 
 现场实施步骤单独维护在 [离线部署现场实施指南](offline-deployment.md)。

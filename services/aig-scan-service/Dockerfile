@@ -5,9 +5,10 @@ ARG PYTHON_BASE=python:3.12.9-slim-bookworm@sha256:48a11b7ba705fd53bf15248d1f94d
 FROM --platform=$BUILDPLATFORM ${GO_BASE} AS go-builder
 ARG TARGETOS=linux
 ARG TARGETARCH
+ARG GOPROXY=https://proxy.golang.org
 WORKDIR /src
 COPY services/aig-scan-service/vendor/ai-infra-guard/go.mod services/aig-scan-service/vendor/ai-infra-guard/go.sum ./
-RUN go mod download
+RUN GOPROXY="$GOPROXY" go mod download
 COPY services/aig-scan-service/vendor/ai-infra-guard/ ./
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/ai-infra-guard ./cmd/cli && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/agent ./cmd/agent

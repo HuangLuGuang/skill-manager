@@ -17,6 +17,7 @@ stages:
     BUILD_DOCKER_PROXY: http://10.10.8.66:1081
     BUILD_APT_PROXY: http://10.10.8.66:1081
     BUILD_GIT_PROXY: http://10.10.8.66:1081
+    BUILD_GOPROXY: https://goproxy.cn
     BUILD_PYPI_INDEX: https://pypi.tuna.tsinghua.edu.cn/simple
 
 deploy-35:
