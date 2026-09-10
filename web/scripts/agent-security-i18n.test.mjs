@@ -4,6 +4,7 @@ import test from 'node:test'
 
 import { parse as parseScript } from '@babel/parser'
 import { parse } from '@vue/compiler-sfc'
+import { baseCompile } from '@intlify/message-compiler'
 
 if (!globalThis.localStorage) {
   Object.defineProperty(globalThis, 'localStorage', { value: { getItem: () => null } })
@@ -55,6 +56,16 @@ const callName = node => {
   if (node.callee.type === 'Identifier') return node.callee.name
   return node.callee.property?.name || node.callee.property?.value || ''
 }
+
+test('Dify knowledge binding help renders its JSON example in both languages', () => {
+  const example = '[ { "dsl_reference": "...", "dataset_id": "UUID" } ]'
+  for (const locale of ['zh-CN', 'en-US']) {
+    const message = i18n.global.getLocaleMessage(locale).agentSecurityScans.inventory.knowledgeBindingsHelp
+    assert.doesNotThrow(() => baseCompile(message, { onError: error => { throw error } }), `${locale} message must compile`)
+    const rendered = i18n.global.t('agentSecurityScans.inventory.knowledgeBindingsHelp', {}, { locale })
+    assert.ok(rendered.includes(example), `${locale} must display the literal JSON example`)
+  }
+})
 
 test('P5-11 keeps all new security namespaces complete in Simplified Chinese and English', () => {
   const zh = i18n.global.getLocaleMessage('zh-CN')
