@@ -44,6 +44,21 @@ pull_image() {
     done
 }
 
+build_image() {
+    local attempt
+    for attempt in 1 2 3; do
+        if docker buildx build "$@"; then
+            return 0
+        fi
+        if [ "$attempt" -eq 3 ]; then
+            echo "Image build failed after 3 attempts" >&2
+            return 1
+        fi
+        step "Image build failed (attempt ${attempt}/3); retrying in $((attempt * 5))s"
+        sleep "$((attempt * 5))"
+    done
+}
+
 docker_buildx_proxy_args() {
     local args=()
     [[ -n "${http_proxy:-}" ]] && args+=(--build-arg "http_proxy=${http_proxy}" --build-arg "HTTP_PROXY=${http_proxy}")
@@ -58,32 +73,32 @@ docker_buildx_proxy_args() {
 
 build_backend() {
     step "Building ${BACKEND_IMAGE}"
-    docker buildx build $(docker_buildx_proxy_args) --load -f backend/Dockerfile --platform "${PLATFORM}" -t "${BACKEND_IMAGE}" .
+    build_image $(docker_buildx_proxy_args) --load -f backend/Dockerfile --platform "${PLATFORM}" -t "${BACKEND_IMAGE}" .
 }
 
 build_frontend() {
     step "Building ${FRONTEND_IMAGE}"
-    docker buildx build $(docker_buildx_proxy_args) --load -f web/Dockerfile --platform "${PLATFORM}" -t "${FRONTEND_IMAGE}" .
+    build_image $(docker_buildx_proxy_args) --load -f web/Dockerfile --platform "${PLATFORM}" -t "${FRONTEND_IMAGE}" .
 }
 
 build_sandbox() {
     step "Building ${SANDBOX_IMAGE}"
-    docker buildx build $(docker_buildx_proxy_args) --load -f services/isolated-sandbox-service/Dockerfile.nsjail --platform "${PLATFORM}" -t "${SANDBOX_IMAGE}" .
+    build_image $(docker_buildx_proxy_args) --load -f services/isolated-sandbox-service/Dockerfile.nsjail --platform "${PLATFORM}" -t "${SANDBOX_IMAGE}" .
 }
 
 build_runtime() {
     step "Building ${SANDBOX_RUNTIME_IMAGE}"
-    docker buildx build $(docker_buildx_proxy_args) --load -f services/local-sandbox-runtime/Dockerfile --platform "${PLATFORM}" -t "${SANDBOX_RUNTIME_IMAGE}" .
+    build_image $(docker_buildx_proxy_args) --load -f services/local-sandbox-runtime/Dockerfile --platform "${PLATFORM}" -t "${SANDBOX_RUNTIME_IMAGE}" .
 }
 
 build_security_worker() {
     step "Building ${SECURITY_WORKER_IMAGE}"
-    docker buildx build $(docker_buildx_proxy_args) --load -f services/agent-security-worker/Dockerfile --platform "${PLATFORM}" -t "${SECURITY_WORKER_IMAGE}" .
+    build_image $(docker_buildx_proxy_args) --load -f services/agent-security-worker/Dockerfile --platform "${PLATFORM}" -t "${SECURITY_WORKER_IMAGE}" .
 }
 
 build_aig_scan_service() {
     step "Building ${AIG_SCAN_SERVICE_IMAGE}"
-    docker buildx build $(docker_buildx_proxy_args) --load -f services/aig-scan-service/Dockerfile --platform "${PLATFORM}" -t "${AIG_SCAN_SERVICE_IMAGE}" .
+    build_image $(docker_buildx_proxy_args) --load -f services/aig-scan-service/Dockerfile --platform "${PLATFORM}" -t "${AIG_SCAN_SERVICE_IMAGE}" .
 }
 
 arch_dir() {
