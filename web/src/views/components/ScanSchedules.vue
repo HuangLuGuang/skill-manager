@@ -26,6 +26,7 @@
   </div>
 </template>
 <script setup>
+import { createRequestId } from '../../utils/requestId'
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
@@ -53,7 +54,7 @@ function afterHistoryChange(open) {
   if (!open && pendingReport) { const taskId = pendingReport; pendingReport = null; emit('task', taskId) }
 }
 const runKeys = new Map()
-async function run(row) { return mutate(row, async () => { if (!runKeys.has(row.schedule_id)) runKeys.set(row.schedule_id, crypto.randomUUID()); await triggerScanSchedule(row.schedule_id, runKeys.get(row.schedule_id)); runKeys.delete(row.schedule_id); message.success(t('scanSchedule.requested')); await showRuns(row) }) }
+async function run(row) { return mutate(row, async () => { if (!runKeys.has(row.schedule_id)) runKeys.set(row.schedule_id, createRequestId()); await triggerScanSchedule(row.schedule_id, runKeys.get(row.schedule_id)); runKeys.delete(row.schedule_id); message.success(t('scanSchedule.requested')); await showRuns(row) }) }
 const toggle = row => mutate(row, () => updateScanSchedule(row.schedule_id, { name: row.name, version: row.version, timing: row.timing, enabled: !row.enabled }))
 const remove = row => mutate(row, async () => { await deleteScanSchedule(row.schedule_id); historyOpen.value = false })
 let timer

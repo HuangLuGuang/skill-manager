@@ -1065,6 +1065,7 @@
 </template>
 
 <script setup>
+import { createRequestId } from '../utils/requestId'
 import { nextTick, computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { DownloadOutlined, InfoCircleOutlined, PlusOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
@@ -1782,7 +1783,7 @@ const togglePolicy = async record => { try { await updateSecurityPolicy(record.p
 
 const resetTaskOptions = () => Object.assign(taskForm, { skills: [], prompt: '', conversation_mode: 'single_turn', continue_from_task_id: undefined, llm_input_mode: 'dataset', datasets: ['JailBench-Tiny'], num_prompts: 10, random_seed: 42, techniques: ['Raw'], evaluation_model: undefined, http_authorized: false, private_network_authorized: false, scan_timeout_seconds: 30, scan_concurrency: 2, inventory_source: 'console_api', manual_dsl: '', include_prompt_text: false, infer_agent_intent: false, intent_inference_model: undefined, knowledge_content_authorized: false, max_knowledge_documents: 100, max_knowledge_segments: 1000, max_knowledge_bytes: 10485760 })
 const openTaskModal = async () => {
-  executionMode.value = 'now'; editingSchedule.value = null; scheduleName.value = ''; scheduleKey.value = crypto.randomUUID(); runImmediately.value = false
+  executionMode.value = 'now'; editingSchedule.value = null; scheduleName.value = ''; scheduleKey.value = createRequestId(); runImmediately.value = false
   const target = activeTargets.value.find(item => enabledPolicies.value.some(policy => policyCompatibleWithTarget(policy, item)))
   const compatiblePolicies = enabledPolicies.value.filter(item => policyCompatibleWithTarget(item, target))
   const policy = compatiblePolicies.find(item => item.policy_id === selectCompatiblePolicyId(compatiblePolicies)) || null
@@ -1862,7 +1863,7 @@ const saveTask = async () => {
   if (executionMode.value === 'scheduled') return saveSchedule()
   if (!taskPreview.value) return message.warning(t('agentSecurityScans.tasks.previewRequired'))
   submittingTask.value = true
-  const payload = { ...taskPlanPayload(), preview_fingerprint: taskPreview.value.preview_fingerprint, idempotency_key: `web-${Date.now()}-${crypto.randomUUID().slice(0, 8)}` }
+  const payload = { ...taskPlanPayload(), preview_fingerprint: taskPreview.value.preview_fingerprint, idempotency_key: `web-${Date.now()}-${createRequestId()}` }
   try {
     const created = await createSecurityTask(payload)
     taskModalOpen.value = false
