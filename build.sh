@@ -28,6 +28,22 @@ step() {
     echo -e "${GREEN}[BUILD]${NC} $1"
 }
 
+pull_image() {
+    local image="$1"
+    local attempt
+    for attempt in 1 2 3 4 5; do
+        if docker pull --platform "${PLATFORM}" "$image"; then
+            return 0
+        fi
+        if [ "$attempt" -eq 5 ]; then
+            echo "Failed to pull ${image} for ${PLATFORM} after 5 attempts" >&2
+            return 1
+        fi
+        step "Pull failed for ${image} (attempt ${attempt}/5); retrying in $((attempt * 5))s"
+        sleep "$((attempt * 5))"
+    done
+}
+
 docker_buildx_proxy_args() {
     local args=()
     [[ -n "${http_proxy:-}" ]] && args+=(--build-arg "http_proxy=${http_proxy}" --build-arg "HTTP_PROXY=${http_proxy}")
@@ -83,7 +99,7 @@ ensure_image() {
     expected_arch="${expected_arch%%/*}"
     if [ "$image" = "nginx:1.27-alpine" ]; then
         step "Pulling ${image} for ${PLATFORM}"
-        docker pull --platform "${PLATFORM}" "$image"
+        pull_image "$image"
     fi
     if ! docker image inspect "$image" >/dev/null 2>&1; then
         echo "Missing image: $image"
@@ -204,12 +220,12 @@ AIG_SCAN_SERVICE_IMAGE=agent-manager-aig-scan-service:${TAG}
 
 if $BUILD_BACKEND || $BUILD_SANDBOX || $BUILD_RUNTIME || $BUILD_SECURITY_WORKER || $BUILD_AIG_SCAN_SERVICE; then
     step "Pulling python:3.12-slim for ${PLATFORM}"
-    docker pull --platform "${PLATFORM}" python:3.12-slim
+    pull_image python:3.12-slim
 fi
 if $BUILD_FRONTEND; then
     step "Pulling frontend base images for ${PLATFORM}"
-    docker pull --platform "${PLATFORM}" node:22-alpine
-    docker pull --platform "${PLATFORM}" nginx:1.27-alpine
+    pull_image node:22-alpine
+    pull_image nginx:1.27-alpine
 fi
 
 $BUILD_BACKEND && build_backend
