@@ -91,6 +91,7 @@
 </template>
 
 <script setup>
+import { createRequestId } from '../../utils/requestId'
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -149,7 +150,7 @@ async function saveSource() {
   try { const payload = { name: form.name.trim(), policy_id: form.policy_id, config: { ...form.config, auto_scan_policy_id: form.config.auto_scan_policy_id || null } }; if (editing.value) await updateAssetSource(editing.value.source_id, { ...payload, version: editing.value.version }); else await createAssetSource({ ...payload, template_target_id: form.template_target_id }); sourceOpen.value = false; message.success(t('assetLifecycle.saved')); await load() } catch (e) { fail(e) } finally { saving.value = false }
 }
 const syncKeys = new Map()
-async function sync(row) { if (busy.value) return; busy.value = row.source_id; try { if (!syncKeys.has(row.source_id)) syncKeys.set(row.source_id, crypto.randomUUID()); const run = await startAssetSync(row.source_id, syncKeys.get(row.source_id)); syncKeys.delete(row.source_id); message.success(t('assetLifecycle.requested')); await load(); await openRuns(row); await showRun(run.run_id) } catch (e) { fail(e) } finally { busy.value = '' } }
+async function sync(row) { if (busy.value) return; busy.value = row.source_id; try { if (!syncKeys.has(row.source_id)) syncKeys.set(row.source_id, createRequestId()); const run = await startAssetSync(row.source_id, syncKeys.get(row.source_id)); syncKeys.delete(row.source_id); message.success(t('assetLifecycle.requested')); await load(); await openRuns(row); await showRun(run.run_id) } catch (e) { fail(e) } finally { busy.value = '' } }
 async function openRuns(row) { runSource.value = row; runsOpen.value = true; runDetail.value = null; try { runs.value = await listAssetSyncRuns(row.source_id) } catch (e) { fail(e) } }
 async function showRun(id) { try { runDetail.value = await getAssetSyncRun(id) } catch (e) { fail(e) } }
 async function cancelRun(id) { if (busy.value) return; busy.value = id; try { await cancelAssetSyncRun(id); message.success(t('assetLifecycle.cancelled')); runs.value = await listAssetSyncRuns(runSource.value.source_id); await showRun(id) } catch (e) { fail(e) } finally { busy.value = '' } }
