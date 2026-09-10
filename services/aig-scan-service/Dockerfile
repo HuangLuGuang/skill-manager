@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 ARG GO_BASE=golang:1.23.2-alpine@sha256:9dd2625a1ff2859b8d8b01d8f7822c0f528942fe56cfe7a1e7c38d3b8d72d679
 ARG PYTHON_BASE=python:3.12.9-slim-bookworm@sha256:48a11b7ba705fd53bf15248d1f94d36c39549903c5d59edcfa2f3f84126e7b44
 
