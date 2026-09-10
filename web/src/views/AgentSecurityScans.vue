@@ -835,8 +835,8 @@
             <a-alert v-if="liveRefreshError" type="warning" :message="liveRefreshError" />
           </section>
           <a-alert v-if="taskDetail.task.error_code" class="modal-alert" type="error" show-icon
-            :message="taskErrorExplanation(taskDetail.task)" :description="taskDetail.task.error_code" />
-          <a-alert v-if="taskDetail.task.stop_reason && !taskDetail.task.error_code" class="modal-alert" type="warning" show-icon
+            :message="taskErrorExplanation(taskDetail.task)" />
+          <a-alert v-if="taskDetail.task.stop_reason" class="modal-alert" type="warning" show-icon
             :message="taskReasonLabel(taskDetail.task.stop_reason)" />
           <a-alert
             v-if="taskHasNoFinalReport && terminalStatuses.has(taskDetail.task.status)"
@@ -1486,6 +1486,8 @@ const parseUtc = value => Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(String(value || 
 const toDateTimeLocal = value => value ? String(value).replace(/Z$/, '').slice(0, 16) : ''
 const formatUtcDateTime = value => value ? `${new Intl.DateTimeFormat(locale.value, { timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(parseUtc(value)))} UTC` : '—'
 const taskReasonKeys = {
+  'agent_security.target_unavailable': 'targetUnavailable',
+  'agent_security.worker_configuration_invalid': 'workerConfigurationInvalid',
   'budget.max_duration_seconds_exceeded': 'maxDurationExceeded',
   'budget.max_rounds_exceeded': 'maxRoundsExceeded',
   'budget.max_concurrent_requests_exceeded': 'maxConcurrencyExceeded',
