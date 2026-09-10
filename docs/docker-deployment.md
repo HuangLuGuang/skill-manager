@@ -372,6 +372,8 @@ git push origin v1.0.1
 
 内部发布环境的 Docker daemon 使用外网代理拉取基础镜像；GitLab CI 还通过 `BUILD_DOCKER_PROXY` 仅为 Buildx 进程设置 `HTTP_PROXY`/`HTTPS_PROXY`，确保 Docker Hub token 鉴权请求走代理。Backend 的 Debian 与 GitHub 下载分别通过 `BUILD_APT_PROXY`、`BUILD_GIT_PROXY` 使用代理，Python 包通过 `BUILD_PYPI_INDEX` 使用清华源；npm 保持直连。Docker 代理配置位于 `/etc/systemd/system/docker.service.d/http-proxy.conf`；修改后执行 `sudo systemctl daemon-reload && sudo systemctl restart docker`。
 
+Backend 镜像构建先下载 Debian 依赖，再从已下载的包执行安装。下载阶段最多尝试 5 次，失败后依次等待 5、10、15、20 秒，并复用本次构建中已下载成功的包；连续失败会终止构建。该重试用于应对依赖下载链路的临时 503，不代表代理或上游故障已修复。
+
 ## 离线部署
 
 现场实施步骤单独维护在 [离线部署现场实施指南](offline-deployment.md)。
