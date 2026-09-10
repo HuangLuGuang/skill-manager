@@ -405,3 +405,5 @@ docker compose down -v
 用户名：默认 admin
 密码：部署前在 `.env` 中设置的 `INITIAL_ADMIN_PASSWORD`
 ```
+
+Buildx 镜像构建最多尝试 3 次，失败后等待 5、10 秒，并复用构建缓存。这也覆盖 Dockerfile 构建器镜像和构建阶段内部解析基础镜像时的临时网络失败；持续失败仍会终止发布。
