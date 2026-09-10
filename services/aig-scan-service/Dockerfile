@@ -38,9 +38,20 @@ LABEL org.opencontainers.image.title="Agent Manager AI-Infra-Guard Scan Service"
       org.opencontainers.image.version="v4.6.0" \
       org.opencontainers.image.revision="e8931cc68001b66ad024fd87ef07394e9e96524a"
 
-RUN apt-get -o Acquire::Retries=5 update \
-    && apt-get -o Acquire::Retries=5 install -y --fix-missing --no-install-recommends \
-        ca-certificates chromium nmap \
+RUN for attempt in 1 2 3; do \
+      rm -rf /var/lib/apt/lists/*; \
+      if apt-get -o Acquire::Retries=5 -o APT::Update::Error-Mode=any update; then break; fi; \
+      if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+      sleep "$((attempt * 5))"; \
+    done \
+    && for attempt in 1 2 3 4 5; do \
+      if apt-get -o Acquire::Retries=5 --download-only install -y --no-install-recommends \
+        ca-certificates chromium nmap; then break; fi; \
+      if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+      echo "APT dependency download failed (attempt ${attempt}/5); retrying in $((attempt * 5))s"; \
+      sleep "$((attempt * 5))"; \
+    done \
+    && apt-get --no-download install -y --no-install-recommends ca-certificates chromium nmap \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --no-create-home --uid 10002 --shell /usr/sbin/nologin aigscan
 

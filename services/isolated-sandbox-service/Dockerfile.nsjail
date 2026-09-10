@@ -11,7 +11,7 @@ RUN if [ -n "$APT_PROXY" ]; then printf 'Acquire::http::Proxy "%s";\n' "$APT_PRO
       if [ "$attempt" -eq 3 ]; then exit 1; fi; \
       sleep "$((attempt * 5))"; \
     done && \
-    apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+    set -- \
       autoconf \
       bison \
       ca-certificates \
@@ -25,6 +25,13 @@ RUN if [ -n "$APT_PROXY" ]; then printf 'Acquire::http::Proxy "%s";\n' "$APT_PRO
       make \
       pkg-config \
       protobuf-compiler && \
+    for attempt in 1 2 3 4 5; do \
+      if apt-get -o Acquire::Retries=5 --download-only install -y --no-install-recommends "$@"; then break; fi; \
+      if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+      echo "APT dependency download failed (attempt ${attempt}/5); retrying in $((attempt * 5))s"; \
+      sleep "$((attempt * 5))"; \
+    done && \
+    apt-get --no-download install -y --no-install-recommends "$@" && \
     rm -f /etc/apt/apt.conf.d/99build-proxy && \
     if [ -n "$GIT_PROXY" ]; then \
       git -c http.proxy="$GIT_PROXY" clone --branch "${NSJAIL_VERSION}" --depth 1 \
@@ -58,7 +65,7 @@ RUN if [ -n "$APT_PROXY" ]; then printf 'Acquire::http::Proxy "%s";\n' "$APT_PRO
       if [ "$attempt" -eq 3 ]; then exit 1; fi; \
       sleep "$((attempt * 5))"; \
     done && \
-    apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+    set -- \
       python3 \
       python3-pip \
       python3-venv \
@@ -66,6 +73,13 @@ RUN if [ -n "$APT_PROXY" ]; then printf 'Acquire::http::Proxy "%s";\n' "$APT_PRO
       libnl-route-3-200 \
       libprotobuf32 \
       ca-certificates && \
+    for attempt in 1 2 3 4 5; do \
+      if apt-get -o Acquire::Retries=5 --download-only install -y --no-install-recommends "$@"; then break; fi; \
+      if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+      echo "APT dependency download failed (attempt ${attempt}/5); retrying in $((attempt * 5))s"; \
+      sleep "$((attempt * 5))"; \
+    done && \
+    apt-get --no-download install -y --no-install-recommends "$@" && \
     rm -f /etc/apt/apt.conf.d/99build-proxy && \
     rm -rf /var/lib/apt/lists/*
 
