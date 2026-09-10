@@ -13,10 +13,33 @@
 
       <a-tabs v-model:activeKey="submitMode">
         <a-tab-pane key="zip" :tab="$t('legacy.17o43lg')">
+          <a-alert v-if="oversizedZip" type="warning" show-icon :message="t('skillUpload.localTooLarge', { size: formatZipSize(oversizedZip.size) })" style="margin-bottom: 16px">
+            <template #description>
+              <p>{{ t('skillUpload.cleanupHint') }}</p>
+              <p v-if="zipSizeError">{{ t('skillUpload.sizeAnalysisFailed') }}</p>
+              <template v-else-if="zipSizeReport">
+                <a-table :data-source="zipSizeReport.folders" :columns="zipSizeColumns" row-key="path" :pagination="false" size="small" :scroll="{ x: 620 }">
+                  <template #bodyCell="{ column, record }">
+                    <span v-if="column.key === 'path'" style="overflow-wrap: anywhere">{{ record.path === '.' ? t('skillUpload.rootFiles') : record.path }}</span>
+                    <span v-else-if="column.key === 'compressed'">{{ formatZipSize(record.compressed) }}</span>
+                    <span v-else-if="column.key === 'original'">{{ formatZipSize(record.original) }}</span>
+                  </template>
+                </a-table>
+              </template>
+            </template>
+          </a-alert>
+          <a-alert v-if="skippedZipSymlinks.length" type="warning" show-icon :message="t('skillUpload.skippedLinks')" style="margin-bottom: 16px">
+            <template #description>
+              <div style="max-height: 180px; overflow: auto; overflow-wrap: anywhere">
+                <div v-for="path in skippedZipSymlinks" :key="path">{{ path }}</div>
+              </div>
+            </template>
+          </a-alert>
           <a-form layout="vertical" @finish="prepareZipImport">
             <a-form-item :label="$t('legacy.1vavpyy')">
               <a-upload-dragger
                 class="zip-dragger"
+                :disabled="loadingZipCandidates || submitting || analyzingZipSize"
                 accept=".zip,application/zip"
                 :show-upload-list="false"
                 :before-upload="handleBeforeUpload"
@@ -26,8 +49,17 @@
                 </p>
                 <p class="ant-upload-text">{{ $t("legacy.xz9kog") }}</p>
                 <p class="ant-upload-hint">{{ $t("legacy.1em9qzx") }}</p>
+                <p class="ant-upload-hint">{{ t('skillUpload.zipSizeHint') }}</p>
               </a-upload-dragger>
               <div class="field-hint">{{ selectedFile ? text(`当前文件：${selectedFile.name}`, `Current file: ${selectedFile.name}`) : text('尚未选择文件', 'No file selected') }}</div>
+              <div v-if="zipProgress" class="zip-progress" role="status" aria-live="polite">
+                <a-space wrap>
+                  <a-spin v-if="zipProgress.percent === null" size="small" />
+                  <span>{{ t(`skillUpload.progress.${zipProgress.stage}`) }}</span>
+                  <span v-if="zipProgress.total > 0 && zipProgress.stage !== 'uploading'">{{ zipProgress.completed }} / {{ zipProgress.total }}</span>
+                </a-space>
+                <a-progress v-if="zipProgress.percent !== null" :percent="zipProgress.percent" :status="zipProgress.percent === 100 ? 'normal' : 'active'" size="small" />
+              </div>
               <a-space style="margin-top: 8px" wrap>
                 <a-button
                   type="primary"
@@ -35,7 +67,7 @@
                   :disabled="submitting || loadingZipCandidates || !selectedFile"
                   @click="prepareZipImport"
                 > {{ $t("legacy.1skr69s") }} </a-button>
-                <a-button @click="resetZip" :disabled="submitting || loadingZipCandidates">{{ text('重置', 'Reset') }}</a-button>
+                <a-button @click="resetZip" :disabled="submitting || loadingZipCandidates || analyzingZipSize">{{ text('重置', 'Reset') }}</a-button>
               </a-space>
             </a-form-item>
             <a-form-item v-if="validUploadCandidates.length" :label="$t('legacy.1xftwp6')">
@@ -82,23 +114,10 @@
               :description="$t('legacy.cpri8l')"
             />
             <a-form-item>
-              <a-space wrap>
-                <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">{{ $t("legacy.zloh25") }}</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="deepScanTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSkillspector" :disabled="!deepScanReadyForSubmit">{{ $t("legacy.1w3zw0n") }}</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">{{ $t("legacy.9un8hd") }}</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="llmTooltip">
-                  <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">{{ $t("legacy.7szg5p") }}</a-checkbox></span>
-                </a-tooltip>
-              </a-space>
+              <SkillScanOptions v-model="submissionScanOptions" :status="managerStatus" :loading="loadingSystemStatus" :disabled="submitting" />
             </a-form-item>
             <a-form-item>
-              <a-space>
+              <a-space wrap>
                 <a-button
                   type="primary"
                   ghost
@@ -106,6 +125,7 @@
                   :disabled="submitting || !uploadImportSessionId || !selectedUploadPaths.length"
                   @click="handleZipSubmit"
                 > {{ $t("legacy.dlkvph") }} </a-button>
+                <a-button @click="uploadJobsOpen = true; refreshUploadJobs()">{{ t('skillUpload.jobs.title') }}</a-button>
               </a-space>
             </a-form-item>
           </a-form>
@@ -165,23 +185,10 @@
               :description="$t('legacy.u2f68')"
             />
             <a-form-item>
-              <a-space wrap>
-                <a-tooltip :title="behavioralTooltip">
-                  <span><a-checkbox v-model:checked="formState.useBehavioral">{{ $t("legacy.zloh25") }}</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="deepScanTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSkillspector" :disabled="!deepScanReadyForSubmit">{{ $t("legacy.1w3zw0n") }}</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="sandboxTooltip">
-                  <span><a-checkbox v-model:checked="formState.useSandbox" :disabled="!sandboxReadyForSubmit">{{ $t("legacy.9un8hd") }}</a-checkbox></span>
-                </a-tooltip>
-                <a-tooltip :title="llmTooltip">
-                  <span><a-checkbox v-model:checked="formState.useLlm" :disabled="!llmReadyForSubmit">{{ $t("legacy.7szg5p") }}</a-checkbox></span>
-                </a-tooltip>
-              </a-space>
+              <SkillScanOptions v-model="submissionScanOptions" :status="managerStatus" :loading="loadingSystemStatus" :disabled="submitting" />
             </a-form-item>
             <a-form-item>
-              <a-space>
+              <a-space wrap>
                 <a-button
                   type="primary"
                   :loading="submitting"
@@ -200,7 +207,24 @@
       </a-tabs>
     </a-card>
 
-    <a-card v-if="submitResults.length" :title="$t('legacy.1prneem')" style="margin-top: 16px">
+    <a-modal v-model:open="uploadJobsOpen" :footer="null" :width="1100" :title="t('skillUpload.jobs.title')" style="max-width: calc(100vw - 32px)" :body-style="{ maxHeight: '70vh', overflowY: 'auto' }">
+      <a-alert v-if="uploadJobsError" type="warning" :message="t('skillUpload.jobs.loadFailed')" show-icon />
+      <a-table :data-source="uploadJobs" :columns="uploadJobColumns" row-key="job_id" :pagination="{ pageSize: 5 }" :scroll="{ x: 950 }" size="small">
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'created_at'">{{ record.created_at ? new Date(record.created_at * 1000).toLocaleString(locale) : '—' }}</template>
+          <template v-else-if="column.key === 'filename'">{{ record.filename || '—' }}</template>
+          <template v-else-if="column.key === 'status'">{{ t(`skillUpload.jobs.status.${record.status}`) }}</template>
+          <template v-else-if="column.key === 'progress'">{{ record.completed }} / {{ record.total }}</template>
+          <template v-else-if="column.key === 'action'"><a-button size="small" @click="showUploadJob(record)">{{ t('skillUpload.jobs.viewResults') }}</a-button></template>
+        </template>
+      </a-table>
+    </a-modal>
+
+    <a-modal v-model:open="uploadResultsOpen" :title="t('skillUpload.jobs.resultTitle')" :footer="null" :width="1100" style="max-width: calc(100vw - 32px)" :body-style="{ maxHeight: '70vh', overflowY: 'auto' }">
+      <a-button v-if="selectedUploadJobId" style="margin-bottom: 16px" @click="uploadResultsOpen = false; uploadJobsOpen = true; stopPolling()">{{ t('skillUpload.jobs.backToRecords') }}</a-button>
+      <p v-if="selectedUploadJob">{{ t(`skillUpload.jobs.status.${selectedUploadJob.status}`) }} · {{ selectedUploadJob.completed }} / {{ selectedUploadJob.total }}</p>
+      <a-alert v-for="error in selectedUploadJobErrors" :key="error.path" type="error" show-icon style="margin-top: 8px" :message="t('skillUpload.jobs.itemFailed')" :description="error.path" />
+      <a-empty v-if="!submitResults.length && !selectedUploadJobErrors.length" :description="t('skillUpload.jobs.noResults')" />
       <a-alert
         v-if="submitResults.some((item) => item.status === 'PENDING')"
         style="margin-bottom: 16px"
@@ -209,11 +233,12 @@
         :message="$t('legacy.h472o0')"
         :description="$t('legacy.1mofivi')"
       />
-      <a-table
+      <a-table v-if="submitResults.length"
         :data-source="submitResults"
         :columns="resultColumns"
         row-key="skill_id"
-        :pagination="false"
+        :pagination="{ pageSize: 20 }"
+        :scroll="{ x: 1000 }"
         size="small"
       >
         <template #bodyCell="{ column, record }">
@@ -238,7 +263,7 @@
           </template>
         </template>
       </a-table>
-    </a-card>
+    </a-modal>
   </div>
 </template>
 
@@ -251,6 +276,9 @@ import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { InboxOutlined } from '@ant-design/icons-vue'
 import ScannerAccess from './ScannerAccess.vue'
+import SkillScanOptions from '../components/SkillScanOptions.vue'
+import { rescanCapabilities } from '../utils/skillRescan'
+import { analyzeZipSize, formatZipSize, isZipTooLarge, removeMacOSMetadata } from '../utils/zipSize'
 import { useLocaleText } from '../i18n/useLocaleText'
 
 import {
@@ -258,12 +286,14 @@ import {
   getSkillDetail,
   getAgentManagerSystemStatus,
   prepareUploadZip,
+  confirmUploadZip,
   submitLocalSkills,
   submitUploadSelected,
+  getUploadImportJobs,
 } from '../api'
 
 const router = useRouter()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const { text } = useLocaleText()
 const submitMode = ref('zip')
 const showLocalImport = false
@@ -273,6 +303,51 @@ const loadingLocalCandidates = ref(false)
 const loadingZipCandidates = ref(false)
 const selectedFile = ref(null)
 const submitResults = ref([])
+const uploadJobs = ref([])
+const uploadJobsOpen = ref(false)
+const uploadJobsError = ref(false)
+const selectedUploadJobId = ref('')
+const uploadResultsOpen = ref(false)
+const selectedUploadJob = computed(() => uploadJobs.value.find(job => job.job_id === selectedUploadJobId.value))
+const selectedUploadJobErrors = computed(() => selectedUploadJob.value?.errors || [])
+const uploadJobColumns = computed(() => [
+  { title: t('skillUpload.jobs.id'), dataIndex: 'job_id', key: 'job_id', ellipsis: true },
+  { title: t('skillUpload.jobs.filename'), key: 'filename', width: 240, ellipsis: true },
+  { title: t('skillUpload.jobs.createdAt'), key: 'created_at', width: 190 },
+  { title: t('skillUpload.jobs.state'), key: 'status', width: 160 },
+  { title: t('skillUpload.jobs.progress'), key: 'progress', width: 120 },
+  { title: t('skillUpload.jobs.results'), key: 'action', width: 130 },
+])
+let uploadJobsTimer = null
+let uploadJobsInFlight = false
+let uploadJobsDisposed = false
+const showUploadJob = job => {
+  uploadJobsOpen.value = false
+  uploadResultsOpen.value = true
+  selectedUploadJobId.value = job.job_id
+  submitResults.value = job.results || []
+  startPolling()
+}
+const refreshUploadJobs = async () => {
+  if (uploadJobsInFlight || uploadJobsDisposed) return
+  uploadJobsInFlight = true
+  try {
+    const response = await getUploadImportJobs()
+    if (uploadJobsDisposed) return
+    uploadJobs.value = response.items || []
+    uploadJobsError.value = false
+    const job = uploadJobs.value.find(item => item.job_id === selectedUploadJobId.value)
+    if (job && uploadResultsOpen.value) {
+      const existing = new Map(submitResults.value.map(item => [item.version_id, item]))
+      submitResults.value = job.results.map(item => existing.get(item.version_id) || item)
+      if (!pollingTimer.value) startPolling()
+    }
+  } catch {
+    if (!uploadJobsDisposed) uploadJobsError.value = true
+  } finally {
+    uploadJobsInFlight = false
+  }
+}
 const managerStatus = ref({})
 const pollingTimer = ref(null)
 const pollingInFlight = ref(false)
@@ -283,13 +358,44 @@ const selectedLocalPaths = ref([])
 const uploadImportSessionId = ref('')
 const uploadImportRootPath = ref('')
 const uploadCandidates = ref([])
+const skippedZipSymlinks = ref([])
+const oversizedZip = ref(null)
+const analyzingZipSize = ref(false)
+const zipProgress = ref(null)
+const updateZipProgress = ({ stage, completed, total }) => {
+  zipProgress.value = { stage, completed, total, percent: total > 0 ? Math.min(100, Math.floor(completed / total * 100)) : null }
+}
+const uploadZipWithProgress = async (formData, params = {}) => {
+  zipProgress.value = { stage: 'uploading', percent: 0 }
+  let uploadComplete = false
+  try {
+    return await prepareUploadZip(formData, params, ({ loaded, total }) => {
+      if (uploadComplete) return
+      if (total && loaded >= total) {
+        uploadComplete = true
+        zipProgress.value = { stage: 'server', percent: null }
+      } else updateZipProgress({ stage: 'uploading', completed: loaded, total })
+    }, progress => {
+      uploadComplete = true
+      updateZipProgress(progress)
+    })
+  } finally {
+    uploadComplete = true
+  }
+}
+const zipSizeReport = ref(null)
+const zipSizeError = ref(false)
+const zipSizeColumns = computed(() => [
+  { title: t('skillUpload.folderColumn'), key: 'path', dataIndex: 'path', width: 260 },
+  { title: t('skillUpload.compressedColumn'), key: 'compressed', width: 180 },
+  { title: t('skillUpload.originalColumn'), key: 'original', width: 180 },
+])
 const selectedUploadDirectories = ref([])
 const selectedUploadPaths = ref([])
 const currentUsername = localStorage.getItem('username') || 'admin'
 const currentSubmitterMessage = computed(() => `${text('当前提交人', 'Current submitter')}: ${currentUsername}`)
 
 const formState = reactive({
-  useBehavioral: true,
   useSkillspector: false,
   useSandbox: false,
   useLlm: false,
@@ -417,35 +523,21 @@ const resultColumns = [
   { title: phrase('legacy.501w24'), key: 'action', width: 100 },
 ]
 
-const llmEnabledInSystem = computed(() => Boolean(managerStatus.value?.llm_enabled))
-const llmReadyForSubmit = computed(() => Boolean(managerStatus.value?.llm_enabled && managerStatus.value?.llm_model))
-const sandboxEnabledInSystem = computed(() => Boolean(managerStatus.value?.sandbox_enabled))
-const sandboxReadyForSubmit = computed(() => Boolean(managerStatus.value?.sandbox_enabled && managerStatus.value?.sandbox_available))
-const deepScanReadyForSubmit = computed(() => Boolean(managerStatus.value?.skillspector_available))
-const llmTooltip = computed(() => {
-  if (loadingSystemStatus.value) return phrase('legacy.11gyk58')
-  if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return phrase('legacy.eh7hm2')
-  if (!llmEnabledInSystem.value) return phrase('legacy.15tlipg')
-  if (!managerStatus.value?.llm_model) return phrase('legacy.z86ri4')
-  return text(
-    `启用后会使用策略配置中选择的模型：${managerStatus.value.llm_model}`,
-    `Uses the model selected in Policy Settings: ${managerStatus.value.llm_model}`,
-  )
+const submissionScanOptions = computed({
+  get: () => ({
+    use_behavioral: true, use_skillspector: formState.useSkillspector,
+    use_sandbox: formState.useSandbox, use_llm: formState.useLlm,
+  }),
+  set: options => {
+    formState.useSkillspector = options.use_skillspector
+    formState.useSandbox = options.use_sandbox
+    formState.useLlm = options.use_llm
+  },
 })
-const behavioralTooltip = phrase('legacy.er61t5')
-const deepScanTooltip = computed(() => {
-  if (loadingSystemStatus.value) return phrase('legacy.ytd7gn')
-  if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return phrase('legacy.s8dbz7')
-  if (!managerStatus.value?.skillspector_available) return phrase('legacy.nxt8hi')
-  return t('scanOptions.deepScanHint')
-})
-const sandboxTooltip = computed(() => {
-  if (loadingSystemStatus.value) return phrase('legacy.1lc1opo')
-  if (!managerStatus.value || Object.keys(managerStatus.value).length === 0) return phrase('legacy.eh7hm2')
-  if (!sandboxEnabledInSystem.value) return phrase('legacy.18scr9y')
-  if (!managerStatus.value?.sandbox_available) return phrase('legacy.clcfa1')
-  return phrase('legacy.1dj13ib')
-})
+const scanCapabilities = computed(() => rescanCapabilities(managerStatus.value))
+const llmReadyForSubmit = computed(() => scanCapabilities.value.use_llm)
+const sandboxReadyForSubmit = computed(() => scanCapabilities.value.use_sandbox)
+const deepScanReadyForSubmit = computed(() => scanCapabilities.value.use_skillspector)
 const effectiveUseSandbox = () => Boolean(sandboxReadyForSubmit.value && formState.useSandbox)
 
 const fetchSystemStatus = async () => {
@@ -481,14 +573,36 @@ const fetchLocalCandidates = async () => {
   }
 }
 
-const handleBeforeUpload = (file) => {
+const handleBeforeUpload = async (file) => {
+  if (analyzingZipSize.value || loadingZipCandidates.value || submitting.value) return false
   const isZip = file.type === 'application/zip' || file.name.toLowerCase().endsWith('.zip')
   if (!isZip) {
     message.error(phrase('legacy.1ndzlv6'))
     return false
   }
-  selectedFile.value = file
+  oversizedZip.value = null
+  zipSizeReport.value = null
+  zipSizeError.value = false
+  skippedZipSymlinks.value = []
+  selectedFile.value = null
   clearZipAnalysis()
+  analyzingZipSize.value = true
+  try {
+    const cleanedFile = await removeMacOSMetadata(file, updateZipProgress)
+    if (isZipTooLarge(cleanedFile)) {
+      oversizedZip.value = { name: cleanedFile.name, size: cleanedFile.size }
+      zipSizeReport.value = await analyzeZipSize(cleanedFile, updateZipProgress)
+      return false
+    }
+    selectedFile.value = cleanedFile
+  } catch {
+    if (oversizedZip.value) zipSizeError.value = true
+    else message.error(t('skillUpload.zipPreparationFailed'))
+    return false
+  } finally {
+    analyzingZipSize.value = false
+    zipProgress.value = null
+  }
   window.setTimeout(() => {
     prepareZipImport()
   }, 0)
@@ -504,11 +618,12 @@ const stopPolling = () => {
 
 const refreshPendingResults = async () => {
   if (pollingInFlight.value) return
-  if (!submitResults.value.some((item) => item.status === 'PENDING')) {
+  if (!uploadResultsOpen.value || !submitResults.value.some((item) => item.status === 'PENDING')) {
     stopPolling()
     return
   }
   pollingInFlight.value = true
+  const jobId = selectedUploadJobId.value
   try {
     const updated = await Promise.all(
       submitResults.value.map(async (item) => {
@@ -527,6 +642,7 @@ const refreshPendingResults = async () => {
         }
       }),
     )
+    if (!uploadResultsOpen.value || selectedUploadJobId.value !== jobId) return
     submitResults.value = updated
     if (!updated.some((item) => item.status === 'PENDING')) stopPolling()
   } catch (_error) {
@@ -552,7 +668,11 @@ const clearZipAnalysis = () => {
 }
 
 const resetZip = () => {
+  oversizedZip.value = null
+  zipSizeReport.value = null
+  zipSizeError.value = false
   selectedFile.value = null
+  skippedZipSymlinks.value = []
   clearZipAnalysis()
 }
 
@@ -619,18 +739,17 @@ const handleZipSubmit = async () => {
       paths: selectedUploadPaths.value,
       author: currentUsername,
       origin: 'local',
-      use_behavioral: formState.useBehavioral,
+      use_behavioral: true,
       use_skillspector: formState.useSkillspector,
       use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
     })
-    submitResults.value = result.results || []
+    uploadJobs.value = [result, ...uploadJobs.value.filter(job => job.job_id !== result.job_id)]
+    selectedUploadJobId.value = ''
+    submitResults.value = []
+    stopPolling()
     clearSubmittedZipSelection()
-    message.success(text(
-      `已提交 ${submitResults.value.length} 个 Skill`,
-      `Submitted ${submitResults.value.length} Skills`,
-    ))
-    startPolling()
+    message.success(t('skillUpload.jobs.accepted'))
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.1kuial'))
   } finally {
@@ -644,12 +763,36 @@ const prepareZipImport = async () => {
     message.warning(phrase('legacy.18gvsoj'))
     return
   }
+  if (isZipTooLarge(selectedFile.value)) {
+    message.error(t('skillUpload.localTooLarge', { size: formatZipSize(selectedFile.value.size) }))
+    return
+  }
   const formData = new FormData()
   formData.append('file', selectedFile.value)
   clearZipAnalysis()
+  skippedZipSymlinks.value = []
   loadingZipCandidates.value = true
   try {
-    const result = await prepareUploadZip(formData)
+    let result = await uploadZipWithProgress(formData)
+    if (result.requires_symlink_confirmation) {
+      zipProgress.value = { stage: 'confirmation', percent: null }
+      const confirmed = await new Promise((resolve) => Modal.confirm({
+        title: t('skillUpload.symlinkTitle'),
+        content: h('div', [
+          h('p', t('skillUpload.symlinkWarning')),
+          h('div', { style: 'max-height: 240px; overflow: auto; overflow-wrap: anywhere' },
+            result.skipped_symlinks.map((path) => h('div', path))),
+        ]),
+        okText: t('skillUpload.skipAndContinue'),
+        cancelText: t('skillUpload.cancelUpload'),
+        onOk: () => { resolve(true) },
+        onCancel: () => { resolve(false) },
+      }))
+      zipProgress.value = { stage: 'server', percent: null }
+      result = await confirmUploadZip(result.session_id, confirmed, updateZipProgress)
+      if (!confirmed) return
+    }
+    skippedZipSymlinks.value = result.skipped_symlinks || []
     uploadImportSessionId.value = result.session_id
     uploadImportRootPath.value = result.root_path
     uploadCandidates.value = result.items || []
@@ -680,9 +823,12 @@ const prepareZipImport = async () => {
       `ZIP parsing completed. Found ${validUploadCandidates.value.length} importable Skills.`,
     ))
   } catch (error) {
-    message.error(error.response?.data?.detail || phrase('legacy.6o53hh'))
+    message.error(error.apiErrorCode === 'upload.parse_failed' ? t('skillUpload.parseFailed') : error.response?.status === 413
+      ? t('skillUpload.zipTooLarge')
+      : error.response?.data?.detail || phrase('legacy.6o53hh'))
   } finally {
     loadingZipCandidates.value = false
+    zipProgress.value = null
   }
 }
 
@@ -718,11 +864,13 @@ const handleLocalSubmit = async () => {
       paths: selectedLocalPaths.value,
       author: currentUsername,
       origin: 'local',
-      use_behavioral: formState.useBehavioral,
+      use_behavioral: true,
       use_skillspector: formState.useSkillspector,
       use_sandbox: effectiveUseSandbox(),
       use_llm: formState.useLlm,
     })
+    selectedUploadJobId.value = ''
+    uploadResultsOpen.value = true
     submitResults.value = result.results || []
     clearSubmittedLocalSelection()
     message.success(text(
@@ -785,14 +933,29 @@ const riskColor = (value) => ({
 }[value] || 'default')
 
 onMounted(async () => {
+  void refreshUploadJobs()
+  uploadJobsTimer = setInterval(refreshUploadJobs, 2000)
   await fetchSystemStatus()
   await fetchLocalCandidates()
 })
 
-onBeforeUnmount(stopPolling)
+onBeforeUnmount(() => {
+  uploadJobsDisposed = true
+  clearInterval(uploadJobsTimer)
+  stopPolling()
+})
 </script>
 
 <style scoped>
+.zip-progress {
+  margin-top: 12px;
+  max-width: 560px;
+}
+
+.zip-progress :deep(.ant-progress-bg) {
+  transition: none;
+}
+
 .field-hint {
   margin-top: 8px;
   color: #8c8c8c;
@@ -812,6 +975,10 @@ onBeforeUnmount(stopPolling)
 
 .remote-import-select :deep(.ant-select-selector) {
   align-items: center;
+}
+
+.remote-import-select :deep(.ant-select-clear) {
+  margin-top: 0;
 }
 
 .remote-import-select :deep(.ant-select-selection-overflow) {

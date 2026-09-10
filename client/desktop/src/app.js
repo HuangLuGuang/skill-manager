@@ -16,6 +16,7 @@ let currentTakeoverTitle = t('ui.1aqrn47')
 const panelTitle = panel => ({
   connect: t('ui.wu8jgp'),
   discover: t('ui.zg9dnv'),
+  models: t('client.models.title'),
   takeover: currentTakeoverTitle,
   status: t('ui.1ihgm6s'),
   notifications: t('ui.1atia5p'),
@@ -39,6 +40,8 @@ let notificationFilter = 'all'
 let customAgentPendingRemoval = null
 let builtinAgentSettings = []
 let editingBuiltinAgent = null
+let selectedModelAgentID = ''
+let modelSearch = ''
 let pendingItems = []
 let pendingDiscardItem = null
 let pendingRefreshTimer = null
@@ -227,6 +230,7 @@ const showPanel = panel => {
   $('#panel-title').textContent = panelTitle(panel)
   $('.workspace').scrollTop = 0
   if (panel === 'status') loadStatusPage()
+  if (panel === 'models' && connection) renderModelSwitcher(connection)
   if (panel === 'notifications') refreshConnection()
   if (panel === 'records') refreshConnection()
   if (panel === 'settings') syncSettingsControls()
@@ -337,6 +341,11 @@ const renderDisconnected = () => {
   $('#connection-state').textContent = t('ui.1gwretz')
   $('#connection-state').classList.remove('online')
   $('#notification-trigger').hidden = true
+  $('#model-permission-note').textContent = t('client.models.connect_first')
+  $('#model-agent-tabs').innerHTML = ''
+  $('#model-current').innerHTML = ''
+  $('#model-catalog').classList.add('empty')
+  $('#model-catalog').textContent = t('client.models.connect_to_load')
   $('#panel-title').textContent = t('ui.wu8jgp')
   syncSettingsControls()
 }
@@ -523,6 +532,7 @@ const renderConnected = data => {
   renderCapability('#capability-sandbox', capabilities.sandbox)
   renderCapability('#capability-llm', capabilities.llm)
   renderStatus(data)
+  renderModelSwitcher(data)
 
   $('#todo-section').hidden = todos.length === 0
   $('#todo-list').innerHTML = todos.map((todo, index) => `
@@ -543,6 +553,119 @@ const renderConnected = data => {
   })
   syncSettingsControls()
 }
+
+const modelAgentKind = value => {
+  const normalized = String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  return { claude: 'claudecode', claudecode: 'claudecode' }[normalized] || normalized
+}
+
+const localModelAgents = data => (data?.inventory?.agents || []).filter(agent =>
+  ['claude-code', 'codex', 'hermes'].includes(agent.agent_type)
+  && agent.capabilities?.model_config_auto_apply,
+)
+
+const platformAgentForLocal = (data, agent) => {
+  const platformAgents = data?.platform?.agents || []
+  return platformAgents.find(item => item.local_agent_id === agent.local_agent_id)
+    || platformAgents.find(item => item.agent_type === agent.agent_type)
+}
+
+const modelConfigState = agent => agent?.capabilities?.model_config_state || {}
+
+const renderModelSwitcher = data => {
+  const agents = localModelAgents(data)
+  const permission = data?.platform?.model_configuration || {}
+  if (!selectedModelAgentID || !agents.some(agent => agent.local_agent_id === selectedModelAgentID)) {
+    selectedModelAgentID = agents[0]?.local_agent_id || ''
+  }
+  const selected = agents.find(agent => agent.local_agent_id === selectedModelAgentID)
+  const models = permission.models || []
+  $('#model-permission-note').className = `model-permission-note${permission.can_configure_models ? '' : ' disabled'}`
+  $('#model-permission-note').textContent = permission.can_configure_models
+    ? tf`当前凭证可配置 ${models.length} 个网关模型；首次切换会自动建立运行身份并创建独立凭证。`
+    : t('client.models.issuance_disabled')
+  $('#model-agent-tabs').innerHTML = agents.map(agent => `
+    <button type="button" role="tab" aria-selected="${agent.local_agent_id === selectedModelAgentID}" class="${agent.local_agent_id === selectedModelAgentID ? 'active' : ''}" data-model-agent="${escapeHtml(agent.local_agent_id)}">
+      <strong>${escapeHtml(agentLabel(agent.agent_type))}</strong>
+      <span>${escapeHtml(modelConfigState(agent).model || t('client.models.not_configured'))}</span>
+    </button>`).join('')
+  document.querySelectorAll('[data-model-agent]').forEach(button => button.addEventListener('click', () => {
+    selectedModelAgentID = button.dataset.modelAgent
+    renderModelSwitcher(connection)
+  }))
+  if (!selected) {
+    $('#model-current').innerHTML = tf`<div><strong>未发现支持的 Agent</strong><span>当前仅支持自动配置 Claude Code、Codex 和 Hermes。安装后重新发现即可显示。</span></div>`
+    $('#model-catalog').classList.add('empty')
+    $('#model-catalog').textContent = t('client.models.no_local_agent')
+    $('#model-result-count').textContent = tf`${models.length} 个模型`
+    return
+  }
+  const state = modelConfigState(selected)
+  const platformAgent = platformAgentForLocal(data, selected)
+  $('#model-current').innerHTML = `
+    <div class="model-current-main">
+      <span>${escapeHtml(t('client.models.current_config'))}</span>
+      <strong>${escapeHtml(state.model || t('client.models.no_model'))}</strong>
+      ${state.error ? `<em>${escapeHtml(runtimeText(state.error))}</em>` : ''}
+    </div>
+    <dl>
+      <div><dt>${escapeHtml(t('client.models.gateway_url'))}</dt><dd><code>${escapeHtml(state.gateway_url || '-')}</code></dd></div>
+      <div><dt>${escapeHtml(t('client.models.config_file'))}</dt><dd><code>${escapeHtml(state.config_path || '-')}</code></dd></div>
+      <div><dt>${escapeHtml(t('client.models.runtime_identity'))}</dt><dd>${escapeHtml(platformAgent?.managed_agent_id ? t('client.models.identity_ready') : t('client.models.identity_auto_create'))}</dd></div>
+    </dl>`
+  const query = modelSearch.trim().toLowerCase()
+  const visible = models.filter(model => !query || [model.name, model.display_name, model.provider_name].some(value => String(value || '').toLowerCase().includes(query)))
+  $('#model-result-count').textContent = tf`${visible.length} 个模型`
+  $('#model-catalog').classList.toggle('empty', visible.length === 0)
+  $('#model-catalog').innerHTML = visible.length ? visible.map(model => {
+    const current = state.model === model.name
+    return `<div class="model-row${current ? ' current' : ''}">
+      <div class="model-row-name"><strong>${escapeHtml(model.display_name || model.name)}</strong><code>${escapeHtml(model.name)}</code></div>
+      <span class="model-provider">${escapeHtml(model.provider_name || '-')}</span>
+      <span class="model-limits">${model.context_window ? escapeHtml(tf`上下文 ${model.context_window}`) : ''}${model.max_output_tokens ? escapeHtml(tf` · 输出 ${model.max_output_tokens}`) : ''}</span>
+      <button type="button" class="${current ? '' : 'primary'}" data-switch-model="${escapeHtml(model.name)}" ${current || !permission.can_configure_models ? 'disabled' : ''}>${escapeHtml(current ? t('client.models.current') : t('client.models.switch'))}</button>
+    </div>`
+  }).join('') : t('client.models.no_matches')
+  document.querySelectorAll('[data-switch-model]').forEach(button => button.addEventListener('click', () => beginModelSwitch(selected, button.dataset.switchModel, button)))
+}
+
+const executeModelSwitch = async (agent, model, button, managedAgentID = '') => {
+  const args = ['--agent-type', agent.agent_type, '--model', model]
+  if (managedAgentID) args.push('--managed-agent-id', managedAgentID)
+  setBusy(button, true)
+  try {
+    log(await run('switch-model', args))
+    await refreshConnection()
+    showMessageDialog(t('client.models.switch_complete'), tf`${agentLabel(agent.agent_type)} 已切换为 ${model}，页面显示的是重新读取后的实际配置。`)
+  } catch (error) {
+    showMessageDialog(t('client.models.switch_failed'), runtimeText(error))
+    log(error)
+  } finally {
+    setBusy(button, false)
+  }
+}
+
+const beginModelSwitch = (agent, model, button) => {
+  return executeModelSwitch(agent, model, button)
+}
+
+$('#model-search').addEventListener('input', event => {
+  modelSearch = event.target.value
+  if (connection) renderModelSwitcher(connection)
+})
+
+$('#refresh-models').addEventListener('click', async event => {
+  const button = event.currentTarget
+  setBusy(button, true)
+  try {
+    await run('inventory')
+    await refreshConnection()
+  } catch (error) {
+    showMessageDialog(t('client.models.refresh_failed'), runtimeText(error))
+  } finally {
+    setBusy(button, false)
+  }
+})
 
 const renderStatus = data => {
   const local = data?.local || {}
@@ -2088,7 +2211,7 @@ function agentLabel(value) {
 function taskTypeLabel(task) {
   const value = task?.task_type || task
   if (value === 'rescan' && task?.payload?.reason === 'policy_changed') return t('ui.q9utgp')
-  return { install_skill: t('ui.14fftle'), remove_skill: t('ui.s2pmon'), repair_skill: t('ui.14oueep'), rescan: t('ui.1rnx8gk'), sync_policy: t('ui.q9utgp') }[value] || value || tf`平台任务`
+  return { install_skill: t('ui.14fftle'), remove_skill: t('ui.s2pmon'), repair_skill: t('ui.14oueep'), apply_model_config: t('client.models.task_type'), rescan: t('ui.1rnx8gk'), sync_policy: t('ui.q9utgp') }[value] || value || tf`平台任务`
 }
 
 function taskStatusLabel(value) {

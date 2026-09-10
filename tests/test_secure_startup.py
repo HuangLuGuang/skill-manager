@@ -39,3 +39,14 @@ def test_local_startup_initializes_ed25519_identity(tmp_path, monkeypatch):
 
     assert private_key_path.exists()
     assert private_key_path.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("name,placeholder", [
+    ("AGENT_SECURITY_WORKER_TOKEN", "amsw_local-development-only-change-before-production"),
+    ("AIG_SERVICE_TOKEN", "aigs_local-development-only-change-before-production"),
+])
+def test_secure_startup_rejects_development_scan_credentials(monkeypatch, name, placeholder):
+    settings = Settings(_env_file=None, ENFORCE_SECURE_STARTUP=True, SECRET_KEY="s" * 32, **{name: placeholder})
+    monkeypatch.setenv("AGENT_MANAGER_SANDBOX_API_KEY", "sandbox-key-with-enough-entropy")
+    with pytest.raises(RuntimeError, match=name):
+        validate_security_settings(settings)

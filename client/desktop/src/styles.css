@@ -426,6 +426,82 @@ button.is-busy, button.is-busy:disabled { cursor: wait; }
   border: 1px solid #d7dde2;
   background: #fff;
 }
+
+.model-toolbar { margin-bottom: 10px; }
+.model-permission-note {
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  border: 1px solid #d7dde2;
+  color: #53636f;
+  background: #f8fafb;
+  font-size: 11px;
+}
+.model-permission-note.disabled { color: #8a5c31; background: #fffaf2; }
+.model-agent-tabs {
+  display: flex;
+  gap: 0;
+  overflow-x: auto;
+  border-bottom: 1px solid #cbd3da;
+}
+.model-agent-tabs button {
+  min-width: 150px;
+  padding: 10px 14px 9px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: #64727e;
+  background: transparent;
+  text-align: left;
+}
+.model-agent-tabs button:hover { color: #263846; background: #f7f9fa; }
+.model-agent-tabs button.active { border-bottom-color: #263846; color: #263846; background: #fff; }
+.model-agent-tabs strong, .model-agent-tabs span { display: block; }
+.model-agent-tabs strong { font-size: 12px; }
+.model-agent-tabs span { overflow: hidden; margin-top: 3px; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.model-current {
+  display: grid;
+  grid-template-columns: minmax(190px, .7fr) minmax(0, 1.3fr);
+  gap: 24px;
+  margin: 14px 0;
+  padding: 16px 18px;
+  border: 1px solid #d7dde2;
+  border-left: 3px solid #354755;
+  background: #fff;
+}
+.model-current-main { min-width: 0; align-self: center; }
+.model-current-main > span, .model-current-main > strong, .model-current-main > em { display: block; }
+.model-current-main > span { color: #7b8893; font-size: 11px; }
+.model-current-main > strong { overflow-wrap: anywhere; margin-top: 5px; color: #263846; font-size: 18px; }
+.model-current-main > em { margin-top: 5px; color: #a0473b; font-size: 10px; font-style: normal; }
+.model-current dl { display: grid; gap: 7px; margin: 0; }
+.model-current dl div { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; }
+.model-current dt { color: #7b8893; font-size: 11px; }
+.model-current dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: #46535f; font-size: 11px; text-align: right; }
+.model-current code { font-size: 10px; }
+.model-catalog-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 14px; margin-bottom: 8px; }
+.model-catalog-toolbar label { width: min(380px, 55%); }
+.model-catalog-toolbar input { padding: 8px 10px; }
+.model-catalog-toolbar > span { padding-bottom: 8px; color: #75828d; font-size: 11px; }
+.model-catalog { border: 1px solid #d7dde2; background: #fff; }
+.model-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.3fr) minmax(110px, .65fr) minmax(170px, .8fr) 78px;
+  align-items: center;
+  gap: 14px;
+  min-height: 62px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e7ebee;
+}
+.model-row:last-child { border-bottom: 0; }
+.model-row:hover { background: #f8fafb; }
+.model-row.current { background: #f5f8f9; }
+.model-row-name { min-width: 0; }
+.model-row-name strong, .model-row-name code { display: block; }
+.model-row-name strong { overflow: hidden; color: #2c3d49; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.model-row-name code { overflow: hidden; margin-top: 3px; color: #7c8993; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.model-provider { overflow: hidden; color: #52626e; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.model-limits { color: #7b8893; font-size: 10px; }
+.model-row button { width: 78px; min-height: 30px; padding: 5px 8px; font-size: 11px; }
 .agent-discovery-tip { margin: 9px 2px 0; color: #74828e; font-size: 11px; }
 .empty { display: grid; min-height: 150px; place-items: center; color: #8a96a0; }
 .discovery-error { padding: 20px; color: #b94835; text-align: center; }
@@ -937,6 +1013,8 @@ html[lang="en-US"] #preview-button {
   .status-metrics > :nth-child(-n + 2) { grid-column: span 3; }
   .status-metrics > :nth-child(n + 3) { grid-column: span 2; }
   .overview-columns { grid-template-columns: minmax(0, 1fr); }
+  .model-row { grid-template-columns: minmax(180px, 1fr) minmax(100px, .6fr) 78px; }
+  .model-limits { display: none; }
   .detection-capabilities { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .takeover-column-head,
   .task-history-columns {

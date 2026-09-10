@@ -50,7 +50,7 @@
       </a-layout-header>
 
       <a-layout v-if="!isLoginPage && !isDocsPage" class="app-main-layout">
-        <a-layout-sider width="240" class="app-sider">
+        <a-layout-sider width="240" breakpoint="md" :collapsed-width="0" class="app-sider">
           <a-menu
             :items="menuItems"
             :selectedKeys="selectedKeys"
@@ -129,7 +129,8 @@ import {
   UploadOutlined,
 } from '@ant-design/icons-vue'
 
-import { changePassword, checkSession, getLogoInfo, getMcpApprovalRequestStats, getMe, updateMyLocale } from './api'
+import { changePassword, checkSession, getLogoInfo, getMcpApprovalRequestStats, getMe, getSystemCapabilities, updateMyLocale } from './api'
+import { DEFAULT_FEATURE_FLAGS, filterNavigationByFeatures, normalizeFeatureFlags } from './features'
 import { setLocale, translateLegacy } from './i18n'
 import { findMenuOpenKeys, navigationItems, resolveMenuKey } from './navigation'
 
@@ -143,6 +144,7 @@ const logoUrl = ref('/logo.png')
 const selectedKeys = ref([route.path])
 const openKeys = ref(['capability-governance'])
 const pendingMcpApprovals = ref(0)
+const featureFlags = ref({ ...DEFAULT_FEATURE_FLAGS })
 const passwordForm = reactive({
   oldPassword: '',
   newPassword: '',
@@ -187,7 +189,7 @@ const buildMenuItem = (item) => ({
   children: item.children?.map(buildMenuItem),
 })
 
-const menuItems = computed(() => navigationItems.map(buildMenuItem))
+const menuItems = computed(() => filterNavigationByFeatures(navigationItems, featureFlags.value).map(buildMenuItem))
 
 const handleLocaleChange = async (value) => {
   setLocale(value)
@@ -223,6 +225,7 @@ watch(
     if (!isLogin && wasLogin && localStorage.getItem('token')) {
       try {
         await loadProfile()
+        await loadCapabilities()
         startSessionCheck()
         startApprovalStatsCheck()
       } catch {
@@ -295,6 +298,15 @@ const loadProfile = async () => {
   }
 }
 
+const loadCapabilities = async () => {
+  try {
+    const capabilities = await getSystemCapabilities()
+    featureFlags.value = normalizeFeatureFlags(capabilities.features)
+  } catch {
+    featureFlags.value = { ...DEFAULT_FEATURE_FLAGS }
+  }
+}
+
 const loadLogo = async () => {
   try {
     const res = await getLogoInfo()
@@ -317,6 +329,7 @@ const handleLogout = () => {
   localStorage.removeItem('token')
   localStorage.removeItem('username')
   userInfo.value = null
+  featureFlags.value = { ...DEFAULT_FEATURE_FLAGS }
   stopSessionCheck()
   stopApprovalStatsCheck()
   router.push('/login')
@@ -350,6 +363,7 @@ onMounted(async () => {
   }
   try {
     await loadProfile()
+    await loadCapabilities()
     await loadLogo()
     startSessionCheck()
     startApprovalStatsCheck()
@@ -401,7 +415,9 @@ onUnmounted(() => {
 }
 
 .app-main-layout {
-  height: calc(100vh - 72px);
+  min-height: 0;
+  flex: 1;
+  height: auto;
   overflow: hidden;
 }
 
@@ -461,9 +477,46 @@ onUnmounted(() => {
 }
 
 .app-content {
+  min-width: 0;
   height: 100%;
   padding: 24px;
   overflow-y: auto;
   background: linear-gradient(180deg, #fffdf7 0%, #f7fbff 100%);
+}
+
+@media (max-width: 767px) {
+  .app-header {
+    min-height: 60px;
+    gap: 12px;
+    padding-inline: 12px;
+  }
+
+  .app-brand {
+    min-width: 0;
+    min-height: 60px;
+    gap: 8px;
+    padding-block: 8px;
+  }
+
+  .app-logo { height: 32px; }
+  .app-title { display: none; }
+  .app-user { min-width: 0; gap: 8px; }
+  .language-select { width: 108px; }
+  .ant-dropdown-link {
+    display: block;
+    max-width: 88px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .app-content { padding: 14px 12px 20px; }
+  .app-sider :deep(.ant-layout-sider-zero-width-trigger) {
+    top: 12px;
+    width: 38px;
+    height: 38px;
+    line-height: 38px;
+    border-radius: 0 8px 8px 0;
+    box-shadow: 0 4px 14px rgba(22, 50, 79, .18);
+  }
 }
 </style>

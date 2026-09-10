@@ -59,10 +59,10 @@ def test_hook_blocks_skill_when_configuration_missing(monkeypatch, capsys):
     ("tool_input", "expected"),
     [
         ({"skill": "claude-skill"}, "claude-skill"),
-        ({"name": "trae-skill"}, "trae-skill"),
+        ({"name": "named-skill"}, "named-skill"),
     ],
 )
-def test_hook_extracts_skill_name_from_claude_and_trae_payloads(tool_input, expected):
+def test_hook_extracts_skill_name_from_supported_argument_keys(tool_input, expected):
     hook = _load_hook()
 
     assert hook._extract_skill_name_from_event({
@@ -141,9 +141,9 @@ def test_hook_reads_skill_id_from_managed_install_path(tmp_path, monkeypatch):
 def test_hook_pre_tool_use_verifies_skill_from_name_payload(tmp_path, monkeypatch):
     hook = _load_hook()
     skills_root = tmp_path / "skills"
-    skill_dir = skills_root / "trae-skill"
+    skill_dir = skills_root / "named-skill"
     skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text("---\nname: trae-skill\n---\n", encoding="utf-8")
+    (skill_dir / "SKILL.md").write_text("---\nname: named-skill\n---\n", encoding="utf-8")
     verified = {}
 
     def fake_verify_skill(client, server, token, path, agent_id, skill_name):
@@ -164,7 +164,7 @@ def test_hook_pre_tool_use_verifies_skill_from_name_payload(tmp_path, monkeypatc
         {
             "hook_event_name": "PreToolUse",
             "tool_name": "Skill",
-            "tool_input": {"name": "trae-skill"},
+            "tool_input": {"name": "named-skill"},
             "cwd": str(tmp_path),
             "session_id": "session-a",
         },
@@ -178,7 +178,7 @@ def test_hook_pre_tool_use_verifies_skill_from_name_payload(tmp_path, monkeypatc
         "token": "amat_test",
         "path": skill_dir,
         "agent_id": "agent-a",
-        "skill_name": "trae-skill",
+        "skill_name": "named-skill",
     }
 
 

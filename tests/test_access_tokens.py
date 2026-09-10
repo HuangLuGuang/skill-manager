@@ -186,6 +186,41 @@ def test_only_client_credential_can_allow_agent_credential_issuance(tmp_path):
     assert invalid.json()["error_code"] == "credential.agent_issuance_not_applicable"
 
 
+def test_client_credential_model_allowlist_is_a_delegated_issuance_boundary(tmp_path):
+    client = _client(tmp_path)
+    created = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "model-switcher",
+            "token_type": "client",
+            "allow_agent_credential_issuance": True,
+            "allowed_models": ["model-a", "model-a", " model-b "],
+        },
+    )
+    assert created.status_code == 200
+    record = created.json()["record"]
+    assert record["allowed_models"] == ["model-a", "model-b"]
+
+    rejected = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "plain-client",
+            "token_type": "client",
+            "allowed_models": ["model-a"],
+        },
+    )
+    assert rejected.status_code == 400
+    assert rejected.json()["error_code"] == "credential.models_not_applicable"
+
+    disabled = client.put(
+        f"/api/v1/access/tokens/{record['id']}",
+        json={"allow_agent_credential_issuance": False},
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["allow_agent_credential_issuance"] is False
+    assert disabled.json()["allowed_models"] == []
+
+
 def test_agent_runtime_requires_existing_agent_and_uses_minimum_default_scopes(tmp_path):
     client = _client(tmp_path)
 
@@ -212,6 +247,7 @@ def test_agent_runtime_requires_existing_agent_and_uses_minimum_default_scopes(t
         "runtime:verify-signature",
         "runtime:can-load",
         "runtime:check-tool",
+        "runtime:trace",
     ]
 
 

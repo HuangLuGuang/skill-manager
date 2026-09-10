@@ -868,15 +868,31 @@ class Registry:
                 raise ValueError(f"skill_id {entry.skill_id!r} already exists in registry")
             self._upsert_entry(conn, entry)
 
-    def update(self, entry: RegistryEntry) -> None:
+    def update(self, entry: RegistryEntry, *, backfill_content_fingerprint: str | None = None) -> None:
         """Replace an existing entry by skill_id."""
         with self._lock, self._connect() as conn:
+            if backfill_content_fingerprint is not None:
+                conn.execute("BEGIN IMMEDIATE")
             exists = conn.execute(
                 "SELECT 1 FROM skill_registry WHERE skill_id = ?",
                 (entry.skill_id,),
             ).fetchone()
             if not exists:
                 raise KeyError(f"skill_id {entry.skill_id!r} not found")
+            if backfill_content_fingerprint is not None and entry.content_fingerprint is None:
+                owner = conn.execute(
+                    """
+                    SELECT skill_id FROM skill_registry
+                    WHERE json_extract(payload, '$.family_id') = ?
+                      AND json_extract(payload, '$.content_fingerprint') = ?
+                      AND skill_id != ?
+                    """,
+                    (entry.family_id, backfill_content_fingerprint, entry.skill_id),
+                ).fetchone()
+                # Historical versions can predate content deduplication. Keep
+                # their identity; each scan report records the computed digest.
+                if owner is None:
+                    entry.content_fingerprint = backfill_content_fingerprint
             self._upsert_entry(conn, entry)
 
     def delete(self, skill_id: str) -> None:
@@ -1216,6 +1232,7 @@ class Registry:
         page: int,
         page_size: int,
         statuses: list[SkillStatus] | None = None,
+        scanning: bool | None = None,
         cancelled_only: bool = False,
         cancelled_reason: str = "",
         loadable_only: bool = False,
@@ -1229,6 +1246,13 @@ class Registry:
     ) -> dict[str, Any]:
         where: list[str] = []
         params: list[Any] = []
+
+        if scanning is not None:
+            scan_condition = """(s.status = 'PENDING' OR EXISTS (
+                SELECT 1 FROM skill_scan_runs runs
+                WHERE runs.version_id = s.skill_id AND runs.status = 'PENDING'
+            ))"""
+            where.append(scan_condition if scanning else f"NOT {scan_condition}")
 
         if statuses:
             placeholders = ",".join("?" for _ in statuses)
@@ -1296,6 +1320,10 @@ class Registry:
                     CAST(coalesce(json_extract(tv.payload, '$.version_no'), 0) AS INTEGER) AS latest_trusted_version_no,
                     s.name,
                     s.status,
+                    EXISTS (
+                        SELECT 1 FROM skill_scan_runs runs
+                        WHERE runs.version_id = s.skill_id AND runs.status = 'PENDING'
+                    ) AS scan_pending,
                     s.risk_level,
                     s.submitted_at,
                     s.updated_at,
@@ -1303,6 +1331,15 @@ class Registry:
                     json_extract(s.payload, '$.vetting.sandbox_triggered') AS sandbox_triggered,
                     json_extract(s.payload, '$.vetting.sandbox_required_by_policy') AS sandbox_required_by_policy,
                     json_extract(s.payload, '$.vetting.sandbox_runtime') AS sandbox_runtime,
+                    json_extract(s.payload, '$.scan_options') AS scan_options,
+                    json_extract(sr.report, '$.analyzer_timings') AS analyzer_timings,
+                    json_extract(sr.report, '$.llm_analysis.risk_level') AS llm_risk,
+                    coalesce(json_extract(sr.report, '$.skillspector_analysis.risk_severity'),
+                             json_extract(sr.report, '$.skillspector_analysis.max_severity'),
+                             json_extract(sr.report, '$.skillspector_analysis.risk_level')) AS deep_risk,
+                    json_extract(sr.report, '$.sandbox_analysis.risk_level') AS sandbox_risk,
+                    json_extract(sr.report, '$.sandbox_analysis.executed') AS sandbox_executed,
+                    coalesce(fs.count, 0) AS rule_findings,
                     json_extract(s.payload, '$.approved_by') AS approved_by,
                     json_extract(s.payload, '$.source.author') AS submitted_by,
                     json_extract(s.payload, '$.rejection_reason') AS rejection_reason,
@@ -1311,6 +1348,8 @@ class Registry:
                 FROM skill_families f
                 JOIN skill_registry s ON s.skill_id = f.{version_pointer}
                 LEFT JOIN skill_registry tv ON tv.skill_id = f.latest_trusted_version_id
+                LEFT JOIN skill_scan_reports sr ON sr.skill_id = s.skill_id
+                LEFT JOIN skill_finding_stats fs ON fs.skill_id = s.skill_id AND fs.source_key = 'rule'
                 {where_sql}
                 ORDER BY {sort_expr} {direction}, s.updated_at DESC
                 LIMIT ? OFFSET ?
@@ -1324,6 +1363,23 @@ class Registry:
             sandbox_triggered_value = bool(row["sandbox_triggered"]) if has_vetting else False
             sandbox_required_value = bool(row["sandbox_required_by_policy"]) if has_vetting else False
             sandbox_runtime_value = row["sandbox_runtime"] if has_vetting else None
+            timings = json.loads(row["analyzer_timings"] or "{}")
+            options = json.loads(row["scan_options"] or "{}")
+            analysis_results = {}
+            for key, timing_key, option in (
+                ("rule", "scanner", None), ("skillspector", "skillspector", "use_skillspector"),
+                ("sandbox", "sandbox", "use_sandbox"), ("llm", "llm", "use_llm"),
+            ):
+                state = timings.get(timing_key, {}).get("status")
+                if not state:
+                    state = "disabled" if option and options.get(option) is False else "unrecorded"
+                analysis_results[key] = {"status": state}
+            analysis_results["rule"]["findings_count"] = row["rule_findings"]
+            analysis_results["llm"]["risk_level"] = row["llm_risk"]
+            analysis_results["skillspector"]["risk_level"] = row["deep_risk"]
+            analysis_results["sandbox"]["risk_level"] = row["sandbox_risk"] if row["sandbox_executed"] else None
+            if row["llm_risk"] and not timings.get("llm", {}).get("status"):
+                analysis_results["llm"]["status"] = "completed"
             items.append({
                 "skill_id": row["skill_id"],
                 "version_id": row["version_id"],
@@ -1334,6 +1390,7 @@ class Registry:
                 "latest_trusted_status": row["latest_trusted_status"],
                 "name": row["name"],
                 "status": row["status"],
+                "scan_pending": bool(row["scan_pending"]),
                 "risk_level": row["risk_level"],
                 "vetting": {
                     "sandbox_triggered": sandbox_triggered_value,
@@ -1343,6 +1400,7 @@ class Registry:
                 "sandbox_triggered": sandbox_triggered_value,
                 "sandbox_required_by_policy": sandbox_required_value,
                 "sandbox_runtime": sandbox_runtime_value,
+                "analysis_results": analysis_results,
                 "approved_by": row["approved_by"],
                 "submitted_by": row["submitted_by"],
                 "rejection_reason": row["rejection_reason"],

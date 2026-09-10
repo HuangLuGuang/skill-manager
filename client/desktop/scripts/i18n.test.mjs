@@ -36,6 +36,7 @@ vm.runInNewContext(
 const appSource = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8')
 const indexHtml = fs.readFileSync(new URL('../src/index.html', import.meta.url), 'utf8')
 const stylesSource = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+const tauriSource = fs.readFileSync(new URL('../src-tauri/src/main.rs', import.meta.url), 'utf8')
 
 test('translates core desktop navigation and product name', () => {
   const { t } = context.window.clientI18n
@@ -88,6 +89,8 @@ test('turns connection failures into friendly messages without JSON payloads', (
 test('supports stable desktop message keys', () => {
   assert.equal(context.window.clientI18n.t('ui.png61n'), 'Last operation')
   assert.equal(context.window.clientI18n.t('status.platform_scanning'), 'Platform scan in progress')
+  assert.equal(context.window.clientI18n.t('client.models.refresh_failed'), 'Failed to Refresh Models')
+  assert.equal(context.window.clientI18n.t('client.models.task_type'), 'Model Configuration')
 })
 
 test('does not expose an internal key for generated static bindings', () => {
@@ -182,6 +185,20 @@ test('keeps language selection inside client settings', () => {
   assert.doesNotMatch(indexHtml, /id="locale-switch"/)
   assert.match(indexHtml, /id="settings-language"/)
   assert.match(appSource, /\$\('#settings-language'\)\.value = window\.clientI18n/)
+})
+
+test('switches gateway models from live local Agent configuration without exposing credentials', () => {
+  assert.match(indexHtml, /data-panel="models"/)
+  assert.match(indexHtml, /id="model-agent-tabs"/)
+  assert.doesNotMatch(indexHtml, /id="model-binding-dialog"/)
+  assert.match(appSource, /model_config_state/)
+  assert.match(appSource, /model_configuration/)
+  assert.match(appSource, /run\('switch-model', args\)/)
+  assert.match(appSource, /return executeModelSwitch\(agent, model, button\)/)
+  assert.doesNotMatch(appSource, /缺少可关联的 Agent/)
+  assert.doesNotMatch(appSource, /switch-model[^\n]*--token/)
+  assert.match(tauriSource, /"switch-model"/)
+  assert.doesNotMatch(appSource, /t\('刷新模型失败'\)|t\('模型配置'\)/)
 })
 
 test('edits an existing connection in a modal without reopening the inline form', () => {

@@ -27,6 +27,10 @@ services:
       MCP_ALLOW_HTTP: ${MCP_ALLOW_HTTP:-false}
       MCP_OUTBOUND_ALLOWLIST: ${MCP_OUTBOUND_ALLOWLIST:-}
       MCP_MAX_RESPONSE_KB: ${MCP_MAX_RESPONSE_KB:-1024}
+      AGENT_SECURITY_UPSTREAM_LOCK_PATH: /app/deploy/agent-security/upstreams.lock.json
+      AGENT_SECURITY_WORKER_TOKEN: ${AGENT_SECURITY_WORKER_TOKEN:-amsw_local-development-only-change-before-production}
+      AIG_SERVICE_URL: ${AIG_SERVICE_URL:-http://aig-scan-service:8093}
+      AIG_SERVICE_TOKEN: ${AIG_SERVICE_TOKEN:-${AIG_SCAN_SERVICE_TOKEN:-aigs_local-development-only-change-before-production}}
       ENFORCE_SECURE_STARTUP: ${ENFORCE_SECURE_STARTUP:-false}
     depends_on:
       sandbox:
@@ -40,6 +44,7 @@ services:
     networks:
       - app
       - sandbox-control
+      - aig-control
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"]
       interval: 15s
@@ -47,6 +52,91 @@ services:
       retries: 5
       start_period: 20s
     restart: unless-stopped
+
+  agent-security-worker:
+    image: agent-manager-security-worker:${TAG:-latest}
+    environment:
+      AGENT_SECURITY_CONTROL_PLANE_URL: ${AGENT_SECURITY_CONTROL_PLANE_URL:-http://backend:8000/api/v1/agent-security}
+      AGENT_SECURITY_WORKER_TOKEN: ${AGENT_SECURITY_WORKER_TOKEN:-amsw_local-development-only-change-before-production}
+      AGENT_SECURITY_WORKER_POLL_SECONDS: ${AGENT_SECURITY_WORKER_POLL_SECONDS:-5}
+      AGENT_SECURITY_EVALUATOR_API_KEY: ${AGENT_SECURITY_EVALUATOR_API_KEY:-}
+      AGENT_SECURITY_EVALUATOR_MODEL: ${AGENT_SECURITY_EVALUATOR_MODEL:-}
+      AGENT_SECURITY_EVALUATOR_BASE_URL: ${AGENT_SECURITY_EVALUATOR_BASE_URL:-http://backend:8000/v1}
+      AGENT_SECURITY_EVALUATOR_INPUT_COST_MICRO_PER_MILLION: ${AGENT_SECURITY_EVALUATOR_INPUT_COST_MICRO_PER_MILLION:-0}
+      AGENT_SECURITY_EVALUATOR_OUTPUT_COST_MICRO_PER_MILLION: ${AGENT_SECURITY_EVALUATOR_OUTPUT_COST_MICRO_PER_MILLION:-0}
+      AIG_AGENT_SCAN_LOG_LEVEL: ${AIG_AGENT_SCAN_LOG_LEVEL:-WARNING}
+      AIG_SERVICE_URL: ${AIG_SERVICE_URL:-http://aig-scan-service:8093}
+      AIG_SERVICE_TOKEN: ${AIG_SERVICE_TOKEN:-${AIG_SCAN_SERVICE_TOKEN:-aigs_local-development-only-change-before-production}}
+    depends_on:
+      backend:
+        condition: service_healthy
+      aig-scan-service:
+        condition: service_healthy
+    read_only: true
+    init: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=${AGENT_SECURITY_WORKER_TMPFS_SIZE:-64m}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: ${AGENT_SECURITY_WORKER_PIDS_LIMIT:-128}
+    mem_limit: ${AGENT_SECURITY_WORKER_MEMORY_LIMIT:-512m}
+    cpus: ${AGENT_SECURITY_WORKER_CPU_LIMIT:-1.0}
+    healthcheck:
+      test: ["CMD", "python", "/app/worker.py", "--healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    stop_grace_period: ${AGENT_SECURITY_WORKER_STOP_GRACE_PERIOD:-30s}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${AGENT_SECURITY_WORKER_LOG_MAX_SIZE:-10m}
+        max-file: ${AGENT_SECURITY_WORKER_LOG_MAX_FILES:-3}
+    networks:
+      - app
+      - aig-control
+
+  aig-scan-service:
+    image: agent-manager-aig-scan-service:${TAG:-latest}
+    environment:
+      AIG_WRAPPER_TOKEN: ${AIG_SCAN_SERVICE_TOKEN:-aigs_local-development-only-change-before-production}
+      AIG_WRAPPER_DB: /var/lib/aig-wrapper/jobs.db
+      AIG_WRAPPER_MAX_JOBS: ${AIG_SCAN_SERVICE_MAX_JOBS:-100}
+      AIG_AGENT_READY_SECONDS: ${AIG_SCAN_SERVICE_AGENT_READY_SECONDS:-2}
+      DB_PATH: /tmp/aig-upstream/tasks.db
+      AIG_API_CHECKER_URL: ""
+    read_only: true
+    init: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=${AIG_SCAN_SERVICE_TMPFS_SIZE:-512m}
+    volumes:
+      - aig_scan_jobs:/var/lib/aig-wrapper
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: ${AIG_SCAN_SERVICE_PIDS_LIMIT:-256}
+    mem_limit: ${AIG_SCAN_SERVICE_MEMORY_LIMIT:-2g}
+    cpus: ${AIG_SCAN_SERVICE_CPU_LIMIT:-2.0}
+    healthcheck:
+      test: ["CMD", "python", "/opt/service/healthcheck.py"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    restart: unless-stopped
+    stop_grace_period: ${AIG_SCAN_SERVICE_STOP_GRACE_PERIOD:-30s}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${AIG_SCAN_SERVICE_LOG_MAX_SIZE:-10m}
+        max-file: ${AIG_SCAN_SERVICE_LOG_MAX_FILES:-3}
+    networks:
+      - aig-control
 
   frontend:
     image: agent-manager-frontend:${TAG:-latest}
@@ -144,8 +234,10 @@ volumes:
   backend_uploads:
   backend_sqlite:
   agent_manager_registry:
+  aig_scan_jobs:
 
 networks:
   app:
   sandbox-control:
     internal: true
+  aig-control:

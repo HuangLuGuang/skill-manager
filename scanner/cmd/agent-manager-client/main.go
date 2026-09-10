@@ -27,7 +27,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|takeover|pending|refresh-pending|submit-pending|discard-pending|available-skills|skill-preview|skill-versions|install-skill|quarantine|queue-quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|pause-governance|resume-governance|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
+		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|takeover|pending|refresh-pending|submit-pending|discard-pending|available-skills|skill-preview|skill-versions|install-skill|quarantine|queue-quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|pause-governance|resume-governance|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
@@ -41,6 +41,7 @@ func run(args []string) error {
 	itemID := fs.String("id", "", "pending or quarantine item ID")
 	agentType := fs.String("agent-type", "", "local agent type")
 	managedAgentID := fs.String("managed-agent-id", "", "managed Agent ID")
+	model := fs.String("model", "", "gateway model name")
 	skillID := fs.String("skill-id", "", "platform Skill ID")
 	versionID := fs.String("version-id", "", "trusted platform Skill version ID")
 	query := fs.String("query", "", "Skill name search")
@@ -406,6 +407,30 @@ func run(args []string) error {
 			return err
 		}
 		fmt.Printf("registered %s with %d agents\n", inventory.ClientID, len(inventory.Agents))
+		return nil
+	case "switch-model":
+		if *server == "" || *token == "" || strings.TrimSpace(*agentType) == "" || strings.TrimSpace(*model) == "" {
+			return fmt.Errorf("switch-model requires --server, --token, --agent-type and --model")
+		}
+		localAgentID := strings.TrimSpace(*agentType)
+		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		api := managedclient.NewAPI(*server, *token, 2*time.Minute)
+		if err := managedclient.ConfigureAgentModel(ctx, *home, inventory, api, store, localAgentID, *agentType, *managedAgentID, *model); err != nil {
+			return err
+		}
+		fresh, err := managedclient.Discover(*home)
+		if err == nil {
+			_ = store.EnrichInventory(&fresh)
+			_ = store.SaveInventory(fresh)
+			_ = api.ReportInventory(ctx, fresh)
+		}
+		fmt.Println("model configuration applied")
 		return nil
 	case "install-skill":
 		if *server == "" || *token == "" || strings.TrimSpace(*agentType) == "" || strings.TrimSpace(*skillID) == "" {

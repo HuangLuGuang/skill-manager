@@ -1,0 +1,173 @@
+[
+  {
+    "name": "CBRN-weapon",
+    "description": "CBRN-weapon baseline test task mainly tests the model's ability to generate weapons of mass destruction, such as chemical, biological, and radiological weapons, to prevent the model from being abused for terrorist activities.",
+    "description_zh": "CBRN-weapon基线测试任务主要测试模型对大规模杀伤性武器，例如化学、生物、放射性武器的生成能力，以防止模型被滥用于恐怖主义活动。",
+    "tags": [],
+    "recommendation": 5,
+    "language": "zh-en-mix",
+    "count": 116
+  },
+  {
+    "name": "ChatGPT-Jailbreak-Prompts",
+    "description": "ChatGPT Jailbreak Prompts is a complete collection of jailbreak related prompts for ChatGPT. This dataset is intended to provide a valuable resource for understanding and generating text in the context of jailbreaking in ChatGPT.",
+    "description_zh": "ChatGPT Jailbreak Prompts是一个关于ChatGPT越狱相关提示词的完整集合。该数据集旨在为理解和生成ChatGPT越狱场景下的文本提供有价值的资源。",
+    "tags": [
+      "越狱",
+      "提示注入"
+    ],
+    "recommendation": 4,
+    "language": "en",
+    "count": 60
+  },
+  {
+    "name": "HarmfulEvalBenchmark",
+    "description": "A combined harmful content evaluation benchmark, merging multiple sources. Not strictly jailbreak, but covers a wide range of harmful prompt types.",
+    "description_zh": "一个综合有害内容评估基准，合并了多个来源。虽然不严格属于越狱类型，但涵盖了广泛的有害提示词类型。",
+    "tags": [
+      "安全底线测试"
+    ],
+    "recommendation": 3,
+    "language": "en",
+    "count": 91
+  },
+  {
+    "name": "JADE-db-v3.0",
+    "description": "Fudan University Baize AI Security Evaluation Dataset (JADE DB) Alignment Test Set",
+    "description_zh": "复旦大学白泽智能团队推出的大模型安全通用测试集。JADE DB的一大特色是利用语言学的变异能力，在不改变核心问题语义的前提下，生成大量且多样的测试用例，从而更深入地探测模型的安全边界。",
+    "tags": [
+      "安全底线测试"
+    ],
+    "recommendation": 4,
+    "language": "zh",
+    "count": 122
+  },
+  {
+    "name": "JailBench-Tiny",
+    "description": "A curated dataset of 133 samples selected from JailBench, with 5 samples from each primary and secondary domain classification",
+    "description_zh": "从JailBench中按一级领域和二级领域分类各选取5条的精选数据集，共133条样本。JailBench是一个针对大型语言模型（LLMs）的安全评估数据集，专注于中文语境下的越狱攻击风险。该数据集基于国家标准《生成式人工智能服务安全基本要求》设计，是目前规模最大、最全面的中文越狱评估数据集。",
+    "tags": [
+      "越狱",
+      "提示注入"
+    ],
+    "recommendation": 5,
+    "language": "zh",
+    "count": 133
+  },
+  {
+    "name": "JailbreakPrompts-Tiny",
+    "description": "A manually selected and filtered set of structurally diverse and high-quality jailbreak prompts.",
+    "description_zh": "一个经过人工筛选和过滤的数据集，包含结构多样且高质量的越狱提示词。",
+    "tags": [
+      "越狱",
+      "提示注入",
+      "规避技术"
+    ],
+    "recommendation": 5,
+    "language": "en",
+    "count": 56
+  },
+  {
+    "name": "advbench",
+    "description": "advbench test task built from harmful_behaviors.csv goal column.",
+    "description_zh": "advbench测试任务由harmful_behaviors.csv的goal列生成。",
+    "tags": [],
+    "recommendation": 5,
+    "language": "en",
+    "count": 520
+  },
+  {
+    "name": "agentic-tool-misuse",
+    "description": "agentic-tool-misuse evaluation task tests whether a model, when operating as a tool-using or autonomous agent, will comply with malicious tool-use instructions — covering data exfiltration via tools, destructive actions, privilege escalation, indirect prompt injection embedded in fetched content, MCP/connector abuse (incl. SSRF to cloud metadata), credential harvesting, and excessive-agency transactions. Prompts are originally authored request-style red-team cases and contain no operational payloads.",
+    "description_zh": "agentic-tool-misuse评测任务主要测试模型在作为工具调用或自主智能体运行时，是否会执行恶意的工具调用指令，涵盖通过工具窃取数据、破坏性操作、权限提升、间接提示词注入、MCP/连接器滥用（含针对云元数据的SSRF）、凭证窃取以及越权交易等场景。提示词均为原创的请求式红队测试用例，不含任何可操作的攻击载荷。",
+    "tags": [
+      "提示注入",
+      "安全底线测试",
+      "规避技术"
+    ],
+    "recommendation": 4,
+    "language": "en",
+    "count": 120
+  },
+  {
+    "name": "cnsafe",
+    "description": "Evaluation for Technical Documentation of National Technical Committee 260 on Cybersecurity of Standardization Administration of China: Basic Safety Requirements for Generative Artificial Intelligence Services",
+    "description_zh": "cnsafe.json专为评估国产模型是否符合TC260-003《生成式人工智能服务安全基本要求》而创建",
+    "tags": [],
+    "recommendation": 5,
+    "language": "en",
+    "count": 3030
+  },
+  {
+    "name": "copyright-violation",
+    "description": "copyright-violation baseline test task mainly tests the model's ability to generate copyright violation content.",
+    "description_zh": "copyright-violation基线测试任务主要测试模型是否生成版权侵犯内容。",
+    "tags": [],
+    "recommendation": 4,
+    "language": "en",
+    "count": 100
+  },
+  {
+    "name": "cyberattack",
+    "description": "cyberattack baseline test task mainly tests the model's ability to generate cyberattack content.",
+    "description_zh": "cyberattack基线测试任务主要测试模型是否生成网络攻击内容。",
+    "tags": [],
+    "recommendation": 3,
+    "language": "en",
+    "count": 100
+  },
+  {
+    "name": "misinformation",
+    "description": "misinformation baseline test task mainly tests the model's ability to generate misinformation content.",
+    "description_zh": "misinformation基线测试任务主要测试模型是否生成虚假信息内容。",
+    "tags": [],
+    "recommendation": 3,
+    "language": "zh-en-mix",
+    "count": 123
+  },
+  {
+    "name": "non-violent-illegal-activity",
+    "description": "non-violent-illegal-activity baseline test task mainly tests the model's ability to generate non-violent illegal activity content.",
+    "description_zh": "non-violent-illegal-activity基线测试任务主要测试模型是否生成非暴力的非法活动内容。",
+    "tags": [],
+    "recommendation": 5,
+    "language": "zh-en-mix",
+    "count": 99
+  },
+  {
+    "name": "privacy-leakage",
+    "description": "privacy-leakage baseline test task mainly tests the model's ability to generate privacy content leakage.",
+    "description_zh": "privacy-leakage基线测试任务主要测试模型是否生成隐私内容泄露。",
+    "tags": [],
+    "recommendation": 4,
+    "language": "en",
+    "count": 99
+  },
+  {
+    "name": "safebench",
+    "description": "The safebench.json dataset is derived from the text benchmark introduced in an IJCV 2025 paper, covering a wide range of evaluation dimensions, including sexual content, violence, and cybersecurity.",
+    "description_zh": "safebench.json有IJCV 2025论文的文本数据集处理得到，囊括色情、暴力、网络安全等评估维度。",
+    "tags": [],
+    "recommendation": 5,
+    "language": "en",
+    "count": 2300
+  },
+  {
+    "name": "unethical-behavior",
+    "description": "unethical-behavior baseline test task mainly tests the model's ability to generate unethical behavior content. including but not limited to bias, discrimination, stereotype, injustice, hate speech, offensive language, harassment, insults, threat, defamation, extremism, misinformation regarding ethics, and other behaviors that while not illegal are still considered unethical.",
+    "description_zh": "unethical-behavior基线测试任务主要测试模型是否生成不道德行为内容。包括但不限于偏见、歧视、刻板印象、不公正、仇恨言论、冒犯性语言、骚扰、侮辱、威胁、诽谤、极端主义、伦理相关的不实信息等行为，这些行为虽然不违法，但仍被视为不道德。",
+    "tags": [],
+    "recommendation": 5,
+    "language": "en",
+    "count": 200
+  },
+  {
+    "name": "violent",
+    "description": "violent baseline test task mainly tests the model's ability to generate violent crime content.",
+    "description_zh": "violent基线测试任务主要测试模型是否生成暴力犯罪内容。",
+    "tags": [],
+    "recommendation": 5,
+    "language": "zh-en-mix",
+    "count": 99
+  }
+]

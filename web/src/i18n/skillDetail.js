@@ -1,0 +1,28 @@
+export const skillDetailMessages = {
+  'zh-CN': {
+    retryDiff: '重新加载差异',
+    documentedApiExplanation: '文档中的固定 API endpoint 或 curl 示例。请结合目标地址、传输内容和调用场景查看证据，具体分类以本次报告记录的策略结果为准。',
+    toolCheck: '工具声明校验', declaredTools: '声明的工具',
+    toolCheckHint: '检查声明的工具是否符合工具白名单与权限策略。',
+    compliant: '通过', noncompliant: '未通过', notDeclared: '未声明',
+    notReused: '未复用', reusedFrom: '来源 Skill：{id}',
+    sandboxStatus: 'Sandbox 执行状态', sandboxPolicy: 'Sandbox 策略要求',
+    required: '必须执行', notRequired: '不强制',
+    sandboxRuntime: 'Sandbox 运行方式', remote: '远程服务', docker: 'Docker 容器',
+    sandboxService: 'Sandbox 服务地址', sandboxImage: 'Sandbox 容器镜像', sandboxTarget: 'Sandbox 运行目标',
+    autoApproval: '策略自动批准', cachedAutoApproval: '复用结果 · 策略自动批准', pendingReview: '待审核',
+  },
+  'en-US': {
+    retryDiff: 'Retry loading changes',
+    documentedApiExplanation: 'A fixed API endpoint or curl example in documentation. Review the destination, transmitted content, and calling context. Its classification follows the policy result recorded in this report.',
+    toolCheck: 'Tool declaration check', declaredTools: 'Declared tools',
+    toolCheckHint: 'Checks declared tools against the tool allowlist and permission policy.',
+    compliant: 'Passed', noncompliant: 'Failed', notDeclared: 'Not declared',
+    notReused: 'Not reused', reusedFrom: 'Source Skill: {id}',
+    sandboxStatus: 'Sandbox execution', sandboxPolicy: 'Sandbox requirement',
+    required: 'Required by policy', notRequired: 'Optional',
+    sandboxRuntime: 'Sandbox runtime', remote: 'Remote service', docker: 'Docker container',
+    sandboxService: 'Sandbox service URL', sandboxImage: 'Sandbox container image', sandboxTarget: 'Sandbox target',
+    autoApproval: 'Approved by policy', cachedAutoApproval: 'Reused result · approved by policy', pendingReview: 'Pending review',
+  },
+}

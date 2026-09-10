@@ -1,580 +1,369 @@
 <template>
-  <div>
-    <a-page-header :title="$t('legacy.1p5yvwf')" :sub-title="$t('legacy.1r9oqv3')" />
-
-    <a-form layout="vertical" :model="formState" @finish="handleSaveAll">
-      <a-alert
-        v-if="conflictingRiskLevels.length"
-        style="margin-top: 12px"
-        type="error"
-        show-icon
-        :message="$t('legacy.1s2pf8p')"
-        :description="text(
-          `这些风险同时配置了人工审核和自动拒绝：${conflictingRiskLevels.join('、')}。实际会自动拒绝，不会进入审核队列。`,
-          `These risks are configured for both manual review and automatic rejection: ${conflictingRiskLevels.join(', ')}. Automatic rejection takes precedence.`,
-        )"
-      />
-
-      <a-tabs v-model:activeKey="activeTab" style="margin-top: 16px">
-        <a-tab-pane key="decision" :tab="$t('legacy.15tr9ja')">
-          <section class="policy-section">
-            <div class="section-title">{{ $t('policySettings.submissionAndScan') }}</div>
-            <a-form-item :label="$t('policySettings.reuseScanResults')">
-              <a-switch v-model:checked="formState.scan_result_reuse_enabled" />
-              <div class="field-hint">{{ $t('policySettings.reuseScanResultsHint') }}</div>
-            </a-form-item>
-          </section>
-
-          <section class="policy-section">
-            <div class="section-title">{{ $t("legacy.1qnr6kk") }}</div>
-            <a-table
-              size="small"
-              row-key="step"
-              :columns="decisionColumns"
-              :data-source="decisionRows"
-              :pagination="false"
-            />
-          </section>
-
-          <a-row :gutter="16">
-            <a-col :xs="24" :lg="12">
-              <a-form-item :label="$t('legacy.d9qpsd')">
-                <a-select v-model:value="formState.judgement_mode">
-                  <a-select-option v-for="item in judgementModeOptions" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </a-select-option>
-                </a-select>
-                <div class="field-hint">{{ currentJudgementModeDescription }}</div>
-              </a-form-item>
-            </a-col>
-            <a-col :xs="24" :lg="12">
-              <a-form-item :label="$t('legacy.1drrjfl')">
-                <a-select v-model:value="formState.auto_approve_max_risk">
-                  <a-select-option v-for="item in riskOptions" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </a-select-option>
-                </a-select>
-                <div class="field-hint">{{ $t("legacy.1j17s9m") }}</div>
-              </a-form-item>
-            </a-col>
-            <a-col :xs="24" :lg="12">
-              <a-form-item :label="$t('legacy.mvffxz')">
-                <a-select v-model:value="formState.require_human_review" mode="multiple" :placeholder="$t('legacy.38b653')">
-                  <a-select-option v-for="item in riskOptions" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </a-select-option>
-                </a-select>
-                <div class="field-hint">{{ $t("legacy.1geckvv") }}</div>
-              </a-form-item>
-            </a-col>
-            <a-col :xs="24" :lg="12">
-              <a-form-item :label="$t('legacy.1jphvct')">
-                <a-select v-model:value="formState.auto_reject_risk" mode="multiple" :placeholder="$t('legacy.7g5oj8')">
-                  <a-select-option v-for="item in riskOptions" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </a-select-option>
-                </a-select>
-                <div class="field-hint">{{ $t("legacy.1r0krhb") }}</div>
-              </a-form-item>
-            </a-col>
-            <a-col :xs="24" :lg="12">
-              <a-form-item :label="$t('legacy.1y5kmg7')">
-                <a-select v-model:value="formState.require_sandbox_for_risk" mode="multiple" :placeholder="$t('legacy.m3ilow')">
-                  <a-select-option v-for="item in riskOptions" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </a-select-option>
-                </a-select>
-                <div class="field-hint">{{ $t("legacy.12psofi") }}</div>
-              </a-form-item>
-            </a-col>
-          </a-row>
-
-          <section class="policy-section">
-            <div class="section-title">{{ $t("legacy.1e7mnak") }}</div>
-            <a-row :gutter="[16, 16]">
-              <a-col v-for="group in riskClassificationGroups" :key="group.key" :xs="24" :lg="8">
-                <div class="risk-class-card">
-                  <div class="risk-class-header">
-                    <span>{{ group.label }}</span>
-                    <a-tag :color="group.color">{{ group.tag }}</a-tag>
-                  </div>
-                  <div class="risk-class-description">{{ group.description }}</div>
-                  <a-select
-                    :value="formState.risk_classification_groups[group.key]"
-                    class="risk-class-select"
-                    mode="multiple"
-                    option-label-prop="label"
-                    :placeholder="$t('legacy.u81p8d')"
-                    @change="value => handleRiskGroupChange(group.key, value)"
-                  >
-                    <template #tagRender="{ value }">
-                      <a-tag class="risk-class-tag">{{ riskItemLabel(value) }}</a-tag>
-                    </template>
-                    <a-select-option v-for="item in riskItems" :key="item.key" :value="item.key" :label="item.label">
-                      <div class="risk-option">
-                        <div class="risk-option-title">{{ item.label }}</div>
-                        <div class="risk-option-description">{{ item.description }}</div>
-                      </div>
-                    </a-select-option>
-                  </a-select>
+  <div class="policy-page">
+    <a-page-header :title="t('policySettings.title')" :sub-title="t('policySettings.subtitle')" />
+    <a-alert v-if="loadFailed" type="error" show-icon :message="t('policySettings.loadFailed')">
+      <template #action><a-button @click="fetchPolicy" :loading="loading">{{ t('policySettings.reload') }}</a-button></template>
+    </a-alert>
+    <a-spin :spinning="loading">
+      <a-form v-if="loaded" layout="vertical" :model="formState" :disabled="saving || loading || !loaded" @finish="handleSaveAll">
+        <a-tabs v-model:activeKey="activeTab">
+          <a-tab-pane key="decision" :tab="t('policySettings.admissionTab')">
+            <section class="policy-summary" aria-live="polite">
+              <div class="section-heading">
+                <h2>{{ t('policySettings.summaryTitle') }}</h2>
+                <div class="summary-actions">
+                  <a-tag :color="dirty ? 'gold' : 'green'">{{ t(dirty ? 'policySettings.draftState' : 'policySettings.savedState') }}</a-tag>
+                  <PolicySimulator :policy="simulationPolicy" @update-mode="formState.judgement_mode = $event" />
                 </div>
-              </a-col>
-            </a-row>
-          </section>
-        </a-tab-pane>
+              </div>
+              <p>{{ policySummary }}</p>
+              <div class="field-hint">{{ t('policySettings.effectiveHint') }}</div>
+            </section>
 
-        <a-tab-pane key="admission" :tab="$t('legacy.1wsaxvv')">
-          <section class="policy-section">
-            <div class="section-title">{{ $t("legacy.kicus6") }}</div>
-            <a-row :gutter="16">
-              <a-col :xs="24" :lg="12">
-                <a-form-item :label="$t('legacy.4u3gt4')">
-                  <a-input-number v-model:value="formState.max_allowed_tools" :min="1" :max="100" style="width: 100%" />
-                  <div class="field-hint">{{ $t("legacy.1u4pday") }}</div>
-                </a-form-item>
-              </a-col>
-            </a-row>
+            <section class="policy-section">
+              <div class="section-heading">
+                <h2>{{ t('policySettings.actionsTitle') }}</h2>
+                <a-button html-type="button" :disabled="actionsRecommended || saving || loading || !loaded" @click="useRecommendedActions">{{ t('policySettings.recommendedActions') }}</a-button>
+              </div>
+              <p class="section-hint">{{ t('policySettings.actionsHint') }}</p>
+              <table class="policy-table action-table">
+                <thead><tr><th scope="col">{{ t('policySettings.conclusion') }}</th><th scope="col">{{ t('policySettings.action') }}</th></tr></thead>
+                <tbody>
+                  <tr v-for="risk in policyRisks" :key="risk">
+                    <th scope="row"><span class="risk-dot" :class="risk"></span>{{ t('policySettings.risks.' + risk) }}</th>
+                    <td>
+                      <a-select v-model:value="formState.actions[risk]" :aria-label="t('policySettings.actionFor', { risk: t('policySettings.risks.' + risk) })" :options="actionOptions(risk)" />
+                      <div class="field-hint">{{ t('policySettings.actionHints.' + formState.actions[risk]) }}</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
 
-            <a-form-item :label="$t('legacy.1hcaau6')">
-              <a-select v-model:value="formState.blocked_permissions" mode="tags" :placeholder="$t('legacy.god0gn')" />
-              <div class="field-hint">{{ $t("legacy.kfzse8") }}</div>
-            </a-form-item>
-
-            <a-form-item :label="$t('legacy.o8tpn9')">
-              <a-select v-model:value="formState.allowed_tools_allowlist" mode="tags" :placeholder="$t('legacy.unjnyg')" />
-              <div class="field-hint">{{ $t("legacy.r3uboi") }}</div>
-            </a-form-item>
-          </section>
-
-          <section class="policy-section">
-            <div class="section-title">{{ $t("legacy.pcy7z3") }}</div>
-            <a-row :gutter="16">
-              <a-col :xs="24" :lg="12">
-                <a-form-item :label="$t('legacy.rwq8ic')">
-                  <a-switch v-model:checked="formState.require_license" />
-                  <div class="field-hint">{{ $t("legacy.1fpyfpp") }}</div>
-                </a-form-item>
-              </a-col>
-            </a-row>
-
-            <a-form-item :label="$t('legacy.1h5j6c2')">
-              <a-select v-model:value="formState.trusted_authors" mode="tags" :placeholder="$t('legacy.1heopsf')" />
-              <div class="field-hint">{{ $t("legacy.9ukjba") }}</div>
-            </a-form-item>
-
-            <a-form-item :label="$t('legacy.1lpbftr')">
-              <a-select v-model:value="formState.accepted_licenses" mode="tags" :placeholder="$t('legacy.12c0o98')" />
-              <div class="field-hint">{{ $t("legacy.1xaakez") }}</div>
-            </a-form-item>
-          </section>
-
-        </a-tab-pane>
-
-        <a-tab-pane key="llm" :tab="$t('legacy.kxtxcz')">
-          <a-card :title="$t('legacy.hnbm6t')" size="small">
-            <a-row :gutter="16">
-              <a-col :xs="24" :md="8">
-                <a-form-item :label="$t('legacy.z86tql')">
-                  <a-switch
-                    v-model:checked="llmForm.enabled"
-                    :checked-children="$t('legacy.5pm2ma')"
-                    :un-checked-children="$t('legacy.g0fanx')"
-                  />
-                  <div class="field-hint">{{ $t("legacy.u1h4vv") }}</div>
-                </a-form-item>
-              </a-col>
-              <a-col :xs="24" :md="16">
-                <a-form-item :label="$t('legacy.1ow6qt')">
-                  <a-select
-                    v-model:value="llmForm.model"
-                    show-search
-                    allow-clear
-                    :placeholder="$t('legacy.he8ama')"
-                    :options="llmModelOptions"
-                  />
-                  <div class="field-hint">{{ $t("legacy.1irg3nj") }}</div>
-                </a-form-item>
-              </a-col>
-            </a-row>
-
-            <a-row :gutter="16">
-              <a-col :xs="24" :md="8">
-                <a-form-item :label="$t('legacy.wa5fzx')">
-                  <a-input-number v-model:value="llmForm.timeout_seconds" :min="5" :max="180" style="width: 100%" />
-                </a-form-item>
-              </a-col>
-              <a-col :xs="24" :md="8">
-                <a-form-item :label="$t('legacy.3a4t3c')">
-                  <a-input-number v-model:value="llmForm.max_files" :min="1" :max="20" style="width: 100%" />
-                </a-form-item>
-              </a-col>
-              <a-col :xs="24" :md="8">
-                <a-form-item :label="$t('legacy.1i9i4qp')">
-                  <a-input-number v-model:value="llmForm.max_manifest_chars" :min="2000" :max="50000" :step="1000" style="width: 100%" />
-                </a-form-item>
-              </a-col>
-            </a-row>
-
-            <a-form-item :label="$t('legacy.73z6en')">
-              <a-input-number v-model:value="llmForm.max_file_chars" :min="500" :max="20000" :step="500" style="width: 100%" />
-            </a-form-item>
-          </a-card>
-        </a-tab-pane>
-
-        <a-tab-pane key="sandbox" :tab="$t('legacy.1d9ypbb')">
-          <a-card :title="$t('legacy.1ikjgw3')" size="small">
-            <a-row :gutter="16">
-              <a-col :xs="24" :md="8">
-                <a-form-item :label="$t('legacy.u45dd')">
-                  <a-switch
-                    v-model:checked="sandboxForm.enabled"
-                    :checked-children="$t('legacy.5pm2ma')"
-                    :un-checked-children="$t('legacy.g0fanx')"
-                  />
-                  <div class="field-hint">{{ $t("legacy.jvxouw") }}</div>
-                </a-form-item>
-              </a-col>
-              <a-col :xs="24" :md="8">
-                <a-form-item :label="$t('legacy.1734qnc')">
-                  <a-select v-model:value="sandboxForm.runtime">
-                    <a-select-option value="remote">{{ $t("legacy.xvarvc") }}</a-select-option>
-                    <a-select-option value="docker">docker</a-select-option>
-                  </a-select>
-                </a-form-item>
-              </a-col>
-              <a-col :xs="24" :md="8">
-                <a-form-item :label="$t('legacy.wa5fzx')">
-                  <a-input-number v-model:value="sandboxForm.timeout_seconds" :min="1" :max="300" style="width: 100%" />
-                </a-form-item>
-              </a-col>
-            </a-row>
-
-            <a-form-item v-if="sandboxForm.runtime === 'docker'" :label="$t('legacy.mjv24c')">
-              <a-select
-                v-model:value="sandboxForm.image"
-                show-search
-                :placeholder="$t('legacy.19xos27')"
-                :options="sandboxImageOptions"
-                :loading="loading"
-              />
-              <div class="field-hint">{{ $t("legacy.1jxy29r") }}</div>
-            </a-form-item>
-
-            <template v-else>
-              <a-form-item :label="$t('legacy.18j6yg6')">
-                <a-input-group compact>
-                  <a-input v-model:value="sandboxForm.remote_url" style="width: calc(100% - 238px)" placeholder="http://sandbox:8194" />
-                  <a-button html-type="button" @click="useDefaultSandboxUrl">{{ $t("legacy.1nf2ljj") }}</a-button>
-                  <a-button html-type="button" :loading="testingSandbox" @click="handleTestSandboxConnection">{{ $t("legacy.1fmxsdg") }}</a-button>
-                </a-input-group>
-                <div class="field-hint">{{ $t("legacy.bkm8wx") }}{{ sandboxConfig.config_path || '-' }}</div>
-              </a-form-item>
-
-              <a-alert
-                v-if="sandboxTestResult"
-                class="sandbox-test-result"
-                show-icon
-                :type="sandboxTestResult.available ? 'success' : 'error'"
-                :message="sandboxTestResult.available ? $t('legacy.9duapa') : $t('legacy.1scu0xv')"
-                :description="sandboxTestDescription"
-              />
-
-              <a-collapse ghost size="small" class="sandbox-auth-collapse">
-                <a-collapse-panel key="auth" :header="$t('legacy.1ikhg58')">
-                  <a-form-item :label="$t('legacy.16kcq9i')">
-                    <a-input-password
-                      v-model:value="sandboxForm.remote_api_key"
-                      :placeholder="$t('legacy.1io07l0')"
-                      autocomplete="new-password"
-                    />
-                    <div class="field-hint"> {{ $t("legacy.110i633") }}{{ sandboxConfig.remote_api_key_configured ? (sandboxConfig.remote_api_key_masked || $t('legacy.1pxgbde')) : $t('legacy.n1gs62') }}
-                    </div>
+            <section class="policy-section">
+              <div class="section-heading">
+                <h2>{{ t('policySettings.rulesTitle') }}</h2>
+                <a-tag>{{ t(rulesRecommended ? 'policySettings.recommended' : 'policySettings.customized') }}</a-tag>
+              </div>
+              <p class="section-hint">{{ t('policySettings.rulesHint') }}</p>
+              <div class="classification-overview">
+                <div v-for="group in classificationKeys" :id="'risk-class-' + group" :key="group" class="classification-group" :class="{ 'decision-focus': route.query.focus === group }">
+                  <h3>{{ t('policySettings.groups.' + group) }}</h3>
+                  <p class="field-hint">{{ t('policySettings.groupHints.' + group) }}</p>
+                  <div class="classification-tags">
+                    <a-tag v-for="item in itemsForGroup(group)" :key="item" :color="focusedCategories.includes(item) ? 'gold' : undefined">{{ t('policySettings.findings.' + item) }}</a-tag>
+                    <span v-if="!itemsForGroup(group).length" class="field-hint">{{ t('policySettings.emptyGroup') }}</span>
+                  </div>
+                </div>
+              </div>
+              <a-collapse v-model:activeKey="ruleSections" ghost>
+                <a-collapse-panel key="rules" :header="t('policySettings.customizeRules')">
+                  <div class="reset-rules">
+                    <a-button html-type="button" :disabled="rulesRecommended || saving || loading || !loaded" @click="useRecommendedRules">{{ t('policySettings.recommendedRules') }}</a-button>
+                    <span class="field-hint">{{ t('policySettings.recommendedRulesHint') }}</span>
+                  </div>
+                  <a-form-item id="decision-mode" :label="t('policySettings.mode')" :class="{ 'decision-focus': route.query.focus === 'mode' }">
+                    <a-select v-model:value="formState.judgement_mode" :options="modeOptions" />
+                    <div class="field-hint">{{ t('policySettings.modeHints.' + formState.judgement_mode) }}</div>
+                    <div class="field-hint">{{ t('policySettings.modeCommon') }}</div>
                   </a-form-item>
-
-                  <a-form-item>
-                    <a-checkbox v-model:checked="sandboxForm.clear_remote_api_key">{{ $t("legacy.1wsjgu") }}</a-checkbox>
-                  </a-form-item>
+                  <table class="policy-table findings-table">
+                    <thead><tr><th scope="col">{{ t('policySettings.behavior') }}</th><th scope="col">{{ t('policySettings.classification') }}</th></tr></thead>
+                    <tbody>
+                      <tr v-for="item in findingKeys" :id="'finding-' + item" :key="item" :class="{ 'finding-focus': focusedCategories.includes(item) }">
+                        <th scope="row">{{ t('policySettings.findings.' + item) }}<div class="field-hint">{{ t('policySettings.examples.' + item) }}</div></th>
+                        <td><a-select v-model:value="formState.risk_classification[item]" :aria-label="t('policySettings.classificationFor', { behavior: t('policySettings.findings.' + item) })" :options="classificationOptions" /></td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </a-collapse-panel>
               </a-collapse>
-            </template>
+            </section>
 
-            <a-row :gutter="16">
-              <a-col :xs="24" :md="8">
-                <a-form-item :label="$t('legacy.iiso9g')">
-                  <a-select v-model:value="sandboxForm.network_mode">
-                    <a-select-option value="none">none</a-select-option>
-                    <a-select-option value="bridge">bridge</a-select-option>
-                  </a-select>
+            <a-collapse v-model:activeKey="companySections" class="company-rules">
+              <a-collapse-panel key="company" :header="t('policySettings.companyRules')">
+                <a-form-item :label="t('policySettings.banned')">
+                  <a-select v-model:value="formState.blocked_permissions" mode="tags" :placeholder="t('policySettings.bannedPlaceholder')" />
+                  <div class="field-hint">{{ t('policySettings.bannedHint') }}</div>
                 </a-form-item>
-              </a-col>
-              <a-col :xs="24" :md="8">
-                <a-form-item :label="$t('legacy.1hksixm')">
-                  <a-input v-model:value="sandboxForm.memory_limit" placeholder="256m" />
+                <h3>{{ t('policySettings.advisoryTitle') }}</h3>
+                <p class="section-hint">{{ t('policySettings.advisoryHint') }}</p>
+                <div class="form-grid">
+                  <a-form-item :label="t('policySettings.maxTools')">
+                    <a-input-number v-model:value="formState.max_allowed_tools" :min="1" :max="100" />
+                  </a-form-item>
+                  <a-form-item :label="t('policySettings.requireLicense')"><a-switch v-model:checked="formState.require_license" /></a-form-item>
+                </div>
+                <a-form-item :label="t('policySettings.toolAllowlist')">
+                  <a-select v-model:value="formState.allowed_tools_allowlist" mode="tags" :placeholder="t('policySettings.toolsPlaceholder')" />
                 </a-form-item>
-              </a-col>
-              <a-col :xs="24" :md="8">
-                <a-form-item :label="$t('legacy.1gzg08l')">
-                  <a-input v-model:value="sandboxForm.cpu_limit" placeholder="1.0" />
+                <a-form-item :label="t('policySettings.acceptedLicenses')">
+                  <a-select v-model:value="formState.accepted_licenses" mode="tags" :placeholder="t('policySettings.licensesPlaceholder')" />
                 </a-form-item>
-              </a-col>
-            </a-row>
+              </a-collapse-panel>
+            </a-collapse>
+          </a-tab-pane>
 
-            <a-form-item :label="$t('legacy.7ykb07')">
-              <a-input-number v-model:value="sandboxForm.pids_limit" :min="1" :max="1024" style="width: 100%" />
+          <a-tab-pane key="detection" :tab="t('policySettings.detectionTab')">
+            <h2>{{ t('policySettings.detectionTitle') }}</h2>
+            <p class="section-hint">{{ t('policySettings.detectionHint') }}</p>
+            <section class="capability-section">
+              <div class="section-heading">
+                <h3>{{ t('policySettings.llmTitle') }}</h3>
+                <a-switch v-model:checked="llmForm.enabled" :aria-label="t('policySettings.llmTitle')" :checked-children="t('policySettings.enabled')" :un-checked-children="t('policySettings.disabled')" />
+              </div>
+              <p>{{ t('policySettings.llmHint') }}</p>
+              <div class="capability-footer">
+                <span class="field-hint">{{ llmForm.model ? t('policySettings.modelSelected', { model: llmForm.model }) : t('policySettings.modelMissing') }}</span>
+                <a-button html-type="button" @click="openService('llm')">{{ t('policySettings.configure') }}</a-button>
+              </div>
+            </section>
+            <section class="capability-section">
+              <div class="section-heading">
+                <h3>{{ t('policySettings.sandboxTitle') }}</h3>
+                <a-switch v-model:checked="sandboxForm.enabled" :aria-label="t('policySettings.sandboxTitle')" :checked-children="t('policySettings.enabled')" :un-checked-children="t('policySettings.disabled')" />
+              </div>
+              <p>{{ t('policySettings.sandboxHint') }}</p>
+              <a-form-item :label="t('policySettings.sandboxRequired')">
+                <a-select v-model:value="formState.require_sandbox_for_risk" mode="multiple" :options="riskOptions" :placeholder="t('policySettings.selectRisks')" />
+                <div class="field-hint">{{ t('policySettings.sandboxRequiredHint') }}</div>
+              </a-form-item>
+              <div class="capability-footer">
+                <span class="field-hint">{{ t(sandboxForm.enabled ? 'policySettings.sandboxConfigured' : 'policySettings.sandboxDisabledHint') }}</span>
+                <a-button html-type="button" @click="openService('sandbox')">{{ t('policySettings.configure') }}</a-button>
+              </div>
+            </section>
+          </a-tab-pane>
+
+          <a-tab-pane key="advanced" :tab="t('policySettings.advancedTab')">
+            <h2>{{ t('policySettings.advancedTitle') }}</h2>
+            <p class="section-hint">{{ t('policySettings.advancedHint') }}</p>
+            <a-form-item :label="t('policySettings.reuseScanResults')">
+              <a-switch v-model:checked="formState.scan_result_reuse_enabled" />
+              <div class="field-hint">{{ t('policySettings.reuseScanResultsHint') }}</div>
             </a-form-item>
-
-            <a-form-item>
-              <a-checkbox v-model:checked="sandboxForm.read_only_rootfs">{{ $t("legacy.1emuxvv") }}</a-checkbox>
-            </a-form-item>
-          </a-card>
-        </a-tab-pane>
-      </a-tabs>
-
-      <div class="bottom-action-bar">
-        <a-space wrap>
-          <a-button type="primary" html-type="submit" :loading="saving">{{ $t("legacy.6zgubv") }}</a-button>
-          <a-button html-type="button" @click="fetchPolicy" :loading="loading" :disabled="saving">{{ $t("legacy.1ghz5wv") }}</a-button>
-        </a-space>
-      </div>
-    </a-form>
+            <a-collapse v-model:activeKey="advancedSections">
+              <a-collapse-panel key="llm" :header="t('policySettings.llmConfig')">
+                <a-form-item :label="t('policySettings.model')">
+                  <a-select v-model:value="llmForm.model" show-search allow-clear :placeholder="t('policySettings.modelPlaceholder')" :options="llmModelOptions" />
+                  <div class="field-hint"><router-link to="/model-gateway/models">{{ t('policySettings.modelHint') }}</router-link></div>
+                </a-form-item>
+                <div class="form-grid">
+                  <a-form-item :label="t('policySettings.timeout')"><a-input-number v-model:value="llmForm.timeout_seconds" :min="5" :max="180" /></a-form-item>
+                  <a-form-item :label="t('policySettings.maxFiles')"><a-input-number v-model:value="llmForm.max_files" :min="1" :max="20" /></a-form-item>
+                  <a-form-item :label="t('policySettings.maxManifestChars')"><a-input-number v-model:value="llmForm.max_manifest_chars" :min="2000" :max="50000" :step="1000" /></a-form-item>
+                  <a-form-item :label="t('policySettings.maxFileChars')"><a-input-number v-model:value="llmForm.max_file_chars" :min="500" :max="20000" :step="500" /></a-form-item>
+                </div>
+              </a-collapse-panel>
+              <a-collapse-panel key="sandbox" :header="t('policySettings.sandboxConfig')">
+                <div class="form-grid">
+                  <a-form-item :label="t('policySettings.runtime')">
+                    <a-select v-model:value="sandboxForm.runtime" :options="runtimeOptions" />
+                  </a-form-item>
+                  <a-form-item :label="t('policySettings.timeout')"><a-input-number v-model:value="sandboxForm.timeout_seconds" :min="1" :max="300" /></a-form-item>
+                </div>
+                <a-form-item v-if="sandboxForm.runtime === 'docker'" :label="t('policySettings.image')">
+                  <a-select v-model:value="sandboxForm.image" show-search :placeholder="t('policySettings.imagePlaceholder')" :options="sandboxImageOptions" />
+                </a-form-item>
+                <template v-else>
+                  <a-form-item :label="t('policySettings.remoteUrl')">
+                    <div class="connection-controls">
+                      <a-input v-model:value="sandboxForm.remote_url" placeholder="http://sandbox:8194" />
+                      <a-button html-type="button" :disabled="testingSandbox || saving || loading || !loaded" @click="useDefaultSandboxUrl">{{ t('policySettings.defaultUrl') }}</a-button>
+                      <a-button html-type="button" :loading="testingSandbox" :disabled="testingSandbox || saving || loading || !loaded" @click="handleTestSandboxConnection">{{ t('policySettings.testConnection') }}</a-button>
+                    </div>
+                  </a-form-item>
+                  <a-alert v-if="sandboxTestResult" class="sandbox-test-result" show-icon :type="sandboxTestResult.available ? 'success' : 'error'" :message="t(sandboxTestResult.available ? 'policySettings.connectionOk' : 'policySettings.connectionFailed')" :description="sandboxTestDescription" />
+                  <a-collapse ghost>
+                    <a-collapse-panel key="auth" :header="t('policySettings.auth')">
+                      <a-form-item :label="t('policySettings.apiKey')">
+                        <a-input-password v-model:value="sandboxForm.remote_api_key" :placeholder="t('policySettings.apiKeyPlaceholder')" autocomplete="new-password" />
+                        <div class="field-hint">{{ t('policySettings.currentKey', { key: sandboxConfig.remote_api_key_configured ? (sandboxConfig.remote_api_key_masked || t('policySettings.configuredKey')) : t('policySettings.notConfigured') }) }}</div>
+                      </a-form-item>
+                      <a-form-item><a-checkbox v-model:checked="sandboxForm.clear_remote_api_key">{{ t('policySettings.clearKey') }}</a-checkbox></a-form-item>
+                    </a-collapse-panel>
+                  </a-collapse>
+                </template>
+                <div class="form-grid">
+                  <a-form-item :label="t('policySettings.network')"><a-select v-model:value="sandboxForm.network_mode" :options="networkOptions" /></a-form-item>
+                  <a-form-item :label="t('policySettings.memory')"><a-input v-model:value="sandboxForm.memory_limit" placeholder="256m" /></a-form-item>
+                  <a-form-item :label="t('policySettings.cpu')"><a-input v-model:value="sandboxForm.cpu_limit" placeholder="1.0" /></a-form-item>
+                  <a-form-item :label="t('policySettings.pids')"><a-input-number v-model:value="sandboxForm.pids_limit" :min="1" :max="1024" /></a-form-item>
+                </div>
+                <a-form-item><a-checkbox v-model:checked="sandboxForm.read_only_rootfs">{{ t('policySettings.readOnly') }}</a-checkbox></a-form-item>
+              </a-collapse-panel>
+            </a-collapse>
+          </a-tab-pane>
+        </a-tabs>
+        <div class="bottom-action-bar">
+          <a-button type="primary" html-type="submit" :loading="saving" :disabled="saving || loading || !loaded || !dirty">{{ t('policySettings.save') }}</a-button>
+          <a-button html-type="button" :loading="loading" :disabled="saving || loading" @click="reloadPolicy">{{ t('policySettings.reload') }}</a-button>
+          <span v-if="loaded" class="field-hint">{{ t(dirty ? 'policySettings.draftState' : 'policySettings.savedState') }}</span>
+        </div>
+      </a-form>
+    </a-spin>
   </div>
 </template>
 
 <script setup>
-import { translateLegacy as phrase, translateText as text } from '../i18n'
-
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
-import { onBeforeRouteLeave } from 'vue-router'
-
+import { onBeforeRouteLeave, useRoute } from 'vue-router'
+import PolicySimulator from '../components/PolicySimulator.vue'
 import {
-  getLlmConfig,
-  getPolicy,
-  getSandboxConfig,
-  listModelEndpoints,
-  listSandboxImages,
-  testSandboxConfig,
-  updateLlmConfig,
-  updatePolicy,
-  updateSandboxConfig,
+  getLlmConfig, getPolicy, getSandboxConfig, listModelEndpoints, listSandboxImages,
+  testSandboxConfig, updateLlmConfig, updatePolicy, updateSandboxConfig,
 } from '../api'
+import {
+  policyRisks, recommendedActions, classificationKeys, defaultRiskClassification,
+  policyActions, actionPolicy, allowedActions,
+} from '../utils/policySettings'
 
+const { t } = useI18n()
+const route = useRoute()
 const loading = ref(false)
+const loaded = ref(false)
+const loadFailed = ref(false)
 const saving = ref(false)
-const dirty = ref(false)
-const savedSnapshot = ref('')
-const policyPath = ref('')
+const savedState = reactive({ policy: '', llm: '', sandbox: '' })
+const persistedPolicy = ref({})
 const activeTab = ref('decision')
-const llmConfig = ref({})
+const ruleSections = ref([])
+const companySections = ref([])
+const advancedSections = ref([])
+const focusedCategories = computed(() => String(route.query.categories || '').split(',').filter(Boolean))
 const sandboxConfig = ref({})
 const modelEndpoints = ref([])
 const sandboxImages = ref([])
 const testingSandbox = ref(false)
 const sandboxTestResult = ref(null)
 const defaultSandboxRemoteUrl = 'http://sandbox:8194'
-
-const riskOptions = [
-  { value: 'benign', label: phrase('legacy.1tgumc') },
-  { value: 'suspicious', label: phrase('legacy.iqwiq5') },
-  { value: 'malicious', label: phrase('legacy.1fe99zj') },
-]
-const judgementModeOptions = [
-  { value: 'strict', label: phrase('legacy.1twbn24'), description: phrase('legacy.x3x4mz') },
-  { value: 'balanced', label: phrase('legacy.11ev62m'), description: phrase('legacy.krtp51') },
-  { value: 'permissive', label: phrase('legacy.umwxgy'), description: phrase('legacy.1izj7l6') },
-]
-const riskClassificationGroups = [
-  { key: 'blocking', label: phrase('legacy.1y6vbr8'), tag: phrase('legacy.1fsazit'), color: 'red', description: phrase('legacy.nkd29f') },
-  { key: 'risk', label: phrase('legacy.xgpxf0'), tag: phrase('legacy.1ws11do'), color: 'orange', description: phrase('legacy.4e9acf') },
-  { key: 'noise', label: phrase('legacy.m4z27r'), tag: phrase('legacy.cdnjf2'), color: 'default', description: phrase('legacy.1cu0ih4') },
-]
-const riskItems = [
-  { key: 'data_exfiltration', label: phrase('legacy.13wlkrx'), description: phrase('legacy.1xngwd2') },
-  { key: 'supply_chain', label: phrase('legacy.33dhvx'), description: phrase('legacy.1hmp9b5') },
-  { key: 'prompt_injection', label: phrase('legacy.v4iti5'), description: phrase('legacy.1frd2ou') },
-  { key: 'tool_misuse', label: phrase('legacy.1bpfkaw'), description: phrase('legacy.1cubpru') },
-  { key: 'network', label: phrase('legacy.1xh2061'), description: phrase('legacy.rg4o7j') },
-  { key: 'credential_access', label: phrase('legacy.1jxzdyj'), description: phrase('legacy.10lmwts') },
-  { key: 'dynamic_execution', label: phrase('legacy.qath61'), description: phrase('legacy.uts9ww') },
-  { key: 'excessive_permissions', label: phrase('legacy.1rc1tey'), description: phrase('legacy.jtwckm') },
-  { key: 'documented_external_api', label: phrase('legacy.1iv6edf'), description: phrase('legacy.13g1cqe') },
-  { key: 'dependency', label: phrase('legacy.19x9ebb'), description: phrase('legacy.edxa12') },
-  { key: 'runtime', label: phrase('legacy.q3x1o3'), description: phrase('legacy.11w6vv5') },
-]
-const riskItemLabel = (value) => riskItems.find(item => item.key === value)?.label || value
-const defaultRiskClassification = {
-  data_exfiltration: 'blocking',
-  supply_chain: 'blocking',
-  prompt_injection: 'risk',
-  tool_misuse: 'risk',
-  network: 'risk',
-  credential_access: 'risk',
-  dynamic_execution: 'risk',
-  excessive_permissions: 'risk',
-  documented_external_api: 'noise',
-  dependency: 'noise',
-  runtime: 'noise',
-}
-const severityOptions = [
-  { value: 'MEDIUM', label: phrase('legacy.1y10pck') },
-  { value: 'HIGH', label: phrase('legacy.1c4si50') },
-  { value: 'CRITICAL', label: phrase('legacy.bj99il') },
-]
-const decisionColumns = [
-  { title: phrase('legacy.bpa6iu'), dataIndex: 'step', width: 80 },
-  { title: phrase('legacy.1haswfi'), dataIndex: 'condition' },
-  { title: phrase('legacy.q9h21m'), dataIndex: 'result', width: 140 },
-  { title: phrase('legacy.1mi4vdj'), dataIndex: 'note' },
-]
-const decisionRows = [
-  { step: 1, condition: phrase('legacy.ys2uvw'), result: 'REJECTED', note: phrase('legacy.ciz2no') },
-  { step: 2, condition: phrase('legacy.1t40ibb'), result: 'REJECTED', note: phrase('legacy.hbmb3h') },
-  { step: 3, condition: phrase('legacy.1ag3fwd'), result: 'VETTED', note: phrase('legacy.1cpvcnr') },
-  { step: 4, condition: phrase('legacy.17x0rvg'), result: 'APPROVED', note: phrase('legacy.d8mg2e') },
-]
+const findingKeys = Object.keys(defaultRiskClassification)
 
 const formState = reactive({
   scan_result_reuse_enabled: true,
-  auto_approve_max_risk: 'benign',
-  require_human_review: ['suspicious'],
-  auto_reject_risk: ['malicious'],
-  require_sandbox_for_risk: ['suspicious', 'malicious'],
+  actions: { ...recommendedActions },
+  require_sandbox_for_risk: [],
   blocked_permissions: [],
-  trusted_authors: [],
   allowed_tools_allowlist: [],
   max_allowed_tools: 20,
   require_license: false,
   accepted_licenses: [],
   judgement_mode: 'balanced',
-  risk_classification_groups: {
-    blocking: [],
-    risk: [],
-    noise: [],
-  },
+  risk_classification: { ...defaultRiskClassification },
 })
 const llmForm = reactive({
-  enabled: false,
-  model: 'deepseek-chat',
-  timeout_seconds: 30,
-  max_files: 6,
-  max_file_chars: 3000,
-  max_manifest_chars: 12000,
+  enabled: false, model: '', timeout_seconds: 30,
+  max_files: 6, max_file_chars: 3000, max_manifest_chars: 12000,
 })
 const sandboxForm = reactive({
-  enabled: false,
-  runtime: 'remote',
-  image: 'agent-manager-sandbox-runtime:latest',
-  timeout_seconds: 15,
-  network_mode: 'none',
-  memory_limit: '256m',
-  cpu_limit: '1.0',
-  pids_limit: 64,
-  read_only_rootfs: true,
-  remote_url: defaultSandboxRemoteUrl,
-  remote_api_key: '',
-  clear_remote_api_key: false,
+  enabled: false, runtime: 'remote', image: 'agent-manager-sandbox-runtime:latest',
+  timeout_seconds: 15, network_mode: 'none', memory_limit: '256m', cpu_limit: '1.0',
+  pids_limit: 64, read_only_rootfs: true, remote_url: defaultSandboxRemoteUrl,
+  remote_api_key: '', clear_remote_api_key: false,
 })
+const riskOptions = computed(() => policyRisks.map(value => ({ value, label: t('policySettings.risks.' + value) })))
+const modeOptions = computed(() => ['strict', 'balanced', 'permissive'].map(value => ({ value, label: t('policySettings.modes.' + value) })))
+const classificationOptions = computed(() => classificationKeys.map(value => ({ value, label: t('policySettings.groups.' + value) })))
+const runtimeOptions = computed(() => ['remote', 'docker'].map(value => ({ value, label: t('policySettings.' + value) })))
+const networkOptions = computed(() => [
+  { value: 'none', label: t('policySettings.noNetwork') },
+  { value: 'bridge', label: t('policySettings.bridgeNetwork') },
+])
+const actionOptions = risk => allowedActions(risk).map(value => ({ value, label: t('policySettings.actions.' + value) }))
+const itemsForGroup = group => findingKeys.filter(key => formState.risk_classification[key] === group)
+const policySummary = computed(() => t('policySettings.summary', Object.fromEntries(
+  policyRisks.map(risk => [risk, t('policySettings.actions.' + formState.actions[risk])]),
+)))
+const actionsRecommended = computed(() => policyRisks.every(risk => formState.actions[risk] === recommendedActions[risk]))
+const rulesRecommended = computed(() => formState.judgement_mode === 'balanced'
+  && findingKeys.every(key => formState.risk_classification[key] === defaultRiskClassification[key]))
+const useRecommendedActions = () => { formState.actions = { ...recommendedActions } }
+const useRecommendedRules = () => {
+  formState.judgement_mode = 'balanced'
+  Object.assign(formState.risk_classification, defaultRiskClassification)
+}
+const openService = service => {
+  activeTab.value = 'advanced'
+  advancedSections.value = [service]
+}
+const focusDecisionConfig = async () => {
+  const tab = route.query.tab
+  if (tab === 'llm' || tab === 'sandbox') {
+    openService(tab)
+    return
+  }
+  if (tab === 'admission') {
+    activeTab.value = 'decision'
+    companySections.value = ['company']
+    return
+  }
+  if (['detection', 'advanced'].includes(tab)) {
+    activeTab.value = tab
+    return
+  }
+  if (tab !== 'decision') return
+  activeTab.value = 'decision'
+  if (route.query.focus === 'mode' || focusedCategories.value.length) ruleSections.value = ['rules']
+  await nextTick()
+  const id = route.query.focus === 'mode' ? 'decision-mode'
+    : classificationKeys.includes(route.query.focus) ? 'risk-class-' + route.query.focus : null
+  if (id) document.getElementById(id)?.scrollIntoView({ block: 'center' })
+}
+watch(() => route.query, focusDecisionConfig)
 
-const conflictingRiskLevels = computed(() =>
-  formState.require_human_review.filter((risk) => formState.auto_reject_risk.includes(risk)),
-)
-const currentJudgementModeDescription = computed(() =>
-  judgementModeOptions.find((item) => item.value === formState.judgement_mode)?.description || '',
-)
-const systemLlmReady = computed(() =>
-  Boolean(llmForm.enabled && llmForm.model),
-)
 const llmModelOptions = computed(() => {
-  const values = new Set(modelEndpoints.value.map((item) => item.name).filter(Boolean))
+  const values = new Set(modelEndpoints.value.map(item => item.name).filter(Boolean))
   if (llmForm.model) values.add(llmForm.model)
-  return [...values].map((value) => {
-    const endpoint = modelEndpoints.value.find((item) => item.name === value)
-    const label = endpoint?.display_name ? `${endpoint.display_name} (${value})` : value
-    return { value, label }
+  return [...values].map(value => {
+    const endpoint = modelEndpoints.value.find(item => item.name === value)
+    return { value, label: endpoint?.display_name ? endpoint.display_name + ' (' + value + ')' : value }
   })
 })
 const sandboxImageOptions = computed(() => {
   const values = new Set(sandboxImages.value)
   if (sandboxForm.image) values.add(sandboxForm.image)
-  return [...values].map((value) => ({ value, label: value }))
+  return [...values].map(value => ({ value, label: value }))
 })
 const sandboxTestDescription = computed(() => {
-  if (!sandboxTestResult.value) return ''
-  const parts = [sandboxTestResult.value.message].filter(Boolean)
-  if (sandboxTestResult.value.target) {
-    parts.push(text(`目标：${sandboxTestResult.value.target}`, `Target: ${sandboxTestResult.value.target}`))
-  }
-  if (sandboxTestResult.value.duration_ms != null) {
-    parts.push(text(
-      `耗时：${sandboxTestResult.value.duration_ms} ms`,
-      `Duration: ${sandboxTestResult.value.duration_ms} ms`,
-    ))
-  }
-  return parts.join('；')
+  const result = sandboxTestResult.value
+  if (!result) return ''
+  const parts = []
+  if (result.target) parts.push(t('policySettings.connectionTarget', { target: result.target }))
+  if (result.duration_ms != null) parts.push(t('policySettings.connectionDuration', { duration: result.duration_ms }))
+  return parts.join(' · ')
 })
-
-const riskClassificationFromGroups = () => {
-  const result = {}
-  for (const group of riskClassificationGroups) {
-    for (const key of formState.risk_classification_groups[group.key] || []) {
-      result[key] = group.key
-    }
-  }
-  return result
-}
-
-const applyRiskClassification = (mapping = {}) => {
-  const merged = { ...defaultRiskClassification, ...(mapping || {}) }
-  for (const group of riskClassificationGroups) formState.risk_classification_groups[group.key] = []
-  for (const item of riskItems) {
-    const group = merged[item.key]
-    if (formState.risk_classification_groups[group]) {
-      formState.risk_classification_groups[group].push(item.key)
-    }
-  }
-}
-
-const normalizeRiskValues = (values) => (values || []).map(item => (
-  typeof item === 'object' && item !== null ? item.value : item
-)).filter(value => typeof value === 'string')
-
-const handleRiskGroupChange = (targetGroup, values) => {
-  const previous = new Set(formState.risk_classification_groups[targetGroup] || [])
-  const selected = new Set(normalizeRiskValues(values))
-  for (const item of riskItems) {
-    if (previous.has(item.key) && !selected.has(item.key)) selected.add(item.key)
-  }
-  for (const group of riskClassificationGroups) {
-    if (group.key === targetGroup) {
-      formState.risk_classification_groups[group.key] = [...selected]
-    } else {
-      formState.risk_classification_groups[group.key] = formState.risk_classification_groups[group.key].filter(key => !selected.has(key))
-    }
-  }
-}
+watch(sandboxForm, () => { sandboxTestResult.value = null }, { deep: true })
 
 const buildPayload = () => ({
+  ...persistedPolicy.value,
   scan_result_reuse_enabled: formState.scan_result_reuse_enabled,
-  auto_approve_max_risk: formState.auto_approve_max_risk,
-  require_human_review: formState.require_human_review,
-  auto_reject_risk: formState.auto_reject_risk,
+  ...actionPolicy(formState.actions),
   require_sandbox_for_risk: formState.require_sandbox_for_risk,
   blocked_permissions: formState.blocked_permissions,
-  trusted_authors: formState.trusted_authors,
   allowed_tools_allowlist: formState.allowed_tools_allowlist,
-  max_allowed_tools: Number(formState.max_allowed_tools || 0),
+  max_allowed_tools: Number(formState.max_allowed_tools),
   require_license: formState.require_license,
   accepted_licenses: formState.accepted_licenses,
   scanner_policy: formState.judgement_mode,
   judgement_mode: formState.judgement_mode,
-  risk_classification: riskClassificationFromGroups(),
+  risk_classification: { ...formState.risk_classification },
 })
+
+const simulationPolicy = computed(() => ({
+  judgement_mode: formState.judgement_mode,
+  risk_classification: { ...formState.risk_classification },
+  ...actionPolicy(formState.actions),
+  require_sandbox_for_risk: [...formState.require_sandbox_for_risk],
+  blocked_permissions: [...formState.blocked_permissions],
+}))
 
 const buildLlmPayload = () => ({
   enabled: llmForm.enabled,
   provider: 'model-gateway',
   api_base: '',
-  model: llmForm.model,
+  model: llmForm.model || '',
   timeout_seconds: Number(llmForm.timeout_seconds || 30),
   max_files: Number(llmForm.max_files || 6),
   max_file_chars: Number(llmForm.max_file_chars || 3000),
@@ -598,38 +387,34 @@ const buildSandboxPayload = () => ({
   clear_remote_api_key: sandboxForm.clear_remote_api_key,
 })
 
+
 const buildSnapshotPayload = () => ({
-  policy: buildPayload(),
-  llm: buildLlmPayload(),
-  sandbox: buildSandboxPayload(),
+  policy: buildPayload(), llm: buildLlmPayload(), sandbox: buildSandboxPayload(),
 })
-
+const dirty = computed(() => loaded.value && Object.entries(buildSnapshotPayload()).some(
+  ([key, payload]) => JSON.stringify(payload) !== savedState[key],
+))
 const markSaved = () => {
-  savedSnapshot.value = JSON.stringify(buildSnapshotPayload())
-  dirty.value = false
+  for (const [key, payload] of Object.entries(buildSnapshotPayload())) savedState[key] = JSON.stringify(payload)
 }
-
-const applyPolicy = (policy) => {
+const applyPolicy = policy => {
+  persistedPolicy.value = { ...policy }
   formState.scan_result_reuse_enabled = policy.scan_result_reuse_enabled !== false
-  formState.auto_approve_max_risk = policy.auto_approve_max_risk
-  formState.require_human_review = [...(policy.require_human_review || [])]
-  formState.auto_reject_risk = [...(policy.auto_reject_risk || [])]
+  formState.actions = policyActions(policy)
   formState.require_sandbox_for_risk = [...(policy.require_sandbox_for_risk || [])]
   formState.blocked_permissions = [...(policy.blocked_permissions || [])]
-  formState.trusted_authors = [...(policy.trusted_authors || [])]
   formState.allowed_tools_allowlist = [...(policy.allowed_tools_allowlist || [])]
   formState.max_allowed_tools = policy.max_allowed_tools
   formState.require_license = Boolean(policy.require_license)
   formState.accepted_licenses = [...(policy.accepted_licenses || [])]
   formState.judgement_mode = policy.judgement_mode || 'balanced'
-  applyRiskClassification(policy.risk_classification || policy.risk_classification_overrides || {})
-  markSaved()
+  formState.risk_classification = {
+    ...defaultRiskClassification, ...(policy.risk_classification || policy.risk_classification_overrides || {}),
+  }
 }
-
 const applyLlmConfig = (llm) => {
-  llmConfig.value = llm || {}
   llmForm.enabled = llm?.enabled ?? false
-  llmForm.model = llm?.model || modelEndpoints.value[0]?.name || 'deepseek-chat'
+  llmForm.model = llm?.model || ''
   llmForm.timeout_seconds = llm?.timeout_seconds ?? 30
   llmForm.max_files = llm?.max_files ?? 6
   llmForm.max_file_chars = llm?.max_file_chars ?? 3000
@@ -652,191 +437,152 @@ const applySandboxConfig = (sandbox) => {
   sandboxForm.clear_remote_api_key = false
 }
 
+
 const fetchPolicy = async () => {
+  if (loading.value || saving.value) return
   loading.value = true
+  loadFailed.value = false
   try {
     const [policyRes, llmRes, sandboxRes, modelRes, imageRes] = await Promise.all([
-      getPolicy(),
-      getLlmConfig(),
-      getSandboxConfig(),
-      listModelEndpoints(),
-      listSandboxImages(),
+      getPolicy(), getLlmConfig(), getSandboxConfig(), listModelEndpoints(), listSandboxImages(),
     ])
     modelEndpoints.value = Array.isArray(modelRes) ? modelRes : []
     sandboxImages.value = imageRes?.images || []
     applyLlmConfig(llmRes)
     applySandboxConfig(sandboxRes)
-    const res = policyRes
-    policyPath.value = res.policy_path || ''
-    applyPolicy(res.policy)
-  } catch (error) {
-    message.error(error.response?.data?.detail || phrase('legacy.1dmx50b'))
+    applyPolicy(policyRes.policy)
+    markSaved()
+    loaded.value = true
+  } catch {
+    loadFailed.value = true
   } finally {
     loading.value = false
   }
 }
-
-const extractErrorMsg = (error, fallback) => {
-  const detail = error.response?.data?.detail
-  if (!detail) return fallback
-  if (typeof detail === 'string') return detail
-  if (Array.isArray(detail)) return detail.map(e => e.msg).join('; ')
-  return fallback
+const reloadPolicy = () => {
+  if (dirty.value && !window.confirm(t('policySettings.leaveConfirm'))) return
+  return fetchPolicy()
 }
-
 const handleSaveAll = async () => {
+  if (saving.value || loading.value || !loaded.value || !dirty.value) return
+  if (llmForm.enabled && !llmForm.model) {
+    openService('llm')
+    message.error(t('policySettings.modelMissing'))
+    return
+  }
   saving.value = true
   try {
-    const [llmRes, sandboxRes, policyRes] = await Promise.all([
-      updateLlmConfig(buildLlmPayload()),
-      updateSandboxConfig(buildSandboxPayload()),
-      updatePolicy(buildPayload()),
-    ])
-    applyLlmConfig(llmRes)
-    applySandboxConfig(sandboxRes)
-    policyPath.value = policyRes.policy_path || ''
-    applyPolicy(policyRes.policy)
-    message.success(phrase('legacy.1ypovr1'))
-  } catch (error) {
-    message.error(extractErrorMsg(error, phrase('legacy.jikq9d')))
+    const jobs = [
+      { key: 'policy', build: buildPayload, update: updatePolicy, apply: result => applyPolicy(result.policy) },
+      { key: 'llm', build: buildLlmPayload, update: updateLlmConfig, apply: applyLlmConfig },
+      { key: 'sandbox', build: buildSandboxPayload, update: updateSandboxConfig, apply: applySandboxConfig },
+    ].filter(job => JSON.stringify(job.build()) !== savedState[job.key])
+    const results = await Promise.allSettled(jobs.map(async job => {
+      const result = await job.update(job.build())
+      job.apply(result)
+      savedState[job.key] = JSON.stringify(job.build())
+    }))
+    const failed = results.some(result => result.status === 'rejected')
+    if (failed) message.error(t('policySettings.saveFailed'))
+    else message.success(t('policySettings.saved'))
   } finally {
     saving.value = false
   }
 }
-
 const handleTestSandboxConnection = async () => {
+  if (testingSandbox.value || saving.value || loading.value || !loaded.value) return
   testingSandbox.value = true
   sandboxTestResult.value = null
+  const payload = { ...buildSandboxPayload(), enabled: true, runtime: 'remote' }
   try {
-    const result = await testSandboxConfig({
-      ...buildSandboxPayload(),
-      enabled: true,
-      runtime: 'remote',
-    })
-    sandboxTestResult.value = result || {}
-    if (result?.available) {
-      message.success(result.message || phrase('legacy.9duapa'))
-    } else {
-      message.error(result?.message || phrase('legacy.1scu0xv'))
+    const result = await testSandboxConfig(payload)
+    if (JSON.stringify(payload) === JSON.stringify({ ...buildSandboxPayload(), enabled: true, runtime: 'remote' })) {
+      sandboxTestResult.value = result
     }
-  } catch (error) {
-    message.error(extractErrorMsg(error, phrase('legacy.z38xwd')))
+  } catch {
+    message.error(t('policySettings.connectionFailed'))
   } finally {
     testingSandbox.value = false
   }
 }
-
 const useDefaultSandboxUrl = () => {
   sandboxForm.runtime = 'remote'
   sandboxForm.remote_url = defaultSandboxRemoteUrl
-  sandboxTestResult.value = null
 }
-
-const handleBeforeUnload = (event) => {
+const handleBeforeUnload = event => {
   if (!dirty.value) return
   event.preventDefault()
   event.returnValue = ''
 }
-
-watch([formState, llmForm, sandboxForm], () => {
-  dirty.value = Boolean(savedSnapshot.value && JSON.stringify(buildSnapshotPayload()) !== savedSnapshot.value)
-}, { deep: true })
-
-onBeforeRouteLeave(() => {
-  if (!dirty.value) return true
-  return window.confirm(phrase('legacy.8h4k7h'))
-})
-
-onMounted(() => {
+onBeforeRouteLeave(() => !dirty.value || window.confirm(t('policySettings.leaveConfirm')))
+onMounted(async () => {
   window.addEventListener('beforeunload', handleBeforeUnload)
-  fetchPolicy()
+  await fetchPolicy()
+  await focusDecisionConfig()
 })
 onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnload))
 </script>
 
 <style scoped>
-.bottom-action-bar {
-  background: #fff;
-  border: 1px solid #f0f0f0;
-  border-radius: 6px;
-  margin-top: 20px;
-  padding: 12px 16px;
+.policy-page {
+  --policy-ink: #1f2937;
+  --policy-muted: #637083;
+  --policy-border: #e5e9ef;
+  --policy-surface: #f6f8fb;
+  --policy-accent: #2459ad;
+  color: var(--policy-ink);
+  max-width: 1200px;
+  margin: 0 auto;
 }
-
-.save-hint,
-.field-hint {
-  color: #8c8c8c;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.field-hint {
-  margin-top: 6px;
-}
-
-.sandbox-test-result {
-  margin: -4px 0 16px;
-}
-
-.sandbox-auth-collapse {
-  margin: -4px 0 16px;
-}
-
-.policy-section {
-  margin-bottom: 16px;
-}
-
-.section-title {
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-
-.risk-class-card {
-  border: 1px solid #f0f0f0;
-  border-radius: 6px;
-  padding: 12px;
-  min-height: 188px;
-  background: #fff;
-}
-
-.risk-class-header {
-  align-items: center;
-  display: flex;
-  font-weight: 600;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.risk-class-description {
-  color: #8c8c8c;
-  font-size: 12px;
-  line-height: 1.5;
-  min-height: 54px;
-  margin-bottom: 10px;
-}
-
-.risk-class-select {
-  width: 100%;
-}
-
-.risk-class-tag {
-  margin: 2px 4px 2px 0;
-}
-
-.risk-option {
-  line-height: 1.35;
-  padding: 4px 0;
-  white-space: normal;
-}
-
-.risk-option-title {
-  color: #262626;
-  font-weight: 500;
-}
-
-.risk-option-description {
-  color: #8c8c8c;
-  font-size: 12px;
-  margin-top: 2px;
+.policy-page h2 { font-size: 17px; font-weight: 600; line-height: 1.5; margin: 0; }
+.policy-page h3 { font-size: 14px; font-weight: 600; line-height: 1.5; margin: 0; }
+.policy-page p { line-height: 1.65; margin: 8px 0 12px; }
+.policy-page :deep(.ant-spin-nested-loading) { min-height: 160px; }
+.policy-page :deep(.ant-form-item-label > label) { height: auto; white-space: normal; }
+.policy-page :deep(.ant-select), .policy-page :deep(.ant-input-number) { width: 100%; min-width: 0; }
+.policy-page :deep(.ant-select-selection-item) { white-space: normal; overflow-wrap: anywhere; }
+.policy-page :deep(.ant-select-single .ant-select-selector) { min-height: 32px; height: auto; }
+.policy-page :deep(.ant-btn) { height: auto; min-height: 32px; white-space: normal; }
+.section-heading, .capability-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.section-heading .ant-tag { margin: 0; }
+.summary-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.policy-summary { background: var(--policy-surface); border-left: 3px solid var(--policy-accent); padding: 18px 20px; margin-bottom: 24px; }
+.policy-summary p { margin-bottom: 6px; }
+.policy-section { margin-bottom: 24px; }
+.section-hint, .field-hint { color: var(--policy-muted); font-size: 13px; font-weight: 400; line-height: 1.6; overflow-wrap: anywhere; }
+.field-hint { margin-top: 5px; }
+.policy-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.policy-table th, .policy-table td { text-align: left; padding: 14px 16px; border-bottom: 1px solid var(--policy-border); vertical-align: middle; overflow-wrap: anywhere; }
+.policy-table thead th { background: var(--policy-surface); color: var(--policy-muted); font-size: 12px; font-weight: 500; padding-top: 9px; padding-bottom: 9px; }
+.policy-table th:first-child { width: 44%; }
+.policy-table tbody th { font-weight: 500; }
+.risk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 10px; }
+.risk-dot.benign { background: #30845d; }
+.risk-dot.suspicious { background: #b97511; }
+.risk-dot.malicious { background: #c74545; }
+.classification-overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--policy-border); border-radius: 6px; }
+.classification-group { padding: 16px; min-width: 0; }
+.classification-group + .classification-group { border-left: 1px solid var(--policy-border); }
+.classification-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.classification-tags .ant-tag { margin: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.reset-rules { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.decision-focus { outline: 2px solid #c49a46; outline-offset: 3px; border-radius: 6px; scroll-margin-top: 90px; }
+.finding-focus { background: #fff8e8; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
+.form-grid > * { min-width: 0; }
+.capability-section { border: 1px solid var(--policy-border); border-radius: 6px; padding: 20px; margin-top: 20px; }
+.connection-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.connection-controls > .ant-input { flex: 1 1 280px; min-width: 0; }
+.sandbox-test-result { margin-bottom: 16px; overflow-wrap: anywhere; }
+.bottom-action-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; background: #fff; border-top: 1px solid var(--policy-border); margin-top: 24px; padding: 16px 0; }
+@media (max-width: 760px) {
+  .classification-overview, .form-grid { grid-template-columns: 1fr; }
+  .classification-group + .classification-group { border-left: 0; border-top: 1px solid var(--policy-border); }
+  .policy-summary, .capability-section { padding: 16px; }
+  .policy-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .policy-table, .policy-table tbody, .policy-table tr, .policy-table th, .policy-table td { display: block; width: 100%; }
+  .policy-table th:first-child { width: 100%; padding: 12px 0 4px; border: 0; }
+  .policy-table td { padding: 6px 0 14px; }
+  .policy-page :deep(.ant-collapse-content-box) { padding: 12px; }
 }
 </style>

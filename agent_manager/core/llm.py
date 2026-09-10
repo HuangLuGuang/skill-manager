@@ -254,7 +254,8 @@ async def _call_model_gateway_upstream(payload: dict[str, Any]) -> dict[str, Any
         )
         if not model:
             raise ValueError(f"模型不存在或未启用: {model_name}")
-        return await _call_upstream(db, model, payload)
+        upstream_payload = {key: value for key, value in payload.items() if key != "metadata"}
+        return await _call_upstream(db, model, upstream_payload)
     finally:
         db.close()
 

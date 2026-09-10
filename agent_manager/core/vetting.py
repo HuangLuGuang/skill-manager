@@ -479,6 +479,29 @@ def _risk_from_classification(classification: dict[str, object], mode: str) -> t
     return RiskLevel.BENIGN, "noise"
 
 
+def reconcile_llm_risk(
+    pre_llm_risk: RiskLevel,
+    llm_risk: RiskLevel | None,
+    has_blocking_findings: bool,
+    mode: str,
+) -> tuple[RiskLevel, bool, bool]:
+    """Reconcile an LLM assessment with deterministic risk and policy constraints."""
+    lowered = bool(
+        llm_risk
+        and not has_blocking_findings
+        and mode in {"balanced", "permissive"}
+        and not llm_risk.is_at_least(pre_llm_risk)
+    )
+    downgrade_blocked = bool(
+        llm_risk and not llm_risk.is_at_least(pre_llm_risk) and not lowered
+    )
+    final_risk = (
+        llm_risk if llm_risk and (llm_risk.is_at_least(pre_llm_risk) or lowered)
+        else pre_llm_risk
+    )
+    return final_risk, lowered, downgrade_blocked
+
+
 def _iter_behavioral_candidate_files(skill_path: Path) -> list[Path]:
     priority_files: list[Path] = []
     fallback_files: list[Path] = []
@@ -583,6 +606,7 @@ def _run_sandbox_analysis(skill_path: Path) -> SandboxExecution:
                     "executed": False,
                     "runtime": runtime,
                     "available": True,
+                    "reason_code": "no_executable_script",
                     "reason": (
                         "No supported executable script found. "
                         "SKILL.md command examples are not executed as Sandbox probes."
@@ -934,22 +958,8 @@ class VettingPipeline:
 
         llm_risk_level = RiskLevel(llm_result.risk_level) if llm_result else None
         has_blocking_findings = bool(risk_classification.get("blocking_count"))
-        llm_downgraded = bool(
-            llm_risk_level
-            and not has_blocking_findings
-            and effective_judgement_mode in {"balanced", "permissive"}
-            and not llm_risk_level.is_at_least(pre_llm_risk_level)
-        )
-        llm_downgrade_blocked = bool(
-            llm_risk_level
-            and not llm_risk_level.is_at_least(pre_llm_risk_level)
-            and not llm_downgraded
-        )
-        final_risk_level = (
-            llm_risk_level
-            if llm_risk_level
-            and (llm_risk_level.is_at_least(pre_llm_risk_level) or llm_downgraded)
-            else pre_llm_risk_level
+        final_risk_level, llm_downgraded, llm_downgrade_blocked = reconcile_llm_risk(
+            pre_llm_risk_level, llm_risk_level, has_blocking_findings, effective_judgement_mode,
         )
         if llm_downgraded and llm_result:
             downgrade_reason = (
@@ -978,6 +988,10 @@ class VettingPipeline:
             else "deterministic_policy_merge"
         )
         scan_report["risk_reconciliation"] = {
+            "policy_snapshot": {
+                "judgement_mode": effective_judgement_mode,
+                "risk_classification": dict(self.policy.risk_classification),
+            },
             "strategy": reconciliation_strategy,
             "judgement_mode": effective_judgement_mode,
             "pre_llm_reason": pre_llm_reason,

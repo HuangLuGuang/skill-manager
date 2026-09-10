@@ -1,3 +1,5 @@
+import { securityGuides } from './security-guides.js'
+
 const zh = {
   groups: [
     { title: '开始使用', items: [
@@ -8,7 +10,7 @@ const zh = {
       { subgroup: 'Skill 治理', slug: 'skill-governance', title: '治理流程', summary: '提交、检测、审核与版本管理' },
       { subgroup: 'Skill 治理', slug: 'scanner-access', title: 'Scanner 接入', summary: '批量发现、预检并上传本地 Skill' },
       { subgroup: 'Skill 治理', slug: 'scan-capabilities', title: '检测能力', summary: '规则、深度、Sandbox 与 LLM 分析' },
-      { subgroup: 'Skill 治理', slug: 'risk-classification', title: '风险项目归类', summary: '阻断项、可疑项、噪声与最终风险' },
+      { subgroup: 'Skill 治理', slug: 'risk-classification', title: '风险项目归类', summary: '判为恶意、结合上下文判断、仅保留提示与最终风险' },
       { subgroup: 'Skill 治理', slug: 'skill-policy', title: '策略配置', summary: '风险判定、准入约束与分析器设置' },
       { subgroup: 'MCP 治理', slug: 'mcp-governance', title: 'MCP 治理', summary: '服务、网关、审批与调用审计' },
     ] },
@@ -17,6 +19,8 @@ const zh = {
       { slug: 'client-management', title: '客户端管理', summary: '本地 Agent 发现、Skill 下发与持续巡检' },
       { slug: 'credential-management', title: '统一凭证中心', summary: '按调用主体签发最小权限凭证' },
       { slug: 'runtime-integration', title: '接入与运行', summary: 'Skill Verifier、事件 Hook 与结果判断' },
+      { slug: 'hook-integration', title: 'Hook 接入', summary: 'Claude Code、Codex 与 OpenClaw 事件拦截配置' },
+      { slug: 'agent-security-runtime', title: 'AI 安全与调用轨迹', summary: 'Agent、MCP、大模型与 AI 基础设施测评、Worker、证据解释与统一轨迹' },
       { slug: 'audit-trail', title: '审计追踪', summary: '查询 Skill、Agent、客户端与 Tool 事件' },
     ] },
     { title: '模型网关', items: [
@@ -33,7 +37,7 @@ const zh = {
     { title: '场景实践', items: [
       { slug: 'case-expense-skill', title: '差旅报销 Skill 上线', summary: '从业务样本到审批、授权与运行校验' },
       { slug: 'case-high-impact-skill', title: '高影响 Skill 审核', summary: '审核合法但具备文件外发能力的 Skill' },
-      { slug: 'case-malicious-skill', title: '恶意 Skill 准入拒绝', summary: '用阻断证据识别凭据和数据外传' },
+      { slug: 'case-malicious-skill', title: '恶意 Skill 准入拒绝', summary: '按策略归类识别凭据和数据外传风险' },
       { slug: 'case-runtime-tamper', title: '本地篡改阻断', summary: '已批准 Skill 被修改后拒绝加载' },
       { slug: 'case-mcp-approval', title: 'MCP 高风险操作审批', summary: '客户查询与暂停服务的审批闭环' },
       { slug: 'case-client-modular-governance', title: '客户端模块化治理', summary: '按 Agent、目录和授权边界治理一台多 Agent 主机' },
@@ -79,12 +83,13 @@ const zh = {
               ['提交并检测一个 Skill', { label: 'Skill 治理 / 提交 Skill', path: '/docs/skill-governance' }],
               ['批量接入主机或 CI 中的 Skill', { label: 'Scanner 接入', path: '/docs/scanner-access' }],
               ['选择检测方式并理解结果', { label: 'Skill 检测能力', path: '/docs/scan-capabilities' }],
-              ['理解阻断项、可疑项和噪声', { label: '风险项目归类', path: '/docs/risk-classification' }],
+              ['理解发现项分类如何影响最终风险', { label: '风险项目归类', path: '/docs/risk-classification' }],
               ['配置 Skill 风险与准入规则', { label: 'Skill 策略配置', path: '/docs/skill-policy' }],
               ['审核可疑 Skill', { label: 'Skill 治理 / Skill 审核', path: '/docs/skill-governance' }],
               ['让 Agent 只能使用指定 Skill', { label: '智能体管理 / 能力绑定与凭证', path: '/docs/agent-management' }],
               ['为不同调用方创建最小权限凭证', { label: '统一凭证中心', path: '/docs/credential-management' }],
               ['把验签和 Tool 检查接入 Agent', { label: 'Agent 运行校验接入', path: '/docs/runtime-integration' }],
+              ['配置 Claude Code、Codex 或 OpenClaw Hook', { label: 'Hook 接入', path: '/docs/hook-integration' }],
               ['发现本机 Agent 和 Skill 目录', { label: '客户端管理 / Agent 发现', path: '/docs/client-management' }],
               ['向本地 Agent 下发、恢复或移除 Skill', { label: '客户端管理 / 管理台操作', path: '/docs/client-management' }],
               ['保护发送给模型的隐私数据', { label: '模型网关 / 隐私策略', path: '/docs/model-gateway' }],
@@ -111,23 +116,81 @@ const zh = {
           link: { path: '/dashboard', label: '打开平台总览' },
         },
         {
-          id: 'submit-zip',
-          title: '2. 上传 ZIP 并选择 Skill',
-          paragraphs: ['当前管理台提交入口支持 ZIP 上传和 Scanner 接入。上传 ZIP 后，系统先解析其中可导入的 Skill，再由你选择需要提交的条目。'],
-          steps: [
-            { title: '选择 ZIP', body: 'ZIP 中的 Skill 目录必须包含 SKILL.md。' },
-            { title: '解析内容', body: '点击解析按钮，确认系统识别出的目录和 Skill。' },
-            { title: '选择检测项并提交', body: '不可用的检测项会保持禁用；不要为了完成示例强行开启未配置服务。', expected: '提交结果先显示 PENDING，后台继续执行检测。' },
+          "id": "submit-zip",
+          "title": "2. 上传 ZIP 并选择 Skill",
+          "paragraphs": [
+            "选择 ZIP 后自动整理并解析，上传上限为 100 MiB。浏览器会移除 __MACOSX/ 开头的条目，再校验大小；本地原文件不变。超过上限时，页面汇总第一、第二级目录中压缩后大小最大的 10 项，便于移除大文件后重新打包。",
+            "整理、上传、解压和识别按阶段展示进度；百分比表示当前阶段的进度。ZIP 包含软链接时，确认窗口列出具体路径，可跳过并继续或取消，无需再次上传。"
           ],
-          image: { name: 'submit-skill', alt: '提交 Skill 页面', caption: '上传 ZIP、解析内容并选择需要检测的 Skill。' },
-          link: { path: '/submit', label: '打开提交 Skill' },
+          "steps": [
+            {
+              "title": "选择目录和技能",
+              "body": "每个 Skill 目录必须包含 SKILL.md。解析完成后，选择需要导入的目录和技能。"
+            },
+            {
+              "title": "选择检测项并提交",
+              "body": "规则分析强制开启，不能取消勾选；按需要选择可用的深度扫描、Sandbox、LLM 分析，然后点击“提交所选技能”。",
+              "expected": "提示“后台任务已创建”，后台继续准备内容并安排检测。"
+            }
+          ],
+          "image": {
+            "name": "submit-skill",
+            "alt": "ZIP 解析后的提交页面",
+            "caption": "示例数据：选择技能后提交，右侧入口可打开历史提交记录。"
+          },
+          "link": {
+            "path": "/submit",
+            "label": "打开提交 Skill"
+          }
         },
         {
-          id: 'review-result',
-          title: '3. 查看报告并处置',
-          paragraphs: ['检测完成后，在 Skill 详情中查看最终风险、证据、不同分析器结论、文件内容和版本记录。VETTED 需要人工审核；APPROVED 已成为可信版本；REJECTED 不进入审核队列。'],
-          image: { name: 'skill-list', alt: 'Skill 列表页面', caption: '列表展示最新内容版本、可信版本、状态和风险。' },
-          link: { path: '/skills', label: '打开 Skill 列表' },
+          "id": "submission-history",
+          "title": "历史提交记录",
+          "paragraphs": [
+            "点击“提交所选技能”右侧的“历史提交记录”。弹窗展示最近 50 个任务的编号、ZIP 包名称、导入时间、状态及已处理/总数，刷新页面仍可查询。旧记录未保存 ZIP 名称时显示“—”。",
+            "导入完成表示所选内容已处理，最终检测状态请查看导入结果或 Skill 详情。"
+          ],
+          "image": {
+            "name": "submission-history",
+            "alt": "历史提交记录弹窗",
+            "caption": "示例数据：按 ZIP 名称和导入时间查找提交，再点击“查看结果”。"
+          }
+        },
+        {
+          "id": "submission-results",
+          "title": "查看导入结果与返回记录",
+          "paragraphs": [
+            "点击记录的“查看结果”，查看处理数量、成功导入的 Skill 及失败路径。单个 Skill 导入失败不会阻止其他项目继续处理。",
+            "点击“返回历史提交记录”回到列表，可继续查看其他提交。导入成功后的检测可能仍在进行；Skill 列表统一显示 SCANNING（检测中），接口中的 PENDING 表示等待或正在检测。"
+          ],
+          "image": {
+            "name": "submission-results",
+            "alt": "导入结果弹窗与返回按钮",
+            "caption": "示例数据：结果弹窗展示部分失败，并提供返回历史提交记录入口。"
+          }
+        },
+        {
+          "id": "review-result",
+          "title": "3. 查看报告并处置",
+          "paragraphs": [
+            "列表分别展示最终风险与 LLM 判定。进入详情后，先在“实际判定过程”理解策略结论，再在“扫描结果”切换规则、深度、Sandbox 和 LLM 的证据。",
+            "检测完成后，在 Skill 详情中查看最终风险、证据、不同分析器结论、文件内容和版本记录。VETTED 需要人工审核；APPROVED 已成为可信版本；REJECTED 不进入审核队列。",
+            "需要留档或交付安全审核时，点击详情页右上角的“导出 PDF 报告”。报告按当前界面语言生成，包含瑞数 Logo、管理摘要、发现项风险卡片、Sandbox 与 LLM 结果、准入策略、完整性信息和评估局限。"
+          ],
+          "callout": {
+            "type": "note",
+            "title": "报告边界",
+            "body": "PDF 报告只对应指定版本与内容指纹，并会遮盖常见凭证和截断日志。安全风险与准入状态是两类结论，低风险仍可能因策略阻断而被拒绝。"
+          },
+          "image": {
+            "name": "skill-list",
+            "alt": "Skill 列表页面",
+            "caption": "示例数据：最终风险与 LLM 判定分列展示，避免把模型意见当成最终决策。"
+          },
+          "link": {
+            "path": "/skills",
+            "label": "打开 Skill 列表"
+          }
         },
         {
           id: 'verify-runtime',
@@ -175,18 +238,18 @@ const zh = {
       scenario: { label: '案例摘要', items: [{ label: '业务角色', value: 'SOC 开发者 · 安全审核员' }, { label: '预计耗时', value: '约 20 分钟' }, { label: '核心结论', value: '先补齐控制条件，再决定是否批准' }] },
       sections: [
         { id: 'business', title: '为什么这个案例不能只看风险等级', paragraphs: ['incident-evidence-uploader只在操作人员明确选择后读取指定证据、计算摘要并上传到SOC服务，业务目的合理；但代码确实能够读取文件、从环境变量取凭证、Base64编码并发起HTTPS请求。审核目标是确认用途、约束和实现是否一致。'], flow: [{ label: '声明', value: 'SOC证据上报' }, { label: '能力', value: '读文件 / 凭证 / 网络' }, { label: '证据', value: '规则 + 深度 + Sandbox' }, { label: '判断', value: '用途与约束是否一致', type: 'decision' }, { label: '处置', value: '补强控制或拒绝', type: 'blocked' }], table: { columns: ['行为', '业务理由', '审核问题'], rows: [['读取证据文件', '上传安全事件证据', '是否限制允许目录、单文件大小和具体文件'], ['读取环境变量凭证', '调用证据服务', '是否使用短期最小权限凭证且不写日志'], ['网络外发', '发送到SOC收集端', '是否有HTTPS、域名白名单和人工确认'], ['记录摘要', '提供完整性和审计依据', '是否避免记录原始证据和Token']] } },
-        { id: 'scan', title: '用不同检测方式回答不同问题', steps: [{ title: '执行规则与深度扫描', body: '确认文件读取、凭证、编码和网络路径是否被识别，并打开具体文件和行证据。' }, { title: '在Sandbox执行默认预检', body: '样本默认访问collector.invalid保留域名，不会触达真实服务；查看是否观察到网络尝试、错误和退出码。' }, { title: '区分发现项归类', body: '阻断项表示确定性高危模式，可疑项需要结合业务判断，噪声是运行诊断或弱信号；不要按数量投票。' }, { title: '记录审核决定', body: '当前样本允许环境变量覆盖任意HTTPS目标，缺少正式域名白名单，因此不应直接作为生产Skill批准。', expected: '审核意见明确列出需要补齐的控制条件，而不是只写“风险高”。' }], link: { path: '/docs/scan-capabilities', label: '查看检测能力区别' }, download: { path: '/examples/incident-evidence-uploader.zip', filename: 'incident-evidence-uploader.zip', label: '下载安全事件证据上传 Skill 样本', hint: '使用保留域名和虚构证据，不会发送到真实服务' } },
+        { id: 'scan', title: '用不同检测方式回答不同问题', steps: [{ title: '执行规则与深度扫描', body: '确认文件读取、凭证、编码和网络路径是否被识别，并打开具体文件和行证据。' }, { title: '在Sandbox执行默认预检', body: '样本默认访问collector.invalid保留域名，不会触达真实服务；查看是否观察到网络尝试、错误和退出码。' }, { title: '区分发现项归类', body: '按本次策略把发现项归为“判为恶意”“结合上下文判断”或“仅保留提示”，再查看风险汇总与准入动作。发现项数量不能代替证据判断。' }, { title: '记录审核决定', body: '当前样本允许环境变量覆盖任意HTTPS目标，缺少正式域名白名单，因此不应直接作为生产Skill批准。', expected: '审核意见明确列出需要补齐的控制条件，而不是只写“风险高”。' }], link: { path: '/docs/scan-capabilities', label: '查看检测能力区别' }, download: { path: '/examples/incident-evidence-uploader.zip', filename: 'incident-evidence-uploader.zip', label: '下载安全事件证据上传 Skill 样本', hint: '使用保留域名和虚构证据，不会发送到真实服务' } },
         { id: 'decision', title: '可批准版本应具备的控制', bullets: ['目标域名使用不可由普通运行环境任意覆盖的白名单。', '只允许读取预先批准的证据根目录，并限制文件数量与总大小。', '凭证为短期、最小权限且只从安全配置注入。', '上传前展示文件名、大小、摘要和目标，要求显式确认。', '审计记录操作者、目标、摘要和结果，不记录凭证及原始证据。'], callout: { type: 'warning', title: 'Sandbox没有观察到外发不等于安全', body: '默认probe可能没有携带上传参数或凭证。未触发分支只能说明本次运行未观察到，不会推翻静态代码中的外发能力。' }, link: { path: '/docs/risk-classification', label: '查看风险项目归类' } },
         { id: 'production', title: '修复后如何重新验证', steps: [{ title: '提交新版本', body: '不要改写历史报告；完成白名单、目录和审批约束后提交新的内容版本。' }, { title: '强制重新检测', body: '策略或实现变化后重新运行规则、深度和Sandbox，确认扫描上下文和证据更新。' }, { title: '对比版本', body: '核对危险能力是否仍存在、约束是否真正落到代码以及业务流程是否还能完成。' }] },
       ],
     },
     'case-malicious-skill': {
-      eyebrow: '场景实践 · 准入阻断', title: '拒绝伪装成工具的数据外传 Skill', summary: '从环境变量取密钥、读取系统文件、发送到外部地址并动态执行代码，展示阻断项如何直接影响最终准入结论。',
+      eyebrow: '场景实践 · 准入阻断', title: '拒绝伪装成工具的数据外传 Skill', summary: '从环境变量取密钥、读取系统文件、发送到外部地址并动态执行代码，展示发现项如何按策略形成恶意风险，再按准入配置进入审核或拒绝。',
       scenario: { label: '案例摘要', items: [{ label: '业务角色', value: 'Skill 接收方 · 安全审核员' }, { label: '预计耗时', value: '约 15 分钟' }, { label: '验收结果', value: 'REJECTED · 不进入批准与部署链路' }] },
       sections: [
-        { id: 'sample', title: '样本中有哪些确定性证据', paragraphs: ['rejected-exfiltrator故意把多种危险行为放在一个短脚本中，便于培训审核人员识别证据链。'], flow: [{ label: '来源', value: '读取API_KEY与系统文件' }, { label: '处理', value: '组织外发载荷' }, { label: '外传', value: 'POST到外部目标', type: 'blocked' }, { label: '附加风险', value: 'eval动态执行', type: 'decision' }, { label: '准入', value: 'REJECTED', type: 'blocked' }], table: { columns: ['代码行为', '安全含义', '建议归类'], rows: [['读取API_KEY环境变量', '接触运行凭证', '与后续外发组合后属于阻断证据'], ['读取/etc/passwd', '访问非业务所需系统文件', '阻断项'], ['POST到evil.example.com', '向外部目标发送数据', '阻断项'], ['eval动态执行字符串', '执行路径难以静态约束', '至少可疑；与外传链组合提高风险']] }, callout: { type: 'warning', title: '不要在宿主机直接运行', body: '该脚本是恶意演示样本。只能提交给平台做静态检测，动态行为必须放在隔离Sandbox中观察。' } },
-        { id: 'submit', title: '提交并确认拒绝链路', steps: [{ title: '打包样本目录', body: '仅打包rejected-exfiltrator，不加入真实凭证或文件。' }, { title: '提交静态检测', body: '启用规则和深度扫描；需要动态证据时使用Sandbox，不要在本地直接执行脚本。' }, { title: '从阻断项开始阅读', body: '打开规则、文件、行号和证据文本，串联“取凭证/读文件 → 组织载荷 → 网络外发”。' }, { title: '核对最终状态', body: '一条确定性阻断项即可决定高风险，不需要依靠大量发现项累加。', expected: '最终状态为REJECTED，不进入审核队列，也不能成为Agent可信版本。' }], link: { path: '/submit', label: '打开提交 Skill' }, download: { path: '/examples/rejected-exfiltrator.zip', filename: 'rejected-exfiltrator.zip', label: '下载恶意外传 Skill 检测样本', hint: '危险样本：只用于平台扫描，禁止在宿主机执行' } },
-        { id: 'interpret', title: '常见误判', bullets: ['Sandbox因为网络隔离而请求失败，不代表代码没有外发意图。', 'evil.example.com不可达，不影响静态证据对数据外传链的判断。', 'LLM没有运行或调用失败，不会清除确定性阻断证据。', '噪声数量再多，也不能抵消一条经过核对的阻断项。'], link: { path: '/docs/risk-classification', label: '查看阻断项检测逻辑' } },
+        { id: 'sample', title: '样本中有哪些确定性证据', paragraphs: ['rejected-exfiltrator 把多种危险行为放在一个短脚本中，便于审核人员识别证据链。本例使用推荐分类，并将恶意风险配置为自动拒绝；实际结果以检测报告记录的分类和准入配置为准。'], flow: [{ label: '来源', value: '读取API_KEY与系统文件' }, { label: '处理', value: '组织外发载荷' }, { label: '外传', value: 'POST到外部目标', type: 'blocked' }, { label: '附加风险', value: 'eval动态执行', type: 'decision' }, { label: '准入', value: 'REJECTED', type: 'blocked' }], table: { columns: ['代码行为', '安全含义', '建议归类'], rows: [['读取API_KEY环境变量', '接触运行凭证', '结合后续外发证据，建议归入“判为恶意”'], ['读取/etc/passwd', '访问非业务所需系统文件', '结合上下文判断，并核对是否参与外传'], ['POST到evil.example.com', '向外部目标发送数据', '本例数据外传建议归入“判为恶意”'], ['eval动态执行字符串', '执行路径难以静态约束', '结合上下文判断；与外传链一起核对']] }, callout: { type: 'warning', title: '不要在宿主机直接运行', body: '该脚本是恶意演示样本。只能提交给平台做静态检测，动态行为必须放在隔离Sandbox中观察。' } },
+        { id: 'submit', title: '提交并确认拒绝链路', steps: [{ title: '打包样本目录', body: '仅打包rejected-exfiltrator，不加入真实凭证或文件。' }, { title: '提交静态检测', body: '启用规则和深度扫描；需要动态证据时使用Sandbox，不要在本地直接执行脚本。' }, { title: '从“判为恶意”的发现项开始阅读', body: '打开规则、文件、行号和证据文本，串联“取凭证/读文件 → 组织载荷 → 网络外发”。' }, { title: '核对最终状态', body: '先确认本次报告将外传发现项归入“判为恶意”，再核对恶意风险的准入动作。此案例使用推荐动作“自动拒绝”。', expected: '按此案例的自动拒绝配置进入 REJECTED；若恶意风险配置为人工审核，则进入 VETTED。' }], link: { path: '/submit', label: '打开提交 Skill' }, download: { path: '/examples/rejected-exfiltrator.zip', filename: 'rejected-exfiltrator.zip', label: '下载恶意外传 Skill 检测样本', hint: '危险样本：只用于平台扫描，禁止在宿主机执行' } },
+        { id: 'interpret', title: '常见误判', bullets: ['Sandbox因为网络隔离而请求失败，不代表代码没有外发意图。', 'evil.example.com不可达，不影响静态证据对数据外传链的判断。', 'LLM 未运行或调用失败时，仍按本次策略汇总工具风险。', '“仅保留提示”的发现不会抵消“判为恶意”的发现；最终动作仍需核对准入配置。'], link: { path: '/docs/risk-classification', label: '查看发现项分类与风险判定逻辑' } },
         { id: 'remediation', title: '如果开发者声称这是合法功能', paragraphs: ['不要在原版本上口头解释后直接批准。要求删除系统文件和无关凭证读取，将目标改为批准域名，限制数据范围，移除eval，并以新版本重新提交；新版本必须重新形成独立证据和准入结论。'] },
       ],
     },
@@ -257,7 +320,7 @@ const zh = {
         {
           id: 'pipeline',
           title: '检测与判定',
-          paragraphs: ['提交成功后先写入 PENDING，后台再执行已启用的分析器。最终风险由策略汇总决定，不能用单个 Sandbox 或 LLM 结果代替最终结论。'],
+          paragraphs: ['首次提交成功后，后台 Skill 状态写入 PENDING，列表显示 SCANNING（检测中），再由后台执行已启用的分析器。最终风险由策略汇总决定，不能用单个 Sandbox 或 LLM 结果代替最终结论。'],
           bullets: ['规则和静态分析检查文件、权限与危险模式。', 'Sandbox观察受限环境中的实际行为，但不保证覆盖所有分支。', 'LLM在配置可用时综合内容和分析器证据。', '策略把结果归入自动批准、人工审核或拒绝。'],
           diagram: 'governance',
           link: { path: '/docs/scan-capabilities', label: '了解每种检测能力' },
@@ -265,10 +328,10 @@ const zh = {
         {
           id: 'states',
           title: '状态与下一步',
-          table: {
+          paragraphs: ["列表中的 SCANNING 是检测进度展示状态，不是新增的后台 Skill 状态。首次检测时 Skill 状态为 PENDING；重新检测时保留此前准入状态，并创建 PENDING 检测任务。列表将这两种情况统一显示为 SCANNING，接口与检测记录仍使用 PENDING。"], table: {
             columns: ['状态', '含义', '下一步'],
             rows: [
-              ['PENDING', '后台检测中', '等待状态更新或检查检测记录'],
+              ['SCANNING（检测中）', '列表展示状态：初次检测或重新检测尚未完成', '等待状态更新，查看检测记录或取消任务'],
               ['VETTED', '检测完成，等待人工审核', '在审核队列批准或拒绝'],
               ['APPROVED', '可信版本已批准', '绑定 Agent、安装或执行运行校验'],
               ['REJECTED', '已拒绝', '修复内容后提交新版本'],
@@ -281,17 +344,140 @@ const zh = {
           title: '人工审核时看什么',
           steps: [
             { title: '确认检测完整性', body: '先看各分析器是 completed、skipped、unavailable 还是 failed；没有结果不能直接解释为没有风险。' },
-            { title: '核对原始证据', body: '从阻断项和可疑项开始，打开对应文件、行号、原始报告和 Sandbox 输出，确认是否属于真实行为。' },
+            { title: '核对原始证据', body: '从“判为恶意”和“结合上下文判断”的发现项开始，打开对应文件、行号、原始报告和 Sandbox 输出，确认是否属于真实行为。' },
             { title: '检查声明与实际行为', body: '对比 SKILL.md 的用途、allowed-tools、license 与代码中的网络、凭据、动态执行和写入行为。' },
             { title: '批准或拒绝', body: '只有 VETTED 会进入审核队列。批准后生成可信版本和签名；拒绝后应修复内容并提交新版本。', expected: '审核动作、审核人和结果可在审计追踪中查询。' },
           ],
           link: { path: '/review', label: '打开 Skill 审核' },
         },
         {
+          "id": "list-management",
+          "title": "列表筛选与批量操作",
+          "paragraphs": [
+            "状态筛选分别提供 SCANNING（检测中）与 VETTED（待审核）；SCANNING 包括初次扫描和重新检测，APPROVED 表示已批准。风险等级是策略汇总结果，LLM 判定结果是模型的独立意见，两者可能不同。",
+            "勾选当前页的 Skill 后，可批量重新检测、取消任务或删除。重新检测适用于当前未在检测中的项目；取消任务适用于正在检测的初次扫描或重新检测。取消重新检测会保留此前有效的判定。删除前请核对确认窗口中的项目。",
+            "操作结果会明确列出重新提交成功、取消成功或删除成功的数量，并按状态或原因说明跳过和失败的项目。失败项保留选中，便于处理后重试。"
+          ],
+          "image": {
+            "name": "skill-list",
+            "alt": "Skill 列表、LLM 判定结果及批量操作",
+            "caption": "示例数据：最终风险与 LLM 判定分列展示，避免把模型意见当成最终决策。"
+          }
+        },
+        {
+          "id": "list-columns",
+          "title": "自定义显示列",
+          "paragraphs": [
+            "点击“显示列”选择需要展示的列，可配置全部 13 列。默认显示 Skill 名称、最新版本、最新可信、状态、风险等级、LLM 判定结果、审批人、扫描时间和操作。Skill ID、规则扫描、深度扫描和 Sandbox 默认隐藏。",
+            "列设置按当前账号保存在本浏览器中；点击“恢复默认”回到默认组合。横向滚动可查看较宽表格中的其他列。"
+          ],
+          "image": {
+            "name": "skill-columns",
+            "alt": "显示列配置与恢复默认",
+            "caption": "示例数据：根据审核需要展示规则扫描、深度扫描和 Sandbox 的独立结果。"
+          }
+        },
+        {
+          "id": "rescan-options",
+          "title": "重新检测时选择策略",
+          "steps": [
+            {
+              "title": "打开重新检测",
+              "body": "单个 Skill 从右侧“更多 > 重新检测”进入；多个 Skill 先勾选，再点击“批量重新检测”。"
+            },
+            {
+              "title": "选择配置来源",
+              "body": "保留原有检测选项，或选择“重新选择检测选项”，为本批项目统一设置深度扫描、Sandbox 和 LLM 分析。规则分析强制开启，不能取消勾选；鼠标悬停可查看说明。"
+            },
+            {
+              "title": "提交并查看新报告",
+              "body": "提交后查看检测状态和详情报告。勾选代表请求执行，实际是否完成应以报告为准，例如没有可执行入口时 Sandbox 会跳过。"
+            }
+          ],
+          "paragraphs": [
+            "LLM 不可用时，先到“模型网关 > 模型管理”添加可用模型，再到“Skill 治理 > 策略配置 > 高级配置 > AI 分析服务”选择模型，并在“检测设置”启用 AI 分析。"
+          ],
+          "image": {
+            "name": "skill-rescan",
+            "alt": "重新检测策略弹窗",
+            "caption": "示例数据：单条和批量重新检测使用相同策略弹窗，规则分析始终选中。"
+          }
+        },
+        {
+          "id": "basic-information",
+          "title": "基础信息与检测选项",
+          "paragraphs": [
+            "基础信息返回后即可查看，检测报告、文件和内容等区块分别加载，准备好后各自显示。某个区块仍在加载时，可以继续查看已经显示的内容。",
+            "基础信息顶部集中展示当前版本、准入状态与安全判定，下方以紧凑信息项展示来源、工具声明和 Sandbox 运行信息，并随可用宽度换行。使用选择框切换版本，点击安全判定旁的“查看判定过程”查看风险依据。工具声明校验表示声明是否符合工具白名单与权限策略；结果复用会注明历史结果来源。",
+            "标题右侧的只读勾选表示检测选项，悬停可查看配置来源。Sandbox 执行状态取自检测报告，策略要求单独说明是否必须执行；远程模式展示服务地址，Docker 模式展示容器镜像。报告缺少运行信息时显示“未记录”，执行详情可在扫描结果中查看。"
+          ],
+          "image": {
+            "name": "skill-basic-info",
+            "alt": "基础信息与检测选项",
+            "caption": "示例数据：检测选项与基本信息集中展示。"
+          }
+        },
+        {
+          "id": "decision-trace",
+          "title": "实际判定过程：为什么得到这个结论",
+          "paragraphs": [
+            "详情顶部显示基础信息及深度扫描、Sandbox、LLM 的勾选状态，并说明选项来自保存的提交配置、历史报告或未知来源。勾选状态不等于分析器执行成功。",
+            "“检测报告”默认打开“实际判定过程”。顶部按分析器展示本次检测结果，下方并列显示本次最终风险与当前准入状态，再按编号展示发现项分类、工具风险汇总、LLM 结论合并、准入状态。点击分析器进入对应扫描结果，展开发现项核对来源、严重度、文件、行号、风险分类与原始证据。当前准入状态可能包含后续审批或部署变化，报告未保存当时的准入动作快照。",
+            "截图中 LLM 给出无明显风险，但数据外传发现项按本次配置被归为判为恶意，最终风险仍为恶意风险。Sandbox 在此例中跳过，不能据此认为它已观察到恶意执行。",
+            "判定步骤提供风险归类和判定模式的配置入口，在新页面定位相应配置。新报告保留当次风险判定配置快照；旧报告缺少完整快照时会明确提示。配置入口展示当前设置，修改后需重新检测才能形成新结果。"
+          ],
+          "image": {
+            "name": "skill-decision",
+            "alt": "实际判定过程及配置入口",
+            "caption": "示例数据：本次最终风险与当前准入状态分别展示，四步判定依据支持展开原始证据。"
+          }
+        },
+        {
+          id: 'read-decision-evidence',
+          title: '如何查看判定依据',
+          steps: [
+            { title: '先看风险与状态', body: '打开目标 Skill 版本的“检测报告 > 实际判定过程”。本次最终风险来自检测报告；当前准入状态反映该版本现在是否待审核、已批准或已部署等状态。当 LLM 风险低于最终风险时，结果下方会直接说明是否因“判为恶意”的发现项或严格模式而未采纳；可跳转到保留的发现项和 LLM 原始分析。缺少合并依据时会明确标注。' },
+            { title: '沿四个步骤阅读', body: '依次查看发现项分类、工具风险汇总、LLM 结论合并和准入状态，确认哪些发现影响风险，以及 LLM 的结论是否被采纳。在“LLM 结论合并”中展开“LLM 复核意见”，查看差异解释和LLM 建议排除的风险提示；拒绝原因与审批异常以提示展示在图下方。' },
+            { title: '按来源翻阅原始证据', body: '展开“查看发现项与原始证据”，按规则分析、深度扫描或 Sandbox 切换。标签显示该类发现项总数，每页展示 5 项，可用底部分页查看其余证据；切换来源后回到第一页。每项左侧显示严重度、文件位置和原始证据，右侧显示本次策略分类及其对风险的影响；窄屏改为上下排列。点击文件位置进入对应扫描结果。证据保留原文；没有记录时需结合分析器执行状态判断。' },
+            { title: '核对本次配置', body: '查看图上方的风险配置快照说明。步骤中的配置链接打开当前策略；如需验证修改效果，先在策略页测算，保存后再对该版本重新检测。历史报告缺少字段时以“未记录”为准。' },
+          ],
+          image: { name: 'skill-decision-evidence', alt: '按分析器切换并分页查看发现项与原始证据', caption: '示例数据：左侧为原始证据，右侧为本次策略分类及风险影响；支持来源切换和分页。' },
+        },
+        {
+          "id": "scan-results",
+          "title": "扫描结果：按分析器查看证据",
+          "paragraphs": [
+            "“扫描结果”与“实际判定过程”是同级标签页。扫描结果内可快速切换规则扫描、深度扫描、Sandbox 和 LLM 分析，查看独立结果及原始证据。",
+            "规则和深度扫描的发现项按“判为恶意”“结合上下文判断”“仅保留提示”分组，名称与策略配置一致；分组依据本次报告记录的分类。修改策略后需重新检测，才能得到新策略下的结果。",
+            "completed、skipped、unavailable 和 failed 表达不同执行情况；未执行、跳过或失败不能理解为安全。文件内容和证据保持原文，不随界面语言翻译。"
+          ],
+          "image": {
+            "name": "skill-scan-results",
+            "alt": "扫描结果内的四个分析器标签页",
+            "caption": "示例数据：按本次策略分类查看发现项，并切换分析器核对原始证据。"
+          }
+        },
+        {
+          id: 'scan-execution-details',
+          title: '查看检测执行信息',
+          paragraphs: ['切换到“扫描结果”，在页面底部展开“执行信息”，查看发现项总数、检测耗时、分析器列表、结果复用情况及缓存 Key。耗时最多显示两位小数；未记录的字段会明确标注。分析器标识与缓存 Key 保持原文。'],
+          image: { name: 'skill-scan-execution', alt: '扫描结果中的执行信息折叠区', caption: '示例数据：执行信息集中在扫描结果中，默认折叠。' },
+        },
+        {
           id: 'versions',
           title: '报告与版本',
           bullets: ['查看最终风险、功能概括、风险证据、攻击链和安全框架映射。', '查看 Scanner、规则、LLM和Sandbox的独立结果及原始报告。', '查看服务端保存的文件内容，避免只依赖摘要。', '比较同名 Skill 的两个内容版本。', '“重新检测”生成新的检测记录，不创建内容版本；内容改变应提交新版本。'],
           link: { path: '/skills', label: '打开 Skill 列表' },
+        },
+        {
+          id: 'version-diff',
+          title: '版本差异：选择版本并查看变更',
+          steps: [
+            { title: '打开版本差异', body: '进入 Skill 详情，在“检测报告”中选择“版本差异”。页面在打开此标签后才加载比较结果；加载期间可以切换到“实际判定过程”等标签查看已返回的内容。' },
+            { title: '选择基准版本和目标版本', body: '默认以最新版本为目标、前一个版本为基准。可以重新选择两个版本，或点击“交换左右版本”改变比较方向。只有一个版本，或两侧选择相同版本时，直接显示“两个版本没有文本文件差异”。' },
+            { title: '查看文件变更', body: '在差异文件选择框中切换文件，查看新增、删除和修改内容。可选择“并排对比”或“单栏对比”；文件内容保持原文。比较范围为可读取的 UTF-8 文本文件，单文件不超过 1 MiB，跳过软链接及 .git、.venv、node_modules、__pycache__、dist、build 目录。' },
+            { title: '等待或重新加载', body: '比较期间，差异区域显示加载状态。在本次详情查看期间，如果版本选择没有变化，切换到其他标签再返回会继续等待或显示已有结果。读取失败时显示错误提示，点击“重新加载差异”重试。' },
+          ],
         },
       ],
     },
@@ -344,28 +530,71 @@ const zh = {
       summary: '理解基础 Scanner、规则分析、深度扫描、Sandbox 和 LLM 分析分别检查什么、何时可用，以及如何共同形成最终结论。',
       sections: [
         {
-          id: 'capability-overview',
-          title: '规则扫描、深度扫描、Sandbox 和 LLM 有什么区别',
-          paragraphs: ['这些能力不是互相替代的“扫描档位”。静态分析负责广泛找线索，Sandbox 只观察一次受控运行真正触发的行为，LLM 最后结合内容和已有证据做语义研判；最终状态仍由风险汇总和准入策略决定。'],
-          table: {
-            columns: ['检测方式', '启用条件', '主要输出'],
-            rows: [
-              ['基础 Scanner', '每次提交都会启动；运行环境应提供 Scanner', '全目录静态规则、权限和已知危险模式'],
-              ['规则分析（默认勾选）', '提交时保持“启动规则分析”勾选', '文本规则、Python AST、可疑行为意图和文件定位'],
-              ['深度扫描', '运行环境可用且提交时勾选', '更细的静态发现、风险分数和原始报告'],
-              ['Sandbox', '系统已启用且连接可用，或风险命中强制策略', '入口、参数、输出、退出码、超时和运行时信号'],
-              ['LLM 分析', '系统已启用、已选择模型且提交时勾选', '语义风险、分析报告、证据取舍和攻击链'],
+          "id": "capability-overview",
+          "title": "规则扫描、深度扫描、Sandbox 和 LLM 有什么区别",
+          "paragraphs": [
+            "这些能力不是互相替代的“扫描档位”。静态分析负责广泛找线索，Sandbox 只观察一次受控运行真正触发的行为，LLM 最后结合内容和已有证据做语义研判；最终状态仍由风险汇总和准入策略决定。"
+          ],
+          "table": {
+            "columns": [
+              "检测方式",
+              "启用条件",
+              "主要输出"
             ],
+            "rows": [
+              [
+                "基础 Scanner",
+                "每次提交都会启动；运行环境应提供 Scanner",
+                "全目录静态规则、权限和已知危险模式"
+              ],
+              [
+                "规则分析（强制开启）",
+                "提交和重新检测时始终勾选，不可取消",
+                "文本规则、Python AST、可疑行为意图和文件定位"
+              ],
+              [
+                "深度扫描",
+                "运行环境可用且提交时勾选",
+                "更细的静态发现、风险分数和原始报告"
+              ],
+              [
+                "Sandbox",
+                "系统已启用且连接可用，或风险命中强制策略",
+                "入口、参数、输出、退出码、超时和运行时信号"
+              ],
+              [
+                "LLM 分析",
+                "系统已启用、已选择模型且提交时勾选",
+                "语义风险、分析报告、证据取舍和攻击链"
+              ]
+            ]
           },
-          image: { name: 'submit-skill', alt: '提交 Skill 时选择检测方式', caption: '规则分析默认开启；深度扫描、Sandbox 和 LLM 只有在对应依赖可用时才能选择。' },
-          link: { path: '/submit', label: '打开提交 Skill' },
+          "image": {
+            "name": "submit-skill",
+            "alt": "提交 Skill 时选择检测方式",
+            "caption": "示例数据：规则分析强制开启；其他选项取决于对应能力是否可用。"
+          },
+          "link": {
+            "path": "/submit",
+            "label": "打开提交 Skill"
+          }
         },
         {
-          id: 'rule-analysis',
-          title: '基础 Scanner 与规则分析',
-          paragraphs: ['基础 Scanner 会扫描整个 Skill 目录，是每次检测的基础。提交页默认勾选的“规则分析”会再执行 Agent Manager 本地规则：读取 scripts、references、prompts 等目录及其他文本代码文件，并分析 Python AST；这两层都不会运行 Skill。'],
-          bullets: ['重点识别提示词注入、系统提示词泄露、隐藏指令、数据外传、敏感凭据访问、下载后执行、动态执行和过宽权限等信号。', '报告会给出规则、严重度、文件和行号；命中表示需要复核的证据，不等于单条规则直接决定最终状态。', '如果基础 Scanner 不可用或执行失败，流程可以继续汇总其他分析器，但报告应显示错误，此时覆盖范围已经降低。'],
-          callout: { type: 'note', title: '“行为分析”不是动态执行', body: '代码内部把这组附加规则称为 behavioral，但当前实现仍是文本模式和 AST 静态分析。真正执行 Skill 的只有 Sandbox probe。' },
+          "id": "rule-analysis",
+          "title": "基础 Scanner 与规则分析",
+          "paragraphs": [
+            "基础 Scanner 扫描整个 Skill 目录。提交和重新检测时强制开启的规则分析会进一步执行本地文本规则和 Python AST 分析；这些静态分析不会运行 Skill。"
+          ],
+          "bullets": [
+            "重点识别提示词注入、系统提示词泄露、隐藏指令、数据外传、敏感凭据访问、下载后执行、动态执行和过宽权限等信号。",
+            "报告会给出规则、严重度、文件和行号；命中表示需要复核的证据，不等于单条规则直接决定最终状态。",
+            "如果基础 Scanner 不可用或执行失败，流程可以继续汇总其他分析器，但报告应显示错误，此时覆盖范围已经降低。"
+          ],
+          "callout": {
+            "type": "note",
+            "title": "“行为分析”不是动态执行",
+            "body": "代码内部把这组附加规则称为 behavioral，但当前实现仍是文本模式和 AST 静态分析。真正执行 Skill 的只有 Sandbox probe。"
+          }
         },
         {
           id: 'deep-scan',
@@ -381,10 +610,17 @@ const zh = {
           callout: { type: 'warning', title: 'Sandbox 不是安全证明', body: '一次 probe 没有触发恶意分支，只能说明本次运行没有观察到该行为。规则、深度扫描或 LLM 仍可能给出更高风险。' },
         },
         {
-          id: 'llm-analysis',
-          title: 'LLM 分析：最后一次语义研判',
-          paragraphs: ['勾选 LLM 后，系统等待已选的 Scanner、规则、深度扫描和 Sandbox 完成，再把 Skill 内容快照及分析证据交给已配置模型，进行一次最终语义研判。LLM 不直接执行 Skill。'],
-          bullets: ['输出 benign、suspicious 或 malicious 风险、专业分析报告、证据接受或排除说明，以及适用时的攻击链和安全框架映射。', '阻断类证据不能被 LLM 降级；严格模式也不允许降低确定性风险。平衡或宽松模式在没有阻断项时可以降低非阻断风险，系统会记录模型提供的说明或回退原因。', '模型调用失败时保留失败状态，并回退到规则、深度扫描和 Sandbox 的确定性汇总，不能把“暂无 LLM 结果”解释为已完成且安全。'],
+          "id": "llm-analysis",
+          "title": "LLM 分析：最后一次语义研判",
+          "paragraphs": [
+            "勾选 LLM 后，系统等待已选的 Scanner、规则、深度扫描和 Sandbox 完成，再把 Skill 内容快照及分析证据交给已配置模型，进行一次最终语义研判。LLM 不直接执行 Skill。",
+            "LLM 不可用时，先到“模型网关 > 模型管理”添加可用模型，再到“Skill 治理 > 策略配置 > 高级配置 > AI 分析服务”选择模型，并在“检测设置”启用 AI 分析。"
+          ],
+          "bullets": [
+            "输出 benign、suspicious 或 malicious 风险、专业分析报告、证据接受或排除说明，以及适用时的攻击链和安全框架映射。",
+            "本次策略归入“判为恶意”的发现形成恶意风险，LLM 不能降低该风险；严格模式也不允许 LLM 降低工具初判。平衡或宽松模式下，没有“判为恶意”的发现时，LLM 可以降低工具初判，系统记录合并结果及说明。",
+            "模型调用失败时保留失败状态，并回退到规则、深度扫描和 Sandbox 的确定性汇总，不能把“暂无 LLM 结果”解释为已完成且安全。"
+          ]
         },
         {
           id: 'detection-logic',
@@ -393,32 +629,65 @@ const zh = {
           diagram: 'skill-scan-logic',
         },
         {
-          id: 'execution-and-result',
-          title: '执行顺序与结果判断',
-          steps: [
-            { title: '提交进入 PENDING', body: 'Skill 先入库，前端不等待所有检测同步完成。' },
-            { title: '独立分析器并行执行', body: '基础 Scanner 与已选的规则分析、深度扫描、Sandbox 并行运行。' },
-            { title: '策略按中间风险补充 Sandbox', body: '命中“必须执行 Sandbox”的风险等级时，即使未手动勾选也会尝试执行。' },
-            { title: '汇总风险并可选调用一次 LLM', body: '先形成确定性风险；勾选 LLM 时再做一次语义研判。' },
-            { title: '准入策略决定状态', body: '根据最终风险和策略进入 APPROVED、VETTED 或 REJECTED。' },
+          "id": "execution-and-result",
+          "title": "执行顺序与结果判断",
+          "steps": [
+            {
+              "title": "提交后列表显示 SCANNING（检测中）",
+              "body": "首次提交的后台状态为 PENDING，列表显示 SCANNING；前端不等待所有检测同步完成。"
+            },
+            {
+              "title": "独立分析器并行执行",
+              "body": "基础 Scanner、规则分析与已选的深度扫描、Sandbox 并行运行。"
+            },
+            {
+              "title": "策略按中间风险补充 Sandbox",
+              "body": "命中“必须执行 Sandbox”的风险等级时，即使未手动勾选也会尝试执行。"
+            },
+            {
+              "title": "汇总风险并可选调用一次 LLM",
+              "body": "先形成确定性风险；勾选 LLM 时再做一次语义研判。"
+            },
+            {
+              "title": "准入策略决定状态",
+              "body": "根据最终风险和策略进入 APPROVED、VETTED 或 REJECTED。"
+            }
           ],
-          table: {
-            columns: ['报告状态', '正确理解'],
-            rows: [
-              ['completed，有发现项', '分析器执行完成并提供了需要复核的证据'],
-              ['completed，无发现项', '本次分析范围内未命中，不代表其他分析器或未触发分支安全'],
-              ['skipped / 未勾选', '本次没有执行该能力，不能据此判断风险'],
-              ['unavailable / failed', '依赖不可用或执行失败，应先排障再重新检测'],
+          "table": {
+            "columns": [
+              "报告状态",
+              "正确理解"
             ],
+            "rows": [
+              [
+                "completed，有发现项",
+                "分析器执行完成并提供了需要复核的证据"
+              ],
+              [
+                "completed，无发现项",
+                "本次分析范围内未命中，不代表其他分析器或未触发分支安全"
+              ],
+              [
+                "skipped / 未勾选",
+                "本次没有执行该能力，不能据此判断风险"
+              ],
+              [
+                "unavailable / failed",
+                "依赖不可用或执行失败，应先排障再重新检测"
+              ]
+            ]
           },
-          link: { path: '/skills', label: '查看 Skill 报告' },
+          "link": {
+            "path": "/skills",
+            "label": "查看 Skill 报告"
+          }
         },
       ],
     },
     'risk-classification': {
       eyebrow: 'Skill 治理',
       title: '风险项目归类与检测逻辑',
-      summary: '把分析器发现项归入阻断项、可疑项或噪声，再结合严重度、判定模式和 LLM 结果形成最终风险。',
+      summary: '按本次策略把分析器发现项归入“判为恶意”“结合上下文判断”或“仅保留提示”，再结合严重度、判定模式和 LLM 结果形成最终风险。',
       sections: [
         {
           id: 'four-levels',
@@ -428,24 +697,24 @@ const zh = {
             columns: ['层次', '回答的问题', '示例'],
             rows: [
               ['发现项与严重度', '某个分析器看到了什么证据？', 'HIGH 的下载后执行规则'],
-              ['风险项目归类', '这条证据是阻断项、可疑项还是噪声？', '供应链风险归为阻断项'],
-              ['最终风险', '汇总后是 benign、suspicious 还是 malicious？', '平衡模式下 MEDIUM 可疑项形成 suspicious'],
+              ['风险项目归类', '本次策略配置这条证据如何影响风险？', '推荐配置把供应链风险归入“判为恶意”'],
+              ['最终风险', '汇总后是 benign、suspicious 还是 malicious？', '工具初判与 LLM 结论合并后得到 suspicious'],
               ['Skill 状态', '系统自动批准、等待审核还是拒绝？', 'APPROVED、VETTED 或 REJECTED'],
             ],
           },
         },
         {
           id: 'classification-meaning',
-          title: '阻断项、可疑项和噪声',
+          title: '三种分类：判为恶意、结合上下文判断、仅保留提示',
           table: {
             columns: ['归类', '含义', '对确定性风险的作用'],
             rows: [
-              ['阻断项', '高置信度且不应自动放行的行为证据', '任意一条都会把确定性风险设为 malicious，LLM 不能降级'],
-              ['可疑项', '需要结合严重度和判定模式评估的安全信号', 'HIGH 及以上通常至少进入审核；MEDIUM 是否升高取决于判定模式'],
-              ['噪声', '依赖、运行环境或已记录示例等诊断信号', '保留在报告中供解释和排障，但不直接抬高确定性风险'],
+              ['判为恶意', '本次策略指定直接形成恶意风险的发现', '任意一条此类发现都会形成 malicious 工具初判，LLM 不能降低该风险'],
+              ['结合上下文判断', '本次策略指定结合严重度和判定模式评估的发现', '结合严重度和严格、平衡或宽松模式形成工具初判，具体对应关系见下表'],
+              ['仅保留提示', '本次策略指定保留证据而不直接提高工具初判的发现', '保留在报告中供解释和排障，但不直接抬高确定性风险'],
             ],
           },
-          callout: { type: 'note', title: '噪声不是删除发现项', body: '噪声仍保留原始规则、严重度、文件和证据。它只是退出确定性风险升级路径，方便审核人员区分安全问题与运行诊断。' },
+          callout: { type: 'note', title: '提示仍保留原始证据', body: '“仅保留提示”的发现仍保留原始规则、严重度、文件和证据。此分类说明它如何参与工具风险汇总；最终风险还需合并其他分析结果。' },
         },
         {
           id: 'default-mapping',
@@ -453,12 +722,12 @@ const zh = {
           table: {
             columns: ['默认归类', '风险项目'],
             rows: [
-              ['阻断项', '数据外传、供应链风险'],
-              ['可疑项', '提示词注入、工具滥用、网络访问、凭据访问、动态执行、过度权限'],
-              ['噪声', '文档中的外部 API 示例、依赖问题、运行环境问题'],
+              ['判为恶意', '数据外传、供应链风险'],
+              ['结合上下文判断', '提示词注入、工具滥用、网络访问、凭据访问、动态执行、过度权限'],
+              ['仅保留提示', '文档中的外部 API 示例、依赖问题、运行环境问题'],
             ],
           },
-          paragraphs: ['管理员可以在“策略配置 / 风险判定”中把上述项目移动到其他归类。新的映射会进入扫描上下文；已经完成的历史报告不会被立即重写，需要重新检测后才按新策略产出结果。'],
+          paragraphs: ['管理员可以在“策略配置 > 准入策略 > 自定义风险识别规则”中把上述项目移动到其他归类。新的映射会进入扫描上下文；已完成报告按本次扫描记录的分类展示；修改配置后需重新检测，才能生成新策略下的结果。'],
           link: { path: '/policy', label: '打开策略配置' },
         },
         {
@@ -466,10 +735,10 @@ const zh = {
           title: '一条发现项如何归类',
           steps: [
             { title: '先识别风险项目', body: '系统按规则 ID、分类、文件位置和证据文本识别数据外传、供应链、提示词注入等项目；文档中的外部 API 示例会先走专门识别。' },
-            { title: '应用管理员映射', body: '只要识别到已配置的风险项目，就直接使用该项目当前所在的阻断、可疑或噪声分组。' },
-            { title: '执行安全兜底', body: '没有命中配置映射时，下载后执行、凭据或数据外传、绕过治理等明确规则仍归入阻断项。' },
-            { title: '过滤诊断噪声', body: '缺少依赖、运行环境问题，以及 LOW 或 MEDIUM 的低可分析性提示归入噪声。' },
-            { title: '按严重度完成回退', body: '其余 MEDIUM 及以上发现项归入可疑项；低于 MEDIUM 的剩余项归入噪声。' },
+            { title: '应用管理员映射', body: '只要识别到已配置的风险项目，就直接使用该项目本次扫描采用的“判为恶意”“结合上下文判断”或“仅保留提示”分组。' },
+            { title: '执行安全兜底', body: '没有命中配置映射时，下载后执行、凭据或数据外传、绕过治理等明确规则归入“判为恶意”。' },
+            { title: '保留运行诊断提示', body: '缺少依赖、运行环境问题，以及 LOW 或 MEDIUM 的低可分析性提示归入“仅保留提示”。' },
+            { title: '按严重度完成回退', body: '其余 MEDIUM 及以上发现项归入“结合上下文判断”；低于 MEDIUM 的剩余项归入“仅保留提示”。' },
           ],
         },
         {
@@ -478,19 +747,19 @@ const zh = {
           table: {
             columns: ['发现项情况', '严格模式', '平衡模式', '宽松模式'],
             rows: [
-              ['存在阻断项', 'malicious', 'malicious', 'malicious'],
-              ['可疑项最高为 HIGH / CRITICAL', 'malicious', 'suspicious', 'suspicious'],
-              ['可疑项最高为 MEDIUM', 'suspicious', 'suspicious', 'benign'],
-              ['只有噪声或低风险项', 'benign', 'benign', 'benign'],
+              ['存在“判为恶意”的发现', 'malicious', 'malicious', 'malicious'],
+              ['“结合上下文判断”发现的最高严重度为 HIGH 及以上', 'malicious', 'suspicious', 'suspicious'],
+              ['“结合上下文判断”发现的最高严重度为 MEDIUM', 'suspicious', 'suspicious', 'benign'],
+              ['只有“仅保留提示”或低严重度的上下文发现', 'benign', 'benign', 'benign'],
             ],
           },
-          paragraphs: ['如果启用了 LLM，它会在确定性归类之后进行一次语义研判。LLM 可以提高风险；平衡或宽松模式下，没有阻断项时也可以降低非阻断风险，并在报告中记录降级原因。严格模式和任何含阻断项的结果都不允许降级。'],
+          paragraphs: ['上表展示工具初判。启用 LLM 后还会合并模型结论，LLM 可以提高风险；平衡或宽松模式下，没有“判为恶意”的发现时，也可以降低工具初判。严格模式或存在“判为恶意”的发现时，保留工具初判的风险下限。详情的实际判定过程会解释 LLM 结论是否采纳及已记录的原因。'],
         },
         {
           id: 'admission-result',
           title: '最终风险如何变成 Skill 状态',
-          bullets: ['存在阻断型声明约束，例如命中明确禁止权限，会直接 REJECTED。', '最终风险命中“自动拒绝风险”时进入 REJECTED；如果同一风险也配置了人工审核，自动拒绝优先。', '最终风险命中“需要人工审核”时进入 VETTED。', '即使配置缺失或冲突，malicious 仍会拒绝、suspicious 仍会进入审核，只有 benign 才走 APPROVED 的安全兜底。'],
-          callout: { type: 'warning', title: '不要只看发现项数量', body: '一条阻断项可以决定确定性风险；大量噪声则不应被简单累加成恶意。审核时应先看归类和证据，再看最终风险与状态。' },
+          bullets: ['Skill 声明命中明确禁止权限时直接进入 REJECTED。', '风险处置规则为每种最终风险指定一个动作：自动拒绝进入 REJECTED，人工审核进入 VETTED，自动批准进入 APPROVED 并生成签名。', '无明显风险和可疑风险支持自动批准；批准不改变原有风险等级。', '未配置处置动作时，默认批准 benign、审核 suspicious、拒绝 malicious。'],
+          callout: { type: 'warning', title: '不要只看发现项数量', body: '一条按本次策略归入“判为恶意”的发现即可形成恶意风险；“仅保留提示”的数量不会直接提高工具初判。风险等级与准入动作分别配置，审核时需同时核对。' },
           link: { path: '/docs/skill-policy', label: '继续阅读 Skill 策略配置' },
         },
       ],
@@ -498,7 +767,7 @@ const zh = {
     'skill-policy': {
       eyebrow: 'Skill 治理',
       title: 'Skill 策略配置',
-      summary: '配置扫描结果复用、风险判定、准入约束、LLM 和 Sandbox，并理解每个字段在当前 Skill 链路中的实际作用。',
+      summary: '设置风险识别与准入动作，用当前页面配置测算示例，再保存并通过重新检测验证实际效果。',
       sections: [
         {
           id: 'effective-order',
@@ -506,40 +775,103 @@ const zh = {
           steps: [
             { title: '确定是否复用结果', body: '内容指纹和扫描上下文都一致且已启用复用时，可以沿用既有报告；策略或分析器配置变化会改变扫描上下文。' },
             { title: '运行已选分析器', body: '规则、深度扫描等先形成中间严重度；中间风险命中强制 Sandbox 等级时，后台会尝试补跑 Sandbox。' },
-            { title: '归类并汇总确定性风险', body: '发现项先归入阻断项、可疑项或噪声，再由严格、平衡或宽松模式形成 LLM 前风险。' },
-            { title: '可选执行 LLM 研判', body: '模型在其他分析器之后综合内容和证据；阻断项与严格模式的降级保护始终保留。' },
+            { title: '归类并汇总工具风险', body: '发现项先归入判为恶意、结合上下文判断或仅保留提示，再由严格、平衡或宽松模式形成 LLM 前风险。' },
+            { title: '可选执行 LLM 研判', body: '模型在其他分析器之后综合内容和证据；按本次策略归入“判为恶意”的发现形成恶意风险，严格模式也不允许模型降低工具初判。' },
             { title: '执行声明约束和准入处置', body: '工具与许可证规则生成策略提示或阻断，再根据最终风险进入 APPROVED、VETTED 或 REJECTED。' },
           ],
         },
         {
-          id: 'page-layout',
-          title: '四个配置区域分别做什么',
-          table: {
-            columns: ['区域', '主要配置', '使用建议'],
-            rows: [
-              ['风险判定', '结果复用、判定模式、审核/拒绝风险、强制 Sandbox、风险项目归类', '先确定企业风险口径，再调整单个风险项目'],
-              ['准入约束', '工具数量、允许工具、禁止权限、许可证和作者信息', '从最小权限开始，用测试 Skill 验证阻断与告警'],
-              ['LLM', '启用状态、模型、超时和内容快照上限', '先在模型网关启用可用模型，再开放提交页选项'],
-              ['Sandbox', '本地或远程运行、超时、网络、内存、CPU、进程和只读根文件系统', '先测试连接，再把风险等级加入强制 Sandbox'],
+          "id": "page-layout",
+          "title": "三个配置区域分别做什么",
+          "table": {
+            "columns": [
+              "区域",
+              "主要配置",
+              "使用建议"
             ],
+            "rows": [
+              [
+                "准入策略",
+                "扫描结论对应的处理动作、风险识别规则、公司权限与许可证要求",
+                "先查看策略摘要，再调整动作或展开自定义规则"
+              ],
+              [
+                "检测设置",
+                "AI 分析与 Sandbox 开关、需要补跑 Sandbox 的中间风险",
+                "通过“配置服务”进入高级参数"
+              ],
+              [
+                "高级配置",
+                "结果复用、AI 模型与内容上限、Sandbox 服务及资源参数",
+                "部署或调优时配置，保存后重新检测验证"
+              ]
+            ]
           },
-          link: { path: '/policy', label: '打开策略配置' },
+          "link": {
+            "path": "/policy",
+            "label": "打开策略配置"
+          },
+          "image": {
+            "name": "skill-policy",
+            "alt": "三个配置区域分别做什么",
+            "caption": "示例配置：准入动作与发现项风险归类集中展示。"
+          }
         },
         {
-          id: 'decision-settings',
-          title: '风险判定与处置设置',
-          table: {
-            columns: ['设置', '当前作用', '需要注意'],
-            rows: [
-              ['复用相同扫描结果', '内容和扫描上下文一致时复用既有结果', '关闭后再次提交相同内容会重新检测'],
-              ['判定模式', '决定非阻断 HIGH / MEDIUM 可疑项如何映射到最终风险', '阻断项在任何模式下都是 malicious'],
-              ['需要人工审核', '命中的最终风险进入 VETTED', '默认包含 suspicious'],
-              ['自动拒绝风险', '命中的最终风险进入 REJECTED', '与人工审核冲突时自动拒绝优先'],
-              ['必须执行 Sandbox', '中间风险命中所选等级时尝试补跑 Sandbox', '依赖必须已启用且可连接，跳过或失败不等于安全'],
-              ['风险项目归类', '把 11 类风险项目分到阻断、可疑或噪声', '改变后只影响后续重新检测，不会改写历史报告'],
+          "id": "decision-settings",
+          "title": "准入动作与风险识别规则",
+          paragraphs: ['先设置各风险等级的处理动作；需要调整哪些发现影响风险时，展开“自定义风险识别规则”。配置摘要随本页修改更新，保存前可通过“测算当前策略”检查预期结果。'],
+          "table": {
+            "columns": [
+              "设置",
+              "当前作用",
+              "需要注意"
             ],
+            "rows": [
+              [
+                "风险处置规则",
+                "为无明显风险、可疑风险、恶意风险分别选择动作",
+                "无明显风险和可疑风险可自动批准、审核或拒绝；恶意风险可审核或拒绝。可疑风险自动批准后仍保留 suspicious 风险等级"
+              ],
+              [
+                "使用推荐动作",
+                "无明显风险自动批准、可疑风险人工审核、恶意风险自动拒绝",
+                "保存前核对策略摘要"
+              ],
+              [
+                "哪些发现会影响风险",
+                "将发现归为判为恶意、结合上下文判断、仅保留提示",
+                "展开“自定义风险识别规则”可调整各类行为如何影响风险"
+              ],
+              [
+                "风险判定模式",
+                "严格、平衡或宽松模式决定上下文判断项的风险",
+                "判为恶意类发现不受 AI 降级影响"
+              ],
+              [
+                "使用推荐风险规则",
+                "恢复推荐分类与平衡模式",
+                "与准入动作分开配置"
+              ]
+            ]
           },
-          link: { path: '/docs/risk-classification', label: '查看归类与风险计算细节' },
+          "link": {
+            "path": "/docs/risk-classification",
+            "label": "查看归类与风险计算细节"
+          }
+        },
+        {
+          id: 'policy-preview',
+          title: '测算当前策略：手动验证判定结果',
+          paragraphs: ['“当前策略判定测算”使用本页当前配置，包含未保存修改。输入是手动假设的检测结果，适合解释和比较策略；测算复用后端判定逻辑，不执行扫描、调用模型、保存策略或创建 Skill。'],
+          steps: [
+            { title: '打开测算弹窗', body: '在“准入策略”页签的“准入策略摘要”右上角点击“测算当前策略”。可先点击“动态执行 + LLM 无明显风险”或“数据外传 + LLM 无明显风险”填入示例。' },
+            { title: '设置各分析器的模拟结果', body: '为规则分析、深度扫描和 Sandbox 选择执行状态，按需添加发现类型与严重度，再选择 LLM 风险结论。“执行完成”且无发现项与未启用、跳过、不可用、失败含义不同；缺少检测结论不代表安全。配置了禁止权限时，还可选择模拟命中的权限声明。' },
+            { title: '查看风险、动作与判定路径', body: '调整输入后自动重新测算。先比较最终风险与准入动作，再沿“发现项分类 → 工具风险汇总 → LLM 结论合并 → 准入规则匹配”查看原因。命中禁止权限声明时，即使风险处置允许批准，也会拒绝。' },
+            { title: '比较不同配置', body: '切换弹窗内的判定模式会修改本页策略草稿。点击“返回策略配置”后，也可调整风险分类或处置动作，再次打开测算；本页的模拟输入会保留。' },
+            { title: '保存并验证实际 Skill', body: '测算符合预期后返回策略配置，核对摘要和“当前修改未保存”提示，点击“保存修改”。在 Skill 列表对目标版本重新检测，再到详情的“实际判定过程”查看真实结果。' },
+          ],
+          image: { name: 'skill-policy-simulator', alt: '当前策略判定测算弹窗的输入与四步判定路径', caption: '示例配置：平衡模式下，中等严重度动态执行采纳 LLM 的无明显风险结论；风险与准入动作分别展示。' },
         },
         {
           id: 'admission-settings',
@@ -557,27 +889,64 @@ const zh = {
           callout: { type: 'note', title: '先验证 SKILL.md 声明', body: '这些约束读取 SKILL.md frontmatter 中的 allowed-tools / allowed_tools 和 license。它们检查声明是否符合策略，不能代替对代码真实行为的规则、深度或 Sandbox 检测。' },
         },
         {
-          id: 'analyzer-settings',
-          title: 'LLM 与 Sandbox 配置',
-          bullets: ['LLM 区域控制系统是否允许 Skill LLM 分析、使用哪个模型，以及超时、文件数量、单文件字符数和清单字符数上限。模型必须已在模型网关启用。', 'Sandbox 区域选择远程隔离服务或本地 Docker runtime，并限制网络、内存、CPU、进程数量、执行时长和根文件系统写入。', '“启用”只代表能力可以被选择或调用；报告中的 completed、skipped、unavailable 和 failed 才说明某次检测实际发生了什么。', '保存前先执行 Sandbox 连接测试；LLM 则用不含敏感数据的测试 Skill 验证模型可用性、超时和快照范围。'],
-        },
-        {
-          id: 'current-boundaries',
-          title: '当前生效边界',
-          paragraphs: ['策略页仍保留少量兼容字段，但不能把“页面可保存”理解成“已经参与 Skill 放行”。当前 Skill 状态以自动拒绝、人工审核和安全兜底为准。'],
-          bullets: ['“自动批准最高风险”当前只用于 Prompt 自动批准判断，不参与 Skill 的 APPROVED、VETTED 或 REJECTED 计算。', '“可信作者”当前会保存，但没有进入 Skill 检测或自动放行逻辑；把作者加入列表不会免检，也不会绕过人工审核。', '许可证缺失、不在接受列表、工具数量超限和工具不在允许列表目前都是非阻断告警；只有命中明确禁止权限会直接形成阻断型违规。'],
-          callout: { type: 'warning', title: '不要用兼容字段作为安全承诺', body: '在实现正式接入 Skill 判定前，不要依赖“自动批准最高风险”或“可信作者”设计准入流程。以实际报告、最终风险和状态为准。' },
-        },
-        {
-          id: 'change-workflow',
-          title: '安全地调整策略',
-          steps: [
-            { title: '记录变更目标', body: '明确要减少哪类误报、增加哪类阻断，以及预期影响的 Skill。' },
-            { title: '先用代表性样本验证', body: '至少准备一个应批准、一个应审核和一个应拒绝的测试 Skill。' },
-            { title: '保存并重新检测', body: '策略不会改写已经完成的历史报告；对目标版本发起重新检测，确认新扫描上下文生效。' },
-            { title: '核对完整证据链', body: '同时检查发现项归类、LLM 前风险、LLM 研判、最终风险、策略告警和最终状态。' },
+          "id": "analyzer-settings",
+          "title": "检测开关与服务配置",
+          "bullets": [
+            "“检测设置”启用 AI 分析与 Sandbox，并选择哪些中间风险需要补跑 Sandbox。规则分析始终执行。",
+            "“高级配置 > AI 分析服务”选择模型及超时、文件数量和字符上限。模型先在“模型网关 > 模型管理”添加；提交页和重扫弹窗仍需勾选 LLM 分析。",
+            "“高级配置 > Sandbox 服务”配置本地 Docker 或远程服务，以及网络、资源和执行时长；远程服务可测试连接。",
+            "“高级配置”还可设置相同内容与检测上下文的结果复用；主动重新检测会执行新检测。",
+            "开关说明能力是否可用；实际执行情况以报告的 completed、skipped、unavailable、failed 为准。"
           ],
-          link: { path: '/skills', label: '打开 Skill 列表并重新检测' },
+          "image": {
+            "name": "skill-policy-detection",
+            "alt": "检测开关与服务配置",
+            "caption": "示例配置：检测能力开关与补跑 Sandbox 的条件。"
+          }
+        },
+        {
+          id: 'advanced-services',
+          title: '配置模型与服务参数',
+          paragraphs: ['在“检测设置”点击相应能力的“配置服务”，进入高级配置。选择已登记的 AI 模型并按需调整超时和内容上限；Sandbox 可选择本地 Docker 或远程服务，配置资源参数，远程服务支持测试连接。完成后点击“保存修改”，再提交或重新检测验证实际执行。'],
+          image: { name: 'skill-policy-advanced', alt: '高级配置与 AI 分析服务', caption: '示例配置：模型选择与扫描内容上限位于高级配置。' },
+        },
+        {
+          "id": "current-boundaries",
+          "title": "准入与声明检查的边界",
+          "paragraphs": [
+            "禁止权限优先于风险对应的准入动作：声明命中禁止权限时直接拒绝。"
+          ],
+          "bullets": [
+            "公司权限与许可证要求检查 SKILL.md 声明，不限制运行时实际工具调用。",
+            "工具数量、工具允许列表和许可证检查产生非阻断告警，单独命中不会直接拒绝。",
+            "配置保存后用于后续检测；已有报告和状态需重新检测才能应用新策略。"
+          ]
+        },
+        {
+          "id": "change-workflow",
+          "title": "安全地调整策略",
+          "steps": [
+            {
+              "title": "记录变更目标",
+              "body": "明确要减少哪类误报、增加哪类阻断，以及预期影响的 Skill。"
+            },
+            {
+              "title": "先测算预期结果",
+              "body": "使用“测算当前策略”比较预期批准、审核或拒绝的输入，检查风险归类、LLM 合并和处置动作是否符合目标。"
+            },
+            {
+              "title": "保存并重新检测",
+              "body": "核对页面摘要与未保存状态后保存配置；对目标版本重新检测。历史报告保留当次结论。"
+            },
+            {
+              "title": "核对完整证据链",
+              "body": "用代表性 Skill 的实际报告核对发现项分类、工具风险、LLM 结论和最终风险，并查看策略告警与当前准入状态。模拟输入不能代替真实检测。"
+            }
+          ],
+          "link": {
+            "path": "/skills",
+            "label": "打开 Skill 列表并重新检测"
+          }
         },
       ],
     },
@@ -654,7 +1023,7 @@ const zh = {
               ['Agent 运行凭证', '验签、加载许可和 Tool 调用检查'],
               ['Scanner 接入凭证', '客户侧提交和读取自己的扫描结果'],
               ['Client 接入凭证', '桌面客户端注册、心跳、任务和事件上报'],
-              ['模型调用凭证', '普通应用调用模型网关'],
+              ['大模型凭证', '应用通过模型网关调用大模型'],
               ['MCP 网关凭证', 'MCP Client访问授权网关和Tool'],
             ],
           },
@@ -717,14 +1086,108 @@ const zh = {
         {
           id: 'hook-integration',
           title: '接入事件 Hook',
-          paragraphs: ['Hook适合能在明确事件点运行脚本的Agent：加载前执行签名与加载许可检查，Tool执行前调用check-tool。仓库提供Claude Code / Trae和OpenClaw示例，接入时必须使用真实事件验证Skill名称、目录和Agent ID映射。'],
+          paragraphs: ['Hook适合能在明确事件点运行脚本的Agent：加载前执行签名与加载许可检查，Tool执行前调用check-tool。仓库提供Claude Code示例和OpenClaw骨架；TraeCode官方已支持Hook，但Agent Manager适配尚未完成实机端到端验证。'],
           steps: [
-            { title: 'Claude Code或Trae：配置PreToolUse', body: '安装项目SDK，设置AGENT_MANAGER_BASE_URL、AGENT_MANAGER_API_TOKEN和AGENT_ID；其中API_TOKEN的值应是绑定该Agent的运行凭证。Hook命令使用agent_guard_hook.py的绝对路径。', code: '{\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "",\n      "hooks": [{\n        "type": "command",\n        "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"\n      }]\n    }]\n  }\n}' },
+            { title: 'Claude Code：配置PreToolUse', body: '安装项目SDK，设置AGENT_MANAGER_BASE_URL、AGENT_MANAGER_API_TOKEN和AGENT_ID；其中API_TOKEN的值应是绑定该Agent的运行凭证。Hook命令使用agent_guard_hook.py的绝对路径。', code: '{\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "",\n      "hooks": [{\n        "type": "command",\n        "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"\n      }]\n    }]\n  }\n}' },
             { title: '验证PreToolUse链路', body: '调用一个已授权且内容一致的Skill应返回退出码0；篡改内容、撤销Agent授权或使用错误凭证后应返回退出码2，并在stderr显示原因。日志位于~/.agent-manager/logs/agent_guard_hook.log。' },
             { title: 'OpenClaw：分开接两个事件点', body: 'agent:bootstrap内部Hook用于枚举可见Skill并执行verify-skill-signature和can-load；before_tool_call需要接入OpenClaw插件工程，在Tool执行前调用check-tool。必须把事件中的会话身份稳定映射到平台登记的Agent ID。' },
             { title: '上线前做故障演练', body: '至少验证平台不可达、凭证过期、Skill目录找不到、内容被修改和Tool未授权五类场景，并同时检查Agent侧结果、Hook日志和平台运行审计。' },
           ],
-          callout: { type: 'warning', title: '先验证事件字段，再推广配置', body: 'Claude Code / Trae示例对可识别Skill的API或网络错误返回阻止；无法解析的输入或非Skill调用会直接放行。OpenClaw事件结构和Agent身份映射应在目标版本中实测后再批量部署。' },
+          callout: { type: 'warning', title: '先验证事件字段，再推广配置', body: 'Claude Code示例对可识别Skill的API或网络错误返回阻止；无法解析的输入或非Skill调用会直接放行。TraeCode和OpenClaw均应在目标版本中使用真实事件完成验证后再批量部署。' },
+          link: { path: '/docs/hook-integration', label: '查看完整 Hook 接入步骤' },
+        },
+      ],
+    },
+    'hook-integration': {
+      eyebrow: '功能指南',
+      title: 'Hook 接入',
+      summary: '把 Agent Manager 校验放到 Agent 的真实事件点，并明确每种 Hook 的配置、凭证、阻断范围和验证方法。',
+      sections: [
+        {
+          id: 'prepare',
+          title: '接入前准备',
+          steps: [
+            { title: '创建并启用 Agent', body: '在智能体列表创建稳定的Agent ID，将允许使用的已批准Skill绑定给该Agent。Hook运行时的AGENT_ID必须与这里完全一致。' },
+            { title: '签发 Agent 运行凭证', body: '在统一凭证中心创建绑定该Agent的运行凭证。Claude Code示例以及待验证的TraeCode适配至少需要runtime:verify-signature和runtime:can-load；需要Tool检查时增加runtime:check-tool。Codex当前示例至少需要runtime:verify-signature。' },
+            { title: '确认配置作用域', body: '项目级配置只对该项目生效；用户级配置影响该用户启动的所有项目。先在测试项目验证，再决定是否推广到用户级。' },
+            { title: '保护凭证明文', body: '凭证放在环境变量或仓库外、仅当前用户可读的环境文件中。不要写进hooks.json、settings.json、截图或代码仓库。' },
+          ],
+          callout: { type: 'warning', title: 'Hook 不等于客户端接管', body: 'Hook只在目标Agent实际提供并触发的事件点执行；Agent Manager Client负责本地Skill目录接管和持续巡检。需要两类能力时可以同时部署。' },
+          link: { path: '/agents', label: '打开智能体列表' },
+        },
+        {
+          id: 'coverage',
+          title: '先确认各示例的覆盖范围',
+          table: {
+            columns: ['Agent', '事件与检查', '当前边界'],
+            rows: [
+              ['Claude Code', 'PreToolUse；识别到Skill调用后执行签名和can-load检查', '无法解析的输入和非Skill调用放行'],
+              ['TraeCode / TRAE CN', '官方支持PreToolUse，协议与现有脚本有部分兼容基础', 'Agent Manager尚未完成真实TraeCode端到端验证'],
+              ['Codex', 'PreToolUse；在受支持的工具执行前校验发现到的全部受治理Skill', '当前覆盖Bash、apply_patch和MCP等受支持路径，不代表所有工具路径'],
+              ['OpenClaw', 'agent:bootstrap做加载校验；before_tool_call计划做Tool检查', '当前是接入骨架，需要按目标OpenClaw版本的真实payload和插件工程适配'],
+            ],
+          },
+        },
+        {
+          id: 'claude-trae',
+          title: '接入 Claude Code，并评估 TraeCode',
+          paragraphs: ['推荐使用demo/claude-code-api-hook/agent_guard_hook.py接入Claude Code。脚本通过Agent运行凭证调用平台API，不需要也不允许持有服务端签名私钥。TraeCode只能将该脚本作为待验证的适配起点。'],
+          steps: [
+            { title: '安装脚本依赖', body: '在skill-manager源码目录安装项目依赖，确保Hook命令使用的Python解释器能够导入httpx和dotenv。', code: 'python3 -m pip install -e ".[dev]"' },
+            { title: '注入运行环境', body: '下面三个值必须对应同一个平台Agent。正式环境应由shell、服务管理器或安全配置注入，不要把真实凭证提交到仓库。', code: 'export AGENT_MANAGER_BASE_URL="https://agent-manager.example.com"\nexport AGENT_MANAGER_API_TOKEN="amat_xxx"\nexport AGENT_ID="your-agent-id"' },
+            { title: '配置Claude Code PreToolUse', body: 'Claude Code写入项目.claude/settings.json或用户级~/.claude/settings.json。命令必须使用脚本绝对路径。', code: '{\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "",\n      "hooks": [{\n        "type": "command",\n        "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"\n      }]\n    }]\n  }\n}' },
+            { title: '配置TraeCode待验证Hook', body: 'TraeCode项目级位置是.trae/hooks.json，macOS/Linux用户级位置是~/.trae-cn/hooks.json。原生配置需要version: 1。下面只是协议适配候选，不代表已通过实机验收。', code: '{\n  "version": 1,\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "Skill",\n      "hooks": [{\n        "type": "command",\n        "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py",\n        "timeout": 30\n      }]\n    }]\n  }\n}' },
+            { title: '分别完成真实验收', body: '在目标Agent的新会话中调用已授权且内容一致的Skill，然后演练内容篡改、撤销授权和平台不可达。TraeCode必须额外确认真实Skill Tool的tool_input、环境变量可见性和退出码2的界面表现。', expected: 'Claude Code应形成Agent界面、Hook日志和平台审计证据链；TraeCode在完成同等证据链前仍标记为未验证。' },
+          ],
+          references: [
+            { label: 'Claude Code：Hook 快速指南', url: 'https://code.claude.com/docs/en/hooks-guide' },
+            { label: 'Claude Code：Hook 完整参考', url: 'https://code.claude.com/docs/en/hooks' },
+            { label: 'Claude Code：权限与 PreToolUse Hook', url: 'https://code.claude.com/docs/en/permissions' },
+            { label: 'TRAE：通过 Hook 实现自动化', url: 'https://docs.trae.cn/ide_automate-actions-with-hooks' },
+            { label: 'TRAE：Hook 配置参考', url: 'https://docs.trae.cn/ide_hook-configuration-reference' },
+            { label: 'TRAE CN：更新日志', url: 'https://docs.trae.cn/ide_changelog' },
+          ],
+        },
+        {
+          id: 'codex',
+          title: '接入 Codex',
+          steps: [
+            { title: '准备仓库外环境文件', body: '复制示例后填写平台地址、Agent运行凭证和绑定Agent ID；环境文件不得进入代码仓库。', code: 'mkdir -p ~/.agent-manager\ncp demo/codex-agent-manager-hook/codex-agent-manager-hook.env.example \\\n  ~/.agent-manager/codex-agent-manager-hook.env' },
+            { title: '配置受治理目录', body: 'Hook默认检查项目和用户级.agents/skills、~/.codex/skills及/etc/codex/skills。使用AGENT_MANAGER_CODEX_SKILLS_DIRS追加插件或自定义Skill目录；追加不会关闭默认目录检查。' },
+            { title: '安装Hook配置', body: '把示例复制到项目.codex/hooks.json或合并到~/.codex/hooks.json，并把Python脚本与环境文件改成绝对路径。', code: 'mkdir -p .codex\ncp demo/codex-agent-manager-hook/hooks.json.example .codex/hooks.json' },
+            { title: '审核并验证', body: '重启Codex或新建任务，在Codex CLI运行/hooks并信任该Hook。放入一个未批准、未绑定或内容不一致的Skill，再触发受支持工具，预期得到permissionDecision=deny；修复后应放行。' },
+          ],
+          callout: { type: 'warning', title: 'Codex覆盖边界', body: '当前Codex PreToolUse示例对能拦截的调用采用fail-closed，但尚未覆盖所有Shell、WebSearch和其他工具路径。它不能替代操作系统Sandbox、插件信任或受控Skill部署目录。' },
+          references: [
+            { label: 'OpenAI Docs：Codex Hooks', url: 'https://learn.chatgpt.com/docs/hooks' },
+            { label: 'OpenAI Docs：Codex 配置参考', url: 'https://learn.chatgpt.com/docs/config-file/config-reference' },
+          ],
+        },
+        {
+          id: 'openclaw',
+          title: '接入 OpenClaw',
+          steps: [
+            { title: '先采集真实payload', body: '安装demo/openclaw-agent-manager-hook中的payload-recorder，触发一次agent:bootstrap，并检查~/.openclaw/logs/hook-payloads.jsonl。' },
+            { title: '适配加载校验', body: '根据真实事件结构收紧discoverVisibleSkills和resolveSkillNameFromContext，再将internal Hook安装为managed hook。' },
+            { title: '接入Tool检查', body: 'before_tool_call不是internal Hook事件，需要把plugin-hooks.ts接入真实OpenClaw插件工程，并调用check-tool。会话身份必须稳定映射到平台Agent ID。' },
+          ],
+          callout: { type: 'warning', title: '当前不是即装即用成品', body: 'OpenClaw示例是实现骨架。未使用目标版本真实事件和插件接口完成适配前，不应宣称已经强制覆盖Skill加载与Tool调用。' },
+        },
+        {
+          id: 'verify-troubleshoot',
+          title: '上线验收和排查',
+          table: {
+            columns: ['场景', '预期结果', '优先检查'],
+            rows: [
+              ['已批准、已绑定且内容一致', 'Hook放行', 'Agent ID、凭证绑定、Skill路径和本地摘要'],
+              ['Skill内容被修改', '阻断', '签名忽略集是否一致，macOS上确认.DS_Store未参与摘要'],
+              ['Agent未绑定该Skill或凭证错误', '阻断', 'Agent绑定、凭证类型、状态和权限范围'],
+              ['平台不可达或凭证过期', '已声明fail-closed的路径应阻断', '平台地址、代理、证书、超时和Hook stderr'],
+              ['没有任何Hook日志', '不能证明已接入', '当前会话cwd、项目/用户配置作用域、事件名称和目标工具是否触发Hook'],
+            ],
+          },
+          bullets: ['同时核对Agent界面结果、本地Hook日志和平台运行审计，不能只看其中一个。', '至少演练允许、内容篡改、未授权、平台不可达和未命中事件五种情况。', '先在单一测试项目启用，再推广到用户级或企业模板。'],
+          link: { path: '/runtime', label: '打开接入与运行审计' },
         },
       ],
     },
@@ -751,7 +1214,7 @@ const zh = {
           title: '安装与接入顺序',
           steps: [
             { title: '下载对应平台安装包', body: '管理台当前提供macOS Apple Silicon、macOS Intel、Windows x64和Linux x64安装包，具体以当前发布列表为准。' },
-            { title: '创建客户端接入凭证', body: '在统一凭证中心选择“给客户端使用”。如果需要自动下发 Agent 模型配置，显式开启“允许客户端为已绑定 Agent 自动创建运行凭证”；凭证明文只展示一次。' },
+            { title: '创建客户端接入凭证', body: '在统一凭证中心选择“给客户端使用”。如果需要自动下发 Agent 模型配置，显式开启“允许客户端为本机 Agent 自动创建运行凭证”；凭证明文只展示一次。' },
             { title: '连接平台并发现 Agent', body: '在客户端填写平台地址与凭证，确认发现的Agent、共用目录和Skill路径。' },
             { title: '确认治理范围并启用后台巡检', body: '先生成接管预览，确认需要继续启用和停用待处理的Skill，再安装后台服务。', expected: '关闭客户端窗口后，已经安装的后台服务仍会持续同步任务、巡检文件和上报事件。' },
           ],
@@ -764,6 +1227,7 @@ const zh = {
             rows: [
               ['客户端概览', '查看平台连接、接入进度、本机Agent、受管Skill、待办事项和平台检测能力。'],
               ['Agent发现', '发现内置Agent、共用Skill目录和自定义Agent，查看路径并选择纳入治理的Skill。'],
+              ['模型切换', '按本机Claude Code、Codex或Hermes查看实际模型配置，并切换到客户端凭证允许配置的网关模型。'],
               ['Skill治理', '预览接管结果，从平台安装批准版本，把未知或未批准内容安全移入待处理区并提交检测。'],
               ['运行状态', '立即巡检，暂停或恢复持续治理，查看隔离区，并使用接管前备份进行高级恢复。'],
               ['执行记录', '区分本地巡检与处置记录，以及平台下发的安装、修复、移除和策略任务。'],
@@ -807,20 +1271,22 @@ const zh = {
           title: '管理台如何集中管理客户端',
           paragraphs: ['管理台客户端列表用于查看所有受管主机的在线状态、版本、Agent与Skill数量、安全事件和最后心跳；客户端详情再展开治理方式、本机Agent、任务与事件。'],
           image: { name: 'client-list', alt: '管理台客户端列表', caption: '管理台列表用于跨主机查看客户端状态和治理规模。示例数据以实际环境为准。' },
-          bullets: ['客户端详情可以切换客户端安全治理或Agent强授权，并配置只审计、自动恢复或隔离阻断。', '按本机Agent选择平台批准Skill，可以远程下发、修复或移除；Claude Code 还可选择运行凭证允许的模型并下发配置。', '失败或取消的客户端任务可以重试；本地巡检和处置结果进入事件及统一审计。'],
+          bullets: ['客户端详情可以切换客户端安全治理或Agent强授权，并配置只审计、自动恢复或隔离阻断。', '按本机Agent选择平台批准Skill，可以远程下发、修复或移除；桌面客户端的“模型切换”用于Claude Code、Codex和Hermes的网关模型配置。', '失败或取消的客户端任务可以重试；本地巡检和处置结果进入事件及统一审计。'],
           callout: { type: 'note', title: '任务的具体用途', body: '客户端任务用于安装、恢复、移除Skill、应用受支持的模型配置和同步策略。执行后应在客户端详情中核对目标Agent、资源、任务状态和最新事件。' },
           link: { path: '/clients', label: '打开客户端管理' },
         },
         {
           id: 'agent-model-config',
-          title: '按本机 Agent 下发模型配置',
+          title: '在客户端按本机 Agent 切换网关模型',
           steps: [
-            { title: '绑定平台 Agent', body: '在客户端详情中把本机 Claude Code 绑定到同类型、已启用的平台 Agent。' },
-            { title: '选择凭证提供方式', body: '可以预先为平台 Agent 创建“治理 + 模型”运行凭证，也可以让已显式授权的客户端凭证自动创建。客户端凭证本身不能调用模型。' },
-            { title: '通过任务安全领取', body: '开启自动创建后，任务只包含目标 Agent 和模型名。客户端执行任务时才通过受控接口一次性领取绑定该 Agent 的独立运行凭证，明文不进入任务记录。' },
-            { title: '选择并下发模型', body: '点击目标 Agent 的“配置模型”。已有运行凭证时只能选择其允许模型；允许自动创建时可以选择当前启用模型。任务完成后核对“已应用”状态。', expected: '客户端先备份 ~/.claude/settings.json，再更新 ANTHROPIC_BASE_URL、ANTHROPIC_MODEL 和自动生成的 Agent 独立 ANTHROPIC_AUTH_TOKEN。' },
+            { title: '授权客户端的委派范围', body: '创建客户端凭证时开启自动创建Agent运行凭证，并在“允许客户端配置的模型”中选择范围；留空表示所有已启用模型。客户端凭证本身不能调用模型或MCP。' },
+            { title: '选择本机 Agent', body: '进入桌面客户端“模型切换”，选择已发现的Claude Code、Codex或Hermes。页面从本机配置文件读取当前模型、网关地址和配置路径。' },
+            { title: '确认网关地址来源', body: '客户端不单独填写模型网关地址，而是复用接入时配置的Agent Manager地址。Claude Code使用该根地址；Codex和Hermes自动规范化为以/v1结尾的Base URL。该地址不是供应商页面配置的上游模型地址。' },
+            { title: '自动建立运行身份', body: '如果该本机Agent尚无运行身份，第一次切换会自动创建归属当前客户端的托管Agent并完成绑定，不要求预先在管理台创建或选择。' },
+            { title: '选择网关模型并切换', body: '列表只显示当前客户端凭证委派范围内的启用模型。sidecar在进程内领取该Agent的独立运行凭证，备份并合并配置，然后重新读取实际状态。', expected: 'Claude Code写入Anthropic Messages配置；Codex写入Responses model provider；Hermes写入OpenAI-compatible chat配置。桌面页面拿不到凭证明文。' },
           ],
-          callout: { type: 'warning', title: '首期自动配置边界', body: '当前只自动应用 Claude Code 配置。Codex 依赖 Responses API，而当前模型网关尚未提供该兼容端点，因此页面不会生成不可用的 Codex 配置。其他 Agent 也要在配置格式和调用协议验证后再开放。' },
+          image: { name: 'client-app-models', alt: '桌面客户端模型切换页面', caption: '模型切换页展示本机实际模型、由Agent Manager接入地址生成的网关地址、配置文件路径和凭证允许使用的模型。截图使用脱敏示例数据。' },
+          callout: { type: 'note', title: '模型与MCP的边界', body: '自动生成的Agent凭证固定包含运行校验和model:chat，且只允许本次模型；如果平台Agent已有MCP网关范围，还会保留相同的mcp:connect、mcp:list-tools、mcp:call-tools和网关允许列表。MCP服务器配置仍在单独功能中管理。' },
           link: { path: '/credentials', label: '创建带自动签发授权的客户端凭证' },
         },
         {
@@ -843,12 +1309,13 @@ const zh = {
           paragraphs: ['页面顶部的“凭证路线图”按调用场景创建凭证。这里的调用者是实际携带 Bearer 凭证发请求的程序，不是负责配置系统的管理员。'],
           table: { columns: ['路线图入口', '什么时候选', '不要混用'], rows: [
             ['给 Agent 使用', '已在平台登记的 Agent 需要运行校验，并可能同时调用模型或 MCP', '不要再给同一 Agent 额外创建普通模型凭证来冒充身份'],
-            ['给应用调用模型', '非 Agent 的服务、脚本或业务应用只调用模型', '不能作为已登记 Agent 的可信身份'],
+            ['大模型凭证', '用于通过模型网关调用大模型', '不能作为已登记 Agent 的可信身份'],
             ['给 MCP 客户端', '不代表平台 Agent 的 MCP Client 调用已发布 Tool', '不能访问未选择的虚拟网关'],
             ['给 Skill Scanner', '客户侧扫描器上传 Skill 并轮询自己的结果', '不能审批、部署或读取他人结果'],
-            ['给客户端使用', '桌面或后台客户端注册、心跳、同步清单和执行任务', '客户端凭证不能调用模型；可显式允许它通过配置任务为本机已绑定 Agent 自动创建独立运行凭证'],
+            ['给客户端使用', '桌面或后台客户端注册、心跳、同步清单和执行任务', '客户端凭证不能调用模型；可显式允许它通过配置任务为本机 Agent 自动建立运行身份并创建独立凭证'],
           ] },
           link: { path: '/credentials', label: '打开凭证路线图' },
+          image: { name: 'credential-center', alt: '统一凭证中心的大模型凭证入口', caption: '选择“大模型凭证”，供应用通过模型网关调用大模型。' },
         },
         {
           id: 'credential-types',
@@ -880,8 +1347,8 @@ const zh = {
         {
           id: 'client-agent-issuance',
           title: '客户端如何自动创建 Agent 运行凭证',
-          paragraphs: ['创建客户端凭证时可以开启“允许客户端为已绑定 Agent 自动创建运行凭证”。该选项默认关闭，并不把 model:chat 或 mcp:* 直接授予客户端凭证。'],
-          bullets: ['本机 Agent 必须先发现并绑定到启用中的平台 Agent。', '只有服务端已创建的具体配置任务才能触发领取，凭证明文不进入任务载荷或列表接口。', '生成的凭证固定包含 runtime:verify-signature、runtime:can-load、runtime:check-tool 和 model:chat，并且只允许任务选择的模型；不包含 runtime:govern 或任何 mcp:* 权限。', '吊销或删除父客户端凭证时，会吊销由它自动生成的有效 Agent 凭证。', '当前自动写入仅支持 Claude Code 模型配置；MCP 和其他 Agent 需等待对应配置适配。'],
+          paragraphs: ['创建客户端凭证时可以开启“允许客户端为本机 Agent 自动创建运行凭证”。该选项默认关闭，并不把 model:chat 或 mcp:* 直接授予客户端凭证。'],
+          bullets: ['本机 Agent 必须先被客户端发现；尚无运行身份时，第一次切换自动创建归属当前客户端的托管 Agent 并绑定。', '托管 Agent 是凭证身份和审计载体，不表示模型需要与 Agent 类型匹配。', '客户端凭证可以限制允许配置的网关模型；该范围不是客户端直接模型调用权限。', '只有具体模型切换任务才能触发领取，凭证明文不进入任务载荷、列表接口或桌面渲染进程。', '生成的凭证固定包含 runtime:verify-signature、runtime:can-load、runtime:check-tool 和 model:chat，并且只允许任务选择的模型；不包含 runtime:govern。平台Agent已有MCP网关时，同时保留三项mcp:*调用权限和网关允许列表。', '吊销或删除父客户端凭证时，会吊销由它自动生成的有效 Agent 凭证。', '当前自动写入支持Claude Code、Codex和Hermes；其他Agent仍需经过配置格式和协议验证。'],
         },
         {
           id: 'composite-agent-runtime',
@@ -900,6 +1367,69 @@ const zh = {
             ['请求或上传被拒绝', '核对请求体大小或最大上传大小，避免直接放宽到不受控值'],
           ] },
           link: { path: '/docs/audit-trail', label: '继续阅读审计追踪' },
+        },
+      ],
+    },
+    'agent-security-runtime': {
+      eyebrow: '智能体管理',
+      title: 'AI 安全扫描与统一调用轨迹',
+      summary: '配置 Agent、MCP、大模型与 AI 基础设施安全测评，正确解释用例和 Finding，并用脱敏统一轨迹关联模型、Tool、治理与知识检索事件。',
+      sections: [
+        {
+          id: 'enabled-scope',
+          title: '当前已启用的范围',
+          paragraphs: ['侧边栏的“安全扫描”和“调用轨迹”是独立入口，位于模型网关之后、系统管理之前，页面默认开启，不需要在 .env 中配置页面开关。扫描执行仍需要管理员创建目标、策略和独立 Worker；页面可见不等于外部目标已经通过验收。'],
+          table: { columns: ['能力', '当前行为', '不能据此声称'], rows: [
+            ['控制面验证', '检查目标与策略的执行契约和边界', '不能替代动态扫描或证明目标安全'],
+            ['Agent 风险扫描', '在出站、预算、超时和能力策略内向已授权目标发送测试对话', '不覆盖未执行的场景，也不是无限制攻击链复现'],
+            ['Dify 资产清单', '采集应用配置、DSL、节点、模型、Tool、MCP 和知识库引用，并标注字段来源与验证状态', '配置存在不表示实际执行；系统推断意图不等于已验证事实'],
+            ['MCP 风险扫描', '读取任务创建时冻结的 Gateway、Server、Tool 描述和 Schema 元数据', '不执行 tools/call，不验证 Tool 的真实副作用'],
+            ['大模型红队', '使用锁定数据集或自定义 Prompt 真实调用目标模型和独立评估模型，并按 Prompt 形成用例', '通过只表示本次攻击未观察到越狱，不代表模型绝对安全'],
+            ['AI 基础设施扫描', '主动访问显式授权 URL，识别组件指纹并按具体版本匹配 CVE 规则', '端口或未知版本不是已确认漏洞，也不能解释为安全'],
+            ['统一调用轨迹', '保存 Agent SDK、模型网关、MCP 网关和运行治理实际发布的事件', '不能从只有 Gateway 的流量推断完整 Agent Turn/Step'],
+          ] },
+          link: { path: '/agent-security/scans', label: '打开安全扫描' },
+        },
+        {
+          id: 'scan-workflow',
+          title: '发起并复核一次安全扫描',
+          steps: [
+            { title: '创建目标', body: '选择目标类型和环境，填写允许的能力与连接配置。内网地址必须同时满足目标与策略 CIDR 白名单；不能关闭 TLS 校验。' },
+            { title: '选择执行策略', body: '确认轮次、Token、费用、响应大小、并发、时长、租约、重试和出站边界。只读模式会在服务端阻断写 Tool，并留下治理事件。' },
+            { title: '选择扫描类型', body: 'Agent 风险扫描和大模型红队需要可访问的目标及评估模型；MCP 只分析冻结快照；AI 基础设施扫描会主动访问经授权 URL，并要求 HTTP、DNS 和双重 CIDR 边界。' },
+            { title: '观察任务而不是重复提交', body: '任务会经历 pending、running 和终态。使用刷新、取消或 Kill Switch；Kill Switch 阻止后续请求，已经发出的请求按目标或评估器超时结束。' },
+            { title: '从任务复核证据链', body: '同时查看执行用例、Finding、证据、原始产物摘要、引擎版本、覆盖快照和停止原因。Finding 有真实 trace_id 与 event_id 时才能跳转到对应事件。', expected: '每个结论都能定位到用例、事件或明确的“未验证”原因。' },
+          ],
+          link: { path: '/agent-security/scans', label: '打开 AI 安全扫描' },
+        },
+        {
+          id: 'interpret-results',
+          title: '正确解释成功、通过和零 Finding',
+          bullets: ['任务 succeeded 只表示执行契约完成，不表示目标安全。', '用例 passed 表示本次执行没有观察到对应风险；blocked 或 error 必须保持未验证。', '零 Finding 不能自动解释为安全；还要检查用例覆盖、引擎、预算、停止原因和证据完整度。', '比较结果只有在两次任务都成功、引擎和覆盖配置等价时，才可显示“已解决”或“未复现”。', '历史记录缺少用例、事件、证据或规则版本时显示不完整，平台不会倒填不存在的证据。'],
+          callout: { type: 'warning', title: '扫描结论有明确边界', body: 'Agent 动态扫描只覆盖实际规则和轮次；MCP 只覆盖冻结描述与 Schema；大模型红队只覆盖真实执行的 Prompt；基础设施 Finding 必须有组件、版本和 CVE 规则证据。任何证据不足项都保持“未验证”。' },
+        },
+        {
+          id: 'worker-operations',
+          title: 'Worker 的身份与运行状态',
+          paragraphs: ['管理员先创建 Worker 身份并安全保存只展示一次的 Token，再通过现场 Secret 管理方式注入容器。Worker Token 和评估模型 Key 是运行凭据，不是页面功能开关，不能写进镜像、源码或普通日志。'],
+          bullets: ['healthy 只证明 Worker 进程与控制面的心跳/租约通道正常，不证明外部目标扫描已通过。', '当前 Token 不支持原地轮换：创建新 Worker、切换并确认心跳和公钥指纹后，再吊销旧身份。', 'Worker 中断后，运行任务由租约到期和重试策略恢复；重试耗尽应明确失败，不能生成虚假安全结论。', '生产 Worker 默认使用非 root、只读根文件系统、临时目录、无额外 capability 和资源上限；调整前应先在目标环境压测。'],
+        },
+        {
+          id: 'trace-completeness',
+          title: '按真实事件源理解轨迹完整度',
+          table: { columns: ['完整度', '可观察来源', '缺少的上下文'], rows: [
+            ['full', 'Agent SDK 加上关联的模型、MCP 或治理事件', '仍只代表接入方实际上报的生命周期'],
+            ['model_only', '只有模型网关事件', '没有 Agent Turn、Step、Tool 和知识检索上下文'],
+            ['mcp_only', '只有 MCP 网关事件', '没有模型推理和 Agent 生命周期'],
+            ['gateway_partial', '存在多类网关事件但缺少 Agent SDK 层', '不能重建完整对话意图和步骤边界'],
+          ] },
+          paragraphs: ['自研 Runtime 应使用 Runtime Trace SDK 创建 Trace，并把同一组 trace_id、turn_id、step_id、call_id 和 parent_call_id 放入模型 metadata 与 MCP params._meta。普通模型或 MCP 凭证不能冒充已登记 Agent；可信 Agent 身份来自绑定的 Agent 运行凭证。'],
+          link: { path: '/runtime-traces', label: '打开统一调用轨迹' },
+        },
+        {
+          id: 'privacy-evidence',
+          title: '搜索、查看和导出证据的隐私边界',
+          bullets: ['轨迹列表、对话视图、事件详情和搜索只使用服务端脱敏投影，不读取原始 Prompt、响应或 Tool 参数。', '脱敏 JSON/PDF 可用于普通审阅；PDF 不支持原始级别。', '原始 JSON 只允许管理员、超级管理员或隐私审计角色在重新验证当前密码后获得 5 分钟、单次有效授权，所有操作写入安全审计。', '安全审计员只能查看脱敏内容。原始 Payload 独立加密保存，普通应用日志只记录 ID、稳定错误码和脱敏摘要。'],
         },
       ],
     },
@@ -972,6 +1502,20 @@ const zh = {
           id: 'pipeline',
           title: '一次请求经过什么',
           bullets: ['校验凭证状态、模型范围、请求大小和并发。', '在对应策略启用时检测提示词注入、系统提示泄露和凭据外传风险。', '在匹配隐私策略时识别PII并替换为会话内伪匿名Token。', '供应商或调用凭证启用压缩时，在上游调用前压缩上下文。', '还原模型响应，并写入审计、用量和链路追踪。'],
+        },
+        {
+          id: 'compatible-endpoints',
+          title: '不同 Agent 使用哪个兼容入口',
+          table: {
+            columns: ['调用方', '网关入口', '说明'],
+            rows: [
+              ['Claude Code', 'POST /v1/messages', '使用Anthropic Messages兼容格式。'],
+              ['Codex', 'POST /v1/responses', '在自定义model_provider中使用Responses协议。'],
+              ['Hermes及普通OpenAI兼容客户端', 'POST /v1/chat/completions', '使用Chat Completions兼容格式。'],
+              ['模型发现', 'GET /v1/models', '只返回当前凭证允许访问且已启用的模型。'],
+            ],
+          },
+          callout: { type: 'note', title: '协议兼容边界', body: '三个入口共用同一套凭证、模型范围、隐私与审计校验，但协议字段不会完全互换。客户端“模型切换”会按Agent类型写入正确入口。' },
         },
         {
           id: 'token-compression',
@@ -1144,9 +1688,23 @@ const zh = {
       title: '常见问题',
       summary: '从用户看到的现象出发，先确认状态和证据，再决定是否需要重新检测或调整配置。',
       sections: [
-        { id: 'pending', title: '为什么一直停留在 PENDING？', paragraphs: ['先查看该版本的检测记录，再检查后台日志以及系统总览中的深度分析、LLM和Sandbox状态。Scanner接入凭证只影响客户侧Scanner上传，不是ZIP提交完成检测的前置条件。PENDING表示后台任务尚未得到最终结果，不应直接判断为前端缓存。'] },
+        { id: 'pending', title: '为什么一直显示 SCANNING（检测中）？', paragraphs: ['先查看该版本的检测记录，再检查后台日志以及系统总览中的深度分析、LLM和Sandbox状态。Scanner接入凭证只影响客户侧Scanner上传，不是ZIP提交完成检测的前置条件。SCANNING 表示列表检测状态尚未结束：后台 Skill 处于 PENDING，或存在状态为 PENDING 的检测任务。重新检测期间会保留此前准入状态，不应直接判断为前端缓存。'] },
         { id: 'different-results', title: '为什么 Sandbox 是低风险，最终结果却更高？', paragraphs: ['Sandbox只观察本次探测实际触发的行为。未触发的分支、静态危险模式和LLM语义证据仍可能提高最终风险，因此应查看完整证据链。'] },
-        { id: 'review-queue', title: '为什么 Skill 没有进入审核队列？', paragraphs: ['只有VETTED等待人工审核。APPROVED已被策略自动批准，REJECTED已被策略拒绝，PENDING仍在检测中。'] },
+        {
+          id: 'llm-safe-final-malicious',
+          title: '为什么 LLM 判定安全，最终判定却是恶意？',
+          paragraphs: ['LLM 的“无明显风险”是模型的分析结论，最终风险由本次扫描采用的策略合并工具初判和 LLM 结论后确定。以下两种情况会保留恶意风险：'],
+          bullets: [
+            '存在“判为恶意”的发现：规则、深度扫描或 Sandbox 的发现按本次策略归入此类后，会形成恶意风险，LLM 不能降低。例如，数据外传发现被归为“判为恶意”，即使 LLM 认为它只是正常上传，最终仍保留恶意风险。',
+            '本次采用严格模式：策略不允许 LLM 降低工具初判；如果工具初判为恶意，LLM 给出“无明显风险”也不会改变最终风险。',
+          ],
+          steps: [
+            { title: '查看本次判定依据', body: '打开 Skill 详情 > 检测报告 > 实际判定过程，查看“LLM 结论与最终风险不同”的说明。有对应记录时，可点击“查看导致保留恶意风险的发现项”核对证据，或点击“查看 LLM 原始分析”核对模型意见。历史报告缺少合并依据时，页面会明确提示无法确认具体原因。' },
+            { title: '核对分类和策略', body: '如果怀疑误报，先核对原始证据及本次扫描的配置。需要调整时，在策略配置中修改对应风险识别规则或判定模式，保存后重新检测；已有报告保留原结论。恶意风险的准入动作仍由配置决定，可以进入人工审核或自动拒绝。' },
+          ],
+          link: { path: '/docs/risk-classification', label: '查看发现项分类与风险合并逻辑' },
+        },
+        { id: 'review-queue', title: '为什么 Skill 没有进入审核队列？', paragraphs: ['列表的 VETTED（待审核）筛选只包含当前没有检测任务的待审核项目。SCANNING（检测中）包含初次检测和重新检测；重新检测期间后台仍可能保留 APPROVED、VETTED 等此前准入状态。检测完成后再查看最终状态和审核入口。'] },
         { id: 'rescan', title: '为什么重复提交没有重新检测？', paragraphs: ['同名同内容且检测上下文一致时可以复用结果。需要重新执行分析时，应在Skill版本页面使用“重新检测”；内容已经变化则提交新版本。'] },
         { id: 'agent-blocked', title: '为什么 Agent 不能加载已批准的 Skill？', paragraphs: ['检查运行凭证是否绑定当前Agent、Agent是否获授权使用该Skill、本地签名是否匹配，以及当前请求是否先完成签名验证。'] },
         { id: 'credential-lost', title: '凭证明文丢失后能否再次查看？', paragraphs: ['不能。服务端只保存Hash。应吊销旧凭证并重新创建，然后更新调用方配置。'] },
@@ -1169,7 +1727,7 @@ const en = {
       { subgroup: 'Skill governance', slug: 'skill-governance', title: 'Governance flow', summary: 'Submission, scanning, review, and versions' },
       { subgroup: 'Skill governance', slug: 'scanner-access', title: 'Scanner access', summary: 'Discover, precheck, and upload local Skills in batches' },
       { subgroup: 'Skill governance', slug: 'scan-capabilities', title: 'Scanning capabilities', summary: 'Rules, deep scan, Sandbox, and LLM analysis' },
-      { subgroup: 'Skill governance', slug: 'risk-classification', title: 'Finding classification', summary: 'Blocking, suspicious, noise, and final risk' },
+      { subgroup: 'Skill governance', slug: 'risk-classification', title: 'Finding classification', summary: 'Finding classification, policy configuration, and final risk' },
       { subgroup: 'Skill governance', slug: 'skill-policy', title: 'Policy settings', summary: 'Risk decisions, admission constraints, and analyzers' },
       { subgroup: 'MCP governance', slug: 'mcp-governance', title: 'MCP governance', summary: 'Servers, gateways, approvals, and audits' },
     ] },
@@ -1178,6 +1736,8 @@ const en = {
       { slug: 'client-management', title: 'Client management', summary: 'Local Agent discovery, Skill delivery, and continuous inspection' },
       { slug: 'credential-management', title: 'Credential center', summary: 'Issue least-privilege credentials by caller' },
       { slug: 'runtime-integration', title: 'Access and runtime', summary: 'Skill Verifier, event Hooks, and result handling' },
+      { slug: 'hook-integration', title: 'Hook integration', summary: 'Configure event enforcement for Claude Code, Codex, and OpenClaw' },
+      { slug: 'agent-security-runtime', title: 'AI security and runtime traces', summary: 'Agent, MCP, LLM, and AI infrastructure assessments, Worker operations, evidence, and unified traces' },
       { slug: 'audit-trail', title: 'Audit trail', summary: 'Query Skill, Agent, Client, and Tool events' },
     ] },
     { title: 'Model gateway', items: [
@@ -1194,7 +1754,7 @@ const en = {
     { title: 'Scenario guides', items: [
       { slug: 'case-expense-skill', title: 'Launch an expense Skill', summary: 'From business sample to review, authorization, and runtime checks' },
       { slug: 'case-high-impact-skill', title: 'Review a high-impact Skill', summary: 'Assess a legitimate Skill with file-transfer capability' },
-      { slug: 'case-malicious-skill', title: 'Reject a malicious Skill', summary: 'Use blocking evidence to identify credential and data exfiltration' },
+      { slug: 'case-malicious-skill', title: 'Reject a malicious Skill', summary: 'Use policy classification to identify credential and data exfiltration risk' },
       { slug: 'case-runtime-tamper', title: 'Block local tampering', summary: 'Reject a modified copy of an approved Skill' },
       { slug: 'case-mcp-approval', title: 'Approve a high-risk MCP action', summary: 'Close the loop for customer lookup and service suspension' },
       { slug: 'case-client-modular-governance', title: 'Govern a modular Client host', summary: 'Separate Agents, roots, permissions, and remediation on one host' },
@@ -1217,15 +1777,90 @@ const en = {
       sections: [
         { id: 'what-it-does', title: 'What the platform does', paragraphs: ['Agent Manager is not only a Skill registry. It governs Agent Skills, local capability delivery, model traffic, and externally exposed MCP Tools.'], bullets: ['Scan, decide, review, and sign Skills before use, then revalidate changed content.', 'Give Agents least-privilege bindings and credentials; use clients to discover, deliver, restore, or quarantine local Skills.', 'Apply model access control, Prompt protection, privacy replacement, optional token compression, and usage analysis.', 'Publish selected MCP Tools through gateways with time-bound high-risk approvals and audits.'] },
         { id: 'system-architecture', title: 'System architecture', paragraphs: ['A unified entry connects administrators, Scanners, Agents and Clients, model applications, and MCP Clients. The governance control plane centralizes policy, identity, authorization, and audit, while separate runtime data planes enforce Skill admission, endpoint governance, model privacy processing, and MCP Tool controls.'], bullets: ['Skill evidence from rules, deep scan, optional Sandbox, and LLM analysis reaches policy before an admission state is decided.', 'The Client governs local Skill content; Verifier or Hooks check digest and authorization before an Agent loads it.', 'Model traffic passes credential and model scope, Prompt protection, PII pseudonymization, and optional compression before the upstream model.', 'MCP callers reach only published Tools; high-risk Tools require time-bound approval before execution.', 'Registry records, reports, tasks, traces, and signed security audit form an evidence chain across every domain.'], diagram: 'architecture', callout: { type: 'note', title: 'Control plane and execution boundaries', body: 'The platform controls admission, authorization, routing, and evidence. Agents still load local Skill directories, Sandbox runs dynamic checks in isolation, and upstream models and MCP Servers remain external runtime dependencies.' } },
-        { id: 'capability-map', title: 'Choose a feature by goal', table: { columns: ['Goal', 'Module'], rows: [['Submit and scan a Skill', { label: 'Skill governance / Submit Skill', path: '/docs/skill-governance' }], ['Batch-import Skills from a host or CI', { label: 'Scanner access', path: '/docs/scanner-access' }], ['Choose scan methods and interpret results', { label: 'Skill scanning capabilities', path: '/docs/scan-capabilities' }], ['Understand blocking, suspicious, and noise findings', { label: 'Finding classification', path: '/docs/risk-classification' }], ['Configure Skill risk and admission rules', { label: 'Skill policy settings', path: '/docs/skill-policy' }], ['Review a suspicious Skill', { label: 'Skill governance / Skill Review', path: '/docs/skill-governance' }], ['Restrict an Agent to specific Skills', { label: 'Agent management / Bindings and credentials', path: '/docs/agent-management' }], ['Issue least-privilege credentials by caller', { label: 'Credential center', path: '/docs/credential-management' }], ['Add signature and Tool checks to an Agent', { label: 'Agent runtime integration', path: '/docs/runtime-integration' }], ['Discover local Agents and Skill roots', { label: 'Client management / Agent Discovery', path: '/docs/client-management' }], ['Deliver, restore, or remove Skills on managed hosts', { label: 'Client management / Console operations', path: '/docs/client-management' }], ['Protect private model input', { label: 'Model gateway / Privacy policies', path: '/docs/model-gateway' }], ['Compress model context and measure savings', { label: 'Model gateway / Token compression', path: '/docs/model-gateway' }], ['Analyze token usage by user', { label: 'Model gateway / User token analytics', path: '/docs/model-gateway' }], ['Audit anomalous Skills declared in model calls', { label: 'Model gateway / Skill Alerts', path: '/docs/model-gateway' }], ['Publish and audit MCP Tools', { label: 'MCP governance / Servers and gateways', path: '/docs/mcp-governance' }], ['Trace Skill, Agent, Client, and Tool events', { label: 'Audit trail', path: '/docs/audit-trail' }]] } },
+        { id: 'capability-map', title: 'Choose a feature by goal', table: { columns: ['Goal', 'Module'], rows: [['Submit and scan a Skill', { label: 'Skill governance / Submit Skill', path: '/docs/skill-governance' }], ['Batch-import Skills from a host or CI', { label: 'Scanner access', path: '/docs/scanner-access' }], ['Choose scan methods and interpret results', { label: 'Skill scanning capabilities', path: '/docs/scan-capabilities' }], ['Understand how finding classifications affect final risk', { label: 'Finding classification', path: '/docs/risk-classification' }], ['Configure Skill risk and admission rules', { label: 'Skill policy settings', path: '/docs/skill-policy' }], ['Review a suspicious Skill', { label: 'Skill governance / Skill Review', path: '/docs/skill-governance' }], ['Restrict an Agent to specific Skills', { label: 'Agent management / Bindings and credentials', path: '/docs/agent-management' }], ['Issue least-privilege credentials by caller', { label: 'Credential center', path: '/docs/credential-management' }], ['Add signature and Tool checks to an Agent', { label: 'Agent runtime integration', path: '/docs/runtime-integration' }], ['Configure a Claude Code, Codex, or OpenClaw Hook', { label: 'Hook integration', path: '/docs/hook-integration' }], ['Discover local Agents and Skill roots', { label: 'Client management / Agent Discovery', path: '/docs/client-management' }], ['Deliver, restore, or remove Skills on managed hosts', { label: 'Client management / Console operations', path: '/docs/client-management' }], ['Protect private model input', { label: 'Model gateway / Privacy policies', path: '/docs/model-gateway' }], ['Compress model context and measure savings', { label: 'Model gateway / Token compression', path: '/docs/model-gateway' }], ['Analyze token usage by user', { label: 'Model gateway / User token analytics', path: '/docs/model-gateway' }], ['Audit anomalous Skills declared in model calls', { label: 'Model gateway / Skill Alerts', path: '/docs/model-gateway' }], ['Publish and audit MCP Tools', { label: 'MCP governance / Servers and gateways', path: '/docs/mcp-governance' }], ['Trace Skill, Agent, Client, and Tool events', { label: 'Audit trail', path: '/docs/audit-trail' }]] } },
       ],
     },
     'quick-start': {
       eyebrow: 'Get started', title: 'Complete your first Skill governance flow', summary: 'Use a test ZIP with no production secrets or personal data to complete submission, scanning, review, Agent authorization, and runtime verification.',
       sections: [
         { id: 'check-system', title: '1. Check platform status', paragraphs: ['Open the dashboard and system overview first. LLM and Sandbox checks depend on administrator configuration; unavailable checks remain disabled on the submission page.'], image: { name: 'dashboard', alt: 'Platform dashboard', caption: 'The dashboard highlights pending Skills, risk distribution, and recent events.' }, link: { path: '/dashboard', label: 'Open dashboard' } },
-        { id: 'submit-zip', title: '2. Upload a ZIP and select Skills', paragraphs: ['The current console supports ZIP upload and Scanner access. The platform parses importable Skills first, then lets you choose which entries to submit.'], steps: [{ title: 'Choose a ZIP', body: 'Each Skill directory must contain SKILL.md.' }, { title: 'Parse content', body: 'Confirm the directories and Skills found by the platform.' }, { title: 'Choose checks and submit', body: 'Do not force-enable an unavailable dependency.', expected: 'The result starts as PENDING while background checks continue.' }], image: { name: 'submit-skill', alt: 'Submit Skill page', caption: 'Upload a ZIP, parse its content, and select the Skills to scan.' }, link: { path: '/submit', label: 'Open Submit Skill' } },
-        { id: 'review-result', title: '3. Read the report and decide', paragraphs: ['Review final risk, evidence, analyzer results, files, and version history. VETTED needs human review, APPROVED is trusted, and REJECTED does not enter the review queue.'], image: { name: 'skill-list', alt: 'Skill list page', caption: 'The list shows the latest content version, trusted version, status, and risk.' }, link: { path: '/skills', label: 'Open Skill list' } },
+        {
+          "id": "submit-zip",
+          "title": "2. Upload a ZIP and select Skills",
+          "paragraphs": [
+            "Selecting a ZIP automatically prepares and parses it. The upload limit is 100 MiB. The browser removes entries starting with __MACOSX/ before checking the size, without changing the local file. Oversized archives show the 10 largest first- and second-level directories by compressed size to help you trim and repackage them.",
+            "Preparation, upload, extraction, and Skill identification display separate progress stages. Percentages apply to the current stage. If symlinks are found, a confirmation lists their paths and lets you skip them or cancel without uploading again."
+          ],
+          "steps": [
+            {
+              "title": "Select directories and Skills",
+              "body": "Each Skill directory must contain SKILL.md. After parsing, select the directories and Skills to import."
+            },
+            {
+              "title": "Choose checks and submit",
+              "body": "Rule analysis is mandatory and cannot be unchecked. Choose available Deep scan, Sandbox, and LLM analysis options as needed, then submit the selected Skills.",
+              "expected": "The “Background task created” message confirms acceptance. Content preparation and scan scheduling continue in the background."
+            }
+          ],
+          "image": {
+            "name": "submit-skill",
+            "alt": "Submission page after ZIP parsing",
+            "caption": "Example data: submit the selected Skills or open Submission history using the adjacent button."
+          },
+          "link": {
+            "path": "/submit",
+            "label": "Open Submit Skill"
+          }
+        },
+        {
+          "id": "submission-history",
+          "title": "Submission history",
+          "paragraphs": [
+            "Click Submission history next to the submit button. The dialog shows the latest 50 tasks with their IDs, ZIP filenames, import times, statuses, and processed/total counts. Records remain available after a refresh. Older records without a saved ZIP filename display “—”.",
+            "Import completion means the selected content has been processed. Check import results or Skill details for the security scan status."
+          ],
+          "image": {
+            "name": "submission-history",
+            "alt": "Submission history dialog",
+            "caption": "Example data: locate a submission by ZIP filename and import time, then click View results."
+          }
+        },
+        {
+          "id": "submission-results",
+          "title": "View import results and return to history",
+          "paragraphs": [
+            "Click View results to inspect processed counts, imported Skills, and failed paths. A failure for one Skill does not stop the remaining items.",
+            "Click Back to submission history to return to the list and inspect another submission. Scanning may still be running after import. The Skill list displays SCANNING; PENDING in the API indicates a queued or ongoing scan."
+          ],
+          "image": {
+            "name": "submission-results",
+            "alt": "Import results dialog with a back button",
+            "caption": "Example data: a partially failed import with a button to return to submission history."
+          }
+        },
+        {
+          "id": "review-result",
+          "title": "3. Read the report and decide",
+          "paragraphs": [
+            "The list separates final risk from LLM verdict. In the detail report, start with Decision trace to understand the policy outcome, then switch analyzers within Scan results to inspect evidence.",
+            "Review final risk, evidence, analyzer results, files, and version history. VETTED needs human review, APPROVED is trusted, and REJECTED does not enter the review queue.",
+            "For records or security review, use Export PDF Report in the Skill details header. The localized report includes River Security branding, an executive summary, clear finding cards, Sandbox and LLM results, admission policy, integrity information, and assessment limitations."
+          ],
+          "callout": {
+            "type": "note",
+            "title": "Report boundary",
+            "body": "The PDF report applies only to the identified version and fingerprint. It redacts common credentials and truncates logs. Security risk and admission status are separate conclusions; policy can reject a low-risk Skill."
+          },
+          "image": {
+            "name": "skill-list",
+            "alt": "Skill list page",
+            "caption": "Example data: final risk and LLM verdict are separate columns because model opinions do not replace policy decisions."
+          },
+          "link": {
+            "path": "/skills",
+            "label": "Open Skill list"
+          }
+        },
         { id: 'verify-runtime', title: '4. Connect an Agent and verify local content', paragraphs: ['Create an Agent, bind approved Skills, issue an Agent-bound runtime credential, and run Skill Verifier before the Agent uses local content.'], callout: { type: 'note', title: 'Verification order', body: 'Verify the local content digest first, then check the current Agent load permission. With an event Hook, also check Tool permission before Tool execution.' }, image: { name: 'runtime', alt: 'Access and Runtime page', caption: 'Runtime audit shows signature, load, tamper, and Tool events.' }, link: { path: '/runtime', label: 'Open Access & Runtime' } },
         { id: 'next-paths', title: '5. Continue based on your integration', paragraphs: ['This page covers only the first Skill governance flow. Choose a runtime verification method first, then configure the Client, Model Gateway, or MCP Gateway as required.'], table: { columns: ['Next goal', 'Continue with'], rows: [['Understand rules, deep scan, Sandbox, and LLM differences', { label: 'Skill scanning capabilities', path: '/docs/scan-capabilities' }], ['Batch-discover and submit Skills from servers or CI', { label: 'Scanner access', path: '/docs/scanner-access' }], ['Understand how findings become final risk', { label: 'Finding classification', path: '/docs/risk-classification' }], ['Configure enterprise risk and admission constraints', { label: 'Skill policy settings', path: '/docs/skill-policy' }], ['Embed checks into Agent load and Tool-call flows', { label: 'Agent runtime integration', path: '/docs/runtime-integration' }], ['Govern local Skills across multiple hosts', { label: 'Client management', path: '/docs/client-management' }], ['Protect model requests and measure token savings', { label: 'Model gateway', path: '/docs/model-gateway' }], ['Publish MCP Tools through controlled gateways', { label: 'MCP governance', path: '/docs/mcp-governance' }]] } },
       ],
@@ -1246,18 +1881,18 @@ const en = {
       scenario: { label: 'Scenario summary', items: [{ label: 'Roles', value: 'SOC developer · Security reviewer' }, { label: 'Estimated time', value: 'About 20 minutes' }, { label: 'Core decision', value: 'Require safeguards before deciding on approval' }] },
       sections: [
         { id: 'business', title: 'Why a risk label alone is insufficient', paragraphs: ['incident-evidence-uploader reads a selected evidence file, calculates a digest, and uploads only after explicit operator intent. The purpose is legitimate, but the code can read files, obtain a credential from an environment variable, Base64-encode content, and make an HTTPS request. Review must compare declared purpose, constraints, and implementation.'], flow: [{ label: 'Claim', value: 'SOC evidence upload' }, { label: 'Capability', value: 'Files / credential / network' }, { label: 'Evidence', value: 'Rules + deep scan + Sandbox' }, { label: 'Decision', value: 'Purpose matches safeguards?', type: 'decision' }, { label: 'Disposition', value: 'Add controls or reject', type: 'blocked' }], table: { columns: ['Behavior', 'Business reason', 'Review question'], rows: [['Read evidence', 'Upload a security artifact', 'Are roots, file count, size, and exact selection constrained?'], ['Read an environment credential', 'Authenticate to the collector', 'Is it short-lived, least privilege, and absent from logs?'], ['Send data over the network', 'Reach the SOC collector', 'Are HTTPS, destination allowlist, and explicit confirmation enforced?'], ['Record a digest', 'Integrity and audit evidence', 'Are original evidence and tokens excluded from logs?']] } },
-        { id: 'scan', title: 'Use each analyzer for a different question', steps: [{ title: 'Run rules and deep scan', body: 'Confirm file access, credentials, encoding, and network paths, then open exact file and line evidence.' }, { title: 'Run the default Sandbox preflight', body: 'The sample uses the reserved collector.invalid domain and cannot reach a real service. Inspect network attempt, error, and exit status.' }, { title: 'Classify findings', body: 'Blocking items are deterministic high-risk patterns, suspicious items need context, and noise is diagnostic or weak evidence. Do not vote by count.' }, { title: 'Record a defensible decision', body: 'The sample permits an environment variable to override any HTTPS destination and lacks a production destination allowlist, so do not approve it unchanged for production.', expected: 'The review lists required safeguards instead of only saying “high risk”.' }], link: { path: '/docs/scan-capabilities', label: 'Compare scanning capabilities' }, download: { path: '/examples/incident-evidence-uploader.zip', filename: 'incident-evidence-uploader.zip', label: 'Download the incident-evidence upload sample', hint: 'Reserved domain and fictitious evidence; no real destination' } },
+        { id: 'scan', title: 'Use each analyzer for a different question', steps: [{ title: 'Run rules and deep scan', body: 'Confirm file access, credentials, encoding, and network paths, then open exact file and line evidence.' }, { title: 'Run the default Sandbox preflight', body: 'The sample uses the reserved collector.invalid domain and cannot reach a real service. Inspect network attempt, error, and exit status.' }, { title: 'Classify findings', body: 'Use the scan policy groups: Classify as malicious, Assess in context, or Retain as a notice. Then inspect risk reconciliation and admission actions. Finding counts do not replace evidence review.' }, { title: 'Record a defensible decision', body: 'The sample permits an environment variable to override any HTTPS destination and lacks a production destination allowlist, so do not approve it unchanged for production.', expected: 'The review lists required safeguards instead of only saying “high risk”.' }], link: { path: '/docs/scan-capabilities', label: 'Compare scanning capabilities' }, download: { path: '/examples/incident-evidence-uploader.zip', filename: 'incident-evidence-uploader.zip', label: 'Download the incident-evidence upload sample', hint: 'Reserved domain and fictitious evidence; no real destination' } },
         { id: 'decision', title: 'Controls required for an approvable version', bullets: ['Use a destination allowlist that ordinary runtime configuration cannot broaden.', 'Restrict reads to approved evidence roots and enforce file-count and total-size limits.', 'Inject short-lived least-privilege credentials through secure configuration.', 'Display filename, size, digest, and destination before explicit confirmation.', 'Audit operator, destination, digest, and outcome without recording the credential or evidence body.'], callout: { type: 'warning', title: 'No observed transfer is not proof of safety', body: 'The default probe may omit upload arguments or a credential. An untriggered branch does not negate the network-transfer capability visible in source.' }, link: { path: '/docs/risk-classification', label: 'Read finding classification' } },
         { id: 'production', title: 'Revalidate the remediated version', steps: [{ title: 'Submit a new version', body: 'Do not rewrite historical reports. Add allowlist, directory, and approval controls, then submit new content.' }, { title: 'Force a new scan', body: 'Re-run rules, deep scan, and Sandbox after policy or implementation changes.' }, { title: 'Compare versions', body: 'Confirm which dangerous capabilities remain, that safeguards exist in code, and that the business flow still works.' }] },
       ],
     },
     'case-malicious-skill': {
-      eyebrow: 'Scenario guide · Admission block', title: 'Reject a data-exfiltration Skill disguised as a utility', summary: 'Trace environment credentials, system-file reads, external transfer, and dynamic execution to see how blocking evidence determines admission.',
+      eyebrow: 'Scenario guide · Admission block', title: 'Reject a data-exfiltration Skill disguised as a utility', summary: 'Trace environment credentials, system-file reads, external transfer, and dynamic execution to see how policy classification produces malicious risk and admission settings route it to review or rejection.',
       scenario: { label: 'Scenario summary', items: [{ label: 'Roles', value: 'Skill recipient · Security reviewer' }, { label: 'Estimated time', value: 'About 15 minutes' }, { label: 'Acceptance result', value: 'REJECTED · no approval or deployment path' }] },
       sections: [
-        { id: 'sample', title: 'Deterministic evidence in the sample', paragraphs: ['rejected-exfiltrator intentionally combines several dangerous behaviors in one short script for reviewer training.'], flow: [{ label: 'Source', value: 'Read API_KEY and system file' }, { label: 'Process', value: 'Build outbound payload' }, { label: 'Transfer', value: 'POST to external target', type: 'blocked' }, { label: 'Extra risk', value: 'Dynamic eval', type: 'decision' }, { label: 'Admission', value: 'REJECTED', type: 'blocked' }], table: { columns: ['Code behavior', 'Security meaning', 'Recommended classification'], rows: [['Read API_KEY', 'Access a runtime credential', 'Blocking when combined with transfer'], ['Read /etc/passwd', 'Access an unrelated system file', 'Blocking'], ['POST to evil.example.com', 'Send a payload to an external destination', 'Blocking'], ['eval a string', 'Difficult-to-constrain execution path', 'At least suspicious; higher risk in the exfiltration chain']] }, callout: { type: 'warning', title: 'Never run it directly on the host', body: 'This is an intentionally malicious sample. Submit it for static analysis; observe dynamic behavior only in an isolated Sandbox.' } },
-        { id: 'submit', title: 'Submit and confirm the rejection path', steps: [{ title: 'Package only the sample', body: 'Zip rejected-exfiltrator without adding real credentials or files.' }, { title: 'Run static checks', body: 'Enable rules and deep scan. Use Sandbox for dynamic evidence, never direct host execution.' }, { title: 'Start with blocking evidence', body: 'Open rule, file, line, and evidence text, then connect credential/file access to payload creation and network transfer.' }, { title: 'Confirm the final state', body: 'One verified blocking item can determine high risk; findings do not need to accumulate by count.', expected: 'The final state is REJECTED. It does not enter human approval and cannot become an Agent-trusted version.' }], link: { path: '/submit', label: 'Open Submit Skill' }, download: { path: '/examples/rejected-exfiltrator.zip', filename: 'rejected-exfiltrator.zip', label: 'Download the malicious exfiltration sample', hint: 'Dangerous sample: scan only; never execute directly on a host' } },
-        { id: 'interpret', title: 'Common misinterpretations', bullets: ['A network failure in Sandbox does not remove exfiltration intent.', 'An unreachable evil.example.com destination does not invalidate the static data-flow evidence.', 'A skipped or failed LLM analysis does not erase deterministic blocking evidence.', 'Any amount of noise does not offset one confirmed blocking item.'], link: { path: '/docs/risk-classification', label: 'Read blocking-item logic' } },
+        { id: 'sample', title: 'Deterministic evidence in the sample', paragraphs: ['rejected-exfiltrator combines several dangerous behaviors in one short script for reviewer training. This example uses recommended classifications and automatic rejection for malicious risk. Actual outcomes depend on the recorded classifications and admission settings.'], flow: [{ label: 'Source', value: 'Read API_KEY and system file' }, { label: 'Process', value: 'Build outbound payload' }, { label: 'Transfer', value: 'POST to external target', type: 'blocked' }, { label: 'Extra risk', value: 'Dynamic eval', type: 'decision' }, { label: 'Admission', value: 'REJECTED', type: 'blocked' }], table: { columns: ['Code behavior', 'Security meaning', 'Recommended classification'], rows: [['Read API_KEY', 'Access a runtime credential', 'Classify as malicious when supported by transfer evidence'], ['Read /etc/passwd', 'Access an unrelated system file', 'Assess in context and check its role in transfer'], ['POST to evil.example.com', 'Send a payload to an external destination', 'Classify as malicious for the data transfer in this example'], ['eval a string', 'Difficult-to-constrain execution path', 'Assess in context alongside the exfiltration chain']] }, callout: { type: 'warning', title: 'Never run it directly on the host', body: 'This is an intentionally malicious sample. Submit it for static analysis; observe dynamic behavior only in an isolated Sandbox.' } },
+        { id: 'submit', title: 'Submit and confirm the rejection path', steps: [{ title: 'Package only the sample', body: 'Zip rejected-exfiltrator without adding real credentials or files.' }, { title: 'Run static checks', body: 'Enable rules and deep scan. Use Sandbox for dynamic evidence, never direct host execution.' }, { title: 'Start with findings classified as malicious', body: 'Open rule, file, line, and evidence text, then connect credential/file access to payload creation and network transfer.' }, { title: 'Confirm the final state', body: 'Confirm that this scan classifies the transfer finding as malicious, then check the admission action for malicious risk. This example uses the recommended automatic rejection action.', expected: 'The automatic rejection configuration in this example produces REJECTED. Configuring manual review for malicious risk produces VETTED instead.' }], link: { path: '/submit', label: 'Open Submit Skill' }, download: { path: '/examples/rejected-exfiltrator.zip', filename: 'rejected-exfiltrator.zip', label: 'Download the malicious exfiltration sample', hint: 'Dangerous sample: scan only; never execute directly on a host' } },
+        { id: 'interpret', title: 'Common misinterpretations', bullets: ['A network failure in Sandbox does not remove exfiltration intent.', 'An unreachable evil.example.com destination does not invalidate the static data-flow evidence.', 'If LLM analysis is skipped or fails, tool risk is still aggregated under the scan policy.', 'Findings retained as notices do not offset findings classified as malicious. Check admission settings for the final action.'], link: { path: '/docs/risk-classification', label: 'Read finding classification and risk logic' } },
         { id: 'remediation', title: 'If the developer claims a legitimate purpose', paragraphs: ['Do not approve the same version based on a verbal explanation. Require removal of system-file and unrelated credential access, an approved destination, narrow data scope, and no eval; submit the result as a new version with independent evidence and admission status.'] },
       ],
     },
@@ -1312,33 +1947,204 @@ const en = {
       eyebrow: 'Skill governance', title: 'Skill governance', summary: 'Manage submission, scanning, policy decisions, human review, and trusted Skill versions.',
       sections: [
         { id: 'submission', title: 'Submission methods', table: { columns: ['Method', 'Use case', 'Current status'], rows: [['ZIP upload', 'Submit one or more Skills in the console', 'Available'], ['Scanner access', 'Discover and upload local Skills from customer hosts or CI', 'Available']] }, callout: { type: 'note', title: 'Choose the right entry point', body: 'Use ZIP for small manual submissions and Scanner access for continuous discovery across customer hosts, servers, or CI.' } },
-        { id: 'pipeline', title: 'Scanning and decisions', paragraphs: ['A submission starts as PENDING. Enabled analyzers run in the background, and policy produces the final governance decision. No single Sandbox or LLM result replaces the final assessment.'], bullets: ['Static and rule analysis inspect files, permissions, and dangerous patterns.', 'Sandbox observes behavior triggered in a restricted run.', 'LLM may combine content and analyzer evidence when configured.', 'Policy routes the result to auto-approval, human review, or rejection.'], diagram: 'governance', link: { path: '/docs/scan-capabilities', label: 'Understand each scanning capability' } },
-        { id: 'states', title: 'States and next actions', table: { columns: ['State', 'Meaning', 'Next action'], rows: [['PENDING', 'Background checks are running', 'Wait or inspect scan runs'], ['VETTED', 'Checks complete; human review required', 'Approve or reject'], ['APPROVED', 'Trusted version approved', 'Bind to an Agent or install'], ['REJECTED', 'Rejected', 'Fix content and submit a new version'], ['DEPLOYED', 'In managed deployment', 'Continue integrity checks and audits']] } },
-        { id: 'review-workflow', title: 'What to inspect during human review', steps: [{ title: 'Confirm analyzer completeness', body: 'Check whether each analyzer is completed, skipped, unavailable, or failed. Missing output is not no risk.' }, { title: 'Inspect raw evidence', body: 'Start with blocking and suspicious findings, then open files, lines, raw reports, and Sandbox output to verify actual behavior.' }, { title: 'Compare declarations and behavior', body: 'Compare purpose, allowed-tools, and license in SKILL.md with network, credential, dynamic-execution, and write behavior in code.' }, { title: 'Approve or reject', body: 'Only VETTED enters the review queue. Approval creates a trusted signed version; rejected content should be fixed and submitted as a new version.', expected: 'The action, reviewer, and result are queryable in Audit trail.' }], link: { path: '/review', label: 'Open Skill Review' } },
+        { id: 'pipeline', title: 'Scanning and decisions', paragraphs: ['An initial submission has backend status PENDING and appears as SCANNING in the list. Enabled analyzers run in the background, and policy produces the final governance decision. No single Sandbox or LLM result replaces the final assessment.'], bullets: ['Static and rule analysis inspect files, permissions, and dangerous patterns.', 'Sandbox observes behavior triggered in a restricted run.', 'LLM may combine content and analyzer evidence when configured.', 'Policy routes the result to auto-approval, human review, or rejection.'], diagram: 'governance', link: { path: '/docs/scan-capabilities', label: 'Understand each scanning capability' } },
+        { id: 'states', title: 'States and next actions', paragraphs: ["SCANNING is a list display state for scan progress, not a new backend Skill status. An initial scan has Skill status PENDING. A rescan preserves the previous admission status and creates a PENDING scan run. The list displays both cases as SCANNING; APIs and scan-run records still use PENDING."], table: { columns: ['State', 'Meaning', 'Next action'], rows: [['SCANNING', 'List display state: an initial scan or rescan is unfinished', 'Wait, inspect scan runs, or cancel the task'], ['VETTED', 'Checks complete; human review required', 'Approve or reject'], ['APPROVED', 'Trusted version approved', 'Bind to an Agent or install'], ['REJECTED', 'Rejected', 'Fix content and submit a new version'], ['DEPLOYED', 'In managed deployment', 'Continue integrity checks and audits']] } },
+        { id: 'review-workflow', title: 'What to inspect during human review', steps: [{ title: 'Confirm analyzer completeness', body: 'Check whether each analyzer is completed, skipped, unavailable, or failed. Missing output is not no risk.' }, { title: 'Inspect raw evidence', body: 'Start with findings in Classify as malicious and Assess in context, then open files, lines, raw reports, and Sandbox output to verify actual behavior.' }, { title: 'Compare declarations and behavior', body: 'Compare purpose, allowed-tools, and license in SKILL.md with network, credential, dynamic-execution, and write behavior in code.' }, { title: 'Approve or reject', body: 'Only VETTED enters the review queue. Approval creates a trusted signed version; rejected content should be fixed and submitted as a new version.', expected: 'The action, reviewer, and result are queryable in Audit trail.' }], link: { path: '/review', label: 'Open Skill Review' } },
+        {
+          "id": "list-management",
+          "title": "Filters and bulk actions",
+          "paragraphs": [
+            "The status filter separates SCANNING from VETTED (Awaiting review). SCANNING includes initial scans and rescans. APPROVED means approved. Final risk is the policy outcome; LLM verdict is the independent model opinion and may differ.",
+            "Select Skills on the current page to rescan, cancel tasks, or delete in bulk. Rescans apply to items that are not currently scanning. Cancellation covers both initial scans and active rescans; cancelling a rescan preserves the previous effective decision. Check the selected items in the deletion confirmation.",
+            "Results name the action: rescans submitted, tasks cancelled, or Skills deleted. Skips and failures are grouped by status or reason with affected items. Failed items stay selected for follow-up."
+          ],
+          "image": {
+            "name": "skill-list",
+            "alt": "Skill list with LLM verdict and bulk actions",
+            "caption": "Example data: final risk and LLM verdict are separate columns because model opinions do not replace policy decisions."
+          }
+        },
+        {
+          "id": "list-columns",
+          "title": "Choose visible columns",
+          "paragraphs": [
+            "Open Columns to configure all 13 columns. Defaults show Skill Name, Latest version, Latest trusted, Status, Risk Level, LLM verdict, Approver, Scan Time, and Actions. Skill ID, Rule scan, Deep scan, and Sandbox are hidden by default.",
+            "Preferences are saved for the current account in this browser. Restore defaults resets the selection. Scroll horizontally to see additional columns in a wide table."
+          ],
+          "image": {
+            "name": "skill-columns",
+            "alt": "Column selection and Restore defaults",
+            "caption": "Example data: show individual Rule scan, Deep scan, and Sandbox results when needed for review."
+          }
+        },
+        {
+          "id": "rescan-options",
+          "title": "Choose options for a rescan",
+          "steps": [
+            {
+              "title": "Open rescan",
+              "body": "For one Skill, open More > Rescan on the right. For multiple Skills, select them and choose Rescan selected."
+            },
+            {
+              "title": "Choose the source of options",
+              "body": "Reuse previous scan options, or select Choose new scan options to apply Deep scan, Sandbox, and LLM analysis settings to the selected items. Rule analysis is mandatory and cannot be unchecked. Hover over an option for guidance."
+            },
+            {
+              "title": "Submit and check the new report",
+              "body": "Track scanning status and open the detail report. Selecting an analyzer requests execution; the report shows what actually ran. For example, Sandbox is skipped when there is no executable entry point."
+            }
+          ],
+          "paragraphs": [
+            "If LLM is unavailable, add an available model under Model Gateway > Model Management, select it under Skill Governance > Policy Settings > Advanced configuration > AI analysis service, and enable AI analysis in Detection settings."
+          ],
+          "image": {
+            "name": "skill-rescan",
+            "alt": "Rescan options dialog",
+            "caption": "Example data: individual and bulk rescans share this dialog; Rule analysis is always selected."
+          }
+        },
+        {
+          "id": "basic-information",
+          "title": "Basic information and scan options",
+          "paragraphs": [
+            "Basic information appears as soon as it is available. Reports, files, and content load separately and appear when ready. You can read available content while another section is still loading.",
+            "The overview highlights the current version, admission status, and risk verdict. Compact metadata below shows source, tool declarations, and Sandbox runtime information, wrapping to fit the available width. Use the selector to switch versions and View decision trace beside the risk verdict to inspect its basis. Tool declaration checks compare declarations with the tool allowlist and permission policy. Reused results identify their source Skill.",
+            "Read-only selections in the header show scan options; hover to inspect their source. Sandbox execution comes from the scan report, while the policy requirement separately indicates whether execution is mandatory. Remote mode shows the service URL; Docker mode shows the container image. Missing runtime information is shown as Not recorded. Inspect Scan results for execution details."
+          ],
+          "image": {
+            "name": "skill-basic-info",
+            "alt": "Basic information and scan options",
+            "caption": "Example data: scan options appear beside basic information."
+          }
+        },
+        {
+          "id": "decision-trace",
+          "title": "Decision trace: understand the final outcome",
+          "paragraphs": [
+            "The detail header shows basic information and the selected Deep scan, Sandbox, and LLM options, with their source: saved submission settings, a historical report, or unknown. A checked option does not mean execution succeeded.",
+            "Detection Report opens on Decision trace. Analyzer results appear at the top, followed by separate final-risk and current-status cards. Numbered steps explain finding classification, tool risk, LLM reconciliation, and admission status. Select an analyzer to open its results, or expand findings to inspect sources, severities, files, lines, classifications, and original evidence. Current status may include later approval or deployment changes; the report has no snapshot of the admission action taken at scan time.",
+            "In the screenshot, the LLM reports no apparent risk, but the data exfiltration finding is classified as malicious under the scan configuration, so final risk remains malicious. Sandbox was skipped in this example; it did not establish observed malicious execution.",
+            "Policy links open a new page at the relevant risk classification or decision mode setting. New reports retain a decision configuration snapshot; older reports explicitly indicate when a complete snapshot is missing. Links show current settings. Rescan after changing configuration to obtain a new decision."
+          ],
+          "image": {
+            "name": "skill-decision",
+            "alt": "Decision trace and policy configuration links",
+            "caption": "Example data: final risk and current admission status are shown separately, with four explanation steps and expandable original evidence."
+          }
+        },
+        {
+          id: 'read-decision-evidence',
+          title: 'How to inspect the decision evidence',
+          steps: [
+            { title: 'Read risk and status first', body: 'Open Detection Report > Decision trace for the target Skill version. Final risk comes from the scan report; current admission status describes whether the version is now pending review, approved, deployed, or in another state. When LLM risk is lower than final risk, an explanation below the result identifies recorded malicious findings or strict mode as the reason, with links to retained findings and the original LLM analysis. Missing reconciliation evidence is stated explicitly.' },
+            { title: 'Follow the four steps', body: 'Read finding classification, tool risk, LLM reconciliation, and admission status in order. Identify which findings affect risk and whether the LLM conclusion was accepted. Expand LLM review opinion under Reconcile LLM conclusion for the explanation and findings the LLM suggested dismissing. Rejection reasons and approval exceptions appear as notices below the diagram.' },
+            { title: 'Browse original evidence by source', body: 'Expand View findings and original evidence, then switch between Rule analysis, Deep scan, and Sandbox. Each tab shows its finding count. Five findings appear per page; use the pagination below to browse the rest. Switching sources returns to page one. Each finding shows severity, file location, and original evidence on the left, with the recorded policy classification and its effect on risk on the right. Narrow screens stack these sections. Select a file location to open the corresponding analyzer results. Evidence stays in its original language. When no findings are recorded, check the analyzer execution status for context.' },
+            { title: 'Check the recorded configuration', body: 'Read the snapshot notice above the diagram. Configuration links open current policy. To verify changes, preview them on the policy page, save, and rescan the version. Missing historical fields are shown as Not recorded.' },
+          ],
+          image: { name: 'skill-decision-evidence', alt: 'Findings and original evidence with analyzer tabs and pagination', caption: 'Example data: original evidence appears beside its recorded policy classification and effect on risk, with source tabs and pagination.' },
+        },
+        {
+          "id": "scan-results",
+          "title": "Scan results: inspect each analyzer",
+          "paragraphs": [
+            "Scan results is a sibling tab of Decision trace. Within Scan results, switch between Rule scan, Deep scan, Sandbox, and LLM analysis to inspect individual results and original evidence.",
+            "Rule and deep-scan findings use the policy group names: Classify as malicious, Assess in context, and Retain as a notice. Groups follow the classifications recorded in this report. Rescan after changing the policy to obtain results under the new configuration.",
+            "completed, skipped, unavailable, and failed describe different execution outcomes. Missing, skipped, or failed analysis is not a safe verdict. File content and evidence remain in their original language."
+          ],
+          "image": {
+            "name": "skill-scan-results",
+            "alt": "Four analyzer tabs within Scan results",
+            "caption": "Example data: review findings by their recorded policy classification and switch analyzers to inspect original evidence."
+          }
+        },
+        {
+          id: 'scan-execution-details',
+          title: 'Inspect scan execution details',
+          paragraphs: ['Switch to Scan results and expand Execution details at the bottom to inspect total findings, scan duration, analyzer identifiers, result reuse, and the cache key. Duration shows up to two decimal places; missing fields are marked Not recorded. Analyzer identifiers and cache keys stay in their original form.'],
+          image: { name: 'skill-scan-execution', alt: 'Expandable execution details within Scan results', caption: 'Example data: execution details are grouped under Scan results and collapsed by default.' },
+        },
         { id: 'versions', title: 'Reports and versions', bullets: ['Read final risk, functional summary, evidence, attack chain, and framework mappings.', 'Inspect independent Scanner, rule, LLM, and Sandbox results.', 'Open stored files and raw reports instead of relying only on summaries.', 'Compare two content versions of the same Skill.', 'Rescan creates a new scan run; changed content must be submitted as a new version.'], link: { path: '/skills', label: 'Open Skill list' } },
+        {
+          id: 'version-diff',
+          title: 'Version diff: select versions and inspect changes',
+          steps: [
+            { title: 'Open Diff', body: 'In Skill details, select Diff under Detection Report. Comparison results load when you open this tab. While waiting, you can switch to Decision trace or other tabs to read available content.' },
+            { title: 'Select the base and target versions', body: 'The latest version is the default target and the preceding version is the base. Select different versions or use Swap versions to reverse the comparison. If only one version exists, or both selections identify the same version, the page immediately shows No text-file differences between these versions.' },
+            { title: 'Inspect file changes', body: 'Choose a changed file to inspect additions, deletions, and edits. Switch between Side-by-side and Inline views; file content stays in its original language. Comparison covers readable UTF-8 text files up to 1 MiB each, skipping symlinks and the .git, .venv, node_modules, __pycache__, dist, and build directories.' },
+            { title: 'Wait or retry', body: 'The comparison area shows a loading indicator while results are being prepared. During the current detail view, switching away and back with unchanged version selections continues the pending comparison or displays its existing result. If loading fails, an error appears with Retry loading changes.' },
+          ],
+        },
       ],
     },
     'scan-capabilities': {
       eyebrow: 'Skill governance', title: 'Skill scanning capabilities', summary: 'Understand what the base Scanner, rule analysis, deep scan, Sandbox, and LLM analysis inspect, when each is available, and how they contribute to the final decision.',
       sections: [
         {
-          id: 'capability-overview', title: 'How rules, deep scan, Sandbox, and LLM differ',
-          paragraphs: ['These capabilities are complementary, not interchangeable scan levels. Static analysis finds broad signals, Sandbox observes only behavior triggered by one controlled run, and LLM performs a final semantic assessment from content and collected evidence. Risk reconciliation and admission policy still determine the final state.'],
-          table: { columns: ['Capability', 'Availability', 'Primary output'], rows: [
-            ['Base Scanner', 'Starts for every submission; the runtime should provide Scanner', 'Whole-directory static rules, permissions, and known dangerous patterns'],
-            ['Rule analysis (selected by default)', 'Keep Start rule analysis selected at submission', 'Text rules, Python AST, suspicious behavior intent, and file locations'],
-            ['Deep scan', 'The runtime supports deep scanning and the option is selected', 'Detailed static findings, risk score, and raw report'],
-            ['Sandbox', 'Enabled and reachable, or required by risk policy', 'Entrypoint, arguments, output, exit code, timeout, and runtime signals'],
-            ['LLM analysis', 'Enabled with a selected model and requested at submission', 'Semantic risk, report, evidence decisions, and attack chain'],
-          ] },
-          image: { name: 'submit-skill', alt: 'Choose Skill scanning capabilities at submission', caption: 'Rule analysis is selected by default. Deep scan, Sandbox, and LLM are selectable only when their dependencies are available.' },
-          link: { path: '/submit', label: 'Open Submit Skill' },
+          "id": "capability-overview",
+          "title": "How rules, deep scan, Sandbox, and LLM differ",
+          "paragraphs": [
+            "These capabilities are complementary, not interchangeable scan levels. Static analysis finds broad signals, Sandbox observes only behavior triggered by one controlled run, and LLM performs a final semantic assessment from content and collected evidence. Risk reconciliation and admission policy still determine the final state."
+          ],
+          "table": {
+            "columns": [
+              "Capability",
+              "Availability",
+              "Primary output"
+            ],
+            "rows": [
+              [
+                "Base Scanner",
+                "Starts for every submission; the runtime should provide Scanner",
+                "Whole-directory static rules, permissions, and known dangerous patterns"
+              ],
+              [
+                "Rule analysis (mandatory)",
+                "Always selected for submission and rescans; cannot be unchecked",
+                "Text rules, Python AST, suspicious behavior intent, and file locations"
+              ],
+              [
+                "Deep scan",
+                "The runtime supports deep scanning and the option is selected",
+                "Detailed static findings, risk score, and raw report"
+              ],
+              [
+                "Sandbox",
+                "Enabled and reachable, or required by risk policy",
+                "Entrypoint, arguments, output, exit code, timeout, and runtime signals"
+              ],
+              [
+                "LLM analysis",
+                "Enabled with a selected model and requested at submission",
+                "Semantic risk, report, evidence decisions, and attack chain"
+              ]
+            ]
+          },
+          "image": {
+            "name": "submit-skill",
+            "alt": "Choose Skill scanning capabilities at submission",
+            "caption": "Example data: Rule analysis is mandatory; other options depend on analyzer availability."
+          },
+          "link": {
+            "path": "/submit",
+            "label": "Open Submit Skill"
+          }
         },
         {
-          id: 'rule-analysis', title: 'Base Scanner and rule analysis',
-          paragraphs: ['The base Scanner covers the whole Skill directory and starts for every scan. Start rule analysis, selected by default on the submission page, adds Agent Manager local rules over scripts, references, prompts, other text code files, and Python AST. Neither layer executes the Skill.'],
-          bullets: ['Key signals include prompt injection, system-prompt leakage, hidden instructions, data exfiltration, credential access, download-and-execute patterns, dynamic execution, and excessive permissions.', 'Reports include rule, severity, file, and line evidence. A hit requires review; one rule does not directly determine the final state.', 'If the base Scanner is unavailable or fails, other analyzers may continue, but the report should show the error and coverage is reduced.'],
-          callout: { type: 'note', title: 'Behavioral does not mean dynamic execution', body: 'The implementation internally calls the added rule bundle behavioral, but it currently performs text-pattern and AST static analysis. Only Sandbox executes a Skill probe.' },
+          "id": "rule-analysis",
+          "title": "Base Scanner and rule analysis",
+          "paragraphs": [
+            "The base Scanner scans the entire Skill directory. Mandatory Rule analysis adds local text rules and Python AST analysis for submissions and rescans. These static checks do not execute the Skill."
+          ],
+          "bullets": [
+            "Key signals include prompt injection, system-prompt leakage, hidden instructions, data exfiltration, credential access, download-and-execute patterns, dynamic execution, and excessive permissions.",
+            "Reports include rule, severity, file, and line evidence. A hit requires review; one rule does not directly determine the final state.",
+            "If the base Scanner is unavailable or fails, other analyzers may continue, but the report should show the error and coverage is reduced."
+          ],
+          "callout": {
+            "type": "note",
+            "title": "Behavioral does not mean dynamic execution",
+            "body": "The implementation internally calls the added rule bundle behavioral, but it currently performs text-pattern and AST static analysis. Only Sandbox executes a Skill probe."
+          }
         },
         {
           id: 'deep-scan', title: 'Deep scan',
@@ -1352,9 +2158,17 @@ const en = {
           callout: { type: 'warning', title: 'Sandbox is not proof of safety', body: 'If one probe does not trigger a malicious branch, it only means that behavior was not observed in this run. Rules, deep scan, or LLM may still produce a higher risk.' },
         },
         {
-          id: 'llm-analysis', title: 'LLM analysis: one final semantic assessment',
-          paragraphs: ['When requested, the system waits for selected Scanner, rule, deep-scan, and Sandbox work, then sends a Skill content snapshot and analyzer evidence to the configured model for one final semantic assessment. The LLM does not execute the Skill.'],
-          bullets: ['Outputs include benign, suspicious, or malicious risk, a security report, accepted or dismissed evidence, and—when applicable—an attack chain and security-framework mapping.', 'LLM cannot downgrade blocking evidence, and strict mode prevents deterministic risk downgrade. Balanced or permissive mode may lower non-blocking risk when no blocking finding exists; the system records the model explanation or a fallback reason.', 'If the model call fails, the attempt remains failed and the system falls back to deterministic rule, deep-scan, and Sandbox reconciliation. No LLM result does not mean completed and safe.'],
+          "id": "llm-analysis",
+          "title": "LLM analysis: one final semantic assessment",
+          "paragraphs": [
+            "When requested, the system waits for selected Scanner, rule, deep-scan, and Sandbox work, then sends a Skill content snapshot and analyzer evidence to the configured model for one final semantic assessment. The LLM does not execute the Skill.",
+            "If LLM is unavailable, add an available model under Model Gateway > Model Management, select it under Skill Governance > Policy Settings > Advanced configuration > AI analysis service, and enable AI analysis in Detection settings."
+          ],
+          "bullets": [
+            "Outputs include benign, suspicious, or malicious risk, a security report, accepted or dismissed evidence, and—when applicable—an attack chain and security-framework mapping.",
+            "Findings in Classify as malicious establish malicious risk that LLM cannot lower. Strict mode also prevents LLM from lowering tool risk. Balanced or permissive mode allows a lower tool-risk assessment when no findings are classified as malicious; the report records the reconciliation result and explanation.",
+            "If the model call fails, the attempt remains failed and the system falls back to deterministic rule, deep-scan, and Sandbox reconciliation. No LLM result does not mean completed and safe."
+          ]
         },
         {
           id: 'detection-logic',
@@ -1363,21 +2177,58 @@ const en = {
           diagram: 'skill-scan-logic',
         },
         {
-          id: 'execution-and-result', title: 'Execution order and result interpretation',
-          steps: [
-            { title: 'Submission enters PENDING', body: 'The Skill is stored first; the console does not wait synchronously for every analyzer.' },
-            { title: 'Independent analyzers run in parallel', body: 'Base Scanner and selected rule analysis, deep scan, and Sandbox run independently.' },
-            { title: 'Policy may add Sandbox', body: 'If interim risk matches a mandatory Sandbox level, the backend attempts Sandbox even when it was not manually selected.' },
-            { title: 'Risk is reconciled and LLM may run once', body: 'Deterministic risk is produced first. One semantic model assessment follows only when selected.' },
-            { title: 'Admission policy assigns the state', body: 'Final risk and policy route the Skill to APPROVED, VETTED, or REJECTED.' },
+          "id": "execution-and-result",
+          "title": "Execution order and result interpretation",
+          "steps": [
+            {
+              "title": "Submission appears as SCANNING in the list",
+              "body": "The Skill is stored first; the console does not wait synchronously for every analyzer."
+            },
+            {
+              "title": "Independent analyzers run in parallel",
+              "body": "The base Scanner, Rule analysis, and selected Deep scan and Sandbox analyzers run in parallel."
+            },
+            {
+              "title": "Policy may add Sandbox",
+              "body": "If interim risk matches a mandatory Sandbox level, the backend attempts Sandbox even when it was not manually selected."
+            },
+            {
+              "title": "Risk is reconciled and LLM may run once",
+              "body": "Deterministic risk is produced first. One semantic model assessment follows only when selected."
+            },
+            {
+              "title": "Admission policy assigns the state",
+              "body": "Final risk and policy route the Skill to APPROVED, VETTED, or REJECTED."
+            }
           ],
-          table: { columns: ['Report status', 'Correct interpretation'], rows: [
-            ['completed, with findings', 'The analyzer completed and provided evidence for review'],
-            ['completed, no findings', 'No hit in this scope; other analyzers or untriggered branches may still matter'],
-            ['skipped / not selected', 'This capability did not run and provides no risk conclusion'],
-            ['unavailable / failed', 'The dependency or execution failed; troubleshoot and rescan'],
-          ] },
-          link: { path: '/skills', label: 'Open Skill reports' },
+          "table": {
+            "columns": [
+              "Report status",
+              "Correct interpretation"
+            ],
+            "rows": [
+              [
+                "completed, with findings",
+                "The analyzer completed and provided evidence for review"
+              ],
+              [
+                "completed, no findings",
+                "No hit in this scope; other analyzers or untriggered branches may still matter"
+              ],
+              [
+                "skipped / not selected",
+                "This capability did not run and provides no risk conclusion"
+              ],
+              [
+                "unavailable / failed",
+                "The dependency or execution failed; troubleshoot and rescan"
+              ]
+            ]
+          },
+          "link": {
+            "path": "/skills",
+            "label": "Open Skill reports"
+          }
         },
       ],
     },
@@ -1395,7 +2246,7 @@ const en = {
       sections: [
         { id: 'agent-record', title: 'Register the Agent before issuing credentials', steps: [{ title: 'Create an Agent', body: 'Set a stable unique Agent ID, name, department, owner, Client type, and state. Runtime Agent ID must match this record.' }, { title: 'Bind capabilities', body: 'Choose the default model and allowed approved or deployed Skills. The list shows the concrete Skill identifier used for the binding.' }, { title: 'Issue a runtime credential', body: 'Create an Agent runtime credential bound to the Agent.' }, { title: 'Configure the runtime', body: 'Give the one-time secret only to that Agent; never use an administrator login token.' }], link: { path: '/agents', label: 'Open Agents' } },
         { id: 'status-and-binding', title: 'What state, binding, and credential control', table: { columns: ['Control', 'Effect', 'Common mistake'], rows: [['Agent state', 'Only active should carry production use; disabled or draft is not deleted', 'Do not infer state from deletion or credential revocation'], ['Skill binding', 'Defines which Skills this Agent may load', 'An approved Skill is not automatically available to every Agent'], ['Agent runtime credential', 'Establishes trusted Agent identity and runtime scopes', 'Caller metadata.agent_id cannot replace credential binding'], ['Default model', 'Records the Agent default model choice', 'model:chat scope and an enabled model are still required']] }, link: { path: '/docs/credential-management', label: 'Read Credential center' } },
-        { id: 'credential-types', title: 'Choose credentials by caller', table: { columns: ['Credential', 'Purpose'], rows: [['Agent runtime', 'Signature, load, and Tool checks'], ['Scanner access', 'Submit and read owned scan results'], ['Client access', 'Desktop client registration, tasks, and events'], ['Model gateway', 'Model calls from regular applications'], ['MCP gateway', 'MCP Client access to allowed gateways and Tools']] }, callout: { type: 'warning', title: 'Secrets are shown once', body: 'If lost, revoke and create a new credential. Never store real secrets in screenshots, docs, or source control.' } },
+        { id: 'credential-types', title: 'Choose credentials by caller', table: { columns: ['Credential', 'Purpose'], rows: [['Agent runtime', 'Signature, load, and Tool checks'], ['Scanner access', 'Submit and read owned scan results'], ['Client access', 'Desktop client registration, tasks, and events'], ['LLM Credential', 'Applications call large language models through the model gateway'], ['MCP gateway', 'MCP Client access to allowed gateways and Tools']] }, callout: { type: 'warning', title: 'Secrets are shown once', body: 'If lost, revoke and create a new credential. Never store real secrets in screenshots, docs, or source control.' } },
         { id: 'next-runtime', title: 'Next: choose a runtime verification method', paragraphs: ['After the Agent record, Skill bindings, and runtime credential are ready, choose Verifier, Hook, or Agent Manager Client based on whether the Agent supports Skill instructions, lifecycle events, or a background Client.'], link: { path: '/docs/runtime-integration', label: 'Read Agent runtime integration' } },
       ],
     },
@@ -1431,15 +2282,27 @@ const en = {
         {
           id: 'hook-integration',
           title: 'Connect an event Hook',
-          paragraphs: ['Use a Hook when the Agent can execute code at defined lifecycle events: verify signature and load permission before loading, then call check-tool before Tool execution. The repository includes Claude Code / Trae and OpenClaw examples; validate Skill name, directory, and Agent ID mapping with real events.'],
+          paragraphs: ['Use a Hook when the Agent can execute code at defined lifecycle events: verify signature and load permission before loading, then call check-tool before Tool execution. The repository includes a Claude Code example and an OpenClaw skeleton. TraeCode officially supports Hooks, but the Agent Manager adapter has not completed end-to-end validation in a real TraeCode instance.'],
           steps: [
-            { title: 'Claude Code or Trae: configure PreToolUse', body: 'Install the project SDK and set AGENT_MANAGER_BASE_URL, AGENT_MANAGER_API_TOKEN, and AGENT_ID. AGENT_MANAGER_API_TOKEN must contain the runtime credential bound to this Agent. Use an absolute path to agent_guard_hook.py.', code: '{\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "",\n      "hooks": [{\n        "type": "command",\n        "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"\n      }]\n    }]\n  }\n}' },
+            { title: 'Claude Code: configure PreToolUse', body: 'Install the project SDK and set AGENT_MANAGER_BASE_URL, AGENT_MANAGER_API_TOKEN, and AGENT_ID. AGENT_MANAGER_API_TOKEN must contain the runtime credential bound to this Agent. Use an absolute path to agent_guard_hook.py.', code: '{\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "",\n      "hooks": [{\n        "type": "command",\n        "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"\n      }]\n    }]\n  }\n}' },
             { title: 'Test the PreToolUse path', body: 'An authorized, unchanged Skill should exit 0. Tampered content, revoked authorization, or the wrong credential should exit 2 with the reason on stderr. Read ~/.agent-manager/logs/agent_guard_hook.log for diagnostics.' },
             { title: 'OpenClaw: connect two event points', body: 'The agent:bootstrap internal Hook enumerates visible Skills and calls verify-skill-signature plus can-load. Integrate before_tool_call into an OpenClaw plugin to call check-tool before execution. Map the session identity to a stable Agent ID registered in the platform.' },
             { title: 'Run failure drills before rollout', body: 'Test an unreachable platform, expired credential, missing Skill path, changed content, and unauthorized Tool. Confirm the Agent result, Hook log, and Runtime Audit for each case.' },
           ],
-          callout: { type: 'warning', title: 'Validate event fields before rollout', body: 'The Claude Code / Trae example blocks API and network errors for recognized Skill calls; malformed input and non-Skill calls pass through. Test OpenClaw event fields and Agent identity mapping against the target version before broad deployment.' },
+          callout: { type: 'warning', title: 'Validate event fields before rollout', body: 'The Claude Code example blocks API and network errors for recognized Skill calls; malformed input and non-Skill calls pass through. Validate both TraeCode and OpenClaw against real events from the target version before broad deployment.' },
+          link: { path: '/docs/hook-integration', label: 'Read the complete Hook setup guide' },
         },
+      ],
+    },
+    'hook-integration': {
+      eyebrow: 'Feature guide', title: 'Hook integration', summary: 'Run Agent Manager checks at real Agent event points, with explicit configuration, credential, enforcement, and validation boundaries for each Hook.',
+      sections: [
+        { id: 'prepare', title: 'Prepare the Agent and credential', steps: [{ title: 'Create and enable the Agent', body: 'Use a stable Agent ID and bind the approved Skills it may use. AGENT_ID at runtime must match this record exactly.' }, { title: 'Issue an Agent runtime credential', body: 'The Claude Code example and the unvalidated TraeCode adapter need at least runtime:verify-signature and runtime:can-load; add runtime:check-tool when the integration performs Tool checks. The current Codex example needs at least runtime:verify-signature.' }, { title: 'Choose configuration scope', body: 'Project settings affect one project; user settings affect every project started by that user. Validate in a test project before moving to user scope.' }, { title: 'Protect the plaintext secret', body: 'Inject it through environment configuration or a user-only file outside the repository. Never put a real token in hooks.json, settings.json, screenshots, or source control.' }], callout: { type: 'warning', title: 'A Hook is not Client takeover', body: 'A Hook runs only at events the target Agent actually exposes and triggers. Agent Manager Client governs local Skill directories and performs continuous inspection. Deploy both when both boundaries are required.' }, link: { path: '/agents', label: 'Open Agents' } },
+        { id: 'coverage', title: 'Understand current coverage first', table: { columns: ['Agent', 'Event and check', 'Current boundary'], rows: [['Claude Code', 'PreToolUse; verify signature and can-load after recognizing a Skill call', 'Malformed input and non-Skill calls pass through'], ['TraeCode / TRAE CN', 'Official PreToolUse support; the protocol has partial compatibility with the existing script', 'Agent Manager has not completed end-to-end validation in a real TraeCode instance'], ['Codex', 'PreToolUse; verify every discovered governed Skill before supported Tools', 'Currently covers supported paths such as Bash, apply_patch, and MCP—not every Tool path'], ['OpenClaw', 'agent:bootstrap for load checks; planned before_tool_call Tool checks', 'The repository provides a skeleton that must be adapted to the real target-version payload and plugin project']] } },
+        { id: 'claude-trae', title: 'Connect Claude Code and evaluate TraeCode', paragraphs: ['Use demo/claude-code-api-hook/agent_guard_hook.py for Claude Code. It calls platform APIs with an Agent runtime credential and never needs the server signing private key. For TraeCode, treat this script only as an unvalidated adapter starting point.'], steps: [{ title: 'Install dependencies', body: 'Run this in the skill-manager source directory so the Python used by the Hook can import httpx and dotenv.', code: 'python3 -m pip install -e ".[dev]"' }, { title: 'Inject the runtime identity', body: 'All three values must resolve to the same platform Agent. Use shell or service configuration in production and keep the real token out of the repository.', code: 'export AGENT_MANAGER_BASE_URL="https://agent-manager.example.com"\nexport AGENT_MANAGER_API_TOKEN="amat_xxx"\nexport AGENT_ID="your-agent-id"' }, { title: 'Configure Claude Code PreToolUse', body: 'Claude Code uses project .claude/settings.json or user ~/.claude/settings.json. The script command must use an absolute path.', code: '{\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "",\n      "hooks": [{\n        "type": "command",\n        "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py"\n      }]\n    }]\n  }\n}' }, { title: 'Configure an unvalidated TraeCode Hook', body: 'TraeCode uses project .trae/hooks.json or, on macOS/Linux, user ~/.trae-cn/hooks.json. Native configuration requires version: 1. This is a protocol adapter candidate, not a configuration that has passed real-instance acceptance.', code: '{\n  "version": 1,\n  "hooks": {\n    "PreToolUse": [{\n      "matcher": "Skill",\n      "hooks": [{\n        "type": "command",\n        "command": "python3 /absolute/path/skill-manager/demo/claude-code-api-hook/agent_guard_hook.py",\n        "timeout": 30\n      }]\n    }]\n  }\n}' }, { title: 'Run real acceptance separately', body: 'Exercise an authorized Skill, changed content, revoked authorization, and an unreachable platform in a new target-Agent session. For TraeCode, also confirm the real Skill tool_input shape, environment visibility, and exit-code-2 behavior.', expected: 'Claude Code should produce Agent UI, Hook log, and Runtime Audit evidence. Keep TraeCode marked unvalidated until the same evidence chain is complete.' }], references: [{ label: 'Claude Code: Hooks quickstart', url: 'https://code.claude.com/docs/en/hooks-guide' }, { label: 'Claude Code: Hooks reference', url: 'https://code.claude.com/docs/en/hooks' }, { label: 'Claude Code: Permissions and PreToolUse hooks', url: 'https://code.claude.com/docs/en/permissions' }, { label: 'TRAE: Automate actions with Hooks', url: 'https://docs.trae.cn/ide_automate-actions-with-hooks' }, { label: 'TRAE: Hook configuration reference', url: 'https://docs.trae.cn/ide_hook-configuration-reference' }, { label: 'TRAE CN: Changelog', url: 'https://docs.trae.cn/ide_changelog' }] },
+        { id: 'codex', title: 'Connect Codex', steps: [{ title: 'Prepare an environment file outside the repository', body: 'Copy the example, then set the platform URL, Agent runtime credential, and bound Agent ID. Never commit this file.', code: 'mkdir -p ~/.agent-manager\ncp demo/codex-agent-manager-hook/codex-agent-manager-hook.env.example \\\n  ~/.agent-manager/codex-agent-manager-hook.env' }, { title: 'Configure governed roots', body: 'The Hook always checks project and user .agents/skills, ~/.codex/skills, and /etc/codex/skills when present. AGENT_MANAGER_CODEX_SKILLS_DIRS adds plugin or custom roots without disabling defaults.' }, { title: 'Install the Hook configuration', body: 'Copy the example to project .codex/hooks.json or merge it into ~/.codex/hooks.json, then replace the Python script and environment-file paths with absolute paths.', code: 'mkdir -p .codex\ncp demo/codex-agent-manager-hook/hooks.json.example .codex/hooks.json' }, { title: 'Review and validate', body: 'Restart Codex or create a new task, run /hooks in Codex CLI, and trust the Hook. A supported Tool call should return permissionDecision=deny when any governed Skill is unapproved, unbound, or modified; it should pass after correction.' }], callout: { type: 'warning', title: 'Codex coverage boundary', body: 'The current Codex PreToolUse example is fail-closed for calls it can intercept, but it does not cover every Shell, WebSearch, or other Tool path. It does not replace OS sandboxing, plugin trust, or controlled Skill deployment.' }, references: [{ label: 'OpenAI Docs: Codex Hooks', url: 'https://learn.chatgpt.com/docs/hooks' }, { label: 'OpenAI Docs: Codex configuration reference', url: 'https://learn.chatgpt.com/docs/config-file/config-reference' }] },
+        { id: 'openclaw', title: 'Connect OpenClaw', steps: [{ title: 'Capture a real payload first', body: 'Install the payload recorder in demo/openclaw-agent-manager-hook, trigger agent:bootstrap, and inspect ~/.openclaw/logs/hook-payloads.jsonl.' }, { title: 'Adapt load verification', body: 'Use the real event to tighten discoverVisibleSkills and resolveSkillNameFromContext, then install the internal Hook as a managed Hook.' }, { title: 'Connect Tool checks', body: 'before_tool_call is not an internal Hook event. Integrate plugin-hooks.ts into the real OpenClaw plugin project and call check-tool. Map session identity to a stable platform Agent ID.' }], callout: { type: 'warning', title: 'Not a turnkey integration yet', body: 'The OpenClaw example is a skeleton. Do not claim enforced Skill-load and Tool-call coverage until it has been adapted and tested against the target OpenClaw event and plugin APIs.' } },
+        { id: 'verify-troubleshoot', title: 'Acceptance tests and troubleshooting', table: { columns: ['Scenario', 'Expected result', 'Check first'], rows: [['Approved, bound, unchanged Skill', 'Allow', 'Agent ID, credential binding, Skill path, and digest'], ['Modified Skill content', 'Block', 'Consistent signature ignore sets; exclude .DS_Store on macOS'], ['Skill not bound or wrong credential', 'Block', 'Agent bindings, credential type, state, and scopes'], ['Platform unreachable or credential expired', 'Declared fail-closed paths block', 'URL, proxy, certificate, timeout, and Hook stderr'], ['No Hook log at all', 'Integration is not proven', 'Session cwd, project/user settings scope, event name, and whether the Tool triggers that Hook']] }, bullets: ['Check the Agent result, local Hook log, and platform Runtime Audit together.', 'Exercise allow, tamper, unauthorized, unreachable, and event-not-triggered cases.', 'Roll out to one test project before user-level or enterprise templates.'], link: { path: '/runtime', label: 'Open Access & Runtime audit' } },
       ],
     },
     'client-management': {
@@ -1447,12 +2310,12 @@ const en = {
       sections: [
         { id: 'desktop-and-console', title: 'Separate the desktop Client from the console', paragraphs: ['Install Agent Manager Client on every workstation or server whose local Skills need governance. It registers with a Client access credential, sends heartbeats, and reports local Agents, Skill inventory, and security events. It is not a reduced version of the admin console; the two surfaces have different responsibilities.'], table: { columns: ['Where you work', 'Primary responsibility'], rows: [['Desktop Client', 'Discover local Agents and Skill roots, choose governance scope, install trusted versions, and continuously audit, restore, or quarantine local content.'], ['Platform console', 'View multiple Clients, configure governance and enforcement, bind managed Agents, and remotely deliver install, repair, remove, model-configuration, and policy-sync tasks.']] }, image: { name: 'client-app-overview', alt: 'Agent Manager desktop Client overview', caption: 'Client Overview combines connection progress, local Agents, managed Skills, platform scanning capabilities, and background inspection state. The screenshot uses example data.' } },
         { id: 'install-register', title: 'Install and connect', steps: [{ title: 'Download the matching installer', body: 'The console currently lists macOS Apple Silicon, macOS Intel, Windows x64, and Linux x64 packages; actual availability depends on the current release.' }, { title: 'Create a Client access credential', body: 'Choose “For Agent Manager Client” in Credential Center. Enable automatic Agent credential issuance only when this Client should deliver model configuration. The secret is shown only once.' }, { title: 'Connect and discover Agents', body: 'Enter the platform address and credential in the Client, then confirm discovered Agents, shared roots, and Skill paths.' }, { title: 'Confirm scope and enable background inspection', body: 'Generate a governance preview, confirm which Skills remain enabled or move to pending, then install the background service.', expected: 'After the desktop window closes, an installed background service continues syncing tasks, inspecting files, and reporting events.' }] },
-        { id: 'client-pages', title: 'What each desktop page provides', table: { columns: ['Page or entry', 'What you can do'], rows: [['Client Overview', 'Inspect connection, enrollment progress, local Agents, managed Skills, action items, and platform scanning capabilities.'], ['Agent Discovery', 'Discover built-in Agents, shared Skill roots, and custom Agents, then review paths and select Skills for governance.'], ['Skill Governance', 'Preview enrollment, install approved versions, move unknown or unapproved content safely to pending, and submit it for scanning.'], ['Runtime Status', 'Run an inspection, pause or resume continuous governance, inspect quarantine, and use pre-enrollment backups for advanced recovery.'], ['Activity Records', 'Separate local inspection and remediation from platform-delivered install, repair, remove, and policy tasks.'], ['Security Notifications', 'Review automatic recovery, isolation block, and audit-only alerts, filtered by unread or severity.'], ['Settings', 'Choose language and start page, configure system notifications and background start, select update channel, and export diagnostics without plaintext credentials.']] } },
+        { id: 'client-pages', title: 'What each desktop page provides', table: { columns: ['Page or entry', 'What you can do'], rows: [['Client Overview', 'Inspect connection, enrollment progress, local Agents, managed Skills, action items, and platform scanning capabilities.'], ['Agent Discovery', 'Discover built-in Agents, shared Skill roots, and custom Agents, then review paths and select Skills for governance.'], ['Model Switching', 'Read the live configuration of local Claude Code, Codex, or Hermes and switch to gateway models delegated to this Client credential.'], ['Skill Governance', 'Preview enrollment, install approved versions, move unknown or unapproved content safely to pending, and submit it for scanning.'], ['Runtime Status', 'Run an inspection, pause or resume continuous governance, inspect quarantine, and use pre-enrollment backups for advanced recovery.'], ['Activity Records', 'Separate local inspection and remediation from platform-delivered install, repair, remove, and policy tasks.'], ['Security Notifications', 'Review automatic recovery, isolation block, and audit-only alerts, filtered by unread or severity.'], ['Settings', 'Choose language and start page, configure system notifications and background start, select update channel, and export diagnostics without plaintext credentials.']] } },
         { id: 'discover-govern', title: 'Discover and enroll local Skills', paragraphs: ['The Client recognizes Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, Hermes, TRAE CN, TRAE, Cursor, CodeBuddy, and WorkBuddy, and separately marks shared Skill roots that multiple Agents may read. Unsupported tools can be registered as custom Agents.'], bullets: ['Expand an Agent to review its real scan roots, Skill names, and validation state before selecting governance scope.', 'The preview separates trusted, enrollable, and pending content, and requires explicit confirmation before changes.', 'Disabled does not mean deleted: content is removed from the Agent entry point, kept safely, and can be submitted for platform scanning.', 'When installing from the platform, choose an approved version and one or more target Agents; the Client verifies release signature and file hashes.'], image: { name: 'client-app-discovery', alt: 'Desktop Client Agent Discovery page', caption: 'Agent Discovery groups Skill roots, discovery results, and platform state by local Agent. The screenshot uses example paths and data.' }, callout: { type: 'note', title: 'Shared-root identity boundary', body: 'Multiple Agents may read the same shared Skill root. The Client can govern its state and content integrity, but the directory alone does not identify the actual caller.' } },
         { id: 'governance-modes', title: 'Governance modes and enforcement policies', table: { columns: ['Setting', 'Actual effect'], rows: [['Client security governance', 'A local Skill may be used when it is a trusted platform version and its signature matches; a platform Agent binding is not required.'], ['Strict Agent authorization', 'The local Agent must be bound to a managed Agent and may install only Skills authorized for that Agent.'], ['Audit only', 'Record and report abnormal content without changing local files.'], ['Automatic recovery', 'Restore the approved platform version when a managed Skill becomes abnormal.'], ['Isolation block', 'Move abnormal content into quarantine and remove it from the Agent Skill entry point.']] }, callout: { type: 'warning', title: 'Confirm the affected paths first', body: 'Automatic recovery and isolation modify local Skill directories. Observe path detection and events in Audit only mode before enabling them in production.' } },
         { id: 'continuous-governance', title: 'Continuous inspection, quarantine, and recovery', paragraphs: ['The background service periodically syncs platform policy and tasks, then checks whether managed Skills were modified, revoked, or replaced. If the platform is temporarily unavailable, the Client continues with the last successfully synced policy and reports queued events after reconnection.'], bullets: ['Run Inspection Now performs a full check; pausing continuous governance does not delete managed content.', 'Quarantine preserves the abnormal copy and reason without restoring unconfirmed content to the Agent entry point.', 'Prefer an approved platform version for recovery. Pre-enrollment backups are reserved for explicit emergency rollback.', 'Activity Records and Security Notifications provide evidence for local inspection, automatic remediation, and platform tasks.'], image: { name: 'client-app-status', alt: 'Desktop Client Runtime Status page', caption: 'Runtime Status shows background inspection, managed and quarantined counts, queued events, and follow-up actions for quarantined content. The screenshot uses example data.' } },
-        { id: 'console-management', title: 'Manage the Client fleet from the console', paragraphs: ['The console list provides fleet-wide online state, version, Agent and Skill counts, security events, and last heartbeat. Client details then expose governance mode, local Agents, tasks, and events.'], image: { name: 'client-list', alt: 'Console Client list', caption: 'The console list compares Client state and governance scale across hosts. Values shown are example environment data.' }, bullets: ['Client details switch between Client security governance and Strict Agent authorization and configure Audit only, Automatic recovery, or Isolation block.', 'Select an approved platform Skill under a local Agent to deliver, repair, or remove it remotely. Claude Code can also receive a model allowed by its runtime credential.', 'Failed or cancelled Client tasks can be retried; local inspection and remediation enter events and unified audit.'], callout: { type: 'note', title: 'What Client tasks do', body: 'Client tasks install, restore, or remove Skills, apply supported model settings, and synchronize policy. After execution, verify the target Agent, resource, task state, and latest event in Client details.' }, link: { path: '/clients', label: 'Open Client management' } },
-        { id: 'agent-model-config', title: 'Deliver a model configuration per local Agent', steps: [{ title: 'Bind a managed Agent', body: 'In Client details, bind local Claude Code to an active managed Agent of the same type.' }, { title: 'Choose credential provisioning', body: 'Pre-create a Governance + model runtime credential, or explicitly allow the Client credential to create runtime credentials for bound Agents. The Client credential itself cannot call models.' }, { title: 'Retrieve through the task', body: 'With automatic issuance enabled, the task contains only non-secret Agent and model identifiers. During execution the Client retrieves one-time plaintext for a separate Agent-bound runtime credential; plaintext is never stored in the task.' }, { title: 'Select and deliver the model', body: 'Existing runtime credentials constrain the model list; automatic issuance allows enabled models. Verify Applied after completion and read the task error when it fails.', expected: 'The Client backs up ~/.claude/settings.json, then updates ANTHROPIC_BASE_URL, ANTHROPIC_MODEL, and the automatically generated Agent-specific ANTHROPIC_AUTH_TOKEN.' }], callout: { type: 'warning', title: 'Initial automatic-configuration boundary', body: 'Automatic application currently supports Claude Code only. Codex depends on the Responses API, which the current model gateway does not expose, so the console does not generate a non-working Codex configuration. Other Agents remain disabled until their configuration format and protocol are verified.' }, link: { path: '/credentials', label: 'Create a Client credential with Agent issuance authorization' } },
+        { id: 'console-management', title: 'Manage the Client fleet from the console', paragraphs: ['The console list provides fleet-wide online state, version, Agent and Skill counts, security events, and last heartbeat. Client details then expose governance mode, local Agents, tasks, and events.'], image: { name: 'client-list', alt: 'Console Client list', caption: 'The console list compares Client state and governance scale across hosts. Values shown are example environment data.' }, bullets: ['Client details switch between Client security governance and Strict Agent authorization and configure Audit only, Automatic recovery, or Isolation block.', 'Select an approved platform Skill under a local Agent to deliver, repair, or remove it remotely. Use Model Switching in the desktop Client for Claude Code, Codex, and Hermes gateway configuration.', 'Failed or cancelled Client tasks can be retried; local inspection and remediation enter events and unified audit.'], callout: { type: 'note', title: 'What Client tasks do', body: 'Client tasks install, restore, or remove Skills, apply supported model settings, and synchronize policy. After execution, verify the target Agent, resource, task state, and latest event in Client details.' }, link: { path: '/clients', label: 'Open Client management' } },
+        { id: 'agent-model-config', title: 'Switch gateway models per local Agent in the Client', steps: [{ title: 'Delegate a model boundary', body: 'Enable automatic Agent credential issuance on the Client credential and optionally restrict Models the Client may configure. An empty list means all enabled models. The Client credential itself cannot call models or MCP.' }, { title: 'Choose a local Agent', body: 'Open Model Switching and select discovered Claude Code, Codex, or Hermes. The page reads the current model, gateway URL, and configuration path from disk.' }, { title: 'Confirm where the gateway URL comes from', body: 'The Client has no separate model-gateway URL field. It reuses the Agent Manager URL entered during enrollment. Claude Code uses that root URL; Codex and Hermes normalize it to a Base URL ending in /v1. This is not the upstream provider URL configured by an administrator.' }, { title: 'Create the runtime identity automatically', body: 'If the local Agent has no runtime identity, the first switch creates a Client-owned managed Agent and binds it automatically. No matching Agent needs to be created or selected in advance.' }, { title: 'Select and switch', body: 'The catalog shows only enabled models inside the delegated Client boundary. The sidecar retrieves an Agent-bound runtime credential in-process, backs up and merges the local configuration, then reads live state again.', expected: 'Claude Code uses Anthropic Messages, Codex uses a Responses model provider, and Hermes uses OpenAI-compatible Chat Completions. The desktop renderer never receives the credential plaintext.' }], image: { name: 'client-app-models', alt: 'Desktop Client Model Switching page', caption: 'Model Switching shows the live local model, the gateway URL derived from the Agent Manager enrollment URL, the configuration path, and models delegated to the credential. The screenshot uses sanitized example data.' }, callout: { type: 'note', title: 'Model and MCP boundary', body: 'The managed Agent is an identity and audit anchor; it does not require the model to match the Agent type. Generated credentials include runtime checks and model:chat restricted to the selected model. If the managed Agent already has MCP gateways, the generated credential also preserves mcp:connect, mcp:list-tools, mcp:call-tools and the same gateway allowlist. MCP server configuration remains a separate feature.' }, link: { path: '/credentials', label: 'Create a Client credential with Agent issuance authorization' } },
         { id: 'console-client-detail', title: 'Verify tasks and events in Client details', paragraphs: ['After a remote operation, verify the target Agent, Skill, task state, and latest event in the same details drawer instead of relying only on the button confirmation.'], image: { name: 'client-detail', alt: 'Console Client detail page', caption: 'Client details combine governance mode, enforcement policy, local Agents, recent tasks, and security events.' }, link: { path: '/clients', label: 'View Client details' } },
       ],
     },
@@ -1462,6 +2325,7 @@ const en = {
         { id: 'feature-map', title: 'Pages and capabilities', table: { columns: ['Page', 'What it controls or explains'], rows: [['Providers / Models', 'Register upstream endpoints and model limits, formats, and enabled state.'], ['Group policies / Privacy policies', 'Bind model access and PII handling to user groups.'], ['Prompt Guard', 'Test and audit prompt injection, system prompt leakage, and credential exfiltration patterns.'], ['Skill Alerts', 'Compare Skills declared by callers with registry, state, and Agent authorization.'], ['Privacy Audit / Pipeline Trace', 'Inspect results and original, replaced, compressed, upstream, and restored stages.'], ['Token Compression Stats / User Token Analytics', 'Inspect requests, token use, savings, processing time, and user-level consumption.']] } },
         { id: 'setup-flow', title: 'Setup order', steps: [{ title: 'Add a provider', body: 'Configure an OpenAI-compatible endpoint, API format, and provider secret; enable provider-level compression if required.' }, { title: 'Register models', body: 'Set model name, context size, output limits, and enabled state.' }, { title: 'Configure groups and privacy policies', body: 'Choose PII entities, Prompt protection, and session mapping behavior.' }, { title: 'Issue a model credential', body: 'Limit models, request size, and concurrency; compression may also be enabled only for selected credentials.' }, { title: 'Call and inspect the trace', body: 'Use an OpenAI- or Anthropic-compatible endpoint, then inspect the privacy pipeline.' }], link: { path: '/model-gateway/providers', label: 'Open Providers' } },
         { id: 'pipeline', title: 'What happens to a request', bullets: ['Validate credential state, model scope, request size, and concurrency.', 'When the matching policy enables it, detect prompt injection, system prompt leakage, and credential exfiltration patterns.', 'When a privacy policy matches, replace PII with session-scoped pseudonymous tokens.', 'When the provider or credential enables compression, process context before the upstream call.', 'Restore the response and record audit, usage, and trace stages.'] },
+        { id: 'compatible-endpoints', title: 'Choose the compatible endpoint for each Agent', table: { columns: ['Caller', 'Gateway endpoint', 'Purpose'], rows: [['Claude Code', 'POST /v1/messages', 'Anthropic Messages-compatible requests.'], ['Codex', 'POST /v1/responses', 'Responses protocol through a custom model_provider.'], ['Hermes and regular OpenAI-compatible clients', 'POST /v1/chat/completions', 'Chat Completions-compatible requests.'], ['Model discovery', 'GET /v1/models', 'Returns only enabled models allowed by the current credential.']] }, callout: { type: 'note', title: 'Protocol boundary', body: 'All three endpoints share credential, model-scope, privacy, and audit checks, but their wire fields are not interchangeable. Model Switching writes the correct endpoint for each Agent type.' } },
         { id: 'token-compression', title: 'Token compression and usage analysis', paragraphs: ['A provider can enable compression globally. A model-call or Agent runtime credential with model:chat scope can also enable it and select auto, conservative, or aggressive. When only the provider enables compression and the credential does not select a level, the gateway uses auto. The platform processes messages before the upstream call and records token counts before and after compression, savings, ratio, and processing time.'], bullets: ['Token Compression Stats groups requests, input and output tokens, savings, average response time, model time, and platform time by period and model.', 'User Token Analytics compares call volume and token consumption across users.', 'Response headers and Pipeline Trace help distinguish compressed, enabled with no transformation, and disabled requests.'], callout: { type: 'note', title: 'Enabled does not mean every request saves tokens', body: 'Short context may need no transformation. If the compression component is unavailable or fails, the gateway falls back to the original messages, so enabled must not be interpreted as saved.' }, image: { name: 'token-compression', alt: 'Token Compression Stats page', caption: 'The stats page combines token usage, compression requests, savings, and platform and model timing. Values shown are example environment data.' }, link: { path: '/model-gateway/stats', label: 'Open Token Compression Stats' } },
         { id: 'skill-alerts', title: 'Skill Alerts in model requests', paragraphs: ['When a caller declares Skills in a model request, the platform compares them with Skill registration, loadable state, and Agent authorization, then records missing, unknown, mismatched, unavailable, or unauthorized declarations.'], callout: { type: 'warning', title: 'Currently audit-only', body: 'Skill Alerts do not block model calls. Caller-declared Skill metadata is not local signature or content verification; use Skill Verifier or Client inspection when content integrity is required.' }, link: { path: '/model-gateway/skill-alerts', label: 'Open Skill Alerts' } },
         { id: 'privacy', title: 'Privacy trace boundaries', paragraphs: ['Pipeline Trace can show original, masked, compressed, upstream, and restored content. Original stages may contain PII and should be limited to authorized administrator or privacy auditor roles.'], link: { path: '/pipeline-trace', label: 'Open Pipeline Trace' } },
@@ -1510,9 +2374,23 @@ const en = {
     faq: {
       eyebrow: 'Help', title: 'Frequently asked questions', summary: 'Start from the visible symptom, confirm state and evidence, then decide whether to rescan or change configuration.',
       sections: [
-        { id: 'pending', title: 'Why does a Skill remain PENDING?', paragraphs: ['Inspect scan runs first, then check backend logs and the deep-analysis, LLM, and Sandbox state in System Overview. Scanner access credentials affect only customer-side Scanner uploads and are not a prerequisite for ZIP scanning. PENDING means the background workflow has no final result yet; do not assume a browser cache problem.'] },
+        { id: 'pending', title: 'Why does a Skill keep showing SCANNING?', paragraphs: ['Inspect scan runs first, then check backend logs and the deep-analysis, LLM, and Sandbox state in System Overview. Scanner access credentials affect only customer-side Scanner uploads and are not a prerequisite for ZIP scanning. SCANNING means the backend Skill is PENDING or has a PENDING scan run. A rescan preserves the previous admission status while it runs; do not assume a browser cache problem.'] },
         { id: 'different-results', title: 'Why is Sandbox low risk while final risk is higher?', paragraphs: ['Sandbox only sees behavior triggered during one probe. Static patterns, untriggered branches, and LLM evidence may still raise final risk.'] },
-        { id: 'review-queue', title: 'Why is a Skill missing from the review queue?', paragraphs: ['Only VETTED items wait for human review. APPROVED was auto-approved, REJECTED was rejected by policy, and PENDING is still scanning.'] },
+        {
+          id: 'llm-safe-final-malicious',
+          title: 'Why does the LLM report no apparent risk while final risk is malicious?',
+          paragraphs: ['No apparent risk is the model assessment. Final risk reconciles tool risk and the LLM conclusion under the policy used for this scan. Malicious risk is retained in these two cases:'],
+          bullets: [
+            'Findings are in Classify as malicious: rule, deep-scan, or Sandbox findings assigned to this group establish malicious risk that LLM cannot lower. For example, a data-transfer finding classified as malicious retains that risk even if the LLM describes it as a normal upload.',
+            'The scan uses strict mode: LLM cannot lower tool risk. If tool risk is malicious, an LLM conclusion of No apparent risk does not change the final risk.',
+          ],
+          steps: [
+            { title: 'Inspect the recorded decision', body: 'Open Skill details > Detection Report > Decision trace and read The LLM conclusion differs from final risk. When the relevant records exist, select View findings that retained malicious risk to inspect evidence, or View original LLM analysis to inspect the model opinion. Historical reports without reconciliation evidence explicitly state that the specific reason cannot be confirmed.' },
+            { title: 'Check classifications and policy', body: 'If you suspect a false positive, inspect the original evidence and configuration used for this scan. If an adjustment is needed, edit the relevant risk identification rules or decision mode in policy settings, save, and rescan. Existing reports retain their conclusions. Admission settings separately route malicious risk to manual review or automatic rejection.' },
+          ],
+          link: { path: '/docs/risk-classification', label: 'Read risk reconciliation' },
+        },
+        { id: 'review-queue', title: 'Why is a Skill missing from the review queue?', paragraphs: ['The VETTED filter shows items awaiting review with no active scan. SCANNING covers initial scans and rescans. A rescan may retain the previous backend admission status, such as APPROVED or VETTED. Check the final status and review actions when scanning finishes.'] },
         { id: 'rescan', title: 'Why did an identical submission not run again?', paragraphs: ['Identical content and scan context may reuse results. Use Rescan for a fresh run; submit changed content as a new version.'] },
         { id: 'agent-blocked', title: 'Why can an Agent not load an approved Skill?', paragraphs: ['Check that the runtime credential is bound to the Agent, the Agent is authorized for the Skill, the local signature matches, and signature verification happened before the load check.'] },
         { id: 'credential-lost', title: 'Can a lost credential secret be shown again?', paragraphs: ['No. The server stores only a hash. Revoke the old credential, create a new one, and update the caller.'] },
@@ -1575,12 +2453,13 @@ en.articles['credential-management'] = {
       paragraphs: ['The Credential routes at the top create by calling scenario. The caller is the running program that sends the Bearer credential, not the administrator configuring the system.'],
       table: { columns: ['Route', 'Choose it when', 'Do not mix it with'], rows: [
         ['For an Agent', 'A registered Agent needs runtime checks and may also call models or MCP', 'Do not add a regular model credential to impersonate the same Agent'],
-        ['For an application calling models', 'A non-Agent service, script, or business application only calls models', 'It cannot establish trusted registered-Agent identity'],
+        ['LLM Credential', 'Call large language models through the model gateway', 'It cannot establish trusted registered-Agent identity'],
         ['For an MCP client', 'An MCP Client that is not a platform Agent calls published Tools', 'It cannot reach gateways outside its allowlist'],
         ['For Skill Scanner', 'A customer-side Scanner uploads Skills and polls its own results', 'It cannot approve, deploy, or read results owned by others'],
         ['For Agent Manager Client', 'A desktop or background Client registers, heartbeats, syncs inventory, and executes tasks', 'It cannot call models or MCP; explicit authorization may let it issue separate credentials for locally bound Agents through configuration tasks'],
       ] },
       link: { path: '/credentials', label: 'Open Credential routes' },
+      image: { name: 'credential-center', alt: 'LLM Credential entry in the credential center', caption: 'Select LLM Credential for an application to call large language models through the model gateway.' },
     },
     {
       id: 'credential-types', title: 'Credential types behind the routes',
@@ -1608,8 +2487,8 @@ en.articles['credential-management'] = {
     },
     {
       id: 'client-agent-issuance', title: 'How a Client automatically creates Agent runtime credentials',
-      paragraphs: ['A Client credential may enable “Allow the Client to create runtime credentials for bound Agents.” It is off by default and does not grant model:chat or mcp:* directly to the Client credential.'],
-      bullets: ['The local Agent must first be discovered and bound to an active managed Agent.', 'Only a concrete server-created configuration task may retrieve the secret; plaintext never enters task payloads or list responses.', 'The generated credential includes runtime:verify-signature, runtime:can-load, runtime:check-tool, and model:chat, restricted to the model selected by the task. It does not include runtime:govern or any mcp:* permission.', 'Revoking or deleting the parent Client credential revokes active Agent credentials it generated.', 'Automatic writing currently covers Claude Code model configuration only; MCP and other Agents require their configuration adapters.'],
+      paragraphs: ['A Client credential may enable “Allow the Client to create runtime credentials for local Agents.” It is off by default and does not grant model:chat or mcp:* directly to the Client credential.'],
+      bullets: ['The local Agent must first be discovered. If it has no runtime identity, the first switch automatically creates and binds a Client-owned managed Agent.', 'The managed Agent is a credential identity and audit anchor; it does not mean the model must match the Agent type.', 'The Client credential may restrict the gateway models it can configure. This is not direct model-call permission for the Client.', 'Only a concrete model-switch task may retrieve the secret; plaintext never enters task payloads, list responses, or the desktop renderer.', 'The generated credential includes runtime:verify-signature, runtime:can-load, runtime:check-tool, and model:chat restricted to the selected model. It excludes runtime:govern. If the managed Agent already has MCP gateways, it preserves the three mcp:* call scopes and gateway allowlist.', 'Revoking or deleting the parent Client credential revokes active Agent credentials it generated.', 'Automatic writing currently supports Claude Code, Codex, and Hermes. Other Agents still require verified configuration and protocol adapters.'],
     },
     {
       id: 'composite-agent-runtime', title: 'Use one runtime credential for one Agent',
@@ -1626,6 +2505,64 @@ en.articles['credential-management'] = {
         ['Request or upload rejected', 'Check body or upload size instead of removing limits indiscriminately'],
       ] },
       link: { path: '/docs/audit-trail', label: 'Continue to Audit trail' },
+    },
+  ],
+}
+
+en.articles['agent-security-runtime'] = {
+  eyebrow: 'Agent management',
+  title: 'AI security scanning and unified runtime traces',
+  summary: 'Configure Agent, MCP, LLM, and AI infrastructure security assessments, interpret cases and findings correctly, and correlate redacted model, Tool, governance, and retrieval evidence in unified traces.',
+  sections: [
+    {
+      id: 'enabled-scope', title: 'Capabilities enabled now',
+      paragraphs: ['Security Scanning and Runtime Traces are direct sidebar entries after Model Gateway and before System Management, enabled by default. No .env page flag is required. Executing scans still requires an administrator to create targets, policies, and an independent Worker; a visible page is not evidence that an external target passed acceptance.'],
+      table: { columns: ['Capability', 'Current behavior', 'What it does not prove'], rows: [
+        ['Control-plane validation', 'Checks the target/policy execution contract and boundaries', 'Does not replace dynamic scanning or establish target safety'],
+        ['Agent risk scan', 'Sends test conversations to an authorized target within outbound, budget, timeout, and capability policy', 'It does not cover unexecuted scenarios or reproduce an unlimited attack chain'],
+        ['Dify asset inventory', 'Collects app configuration, DSL, nodes, models, Tools, MCP, and knowledge references with source and verification status', 'Configuration does not prove execution; inferred intent is not a verified fact'],
+        ['MCP risk scan', 'Reads the Gateway, Server, Tool descriptions, and Schema metadata frozen when the task was created', 'It does not execute tools/call or verify real Tool side effects'],
+        ['LLM red team', 'Calls the target and an independent evaluator with a locked dataset or custom prompt, creating one case per prompt', 'A passed case means that attack did not observe a jailbreak; it does not prove absolute safety'],
+        ['AI infrastructure scan', 'Actively visits explicitly authorized URLs, fingerprints components, and matches CVE rules to concrete versions', 'An open port or unknown version is neither a confirmed vulnerability nor proof of safety'],
+        ['Unified runtime trace', 'Stores events actually published by the Agent SDK, Model Gateway, MCP Gateway, and Runtime Governance', 'Gateway-only traffic cannot establish a complete Agent Turn/Step trace'],
+      ] },
+      link: { path: '/agent-security/scans', label: 'Open Security Scanning' },
+    },
+    {
+      id: 'scan-workflow', title: 'Run and review one security scan',
+      steps: [
+        { title: 'Create a target', body: 'Choose its type and environment, then declare allowed capabilities and connection settings. Private destinations require matching target and policy CIDR allowlists. TLS verification cannot be disabled.' },
+        { title: 'Choose an execution policy', body: 'Confirm round, token, cost, response-size, concurrency, duration, lease, retry, and outbound boundaries. Read-only mode blocks write Tools at the server and records a governance event.' },
+        { title: 'Choose a scan type', body: 'Agent scans and LLM red-team tasks need reachable targets and an evaluator. MCP analyzes a frozen snapshot only. AI infrastructure scans actively visit authorized URLs under HTTP, DNS, and dual-CIDR controls.' },
+        { title: 'Observe the task instead of resubmitting', body: 'A task moves through pending, running, and a terminal state. Use refresh, cancel, or Kill Switch. Kill Switch prevents subsequent requests; in-flight calls end through target or evaluator timeouts.' },
+        { title: 'Review the evidence chain', body: 'Read cases, findings, evidence, raw-artifact summary, engine version, coverage snapshot, and stop reason together. A Finding links to an event only when the server stored a valid trace_id and event_id pair.', expected: 'Every conclusion resolves to a case, event, or an explicit Unverified reason.' },
+      ],
+      link: { path: '/agent-security/scans', label: 'Open AI Security Scanning' },
+    },
+    {
+      id: 'interpret-results', title: 'Interpret success, passed cases, and zero Findings correctly',
+      bullets: ['Task succeeded means the execution contract completed; it does not mean the target is safe.', 'Case passed means that execution did not observe the risk. Blocked and error cases remain Unverified.', 'Zero Findings cannot be treated as safe without checking cases, coverage, engine, budgets, stop reason, and evidence completeness.', 'Resolved or not reproduced is valid only when both scans succeeded with equivalent engines and coverage.', 'Historical records missing a case, event, evidence, or rule version remain incomplete; the platform does not invent evidence retroactively.'],
+      callout: { type: 'warning', title: 'Every scan conclusion has a boundary', body: 'Agent scans cover only executed rules and rounds; MCP covers frozen descriptions and Schemas; LLM red team covers executed prompts; infrastructure Findings require component, version, and CVE-rule evidence. Anything without sufficient evidence remains Unverified.' },
+    },
+    {
+      id: 'worker-operations', title: 'Worker identity and runtime state',
+      paragraphs: ['An administrator creates a Worker identity and stores its one-time Token, then injects it through the site Secret-management process. Worker Tokens and evaluator keys are runtime credentials, not page flags, and must not enter images, source, or normal logs.'],
+      bullets: ['healthy proves only the Worker process and control-plane heartbeat/lease channel. It does not prove an external target passed scanning.', 'Tokens cannot be rotated in place. Create a new Worker, switch and verify heartbeat plus public-key fingerprint, then revoke the old identity.', 'After interruption, running tasks converge through lease expiry and retry policy. Exhausted retries fail explicitly instead of producing a false safe conclusion.', 'Production defaults use non-root, a read-only root filesystem, temporary storage, no extra capabilities, and resource limits. Tune only after tests in the target environment.'],
+    },
+    {
+      id: 'trace-completeness', title: 'Read completeness from real event sources',
+      table: { columns: ['Completeness', 'Observed sources', 'Missing context'], rows: [
+        ['full', 'Agent SDK plus associated model, MCP, or governance events', 'It still represents only lifecycle events actually reported by the integration'],
+        ['model_only', 'Model Gateway events only', 'No Agent Turn, Step, Tool, or retrieval context'],
+        ['mcp_only', 'MCP Gateway events only', 'No model reasoning or Agent lifecycle'],
+        ['gateway_partial', 'Multiple gateway event types without the Agent SDK layer', 'Cannot reconstruct complete conversational intent or Step boundaries'],
+      ] },
+      paragraphs: ['A custom Runtime should create the Trace with the Runtime Trace SDK and place the same trace_id, turn_id, step_id, call_id, and parent_call_id in model metadata and MCP params._meta. Ordinary model or MCP credentials cannot impersonate a registered Agent; trusted identity comes from the bound Agent runtime credential.'],
+      link: { path: '/runtime-traces', label: 'Open Unified Runtime Traces' },
+    },
+    {
+      id: 'privacy-evidence', title: 'Privacy boundaries for search, viewing, and export',
+      bullets: ['Trace lists, conversation view, event details, and search use server-redacted projections and do not read raw prompts, responses, or Tool arguments.', 'Redacted JSON and PDF support ordinary review. PDF does not support raw classification.', 'Raw JSON is limited to administrators, super administrators, or privacy auditors after current-password verification creates a five-minute, one-use authorization. Every action is security-audited.', 'Security auditors see redacted content only. Raw payloads are encrypted separately; ordinary application logs contain IDs, stable error codes, and redacted summaries.'],
     },
   ],
 }
@@ -1664,61 +2601,61 @@ en.articles['audit-trail'] = {
 en.articles['risk-classification'] = {
   eyebrow: 'Skill governance',
   title: 'Risk finding classification and decision logic',
-  summary: 'Classify analyzer findings as blocking, suspicious, or noise, then combine severity, judgement mode, and optional LLM output into final risk.',
+  summary: 'Classify analyzer findings under the scan policy as Classify as malicious, Assess in context, or Retain as a notice, then combine severity, judgement mode, and optional LLM output into final risk.',
   sections: [
     {
       id: 'four-levels', title: 'Separate four layers first',
       paragraphs: ['Finding classification is neither final risk nor final state. Trace a result from individual evidence through classification and risk reconciliation to admission.'],
       table: { columns: ['Layer', 'Question answered', 'Example'], rows: [
         ['Finding and severity', 'What evidence did one analyzer observe?', 'A HIGH download-and-execute rule'],
-        ['Finding classification', 'Is this finding blocking, suspicious, or noise?', 'Supply-chain risk is blocking'],
-        ['Final risk', 'Is the reconciled result benign, suspicious, or malicious?', 'A MEDIUM suspicious finding becomes suspicious in balanced mode'],
+        ['Finding classification', 'How does the scan policy configure this finding to affect risk?', 'Recommended settings classify supply-chain risk as malicious'],
+        ['Final risk', 'Is the reconciled result benign, suspicious, or malicious?', 'Tool risk and the LLM conclusion reconcile to suspicious'],
         ['Skill state', 'Is the Skill approved, queued for review, or rejected?', 'APPROVED, VETTED, or REJECTED'],
       ] },
     },
     {
-      id: 'classification-meaning', title: 'Blocking, suspicious, and noise findings',
+      id: 'classification-meaning', title: 'Classify as malicious, Assess in context, or Retain as a notice',
       table: { columns: ['Class', 'Meaning', 'Deterministic risk effect'], rows: [
-        ['Blocking', 'High-confidence behavior that must not be automatically admitted', 'Any blocking finding produces malicious risk and cannot be downgraded by LLM'],
-        ['Suspicious', 'A security signal evaluated with severity and judgement mode', 'HIGH or above normally requires at least review; MEDIUM depends on mode'],
-        ['Noise', 'Dependency, runtime, or documented-example diagnostics', 'Retained for explanation and troubleshooting but does not directly raise deterministic risk'],
+        ['Classify as malicious', 'The scan policy assigns this finding directly to malicious risk', 'Any such finding produces malicious risk that LLM cannot lower'],
+        ['Assess in context', 'The scan policy evaluates this finding using severity and judgement mode', 'Severity and strict, balanced, or permissive mode determine tool risk, as shown in the table below'],
+        ['Retain as a notice', 'The scan policy retains this evidence without directly raising tool risk', 'Retained for explanation and troubleshooting but does not directly raise deterministic risk'],
       ] },
-      callout: { type: 'note', title: 'Noise is not deleted evidence', body: 'The original rule, severity, file, and evidence remain in the report. Classification only removes that item from deterministic risk escalation.' },
+      callout: { type: 'note', title: 'Notices retain original evidence', body: 'The original rule, severity, file, and evidence remain in the report. Retain as a notice describes its contribution to tool risk; the final risk still incorporates other analysis results.' },
     },
     {
       id: 'default-mapping', title: 'Default finding classification',
       table: { columns: ['Default class', 'Risk items'], rows: [
-        ['Blocking', 'Data exfiltration; supply-chain risk'],
-        ['Suspicious', 'Prompt injection; Tool misuse; network, credential, or dynamic execution; excessive permissions'],
-        ['Noise', 'Documented external API examples; dependency issues; runtime issues'],
+        ['Classify as malicious', 'Data exfiltration; supply-chain risk'],
+        ['Assess in context', 'Prompt injection; Tool misuse; network, credential, or dynamic execution; excessive permissions'],
+        ['Retain as a notice', 'Documented external API examples; dependency issues; runtime issues'],
       ] },
-      paragraphs: ['Administrators can move these items between classes under Policy Settings / Risk Decisions. The mapping is part of scan context. Existing reports are not rewritten; rescan to apply the new policy.'],
+      paragraphs: ['Administrators can move these items between classes under Policy Settings > Admission policy > Customize risk identification rules. The mapping is part of scan context. Existing reports are not rewritten; rescan to apply the new policy.'],
       link: { path: '/policy', label: 'Open Policy Settings' },
     },
     {
       id: 'classification-order', title: 'How one finding is classified',
       steps: [
         { title: 'Identify the risk item', body: 'Rule ID, category, file path, and evidence text are matched to data exfiltration, supply chain, prompt injection, and other configured items. Documented API examples are recognized first.' },
-        { title: 'Apply the administrator mapping', body: 'When a configured risk item is recognized, its current blocking, suspicious, or noise class wins.' },
-        { title: 'Apply the security fallback', body: 'Unmapped download-and-execute, credential or data exfiltration, and governance-bypass rules remain blocking.' },
-        { title: 'Filter diagnostic noise', body: 'Missing dependencies, runtime issues, and LOW or MEDIUM low-analyzability signals become noise.' },
-        { title: 'Fall back by severity', body: 'Other MEDIUM-or-higher findings become suspicious; remaining lower findings become noise.' },
+        { title: 'Apply the administrator mapping', body: 'When a configured risk item is recognized, the scan policy assigns it to Classify as malicious, Assess in context, or Retain as a notice.' },
+        { title: 'Apply the security fallback', body: 'Unmapped download-and-execute, credential or data exfiltration, and governance-bypass rules are classified as malicious.' },
+        { title: 'Retain runtime diagnostics as notices', body: 'Missing dependencies, runtime issues, and LOW or MEDIUM low-analyzability signals are retained as notices.' },
+        { title: 'Fall back by severity', body: 'Other MEDIUM-or-higher findings use Assess in context; remaining lower findings use Retain as a notice.' },
       ],
     },
     {
       id: 'risk-reconciliation', title: 'How classes produce final risk',
       table: { columns: ['Finding state', 'Strict', 'Balanced', 'Permissive'], rows: [
-        ['Any blocking finding', 'malicious', 'malicious', 'malicious'],
-        ['Highest suspicious finding is HIGH / CRITICAL', 'malicious', 'suspicious', 'suspicious'],
-        ['Highest suspicious finding is MEDIUM', 'suspicious', 'suspicious', 'benign'],
-        ['Only noise or lower findings', 'benign', 'benign', 'benign'],
+        ['Any finding in Classify as malicious', 'malicious', 'malicious', 'malicious'],
+        ['Highest severity in Assess in context is HIGH or above', 'malicious', 'suspicious', 'suspicious'],
+        ['Highest severity in Assess in context is MEDIUM', 'suspicious', 'suspicious', 'benign'],
+        ['Only notices or low-severity contextual findings', 'benign', 'benign', 'benign'],
       ] },
-      paragraphs: ['When enabled, LLM runs once after deterministic classification. It may raise risk. In balanced or permissive mode, it may also lower non-blocking risk and records the model explanation or a fallback reason. Strict mode and results containing a blocking finding cannot be downgraded.'],
+      paragraphs: ['The table shows tool risk before LLM reconciliation. When enabled, LLM may raise risk. In balanced or permissive mode, it may also lower tool risk when no findings are classified as malicious. Strict mode or findings classified as malicious retain the tool-risk floor. Decision trace explains whether the LLM conclusion was adopted and shows the recorded reason.'],
     },
     {
       id: 'admission-result', title: 'How final risk becomes a Skill state',
-      bullets: ['A blocking manifest constraint, such as an explicitly denied permission, produces REJECTED.', 'Final risk in Automatic rejection becomes REJECTED. If the same risk is also configured for review, rejection wins.', 'Final risk in Human review becomes VETTED.', 'Fail-safe behavior still rejects malicious, sends suspicious to review, and approves only benign when policy values are missing or incomplete.'],
-      callout: { type: 'warning', title: 'Do not decide by finding count', body: 'One blocking finding can determine risk, while many noise findings should not be accumulated into malicious. Review classification and evidence before final risk and state.' },
+      bullets: ['A Skill declaration matching an explicitly denied permission produces REJECTED.', 'Risk disposition rules assign one action to each final risk: automatic rejection produces REJECTED, manual review produces VETTED, and automatic approval produces APPROVED with a signature.', 'Benign and suspicious risks support automatic approval. Approval preserves the original risk rating.', 'Risks without a configured action use the defaults: approve benign, review suspicious, and reject malicious.'],
+      callout: { type: 'warning', title: 'Do not decide by finding count', body: 'One finding classified as malicious under the scan policy establishes malicious risk; notice counts do not directly raise tool risk. Risk classification and admission actions are configured separately. Review both.' },
       link: { path: '/docs/skill-policy', label: 'Continue to Skill policy settings' },
     },
   ],
@@ -1727,39 +2664,110 @@ en.articles['risk-classification'] = {
 en.articles['skill-policy'] = {
   eyebrow: 'Skill governance',
   title: 'Skill policy settings',
-  summary: 'Configure result reuse, risk decisions, admission constraints, LLM, and Sandbox while understanding what each setting currently enforces for Skills.',
+  summary: 'Set risk rules and admission actions, preview examples using current page settings, then save and rescan to verify real outcomes.',
   sections: [
     {
       id: 'effective-order', title: 'Where policy acts in the scan flow',
       steps: [
         { title: 'Decide whether a result can be reused', body: 'An existing report can be reused when both content and scan context match and reuse is enabled. Policy or analyzer changes alter scan context.' },
         { title: 'Run selected analyzers', body: 'Rules and deep scan establish interim severity. If interim risk matches a mandatory Sandbox level, the backend attempts an additional Sandbox run.' },
-        { title: 'Classify and reconcile deterministic risk', body: 'Findings become blocking, suspicious, or noise; strict, balanced, or permissive mode produces pre-LLM risk.' },
-        { title: 'Optionally run LLM assessment', body: 'The model runs after other evidence is available. Blocking findings and strict-mode downgrade protection remain enforced.' },
+        { title: 'Classify and aggregate tool risk', body: 'Findings use Classify as malicious, Assess in context, or Retain as a notice; strict, balanced, or permissive mode produces pre-LLM risk.' },
+        { title: 'Optionally run LLM assessment', body: 'The model runs after other evidence is available. Findings classified as malicious under the scan policy establish malicious risk, and strict mode also prevents the model from lowering tool risk.' },
         { title: 'Apply manifest constraints and admission', body: 'Tool and license rules create policy warnings or blocks, then final risk routes the Skill to APPROVED, VETTED, or REJECTED.' },
       ],
     },
     {
-      id: 'page-layout', title: 'What the four settings areas control',
-      table: { columns: ['Area', 'Primary settings', 'Recommended approach'], rows: [
-        ['Risk decisions', 'Result reuse, judgement mode, review/rejection risk, mandatory Sandbox, finding classification', 'Set the organization risk posture before moving individual risk items'],
-        ['Admission constraints', 'Tool count, allowed Tools, denied permissions, license, and author data', 'Start least-privilege and validate with representative Skills'],
-        ['LLM', 'Enabled state, model, timeout, and content snapshot limits', 'Enable a model in Model Gateway before exposing the submission option'],
-        ['Sandbox', 'Local or remote runtime, timeout, network, memory, CPU, PIDs, and read-only root filesystem', 'Test connectivity before requiring Sandbox for risk levels'],
-      ] },
-      link: { path: '/policy', label: 'Open Policy Settings' },
-    },
+          "id": "page-layout",
+          "title": "What the three settings areas control",
+          "table": {
+            "columns": [
+              "Area",
+              "Primary settings",
+              "Recommended approach"
+            ],
+            "rows": [
+              [
+                "Admission policy",
+                "Actions for scan conclusions, risk rules, company permissions and license requirements",
+                "Read the summary, then adjust actions or expand custom rules"
+              ],
+              [
+                "Detection settings",
+                "AI and Sandbox availability; intermediate risks that require Sandbox",
+                "Use Configure service to open service parameters"
+              ],
+              [
+                "Advanced configuration",
+                "Result reuse, AI model and content limits, Sandbox service and resources",
+                "Configure during deployment or tuning, save, and verify with a rescan"
+              ]
+            ]
+          },
+          "link": {
+            "path": "/policy",
+            "label": "Open Policy Settings"
+          },
+          "image": {
+            "name": "skill-policy",
+            "alt": "What the three settings areas control",
+            "caption": "Example configuration: admission actions and finding classifications are shown together."
+          }
+        },
     {
-      id: 'decision-settings', title: 'Risk decision and disposition settings',
-      table: { columns: ['Setting', 'Current effect', 'Important detail'], rows: [
-        ['Reuse identical scan results', 'Reuses a report when content and scan context match', 'Disable it to rescan identical content on resubmission'],
-        ['Judgement mode', 'Maps non-blocking HIGH / MEDIUM suspicious findings to risk', 'Blocking findings remain malicious in every mode'],
-        ['Human review', 'Matching final risk becomes VETTED', 'Default includes suspicious'],
-        ['Automatic rejection', 'Matching final risk becomes REJECTED', 'Rejection wins when also configured for review'],
-        ['Mandatory Sandbox', 'Attempts Sandbox when interim risk matches a selected level', 'The dependency must be enabled and reachable; skipped or failed is not safe'],
-        ['Finding classification', 'Places 11 risk items into blocking, suspicious, or noise', 'Changes apply to future rescans, not completed reports'],
-      ] },
-      link: { path: '/docs/risk-classification', label: 'Read classification and risk calculation' },
+          "id": "decision-settings",
+          "title": "Admission actions and risk rules",
+          paragraphs: ['Choose the action for each risk level first. Expand Customize risk identification rules to change how findings affect risk. The summary reflects current edits; use Preview current policy to check the expected outcome before saving.'],
+          "table": {
+            "columns": [
+              "Setting",
+              "Current effect",
+              "Important detail"
+            ],
+            "rows": [
+              [
+                "Risk disposition rules",
+                "Choose an action for benign, suspicious, and malicious conclusions",
+                "Benign and suspicious risks can be approved, reviewed, or rejected; malicious risks can be reviewed or rejected. Automatic approval preserves the suspicious risk rating"
+              ],
+              [
+                "Use recommended actions",
+                "Approve benign, review suspicious, reject malicious",
+                "Check the policy summary before saving"
+              ],
+              [
+                "Findings that affect risk",
+                "Classify as malicious, Assess in context, or Retain as a notice",
+                "Expand Customize risk identification rules to change how each behavior affects risk"
+              ],
+              [
+                "Decision mode",
+                "Strict, balanced, or permissive controls context-dependent findings",
+                "AI cannot lower risk established by findings in Classify as malicious"
+              ],
+              [
+                "Use recommended risk rules",
+                "Restore recommended classifications and balanced mode",
+                "Configured separately from admission actions"
+              ]
+            ]
+          },
+          "link": {
+            "path": "/docs/risk-classification",
+            "label": "Read classification and risk calculation"
+          }
+        },
+    {
+      id: 'policy-preview',
+      title: 'Preview current policy: simulate a decision',
+      paragraphs: ['Current policy decision preview uses the settings on this page, including unsaved changes. Manually supplied findings help explain and compare policy behavior. It reuses backend decision logic without running scans, calling models, saving policy, or creating Skills.'],
+      steps: [
+        { title: 'Open the preview dialog', body: 'On Admission policy, click Preview current policy in the upper right of Admission policy summary. Start with Dynamic execution + LLM: no apparent risk or Data exfiltration + LLM: no apparent risk to populate an example.' },
+        { title: 'Set simulated analyzer results', body: 'Choose execution states for rule analysis, deep scan, and Sandbox, add finding types and severities as needed, then select the LLM risk conclusion. Completed with no findings differs from disabled, skipped, unavailable, or failed; missing conclusions do not establish safety. If banned permissions are configured, you can also simulate matching declarations.' },
+        { title: 'Read risk, action, and the decision path', body: 'Changing inputs automatically recalculates the result. Compare final risk with admission action, then follow Classify findings → Aggregate tool risk → Reconcile LLM conclusion → Apply admission rules. A banned permission declaration causes rejection even when the risk disposition allows approval.' },
+        { title: 'Compare policy settings', body: 'Changing decision mode in the dialog updates the policy draft on this page. Select Back to policy settings to adjust classifications or actions, then reopen the preview. Simulated inputs are retained for this page.' },
+        { title: 'Save and verify a real Skill', body: 'Return to policy settings, check the summary and unsaved-changes notice, then select Save changes. Rescan the target version from the Skill list and inspect its actual outcome under Decision trace in Skill details.' },
+      ],
+      image: { name: 'skill-policy-simulator', alt: 'Current policy decision preview dialog with inputs and four decision steps', caption: 'Example configuration: balanced mode accepts the LLM’s no-apparent-risk conclusion for medium-severity dynamic execution. Risk and admission action are shown separately.' },
     },
     {
       id: 'admission-settings', title: 'Tool and license constraints',
@@ -1773,26 +2781,83 @@ en.articles['skill-policy'] = {
       callout: { type: 'note', title: 'Validate SKILL.md declarations first', body: 'These checks read allowed-tools / allowed_tools and license from SKILL.md frontmatter. They validate declarations and do not replace rule, deep-scan, or Sandbox inspection of actual code behavior.' },
     },
     {
-      id: 'analyzer-settings', title: 'LLM and Sandbox settings',
-      bullets: ['LLM settings control whether Skill LLM analysis is available, which enabled Model Gateway model is used, and timeout, file-count, per-file, and manifest snapshot limits.', 'Sandbox settings select a remote isolated service or local Docker runtime and constrain network, memory, CPU, PID count, duration, and root-filesystem writes.', 'Enabled means the capability may be selected or called. Per-run completed, skipped, unavailable, and failed statuses show what actually happened.', 'Test Sandbox connectivity before saving. Validate LLM availability, timeout, and snapshot range with a non-sensitive test Skill.'],
-    },
+          "id": "analyzer-settings",
+          "title": "Detection switches and service configuration",
+          "bullets": [
+            "Detection settings enables AI analysis and Sandbox, and selects intermediate risks that require Sandbox. Rule analysis always runs.",
+            "Advanced configuration > AI analysis service selects the model, timeout, file count, and character limits. Add the model under Model Gateway > Model Management first. Select LLM analysis when submitting or rescanning.",
+            "Advanced configuration > Sandbox service configures Docker or a remote service, network, resources, and timeout. Remote connections can be tested.",
+            "Advanced configuration also controls reuse for identical content and scan context. An explicit rescan performs a new scan.",
+            "Switches control availability; completed, skipped, unavailable, and failed in a report describe actual execution."
+          ],
+          "image": {
+            "name": "skill-policy-detection",
+            "alt": "Detection switches and service configuration",
+            "caption": "Example configuration: analyzer switches and intermediate-risk conditions for Sandbox."
+          }
+        },
     {
-      id: 'current-boundaries', title: 'Current enforcement boundaries',
-      paragraphs: ['A few compatibility fields remain visible, but saveable does not mean enforced for Skill admission. Current Skill state is determined by automatic rejection, human review, and fail-safe behavior.'],
-      bullets: ['Maximum risk for automatic approval currently applies to Prompt approval, not Skill APPROVED, VETTED, or REJECTED decisions.', 'Trusted authors are stored but do not participate in Skill scanning or automatic admission. Adding an author does not skip checks or human review.', 'Missing or unaccepted licenses, excessive Tool count, and Tools outside the allowlist are currently non-blocking warnings. Only an explicitly denied permission creates an immediate blocking violation.'],
-      callout: { type: 'warning', title: 'Do not build a security promise on compatibility fields', body: 'Until those fields are formally connected to Skill decisions, rely on the report, final risk, and actual state—not automatic-approval threshold or trusted-author values.' },
-    },
+          id: 'advanced-services',
+          title: 'Configure models and service parameters',
+          paragraphs: ['In Detection settings, select Configure service for the relevant capability to open advanced settings. Select a registered AI model and adjust timeout and content limits as needed. For Sandbox, choose local Docker or a remote service and configure resources; remote services support connection testing. Select Save changes, then submit or rescan to verify actual execution.'],
+          image: { name: 'skill-policy-advanced', alt: 'Advanced configuration and AI analysis service', caption: 'Example configuration: model selection and scanning content limits are under Advanced configuration.' },
+        },
+        {
+          "id": "current-boundaries",
+          "title": "Admission and declaration-check boundaries",
+          "paragraphs": [
+            "Banned permissions take precedence over risk-based admission actions: a matching declaration causes rejection."
+          ],
+          "bullets": [
+            "Company permission and license rules inspect SKILL.md declarations; they do not restrict actual runtime tool calls.",
+            "Tool-count, tool-allowlist, and license checks produce advisory warnings; these alone do not cause rejection.",
+            "Saved settings apply to later scans. Rescan existing Skills to apply the new policy to their reports and status."
+          ]
+        },
     {
-      id: 'change-workflow', title: 'Change policy safely',
-      steps: [
-        { title: 'State the intended change', body: 'Record which false positive should be reduced or which behavior should be blocked, and which Skills may be affected.' },
-        { title: 'Validate representative samples', body: 'Prepare at least one Skill expected to approve, one to review, and one to reject.' },
-        { title: 'Save and rescan', body: 'Policy does not rewrite completed reports. Rescan target versions to apply the new scan context.' },
-        { title: 'Inspect the complete evidence chain', body: 'Check finding classification, pre-LLM risk, LLM assessment, final risk, policy warnings, and final state together.' },
-      ],
-      link: { path: '/skills', label: 'Open Skill list and rescan' },
-    },
+          "id": "change-workflow",
+          "title": "Change policy safely",
+          "steps": [
+            {
+              "title": "State the intended change",
+              "body": "Record which false positive should be reduced or which behavior should be blocked, and which Skills may be affected."
+            },
+            {
+              "title": "Preview expected outcomes",
+              "body": "Use Preview current policy to compare inputs expected to approve, require review, or reject. Check finding classifications, LLM reconciliation, and admission actions against the intended change."
+            },
+            {
+              "title": "Save and rescan",
+              "body": "Check the summary and unsaved state, save the configuration, and rescan the target version. Historical reports retain their original conclusions."
+            },
+            {
+              "title": "Inspect the complete evidence chain",
+              "body": "Use reports from representative Skills to verify finding classification, tool risk, LLM conclusions, and final risk, then inspect policy warnings and current admission status. Simulated inputs do not replace real detection."
+            }
+          ],
+          "link": {
+            "path": "/skills",
+            "label": "Open Skill list and rescan"
+          }
+        },
   ],
+}
+
+for (const [locale, content] of [['zh-CN', zh], ['en-US', en]]) {
+  const guides = securityGuides[locale]
+  Object.assign(content.articles, guides)
+  const group = content.groups.find(group => group.items.some(item => item.slug === 'agent-security-runtime'))
+  const index = group.items.findIndex(item => item.slug === 'agent-security-runtime')
+  group.items.splice(index + 1, 0, ...Object.entries(guides).map(([slug, article]) => ({ slug, title: article.title, summary: article.summary })))
+  content.articles['agent-security-runtime'].sections.unshift({
+    id: 'detailed-guides',
+    title: locale === 'zh-CN' ? '按操作查阅详细指南' : 'Detailed operating guides',
+    paragraphs: [locale === 'zh-CN' ? '本页说明能力和证据边界。实际配置请按下列指南逐项操作，Dify 凭据获取、资产采集、定时同步和调用轨迹分别提供独立说明。' : 'This overview explains capability and evidence boundaries. Use the guides below for configuration, Dify credentials and inventory, scheduled synchronization, and trace inspection.'],
+    table: {
+      columns: locale === 'zh-CN' ? ['操作指南', '包含内容'] : ['Guide', 'Contents'],
+      rows: Object.entries(guides).map(([slug, article]) => [{ path: `/docs/${slug}`, label: article.title }, article.summary]),
+    },
+  })
 }
 
 export const docsContent = { 'zh-CN': zh, 'en-US': en }
@@ -1810,6 +2875,12 @@ export const docsArticleOrder = [
   'client-management',
   'credential-management',
   'runtime-integration',
+  'hook-integration',
+  'agent-security-runtime',
+  'security-scan-guide',
+  'dify-security-access',
+  'security-operations',
+  'runtime-trace-guide',
   'audit-trail',
   'model-gateway',
   'system-management',

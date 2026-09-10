@@ -14,10 +14,11 @@ from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
 from ..api_errors import ApiError
+from ..runtime_trace_schemas import RuntimeTraceInternalEvent
 from ..security_audit import append_security_audit
+from ..services.runtime_traces import best_effort_trace_publisher, publish_events_best_effort
 from ..sqlite_db import get_db
 from .access_tokens import ensure_token_agent_allowed, resolve_access_token
-
 
 router = APIRouter(prefix="/v1/runtime-governance", tags=["runtime-governance"])
 logger = logging.getLogger(__name__)
@@ -39,6 +40,43 @@ MEMORY_SCAN_RULES = (
     ("credential_material", re.compile(r"(?i)(api[_ -]?key|password|secret|bearer\s+[a-z0-9._-]{12,})")),
     ("command_execution", re.compile(r"(?i)(curl\s+https?://|wget\s+https?://|rm\s+-rf|powershell\s+-enc)")),
 )
+
+
+@best_effort_trace_publisher
+def _publish_governance_event(
+    db: Session,
+    task: models.RuntimeTask,
+    event_type: str,
+    *,
+    status: str,
+    payload: dict[str, Any],
+    request_id: str | None = None,
+    call_id: str | None = None,
+    parent_call_id: str | None = None,
+    risk_codes: list[str] | None = None,
+    severity: str | None = None,
+) -> None:
+    publish_events_best_effort(
+        db,
+        [
+            RuntimeTraceInternalEvent(
+                trace_id=task.trace_id,
+                tenant_id=task.tenant_id,
+                agent_id=task.agent_id,
+                session_id=task.session_id,
+                owner_user_id=int(task.user_id) if str(task.user_id).isdigit() else None,
+                source="runtime_governance",
+                type=event_type,
+                request_id=request_id or task.task_id,
+                call_id=call_id,
+                parent_call_id=parent_call_id,
+                status=status,
+                severity=severity,
+                risk_codes=risk_codes or [],
+                payload=payload,
+            )
+        ],
+    )
 
 
 def _json(value: Any) -> str:
@@ -187,6 +225,7 @@ def _task_response(row: models.RuntimeTask) -> dict[str, Any]:
         "tenant_id": row.tenant_id,
         "user_id": row.user_id,
         "session_id": row.session_id,
+        "trace_id": row.trace_id,
         "original_goal": row.original_goal,
         "goal_digest": row.goal_digest,
         "allowed_actions": _loads(row.allowed_actions_json, []),
@@ -283,6 +322,19 @@ async def create_runtime_approval(
     db.add(row)
     db.commit()
     db.refresh(row)
+    _publish_governance_event(
+        db,
+        task,
+        "approval.resolved",
+        status="approved",
+        payload={
+            "approval_id": row.approval_id,
+            "action_type": row.action_type,
+            "target": row.target,
+            "expires_at": row.expires_at.isoformat(),
+            "approved_by": row.approved_by,
+        },
+    )
     return {
         "approval_id": row.approval_id,
         "task_id": row.task_id,
@@ -312,6 +364,7 @@ async def start_runtime_task(
         tenant_id=body.tenant_id,
         user_id=body.user_id,
         session_id=body.session_id,
+        trace_id=body.trace_id or "trc_" + uuid.uuid4().hex,
         original_goal=body.original_goal,
         goal_digest=_digest(body.original_goal),
         allowed_actions_json=_json(sorted(set(body.allowed_actions))),
@@ -323,6 +376,13 @@ async def start_runtime_task(
     db.commit()
     db.refresh(row)
     _audit("runtime_task_started", row, "success", {"preview": row.preview})
+    _publish_governance_event(
+        db,
+        row,
+        "policy.decision",
+        status="active",
+        payload={"task_id": row.task_id, "preview": row.preview, "policy": policy},
+    )
     return _task_response(row)
 
 
@@ -462,6 +522,44 @@ async def authorize_runtime_action(
         "decision_reasons": reasons,
         "parameters_hash": row.parameters_hash,
     })
+    _publish_governance_event(
+        db,
+        task,
+        "policy.decision",
+        status=decision,
+        request_id=row.action_id,
+        call_id=row.action_id,
+        parent_call_id=row.parent_action_id,
+        severity=row.risk_level,
+        risk_codes=[f"runtime.{reason}" for reason in reasons],
+        payload={
+            "action_id": row.action_id,
+            "action_type": row.action_type,
+            "target": row.target,
+            "risk_level": row.risk_level,
+            "decision": decision,
+            "reasons": reasons,
+            "budget": {
+                "steps": task.step_count,
+                "cost_microunits": task.cost_microunits,
+                "data_bytes": task.data_bytes,
+            },
+            "parameters_hash": row.parameters_hash,
+        },
+    )
+    if decision == "deny":
+        _publish_governance_event(
+            db,
+            task,
+            "runtime.blocked",
+            status="blocked",
+            request_id=row.action_id,
+            call_id=row.action_id,
+            parent_call_id=row.parent_action_id,
+            severity=row.risk_level,
+            risk_codes=[f"runtime.{reason}" for reason in reasons],
+            payload={"action_id": row.action_id, "reasons": reasons},
+        )
     return {
         **_action_response(row),
         "context": {
@@ -630,6 +728,13 @@ async def kill_runtime_task(
     row.updated_at = row.completed_at
     db.commit()
     _audit("runtime_task_killed", row, "success", {"reason": reason, "actor": current_user.username})
+    _publish_governance_event(
+        db,
+        row,
+        "runtime.killed",
+        status="killed",
+        payload={"reason": reason, "actor": current_user.username},
+    )
     return _task_response(row)
 
 
@@ -665,6 +770,40 @@ async def create_kill_switch(
     db.add(row)
     db.commit()
     db.refresh(row)
+    affected = db.query(models.RuntimeTask).filter(
+        models.RuntimeTask.status == "active",
+        models.RuntimeTask.trace_id.is_not(None),
+    ).all()
+    for task in affected:
+        matches = (
+            body.scope_type == "global"
+            or (body.scope_type == "tenant" and task.tenant_id == scope_id)
+            or (body.scope_type == "user" and task.user_id == scope_id)
+            or (body.scope_type == "agent" and task.agent_id == scope_id)
+            or (
+                body.scope_type == "tool"
+                and db.query(models.RuntimeAction).filter(
+                    models.RuntimeAction.task_id == task.task_id,
+                    models.RuntimeAction.action_type == scope_id,
+                ).first()
+                is not None
+            )
+        )
+        if matches:
+            _publish_governance_event(
+                db,
+                task,
+                "runtime.blocked",
+                status="kill_switch_active",
+                payload={
+                    "kill_switch_id": row.id,
+                    "scope_type": body.scope_type,
+                    "scope_id": scope_id,
+                    "reason": body.reason,
+                    "actor": current_user.username,
+                },
+                risk_codes=["runtime.kill_switch_active"],
+            )
     return {"id": row.id, "active": True}
 
 

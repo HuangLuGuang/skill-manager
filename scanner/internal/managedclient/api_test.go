@@ -65,3 +65,29 @@ func TestAvailableSkillsSendsExactSkillQuery(t *testing.T) {
 		t.Fatalf("unexpected items %#v", items)
 	}
 }
+
+func TestRequestModelConfigurationSendsLocalTargetWithoutExposingCredential(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/v1/clients/client-1/model-configurations" {
+			t.Fatalf("unexpected path %s", request.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["local_agent_id"] != "codex" || body["agent_type"] != "codex" || body["managed_agent_id"] != "agent-1" || body["model"] != "gpt-managed" {
+			t.Fatalf("unexpected request body %#v", body)
+		}
+		if _, exposed := body["token"]; exposed {
+			t.Fatalf("credential leaked into request body: %#v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 12, "task_type": "apply_model_config", "payload": body})
+	}))
+	defer server.Close()
+
+	task, err := NewAPI(server.URL, "secret", time.Second).RequestModelConfiguration(context.Background(), "client-1", "codex", "codex", "agent-1", "gpt-managed")
+	if err != nil || task.ID != 12 || task.TaskType != "apply_model_config" {
+		t.Fatalf("unexpected task %#v err=%v", task, err)
+	}
+}

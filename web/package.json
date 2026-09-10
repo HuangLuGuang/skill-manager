@@ -4,22 +4,32 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:policy-settings": "node --test scripts/policy-settings.test.mjs",
+    "test:skill-columns": "node --test scripts/skill-columns.test.mjs",
+    "test:decision-flow": "node --test scripts/decision-flow.test.mjs",
     "dev": "vite",
     "build": "vite build",
     "test:diff": "node scripts/check-diff.mjs",
     "test:clipboard": "node --test scripts/clipboard.test.mjs",
     "test:composer": "node --test scripts/composer-keyboard.test.mjs",
     "test:docs-search": "node --test scripts/docs-search.test.mjs",
-    "test:i18n": "node scripts/check-i18n.mjs",
+    "test:features": "node --test scripts/feature-flags.test.mjs",
+    "test:agent-security-ui": "node --test scripts/agent-security-ui.test.mjs",
+    "test:runtime-trace-ui": "node --test scripts/runtime-trace-ui.test.mjs scripts/trajectory-projection.test.mjs",
+    "test:i18n": "node scripts/check-i18n.mjs && node --test scripts/agent-security-i18n.test.mjs",
     "test:skill-versions": "node --test scripts/skill-versions.test.mjs",
+    "test:skill-batch": "node --test scripts/skill-batch.test.mjs scripts/skill-rescan.test.mjs",
+    "test:zip-size": "node --test scripts/zip-size.test.mjs",
+    "test:upload-progress": "node --test scripts/upload-progress.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
     "@ant-design/icons-vue": "^7.0.1",
     "@antv/x6": "^2.18.1",
     "@antv/x6-vue-shape": "^2.0.7",
+    "@zip.js/zip.js": "^2.13.1",
     "ant-design-vue": "^4.2.6",
-    "axios": "^1.13.2",
+    "axios": "^1.20.0",
     "dayjs": "^1.11.19",
     "echarts": "^6.0.0",
     "marked": "^17.0.1",
@@ -28,10 +38,13 @@
     "vue-router": "^4.6.3"
   },
   "overrides": {
-    "@antv/x6-geometry": "2.0.5"
+    "@antv/x6-geometry": "2.0.5",
+    "esbuild": "^0.28.1",
+    "nanoid": "^3.3.18",
+    "postcss": "^8.5.23"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.1",
-    "vite": "^7.2.4"
+    "vite": "^7.3.6"
   }
 }

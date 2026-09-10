@@ -13,6 +13,12 @@ def validate_security_settings(settings: Settings) -> None:
     sandbox_key = os.environ.get("AGENT_MANAGER_SANDBOX_API_KEY", "").strip()
     if not sandbox_key or sandbox_key in {"sandbox-change-me", "change-me"}:
         raise RuntimeError("secure startup requires a non-placeholder AGENT_MANAGER_SANDBOX_API_KEY")
+    for name, placeholder in (
+        ("AGENT_SECURITY_WORKER_TOKEN", "amsw_local-development-only-change-before-production"),
+        ("AIG_SERVICE_TOKEN", "aigs_local-development-only-change-before-production"),
+    ):
+        if getattr(settings, name) == placeholder:
+            raise RuntimeError(f"secure startup requires a non-placeholder {name}")
     signing_key_path = os.environ.get("AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH", "").strip()
     if not signing_key_path:
         raise RuntimeError("secure startup requires AGENT_MANAGER_SIGNING_PRIVATE_KEY_PATH")

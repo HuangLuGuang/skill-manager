@@ -60,6 +60,18 @@ export const navigationItems = [
     ],
   },
   {
+    key: '/agent-security/scans',
+    label: 'agentSecurityScans.menu',
+    icon: 'fileSearch',
+    feature: 'agent_security_scanning',
+  },
+  {
+    key: '/runtime-traces',
+    label: 'runtimeTraceExplorer.menu',
+    icon: 'audit',
+    feature: 'runtime_trace',
+  },
+  {
     key: 'system-admin',
     label: '系统管理',
     icon: 'setting',

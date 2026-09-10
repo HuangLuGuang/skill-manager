@@ -12,13 +12,22 @@
 
 ## 1. 管理台入口
 
+大模型红队扫描的“评估模型”下拉框读取网关中模型及供应商均已启用的模型，提交和预览时再次校验。
+扫描 Worker 的 `AGENT_SECURITY_EVALUATOR_BASE_URL` 应指向模型网关（Compose 默认
+`http://backend:8000/v1`），`AGENT_SECURITY_EVALUATOR_API_KEY` 使用允许访问所选模型的网关调用凭证。
+下拉列表表示网关已启用的模型，具体凭证的状态、到期时间和模型访问范围由网关在调用时校验。
+选择模型后无需配置默认模型名称；留空时使用 `AGENT_SECURITY_EVALUATOR_MODEL`。
+评估凭证保留在扫描执行服务，页面不接收供应商密钥。
+
 管理台入口：
 
 - `模型网关`：管理模型供应商、模型端点、用户组策略绑定、隐私策略和 Prompt 防护配置。
 - `统一凭证中心`：创建模型调用凭证，并在凭证上开启 Prompt 防护和智能压缩。
 - `隐私链路追踪`：查看一次请求的 Prompt 防护、脱敏、压缩、响应和还原过程。
 
-Trace 会保存原始 PII，仅 `admin`、`super_admin`、`privacy_auditor` 角色应该访问。
+隐私链路 Trace 会保存原始 PII。统一 Runtime Trace 默认返回脱敏投影；原始 Payload 仅
+`admin`、`super_admin`、`privacy_auditor` 可以显式查看或导出原始内容，相关动作写入防篡改审计链；
+`security_auditor` 只查看脱敏投影。
 
 ---
 
@@ -72,14 +81,17 @@ Trace 阶段：
 | `POST /chat/completions` | 兼容部分客户端把 `base_url` 配成不含 `/v1` 时直接拼接的路径 |
 | `POST /api/v1/llm/chat/completions` | Agent Manager 命名空间路径，适合内部系统显式调用 |
 | `POST /v1/messages` | Anthropic Messages 兼容路径，适合 Claude Code 和 Anthropic SDK |
+| `POST /v1/responses` | OpenAI Responses 兼容路径，适合 Codex 自定义 model provider；请求在网关内转换后复用同一模型校验、隐私与审计链路 |
 | `GET /v1/models` | OpenAI-compatible 模型列表，只返回当前模型调用凭证允许访问的启用模型 |
 | `GET /models` | 兼容不含 `/v1` 的模型列表路径 |
 
 客户端配置建议：
 
+- Agent Manager 桌面客户端：不单独填写模型网关地址，而是复用客户端接入时配置的 Agent Manager 地址。Claude Code 使用该根地址；Codex 和 Hermes 自动规范化为以 `/v1` 结尾的 Base URL。该地址指向 Agent Manager 网关，不是下面“供应商”页面配置的上游模型地址。
 - OpenAI SDK / Cherry Studio：Docker Compose 默认把 Base URL 配成 `http://127.0.0.1/v1`。
 - Hermes 或其他从根地址自动拼接路径的客户端：可配 `http://127.0.0.1`，网关对外提供 `/chat/completions` 和 `/models`。当前 Compose 的根路径由管理台前端使用，不适合会直接 POST 根地址的客户端。
 - Claude Code：设置 `ANTHROPIC_BASE_URL=http://127.0.0.1`、`ANTHROPIC_AUTH_TOKEN=amat_xxx`，并把 Claude Code 使用的模型名设置为管理台登记的模型名。
+- Codex：在 `~/.codex/config.toml` 配置自定义 `model_provider`，`base_url` 使用 `http://127.0.0.1/v1`，`wire_api = "responses"`。桌面客户端“模型切换”可以自动完成该配置。
 
 请求必须携带带有模型调用能力的凭证。在管理台 `智能体管理 / 统一凭证中心` 的路线图中，普通服务或脚本选择“给应用调用模型”；已登记 Agent 选择“给 Agent 使用”，再选择包含模型能力的方案：
 
@@ -105,6 +117,127 @@ Authorization: Bearer amat_xxx
   ]
 }
 ```
+
+### 3.1 统一轨迹事件与关联契约
+
+如果调用方已经通过 Runtime Trace SDK 创建会话，可在请求体 `metadata` 中增加关联字段：
+
+```json
+{
+  "trace_id": "trc_xxx",
+  "session_id": "session-001",
+  "turn_id": "turn-001",
+  "step_id": "step-001",
+  "call_id": "call-001",
+  "parent_call_id": "call-parent"
+}
+```
+
+关联字段含义和信任边界：
+
+| 字段 | 生成/传递方 | 用途与约束 |
+|---|---|---|
+| `trace_id` | Runtime Trace SDK 创建，调用方透传 | 绑定 Agent 的凭证可以关联已有轨迹；普通模型凭证由服务端分配或聚合 `model_only` 轨迹，不能指定已有轨迹 ID |
+| `session_id` | Agent Runtime 或模型网关 | SDK 关联路径沿用业务会话；网关聚合路径使用独立生成的 `gws-` 标识，与隐私映射 ID 分开 |
+| `turn_id`、`step_id` | Agent Runtime/SDK | 只描述真实存在的 Turn 和 Step；Gateway-only 接入应省略，不能为了界面完整而构造 |
+| `call_id` | 发起模型调用的 Agent Step | 关联一次模型 Call；后续 Tool/MCP 调用应生成自己的 `call_id`，并把模型 Call 写入 `parent_call_id` |
+| `parent_call_id` | Agent Runtime | 表示嵌套调用父节点，不参与权限判断 |
+| `request_id` | 模型网关生成 | 每次模型请求唯一标识；调用方不能指定，响应通过 `x-request-id` 返回，并写入模型审计和 Runtime Trace |
+| `agent_id` | 服务端凭证绑定 | 不接受 `metadata.agent_id` 作为身份；只信任 `agent_runtime` 凭证的 `bound_agent_id` |
+| `tenant_id` | 服务端凭证归属优先 | 调用方 metadata 可用于隐私映射上下文，但 Runtime Trace 的租户/组归属由已验证凭证收敛，不能用 metadata 越权 |
+
+当前模型入口不读取 `X-Trace-ID`、`X-Turn-ID`、`X-Step-ID`、`X-Call-ID` 等自定义入站关联头；
+OpenAI-compatible 请求使用 `metadata`，MCP 请求使用 `params._meta`。`X-Agent-ID` 是部分 Agent
+运行治理接口的绑定校验头，也不是模型网关的轨迹关联来源。接入方不能同时维护一套未实现的自定义头并
+假设平台会自动关联。
+
+模型网关向统一轨迹发布：
+
+| 事件 | 触发时机 | 脱敏投影中的主要字段 |
+|---|---|---|
+| `model.request` | 调用完成或失败时，与结果一起发布；阻断时也保留请求 | 模型、脱敏请求、Prompt Security 结果、关联 ID、网关生成的 `request_id` |
+| `model.response` | 非流式响应完成，或流式响应正常结束 | 脱敏响应、Token、总耗时、上游耗时、平台耗时；流式有真实首输出时才包含 TTFT |
+| `model.error` | 上游或网关处理失败 | 脱敏错误、已测得耗时和关联 ID；不把失败包装成成功响应 |
+
+模型网关同时把 Prompt Security 的风险等级作为事件 `severity` 传入统一轨迹，轨迹按明确严重性汇总，
+与 `risk_codes` 的风险分类分别保存。
+
+平台耗时是网关总耗时减去上游耗时。流式请求从进入网关起计算 TTFT，只在首个有效文本、推理文本
+或工具参数块到达时记录；非流式请求和未产生有效输出的流式请求不伪造 TTFT。仅使用普通模型凭证时
+仍会产生真实 `model_only` 轨迹，但没有 Agent SDK 事件时完整度不会显示为 `full`。
+
+轨迹发布采用 best-effort 边界：发布失败会进入 `/api/v1/runtime-traces/metrics` 的失败计数和
+服务端告警日志，但不会把已经成功的模型调用改成失败。
+
+### 3.1.1 网关会话聚合
+
+开启 `RUNTIME_TRACE_ENABLED` 后，新模型请求会在通过凭证、请求大小、并发和模型范围校验后建立调用记录。
+调用轨迹页显示聚合方式、请求数量、每次调用的状态、开始时间、消息数量和匹配依据。
+每次 HTTP 请求保留独立的 `request_id`；请求序号不代表用户对话轮次。进行中的调用先显示在请求列表，
+模型事件在结果可用后追加。页面每三秒刷新选中聚合会话，事件按 `after_seq` 增量读取。
+
+轨迹主区域按请求、用户输入、助手输出和工具调用显示连续记录，右侧详情可查看内容、结果、计时及关联证据。
+会话信息、统计和请求关联依据位于可展开区域。搜索定位、事件顺序概览和折叠操作作用于已加载记录，
+列表采用固定行高的可视窗口渲染；滚动到底部继续加载事件，也可开启跟随最新。
+网关消息历史按相邻请求的共同前缀去重，保留新增消息；历史压缩或分支后的变化部分会重新展示。
+工具调用和结果按调用 ID 配对，来自模型消息历史的记录单独标记，不推断工具执行耗时。
+展示记录始终引用原始脱敏事件，关联安全发现和导出权限沿用服务端审计契约。
+新写入的轨迹脱敏投影保留完整消息数组，结构深度上限为 16，仍执行敏感字段遮蔽、文本裁剪和轨迹存储配额。
+历史记录中已裁剪的内容保持原样，页面不自动读取原始 Payload 补齐。
+
+聚合范围由凭证类型和 ID、租户、用户、用户组及绑定 Agent 共同限定。
+已绑定 Agent 且显式提供 `metadata.trace_id` 的 SDK 路径仍按原有关联契约处理。
+其他请求按以下优先级处理显式会话标识：
+
+1. `metadata.session_id`。
+2. 入站请求头 `X-Hermes-Session-Id`。
+3. 请求体 `conversation_id`。
+4. `metadata.conversation_id`。
+
+同一范围内标识一致的请求归入同一轨迹，即使消息历史已经压缩或变化。
+会话标识仅用于关联，不能授予访问权限。`X-Hermes-Session-Key` 表达长期记忆范围，不作为单次会话标识。
+聚合请求头不会自动透传上游；隐私映射、审计和响应中的 `conversation_id` 继续按原有规则生成。
+
+缺少显式标识时，网关对进入隐私替换和压缩之前的规范化消息计算链式 SHA-256 前缀指纹。
+内容、角色、工具调用和工具结果均参与计算，指纹索引不保存消息正文。每次请求只存一条完整历史指纹，
+匹配时以 `(scope_id, history_digest)` 索引批量查找前缀，每批最多 400 个指纹，不逐条查询消息或扫描历史 Payload。
+仅匹配包含用户消息的历史；多个会话可以同时作为候选：
+
+| 匹配结果 | 行为 |
+|---|---|
+| 唯一最长历史前缀 | 续写对应轨迹，记录匹配请求及消息数量 |
+| 完全相同的历史 | 关联为重复候选，但保留独立调用，不认定为 HTTP 重试 |
+| 最长前缀对应多个轨迹 | 独立建组并标记歧义 |
+| 无匹配或历史已压缩、编辑 | 新建推测会话 |
+
+这类会话在界面标为“推测聚合”：复制相同历史的新聊天仍可能被合并，压缩可能导致同一聊天被拆分。
+`/new` 只有实际改变传入历史或显式会话标识时才能被网关观察到。
+
+聚合分配使用持久化 SQLite 事务，支持多进程间的一致归组。哈希计算在写事务前完成；SQLite 仍只有一个写入者，
+高并发下需要关注锁等待。匹配索引随轨迹保留期清理，旧轨迹不自动回填。
+
+读取接口：`GET /api/v1/runtime-traces/{trace_id}/requests?after_index=0&limit=100`，
+返回请求状态、关联依据及分页标记，沿用轨迹的访问权限。列表和详情接口的 `aggregation` 字段提供方式、来源、
+请求总数和汇总状态。请求失败、流式断开会更新调用记录；进程被强制终止时，尚未完成的记录可能保留进行中状态。
+
+### 3.2 响应关联与诊断头
+
+这些响应头是诊断信号，不是授权凭证，也不能替代 Runtime Trace 事件：
+
+| 响应头 | 含义 |
+|---|---|
+| `x-request-id` | 网关生成的请求 ID，可用于模型审计、隐私链路和统一轨迹检索 |
+| `x-tenant-id` | 本次隐私路由上下文；不得作为客户端授权判断依据 |
+| `x-conversation-id` | 本次会话映射 ID |
+| `x-traffic-type` | `pii_checked` 或 `pii_bypass` |
+| `x-privacy-policy` | 隐私策略是否启用 |
+| `x-prompt-guard` | `off`、检测动作或 `block` |
+| `x-compression` | `off`、`enabled-noop` 或 `on` |
+| `x-compression-transforms` | 实际应用的压缩变换；没有变化时为 `no-op` |
+| `x-compression-saved-tokens`、`x-compression-ratio`、`x-compression-ms` | 只有产生对应测量值时返回的压缩诊断 |
+
+非流式成功响应返回完整诊断头；流式响应在 SSE 建立时返回可确定的头。上游失败时部分头可能不存在，
+调用方应优先使用 `x-request-id` 和服务端审计定位，不能把缺少某个诊断头解释为安全控制未执行。
 
 当调用方使用绑定 Agent 的运行凭证时，建议同时提交以上三个 `agent_manager_skill_*` 字段。网关会用凭证绑定关系确定 Agent，再核对 Skill Registry 状态和 Agent 的 Skill 授权范围。第一期仅记录告警，不阻断模型调用：
 
@@ -138,6 +271,8 @@ Authorization: Bearer amat_xxx
 - `verbosity`
 
 未知字段会被拒绝，避免把高成本或未审计参数无意透传给上游供应商。
+
+`/v1/responses` 当前兼容文本与图片输入、function/custom/namespace 工具、工具结果、常用采样与 reasoning/text 参数，以及文本和工具调用 SSE。它不承诺 Responses API 的服务端内置工具、文件输入、后台任务、会话持久化或 WebSocket 语义；即使请求字段因兼容而被接收，也不会绕过模型网关的参数白名单、凭证、模型范围、请求大小、并发、隐私处理和审计。
 
 为了兼容部分客户端的占位空值，网关会把请求字段或消息扩展字段中的 `"[undefined]"` / `"undefined"` 清理掉，不会继续透传给上游模型供应商。
 
@@ -219,12 +354,14 @@ Prompt 不再作为主流程里的独立上传资产。平台默认在模型网�
 
 ---
 
-## 5. 模型供应商与模型
+## 6. 模型供应商与模型
 
 模型供应商保存 `base_url`、上游协议（OpenAI-compatible 或 Anthropic-compatible）、API Key、超时和启用状态。
 
-- 上游支持 Anthropic 时，网关调用供应商的 `/v1/messages`。
-- 上游仅支持 OpenAI 时，Anthropic 入站请求会在网关边界转换为 `/v1/chat/completions`，响应和 SSE 再转换回 Anthropic 格式。
+- `base_url` 必须包含供应商要求的 API 版本路径；网关不会自动插入 `/v1`。
+- OpenAI-compatible 上游在 `base_url` 后追加 `/chat/completions`，Anthropic-compatible 上游追加 `/messages`；如果填写的是完整协议端点则不重复追加。
+- 供应商测试要求输入真实模型名称，并向相同协议端点发送一条最小非流式推理请求；只有 `2xx` 且响应结构符合所选协议时才判定成功。该操作可能消耗少量供应商额度。
+- 上游仅支持 OpenAI 时，Anthropic 入站请求会在网关边界转换为 Chat Completions，响应和 SSE 再转换回 Anthropic 格式。
 - 当前核心兼容范围为文本、图片 base64、客户端工具调用、流式输出和基础 usage；Anthropic 专有的服务端工具、完整 prompt caching 语义及全部 beta 内容块不承诺兼容。
 
 供应商 API Key 会加密落库：
@@ -246,7 +383,7 @@ Prompt 不再作为主流程里的独立上传资产。平台默认在模型网�
 
 ---
 
-## 6. 隐私策略
+## 7. 隐私策略
 
 隐私策略可绑定到用户组；API Key 创建后自动关联当前用户，运行时会按用户所在的启用用户组查找策略；没有命中用户组策略时使用默认策略。
 
@@ -275,7 +412,7 @@ PII 检测默认按中国业务场景精准率优先：
 
 ---
 
-## 7. 二次替换与多轮会话
+## 8. 二次替换与多轮会话
 
 网关会为同一 `tenant_id + conversation_id` 复用历史 token 映射。
 
@@ -285,7 +422,7 @@ PII 检测默认按中国业务场景精准率优先：
 
 ---
 
-## 8. 差分隐私统计
+## 9. 差分隐私统计
 
 差分隐私只用于管理台统计，不扰动真实 prompt 或响应。
 
@@ -298,7 +435,7 @@ PII 检测默认按中国业务场景精准率优先：
 
 ---
 
-## 9. 内部 LLM vetting 接入
+## 10. 内部 LLM vetting 接入
 
 `agent_manager/core/llm.py` 和 prompt vetting 支持通过环境变量走模型网关；sandbox probe 生成也会在配置了网关时优先走隐私代理：
 
@@ -319,7 +456,7 @@ export AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID="vetting-session"
 
 ---
 
-## 10. 安全边界
+## 11. 安全边界
 
 - Prompt Guard 支持在请求 `metadata.content_sources` 中按消息顺序传入来源数组，或按消息索引传入对象；可选值为 `system`、`user`、`assistant`、`tool`、`rag`、`file`、`web`。未声明时回退到消息 `role`，其中 `tool`、`rag`、`file`、`web` 按不可信内容处理。
 - `stream=true` 支持 SSE 透传和增量反替换；如果客户端中途断开，已完成的并发槽会释放，但未完成请求可能不会写完整 Trace。
@@ -328,9 +465,25 @@ export AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID="vetting-session"
 - Trace 含原始 PII，应按审计权限和 TTL 管控。
 - 差分隐私仅保护统计视图，不等于删除原始审计数据。
 
+### 11.1 隐私链路与统一轨迹不是同一份数据
+
+| 数据面 | 默认查询内容 | 原始数据边界 | 主要用途 |
+|---|---|---|---|
+| 隐私链路追踪 | `prompt_security`、`original`、`masked`、`compressed`、`masked_response`、`final_response` 各阶段 | 会保存原始 Prompt、响应和 PII；仅 `admin`、`super_admin`、`privacy_auditor` 可查看，必须按高敏数据管理 | 复核 PII 替换、Prompt 防护、压缩和响应还原 |
+| 统一 Runtime Trace | 列表和事件接口只返回服务端脱敏投影 | 原始 Payload 与事件索引分离并加密保存；原始查看或导出只允许 `admin`、`super_admin`、`privacy_auditor`，并写安全审计 | 跨 Agent SDK、模型、MCP、知识和治理事件关联 |
+| 模型请求审计/用量 | 请求 ID、身份、模型、状态、Token、耗时和风险摘要 | 不向普通审计列表返回 Prompt、响应或 Tool 参数正文 | 运营审计、计量、故障定位和风险统计 |
+
+`security_auditor` 可以读取授权范围内的脱敏 Runtime Trace，但不能读取原始 Payload。普通业务用户只能
+读取本人或所属用户组有权访问的轨迹。原始 Runtime Trace JSON 导出还要求重新输入当前密码、确认高敏
+数据责任，并使用绑定当前用户和轨迹、5 分钟有效、只能消费一次的授权令牌；PDF 只支持脱敏级别。
+
+调用方已经在请求中拿到明文并不意味着平台可以把它写入普通日志。应用日志、Worker 日志、错误提示和
+告警列表只能记录请求 ID、稳定错误码和脱敏摘要。`x-request-id` 是跨模型审计、隐私链路和 Runtime Trace
+定位的首选键；它不是访问原始数据的通行证，所有读取仍重新执行角色和归属校验。
+
 ---
 
-## 11. 智能上下文压缩
+## 12. 智能上下文压缩
 
 > 历史实施记录见 [headroom-compression-integration.md](headroom-compression-integration.md)，当前行为以本节和实际链路追踪为准。
 

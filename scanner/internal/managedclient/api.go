@@ -158,6 +158,22 @@ func (api API) IssueAgentCredential(ctx context.Context, clientID string, taskID
 	return result, err
 }
 
+func (api API) RequestModelConfiguration(ctx context.Context, clientID, localAgentID, agentType, managedAgentID, model string) (Task, error) {
+	var result Task
+	err := api.postJSON(
+		ctx,
+		"/api/v1/clients/"+clientID+"/model-configurations",
+		map[string]any{
+			"local_agent_id":   strings.TrimSpace(localAgentID),
+			"agent_type":       strings.TrimSpace(agentType),
+			"managed_agent_id": strings.TrimSpace(managedAgentID),
+			"model":            strings.TrimSpace(model),
+		},
+		&result,
+	)
+	return result, err
+}
+
 func (api API) ReportEvent(ctx context.Context, clientID, eventType, agentType, skillName string, details map[string]any) error {
 	if details == nil {
 		details = map[string]any{}

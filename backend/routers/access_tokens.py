@@ -24,11 +24,13 @@ RUNTIME_SCOPES = [
     "runtime:check-tool",
     "runtime:govern",
     "runtime:memory",
+    "runtime:trace",
 ]
 AGENT_VERIFICATION_SCOPES = [
     "runtime:verify-signature",
     "runtime:can-load",
     "runtime:check-tool",
+    "runtime:trace",
 ]
 MODEL_SCOPES = ["model:chat"]
 MCP_SCOPES = ["mcp:connect", "mcp:list-tools", "mcp:call-tools"]
@@ -108,13 +110,20 @@ def _normalize_scopes(token_type: str, scopes: list[str] | None) -> list[str]:
     return result
 
 
-def _normalize_allowed_models(token_type: str, scopes: list[str], allowed_models: list[str] | None) -> list[str]:
+def _normalize_allowed_models(
+    token_type: str,
+    scopes: list[str],
+    allowed_models: list[str] | None,
+    allow_agent_credential_issuance: bool = False,
+) -> list[str]:
     result: list[str] = []
     for model in allowed_models or []:
         value = str(model).strip()
         if value and value not in result:
             result.append(value)
-    if result and (token_type not in {"model_gateway", "agent_runtime"} or "model:chat" not in scopes):
+    direct_model_access = token_type in {"model_gateway", "agent_runtime"} and "model:chat" in scopes
+    delegated_model_access = token_type == "client" and allow_agent_credential_issuance
+    if result and not (direct_model_access or delegated_model_access):
         raise ApiError(
             400,
             "credential.models_not_applicable",
@@ -131,7 +140,7 @@ def _validate_agent_credential_issuance(token_type: str, allowed: bool) -> None:
             400,
             "credential.agent_issuance_not_applicable",
             "只有客户端接入凭证可以代客户端为绑定 Agent 创建运行凭证",
-            "Only Client access credentials may create runtime credentials for bound Agents",
+            "Only Client access credentials may create runtime credentials for local Agents",
             params={"token_type": token_type},
         )
 
@@ -507,7 +516,14 @@ async def create_access_token(
         allow_agent_credential_issuance=body.allow_agent_credential_issuance,
         user_id=body.user_id or current_user.id if body.token_type == "model_gateway" else body.user_id,
         group_id=body.group_id,
-        allowed_models_json=_json_dumps(_normalize_allowed_models(body.token_type, scopes, body.allowed_models)),
+        allowed_models_json=_json_dumps(
+            _normalize_allowed_models(
+                body.token_type,
+                scopes,
+                body.allowed_models,
+                body.allow_agent_credential_issuance,
+            )
+        ),
         allowed_mcp_gateways_json=_json_dumps(allowed_mcp_gateways),
         allowed_ips_json=_json_dumps(body.allowed_ips),
         expires_at=body.expires_at,
@@ -564,6 +580,7 @@ async def update_access_token(
         scopes=next_scopes,
     )
     scopes = next_scopes
+    next_agent_issuance = bool(data.get("allow_agent_credential_issuance", row.allow_agent_credential_issuance))
     if "scopes" in data and data["scopes"] is not None:
         data.pop("scopes")
         row.scopes_json = _json_dumps(scopes)
@@ -571,8 +588,15 @@ async def update_access_token(
             row.allowed_models_json = "[]"
     if "allowed_models" in data and data["allowed_models"] is not None:
         row.allowed_models_json = _json_dumps(
-            _normalize_allowed_models(row.token_type, scopes, data.pop("allowed_models"))
+            _normalize_allowed_models(
+                row.token_type,
+                scopes,
+                data.pop("allowed_models"),
+                next_agent_issuance,
+            )
         )
+    if row.token_type == "client" and not next_agent_issuance:
+        row.allowed_models_json = "[]"
     if "allowed_mcp_gateways" in data and data["allowed_mcp_gateways"] is not None:
         data.pop("allowed_mcp_gateways")
     if row.token_type in {"mcp_gateway", "agent_runtime"}:

@@ -24,6 +24,7 @@
                 <a-space wrap>
                   <a-tag v-for="tool in record.tools || []" :key="tool.id" :color="tool.risk_level === 'high' ? 'red' : tool.risk_level === 'medium' ? 'orange' : tool.enabled ? 'blue' : 'default'">
                     <a-button type="link" size="small" @click="openToolPolicy(tool)">{{ tool.name }}</a-button>
+                    <span> · {{ $t(`mcpSecurity.accessModes.${tool.access_mode || 'unknown'}`) }}</span>
                     <span v-if="tool.requires_approval"> · {{ $t('mcpSecurity.approvalRequired') }}</span>
                   </a-tag>
                   <span v-if="!record.tools?.length" class="muted">{{ $t("legacy.1cqmmbo") }}</span>
@@ -56,7 +57,7 @@
               <a-button type="primary" @click="openGateway()">{{ $t("legacy.1cl5f6n") }}</a-button>
             </a-space>
           </template>
-          <a-table :data-source="gateways" :columns="gatewayColumns" row-key="id" :loading="loading" size="small">
+          <a-table :data-source="gateways" :columns="gatewayColumns" row-key="id" :loading="loading" size="small" :scroll="{ x: 980 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'gateway'">
                 <div class="title">{{ record.name }}</div>
@@ -67,6 +68,11 @@
                   <a-tag v-for="tool in gatewayToolNames(record)" :key="tool">{{ tool }}</a-tag>
                   <span v-if="!gatewayToolNames(record).length" class="muted">{{ $t("legacy.1bmfz89") }}</span>
                 </a-space>
+              </template>
+              <template v-else-if="column.key === 'boundary'">
+                <a-tag :color="record.environment === 'production' ? 'red' : 'blue'">{{ $t(`mcpSecurity.environments.${record.environment || 'test'}`) }}</a-tag>
+                <div class="muted">{{ $t(`mcpSecurity.executionModes.${record.execution_mode || 'active_safe'}`) }}</div>
+                <div v-if="record.environment === 'production'" class="muted">{{ $t('mcpSecurity.denylistCount', { value: record.production_tool_denylist?.length || 0 }) }}</div>
               </template>
               <template v-else-if="column.key === 'status'">
                 <a-tag :color="record.status === 'active' ? 'green' : 'default'">{{ statusLabel(record.status) }}</a-tag>
@@ -142,12 +148,17 @@
             <a-select-option value="high">{{ $t('mcpSecurity.high') }}</a-select-option>
           </a-select>
         </a-form-item>
+        <a-form-item :label="$t('mcpSecurity.accessMode')" :extra="$t('mcpSecurity.accessModeHelp')">
+          <a-select v-model:value="toolPolicyForm.access_mode">
+            <a-select-option v-for="mode in ['unknown', 'read', 'write', 'destructive']" :key="mode" :value="mode">{{ $t(`mcpSecurity.accessModes.${mode}`) }}</a-select-option>
+          </a-select>
+        </a-form-item>
         <a-row :gutter="16">
           <a-col :span="12"><a-form-item :label="$t('mcpSecurity.callsPerMinute')"><a-input-number v-model:value="toolPolicyForm.rate_limit_per_minute" :min="1" :max="10000" style="width: 100%" /></a-form-item></a-col>
           <a-col :span="12"><a-form-item :label="$t('mcpSecurity.maximumConcurrency')"><a-input-number v-model:value="toolPolicyForm.max_concurrent" :min="1" :max="100" style="width: 100%" /></a-form-item></a-col>
         </a-row>
-        <a-form-item :label="$t('mcpSecurity.preExecutionApproval')"><a-switch v-model:checked="toolPolicyForm.requires_approval" :disabled="toolPolicyForm.risk_level === 'high'" /></a-form-item>
-        <a-alert v-if="toolPolicyForm.risk_level === 'high'" type="warning" show-icon :message="$t('mcpSecurity.highRiskHint')" />
+        <a-form-item :label="$t('mcpSecurity.preExecutionApproval')"><a-switch v-model:checked="toolPolicyForm.requires_approval" :disabled="toolPolicyForm.risk_level === 'high' || toolPolicyForm.access_mode === 'destructive'" /></a-form-item>
+        <a-alert v-if="toolPolicyForm.risk_level === 'high' || toolPolicyForm.access_mode === 'destructive'" type="warning" show-icon :message="toolPolicyForm.access_mode === 'destructive' ? $t('mcpSecurity.destructiveApprovalHint') : $t('mcpSecurity.highRiskHint')" />
       </a-form>
     </a-modal>
 
@@ -166,6 +177,16 @@
             </a-select-opt-group>
           </a-select>
         </a-form-item>
+        <a-row :gutter="16">
+          <a-col :xs="24" :md="12"><a-form-item :label="$t('mcpSecurity.environment')" required><a-select v-model:value="gatewayForm.environment" @change="handleGatewayEnvironmentChange"><a-select-option v-for="value in ['sandbox', 'test', 'staging', 'production']" :key="value" :value="value">{{ $t(`mcpSecurity.environments.${value}`) }}</a-select-option></a-select></a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item :label="$t('mcpSecurity.executionMode')" required><a-select v-model:value="gatewayForm.execution_mode"><a-select-option v-for="value in ['passive', 'read_only', 'active_safe', 'active_full']" :key="value" :value="value" :disabled="gatewayForm.environment === 'production' && value === 'active_full'">{{ $t(`mcpSecurity.executionModes.${value}`) }}</a-select-option></a-select></a-form-item></a-col>
+        </a-row>
+        <a-alert class="policy-alert" type="info" show-icon :message="$t('mcpSecurity.executionBoundaryHelp')" />
+        <a-form-item v-if="gatewayForm.environment === 'production'" :label="$t('mcpSecurity.productionDenylist')" :extra="$t('mcpSecurity.productionDenylistHelp')">
+          <a-select v-model:value="gatewayForm.production_tool_denylist" mode="multiple" show-search option-filter-prop="label">
+            <a-select-option v-for="tool in selectedGatewayToolOptions" :key="tool.exposed_name" :value="tool.exposed_name" :label="`${tool.name} ${tool.exposed_name}`">{{ tool.name }} · {{ tool.exposed_name }} · {{ $t(`mcpSecurity.accessModes.${tool.access_mode || 'unknown'}`) }}</a-select-option>
+          </a-select>
+        </a-form-item>
         <a-form-item :label="$t('legacy.1ccx4t4')"><a-select v-model:value="gatewayForm.status"><a-select-option value="active">{{ $t("legacy.5pm2ma") }}</a-select-option><a-select-option value="disabled">{{ $t("legacy.6q9o5l") }}</a-select-option></a-select></a-form-item>
         <a-form-item :label="$t('legacy.1kxyax6')"><a-textarea v-model:value="gatewayForm.description" :rows="3" /></a-form-item>
       </a-form>
@@ -176,7 +197,7 @@
 <script setup>
 import { translateLegacy as phrase } from '../i18n'
 
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
@@ -224,8 +245,8 @@ const editingServerId = ref(null)
 const editingGatewayId = ref(null)
 const origin = window.location.origin
 const serverForm = reactive({ slug: '', name: '', description: '', endpoint: '', authorization_header: 'Authorization', authorization_value: '', status: 'draft', timeout_seconds: 30, max_response_kb: 1024 })
-const gatewayForm = reactive({ slug: '', name: '', description: '', status: 'active', tools: [] })
-const toolPolicyForm = reactive({ id: null, risk_level: 'low', rate_limit_per_minute: 60, max_concurrent: 5, requires_approval: false })
+const gatewayForm = reactive({ slug: '', name: '', description: '', environment: 'test', execution_mode: 'active_safe', production_tool_denylist: [], status: 'active', tools: [] })
+const toolPolicyForm = reactive({ id: null, access_mode: 'unknown', risk_level: 'low', rate_limit_per_minute: 60, max_concurrent: 5, requires_approval: false })
 
 const serverColumns = computed(() => [
   { title: 'MCP Server', key: 'server' },
@@ -237,6 +258,7 @@ const serverColumns = computed(() => [
 const gatewayColumns = computed(() => [
   { title: text('虚拟网关', 'Virtual Gateway'), key: 'gateway', width: 260 },
   { title: text('发布能力', 'Published Capabilities'), key: 'tools' },
+  { title: t('mcpSecurity.executionBoundary'), key: 'boundary', width: 180 },
   { title: text('状态', 'Status'), key: 'status', width: 90 },
   { title: text('操作', 'Actions'), key: 'actions', width: 210 },
 ])
@@ -251,6 +273,11 @@ const auditColumns = computed(() => [
 
 const activeServers = computed(() => servers.value.filter(item => item.status === 'active'))
 const enabledTools = server => (server.tools || []).filter(tool => tool.enabled)
+const selectedGatewayToolOptions = computed(() => gatewayForm.tools.map(value => {
+  const separator = value.indexOf(':')
+  const server = servers.value.find(item => item.id === Number(value.slice(0, separator)))
+  return server?.tools?.find(tool => tool.name === value.slice(separator + 1))
+}).filter(Boolean))
 const toolKey = (serverId, toolName) => `${serverId}:${toolName}`
 const statusLabel = value => ({
   active: text('启用', 'Enabled'),
@@ -354,6 +381,7 @@ const discover = async record => {
 const openToolPolicy = tool => {
   Object.assign(toolPolicyForm, {
     id: tool.id,
+    access_mode: tool.access_mode || 'unknown',
     risk_level: tool.risk_level || 'low',
     rate_limit_per_minute: tool.rate_limit_per_minute || 60,
     max_concurrent: tool.max_concurrent || 5,
@@ -367,10 +395,11 @@ const saveToolPolicy = async () => {
   submitting.value = true
   try {
     await updateMcpToolPolicy(toolPolicyForm.id, {
+      access_mode: toolPolicyForm.access_mode,
       risk_level: toolPolicyForm.risk_level,
       rate_limit_per_minute: toolPolicyForm.rate_limit_per_minute,
       max_concurrent: toolPolicyForm.max_concurrent,
-      requires_approval: toolPolicyForm.risk_level === 'high' || toolPolicyForm.requires_approval,
+      requires_approval: toolPolicyForm.risk_level === 'high' || toolPolicyForm.access_mode === 'destructive' || toolPolicyForm.requires_approval,
     })
     toolPolicyVisible.value = false
     await fetchAll()
@@ -393,11 +422,12 @@ const removeServer = async record => {
 const openGateway = record => {
   editingGatewayId.value = record?.id || null
   Object.assign(gatewayForm, {
-    slug: record?.slug || '', name: record?.name || '', description: record?.description || '', status: record?.status || 'active',
+    slug: record?.slug || '', name: record?.name || '', description: record?.description || '', environment: record?.environment || 'test', execution_mode: record?.execution_mode || 'active_safe', production_tool_denylist: [...(record?.production_tool_denylist || [])], status: record?.status || 'active',
     tools: (record?.bindings || []).flatMap(binding => binding.allowed_tools.map(name => toolKey(binding.server_id, name))),
   })
   gatewayVisible.value = true
 }
+const handleGatewayEnvironmentChange = environment => { if (environment === 'production' && gatewayForm.execution_mode === 'active_full') gatewayForm.execution_mode = 'active_safe' }
 
 const gatewayBindings = () => {
   const grouped = new Map()
@@ -417,7 +447,7 @@ const saveGateway = async () => {
   if (!gatewayForm.tools.length) return message.warning(phrase('legacy.1m1vd36'))
   submitting.value = true
   try {
-    const payload = { slug: gatewayForm.slug.trim(), name: gatewayForm.name.trim(), description: gatewayForm.description, status: gatewayForm.status, bindings: gatewayBindings() }
+    const payload = { slug: gatewayForm.slug.trim(), name: gatewayForm.name.trim(), description: gatewayForm.description, environment: gatewayForm.environment, execution_mode: gatewayForm.execution_mode, production_tool_denylist: [...gatewayForm.production_tool_denylist], status: gatewayForm.status, bindings: gatewayBindings() }
     if (editingGatewayId.value) await updateMcpGateway(editingGatewayId.value, payload)
     else await createMcpGateway(payload)
     gatewayVisible.value = false
@@ -448,9 +478,14 @@ const copy = async value => {
   }
 }
 onMounted(fetchAll)
+watch(() => [...gatewayForm.tools], () => {
+  const selected = new Set(selectedGatewayToolOptions.value.map(tool => tool.exposed_name))
+  gatewayForm.production_tool_denylist = gatewayForm.production_tool_denylist.filter(name => selected.has(name))
+})
 </script>
 
 <style scoped>
 .title { font-weight: 600; }
 .muted { color: #8c8c8c; font-size: 12px; word-break: break-all; }
+.policy-alert { margin-bottom: 16px; }
 </style>

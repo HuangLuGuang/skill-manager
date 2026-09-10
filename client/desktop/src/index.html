@@ -17,9 +17,10 @@
         <nav aria-label="客户端流程">
           <button class="nav-item active" data-panel="connect"><span>01</span>客户端概览</button>
           <button class="nav-item" data-panel="discover"><span>02</span>Agent 发现</button>
-          <button class="nav-item" data-panel="takeover"><span>03</span><span id="takeover-nav-label" class="nav-label">接管预览</span></button>
-          <button class="nav-item" data-panel="status"><span>04</span>运行状态</button>
-          <button class="nav-item" data-panel="records"><span>05</span>执行记录</button>
+          <button class="nav-item" data-panel="models"><span>03</span>模型切换</button>
+          <button class="nav-item" data-panel="takeover"><span>04</span><span id="takeover-nav-label" class="nav-label">接管预览</span></button>
+          <button class="nav-item" data-panel="status"><span>05</span>运行状态</button>
+          <button class="nav-item" data-panel="records"><span>06</span>执行记录</button>
         </nav>
         <div class="rail-note"><div><strong data-system-name>智能体生命周期管理系统</strong><small id="client-build-version">版本 dev</small></div></div>
       </aside>
@@ -146,6 +147,21 @@
             <div><strong id="selection-heading">下一步：确认接管范围</strong><span id="selection-guidance">已选择 <b id="selected-skill-count">0</b> 个 Skill，生成预览后可查看哪些继续启用、哪些需要处理。</span></div>
             <button id="open-preview-button" class="primary icon-button icon-preview">生成接管预览</button>
           </div>
+        </section>
+
+        <section id="models" class="panel">
+          <div class="panel-toolbar model-toolbar">
+            <div><h2>模型切换</h2><p>查看本机 Agent 的实际配置，并切换到当前客户端凭证允许配置给 Agent 的网关模型。</p></div>
+            <button id="refresh-models" class="icon-button icon-refresh">刷新模型</button>
+          </div>
+          <div id="model-permission-note" class="model-permission-note"></div>
+          <div id="model-agent-tabs" class="model-agent-tabs" role="tablist" aria-label="可配置模型的本机 Agent"></div>
+          <section id="model-current" class="model-current"></section>
+          <div class="model-catalog-toolbar">
+            <label>筛选模型<input id="model-search" type="search" placeholder="输入模型或供应商名称" autocomplete="off" /></label>
+            <span id="model-result-count">0 个模型</span>
+          </div>
+          <div id="model-catalog" class="model-catalog empty">正在读取可用模型</div>
         </section>
 
         <section id="takeover" class="panel">
@@ -292,7 +308,7 @@
             <div class="settings-section-heading"><h2>通用</h2><p>这些偏好仅保存在当前设备。</p></div>
             <div class="settings-rows">
               <label class="settings-row"><span><strong>显示语言</strong><small>切换客户端界面语言。</small></span><select id="settings-language"><option value="zh-CN">简体中文</option><option value="en-US">English</option></select></label>
-              <label class="settings-row"><span><strong>默认打开页面</strong><small>客户端启动并读取状态后进入此页面。</small></span><select id="settings-default-panel"><option value="connect">客户端概览</option><option value="discover">Agent 发现</option><option value="takeover">Skill 治理</option><option value="status">运行状态</option><option value="records">执行记录</option></select></label>
+              <label class="settings-row"><span><strong>默认打开页面</strong><small>客户端启动并读取状态后进入此页面。</small></span><select id="settings-default-panel"><option value="connect">客户端概览</option><option value="discover">Agent 发现</option><option value="models">模型切换</option><option value="takeover">Skill 治理</option><option value="status">运行状态</option><option value="records">执行记录</option></select></label>
             </div>
           </section>
 

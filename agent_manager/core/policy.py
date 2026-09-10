@@ -37,6 +37,7 @@ _VALID_FINDING_CLASSIFICATIONS = {"blocking", "risk", "noise"}
 _DEFAULT_POLICY: dict[str, Any] = {
     "scan_result_reuse_enabled": True,
     "auto_approve_max_risk": "benign",
+    "auto_approve_risk": ["benign"],
     "require_human_review": ["suspicious"],
     "auto_reject_risk": ["malicious"],
     "require_sandbox_for_risk": ["suspicious", "malicious"],
@@ -247,14 +248,7 @@ class CompanyPolicy:
         risk_level: RiskLevel,
         violations: list[PolicyViolation],
     ) -> SkillStatus:
-        """
-        Determine the initial status after vetting based on final risk level.
-
-        Returns:
-            REJECTED   — risk is malicious or has blocking violations
-            VETTED     — risk is suspicious
-            APPROVED   — risk is benign
-        """
+        """Apply admission actions to final risk after blocking permission checks."""
         blocking = [v for v in violations if v.blocking]
         if blocking:
             return SkillStatus.REJECTED
@@ -270,8 +264,10 @@ class CompanyPolicy:
         if risk_level in require_review:
             return SkillStatus.VETTED
 
-        # A malformed or incomplete policy must never turn elevated risk into
-        # an approval merely because no configured value matched.
+        auto_approve = _normalized_policy_risks(self._data["auto_approve_risk"])
+        if risk_level in {RiskLevel.BENIGN, RiskLevel.SUSPICIOUS} and risk_level in auto_approve:
+            return SkillStatus.APPROVED
+
         if risk_level == RiskLevel.MALICIOUS:
             return SkillStatus.REJECTED
         if risk_level == RiskLevel.SUSPICIOUS:

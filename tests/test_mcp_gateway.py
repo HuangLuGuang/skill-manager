@@ -3,13 +3,13 @@ import json
 
 import httpx
 import pytest
-from fastapi import Depends, FastAPI
-from fastapi import HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend import auth, models
+from backend.api_errors import ApiError, api_error_handler
 from backend.routers import access_tokens, mcp_gateway
 from backend.sqlite_db import Base, get_db
 
@@ -122,6 +122,7 @@ def _client(tmp_path, monkeypatch):
             db.close()
 
     app = FastAPI()
+    app.add_exception_handler(ApiError, api_error_handler)
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(
         id=1, username="admin", hashed_password="x", role="super_admin"
@@ -289,6 +290,125 @@ def test_mcp_gateway_discovers_filters_calls_and_audits(tmp_path, monkeypatch):
     assert success["gateway_slug"] == "readonly"
     assert success["server_slug"] == "crm"
     assert success["tool_name"] == "search"
+
+
+def test_p6_tool_access_modes_and_production_denylist_are_enforced_before_upstream(tmp_path, monkeypatch):
+    client, testing_session = _client(tmp_path, monkeypatch)
+    gateway = _configured_gateway(client)
+    server = client.get("/api/v1/mcp/servers").json()[0]
+    tools = {tool["name"]: tool for tool in server["tools"]}
+    for name, access_mode in (("search", "read"), ("delete", "destructive")):
+        response = client.put(
+            f"/api/v1/mcp/tools/{tools[name]['id']}/policy",
+            json={
+                "access_mode": access_mode,
+                "risk_level": "high" if access_mode == "destructive" else "low",
+                "rate_limit_per_minute": 60,
+                "max_concurrent": 5,
+                "requires_approval": False,
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["access_mode"] == access_mode
+    configured = client.put(
+        f"/api/v1/mcp/gateways/{gateway['id']}",
+        json={
+            "environment": "production",
+            "execution_mode": "read_only",
+            "bindings": [{"server_id": server["id"], "allowed_tools": ["search", "delete"]}],
+            "production_tool_denylist": ["crm__delete"],
+        },
+    )
+    assert configured.status_code == 200, configured.text
+    assert configured.json()["production_tool_denylist"] == ["crm__delete"]
+    token = _gateway_token(client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    listed = client.post(
+        "/mcp/readonly",
+        headers=headers,
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+    ).json()
+    assert [tool["name"] for tool in listed["result"]["tools"]] == ["crm__search"]
+    read_only_denied = client.post(
+        "/mcp/readonly",
+        headers=headers,
+        json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "crm__delete", "arguments": {}}},
+    ).json()
+    assert read_only_denied["error"]["code"] == -32005
+    assert read_only_denied["error"]["data"]["error_code"] == "mcp.write_tool_blocked_by_read_only_mode"
+
+    updated = client.put(
+        f"/api/v1/mcp/gateways/{gateway['id']}",
+        json={"execution_mode": "active_safe"},
+    )
+    assert updated.status_code == 200
+    denylisted = client.post(
+        "/mcp/readonly",
+        headers=headers,
+        json={"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "crm__delete", "arguments": {}}},
+    ).json()
+    assert denylisted["error"]["code"] == -32006
+    assert denylisted["error"]["data"]["error_code"] == "mcp.tool_blocked_by_production_denylist"
+
+    db = testing_session()
+    try:
+        denied_audits = db.query(models.McpCallAudit).filter(models.McpCallAudit.status == "denied").all()
+        assert {row.error for row in denied_audits} >= {
+            "只读 MCP 网关禁止调用非只读 Tool",
+            "Tool 已被生产环境 denylist 阻断",
+        }
+        risk_codes = {
+            code
+            for event in db.query(models.RuntimeTraceEvent).filter(models.RuntimeTraceEvent.type == "mcp.error").all()
+            for code in json.loads(event.risk_codes_json)
+        }
+        assert "mcp.write_tool_blocked_by_read_only_mode" in risk_codes
+        assert "mcp.tool_blocked_by_production_denylist" in risk_codes
+    finally:
+        db.close()
+
+
+def test_p6_production_gateway_rejects_active_full_and_unbound_denylist(tmp_path, monkeypatch):
+    client, testing_session = _client(tmp_path, monkeypatch)
+    gateway = _configured_gateway(client)
+    forbidden = client.put(
+        f"/api/v1/mcp/gateways/{gateway['id']}",
+        json={"environment": "production", "execution_mode": "active_full"},
+    )
+    assert forbidden.status_code == 422
+    assert forbidden.json()["error_code"] == "mcp.production_active_full_forbidden"
+    invalid = client.put(
+        f"/api/v1/mcp/gateways/{gateway['id']}",
+        json={"environment": "production", "production_tool_denylist": ["crm__delete"]},
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["error_code"] == "mcp.production_tool_denylist_invalid"
+
+    with testing_session() as db:
+        row = db.query(models.McpGateway).filter(models.McpGateway.id == gateway["id"]).first()
+        row.environment = "production"
+        row.execution_mode = "active_full"
+        db.commit()
+    headers = {"Authorization": f"Bearer {_gateway_token(client)}"}
+    listed = client.post(
+        "/mcp/readonly",
+        headers=headers,
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+    ).json()
+    assert listed["result"]["tools"] == []
+    denied = client.post(
+        "/mcp/readonly",
+        headers=headers,
+        json={
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "crm__search", "arguments": {"query": "alice"}},
+        },
+    ).json()
+    assert denied["error"]["code"] == -32005
+    assert denied["error"]["data"]["error_code"] == "mcp.production_active_full_forbidden"
 
 
 def test_agent_runtime_composite_token_can_use_bound_mcp_gateway(tmp_path, monkeypatch):

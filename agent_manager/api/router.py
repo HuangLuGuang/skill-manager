@@ -10,40 +10,73 @@ import atexit
 import difflib
 import importlib.util
 import json
+import mimetypes
+import os
+import re
 import shutil
+import stat
 import subprocess
 import tempfile
+import threading
 import uuid
-import os
-import mimetypes
-import re
-import stat
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import FileResponse, JSONResponse, Response
+from pydantic import BaseModel, Field, ValidationError
+from starlette.concurrency import run_in_threadpool
+from agent_manager.api.upload_progress import stream_upload_progress
 
 from agent_manager.core.llm import LLMConfig
 from agent_manager.core.manager import AgentManager, findings_summary_from_report
-from agent_manager.core.models import SkillStatus, SourceInfo, SkillOrigin
-from agent_manager.core.prompt_models import PromptStatus
+from agent_manager.core.models import SkillOrigin, SkillStatus, SourceInfo
 from agent_manager.core.policy import CompanyPolicy
+from agent_manager.core.policy_simulation import PolicySimulationRequest, simulate_policy
+from agent_manager.core.prompt_models import PromptStatus
 from agent_manager.core.sandbox import SandboxConfig, SandboxConnectionTest, test_sandbox_connection
+from agent_manager.core.scan_report_pdf import build_scan_report_pdf
 from agent_manager.core.skillspector import is_skillspector_available
 from agent_manager.core.text_reader import read_text_fallback
 from agent_manager.core.vetting import _load_manifest
+from agent_manager.core.upload_jobs import UploadImportJobs
 
 router = APIRouter(tags=["agent-manager"])
 runtime_router = APIRouter(tags=["agent-manager-runtime"])
 
 # Module-level singleton (overridable in tests via dependency injection)
 _manager: AgentManager | None = None
+_upload_jobs: dict[Path, UploadImportJobs] = {}
+_upload_jobs_lock = threading.Lock()
+
+
+def _get_upload_jobs(mgr):
+    root = mgr.registry.data_dir
+    with _upload_jobs_lock:
+        if root not in _upload_jobs:
+            def process_item(payload, raw_path):
+                body = RemoteImportSubmitRequest(**payload)
+                skill_dir = Path(raw_path).resolve()
+                session_root = root / "upload_import_sessions" / body.session_id
+                if not _is_within_root(skill_dir, session_root):
+                    raise ValueError("Path is outside upload import session")
+                result = _submit_directory_for_processing(
+                    mgr, BackgroundTasks(), skill_dir,
+                    SourceInfo(origin=SkillOrigin(body.origin), author=body.author, channel="upload_zip"),
+                    body.use_behavioral, body.use_llm, body.use_sandbox, body.use_skillspector, body.judgement_mode,
+                )
+                return result.model_dump(mode="json")
+            _upload_jobs[root] = UploadImportJobs(root, process_item)
+        return _upload_jobs[root]
+
+
+def _shutdown_upload_jobs():
+    for queue in list(_upload_jobs.values()):
+        queue.close()
 
 
 def _legacy_runtime_endpoint_removed() -> None:
@@ -71,6 +104,7 @@ def _shutdown_scan_executor() -> None:
 
 
 atexit.register(_shutdown_scan_executor)
+atexit.register(_shutdown_upload_jobs)
 
 
 def _discover_policy_path() -> Path | None:
@@ -86,6 +120,7 @@ def get_manager() -> AgentManager:
         policy_path = _discover_policy_path()
         policy = CompanyPolicy.load(policy_path) if policy_path else CompanyPolicy.default()
         _manager = AgentManager(policy=policy)
+    _get_upload_jobs(_manager)
     return _manager
 
 
@@ -123,20 +158,26 @@ def _resolve_skill_root(extract_dir: Path) -> Path:
     )
 
 
-def _safe_extract_zip(zip_path: Path, extract_dir: Path) -> None:
+def _safe_extract_zip(zip_path: Path, extract_dir: Path, *, skipped_symlinks: list[str] | None = None, archive_prefix: str = "", progress=None) -> None:
     extract_root = extract_dir.resolve()
     with zipfile.ZipFile(zip_path) as zf:
-        for info in zf.infolist():
+        entries = zf.infolist()
+        for index, info in enumerate(entries):
+            if progress:
+                progress("extracting", index, len(entries))
             name = info.filename
             if ".." in name or name.startswith("/"):
                 raise HTTPException(status_code=400, detail=f"Unsafe path in ZIP: {name}")
-            if stat.S_ISLNK(info.external_attr >> 16):
-                raise HTTPException(status_code=400, detail=f"Symlinks are not allowed in ZIP: {name}")
             if not info.flag_bits & 0x800:
                 try:
                     name = name.encode("cp437").decode("utf-8")
                 except UnicodeError:
                     pass
+            if stat.S_ISLNK(info.external_attr >> 16):
+                if skipped_symlinks is not None:
+                    skipped_symlinks.append(f"{archive_prefix}{name}")
+                    continue
+                raise HTTPException(status_code=400, detail=f"Symlinks are not allowed in ZIP: {name}")
             target = (extract_root / name).resolve()
             try:
                 target.relative_to(extract_root)
@@ -148,17 +189,19 @@ def _safe_extract_zip(zip_path: Path, extract_dir: Path) -> None:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(info) as src, target.open("wb") as dst:
                     shutil.copyfileobj(src, dst)
+        if progress:
+            progress("extracting", len(entries), len(entries))
 
 
-def _extract_zip_with_nested_archives(zip_path: Path, extract_dir: Path) -> None:
-    _safe_extract_zip(zip_path, extract_dir)
+def _extract_zip_with_nested_archives(zip_path: Path, extract_dir: Path, *, skipped_symlinks: list[str] | None = None, progress=None) -> None:
+    _safe_extract_zip(zip_path, extract_dir, skipped_symlinks=skipped_symlinks, progress=progress)
     nested_archives = sorted(path for path in extract_dir.rglob("*.zip") if path.is_file())
     for nested_zip in nested_archives:
         if not zipfile.is_zipfile(nested_zip):
             continue
         nested_target = nested_zip.with_suffix("")
         nested_target.mkdir(parents=True, exist_ok=True)
-        _safe_extract_zip(nested_zip, nested_target)
+        _safe_extract_zip(nested_zip, nested_target, skipped_symlinks=skipped_symlinks, archive_prefix=f"{nested_zip.relative_to(extract_dir).as_posix()}!/", progress=progress)
 
 
 def _import_root() -> Path:
@@ -175,13 +218,18 @@ def _is_within_root(path: Path, root: Path) -> bool:
         return False
 
 
-def _collect_import_candidates(root: Path) -> list[dict[str, str]]:
+def _collect_import_candidates(root: Path, progress=None) -> list[dict[str, str]]:
     root = root.resolve()
     if not root.exists() or not root.is_dir():
         return []
     candidates: list[dict[str, str]] = []
     seen: set[str] = set()
-    for manifest in sorted(root.rglob("SKILL.md")):
+    if progress:
+        progress("discovering", 0, 0)
+    manifests = sorted(root.rglob("SKILL.md"))
+    for index, manifest in enumerate(manifests):
+        if progress:
+            progress("identifying", index, len(manifests))
         skill_dir = manifest.parent.resolve()
         key = str(skill_dir)
         if key in seen:
@@ -206,6 +254,8 @@ def _collect_import_candidates(root: Path) -> list[dict[str, str]]:
             "description": description,
             "error": "",
         })
+    if progress:
+        progress("identifying", len(manifests), len(manifests))
     return candidates
 
 
@@ -368,6 +418,7 @@ class SubmitResponse(BaseModel):
     source_version: str | None = None
     deduplicated: bool = False
     scan_reused: bool = False
+    outcome: str | None = None
     name: str
     status: str
     risk_level: str | None
@@ -380,6 +431,7 @@ class SubmitResponse(BaseModel):
 
 class BatchSubmitResponse(BaseModel):
     results: list[SubmitResponse]
+    skipped_symlinks: list[str] = Field(default_factory=list)
 
 
 class LocalImportCandidate(BaseModel):
@@ -434,7 +486,7 @@ class RemoteImportPrepareResponse(BaseModel):
 
 
 class RemoteImportSubmitRequest(BaseModel):
-    session_id: str
+    session_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     paths: list[str]
     author: str | None = None
     origin: str = "unknown"
@@ -451,6 +503,13 @@ class UploadZipPrepareResponse(BaseModel):
     root_path: str
     count: int
     items: list[LocalImportCandidate]
+    requires_symlink_confirmation: bool = False
+    skipped_symlinks: list[str] = Field(default_factory=list)
+
+
+class UploadZipConfirmationRequest(BaseModel):
+    session_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    confirmed: bool
 
 
 class ClawHubSubmitRequest(BaseModel):
@@ -473,6 +532,10 @@ class ApproveRequest(BaseModel):
 class RejectRequest(BaseModel):
     reviewer: str
     reason: str
+
+
+class CancelScanRequest(BaseModel):
+    reviewer: str
 
 
 class RetireRequest(BaseModel):
@@ -513,6 +576,7 @@ class VerifySkillSignatureResponse(BaseModel):
 class PolicyPayload(BaseModel):
     scan_result_reuse_enabled: bool = True
     auto_approve_max_risk: str
+    auto_approve_risk: list[str] = Field(default_factory=lambda: ["benign"])
     require_human_review: list[str]
     auto_reject_risk: list[str]
     require_sandbox_for_risk: list[str]
@@ -714,8 +778,20 @@ def get_policy(mgr: AgentManager = Depends(get_manager)):
     policy_path = _discover_policy_path()
     return PolicyResponse(
         policy_path=str(policy_path) if policy_path else None,
-        policy=PolicyPayload(**mgr.policy.to_dict()),
+        policy=PolicyPayload(**{**mgr.policy.to_dict(), "risk_classification": mgr.policy.risk_classification}),
     )
+
+
+@router.post("/policy/simulate")
+def simulate_policy_decision(body: dict[str, Any]):
+    try:
+        request = PolicySimulationRequest.model_validate(body)
+    except ValidationError:
+        return JSONResponse(status_code=422, content={
+            "error_code": "policy.simulation_invalid",
+            "detail": "模拟参数无效，请检查分析器状态、发现项和策略配置。",
+        })
+    return simulate_policy(request)
 
 
 @router.get("/llm-config", response_model=LLMConfigResponse)
@@ -891,8 +967,8 @@ async def submit_skill_zip(
 
     The ZIP must contain a SKILL.md at its root.
     """
-    if file.size and file.size > 50 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
+    if file.size and file.size > 100 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 100 MiB)")
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="agent-manager-"))
     try:
@@ -933,35 +1009,86 @@ async def submit_skill_zip(
 @router.post("/skills/prepare-upload-zip", response_model=UploadZipPrepareResponse)
 async def prepare_upload_zip(
     file: UploadFile = File(...),
+    skip_symlinks: bool = Query(False),
+    stream: bool = Query(False),
     mgr: AgentManager = Depends(get_manager),
 ):
-    if file.size and file.size > 50 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
+    if file.size and file.size > 100 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 100 MiB)")
 
+    content = await file.read()
+    work = lambda progress: _prepare_uploaded_zip(content, file.filename or "skill.zip", skip_symlinks, mgr, progress)
+    if stream:
+        return stream_upload_progress(work)
+    return await run_in_threadpool(work, None)
+
+
+def _prepare_uploaded_zip(content, filename, skip_symlinks, mgr, progress=None):
     tmp_dir = Path(tempfile.mkdtemp(prefix="agent-manager-prepare-upload-"))
     try:
         zip_path = tmp_dir / "skill.zip"
         with open(zip_path, "wb") as f:
-            content = await file.read()
             f.write(content)
 
         extract_dir = tmp_dir / "skill"
-        _extract_zip_with_nested_archives(zip_path, extract_dir)
+        skipped_symlinks: list[str] = []
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        _extract_zip_with_nested_archives(zip_path, extract_dir, skipped_symlinks=skipped_symlinks, progress=progress)
+        requires_confirmation = bool(skipped_symlinks and not skip_symlinks)
 
         session_id = uuid.uuid4().hex
         session_root = mgr.registry.data_dir / "upload_import_sessions" / session_id
         session_root.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(extract_dir, session_root)
-        items = [LocalImportCandidate(**item) for item in _collect_import_candidates(session_root)]
+        if progress:
+            progress("persisting", 0, 0)
+        shutil.move(str(extract_dir), session_root)
+        metadata_root = mgr.registry.data_dir / "upload_import_metadata"
+        metadata_root.mkdir(parents=True, exist_ok=True)
+        (metadata_root / f"{session_id}.json").write_text(
+            json.dumps({"skipped_symlinks": skipped_symlinks, "requires_confirmation": requires_confirmation,
+                        "filename": filename}, ensure_ascii=False), encoding="utf-8",
+        )
+        items = [] if requires_confirmation else [LocalImportCandidate(**item) for item in _collect_import_candidates(session_root, progress=progress)]
         return UploadZipPrepareResponse(
             session_id=session_id,
-            filename=file.filename or "skill.zip",
+            filename=filename,
+            skipped_symlinks=skipped_symlinks,
+            requires_symlink_confirmation=requires_confirmation,
             root_path=str(session_root),
             count=len(items),
             items=items,
         )
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@router.post("/skills/confirm-upload-zip", response_model=UploadZipPrepareResponse)
+async def confirm_upload_zip(body: UploadZipConfirmationRequest, stream: bool = Query(False), mgr: AgentManager = Depends(get_manager)):
+    work = lambda progress: _confirm_uploaded_zip(body, mgr, progress)
+    if stream:
+        return stream_upload_progress(work, initial_stage="discovering")
+    return await run_in_threadpool(work, None)
+
+
+def _confirm_uploaded_zip(body, mgr, progress=None):
+    session_root = mgr.registry.data_dir / "upload_import_sessions" / body.session_id
+    metadata_path = mgr.registry.data_dir / "upload_import_metadata" / f"{body.session_id}.json"
+    if not session_root.is_dir() or not metadata_path.is_file():
+        raise HTTPException(status_code=404, detail="Upload import session not found")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if not body.confirmed:
+        if _get_upload_jobs(mgr).active_session(body.session_id):
+            raise HTTPException(status_code=409, detail="Upload import job is active")
+        shutil.rmtree(session_root)
+        metadata_path.unlink()
+        return UploadZipPrepareResponse(session_id="", filename=metadata["filename"], root_path="", count=0, items=[])
+    items = [LocalImportCandidate(**item) for item in _collect_import_candidates(session_root, progress=progress)]
+    metadata["requires_confirmation"] = False
+    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
+    return UploadZipPrepareResponse(
+        session_id=body.session_id, filename=metadata["filename"], root_path=str(session_root),
+        count=len(items), items=items, skipped_symlinks=metadata.get("skipped_symlinks", []),
+    )
 
 
 @router.get("/skills/import-candidates", response_model=LocalImportCandidatesResponse)
@@ -1112,7 +1239,12 @@ def submit_remote_selected(
     return BatchSubmitResponse(results=results)
 
 
-@router.post("/skills/submit-upload-selected", response_model=BatchSubmitResponse)
+@router.get("/skills/upload-import-jobs")
+def list_upload_import_jobs(mgr: AgentManager = Depends(get_manager)):
+    return {"items": _get_upload_jobs(mgr).list()}
+
+
+@router.post("/skills/submit-upload-selected", status_code=202)
 def submit_upload_selected(
     body: RemoteImportSubmitRequest,
     background_tasks: BackgroundTasks,
@@ -1121,32 +1253,26 @@ def submit_upload_selected(
     session_root = (mgr.registry.data_dir / "upload_import_sessions" / body.session_id).resolve()
     if not session_root.exists() or not session_root.is_dir():
         raise HTTPException(status_code=404, detail="Upload import session not found")
+    metadata_path = mgr.registry.data_dir / "upload_import_metadata" / f"{session_root.name}.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+    if metadata.get("requires_confirmation"):
+        raise HTTPException(status_code=409, detail="ZIP symlink confirmation required")
     if not body.paths:
         raise HTTPException(status_code=400, detail="No skill paths selected")
 
-    source = SourceInfo(origin=SkillOrigin(body.origin), author=body.author, channel="upload_zip")
-    results: list[SubmitResponse] = []
+    SkillOrigin(body.origin)
+    paths = []
     for raw_path in body.paths:
         skill_dir = Path(raw_path).expanduser().resolve()
         if not _is_within_root(skill_dir, session_root):
             raise HTTPException(status_code=400, detail=f"Path is outside upload import session: {skill_dir}")
         if not (skill_dir / "SKILL.md").exists():
             raise HTTPException(status_code=400, detail=f"SKILL.md not found: {skill_dir}")
-        persistent_dir = mgr.registry.data_dir / "uploaded_skills" / uuid.uuid4().hex
-        persistent_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(skill_dir, persistent_dir)
-        results.append(_submit_directory_for_processing(
-            mgr,
-            background_tasks,
-            persistent_dir,
-            source,
-            body.use_behavioral,
-            body.use_llm,
-            body.use_sandbox,
-            body.use_skillspector,
-            body.judgement_mode,
-        ))
-    return BatchSubmitResponse(results=results)
+        paths.append(str(skill_dir))
+    payload = body.model_dump(mode="json")
+    payload["paths"] = sorted(set(paths))
+    payload["filename"] = metadata.get("filename", "")
+    return _get_upload_jobs(mgr).submit(payload)
 
 
 @router.post("/skills/submit-clawhub", response_model=SubmitResponse)
@@ -1220,6 +1346,7 @@ async def submit_skill_clawhub(
 @router.get("/skills")
 def list_skills(
     status: str | None = Query(None),
+    scanning: bool | None = Query(None),
     loadable_only: bool = Query(False),
     risk_level: str | None = Query(None),
     sandbox_triggered: bool | None = Query(None),
@@ -1249,6 +1376,7 @@ def list_skills(
             page=page or 1,
             page_size=page_size or 10,
             statuses=status_values or None,
+            scanning=scanning,
             cancelled_only=cancelled_only,
             cancelled_reason=CANCELLED_SKILL_REASON,
             loadable_only=loadable_only,
@@ -1260,6 +1388,14 @@ def list_skills(
             sort_order=sort_order,
         )
     entries = mgr.list_skills()
+    if scanning is not None:
+        runs_by_version = mgr.list_scan_runs_for_versions([entry.skill_id for entry in entries])
+        entries = [
+            entry for entry in entries
+            if (entry.status == SkillStatus.PENDING or any(
+                run.status == "PENDING" for run in runs_by_version.get(entry.skill_id, [])
+            )) == scanning
+        ]
     if status_values:
         allowed_statuses = set(status_values)
         entries = [e for e in entries if e.status in allowed_statuses]
@@ -1382,6 +1518,8 @@ def get_skill(skill_id_or_name: str, mgr: AgentManager = Depends(get_manager)):
         raise HTTPException(status_code=404, detail="Skill not found")
     payload = entry.model_dump(mode="json", exclude={"vetting": {"scan_report"}})
     payload["version_id"] = entry.skill_id
+    payload["scan_options"] = _previous_scan_options(entry) if entry.scan_options is not None or entry.vetting else None
+    payload["scan_options_source"] = "submitted" if entry.scan_options is not None else "report" if entry.vetting else "unknown"
     payload["skill_id"] = entry.family_id or entry.skill_id
     trusted = mgr.get_trusted_skill(entry.family_id or skill_id_or_name)
     payload["latest_trusted_version_id"] = trusted.skill_id if trusted else None
@@ -1401,6 +1539,33 @@ def get_scan_report(skill_id_or_name: str, mgr: AgentManager = Depends(get_manag
         "name": entry.name,
         "scan_report": entry.vetting.scan_report if entry.vetting else {},
     }
+
+
+@router.get("/skills/{skill_id_or_name}/scan-report.pdf")
+def export_scan_report_pdf(
+    skill_id_or_name: str,
+    language: str = Query("zh-CN", pattern="^(zh-CN|en-US)$"),
+    mgr: AgentManager = Depends(get_manager),
+):
+    entry = mgr.get_skill(skill_id_or_name)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    if entry.vetting is None or entry.status == SkillStatus.PENDING:
+        raise HTTPException(status_code=409, detail="Scan result is not available yet")
+
+    document = build_scan_report_pdf(
+        entry,
+        scan_runs=mgr.list_scan_runs(entry.skill_id),
+        audit_events=mgr.audit(skill_id=entry.skill_id, limit=100),
+        language=language,
+    )
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", entry.name or entry.skill_id).strip("-") or "skill"
+    filename = f"{safe_name}-v{entry.version_no}-scan-report.pdf"
+    return Response(
+        content=document,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _version_summary(
@@ -1527,19 +1692,20 @@ def _version_text_files(entry) -> dict[str, list[str]]:
     if not root.is_dir():
         return {}
     result: dict[str, list[str]] = {}
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.is_symlink():
-            continue
-        rel = path.relative_to(root)
-        if any(part in {".git", ".venv", "node_modules", "__pycache__", "dist", "build"} for part in rel.parts):
-            continue
-        if path.stat().st_size > 1024 * 1024:
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
-            continue
-        result[rel.as_posix()] = text.splitlines(keepends=True)
+    excluded = {".git", ".venv", "node_modules", "__pycache__", "dist", "build"}
+    for directory, subdirectories, filenames in os.walk(root):
+        subdirectories[:] = [name for name in subdirectories if name not in excluded]
+        for name in filenames:
+            path = Path(directory) / name
+            if name in excluded or path.is_symlink() or not path.is_file():
+                continue
+            if path.stat().st_size > 1024 * 1024:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            result[path.relative_to(root).as_posix()] = text.splitlines(keepends=True)
     return result
 
 
@@ -1555,6 +1721,14 @@ def diff_skill_versions(
         raise HTTPException(status_code=404, detail="Skill not found")
     target_entry = _resolve_version_ref(versions, target, default_index=0)
     base_entry = _resolve_version_ref(versions, base, default_index=1 if len(versions) > 1 else 0)
+    response = {
+        "skill_id": versions[0].family_id or versions[0].skill_id,
+        "base": _version_summary(base_entry),
+        "target": _version_summary(target_entry),
+        "items": [],
+    }
+    if base_entry.skill_id == target_entry.skill_id:
+        return response
     base_files = _version_text_files(base_entry)
     target_files = _version_text_files(target_entry)
     items = []
@@ -1586,12 +1760,8 @@ def diff_skill_versions(
             "after": "".join(after),
             "diff": diff_text,
         })
-    return {
-        "skill_id": versions[0].family_id or versions[0].skill_id,
-        "base": _version_summary(base_entry),
-        "target": _version_summary(target_entry),
-        "items": items,
-    }
+    response["items"] = items
+    return response
 
 
 @router.get("/skills/{skill_id_or_name}/versions/{version_id}/scan-runs")
@@ -1612,6 +1782,8 @@ def list_version_scan_runs(
 
 
 def _previous_scan_options(entry) -> dict[str, bool]:
+    if entry.scan_options is not None:
+        return dict(entry.scan_options)
     report = entry.vetting.scan_report if entry.vetting else {}
     analyzers = {str(item).lower() for item in report.get("analyzers_used", [])}
     return {
@@ -1635,8 +1807,14 @@ def rescan_skill(
     if previous is None:
         raise HTTPException(status_code=404, detail="Skill not found")
     previous_options = _previous_scan_options(previous)
+    scan_options = {
+        "use_behavioral": previous_options["use_behavioral"] if use_behavioral is None else use_behavioral,
+        "use_llm": previous_options["use_llm"] if use_llm is None else use_llm,
+        "use_sandbox": previous_options["use_sandbox"] if use_sandbox is None else use_sandbox,
+        "use_skillspector": previous_options["use_skillspector"] if use_skillspector is None else use_skillspector,
+    }
     try:
-        entry, started = mgr.request_rescan(skill_id)
+        entry, started = mgr.request_rescan(skill_id, scan_options=scan_options)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -1647,10 +1825,10 @@ def rescan_skill(
             _process_pending_submission_task,
             mgr,
             entry.skill_id,
-            previous_options["use_behavioral"] if use_behavioral is None else use_behavioral,
-            previous_options["use_llm"] if use_llm is None else use_llm,
-            previous_options["use_sandbox"] if use_sandbox is None else use_sandbox,
-            previous_options["use_skillspector"] if use_skillspector is None else use_skillspector,
+            scan_options["use_behavioral"],
+            scan_options["use_llm"],
+            scan_options["use_sandbox"],
+            scan_options["use_skillspector"],
             True,
         )
     current = mgr.get_skill(entry.skill_id) or entry
@@ -1661,6 +1839,7 @@ def rescan_skill(
         source_version=current.source_version,
         deduplicated=True,
         scan_reused=False,
+        outcome="rescan_submitted" if started else "already_scanning",
         name=current.name,
         status=current.status.value,
         risk_level=current.risk_level.value if current.risk_level else None,
@@ -1994,6 +2173,27 @@ def reject_skill(
         return {"skill_id": entry.skill_id, "status": entry.status.value, "message": "Rejected"}
     except (ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/skills/{skill_id}/cancel")
+def cancel_skill_scan(
+    skill_id: str,
+    body: CancelScanRequest,
+    mgr: AgentManager = Depends(get_manager),
+):
+    try:
+        entry, cancelled = mgr.cancel_scan(skill_id, reviewer=body.reviewer)
+        scan_pending = any(run.status == "PENDING" for run in mgr.list_scan_runs(entry.skill_id))
+        return {
+            "skill_id": entry.skill_id,
+            "status": entry.status.value,
+            "scan_pending": scan_pending,
+            "outcome": "cancelled" if cancelled else "no_pending_scan",
+        }
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail={
+            "error_code": "skill_not_found", "message": "Skill 不存在",
+        }) from exc
 
 
 # --------------------------------------------------------------------------- #

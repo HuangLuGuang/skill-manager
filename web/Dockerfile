@@ -3,7 +3,7 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 COPY web/package.json web/package-lock.json* ./
-RUN npm install
+RUN npm install && npm audit --audit-level=low
 
 COPY web/ ./
 RUN npm run test:i18n && npm run build

@@ -22,6 +22,7 @@ dependencies = [
     "jsonschema>=4.26.0",
     "agno>=2.6.9",
     "openai>=2.30.0",
+    "reportlab>=4.2.0",
 ]
 
 [project.optional-dependencies]
@@ -71,12 +72,17 @@ dev = [
     # These backend-only packages stay in the dev group so `uv run pytest`
     # works from the repository root; production backend deps live in backend/pyproject.toml.
     "bcrypt<4",
+    "captcha",
+    "croniter",
     "cryptography",
+    "loguru==0.7.3",
     "passlib[bcrypt]",
     "pydantic-settings",
     "pydantic[email]",
+    "psutil",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
+    "pypdf>=5.0.0",
     "python-jose[cryptography]",
     "sqlalchemy",
 ]

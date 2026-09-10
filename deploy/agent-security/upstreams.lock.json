@@ -1,0 +1,342 @@
+{
+  "schema_version": 1,
+  "locked_at": "2026-08-28",
+  "policy": {
+    "runtime_source_fetch": false,
+    "offline_images_must_include_sources": true,
+    "unlocked_ref_allowed": false
+  },
+  "integrations": {
+    "ai_infra_guard": {
+      "repository": "https://github.com/Tencent/AI-Infra-Guard",
+      "tag": "v4.6.0",
+      "commit": "e8931cc68001b66ad024fd87ef07394e9e96524a",
+      "commit_time": "2026-08-26T19:14:23+08:00",
+      "vendored_tree_hash_algorithm": "sha256(sorted(relative_path NUL sha256(file_bytes) NUL))",
+      "license": {
+        "spdx": "Apache-2.0",
+        "license_sha256": "e77b34bf79aede74ad23d3fe9b54bfd24e428fdf70e1359d2e846966cc08f138",
+        "notice_sha256": "be0c75e8cfae06146b93e7de77f21e72c4a50a8b9ca0f5496d8c75e2ffccd577",
+        "attribution": "Based on Tencent Zhuque Lab AI-Infra-Guard",
+        "notice_required": true
+      },
+      "reuse": [
+        {
+          "component": "agent-scan",
+          "mode": "isolated_worker_source",
+          "status": "integrated_p2",
+          "vendored_path": "services/agent-security-worker/vendor/ai-infra-guard/agent-scan",
+          "vendored_tree_sha256": "ad3b55cf0eea288cd74bf13060e808a4a8d77e22aef031cb762759d45454d7d5",
+          "local_modifications": [
+            {
+              "path": "agent_scan/utils/logging.py",
+              "reason": "Disable file logging by default for the read-only Worker and make the writable log directory explicit.",
+              "sha256": "e0b60652f34807bf2cb5243d052404857c2ee146d857c04e5969a7dcb7073248"
+            },
+            {
+              "path": "agent_scan/core/agent.py",
+              "reason": "Retain per-detection-skill execution records and resolve finding sources through a program-controlled reference map.",
+              "sha256": "24ff36e3b3ca8953d7f98ab13823274b9144798ef660e33a7aef742baa5d2127"
+            },
+            {
+              "path": "agent_scan/core/base_agent.py",
+              "reason": "Pass the stable worker stage ID to the bounded provider context for actual per-rule target-call accounting.",
+              "sha256": "9ab3586ff3f455a52a425bf76608e640d6cab684de9469e1a4a8c72342d9b1e9"
+            },
+            {
+              "path": "agent_scan/core/detection_execution.py",
+              "reason": "Record every selected worker outcome, redact errors, and attach opaque program-generated finding source references.",
+              "sha256": "d4ffedd38acffec96bd99bd7e4bf36a5ede47acdf441f4feb7012c85760ab2e8"
+            },
+            {
+              "path": "agent_scan/core/report/models.py",
+              "reason": "Carry the internal opaque finding source reference through report generation.",
+              "sha256": "b56f7ab93913d349f53f18a0f83eeaca1e3de545126ede1c91dd17f689e5bbd4"
+            },
+            {
+              "path": "agent_scan/core/report/report.py",
+              "reason": "Parse and preserve the internal opaque finding source reference without trusting a model-generated skill name.",
+              "sha256": "3b988f3d3d292f107033f8601fba32b7238b0d4b8ea6e89090a5ef2b53b27ea9"
+            },
+            {
+              "path": "agent_scan/utils/tool_context.py",
+              "reason": "Expose the program-controlled stage ID at the target provider seam.",
+              "sha256": "6fc1b4c0e0b684dc884238021f8b57763d79b3838d7784823c45ad36cde0942d"
+            },
+            {
+              "path": "agent_scan/prompt/system/agent_security_reviewer.md",
+              "reason": "Require the reviewer to preserve opaque candidate references and avoid cross-source merges.",
+              "sha256": "8ec2ace50567f197ce5a1b375badd824119452de797512b42172c45e8389e642"
+            }
+          ]
+        },
+        {
+          "component": "mcp-scan",
+          "mode": "isolated_worker_source",
+          "status": "integrated_p3_metadata_adapter",
+          "vendored_path": "services/agent-security-worker/vendor/ai-infra-guard/mcp-scan",
+          "vendored_tree_sha256": "5a8971b90605b3c36515056b57ca5914b267b40a8fa9bddf66e6fca4fb167c8f",
+          "local_modifications": []
+        },
+        {
+          "component": "full-service",
+          "mode": "authenticated_internal_service_source",
+          "status": "integrated_fixed_engine_service",
+          "vendored_path": "services/aig-scan-service/vendor/ai-infra-guard",
+          "verification_subpath": ".",
+          "vendored_tree_sha256": "87e6aa9650c764cd1ea0e913aad9e30ea3b6cccf42ea9a31504ffc175b4693d2",
+          "python_lock": {
+            "generator": "uv 0.6.10",
+            "path": "AIG-PromptSecurity/uv.lock",
+            "sha256": "d14f008c20e9d0d30fc468b2a694f6269a3654b1cee2bd6a37d3a5dae5176ead"
+          },
+          "service_requirements_lock": {
+            "path": "services/aig-scan-service/requirements.lock",
+            "sha256": "b9361bbb75c7986b17776587b1a9dc1d630225202dfd766ce3c41ba6297bbb2b"
+          },
+          "container_bases": {
+            "go": "golang:1.23.2-alpine@sha256:9dd2625a1ff2859b8d8b01d8f7822c0f528942fe56cfe7a1e7c38d3b8d72d679",
+            "python": "python:3.12.9-slim-bookworm@sha256:48a11b7ba705fd53bf15248d1f94d36c39549903c5d59edcfa2f3f84126e7b44"
+          },
+          "local_modifications": [
+            {
+              "path": "AIG-PromptSecurity/cli/model_utils/openailike.py",
+              "reason": "Support explicit unauthenticated model targets in synchronous, asynchronous and connection-test requests while omitting Authorization and ambient credentials.",
+              "sha256": "212893843d9fbce67ea198343d52ad23692cef66ca46d3db905b18ac6bf39d9e"
+            },
+            {
+              "path": "common/websocket/api.go",
+              "reason": "Expose failure diagnostics and bounded structured live case progress to the loopback wrapper.",
+              "sha256": "bfd931797acb4b0542e90842b27cd3a5570eba8a51baa9e0fccdb47b0942692f"
+            },
+            {
+              "path": "common/websocket/api_test.go",
+              "reason": "Verify failure diagnostics and live case aggregation, counts and bounded recent results.",
+              "sha256": "ca8531334ff32a66b5fd15eda1763d50380136f819a397eaa1d1c2abce5f4457"
+            },
+            {
+              "path": "cmd/agent/main.go",
+              "reason": "Register only the AI infrastructure and model red-team task handlers exposed by the dedicated internal service.",
+              "sha256": "841b9de085eaf8c623a9f70413f889078cd4257b0f00785199eed6c597338750"
+            },
+            {
+              "path": "common/websocket/server.go",
+              "reason": "Remove the unused Swagger UI and generated-doc dependency from the loopback-only upstream server.",
+              "sha256": "01173a6985fb31180b45b4b9932c6ede0d3b5de5001a2bff1705602e791a2079"
+            },
+            {
+              "path": "common/websocket/static/index.html",
+              "reason": "Replace the public UI bundle with a minimal internal-service response; no upstream UI is exposed.",
+              "sha256": "d82c0412eeae5390406cc8e33cc529535230d66ba2395caebb7cb88e81ad1269"
+            },
+            {
+              "path": "common/websocket/task_manager.go",
+              "reason": "Redact task content and secret-bearing parameter fields, including typed nested model slices, before upstream SQLite persistence.",
+              "sha256": "01caaca9553a89bfcfe133d7b98a9a016fcec60201c08a47a3964b25e84963ea"
+            },
+            {
+              "path": "common/websocket/task_manager_redaction_test.go",
+              "reason": "Prove typed nested target and evaluator credentials are redacted before persistence.",
+              "sha256": "043d0aadb0652ef85540044fd61c2a74a0387cd63e2ccd943677e16587c0b9b3"
+            },
+            {
+              "path": "common/websocket/task.go",
+              "reason": "Remove raw task request logging.",
+              "sha256": "5c2f79f3ec8fd78d617ac554a17dda017dc5a60fce6359be8d8fa2ddb9d20753"
+            },
+            {
+              "path": "common/agent/agent.go",
+              "reason": "Keep raw task frames and structured live case content out of ordinary debug logs.",
+              "sha256": "0cfb1109e395d73ee0665d2b38da1bbbb4d81441f5cbf04acbca939474a41636"
+            },
+            {
+              "path": "common/agent/tasks.go",
+              "reason": "Suppress raw evaluator response logging.",
+              "sha256": "b909f266433331b1a442b89bd31e3efd71187dd4c8d0a0ff82ec00bada0439a2"
+            },
+            {
+              "path": "common/agent/prompt_tasks.go",
+              "reason": "Complete model red-team tasks from the structured JSON result without uploading container-local CSV paths through the removed public file API.",
+              "sha256": "6ce41b07f76102a7ebcf1d66365dffefd2ca3dd1432aac4fcc547decbc5cdb44"
+            },
+            {
+              "path": "common/websocket/knowledge2_api.go",
+              "reason": "Suppress raw prompt-test response logging.",
+              "sha256": "a54ab9e53e701b50bbc0f80620afaa3e8763070f4c4b81a65b2a2dedb1d6b060"
+            },
+            {
+              "path": "common/utils/utils.go",
+              "reason": "Log only command identity and argument count, never command arguments containing model credentials.",
+              "sha256": "efa59af4468ffe220d849a3a486feeaec2fa2c436cea6586ac02215991e45950"
+            },
+            {
+              "path": "AIG-PromptSecurity/cli_run.py",
+              "reason": "Disable persistent file logging and place temporary reports under the ephemeral runtime directory.",
+              "sha256": "b131f9837b743bde54bcefbcbf2799c185ef1d9435e6dcf0fbe7087f4fd8a846"
+            },
+            {
+              "path": "AIG-PromptSecurity/cli/red_team_runner.py",
+              "reason": "Place generated attachments under the ephemeral runtime directory and execute every selected transformation in the formal scan.",
+              "sha256": "7f037e6194c4f41d443af483ea0123cf6dc8c813bcb28686f8de6101f9106a97"
+            },
+            {
+              "path": "AIG-PromptSecurity/deepteam/red_teamer/red_teamer.py",
+              "reason": "Preserve all executed prompts and original evidence in final reports, export without translation calls, and emit structured queued, running and terminal case events.",
+              "sha256": "39c5ad67acb67610ee18b8a75efd3f1def7650881e100d339388581cfafa90d4"
+            },
+            {
+              "path": "trpc_go.yaml",
+              "reason": "Disable persistent upstream file logging in the read-only container.",
+              "sha256": "9008cd1654934c90e4b20c42f0ca7db39e20a96c1ca1948d875df763a99edd0f"
+            }
+          ]
+        }
+      ],
+      "agent_scan": {
+        "provider_catalog_sha256": "6b4b9a4bd1f7107f47059bac748a94e98600c7d69411f74ce35823a1430aeace",
+        "adapter_sha256": "5c57fd31f08515bac290c3f958df4289a2017d5a90b17cdf283b22dee2f79dca",
+        "provider_types": [
+          "dify",
+          "coze",
+          "coze-com",
+          "openai",
+          "deepseek",
+          "fireworks",
+          "groq",
+          "litellm",
+          "localai",
+          "mistral",
+          "ollama",
+          "openrouter",
+          "perplexity",
+          "togetherai",
+          "anthropic",
+          "google",
+          "cohere",
+          "huggingface",
+          "replicate",
+          "http",
+          "websocket"
+        ],
+        "requirements_sha256": "a2ad10f92a5ad0180fecd5f17ea5ef2d90335426e1a323b4035380fec359606e",
+        "direct_dependencies": [
+          "loguru==0.7.3",
+          "mcp==2.0.0",
+          "openai==2.8.1",
+          "pydantic==2.12.4",
+          "python-dotenv==1.0.0",
+          "PyYAML>=6.0.1",
+          "httpx>=0.27.0",
+          "websockets>=12.0"
+        ]
+      },
+      "mcp_scan": {
+        "modes": [
+          "source_repository",
+          "remote_server"
+        ],
+        "output_formats": [
+          "sarif-2.1.0",
+          "aig-json-lines"
+        ],
+        "requirements_sha256": "81124cfb04fa9377e23f5e26ffda1ab14849579c11182f693f7b63be7d09a9f8",
+        "metadata_sanitizer_sha256": "780cea963b136d48738ac1bd960c2d674182e92ffe38f9778055c3915ede80a2",
+        "remote_tool_adapter_sha256": "5d42a127192e32bd07b4333cca5e10c2f1493f0125b0f631988a7c519caa8e76",
+        "direct_dependencies": [
+          "mcp==2.0.0",
+          "openai==2.8.1",
+          "pydantic==2.12.4",
+          "python-dotenv==1.0.0",
+          "loguru==0.7.3"
+        ]
+      },
+      "known_limitations": [
+        {
+          "code": "dynamic_target_required",
+          "zh-CN": "Agent Scan 是动态黑盒测试，需要可访问的目标和评估模型。",
+          "en-US": "Agent Scan is dynamic black-box testing and requires a reachable target plus an evaluation model."
+        },
+        {
+          "code": "custom_response_transform_required",
+          "zh-CN": "非已知响应格式的自定义 HTTP 目标必须显式配置 transform_response。",
+          "en-US": "Custom HTTP targets require an explicit transform_response path when the response is not a known provider format."
+        },
+        {
+          "code": "upstream_score_is_signal",
+          "zh-CN": "上游风险分数只作为 Agent Manager 策略汇总信号，不等同于银行验收评分。",
+          "en-US": "Upstream risk scores are inputs to Agent Manager policy aggregation and are not bank acceptance scores."
+        },
+        {
+          "code": "platform_controls_required",
+          "zh-CN": "隔离 Worker 仍必须执行 Agent Manager 的 SSRF、凭据、预算、审批和环境控制。",
+          "en-US": "The isolated worker must apply Agent Manager SSRF, credential, budget, approval and environment controls."
+        },
+        {
+          "code": "insecure_tls_disabled",
+          "zh-CN": "Agent Manager 集成基线不启用不安全 TLS 模式。",
+          "en-US": "Insecure TLS is not enabled by the Agent Manager integration baseline."
+        },
+        {
+          "code": "mcp_dynamic_tool_calls_disabled",
+          "zh-CN": "锁定版 MCP Scan 动态模式会执行真实工具调用；P3 仅复用其风险分类和描述净化契约，并强制使用 Gateway 元数据快照，禁用动态 tools/call。",
+          "en-US": "The locked MCP Scan dynamic mode performs real tool calls; P3 only reuses its risk taxonomy and description sanitization contract, forces Gateway metadata snapshots, and disables dynamic tools/call."
+        }
+      ]
+    },
+    "deepseek_harness": {
+      "repository": "https://github.com/deepseek-ai/deepseek-harness",
+      "tag": "dsh-v0.1.2-alpha.1",
+      "commit": "cd5ef8148158c3a752a658978873241fdf8e2bbc",
+      "commit_time": "2026-08-28T00:57:43+08:00",
+      "license": {
+        "spdx": "MIT",
+        "license_sha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be"
+      },
+      "reuse": [
+        {
+          "component": "session-event-model",
+          "mode": "design_reference_only",
+          "status": "approved_reference"
+        },
+        {
+          "component": "ui-trajectory",
+          "mode": "design_reference_only",
+          "status": "approved_reference"
+        }
+      ],
+      "runtime_dependency": false,
+      "reference_files": [
+        "docs/subsystems/session.zh.md",
+        "docs/subsystems/session-telemetry.zh.md",
+        "packages/client/ui-trajectory/README.zh.md"
+      ],
+      "reference_file_sha256": {
+        "docs/subsystems/session.zh.md": "a6f4f20f923d2227e5353451771470d49c9577b732b8d7524cbd5fb587e170e6",
+        "docs/subsystems/session-telemetry.zh.md": "6a24947c58f5fa73fe7d444d98dbeb556192280579f5acb1c38eb2b3f76c383e",
+        "packages/client/ui-trajectory/README.zh.md": "4fee7d6891e8eb58d67e890bf98ae0cf7879a992e67be030adbe379da5d1f3df"
+      },
+      "known_limitations": [
+        {
+          "code": "developer_preview",
+          "zh-CN": "该项目仍标记为开发者预览，可能发生不兼容变更。",
+          "en-US": "The project labels itself as a developer preview and may make compatibility-breaking changes."
+        },
+        {
+          "code": "trajectory_requires_session_events",
+          "zh-CN": "Trajectory 是 Session 事件的投影，不是模型网关日志查看器。",
+          "en-US": "Trajectory is a projection of Session events, not a model-gateway log viewer."
+        },
+        {
+          "code": "best_effort_delivery",
+          "zh-CN": "遥测采用尽力投递，消费方必须容忍重复和序号缺口。",
+          "en-US": "Telemetry delivery is best effort and consumers must tolerate duplicates and gaps."
+        },
+        {
+          "code": "no_bundled_redaction",
+          "zh-CN": "遥测 seam 不自带脱敏规则，Agent Manager 必须实施自己的 fail-closed 隐私控制。",
+          "en-US": "The telemetry seam ships no redaction rules; Agent Manager must apply its own fail-closed privacy controls."
+        }
+      ]
+    }
+  }
+}

@@ -14,3 +14,6 @@ __pycache__
 uploads
 sqlite
 data
+!services/aig-scan-service/vendor/ai-infra-guard/data/
+!services/aig-scan-service/vendor/ai-infra-guard/data/eval/
+!services/aig-scan-service/vendor/ai-infra-guard/data/eval/*.json

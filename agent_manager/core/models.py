@@ -148,6 +148,7 @@ class RegistryEntry(BaseModel):
     scan_context_fingerprint: Optional[str] = None
     scan_cache_key: Optional[str] = None
     scan_reused: bool = False
+    scan_options: dict[str, bool] | None = None
     reused_from_skill_id: Optional[str] = None
     latest_version: bool = False
     latest_trusted_version: bool = False

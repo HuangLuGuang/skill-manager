@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { createUploadProgressReader } from '../utils/uploadProgress'
 import { getCurrentLocale } from '../i18n'
 import { getApiErrorCode, localizeApiError } from '../i18n/errors'
 
@@ -18,6 +19,19 @@ export const login = (username, password, captchaId, captchaCode) => {
 
 export const getCaptcha = () => api.get('/auth/captcha')
 export const getMe = () => api.get('/auth/users/me')
+export const listAssetSources = () => api.get('/v1/agent-security/asset-sources')
+export const createAssetSource = body => api.post('/v1/agent-security/asset-sources', body)
+export const updateAssetSource = (id, body) => api.put(`/v1/agent-security/asset-sources/${id}`, body)
+export const startAssetSync = (id, key) => api.post(`/v1/agent-security/asset-sources/${id}/sync-runs`, { idempotency_key: key })
+export const listAssetSyncRuns = id => api.get(`/v1/agent-security/asset-sources/${id}/sync-runs`)
+export const getAssetSyncRun = id => api.get(`/v1/agent-security/asset-sync-runs/${id}`)
+export const cancelAssetSyncRun = id => api.post(`/v1/agent-security/asset-sync-runs/${id}/cancel`)
+export const listManagedAgentRisks = params => api.get('/v1/agent-security/managed-agents', { params })
+export const getManagedAgentRisk = id => api.get(`/v1/agent-security/managed-agents/${id}/risk`)
+export const getManagedAgentRiskHistory = id => api.get(`/v1/agent-security/managed-agents/${id}/risk-history`)
+export const getManagedAgentRiskIssues = id => api.get(`/v1/agent-security/managed-agents/${id}/risk-issues`)
+export const reviewManagedAgentRisk = (id, issueId, body) => api.patch(`/v1/agent-security/managed-agents/${id}/risk-issues/${issueId}`, body)
+export const setManagedAgentRelatedTargets = (id, targetIds) => api.put(`/v1/agent-security/managed-agents/${id}/related-targets`, { target_ids: targetIds })
 export const updateMyLocale = (locale) => api.put('/auth/users/me/locale', { locale })
 export const changePassword = (oldPassword, newPassword) =>
   api.post('/auth/users/me/password', {
@@ -27,7 +41,67 @@ export const changePassword = (oldPassword, newPassword) =>
 export const checkSession = () => api.get('/auth/session-check')
 
 export const getSystemInfo = () => api.get('/system/info')
+export const getSystemCapabilities = () => api.get('/system/capabilities')
 export const getLogoInfo = () => api.get('/system/logo')
+export const listRuntimeTraces = (params = {}) => api.get('/v1/runtime-traces', { params })
+export const getRuntimeTrace = traceId => api.get(`/v1/runtime-traces/${traceId}`)
+export const listRuntimeTraceRequests = (traceId, params) => api.get(`/v1/runtime-traces/${traceId}/requests`, { params })
+export const listRuntimeTraceEvents = (traceId, params = {}) =>
+  api.get(`/v1/runtime-traces/${traceId}/events`, { params })
+export const authorizeRawRuntimeTraceExport = (traceId, data) =>
+  api.post(`/v1/runtime-traces/${traceId}/exports/raw-authorization`, data)
+export const createRuntimeTraceExport = (traceId, data) =>
+  api.post(`/v1/runtime-traces/${traceId}/exports`, data)
+export const downloadRuntimeTraceExport = exportId =>
+  api.get(`/v1/runtime-traces/exports/${exportId}/download`, { responseType: 'blob' })
+export const listSecurityTargets = () => api.get('/v1/agent-security/targets')
+export const getSecurityRedteamOptions = () => api.get('/v1/agent-security/redteam-options')
+export const getSecurityRedteamDataset = (name, params = {}) => api.get(`/v1/agent-security/redteam-datasets/${encodeURIComponent(name)}`, { params })
+export const createSecurityTarget = data => api.post('/v1/agent-security/targets', data)
+export const testSecurityTargetConnectivity = data => api.post('/v1/agent-security/targets/test-connectivity', data)
+export const updateSecurityTarget = (targetId, data) => api.patch(`/v1/agent-security/targets/${targetId}`, data)
+export const getDifyMcpBindingOptions = targetId =>
+  api.get(`/v1/agent-security/targets/${targetId}/dify-mcp-binding-options`)
+export const setSecurityTargetCredential = (targetId, data) =>
+  api.post(`/v1/agent-security/targets/${targetId}/credentials`, data)
+export const updateSecurityTargetCredentialStatus = (credentialId, status) =>
+  api.patch(`/v1/agent-security/credentials/${credentialId}/status`, { status })
+export const listSecurityPolicies = () => api.get('/v1/agent-security/policies')
+export const createSecurityPolicy = data => api.post('/v1/agent-security/policies', data)
+export const updateSecurityPolicy = (policyId, data) =>
+  api.patch(`/v1/agent-security/policies/${policyId}`, data)
+export const listSecurityScanApprovals = (params = {}) => api.get('/v1/agent-security/scan-approvals', { params })
+export const createSecurityScanApproval = data => api.post('/v1/agent-security/scan-approvals', data)
+export const listSecurityTasks = (params = {}) => api.get('/v1/agent-security/tasks', { params })
+export const previewSecurityTask = data => api.post('/v1/agent-security/tasks/preview', data)
+export const createSecurityTask = data => api.post('/v1/agent-security/tasks', data)
+export const getSecurityTask = taskId => api.get(`/v1/agent-security/tasks/${taskId}`)
+export const getSecurityTaskInventory = (taskId, params = {}) =>
+  api.get(`/v1/agent-security/tasks/${taskId}/inventory`, { params })
+export const compareSecurityTaskInventory = (taskId, baselineTaskId = null) =>
+  api.get(`/v1/agent-security/tasks/${taskId}/inventory/compare`, {
+    params: baselineTaskId ? { baseline_task_id: baselineTaskId } : {},
+  })
+export const getSecurityInventoryPromptContent = (taskId, itemId) =>
+  api.get(`/v1/agent-security/tasks/${taskId}/inventory/items/${itemId}/content`, {
+    params: { confirm: true },
+  })
+export const cancelSecurityTask = taskId => api.post(`/v1/agent-security/tasks/${taskId}/cancel`)
+export const activateSecurityTaskKillSwitch = (taskId, data) =>
+  api.post(`/v1/agent-security/tasks/${taskId}/kill-switch`, data)
+export const compareSecurityTasks = (taskId, baselineTaskId) =>
+  api.get(`/v1/agent-security/tasks/${taskId}/compare/${baselineTaskId}`)
+export const listSecurityTaskFindings = taskId => api.get(`/v1/agent-security/tasks/${taskId}/findings`)
+export const listSecurityFindings = params => api.get('/v1/agent-security/findings', { params })
+export const getSecurityFinding = findingId => api.get(`/v1/agent-security/findings/${findingId}`)
+export const listSecurityFindingsForTraceEvent = (traceId, eventId) =>
+  api.get('/v1/agent-security/findings/links', { params: { trace_id: traceId, event_id: eventId } })
+export const updateSecurityFinding = (findingId, data) =>
+  api.patch(`/v1/agent-security/findings/${findingId}`, data)
+export const getSecurityArtifactContent = (taskId, artifactId) =>
+  api.get(`/v1/agent-security/tasks/${taskId}/artifacts/${artifactId}/content`)
+export const exportSecurityScanReportPdf = (taskId, language = 'zh-CN') =>
+  api.get(`/v1/agent-security/tasks/${taskId}/scan-report.pdf`, { params: { language }, responseType: 'blob' })
 export const getDocsAssistantConfig = () => api.get('/config/docs-assistant')
 export const updateDocsAssistantConfig = (data) => api.post('/config/docs-assistant', data)
 export const askDocsAssistant = (data) => api.post('/config/docs-assistant/ask', data)
@@ -40,6 +114,11 @@ export const getSkillFiles = (skillIdOrName) => api.get(`/v1/skills/${skillIdOrN
 export const getSkillFileContent = (skillIdOrName, path) => api.get(`/v1/skills/${skillIdOrName}/file-content`, { params: { path } })
 export const downloadSkill = (skillIdOrName, params = {}) => api.get(`/v1/skills/${skillIdOrName}/download`, { params, responseType: 'blob' })
 export const getSkillScanReport = (skillIdOrName) => api.get(`/v1/skills/${skillIdOrName}/scan-report`)
+export const exportSkillScanReportPdf = (skillIdOrName, language = 'zh-CN') =>
+  api.get(`/v1/skills/${skillIdOrName}/scan-report.pdf`, {
+    params: { language },
+    responseType: 'blob',
+  })
 export const getSkillVersions = (skillIdOrName) => api.get(`/v1/skills/${skillIdOrName}/versions`)
 export const getSkillVersionDiff = (skillIdOrName, params = {}) => api.get(`/v1/skills/${skillIdOrName}/diff`, { params })
 export const getSkillVersionScanRuns = (skillIdOrName, versionId) =>
@@ -54,24 +133,42 @@ export const submitSkillZip = (formData, params = {}) =>
     params,
     headers: { 'Content-Type': 'multipart/form-data' },
   })
-export const prepareUploadZip = (formData) =>
-  api.post('/v1/skills/prepare-upload-zip', formData, {
+export const prepareUploadZip = async (formData, params = {}, onUploadProgress, onProgress) => {
+  const reader = createUploadProgressReader(onProgress)
+  const response = await api.post('/v1/skills/prepare-upload-zip', formData, {
+    params: { ...params, stream: true },
+    onUploadProgress,
+    responseType: 'text',
+    onDownloadProgress: ({ event }) => reader.feed(event.target.responseText),
     headers: { 'Content-Type': 'multipart/form-data' },
   })
+  return reader.finish(response)
+}
 export const getLocalImportCandidates = () => api.get('/v1/skills/import-candidates')
+export const confirmUploadZip = async (sessionId, confirmed, onProgress) => {
+  const reader = createUploadProgressReader(onProgress)
+  const response = await api.post('/v1/skills/confirm-upload-zip', { session_id: sessionId, confirmed }, {
+    params: { stream: true }, responseType: 'text',
+    onDownloadProgress: ({ event }) => reader.feed(event.target.responseText),
+  })
+  return reader.finish(response)
+}
 export const submitLocalSkills = (data) => api.post('/v1/skills/submit-local', data)
 export const submitUploadSelected = (data) => api.post('/v1/skills/submit-upload-selected', data)
+export const getUploadImportJobs = () => api.get('/v1/skills/upload-import-jobs')
 export const submitSkillUrl = (data) => api.post('/v1/skills/submit-url', data)
 export const approveSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/approve`, data)
 export const rejectSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/reject`, data)
+export const cancelSkillScan = (skillId, data) => api.post(`/v1/skills/${skillId}/cancel`, data)
 export const deploySkill = (skillId) => api.post(`/v1/skills/${skillId}/deploy`)
 export const retireSkill = (skillId, data) => api.post(`/v1/skills/${skillId}/retire`, data)
-export const rescanSkill = (skillId) => api.post(`/v1/skills/${skillId}/rescan`)
+export const rescanSkill = (skillId, options = {}) => api.post(`/v1/skills/${skillId}/rescan`, null, { params: options })
 export const deleteSkill = (skillId) => api.delete(`/v1/skills/${skillId}`)
 export const getDashboardRiskSourceStats = () => api.get('/v1/dashboard/risk-source-stats')
 export const getAudit = (params = {}) => api.get('/v1/audit', { params })
 export const getAuditPaged = (params = {}) => api.get('/v1/audit', { params: { ...params, page: params.page || 1, page_size: params.page_size || 10 } })
 export const getPolicy = () => api.get('/v1/policy')
+export const simulatePolicy = (data, signal) => api.post('/v1/policy/simulate', data, { signal })
 export const updatePolicy = (data) => api.put('/v1/policy', data)
 export const getLlmConfig = () => api.get('/v1/llm-config')
 export const updateLlmConfig = (data) => api.put('/v1/llm-config', data)
@@ -157,7 +254,7 @@ export const listModelProviders = () => api.get('/v1/model-providers')
 export const createModelProvider = (data) => api.post('/v1/model-providers', data)
 export const updateModelProvider = (providerId, data) => api.put(`/v1/model-providers/${providerId}`, data)
 export const deleteModelProvider = (providerId) => api.delete(`/v1/model-providers/${providerId}`)
-export const testModelProvider = (providerId) => api.post(`/v1/model-providers/${providerId}/test`)
+export const testModelProvider = (providerId, data) => api.post(`/v1/model-providers/${providerId}/test`, data)
 export const listModelEndpoints = () => api.get('/v1/models')
 export const createModelEndpoint = (data) => api.post('/v1/models', data)
 export const updateModelEndpoint = (modelId, data) => api.put(`/v1/models/${modelId}`, data)
@@ -236,3 +333,12 @@ api.interceptors.response.use(
 )
 
 export default api
+
+export const listScanSchedules = () => api.get('/v1/agent-security/scan-schedules')
+export const createScanSchedule = body => api.post('/v1/agent-security/scan-schedules', body)
+export const updateScanSchedule = (id, body) => api.put(`/v1/agent-security/scan-schedules/${id}`, body)
+export const deleteScanSchedule = id => api.delete(`/v1/agent-security/scan-schedules/${id}`)
+export const triggerScanSchedule = (id, key) => api.post(`/v1/agent-security/scan-schedules/${id}/runs`, { idempotency_key: key })
+export const listScanScheduleRuns = id => api.get(`/v1/agent-security/scan-schedules/${id}/runs`)
+export const previewScanTiming = body => api.post('/v1/agent-security/scan-schedules/preview', body)
+export const getTargetRiskProfile = id => api.get(`/v1/agent-security/targets/${id}/risk-profile`)

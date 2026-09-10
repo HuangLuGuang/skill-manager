@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import re
@@ -41,6 +42,7 @@ _CLIENT_ONLINE_WINDOW = timedelta(minutes=10)
 _CLIENT_DOWNLOAD_COOKIE = "agent_manager_client_download"
 _CLIENT_DOWNLOAD_PURPOSE = "client_installer_download"
 _CLIENT_DOWNLOAD_TICKET_TTL = timedelta(minutes=5)
+_MODEL_CONFIG_TASK_STALE_AFTER = timedelta(minutes=10)
 _CLIENT_INSTALLER_RE = re.compile(
     r"^agent-manager-client-(?P<version>\d{2}\.\d{2}\.\d{2}(?:\.[1-9]\d?)?)-"
     r"(?P<platform>darwin-aarch64|darwin-x86_64|windows-x86_64|linux-x86_64)"
@@ -52,6 +54,18 @@ _CLIENT_PLATFORM_LABELS = {
     "windows-x86_64": "Windows 64 位",
     "linux-x86_64": "Linux 64 位",
 }
+_MODEL_CONFIG_AGENT_TYPES = {"claude-code", "codex", "hermes"}
+_MODEL_CONFIG_AGENT_LABELS = {
+    "claude-code": "Claude Code",
+    "codex": "Codex",
+    "hermes": "Hermes",
+}
+_AUTO_AGENT_CREDENTIAL_SCOPES = [
+    "runtime:verify-signature",
+    "runtime:can-load",
+    "runtime:check-tool",
+    "model:chat",
+]
 
 
 def _dump(value) -> str:
@@ -136,7 +150,7 @@ def _issue_agent_runtime_credential(
         synchronize_session=False,
     )
     gateways = list(dict.fromkeys(str(item).strip() for item in (allowed_mcp_gateways or []) if str(item).strip()))
-    scopes = ["runtime:verify-signature", "runtime:can-load", "runtime:check-tool", "model:chat"]
+    scopes = list(_AUTO_AGENT_CREDENTIAL_SCOPES)
     if gateways:
         scopes.extend(["mcp:connect", "mcp:list-tools", "mcp:call-tools"])
     owner_id = client_token.user_id
@@ -283,6 +297,76 @@ def _token_can_use_agent(db: Session, token: models.AccessToken, agent: models.M
         return True
     owner = db.query(models.User).filter(models.User.username == token.created_by).first()
     return bool(owner and owner.role == "super_admin")
+
+
+def _client_managed_agent_id(client_id: str, local_agent_id: str) -> str:
+    source = f"{client_id}:{local_agent_id}"
+    slug = re.sub(r"[^a-z0-9]+", "-", source.lower()).strip("-") or "local-agent"
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:10]
+    return f"client-{slug[:100]}-{digest}"
+
+
+def _ensure_client_managed_agent(
+    db: Session,
+    *,
+    client: models.ManagedClient,
+    client_agent: models.ClientAgent,
+    token: models.AccessToken,
+    model_name: str,
+) -> models.ManagedAgent:
+    local_agent_id = _local_agent_id(client_agent.local_agent_id, client_agent.agent_type)
+    agent_id = _client_managed_agent_id(client.client_id, local_agent_id)
+    existing = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == agent_id).first()
+    if existing:
+        if _agent_kind(existing.channel) != _agent_kind(client_agent.agent_type) or not _token_can_use_agent(db, token, existing):
+            raise ApiError(
+                409,
+                "client.auto_agent_identity_conflict",
+                "本机 Agent 的自动运行身份与现有记录冲突",
+                "The automatic runtime identity for this local Agent conflicts with an existing record",
+            )
+        if existing.status != "active":
+            raise ApiError(
+                409,
+                "client.auto_agent_identity_disabled",
+                "本机 Agent 的自动运行身份已被停用，请先在管理台启用",
+                "The automatic runtime identity for this local Agent is disabled",
+            )
+        existing.default_model = model_name
+        existing.updated_at = datetime.utcnow()
+        return existing
+    label = _MODEL_CONFIG_AGENT_LABELS.get(client_agent.agent_type, client_agent.agent_type)
+    owner = token.created_by or client.registered_by
+    row = models.ManagedAgent(
+        agent_id=agent_id,
+        name=f"{client.name} · {label}"[:128],
+        department_group_id=token.group_id,
+        owner=owner,
+        description=f"由客户端 {client.name} ({client.client_id}) 为本机 {label} 自动创建的运行身份。",
+        channel=label,
+        status="active",
+        default_model=model_name,
+        skill_names_json="[]",
+        prompt_names_json="[]",
+        created_by=owner,
+    )
+    db.add(row)
+    db.flush()
+    db.add(
+        models.ClientEvent(
+            client_id=client.client_id,
+            event_type="managed_agent_auto_created",
+            agent_type=client_agent.agent_type,
+            details_json=_dump(
+                {
+                    "local_agent_id": local_agent_id,
+                    "managed_agent_id": row.agent_id,
+                    "source": "model_switch",
+                }
+            ),
+        )
+    )
+    return row
 
 
 def _manager_trusted_skill(manager, skill_id: str):
@@ -656,7 +740,10 @@ def _client_policy_response(db: Session, row: models.ManagedClient) -> dict:
                 "default_model": agent.default_model,
                 "allowed_models": _agent_model_names(db, agent),
                 "allowed_mcp_gateways": _agent_gateway_names(db, agent),
-                "auto_apply_supported": binding.agent_type == "claude-code",
+                "auto_apply_supported": (
+                    binding.agent_type in _MODEL_CONFIG_AGENT_TYPES
+                    and bool(_load(binding.capabilities_json, {}).get("model_config_auto_apply"))
+                ),
             }
         )
     return {
@@ -819,6 +906,43 @@ def get_client_runtime_status(
     client.status = "online"
     db.commit()
     result = _client_response(db, client)
+    can_configure_models = bool(token.allow_agent_credential_issuance)
+    allowed_model_names = {
+        str(item).strip()
+        for item in _load(token.allowed_models_json, [])
+        if str(item).strip()
+    }
+    model_query = (
+        db.query(models.ModelEndpoint, models.ModelProvider)
+        .join(models.ModelProvider, models.ModelProvider.id == models.ModelEndpoint.provider_id)
+        .filter(
+            models.ModelEndpoint.enabled.is_(True),
+            models.ModelProvider.enabled.is_(True),
+        )
+    )
+    if allowed_model_names:
+        model_query = model_query.filter(models.ModelEndpoint.name.in_(allowed_model_names))
+    result["model_configuration"] = {
+        "can_configure_models": can_configure_models,
+        "allowed_model_scope": "selected" if allowed_model_names else "all",
+        "automatic_agent_credential_scopes": list(_AUTO_AGENT_CREDENTIAL_SCOPES),
+        "models": [
+            {
+                "id": model.id,
+                "name": model.name,
+                "display_name": model.display_name,
+                "provider_name": provider.name,
+                "context_window": model.context_window,
+                "max_output_tokens": model.max_output_tokens,
+                "is_default": model.is_default,
+            }
+            for model, provider in (
+                model_query.order_by(models.ModelEndpoint.is_default.desc(), models.ModelEndpoint.name.asc()).all()
+                if can_configure_models
+                else []
+            )
+        ],
+    }
     llm_config = LLMConfig.load()
     sandbox_config = SandboxConfig.load()
     result["detection_capabilities"] = {
@@ -953,6 +1077,183 @@ def poll_tasks(
     return [{"id": row.id, "task_type": row.task_type, "payload": _load(row.payload_json, {})} for row in rows]
 
 
+@router.post("/{client_id}/model-configurations")
+def request_model_configuration(
+    client_id: str,
+    body: schemas.ClientModelConfigurationRequest,
+    request: Request,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    client_token = _runtime_token("client:read-tasks", authorization, request, db)
+    _bind_client(client_token, client_id, db)
+    client = _client_or_404(db, client_id)
+    if not client_token.allow_agent_credential_issuance:
+        raise ApiError(
+            403,
+            "client.agent_credential_issuance_disabled",
+            "当前客户端凭证未开启为 Agent 自动创建运行凭证的权限",
+            "This Client credential cannot automatically create Agent runtime credentials",
+        )
+    agent_type = body.agent_type.strip()
+    local_agent_id = _local_agent_id(body.local_agent_id, agent_type)
+    model_name = body.model.strip()
+    if agent_type not in _MODEL_CONFIG_AGENT_TYPES:
+        raise ApiError(
+            400,
+            "client.model_config_agent_unsupported",
+            "当前 Agent 暂不支持自动配置模型",
+            "This Agent does not support automatic model configuration",
+        )
+    client_agent = (
+        db.query(models.ClientAgent)
+        .filter(
+            models.ClientAgent.client_id == client_id,
+            models.ClientAgent.local_agent_id == local_agent_id,
+            models.ClientAgent.agent_type == agent_type,
+        )
+        .first()
+    )
+    if not client_agent or not _load(client_agent.capabilities_json, {}).get("model_config_auto_apply"):
+        raise ApiError(
+            400,
+            "client.model_config_agent_unsupported",
+            "客户端未发现支持模型切换的目标 Agent",
+            "The Client did not discover a target Agent that supports model switching",
+        )
+    requested_managed_agent_id = str(body.managed_agent_id or "").strip()
+    if client_agent.managed_agent_id and requested_managed_agent_id not in {"", client_agent.managed_agent_id}:
+        raise ApiError(
+            409,
+            "client.agent_binding_locked",
+            "本机 Agent 已关联其他平台 Agent，请在客户端管理中更改关联",
+            "The local Agent is already linked to another managed Agent",
+        )
+    if not client_agent.managed_agent_id:
+        if requested_managed_agent_id:
+            requested_agent = (
+                db.query(models.ManagedAgent)
+                .filter(
+                    models.ManagedAgent.agent_id == requested_managed_agent_id,
+                    models.ManagedAgent.status == "active",
+                )
+                .first()
+            )
+            if not requested_agent or not _token_can_use_agent(db, client_token, requested_agent):
+                raise ApiError(404, "agent.not_found", "平台 Agent 不存在或无权使用", "Managed Agent not found")
+            if _agent_kind(requested_agent.channel) != _agent_kind(agent_type):
+                raise ApiError(
+                    400,
+                    "client.agent_binding_type_mismatch",
+                    "平台 Agent 类型与本机 Agent 不一致",
+                    "The managed Agent type does not match the local Agent",
+                )
+            binding_source = "model_switch_existing"
+        else:
+            requested_agent = _ensure_client_managed_agent(
+                db,
+                client=client,
+                client_agent=client_agent,
+                token=client_token,
+                model_name=model_name,
+            )
+            binding_source = "model_switch_auto_created"
+        client_agent.managed_agent_id = requested_agent.agent_id
+        db.add(
+            models.ClientEvent(
+                client_id=client_id,
+                event_type="local_agent_binding_updated",
+                agent_type=agent_type,
+                details_json=_dump(
+                    {
+                        "local_agent_id": local_agent_id,
+                        "managed_agent_id": requested_agent.agent_id,
+                        "source": binding_source,
+                    }
+                ),
+            )
+        )
+    agent = (
+        db.query(models.ManagedAgent)
+        .filter(
+            models.ManagedAgent.agent_id == client_agent.managed_agent_id,
+            models.ManagedAgent.status == "active",
+        )
+        .first()
+    )
+    if not agent or not _token_can_use_agent(db, client_token, agent):
+        raise ApiError(404, "agent.bound_not_found", "关联的 Agent 不存在或未启用", "The linked Agent is missing or disabled")
+    delegated_models = {
+        str(item).strip()
+        for item in _load(client_token.allowed_models_json, [])
+        if str(item).strip()
+    }
+    if delegated_models and model_name not in delegated_models:
+        raise ApiError(
+            403,
+            "client.model_not_delegated",
+            "当前客户端凭证不允许配置该模型",
+            "The Client credential cannot configure this model",
+        )
+    model = (
+        db.query(models.ModelEndpoint)
+        .join(models.ModelProvider, models.ModelProvider.id == models.ModelEndpoint.provider_id)
+        .filter(
+            models.ModelEndpoint.name == model_name,
+            models.ModelEndpoint.enabled.is_(True),
+            models.ModelProvider.enabled.is_(True),
+        )
+        .first()
+    )
+    if not model:
+        raise ApiError(404, "model.not_found", "模型不存在或未启用", "The model is missing or disabled")
+    now = datetime.utcnow()
+    for active_task in db.query(models.ClientTask).filter(
+        models.ClientTask.client_id == client_id,
+        models.ClientTask.task_type == "apply_model_config",
+        models.ClientTask.status.in_(("pending", "running")),
+    ).all():
+        active_payload = _load(active_task.payload_json, {})
+        if _local_agent_id(active_payload.get("local_agent_id"), str(active_payload.get("agent_type") or "")) == local_agent_id:
+            started_at = active_task.started_at or active_task.created_at
+            if active_task.status == "running" and started_at and now - started_at >= _MODEL_CONFIG_TASK_STALE_AFTER:
+                active_task.status = "failed"
+                active_task.error = "客户端未在限定时间内完成模型切换"
+                active_task.finished_at = now
+                _update_model_config_state(db, client_id, active_payload, "failed", active_task.error)
+                continue
+            raise ApiError(
+                409,
+                "client.model_config_in_progress",
+                "该 Agent 正在切换模型",
+                "A model switch is already running for this Agent",
+            )
+    payload = {
+        "local_agent_id": local_agent_id,
+        "agent_type": agent_type,
+        "managed_agent_id": agent.agent_id,
+        "model": model.name,
+        "auto_issue_credential": True,
+    }
+    task = models.ClientTask(
+        client_id=client_id,
+        task_type="apply_model_config",
+        payload_json=_dump(payload),
+        status="running",
+        started_at=now,
+    )
+    db.add(task)
+    client_agent.desired_model = model.name
+    client_agent.model_config_status = "applying"
+    client_agent.model_config_error = None
+    client_agent.model_config_updated_at = now
+    agent.default_model = model.name
+    agent.updated_at = now
+    db.commit()
+    db.refresh(task)
+    return {"id": task.id, "task_type": task.task_type, "payload": payload, "status": task.status}
+
+
 @router.post(
     "/{client_id}/tasks/{task_id}/agent-credential",
     response_model=schemas.ClientAgentCredentialResponse,
@@ -1034,19 +1335,33 @@ def issue_task_agent_credential(
     ).first()
     if not model:
         raise ApiError(404, "model.not_found", "模型不存在或未启用", "The model is missing or disabled")
+    delegated_models = {
+        str(item).strip()
+        for item in _load(client_token.allowed_models_json, [])
+        if str(item).strip()
+    }
+    if delegated_models and model.name not in delegated_models:
+        raise ApiError(
+            403,
+            "client.model_not_delegated",
+            "当前客户端凭证不允许配置该模型",
+            "The Client credential cannot configure this model",
+        )
+    allowed_mcp_gateways = _agent_gateway_names(db, agent)
     plain, credential = _issue_agent_runtime_credential(
         db,
         client_token=client_token,
         client_id=client_id,
         agent=agent,
         model_name=model.name,
+        allowed_mcp_gateways=allowed_mcp_gateways,
     )
     return schemas.ClientAgentCredentialResponse(
         token=plain,
         token_prefix=credential.token_prefix,
         bound_agent_id=agent.agent_id,
         allowed_models=[model.name],
-        allowed_mcp_gateways=[],
+        allowed_mcp_gateways=allowed_mcp_gateways,
     )
 
 
@@ -1382,14 +1697,31 @@ def create_task(
         )
         if not client_agent or not client_agent.managed_agent_id:
             raise HTTPException(status_code=400, detail="本地 Agent 尚未绑定平台智能体")
-        if agent_type != "claude-code":
-            raise HTTPException(status_code=400, detail="当前版本仅支持自动应用 Claude Code 模型配置")
+        capabilities = _load(client_agent.capabilities_json, {})
+        if agent_type not in _MODEL_CONFIG_AGENT_TYPES or not capabilities.get("model_config_auto_apply"):
+            raise HTTPException(status_code=400, detail="当前 Agent 暂不支持自动应用模型配置")
         agent = db.query(models.ManagedAgent).filter(
             models.ManagedAgent.agent_id == client_agent.managed_agent_id,
         ).first()
         if not agent or agent.status != "active":
             raise HTTPException(status_code=404, detail="绑定的智能体不存在或未启用")
         issuance_token = _client_issuance_token(db, client_id)
+        delegated_models = (
+            {
+                str(item).strip()
+                for item in _load(issuance_token.allowed_models_json, [])
+                if str(item).strip()
+            }
+            if issuance_token
+            else set()
+        )
+        if issuance_token and delegated_models and model_name not in delegated_models:
+            raise ApiError(
+                403,
+                "client.model_not_delegated",
+                "当前客户端凭证不允许配置该模型",
+                "The Client credential cannot configure this model",
+            )
         allowed_models = _agent_model_names(db, agent)
         if model_name not in allowed_models:
             model = db.query(models.ModelEndpoint).filter(

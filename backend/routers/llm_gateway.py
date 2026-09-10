@@ -1,6 +1,7 @@
 import hashlib
 import ipaddress
 import json
+import logging
 import math
 import random
 import re
@@ -15,11 +16,11 @@ import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import func, or_
+from pydantic import ValidationError
+from sqlalchemy import func, or_, update
 from sqlalchemy.orm import Session, object_session
 
 from .. import auth, models, schemas
-from ..api_errors import ApiError
 from ..anthropic_compat import (
     anthropic_stream_event_to_openai,
     anthropic_to_openai_request,
@@ -28,6 +29,7 @@ from ..anthropic_compat import (
     openai_to_anthropic_request,
     openai_to_anthropic_response,
 )
+from ..api_errors import ApiError, request_locale
 from ..compression import compress_messages
 from ..config import settings
 from ..gateway_skill_context import (
@@ -36,9 +38,17 @@ from ..gateway_skill_context import (
     evaluate_gateway_skill_context,
 )
 from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
+from ..responses_compat import (
+    openai_stream_to_responses,
+    openai_to_responses_response,
+    response_tool_kinds,
+    responses_to_openai_request,
+)
+from ..runtime_trace_schemas import RuntimeTraceInternalEvent
+from ..services import gateway_sessions
+from ..services.runtime_traces import best_effort_trace_publisher, ingest_transaction, publish_events_best_effort
 from ..sqlite_db import get_db
 from .access_tokens import resolve_access_token
-
 
 admin_router = APIRouter(prefix="/v1", tags=["llm-gateway-admin"])
 runtime_router = APIRouter(tags=["llm-gateway"])
@@ -81,6 +91,143 @@ PLACEHOLDER_PRESERVATION_SYSTEM_PROMPT = (
 )
 TRACE_STAGES = ["meta", "prompt_security", "original", "masked", "compressed", "masked_response", "final_response"]
 MESSAGE_TEXT_FIELDS = ("content", "reasoning_content")
+
+
+def _runtime_trace_context(metadata: dict[str, str], conversation_id: str) -> dict[str, str | None]:
+    return {
+        "trace_id": metadata.get("trace_id"),
+        "session_id": metadata.get("session_id") or conversation_id,
+        "turn_id": metadata.get("turn_id"),
+        "step_id": metadata.get("step_id"),
+        "call_id": metadata.get("call_id"),
+        "parent_call_id": metadata.get("parent_call_id"),
+    }
+
+
+@best_effort_trace_publisher
+def _publish_model_runtime_trace(
+    db: Session,
+    *,
+    key,
+    trace_context: dict[str, str | None],
+    tenant_id: str,
+    request_id: str,
+    model_name: str,
+    request_payload: dict[str, Any] | None = None,
+    response_payload: dict[str, Any] | None = None,
+    redacted_request: dict[str, Any] | None = None,
+    redacted_response: dict[str, Any] | None = None,
+    usage: dict[str, Any] | None = None,
+    prompt_security: dict[str, Any] | None = None,
+    duration_ms: float | None = None,
+    upstream_duration_ms: float | None = None,
+    ttft_ms: float | None = None,
+    error: str | None = None,
+    blocked: bool = False,
+) -> None:
+    agent_id = key.bound_agent_id if isinstance(key, models.AccessToken) else None
+    trace_tenant_id = tenant_id
+    if isinstance(key, models.AccessToken):
+        if key.group_id is not None:
+            trace_tenant_id = str(key.group_id)
+        elif tenant_id == "group-default":
+            trace_tenant_id = "default"
+    common = {
+        "trace_id": trace_context.get("gateway_trace_id") or (trace_context.get("trace_id") if agent_id else None),
+        "tenant_id": trace_tenant_id,
+        "agent_id": agent_id,
+        "session_id": str(trace_context.get("session_id") or request_id),
+        "owner_user_id": getattr(key, "user_id", None),
+        "owner_group_id": getattr(key, "group_id", None),
+        "source": "model_gateway",
+        "turn_id": trace_context.get("turn_id"),
+        "step_id": trace_context.get("step_id"),
+        "request_id": request_id,
+        "call_id": trace_context.get("call_id"),
+        "parent_call_id": trace_context.get("parent_call_id"),
+    }
+    risk_codes = [str(item) for item in (prompt_security or {}).get("risk_codes", [])]
+    prompt_severity = str((prompt_security or {}).get("risk_level") or "").lower()
+    prompt_severity = prompt_severity if prompt_severity in {"low", "medium", "high", "critical"} else None
+    request_duration_ms = max(0.0, duration_ms) if duration_ms is not None else None
+    model_duration_ms = max(0.0, upstream_duration_ms) if upstream_duration_ms is not None else None
+    performance = {
+        key: round(value, 2)
+        for key, value in {
+            "request_duration_ms": request_duration_ms,
+            "upstream_duration_ms": model_duration_ms,
+            "platform_duration_ms": (
+                max(0.0, request_duration_ms - model_duration_ms)
+                if request_duration_ms is not None and model_duration_ms is not None
+                else None
+            ),
+            "ttft_ms": max(0.0, ttft_ms) if ttft_ms is not None else None,
+        }.items()
+        if value is not None
+    }
+    events = []
+    if request_payload is not None:
+        events.append(
+            RuntimeTraceInternalEvent(
+                **common,
+                type="model.request",
+                status="blocked" if blocked else "submitted",
+                severity=prompt_severity,
+                risk_codes=risk_codes,
+                payload={"model": model_name, "request": request_payload, "prompt_security": prompt_security or {}},
+                redacted_payload={"model": model_name, "request": redacted_request or {}, "prompt_security": prompt_security or {}},
+            )
+        )
+    if error is not None:
+        events.append(
+            RuntimeTraceInternalEvent(
+                **common,
+                type="model.error",
+                status="blocked" if blocked else "error",
+                severity=prompt_severity,
+                duration_ms=request_duration_ms,
+                risk_codes=risk_codes,
+                payload={"model": model_name, "error": error, "prompt_security": prompt_security or {}, "performance": performance},
+                redacted_payload={"model": model_name, "error": "[upstream-error]", "prompt_security": prompt_security or {}, "performance": performance},
+            )
+        )
+    elif response_payload is not None:
+        events.append(
+            RuntimeTraceInternalEvent(
+                **common,
+                type="model.response",
+                status="completed",
+                severity=prompt_severity,
+                duration_ms=request_duration_ms,
+                risk_codes=risk_codes,
+                payload={"model": model_name, "response": response_payload, "usage": usage or {}, "performance": performance},
+                redacted_payload={"model": model_name, "response": redacted_response or {}, "usage": usage or {}, "performance": performance},
+            )
+        )
+    if prompt_security and (risk_codes or blocked):
+        events.append(
+            RuntimeTraceInternalEvent(
+                **common,
+                type="security.finding",
+                status="blocked" if blocked else "observed",
+                severity=prompt_severity,
+                risk_codes=risk_codes,
+                payload={"component": "prompt_security", **prompt_security},
+                redacted_payload={"component": "prompt_security", **prompt_security},
+            )
+        )
+    if trace_context.get("gateway_trace_id"):
+        with ingest_transaction(db):
+            db.execute(update(models.RuntimeTraceSession).where(
+                models.RuntimeTraceSession.trace_id == trace_context["gateway_trace_id"]
+            ).values(updated_at=datetime.utcnow()))
+            db.expire_all()
+            publish_events_best_effort(db, events)
+    else:
+        publish_events_best_effort(db, events)
+    if trace_context.get("gateway_trace_id") and (error is not None or response_payload is not None):
+        gateway_sessions.finish(db, request_id, "blocked" if blocked else "error" if error is not None else "completed")
+        trace_context["gateway_finished"] = True
 PROMPT_GUARD_RULES = [
     ("prompt_injection", "HIGH", "要求忽略或覆盖系统指令", r"(?i)(ignore|disregard|forget)\s+(all\s+)?(previous|prior|above|system)\s+(instructions?|prompts?)|(忽略|无视|忘记|不要遵守|不用遵守|别管).{0,16}(以上|之前|前面|所有|系统|开发者|平台).{0,16}(指令|提示词|规则|要求)|(覆盖|重写|替换).{0,12}(系统|开发者|平台).{0,8}(指令|提示词|规则)"),
     ("system_prompt_leak", "HIGH", "要求泄露系统提示词或内部指令", r"(?i)(reveal|show|print|dump|output|return).{0,40}(system[_ -]?prompt|developer[_ -]?(message|prompt)|hidden (instructions?|rules?)|internal (instructions?|config|policy))|(system[_ -]?prompt|developer[_ -]?(message|prompt)|hidden (instructions?|rules?)|internal (instructions?|config|policy)).{0,40}(reveal|show|print|dump|output|return)|(泄露|显示|输出|打印|复述|逐字|返回).{0,30}(system[_ -]?prompt|developer[_ -]?prompt|系统提示词|系统指令|开发者消息|开发者提示词|隐藏规则|隐藏指令|内部指令|内部配置|初始提示词|完整提示词)|(system[_ -]?prompt|developer[_ -]?prompt|系统提示词|系统指令|开发者消息|开发者提示词|隐藏规则|隐藏指令|内部指令|内部配置|初始提示词|完整提示词).{0,40}(泄露|显示|输出|打印|复述|逐字|返回)"),
@@ -635,7 +782,7 @@ def _acquire_key_slot(key: models.LlmApiKey) -> None:
     leases = getattr(key, "_request_lease_ids", None)
     if leases is None:
         leases = []
-        setattr(key, "_request_lease_ids", leases)
+        key._request_lease_ids = leases
     leases.append((lease_id, bind))
 
 
@@ -835,7 +982,7 @@ def _detect_entities(text: str, allowed_types: set[str], entity_rules: dict[str,
 
 
 def _token_for(tenant_id: str, conversation_id: str, entity_type: str, normalized_value: str) -> str:
-    digest = hashlib.sha256(f"{tenant_id}:{conversation_id}:{entity_type}:{normalized_value}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{tenant_id}:{conversation_id}:{entity_type}:{normalized_value}".encode()).hexdigest()
     prefix = {
         "PERSON": "p",
         "CN_ID_CARD": "id",
@@ -1085,20 +1232,41 @@ def _save_trace(
 
 def _chat_url(base_url: str) -> str:
     base = base_url.rstrip("/")
-    if base.endswith("/v1/chat/completions"):
+    if base.endswith("/chat/completions"):
         return base
-    if base.endswith("/v1"):
-        return f"{base}/chat/completions"
-    return f"{base}/v1/chat/completions"
+    return f"{base}/chat/completions"
 
 
 def _anthropic_url(base_url: str) -> str:
     base = base_url.rstrip("/")
-    if base.endswith("/v1/messages"):
+    if base.endswith("/messages"):
         return base
-    if base.endswith("/v1"):
-        return f"{base}/messages"
-    return f"{base}/v1/messages"
+    return f"{base}/messages"
+
+
+def _upstream_error_summary(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict) and error.get("message"):
+            return str(error["message"])[:500]
+        if isinstance(error, str):
+            return error[:500]
+        for field in ("message", "msg"):
+            if payload.get(field):
+                return str(payload[field])[:500]
+    return response.text.strip()[:500] or f"HTTP {response.status_code}"
+
+
+def _is_valid_provider_test_response(api_format: str, payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if api_format == "anthropic":
+        return isinstance(payload.get("content"), list)
+    return isinstance(payload.get("choices"), list) and bool(payload["choices"])
 
 
 def _upstream_request(provider: models.ModelProvider, payload: dict[str, Any]) -> tuple[str, dict[str, Any], dict[str, str]]:
@@ -1134,14 +1302,44 @@ async def _call_upstream(db: Session, model: models.ModelEndpoint, payload: dict
     return result
 
 
-def _stream_choices_snapshot(parts_by_index: dict[int, dict[str, list[str]]]) -> list[dict[str, Any]]:
+def _stream_choices_snapshot(
+    parts_by_index: dict[int, dict[str, list[str]]],
+    tool_calls_by_key: dict[tuple[int, int], dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     choices: list[dict[str, Any]] = []
-    for index, fields in sorted(parts_by_index.items()):
+    indexes = set(parts_by_index)
+    indexes.update(index for index, _tool_index in (tool_calls_by_key or {}))
+    for index in sorted(indexes):
         choice: dict[str, Any] = {"index": index}
-        for field, parts in fields.items():
+        for field, parts in parts_by_index.get(index, {}).items():
             choice[field] = "".join(parts)
+        tool_calls = []
+        for (choice_index, _tool_index), snapshot in sorted((tool_calls_by_key or {}).items()):
+            if choice_index != index:
+                continue
+            normalized = json.loads(json.dumps(snapshot))
+            function = normalized.get("function") or {}
+            argument_parts = function.pop("arguments_parts", [])
+            function["arguments"] = "".join(argument_parts)
+            normalized["function"] = function
+            tool_calls.append(normalized)
+        if tool_calls:
+            choice["tool_calls"] = tool_calls
         choices.append(choice)
     return choices
+
+
+def _stream_chunk_has_output(chunk: dict[str, Any]) -> bool:
+    """Return true only when a stream chunk carries a user-visible model token."""
+    for choice in chunk.get("choices") or []:
+        delta = choice.get("delta") or {}
+        if any(isinstance(delta.get(field), str) and delta.get(field) for field in MESSAGE_TEXT_FIELDS):
+            return True
+        for tool_call in delta.get("tool_calls") or []:
+            arguments = (tool_call.get("function") or {}).get("arguments")
+            if isinstance(arguments, str) and arguments:
+                return True
+    return False
 
 
 async def _upstream_sse_data(upstream: httpx.Response, api_format: str):
@@ -1190,6 +1388,7 @@ async def _stream_upstream(
     prompt_security: dict[str, Any] | None = None,
     skill_assessment: GatewaySkillAssessment | None = None,
     request_started_at: float | None = None,
+    trace_context: dict[str, str | None] | None = None,
 ):
     provider = db.query(models.ModelProvider).filter(models.ModelProvider.id == model.provider_id).first()
     if not provider:
@@ -1201,6 +1400,8 @@ async def _stream_upstream(
     final_parts: dict[int, dict[str, list[str]]] = {}
     pending_parts: dict[tuple[int, str], str] = {}
     pending_tool_parts: dict[tuple[int, int], str] = {}
+    masked_tool_calls: dict[tuple[int, int], dict[str, Any]] = {}
+    final_tool_calls: dict[tuple[int, int], dict[str, Any]] = {}
     usage: dict[str, Any] = {}
     mapping_tokens = [mapping.token for mapping in all_mappings if mapping.token]
 
@@ -1208,6 +1409,7 @@ async def _stream_upstream(
         nonlocal usage
         started_at = request_started_at or time.perf_counter()
         upstream_started_at = time.perf_counter()
+        first_output_at: float | None = None
         try:
             async with httpx.AsyncClient(timeout=None) as client:
                 async with client.stream(
@@ -1243,6 +1445,10 @@ async def _stream_upstream(
                                 if not pending:
                                     continue
                                 final_arguments = pending if bypass_pii else (_depseudonymize_text(pending, all_mappings) or "")
+                                final_tool_calls.setdefault(
+                                    (choice_index, tool_index),
+                                    {"index": tool_index, "function": {"arguments_parts": []}},
+                                )["function"].setdefault("arguments_parts", []).append(final_arguments)
                                 yield "data: " + json.dumps({
                                     "choices": [{
                                         "index": choice_index,
@@ -1266,8 +1472,8 @@ async def _stream_upstream(
                                 policy=policy,
                                 original_messages=original_messages,
                                 upstream_messages=upstream_messages,
-                                masked_choices=_stream_choices_snapshot(masked_parts),
-                                final_choices=_stream_choices_snapshot(final_parts),
+                                masked_choices=_stream_choices_snapshot(masked_parts, masked_tool_calls),
+                                final_choices=_stream_choices_snapshot(final_parts, final_tool_calls),
                                 compression_enabled=compression_enabled,
                                 compression_level=compression_level,
                                 compression_result=compression_result,
@@ -1276,6 +1482,8 @@ async def _stream_upstream(
                                 skill_assessment=skill_assessment,
                                 request_duration_ms=(time.perf_counter() - started_at) * 1000,
                                 upstream_duration_ms=(time.perf_counter() - upstream_started_at) * 1000,
+                                ttft_ms=(first_output_at - started_at) * 1000 if first_output_at is not None else None,
+                                trace_context=trace_context,
                             )
                             yield "data: [DONE]\n\n"
                             return
@@ -1287,6 +1495,8 @@ async def _stream_upstream(
                         if isinstance(chunk.get("usage"), dict):
                             usage.update(chunk["usage"])
                             usage["total_tokens"] = int(usage.get("prompt_tokens") or 0) + int(usage.get("completion_tokens") or 0)
+                        if first_output_at is None and _stream_chunk_has_output(chunk):
+                            first_output_at = time.perf_counter()
                         for choice in chunk.get("choices", []) or []:
                             index = int(choice.get("index") or 0)
                             delta = choice.get("delta") or {}
@@ -1305,15 +1515,32 @@ async def _stream_upstream(
                                 choice["delta"] = delta
                             for tool_call in delta.get("tool_calls") or []:
                                 function = tool_call.get("function") or {}
+                                tool_index = int(tool_call.get("index") or 0)
+                                pending_key = (index, tool_index)
+                                for snapshots in (masked_tool_calls, final_tool_calls):
+                                    snapshot = snapshots.setdefault(
+                                        pending_key,
+                                        {"index": tool_index, "function": {"arguments_parts": []}},
+                                    )
+                                    for key_name in ("id", "type"):
+                                        if tool_call.get(key_name) is not None:
+                                            snapshot[key_name] = tool_call[key_name]
+                                    if function.get("name") is not None:
+                                        snapshot["function"]["name"] = function["name"]
                                 arguments = function.get("arguments")
                                 if not isinstance(arguments, str) or not arguments:
                                     continue
-                                tool_index = int(tool_call.get("index") or 0)
-                                pending_key = (index, tool_index)
+                                masked_tool_calls[pending_key]["function"]["arguments_parts"].append(arguments)
                                 combined = pending_tool_parts.get(pending_key, "") + arguments
                                 emit_masked, pending = _split_stream_safe_text(combined, mapping_tokens)
                                 pending_tool_parts[pending_key] = pending
-                                function["arguments"] = emit_masked if bypass_pii else (_depseudonymize_text(emit_masked, all_mappings) or "")
+                                final_arguments = (
+                                    emit_masked
+                                    if bypass_pii
+                                    else (_depseudonymize_text(emit_masked, all_mappings) or "")
+                                )
+                                final_tool_calls[pending_key]["function"]["arguments_parts"].append(final_arguments)
+                                function["arguments"] = final_arguments
                                 tool_call["function"] = function
                             choice["delta"] = delta
                         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
@@ -1333,8 +1560,8 @@ async def _stream_upstream(
                 policy=policy,
                 original_messages=original_messages,
                 upstream_messages=upstream_messages,
-                masked_choices=_stream_choices_snapshot(masked_parts),
-                final_choices=_stream_choices_snapshot(final_parts),
+                masked_choices=_stream_choices_snapshot(masked_parts, masked_tool_calls),
+                final_choices=_stream_choices_snapshot(final_parts, final_tool_calls),
                 compression_enabled=compression_enabled,
                 compression_level=compression_level,
                 compression_result=compression_result,
@@ -1343,6 +1570,8 @@ async def _stream_upstream(
                 skill_assessment=skill_assessment,
                 request_duration_ms=(time.perf_counter() - started_at) * 1000,
                 upstream_duration_ms=(time.perf_counter() - upstream_started_at) * 1000,
+                ttft_ms=(first_output_at - started_at) * 1000 if first_output_at is not None else None,
+                trace_context=trace_context,
             )
         except HTTPException as exc:
             _record_llm_error(
@@ -1360,6 +1589,7 @@ async def _stream_upstream(
                 skill_assessment=skill_assessment,
                 request_duration_ms=(time.perf_counter() - started_at) * 1000,
                 upstream_duration_ms=(time.perf_counter() - upstream_started_at) * 1000,
+                trace_context=trace_context,
             )
             yield f"data: {json.dumps({'error': {'message': str(exc.detail), 'type': 'upstream_error'}}, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
@@ -1401,6 +1631,8 @@ def _record_llm_success(
     skill_assessment: GatewaySkillAssessment | None = None,
     request_duration_ms: float = 0.0,
     upstream_duration_ms: float = 0.0,
+    ttft_ms: float | None = None,
+    trace_context: dict[str, str | None] | None = None,
 ) -> None:
     owner_meta = _key_owner_meta(db, key)
     platform_duration_ms = max(0.0, request_duration_ms - upstream_duration_ms)
@@ -1472,6 +1704,7 @@ def _record_llm_success(
                 "request_duration_ms": round(request_duration_ms, 2),
                 "upstream_duration_ms": round(upstream_duration_ms, 2),
                 "platform_duration_ms": round(platform_duration_ms, 2),
+                "ttft_ms": round(ttft_ms, 2) if ttft_ms is not None else None,
                 "prompt_tokens": int(usage.get("prompt_tokens") or 0),
                 "completion_tokens": int(usage.get("completion_tokens") or 0),
                 "total_tokens": int(usage.get("total_tokens") or 0),
@@ -1496,6 +1729,23 @@ def _record_llm_success(
         },
     )
     db.commit()
+    _publish_model_runtime_trace(
+        db,
+        key=key,
+        trace_context=trace_context or {"session_id": conversation_id},
+        tenant_id=tenant_id,
+        request_id=request_id,
+        model_name=model_name,
+        request_payload={"messages": original_messages},
+        redacted_request={"messages": upstream_messages},
+        response_payload={"choices": final_choices},
+        redacted_response={"choices": masked_choices},
+        usage=usage,
+        prompt_security=prompt_security,
+        duration_ms=request_duration_ms,
+        upstream_duration_ms=upstream_duration_ms,
+        ttft_ms=ttft_ms,
+    )
 
 
 def _record_llm_error(
@@ -1514,6 +1764,7 @@ def _record_llm_error(
     skill_assessment: GatewaySkillAssessment | None = None,
     request_duration_ms: float = 0.0,
     upstream_duration_ms: float = 0.0,
+    trace_context: dict[str, str | None] | None = None,
 ) -> None:
     platform_duration_ms = max(0.0, request_duration_ms - upstream_duration_ms)
     db.add(
@@ -1538,6 +1789,17 @@ def _record_llm_error(
         )
     )
     db.commit()
+    _publish_model_runtime_trace(
+        db,
+        key=key,
+        trace_context=trace_context or {"session_id": conversation_id},
+        tenant_id=tenant_id,
+        request_id=request_id,
+        model_name=model_name,
+        error=error,
+        duration_ms=request_duration_ms,
+        upstream_duration_ms=upstream_duration_ms,
+    )
 
 
 def _record_prompt_guard_block(
@@ -1555,6 +1817,7 @@ def _record_prompt_guard_block(
     prompt_security: dict[str, Any],
     skill_assessment: GatewaySkillAssessment | None,
     request_duration_ms: float,
+    trace_context: dict[str, str | None] | None = None,
 ) -> None:
     owner_meta = _key_owner_meta(db, key)
     db.add(
@@ -1610,6 +1873,21 @@ def _record_prompt_guard_block(
         },
     )
     db.commit()
+    _publish_model_runtime_trace(
+        db,
+        key=key,
+        trace_context=trace_context or {"session_id": conversation_id},
+        tenant_id=tenant_id,
+        request_id=request_id,
+        model_name=model_name,
+        request_payload={"messages": original_messages},
+        redacted_request={"messages": []},
+        prompt_security=prompt_security,
+        duration_ms=request_duration_ms,
+        upstream_duration_ms=0.0,
+        error="prompt_security_blocked",
+        blocked=True,
+    )
 
 
 @admin_router.get("/users", response_model=list[schemas.User])
@@ -1779,22 +2057,74 @@ async def delete_model_provider(
 @admin_router.post("/model-providers/{provider_id}/test")
 async def test_model_provider(
     provider_id: int,
+    body: schemas.ModelProviderTestRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
     row = db.query(models.ModelProvider).filter(models.ModelProvider.id == provider_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="模型供应商不存在")
-    headers = {"content-type": "application/json"}
-    api_key = _unprotect_secret(row.api_key)
-    if api_key:
-        headers["authorization"] = f"Bearer {api_key}"
+    model_name = body.model.strip()
+    if not model_name:
+        raise ApiError(
+            422,
+            "model_provider_test.model_required",
+            "请输入测试模型",
+            "Enter a model to test",
+        )
+    url, payload, headers = _upstream_request(
+        row,
+        {
+            "model": model_name,
+            "messages": [{"role": "user", "content": "Reply with exactly OK."}],
+            "max_tokens": 8,
+            "stream": False,
+        },
+    )
+    started_at = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=min(row.timeout_seconds, 15)) as client:
-            response = await client.get(row.base_url.rstrip("/"), headers=headers)
-        return {"ok": response.status_code < 500, "status_code": response.status_code}
+            response = await client.post(url, json=payload, headers=headers)
     except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        return {
+            "ok": False,
+            "model": model_name,
+            "endpoint": url,
+            "error_code": "model_provider_test.connection_failed",
+            "error": str(exc),
+        }
+
+    duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+    if not 200 <= response.status_code < 300:
+        return {
+            "ok": False,
+            "status_code": response.status_code,
+            "model": model_name,
+            "endpoint": url,
+            "duration_ms": duration_ms,
+            "error_code": "model_provider_test.upstream_http_error",
+            "error": _upstream_error_summary(response),
+        }
+    try:
+        result = response.json()
+    except ValueError:
+        result = None
+    if not _is_valid_provider_test_response((getattr(row, "api_format", "openai") or "openai"), result):
+        return {
+            "ok": False,
+            "status_code": response.status_code,
+            "model": model_name,
+            "endpoint": url,
+            "duration_ms": duration_ms,
+            "error_code": "model_provider_test.invalid_response",
+        }
+    return {
+        "ok": True,
+        "status_code": response.status_code,
+        "model": model_name,
+        "endpoint": url,
+        "duration_ms": duration_ms,
+    }
 
 
 @admin_router.get("/models", response_model=list[schemas.ModelEndpointResponse])
@@ -2735,12 +3065,12 @@ async def _chat_completions_impl(
     _acquire_key_slot(key)
     if payload.stream:
         try:
-            return await _chat_completions_with_key(payload, response, key, db)
+            return await _chat_completions_with_key(payload, response, key, db, request=request)
         except Exception:
             _release_key_slot(key)
             raise
     try:
-        return await _chat_completions_with_key(payload, response, key, db)
+        return await _chat_completions_with_key(payload, response, key, db, request=request)
     finally:
         _release_key_slot(key)
 
@@ -2750,8 +3080,73 @@ async def _chat_completions_with_key(
     response: Response,
     key: models.LlmApiKey,
     db: Session,
+    request: Request | None = None,
 ) -> dict[str, Any]:
     request_started_at = time.perf_counter()
+    request_id = f"req_{uuid.uuid4().hex[:12]}"
+    context = {}
+    metadata = payload.metadata or {}
+    tenant_id = str(metadata.get("tenant_id") or f"group-{key.group_id or 'default'}")
+    if isinstance(key, models.AccessToken):
+        tenant_id = str(key.group_id) if key.group_id is not None else ("default" if tenant_id == "group-default" else tenant_id)
+    _resolve_model(db, payload.model, key)
+    messages = [_strip_undefined_values(message.model_dump()) for message in payload.messages]
+    if settings.RUNTIME_TRACE_ENABLED and not (getattr(key, "bound_agent_id", None) and metadata.get("trace_id")):
+        declared = [("metadata.session_id", metadata.get("session_id")),
+                    ("x-hermes-session-id", request.headers.get("x-hermes-session-id") if request else None),
+                    ("conversation_id", payload.conversation_id),
+                    ("metadata.conversation_id", metadata.get("conversation_id"))]
+        source, explicit_id = next(((name, str(value).strip()) for name, value in declared if value and str(value).strip()), (None, None))
+        try:
+            context = gateway_sessions.associate(db, key=key, tenant_id=tenant_id, messages=messages,
+                                                 request_id=request_id, explicit_id=explicit_id, source=source)
+        except Exception as exc:
+            db.rollback()
+            # Trace association follows the existing best-effort tracing contract.
+            logging.getLogger(__name__).warning("gateway session association failed: %s", type(exc).__name__)
+            context = {}
+
+    def record_unfinished(error):
+        if context.get("gateway_trace_id") and not context.get("gateway_finished"):
+            _publish_model_runtime_trace(db, key=key, trace_context=context, tenant_id=tenant_id,
+                                         request_id=request_id, model_name=payload.model or "",
+                                         request_payload={"messages": messages}, error=error,
+                                         duration_ms=(time.perf_counter() - request_started_at) * 1000)
+
+    try:
+        result = await _execute_chat_completions_with_key(payload, response, key, db,
+                                                         request_id=request_id, gateway_context=context,
+                                                         request_started_at=request_started_at)
+    except BaseException:
+        record_unfinished("gateway.request_interrupted")
+        raise
+    if isinstance(result, StreamingResponse):
+        original_iterator = result.body_iterator
+
+        async def observe_stream():
+            try:
+                async for chunk in original_iterator:
+                    yield chunk
+            finally:
+                try:
+                    await original_iterator.aclose()
+                finally:
+                    record_unfinished("gateway.stream_interrupted")
+
+        result.body_iterator = observe_stream()
+    return result
+
+
+async def _execute_chat_completions_with_key(
+    payload: schemas.ChatCompletionRequest,
+    response: Response,
+    key: models.LlmApiKey,
+    db: Session,
+    *,
+    request_id: str,
+    gateway_context: dict,
+    request_started_at: float,
+) -> dict[str, Any]:
     model = _resolve_model(db, payload.model, key)
     policy = _resolve_policy(db, key)
     declared_skill = declared_skill_context(payload.metadata)
@@ -2777,11 +3172,15 @@ async def _chat_completions_with_key(
         or getattr(provider, "enable_compression", False)
     )
     compression_level = str(getattr(key, "compression_level", None) or "auto")
-    request_id = f"req_{uuid.uuid4().hex[:12]}"
     metadata = {str(k): str(v) for k, v in (payload.metadata or {}).items()}
     tenant_id = metadata.get("tenant_id") or f"group-{key.group_id or 'default'}"
     user_ref = metadata.get("user_id") or (f"user-{key.user_id}" if key.user_id else f"key-{key.id}")
     conversation_id = payload.conversation_id or metadata.get("conversation_id") or f"conv-{uuid.uuid4().hex}"
+    trace_context = _runtime_trace_context(metadata, conversation_id)
+    trace_context.update(gateway_context)
+    # Share completion state with the outer streaming/error observer.
+    gateway_context.update(trace_context)
+    trace_context = gateway_context
     privacy_enabled = bool(policy.enabled)
     requested_bypass = str(metadata.get("bypass_pii_check", "")).lower() in {"1", "true", "yes", "on"}
     if privacy_enabled and requested_bypass and not policy.allow_bypass:
@@ -2811,6 +3210,7 @@ async def _chat_completions_with_key(
             prompt_security=prompt_security,
             skill_assessment=skill_assessment,
             request_duration_ms=(time.perf_counter() - request_started_at) * 1000,
+            trace_context=trace_context,
         )
         response.headers["x-request-id"] = request_id
         response.headers["x-prompt-guard"] = "block"
@@ -2948,6 +3348,7 @@ async def _chat_completions_with_key(
             prompt_security=prompt_security,
             skill_assessment=skill_assessment,
             request_started_at=request_started_at,
+            trace_context=trace_context,
         )
         return StreamingResponse(
             stream,
@@ -2993,11 +3394,15 @@ async def _chat_completions_with_key(
                 final_choice[field] = after or ""
                 message[field] = after
             if message.get("tool_calls"):
-                message["tool_calls"] = (
-                    message["tool_calls"]
+                masked_tool_calls = json.loads(json.dumps(message["tool_calls"]))
+                final_tool_calls = (
+                    masked_tool_calls
                     if bypass_pii
-                    else _replace_tool_call_arguments(message["tool_calls"], all_mappings, to_token=False)
+                    else _replace_tool_call_arguments(masked_tool_calls, all_mappings, to_token=False)
                 )
+                masked_choice["tool_calls"] = masked_tool_calls
+                final_choice["tool_calls"] = final_tool_calls
+                message["tool_calls"] = final_tool_calls
             masked_choices.append(masked_choice)
             final_choices.append(final_choice)
             choice["message"] = message
@@ -3093,6 +3498,22 @@ async def _chat_completions_with_key(
             },
         )
         db.commit()
+        _publish_model_runtime_trace(
+            db,
+            key=key,
+            trace_context=trace_context,
+            tenant_id=tenant_id,
+            request_id=request_id,
+            model_name=model.name,
+            request_payload={"messages": original_messages},
+            redacted_request={"messages": upstream_messages},
+            response_payload={"choices": final_choices},
+            redacted_response={"choices": masked_choices},
+            usage=usage,
+            prompt_security=prompt_security,
+            duration_ms=request_duration_ms,
+            upstream_duration_ms=upstream_duration_ms,
+        )
         response.headers["x-request-id"] = request_id
         response.headers["x-tenant-id"] = tenant_id
         response.headers["x-conversation-id"] = conversation_id
@@ -3138,6 +3559,17 @@ async def _chat_completions_with_key(
             )
         )
         db.commit()
+        _publish_model_runtime_trace(
+            db,
+            key=key,
+            trace_context=trace_context,
+            tenant_id=tenant_id,
+            request_id=request_id,
+            model_name=model.name,
+            error=str(exc.detail),
+            duration_ms=request_duration_ms,
+            upstream_duration_ms=upstream_duration_ms,
+        )
         # 即使上游失败也输出压缩诊断头
         response.headers["x-compression"] = (
             "on" if compression_result and compression_result.applied
@@ -3209,6 +3641,48 @@ async def anthropic_messages_compat(
             headers=headers,
         )
     return openai_to_anthropic_response(result)
+
+
+@runtime_router.post("/v1/responses", summary="OpenAI-compatible Responses endpoint for Codex")
+async def responses_compat(
+    payload: dict[str, Any],
+    request: Request,
+    response: Response,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    try:
+        converted = schemas.ChatCompletionRequest.model_validate(responses_to_openai_request(payload))
+    except (ValueError, ValidationError) as exc:
+        return JSONResponse(status_code=400, content={"error": {"message": str(exc), "type": "invalid_request_error", "code": "responses.invalid_request"}})
+    tool_kinds = response_tool_kinds(payload)
+    try:
+        result = await _chat_completions_impl(converted, request, response, authorization, db)
+    except HTTPException as exc:
+        error_type = {
+            401: "authentication_error",
+            403: "permission_error",
+            404: "not_found_error",
+            409: "conflict_error",
+            429: "rate_limit_error",
+        }.get(exc.status_code, "api_error" if exc.status_code >= 500 else "invalid_request_error")
+        if isinstance(exc, ApiError):
+            message = exc.en_message if request_locale(request) == "en-US" else exc.zh_message
+            error_code = exc.code
+            if error_code in {"credential.invalid_or_disabled", "credential.expired"}:
+                error_type = "authentication_error"
+        else:
+            message = str(exc.detail)
+            error_code = f"http.{exc.status_code}"
+        return JSONResponse(
+            status_code=exc.status_code,
+            headers=exc.headers,
+            content={"error": {"message": message, "type": error_type, "code": error_code}},
+        )
+    if isinstance(result, StreamingResponse):
+        headers = {key: value for key, value in result.headers.items() if key.lower() not in {"content-type", "content-length"}}
+        return StreamingResponse(openai_stream_to_responses(result.body_iterator, payload.get("model"), tool_kinds), media_type="text/event-stream", headers=headers)
+    return openai_to_responses_response(result, tool_kinds)
 
 
 @runtime_router.post(

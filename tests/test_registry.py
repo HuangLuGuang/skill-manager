@@ -13,6 +13,7 @@ from agent_manager.core.models import (
     RegistryEntry,
     ReviewRequest,
     RiskLevel,
+    ScanRun,
     SkillOrigin,
     SkillStatus,
     SourceInfo,
@@ -38,6 +39,59 @@ def registry(tmp_path):
 
 
 class TestRegistry:
+    def test_scanning_and_review_filters_are_separate(self, registry):
+        initial = _make_entry("initial", SkillStatus.PENDING)
+        review = _make_entry("review", SkillStatus.VETTED)
+        rescanning = _make_entry("rescanning", SkillStatus.VETTED)
+        approved = _make_entry("approved", SkillStatus.APPROVED)
+        for entry in (initial, review, rescanning, approved):
+            registry.add(entry)
+        for entry in (rescanning, approved):
+            registry.add_scan_run(ScanRun(
+                scan_run_id=f"run-{entry.skill_id}", version_id=entry.skill_id,
+                scan_context_fingerprint="context",
+            ))
+        scanning = registry.list_skill_summaries(page=1, page_size=10, scanning=True)
+        assert {item["version_id"] for item in scanning["items"]} == {
+            initial.skill_id, rescanning.skill_id, approved.skill_id,
+        }
+        assert scanning["total"] == 3
+        review_result = registry.list_skill_summaries(
+            page=1, page_size=10, statuses=[SkillStatus.VETTED], scanning=False,
+        )
+        assert [item["version_id"] for item in review_result["items"]] == [review.skill_id]
+        assert review_result["total"] == 1
+        assert registry.list_skill_summaries(page=2, page_size=2, scanning=True)["total"] == 3
+
+    def test_summary_tracks_rescan_until_completion(self, registry):
+        entry = _make_entry()
+        other = _make_entry("other")
+        registry.add(entry)
+        registry.add(other)
+
+        def summaries():
+            return {
+                item["version_id"]: item
+                for item in registry.list_skill_summaries(page=1, page_size=10)["items"]
+            }
+
+        assert summaries()[entry.skill_id]["scan_pending"] is False
+        run = ScanRun(
+            scan_run_id="rescan-1",
+            version_id=entry.skill_id,
+            scan_context_fingerprint="context",
+            forced=True,
+        )
+        registry.add_scan_run(run)
+        items = summaries()
+        assert items[entry.skill_id]["scan_pending"] is True
+        assert items[entry.skill_id]["status"] == "APPROVED"
+        assert items[other.skill_id]["scan_pending"] is False
+
+        run.status = "COMPLETED"
+        registry.update_scan_run(run)
+        assert summaries()[entry.skill_id]["scan_pending"] is False
+
     def test_add_and_retrieve(self, registry):
         entry = _make_entry()
         registry.add(entry)
@@ -566,3 +620,53 @@ class TestRegistry:
 
         assert len(entries) == 1
         assert entries[0].risk_level == RiskLevel.MALICIOUS
+
+
+def test_backfill_fingerprint_preserves_legacy_duplicates_and_unique_constraint(registry):
+    import sqlite3
+
+    first = _make_entry("historical")
+    first.family_id = "historical-family"
+    first.version_no = 1
+    second = first.model_copy(update={"skill_id": "historical-second", "version_no": 2}, deep=True)
+    registry.add(first)
+    registry.add(second)
+    registry.update(first, backfill_content_fingerprint="same-content")
+    registry.update(second, backfill_content_fingerprint="same-content")
+    assert registry.get_by_id(first.skill_id).content_fingerprint == "same-content"
+    assert registry.get_by_id(second.skill_id).content_fingerprint is None
+    second.content_fingerprint = "same-content"
+    with pytest.raises(sqlite3.IntegrityError):
+        registry.update(second)
+    assert registry.get_by_id(second.skill_id).content_fingerprint is None
+
+
+def test_list_exposes_analyzer_results_independently_of_final_risk(registry):
+    entry = _make_entry("verdicts", SkillStatus.VETTED)
+    entry.risk_level = RiskLevel.MALICIOUS
+    entry.scan_options = {"use_llm": True, "use_sandbox": True, "use_skillspector": True}
+    entry.vetting = VettingResult(
+        risk_level=RiskLevel.MALICIOUS, findings_count=1, analyzers_used=["scanner"],
+        scan_report={
+            "analyzer_timings": {key: {"status": state} for key, state in {
+                "scanner": "completed", "skillspector": "completed", "sandbox": "skipped", "llm": "completed",
+            }.items()},
+            "findings": [{"source": "agent-manager-local", "severity": "HIGH"}],
+            "llm_analysis": {"risk_level": "benign", "report": "Full report is not included in the list"},
+            "skillspector_analysis": {"risk_severity": "SAFE"},
+            "sandbox_analysis": {"executed": False, "risk_level": "LOW"},
+        },
+    )
+    registry.add(entry)
+    result = registry.list_skill_summaries(page=1, page_size=10)["items"][0]
+    assert result["risk_level"] == "malicious"
+    assert result["analysis_results"] == {
+        "rule": {"status": "completed", "findings_count": 1},
+        "skillspector": {"status": "completed", "risk_level": "SAFE"},
+        "sandbox": {"status": "skipped", "risk_level": None},
+        "llm": {"status": "completed", "risk_level": "benign"},
+    }
+    entry.vetting.scan_report["analyzer_timings"]["llm"]["status"] = "failed"
+    entry.vetting.scan_report.pop("llm_analysis")
+    registry.update(entry)
+    assert registry.list_skill_summaries(page=1, page_size=10)["items"][0]["analysis_results"]["llm"] == {"status": "failed", "risk_level": None}

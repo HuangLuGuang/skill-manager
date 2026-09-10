@@ -209,7 +209,7 @@
               <span>{{ $t('credentials.clientAgentIssuanceSection') }}</span>
               <small>{{ $t('credentials.clientAgentIssuanceHint') }}</small>
             </div>
-            <a-checkbox v-model:checked="form.allow_agent_credential_issuance">
+            <a-checkbox v-model:checked="form.allow_agent_credential_issuance" @change="handleClientIssuanceChange">
               <strong>{{ $t('credentials.allowAgentCredentialIssuance') }}</strong>
             </a-checkbox>
             <p class="field-hint client-issuance-description">{{ $t('credentials.allowAgentCredentialIssuanceDescription') }}</p>
@@ -242,11 +242,11 @@
             </div>
             <a-row :gutter="16">
               <a-col v-if="supportsModels" :xs="24" :md="supportsMcp ? 12 : 24">
-                <a-form-item :label="$t('credentials.allowedModels')">
+                <a-form-item :label="$t(form.token_type === 'client' ? 'credentials.clientDelegatedModels' : 'credentials.allowedModels')">
                   <a-select v-model:value="form.allowed_models" mode="multiple" allow-clear :placeholder="$t('credentials.allowedModelsPlaceholder')">
                     <a-select-option v-for="model in models" :key="model.name" :value="model.name">{{ model.display_name || model.name }}</a-select-option>
                   </a-select>
-                  <div class="field-hint">{{ $t('credentials.allModelsHint') }}</div>
+                  <div class="field-hint">{{ $t(form.token_type === 'client' ? 'credentials.clientDelegatedModelsHint' : 'credentials.allModelsHint') }}</div>
                 </a-form-item>
               </a-col>
               <a-col v-if="supportsMcp" :xs="24" :md="supportsModels ? 12 : 24">
@@ -480,7 +480,8 @@ const supportsMcp = computed(() =>
   form.token_type === 'mcp_gateway' || (form.token_type === 'agent_runtime' && form.scopes.some(scope => scope.startsWith('mcp:')))
 )
 const supportsModels = computed(() =>
-  ['model_gateway', 'agent_runtime'].includes(form.token_type) && form.scopes.includes('model:chat')
+  (['model_gateway', 'agent_runtime'].includes(form.token_type) && form.scopes.includes('model:chat'))
+  || (form.token_type === 'client' && form.allow_agent_credential_issuance)
 )
 const columns = computed(() => [
   { title: t('credentials.credentialColumn'), key: 'credential', width: 220 },
@@ -583,6 +584,9 @@ const handleScopesChange = () => {
     if (form.token_type !== 'agent_runtime') form.prompt_guard_mode = 'off'
   }
   if (!form.scopes.some(scope => scope.startsWith('mcp:'))) form.allowed_mcp_gateways = []
+}
+const handleClientIssuanceChange = () => {
+  if (!form.allow_agent_credential_issuance) form.allowed_models = []
 }
 const resetForm = (tokenType, defaults = {}) => {
   Object.assign(form, {

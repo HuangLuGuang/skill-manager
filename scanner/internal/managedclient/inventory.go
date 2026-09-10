@@ -208,8 +208,9 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 		Capabilities:             map[string]any{"skill_management": spec.supportsSkill},
 		Skills:                   []Skill{},
 	}
-	if spec.agentType == "claude-code" {
+	if spec.agentType == "claude-code" || spec.agentType == "codex" || spec.agentType == "hermes" {
 		agent.Capabilities["model_config_auto_apply"] = true
+		agent.Capabilities["model_config_state"] = InspectModelConfig(home, spec.agentType)
 	}
 	if spec.sharedSkills {
 		agent.Capabilities["shared_skills"] = true

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import io
+import json
 import stat
+import threading
 import time
 import zipfile
 from pathlib import Path
@@ -80,6 +82,137 @@ def test_prepare_upload_zip_keeps_valid_candidates_and_reports_invalid_ones(tmp_
     assert items["valid"]["name"] == "valid-skill"
     assert items["valid"]["error"] == ""
     assert items["invalid"]["error"] == "SKILL.md 缺少 name 字段（格式：name: your-skill-name）"
+
+
+def test_prepare_zip_requires_confirmation_and_records_skipped_links(tmp_path, monkeypatch):
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    app = FastAPI()
+    app.include_router(api_router.router)
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("valid/SKILL.md", "---\nname: valid-skill\n---\n")
+        for path in ("valid/资源.svg", "invalid/SKILL.md"):
+            info = zipfile.ZipInfo(path)
+            info.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(info, "/outside/target")
+    client = TestClient(app)
+    files = {"file": ("skill.zip", buffer.getvalue(), "application/zip")}
+    preview = client.post("/skills/prepare-upload-zip", files=files).json()
+    assert preview["requires_symlink_confirmation"] is True
+    assert preview["session_id"]
+    assert preview["items"] == []
+    session_id = preview["session_id"]
+    assert client.post("/skills/submit-upload-selected", json={
+        "session_id": session_id, "paths": [str(Path(preview["root_path"]) / "valid")],
+    }).status_code == 409
+    def unexpected_extraction(*args, **kwargs):
+        raise AssertionError("Confirmation must reuse extracted files")
+    monkeypatch.setattr(api_router, "_extract_zip_with_nested_archives", unexpected_extraction)
+    response = client.post("/skills/confirm-upload-zip", json={"session_id": session_id, "confirmed": True})
+    assert response.status_code == 200
+    result = response.json()
+    assert result["requires_symlink_confirmation"] is False
+    assert result["skipped_symlinks"] == ["valid/资源.svg", "invalid/SKILL.md"]
+    assert [item["name"] for item in result["items"]] == ["valid-skill"]
+    assert not (Path(result["root_path"]) / "valid/资源.svg").exists()
+    assert (manager.registry.data_dir / "upload_import_metadata" / f"{result['session_id']}.json").exists()
+    repeated = client.post("/skills/confirm-upload-zip", json={"session_id": session_id, "confirmed": True})
+    assert repeated.json() == result
+
+
+def test_cancel_upload_confirmation_removes_session(tmp_path):
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    app = FastAPI()
+    app.include_router(api_router.router)
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+    client = TestClient(app)
+    preview = client.post("/skills/prepare-upload-zip", files={"file": ("skill.zip", _skill_zip(), "application/zip")}).json()
+    session_id = preview["session_id"]
+    response = client.post("/skills/confirm-upload-zip", json={"session_id": session_id, "confirmed": False})
+    assert response.status_code == 200
+    assert not Path(preview["root_path"]).exists()
+    assert not (manager.registry.data_dir / "upload_import_metadata" / f"{session_id}.json").exists()
+    assert client.post("/skills/confirm-upload-zip", json={"session_id": "../outside", "confirmed": False}).status_code == 422
+
+
+def test_zip_stream_reports_actual_work_and_final_candidates(tmp_path):
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    app = FastAPI()
+    app.include_router(api_router.router)
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+    client = TestClient(app)
+    response = client.post("/skills/prepare-upload-zip?stream=true", files={"file": ("skill.zip", _mixed_skill_zip(), "application/zip")})
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert response.headers["x-accel-buffering"] == "no"
+    assert events[-1]["type"] == "result"
+    assert events[-1]["data"]["count"] == 2
+    for stage in ("extracting", "identifying"):
+        progress = [event for event in events if event.get("stage") == stage and event["total"] > 0]
+        assert progress[-1]["completed"] == progress[-1]["total"] == 2
+    failed = client.post("/skills/prepare-upload-zip?stream=true", files={"file": ("bad.zip", b"invalid", "application/zip")})
+    assert json.loads(failed.text.splitlines()[-1]) == {"type": "error", "error_code": "upload.parse_failed"}
+
+
+def test_selected_upload_creates_snapshot_directly_from_session(tmp_path, monkeypatch):
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    monkeypatch.setattr(manager, "process_pending_submission", lambda *args, **kwargs: None)
+    app = FastAPI()
+    app.include_router(api_router.router)
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+    client = TestClient(app)
+    prepared = client.post("/skills/prepare-upload-zip", files={"file": ("skill.zip", _skill_zip(), "application/zip")}).json()
+    skill_path = Path(prepared["items"][0]["path"])
+    release = threading.Event()
+    entered = threading.Event()
+    original_prepare = manager.prepare_submission
+    def slow_prepare(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return original_prepare(*args, **kwargs)
+    monkeypatch.setattr(manager, "prepare_submission", slow_prepare)
+    body = {"session_id": prepared["session_id"], "paths": [str(skill_path)]}
+    try:
+        started = time.monotonic()
+        response = client.post("/skills/submit-upload-selected", json=body)
+        assert response.status_code == 202
+        assert time.monotonic() - started < 0.5
+        assert entered.wait(2)
+        assert client.post("/skills/submit-upload-selected", json=body).json()["job_id"] == response.json()["job_id"]
+        assert client.post("/skills/confirm-upload-zip", json={"session_id": prepared["session_id"], "confirmed": False}).status_code == 409
+        release.set()
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            job = client.get("/skills/upload-import-jobs").json()["items"][0]
+            if job["status"] == "COMPLETED":
+                break
+            time.sleep(0.02)
+        assert job["status"] == "COMPLETED"
+        assert job["results"][0]["status"] == "PENDING"
+        assert not (manager.registry.data_dir / "uploaded_skills").exists()
+        snapshots = list((manager.registry.data_dir / "skill_versions").rglob("SKILL.md"))
+        assert len(snapshots) == 1
+        original = snapshots[0].read_text()
+        (skill_path / "SKILL.md").write_text("changed session content")
+        assert snapshots[0].read_text() == original
+    finally:
+        release.set()
+        api_router._get_upload_jobs(manager).close()
+
+
+def test_nested_zip_skipped_links_include_archive_path(tmp_path):
+    nested = io.BytesIO()
+    with zipfile.ZipFile(nested, "w") as archive:
+        info = zipfile.ZipInfo("资源.svg")
+        info.external_attr = (stat.S_IFLNK | 0o777) << 16
+        archive.writestr(info, "target.svg")
+    zip_path = tmp_path / "outer.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("nested.zip", nested.getvalue())
+    skipped = []
+    api_router._extract_zip_with_nested_archives(zip_path, tmp_path / "out", skipped_symlinks=skipped)
+    assert skipped == ["nested.zip!/资源.svg"]
+    assert not (tmp_path / "out/nested/资源.svg").exists()
 
 
 def test_safe_extract_zip_preserves_utf8_names_without_flag(tmp_path):

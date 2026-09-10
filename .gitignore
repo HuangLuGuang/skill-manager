@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 *.pyo
 .venv/
+.venv-security-worker/
 venv/
 *.egg-info/
 dist/
@@ -11,6 +12,7 @@ build/
 .ruff_cache/
 *.egg
 uv.lock
+!services/aig-scan-service/vendor/ai-infra-guard/AIG-PromptSecurity/uv.lock
 .env
 company-policy.yaml
 .claude/settings.local.json
@@ -31,12 +33,16 @@ test_data/
 CLAUDE.md
 *.zip
 !web/public/examples/*.zip
+!services/aig-scan-service/vendor/ai-infra-guard/AIG-PromptSecurity/tests/remote_server/remote_my_folder_plugin.zip
 data/
+!services/aig-scan-service/vendor/ai-infra-guard/data/
+!services/aig-scan-service/vendor/ai-infra-guard/data/**
 projects/
 mitre_attack_atlas/
 *.tar.gz
 agent-manager/
 client/desktop/src-tauri/tauri.release.conf.json
 client/desktop/release-output/
+/output/
 # Reasonix editor artifacts
 .reasonix/

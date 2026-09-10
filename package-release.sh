@@ -10,6 +10,11 @@ OUTPUT_DIR="${PWD}"
 REPO_URL="git@git.dev-rs.com:agnitio/skill-manager.git"
 CLIENT_RELEASES=""
 REUSE_IMAGES=false
+SOURCE_DIR=""
+SOURCE_MODE="git_clone"
+SOURCE_COMMIT=""
+SOURCE_BRANCH=""
+SOURCE_DIRTY=false
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -26,6 +31,8 @@ usage() {
     echo "  -o, --output DIR     Output directory (default: current dir)"
     echo "  -w, --work-dir DIR   Working directory (default: /tmp/agent-manager)"
     echo "  -r, --repo URL       Git repo URL (default: ${REPO_URL})"
+    echo "  --source-dir DIR     Package the current Git worktree instead of cloning a branch"
+    echo "                       (copies tracked and unignored untracked files; ignored files stay out)"
     echo "  -c, --client-releases DIR  Desktop release feed downloaded from CI"
     echo "  --reuse-images      Package already-built images without rebuilding"
     echo "  -h, --help           Show help"
@@ -33,6 +40,7 @@ usage() {
     echo "Examples:"
     echo "  $0 -v v1.0.0 -p linux/amd64"
     echo "  $0 -v v1.0.0 -p linux/arm64"
+    echo "  $0 -v v1.0.0 -p linux/arm64 --source-dir ."
     echo "  $0 -v v1.0.0 -p linux/amd64 -c /path/to/agent-manager-client-update-feed"
 }
 
@@ -64,6 +72,7 @@ while [[ $# -gt 0 ]]; do
         -o|--output) require_value "$1" "${2:-}"; OUTPUT_DIR="$2"; shift 2 ;;
         -w|--work-dir) require_value "$1" "${2:-}"; WORK_DIR="$2"; shift 2 ;;
         -r|--repo) require_value "$1" "${2:-}"; REPO_URL="$2"; shift 2 ;;
+        --source-dir) require_value "$1" "${2:-}"; SOURCE_DIR="$2"; shift 2 ;;
         -c|--client-releases) require_value "$1" "${2:-}"; CLIENT_RELEASES="$2"; shift 2 ;;
         --reuse-images) REUSE_IMAGES=true; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -74,6 +83,13 @@ done
 if [ -z "$VERSION" ]; then
     VERSION="v$(date +%Y%m%d)"
 fi
+
+case "$WORK_DIR" in
+    /*) ;;
+    *) WORK_DIR="${PWD}/${WORK_DIR}" ;;
+esac
+mkdir -p "$OUTPUT_DIR"
+OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 
 ARCH="$(arch_name)"
 if [ "$ARCH" = "unknown" ]; then
@@ -101,6 +117,7 @@ if [ ! -f "$DOCKER_INSTALLER" ]; then
     err "Docker installer not found: ${DOCKER_INSTALLER}"
     exit 1
 fi
+DOCKER_INSTALLER="$(cd "$(dirname "$DOCKER_INSTALLER")" && pwd)/$(basename "$DOCKER_INSTALLER")"
 if [ -n "$CLIENT_RELEASES" ]; then
     if [ ! -d "$CLIENT_RELEASES" ]; then
         err "Client release directory not found: ${CLIENT_RELEASES}"
@@ -108,16 +125,83 @@ if [ -n "$CLIENT_RELEASES" ]; then
     fi
     CLIENT_RELEASES="$(cd "$CLIENT_RELEASES" && pwd)"
 fi
+if [ -n "$SOURCE_DIR" ]; then
+    if [ ! -d "$SOURCE_DIR" ]; then
+        err "Source directory not found: ${SOURCE_DIR}"
+        exit 1
+    fi
+    SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd)"
+    if ! git -C "$SOURCE_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        err "Source directory is not a Git worktree: ${SOURCE_DIR}"
+        exit 1
+    fi
+    if [ "$SOURCE_DIR" = "$WORK_DIR" ]; then
+        err "Source directory and work directory must be different"
+        exit 1
+    fi
+    if ! SOURCE_COMMIT="$(git -C "$SOURCE_DIR" rev-parse HEAD 2>/dev/null)"; then
+        err "Source directory must have a Git commit"
+        exit 1
+    fi
+    SOURCE_MODE="worktree"
+    SOURCE_BRANCH="$(git -C "$SOURCE_DIR" branch --show-current)"
+    if [ -n "$(git -C "$SOURCE_DIR" status --porcelain)" ]; then
+        SOURCE_DIRTY=true
+    fi
+fi
 
 log "Cleaning work directory..."
 rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR"
 mkdir -p "$OUTPUT_DIR"
 
-log "Cloning ${BRANCH}..."
-git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$WORK_DIR"
+if [ -n "$SOURCE_DIR" ]; then
+    log "Copying tracked and unignored files from ${SOURCE_DIR}..."
+    while IFS= read -r -d '' source_path; do
+        if [ -e "$SOURCE_DIR/$source_path" ] || [ -L "$SOURCE_DIR/$source_path" ]; then
+            mkdir -p "$WORK_DIR/$(dirname "$source_path")"
+            cp -pP "$SOURCE_DIR/$source_path" "$WORK_DIR/$source_path"
+        fi
+    done < <(git -C "$SOURCE_DIR" ls-files --cached --others --exclude-standard -z)
+else
+    log "Cloning ${BRANCH}..."
+    git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$WORK_DIR"
+    SOURCE_COMMIT="$(git -C "$WORK_DIR" rev-parse HEAD)"
+    SOURCE_BRANCH="$(git -C "$WORK_DIR" branch --show-current)"
+fi
 
 cd "$WORK_DIR"
+
+log "Writing release provenance..."
+PROVENANCE_VERSION="$VERSION" \
+PROVENANCE_PLATFORM="$PLATFORM" \
+PROVENANCE_ARCH="${PLATFORM#linux/}" \
+PROVENANCE_ARCHIVE_LAYOUT="$ARCH" \
+PROVENANCE_SOURCE_MODE="$SOURCE_MODE" \
+PROVENANCE_COMMIT="$SOURCE_COMMIT" \
+PROVENANCE_BRANCH="$SOURCE_BRANCH" \
+PROVENANCE_DIRTY="$SOURCE_DIRTY" \
+python3 - <<'PY'
+import json
+import os
+from datetime import datetime, timezone
+
+payload = {
+    "schema": "agent-manager-release-provenance@1",
+    "version": os.environ["PROVENANCE_VERSION"],
+    "platform": os.environ["PROVENANCE_PLATFORM"],
+    "architecture": os.environ["PROVENANCE_ARCH"],
+    "archive_layout": os.environ["PROVENANCE_ARCHIVE_LAYOUT"],
+    "source_mode": os.environ["PROVENANCE_SOURCE_MODE"],
+    "git_commit": os.environ["PROVENANCE_COMMIT"],
+    "git_branch": os.environ["PROVENANCE_BRANCH"],
+    "worktree_dirty": os.environ["PROVENANCE_DIRTY"] == "true",
+    "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+}
+with open("release-provenance.json", "w", encoding="utf-8") as stream:
+    json.dump(payload, stream, ensure_ascii=False, indent=2, sort_keys=True)
+    stream.write("\n")
+PY
 
 log "Copying docker installer..."
 mkdir -p installers
@@ -146,8 +230,10 @@ fi
 log "Creating release archive..."
 rm -rf .git
 WORK_PARENT="$(dirname "$WORK_DIR")"
-WORK_BASE="$(basename "$WORK_DIR")"
-tar -czf "$ARCHIVE_PATH" -C "$WORK_PARENT" "$WORK_BASE"
+PACKAGE_PARENT="$(mktemp -d "${WORK_PARENT}/agent-manager-package.XXXXXX")"
+mv "$WORK_DIR" "${PACKAGE_PARENT}/agent-manager"
+tar -czf "$ARCHIVE_PATH" -C "$PACKAGE_PARENT" agent-manager
+rm -rf "$PACKAGE_PARENT"
 
 log "Archive created: ${ARCHIVE_PATH}"
 log "Archive size: $(du -h "$ARCHIVE_PATH" | cut -f1)"

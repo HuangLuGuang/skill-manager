@@ -103,6 +103,41 @@ def test_http_error_is_classified_and_localized():
     assert english.json()["error_code"] == "skill.not_found"
 
 
+def test_zip_symlink_error_preserves_path_in_both_languages(tmp_path):
+    import stat
+    import zipfile
+
+    from agent_manager.api.router import _safe_extract_zip
+
+    path = "my-skill/资源/current.svg"
+    archive_path = tmp_path / "skill.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        info = zipfile.ZipInfo(path)
+        info.external_attr = (stat.S_IFLNK | 0o777) << 16
+        archive.writestr(info, "original.svg")
+
+    app = FastAPI()
+    app.add_exception_handler(HTTPException, http_error_handler)
+
+    @app.get("/extract")
+    def extract():
+        _safe_extract_zip(archive_path, tmp_path / "output")
+
+    client = TestClient(app)
+    for locale, message in (
+        ("zh-CN", "压缩包不允许包含软链接"),
+        ("en-US", "Symbolic links are not allowed in the archive"),
+    ):
+        response = client.get("/extract", headers={"Accept-Language": locale})
+        assert response.status_code == 400
+        assert response.json() == {
+            "detail": f"{message}: {path}",
+            "error_code": "upload.symlink_not_allowed",
+            "error_params": {"path": path},
+        }
+    assert not (tmp_path / "output" / path).exists()
+
+
 def test_scanner_submission_ownership_error_has_stable_code():
     app = FastAPI()
     app.add_exception_handler(HTTPException, http_error_handler)

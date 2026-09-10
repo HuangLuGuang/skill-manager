@@ -1,15 +1,19 @@
+import asyncio
 import json
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI
+import httpx
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend import models
-from backend import auth
+from backend import auth, models, schemas
 from backend.api_errors import ApiError, api_error_handler
 from backend.routers import llm_gateway
+from backend.runtime_trace_schemas import RuntimeTraceBatchCreate, RuntimeTraceEventInput
+from backend.security_scan_controls import unprotect_secret
+from backend.services import runtime_traces as trace_service
 from backend.sqlite_db import Base, get_db
 
 
@@ -85,6 +89,86 @@ def _client(tmp_path, monkeypatch, *, max_body_kb: int = 1024, max_concurrent_re
     return TestClient(app), token, TestingSessionLocal
 
 
+def test_gateway_aggregates_history_without_reusing_privacy_identity(tmp_path, monkeypatch):
+    client, token, factory = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(llm_gateway.settings, "RUNTIME_TRACE_ENABLED", True)
+    original_upstream = llm_gateway._call_upstream
+
+    async def observe_pending(db, model, body):
+        with factory() as check:
+            assert check.query(models.GatewaySessionRequest).filter_by(status="running").count() == 1
+        assert "metadata" not in body and "conversation_id" not in body
+        return await original_upstream(db, model, body)
+
+    monkeypatch.setattr(llm_gateway, "_call_upstream", observe_pending)
+    history = [{"role": "user", "content": "jane@example.com"}]
+    for count in [63, 66, 68, 70, 72, 74, 76, 78]:
+        while len(history) < count:
+            history.append({"role": "user", "content": f"message-{len(history)}"})
+        result = client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {token}"},
+                             json={"model": "mock-model", "messages": history})
+        assert result.status_code == 200
+    result = client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {token}"},
+                         json={"model": "mock-model", "messages": [
+                             {"role": "system", "content": "new"},
+                             {"role": "user", "content": "jane@example.com"}]})
+    assert result.status_code == 200
+    with factory() as db:
+        assert sorted(row.request_count for row in db.query(models.GatewaySessionGroup).all()) == [1, 8]
+        assert db.query(models.GatewaySessionRequest).filter_by(status="completed").count() == 9
+        assert db.query(models.LlmRequestAudit.conversation_id).distinct().count() == 9
+        assert sorted(row.event_count for row in db.query(models.RuntimeTraceSession).all()) == [2, 16]
+
+
+def test_gateway_header_id_and_early_failure_are_recorded(tmp_path, monkeypatch):
+    client, token, factory = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(llm_gateway.settings, "RUNTIME_TRACE_ENABLED", True)
+    headers = {"Authorization": f"Bearer {token}", "X-Hermes-Session-Id": "hermes-test-session"}
+    for content in ["jane@example.com", "changed history jane@example.com"]:
+        assert client.post("/v1/chat/completions", headers=headers,
+                           json={"model": "mock-model", "messages": [{"role": "user", "content": content}]}).status_code == 200
+    response = client.post("/v1/chat/completions", headers=headers, json={
+        "model": "mock-model", "messages": [{"role": "user", "content": "jane@example.com"}],
+        "metadata": {"bypass_pii_check": True},
+    })
+    assert response.status_code == 403
+    with factory() as db:
+        assert db.query(models.GatewaySessionGroup).one().request_count == 3
+        assert db.query(models.GatewaySessionRequest).filter_by(status="error").count() == 1
+        assert db.query(models.RuntimeTraceEvent).filter_by(type="model.error").count() == 1
+
+
+def test_gateway_stream_close_records_failure_and_closes_upstream(tmp_path, monkeypatch):
+    _, _, factory = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(llm_gateway.settings, "RUNTIME_TRACE_ENABLED", True)
+    closed = []
+
+    async def fake_stream(*args, **kwargs):
+        async def generate():
+            try:
+                yield 'data: {"choices":[]}\n\n'
+                yield 'data: [DONE]\n\n'
+            finally:
+                closed.append(True)
+        return generate()
+
+    monkeypatch.setattr(llm_gateway, "_stream_upstream", fake_stream)
+
+    async def exercise():
+        with factory() as db:
+            key = db.query(models.LlmApiKey).one()
+            payload = schemas.ChatCompletionRequest(model="mock-model", stream=True,
+                messages=[{"role":"user", "content":"jane@example.com"}])
+            response = await llm_gateway._chat_completions_with_key(payload, Response(), key, db)
+            await anext(response.body_iterator)
+            await response.body_iterator.aclose()
+        with factory() as db:
+            assert db.query(models.GatewaySessionRequest).one().status == "error"
+            assert db.query(models.RuntimeTraceEvent).filter_by(type="model.error").count() == 1
+    asyncio.run(exercise())
+    assert closed == [True]
+
+
 def test_chat_completions_pseudonymizes_and_saves_trace(tmp_path, monkeypatch):
     client, token, session_factory = _client(tmp_path, monkeypatch)
 
@@ -124,6 +208,69 @@ def test_chat_completions_pseudonymizes_and_saves_trace(tmp_path, monkeypatch):
         assert meta_payload["completion_tokens"] == audit.completion_tokens
     finally:
         db.close()
+
+
+def test_runtime_trace_preserves_nonstream_and_stream_tool_calls(tmp_path, monkeypatch):
+    client, token, session_factory = _client(tmp_path, monkeypatch)
+
+    async def tool_upstream(_db, _model, payload):
+        return {
+            "id": "chatcmpl-tool",
+            "object": "chat.completion",
+            "created": 1,
+            "model": payload["model"],
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call-1",
+                                "type": "function",
+                                "function": {"name": "lookup", "arguments": '{"email":"jane@example.com"}'},
+                            }
+                        ],
+                    },
+                }
+            ],
+            "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+        }
+
+    monkeypatch.setattr(llm_gateway, "_call_upstream", tool_upstream)
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "model": "mock-model",
+            "conversation_id": "conv-tool-trace",
+            "messages": [{"role": "user", "content": "Jane email is jane@example.com"}],
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    with session_factory() as db:
+        event = db.query(models.RuntimeTraceEvent).filter_by(type="model.response").one()
+        payload = db.query(models.RuntimeTracePayload).filter_by(payload_id=event.payload_id).one()
+        raw = json.loads(unprotect_secret(payload.raw_payload_encrypted))
+        tool_call = raw["response"]["choices"][0]["tool_calls"][0]
+        assert tool_call["id"] == "call-1"
+        assert tool_call["function"]["name"] == "lookup"
+        assert "jane@example.com" in tool_call["function"]["arguments"]
+
+    snapshot = llm_gateway._stream_choices_snapshot(
+        {},
+        {
+            (0, 0): {
+                "index": 0,
+                "id": "call-stream",
+                "type": "function",
+                "function": {"name": "lookup", "arguments_parts": ['{"q":', '"x"}']},
+            }
+        },
+    )
+    assert snapshot[0]["tool_calls"][0]["function"]["arguments"] == '{"q":"x"}'
 
 
 def test_anthropic_messages_converts_tools_and_accepts_x_api_key(tmp_path, monkeypatch):
@@ -220,6 +367,92 @@ def test_anthropic_messages_streams_anthropic_sse(tmp_path, monkeypatch):
     assert "event: message_stop" in response.text
 
 
+def test_responses_endpoint_supports_codex_non_streaming_requests(tmp_path, monkeypatch):
+    client, token, _session_factory = _client(tmp_path, monkeypatch)
+    response = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "model": "mock-model",
+            "instructions": "Be concise.",
+            "input": "Jane's email is jane@example.com",
+            "max_output_tokens": 128,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["object"] == "response"
+    assert body["status"] == "completed"
+    assert body["output"][0]["type"] == "message"
+    assert "jane@example.com" in body["output"][0]["content"][0]["text"]
+    assert body["usage"]["total_tokens"] == 15
+
+
+def test_responses_endpoint_streams_codex_lifecycle(tmp_path, monkeypatch):
+    client, token, _session_factory = _client(tmp_path, monkeypatch)
+
+    async def fake_stream(_db, _model, _payload, **_kwargs):
+        async def events():
+            yield 'data: {"id":"chatcmpl-1","model":"mock-model","choices":[{"index":0,"delta":{"role":"assistant","content":"Hi"},"finish_reason":null}]}\n\n'
+            yield 'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}\n\n'
+            yield "data: [DONE]\n\n"
+
+        return events()
+
+    monkeypatch.setattr(llm_gateway, "_stream_upstream", fake_stream)
+    response = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"model": "mock-model", "input": "Hello", "stream": True},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "event: response.output_text.delta" in response.text
+    assert "event: response.output_item.done" in response.text
+    assert "event: response.completed" in response.text
+
+
+def test_responses_endpoint_returns_openai_error_for_invalid_credential(tmp_path, monkeypatch):
+    client, _token, _session_factory = _client(tmp_path, monkeypatch)
+    response = client.post(
+        "/v1/responses",
+        headers={"Authorization": "Bearer invalid", "Accept-Language": "en-US"},
+        json={"model": "mock-model", "input": "Hello"},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "error": {
+            "message": "The access credential is invalid or disabled",
+            "type": "authentication_error",
+            "code": "credential.invalid_or_disabled",
+        }
+    }
+
+
+def test_responses_endpoint_returns_openai_error_for_upstream_failure(tmp_path, monkeypatch):
+    client, token, _session_factory = _client(tmp_path, monkeypatch)
+
+    async def fail_upstream(_db, _model, _payload):
+        raise HTTPException(status_code=502, detail="upstream unavailable")
+
+    monkeypatch.setattr(llm_gateway, "_call_upstream", fail_upstream)
+    response = client.post(
+        "/v1/responses",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"model": "mock-model", "input": "Hello"},
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "error": {
+            "message": "upstream unavailable",
+            "type": "api_error",
+            "code": "http.502",
+        }
+    }
+
+
 def test_anthropic_upstream_request_uses_native_endpoint_and_headers():
     provider = models.ModelProvider(
         name="anthropic-provider",
@@ -241,12 +474,121 @@ def test_anthropic_upstream_request_uses_native_endpoint_and_headers():
         },
     )
 
-    assert url == "https://api.deepseek.com/anthropic/v1/messages"
+    assert url == "https://api.deepseek.com/anthropic/messages"
     assert payload["system"] == "Be concise"
     assert payload["messages"][0]["role"] == "user"
     assert payload["output_config"] == {"effort": "max"}
     assert headers["x-api-key"] == "secret"
     assert headers["authorization"] == "Bearer secret"
+
+
+def test_upstream_urls_append_only_the_protocol_endpoint():
+    assert llm_gateway._chat_url("https://api.openai.com/v1") == "https://api.openai.com/v1/chat/completions"
+    assert llm_gateway._chat_url("https://open.bigmodel.cn/api/paas/v4") == "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    assert llm_gateway._chat_url("https://example.test/custom/chat/completions") == "https://example.test/custom/chat/completions"
+    assert llm_gateway._anthropic_url("https://api.anthropic.com/v1") == "https://api.anthropic.com/v1/messages"
+
+
+def test_model_provider_test_runs_real_completion_with_entered_model(tmp_path, monkeypatch):
+    client, _token, session_factory = _client(tmp_path, monkeypatch)
+    db = session_factory()
+    try:
+        user = models.User(username="provider-tester", email="provider-tester@example.com", hashed_password="x", role="admin")
+        db.add(user)
+        db.commit()
+        user_id = user.id
+    finally:
+        db.close()
+
+    async def override_current_user():
+        db_session = session_factory()
+        try:
+            return db_session.query(models.User).filter(models.User.id == user_id).first()
+        finally:
+            db_session.close()
+
+    captured = {}
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def post(self, url, *, json, headers):
+            captured.update(url=url, payload=json, headers=headers)
+            return httpx.Response(
+                200,
+                json={
+                    "id": "test-completion",
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": "OK"}}],
+                },
+            )
+
+    client.app.dependency_overrides[auth.get_current_admin_user] = override_current_user
+    monkeypatch.setattr(llm_gateway.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = client.post("/v1/model-providers/1/test", json={"model": "provider-model"})
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert response.json()["model"] == "provider-model"
+    assert response.json()["endpoint"] == "http://mock.local/chat/completions"
+    assert captured["url"] == "http://mock.local/chat/completions"
+    assert captured["payload"] == {
+        "model": "provider-model",
+        "messages": [{"role": "user", "content": "Reply with exactly OK."}],
+        "max_tokens": 8,
+        "stream": False,
+    }
+    assert captured["headers"]["authorization"] == "Bearer provider-key"
+
+
+def test_model_provider_test_reports_upstream_404_as_failure(tmp_path, monkeypatch):
+    client, _token, session_factory = _client(tmp_path, monkeypatch)
+    db = session_factory()
+    try:
+        user = models.User(username="provider-error-tester", email="provider-error@example.com", hashed_password="x", role="admin")
+        db.add(user)
+        db.commit()
+        user_id = user.id
+    finally:
+        db.close()
+
+    async def override_current_user():
+        db_session = session_factory()
+        try:
+            return db_session.query(models.User).filter(models.User.id == user_id).first()
+        finally:
+            db_session.close()
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return None
+
+        async def post(self, _url, *, json, headers):
+            return httpx.Response(404, json={"error": {"message": "route not found"}})
+
+    client.app.dependency_overrides[auth.get_current_admin_user] = override_current_user
+    monkeypatch.setattr(llm_gateway.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = client.post("/v1/model-providers/1/test", json={"model": "provider-model"})
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
+    assert response.json()["status_code"] == 404
+    assert response.json()["error_code"] == "model_provider_test.upstream_http_error"
+    assert response.json()["error"] == "route not found"
 
 
 def test_chat_completions_releases_write_transaction_before_upstream(tmp_path, monkeypatch):
@@ -482,6 +824,79 @@ def test_access_token_without_model_chat_cannot_call_model_gateway(tmp_path, mon
 
     assert response.status_code == 403
     assert "model:chat" in response.json()["detail"]
+
+
+def test_agent_runtime_model_call_attaches_to_sdk_trace_with_bound_group_tenant(tmp_path, monkeypatch):
+    client, _token, session_factory = _client(tmp_path, monkeypatch)
+    raw = "amat_runtime_trace_model"
+    with session_factory() as db:
+        owner = models.User(username="trace-owner", hashed_password="x", role="user")
+        group = models.UserGroup(name="trace-model-group")
+        db.add_all([owner, group])
+        db.flush()
+        token = models.AccessToken(
+            name="trace-model-runtime",
+            token_type="agent_runtime",
+            token_hash=llm_gateway._hash_token(raw),
+            token_prefix=raw[:12],
+            bound_agent_id="risk-agent",
+            user_id=owner.id,
+            group_id=group.id,
+            scopes_json='["model:chat","runtime:trace"]',
+            allowed_models_json='["mock-model"]',
+            allowed_ips_json="[]",
+        )
+        db.add(token)
+        db.flush()
+        trace = trace_service.create_trace(
+            db,
+            tenant_id=str(group.id),
+            agent_id="risk-agent",
+            session_id="sdk-session",
+            owner_user_id=owner.id,
+            owner_group_id=group.id,
+            created_by="test-sdk",
+        )
+        trace_service.ingest_batch(
+            db,
+            trace,
+            RuntimeTraceBatchCreate(
+                batch_id="sdk-agent-batch",
+                events=[
+                    RuntimeTraceEventInput(
+                        event_id="sdk-turn-start",
+                        event_time=datetime.utcnow(),
+                        source="agent_sdk",
+                        type="turn.start",
+                        turn_id="turn-1",
+                        payload={},
+                    )
+                ],
+            ),
+            expected_agent_id="risk-agent",
+            allowed_sources={"agent_sdk"},
+        )
+        trace_id = trace.trace_id
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {raw}"},
+        json={
+            "model": "mock-model",
+            "conversation_id": "sdk-session",
+            "metadata": {"trace_id": trace_id, "session_id": "sdk-session", "turn_id": "turn-1"},
+            "messages": [{"role": "user", "content": "Jane Doe email is jane@example.com"}],
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    with session_factory() as db:
+        trace = db.query(models.RuntimeTraceSession).filter_by(trace_id=trace_id).one()
+        assert trace.completeness == "full"
+        assert trace.event_count == 3
+        assert {
+            row.type for row in db.query(models.RuntimeTraceEvent).filter_by(trace_id=trace_id).all()
+        } == {"turn.start", "model.request", "model.response"}
 
 
 def test_prompt_guard_blocks_high_risk_prompt_and_saves_trace(tmp_path, monkeypatch):
@@ -1162,6 +1577,33 @@ def test_api_key_body_size_limit_is_enforced(tmp_path, monkeypatch):
     )
 
     assert response.status_code == 413
+
+
+def test_skill_analysis_keeps_gateway_metadata_out_of_provider_request(tmp_path, monkeypatch):
+    from agent_manager.core.llm import _call_model_gateway_sync
+    from backend import sqlite_db
+
+    _, _, session_factory = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(sqlite_db, "SessionLocal", session_factory)
+    payload = {
+        "model": "mock-model",
+        "messages": [{"role": "user", "content": 'Return {"ok": true}.'}],
+        "metadata": {"tenant_id": "agent-manager-internal", "user_id": "agent-manager-vetting"},
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"},
+        "stream": False,
+    }
+    original = json.loads(json.dumps(payload))
+    response = {"choices": [{"message": {"content": '{"ok": true}'}}]}
+
+    async def provider(_db, model, body):
+        assert model.name == "mock-model"
+        assert body == {key: value for key, value in original.items() if key != "metadata"}
+        return response
+
+    monkeypatch.setattr(llm_gateway, "_call_upstream", provider)
+    assert _call_model_gateway_sync(payload) == response
+    assert payload == original
 
 
 def test_api_key_concurrency_counter_is_enforced_across_sessions(tmp_path):
@@ -1852,3 +2294,12 @@ def test_stream_safe_split_buffers_partial_tokens():
 
     assert emit == "hello "
     assert pending == "<EMAIL"
+
+
+def test_stream_ttft_ignores_control_chunks_and_accepts_text_or_tool_arguments():
+    assert not llm_gateway._stream_chunk_has_output({"usage": {"completion_tokens": 1}})
+    assert not llm_gateway._stream_chunk_has_output({"choices": [{"delta": {"role": "assistant"}}]})
+    assert llm_gateway._stream_chunk_has_output({"choices": [{"delta": {"reasoning_content": "thinking"}}]})
+    assert llm_gateway._stream_chunk_has_output({
+        "choices": [{"delta": {"tool_calls": [{"function": {"arguments": "{"}}]}}],
+    })

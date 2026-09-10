@@ -429,6 +429,7 @@ class McpToolResponse(BaseModel):
     input_schema: dict[str, Any] = {}
     schema_hash: str
     enabled: bool
+    access_mode: str = "unknown"
     risk_level: str = "low"
     rate_limit_per_minute: int = 60
     max_concurrent: int = 5
@@ -464,6 +465,9 @@ class McpGatewayCreate(BaseModel):
     slug: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,127}$")
     name: str
     description: Optional[str] = None
+    environment: str = Field(default="test", pattern="^(sandbox|test|staging|production)$")
+    execution_mode: str = Field(default="active_safe", pattern="^(passive|read_only|active_safe|active_full)$")
+    production_tool_denylist: list[str] = Field(default_factory=list, max_length=1000)
     status: str = Field(default="active", pattern="^(active|disabled)$")
     bindings: list[McpGatewayBindingInput] = []
 
@@ -472,6 +476,9 @@ class McpGatewayUpdate(BaseModel):
     slug: Optional[str] = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,127}$")
     name: Optional[str] = None
     description: Optional[str] = None
+    environment: Optional[str] = Field(default=None, pattern="^(sandbox|test|staging|production)$")
+    execution_mode: Optional[str] = Field(default=None, pattern="^(passive|read_only|active_safe|active_full)$")
+    production_tool_denylist: Optional[list[str]] = Field(default=None, max_length=1000)
     status: Optional[str] = Field(default=None, pattern="^(active|disabled)$")
     bindings: Optional[list[McpGatewayBindingInput]] = None
 
@@ -489,6 +496,9 @@ class McpGatewayResponse(BaseModel):
     slug: str
     name: str
     description: Optional[str] = None
+    environment: str = "test"
+    execution_mode: str = "active_safe"
+    production_tool_denylist: list[str] = []
     status: str
     bindings: list[McpGatewayBindingResponse] = []
     created_by: Optional[str] = None
@@ -522,6 +532,7 @@ class McpUpstreamDebugRequest(BaseModel):
 
 
 class McpToolPolicyUpdate(BaseModel):
+    access_mode: str = Field(default="unknown", pattern="^(unknown|read|write|destructive)$")
     risk_level: str = Field(pattern="^(low|medium|high)$")
     rate_limit_per_minute: int = Field(default=60, ge=1, le=10000)
     max_concurrent: int = Field(default=5, ge=1, le=100)
@@ -619,6 +630,7 @@ class RuntimeTaskStart(BaseModel):
     tenant_id: str
     user_id: str
     session_id: str
+    trace_id: Optional[str] = Field(default=None, max_length=64)
     original_goal: str = Field(min_length=1, max_length=20000)
     allowed_actions: list[str] = []
     allowed_targets: list[str] = []
@@ -768,6 +780,13 @@ class ClientTaskResult(BaseModel):
     error: Optional[str] = None
 
 
+class ClientModelConfigurationRequest(BaseModel):
+    local_agent_id: Optional[str] = None
+    agent_type: str
+    managed_agent_id: Optional[str] = None
+    model: str
+
+
 class ClientAgentCredentialResponse(BaseModel):
     token: str
     token_prefix: str
@@ -834,6 +853,10 @@ class ModelProviderResponse(BaseModel):
     enable_compression: bool = False
     created_at: datetime
     updated_at: datetime
+
+
+class ModelProviderTestRequest(BaseModel):
+    model: str = Field(min_length=1, max_length=128)
 
 
 class ModelEndpointCreate(BaseModel):

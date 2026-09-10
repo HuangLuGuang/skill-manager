@@ -97,7 +97,7 @@ agent-manager-client-linux-arm64
 智能体管理 -> 统一凭证中心 -> 创建凭证
 ```
 
-在统一凭证中心选择“给客户端使用”。如果希望客户端自动下发 Agent 模型配置，同时勾选“允许客户端为已绑定 Agent 自动创建运行凭证”。该选项默认关闭；客户端凭证明文仍只展示一次。
+在统一凭证中心选择“给客户端使用”。如果希望在桌面客户端里切换本机 Agent 使用的网关模型，同时勾选“允许客户端为本机 Agent 自动创建运行凭证”。该选项默认关闭；客户端凭证明文仍只展示一次。开启后还可以设置“允许客户端配置的模型”：留空表示所有已启用模型，选择具体模型则形成客户端的委派上限。这个允许列表不代表客户端凭证本身可以调用模型。
 
 ## 3. 注册客户端
 
@@ -116,18 +116,49 @@ export AGENT_MANAGER_CLIENT_TOKEN="amat_xxx"
 
 默认使用“客户端安全治理”，无需绑定平台智能体。只有切换为“Agent 强授权”后，才需要在客户端详情中选择平台智能体；同类型只有一个候选时平台会自动匹配。
 
-### 按本机 Agent 配置模型
+### 在桌面客户端切换网关模型
 
-管理台客户端详情可以为已绑定的 Claude Code 选择并下发模型，适合一台主机上的不同 Agent 使用不同默认模型。操作前必须满足：
+桌面客户端的“模型切换”页以本机实际配置为入口，而不是以平台 Agent 表单为入口：
 
-- 本机 Claude Code 已绑定一个同类型、启用中的平台 Agent。
-- 以下条件满足其一：平台 Agent 已有包含 `model:chat` 且允许目标模型的有效运行凭证；或当前客户端凭证已开启自动创建 Agent 运行凭证。
-- 开启自动创建时，客户端通过具体模型配置任务一次性领取绑定目标 Agent 的运行凭证。客户端接入凭证本身不能调用模型。
-- 自动创建的 Agent 凭证固定包含 `runtime:verify-signature`、`runtime:can-load`、`runtime:check-tool` 和 `model:chat`，并且只允许任务选择的模型；不包含 `runtime:govern` 或任何 `mcp:*` 权限。
+1. 先选择本机发现的 Claude Code、Codex 或 Hermes。
+2. 页面直接读取本机配置文件，显示当前模型、网关地址和配置路径。
+3. 模型列表只显示当前客户端凭证委派范围内、且模型与供应商都已启用的网关模型。
+4. 点击“切换”。如果该本机 Agent 尚无运行身份，平台会自动创建一个归属当前客户端的托管 Agent 并完成绑定，不要求预先在管理台创建。
+5. 客户端执行后重新读取本机配置；页面展示的“当前实际配置”不是平台期望值。
 
-下发任务只包含本机 Agent 标识、平台 Agent 标识和模型名，不包含任何凭证明文。开启自动创建时，客户端执行任务才通过受控接口领取一次性明文。客户端执行前备份 `~/.claude/settings.json` 到 `~/.agent-manager/config-backups/`，然后合并写入模型网关地址 `ANTHROPIC_BASE_URL`、模型名 `ANTHROPIC_MODEL` 和自动生成的 Agent 独立 `ANTHROPIC_AUTH_TOKEN`；其他设置保持不变。
+![桌面客户端模型切换页面](../web/public/docs/screenshots/zh-CN/client-app-models.png)
 
-当前只自动配置 Claude Code。Codex 依赖 Responses API，而当前模型网关尚未提供该兼容端点，因此不会写入一份实际不可调用的 Codex 配置。其他 Agent 要在配置格式与协议验证完成后再开放。
+> 截图使用脱敏示例数据。页面中的“网关地址”和“配置文件”来自本机实际配置。
+
+#### 网关地址从哪里来
+
+桌面客户端不提供单独的“模型网关地址”输入框。首次接入或在“客户端概览 -> 修改连接”中填写的 **Agent Manager 地址**，同时作为自动写入模型配置时的网关根地址：
+
+- Claude Code 直接把该地址写入 `ANTHROPIC_BASE_URL`，调用 `POST /v1/messages`。
+- Codex 和 Hermes 会把该地址规范化为以 `/v1` 结尾的 Base URL，分别调用 `POST /v1/responses` 和 `POST /v1/chat/completions`。
+- 如果接入地址本身已经以 `/v1` 结尾，客户端不会重复追加。
+
+这里的 Agent Manager 地址不是上游模型供应商地址。管理员仍需在“模型网关 -> 供应商 / 模型”中配置 OpenAI、Anthropic、DeepSeek 等上游地址和密钥；桌面客户端只把本机 Agent 指向 Agent Manager 网关。部署时应确保客户端所在主机能够访问该地址，并且反向代理已经转发上述模型协议路径。
+
+客户端接入凭证本身不能调用模型或 MCP。切换时，sidecar 通过具体任务一次性领取绑定目标 Agent 的独立运行凭证，凭证明文不进入任务载荷、客户端状态接口或桌面渲染进程。自动创建的托管 Agent 只是运行身份和审计载体，不表示模型需要与 Agent 类型匹配；模型范围仍由客户端凭证委派范围和网关启用状态决定。生成的凭证固定包含 `runtime:verify-signature`、`runtime:can-load`、`runtime:check-tool` 和 `model:chat`，且只允许本次选择的模型；不包含 `runtime:govern`。如果该平台 Agent 已有允许的 MCP 网关，生成凭证还会带上 `mcp:connect`、`mcp:list-tools`、`mcp:call-tools`，并保留相同网关允许列表；MCP 服务器配置仍由单独的 MCP 功能管理。
+
+当前写入范围：
+
+| Agent | 实际配置 | 网关协议 |
+|---|---|---|
+| Claude Code | 合并 `~/.claude/settings.json` 中的 `ANTHROPIC_BASE_URL`、`ANTHROPIC_MODEL`、`ANTHROPIC_AUTH_TOKEN` | `POST /v1/messages` |
+| Codex | 合并 `~/.codex/config.toml`，创建 `agent_manager` model provider，写入 `wire_api = "responses"` 和 Agent 独立 bearer token | `POST /v1/responses` |
+| Hermes | 合并 `~/.hermes/config.yaml` 的 `model.default/provider/base_url/api_mode`，并把 Agent 独立凭证写入权限为 `0600` 的 `~/.hermes/.env` | `POST /v1/chat/completions` |
+
+修改前的配置会备份到 `~/.agent-manager/config-backups/`。写入只替换模型路由相关字段，并保留其他设置；包含凭证的配置文件使用当前用户私有权限。命令行也可以执行相同流程：
+
+```bash
+./agent-manager-client-darwin-arm64 switch-model \
+  --agent-type codex \
+  --model gpt-5-codex
+```
+
+首次未关联时额外传 `--managed-agent-id <agent-id>`；后续调用会复用已有关联。
 
 不在内置列表中的 Agent，无需开发新适配器。进入“Agent 发现 -> 添加自定义 Agent”，填写便于识别的名称，并选择包含多个 Skill 子目录的绝对路径。移除自定义 Agent 只取消登记，不会删除该目录中的文件。客户端安全治理无需在平台重复创建 Agent；Agent 强授权模式下，先在平台创建“自定义 Agent”，再在客户端选择对应的平台智能体。
 

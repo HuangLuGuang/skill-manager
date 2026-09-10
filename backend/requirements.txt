@@ -4,6 +4,7 @@ sqlalchemy
 pydantic[email]
 pydantic-settings
 python-dotenv
+reportlab>=4.2.0
 python-multipart
 python-jose[cryptography]
 passlib[bcrypt]

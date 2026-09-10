@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from .. import auth, models
 from ..config import settings
+from ..feature_flags import baseline_summary, feature_flags
 from ..sqlite_db import get_db
 from ..task_runtime import collect_system_metric_snapshot, persist_system_metric
 
@@ -44,6 +45,11 @@ class SystemInfo(BaseModel):
     cpu: CpuUsage
     data_dir: str
     data_dir_size: int
+
+
+class SystemCapabilities(BaseModel):
+    features: dict[str, bool]
+    baseline: dict
 
 
 class MetricRecord(BaseModel):
@@ -122,6 +128,14 @@ async def get_system_info(current_user: models.User = Depends(auth.get_current_a
         cpu=CpuUsage(percent=cpu_percent, count=psutil.cpu_count() or 0),
         data_dir=data_dir,
         data_dir_size=get_dir_size(data_dir),
+    )
+
+
+@router.get("/capabilities", response_model=SystemCapabilities)
+async def get_system_capabilities(current_user: models.User = Depends(auth.get_current_admin_user)):
+    return SystemCapabilities(
+        features=feature_flags(),
+        baseline=baseline_summary(),
     )
 
 

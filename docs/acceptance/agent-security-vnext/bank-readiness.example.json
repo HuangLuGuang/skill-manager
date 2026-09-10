@@ -1,0 +1,64 @@
+{
+  "schema": "agent-security-bank-readiness@1",
+  "environment": "replace-with-bank-environment",
+  "platform_version": "replace-with-release-tag",
+  "git_commit": "replace-with-full-commit",
+  "people": {
+    "operator": "replace-with-authorized-operator",
+    "reviewer": "replace-with-independent-reviewer",
+    "acceptance_owner": "replace-with-acceptance-owner",
+    "role_assignments": {
+      "administrator": "replace-with-account-owner",
+      "security_auditor": "replace-with-account-owner",
+      "ordinary_user": "replace-with-account-owner",
+      "security_operator": "replace-with-account-owner",
+      "target_owner": "replace-with-account-owner",
+      "mcp_owner": "replace-with-account-owner",
+      "platform_operator": "replace-with-account-owner"
+    }
+  },
+  "change_window": {
+    "reference": "replace-with-approved-change-reference",
+    "starts_at": "2026-09-01T09:00:00+08:00",
+    "ends_at": "2026-09-01T18:00:00+08:00"
+  },
+  "approvals": {
+    "read_only": "replace-with-approval-reference",
+    "creates_records": "replace-with-approval-reference",
+    "authorized_target_calls": "replace-with-approval-reference",
+    "service_change": "replace-with-approval-reference",
+    "platform_install": "replace-with-approval-reference"
+  },
+  "hosts": {
+    "amd64": {"id": "replace-with-host-id", "architecture": "amd64"},
+    "arm64": {"id": "replace-with-host-id", "architecture": "arm64"}
+  },
+  "packages": {
+    "amd64": "/absolute/path/agent-manager_release_x86.tar.gz",
+    "arm64": "/absolute/path/agent-manager_release_arm.tar.gz"
+  },
+  "authorized_agent": {
+    "target_id": "replace-with-registered-target-id",
+    "owner": "replace-with-target-owner",
+    "approval_reference": "replace-with-target-approval-reference",
+    "network_boundary": "replace-with-approved-network-boundary",
+    "tls_profile": "replace-with-approved-tls-profile",
+    "evaluator_model": "replace-with-approved-model-id",
+    "budget": {
+      "max_rounds": 5,
+      "max_tokens": 10000,
+      "max_cost": 10,
+      "cost_currency": "CNY",
+      "max_response_bytes": 1048576
+    }
+  },
+  "mcp": {
+    "target_id": "replace-with-registered-mcp-id",
+    "owner": "replace-with-mcp-owner",
+    "audit_source": "replace-with-upstream-audit-reference"
+  },
+  "evidence_storage": {
+    "location_reference": "replace-with-approved-storage-reference",
+    "retention_policy": "replace-with-retention-policy-reference"
+  }
+}

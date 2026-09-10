@@ -75,6 +75,15 @@ func TestDiscoverFindsSupportedAgentsAndSkills(t *testing.T) {
 			t.Fatalf("%s skill discovery failed: %#v", agentType, byType[agentType])
 		}
 	}
+	for _, agentType := range []string{"claude-code", "codex", "hermes"} {
+		agent := byType[agentType]
+		if supported, _ := agent.Capabilities["model_config_auto_apply"].(bool); !supported {
+			t.Fatalf("%s did not report model configuration support: %#v", agentType, agent.Capabilities)
+		}
+		if _, ok := agent.Capabilities["model_config_state"].(ModelConfigState); !ok {
+			t.Fatalf("%s did not report live model configuration state: %#v", agentType, agent.Capabilities)
+		}
+	}
 	if got := byType[custom.AgentType]; got.DisplayName != "内部助手" || got.SkillsPath != custom.SkillsPath || len(got.Skills) != 1 {
 		t.Fatalf("custom Agent discovery failed: %#v", got)
 	}

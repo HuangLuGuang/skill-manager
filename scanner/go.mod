@@ -4,14 +4,15 @@ go 1.21
 
 require (
 	fyne.io/fyne/v2 v2.5.5
+	github.com/BurntSushi/toml v1.4.0
 	github.com/fsnotify/fsnotify v1.7.0
 	golang.org/x/text v0.16.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.29.10
 )
 
 require (
 	fyne.io/systray v1.11.0 // indirect
-	github.com/BurntSushi/toml v1.4.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fredbi/uri v1.1.0 // indirect
@@ -43,7 +44,6 @@ require (
 	golang.org/x/mobile v0.0.0-20231127183840-76ac6878050a // indirect
 	golang.org/x/net v0.25.0 // indirect
 	golang.org/x/sys v0.20.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/gc/v3 v3.0.0-20240107210532-573471604cb6 // indirect
 	modernc.org/libc v1.49.3 // indirect
 	modernc.org/mathutil v1.6.0 // indirect

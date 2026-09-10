@@ -14,26 +14,26 @@ const cases = [
   {
     locale: 'zh-CN',
     query: '规则扫描、深度扫描、Sandbox 和 LLM 分析有什么区别？',
-    requiredTerms: ['基础 Scanner', '规则分析（默认勾选）', '深度扫描', 'Sandbox', 'LLM 分析'],
+    requiredTerms: ['基础 Scanner', '规则分析（强制开启）', '深度扫描', 'Sandbox', 'LLM 分析'],
   },
   {
     locale: 'en-US',
     query: 'What is the difference between rule analysis, deep scan, Sandbox, and LLM analysis?',
-    requiredTerms: ['Base Scanner', 'Rule analysis (selected by default)', 'Deep scan', 'Sandbox', 'LLM analysis'],
+    requiredTerms: ['Base Scanner', 'Rule analysis (mandatory)', 'Deep scan', 'Sandbox', 'LLM analysis'],
   },
 ]
 
 const governanceCases = [
   {
     locale: 'zh-CN',
-    classificationQuery: '阻断项、可疑项、噪声的检测逻辑是什么？',
+    classificationQuery: '判为恶意、结合上下文判断、仅保留提示如何影响最终风险？',
     policyQuery: 'SKILL 策略配置怎么设置？',
     groupTitle: '能力治理',
     subgroupTitle: 'Skill 治理',
   },
   {
     locale: 'en-US',
-    classificationQuery: 'How are blocking suspicious and noise findings classified?',
+    classificationQuery: 'How do Classify as malicious, Assess in context, and Retain as a notice affect final risk?',
     policyQuery: 'How do I configure Skill policy settings?',
     groupTitle: 'Capability governance',
     subgroupTitle: 'Skill governance',
@@ -107,8 +107,8 @@ test('Skill docs follow the console capability-governance grouping and order', (
 
 test('Agent docs follow the console agent-management grouping and order', () => {
   const expected = {
-    'zh-CN': { title: '智能体管理', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'audit-trail'] },
-    'en-US': { title: 'Agent management', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'audit-trail'] },
+    'zh-CN': { title: '智能体管理', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'agent-security-runtime', 'security-scan-guide', 'dify-security-access', 'security-operations', 'runtime-trace-guide', 'audit-trail'] },
+    'en-US': { title: 'Agent management', slugs: ['agent-management', 'client-management', 'credential-management', 'runtime-integration', 'hook-integration', 'agent-security-runtime', 'security-scan-guide', 'dify-security-access', 'security-operations', 'runtime-trace-guide', 'audit-trail'] },
   }
   for (const [locale, { title, slugs }] of Object.entries(expected)) {
     const group = docsContent[locale].groups.find(item => item.title === title)
@@ -130,12 +130,12 @@ test('Ask AI finds Scanner, Credential Center, and Audit trail guidance', () => 
   const questions = {
     'zh-CN': [
       ['如何批量扫描服务器上的 Skill？', 'scanner-access'],
-      ['不同类型的接入凭证怎么创建和限制权限？', 'credential-management'],
+      ['统一凭证中心如何按调用方创建不同类型凭证并限制权限？', 'credential-management'],
       ['如何查询 Skill 被阻断的审计事件？', 'audit-trail'],
     ],
     'en-US': [
       ['How do I batch scan Skills on a server?', 'scanner-access'],
-      ['How do I create access credentials with least privilege?', 'credential-management'],
+      ['How does Credential Center create credential types and restrict permissions by caller?', 'credential-management'],
       ['How do I find an audit event for a blocked Skill?', 'audit-trail'],
     ],
   }
@@ -144,6 +144,81 @@ test('Ask AI finds Scanner, Credential Center, and Audit trail guidance', () => 
       const [first] = rankDocsContexts({ content: docsContent[locale], query })
       assert.equal(first.slug, expectedSlug, `${locale}: ${query}`)
     }
+  }
+})
+
+test('Ask AI finds the dedicated Hook integration guide', () => {
+  const questions = {
+    'zh-CN': 'Claude Code、Codex 和 OpenClaw 的 Hook 怎么配置和验证？',
+    'en-US': 'How do I configure and validate Hooks for Claude Code Codex and OpenClaw?',
+  }
+  for (const [locale, query] of Object.entries(questions)) {
+    const [first] = rankDocsContexts({ content: docsContent[locale], query })
+    assert.equal(first.slug, 'hook-integration')
+  }
+})
+
+test('Ask AI finds Dify credential acquisition and operational guides in both languages', () => {
+  const queries = {
+    'zh-CN': [
+      ['Dify App API Console Admin API Knowledge API 凭据怎么获取？', 'dify-security-access'],
+      ['定时计划 Dify 来源同步 风险处置 修复验证', 'security-operations'],
+      ['调用轨迹 事件详情 参数 Schema 原始 JSON 导出', 'runtime-trace-guide'],
+    ],
+    'en-US': [
+      ['How do I obtain Dify App API Console Admin API Knowledge API credentials?', 'dify-security-access'],
+      ['Schedules Dify source sync risk disposition remediation verification', 'security-operations'],
+      ['Runtime trace event details arguments Schema raw JSON export', 'runtime-trace-guide'],
+    ],
+  }
+  for (const [locale, cases] of Object.entries(queries)) {
+    for (const [query, slug] of cases) {
+      const [first] = rankDocsContexts({ content: docsContent[locale], query })
+      assert.equal(first.slug, slug, `${locale}: ${query}`)
+    }
+  }
+})
+
+test('AI Security help is bilingual and describes only enabled evidence boundaries', () => {
+  const expected = {
+    'zh-CN': ['页面默认开启', '不执行 tools/call', '任务 succeeded 只表示执行契约完成', '当前 Token 不支持原地轮换', 'PDF 不支持原始级别'],
+    'en-US': ['enabled by default', 'does not execute tools/call', 'Task succeeded means the execution contract completed', 'Tokens cannot be rotated in place', 'PDF does not support raw classification'],
+  }
+  for (const [locale, phrases] of Object.entries(expected)) {
+    const article = docsContent[locale].articles['agent-security-runtime']
+    assert.ok(article)
+    const serialized = JSON.stringify(article)
+    for (const phrase of phrases) assert.ok(serialized.includes(phrase), `${locale}: missing ${phrase}`)
+  }
+})
+
+test('Ask AI finds AI Security scanning and runtime-trace guidance in both languages', () => {
+  const questions = {
+    'zh-CN': 'AI 安全扫描 succeeded 和零 Finding 是不是代表安全，调用轨迹完整度怎么看？',
+    'en-US': 'Do AI Security scan succeeded and zero Findings mean safe, and how do I read runtime trace completeness?',
+  }
+  for (const [locale, query] of Object.entries(questions)) {
+    const [first] = rankDocsContexts({ content: docsContent[locale], query })
+    assert.equal(first.slug, 'agent-security-runtime')
+  }
+})
+
+test('Hook guide includes official Claude Code, TraeCode, and Codex references', () => {
+  const expectedUrls = [
+    'https://code.claude.com/docs/en/hooks-guide',
+    'https://code.claude.com/docs/en/hooks',
+    'https://code.claude.com/docs/en/permissions',
+    'https://docs.trae.cn/ide_automate-actions-with-hooks',
+    'https://docs.trae.cn/ide_hook-configuration-reference',
+    'https://docs.trae.cn/ide_changelog',
+    'https://learn.chatgpt.com/docs/hooks',
+    'https://learn.chatgpt.com/docs/config-file/config-reference',
+  ]
+
+  for (const [locale, content] of Object.entries(docsContent)) {
+    const references = content.articles['hook-integration'].sections.flatMap(section => section.references || [])
+    const urls = new Set(references.map(reference => reference.url))
+    for (const url of expectedUrls) assert.ok(urls.has(url), `${locale}: missing official reference ${url}`)
   }
 })
 
@@ -209,6 +284,12 @@ test('documentation navigation, tables, links, and screenshots stay internally v
         if (node.table) {
           for (const row of node.table.rows) {
             assert.equal(row.length, node.table.columns.length, `${locale}/${slug}: table column mismatch`)
+          }
+        }
+        if (node.references) {
+          for (const reference of node.references) {
+            assert.ok(reference.label, `${locale}/${slug}: reference label is required`)
+            assert.match(reference.url, /^https:\/\//, `${locale}/${slug}: reference must use HTTPS`)
           }
         }
         if (node.image?.name) {

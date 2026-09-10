@@ -406,6 +406,20 @@
               <div><strong>{{ section.callout.title }}</strong><p>{{ section.callout.body }}</p></div>
             </div>
 
+            <div v-if="section.references?.length" class="official-references">
+              <strong>{{ t('docsUi.officialReferences') }}</strong>
+              <a
+                v-for="reference in section.references"
+                :key="reference.url"
+                :href="reference.url"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {{ reference.label }}
+                <ArrowRightOutlined />
+              </a>
+            </div>
+
             <figure v-if="section.image && !failedImages.has(section.image.name)" class="doc-figure">
               <img
                 :src="screenshotUrl(section.image.name)"
@@ -621,11 +635,11 @@ const scanLogicLabels = computed(() => ({
   classify: text('按规则、类别、证据和严重度逐条归类', 'Classify each item by rule, category, evidence, and severity'),
   classification: text('风险项目归类', 'Finding classification'),
   mapping: text('管理员映射优先，其次使用安全回退与严重度规则', 'Administrator mapping first, then security fallbacks and severity rules'),
-  blocking: text('阻断项', 'Blocking'),
-  blockingDetail: text('确定性高危；直接形成 malicious', 'Deterministic high risk; produces malicious'),
-  suspicious: text('可疑项', 'Suspicious'),
+  blocking: t('policySettings.groups.blocking'),
+  blockingDetail: t('policySettings.groupHints.blocking'),
+  suspicious: t('policySettings.groups.risk'),
   suspiciousDetail: text('结合最高严重度与判定模式', 'Uses highest severity and judgement mode'),
-  noise: text('噪声', 'Noise'),
+  noise: t('policySettings.groups.noise'),
   noiseDetail: text('保留证据，不直接抬升风险', 'Evidence retained; no direct risk escalation'),
   mode: text('严格 / 平衡 / 宽松模式', 'Strict / balanced / permissive mode'),
   preLlmRisk: text('形成 LLM 前风险', 'Produce pre-LLM risk'),
@@ -633,7 +647,7 @@ const scanLogicLabels = computed(() => ({
   optional: text('可选语义研判', 'Optional semantic judgement'),
   llm: text('LLM 分析内容与已有证据', 'LLM analyzes content and collected evidence'),
   guard: text('降级保护', 'Downgrade guard'),
-  guardDetail: text('阻断项和严格模式不可降级', 'Blocking findings and strict mode cannot be downgraded'),
+  guardDetail: t('decisionFlow.helpRiskFloor'),
   reconcile: text('风险汇总', 'Risk reconciliation'),
   admissionPolicy: text('最终风险 + Manifest 阻断约束进入准入策略', 'Final risk + blocking manifest constraints enter admission policy'),
   approved: text('自动批准并签名', 'Auto-approve and sign'),
@@ -976,6 +990,10 @@ onBeforeUnmount(() => {
 .article-section > p { margin: 0 0 16px; color: #3d5268; font-size: 15px; line-height: 1.85; }
 .doc-list { display: grid; gap: 10px; margin: 18px 0; padding-left: 21px; color: #3d5268; line-height: 1.75; }
 .doc-list li::marker { color: var(--docs-blue); }
+.official-references { display: grid; gap: 8px; margin: 20px 0; padding: 16px 18px; border: 1px solid #dce7f0; border-radius: 12px; background: #f7fafc; }
+.official-references > strong { color: var(--docs-ink); font-size: 14px; }
+.official-references a { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--docs-blue); line-height: 1.5; }
+.official-references a:hover { color: #174f92; }
 
 .scenario-flow { display: flex; align-items: stretch; gap: 7px; margin: 22px 0; padding: 14px; overflow-x: auto; background: #f5f8fb; border: 1px solid var(--docs-line); border-radius: 12px; }
 .scenario-flow-node { display: flex; min-width: 112px; flex: 1 0 112px; flex-direction: column; justify-content: center; gap: 5px; min-height: 72px; padding: 11px 12px; background: #fff; border: 1px solid #d7e0e9; border-top: 3px solid #6e8ba6; border-radius: 8px; }

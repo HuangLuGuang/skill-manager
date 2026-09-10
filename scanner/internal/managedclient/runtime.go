@@ -201,6 +201,36 @@ func executeTasks(ctx context.Context, home string, inventory Inventory, policy 
 	return nil
 }
 
+// ConfigureAgentModel requests an authorized model switch and executes the
+// returned task immediately. The task-bound runtime credential is fetched by
+// the sidecar and never exposed to the desktop renderer.
+func ConfigureAgentModel(ctx context.Context, home string, inventory Inventory, api API, store *Store, localAgentID, agentType, managedAgentID, model string) error {
+	task, err := api.RequestModelConfiguration(ctx, inventory.ClientID, localAgentID, agentType, managedAgentID, model)
+	if err != nil {
+		return err
+	}
+	if task.ID == 0 || task.TaskType != "apply_model_config" {
+		return fmt.Errorf("Agent Manager returned an invalid model configuration task")
+	}
+	if err := store.SaveTask(task, "running", ""); err != nil {
+		return err
+	}
+	taskErr := executeTask(ctx, home, inventory, Policy{}, api, store, task)
+	status := "succeeded"
+	message := ""
+	if taskErr != nil {
+		status = "failed"
+		message = taskErr.Error()
+	}
+	if err := store.SaveTask(task, status, message); err != nil {
+		return err
+	}
+	if err := api.ReportTask(ctx, inventory.ClientID, task.ID, status, message); err != nil {
+		return err
+	}
+	return taskErr
+}
+
 func executeTask(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, task Task) error {
 	switch task.TaskType {
 	case "sync_policy":
