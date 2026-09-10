@@ -1,110 +1,297 @@
 <template>
   <section class="decision-flow" aria-labelledby="decision-title">
     <header class="decision-header">
-      <div><h2 id="decision-title">{{ t('decisionFlow.title') }}</h2><p>{{ t('decisionFlow.subtitle') }}</p></div>
-      <span class="scan-time">{{ report.timestamp || '' }}</span>
+      <div><h2 id="decision-title" tabindex="-1">{{ t('decisionFlow.title') }}</h2><p>{{ t('decisionFlow.subtitle') }}</p></div>
+      <span v-if="report.timestamp" class="scan-time">{{ formatDateTime(report.timestamp) }}</span>
     </header>
-    <div v-if="reconciliation" class="decision-grid">
-      <div class="signal-column">
+    <div class="decision-context" :class="{ changed: changed === true }">{{ t('decisionFlow.' + contextMessage) }}</div>
+    <div class="decision-layout">
+      <section class="signal-column">
         <h3>{{ t('decisionFlow.signals') }}</h3>
-        <button v-for="node in nodes" :key="node.target" class="signal" :class="node.state" @click="$emit('navigate', node.target)">
-          <span class="signal-heading"><strong>{{ t(`decisionFlow.${node.label}`) }}</strong><span class="state-dot">{{ t(`decisionFlow.${node.state}`) }}</span></span>
+        <button v-for="node in nodes" :key="node.target" type="button" class="signal" :class="node.state" @click="$emit('navigate', node.target)">
+          <span class="signal-heading"><strong>{{ t('decisionFlow.' + node.label) }}</strong><span class="state-label">{{ t('decisionFlow.' + node.state) }}</span></span>
           <span class="signal-summary">{{ node.summary }}</span>
-          <span class="node-link">{{ t(`decisionFlow.${node.link}`) }} <span aria-hidden="true">→</span></span>
+          <span class="node-link">{{ t('decisionFlow.' + node.link) }} <span aria-hidden="true">→</span></span>
         </button>
-      </div>
-      <div class="policy-column">
-        <h3>{{ t('decisionFlow.policy') }}</h3>
-        <div class="policy-node">
-          <span class="eyebrow">{{ t('decisionFlow.tool') }}</span><strong class="tool-risk">{{ risk(reconciliation.pre_llm_risk_level) }}</strong>
-          <div class="policy-divider"></div>
-          <h4>{{ t(blocking.length ? 'decisionFlow.configured' : 'decisionFlow.classified') }}</h4>
-          <div class="category-tags"><span v-for="key in categories" :key="key">{{ te(`decisionFlow.${key}`) ? t(`decisionFlow.${key}`) : key }}</span></div>
-          <p class="decision-reason">{{ t(`decisionFlow.${reason}`, { count: classification.blocking_count || 0 }) }}</p>
-          <p class="mode">{{ t('decisionFlow.mode') }} <b>{{ reconciliation.judgement_mode || t('decisionFlow.unknown') }}</b></p>
-          <div class="policy-links">
-            <a :href="configLink('blocking')" target="_blank" rel="noopener">{{ t('decisionFlow.config') }} ↗</a>
-            <a :href="configLink('mode')" target="_blank" rel="noopener">{{ t('decisionFlow.modeConfig') }} ↗</a>
+        <p class="muted signal-note">{{ t('decisionFlow.signalHint') }}</p>
+      </section>
+      <section class="decision-output">
+        <h3>{{ t('decisionFlow.outcome') }}</h3>
+        <div class="decision-verdicts">
+          <div class="decision-verdict" :class="decision.finalRisk">
+            <span>{{ t('decisionFlow.final') }}</span>
+            <strong data-testid="detail-decision-risk">{{ risk(decision.finalRisk) }}</strong>
+          </div>
+          <div class="decision-verdict" :class="status">
+            <span>{{ t('decisionFlow.admission') }}</span>
+            <strong data-testid="detail-decision-status">{{ statusLabel }}</strong>
           </div>
         </div>
-      </div>
-      <div class="final-column">
-        <h3>{{ t('decisionFlow.final') }}</h3>
-        <div class="final-node" :class="reconciliation.final_risk_level">
-          <span class="verdict-mark" aria-hidden="true">{{ reconciliation.final_risk_level === 'benign' ? '✓' : '!' }}</span>
-          <strong>{{ risk(reconciliation.final_risk_level) }}</strong>
-          <p>{{ t('decisionFlow.riskNote') }}</p>
-          <button v-if="blocking.length" class="evidence-button" @click="expanded = !expanded" :aria-expanded="expanded">{{ t('decisionFlow.evidence') }} · {{ blocking.length }} {{ expanded ? '−' : '+' }}</button>
-        </div>
-      </div>
+        <aside v-if="llmDisagreement" class="llm-disagreement" :aria-label="t('decisionFlow.llmDisagreementTitle')">
+          <strong>{{ t(llmDisagreement === 'unrecorded' ? 'decisionFlow.llmDisagreementTitle' : 'decisionFlow.llmDowngradeNotAdopted') }}</strong>
+          <p class="llm-risk-comparison">{{ t('decisionFlow.llmRiskComparison', { tool: risk(decision.toolRisk), llm: risk(decision.llmRisk), final: risk(decision.finalRisk) }) }}</p>
+          <p>{{ t(`decisionFlow.llmNotAdopted_${llmDisagreement}`, { count: displayCounts.blocking }) }}</p>
+          <div class="llm-disagreement-actions">
+            <button v-if="llmDisagreement === 'blocked' && retainedFindings.length" type="button" class="text-link" @click="showRetainedFindings">{{ t('decisionFlow.viewRetainedFindings') }} →</button>
+            <button type="button" class="text-link" @click="$emit('navigate', 'llm')">{{ t('decisionFlow.viewOriginalLlm') }} →</button>
+          </div>
+        </aside>
+        <p class="decision-mode">{{ t('decisionFlow.mode') }} <b>{{ modeLabel }}</b></p>
+        <h4 class="path-heading">{{ t('decisionFlow.basis') }}</h4>
+        <ol class="decision-path">
+          <li>
+            <h4>{{ t('decisionFlow.classificationStep') }}</h4>
+            <p>{{ t('decisionFlow.counts', displayCounts) }}</p>
+            <p v-if="!decision.findings" class="muted">{{ t('decisionFlow.classificationMissing') }}</p>
+            <p v-else-if="!decision.findings.length" class="muted">{{ t('decisionFlow.noFindings') }}</p>
+            <details v-else ref="findingDetails" class="finding-details">
+              <summary>{{ t('decisionFlow.evidence', { count: decision.findings.length }) }}</summary>
+              <a-tabs v-model:activeKey="evidenceSource" class="evidence-tabs" size="small" destroy-inactive-tab-pane @change="evidencePage = 1">
+                <a-tab-pane v-for="source in evidenceSources" :key="source.key" :tab="`${t('decisionFlow.' + source.label)} (${source.items.length})`">
+                  <ul v-if="filteredEvidence.length" class="classified-findings" aria-live="polite">
+                    <li v-for="(item, index) in pagedEvidence" :key="`${evidenceSource}-${evidencePage}-${index}`" tabindex="-1">
+                      <div class="finding-evidence">
+                        <div class="finding-heading">{{ sourceLabel(item) }} · {{ findingLabel(item) }} · {{ severity(item.severity) }}</div>
+                        <button type="button" class="text-link finding-location" @click="$emit('navigate', findingTarget(item))">
+                          {{ item.file_path || item.file || t('decisionFlow.results') }}{{ item.line_number || item.line ? `:${item.line_number || item.line}` : '' }} →
+                        </button>
+                        <pre v-if="evidenceText(item)">{{ evidenceText(item) }}</pre>
+                      </div>
+                      <div class="finding-decision">
+                        <span class="finding-decision-source">{{ findingDecisionSource(item) }}</span>
+                        <strong class="finding-class" :class="item.classification">{{ classificationLabel(item.classification) }}</strong>
+                        <p>{{ findingImpact(item) }}</p>
+                      </div>
+                    </li>
+                  </ul>
+                  <p v-else class="muted evidence-empty">{{ t('decisionFlow.noSourceEvidence') }}</p>
+                  <div v-if="filteredEvidence.length" class="evidence-pagination">
+                    <span class="muted">{{ t('decisionFlow.evidenceRange', { start: (evidencePage - 1) * evidencePageSize + 1, end: Math.min(evidencePage * evidencePageSize, filteredEvidence.length), total: filteredEvidence.length }) }}</span>
+                    <a-pagination
+                      v-if="filteredEvidence.length > evidencePageSize"
+                      v-model:current="evidencePage"
+                      :page-size="evidencePageSize"
+                      :total="filteredEvidence.length"
+                      :show-size-changer="false"
+                      :aria-label="t('decisionFlow.evidencePagination')"
+                      size="small"
+                      simple
+                    />
+                  </div>
+                </a-tab-pane>
+              </a-tabs>
+            </details>
+            <a class="config-link" :href="configLink('classification')" target="_blank" rel="noopener">{{ t('decisionFlow.config') }} ↗</a>
+          </li>
+          <li>
+            <h4>{{ t('decisionFlow.toolStep') }}</h4>
+            <p>{{ t('decisionFlow.toolConclusion', { risk: risk(decision.toolRisk) }) }}</p>
+            <p class="muted">{{ t('decisionFlow.' + toolReason) }}</p>
+            <a class="config-link" :href="configLink('mode')" target="_blank" rel="noopener">{{ t('decisionFlow.modeConfig') }} ↗</a>
+          </li>
+          <li>
+            <h4>{{ t('decisionFlow.llmStep') }}</h4>
+            <p v-if="decision.llmRisk">{{ t('decisionFlow.llmConclusion', { risk: risk(decision.llmRisk) }) }}</p>
+            <p class="muted">{{ t('decisionFlow.' + reason, { count: displayCounts.blocking }) }}</p>
+            <details v-if="llmOpinion || dismissedFindings.length" class="llm-opinion">
+              <summary>{{ t('decisionFlow.llmOpinion') }}</summary>
+              <p v-if="llmOpinion">{{ llmOpinion }}</p>
+              <template v-if="dismissedFindings.length">
+                <h5>{{ t('decisionFlow.dismissedFindings') }}</h5>
+                <ul class="dismissed-findings">
+                  <li v-for="(finding, index) in dismissedFindings" :key="index">{{ finding }}</li>
+                </ul>
+              </template>
+            </details>
+          </li>
+          <li>
+            <h4>{{ t('decisionFlow.admissionStep') }}</h4>
+            <p>{{ t('decisionFlow.statusConclusion', { status: statusLabel }) }}</p>
+            <p class="muted">{{ t('decisionFlow.statusHint') }}</p>
+          </li>
+        </ol>
+      </section>
     </div>
-    <p v-else>{{ t('decisionFlow.missing') }}</p>
-    <div v-if="expanded" class="evidence-panel">
-      <div v-for="(item, index) in blocking" :key="index" class="evidence-row">
-        <b>{{ item.rule_id || item.rule || '—' }}</b>
-        <button @click="$emit('navigate', findingTarget(item))">{{ item.file_path || item.file || '—' }}{{ item.line_number || item.line ? `:${item.line_number || item.line}` : '' }}</button>
-        <code>{{ item.evidence || item.snippet || item.title || '—' }}</code>
-        <span>{{ t('decisionFlow.retained') }}</span>
-      </div>
-      <div v-if="report.llm_analysis?.downgrade_reason" class="llm-opinion"><strong>{{ t('decisionFlow.llmOpinion') }}</strong><p>{{ report.llm_analysis.downgrade_reason }}</p></div>
-    </div>
-    <footer :class="{ changed: changed === true }">{{ t(`decisionFlow.${!reconciliation?.policy_snapshot ? 'historical' : policyFailed ? 'configUnavailable' : changed ? 'changed' : 'snapshot'}`) }}</footer>
   </section>
 </template>
+
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { getPolicy } from '../api'
-import { analysisState, decisionConfigChanged, decisionReason } from '../utils/decisionFlow'
-const props = defineProps({ report: { type: Object, required: true } })
+import { translateDomain } from '../i18n'
+import { formatDateTime } from '../utils/format'
+import { analysisState, decisionConfigChanged, decisionReason, findingTarget, llmRiskDisagreement, recordedDecision } from '../utils/decisionFlow'
+const props = defineProps({ report: { type: Object, required: true }, status: { type: String, default: '' } })
 defineEmits(['navigate'])
 const { t, te } = useI18n()
 const router = useRouter()
 const policy = ref(null)
 const policyFailed = ref(false)
-const expanded = ref(false)
 onMounted(async () => { try { policy.value = (await getPolicy()).policy } catch { policyFailed.value = true } })
 const reconciliation = computed(() => props.report.risk_reconciliation)
-const classification = computed(() => props.report.risk_classification || {})
-const blocking = computed(() => (classification.value.items || []).filter(item => item.classification === 'blocking'))
-const categories = computed(() => [...new Set(blocking.value.map(item => item.classification_key).filter(Boolean))])
-const reason = computed(() => decisionReason(props.report))
-const findingTarget = item => {
-  const source = String(item.source || item.analyzer || '').toLowerCase()
-  return source.includes('sandbox') ? 'sandbox' : source.includes('skillspector') ? 'skillspector' : 'rule'
+const decision = computed(() => recordedDecision(props.report))
+const llmDisagreement = computed(() => llmRiskDisagreement(props.report))
+const findingDetails = ref(null)
+const retainedFindings = computed(() => (decision.value.findings || []).filter(item => item.classification === 'blocking'))
+const evidenceSource = ref('rule')
+const evidencePage = ref(1)
+const evidencePageSize = 5
+const evidenceSources = computed(() => [
+  { key: 'rule', label: 'rule' },
+  { key: 'skillspector', label: 'deep' },
+  { key: 'sandbox', label: 'sandbox' },
+].map(source => ({ ...source, items: (decision.value.findings || []).filter(item => findingTarget(item) === source.key) })))
+const filteredEvidence = computed(() => evidenceSources.value.find(source => source.key === evidenceSource.value)?.items || [])
+const pagedEvidence = computed(() => filteredEvidence.value.slice((evidencePage.value - 1) * evidencePageSize, evidencePage.value * evidencePageSize))
+const showRetainedFindings = async () => {
+  const first = retainedFindings.value[0]
+  if (!first || !findingDetails.value) return
+  const source = evidenceSources.value.find(source => source.key === findingTarget(first))
+  if (!source) return
+  evidenceSource.value = source.key
+  findingDetails.value.open = true
+  await nextTick()
+  evidencePage.value = Math.floor(source.items.indexOf(first) / evidencePageSize) + 1
+  await nextTick()
+  const row = findingDetails.value.querySelector('.finding-class.blocking')?.closest('li')
+  row?.focus({ preventScroll: true })
+  row?.scrollIntoView({ block: 'center' })
 }
+watch(() => props.report, () => {
+  evidenceSource.value = evidenceSources.value.find(source => source.items.length)?.key || 'rule'
+  evidencePage.value = 1
+}, { immediate: true })
+const categories = computed(() => [...new Set((decision.value.findings || []).map(item => item.classification_key).filter(Boolean))])
+const reason = computed(() => decisionReason(props.report))
 const changed = computed(() => decisionConfigChanged(reconciliation.value?.policy_snapshot, policy.value))
-const risk = value => te(`decisionFlow.${value}`) ? t(`decisionFlow.${value}`) : value || t('decisionFlow.unknown')
-const configLink = focus => router.resolve({ path: '/policy', query: { tab: 'decision', focus, categories: categories.value.join(',') } }).href
+const contextMessage = computed(() => !reconciliation.value?.policy_snapshot ? 'historical' : policyFailed.value ? 'configUnavailable' : !policy.value ? 'configLoading' : changed.value ? 'changed' : 'snapshot')
+const risk = value => value && te('policySettings.risks.' + value) ? t('policySettings.risks.' + value) : value || t('decisionFlow.unrecorded')
+const severity = value => value && te('policySimulation.severity.' + String(value).toUpperCase()) ? t('policySimulation.severity.' + String(value).toUpperCase()) : value || t('decisionFlow.unrecorded')
+const statusLabel = computed(() => translateDomain('skillStatus', props.status, t('decisionFlow.unrecorded')))
+const modeLabel = computed(() => decision.value.mode && te('policySettings.modes.' + decision.value.mode) ? t('policySettings.modes.' + decision.value.mode) : decision.value.mode || t('decisionFlow.unrecorded'))
+const displayCounts = computed(() => Object.fromEntries(Object.entries(decision.value.counts).map(([key, count]) => [key, count ?? '—'])))
+const classificationLabel = value => value && te('policySettings.groups.' + value) ? t('policySettings.groups.' + value) : value || t('decisionFlow.unrecorded')
+const findingLabel = item => item.classification_key && te('policySettings.findings.' + item.classification_key) ? t('policySettings.findings.' + item.classification_key) : item.rule_id || item.rule || item.category || t('decisionFlow.unrecorded')
+const findingDecisionSource = item => {
+  const mapping = reconciliation.value?.policy_snapshot?.risk_classification
+  return item.classification_key && item.classification && mapping?.[item.classification_key] === item.classification
+    ? t('decisionFlow.findingPolicyResult', { finding: findingLabel(item) })
+    : t('decisionFlow.findingRecordedResult')
+}
+const findingImpact = item => item.classification && te(`policySettings.groupHints.${item.classification}`)
+  ? t(`policySettings.groupHints.${item.classification}`)
+  : t('decisionFlow.findingImpactMissing')
+const sourceLabel = item => t('decisionFlow.' + ({ skillspector: 'deep' }[findingTarget(item)] || findingTarget(item)))
+const evidenceText = item => item.evidence || item.snippet || item.code_snippet || item.title || item.message || ''
+const llmOpinion = computed(() => reconciliation.value?.downgrade_reason || props.report.llm_analysis?.downgrade_reason || '')
+const dismissedFindings = computed(() => Array.isArray(reconciliation.value?.dismissed_findings) ? reconciliation.value.dismissed_findings : [])
+const toolReason = computed(() => ({ blocking: 'toolBlocking', risk: 'toolContextual', noise: 'toolNotice' }[reconciliation.value?.pre_llm_reason] || 'toolMissing'))
+const configLink = focus => router.resolve({ path: '/policy', query: { tab: 'decision', focus: focus === 'classification' ? undefined : focus, categories: categories.value.join(',') } }).href
 const nodes = computed(() => {
   const r = props.report
-  const ruleItems = (classification.value.items || []).filter(item => !/sandbox|skillspector/.test(String(item.source || item.analyzer || '').toLowerCase()))
-  const counts = Object.fromEntries(['blocking', 'risk', 'noise'].map(key => [key, ruleItems.filter(item => item.classification === key).length]))
+  const sourceSummary = target => {
+    if (!decision.value.findings) return t('decisionFlow.classificationMissing')
+    const items = decision.value.findings.filter(item => findingTarget(item) === target)
+    return t('decisionFlow.counts', Object.fromEntries(['blocking', 'risk', 'noise'].map(key => [key, items.filter(item => item.classification === key).length])))
+  }
   return [
-    { label: 'rule', target: 'rule', key: 'scanner', summary: t('decisionFlow.counts', counts), link: 'results' },
-    { label: 'deep', target: 'skillspector', key: 'skillspector', summary: r.skillspector_analysis?.risk_severity || r.skillspector_analysis?.max_severity || r.skillspector_analysis?.risk_level || '—', link: 'results' },
-    { label: 'sandbox', target: 'sandbox', key: 'sandbox', summary: r.sandbox_analysis?.reason_code === 'no_executable_script' ? t('decisionFlow.noScript') : r.sandbox_analysis?.risk_level ? risk(r.sandbox_analysis.risk_level.toLowerCase()) : t('decisionFlow.skippedHint'), link: 'details' },
-    { label: 'llm', target: 'llm', key: 'llm', summary: risk(reconciliation.value?.llm_risk_level), link: 'report' },
+    { label: 'rule', target: 'rule', key: 'scanner', summary: sourceSummary('rule'), link: 'results' },
+    { label: 'deep', target: 'skillspector', key: 'skillspector', summary: sourceSummary('skillspector'), link: 'results' },
+    { label: 'sandbox', target: 'sandbox', key: 'sandbox', summary: sourceSummary('sandbox'), link: 'details' },
+    { label: 'llm', target: 'llm', key: 'llm', summary: risk(decision.value.llmRisk), link: 'report' },
   ].map(node => {
     const state = analysisState(r, node.key)
-    return { ...node, state, summary: state === 'failed' ? t('decisionFlow.failedHint') : ['disabled', 'unrecorded', 'pending'].includes(state) ? t(`decisionFlow.${state}`) : node.summary }
+    const summary = state === 'completed' ? node.summary
+      : state === 'skipped' && node.target === 'sandbox' && r.sandbox_analysis?.reason_code === 'no_executable_script' ? t('decisionFlow.noScript')
+        : t('decisionFlow.' + (['failed', 'unavailable'].includes(state) ? 'failedHint' : state === 'skipped' ? 'skippedHint' : state))
+    return { ...node, state, summary }
   })
 })
 </script>
+
 <style scoped>
-.decision-flow { --ink:#24344d; --muted:#69788d; --line:#dce5ef; margin-top:16px; border:1px solid var(--line); border-radius:14px; background:#fff; color:var(--ink); overflow:hidden; }
-.decision-header { display:flex; justify-content:space-between; gap:16px; padding:22px 26px; border-bottom:1px solid #edf1f6; align-items:center; }
-h2 { font-size:19px; font-weight:650; margin:0 0 5px; letter-spacing:.02em; }
-.decision-header p { color:var(--muted); margin:0; font-size:13px; }.scan-time { font:11px ui-monospace,monospace; color:var(--muted); overflow-wrap:anywhere; }
-.decision-grid { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1.1fr) minmax(0,.8fr); gap:38px; padding:24px 26px; background:#f8fafd; }
-h3 { margin:0 0 14px; font-size:12px; font-weight:600; color:var(--muted); letter-spacing:.06em; }
-.signal { display:flex; flex-direction:column; width:100%; text-align:left; border:1px solid var(--line); border-radius:9px; background:#fff; padding:13px 15px; margin-bottom:10px; cursor:pointer; gap:7px; color:var(--ink); transition:border-color .15s; }.signal:hover { border-color:#547ba7; }.signal-heading { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; }.state-dot { font-size:11px; color:#547365; }.failed .state-dot { color:#bf463f; }.skipped .state-dot,.unrecorded .state-dot { color:var(--muted); }.signal-summary { font-size:12px; overflow-wrap:anywhere; }.node-link { color:#386caa; font-size:12px; }.policy-column,.final-column { position:relative; }.policy-column::before,.final-column::before { content:'→'; position:absolute; left:-29px; top:49%; color:#8297b0; font-size:23px; }
-.policy-node { background:#fffdf7; border:1px solid #e9d9ae; border-top:3px solid #c49a46; border-radius:10px; padding:22px; }.eyebrow { font-size:12px; color:var(--muted); display:block; }.tool-risk { display:block; margin-top:8px; font-size:17px; }.policy-divider { height:1px; background:#ede2c9; margin:18px 0; }h4 { font-size:16px; line-height:1.6; margin:0 0 12px; }.category-tags { display:flex; flex-wrap:wrap; gap:6px; }.category-tags span { background:#f4ead5; color:#805b24; padding:3px 9px; font-size:12px; border-radius:4px; }.decision-reason { margin:16px 0; line-height:1.8; font-size:14px; }.mode { font-size:12px; color:var(--muted); }.mode b { display:block; color:var(--ink); font-family:ui-monospace,monospace; margin-top:5px; }.policy-links { display:flex; flex-direction:column; gap:12px; font-size:12px; margin-top:22px; }
-.final-node { border:1px solid var(--line); border-radius:10px; padding:26px 20px; text-align:center; background:white; }.final-node.malicious { background:#fff6f5; border-color:#eacac7; }.final-node.benign { background:#f3faf6; border-color:#c7dfcf; }.verdict-mark { display:flex; align-items:center; justify-content:center; margin:0 auto 18px; width:42px; height:42px; border:1px solid currentColor; border-radius:50%; font-size:24px; }.malicious .verdict-mark { color:#b64b43; }.benign .verdict-mark { color:#3c8560; }.final-node strong { display:block; font-size:20px; overflow-wrap:anywhere; }.final-node p { font-size:12px; color:var(--muted); line-height:1.8; margin:16px 0; }.evidence-button { background:#fff; border:1px solid #dccbc8; border-radius:6px; padding:8px 12px; cursor:pointer; color:inherit; max-width:100%; }
-footer { padding:13px 26px; color:var(--muted); font-size:12px; border-top:1px solid var(--line); line-height:1.7; }footer.changed { color:#8e601a; background:#fffbe9; }.evidence-panel { padding:8px 26px 20px; }.evidence-row { display:grid; grid-template-columns:60px 1fr 1fr auto; gap:12px; padding:14px 0; border-bottom:1px solid var(--line); align-items:center; font-size:12px; }.evidence-row button { text-align:left; background:none; border:0; color:#386caa; cursor:pointer; }.evidence-row code { overflow-wrap:anywhere; white-space:pre-wrap; }.evidence-row span { color:#a24c44; }.llm-opinion { padding:16px; background:#f5f8fc; margin-top:16px; border-radius:8px; font-size:13px; }.llm-opinion p { margin:8px 0 0; line-height:1.8; white-space:pre-wrap; }
-button:focus-visible,a:focus-visible { outline:2px solid #386caa; outline-offset:3px; }
-@media(max-width:1000px) { .decision-grid { gap:26px; padding:20px; }.policy-node { padding:16px; }.policy-column::before,.final-column::before { left:-22px; font-size:18px; } }
-@media(max-width:760px) { .decision-header { align-items:flex-start; flex-direction:column; padding:18px; }.decision-grid { grid-template-columns:1fr; gap:30px; padding:18px; }.policy-column::before,.final-column::before { content:'↓'; top:-28px; left:50%; }.evidence-row { grid-template-columns:1fr 1fr; }.evidence-panel { padding:8px 18px 18px; }footer { padding:12px 18px; } }
-@media(prefers-reduced-motion:reduce) { .signal { transition:none; } }
+.decision-flow { --ink: #1f2937; --muted: #637083; --line: #e5e9ef; border: 1px solid var(--line); border-radius: 8px; background: #f6f8fb; color: var(--ink); overflow: hidden; }
+.decision-header { display: flex; justify-content: space-between; gap: 16px; padding: 20px 22px 12px; align-items: center; }
+.decision-header h2 { font-size: 17px; font-weight: 600; margin: 0 0 5px; }
+.decision-header p { color: var(--muted); margin: 0; font-size: 13px; }
+.scan-time { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.decision-context { margin: 0 22px; padding: 10px 12px; border-radius: 6px; color: #2459ad; background: #eaf1fb; font-size: 12px; line-height: 1.7; }
+.decision-context.changed { color: #996515; background: #fff5df; }
+.decision-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; padding: 22px; }
+.signal-column { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.signal-column h3, .signal-note { grid-column: 1 / -1; }
+.decision-layout h3 { font-size: 16px; margin: 0 0 16px; color: var(--ink); }
+.signal-column h3 { margin-bottom: 0; }
+.signal { display: flex; flex-direction: column; width: 100%; text-align: left; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 14px; cursor: pointer; gap: 10px; color: var(--ink); }
+.signal:hover { border-color: #2459ad; }
+.signal-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.signal-heading strong { font-size: 14px; font-weight: 600; }
+.state-label { font-size: 12px; color: var(--muted); }
+.completed .state-label { color: #23744b; }
+.failed .state-label, .unavailable .state-label { color: #b13232; }
+.signal-summary { font-size: 13px; overflow-wrap: anywhere; }
+.node-link, .config-link { color: #2459ad; font-size: 12px; }
+.signal-note { margin: 0; }
+.node-link { margin-top: auto; }
+.muted { color: var(--muted); font-size: 13px; line-height: 1.7; }
+.decision-output { min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 18px; align-self: start; }
+.decision-verdicts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.decision-verdict { border: 1px solid var(--line); border-radius: 7px; padding: 12px; background: #f6f8fb; }
+.decision-verdict > span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.decision-verdict strong { font-size: 19px; line-height: 1.4; overflow-wrap: anywhere; }
+.decision-verdict.benign, .decision-verdict.APPROVED, .decision-verdict.DEPLOYED { color: #23744b; background: #f1faf5; }
+.decision-verdict.suspicious, .decision-verdict.VETTED { color: #a65d0a; background: #fff9ef; }
+.decision-verdict.malicious, .decision-verdict.REJECTED { color: #b13232; background: #fff4f3; }
+.llm-disagreement { margin-top: 12px; padding: 14px 16px; border: 1px solid #efd6a7; border-radius: 7px; background: #fffbf2; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.llm-disagreement > strong { color: #8a5313; font-size: 14px; }
+.llm-disagreement p { margin: 6px 0 0; }
+.llm-risk-comparison { font-weight: 500; }
+.llm-disagreement-actions { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 10px; }
+.classified-findings > li:focus { outline: 2px solid #2459ad; outline-offset: 2px; }
+.decision-mode { display: flex; flex-wrap: wrap; gap: 6px 12px; color: var(--muted); font-size: 13px; margin: 16px 0; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.decision-mode b { color: var(--ink); font-weight: 500; }
+.decision-output h4 { font-size: 14px; margin: 0; color: var(--ink); }
+.decision-output .path-heading { margin-bottom: 16px; }
+.decision-path { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; list-style: none; counter-reset: stage; padding: 0; margin: 0; }
+.decision-path > li { min-width: 0; counter-increment: stage; position: relative; padding: 16px 16px 16px 48px; border: 1px solid var(--line); border-radius: 6px; }
+.decision-path > li:has(details[open]) { grid-column: 1 / -1; }
+.decision-path:has(details[open]) > li:last-child { grid-column: 1 / -1; }
+.decision-path > li::before { content: counter(stage); position: absolute; left: 14px; top: 15px; width: 23px; height: 23px; border-radius: 50%; background: #eaf1fb; color: #2459ad; text-align: center; line-height: 23px; font-size: 12px; font-weight: 600; }
+.decision-path p { margin: 7px 0 0; font-size: 13px; line-height: 1.7; }
+.config-link { display: inline-block; margin-top: 8px; }
+summary { cursor: pointer; color: #2459ad; font-size: 12px; line-height: 1.6; }
+.finding-details, .llm-opinion { margin-top: 10px; }
+.finding-details { container-type: inline-size; }
+.evidence-tabs { margin-top: 12px; min-width: 0; }
+.evidence-tabs :deep(.ant-tabs-nav) { margin-bottom: 0; }
+.evidence-tabs :deep(.ant-tabs-tab) { font-size: 12px; }
+.evidence-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin-top: 12px; }
+.evidence-empty { padding: 12px 0; }
+.classified-findings { list-style: none; margin: 8px 0 0; padding: 0; }
+.classified-findings li { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 24px; background: #f6f8fb; padding: 14px 16px; margin-bottom: 8px; border-radius: 5px; font-size: 12px; overflow-wrap: anywhere; }
+.finding-evidence, .finding-decision { min-width: 0; }
+.finding-decision { padding-left: 20px; border-left: 1px solid var(--line); }
+.finding-decision-source { color: var(--muted); font-size: 12px; line-height: 1.7; }
+.finding-decision p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.finding-heading { line-height: 1.7; }
+.finding-class { display: block; margin-top: 5px; color: var(--muted); font-size: 14px; font-weight: 600; line-height: 1.6; }
+.finding-class.blocking { color: #b13232; }
+.finding-class.risk { color: #a65d0a; }
+.text-link { background: none; border: 0; padding: 0; color: #2459ad; text-align: left; cursor: pointer; }
+.finding-location { margin-top: 7px; overflow-wrap: anywhere; max-width: 100%; }
+.classified-findings pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; font-family: ui-monospace, monospace; }
+@container (max-width: 640px) {
+  .classified-findings li { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 12px; }
+  .finding-decision { padding: 10px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+}
+.llm-opinion p { padding: 10px; background: #f6f8fb; border-radius: 5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.llm-opinion h5 { font-size: 13px; margin: 12px 0 8px; }
+.dismissed-findings { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; }
+.dismissed-findings li { margin-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid #2459ad; outline-offset: 3px; }
+@media (max-width: 1200px) { .signal-column { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 800px) { .decision-path { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 480px) { .decision-header { flex-direction: column; align-items: flex-start; padding: 16px 12px 12px; } .decision-context { margin: 0 12px; } .decision-layout { padding: 16px 12px; gap: 18px; } .signal-column, .decision-verdicts { grid-template-columns: minmax(0, 1fr); } .decision-output { padding: 12px; } }
 </style>

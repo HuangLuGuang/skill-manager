@@ -14,26 +14,26 @@ const cases = [
   {
     locale: 'zh-CN',
     query: '规则扫描、深度扫描、Sandbox 和 LLM 分析有什么区别？',
-    requiredTerms: ['基础 Scanner', '规则分析（默认勾选）', '深度扫描', 'Sandbox', 'LLM 分析'],
+    requiredTerms: ['基础 Scanner', '规则分析（强制开启）', '深度扫描', 'Sandbox', 'LLM 分析'],
   },
   {
     locale: 'en-US',
     query: 'What is the difference between rule analysis, deep scan, Sandbox, and LLM analysis?',
-    requiredTerms: ['Base Scanner', 'Rule analysis (selected by default)', 'Deep scan', 'Sandbox', 'LLM analysis'],
+    requiredTerms: ['Base Scanner', 'Rule analysis (mandatory)', 'Deep scan', 'Sandbox', 'LLM analysis'],
   },
 ]
 
 const governanceCases = [
   {
     locale: 'zh-CN',
-    classificationQuery: '阻断项、可疑项、噪声的检测逻辑是什么？',
+    classificationQuery: '判为恶意、结合上下文判断、仅保留提示如何影响最终风险？',
     policyQuery: 'SKILL 策略配置怎么设置？',
     groupTitle: '能力治理',
     subgroupTitle: 'Skill 治理',
   },
   {
     locale: 'en-US',
-    classificationQuery: 'How are blocking suspicious and noise findings classified?',
+    classificationQuery: 'How do Classify as malicious, Assess in context, and Retain as a notice affect final risk?',
     policyQuery: 'How do I configure Skill policy settings?',
     groupTitle: 'Capability governance',
     subgroupTitle: 'Skill governance',

@@ -1,5 +1,6 @@
 import { scanScheduleMessages } from './scanSchedule.js'
 const errorMessages = {
+  'policy.simulation_invalid': { 'zh-CN': '模拟参数无效，请检查分析器状态、发现项和策略配置。', 'en-US': 'Invalid simulation inputs. Check analyzer states, findings, and policy settings.' },
   'skill_not_found': { 'zh-CN': 'Skill 不存在', 'en-US': 'Skill not found' },
   'agent_security.llm_coverage_incomplete': { 'zh-CN': '测试覆盖不完整：实际用例少于计划数量，请检查扫描引擎并重新扫描', 'en-US': 'Incomplete test coverage: fewer cases than planned. Check the scan engine and run again.' },
   ...Object.fromEntries(Object.keys(scanScheduleMessages['zh-CN'].errors).map(code => [code, { 'zh-CN': scanScheduleMessages['zh-CN'].errors[code], 'en-US': scanScheduleMessages['en-US'].errors[code] }])),

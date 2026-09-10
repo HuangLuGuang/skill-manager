@@ -260,6 +260,34 @@ class TestPolicyDecide:
         status = policy.decide(RiskLevel("suspicious"), [])    
         assert status == SkillStatus.VETTED
 
+    def test_explicit_suspicious_auto_approval(self):
+        policy = CompanyPolicy({
+            "auto_approve_risk": ["benign", "suspicious"],
+            "require_human_review": [],
+        })
+        assert policy.decide(RiskLevel.SUSPICIOUS, []) == SkillStatus.APPROVED
+
+    @pytest.mark.parametrize("review,reject,expected", [
+        (["suspicious"], [], SkillStatus.VETTED),
+        ([], ["suspicious"], SkillStatus.REJECTED),
+    ])
+    def test_overlapping_approval_respects_explicit_review_and_rejection(self, review, reject, expected):
+        policy = CompanyPolicy({
+            "auto_approve_risk": ["suspicious"],
+            "require_human_review": review,
+            "auto_reject_risk": reject,
+        })
+        assert policy.decide(RiskLevel.SUSPICIOUS, []) == expected
+
+    def test_prohibited_permission_rejects_auto_approved_risk(self):
+        policy = CompanyPolicy({
+            "auto_approve_risk": ["suspicious"],
+            "require_human_review": [],
+            "blocked_permissions": ["read_credentials"],
+        })
+        violations = policy.check_tool_declarations(["read_credentials"])
+        assert policy.decide(RiskLevel.SUSPICIOUS, violations) == SkillStatus.REJECTED
+
     def test_malicious_rejected(self):
         policy = CompanyPolicy.default()
         status = policy.decide(RiskLevel("malicious"), [])

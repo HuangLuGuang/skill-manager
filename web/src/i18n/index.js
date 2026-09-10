@@ -3,7 +3,10 @@ import { scanScheduleMessages } from './scanSchedule.js'
 import { assetLifecycleMessages } from './assetLifecycle.js'
 import { skillBatchMessages } from './skillBatch.js'
 import { decisionFlowMessages } from './decisionFlow.js'
+import { skillDetailMessages } from './skillDetail.js'
 import { skillColumnMessages } from './skillColumns.js'
+import { policySettingsMessages } from './policySettings.js'
+import { policySimulationMessages } from './policySimulation.js'
 
 import { domainKey, domainMessages } from './domain.js'
 import { legacyKey, legacyMessages } from './legacy.js'
@@ -63,6 +66,7 @@ export const i18n = createI18n({
       assetLifecycle: assetLifecycleMessages['zh-CN'],
       skillBatch: skillBatchMessages['zh-CN'],
       decisionFlow: decisionFlowMessages['zh-CN'],
+      skillDetail: skillDetailMessages['zh-CN'],
       skillColumns: skillColumnMessages['zh-CN'],
       skillFilters: {
         all: 'ALL（全部状态）', scanning: 'SCANNING（检测中）', awaitingReview: 'VETTED（待审核）',
@@ -743,10 +747,9 @@ export const i18n = createI18n({
         rescanFailed: '重新检测失败',
       },
       policySettings: {
-        submissionAndScan: '提交与检测',
-        reuseScanResults: '复用相同内容的检测结果',
-        reuseScanResultsHint: '仅当内容指纹和检测上下文完全一致时复用；平台“重新检测”始终强制执行新检测。',
+        ...policySettingsMessages['zh-CN'],
       },
+      policySimulation: policySimulationMessages['zh-CN'],
       credentials: {
         pageTitle: '统一凭证中心',
         pageSubtitle: '先按调用者选择凭证，再配置它能访问的资源',
@@ -1044,6 +1047,7 @@ export const i18n = createI18n({
       assetLifecycle: assetLifecycleMessages['en-US'],
       skillBatch: skillBatchMessages['en-US'],
       decisionFlow: decisionFlowMessages['en-US'],
+      skillDetail: skillDetailMessages['en-US'],
       skillColumns: skillColumnMessages['en-US'],
       skillFilters: {
         all: 'ALL（全部状态）', scanning: 'SCANNING（检测中）', awaitingReview: 'VETTED（待审核）',
@@ -1724,10 +1728,9 @@ export const i18n = createI18n({
         rescanFailed: 'Failed to rescan',
       },
       policySettings: {
-        submissionAndScan: 'Submission and Scanning',
-        reuseScanResults: 'Reuse results for identical content',
-        reuseScanResultsHint: 'Results are reused only when content and scan context match. Rescan always runs a fresh scan.',
+        ...policySettingsMessages['en-US'],
       },
+      policySimulation: policySimulationMessages['en-US'],
       credentials: {
         pageTitle: 'Credential Center',
         pageSubtitle: 'Choose the caller first, then define the resources it may access',

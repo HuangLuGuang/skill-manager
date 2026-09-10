@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:policy-settings": "node --test scripts/policy-settings.test.mjs",
     "test:skill-columns": "node --test scripts/skill-columns.test.mjs",
     "test:decision-flow": "node --test scripts/decision-flow.test.mjs",
     "dev": "vite",

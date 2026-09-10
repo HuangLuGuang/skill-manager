@@ -268,6 +268,61 @@ def test_versions_and_diff_api(tmp_path):
     assert len([run for run in manager.list_scan_runs(first.skill_id) if run.status == "PENDING"]) == 1
 
 
+def test_same_version_diff_resolves_aliases_without_reading_files(tmp_path, monkeypatch):
+    skill = tmp_path / "skill"
+    _write_skill(skill, "# Single version")
+    manager = _manager(tmp_path)
+    entry, _, _ = manager.prepare_submission(skill)
+    app = FastAPI()
+    app.include_router(api_router.router)
+    app.dependency_overrides[api_router.get_manager] = lambda: manager
+    client = TestClient(app)
+
+    def unexpected_read(_entry):
+        pytest.fail("Comparing a version to itself must not traverse or read its files")
+
+    monkeypatch.setattr(api_router, "_version_text_files", unexpected_read)
+    for params in ({}, {"base": entry.skill_id, "target": entry.skill_id}, {"base": "v1", "target": "1"}):
+        response = client.get(f"/skills/{entry.family_id}/diff", params=params)
+        assert response.status_code == 200
+        assert response.json()["items"] == []
+        assert response.json()["base"]["version_id"] == entry.skill_id
+        assert response.json()["target"]["version_id"] == entry.skill_id
+    invalid = client.get(f"/skills/{entry.family_id}/diff", params={"base": "missing", "target": "missing"})
+    assert invalid.status_code == 404
+
+
+def test_version_diff_prunes_excluded_directories_before_traversal(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    skill = tmp_path / "skill"
+    _write_skill(skill, "# Compare content")
+    excluded = {".git", ".venv", "node_modules", "__pycache__", "dist", "build"}
+    for name in excluded:
+        nested = skill / name / "nested"
+        nested.mkdir(parents=True)
+        (nested / "ignored.txt").write_text("ignored")
+    (skill / "binary.dat").write_bytes(b"\xff\xfe")
+    (skill / "large.txt").write_bytes(b"x" * (1024 * 1024 + 1))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("outside")
+    (skill / "linked").symlink_to(outside, target_is_directory=True)
+    (skill / "linked.txt").symlink_to(outside / "secret.txt")
+    scanned = []
+    original_scandir = api_router.os.scandir
+
+    def record_scandir(path):
+        scanned.append(Path(path))
+        return original_scandir(path)
+
+    monkeypatch.setattr(api_router.os, "scandir", record_scandir)
+    files = api_router._version_text_files(SimpleNamespace(skill_path=str(skill)))
+    assert list(files) == ["SKILL.md"]
+    assert "# Compare content" in "".join(files["SKILL.md"])
+    assert scanned == [skill.resolve()]
+
+
 def test_versions_api_uses_batch_scan_and_activity_queries(tmp_path, monkeypatch):
     skill = tmp_path / "skill"
     _write_skill(skill, "# First")

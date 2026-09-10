@@ -27,8 +27,8 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field
+from fastapi.responses import FileResponse, JSONResponse, Response
+from pydantic import BaseModel, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 from agent_manager.api.upload_progress import stream_upload_progress
 
@@ -36,6 +36,7 @@ from agent_manager.core.llm import LLMConfig
 from agent_manager.core.manager import AgentManager, findings_summary_from_report
 from agent_manager.core.models import SkillOrigin, SkillStatus, SourceInfo
 from agent_manager.core.policy import CompanyPolicy
+from agent_manager.core.policy_simulation import PolicySimulationRequest, simulate_policy
 from agent_manager.core.prompt_models import PromptStatus
 from agent_manager.core.sandbox import SandboxConfig, SandboxConnectionTest, test_sandbox_connection
 from agent_manager.core.scan_report_pdf import build_scan_report_pdf
@@ -575,6 +576,7 @@ class VerifySkillSignatureResponse(BaseModel):
 class PolicyPayload(BaseModel):
     scan_result_reuse_enabled: bool = True
     auto_approve_max_risk: str
+    auto_approve_risk: list[str] = Field(default_factory=lambda: ["benign"])
     require_human_review: list[str]
     auto_reject_risk: list[str]
     require_sandbox_for_risk: list[str]
@@ -778,6 +780,18 @@ def get_policy(mgr: AgentManager = Depends(get_manager)):
         policy_path=str(policy_path) if policy_path else None,
         policy=PolicyPayload(**{**mgr.policy.to_dict(), "risk_classification": mgr.policy.risk_classification}),
     )
+
+
+@router.post("/policy/simulate")
+def simulate_policy_decision(body: dict[str, Any]):
+    try:
+        request = PolicySimulationRequest.model_validate(body)
+    except ValidationError:
+        return JSONResponse(status_code=422, content={
+            "error_code": "policy.simulation_invalid",
+            "detail": "模拟参数无效，请检查分析器状态、发现项和策略配置。",
+        })
+    return simulate_policy(request)
 
 
 @router.get("/llm-config", response_model=LLMConfigResponse)
@@ -1678,19 +1692,20 @@ def _version_text_files(entry) -> dict[str, list[str]]:
     if not root.is_dir():
         return {}
     result: dict[str, list[str]] = {}
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.is_symlink():
-            continue
-        rel = path.relative_to(root)
-        if any(part in {".git", ".venv", "node_modules", "__pycache__", "dist", "build"} for part in rel.parts):
-            continue
-        if path.stat().st_size > 1024 * 1024:
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
-            continue
-        result[rel.as_posix()] = text.splitlines(keepends=True)
+    excluded = {".git", ".venv", "node_modules", "__pycache__", "dist", "build"}
+    for directory, subdirectories, filenames in os.walk(root):
+        subdirectories[:] = [name for name in subdirectories if name not in excluded]
+        for name in filenames:
+            path = Path(directory) / name
+            if name in excluded or path.is_symlink() or not path.is_file():
+                continue
+            if path.stat().st_size > 1024 * 1024:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            result[path.relative_to(root).as_posix()] = text.splitlines(keepends=True)
     return result
 
 
@@ -1706,6 +1721,14 @@ def diff_skill_versions(
         raise HTTPException(status_code=404, detail="Skill not found")
     target_entry = _resolve_version_ref(versions, target, default_index=0)
     base_entry = _resolve_version_ref(versions, base, default_index=1 if len(versions) > 1 else 0)
+    response = {
+        "skill_id": versions[0].family_id or versions[0].skill_id,
+        "base": _version_summary(base_entry),
+        "target": _version_summary(target_entry),
+        "items": [],
+    }
+    if base_entry.skill_id == target_entry.skill_id:
+        return response
     base_files = _version_text_files(base_entry)
     target_files = _version_text_files(target_entry)
     items = []
@@ -1737,12 +1760,8 @@ def diff_skill_versions(
             "after": "".join(after),
             "diff": diff_text,
         })
-    return {
-        "skill_id": versions[0].family_id or versions[0].skill_id,
-        "base": _version_summary(base_entry),
-        "target": _version_summary(target_entry),
-        "items": items,
-    }
+    response["items"] = items
+    return response
 
 
 @router.get("/skills/{skill_id_or_name}/versions/{version_id}/scan-runs")

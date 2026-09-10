@@ -37,7 +37,7 @@
     </a-row>
 
     <a-row :gutter="[16, 16]" style="margin-top: 16px">
-      <a-col :xs="24" :xl="15">
+      <a-col :xs="24" :xl="16">
         <a-card :title="$t('legacy.jsrb0i')">
           <a-table
             :data-source="todoRows"
@@ -68,9 +68,9 @@
         </a-card>
       </a-col>
 
-      <a-col :xs="24" :xl="9">
-        <a-card :title="$t('legacy.19kwidw')">
-          <a-list :data-source="recentEvents" bordered :locale="{ emptyText: $t('legacy.1mta22k') }">
+      <a-col :xs="24" :xl="8">
+        <a-card :title="$t('legacy.19kwidw')" class="recent-events-card">
+          <a-list class="recent-events-list" :data-source="pagedRecentEvents" bordered :locale="{ emptyText: $t('legacy.1mta22k') }">
             <template #renderItem="{ item }">
               <a-list-item>
                 <a-space direction="vertical" size="small">
@@ -84,6 +84,14 @@
               </a-list-item>
             </template>
           </a-list>
+          <a-pagination
+            v-model:current="recentEventsPage"
+            class="recent-events-pagination"
+            :total="recentEvents.length"
+            :page-size="recentEventsPageSize"
+            :show-size-changer="false"
+            :show-less-items="true"
+          />
         </a-card>
       </a-col>
     </a-row>
@@ -187,6 +195,8 @@ const modelRows = ref([])
 const accessTokenRows = ref([])
 const gatewayKeyRows = ref([])
 const auditRows = ref([])
+const recentEventsPage = ref(1)
+const recentEventsPageSize = 5
 const riskSourceRows = ref([])
 const privacyStats = ref({})
 const gatewayDailyRows = ref([])
@@ -292,8 +302,13 @@ const todoRows = computed(() => {
 const recentEvents = computed(() =>
   auditRows.value
     .filter((item) => ['skill_load_blocked', 'skill_tamper_detected', 'tool_blocked', 'skill_rejected'].includes(item.event_type))
-    .slice(-8)
     .reverse(),
+)
+const pagedRecentEvents = computed(() =>
+  recentEvents.value.slice(
+    (recentEventsPage.value - 1) * recentEventsPageSize,
+    recentEventsPage.value * recentEventsPageSize,
+  ),
 )
 
 const todoColumns = [
@@ -553,6 +568,44 @@ onMounted(fetchDashboard)
 </script>
 
 <style scoped>
+.recent-events-card {
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+}
+
+.recent-events-card :deep(.ant-card-head) {
+  flex-shrink: 0;
+}
+
+.recent-events-card :deep(.ant-card-body) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.recent-events-list {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+.recent-events-pagination {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: 16px;
+  text-align: right;
+}
+
+@media (min-width: 1200px) {
+  .recent-events-card {
+    position: absolute;
+    inset: 0 8px;
+    max-height: none;
+  }
+}
+
 .module-card {
   height: 100%;
 }
