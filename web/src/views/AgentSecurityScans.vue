@@ -620,8 +620,8 @@
     <a-modal v-model:open="taskModalOpen" :title="t('agentSecurityScans.tasks.createTitle')" width="820px">
       <template #footer>
         <a-button @click="taskModalOpen = false">{{ t('agentSecurityScans.tasks.close') }}</a-button>
-        <a-button :loading="previewingTask" :disabled="submittingTask" @click="loadTaskPreview">{{ t('agentSecurityScans.tasks.preview') }}</a-button>
-        <a-button type="primary" :loading="submittingTask" :disabled="submittingTask || previewingTask || (executionMode === 'now' ? !taskPreview : !timingValid || !scheduleName.trim())" @click="saveTask">{{ executionMode === 'now' ? t('agentSecurityScans.tasks.createConfirmed') : editingSchedule ? t('assetLifecycle.save') : t('scanSchedule.create') }}</a-button>
+        <a-button :loading="previewingTask" :disabled="submittingTask || evaluatorSelectionMissing" @click="loadTaskPreview">{{ t('agentSecurityScans.tasks.preview') }}</a-button>
+        <a-button type="primary" :loading="submittingTask" :disabled="submittingTask || previewingTask || evaluatorSelectionMissing || (executionMode === 'now' ? !taskPreview : !timingValid || !scheduleName.trim())" @click="saveTask">{{ executionMode === 'now' ? t('agentSecurityScans.tasks.createConfirmed') : editingSchedule ? t('assetLifecycle.save') : t('scanSchedule.create') }}</a-button>
       </template>
       <a-form layout="vertical">
         <a-form-item :label="t('scanSchedule.execution')"><a-radio-group v-model:value="executionMode" :disabled="!!editingSchedule"><a-radio value="now">{{ t('scanSchedule.now') }}</a-radio><a-radio v-if="canAdmin" value="scheduled">{{ t('scanSchedule.scheduled') }}</a-radio></a-radio-group></a-form-item>
@@ -644,6 +644,13 @@
           </a-form-item>
         </template>
         <a-form-item :label="t('agentSecurityScans.tasks.kind')" required><a-select v-model:value="taskForm.scan_kind" :disabled="availableScanKinds.length === 1"><a-select-option v-for="kind in availableScanKinds" :key="kind" :value="kind">{{ scanKindLabel(kind) }}</a-select-option></a-select></a-form-item>
+        <a-form-item v-if="['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind)" :label="t('agentSecurityScans.tasks.evaluationModel')" required :extra="t('agentSecurityScans.tasks.evaluationModelHelp')">
+          <a-select v-model:value="taskForm.evaluation_model" show-search option-filter-prop="label" :loading="redteamOptionsLoading" :disabled="redteamOptionsLoading" :placeholder="t('agentSecurityScans.tasks.selectEvaluationModel')" :not-found-content="t('agentSecurityScans.tasks.noEvaluationModels')">
+            <a-select-option v-for="model in evaluationModels" :key="model.id" :value="model.name" :label="`${model.display_name || model.name} (${model.name}) · ${model.provider_name}`">
+              {{ model.display_name || model.name }} ({{ model.name }}) · {{ model.provider_name }}
+            </a-select-option>
+          </a-select>
+        </a-form-item>
         <template v-if="taskForm.scan_kind === 'agent_risk_scan'">
           <a-form-item :label="t('agentSecurityScans.tasks.skills')"><a-select v-model:value="taskForm.skills" mode="multiple" :max-tag-count="3"><a-select-option v-for="skill in agentScanSkills" :key="skill" :value="skill">{{ skill }}</a-select-option></a-select></a-form-item>
           <a-form-item :label="t('agentSecurityScans.tasks.prompt')"><a-textarea v-model:value="taskForm.prompt" :rows="3" :maxlength="4096" /></a-form-item>
@@ -678,15 +685,7 @@
               </a-form-item>
             </a-col>
             <a-col :xs="24" :md="12"><a-form-item :label="t('agentSecurityScans.tasks.randomSeed')"><a-input-number v-model:value="taskForm.random_seed" :min="0" :max="2147483647" class="number-input" /></a-form-item></a-col>
-            <a-col :xs="24" :md="24">
-              <a-form-item :label="t('agentSecurityScans.tasks.evaluationModel')">
-                <a-select v-model:value="taskForm.evaluation_model" allow-clear show-search option-filter-prop="label" :loading="redteamOptionsLoading" :disabled="redteamOptionsLoading" :placeholder="t('agentSecurityScans.tasks.defaultEvaluationModel')" :not-found-content="t('agentSecurityScans.tasks.noEvaluationModels')">
-                  <a-select-option v-for="model in evaluationModels" :key="model.id" :value="model.name" :label="`${model.display_name || model.name} (${model.name}) · ${model.provider_name}`">
-                    {{ model.display_name || model.name }} ({{ model.name }}) · {{ model.provider_name }}
-                  </a-select-option>
-                </a-select>
-              </a-form-item>
-            </a-col>
+
           </a-row>
           <a-form-item :label="t('agentSecurityScans.tasks.techniques')">
             <a-select v-model:value="taskForm.techniques" mode="multiple" :max-tag-count="3" option-label-prop="label" option-filter-prop="label">
@@ -755,7 +754,7 @@
               <a-descriptions-item :label="t('agentSecurityScans.tasks.plannedCases')">{{ taskPreview.cases.reduce((total, item) => total + (item.sample_count ?? 1), 0) * (taskPreview.scan_kind === 'llm_redteam_scan' ? Math.max(1, taskForm.techniques.length) : 1) }}</a-descriptions-item>
               <a-descriptions-item v-if="taskPreview.scan_kind !== 'llm_redteam_scan'" :label="t('agentSecurityScans.tasks.plannedTools')">{{ taskPreview.tool_plan.tools.length }}</a-descriptions-item>
               <template v-else>
-                <a-descriptions-item :label="t('agentSecurityScans.scope.evaluator')">{{ taskForm.evaluation_model || t('agentSecurityScans.scope.defaultEvaluator') }}</a-descriptions-item>
+                <a-descriptions-item :label="t('agentSecurityScans.scope.evaluator')">{{ taskForm.evaluation_model || t('agentSecurityScans.tasks.selectEvaluationModel') }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.scope.methods')">{{ (taskForm.techniques.length ? taskForm.techniques : ['Raw']).map(value => promptTransformationLabel(value, t, te)).join(', ') }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.scope.seed')">{{ taskForm.random_seed }}</a-descriptions-item>
               </template>
@@ -1315,6 +1314,7 @@ async function saveSchedule() {
 }
 async function loadTargetRisks() { try { const map = {}; let offset = 0; while (true) { const data = await listManagedAgentRisks({ limit: 200, offset }); for (const x of data.items) map[x.target_id] = x.risk; offset += data.items.length; if (!data.items.length || offset >= data.total) break }; targetRisks.value = map } catch(e) { message.error(errorText(e)) } }
 const taskForm = reactive({ target_id: undefined, policy_id: undefined, approval_id: undefined, scan_kind: 'control_plane_validation', skills: [], prompt: '', conversation_mode: 'single_turn', continue_from_task_id: undefined, llm_input_mode: 'dataset', datasets: ['JailBench-Tiny'], num_prompts: 10, random_seed: 42, techniques: ['Raw'], evaluation_model: undefined, http_authorized: false, private_network_authorized: false, scan_timeout_seconds: 30, scan_concurrency: 2, inventory_source: 'console_api', manual_dsl: '', include_prompt_text: false, infer_agent_intent: false, intent_inference_model: undefined, knowledge_content_authorized: false, max_knowledge_documents: 100, max_knowledge_segments: 1000, max_knowledge_bytes: 10485760 })
+const evaluatorSelectionMissing = computed(() => ['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind) && (redteamOptionsLoading.value || !taskForm.evaluation_model))
 const killSwitchModalOpen = ref(false)
 const killSwitchTask = ref(null)
 const killSwitchReason = ref('')
@@ -1828,7 +1828,7 @@ const taskPlanPayload = () => ({
   num_prompts: taskForm.num_prompts,
   random_seed: taskForm.random_seed,
   techniques: taskForm.scan_kind === 'llm_redteam_scan' ? taskForm.techniques : [],
-  evaluation_model: taskForm.scan_kind === 'llm_redteam_scan' ? taskForm.evaluation_model || null : null,
+  evaluation_model: ['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind) ? taskForm.evaluation_model || null : null,
   http_authorized: taskForm.scan_kind === 'ai_infrastructure_vulnerability_scan' && taskForm.http_authorized,
   private_network_authorized: taskForm.scan_kind === 'ai_infrastructure_vulnerability_scan' && taskForm.private_network_authorized,
   scan_timeout_seconds: taskForm.scan_kind === 'ai_infrastructure_vulnerability_scan' ? taskForm.scan_timeout_seconds : null,
@@ -1846,6 +1846,7 @@ const taskPlanPayload = () => ({
 const loadTaskPreview = async () => {
   if (previewingTask.value || submittingTask.value) return
   if (!taskForm.target_id || !taskForm.policy_id) return message.warning(t('agentSecurityScans.requiredFields'))
+  if (['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind) && !taskForm.evaluation_model) return message.warning(t('agentSecurityScans.tasks.selectEvaluationModel'))
   if (taskForm.scan_kind === 'llm_redteam_scan' && taskForm.llm_input_mode === 'dataset' && !taskForm.datasets.length) return message.warning(t('agentSecurityScans.requiredFields'))
   if (taskForm.scan_kind === 'llm_redteam_scan' && taskForm.llm_input_mode === 'dataset' && taskForm.num_prompts !== -1 && (!Number.isInteger(taskForm.num_prompts) || taskForm.num_prompts < 1 || taskForm.num_prompts > 100)) return message.warning(t('agentSecurityScans.tasks.invalidSampleCount'))
   if (requiresProductionApproval.value && !taskForm.approval_id) return message.warning(t('agentSecurityScans.tasks.productionApprovalRequired'))

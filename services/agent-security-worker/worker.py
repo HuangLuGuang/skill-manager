@@ -200,17 +200,14 @@ def _complete_control_plane_validation(claim: dict[str, Any]) -> None:
     )
 
 
-def _evaluator_config() -> EvaluatorConfig:
+def _evaluator_config(claim: dict[str, Any]) -> EvaluatorConfig:
+    options = claim.get("scan_options") or {}
     return EvaluatorConfig(
-        api_key=os.environ.get("AGENT_SECURITY_EVALUATOR_API_KEY", "").strip(),
-        model=os.environ.get("AGENT_SECURITY_EVALUATOR_MODEL", "").strip(),
-        base_url=os.environ.get("AGENT_SECURITY_EVALUATOR_BASE_URL", "http://backend:8000/v1").strip(),
-        input_cost_microunits_per_million=max(
-            0, int(os.environ.get("AGENT_SECURITY_EVALUATOR_INPUT_COST_MICRO_PER_MILLION", "0"))
-        ),
-        output_cost_microunits_per_million=max(
-            0, int(os.environ.get("AGENT_SECURITY_EVALUATOR_OUTPUT_COST_MICRO_PER_MILLION", "0"))
-        ),
+        api_key=claim["lease_token"],
+        model=options.get("evaluation_model") or "",
+        input_cost_microunits_per_million=max(0, int(os.environ.get("AGENT_SECURITY_EVALUATOR_INPUT_COST_MICRO_PER_MILLION", "0"))),
+        output_cost_microunits_per_million=max(0, int(os.environ.get("AGENT_SECURITY_EVALUATOR_OUTPUT_COST_MICRO_PER_MILLION", "0"))),
+        base_url=f"{CONTROL_PLANE_URL}/worker/tasks/{claim['task']['task_id']}/evaluator/v1",
     )
 
 
@@ -314,7 +311,7 @@ def _run_agent_scan(claim: dict[str, Any], key_pair: WorkerKeyPair, worker_id: s
         result = execute_agent_scan(
             claim,
             credential_secret,
-            _evaluator_config(),
+            _evaluator_config(claim),
             heartbeat,
             initial_usage=initial_usage,
         )
@@ -565,7 +562,7 @@ def _run_aig_service_scan(
         result = execute_scan(
             claim,
             credential_secret,
-            _evaluator_config(),
+            _evaluator_config(claim),
             heartbeat,
             initial_usage=initial_usage,
         )

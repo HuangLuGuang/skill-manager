@@ -2309,10 +2309,16 @@ def test_llm_all_samples_preview_is_grouped_and_plan_is_preserved(p1_api, monkey
     monkeypatch.setattr(settings, "AIG_SERVICE_TOKEN", "internal-service-token")
     monkeypatch.setattr(security_scans, "_aig_engine_available", lambda: True)
     target = _create_target(client, target_type=None, asset_type="llm", connector_type="openai_compatible", config={"model": "target"})
+    with factory() as db:
+        provider = models.ModelProvider(name="judge-provider", base_url="https://example.test/v1", api_key="test")
+        db.add(provider)
+        db.flush()
+        db.add(models.ModelEndpoint(provider_id=provider.id, name="judge"))
+        db.commit()
     policy = _create_policy(client, suffix="all-samples")
     payload = {
         "target_id": target["target_id"], "policy_id": policy["policy_id"],
-        "scan_kind": "llm_redteam_scan", "datasets": ["advbench", "cnsafe"], "num_prompts": -1,
+        "scan_kind": "llm_redteam_scan", "evaluation_model": "judge", "datasets": ["advbench", "cnsafe"], "num_prompts": -1,
     }
     preview = client.post("/api/v1/agent-security/tasks/preview", json=payload)
     assert preview.status_code == 200, preview.text
@@ -2349,11 +2355,17 @@ def test_llm_task_preview_contract_and_upstream_session_survive_worker_retry(p1_
         connector_type="openai_compatible",
         config={"model": "target-model", "chat_completions_path": "/v1/chat/completions"},
     )
+    with session_factory() as db:
+        provider = models.ModelProvider(name="judge-provider", base_url="https://example.test/v1", api_key="test")
+        db.add(provider)
+        db.flush()
+        db.add(models.ModelEndpoint(provider_id=provider.id, name="judge"))
+        db.commit()
     policy = _create_policy(client, suffix="llm-session-retry", retry_backoff_seconds=0)
     request = {
         "target_id": target["target_id"],
         "policy_id": policy["policy_id"],
-        "scan_kind": "llm_redteam_scan",
+        "scan_kind": "llm_redteam_scan", "evaluation_model": "judge",
         "num_prompts": 3,
         "techniques": ["Raw", "Roleplay"],
     }
@@ -3068,3 +3080,85 @@ def test_blocked_llm_task_retains_live_completion_without_final_cases(p1_api):
     for task in [listed, detail['task']]:
         assert task['progress']['completed'] == task['progress']['planned'] == 20
         assert task['status'] == 'blocked'
+
+
+def test_task_evaluator_uses_selected_gateway_model_and_lease(p1_api, monkeypatch):
+    from backend.routers import llm_gateway
+    from datetime import datetime, timedelta
+
+    client, factory, _, _ = p1_api
+    task_id, _, lease = _claim_control_plane_task(client)
+    with factory() as db:
+        provider = models.ModelProvider(name="evaluation-provider", base_url="https://example.test/v1", api_key="test-secret")
+        db.add(provider)
+        db.flush()
+        db.add(models.ModelEndpoint(provider_id=provider.id, name="task-judge"))
+        task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
+        task.scan_kind = "agent_risk_scan"
+        task.scan_options_encrypted = protect_secret(json_dumps({"evaluation_model": "task-judge"}))
+        db.commit()
+    with factory() as db:
+        task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
+        plan = {"target_id": task.target_id, "policy_id": task.policy_id, "scan_kind": "agent_risk_scan"}
+    missing = client.post("/api/v1/agent-security/tasks/preview", json=plan)
+    assert missing.status_code == 422
+    assert missing.json()["error_code"] == "agent_security.evaluation_model_required"
+    invalid = client.post("/api/v1/agent-security/tasks/preview", json={**plan, "evaluation_model": "missing"})
+    assert invalid.status_code == 422
+    assert invalid.json()["error_code"] == "agent_security.evaluation_model_invalid"
+    real_gateway = llm_gateway._chat_completions_with_key
+    calls = []
+
+    async def gateway(body, response, key, db, request=None):
+        calls.append((body.model, key.user_id, key.allowed_models_json))
+        assert key.id is None
+        assert body.metadata["scan_task_id"] == task_id
+        return {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+
+    monkeypatch.setattr(llm_gateway, "_chat_completions_with_key", gateway)
+    url = f"/api/v1/agent-security/worker/tasks/{task_id}/evaluator/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {lease}"}
+    body = {"model": "task-judge", "messages": [{"role": "user", "content": "evaluate"}]}
+    assert client.post(url, headers=headers, json=body).status_code == 200
+    assert len(calls) == 1
+    async def upstream(db, model, payload):
+        assert model.name == "task-judge"
+        return {"id": "chatcmpl-test", "object": "chat.completion", "model": "task-judge", "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}
+    monkeypatch.setattr(llm_gateway, "_call_upstream", upstream)
+    monkeypatch.setattr(llm_gateway, "_chat_completions_with_key", real_gateway)
+    response = client.post(url, headers=headers, json=body)
+    assert response.status_code == 200, response.text
+    assert response.json()["choices"][0]["message"]["content"] == "ok"
+    async def streaming(db, model, payload, **kwargs):
+        async def chunks():
+            yield 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'
+            yield 'data: [DONE]\n\n'
+        return chunks()
+    monkeypatch.setattr(llm_gateway, "_stream_upstream", streaming)
+    streamed = client.post(url, headers=headers, json={**body, "stream": True})
+    assert streamed.status_code == 200, streamed.text
+    assert "[DONE]" in streamed.text
+    with factory() as db:
+        from sqlalchemy import text
+        assert db.execute(text("SELECT COUNT(*) FROM request_leases WHERE subject_type = 'security_scan_task'")).scalar() == 0
+    monkeypatch.setattr(llm_gateway, "_chat_completions_with_key", gateway)
+    assert client.post(url, headers={"Authorization": "Bearer invalid"}, json=body).status_code == 401
+    assert client.post(url, headers=headers, json={**body, "model": "other-model"}).status_code == 403
+    with factory() as db:
+        model = db.query(models.ModelEndpoint).filter_by(name="task-judge").one()
+        model.enabled = False
+        db.commit()
+    assert client.post(url, headers=headers, json=body).status_code == 422
+    with factory() as db:
+        db.query(models.ModelEndpoint).filter_by(name="task-judge").one().enabled = True
+        task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
+        task.cancel_requested = True
+        db.commit()
+    assert client.post(url, headers=headers, json=body).status_code == 409
+    with factory() as db:
+        task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
+        task.cancel_requested = False
+        task.lease_expires_at = datetime.utcnow() - timedelta(seconds=1)
+        db.commit()
+    assert client.post(url, headers=headers, json=body).status_code == 409
+    assert len(calls) == 1

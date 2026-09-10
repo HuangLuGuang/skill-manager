@@ -214,7 +214,6 @@ def test_copied_env_example_resolves_a_complete_default_stack(tmp_path):
     assert backend["AIG_SERVICE_URL"] == worker["AIG_SERVICE_URL"] == "http://aig-scan-service:8093"
     assert backend["ENFORCE_SECURE_STARTUP"] == sandbox["SANDBOX_SERVICE_ENFORCE_SECURE_STARTUP"] == "false"
     assert not backend["INITIAL_ADMIN_PASSWORD"]
-    assert not worker["AGENT_SECURITY_EVALUATOR_API_KEY"]
 
 
 def test_offline_pipeline_verifies_both_aig_scan_service_architectures():
@@ -319,3 +318,12 @@ def test_p7_worker_deployment_docs_cover_identity_recovery_upgrade_and_evidence(
         "没有任务级证据时",
     ):
         assert required in offline
+
+
+def test_worker_evaluator_is_bound_to_claim_model_and_lease(monkeypatch):
+    worker = _load_worker()
+    claim = {"task": {"task_id": "asj_test"}, "lease_token": "task-lease", "scan_options": {"evaluation_model": "gateway-judge"}}
+    evaluator = worker._evaluator_config(claim)
+    assert evaluator.model == "gateway-judge"
+    assert evaluator.api_key == "task-lease"
+    assert evaluator.base_url == f"{worker.CONTROL_PLANE_URL}/worker/tasks/asj_test/evaluator/v1"

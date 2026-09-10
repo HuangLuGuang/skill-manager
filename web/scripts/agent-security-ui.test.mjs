@@ -300,7 +300,7 @@ test('P6-05 requires a server-derived scan preview before task creation', async 
 
   assert.match(api, /\/v1\/agent-security\/tasks\/preview/)
   assert.match(view, /previewSecurityTask\(payload\)/)
-  assert.match(view, /:disabled="submittingTask \|\| previewingTask \|\| \(executionMode === \'now\' \? !taskPreview/)
+  assert.match(view, /:disabled="submittingTask \|\| previewingTask \|\| evaluatorSelectionMissing \|\| \(executionMode === \'now\' \? !taskPreview/)
   assert.match(view, /preview_fingerprint: taskPreview\.value\.preview_fingerprint/)
   assert.match(view, /error_code === 'agent_security\.scan_preview_stale'/)
   assert.match(view, /taskPreview\.cases/)

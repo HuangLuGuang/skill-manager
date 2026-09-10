@@ -49,6 +49,10 @@ def p2_api(tmp_path, monkeypatch):
         admin = models.User(username="admin", hashed_password="x", role="admin")
         auditor = models.User(username="auditor", hashed_password="x", role="security_auditor")
         owner = models.User(username="owner", hashed_password="x", role="user")
+        provider = models.ModelProvider(name="test-evaluator", base_url="https://example.test/v1", api_key="test")
+        db.add(provider)
+        db.flush()
+        db.add(models.ModelEndpoint(provider_id=provider.id, name="test-judge"))
         db.add_all([admin, auditor, owner])
         db.commit()
         for row in (admin, auditor, owner):
@@ -105,7 +109,7 @@ def _agent_task(client: TestClient, target_id: str, policy_id: str, **overrides)
         "target_id": target_id,
         "policy_id": policy_id,
         "idempotency_key": f"p2-{time.time_ns()}",
-        "scan_kind": "agent_risk_scan",
+        "scan_kind": "agent_risk_scan", "evaluation_model": "test-judge",
         "conversation_mode": "multi_turn",
         "reset_session": True,
     }
@@ -133,7 +137,7 @@ def test_p6_agent_preview_lists_fixed_skills_but_marks_runtime_details_dynamic(p
         json={
             "target_id": target["target_id"],
             "policy_id": policy["policy_id"],
-            "scan_kind": "agent_risk_scan",
+            "scan_kind": "agent_risk_scan", "evaluation_model": "test-judge",
             "conversation_mode": "multi_turn",
             "prompt": "check-private-object-123456789",
         },
@@ -382,7 +386,7 @@ def test_target_config_and_policy_fail_closed_for_agent_scan(p2_api):
             "target_id": incomplete["target_id"],
             "policy_id": policy["policy_id"],
             "idempotency_key": "missing-transform",
-            "scan_kind": "agent_risk_scan",
+            "scan_kind": "agent_risk_scan", "evaluation_model": "test-judge",
         },
     )
     assert task.status_code == 422
@@ -399,7 +403,7 @@ def test_target_config_and_policy_fail_closed_for_agent_scan(p2_api):
             "target_id": complete["target_id"],
             "policy_id": passive["policy_id"],
             "idempotency_key": "passive-agent-scan",
-            "scan_kind": "agent_risk_scan",
+            "scan_kind": "agent_risk_scan", "evaluation_model": "test-judge",
         },
     )
     assert blocked.status_code == 409

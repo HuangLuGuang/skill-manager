@@ -111,10 +111,9 @@ Worker 同时运行 `control_plane_validation`、`agent_risk_scan`、`dify_asset
 前缀后至少包含 32 个 URL-safe 字符。示例已提供本地开发占位值；生产用
 `printf 'amsw_%s\n' "$(openssl rand -hex 32)"` 生成独立随机值。生产安全启动会拒绝公开的开发凭据。
 
-再为 Worker 配置一个 OpenAI-compatible 评估模型，并生成独立的内部服务 Token；推荐使用本平台模型网关，
-并为专用 LLM API Key 只授权扫描所需模型。仅执行 MCP 元数据扫描时不需要评估模型；执行 Agent
-风险扫描、LLM 红队或需要模型辅助的基础设施扫描时必须配置。`AIG_SCAN_SERVICE_TOKEN` 至少包含 32 个
-随机 URL-safe 字符，由 Backend 健康检查、Worker 与内部服务共同使用，不能和 Worker Token、评估模型 Key 或目标凭据混用。然后执行：
+在模型网关配置并启用评估模型及其供应商，发起 Agent 风险扫描或 LLM 红队扫描时选择该模型。
+Worker 通过任务租约调用 Backend 评估接口。另生成独立的 `AIG_SCAN_SERVICE_TOKEN`，至少包含 32 个
+随机 URL-safe 字符，由 Backend、Worker 与内部服务共同使用。然后执行：
 
 ```bash
 ./build.sh --all
@@ -125,7 +124,7 @@ docker compose ps agent-security-worker aig-scan-service
 `.env.example` 列出 `AIG_SERVICE_URL`、`AIG_SERVICE_TOKEN` 和 Worker 控制面地址。
 Compose 默认使用容器 DNS：`http://aig-scan-service:8093` 和 `http://backend:8000/api/v1/agent-security`。
 本地源码运行 Backend/Worker 时，将它们改为可访问的宿主机地址，并为内部服务发布仅本机可访问的端口。
-评估模型 Key 和模型名默认为空，不影响服务启动、控制面验证和 MCP 元数据扫描；实际模型扫描前必须配置真实值。
+模型评估经 Worker 控制面地址下的任务专属接口路由到所选网关模型。
 
 Dify 资产清单不增加 `.env` 密钥。管理员在“扫描管理 → 扫描目标”创建 Dify 目标，并按用途把 Admin API
 Key 保存为加密的 `dify_console_api` 目标凭据；需要授权知识库检查时另存 `dify_knowledge_api`。部署网络必须
@@ -143,9 +142,7 @@ Compose 默认使用非 root、只读根文件系统、`/tmp` tmpfs、`init`、�
 `AGENT_SECURITY_WORKER_STOP_GRACE_PERIOD`、`AGENT_SECURITY_WORKER_LOG_MAX_SIZE` 和
 `AGENT_SECURITY_WORKER_LOG_MAX_FILES` 调整；默认值是安全起点，不是银行生产容量或 SLA。
 
-`AGENT_SECURITY_WORKER_TOKEN` 和评估模型 API Key 都是运行凭据，不是页面功能开关，不能写入
-镜像或提交到 Git。根目录 `.env` 适合本地和受控离线部署；生产环境可由 Secret 管理能力以同名
-环境变量注入。评估模型 Key、Worker Token 和扫描目标凭据是三类独立凭据，不能混用。
+`AGENT_SECURITY_WORKER_TOKEN` 是运行凭据，不能写入镜像或提交到 Git。根目录 `.env` 适合本地和受控离线部署；生产环境可由 Secret 管理能力注入。扫描目标凭据由管理台单独配置。
 吊销 Worker 后旧 Token 立即失效。
 目标长期凭据保存在 Backend；领取任务时才通过 Worker 临时公钥生成租约绑定的密封信封。
 
