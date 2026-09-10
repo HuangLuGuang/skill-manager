@@ -14,15 +14,15 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, Header, Query
-from fastapi.responses import JSONResponse, Response
+from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from agent_manager.core.mcp_parameter_risk import classify_mcp_parameter, normalize_mcp_identifier
 
-from .. import auth, models
+from .. import auth, models, schemas
 from ..agentic_risk_taxonomy import map_risk_codes
 from ..api_errors import ApiError
 from ..config import settings
@@ -1934,6 +1934,13 @@ def _validate_scan_task_request(
             "AI-Infra-Guard 扫描引擎尚未配置或不可用",
             "The AI-Infra-Guard scanning engine is not configured or available",
         )
+    if body.scan_kind in {"agent_risk_scan", "llm_redteam_scan"}:
+        if not body.evaluation_model:
+            raise ApiError(422, "agent_security.evaluation_model_required",
+                           "请选择网关评估模型", "Select a gateway evaluator model")
+        if not _evaluation_models_query(db).filter(models.ModelEndpoint.name == body.evaluation_model).first():
+            raise ApiError(422, "agent_security.evaluation_model_invalid",
+                           "所选评估模型或其供应商未启用", "The evaluator model or its provider is unavailable")
     if body.scan_kind == "mcp_risk_scan":
         if target.target_type != MCP_GATEWAY_TARGET_TYPE:
             raise ApiError(
@@ -1998,14 +2005,6 @@ def _validate_scan_task_request(
             json_loads(target.config_json, {}),
             require_complete=True,
         )
-        if body.evaluation_model and not _evaluation_models_query(db).filter(
-            models.ModelEndpoint.name == body.evaluation_model
-        ).first():
-            raise ApiError(
-                422, "agent_security.evaluation_model_invalid",
-                "所选评估模型或其供应商不存在或未启用",
-                "The selected evaluator model is unavailable or its provider is disabled",
-            )
         if policy.execution_mode == "passive":
             raise ApiError(
                 409,
@@ -3766,6 +3765,78 @@ def _verify_lease(task: models.SecurityScanTask, worker: models.SecurityScanWork
         and (not task.timeout_at or task.timeout_at > now)
     ):
         raise ApiError(409, "agent_security.task_lease_expired", "任务租约已过期", "Task lease has expired")
+
+
+@router.post("/worker/tasks/{task_id}/evaluator/v1/chat/completions")
+async def evaluate_scan_chat(
+    task_id: str,
+    body: schemas.ChatCompletionRequest,
+    request: Request,
+    response: Response,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    from . import llm_gateway
+    from ..request_leases import LeaseLimitExceeded, acquire_lease, release_lease
+
+    task = _task_or_404(db, task_id)
+    worker = db.query(models.SecurityScanWorker).filter_by(worker_id=task.worker_id, status="active").first()
+    if not worker or not authorization or not authorization.lower().startswith("bearer "):
+        raise ApiError(401, "agent_security.task_lease_invalid", "任务租约令牌无效", "Task lease token is invalid")
+    _verify_lease(task, worker, authorization.split(" ", 1)[1].strip())
+    if task.scan_kind not in {"agent_risk_scan", "llm_redteam_scan"}:
+        raise ApiError(403, "agent_security.evaluation_not_authorized", "任务未授权模型评估", "Model evaluation is not authorized for this task")
+    if task.cancel_requested or task.kill_switch_activated or _budget_reason(task, datetime.utcnow()):
+        raise ApiError(409, "agent_security.evaluation_stopped", "任务已停止或达到预算限制", "The task has stopped or reached its budget")
+    options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
+    selected = options.get("evaluation_model")
+    if not selected or body.model != selected:
+        raise ApiError(403, "agent_security.evaluation_model_invalid", "只能调用任务选择的评估模型", "Only the selected evaluator model is allowed")
+    if not _evaluation_models_query(db).filter(models.ModelEndpoint.name == selected).first():
+        raise ApiError(422, "agent_security.evaluation_model_invalid", "评估模型或供应商已停用", "The evaluator model or provider is disabled")
+    owner = db.query(models.User).filter_by(id=task.owner_user_id).first()
+    if not owner or not owner.is_active:
+        raise ApiError(403, "agent_security.evaluation_not_authorized", "任务所有者已停用", "The task owner is disabled")
+    _require_target_access(db, owner, _target_or_404(db, task.target_id))
+    policy = json_loads(task.policy_snapshot_json, {})
+    # The lease authenticates this endpoint; this transient context supplies the
+    # task owner's privacy policy and audit identity to the existing gateway.
+    key = models.LlmApiKey(
+        name=f"scan-evaluator:{task_id}", key_prefix="scan-evaluator", user_id=task.owner_user_id,
+        group_id=task.owner_group_id, allowed_models_json=json_dumps([selected]),
+        status="active", expires_at=task.timeout_at, max_body_kb=1024,
+        enable_compression=False, compression_level="auto", prompt_guard_mode="off", prompt_guard_llm_review=False,
+    )
+    await llm_gateway._check_request_size(request, key)
+    body = body.model_copy(update={"metadata": {"scan_task_id": task_id, "conversation_id": task_id}, "conversation_id": task_id})
+    bind = db.get_bind()
+    db.commit()
+    try:
+        slot = acquire_lease("security_scan_task", task_id, "evaluator", int(policy.get("max_concurrent_requests", 2)), bind=bind)
+    except LeaseLimitExceeded:
+        raise ApiError(429, "agent_security.evaluation_concurrency_exceeded", "评估模型并发已达任务上限", "Evaluator concurrency has reached the task limit")
+    try:
+        result = await llm_gateway._chat_completions_with_key(body, response, key, db, request=request)
+    except BaseException:
+        release_lease(slot, bind=bind)
+        raise
+    if isinstance(result, StreamingResponse):
+        upstream = result.body_iterator
+
+        async def stream():
+            try:
+                async for chunk in upstream:
+                    yield chunk
+            finally:
+                try:
+                    await upstream.aclose()
+                finally:
+                    release_lease(slot, bind=bind)
+
+        result.body_iterator = stream()
+    else:
+        release_lease(slot, bind=bind)
+    return result
 
 
 def _usage_values(usage: SecurityTaskUsage) -> dict[str, int]:

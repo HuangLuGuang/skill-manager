@@ -337,8 +337,10 @@ class SecurityTaskPlanRequest(BaseModel):
         if self.scan_kind == "llm_redteam_scan":
             if self.datasets and self.prompt.strip():
                 raise ValueError("LLM red-team dataset and custom prompt are mutually exclusive")
-        elif self.datasets or self.techniques or self.evaluation_model:
+        elif self.datasets or self.techniques:
             raise ValueError("LLM red-team options are only valid for LLM red-team scans")
+        if self.evaluation_model and self.scan_kind not in {"agent_risk_scan", "llm_redteam_scan"}:
+            raise ValueError("evaluation_model requires an Agent or LLM scan")
         if self.scan_kind != "ai_infrastructure_vulnerability_scan" and (
             self.http_authorized
             or self.private_network_authorized

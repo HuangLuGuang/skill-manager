@@ -226,7 +226,7 @@ export const i18n = createI18n({
         },
       },
       agentSecurityScans: {
-        scope: { title: '测试范围', methods: '攻击方法', seed: '抽样种子', evaluator: '评估模型', defaultEvaluator: '系统默认', all: '全部 {count} 条样本', sampled: '抽取 {count} 条样本' },
+        scope: { title: '测试范围', methods: '攻击方法', seed: '抽样种子', evaluator: '评估模型', all: '全部 {count} 条样本', sampled: '抽取 {count} 条样本' },
         evidence: {
           missing: '缺少具体触发证据。', trigger: '记录的命中依据', context: '记录的输入与响应', suggestion: '处理建议',
           openCase: '查看关联用例', technical: '技术证据', copy: '复制证据 JSON', copied: '证据已复制', copyFailed: '复制失败', caseUnavailable: '当前报告中没有可定位的关联用例',
@@ -349,7 +349,7 @@ export const i18n = createI18n({
           },
           samplePresets: '快捷抽样条数', sampleCount: '{count} 条', allSamples: '全部', customSampleCount: '自定义条数',
           invalidSampleCount: '请输入 1–100 的整数，或选择全部。',
-          defaultEvaluationModel: '使用扫描服务默认评估模型', noEvaluationModels: '网关暂无可用模型，请启用模型及其供应商',
+          selectEvaluationModel: '请选择网关评估模型', evaluationModelHelp: '使用模型网关中已启用的模型进行扫描评估，调用遵循网关隐私策略并记录审计。', noEvaluationModels: '网关暂无可用模型，请启用模型及其供应商',
           scanTimeout: '单端点超时（秒）', scanConcurrency: '扫描并发', httpAuthorized: '我确认已明确授权通过 HTTP（非 HTTPS）探测该目标', privateNetworkAuthorized: '我确认已明确授权探测目标声明的私网地址',
           previewLimitations: '预览边界说明', mcpToolCase: '检查 MCP Tool 元数据：{value}', infrastructureEndpointCase: '基础设施端点：{value}',
           previewCases: { control_plane_validation: '控制面调度、租约和回传验证', agent_info_collection: 'Agent 能力与攻击面信息收集', agent_vulnerability_review: '风险复核与报告归一化' },
@@ -1207,7 +1207,7 @@ export const i18n = createI18n({
         },
       },
       agentSecurityScans: {
-        scope: { title: 'Test scope', methods: 'Attack methods', seed: 'Sampling seed', evaluator: 'Evaluator model', defaultEvaluator: 'System default', all: 'All {count} samples', sampled: '{count} sampled inputs' },
+        scope: { title: 'Test scope', methods: 'Attack methods', seed: 'Sampling seed', evaluator: 'Evaluator model', all: 'All {count} samples', sampled: '{count} sampled inputs' },
         evidence: {
           missing: 'Specific trigger evidence is missing.', trigger: 'Recorded matching evidence', context: 'Recorded input and response', suggestion: 'Recommendation',
           openCase: 'View linked case', technical: 'Technical evidence', copy: 'Copy evidence JSON', copied: 'Evidence copied', copyFailed: 'Copy failed', caseUnavailable: 'The linked case is unavailable in this report',
@@ -1321,7 +1321,7 @@ export const i18n = createI18n({
           },
           samplePresets: 'Sample count presets', sampleCount: '{count} samples', allSamples: 'All', customSampleCount: 'Custom count',
           invalidSampleCount: 'Enter an integer from 1 to 100, or select All.',
-          defaultEvaluationModel: 'Use the scan service default evaluator', noEvaluationModels: 'No gateway models available. Enable a model and its provider.',
+          selectEvaluationModel: 'Select a gateway evaluator model', evaluationModelHelp: 'Evaluate the scan with an enabled gateway model. Calls follow gateway privacy policies and are audited.', noEvaluationModels: 'No gateway models available. Enable a model and its provider.',
           scanTimeout: 'Per-endpoint timeout (seconds)', scanConcurrency: 'Scan concurrency', httpAuthorized: 'I confirm explicit authorization to probe this target over HTTP (not HTTPS)', privateNetworkAuthorized: 'I confirm explicit authorization to probe the target\'s declared private addresses',
           productionApproval: 'Scan approval', productionApprovalRequired: 'A valid one-time human approval is required for an active-safe production scan.',
           productionApprovalHelp: 'The approval is valid only in the current maintenance window and binds the target, policy, dedicated identity, and credential version. It cannot be replayed after task creation.',
