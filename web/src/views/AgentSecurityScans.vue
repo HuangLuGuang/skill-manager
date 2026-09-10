@@ -241,11 +241,11 @@
           </div>
           <a-table
             :columns="taskColumns"
+            class="scan-task-table"
             :data-source="filteredTasks"
             :pagination="tablePagination"
             row-key="task_id"
             table-layout="fixed"
-            :scroll="{ x: 1440 }"
             :locale="{ emptyText: t('agentSecurityScans.tasks.empty') }"
           >
             <template #bodyCell="{ column, record }">
@@ -271,6 +271,7 @@
               <template v-else-if="column.key === 'actions'">
                 <a-space wrap>
                   <a-button type="link" size="small" @click="openTaskDetail(record.task_id)">{{ t('agentSecurityScans.view') }}</a-button>
+                  <a-tooltip v-if="canRetry(record)" :title="t('scanTaskActions.retryHelp')"><a-button type="link" size="small" :loading="retryingTaskId === record.task_id" :disabled="!!retryingTaskId" @click="retryTask(record)">{{ t('scanTaskActions.retry') }}</a-button></a-tooltip>
                   <a-popconfirm v-if="canCancel(record)" :title="t('agentSecurityScans.tasks.cancelConfirm')" @confirm="cancelTask(record)">
                     <a-button type="link" size="small" danger>{{ t('agentSecurityScans.tasks.cancel') }}</a-button>
                   </a-popconfirm>
@@ -312,6 +313,7 @@
               <template v-else-if="column.key === 'title'">
                 <div class="finding-title">
                   <strong>{{ findingTitle(record) }}</strong>
+                  <a-tag v-if="record.evidence?.model_assessment && record.evidence?.confirmed_vulnerability === false">{{ t('mcpScan.unverified') }}</a-tag>
                   <code>{{ record.finding_code }}</code>
                   <a-space v-if="record.risk_codes?.length" wrap><a-tag v-for="code in record.risk_codes" :key="code" color="blue">{{ agenticRiskLabel(code, t, te) }}</a-tag></a-space>
                   <span v-else class="muted">{{ t('agentSecurityScans.findings.unmappedRisk') }}</span>
@@ -319,7 +321,7 @@
               </template>
               <template v-else-if="column.key === 'status'"><a-tag :color="findingStatusColor(record.status)">{{ findingStatusLabel(record.status) }}</a-tag></template>
               <template v-else-if="column.key === 'confidence'">{{ Math.round((record.confidence || 0) * 100) }}%</template>
-              <template v-else-if="column.key === 'source'">{{ record.source === 'ai-infra-guard' ? t('agentSecurityScans.findings.scanEngine') : record.source }}</template>
+              <template v-else-if="column.key === 'source'">{{ ['ai-infra-guard', 'ai-infra-guard-mcp'].includes(record.source) ? t('agentSecurityScans.findings.scanEngine') : record.source }}</template>
               <template v-else-if="column.key === 'scan'">
                 <div class="finding-scan">
                   <a-tooltip v-for="origin in (record.origins || []).filter(item => item.kind === 'scheduled')" :key="origin.schedule_id" :title="origin.name"><a-tag color="blue">{{ t('scanSchedule.resultTag') }}</a-tag></a-tooltip>
@@ -649,6 +651,7 @@
         </template>
         <a-form-item :label="t('agentSecurityScans.tasks.kind')" required><a-select v-model:value="taskForm.scan_kind" :disabled="availableScanKinds.length === 1"><a-select-option v-for="kind in availableScanKinds" :key="kind" :value="kind">{{ scanKindLabel(kind) }}</a-select-option></a-select></a-form-item>
         <McpScanOptions v-if="taskForm.scan_kind === 'mcp_risk_scan'" v-model="mcpForm" :target="selectedTaskTarget" :models="evaluationModels" :can-import="canAdmin" />
+        <a-alert v-if="compressedMcpModels.length" class="modal-alert" type="warning" show-icon :message="t('mcpScan.compressionWarningTitle')" :description="t('mcpScan.compressionWarning', { models: compressedMcpModels.join(', ') })" />
         <a-form-item v-if="taskForm.scan_kind === 'mcp_risk_scan' && needsEvaluator" :label="t('agentSecurityScans.tasks.prompt')"><a-textarea v-model:value="taskForm.prompt" :rows="3" :maxlength="4096" /></a-form-item>
         <a-form-item v-if="needsEvaluator" :label="t('agentSecurityScans.tasks.evaluationModel')" required :extra="t('agentSecurityScans.tasks.evaluationModelHelp')">
           <a-select v-model:value="taskForm.evaluation_model" show-search option-filter-prop="label" :loading="redteamOptionsLoading" :disabled="redteamOptionsLoading" :placeholder="t('agentSecurityScans.tasks.selectEvaluationModel')" :not-found-content="t('agentSecurityScans.tasks.noEvaluationModels')">
@@ -842,6 +845,8 @@
           </section>
           <a-alert v-if="taskDetail.task.error_code" class="modal-alert" type="error" show-icon
             :message="taskErrorExplanation(taskDetail.task)" :description="taskDetail.task.error_code" />
+          <div class="diagnostics-actions"><a-button :loading="downloadingDiagnostics" :disabled="downloadingDiagnostics" @click="downloadDiagnostics(taskDetail.task.task_id)">{{ t('scanTaskActions.downloadLogs') }}</a-button><span class="muted">{{ t('scanTaskActions.logsHelp') }}</span></div>
+          <a-tooltip v-if="canRetry(taskDetail.task)" :title="t('scanTaskActions.retryHelp')"><a-button class="modal-alert" :loading="retryingTaskId === taskDetail.task.task_id" :disabled="!!retryingTaskId" @click="retryTask(taskDetail.task)">{{ t('scanTaskActions.retry') }}</a-button></a-tooltip>
           <a-alert v-if="taskDetail.task.stop_reason && !taskDetail.task.error_code" class="modal-alert" type="warning" show-icon
             :message="taskReasonLabel(taskDetail.task.stop_reason)" />
           <a-alert
@@ -929,7 +934,7 @@
               <a-alert v-else-if="isLlmTaskDetail" class="modal-alert" type="warning" show-icon :message="t('agentSecurityScans.detail.llmRedteamBoundary')" />
               <a-alert v-else-if="isInfrastructureTaskDetail" class="modal-alert" type="warning" show-icon :message="t('agentSecurityScans.detail.infrastructureBoundary')" />
               <McpCallEvidence v-if="isMcpTaskDetail && canAdmin && !taskDetail.task.scan_options?.metadata_only" :task-id="taskDetail.task.task_id" />
-              <a-descriptions v-if="isMcpTaskDetail" class="case-coverage-summary" bordered size="small" :column="{ xs: 2, sm: 3, md: 4 }">
+              <a-descriptions v-if="isMcpTaskDetail && !showProgressCases" class="case-coverage-summary" bordered size="small" :column="{ xs: 2, sm: 3, md: 4 }">
                 <a-descriptions-item :label="t('agentSecurityScans.detail.mcpCaseSummary.planned')">{{ mcpCaseSummary.planned }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.mcpCaseSummary.noRiskObserved')">{{ mcpCaseSummary.no_risk_observed }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.mcpCaseSummary.riskSignals')">{{ mcpCaseSummary.risk_signal_detected }}</a-descriptions-item>
@@ -952,11 +957,14 @@
                   <a-list-item :key="item.case_id">
                     <a-list-item-meta>
                       <template #title>
-                        <div class="case-title-row"><strong>{{ caseTitle(item) }}</strong><a-tag :color="isMcpTaskDetail ? caseAssessmentColor(item.assessment_status) : caseStatusColor(item.status)">{{ showProgressCases ? t(`agentSecurityScans.live.statuses.${item.status}`) : isMcpTaskDetail ? caseAssessmentLabel(item.assessment_status) : caseLegacyStatusLabel(item.status) }}</a-tag></div>
+                        <div class="case-title-row"><strong>{{ caseTitle(item) }}</strong><a-tag :color="showProgressCases ? caseStatusColor(item.status) : isMcpTaskDetail ? caseAssessmentColor(item.assessment_status) : caseStatusColor(item.status)">{{ showProgressCases ? isMcpTaskDetail ? t(`mcpScan.stageStatuses.${item.status}`, t('mcpScan.stageStatuses.unverified')) : t(`agentSecurityScans.live.statuses.${item.status}`) : isMcpTaskDetail ? caseAssessmentLabel(item.assessment_status) : caseLegacyStatusLabel(item.status) }}</a-tag></div>
                       </template>
                       <template #description>
-                        <template v-if="isMcpTaskDetail">
-                          <div>{{ t('agentSecurityScans.detail.mcpToolName') }}：{{ item.request_summary?.asset?.exposed_name || item.request_summary?.asset?.tool_name || item.title }}</div>
+                        <template v-if="isMcpTaskDetail && showProgressCases">
+                          <div>{{ t('mcpScan.stageProgressHelp') }}</div>
+                        </template>
+                        <template v-else-if="isMcpTaskDetail">
+                          <div>{{ t('agentSecurityScans.detail.mcpToolName') }}：{{ item.request_summary?.asset?.exposed_name || item.request_summary?.asset?.tool_name || caseTitle(item) }}</div>
                           <div>{{ t('agentSecurityScans.detail.caseFindingCount', { value: item.finding_count ?? 0 }) }} · {{ t('agentSecurityScans.detail.activeFindingCount', { value: item.active_finding_count ?? 0 }) }}</div>
                           <div>{{ t('agentSecurityScans.detail.scanMode') }}：{{ scanModeLabel(item.scan_mode) }} · {{ t('agentSecurityScans.detail.mcpToolCalls', { value: item.tool_calls_performed ?? 0 }) }}</div>
                           <div class="muted">{{ t(taskDetail.task.scan_options?.metadata_only ? 'agentSecurityScans.detail.mcpCaseBoundary' : 'mcpScan.boundary') }}</div>
@@ -980,7 +988,7 @@
                         <div v-if="item.response_summary?.error_type || item.response_summary?.error_message" class="case-error">{{ t('agentSecurityScans.detail.caseError', { type: item.response_summary?.error_type || '—', message: item.response_summary?.error_message || '—' }) }}</div>
                       </template>
                     </a-list-item-meta>
-                    <a-space v-if="isMcpTaskDetail" direction="vertical" align="end">
+                    <a-space v-if="isMcpTaskDetail && !showProgressCases" direction="vertical" align="end">
                       <a-tag :color="caseExecutionColor(item.execution_status)">{{ t('agentSecurityScans.detail.caseExecution', { value: caseExecutionLabel(item.execution_status) }) }}</a-tag>
                     </a-space>
                   </a-list-item>
@@ -1037,8 +1045,9 @@
           <a-tab-pane key="summary" :tab="t('agentSecurityScans.detail.readableReport')">
             <div v-if="artifactRows.length" class="artifact-overview">
               <span>{{ t('agentSecurityScans.detail.artifactRecorded', { value: artifactOverview.recorded }) }}</span>
-              <span>{{ t('agentSecurityScans.detail.artifactSafe', { value: artifactOverview.safe }) }}</span>
-              <span>{{ t('agentSecurityScans.detail.artifactRisk', { value: artifactOverview.risk }) }}</span>
+              <span v-if="artifactRows[0]?.reportKind === 'mcp'">{{ t('mcpScan.pendingResults', { value: artifactRows.length }) }}</span>
+              <template v-else><span>{{ t('agentSecurityScans.detail.artifactSafe', { value: artifactOverview.safe }) }}</span>
+              <span>{{ t('agentSecurityScans.detail.artifactRisk', { value: artifactOverview.risk }) }}</span></template>
               <span v-if="artifactOverview.evaluated">{{ t('agentSecurityScans.detail.artifactRiskRate', { value: artifactOverview.rate }) }}</span>
             </div>
             <a-empty v-if="!artifactRows.length && !artifactError && !artifactLoading" :description="t('agentSecurityScans.detail.noReadableReport')" />
@@ -1047,8 +1056,12 @@
                 <a-list-item>
                   <a-list-item-meta :title="artifactRowTitle(item)">
                     <template #description>
-                      <div class="artifact-row-meta"><a-tag :color="artifactStatusColor(item.status)">{{ artifactStatusLabel(item.status) }}</a-tag></div>
-                      <a-collapse ghost>
+                      <div class="artifact-row-meta"><a-tag :color="artifactStatusColor(item.status)">{{ item.reportKind === 'mcp' ? t('mcpScan.unverified') : artifactStatusLabel(item.status) }}</a-tag></div>
+                      <template v-if="item.reportKind === 'mcp'">
+                        <p class="source-text">{{ item.description }}</p>
+                        <div v-if="item.suggestion"><strong>{{ t('mcpScan.remediation') }}</strong><p class="source-text">{{ item.suggestion }}</p></div>
+                      </template>
+                      <a-collapse v-else ghost>
                         <a-collapse-panel key="source" :header="t('agentSecurityScans.detail.caseDetails')">
                           <dl class="case-detail-grid">
                             <template v-if="item.originalInput && item.originalInput !== item.input"><dt>{{ t('agentSecurityScans.detail.originalPrompt') }}</dt><dd class="source-text">{{ item.originalInput }}</dd></template>
@@ -1077,6 +1090,7 @@ import { nextTick, computed, onMounted, onUnmounted, reactive, ref, watch } from
 import { message, Modal } from 'ant-design-vue'
 import { DownloadOutlined, InfoCircleOutlined, PlusOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { useI18n } from 'vue-i18n'
+import { localizeApiError } from '../i18n/errors.js'
 import { useRoute, useRouter } from 'vue-router'
 
 import { agenticRiskLabel } from '../agenticRiskTaxonomy'
@@ -1103,6 +1117,8 @@ import {
   exportSecurityScanReportPdf,
   testSecurityTargetConnectivity,
   createSecurityTask,
+  retrySecurityTask,
+  downloadSecurityDiagnostics,
   getDifyMcpBindingOptions,
   getMe,
   getSecurityArtifactContent,
@@ -1238,14 +1254,14 @@ const policyColumns = computed(() => [
   { title: t('agentSecurityScans.policies.name'), key: 'name', width: 160, ellipsis: true }, { title: t('agentSecurityScans.environment'), key: 'environment', width: 175 }, { title: t('agentSecurityScans.policies.mode'), key: 'execution_mode', width: 140 }, { title: t('agentSecurityScans.allowedCapabilities'), key: 'allowed_capabilities', width: 120 }, { title: t('agentSecurityScans.policies.budget'), key: 'budget', width: 220 }, { title: t('agentSecurityScans.policies.network'), key: 'network', width: 250 }, { title: t('agentSecurityScans.status'), key: 'enabled', width: 110 }, { title: t('agentSecurityScans.actions'), key: 'actions', width: 160, fixed: 'right' },
 ])
 const taskColumns = computed(() => [
-  { title: t('agentSecurityScans.detail.task'), key: 'task_id', width: 190, ellipsis: true },
-  { title: t('agentSecurityScans.tasks.target'), key: 'target_id', width: 150, ellipsis: true },
-  { title: t('agentSecurityScans.tasks.kind'), key: 'scan_kind', width: 200 },
-  { title: t('agentSecurityScans.scope.evaluator'), key: 'evaluation_model', width: 180, ellipsis: true },
-  { title: t('agentSecurityScans.status'), key: 'status', width: 110 },
-  { title: t('agentSecurityScans.tasks.usage'), key: 'progress', width: 220 },
-  { title: t('agentSecurityScans.createdAt'), key: 'created_at', width: 210 },
-  { title: t('agentSecurityScans.actions'), key: 'actions', width: 180, fixed: 'right' },
+  { title: t('agentSecurityScans.detail.task'), key: 'task_id', width: '15%', ellipsis: true },
+  { title: t('agentSecurityScans.tasks.target'), key: 'target_id', width: '11%', ellipsis: true },
+  { title: t('agentSecurityScans.tasks.kind'), key: 'scan_kind', width: '14%' },
+  { title: t('agentSecurityScans.scope.evaluator'), key: 'evaluation_model', width: '14%', ellipsis: true },
+  { title: t('agentSecurityScans.status'), key: 'status', width: '8%' },
+  { title: t('agentSecurityScans.tasks.usage'), key: 'progress', width: '13%' },
+  { title: t('agentSecurityScans.createdAt'), key: 'created_at', width: '14%' },
+  { title: t('agentSecurityScans.actions'), key: 'actions', width: '11%' },
 ])
 const findingColumns = computed(() => [
   { title: t('agentSecurityScans.findings.scan'), key: 'scan', width: 280 },
@@ -1344,6 +1360,12 @@ const emptyMcpOptions = () => ({ mcp_mode: 'metadata', mcp_depth: 'full', mcp_so
 const mcpForm = ref(emptyMcpOptions())
 const needsEvaluator = computed(() => ['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind) || (taskForm.scan_kind === 'mcp_risk_scan' && mcpForm.value.mcp_mode !== 'metadata'))
 const evaluatorSelectionMissing = computed(() => needsEvaluator.value && (redteamOptionsLoading.value || !taskForm.evaluation_model))
+const compressedMcpModels = computed(() => {
+  if (taskForm.scan_kind !== 'mcp_risk_scan' || mcpForm.value.mcp_mode === 'metadata') return []
+  const selected = new Set([taskForm.evaluation_model, mcpForm.value.analysis_model,
+    ...(mcpForm.value.mcp_mode === 'redteam' ? [mcpForm.value.attack_model] : [])])
+  return evaluationModels.value.filter(model => selected.has(model.name) && model.compression_enabled).map(model => model.name)
+})
 const killSwitchModalOpen = ref(false)
 const killSwitchTask = ref(null)
 const killSwitchReason = ref('')
@@ -1572,7 +1594,7 @@ const taskReasonLabel = value => {
 }
 const taskErrorExplanation = task => {
   const key = taskReasonKeys[task.error_code]
-  return key ? t(`agentSecurityScans.detail.reasons.${key}`) : task.error_message || '—'
+  return key ? t(`agentSecurityScans.detail.reasons.${key}`) : localizeApiError({ code: task.error_code, message: task.error_message }, locale.value) || '—'
 }
 const findingTitle = finding => {
   if (finding?.finding_code === 'llm_redteam.jailbreak_signal') return t('agentSecurityScans.detail.findingTitles.jailbreakSignal')
@@ -1585,6 +1607,7 @@ const findingDescription = finding => {
 }
 const caseHasDetails = item => Boolean(item?.request_summary?.prompt || item?.response_summary?.response || item?.response_summary?.evaluator_reason)
 const caseTitle = item => {
+  if (item?.external_case_id === 'mcp-aig' || ['mcp_source', 'mcp_dynamic', 'mcp_redteam'].includes(item?.category)) return t('mcpScan.report')
   if (String(item?.case_id).startsWith('progress:mcp-stage-')) return t('mcpScan.stage', { value: item.case_id.slice('progress:mcp-stage-'.length) })
   if (item?.category !== 'llm_redteam_prompt') return item?.title || t('agentSecurityScans.detail.case')
   const match = String(item?.external_case_id || '').match(/:(\d+)$/)
@@ -1632,7 +1655,7 @@ const targetCredentialLabel = record => record.target_type === 'mcp_gateway'
 const scanKindLabel = value => value === 'mcp_risk_scan' ? t('mcpScan.title') : t(`agentSecurityScans.scanKinds.${value}`)
 const statusLabel = value => t(`agentSecurityScans.statuses.${value}`, value)
 const caseLegacyStatusLabel = value => t(`agentSecurityScans.detail.caseLegacyStatuses.${value}`, value)
-const caseExecutionLabel = value => t(`agentSecurityScans.detail.caseExecutionStatuses.${value}`, value)
+const caseExecutionLabel = value => value ? t(`agentSecurityScans.detail.caseExecutionStatuses.${value}`, value) : '—'
 const caseAssessmentLabel = value => t(`agentSecurityScans.detail.caseAssessmentStatuses.${value}`, value)
 const scanModeLabel = value => ['source', 'dynamic', 'redteam'].includes(value) ? t(`mcpScan.${value}`) : t(`agentSecurityScans.detail.scanModes.${value}`, value || '—')
 const severityLabel = value => t(`agentSecurityScans.severities.${value}`, value)
@@ -1920,6 +1943,34 @@ const saveTask = async () => {
   } finally { submittingTask.value = false }
 }
 const canCancel = record => currentUser.value?.role !== 'security_auditor' && ['pending', 'running'].includes(record.status)
+const retryingTaskId = ref(null)
+const downloadingDiagnostics = ref(false)
+const downloadDiagnostics = async taskId => {
+  if (downloadingDiagnostics.value) return
+  downloadingDiagnostics.value = true
+  try {
+    const blob = await downloadSecurityDiagnostics(taskId)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `scan-${taskId}.json`
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (error) { message.error(errorText(error)) }
+  finally { downloadingDiagnostics.value = false }
+}
+const canRetry = record => currentUser.value?.role !== 'security_auditor' && ['failed', 'timed_out'].includes(record.status)
+const retryTask = async record => {
+  if (retryingTaskId.value || !canRetry(record)) return
+  retryingTaskId.value = record.task_id
+  try {
+    const created = await retrySecurityTask(record.task_id)
+    await loadCoreData()
+    await openTaskDetail(created.task_id)
+    message.success(t(created.retry_reused ? 'scanTaskActions.retryReused' : 'scanTaskActions.retryCreated'))
+  } catch (error) { message.error(errorText(error)) }
+  finally { retryingTaskId.value = null }
+}
 const cancelTask = async record => { try { await cancelSecurityTask(record.task_id); await loadCoreData(); message.success(t('agentSecurityScans.tasks.cancelled')) } catch (error) { message.error(errorText(error)) } }
 const canKill = record => canAdmin.value && ['pending', 'running'].includes(record.status) && !record.kill_switch_activated
 const openKillSwitchModal = record => { killSwitchTask.value = record; killSwitchReason.value = ''; killSwitchModalOpen.value = true }
@@ -2175,6 +2226,11 @@ watch(() => route.query.schedule_id, async id => { if (id) { await nextTick(); a
 @media (max-width: 640px) { .credential-inventory > div { grid-template-columns: minmax(0, 1fr) auto; }.credential-inventory code { grid-column: 1 / -1; grid-row: 2; } }
 .manual-dsl { margin-top: 12px; }
 .budget-stack, .usage-cell { display: grid; gap: 2px; color: #51647c; font-size: 12px; }
+.scan-task-table :deep(.ant-table-cell) { padding: 12px 10px; overflow-wrap: anywhere; }
+.scan-task-table :deep(.ant-tag) { max-width: 100%; margin-inline-end: 0; white-space: normal; }
+.scan-task-table :deep(.ant-space), .scan-task-table :deep(.ant-space-item) { max-width: 100%; min-width: 0; }
+.scan-task-table :deep(.ant-btn) { max-width: 100%; height: auto; white-space: normal; }
+.scan-task-table .usage-cell { min-width: 0; }
 .case-list :deep(.ant-list-item) { align-items: flex-start; gap: 14px; }
 .case-list :deep(.ant-list-item-meta) { min-width: 0; }
 .case-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: #20324a; }
@@ -2219,6 +2275,9 @@ watch(() => route.query.schedule_id, async id => { if (id) { await nextTick(); a
 .approval-select { min-width: 0; flex: 1 1 auto; }
 .field-help-error { margin-top: 6px; color: #cf1322; font-size: 12px; }
 .modal-alert { margin-bottom: 16px; }
+.diagnostics-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; margin: 0 0 20px; }
+.diagnostics-actions > .ant-btn { flex-shrink: 0; }
+.diagnostics-actions > .muted { flex: 1 1 320px; min-width: 0; line-height: 1.6; overflow-wrap: anywhere; }
 .kill-switch-form { margin-top: 16px; }
 .task-preview { margin-top: 18px; padding: 16px; border: 1px solid #dbe5f1; border-radius: 10px; background: #f8fbff; }
 .preview-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 14px; }

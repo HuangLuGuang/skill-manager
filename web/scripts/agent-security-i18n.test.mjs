@@ -16,6 +16,7 @@ if (!globalThis.navigator) {
 const { i18n } = await import('../src/i18n/index.js')
 const focusedNamespaces = [
   'mcpScan',
+  'scanTaskActions',
   'agentSecurity',
   'agentSecurityScans',
   'runtimeTraceExplorer',

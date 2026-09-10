@@ -1,5 +1,11 @@
 import { scanScheduleMessages } from './scanSchedule.js'
 const errorMessages = {
+  'mcp_scan.gateway_approval_required': { 'zh-CN': 'MCP 网关要求管理员审批本次工具调用，工具尚未执行。请联系管理员到 MCP 网关查看待审批请求及工具授权配置。当前扫描已结束，完成审批不会自动恢复任务。', 'en-US': 'The MCP gateway requires administrator approval for this tool call. The tool has not run. Ask an administrator to review the pending request and tool authorization settings in the MCP gateway. This scan has ended; approval will not automatically resume it.' },
+  'mcp_scan.rounds_limit_reached': { 'zh-CN': '扫描轮次额度已用尽或不足以完成下一轮，扫描尚未完成。请提高扫描策略中的“最大轮次”后重试。', 'en-US': 'The scan round budget is exhausted or insufficient for the next round. The scan is incomplete. Increase the maximum rounds in the scan policy and retry.' },
+  'mcp_scan.tokens_limit_reached': { 'zh-CN': '已达到最大 Token 用量，扫描尚未完成。请提高扫描策略中的 Token 上限后重试。', 'en-US': 'The token limit has been reached and the scan is incomplete. Increase the token limit in the scan policy and retry.' },
+  'mcp_scan.response_bytes_limit_reached': { 'zh-CN': '已达到响应数据量上限，扫描尚未完成。请提高扫描策略中的响应数据量上限后重试。', 'en-US': 'The response size limit has been reached and the scan is incomplete. Increase the response size limit in the scan policy and retry.' },
+  'agent_security.retry_status_invalid': { 'zh-CN': '只有失败或超时的扫描任务可以重试。', 'en-US': 'Only failed or timed-out scans can be retried.' },
+  'mcp_scan.engine_terminated': { 'zh-CN': 'MCP 扫描进程意外退出，未生成完整报告。请联系管理员检查扫描服务的运行环境和资源状态，修复后重新发起扫描。', 'en-US': 'The MCP scan process exited unexpectedly without a complete report. Ask an administrator to check the scan service environment and resources, then start a new scan after the issue is fixed.' },
   'mcp_scan.engine_failed': { 'zh-CN': 'MCP 扫描执行失败，请检查模型连通性和工具调用证据。', 'en-US': 'MCP scan execution failed. Check model connectivity and tool-call evidence.' },
   'mcp_scan.engine_terminated': { 'zh-CN': 'MCP 扫描进程已终止，请检查 Worker 资源和健康状态。', 'en-US': 'The MCP scan process terminated. Check Worker resources and health.' },
   'mcp_scan.execution_denied': { 'zh-CN': 'MCP 执行被租约、权限或预算限制阻止，请检查任务状态和授权范围。', 'en-US': 'MCP execution was denied by lease, permission or budget controls. Check task status and scope.' },
@@ -8,6 +14,7 @@ const errorMessages = {
   'mcp_scan.model_empty_response': { 'zh-CN': 'MCP 评估模型返回空内容，请检查模型配置。', 'en-US': 'The MCP evaluator returned empty content. Check model settings.' },
   'mcp_scan.source_hash_mismatch': { 'zh-CN': 'MCP 源码完整性校验失败，请重新导入源码。', 'en-US': 'MCP source integrity verification failed. Import the source again.' },
   'mcp_scan.source_path_invalid': { 'zh-CN': 'MCP 源码包含无效路径，请检查源码包。', 'en-US': 'MCP source contains an invalid path. Check the source bundle.' },
+  'mcp_scan.capability_denied': { 'zh-CN': '当前扫描目标或策略未允许这些工具所需的操作。请检查网络访问、工具读取和工具写入权限；只读策略只能选择只读工具。', 'en-US': 'The scan target or policy does not permit the operations these tools need. Check network access, tool read and tool write permissions. Read-only policies only allow read-only tools.' },
   'policy.simulation_invalid': { 'zh-CN': '模拟参数无效，请检查分析器状态、发现项和策略配置。', 'en-US': 'Invalid simulation inputs. Check analyzer states, findings, and policy settings.' },
   'skill_not_found': { 'zh-CN': 'Skill 不存在', 'en-US': 'Skill not found' },
   'agent_security.llm_coverage_incomplete': { 'zh-CN': '测试覆盖不完整：实际用例少于计划数量，请检查扫描引擎并重新扫描', 'en-US': 'Incomplete test coverage: fewer cases than planned. Check the scan engine and run again.' },

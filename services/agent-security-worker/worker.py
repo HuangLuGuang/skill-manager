@@ -338,7 +338,8 @@ def _run_mcp_scan(claim: dict[str, Any]) -> None:
         response = _request(
             f"/worker/tasks/{task_id}/heartbeat",
             {"lease_token": lease_token, "usage": monotonic_usage,
-             **({"scan_progress": claim["mcp_progress"]} if claim.get("mcp_progress") else {})},
+             **({"scan_progress": claim["mcp_progress"]} if claim.get("mcp_progress") else {}),
+             **({"diagnostics": claim["diagnostics"]} if claim.get("diagnostics") else {})},
         )
         claim["last_usage"] = monotonic_usage
         _touch_health()

@@ -12,6 +12,28 @@ from types import SimpleNamespace
 
 import pytest
 
+
+def test_source_child_bootstraps_project_imports_from_task_directory(tmp_path):
+    import shutil
+    import subprocess
+    project = tmp_path / "project"
+    worker_dir = project / "services" / "agent-security-worker"
+    worker_dir.mkdir(parents=True)
+    (project / "pyproject.toml").write_text("[project]\nname = 'fixture'\n")
+    package = project / "agent_manager"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    (package / "security_redaction.py").write_text("class ScanStopped(Exception): pass\n")
+    (worker_dir / "aig_adapter.py").write_text("from agent_manager.security_redaction import ScanStopped\n")
+    shutil.copyfile(Path(__file__).resolve().parents[1] / "services/agent-security-worker/mcp_executor.py", worker_dir / "mcp_executor.py")
+    task_dir = tmp_path / "task"
+    task_dir.mkdir()
+    # No config is supplied: successful bootstrap must report the structured configuration error.
+    child = subprocess.run([sys.executable, "-S", str(worker_dir / "mcp_executor.py"), str(task_dir)],
+                           cwd=task_dir, capture_output=True, text=True)
+    assert child.returncode == 1
+    assert json.loads((task_dir / "error.json").read_text())["code"] == "mcp_scan.engine_failed"
+
 from backend import models
 from backend.api_errors import ApiError
 from backend.services import mcp_scan_sources as sources
@@ -21,6 +43,85 @@ from tests.test_ai_infra_guard_mcp_adapter import p3_api, _configured_gateway, _
 WORKER = Path(__file__).resolve().parents[1] / "services/agent-security-worker"
 sys.path.insert(0, str(WORKER))
 from mcp_executor import BoundedDispatcher, ExecutionStopped, TaskRuntime, normalize_result
+
+
+def test_xml_tool_arguments_are_decoded_before_control_plane_request(tmp_path):
+    sys.path.insert(0, str(WORKER / "vendor/ai-infra-guard/mcp-scan"))
+    from mcp_scan.utils.parse import parse_tool_invocations
+    from backend.services.mcp_scan_control import McpTaskRequest
+    invocation = parse_tool_invocations('<function=call_mcp_tool><parameter=tool_name>bing_search__bing_search</parameter>'
+        '<parameter=arguments>{"query": "MCP Model Context Protocol", "count": 3}</parameter></function>')
+    assert isinstance(invocation['args']['arguments'], str)
+    received = []
+    def request(suffix, body):
+        validated = McpTaskRequest(lease_token='test-lease', **body)
+        received.append(validated.arguments)
+        return {'call_id': body['call_id'], 'status': 'succeeded', 'response': {}}
+    runtime = SimpleNamespace(options={'mcp_mode': 'dynamic'}, calls=[], request=request)
+    dispatcher = BoundedDispatcher(runtime, tmp_path)
+    asyncio.run(dispatcher.call_tool(invocation['toolName'], invocation['args']))
+    assert received == [{'query': 'MCP Model Context Protocol', 'count': 3}]
+    for invalid in ['{invalid', '[]', 'null']:
+        result = asyncio.run(dispatcher.call_tool('call_mcp_tool', {'arguments': invalid}))
+        assert result.startswith('Invalid arguments:')
+    assert len(received) == 1
+
+
+def test_tool_approval_required_stops_with_specific_reason(tmp_path):
+    runtime = SimpleNamespace(options={'mcp_mode': 'dynamic'}, calls=[], request=lambda suffix, body: {
+        'call_id': body['call_id'], 'status': 'denied', 'response': {'error': {
+            'code': -32002, 'data': {'approval_required': True, 'status': 'pending'}}}})
+    with pytest.raises(ExecutionStopped, match='^mcp_gateway_approval_required$'):
+        asyncio.run(BoundedDispatcher(runtime, tmp_path).call_tool('call_mcp_tool', {'tool_name': 'lookup', 'arguments': {}}))
+    assert runtime.calls[0]['status'] == 'denied'
+
+
+def test_schema_error_string_returns_to_model_without_crashing(tmp_path):
+    response = {'error': {'code': -32602, 'message': 'Tool 参数不符合 Schema', 'data': "'query' is a required property"}}
+    runtime = SimpleNamespace(options={'mcp_mode': 'dynamic'}, calls=[], request=lambda suffix, body: {
+        'call_id': body['call_id'], 'status': 'denied', 'response': response})
+    result = asyncio.run(BoundedDispatcher(runtime, tmp_path).call_tool('call_mcp_tool', {'tool_name': 'lookup', 'arguments': {}}))
+    assert json.loads(result)['response'] == response
+    assert runtime.calls[0]['status'] == 'denied'
+
+
+def test_wrapped_inventory_operation_is_corrected_without_target_call(tmp_path):
+    requests = []
+    runtime = SimpleNamespace(options={'mcp_mode': 'dynamic'}, calls=[], request=lambda suffix, body: requests.append(body) or {'tools': []})
+    dispatcher = BoundedDispatcher(runtime, tmp_path)
+    result = asyncio.run(dispatcher.call_tool('call_mcp_tool', {'tool_name': 'list_mcp_tools', 'arguments': {}}))
+    assert '<function=list_mcp_tools></function>' in result
+    assert not requests
+    assert json.loads(asyncio.run(dispatcher.call_tool('list_mcp_tools', {}))) == {'tools': []}
+    assert requests == [{'method': 'tools/list'}]
+
+
+@pytest.mark.parametrize("field,limit", [("rounds", "max_rounds"), ("tokens", "max_tokens"), ("response_bytes", "max_response_bytes")])
+def test_model_budget_reports_specific_limit_before_request(tmp_path, field, limit):
+    runtime = TaskRuntime({"claim": {"scan_options": {}, "policy": {limit: 5}},
+                           "usage": {"rounds": 0, "tokens": 0, "response_bytes": 0, field: 5}}, tmp_path)
+    try:
+        with pytest.raises(ExecutionStopped, match=f"^mcp_{field}_limit_reached$"):
+            runtime.chat("model", [])
+    finally:
+        runtime.client.close()
+
+
+def test_diagnostics_omit_http_payload_and_exception_text(tmp_path):
+    import httpx
+    runtime = TaskRuntime({'claim': {'scan_options': {}}, 'usage': {}}, tmp_path)
+    runtime.client.close()
+    def fail(request):
+        raise httpx.ConnectError('secret-token-in-error', request=request)
+    runtime.client = httpx.Client(transport=httpx.MockTransport(fail))
+    try:
+        with pytest.raises(httpx.ConnectError):
+            runtime.post('model', 'https://example.invalid', json={'prompt': 'private-input'}, headers={'Authorization': 'secret-token'})
+        content = (tmp_path / 'diagnostics.json').read_text()
+        assert 'private-input' not in content and 'secret-token' not in content
+        assert json.loads(content)[-1]['error_type'] == 'ConnectError'
+    finally:
+        runtime.client.close()
 
 
 def archive(entries):
@@ -116,6 +217,9 @@ def test_source_task_preview_claim_and_result_contract(p3_api):
     complete = client.post(f"/api/v1/agent-security/worker/tasks/{claim['task']['task_id']}/complete",
         headers={"Authorization": "Bearer " + worker["token_once"]}, json={"lease_token": claim["lease_token"], **result})
     assert complete.status_code == 200, complete.text
+    detail = client.get(f"/api/v1/agent-security/tasks/{claim['task']['task_id']}").json()
+    assert detail['risk_score']['score'] is None
+    assert detail['risk_score']['unverified_findings'] == 1
 
 
 def test_dynamic_call_scope_deduplication_schema_and_evidence(p3_api, monkeypatch):

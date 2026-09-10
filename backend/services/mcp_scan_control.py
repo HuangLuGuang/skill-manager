@@ -163,7 +163,11 @@ def register_routes(router):
         tools = {t["exposed_name"]: (s, t) for s in assets.get("servers", []) for t in s.get("tools", []) if not t.get("missing")}
         selected = set(options.get("mcp_tools") or [])
         if body.method == "tools/list":
-            return {"tools": [{"name": name, "description": t.get("description", ""), "inputSchema": t.get("input_schema", {})}
+            return {"authentication_context": {"route": options.get("mcp_route", "gateway"),
+                        "credentials_applied_by_gateway": True, "unauthenticated_access_tested": False,
+                        "servers": [{"name": s.get("server_slug"), "authentication_configured": s.get("authentication_configured")}
+                                    for s in assets.get("servers", [])]},
+                    "tools": [{"name": name, "description": t.get("description", ""), "inputSchema": t.get("input_schema", {})}
                               for name, (_s, t) in tools.items() if name in selected]}
         if body.method != "tools/call" or body.tool_name not in selected or body.tool_name not in tools or not body.call_id:
             raise ApiError(403, "mcp_scan.tool_not_authorized", "工具或调用未获授权", "Tool or call is not authorized")
@@ -175,7 +179,7 @@ def register_routes(router):
         caps = set(policy.get("effective_capabilities", []))
         required = "tool_read" if tool.access_mode == "read" else "tool_write"
         if required not in caps or "network_egress" not in caps or (policy.get("execution_mode") in {"passive", "read_only"} and required != "tool_read"):
-            raise ApiError(403, "mcp_scan.capability_denied", "策略不允许此工具操作", "Policy does not permit this tool operation")
+            raise ApiError(403, "mcp_scan.capability_denied", "当前扫描目标或策略未允许这些工具所需的操作。请检查网络访问、工具读取和工具写入权限；只读策略只能选择只读工具。", "The scan target or policy does not permit the operations these tools need. Check network access, tool read and tool write permissions. Read-only policies only allow read-only tools.")
         server = db.query(models.McpServer).filter_by(id=tool.server_id, status="active").first()
         if not server:
             raise ApiError(409, "mcp_scan.server_unavailable", "MCP 服务未启用", "MCP server is unavailable")

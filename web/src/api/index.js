@@ -79,6 +79,8 @@ export const createSecurityScanApproval = data => api.post('/v1/agent-security/s
 export const listSecurityTasks = (params = {}) => api.get('/v1/agent-security/tasks', { params })
 export const previewSecurityTask = data => api.post('/v1/agent-security/tasks/preview', data)
 export const createSecurityTask = data => api.post('/v1/agent-security/tasks', data)
+export const retrySecurityTask = id => api.post(`/v1/agent-security/tasks/${id}/retry`)
+export const downloadSecurityDiagnostics = id => api.get(`/v1/agent-security/tasks/${id}/diagnostics`, { responseType: 'blob' })
 export const getSecurityTask = taskId => api.get(`/v1/agent-security/tasks/${taskId}`)
 export const getSecurityTaskInventory = (taskId, params = {}) =>
   api.get(`/v1/agent-security/tasks/${taskId}/inventory`, { params })

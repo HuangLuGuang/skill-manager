@@ -578,11 +578,25 @@ class SecurityTaskUsage(BaseModel):
     response_bytes: int = Field(default=0, ge=0)
 
 
+class SecurityScanDiagnostic(BaseModel):
+    model_config = {"extra": "forbid"}
+    event: Literal["stage_started", "stage_completed", "request_started", "request_completed", "request_failed", "engine_failed", "engine_exited"]
+    elapsed_ms: int = Field(ge=0)
+    operation: Literal["model", "tool", "source", "stage", "engine"]
+    status_code: int | None = None
+    stage_id: str | None = Field(default=None, max_length=32, pattern=r"^[a-zA-Z0-9_-]+$")
+    error_type: str | None = Field(default=None, max_length=128, pattern=r"^[a-zA-Z0-9_]+$")
+    returncode: int | None = None
+    source_file: str | None = Field(default=None, max_length=128, pattern=r"^[a-zA-Z0-9_.-]+$")
+    source_line: int | None = Field(default=None, ge=1)
+
+
 class SecurityWorkerHeartbeatRequest(BaseModel):
     lease_token: str = Field(min_length=16, max_length=512)
     usage: SecurityTaskUsage = Field(default_factory=SecurityTaskUsage)
     session_state: str | None = Field(default=None, max_length=2048)
     scan_progress: SecurityLiveProgress | None = None
+    diagnostics: list[SecurityScanDiagnostic] | None = Field(default=None, max_length=500)
 
 
 class SecurityWorkerHeartbeatResponse(BaseModel):

@@ -1,4 +1,5 @@
 import { createI18n } from 'vue-i18n'
+import { scanTaskActionsMessages } from './scanTaskActions.js'
 import { mcpScanMessages } from './mcpScan.js'
 import { scanScheduleMessages } from './scanSchedule.js'
 import { assetLifecycleMessages } from './assetLifecycle.js'
@@ -27,6 +28,7 @@ export const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
+      scanTaskActions: scanTaskActionsMessages['zh-CN'],
       mcpScan: mcpScanMessages['zh-CN'],
       skillUpload: {
         jobs: {
@@ -1009,6 +1011,7 @@ export const i18n = createI18n({
       legacy: legacyMessages['zh-CN'],
     },
     'en-US': {
+      scanTaskActions: scanTaskActionsMessages['en-US'],
       mcpScan: mcpScanMessages['en-US'],
       skillUpload: {
         jobs: {

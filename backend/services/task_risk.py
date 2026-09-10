@@ -18,7 +18,12 @@ def report_score(db, task):
         return None
     findings = db.query(models.SecurityFinding).filter_by(task_id=task.task_id).all()
     distinct = {}
+    unverified_findings = 0
     for row in findings:
+        evidence = json.loads(row.evidence_json or '{}')
+        if task.scan_kind == 'mcp_risk_scan' and evidence.get('model_assessment') and evidence.get('confirmed_vulnerability') is False:
+            unverified_findings += 1
+            continue
         key = issue_key(row)
         value = {"issue_id": key, "finding_id": row.finding_id, "severity": row.severity}
         if key not in distinct or score_issues([value])[0] > score_issues([distinct[key]])[0]:
@@ -39,11 +44,12 @@ def report_score(db, task):
     else:
         completed = sum(c.status in {"passed", "failed"} for c in cases)
     complete = bool(cases) and completed == planned_count and task.status == "succeeded"
-    score = score if score or complete else None
+    score = score if score or (complete and not unverified_findings) else None
     binding = db.get(models.AgentScanBinding, task.task_id)
     result = {
         "score": score,
-        "status": "complete" if complete else "partial" if completed or findings else "unassessed",
+        "unverified_findings": unverified_findings,
+        "status": "complete" if complete and not unverified_findings else "partial" if completed or findings else "unassessed",
         "level": "unassessed"
         if score is None
         else "critical"

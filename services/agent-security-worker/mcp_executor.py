@@ -11,8 +11,17 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
+import traceback
 import uuid
 from types import SimpleNamespace
+
+# Source checkouts need the same import root as worker.py when the child runs in a task directory.
+_parents = list(Path(__file__).resolve().parents)
+if len(_parents) >= 3:
+    _project_root = _parents[2]
+    if (_project_root / "pyproject.toml").is_file() and (_project_root / "agent_manager").is_dir():
+        sys.path.insert(0, str(_project_root))
 
 from aig_adapter import ScanStopped
 
@@ -40,13 +49,32 @@ class TaskRuntime:
         self.options = config["claim"]["scan_options"]
         self.usage = dict(config["usage"])
         self.calls = []
+        self.started = time.monotonic()
+        self.diagnostics = []
         self.stages = {}
         self.client = httpx.Client(timeout=60, follow_redirects=False)
 
     def checkpoint(self):
         write_json(self.folder / "usage.json", self.usage)
 
+    def diagnostic(self, event, operation, **details):
+        self.diagnostics.append({"event": event, "operation": operation,
+                                 "elapsed_ms": int((time.monotonic() - self.started) * 1000), **details})
+        self.diagnostics = self.diagnostics[-500:]
+        write_json(self.folder / "diagnostics.json", self.diagnostics)
+
+    def post(self, operation, url, **kwargs):
+        self.diagnostic("request_started", operation)
+        try:
+            response = self.client.post(url, **kwargs)
+        except Exception as error:
+            self.diagnostic("request_failed", operation, error_type=type(error).__name__)
+            raise
+        self.diagnostic("request_completed", operation, status_code=response.status_code)
+        return response
+
     def stage(self, stage_id, status):
+        self.diagnostic("stage_started" if status == "running" else "stage_completed", "stage", stage_id=str(stage_id))
         self.stages[stage_id] = status
         write_json(self.folder / "progress.json", {"observed_total": len(self.stages),
             "completed": sum(v == "passed" for v in self.stages.values()), "errors": 0,
@@ -54,7 +82,7 @@ class TaskRuntime:
             "cases": [{"case_id": "mcp-stage-" + k, "status": v} for k, v in self.stages.items()]})
 
     def request(self, suffix, body):
-        response = self.client.post(self.config["task_url"] + suffix,
+        response = self.post("source" if suffix == "/mcp/source" else "tool", self.config["task_url"] + suffix,
                                     json={"lease_token": self.config["claim"]["lease_token"], **body})
         if response.status_code in {401, 403, 409}:
             raise ExecutionStopped("mcp_task_authorization_or_budget_denied")
@@ -68,12 +96,12 @@ class TaskRuntime:
         policy = self.config["claim"].get("policy") or {}
         for field, maximum in (("rounds", "max_rounds"), ("tokens", "max_tokens"), ("response_bytes", "max_response_bytes")):
             if maximum in policy and self.usage[field] >= policy[maximum]:
-                raise ExecutionStopped("mcp_budget_exhausted")
+                raise ExecutionStopped(f"mcp_{field}_limit_reached")
         self.usage["rounds"] += 1
         self.usage["concurrent_requests"] = 1
         self.checkpoint()
         # The task lease authorizes only the frozen role models; provider keys stay in the gateway.
-        response = self.client.post(self.config["task_url"] + "/evaluator/v1/chat/completions",
+        response = self.post("model", self.config["task_url"] + "/evaluator/v1/chat/completions",
             headers={"Authorization": "Bearer " + self.config["claim"]["lease_token"]},
             json={"model": model, "messages": messages, "stream": False})
         if response.status_code in {401, 403, 409}:
@@ -119,6 +147,10 @@ class BoundedDispatcher:
                     'Use finish when the audit is complete. File paths are relative to the repository.')
         inventory = self.runtime.request("/mcp", {"method": "tools/list"})
         return ('Tools: list_mcp_tools(), call_mcp_tool(tool_name: string, arguments: object). '
+                'The control plane applies stored transport credentials when configured. Tool arguments do not contain these credentials. '
+                'A missing authentication field in inputSchema or a successful authorized call is not evidence of missing authentication. '
+                'Unauthenticated and invalid-credential access are not tested in this task. State authentication enforcement as unverified. '
+                'Distinguish observations from hypotheses; generic connection errors do not prove successful network access or an exploitable vulnerability. '
                 'Use finish when complete. Only the following frozen tools are authorized:\n' + json.dumps(inventory, ensure_ascii=False))
 
     async def call_tool(self, tool_name, args, context=None):
@@ -128,9 +160,26 @@ class BoundedDispatcher:
             if tool_name == "list_mcp_tools":
                 return json.dumps(self.runtime.request("/mcp", {"method": "tools/list"}), ensure_ascii=False)
             if tool_name == "call_mcp_tool":
+                if args.get("tool_name") in {"list_mcp_tools", "call_mcp_tool", "think", "finish"}:
+                    return ('This is a scanner operation, not a target MCP tool. Call it directly, '
+                            'for example <function=list_mcp_tools></function>. '
+                            'Use call_mcp_tool only with a target tool name from the authorized inventory.')
+                arguments = args.get("arguments", {})
+                if isinstance(arguments, str):
+                    try:
+                        arguments = json.loads(arguments)
+                    except json.JSONDecodeError:
+                        return "Invalid arguments: provide a JSON object in the arguments parameter."
+                if not isinstance(arguments, dict):
+                    return "Invalid arguments: provide a JSON object in the arguments parameter."
                 result = self.runtime.request("/mcp", {"method": "tools/call", "tool_name": args.get("tool_name", ""),
-                    "arguments": args.get("arguments", {}), "call_id": uuid.uuid4().hex})
+                    "arguments": arguments, "call_id": uuid.uuid4().hex})
                 self.runtime.calls.append({"call_id": result["call_id"], "status": result["status"], "tool_name": args.get("tool_name")})
+                rpc_response = result.get("response")
+                rpc_error = (rpc_response.get("error") or {}) if isinstance(rpc_response, dict) else {}
+                error_data = rpc_error.get("data")
+                if isinstance(error_data, dict) and error_data.get("approval_required"):
+                    raise ExecutionStopped("mcp_gateway_approval_required")
                 return json.dumps(result, ensure_ascii=False)
             return "Tool unavailable in the authorized task scope"
         if tool_name == "list_files":
@@ -198,7 +247,7 @@ async def run_redteam(runtime, dispatcher, prompt):
     model_rounds = int((runtime.config["claim"].get("policy") or {}).get("max_rounds", 60)) - runtime.usage.get("rounds", 0)
     call_budget = min(options["mcp_call_limit"], model_rounds // 3)
     if call_budget < 1:
-        raise ExecutionStopped("mcp_budget_exhausted")
+        raise ExecutionStopped("mcp_rounds_limit_reached")
     if options["mcp_strategy"] == "crescendo":
         raw = await orchestrator.run_crescendo(prompt, max_total_rounds=min(call_budget, 20))
         raw.pop("history", None)
@@ -299,6 +348,9 @@ def execute_mcp_aig_scan(claim, heartbeat, evaluator, *, initial_usage):
                 if usage_file.exists():
                     usage = json.loads(usage_file.read_text())
                 progress_file = Path(folder) / "progress.json"
+                diagnostics_file = Path(folder) / "diagnostics.json"
+                if diagnostics_file.exists():
+                    claim["diagnostics"] = json.loads(diagnostics_file.read_text())
                 if progress_file.exists():
                     claim["mcp_progress"] = json.loads(progress_file.read_text())
                 status = heartbeat(usage)
@@ -310,10 +362,21 @@ def execute_mcp_aig_scan(claim, heartbeat, evaluator, *, initial_usage):
                 except subprocess.TimeoutExpired:
                     continue
             if process.returncode:
+                logging.getLogger(__name__).warning("MCP scan child exited: returncode=%s", process.returncode)
                 error_file = Path(folder) / "error.json"
                 code = json.loads(error_file.read_text())["code"] if error_file.exists() else "mcp_scan.engine_terminated"
+                events = json.loads(diagnostics_file.read_text()) if diagnostics_file.exists() else []
+                error_details = json.loads(error_file.read_text()) if error_file.exists() else {}
+                events.append({"event": "engine_exited", "operation": "engine", "elapsed_ms": events[-1]["elapsed_ms"] if events else 0,
+                               "returncode": process.returncode, **{k: error_details[k] for k in ("error_type", "source_file", "source_line") if k in error_details}})
+                claim["diagnostics"] = events[-500:]
+                if usage_file.exists():
+                    usage = json.loads(usage_file.read_text())
+                heartbeat(usage)
                 raise McpExecutionError(code)
             result = json.loads((Path(folder) / "result.json").read_text())
+            if diagnostics_file.exists():
+                claim["diagnostics"] = json.loads(diagnostics_file.read_text())
             status = heartbeat(result["usage"])
             if not status.get("continue_allowed"):
                 raise ScanStopped(status.get("stop_reason") or "scan_stopped")
@@ -349,7 +412,7 @@ def normalize_result(claim, result):
             "sha256": hashlib.sha256(content.encode()).hexdigest(), "size_bytes": len(content.encode()),
             "redacted": True, "content": content, "metadata": {"scan_mode": mode, "upstream_commit": AIG_COMMIT}})
     return {"status": "succeeded", "usage": result["usage"], "findings": findings,
-        "cases": [{"external_case_id": "mcp-aig", "category": "mcp_" + mode, "title": "AI-Infra-Guard MCP audit",
+        "cases": [{"external_case_id": "mcp-aig", "category": "mcp_" + mode, "title": "MCP risk scan",
             "status": "failed" if findings else "passed" if coverage_complete else "unverified", "round_count": result["usage"]["rounds"],
             "request_summary": {"scan_mode": mode}, "response_summary": {"scan_mode": mode,
                 "execution_status": "completed", "coverage_complete": coverage_complete,
@@ -366,7 +429,10 @@ if __name__ == "__main__":
     try:
         asyncio.run(execute_child(json.loads((Path(task_folder) / "config.json").read_text()), task_folder))
     except (ExecutionStopped, Exception) as error:
-        allowed = {"mcp_no_successful_tool_calls", "mcp_review_output_invalid", "mcp_source_hash_mismatch", "mcp_source_path_invalid", "mcp_model_empty_response"}
+        allowed = {"mcp_no_successful_tool_calls", "mcp_review_output_invalid", "mcp_source_hash_mismatch", "mcp_source_path_invalid", "mcp_model_empty_response",
+                   "mcp_rounds_limit_reached", "mcp_tokens_limit_reached", "mcp_response_bytes_limit_reached", "mcp_gateway_approval_required"}
         code = "mcp_scan." + str(error).removeprefix("mcp_") if str(error) in allowed else "mcp_scan.execution_denied" if isinstance(error, ExecutionStopped) else "mcp_scan.engine_failed"
-        write_json(Path(task_folder) / "error.json", {"code": code})
+        frames = traceback.extract_tb(error.__traceback__)
+        location = {"source_file": Path(frames[-1].filename).name, "source_line": frames[-1].lineno} if frames else {}
+        write_json(Path(task_folder) / "error.json", {"code": code, "error_type": type(error).__name__, **location})
         sys.exit(1)

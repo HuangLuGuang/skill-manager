@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import hashlib
 import ipaddress
 import logging
@@ -888,6 +890,7 @@ async def get_redteam_options(
                 "name": model.name,
                 "display_name": model.display_name,
                 "provider_name": provider.name,
+                "compression_enabled": bool(provider.enable_compression),
             }
             for model, provider in _evaluation_models_query(db).order_by(models.ModelEndpoint.name).all()
         ],
@@ -1613,6 +1616,7 @@ def _mcp_gateway_assets_snapshot(db: Session, gateway_id: int) -> dict[str, Any]
                 "server_slug": server.slug,
                 "server_name": server.name,
                 "server_status": server.status,
+                "authentication_configured": bool(server.authorization_value),
                 "endpoint": server.endpoint,
                 "tools": tools,
             }
@@ -1940,8 +1944,8 @@ def _validate_scan_task_request(
         raise ApiError(
             503,
             "agent_security.aig_service_unavailable",
-            "AI-Infra-Guard 扫描引擎尚未配置或不可用",
-            "The AI-Infra-Guard scanning engine is not configured or available",
+            "扫描引擎尚未配置或不可用",
+            "The scanning engine is not configured or available",
         )
     if body.scan_kind in {"agent_risk_scan", "llm_redteam_scan"} or (body.scan_kind == "mcp_risk_scan" and body.mcp_mode != "metadata"):
         if not body.evaluation_model:
@@ -1970,7 +1974,7 @@ def _validate_scan_task_request(
                 ("tool_read" if t.get("access_mode") == "read" else "tool_write") not in capabilities
                 or (policy.execution_mode == "read_only" and t.get("access_mode") != "read") for t in selected_tools
             ):
-                raise ApiError(422, "mcp_scan.capability_denied", "所选工具超出扫描策略能力范围", "Selected tools exceed the scan policy capabilities")
+                raise ApiError(422, "mcp_scan.capability_denied", "当前扫描目标或策略未允许这些工具所需的操作。请检查网络访问、工具读取和工具写入权限；只读策略只能选择只读工具。", "The scan target or policy does not permit the operations these tools need. Check network access, tool read and tool write permissions. Read-only policies only allow read-only tools.")
         for model_name in [body.analysis_model, body.attack_model]:
             if model_name and not _evaluation_models_query(db).filter(models.ModelEndpoint.name == model_name).first():
                 raise ApiError(422, "agent_security.evaluation_model_invalid", "所选模型未启用", "Selected model is not enabled")
@@ -3057,6 +3061,77 @@ async def get_task(
     detail = _task_detail(db, task)
     db.commit()
     return detail
+
+
+@router.get("/tasks/{task_id}/diagnostics")
+async def download_task_diagnostics(
+    task_id: str, db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    task = _task_or_404(db, task_id)
+    _require_task_access(db, current_user, task)
+    options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
+    calls = db.query(models.SecurityMcpScanCall).filter_by(task_id=task_id).order_by(models.SecurityMcpScanCall.created_at).all()
+    call_summaries = []
+    for call in calls:
+        evidence = json_loads(unprotect_secret(call.evidence_encrypted), {})
+        rpc = evidence.get("response")
+        error = rpc.get("error") if isinstance(rpc, dict) else None
+        data = error.get("data") if isinstance(error, dict) else None
+        call_summaries.append({"call_id": call.call_id, "status": call.status, "route": call.route,
+                               "created_at": call.created_at,
+                               "rpc_error_code": error.get("code") if isinstance(error, dict) and isinstance(error.get("code"), int) else None,
+                               "approval_required": bool(data.get("approval_required")) if isinstance(data, dict) else False})
+    payload = {
+        "schema": "scan-diagnostics@1", "task_id": task_id, "scan_kind": task.scan_kind,
+        "status": task.status, "error_code": task.error_code, "stop_reason": task.stop_reason,
+        "engine": {"name": task.engine_name, "version": task.engine_version},
+        "started_at": task.started_at, "completed_at": task.completed_at, "attempt": task.attempt,
+        "usage": _task_usage(task).model_dump(),
+        "limits": {k: v for k, v in json_loads(task.policy_snapshot_json, {}).items() if k.startswith("max_")},
+        "events_by_attempt": options.get("diagnostics", {}),
+        "detailed_events_available": bool(options.get("diagnostics")),
+        "tool_calls": call_summaries,
+    }
+    _audit(db, event_type="security_scan_diagnostics.downloaded", actor=current_user.username,
+           resource_type="security_scan_task", resource_id=task_id, action="download", details={"schema": payload["schema"]})
+    return Response(content=json.dumps(payload, ensure_ascii=False, indent=2, default=str), media_type="application/json",
+                    headers={"Content-Disposition": f'attachment; filename="scan-{task_id}.json"', "Cache-Control": "no-store"})
+
+
+@router.post("/tasks/{task_id}/retry")
+async def retry_task(
+    task_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    task = _task_or_404(db, task_id)
+    _require_task_access(db, current_user, task)
+    if current_user.role == "security_auditor":
+        raise ApiError(403, "auth.permission_denied", "安全审计员不能重试扫描", "Security auditors cannot retry scans")
+    if task.status not in {"failed", "timed_out"}:
+        raise ApiError(409, "agent_security.retry_status_invalid", "只有失败或超时的扫描任务可以重试", "Only failed or timed-out scans can be retried")
+    # Serialize retry generation so simultaneous requests select the same pending task.
+    db.query(models.SecurityScanTask).filter_by(task_id=task_id).update(
+        {"status": models.SecurityScanTask.status}, synchronize_session=False)
+    retry_prefix = f"retry:{task.task_id}"
+    previous = db.query(models.SecurityScanTask).filter(
+        models.SecurityScanTask.created_by == current_user.username,
+        (models.SecurityScanTask.idempotency_key == retry_prefix)
+        | models.SecurityScanTask.idempotency_key.startswith(retry_prefix + ":", autoescape=True),
+    ).order_by(models.SecurityScanTask.id.desc()).first()
+    if previous and previous.status in {"pending", "running"}:
+        result = _task_response(previous).model_dump()
+        db.commit()
+        return {**result, "retry_reused": True}
+    options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
+    payload = {key: value for key, value in options.items() if key in SecurityTaskPlanRequest.model_fields}
+    payload.update(target_id=task.target_id, policy_id=task.policy_id, scan_kind=task.scan_kind,
+                   approval_id=task.approval_id, continue_from_task_id=task.continued_from_task_id,
+                   idempotency_key=f"{retry_prefix}:{previous.id if previous else 0}")
+    # The original task is immutable; the creation path rechecks current authorization and budgets.
+    result = await create_task(SecurityTaskCreate(**payload), db, current_user)
+    return {**result.model_dump(), "retry_reused": False}
 
 
 @router.get("/tasks/{task_id}/scan-report.pdf")
@@ -4320,6 +4395,12 @@ async def task_heartbeat(
     _verify_lease(task, worker, body.lease_token)
     now = datetime.utcnow()
     _apply_usage(task, body.usage)
+    if body.diagnostics is not None:
+        options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
+        attempts = options.setdefault("diagnostics", {})
+        attempts[str(task.attempt)] = [entry.model_dump(exclude_none=True) for entry in body.diagnostics]
+        options["diagnostics"] = dict(list(attempts.items())[-10:])
+        task.scan_options_encrypted = protect_secret(json_dumps(options))
     if body.session_state:
         task.session_state_encrypted = protect_secret(body.session_state)
     if body.scan_progress is not None and task.scan_kind in {"llm_redteam_scan", "mcp_risk_scan"}:

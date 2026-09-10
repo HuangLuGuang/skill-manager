@@ -783,7 +783,7 @@ const eventTypeLabel = value => {
   const key = `runtimeTraceExplorer.eventTypes.${String(value || '').replaceAll('.', '_')}`
   return te(key) ? t(key) : value || t('runtimeTraceExplorer.detail.unknownEvent')
 }
-const findingSourceLabel = value => value === 'ai-infra-guard' ? t('runtimeTraceExplorer.links.scannerSource') : value
+const findingSourceLabel = value => ['ai-infra-guard', 'ai-infra-guard-mcp'].includes(value) ? t('runtimeTraceExplorer.links.scannerSource') : value
 const findingTitle = finding => {
   if ((finding.finding_code || finding.code) === 'llm_redteam.jailbreak_signal') return t('agentSecurityScans.detail.findingTitles.jailbreakSignal')
   return finding.title

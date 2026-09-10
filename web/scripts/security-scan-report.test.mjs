@@ -3,6 +3,17 @@ import test from 'node:test'
 
 import { parseRedteamArtifact, projectScanCases, promptTransformationLabel, summarizeCaseCoverage, summarizeRedteamRows } from '../src/securityScanReport.js'
 
+test('MCP and SARIF reports display findings using their own fields', () => {
+  const mcp = parseRedteamArtifact({ scan_mode: 'dynamic', results: [{ title: 'Authentication', description: 'Evidence', suggestion: 'Verify enforcement' }] })
+  const sarif = parseRedteamArtifact({ version: '2.1.0', runs: [{ results: [{ message: { text: 'Authentication' }, properties: { description: 'Evidence' }, fixes: [{ description: { text: 'Verify enforcement' } }] }] }] })
+  for (const report of [mcp, sarif]) {
+    assert.equal(report.rows[0].vulnerability, 'Authentication')
+    assert.equal(report.rows[0].description, 'Evidence')
+    assert.equal(report.rows[0].suggestion, 'Verify enforcement')
+    assert.equal(report.rows[0].status, 'Unverified')
+  }
+})
+
 test('prompt transformations display localized labels', () => {
   const key = 'agentSecurityScans.tasks.techniqueOptions.Raw.label'
   for (const label of ['原始问题', 'Original prompt']) {

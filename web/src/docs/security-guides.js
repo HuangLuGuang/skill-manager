@@ -386,6 +386,11 @@ guide('security-operations', ['定时扫描、资产同步与风险处置', 'Sch
         ['aig_model_not_found / 404', '核对模型名称、运行地址和 chat_completions_path，避免重复 /v1 或使用前端根页面。'],
         ['429 / 超时 / 连接失败', '检查供应商配额、Worker 网络和请求超时；合理降低并发。不要只提高总任务预算。'],
         ['lease_expired / 重试耗尽', '先恢复 Worker 和心跳网络，再按新任务验证。旧失败记录保留，不能生成虚假完成报告。'],
+        ['下载诊断日志', '报告页点击“下载诊断日志”，将 JSON 提供给支持人员。包括状态、预算和 MCP 执行事件、HTTP/RPC 状态、异常类型与源码位置；不包含密钥、原始对话或工具参数。历史任务可能只有摘要。'],
+        ['重试扫描', '失败或超时任务沿用原配置重新校验权限和策略。已有重试仍在排队或运行时打开该任务；结束后再次点击创建新任务，原报告保留。'],
+        ['MCP 模型压缩提醒', '所选评估、分析或攻击模型的供应商开启压缩时显示提醒。压缩可能改变工具调用协议，造成重复请求或不完整结果；先核对诊断日志，避免只增加预算。'],
+        ['MCP 网关等待审批', '到 MCP 网关检查待审批请求及工具授权。已结束扫描不会因审批完成自动恢复；后续任务仍按网关授权配置校验。'],
+        ['MCP 报告与阶段', '执行中展示阶段进度，不代表最终用例通过。完成后 MCP 和 SARIF 报告展示发现、分析和修复建议，并可查看原始内容。模型判断标为待验证；工具参数没有认证字段不能证明服务缺失鉴权。'],
       ] }, link: { path: '/docs/docker-operations', label: '查看容器状态与日志排查' },
     }, {
       title: 'Workers: queues, heartbeat, leases, and upstream errors',
@@ -397,6 +402,11 @@ guide('security-operations', ['定时扫描、资产同步与风险处置', 'Sch
         ['aig_model_not_found / 404', 'Verify model name, endpoint, and chat_completions_path; avoid repeated /v1 or frontend routes.'],
         ['429 / timeout / connection failure', 'Check provider quota, Worker network, and request timeout; reduce concurrency as appropriate. Increasing task budgets alone is insufficient.'],
         ['Expired lease / exhausted retries', 'Restore Worker connectivity and verify with a new task. Preserve the failed record rather than inventing completion.'],
+        ['Download diagnostic logs', 'Download JSON from the report page for support. It includes status, budgets, MCP execution events, HTTP/RPC status, exception types, and source locations, without secrets, raw conversations, or tool arguments. Older tasks may contain only a summary.'],
+        ['Retry scan', 'Failed or timed-out tasks reuse their settings and recheck permissions and policies. Open an existing queued/running retry; create a new task after it ends. Original reports are retained.'],
+        ['MCP model compression warning', 'A warning appears when a selected evaluator, analyst, or attacker model has provider compression enabled. Compression may alter tool protocols, causing repeated requests or incomplete results. Check diagnostics before increasing budgets.'],
+        ['MCP gateway approval pending', 'Review pending approvals and tool authorization in the MCP gateway. Approval does not automatically resume an ended scan; subsequent tasks still enforce gateway authorization.'],
+        ['MCP reports and stages', 'Live stages show execution progress, not final test success. MCP and SARIF reports display findings, analysis, remediation, and raw content. Model assessments remain unverified; missing authentication fields in tool arguments do not prove missing server authentication.'],
       ] }, link: { path: '/docs/docker-operations', label: 'Read container and log diagnostics' },
     }],
   ])
