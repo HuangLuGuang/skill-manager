@@ -263,6 +263,8 @@ test('scenario guides stay in one ungrouped list and rank for Ask AI', () => {
 test('documentation navigation, tables, links, and screenshots stay internally valid', () => {
   const routerSource = fs.readFileSync(path.join(webRoot, 'src/router/index.js'), 'utf8')
   const routePaths = new Set([...routerSource.matchAll(/path:\s*['"]([^'"]+)['"]/g)].map(match => match[1]))
+  const identityRoutes = routerSource.match(/\[([^\]]+)\]\.map\(kind => \(\{ path: `\/\$\{kind\}`/)
+  for (const match of identityRoutes?.[1].matchAll(/['"]([^'"]+)['"]/g) || []) routePaths.add(`/${match[1]}`)
 
   const visit = (value, callback) => {
     if (Array.isArray(value)) return value.forEach(item => visit(item, callback))
@@ -303,7 +305,7 @@ test('documentation navigation, tables, links, and screenshots stay internally v
           const download = path.join(webRoot, 'public', node.path.replace(/^\//, ''))
           assert.ok(fs.existsSync(download), `${locale}/${slug}: missing download ${node.path}`)
         } else if (typeof node.path === 'string' && node.path.startsWith('/')) {
-          assert.ok(routePaths.has(node.path), `${locale}/${slug}: missing app route ${node.path}`)
+          assert.ok(routePaths.has(node.path.split(/[?#]/)[0]), `${locale}/${slug}: missing app route ${node.path}`)
         }
       })
     }

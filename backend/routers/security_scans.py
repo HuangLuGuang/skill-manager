@@ -955,14 +955,26 @@ async def get_dify_mcp_binding_options(
     return _dify_mcp_binding_options(db, row)
 
 
+def _target_audit_snapshot(row):
+    fields = ("name", "status", "environment", "asset_type", "connector_type", "owner_user_id", "owner_group_id")
+    snapshot = {field: getattr(row, field) for field in fields}
+    snapshot["allowed_capabilities"] = json_loads(row.allowed_capabilities_json, [])
+    snapshot["allowed_cidrs"] = json_loads(row.allowed_cidrs_json, [])
+    return snapshot
+
+
 @router.patch("/targets/{target_id}", response_model=SecurityTargetResponse)
 async def update_target(
     target_id: str,
     body: SecurityTargetUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_security_admin),
 ):
     row = _target_or_404(db, target_id)
+    before = _target_audit_snapshot(row)
+    previous_endpoint = row.endpoint_url
+    previous_config = json_loads(row.config_json, {})
     data = body.model_dump(exclude_unset=True)
     owner_user_id = data.get("owner_user_id", row.owner_user_id)
     owner_group_id = data.get("owner_group_id", row.owner_group_id)
@@ -1030,6 +1042,10 @@ async def update_target(
     row.resolved_ips_json = json_dumps(resolved)
     row.config_json = json_dumps(config)
     row.updated_at = datetime.utcnow()
+    iam.audit(db, request, current_user, "targets", "update", row.target_id,
+              before=before, after=_target_audit_snapshot(row),
+              details={"target_name": row.name, "endpoint_changed": previous_endpoint != endpoint,
+                       "config_changed": previous_config != config})
     db.commit()
     db.refresh(row)
     _audit(

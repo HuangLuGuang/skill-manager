@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { refreshAccess, pageAllowed, accessState } from '../access'
 
-import { getSystemCapabilities } from '../api'
+import { getSystemCapabilities, recordPageVisit } from '../api'
 
 const routes = [
   ...['users', 'roles', 'menus'].map(kind => ({ path: `/${kind}`, name: `iam-${kind}`, component: () => import('../views/IdentityManagement.vue'), meta: { requiresAuth: true, iamKind: kind } })),
@@ -99,6 +99,13 @@ router.beforeEach(async (to, from, next) => {
     return
   }
   next()
+})
+
+router.afterEach((to, from, failure) => {
+  if (failure || !to.meta.requiresAuth || to.path === from.path) return
+  const path = to.path.startsWith('/skills/') ? '/skills' : to.path
+  if (!accessState.page_permissions[path]) return
+  recordPageVisit(path).catch(error => console.warn('Page visit audit failed', error.response?.status))
 })
 
 export default router

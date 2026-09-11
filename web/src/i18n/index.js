@@ -30,9 +30,13 @@ export const i18n = createI18n({
   messages: {
     'zh-CN': {
       iam: iamMessages['zh-CN'],
+      branding: {"title": "品牌与系统名称", "nameZh": "系统名称（中文）", "nameEn": "系统名称（英文）", "company": "公司名称", "save": "保存名称", "upload": "上传 Logo", "restore": "恢复默认 Logo", "hint": "名称保存后立即生效。Logo 支持 PNG、JPEG、GIF、WebP，最大 5 MB。", "required": "请输入系统名称", "loadFailed": "品牌配置加载失败，请刷新页面重试", "failed": "保存失败，请重试", "saved": "品牌配置已更新", "tooLarge": "图片大小不能超过 5 MB"},
       scanTaskActions: scanTaskActionsMessages['zh-CN'],
       mcpScan: mcpScanMessages['zh-CN'],
       skillUpload: {
+        scanState: { PENDING: '本次检测排队或执行中。', COMPLETED: '本次检测已完成。', REUSED: '已复用相同检测配置的结果。', FAILED: '本次检测失败。', CANCELLED: '本次检测已取消。', UNKNOWN: '无法关联本次检测记录。' },
+        intro: { title: '上传说明', subtitle: '上传 ZIP 包或文件夹，选择要提交的 Skill', description: '选择 ZIP 包或文件夹上传，解析后可按目录选择多个 Skill。提交后创建后台任务，处理进度和结果可在“历史提交记录”中查看。' },
+        folder: { largeSelection: '所选文件原始总大小超过 100 MiB，请移除或取消选择部分内容后再打包上传。', selectedSize: '已选内容原始大小：{size}', path: '子文件夹 / 文件', size: '原始大小', count: '文件数', action: '操作', remove: '移除', packedTooLarge: '所选文件夹内容打包后仍超过上传上限，请减少选择后重试。', performanceHint: '文件夹中的文件较多或总体积较大时，浏览器读取和打包可能占用较多内存与处理器资源。建议先在本地压缩为 ZIP，再切换至“ZIP 包”上传。', source: '上传方式', zipMode: 'ZIP 包', folderMode: '文件夹', tab: '上传 ZIP / 文件夹', choose: '选择文件夹', cancel: '取消', review: '确认上传文件夹', continue: '打包并上传', summary: '{name}：{count} 个文件，原始大小 {size}，已跳过 {skipped} 个系统杂项。', sensitive: '以下文件可能包含密钥或凭据，请确认允许上传：', limit: '文件夹超过文件数量或大小限制（50,000 个文件 / 原始总计 100 MiB）。', invalidPath: '文件夹包含无效或重复路径。', empty: '文件夹中没有可上传的文件。', failed: '文件夹打包失败，请重试或改用 ZIP 上传。' },
         jobs: {
           title: '历史提交记录', backToRecords: '返回历史提交记录', filename: 'ZIP 包名称', createdAt: '导入时间', id: '任务编号', state: '状态', progress: '已处理 / 总数', results: '结果',
           accepted: '后台任务已创建', viewResults: '查看结果',
@@ -43,6 +47,7 @@ export const i18n = createI18n({
         localTooLarge: '压缩包大小为 {size}，超过 100 MiB 上限，尚未上传。',
         cleanupHint: '请检查较大的文件夹，移除不需要的内容后重新打包并选择文件。运行依赖请确认用途后再删除。',
         progress: {
+          packing: '正在打包文件夹',
           extracting: '正在解压当前 ZIP',
           discovering: '正在查找 Skill',
           identifying: '正在识别 Skill',
@@ -1038,9 +1043,13 @@ export const i18n = createI18n({
     },
     'en-US': {
       iam: iamMessages['en-US'],
+      branding: {"title": "Branding and system names", "nameZh": "System name (Chinese)", "nameEn": "System name (English)", "company": "Company name", "save": "Save names", "upload": "Upload logo", "restore": "Restore default logo", "hint": "Names take effect immediately after saving. Logo: PNG, JPEG, GIF, or WebP, up to 5 MB.", "required": "Enter a system name", "loadFailed": "Unable to load branding. Refresh the page to retry.", "failed": "Unable to save. Please retry.", "saved": "Branding updated", "tooLarge": "The image must not exceed 5 MB"},
       scanTaskActions: scanTaskActionsMessages['en-US'],
       mcpScan: mcpScanMessages['en-US'],
       skillUpload: {
+        scanState: { PENDING: 'This scan is queued or running.', COMPLETED: 'This scan has completed.', REUSED: 'Reused results with the same scan configuration.', FAILED: 'This scan failed.', CANCELLED: 'This scan was cancelled.', UNKNOWN: 'The scan record for this submission could not be identified.' },
+        intro: { title: 'Upload instructions', subtitle: 'Upload a ZIP archive or folder and select Skills to submit', description: 'Upload a ZIP archive or folder, then select Skills by directory after parsing. Submission creates a background task. View progress and results in Submission history.' },
+        folder: { largeSelection: 'The selected files exceed the 100 MiB original-size limit. Remove or deselect items before packaging and uploading.', selectedSize: 'Selected original size: {size}', path: 'Subfolder / file', size: 'Original size', count: 'Files', action: 'Action', remove: 'Remove', packedTooLarge: 'The selected folder contents still exceed the upload limit after packaging. Select fewer items and retry.', performanceHint: 'Reading and packaging folders with many files or a large total size may consume substantial browser memory and CPU resources. For these folders, create a ZIP locally, then switch to ZIP archive to upload it.', source: 'Upload method', zipMode: 'ZIP archive', folderMode: 'Folder', tab: 'Upload ZIP / folder', choose: 'Choose folder', cancel: 'Cancel', review: 'Confirm folder upload', continue: 'Package and upload', summary: '{name}: {count} files, {size} uncompressed, {skipped} system files skipped.', sensitive: 'These files may contain keys or credentials. Confirm they may be uploaded:', limit: 'Folder exceeds limits: 50,000 files or 100 MiB total original size.', invalidPath: 'The folder contains invalid or duplicate paths.', empty: 'No uploadable files in this folder.', failed: 'Could not package the folder. Retry or upload a ZIP.' },
         jobs: {
           title: 'Submission history', backToRecords: 'Back to submission history', filename: 'ZIP filename', createdAt: 'Import time', id: 'Job ID', state: 'Status', progress: 'Processed / total', results: 'Results',
           accepted: 'Background task created', viewResults: 'View results',
@@ -1051,6 +1060,7 @@ export const i18n = createI18n({
         localTooLarge: 'The archive is {size}, exceeding the 100 MiB limit. It has not been uploaded.',
         cleanupHint: 'Review the larger folders, remove unneeded content, then repack and select the ZIP again. Check runtime dependencies before deleting them.',
         progress: {
+          packing: 'Packaging folder',
           extracting: 'Extracting current ZIP',
           discovering: 'Finding Skills',
           identifying: 'Identifying Skills',

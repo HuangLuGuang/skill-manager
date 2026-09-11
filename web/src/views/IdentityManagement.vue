@@ -30,7 +30,8 @@
         :loading="loading" :pagination="kind === 'menus' ? false : pagination" :scroll="{ x: 1050 }"
         v-model:expandedRowKeys="expanded" @change="tableChange">
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'role'"><a-tag>{{ roleLabel(record.role) }}</a-tag></template>
+          <template v-if="column.key === 'icon'"><span class="menu-icon-option"><component :is="iconMap[record.icon]" aria-hidden="true" />{{ t(`iam.iconNames.${record.icon}`) }}</span></template>
+          <template v-else-if="column.key === 'role'"><a-tag>{{ roleLabel(record.role) }}</a-tag></template>
           <template v-else-if="column.key === 'group_ids'">{{ record.group_ids.map(id => options.groups.find(g => g.id === id)?.name || id).join(', ') || '—' }}</template>
           <template v-else-if="column.key === 'is_active'"><a-tag :color="record.is_active ? 'green' : 'default'">{{ t(record.is_active ? 'iam.enabled' : 'iam.disabled') }}</a-tag></template>
           <template v-else-if="column.key === 'is_system'"><a-tag>{{ t(record.is_system ? 'iam.system' : 'iam.custom') }}</a-tag></template>
@@ -68,7 +69,7 @@
       :mask-closable="!submitting" :closable="!submitting" :keyboard="!submitting" :width="640" @ok="save">
       <a-form ref="formRef" layout="vertical" :model="form" class="iam-form">
         <template v-if="kind === 'users'">
-          <a-form-item :label="t('iam.username')" name="username" :rules="required"><a-input v-model:value="form.username" :disabled="!!editing" :maxlength="64" /></a-form-item>
+          <a-form-item :label="t('iam.username')" name="username" :rules="editing ? required : usernameRules" :extra="t('iam.usernameRule')"><a-input v-model:value="form.username" :disabled="!!editing" :maxlength="64" /></a-form-item>
           <template v-if="mode !== 'password'">
             <a-form-item :label="t('iam.email')" name="email" :rules="[{ type: 'email', message: t('iam.invalidEmail') }]"><a-input v-model:value="form.email" :disabled="!!editing && !can('users:update')" /></a-form-item>
             <a-form-item :label="t('iam.role')" name="role" :rules="required">
@@ -97,7 +98,13 @@
           <a-form-item :label="t('iam.parent')"><a-select v-model:value="form.parent_name" :disabled="!!editing && !can('menus:sort')" :options="parentOptions" /></a-form-item>
           <a-form-item :label="t('iam.path')"><a-select v-model:value="form.path" show-search :options="pageOptions" /></a-form-item>
           <div class="iam-grid">
-            <a-form-item :label="t('iam.icon')"><a-select v-model:value="form.icon" :options="options.icons.map(value => ({ value, label: value }))" /></a-form-item>
+            <a-form-item :label="t('iam.icon')">
+              <a-select v-model:value="form.icon" show-search option-filter-prop="label">
+                <a-select-option v-for="icon in options.icons" :key="icon" :value="icon" :label="t(`iam.iconNames.${icon}`)">
+                  <span class="menu-icon-option"><component :is="iconMap[icon]" aria-hidden="true" /><span>{{ t(`iam.iconNames.${icon}`) }}</span></span>
+                </a-select-option>
+              </a-select>
+            </a-form-item>
             <a-form-item :label="t('iam.sort')"><a-input-number v-model:value="form.sort_order" :disabled="!!editing && !can('menus:sort')" :min="0" :max="100000" /></a-form-item>
           </div>
           <a-form-item :label="t('iam.status')"><a-switch v-model:checked="form.is_active" :disabled="!!editing && !can('menus:set_status')" /></a-form-item>
@@ -132,6 +139,7 @@ import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 import { iamList, iamOptions, iamCreate, iamUpdate, iamDelete, iamAction, iamGrant } from '../api'
 import { can, refreshAccess } from '../access'
+import { iconMap } from '../menuIcons'
 import { formatBeijingDateTime as formatDateTime } from '../utils/format'
 
 const route = useRoute()
@@ -145,6 +153,7 @@ const options = reactive({ roles: [], groups: [], pages: {}, home_pages: [], ico
 const filters = reactive({ q: '', role: undefined, active: undefined, group_id: undefined })
 const pager = reactive({ current: 1, pageSize: 20, total: 0, sort: 'created_at', order: 'desc' })
 const required = computed(() => [{ required: true, message: t('iam.required') }])
+const usernameRules = computed(() => [...required.value, { pattern: /^[A-Za-z0-9_.-]+$/, message: t('iam.usernameRule') }])
 const pagination = computed(() => ({ ...pager, showSizeChanger: true, showTotal: count => t('iam.total', { count }) }))
 const statusOptions = computed(() => [true, false].map(value => ({ value, label: t(value ? 'iam.enabled' : 'iam.disabled') })))
 const roleLabel = name => {
@@ -246,6 +255,8 @@ onUnmounted(() => { loadState.version += 1 })
 </script>
 
 <style scoped>
+.menu-icon-option { display: inline-flex; align-items: center; gap: 8px; }
+.menu-icon-option :deep(.anticon) { font-size: 18px; flex-shrink: 0; }
 .iam-page { max-width: 1600px; margin: 0 auto; }
 .iam-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
 h2 { margin: 0 0 6px; } p, .iam-help { color: #64748b; }

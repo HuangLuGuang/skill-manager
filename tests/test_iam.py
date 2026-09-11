@@ -33,7 +33,7 @@ def api(tmp_path, monkeypatch):
     app.add_exception_handler(Exception, unhandled_error_handler)
     app.include_router(routes.router, prefix="/api")
     from backend import iam_middleware, sqlite_db
-    from backend.routers import agents, auth as login_routes, config, llm_gateway, security_scans
+    from backend.routers import agents, auth as login_routes, config, llm_gateway, security_scans, system
     monkeypatch.setattr(sqlite_db, "SessionLocal", sessions)
     monkeypatch.setattr(iam_middleware, "SessionLocal", sessions)
     app.middleware("http")(iam_middleware.management_audit_middleware)
@@ -42,6 +42,7 @@ def api(tmp_path, monkeypatch):
     app.include_router(llm_gateway.admin_router, prefix="/api")
     app.include_router(security_scans.router, prefix="/api")
     app.include_router(config.router, prefix="/api")
+    app.include_router(system.router, prefix="/api")
     client = TestClient(app)
     client.headers["Authorization"] = f"Bearer {auth.create_access_token({'sub': 'root'})}"
     yield client, sessions
@@ -56,6 +57,84 @@ def as_user(client, name, session_id=None):
 
 
 PREFIX = "/api/v1/iam"
+
+
+def test_target_update_records_field_changes_without_connection_secrets(api, monkeypatch):
+    from backend.routers import security_scans
+    c, sessions = api
+    monkeypatch.setattr(security_scans, 'resolve_target_endpoint', lambda *args, **kwargs: ['192.0.2.1'])
+    monkeypatch.setattr(security_scans, 'validate_agent_target_config', lambda kind, config: config)
+    with sessions() as db:
+        db.add(models.SecurityTarget(target_id='audit-target', name='Before', target_type='custom_http',
+                                     endpoint_url='https://example.com', created_by='root',
+                                     config_json='{"token":"private-test-value"}'))
+        db.commit()
+    response = c.patch('/api/v1/agent-security/targets/audit-target', json={'name': 'After', 'status': 'disabled'})
+    assert response.status_code == 200, response.text
+    with sessions() as db:
+        events = db.query(im.ManagementAudit).filter_by(module='targets', action='update').all()
+        assert len(events) == 1
+        event = events[0]
+        details = json.loads(event.details_json)
+        assert details['before']['name'] == 'Before'
+        assert details['after']['name'] == 'After'
+        assert details['before']['status'] == 'active'
+        assert details['after']['status'] == 'disabled'
+        assert details['target_name'] == 'After'
+        assert 'private-test-value' not in event.details_json
+        assert event.target == 'audit-target'
+
+
+def test_page_visits_validate_access_and_record_one_event(api):
+    c, sessions = api
+    paths = ['/dashboard', '/agent-security/scans', '/runtime-traces', '/model-gateway/stats']
+    for path in paths:
+        assert c.post(f'{PREFIX}/page-visits', json={'path': path}).status_code == 200
+    with sessions() as db:
+        events = db.query(im.ManagementAudit).filter_by(action='page_view').all()
+        assert len(events) == len(paths)
+        assert {event.target for event in events} == set(paths)
+        assert all(event.actor == 'root' and event.outcome == 'success' for event in events)
+    result = c.get(f'{PREFIX}/audit/operation', params={'action': 'page_view'}).json()
+    assert set(paths) <= {item['target'] for item in result['items']}
+    assert c.post(f'{PREFIX}/page-visits', json={'path': '/dashboard?token=secret'}).status_code == 400
+    as_user(c, 'reader')
+    assert c.post(f'{PREFIX}/page-visits', json={'path': '/runtime-traces'}).status_code == 403
+    c.headers.pop('Authorization')
+    assert c.post(f'{PREFIX}/page-visits', json={'path': '/dashboard'}).status_code == 401
+
+
+def test_branding_defaults_permissions_persistence_and_audit(api):
+    c, sessions = api
+    initial = c.get('/api/system/branding').json()
+    assert initial['system_name_zh'] == '智能体生命周期管理系统'
+    data = {'system_name_zh': '客户管理平台', 'system_name_en': 'Customer Console', 'company_name': 'Example Company'}
+    as_user(c, 'reader')
+    assert c.put('/api/system/branding', json=data).status_code == 403
+    as_user(c, 'root')
+    assert c.put('/api/system/branding', json={**data, 'system_name_zh': ' '}).status_code == 422
+    assert c.put('/api/system/branding', json=data).status_code == 200
+    with sessions() as db:
+        assert json.loads(db.get(models.SystemConfig, 'system_branding').value) == data
+        event = db.query(im.ManagementAudit).filter_by(target='system_branding', outcome='success').one()
+        assert json.loads(event.details_json)['after'] == data
+    c.headers.pop('Authorization')
+    public = c.get('/api/system/branding').json()
+    assert all(public[key] == value for key, value in data.items())
+    assert set(public) == set(data) | {'logo_url', 'has_custom_logo'}
+
+
+def test_brand_logo_validates_content_and_can_restore(api, tmp_path, monkeypatch):
+    import base64
+    from backend.routers import system
+    c, _ = api
+    monkeypatch.setattr(system, 'LOGO_DIR', str(tmp_path / 'logos'))
+    assert c.post('/api/system/logo', files={'file': ('bad.png', b'<html>bad</html>', 'image/png')}).status_code == 400
+    png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZQAAAABJRU5ErkJggg==')
+    assert c.post('/api/system/logo', files={'file': ('brand.png', png, 'image/png')}).status_code == 200
+    assert c.get('/api/system/branding').json()['has_custom_logo'] is True
+    assert c.delete('/api/system/logo').status_code == 200
+    assert c.get('/api/system/branding').json()['has_custom_logo'] is False
 
 
 def test_audit_business_action_filter_groups_http_aliases_without_rewriting_records(api):
@@ -73,6 +152,24 @@ def test_audit_business_action_filter_groups_http_aliases_without_rewriting_reco
         assert {row["action"] for row in result["items"]} == expected
     result = c.get(f"{PREFIX}/audit/operation", params={"actor": "filter-test", "action": "update", "outcome": "failed"}).json()
     assert result["total"] == 2
+
+
+def test_audit_action_filter_matches_display_category(api):
+    c, sessions = api
+    records = [('dashboard', 'page_view'), ('audit', 'login'), ('audit', 'operation'),
+               ('audit', 'security'), ('users', 'get'), ('users', 'read'),
+               ('users', 'view'), ('users', 'put'), ('users', 'patch')]
+    with sessions() as db:
+        for module, action in records:
+            db.add(im.ManagementAudit(actor='category-test', module=module, action=action,
+                                      target=action, outcome='success', details_json='{}'))
+        db.commit()
+    for category, expected in [('view', 6), ('page_view', 1), ('update', 2)]:
+        result = c.get(f'{PREFIX}/audit/operation', params={'actor': 'category-test', 'action': category}).json()
+        assert result['total'] == expected
+        assert {row['action_category'] for row in result['items']} == {category}
+    with sessions() as db:
+        assert {row.action for row in db.query(im.ManagementAudit).filter_by(actor='category-test')} == {action for _, action in records}
 
 
 def test_security_audit_event_identity_and_failure_filter(api):
@@ -257,10 +354,11 @@ def test_legacy_registration_uses_management_authorization(api):
 def test_account_validation_is_shared_by_legacy_and_new_entrypoints(api):
     c, sessions = api
     for path in (f"{PREFIX}/users", "/api/auth/register", "/api/v1/users"):
-        response = c.post(path, json={"username": "   ", "password": "Password123!", "role": "user"})
-        assert response.status_code == 422, response.text
-        assert response.json().get("error_code")
-    response = c.post(f"{PREFIX}/users", json={"username": "中文账号", "password": "Password123!", "role": "user"})
+        for username in ("   ", "中文账号", "user name", "user@test", "user/abc", "usér", "user\n"):
+            response = c.post(path, json={"username": username, "password": "Password123!", "role": "user"})
+            assert response.status_code == 422, response.text
+            assert response.json().get("error_code")
+    response = c.post(f"{PREFIX}/users", json={"username": "User_01.test-name", "password": "Password123!", "role": "user"})
     assert response.status_code == 200, response.text
     uid = response.json()["id"]
     for field in ("role", "is_active", "group_ids"):

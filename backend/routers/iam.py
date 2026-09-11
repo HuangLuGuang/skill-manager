@@ -6,10 +6,27 @@ from sqlalchemy import and_, case, func, literal, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from .. import auth, iam, iam_models as im, iam_schemas as s, models
-from ..iam_catalog import ICONS, MODULE_ACTIONS, PAGE_PERMISSIONS, PERMISSIONS, SENSITIVE_PERMISSIONS
+from ..iam_catalog import ICONS, MODULE_ACTIONS, PAGE_PERMISSIONS, PAGES, PERMISSIONS, SENSITIVE_PERMISSIONS
 from ..sqlite_db import get_db
 
 router = APIRouter(prefix="/v1/iam", tags=["Identity management"])
+
+
+@router.post("/page-visits")
+def record_page_visit(body: s.PageVisit, request: Request, db: Session = Depends(get_db),
+                      user=Depends(auth.get_current_active_user)):
+    permission = PAGE_PERMISSIONS.get(body.path)
+    if not permission:
+        iam.fail("invalid_page", "页面无效", "Invalid page")
+    if body.path == "/system-audit":
+        permission = next((f"audit:{kind}" for kind in ("login", "operation", "security")
+                           if f"audit:{kind}" in iam.permission_codes(db, user)), permission)
+    iam.check(db, user, permission)
+    page_key = next((row[0] for row in PAGES if row[4] == body.path), None)
+    iam.audit(db, request, user, permission.split(":", 1)[0], "page_view", body.path,
+              details={"page_key": page_key})
+    iam.commit(db)
+    return {"status": "success"}
 
 
 def find(db, model, key):
@@ -343,7 +360,15 @@ def audit_events(kind: str, request: Request, q: str = Query("", max_length=128)
                        case((m.outcome == "failure", "failed"), else_=m.outcome).label("outcome"),
                        literal("").label("client_ip"), literal("").label("request_id"),
                        m.event_id, m.event_type, m.details_json, literal("security").label("source")).subquery()
-    stmt = select(query)
+    action_category = case(
+        (and_(query.c.source != "legacy", query.c.module == "audit",
+              query.c.action.in_(["login", "operation", "security"])), "view"),
+        (and_(query.c.source != "legacy", query.c.action.in_(["get", "read"])), "view"),
+        (and_(query.c.source != "legacy", query.c.action.in_(["put", "patch"])), "update"),
+        (and_(query.c.source != "legacy", query.c.action == "post"), "submit"),
+        else_=query.c.action,
+    )
+    stmt = select(query, action_category.label("action_category"))
     if q:
         search_fields = ["actor", "target", "request_id", "action"]
         if kind == "security":
@@ -353,9 +378,7 @@ def audit_events(kind: str, request: Request, q: str = Query("", max_length=128)
         if value:
             stmt = stmt.where(query.c[key] == value)
     if action:
-        aliases = {"update": ["put", "patch"], "view": ["get", "read"], "submit": ["post"]}.get(action, [])
-        stmt = stmt.where(or_(query.c.action == action,
-                             and_(query.c.source != "legacy", query.c.action.in_(aliases))))
+        stmt = stmt.where(action_category == action)
     for value, lower in ((since, True), (until, False)):
         if value:
             stmt = stmt.where(query.c.created_at >= value if lower else query.c.created_at <= value)

@@ -14,6 +14,7 @@ SUPPORTED_LOCALES = {"zh-CN", "en-US"}
 logger = logging.getLogger(__name__)
 
 _ERROR_PATTERNS: tuple[tuple[re.Pattern[str], str, str, str], ...] = (
+    (re.compile(r"Archive extraction limits exceeded", re.I), "upload.extraction_limit", "解压内容超过限制：50,000 个文件、总计 1 GiB 或单文件 100 MiB", "Extracted content exceeds 50,000 files, 1 GiB total, or 100 MiB per file"),
     (re.compile(r"Upload import job is active", re.I), "upload.job_active", "导入任务正在执行，暂时无法删除上传会话", "The import job is active; its upload session cannot be deleted yet"),
     (re.compile(r"ZIP symlink confirmation required", re.I), "upload.symlink_confirmation_required", "请先确认跳过软链接", "Confirm skipping symbolic links first"),
     (re.compile(r"Upload import session not found", re.I), "upload.session_not_found", "上传会话不存在，请重新选择 ZIP", "Upload session not found. Select the ZIP again"),

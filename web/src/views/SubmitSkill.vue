@@ -12,7 +12,7 @@
       />
 
       <a-tabs v-model:activeKey="submitMode">
-        <a-tab-pane key="zip" :tab="$t('legacy.17o43lg')">
+        <a-tab-pane key="zip" :tab="t('skillUpload.folder.tab')">
           <a-alert v-if="oversizedZip" type="warning" show-icon :message="t('skillUpload.localTooLarge', { size: formatZipSize(oversizedZip.size) })" style="margin-bottom: 16px">
             <template #description>
               <p>{{ t('skillUpload.cleanupHint') }}</p>
@@ -36,10 +36,21 @@
             </template>
           </a-alert>
           <a-form layout="vertical" @finish="prepareZipImport">
-            <a-form-item :label="$t('legacy.1vavpyy')">
+            <a-form-item :label="t('skillUpload.folder.source')">
+              <a-radio-group v-model:value="uploadSource" button-style="solid" :disabled="folderBusy || loadingZipCandidates || submitting || analyzingZipSize" style="margin-bottom: 16px" @change="resetZip">
+                <a-radio-button value="zip">{{ t('skillUpload.folder.zipMode') }}</a-radio-button>
+                <a-radio-button value="folder">{{ t('skillUpload.folder.folderMode') }}</a-radio-button>
+              </a-radio-group>
+              <input ref="folderInput" type="file" webkitdirectory multiple hidden @change="handleFolderSelection" />
+              <a-alert v-if="uploadSource === 'folder'" type="info" show-icon :message="t('skillUpload.folder.performanceHint')" style="margin-bottom: 12px" />
+              <a-space v-if="uploadSource === 'folder'" wrap style="display: flex; margin-bottom: 12px">
+                <a-button :disabled="folderBusy || loadingZipCandidates || submitting || analyzingZipSize" @click="folderInput.click()">{{ t('skillUpload.folder.choose') }}</a-button>
+                <a-button v-if="folderBusy" @click="cancelFolder">{{ t('skillUpload.folder.cancel') }}</a-button>
+              </a-space>
               <a-upload-dragger
+                v-if="uploadSource === 'zip'"
                 class="zip-dragger"
-                :disabled="loadingZipCandidates || submitting || analyzingZipSize"
+                :disabled="loadingZipCandidates || submitting || analyzingZipSize || folderBusy"
                 accept=".zip,application/zip"
                 :show-upload-list="false"
                 :before-upload="handleBeforeUpload"
@@ -64,10 +75,10 @@
                 <a-button
                   type="primary"
                   :loading="loadingZipCandidates"
-                  :disabled="submitting || loadingZipCandidates || !selectedFile"
+                  :disabled="folderBusy || submitting || loadingZipCandidates || !selectedFile"
                   @click="prepareZipImport"
                 > {{ $t("legacy.1skr69s") }} </a-button>
-                <a-button @click="resetZip" :disabled="submitting || loadingZipCandidates || analyzingZipSize">{{ text('重置', 'Reset') }}</a-button>
+                <a-button @click="resetZip" :disabled="folderBusy || submitting || loadingZipCandidates || analyzingZipSize">{{ text('重置', 'Reset') }}</a-button>
               </a-space>
             </a-form-item>
             <a-form-item v-if="validUploadCandidates.length" :label="$t('legacy.1xftwp6')">
@@ -113,10 +124,8 @@
               :message="currentSubmitterMessage"
               :description="$t('legacy.cpri8l')"
             />
-            <a-form-item>
+            <div class="submission-controls">
               <SkillScanOptions v-model="submissionScanOptions" :status="managerStatus" :loading="loadingSystemStatus" :disabled="submitting" />
-            </a-form-item>
-            <a-form-item>
               <a-space wrap>
                 <a-button
                   type="primary"
@@ -127,7 +136,7 @@
                 > {{ $t("legacy.dlkvph") }} </a-button>
                 <a-button @click="uploadJobsOpen = true; refreshUploadJobs()">{{ t('skillUpload.jobs.title') }}</a-button>
               </a-space>
-            </a-form-item>
+            </div>
           </a-form>
         </a-tab-pane>
 
@@ -207,6 +216,17 @@
       </a-tabs>
     </a-card>
 
+    <a-modal v-model:open="folderReviewOpen" :title="t('skillUpload.folder.review')" :width="800" :ok-text="t('skillUpload.folder.continue')" :cancel-text="t('skillUpload.folder.cancel')" :ok-button-props="{ disabled: !folderSelectedKeys.length || folderSelectedSize > FOLDER_LIMITS.total }" @ok="confirmFolderSelection" @cancel="cancelFolder">
+      <a-alert v-if="folderSelectedSize > FOLDER_LIMITS.total" type="warning" show-icon :message="t('skillUpload.folder.largeSelection')" style="margin-bottom: 12px" />
+      <p>{{ t('skillUpload.folder.selectedSize', { size: formatZipSize(folderSelectedSize) }) }}</p>
+      <a-table :data-source="folderRows" :columns="folderColumns" row-key="path" :pagination="{ pageSize: 8 }" :scroll="{ x: 600 }" :row-selection="{ selectedRowKeys: folderSelectedKeys, onChange: keys => folderSelectedKeys = keys }" size="small">
+        <template #bodyCell="{ column, record }">
+          <span v-if="column.key === 'size'">{{ formatZipSize(record.size) }}</span>
+          <a-button v-else-if="column.key === 'remove'" type="link" @click="removeFolderRow(record.path)">{{ t('skillUpload.folder.remove') }}</a-button>
+        </template>
+      </a-table>
+    </a-modal>
+
     <a-modal v-model:open="uploadJobsOpen" :footer="null" :width="1100" :title="t('skillUpload.jobs.title')" style="max-width: calc(100vw - 32px)" :body-style="{ maxHeight: '70vh', overflowY: 'auto' }">
       <a-alert v-if="uploadJobsError" type="warning" :message="t('skillUpload.jobs.loadFailed')" show-icon />
       <a-table :data-source="uploadJobs" :columns="uploadJobColumns" row-key="job_id" :pagination="{ pageSize: 5 }" :scroll="{ x: 950 }" size="small">
@@ -258,6 +278,7 @@
               <a-tag v-if="record.sandbox_required_by_policy" color="orange">{{ $t("legacy.pf5db8") }}</a-tag>
             </a-space>
           </template>
+          <template v-else-if="column.key === 'message' && record.scan_state">{{ t(`skillUpload.scanState.${record.scan_state}`) }}</template>
           <template v-else-if="column.key === 'action'">
             <a-button type="link" style="padding: 0" @click="goToDetail(record.skill_id)">{{ $t("legacy.ox3r68") }}</a-button>
           </template>
@@ -270,6 +291,7 @@
 <script setup>
 import { translateLegacy as phrase } from '../i18n'
 
+import { FOLDER_LIMITS, inspectFolder, folderGroups, selectFolderEntries } from '../utils/folderUpload'
 import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -338,8 +360,7 @@ const refreshUploadJobs = async () => {
     uploadJobsError.value = false
     const job = uploadJobs.value.find(item => item.job_id === selectedUploadJobId.value)
     if (job && uploadResultsOpen.value) {
-      const existing = new Map(submitResults.value.map(item => [item.version_id, item]))
-      submitResults.value = job.results.map(item => existing.get(item.version_id) || item)
+      submitResults.value = job.results || []
       if (!pollingTimer.value) startPolling()
     }
   } catch {
@@ -401,11 +422,11 @@ const formState = reactive({
   useLlm: false,
 })
 
-const submitModeMetaMap = {
+const submitModeMetaMap = computed(() => ({
   zip: {
-    subtitle: phrase('legacy.1vom54d'),
-    message: phrase('legacy.18pplhk'),
-    description: phrase('legacy.1nupcv7'),
+    subtitle: t('skillUpload.intro.subtitle'),
+    message: t('skillUpload.intro.title'),
+    description: t('skillUpload.intro.description'),
   },
   local: {
     subtitle: phrase('legacy.5fwpqd'),
@@ -417,8 +438,8 @@ const submitModeMetaMap = {
     message: phrase('legacy.g1i2b6'),
     description: phrase('legacy.17fev6g'),
   },
-}
-const submitModeMeta = computed(() => submitModeMetaMap[submitMode.value] || submitModeMetaMap.zip)
+}))
+const submitModeMeta = computed(() => submitModeMetaMap.value[submitMode.value] || submitModeMetaMap.value.zip)
 
 const getCandidateDirectory = (item) => {
   const relativePath = item?.relative_path || ''
@@ -573,8 +594,115 @@ const fetchLocalCandidates = async () => {
   }
 }
 
+const uploadSource = ref('zip')
+const folderInput = ref(null)
+const folderBusy = ref(false)
+const folderReviewOpen = ref(false)
+const folderRows = ref([])
+const folderSelectedKeys = ref([])
+let folderEntries = []
+const folderSelectedSize = computed(() => folderRows.value.filter(row => folderSelectedKeys.value.includes(row.path)).reduce((sum, row) => sum + row.size, 0))
+const folderColumns = computed(() => [
+  { title: t('skillUpload.folder.path'), dataIndex: 'path', key: 'path' },
+  { title: t('skillUpload.folder.size'), key: 'size', width: 120 },
+  { title: t('skillUpload.folder.count'), dataIndex: 'count', width: 90 },
+  { title: t('skillUpload.folder.action'), key: 'remove', width: 90 },
+])
+const removeFolderRow = path => {
+  folderRows.value = folderRows.value.filter(row => row.path !== path)
+  folderSelectedKeys.value = folderSelectedKeys.value.filter(key => key !== path)
+  folderEntries = selectFolderEntries(folderEntries, folderRows.value.map(row => row.path))
+}
+const confirmFolderSelection = () => {
+  if (folderSelectedSize.value > FOLDER_LIMITS.total) return
+  const entries = selectFolderEntries(folderEntries, folderSelectedKeys.value)
+  if (!entries.length) return
+  folderReviewOpen.value = false
+  reviewFolderFiles(entries.map(entry => entry.file))
+}
+let folderWorker = null
+let folderRun = 0
+let folderConfirmation = null
+const cancelFolder = () => {
+  folderReviewOpen.value = false
+  folderEntries = []
+  folderRun++
+  folderWorker?.terminate()
+  folderWorker = null
+  folderConfirmation?.destroy()
+  folderConfirmation = null
+  folderBusy.value = false
+  zipProgress.value = null
+}
+const handleFolderSelection = async event => {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  if (!files.length || folderBusy.value || loadingZipCandidates.value || submitting.value || analyzingZipSize.value) return
+  try {
+    const report = inspectFolder(files, false)
+    folderEntries = report.entries
+    folderRows.value = folderGroups(report.entries)
+    folderSelectedKeys.value = folderRows.value.map(row => row.path)
+    folderBusy.value = true
+    folderReviewOpen.value = true
+  } catch (error) {
+    message.error(t(`skillUpload.folder.${error.message === 'empty' ? 'empty' : 'invalidPath'}`))
+  }
+}
+const reviewFolderFiles = files => {
+  folderBusy.value = true
+  const run = ++folderRun
+  try {
+    const report = inspectFolder(files)
+    const confirmation = {
+      title: t('skillUpload.folder.review'),
+      content: h('div', [
+        h('p', t('skillUpload.folder.summary', { name: report.name, count: report.entries.length, size: formatZipSize(report.total), skipped: report.skipped })),
+        ...(report.sensitive.length ? [h('p', t('skillUpload.folder.sensitive')), h('div', { style: 'max-height: 180px; overflow: auto; overflow-wrap: anywhere' }, report.sensitive.map(path => h('div', path)))] : []),
+      ]),
+      okText: t('skillUpload.folder.continue'), cancelText: t('skillUpload.folder.cancel'),
+      onCancel: cancelFolder,
+      onOk: () => {
+        if (run !== folderRun) return
+        folderConfirmation = null
+        clearZipAnalysis()
+        selectedFile.value = null
+        zipProgress.value = { stage: 'packing', percent: 0, completed: 0, total: report.entries.length }
+        const worker = new Worker(new URL('../utils/folderUpload.worker.js', import.meta.url), { type: 'module' })
+        folderWorker = worker
+        const fail = () => { if (run === folderRun) { cancelFolder(); message.error(t('skillUpload.folder.failed')) } }
+        worker.onerror = fail
+        worker.onmessage = ({ data }) => {
+          if (run !== folderRun) return
+          if (data.type === 'progress') zipProgress.value = { ...data, stage: 'packing' }
+          else if (data.type === 'result') {
+            worker.terminate()
+            folderWorker = null
+            folderBusy.value = false
+            zipProgress.value = null
+            if (data.blob.size > 100 * 1024 * 1024) {
+              message.warning(t('skillUpload.folder.packedTooLarge'))
+              folderBusy.value = true
+              folderReviewOpen.value = true
+              return
+            }
+            folderEntries = []
+            void handleBeforeUpload(new File([data.blob], `${report.name}.zip`, { type: 'application/zip' }))
+          } else fail()
+        }
+        worker.postMessage(report.entries)
+      },
+    }
+    if (report.sensitive.length) folderConfirmation = Modal.confirm(confirmation)
+    else confirmation.onOk()
+  } catch (error) {
+    folderReviewOpen.value = true
+    message.error(t(`skillUpload.folder.${['limit', 'invalidPath', 'empty'].includes(error.message) ? error.message : 'failed'}`))
+  }
+}
+
 const handleBeforeUpload = async (file) => {
-  if (analyzingZipSize.value || loadingZipCandidates.value || submitting.value) return false
+  if (folderBusy.value || analyzingZipSize.value || loadingZipCandidates.value || submitting.value) return false
   const isZip = file.type === 'application/zip' || file.name.toLowerCase().endsWith('.zip')
   if (!isZip) {
     message.error(phrase('legacy.1ndzlv6'))
@@ -654,6 +782,7 @@ const refreshPendingResults = async () => {
 
 const startPolling = () => {
   stopPolling()
+  if (selectedUploadJobId.value) return
   if (!submitResults.value.some((item) => item.status === 'PENDING')) return
   void refreshPendingResults()
   pollingTimer.value = setInterval(refreshPendingResults, 1000)
@@ -940,6 +1069,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  cancelFolder()
   uploadJobsDisposed = true
   clearInterval(uploadJobsTimer)
   stopPolling()
@@ -947,6 +1077,13 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.submission-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 15px;
+}
+
 .zip-progress {
   margin-top: 12px;
   max-width: 560px;

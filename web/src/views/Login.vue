@@ -3,7 +3,7 @@
     <div class="login-box">
       <div class="login-header">
         <img :src="logoUrl" alt="Logo" class="login-logo" />
-        <h2 class="login-title">{{ t('app.name') }}</h2>
+        <h2 class="login-title">{{ systemName }}</h2><p v-if="companyName" class="login-company">{{ companyName }}</p>
       </div>
       <a-form layout="vertical" :model="formState" @finish="onFinish">
         <a-form-item :label="$t('legacy.lleewp')" name="username" :rules="[{ required: true, message: $t('legacy.1d52hvl') }]">
@@ -44,15 +44,16 @@ import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { LockOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons-vue'
 
-import { getCaptcha, getLogoInfo, getMe, login } from '../api'
+import { getCaptcha, getMe, login } from '../api'
 import { setLocale } from '../i18n'
+import { useBranding, loadBranding } from '../branding'
 
 const router = useRouter()
 const { t } = useI18n()
 const loading = ref(false)
 const captchaImage = ref('')
 const captchaId = ref('')
-const logoUrl = ref('/logo.png')
+const { logoUrl, systemName, companyName } = useBranding()
 
 const formState = reactive({
   username: 'admin',
@@ -92,10 +93,7 @@ const onFinish = async () => {
 onMounted(async () => {
   await refreshCaptcha()
   try {
-    const res = await getLogoInfo()
-    if (res.logo_url) {
-      logoUrl.value = `${res.logo_url}?t=${Date.now()}`
-    }
+    await loadBranding()
   } catch {
     // ignore
   }
@@ -113,6 +111,8 @@ onMounted(async () => {
 
 .login-box {
   width: 400px;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
   padding: 32px;
   background: #fff;
   border-radius: 16px;
@@ -126,6 +126,8 @@ onMounted(async () => {
 
 .login-logo {
   height: 56px;
+  max-width: 100%;
+  object-fit: contain;
   margin-bottom: 16px;
 }
 
@@ -155,4 +157,9 @@ onMounted(async () => {
   border-radius: 6px;
   cursor: pointer;
 }
+</style>
+
+<style scoped>
+.login-company { text-align: center; color: #64748b; overflow-wrap: anywhere; }
+.login-title { overflow-wrap: anywhere; }
 </style>

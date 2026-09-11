@@ -1,14 +1,16 @@
 import os
+import json
 import shutil
 from datetime import datetime, timedelta
 from typing import List, Optional
 
 import psutil
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, Request
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
-from .. import auth, models
+from .. import auth, models, iam
+from ..api_errors import ApiError
 from ..config import settings
 from ..feature_flags import baseline_summary, feature_flags
 from ..sqlite_db import get_db
@@ -17,7 +19,46 @@ from ..task_runtime import collect_system_metric_snapshot, persist_system_metric
 
 router = APIRouter(prefix="/system", tags=["system"])
 LOGO_DIR = settings.UPLOADS_DIR
-ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
+ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+
+class BrandingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    system_name_zh: str = Field(default="智能体生命周期管理系统", min_length=1, max_length=80)
+    system_name_en: str = Field(default="Agent Manager", min_length=1, max_length=80)
+    company_name: str = Field(default="", max_length=120)
+
+    @field_validator("system_name_zh", "system_name_en")
+    @classmethod
+    def valid_name(cls, value):
+        if not value.strip():
+            raise ValueError("System name cannot be blank")
+        return value.strip()
+
+
+def branding_config(db):
+    row = db.get(models.SystemConfig, "system_branding")
+    return BrandingConfig(**json.loads(row.value)).model_dump() if row else BrandingConfig().model_dump()
+
+
+@router.get("/branding")
+async def get_branding(db: Session = Depends(get_db)):
+    return {**branding_config(db), **await get_logo_info()}
+
+
+@router.put("/branding")
+async def update_branding(body: BrandingConfig, request: Request, db: Session = Depends(get_db),
+                          user=Depends(iam.require("settings:update"))):
+    before = branding_config(db)
+    values = body.model_dump()
+    row = db.get(models.SystemConfig, "system_branding")
+    if row is None:
+        row = models.SystemConfig(key="system_branding", value="{}")
+        db.add(row)
+    row.value = json.dumps(values, ensure_ascii=False)
+    iam.audit(db, request, user, "settings", "update", "system_branding", before=before, after=values)
+    iam.commit(db)
+    return {**values, **await get_logo_info()}
 
 
 class DiskUsage(BaseModel):
@@ -262,12 +303,17 @@ async def upload_logo(
     current_user: models.User = Depends(auth.get_current_admin_user),
     db: Session = Depends(get_db),
 ):
-    ext = os.path.splitext(file.filename)[1].lower()
+    ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="不支持的文件格式")
-    content = await file.read()
+        raise ApiError(400, "branding.invalid_logo_type", "请上传 PNG、JPEG、GIF 或 WebP 图片", "Upload a PNG, JPEG, GIF, or WebP image")
+    content = await file.read(5 * 1024 * 1024 + 1)
     if len(content) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="文件大小不能超过 5MB")
+        raise ApiError(400, "branding.logo_too_large", "文件大小不能超过 5MB", "The image must not exceed 5 MB")
+    valid = {".png": content.startswith(b"\x89PNG\r\n\x1a\n"), ".jpg": content.startswith(b"\xff\xd8\xff"),
+             ".jpeg": content.startswith(b"\xff\xd8\xff"), ".gif": content[:6] in {b"GIF87a", b"GIF89a"},
+             ".webp": content[:4] == b"RIFF" and content[8:12] == b"WEBP"}
+    if not valid[ext]:
+        raise ApiError(400, "branding.invalid_logo_content", "图片内容与文件格式不符", "Image content does not match its file type")
     os.makedirs(LOGO_DIR, exist_ok=True)
     for name in os.listdir(LOGO_DIR):
         if name.startswith("custom_logo"):

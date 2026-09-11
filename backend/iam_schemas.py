@@ -7,20 +7,17 @@ class Input(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class PageVisit(Input):
+    path: str = Field(min_length=1, max_length=256)
+
+
 class AccountCreate(Input):
-    username: str = Field(min_length=1, max_length=64)
+    username: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
     email: EmailStr | None = None
     password: str = Field(min_length=8)
     role: str = "user"
     is_active: bool = True
     group_ids: list[int] = Field(default_factory=list, max_length=500)
-
-    @field_validator("username")
-    @classmethod
-    def non_blank_username(cls, value):
-        if not value.strip():
-            raise ValueError("Username cannot be blank")
-        return value
 
 
 class AccountUpdate(Input):

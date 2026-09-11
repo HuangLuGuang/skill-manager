@@ -28,6 +28,7 @@ export const iamDelete = (kind, id) => api.delete(`/v1/iam/${kind}/${encodeURICo
 export const iamAction = (kind, id, action, data) => api.post(`/v1/iam/${kind}/${encodeURIComponent(id)}/${action}`, data)
 export const iamGrant = (name, data) => api.put(`/v1/iam/roles/${encodeURIComponent(name)}/permissions`, data)
 export const iamVerify = () => api.post('/v1/iam/audit-chain/verify')
+export const recordPageVisit = path => api.post('/v1/iam/page-visits', { path })
 export const listAssetSources = () => api.get('/v1/agent-security/asset-sources')
 export const createAssetSource = body => api.post('/v1/agent-security/asset-sources', body)
 export const updateAssetSource = (id, body) => api.put(`/v1/agent-security/asset-sources/${id}`, body)
@@ -358,3 +359,8 @@ export const triggerScanSchedule = (id, key) => api.post(`/v1/agent-security/sca
 export const listScanScheduleRuns = id => api.get(`/v1/agent-security/scan-schedules/${id}/runs`)
 export const previewScanTiming = body => api.post('/v1/agent-security/scan-schedules/preview', body)
 export const getTargetRiskProfile = id => api.get(`/v1/agent-security/targets/${id}/risk-profile`)
+
+export const getBranding = () => api.get("/system/branding")
+export const saveBranding = data => api.put("/system/branding", data)
+export const uploadBrandLogo = data => api.post("/system/logo", data)
+export const resetBrandLogo = () => api.delete("/system/logo")

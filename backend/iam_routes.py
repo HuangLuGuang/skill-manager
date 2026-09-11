@@ -10,8 +10,10 @@ def route_permission(request):
     method = request.method
     if path.startswith("/api/v1/iam/") or path.startswith("/api/auth/"):
         return None
-    if path in {"/api/system/capabilities", "/api/system/logo"} and method == "GET":
+    if path in {"/api/system/capabilities", "/api/system/logo", "/api/system/branding"} and method == "GET":
         return None
+    if path == "/api/system/logo" and method in {"POST", "DELETE"}:
+        return "settings:update"
     if path == "/api/v1/policy/simulate" and method == "POST":
         return "policy:view"
     if path == "/api/v1/privacy-policies" and method == "POST":

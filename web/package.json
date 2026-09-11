@@ -20,6 +20,7 @@
     "test:i18n": "node scripts/check-i18n.mjs && node --test scripts/agent-security-i18n.test.mjs scripts/iam-access.test.mjs",
     "test:skill-versions": "node --test scripts/skill-versions.test.mjs",
     "test:skill-batch": "node --test scripts/skill-batch.test.mjs scripts/skill-rescan.test.mjs",
+    "test:folder-upload": "node --test scripts/folder-upload.test.mjs",
     "test:zip-size": "node --test scripts/zip-size.test.mjs",
     "test:upload-progress": "node --test scripts/upload-progress.test.mjs",
     "preview": "vite preview"

@@ -1031,7 +1031,7 @@ const loadAll = async () => {
       can('groups:view') ? listGroups() : Promise.resolve([]),
       can('privacy:view') ? listPrivacyPolicies() : Promise.resolve([]),
       can('privacy_audit:view') ? getPrivacyStats() : Promise.resolve({}),
-      can('privacy_audit:raw') ? listPrivacyMappings({ page: mappingQuery.page, page_size: mappingQuery.page_size, q: mappingQuery.q || undefined }) : Promise.resolve({}),
+      activeTab.value === 'audit' && can('privacy_audit:raw') ? listPrivacyMappings({ page: mappingQuery.page, page_size: mappingQuery.page_size, q: mappingQuery.q || undefined }) : Promise.resolve({}),
     ])
     providers.value = providerRes
     models.value = modelRes
@@ -1364,6 +1364,7 @@ const handleDeletePolicy = async (record) => {
 }
 
 const loadMappings = async () => {
+  if (activeTab.value !== 'audit' || !can('privacy_audit:raw')) return
   mappingLoading.value = true
   try {
     const res = await listPrivacyMappings({

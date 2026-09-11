@@ -232,15 +232,18 @@ test('audit filters debounce typing, apply selections immediately, and reject st
   const file = await readFile(new URL('../src/views/SystemAudit.vue', import.meta.url), 'utf8')
   const script = parse(file).descriptor.scriptSetup.content.replace(/^import .*$/gm, '')
   const requests = []
+  const route = reactive({ query: { tab: 'operation' }, hash: '' })
   const scope = effectScope()
   let dispose
   const deps = { computed, ref, reactive, watch, nextTick, onMounted: () => {}, onUnmounted: fn => { dispose = fn },
+    useRoute: () => route, useRouter: () => ({ replace: value => { Object.assign(route, value) } }),
     can: () => true, useI18n: () => ({ t: key => key, te: () => false, tm: () => ({}) }),
     iamList: (path, query) => new Promise(resolve => requests.push({ path, query, resolve })),
     message: { error: assert.fail }, formatDateTime: String,
   }
   const h = scope.run(() => new Function(...Object.keys(deps), `${script}\nreturn { filters, kind, pager, rows, reset }`)(...Object.values(deps)))
   try {
+    assert.equal(h.kind.value, 'operation')
     h.pager.current = 3
     h.filters.q = 'old'
     await nextTick()
@@ -265,6 +268,10 @@ test('audit filters debounce typing, apply selections immediately, and reject st
     assert.equal(requests[3].query.outcome, undefined)
     context.mock.timers.tick(300)
     assert.equal(requests.length, 4)
+    h.kind.value = 'security'
+    await nextTick()
+    assert.equal(route.query.tab, 'security')
+    assert.equal(requests[4].path, 'audit/security')
   } finally { dispose(); scope.stop() }
 })
 

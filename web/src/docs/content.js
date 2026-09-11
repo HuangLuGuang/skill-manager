@@ -27,7 +27,7 @@ const zh = {
       { slug: 'model-gateway', title: '模型网关', summary: '模型接入、隐私防护与 Token 压缩' },
     ] },
     { title: '系统管理', items: [
-      { slug: 'system-management', title: '系统管理', summary: '用户、权限与系统状态' },
+      { slug: 'system-management', title: '系统管理', summary: '账号、角色、菜单、审计与品牌设置' },
     ] },
     { title: '部署与运维', items: [
       { slug: 'docker-deployment', title: 'Docker 部署', summary: '在线或离线方式启动同一套 Compose 服务' },
@@ -117,9 +117,12 @@ const zh = {
         },
         {
           "id": "submit-zip",
-          "title": "2. 上传 ZIP 并选择 Skill",
+          "title": "2. 上传 ZIP 或文件夹并选择 Skill",
           "paragraphs": [
-            "选择 ZIP 后自动整理并解析，上传上限为 100 MiB。浏览器会移除 __MACOSX/ 开头的条目，再校验大小；本地原文件不变。超过上限时，页面汇总第一、第二级目录中压缩后大小最大的 10 项，便于移除大文件后重新打包。",
+            "上传方式可切换为“ZIP 包”或“文件夹”，每次仅展示对应入口。切换时清空当前选择和解析结果，打包、上传或提交期间暂时禁用切换。文件夹中的文件较多时，建议先在本地打包为 ZIP，以减少浏览器读取和打包的资源占用。",
+            "文件夹模式点击“选择文件夹”，打包前按直接子文件夹的原始大小降序展示，包含所有深层文件，根目录文件单独列出。取消勾选保留该行，可以重新选中；点击“移除”则删除当前列表中的整行及其待上传内容，不删除本地文件。需要恢复已移除内容时，重新选择文件夹。",
+            "列表实时统计已选内容的原始总大小。超过 100 MiB 时禁用“打包并上传”，必须减少选择至 100 MiB 以内（含等于）才能继续，不以预计压缩大小判断。最多允许 50,000 个文件，SVG 等资源文件仍计数；仅自动跳过 __MACOSX 和 .DS_Store。选中疑似凭据文件时会提示确认，打包期间可取消。浏览器可能省略软链接、空目录及执行权限，需要保留时使用 ZIP。历史记录显示“文件夹名称.zip”。",
+            "ZIP 模式选择或拖入 ZIP 后自动整理并解析，上传大小上限为 100 MiB。浏览器移除 __MACOSX/ 开头的条目后校验大小，本地原文件不变。超过上限时，页面汇总第一、第二级目录中压缩后大小最大的 10 项，便于在本地清理并重新打包。",
             "整理、上传、解压和识别按阶段展示进度；百分比表示当前阶段的进度。ZIP 包含软链接时，确认窗口列出具体路径，可跳过并继续或取消，无需再次上传。"
           ],
           "steps": [
@@ -141,6 +144,42 @@ const zh = {
           "link": {
             "path": "/submit",
             "label": "打开提交 Skill"
+          }
+        },
+        {
+          "id": "folder-upload",
+          "title": "选择文件夹上传",
+          "paragraphs": [
+            "切换到“文件夹”后点击“选择文件夹”。文件较多时可先在本地打包为 ZIP，减少浏览器资源占用。"
+          ],
+          "image": {
+            "name": "submit-folder",
+            "alt": "文件夹上传模式",
+            "caption": "示例界面：文件夹模式与性能提示。"
+          }
+        },
+        {
+          "id": "folder-size-selection",
+          "title": "打包前检查原始大小",
+          "paragraphs": [
+            "子文件夹按大小降序展示。所选原始总大小超过 100 MiB 时，“打包并上传”禁用。"
+          ],
+          "image": {
+            "name": "folder-selection",
+            "alt": "文件夹超限与目录列表",
+            "caption": "示例数据：179 MiB 文件夹在打包前提示超限。"
+          }
+        },
+        {
+          "id": "folder-remove-selection",
+          "title": "移除与取消选中",
+          "paragraphs": [
+            "“移除”删除当前列表中的整行；取消勾选保留该行，可重新选中。两种操作都不删除本地文件。"
+          ],
+          "image": {
+            "name": "folder-selection-edited",
+            "alt": "移除目录并取消勾选后的列表",
+            "caption": "示例数据：large/ 已移除，small/ 保留但未选中，仅 SKILL.md 待上传。"
           }
         },
         {
@@ -1544,13 +1583,22 @@ const zh = {
     'system-management': {
       eyebrow: '功能指南',
       title: '系统管理',
-      summary: '管理用户与用户组，并从系统总览核对核心服务、扫描分析、模型网关和接入链路是否完整。',
+      summary: '配置账号、角色、菜单与平台品牌，查询三类日志，并检查系统服务状态。',
       sections: [
+        {"id": "accounts", "title": "账号管理", "paragraphs": ["在“系统管理 → 账号管理”新增账号、分配角色和用户组，或维护账号状态。"], "bullets": ["新增时填写用户名、初始密码，按需填写邮箱，并选择角色、用户组和启用状态。用户名只允许大小写英文字母、数字、下划线、点和短横线，最多 64 个字符。", "编辑可修改邮箱、角色和用户组；用户名创建后只读。重置密码使用独立入口。", "禁用账号或重置密码后，原有登录会话失效。有关联业务记录的账号可先禁用。", "可按关键词、角色、状态、用户组筛选；可按创建时间或最后登录时间排序。可执行的操作由当前账号权限决定。"], "link": {"path": "/users", "label": "打开账号管理"}, "image": {"name": "system-accounts", "alt": "账号管理", "caption": "账号管理"}},
+        {"id": "account-create", "title": "新增账号填写示例", "paragraphs": ["按用户名规则填写账号信息，并选择实际需要的角色和用户组；初始密码只在创建时输入。"], "image": {"name": "system-account-create", "alt": "新增账号表单与用户名规则", "caption": "新增账号表单与用户名规则"}},
+        {"id": "roles", "title": "角色与权限", "paragraphs": ["角色决定账号可以访问哪些页面、执行哪些操作。每个账号关联一个角色，用户组用于组织和业务策略绑定。"], "bullets": ["先新增角色，填写稳定标识、显示名称和描述。", "在“配置权限”中按模块选择查看、新增、编辑等操作，并设置可访问的默认首页；新角色需要配置权限后才能使用对应功能。", "权限保存后在后续请求中生效。内置管理角色保留管理权限，普通角色按职责授权。", "删除角色前先处理关联账号；自己的账号和最后一个有效管理账号受保护。"], "link": {"path": "/roles", "label": "打开角色管理"}, "image": {"name": "system-roles", "alt": "角色与权限", "caption": "角色与权限"}},
+        {"id": "menus", "title": "菜单管理", "paragraphs": ["维护导航目录、页面入口和显示顺序，可展开或收起目录查看层级。"], "bullets": ["新增目录或页面入口，配置中英文名称、图标、父目录和排序，目录最多三级。", "页面入口从已有功能中选择；使用“上移／下移”调整同级顺序。", "启用或禁用控制导航展示；角色权限决定是否允许访问。", "内置菜单通过启停管理；删除自定义菜单前处理子菜单和角色默认首页关联。"], "link": {"path": "/menus", "label": "打开菜单管理"}, "image": {"name": "system-menus", "alt": "菜单管理", "caption": "菜单管理"}},
+        {"id": "login-audit", "title": "登录日志", "paragraphs": ["用于查询登录成功与失败记录，定位账号和认证问题。"], "bullets": ["查看时间、操作者、登录结果、失败原因和来源 IP。", "通过关键词、操作者、结果、时间范围筛选；点击详情查看请求关联标识和完整记录。"], "link": {"path": "/system-audit?tab=login", "label": "打开登录日志"}, "image": {"name": "system-login-audit", "alt": "登录日志", "caption": "登录日志"}},
+        {"id": "operation-audit", "title": "操作日志", "paragraphs": ["用于追踪管理操作、配置变更和敏感查看，例如修改账号、分配角色、更新品牌配置。"], "bullets": ["按模块和动作定位操作；相近请求动作按业务动作归类。", "详情展示事件、对象和请求信息；有变更数据时可对比修改前后的字段，并展开原始记录。"], "link": {"path": "/system-audit?tab=operation", "label": "打开操作日志"}, "image": {"name": "system-operation-audit", "alt": "操作日志", "caption": "操作日志"}},
+        {"id": "security-audit", "title": "安全审计", "paragraphs": ["用于查询扫描、凭证及隐私访问等安全事件。"], "bullets": ["查看安全事件的操作者、模块、动作、对象与结果；详情包含事件类型和事件标识。", "有权限时可点击“验证审计链”，检查安全审计记录是否被修改、记录之间是否断开；鼠标悬停按钮可查看说明。", "三类日志默认按时间倒序，每页 10 条，可调整每页条数。筛选自动生效，重置清空条件。刷新页面保留当前日志页签。", "列表采用紧凑单行显示，长内容可悬停查看或打开详情；时间统一使用北京时间（UTC+8）。"], "link": {"path": "/system-audit?tab=security", "label": "打开安全审计"}, "image": {"name": "system-security-audit", "alt": "安全审计", "caption": "安全审计"}},
+        {"id": "branding", "title": "Logo、系统名与公司名", "paragraphs": ["在“系统管理 → 系统总览 → 品牌与系统名称”配置平台展示信息。"], "bullets": ["分别填写中文系统名、英文系统名和公司名，点击“保存名称”。系统名按界面语言展示，公司名保持输入原文。", "点击“上传 Logo”更新图片，支持 PNG、JPEG、GIF、WebP，最大 5 MB；可恢复默认 Logo。", "保存后同步更新登录页、顶栏、帮助文档名称和浏览器标题。修改需要系统设置编辑权限。", "名称保存在数据库，Logo 保存在上传目录；Docker 部署保留对应数据卷即可保留配置。"], "link": {"path": "/settings", "label": "打开品牌设置"}, "image": {"name": "system-branding", "alt": "Logo、系统名与公司名", "caption": "Logo、系统名与公司名"}},
+
         {
           id: 'users-groups',
-          title: '用户与组',
+          title: '用户组',
           paragraphs: ['用户组既用于组织人员和Agent，也用于模型访问与隐私策略绑定。创建用户后，应按实际职责授予最小权限。'],
-          link: { path: '/users-groups', label: '打开用户与组' },
+          link: { path: '/users-groups', label: '打开用户组' },
         },
         {
           id: 'system-status',
@@ -1744,7 +1792,7 @@ const en = {
       { slug: 'model-gateway', title: 'Model gateway', summary: 'Model access, privacy controls, and token compression' },
     ] },
     { title: 'System administration', items: [
-      { slug: 'system-management', title: 'System management', summary: 'Users, permissions, and system status' },
+      { slug: 'system-management', title: 'System management', summary: 'Accounts, roles, menus, audit, and branding' },
     ] },
     { title: 'Deploy and operate', items: [
       { slug: 'docker-deployment', title: 'Docker deployment', summary: 'Run the same Compose stack online or offline' },
@@ -1786,9 +1834,12 @@ const en = {
         { id: 'check-system', title: '1. Check platform status', paragraphs: ['Open the dashboard and system overview first. LLM and Sandbox checks depend on administrator configuration; unavailable checks remain disabled on the submission page.'], image: { name: 'dashboard', alt: 'Platform dashboard', caption: 'The dashboard highlights pending Skills, risk distribution, and recent events.' }, link: { path: '/dashboard', label: 'Open dashboard' } },
         {
           "id": "submit-zip",
-          "title": "2. Upload a ZIP and select Skills",
+          "title": "2. Upload a ZIP or folder and select Skills",
           "paragraphs": [
-            "Selecting a ZIP automatically prepares and parses it. The upload limit is 100 MiB. The browser removes entries starting with __MACOSX/ before checking the size, without changing the local file. Oversized archives show the 10 largest first- and second-level directories by compressed size to help you trim and repackage them.",
+            "Switch between ZIP archive and Folder to show the corresponding upload entry. Switching clears the current selection and parsed results and is disabled during packaging, uploading, or submission. For folders with many files, create a ZIP locally to reduce browser resource use.",
+            "In Folder mode, click Choose folder. Direct subfolders are sorted by original size, including all nested files; files in the selected root appear separately. Deselecting keeps a row available for reselection. Remove deletes the entire row and its pending upload contents from this list without deleting local files. To restore removed items, choose the folder again.",
+            "The list updates the total original size of selected contents. Package and upload is disabled above 100 MiB; reduce the selection to 100 MiB or less to continue. Estimated compressed size does not determine eligibility. Up to 50,000 files are allowed, including SVG resources. Only __MACOSX and .DS_Store are skipped automatically. Possible credentials require confirmation, and packaging can be cancelled. Browsers may omit symlinks, empty directories, and executable permissions; use ZIP when these attributes are required. History shows folder-name.zip.",
+            "In ZIP mode, select or drop a ZIP to prepare and parse it automatically. The upload limit is 100 MiB after removing entries starting with __MACOSX/; the local file is unchanged. Oversized archives show the 10 largest first- and second-level directories by compressed size to help you trim and repackage locally.",
             "Preparation, upload, extraction, and Skill identification display separate progress stages. Percentages apply to the current stage. If symlinks are found, a confirmation lists their paths and lets you skip them or cancel without uploading again."
           ],
           "steps": [
@@ -1810,6 +1861,42 @@ const en = {
           "link": {
             "path": "/submit",
             "label": "Open Submit Skill"
+          }
+        },
+        {
+          "id": "folder-upload",
+          "title": "Choose folder upload",
+          "paragraphs": [
+            "Switch to Folder and click Choose folder. For many files, consider packaging a ZIP locally to reduce browser resource use."
+          ],
+          "image": {
+            "name": "submit-folder",
+            "alt": "Folder upload mode",
+            "caption": "Example screen: Folder mode and the performance hint."
+          }
+        },
+        {
+          "id": "folder-size-selection",
+          "title": "Check original size before packaging",
+          "paragraphs": [
+            "Subfolders are sorted by size. Package and upload is disabled when the selected original total exceeds 100 MiB."
+          ],
+          "image": {
+            "name": "folder-selection",
+            "alt": "Oversized folder selection",
+            "caption": "Example data: a 179 MiB folder exceeds the limit before packaging."
+          }
+        },
+        {
+          "id": "folder-remove-selection",
+          "title": "Remove and deselect",
+          "paragraphs": [
+            "Remove deletes the row from the current list. Deselect keeps the row available for reselection. Neither action deletes local files."
+          ],
+          "image": {
+            "name": "folder-selection-edited",
+            "alt": "List after removing and deselecting items",
+            "caption": "Example data: large/ removed, small/ retained but deselected, and only SKILL.md selected."
           }
         },
         {
@@ -2332,9 +2419,18 @@ const en = {
       ],
     },
     'system-management': {
-      eyebrow: 'Feature guide', title: 'System management', summary: 'Manage users and groups, then verify core services, scan analysis, the model gateway, and access chains from System Overview.',
+      eyebrow: 'Feature guide', title: 'System management', summary: 'Configure accounts, roles, menus, and branding; inspect login, operation, and security logs; and check system health.',
       sections: [
-        { id: 'users-groups', title: 'Users and groups', paragraphs: ['Groups organize people and Agents and also drive model access and privacy policy bindings. Grant the minimum permissions required for each role.'], link: { path: '/users-groups', label: 'Open Users & Groups' } },
+        {"id": "accounts", "title": "Account management", "paragraphs": ["Use System Management → Accounts to create accounts, assign roles and groups, and manage account status."], "bullets": ["Enter a username and initial password, optionally add an email, and choose a role, groups, and status. Usernames allow English letters, digits, underscores, dots, and hyphens, up to 64 characters.", "Edit email, role, and groups; the username is read-only after creation. Reset passwords through the separate action.", "Disabling an account or resetting its password invalidates existing sessions. Disable accounts that still have business references when appropriate.", "Filter by keyword, role, status, or group, and sort by creation or last sign-in time. Available actions depend on your permissions."], "link": {"path": "/users", "label": "Open Accounts"}, "image": {"name": "system-accounts", "alt": "Account management", "caption": "Account management"}},
+        {"id": "account-create", "title": "Create an account", "paragraphs": ["Enter account details using the username rules, select the required role and groups, and enter the initial password during creation."], "image": {"name": "system-account-create", "alt": "Account creation form and username rules", "caption": "Account creation form and username rules"}},
+        {"id": "roles", "title": "Roles and permissions", "paragraphs": ["Roles control accessible pages and allowed actions. Each account has one role; groups organize accounts and bind business policies."], "bullets": ["Create a role with a stable identifier, display name, and description.", "Choose actions by module under Configure permissions and select an accessible default page. Configure permissions before using a new role.", "Saved permissions apply to subsequent requests. Built-in management roles retain management permissions; grant other roles permissions according to their duties.", "Resolve account assignments before deleting a role. Your own account and the last active administrator are protected."], "link": {"path": "/roles", "label": "Open Roles"}, "image": {"name": "system-roles", "alt": "Roles and permissions", "caption": "Roles and permissions"}},
+        {"id": "menus", "title": "Menu management", "paragraphs": ["Maintain navigation directories, page entries, and display order. Expand or collapse directories to inspect their hierarchy."], "bullets": ["Add a directory or page entry with Chinese and English titles, an icon, parent directory, and order. The hierarchy supports up to three levels.", "Choose page entries from existing features; Move up and Move down reorder siblings.", "Enabled status controls navigation visibility; role permissions control access.", "Manage built-in entries through enabled status. Resolve child menus and role default-page references before deleting a custom entry."], "link": {"path": "/menus", "label": "Open Menus"}, "image": {"name": "system-menus", "alt": "Menu management", "caption": "Menu management"}},
+        {"id": "login-audit", "title": "Login logs", "paragraphs": ["Review successful and failed sign-ins to investigate account and authentication issues."], "bullets": ["Inspect time, actor, result, failure reason, and source IP.", "Filter by keyword, actor, result, or time range. Open details for request identifiers and complete records."], "link": {"path": "/system-audit?tab=login", "label": "Open Login Logs"}, "image": {"name": "system-login-audit", "alt": "Login logs", "caption": "Login logs"}},
+        {"id": "operation-audit", "title": "Operation logs", "paragraphs": ["Trace management actions, configuration changes, and sensitive reads, such as editing accounts, assigning roles, and updating branding."], "bullets": ["Filter by module and action; related HTTP request actions are grouped into business actions.", "Open details for the event, target, and request context. Compare before and after fields when available, or expand the original record."], "link": {"path": "/system-audit?tab=operation", "label": "Open Operation Logs"}, "image": {"name": "system-operation-audit", "alt": "Operation logs", "caption": "Operation logs"}},
+        {"id": "security-audit", "title": "Security audit", "paragraphs": ["Review security events for scans, credentials, and privacy access."], "bullets": ["Inspect the actor, module, action, target, and result. Details include the event type and event identifier.", "With permission, select Verify audit chain to check for changed records or broken links between them. Hover over the button for an explanation.", "All three tabs show newest records first, with 10 records per page by default. Change the page size as needed. Filters apply automatically; Reset clears them. Reloading preserves the selected log tab.", "Compact rows shorten long values; hover or open details for the full text. Times use Beijing time (UTC+8)."], "link": {"path": "/system-audit?tab=security", "label": "Open Security Audit"}, "image": {"name": "system-security-audit", "alt": "Security audit", "caption": "Security audit"}},
+        {"id": "branding", "title": "Logo, system names, and company name", "paragraphs": ["Open System Management → System Overview → Branding and system names."], "bullets": ["Enter Chinese and English system names and a company name, then select Save names. System names follow the interface language; the company name stays as entered.", "Upload a PNG, JPEG, GIF, or WebP logo up to 5 MB, or restore the default logo.", "Saved branding updates the login page, header, help name, and browser title. Changes require permission to edit system settings.", "Names are stored in the database and the logo in the uploads directory. Retain the corresponding Docker data volumes to preserve them."], "link": {"path": "/settings", "label": "Open branding settings"}, "image": {"name": "system-branding", "alt": "Logo, system names, and company name", "caption": "Logo, system names, and company name"}},
+
+        { id: 'users-groups', title: 'User groups', paragraphs: ['Groups organize people and Agents and also drive model access and privacy policy bindings. Grant the minimum permissions required for each role.'], link: { path: '/users-groups', label: 'Open User Groups' } },
         { id: 'system-status', title: 'System status', bullets: ['Core services: verify the Backend API, content-integrity signing key, and audit entry point.', 'Scan analysis: verify Sandbox connectivity, LLM analysis model, and deep-analysis capability.', 'Model gateway: verify available models, model credentials, privacy policies, and Prompt Guard test.', 'Access chain: verify Agent runtime credentials, Runtime validation API, Scanner access credentials, and unified audit.', 'Unavailable dependencies should leave corresponding submission checks disabled.'], image: { name: 'system', alt: 'System overview page', caption: 'Resolve core service failures before diagnosing scan results.' }, link: { path: '/settings', label: 'Open System Overview' } },
         { id: 'docs-assistant', title: 'Documentation assistant', paragraphs: ['Administrators can enable the documentation assistant under System Management → Documentation settings, select an enabled model, and maintain bilingual welcome messages, answer guidance, and common questions. Once enabled, Ask AI appears in the help header and opens a right-side chat rail that answers from the current docs and shows verified internal documentation links.'], bullets: ['The feature is disabled by default and cannot be enabled without an available model.', 'The browser selects relevant sections from the current-language help docs and sends only a limited set of excerpts to the selected model.', 'The model must answer only from supplied excerpts; internal links come from the documentation index rather than model-generated URLs.', 'Signed-in users may use the assistant, while only administrators may change its settings.', 'If documentation settings have unsaved changes, the page asks for confirmation before navigation, reload, or tab closure.', 'AI answers help with navigation; the documentation and actual system configuration remain authoritative.'], link: { path: '/docs-settings', label: 'Open Documentation Settings' } },
       ],

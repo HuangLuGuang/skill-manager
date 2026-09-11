@@ -4,7 +4,7 @@
       <button class="brand-button" type="button" @click="router.push('/docs')">
         <img :src="logoUrl" class="docs-logo" alt="" />
         <span class="brand-copy">
-          <span class="brand-name">{{ t('app.name') }}</span>
+          <span class="brand-name">{{ systemName }}</span>
           <span class="brand-docs">{{ t('docsUi.docs') }}</span>
         </span>
       </button>
@@ -515,6 +515,7 @@ import {
 } from '@ant-design/icons-vue'
 
 import { getDocsAssistantConfig, updateMyLocale } from '../api'
+import { useBranding } from '../branding'
 import DocsAssistantPanel from '../components/DocsAssistantPanel.vue'
 import { docsArticleOrder, docsContent } from '../docs/content'
 import { setLocale } from '../i18n'
@@ -525,6 +526,7 @@ defineProps({
   logoUrl: { type: String, default: '/logo.png' },
 })
 
+const { systemName } = useBranding()
 const router = useRouter()
 const route = useRoute()
 const { t, locale } = useI18n()

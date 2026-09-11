@@ -2,6 +2,8 @@
   <div class="system-overview">
     <a-page-header :title="$t('legacy.11x0ooc')" :sub-title="$t('legacy.1572cr1')" />
 
+    <BrandingSettings />
+
     <section class="health-panel">
       <div class="health-main">
         <div>
@@ -87,6 +89,7 @@
 </template>
 
 <script setup>
+import BrandingSettings from '../components/BrandingSettings.vue'
 import { translateLegacy as phrase } from '../i18n'
 
 import { computed, onMounted, ref } from 'vue'

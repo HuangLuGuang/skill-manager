@@ -325,6 +325,9 @@ class AgentManager:
             "risk_level": entry.risk_level.value if entry.risk_level else None,
             "scan_reused": entry.scan_reused,
             "findings_count": entry.vetting.findings_count if entry.vetting else 0,
+            "sandbox_triggered": bool(entry.vetting and entry.vetting.sandbox_triggered),
+            "sandbox_required_by_policy": bool(entry.vetting and entry.vetting.sandbox_required_by_policy),
+            "sandbox_runtime": entry.vetting.sandbox_runtime if entry.vetting else None,
         }
         self.registry.update_scan_run(run)
 

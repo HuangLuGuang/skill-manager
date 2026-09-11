@@ -10,8 +10,9 @@
         </a-button>
         <div class="app-brand">
           <img :src="logoUrl" alt="Logo" class="app-logo" />
-          <div>
-            <div class="app-title">{{ t('app.name') }}</div>
+          <div class="app-brand-text">
+            <div class="app-title" :title="systemName">{{ systemName }}</div>
+            <div v-if="companyName" class="app-company" :title="companyName">{{ companyName }}</div>
           </div>
         </div>
         <div class="app-user">
@@ -107,6 +108,8 @@
 
 <script setup>
 import { translateLegacy as phrase } from './i18n'
+import { useBranding, loadBranding } from './branding'
+import { iconMap } from './menuIcons'
 
 import { computed, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -115,31 +118,17 @@ import zhCN from 'ant-design-vue/es/locale/zh_CN'
 import enUS from 'ant-design-vue/es/locale/en_US'
 import { message } from 'ant-design-vue'
 import {
-  AuditOutlined,
-  BarChartOutlined,
-  CheckSquareOutlined,
-  DashboardOutlined,
-  DeploymentUnitOutlined,
-  DesktopOutlined,
   DownOutlined,
-  ApiOutlined,
-  FileSearchOutlined,
-  FileTextOutlined,
-  KeyOutlined,
   LockOutlined,
   MenuOutlined,
   LogoutOutlined,
   QuestionCircleOutlined,
-  SafetyCertificateOutlined,
-  SettingOutlined,
-  TeamOutlined,
-  UploadOutlined,
 } from '@ant-design/icons-vue'
 
 const narrowNavigation = ref(false)
 const navigationCollapsed = ref(false)
 
-import { changePassword, checkSession, getLogoInfo, getMcpApprovalRequestStats, getMe, getSystemCapabilities, updateMyLocale } from './api'
+import { changePassword, checkSession, getMcpApprovalRequestStats, getMe, getSystemCapabilities, updateMyLocale } from './api'
 import { DEFAULT_FEATURE_FLAGS, filterNavigationByFeatures, normalizeFeatureFlags } from './features'
 import { setLocale, translateLegacy } from './i18n'
 import { resolveMenuKey } from './navigation'
@@ -152,7 +141,8 @@ const userInfo = ref(null)
 const authChecking = ref(true)
 const passwordVisible = ref(false)
 const passwordSaving = ref(false)
-const logoUrl = ref('/logo.png')
+const { logoUrl, systemName, companyName } = useBranding()
+watch([systemName, locale], ([value]) => { document.title = value }, { immediate: true })
 const selectedKeys = ref([route.path])
 const openKeys = ref(['capability-governance'])
 const pendingMcpApprovals = ref(0)
@@ -163,23 +153,7 @@ const passwordForm = reactive({
   confirmPassword: '',
 })
 
-const iconMap = {
-  api: ApiOutlined,
-  audit: AuditOutlined,
-  barChart: BarChartOutlined,
-  checkSquare: CheckSquareOutlined,
-  dashboard: DashboardOutlined,
-  deployment: DeploymentUnitOutlined,
-  desktop: DesktopOutlined,
-  fileSearch: FileSearchOutlined,
-  fileText: FileTextOutlined,
-  key: KeyOutlined,
-  agent: DeploymentUnitOutlined,
-  safety: SafetyCertificateOutlined,
-  setting: SettingOutlined,
-  team: TeamOutlined,
-  upload: UploadOutlined,
-}
+
 
 const antdLocale = computed(() => locale.value === 'en-US' ? enUS : zhCN)
 
@@ -324,16 +298,7 @@ const loadCapabilities = async () => {
   }
 }
 
-const loadLogo = async () => {
-  try {
-    const res = await getLogoInfo()
-    if (res.logo_url) {
-      logoUrl.value = `${res.logo_url}?t=${Date.now()}`
-    }
-  } catch {
-    // ignore
-  }
-}
+const loadLogo = async () => { try { await loadBranding() } catch { /* Keep defaults when unavailable. */ } }
 
 const handleMenuClick = ({ key }) => {
   if (narrowNavigation.value) navigationCollapsed.value = true
@@ -444,6 +409,7 @@ onUnmounted(() => {
   padding-inline: 24px;
   min-height: 72px;
   height: auto;
+  line-height: normal;
 }
 
 .app-main-layout {
@@ -463,6 +429,8 @@ onUnmounted(() => {
 
 .app-logo {
   height: 42px;
+  max-width: 160px;
+  object-fit: contain;
 }
 
 .app-title {
@@ -530,7 +498,7 @@ onUnmounted(() => {
     padding-block: 8px;
   }
 
-  .app-logo { height: 32px; }
+  .app-logo { height: 32px; max-width: 72px; }
   .app-title { display: none; }
   .app-user { min-width: 0; gap: 8px; }
   .language-select { width: 108px; }
@@ -550,4 +518,11 @@ onUnmounted(() => {
   }
   .app-sider :deep(.ant-layout-sider-children) { overflow-y: auto; }
 }
+</style>
+
+<style scoped>
+.app-brand-text { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 0; }
+.app-company { font-size: 12px; line-height: 1.4; color: #64748b; width: 100%; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-title { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 767px) { .app-company { max-width: 80px; } }
 </style>

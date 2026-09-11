@@ -44,6 +44,7 @@ from agent_manager.core.skillspector import is_skillspector_available
 from agent_manager.core.text_reader import read_text_fallback
 from agent_manager.core.vetting import _load_manifest
 from agent_manager.core.upload_jobs import UploadImportJobs
+from agent_manager.core.import_results import resolve_import_result
 
 router = APIRouter(tags=["agent-manager"])
 runtime_router = APIRouter(tags=["agent-manager-runtime"])
@@ -158,8 +159,9 @@ def _resolve_skill_root(extract_dir: Path) -> Path:
     )
 
 
-def _safe_extract_zip(zip_path: Path, extract_dir: Path, *, skipped_symlinks: list[str] | None = None, archive_prefix: str = "", progress=None) -> None:
+def _safe_extract_zip(zip_path: Path, extract_dir: Path, *, skipped_symlinks: list[str] | None = None, archive_prefix: str = "", progress=None, budget=None) -> None:
     extract_root = extract_dir.resolve()
+    budget = budget if budget is not None else {"files": 0, "bytes": 0}
     with zipfile.ZipFile(zip_path) as zf:
         entries = zf.infolist()
         for index, info in enumerate(entries):
@@ -178,6 +180,11 @@ def _safe_extract_zip(zip_path: Path, extract_dir: Path, *, skipped_symlinks: li
                     skipped_symlinks.append(f"{archive_prefix}{name}")
                     continue
                 raise HTTPException(status_code=400, detail=f"Symlinks are not allowed in ZIP: {name}")
+            if not info.is_dir():
+                budget["files"] += 1
+                budget["bytes"] += info.file_size
+                if budget["files"] > 50000 or budget["bytes"] > 1024 ** 3 or info.file_size > 100 * 1024 ** 2:
+                    raise HTTPException(status_code=413, detail="Archive extraction limits exceeded")
             target = (extract_root / name).resolve()
             try:
                 target.relative_to(extract_root)
@@ -194,14 +201,15 @@ def _safe_extract_zip(zip_path: Path, extract_dir: Path, *, skipped_symlinks: li
 
 
 def _extract_zip_with_nested_archives(zip_path: Path, extract_dir: Path, *, skipped_symlinks: list[str] | None = None, progress=None) -> None:
-    _safe_extract_zip(zip_path, extract_dir, skipped_symlinks=skipped_symlinks, progress=progress)
+    budget = {"files": 0, "bytes": 0}
+    _safe_extract_zip(zip_path, extract_dir, skipped_symlinks=skipped_symlinks, progress=progress, budget=budget)
     nested_archives = sorted(path for path in extract_dir.rglob("*.zip") if path.is_file())
     for nested_zip in nested_archives:
         if not zipfile.is_zipfile(nested_zip):
             continue
         nested_target = nested_zip.with_suffix("")
         nested_target.mkdir(parents=True, exist_ok=True)
-        _safe_extract_zip(nested_zip, nested_target, skipped_symlinks=skipped_symlinks, archive_prefix=f"{nested_zip.relative_to(extract_dir).as_posix()}!/", progress=progress)
+        _safe_extract_zip(nested_zip, nested_target, skipped_symlinks=skipped_symlinks, archive_prefix=f"{nested_zip.relative_to(extract_dir).as_posix()}!/", progress=progress, budget=budget)
 
 
 def _import_root() -> Path:
@@ -343,6 +351,8 @@ def _submit_directory_for_processing(
         use_skillspector=use_skillspector,
         judgement_mode=judgement_mode,
     )
+    runs = mgr.list_scan_runs(entry.skill_id)
+    scan_run = next((run for run in runs if run.status == "PENDING"), runs[0] if runs else None) if resolution != "existing_version_reused" else None
     if should_process:
         _scan_executor.submit(
             _process_pending_submission_task,
@@ -380,13 +390,15 @@ def _submit_directory_for_processing(
         source_version=entry.source_version,
         deduplicated=resolution != "new_version",
         scan_reused=resolution == "existing_version_reused",
+        scan_run_id=scan_run.scan_run_id if scan_run else None,
+        scan_state="PENDING" if scan_run else "REUSED" if resolution == "existing_version_reused" else None,
         name=entry.name,
-        status=entry.status.value,
-        risk_level=entry.risk_level.value if entry.risk_level else None,
-        findings_count=entry.vetting.findings_count if entry.vetting else 0,
-        sandbox_triggered=entry.vetting.sandbox_triggered if entry.vetting else False,
-        sandbox_required_by_policy=entry.vetting.sandbox_required_by_policy if entry.vetting else False,
-        sandbox_runtime=entry.vetting.sandbox_runtime if entry.vetting else None,
+        status="PENDING" if scan_run else entry.status.value,
+        risk_level=entry.risk_level.value if entry.risk_level and not scan_run else None,
+        findings_count=entry.vetting.findings_count if entry.vetting and not scan_run else 0,
+        sandbox_triggered=entry.vetting.sandbox_triggered if entry.vetting and not scan_run else False,
+        sandbox_required_by_policy=entry.vetting.sandbox_required_by_policy if entry.vetting and not scan_run else False,
+        sandbox_runtime=entry.vetting.sandbox_runtime if entry.vetting and not scan_run else None,
         message=messages[resolution],
     )
 
@@ -418,6 +430,8 @@ class SubmitResponse(BaseModel):
     source_version: str | None = None
     deduplicated: bool = False
     scan_reused: bool = False
+    scan_run_id: str | None = None
+    scan_state: str | None = None
     outcome: str | None = None
     name: str
     status: str
@@ -1241,7 +1255,20 @@ def submit_remote_selected(
 
 @router.get("/skills/upload-import-jobs")
 def list_upload_import_jobs(mgr: AgentManager = Depends(get_manager)):
-    return {"items": _get_upload_jobs(mgr).list()}
+    jobs = _get_upload_jobs(mgr).list()
+    version_ids = {item["version_id"] for job in jobs for item in job["results"]}
+    runs_by_version = mgr.list_scan_runs_for_versions(list(version_ids))
+    later_submission = {}
+    for job in jobs:
+        results = []
+        for item in job["results"]:
+            version_id = item["version_id"]
+            results.append(resolve_import_result(item, runs_by_version.get(version_id, []),
+                                                created_at=job["created_at"], before=later_submission.get(version_id)))
+        for item in job["results"]:
+            later_submission[item["version_id"]] = job["created_at"]
+        job["results"] = results
+    return {"items": jobs}
 
 
 @router.post("/skills/submit-upload-selected", status_code=202)
