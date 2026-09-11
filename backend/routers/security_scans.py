@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import hashlib
 import ipaddress
 import logging
@@ -22,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from agent_manager.core.mcp_parameter_risk import classify_mcp_parameter, normalize_mcp_identifier
 
-from .. import auth, models, schemas
+from .. import auth, iam, models, schemas
 from ..agentic_risk_taxonomy import map_risk_codes
 from ..api_errors import ApiError
 from ..config import settings
@@ -547,6 +549,7 @@ def _task_response(row: models.SecurityScanTask, *, include_live_cases: bool = F
     protected_options = unprotect_secret(row.scan_options_encrypted)
     raw_options = json_loads(protected_options, {}) if protected_options else {}
     safe_options = {
+        **{key: raw_options.get(key) for key in ("mcp_mode", "mcp_depth", "mcp_source_id", "mcp_source_sha256", "mcp_source_revision", "mcp_source_origin", "mcp_tools", "mcp_call_limit", "mcp_route", "mcp_strategy", "analysis_model", "attack_model")},
         "language": raw_options.get("language", "zh"),
         "skills": raw_options.get("skills", []),
         "conversation_mode": raw_options.get("conversation_mode", "single_turn"),
@@ -666,14 +669,8 @@ def _validate_mcp_gateway_target(
     allow_insecure_transport: bool,
     environment: str,
 ) -> tuple[dict[str, Any], models.McpGateway]:
-    if allowed_cidrs or allow_insecure_transport:
-        raise ApiError(
-            422,
-            "agent_security.mcp_target_network_config_forbidden",
-            "MCP Gateway 元数据扫描不接受网络白名单或不安全传输配置",
-            "MCP Gateway metadata scans do not accept network allowlists or insecure transport",
-        )
     normalized = validate_agent_target_config(MCP_GATEWAY_TARGET_TYPE, config)
+    normalized["allow_insecure_transport"] = bool(allow_insecure_transport)
     gateway = db.query(models.McpGateway).filter(models.McpGateway.id == normalized["gateway_id"]).first()
     if not gateway:
         raise ApiError(
@@ -793,7 +790,13 @@ async def create_target(
     asset_type, connector_type = validate_asset_connector(body.asset_type, body.connector_type)
     legacy_target_type = legacy_target_type_for(asset_type, connector_type)
     validate_target_type_scheme(legacy_target_type, body.endpoint_url)
-    if connector_type == MCP_GATEWAY_TARGET_TYPE:
+    if connector_type == "mcp_source":
+        from ..services.mcp_scan_sources import load_source
+        source = load_source(str(body.config.get("source_id", "")))
+        if source["owner_id"] != current_user.id or body.endpoint_url != f"mcp-source://{source['source_id']}":
+            raise ApiError(403, "mcp_scan.source_not_authorized", "源码包未授权", "Source bundle is not authorized")
+        config, resolved = {"source_id": source["source_id"]}, []
+    elif connector_type == MCP_GATEWAY_TARGET_TYPE:
         config, _gateway = _validate_mcp_gateway_target(
             db,
             endpoint_url=body.endpoint_url,
@@ -887,6 +890,7 @@ async def get_redteam_options(
                 "name": model.name,
                 "display_name": model.display_name,
                 "provider_name": provider.name,
+                "compression_enabled": bool(provider.enable_compression),
             }
             for model, provider in _evaluation_models_query(db).order_by(models.ModelEndpoint.name).all()
         ],
@@ -975,7 +979,14 @@ async def update_target(
     )
     legacy_target_type = legacy_target_type_for(asset_type, connector_type)
     validate_target_type_scheme(legacy_target_type, endpoint)
-    if connector_type == MCP_GATEWAY_TARGET_TYPE:
+    if connector_type == "mcp_source":
+        from ..services.mcp_scan_sources import load_source
+        source = load_source(str(config.get("source_id", "")))
+        existing_source_id = json_loads(row.config_json, {}).get("source_id")
+        if (source["owner_id"] != current_user.id and source["source_id"] != existing_source_id) or endpoint != f"mcp-source://{source['source_id']}":
+            raise ApiError(403, "mcp_scan.source_not_authorized", "源码包未授权", "Source bundle is not authorized")
+        config, resolved = {"source_id": source["source_id"]}, []
+    elif connector_type == MCP_GATEWAY_TARGET_TYPE:
         config, _gateway = _validate_mcp_gateway_target(
             db,
             endpoint_url=endpoint,
@@ -1605,6 +1616,8 @@ def _mcp_gateway_assets_snapshot(db: Session, gateway_id: int) -> dict[str, Any]
                 "server_slug": server.slug,
                 "server_name": server.name,
                 "server_status": server.status,
+                "authentication_configured": bool(server.authorization_value),
+                "endpoint": server.endpoint,
                 "tools": tools,
             }
         )
@@ -1645,7 +1658,7 @@ def _target_snapshot(db: Session, target: models.SecurityTarget) -> dict[str, An
                 "The MCP Gateway has no bound tools to scan",
             )
         snapshot["mcp_assets"] = mcp_assets
-        snapshot["scan_transport"] = "metadata_snapshot_only"
+        snapshot["scan_transport"] = "registered_mcp_gateway"
     return snapshot
 
 
@@ -1931,10 +1944,10 @@ def _validate_scan_task_request(
         raise ApiError(
             503,
             "agent_security.aig_service_unavailable",
-            "AI-Infra-Guard 扫描引擎尚未配置或不可用",
-            "The AI-Infra-Guard scanning engine is not configured or available",
+            "扫描引擎尚未配置或不可用",
+            "The scanning engine is not configured or available",
         )
-    if body.scan_kind in {"agent_risk_scan", "llm_redteam_scan"}:
+    if body.scan_kind in {"agent_risk_scan", "llm_redteam_scan"} or (body.scan_kind == "mcp_risk_scan" and body.mcp_mode != "metadata"):
         if not body.evaluation_model:
             raise ApiError(422, "agent_security.evaluation_model_required",
                            "请选择网关评估模型", "Select a gateway evaluator model")
@@ -1942,20 +1955,29 @@ def _validate_scan_task_request(
             raise ApiError(422, "agent_security.evaluation_model_invalid",
                            "所选评估模型或其供应商未启用", "The evaluator model or its provider is unavailable")
     if body.scan_kind == "mcp_risk_scan":
-        if target.target_type != MCP_GATEWAY_TARGET_TYPE:
-            raise ApiError(
-                409,
-                "agent_security.mcp_scan_target_required",
-                "MCP 风险扫描必须绑定 MCP Gateway 扫描目标",
-                "MCP risk scans require an MCP Gateway scan target",
-            )
-        if body.skills or body.prompt or body.continue_from_task_id or body.conversation_mode != "single_turn":
-            raise ApiError(
-                422,
-                "agent_security.mcp_scan_options_invalid",
-                "MCP 元数据扫描不接受 Agent 技能、会话继续或多轮会话选项",
-                "MCP metadata scans do not accept Agent skills, session continuation, or multi-turn options",
-            )
+        if target.target_type not in {MCP_GATEWAY_TARGET_TYPE, "mcp_source"}:
+            raise ApiError(409, "agent_security.mcp_scan_target_required", "请选择已登记的 MCP 目标", "Select a registered MCP target")
+        if target.target_type == "mcp_source" and body.mcp_mode != "source":
+            raise ApiError(422, "mcp_scan.source_mode_required", "源码目标请选择源码审计", "Source targets require source audit mode")
+        if body.skills or body.continue_from_task_id or body.conversation_mode != "single_turn" or not body.reset_session:
+            raise ApiError(422, "agent_security.mcp_scan_options_invalid", "MCP 扫描不接受 Agent 技能或会话续接", "MCP scans do not accept Agent skills or session continuation")
+        if body.mcp_mode in {"dynamic", "redteam"}:
+            if policy.execution_mode == "passive" or not body.mcp_tools:
+                raise ApiError(422, "mcp_scan.dynamic_scope_required", "请选择工具范围和允许动态测试的策略", "Select tools and a policy permitting dynamic tests")
+            assets = _mcp_gateway_assets_snapshot(db, int(json_loads(target.config_json, {})["gateway_id"]))
+            available = {t["exposed_name"] for server in assets["servers"] for t in server["tools"] if not t.get("missing") and t.get("enabled")}
+            if not set(body.mcp_tools) <= available or len(set(body.mcp_tools)) != len(body.mcp_tools):
+                raise ApiError(422, "mcp_scan.tool_not_authorized", "所选工具不存在、未启用或重复", "Selected tools are missing, disabled, or duplicated")
+            capabilities = target_capabilities & policy_capabilities
+            selected_tools = [t for server in assets["servers"] for t in server["tools"] if t.get("exposed_name") in body.mcp_tools]
+            if "network_egress" not in capabilities or any(
+                ("tool_read" if t.get("access_mode") == "read" else "tool_write") not in capabilities
+                or (policy.execution_mode == "read_only" and t.get("access_mode") != "read") for t in selected_tools
+            ):
+                raise ApiError(422, "mcp_scan.capability_denied", "当前扫描目标或策略未允许这些工具所需的操作。请检查网络访问、工具读取和工具写入权限；只读策略只能选择只读工具。", "The scan target or policy does not permit the operations these tools need. Check network access, tool read and tool write permissions. Read-only policies only allow read-only tools.")
+        for model_name in [body.analysis_model, body.attack_model]:
+            if model_name and not _evaluation_models_query(db).filter(models.ModelEndpoint.name == model_name).first():
+                raise ApiError(422, "agent_security.evaluation_model_invalid", "所选模型未启用", "Selected model is not enabled")
     elif target.target_type == MCP_GATEWAY_TARGET_TYPE:
         raise ApiError(
             409,
@@ -2134,13 +2156,16 @@ def _validate_scan_task_request(
         "max_knowledge_bytes": body.max_knowledge_bytes,
     }
     if body.scan_kind == "mcp_risk_scan":
-        scan_options.update(
-            {
-                "metadata_only": True,
-                "side_effect_tool_calls": "forbidden",
-                "upstream_dynamic_mode": "disabled_by_policy",
-            }
-        )
+        scan_options.update({key: getattr(body, key) for key in (
+            "mcp_mode", "mcp_depth", "mcp_source_id", "mcp_tools", "mcp_call_limit", "mcp_route", "mcp_strategy", "analysis_model", "attack_model")})
+        scan_options.update({"metadata_only": body.mcp_mode == "metadata", "side_effect_tool_calls": "policy_bounded" if body.mcp_mode in {"dynamic", "redteam"} else "forbidden"})
+        if body.mcp_mode == "source":
+            from ..services.mcp_scan_sources import load_source
+            source_id = body.mcp_source_id or json_loads(target.config_json, {}).get("source_id", "")
+            source = load_source(source_id)
+            if source["owner_id"] != current_user.id and source_id != json_loads(target.config_json, {}).get("source_id"):
+                raise ApiError(403, "mcp_scan.source_not_authorized", "源码包未授权", "Source bundle is not authorized")
+            scan_options.update({"mcp_source_id": source_id, "mcp_source_sha256": source["sha256"], "mcp_source_revision": source["revision"], "mcp_source_origin": source["origin"]})
     elif body.scan_kind == "dify_asset_inventory":
         scan_options.update({
             "metadata_only": True,
@@ -2192,10 +2217,18 @@ def _build_scan_task_plan(
         snapshot["production_controls"] = production_controls
         policy_snapshot["production_controls"] = production_controls
     policy_allowlist = json_loads(policy.outbound_allowlist_json, [])
-    if target.target_type != MCP_GATEWAY_TARGET_TYPE:
+    if target.target_type not in {MCP_GATEWAY_TARGET_TYPE, "mcp_source"}:
         _verify_target_snapshot_dns(snapshot, allowed_cidrs=snapshot["allowed_cidrs"])
         _verify_target_snapshot_dns(snapshot, allowed_cidrs=policy_allowlist)
     snapshot["policy_outbound_allowlist"] = policy_allowlist
+    if body.scan_kind == "mcp_risk_scan" and body.mcp_mode in {"dynamic", "redteam"}:
+        for server in snapshot.get("mcp_assets", {}).get("servers", []):
+            if not any(t.get("exposed_name") in body.mcp_tools for t in server.get("tools", [])):
+                continue
+            server["resolved_ips"] = resolve_target_endpoint(server["endpoint"], allowed_cidrs=snapshot["allowed_cidrs"],
+                allow_insecure_transport=snapshot["allow_insecure_transport"])
+            resolve_target_endpoint(server["endpoint"], allowed_cidrs=policy_allowlist,
+                allow_insecure_transport=snapshot["allow_insecure_transport"])
     if body.scan_kind == "dify_asset_inventory":
         dify_config = validate_dify_inventory_target_config(snapshot.get("config", {}), require_complete=True)
         console_base_url = dify_config["console_base_url"]
@@ -2262,16 +2295,22 @@ def _build_scan_task_plan(
         )
         limitations.extend(["runtime_generated_cases", "runtime_tool_inventory_unknown"])
     elif body.scan_kind == "mcp_risk_scan":
-        tool_mode = "metadata_snapshot_only"
+        dynamic_mcp = body.mcp_mode in {"dynamic", "redteam"}
+        tool_mode = "runtime_dynamic" if dynamic_mcp else "source_audit" if body.mcp_mode == "source" else "metadata_snapshot_only"
+        if body.mcp_mode == "source":
+            cases.append({"case_key": "mcp_source_audit", "category": "mcp_source", "dynamic": True,
+                          "planned_rounds": None})
         for server in snapshot.get("mcp_assets", {}).get("servers", []):
             for tool in server.get("tools", []):
                 exposed_name = tool.get("exposed_name") or f"{server.get('server_slug')}__{tool.get('name')}"
+                if body.mcp_mode == "source" or (dynamic_mcp and exposed_name not in body.mcp_tools):
+                    continue
                 cases.append(
                     {
                         "case_key": f"mcp_tool:{exposed_name}",
-                        "category": "mcp_tool_metadata",
-                        "dynamic": False,
-                        "planned_rounds": 1,
+                        "category": "mcp_tool_dynamic" if dynamic_mcp else "mcp_tool_metadata",
+                        "dynamic": dynamic_mcp,
+                        "planned_rounds": None if dynamic_mcp else 1,
                     }
                 )
                 tools.append(
@@ -2280,10 +2319,11 @@ def _build_scan_task_plan(
                         "source": server.get("server_slug"),
                         "access_mode": tool.get("access_mode", "unknown"),
                         "risk_level": tool.get("risk_level", "low"),
-                        "will_call": False,
+                        "will_call": dynamic_mcp,
                     }
                 )
-        limitations.append("metadata_only_no_tool_calls")
+        if body.mcp_mode == "metadata":
+            limitations.append("metadata_only_no_tool_calls")
     elif body.scan_kind == "llm_redteam_scan":
         selected_datasets = body.datasets or (["JailBench-Tiny"] if not body.prompt else [])
         if selected_datasets:
@@ -2383,8 +2423,8 @@ def _build_scan_task_plan(
         "safety": {
             "approval_required": bool(target.environment == "production" and policy.execution_mode == "active_safe"),
             "approval_id": approval.approval_id if approval else None,
-            "metadata_only": body.scan_kind == "mcp_risk_scan",
-            "side_effect_tool_calls": "forbidden" if body.scan_kind == "mcp_risk_scan" else "policy_bounded",
+            "metadata_only": body.scan_kind == "mcp_risk_scan" and body.mcp_mode == "metadata",
+            "side_effect_tool_calls": context["scan_options"].get("side_effect_tool_calls", "policy_bounded"),
         },
         "limitations": limitations,
     }
@@ -2680,6 +2720,8 @@ def _case_assessment_status(
         if all(status in {"resolved", "false_positive"} for status in statuses):
             return "resolved"
         return "unverified"
+    if json_loads(row.response_summary_json, {}).get("coverage_complete") is False:
+        return "unverified"
     if execution_status != "completed" or row.status == "failed":
         return "unverified"
     return "no_risk_observed"
@@ -2788,6 +2830,7 @@ def _comparison_coverage(task: models.SecurityScanTask) -> tuple[str, dict[str, 
     profile = {
         "scan_kind": task.scan_kind,
         "scan_options": {
+            **{key: options.get(key) for key in ("mcp_mode", "mcp_depth", "mcp_source_sha256", "mcp_source_revision", "mcp_tools", "mcp_call_limit", "mcp_route", "mcp_strategy", "analysis_model", "attack_model")},
             "language": options.get("language", "zh"),
             "skills": sorted(str(value) for value in options.get("skills", [])),
             "conversation_mode": options.get("conversation_mode", "single_turn"),
@@ -3020,6 +3063,75 @@ async def get_task(
     return detail
 
 
+@router.get("/tasks/{task_id}/diagnostics")
+async def download_task_diagnostics(
+    task_id: str, db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    task = _task_or_404(db, task_id)
+    _require_task_access(db, current_user, task)
+    options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
+    calls = db.query(models.SecurityMcpScanCall).filter_by(task_id=task_id).order_by(models.SecurityMcpScanCall.created_at).all()
+    call_summaries = []
+    for call in calls:
+        evidence = json_loads(unprotect_secret(call.evidence_encrypted), {})
+        rpc = evidence.get("response")
+        error = rpc.get("error") if isinstance(rpc, dict) else None
+        data = error.get("data") if isinstance(error, dict) else None
+        call_summaries.append({"call_id": call.call_id, "status": call.status, "route": call.route,
+                               "created_at": call.created_at,
+                               "rpc_error_code": error.get("code") if isinstance(error, dict) and isinstance(error.get("code"), int) else None,
+                               "approval_required": bool(data.get("approval_required")) if isinstance(data, dict) else False})
+    payload = {
+        "schema": "scan-diagnostics@1", "task_id": task_id, "scan_kind": task.scan_kind,
+        "status": task.status, "error_code": task.error_code, "stop_reason": task.stop_reason,
+        "engine": {"name": task.engine_name, "version": task.engine_version},
+        "started_at": task.started_at, "completed_at": task.completed_at, "attempt": task.attempt,
+        "usage": _task_usage(task).model_dump(),
+        "limits": {k: v for k, v in json_loads(task.policy_snapshot_json, {}).items() if k.startswith("max_")},
+        "events_by_attempt": options.get("diagnostics", {}),
+        "detailed_events_available": bool(options.get("diagnostics")),
+        "tool_calls": call_summaries,
+    }
+    _audit(db, event_type="security_scan_diagnostics.downloaded", actor=current_user.username,
+           resource_type="security_scan_task", resource_id=task_id, action="download", details={"schema": payload["schema"]})
+    return Response(content=json.dumps(payload, ensure_ascii=False, indent=2, default=str), media_type="application/json",
+                    headers={"Content-Disposition": f'attachment; filename="scan-{task_id}.json"', "Cache-Control": "no-store"})
+
+
+@router.post("/tasks/{task_id}/retry")
+async def retry_task(
+    task_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(iam.require("scans:execute")),
+):
+    task = _task_or_404(db, task_id)
+    _require_task_access(db, current_user, task)
+    if task.status not in {"failed", "timed_out"}:
+        raise ApiError(409, "agent_security.retry_status_invalid", "只有失败或超时的扫描任务可以重试", "Only failed or timed-out scans can be retried")
+    # Serialize retry generation so simultaneous requests select the same pending task.
+    db.query(models.SecurityScanTask).filter_by(task_id=task_id).update(
+        {"status": models.SecurityScanTask.status}, synchronize_session=False)
+    retry_prefix = f"retry:{task.task_id}"
+    previous = db.query(models.SecurityScanTask).filter(
+        models.SecurityScanTask.created_by == current_user.username,
+        (models.SecurityScanTask.idempotency_key == retry_prefix)
+        | models.SecurityScanTask.idempotency_key.startswith(retry_prefix + ":", autoescape=True),
+    ).order_by(models.SecurityScanTask.id.desc()).first()
+    if previous and previous.status in {"pending", "running"}:
+        result = _task_response(previous).model_dump()
+        db.commit()
+        return {**result, "retry_reused": True}
+    options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
+    payload = {key: value for key, value in options.items() if key in SecurityTaskPlanRequest.model_fields}
+    payload.update(target_id=task.target_id, policy_id=task.policy_id, scan_kind=task.scan_kind,
+                   approval_id=task.approval_id, continue_from_task_id=task.continued_from_task_id,
+                   idempotency_key=f"{retry_prefix}:{previous.id if previous else 0}")
+    # The original task is immutable; the creation path rechecks current authorization and budgets.
+    result = await create_task(SecurityTaskCreate(**payload), db, current_user)
+    return {**result.model_dump(), "retry_reused": False}
+
+
 @router.get("/tasks/{task_id}/scan-report.pdf")
 def export_security_scan_pdf(
     task_id: str,
@@ -3161,6 +3273,7 @@ async def get_mcp_assessment(
 ):
     task = _task_or_404(db, task_id)
     _require_task_access(db, current_user, task)
+    options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
     if task.scan_kind != "mcp_risk_scan":
         raise ApiError(
             409,
@@ -3207,8 +3320,8 @@ async def get_mcp_assessment(
     return {
         "task_id": task.task_id,
         "status": task.status,
-        "scan_mode": "metadata_snapshot_only",
-        "side_effect_tool_calls": "forbidden",
+        "scan_mode": "metadata_snapshot_only" if options.get("mcp_mode", "metadata") == "metadata" else options["mcp_mode"],
+        "side_effect_tool_calls": options.get("side_effect_tool_calls", "forbidden"),
         "automatic_policy_changes": False,
         "assets": assets,
         "findings": [_finding_payload(row).model_dump() for row in findings],
@@ -3220,12 +3333,10 @@ async def get_mcp_assessment(
 async def cancel_task(
     task_id: str,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_active_user),
+    current_user: models.User = Depends(iam.require("scans:cancel")),
 ):
     task = _task_or_404(db, task_id)
     _require_task_access(db, current_user, task)
-    if current_user.role == "security_auditor":
-        raise ApiError(403, "auth.permission_denied", "安全审计员没有取消权限", "Security auditors cannot cancel tasks")
     now = datetime.utcnow()
     if task.status == "pending":
         task.status = "cancelled"
@@ -3520,6 +3631,13 @@ async def compare_tasks(
                 _llm_case_identity(case) or case.case_id for case in cases
             )}))
         current_coverage, baseline_coverage = fingerprints
+    if current.scan_kind == "mcp_risk_scan":
+        for task in (current, baseline):
+            options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
+            if options.get("mcp_mode", "metadata") != "metadata":
+                cases = [case for case in case_rows if case.task_id == task.task_id]
+                coverage_complete = coverage_complete and bool(cases) and all(
+                    json_loads(case.response_summary_json, {}).get("coverage_complete") is True for case in cases)
     coverage_match = current_coverage == baseline_coverage
     engine_match = (current.engine_name or "", current.engine_version or "") == (
         baseline.engine_name or "",
@@ -3784,13 +3902,14 @@ async def evaluate_scan_chat(
     if not worker or not authorization or not authorization.lower().startswith("bearer "):
         raise ApiError(401, "agent_security.task_lease_invalid", "任务租约令牌无效", "Task lease token is invalid")
     _verify_lease(task, worker, authorization.split(" ", 1)[1].strip())
-    if task.scan_kind not in {"agent_risk_scan", "llm_redteam_scan"}:
+    if task.scan_kind not in {"agent_risk_scan", "llm_redteam_scan", "mcp_risk_scan"}:
         raise ApiError(403, "agent_security.evaluation_not_authorized", "任务未授权模型评估", "Model evaluation is not authorized for this task")
     if task.cancel_requested or task.kill_switch_activated or _budget_reason(task, datetime.utcnow()):
         raise ApiError(409, "agent_security.evaluation_stopped", "任务已停止或达到预算限制", "The task has stopped or reached its budget")
     options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
-    selected = options.get("evaluation_model")
-    if not selected or body.model != selected:
+    allowed_models = {options.get("evaluation_model"), options.get("analysis_model"), options.get("attack_model")} - {None, ""}
+    selected = body.model
+    if not selected or selected not in allowed_models:
         raise ApiError(403, "agent_security.evaluation_model_invalid", "只能调用任务选择的评估模型", "Only the selected evaluator model is allowed")
     if not _evaluation_models_query(db).filter(models.ModelEndpoint.name == selected).first():
         raise ApiError(422, "agent_security.evaluation_model_invalid", "评估模型或供应商已停用", "The evaluator model or provider is disabled")
@@ -3905,6 +4024,10 @@ def _validate_worker_result_contract(
     if body.status != "succeeded":
         return
     contract = _WORKER_RESULT_CONTRACTS.get(task.scan_kind)
+    options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
+    if task.scan_kind == "mcp_risk_scan" and options.get("mcp_mode", "metadata") != "metadata":
+        contract = {"engine_name": "ai-infra-guard-mcp-scan", "version_prefix": "v4.6.0+e8931cc68001",
+                    "artifact_type": "mcp-aig-report"}
     if not contract:
         return
     artifact_types = {item.artifact_type for item in body.artifacts}
@@ -4082,7 +4205,7 @@ async def claim_task(
             candidate.updated_at = now
             db.commit()
             continue
-        if target.target_type != MCP_GATEWAY_TARGET_TYPE:
+        if target.target_type not in {MCP_GATEWAY_TARGET_TYPE, "mcp_source"}:
             try:
                 _verify_target_snapshot_dns(snapshot, allowed_cidrs=snapshot.get("allowed_cidrs", []))
                 _verify_target_snapshot_dns(snapshot, allowed_cidrs=snapshot.get("policy_outbound_allowlist", []))
@@ -4268,9 +4391,15 @@ async def task_heartbeat(
     _verify_lease(task, worker, body.lease_token)
     now = datetime.utcnow()
     _apply_usage(task, body.usage)
+    if body.diagnostics is not None:
+        options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
+        attempts = options.setdefault("diagnostics", {})
+        attempts[str(task.attempt)] = [entry.model_dump(exclude_none=True) for entry in body.diagnostics]
+        options["diagnostics"] = dict(list(attempts.items())[-10:])
+        task.scan_options_encrypted = protect_secret(json_dumps(options))
     if body.session_state:
         task.session_state_encrypted = protect_secret(body.session_state)
-    if body.scan_progress is not None and task.scan_kind == "llm_redteam_scan":
+    if body.scan_progress is not None and task.scan_kind in {"llm_redteam_scan", "mcp_risk_scan"}:
         options = json_loads(unprotect_secret(task.scan_options_encrypted), {})
         options["live_progress"] = sanitize_untrusted_value(body.scan_progress.model_dump())
         options["live_progress"]["updated_at"] = now.isoformat() + "Z"
@@ -4715,3 +4844,7 @@ async def complete_task(
         details={"status": task.status, "attempt": task.attempt, "stop_reason": task.stop_reason},
     )
     return _task_response(task)
+
+
+from ..services.mcp_scan_control import register_routes as _register_mcp_scan_routes
+_register_mcp_scan_routes(router)

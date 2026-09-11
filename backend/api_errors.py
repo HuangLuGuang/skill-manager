@@ -144,6 +144,7 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
     locale = request_locale(request)
     return JSONResponse(
         status_code=500,
+        headers={"X-Request-ID": request.state.request_id} if getattr(request.state, "request_id", None) else None,
         content={
             "detail": "Internal server error" if locale == "en-US" else "服务器内部错误",
             "error_code": "server.internal_error",

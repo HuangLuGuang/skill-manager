@@ -15,6 +15,8 @@ if (!globalThis.navigator) {
 
 const { i18n } = await import('../src/i18n/index.js')
 const focusedNamespaces = [
+  'mcpScan',
+  'scanTaskActions',
   'agentSecurity',
   'agentSecurityScans',
   'runtimeTraceExplorer',
@@ -22,6 +24,9 @@ const focusedNamespaces = [
   'scanSchedule',
 ]
 const focusedViews = [
+  '../src/components/McpScanOptions.vue',
+  '../src/components/McpSourceInput.vue',
+  '../src/components/McpCallEvidence.vue',
   '../src/views/components/FindingEvidence.vue',
   '../src/views/AgentSecurityScans.vue',
   '../src/views/RuntimeTraceExplorer.vue',

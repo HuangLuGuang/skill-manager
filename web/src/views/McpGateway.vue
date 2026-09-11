@@ -7,7 +7,7 @@
           <template #extra>
             <a-space>
               <a-button :loading="loading" @click="fetchAll">{{ text('刷新', 'Refresh') }}</a-button>
-              <a-button type="primary" @click="openServer()">{{ $t("legacy.1enmtj9") }}</a-button>
+              <a-button v-if="hasAccess('mcp:create')" type="primary" @click="openServer()">{{ $t("legacy.1enmtj9") }}</a-button>
             </a-space>
           </template>
           <a-table :data-source="servers" :columns="serverColumns" row-key="id" :loading="loading" size="small">
@@ -23,7 +23,7 @@
               <template v-else-if="column.key === 'tools'">
                 <a-space wrap>
                   <a-tag v-for="tool in record.tools || []" :key="tool.id" :color="tool.risk_level === 'high' ? 'red' : tool.risk_level === 'medium' ? 'orange' : tool.enabled ? 'blue' : 'default'">
-                    <a-button type="link" size="small" @click="openToolPolicy(tool)">{{ tool.name }}</a-button>
+                    <a-button v-if="hasAccess('mcp:update')" type="link" size="small" @click="openToolPolicy(tool)">{{ tool.name }}</a-button>
                     <span> · {{ $t(`mcpSecurity.accessModes.${tool.access_mode || 'unknown'}`) }}</span>
                     <span v-if="tool.requires_approval"> · {{ $t('mcpSecurity.approvalRequired') }}</span>
                   </a-tag>
@@ -37,9 +37,9 @@
               </template>
               <template v-else-if="column.key === 'actions'">
                 <a-space>
-                  <a-button type="link" :loading="actionId === `discover-${record.id}`" @click="discover(record)">{{ $t("legacy.vtu19j") }}</a-button>
-                  <a-button type="link" @click="openServer(record)">{{ $t("legacy.qreyeg") }}</a-button>
-                  <a-popconfirm :title="$t('legacy.1ggc2d8')" @confirm="removeServer(record)">
+                  <a-button v-if="hasAccess('mcp:execute')" type="link" :loading="actionId === `discover-${record.id}`" @click="discover(record)">{{ $t("legacy.vtu19j") }}</a-button>
+                  <a-button v-if="hasAccess('mcp:update')" type="link" @click="openServer(record)">{{ $t("legacy.qreyeg") }}</a-button>
+                  <a-popconfirm v-if="hasAccess('mcp:delete')" :title="$t('legacy.1ggc2d8')" @confirm="removeServer(record)">
                     <a-button type="link" danger :loading="actionId === `server-${record.id}`">{{ $t("legacy.1t2vi4h") }}</a-button>
                   </a-popconfirm>
                 </a-space>
@@ -54,7 +54,7 @@
           <template #extra>
             <a-space>
               <a-button :loading="loading" @click="fetchAll">{{ text('刷新', 'Refresh') }}</a-button>
-              <a-button type="primary" @click="openGateway()">{{ $t("legacy.1cl5f6n") }}</a-button>
+              <a-button v-if="hasAccess('mcp:create')" type="primary" @click="openGateway()">{{ $t("legacy.1cl5f6n") }}</a-button>
             </a-space>
           </template>
           <a-table :data-source="gateways" :columns="gatewayColumns" row-key="id" :loading="loading" size="small" :scroll="{ x: 980 }">
@@ -80,8 +80,8 @@
               <template v-else-if="column.key === 'actions'">
                 <a-space>
                   <a-button type="link" @click="copy(`${origin}/mcp/${record.slug}`)">{{ $t("legacy.1vnyd7u") }}</a-button>
-                  <a-button type="link" @click="openGateway(record)">{{ $t("legacy.qreyeg") }}</a-button>
-                  <a-popconfirm :title="$t('legacy.j29c29')" @confirm="removeGateway(record)">
+                  <a-button v-if="hasAccess('mcp:update')" type="link" @click="openGateway(record)">{{ $t("legacy.qreyeg") }}</a-button>
+                  <a-popconfirm v-if="hasAccess('mcp:delete')" :title="$t('legacy.j29c29')" @confirm="removeGateway(record)">
                     <a-button type="link" danger :loading="actionId === `gateway-${record.id}`">{{ $t("legacy.1t2vi4h") }}</a-button>
                   </a-popconfirm>
                 </a-space>
@@ -195,6 +195,7 @@
 </template>
 
 <script setup>
+import { can as hasAccess } from '../access'
 import { translateLegacy as phrase } from '../i18n'
 
 import { computed, onMounted, reactive, ref, watch } from 'vue'

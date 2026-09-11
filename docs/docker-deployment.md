@@ -92,7 +92,7 @@ RUNTIME_TRACE_ENABLED=false
 否则环境变量仍会覆盖新的默认开启值。
 
 当前页面和 API 已提供版本基线、四类扫描目标、策略、Agent/MCP/LLM/AI 基础设施扫描任务、Worker 协议和
-统一 Finding 模型，并执行锁定的 AI-Infra-Guard Agent Scan、模型红队、基础设施扫描及 MCP 元数据适配器。P4 已提供统一
+统一 Finding 模型，并执行锁定的 AI-Infra-Guard Agent Scan、模型红队、基础设施扫描及 MCP 源码/动态/红队执行器。MCP 元数据模式保留平台规则适配器。P4 已提供统一
 轨迹 API、Agent SDK 和模型/MCP/治理发布；P5 已提供对话/轨迹双视图、证据检索和受控导出，
 但不宣称等同于完整 DeepSeek Harness 前端。
 Backend 从镜像内的
@@ -173,7 +173,7 @@ Content-Type: application/json
 
 1. `docker compose ps agent-security-worker` 显示 `healthy`。
 2. 管理接口中 `last_heartbeat_at` 持续更新，且公钥指纹非空。
-3. 分别提交一个授权的 Agent Mock、Dify 资产清单、MCP 元数据、受控 LLM 红队和授权网络端点扫描，确认任务从
+3. 分别提交一个授权的 Agent Mock、Dify 资产清单、MCP 元数据和源码、受控 MCP 动态/红队、受控 LLM 红队和授权网络端点扫描，确认任务从
    `pending` 进入 `running`，最终形成对应 Case、Finding/零 Finding或证据不足说明和原始产物摘要。
    Dify 项还应核对 `dify-asset-inventory@1` 加密产物、字段来源、Workspace ID 脱敏和五类覆盖状态；
    Console API 成功不代表 MCP、知识库和运行轨迹均已验证。

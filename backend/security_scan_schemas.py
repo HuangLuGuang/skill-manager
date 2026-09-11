@@ -279,6 +279,16 @@ class SecurityTaskPlanRequest(BaseModel):
     random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
     techniques: list[str] = Field(default_factory=list, max_length=7)
     evaluation_model: str | None = Field(default=None, max_length=128)
+    mcp_mode: Literal["metadata", "source", "dynamic", "redteam"] = "metadata"
+    mcp_depth: Literal["quick", "full"] = "full"
+    mcp_source_id: str | None = Field(default=None, min_length=64, max_length=64)
+    mcp_tools: list[str] = Field(default_factory=list, max_length=100)
+    mcp_call_limit: int = Field(default=20, ge=1, le=200)
+    mcp_route: Literal["gateway", "server"] = "gateway"
+    mcp_strategy: Literal["crescendo", "tap"] = "crescendo"
+    analysis_model: str | None = Field(default=None, max_length=128)
+    attack_model: str | None = Field(default=None, max_length=128)
+
     http_authorized: bool = False
     private_network_authorized: bool = False
     scan_timeout_seconds: int | None = Field(default=None, ge=1, le=120)
@@ -339,8 +349,23 @@ class SecurityTaskPlanRequest(BaseModel):
                 raise ValueError("LLM red-team dataset and custom prompt are mutually exclusive")
         elif self.datasets or self.techniques:
             raise ValueError("LLM red-team options are only valid for LLM red-team scans")
-        if self.evaluation_model and self.scan_kind not in {"agent_risk_scan", "llm_redteam_scan"}:
+        if self.evaluation_model and self.scan_kind not in {"agent_risk_scan", "llm_redteam_scan", "mcp_risk_scan"}:
             raise ValueError("evaluation_model requires an Agent or LLM scan")
+        if self.scan_kind != "mcp_risk_scan" and (
+            self.mcp_mode != "metadata" or self.mcp_source_id or self.mcp_tools or self.analysis_model or self.attack_model
+        ):
+            raise ValueError("MCP options require an MCP scan")
+        if self.mcp_mode == "metadata" and self.scan_kind == "mcp_risk_scan" and (
+            self.evaluation_model or self.analysis_model or self.attack_model
+        ):
+            raise ValueError("Metadata inspection does not use models")
+        if self.scan_kind == "mcp_risk_scan":
+            if self.mcp_source_id and self.mcp_mode != "source":
+                raise ValueError("Source bundles require source audit mode")
+            if self.mcp_tools and self.mcp_mode not in {"dynamic", "redteam"}:
+                raise ValueError("Tool selection requires dynamic or red-team mode")
+            if self.attack_model and self.mcp_mode != "redteam":
+                raise ValueError("Attack model requires red-team mode")
         if self.scan_kind != "ai_infrastructure_vulnerability_scan" and (
             self.http_authorized
             or self.private_network_authorized
@@ -553,11 +578,25 @@ class SecurityTaskUsage(BaseModel):
     response_bytes: int = Field(default=0, ge=0)
 
 
+class SecurityScanDiagnostic(BaseModel):
+    model_config = {"extra": "forbid"}
+    event: Literal["stage_started", "stage_completed", "request_started", "request_completed", "request_failed", "engine_failed", "engine_exited"]
+    elapsed_ms: int = Field(ge=0)
+    operation: Literal["model", "tool", "source", "stage", "engine"]
+    status_code: int | None = None
+    stage_id: str | None = Field(default=None, max_length=32, pattern=r"^[a-zA-Z0-9_-]+$")
+    error_type: str | None = Field(default=None, max_length=128, pattern=r"^[a-zA-Z0-9_]+$")
+    returncode: int | None = None
+    source_file: str | None = Field(default=None, max_length=128, pattern=r"^[a-zA-Z0-9_.-]+$")
+    source_line: int | None = Field(default=None, ge=1)
+
+
 class SecurityWorkerHeartbeatRequest(BaseModel):
     lease_token: str = Field(min_length=16, max_length=512)
     usage: SecurityTaskUsage = Field(default_factory=SecurityTaskUsage)
     session_state: str | None = Field(default=None, max_length=2048)
     scan_progress: SecurityLiveProgress | None = None
+    diagnostics: list[SecurityScanDiagnostic] | None = Field(default=None, max_length=500)
 
 
 class SecurityWorkerHeartbeatResponse(BaseModel):

@@ -16,7 +16,7 @@ export function projectScanCases(detail, reportRows = []) {
   const task = detail?.task
   const finalCases = detail?.cases || []
   const terminal = ['succeeded', 'failed', 'cancelled', 'timed_out', 'blocked'].includes(task?.status)
-  const live = task?.scan_kind === 'llm_redteam_scan' && (!terminal || !finalCases.length)
+  const live = ['llm_redteam_scan', 'mcp_risk_scan'].includes(task?.scan_kind) && (!terminal || !finalCases.length) && Boolean(task?.progress?.cases?.length || task?.scan_kind === 'llm_redteam_scan')
   if (live) return {
     source: 'progress',
     rows: (task.progress?.cases || []).map(item => ({
@@ -63,6 +63,15 @@ export function summarizeCaseCoverage({ task, cases = [], artifacts = [] } = {})
 export function parseRedteamArtifact(content) {
   let parsed
   try { parsed = typeof content === 'string' ? JSON.parse(content) : content } catch { return { parsed: null, rows: [] } }
+  if (parsed?.scan_mode || (parsed?.version === '2.1.0' && Array.isArray(parsed.runs))) {
+    const results = parsed.scan_mode ? (parsed.results || []) : parsed.runs.flatMap(run => run.results || [])
+    return { parsed, rows: results.map((item, index) => ({
+      _index: index + 1, reportKind: 'mcp', status: 'Unverified',
+      vulnerability: item.title || item.message?.text || item.ruleId,
+      description: item.description || item.properties?.description || item.message?.markdown || '',
+      suggestion: item.suggestion || (item.fixes || []).map(fix => fix.description?.text || '').filter(Boolean).join('\n'),
+    })) }
+  }
   const reports = Array.isArray(parsed?.content) ? parsed.content : (Array.isArray(parsed?.results) ? [parsed] : [])
   const rows = reports.flatMap(report => Array.isArray(report?.results) ? report.results : []).filter(item => item && typeof item === 'object' && !Array.isArray(item)).map((item, index) => ({
     ...item, _index: index + 1,

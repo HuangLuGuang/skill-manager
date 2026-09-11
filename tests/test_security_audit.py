@@ -1,4 +1,5 @@
 import json
+import pytest
 
 from sqlalchemy import create_engine
 
@@ -70,3 +71,19 @@ def test_security_audit_can_export_append_only_jsonl(tmp_path, monkeypatch):
     rows = export_path.read_text(encoding="utf-8").splitlines()
     assert len(rows) == 1
     assert json.loads(rows[0])["event_type"] == "agent_updated"
+
+
+@pytest.mark.parametrize("field,value", [("details_json", "{broken"), ("timestamp", "not-a-date")])
+def test_malformed_audit_record_reports_chain_break(tmp_path, monkeypatch, field, value):
+    bind = _engine(tmp_path)
+    monkeypatch.setattr(settings, "AUDIT_SIGNING_PRIVATE_KEY_PATH", str(tmp_path / "audit-key.pem"))
+    for name in ("first", "second"):
+        append_security_audit(event_type="agent_updated", actor="admin", resource_type="agent",
+                              resource_id=name, action="update", outcome="success", bind=bind)
+    with bind.begin() as connection:
+        broken_id = connection.exec_driver_sql("SELECT event_id FROM security_audit_events WHERE id = 2").scalar_one()
+        connection.exec_driver_sql(f"UPDATE security_audit_events SET {field} = ? WHERE id = 2", (value,))
+    assert verify_security_audit(bind=bind) == {
+        "valid": False, "checked": 1, "broken_event_id": broken_id, "reason": "record_invalid",
+    }
+    bind.dispose()

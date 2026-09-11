@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timedelta
 
 import httpx
+import pytest
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -23,6 +24,8 @@ def _client(tmp_path, monkeypatch, *, max_body_kb: int = 1024, max_concurrent_re
     Base.metadata.create_all(bind=engine)
 
     db = TestingSessionLocal()
+    from backend.iam import initialize
+    initialize(db)
     token = "amk_test_token"
     provider = models.ModelProvider(name="mock", base_url="http://mock.local", api_key="provider-key")
     db.add(provider)
@@ -489,6 +492,95 @@ def test_upstream_urls_append_only_the_protocol_endpoint():
     assert llm_gateway._anthropic_url("https://api.anthropic.com/v1") == "https://api.anthropic.com/v1/messages"
 
 
+@pytest.mark.parametrize("api_format,base_url", [
+    ("openai", "https://provider.example/v1/chat/completions"),
+    ("anthropic", "https://provider.example/v1/messages"),
+])
+def test_discover_provider_models_pagination_and_credentials(tmp_path, monkeypatch, api_format, base_url):
+    client, _, factory = _client(tmp_path, monkeypatch)
+    with factory() as db:
+        provider = db.get(models.ModelProvider, 1)
+        provider.api_format = api_format
+        provider.base_url = base_url
+        provider.api_key = llm_gateway._protect_secret("discovery-secret")
+        db.commit()
+    client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(id=1, role="admin")
+    calls = []
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def get(self, url, *, headers, params):
+            calls.append((url, headers, params))
+            if not params:
+                return httpx.Response(200, json={"data": [{"id": "model-b"}], "has_more": True, "last_id": "model-b"})
+            return httpx.Response(200, json={"data": [{"id": "model-b"}, {"id": "model-a", "display_name": "Model A"}], "has_more": False})
+
+    monkeypatch.setattr(llm_gateway.httpx, "AsyncClient", FakeClient)
+    result = client.get("/v1/model-providers/1/models")
+    assert result.status_code == 200
+    assert result.json() == {"models": [{"name": "model-a", "display_name": "Model A"}, {"name": "model-b", "display_name": None}]}
+    assert calls[0][0] == "https://provider.example/v1/models"
+    assert calls[0][1]["authorization"] == "Bearer discovery-secret"
+    if api_format == "anthropic":
+        assert calls[0][1]["x-api-key"] == "discovery-secret"
+        assert calls[0][1]["anthropic-version"] == "2023-06-01"
+    assert calls[1][2] == {"after_id": "model-b"}
+    assert "discovery-secret" not in result.text
+    with factory() as db:
+        assert db.query(models.ModelEndpoint).count() == 1
+
+
+@pytest.mark.parametrize("failure,code", [
+    ("http", "upstream_http_error"), ("json", "invalid_response"),
+    ("shape", "invalid_response"), ("cursor", "invalid_response"),
+    ("connection", "connection_failed"),
+])
+def test_discover_provider_models_errors(tmp_path, monkeypatch, failure, code):
+    client, _, _ = _client(tmp_path, monkeypatch)
+    client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(id=1, role="admin")
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def get(self, *args, **kwargs):
+            if failure == "connection":
+                raise httpx.ConnectError("secret must not be reflected")
+            if failure == "http":
+                return httpx.Response(401, text="secret must not be reflected")
+            if failure == "json":
+                return httpx.Response(200, text="not json")
+            if failure == "cursor":
+                return httpx.Response(200, json={"data": [], "has_more": True})
+            return httpx.Response(200, json={"data": [{"id": 42}]})
+
+    monkeypatch.setattr(llm_gateway.httpx, "AsyncClient", FakeClient)
+    result = client.get("/v1/model-providers/1/models")
+    assert result.status_code == 502
+    assert result.json()["error_code"] == f"model_discovery.{code}"
+    assert "secret must not be reflected" not in result.text
+    assert client.get("/v1/model-providers/999/models").status_code == 404
+
+
+def test_discover_provider_models_requires_admin(tmp_path, monkeypatch):
+    client, _, _ = _client(tmp_path, monkeypatch)
+    assert client.get("/v1/model-providers/1/models").status_code in (401, 403)
+
+
 def test_model_provider_test_runs_real_completion_with_entered_model(tmp_path, monkeypatch):
     client, _token, session_factory = _client(tmp_path, monkeypatch)
     db = session_factory()
@@ -724,8 +816,8 @@ def test_create_user_rejects_duplicate_email_with_clear_message(tmp_path, monkey
         },
     )
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "邮箱已存在"
+    assert response.status_code == 409
+    assert response.json()["error_code"] == "iam.account_exists"
 
 
 def test_root_chat_completions_alias_supports_clients_without_v1_base(tmp_path, monkeypatch):
@@ -1094,6 +1186,7 @@ def test_create_privacy_policy_without_group_does_not_update_default(tmp_path, m
 
     client.app.dependency_overrides[auth.get_current_admin_user] = override_current_user
 
+    client.app.dependency_overrides[auth.get_current_active_user] = override_current_user
     listed = client.get("/v1/privacy-policies")
     assert listed.status_code == 200
     default_policy = listed.json()[0]

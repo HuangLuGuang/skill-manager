@@ -72,8 +72,8 @@
             <a-space>
               <a-button type="link" @click="openDetails(record)">{{ t('mcpApproval.details') }}</a-button>
               <template v-if="record.status === 'pending'">
-                <a-button type="link" :disabled="record.schema_changed" @click="openApprove(record)">{{ t('mcpApproval.approve') }}</a-button>
-                <a-button type="link" danger @click="openReject(record)">{{ t('mcpApproval.reject') }}</a-button>
+                <a-button v-if="hasAccess('mcp:approve')" type="link" :disabled="record.schema_changed" @click="openApprove(record)">{{ t('mcpApproval.approve') }}</a-button>
+                <a-button v-if="hasAccess('mcp:reject')" type="link" danger @click="openReject(record)">{{ t('mcpApproval.reject') }}</a-button>
               </template>
             </a-space>
           </template>
@@ -123,8 +123,8 @@
           </a-descriptions>
 
           <div v-if="detail.status === 'pending'" class="drawer-actions">
-            <a-button danger @click="openReject(detail)">{{ t('mcpApproval.reject') }}</a-button>
-            <a-button type="primary" :disabled="detail.schema_changed" @click="openApprove(detail)">{{ t('mcpApproval.approve') }}</a-button>
+            <a-button v-if="hasAccess('mcp:reject')" danger @click="openReject(detail)">{{ t('mcpApproval.reject') }}</a-button>
+            <a-button v-if="hasAccess('mcp:approve')" type="primary" :disabled="detail.schema_changed" @click="openApprove(detail)">{{ t('mcpApproval.approve') }}</a-button>
           </div>
         </template>
       </a-spin>
@@ -170,6 +170,7 @@
 </template>
 
 <script setup>
+import { can as hasAccess } from '../access'
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'

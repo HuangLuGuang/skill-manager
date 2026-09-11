@@ -2,7 +2,7 @@
   <div class="skill-detail-page">
     <a-page-header :title="detailPageTitle" :sub-title="text('查看 Skill 详情、审核与审计记录', 'Review Skill details, approval, and audit records')">
       <template #extra>
-        <a-button v-if="detail?.status === 'APPROVED'" type="primary" @click="openClientInstall"> {{ $t("legacy.1wbn313") }} </a-button>
+        <a-button v-if="hasAccess('clients:execute') && (detail?.status === 'APPROVED')" type="primary" @click="openClientInstall"> {{ $t("legacy.1wbn313") }} </a-button>
         <a-button
           @click="handleExportScanReport"
           :loading="exportingScanReport"
@@ -180,17 +180,17 @@
             <a-button @click="fetchDetail" :loading="loading">{{ text('刷新', 'Refresh') }}</a-button>
             <a-tooltip :title="signatureVerifyDisabledReason">
               <span>
-                <a-button
+                <a-button v-if="hasAccess('skills:sign')"
                   :disabled="!detail?.signature"
                   :loading="verifyingSignature"
                   @click="handleVerifySignature"
                 > {{ $t("legacy.y6whtf") }} </a-button>
               </span>
             </a-tooltip>
-            <a-button v-if="canApproveSkill" type="primary" @click="openApproveModal">
+            <a-button v-if="hasAccess('skills:approve') && (canApproveSkill)" type="primary" @click="openApproveModal">
               {{ manualApprovalRequired ? $t('legacy.8ve3lv') : $t('legacy.1tmnt86') }}
             </a-button>
-            <a-button v-if="detail?.status === 'VETTED'" danger @click="openRejectModal">{{ $t("legacy.1qrntx4") }}</a-button>
+            <a-button v-if="hasAccess('skills:reject') && (detail?.status === 'VETTED')" danger @click="openRejectModal">{{ $t("legacy.1qrntx4") }}</a-button>
         </a-space>
       </div>
       <a-alert
@@ -629,7 +629,7 @@
         <a-tab-pane key="governance-card" :tab="$t('legacy.11y6y7p')">
           <a-space style="margin-bottom: 12px" wrap>
             <a-button @click="fetchGovernanceCard" :loading="loadingGovernanceCard">{{ $t("legacy.12qo56a") }}</a-button>
-            <a-button type="primary" @click="handleRefreshGovernanceCard" :loading="loadingGovernanceCard"> {{ $t("legacy.1oqld67") }} </a-button>
+            <a-button v-if="hasAccess('skills:update')" type="primary" @click="handleRefreshGovernanceCard" :loading="loadingGovernanceCard"> {{ $t("legacy.1oqld67") }} </a-button>
             <a-radio-group v-model:value="governanceCardViewMode" button-style="solid">
               <a-radio-button value="preview">{{ $t("legacy.k2jp4x") }}</a-radio-button>
               <a-radio-button value="raw">{{ $t("legacy.9lvlaj") }}</a-radio-button>
@@ -781,7 +781,7 @@
                 <a-space>
                   <a-button size="small" @click="downloadVersion(record)">{{ $t('skillVersions.download') }}</a-button>
                   <a-button size="small" @click="openScanRuns(record)">{{ $t('skillVersions.scanRuns') }}</a-button>
-                  <a-button
+                  <a-button v-if="hasAccess('skills:scan')"
                     size="small"
                     :loading="rescanningVersionId === record.version_id"
                     :disabled="record.scan_pending"
@@ -1038,6 +1038,7 @@
 </template>
 
 <script setup>
+import { can as hasAccess } from '../access'
 import SkillDecisionFlow from '../components/SkillDecisionFlow.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'

@@ -9,7 +9,7 @@
           <template #icon><ReloadOutlined /></template>
           {{ t('agentSecurityScans.refresh') }}
         </a-button>
-        <a-button type="primary" :disabled="!canStartScan" @click="openTaskModal">
+        <a-button v-if="hasAccess('scans:execute')" type="primary" :disabled="!canStartScan" @click="openTaskModal">
           <template #icon><PlayCircleOutlined /></template>
           {{ t('agentSecurityScans.newTask') }}
         </a-button>
@@ -60,7 +60,7 @@
                 :placeholder="t('agentSecurityScans.targets.search')"
               />
               <a-button @click="governance.openSources()">{{ t('scanSchedule.sources') }}</a-button>
-              <a-button v-if="canAdmin" type="primary" @click="openTargetModal()">
+              <a-button v-if="hasAccess('targets:create') && (canAdmin)" type="primary" @click="openTargetModal()">
                 <template #icon><PlusOutlined /></template>
                 {{ t('agentSecurityScans.targets.create') }}
               </a-button>
@@ -129,14 +129,14 @@
               </template>
               <template v-else-if="column.key === 'actions'">
                 <a-space v-if="canAdmin" wrap>
-                  <a-button type="link" size="small" @click="openTargetModal(record)">{{ t('agentSecurityScans.edit') }}</a-button>
+                  <a-button v-if="hasAccess('targets:update')" type="link" size="small" @click="openTargetModal(record)">{{ t('agentSecurityScans.edit') }}</a-button>
                   <a-button
-                    v-if="record.target_type !== 'mcp_gateway'"
+                    v-if="hasAccess('targets:create') && (!['mcp_gateway', 'mcp_source'].includes(record.target_type))"
                     type="link"
                     size="small"
                     @click="openCredentialModal(record)"
                   >{{ t('agentSecurityScans.targets.credential') }}</a-button>
-                  <a-popconfirm
+                  <a-popconfirm v-if="hasAccess('targets:update')"
                     :title="record.status === 'active' ? t('agentSecurityScans.targets.disableConfirm') : t('agentSecurityScans.targets.enableConfirm')"
                     @confirm="toggleTarget(record)"
                   >
@@ -157,7 +157,7 @@
               <h2>{{ t('agentSecurityScans.policies.title') }}</h2>
               <p>{{ t('agentSecurityScans.policies.description') }}</p>
             </div>
-            <a-button v-if="canAdmin" type="primary" @click="openPolicyModal()">
+            <a-button v-if="hasAccess('scans:create') && (canAdmin)" type="primary" @click="openPolicyModal()">
               <template #icon><PlusOutlined /></template>
               {{ t('agentSecurityScans.policies.create') }}
             </a-button>
@@ -203,8 +203,8 @@
               </template>
               <template v-else-if="column.key === 'actions'">
                 <a-space v-if="canAdmin">
-                  <a-button type="link" size="small" @click="openPolicyModal(record)">{{ t('agentSecurityScans.edit') }}</a-button>
-                  <a-popconfirm :title="record.enabled ? t('agentSecurityScans.policies.disableConfirm') : t('agentSecurityScans.policies.enableConfirm')" @confirm="togglePolicy(record)">
+                  <a-button v-if="hasAccess('scans:update')" type="link" size="small" @click="openPolicyModal(record)">{{ t('agentSecurityScans.edit') }}</a-button>
+                  <a-popconfirm v-if="hasAccess('scans:update')" :title="record.enabled ? t('agentSecurityScans.policies.disableConfirm') : t('agentSecurityScans.policies.enableConfirm')" @confirm="togglePolicy(record)">
                     <a-button type="link" size="small" :danger="record.enabled">
                       {{ record.enabled ? t('agentSecurityScans.disable') : t('agentSecurityScans.enable') }}
                     </a-button>
@@ -222,7 +222,7 @@
               <h2>{{ t('agentSecurityScans.tasks.title') }}</h2>
               <p>{{ t('agentSecurityScans.tasks.description') }}</p>
             </div>
-            <a-button type="primary" :disabled="!canStartScan" @click="openTaskModal">
+            <a-button v-if="hasAccess('scans:execute')" type="primary" :disabled="!canStartScan" @click="openTaskModal">
               <template #icon><PlayCircleOutlined /></template>
               {{ t('agentSecurityScans.tasks.create') }}
             </a-button>
@@ -241,11 +241,11 @@
           </div>
           <a-table
             :columns="taskColumns"
+            class="scan-task-table"
             :data-source="filteredTasks"
             :pagination="tablePagination"
             row-key="task_id"
             table-layout="fixed"
-            :scroll="{ x: 1220 }"
             :locale="{ emptyText: t('agentSecurityScans.tasks.empty') }"
           >
             <template #bodyCell="{ column, record }">
@@ -253,6 +253,7 @@
                 <button class="id-link" type="button" :title="record.task_id" @click="openTaskDetail(record.task_id)">{{ record.task_id }}</button>
               </template>
               <template v-else-if="column.key === 'target_id'">{{ targetName(record.target_id) }}</template>
+              <template v-else-if="column.key === 'evaluation_model'"><a-tooltip :title="record.scan_options?.evaluation_model"><span>{{ record.scan_options?.evaluation_model || '—' }}</span></a-tooltip></template>
               <template v-else-if="column.key === 'scan_kind'"><a-tag color="geekblue">{{ scanKindLabel(record.scan_kind) }}</a-tag></template>
               <template v-else-if="column.key === 'status'">
                 <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
@@ -268,12 +269,13 @@
               </template>
               <template v-else-if="column.key === 'created_at'">{{ formatDateTime(record.created_at) }}</template>
               <template v-else-if="column.key === 'actions'">
-                <a-space>
+                <a-space wrap>
                   <a-button type="link" size="small" @click="openTaskDetail(record.task_id)">{{ t('agentSecurityScans.view') }}</a-button>
-                  <a-popconfirm v-if="canCancel(record)" :title="t('agentSecurityScans.tasks.cancelConfirm')" @confirm="cancelTask(record)">
+                  <a-tooltip v-if="canRetry(record)" :title="t('scanTaskActions.retryHelp')"><a-button v-if="hasAccess('scans:execute')" type="link" size="small" :loading="retryingTaskId === record.task_id" :disabled="!!retryingTaskId" @click="retryTask(record)">{{ t('scanTaskActions.retry') }}</a-button></a-tooltip>
+                  <a-popconfirm v-if="hasAccess('scans:cancel') && (canCancel(record))" :title="t('agentSecurityScans.tasks.cancelConfirm')" @confirm="cancelTask(record)">
                     <a-button type="link" size="small" danger>{{ t('agentSecurityScans.tasks.cancel') }}</a-button>
                   </a-popconfirm>
-                  <a-button v-if="canKill(record)" type="link" size="small" danger @click="openKillSwitchModal(record)">{{ t('agentSecurityScans.tasks.killSwitch') }}</a-button>
+                  <a-button v-if="hasAccess('scans:stop') && (canKill(record))" type="link" size="small" danger @click="openKillSwitchModal(record)">{{ t('agentSecurityScans.tasks.killSwitch') }}</a-button>
                 </a-space>
               </template>
             </template>
@@ -311,6 +313,7 @@
               <template v-else-if="column.key === 'title'">
                 <div class="finding-title">
                   <strong>{{ findingTitle(record) }}</strong>
+                  <a-tag v-if="record.evidence?.model_assessment && record.evidence?.confirmed_vulnerability === false">{{ t('mcpScan.unverified') }}</a-tag>
                   <code>{{ record.finding_code }}</code>
                   <a-space v-if="record.risk_codes?.length" wrap><a-tag v-for="code in record.risk_codes" :key="code" color="blue">{{ agenticRiskLabel(code, t, te) }}</a-tag></a-space>
                   <span v-else class="muted">{{ t('agentSecurityScans.findings.unmappedRisk') }}</span>
@@ -318,7 +321,7 @@
               </template>
               <template v-else-if="column.key === 'status'"><a-tag :color="findingStatusColor(record.status)">{{ findingStatusLabel(record.status) }}</a-tag></template>
               <template v-else-if="column.key === 'confidence'">{{ Math.round((record.confidence || 0) * 100) }}%</template>
-              <template v-else-if="column.key === 'source'">{{ record.source === 'ai-infra-guard' ? t('agentSecurityScans.findings.scanEngine') : record.source }}</template>
+              <template v-else-if="column.key === 'source'">{{ ['ai-infra-guard', 'ai-infra-guard-mcp'].includes(record.source) ? t('agentSecurityScans.findings.scanEngine') : record.source }}</template>
               <template v-else-if="column.key === 'scan'">
                 <div class="finding-scan">
                   <a-tooltip v-for="origin in (record.origins || []).filter(item => item.kind === 'scheduled')" :key="origin.schedule_id" :title="origin.name"><a-tag color="blue">{{ t('scanSchedule.resultTag') }}</a-tag></a-tooltip>
@@ -330,7 +333,7 @@
               <template v-else-if="column.key === 'actions'">
                 <a-space>
                   <a-button type="link" size="small" @click="openFindingDetail(record)">{{ t('agentSecurityScans.view') }}</a-button>
-                  <a-button v-if="canAdmin" type="link" size="small" @click="openDispositionModal(record)">{{ t('agentSecurityScans.findings.dispose') }}</a-button>
+                  <a-button v-if="hasAccess('scans:update') && (canAdmin)" type="link" size="small" @click="openDispositionModal(record)">{{ t('agentSecurityScans.findings.dispose') }}</a-button>
                 </a-space>
               </template>
             </template>
@@ -461,6 +464,9 @@
             <a-select-option v-for="gateway in mcpGateways" :key="gateway.id" :value="gateway.id" :label="gateway.name || gateway.slug">{{ gateway.name || gateway.slug }} · {{ gateway.slug }}</a-select-option>
           </a-select>
         </a-form-item>
+        <a-form-item v-else-if="targetForm.connector_type === 'mcp_source'" :label="t('mcpScan.sourceTarget')" required>
+          <McpSourceInput :model-value="targetForm.endpoint_url.replace('mcp-source://', '')" @imported="setTargetSource" />
+        </a-form-item>
         <a-form-item v-else :label="t('agentSecurityScans.targets.endpoint')" required>
           <div class="endpoint-connectivity">
             <a-input v-model:value="targetForm.endpoint_url" :placeholder="t('agentSecurityScans.targets.endpointPlaceholder')" />
@@ -541,10 +547,10 @@
           <a-row :gutter="16"><a-col :xs="24" :md="8"><a-form-item :label="t('agentSecurityScans.targets.model')" required><a-input v-model:value="targetForm.llm_model" /></a-form-item></a-col><a-col :xs="24" :md="10"><a-form-item :label="t('agentSecurityScans.targets.chatCompletionsPath')"><a-input v-model:value="targetForm.llm_chat_completions_path" /></a-form-item></a-col><a-col :xs="24" :md="6"><a-form-item :label="t('agentSecurityScans.targets.timeoutMs')"><a-input-number v-model:value="targetForm.llm_timeout_ms" :min="1000" :max="120000" class="number-input" /></a-form-item></a-col></a-row>
           <a-form-item :label="t('agentSecurityScans.targets.advancedConfig')" :extra="targetConfigHelp"><a-textarea v-model:value="targetForm.config_json" class="code-input" :rows="5" /></a-form-item>
         </template>
-        <a-form-item v-else-if="targetForm.connector_type !== 'mcp_gateway'" :label="targetForm.connector_type === 'dify' ? t('agentSecurityScans.inventory.advancedConfig') : t('agentSecurityScans.targets.config')" :extra="targetConfigHelp"><a-textarea v-model:value="targetForm.config_json" class="code-input" :rows="6" /></a-form-item>
+        <a-form-item v-else-if="!['mcp_gateway', 'mcp_source'].includes(targetForm.connector_type)" :label="targetForm.connector_type === 'dify' ? t('agentSecurityScans.inventory.advancedConfig') : t('agentSecurityScans.targets.config')" :extra="targetConfigHelp"><a-textarea v-model:value="targetForm.config_json" class="code-input" :rows="6" /></a-form-item>
         <a-alert v-if="targetForm.asset_type === 'llm'" class="modal-alert" type="info" show-icon :message="t('agentSecurityScans.targets.llmConfigBoundary')" />
         <a-alert v-if="targetForm.asset_type === 'ai_infrastructure'" class="modal-alert" type="warning" show-icon :message="t('agentSecurityScans.targets.infrastructureConfigBoundary')" />
-        <a-form-item v-if="targetForm.connector_type !== 'mcp_gateway'">
+        <a-form-item v-if="targetForm.connector_type !== 'mcp_source'">
           <a-checkbox v-model:checked="targetForm.allow_insecure_transport">{{ t('agentSecurityScans.targets.allowInsecure') }}</a-checkbox>
         </a-form-item>
       </a-form>
@@ -571,7 +577,7 @@
             <code :title="item.secret_masked">{{ item.secret_masked }}</code>
             <a-tag :color="item.status === 'active' ? 'green' : 'default'">{{ t(`agentSecurityScans.inventory.credentialStatuses.${item.status}`, item.status) }}</a-tag>
             <a-popconfirm
-              v-if="item.status !== 'revoked'"
+              v-if="hasAccess('scans:update') && (item.status !== 'revoked')"
               :title="item.status === 'active' ? t('agentSecurityScans.inventory.disableCredentialConfirm') : t('agentSecurityScans.inventory.enableCredentialConfirm')"
               @confirm="toggleCredentialStatus(item)"
             >
@@ -621,10 +627,10 @@
       <template #footer>
         <a-button @click="taskModalOpen = false">{{ t('agentSecurityScans.tasks.close') }}</a-button>
         <a-button :loading="previewingTask" :disabled="submittingTask || evaluatorSelectionMissing" @click="loadTaskPreview">{{ t('agentSecurityScans.tasks.preview') }}</a-button>
-        <a-button type="primary" :loading="submittingTask" :disabled="submittingTask || previewingTask || evaluatorSelectionMissing || (executionMode === 'now' ? !taskPreview : !timingValid || !scheduleName.trim())" @click="saveTask">{{ executionMode === 'now' ? t('agentSecurityScans.tasks.createConfirmed') : editingSchedule ? t('assetLifecycle.save') : t('scanSchedule.create') }}</a-button>
+        <a-button v-if="executionMode === 'now' ? hasAccess('scans:execute') : hasAccess(editingSchedule ? 'schedules:update' : 'schedules:create')" type="primary" :loading="submittingTask" :disabled="submittingTask || previewingTask || evaluatorSelectionMissing || (executionMode === 'now' ? !taskPreview : !timingValid || !scheduleName.trim())" @click="saveTask">{{ executionMode === 'now' ? t('agentSecurityScans.tasks.createConfirmed') : editingSchedule ? t('assetLifecycle.save') : t('scanSchedule.create') }}</a-button>
       </template>
       <a-form layout="vertical">
-        <a-form-item :label="t('scanSchedule.execution')"><a-radio-group v-model:value="executionMode" :disabled="!!editingSchedule"><a-radio value="now">{{ t('scanSchedule.now') }}</a-radio><a-radio v-if="canAdmin" value="scheduled">{{ t('scanSchedule.scheduled') }}</a-radio></a-radio-group></a-form-item>
+        <a-form-item :label="t('scanSchedule.execution')"><a-radio-group v-model:value="executionMode" :disabled="!!editingSchedule"><a-radio value="now">{{ t('scanSchedule.now') }}</a-radio><a-radio v-if="hasAccess('schedules:create') || (!!editingSchedule && hasAccess('schedules:update'))" value="scheduled">{{ t('scanSchedule.scheduled') }}</a-radio></a-radio-group></a-form-item>
         <template v-if="executionMode === 'scheduled'"><a-form-item :label="t('scanSchedule.name')" required><a-input v-model:value="scheduleName" :maxlength="128" /></a-form-item><ScanTimingFields v-model="scanTiming" @valid="timingValid = $event" /><a-checkbox v-if="!editingSchedule" v-model:checked="runImmediately">{{ t('scanSchedule.immediately') }}</a-checkbox><p>{{ t('scanSchedule.note') }}</p></template>
         <a-row :gutter="16">
           <a-col :xs="24" :md="12"><a-form-item :label="t('agentSecurityScans.tasks.target')" required><a-select v-model:value="taskForm.target_id" @change="handleTaskTargetChange"><a-select-option v-for="target in activeTargets" :key="target.target_id" :value="target.target_id">{{ target.name }}</a-select-option></a-select></a-form-item></a-col>
@@ -638,13 +644,16 @@
               <a-select v-model:value="taskForm.approval_id" class="approval-select" :placeholder="t('agentSecurityScans.tasks.approvalPlaceholder')">
                 <a-select-option v-for="approval in availableApprovals" :key="approval.approval_id" :value="approval.approval_id">{{ approval.approval_id }} · {{ formatUtcDateTime(approval.maintenance_window_end) }}</a-select-option>
               </a-select>
-              <a-button v-if="canAdmin" :loading="submittingApproval" :disabled="!selectedTaskTarget?.credential_configured" @click="approveProductionScan">{{ t('agentSecurityScans.tasks.approveProductionScan') }}</a-button>
+              <a-button v-if="hasAccess('scans:approve') && (canAdmin)" :loading="submittingApproval" :disabled="!selectedTaskTarget?.credential_configured" @click="approveProductionScan">{{ t('agentSecurityScans.tasks.approveProductionScan') }}</a-button>
             </a-space-compact>
             <div v-if="!selectedTaskTarget?.credential_configured" class="field-help-error">{{ t('agentSecurityScans.tasks.dedicatedCredentialRequired') }}</div>
           </a-form-item>
         </template>
         <a-form-item :label="t('agentSecurityScans.tasks.kind')" required><a-select v-model:value="taskForm.scan_kind" :disabled="availableScanKinds.length === 1"><a-select-option v-for="kind in availableScanKinds" :key="kind" :value="kind">{{ scanKindLabel(kind) }}</a-select-option></a-select></a-form-item>
-        <a-form-item v-if="['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind)" :label="t('agentSecurityScans.tasks.evaluationModel')" required :extra="t('agentSecurityScans.tasks.evaluationModelHelp')">
+        <McpScanOptions v-if="taskForm.scan_kind === 'mcp_risk_scan'" v-model="mcpForm" :target="selectedTaskTarget" :models="evaluationModels" :can-import="hasAccess('scans:create')" />
+        <a-alert v-if="compressedMcpModels.length" class="modal-alert" type="warning" show-icon :message="t('mcpScan.compressionWarningTitle')" :description="t('mcpScan.compressionWarning', { models: compressedMcpModels.join(', ') })" />
+        <a-form-item v-if="taskForm.scan_kind === 'mcp_risk_scan' && needsEvaluator" :label="t('agentSecurityScans.tasks.prompt')"><a-textarea v-model:value="taskForm.prompt" :rows="3" :maxlength="4096" /></a-form-item>
+        <a-form-item v-if="needsEvaluator" :label="t('agentSecurityScans.tasks.evaluationModel')" required :extra="t('agentSecurityScans.tasks.evaluationModelHelp')">
           <a-select v-model:value="taskForm.evaluation_model" show-search option-filter-prop="label" :loading="redteamOptionsLoading" :disabled="redteamOptionsLoading" :placeholder="t('agentSecurityScans.tasks.selectEvaluationModel')" :not-found-content="t('agentSecurityScans.tasks.noEvaluationModels')">
             <a-select-option v-for="model in evaluationModels" :key="model.id" :value="model.name" :label="`${model.display_name || model.name} (${model.name}) · ${model.provider_name}`">
               {{ model.display_name || model.name }} ({{ model.name }}) · {{ model.provider_name }}
@@ -652,7 +661,7 @@
           </a-select>
         </a-form-item>
         <template v-if="taskForm.scan_kind === 'agent_risk_scan'">
-          <a-form-item :label="t('agentSecurityScans.tasks.skills')"><a-select v-model:value="taskForm.skills" mode="multiple" :max-tag-count="3"><a-select-option v-for="skill in agentScanSkills" :key="skill" :value="skill">{{ skill }}</a-select-option></a-select></a-form-item>
+          <a-form-item :label="t('agentSecurityScans.tasks.skills')"><a-select v-model:value="taskForm.skills" mode="multiple" :max-tag-count="3" option-filter-prop="label"><a-select-option v-for="skill in agentScanSkills" :key="skill" :value="skill" :label="t(`assetLifecycle.ruleNames.${skill}`)">{{ t(`assetLifecycle.ruleNames.${skill}`) }}</a-select-option></a-select></a-form-item>
           <a-form-item :label="t('agentSecurityScans.tasks.prompt')"><a-textarea v-model:value="taskForm.prompt" :rows="3" :maxlength="4096" /></a-form-item>
           <a-row :gutter="16">
             <a-col :xs="24" :md="12"><a-form-item :label="t('agentSecurityScans.tasks.conversationMode')"><a-select v-model:value="taskForm.conversation_mode"><a-select-option value="single_turn">{{ t('agentSecurityScans.tasks.singleTurn') }}</a-select-option><a-select-option value="multi_turn">{{ t('agentSecurityScans.tasks.multiTurn') }}</a-select-option></a-select></a-form-item></a-col>
@@ -719,9 +728,9 @@
             <a-upload :before-upload="loadManualDsl" :show-upload-list="false" accept=".yml,.yaml,.json,text/yaml,application/json"><a-button>{{ t('agentSecurityScans.inventory.chooseDsl') }}</a-button></a-upload>
             <a-form-item class="manual-dsl" :label="t('agentSecurityScans.inventory.dslDocument')" required><a-textarea v-model:value="taskForm.manual_dsl" class="code-input" :rows="7" /></a-form-item>
           </template>
-          <a-form-item><a-checkbox v-model:checked="taskForm.include_prompt_text" :disabled="!canAdmin">{{ t('agentSecurityScans.inventory.includePromptText') }}</a-checkbox><div class="muted">{{ t('agentSecurityScans.inventory.promptDefaultBoundary') }}</div></a-form-item>
-          <a-form-item :extra="canAdmin ? t('agentSecurityScans.inventory.intentInferencePrivacy') : t('agentSecurityScans.inventory.intentInferenceAdminOnly')">
-            <a-checkbox v-model:checked="taskForm.infer_agent_intent" :disabled="!canAdmin">
+          <a-form-item><a-checkbox v-model:checked="taskForm.include_prompt_text" :disabled="!canCollectPrivateContent">{{ t('agentSecurityScans.inventory.includePromptText') }}</a-checkbox><div class="muted">{{ t('agentSecurityScans.inventory.promptDefaultBoundary') }}</div></a-form-item>
+          <a-form-item :extra="canCollectPrivateContent ? t('agentSecurityScans.inventory.intentInferencePrivacy') : t('agentSecurityScans.inventory.intentInferenceAdminOnly')">
+            <a-checkbox v-model:checked="taskForm.infer_agent_intent" :disabled="!canCollectPrivateContent">
               {{ t('agentSecurityScans.inventory.inferAgentIntent') }}
             </a-checkbox>
           </a-form-item>
@@ -836,6 +845,8 @@
           </section>
           <a-alert v-if="taskDetail.task.error_code" class="modal-alert" type="error" show-icon
             :message="taskErrorExplanation(taskDetail.task)" />
+          <div class="diagnostics-actions"><a-button :loading="downloadingDiagnostics" :disabled="downloadingDiagnostics" @click="downloadDiagnostics(taskDetail.task.task_id)">{{ t('scanTaskActions.downloadLogs') }}</a-button><span class="muted">{{ t('scanTaskActions.logsHelp') }}</span></div>
+          <a-tooltip v-if="canRetry(taskDetail.task)" :title="t('scanTaskActions.retryHelp')"><a-button v-if="hasAccess('scans:execute')" class="modal-alert" :loading="retryingTaskId === taskDetail.task.task_id" :disabled="!!retryingTaskId" @click="retryTask(taskDetail.task)">{{ t('scanTaskActions.retry') }}</a-button></a-tooltip>
           <a-alert v-if="taskDetail.task.stop_reason" class="modal-alert" type="warning" show-icon
             :message="taskReasonLabel(taskDetail.task.stop_reason)" />
           <a-alert
@@ -875,6 +886,7 @@
               <a-descriptions class="report-summary" bordered :column="{ xs: 1, sm: 1, md: 2 }" size="small">
                 <a-descriptions-item :label="t('agentSecurityScans.tasks.target')">{{ targetName(taskDetail.task.target_id) }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.tasks.kind')">{{ scanKindLabel(taskDetail.task.scan_kind) }}</a-descriptions-item>
+                <a-descriptions-item :label="t('agentSecurityScans.scope.evaluator')"><span class="evaluation-model-name">{{ taskDetail.task.scan_options?.evaluation_model || '—' }}</span></a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.status')">{{ taskDetail.task.status === 'succeeded' ? t('agentSecurityScans.detail.completedExecution') : statusLabel(taskDetail.task.status) }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.tasks.policy')">{{ policyName(taskDetail.task.policy_id) }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.started')">{{ formatDateTime(taskDetail.task.started_at) }}</a-descriptions-item>
@@ -917,11 +929,12 @@
                 class="modal-alert"
                 type="info"
                 show-icon
-                :message="t('agentSecurityScans.detail.mcpMetadataBoundary')"
+                :message="t(taskDetail.task.scan_options?.metadata_only ? 'agentSecurityScans.detail.mcpMetadataBoundary' : 'mcpScan.boundary')"
               />
               <a-alert v-else-if="isLlmTaskDetail" class="modal-alert" type="warning" show-icon :message="t('agentSecurityScans.detail.llmRedteamBoundary')" />
               <a-alert v-else-if="isInfrastructureTaskDetail" class="modal-alert" type="warning" show-icon :message="t('agentSecurityScans.detail.infrastructureBoundary')" />
-              <a-descriptions v-if="isMcpTaskDetail" class="case-coverage-summary" bordered size="small" :column="{ xs: 2, sm: 3, md: 4 }">
+              <McpCallEvidence v-if="isMcpTaskDetail && hasAccess('privacy_audit:raw') && !taskDetail.task.scan_options?.metadata_only" :task-id="taskDetail.task.task_id" />
+              <a-descriptions v-if="isMcpTaskDetail && !showProgressCases" class="case-coverage-summary" bordered size="small" :column="{ xs: 2, sm: 3, md: 4 }">
                 <a-descriptions-item :label="t('agentSecurityScans.detail.mcpCaseSummary.planned')">{{ mcpCaseSummary.planned }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.mcpCaseSummary.noRiskObserved')">{{ mcpCaseSummary.no_risk_observed }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.mcpCaseSummary.riskSignals')">{{ mcpCaseSummary.risk_signal_detected }}</a-descriptions-item>
@@ -944,14 +957,17 @@
                   <a-list-item :key="item.case_id">
                     <a-list-item-meta>
                       <template #title>
-                        <div class="case-title-row"><strong>{{ caseTitle(item) }}</strong><a-tag :color="isMcpTaskDetail ? caseAssessmentColor(item.assessment_status) : caseStatusColor(item.status)">{{ showProgressCases ? t(`agentSecurityScans.live.statuses.${item.status}`) : isMcpTaskDetail ? caseAssessmentLabel(item.assessment_status) : caseLegacyStatusLabel(item.status) }}</a-tag></div>
+                        <div class="case-title-row"><strong>{{ caseTitle(item) }}</strong><a-tag :color="showProgressCases ? caseStatusColor(item.status) : isMcpTaskDetail ? caseAssessmentColor(item.assessment_status) : caseStatusColor(item.status)">{{ showProgressCases ? isMcpTaskDetail ? t(`mcpScan.stageStatuses.${item.status}`, t('mcpScan.stageStatuses.unverified')) : t(`agentSecurityScans.live.statuses.${item.status}`) : isMcpTaskDetail ? caseAssessmentLabel(item.assessment_status) : caseLegacyStatusLabel(item.status) }}</a-tag></div>
                       </template>
                       <template #description>
-                        <template v-if="isMcpTaskDetail">
-                          <div>{{ t('agentSecurityScans.detail.mcpToolName') }}：{{ item.request_summary?.asset?.exposed_name || item.request_summary?.asset?.tool_name || item.title }}</div>
+                        <template v-if="isMcpTaskDetail && showProgressCases">
+                          <div>{{ t('mcpScan.stageProgressHelp') }}</div>
+                        </template>
+                        <template v-else-if="isMcpTaskDetail">
+                          <div>{{ t('agentSecurityScans.detail.mcpToolName') }}：{{ item.request_summary?.asset?.exposed_name || item.request_summary?.asset?.tool_name || caseTitle(item) }}</div>
                           <div>{{ t('agentSecurityScans.detail.caseFindingCount', { value: item.finding_count ?? 0 }) }} · {{ t('agentSecurityScans.detail.activeFindingCount', { value: item.active_finding_count ?? 0 }) }}</div>
                           <div>{{ t('agentSecurityScans.detail.scanMode') }}：{{ scanModeLabel(item.scan_mode) }} · {{ t('agentSecurityScans.detail.mcpToolCalls', { value: item.tool_calls_performed ?? 0 }) }}</div>
-                          <div class="muted">{{ t('agentSecurityScans.detail.mcpCaseBoundary') }}</div>
+                          <div class="muted">{{ t(taskDetail.task.scan_options?.metadata_only ? 'agentSecurityScans.detail.mcpCaseBoundary' : 'mcpScan.boundary') }}</div>
                         </template>
                         <template v-else>
                           <div v-if="isLlmTaskDetail" class="case-meta-line">{{ t('agentSecurityScans.tasks.techniques') }}: {{ promptTransformationLabel(item.request_summary?.attack_method, t, te) }}</div>
@@ -972,7 +988,7 @@
                         <div v-if="item.response_summary?.error_type || item.response_summary?.error_message" class="case-error">{{ t('agentSecurityScans.detail.caseError', { type: item.response_summary?.error_type || '—', message: item.response_summary?.error_message || '—' }) }}</div>
                       </template>
                     </a-list-item-meta>
-                    <a-space v-if="isMcpTaskDetail" direction="vertical" align="end">
+                    <a-space v-if="isMcpTaskDetail && !showProgressCases" direction="vertical" align="end">
                       <a-tag :color="caseExecutionColor(item.execution_status)">{{ t('agentSecurityScans.detail.caseExecution', { value: caseExecutionLabel(item.execution_status) }) }}</a-tag>
                     </a-space>
                   </a-list-item>
@@ -993,7 +1009,7 @@
               <a-list :data-source="taskDetail.artifacts" class="artifact-list"><template #renderItem="{ item }"><a-list-item><template #actions><a-button v-if="item.content_available && canViewRaw" type="link" @click="viewArtifact(taskDetail.task.task_id, item)">{{ t('agentSecurityScans.detail.viewReport') }}</a-button></template><a-list-item-meta :title="artifactTitle(item)" :description="artifactSummary(item)" /></a-list-item></template></a-list>
             </a-tab-pane>
             <a-tab-pane v-if="taskDetail.task.scan_kind === 'dify_asset_inventory'" key="inventory" :tab="t('agentSecurityScans.inventory.tab')">
-              <DifyAssetInventory :task-id="taskDetail.task.task_id" :can-admin="canAdmin" />
+              <DifyAssetInventory :task-id="taskDetail.task.task_id" :can-admin="hasAccess('privacy_audit:raw')" />
             </a-tab-pane>
           </a-tabs>
         </template>
@@ -1029,8 +1045,9 @@
           <a-tab-pane key="summary" :tab="t('agentSecurityScans.detail.readableReport')">
             <div v-if="artifactRows.length" class="artifact-overview">
               <span>{{ t('agentSecurityScans.detail.artifactRecorded', { value: artifactOverview.recorded }) }}</span>
-              <span>{{ t('agentSecurityScans.detail.artifactSafe', { value: artifactOverview.safe }) }}</span>
-              <span>{{ t('agentSecurityScans.detail.artifactRisk', { value: artifactOverview.risk }) }}</span>
+              <span v-if="artifactRows[0]?.reportKind === 'mcp'">{{ t('mcpScan.pendingResults', { value: artifactRows.length }) }}</span>
+              <template v-else><span>{{ t('agentSecurityScans.detail.artifactSafe', { value: artifactOverview.safe }) }}</span>
+              <span>{{ t('agentSecurityScans.detail.artifactRisk', { value: artifactOverview.risk }) }}</span></template>
               <span v-if="artifactOverview.evaluated">{{ t('agentSecurityScans.detail.artifactRiskRate', { value: artifactOverview.rate }) }}</span>
             </div>
             <a-empty v-if="!artifactRows.length && !artifactError && !artifactLoading" :description="t('agentSecurityScans.detail.noReadableReport')" />
@@ -1039,8 +1056,12 @@
                 <a-list-item>
                   <a-list-item-meta :title="artifactRowTitle(item)">
                     <template #description>
-                      <div class="artifact-row-meta"><a-tag :color="artifactStatusColor(item.status)">{{ artifactStatusLabel(item.status) }}</a-tag></div>
-                      <a-collapse ghost>
+                      <div class="artifact-row-meta"><a-tag :color="artifactStatusColor(item.status)">{{ item.reportKind === 'mcp' ? t('mcpScan.unverified') : artifactStatusLabel(item.status) }}</a-tag></div>
+                      <template v-if="item.reportKind === 'mcp'">
+                        <p class="source-text">{{ item.description }}</p>
+                        <div v-if="item.suggestion"><strong>{{ t('mcpScan.remediation') }}</strong><p class="source-text">{{ item.suggestion }}</p></div>
+                      </template>
+                      <a-collapse v-else ghost>
                         <a-collapse-panel key="source" :header="t('agentSecurityScans.detail.caseDetails')">
                           <dl class="case-detail-grid">
                             <template v-if="item.originalInput && item.originalInput !== item.input"><dt>{{ t('agentSecurityScans.detail.originalPrompt') }}</dt><dd class="source-text">{{ item.originalInput }}</dd></template>
@@ -1064,11 +1085,13 @@
 </template>
 
 <script setup>
+import { can as hasAccess } from '../access'
 import { createRequestId } from '../utils/requestId'
 import { nextTick, computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { DownloadOutlined, InfoCircleOutlined, PlusOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { useI18n } from 'vue-i18n'
+import { localizeApiError } from '../i18n/errors.js'
 import { useRoute, useRouter } from 'vue-router'
 
 import { agenticRiskLabel } from '../agenticRiskTaxonomy'
@@ -1076,6 +1099,9 @@ import { normalizeFindingTraceability } from '../securityFindingTraceability'
 import { comparisonCandidates, mergeLlmConfigFromForm, normalizeLlmConfigForForm, selectCompatiblePolicyId } from '../securityScanWorkflow'
 import { parseRedteamArtifact, projectScanCases, promptTransformationLabel, summarizeCaseCoverage, summarizeRedteamRows } from '../securityScanReport'
 import DifyAssetInventory from './components/DifyAssetInventory.vue'
+import McpScanOptions from '../components/McpScanOptions.vue'
+import McpSourceInput from '../components/McpSourceInput.vue'
+import McpCallEvidence from '../components/McpCallEvidence.vue'
 import RedteamDatasetPicker from './components/RedteamDatasetPicker.vue'
 import FindingEvidence from './components/FindingEvidence.vue'
 import TargetGovernance from './components/TargetGovernance.vue'
@@ -1092,6 +1118,8 @@ import {
   exportSecurityScanReportPdf,
   testSecurityTargetConnectivity,
   createSecurityTask,
+  retrySecurityTask,
+  downloadSecurityDiagnostics,
   getDifyMcpBindingOptions,
   getMe,
   getSecurityArtifactContent,
@@ -1140,6 +1168,8 @@ const refreshing = ref(false)
 const loadError = ref('')
 const activeStage = computed(() => {
   const stage = routeValue(route.query.stage)
+  if (stage === 'targets' && !hasAccess('targets:view')) return 'tasks'
+  if (stage === 'schedules' && !hasAccess('schedules:view')) return 'tasks'
   if (['targets', 'policies', 'tasks', 'schedules', 'findings', 'reports'].includes(stage)) return stage
   return routeValue(route.query.finding_id) ? 'findings' : 'tasks'
 })
@@ -1166,7 +1196,7 @@ const findingsLoading = ref(false)
 const assetTypes = ['agent', 'mcp', 'llm', 'ai_infrastructure']
 const connectorTypesByAsset = {
   agent: ['dify', 'coze', 'openai_compatible', 'custom_http', 'websocket'],
-  mcp: ['mcp_gateway'],
+  mcp: ['mcp_gateway', 'mcp_source'],
   llm: ['openai_compatible'],
   ai_infrastructure: ['network_endpoint'],
 }
@@ -1186,9 +1216,10 @@ const redteamOptionsLoading = ref(false)
 const llmTechniques = ['Raw', 'BaseEncoding', 'Leetspeak', 'PromptInjection', 'Roleplay', 'ROTEncoding', 'SystemOverride']
 const tablePagination = { pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'] }
 
-const canAdmin = computed(() => ['admin', 'super_admin'].includes(currentUser.value?.role))
+const canAdmin = computed(() => ['targets:create', 'targets:update', 'scans:create', 'scans:update', 'scans:execute', 'scans:approve', 'scans:stop'].some(hasAccess))
 const intentInferenceModels = computed(() => modelEndpoints.value.filter(item => item.enabled))
-const canViewRaw = computed(() => ['admin', 'super_admin', 'security_auditor'].includes(currentUser.value?.role))
+const canViewRaw = computed(() => hasAccess('scans:raw'))
+const canCollectPrivateContent = computed(() => hasAccess('scans:execute') && ['admin', 'super_admin'].includes(currentUser.value?.role))
 const activeTargets = computed(() => targets.value.filter(item => item.status === 'active'))
 const enabledPolicies = computed(() => policies.value.filter(item => item.enabled))
 const policyCompatibleWithTarget = (policy, target) => policy.environment === target?.environment && (policy.allowed_capabilities || []).every(capability => (target.allowed_capabilities || []).includes(capability))
@@ -1218,7 +1249,7 @@ const stageItems = computed(() => [
   { key: 'schedules', label: t('scanSchedule.title'), description: t('scanSchedule.hint'), count: scheduleCount.value },
   { key: 'findings', label: t('agentSecurityScans.pipeline.findings'), description: t('agentSecurityScans.pipeline.findingsHint'), count: findingTotal.value },
   { key: 'reports', label: t('agentSecurityScans.pipeline.reports'), description: t('agentSecurityScans.pipeline.reportsHint'), count: reportTasks.value.length },
-])
+].filter(stage => hasAccess(stage.key === 'targets' ? 'targets:view' : stage.key === 'schedules' ? 'schedules:view' : 'scans:view')))
 
 const targetColumns = computed(() => [
   { title: t('agentSecurityScans.targets.name'), key: 'name', width: 160, ellipsis: true }, { title: t('scanSchedule.currentScore'), key: 'risk', width: 200 }, { title: t('scanSchedule.latestScan'), key: 'latest_scan', width: 190 }, { title: t('agentSecurityScans.targets.assetType'), key: 'target_type', width: 140 }, { title: t('agentSecurityScans.environment'), key: 'environment', width: 140 }, { title: t('agentSecurityScans.allowedCapabilities'), key: 'allowed_capabilities', width: 160 }, { title: t('agentSecurityScans.targets.endpoint'), key: 'endpoint_url', width: 200 }, { title: t('agentSecurityScans.status'), key: 'status', width: 100 }, { title: t('agentSecurityScans.targets.credential'), key: 'credential', width: 120, ellipsis: true }, { title: t('agentSecurityScans.updatedAt'), key: 'updated_at', width: 190 }, { title: t('agentSecurityScans.actions'), key: 'actions', width: 190, fixed: 'right' },
@@ -1227,7 +1258,14 @@ const policyColumns = computed(() => [
   { title: t('agentSecurityScans.policies.name'), key: 'name', width: 160, ellipsis: true }, { title: t('agentSecurityScans.environment'), key: 'environment', width: 175 }, { title: t('agentSecurityScans.policies.mode'), key: 'execution_mode', width: 140 }, { title: t('agentSecurityScans.allowedCapabilities'), key: 'allowed_capabilities', width: 120 }, { title: t('agentSecurityScans.policies.budget'), key: 'budget', width: 220 }, { title: t('agentSecurityScans.policies.network'), key: 'network', width: 250 }, { title: t('agentSecurityScans.status'), key: 'enabled', width: 110 }, { title: t('agentSecurityScans.actions'), key: 'actions', width: 160, fixed: 'right' },
 ])
 const taskColumns = computed(() => [
-  { title: t('agentSecurityScans.detail.task'), key: 'task_id', width: 160, ellipsis: true }, { title: t('agentSecurityScans.tasks.target'), key: 'target_id', width: 170 }, { title: t('agentSecurityScans.tasks.kind'), key: 'scan_kind', width: 210 }, { title: t('agentSecurityScans.status'), key: 'status', width: 120 }, { title: t('agentSecurityScans.tasks.usage'), key: 'progress', width: 150 }, { title: t('agentSecurityScans.createdAt'), key: 'created_at', width: 180 }, { title: t('agentSecurityScans.actions'), key: 'actions', width: 240, fixed: 'right' },
+  { title: t('agentSecurityScans.detail.task'), key: 'task_id', width: '15%', ellipsis: true },
+  { title: t('agentSecurityScans.tasks.target'), key: 'target_id', width: '11%', ellipsis: true },
+  { title: t('agentSecurityScans.tasks.kind'), key: 'scan_kind', width: '14%' },
+  { title: t('agentSecurityScans.scope.evaluator'), key: 'evaluation_model', width: '14%', ellipsis: true },
+  { title: t('agentSecurityScans.status'), key: 'status', width: '8%' },
+  { title: t('agentSecurityScans.tasks.usage'), key: 'progress', width: '13%' },
+  { title: t('agentSecurityScans.createdAt'), key: 'created_at', width: '14%' },
+  { title: t('agentSecurityScans.actions'), key: 'actions', width: '11%' },
 ])
 const findingColumns = computed(() => [
   { title: t('agentSecurityScans.findings.scan'), key: 'scan', width: 280 },
@@ -1306,15 +1344,32 @@ const governance = ref(null), schedulesPanel = ref(null), scheduleCount = ref(0)
 const executionMode = ref('now'), editingSchedule = ref(null), scheduleName = ref(''), scheduleKey = ref(''), runImmediately = ref(false), timingValid = ref(false)
 const scanTiming = ref({ kind: 'daily', timezone: 'Asia/Shanghai', interval_minutes: 360, time: '02:00', weekday: 1, cron: '0 2 * * *' })
 async function openOriginSchedule(id) { detailDrawerOpen.value = false; await selectStage('schedules'); await nextTick(); await schedulesPanel.value?.open(id) }
-async function editSchedule(row) { await openTaskModal(); editingSchedule.value = row; executionMode.value = 'scheduled'; scheduleName.value = row.name; scanTiming.value = { ...row.timing }; Object.assign(taskForm, row.task); taskForm.llm_input_mode = row.task.datasets?.length ? 'dataset' : 'prompt'; taskPreview.value = null }
+async function editSchedule(row) {
+  await openTaskModal()
+  editingSchedule.value = row; executionMode.value = 'scheduled'; scheduleName.value = row.name
+  scanTiming.value = { ...row.timing }
+  Object.assign(taskForm, row.task)
+  mcpForm.value = Object.fromEntries(Object.entries(emptyMcpOptions()).map(([key, value]) => [key, row.task[key] ?? value]))
+  taskForm.llm_input_mode = row.task.datasets?.length ? 'dataset' : 'prompt'
+  taskPreview.value = null
+}
 async function saveSchedule() {
   if (submittingTask.value || !timingValid.value || !scheduleName.value.trim()) return
   submittingTask.value = true
   try { const body = { name: scheduleName.value.trim(), timing: scanTiming.value, task: taskPlanPayload(), enabled: editingSchedule.value?.enabled ?? true }; if (editingSchedule.value) await updateScanSchedule(editingSchedule.value.schedule_id, { ...body, version: editingSchedule.value.version }); else await createScanSchedule({ ...body, run_immediately: runImmediately.value, idempotency_key: scheduleKey.value }); taskModalOpen.value = false; await selectStage('schedules'); await nextTick(); await schedulesPanel.value?.load(); message.success(t('scanSchedule.saved')) } catch(e) { message.error(errorText(e)) } finally { submittingTask.value = false }
 }
-async function loadTargetRisks() { try { const map = {}; let offset = 0; while (true) { const data = await listManagedAgentRisks({ limit: 200, offset }); for (const x of data.items) map[x.target_id] = x.risk; offset += data.items.length; if (!data.items.length || offset >= data.total) break }; targetRisks.value = map } catch(e) { message.error(errorText(e)) } }
+async function loadTargetRisks() { if (!hasAccess('targets:view')) { targetRisks.value = {}; return }; try { const map = {}; let offset = 0; while (true) { const data = await listManagedAgentRisks({ limit: 200, offset }); for (const x of data.items) map[x.target_id] = x.risk; offset += data.items.length; if (!data.items.length || offset >= data.total) break }; targetRisks.value = map } catch(e) { message.error(errorText(e)) } }
 const taskForm = reactive({ target_id: undefined, policy_id: undefined, approval_id: undefined, scan_kind: 'control_plane_validation', skills: [], prompt: '', conversation_mode: 'single_turn', continue_from_task_id: undefined, llm_input_mode: 'dataset', datasets: ['JailBench-Tiny'], num_prompts: 10, random_seed: 42, techniques: ['Raw'], evaluation_model: undefined, http_authorized: false, private_network_authorized: false, scan_timeout_seconds: 30, scan_concurrency: 2, inventory_source: 'console_api', manual_dsl: '', include_prompt_text: false, infer_agent_intent: false, intent_inference_model: undefined, knowledge_content_authorized: false, max_knowledge_documents: 100, max_knowledge_segments: 1000, max_knowledge_bytes: 10485760 })
-const evaluatorSelectionMissing = computed(() => ['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind) && (redteamOptionsLoading.value || !taskForm.evaluation_model))
+const emptyMcpOptions = () => ({ mcp_mode: 'metadata', mcp_depth: 'full', mcp_source_id: null, mcp_tools: [], mcp_call_limit: 20, mcp_route: 'gateway', mcp_strategy: 'crescendo', analysis_model: null, attack_model: null })
+const mcpForm = ref(emptyMcpOptions())
+const needsEvaluator = computed(() => ['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind) || (taskForm.scan_kind === 'mcp_risk_scan' && mcpForm.value.mcp_mode !== 'metadata'))
+const evaluatorSelectionMissing = computed(() => needsEvaluator.value && (redteamOptionsLoading.value || !taskForm.evaluation_model))
+const compressedMcpModels = computed(() => {
+  if (taskForm.scan_kind !== 'mcp_risk_scan' || mcpForm.value.mcp_mode === 'metadata') return []
+  const selected = new Set([taskForm.evaluation_model, mcpForm.value.analysis_model,
+    ...(mcpForm.value.mcp_mode === 'redteam' ? [mcpForm.value.attack_model] : [])])
+  return evaluationModels.value.filter(model => selected.has(model.name) && model.compression_enabled).map(model => model.name)
+})
 const killSwitchModalOpen = ref(false)
 const killSwitchTask = ref(null)
 const killSwitchReason = ref('')
@@ -1333,13 +1388,15 @@ const availableScanKinds = computed(() => {
 })
 const resumableTasks = computed(() => tasks.value.filter(item => item.target_id === taskForm.target_id && item.scan_kind === 'agent_risk_scan' && item.session_continuation_available))
 const taskSafetyMessage = computed(() => ({
-  mcp_risk_scan: t('agentSecurityScans.tasks.mcpSafety'),
+  mcp_risk_scan: t(mcpForm.value.mcp_mode === 'metadata' ? 'agentSecurityScans.tasks.mcpSafety' : 'mcpScan.boundary'),
   agent_risk_scan: t('agentSecurityScans.tasks.agentSafety'),
   llm_redteam_scan: t('agentSecurityScans.tasks.llmSafety'),
   ai_infrastructure_vulnerability_scan: t('agentSecurityScans.tasks.infrastructureSafety'),
   dify_asset_inventory: t('agentSecurityScans.inventory.taskSafety'),
 }[taskForm.scan_kind] || t('agentSecurityScans.tasks.controlSafety')))
 const previewCaseLabel = item => {
+  if (item.category === 'mcp_source') return t('mcpScan.source')
+  if (item.dynamic && String(item.case_key).startsWith('mcp_tool:')) return t('mcpScan.toolCase', { value: String(item.case_key).slice(9) })
   const key = `agentSecurityScans.tasks.previewCases.${item.case_key}`
   if (te(key)) return t(key)
   if (String(item.case_key).startsWith('mcp_tool:')) return t('agentSecurityScans.tasks.mcpToolCase', { value: String(item.case_key).slice(9) })
@@ -1543,7 +1600,7 @@ const taskReasonLabel = value => {
 }
 const taskErrorExplanation = task => {
   const key = taskReasonKeys[task.error_code]
-  return key ? t(`agentSecurityScans.detail.reasons.${key}`) : task.error_message || '—'
+  return key ? t(`agentSecurityScans.detail.reasons.${key}`) : localizeApiError({ code: task.error_code, message: task.error_message }, locale.value) || '—'
 }
 const findingTitle = finding => {
   if (finding?.finding_code === 'llm_redteam.jailbreak_signal') return t('agentSecurityScans.detail.findingTitles.jailbreakSignal')
@@ -1556,6 +1613,8 @@ const findingDescription = finding => {
 }
 const caseHasDetails = item => Boolean(item?.request_summary?.prompt || item?.response_summary?.response || item?.response_summary?.evaluator_reason)
 const caseTitle = item => {
+  if (item?.external_case_id === 'mcp-aig' || ['mcp_source', 'mcp_dynamic', 'mcp_redteam'].includes(item?.category)) return t('mcpScan.report')
+  if (String(item?.case_id).startsWith('progress:mcp-stage-')) return t('mcpScan.stage', { value: item.case_id.slice('progress:mcp-stage-'.length) })
   if (item?.category !== 'llm_redteam_prompt') return item?.title || t('agentSecurityScans.detail.case')
   const match = String(item?.external_case_id || '').match(/:(\d+)$/)
   const number = match ? match[1] : (taskDetail.value?.cases.indexOf(item) ?? -1) + 1
@@ -1564,7 +1623,7 @@ const caseTitle = item => {
 const artifactStatusLabel = value => ({ Safe: t('agentSecurityScans.detail.artifactStatuses.safe'), Jailbreak: t('agentSecurityScans.detail.artifactStatuses.jailbreak'), Exception: t('agentSecurityScans.detail.artifactStatuses.exception'), SimulationFailed: t('agentSecurityScans.detail.artifactStatuses.simulationFailed') }[value] || value || '—')
 const artifactStatusColor = value => ({ Safe: 'green', Jailbreak: 'red', Exception: 'orange', SimulationFailed: 'default' }[value] || 'default')
 const artifactRowTitle = item => `${t('agentSecurityScans.detail.artifactCase')} #${item._index} · ${item.vulnerability || '—'}`
-const artifactTitle = item => t(`agentSecurityScans.detail.artifactTypes.${item.artifact_type}`, item.artifact_type || t('agentSecurityScans.detail.artifact'))
+const artifactTitle = item => item.artifact_type === 'mcp-aig-report' ? t('mcpScan.report') : item.artifact_type === 'mcp-sarif-report' ? t('mcpScan.sarif') : t(`agentSecurityScans.detail.artifactTypes.${item.artifact_type}`, item.artifact_type || t('agentSecurityScans.detail.artifact'))
 const artifactSummary = item => {
   const metadata = item.metadata || {}
   const parts = []
@@ -1577,13 +1636,15 @@ const artifactSummary = item => {
 const targetName = id => targets.value.find(item => item.target_id === id)?.name || id
 const policyName = id => policies.value.find(item => item.policy_id === id)?.name || id
 const targetTypeLabel = (value) => {
+  if (value === 'mcp_source') return t('mcpScan.sourceTarget')
   const key = `agentSecurityScans.targets.targetTypes.${value}`
   return te(key) ? t(key) : value
 }
 const assetTypeLabel = value => t(`agentSecurityScans.targets.assetTypes.${value}`, value)
-const connectorTypeLabel = value => t(`agentSecurityScans.targets.connectorTypes.${value}`, value)
+const connectorTypeLabel = value => value === 'mcp_source' ? t('mcpScan.sourceTarget') : t(`agentSecurityScans.targets.connectorTypes.${value}`, value)
 const shortId = value => value ? `${String(value).slice(0, 12)}…` : '—'
 const engineDisplayNames = {
+  'ai-infra-guard-mcp-scan': 'mcpScan.engine',
   'agent-manager-dify-inventory': 'agentSecurityScans.engines.difyInventory',
   'tencent-ai-infra-guard-model-redteam': 'agentSecurityScans.engines.llmRedteam',
   'tencent-ai-infra-guard-agent-scan': 'agentSecurityScans.engines.agentRisk',
@@ -1597,12 +1658,12 @@ const targetCredentialLabel = record => record.target_type === 'mcp_gateway'
   : record.credential_configured
     ? record.credential_masked
     : t('agentSecurityScans.targets.notConfigured')
-const scanKindLabel = value => t(`agentSecurityScans.scanKinds.${value}`)
+const scanKindLabel = value => value === 'mcp_risk_scan' ? t('mcpScan.title') : t(`agentSecurityScans.scanKinds.${value}`)
 const statusLabel = value => t(`agentSecurityScans.statuses.${value}`, value)
 const caseLegacyStatusLabel = value => t(`agentSecurityScans.detail.caseLegacyStatuses.${value}`, value)
-const caseExecutionLabel = value => t(`agentSecurityScans.detail.caseExecutionStatuses.${value}`, value)
+const caseExecutionLabel = value => value ? t(`agentSecurityScans.detail.caseExecutionStatuses.${value}`, value) : '—'
 const caseAssessmentLabel = value => t(`agentSecurityScans.detail.caseAssessmentStatuses.${value}`, value)
-const scanModeLabel = value => t(`agentSecurityScans.detail.scanModes.${value}`, value || '—')
+const scanModeLabel = value => ['source', 'dynamic', 'redteam'].includes(value) ? t(`mcpScan.${value}`) : t(`agentSecurityScans.detail.scanModes.${value}`, value || '—')
 const severityLabel = value => t(`agentSecurityScans.severities.${value}`, value)
 const findingStatusLabel = value => t(`agentSecurityScans.findingStatuses.${value}`, value)
 const executionModeLabel = value => t(`agentSecurityScans.executionModes.${value}`, value)
@@ -1618,7 +1679,13 @@ const caseExecutionColor = value => ({ completed: 'green', error: 'red', blocked
 const caseAssessmentColor = value => ({ no_risk_observed: 'green', risk_signal_detected: 'orange', false_positive: 'default', risk_accepted: 'gold', resolved: 'blue', unverified: 'default' }[value] || 'default')
 
 const loadCoreData = async () => {
-  const [targetRows, policyRows, taskRows, approvalRows, scheduleRows] = await Promise.all([listSecurityTargets(), listSecurityPolicies(), listSecurityTasks({ limit: 500 }), listSecurityScanApprovals({ limit: 500 }), listScanSchedules()])
+  const [targetRows, policyRows, taskRows, approvalRows, scheduleRows] = await Promise.all([
+    hasAccess('targets:view') ? listSecurityTargets() : [],
+    hasAccess('scans:view') ? listSecurityPolicies() : [],
+    hasAccess('scans:view') ? listSecurityTasks({ limit: 500 }) : [],
+    hasAccess('scans:view') ? listSecurityScanApprovals({ limit: 500 }) : [],
+    hasAccess('schedules:view') ? listScanSchedules() : [],
+  ])
   targets.value = targetRows
   policies.value = policyRows
   tasks.value = taskRows
@@ -1688,6 +1755,7 @@ const openTargetModal = record => {
   loadDifyMcpBindings(record)
 }
 const handleAssetTypeChange = () => { targetForm.connector_type = connectorTypesByAsset[targetForm.asset_type][0]; handleConnectorTypeChange() }
+const setTargetSource = source => { targetForm.endpoint_url = `mcp-source://${source.source_id}`; targetForm.config_json = JSON.stringify({ source_id: source.source_id }) }
 const handleConnectorTypeChange = () => { targetForm.endpoint_url = ''; targetForm.gateway_id = undefined; targetForm.llm_model = ''; targetForm.llm_chat_completions_path = '/v1/chat/completions'; targetForm.llm_timeout_ms = 30000; targetForm.config_json = '{}'; Object.assign(targetForm, emptyDifyTargetFields()) }
 const handleGatewayChange = id => { const gateway = mcpGateways.value.find(item => item.id === id); targetForm.endpoint_url = gateway ? `mcp-gateway://${gateway.slug}` : '' }
 const saveTarget = async () => {
@@ -1720,7 +1788,7 @@ const saveTarget = async () => {
   const payload = { name: targetForm.name.trim(), asset_type: targetForm.asset_type, connector_type: targetForm.connector_type, environment: targetForm.environment, allowed_capabilities: [...targetForm.allowed_capabilities], endpoint_url: targetForm.endpoint_url.trim(), allowed_cidrs: splitList(targetForm.allowed_cidrs), allow_insecure_transport: Boolean(targetForm.allow_insecure_transport), config }
   submittingTarget.value = true
   try {
-    if (targetForm.connector_type !== 'mcp_gateway' && !connectivityResult.value) {
+    if (!['mcp_gateway', 'mcp_source'].includes(targetForm.connector_type) && !connectivityResult.value) {
       const confirmed = await new Promise(resolve => {
         Modal.confirm({
           title: t('agentSecurityScans.targets.connectivityUntestedTitle'),
@@ -1785,6 +1853,7 @@ const togglePolicy = async record => { try { await updateSecurityPolicy(record.p
 
 const resetTaskOptions = () => Object.assign(taskForm, { skills: [], prompt: '', conversation_mode: 'single_turn', continue_from_task_id: undefined, llm_input_mode: 'dataset', datasets: ['JailBench-Tiny'], num_prompts: 10, random_seed: 42, techniques: ['Raw'], evaluation_model: undefined, http_authorized: false, private_network_authorized: false, scan_timeout_seconds: 30, scan_concurrency: 2, inventory_source: 'console_api', manual_dsl: '', include_prompt_text: false, infer_agent_intent: false, intent_inference_model: undefined, knowledge_content_authorized: false, max_knowledge_documents: 100, max_knowledge_segments: 1000, max_knowledge_bytes: 10485760 })
 const openTaskModal = async () => {
+  mcpForm.value = emptyMcpOptions()
   executionMode.value = 'now'; editingSchedule.value = null; scheduleName.value = ''; scheduleKey.value = createRequestId(); runImmediately.value = false
   const target = activeTargets.value.find(item => enabledPolicies.value.some(policy => policyCompatibleWithTarget(policy, item)))
   const compatiblePolicies = enabledPolicies.value.filter(item => policyCompatibleWithTarget(item, target))
@@ -1816,13 +1885,19 @@ const approveProductionScan = async () => {
   } catch (error) { message.error(errorText(error)) } finally { submittingApproval.value = false }
 }
 const taskPlanPayload = () => ({
+  ...(taskForm.scan_kind === 'mcp_risk_scan' ? { ...mcpForm.value,
+    analysis_model: mcpForm.value.mcp_mode === 'metadata' ? null : mcpForm.value.analysis_model,
+    attack_model: mcpForm.value.mcp_mode === 'redteam' ? mcpForm.value.attack_model : null,
+    mcp_tools: ['dynamic', 'redteam'].includes(mcpForm.value.mcp_mode) ? mcpForm.value.mcp_tools : [],
+    mcp_source_id: mcpForm.value.mcp_mode === 'source' ? mcpForm.value.mcp_source_id : null,
+  } : {}),
   target_id: taskForm.target_id,
   policy_id: taskForm.policy_id,
   approval_id: requiresProductionApproval.value ? taskForm.approval_id : null,
   scan_kind: taskForm.scan_kind,
   language: locale.value === 'en-US' ? 'en' : 'zh',
   skills: taskForm.scan_kind === 'agent_risk_scan' ? taskForm.skills : [],
-  prompt: ['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind) ? taskForm.prompt : '',
+  prompt: needsEvaluator.value ? taskForm.prompt : '',
   conversation_mode: taskForm.scan_kind === 'agent_risk_scan' ? taskForm.conversation_mode : 'single_turn',
   continue_from_task_id: taskForm.scan_kind === 'agent_risk_scan' ? taskForm.continue_from_task_id || null : null,
   reset_session: !taskForm.continue_from_task_id,
@@ -1830,7 +1905,7 @@ const taskPlanPayload = () => ({
   num_prompts: taskForm.num_prompts,
   random_seed: taskForm.random_seed,
   techniques: taskForm.scan_kind === 'llm_redteam_scan' ? taskForm.techniques : [],
-  evaluation_model: ['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind) ? taskForm.evaluation_model || null : null,
+  evaluation_model: needsEvaluator.value ? taskForm.evaluation_model || null : null,
   http_authorized: taskForm.scan_kind === 'ai_infrastructure_vulnerability_scan' && taskForm.http_authorized,
   private_network_authorized: taskForm.scan_kind === 'ai_infrastructure_vulnerability_scan' && taskForm.private_network_authorized,
   scan_timeout_seconds: taskForm.scan_kind === 'ai_infrastructure_vulnerability_scan' ? taskForm.scan_timeout_seconds : null,
@@ -1848,7 +1923,7 @@ const taskPlanPayload = () => ({
 const loadTaskPreview = async () => {
   if (previewingTask.value || submittingTask.value) return
   if (!taskForm.target_id || !taskForm.policy_id) return message.warning(t('agentSecurityScans.requiredFields'))
-  if (['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind) && !taskForm.evaluation_model) return message.warning(t('agentSecurityScans.tasks.selectEvaluationModel'))
+  if (needsEvaluator.value && !taskForm.evaluation_model) return message.warning(t('agentSecurityScans.tasks.selectEvaluationModel'))
   if (taskForm.scan_kind === 'llm_redteam_scan' && taskForm.llm_input_mode === 'dataset' && !taskForm.datasets.length) return message.warning(t('agentSecurityScans.requiredFields'))
   if (taskForm.scan_kind === 'llm_redteam_scan' && taskForm.llm_input_mode === 'dataset' && taskForm.num_prompts !== -1 && (!Number.isInteger(taskForm.num_prompts) || taskForm.num_prompts < 1 || taskForm.num_prompts > 100)) return message.warning(t('agentSecurityScans.tasks.invalidSampleCount'))
   if (requiresProductionApproval.value && !taskForm.approval_id) return message.warning(t('agentSecurityScans.tasks.productionApprovalRequired'))
@@ -1879,7 +1954,35 @@ const saveTask = async () => {
     message.error(errorText(error))
   } finally { submittingTask.value = false }
 }
-const canCancel = record => currentUser.value?.role !== 'security_auditor' && ['pending', 'running'].includes(record.status)
+const canCancel = record => hasAccess('scans:cancel') && ['pending', 'running'].includes(record.status)
+const retryingTaskId = ref(null)
+const downloadingDiagnostics = ref(false)
+const downloadDiagnostics = async taskId => {
+  if (downloadingDiagnostics.value) return
+  downloadingDiagnostics.value = true
+  try {
+    const blob = await downloadSecurityDiagnostics(taskId)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `scan-${taskId}.json`
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (error) { message.error(errorText(error)) }
+  finally { downloadingDiagnostics.value = false }
+}
+const canRetry = record => hasAccess('scans:execute') && ['failed', 'timed_out'].includes(record.status)
+const retryTask = async record => {
+  if (retryingTaskId.value || !canRetry(record)) return
+  retryingTaskId.value = record.task_id
+  try {
+    const created = await retrySecurityTask(record.task_id)
+    await loadCoreData()
+    await openTaskDetail(created.task_id)
+    message.success(t(created.retry_reused ? 'scanTaskActions.retryReused' : 'scanTaskActions.retryCreated'))
+  } catch (error) { message.error(errorText(error)) }
+  finally { retryingTaskId.value = null }
+}
 const cancelTask = async record => { try { await cancelSecurityTask(record.task_id); await loadCoreData(); message.success(t('agentSecurityScans.tasks.cancelled')) } catch (error) { message.error(errorText(error)) } }
 const canKill = record => canAdmin.value && ['pending', 'running'].includes(record.status) && !record.kill_switch_activated
 const openKillSwitchModal = record => { killSwitchTask.value = record; killSwitchReason.value = ''; killSwitchModalOpen.value = true }
@@ -1968,7 +2071,7 @@ const openFindingFromRoute = async () => {
 const openDispositionModal = record => { dispositionFinding.value = record; Object.assign(dispositionForm, { status: record.status, comment: record.disposition_comment || '' }); dispositionModalOpen.value = true }
 const saveDisposition = async () => { if (submittingDisposition.value) return; submittingDisposition.value = true; try { await updateSecurityFinding(dispositionFinding.value.finding_id, { ...dispositionForm }); dispositionModalOpen.value = false; await loadFindings(findingPage.value); message.success(t('agentSecurityScans.saved')) } catch (error) { message.error(errorText(error)) } finally { submittingDisposition.value = false } }
 
-const openTaskDetail = async taskId => { detailDrawerOpen.value = true; taskDetailLoading.value = true; taskDetail.value = null; try { taskDetail.value = await getSecurityTask(taskId) } catch (error) { message.error(errorText(error)) } finally { taskDetailLoading.value = false } }
+const openTaskDetail = async taskId => { detailTab.value = 'summary'; detailDrawerOpen.value = true; taskDetailLoading.value = true; taskDetail.value = null; try { taskDetail.value = await getSecurityTask(taskId) } catch (error) { message.error(errorText(error)) } finally { taskDetailLoading.value = false } }
 const openComparison = async record => { comparisonTask.value = record; comparisonResult.value = null; comparisonBaselineId.value = undefined; comparisonModalOpen.value = true; if (comparisonBaselines.value.length) comparisonBaselineId.value = comparisonBaselines.value[0].task_id; await loadComparison() }
 let comparisonRequestId = 0
 const loadComparison = async () => {
@@ -2011,10 +2114,10 @@ const retryArtifact = () => { if (selectedArtifact.value) viewArtifact(selectedA
 onMounted(async () => {
   liveRefreshTimer = window.setInterval(refreshLiveScans, 3000)
   try {
-    const [userResult, gatewayResult] = await Promise.allSettled([getMe(), listMcpGateways()])
+    const [userResult, gatewayResult] = await Promise.allSettled([getMe(), hasAccess('mcp:view') ? listMcpGateways() : []])
     if (userResult.status === 'fulfilled') currentUser.value = userResult.value
     if (gatewayResult.status === 'fulfilled') mcpGateways.value = gatewayResult.value
-    if (canAdmin.value) {
+    if (hasAccess('models:view')) {
       try { modelEndpoints.value = await listModelEndpoints() } catch { modelEndpoints.value = [] }
     }
     await loadCoreData()
@@ -2042,6 +2145,7 @@ watch(() => caseProjection.value.rows.map(item => item.case_id), keys => {
   casePage.value = Math.min(casePage.value, Math.max(1, Math.ceil(keys.length / 10)))
 }, { flush: 'sync' })
 watch(() => JSON.stringify(taskPlanPayload()), () => { taskPreview.value = null })
+watch(() => taskForm.target_id, () => { mcpForm.value = { ...emptyMcpOptions(), mcp_mode: selectedTaskTarget.value?.connector_type === 'mcp_source' ? 'source' : 'metadata' } }, { flush: 'sync' })
 watch(executionMode, value => { if (value === 'scheduled') { taskForm.continue_from_task_id = undefined; taskForm.inventory_source = 'console_api'; taskPreview.value = null } })
 watch(activeStage, value => { if (value === 'targets') loadTargetRisks() })
 watch(() => route.query.schedule_id, async id => { if (id) { await nextTick(); await schedulesPanel.value?.open(String(id)) } })
@@ -2074,6 +2178,7 @@ watch(() => route.query.schedule_id, async id => { if (id) { await nextTick(); a
 @media (max-width: 640px) { .report-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .scan-page { width: 100%; min-width: 0; color: #172033; }
 .comparison-overview code, .comparison-overview p { overflow-wrap: anywhere; }
+.evaluation-model-name { overflow-wrap: anywhere; }
 .comparison-bucket :deep(.ant-list-item) { flex-wrap: wrap; gap: 8px; }
 .comparison-evidence { flex-basis: 100%; overflow-wrap: anywhere; font-size: 12px; }
 .comparison-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin: 16px 0; }
@@ -2133,6 +2238,11 @@ watch(() => route.query.schedule_id, async id => { if (id) { await nextTick(); a
 @media (max-width: 640px) { .credential-inventory > div { grid-template-columns: minmax(0, 1fr) auto; }.credential-inventory code { grid-column: 1 / -1; grid-row: 2; } }
 .manual-dsl { margin-top: 12px; }
 .budget-stack, .usage-cell { display: grid; gap: 2px; color: #51647c; font-size: 12px; }
+.scan-task-table :deep(.ant-table-cell) { padding: 12px 10px; overflow-wrap: anywhere; }
+.scan-task-table :deep(.ant-tag) { max-width: 100%; margin-inline-end: 0; white-space: normal; }
+.scan-task-table :deep(.ant-space), .scan-task-table :deep(.ant-space-item) { max-width: 100%; min-width: 0; }
+.scan-task-table :deep(.ant-btn) { max-width: 100%; height: auto; white-space: normal; }
+.scan-task-table .usage-cell { min-width: 0; }
 .case-list :deep(.ant-list-item) { align-items: flex-start; gap: 14px; }
 .case-list :deep(.ant-list-item-meta) { min-width: 0; }
 .case-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: #20324a; }
@@ -2177,6 +2287,9 @@ watch(() => route.query.schedule_id, async id => { if (id) { await nextTick(); a
 .approval-select { min-width: 0; flex: 1 1 auto; }
 .field-help-error { margin-top: 6px; color: #cf1322; font-size: 12px; }
 .modal-alert { margin-bottom: 16px; }
+.diagnostics-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; margin: 0 0 20px; }
+.diagnostics-actions > .ant-btn { flex-shrink: 0; }
+.diagnostics-actions > .muted { flex: 1 1 320px; min-width: 0; line-height: 1.6; overflow-wrap: anywhere; }
 .kill-switch-form { margin-top: 16px; }
 .task-preview { margin-top: 18px; padding: 16px; border: 1px solid #dbe5f1; border-radius: 10px; background: #f8fbff; }
 .preview-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 14px; }

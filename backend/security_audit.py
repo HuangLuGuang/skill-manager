@@ -149,13 +149,16 @@ def verify_security_audit(*, bind: Engine = engine) -> dict:
             """
         ).mappings().all()
     for row in rows:
-        details = json.loads(row["details_json"] or "{}")
-        stored_timestamp = row["timestamp"]
-        normalized_timestamp = (
-            stored_timestamp.isoformat(timespec="microseconds")
-            if isinstance(stored_timestamp, datetime)
-            else datetime.fromisoformat(str(stored_timestamp)).isoformat(timespec="microseconds")
-        )
+        try:
+            details = json.loads(row["details_json"] or "{}")
+            stored_timestamp = row["timestamp"]
+            normalized_timestamp = (
+                stored_timestamp.isoformat(timespec="microseconds")
+                if isinstance(stored_timestamp, datetime)
+                else datetime.fromisoformat(str(stored_timestamp)).isoformat(timespec="microseconds")
+            )
+        except (ValueError, TypeError):
+            return {"valid": False, "checked": checked, "broken_event_id": row["event_id"], "reason": "record_invalid"}
         payload = {
             "event_id": row["event_id"],
             "timestamp": normalized_timestamp,

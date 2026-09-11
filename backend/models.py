@@ -20,6 +20,7 @@ from .scan_schedule_models import (  # noqa: F401
     SecurityTaskTrigger,
 )
 from .sqlite_db import Base
+from .iam_models import ManagementAudit, Menu, Permission, Role, RolePermission  # noqa: F401
 
 
 class User(Base):
@@ -835,6 +836,7 @@ class LoginLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(64), index=True, nullable=False)
     ip_address = Column(String(128), nullable=False)
+    request_id = Column(String(64), default="", nullable=False)
     status = Column(String(32), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -1187,3 +1189,21 @@ class SecurityScanWorker(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     revoked_at = Column(DateTime, nullable=True)
     revoked_by = Column(String(128), nullable=True)
+
+
+class SecurityMcpScanSession(Base):
+    __tablename__ = "security_mcp_scan_sessions"
+    task_id = Column(String(64), ForeignKey("security_scan_tasks.task_id"), primary_key=True)
+    token_id = Column(Integer, ForeignKey("access_tokens.id"), nullable=False)
+
+
+class SecurityMcpScanCall(Base):
+    __tablename__ = "security_mcp_scan_calls"
+    call_id = Column(String(64), primary_key=True)
+    task_id = Column(String(64), ForeignKey("security_scan_tasks.task_id"), index=True, nullable=False)
+    tool_name = Column(String(384), nullable=False)
+    schema_hash = Column(String(128), nullable=False)
+    route = Column(String(32), nullable=False)
+    status = Column(String(32), nullable=False)
+    evidence_encrypted = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

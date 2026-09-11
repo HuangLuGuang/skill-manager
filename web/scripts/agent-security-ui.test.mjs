@@ -6,6 +6,26 @@ import { normalizeFindingTraceability } from '../src/securityFindingTraceability
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8')
 
+test('retry opens the returned task and ignores a second click while submitting', async () => {
+  const view = await read('../src/views/AgentSecurityScans.vue')
+  const body = view.match(/const retryTask = async record => \{([\s\S]*?)\n\}/)[1]
+  const retryingTaskId = { value: null }
+  let resolveRequest
+  let calls = 0
+  const opened = []
+  const retryTask = new Function('retryingTaskId', 'canRetry', 'retrySecurityTask', 'loadCoreData', 'openTaskDetail', 'message', 't', 'errorText',
+    `return async record => {${body}}`)(retryingTaskId, () => true,
+    () => { calls++; return new Promise(resolve => { resolveRequest = resolve }) },
+    async () => {}, async id => opened.push(id), { success() {}, error(error) { throw error } }, key => key, error => error)
+  const pending = retryTask({ task_id: 'original' })
+  await retryTask({ task_id: 'original' })
+  assert.equal(calls, 1)
+  resolveRequest({ task_id: 'retried' })
+  await pending
+  assert.deepEqual(opened, ['retried'])
+  assert.equal(retryingTaskId.value, null)
+})
+
 test('P5 scan workbench exposes every lifecycle stage through a protected route', async () => {
   const [view, router, navigation] = await Promise.all([
     read('../src/views/AgentSecurityScans.vue'),
@@ -152,7 +172,7 @@ test('scan workbench bounds leading columns and long credential masks', async ()
 
   assert.match(view, /targets\.name'\), key: 'name', width: 160, ellipsis: true/)
   assert.match(view, /policies\.name'\), key: 'name', width: 160, ellipsis: true/)
-  assert.match(view, /detail\.task'\), key: 'task_id', width: 160, ellipsis: true/)
+  assert.match(view, /detail\.task'\), key: 'task_id', width: '15%', ellipsis: true/)
   const credentialWidth = view.match(/key: 'credential', width: (\d+), ellipsis: true/)
   assert.ok(credentialWidth && Number(credentialWidth[1]) >= 100 && Number(credentialWidth[1]) <= 180)
   assert.match(view, /:title="targetCredentialLabel\(record\)"/)
@@ -500,7 +520,8 @@ test('Dify inventory exposes structured collection controls, evidence filters, a
   assert.match(view, /taskForm\.infer_agent_intent/)
   assert.match(view, /taskForm\.intent_inference_model/)
   assert.match(view, /listModelEndpoints/)
-  assert.match(view, /:disabled="!canAdmin"/)
+  assert.match(view, /v-model:checked="taskForm\.include_prompt_text" :disabled="!canCollectPrivateContent"/)
+  assert.match(view, /v-model:checked="taskForm\.infer_agent_intent" :disabled="!canCollectPrivateContent"/)
   assert.match(view, /taskForm\.knowledge_content_authorized/)
   assert.match(api, /\/tasks\/\$\{taskId\}\/inventory/)
   assert.match(api, /\/inventory\/compare/)

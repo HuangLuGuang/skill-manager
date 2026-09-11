@@ -47,8 +47,7 @@ export const navigationItems = [
     label: '模型网关',
     icon: 'api',
     children: [
-      { key: '/model-gateway/providers', label: '供应商管理', icon: 'api' },
-      { key: '/model-gateway/models', label: '模型管理', icon: 'deployment' },
+      { key: '/model-gateway/providers', label: 'modelGateway.catalog.title', icon: 'api' },
       { key: '/model-gateway/policy-bindings', label: '组策略绑定', icon: 'team' },
       { key: '/model-gateway/policies', label: '隐私策略', icon: 'setting' },
       { key: '/model-gateway/prompt-guard', label: 'Prompt 防护测试', icon: 'safety' },

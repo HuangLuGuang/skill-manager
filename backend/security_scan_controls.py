@@ -92,11 +92,12 @@ SECURITY_CONNECTOR_TYPES = (
     "websocket",
     "mcp_gateway",
     "mcp_streamable_http",
+    "mcp_source",
     "network_endpoint",
 )
 ASSET_CONNECTOR_TYPES = {
     "agent": {"dify", "coze", "openai_compatible", "custom_http", "websocket"},
-    "mcp": {"mcp_gateway", "mcp_streamable_http"},
+    "mcp": {"mcp_gateway", "mcp_streamable_http", "mcp_source"},
     "llm": {"openai_compatible"},
     "ai_infrastructure": {"network_endpoint"},
 }
@@ -277,7 +278,7 @@ def validate_asset_connector(asset_type: str, connector_type: str) -> tuple[str,
 
 def legacy_target_type_for(asset_type: str, connector_type: str) -> str:
     asset, connector = validate_asset_connector(asset_type, connector_type)
-    if connector in {"dify", "coze", "websocket", "mcp_gateway"}:
+    if connector in {"dify", "coze", "websocket", "mcp_gateway", "mcp_source"}:
         return connector
     if connector == "custom_http":
         return "http"
@@ -886,6 +887,10 @@ def validate_infrastructure_target_config(config: dict[str, Any]) -> dict[str, A
 
 
 def validate_target_type_scheme(target_type: str, endpoint_url: str) -> None:
+    if target_type == "mcp_source":
+        if not endpoint_url.startswith("mcp-source://"):
+            raise ApiError(422, "mcp_scan.source_invalid", "源码目标地址无效", "Invalid source target URL")
+        return
     scheme = urlsplit(endpoint_url).scheme.lower()
     if target_type == MCP_GATEWAY_TARGET_TYPE:
         expected = {"mcp-gateway"}

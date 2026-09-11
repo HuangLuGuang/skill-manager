@@ -41,7 +41,7 @@ def build_security_scan_pdf(detail: dict[str, Any], *, language: str = "zh-CN") 
         ("agent_risk_scan", "智能体安全评估", "Agent Security Assessment"),
         ("mcp_risk_scan", "MCP 安全评估", "MCP Security Assessment"),
         ("dify_asset_inventory", "Dify 资产评估", "Dify Asset Assessment"),
-        ("control_plane_validation", "控制面验证", "Control-Plane Validation"),
+        ("control_plane_validation", "扫描链路自检", "Scan Pipeline Self-Check"),
     ]}
     layout._register_fonts()
     styles = layout._styles(language)

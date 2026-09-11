@@ -4,7 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from .. import auth, models
+from .. import auth, iam, models
 from ..api_errors import ApiError
 from ..asset_lifecycle_schemas import RunCreate
 from ..feature_flags import require_agent_security_scanning
@@ -93,8 +93,9 @@ def preview_timing(body: ScanTiming, user=Depends(auth.get_current_active_user))
 
 @router.get("/scan-schedules")
 def list_schedules(db: Session = Depends(get_db), user=Depends(auth.get_current_active_user)):
+    include_task = "schedules:update" in iam.permission_codes(db, user)
     return [
-        payload(db, row, include_task=user.role in {"admin", "super_admin"})
+        payload(db, row, include_task=include_task)
         for row in db.query(Schedule).filter(Schedule.deleted_at.is_(None)).order_by(Schedule.created_at.desc())
         if scans._can_access_target(db, user, scans._target_or_404(db, row.target_id))
     ]

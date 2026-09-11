@@ -65,7 +65,7 @@
         <a-input v-model:value="filters.q" :placeholder="$t('legacy.1kyry2m')" style="width: 240px" allow-clear @pressEnter="fetchAgents" />
         <a-button type="primary" @click="fetchAgents" :loading="loading">{{ $t("legacy.16mfmhy") }}</a-button>
         <a-button @click="resetFilters" :disabled="loading">{{ $t("legacy.1wq9feq") }}</a-button>
-        <a-button type="primary" @click="openAgent()">{{ $t("legacy.1krdxw3") }}</a-button>
+        <a-button v-if="hasAccess('agents:create')" type="primary" @click="openAgent()">{{ $t("legacy.1krdxw3") }}</a-button>
       </a-space>
 
       <a-table :data-source="agents" :columns="columns" rowKey="id" :loading="loading" :pagination="{ pageSize: 10 }">
@@ -94,8 +94,8 @@
           </template>
           <template v-else-if="column.key === 'actions'">
             <a-space>
-              <a @click="openAgent(record)">{{ $t("legacy.qreyeg") }}</a>
-              <a-popconfirm :title="$t('legacy.17y5gsa')" @confirm="handleDelete(record)">
+              <a v-if="hasAccess('agents:update')" @click="openAgent(record)">{{ $t("legacy.qreyeg") }}</a>
+              <a-popconfirm v-if="hasAccess('agents:delete')" :title="$t('legacy.17y5gsa')" @confirm="handleDelete(record)">
                 <a danger>{{ $t("legacy.1t2vi4h") }}</a>
               </a-popconfirm>
             </a-space>
@@ -258,6 +258,7 @@
 </template>
 
 <script setup>
+import { can as hasAccess } from '../access'
 import { translateLegacy as phrase } from '../i18n'
 
 import { computed, onMounted, reactive, ref } from 'vue'
@@ -425,12 +426,12 @@ const fetchAgents = async () => {
 
 const loadOptions = async () => {
   const [groupRes, userRes, modelRes, skillRes, tokenRes, auditRes] = await Promise.all([
-    listGroups(),
-    listManagedUsers(),
-    listModelEndpoints(),
-    listSkills({ status: 'APPROVED,DEPLOYED' }),
-    listAccessTokens({ token_type: 'agent_runtime' }),
-    getAudit({ since_hours: 168, limit: 300 }),
+    hasAccess('groups:view') ? listGroups() : [],
+    hasAccess('users:view') ? listManagedUsers() : [],
+    hasAccess('models:view') ? listModelEndpoints() : [],
+    hasAccess('skills:view') ? listSkills({ status: 'APPROVED,DEPLOYED' }) : [],
+    hasAccess('credentials:view') ? listAccessTokens({ token_type: 'agent_runtime' }) : { items: [] },
+    hasAccess('skills:view') ? getAudit({ since_hours: 168, limit: 300 }) : [],
   ])
   groups.value = groupRes
   users.value = userRes

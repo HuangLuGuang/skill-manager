@@ -4,7 +4,7 @@
 
     <a-card :title="$t('legacy.1b4zqhb')" style="margin-top: 16px">
       <template #extra>
-        <a-button type="primary" :loading="guardDownloading" @click="handleSkillGuardDownload">{{ $t("legacy.ayz2ay") }}</a-button>
+        <a-button v-if="hasAccess('credentials:view')" type="primary" :loading="guardDownloading" @click="handleSkillGuardDownload">{{ $t("legacy.ayz2ay") }}</a-button>
       </template>
       <a-alert
         type="info"
@@ -47,7 +47,7 @@
       </a-row>
     </a-card>
 
-    <a-row :gutter="[16, 16]" style="margin-top: 16px">
+    <a-row v-if="hasAccess('skills:view')" :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24">
         <a-card :title="$t('legacy.wz9nkl')">
           <a-space style="margin-bottom: 16px" wrap>
@@ -107,6 +107,7 @@
 import { translateLegacy as phrase, translateText as text } from '../i18n'
 
 import { onMounted, ref } from 'vue'
+import { can as hasAccess } from '../access'
 import { message } from 'ant-design-vue'
 
 import { downloadSkillVerifier, getAuditPaged } from '../api'
@@ -192,6 +193,7 @@ const handleSkillGuardDownload = async () => {
 }
 
 const fetchRuntimeAudit = async () => {
+  if (!hasAccess('skills:view')) { auditRows.value = []; auditTotal.value = 0; return }
   loadingAudit.value = true
   try {
     const res = await getAuditPaged({

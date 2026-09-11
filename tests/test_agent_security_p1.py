@@ -65,6 +65,9 @@ def p1_api(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "SECRET_KEY", "p1-test-secret-key")
 
     with session_factory() as db:
+        from backend import iam, iam_models
+        iam.initialize(db)
+        db.add_all(iam_models.RolePermission(role_name="user", permission_code=code) for code in ("scans:execute", "scans:cancel"))
         admin = models.User(username="admin", hashed_password="x", role="admin")
         auditor = models.User(username="auditor", hashed_password="x", role="security_auditor")
         owner = models.User(username="owner", hashed_password="x", role="user")
@@ -143,6 +146,91 @@ def _create_task(client: TestClient, target_id: str, policy_id: str, key: str = 
     )
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def test_scan_cancel_obeys_configured_permission_for_auditor(p1_api):
+    from backend import iam_models
+
+    client, factory, state, users = p1_api
+    target = _create_target(client)
+    policy = _create_policy(client)
+    task = _create_task(client, target["target_id"], policy["policy_id"])
+    state["user"] = users["auditor"]
+    path = f"/api/v1/agent-security/tasks/{task['task_id']}/cancel"
+    assert client.post(path).status_code == 403
+    with factory() as db:
+        db.add(iam_models.RolePermission(role_name="security_auditor", permission_code="scans:cancel"))
+        db.commit()
+    response = client.post(path)
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "cancelled"
+    with factory() as db:
+        db.query(iam_models.RolePermission).filter_by(role_name="security_auditor", permission_code="scans:cancel").delete()
+        db.commit()
+    assert client.post(path).status_code == 403
+
+
+def test_retry_failed_scan_preserves_original_and_deduplicates(p1_api):
+    client, factory, state, users = p1_api
+    target = _create_target(client)
+    policy = _create_policy(client)
+    original = _create_task(client, target['target_id'], policy['policy_id'])
+    url = f"/api/v1/agent-security/tasks/{original['task_id']}/retry"
+    assert client.post(url).status_code == 409
+    with factory() as db:
+        task = db.query(models.SecurityScanTask).filter_by(task_id=original['task_id']).one()
+        task.status = 'failed'
+        task.error_code = 'mcp_scan.engine_terminated'
+        db.commit()
+    state['user'] = users['auditor']
+    assert client.post(url).status_code == 403
+    state['user'] = users['other']
+    assert client.post(url).status_code == 403
+    state['user'] = users['admin']
+    retried = client.post(url)
+    assert retried.status_code == 200, retried.text
+    result = retried.json()
+    assert result['task_id'] != original['task_id']
+    assert result['status'] == 'pending'
+    assert result['target_id'] == original['target_id']
+    assert result['policy_id'] == original['policy_id']
+    assert result['scan_options'] == original['scan_options']
+    repeated = client.post(url).json()
+    assert repeated['task_id'] == result['task_id']
+    assert repeated['retry_reused'] is True
+    assert result['retry_reused'] is False
+    with factory() as db:
+        assert db.query(models.SecurityScanTask).count() == 2
+        task = db.query(models.SecurityScanTask).filter_by(task_id=original['task_id']).one()
+        assert task.status == 'failed'
+        assert task.error_code == 'mcp_scan.engine_terminated'
+    for terminal_status in ['succeeded', 'failed', 'timed_out', 'cancelled', 'blocked']:
+        with factory() as db:
+            db.query(models.SecurityScanTask).filter_by(task_id=result['task_id']).one().status = terminal_status
+            db.commit()
+        response = client.post(url)
+        assert response.status_code == 200, response.text
+        new_result = response.json()
+        assert new_result['task_id'] != result['task_id']
+        assert new_result['status'] == 'pending'
+        assert new_result['retry_reused'] is False
+        result = new_result
+
+
+def test_retry_scan_rechecks_current_policy(p1_api):
+    client, factory, state, users = p1_api
+    target = _create_target(client)
+    policy = _create_policy(client)
+    original = _create_task(client, target['target_id'], policy['policy_id'])
+    with factory() as db:
+        db.query(models.SecurityScanTask).filter_by(task_id=original['task_id']).one().status = 'timed_out'
+        db.query(models.SecurityScanPolicy).filter_by(policy_id=policy['policy_id']).one().enabled = False
+        db.commit()
+    response = client.post(f"/api/v1/agent-security/tasks/{original['task_id']}/retry")
+    assert response.status_code == 409
+    assert response.json()['error_code'] == 'agent_security.policy_disabled'
+    with factory() as db:
+        assert db.query(models.SecurityScanTask).count() == 1
 
 
 def test_findings_summary_paginates_and_respects_task_visibility(p1_api):
@@ -227,6 +315,29 @@ def test_worker_absolute_timeout_stops_heartbeat(p1_api):
     assert heartbeat.status_code == 200
     assert heartbeat.json()["status"] == "timed_out"
     assert heartbeat.json()["stop_reason"] == "task_timeout"
+
+
+def test_diagnostic_download_preserves_heartbeat_and_enforces_access(p1_api):
+    client, factory, state, users = p1_api
+    task_id, headers, lease_token = _claim_control_plane_task(client)
+    event = {'event': 'request_failed', 'operation': 'model', 'elapsed_ms': 123, 'error_type': 'ConnectError'}
+    heartbeat_url = f'/api/v1/agent-security/worker/tasks/{task_id}/heartbeat'
+    assert client.post(heartbeat_url, headers=headers, json={'lease_token': lease_token, 'diagnostics': [event]}).status_code == 200
+    invalid = client.post(heartbeat_url, headers=headers, json={'lease_token': lease_token, 'diagnostics': [{**event, 'prompt': 'secret'}]})
+    assert invalid.status_code == 422
+    with factory() as db:
+        task = db.query(models.SecurityScanTask).filter_by(task_id=task_id).one()
+        task.status = 'failed'
+        task.error_message = 'private-response-content'
+        db.commit()
+    url = f'/api/v1/agent-security/tasks/{task_id}/diagnostics'
+    response = client.get(url)
+    assert response.status_code == 200
+    assert 'attachment' in response.headers['content-disposition']
+    assert response.json()['events_by_attempt']['1'] == [event]
+    assert 'private-response-content' not in response.text
+    state['user'] = users['other']
+    assert client.get(url).status_code == 403
 
 
 def test_llm_live_progress_is_encrypted_redacted_and_detail_only(p1_api):
@@ -1291,7 +1402,7 @@ def test_task_idempotency_authorization_and_auditor_read_only(p1_api):
     assert client.get(f"/api/v1/agent-security/tasks/{first['task_id']}").status_code == 200
     denied = client.post(f"/api/v1/agent-security/tasks/{first['task_id']}/cancel")
     assert denied.status_code == 403
-    assert denied.json()["error_code"] == "auth.permission_denied"
+    assert denied.json()["error_code"] == "iam.permission_denied"
 
 
 def test_worker_claim_heartbeat_completion_and_unified_results(p1_api):
@@ -2273,7 +2384,8 @@ def test_redteam_options_and_selected_gateway_model_validation(p1_api, monkeypat
     assert {item["name"] for item in response.json()["dataset_details"]} == set(response.json()["datasets"])
     assert next(item for item in response.json()["dataset_details"] if item["name"] == "cnsafe")["count"] == 3030
     assert [item["name"] for item in response.json()["evaluation_models"]] == ["judge"]
-    assert set(response.json()["evaluation_models"][0]) == {"id", "name", "display_name", "provider_name"}
+    assert set(response.json()["evaluation_models"][0]) == {"id", "name", "display_name", "provider_name", "compression_enabled"}
+    assert response.json()["evaluation_models"][0]["compression_enabled"] is False
     state["user"] = users["admin"]
     target = _create_target(client, target_type=None, asset_type="llm", connector_type="openai_compatible", config={"model": "target"})
     policy = _create_policy(client, suffix="redteam-options")

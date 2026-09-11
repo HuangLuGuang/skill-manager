@@ -1898,31 +1898,19 @@ async def list_users(db: Session = Depends(get_db), current_user: models.User = 
 @admin_router.post("/users", response_model=schemas.User)
 async def create_managed_user(
     body: schemas.UserCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    if db.query(models.User).filter(models.User.username == body.username).first():
-        raise HTTPException(status_code=400, detail="用户名已存在")
-    if body.email and db.query(models.User).filter(models.User.email == body.email).first():
-        raise HTTPException(status_code=400, detail="邮箱已存在")
-    user = models.User(
-        username=body.username,
-        email=body.email,
-        hashed_password=auth.get_password_hash(body.password),
-        role=body.role,
-    )
-    db.add(user)
-    db.flush()
-    _sync_user_groups(db, user.id, body.group_ids)
-    db.commit()
-    db.refresh(user)
-    return _user_response(db, user)
+    from ..iam import create_account
+    return create_account(db, request, current_user, body.model_dump())
 
 
 @admin_router.put("/users/{user_id}", response_model=schemas.User)
 async def update_managed_user(
     user_id: int,
     body: schemas.UserUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
@@ -1930,16 +1918,8 @@ async def update_managed_user(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     data = body.model_dump(exclude_unset=True)
-    group_ids = data.pop("group_ids", None)
-    if data.get("password"):
-        user.hashed_password = auth.get_password_hash(data.pop("password"))
-    for field, value in data.items():
-        setattr(user, field, value)
-    if group_ids is not None:
-        _sync_user_groups(db, user.id, group_ids)
-    db.commit()
-    db.refresh(user)
-    return _user_response(db, user)
+    from ..iam import update_account
+    return update_account(db, request, current_user, user, data)
 
 
 @admin_router.get("/groups", response_model=list[schemas.UserGroupResponse])
@@ -2052,6 +2032,49 @@ async def delete_model_provider(
     db.delete(row)
     db.commit()
     return {"status": "deleted"}
+
+
+@admin_router.get("/model-providers/{provider_id}/models")
+async def discover_provider_models(
+    provider_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    row = db.query(models.ModelProvider).filter(models.ModelProvider.id == provider_id).first()
+    if not row:
+        raise ApiError(404, "model.provider_not_found", "模型供应商不存在", "Model provider not found")
+    base = row.base_url.rstrip("/")
+    for suffix in ("/chat/completions", "/messages"):
+        if base.endswith(suffix):
+            base = base[:-len(suffix)]
+            break
+    _, _, headers = _upstream_request(row, {"model": "", "messages": []})
+    found = {}
+    params = {}
+    try:
+        async with httpx.AsyncClient(timeout=min(row.timeout_seconds, 15)) as client:
+            for _ in range(100):
+                response = await client.get(f"{base}/models", headers=headers, params=params)
+                if not 200 <= response.status_code < 300:
+                    raise ApiError(502, "model_discovery.upstream_http_error", "供应商模型列表接口请求失败，可自定义添加模型", "Provider model listing failed; models can be added manually")
+                payload = response.json()
+                if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+                    raise ValueError("Invalid model list")
+                for item in payload["data"]:
+                    if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"].strip():
+                        raise ValueError("Invalid model ID")
+                    found[item["id"]] = {"name": item["id"], "display_name": item.get("display_name") if isinstance(item.get("display_name"), str) else None}
+                if not payload.get("has_more"):
+                    return {"models": sorted(found.values(), key=lambda item: item["name"])}
+                cursor = payload.get("last_id")
+                if not isinstance(cursor, str) or not cursor or cursor == params.get("after_id"):
+                    raise ValueError("Invalid model cursor")
+                params = {"after_id": cursor}
+            raise ValueError("Model list pagination limit exceeded")
+    except httpx.RequestError:
+        raise ApiError(502, "model_discovery.connection_failed", "无法连接供应商，可重试或自定义添加模型", "Could not connect to the provider; retry or add models manually") from None
+    except ValueError:
+        raise ApiError(502, "model_discovery.invalid_response", "供应商模型列表格式无效，可自定义添加模型", "Invalid provider model list; models can be added manually") from None
 
 
 @admin_router.post("/model-providers/{provider_id}/test")
@@ -2281,10 +2304,14 @@ async def list_privacy_policies(db: Session = Depends(get_db), current_user: mod
 @admin_router.post("/privacy-policies", response_model=schemas.PrivacyPolicyResponse)
 async def upsert_privacy_policy(
     body: schemas.PrivacyPolicyPayload,
+    request: Request,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_admin_user),
+    current_user: models.User = Depends(auth.get_current_active_user),
 ):
-    default_policy = _get_default_policy(db)
+    from .. import iam
+    request.state.iam_permission = "privacy:update" if body.id else "privacy:create"
+    if not iam.permission_codes(db, current_user) & {"privacy:create", "privacy:update"}:
+        iam.check(db, current_user, request.state.iam_permission)
     if body.group_id and not db.query(models.UserGroup).filter(models.UserGroup.id == body.group_id).first():
         raise HTTPException(status_code=404, detail="用户组不存在")
     row = None
@@ -2294,6 +2321,10 @@ async def upsert_privacy_policy(
             raise HTTPException(status_code=404, detail="隐私策略不存在")
     elif body.group_id:
         row = db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.group_id == body.group_id).first()
+    permission = "privacy:create" if row is None else "privacy:update"
+    request.state.iam_permission = permission
+    iam.check(db, current_user, permission)
+    default_policy = _get_default_policy(db)
     if row is None:
         row = models.PrivacyPolicy(group_id=body.group_id, entity_types_json="[]", name=body.name)
         db.add(row)

@@ -1,4 +1,7 @@
 import { createI18n } from 'vue-i18n'
+import { iamMessages } from './iam.js'
+import { scanTaskActionsMessages } from './scanTaskActions.js'
+import { mcpScanMessages } from './mcpScan.js'
 import { scanScheduleMessages } from './scanSchedule.js'
 import { assetLifecycleMessages } from './assetLifecycle.js'
 import { skillBatchMessages } from './skillBatch.js'
@@ -26,6 +29,9 @@ export const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
+      iam: iamMessages['zh-CN'],
+      scanTaskActions: scanTaskActionsMessages['zh-CN'],
+      mcpScan: mcpScanMessages['zh-CN'],
       skillUpload: {
         jobs: {
           title: '历史提交记录', backToRecords: '返回历史提交记录', filename: 'ZIP 包名称', createdAt: '导入时间', id: '任务编号', state: '状态', progress: '已处理 / 总数', results: '结果',
@@ -83,12 +89,36 @@ export const i18n = createI18n({
         english: 'English',
       },
       modelGateway: {
+        catalog: {
+          title: '供应商与模型', summary: '{providers} 个供应商 · {models} 个模型',
+          defaultProvider: '默认供应商', defaultModel: '默认模型', defaultModelLabel: '默认模型：{model}',
+          defaultProviderHelp: '默认模型所属的供应商',
+          subtitle: '配置供应商连接，获取、启用和测试模型。',
+          refresh: '刷新', addProvider: '添加供应商', addModel: '添加模型',
+          emptyProviders: '添加供应商，配置连接并获取模型。',
+          enabled: '已启用', disabled: '已停用', compression: '智能压缩',
+          configure: '配置', modelCount: '{count} 个模型',
+          emptyModels: '获取供应商模型列表，或自定义添加模型。',
+          contextWindow: '上下文窗口：{count} tokens', default: '默认', edit: '编辑',
+          deleteProvider: '删除供应商', deleteProviderConfirm: '确定删除该供应商？请先删除或迁移其模型。',
+          deleteModel: '删除模型', deleteModelConfirm: '确定删除该模型？',
+          toggleModel: '启用模型 {model}', updateFailed: '更新模型状态失败，请重试。',
+          fetch: '获取模型', custom: '自定义添加', discovered: '{provider} · 获取模型',
+          discoveryHelp: '选择模型添加到网关。列表由供应商提供，不代表当前密钥可调用所有模型；可以逐个测试。模型名称在网关内唯一。',
+          registered: '已添加', add: '添加', modelName: '模型名称', actions: '操作',
+          addSelected: '添加所选（{count}）', batchAdded: '已添加 {count} 个模型',
+          batchFailed: '以下模型添加失败，已保留勾选，可重试：{names}',
+          connectionFailed: '无法连接供应商，可重试或自定义添加模型。',
+          upstreamFailed: '供应商模型列表接口请求失败，请检查地址和凭据，或自定义添加模型。',
+          invalidResponse: '供应商返回的模型列表格式无效，可自定义添加模型。',
+          fetchFailed: '获取模型失败，可重试或自定义添加模型。',
+        },
         provider: {
           baseUrlPlaceholder: '例如 https://api.openai.com/v1',
           baseUrlHelp: '请填写包含供应商 API 版本路径的 Base URL；系统只追加协议端点，不会自动插入 /v1。',
         },
         providerTest: {
-          action: '测试', title: '测试模型供应商', provider: '供应商', model: '测试模型',
+          action: '测试', title: '测试模型', provider: '供应商', model: '测试模型',
           modelPlaceholder: '输入供应商支持的模型名称', modelRequired: '请输入测试模型', submit: '发送真实请求',
           realRequestWarning: '测试会向供应商发送一条最小真实推理请求，可能消耗少量模型额度。',
           success: '模型 {model} 测试成功（HTTP {status}，{duration} ms）',
@@ -322,7 +352,7 @@ export const i18n = createI18n({
           killSwitchActivated: '已启用', killSwitchOperator: '操作人 / 时间',
           mcpSafety: 'MCP 扫描只读取网关冻结的元数据快照，不调用 Tool，也不自动修改策略。',
           agentSafety: 'Agent 风险扫描会向已授权目标发送测试请求，并受策略预算、出站范围和超时限制。',
-          controlSafety: '控制面验证只检查调度、租约和结果回传链路，不代表已执行真实风险扫描。',
+          controlSafety: '扫描链路自检只检查调度、租约和结果回传链路，不代表已执行真实风险扫描。',
           productionApproval: '本次扫描审批', productionApprovalRequired: '生产环境的主动安全扫描必须选择有效的单次人工审批。',
           productionApprovalHelp: '审批只在当前维护窗口内有效，并绑定目标、策略、专用身份和当前凭据版本；任务创建后不可重放。',
           approvalPlaceholder: '选择尚未使用的审批', approveProductionScan: '批准本次扫描', approvalCreated: '本次扫描审批已创建',
@@ -354,7 +384,7 @@ export const i18n = createI18n({
           previewLimitations: '预览边界说明', mcpToolCase: '检查 MCP Tool 元数据：{value}', infrastructureEndpointCase: '基础设施端点：{value}',
           previewCases: { control_plane_validation: '控制面调度、租约和回传验证', agent_info_collection: 'Agent 能力与攻击面信息收集', agent_vulnerability_review: '风险复核与报告归一化' },
           previewLimitationsMap: {
-            control_plane_only: '控制面验证不执行真实风险攻击',
+            control_plane_only: '扫描链路自检不执行真实风险攻击',
             runtime_generated_cases: 'Agent 检测 Skill 确定，但具体测试 Prompt 和轮次由运行时生成',
             runtime_tool_inventory_unknown: '目标 Agent 的本地工具清单无法在控制面预先确认',
             metadata_only_no_tool_calls: 'MCP 扫描只分析冻结元数据，不执行 tools/call',
@@ -375,7 +405,7 @@ export const i18n = createI18n({
           traceabilityParts: { case: '测试用例', event: '精确轨迹事件', evidence: '证据摘要', decision_criteria: '判定口径版本' },
           agenticRisks: 'OWASP ASI 风险', mappingVersion: '映射规则版本', unmappedRisk: '未映射到 OWASP ASI', legacyUnmapped: '历史记录未保存映射版本',
         },
-        engines: { llmRedteam: '模型红队扫描', agentRisk: 'Agent 风险扫描', infrastructure: '基础设施扫描', difyInventory: 'Dify 资产清单引擎', mcpMetadata: 'MCP 元数据扫描', controlPlane: '控制面校验' },
+        engines: { llmRedteam: '模型红队扫描', agentRisk: 'Agent 风险扫描', infrastructure: '基础设施扫描', difyInventory: 'Dify 资产清单引擎', mcpMetadata: 'MCP 元数据扫描', controlPlane: '扫描链路自检' },
         reports: {
           title: '扫描报告', description: '查看扫描结果、失败详情及历史版本对比。', empty: '暂无可归档的终止任务。', engine: '扫描引擎', completedAt: '完成时间', targetFilter: '按目标筛选', statusFilter: '按状态筛选', kindFilter: '按扫描类型筛选', viewDetails: '查看详情',
           open: '查看报告', compare: '版本对比',
@@ -424,7 +454,7 @@ export const i18n = createI18n({
           approval: '扫描审批 ID',
           reportTemplateVersion: '报告模板版本', decisionCriteriaVersion: '判定口径版本', legacyUnversioned: '历史记录未保存版本',
         },
-        scanKinds: { control_plane_validation: '控制面验证', agent_risk_scan: 'Agent 风险扫描', dify_asset_inventory: 'Dify 资产清单', mcp_risk_scan: 'MCP 元数据扫描', llm_redteam_scan: '大模型红队扫描', ai_infrastructure_vulnerability_scan: 'AI 基础设施漏洞扫描' },
+        scanKinds: { control_plane_validation: '扫描链路自检', agent_risk_scan: 'Agent 风险扫描', dify_asset_inventory: 'Dify 资产清单', mcp_risk_scan: 'MCP 风险扫描', llm_redteam_scan: '大模型红队扫描', ai_infrastructure_vulnerability_scan: 'AI 基础设施漏洞扫描' },
         executionModes: { passive: '被动', read_only: '只读', active_safe: '主动安全', active_full: '完整主动' },
         environments: { sandbox: '沙箱', test: '测试', staging: '预生产', production: '生产' },
         capabilities: { conversation: '对话测试', multi_turn: '多轮会话', tool_read: '只读工具', tool_write: '写入工具', network_egress: '网络出站', file_read: '文件读取', file_write: '文件写入', code_execution: '代码执行', persistent_memory: '持久记忆' },
@@ -1007,6 +1037,9 @@ export const i18n = createI18n({
       legacy: legacyMessages['zh-CN'],
     },
     'en-US': {
+      iam: iamMessages['en-US'],
+      scanTaskActions: scanTaskActionsMessages['en-US'],
+      mcpScan: mcpScanMessages['en-US'],
       skillUpload: {
         jobs: {
           title: 'Submission history', backToRecords: 'Back to submission history', filename: 'ZIP filename', createdAt: 'Import time', id: 'Job ID', state: 'Status', progress: 'Processed / total', results: 'Results',
@@ -1064,12 +1097,36 @@ export const i18n = createI18n({
         english: 'English',
       },
       modelGateway: {
+        catalog: {
+          title: 'Providers & Models', summary: 'Providers: {providers} · Models: {models}',
+          defaultProvider: 'Default provider', defaultModel: 'Default model', defaultModelLabel: 'Default model: {model}',
+          defaultProviderHelp: 'The provider that owns the default model',
+          subtitle: 'Configure provider connections. Discover, enable, and test models.',
+          refresh: 'Refresh', addProvider: 'Add provider', addModel: 'Add model',
+          emptyProviders: 'Add a provider to configure its connection and discover models.',
+          enabled: 'Enabled', disabled: 'Disabled', compression: 'Smart compression',
+          configure: 'Configure', modelCount: 'No models | 1 model | {count} models',
+          emptyModels: 'Fetch the provider model list or add a custom model.',
+          contextWindow: 'Context window: {count} tokens', default: 'Default', edit: 'Edit',
+          deleteProvider: 'Delete provider', deleteProviderConfirm: 'Delete this provider? Remove or migrate its models first.',
+          deleteModel: 'Delete model', deleteModelConfirm: 'Delete this model?',
+          toggleModel: 'Enable model {model}', updateFailed: 'Could not update the model status. Please retry.',
+          fetch: 'Fetch models', custom: 'Add custom model', discovered: '{provider} · Discover models',
+          discoveryHelp: 'Add models to the gateway from the provider list. Your key may not have access to every listed model; test each model to check. Model names are unique across the gateway.',
+          registered: 'Already added', add: 'Add', modelName: 'Model name', actions: 'Actions',
+          addSelected: 'Add selected ({count})', batchAdded: 'Added {count} models',
+          batchFailed: 'These models could not be added and remain selected for retry: {names}',
+          connectionFailed: 'Could not connect to the provider. Retry or add a custom model.',
+          upstreamFailed: 'Provider model listing failed. Check the URL and credentials, or add a custom model.',
+          invalidResponse: 'The provider returned an invalid model list. You can add a custom model.',
+          fetchFailed: 'Could not fetch models. Retry or add a custom model.',
+        },
         provider: {
           baseUrlPlaceholder: 'For example, https://api.openai.com/v1',
           baseUrlHelp: 'Include the provider API version path in the Base URL. The system appends only the protocol endpoint and never inserts /v1 automatically.',
         },
         providerTest: {
-          action: 'Test', title: 'Test model provider', provider: 'Provider', model: 'Test model',
+          action: 'Test', title: 'Test model', provider: 'Provider', model: 'Test model',
           modelPlaceholder: 'Enter a model supported by this provider', modelRequired: 'Enter a model to test', submit: 'Send real request',
           realRequestWarning: 'This sends a minimal real inference request to the provider and may consume a small amount of model credit.',
           success: 'Model {model} passed the test (HTTP {status}, {duration} ms)',
@@ -1303,7 +1360,7 @@ export const i18n = createI18n({
           killSwitchActivated: 'Activated', killSwitchOperator: 'Operator / time',
           mcpSafety: 'MCP scans inspect a frozen gateway metadata snapshot only. They do not call tools or change policy automatically.',
           agentSafety: 'Agent risk scans send test requests to the approved target within policy budget, outbound, and timeout boundaries.',
-          controlSafety: 'Control-plane validation checks dispatch, lease, and result delivery only. It is not a real risk scan.',
+          controlSafety: 'Scan pipeline self-check checks dispatch, lease, and result delivery only. It is not a real risk scan.',
           llmSafety: 'Attack test requests will be sent to the target model.',
           infrastructureSafety: 'Infrastructure vulnerability scans actively connect to authorized endpoints. Unknown versions or insufficient evidence remain unverified.',
           llmRedteamBoundary: 'This scan makes real calls to the target model and an independent evaluator. Confirm that the target, dataset, and budget are authorized.',
@@ -1335,7 +1392,7 @@ export const i18n = createI18n({
           previewLimitations: 'Preview boundaries', mcpToolCase: 'Inspect MCP Tool metadata: {value}', infrastructureEndpointCase: 'Infrastructure endpoint: {value}',
           previewCases: { control_plane_validation: 'Control-plane dispatch, lease, and result-delivery validation', agent_info_collection: 'Agent capability and attack-surface discovery', agent_vulnerability_review: 'Risk review and report normalization' },
           previewLimitationsMap: {
-            control_plane_only: 'Control-plane validation does not run real risk attacks',
+            control_plane_only: 'Scan pipeline self-check does not run real risk attacks',
             runtime_generated_cases: 'Agent detection skills are fixed, but concrete prompts and rounds are generated at runtime',
             runtime_tool_inventory_unknown: 'The control plane cannot confirm the target Agent local-tool inventory in advance',
             metadata_only_no_tool_calls: 'MCP scans inspect frozen metadata only and never execute tools/call',
@@ -1356,7 +1413,7 @@ export const i18n = createI18n({
           traceabilityParts: { case: 'test case', event: 'exact trace event', evidence: 'evidence digest', decision_criteria: 'decision-criteria version' },
           agenticRisks: 'OWASP ASI risks', mappingVersion: 'Mapping rule version', unmappedRisk: 'Not mapped to OWASP ASI', legacyUnmapped: 'Legacy record without a saved mapping version',
         },
-        engines: { llmRedteam: 'Model red-team scan', agentRisk: 'Agent risk scan', infrastructure: 'Infrastructure scan', difyInventory: 'Dify asset inventory engine', mcpMetadata: 'MCP metadata scan', controlPlane: 'Control plane validation' },
+        engines: { llmRedteam: 'Model red-team scan', agentRisk: 'Agent risk scan', infrastructure: 'Infrastructure scan', difyInventory: 'Dify asset inventory engine', mcpMetadata: 'MCP metadata scan', controlPlane: 'Scan pipeline self-check' },
         reports: {
           title: 'Scan reports', description: 'Review scan results, failure details, and comparisons with earlier runs.', empty: 'No terminal tasks are available for reporting.', engine: 'Scan engine', completedAt: 'Completed', targetFilter: 'Filter by target', statusFilter: 'Filter by status', kindFilter: 'Filter by scan type', viewDetails: 'View details',
           open: 'Open report', compare: 'Compare versions',
@@ -1405,7 +1462,7 @@ export const i18n = createI18n({
           approval: 'Scan approval ID',
           reportTemplateVersion: 'Report template version', decisionCriteriaVersion: 'Decision criteria version', legacyUnversioned: 'Legacy record without a saved version',
         },
-        scanKinds: { control_plane_validation: 'Control-plane validation', agent_risk_scan: 'Agent risk scan', dify_asset_inventory: 'Dify asset inventory', mcp_risk_scan: 'MCP metadata scan', llm_redteam_scan: 'LLM red-team scan', ai_infrastructure_vulnerability_scan: 'AI infrastructure vulnerability scan' },
+        scanKinds: { control_plane_validation: 'Scan pipeline self-check', agent_risk_scan: 'Agent risk scan', dify_asset_inventory: 'Dify asset inventory', mcp_risk_scan: 'MCP risk scan', llm_redteam_scan: 'LLM red-team scan', ai_infrastructure_vulnerability_scan: 'AI infrastructure vulnerability scan' },
         executionModes: { passive: 'Passive', read_only: 'Read only', active_safe: 'Active safe', active_full: 'Active full' },
         environments: { sandbox: 'Sandbox', test: 'Test', staging: 'Staging', production: 'Production' },
         capabilities: { conversation: 'Conversation testing', multi_turn: 'Multi-turn sessions', tool_read: 'Read-only tools', tool_write: 'Write tools', network_egress: 'Network egress', file_read: 'File read', file_write: 'File write', code_execution: 'Code execution', persistent_memory: 'Persistent memory' },

@@ -64,6 +64,33 @@ def test_schedule_create_acl_update_and_history(scheduled):
     assert listed_task['origins'] == [{"kind": "scheduled", "schedule_id": plan['schedule_id'], "name": "Renamed", "deleted": True}]
 
 
+def test_schedule_configuration_requires_edit_grant_and_target_access(scheduled):
+    from backend import iam_models as im
+    client, factory, state, users, body = scheduled
+    assert client.post(f"{ROOT}/scan-schedules", json=body).status_code == 200
+    with factory() as db:
+        db.add(im.Role(name="schedule_editor", display_name="Schedule editor"))
+        db.flush()
+        db.add(im.RolePermission(role_name="schedule_editor", permission_code="schedules:update"))
+        target = db.query(models.SecurityTarget).filter_by(target_id=body["task"]["target_id"]).one()
+        target.owner_user_id = users["owner"].id
+        target.owner_group_id = None
+        db.commit()
+    users["owner"].role = "schedule_editor"
+    state["user"] = users["owner"]
+    assert client.get(f"{ROOT}/scan-schedules").json()[0]["task"]["target_id"] == body["task"]["target_id"]
+    with factory() as db:
+        db.query(im.RolePermission).filter_by(role_name="schedule_editor").delete()
+        db.commit()
+    assert client.get(f"{ROOT}/scan-schedules").json()[0]["task"] is None
+    users["other"].role = "schedule_editor"
+    state["user"] = users["other"]
+    with factory() as db:
+        db.add(im.RolePermission(role_name="schedule_editor", permission_code="schedules:update"))
+        db.commit()
+    assert client.get(f"{ROOT}/scan-schedules").json() == []
+
+
 def test_double_dispatch_coalesces_missed_periods_and_skips_overlap(scheduled):
     client, factory, _, _, body = scheduled
     plan = client.post(f"{ROOT}/scan-schedules", json=body).json()

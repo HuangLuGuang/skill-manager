@@ -13,7 +13,7 @@
                 <h2>{{ t('policySettings.summaryTitle') }}</h2>
                 <div class="summary-actions">
                   <a-tag :color="dirty ? 'gold' : 'green'">{{ t(dirty ? 'policySettings.draftState' : 'policySettings.savedState') }}</a-tag>
-                  <PolicySimulator :policy="simulationPolicy" @update-mode="formState.judgement_mode = $event" />
+                  <PolicySimulator :policy="simulationPolicy" @update-mode="hasAccess('policy:update') && (formState.judgement_mode = $event)" />
                 </div>
               </div>
               <p>{{ policySummary }}</p>
@@ -23,7 +23,7 @@
             <section class="policy-section">
               <div class="section-heading">
                 <h2>{{ t('policySettings.actionsTitle') }}</h2>
-                <a-button html-type="button" :disabled="actionsRecommended || saving || loading || !loaded" @click="useRecommendedActions">{{ t('policySettings.recommendedActions') }}</a-button>
+                <a-button html-type="button" :disabled="!hasAccess('policy:update') || actionsRecommended || saving || loading || !loaded" @click="useRecommendedActions">{{ t('policySettings.recommendedActions') }}</a-button>
               </div>
               <p class="section-hint">{{ t('policySettings.actionsHint') }}</p>
               <table class="policy-table action-table">
@@ -32,7 +32,7 @@
                   <tr v-for="risk in policyRisks" :key="risk">
                     <th scope="row"><span class="risk-dot" :class="risk"></span>{{ t('policySettings.risks.' + risk) }}</th>
                     <td>
-                      <a-select v-model:value="formState.actions[risk]" :aria-label="t('policySettings.actionFor', { risk: t('policySettings.risks.' + risk) })" :options="actionOptions(risk)" />
+                      <a-select v-model:value="formState.actions[risk]" :aria-label="t('policySettings.actionFor', { risk: t('policySettings.risks.' + risk) })" :options="actionOptions(risk)" :disabled="saving || loading || !hasAccess('policy:update')" />
                       <div class="field-hint">{{ t('policySettings.actionHints.' + formState.actions[risk]) }}</div>
                     </td>
                   </tr>
@@ -63,7 +63,7 @@
                     <span class="field-hint">{{ t('policySettings.recommendedRulesHint') }}</span>
                   </div>
                   <a-form-item id="decision-mode" :label="t('policySettings.mode')" :class="{ 'decision-focus': route.query.focus === 'mode' }">
-                    <a-select v-model:value="formState.judgement_mode" :options="modeOptions" />
+                    <a-select v-model:value="formState.judgement_mode" :options="modeOptions" :disabled="saving || loading || !hasAccess('policy:update')" />
                     <div class="field-hint">{{ t('policySettings.modeHints.' + formState.judgement_mode) }}</div>
                     <div class="field-hint">{{ t('policySettings.modeCommon') }}</div>
                   </a-form-item>
@@ -72,7 +72,7 @@
                     <tbody>
                       <tr v-for="item in findingKeys" :id="'finding-' + item" :key="item" :class="{ 'finding-focus': focusedCategories.includes(item) }">
                         <th scope="row">{{ t('policySettings.findings.' + item) }}<div class="field-hint">{{ t('policySettings.examples.' + item) }}</div></th>
-                        <td><a-select v-model:value="formState.risk_classification[item]" :aria-label="t('policySettings.classificationFor', { behavior: t('policySettings.findings.' + item) })" :options="classificationOptions" /></td>
+                        <td><a-select v-model:value="formState.risk_classification[item]" :aria-label="t('policySettings.classificationFor', { behavior: t('policySettings.findings.' + item) })" :options="classificationOptions" :disabled="saving || loading || !hasAccess('policy:update')" /></td>
                       </tr>
                     </tbody>
                   </table>
@@ -83,22 +83,22 @@
             <a-collapse v-model:activeKey="companySections" class="company-rules">
               <a-collapse-panel key="company" :header="t('policySettings.companyRules')">
                 <a-form-item :label="t('policySettings.banned')">
-                  <a-select v-model:value="formState.blocked_permissions" mode="tags" :placeholder="t('policySettings.bannedPlaceholder')" />
+                  <a-select v-model:value="formState.blocked_permissions" mode="tags" :placeholder="t('policySettings.bannedPlaceholder')" :disabled="saving || loading || !hasAccess('policy:update')" />
                   <div class="field-hint">{{ t('policySettings.bannedHint') }}</div>
                 </a-form-item>
                 <h3>{{ t('policySettings.advisoryTitle') }}</h3>
                 <p class="section-hint">{{ t('policySettings.advisoryHint') }}</p>
                 <div class="form-grid">
                   <a-form-item :label="t('policySettings.maxTools')">
-                    <a-input-number v-model:value="formState.max_allowed_tools" :min="1" :max="100" />
+                    <a-input-number v-model:value="formState.max_allowed_tools" :min="1" :max="100" :disabled="saving || loading || !hasAccess('policy:update')" />
                   </a-form-item>
-                  <a-form-item :label="t('policySettings.requireLicense')"><a-switch v-model:checked="formState.require_license" /></a-form-item>
+                  <a-form-item :label="t('policySettings.requireLicense')"><a-switch v-model:checked="formState.require_license" :disabled="saving || loading || !hasAccess('policy:update')" /></a-form-item>
                 </div>
                 <a-form-item :label="t('policySettings.toolAllowlist')">
-                  <a-select v-model:value="formState.allowed_tools_allowlist" mode="tags" :placeholder="t('policySettings.toolsPlaceholder')" />
+                  <a-select v-model:value="formState.allowed_tools_allowlist" mode="tags" :placeholder="t('policySettings.toolsPlaceholder')" :disabled="saving || loading || !hasAccess('policy:update')" />
                 </a-form-item>
                 <a-form-item :label="t('policySettings.acceptedLicenses')">
-                  <a-select v-model:value="formState.accepted_licenses" mode="tags" :placeholder="t('policySettings.licensesPlaceholder')" />
+                  <a-select v-model:value="formState.accepted_licenses" mode="tags" :placeholder="t('policySettings.licensesPlaceholder')" :disabled="saving || loading || !hasAccess('policy:update')" />
                 </a-form-item>
               </a-collapse-panel>
             </a-collapse>
@@ -110,27 +110,27 @@
             <section class="capability-section">
               <div class="section-heading">
                 <h3>{{ t('policySettings.llmTitle') }}</h3>
-                <a-switch v-model:checked="llmForm.enabled" :aria-label="t('policySettings.llmTitle')" :checked-children="t('policySettings.enabled')" :un-checked-children="t('policySettings.disabled')" />
+                <a-switch v-if="hasAccess('settings:view')" v-model:checked="llmForm.enabled" :aria-label="t('policySettings.llmTitle')" :checked-children="t('policySettings.enabled')" :un-checked-children="t('policySettings.disabled')" :disabled="saving || loading || !hasAccess('settings:update')" />
               </div>
               <p>{{ t('policySettings.llmHint') }}</p>
               <div class="capability-footer">
-                <span class="field-hint">{{ llmForm.model ? t('policySettings.modelSelected', { model: llmForm.model }) : t('policySettings.modelMissing') }}</span>
-                <a-button html-type="button" @click="openService('llm')">{{ t('policySettings.configure') }}</a-button>
+                <span class="field-hint">{{ !hasAccess('settings:view') ? t('iam.settingsReadRequired') : llmForm.model ? t('policySettings.modelSelected', { model: llmForm.model }) : t('policySettings.modelMissing') }}</span>
+                <a-button v-if="hasAccess('settings:view')" html-type="button" @click="openService('llm')">{{ t('policySettings.configure') }}</a-button>
               </div>
             </section>
             <section class="capability-section">
               <div class="section-heading">
                 <h3>{{ t('policySettings.sandboxTitle') }}</h3>
-                <a-switch v-model:checked="sandboxForm.enabled" :aria-label="t('policySettings.sandboxTitle')" :checked-children="t('policySettings.enabled')" :un-checked-children="t('policySettings.disabled')" />
+                <a-switch v-if="hasAccess('settings:view')" v-model:checked="sandboxForm.enabled" :aria-label="t('policySettings.sandboxTitle')" :checked-children="t('policySettings.enabled')" :un-checked-children="t('policySettings.disabled')" :disabled="saving || loading || !hasAccess('settings:update')" />
               </div>
               <p>{{ t('policySettings.sandboxHint') }}</p>
               <a-form-item :label="t('policySettings.sandboxRequired')">
-                <a-select v-model:value="formState.require_sandbox_for_risk" mode="multiple" :options="riskOptions" :placeholder="t('policySettings.selectRisks')" />
+                <a-select v-model:value="formState.require_sandbox_for_risk" mode="multiple" :options="riskOptions" :placeholder="t('policySettings.selectRisks')" :disabled="saving || loading || !hasAccess('policy:update')" />
                 <div class="field-hint">{{ t('policySettings.sandboxRequiredHint') }}</div>
               </a-form-item>
               <div class="capability-footer">
-                <span class="field-hint">{{ t(sandboxForm.enabled ? 'policySettings.sandboxConfigured' : 'policySettings.sandboxDisabledHint') }}</span>
-                <a-button html-type="button" @click="openService('sandbox')">{{ t('policySettings.configure') }}</a-button>
+                <span class="field-hint">{{ !hasAccess('settings:view') ? t('iam.settingsReadRequired') : t(sandboxForm.enabled ? 'policySettings.sandboxConfigured' : 'policySettings.sandboxDisabledHint') }}</span>
+                <a-button v-if="hasAccess('settings:view')" html-type="button" @click="openService('sandbox')">{{ t('policySettings.configure') }}</a-button>
               </div>
             </section>
           </a-tab-pane>
@@ -139,64 +139,64 @@
             <h2>{{ t('policySettings.advancedTitle') }}</h2>
             <p class="section-hint">{{ t('policySettings.advancedHint') }}</p>
             <a-form-item :label="t('policySettings.reuseScanResults')">
-              <a-switch v-model:checked="formState.scan_result_reuse_enabled" />
+              <a-switch v-model:checked="formState.scan_result_reuse_enabled" :disabled="saving || loading || !hasAccess('policy:update')" />
               <div class="field-hint">{{ t('policySettings.reuseScanResultsHint') }}</div>
             </a-form-item>
             <a-collapse v-model:activeKey="advancedSections">
-              <a-collapse-panel key="llm" :header="t('policySettings.llmConfig')">
+              <a-collapse-panel v-if="hasAccess('settings:view')" key="llm" :header="t('policySettings.llmConfig')">
                 <a-form-item :label="t('policySettings.model')">
-                  <a-select v-model:value="llmForm.model" show-search allow-clear :placeholder="t('policySettings.modelPlaceholder')" :options="llmModelOptions" />
+                  <a-select v-model:value="llmForm.model" show-search allow-clear :placeholder="t('policySettings.modelPlaceholder')" :options="llmModelOptions" :disabled="saving || loading || !hasAccess('settings:update')" />
                   <div class="field-hint"><router-link to="/model-gateway/models">{{ t('policySettings.modelHint') }}</router-link></div>
                 </a-form-item>
                 <div class="form-grid">
-                  <a-form-item :label="t('policySettings.timeout')"><a-input-number v-model:value="llmForm.timeout_seconds" :min="5" :max="180" /></a-form-item>
-                  <a-form-item :label="t('policySettings.maxFiles')"><a-input-number v-model:value="llmForm.max_files" :min="1" :max="20" /></a-form-item>
-                  <a-form-item :label="t('policySettings.maxManifestChars')"><a-input-number v-model:value="llmForm.max_manifest_chars" :min="2000" :max="50000" :step="1000" /></a-form-item>
-                  <a-form-item :label="t('policySettings.maxFileChars')"><a-input-number v-model:value="llmForm.max_file_chars" :min="500" :max="20000" :step="500" /></a-form-item>
+                  <a-form-item :label="t('policySettings.timeout')"><a-input-number v-model:value="llmForm.timeout_seconds" :min="5" :max="180" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item :label="t('policySettings.maxFiles')"><a-input-number v-model:value="llmForm.max_files" :min="1" :max="20" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item :label="t('policySettings.maxManifestChars')"><a-input-number v-model:value="llmForm.max_manifest_chars" :min="2000" :max="50000" :step="1000" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item :label="t('policySettings.maxFileChars')"><a-input-number v-model:value="llmForm.max_file_chars" :min="500" :max="20000" :step="500" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
                 </div>
               </a-collapse-panel>
-              <a-collapse-panel key="sandbox" :header="t('policySettings.sandboxConfig')">
+              <a-collapse-panel v-if="hasAccess('settings:view')" key="sandbox" :header="t('policySettings.sandboxConfig')">
                 <div class="form-grid">
                   <a-form-item :label="t('policySettings.runtime')">
-                    <a-select v-model:value="sandboxForm.runtime" :options="runtimeOptions" />
+                    <a-select v-model:value="sandboxForm.runtime" :options="runtimeOptions" :disabled="saving || loading || !hasAccess('settings:update')" />
                   </a-form-item>
-                  <a-form-item :label="t('policySettings.timeout')"><a-input-number v-model:value="sandboxForm.timeout_seconds" :min="1" :max="300" /></a-form-item>
+                  <a-form-item :label="t('policySettings.timeout')"><a-input-number v-model:value="sandboxForm.timeout_seconds" :min="1" :max="300" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
                 </div>
                 <a-form-item v-if="sandboxForm.runtime === 'docker'" :label="t('policySettings.image')">
-                  <a-select v-model:value="sandboxForm.image" show-search :placeholder="t('policySettings.imagePlaceholder')" :options="sandboxImageOptions" />
+                  <a-select v-model:value="sandboxForm.image" show-search :placeholder="t('policySettings.imagePlaceholder')" :options="sandboxImageOptions" :disabled="saving || loading || !hasAccess('settings:update')" />
                 </a-form-item>
                 <template v-else>
                   <a-form-item :label="t('policySettings.remoteUrl')">
                     <div class="connection-controls">
-                      <a-input v-model:value="sandboxForm.remote_url" placeholder="http://sandbox:8194" />
-                      <a-button html-type="button" :disabled="testingSandbox || saving || loading || !loaded" @click="useDefaultSandboxUrl">{{ t('policySettings.defaultUrl') }}</a-button>
-                      <a-button html-type="button" :loading="testingSandbox" :disabled="testingSandbox || saving || loading || !loaded" @click="handleTestSandboxConnection">{{ t('policySettings.testConnection') }}</a-button>
+                      <a-input v-model:value="sandboxForm.remote_url" placeholder="http://sandbox:8194" :disabled="saving || loading || !hasAccess('settings:update')" />
+                      <a-button html-type="button" :disabled="!hasAccess('settings:update') || testingSandbox || saving || loading || !loaded" @click="useDefaultSandboxUrl">{{ t('policySettings.defaultUrl') }}</a-button>
+                      <a-button html-type="button" :loading="testingSandbox" :disabled="!hasAccess('settings:update') || testingSandbox || saving || loading || !loaded" @click="handleTestSandboxConnection">{{ t('policySettings.testConnection') }}</a-button>
                     </div>
                   </a-form-item>
                   <a-alert v-if="sandboxTestResult" class="sandbox-test-result" show-icon :type="sandboxTestResult.available ? 'success' : 'error'" :message="t(sandboxTestResult.available ? 'policySettings.connectionOk' : 'policySettings.connectionFailed')" :description="sandboxTestDescription" />
                   <a-collapse ghost>
                     <a-collapse-panel key="auth" :header="t('policySettings.auth')">
                       <a-form-item :label="t('policySettings.apiKey')">
-                        <a-input-password v-model:value="sandboxForm.remote_api_key" :placeholder="t('policySettings.apiKeyPlaceholder')" autocomplete="new-password" />
+                        <a-input-password v-model:value="sandboxForm.remote_api_key" :placeholder="t('policySettings.apiKeyPlaceholder')" autocomplete="new-password" :disabled="saving || loading || !hasAccess('settings:update')" />
                         <div class="field-hint">{{ t('policySettings.currentKey', { key: sandboxConfig.remote_api_key_configured ? (sandboxConfig.remote_api_key_masked || t('policySettings.configuredKey')) : t('policySettings.notConfigured') }) }}</div>
                       </a-form-item>
-                      <a-form-item><a-checkbox v-model:checked="sandboxForm.clear_remote_api_key">{{ t('policySettings.clearKey') }}</a-checkbox></a-form-item>
+                      <a-form-item><a-checkbox v-model:checked="sandboxForm.clear_remote_api_key" :disabled="saving || loading || !hasAccess('settings:update')">{{ t('policySettings.clearKey') }}</a-checkbox></a-form-item>
                     </a-collapse-panel>
                   </a-collapse>
                 </template>
                 <div class="form-grid">
-                  <a-form-item :label="t('policySettings.network')"><a-select v-model:value="sandboxForm.network_mode" :options="networkOptions" /></a-form-item>
-                  <a-form-item :label="t('policySettings.memory')"><a-input v-model:value="sandboxForm.memory_limit" placeholder="256m" /></a-form-item>
-                  <a-form-item :label="t('policySettings.cpu')"><a-input v-model:value="sandboxForm.cpu_limit" placeholder="1.0" /></a-form-item>
-                  <a-form-item :label="t('policySettings.pids')"><a-input-number v-model:value="sandboxForm.pids_limit" :min="1" :max="1024" /></a-form-item>
+                  <a-form-item :label="t('policySettings.network')"><a-select v-model:value="sandboxForm.network_mode" :options="networkOptions" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item :label="t('policySettings.memory')"><a-input v-model:value="sandboxForm.memory_limit" placeholder="256m" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item :label="t('policySettings.cpu')"><a-input v-model:value="sandboxForm.cpu_limit" placeholder="1.0" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item :label="t('policySettings.pids')"><a-input-number v-model:value="sandboxForm.pids_limit" :min="1" :max="1024" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
                 </div>
-                <a-form-item><a-checkbox v-model:checked="sandboxForm.read_only_rootfs">{{ t('policySettings.readOnly') }}</a-checkbox></a-form-item>
+                <a-form-item><a-checkbox v-model:checked="sandboxForm.read_only_rootfs" :disabled="saving || loading || !hasAccess('settings:update')">{{ t('policySettings.readOnly') }}</a-checkbox></a-form-item>
               </a-collapse-panel>
             </a-collapse>
           </a-tab-pane>
         </a-tabs>
         <div class="bottom-action-bar">
-          <a-button type="primary" html-type="submit" :loading="saving" :disabled="saving || loading || !loaded || !dirty">{{ t('policySettings.save') }}</a-button>
+          <a-button v-if="hasAccess('policy:update') || (hasAccess('settings:view') && hasAccess('settings:update'))" type="primary" html-type="submit" :loading="saving" :disabled="saving || loading || !loaded || !dirty">{{ t('policySettings.save') }}</a-button>
           <a-button html-type="button" :loading="loading" :disabled="saving || loading" @click="reloadPolicy">{{ t('policySettings.reload') }}</a-button>
           <span v-if="loaded" class="field-hint">{{ t(dirty ? 'policySettings.draftState' : 'policySettings.savedState') }}</span>
         </div>
@@ -210,6 +210,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
+import { can as hasAccess } from '../access'
 import PolicySimulator from '../components/PolicySimulator.vue'
 import {
   getLlmConfig, getPolicy, getSandboxConfig, listModelEndpoints, listSandboxImages,
@@ -444,7 +445,11 @@ const fetchPolicy = async () => {
   loadFailed.value = false
   try {
     const [policyRes, llmRes, sandboxRes, modelRes, imageRes] = await Promise.all([
-      getPolicy(), getLlmConfig(), getSandboxConfig(), listModelEndpoints(), listSandboxImages(),
+      getPolicy(),
+      hasAccess('settings:view') ? getLlmConfig() : null,
+      hasAccess('settings:view') ? getSandboxConfig() : null,
+      hasAccess('models:view') ? listModelEndpoints() : [],
+      hasAccess('settings:view') ? listSandboxImages() : null,
     ])
     modelEndpoints.value = Array.isArray(modelRes) ? modelRes : []
     sandboxImages.value = imageRes?.images || []
@@ -465,7 +470,7 @@ const reloadPolicy = () => {
 }
 const handleSaveAll = async () => {
   if (saving.value || loading.value || !loaded.value || !dirty.value) return
-  if (llmForm.enabled && !llmForm.model) {
+  if (hasAccess('settings:update') && hasAccess('settings:view') && llmForm.enabled && !llmForm.model) {
     openService('llm')
     message.error(t('policySettings.modelMissing'))
     return
@@ -476,7 +481,7 @@ const handleSaveAll = async () => {
       { key: 'policy', build: buildPayload, update: updatePolicy, apply: result => applyPolicy(result.policy) },
       { key: 'llm', build: buildLlmPayload, update: updateLlmConfig, apply: applyLlmConfig },
       { key: 'sandbox', build: buildSandboxPayload, update: updateSandboxConfig, apply: applySandboxConfig },
-    ].filter(job => JSON.stringify(job.build()) !== savedState[job.key])
+    ].filter(job => hasAccess(job.key === 'policy' ? 'policy:update' : 'settings:update') && (job.key === 'policy' || hasAccess('settings:view')) && JSON.stringify(job.build()) !== savedState[job.key])
     const results = await Promise.allSettled(jobs.map(async job => {
       const result = await job.update(job.build())
       job.apply(result)
@@ -490,7 +495,7 @@ const handleSaveAll = async () => {
   }
 }
 const handleTestSandboxConnection = async () => {
-  if (testingSandbox.value || saving.value || loading.value || !loaded.value) return
+  if (!hasAccess('settings:update') || testingSandbox.value || saving.value || loading.value || !loaded.value) return
   testingSandbox.value = true
   sandboxTestResult.value = null
   const payload = { ...buildSandboxPayload(), enabled: true, runtime: 'remote' }

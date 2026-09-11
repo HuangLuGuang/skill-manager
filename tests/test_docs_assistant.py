@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from backend import auth, models
+from backend import auth, iam, models
 from backend.api_errors import ApiError, api_error_handler
 from backend.routers import config as config_router
 from backend.sqlite_db import Base, get_db
@@ -20,6 +20,7 @@ def _test_client():
     session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
     db = session_factory()
+    iam.initialize(db)
     user = models.User(
         username="docs-admin",
         email="docs@example.com",

@@ -41,6 +41,8 @@ def trace_api(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "RUNTIME_TRACE_ENABLED", True)
     plain = "amat_runtime_trace_test"
     with session_factory() as db:
+        from backend import iam
+        iam.initialize(db)
         password_hash = auth.get_password_hash("test-password")
         admin = models.User(username="admin", hashed_password=password_hash, role="admin")
         auditor = models.User(username="auditor", hashed_password=password_hash, role="security_auditor")
@@ -181,6 +183,31 @@ def _batch(trace_id: str):
             },
         ],
     }
+
+
+def test_raw_trace_permission_revocation_blocks_existing_export_download(trace_api):
+    from backend import iam_models
+
+    client, factory, state, users, plain = trace_api
+    trace_id = _create(client, plain)
+    response = client.post(f"/api/v1/runtime-traces/{trace_id}/events:batch", headers={"Authorization": f"Bearer {plain}"}, json=_batch(trace_id))
+    assert response.status_code == 200, response.text
+    state["user"] = users["privacy"]
+    authorization = client.post(f"/api/v1/runtime-traces/{trace_id}/exports/raw-authorization", json={"password": "test-password", "acknowledge_sensitive_content": True})
+    assert authorization.status_code == 200, authorization.text
+    exported = client.post(f"/api/v1/runtime-traces/{trace_id}/exports", json={
+        "redaction_level": "raw", "format": "json", "acknowledge_sensitive_content": True,
+        "raw_authorization_token": authorization.json()["authorization_token"],
+    })
+    assert exported.status_code == 200, exported.text
+    with factory() as db:
+        db.query(iam_models.RolePermission).filter_by(role_name="privacy_auditor", permission_code="traces:raw").delete()
+        db.commit()
+    download = client.get(f"/api/v1/runtime-traces/exports/{exported.json()['export_id']}/download")
+    assert download.status_code == 403, download.text
+    assert download.json()["error_code"] == "iam.permission_denied"
+    raw = client.get(f"/api/v1/runtime-traces/{trace_id}/events/event-1/raw-payload")
+    assert raw.status_code == 403
 
 
 def test_runtime_trace_batch_idempotency_server_sequence_and_permissions(trace_api):

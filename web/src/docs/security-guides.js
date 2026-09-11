@@ -98,20 +98,20 @@ guide('security-scan-guide', ['安全扫描操作指南', 'Security scanning gui
     ['scan-kinds', {
       title: '六种扫描的输入、操作与产出',
       table: { columns: ['类型', '如何配置', '如何理解结果'], rows: [
-        ['控制面验证', '选择目标与策略，执行前预览连接配置、许可与预算边界。', '验证控制面执行契约，不等于已经完成动态攻击测试。'],
+        ['扫描链路自检', '选择目标与策略，执行前预览连接配置、许可与预算边界。', '检查任务调度、Worker 租约、心跳与结果回传，不代表目标安全。'],
         ['Agent 风险扫描', '选择测试规则，填写测试 Prompt；选择单轮或多轮。即时扫描可选择可继续的历史任务；定时扫描使用独立会话。', '查看真实测试对话、轮次和评估理由。规则名称是测试能力，不是向目标部署业务 Skill。'],
         ['Dify 资产清单', '选择在线 Console 采集或手动 DSL；按授权决定是否采集 Prompt 原文、推断意图、检查知识库内容。', '输出档案、模型、节点、Prompt、Tool、MCP、知识库及其来源和验证状态。配置存在和实际执行分别取证。'],
-        ['MCP 风险扫描', '选择登记的 MCP Gateway，核对已发现的 Server、Tool 和 Schema。', '分析任务创建时的冻结元数据快照；不执行 tools/call。先更新发现结果才能检查新工具。'],
+        ['MCP 风险扫描', '选择已登记网关或源码目标，选择元数据、源码、动态或多轮红队模式。', '源码/动态/红队选择网关模型。动态模式还需指定工具范围、调用路径和预算；真实调用证据与模型判断分别保存。'],
         ['大模型红队', '选择数据集及抽样数量、随机种子、问题变换方式，或填写自定义 Prompt；选择独立评估模型。', '计划数为各数据集实际抽样数之和乘以变换方式数。检查实际完成用例及目标回答，覆盖不足仍保留已完成用例并标记失败。'],
         ['AI 基础设施漏洞扫描', '确认目标 URL 授权，设置扫描超时与并发；HTTP 或私网按页面要求显式确认，并满足双侧 CIDR。', '主动访问以识别组件和版本，再匹配 CVE 规则；未知版本保持未验证。'],
       ] },
     }, {
       title: 'Inputs, operation, and output for six scan types',
       table: { columns: ['Type', 'Configuration', 'Interpretation'], rows: [
-        ['Control-plane validation', 'Choose target and policy; preview connection settings, permissions, and budgets.', 'Validates the execution contract, not a completed dynamic attack assessment.'],
+        ['Scan pipeline self-check', 'Choose target and policy; preview connection settings, permissions, and budgets.', 'Checks task dispatch, Worker leases, heartbeats, and result delivery; does not establish target safety.'],
         ['Agent risk scan', 'Choose test rules and a prompt; select single or multiple turns. Immediate scans can continue eligible prior tasks; scheduled scans use independent sessions.', 'Inspect real conversations, rounds, and evaluator reasons. Test-rule names identify scanning capabilities, not business Skills installed into the target.'],
         ['Dify asset inventory', 'Choose Console collection or manual DSL, then explicitly authorize prompt text, intent inference, or knowledge content as needed.', 'Produces profiles, models, nodes, prompts, tools, MCP, and knowledge references with source and verification status. Configuration and execution require separate evidence.'],
-        ['MCP risk scan', 'Choose a registered Gateway and verify discovered Servers, Tools, and Schemas.', 'Analyzes a frozen metadata snapshot without tools/call. Refresh discovery before assessing new tools.'],
+        ['MCP risk scan', 'Choose a registered gateway or source target, then metadata, source, dynamic or multi-round red-team mode.', 'Source, dynamic and red-team scans use gateway models. Dynamic scans require a tool scope, route and budget. Actual tool evidence and model assessments are retained separately.'],
         ['LLM red team', 'Choose datasets, sample counts, random seed, transformations, or a custom prompt; choose an independent evaluator.', 'Planned cases equal total actual samples across datasets times transformation count. Inspect completed cases and answers. Incomplete coverage fails while retaining completed evidence.'],
         ['AI infrastructure vulnerabilities', 'Authorize target URLs, set timeout and concurrency; confirm HTTP/private access when required and satisfy both CIDR boundaries.', 'Actively fingerprints components and versions before matching CVE rules. Unknown versions remain unverified.'],
       ] },
@@ -386,6 +386,11 @@ guide('security-operations', ['定时扫描、资产同步与风险处置', 'Sch
         ['aig_model_not_found / 404', '核对模型名称、运行地址和 chat_completions_path，避免重复 /v1 或使用前端根页面。'],
         ['429 / 超时 / 连接失败', '检查供应商配额、Worker 网络和请求超时；合理降低并发。不要只提高总任务预算。'],
         ['lease_expired / 重试耗尽', '先恢复 Worker 和心跳网络，再按新任务验证。旧失败记录保留，不能生成虚假完成报告。'],
+        ['下载诊断日志', '报告页点击“下载诊断日志”，将 JSON 提供给支持人员。包括状态、预算和 MCP 执行事件、HTTP/RPC 状态、异常类型与源码位置；不包含密钥、原始对话或工具参数。历史任务可能只有摘要。'],
+        ['重试扫描', '失败或超时任务沿用原配置重新校验权限和策略。已有重试仍在排队或运行时打开该任务；结束后再次点击创建新任务，原报告保留。'],
+        ['MCP 模型压缩提醒', '所选评估、分析或攻击模型的供应商开启压缩时显示提醒。压缩可能改变工具调用协议，造成重复请求或不完整结果；先核对诊断日志，避免只增加预算。'],
+        ['MCP 网关等待审批', '到 MCP 网关检查待审批请求及工具授权。已结束扫描不会因审批完成自动恢复；后续任务仍按网关授权配置校验。'],
+        ['MCP 报告与阶段', '执行中展示阶段进度，不代表最终用例通过。完成后 MCP 和 SARIF 报告展示发现、分析和修复建议，并可查看原始内容。模型判断标为待验证；工具参数没有认证字段不能证明服务缺失鉴权。'],
       ] }, link: { path: '/docs/docker-operations', label: '查看容器状态与日志排查' },
     }, {
       title: 'Workers: queues, heartbeat, leases, and upstream errors',
@@ -397,6 +402,11 @@ guide('security-operations', ['定时扫描、资产同步与风险处置', 'Sch
         ['aig_model_not_found / 404', 'Verify model name, endpoint, and chat_completions_path; avoid repeated /v1 or frontend routes.'],
         ['429 / timeout / connection failure', 'Check provider quota, Worker network, and request timeout; reduce concurrency as appropriate. Increasing task budgets alone is insufficient.'],
         ['Expired lease / exhausted retries', 'Restore Worker connectivity and verify with a new task. Preserve the failed record rather than inventing completion.'],
+        ['Download diagnostic logs', 'Download JSON from the report page for support. It includes status, budgets, MCP execution events, HTTP/RPC status, exception types, and source locations, without secrets, raw conversations, or tool arguments. Older tasks may contain only a summary.'],
+        ['Retry scan', 'Failed or timed-out tasks reuse their settings and recheck permissions and policies. Open an existing queued/running retry; create a new task after it ends. Original reports are retained.'],
+        ['MCP model compression warning', 'A warning appears when a selected evaluator, analyst, or attacker model has provider compression enabled. Compression may alter tool protocols, causing repeated requests or incomplete results. Check diagnostics before increasing budgets.'],
+        ['MCP gateway approval pending', 'Review pending approvals and tool authorization in the MCP gateway. Approval does not automatically resume an ended scan; subsequent tasks still enforce gateway authorization.'],
+        ['MCP reports and stages', 'Live stages show execution progress, not final test success. MCP and SARIF reports display findings, analysis, remediation, and raw content. Model assessments remain unverified; missing authentication fields in tool arguments do not prove missing server authentication.'],
       ] }, link: { path: '/docs/docker-operations', label: 'Read container and log diagnostics' },
     }],
   ])
