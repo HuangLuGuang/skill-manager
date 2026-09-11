@@ -1081,6 +1081,17 @@ class Registry:
                 (stage, scan_run_id),
             )
 
+    def update_scan_analyzer(self, scan_run_id: str, analyzer: str, status: str) -> None:
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE skill_scan_runs
+                SET result = json_set(result, ?, ?)
+                WHERE scan_run_id = ? AND status = 'PENDING'
+                """,
+                (f"$.analyzers.{analyzer}", status, scan_run_id),
+            )
+
     def update_scan_run(self, run: ScanRun) -> None:
         with self._lock, self._connect() as conn:
             conn.execute(
@@ -1341,6 +1352,12 @@ class Registry:
                         WHERE runs.version_id = s.skill_id AND runs.status = 'PENDING'
                         ORDER BY runs.started_at DESC LIMIT 1
                     ) AS scan_progress_stage,
+                    (
+                        SELECT json_extract(runs.result, '$.analyzers')
+                        FROM skill_scan_runs runs
+                        WHERE runs.version_id = s.skill_id AND runs.status = 'PENDING'
+                        ORDER BY runs.started_at DESC LIMIT 1
+                    ) AS scan_progress_analyzers,
                     s.risk_level,
                     s.submitted_at,
                     s.updated_at,
@@ -1409,6 +1426,7 @@ class Registry:
                 "status": row["status"],
                 "scan_pending": bool(row["scan_pending"]),
                 "scan_progress_stage": row["scan_progress_stage"],
+                "scan_progress_analyzers": json.loads(row["scan_progress_analyzers"] or "{}"),
                 "risk_level": row["risk_level"],
                 "vetting": {
                     "sandbox_triggered": sandbox_triggered_value,

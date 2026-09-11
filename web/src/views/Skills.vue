@@ -80,11 +80,8 @@
             </a-tooltip>
           </template>
           <template v-else-if="column.key === 'status'">
-            <a-tag v-if="record.scan_pending" color="gold">{{ $t('skillFilters.scanning') }}</a-tag>
+            <SkillScanProgress v-if="record.scan_pending || record.status === 'PENDING'" :stage="record.scan_progress_stage" :analyzers="record.scan_progress_analyzers || {}" />
             <a-tag v-else :color="statusColor(record.status)">{{ statusDisplay(record.status, record) }}</a-tag>
-            <div v-if="record.scan_pending || record.status === 'PENDING'" class="scan-progress">
-              <a-badge status="processing" :text="scanProgressLabel(record)" />
-            </div>
           </template>
           <template v-else-if="column.key === 'version'">
             <a-space wrap>
@@ -167,6 +164,7 @@ import { formatDateTime } from '../utils/format'
 import { lifecycleVersionId } from '../utils/skillVersions'
 import { canRunSkillAction, runSkillBatch } from '../utils/skillBatch'
 import SkillRescanModal from '../components/SkillRescanModal.vue'
+import SkillScanProgress from '../components/SkillScanProgress.vue'
 import { analysisCell, optionalAnalysisColumns, defaultSkillColumns, readVisibleColumns } from '../utils/skillColumns'
 
 const { isEnglish, text } = useLocaleText()
@@ -184,10 +182,6 @@ const analysisTag = (record, key) => {
   const level = String(cell.risk)
   const translation = level === level.toUpperCase() ? `skillColumns.${level}` : `decisionFlow.${level}`
   return { label: te(translation) ? t(translation) : level, color: ({ benign: 'green', SAFE: 'green', LOW: 'green', INFO: 'default', suspicious: 'orange', MEDIUM: 'orange', malicious: 'red', HIGH: 'red', CRITICAL: 'red', EXTREME: 'red' })[level] || 'default' }
-}
-const scanProgressLabel = record => {
-  const stage = record.scan_progress_stage || 'queued'
-  return t(`skillColumns.progress.${['queued', 'preparing', 'analyzers', 'sandbox', 'llm', 'finalizing'].includes(stage) ? stage : 'running'}`)
 }
 const keyword = ref('')
 const status = ref('all')
@@ -236,7 +230,7 @@ const allColumns = computed(() => [
   { title: 'Skill ID', dataIndex: 'skill_id', key: 'skill_id', width: 110, sorter: true },
   { title: text('最新版本', 'Latest Version'), key: 'version', width: 110 },
   { title: text('最新可信', 'Latest Trusted'), key: 'trustedVersion', width: 110 },
-  { title: text('状态', 'Status'), dataIndex: 'status', key: 'status', width: 180, sorter: true },
+  { title: text('状态', 'Status'), dataIndex: 'status', key: 'status', width: 220, sorter: true },
   { title: text('风险', 'Risk'), dataIndex: 'risk_level', key: 'risk', width: 160, sorter: true },
   { title: t('skillColumns.llm'), key: 'llm', width: 180 },
   ...optionalAnalysisColumns.map(key => ({ title: t(`skillColumns.${key}`), key, width: 160 })),
@@ -536,7 +530,6 @@ watch([status, risk, sandboxFilter], () => {
 </script>
 
 <style scoped>
-.scan-progress { margin-top: 6px; max-width: 180px; white-space: normal; overflow-wrap: anywhere; }
 .column-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 4px 0; width: 300px; max-width: calc(100vw - 64px); }
 .reset-columns { margin-top: 12px; padding-left: 0; }
 .column-options :deep(.ant-checkbox-wrapper) { margin-inline-start: 0; }

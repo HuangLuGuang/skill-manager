@@ -46,6 +46,45 @@ def default_policy():
     return CompanyPolicy.default()
 
 
+def test_parallel_analyzers_report_independent_progress(skill_dir, monkeypatch):
+    deep_finished = threading.Event()
+    states = {}
+
+    def report(name, status):
+        states[name] = status
+        if name == "skillspector" and status == "completed":
+            deep_finished.set()
+
+    def scanner(*_args):
+        assert deep_finished.wait(5)
+        assert states["scanner"] == "running"
+        assert states["skillspector"] == "completed"
+        return {"findings": [], "max_severity": "SAFE"}
+
+    monkeypatch.setattr("agent_manager.core.vetting._run_scanner", scanner)
+    monkeypatch.setattr("agent_manager.core.vetting._run_skillspector_without_llm", lambda *_: {
+        "available": True, "findings": [], "max_severity": "SAFE",
+    })
+    pipeline = VettingPipeline(CompanyPolicy({"require_sandbox_for_risk": []}))
+    pipeline.vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True, analyzer_callback=report)
+    assert states == {"scanner": "completed", "skillspector": "completed", "sandbox": "skipped", "llm": "disabled"}
+
+
+@pytest.mark.parametrize("deep_result, expected", [
+    ({"available": False}, "skipped"),
+    ({"available": True, "error": "test failure"}, "failed"),
+])
+def test_analyzer_progress_distinguishes_skipped_and_failed(skill_dir, monkeypatch, deep_result, expected):
+    states = {}
+    monkeypatch.setattr("agent_manager.core.vetting._run_scanner", lambda *_: {"findings": [], "max_severity": "SAFE"})
+    monkeypatch.setattr("agent_manager.core.vetting._run_skillspector_without_llm", lambda *_: deep_result)
+    VettingPipeline(CompanyPolicy({"require_sandbox_for_risk": []})).vet(
+        skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_skillspector=True,
+        analyzer_callback=lambda name, status: states.update({name: status}),
+    )
+    assert states["skillspector"] == expected
+
+
 class TestManifestLoading:
     def test_load_valid_manifest(self, skill_dir):
         name, desc, tools, lic = _load_manifest(skill_dir)

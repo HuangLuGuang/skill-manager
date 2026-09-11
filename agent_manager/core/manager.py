@@ -368,6 +368,10 @@ class AgentManager:
             if active_run_id:
                 self.registry.update_scan_progress(active_run_id, stage)
 
+        def report_analyzer(analyzer: str, status: str) -> None:
+            if active_run_id:
+                self.registry.update_scan_analyzer(active_run_id, analyzer, status)
+
         report_progress("preparing")
         skill_path = Path(entry.skill_path or "").resolve()
         source = entry.source
@@ -438,6 +442,7 @@ class AgentManager:
             use_skillspector=use_skillspector,
             judgement_mode=judgement_mode,
             progress_callback=report_progress,
+            analyzer_callback=report_analyzer,
         )
         current_entry = self.registry.get_by_id(skill_id)
         pending_run = next(

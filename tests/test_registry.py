@@ -46,15 +46,23 @@ class TestRegistry:
         run = ScanRun(scan_run_id="scan-1", version_id=entry.skill_id, scan_context_fingerprint="context")
         registry.add_scan_run(run)
         registry.update_scan_progress(run.scan_run_id, "llm")
+        registry.update_scan_analyzer(run.scan_run_id, "scanner", "completed")
+        registry.update_scan_analyzer(run.scan_run_id, "llm", "running")
+        expected_analyzers = {"scanner": "completed", "llm": "running"}
+        assert registry.list_skill_summaries(page=1, page_size=10)["items"][0]["scan_progress_analyzers"] == expected_analyzers
         assert registry.list_scan_runs(entry.skill_id)[0].result["progress_stage"] == "llm"
         assert registry.list_skill_summaries(page=1, page_size=10)["items"][0]["scan_progress_stage"] == "llm"
         run = registry.list_scan_runs(entry.skill_id)[0]
         run.status = terminal_status
         registry.update_scan_run(run)
         registry.update_scan_progress(run.scan_run_id, "finalizing")
+        registry.update_scan_analyzer(run.scan_run_id, "llm", "completed")
+        assert registry.list_scan_runs(entry.skill_id)[0].result["analyzers"] == expected_analyzers
+        assert registry.list_skill_summaries(page=1, page_size=10)["items"][0]["scan_progress_analyzers"] == {}
         assert registry.list_scan_runs(entry.skill_id)[0].result["progress_stage"] == "llm"
         assert registry.list_skill_summaries(page=1, page_size=10)["items"][0]["scan_progress_stage"] is None
         registry.add_scan_run(ScanRun(scan_run_id="scan-2", version_id=entry.skill_id, scan_context_fingerprint="context"))
+        assert registry.list_skill_summaries(page=1, page_size=10)["items"][0]["scan_progress_analyzers"] == {}
         assert registry.list_skill_summaries(page=1, page_size=10)["items"][0]["scan_progress_stage"] is None
 
     def test_scanning_and_review_filters_are_separate(self, registry):

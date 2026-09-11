@@ -719,6 +719,7 @@ class VettingPipeline:
         use_skillspector: bool | None = None,
         judgement_mode: str | None = None,
         progress_callback: Callable[[str], None] | None = None,
+        analyzer_callback: Callable[[str, str], None] | None = None,
     ) -> tuple[VettingResult, list[PolicyViolation], str, str, list[str]]:
         """Run selected analyzers and return the final policy-ready result."""
         started = time.monotonic()
@@ -739,13 +740,40 @@ class VettingPipeline:
             if use_skillspector is None
             else use_skillspector
         )
+
+        def report_analyzer(name: str, status: str) -> None:
+            if analyzer_callback:
+                analyzer_callback(name, status)
+
+        def run_analyzer(name: str, callback: Callable[[], Any]) -> Any:
+            report_analyzer(name, "running")
+            try:
+                execution = callback()
+            except Exception:
+                report_analyzer(name, "failed")
+                raise
+            result = execution.result
+            status = "completed"
+            if name == "scanner" and result.get("scanner_error"):
+                status = "failed"
+            elif name == "skillspector":
+                status = "skipped" if not result.get("available") else "failed" if result.get("error") else "completed"
+            elif name == "sandbox":
+                status = "failed" if result.get("available") is False else "completed" if result.get("executed") else "skipped"
+            report_analyzer(name, status)
+            return execution
+
+        report_analyzer("scanner", "pending")
+        report_analyzer("skillspector", "pending" if should_run_skillspector else "disabled")
+        report_analyzer("sandbox", "pending")
+        report_analyzer("llm", "pending" if use_llm else "disabled")
         if progress_callback:
             progress_callback("analyzers")
         futures: dict[str, Future[Any]] = {
             "scanner": _analyzer_executor.submit(
-                _timed_analyzer,
+                run_analyzer,
                 "scanner",
-                lambda: _run_scanner(skill_path, self.policy.scanner_policy),
+                lambda: _timed_analyzer("scanner", lambda: _run_scanner(skill_path, self.policy.scanner_policy)),
             ),
         }
         if use_behavioral:
@@ -756,15 +784,15 @@ class VettingPipeline:
             )
         if should_run_skillspector:
             futures["skillspector"] = _analyzer_executor.submit(
-                _timed_analyzer,
+                run_analyzer,
                 "skillspector",
-                lambda: _run_skillspector_without_llm(
+                lambda: _timed_analyzer("skillspector", lambda: _run_skillspector_without_llm(
                     skill_path,
                     self.policy.skillspector_timeout_seconds,
-                ),
+                )),
             )
         if use_sandbox:
-            futures["sandbox"] = _analyzer_executor.submit(_timed_sandbox, skill_path)
+            futures["sandbox"] = _analyzer_executor.submit(run_analyzer, "sandbox", lambda: _timed_sandbox(skill_path))
 
         analyzer_timings: dict[str, dict[str, Any]] = {}
         scanner_execution: AnalyzerExecution = futures["scanner"].result()
@@ -873,11 +901,13 @@ class VettingPipeline:
             sandbox_notes.append(
                 f"[SANDBOX] required by policy for risk level {interim_risk_level.value}"
             )
+        if not effective_use_sandbox:
+            report_analyzer("sandbox", "skipped")
         if effective_use_sandbox:
             if progress_callback:
                 progress_callback("sandbox")
             if "sandbox" not in futures:
-                futures["sandbox"] = _analyzer_executor.submit(_timed_sandbox, skill_path)
+                futures["sandbox"] = _analyzer_executor.submit(run_analyzer, "sandbox", lambda: _timed_sandbox(skill_path))
             sandbox_execution: SandboxExecution = futures["sandbox"].result()
             sandbox_result = sandbox_execution.result
             sandbox_runtime = sandbox_execution.runtime
@@ -927,6 +957,7 @@ class VettingPipeline:
         if use_llm:
             if progress_callback:
                 progress_callback("llm")
+            report_analyzer("llm", "running")
             llm_started = time.monotonic()
             try:
                 llm_config = LLMConfig.load()
@@ -958,6 +989,7 @@ class VettingPipeline:
                 logger.warning("LLM analysis skipped for %s: %s", skill_path, exc)
                 llm_notes.append(f"[LLM] analysis skipped: {exc}")
                 llm_status = "failed"
+            report_analyzer("llm", llm_status)
             analyzer_timings["llm"] = {
                 "status": llm_status,
                 "duration_seconds": time.monotonic() - llm_started,
