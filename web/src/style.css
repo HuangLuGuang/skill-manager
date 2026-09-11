@@ -26,3 +26,106 @@ a {
   color: #1c6ea4;
   text-decoration: none;
 }
+
+.page-card {
+  min-width: 0;
+}
+
+.page-card > .ant-card-head .ant-card-head-title {
+  min-width: 0;
+  white-space: normal;
+  overflow: visible;
+}
+
+.page-card > .ant-card-head .ant-page-header {
+  padding: 0;
+}
+
+.page-card > .ant-card-head .ant-page-header-heading-left {
+  flex: 1 1 240px;
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.page-card > .ant-card-head .ant-page-header-heading-title,
+.page-card > .ant-card-head .ant-page-header-heading-sub-title {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.page-card > .ant-card-head .ant-page-header-heading-sub-title {
+  font-weight: 400;
+}
+
+.page-card > .ant-card-head .ant-page-header-heading-extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+  max-width: 100%;
+  margin-inline-start: 0;
+}
+
+.page-card > .ant-card-head .ant-page-header-heading-extra > * {
+  margin-inline-start: 0;
+}
+
+.page-card > .ant-card-head :is(.iam-header, .audit-header, .ops-header, .trace-header) {
+  margin-bottom: 0;
+  align-items: center;
+}
+
+.page-card > .ant-card-head :is(h1, h2) {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 32px;
+  overflow-wrap: anywhere;
+}
+
+.page-card > .ant-card-head p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  font-weight: 400;
+  color: #8c8c8c;
+  overflow-wrap: anywhere;
+}
+
+.page-card > .ant-card-head .ant-btn {
+  height: auto;
+  min-height: 32px;
+  white-space: normal;
+  flex-shrink: 0;
+}
+
+.page-card .ant-table-content {
+  overflow-x: auto;
+}
+
+.page-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.page-section-heading h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+@media (max-width: 767px) {
+  .page-card > .ant-card-head :is(.iam-header, .audit-header, .ops-header, .trace-header) {
+    align-items: stretch;
+  }
+
+  .page-card > .ant-card-head,
+  .page-card > .ant-card-body {
+    padding-inline: 16px;
+  }
+}

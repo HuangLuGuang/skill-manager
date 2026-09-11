@@ -1,8 +1,11 @@
 <template>
   <div>
-    <a-page-header v-if="!embedded" :title="$t('legacy.7ucd4c')" :sub-title="$t('legacy.wwz7e')" />
+    <a-card :class="{ 'page-card': !embedded }" :bordered="!embedded" :body-style="embedded ? { padding: 0 } : undefined">
+      <template v-if="!embedded" #title>
+        <a-page-header :title="$t('legacy.7ucd4c')" :sub-title="$t('legacy.wwz7e')" />
+      </template>
 
-    <a-row :gutter="[16, 16]" style="margin-top: 16px">
+    <a-row :gutter="[16, 16]">
       <a-col :xs="24" :xl="9">
         <a-card :title="$t('legacy.uqe9vk')">
           <a-space direction="vertical" style="width: 100%" size="middle">
@@ -76,6 +79,8 @@
           <pre class="code-block">{{ envCommand }}</pre>
         </a-tab-pane>
       </a-tabs>
+    </a-card>
+
     </a-card>
 
   </div>

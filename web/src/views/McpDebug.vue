@@ -1,6 +1,9 @@
 <template>
   <div>
-    <a-page-header :title="$t('legacy.1o166ch')" :sub-title="$t('legacy.1p8eh88')" />
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="$t('legacy.1o166ch')" :sub-title="$t('legacy.1p8eh88')" />
+      </template>
 
     <a-alert
       type="info"
@@ -188,6 +191,8 @@
         </a-collapse-panel>
       </a-collapse>
     </a-card>
+    </a-card>
+
   </div>
 </template>
 

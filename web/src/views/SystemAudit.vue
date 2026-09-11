@@ -1,12 +1,14 @@
 <template>
   <div>
-    <div class="audit-header"><h2>{{ t('iam.audit') }}</h2>
-      <a-tooltip v-if="can('audit:verify')" :title="t('iam.verifyHelp')" :trigger="['hover', 'focus']">
-        <a-button :loading="verifying" :disabled="verifying" :aria-label="`${t('iam.verify')}：${t('iam.verifyHelp')}`" @click="verify">{{ t('iam.verify') }}</a-button>
-      </a-tooltip>
-    </div>
-    <p>{{ t('iam.timezone') }}</p>
-    <a-card>
+    <a-card class="page-card">
+      <template #title>
+        <div class="audit-header"><h2>{{ t('iam.audit') }}</h2>
+          <a-tooltip v-if="can('audit:verify')" :title="t('iam.verifyHelp')" :trigger="['hover', 'focus']">
+            <a-button :loading="verifying" :disabled="verifying" :aria-label="`${t('iam.verify')}：${t('iam.verifyHelp')}`" @click="verify">{{ t('iam.verify') }}</a-button>
+          </a-tooltip>
+        </div>
+      </template>
+
       <a-tabs v-model:activeKey="kind">
         <a-tab-pane v-for="item in kinds" :key="item" :tab="t(`iam.${item}`)" />
       </a-tabs>

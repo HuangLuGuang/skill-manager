@@ -1,11 +1,14 @@
 <template>
   <div class="credential-page">
-    <a-page-header :title="$t('credentials.pageTitle')" :sub-title="$t('credentials.pageSubtitle')">
-      <template #extra>
-        <a-button :loading="loading" @click="fetchTokens">{{ $t('credentials.refresh') }}</a-button>
-        <a-button v-if="hasAccess('credentials:create')" type="primary" @click="openCreate()">{{ $t('credentials.createAction') }}</a-button>
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="$t('credentials.pageTitle')" :sub-title="$t('credentials.pageSubtitle')">
+          <template #extra>
+            <a-button :loading="loading" @click="fetchTokens">{{ $t('credentials.refresh') }}</a-button>
+            <a-button v-if="hasAccess('credentials:create')" type="primary" @click="openCreate()">{{ $t('credentials.createAction') }}</a-button>
+          </template>
+        </a-page-header>
       </template>
-    </a-page-header>
 
     <section class="route-map" :aria-label="$t('credentials.routeEyebrow')">
       <div class="route-grid">
@@ -30,7 +33,7 @@
       </div>
     </section>
 
-    <a-card class="inventory-card" :bordered="false">
+    <section class="inventory-card">
       <div class="inventory-head">
         <div>
           <h2>{{ $t('credentials.inventoryTitle') }}</h2>
@@ -124,6 +127,8 @@
           </div>
         </template>
       </a-table>
+    </section>
+
     </a-card>
 
     <a-modal
@@ -850,8 +855,6 @@ onMounted(async () => {
 
 .inventory-card {
   margin-top: 18px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
 }
 
 .inventory-head {

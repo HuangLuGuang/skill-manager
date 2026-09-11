@@ -1,13 +1,16 @@
 <template>
   <div>
-    <a-page-header :title="$t('legacy.1jy0sj1')" :sub-title="$t('legacy.1urpidh')">
-      <template #extra>
-        <a-button type="primary" @click="guideVisible = true">{{ $t("legacy.u03t1e") }}</a-button>
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="$t('legacy.1jy0sj1')" :sub-title="$t('legacy.1urpidh')">
+          <template #extra>
+            <a-button type="primary" @click="guideVisible = true">{{ $t("legacy.u03t1e") }}</a-button>
+          </template>
+        </a-page-header>
       </template>
-    </a-page-header>
 
-    <a-row :gutter="[16, 16]" style="margin-top: 16px">
-      <a-col :xs="24" :md="8" v-for="item in moduleCards" :key="item.key">
+    <a-row :gutter="[16, 16]">
+      <a-col :xs="24" :xl="8" v-for="item in moduleCards" :key="item.key">
         <a-card class="module-card" :title="item.title">
           <template #extra>
             <a-button v-if="pageAllowed(item.path)" type="link" size="small" @click="$router.push(item.path)">{{ $t("legacy.58gz2l") }}</a-button>
@@ -126,6 +129,8 @@
         </a-card>
       </a-col>
     </a-row>
+
+    </a-card>
 
     <a-modal v-model:open="guideVisible" :title="$t('legacy.8y18tl')" width="980px" :footer="null">
       <a-row :gutter="[16, 16]">
@@ -593,6 +598,10 @@ onMounted(fetchDashboard)
 .module-card {
   height: 100%;
 }
+.module-card :deep(.ant-card-head-title) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 
 .module-primary {
   display: flex;
@@ -637,7 +646,9 @@ onMounted(fetchDashboard)
 }
 
 .flow-step {
-  white-space: nowrap;
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .flow-arrow {

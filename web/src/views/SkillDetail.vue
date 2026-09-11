@@ -1,20 +1,23 @@
 <template>
   <div class="skill-detail-page">
-    <a-page-header :title="detailPageTitle" :sub-title="text('查看 Skill 详情、审核与审计记录', 'Review Skill details, approval, and audit records')">
-      <template #extra>
-        <a-button v-if="hasAccess('clients:execute') && (detail?.status === 'APPROVED')" type="primary" @click="openClientInstall"> {{ $t("legacy.1wbn313") }} </a-button>
-        <a-button
-          @click="handleExportScanReport"
-          :loading="exportingScanReport"
-          :disabled="!detail?.vetting || detail?.status === 'PENDING'"
-        >
-          {{ $t('scanReportExport.button') }}
-        </a-button>
-        <a-button @click="handleDownloadSkill" :loading="downloadingSkill" :disabled="!detail?.skill_id"> {{ $t("legacy.fye4hw") }} </a-button>
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="detailPageTitle" :sub-title="text('查看 Skill 详情、审核与审计记录', 'Review Skill details, approval, and audit records')">
+          <template #extra>
+            <a-button v-if="hasAccess('clients:execute') && (detail?.status === 'APPROVED')" type="primary" @click="openClientInstall"> {{ $t("legacy.1wbn313") }} </a-button>
+            <a-button
+              @click="handleExportScanReport"
+              :loading="exportingScanReport"
+              :disabled="!detail?.vetting || detail?.status === 'PENDING'"
+            >
+              {{ $t('scanReportExport.button') }}
+            </a-button>
+            <a-button @click="handleDownloadSkill" :loading="downloadingSkill" :disabled="!detail?.skill_id"> {{ $t("legacy.fye4hw") }} </a-button>
+          </template>
+        </a-page-header>
       </template>
-    </a-page-header>
 
-    <a-card :title="$t('legacy.17qypnb')" class="basic-info-card" style="margin-top: 16px">
+    <a-card :title="$t('legacy.17qypnb')" class="basic-info-card">
       <template #extra>
         <a-space wrap class="basic-scan-options">
           <a-tooltip :title="$t(`skillBatch.optionsSource_${detail?.scan_options_source || 'unknown'}`)">
@@ -915,6 +918,8 @@
           </a-table>
         </a-tab-pane>
       </a-tabs>
+    </a-card>
+
     </a-card>
 
     <a-modal

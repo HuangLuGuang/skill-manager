@@ -1,20 +1,23 @@
 <template>
   <section class="scan-page">
-    <header class="ops-header">
-      <div>
-        <h1>{{ t('agentSecurityScans.title') }}</h1>
-      </div>
-      <a-space wrap>
-        <a-button :loading="refreshing" @click="refreshAll">
-          <template #icon><ReloadOutlined /></template>
-          {{ t('agentSecurityScans.refresh') }}
-        </a-button>
-        <a-button v-if="hasAccess('scans:execute')" type="primary" :disabled="!canStartScan" @click="openTaskModal">
-          <template #icon><PlayCircleOutlined /></template>
-          {{ t('agentSecurityScans.newTask') }}
-        </a-button>
-      </a-space>
-    </header>
+    <a-card class="page-card">
+      <template #title>
+        <header class="ops-header">
+          <div>
+            <h1>{{ t('agentSecurityScans.title') }}</h1>
+          </div>
+          <a-space wrap>
+            <a-button :loading="refreshing" @click="refreshAll">
+              <template #icon><ReloadOutlined /></template>
+              {{ t('agentSecurityScans.refresh') }}
+            </a-button>
+            <a-button v-if="hasAccess('scans:execute')" type="primary" :disabled="!canStartScan" @click="openTaskModal">
+              <template #icon><PlayCircleOutlined /></template>
+              {{ t('agentSecurityScans.newTask') }}
+            </a-button>
+          </a-space>
+        </header>
+      </template>
 
     <nav class="scan-pipeline" :aria-label="t('agentSecurityScans.pipelineLabel')">
       <button
@@ -378,6 +381,8 @@
         </template>
       </div>
     </a-spin>
+
+    </a-card>
 
     <a-modal v-model:open="comparisonModalOpen" :title="t('agentSecurityScans.comparison.title')" width="920px" :footer="null">
       <a-alert class="modal-alert" type="info" show-icon :message="t('agentSecurityScans.comparison.boundary')" />

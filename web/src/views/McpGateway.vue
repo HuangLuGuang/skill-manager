@@ -1,15 +1,19 @@
 <template>
   <div>
-    <a-page-header :title="pageTitle" :sub-title="pageSubtitle" />
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="pageTitle" :sub-title="pageSubtitle">
+          <template #extra>
+            <a-button :loading="loading" @click="fetchAll">{{ text('刷新', 'Refresh') }}</a-button>
+            <a-button v-if="activePage === 'servers' && hasAccess('mcp:create')" type="primary" @click="openServer()">{{ $t("legacy.1enmtj9") }}</a-button>
+            <a-button v-if="activePage === 'gateways' && hasAccess('mcp:create')" type="primary" @click="openGateway()">{{ $t("legacy.1cl5f6n") }}</a-button>
+          </template>
+        </a-page-header>
+      </template>
 
     <template v-if="activePage === 'servers'">
-        <a-card>
-          <template #extra>
-            <a-space>
-              <a-button :loading="loading" @click="fetchAll">{{ text('刷新', 'Refresh') }}</a-button>
-              <a-button v-if="hasAccess('mcp:create')" type="primary" @click="openServer()">{{ $t("legacy.1enmtj9") }}</a-button>
-            </a-space>
-          </template>
+        <section>
+
           <a-table :data-source="servers" :columns="serverColumns" row-key="id" :loading="loading" size="small">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'server'">
@@ -46,17 +50,12 @@
               </template>
             </template>
           </a-table>
-        </a-card>
+        </section>
     </template>
 
     <template v-else-if="activePage === 'gateways'">
-        <a-card>
-          <template #extra>
-            <a-space>
-              <a-button :loading="loading" @click="fetchAll">{{ text('刷新', 'Refresh') }}</a-button>
-              <a-button v-if="hasAccess('mcp:create')" type="primary" @click="openGateway()">{{ $t("legacy.1cl5f6n") }}</a-button>
-            </a-space>
-          </template>
+        <section>
+
           <a-table :data-source="gateways" :columns="gatewayColumns" row-key="id" :loading="loading" size="small" :scroll="{ x: 980 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'gateway'">
@@ -88,12 +87,12 @@
               </template>
             </template>
           </a-table>
-        </a-card>
+        </section>
     </template>
 
     <template v-else>
-        <a-card>
-          <template #extra><a-button :loading="loading" @click="fetchAll">{{ text('刷新', 'Refresh') }}</a-button></template>
+        <section>
+
           <a-table :data-source="auditRows" :columns="auditColumns" row-key="id" :loading="loading" size="small" :pagination="{ pageSize: 20 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'target'">
@@ -106,8 +105,10 @@
               <template v-else-if="column.key === 'time'">{{ formatTime(record.created_at) }}</template>
             </template>
           </a-table>
-        </a-card>
+        </section>
     </template>
+
+    </a-card>
 
     <a-modal v-model:open="serverVisible" :title="editingServerId ? $t('legacy.irabzr') : $t('legacy.1enmtj9')" width="760px" :confirm-loading="submitting" @ok="saveServer">
       <a-form layout="vertical" :model="serverForm">

@@ -1,13 +1,15 @@
 <template>
   <div>
-    <a-page-header :title="$t('legacy.1ngfjb6')" :sub-title="$t('legacy.vpytmv')" />
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="$t('legacy.1ngfjb6')" :sub-title="$t('legacy.vpytmv')" />
+      </template>
 
     <a-alert
       type="warning"
       show-icon
       :message="$t('legacy.1k6rkb4')"
       :description="$t('legacy.xnr5g4')"
-      style="margin-top: 16px"
     />
 
     <a-card :title="$t('legacy.1wwptsv')" style="margin-top: 16px">
@@ -59,6 +61,8 @@
           </template>
         </template>
       </a-table>
+    </a-card>
+
     </a-card>
 
     <a-drawer

@@ -1,6 +1,9 @@
 <template>
   <div class="approval-page">
-    <a-page-header :title="t('mcpApproval.title')" :sub-title="t('mcpApproval.subtitle')" />
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="t('mcpApproval.title')" :sub-title="t('mcpApproval.subtitle')" />
+      </template>
 
     <a-row :gutter="[16, 16]" class="stats-row">
       <a-col :xs="12" :lg="6">
@@ -17,7 +20,7 @@
       </a-col>
     </a-row>
 
-    <a-card class="approval-card">
+    <section class="approval-card">
       <a-tabs v-model:activeKey="activeTab" @change="handleTabChange">
         <a-tab-pane key="pending" :tab="t('mcpApproval.pending')" />
         <a-tab-pane key="processed" :tab="t('mcpApproval.processed')" />
@@ -79,6 +82,8 @@
           </template>
         </template>
       </a-table>
+    </section>
+
     </a-card>
 
     <a-drawer v-model:open="detailVisible" :title="t('mcpApproval.requestDetails')" width="720" destroy-on-close>

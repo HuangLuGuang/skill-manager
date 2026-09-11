@@ -1,21 +1,24 @@
 <template>
   <section class="trace-page">
-    <header class="trace-header">
-      <div>
-        <h1>{{ t('runtimeTraceExplorer.title') }}</h1>
-      </div>
-      <div class="trace-header-actions">
-      <span class="header-session-count">{{ t('runtimeTraceExplorer.search.sessionsMatched', { count: total }) }}</span>
-      <a-button :aria-expanded="searchOpen" aria-controls="trace-query" @click="searchOpen = !searchOpen">
-        <template #icon><SearchOutlined /></template>
-        {{ t('runtimeTraceExplorer.search.title') }}
-      </a-button>
-      <a-button :loading="loading || detailLoading" @click="refresh">
-        <template #icon><ReloadOutlined /></template>
-        {{ t('runtimeTraceExplorer.refresh') }}
-      </a-button>
-      </div>
-    </header>
+    <a-card class="page-card">
+      <template #title>
+        <header class="trace-header">
+          <div>
+            <h1>{{ t('runtimeTraceExplorer.title') }}</h1>
+          </div>
+          <div class="trace-header-actions">
+          <span class="header-session-count">{{ t('runtimeTraceExplorer.search.sessionsMatched', { count: total }) }}</span>
+          <a-button :aria-expanded="searchOpen" aria-controls="trace-query" @click="searchOpen = !searchOpen">
+            <template #icon><SearchOutlined /></template>
+            {{ t('runtimeTraceExplorer.search.title') }}
+          </a-button>
+          <a-button :loading="loading || detailLoading" @click="refresh">
+            <template #icon><ReloadOutlined /></template>
+            {{ t('runtimeTraceExplorer.refresh') }}
+          </a-button>
+          </div>
+        </header>
+      </template>
 
     <a-alert
       v-if="error"
@@ -457,6 +460,8 @@
       </template>
     </aside>
     </div>
+
+    </a-card>
 
     <a-modal
       v-model:open="exportGateOpen"
@@ -1125,6 +1130,23 @@ onBeforeUnmount(() => {
   gap: 12px 20px;
   min-height: 32px;
   margin-bottom: 12px;
+}
+.trace-page > .page-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.trace-page > .page-card :deep(> .ant-card-head) {
+  flex-shrink: 0;
+}
+.trace-page > .page-card :deep(> .ant-card-body) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 .trace-header-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .header-session-count { margin-right: 4px; color: #667085; font-size: 12px; }

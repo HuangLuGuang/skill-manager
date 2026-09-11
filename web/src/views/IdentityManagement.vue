@@ -1,15 +1,16 @@
 <template>
   <div class="iam-page">
-    <header class="iam-header">
-      <div><h2>{{ t(`iam.${kind}`) }}</h2><p>{{ t(`iam.pageDescriptions.${kind}`) }}</p></div>
-      <a-space wrap>
-        <a-button :loading="loading" :disabled="submitting" @click="load">{{ t('iam.refresh') }}</a-button>
-        <a-button v-if="can(`${kind}:create`) && (kind !== 'users' || can('users:assign_role'))" type="primary" :disabled="submitting" @click="openCreate()">{{ t('iam.create') }}</a-button>
-      </a-space>
-    </header>
-    <p v-if="kind === 'users'">{{ t('iam.timezone') }}</p>
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="t(`iam.${kind}`)" :sub-title="t(`iam.pageDescriptions.${kind}`)">
+          <template #extra>
+            <a-button :loading="loading" :disabled="submitting" @click="load">{{ t('iam.refresh') }}</a-button>
+            <a-button v-if="can(`${kind}:create`) && (kind !== 'users' || can('users:assign_role'))" type="primary" :disabled="submitting" @click="openCreate()">{{ t('iam.create') }}</a-button>
+          </template>
+        </a-page-header>
+      </template>
     <a-alert v-if="kind === 'menus'" :message="t('iam.menuHint')" type="info" show-icon class="iam-note" />
-    <a-card>
+
       <div class="iam-filters"><a-space wrap>
         <a-input v-if="kind !== 'menus'" v-model:value="filters.q" :placeholder="t(kind === 'roles' ? 'iam.roleKeyword' : 'iam.accountKeyword')" allow-clear @pressEnter="search" />
         <template v-if="kind === 'users'">

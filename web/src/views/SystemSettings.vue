@@ -1,6 +1,9 @@
 <template>
   <div class="system-overview">
-    <a-page-header :title="$t('legacy.11x0ooc')" :sub-title="$t('legacy.1572cr1')" />
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="$t('legacy.11x0ooc')" :sub-title="$t('legacy.1572cr1')" />
+      </template>
 
     <BrandingSettings />
 
@@ -84,6 +87,8 @@
         </div>
       </div>
     </section>
+
+    </a-card>
 
   </div>
 </template>

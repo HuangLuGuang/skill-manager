@@ -1,11 +1,14 @@
 <template>
   <div>
-    <a-page-header :title="$t('legacy.hx2vnc')" :sub-title="$t('legacy.ud53vr')">
-      <template #extra>
-        <a-button type="primary" @click="installGuideVisible = true">{{ $t("legacy.18h6c95") }}</a-button>
-        <a-button :loading="loading" @click="loadClients">{{ $t("legacy.12qo56a") }}</a-button>
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="$t('legacy.hx2vnc')" :sub-title="$t('legacy.ud53vr')">
+          <template #extra>
+            <a-button type="primary" @click="installGuideVisible = true">{{ $t("legacy.18h6c95") }}</a-button>
+            <a-button :loading="loading" @click="loadClients">{{ $t("legacy.12qo56a") }}</a-button>
+          </template>
+        </a-page-header>
       </template>
-    </a-page-header>
 
     <a-row :gutter="[16, 16]" class="summary-row">
       <a-col :xs="12" :lg="6"><a-card><a-statistic :title="$t('legacy.1kv2rkb')" :value="clients.length" /></a-card></a-col>
@@ -14,7 +17,7 @@
       <a-col :xs="12" :lg="6"><a-card><a-statistic :title="$t('legacy.1iz81li')" :value="issueCount" /></a-card></a-col>
     </a-row>
 
-    <a-card class="table-card">
+    <section class="table-card">
       <a-table :columns="columns" :data-source="clients" row-key="client_id" :loading="loading" :pagination="{ pageSize: 10 }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'client'">
@@ -41,6 +44,8 @@
           </template>
         </template>
       </a-table>
+    </section>
+
     </a-card>
 
     <a-drawer v-model:open="detailVisible" :title="$t('legacy.95lv9i')" width="1080" :destroy-on-close="true">

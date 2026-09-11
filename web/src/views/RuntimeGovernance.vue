@@ -1,8 +1,11 @@
 <template>
   <div>
-    <a-page-header :title="$t('legacy.ppwp4v')" :sub-title="$t('legacy.1n3dozp')" />
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="$t('legacy.ppwp4v')" :sub-title="$t('legacy.1n3dozp')" />
+      </template>
 
-    <a-card :title="$t('legacy.1b4zqhb')" style="margin-top: 16px">
+    <a-card :title="$t('legacy.1b4zqhb')">
       <template #extra>
         <a-button v-if="hasAccess('credentials:view')" type="primary" :loading="guardDownloading" @click="handleSkillGuardDownload">{{ $t("legacy.ayz2ay") }}</a-button>
       </template>
@@ -100,6 +103,8 @@
         </a-card>
       </a-col>
     </a-row>
+    </a-card>
+
   </div>
 </template>
 

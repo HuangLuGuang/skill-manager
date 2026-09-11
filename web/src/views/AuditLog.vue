@@ -1,8 +1,9 @@
 <template>
   <div>
-    <a-page-header :title="$t('legacy.13omz3w')" :sub-title="$t('legacy.1n43afx')" />
-
-    <a-card style="margin-top: 16px">
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="$t('legacy.13omz3w')" :sub-title="$t('legacy.1n43afx')" />
+      </template>
       <a-space wrap style="margin-bottom: 16px">
         <a-input
           v-model:value="filters.keyword"

@@ -1,10 +1,13 @@
 <template>
   <div>
-    <a-page-header :title="$t('legacy.5chjsa')" :sub-title="$t('legacy.8y4kug')">
-      <template #extra>
-        <a-button @click="flowVisible = true">{{ $t("legacy.udb4df") }}</a-button>
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="$t('legacy.5chjsa')" :sub-title="$t('legacy.8y4kug')">
+          <template #extra>
+            <a-button @click="flowVisible = true">{{ $t("legacy.udb4df") }}</a-button>
+          </template>
+        </a-page-header>
       </template>
-    </a-page-header>
 
     <a-card class="flow-card">
       <a-row :gutter="[16, 16]">
@@ -52,7 +55,7 @@
       </a-row>
     </a-card>
 
-    <a-card style="margin-top: 16px">
+    <section style="margin-top: 16px">
       <a-space style="margin-bottom: 16px" wrap>
         <a-select v-model:value="filters.department_group_id" allow-clear :placeholder="$t('legacy.1qbe72t')" style="width: 180px" @change="fetchAgents">
           <a-select-option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</a-select-option>
@@ -102,6 +105,8 @@
           </template>
         </template>
       </a-table>
+    </section>
+
     </a-card>
 
     <a-modal v-model:open="agentVisible" :title="editingAgentId ? $t('legacy.1k1efeu') : $t('legacy.1krdxw3')" width="760px" @ok="saveAgent" :confirm-loading="submitting">

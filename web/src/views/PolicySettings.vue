@@ -1,6 +1,9 @@
 <template>
   <div class="policy-page">
-    <a-page-header :title="t('policySettings.title')" :sub-title="t('policySettings.subtitle')" />
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="t('policySettings.title')" :sub-title="t('policySettings.subtitle')" />
+      </template>
     <a-alert v-if="loadFailed" type="error" show-icon :message="t('policySettings.loadFailed')">
       <template #action><a-button @click="fetchPolicy" :loading="loading">{{ t('policySettings.reload') }}</a-button></template>
     </a-alert>
@@ -206,6 +209,8 @@
         </div>
       </a-form>
     </a-spin>
+    </a-card>
+
   </div>
 </template>
 

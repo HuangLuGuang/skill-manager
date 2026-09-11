@@ -1,8 +1,9 @@
 <template>
   <div>
-    <a-page-header :title="$t('legacy.kh1ras')" :sub-title="$t('legacy.2fxvx')" />
-
-    <a-card style="margin-top: 16px">
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="$t('legacy.kh1ras')" :sub-title="$t('legacy.2fxvx')" />
+      </template>
       <a-space style="margin-bottom: 16px" wrap>
         <a-segmented v-model:value="activeTab" :options="tabs" />
         <a-select v-model:value="risk" style="width: 160px">

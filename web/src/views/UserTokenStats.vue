@@ -1,6 +1,9 @@
 <template>
   <div>
-    <a-page-header :title="$t('legacy.7h965d')" :sub-title="$t('legacy.o7xf8c')" />
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="$t('legacy.7h965d')" :sub-title="$t('legacy.o7xf8c')" />
+      </template>
 
     <!-- 筛选 -->
     <a-space style="margin-bottom: 16px" wrap>
@@ -61,6 +64,8 @@
         :locale="{ emptyText: $t('legacy.6tzr61') }"
       />
     </a-card>
+    </a-card>
+
   </div>
 </template>
 

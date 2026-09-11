@@ -1,8 +1,21 @@
 <template>
   <div>
-    <a-page-header :title="pageTitle" :sub-title="pageSubtitle" />
+    <a-card class="page-card" :body-style="activeTab === 'providers' ? { paddingTop: '12px' } : undefined">
+      <template #title>
+        <a-page-header :title="pageTitle" :sub-title="pageSubtitle">
+          <template #extra>
+            <a-button v-if="activeTab === 'prompt-guard'" @click="router.push('/credentials')">{{ $t('legacy.z26gt3') }}</a-button>
+            <template v-if="activeTab === 'providers'">
+              <a-button :loading="loading" @click="loadAll">{{ $t('modelGateway.catalog.refresh') }}</a-button>
+              <a-button v-if="hasAccess('providers:create')" type="primary" @click="openProvider()">{{ $t('modelGateway.catalog.addProvider') }}</a-button>
+            </template>
+            <a-button v-if="activeTab === 'keys'" type="primary" @click="router.push('/credentials')">{{ $t("legacy.ntpgmd") }}</a-button>
+            <a-button v-if="activeTab === 'policies' && hasAccess('privacy:create')" type="primary" @click="openPolicy()">{{ $t("legacy.15zxxn") }}</a-button>
+          </template>
+        </a-page-header>
+      </template>
 
-    <a-row v-if="showGatewayStats" :gutter="[16, 16]" style="margin-top: 16px">
+    <a-row v-if="showGatewayStats" :gutter="[16, 16]">
       <a-col :xs="24" :md="8">
         <a-statistic :title="$t('legacy.7lz8o0')" :value="stats.total_requests ?? $t('legacy.rjjxll')" />
       </a-col>
@@ -23,14 +36,10 @@
       </a-col>
     </a-row>
 
-    <div style="margin-top: 16px">
+    <div :style="showGatewayStats ? { marginTop: '16px' } : undefined">
       <section v-if="activeTab === 'providers'" class="provider-catalog">
         <div class="catalog-toolbar">
           <span class="catalog-summary">{{ $t('modelGateway.catalog.summary', { providers: providers.length, models: models.length }) }}</span>
-          <a-space wrap>
-            <a-button :loading="loading" @click="loadAll">{{ $t('modelGateway.catalog.refresh') }}</a-button>
-            <a-button v-if="hasAccess('providers:create')" type="primary" @click="openProvider()">{{ $t('modelGateway.catalog.addProvider') }}</a-button>
-          </a-space>
         </div>
         <a-spin :spinning="loading">
           <a-empty v-if="!providers.length" :description="$t('modelGateway.catalog.emptyProviders')" />
@@ -106,10 +115,8 @@
       </section>
 
       <section v-if="activeTab === 'keys'">
-        <a-card>
-          <template #extra>
-            <a-button type="primary" @click="router.push('/credentials')">{{ $t("legacy.ntpgmd") }}</a-button>
-          </template>
+        <section>
+
           <a-alert
             type="info"
             show-icon
@@ -153,16 +160,18 @@
               </template>
             </template>
           </a-table>
-        </a-card>
+        </section>
       </section>
 
       <section v-if="activeTab === 'users-groups'">
         <a-row :gutter="[16, 16]">
           <a-col :span="24">
-            <a-card :title="$t('legacy.19kaip8')">
-              <template #extra>
+            <section>
+              <div class="page-section-heading">
+                <h2>{{ $t('legacy.19kaip8') }}</h2>
                 <a-button v-if="hasAccess('groups:create')" type="primary" @click="openGroup()">{{ $t("legacy.13naskl") }}</a-button>
-              </template>
+              </div>
+
               <a-table :data-source="groups" :columns="groupColumns" row-key="id" :loading="loading" size="small">
                 <template #bodyCell="{ column, record }">
                   <template v-if="column.key === 'members'">
@@ -175,19 +184,21 @@
                   </template>
                 </template>
               </a-table>
-            </a-card>
+            </section>
           </a-col>
         </a-row>
       </section>
 
       <section v-if="activeTab === 'policy-bindings'">
-        <a-card :title="$t('legacy.1iapecz')">
-          <template #extra>
-            <a-space>
+        <section>
+          <div class="page-section-heading">
+            <h2>{{ $t('legacy.1iapecz') }}</h2>
+            <a-space wrap>
               <a-button @click="loadAll" :loading="loading">{{ $t("legacy.12qo56a") }}</a-button>
               <a-button v-if="hasAccess('privacy:create')" type="primary" @click="openPolicy()">{{ $t("legacy.1j7mjes") }}</a-button>
             </a-space>
-          </template>
+          </div>
+
           <a-alert
             type="info"
             show-icon
@@ -209,14 +220,12 @@
               </template>
             </template>
           </a-table>
-        </a-card>
+        </section>
       </section>
 
       <section v-if="activeTab === 'policies'">
-        <a-card>
-          <template #extra>
-            <a-button v-if="hasAccess('privacy:create')" type="primary" @click="openPolicy()">{{ $t("legacy.15zxxn") }}</a-button>
-          </template>
+        <section>
+
           <a-alert
             type="info"
             show-icon
@@ -255,46 +264,44 @@
               </template>
             </template>
           </a-table>
-        </a-card>
+        </section>
       </section>
 
-      <section v-if="activeTab === 'prompt-guard'">
-        <a-card :title="$t('legacy.1yae1mb')">
-          <a-alert
-            type="info"
-            show-icon
-            :message="$t('legacy.1n68ot2')"
-            :description="$t('legacy.nizzaf')"
-            style="margin-bottom: 16px"
-          />
-          <a-row :gutter="[16, 16]">
-            <a-col :xs="24" :lg="12">
-              <a-form layout="vertical" :model="promptGuardForm">
-                <a-form-item :label="$t('legacy.1uw63aw')">
-                  <a-radio-group v-model:value="promptGuardForm.mode">
-                    <a-radio value="log">{{ $t("legacy.4drpun") }}</a-radio>
-                    <a-radio value="warn">{{ $t("legacy.gjwe4z") }}</a-radio>
-                    <a-radio value="block">{{ $t("legacy.enaw4e") }}</a-radio>
+      <section v-if="activeTab === 'prompt-guard'" class="prompt-guard-workbench">
+          <p class="prompt-guard-hint">{{ $t('legacy.nizzaf') }}</p>
+          <div class="prompt-guard-mode">
+                  <span>{{ $t('legacy.1uw63aw') }}</span>
+                  <a-radio-group v-model:value="promptGuardForm.mode" button-style="solid">
+                    <a-radio-button value="log">{{ $t("legacy.4drpun") }}</a-radio-button>
+                    <a-radio-button value="warn">{{ $t("legacy.gjwe4z") }}</a-radio-button>
+                    <a-radio-button value="block">{{ $t("legacy.enaw4e") }}</a-radio-button>
                   </a-radio-group>
-                </a-form-item>
-                <a-form-item :label="$t('legacy.1s33gfn')">
+          </div>
+          <div class="prompt-guard-columns">
+              <a-form layout="vertical" :model="promptGuardForm" class="prompt-guard-editor">
+                <div class="prompt-guard-panel-heading">
+                  <label for="prompt-guard-content">{{ $t('legacy.1s33gfn') }}</label>
+                  <a-space wrap>
+                    <a-button size="small" type="link" @click="fillPromptGuardSample">{{ $t('legacy.1ckue96') }}</a-button>
+                    <a-button size="small" type="text" @click="clearPromptGuardTest">{{ $t('legacy.9mbwb2') }}</a-button>
+                  </a-space>
+                </div>
+                <a-form-item class="prompt-guard-input">
                   <a-textarea
+                    id="prompt-guard-content"
                     v-model:value="promptGuardForm.content"
-                    :rows="10"
+                    :rows="12"
                     :placeholder="$t('legacy.1sib2cs')"
                   />
                 </a-form-item>
-                <a-space wrap>
+                <div class="prompt-guard-submit">
                   <a-button v-if="hasAccess('privacy:test')" type="primary" :loading="testingPromptGuard" @click="runPromptGuardTest">{{ $t("legacy.1rqbpwt") }}</a-button>
-                  <a-button @click="fillPromptGuardSample">{{ $t("legacy.1ckue96") }}</a-button>
-                  <a-button @click="clearPromptGuardTest">{{ $t("legacy.9mbwb2") }}</a-button>
-                  <a-button @click="router.push('/credentials')">{{ $t("legacy.z26gt3") }}</a-button>
-                </a-space>
+                </div>
               </a-form>
-            </a-col>
-            <a-col :xs="24" :lg="12">
-              <a-card size="small" :title="$t('legacy.1czspmb')" class="prompt-guard-result">
-                <a-empty v-if="!promptGuardResult" :description="$t('legacy.airzfg')" />
+              <section class="prompt-guard-result" aria-live="polite" :aria-busy="testingPromptGuard">
+                <div class="prompt-guard-panel-heading">{{ $t('legacy.1czspmb') }}</div>
+                <div class="prompt-guard-result-body">
+                <a-empty v-if="!promptGuardResult" :description="$t('legacy.airzfg')" class="prompt-guard-empty" />
                 <template v-else>
                   <a-descriptions size="small" bordered :column="1">
                     <a-descriptions-item :label="$t('legacy.hm077g')">
@@ -327,16 +334,16 @@
                     </template>
                   </a-list>
                 </template>
-              </a-card>
-            </a-col>
-          </a-row>
-        </a-card>
+                </div>
+              </section>
+          </div>
       </section>
 
       <section v-if="activeTab === 'audit'">
-        <a-card :title="$t('legacy.ehbs8g')">
-          <template #extra>
-            <a-space>
+        <section>
+          <div class="page-section-heading">
+            <h2>{{ $t('legacy.ehbs8g') }}</h2>
+            <a-space wrap>
               <a-input-search
                 v-model:value="mappingQuery.q"
                 :placeholder="$t('legacy.h6ln60')"
@@ -347,7 +354,8 @@
               />
               <a-button :loading="mappingLoading" @click="loadMappings">{{ $t("legacy.12qo56a") }}</a-button>
             </a-space>
-          </template>
+          </div>
+
           <a-table
             :data-source="mappings"
             :columns="mappingColumns"
@@ -377,9 +385,11 @@
               </template>
             </template>
           </a-table>
-        </a-card>
+        </section>
       </section>
     </div>
+
+    </a-card>
 
     <a-modal v-model:open="discoveryVisible" :title="$t('modelGateway.catalog.discovered', { provider: discoveryProvider?.name })" :footer="null" :closable="!addingDiscovered" :mask-closable="!addingDiscovered" :keyboard="!addingDiscovered" width="800px">
       <a-alert type="info" show-icon :message="$t('modelGateway.catalog.discoveryHelp')" style="margin-bottom: 16px" />
@@ -927,9 +937,11 @@ const unboundOrCurrentPolicies = computed(() =>
 const unboundOrCurrentBindingPolicies = computed(() =>
   policies.value.filter(item => !item.is_default && (!item.group_id || item.id === groupPolicyForm.privacy_policy_id)),
 )
-const pageTitle = computed(() => activeTab.value === 'providers' ? t('modelGateway.catalog.title') : activeTab.value === 'users-groups' ? t('iam.navigation.groups') : phrase('legacy.15en1a5'))
+const pageTitle = computed(() => activeTab.value === 'prompt-guard' ? phrase('legacy.1yae1mb') : activeTab.value === 'providers' ? t('modelGateway.catalog.title') : activeTab.value === 'users-groups' ? t('iam.navigation.groups') : phrase('legacy.15en1a5'))
 const pageSubtitle = computed(() =>
-  activeTab.value === 'providers'
+  activeTab.value === 'prompt-guard'
+    ? phrase('legacy.1n68ot2')
+    : activeTab.value === 'providers'
     ? t('modelGateway.catalog.subtitle')
     : activeTab.value === 'users-groups'
     ? t('iam.groupsDescription')
@@ -1430,6 +1442,29 @@ onMounted(loadAll)
 </script>
 
 <style scoped>
+.prompt-guard-hint { margin: 0 0 20px; color: #64748b; font-size: 13px; line-height: 1.7; }
+.prompt-guard-mode { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+.prompt-guard-mode > span { font-weight: 500; }
+.prompt-guard-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: stretch; }
+.prompt-guard-editor, .prompt-guard-result { min-width: 0; margin: 0; }
+.prompt-guard-panel-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; min-height: 32px; margin-bottom: 12px; font-weight: 600; }
+.prompt-guard-input { margin-bottom: 16px; }
+.prompt-guard-input :deep(textarea) { padding: 14px; line-height: 1.8; resize: vertical; }
+.prompt-guard-submit { display: flex; justify-content: flex-end; }
+.prompt-guard-submit :deep(.ant-btn) { min-width: 120px; }
+.prompt-guard-result { display: flex; flex-direction: column; }
+.prompt-guard-result-body { flex: 1; min-width: 0; padding: 20px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; overflow-wrap: anywhere; }
+.prompt-guard-result-body:has(.prompt-guard-empty) { display: grid; place-items: center; }
+.prompt-guard-empty { margin: 40px 0; }
+.prompt-snippet { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 1000px) {
+  .prompt-guard-columns { grid-template-columns: minmax(0, 1fr); }
+  .prompt-guard-result-body { min-height: 220px; }
+}
+@media (max-width: 560px) {
+  .prompt-guard-mode :deep(.ant-radio-group) { display: flex; flex-wrap: wrap; gap: 6px 0; }
+  .prompt-guard-mode :deep(.ant-radio-button-wrapper) { height: auto; white-space: normal; }
+}
 .provider-catalog {
   --catalog-border: #e5e7eb;
   --catalog-muted: #64748b;

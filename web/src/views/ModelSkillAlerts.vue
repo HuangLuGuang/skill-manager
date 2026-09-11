@@ -1,6 +1,9 @@
 <template>
   <div class="skill-alerts-page">
-    <a-page-header :title="t('skillAlerts.title')" :sub-title="t('skillAlerts.subtitle')" />
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="t('skillAlerts.title')" :sub-title="t('skillAlerts.subtitle')" />
+      </template>
 
     <a-row :gutter="12" class="summary-row">
       <a-col :xs="12" :lg="6">
@@ -25,7 +28,7 @@
       </a-col>
     </a-row>
 
-    <a-card class="alert-list-card">
+    <section class="alert-list-card">
       <div class="filter-bar">
         <a-segmented v-model:value="filters.category" :options="categoryOptions" @change="applyFilters" />
         <div class="filter-fields">
@@ -110,6 +113,8 @@
           </template>
         </template>
       </a-table>
+    </section>
+
     </a-card>
 
     <a-drawer v-model:open="drawerOpen" :title="t('skillAlerts.details')" width="720" destroy-on-close>

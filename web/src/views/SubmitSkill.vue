@@ -1,8 +1,9 @@
 <template>
   <div>
-    <a-page-header :title="$t('legacy.v71tm')" :sub-title="submitModeMeta.subtitle" />
-
-    <a-card style="margin-top: 16px">
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="$t('legacy.v71tm')" :sub-title="submitModeMeta.subtitle" />
+      </template>
       <a-alert
         type="info"
         show-icon

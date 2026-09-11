@@ -1,21 +1,21 @@
 <template>
   <section class="assistant-settings">
-    <div class="settings-content">
-      <div class="settings-header">
-        <div>
-          <div class="settings-title-row">
-            <h2>{{ t('docsAssistantSettings.title') }}</h2>
+    <a-card class="page-card settings-content">
+      <template #title>
+        <a-page-header :title="t('docsAssistantSettings.title')" :sub-title="t('docsAssistantSettings.subtitle')">
+          <template #tags>
             <a-tag :color="form.enabled ? 'blue' : 'default'">
               {{ form.enabled ? t('docsAssistantSettings.active') : t('docsAssistantSettings.inactive') }}
             </a-tag>
-          </div>
-          <p>{{ t('docsAssistantSettings.subtitle') }}</p>
-        </div>
-        <a-button @click="openDocsPreview">
-          <ExportOutlined />
-          {{ t('docsAssistantSettings.preview') }}
-        </a-button>
-      </div>
+          </template>
+          <template #extra>
+            <a-button @click="openDocsPreview">
+              <ExportOutlined />
+              {{ t('docsAssistantSettings.preview') }}
+            </a-button>
+          </template>
+        </a-page-header>
+      </template>
 
       <a-skeleton v-if="loading" active :paragraph="{ rows: 6 }" />
       <template v-else>
@@ -106,7 +106,7 @@
           </a-button>
         </div>
       </template>
-    </div>
+    </a-card>
   </section>
 </template>
 
@@ -278,15 +278,10 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
   margin-top: 18px;
 }
 
-.settings-content { padding: 0 0 24px; }
-.settings-header,
-.settings-title-row,
+
 .enable-row,
 .questions-heading,
 .settings-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.settings-title-row { justify-content: flex-start; gap: 10px; }
-.settings-header h2 { margin: 0; color: #15324d; font-size: 19px; font-weight: 680; }
-.settings-header p { margin: 5px 0 0; color: #64778a; font-size: 13px; }
 
 .enable-row {
   margin: 20px 0;
@@ -324,8 +319,6 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
 }
 
 @media (max-width: 560px) {
-  .settings-content { padding: 18px 15px; }
-  .settings-header { align-items: flex-start; flex-direction: column; }
   .questions-heading { align-items: flex-start; flex-direction: column; }
 }
 </style>

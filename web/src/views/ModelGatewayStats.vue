@@ -1,6 +1,9 @@
 <template>
   <div>
-    <a-page-header :title="$t('legacy.igys3')" :sub-title="$t('legacy.b7xc44')" />
+    <a-card class="page-card">
+      <template #title>
+        <a-page-header :title="$t('legacy.igys3')" :sub-title="$t('legacy.b7xc44')" />
+      </template>
 
     <!-- 日期范围 + 模型筛选 -->
     <a-space style="margin-bottom: 16px" wrap>
@@ -134,6 +137,8 @@
         :locale="{ emptyText: $t('legacy.6tzr61') }"
       />
     </a-card>
+    </a-card>
+
   </div>
 </template>
 
