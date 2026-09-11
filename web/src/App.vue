@@ -5,9 +5,12 @@
     </div>
     <a-layout v-else class="app-shell">
       <a-layout-header v-if="!isLoginPage && !isDocsPage" class="app-header">
-        <a-button v-if="narrowNavigation" type="text" :aria-label="t('iam.toggleNavigation')" :aria-expanded="!navigationCollapsed" @click="navigationCollapsed = !navigationCollapsed">
-          <MenuOutlined />
-        </a-button>
+        <a-tooltip :title="t(navigationCollapsed ? 'iam.expandNavigation' : 'iam.collapseNavigation')">
+          <a-button type="text" :aria-label="t(navigationCollapsed ? 'iam.expandNavigation' : 'iam.collapseNavigation')" :aria-expanded="!navigationCollapsed" aria-controls="app-navigation" @click="navigationCollapsed = !navigationCollapsed">
+            <MenuUnfoldOutlined v-if="navigationCollapsed" />
+            <MenuFoldOutlined v-else />
+          </a-button>
+        </a-tooltip>
         <div class="app-brand">
           <img :src="logoUrl" alt="Logo" class="app-logo" />
           <div class="app-brand-text">
@@ -54,7 +57,7 @@
       </a-layout-header>
 
       <a-layout v-if="!isLoginPage && !isDocsPage" class="app-main-layout">
-        <a-layout-sider v-model:collapsed="navigationCollapsed" width="240" breakpoint="md" :collapsed-width="0" :trigger="null" class="app-sider" @breakpoint="narrow => { narrowNavigation = narrow; navigationCollapsed = narrow }">
+        <a-layout-sider id="app-navigation" v-model:collapsed="navigationCollapsed" :width="216" breakpoint="md" :collapsed-width="narrowNavigation ? 0 : 64" :trigger="null" class="app-sider" @breakpoint="narrow => { narrowNavigation = narrow; navigationCollapsed = narrow }">
           <a-menu
             v-if="!narrowNavigation || !navigationCollapsed"
             :items="menuItems"
@@ -120,7 +123,8 @@ import { message } from 'ant-design-vue'
 import {
   DownOutlined,
   LockOutlined,
-  MenuOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
   LogoutOutlined,
   QuestionCircleOutlined,
 } from '@ant-design/icons-vue'
@@ -402,6 +406,7 @@ onUnmounted(() => {
 
 .app-header {
   display: flex;
+  gap: 12px;
   align-items: center;
   justify-content: space-between;
   background: #f7fbff;
@@ -421,6 +426,8 @@ onUnmounted(() => {
 
 .app-brand {
   display: flex;
+  flex: 1;
+  min-width: 0;
   align-items: center;
   gap: 16px;
   min-height: 72px;
