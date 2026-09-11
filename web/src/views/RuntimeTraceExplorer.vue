@@ -532,6 +532,7 @@
 <script setup>
 import { CloseOutlined, DownloadOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
+import { can as hasAccess } from '../access'
 import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -690,7 +691,7 @@ const selectedTrace = computed(() => selectedTraceDetail.value
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 const isSearchActive = computed(() => Object.keys(activeSearch.value).length > 0)
 const hasSearchDraft = computed(() => Object.keys(runtimeTraceSearchParams(searchDraft)).length > 0)
-const canRawExport = computed(() => ['admin', 'super_admin', 'privacy_auditor'].includes(currentUser.value?.role))
+const canRawExport = computed(() => hasAccess('traces:raw') && ['admin', 'super_admin', 'privacy_auditor'].includes(currentUser.value?.role))
 const canSubmitExport = computed(() => Boolean(
   selectedTraceId.value
   && !exporting.value

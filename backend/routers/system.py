@@ -132,7 +132,7 @@ async def get_system_info(current_user: models.User = Depends(auth.get_current_a
 
 
 @router.get("/capabilities", response_model=SystemCapabilities)
-async def get_system_capabilities(current_user: models.User = Depends(auth.get_current_admin_user)):
+async def get_system_capabilities(current_user: models.User = Depends(auth.get_current_active_user)):
     return SystemCapabilities(
         features=feature_flags(),
         baseline=baseline_summary(),

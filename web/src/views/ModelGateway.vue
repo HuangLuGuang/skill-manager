@@ -29,7 +29,7 @@
           <span class="catalog-summary">{{ $t('modelGateway.catalog.summary', { providers: providers.length, models: models.length }) }}</span>
           <a-space wrap>
             <a-button :loading="loading" @click="loadAll">{{ $t('modelGateway.catalog.refresh') }}</a-button>
-            <a-button type="primary" @click="openProvider()">{{ $t('modelGateway.catalog.addProvider') }}</a-button>
+            <a-button v-if="hasAccess('providers:create')" type="primary" @click="openProvider()">{{ $t('modelGateway.catalog.addProvider') }}</a-button>
           </a-space>
         </div>
         <a-spin :spinning="loading">
@@ -56,8 +56,8 @@
                   </div>
                 </div>
                 <a-space class="provider-actions" :size="6">
-                  <a-button class="configure-button" @click="openProvider(provider)">{{ $t('modelGateway.catalog.configure') }}</a-button>
-                  <a-popconfirm :title="$t('modelGateway.catalog.deleteProviderConfirm')" @confirm="handleDeleteProvider(provider)">
+                  <a-button v-if="hasAccess('providers:update')" class="configure-button" @click="openProvider(provider)">{{ $t('modelGateway.catalog.configure') }}</a-button>
+                  <a-popconfirm v-if="hasAccess('providers:delete')" :title="$t('modelGateway.catalog.deleteProviderConfirm')" @confirm="handleDeleteProvider(provider)">
                     <a-button class="delete-button" type="text" :title="$t('modelGateway.catalog.deleteProvider')" :aria-label="$t('modelGateway.catalog.deleteProvider')"><DeleteOutlined /></a-button>
                   </a-popconfirm>
                 </a-space>
@@ -72,7 +72,7 @@
                 </div>
                 <a-space class="model-management-actions" wrap :size="8">
                   <a-button class="fetch-models-button" :loading="discoveringProviderId === provider.id" :disabled="discoveringProviderId !== null" @click="fetchProviderModels(provider)"><ReloadOutlined aria-hidden="true" />{{ $t('modelGateway.catalog.fetch') }}</a-button>
-                  <a-button class="add-model-button" type="primary" ghost @click="openModel(null, provider.id)"><PlusOutlined aria-hidden="true" />{{ $t('modelGateway.catalog.addModel') }}</a-button>
+                  <a-button v-if="hasAccess('models:create')" class="add-model-button" type="primary" ghost @click="openModel(null, provider.id)"><PlusOutlined aria-hidden="true" />{{ $t('modelGateway.catalog.addModel') }}</a-button>
                 </a-space>
               </div>
               <div v-show="expandedProviders.has(provider.id)" :id="'provider-models-' + provider.id" class="provider-models">
@@ -89,9 +89,9 @@
                     </div>
                   </div>
                   <div class="model-actions">
-                    <a-button class="test-model-button" size="small" :disabled="testingProvider" @click="openModelTest(model)"><PlayCircleOutlined aria-hidden="true" />{{ $t('modelGateway.providerTest.action') }}</a-button>
-                    <a-button class="edit-model-button" type="text" size="small" @click="openModel(model)">{{ $t('modelGateway.catalog.edit') }}</a-button>
-                    <a-popconfirm :title="$t('modelGateway.catalog.deleteModelConfirm')" @confirm="handleDeleteModel(model)">
+                    <a-button v-if="hasAccess('providers:test')" class="test-model-button" size="small" :disabled="testingProvider" @click="openModelTest(model)"><PlayCircleOutlined aria-hidden="true" />{{ $t('modelGateway.providerTest.action') }}</a-button>
+                    <a-button v-if="hasAccess('models:update')" class="edit-model-button" type="text" size="small" @click="openModel(model)">{{ $t('modelGateway.catalog.edit') }}</a-button>
+                    <a-popconfirm v-if="hasAccess('models:delete')" :title="$t('modelGateway.catalog.deleteModelConfirm')" @confirm="handleDeleteModel(model)">
                       <a-button class="delete-button" type="text" size="small" :title="$t('modelGateway.catalog.deleteModel')" :aria-label="$t('modelGateway.catalog.deleteModel')"><DeleteOutlined /></a-button>
                     </a-popconfirm>
                     <a-tooltip :title="$t(model.enabled ? 'modelGateway.catalog.enabled' : 'modelGateway.catalog.disabled')">
@@ -142,11 +142,11 @@
               </template>
               <template v-else-if="column.key === 'action'">
                 <a-space>
-                  <a-button type="link" @click="openKey(record)">{{ $t("legacy.qreyeg") }}</a-button>
-                  <a-popconfirm v-if="record.status === 'active'" :title="$t('legacy.10sjqb8')" @confirm="handleRevokeKey(record)">
+                  <a-button v-if="hasAccess('credentials:update')" type="link" @click="openKey(record)">{{ $t("legacy.qreyeg") }}</a-button>
+                  <a-popconfirm v-if="hasAccess('credentials:update') && (record.status === 'active')" :title="$t('legacy.10sjqb8')" @confirm="handleRevokeKey(record)">
                     <a-button type="link" danger>{{ $t("legacy.1xammsn") }}</a-button>
                   </a-popconfirm>
-                  <a-popconfirm :title="$t('legacy.1m8mqmz')" @confirm="handleDeleteKey(record)">
+                  <a-popconfirm v-if="hasAccess('credentials:delete')" :title="$t('legacy.1m8mqmz')" @confirm="handleDeleteKey(record)">
                     <a-button type="link" danger>{{ $t("legacy.1t2vi4h") }}</a-button>
                   </a-popconfirm>
                 </a-space>
@@ -158,33 +158,10 @@
 
       <section v-if="activeTab === 'users-groups'">
         <a-row :gutter="[16, 16]">
-          <a-col :xs="24" :xl="12">
-            <a-card :title="$t('legacy.1in002o')">
-              <template #extra>
-                <a-button type="primary" @click="openUser()">{{ $t("legacy.183giky") }}</a-button>
-              </template>
-              <a-table :data-source="users" :columns="userColumns" row-key="id" :loading="loading" size="small">
-                <template #bodyCell="{ column, record }">
-                  <template v-if="column.key === 'active'">
-                    <a-tag :color="record.is_active ? 'green' : 'default'">{{ record.is_active ? $t('legacy.5pm2ma') : $t('legacy.1dcdrxo') }}</a-tag>
-                  </template>
-                  <template v-else-if="column.key === 'groups'">
-                    <a-space wrap>
-                      <a-tag v-for="groupId in record.group_ids || []" :key="groupId">{{ groupNameMap.get(groupId) || groupId }}</a-tag>
-                      <span v-if="!record.group_ids?.length" class="muted">{{ $t("legacy.adui4f") }}</span>
-                    </a-space>
-                  </template>
-                  <template v-else-if="column.key === 'action'">
-                    <a-button type="link" @click="openUser(record)">{{ $t("legacy.qreyeg") }}</a-button>
-                  </template>
-                </template>
-              </a-table>
-            </a-card>
-          </a-col>
-          <a-col :xs="24" :xl="12">
+          <a-col :span="24">
             <a-card :title="$t('legacy.19kaip8')">
               <template #extra>
-                <a-button type="primary" @click="openGroup()">{{ $t("legacy.13naskl") }}</a-button>
+                <a-button v-if="hasAccess('groups:create')" type="primary" @click="openGroup()">{{ $t("legacy.13naskl") }}</a-button>
               </template>
               <a-table :data-source="groups" :columns="groupColumns" row-key="id" :loading="loading" size="small">
                 <template #bodyCell="{ column, record }">
@@ -194,7 +171,7 @@
                     <a-tag :color="record.privacy_policy_id ? 'blue' : 'default'">{{ groupPolicyName(record) }}</a-tag>
                   </template>
                   <template v-else-if="column.key === 'action'">
-                    <a-button type="link" @click="openGroup(record)">{{ $t("legacy.qreyeg") }}</a-button>
+                    <a-button v-if="hasAccess('groups:update')" type="link" @click="openGroup(record)">{{ $t("legacy.qreyeg") }}</a-button>
                   </template>
                 </template>
               </a-table>
@@ -208,7 +185,7 @@
           <template #extra>
             <a-space>
               <a-button @click="loadAll" :loading="loading">{{ $t("legacy.12qo56a") }}</a-button>
-              <a-button type="primary" @click="openPolicy()">{{ $t("legacy.1j7mjes") }}</a-button>
+              <a-button v-if="hasAccess('privacy:create')" type="primary" @click="openPolicy()">{{ $t("legacy.1j7mjes") }}</a-button>
             </a-space>
           </template>
           <a-alert
@@ -226,8 +203,8 @@
               </template>
               <template v-else-if="column.key === 'action'">
                 <a-space>
-                  <a-button type="link" @click="openGroupPolicy(record)">{{ $t("legacy.n4xb9n") }}</a-button>
-                  <a-button type="link" @click="openPolicy()">{{ $t("legacy.1g3fhju") }}</a-button>
+                  <a-button v-if="hasAccess('groups:update')" type="link" @click="openGroupPolicy(record)">{{ $t("legacy.n4xb9n") }}</a-button>
+                  <a-button v-if="hasAccess('privacy:create')" type="link" @click="openPolicy()">{{ $t("legacy.1g3fhju") }}</a-button>
                 </a-space>
               </template>
             </template>
@@ -238,7 +215,7 @@
       <section v-if="activeTab === 'policies'">
         <a-card>
           <template #extra>
-            <a-button type="primary" @click="openPolicy()">{{ $t("legacy.15zxxn") }}</a-button>
+            <a-button v-if="hasAccess('privacy:create')" type="primary" @click="openPolicy()">{{ $t("legacy.15zxxn") }}</a-button>
           </template>
           <a-alert
             type="info"
@@ -270,8 +247,8 @@
               </template>
               <template v-else-if="column.key === 'action'">
                 <a-space>
-                  <a-button type="link" @click="openPolicy(record)">{{ $t("legacy.qreyeg") }}</a-button>
-                  <a-popconfirm v-if="!record.is_default" :title="$t('legacy.1g0wpcn')" @confirm="handleDeletePolicy(record)">
+                  <a-button v-if="hasAccess('privacy:update')" type="link" @click="openPolicy(record)">{{ $t("legacy.qreyeg") }}</a-button>
+                  <a-popconfirm v-if="hasAccess('privacy:delete') && (!record.is_default)" :title="$t('legacy.1g0wpcn')" @confirm="handleDeletePolicy(record)">
                     <a-button type="link" danger>{{ $t("legacy.1t2vi4h") }}</a-button>
                   </a-popconfirm>
                 </a-space>
@@ -308,7 +285,7 @@
                   />
                 </a-form-item>
                 <a-space wrap>
-                  <a-button type="primary" :loading="testingPromptGuard" @click="runPromptGuardTest">{{ $t("legacy.1rqbpwt") }}</a-button>
+                  <a-button v-if="hasAccess('privacy:test')" type="primary" :loading="testingPromptGuard" @click="runPromptGuardTest">{{ $t("legacy.1rqbpwt") }}</a-button>
                   <a-button @click="fillPromptGuardSample">{{ $t("legacy.1ckue96") }}</a-button>
                   <a-button @click="clearPromptGuardTest">{{ $t("legacy.9mbwb2") }}</a-button>
                   <a-button @click="router.push('/credentials')">{{ $t("legacy.z26gt3") }}</a-button>
@@ -394,7 +371,7 @@
               <template v-else-if="column.key === 'created_at'">{{ formatDateTime(record.created_at) }}</template>
               <template v-else-if="column.key === 'expires_at'">{{ formatDateTime(record.expires_at) }}</template>
               <template v-else-if="column.key === 'action'">
-                <a-popconfirm :title="$t('legacy.inkm1m')" @confirm="removeMapping(record)">
+                <a-popconfirm v-if="hasAccess('privacy:delete')" :title="$t('legacy.inkm1m')" @confirm="removeMapping(record)">
                   <a-button type="link" danger>{{ $t("legacy.1t2vi4h") }}</a-button>
                 </a-popconfirm>
               </template>
@@ -410,14 +387,14 @@
       <a-alert v-if="failedDiscoveredNames.length" type="warning" show-icon :message="$t('modelGateway.catalog.batchFailed', { names: failedDiscoveredNames.join(', ') })" style="margin-bottom: 16px" />
       <a-space wrap style="margin-bottom: 16px">
         <a-button :loading="discoveringProviderId !== null" :disabled="discoveringProviderId !== null || addingDiscovered" @click="fetchProviderModels(discoveryProvider)">{{ $t('modelGateway.catalog.fetch') }}</a-button>
-        <a-button :disabled="addingDiscovered" @click="openDiscoveredModel()">{{ $t('modelGateway.catalog.custom') }}</a-button>
-        <a-button type="primary" :loading="addingDiscovered" :disabled="addingDiscovered || submitting || !selectedDiscoveredNames.length" @click="addSelectedModels">{{ $t('modelGateway.catalog.addSelected', { count: selectedDiscoveredNames.length }) }}</a-button>
+        <a-button v-if="hasAccess('models:create')" :disabled="addingDiscovered" @click="openDiscoveredModel()">{{ $t('modelGateway.catalog.custom') }}</a-button>
+        <a-button v-if="hasAccess('models:create')" type="primary" :loading="addingDiscovered" :disabled="addingDiscovered || submitting || !selectedDiscoveredNames.length" @click="addSelectedModels">{{ $t('modelGateway.catalog.addSelected', { count: selectedDiscoveredNames.length }) }}</a-button>
       </a-space>
       <a-table :data-source="discoveredModels" :columns="discoveryColumns" :row-selection="discoveryRowSelection" row-key="name" :loading="discoveringProviderId !== null" :scroll="{ x: 550 }" size="small">
         <template #bodyCell="{ column, record }">
           <a-space v-if="column.key === 'action'" wrap>
-            <a-button type="link" :disabled="addingDiscovered || models.some(item => item.name === record.name)" @click="openDiscoveredModel(record)">{{ $t(models.some(item => item.name === record.name) ? 'modelGateway.catalog.registered' : 'modelGateway.catalog.add') }}</a-button>
-            <a-button type="link" @click="openModelTest({ ...record, provider_id: discoveryProvider.id })">{{ $t('modelGateway.providerTest.action') }}</a-button>
+            <a-button v-if="hasAccess('models:create')" type="link" :disabled="addingDiscovered || models.some(item => item.name === record.name)" @click="openDiscoveredModel(record)">{{ $t(models.some(item => item.name === record.name) ? 'modelGateway.catalog.registered' : 'modelGateway.catalog.add') }}</a-button>
+            <a-button v-if="hasAccess('providers:test')" type="link" @click="openModelTest({ ...record, provider_id: discoveryProvider.id })">{{ $t('modelGateway.providerTest.action') }}</a-button>
           </a-space>
         </template>
       </a-table>
@@ -566,32 +543,17 @@
         </a-input-group>
     </a-modal>
 
-    <a-modal v-model:open="userVisible" :title="$t('legacy.1in002o')" @ok="saveUser" :confirm-loading="submitting">
-      <a-form layout="vertical" :model="userForm">
-        <a-form-item :label="$t('legacy.u9jq8n')" required><a-input v-model:value="userForm.username" :disabled="!!editingUserId" /></a-form-item>
-        <a-form-item :label="$t('legacy.185tvls')" required><a-input v-model:value="userForm.email" /></a-form-item>
-        <a-form-item :label="$t('legacy.1x858ed')"><a-select v-model:value="userForm.role"><a-select-option value="admin">admin</a-select-option><a-select-option value="super_admin">super_admin</a-select-option><a-select-option value="privacy_auditor">privacy_auditor</a-select-option><a-select-option value="security_auditor">security_auditor</a-select-option></a-select></a-form-item>
-        <a-form-item :label="$t('legacy.2qkjxx')">
-          <a-select v-model:value="userForm.group_ids" mode="multiple" :placeholder="$t('legacy.f5lws8')">
-            <a-select-option v-for="item in groups" :key="item.id" :value="item.id">{{ item.name }}</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item :label="$t('legacy.1aph6eg')"><a-input-password v-model:value="userForm.password" :placeholder="editingUserId ? $t('legacy.x2xaci') : ''" /></a-form-item>
-        <a-form-item><a-checkbox v-model:checked="userForm.is_active">{{ $t("legacy.5pm2ma") }}</a-checkbox></a-form-item>
-      </a-form>
-    </a-modal>
-
     <a-modal v-model:open="groupVisible" :title="$t('legacy.19kaip8')" @ok="saveGroup" :confirm-loading="submitting">
       <a-form layout="vertical" :model="groupForm">
         <a-form-item :label="$t('legacy.hzx914')" required><a-input v-model:value="groupForm.name" /></a-form-item>
         <a-form-item :label="$t('legacy.1kxyax6')"><a-textarea v-model:value="groupForm.description" /></a-form-item>
         <a-form-item :label="$t('legacy.ceyxit')">
-          <a-select v-model:value="groupForm.user_ids" mode="multiple">
+          <a-select v-model:value="groupForm.user_ids" mode="multiple" :disabled="!hasAccess('users:view')">
             <a-select-option v-for="item in users" :key="item.id" :value="item.id">{{ item.username }}</a-select-option>
           </a-select>
         </a-form-item>
         <a-form-item :label="$t('legacy.jt33j7')">
-          <a-select v-model:value="groupForm.privacy_policy_id" allow-clear :placeholder="$t('legacy.lvqpcd')">
+          <a-select :disabled="!hasAccess('privacy:view')" v-model:value="groupForm.privacy_policy_id" allow-clear :placeholder="$t('legacy.lvqpcd')">
             <a-select-option v-for="item in unboundOrCurrentPolicies" :key="item.id" :value="item.id">{{ policyDisplayName(item) }}</a-select-option>
           </a-select>
           <div class="muted policy-binding-hint">{{ $t("legacy.1xj70s1") }}</div>
@@ -708,6 +670,8 @@
 </template>
 
 <script setup>
+import { can as hasAccess } from '../access'
+import { can } from '../access'
 import { translateLegacy as phrase } from '../i18n'
 
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -723,7 +687,6 @@ import { formatBeijingDateTime } from '../utils/format'
 import {
   createGroup,
   createLlmApiKey,
-  createManagedUser,
   createModelEndpoint,
   createModelProvider,
   deleteLlmApiKey,
@@ -746,7 +709,6 @@ import {
   testModelProvider,
   updateGroup,
   updateLlmApiKey,
-  updateManagedUser,
   updateModelEndpoint,
   updateModelProvider,
 } from '../api'
@@ -882,14 +844,6 @@ const mappingColumns = [
   { title: phrase('legacy.1oc35yx'), key: 'expires_at', width: 170 },
   { title: phrase('legacy.501w24'), key: 'action', width: 90, fixed: 'right' },
 ]
-const userColumns = [
-  { title: phrase('legacy.u9jq8n'), dataIndex: 'username' },
-  { title: phrase('legacy.185tvls'), dataIndex: 'email' },
-  { title: phrase('legacy.1x858ed'), dataIndex: 'role', width: 130 },
-  { title: phrase('legacy.2qkjxx'), key: 'groups', width: 180 },
-  { title: phrase('legacy.1ccx4t4'), key: 'active', width: 90 },
-  { title: phrase('legacy.501w24'), key: 'action', width: 90 },
-]
 const groupColumns = [
   { title: phrase('legacy.hzx914'), dataIndex: 'name' },
   { title: phrase('legacy.ceyxit'), key: 'members', width: 90 },
@@ -919,7 +873,6 @@ const providerUnderTest = ref(null)
 const modelVisible = ref(false)
 const keyVisible = ref(false)
 const createdKeyVisible = ref(false)
-const userVisible = ref(false)
 const groupVisible = ref(false)
 const groupPolicyVisible = ref(false)
 const policyVisible = ref(false)
@@ -927,7 +880,6 @@ const createdKey = ref('')
 const editingProviderId = ref(null)
 const editingModelId = ref(null)
 const editingKeyId = ref(null)
-const editingUserId = ref(null)
 const editingGroupId = ref(null)
 const selectedGroup = ref(null)
 const policyRuleRows = ref([])
@@ -951,7 +903,6 @@ const keyForm = reactive({
   prompt_guard_mode: 'off',
   prompt_guard_llm_review: false,
 })
-const userForm = reactive({ username: '', email: '', role: 'admin', password: '', is_active: true, group_ids: [] })
 const groupForm = reactive({ name: '', description: '', user_ids: [], privacy_policy_id: null, is_active: true })
 const groupPolicyForm = reactive({ privacy_policy_id: null })
 const policyForm = reactive({ id: null, name: phrase('legacy.1t3snxj'), is_default: false, enabled: true, group_id: null, entity_types: [...defaultEntities], entity_rules: { ...defaultRules }, detect_system_messages: false, allow_bypass: false, mapping_ttl_days: 7, dp_enabled: true, dp_epsilon: 1.0, dp_min_count: 5 })
@@ -976,12 +927,12 @@ const unboundOrCurrentPolicies = computed(() =>
 const unboundOrCurrentBindingPolicies = computed(() =>
   policies.value.filter(item => !item.is_default && (!item.group_id || item.id === groupPolicyForm.privacy_policy_id)),
 )
-const pageTitle = computed(() => activeTab.value === 'providers' ? t('modelGateway.catalog.title') : activeTab.value === 'users-groups' ? phrase('legacy.1wqfb8q') : phrase('legacy.15en1a5'))
+const pageTitle = computed(() => activeTab.value === 'providers' ? t('modelGateway.catalog.title') : activeTab.value === 'users-groups' ? t('iam.navigation.groups') : phrase('legacy.15en1a5'))
 const pageSubtitle = computed(() =>
   activeTab.value === 'providers'
     ? t('modelGateway.catalog.subtitle')
     : activeTab.value === 'users-groups'
-    ? phrase('legacy.btrjcn')
+    ? t('iam.groupsDescription')
     : phrase('legacy.1tdfp6x'),
 )
 const showGatewayStats = computed(() => !['providers', 'users-groups', 'prompt-guard'].includes(activeTab.value))
@@ -1073,14 +1024,14 @@ const loadAll = async () => {
   loading.value = true
   try {
     const [providerRes, modelRes, keyRes, userRes, groupRes, policyRes, statRes, mappingRes] = await Promise.all([
-      listModelProviders(),
-      listModelEndpoints(),
-      listLlmApiKeys(),
-      listManagedUsers(),
-      listGroups(),
-      listPrivacyPolicies(),
-      getPrivacyStats(),
-      listPrivacyMappings({ page: mappingQuery.page, page_size: mappingQuery.page_size, q: mappingQuery.q || undefined }),
+      can('providers:view') ? listModelProviders() : Promise.resolve([]),
+      can('models:view') ? listModelEndpoints() : Promise.resolve([]),
+      can('credentials:view') ? listLlmApiKeys() : Promise.resolve([]),
+      can('users:view') ? listManagedUsers() : Promise.resolve([]),
+      can('groups:view') ? listGroups() : Promise.resolve([]),
+      can('privacy:view') ? listPrivacyPolicies() : Promise.resolve([]),
+      can('privacy_audit:view') ? getPrivacyStats() : Promise.resolve({}),
+      can('privacy_audit:raw') ? listPrivacyMappings({ page: mappingQuery.page, page_size: mappingQuery.page_size, q: mappingQuery.q || undefined }) : Promise.resolve({}),
     ])
     providers.value = providerRes
     models.value = modelRes
@@ -1329,48 +1280,6 @@ const handleRevokeKey = async (record) => {
 const handleDeleteKey = async (record) => {
   await deleteLlmApiKey(record.id)
   await loadAll()
-}
-
-const openUser = (record = null) => {
-  editingUserId.value = record?.id || null
-  Object.assign(userForm, {
-    username: record?.username || '',
-    email: record?.email || '',
-    role: record?.role || 'admin',
-    password: '',
-    is_active: record?.is_active ?? true,
-    group_ids: [...(record?.group_ids || [])],
-  })
-  userVisible.value = true
-}
-
-const saveUser = async () => {
-  if (submitting.value) return
-  if (!userForm.username.trim()) {
-    message.warning(phrase('legacy.pwpq3a'))
-    return
-  }
-  if (!userForm.email.trim()) {
-    message.warning(phrase('legacy.u69mlf'))
-    return
-  }
-  if (!editingUserId.value && !userForm.password) {
-    message.warning(phrase('legacy.f478sb'))
-    return
-  }
-  submitting.value = true
-  try {
-    const payload = { ...userForm }
-    if (!payload.password) delete payload.password
-    if (editingUserId.value) await updateManagedUser(editingUserId.value, payload)
-    else await createManagedUser(payload)
-    userVisible.value = false
-    await loadAll()
-  } catch (error) {
-    message.error(error.response?.data?.detail || phrase('legacy.1a1txb7'))
-  } finally {
-    submitting.value = false
-  }
 }
 
 const openGroup = (record = null) => {

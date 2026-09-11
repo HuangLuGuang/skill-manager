@@ -24,6 +24,8 @@ def _client(tmp_path, monkeypatch, *, max_body_kb: int = 1024, max_concurrent_re
     Base.metadata.create_all(bind=engine)
 
     db = TestingSessionLocal()
+    from backend.iam import initialize
+    initialize(db)
     token = "amk_test_token"
     provider = models.ModelProvider(name="mock", base_url="http://mock.local", api_key="provider-key")
     db.add(provider)
@@ -814,8 +816,8 @@ def test_create_user_rejects_duplicate_email_with_clear_message(tmp_path, monkey
         },
     )
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "邮箱已存在"
+    assert response.status_code == 409
+    assert response.json()["error_code"] == "iam.account_exists"
 
 
 def test_root_chat_completions_alias_supports_clients_without_v1_base(tmp_path, monkeypatch):
@@ -1184,6 +1186,7 @@ def test_create_privacy_policy_without_group_does_not_update_default(tmp_path, m
 
     client.app.dependency_overrides[auth.get_current_admin_user] = override_current_user
 
+    client.app.dependency_overrides[auth.get_current_active_user] = override_current_user
     listed = client.get("/v1/privacy-policies")
     assert listed.status_code == 200
     default_policy = listed.json()[0]

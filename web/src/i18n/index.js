@@ -1,4 +1,5 @@
 import { createI18n } from 'vue-i18n'
+import { iamMessages } from './iam.js'
 import { scanTaskActionsMessages } from './scanTaskActions.js'
 import { mcpScanMessages } from './mcpScan.js'
 import { scanScheduleMessages } from './scanSchedule.js'
@@ -28,6 +29,7 @@ export const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
+      iam: iamMessages['zh-CN'],
       scanTaskActions: scanTaskActionsMessages['zh-CN'],
       mcpScan: mcpScanMessages['zh-CN'],
       skillUpload: {
@@ -1035,6 +1037,7 @@ export const i18n = createI18n({
       legacy: legacyMessages['zh-CN'],
     },
     'en-US': {
+      iam: iamMessages['en-US'],
       scanTaskActions: scanTaskActionsMessages['en-US'],
       mcpScan: mcpScanMessages['en-US'],
       skillUpload: {

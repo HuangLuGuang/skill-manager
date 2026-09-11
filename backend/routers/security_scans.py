@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from agent_manager.core.mcp_parameter_risk import classify_mcp_parameter, normalize_mcp_identifier
 
-from .. import auth, models, schemas
+from .. import auth, iam, models, schemas
 from ..agentic_risk_taxonomy import map_risk_codes
 from ..api_errors import ApiError
 from ..config import settings
@@ -3103,12 +3103,10 @@ async def download_task_diagnostics(
 async def retry_task(
     task_id: str,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_active_user),
+    current_user: models.User = Depends(iam.require("scans:execute")),
 ):
     task = _task_or_404(db, task_id)
     _require_task_access(db, current_user, task)
-    if current_user.role == "security_auditor":
-        raise ApiError(403, "auth.permission_denied", "安全审计员不能重试扫描", "Security auditors cannot retry scans")
     if task.status not in {"failed", "timed_out"}:
         raise ApiError(409, "agent_security.retry_status_invalid", "只有失败或超时的扫描任务可以重试", "Only failed or timed-out scans can be retried")
     # Serialize retry generation so simultaneous requests select the same pending task.
@@ -3335,12 +3333,10 @@ async def get_mcp_assessment(
 async def cancel_task(
     task_id: str,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_active_user),
+    current_user: models.User = Depends(iam.require("scans:cancel")),
 ):
     task = _task_or_404(db, task_id)
     _require_task_access(db, current_user, task)
-    if current_user.role == "security_auditor":
-        raise ApiError(403, "auth.permission_denied", "安全审计员没有取消权限", "Security auditors cannot cancel tasks")
     now = datetime.utcnow()
     if task.status == "pending":
         task.status = "cancelled"

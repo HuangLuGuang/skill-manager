@@ -20,6 +20,7 @@ from .scan_schedule_models import (  # noqa: F401
     SecurityTaskTrigger,
 )
 from .sqlite_db import Base
+from .iam_models import ManagementAudit, Menu, Permission, Role, RolePermission  # noqa: F401
 
 
 class User(Base):
@@ -835,6 +836,7 @@ class LoginLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(64), index=True, nullable=False)
     ip_address = Column(String(128), nullable=False)
+    request_id = Column(String(64), default="", nullable=False)
     status = Column(String(32), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

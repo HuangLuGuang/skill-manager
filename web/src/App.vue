@@ -5,6 +5,9 @@
     </div>
     <a-layout v-else class="app-shell">
       <a-layout-header v-if="!isLoginPage && !isDocsPage" class="app-header">
+        <a-button v-if="narrowNavigation" type="text" :aria-label="t('iam.toggleNavigation')" :aria-expanded="!navigationCollapsed" @click="navigationCollapsed = !navigationCollapsed">
+          <MenuOutlined />
+        </a-button>
         <div class="app-brand">
           <img :src="logoUrl" alt="Logo" class="app-logo" />
           <div>
@@ -50,8 +53,9 @@
       </a-layout-header>
 
       <a-layout v-if="!isLoginPage && !isDocsPage" class="app-main-layout">
-        <a-layout-sider width="240" breakpoint="md" :collapsed-width="0" class="app-sider">
+        <a-layout-sider v-model:collapsed="navigationCollapsed" width="240" breakpoint="md" :collapsed-width="0" :trigger="null" class="app-sider" @breakpoint="narrow => { narrowNavigation = narrow; navigationCollapsed = narrow }">
           <a-menu
+            v-if="!narrowNavigation || !navigationCollapsed"
             :items="menuItems"
             :selectedKeys="selectedKeys"
             :openKeys="openKeys"
@@ -83,7 +87,9 @@
       </a-layout-content>
     </a-layout>
 
-    <a-modal v-model:open="passwordVisible" :title="$t('legacy.1pt7oo1')" @ok="handlePasswordOk">
+    <a-modal v-model:open="passwordVisible" :title="$t('legacy.1pt7oo1')" :confirm-loading="passwordSaving"
+      :ok-button-props="{ disabled: passwordSaving }" :cancel-button-props="{ disabled: passwordSaving }"
+      :closable="!passwordSaving" :mask-closable="!passwordSaving" :keyboard="!passwordSaving" @ok="handlePasswordOk">
       <a-form layout="vertical">
         <a-form-item :label="$t('legacy.ib9p03')">
           <a-input-password v-model:value="passwordForm.oldPassword" />
@@ -121,6 +127,7 @@ import {
   FileTextOutlined,
   KeyOutlined,
   LockOutlined,
+  MenuOutlined,
   LogoutOutlined,
   QuestionCircleOutlined,
   SafetyCertificateOutlined,
@@ -129,10 +136,14 @@ import {
   UploadOutlined,
 } from '@ant-design/icons-vue'
 
+const narrowNavigation = ref(false)
+const navigationCollapsed = ref(false)
+
 import { changePassword, checkSession, getLogoInfo, getMcpApprovalRequestStats, getMe, getSystemCapabilities, updateMyLocale } from './api'
 import { DEFAULT_FEATURE_FLAGS, filterNavigationByFeatures, normalizeFeatureFlags } from './features'
 import { setLocale, translateLegacy } from './i18n'
-import { findMenuOpenKeys, navigationItems, resolveMenuKey } from './navigation'
+import { resolveMenuKey } from './navigation'
+import { accessState, navigationEntries, navigationParents, refreshAccess, clearAccess, pageAllowed, can } from './access'
 
 const router = useRouter()
 const route = useRoute()
@@ -140,6 +151,7 @@ const { t, locale } = useI18n()
 const userInfo = ref(null)
 const authChecking = ref(true)
 const passwordVisible = ref(false)
+const passwordSaving = ref(false)
 const logoUrl = ref('/logo.png')
 const selectedKeys = ref([route.path])
 const openKeys = ref(['capability-governance'])
@@ -172,7 +184,7 @@ const iconMap = {
 const antdLocale = computed(() => locale.value === 'en-US' ? enUS : zhCN)
 
 const buildMenuLabel = item => {
-  const label = item.label.includes('.') ? t(item.label) : translateLegacy(item.label)
+  const label = item.title_key ? t(item.title_key) : (locale.value === 'en-US' ? item.title_en : item.title_zh)
   if (item.badge !== 'mcpApprovals' || pendingMcpApprovals.value <= 0) return label
   return h('span', { style: 'display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px' }, [
     h('span', label),
@@ -189,7 +201,7 @@ const buildMenuItem = (item) => ({
   children: item.children?.map(buildMenuItem),
 })
 
-const menuItems = computed(() => filterNavigationByFeatures(navigationItems, featureFlags.value).map(buildMenuItem))
+const menuItems = computed(() => filterNavigationByFeatures(navigationEntries(), featureFlags.value).map(buildMenuItem))
 
 const handleLocaleChange = async (value) => {
   setLocale(value)
@@ -213,8 +225,7 @@ watch(
   () => route.path,
   (path) => {
     selectedKeys.value = [resolveMenuKey(path)]
-    const nextOpenKeys = findMenuOpenKeys(path)
-    openKeys.value = nextOpenKeys.length ? nextOpenKeys : ['capability-governance']
+    openKeys.value = navigationParents(path)
   },
   { immediate: true },
 )
@@ -235,6 +246,7 @@ watch(
       }
     }
     if (isLogin) {
+      clearAccess()
       userInfo.value = null
       stopSessionCheck()
       stopApprovalStatsCheck()
@@ -247,6 +259,8 @@ const startSessionCheck = () => {
   sessionCheckTimer = setInterval(async () => {
     try {
       await checkSession()
+      await refreshAccess()
+      if (!pageAllowed(route.path)) router.replace(accessState.default_path)
     } catch {
       stopSessionCheck()
     }
@@ -261,6 +275,7 @@ const stopSessionCheck = () => {
 }
 
 const refreshApprovalStats = async () => {
+  if (!can('mcp:view')) return
   try {
     const data = await getMcpApprovalRequestStats()
     pendingMcpApprovals.value = Number(data.pending || 0)
@@ -289,6 +304,8 @@ const handleApprovalStatsEvent = event => {
 
 const loadProfile = async () => {
   const me = await getMe()
+  await refreshAccess()
+  openKeys.value = navigationParents(route.path)
   userInfo.value = me
   if (me.preferred_locale && me.preferred_locale !== locale.value) {
     setLocale(me.preferred_locale)
@@ -318,7 +335,10 @@ const loadLogo = async () => {
   }
 }
 
-const handleMenuClick = ({ key }) => router.push(key)
+const handleMenuClick = ({ key }) => {
+  if (narrowNavigation.value) navigationCollapsed.value = true
+  router.push(key)
+}
 
 const openDocs = () => {
   const url = router.resolve('/docs').href
@@ -336,6 +356,7 @@ const handleLogout = () => {
 }
 
 const handlePasswordOk = async () => {
+  if (passwordSaving.value) return
   if (!passwordForm.oldPassword || !passwordForm.newPassword) {
     message.error(phrase('legacy.ot6dw7'))
     return
@@ -344,11 +365,22 @@ const handlePasswordOk = async () => {
     message.error(phrase('legacy.1c6u5vm'))
     return
   }
-  await changePassword(passwordForm.oldPassword, passwordForm.newPassword)
-  message.success(phrase('legacy.1fshup6'))
-  passwordVisible.value = false
-  handleLogout()
+  passwordSaving.value = true
+  try {
+    await changePassword(passwordForm.oldPassword, passwordForm.newPassword)
+    message.success(phrase('legacy.1fshup6'))
+    passwordVisible.value = false
+    handleLogout()
+  } catch (error) {
+    message.error(error.response?.data?.detail || t('iam.failed'))
+  } finally {
+    passwordSaving.value = false
+  }
 }
+
+watch(passwordVisible, open => {
+  if (!open) Object.assign(passwordForm, { oldPassword: '', newPassword: '', confirmPassword: '' })
+})
 
 onMounted(async () => {
   if (isLoginPage.value) {
@@ -510,13 +542,12 @@ onUnmounted(() => {
     white-space: nowrap;
   }
   .app-content { padding: 14px 12px 20px; }
-  .app-sider :deep(.ant-layout-sider-zero-width-trigger) {
-    top: 12px;
-    width: 38px;
-    height: 38px;
-    line-height: 38px;
-    border-radius: 0 8px 8px 0;
-    box-shadow: 0 4px 14px rgba(22, 50, 79, .18);
+  .app-main-layout { position: relative; }
+  .app-sider {
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 20;
   }
+  .app-sider :deep(.ant-layout-sider-children) { overflow-y: auto; }
 }
 </style>

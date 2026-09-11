@@ -122,13 +122,13 @@
               <template v-else-if="column.key === 'skills'">{{ record.skills?.length || 0 }}</template>
               <template v-else-if="column.key === 'action'">
                 <a-space direction="vertical" size="small">
-                  <a-button
+                  <a-button v-if="hasAccess('clients:execute')"
                     type="link"
                     :disabled="!record.skill_management_supported || (currentGovernance === 'strict' && (isSharedSkillsRecord(record) || !record.managed_agent_id))"
                     :title="currentGovernance === 'strict' && isSharedSkillsRecord(record) ? $t('legacy.13rv9dd') : ''"
                     @click="openInstall(record)"
                   >{{ $t("legacy.1byrs80") }}</a-button>
-                  <a-button
+                  <a-button v-if="hasAccess('clients:execute')"
                     type="link"
                     :disabled="!canConfigureModel(record)"
                     :title="modelConfigDisabledReason(record)"
@@ -147,13 +147,13 @@
                   <template v-else-if="column.key === 'status'"><a-tag>{{ record.status }}</a-tag></template>
                   <template v-else-if="column.key === 'action'">
                     <a-space>
-                      <a-button
+                      <a-button v-if="hasAccess('clients:execute')"
                         type="link"
                         :loading="actionKey === `repair:${record.agent_type}:${record.skill_id}`"
                         :disabled="!record.skill_id"
                         @click="repairSkill(record)"
                       >{{ $t("legacy.1hrhvck") }}</a-button>
-                      <a-popconfirm :title="$t('legacy.1o0qwo1')" @confirm="removeSkill(record)">
+                      <a-popconfirm v-if="hasAccess('clients:execute')" :title="$t('legacy.1o0qwo1')" @confirm="removeSkill(record)">
                         <a-button
                           type="link"
                           danger
@@ -181,8 +181,8 @@
               <template v-else-if="column.key === 'error'">{{ record.error || '-' }}</template>
               <template v-else-if="column.key === 'action'">
                 <a-space>
-                  <a-button v-if="['pending', 'running'].includes(record.status)" type="link" danger @click="cancelTask(record)">{{ $t("legacy.1589w37") }}</a-button>
-                  <a-button v-if="['failed', 'cancelled'].includes(record.status)" type="link" @click="retryTask(record)">{{ $t("legacy.lswd2v") }}</a-button>
+                  <a-button v-if="hasAccess('clients:execute') && (['pending', 'running'].includes(record.status))" type="link" danger @click="cancelTask(record)">{{ $t("legacy.1589w37") }}</a-button>
+                  <a-button v-if="hasAccess('clients:execute') && (['failed', 'cancelled'].includes(record.status))" type="link" @click="retryTask(record)">{{ $t("legacy.lswd2v") }}</a-button>
                 </a-space>
               </template>
             </template>
@@ -274,6 +274,7 @@
 </template>
 
 <script setup>
+import { can as hasAccess } from '../access'
 import {
   getCurrentLocale,
   i18n,

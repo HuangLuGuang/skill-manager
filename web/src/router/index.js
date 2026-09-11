@@ -1,8 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { refreshAccess, pageAllowed, accessState } from '../access'
 
 import { getSystemCapabilities } from '../api'
 
 const routes = [
+  ...['users', 'roles', 'menus'].map(kind => ({ path: `/${kind}`, name: `iam-${kind}`, component: () => import('../views/IdentityManagement.vue'), meta: { requiresAuth: true, iamKind: kind } })),
+  { path: '/system-audit', name: 'system-audit', component: () => import('../views/SystemAudit.vue'), meta: { requiresAuth: true } },
+  { path: '/access-denied', name: 'access-denied', component: () => import('../views/AccessDenied.vue'), meta: { requiresAuth: true } },
   { path: '/agent-security/assets', redirect: '/agent-security/scans?stage=targets' },
   { path: '/', redirect: '/dashboard' },
   { path: '/login', name: 'login', component: () => import('../views/Login.vue') },
@@ -83,6 +87,16 @@ router.beforeEach(async (to, from, next) => {
       next('/dashboard')
       return
     }
+  }
+  try {
+    await refreshAccess()
+    if (!pageAllowed(to.path)) {
+      next(accessState.default_path === to.path ? '/access-denied' : accessState.default_path)
+      return
+    }
+  } catch {
+    next('/login')
+    return
   }
   next()
 })

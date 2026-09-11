@@ -12,8 +12,10 @@
         <template v-else-if="column.key === 'last'"><a v-if="record.last_run" @click="record.last_run.task_id ? openReport(record.last_run.task_id) : showRuns(record)">{{ state(record.last_run.status) }}</a><span v-else>—</span></template>
         <template v-else-if="column.key === 'actions'"><a-space wrap>
           <a-button size="small" @click="showRuns(record)">{{ t('scanSchedule.history') }}</a-button>
-          <template v-if="canAdmin"><a-button size="small" :disabled="!!busy" @click="$emit('edit', record)">{{ t('assetLifecycle.edit') }}</a-button><a-button size="small" :loading="busy === record.schedule_id" :disabled="!!busy" @click="run(record)">{{ t('scanSchedule.run') }}</a-button><a-button size="small" :disabled="!!busy" @click="toggle(record)">{{ t(record.enabled ? 'scanSchedule.pause' : 'scanSchedule.resume') }}</a-button>
-          <a-popconfirm :title="t('scanSchedule.deleteConfirm')" @confirm="remove(record)"><a-button size="small" danger :disabled="!!busy">{{ t('scanSchedule.delete') }}</a-button></a-popconfirm></template>
+          <a-button v-if="hasAccess('schedules:update')" size="small" :disabled="!!busy" @click="$emit('edit', record)">{{ t('assetLifecycle.edit') }}</a-button>
+          <a-button v-if="hasAccess('schedules:execute')" size="small" :loading="busy === record.schedule_id" :disabled="!!busy" @click="run(record)">{{ t('scanSchedule.run') }}</a-button>
+          <a-button v-if="hasAccess('schedules:update')" size="small" :disabled="!!busy" @click="toggle(record)">{{ t(record.enabled ? 'scanSchedule.pause' : 'scanSchedule.resume') }}</a-button>
+          <a-popconfirm v-if="hasAccess('schedules:delete')" :title="t('scanSchedule.deleteConfirm')" @confirm="remove(record)"><a-button size="small" danger :disabled="!!busy">{{ t('scanSchedule.delete') }}</a-button></a-popconfirm>
         </a-space></template>
       </template>
     </a-table>
@@ -26,6 +28,7 @@
   </div>
 </template>
 <script setup>
+import { can as hasAccess } from '../../access'
 import { createRequestId } from '../../utils/requestId'
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'

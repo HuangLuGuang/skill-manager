@@ -51,7 +51,7 @@
             <a-tag :color="statusColor(item.status)">{{ item.statusText || statusText(item.status) }}</a-tag>
           </div>
           <div class="capability-action">
-            <router-link v-if="item.actionPath" :to="item.actionPath">
+            <router-link v-if="item.actionPath && pageAllowed(item.actionPath)" :to="item.actionPath">
               <a-button size="small">{{ item.actionText }}</a-button>
             </router-link>
             <span v-else class="meta-empty">-</span>
@@ -75,7 +75,7 @@
             <div class="recommendation-desc">{{ item.description }}</div>
           </div>
           <div class="recommendation-action">
-            <router-link v-if="item.actionPath" :to="item.actionPath">
+            <router-link v-if="item.actionPath && pageAllowed(item.actionPath)" :to="item.actionPath">
               <a-button size="small">{{ item.actionText }}</a-button>
             </router-link>
           </div>
@@ -91,6 +91,8 @@ import { translateLegacy as phrase } from '../i18n'
 
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
+import { useI18n } from 'vue-i18n'
+import { can, pageAllowed } from '../access'
 
 import {
   getAgentManagerSystemStatus,
@@ -103,6 +105,8 @@ import {
 } from '../api'
 
 const loading = ref(false)
+const { t } = useI18n()
+const sourceStatus = ref({})
 const managerStatus = ref({})
 const llmConfig = ref({})
 const sandboxConfig = ref({})
@@ -111,12 +115,34 @@ const modelEndpoints = ref([])
 const accessTokens = ref([])
 const privacyPolicies = ref([])
 
-const safeRequest = async (request, fallback) => {
-  try {
-    return await request()
-  } catch (error) {
+const loadSource = async (key, permission, request, fallback) => {
+  if (!can(permission)) {
+    sourceStatus.value[key] = 'restricted'
     return fallback
   }
+  try {
+    const result = await request()
+    sourceStatus.value[key] = 'ready'
+    return result
+  } catch (error) {
+    sourceStatus.value[key] = 'unavailable'
+    return fallback
+  }
+}
+
+const capabilitySources = {
+  api: ['manager'], signing: ['manager'], sandbox: ['manager', 'sandbox'],
+  llm: ['manager', 'llm'], 'deep-analysis': ['manager'],
+  models: ['providers', 'models'], credentials: ['tokens'], privacy: ['policies'],
+  'runtime-token': ['tokens'], 'runtime-check': ['manager'], scanner: ['tokens'],
+}
+const withSourceStatus = item => {
+  const states = (capabilitySources[item.key] || []).map(key => sourceStatus.value[key])
+  if (states.some(status => status !== 'ready')) {
+    const statusText = t(states.includes('restricted') ? 'iam.dataRestricted' : 'iam.dataUnavailable')
+    return { ...item, status: 'unknown', meta: [], statusText, description: statusText }
+  }
+  return item
 }
 
 const toArray = (value) => {
@@ -270,7 +296,7 @@ const gatewayItems = computed(() => [
       { label: phrase('legacy.103n846'), value: `${activeModels.value.length}` },
     ],
     actionText: phrase('legacy.h6olrl'),
-    actionPath: '/model-gateway/models',
+    actionPath: '/model-gateway/providers',
   },
   {
     key: 'credentials',
@@ -380,10 +406,10 @@ const capabilityGroups = computed(() => {
       items: integrationItems.value,
     },
   ]
-  return groups.map((group) => ({
-    ...group,
-    status: groupStatus(group.items),
-  }))
+  return groups.map((group) => {
+    const items = group.items.map(withSourceStatus)
+    return { ...group, items, status: groupStatus(items) }
+  })
 })
 
 const overallHealth = computed(() => {
@@ -413,6 +439,7 @@ const recommendations = computed(() =>
 )
 
 const fetchStatus = async () => {
+  if (loading.value) return
   loading.value = true
   try {
     const [
@@ -424,13 +451,13 @@ const fetchStatus = async () => {
       tokens,
       policies,
     ] = await Promise.all([
-      safeRequest(() => getAgentManagerSystemStatus(), {}),
-      safeRequest(() => getLlmConfig(), {}),
-      safeRequest(() => getSandboxConfig(), {}),
-      safeRequest(() => listModelProviders(), []),
-      safeRequest(() => listModelEndpoints(), []),
-      safeRequest(() => listAccessTokens({ page_size: 200 }), { items: [] }),
-      safeRequest(() => listPrivacyPolicies(), []),
+      loadSource('manager', 'settings:view', () => getAgentManagerSystemStatus(), {}),
+      loadSource('llm', 'settings:view', () => getLlmConfig(), {}),
+      loadSource('sandbox', 'settings:view', () => getSandboxConfig(), {}),
+      loadSource('providers', 'providers:view', () => listModelProviders(), []),
+      loadSource('models', 'models:view', () => listModelEndpoints(), []),
+      loadSource('tokens', 'credentials:view', () => listAccessTokens({ page_size: 200 }), { items: [] }),
+      loadSource('policies', 'privacy:view', () => listPrivacyPolicies(), []),
     ])
     managerStatus.value = manager || {}
     llmConfig.value = llm || {}

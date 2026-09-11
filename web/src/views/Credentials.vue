@@ -3,13 +3,13 @@
     <a-page-header :title="$t('credentials.pageTitle')" :sub-title="$t('credentials.pageSubtitle')">
       <template #extra>
         <a-button :loading="loading" @click="fetchTokens">{{ $t('credentials.refresh') }}</a-button>
-        <a-button type="primary" @click="openCreate()">{{ $t('credentials.createAction') }}</a-button>
+        <a-button v-if="hasAccess('credentials:create')" type="primary" @click="openCreate()">{{ $t('credentials.createAction') }}</a-button>
       </template>
     </a-page-header>
 
     <section class="route-map" :aria-label="$t('credentials.routeEyebrow')">
       <div class="route-grid">
-        <button
+        <button v-if="hasAccess('credentials:create')"
           v-for="scenario in credentialScenarios"
           :key="scenario.id"
           type="button"
@@ -66,7 +66,7 @@
             <div class="empty-credentials__mark">KEY</div>
             <strong>{{ $t('credentials.emptyTitle') }}</strong>
             <span>{{ $t('credentials.emptyDescription') }}</span>
-            <a-button type="primary" @click="openCreate()">{{ $t('credentials.createFirst') }}</a-button>
+            <a-button v-if="hasAccess('credentials:create')" type="primary" @click="openCreate()">{{ $t('credentials.createFirst') }}</a-button>
           </div>
         </template>
 
@@ -90,10 +90,10 @@
           </template>
           <template v-else-if="column.key === 'action'">
             <a-space>
-              <a-popconfirm v-if="record.status === 'active'" :title="$t('legacy.lsaw9d')" @confirm="handleRevoke(record)">
+              <a-popconfirm v-if="hasAccess('credentials:update') && (record.status === 'active')" :title="$t('legacy.lsaw9d')" @confirm="handleRevoke(record)">
                 <a-button type="link" danger :loading="actionId === record.id">{{ $t('credentials.revoke') }}</a-button>
               </a-popconfirm>
-              <a-popconfirm :title="$t('legacy.1dfi7sm')" @confirm="handleDelete(record)">
+              <a-popconfirm v-if="hasAccess('credentials:delete')" :title="$t('legacy.1dfi7sm')" @confirm="handleDelete(record)">
                 <a-button type="link" danger :loading="actionId === record.id">{{ $t('credentials.delete') }}</a-button>
               </a-popconfirm>
             </a-space>
@@ -359,6 +359,7 @@
 </template>
 
 <script setup>
+import { can as hasAccess } from '../access'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'

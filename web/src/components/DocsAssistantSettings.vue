@@ -100,7 +100,7 @@
         </div>
 
         <div class="settings-footer">
-          <a-button type="primary" :loading="saving" @click="saveSettings">
+          <a-button type="primary" :loading="saving" :disabled="saving || loading || !hasAccess('docs:update')" @click="saveSettings">
             <SaveOutlined />
             {{ saving ? t('docsAssistantSettings.saving') : t('docsAssistantSettings.save') }}
           </a-button>
@@ -111,6 +111,7 @@
 </template>
 
 <script setup>
+import { can as hasAccess } from '../access'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
@@ -193,7 +194,7 @@ const loadSettings = async () => {
   try {
     const [config, modelRows] = await Promise.all([
       getDocsAssistantConfig(),
-      listModelEndpoints(),
+      hasAccess('models:view') ? listModelEndpoints() : [],
     ])
     assignConfig(config)
     markSaved()
@@ -226,6 +227,7 @@ const validate = () => {
 }
 
 const saveSettings = async () => {
+  if (saving.value || loading.value || !hasAccess('docs:update')) return
   if (!validate()) return
   saving.value = true
   try {

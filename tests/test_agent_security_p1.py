@@ -65,6 +65,9 @@ def p1_api(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "SECRET_KEY", "p1-test-secret-key")
 
     with session_factory() as db:
+        from backend import iam, iam_models
+        iam.initialize(db)
+        db.add_all(iam_models.RolePermission(role_name="user", permission_code=code) for code in ("scans:execute", "scans:cancel"))
         admin = models.User(username="admin", hashed_password="x", role="admin")
         auditor = models.User(username="auditor", hashed_password="x", role="security_auditor")
         owner = models.User(username="owner", hashed_password="x", role="user")
@@ -143,6 +146,28 @@ def _create_task(client: TestClient, target_id: str, policy_id: str, key: str = 
     )
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def test_scan_cancel_obeys_configured_permission_for_auditor(p1_api):
+    from backend import iam_models
+
+    client, factory, state, users = p1_api
+    target = _create_target(client)
+    policy = _create_policy(client)
+    task = _create_task(client, target["target_id"], policy["policy_id"])
+    state["user"] = users["auditor"]
+    path = f"/api/v1/agent-security/tasks/{task['task_id']}/cancel"
+    assert client.post(path).status_code == 403
+    with factory() as db:
+        db.add(iam_models.RolePermission(role_name="security_auditor", permission_code="scans:cancel"))
+        db.commit()
+    response = client.post(path)
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "cancelled"
+    with factory() as db:
+        db.query(iam_models.RolePermission).filter_by(role_name="security_auditor", permission_code="scans:cancel").delete()
+        db.commit()
+    assert client.post(path).status_code == 403
 
 
 def test_retry_failed_scan_preserves_original_and_deduplicates(p1_api):
@@ -1377,7 +1402,7 @@ def test_task_idempotency_authorization_and_auditor_read_only(p1_api):
     assert client.get(f"/api/v1/agent-security/tasks/{first['task_id']}").status_code == 200
     denied = client.post(f"/api/v1/agent-security/tasks/{first['task_id']}/cancel")
     assert denied.status_code == 403
-    assert denied.json()["error_code"] == "auth.permission_denied"
+    assert denied.json()["error_code"] == "iam.permission_denied"
 
 
 def test_worker_claim_heartbeat_completion_and_unified_results(p1_api):

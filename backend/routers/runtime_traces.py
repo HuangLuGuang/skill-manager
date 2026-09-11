@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from agent_manager.core.runtime_trace_pdf import build_runtime_trace_pdf
 
-from .. import auth, models
+from .. import auth, iam, models
 from ..api_errors import ApiError
 from ..feature_flags import require_runtime_trace
 from ..runtime_trace_schemas import (
@@ -155,7 +155,7 @@ def _ensure_read_allowed(db: Session, row: models.RuntimeTraceSession, user: mod
     raise ApiError(403, "runtime_trace.read_forbidden", "无权查看该调用轨迹", "Not allowed to view this runtime trace")
 
 
-def _ensure_raw_allowed(user: models.User) -> None:
+def _ensure_raw_allowed(db: Session, user: models.User) -> None:
     if user.role not in {"admin", "super_admin", "privacy_auditor"}:
         raise ApiError(
             403,
@@ -163,6 +163,8 @@ def _ensure_raw_allowed(user: models.User) -> None:
             "当前角色无权查看原始轨迹内容",
             "The current role cannot view raw trace payloads",
         )
+
+    iam.check(db, user, "traces:raw")
 
 
 def _consume_raw_export_authorization(
@@ -361,7 +363,7 @@ def download_runtime_trace_export(
     trace = _require_trace(db, row.trace_id)
     _ensure_read_allowed(db, trace, user)
     if row.redaction_level == "raw":
-        _ensure_raw_allowed(user)
+        _ensure_raw_allowed(db, user)
     protected_content = unprotect_secret(row.content_encrypted)
     if protected_content is None:
         raise ApiError(500, "runtime_trace.export_decrypt_failed", "轨迹导出解密失败", "Failed to decrypt trace export")
@@ -491,7 +493,7 @@ def get_runtime_trace_raw_payload(
 ):
     trace = _require_trace(db, trace_id)
     _ensure_read_allowed(db, trace, user)
-    _ensure_raw_allowed(user)
+    _ensure_raw_allowed(db, user)
     payload = (
         db.query(models.RuntimeTracePayload)
         .filter(models.RuntimeTracePayload.trace_id == trace_id, models.RuntimeTracePayload.event_id == event_id)
@@ -525,7 +527,7 @@ def create_runtime_trace_export(
     trace = _require_trace(db, trace_id)
     _ensure_read_allowed(db, trace, user)
     if body.redaction_level == "raw":
-        _ensure_raw_allowed(user)
+        _ensure_raw_allowed(db, user)
         if body.format != "json":
             raise ApiError(
                 422,
@@ -632,7 +634,7 @@ def authorize_raw_runtime_trace_export(
 ):
     trace = _require_trace(db, trace_id)
     _ensure_read_allowed(db, trace, user)
-    _ensure_raw_allowed(user)
+    _ensure_raw_allowed(db, user)
     if not auth.verify_password(body.password, user.hashed_password):
         append_security_audit(
             event_type="runtime_trace.raw_export_reauthentication_failed",

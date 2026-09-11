@@ -80,7 +80,7 @@ const onFinish = async () => {
     localStorage.setItem('username', me.username)
     if (me.preferred_locale) setLocale(me.preferred_locale)
     message.success(phrase('legacy.1snukxk'))
-    router.push('/dashboard')
+    router.push(me.default_path || '/access-denied')
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.rn5blf'))
     refreshCaptcha()

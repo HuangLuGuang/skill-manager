@@ -32,6 +32,7 @@ from .routers import (
     asset_lifecycle,
     auth,
     clients,
+    iam,
     config,
     llm_gateway,
     mcp_gateway,
@@ -125,6 +126,8 @@ app.add_exception_handler(HTTPException, http_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
 app.add_exception_handler(Exception, unhandled_error_handler)
 app.add_middleware(WorkerCompletionBodyLimitMiddleware)
+from .iam_middleware import management_audit_middleware
+app.middleware("http")(management_audit_middleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -134,6 +137,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix=settings.API_PREFIX)
+app.include_router(iam.router, prefix=settings.API_PREFIX)
 app.include_router(config.router, prefix=settings.API_PREFIX)
 app.include_router(system.router, prefix=settings.API_PREFIX)
 app.include_router(tasks.router, prefix=settings.API_PREFIX)
@@ -203,6 +207,10 @@ async def append_admin_security_audit(request, call_next):
 
 def ensure_sqlite_schema() -> None:
     Base.metadata.create_all(bind=engine)
+    from .iam import initialize as initialize_iam, migrate as migrate_iam
+    migrate_iam(engine)
+    with SessionLocal() as iam_db:
+        initialize_iam(iam_db)
     from .asset_lifecycle_migrations import upgrade_asset_lifecycle_schema
 
     upgrade_asset_lifecycle_schema(engine)

@@ -1,15 +1,15 @@
 <template>
   <div class="asset-lifecycle">
     <a-drawer v-model:open="sourcesOpen" :title="t('scanSchedule.sources')" width="min(1100px, 100vw)">
-        <div class="toolbar"><p>{{ t('assetLifecycle.sourceHelp') }}</p><a-button v-if="canAdmin" type="primary" @click="editSource()">{{ t('assetLifecycle.add') }}</a-button></div>
+        <div class="toolbar"><p>{{ t('assetLifecycle.sourceHelp') }}</p><a-button v-if="hasAccess('targets:create')" type="primary" @click="editSource()">{{ t('assetLifecycle.add') }}</a-button></div>
         <a-table :columns="sourceColumns" :data-source="sources" row-key="source_id" :loading="loading" :scroll="{ x: 1050 }" :locale="{ emptyText: t('assetLifecycle.emptySources') }">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'schedule'">{{ t(`assetLifecycle.${record.config.schedule_kind}`) }}<small>{{ record.config.timezone }}</small></template>
             <template v-else-if="column.key === 'nextRun'">{{ record.enabled ? date(record.next_run_at) : '—' }}</template>
             <template v-else-if="column.key === 'lastSuccess'">{{ date(record.last_success_at) }}</template>
             <template v-else-if="column.key === 'actions'"><a-space wrap>
-              <a-button v-if="canAdmin" size="small" :disabled="!!record.active_run_id" @click="editSource(record)">{{ t('assetLifecycle.edit') }}</a-button>
-              <a-button v-if="canAdmin" size="small" :loading="busy === record.source_id" :disabled="!!busy || !!record.active_run_id" @click="sync(record)">{{ t('assetLifecycle.sync') }}</a-button>
+              <a-button v-if="hasAccess('targets:update')" size="small" :disabled="!!record.active_run_id" @click="editSource(record)">{{ t('assetLifecycle.edit') }}</a-button>
+              <a-button v-if="hasAccess('targets:sync')" size="small" :loading="busy === record.source_id" :disabled="!!busy || !!record.active_run_id" @click="sync(record)">{{ t('assetLifecycle.sync') }}</a-button>
               <a-button size="small" @click="openRuns(record)">{{ t('assetLifecycle.runs') }}</a-button>
             </a-space></template>
           </template>
@@ -46,7 +46,7 @@
       <a-table :columns="runColumns" :data-source="runs" row-key="run_id" :scroll="{ x: 650 }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">{{ label(record.status) }}</template>
-          <template v-else-if="column.key === 'actions'"><a-space wrap><a-button @click="showRun(record.run_id)">{{ t('assetLifecycle.details') }}</a-button><a-button v-if="canAdmin && ['pending', 'running'].includes(record.status)" :loading="busy === record.run_id" :disabled="!!busy" @click="cancelRun(record.run_id)">{{ t('assetLifecycle.cancel') }}</a-button></a-space></template>
+          <template v-else-if="column.key === 'actions'"><a-space wrap><a-button @click="showRun(record.run_id)">{{ t('assetLifecycle.details') }}</a-button><a-button v-if="hasAccess('targets:sync') && ['pending', 'running'].includes(record.status)" :loading="busy === record.run_id" :disabled="!!busy" @click="cancelRun(record.run_id)">{{ t('assetLifecycle.cancel') }}</a-button></a-space></template>
         </template>
       </a-table>
       <template v-if="runDetail">
@@ -66,13 +66,13 @@
           <h3>{{ t('scanSchedule.currentScore') }}</h3><p>{{ t('assetLifecycle.scoreHelp') }}</p><p v-if="selectedAgent?.source">{{ t('scanSchedule.sources') }}: {{ selectedAgent.source.name }} · {{ date(selectedAgent.source.last_success_at) }} <a-button type="link" @click="openSources">{{ t('assetLifecycle.edit') }}</a-button></p><div class="risk-overview"><strong class="risk-score" :class="`risk-${risk.level}`">{{ risk.score ?? '—' }}</strong><div><a-tag :color="color(risk.status)">{{ label(risk.status) }}</a-tag><p>{{ t('assetLifecycle.formula') }}</p><small>{{ t('assetLifecycle.scoreVersion') }}: {{ risk.algorithm_version }} · {{ t('assetLifecycle.revision') }}: {{ risk.revision }}</small></div></div>
           <a-tabs default-active-key="contributions">
             <a-tab-pane key="overview" :tab="t('agentSecurityScans.detail.summary')"><p v-if="selectedAgent?.latest_scan">{{ t('scanSchedule.latestScan') }}: <a @click="openTask(selectedAgent.latest_scan.task_id)">{{ date(selectedAgent.latest_scan.created_at) }}</a></p><p>{{ t('scanSchedule.title') }}</p><a-list :data-source="selectedAgent?.schedules || []"><template #renderItem="{ item }"><a-list-item><a @click="openPlan(item.schedule_id)">{{ item.name }}</a><a-tag>{{ t(item.enabled ? 'scanSchedule.enabled' : 'scanSchedule.paused') }}</a-tag></a-list-item></template></a-list></a-tab-pane>
-            <a-tab-pane v-if="canAdmin" key="links" :tab="t('assetLifecycle.relatedTargets')"><p>{{ t('assetLifecycle.relatedHelp') }}</p><a-select v-model:value="relatedTargets" mode="multiple" :options="mcpOptions" style="width: 100%; margin-bottom: 16px" /><a-button :loading="linksSaving" :disabled="linksSaving" @click="saveLinks">{{ t('assetLifecycle.saveLinks') }}</a-button></a-tab-pane>
+            <a-tab-pane v-if="hasAccess('targets:update')" key="links" :tab="t('assetLifecycle.relatedTargets')"><p>{{ t('assetLifecycle.relatedHelp') }}</p><a-select v-model:value="relatedTargets" mode="multiple" :options="mcpOptions" style="width: 100%; margin-bottom: 16px" /><a-button :loading="linksSaving" :disabled="linksSaving" @click="saveLinks">{{ t('assetLifecycle.saveLinks') }}</a-button></a-tab-pane>
             <a-tab-pane key="contributions" :tab="t('assetLifecycle.contributions')">
               <a-table :columns="issueColumns" :data-source="issues" row-key="issue_id" :scroll="{ x: 800 }">
                 <template #bodyCell="{ column, record }">
                   <template v-if="column.key === 'severity'">{{ label(record.severity) }}</template><template v-else-if="column.key === 'status'">{{ label(record.status) }}</template>
                   <template v-else-if="column.key === 'points'">{{ risk.contributions.find(x => x.issue_id === record.issue_id)?.points ?? 0 }}</template>
-                  <template v-else-if="column.key === 'actions'"><a-space wrap><a-button size="small" @click="router.push({ path: '/agent-security/scans', query: { finding_id: record.finding_id } })">{{ t('assetLifecycle.evidence') }}</a-button><a-button v-if="canAdmin" size="small" @click="openReview(record)">{{ t('assetLifecycle.review') }}</a-button></a-space></template>
+                  <template v-else-if="column.key === 'actions'"><a-space wrap><a-button size="small" @click="router.push({ path: '/agent-security/scans', query: { finding_id: record.finding_id } })">{{ t('assetLifecycle.evidence') }}</a-button><a-button v-if="hasAccess('targets:update')" size="small" @click="openReview(record)">{{ t('assetLifecycle.review') }}</a-button></a-space></template>
                 </template>
               </a-table>
             </a-tab-pane>
@@ -91,6 +91,7 @@
 </template>
 
 <script setup>
+import { can as hasAccess } from '../../access'
 import { createRequestId } from '../../utils/requestId'
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -99,10 +100,10 @@ import { message } from 'ant-design-vue'
 import { localizeApiError } from '../../i18n/errors'
 import TimezoneSelect from './TimezoneSelect.vue'
 import { setManagedAgentRelatedTargets } from '../../api'
-import { getMe, listSecurityTargets, listSecurityPolicies, listAssetSources, createAssetSource, updateAssetSource, startAssetSync, listAssetSyncRuns, getAssetSyncRun, cancelAssetSyncRun, getTargetRiskProfile, getManagedAgentRisk, getManagedAgentRiskHistory, getManagedAgentRiskIssues, reviewManagedAgentRisk } from '../../api'
+import { listSecurityTargets, listSecurityPolicies, listAssetSources, createAssetSource, updateAssetSource, startAssetSync, listAssetSyncRuns, getAssetSyncRun, cancelAssetSyncRun, getTargetRiskProfile, getManagedAgentRisk, getManagedAgentRiskHistory, getManagedAgentRiskIssues, reviewManagedAgentRisk } from '../../api'
 
 const { t, te, locale } = useI18n(), router = useRouter()
-const sources = ref([]), targets = ref([]), policies = ref([]), user = ref(null), sourcesOpen = ref(false)
+const sources = ref([]), targets = ref([]), policies = ref([]), sourcesOpen = ref(false)
 const loading = ref(false), error = ref(''), busy = ref(''), saving = ref(false)
 const sourceOpen = ref(false), editing = ref(null), appIds = ref(''), form = reactive({ config: {} })
 const runsOpen = ref(false), runs = ref([]), runDetail = ref(null), runSource = ref(null)
@@ -111,7 +112,6 @@ const reviewOpen = ref(false), reviewSaving = ref(false), reviewIssue = ref(null
 const rawOpen = ref(false), raw = ref('')
 const relatedTargets = ref([]), linksSaving = ref(false)
 const skills = ['data-leakage-detection', 'tool-abuse-detection', 'indirect-injection-detection', 'authorization-bypass-detection', 'web-exfiltration-detection', 'agentic-supply-chain-detection', 'unexpected-code-execution-detection', 'inter-agent-comm-security-detection', 'cascading-failure-detection', 'human-agent-trust-exploit-detection']
-const canAdmin = computed(() => ['admin', 'super_admin'].includes(user.value?.role))
 const mcpOptions = computed(() => { const owner = targets.value.find(x => x.target_id === selectedAgent.value?.target_id); return targets.value.filter(x => x.asset_type === 'mcp' && x.owner_user_id === owner?.owner_user_id && x.owner_group_id === owner?.owner_group_id).map(x => ({ value: x.target_id, label: x.name })) })
 const label = value => value && te(`assetLifecycle.states.${value}`) ? t(`assetLifecycle.states.${value}`) : value || '—'
 const checkLabel = value => value === 'inventory' ? label(value) : (te(`assetLifecycle.ruleNames.${value}`) ? t(`assetLifecycle.ruleNames.${value}`) : value)
@@ -134,7 +134,7 @@ const fail = e => { error.value = e.response?.data?.detail || t('assetLifecycle.
 async function load() {
   if (loading.value) return
   loading.value = true; error.value = ''
-  try { const values = await Promise.all([listAssetSources(), listSecurityTargets(), listSecurityPolicies(), getMe()]); sources.value = values[0]; targets.value = values[1]; policies.value = values[2]; user.value = values[3] } catch (e) { fail(e) } finally { loading.value = false }
+  try { const values = await Promise.all([listAssetSources(), listSecurityTargets(), hasAccess('scans:view') ? listSecurityPolicies() : []]); sources.value = values[0]; targets.value = values[1]; policies.value = values[2] } catch (e) { fail(e) } finally { loading.value = false }
 }
 function editSource(row) {
   editing.value = row || null

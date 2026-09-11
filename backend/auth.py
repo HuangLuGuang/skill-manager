@@ -53,7 +53,7 @@ async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)
     user = db.query(models.User).filter(models.User.username == username).first()
     if user is None:
         raise credentials_exception
-    if session_id and user.current_session_id and session_id != user.current_session_id:
+    if user.current_session_id and session_id != user.current_session_id:
         raise ApiError(
             status.HTTP_401_UNAUTHORIZED,
             "auth.session_expired_elsewhere",
@@ -62,6 +62,14 @@ async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)
             headers={"WWW-Authenticate": "Bearer"},
         )
     request.state.security_actor = user.username
+    if not user.is_active:
+        raise ApiError(403, "auth.account_disabled", "账号已被禁用", "The account is disabled")
+    from .iam_routes import route_permission
+    from .iam import check
+    permission = route_permission(request)
+    if permission:
+        request.state.iam_permission = permission
+        check(db, user, permission)
     return user
 
 
@@ -71,7 +79,9 @@ async def get_current_active_user(current_user: Annotated[models.User, Depends(g
     return current_user
 
 
-async def get_current_admin_user(current_user: Annotated[models.User, Depends(get_current_active_user)]):
+async def get_current_admin_user(current_user: Annotated[models.User, Depends(get_current_active_user)], request: Request):
+    if getattr(request.state, "iam_permission", None):
+        return current_user
     if current_user.role not in {"admin", "super_admin"}:
         raise ApiError(403, "auth.permission_denied", "权限不足", "Permission denied")
     return current_user
@@ -79,7 +89,10 @@ async def get_current_admin_user(current_user: Annotated[models.User, Depends(ge
 
 async def get_current_security_reader(
     current_user: Annotated[models.User, Depends(get_current_active_user)],
+    request: Request,
 ):
+    if getattr(request.state, "iam_permission", None):
+        return current_user
     if current_user.role not in {"admin", "super_admin", "security_auditor"}:
         raise ApiError(403, "auth.permission_denied", "权限不足", "Permission denied")
     return current_user
@@ -87,7 +100,10 @@ async def get_current_security_reader(
 
 async def get_current_security_admin(
     current_user: Annotated[models.User, Depends(get_current_active_user)],
+    request: Request,
 ):
+    if getattr(request.state, "iam_permission", None):
+        return current_user
     if current_user.role not in {"admin", "super_admin"}:
         raise ApiError(403, "auth.permission_denied", "权限不足", "Permission denied")
     return current_user

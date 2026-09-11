@@ -10,7 +10,7 @@
       <a-col :xs="24" :md="8" v-for="item in moduleCards" :key="item.key">
         <a-card class="module-card" :title="item.title">
           <template #extra>
-            <a-button type="link" size="small" @click="$router.push(item.path)">{{ $t("legacy.58gz2l") }}</a-button>
+            <a-button v-if="pageAllowed(item.path)" type="link" size="small" @click="$router.push(item.path)">{{ $t("legacy.58gz2l") }}</a-button>
           </template>
           <div class="module-primary">
             <span class="module-value">{{ item.value }}</span>
@@ -51,7 +51,7 @@
                 <a-tag :color="todoTypeColor(record.type)">{{ record.type }}</a-tag>
               </template>
               <template v-else-if="column.key === 'name'">
-                <a @click="$router.push(record.path)">{{ record.name }}</a>
+                <a v-if="pageAllowed(record.path)" @click="$router.push(record.path)">{{ record.name }}</a><span v-else>{{ record.name }}</span>
                 <div class="muted-text">{{ record.description }}</div>
               </template>
               <template v-else-if="column.key === 'status'">
@@ -61,14 +61,14 @@
                 <a-tag :color="riskColor(record.risk)">{{ riskDisplay(record.risk) }}</a-tag>
               </template>
               <template v-else-if="column.key === 'action'">
-                <a-button type="link" size="small" @click="$router.push(record.path)">{{ $t("legacy.1p3h5cf") }}</a-button>
+                <a-button v-if="pageAllowed(record.path)" type="link" size="small" @click="$router.push(record.path)">{{ $t("legacy.1p3h5cf") }}</a-button>
               </template>
             </template>
           </a-table>
         </a-card>
       </a-col>
 
-      <a-col :xs="24" :xl="8">
+      <a-col v-if="can('skills:view')" :xs="24" :xl="8">
         <a-card :title="$t('legacy.19kwidw')" class="recent-events-card">
           <a-list class="recent-events-list" :data-source="pagedRecentEvents" bordered :locale="{ emptyText: $t('legacy.1mta22k') }">
             <template #renderItem="{ item }">
@@ -114,7 +114,7 @@
       </a-col>
     </a-row>
 
-    <a-row :gutter="[16, 16]" style="margin-top: 16px">
+    <a-row v-if="can('privacy_audit:view')" :gutter="[16, 16]" style="margin-top: 16px">
       <a-col :xs="24" :xl="14">
         <a-card :title="$t('legacy.zoebks')">
           <Chart :options="gatewayTrendChartOptions" height="320px" />
@@ -138,8 +138,8 @@
               <a-step :title="$t('legacy.ubr5hi')" :description="$t('legacy.16w5dv8')" />
             </a-steps>
             <a-space class="guide-actions" wrap>
-              <a-button @click="$router.push('/submit')">{{ $t("legacy.knj41c") }}</a-button>
-              <a-button @click="$router.push('/skills')">{{ $t("legacy.zg4apj") }}</a-button>
+              <a-button v-if="pageAllowed('/submit')" @click="$router.push('/submit')">{{ $t("legacy.knj41c") }}</a-button>
+              <a-button v-if="pageAllowed('/skills')" @click="$router.push('/skills')">{{ $t("legacy.zg4apj") }}</a-button>
             </a-space>
           </a-card>
         </a-col>
@@ -153,9 +153,9 @@
               <a-step :title="$t('legacy.13omz3w')" :description="$t('legacy.y0e5jz')" />
             </a-steps>
             <a-space class="guide-actions" wrap>
-              <a-button @click="$router.push('/agents')">{{ $t("legacy.1dq96hb") }}</a-button>
-              <a-button @click="$router.push('/credentials')">{{ $t("legacy.xm5sv6") }}</a-button>
-              <a-button type="primary" @click="$router.push('/runtime')">{{ $t("legacy.ppwp4v") }}</a-button>
+              <a-button v-if="pageAllowed('/agents')" @click="$router.push('/agents')">{{ $t("legacy.1dq96hb") }}</a-button>
+              <a-button v-if="pageAllowed('/credentials')" @click="$router.push('/credentials')">{{ $t("legacy.xm5sv6") }}</a-button>
+              <a-button type="primary" v-if="pageAllowed('/runtime')" @click="$router.push('/runtime')">{{ $t("legacy.ppwp4v") }}</a-button>
             </a-space>
           </a-card>
         </a-col>
@@ -170,6 +170,7 @@ import { translateLegacy as phrase } from '../i18n'
 
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
+import { can, pageAllowed } from '../access'
 
 import Chart from '../components/Chart.vue'
 import {
@@ -178,9 +179,7 @@ import {
   getLlmStatsByModel,
   getLlmStatsDaily,
   getPrivacyStats,
-  listAccessTokens,
   listAgents,
-  listLlmApiKeys,
   listModelEndpoints,
   listModelProviders,
 } from '../api'
@@ -192,8 +191,6 @@ const skillSummary = ref({ total: 0, status_counts: {}, risk_counts: {}, todos: 
 const agentRows = ref([])
 const providerRows = ref([])
 const modelRows = ref([])
-const accessTokenRows = ref([])
-const gatewayKeyRows = ref([])
 const auditRows = ref([])
 const recentEventsPage = ref(1)
 const recentEventsPageSize = 5
@@ -230,13 +227,6 @@ const skillRiskCount = (risks) =>
   (Array.isArray(risks) ? risks : [risks])
     .reduce((sum, risk) => sum + (skillSummary.value.risk_counts?.[risk] || 0), 0)
 
-const activeAccessTokens = computed(() =>
-  accessTokenRows.value.filter((item) => item.status === 'active'),
-)
-const activeGatewayKeys = computed(() =>
-  gatewayKeyRows.value.filter((item) => item.status === 'active'),
-)
-
 const moduleCards = computed(() => [
   {
     key: 'skills',
@@ -269,18 +259,18 @@ const moduleCards = computed(() => [
   {
     key: 'gateway',
     title: phrase('legacy.mfpzot'),
-    path: '/model-gateway/models',
+    path: '/model-gateway/providers',
     value: modelRows.value.length,
     label: phrase('legacy.1aglluu'),
     flow: [phrase('legacy.15teb0h'), phrase('legacy.17lmhaa'), phrase('legacy.qiw836'), phrase('legacy.5h548n')],
     stats: [
       { label: phrase('legacy.103n846'), value: modelRows.value.filter((item) => item.enabled).length },
       { label: phrase('legacy.1x7qpl0'), value: providerRows.value.length },
-      { label: phrase('legacy.tcjr24'), value: privacyStats.value.prompt_guard_events || 0 },
-      { label: phrase('legacy.1fsazit'), value: privacyStats.value.prompt_guard_blocked || 0 },
+      { label: phrase('legacy.tcjr24'), value: can('privacy_audit:view') ? privacyStats.value.prompt_guard_events || 0 : '—' },
+      { label: phrase('legacy.1fsazit'), value: can('privacy_audit:view') ? privacyStats.value.prompt_guard_blocked || 0 : '—' },
     ],
   },
-])
+].filter(item => item.key === 'skills' || (item.key === 'agents' ? can('agents:view') : can('models:view') && can('providers:view'))))
 
 const todoRows = computed(() => {
   const skillTodos = skillSummary.value.todos
@@ -464,31 +454,25 @@ const fetchDashboard = async () => {
       agents,
       providers,
       models,
-      accessTokens,
-      gatewayKeys,
       audit,
       riskSourceStats,
       gatewayPrivacy,
       llmDaily,
       llmByModel,
     ] = await Promise.all([
-      safeRequest(() => listAgents(), []),
-      safeRequest(() => listModelProviders(), []),
-      safeRequest(() => listModelEndpoints(), []),
-      safeRequest(() => listAccessTokens(), { items: [] }),
-      safeRequest(() => listLlmApiKeys(), []),
-      safeRequest(() => getAudit({ since_hours: 168, limit: 300 }), []),
+      can('agents:view') ? safeRequest(() => listAgents(), []) : null,
+      can('providers:view') ? safeRequest(() => listModelProviders(), []) : null,
+      can('models:view') ? safeRequest(() => listModelEndpoints(), []) : null,
+      can('skills:view') ? safeRequest(() => getAudit({ since_hours: 168, limit: 300 }), []) : null,
       safeRequest(() => getDashboardRiskSourceStats(), { items: [] }),
-      safeRequest(() => getPrivacyStats(), {}),
-      safeRequest(() => getLlmStatsDaily({ days: 7 }), { series: [] }),
-      safeRequest(() => getLlmStatsByModel({ days: 7 }), { models: [] }),
+      can('privacy_audit:view') ? safeRequest(() => getPrivacyStats(), {}) : null,
+      can('privacy_audit:view') ? safeRequest(() => getLlmStatsDaily({ days: 7 }), { series: [] }) : null,
+      can('privacy_audit:view') ? safeRequest(() => getLlmStatsByModel({ days: 7 }), { models: [] }) : null,
     ])
 
     agentRows.value = toArray(agents)
     providerRows.value = toArray(providers)
     modelRows.value = toArray(models)
-    accessTokenRows.value = toArray(accessTokens)
-    gatewayKeyRows.value = toArray(gatewayKeys)
     auditRows.value = toArray(audit)
     riskSourceRows.value = toArray(riskSourceStats)
     skillSummary.value = riskSourceStats?.skill_summary || skillSummary.value

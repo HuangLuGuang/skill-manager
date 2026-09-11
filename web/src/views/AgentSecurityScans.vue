@@ -9,7 +9,7 @@
           <template #icon><ReloadOutlined /></template>
           {{ t('agentSecurityScans.refresh') }}
         </a-button>
-        <a-button type="primary" :disabled="!canStartScan" @click="openTaskModal">
+        <a-button v-if="hasAccess('scans:execute')" type="primary" :disabled="!canStartScan" @click="openTaskModal">
           <template #icon><PlayCircleOutlined /></template>
           {{ t('agentSecurityScans.newTask') }}
         </a-button>
@@ -60,7 +60,7 @@
                 :placeholder="t('agentSecurityScans.targets.search')"
               />
               <a-button @click="governance.openSources()">{{ t('scanSchedule.sources') }}</a-button>
-              <a-button v-if="canAdmin" type="primary" @click="openTargetModal()">
+              <a-button v-if="hasAccess('targets:create') && (canAdmin)" type="primary" @click="openTargetModal()">
                 <template #icon><PlusOutlined /></template>
                 {{ t('agentSecurityScans.targets.create') }}
               </a-button>
@@ -129,14 +129,14 @@
               </template>
               <template v-else-if="column.key === 'actions'">
                 <a-space v-if="canAdmin" wrap>
-                  <a-button type="link" size="small" @click="openTargetModal(record)">{{ t('agentSecurityScans.edit') }}</a-button>
+                  <a-button v-if="hasAccess('targets:update')" type="link" size="small" @click="openTargetModal(record)">{{ t('agentSecurityScans.edit') }}</a-button>
                   <a-button
-                    v-if="!['mcp_gateway', 'mcp_source'].includes(record.target_type)"
+                    v-if="hasAccess('targets:create') && (!['mcp_gateway', 'mcp_source'].includes(record.target_type))"
                     type="link"
                     size="small"
                     @click="openCredentialModal(record)"
                   >{{ t('agentSecurityScans.targets.credential') }}</a-button>
-                  <a-popconfirm
+                  <a-popconfirm v-if="hasAccess('targets:update')"
                     :title="record.status === 'active' ? t('agentSecurityScans.targets.disableConfirm') : t('agentSecurityScans.targets.enableConfirm')"
                     @confirm="toggleTarget(record)"
                   >
@@ -157,7 +157,7 @@
               <h2>{{ t('agentSecurityScans.policies.title') }}</h2>
               <p>{{ t('agentSecurityScans.policies.description') }}</p>
             </div>
-            <a-button v-if="canAdmin" type="primary" @click="openPolicyModal()">
+            <a-button v-if="hasAccess('scans:create') && (canAdmin)" type="primary" @click="openPolicyModal()">
               <template #icon><PlusOutlined /></template>
               {{ t('agentSecurityScans.policies.create') }}
             </a-button>
@@ -203,8 +203,8 @@
               </template>
               <template v-else-if="column.key === 'actions'">
                 <a-space v-if="canAdmin">
-                  <a-button type="link" size="small" @click="openPolicyModal(record)">{{ t('agentSecurityScans.edit') }}</a-button>
-                  <a-popconfirm :title="record.enabled ? t('agentSecurityScans.policies.disableConfirm') : t('agentSecurityScans.policies.enableConfirm')" @confirm="togglePolicy(record)">
+                  <a-button v-if="hasAccess('scans:update')" type="link" size="small" @click="openPolicyModal(record)">{{ t('agentSecurityScans.edit') }}</a-button>
+                  <a-popconfirm v-if="hasAccess('scans:update')" :title="record.enabled ? t('agentSecurityScans.policies.disableConfirm') : t('agentSecurityScans.policies.enableConfirm')" @confirm="togglePolicy(record)">
                     <a-button type="link" size="small" :danger="record.enabled">
                       {{ record.enabled ? t('agentSecurityScans.disable') : t('agentSecurityScans.enable') }}
                     </a-button>
@@ -222,7 +222,7 @@
               <h2>{{ t('agentSecurityScans.tasks.title') }}</h2>
               <p>{{ t('agentSecurityScans.tasks.description') }}</p>
             </div>
-            <a-button type="primary" :disabled="!canStartScan" @click="openTaskModal">
+            <a-button v-if="hasAccess('scans:execute')" type="primary" :disabled="!canStartScan" @click="openTaskModal">
               <template #icon><PlayCircleOutlined /></template>
               {{ t('agentSecurityScans.tasks.create') }}
             </a-button>
@@ -271,11 +271,11 @@
               <template v-else-if="column.key === 'actions'">
                 <a-space wrap>
                   <a-button type="link" size="small" @click="openTaskDetail(record.task_id)">{{ t('agentSecurityScans.view') }}</a-button>
-                  <a-tooltip v-if="canRetry(record)" :title="t('scanTaskActions.retryHelp')"><a-button type="link" size="small" :loading="retryingTaskId === record.task_id" :disabled="!!retryingTaskId" @click="retryTask(record)">{{ t('scanTaskActions.retry') }}</a-button></a-tooltip>
-                  <a-popconfirm v-if="canCancel(record)" :title="t('agentSecurityScans.tasks.cancelConfirm')" @confirm="cancelTask(record)">
+                  <a-tooltip v-if="canRetry(record)" :title="t('scanTaskActions.retryHelp')"><a-button v-if="hasAccess('scans:execute')" type="link" size="small" :loading="retryingTaskId === record.task_id" :disabled="!!retryingTaskId" @click="retryTask(record)">{{ t('scanTaskActions.retry') }}</a-button></a-tooltip>
+                  <a-popconfirm v-if="hasAccess('scans:cancel') && (canCancel(record))" :title="t('agentSecurityScans.tasks.cancelConfirm')" @confirm="cancelTask(record)">
                     <a-button type="link" size="small" danger>{{ t('agentSecurityScans.tasks.cancel') }}</a-button>
                   </a-popconfirm>
-                  <a-button v-if="canKill(record)" type="link" size="small" danger @click="openKillSwitchModal(record)">{{ t('agentSecurityScans.tasks.killSwitch') }}</a-button>
+                  <a-button v-if="hasAccess('scans:stop') && (canKill(record))" type="link" size="small" danger @click="openKillSwitchModal(record)">{{ t('agentSecurityScans.tasks.killSwitch') }}</a-button>
                 </a-space>
               </template>
             </template>
@@ -333,7 +333,7 @@
               <template v-else-if="column.key === 'actions'">
                 <a-space>
                   <a-button type="link" size="small" @click="openFindingDetail(record)">{{ t('agentSecurityScans.view') }}</a-button>
-                  <a-button v-if="canAdmin" type="link" size="small" @click="openDispositionModal(record)">{{ t('agentSecurityScans.findings.dispose') }}</a-button>
+                  <a-button v-if="hasAccess('scans:update') && (canAdmin)" type="link" size="small" @click="openDispositionModal(record)">{{ t('agentSecurityScans.findings.dispose') }}</a-button>
                 </a-space>
               </template>
             </template>
@@ -577,7 +577,7 @@
             <code :title="item.secret_masked">{{ item.secret_masked }}</code>
             <a-tag :color="item.status === 'active' ? 'green' : 'default'">{{ t(`agentSecurityScans.inventory.credentialStatuses.${item.status}`, item.status) }}</a-tag>
             <a-popconfirm
-              v-if="item.status !== 'revoked'"
+              v-if="hasAccess('scans:update') && (item.status !== 'revoked')"
               :title="item.status === 'active' ? t('agentSecurityScans.inventory.disableCredentialConfirm') : t('agentSecurityScans.inventory.enableCredentialConfirm')"
               @confirm="toggleCredentialStatus(item)"
             >
@@ -627,10 +627,10 @@
       <template #footer>
         <a-button @click="taskModalOpen = false">{{ t('agentSecurityScans.tasks.close') }}</a-button>
         <a-button :loading="previewingTask" :disabled="submittingTask || evaluatorSelectionMissing" @click="loadTaskPreview">{{ t('agentSecurityScans.tasks.preview') }}</a-button>
-        <a-button type="primary" :loading="submittingTask" :disabled="submittingTask || previewingTask || evaluatorSelectionMissing || (executionMode === 'now' ? !taskPreview : !timingValid || !scheduleName.trim())" @click="saveTask">{{ executionMode === 'now' ? t('agentSecurityScans.tasks.createConfirmed') : editingSchedule ? t('assetLifecycle.save') : t('scanSchedule.create') }}</a-button>
+        <a-button v-if="executionMode === 'now' ? hasAccess('scans:execute') : hasAccess(editingSchedule ? 'schedules:update' : 'schedules:create')" type="primary" :loading="submittingTask" :disabled="submittingTask || previewingTask || evaluatorSelectionMissing || (executionMode === 'now' ? !taskPreview : !timingValid || !scheduleName.trim())" @click="saveTask">{{ executionMode === 'now' ? t('agentSecurityScans.tasks.createConfirmed') : editingSchedule ? t('assetLifecycle.save') : t('scanSchedule.create') }}</a-button>
       </template>
       <a-form layout="vertical">
-        <a-form-item :label="t('scanSchedule.execution')"><a-radio-group v-model:value="executionMode" :disabled="!!editingSchedule"><a-radio value="now">{{ t('scanSchedule.now') }}</a-radio><a-radio v-if="canAdmin" value="scheduled">{{ t('scanSchedule.scheduled') }}</a-radio></a-radio-group></a-form-item>
+        <a-form-item :label="t('scanSchedule.execution')"><a-radio-group v-model:value="executionMode" :disabled="!!editingSchedule"><a-radio value="now">{{ t('scanSchedule.now') }}</a-radio><a-radio v-if="hasAccess('schedules:create') || (!!editingSchedule && hasAccess('schedules:update'))" value="scheduled">{{ t('scanSchedule.scheduled') }}</a-radio></a-radio-group></a-form-item>
         <template v-if="executionMode === 'scheduled'"><a-form-item :label="t('scanSchedule.name')" required><a-input v-model:value="scheduleName" :maxlength="128" /></a-form-item><ScanTimingFields v-model="scanTiming" @valid="timingValid = $event" /><a-checkbox v-if="!editingSchedule" v-model:checked="runImmediately">{{ t('scanSchedule.immediately') }}</a-checkbox><p>{{ t('scanSchedule.note') }}</p></template>
         <a-row :gutter="16">
           <a-col :xs="24" :md="12"><a-form-item :label="t('agentSecurityScans.tasks.target')" required><a-select v-model:value="taskForm.target_id" @change="handleTaskTargetChange"><a-select-option v-for="target in activeTargets" :key="target.target_id" :value="target.target_id">{{ target.name }}</a-select-option></a-select></a-form-item></a-col>
@@ -644,13 +644,13 @@
               <a-select v-model:value="taskForm.approval_id" class="approval-select" :placeholder="t('agentSecurityScans.tasks.approvalPlaceholder')">
                 <a-select-option v-for="approval in availableApprovals" :key="approval.approval_id" :value="approval.approval_id">{{ approval.approval_id }} · {{ formatUtcDateTime(approval.maintenance_window_end) }}</a-select-option>
               </a-select>
-              <a-button v-if="canAdmin" :loading="submittingApproval" :disabled="!selectedTaskTarget?.credential_configured" @click="approveProductionScan">{{ t('agentSecurityScans.tasks.approveProductionScan') }}</a-button>
+              <a-button v-if="hasAccess('scans:approve') && (canAdmin)" :loading="submittingApproval" :disabled="!selectedTaskTarget?.credential_configured" @click="approveProductionScan">{{ t('agentSecurityScans.tasks.approveProductionScan') }}</a-button>
             </a-space-compact>
             <div v-if="!selectedTaskTarget?.credential_configured" class="field-help-error">{{ t('agentSecurityScans.tasks.dedicatedCredentialRequired') }}</div>
           </a-form-item>
         </template>
         <a-form-item :label="t('agentSecurityScans.tasks.kind')" required><a-select v-model:value="taskForm.scan_kind" :disabled="availableScanKinds.length === 1"><a-select-option v-for="kind in availableScanKinds" :key="kind" :value="kind">{{ scanKindLabel(kind) }}</a-select-option></a-select></a-form-item>
-        <McpScanOptions v-if="taskForm.scan_kind === 'mcp_risk_scan'" v-model="mcpForm" :target="selectedTaskTarget" :models="evaluationModels" :can-import="canAdmin" />
+        <McpScanOptions v-if="taskForm.scan_kind === 'mcp_risk_scan'" v-model="mcpForm" :target="selectedTaskTarget" :models="evaluationModels" :can-import="hasAccess('scans:create')" />
         <a-alert v-if="compressedMcpModels.length" class="modal-alert" type="warning" show-icon :message="t('mcpScan.compressionWarningTitle')" :description="t('mcpScan.compressionWarning', { models: compressedMcpModels.join(', ') })" />
         <a-form-item v-if="taskForm.scan_kind === 'mcp_risk_scan' && needsEvaluator" :label="t('agentSecurityScans.tasks.prompt')"><a-textarea v-model:value="taskForm.prompt" :rows="3" :maxlength="4096" /></a-form-item>
         <a-form-item v-if="needsEvaluator" :label="t('agentSecurityScans.tasks.evaluationModel')" required :extra="t('agentSecurityScans.tasks.evaluationModelHelp')">
@@ -728,9 +728,9 @@
             <a-upload :before-upload="loadManualDsl" :show-upload-list="false" accept=".yml,.yaml,.json,text/yaml,application/json"><a-button>{{ t('agentSecurityScans.inventory.chooseDsl') }}</a-button></a-upload>
             <a-form-item class="manual-dsl" :label="t('agentSecurityScans.inventory.dslDocument')" required><a-textarea v-model:value="taskForm.manual_dsl" class="code-input" :rows="7" /></a-form-item>
           </template>
-          <a-form-item><a-checkbox v-model:checked="taskForm.include_prompt_text" :disabled="!canAdmin">{{ t('agentSecurityScans.inventory.includePromptText') }}</a-checkbox><div class="muted">{{ t('agentSecurityScans.inventory.promptDefaultBoundary') }}</div></a-form-item>
-          <a-form-item :extra="canAdmin ? t('agentSecurityScans.inventory.intentInferencePrivacy') : t('agentSecurityScans.inventory.intentInferenceAdminOnly')">
-            <a-checkbox v-model:checked="taskForm.infer_agent_intent" :disabled="!canAdmin">
+          <a-form-item><a-checkbox v-model:checked="taskForm.include_prompt_text" :disabled="!canCollectPrivateContent">{{ t('agentSecurityScans.inventory.includePromptText') }}</a-checkbox><div class="muted">{{ t('agentSecurityScans.inventory.promptDefaultBoundary') }}</div></a-form-item>
+          <a-form-item :extra="canCollectPrivateContent ? t('agentSecurityScans.inventory.intentInferencePrivacy') : t('agentSecurityScans.inventory.intentInferenceAdminOnly')">
+            <a-checkbox v-model:checked="taskForm.infer_agent_intent" :disabled="!canCollectPrivateContent">
               {{ t('agentSecurityScans.inventory.inferAgentIntent') }}
             </a-checkbox>
           </a-form-item>
@@ -846,7 +846,7 @@
           <a-alert v-if="taskDetail.task.error_code" class="modal-alert" type="error" show-icon
             :message="taskErrorExplanation(taskDetail.task)" :description="taskDetail.task.error_code" />
           <div class="diagnostics-actions"><a-button :loading="downloadingDiagnostics" :disabled="downloadingDiagnostics" @click="downloadDiagnostics(taskDetail.task.task_id)">{{ t('scanTaskActions.downloadLogs') }}</a-button><span class="muted">{{ t('scanTaskActions.logsHelp') }}</span></div>
-          <a-tooltip v-if="canRetry(taskDetail.task)" :title="t('scanTaskActions.retryHelp')"><a-button class="modal-alert" :loading="retryingTaskId === taskDetail.task.task_id" :disabled="!!retryingTaskId" @click="retryTask(taskDetail.task)">{{ t('scanTaskActions.retry') }}</a-button></a-tooltip>
+          <a-tooltip v-if="canRetry(taskDetail.task)" :title="t('scanTaskActions.retryHelp')"><a-button v-if="hasAccess('scans:execute')" class="modal-alert" :loading="retryingTaskId === taskDetail.task.task_id" :disabled="!!retryingTaskId" @click="retryTask(taskDetail.task)">{{ t('scanTaskActions.retry') }}</a-button></a-tooltip>
           <a-alert v-if="taskDetail.task.stop_reason && !taskDetail.task.error_code" class="modal-alert" type="warning" show-icon
             :message="taskReasonLabel(taskDetail.task.stop_reason)" />
           <a-alert
@@ -933,7 +933,7 @@
               />
               <a-alert v-else-if="isLlmTaskDetail" class="modal-alert" type="warning" show-icon :message="t('agentSecurityScans.detail.llmRedteamBoundary')" />
               <a-alert v-else-if="isInfrastructureTaskDetail" class="modal-alert" type="warning" show-icon :message="t('agentSecurityScans.detail.infrastructureBoundary')" />
-              <McpCallEvidence v-if="isMcpTaskDetail && canAdmin && !taskDetail.task.scan_options?.metadata_only" :task-id="taskDetail.task.task_id" />
+              <McpCallEvidence v-if="isMcpTaskDetail && hasAccess('privacy_audit:raw') && !taskDetail.task.scan_options?.metadata_only" :task-id="taskDetail.task.task_id" />
               <a-descriptions v-if="isMcpTaskDetail && !showProgressCases" class="case-coverage-summary" bordered size="small" :column="{ xs: 2, sm: 3, md: 4 }">
                 <a-descriptions-item :label="t('agentSecurityScans.detail.mcpCaseSummary.planned')">{{ mcpCaseSummary.planned }}</a-descriptions-item>
                 <a-descriptions-item :label="t('agentSecurityScans.detail.mcpCaseSummary.noRiskObserved')">{{ mcpCaseSummary.no_risk_observed }}</a-descriptions-item>
@@ -1009,7 +1009,7 @@
               <a-list :data-source="taskDetail.artifacts" class="artifact-list"><template #renderItem="{ item }"><a-list-item><template #actions><a-button v-if="item.content_available && canViewRaw" type="link" @click="viewArtifact(taskDetail.task.task_id, item)">{{ t('agentSecurityScans.detail.viewReport') }}</a-button></template><a-list-item-meta :title="artifactTitle(item)" :description="artifactSummary(item)" /></a-list-item></template></a-list>
             </a-tab-pane>
             <a-tab-pane v-if="taskDetail.task.scan_kind === 'dify_asset_inventory'" key="inventory" :tab="t('agentSecurityScans.inventory.tab')">
-              <DifyAssetInventory :task-id="taskDetail.task.task_id" :can-admin="canAdmin" />
+              <DifyAssetInventory :task-id="taskDetail.task.task_id" :can-admin="hasAccess('privacy_audit:raw')" />
             </a-tab-pane>
           </a-tabs>
         </template>
@@ -1085,6 +1085,7 @@
 </template>
 
 <script setup>
+import { can as hasAccess } from '../access'
 import { createRequestId } from '../utils/requestId'
 import { nextTick, computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
@@ -1167,6 +1168,8 @@ const refreshing = ref(false)
 const loadError = ref('')
 const activeStage = computed(() => {
   const stage = routeValue(route.query.stage)
+  if (stage === 'targets' && !hasAccess('targets:view')) return 'tasks'
+  if (stage === 'schedules' && !hasAccess('schedules:view')) return 'tasks'
   if (['targets', 'policies', 'tasks', 'schedules', 'findings', 'reports'].includes(stage)) return stage
   return routeValue(route.query.finding_id) ? 'findings' : 'tasks'
 })
@@ -1213,9 +1216,10 @@ const redteamOptionsLoading = ref(false)
 const llmTechniques = ['Raw', 'BaseEncoding', 'Leetspeak', 'PromptInjection', 'Roleplay', 'ROTEncoding', 'SystemOverride']
 const tablePagination = { pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'] }
 
-const canAdmin = computed(() => ['admin', 'super_admin'].includes(currentUser.value?.role))
+const canAdmin = computed(() => ['targets:create', 'targets:update', 'scans:create', 'scans:update', 'scans:execute', 'scans:approve', 'scans:stop'].some(hasAccess))
 const intentInferenceModels = computed(() => modelEndpoints.value.filter(item => item.enabled))
-const canViewRaw = computed(() => ['admin', 'super_admin', 'security_auditor'].includes(currentUser.value?.role))
+const canViewRaw = computed(() => hasAccess('scans:raw'))
+const canCollectPrivateContent = computed(() => hasAccess('scans:execute') && ['admin', 'super_admin'].includes(currentUser.value?.role))
 const activeTargets = computed(() => targets.value.filter(item => item.status === 'active'))
 const enabledPolicies = computed(() => policies.value.filter(item => item.enabled))
 const policyCompatibleWithTarget = (policy, target) => policy.environment === target?.environment && (policy.allowed_capabilities || []).every(capability => (target.allowed_capabilities || []).includes(capability))
@@ -1245,7 +1249,7 @@ const stageItems = computed(() => [
   { key: 'schedules', label: t('scanSchedule.title'), description: t('scanSchedule.hint'), count: scheduleCount.value },
   { key: 'findings', label: t('agentSecurityScans.pipeline.findings'), description: t('agentSecurityScans.pipeline.findingsHint'), count: findingTotal.value },
   { key: 'reports', label: t('agentSecurityScans.pipeline.reports'), description: t('agentSecurityScans.pipeline.reportsHint'), count: reportTasks.value.length },
-])
+].filter(stage => hasAccess(stage.key === 'targets' ? 'targets:view' : stage.key === 'schedules' ? 'schedules:view' : 'scans:view')))
 
 const targetColumns = computed(() => [
   { title: t('agentSecurityScans.targets.name'), key: 'name', width: 160, ellipsis: true }, { title: t('scanSchedule.currentScore'), key: 'risk', width: 200 }, { title: t('scanSchedule.latestScan'), key: 'latest_scan', width: 190 }, { title: t('agentSecurityScans.targets.assetType'), key: 'target_type', width: 140 }, { title: t('agentSecurityScans.environment'), key: 'environment', width: 140 }, { title: t('agentSecurityScans.allowedCapabilities'), key: 'allowed_capabilities', width: 160 }, { title: t('agentSecurityScans.targets.endpoint'), key: 'endpoint_url', width: 200 }, { title: t('agentSecurityScans.status'), key: 'status', width: 100 }, { title: t('agentSecurityScans.targets.credential'), key: 'credential', width: 120, ellipsis: true }, { title: t('agentSecurityScans.updatedAt'), key: 'updated_at', width: 190 }, { title: t('agentSecurityScans.actions'), key: 'actions', width: 190, fixed: 'right' },
@@ -1354,7 +1358,7 @@ async function saveSchedule() {
   submittingTask.value = true
   try { const body = { name: scheduleName.value.trim(), timing: scanTiming.value, task: taskPlanPayload(), enabled: editingSchedule.value?.enabled ?? true }; if (editingSchedule.value) await updateScanSchedule(editingSchedule.value.schedule_id, { ...body, version: editingSchedule.value.version }); else await createScanSchedule({ ...body, run_immediately: runImmediately.value, idempotency_key: scheduleKey.value }); taskModalOpen.value = false; await selectStage('schedules'); await nextTick(); await schedulesPanel.value?.load(); message.success(t('scanSchedule.saved')) } catch(e) { message.error(errorText(e)) } finally { submittingTask.value = false }
 }
-async function loadTargetRisks() { try { const map = {}; let offset = 0; while (true) { const data = await listManagedAgentRisks({ limit: 200, offset }); for (const x of data.items) map[x.target_id] = x.risk; offset += data.items.length; if (!data.items.length || offset >= data.total) break }; targetRisks.value = map } catch(e) { message.error(errorText(e)) } }
+async function loadTargetRisks() { if (!hasAccess('targets:view')) { targetRisks.value = {}; return }; try { const map = {}; let offset = 0; while (true) { const data = await listManagedAgentRisks({ limit: 200, offset }); for (const x of data.items) map[x.target_id] = x.risk; offset += data.items.length; if (!data.items.length || offset >= data.total) break }; targetRisks.value = map } catch(e) { message.error(errorText(e)) } }
 const taskForm = reactive({ target_id: undefined, policy_id: undefined, approval_id: undefined, scan_kind: 'control_plane_validation', skills: [], prompt: '', conversation_mode: 'single_turn', continue_from_task_id: undefined, llm_input_mode: 'dataset', datasets: ['JailBench-Tiny'], num_prompts: 10, random_seed: 42, techniques: ['Raw'], evaluation_model: undefined, http_authorized: false, private_network_authorized: false, scan_timeout_seconds: 30, scan_concurrency: 2, inventory_source: 'console_api', manual_dsl: '', include_prompt_text: false, infer_agent_intent: false, intent_inference_model: undefined, knowledge_content_authorized: false, max_knowledge_documents: 100, max_knowledge_segments: 1000, max_knowledge_bytes: 10485760 })
 const emptyMcpOptions = () => ({ mcp_mode: 'metadata', mcp_depth: 'full', mcp_source_id: null, mcp_tools: [], mcp_call_limit: 20, mcp_route: 'gateway', mcp_strategy: 'crescendo', analysis_model: null, attack_model: null })
 const mcpForm = ref(emptyMcpOptions())
@@ -1673,7 +1677,13 @@ const caseExecutionColor = value => ({ completed: 'green', error: 'red', blocked
 const caseAssessmentColor = value => ({ no_risk_observed: 'green', risk_signal_detected: 'orange', false_positive: 'default', risk_accepted: 'gold', resolved: 'blue', unverified: 'default' }[value] || 'default')
 
 const loadCoreData = async () => {
-  const [targetRows, policyRows, taskRows, approvalRows, scheduleRows] = await Promise.all([listSecurityTargets(), listSecurityPolicies(), listSecurityTasks({ limit: 500 }), listSecurityScanApprovals({ limit: 500 }), listScanSchedules()])
+  const [targetRows, policyRows, taskRows, approvalRows, scheduleRows] = await Promise.all([
+    hasAccess('targets:view') ? listSecurityTargets() : [],
+    hasAccess('scans:view') ? listSecurityPolicies() : [],
+    hasAccess('scans:view') ? listSecurityTasks({ limit: 500 }) : [],
+    hasAccess('scans:view') ? listSecurityScanApprovals({ limit: 500 }) : [],
+    hasAccess('schedules:view') ? listScanSchedules() : [],
+  ])
   targets.value = targetRows
   policies.value = policyRows
   tasks.value = taskRows
@@ -1942,7 +1952,7 @@ const saveTask = async () => {
     message.error(errorText(error))
   } finally { submittingTask.value = false }
 }
-const canCancel = record => currentUser.value?.role !== 'security_auditor' && ['pending', 'running'].includes(record.status)
+const canCancel = record => hasAccess('scans:cancel') && ['pending', 'running'].includes(record.status)
 const retryingTaskId = ref(null)
 const downloadingDiagnostics = ref(false)
 const downloadDiagnostics = async taskId => {
@@ -1959,7 +1969,7 @@ const downloadDiagnostics = async taskId => {
   } catch (error) { message.error(errorText(error)) }
   finally { downloadingDiagnostics.value = false }
 }
-const canRetry = record => currentUser.value?.role !== 'security_auditor' && ['failed', 'timed_out'].includes(record.status)
+const canRetry = record => hasAccess('scans:execute') && ['failed', 'timed_out'].includes(record.status)
 const retryTask = async record => {
   if (retryingTaskId.value || !canRetry(record)) return
   retryingTaskId.value = record.task_id
@@ -2102,10 +2112,10 @@ const retryArtifact = () => { if (selectedArtifact.value) viewArtifact(selectedA
 onMounted(async () => {
   liveRefreshTimer = window.setInterval(refreshLiveScans, 3000)
   try {
-    const [userResult, gatewayResult] = await Promise.allSettled([getMe(), listMcpGateways()])
+    const [userResult, gatewayResult] = await Promise.allSettled([getMe(), hasAccess('mcp:view') ? listMcpGateways() : []])
     if (userResult.status === 'fulfilled') currentUser.value = userResult.value
     if (gatewayResult.status === 'fulfilled') mcpGateways.value = gatewayResult.value
-    if (canAdmin.value) {
+    if (hasAccess('models:view')) {
       try { modelEndpoints.value = await listModelEndpoints() } catch { modelEndpoints.value = [] }
     }
     await loadCoreData()

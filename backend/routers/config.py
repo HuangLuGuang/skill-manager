@@ -1,10 +1,10 @@
 import json
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from .. import auth, models, schemas
+from .. import auth, iam, models, schemas
 from ..api_errors import ApiError
 from ..sqlite_db import get_db
 
@@ -153,9 +153,13 @@ def _docs_assistant_config(db: Session) -> schemas.DocsAssistantConfigUpdate:
 
 @router.get("/docs-assistant", response_model=schemas.DocsAssistantConfigUpdate)
 async def get_docs_assistant_config(
+    request: Request,
     current_user: models.User = Depends(auth.get_current_active_user),
     db: Session = Depends(get_db),
 ):
+    permission = "docs:update" if "docs:update" in iam.permission_codes(db, current_user) else "docs:view"
+    request.state.iam_permission = permission
+    iam.check(db, current_user, permission)
     return _docs_assistant_config(db)
 
 

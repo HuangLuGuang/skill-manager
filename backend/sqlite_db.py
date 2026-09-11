@@ -2,6 +2,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker
+from fastapi import Request
 
 from .config import settings
 
@@ -29,9 +30,15 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-def get_db():
+def get_db(request: Request):
     db = SessionLocal()
     try:
+        path = request.url.path
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"} and (
+            path.startswith(("/api/v1/iam/users", "/api/v1/iam/roles", "/api/v1/iam/menus", "/api/v1/users"))
+            or path == "/api/auth/register"
+        ):
+            db.connection().exec_driver_sql("BEGIN IMMEDIATE")
         yield db
     finally:
         db.close()

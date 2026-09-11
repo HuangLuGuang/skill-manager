@@ -68,8 +68,8 @@
             <a-space>
               <a-button size="small" @click="$router.push(`/skills/${record.skill_id}?tab=governance-card`)">{{ text('治理卡片', 'Governance Card') }}</a-button>
               <template v-if="record.status === 'VETTED'">
-                <a-button size="small" type="primary" @click="openApproveModal(record)">{{ text('批准', 'Approve') }}</a-button>
-                <a-button size="small" danger @click="openRejectModal(record)">{{ text('拒绝', 'Reject') }}</a-button>
+                <a-button v-if="hasAccess('skills:approve')" size="small" type="primary" @click="openApproveModal(record)">{{ text('批准', 'Approve') }}</a-button>
+                <a-button v-if="hasAccess('skills:reject')" size="small" danger @click="openRejectModal(record)">{{ text('拒绝', 'Reject') }}</a-button>
               </template>
             </a-space>
           </template>
@@ -133,6 +133,7 @@
 </template>
 
 <script setup>
+import { can as hasAccess } from '../access'
 import { translateLegacy as phrase } from '../i18n'
 
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'

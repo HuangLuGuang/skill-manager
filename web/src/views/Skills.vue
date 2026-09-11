@@ -32,7 +32,7 @@
         <a-button type="primary" @click="handleKeywordSearch" :loading="loading">{{ text('查询', 'Search') }}</a-button>
         <a-button @click="resetFilters" :disabled="loading">{{ text('重置', 'Reset') }}</a-button>
         <a-button @click="fetchSkills" :loading="loading">{{ text('刷新', 'Refresh') }}</a-button>
-        <a-button type="primary" @click="$router.push('/submit')">{{ text('提交 Skill', 'Submit Skill') }}</a-button>
+        <a-button v-if="hasAccess('skills:create')" type="primary" @click="$router.push('/submit')">{{ text('提交 Skill', 'Submit Skill') }}</a-button>
         <a-popover trigger="click" placement="bottomRight" :title="$t('skillColumns.hint')">
           <template #content>
             <a-checkbox-group v-model:value="visibleColumns" class="column-options">
@@ -46,9 +46,9 @@
 
       <div class="batch-actions">
         <span>{{ $t('skillBatch.selected', { count: selectedRowKeys.length }) }}</span>
-        <a-button :loading="actionKey === 'batch:rescan'" :disabled="Boolean(actionKey) || !batchCount('rescan')" @click="openBatchRescan">{{ $t('skillBatch.rescan') }}</a-button>
-        <a-button :loading="actionKey === 'batch:cancel'" :disabled="Boolean(actionKey) || !batchCount('cancel')" @click="confirmBatch('cancel')">{{ $t('skillBatch.cancel') }}</a-button>
-        <a-button danger :loading="actionKey === 'batch:delete'" :disabled="Boolean(actionKey) || !selectedRowKeys.length" @click="confirmBatch('delete')">{{ $t('skillBatch.delete') }}</a-button>
+        <a-button v-if="hasAccess('skills:scan')" :loading="actionKey === 'batch:rescan'" :disabled="Boolean(actionKey) || !batchCount('rescan')" @click="openBatchRescan">{{ $t('skillBatch.rescan') }}</a-button>
+        <a-button v-if="hasAccess('skills:update')" :loading="actionKey === 'batch:cancel'" :disabled="Boolean(actionKey) || !batchCount('cancel')" @click="confirmBatch('cancel')">{{ $t('skillBatch.cancel') }}</a-button>
+        <a-button v-if="hasAccess('skills:delete')" danger :loading="actionKey === 'batch:delete'" :disabled="Boolean(actionKey) || !selectedRowKeys.length" @click="confirmBatch('delete')">{{ $t('skillBatch.delete') }}</a-button>
         <a-button :disabled="Boolean(actionKey) || !selectedRowKeys.length" @click="selectedRowKeys = []">{{ $t('skillBatch.clear') }}</a-button>
       </div>
       <a-alert v-if="batchResult" :type="batchResult.failed.length || batchResult.skipped.length ? 'warning' : 'success'" :message="$t(`skillBatch.${batchResult.action}Result`, { success: batchResult.succeeded.length, failed: batchResult.failed.length, skipped: batchResult.skipped.length })" class="batch-result" show-icon closable @close="batchResult = null">
@@ -115,21 +115,21 @@
                 </a>
                 <template #overlay>
                   <a-menu>
-                    <a-menu-item
+                    <a-menu-item v-if="hasAccess('skills:scan')"
                       :disabled="record.scan_pending || record.status === 'PENDING' || Boolean(actionKey)"
                       @click="handleRescan(record)"
                     >
                       {{ actionKey === `rescan:${record.skill_id}` ? text('重新检测中...', 'Rescanning...') : text('重新检测', 'Rescan') }}
                     </a-menu-item>
                     <a-menu-item
-                      v-if="canRunSkillAction('cancel', record)"
+                      v-if="hasAccess('skills:update') && (canRunSkillAction('cancel', record))"
                       :disabled="Boolean(actionKey)"
                       @click="confirmCancel(record)"
                     >
                       {{ actionKey === `cancel:${record.skill_id}` ? text('取消中...', 'Cancelling...') : text('取消任务', 'Cancel Task') }}
                     </a-menu-item>
                     <a-menu-divider />
-                    <a-menu-item
+                    <a-menu-item v-if="hasAccess('skills:delete')"
                       danger
                       :disabled="Boolean(actionKey)"
                       @click="confirmDelete(record)"
@@ -150,6 +150,7 @@
 </template>
 
 <script setup>
+import { can as hasAccess } from '../access'
 import { translateLegacy as phrase } from '../i18n'
 
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'

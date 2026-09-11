@@ -1898,31 +1898,19 @@ async def list_users(db: Session = Depends(get_db), current_user: models.User = 
 @admin_router.post("/users", response_model=schemas.User)
 async def create_managed_user(
     body: schemas.UserCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    if db.query(models.User).filter(models.User.username == body.username).first():
-        raise HTTPException(status_code=400, detail="用户名已存在")
-    if body.email and db.query(models.User).filter(models.User.email == body.email).first():
-        raise HTTPException(status_code=400, detail="邮箱已存在")
-    user = models.User(
-        username=body.username,
-        email=body.email,
-        hashed_password=auth.get_password_hash(body.password),
-        role=body.role,
-    )
-    db.add(user)
-    db.flush()
-    _sync_user_groups(db, user.id, body.group_ids)
-    db.commit()
-    db.refresh(user)
-    return _user_response(db, user)
+    from ..iam import create_account
+    return create_account(db, request, current_user, body.model_dump())
 
 
 @admin_router.put("/users/{user_id}", response_model=schemas.User)
 async def update_managed_user(
     user_id: int,
     body: schemas.UserUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
@@ -1930,16 +1918,8 @@ async def update_managed_user(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     data = body.model_dump(exclude_unset=True)
-    group_ids = data.pop("group_ids", None)
-    if data.get("password"):
-        user.hashed_password = auth.get_password_hash(data.pop("password"))
-    for field, value in data.items():
-        setattr(user, field, value)
-    if group_ids is not None:
-        _sync_user_groups(db, user.id, group_ids)
-    db.commit()
-    db.refresh(user)
-    return _user_response(db, user)
+    from ..iam import update_account
+    return update_account(db, request, current_user, user, data)
 
 
 @admin_router.get("/groups", response_model=list[schemas.UserGroupResponse])
@@ -2324,10 +2304,14 @@ async def list_privacy_policies(db: Session = Depends(get_db), current_user: mod
 @admin_router.post("/privacy-policies", response_model=schemas.PrivacyPolicyResponse)
 async def upsert_privacy_policy(
     body: schemas.PrivacyPolicyPayload,
+    request: Request,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_admin_user),
+    current_user: models.User = Depends(auth.get_current_active_user),
 ):
-    default_policy = _get_default_policy(db)
+    from .. import iam
+    request.state.iam_permission = "privacy:update" if body.id else "privacy:create"
+    if not iam.permission_codes(db, current_user) & {"privacy:create", "privacy:update"}:
+        iam.check(db, current_user, request.state.iam_permission)
     if body.group_id and not db.query(models.UserGroup).filter(models.UserGroup.id == body.group_id).first():
         raise HTTPException(status_code=404, detail="用户组不存在")
     row = None
@@ -2337,6 +2321,10 @@ async def upsert_privacy_policy(
             raise HTTPException(status_code=404, detail="隐私策略不存在")
     elif body.group_id:
         row = db.query(models.PrivacyPolicy).filter(models.PrivacyPolicy.group_id == body.group_id).first()
+    permission = "privacy:create" if row is None else "privacy:update"
+    request.state.iam_permission = permission
+    iam.check(db, current_user, permission)
+    default_policy = _get_default_policy(db)
     if row is None:
         row = models.PrivacyPolicy(group_id=body.group_id, entity_types_json="[]", name=body.name)
         db.add(row)
