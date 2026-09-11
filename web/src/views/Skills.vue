@@ -82,6 +82,9 @@
           <template v-else-if="column.key === 'status'">
             <a-tag v-if="record.scan_pending" color="gold">{{ $t('skillFilters.scanning') }}</a-tag>
             <a-tag v-else :color="statusColor(record.status)">{{ statusDisplay(record.status, record) }}</a-tag>
+            <div v-if="record.scan_pending || record.status === 'PENDING'" class="scan-progress">
+              <a-badge status="processing" :text="scanProgressLabel(record)" />
+            </div>
           </template>
           <template v-else-if="column.key === 'version'">
             <a-space wrap>
@@ -181,6 +184,10 @@ const analysisTag = (record, key) => {
   const level = String(cell.risk)
   const translation = level === level.toUpperCase() ? `skillColumns.${level}` : `decisionFlow.${level}`
   return { label: te(translation) ? t(translation) : level, color: ({ benign: 'green', SAFE: 'green', LOW: 'green', INFO: 'default', suspicious: 'orange', MEDIUM: 'orange', malicious: 'red', HIGH: 'red', CRITICAL: 'red', EXTREME: 'red' })[level] || 'default' }
+}
+const scanProgressLabel = record => {
+  const stage = record.scan_progress_stage || 'queued'
+  return t(`skillColumns.progress.${['queued', 'preparing', 'analyzers', 'sandbox', 'llm', 'finalizing'].includes(stage) ? stage : 'running'}`)
 }
 const keyword = ref('')
 const status = ref('all')
@@ -529,6 +536,7 @@ watch([status, risk, sandboxFilter], () => {
 </script>
 
 <style scoped>
+.scan-progress { margin-top: 6px; max-width: 180px; white-space: normal; overflow-wrap: anywhere; }
 .column-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 4px 0; width: 300px; max-width: calc(100vw - 64px); }
 .reset-columns { margin-top: 12px; padding-left: 0; }
 .column-options :deep(.ant-checkbox-wrapper) { margin-inline-start: 0; }

@@ -1,5 +1,11 @@
 export const skillDetailMessages = {
   'zh-CN': {
+    installClient: '客户端',
+    selectInstallClient: '请选择客户端',
+    installAgent: 'Agent',
+    selectInstallAgent: '请选择 Agent',
+    selectClientFirst: '请先选择客户端',
+    noInstallAgents: '该客户端暂无可安装的 Agent',
     retryDiff: '重新加载差异',
     documentedApiExplanation: '文档中的固定 API endpoint 或 curl 示例。请结合目标地址、传输内容和调用场景查看证据，具体分类以本次报告记录的策略结果为准。',
     toolCheck: '工具声明校验', declaredTools: '声明的工具',
@@ -13,6 +19,12 @@ export const skillDetailMessages = {
     autoApproval: '策略自动批准', cachedAutoApproval: '复用结果 · 策略自动批准', pendingReview: '待审核',
   },
   'en-US': {
+    installClient: 'Client',
+    selectInstallClient: 'Select a client',
+    installAgent: 'Agent',
+    selectInstallAgent: 'Select an Agent',
+    selectClientFirst: 'Select a client first',
+    noInstallAgents: 'No eligible Agents on this client',
     retryDiff: 'Retry loading changes',
     documentedApiExplanation: 'A fixed API endpoint or curl example in documentation. Review the destination, transmitted content, and calling context. Its classification follows the policy result recorded in this report.',
     toolCheck: 'Tool declaration check', declaredTools: 'Declared tools',

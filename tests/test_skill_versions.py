@@ -40,6 +40,26 @@ def _ensure_trusted(manager: AgentManager, entry):
     return entry
 
 
+def test_detection_stage_is_visible_during_processing(tmp_path, monkeypatch):
+    skill = tmp_path / "skill"
+    _write_skill(skill, "# Progress")
+    manager = _manager(tmp_path)
+    observed = []
+
+    def scanner(*_args):
+        row = manager.list_skill_summaries(page=1, page_size=10)["items"][0]
+        observed.append(row["scan_progress_stage"])
+        assert row["scan_pending"] is True
+        return {"findings": [], "max_severity": "SAFE"}
+
+    monkeypatch.setattr("agent_manager.core.vetting._run_scanner", scanner)
+    manager.submit(skill, use_skillspector=False)
+    assert observed == ["analyzers"]
+    row = manager.list_skill_summaries(page=1, page_size=10)["items"][0]
+    assert row["scan_progress_stage"] is None
+    assert row["scan_pending"] is False
+
+
 @pytest.mark.parametrize("status", [SkillStatus.APPROVED, SkillStatus.VETTED, SkillStatus.REJECTED])
 def test_cancel_rescan_preserves_effective_decision(tmp_path, status):
     skill = tmp_path / "skill"

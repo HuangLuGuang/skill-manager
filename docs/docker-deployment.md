@@ -267,6 +267,11 @@ P1 安全配置默认使用 SQLite，不新增数据库服务。`request_leases`
 
 ## 构建脚本
 
+Backend 镜像中的 SkillSpector 固定为 **2.2.3**，源码提交为
+`a5092dd9b9521ff57a9b53612bb129ce78019002`。升级时更新 `backend/Dockerfile`
+中的固定提交，并同步本文档；
+重新构建和部署 Backend 镜像后生效。
+
 ```bash
 # 查看帮助
 ./build.sh --help

@@ -363,6 +363,12 @@ class AgentManager:
         if runs and runs[0].status == "CANCELLED":
             return entry
         active_run_id = next((run.scan_run_id for run in runs if run.status == "PENDING"), None)
+
+        def report_progress(stage: str) -> None:
+            if active_run_id:
+                self.registry.update_scan_progress(active_run_id, stage)
+
+        report_progress("preparing")
         skill_path = Path(entry.skill_path or "").resolve()
         source = entry.source
         content_fingerprint = compute_content_fingerprint(skill_path)
@@ -431,6 +437,7 @@ class AgentManager:
             use_sandbox=use_sandbox,
             use_skillspector=use_skillspector,
             judgement_mode=judgement_mode,
+            progress_callback=report_progress,
         )
         current_entry = self.registry.get_by_id(skill_id)
         pending_run = next(

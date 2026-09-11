@@ -984,14 +984,37 @@
       :title="$t('legacy.sq6fxa')"
       :ok-text="$t('legacy.1em7bly')"
       :confirm-loading="clientInstallLoading"
+      :ok-button-props="{ disabled: clientInstallLoading || !clientInstallTarget }"
       @ok="submitClientInstall"
     >
       <a-form layout="vertical">
         <a-form-item label="Skill">
           <a-input :value="detail?.name || ''" disabled />
         </a-form-item>
-        <a-form-item :label="$t('legacy.xyrx7l')" required>
-          <a-select v-model:value="clientInstallTarget" show-search option-filter-prop="label" :placeholder="$t('legacy.1skpnm2')">
+        <a-form-item :label="$t('skillDetail.installClient')" required>
+          <a-select
+            v-model:value="clientInstallClient"
+            show-search
+            option-filter-prop="label"
+            :loading="clientInstallLoading"
+            :disabled="clientInstallLoading"
+            :placeholder="$t('skillDetail.selectInstallClient')"
+            @change="clientInstallTarget = undefined"
+          >
+            <a-select-option v-for="client in managedClients" :key="client.client_id" :value="client.client_id" :label="client.name || client.client_id">
+              {{ client.name || client.client_id }}
+            </a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item :label="$t('skillDetail.installAgent')" required>
+          <a-select
+            v-model:value="clientInstallTarget"
+            show-search
+            option-filter-prop="label"
+            :disabled="!clientInstallClient || clientInstallLoading"
+            :placeholder="$t(clientInstallClient ? 'skillDetail.selectInstallAgent' : 'skillDetail.selectClientFirst')"
+            :not-found-content="$t('skillDetail.noInstallAgents')"
+          >
             <a-select-option v-for="target in clientTargets" :key="target.key" :value="target.key" :label="target.label">
               {{ target.label }}
             </a-select-option>
@@ -1151,15 +1174,16 @@ const approveNote = ref('')
 const rejectReason = ref('')
 const clientInstallOpen = ref(false)
 const clientInstallLoading = ref(false)
-const clientInstallTarget = ref('')
+const clientInstallClient = ref()
+const clientInstallTarget = ref()
 const clientInstallVersion = ref('')
 const managedClients = ref([])
-const clientTargets = computed(() => managedClients.value.flatMap(client =>
+const clientTargets = computed(() => managedClients.value.filter(client => client.client_id === clientInstallClient.value).flatMap(client =>
   (client.agents || [])
     .filter(agent => agent.skill_management_supported && (client.governance_mode !== 'strict' || agent.managed_agent_id))
     .map(agent => ({
       key: `${client.client_id}\x00${agent.agent_type}`,
-      label: `${client.name} / ${agent.agent_type}`,
+      label: agent.agent_type,
       clientId: client.client_id,
       agentType: agent.agent_type,
       managedAgentId: agent.managed_agent_id,
@@ -1461,7 +1485,10 @@ const fetchDetail = async () => {
 }
 
 const openClientInstall = async () => {
-  clientInstallTarget.value = ''
+  if (clientInstallLoading.value) return
+  clientInstallClient.value = undefined
+  clientInstallTarget.value = undefined
+  managedClients.value = []
   clientInstallVersion.value = trustedSkillVersions.value.find(item => item.latest_trusted)?.version_id
     || trustedSkillVersions.value[0]?.version_id
     || ''
@@ -1477,6 +1504,7 @@ const openClientInstall = async () => {
 }
 
 const submitClientInstall = async () => {
+  if (clientInstallLoading.value) return
   const target = clientTargets.value.find(item => item.key === clientInstallTarget.value)
   if (!target) {
     message.warning(phrase('legacy.9itypw'))

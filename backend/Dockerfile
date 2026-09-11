@@ -31,6 +31,7 @@ RUN if [ -n "$APT_PROXY" ]; then printf 'Acquire::http::Proxy "%s";\n' "$APT_PRO
     && cd /app/tools \
     && if [ -n "$GIT_PROXY" ]; then git -c http.proxy="$GIT_PROXY" clone https://github.com/NVIDIA/SkillSpector.git; else git clone https://github.com/NVIDIA/SkillSpector.git; fi \
     && cd SkillSpector \
+    && git checkout --detach a5092dd9b9521ff57a9b53612bb129ce78019002 \
     && uv venv --python 3.12 .venv \
     && . .venv/bin/activate \
     && PIP_INDEX_URL="$PYPI_INDEX" UV_DEFAULT_INDEX="$PYPI_INDEX" make install

@@ -39,6 +39,24 @@ def registry(tmp_path):
 
 
 class TestRegistry:
+    @pytest.mark.parametrize("terminal_status", ["COMPLETED", "FAILED", "CANCELLED"])
+    def test_scan_progress_is_persistent_and_scoped_to_pending_run(self, registry, terminal_status):
+        entry = _make_entry()
+        registry.add(entry)
+        run = ScanRun(scan_run_id="scan-1", version_id=entry.skill_id, scan_context_fingerprint="context")
+        registry.add_scan_run(run)
+        registry.update_scan_progress(run.scan_run_id, "llm")
+        assert registry.list_scan_runs(entry.skill_id)[0].result["progress_stage"] == "llm"
+        assert registry.list_skill_summaries(page=1, page_size=10)["items"][0]["scan_progress_stage"] == "llm"
+        run = registry.list_scan_runs(entry.skill_id)[0]
+        run.status = terminal_status
+        registry.update_scan_run(run)
+        registry.update_scan_progress(run.scan_run_id, "finalizing")
+        assert registry.list_scan_runs(entry.skill_id)[0].result["progress_stage"] == "llm"
+        assert registry.list_skill_summaries(page=1, page_size=10)["items"][0]["scan_progress_stage"] is None
+        registry.add_scan_run(ScanRun(scan_run_id="scan-2", version_id=entry.skill_id, scan_context_fingerprint="context"))
+        assert registry.list_skill_summaries(page=1, page_size=10)["items"][0]["scan_progress_stage"] is None
+
     def test_scanning_and_review_filters_are_separate(self, registry):
         initial = _make_entry("initial", SkillStatus.PENDING)
         review = _make_entry("review", SkillStatus.VETTED)

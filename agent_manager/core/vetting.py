@@ -718,6 +718,7 @@ class VettingPipeline:
         use_sandbox: bool = False,
         use_skillspector: bool | None = None,
         judgement_mode: str | None = None,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> tuple[VettingResult, list[PolicyViolation], str, str, list[str]]:
         """Run selected analyzers and return the final policy-ready result."""
         started = time.monotonic()
@@ -738,6 +739,8 @@ class VettingPipeline:
             if use_skillspector is None
             else use_skillspector
         )
+        if progress_callback:
+            progress_callback("analyzers")
         futures: dict[str, Future[Any]] = {
             "scanner": _analyzer_executor.submit(
                 _timed_analyzer,
@@ -871,6 +874,8 @@ class VettingPipeline:
                 f"[SANDBOX] required by policy for risk level {interim_risk_level.value}"
             )
         if effective_use_sandbox:
+            if progress_callback:
+                progress_callback("sandbox")
             if "sandbox" not in futures:
                 futures["sandbox"] = _analyzer_executor.submit(_timed_sandbox, skill_path)
             sandbox_execution: SandboxExecution = futures["sandbox"].result()
@@ -920,6 +925,8 @@ class VettingPipeline:
         llm_notes: list[str] = []
         llm_result = None
         if use_llm:
+            if progress_callback:
+                progress_callback("llm")
             llm_started = time.monotonic()
             try:
                 llm_config = LLMConfig.load()
@@ -1009,6 +1016,8 @@ class VettingPipeline:
             "accepted_findings": llm_result.accepted_findings if llm_result else [],
         }
 
+        if progress_callback:
+            progress_callback("finalizing")
         violations = _check_manifest_policy(allowed_tools, license_val, self.policy)
         policy_notes = [
             f"{'[BLOCK]' if violation.blocking else '[WARN]'} {violation.rule}: {violation.message}"
