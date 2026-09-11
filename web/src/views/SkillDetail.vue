@@ -1180,7 +1180,10 @@ const clientInstallVersion = ref('')
 const managedClients = ref([])
 const clientTargets = computed(() => managedClients.value.filter(client => client.client_id === clientInstallClient.value).flatMap(client =>
   (client.agents || [])
-    .filter(agent => agent.skill_management_supported && (client.governance_mode !== 'strict' || agent.managed_agent_id))
+    .filter(agent => agent.skills_path?.trim()
+      && agent.capabilities?.path_available !== false
+      && agent.skill_management_supported
+      && (client.governance_mode !== 'strict' || agent.managed_agent_id))
     .map(agent => ({
       key: `${client.client_id}\x00${agent.agent_type}`,
       label: agent.agent_type,
