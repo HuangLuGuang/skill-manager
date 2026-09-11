@@ -286,7 +286,7 @@ const zh = {
       eyebrow: '场景实践 · 准入阻断', title: '拒绝伪装成工具的数据外传 Skill', summary: '从环境变量取密钥、读取系统文件、发送到外部地址并动态执行代码，展示发现项如何按策略形成恶意风险，再按准入配置进入审核或拒绝。',
       scenario: { label: '案例摘要', items: [{ label: '业务角色', value: 'Skill 接收方 · 安全审核员' }, { label: '预计耗时', value: '约 15 分钟' }, { label: '验收结果', value: 'REJECTED · 不进入批准与部署链路' }] },
       sections: [
-        { id: 'sample', title: '样本中有哪些确定性证据', paragraphs: ['rejected-exfiltrator 把多种危险行为放在一个短脚本中，便于审核人员识别证据链。本例使用推荐分类，并将恶意风险配置为自动拒绝；实际结果以检测报告记录的分类和准入配置为准。'], flow: [{ label: '来源', value: '读取API_KEY与系统文件' }, { label: '处理', value: '组织外发载荷' }, { label: '外传', value: 'POST到外部目标', type: 'blocked' }, { label: '附加风险', value: 'eval动态执行', type: 'decision' }, { label: '准入', value: 'REJECTED', type: 'blocked' }], table: { columns: ['代码行为', '安全含义', '建议归类'], rows: [['读取API_KEY环境变量', '接触运行凭证', '结合后续外发证据，建议归入“判为恶意”'], ['读取/etc/passwd', '访问非业务所需系统文件', '结合上下文判断，并核对是否参与外传'], ['POST到evil.example.com', '向外部目标发送数据', '本例数据外传建议归入“判为恶意”'], ['eval动态执行字符串', '执行路径难以静态约束', '结合上下文判断；与外传链一起核对']] }, callout: { type: 'warning', title: '不要在宿主机直接运行', body: '该脚本是恶意演示样本。只能提交给平台做静态检测，动态行为必须放在隔离Sandbox中观察。' } },
+        { id: 'sample', title: '样本中有哪些确定性证据', paragraphs: ['rejected-exfiltrator 把多种危险行为放在一个短脚本中，便于审核人员识别证据链。本例将数据外传归为“判为恶意”，并将恶意风险配置为自动拒绝；实际结果以检测报告记录的分类和准入配置为准。'], flow: [{ label: '来源', value: '读取API_KEY与系统文件' }, { label: '处理', value: '组织外发载荷' }, { label: '外传', value: 'POST到外部目标', type: 'blocked' }, { label: '附加风险', value: 'eval动态执行', type: 'decision' }, { label: '准入', value: 'REJECTED', type: 'blocked' }], table: { columns: ['代码行为', '安全含义', '建议归类'], rows: [['读取API_KEY环境变量', '接触运行凭证', '结合后续外发证据，建议归入“判为恶意”'], ['读取/etc/passwd', '访问非业务所需系统文件', '结合上下文判断，并核对是否参与外传'], ['POST到evil.example.com', '向外部目标发送数据', '本例数据外传建议归入“判为恶意”'], ['eval动态执行字符串', '执行路径难以静态约束', '结合上下文判断；与外传链一起核对']] }, callout: { type: 'warning', title: '不要在宿主机直接运行', body: '该脚本是恶意演示样本。只能提交给平台做静态检测，动态行为必须放在隔离Sandbox中观察。' } },
         { id: 'submit', title: '提交并确认拒绝链路', steps: [{ title: '打包样本目录', body: '仅打包rejected-exfiltrator，不加入真实凭证或文件。' }, { title: '提交静态检测', body: '启用规则和深度扫描；需要动态证据时使用Sandbox，不要在本地直接执行脚本。' }, { title: '从“判为恶意”的发现项开始阅读', body: '打开规则、文件、行号和证据文本，串联“取凭证/读文件 → 组织载荷 → 网络外发”。' }, { title: '核对最终状态', body: '先确认本次报告将外传发现项归入“判为恶意”，再核对恶意风险的准入动作。此案例使用推荐动作“自动拒绝”。', expected: '按此案例的自动拒绝配置进入 REJECTED；若恶意风险配置为人工审核，则进入 VETTED。' }], link: { path: '/submit', label: '打开提交 Skill' }, download: { path: '/examples/rejected-exfiltrator.zip', filename: 'rejected-exfiltrator.zip', label: '下载恶意外传 Skill 检测样本', hint: '危险样本：只用于平台扫描，禁止在宿主机执行' } },
         { id: 'interpret', title: '常见误判', bullets: ['Sandbox因为网络隔离而请求失败，不代表代码没有外发意图。', 'evil.example.com不可达，不影响静态证据对数据外传链的判断。', 'LLM 未运行或调用失败时，仍按本次策略汇总工具风险。', '“仅保留提示”的发现不会抵消“判为恶意”的发现；最终动作仍需核对准入配置。'], link: { path: '/docs/risk-classification', label: '查看发现项分类与风险判定逻辑' } },
         { id: 'remediation', title: '如果开发者声称这是合法功能', paragraphs: ['不要在原版本上口头解释后直接批准。要求删除系统文件和无关凭证读取，将目标改为批准域名，限制数据范围，移除eval，并以新版本重新提交；新版本必须重新形成独立证据和准入结论。'] },
@@ -736,7 +736,7 @@ const zh = {
             columns: ['层次', '回答的问题', '示例'],
             rows: [
               ['发现项与严重度', '某个分析器看到了什么证据？', 'HIGH 的下载后执行规则'],
-              ['风险项目归类', '本次策略配置这条证据如何影响风险？', '推荐配置把供应链风险归入“判为恶意”'],
+              ['风险项目归类', '本次策略配置这条证据如何影响风险？', '默认配置把供应链风险归入“结合上下文判断”'],
               ['最终风险', '汇总后是 benign、suspicious 还是 malicious？', '工具初判与 LLM 结论合并后得到 suspicious'],
               ['Skill 状态', '系统自动批准、等待审核还是拒绝？', 'APPROVED、VETTED 或 REJECTED'],
             ],
@@ -761,9 +761,8 @@ const zh = {
           table: {
             columns: ['默认归类', '风险项目'],
             rows: [
-              ['判为恶意', '数据外传、供应链风险'],
-              ['结合上下文判断', '提示词注入、工具滥用、网络访问、凭据访问、动态执行、过度权限'],
-              ['仅保留提示', '文档中的外部 API 示例、依赖问题、运行环境问题'],
+              ['结合上下文判断', '数据外传、供应链风险、提示词注入、工具滥用、网络访问、凭据访问、动态执行、过度权限、依赖问题、运行环境问题'],
+              ['仅保留提示', '文档中的外部 API 示例'],
             ],
           },
           paragraphs: ['管理员可以在“策略配置 > 准入策略 > 自定义风险识别规则”中把上述项目移动到其他归类。新的映射会进入扫描上下文；已完成报告按本次扫描记录的分类展示；修改配置后需重新检测，才能生成新策略下的结果。'],
@@ -1977,7 +1976,7 @@ const en = {
       eyebrow: 'Scenario guide · Admission block', title: 'Reject a data-exfiltration Skill disguised as a utility', summary: 'Trace environment credentials, system-file reads, external transfer, and dynamic execution to see how policy classification produces malicious risk and admission settings route it to review or rejection.',
       scenario: { label: 'Scenario summary', items: [{ label: 'Roles', value: 'Skill recipient · Security reviewer' }, { label: 'Estimated time', value: 'About 15 minutes' }, { label: 'Acceptance result', value: 'REJECTED · no approval or deployment path' }] },
       sections: [
-        { id: 'sample', title: 'Deterministic evidence in the sample', paragraphs: ['rejected-exfiltrator combines several dangerous behaviors in one short script for reviewer training. This example uses recommended classifications and automatic rejection for malicious risk. Actual outcomes depend on the recorded classifications and admission settings.'], flow: [{ label: 'Source', value: 'Read API_KEY and system file' }, { label: 'Process', value: 'Build outbound payload' }, { label: 'Transfer', value: 'POST to external target', type: 'blocked' }, { label: 'Extra risk', value: 'Dynamic eval', type: 'decision' }, { label: 'Admission', value: 'REJECTED', type: 'blocked' }], table: { columns: ['Code behavior', 'Security meaning', 'Recommended classification'], rows: [['Read API_KEY', 'Access a runtime credential', 'Classify as malicious when supported by transfer evidence'], ['Read /etc/passwd', 'Access an unrelated system file', 'Assess in context and check its role in transfer'], ['POST to evil.example.com', 'Send a payload to an external destination', 'Classify as malicious for the data transfer in this example'], ['eval a string', 'Difficult-to-constrain execution path', 'Assess in context alongside the exfiltration chain']] }, callout: { type: 'warning', title: 'Never run it directly on the host', body: 'This is an intentionally malicious sample. Submit it for static analysis; observe dynamic behavior only in an isolated Sandbox.' } },
+        { id: 'sample', title: 'Deterministic evidence in the sample', paragraphs: ['rejected-exfiltrator combines several dangerous behaviors in one short script for reviewer training. This example classifies data exfiltration as malicious and automatically rejects malicious risk. Actual outcomes depend on the recorded classifications and admission settings.'], flow: [{ label: 'Source', value: 'Read API_KEY and system file' }, { label: 'Process', value: 'Build outbound payload' }, { label: 'Transfer', value: 'POST to external target', type: 'blocked' }, { label: 'Extra risk', value: 'Dynamic eval', type: 'decision' }, { label: 'Admission', value: 'REJECTED', type: 'blocked' }], table: { columns: ['Code behavior', 'Security meaning', 'Recommended classification'], rows: [['Read API_KEY', 'Access a runtime credential', 'Classify as malicious when supported by transfer evidence'], ['Read /etc/passwd', 'Access an unrelated system file', 'Assess in context and check its role in transfer'], ['POST to evil.example.com', 'Send a payload to an external destination', 'Classify as malicious for the data transfer in this example'], ['eval a string', 'Difficult-to-constrain execution path', 'Assess in context alongside the exfiltration chain']] }, callout: { type: 'warning', title: 'Never run it directly on the host', body: 'This is an intentionally malicious sample. Submit it for static analysis; observe dynamic behavior only in an isolated Sandbox.' } },
         { id: 'submit', title: 'Submit and confirm the rejection path', steps: [{ title: 'Package only the sample', body: 'Zip rejected-exfiltrator without adding real credentials or files.' }, { title: 'Run static checks', body: 'Enable rules and deep scan. Use Sandbox for dynamic evidence, never direct host execution.' }, { title: 'Start with findings classified as malicious', body: 'Open rule, file, line, and evidence text, then connect credential/file access to payload creation and network transfer.' }, { title: 'Confirm the final state', body: 'Confirm that this scan classifies the transfer finding as malicious, then check the admission action for malicious risk. This example uses the recommended automatic rejection action.', expected: 'The automatic rejection configuration in this example produces REJECTED. Configuring manual review for malicious risk produces VETTED instead.' }], link: { path: '/submit', label: 'Open Submit Skill' }, download: { path: '/examples/rejected-exfiltrator.zip', filename: 'rejected-exfiltrator.zip', label: 'Download the malicious exfiltration sample', hint: 'Dangerous sample: scan only; never execute directly on a host' } },
         { id: 'interpret', title: 'Common misinterpretations', bullets: ['A network failure in Sandbox does not remove exfiltration intent.', 'An unreachable evil.example.com destination does not invalidate the static data-flow evidence.', 'If LLM analysis is skipped or fails, tool risk is still aggregated under the scan policy.', 'Findings retained as notices do not offset findings classified as malicious. Check admission settings for the final action.'], link: { path: '/docs/risk-classification', label: 'Read finding classification and risk logic' } },
         { id: 'remediation', title: 'If the developer claims a legitimate purpose', paragraphs: ['Do not approve the same version based on a verbal explanation. Require removal of system-file and unrelated credential access, an approved destination, narrow data scope, and no eval; submit the result as a new version with independent evidence and admission status.'] },
@@ -2704,7 +2703,7 @@ en.articles['risk-classification'] = {
       paragraphs: ['Finding classification is neither final risk nor final state. Trace a result from individual evidence through classification and risk reconciliation to admission.'],
       table: { columns: ['Layer', 'Question answered', 'Example'], rows: [
         ['Finding and severity', 'What evidence did one analyzer observe?', 'A HIGH download-and-execute rule'],
-        ['Finding classification', 'How does the scan policy configure this finding to affect risk?', 'Recommended settings classify supply-chain risk as malicious'],
+        ['Finding classification', 'How does the scan policy configure this finding to affect risk?', 'Default settings assess supply-chain risk in context'],
         ['Final risk', 'Is the reconciled result benign, suspicious, or malicious?', 'Tool risk and the LLM conclusion reconcile to suspicious'],
         ['Skill state', 'Is the Skill approved, queued for review, or rejected?', 'APPROVED, VETTED, or REJECTED'],
       ] },
@@ -2721,9 +2720,8 @@ en.articles['risk-classification'] = {
     {
       id: 'default-mapping', title: 'Default finding classification',
       table: { columns: ['Default class', 'Risk items'], rows: [
-        ['Classify as malicious', 'Data exfiltration; supply-chain risk'],
-        ['Assess in context', 'Prompt injection; Tool misuse; network, credential, or dynamic execution; excessive permissions'],
-        ['Retain as a notice', 'Documented external API examples; dependency issues; runtime issues'],
+        ['Assess in context', 'Data exfiltration; supply-chain risk; prompt injection; tool misuse; network access; credential access; dynamic execution; excessive permissions; dependency issues; runtime issues'],
+        ['Retain as a notice', 'Documented external API examples'],
       ] },
       paragraphs: ['Administrators can move these items between classes under Policy Settings > Admission policy > Customize risk identification rules. The mapping is part of scan context. Existing reports are not rewritten; rescan to apply the new policy.'],
       link: { path: '/policy', label: 'Open Policy Settings' },

@@ -62,7 +62,11 @@
           <h3>{{ t('policySimulation.results') }}</h3>
           <label class="sim-field sim-mode">
             <span>{{ t('policySimulation.draftMode') }}</span>
-            <a-select :value="policy.judgement_mode" :aria-label="t('policySimulation.draftMode')" :options="modeOptions" @update:value="$emit('update-mode', $event)" />
+            <a-select :value="policy.judgement_mode" :get-popup-container="trigger => trigger.parentElement" :aria-label="t('policySimulation.draftMode')" @update:value="$emit('update-mode', $event)">
+              <a-select-option v-for="option in modeOptions" :key="option.value" :value="option.value">
+                <a-tag :color="option.color" style="margin-inline-end: 0; white-space: normal">{{ option.label }}</a-tag>
+              </a-select-option>
+            </a-select>
             <span class="sim-hint">{{ t('policySimulation.modeHint') }}</span>
           </label>
           <p v-if="pending" role="status" class="sim-pending">{{ t('policySimulation.calculating') }}</p>
@@ -138,7 +142,7 @@ const statusOptions = computed(() => options(['completed', 'disabled', 'skipped'
 const findingOptions = computed(() => options(Object.keys(defaultRiskClassification), 'policySettings.findings.'))
 const severityOptions = computed(() => options(['INFO', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'], 'policySimulation.severity.'))
 const riskOptions = computed(() => options(policyRisks, 'policySettings.risks.'))
-const modeOptions = computed(() => options(['strict', 'balanced', 'permissive'], 'policySettings.modes.'))
+const modeOptions = computed(() => options(['permissive', 'balanced', 'strict'], 'policySettings.modes.').map(option => ({ ...option, color: { permissive: 'green', balanced: 'blue', strict: 'volcano' }[option.value] })))
 const permissionOptions = computed(() => props.policy.blocked_permissions.map(value => ({ value, label: value })))
 const example = kind => ({
   rules: { status: 'completed', findings: [{ kind, severity: kind === 'data_exfiltration' ? 'HIGH' : 'MEDIUM' }] },
@@ -211,7 +215,7 @@ onBeforeUnmount(() => { ++generation; clearTimeout(timer); controller?.abort() }
 .sim-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .sim-permissions { margin-top: 18px; }
 .sim-output { min-width: 0; background: #fff; border: 1px solid #e5e9ef; border-radius: 8px; padding: 18px; align-self: start; }
-.sim-mode { padding-bottom: 12px; margin-bottom: 16px; border-bottom: 1px solid #e5e9ef; }
+.sim-mode { position: relative; padding-bottom: 12px; margin-bottom: 16px; border-bottom: 1px solid #e5e9ef; }
 .sim-pending { color: #637083; padding: 24px 0; }
 .sim-coverage { margin-bottom: 14px; }
 .sim-verdicts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }

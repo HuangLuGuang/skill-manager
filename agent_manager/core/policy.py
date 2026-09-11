@@ -19,8 +19,8 @@ from .utils import tool_parent_name
 logger = logging.getLogger(__name__)
 
 DEFAULT_RISK_CLASSIFICATION: dict[str, str] = {
-    "data_exfiltration": "blocking",
-    "supply_chain": "blocking",
+    "data_exfiltration": "risk",
+    "supply_chain": "risk",
     "prompt_injection": "risk",
     "tool_misuse": "risk",
     "network": "risk",
@@ -28,8 +28,8 @@ DEFAULT_RISK_CLASSIFICATION: dict[str, str] = {
     "dynamic_execution": "risk",
     "excessive_permissions": "risk",
     "documented_external_api": "noise",
-    "dependency": "noise",
-    "runtime": "noise",
+    "dependency": "risk",
+    "runtime": "risk",
 }
 
 _VALID_FINDING_CLASSIFICATIONS = {"blocking", "risk", "noise"}

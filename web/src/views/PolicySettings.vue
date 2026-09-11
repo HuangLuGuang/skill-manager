@@ -63,7 +63,11 @@
                     <span class="field-hint">{{ t('policySettings.recommendedRulesHint') }}</span>
                   </div>
                   <a-form-item id="decision-mode" :label="t('policySettings.mode')" :class="{ 'decision-focus': route.query.focus === 'mode' }">
-                    <a-select v-model:value="formState.judgement_mode" :options="modeOptions" :disabled="saving || loading || !hasAccess('policy:update')" />
+                    <a-select v-model:value="formState.judgement_mode" :get-popup-container="trigger => trigger.parentElement" :aria-label="t('policySettings.mode')" :disabled="saving || loading || !hasAccess('policy:update')">
+                      <a-select-option v-for="option in modeOptions" :key="option.value" :value="option.value">
+                        <a-tag :color="option.color" style="margin-inline-end: 0; white-space: normal">{{ option.label }}</a-tag>
+                      </a-select-option>
+                    </a-select>
                     <div class="field-hint">{{ t('policySettings.modeHints.' + formState.judgement_mode) }}</div>
                     <div class="field-hint">{{ t('policySettings.modeCommon') }}</div>
                   </a-form-item>
@@ -265,7 +269,7 @@ const sandboxForm = reactive({
   remote_api_key: '', clear_remote_api_key: false,
 })
 const riskOptions = computed(() => policyRisks.map(value => ({ value, label: t('policySettings.risks.' + value) })))
-const modeOptions = computed(() => ['strict', 'balanced', 'permissive'].map(value => ({ value, label: t('policySettings.modes.' + value) })))
+const modeOptions = computed(() => ['permissive', 'balanced', 'strict'].map(value => ({ value, label: t('policySettings.modes.' + value), color: { permissive: 'green', balanced: 'blue', strict: 'volcano' }[value] })))
 const classificationOptions = computed(() => classificationKeys.map(value => ({ value, label: t('policySettings.groups.' + value) })))
 const runtimeOptions = computed(() => ['remote', 'docker'].map(value => ({ value, label: t('policySettings.' + value) })))
 const networkOptions = computed(() => [

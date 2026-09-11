@@ -39,7 +39,7 @@ def test_contextual_finding_and_llm_mode(mode, risk, action, reason):
 def test_blocking_evidence_retains_risk_and_obeys_admission_action(mode):
     body = example()
     body["rules"]["findings"] = [{"kind": "data_exfiltration", "severity": "LOW"}]
-    body["policy"] = {"judgement_mode": mode, "auto_reject_risk": [], "require_human_review": ["malicious"]}
+    body["policy"] = {"risk_classification": {"data_exfiltration": "blocking"}, "judgement_mode": mode, "auto_reject_risk": [], "require_human_review": ["malicious"]}
     result = calculate(body)
     assert result["final_risk"] == "malicious"
     assert result["llm_reason"] == "blocked_by_finding"
@@ -104,7 +104,7 @@ def test_multi_source_aggregation_and_sandbox_trigger_precedes_classification():
     body = example()
     body["deep"]["findings"] = [{"kind": "network", "severity": "HIGH"}]
     body["sandbox"]["findings"] = [{"kind": "data_exfiltration", "severity": "HIGH"}]
-    body["policy"] = {"risk_classification": {"network": "noise"}, "require_sandbox_for_risk": ["malicious"]}
+    body["policy"] = {"risk_classification": {"network": "noise", "data_exfiltration": "blocking"}, "require_sandbox_for_risk": ["malicious"]}
     result = calculate(body)
     assert result["counts"] == {"blocking": 1, "risk": 1, "noise": 1}
     assert [item["source"] for item in result["findings"]] == ["rules", "deep", "sandbox"]

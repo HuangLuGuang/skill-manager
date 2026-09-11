@@ -2,10 +2,10 @@ export const policyRisks = ['benign', 'suspicious', 'malicious']
 export const recommendedActions = { benign: 'APPROVED', suspicious: 'VETTED', malicious: 'REJECTED' }
 export const classificationKeys = ['blocking', 'risk', 'noise']
 export const defaultRiskClassification = {
-  data_exfiltration: 'blocking', supply_chain: 'blocking',
+  data_exfiltration: 'risk', supply_chain: 'risk',
   prompt_injection: 'risk', tool_misuse: 'risk', network: 'risk',
   credential_access: 'risk', dynamic_execution: 'risk', excessive_permissions: 'risk',
-  documented_external_api: 'noise', dependency: 'noise', runtime: 'noise',
+  documented_external_api: 'noise', dependency: 'risk', runtime: 'risk',
 }
 
 // Existing YAML policies may use scanner severity names. Match CompanyPolicy.decide.
