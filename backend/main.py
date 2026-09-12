@@ -532,6 +532,23 @@ def ensure_sqlite_schema() -> None:
             if client_agent_columns and column not in client_agent_columns:
                 conn.exec_driver_sql(f"ALTER TABLE client_agents ADD COLUMN {column} {definition}")
         client_skill_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(client_skill_installs)").fetchall()}
+        client_task_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(client_tasks)").fetchall()}
+        if client_task_columns:
+            if "request_key" not in client_task_columns:
+                conn.exec_driver_sql("ALTER TABLE client_tasks ADD COLUMN request_key VARCHAR(64)")
+            conn.exec_driver_sql("CREATE UNIQUE INDEX IF NOT EXISTS ix_client_tasks_request_key ON client_tasks(request_key)")
+        client_event_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(client_events)").fetchall()}
+        for column, definition in {
+            "aggregate_key": "VARCHAR(64)",
+            "observation_count": "INTEGER NOT NULL DEFAULT 1",
+            "last_seen_at": "DATETIME",
+        }.items():
+            if client_event_columns and column not in client_event_columns:
+                conn.exec_driver_sql(f"ALTER TABLE client_events ADD COLUMN {column} {definition}")
+        if client_event_columns:
+            conn.exec_driver_sql("CREATE UNIQUE INDEX IF NOT EXISTS ix_client_events_aggregate_key ON client_events(aggregate_key)")
+        if "governance_json" not in client_skill_columns:
+            conn.exec_driver_sql("ALTER TABLE client_skill_installs ADD COLUMN governance_json TEXT")
         if client_skill_columns and "version_id" not in client_skill_columns:
             conn.exec_driver_sql("ALTER TABLE client_skill_installs ADD COLUMN version_id VARCHAR(128)")
         if client_skill_columns and "version_no" not in client_skill_columns:

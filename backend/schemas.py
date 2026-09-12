@@ -134,6 +134,7 @@ class DocsAssistantConfigUpdate(BaseModel):
     instruction_zh: str = Field(default="回答简洁、务实，优先给出可执行步骤；文档没有说明时请明确告知。", max_length=1000)
     instruction_en: str = Field(default="Be concise and practical. Prefer actionable steps and say clearly when the docs do not establish an answer.", max_length=1000)
     max_context_sections: int = Field(default=4, ge=2, le=6)
+    max_output_tokens: int = Field(default=12800, ge=1)
     common_questions: list[DocsAssistantFaq] = Field(default_factory=list, max_length=8)
 
     @field_validator("model")
@@ -711,6 +712,43 @@ class RuntimeMemoryRollback(BaseModel):
     version: int = Field(ge=1)
 
 
+class ClientSkillScanProgress(BaseModel):
+    stage: str = Field(default="", max_length=64)
+    analyzers: dict[str, str] = Field(default_factory=dict, max_length=16)
+    version_id: str = Field(default="", max_length=128)
+    updated_at: Optional[datetime] = None
+
+
+class ClientSkillScanObservation(BaseModel):
+    status: str = Field(max_length=64)
+    skill_id: str = Field(default="", max_length=128)
+    version_id: str = Field(default="", max_length=128)
+    progress: ClientSkillScanProgress = Field(default_factory=ClientSkillScanProgress)
+
+
+class ClientSkillObservation(BaseModel):
+    """Client-reported observations; platform approval remains registry-owned."""
+
+    signature: str = Field(max_length=128)
+    trusted_signature: str = Field(default="", max_length=128)
+    trusted_skill_id: str = Field(default="", max_length=128)
+    trusted_version_id: str = Field(default="", max_length=128)
+    certification: str = Field(max_length=64)
+    trigger: str = Field(default="", max_length=64)
+    malicious: bool = False
+    action: str = Field(default="record", max_length=64)
+    policy_version: str = Field(default="", max_length=128)
+    last_seen_at: Optional[datetime] = None
+    last_confirmed_at: Optional[datetime] = None
+    action_key: str = Field(default="", max_length=128)
+    action_status: str = Field(default="", max_length=64)
+    error_code: str = Field(default="", max_length=128)
+    count: int = Field(default=0, ge=0)
+    pending_id: str = Field(default="", max_length=128)
+    quarantine_id: str = Field(default="", max_length=128)
+    scan: Optional[ClientSkillScanObservation] = None
+
+
 class ClientSkillInventory(BaseModel):
     skill_id: Optional[str] = None
     version_id: Optional[str] = None
@@ -721,6 +759,7 @@ class ClientSkillInventory(BaseModel):
     signature: Optional[str] = None
     status: str = "observed"
     install_mode: str = "observed"
+    governance: Optional[ClientSkillObservation] = None
 
 
 class ClientAgentInventory(BaseModel):
@@ -735,7 +774,18 @@ class ClientAgentInventory(BaseModel):
     skills: list[ClientSkillInventory] = []
 
 
+class ClientRecoveryInventory(BaseModel):
+    id: str = Field(min_length=1, max_length=128)
+    agent_type: str = Field(min_length=1, max_length=64)
+    skill_name: str = Field(min_length=1, max_length=255)
+    original_path: str = Field(min_length=1, max_length=1024)
+    signature: str = Field(default="", max_length=128)
+    status: str = Field(pattern="^(quarantined|uninstalled|quarantine_failed|backed_up)$")
+    reason: str = Field(default="", max_length=128)
+
+
 class ClientRegisterRequest(BaseModel):
+    governance_protocol: int = Field(default=0, ge=0, le=2)
     client_id: str
     name: str
     hostname: str
@@ -743,9 +793,11 @@ class ClientRegisterRequest(BaseModel):
     arch: str
     client_version: str
     agents: list[ClientAgentInventory] = []
+    recovery: Optional[list[ClientRecoveryInventory]] = None
 
 
 class ClientHeartbeatRequest(BaseModel):
+    governance_protocol: int = Field(default=0, ge=0, le=2)
     client_id: str
     client_version: Optional[str] = None
 
@@ -761,6 +813,7 @@ class ClientAgentBindingUpdate(BaseModel):
 
 class ClientInventoryRequest(BaseModel):
     agents: list[ClientAgentInventory] = []
+    recovery: Optional[list[ClientRecoveryInventory]] = None
 
 
 class ClientEventCreate(BaseModel):
@@ -768,11 +821,26 @@ class ClientEventCreate(BaseModel):
     agent_type: Optional[str] = None
     skill_name: Optional[str] = None
     details: dict[str, Any] = {}
+    observation_count: int = Field(default=1, ge=1, le=2147483647)
+    observed_at: Optional[datetime] = None
 
 
 class ClientTaskCreate(BaseModel):
-    task_type: str = Field(pattern="^(install_skill|remove_skill|rescan|repair_skill|apply_model_config)$")
+    task_type: str = Field(pattern="^(install_skill|remove_skill|rescan|repair_skill|apply_model_config|skill_action)$")
     payload: dict[str, Any] = {}
+
+
+class ClientSkillActionRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    request_id: str = Field(min_length=1, max_length=128)
+    action: str = Field(pattern="^(submit_scan|quarantine|uninstall|restore_trusted|restore_quarantine|restore_backup)$")
+    agent_type: str = Field(min_length=1, max_length=64)
+    local_agent_id: Optional[str] = Field(default=None, max_length=128)
+    path: str = Field(min_length=1, max_length=1024)
+    expected_signature: str = Field(min_length=1, max_length=128)
+    version_id: Optional[str] = Field(default=None, max_length=128)
+    quarantine_id: Optional[str] = Field(default=None, max_length=128)
+    expected_target_signature: Optional[str] = Field(default=None, max_length=128)
 
 
 class ClientTaskResult(BaseModel):

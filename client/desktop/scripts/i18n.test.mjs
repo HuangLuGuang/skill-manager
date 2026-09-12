@@ -38,6 +38,31 @@ const indexHtml = fs.readFileSync(new URL('../src/index.html', import.meta.url),
 const stylesSource = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
 const tauriSource = fs.readFileSync(new URL('../src-tauri/src/main.rs', import.meta.url), 'utf8')
 
+test('classification notifications localize reasons and retain Skill names and paths', () => {
+  const snippet = appSource.slice(appSource.indexOf('const localizedNotification ='), appSource.indexOf('const renderEventHistory ='))
+  const i18n = context.window.clientI18n
+  const previous = i18n.getLocale()
+  try {
+    for (const locale of ['zh-CN', 'en-US']) {
+      i18n.setLocale(locale)
+      const env = {
+        t: i18n.t, runtimeText: i18n.translateRuntime,
+        agentLabel: value => value,
+        governanceLabelFor: (kind, value) => i18n.t(`ui.agentManagement.${kind}.${value}`),
+      }
+      vm.runInNewContext(snippet + '\nglobalThis.render = localizedNotification', env)
+      const copy = env.render({ event_type: 'skill_governance_action', agent_type: 'codex', skill_name: '用户 Skill',
+        details: { trigger: 'malicious', action: 'quarantine', status: 'failed', error_code: 'skill_content_changed', path: '/skills/用户 Skill' } })
+      assert.equal(copy.title, locale === 'en-US' ? 'Skill Remediation Result' : 'Skill 处置结果')
+      assert.ok(copy.message.includes(locale === 'en-US' ? 'Current content confirmed malicious' : '当前内容已确认恶意'))
+      assert.ok(copy.message.includes(locale === 'en-US' ? 'Remediation Failed' : '处置失败'))
+      assert.ok(copy.message.includes('/skills/用户 Skill'))
+      assert.ok(!copy.message.includes('ui.agentManagement.'))
+      assert.ok(!copy.message.includes('skill_content_changed'))
+    }
+  } finally { i18n.setLocale(previous) }
+})
+
 test('translates core desktop navigation and product name', () => {
   const { t } = context.window.clientI18n
   assert.equal(t('智能体生命周期管理系统'), 'Agent Manager')
@@ -102,6 +127,8 @@ test('does not expose an internal key for generated static bindings', () => {
 
 test('covers static Chinese desktop UI text', () => {
   const { t } = context.window.clientI18n
+  const staticKeys = new Map(context.window.clientStaticI18nBindings.map(binding => [binding.source, binding.key]))
+  const translate = value => t(staticKeys.get(value) || value)
   const values = new Set()
   const html = fs.readFileSync(new URL('../src/index.html', import.meta.url), 'utf8')
   for (const match of html.matchAll(/>([^<>]+)</g)) values.add(match[1].trim())
@@ -130,9 +157,9 @@ test('covers static Chinese desktop UI text', () => {
     }
   }
 
-  const missing = [...values].filter(value => /[\u3400-\u9fff]/.test(value) && t(value) === value)
+  const missing = [...values].filter(value => /[\u3400-\u9fff]/.test(value) && translate(value) === value)
   const residualChinese = [...values].filter(
-    value => /[\u3400-\u9fff]/.test(value) && /[\u3400-\u9fff]/.test(t(value)),
+    value => /[\u3400-\u9fff]/.test(value) && /[\u3400-\u9fff]/.test(translate(value)),
   )
   assert.deepEqual(missing, [])
   assert.deepEqual(residualChinese, [])
@@ -154,10 +181,10 @@ test('keeps governance columns aligned across supported window widths', () => {
   const styles = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
   assert.match(styles, /\.agent-summary\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\) 250px 104px/)
   assert.match(styles, /@media \(min-width: 1000px\) and \(max-width: 1100px\)/)
-  assert.match(styles, /\.pending-skill-row\s*\{[^}]*grid-template-columns: 24px minmax\(160px, \.85fr\) minmax\(170px, 1\.15fr\) 206px/)
+  assert.match(styles, /\.pending-skill-row\s*\{[^}]*grid-template-columns: 24px minmax\(160px, \.85fr\) minmax\(170px, 1\.15fr\) max-content/)
   assert.match(styles, /html\[lang="en-US"\] \.builtin-agent-settings/)
   assert.match(styles, /@media \(max-width: 1100px\)/)
-  assert.match(styles, /@media \(max-width: 1100px\)[\s\S]*\.pending-skill-row\s*\{[^}]*grid-template-columns: 24px minmax\(160px, \.85fr\) minmax\(170px, 1\.15fr\) 206px/)
+  assert.match(styles, /@media \(max-width: 1000px\)[\s\S]*#discover \.pending-skill-row > :nth-child\(4\)[^}]*grid-column: 2 \/ -1[^}]*grid-row: 2/)
   assert.match(styles, /\.pending-skill-row > :nth-child\(3\)[^}]*grid-row: auto[^}]*grid-column: auto[^}]*justify-self: stretch/)
   assert.match(styles, /\.pending-skill-row > :nth-child\(4\)[^}]*grid-row: auto[^}]*grid-column: auto[^}]*justify-self: end/)
   assert.match(styles, /\.metric-grid\s*\{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/)
@@ -209,17 +236,22 @@ test('edits an existing connection in a modal without reopening the inline form'
   assert.equal(appSource.includes("$('#connect-form').hidden = false\n  $('#server').value = connection"), false)
 })
 
-test('keeps platform recovery out of Agent discovery', () => {
-  assert.doesNotMatch(indexHtml, /id="discover-platform-install-button"/)
-  assert.match(indexHtml, /id="open-preview-button"[^>]*>生成接管预览</)
-  assert.match(appSource, /previewButton\.disabled = selectedSkillPaths\.size === 0/)
-  assert.doesNotMatch(appSource, /previewButton\.dataset\.action/)
+test('groups Skills and recovery in Agent Management', () => {
+  const management = indexHtml.split('<section id="discover"')[1].split('<section id="models"')[0]
+  for (const id of ['agent-list', 'platform-install-button', 'pending-list', 'quarantine-list']) {
+    assert.ok(management.includes(`id="${id}"`), id)
+  }
+  assert.equal(context.window.clientI18n.t('ui.agentManagement.title'), 'Agent Management')
+  const settings = indexHtml.split('<section id="settings"')[1]
+  for (const id of ['backup-select', 'refresh-backups', 'restore-backup']) {
+    assert.ok(settings.includes(`id="${id}"`), id)
+  }
 })
 
 test('rediscovers local Agents before refreshing governance after an install', () => {
   assert.match(
     appSource,
-    /const refreshAfterInstall = async \(\) => \{[\s\S]*await discover\(\)[\s\S]*await refreshConnection\(\)[\s\S]*await preview\(false\)/,
+    /const refreshAfterInstall = async \(\) => \{[\s\S]*await discover\(\)[\s\S]*await refreshConnection\(\)[\s\S]*await loadPending\(\)/,
   )
 })
 
@@ -255,9 +287,7 @@ test('shows quarantine detection progress without offering duplicate submission'
   assert.match(submitHandler, /await submitPendingIDs\(\[pending\.id\], button\)[\s\S]*await refreshConnection\(\)[\s\S]*await loadQuarantine\(\)/)
   assert.match(appSource, /if \(item\.skill_id\) return t\('status\.platform_scanning'\)/)
   assert.doesNotMatch(appSource, /ui\.10hw1zw/)
-  assert.match(appSource, /quarantine-skill-identity[\s\S]*quarantine-status[\s\S]*quarantine-guidance[\s\S]*quarantine-actions/)
-  assert.match(stylesSource, /\.quarantine-row\s*\{[^}]*grid-template-columns: minmax\(260px, 1fr\) 100px minmax\(220px, \.65fr\) 210px/)
-  assert.match(stylesSource, /\.quarantine-actions\s*\{[^}]*width:\s*210px/)
+  assert.match(appSource, /quarantine-skill-identity[\s\S]*history-details[\s\S]*quarantineDetectionGuidance[\s\S]*quarantine-status[\s\S]*quarantine-actions/)
   assert.doesNotMatch(appSource, /平台正在检测\$\{item\.skill_id/)
 })
 
@@ -276,28 +306,12 @@ test('drops detached submissions from the current pending batch count', () => {
   assert.match(appSource, /const renderPendingBatchStatus = \(\) => \{\s*reconcilePendingBatchTracking\(\)/)
 })
 
-test('requires confirmation before discarding one local pending copy', () => {
-  assert.match(
-    appSource,
-    /data-discard-pending[\s\S]*discard-pending-dialog'\)\.showModal\(\)[\s\S]*confirm-discard-pending[\s\S]*run\('discard-pending', \['--id', item\.id, '--confirm'\]\)[\s\S]*await loadPending\(\)[\s\S]*await loadQuarantine\(\)[\s\S]*await refreshConnection\(\)/,
-  )
-  assert.doesNotMatch(appSource, /确定永久删除这个本地停用副本吗/)
-  assert.match(indexHtml, /id="discard-pending-dialog"[\s\S]*平台检测版本和审计记录会保留/)
-})
-
-test('renders compact pending rows with inline platform actions', () => {
-  assert.match(
-    appSource,
-    /pending-skill-identity[\s\S]*pending-skill-status[\s\S]*takeover-row-actions pending-inline-actions[\s\S]*item\.platform_installable[\s\S]*从平台安装[\s\S]*data-submit-pending[\s\S]*data-discard-pending/,
-  )
-  assert.match(appSource, /pendingPlatformVersionFor[\s\S]*exactAvailableSkillForAgent/)
-  assert.match(appSource, /enrichPendingPlatformVersions[\s\S]*items = await enrichPendingPlatformVersions/)
-  assert.match(appSource, /item\.status === 'APPROVED'[\s\S]*platform_version_id: item\.version_id \|\| ''[\s\S]*platform_installable: Boolean\(item\.skill_id\)/)
-  assert.match(appSource, /data-version-id="\$\{escapeHtml\(item\.platform_version_id \|\| ''\)\}"/)
-  assert.match(appSource, /const installPlatformSkill = async[\s\S]*if \(versionId\) args\.push\('--version-id', versionId\)/)
-  assert.match(stylesSource, /\.pending-inline-actions\s*\{[^}]*display:\s*flex[^}]*width:\s*206px[^}]*justify-content:\s*flex-end/)
-  assert.match(stylesSource, /\.pending-inline-actions button\s*\{[^}]*width:\s*100px[^}]*height:\s*34px/)
-  assert.doesNotMatch(appSource, /pending-primary-slot|pending-action-placeholder/)
+test('pending copies remain actionable in recovery while submitted scans use independent history', () => {
+  assert.match(appSource, /data-discard-copy[\s\S]*discard-pending-dialog'\)\.showModal\(\)/)
+  assert.match(appSource, /confirm-discard-pending[\s\S]*run\('discard-pending', \['--id', item\.id, '--confirm'\]\)/)
+  assert.match(appSource, /scanHistoryItems = JSON.parse\(await run\(refresh \? 'refresh-scan-history' : 'scan-history'\)\)/)
+  assert.match(appSource, /const copies = pendingItems.filter\(item => item.reason !== 'observed_scan'/)
+  assert.match(appSource, /pending_copy_id \? \{id: copy.pending_copy_id\}/)
 })
 
 test('bundles localized macOS application names', () => {

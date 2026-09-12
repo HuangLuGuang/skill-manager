@@ -1,4 +1,5 @@
 import { createI18n } from 'vue-i18n'
+import { uiExperienceMessages } from './uiExperience.js'
 import { iamMessages } from './iam.js'
 import { scanTaskActionsMessages } from './scanTaskActions.js'
 import { mcpScanMessages } from './mcpScan.js'
@@ -7,6 +8,7 @@ import { assetLifecycleMessages } from './assetLifecycle.js'
 import { skillBatchMessages } from './skillBatch.js'
 import { decisionFlowMessages } from './decisionFlow.js'
 import { skillDetailMessages } from './skillDetail.js'
+import { clientGovernanceMessages } from './clientGovernance.js'
 import { skillColumnMessages } from './skillColumns.js'
 import { policySettingsMessages } from './policySettings.js'
 import { policySimulationMessages } from './policySimulation.js'
@@ -29,6 +31,7 @@ export const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
+      uiExperience: uiExperienceMessages['zh-CN'],
       iam: iamMessages['zh-CN'],
       branding: {"title": "品牌与系统名称", "nameZh": "系统名称（中文）", "nameEn": "系统名称（英文）", "company": "公司名称", "save": "保存名称", "upload": "上传 Logo", "restore": "恢复默认 Logo", "hint": "名称保存后立即生效。Logo 支持 PNG、JPEG、GIF、WebP，最大 5 MB。", "required": "请输入系统名称", "loadFailed": "品牌配置加载失败，请刷新页面重试", "failed": "保存失败，请重试", "saved": "品牌配置已更新", "tooLarge": "图片大小不能超过 5 MB"},
       scanTaskActions: scanTaskActionsMessages['zh-CN'],
@@ -78,6 +81,7 @@ export const i18n = createI18n({
       skillBatch: skillBatchMessages['zh-CN'],
       decisionFlow: decisionFlowMessages['zh-CN'],
       skillDetail: skillDetailMessages['zh-CN'],
+      clientGovernance: clientGovernanceMessages['zh-CN'],
       skillColumns: skillColumnMessages['zh-CN'],
       skillFilters: {
         all: 'ALL（全部状态）', scanning: 'SCANNING（检测中）', awaitingReview: 'VETTED（待审核）',
@@ -522,6 +526,8 @@ export const i18n = createI18n({
         modelHint: '使用模型网关中已启用的模型；回答上下文仅包含当前帮助文档的相关片段。',
         configureModels: '管理模型',
         maxContext: '参考片段数',
+        maxOutputTokens: '回答 Token 上限',
+        maxOutputTokensHint: '默认 12800。实际回答额度取此值与所选模型输出上限中的较小值。',
         maxContextHint: '每次最多发送给模型的文档小节数量。',
         welcomeZh: '中文欢迎语',
         welcomeEn: '英文欢迎语',
@@ -1042,6 +1048,7 @@ export const i18n = createI18n({
       legacy: legacyMessages['zh-CN'],
     },
     'en-US': {
+      uiExperience: uiExperienceMessages['en-US'],
       iam: iamMessages['en-US'],
       branding: {"title": "Branding and system names", "nameZh": "System name (Chinese)", "nameEn": "System name (English)", "company": "Company name", "save": "Save names", "upload": "Upload logo", "restore": "Restore default logo", "hint": "Names take effect immediately after saving. Logo: PNG, JPEG, GIF, or WebP, up to 5 MB.", "required": "Enter a system name", "loadFailed": "Unable to load branding. Refresh the page to retry.", "failed": "Unable to save. Please retry.", "saved": "Branding updated", "tooLarge": "The image must not exceed 5 MB"},
       scanTaskActions: scanTaskActionsMessages['en-US'],
@@ -1091,6 +1098,7 @@ export const i18n = createI18n({
       skillBatch: skillBatchMessages['en-US'],
       decisionFlow: decisionFlowMessages['en-US'],
       skillDetail: skillDetailMessages['en-US'],
+      clientGovernance: clientGovernanceMessages['en-US'],
       skillColumns: skillColumnMessages['en-US'],
       skillFilters: {
         all: 'ALL（全部状态）', scanning: 'SCANNING（检测中）', awaitingReview: 'VETTED（待审核）',
@@ -1535,6 +1543,8 @@ export const i18n = createI18n({
         modelHint: 'Uses an enabled model from Model Gateway. Only relevant excerpts from the current help docs are sent as context.',
         configureModels: 'Manage models',
         maxContext: 'Context sections',
+        maxOutputTokens: 'Response token limit',
+        maxOutputTokensHint: 'Default: 12800. The effective limit is the lower of this value and the selected model’s output limit.',
         maxContextHint: 'Maximum number of documentation sections sent to the model per question.',
         welcomeZh: 'Chinese welcome message',
         welcomeEn: 'English welcome message',

@@ -161,6 +161,333 @@ def test_generated_registry_name_uses_skill_metadata(tmp_path):
     )
 
 
+def test_client_observation_round_trip_requires_matching_content(tmp_path):
+    client = _client(tmp_path)
+    created = client.post(
+        "/api/v1/access/tokens", json={"name": "observation", "token_type": "client"},
+    )
+    assert created.status_code == 200
+    headers = {"Authorization": f"Bearer {created.json()['token']}"}
+    observation = {
+        "signature": "current",
+        "trusted_signature": "baseline",
+        "certification": "changed",
+        "trigger": "trusted_content_changed",
+        "action": "record",
+        "policy_version": "1:2",
+        "action_status": "completed",
+        "count": 3,
+        "scan": {"status": "PENDING", "skill_id": "family", "version_id": "scan-v1", "progress": {
+            "stage": "analyzers", "analyzers": {"scanner": "completed", "llm": "running"},
+            "version_id": "scan-v1", "updated_at": None,
+        }},
+    }
+    skill = {
+        "name": "local", "path": "/skills/local", "signature": "current",
+        "governance": observation,
+    }
+    body = {
+        "client_id": "observation-host", "name": "host", "hostname": "host",
+        "os": "linux", "arch": "amd64", "client_version": "1.0", "governance_protocol": 1,
+        "agents": [{"agent_type": "codex", "skills_path": "/skills", "skills": [skill]}],
+    }
+    assert client.post("/api/v1/clients/register", headers=headers, json=body).status_code == 200
+    response = client.get("/api/v1/clients/observation-host")
+    assert response.status_code == 200
+    reported = response.json()["agents"][0]["skills"][0]["governance"]
+    assert all(reported[key] == value for key, value in observation.items())
+    assert response.json()["issue_count"] == 1
+    # Shared paths count once, even when multiple Agents report the same content.
+    body["agents"].append({"agent_type": "hermes", "skills_path": "/skills", "skills": [skill]})
+    assert client.post("/api/v1/clients/observation-host/inventory", headers=headers, json=body).status_code == 200
+    assert client.get("/api/v1/clients").json()[0]["issue_count"] == 1
+    # Submitting a scan is not a resolution of the current content warning.
+    assert client.post("/api/v1/clients/observation-host/events", headers=headers, json={
+        "event_type": "skill_scan_submitted", "agent_type": "codex", "skill_name": "local",
+    }).status_code == 200
+    assert client.get("/api/v1/clients/observation-host").json()["issue_count"] == 1
+    # A later inventory must not present an earlier content verdict as current.
+    skill["signature"] = "edited-again"
+    assert client.post("/api/v1/clients/observation-host/inventory", headers=headers, json=body).status_code == 200
+    assert client.get("/api/v1/clients/observation-host").json()["agents"][0]["skills"][0]["governance"] is None
+    assert client.get("/api/v1/clients/observation-host").json()["issue_count"] == 0
+    observation.update(signature="edited-again", certification="certified", trigger="", action_status="completed")
+    assert client.post("/api/v1/clients/observation-host/inventory", headers=headers, json=body).status_code == 200
+    assert client.get("/api/v1/clients/observation-host").json()["issue_count"] == 0
+    observation["action_status"] = "failed"
+    assert client.post("/api/v1/clients/observation-host/inventory", headers=headers, json=body).status_code == 200
+    assert client.get("/api/v1/clients/observation-host").json()["issue_count"] == 1
+
+
+def test_governance_events_aggregate_retries_and_preserve_policy_changes(tmp_path):
+    client = _client(tmp_path)
+    token = client.post("/api/v1/access/tokens", json={"name": "events", "token_type": "client"}).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.post("/api/v1/clients/register", headers=headers, json={
+        "client_id": "events-host", "name": "host", "hostname": "host",
+        "os": "linux", "arch": "amd64", "client_version": "1.0", "governance_protocol": 1,
+    }).status_code == 200
+    body = {"event_type": "skill_governance_detected", "agent_type": "codex", "skill_name": "sample",
+            "details": {"path": "/skills/sample", "signature": "content", "trigger": "unverified",
+                        "action": "record", "policy_version": "1:0"}}
+    ids = []
+    for count, observed in [(1, "2026-09-11T08:00:00Z"), (3, "2026-09-11T08:10:00Z"), (1, "2026-09-11T08:00:00Z")]:
+        response = client.post("/api/v1/clients/events-host/events", headers=headers,
+                               json={**body, "observation_count": count, "observed_at": observed})
+        assert response.status_code == 200, response.text
+        ids.append(response.json()["event_id"])
+    assert len(set(ids)) == 1
+    events = client.get("/api/v1/clients/events-host").json()["events"]
+    assert len(events) == 1
+    assert events[0]["observation_count"] == 3
+    assert events[0]["last_seen_at"].startswith("2026-09-11T08:10:00")
+    body["details"]["policy_version"] = "2:0"
+    response = client.post("/api/v1/clients/events-host/events", headers=headers, json=body)
+    assert response.status_code == 200
+    assert response.json()["event_id"] != ids[0]
+    body["details"]["signature"] = "changed-content"
+    assert client.post("/api/v1/clients/events-host/events", headers=headers, json=body).status_code == 200
+    assert len(client.get("/api/v1/clients/events-host").json()["events"]) == 3
+
+
+def test_backup_restore_authorization_binds_both_backup_and_current_content(tmp_path):
+    client = _client(tmp_path)
+    token = client.post("/api/v1/access/tokens", json={"name": "backup", "token_type": "client"}).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    registered = client.post("/api/v1/clients/register", headers=headers, json={
+        "client_id": "backup-host", "name": "Backup", "hostname": "host", "os": "linux", "arch": "amd64", "client_version": "1.0", "governance_protocol": 1,
+        "agents": [{"agent_type": "codex", "skills_path": "/skills", "skills": [{"name": "sample", "path": "/skills/sample", "signature": "current-content"}]}],
+        "recovery": [{"id": "backup-copy", "agent_type": "codex", "skill_name": "sample", "original_path": "/skills/sample", "signature": "backup-content", "status": "backed_up", "reason": "backup"}],
+    })
+    assert registered.status_code == 200, registered.text
+    action = {"request_id": "restore-backup", "action": "restore_backup", "agent_type": "codex", "path": "/skills/sample", "expected_signature": "backup-content", "quarantine_id": "backup-copy"}
+    for target_signature in [None, "old-content"]:
+        response = client.post("/api/v1/clients/backup-host/skill-actions", headers=headers, json={**action, "expected_target_signature": target_signature})
+        assert response.status_code == 409, response.text
+        assert response.json()["error_code"] == "client.skill_content_changed"
+    action["expected_target_signature"] = "current-content"
+    created = client.post("/api/v1/clients/backup-host/skill-actions", headers=headers, json=action)
+    assert created.status_code == 200, created.text
+    assert created.json()["payload"]["expected_target_signature"] == "current-content"
+    assert created.json()["payload"]["expected_signature"] == "backup-content"
+    duplicate = client.post("/api/v1/clients/backup-host/skill-actions", headers=headers, json=action)
+    assert duplicate.json()["id"] == created.json()["id"]
+
+
+def test_recovery_tasks_bind_client_copy_and_inventory(tmp_path):
+    client = _client(tmp_path)
+    token = client.post("/api/v1/access/tokens", json={"name": "recovery", "token_type": "client"}).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    agent = {"agent_type": "codex", "local_agent_id": "codex", "skills_path": "/skills", "skills": []}
+    copy = {"id": "retained-copy", "agent_type": "codex", "skill_name": "sample", "original_path": "/skills/sample", "signature": "retained-content", "status": "quarantined", "reason": "unverified"}
+    registered = client.post("/api/v1/clients/register", headers=headers, json={
+        "client_id": "recovery-host", "name": "Recovery", "hostname": "host", "os": "linux", "arch": "amd64", "client_version": "1.0",
+        "governance_protocol": 1, "agents": [agent], "recovery": [copy],
+    })
+    assert registered.status_code == 200, registered.text
+    assert registered.json()["recovery"][0]["signature"] == copy["signature"]
+    action = {"request_id": "restore-1", "action": "restore_quarantine", "agent_type": "codex", "path": copy["original_path"], "expected_signature": copy["signature"], "quarantine_id": copy["id"]}
+    created = client.post("/api/v1/clients/recovery-host/skill-actions", headers=headers, json=action)
+    assert created.status_code == 200, created.text
+    assert created.json()["payload"]["quarantine_id"] == copy["id"]
+    assert client.post("/api/v1/clients/recovery-host/skill-actions", headers=headers, json=action).json()["id"] == created.json()["id"]
+    for change in [{"expected_signature": "old"}, {"quarantine_id": "other-copy"}, {"path": "/skills/other"}]:
+        rejected = client.post("/api/v1/clients/recovery-host/skill-actions", headers=headers, json={**action, "request_id": "invalid", **change})
+        assert rejected.status_code == 409, rejected.text
+        assert rejected.json()["error_code"] == "client.recovery_content_changed"
+    agent["skills"] = [{"name": "sample", "path": copy["original_path"], "signature": "new-user-content"}]
+    updated = client.post("/api/v1/clients/recovery-host/inventory", headers=headers, json={"agents": [agent]})
+    assert updated.status_code == 200, updated.text
+    occupied = client.post("/api/v1/clients/recovery-host/skill-actions", headers=headers, json={**action, "request_id": "occupied"})
+    assert occupied.status_code == 409, occupied.text
+    assert occupied.json()["error_code"] == "client.recovery_path_occupied"
+    updated = client.post("/api/v1/clients/recovery-host/inventory", headers=headers, json={"agents": [agent], "recovery": []})
+    assert updated.status_code == 200, updated.text
+    assert client.get("/api/v1/clients/recovery-host").json()["recovery"] == []
+
+
+def test_manual_skill_actions_require_scope_bind_content_and_deduplicate(tmp_path):
+    client = _client(tmp_path)
+    def connect(name, scopes=None):
+        token = client.post("/api/v1/access/tokens", json={"name": name, "token_type": "client", **({"scopes": scopes} if scopes else {})}).json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        response = client.post("/api/v1/clients/register", headers=headers, json={
+            "client_id": name, "name": name, "hostname": name, "os": "linux", "arch": "amd64", "client_version": "1.0",
+            "governance_protocol": 1,
+            "agents": [{"agent_type": "codex", "local_agent_id": "codex", "skills_path": "/skills",
+                        "skills": [{"name": "sample", "path": "/skills/sample", "signature": "selected-content"}]}],
+        })
+        assert response.status_code == 200, response.text
+        return headers
+    headers = connect("actions-host")
+    restricted = connect("restricted-host", ["client:register", "client:read-policy"])
+    action = {"request_id": "click-1", "action": "quarantine", "agent_type": "codex",
+              "path": "/skills/sample", "expected_signature": "selected-content"}
+    denied = client.post("/api/v1/clients/restricted-host/skill-actions", headers=restricted, json=action)
+    assert denied.status_code == 403
+    ids = []
+    for _ in range(2):
+        response = client.post("/api/v1/clients/actions-host/skill-actions", headers=headers, json=action)
+        assert response.status_code == 200, response.text
+        ids.append(response.json()["id"])
+        assert response.json()["payload"]["expected_signature"] == "selected-content"
+        assert response.json()["task_type"] == "skill_action"
+    assert ids[0] == ids[1]
+    scan_request = {**action, "request_id": "admin-scan", "action": "submit_scan"}
+    scan = client.post("/api/v1/clients/actions-host/tasks", json={"task_type": "skill_action", "payload": scan_request})
+    assert scan.status_code == 200, scan.text
+    repeated_scan = client.post("/api/v1/clients/actions-host/tasks", json={"task_type": "skill_action", "payload": scan_request})
+    assert repeated_scan.json()["id"] == scan.json()["id"]
+    conflict = client.post("/api/v1/clients/actions-host/skill-actions", headers=headers, json={**action, "action": "uninstall"})
+    assert conflict.status_code == 409
+    assert conflict.json()["error_code"] == "client.action_request_conflict"
+    stale = client.post("/api/v1/clients/actions-host/skill-actions", headers=headers, json={**action, "request_id": "click-2", "expected_signature": "old-content"})
+    assert stale.status_code == 409
+    assert stale.json()["error_code"] == "client.skill_content_changed"
+    cross_client = client.post("/api/v1/clients/restricted-host/skill-actions", headers=headers, json=action)
+    assert cross_client.status_code == 403
+    malformed = client.post("/api/v1/clients/actions-host/tasks", json={"task_type": "skill_action", "payload": {}})
+    assert malformed.status_code == 422
+    assert malformed.json()["error_code"] == "client.action_payload_invalid"
+    task_id = ids[0]
+    root = "/api/v1/clients/actions-host/tasks"
+    assert client.post(f"{root}/{task_id}/cancel").status_code == 200
+    late_start = client.post(f"{root}/{task_id}/result", headers=headers, json={"status": "running"})
+    assert late_start.json() == {"ok": True, "ignored": True, "status": "cancelled"}
+    retried = client.post(f"{root}/{task_id}/retry")
+    assert retried.status_code == 200, retried.text
+    retry_id = retried.json()["id"]
+    assert retry_id != task_id
+    assert client.post(f"{root}/{task_id}/retry").json()["id"] == retry_id
+    started = client.post(f"{root}/{retry_id}/result", headers=headers, json={"status": "running"})
+    assert started.json()["ignored"] is False
+    mid_action_cancel = client.post(f"{root}/{retry_id}/cancel")
+    assert mid_action_cancel.status_code == 409
+    assert mid_action_cancel.json()["error_code"] == "client.action_already_started"
+    assert client.post(f"{root}/{retry_id}/result", headers=headers, json={"status": "failed", "error": "skill_content_changed"}).status_code == 200
+    inventory = {"agents": [{"agent_type": "codex", "local_agent_id": "codex", "skills_path": "/skills", "skills": [{"name": "sample", "path": "/skills/sample", "signature": "new-content"}]}]}
+    assert client.post("/api/v1/clients/actions-host/inventory", headers=headers, json=inventory).status_code == 200
+    stale_retry = client.post(f"{root}/{retry_id}/retry")
+    assert stale_retry.status_code == 409
+    assert stale_retry.json()["error_code"] == "client.skill_content_changed"
+    terminal_start = client.post(f"{root}/{retry_id}/result", headers=headers, json={"status": "running"})
+    assert terminal_start.json()["ignored"] is True
+    assert terminal_start.json()["status"] == "failed"
+
+
+def test_legacy_removal_requests_pin_inventory_and_retry_as_content_bound_actions(tmp_path):
+    client = _client(tmp_path)
+    token = client.post("/api/v1/access/tokens", json={"name": "removal", "token_type": "client"}).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    registered = client.post("/api/v1/clients/register", headers=headers, json={
+        "client_id": "remove-host", "name": "Remove", "hostname": "host", "os": "linux", "arch": "amd64", "client_version": "new", "governance_protocol": 1,
+        "agents": [{"agent_type": "codex", "skills_path": "/skills", "skills": [{"skill_id": "family", "name": "sample", "path": "/skills/actual-folder", "signature": "selected-content"}]}],
+    })
+    assert registered.status_code == 200, registered.text
+    root = "/api/v1/clients/remove-host/tasks"
+    created = client.post(root, json={"task_type": "remove_skill", "payload": {"agent_type": "codex", "skill_id": "family", "skill_name": "other-folder", "path": "/wrong", "expected_signature": "wrong"}})
+    assert created.status_code == 200, created.text
+    task_id = created.json()["id"]
+    task = client.get(root, headers=headers).json()[0]
+    assert task["payload"]["path"] == "/skills/actual-folder"
+    assert task["payload"]["expected_signature"] == "selected-content"
+    assert task["payload"]["actor"] == "admin"
+    assert client.post(f"{root}/{task_id}/result", headers=headers, json={"status": "running"}).json()["ignored"] is False
+    assert client.post(f"{root}/{task_id}/cancel").status_code == 409
+    assert client.post(f"{root}/{task_id}/result", headers=headers, json={"status": "failed"}).status_code == 200
+    retry = client.post(f"{root}/{task_id}/retry")
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["id"] != task_id
+    retried = next(task for task in client.get(root, headers=headers).json() if task["id"] == retry.json()["id"])
+    assert retried["task_type"] == "skill_action"
+    assert retried["payload"]["action"] == "uninstall"
+    assert retried["payload"]["expected_signature"] == "selected-content"
+
+
+def test_install_and_repair_retries_use_new_ids_and_keep_content_preconditions(tmp_path):
+    client = _client(tmp_path)
+    token = client.post("/api/v1/access/tokens", json={"name": "retry", "token_type": "client"}).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.post("/api/v1/clients/register", headers=headers, json={
+        "client_id": "retry-host", "name": "Retry", "hostname": "host", "os": "linux", "arch": "amd64", "client_version": "new", "agents": [],
+    }).status_code == 200
+    root = "/api/v1/clients/retry-host/tasks"
+    for task_type in ("install_skill", "repair_skill"):
+        payload = {"agent_type": "codex", "skill_id": "family", "expected_root": "/skills", "expected_targets": {"/skills/sample": "selected-content"}}
+        database = next(client.app.dependency_overrides[get_db]())
+        row = models.ClientTask(client_id="retry-host", task_type=task_type, payload_json=json.dumps(payload))
+        database.add(row)
+        database.commit()
+        task_id = row.id
+        database.close()
+        assert client.post(f"{root}/{task_id}/result", headers=headers, json={"status": "running"}).json()["ignored"] is False
+        assert client.post(f"{root}/{task_id}/cancel").status_code == 409
+        assert client.post(f"{root}/{task_id}/result", headers=headers, json={"status": "failed"}).status_code == 200
+        assert client.post(f"{root}/{task_id}/result", headers=headers, json={"status": "running"}).json()["ignored"] is True
+        retry = client.post(f"{root}/{task_id}/retry")
+        assert retry.status_code == 200, retry.text
+        retry_id = retry.json()["id"]
+        assert retry_id != task_id
+        assert client.post(f"{root}/{task_id}/retry").json()["id"] == retry_id
+        polled = next(item for item in client.get(root, headers=headers).json() if item["id"] == retry_id)
+        assert polled["payload"] == payload
+        assert client.post(f"{root}/{retry_id}/cancel").status_code == 200
+        assert client.post(f"{root}/{retry_id}/result", headers=headers, json={"status": "running"}).json()["status"] == "cancelled"
+
+
+def test_default_classification_policy_saves_auditable_dates_and_requires_super_admin(tmp_path):
+    client = _client(tmp_path)
+    root = "/api/v1/clients/governance/default"
+    policy = client.get(root).json()
+    change = {"rules": {"malicious": "quarantine"}, "expected_version": policy["version"]}
+    preview = client.post(root + "/preview", json=change)
+    assert preview.status_code == 200, preview.text
+    saved = client.put(root, json={**change, "preview_id": preview.json()["preview_id"]})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["rules"]["malicious"] == "quarantine"
+    assert saved.json()["updated_at"]
+    assert client.get(root).json()["version"] == saved.json()["version"]
+    client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(id=2, username="limited", hashed_password="x", role="admin")
+    denied = client.put(root, json={**change, "preview_id": preview.json()["preview_id"]})
+    assert denied.status_code == 403
+    assert denied.json()["error_code"] == "client.default_policy_forbidden"
+
+
+def test_existing_client_upgrade_automatically_enables_preserved_policy(tmp_path):
+    client = _client(tmp_path)
+    token = client.post("/api/v1/access/tokens", json={"name": "upgrade", "token_type": "client"}).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    registered = client.post("/api/v1/clients/register", headers=headers, json={
+        "client_id": "upgrade-host", "name": "Upgrade", "hostname": "old-host", "os": "linux", "arch": "amd64", "client_version": "old",
+        "agents": [{"agent_type": "codex", "skills_path": "/skills", "skills": []}],
+    })
+    assert registered.status_code == 200, registered.text
+    root = "/api/v1/clients/upgrade-host"
+    assert client.put(root + "/policy", json={"mode": "repair"}).status_code == 200
+    original = client.get(root + "/governance").json()
+    assert original["supported"] is False
+    assert original["enabled"] is False
+    upgrade = client.post(root + "/heartbeat", headers=headers, json={"client_id": "upgrade-host", "client_version": "new", "governance_protocol": 1})
+    assert upgrade.status_code == 200, upgrade.text
+    assert upgrade.json()["policy"]["mode"] == "repair"
+    migrated = upgrade.json()["policy"]["classification"]
+    assert migrated["enabled"] is True
+    assert migrated["rules"]["trusted_content_changed"] == "restore_trusted"
+    assert migrated["rules"]["unverified"] == "record"
+    repeated = client.post(root + "/heartbeat", headers=headers, json={"client_id": "upgrade-host", "governance_protocol": 1})
+    assert repeated.json()["policy"]["classification"]["version"] == migrated["version"]
+    protected = client.put(root + "/policy", json={"mode": "block"})
+    assert protected.status_code == 409
+    assert protected.json()["error_code"] == "client.classification_policy_active"
+    downgraded = client.post(root + "/heartbeat", headers=headers, json={"client_id": "upgrade-host", "client_version": "old", "governance_protocol": 0})
+    assert downgraded.status_code == 200
+    assert downgraded.json()["policy"]["classification"]["enabled"] is False
+    assert downgraded.json()["policy"]["mode"] == "repair"
+    restored = client.post(root + "/heartbeat", headers=headers, json={"client_id": "upgrade-host", "client_version": "new", "governance_protocol": 1})
+    assert restored.json()["policy"]["classification"]["enabled"] is True
+    assert restored.json()["policy"]["classification"]["rules"] == migrated["rules"]
+
+
 def test_client_register_inventory_and_task_round_trip(tmp_path):
     manager = _Manager()
     client = _client(tmp_path, manager)
@@ -571,9 +898,10 @@ def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_pat
     assert client.get("/api/v1/clients/host-model").json()["agents"][0]["model_config_status"] == "cancelled"
     retried = client.post(f"/api/v1/clients/host-model/tasks/{repeated.json()['id']}/retry")
     assert retried.json()["status"] == "pending"
+    assert retried.json()["id"] != repeated.json()["id"]
     assert client.get("/api/v1/clients/host-model").json()["agents"][0]["model_config_status"] == "pending"
     assert client.post(
-        f"/api/v1/clients/host-model/tasks/{repeated.json()['id']}/result",
+        f"/api/v1/clients/host-model/tasks/{retried.json()['id']}/result",
         headers=headers,
         json={"status": "succeeded"},
     ).status_code == 200
@@ -1418,6 +1746,25 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
     task = client.get("/api/v1/clients/host-001").json()["tasks"][0]
     assert task["payload"]["skill_name"] == "approved-skill"
     assert task["payload"]["version_id"] == "skill-1"
+    assert task["payload"]["expected_root"] == "/tmp/.codex/skills"
+    assert task["payload"]["expected_targets"] == {}
+
+    current_path = "/tmp/.codex/skills/approved-skill"
+    updated = client.post(
+        "/api/v1/clients/host-001/inventory", headers=headers,
+        json={"agents": [{"agent_type": "codex", "skills_path": "/tmp/.codex/skills",
+                          "skill_management_supported": True, "managed_agent_id": "codex-agent",
+                          "skills": [{"name": "approved-skill", "path": current_path, "signature": "edited-content"}]}]},
+    )
+    assert updated.status_code == 200
+    repair = client.post(
+        "/api/v1/clients/host-001/tasks",
+        json={"task_type": "repair_skill", "payload": {"agent_type": "codex", "managed_agent_id": "codex-agent", "skill_id": "skill-1",
+                                                       "expected_targets": {current_path: "caller-supplied"}}},
+    )
+    assert repair.status_code == 200
+    repair_task = next(item for item in client.get("/api/v1/clients/host-001").json()["tasks"] if item["id"] == repair.json()["id"])
+    assert repair_task["payload"]["expected_targets"] == {current_path: "edited-content"}
 
     policy = client.get("/api/v1/clients/host-001/policy", headers=headers).json()
     available = client.get(
@@ -1843,3 +2190,28 @@ def test_admin_cannot_read_another_owners_client(tmp_path):
     )
     assert client.get("/api/v1/clients/alice-host").status_code == 404
     assert client.get("/api/v1/clients").json() == []
+
+
+def test_policy_delivery_checks_reported_action_capabilities(tmp_path):
+    client = _client(tmp_path)
+    response = client.post('/api/v1/access/tokens', json={'name': 'capabilities', 'token_type': 'client'})
+    headers = {'Authorization': 'Bearer ' + response.json()['token']}
+    root = '/api/v1/clients/capability-host'
+    registration = client.post('/api/v1/clients/register', headers=headers, json={
+        'client_id': 'capability-host', 'name': 'Capability', 'hostname': 'host',
+        'os': 'linux', 'arch': 'amd64', 'client_version': 'dev', 'governance_protocol': 2,
+    })
+    assert registration.status_code == 200, registration.text
+    policy = client.get(root + '/governance').json()
+    body = {'rules': {'unverified': 'record_only'}, 'expected_version': policy['version']}
+    preview = client.post(root + '/governance/preview', json=body)
+    assert preview.status_code == 200, preview.text
+    body['preview_id'] = preview.json()['preview_id']
+    assert client.put(root + '/governance', json=body).status_code == 200
+    heartbeat = client.post(root + '/heartbeat', headers=headers, json={'client_id': 'capability-host', 'governance_protocol': 1})
+    assert heartbeat.status_code == 409
+    assert heartbeat.json()['error_code'] == 'client.policy_capability_required'
+    assert client.get(root + '/policy', headers=headers).status_code == 409
+    restored = client.post(root + '/heartbeat', headers=headers, json={'client_id': 'capability-host', 'governance_protocol': 2})
+    assert restored.status_code == 200, restored.text
+    assert restored.json()['policy']['classification']['rules']['unverified'] == 'record_only'

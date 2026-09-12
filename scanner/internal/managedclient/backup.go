@@ -1,6 +1,7 @@
 package managedclient
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -46,23 +47,30 @@ func ListBackups(home string) ([]Backup, error) {
 	return result, nil
 }
 
-func RestoreBackup(home, name string) error {
+type BackupRestoreItem struct {
+	AgentType       string
+	SkillName       string
+	Source          string
+	Target          string
+	Signature       string
+	TargetSignature string
+}
+
+func PlanBackupRestore(home, name string) ([]BackupRestoreItem, error) {
 	if name == "" || filepath.Base(name) != name || name == "." || name == ".." {
-		return fmt.Errorf("invalid backup name")
+		return nil, fmt.Errorf("invalid backup name")
 	}
-	root := ""
 	sourceRoot := ""
 	for _, candidateRoot := range backupRoots(home) {
 		candidate := filepath.Join(candidateRoot, name)
 		info, err := os.Lstat(candidate)
 		if err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
-			root = candidateRoot
 			sourceRoot = candidate
 			break
 		}
 	}
 	if sourceRoot == "" {
-		return fmt.Errorf("backup not found: %s", name)
+		return nil, fmt.Errorf("backup not found: %s", name)
 	}
 	roots := map[string]string{}
 	for _, spec := range adapters() {
@@ -72,24 +80,49 @@ func RestoreBackup(home, name string) error {
 	}
 	config, err := LoadConfig(home)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, agent := range config.CustomAgents {
 		roots[agent.AgentType] = agent.SkillsPath
 	}
+	for agentType, configured := range config.AgentSkillRoots {
+		if len(configured) == 1 {
+			roots[agentType] = resolveSkillRoot(home, configured[0])
+		}
+	}
+	var metadata struct {
+		AgentType    string `json:"agent_type"`
+		SkillName    string `json:"skill_name"`
+		OriginalPath string `json:"original_path"`
+		Signature    string `json:"signature"`
+	}
+	metadataBody, metadataErr := os.ReadFile(filepath.Join(sourceRoot, "metadata.json"))
+	if metadataErr == nil {
+		if err := json.Unmarshal(metadataBody, &metadata); err != nil {
+			return nil, err
+		}
+		if metadata.OriginalPath == "" || metadata.Signature == "" {
+			return nil, fmt.Errorf("backup_metadata_invalid")
+		}
+	} else if !os.IsNotExist(metadataErr) {
+		return nil, metadataErr
+	}
 	agents, err := os.ReadDir(sourceRoot)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	safetyRoot := filepath.Join(root, "restore-before-"+time.Now().UTC().Format("20060102T150405Z"))
+	result := []BackupRestoreItem{}
 	for _, agent := range agents {
 		targetRoot := roots[agent.Name()]
-		if !agent.IsDir() || targetRoot == "" {
+		if !agent.IsDir() {
 			continue
+		}
+		if targetRoot == "" {
+			return nil, fmt.Errorf("backup_agent_unavailable")
 		}
 		skills, err := os.ReadDir(filepath.Join(sourceRoot, agent.Name()))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, skill := range skills {
 			if !skill.IsDir() {
@@ -97,26 +130,48 @@ func RestoreBackup(home, name string) error {
 			}
 			source := filepath.Join(sourceRoot, agent.Name(), skill.Name())
 			target := filepath.Join(targetRoot, skill.Name())
-			if _, err := os.Lstat(target); err == nil {
-				current := target
-				if resolved, resolveErr := filepath.EvalSymlinks(target); resolveErr == nil {
-					current = resolved
+			if metadataErr == nil {
+				if metadata.AgentType != agent.Name() || metadata.SkillName != skill.Name() {
+					return nil, fmt.Errorf("backup_metadata_invalid")
 				}
-				if err := copyDir(current, filepath.Join(safetyRoot, agent.Name(), skill.Name())); err != nil {
-					return err
+				target = metadata.OriginalPath
+				allowedRoots := []string{targetRoot}
+				if configured := config.AgentSkillRoots[agent.Name()]; len(configured) > 0 {
+					allowedRoots = configured
 				}
+				allowed := false
+				parent, err := filepath.EvalSymlinks(filepath.Dir(target))
+				if err != nil {
+					return nil, err
+				}
+				for _, root := range allowedRoots {
+					resolved, err := filepath.EvalSymlinks(resolveSkillRoot(home, root))
+					if err == nil && resolved == parent {
+						allowed = true
+						break
+					}
+				}
+				if !allowed || filepath.Base(target) != skill.Name() {
+					return nil, fmt.Errorf("skill_target_unavailable")
+				}
+				if err := checkObservedContent(Skill{Path: source, Signature: metadata.Signature}); err != nil {
+					return nil, err
+				}
+			} else if len(config.AgentSkillRoots[agent.Name()]) > 1 {
+				return nil, fmt.Errorf("backup_target_ambiguous")
 			}
-			if err := os.RemoveAll(target); err != nil {
-				return err
+			snapshot, err := inspectInstallTarget(source)
+			if err != nil {
+				return nil, err
 			}
-			if err := copyDir(source, target); err != nil {
-				_ = os.RemoveAll(target)
-				_ = copyDir(filepath.Join(safetyRoot, agent.Name(), skill.Name()), target)
-				return err
+			current, err := inspectInstallTarget(target)
+			if err != nil && !os.IsNotExist(err) {
+				return nil, err
 			}
+			result = append(result, BackupRestoreItem{AgentType: agent.Name(), SkillName: skill.Name(), Source: source, Target: target, Signature: snapshot.signature, TargetSignature: current.signature})
 		}
 	}
-	return nil
+	return result, nil
 }
 
 func backupRoots(home string) []string {

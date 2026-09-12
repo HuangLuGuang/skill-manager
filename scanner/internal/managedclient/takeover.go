@@ -41,6 +41,10 @@ func BuildTakeoverPlan(inventory Inventory, comparisons []CompareItem) TakeoverP
 			continue
 		}
 		for _, skill := range agent.Skills {
+			if skill.Status == "external_link" {
+				plan.ExcludedPaths = append(plan.ExcludedPaths, skill.Path)
+				continue
+			}
 			result, ok := results[comparisonKey(agent.AgentType, skill.Name, skill.Path, skill.Signature)]
 			if !ok {
 				result, ok = results[comparisonKey(agent.AgentType, skill.Name, "", "")]
@@ -160,6 +164,25 @@ func RestoreTakeover(plan TakeoverPlan, backupRoot string) {
 }
 
 func ApplyTakeover(home string, plan *TakeoverPlan) (string, error) {
+	for index := range plan.Items {
+		item := &plan.Items[index]
+		if item.Action == "managed" {
+			continue
+		}
+		if item.Action == "manage" && (!validInstallComponent(item.SkillID) || item.Signature == "") {
+			return "", fmt.Errorf("invalid install identifier")
+		}
+		if item.Signature == "" {
+			state, err := inspectInstallTarget(item.Source)
+			if err != nil {
+				return "", err
+			}
+			item.Signature = state.signature
+		}
+		if err := checkObservedContent(Skill{Path: item.Source, Signature: item.Signature}); err != nil {
+			return "", err
+		}
+	}
 	stamp := time.Now().UTC().Format("20060102T150405Z")
 	backupRoot := filepath.Join(BackupsRoot(home), stamp)
 	processed := []TakeoverItem{}
@@ -172,6 +195,12 @@ func ApplyTakeover(home string, plan *TakeoverPlan) (string, error) {
 		if err := copyDir(item.Source, backup); err != nil {
 			rollback(processed, backupRoot)
 			return "", err
+		}
+		for _, path := range []string{item.Source, backup} {
+			if err := checkObservedContent(Skill{Path: path, Signature: item.Signature}); err != nil {
+				rollback(processed, backupRoot)
+				return "", err
+			}
 		}
 		var err error
 		if item.Action == "manage" {
@@ -198,11 +227,22 @@ func manageSkill(root string, item TakeoverItem) error {
 	if err := copyDir(item.Source, tmp); err != nil {
 		return err
 	}
+	defer os.RemoveAll(tmp)
+	for _, path := range []string{item.Source, tmp} {
+		if err := checkObservedContent(Skill{Path: path, Signature: item.Signature}); err != nil {
+			return err
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(store), 0o755); err != nil {
 		return err
 	}
-	_ = os.RemoveAll(store)
-	if err := os.Rename(tmp, store); err != nil {
+	if _, err := os.Stat(store); os.IsNotExist(err) {
+		if err := os.Rename(tmp, store); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	} else if err := checkObservedContent(Skill{Path: store, Signature: item.Signature}); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(item.Source); err != nil {
@@ -226,6 +266,12 @@ func movePending(root string, item TakeoverItem) (string, error) {
 		if err := copyDir(item.Source, target); err != nil {
 			return "", err
 		}
+		for _, path := range []string{item.Source, target} {
+			if err := checkObservedContent(Skill{Path: path, Signature: item.Signature}); err != nil {
+				_ = os.RemoveAll(target)
+				return "", err
+			}
+		}
 		if err := os.Remove(item.Source); err != nil {
 			_ = os.RemoveAll(target)
 			return "", err
@@ -241,8 +287,17 @@ func movePending(root string, item TakeoverItem) (string, error) {
 func rollback(items []TakeoverItem, backupRoot string) {
 	for i := len(items) - 1; i >= 0; i-- {
 		item := items[i]
+		if _, err := os.Lstat(item.Source); err == nil {
+			if err := checkObservedContent(Skill{Path: item.Source, Signature: item.Signature}); err != nil {
+				continue
+			}
+		} else if !os.IsNotExist(err) {
+			continue
+		}
 		if item.PendingPath != "" {
-			_ = os.RemoveAll(item.PendingPath)
+			if checkObservedContent(Skill{Path: item.PendingPath, Signature: item.Signature}) == nil {
+				_ = os.RemoveAll(item.PendingPath)
+			}
 		}
 		_ = os.RemoveAll(item.Source)
 		if item.SourceTarget != "" {
@@ -266,7 +321,12 @@ func copyDir(source, target string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("not a directory: %s", source)
 	}
-	return filepath.WalkDir(resolved, func(path string, entry os.DirEntry, walkErr error) error {
+	type copiedDirectory struct {
+		path string
+		mode os.FileMode
+	}
+	var directories []copiedDirectory
+	err = filepath.WalkDir(resolved, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -275,7 +335,8 @@ func copyDir(source, target string) error {
 			return err
 		}
 		if rel == "." {
-			return os.MkdirAll(target, info.Mode().Perm())
+			directories = append(directories, copiedDirectory{target, info.Mode().Perm()})
+			return os.MkdirAll(target, info.Mode().Perm()|0700)
 		}
 		if strings.HasPrefix(rel, "..") || entry.Type()&os.ModeSymlink != 0 {
 			return nil
@@ -286,7 +347,8 @@ func copyDir(source, target string) error {
 			if err != nil {
 				return err
 			}
-			return os.MkdirAll(dst, current.Mode().Perm())
+			directories = append(directories, copiedDirectory{dst, current.Mode().Perm()})
+			return os.MkdirAll(dst, current.Mode().Perm()|0700)
 		}
 		current, err := entry.Info()
 		if err != nil {
@@ -294,6 +356,15 @@ func copyDir(source, target string) error {
 		}
 		return copyFile(path, dst, current.Mode().Perm())
 	})
+	if err != nil {
+		return err
+	}
+	for index := len(directories) - 1; index >= 0; index-- {
+		if err := os.Chmod(directories[index].path, directories[index].mode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func copyFile(source, target string, mode os.FileMode) error {

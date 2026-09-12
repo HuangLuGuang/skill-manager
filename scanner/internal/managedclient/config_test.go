@@ -82,6 +82,7 @@ func TestServiceReconcileDecision(t *testing.T) {
 		restart    bool
 		reasonWant string
 	}{
+		{name: "first_connection", state: ServiceState{}, restart: true, reasonWant: "not_installed"},
 		{name: "stopped", state: ServiceState{Installed: true}, matches: true, restart: true, reasonWant: "not_running"},
 		{name: "changed", state: ServiceState{Installed: true, Running: true}, restart: true, reasonWant: "binary_changed"},
 		{name: "current", state: ServiceState{Installed: true, Running: true}, matches: true, reasonWant: "already_current"},

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"skill-manager/scanner/internal/localize"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -20,31 +22,39 @@ type Store struct {
 }
 
 type LocalStatus struct {
-	ManagedSkills       int                 `json:"managed_skills"`
-	GovernanceEnabled   bool                `json:"governance_enabled"`
-	PendingSkills       int                 `json:"pending_skills"`
-	QuarantinedSkills   int                 `json:"quarantined_skills"`
-	QueuedEvents        int                 `json:"queued_events"`
-	LastInventoryAt     string              `json:"last_inventory_at,omitempty"`
-	LastFullScanAt      string              `json:"last_full_scan_at,omitempty"`
-	NextFullScanAt      string              `json:"next_full_scan_at,omitempty"`
-	PatrolFindings      []PatrolFinding     `json:"patrol_findings"`
-	Tasks               []LocalTask         `json:"tasks"`
-	UnreadNotifications int                 `json:"unread_notifications"`
-	Notifications       []LocalNotification `json:"notifications"`
+	Classification      *ClassificationPolicy `json:"classification,omitempty"`
+	Sync                map[string]SyncStatus `json:"sync"`
+	ManagedSkills       int                   `json:"managed_skills"`
+	GovernanceEnabled   bool                  `json:"governance_enabled"`
+	PendingSkills       int                   `json:"pending_skills"`
+	QuarantinedSkills   int                   `json:"quarantined_skills"`
+	QueuedEvents        int                   `json:"queued_events"`
+	LastInventoryAt     string                `json:"last_inventory_at,omitempty"`
+	LastFullScanAt      string                `json:"last_full_scan_at,omitempty"`
+	NextFullScanAt      string                `json:"next_full_scan_at,omitempty"`
+	PatrolFindings      []PatrolFinding       `json:"patrol_findings"`
+	Tasks               []LocalTask           `json:"tasks"`
+	UnreadNotifications int                   `json:"unread_notifications"`
+	Notifications       []LocalNotification   `json:"notifications"`
+}
+
+type SyncStatus struct {
+	LastSuccessAt string `json:"last_success_at,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 
 type LocalNotification struct {
-	ID          int64  `json:"id"`
-	Severity    string `json:"severity"`
-	EventType   string `json:"event_type"`
-	AgentType   string `json:"agent_type"`
-	SkillName   string `json:"skill_name"`
-	Title       string `json:"title"`
-	Message     string `json:"message"`
-	CreatedAt   string `json:"created_at"`
-	DeliveredAt string `json:"delivered_at,omitempty"`
-	ReadAt      string `json:"read_at,omitempty"`
+	Details     map[string]string `json:"details,omitempty"`
+	ID          int64             `json:"id"`
+	Severity    string            `json:"severity"`
+	EventType   string            `json:"event_type"`
+	AgentType   string            `json:"agent_type"`
+	SkillName   string            `json:"skill_name"`
+	Title       string            `json:"title"`
+	Message     string            `json:"message"`
+	CreatedAt   string            `json:"created_at"`
+	DeliveredAt string            `json:"delivered_at,omitempty"`
+	ReadAt      string            `json:"read_at,omitempty"`
 }
 
 type LocalTask struct {
@@ -169,22 +179,44 @@ func OpenStore(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db, root: filepath.Dir(path)}, nil
+	if _, err := db.Exec(`ALTER TABLE client_pending ADD COLUMN progress_json TEXT NOT NULL DEFAULT '{}'`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(`ALTER TABLE client_notifications ADD COLUMN details_json TEXT NOT NULL DEFAULT '{}'`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		db.Close()
+		return nil, err
+	}
+	store := &Store{db: db, root: filepath.Dir(path)}
+	if err := store.initScanHistory(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return store, nil
+}
+
+type ScanProgress struct {
+	Stage     string            `json:"stage,omitempty"`
+	Analyzers map[string]string `json:"analyzers,omitempty"`
+	VersionID string            `json:"version_id,omitempty"`
+	UpdatedAt string            `json:"updated_at,omitempty"`
 }
 
 type PendingItem struct {
-	ID           string `json:"id"`
-	AgentType    string `json:"agent_type"`
-	SkillName    string `json:"skill_name"`
-	OriginalPath string `json:"original_path,omitempty"`
-	PendingPath  string `json:"pending_path"`
-	Reason       string `json:"reason"`
-	Status       string `json:"status"`
-	SkillID      string `json:"skill_id,omitempty"`
-	VersionID    string `json:"version_id,omitempty"`
-	Fingerprint  string `json:"content_fingerprint,omitempty"`
-	CreatedAt    string `json:"created_at"`
-	SubmittedAt  string `json:"submitted_at,omitempty"`
+	AutoInstallError string       `json:"auto_install_error,omitempty"`
+	Progress         ScanProgress `json:"progress"`
+	ID               string       `json:"id"`
+	AgentType        string       `json:"agent_type"`
+	SkillName        string       `json:"skill_name"`
+	OriginalPath     string       `json:"original_path,omitempty"`
+	PendingPath      string       `json:"pending_path"`
+	Reason           string       `json:"reason"`
+	Status           string       `json:"status"`
+	SkillID          string       `json:"skill_id,omitempty"`
+	VersionID        string       `json:"version_id,omitempty"`
+	Fingerprint      string       `json:"content_fingerprint,omitempty"`
+	CreatedAt        string       `json:"created_at"`
+	SubmittedAt      string       `json:"submitted_at,omitempty"`
 }
 
 func pendingID(path string) string {
@@ -221,7 +253,8 @@ func (store *Store) SavePending(item PendingItem) error {
 func (store *Store) PendingItems() ([]PendingItem, error) {
 	rows, err := store.db.Query(
 		`SELECT id, agent_type, skill_name, original_path, pending_path, reason, status,
-		        COALESCE(skill_id, ''), COALESCE(version_id, ''), COALESCE(content_fingerprint, ''), created_at, COALESCE(submitted_at, '')
+		        COALESCE(skill_id, ''), COALESCE(version_id, ''), COALESCE(content_fingerprint, ''), created_at, COALESCE(submitted_at, ''), progress_json,
+		        COALESCE((SELECT value FROM client_state WHERE key = 'pending:install-error:' || client_pending.id), '')
 		 FROM client_pending ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -232,8 +265,19 @@ func (store *Store) PendingItems() ([]PendingItem, error) {
 	known := map[string]bool{}
 	for rows.Next() {
 		var item PendingItem
-		if err := rows.Scan(&item.ID, &item.AgentType, &item.SkillName, &item.OriginalPath, &item.PendingPath, &item.Reason, &item.Status, &item.SkillID, &item.VersionID, &item.Fingerprint, &item.CreatedAt, &item.SubmittedAt); err != nil {
+		var progress string
+		if err := rows.Scan(&item.ID, &item.AgentType, &item.SkillName, &item.OriginalPath, &item.PendingPath, &item.Reason, &item.Status, &item.SkillID, &item.VersionID, &item.Fingerprint, &item.CreatedAt, &item.SubmittedAt, &progress, &item.AutoInstallError); err != nil {
 			return nil, err
+		}
+		if err := json.Unmarshal([]byte(progress), &item.Progress); err != nil {
+			return nil, err
+		}
+		version := item.VersionID
+		if version == "" {
+			version = item.SkillID
+		}
+		if version == "" || item.Progress.VersionID != version || item.Status != "PENDING" {
+			item.Progress = ScanProgress{}
 		}
 		if _, err := os.Stat(item.PendingPath); err != nil {
 			continue
@@ -324,7 +368,7 @@ func (store *Store) UpdatePendingStatus(skillID, versionID, status string) error
 func (store *Store) ResetPendingSubmission(id string) error {
 	_, err := store.db.Exec(
 		`UPDATE client_pending
-		 SET status = 'pending', skill_id = NULL, version_id = NULL, submitted_at = NULL
+		 SET status = 'pending', skill_id = NULL, version_id = NULL, submitted_at = NULL, progress_json = '{}'
 		 WHERE id = ?`,
 		id,
 	)
@@ -467,6 +511,19 @@ func (store *Store) Installations() ([]Installation, error) {
 }
 
 func (store *Store) EnrichInventory(inventory *Inventory) error {
+	pendingItems, err := store.PendingItems()
+	if err != nil {
+		return err
+	}
+	pendingByID := map[string]PendingItem{}
+	for _, item := range pendingItems {
+		pendingByID[item.ID] = item
+	}
+	recovery, recoveryErr := store.QuarantineItems()
+	if recoveryErr != nil {
+		return recoveryErr
+	}
+	inventory.Recovery = recovery
 	installs, err := store.Installations()
 	if err != nil {
 		return err
@@ -478,6 +535,25 @@ func (store *Store) EnrichInventory(inventory *Inventory) error {
 	for agentIndex := range inventory.Agents {
 		for skillIndex := range inventory.Agents[agentIndex].Skills {
 			skill := &inventory.Agents[agentIndex].Skills[skillIndex]
+			observation, observationErr := store.Observation(skill.Path)
+			if observationErr != nil {
+				return observationErr
+			}
+			if observation.Signature != "" {
+				observation.Scan = nil
+				if observation.Signature != skill.Signature {
+					observation = classifyObservation(observation, *skill, nil)
+					observation.ActionStatus = "pending"
+				} else if observation.PendingID == strings.TrimPrefix(observationKey(skill.Path+":"+skill.Signature), "observation:") {
+					pending, exists := pendingByID[observation.PendingID]
+					if exists && pending.Reason == "observed_scan" && pending.OriginalPath == skill.Path {
+						observation.Scan = &SkillScanObservation{Status: pending.Status, SkillID: pending.SkillID, VersionID: pending.VersionID, Progress: pending.Progress}
+					} else if !exists {
+						observation.PendingID = ""
+					}
+				}
+				skill.Governance = &observation
+			}
 			install, ok := byPath[filepath.Clean(skill.Path)]
 			if !ok {
 				continue
@@ -514,6 +590,41 @@ func (store *Store) LocalStatus() (LocalStatus, error) {
 	result.GovernanceEnabled, err = store.GovernanceEnabled()
 	if err != nil {
 		return result, err
+	}
+	policy := cachedPolicy(store)
+	result.Classification = policy.Classification
+	if classificationEnabled(policy) {
+		result.GovernanceEnabled = true
+		result.ManagedSkills = 0
+		body, exists, err := store.State("inventory")
+		if err != nil {
+			return result, err
+		}
+		if exists {
+			var inventory Inventory
+			if err := json.Unmarshal([]byte(body), &inventory); err != nil {
+				return result, err
+			}
+			paths := map[string]bool{}
+			for _, agent := range inventory.Agents {
+				for _, skill := range agent.Skills {
+					paths[filepath.Clean(skill.Path)] = true
+				}
+			}
+			result.ManagedSkills = len(paths)
+		}
+	}
+	result.Sync = map[string]SyncStatus{}
+	for _, kind := range []string{"heartbeat", "inventory", "tasks", "worker", "scan_progress"} {
+		last, _, err := store.State("sync:" + kind + ":success")
+		if err != nil {
+			return result, err
+		}
+		detail, _, err := store.State("sync:" + kind + ":error")
+		if err != nil {
+			return result, err
+		}
+		result.Sync[kind] = SyncStatus{LastSuccessAt: last, Error: detail}
 	}
 	pending, err := store.PendingItems()
 	if err != nil {
@@ -556,20 +667,27 @@ func (store *Store) LocalStatus() (LocalStatus, error) {
 }
 
 func (store *Store) RecordNotification(item LocalNotification) error {
+	if item.Details == nil {
+		item.Details = map[string]string{}
+	}
+	details, err := json.Marshal(item.Details)
+	if err != nil {
+		return err
+	}
 	cutoff := time.Now().UTC().Add(-5 * time.Minute).Format(time.RFC3339Nano)
 	var exists int
 	if err := store.db.QueryRow(
-		`SELECT COUNT(*) FROM client_notifications WHERE event_type = ? AND agent_type = ? AND skill_name = ? AND created_at >= ?`,
-		item.EventType, item.AgentType, item.SkillName, cutoff,
+		`SELECT COUNT(*) FROM client_notifications WHERE event_type = ? AND agent_type = ? AND skill_name = ? AND details_json = ? AND created_at >= ?`,
+		item.EventType, item.AgentType, item.SkillName, string(details), cutoff,
 	).Scan(&exists); err != nil {
 		return err
 	}
 	if exists > 0 {
 		return nil
 	}
-	_, err := store.db.Exec(
-		`INSERT INTO client_notifications(severity, event_type, agent_type, skill_name, title, message, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)`,
-		item.Severity, item.EventType, item.AgentType, item.SkillName, item.Title, item.Message, time.Now().UTC().Format(time.RFC3339Nano),
+	_, err = store.db.Exec(
+		`INSERT INTO client_notifications(severity, event_type, agent_type, skill_name, title, message, created_at, details_json) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.Severity, item.EventType, item.AgentType, item.SkillName, item.Title, item.Message, time.Now().UTC().Format(time.RFC3339Nano), string(details),
 	)
 	return err
 }
@@ -578,7 +696,7 @@ func (store *Store) Notifications(limit int) ([]LocalNotification, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 100
 	}
-	rows, err := store.db.Query(`SELECT id, severity, event_type, agent_type, skill_name, title, message, created_at, COALESCE(delivered_at, ''), COALESCE(read_at, '') FROM client_notifications ORDER BY id DESC LIMIT ?`, limit)
+	rows, err := store.db.Query(`SELECT id, severity, event_type, agent_type, skill_name, title, message, created_at, COALESCE(delivered_at, ''), COALESCE(read_at, ''), details_json FROM client_notifications ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -586,7 +704,11 @@ func (store *Store) Notifications(limit int) ([]LocalNotification, error) {
 	items := []LocalNotification{}
 	for rows.Next() {
 		var item LocalNotification
-		if err := rows.Scan(&item.ID, &item.Severity, &item.EventType, &item.AgentType, &item.SkillName, &item.Title, &item.Message, &item.CreatedAt, &item.DeliveredAt, &item.ReadAt); err != nil {
+		var details string
+		if err := rows.Scan(&item.ID, &item.Severity, &item.EventType, &item.AgentType, &item.SkillName, &item.Title, &item.Message, &item.CreatedAt, &item.DeliveredAt, &item.ReadAt, &details); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(details), &item.Details); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -598,7 +720,7 @@ func (store *Store) PendingNotifications(limit int) ([]LocalNotification, error)
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := store.db.Query(`SELECT id, severity, event_type, agent_type, skill_name, title, message, created_at, '', COALESCE(read_at, '') FROM client_notifications WHERE delivered_at IS NULL ORDER BY id LIMIT ?`, limit)
+	rows, err := store.db.Query(`SELECT id, severity, event_type, agent_type, skill_name, title, message, created_at, '', COALESCE(read_at, ''), details_json FROM client_notifications WHERE delivered_at IS NULL ORDER BY id LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -606,7 +728,11 @@ func (store *Store) PendingNotifications(limit int) ([]LocalNotification, error)
 	items := []LocalNotification{}
 	for rows.Next() {
 		var item LocalNotification
-		if err := rows.Scan(&item.ID, &item.Severity, &item.EventType, &item.AgentType, &item.SkillName, &item.Title, &item.Message, &item.CreatedAt, &item.DeliveredAt, &item.ReadAt); err != nil {
+		var details string
+		if err := rows.Scan(&item.ID, &item.Severity, &item.EventType, &item.AgentType, &item.SkillName, &item.Title, &item.Message, &item.CreatedAt, &item.DeliveredAt, &item.ReadAt, &details); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(details), &item.Details); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -705,7 +831,7 @@ func (store *Store) State(key string) (string, bool, error) {
 	return value, err == nil, err
 }
 
-func (store *Store) PauseForConnectionChange() error {
+func (store *Store) ResetForConnectionChange() error {
 	tx, err := store.db.Begin()
 	if err != nil {
 		return err
@@ -713,16 +839,19 @@ func (store *Store) PauseForConnectionChange() error {
 	defer tx.Rollback()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if _, err := tx.Exec(
-		`INSERT INTO client_state(key, value, updated_at) VALUES('governance_enabled', '0', ?)
-		 ON CONFLICT(key) DO UPDATE SET value='0', updated_at=excluded.updated_at`,
+		`INSERT INTO client_state(key, value, updated_at) VALUES('governance_enabled', '1', ?)
+		 ON CONFLICT(key) DO UPDATE SET value='1', updated_at=excluded.updated_at`,
 		now,
 	); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(
 		`DELETE FROM client_state
-		 WHERE key IN ('policy', 'patrol_findings', 'inventory', 'patrol:full', 'tasks:poll')
-		    OR key LIKE 'pending:auto-install:%'`,
+		 WHERE key IN ('policy', 'patrol_findings', 'inventory', 'tasks:poll')
+		    OR key LIKE 'patrol:%' OR key LIKE 'sync:%'
+		    OR key LIKE 'observation:%' OR key LIKE 'observation-count:%'
+		    OR key LIKE 'skill-action-receipt:%' OR key LIKE 'task:reported:%'
+		    OR key LIKE 'pending:auto-install:%' OR key LIKE 'backup-restore-request:%'`,
 	); err != nil {
 		return err
 	}
@@ -735,6 +864,9 @@ func (store *Store) PauseForConnectionChange() error {
 	if _, err := tx.Exec(`DELETE FROM client_installs`); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`DELETE FROM client_scan_history`); err != nil {
+		return err
+	}
 	// Events produced for the previous platform must never be replayed to the
 	// newly configured platform.
 	if _, err := tx.Exec(`DELETE FROM client_events_queue`); err != nil {
@@ -742,16 +874,16 @@ func (store *Store) PauseForConnectionChange() error {
 	}
 	if _, err := tx.Exec(
 		`UPDATE client_pending
-		 SET status = 'pending', skill_id = NULL, version_id = NULL, submitted_at = NULL
+		 SET status = 'pending', skill_id = NULL, version_id = NULL, submitted_at = NULL, progress_json = '{}'
 		 WHERE skill_id IS NOT NULL OR version_id IS NOT NULL`,
 	); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(
 		`INSERT INTO client_notifications(severity, event_type, agent_type, skill_name, title, message, created_at)
-		 VALUES('warning', 'connection_changed_governance_paused', '', '', ?, ?, ?)`,
-		"平台连接已变更",
-		"为避免使用旧平台策略处置本地 Skill，持续治理已自动暂停。请确认新平台配置和治理范围后再恢复。",
+		 VALUES('info', 'connection_changed_state_reset', '', '', ?, ?, ?)`,
+		localize.Text("平台连接已变更", "Platform Connection Changed"),
+		localize.Text("旧平台的认证、策略和任务关联已清理。本地副本已保留，客户端等待同步新平台策略。", "Previous platform certification, policy, and task associations have been cleared. Local copies are retained while the Client awaits the new platform policy."),
 		now,
 	); err != nil {
 		return err
@@ -892,10 +1024,26 @@ func (store *Store) TaskCompleted(taskID int64) (bool, error) {
 }
 
 func (store *Store) TaskHistory(limit int) ([]LocalTask, error) {
-	rows, err := store.db.Query(
+	return store.queryTasks(
 		`SELECT task_id, status, COALESCE(error, ''), updated_at, task_json FROM client_tasks ORDER BY updated_at DESC LIMIT ?`,
 		limit,
 	)
+}
+
+func (store *Store) PendingTasks() ([]LocalTask, error) {
+	return store.queryTasks(`SELECT task_id, status, COALESCE(error, ''), updated_at, task_json
+		FROM client_tasks WHERE status='pending' ORDER BY updated_at, task_id`)
+}
+
+func (store *Store) UnreportedTasks() ([]LocalTask, error) {
+	return store.queryTasks(`SELECT task_id, status, COALESCE(error, ''), updated_at, task_json
+		FROM client_tasks WHERE status IN ('succeeded', 'failed')
+		AND NOT EXISTS (SELECT 1 FROM client_state WHERE key='task:reported:' || task_id AND value=status)
+		ORDER BY updated_at, task_id`)
+}
+
+func (store *Store) queryTasks(query string, args ...any) ([]LocalTask, error) {
+	rows, err := store.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

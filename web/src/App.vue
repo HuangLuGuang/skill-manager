@@ -1,5 +1,5 @@
 <template>
-  <a-config-provider :locale="antdLocale">
+  <a-config-provider :locale="antdLocale" :theme="appTheme">
     <div v-if="authChecking" class="app-loading">
       <a-spin size="large" :tip="$t('legacy.1ns3eta')" />
     </div>
@@ -28,12 +28,12 @@
             <a-select-option value="zh-CN">{{ t('language.chinese') }}</a-select-option>
             <a-select-option value="en-US">{{ t('language.english') }}</a-select-option>
           </a-select>
-          <a-dropdown>
+          <a-dropdown :trigger="['click']">
             <template v-if="userInfo">
-            <a class="ant-dropdown-link" @click.prevent>
+            <a-button type="text" class="ant-dropdown-link" aria-haspopup="menu">
               {{ userInfo.username }}
               <DownOutlined />
-            </a>
+            </a-button>
             </template>
             <template #overlay>
               <a-menu>
@@ -55,8 +55,9 @@
           </a-dropdown>
         </div>
       </a-layout-header>
+      <div v-if="navigationPending" class="navigation-progress" role="status" :aria-label="t('uiExperience.loading')" />
 
-      <a-layout v-if="!isLoginPage && !isDocsPage" class="app-main-layout">
+      <a-layout v-if="!isLoginPage && !isDocsPage" class="app-main-layout" @keydown.esc="navigationCollapsed = narrowNavigation || navigationCollapsed">
         <a-layout-sider id="app-navigation" v-model:collapsed="navigationCollapsed" :width="216" breakpoint="md" :collapsed-width="narrowNavigation ? 0 : 64" :trigger="null" class="app-sider" @breakpoint="narrow => { narrowNavigation = narrow; navigationCollapsed = narrow }">
           <a-menu
             v-if="!narrowNavigation || !navigationCollapsed"
@@ -68,7 +69,8 @@
             @openChange="keys => openKeys = keys"
           />
         </a-layout-sider>
-        <a-layout-content class="app-content">
+        <button v-if="narrowNavigation && !navigationCollapsed" class="navigation-backdrop" :aria-label="t('iam.collapseNavigation')" @click="navigationCollapsed = true" />
+        <a-layout-content ref="mainContent" class="app-content" :inert="narrowNavigation && !navigationCollapsed">
           <router-view :key="locale" />
         </a-layout-content>
       </a-layout>
@@ -114,7 +116,7 @@ import { translateLegacy as phrase } from './i18n'
 import { useBranding, loadBranding } from './branding'
 import { iconMap } from './menuIcons'
 
-import { computed, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, h, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import zhCN from 'ant-design-vue/es/locale/zh_CN'
@@ -140,6 +142,15 @@ import { accessState, navigationEntries, navigationParents, refreshAccess, clear
 
 const router = useRouter()
 const route = useRoute()
+const mainContent = ref(null)
+const navigationPending = ref(false)
+const removeNavigationStart = router.beforeEach(() => { navigationPending.value = true })
+const removeNavigationEnd = router.afterEach(() => { navigationPending.value = false })
+const removeNavigationError = router.onError(() => { navigationPending.value = false })
+watch(() => route.path, async () => {
+  await nextTick()
+  mainContent.value?.$el?.scrollTo({ top: 0, left: 0, behavior: 'instant' })
+})
 const { t, locale } = useI18n()
 const userInfo = ref(null)
 const authChecking = ref(true)
@@ -160,6 +171,22 @@ const passwordForm = reactive({
 
 
 const antdLocale = computed(() => locale.value === 'en-US' ? enUS : zhCN)
+const appTheme = {
+  token: {
+    colorPrimary: '#2563eb',
+    colorText: '#202630',
+    colorTextSecondary: '#626b78',
+    colorBorder: '#d7dce3',
+    colorBorderSecondary: '#e7eaf0',
+    borderRadius: 8,
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+  },
+  components: {
+    Button: { primaryShadow: 'none', defaultShadow: 'none', dangerShadow: 'none' },
+    Table: { headerBg: '#f6f7f9', headerColor: '#454e5c' },
+    Menu: { itemSelectedBg: '#e9effc', itemSelectedColor: '#1d4ed8' },
+  },
+}
 
 const buildMenuLabel = item => {
   const label = item.title_key ? t(item.title_key) : (locale.value === 'en-US' ? item.title_en : item.title_zh)
@@ -381,6 +408,9 @@ onMounted(async () => {
 onMounted(() => window.addEventListener('mcp-approval-stats', handleApprovalStatsEvent))
 
 onUnmounted(() => {
+  removeNavigationStart()
+  removeNavigationEnd()
+  removeNavigationError()
   stopSessionCheck()
   stopApprovalStatsCheck()
   window.removeEventListener('mcp-approval-stats', handleApprovalStatsEvent)
@@ -409,10 +439,10 @@ onUnmounted(() => {
   gap: 12px;
   align-items: center;
   justify-content: space-between;
-  background: #f7fbff;
-  border-bottom: 1px solid #d9e6f2;
+  background: #fff;
+  border-bottom: 1px solid #e7eaf0;
   padding-inline: 24px;
-  min-height: 72px;
+  min-height: 64px;
   height: auto;
   line-height: normal;
 }
@@ -430,20 +460,20 @@ onUnmounted(() => {
   min-width: 0;
   align-items: center;
   gap: 16px;
-  min-height: 72px;
+  min-height: 64px;
   padding-block: 10px;
 }
 
 .app-logo {
-  height: 42px;
+  height: 36px;
   max-width: 160px;
   object-fit: contain;
 }
 
 .app-title {
   font-size: 18px;
-  font-weight: 700;
-  color: #16324f;
+  font-weight: 600;
+  color: #202630;
   line-height: 1.3;
 }
 
@@ -477,8 +507,8 @@ onUnmounted(() => {
 }
 
 .app-sider {
-  background: #fffdf7;
-  border-right: 1px solid #eee2c4;
+  background: #f8f9fb;
+  border-right: 1px solid #e7eaf0;
   height: 100%;
   overflow-y: auto;
 }
@@ -488,8 +518,13 @@ onUnmounted(() => {
   height: 100%;
   padding: 24px;
   overflow-y: auto;
-  background: linear-gradient(180deg, #fffdf7 0%, #f7fbff 100%);
+  background: #f5f6f8;
 }
+
+.app-content :deep(.ant-page-header) { padding: 0; }
+.navigation-backdrop { position: absolute; inset: 0; z-index: 19; padding: 0; border: 0; background: rgb(15 23 42 / 24%); cursor: pointer; }
+.navigation-progress { position: absolute; top: 0; left: 0; z-index: 100; height: 3px; width: 100%; background: #2563eb; transform-origin: left; animation: navigation-loading 1s ease-in-out infinite alternate; }
+@keyframes navigation-loading { from { transform: scaleX(.15); } to { transform: scaleX(.9); } }
 
 @media (max-width: 767px) {
   .app-header {
@@ -516,7 +551,11 @@ onUnmounted(() => {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .app-content { padding: 14px 12px 20px; }
+  .app-content { padding: 12px; }
+  .app-content :deep(.ant-page-header-heading-left) { flex-wrap: wrap; min-width: 0; }
+  .app-content :deep(.ant-page-header-heading-title),
+  .app-content :deep(.ant-page-header-heading-sub-title) { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .app-content :deep(.ant-page-header-heading-sub-title) { flex-basis: 100%; }
   .app-main-layout { position: relative; }
   .app-sider {
     position: absolute;

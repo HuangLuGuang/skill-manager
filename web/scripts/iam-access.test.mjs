@@ -297,6 +297,7 @@ test('overview-only reader requests aggregate data without unrelated business AP
     getDashboardRiskSourceStats: async () => ({ items: [], skill_summary: { total: 7 } }),
     toArray: (value, key = 'items') => Array.isArray(value) ? value : value?.[key] || [],
     agentRows: {}, providerRows: {}, modelRows: {}, auditRows: {}, riskSourceRows: {}, skillSummary: {},
+    loading: {}, loadFailed: {}, dashboardInFlight: false,
     privacyStats: {}, gatewayDailyRows: {}, gatewayModelRows: {},
     phrase: key => key, message: { error: forbidden },
   }
@@ -304,6 +305,15 @@ test('overview-only reader requests aggregate data without unrelated business AP
   assert.equal(context.skillSummary.value.total, 7)
   assert.deepEqual(context.agentRows.value, [])
   assert.deepEqual(context.gatewayDailyRows.value, [])
+  assert.equal(context.loading.value, false)
+  assert.equal(context.loadFailed.value, false)
+})
+
+test('overview marks a failed data source as unavailable instead of a successful empty result', async () => {
+  const loadFailed = ref(false)
+  const request = await viewFunction('Dashboard', 'safeRequest', { loadFailed })
+  assert.deepEqual(await request(async () => { throw new Error('offline') }, []), [])
+  assert.equal(loadFailed.value, true)
 })
 
 test('scan reader loads tasks without requesting target or schedule management data', async () => {

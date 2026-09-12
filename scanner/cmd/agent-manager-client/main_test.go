@@ -6,12 +6,61 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"skill-manager/scanner/internal/managedclient"
 )
 
-func TestConfigureConnectionChangePausesGovernanceAndClearsPlatformState(t *testing.T) {
+func TestConfirmedLegacyTakeoverUsesEffectiveClassification(t *testing.T) {
+	home := t.TempDir()
+	skill := filepath.Join(home, ".codex", "skills", "local", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skill), 0700); err != nil {
+		t.Fatal(err)
+	}
+	const content = "---\nname: local\n---\nlocal content"
+	if err := os.WriteFile(skill, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/policy"), strings.HasSuffix(r.URL.Path, "/heartbeat"):
+			json.NewEncoder(w).Encode(managedclient.Policy{Mode: "block", Classification: managedclient.DefaultClassificationPolicy()})
+		case strings.HasSuffix(r.URL.Path, "/tasks"):
+			w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "/compare"):
+			w.Write([]byte(`{"items":[]}`))
+		default:
+			w.Write([]byte(`{}`))
+		}
+	}))
+	defer server.Close()
+	if err := run([]string{"takeover", "--home", home, "--server", server.URL, "--token", "test", "--confirm"}); err != nil {
+		t.Fatal(err)
+	}
+	if actual, err := os.ReadFile(skill); err != nil || string(actual) != content {
+		t.Fatal("legacy command moved content under record policy", string(actual), err)
+	}
+}
+
+func TestPendingCopyCommandsRespectMutationLock(t *testing.T) {
+	for _, command := range []string{"discard-pending", "queue-quarantine"} {
+		t.Run(command, func(t *testing.T) {
+			home := t.TempDir()
+			release, err := managedclient.AcquireMutationLock(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer release()
+			err = run([]string{command, "--home", home, "--id", "example", "--confirm"})
+			if err == nil || !strings.Contains(err.Error(), "skill_action_busy") {
+				t.Fatal("command bypassed mutation lock", err)
+			}
+		})
+	}
+}
+
+func TestConfigureConnectionChangeKeepsDiscoveryAndClearsPlatformState(t *testing.T) {
 	home := t.TempDir()
 	if err := managedclient.SaveConfig(home, managedclient.Config{
 		Server: "http://old.example",
@@ -36,7 +85,8 @@ func TestConfigureConnectionChangePausesGovernanceAndClearsPlatformState(t *test
 	if err := store.SetState("inventory", `{"client_id":"old-client"}`); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"patrol:full", "tasks:poll", "pending:auto-install:old-pending"} {
+	platformKeys := []string{"patrol:full", "patrol:inventory", "patrol:force", "tasks:poll", "pending:auto-install:old-pending", "observation:trusted", "observation-count:incident", "skill-action-receipt:42", "task:reported:42", "sync:heartbeat:success", "sync:worker:error"}
+	for _, key := range platformKeys {
 		if err := store.MarkSchedule(key); err != nil {
 			t.Fatal(err)
 		}
@@ -91,10 +141,10 @@ func TestConfigureConnectionChangePausesGovernanceAndClearsPlatformState(t *test
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if enabled, err := store.GovernanceEnabled(); err != nil || enabled {
-		t.Fatalf("governance was not paused: enabled=%v err=%v", enabled, err)
+	if enabled, err := store.GovernanceEnabled(); err != nil || !enabled {
+		t.Fatalf("automatic discovery was disabled: enabled=%v err=%v", enabled, err)
 	}
-	for _, key := range []string{"policy", "patrol_findings", "inventory", "patrol:full", "tasks:poll", "pending:auto-install:old-pending"} {
+	for _, key := range append(platformKeys, "policy", "patrol_findings", "inventory") {
 		if _, ok, err := store.State(key); err != nil || ok {
 			t.Fatalf("%s was not cleared: ok=%v err=%v", key, ok, err)
 		}
@@ -119,8 +169,36 @@ func TestConfigureConnectionChangePausesGovernanceAndClearsPlatformState(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(notifications) != 1 || notifications[0].EventType != "connection_changed_governance_paused" {
+	if len(notifications) != 1 || notifications[0].EventType != "connection_changed_state_reset" {
 		t.Fatalf("connection change notification was not recorded: %#v", notifications)
+	}
+}
+
+func TestConfigureDoesNotChangeConnectionDuringRuntimeOrFileAction(t *testing.T) {
+	for _, kind := range []string{"runtime", "mutation"} {
+		t.Run(kind, func(t *testing.T) {
+			home := t.TempDir()
+			original := managedclient.Config{Server: "http://old.example", Token: "old-token"}
+			if err := managedclient.SaveConfig(home, original); err != nil {
+				t.Fatal(err)
+			}
+			acquire := managedclient.AcquireRunLock
+			if kind == "mutation" {
+				acquire = managedclient.AcquireMutationLock
+			}
+			release, err := acquire(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer release()
+			if err := run([]string{"configure", "--home", home, "--server", "http://new.example", "--token", "new-token"}); err == nil {
+				t.Fatal("connection changed during active work")
+			}
+			config, err := managedclient.LoadConfig(home)
+			if err != nil || config.Server != original.Server || config.Token != original.Token {
+				t.Fatal("configuration changed", err)
+			}
+		})
 	}
 }
 

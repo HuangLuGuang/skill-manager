@@ -128,13 +128,20 @@ func InstallService(home, executable string) (string, error) {
 		if output, err := exec.Command("schtasks", "/Create", "/F", "/SC", "ONLOGON", "/TN", "AgentManagerClient", "/TR", path).CombinedOutput(); err != nil {
 			return "", fmt.Errorf("schtasks create failed: %s", output)
 		}
-		_ = exec.Command("schtasks", "/Run", "/TN", "AgentManagerClient").Run()
+		if output, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", windowsServiceSettingsScript).CombinedOutput(); err != nil {
+			return "", fmt.Errorf("scheduled task settings failed: %s", output)
+		}
+		if output, err := exec.Command("schtasks", "/Run", "/TN", "AgentManagerClient").CombinedOutput(); err != nil {
+			return "", fmt.Errorf("schtasks run failed: %s", output)
+		}
 	}
 	if err := writeServiceRegistration(home, executable); err != nil {
 		return "", err
 	}
 	return path, nil
 }
+
+const windowsServiceSettingsScript = `$ErrorActionPreference = 'Stop'; $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew; Set-ScheduledTask -TaskName 'AgentManagerClient' -Settings $settings | Out-Null`
 
 func UninstallService(home string) error {
 	path, _, err := ServiceDefinition(home, "", runtime.GOOS)
@@ -218,16 +225,20 @@ func StopServiceForUpdate(home string) (ServiceState, error) {
 }
 
 func ReconcileService(home, executable string, force bool) (ServiceReconcileResult, error) {
+	config, err := LoadConfig(home)
+	if err != nil {
+		return ServiceReconcileResult{}, err
+	}
+	if strings.TrimSpace(config.Server) == "" || strings.TrimSpace(config.Token) == "" {
+		return ServiceReconcileResult{Reason: "not_configured", State: ServiceStatus(home)}, nil
+	}
 	release, err := acquireServiceReconcileLock(home)
 	if err != nil {
 		return ServiceReconcileResult{}, err
 	}
 	defer release()
 	state := ServiceStatus(home)
-	result := ServiceReconcileResult{Reason: "not_installed", State: state}
-	if !state.Installed {
-		return result, nil
-	}
+	result := ServiceReconcileResult{State: state}
 	executable, err = filepath.Abs(executable)
 	if err != nil {
 		return result, err
@@ -265,6 +276,9 @@ func ReconcileService(home, executable string, force bool) (ServiceReconcileResu
 }
 
 func serviceReconcileDecision(state ServiceState, matches, force, recentlyRestarted bool) (bool, string) {
+	if !state.Installed {
+		return true, "not_installed"
+	}
 	if !state.Running {
 		return true, "not_running"
 	}

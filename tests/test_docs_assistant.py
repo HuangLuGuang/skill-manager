@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from types import SimpleNamespace
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -90,6 +91,7 @@ def test_docs_assistant_is_disabled_by_default():
     assert response.status_code == 200
     assert response.json()["enabled"] is False
     assert response.json()["model"] is None
+    assert response.json()["max_output_tokens"] == 12800
     assert len(response.json()["common_questions"]) == 4
 
 
@@ -107,12 +109,14 @@ def test_enabling_docs_assistant_requires_an_available_model():
 def test_docs_assistant_config_is_persisted_with_operation_log():
     client, session_factory = _test_client()
 
-    saved = client.post("/api/config/docs-assistant", json=_enabled_config())
+    payload = {**_enabled_config(), "max_output_tokens": 16000}
+    saved = client.post("/api/config/docs-assistant", json=payload)
     loaded = client.get("/api/config/docs-assistant")
 
     assert saved.status_code == 200
     assert loaded.json()["enabled"] is True
     assert loaded.json()["model"] == "docs-model"
+    assert loaded.json()["max_output_tokens"] == 16000
     assert loaded.json()["common_questions"][0]["question_en"] == "How do I submit a Skill?"
     db = session_factory()
     try:
@@ -140,9 +144,21 @@ def test_ask_rejects_when_docs_assistant_is_disabled():
     assert response.json()["error_code"] == "docs_assistant.disabled"
 
 
-def test_ask_uses_configured_model_and_document_context(monkeypatch):
-    client, _ = _test_client()
-    assert client.post("/api/config/docs-assistant", json=_enabled_config()).status_code == 200
+@pytest.mark.parametrize("configured_limit,model_limit,expected_limit", [
+    (None, None, 12800),
+    (None, 32000, 12800),
+    (16000, 32000, 16000),
+    (16000, 800, 800),
+])
+def test_ask_uses_configured_model_and_document_context(monkeypatch, configured_limit, model_limit, expected_limit):
+    client, session_factory = _test_client()
+    with session_factory() as db:
+        db.query(models.ModelEndpoint).filter_by(name="docs-model").one().max_output_tokens = model_limit
+        db.commit()
+    config = _enabled_config()
+    if configured_limit is not None:
+        config["max_output_tokens"] = configured_limit
+    assert client.post("/api/config/docs-assistant", json=config).status_code == 200
     captured = {}
 
     async def fake_call_upstream(db, model, payload):
@@ -171,4 +187,4 @@ def test_ask_uses_configured_model_and_document_context(monkeypatch):
     assert captured["model"] == "docs-model"
     assert "打开提交页面并上传 ZIP" in captured["payload"]["messages"][1]["content"]
     assert captured["payload"]["messages"][-1] == {"role": "user", "content": "然后做什么？"}
-    assert captured["payload"]["max_tokens"] == 800
+    assert captured["payload"]["max_tokens"] == expected_limit

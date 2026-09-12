@@ -9,6 +9,13 @@
         </a-page-header>
       </template>
 
+    <div v-if="loading" role="status" :aria-label="t('uiExperience.loading')" aria-busy="true">
+      <a-skeleton active :paragraph="{ rows: 8 }" />
+    </div>
+    <a-result v-else-if="loadFailed" status="warning" :title="t('uiExperience.dashboardUnavailable')" :sub-title="t('uiExperience.dashboardRetryHint')">
+      <template #extra><a-button type="primary" @click="fetchDashboard">{{ t('uiExperience.retry') }}</a-button></template>
+    </a-result>
+    <template v-else>
     <a-row :gutter="[16, 16]">
       <a-col :xs="24" :xl="8" v-for="item in moduleCards" :key="item.key">
         <a-card class="module-card" :title="item.title">
@@ -47,6 +54,7 @@
             :columns="todoColumns"
             rowKey="id"
             :pagination="{ pageSize: 8 }"
+            :scroll="{ x: 680 }"
             :locale="{ emptyText: $t('legacy.ar9qc8') }"
           >
             <template #bodyCell="{ column, record }">
@@ -130,6 +138,7 @@
       </a-col>
     </a-row>
 
+    </template>
     </a-card>
 
     <a-modal v-model:open="guideVisible" :title="$t('legacy.8y18tl')" width="980px" :footer="null">
@@ -174,7 +183,6 @@
 import { translateLegacy as phrase } from '../i18n'
 
 import { computed, onMounted, ref } from 'vue'
-import { message } from 'ant-design-vue'
 import { can, pageAllowed } from '../access'
 
 import Chart from '../components/Chart.vue'
@@ -191,7 +199,10 @@ import {
 import { useLocaleText } from '../i18n/useLocaleText'
 import { formatDateTime, formatDetails } from '../utils/format'
 
-const { text } = useLocaleText()
+const { text, t } = useLocaleText()
+const loading = ref(true)
+const loadFailed = ref(false)
+let dashboardInFlight = false
 const skillSummary = ref({ total: 0, status_counts: {}, risk_counts: {}, todos: [] })
 const agentRows = ref([])
 const providerRows = ref([])
@@ -209,6 +220,7 @@ const safeRequest = async (request, fallback) => {
   try {
     return await request()
   } catch {
+    loadFailed.value = true
     return fallback
   }
 }
@@ -312,7 +324,7 @@ const todoColumns = [
   { title: phrase('legacy.1ccx4t4'), dataIndex: 'status', key: 'status', width: 110 },
   { title: phrase('legacy.1qgsa3s'), dataIndex: 'risk', key: 'risk', width: 100 },
   { title: phrase('legacy.1f90xvr'), dataIndex: 'time', key: 'time', width: 180, customRender: ({ text }) => formatDateTime(text) },
-  { title: phrase('legacy.501w24'), key: 'action', width: 80 },
+  { title: phrase('legacy.501w24'), key: 'action', width: 80, fixed: 'right' },
 ]
 
 const buildBarChart = (title, items, color) => ({
@@ -454,6 +466,10 @@ const gatewayModelChartOptions = computed(() => {
 })
 
 const fetchDashboard = async () => {
+  if (dashboardInFlight) return
+  dashboardInFlight = true
+  loading.value = true
+  loadFailed.value = false
   try {
     const [
       agents,
@@ -485,7 +501,10 @@ const fetchDashboard = async () => {
     gatewayDailyRows.value = toArray(llmDaily, 'series')
     gatewayModelRows.value = toArray(llmByModel, 'models')
   } catch (error) {
-    message.error(error.response?.data?.detail || phrase('legacy.uut6dg'))
+    loadFailed.value = true
+  } finally {
+    loading.value = false
+    dashboardInFlight = false
   }
 }
 
@@ -598,6 +617,8 @@ onMounted(fetchDashboard)
 .module-card {
   height: 100%;
 }
+.module-card :deep(.ant-card-head) { min-height: 48px; padding-inline: 16px; }
+.module-card :deep(.ant-card-body) { padding: 16px; }
 .module-card :deep(.ant-card-head-title) {
   white-space: normal;
   overflow-wrap: anywhere;
@@ -657,9 +678,7 @@ onMounted(fetchDashboard)
 }
 
 .substat {
-  background: #f8fafc;
-  border-radius: 6px;
-  padding: 8px 10px;
+  padding: 4px 0;
 }
 
 .substat-value {

@@ -73,23 +73,27 @@ type SubmitOptions struct {
 }
 
 type SubmitResult struct {
-	SkillID       string `json:"skill_id,omitempty"`
-	VersionID     string `json:"version_id,omitempty"`
-	Name          string `json:"name,omitempty"`
-	Status        string `json:"status,omitempty"`
-	RiskLevel     string `json:"risk_level,omitempty"`
-	FindingsCount int    `json:"findings_count,omitempty"`
-	Message       string `json:"message,omitempty"`
-	DetailURL     string `json:"detail_url,omitempty"`
+	ScanProgressStage     string            `json:"scan_progress_stage,omitempty"`
+	ScanProgressAnalyzers map[string]string `json:"scan_progress_analyzers,omitempty"`
+	SkillID               string            `json:"skill_id,omitempty"`
+	VersionID             string            `json:"version_id,omitempty"`
+	Name                  string            `json:"name,omitempty"`
+	Status                string            `json:"status,omitempty"`
+	RiskLevel             string            `json:"risk_level,omitempty"`
+	FindingsCount         int               `json:"findings_count,omitempty"`
+	Message               string            `json:"message,omitempty"`
+	DetailURL             string            `json:"detail_url,omitempty"`
 }
 
 type importResult struct {
-	SkillID   string `json:"skill_id"`
-	VersionID string `json:"version_id"`
-	Name      string `json:"name"`
-	Status    string `json:"status"`
-	RiskLevel string `json:"risk_level"`
-	Vetting   *struct {
+	ScanProgressStage     string            `json:"scan_progress_stage"`
+	ScanProgressAnalyzers map[string]string `json:"scan_progress_analyzers"`
+	SkillID               string            `json:"skill_id"`
+	VersionID             string            `json:"version_id"`
+	Name                  string            `json:"name"`
+	Status                string            `json:"status"`
+	RiskLevel             string            `json:"risk_level"`
+	Vetting               *struct {
 		FindingsCount int `json:"findings_count"`
 	} `json:"vetting"`
 }
@@ -207,11 +211,13 @@ func (c Client) GetImport(ctx context.Context, skillID string) (SubmitResult, er
 		return result, err
 	}
 	result = SubmitResult{
-		SkillID:   payload.SkillID,
-		VersionID: payload.VersionID,
-		Name:      payload.Name,
-		Status:    payload.Status,
-		RiskLevel: payload.RiskLevel,
+		ScanProgressStage:     payload.ScanProgressStage,
+		ScanProgressAnalyzers: payload.ScanProgressAnalyzers,
+		SkillID:               payload.SkillID,
+		VersionID:             payload.VersionID,
+		Name:                  payload.Name,
+		Status:                payload.Status,
+		RiskLevel:             payload.RiskLevel,
 	}
 	if payload.Vetting != nil {
 		result.FindingsCount = payload.Vetting.FindingsCount

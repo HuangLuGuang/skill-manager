@@ -270,6 +270,10 @@ def test_scanner_result_reports_pending_while_approved_version_is_being_rescanne
     pending, started = manager.request_rescan(entry.skill_id)
     assert started is True
     assert pending.status == SkillStatus.APPROVED
+    run = next(run for run in manager.list_scan_runs(entry.skill_id) if run.status == "PENDING")
+    manager.registry.update_scan_progress(run.scan_run_id, "analyzers")
+    manager.registry.update_scan_analyzer(run.scan_run_id, "scanner", "completed")
+    manager.registry.update_scan_analyzer(run.scan_run_id, "sandbox", "running")
 
     payload = get_scanner_import(
         entry.skill_id,
@@ -285,6 +289,8 @@ def test_scanner_result_reports_pending_while_approved_version_is_being_rescanne
     assert payload["status"] == "PENDING"
     assert payload["scan_pending"] is True
     assert payload["effective_status"] == "APPROVED"
+    assert payload["scan_progress_stage"] == "analyzers"
+    assert payload["scan_progress_analyzers"] == {"scanner": "completed", "sandbox": "running"}
     assert manager.get_skill(entry.skill_id).status == SkillStatus.APPROVED
 
 

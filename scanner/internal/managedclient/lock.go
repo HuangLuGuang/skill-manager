@@ -10,13 +10,41 @@ import (
 )
 
 var ErrAlreadyRunning = errors.New("Agent Manager Client 已在运行")
+var ErrSkillActionBusy = errors.New("skill_action_busy")
+
+type mutationLockContextKey struct{}
+
+// Synchronous repair calls made by patrol share its already-held file lock.
+func withMutationLock(ctx context.Context, home string) (context.Context, func(), error) {
+	key := canonicalExistingPath(home)
+	if ctx.Value(mutationLockContextKey{}) == key {
+		return ctx, func() {}, nil
+	}
+	release, err := AcquireMutationLock(home)
+	if err != nil {
+		return ctx, nil, err
+	}
+	return context.WithValue(ctx, mutationLockContextKey{}, key), release, nil
+}
 
 func AcquireRunLock(home string) (func(), error) {
+	return acquireClientLock(home, "client.lock")
+}
+
+func AcquireMutationLock(home string) (func(), error) {
+	release, err := acquireClientLock(home, "mutation.lock")
+	if errors.Is(err, ErrAlreadyRunning) {
+		return nil, ErrSkillActionBusy
+	}
+	return release, err
+}
+
+func acquireClientLock(home, name string) (func(), error) {
 	root := filepath.Join(home, ".agent-manager")
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(root, "client.lock")
+	path := filepath.Join(root, name)
 	for attempt := 0; attempt < 2; attempt++ {
 		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err == nil {

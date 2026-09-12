@@ -264,14 +264,11 @@
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
-            <a-tag :color="statusColor(record.status)" :title="statusTitle(record.status)">{{ record.status }}</a-tag>
+            <a-tag :color="statusColor(record.status)" :title="record.status">{{ statusTitle(record.status) }}</a-tag>
           </template>
           <template v-else-if="column.key === 'risk_level'">
             <a-tag v-if="record.status === 'PENDING'" color="default">-</a-tag>
-            <a-tag v-else-if="record.risk_level === 'malicious'" color="red" :title="$t('legacy.m36raq')">malicious</a-tag>
-            <a-tag v-else-if="record.risk_level === 'suspicious'" color="orange" :title="$t('legacy.1x3ukv1')">suspicious</a-tag>
-            <a-tag v-else-if="record.risk_level === 'benign'" color="green" :title="$t('legacy.1apxo2s')">benign</a-tag>
-            <a-tag v-else color="default">-</a-tag>
+            <a-tag v-else :color="riskColor(record.risk_level)" :title="record.risk_level">{{ t(`domain.risk.${record.risk_level || 'unknown'}`) }}</a-tag>
           </template>
           <template v-else-if="column.key === 'sandbox'">
             <a-space wrap>
@@ -879,6 +876,7 @@ const handleZipSubmit = async () => {
     submitResults.value = []
     stopPolling()
     clearSubmittedZipSelection()
+    showUploadJob(result)
     message.success(t('skillUpload.jobs.accepted'))
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.1kuial'))

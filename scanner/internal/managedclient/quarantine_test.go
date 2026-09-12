@@ -1,10 +1,90 @@
 package managedclient
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+func TestLegacyPatrolAndQuarantineRespectMutationLock(t *testing.T) {
+	home, store, _, skill := observedFixture(t)
+	if err := store.SetGovernanceEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	release, err := AcquireMutationLock(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if err := patrol(context.Background(), home, Inventory{}, Policy{Mode: "block"}, API{}, store, true, false); !errors.Is(err, ErrSkillActionBusy) {
+		t.Fatalf("patrol bypassed mutation lock: %v", err)
+	}
+	if _, err := QuarantineSkill(home, store, "codex", skill.Name, skill.Path, "manual"); !errors.Is(err, ErrSkillActionBusy) {
+		t.Fatalf("quarantine bypassed mutation lock: %v", err)
+	}
+	if _, err := os.Stat(skill.Path); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLegacyQuarantineRejectsEditedObservationAndSharesPatrolLock(t *testing.T) {
+	home, store, _, skill := observedFixture(t)
+	ctx, release, err := withMutationLock(context.Background(), home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if err := os.WriteFile(filepath.Join(skill.Path, "SKILL.md"), []byte("new content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := quarantineCurrentSkill(ctx, home, store, "codex", skill.Name, skill.Path, "unmanaged_skill", skill.Signature); err == nil || err.Error() != "skill_content_changed" {
+		t.Fatalf("expected fingerprint conflict, got %v", err)
+	}
+	if content, err := os.ReadFile(filepath.Join(skill.Path, "SKILL.md")); err != nil || string(content) != "new content" {
+		t.Fatalf("edited content lost: %q %v", content, err)
+	}
+	item, err := quarantineCurrentSkill(ctx, home, store, "codex", skill.Name, skill.Path, "manual", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content, err := os.ReadFile(filepath.Join(item.QuarantinePath, "SKILL.md")); err != nil || string(content) != "new content" {
+		t.Fatalf("retained copy missing: %q %v", content, err)
+	}
+}
+
+func TestQuarantineRetainsCopyWhenSourceRemovalFails(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("requires Unix directory permission enforcement")
+	}
+	home, store, _, skill := observedFixture(t)
+	locked := filepath.Join(skill.Path, "locked")
+	if err := os.Mkdir(locked, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locked, "content.txt"), []byte("recoverable"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(locked, 0700)
+	item, err := QuarantineSkill(home, store, "codex", skill.Name, skill.Path, "manual")
+	if err == nil || item.ID == "" {
+		t.Fatalf("expected retained recovery record on removal failure: %v %v", item, err)
+	}
+	defer os.Chmod(filepath.Join(item.QuarantinePath, "locked"), 0700)
+	content, err := os.ReadFile(filepath.Join(item.QuarantinePath, "locked", "content.txt"))
+	if err != nil || string(content) != "recoverable" {
+		t.Fatal("backup lost after partial removal", err)
+	}
+	items, err := store.QuarantineItems()
+	if err != nil || len(items) != 1 || items[0].Status != "quarantine_failed" {
+		t.Fatal(items, err)
+	}
+}
 
 func TestQuarantineAndRestoreSkill(t *testing.T) {
 	home := t.TempDir()

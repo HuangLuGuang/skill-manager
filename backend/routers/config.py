@@ -268,7 +268,10 @@ async def ask_docs_assistant(
             {"role": "user", "content": request.question.strip()},
         ],
         "temperature": 0.2,
-        "max_tokens": min(model.max_output_tokens or 700, 1000),
+        "max_tokens": (
+            min(config.max_output_tokens, model.max_output_tokens)
+            if model.max_output_tokens else config.max_output_tokens
+        ),
         "stream": False,
     }
     try:

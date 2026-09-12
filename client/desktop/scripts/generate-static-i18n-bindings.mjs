@@ -41,6 +41,7 @@ for (const token of html.match(tokenPattern) || []) {
     const occurrence = (parent.tags.get(tag) || 0) + 1
     parent.tags.set(tag, occurrence)
     const id = token.match(/\sid=(["'])(.*?)\1/i)?.[2]
+    const textKey = token.match(/\sdata-i18n=(["'])(.*?)\1/i)?.[2]
     const selector = id
       ? `#${id.replace(/([^\w-])/g, '\\$1')}`
       : parent.selector
@@ -53,12 +54,13 @@ for (const token of html.match(tokenPattern) || []) {
       for (const attr of attributes) {
         const value = token.match(new RegExp(`\\s${attr}=(["'])(.*?)\\1`, 'i'))?.[2]?.trim()
         if (value && chinese.test(value)) {
-          bindings.push({ selector, attribute: attr, key: `ui.${hashText(value)}`, source: value })
+          const semanticKey = token.match(new RegExp(`\\sdata-i18n-${attr}=(["\'])(.*?)\\1`, 'i'))?.[2]
+          bindings.push({ selector, attribute: attr, key: semanticKey || `ui.${hashText(value)}`, source: value })
         }
       }
     }
     if (!voidTags.has(tag) && !token.endsWith('/>')) {
-      stack.push({ selector, childNodes: 0, tags: new Map(), ignored })
+      stack.push({ selector, childNodes: 0, tags: new Map(), ignored, textKey })
     }
     continue
   }
@@ -66,7 +68,7 @@ for (const token of html.match(tokenPattern) || []) {
   parent.childNodes += 1
   const value = token.trim()
   if (value && chinese.test(value) && !parent.ignored) {
-    bindings.push({ selector: parent.selector, nodeIndex, key: `ui.${hashText(value)}`, source: value })
+    bindings.push({ selector: parent.selector, nodeIndex, key: parent.textKey || `ui.${hashText(value)}`, source: value })
   }
 }
 

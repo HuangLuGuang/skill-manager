@@ -1,0 +1,4 @@
+Brand SVG assets: Lobe Icons @lobehub/icons-static-svg 1.95.0 (MIT), https://github.com/lobehub/lobe-icons
+Interface SVG assets: Lucide 0.468.0 (ISC), https://github.com/lucide-icons/lucide
+See accompanying licenses. Brand marks belong to their respective owners.
+WorkBuddy brand icon: extracted from the locally installed official WorkBuddy.app application icon, resized to 96px for identification. Copyright remains with Tencent.

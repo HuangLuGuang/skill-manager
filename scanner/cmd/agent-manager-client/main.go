@@ -27,7 +27,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|takeover|pending|refresh-pending|submit-pending|discard-pending|available-skills|skill-preview|skill-versions|install-skill|quarantine|queue-quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|pause-governance|resume-governance|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
+		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|available-skills|skill-preview|skill-versions|install-skill|quarantine|queue-quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
@@ -45,12 +45,16 @@ func run(args []string) error {
 	skillID := fs.String("skill-id", "", "platform Skill ID")
 	versionID := fs.String("version-id", "", "trusted platform Skill version ID")
 	query := fs.String("query", "", "Skill name search")
+	expectedSignature := fs.String("expected-signature", "", "content signature selected for a Skill action")
+	expectedTargetSignature := fs.String("expected-target-signature", "", "current target content selected for backup restoration")
+	skillAction := fs.String("action", "", "authorized Skill remediation action")
+	requestID := fs.String("request-id", "", "idempotency ID for a manual Skill action")
 	interval := fs.Duration("interval", 5*time.Minute, "daemon polling interval")
 	var agentMappings stringList
 	var selectedSkills stringList
 	var skillRoots stringList
 	fs.Var(&agentMappings, "agent", "agent mapping in local-type=managed-agent-id form")
-	fs.Var(&selectedSkills, "skill", "only take over the selected local skill path")
+	fs.Var(&selectedSkills, "skill", "selected local Skill path")
 	fs.Var(&skillRoots, "skill-root", "built-in Agent Skill directory; repeat for multiple directories")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
@@ -77,20 +81,33 @@ func run(args []string) error {
 		config.Server = strings.TrimRight(strings.TrimSpace(*server), "/")
 		config.Token = strings.TrimSpace(*token)
 		config.Name = *name
-		if err := managedclient.SaveConfig(*home, config); err != nil {
-			return err
+		if config.Server == "" || config.Token == "" {
+			return fmt.Errorf("server and token are required")
 		}
 		connectionChanged := previousServer != "" && previousToken != "" &&
 			(previousServer != config.Server || previousToken != config.Token)
 		if connectionChanged {
+			releaseRun, err := managedclient.AcquireRunLock(*home)
+			if err != nil {
+				return fmt.Errorf("connection_runtime_busy")
+			}
+			defer releaseRun()
+			releaseMutation, err := managedclient.AcquireMutationLock(*home)
+			if err != nil {
+				return err
+			}
+			defer releaseMutation()
 			store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
 			if err != nil {
-				return fmt.Errorf("连接配置已保存，但无法暂停旧连接的治理状态: %w", err)
+				return fmt.Errorf("无法清理旧平台关联状态: %w", err)
 			}
 			defer store.Close()
-			if err := store.PauseForConnectionChange(); err != nil {
-				return fmt.Errorf("连接配置已保存，但无法暂停旧连接的治理状态: %w", err)
+			if err := store.ResetForConnectionChange(); err != nil {
+				return fmt.Errorf("无法清理旧平台关联状态: %w", err)
 			}
+		}
+		if err := managedclient.SaveConfig(*home, config); err != nil {
+			return err
 		}
 		fmt.Println("configuration saved")
 		return nil
@@ -181,18 +198,100 @@ func run(args []string) error {
 		if !*confirm {
 			return fmt.Errorf("restore requires --confirm")
 		}
-		if err := managedclient.RestoreBackup(*home, *backup); err != nil {
-			return err
+		if *server == "" || *token == "" || *requestID == "" {
+			return fmt.Errorf("restore requires credentials and --request-id")
 		}
-		fmt.Println("backup restored:", *backup)
-		return nil
-	}
-	if args[0] == "pending" || args[0] == "refresh-pending" || args[0] == "submit-pending" || args[0] == "discard-pending" || args[0] == "quarantine" || args[0] == "queue-quarantine" {
 		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
 		if err != nil {
 			return err
 		}
 		defer store.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, err := managedclient.RequestBackupRestore(ctx, *home, *backup, *requestID, managedclient.NewAPI(*server, *token, 30*time.Second), store)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(result)
+	}
+	if args[0] == "request-skill-action" {
+		if *server == "" || *token == "" || *agentType == "" || len(selectedSkills) != 1 || *expectedSignature == "" || *requestID == "" {
+			return fmt.Errorf("request-skill-action requires credentials, --agent-type, --skill, --expected-signature and --request-id")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		api := managedclient.NewAPI(*server, *token, 30*time.Second)
+		inventory, err := managedclient.Discover(*home)
+		if err != nil {
+			return err
+		}
+		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		if err := store.EnrichInventory(&inventory); err != nil {
+			return err
+		}
+		if err := api.ReportInventory(ctx, inventory); err != nil {
+			return err
+		}
+		task, err := api.RequestSkillAction(ctx, inventory.ClientID, managedclient.SkillActionRequest{
+			RequestID: *requestID, Action: *skillAction, AgentType: *agentType,
+			Path: selectedSkills[0], ExpectedSignature: *expectedSignature, VersionID: *versionID,
+			QuarantineID:            *itemID,
+			ExpectedTargetSignature: *expectedTargetSignature,
+		})
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(task)
+	}
+	if args[0] == "submit-observed" {
+		if *server == "" || *token == "" || *agentType == "" || len(selectedSkills) != 1 || *expectedSignature == "" {
+			return fmt.Errorf("submit-observed requires credentials, --agent-type, --skill and --expected-signature")
+		}
+		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		api := managedclient.NewAPI(*server, *token, 2*time.Minute)
+		id, err := managedclient.SubmitDiscoveredSkill(ctx, *home, api, store, *agentType, selectedSkills[0], *expectedSignature)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{"pending_id": id})
+	}
+	if args[0] == "scan-history" || args[0] == "refresh-scan-history" || args[0] == "pending" || args[0] == "refresh-pending" || args[0] == "submit-pending" || args[0] == "discard-pending" || args[0] == "quarantine" || args[0] == "queue-quarantine" {
+		if args[0] == "discard-pending" || args[0] == "queue-quarantine" {
+			release, err := managedclient.AcquireMutationLock(*home)
+			if err != nil {
+				return err
+			}
+			defer release()
+		}
+		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		if args[0] == "scan-history" || args[0] == "refresh-scan-history" {
+			var items []managedclient.PendingItem
+			if args[0] == "refresh-scan-history" && *server != "" && *token != "" {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				items, err = managedclient.RefreshScanHistory(ctx, *server, *token, store)
+			} else {
+				items, err = store.ScanHistory()
+			}
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(os.Stdout).Encode(items)
+		}
 		if args[0] == "pending" {
 			items, err := store.PendingItems()
 			if err != nil {
@@ -317,23 +416,6 @@ func run(args []string) error {
 		defer store.Close()
 		return store.ClearNotifications()
 	}
-	if args[0] == "pause-governance" || args[0] == "resume-governance" {
-		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
-		if err != nil {
-			return err
-		}
-		defer store.Close()
-		enabled := args[0] == "resume-governance"
-		if err := store.SetGovernanceEnabled(enabled); err != nil {
-			return err
-		}
-		if enabled {
-			fmt.Println("持续治理已恢复")
-		} else {
-			fmt.Println("持续治理已暂停")
-		}
-		return nil
-	}
 	if args[0] == "available-skills" || args[0] == "skill-preview" || args[0] == "skill-versions" {
 		if *server == "" || *token == "" || strings.TrimSpace(*agentType) == "" {
 			return fmt.Errorf("%s requires --server, --token and --agent-type", args[0])
@@ -451,11 +533,6 @@ func run(args []string) error {
 		if err := managedclient.InstallApprovedSkillVersion(ctx, *home, inventory, policy, api, store, *agentType, *managedAgentID, *skillID, *versionID); err != nil {
 			return err
 		}
-		if strings.TrimSpace(*itemID) != "" {
-			if err := store.RemovePending(*itemID); err != nil {
-				return err
-			}
-		}
 		fmt.Println("Skill installed")
 		return nil
 	case "takeover":
@@ -477,6 +554,21 @@ func run(args []string) error {
 		compareInventory, excludedPaths := filterInventorySkills(inventory, selectedSkills)
 		api := managedclient.NewAPI(*server, *token, 30*time.Second)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if *confirm {
+			policy, err := api.Policy(ctx, inventory.ClientID)
+			if err != nil {
+				return err
+			}
+			if policy.Classification != nil && policy.Classification.Enabled {
+				return managedclient.RunFullScan(ctx, *home, api, store)
+			}
+			release, err := managedclient.AcquireMutationLock(*home)
+			if err != nil {
+				return err
+			}
+			defer release()
+		}
 		if err := api.ReportInventory(ctx, inventory); err != nil {
 			cancel()
 			return fmt.Errorf("同步最新 Agent 清单失败: %w", err)
@@ -558,53 +650,15 @@ func run(args []string) error {
 				return fmt.Errorf("无法监听 Skill 目录: %w", err)
 			}
 		}
-		forceFullScan := args[0] == "run-once"
-		runContext := context.Background()
-		stopSignals := func() {}
 		if args[0] == "run" {
-			var stop context.CancelFunc
-			runContext, stop = signal.NotifyContext(runContext, os.Interrupt, syscall.SIGTERM)
-			stopSignals = stop
+			runContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			return managedclient.RunDaemon(runContext, *home, api, store, *interval, watcher)
 		}
-		defer stopSignals()
-		for {
-			ctx, cancel := context.WithTimeout(runContext, 30*time.Second)
-			var err error
-			if forceFullScan {
-				err = managedclient.RunFullScan(ctx, *home, api, store)
-			} else {
-				err = managedclient.RunOnce(ctx, *home, api, store)
-			}
-			cancel()
-			if err != nil {
-				if args[0] == "run-once" {
-					return err
-				}
-				fmt.Fprintln(os.Stderr, "sync error:", err)
-			}
-			if watcher != nil {
-				if refreshErr := watcher.Refresh(*home, store); refreshErr != nil {
-					fmt.Fprintln(os.Stderr, "watch refresh error:", refreshErr)
-				}
-			}
-			managedclient.DeliverPendingNotifications(store)
-			if runContext.Err() != nil {
-				return nil
-			}
-			if args[0] == "run-once" {
-				return nil
-			}
-			forceFullScan = managedclient.WaitForRunOrChangeContext(runContext, *home, *interval, func() {
-				ctx, cancel := context.WithTimeout(runContext, 20*time.Second)
-				defer cancel()
-				if err := managedclient.PollTasks(ctx, *home, api, store); err != nil {
-					fmt.Fprintln(os.Stderr, "task poll error:", err)
-				}
-			}, watcher.Changes())
-			if runContext.Err() != nil {
-				return nil
-			}
-		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		return managedclient.RunFullScan(ctx, *home, api, store)
+
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}

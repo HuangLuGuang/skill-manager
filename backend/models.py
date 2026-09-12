@@ -483,6 +483,18 @@ class ManagedClient(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class ClientGovernancePolicy(Base):
+    __tablename__ = "client_governance_policies"
+
+    scope = Column(String(128), primary_key=True)
+    rules_json = Column(Text, default="{}", nullable=False)
+    revision = Column(Integer, default=0, nullable=False)
+    enabled = Column(Boolean, default=False, nullable=False)
+    protocol = Column(Integer, default=0, nullable=False)
+    updated_by = Column(String(128), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class ClientAgent(Base):
     __tablename__ = "client_agents"
 
@@ -518,10 +530,18 @@ class ClientSkillInstall(Base):
     skill_name = Column(String(255), index=True, nullable=False)
     skill_path = Column(String(1024), nullable=False)
     signature = Column(String(128), nullable=True)
+    governance_json = Column(Text, nullable=True)
     install_mode = Column(String(32), default="observed", nullable=False)
     status = Column(String(32), default="observed", nullable=False)
     installed_at = Column(DateTime, nullable=True)
     verified_at = Column(DateTime, nullable=True)
+
+
+class ClientRecoveryRecord(Base):
+    __tablename__ = "client_recovery_records"
+    client_id = Column(String(128), ForeignKey("managed_clients.client_id"), primary_key=True)
+    record_id = Column(String(128), primary_key=True)
+    details_json = Column(Text, nullable=False)
 
 
 class ClientTask(Base):
@@ -531,6 +551,7 @@ class ClientTask(Base):
     client_id = Column(String(128), ForeignKey("managed_clients.client_id"), index=True, nullable=False)
     task_type = Column(String(32), index=True, nullable=False)
     payload_json = Column(Text, default="{}", nullable=False)
+    request_key = Column(String(64), unique=True, index=True, nullable=True)
     status = Column(String(32), default="pending", index=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     started_at = Column(DateTime, nullable=True)
@@ -547,6 +568,9 @@ class ClientEvent(Base):
     agent_type = Column(String(64), nullable=True)
     skill_name = Column(String(255), nullable=True)
     details_json = Column(Text, default="{}", nullable=False)
+    aggregate_key = Column(String(64), unique=True, index=True, nullable=True)
+    observation_count = Column(Integer, default=1, nullable=False)
+    last_seen_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True, nullable=False)
 
 

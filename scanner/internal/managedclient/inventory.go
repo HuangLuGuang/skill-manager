@@ -17,20 +17,21 @@ import (
 
 var Version = "dev"
 
-const InventoryCacheVersion = "3"
+const InventoryCacheVersion = "4"
 
 type Skill struct {
-	SkillID       string `json:"skill_id,omitempty"`
-	VersionID     string `json:"version_id,omitempty"`
-	VersionNo     int    `json:"version_no,omitempty"`
-	SourceVersion string `json:"source_version,omitempty"`
-	Name          string `json:"name"`
-	Path          string `json:"path"`
-	Signature     string `json:"signature,omitempty"`
-	Status        string `json:"status"`
-	InstallMode   string `json:"install_mode,omitempty"`
-	SourceTarget  string `json:"-"`
-	Error         string `json:"error,omitempty"`
+	Governance    *SkillObservation `json:"governance,omitempty"`
+	SkillID       string            `json:"skill_id,omitempty"`
+	VersionID     string            `json:"version_id,omitempty"`
+	VersionNo     int               `json:"version_no,omitempty"`
+	SourceVersion string            `json:"source_version,omitempty"`
+	Name          string            `json:"name"`
+	Path          string            `json:"path"`
+	Signature     string            `json:"signature,omitempty"`
+	Status        string            `json:"status"`
+	InstallMode   string            `json:"install_mode,omitempty"`
+	SourceTarget  string            `json:"-"`
+	Error         string            `json:"error,omitempty"`
 }
 
 type Agent struct {
@@ -46,14 +47,16 @@ type Agent struct {
 }
 
 type Inventory struct {
-	ClientID         string  `json:"client_id"`
-	Name             string  `json:"name"`
-	Hostname         string  `json:"hostname"`
-	OS               string  `json:"os"`
-	Arch             string  `json:"arch"`
-	ClientVersion    string  `json:"client_version"`
-	DiscoveryVersion string  `json:"discovery_version,omitempty"`
-	Agents           []Agent `json:"agents"`
+	Recovery           []QuarantineItem `json:"recovery"`
+	GovernanceProtocol int              `json:"governance_protocol"`
+	ClientID           string           `json:"client_id"`
+	Name               string           `json:"name"`
+	Hostname           string           `json:"hostname"`
+	OS                 string           `json:"os"`
+	Arch               string           `json:"arch"`
+	ClientVersion      string           `json:"client_version"`
+	DiscoveryVersion   string           `json:"discovery_version,omitempty"`
+	Agents             []Agent          `json:"agents"`
 }
 
 type adapter struct {
@@ -85,29 +88,30 @@ func adapters() []adapter {
 			sharedSkillReaders: []string{"OpenCode", "Cursor"},
 		},
 		{agentType: "claude-code", binaries: []string{"claude"}, skillRoots: []string{".claude/skills"}, supportsSkill: true},
-		{agentType: "codex", binaries: []string{"codex"}, skillRoots: []string{".codex/skills"}, supportsSkill: true},
+		{agentType: "codex", appPaths: []string{"/Applications/Codex.app", "Applications/Codex.app"}, binaries: []string{"codex"}, skillRoots: []string{".codex/skills"}, supportsSkill: true},
 		{agentType: "gemini", binaries: []string{"gemini"}, skillRoots: []string{".gemini/skills"}, supportsSkill: true},
-		{agentType: "opencode", binaries: []string{"opencode"}, skillRoots: []string{".opencode/skills", ".config/opencode/skills"}, supportsSkill: true},
+		{agentType: "opencode", appPaths: []string{"/Applications/OpenCode.app", "Applications/OpenCode.app"}, binaries: []string{"opencode"}, skillRoots: []string{".opencode/skills", ".config/opencode/skills"}, supportsSkill: true},
 		{agentType: "openclaw", binaries: []string{"openclaw"}, skillRoots: []string{".openclaw/skills"}, supportsSkill: true},
 		{agentType: "hermes", binaries: []string{"hermes"}, skillRoots: []string{".hermes/skills"}, supportsSkill: true},
-		{agentType: "trae-cn", binaries: []string{"trae-cn"}, skillRoots: []string{".trae-cn/skills"}, supportsSkill: true},
-		{agentType: "trae", binaries: []string{"trae"}, skillRoots: []string{".trae/skills"}, supportsSkill: true},
-		{agentType: "cursor", binaries: []string{"cursor"}, skillRoots: []string{".cursor/skills"}, supportsSkill: true},
-		{agentType: "codebuddy", binaries: []string{"codebuddy"}, skillRoots: []string{".codebuddy/skills"}, supportsSkill: true},
-		{agentType: "workbuddy", binaries: []string{"workbuddy"}, skillRoots: []string{".workbuddy/skills"}, supportsSkill: true},
+		{agentType: "trae-cn", appPaths: []string{"/Applications/Trae CN.app", "Applications/Trae CN.app"}, binaries: []string{"trae-cn"}, skillRoots: []string{".trae-cn/skills"}, supportsSkill: true},
+		{agentType: "trae", appPaths: []string{"/Applications/Trae.app", "Applications/Trae.app", "/Applications/TRAE.app", "Applications/TRAE.app"}, binaries: []string{"trae"}, skillRoots: []string{".trae/skills"}, supportsSkill: true},
+		{agentType: "cursor", appPaths: []string{"/Applications/Cursor.app", "Applications/Cursor.app"}, binaries: []string{"cursor"}, skillRoots: []string{".cursor/skills"}, supportsSkill: true},
+		{agentType: "codebuddy", appPaths: []string{"/Applications/CodeBuddy.app", "Applications/CodeBuddy.app"}, binaries: []string{"codebuddy"}, skillRoots: []string{".codebuddy/skills"}, supportsSkill: true},
+		{agentType: "workbuddy", appPaths: []string{"/Applications/WorkBuddy.app", "Applications/WorkBuddy.app"}, binaries: []string{"workbuddy"}, skillRoots: []string{".workbuddy/skills"}, supportsSkill: true},
 	}
 }
 
 func Discover(home string) (Inventory, error) {
 	hostname, _ := os.Hostname()
 	result := Inventory{
-		ClientID:      DeviceID(hostname, home),
-		Name:          hostname,
-		Hostname:      hostname,
-		OS:            runtime.GOOS,
-		Arch:          runtime.GOARCH,
-		ClientVersion: Version,
-		Agents:        []Agent{},
+		GovernanceProtocol: 2,
+		ClientID:           DeviceID(hostname, home),
+		Name:               hostname,
+		Hostname:           hostname,
+		OS:                 runtime.GOOS,
+		Arch:               runtime.GOARCH,
+		ClientVersion:      Version,
+		Agents:             []Agent{},
 	}
 	opts := DefaultManifestOptions()
 	config, err := LoadConfig(home)
@@ -174,12 +178,24 @@ func Discover(home string) (Inventory, error) {
 		}
 		result.Agents = append(result.Agents, agent)
 	}
+	annotateDiscoverySharing(&result, config)
 	return result, nil
 }
 
 func agentSkillRoots(agent Agent) []string {
 	if roots, ok := agent.Capabilities["skill_roots"].([]string); ok {
 		return roots
+	}
+	if values, ok := agent.Capabilities["skill_roots"].([]any); ok {
+		roots := []string{}
+		for _, value := range values {
+			if root, ok := value.(string); ok && root != "" {
+				roots = append(roots, root)
+			}
+		}
+		if len(roots) > 0 {
+			return roots
+		}
 	}
 	if agent.SkillsPath != "" {
 		return []string{agent.SkillsPath}
@@ -222,6 +238,20 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 			break
 		}
 	}
+	if agent.InstallPath == "" {
+		for _, binary := range spec.binaries {
+			directories := []string{filepath.Join(home, ".local/bin"), filepath.Join(home, ".cargo/bin"), filepath.Join(home, ".npm-global/bin"), filepath.Join(home, ".hermes/venv/bin"), filepath.Join(home, ".opencode/bin")}
+			versioned, _ := filepath.Glob(filepath.Join(home, ".nvm/versions/node/*/bin"))
+			directories = append(directories, versioned...)
+			for _, directory := range directories {
+				candidate := filepath.Join(directory, binary)
+				if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+					agent.InstallPath = candidate
+					break
+				}
+			}
+		}
+	}
 	for _, rel := range spec.appPaths {
 		path := filepath.FromSlash(rel)
 		if filepath.IsAbs(path) {
@@ -238,7 +268,7 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 	}
 	var roots []string
 	relatedDirectoryFound := false
-	for _, configuredRoot := range spec.skillRoots {
+	for _, configuredRoot := range resolvedSkillRoots(home, spec.skillRoots) {
 		root := resolveSkillRoot(home, configuredRoot)
 		parent := filepath.Dir(root)
 		if info, err := os.Stat(parent); err == nil && info.IsDir() {
@@ -248,8 +278,13 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 			roots = append(roots, root)
 		}
 	}
-	if !relatedDirectoryFound {
+	agent.Capabilities["installed"] = agent.InstallPath != ""
+	if !relatedDirectoryFound && agent.InstallPath == "" {
 		return agent, false, nil
+	}
+	if agent.InstallPath != "" && len(roots) == 0 && len(spec.skillRoots) > 0 {
+		agent.SkillsPath = resolveSkillRoot(home, spec.skillRoots[0])
+		agent.Capabilities["skills_directory_exists"] = false
 	}
 	if len(roots) > 0 {
 		agent.SkillsPath = roots[0]
@@ -339,10 +374,11 @@ func resolvedSkillRoots(home string, roots []string) []string {
 	seen := map[string]bool{}
 	for _, value := range roots {
 		root := resolveSkillRoot(home, value)
-		if root == "" || seen[root] {
+		key := canonicalSkillRoot(root)
+		if root == "" || seen[key] {
 			continue
 		}
-		seen[root] = true
+		seen[key] = true
 		result = append(result, root)
 	}
 	return result
@@ -374,6 +410,9 @@ func readSkills(root, managedRoot string, opts manifest.Options) ([]Skill, error
 	result := []Skill{}
 	userRoot := homeFromManagedRoot(managedRoot)
 	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".agent-manager-restore-") {
+			continue
+		}
 		path := filepath.Join(root, entry.Name())
 		buildRoot := path
 		info, err := os.Lstat(path)
@@ -396,7 +435,11 @@ func readSkills(root, managedRoot string, opts manifest.Options) ([]Skill, error
 				})
 				continue
 			}
-			if !pathWithin(resolved, userRoot) {
+			if !pathWithin(resolved, userRoot) && !pathWithin(resolved, root) {
+				result = append(result, Skill{
+					Name: entry.Name(), Path: path, Status: "external_link",
+					SourceTarget: resolved, Error: "skill_link_outside_scope",
+				})
 				continue
 			}
 			info, err := os.Stat(resolved)

@@ -14,24 +14,28 @@ const props = defineProps({
 const chartRef = ref(null)
 let chartInstance = null
 let resizeObserver = null
+const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)')
+const chartOptions = options => ({ ...options, animation: !motionPreference.matches && options.animation !== false })
+const updateMotion = () => chartInstance?.setOption(chartOptions(props.options), { notMerge: true })
 
 const initChart = () => {
   if (!chartRef.value) return
   chartInstance = echarts.init(chartRef.value)
-  chartInstance.setOption(props.options, true)
+  chartInstance.setOption(chartOptions(props.options), true)
 }
 
 watch(
   () => props.options,
   (newVal) => {
     if (chartInstance && newVal) {
-      chartInstance.setOption(newVal, { notMerge: true })
+      chartInstance.setOption(chartOptions(newVal), { notMerge: true })
     }
   },
   { deep: true },
 )
 
 onMounted(() => {
+  motionPreference.addEventListener('change', updateMotion)
   initChart()
   if (chartRef.value) {
     resizeObserver = new ResizeObserver(() => chartInstance?.resize())
@@ -40,6 +44,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  motionPreference.removeEventListener('change', updateMotion)
   resizeObserver?.disconnect()
   chartInstance?.dispose()
 })

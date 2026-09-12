@@ -102,8 +102,12 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "switch-model",
         "takeover",
         "pending",
+        "scan-history",
+        "refresh-scan-history",
         "refresh-pending",
         "submit-pending",
+        "submit-observed",
+        "request-skill-action",
         "discard-pending",
         "queue-quarantine",
         "available-skills",
@@ -114,8 +118,6 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "backups",
         "restore",
         "run-once",
-        "pause-governance",
-        "resume-governance",
         "service-status",
         "prepare-update",
         "reconcile-service",
@@ -124,7 +126,6 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "clear-notifications",
         "deliver-notification",
         "install-service",
-        "uninstall-service",
     ];
     if !ALLOWED.contains(&command.as_str()) {
         return Err(format!("不支持的客户端操作: {command}"));
@@ -278,6 +279,21 @@ async fn export_diagnostics(content: String) -> Result<String, String> {
     })
     .await
     .map_err(|error| format!("导出诊断报告异常: {error}"))?
+}
+
+#[tauri::command]
+async fn get_client_history(filters: std::collections::HashMap<String, String>) -> Result<serde_json::Value, String> {
+    let config = try_load_client_config()?.ok_or("client_not_configured")?;
+    let inventory: serde_json::Value = serde_json::from_str(&execute_client_sync("cached-inventory".to_string(), Vec::new())?)
+        .map_err(|_| "client_inventory_unavailable")?;
+    let id = inventory.get("client_id").and_then(|value| value.as_str()).ok_or("client_inventory_unavailable")?;
+    let response = reqwest::Client::builder().timeout(Duration::from_secs(15)).build()
+        .map_err(|_| "client_history_unavailable")?
+        .get(format!("{}/api/v1/clients/{}/history", config.server.trim_end_matches('/'), id))
+        .query(&filters).bearer_auth(&config.token).send().await
+        .map_err(|_| "client_history_unavailable")?;
+    if !response.status().is_success() { return Err(format!("client_history_http_{}", response.status().as_u16())); }
+    response.json().await.map_err(|_| "client_history_unavailable".to_string())
 }
 
 #[tauri::command]
@@ -639,6 +655,7 @@ fn main() {
             open_client_location,
             export_diagnostics,
             get_connection_status,
+            get_client_history,
             show_system_notification,
             check_client_update,
             get_build_version

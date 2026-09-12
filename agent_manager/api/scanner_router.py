@@ -755,8 +755,13 @@ def get_scanner_import(
     payload = entry.model_dump(mode="json", exclude={"vetting": {"scan_report"}})
     payload["skill_id"] = entry.family_id or entry.skill_id
     payload["version_id"] = entry.skill_id
-    scan_pending = any(run.status == "PENDING" for run in mgr.list_scan_runs(entry.skill_id))
+    active_runs = [run for run in mgr.list_scan_runs(entry.skill_id) if run.status == "PENDING"]
+    scan_pending = bool(active_runs)
     payload["scan_pending"] = scan_pending
+    if active_runs:
+        run = max(active_runs, key=lambda item: item.started_at)
+        payload["scan_progress_stage"] = run.result.get("progress_stage", "queued")
+        payload["scan_progress_analyzers"] = run.result.get("analyzers", {})
     if scan_pending:
         # A rescan intentionally preserves the previous effective decision
         # until it completes. Scanner clients, however, must observe the job

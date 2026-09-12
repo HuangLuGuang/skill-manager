@@ -545,8 +545,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
   --policy-surface: #f6f8fb;
   --policy-accent: #2459ad;
   color: var(--policy-ink);
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
 }
 .policy-page h2 { font-size: 17px; font-weight: 600; line-height: 1.5; margin: 0; }
 .policy-page h3 { font-size: 14px; font-weight: 600; line-height: 1.5; margin: 0; }

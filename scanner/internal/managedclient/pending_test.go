@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -423,5 +424,206 @@ func TestClientIDForHomeDoesNotRequireDiscovery(t *testing.T) {
 	hostname, _ := os.Hostname()
 	if got, want := clientIDForHome(home), DeviceID(hostname, home); got != want {
 		t.Fatalf("unexpected client ID: got %q want %q", got, want)
+	}
+}
+
+func TestDaemonAutomaticallyInstallsApprovedPendingWithClassification(t *testing.T) {
+	home := t.TempDir()
+	skillsRoot := filepath.Join(home, ".codex", "skills")
+	source := filepath.Join(skillsRoot, "safe-skill")
+	writeSkill(t, source, "safe-skill")
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	quarantined, err := QuarantineSkill(home, store, "codex", "safe-skill", source, "skill_modified")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := QueueQuarantineForDetection(home, store, quarantined.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkPendingSubmitted(pending, "skill-1", "skill-version-2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdatePendingStatus("skill-1", "skill-version-2", "REJECTED"); err != nil {
+		t.Fatal(err)
+	}
+
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageBody := signedPackage(t, privateKey)
+	var packageRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/scanner/imports/skill-version-2":
+			_ = json.NewEncoder(response).Encode(map[string]any{
+				"skill_id": "skill-1", "version_id": "skill-version-2", "name": "safe-skill", "status": "APPROVED",
+			})
+		case request.Method == http.MethodGet && strings.HasSuffix(request.URL.Path, "/skills/skill-1/package"):
+			packageRequests.Add(1)
+			if got := request.URL.Query().Get("version_id"); got != "skill-version-2" {
+				t.Errorf("installed version %q instead of submitted version", got)
+			}
+			response.Header().Set("Content-Type", "application/zip")
+			_, _ = response.Write(packageBody)
+		case strings.HasSuffix(request.URL.Path, "/heartbeat"):
+			json.NewEncoder(response).Encode(map[string]any{"policy": Policy{Mode: "audit", ReleasePublicKey: base64.StdEncoding.EncodeToString(publicKey), Classification: DefaultClassificationPolicy()}})
+		case strings.HasSuffix(request.URL.Path, "/policy"):
+			json.NewEncoder(response).Encode(Policy{Mode: "audit", ReleasePublicKey: base64.StdEncoding.EncodeToString(publicKey), Classification: DefaultClassificationPolicy()})
+		case strings.HasSuffix(request.URL.Path, "/tasks"):
+			response.Write([]byte(`[]`))
+		case strings.HasSuffix(request.URL.Path, "/compare"):
+			response.Write([]byte(`{"items":[]}`))
+		case request.Method == http.MethodPost:
+			response.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected request: %s %s", request.Method, request.URL.String())
+			response.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- RunDaemon(ctx, home, NewAPI(server.URL, "token", time.Second), store, 40*time.Millisecond, nil)
+	}()
+	defer func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Error(err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("daemon did not stop")
+		}
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		items, err := store.PendingItems()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(items) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("daemon never installed approved Skill", items)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if packageRequests.Load() != 1 {
+		t.Fatal("unexpected installation count", packageRequests.Load())
+	}
+
+	if items, err := store.PendingItems(); err != nil || len(items) != 0 {
+		t.Fatalf("installed pending record was not cleared: %#v %v", items, err)
+	}
+	if items, err := store.QuarantineItems(); err != nil || len(items) != 0 {
+		t.Fatalf("installed Skill was not released from quarantine: %#v %v", items, err)
+	}
+	if _, err := filepath.EvalSymlinks(filepath.Join(skillsRoot, "safe-skill")); err != nil {
+		t.Fatalf("trusted Skill was not restored to the Agent: %v", err)
+	}
+	fresh, err := Discover(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.EnrichInventory(&fresh); err != nil {
+		t.Fatal(err)
+	}
+	codex, ok := findAgent(fresh, "codex")
+	if !ok || len(codex.Skills) != 1 {
+		t.Fatalf("installed Skill was not rediscovered under Codex: %#v", fresh.Agents)
+	}
+	if codex.Skills[0].Status != "managed" || codex.Skills[0].SkillID != "skill-1" {
+		t.Fatalf("rediscovered Skill was not enriched as managed: %#v", codex.Skills[0])
+	}
+	notifications, err := store.Notifications(10)
+	if err != nil || len(notifications) == 0 || notifications[0].EventType != "skill_auto_installed" {
+		t.Fatalf("automatic install notification was not recorded: %#v %v", notifications, err)
+	}
+}
+
+func TestAutomaticInstallBindsOriginalRootAndCurrentContent(t *testing.T) {
+	for _, scenario := range []string{"secondary", "unchanged", "edited", "changed_during_download", "removed_root"} {
+		t.Run(scenario, func(t *testing.T) {
+			home := t.TempDir()
+			root := filepath.Join(home, "secondary")
+			source := filepath.Join(root, "safe-skill")
+			snapshot := filepath.Join(home, "snapshot")
+			os.MkdirAll(snapshot, 0700)
+			os.WriteFile(filepath.Join(snapshot, "SKILL.md"), []byte("---\nname: safe-skill\n---\n"), 0600)
+			if scenario == "unchanged" || scenario == "edited" || scenario == "changed_during_download" {
+				os.MkdirAll(source, 0700)
+				content := []byte("---\nname: safe-skill\n---\n")
+				if scenario == "edited" {
+					content = []byte("new user content")
+				}
+				os.WriteFile(filepath.Join(source, "SKILL.md"), content, 0600)
+			}
+			public, private, _ := ed25519.GenerateKey(rand.Reader)
+			body := signedPackage(t, private)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/package") {
+					if scenario == "changed_during_download" {
+						os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("new user content"), 0600)
+					}
+					w.Write(body)
+				} else {
+					w.Write([]byte(`{}`))
+				}
+			}))
+			defer server.Close()
+			store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			roots := []any{filepath.Join(home, "primary"), root}
+			if scenario == "removed_root" {
+				roots = roots[:1]
+			}
+			inventory := Inventory{ClientID: "host", Agents: []Agent{{AgentType: "codex", SkillsPath: filepath.Join(home, "primary"), SkillManagementSupported: true, Capabilities: map[string]any{"skill_roots": roots}}}}
+			item := PendingItem{ID: "pending", AgentType: "codex", SkillName: "safe-skill", OriginalPath: source, PendingPath: snapshot, SkillID: "skill-1", Status: "APPROVED"}
+			if err := store.SavePending(item); err != nil {
+				t.Fatal(err)
+			}
+			changed, err := ReconcileApprovedPending(context.Background(), home, NewAPI(server.URL, "token", time.Second), store, inventory, Policy{ReleasePublicKey: base64.StdEncoding.EncodeToString(public), Classification: DefaultClassificationPolicy()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario == "secondary" || scenario == "unchanged" {
+				if !changed {
+					t.Fatal("approved content not installed")
+				}
+				if _, err := os.Stat(filepath.Join(source, "SKILL.md")); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := os.Stat(filepath.Join(home, "primary", "safe-skill")); !os.IsNotExist(err) {
+					t.Fatal("installed in wrong root")
+				}
+			} else {
+				if changed {
+					t.Fatal("conflicting target overwritten")
+				}
+				items, err := store.PendingItems()
+				if err != nil || len(items) != 1 || items[0].AutoInstallError == "" {
+					t.Fatal("failure not visible", items, err)
+				}
+				if scenario != "removed_root" {
+					body, _ := os.ReadFile(filepath.Join(source, "SKILL.md"))
+					if string(body) != "new user content" {
+						t.Fatal("user edit overwritten")
+					}
+				}
+			}
+		})
 	}
 }

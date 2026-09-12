@@ -39,9 +39,11 @@ export const domainMessages = {
     },
     auditEvent: {
       skill_submitted: '提交 Skill',
+      skill_version_submitted: '提交 Skill 版本',
       skill_processing_started: '开始分析 Skill',
       skill_processing_completed: '分析完成',
       skill_scan_cancelled: '已取消 Skill 检测',
+      skill_rescan_requested: '重新检测 Skill',
       skill_vetted: '进入审核',
       skill_approved: '批准 Skill',
       skill_rejected: '拒绝 Skill',
@@ -106,9 +108,11 @@ export const domainMessages = {
     },
     auditEvent: {
       skill_submitted: 'Skill Submitted',
+      skill_version_submitted: 'Skill Version Submitted',
       skill_processing_started: 'Skill Analysis Started',
       skill_processing_completed: 'Analysis Completed',
       skill_scan_cancelled: 'Skill Scan Cancelled',
+      skill_rescan_requested: 'Skill Rescan Requested',
       skill_vetted: 'Queued for Review',
       skill_approved: 'Skill Approved',
       skill_rejected: 'Skill Rejected',

@@ -131,7 +131,7 @@ func refreshPending(ctx context.Context, server, token string, store *Store, inc
 		return nil, err
 	}
 	api := scannerclient.New(server, token, 30*time.Second)
-	statuses := map[string]string{}
+	results := map[string]scannerclient.SubmitResult{}
 	for index := range items {
 		_, activeQuarantine := activePendingIDs[items[index].ID]
 		if items[index].SkillID == "" || (!includeTerminal && pendingStatusTerminal(items[index].Status) && !activeQuarantine) {
@@ -141,9 +141,10 @@ func refreshPending(ctx context.Context, server, token string, store *Store, inc
 		if statusID == "" {
 			statusID = items[index].SkillID
 		}
-		status, ok := statuses[statusID]
+		result, ok := results[statusID]
 		if !ok {
-			result, err := api.GetImport(ctx, statusID)
+			var err error
+			result, err = api.GetImport(ctx, statusID)
 			if err != nil {
 				if scannerclient.IsNotFound(err) || scannerclient.IsSubmissionNotOwned(err) {
 					if resetErr := store.ResetPendingSubmission(items[index].ID); resetErr != nil {
@@ -153,17 +154,28 @@ func refreshPending(ctx context.Context, server, token string, store *Store, inc
 					items[index].SkillID = ""
 					items[index].VersionID = ""
 					items[index].SubmittedAt = ""
+					items[index].Progress = ScanProgress{}
 					continue
 				}
 				return nil, err
 			}
-			status = result.Status
-			statuses[statusID] = status
-			if err := store.UpdatePendingStatus(items[index].SkillID, items[index].VersionID, status); err != nil {
+			results[statusID] = result
+			if err := store.UpdatePendingStatus(items[index].SkillID, items[index].VersionID, result.Status); err != nil {
 				return nil, err
 			}
 		}
-		items[index].Status = status
+		items[index].Status = result.Status
+		items[index].Progress = ScanProgress{}
+		if result.Status == "PENDING" {
+			items[index].Progress = ScanProgress{Stage: result.ScanProgressStage, Analyzers: result.ScanProgressAnalyzers, VersionID: statusID, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+		}
+		progress, err := json.Marshal(items[index].Progress)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := store.db.Exec(`UPDATE client_pending SET progress_json=? WHERE id=? AND COALESCE(NULLIF(version_id,''),skill_id)=?`, string(progress), items[index].ID, statusID); err != nil {
+			return nil, err
+		}
 	}
 	return items, nil
 }
@@ -179,9 +191,6 @@ func ReconcileApprovedPending(ctx context.Context, home string, api API, store *
 			continue
 		}
 		managedAgentID := strings.TrimSpace(policy.AgentBindings[item.AgentType])
-		if policy.GovernanceMode == "strict" && managedAgentID == "" {
-			continue
-		}
 		retryKey := "pending:auto-install:" + item.ID
 		due, err := store.Due(retryKey, time.Minute)
 		if err != nil {
@@ -193,10 +202,13 @@ func ReconcileApprovedPending(ctx context.Context, home string, api API, store *
 		if err := store.MarkSchedule(retryKey); err != nil {
 			return changed, err
 		}
-		if err := InstallApprovedSkillVersion(
+		if err := installApprovedPending(
 			ctx, home, inventory, policy, api, store,
-			item.AgentType, managedAgentID, item.SkillID, item.VersionID,
+			item, managedAgentID,
 		); err != nil {
+			if saveErr := store.SetState("pending:install-error:"+item.ID, err.Error()); saveErr != nil {
+				return changed, saveErr
+			}
 			if notificationErr := store.RecordNotification(LocalNotification{
 				Severity:  "warning",
 				EventType: "skill_auto_install_failed",
@@ -204,6 +216,7 @@ func ReconcileApprovedPending(ctx context.Context, home string, api API, store *
 				SkillName: item.SkillName,
 				Title:     "Skill 自动安装失败",
 				Message:   "平台已批准，但客户端自动安装失败；将稍后重试，也可以在待处理区手动安装。",
+				Details:   map[string]string{"error_code": err.Error(), "path": item.OriginalPath},
 			}); notificationErr != nil {
 				return changed, notificationErr
 			}
@@ -222,6 +235,51 @@ func ReconcileApprovedPending(ctx context.Context, home string, api API, store *
 		changed = true
 	}
 	return changed, nil
+}
+
+func installApprovedPending(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, item PendingItem, managedAgentID string) error {
+	ctx, release, err := withMutationLock(ctx, home)
+	if err != nil {
+		return err
+	}
+	defer release()
+	agent, ok := findAgent(inventory, item.AgentType)
+	if !ok || item.OriginalPath == "" {
+		return fmt.Errorf("skill_target_unavailable")
+	}
+	root := filepath.Dir(item.OriginalPath)
+	allowed := false
+	for _, candidate := range agentSkillRoots(agent) {
+		if canonicalExistingPath(root) == canonicalExistingPath(candidate) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return fmt.Errorf("skill_target_unavailable")
+	}
+	targets := map[string]any{}
+	if _, err := os.Lstat(item.OriginalPath); err == nil {
+		snapshot, err := inspectInstallTarget(item.PendingPath)
+		if err != nil {
+			return err
+		}
+		if err := checkObservedContent(Skill{Path: item.OriginalPath, Signature: snapshot.signature}); err != nil {
+			return err
+		}
+		targets[item.OriginalPath] = snapshot.signature
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	local := inventory
+	local.Agents = append([]Agent(nil), inventory.Agents...)
+	for index := range local.Agents {
+		if local.Agents[index].AgentType == item.AgentType {
+			local.Agents[index].SkillsPath = root
+		}
+	}
+	return installApprovedSkillVersion(ctx, home, local, policy, api, store, item.AgentType, managedAgentID, item.SkillID, item.VersionID, false,
+		map[string]any{"expected_root": root, "expected_path": item.OriginalPath, "expected_targets": targets})
 }
 
 func fingerprintPendingPeers(store *Store, items []PendingItem, submitted PendingItem) error {
@@ -292,4 +350,42 @@ func pendingStatusTerminal(status string) bool {
 func clientIDForHome(home string) string {
 	hostname, _ := os.Hostname()
 	return DeviceID(hostname, home)
+}
+
+// refreshBackgroundScans runs independently of the desktop and file worker.
+func refreshBackgroundScans(ctx context.Context, api API, store *Store) (bool, bool, error) {
+	before, err := store.PendingItems()
+	if err != nil {
+		return false, false, err
+	}
+	active := false
+	statuses := map[string]string{}
+	for _, item := range before {
+		statuses[item.ID] = item.Status
+		if item.SkillID != "" && !pendingStatusTerminal(item.Status) {
+			active = true
+		}
+	}
+	if !active {
+		return false, false, nil
+	}
+	after, err := RefreshPending(ctx, api.server, api.token, store)
+	if err != nil {
+		return false, false, err
+	}
+	previous, err := json.Marshal(before)
+	if err != nil {
+		return false, false, err
+	}
+	current, err := json.Marshal(after)
+	if err != nil {
+		return false, false, err
+	}
+	transition := false
+	for _, item := range after {
+		if statuses[item.ID] != item.Status {
+			transition = true
+		}
+	}
+	return string(previous) != string(current), transition, nil
 }

@@ -521,6 +521,7 @@ func TestPatrolKeepsValidRegistrationWhenLegacyAliasSharesTarget(t *testing.T) {
 }
 
 func TestUnknownSkillIsComparedBeforeBlockModeQuarantine(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	home := t.TempDir()
 	target := filepath.Join(home, ".codex", "skills", "local-skill")
 	writeSkill(t, target, "local-skill")
@@ -579,6 +580,71 @@ func TestUnknownSkillIsComparedBeforeBlockModeQuarantine(t *testing.T) {
 	}
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
 		t.Fatalf("denied unknown skill was not quarantined: %v", err)
+	}
+}
+
+func TestSharedCleanupPreservesReplacedTargets(t *testing.T) {
+	for _, replacement := range []string{"directory", "repointed", "expected", "absent"} {
+		t.Run(replacement, func(t *testing.T) {
+			home := t.TempDir()
+			store, err := OpenStore(filepath.Join(home, "client.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			release := filepath.Join(home, "release")
+			target := filepath.Join(home, "skill")
+			other := filepath.Join(home, "user-content")
+			if err := os.MkdirAll(other, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(other, "SKILL.md"), []byte("user edit"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			switch replacement {
+			case "directory":
+				if err := os.Rename(other, target); err != nil {
+					t.Fatal(err)
+				}
+			case "repointed":
+				if err := os.Symlink(other, target); err != nil {
+					t.Fatal(err)
+				}
+			case "expected":
+				if err := os.Symlink("release", target); err != nil {
+					t.Fatal(err)
+				}
+			}
+			install := Installation{AgentType: "codex", SkillID: "skill-1", SkillName: "skill", TargetPath: target}
+			if err := store.SaveInstall(install); err != nil {
+				t.Fatal(err)
+			}
+			err = removeSharedInstalls(store, []Installation{install}, release)
+			preserve := replacement == "directory" || replacement == "repointed"
+			if preserve {
+				if err == nil || err.Error() != "skill_content_changed" {
+					t.Fatalf("expected content conflict, got %v", err)
+				}
+				content, readErr := os.ReadFile(filepath.Join(target, "SKILL.md"))
+				if readErr != nil || string(content) != "user edit" {
+					t.Fatalf("replacement lost: %q %v", content, readErr)
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := os.Lstat(target); !os.IsNotExist(err) {
+					t.Fatalf("old link remains: %v", err)
+				}
+			}
+			items, err := store.Installations()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (len(items) == 1) != preserve {
+				t.Fatalf("unexpected installation records: %+v", items)
+			}
+		})
 	}
 }
 
@@ -704,11 +770,12 @@ func signedPackage(t *testing.T, privateKey ed25519.PrivateKey) []byte {
 	t.Helper()
 	content := []byte("---\nname: safe-skill\n---\n")
 	sum := sha256.Sum256(content)
+	contentSignature := sha256.Sum256([]byte("SKILL.md:" + hex.EncodeToString(sum[:]) + "\n"))
 	manifest := map[string]any{
 		"version":           1,
 		"skill_id":          "skill-1",
 		"name":              "safe-skill",
-		"content_signature": "abc",
+		"content_signature": hex.EncodeToString(contentSignature[:]),
 		"files": []map[string]any{{
 			"path": "SKILL.md", "size": len(content), "sha256": hex.EncodeToString(sum[:]),
 		}},

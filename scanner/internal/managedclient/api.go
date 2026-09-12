@@ -27,6 +27,9 @@ type AgentCredential struct {
 }
 
 type CompareItem struct {
+	Rejected          bool   `json:"rejected"`
+	Certified         bool   `json:"certified"`
+	Malicious         bool   `json:"malicious"`
 	AgentType         string `json:"agent_type"`
 	ManagedAgentID    string `json:"managed_agent_id"`
 	Name              string `json:"name"`
@@ -41,13 +44,14 @@ type CompareItem struct {
 }
 
 type Policy struct {
-	Mode             string            `json:"mode"`
-	GovernanceMode   string            `json:"governance_mode"`
-	LightScanSeconds int               `json:"light_scan_seconds"`
-	FullScanSeconds  int               `json:"full_scan_seconds"`
-	ReleasePublicKey string            `json:"release_public_key"`
-	AgentBindings    map[string]string `json:"agent_bindings"`
-	AgentProfiles    []AgentProfile    `json:"agent_profiles,omitempty"`
+	Classification   *ClassificationPolicy `json:"classification,omitempty"`
+	Mode             string                `json:"mode"`
+	GovernanceMode   string                `json:"governance_mode"`
+	LightScanSeconds int                   `json:"light_scan_seconds"`
+	FullScanSeconds  int                   `json:"full_scan_seconds"`
+	ReleasePublicKey string                `json:"release_public_key"`
+	AgentBindings    map[string]string     `json:"agent_bindings"`
+	AgentProfiles    []AgentProfile        `json:"agent_profiles,omitempty"`
 }
 
 type AgentProfile struct {
@@ -64,6 +68,24 @@ type Task struct {
 	ID       int64          `json:"id"`
 	TaskType string         `json:"task_type"`
 	Payload  map[string]any `json:"payload"`
+}
+
+type SkillActionRequest struct {
+	RequestID               string `json:"request_id"`
+	Action                  string `json:"action"`
+	AgentType               string `json:"agent_type"`
+	LocalAgentID            string `json:"local_agent_id,omitempty"`
+	Path                    string `json:"path"`
+	ExpectedSignature       string `json:"expected_signature"`
+	VersionID               string `json:"version_id,omitempty"`
+	QuarantineID            string `json:"quarantine_id,omitempty"`
+	ExpectedTargetSignature string `json:"expected_target_signature,omitempty"`
+}
+
+func (api API) RequestSkillAction(ctx context.Context, clientID string, request SkillActionRequest) (Task, error) {
+	var task Task
+	err := api.postJSON(ctx, "/api/v1/clients/"+clientID+"/skill-actions", request, &task)
+	return task, err
 }
 
 type AvailableSkill struct {
@@ -103,7 +125,7 @@ func (api API) Register(ctx context.Context, inventory Inventory) error {
 }
 
 func (api API) ReportInventory(ctx context.Context, inventory Inventory) error {
-	return api.post(ctx, "/api/v1/clients/"+inventory.ClientID+"/inventory", map[string]any{"agents": inventory.Agents})
+	return api.post(ctx, "/api/v1/clients/"+inventory.ClientID+"/inventory", map[string]any{"agents": inventory.Agents, "recovery": inventory.Recovery})
 }
 
 func (api API) Compare(ctx context.Context, inventory Inventory, mappings map[string]string) ([]CompareItem, error) {
@@ -147,6 +169,18 @@ func (api API) ReportTask(ctx context.Context, clientID string, taskID int64, st
 	})
 }
 
+func (api API) StartTask(ctx context.Context, clientID string, taskID int64) (bool, string, error) {
+	var result struct {
+		Ignored bool   `json:"ignored"`
+		Status  string `json:"status"`
+	}
+	err := api.postJSON(ctx, fmt.Sprintf("/api/v1/clients/%s/tasks/%d/result", clientID, taskID), map[string]any{"status": "running", "error": ""}, &result)
+	if result.Status == "" && result.Ignored {
+		result.Status = "cancelled"
+	}
+	return !result.Ignored && err == nil, result.Status, err
+}
+
 func (api API) IssueAgentCredential(ctx context.Context, clientID string, taskID int64) (AgentCredential, error) {
 	var result AgentCredential
 	err := api.postJSON(
@@ -178,11 +212,17 @@ func (api API) ReportEvent(ctx context.Context, clientID, eventType, agentType, 
 	if details == nil {
 		details = map[string]any{}
 	}
+	count := details["observation_count"]
+	if count == nil {
+		count = 1
+	}
 	return api.post(ctx, "/api/v1/clients/"+clientID+"/events", map[string]any{
-		"event_type": eventType,
-		"agent_type": agentType,
-		"skill_name": skillName,
-		"details":    details,
+		"event_type":        eventType,
+		"agent_type":        agentType,
+		"skill_name":        skillName,
+		"details":           details,
+		"observation_count": count,
+		"observed_at":       details["last_seen_at"],
 	})
 }
 
@@ -199,8 +239,9 @@ func (api API) Heartbeat(ctx context.Context, inventory Inventory) (Policy, erro
 		Policy Policy `json:"policy"`
 	}
 	err := api.postJSON(ctx, "/api/v1/clients/"+inventory.ClientID+"/heartbeat", map[string]any{
-		"client_id":      inventory.ClientID,
-		"client_version": inventory.ClientVersion,
+		"governance_protocol": 2,
+		"client_id":           inventory.ClientID,
+		"client_version":      inventory.ClientVersion,
 	}, &response)
 	return response.Policy, err
 }

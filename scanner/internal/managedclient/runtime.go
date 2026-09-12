@@ -56,11 +56,14 @@ func runOnce(ctx context.Context, home string, api API, store *Store, forceFullS
 			return stateErr
 		}
 		if !ok || json.Unmarshal([]byte(body), &policy) != nil {
-			return fmt.Errorf("Agent Manager 不可达，且本机尚无可用策略缓存")
+			policy = Policy{Mode: "audit", Classification: DefaultClassificationPolicy()}
 		}
 	}
 	tasks := []Task{}
 	if online {
+		if err := flushTaskResults(ctx, inventory.ClientID, api, store); err != nil {
+			return err
+		}
 		tasks, err = api.Tasks(ctx, inventory.ClientID)
 		if err != nil {
 			online = false
@@ -180,10 +183,19 @@ func executeTasks(ctx context.Context, home string, inventory Inventory, policy 
 			_ = api.ReportTask(ctx, inventory.ClientID, task.ID, "succeeded", "")
 			continue
 		}
+		accepted, remoteStatus, err := api.StartTask(ctx, inventory.ClientID, task.ID)
+		if err != nil {
+			return err
+		}
+		if !accepted {
+			if err := store.SaveTask(task, remoteStatus, ""); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := store.SaveTask(task, "running", ""); err != nil {
 			return err
 		}
-		_ = api.ReportTask(ctx, inventory.ClientID, task.ID, "running", "")
 		taskErr := executeTask(ctx, home, inventory, policy, api, store, task)
 		status := "succeeded"
 		message := ""
@@ -233,6 +245,8 @@ func ConfigureAgentModel(ctx context.Context, home string, inventory Inventory, 
 
 func executeTask(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, task Task) error {
 	switch task.TaskType {
+	case "skill_action":
+		return executeObservedTask(ctx, home, policy, api, store, task)
 	case "sync_policy":
 		return RequestFullScan(home)
 	case "rescan":
@@ -274,31 +288,9 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 		if agentType == "" || skillID == "" || (policy.GovernanceMode == "strict" && managedAgentID == "") {
 			return fmt.Errorf("install task is missing required agent or skill information")
 		}
-		return InstallApprovedSkillVersion(ctx, home, inventory, policy, api, store, agentType, managedAgentID, skillID, versionID)
+		return installApprovedSkillVersion(ctx, home, inventory, policy, api, store, agentType, managedAgentID, skillID, versionID, task.TaskType == "repair_skill", task.Payload)
 	case "remove_skill":
-		agent, ok := findAgent(inventory, stringValue(task.Payload, "agent_type"))
-		if !ok || !agent.SkillManagementSupported || agent.SkillsPath == "" {
-			return fmt.Errorf("agent does not support managed skills")
-		}
-		rawName := stringValue(task.Payload, "skill_name")
-		name := filepath.Base(rawName)
-		if name == "." || name == "" || name != rawName {
-			return fmt.Errorf("remove task is missing skill_name")
-		}
-		skillID := stringValue(task.Payload, "skill_id")
-		if skillID == "" {
-			return fmt.Errorf("remove task is missing skill_id")
-		}
-		if err := os.RemoveAll(filepath.Join(agent.SkillsPath, name)); err != nil {
-			return err
-		}
-		if err := store.RemoveInstall(agent.AgentType, skillID); err != nil {
-			return err
-		}
-		_ = reportEvent(ctx, api, store, inventory.ClientID, "skill_removed", agent.AgentType, name, map[string]any{
-			"skill_id": skillID,
-		})
-		return nil
+		return executeRemovalTask(ctx, home, policy, api, store, task)
 	default:
 		return fmt.Errorf("unsupported task type %s", task.TaskType)
 	}
@@ -309,12 +301,47 @@ func InstallApprovedSkill(ctx context.Context, home string, inventory Inventory,
 }
 
 func InstallApprovedSkillVersion(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, agentType, managedAgentID, skillID, versionID string) error {
+	return installApprovedSkillVersion(ctx, home, inventory, policy, api, store, agentType, managedAgentID, skillID, versionID, false)
+}
+
+func installApprovedSkillVersion(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, agentType, managedAgentID, skillID, versionID string, repair bool, taskPayload ...map[string]any) error {
+	if !validInstallComponent(skillID) || (versionID != "" && !validInstallComponent(versionID)) {
+		return fmt.Errorf("invalid install identifier")
+	}
+	ctx, releaseMutation, err := withMutationLock(ctx, home)
+	if err != nil {
+		return err
+	}
+	defer releaseMutation()
 	if agentType == "" || skillID == "" || (policy.GovernanceMode == "strict" && managedAgentID == "") {
 		return fmt.Errorf("install requires agent and skill information")
+	}
+	if classificationEnabled(policy) {
+		action := policy.Classification.Rules["malicious"]
+		if action == "quarantine" || action == "uninstall" {
+			preview, err := api.SkillPreview(ctx, inventory.ClientID, skillID, versionID, agentType, managedAgentID)
+			if err != nil {
+				return err
+			}
+			if preview.RiskLevel == "malicious" {
+				return fmt.Errorf("skill_install_malicious")
+			}
+		}
 	}
 	agent, ok := findAgent(inventory, agentType)
 	if !ok || !agent.SkillManagementSupported || agent.SkillsPath == "" {
 		return fmt.Errorf("agent %s does not support managed skills", agentType)
+	}
+	targetsBeforeDownload, err := captureInstallTargets(agent.SkillsPath)
+	if err != nil {
+		return err
+	}
+	currentAlias := filepath.Join(ManagedSkillsRoot(home), skillID, "release")
+	aliasBeforeDownload := map[string]installTargetState{}
+	if state, err := inspectInstallTarget(currentAlias); err == nil {
+		aliasBeforeDownload[currentAlias] = state
+	} else if !os.IsNotExist(err) {
+		return err
 	}
 	body, err := api.DownloadPackageVersion(ctx, inventory.ClientID, skillID, versionID, agentType, managedAgentID)
 	if err != nil {
@@ -325,47 +352,29 @@ func InstallApprovedSkillVersion(ctx context.Context, home string, inventory Inv
 	if err != nil {
 		return err
 	}
+	defer os.RemoveAll(incoming)
 	resolvedVersionID := manifest.VersionID
 	if resolvedVersionID == "" {
 		resolvedVersionID = skillID
 	}
 	target := filepath.Join(ManagedSkillsRoot(home), skillID, "versions", resolvedVersionID, "release")
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		_ = os.RemoveAll(incoming)
-		return err
-	}
-	if _, err := os.Stat(target); os.IsNotExist(err) {
-		if err := os.Rename(incoming, target); err != nil {
-			_ = os.RemoveAll(incoming)
-			return err
-		}
-	} else if err != nil {
-		_ = os.RemoveAll(incoming)
-		return err
-	} else {
-		previous := target + fmt.Sprintf(".previous-%d", time.Now().UnixNano())
-		if err := os.Rename(target, previous); err != nil {
-			_ = os.RemoveAll(incoming)
-			return err
-		}
-		if err := os.Rename(incoming, target); err != nil {
-			_ = os.Rename(previous, target)
-			_ = os.RemoveAll(incoming)
-			return err
-		}
-		_ = os.RemoveAll(previous)
-	}
-	currentAlias := filepath.Join(ManagedSkillsRoot(home), skillID, "release")
-	_ = os.RemoveAll(currentAlias)
-	if err := os.Symlink(target, currentAlias); err != nil {
-		return err
-	}
 	link := filepath.Join(agent.SkillsPath, filepath.Base(manifest.Name))
+	if err := checkPatrolSnapshot(ctx, link); err != nil {
+		return err
+	}
+	if len(taskPayload) > 0 {
+		if err := checkQueuedInstallTarget(link, agent.SkillsPath, taskPayload[0]); err != nil {
+			return err
+		}
+	}
 	if err := os.MkdirAll(agent.SkillsPath, 0o755); err != nil {
 		return err
 	}
 	if info, err := os.Lstat(link); err == nil {
 		sameInstall := false
+		if len(taskPayload) > 0 && stringValue(taskPayload[0], "expected_path") == link {
+			sameInstall = targetsBeforeDownload[link].signature == manifest.ContentSignature
+		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			resolved, resolveErr := filepath.EvalSymlinks(link)
 			resolvedTarget, targetErr := filepath.EvalSymlinks(target)
@@ -392,7 +401,102 @@ func InstallApprovedSkillVersion(ctx context.Context, home string, inventory Inv
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	_ = os.RemoveAll(link)
+	if err := checkInstallTarget(link, targetsBeforeDownload); err != nil {
+		return err
+	}
+	// Keep edited shared releases in place; install a verified independent copy.
+	preserveAlias := false
+	if !repair {
+		if _, err := os.Stat(target); err == nil {
+			if err := checkObservedContent(Skill{Path: target, Signature: manifest.ContentSignature}); err != nil {
+				copyRoot, err := os.MkdirTemp(filepath.Dir(target), "copy-")
+				if err != nil {
+					return err
+				}
+				defer os.Remove(copyRoot) // Remove the reservation only if it remains empty.
+				target = filepath.Join(copyRoot, "release")
+				_, preserveAlias = aliasBeforeDownload[currentAlias]
+			}
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+	}
+	backupPaths := []string{}
+	backedUpSource := ""
+	policyVersion := ""
+	if policy.Classification != nil {
+		policyVersion = policy.Classification.Version
+	}
+	if err := checkInstallTarget(currentAlias, aliasBeforeDownload); err != nil {
+		return err
+	}
+	if before, exists := aliasBeforeDownload[currentAlias]; exists && before.mode.IsDir() {
+		backup, err := retainInstallBackup(home, currentAlias, link, agentType, manifest.Name, policyVersion)
+		if err != nil {
+			return err
+		}
+		backupPaths = append(backupPaths, backup)
+	}
+	if before, exists := targetsBeforeDownload[link]; exists && before.signature != "" && before.signature != manifest.ContentSignature {
+		backup, err := retainInstallBackup(home, link, link, agentType, manifest.Name, policyVersion)
+		if err != nil {
+			return err
+		}
+		backupPaths = append(backupPaths, backup)
+		backedUpSource, _ = filepath.EvalSymlinks(link)
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		_ = os.RemoveAll(incoming)
+		return err
+	}
+	if _, err := os.Stat(target); os.IsNotExist(err) {
+		if err := os.Rename(incoming, target); err != nil {
+			_ = os.RemoveAll(incoming)
+			return err
+		}
+	} else if err != nil {
+		_ = os.RemoveAll(incoming)
+		return err
+	} else if checkObservedContent(Skill{Path: target, Signature: manifest.ContentSignature}) == nil {
+		_ = os.RemoveAll(incoming)
+	} else {
+		if !repair {
+			return fmt.Errorf("skill_content_changed")
+		}
+		resolvedTarget, err := filepath.EvalSymlinks(target)
+		if err != nil {
+			return err
+		}
+		if resolvedTarget != backedUpSource {
+			backup, err := retainInstallBackup(home, target, link, agentType, manifest.Name, policyVersion)
+			if err != nil {
+				return err
+			}
+			backupPaths = append(backupPaths, backup)
+		}
+		previous := target + fmt.Sprintf(".previous-%d", time.Now().UnixNano())
+		if err := os.Rename(target, previous); err != nil {
+			_ = os.RemoveAll(incoming)
+			return err
+		}
+		if err := os.Rename(incoming, target); err != nil {
+			_ = os.Rename(previous, target)
+			_ = os.RemoveAll(incoming)
+			return err
+		}
+		_ = os.RemoveAll(previous)
+	}
+	if !preserveAlias {
+		if err := removeInstallAlias(currentAlias, aliasBeforeDownload); err != nil {
+			return err
+		}
+		if err := os.Symlink(target, currentAlias); err != nil {
+			return err
+		}
+	}
+	if err := os.RemoveAll(link); err != nil {
+		return err
+	}
 	if err := os.Symlink(target, link); err != nil {
 		if err := copyDir(target, link); err != nil {
 			return err
@@ -423,6 +527,7 @@ func InstallApprovedSkillVersion(ctx context.Context, home string, inventory Inv
 	}
 	_ = reportEvent(ctx, api, store, inventory.ClientID, "skill_installed", agentType, manifest.Name, map[string]any{
 		"skill_id": skillID, "version_id": manifest.VersionID, "version_no": manifest.VersionNo,
+		"backup_paths": backupPaths, "policy_version": policyVersion,
 	})
 	return nil
 }
@@ -444,15 +549,27 @@ func brokenManagedSymlink(home, link string) bool {
 }
 
 func patrol(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, fullScan, online bool) error {
+	if classificationEnabled(policy) {
+		return patrolClassified(ctx, home, inventory, policy, api, store, online)
+	}
 	governanceEnabled, err := store.GovernanceEnabled()
 	if err != nil || !governanceEnabled {
 		return err
 	}
+	ctx, releaseMutation, err := withMutationLock(ctx, home)
+	if err != nil {
+		return err
+	}
+	defer releaseMutation()
 	installs, err := store.Installations()
 	if err != nil {
 		return err
 	}
 	installs, err = reconcileDuplicateInstallPaths(home, store, installs)
+	if err != nil {
+		return err
+	}
+	ctx, err = withPatrolSnapshot(ctx, installs)
 	if err != nil {
 		return err
 	}
@@ -481,6 +598,9 @@ func patrol(ctx context.Context, home string, inventory Inventory, policy Policy
 			continue
 		}
 		for _, skill := range agent.Skills {
+			if skill.Status == "external_link" {
+				continue
+			}
 			if knownPaths[filepath.Clean(skill.Path)] {
 				continue
 			}
@@ -505,7 +625,7 @@ func patrol(ctx context.Context, home string, inventory Inventory, policy Policy
 				})
 			}
 			if !online && policy.Mode == "block" {
-				item, quarantineErr := QuarantineSkill(home, store, agent.AgentType, skill.Name, skill.Path, "unmanaged_skill")
+				item, quarantineErr := quarantineCurrentSkill(ctx, home, store, agent.AgentType, skill.Name, skill.Path, "unmanaged_skill", skill.Signature)
 				if quarantineErr != nil {
 					return quarantineErr
 				}
@@ -537,7 +657,7 @@ func patrol(ctx context.Context, home string, inventory Inventory, policy Policy
 				_ = reportEvent(ctx, api, store, inventory.ClientID, "unmanaged_skill_verified", item.AgentType, skill.Name, map[string]any{"path": skill.Path, "skill_id": item.SkillID})
 				continue
 			}
-			quarantined, quarantineErr := QuarantineSkill(home, store, unknownAgents[unknownKey], skill.Name, skill.Path, item.Reason)
+			quarantined, quarantineErr := quarantineCurrentSkill(ctx, home, store, unknownAgents[unknownKey], skill.Name, skill.Path, item.Reason, skill.Signature)
 			if quarantineErr != nil {
 				return quarantineErr
 			}
@@ -560,7 +680,7 @@ func patrol(ctx context.Context, home string, inventory Inventory, policy Policy
 		}
 		if ok &&
 			!item.Allowed && item.Reason != "signature_mismatch" {
-			quarantined, err := QuarantineSkill(home, store, install.AgentType, install.SkillName, install.TargetPath, item.Reason)
+			quarantined, err := quarantineCurrentSkill(ctx, home, store, install.AgentType, install.SkillName, install.TargetPath, item.Reason, "")
 			if err != nil {
 				return err
 			}
@@ -614,7 +734,7 @@ func patrol(ctx context.Context, home string, inventory Inventory, policy Policy
 			}
 			_ = reportEvent(ctx, api, store, inventory.ClientID, "skill_repaired", install.AgentType, install.SkillName, nil)
 		case "block":
-			quarantined, err := QuarantineSkill(home, store, install.AgentType, install.SkillName, install.TargetPath, "signature_mismatch")
+			quarantined, err := quarantineCurrentSkill(ctx, home, store, install.AgentType, install.SkillName, install.TargetPath, "signature_mismatch", "")
 			if err != nil {
 				return err
 			}
@@ -628,6 +748,15 @@ func patrol(ctx context.Context, home string, inventory Inventory, policy Policy
 }
 
 func patrolLocalChanges(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, installs []Installation, fullScan bool) error {
+	ctx, releaseMutation, err := withMutationLock(ctx, home)
+	if err != nil {
+		return err
+	}
+	defer releaseMutation()
+	ctx, err = withPatrolSnapshot(ctx, installs)
+	if err != nil {
+		return err
+	}
 	handledSharedInstalls := map[string]bool{}
 	for _, install := range installs {
 		if handledSharedInstalls[filepath.Clean(install.TargetPath)] {
@@ -654,7 +783,7 @@ func patrolLocalChanges(ctx context.Context, home string, inventory Inventory, p
 			continue
 		}
 		if policy.Mode == "block" {
-			item, err := QuarantineSkill(home, store, install.AgentType, install.SkillName, install.TargetPath, "signature_mismatch")
+			item, err := quarantineCurrentSkill(ctx, home, store, install.AgentType, install.SkillName, install.TargetPath, "signature_mismatch", "")
 			if err != nil {
 				return err
 			}
@@ -793,9 +922,16 @@ func handleSharedInstallMismatch(
 		details["offline"] = true
 	}
 	_ = reportEvent(ctx, api, store, clientID, "skill_modified", primary.AgentType, primary.SkillName, details)
+	for _, install := range installs {
+		if err := checkPatrolSnapshot(ctx, install.TargetPath); err != nil {
+			return err
+		}
+	}
 
-	if _, err := os.Stat(releasePath); err != nil {
-		return removeSharedInstalls(store, installs)
+	if _, err := os.Stat(releasePath); os.IsNotExist(err) {
+		return removeSharedInstalls(store, installs, releasePath)
+	} else if err != nil {
+		return err
 	}
 	if online && policy.Mode == "repair" {
 		task := Task{TaskType: "repair_skill", Payload: map[string]any{
@@ -811,11 +947,11 @@ func handleSharedInstallMismatch(
 	if policy.Mode != "block" {
 		return nil
 	}
-	item, err := QuarantineSkill(home, store, primary.AgentType, primary.SkillName, releasePath, "signature_mismatch")
+	item, err := quarantineCurrentSkill(ctx, home, store, primary.AgentType, primary.SkillName, releasePath, "signature_mismatch", "")
 	if err != nil {
 		return err
 	}
-	if err := removeSharedInstalls(store, installs); err != nil {
+	if err := removeSharedInstalls(store, installs, releasePath); err != nil {
 		return err
 	}
 	details["reason"] = "signature_mismatch"
@@ -824,9 +960,28 @@ func handleSharedInstallMismatch(
 	return nil
 }
 
-func removeSharedInstalls(store *Store, installs []Installation) error {
+func removeSharedInstalls(store *Store, installs []Installation, releasePath string) error {
 	for _, install := range installs {
-		if err := os.RemoveAll(install.TargetPath); err != nil {
+		link, err := os.Readlink(install.TargetPath)
+		if os.IsNotExist(err) {
+			if err := store.RemoveInstall(install.AgentType, install.SkillID); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("skill_content_changed")
+		}
+		if !filepath.IsAbs(link) {
+			link = filepath.Join(filepath.Dir(install.TargetPath), link)
+		}
+		// Resolve the parent because the quarantined release may already be absent.
+		link = filepath.Join(canonicalExistingPath(filepath.Dir(link)), filepath.Base(link))
+		expected := filepath.Join(canonicalExistingPath(filepath.Dir(releasePath)), filepath.Base(releasePath))
+		if link != expected {
+			return fmt.Errorf("skill_content_changed")
+		}
+		if err := os.Remove(install.TargetPath); err != nil {
 			return err
 		}
 		if err := store.RemoveInstall(install.AgentType, install.SkillID); err != nil {

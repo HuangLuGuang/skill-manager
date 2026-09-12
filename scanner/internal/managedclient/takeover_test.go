@@ -13,6 +13,30 @@ import (
 	"skill-manager/scanner/internal/manifest"
 )
 
+func TestMovePendingKeepsChangedLinkSource(t *testing.T) {
+	home, _, _, skill := observedFixture(t)
+	link := filepath.Join(home, "linked-skill")
+	if err := os.Symlink(skill.Path, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skill.Path, "SKILL.md"), []byte("user edit after plan"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := movePending(PendingRoot(home), TakeoverItem{Source: link, AgentType: "codex", Signature: skill.Signature})
+	if err == nil {
+		t.Fatal("accepted content changed after plan")
+	}
+	if _, err := os.Readlink(link); err != nil {
+		t.Fatal("removed changed source link", err)
+	}
+	if body, err := os.ReadFile(filepath.Join(link, "SKILL.md")); err != nil || string(body) != "user edit after plan" {
+		t.Fatal(string(body), err)
+	}
+	if _, err := os.Stat(filepath.Join(PendingRoot(home), "codex", "linked-skill")); !os.IsNotExist(err) {
+		t.Fatal("inconsistent copy retained", err)
+	}
+}
+
 func TestApplyTakeoverManagesAllowedAndMovesDenied(t *testing.T) {
 	home := t.TempDir()
 	allowed := filepath.Join(home, ".codex", "skills", "allowed")
@@ -66,6 +90,79 @@ func TestApplyTakeoverManagesAllowedAndMovesDenied(t *testing.T) {
 	status, err := store.LocalStatus()
 	if err != nil || status.PendingSkills != 1 {
 		t.Fatalf("pending skill was not included in local status: %#v %v", status, err)
+	}
+}
+
+func TestTakeoverRejectsChangedPlanBeforeMovingAnySkill(t *testing.T) {
+	home := t.TempDir()
+	plan := TakeoverPlan{}
+	for _, name := range []string{"first", "second"} {
+		path := filepath.Join(home, ".codex", "skills", name)
+		writeSkill(t, path, name)
+		state, err := inspectInstallTarget(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan.Items = append(plan.Items, TakeoverItem{AgentType: "codex", Name: name, Source: path, SkillID: name, Signature: state.signature, Action: "manage"})
+	}
+	writeSkill(t, plan.Items[1].Source, "edited-after-comparison")
+	if _, err := ApplyTakeover(home, &plan); err == nil || err.Error() != "skill_content_changed" {
+		t.Fatal("stale plan accepted", err)
+	}
+	if err := checkObservedContent(Skill{Path: plan.Items[0].Source, Signature: plan.Items[0].Signature}); err != nil {
+		t.Fatal("earlier item changed", err)
+	}
+	if info, err := os.Lstat(plan.Items[0].Source); err != nil || !info.IsDir() {
+		t.Fatal("earlier item was moved", err)
+	}
+}
+
+func TestTakeoverKeepsDifferentExistingSharedRelease(t *testing.T) {
+	home := t.TempDir()
+	source := filepath.Join(home, ".codex", "skills", "sample")
+	shared := filepath.Join(ManagedSkillsRoot(home), "family", "release")
+	writeSkill(t, source, "incoming")
+	writeSkill(t, shared, "other-agent-content")
+	before, err := inspectInstallTarget(shared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := inspectInstallTarget(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := TakeoverPlan{Items: []TakeoverItem{{AgentType: "codex", Name: "sample", Source: source, SkillID: "family", Signature: current.signature, Action: "manage"}}}
+	if _, err := ApplyTakeover(home, &plan); err == nil || err.Error() != "skill_content_changed" {
+		t.Fatal("shared release overwritten", err)
+	}
+	for path, signature := range map[string]string{shared: before.signature, source: current.signature} {
+		if err := checkObservedContent(Skill{Path: path, Signature: signature}); err != nil {
+			t.Fatal(path, err)
+		}
+	}
+}
+
+func TestTakeoverRollbackPreservesEditsAfterMove(t *testing.T) {
+	home := t.TempDir()
+	source := filepath.Join(home, ".codex", "skills", "sample")
+	writeSkill(t, source, "sample")
+	state, err := inspectInstallTarget(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := TakeoverPlan{Items: []TakeoverItem{{AgentType: "codex", Name: "sample", Source: source, SkillID: "family", Signature: state.signature, Action: "manage"}}}
+	backup, err := ApplyTakeover(home, &plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(t, source, "new-user-edit")
+	RestoreTakeover(plan, backup)
+	content, err := os.ReadFile(filepath.Join(source, "SKILL.md"))
+	if err != nil || !strings.Contains(string(content), "new-user-edit") {
+		t.Fatal("rollback erased user edit", string(content), err)
+	}
+	if err := checkObservedContent(Skill{Path: filepath.Join(backup, "codex", "sample"), Signature: state.signature}); err != nil {
+		t.Fatal("original backup lost", err)
 	}
 }
 
@@ -136,9 +233,13 @@ func TestApplyTakeoverReplacesSymlinkWithoutChangingSharedSource(t *testing.T) {
 	if err := os.Symlink(shared, source); err != nil {
 		t.Fatal(err)
 	}
+	current, err := inspectInstallTarget(source)
+	if err != nil {
+		t.Fatal(err)
+	}
 	plan := TakeoverPlan{Items: []TakeoverItem{{
 		AgentType: "codex", Name: "shared", Source: source, SourceTarget: shared,
-		SkillID: "skill-1", Signature: "abc", Action: "manage",
+		SkillID: "skill-1", Signature: current.signature, Action: "manage",
 	}}}
 	backup, err := ApplyTakeover(home, &plan)
 	if err != nil {

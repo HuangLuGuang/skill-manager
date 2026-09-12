@@ -43,6 +43,7 @@ CLIENT_SCOPES = [
     "client:report-events",
     "client:submit-skill",
     "client:download-approved-skill",
+    "client:request-skill-actions",
 ]
 ALLOWED_SCOPES = set(SCANNER_SCOPES + RUNTIME_SCOPES + MODEL_SCOPES + MCP_SCOPES + CLIENT_SCOPES)
 DEFAULT_SCOPES_BY_TYPE = {

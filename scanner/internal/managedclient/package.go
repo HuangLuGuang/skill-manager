@@ -70,6 +70,10 @@ func VerifyAndExtractPackage(body []byte, publicKeyBase64, target string) (relea
 	if err := json.Unmarshal(manifestBody, &manifest); err != nil {
 		return manifest, err
 	}
+	if !validInstallComponent(manifest.SkillID) || !validInstallComponent(manifest.Name) ||
+		(manifest.VersionID != "" && !validInstallComponent(manifest.VersionID)) {
+		return manifest, fmt.Errorf("invalid release identifier")
+	}
 	tmp := target + ".tmp"
 	_ = os.RemoveAll(tmp)
 	if err := os.MkdirAll(tmp, 0o755); err != nil {

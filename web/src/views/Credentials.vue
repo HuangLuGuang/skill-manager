@@ -438,6 +438,7 @@ const typeDefaults = {
     'client:report-events',
     'client:submit-skill',
     'client:download-approved-skill',
+    'client:request-skill-actions',
   ],
   mcp_gateway: ['mcp:connect', 'mcp:list-tools', 'mcp:call-tools'],
 }
@@ -744,7 +745,7 @@ onMounted(async () => {
 }
 
 .route-map {
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .inventory-head h2 {

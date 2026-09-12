@@ -4,6 +4,7 @@
       <template #title>
         <a-page-header :title="$t('legacy.hx2vnc')" :sub-title="$t('legacy.ud53vr')">
           <template #extra>
+            <a-button v-if="hasAccess('clients:update')" @click="openClassification('')">{{ $t('clientGovernance.defaults') }}</a-button>
             <a-button type="primary" @click="installGuideVisible = true">{{ $t("legacy.18h6c95") }}</a-button>
             <a-button :loading="loading" @click="loadClients">{{ $t("legacy.12qo56a") }}</a-button>
           </template>
@@ -48,7 +49,7 @@
 
     </a-card>
 
-    <a-drawer v-model:open="detailVisible" :title="$t('legacy.95lv9i')" width="1080" :destroy-on-close="true">
+    <a-drawer v-model:open="detailVisible" :title="$t('legacy.95lv9i')" width="min(1080px, 100vw)" :destroy-on-close="true">
       <a-spin :spinning="detailLoading">
         <template v-if="detail">
           <div class="detail-head">
@@ -65,14 +66,7 @@
                   <a-select-option value="strict">{{ $t("legacy.1bqmand") }}</a-select-option>
                 </a-select>
               </label>
-              <label>
-                <span>{{ $t("legacy.7jblw2") }}</span>
-                <a-select :value="currentPolicy" style="width: 150px" @change="savePolicy">
-                  <a-select-option value="audit">{{ $t("legacy.1n7b1v3") }}</a-select-option>
-                  <a-select-option value="repair">{{ $t("legacy.1fftepa") }}</a-select-option>
-                  <a-select-option value="block">{{ $t("legacy.1lg89ho") }}</a-select-option>
-                </a-select>
-              </label>
+              <a-button @click="openClassification(detail.client_id)">{{ $t('clientGovernance.title') }}</a-button>
               <a-button class="detail-refresh" @click="refreshDetail">{{ $t("legacy.2fhcc7") }}</a-button>
             </div>
           </div>
@@ -81,12 +75,12 @@
             type="info"
             show-icon
             class="policy-note"
-            :message="policyDescription(currentPolicy)"
+            :message="detail.classification?.enabled ? $t('clientGovernance.active') : policyDescription(currentPolicy)"
             :description="governanceDescription(currentGovernance)"
           />
 
           <div class="section-title">{{ $t("legacy.4ig27k") }}</div>
-          <a-table :columns="agentColumns" :data-source="detail.agents || []" :row-key="row => row.local_agent_id || row.agent_type" size="small" :pagination="false" :expandable="agentTableExpandable">
+          <a-table class="local-agents-table" :columns="agentColumns" :data-source="detail.agents || []" :row-key="row => row.local_agent_id || row.agent_type" size="small" :pagination="false" :expandable="agentTableExpandable" :scroll="{ x: 920 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'type'">
                 <strong>{{ agentLabel(record.agent_type, record) }}</strong>
@@ -143,32 +137,33 @@
               </template>
             </template>
             <template #expandedRowRender="{ record: agentRecord }">
-              <a-table class="agent-skill-table" :columns="skillColumns" :data-source="agentSkills(agentRecord)" :row-key="row => `${row.agent_type}:${row.path}`" size="small" :pagination="false">
+              <a-table class="agent-skill-table" table-layout="fixed" :columns="skillColumns" :data-source="agentSkills(agentRecord)" :row-key="row => `${row.agent_type}:${row.path}`" size="small" :pagination="false">
                 <template #bodyCell="{ column, record }">
                   <template v-if="column.key === 'name'">
                     <strong>{{ record.name }}</strong>
                     <div class="muted ellipsis">{{ record.path }}</div>
                   </template>
-                  <template v-else-if="column.key === 'status'"><a-tag>{{ record.status }}</a-tag></template>
+                  <template v-else-if="column.key === 'status'">
+                    <a-tag>{{ $t(`clientGovernance.${record.governance?.certification || 'confirmation_pending'}`) }}</a-tag>
+                    <div v-if="record.status === 'external_link'" class="muted">{{ $t('clientGovernance.linkOutsideScope') }}</div>
+                    <div v-if="record.governance?.trigger" class="muted">{{ governanceEventValue(record.governance.trigger) }}</div>
+                    <div v-if="record.governance?.action" class="muted">{{ governanceEventValue(record.governance.action) }}</div>
+                    <ClientSkillScan :skill="record" />
+                  </template>
                   <template v-else-if="column.key === 'action'">
-                    <a-space>
-                      <a-button v-if="hasAccess('clients:execute')"
-                        type="link"
-                        :loading="actionKey === `repair:${record.agent_type}:${record.skill_id}`"
-                        :disabled="!record.skill_id"
-                        @click="repairSkill(record)"
-                      >{{ $t("legacy.1hrhvck") }}</a-button>
-                      <a-popconfirm v-if="hasAccess('clients:execute')" :title="$t('legacy.1o0qwo1')" @confirm="removeSkill(record)">
-                        <a-button
-                          type="link"
-                          danger
-                          :loading="actionKey === `remove:${record.agent_type}:${record.skill_id || record.name}`"
-                        >{{ $t("legacy.7higgq") }}</a-button>
-                      </a-popconfirm>
-                    </a-space>
+                    <ClientSkillActions :client="detail" :agent="agentRecord" :skill="record" @created="skillActionCreated" />
                   </template>
                 </template>
               </a-table>
+            </template>
+          </a-table>
+
+          <div class="section-title">{{ $t('clientGovernance.recoveryCopies') }}</div>
+          <a-table :columns="recoveryColumns" :data-source="detail.recovery || []" row-key="id" size="small" :pagination="{ pageSize: 6 }" :scroll="{ x: 650 }">
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'action'">
+                <ClientSkillActions :client="detail" :agent="recoveryAgent(record)" :skill="record" recovery @created="skillActionCreated" />
+              </template>
             </template>
           </a-table>
 
@@ -186,8 +181,8 @@
               <template v-else-if="column.key === 'error'">{{ record.error || '-' }}</template>
               <template v-else-if="column.key === 'action'">
                 <a-space>
-                  <a-button v-if="hasAccess('clients:execute') && (['pending', 'running'].includes(record.status))" type="link" danger @click="cancelTask(record)">{{ $t("legacy.1589w37") }}</a-button>
-                  <a-button v-if="hasAccess('clients:execute') && (['failed', 'cancelled'].includes(record.status))" type="link" @click="retryTask(record)">{{ $t("legacy.lswd2v") }}</a-button>
+                  <a-button v-if="hasAccess('clients:execute') && (['pending', 'running'].includes(record.status))" type="link" danger :loading="taskOperations.has(record.id)" :disabled="taskOperations.has(record.id) || (['skill_action', 'remove_skill', 'install_skill', 'repair_skill'].includes(record.task_type) && record.status === 'running')" :title="['skill_action', 'remove_skill', 'install_skill', 'repair_skill'].includes(record.task_type) && record.status === 'running' ? $t('clientGovernance.actionAlreadyStarted') : ''" @click="cancelTask(record)">{{ $t("legacy.1589w37") }}</a-button>
+                  <a-button v-if="hasAccess('clients:execute') && (['failed', 'cancelled'].includes(record.status))" type="link" :loading="taskOperations.has(record.id)" :disabled="taskOperations.has(record.id)" @click="retryTask(record)">{{ $t("legacy.lswd2v") }}</a-button>
                 </a-space>
               </template>
             </template>
@@ -195,10 +190,12 @@
 
           <div class="section-title">{{ $t("legacy.1hnc5z3") }}</div>
           <a-timeline v-if="detail.events?.length">
-            <a-timeline-item v-for="event in detail.events.slice(0, eventVisibleCount)" :key="event.id" :color="eventColor(event.event_type)">
+            <a-timeline-item v-for="event in detail.events.slice(0, eventVisibleCount)" :key="event.id" :color="eventColor(event)">
               <strong>{{ eventLabel(event.event_type) }}</strong>
               <span v-if="event.skill_name"> · {{ event.skill_name }}</span>
               <div class="muted">{{ formatTime(event.created_at) }}</div>
+              <div v-if="event.details?.trigger" class="muted">{{ governanceEventValue(event.details.trigger) }} · {{ governanceEventValue(event.details.action) }}</div>
+              <div v-if="event.observation_count > 1" class="muted">{{ $t('clientGovernance.observations', { count: event.observation_count }) }} · {{ $t('clientGovernance.lastSeen', { time: formatTime(event.last_seen_at) }) }}</div>
             </a-timeline-item>
           </a-timeline>
           <a-empty v-else :description="$t('legacy.1fxykwc')" />
@@ -276,10 +273,14 @@
       </a-steps>
     </a-modal>
   </div>
+    <ClientGovernancePolicy v-model:open="classificationOpen" :client-id="classificationClientId" @saved="loadClients(); detailVisible && refreshDetail()" />
 </template>
 
 <script setup>
 import { can as hasAccess } from '../access'
+import ClientGovernancePolicy from '../components/ClientGovernancePolicy.vue'
+import ClientSkillScan from '../components/ClientSkillScan.vue'
+import ClientSkillActions from '../components/ClientSkillActions.vue'
 import {
   getCurrentLocale,
   i18n,
@@ -307,6 +308,9 @@ import {
   updateClientPolicy,
 } from '../api'
 const loading = ref(false)
+const classificationOpen = ref(false)
+const classificationClientId = ref('')
+const openClassification = clientId => { classificationClientId.value = clientId; classificationOpen.value = true }
 const detailLoading = ref(false)
 const submitting = ref(false)
 const actionKey = ref('')
@@ -324,6 +328,20 @@ const skills = ref([])
 const skillsLoading = ref(false)
 const targetInstalledSkills = ref([])
 const detail = ref(null)
+const taskOperations = reactive(new Set())
+let detailSequence = 0
+const recoveryColumns = computed(() => [
+  { title: i18n.global.t('clientGovernance.skill'), dataIndex: 'skill_name' },
+  { title: i18n.global.t('clientGovernance.agent'), dataIndex: 'agent_type' },
+  { title: i18n.global.t('clientGovernance.path'), dataIndex: 'original_path', ellipsis: true },
+  { title: i18n.global.t('clientGovernance.chooseAction'), key: 'action', width: 220 },
+])
+const recoveryAgent = record => detail.value?.agents?.find(agent => agent.agent_type === record.agent_type) || { agent_type: record.agent_type }
+const skillActionCreated = async ({ clientId, taskId }) => {
+  if (detail.value?.client_id !== clientId) return
+  await refreshDetail()
+  watchTask(taskId, clientId).catch(() => {})
+}
 const currentPolicy = ref('audit')
 const currentGovernance = ref('registry')
 const installForm = reactive({ agent_type: '', managed_agent_id: '', skill_id: '' })
@@ -355,12 +373,12 @@ const agentColumns = [
   { title: phrase('legacy.es5rq0'), key: 'binding', width: 250 },
   { title: i18n.global.t('clientModelConfig.model'), key: 'model', width: 160 },
   { title: 'Skill', key: 'skills', width: 70 },
-  { title: phrase('legacy.501w24'), key: 'action', width: 120 },
+  { title: phrase('legacy.501w24'), key: 'action', width: 150, fixed: 'right' },
 ]
 const skillColumns = [
   { title: 'Skill', key: 'name' },
-  { title: phrase('legacy.1ccx4t4'), key: 'status', width: 100 },
-  { title: phrase('legacy.501w24'), key: 'action', width: 130 },
+  { title: phrase('legacy.1ccx4t4'), key: 'status', width: 240 },
+  { title: phrase('legacy.501w24'), key: 'action', width: 190 },
 ]
 const taskColumns = [
   { title: phrase('legacy.cm180x'), key: 'type', width: 240 },
@@ -371,7 +389,7 @@ const taskColumns = [
 ]
 
 const onlineCount = computed(() => clients.value.filter(isOnline).length)
-const isSharedSkillsRecord = record => Boolean(record?.capabilities?.shared_skills)
+const isSharedSkillsRecord = record => record?.agent_type === 'global-skills'
 const actualAgentCount = record => record.agents?.filter(agent => !isSharedSkillsRecord(agent)).length || 0
 const sharedSkillsCount = record => record.agents?.filter(isSharedSkillsRecord).length || 0
 const agentCount = computed(() => clients.value.reduce((sum, item) => sum + actualAgentCount(item), 0))
@@ -429,37 +447,39 @@ const loadClients = async () => {
   }
 }
 const openDetail = async (record) => {
+  const sequence = ++detailSequence
   eventVisibleCount.value = 10
   detailVisible.value = true
   detailLoading.value = true
+  detail.value = null
   try {
-    detail.value = await getClientDetail(record.client_id)
+    const result = await getClientDetail(record.client_id)
+    if (sequence !== detailSequence) return
+    detail.value = result
     currentPolicy.value = detail.value.policy_mode || 'audit'
     currentGovernance.value = detail.value.governance_mode || 'registry'
   } finally {
-    detailLoading.value = false
+    if (sequence === detailSequence) detailLoading.value = false
   }
 }
 const refreshDetail = async () => {
   if (!detail.value?.client_id) return
-  detail.value = await getClientDetail(detail.value.client_id)
+  const clientId = detail.value.client_id
+  const sequence = ++detailSequence
+  const result = await getClientDetail(clientId)
+  if (sequence !== detailSequence || !detailVisible.value || detail.value?.client_id !== clientId) return
+  detail.value = result
   currentPolicy.value = detail.value.policy_mode || 'audit'
   currentGovernance.value = detail.value.governance_mode || 'registry'
 }
-const watchTask = async taskId => {
-  for (let attempt = 0; attempt < 15 && detailVisible.value; attempt += 1) {
+const watchTask = async (taskId, clientId = detail.value?.client_id) => {
+  for (let attempt = 0; attempt < 15 && detailVisible.value && detail.value?.client_id === clientId; attempt += 1) {
     await new Promise(resolve => setTimeout(resolve, 2000))
+    if (!detailVisible.value || detail.value?.client_id !== clientId) return
     await refreshDetail()
     const status = detail.value.tasks?.find(task => task.id === taskId)?.status
     if (status && !['pending', 'running'].includes(status)) return
   }
-}
-const savePolicy = async (mode) => {
-  await updateClientPolicy(detail.value.client_id, { mode })
-  currentPolicy.value = mode
-  detail.value.policy_mode = mode
-  await refreshDetail()
-  message.success(phrase('legacy.emjkq1'))
 }
 const saveGovernance = async (governanceMode) => {
   await updateClientPolicy(detail.value.client_id, { governance_mode: governanceMode })
@@ -565,55 +585,27 @@ const createInstall = async () => {
     submitting.value = false
   }
 }
-const removeSkill = async (record) => {
-  actionKey.value = `remove:${record.agent_type}:${record.skill_id || record.name}`
-  const agent = detail.value.agents.find(item => item.agent_type === record.agent_type)
-  try {
-    const task = await createClientTask(detail.value.client_id, {
-      task_type: 'remove_skill',
-      payload: {
-        agent_type: record.agent_type,
-        managed_agent_id: agent?.managed_agent_id,
-        skill_id: record.skill_id || '',
-        skill_name: record.name,
-      },
-    })
-    await refreshDetail()
-    message.success(phrase('legacy.uaj92l'))
-    watchTask(task.id).catch(() => {})
-  } finally {
-    actionKey.value = ''
-  }
-}
-const repairSkill = async (record) => {
-  const key = `repair:${record.agent_type}:${record.skill_id}`
-  actionKey.value = key
-  const agent = detail.value.agents.find(item => item.agent_type === record.agent_type)
-  try {
-    const task = await createClientTask(detail.value.client_id, {
-      task_type: 'repair_skill',
-      payload: {
-        agent_type: record.agent_type,
-        managed_agent_id: agent?.managed_agent_id,
-        skill_id: record.skill_id,
-      },
-    })
-    await refreshDetail()
-    message.success(phrase('legacy.1is7th3'))
-    watchTask(task.id).catch(() => {})
-  } finally {
-    actionKey.value = ''
-  }
-}
 const cancelTask = async (record) => {
-  await cancelClientTask(detail.value.client_id, record.id)
-  await refreshDetail()
-  message.success(phrase('legacy.1v37glb'))
+  if (taskOperations.has(record.id)) return
+  taskOperations.add(record.id)
+  try {
+    await cancelClientTask(detail.value.client_id, record.id)
+    await refreshDetail()
+    message.success(phrase('legacy.1v37glb'))
+  } catch (error) { message.error(error.response?.data?.detail || i18n.global.t('clientGovernance.taskFailed')) }
+  finally { taskOperations.delete(record.id) }
 }
 const retryTask = async (record) => {
-  await retryClientTask(detail.value.client_id, record.id)
-  await refreshDetail()
-  message.success(phrase('legacy.jtnoyu'))
+  if (taskOperations.has(record.id)) return
+  taskOperations.add(record.id)
+  const clientId = detail.value.client_id
+  try {
+    const task = await retryClientTask(clientId, record.id)
+    await refreshDetail()
+    message.success(phrase('legacy.jtnoyu'))
+    watchTask(task.id, clientId).catch(() => {})
+  } catch (error) { message.error(error.response?.data?.detail || i18n.global.t('clientGovernance.taskFailed')) }
+  finally { taskOperations.delete(record.id) }
 }
 const downloadClient = async ({ key }) => {
   const release = downloadPlatforms.value.find(item => item.key === key)
@@ -707,9 +699,14 @@ const governanceDescription = mode => ({
   strict: phrase('legacy.1kx3oiq'),
 }[mode])
 const governanceShortLabel = mode => ({ registry: phrase('legacy.2kc7ip'), strict: phrase('legacy.y5lawk') }[mode] || phrase('legacy.2kc7ip'))
-const eventLabel = value => translateDomain('auditEvent', value, value)
-const eventColor = value => ['skill_blocked', 'skill_quarantined'].includes(value) ? 'red' : value === 'skill_modified' ? 'orange' : 'green'
+const eventLabel = value => ['skill_governance_recorded', 'skill_governance_detected', 'skill_governance_action', 'skill_scan_submitted'].includes(value)
+  ? i18n.global.t(`clientGovernance.${value}`)
+  : translateDomain('auditEvent', value, value)
+const governanceEventValue = value => i18n.global.te(`clientGovernance.${value}`) ? i18n.global.t(`clientGovernance.${value}`) : value || '-'
+const eventColor = event => event.details?.action === 'record_only' ? 'default' : event.details?.trigger === 'malicious' || event.details?.status === 'failed' || ['skill_blocked', 'skill_quarantined'].includes(event.event_type)
+  ? 'red' : ['skill_modified', 'skill_governance_detected'].includes(event.event_type) ? 'orange' : 'green'
 const taskLabel = task => {
+  if (task.task_type === 'skill_action') return governanceEventValue(task.payload?.action)
   if (task.task_type === 'rescan' && task.payload?.reason === 'policy_changed') return phrase('legacy.q9utgp')
   return translateDomain('taskType', task.task_type, task.task_type)
 }
@@ -732,7 +729,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.summary-row,
+.summary-row { margin-top: 8px; }
 .table-card {
   margin-top: 16px;
 }
@@ -764,6 +761,9 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 16px;
 }
+.agent-skill-table { width: min(984px, calc(100vw - 96px)); max-width: 100%; }
+.agent-skill-table :deep(td) { overflow-wrap: anywhere; }
+.local-agents-table :deep(.ant-tag) { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .detail-title {
   color: #16324f;
   font-size: 20px;

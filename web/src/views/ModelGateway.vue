@@ -271,7 +271,7 @@
           <p class="prompt-guard-hint">{{ $t('legacy.nizzaf') }}</p>
           <div class="prompt-guard-mode">
                   <span>{{ $t('legacy.1uw63aw') }}</span>
-                  <a-radio-group v-model:value="promptGuardForm.mode" button-style="solid">
+                  <a-radio-group v-model:value="promptGuardForm.mode" :disabled="testingPromptGuard" button-style="solid">
                     <a-radio-button value="log">{{ $t("legacy.4drpun") }}</a-radio-button>
                     <a-radio-button value="warn">{{ $t("legacy.gjwe4z") }}</a-radio-button>
                     <a-radio-button value="block">{{ $t("legacy.enaw4e") }}</a-radio-button>
@@ -282,26 +282,28 @@
                 <div class="prompt-guard-panel-heading">
                   <label for="prompt-guard-content">{{ $t('legacy.1s33gfn') }}</label>
                   <a-space wrap>
-                    <a-button size="small" type="link" @click="fillPromptGuardSample">{{ $t('legacy.1ckue96') }}</a-button>
-                    <a-button size="small" type="text" @click="clearPromptGuardTest">{{ $t('legacy.9mbwb2') }}</a-button>
+                    <a-button size="small" type="link" :disabled="testingPromptGuard" @click="fillPromptGuardSample">{{ $t('legacy.1ckue96') }}</a-button>
+                    <a-button size="small" type="text" :disabled="testingPromptGuard" @click="clearPromptGuardTest">{{ $t('legacy.9mbwb2') }}</a-button>
                   </a-space>
                 </div>
                 <a-form-item class="prompt-guard-input">
                   <a-textarea
                     id="prompt-guard-content"
                     v-model:value="promptGuardForm.content"
+                    :disabled="testingPromptGuard"
                     :rows="12"
                     :placeholder="$t('legacy.1sib2cs')"
                   />
                 </a-form-item>
                 <div class="prompt-guard-submit">
-                  <a-button v-if="hasAccess('privacy:test')" type="primary" :loading="testingPromptGuard" @click="runPromptGuardTest">{{ $t("legacy.1rqbpwt") }}</a-button>
+                  <a-button v-if="hasAccess('privacy:test')" type="primary" :loading="testingPromptGuard" :disabled="testingPromptGuard" @click="runPromptGuardTest">{{ $t("legacy.1rqbpwt") }}</a-button>
                 </div>
               </a-form>
               <section class="prompt-guard-result" aria-live="polite" :aria-busy="testingPromptGuard">
                 <div class="prompt-guard-panel-heading">{{ $t('legacy.1czspmb') }}</div>
                 <div class="prompt-guard-result-body">
-                <a-empty v-if="!promptGuardResult" :description="$t('legacy.airzfg')" class="prompt-guard-empty" />
+                <a-skeleton v-if="testingPromptGuard" active :paragraph="{ rows: 5 }" />
+                <a-empty v-else-if="!promptGuardResult" :description="$t('legacy.airzfg')" class="prompt-guard-empty" />
                 <template v-else>
                   <a-descriptions size="small" bordered :column="1">
                     <a-descriptions-item :label="$t('legacy.hm077g')">
@@ -923,6 +925,7 @@ const promptGuardForm = reactive({
 })
 const promptGuardResult = ref(null)
 const testingPromptGuard = ref(false)
+watch(() => [promptGuardForm.content, promptGuardForm.mode], () => { promptGuardResult.value = null })
 const mappingPagination = computed(() => ({
   current: mappingQuery.page,
   pageSize: mappingQuery.page_size,
@@ -995,12 +998,14 @@ const syncPolicyRuleRows = () => {
 }
 
 const runPromptGuardTest = async () => {
+  if (testingPromptGuard.value) return
   const content = promptGuardForm.content.trim()
   if (!content) {
     message.warning(phrase('legacy.1rxbcfo'))
     return
   }
   testingPromptGuard.value = true
+  promptGuardResult.value = null
   try {
     promptGuardResult.value = await testPromptGuard({
       mode: promptGuardForm.mode,

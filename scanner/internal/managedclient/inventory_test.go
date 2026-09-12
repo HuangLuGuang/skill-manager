@@ -9,6 +9,27 @@ import (
 	"skill-manager/scanner/internal/manifest"
 )
 
+func TestDiscoverDeduplicatesAliasedSkillRoots(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, "real-skills")
+	alias := filepath.Join(home, "alias-skills")
+	writeSkill(t, filepath.Join(root, "sample"), "sample")
+	if err := os.Symlink(root, alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveConfig(home, Config{Server: "http://manager.invalid", Token: "test", AgentSkillRoots: map[string][]string{"codex": {root, alias}}}); err != nil {
+		t.Fatal(err)
+	}
+	value, err := Discover(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, ok := findAgent(value, "codex")
+	if !ok || len(agent.Skills) != 1 || len(agentSkillRoots(agent)) != 1 || agent.Skills[0].Path != filepath.Join(root, "sample") {
+		t.Fatal("aliased root duplicated Skill inventory", agent)
+	}
+}
+
 func TestDiscoverFindsSupportedAgentsAndSkills(t *testing.T) {
 	home := t.TempDir()
 	roots := map[string]string{
@@ -59,7 +80,7 @@ func TestDiscoverFindsSupportedAgentsAndSkills(t *testing.T) {
 	if shared, _ := byType["global-skills"].Capabilities["shared_skills"].(bool); !shared {
 		t.Fatalf("global Skills directory was not marked shared: %#v", byType["global-skills"])
 	}
-	if readers, _ := byType["global-skills"].Capabilities["shared_skill_readers"].([]string); len(readers) != 2 || readers[0] != "OpenCode" || readers[1] != "Cursor" {
+	if readers, _ := byType["global-skills"].Capabilities["shared_skill_readers"].([]string); len(readers) != 2 || readers[0] != "Cursor" || readers[1] != "OpenCode" {
 		t.Fatalf("global Skills readers were not reported: %#v", byType["global-skills"])
 	}
 	for agentType := range roots {
@@ -92,7 +113,7 @@ func TestDiscoverFindsSupportedAgentsAndSkills(t *testing.T) {
 	}
 }
 
-func TestDiscoverSkipsBinaryWithoutAgentDirectory(t *testing.T) {
+func TestDiscoverInstalledAgentWithoutSkillsDirectory(t *testing.T) {
 	home := t.TempDir()
 	bin := t.TempDir()
 	path := filepath.Join(bin, "test-agent")
@@ -102,8 +123,8 @@ func TestDiscoverSkipsBinaryWithoutAgentDirectory(t *testing.T) {
 	t.Setenv("PATH", bin)
 	spec := adapter{agentType: "test", binaries: []string{"test-agent"}, skillRoots: []string{".test-agent/skills"}, supportsSkill: true}
 
-	if _, found, err := discoverAgent(home, spec, DefaultManifestOptions()); err != nil || found {
-		t.Fatalf("binary without Agent directory should be hidden: found=%v err=%v", found, err)
+	if agent, found, err := discoverAgent(home, spec, DefaultManifestOptions()); err != nil || !found || agent.InstallPath != path || len(agent.Skills) != 0 {
+		t.Fatalf("installed Agent should be visible without Skills: found=%v agent=%+v err=%v", found, agent, err)
 	}
 	if err := os.MkdirAll(filepath.Join(home, ".test-agent"), 0o755); err != nil {
 		t.Fatal(err)
@@ -137,6 +158,7 @@ func TestRemoveCustomAgentKeepsSkillDirectory(t *testing.T) {
 }
 
 func TestDiscoverDeduplicatesCustomAgentUsingBuiltinRoot(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	home := t.TempDir()
 	root := filepath.Join(home, ".trae-cn", "skills")
 	writeSkill(t, filepath.Join(root, "code-review"), "code-review")
@@ -165,6 +187,7 @@ func TestDiscoverDeduplicatesCustomAgentUsingBuiltinRoot(t *testing.T) {
 }
 
 func TestBuiltinAgentSkillRootsCanBeCustomizedAndReset(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	home := t.TempDir()
 	if err := SaveConfig(home, Config{Server: "http://agent-manager", Token: "token"}); err != nil {
 		t.Fatal(err)
@@ -217,6 +240,7 @@ func TestBuiltinAgentSkillRootsCanBeCustomizedAndReset(t *testing.T) {
 }
 
 func TestDiscoverIncludesUserOwnedSymlinkedSkill(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	home := t.TempDir()
 	root := filepath.Join(home, ".codex", "skills")
 	outside := filepath.Join(home, "outside")
@@ -243,7 +267,8 @@ func TestDiscoverIncludesUserOwnedSymlinkedSkill(t *testing.T) {
 	}
 }
 
-func TestDiscoverSkipsSymlinkOutsideUserHome(t *testing.T) {
+func TestDiscoverReportsSymlinkOutsideAllowedRootsWithoutReadingContent(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	home := t.TempDir()
 	outside := t.TempDir()
 	writeSkill(t, outside, "outside")
@@ -258,12 +283,52 @@ func TestDiscoverSkipsSymlinkOutsideUserHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inventory.Agents) != 1 || len(inventory.Agents[0].Skills) != 0 {
-		t.Fatalf("external symlink escaped user home: %#v", inventory.Agents)
+	if len(inventory.Agents) != 1 || len(inventory.Agents[0].Skills) != 1 {
+		t.Fatalf("external symlink not reported: %#v", inventory.Agents)
+	}
+	skill := inventory.Agents[0].Skills[0]
+	if skill.Status != "external_link" || skill.Signature != "" || skill.Error != "skill_link_outside_scope" || skill.Name != "linked" {
+		t.Fatalf("external contents should remain unread: %#v", skill)
 	}
 }
 
+func TestCustomRootOutsideHomeAllowsLinksWithinThatRoot(t *testing.T) {
+	home := t.TempDir()
+	if err := SaveConfig(home, Config{Server: "http://example.invalid", Token: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	writeSkill(t, filepath.Join(root, "source"), "source")
+	if err := os.Symlink(filepath.Join(root, "source"), filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	custom, err := AddCustomAgent(home, "External workspace", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := Discover(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, agent := range inventory.Agents {
+		if agent.AgentType != custom.AgentType {
+			continue
+		}
+		if len(agent.Skills) != 2 {
+			t.Fatal("missing configured-root link", agent.Skills)
+		}
+		for _, skill := range agent.Skills {
+			if skill.Signature == "" || skill.Error != "" {
+				t.Fatal(skill)
+			}
+		}
+		return
+	}
+	t.Fatal("custom Agent not discovered")
+}
+
 func TestDiscoverIncludesManagedSymlink(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	home := t.TempDir()
 	store := filepath.Join(home, ".agent-manager", "skills", "skill-1", "abc")
 	writeSkill(t, store, "managed")
@@ -284,6 +349,7 @@ func TestDiscoverIncludesManagedSymlink(t *testing.T) {
 }
 
 func TestDiscoverKeepsBrokenManagedSymlinkVisible(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	home := t.TempDir()
 	root := filepath.Join(home, ".codex", "skills")
 	target := filepath.Join(home, ".agent-manager", "skills", "deleted", "release")
@@ -331,5 +397,36 @@ func writeSkill(t *testing.T, path, name string) {
 	content := "---\nname: " + name + "\ndescription: test\n---\n"
 	if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDiscoverResidualDirectoryIsNotInstallation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PATH", t.TempDir())
+	writeSkill(t, filepath.Join(home, ".removed-agent", "skills", "retained"), "retained")
+	spec := adapter{agentType: "removed-agent", binaries: []string{"removed-agent"}, skillRoots: []string{".removed-agent/skills"}, supportsSkill: true}
+	agent, found, err := discoverAgent(home, spec, DefaultManifestOptions())
+	if err != nil || !found || agent.InstallPath != "" || agent.Capabilities["installed"] != false || len(agent.Skills) != 1 {
+		t.Fatalf("retain inventory without claiming installation: agent=%+v found=%v err=%v", agent, found, err)
+	}
+}
+
+func TestDiscoverNativeAndVersionedInstallations(t *testing.T) {
+	for _, relative := range []string{".local/bin/test-agent", ".nvm/versions/node/v22/bin/test-agent"} {
+		t.Run(relative, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("PATH", t.TempDir())
+			path := filepath.Join(home, relative)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			agent, found, err := discoverAgent(home, adapter{agentType: "test", binaries: []string{"test-agent"}, skillRoots: []string{".test/skills"}, supportsSkill: true}, DefaultManifestOptions())
+			if err != nil || !found || agent.InstallPath != path || agent.SkillsPath != filepath.Join(home, ".test/skills") || len(agent.Skills) != 0 {
+				t.Fatalf("installation not found: %+v %v", agent, err)
+			}
+		})
 	}
 }

@@ -244,6 +244,7 @@
           </div>
           <a-table
             :columns="taskColumns"
+            :scroll="{ x: 930 }"
             class="scan-task-table"
             :data-source="filteredTasks"
             :pagination="tablePagination"
@@ -1145,7 +1146,7 @@ import {
   updateSecurityPolicy,
   updateSecurityTarget,
 } from '../api'
-import { formatDateTime, formatBeijingDateTime } from '../utils/format'
+import { formatBeijingDateTime, formatBeijingDateTime as formatDateTime } from '../utils/format'
 
 const { t, te, locale } = useI18n()
 const exportingReport = ref(false)
@@ -1263,14 +1264,14 @@ const policyColumns = computed(() => [
   { title: t('agentSecurityScans.policies.name'), key: 'name', width: 160, ellipsis: true }, { title: t('agentSecurityScans.environment'), key: 'environment', width: 175 }, { title: t('agentSecurityScans.policies.mode'), key: 'execution_mode', width: 140 }, { title: t('agentSecurityScans.allowedCapabilities'), key: 'allowed_capabilities', width: 120 }, { title: t('agentSecurityScans.policies.budget'), key: 'budget', width: 220 }, { title: t('agentSecurityScans.policies.network'), key: 'network', width: 250 }, { title: t('agentSecurityScans.status'), key: 'enabled', width: 110 }, { title: t('agentSecurityScans.actions'), key: 'actions', width: 160, fixed: 'right' },
 ])
 const taskColumns = computed(() => [
-  { title: t('agentSecurityScans.detail.task'), key: 'task_id', width: '15%', ellipsis: true },
-  { title: t('agentSecurityScans.tasks.target'), key: 'target_id', width: '11%', ellipsis: true },
-  { title: t('agentSecurityScans.tasks.kind'), key: 'scan_kind', width: '14%' },
-  { title: t('agentSecurityScans.scope.evaluator'), key: 'evaluation_model', width: '14%', ellipsis: true },
-  { title: t('agentSecurityScans.status'), key: 'status', width: '8%' },
-  { title: t('agentSecurityScans.tasks.usage'), key: 'progress', width: '13%' },
-  { title: t('agentSecurityScans.createdAt'), key: 'created_at', width: '14%' },
-  { title: t('agentSecurityScans.actions'), key: 'actions', width: '11%' },
+  { title: t('agentSecurityScans.detail.task'), key: 'task_id', width: 140, ellipsis: true },
+  { title: t('agentSecurityScans.tasks.target'), key: 'target_id', width: 115, ellipsis: true },
+  { title: t('agentSecurityScans.tasks.kind'), key: 'scan_kind', width: 125 },
+  { title: t('agentSecurityScans.scope.evaluator'), key: 'evaluation_model', width: 145, ellipsis: true },
+  { title: t('agentSecurityScans.status'), key: 'status', width: 80 },
+  { title: t('agentSecurityScans.tasks.usage'), key: 'progress', width: 85 },
+  { title: t('agentSecurityScans.createdAt'), key: 'created_at', width: 150 },
+  { title: t('agentSecurityScans.actions'), key: 'actions', width: 90, fixed: 'right' },
 ])
 const findingColumns = computed(() => [
   { title: t('agentSecurityScans.findings.scan'), key: 'scan', width: 280 },
@@ -2197,7 +2198,7 @@ watch(() => route.query.schedule_id, async id => { if (id) { await nextTick(); a
 .ops-header h1 { margin: 0; font-size: 22px; font-weight: 600; line-height: 32px; letter-spacing: 0; overflow-wrap: anywhere; }
 .panel-heading p { margin: 0; color: #64748b; }
 .task-risk-summary { padding: 16px; margin-bottom: 20px; background: #f5f7fa; border-left: 3px solid #b42318; overflow-wrap: anywhere; }
-.scan-pipeline { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); margin-bottom: 12px; overflow: hidden; border: 1px solid #dce4ef; border-radius: 4px; background: #fff; }
+.scan-pipeline { display: grid; grid-template-columns: repeat(6, minmax(180px, 1fr)); margin-bottom: 12px; overflow-x: auto; border: 1px solid #dce4ef; border-radius: 8px; background: #fff; }
 .pipeline-stage { position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 9px; min-height: 60px; padding: 8px 12px; color: #4b5f7a; text-align: left; background: transparent; border: 0; border-right: 1px solid #e8edf4; cursor: pointer; transition: background .18s ease, color .18s ease; }
 .pipeline-stage:last-child { border-right: 0; }
 .pipeline-stage:hover { background: #f7faff; }
@@ -2247,6 +2248,7 @@ watch(() => route.query.schedule_id, async id => { if (id) { await nextTick(); a
 .scan-task-table :deep(.ant-tag) { max-width: 100%; margin-inline-end: 0; white-space: normal; }
 .scan-task-table :deep(.ant-space), .scan-task-table :deep(.ant-space-item) { max-width: 100%; min-width: 0; }
 .scan-task-table :deep(.ant-btn) { max-width: 100%; height: auto; white-space: normal; }
+.scan-task-table :deep(.ant-btn-link) { padding-inline: 0; }
 .scan-task-table .usage-cell { min-width: 0; }
 .case-list :deep(.ant-list-item) { align-items: flex-start; gap: 14px; }
 .case-list :deep(.ant-list-item-meta) { min-width: 0; }
@@ -2325,8 +2327,11 @@ watch(() => route.query.schedule_id, async id => { if (id) { await nextTick(); a
 .detail-identity span { color: #74869d; font-size: 12px; }
 .evidence-block, .raw-block { max-width: 100%; margin: 0; padding: 14px; overflow: auto; color: #d7e4f5; font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; background: #182638; border-radius: 8px; }
 .raw-block { min-height: 260px; max-height: 60vh; }
-@media (max-width: 1050px) { .scan-pipeline { grid-template-columns: repeat(6, minmax(190px, 1fr)); overflow-x: auto; } }
+@media (max-width: 1500px) { .scan-pipeline { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 720px) {
+  .scan-pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pipeline-stage { grid-template-columns: minmax(0, 1fr) auto; }
+  .stage-index { display: none; }
   .ops-header, .panel-heading { align-items: stretch; flex-direction: column; }
   .ops-header :deep(.ant-space), .panel-heading :deep(.ant-space) { width: 100%; }
   .ops-header :deep(.ant-space-item), .panel-heading :deep(.ant-space-item) { flex: 1 1 auto; }

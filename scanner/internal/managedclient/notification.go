@@ -1,13 +1,10 @@
 package managedclient
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"runtime"
 	"strings"
-	"time"
+
+	"skill-manager/scanner/internal/localize"
 )
 
 func notificationForEvent(eventType, agentType, skillName string, details map[string]any) (LocalNotification, bool) {
@@ -22,6 +19,25 @@ func notificationForEvent(eventType, agentType, skillName string, details map[st
 	}
 	result := LocalNotification{Severity: "warning", EventType: eventType, AgentType: agentType, SkillName: skillName}
 	switch eventType {
+	case "skill_governance_detected", "skill_governance_action":
+		if stringDetail(details, "action") == "record_only" {
+			return LocalNotification{}, false
+		}
+		result.Details = map[string]string{}
+		for _, key := range []string{"path", "signature", "trigger", "action", "status", "error_code", "policy_version"} {
+			result.Details[key] = stringDetail(details, key)
+		}
+		result.Title = localize.Text("Skill 分类告警", "Skill Classification Alert")
+		if eventType == "skill_governance_action" {
+			result.Title = localize.Text("Skill 处置结果", "Skill Remediation Result")
+			if stringDetail(details, "status") == "completed" {
+				result.Severity = "info"
+			}
+		}
+		if stringDetail(details, "trigger") == "malicious" || stringDetail(details, "status") == "failed" {
+			result.Severity = "critical"
+		}
+		result.Message = fmt.Sprintf(localize.Text("%s：请在 Agent 管理中查看原因和处置状态。", "%s: Review the reason and remediation status in Agent Management."), skillName)
 	case "skill_repaired":
 		result.Severity = "info"
 		result.Title = "Skill 已自动恢复"
@@ -69,38 +85,6 @@ func stringSliceDetail(details map[string]any, key string) []string {
 	default:
 		return nil
 	}
-}
-
-func DeliverPendingNotifications(store *Store) {
-	items, err := store.PendingNotifications(20)
-	if err != nil {
-		return
-	}
-	for _, item := range items {
-		if err := sendSystemNotification(item.Title, item.Message); err != nil {
-			return
-		}
-		_ = store.MarkNotificationDelivered(item.ID)
-	}
-}
-
-func sendSystemNotification(title, message string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	var command *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		return fmt.Errorf("macOS notifications are delivered by the desktop app")
-	case "linux":
-		command = exec.CommandContext(ctx, "notify-send", title, message)
-	case "windows":
-		script := `$title=[Security.SecurityElement]::Escape($env:AM_NOTIFICATION_TITLE); $message=[Security.SecurityElement]::Escape($env:AM_NOTIFICATION_MESSAGE); $xml=New-Object Windows.Data.Xml.Dom.XmlDocument; $xml.LoadXml("<toast><visual><binding template='ToastGeneric'><text>$title</text><text>$message</text></binding></visual></toast>"); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('River Security').Show([Windows.UI.Notifications.ToastNotification]::new($xml))`
-		command = exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
-		command.Env = append(os.Environ(), "AM_NOTIFICATION_TITLE="+title, "AM_NOTIFICATION_MESSAGE="+message)
-	default:
-		return fmt.Errorf("system notifications are not supported on %s", runtime.GOOS)
-	}
-	return command.Run()
 }
 
 func stringDetail(details map[string]any, key string) string {

@@ -37,38 +37,26 @@ window.clientStaticI18nBindings = [
     "source": "客户端流程"
   },
   {
-    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(1)",
-    "nodeIndex": 1,
+    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(1)>span:nth-of-type(2)",
+    "nodeIndex": 0,
     "key": "ui.wu8jgp",
     "source": "客户端概览"
   },
   {
-    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(2)",
-    "nodeIndex": 1,
-    "key": "ui.zg9dnv",
-    "source": "Agent 发现"
+    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(2)>span:nth-of-type(2)",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.title",
+    "source": "Agent 管理"
   },
   {
-    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(3)",
-    "nodeIndex": 1,
+    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(3)>span:nth-of-type(2)",
+    "nodeIndex": 0,
     "key": "ui.1eoi8rw",
     "source": "模型切换"
   },
   {
-    "selector": "#takeover-nav-label",
+    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(4)>span:nth-of-type(2)",
     "nodeIndex": 0,
-    "key": "ui.1aqrn47",
-    "source": "接管预览"
-  },
-  {
-    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(5)",
-    "nodeIndex": 1,
-    "key": "ui.1ihgm6s",
-    "source": "运行状态"
-  },
-  {
-    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(6)",
-    "nodeIndex": 1,
     "key": "ui.cn5hhp",
     "source": "执行记录"
   },
@@ -185,12 +173,6 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "ui.2fhcc7",
     "source": "刷新状态"
-  },
-  {
-    "selector": "#edit-connection",
-    "nodeIndex": 0,
-    "key": "ui.1w5pstx",
-    "source": "修改连接"
   },
   {
     "selector": "#connected-overview>section:nth-of-type(2)",
@@ -435,14 +417,26 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#discover>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.1efc36t",
-    "source": "本机 Agent 与 Skill"
+    "key": "ui.agentManagement.title",
+    "source": "Agent 管理"
   },
   {
     "selector": "#discover>div:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.1mxxe19",
-    "source": "查看发现路径、校验状态，并选择需要纳入治理的 Skill。"
+    "key": "ui.agentManagement.automatic",
+    "source": "发现的 Agent 和 Skill 自动纳管，按平台生效策略处理。"
+  },
+  {
+    "selector": "#platform-install-button",
+    "attribute": "title",
+    "key": "ui.c0s9l",
+    "source": "从平台安装 Skill"
+  },
+  {
+    "selector": "#platform-install-button",
+    "nodeIndex": 0,
+    "key": "ui.r9y3lo",
+    "source": "从平台安装"
   },
   {
     "selector": "#add-custom-agent-button",
@@ -469,40 +463,202 @@ window.clientStaticI18nBindings = [
     "source": "重新发现"
   },
   {
-    "selector": "#agent-list",
-    "nodeIndex": 0,
-    "key": "ui.tr7ufr",
-    "source": "尚未执行发现"
+    "selector": "#agent-scroll-left",
+    "attribute": "aria-label",
+    "key": "ui.agentTabs.scroll_left",
+    "source": "向左滚动 Agent"
   },
   {
-    "selector": "#discover>p:nth-of-type(1)",
+    "selector": "#agent-tabs",
+    "attribute": "aria-label",
+    "key": "ui.agentTabs.agents",
+    "source": "选择 Agent"
+  },
+  {
+    "selector": "#agent-scroll-right",
+    "attribute": "aria-label",
+    "key": "ui.agentTabs.scroll_right",
+    "source": "向右滚动 Agent"
+  },
+  {
+    "selector": "#discover>div:nth-of-type(4)",
+    "attribute": "aria-label",
+    "key": "ui.agentTabs.content",
+    "source": "Agent 内容"
+  },
+  {
+    "selector": "#agent-local-tab>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentTabs.local",
+    "source": "本地 Skills"
+  },
+  {
+    "selector": "#agent-pending-tab>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentTabs.pending",
+    "source": "检测记录"
+  },
+  {
+    "selector": "#agent-recovery-tab>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentTabs.recovery",
+    "source": "隔离副本"
+  },
+  {
+    "selector": "#agent-skill-search",
+    "attribute": "placeholder",
+    "key": "ui.agentTabs.search",
+    "source": "搜索 Skill 名称"
+  },
+  {
+    "selector": "#agent-skill-search",
+    "attribute": "aria-label",
+    "key": "ui.agentTabs.search",
+    "source": "搜索 Skill 名称"
+  },
+  {
+    "selector": "#agent-skill-status",
+    "attribute": "aria-label",
+    "key": "ui.agentTabs.status",
+    "source": "认证状态"
+  },
+  {
+    "selector": "#agent-skill-status>option:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentTabs.all",
+    "source": "全部认证状态"
+  },
+  {
+    "selector": "#agent-skill-status>option:nth-of-type(2)",
+    "nodeIndex": 0,
+    "key": "ui.agentTabs.trusted",
+    "source": "已认证"
+  },
+  {
+    "selector": "#agent-skill-status>option:nth-of-type(3)",
+    "nodeIndex": 0,
+    "key": "ui.agentTabs.unverified",
+    "source": "未认证"
+  },
+  {
+    "selector": "#agent-skill-status>option:nth-of-type(4)",
+    "nodeIndex": 0,
+    "key": "ui.agentTabs.changed",
+    "source": "内容变化"
+  },
+  {
+    "selector": "#agent-skill-status>option:nth-of-type(5)",
+    "nodeIndex": 0,
+    "key": "ui.agentTabs.malicious",
+    "source": "已确认恶意"
+  },
+  {
+    "selector": "#agent-local-panel>div:nth-of-type(2)>span:nth-of-type(2)",
+    "nodeIndex": 0,
+    "key": "ui.agentTabs.status",
+    "source": "认证状态"
+  },
+  {
+    "selector": "#agent-local-panel>div:nth-of-type(2)>span:nth-of-type(3)",
+    "nodeIndex": 0,
+    "key": "ui.agentTabs.actions",
+    "source": "操作"
+  },
+  {
+    "selector": "#agent-skill-empty",
+    "nodeIndex": 0,
+    "key": "ui.agentTabs.empty",
+    "source": "没有符合条件的 Skill"
+  },
+  {
+    "selector": "#agent-local-panel>div:nth-of-type(4)>div:nth-of-type(1)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.records.page_size",
+    "source": "每页条数"
+  },
+  {
+    "selector": "#agent-skill-page-size",
+    "attribute": "aria-label",
+    "key": "ui.records.page_size",
+    "source": "每页条数"
+  },
+  {
+    "selector": "#agent-skill-prev",
+    "nodeIndex": 0,
+    "key": "ui.records.previous",
+    "source": "上一页"
+  },
+  {
+    "selector": "#agent-skill-next",
+    "nodeIndex": 0,
+    "key": "ui.records.next",
+    "source": "下一页"
+  },
+  {
+    "selector": "#agent-local-panel>p:nth-of-type(2)",
     "nodeIndex": 0,
     "key": "ui.e76lrt",
     "source": "没有找到需要管理的 Agent？可点击右上角“添加 Agent”，手动指定 Skill 根目录。"
   },
   {
-    "selector": "#selection-heading",
+    "selector": "#agent-pending-panel>div:nth-of-type(1)>span:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.1tcut2",
-    "source": "下一步：确认接管范围"
+    "key": "ui.agentHistory.description",
+    "source": "已提交的检测任务及结果"
   },
   {
-    "selector": "#selection-guidance",
+    "selector": "#refresh-pending",
     "nodeIndex": 0,
-    "key": "ui.z7158n",
-    "source": "已选择"
+    "key": "ui.agentHistory.refresh",
+    "source": "刷新记录"
   },
   {
-    "selector": "#selection-guidance",
-    "nodeIndex": 2,
-    "key": "ui.1qqzct1",
-    "source": "个 Skill，生成预览后可查看哪些继续启用、哪些需要处理。"
+    "selector": "#agent-pending-empty",
+    "nodeIndex": 0,
+    "key": "ui.agentTabs.pending_empty",
+    "source": "此 Agent 暂无检测记录"
   },
   {
-    "selector": "#open-preview-button",
+    "selector": "#pending-select-all-wrap",
+    "nodeIndex": 1,
+    "key": "ui.18ztx1w",
+    "source": "全选待检测"
+  },
+  {
+    "selector": "#refresh-quarantine",
     "nodeIndex": 0,
-    "key": "ui.mxuy7s",
-    "source": "生成接管预览"
+    "key": "ui.zpdgmb",
+    "source": "刷新隔离区"
+  },
+  {
+    "selector": "#submit-selected-pending",
+    "nodeIndex": 0,
+    "key": "ui.a3jz2",
+    "source": "提交所选 0"
+  },
+  {
+    "selector": "#pending-progress>div:nth-of-type(1)>strong:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.1p52cco",
+    "source": "正在提交平台检测"
+  },
+  {
+    "selector": "#pending-progress>div:nth-of-type(1)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.i9ne2h",
+    "source": "已用时 0 秒"
+  },
+  {
+    "selector": "#pending-progress>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.x8hsen",
+    "source": "正在准备待处理 Skill..."
+  },
+  {
+    "selector": "#agent-recovery-empty",
+    "nodeIndex": 0,
+    "key": "ui.agentTabs.recovery_empty",
+    "source": "此 Agent 暂无隔离副本"
   },
   {
     "selector": "#models>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
@@ -551,318 +707,6 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "ui.2yjr9g",
     "source": "正在读取可用模型"
-  },
-  {
-    "selector": "#takeover-heading",
-    "nodeIndex": 0,
-    "key": "ui.1aqrn47",
-    "source": "接管预览"
-  },
-  {
-    "selector": "#takeover-state-badge",
-    "nodeIndex": 0,
-    "key": "ui.wxg0be",
-    "source": "接管中"
-  },
-  {
-    "selector": "#takeover-description",
-    "nodeIndex": 0,
-    "key": "ui.6igw3y",
-    "source": "安全治理模式只校验平台批准状态与内容签名；Agent 强授权模式还会校验智能体允许范围。"
-  },
-  {
-    "selector": "#platform-install-button",
-    "attribute": "title",
-    "key": "ui.c0s9l",
-    "source": "从平台安装 Skill"
-  },
-  {
-    "selector": "#platform-install-button",
-    "nodeIndex": 0,
-    "key": "ui.r9y3lo",
-    "source": "从平台安装"
-  },
-  {
-    "selector": "#toggle-takeover",
-    "nodeIndex": 0,
-    "key": "ui.1cm4u1t",
-    "source": "暂停接管"
-  },
-  {
-    "selector": "#preview-button",
-    "nodeIndex": 0,
-    "key": "ui.1yh3su",
-    "source": "刷新预览"
-  },
-  {
-    "selector": "#takeover-progress>div:nth-of-type(1)>strong:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.1u3e84o",
-    "source": "正在处理"
-  },
-  {
-    "selector": "#takeover-progress>div:nth-of-type(1)>span:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.i9ne2h",
-    "source": "已用时 0 秒"
-  },
-  {
-    "selector": "#takeover-progress>p:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.1hp21cx",
-    "source": "正在准备..."
-  },
-  {
-    "selector": "#takeover-summary>div:nth-of-type(1)>span:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.ecq1pl",
-    "source": "本次可接管"
-  },
-  {
-    "selector": "#takeover-summary>div:nth-of-type(1)>span:nth-of-type(1)>small:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.13yxw87",
-    "source": "已接管的 Skill 不会重复处理"
-  },
-  {
-    "selector": "#takeover-summary>div:nth-of-type(2)>span:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.m3pqtq",
-    "source": "本次需停用"
-  },
-  {
-    "selector": "#takeover-summary>div:nth-of-type(2)>span:nth-of-type(1)>small:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.fbrrtb",
-    "source": "移出 Agent 目录并安全保留"
-  },
-  {
-    "selector": "#takeover-list",
-    "nodeIndex": 0,
-    "key": "ui.1fyv2zc",
-    "source": "请先发现 Agent，并选择要接管的 Skill"
-  },
-  {
-    "selector": "#takeover-actions>label:nth-of-type(1)>span:nth-of-type(1)>strong:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.1m970q8",
-    "source": "确认执行上述处理"
-  },
-  {
-    "selector": "#takeover-actions>label:nth-of-type(1)>span:nth-of-type(1)>small:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.vobb5r",
-    "source": "需要处理的 Skill 会从 Agent 目录移出并保留到待处理区，不会被删除。"
-  },
-  {
-    "selector": "#apply-button",
-    "nodeIndex": 0,
-    "key": "ui.1abwen4",
-    "source": "执行接管"
-  },
-  {
-    "selector": "#takeover>div:nth-of-type(8)>div:nth-of-type(1)>h2:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.8rrrmq",
-    "source": "已停用待处理"
-  },
-  {
-    "selector": "#takeover>div:nth-of-type(8)>div:nth-of-type(1)>p:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.1b6jvrp",
-    "source": "这些 Skill 已安全移出 Agent 目录，提交平台检测后可在 Skill 列表中继续审核。"
-  },
-  {
-    "selector": "#pending-select-all-wrap",
-    "nodeIndex": 1,
-    "key": "ui.18ztx1w",
-    "source": "全选待检测"
-  },
-  {
-    "selector": "#submit-selected-pending",
-    "nodeIndex": 0,
-    "key": "ui.a3jz2",
-    "source": "提交所选 0"
-  },
-  {
-    "selector": "#refresh-pending",
-    "nodeIndex": 0,
-    "key": "ui.181chsv",
-    "source": "刷新待处理"
-  },
-  {
-    "selector": "#pending-progress>div:nth-of-type(1)>strong:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.1p52cco",
-    "source": "正在提交平台检测"
-  },
-  {
-    "selector": "#pending-progress>div:nth-of-type(1)>span:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.i9ne2h",
-    "source": "已用时 0 秒"
-  },
-  {
-    "selector": "#pending-progress>p:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.x8hsen",
-    "source": "正在准备待处理 Skill..."
-  },
-  {
-    "selector": "#pending-list",
-    "nodeIndex": 0,
-    "key": "ui.1gkrwql",
-    "source": "当前没有停用待处理的 Skill"
-  },
-  {
-    "selector": "#status-service-badge",
-    "nodeIndex": 0,
-    "key": "ui.k9n8n1",
-    "source": "正在检查"
-  },
-  {
-    "selector": "#status-service-title",
-    "nodeIndex": 0,
-    "key": "ui.1c5uvbb",
-    "source": "后台巡检状态"
-  },
-  {
-    "selector": "#status-service-description",
-    "nodeIndex": 0,
-    "key": "ui.rnnvao",
-    "source": "默认每 5 分钟同步平台任务并校验受管 Skill。"
-  },
-  {
-    "selector": "#run-once",
-    "nodeIndex": 0,
-    "key": "ui.mrp3gx",
-    "source": "立即执行巡检"
-  },
-  {
-    "selector": "#toggle-governance",
-    "nodeIndex": 0,
-    "key": "ui.16zn63k",
-    "source": "暂停持续治理"
-  },
-  {
-    "selector": "#install-service",
-    "nodeIndex": 0,
-    "key": "ui.r8dnq",
-    "source": "启用后台服务"
-  },
-  {
-    "selector": "#uninstall-service",
-    "nodeIndex": 0,
-    "key": "ui.1pjn73n",
-    "source": "停止后台服务"
-  },
-  {
-    "selector": "#status>section:nth-of-type(2)",
-    "attribute": "aria-label",
-    "key": "ui.18n4e82",
-    "source": "巡检状态摘要"
-  },
-  {
-    "selector": "#status>section:nth-of-type(2)>div:nth-of-type(1)>span:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.161y0qz",
-    "source": "最近完整巡检"
-  },
-  {
-    "selector": "#status>section:nth-of-type(2)>div:nth-of-type(2)>span:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.1qkh0vc",
-    "source": "下次完整巡检"
-  },
-  {
-    "selector": "#status>section:nth-of-type(2)>div:nth-of-type(3)>span:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.12upddw",
-    "source": "受管 Skill"
-  },
-  {
-    "selector": "#status>section:nth-of-type(2)>div:nth-of-type(4)>span:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.14ab6cf",
-    "source": "隔离中"
-  },
-  {
-    "selector": "#status>section:nth-of-type(2)>div:nth-of-type(5)>span:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.rku52j",
-    "source": "待补报事件"
-  },
-  {
-    "selector": "#status-attention-text",
-    "nodeIndex": 0,
-    "key": "ui.qgchf6",
-    "source": "正在读取需要处理的事项"
-  },
-  {
-    "selector": "#status-last-operation",
-    "nodeIndex": 0,
-    "key": "ui.gglmew",
-    "source": "最近操作：等待操作"
-  },
-  {
-    "selector": "#status>div:nth-of-type(3)>div:nth-of-type(1)>h2:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.17wcn6e",
-    "source": "隔离区"
-  },
-  {
-    "selector": "#status>div:nth-of-type(3)>div:nth-of-type(1)>p:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.owl7re",
-    "source": "异常内容不会直接恢复到 Agent。确认安全后，请从平台选择批准版本重新安装。"
-  },
-  {
-    "selector": "#refresh-quarantine",
-    "nodeIndex": 0,
-    "key": "ui.zpdgmb",
-    "source": "刷新隔离区"
-  },
-  {
-    "selector": "#quarantine-list",
-    "nodeIndex": 0,
-    "key": "ui.1gs39g7",
-    "source": "正在加载隔离记录"
-  },
-  {
-    "selector": "#status>details:nth-of-type(1)>summary:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.2iytch",
-    "source": "高级恢复"
-  },
-  {
-    "selector": "#status>details:nth-of-type(1)>p:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.1tjpgmz",
-    "source": "接管前备份用于紧急回退。恢复会覆盖对应 Agent 当前的同名 Skill，请确认后操作。"
-  },
-  {
-    "selector": "#status>details:nth-of-type(1)>div:nth-of-type(1)>label:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.1cvtg3y",
-    "source": "接管前备份"
-  },
-  {
-    "selector": "#backup-select>option:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.1suljud",
-    "source": "正在加载"
-  },
-  {
-    "selector": "#refresh-backups",
-    "nodeIndex": 0,
-    "key": "ui.12qo56a",
-    "source": "刷新"
-  },
-  {
-    "selector": "#restore-backup",
-    "nodeIndex": 0,
-    "key": "ui.1ysslpv",
-    "source": "恢复所选备份"
   },
   {
     "selector": "#notifications>section:nth-of-type(1)>div:nth-of-type(1)>span:nth-of-type(1)",
@@ -961,100 +805,148 @@ window.clientStaticI18nBindings = [
     "source": "暂无安全通知"
   },
   {
-    "selector": "#records>section:nth-of-type(1)>div:nth-of-type(1)>span:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.172h2g2",
-    "source": "本地记录"
+    "selector": "#records>div:nth-of-type(1)>div:nth-of-type(1)",
+    "attribute": "aria-label",
+    "key": "ui.records.category",
+    "source": "记录分类"
   },
   {
-    "selector": "#records>section:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
+    "selector": "#records-events-tab",
     "nodeIndex": 0,
-    "key": "ui.cn5hhp",
-    "source": "执行记录"
+    "key": "ui.records.events",
+    "source": "巡检与处置"
   },
   {
-    "selector": "#records>section:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
+    "selector": "#records-tasks-tab",
     "nodeIndex": 0,
-    "key": "ui.osuv06",
-    "source": "查看巡检发现、自动处置以及平台下发任务的执行结果。"
+    "key": "ui.records.tasks",
+    "source": "平台任务"
   },
   {
     "selector": "#refresh-records",
     "nodeIndex": 0,
-    "key": "ui.1avxj7t",
-    "source": "刷新记录"
+    "key": "ui.records.refresh",
+    "source": "刷新"
   },
   {
-    "selector": "#records>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
+    "selector": "#records>div:nth-of-type(2)>label:nth-of-type(1)>span:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.14adwov",
-    "source": "巡检与处置记录"
+    "key": "ui.records.keyword",
+    "source": "关键词"
   },
   {
-    "selector": "#records>div:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.b1nju3",
-    "source": "记录 Skill 修改、自动恢复、隔离和安装等安全事件。"
+    "selector": "#records-keyword",
+    "attribute": "placeholder",
+    "key": "ui.records.search",
+    "source": "搜索 Skill、类型或错误"
   },
   {
-    "selector": "#records>div:nth-of-type(2)>span:nth-of-type(1)",
+    "selector": "#records>div:nth-of-type(2)>label:nth-of-type(3)>span:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.q8rrsk",
-    "source": "事件"
+    "key": "ui.records.type",
+    "source": "类型"
   },
   {
-    "selector": "#records>div:nth-of-type(2)>span:nth-of-type(3)",
+    "selector": "#records-status-filter>span:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.q9h21m",
-    "source": "结果"
-  },
-  {
-    "selector": "#records>div:nth-of-type(2)>span:nth-of-type(4)",
-    "nodeIndex": 0,
-    "key": "ui.1psp7vv",
-    "source": "发生时间"
-  },
-  {
-    "selector": "#event-history-list",
-    "nodeIndex": 0,
-    "key": "ui.xm4j05",
-    "source": "暂无巡检与处置记录"
-  },
-  {
-    "selector": "#records>div:nth-of-type(4)>div:nth-of-type(1)>h2:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.1kf90xl",
-    "source": "平台任务记录"
-  },
-  {
-    "selector": "#records>div:nth-of-type(4)>div:nth-of-type(1)>p:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.5c6eqb",
-    "source": "记录策略同步、Skill 安装、移除和修复任务。"
-  },
-  {
-    "selector": "#records>div:nth-of-type(5)>span:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.cm180x",
-    "source": "任务"
-  },
-  {
-    "selector": "#records>div:nth-of-type(5)>span:nth-of-type(3)",
-    "nodeIndex": 0,
-    "key": "ui.1ccx4t4",
+    "key": "ui.records.status",
     "source": "状态"
   },
   {
-    "selector": "#records>div:nth-of-type(5)>span:nth-of-type(4)",
+    "selector": "#records>div:nth-of-type(2)>label:nth-of-type(5)>span:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.1jiim30",
-    "source": "执行时间 / 结果"
+    "key": "ui.records.time",
+    "source": "时间范围"
   },
   {
-    "selector": "#task-history-list",
+    "selector": "#records-days>option:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.1dclzir",
-    "source": "暂无平台任务记录"
+    "key": "ui.records.all_time",
+    "source": "全部时间"
+  },
+  {
+    "selector": "#records-days>option:nth-of-type(2)",
+    "nodeIndex": 0,
+    "key": "ui.records.day",
+    "source": "最近 24 小时"
+  },
+  {
+    "selector": "#records-days>option:nth-of-type(3)",
+    "nodeIndex": 0,
+    "key": "ui.records.week",
+    "source": "最近 7 天"
+  },
+  {
+    "selector": "#records-days>option:nth-of-type(4)",
+    "nodeIndex": 0,
+    "key": "ui.records.month",
+    "source": "最近 30 天"
+  },
+  {
+    "selector": "#records-reset",
+    "nodeIndex": 0,
+    "key": "ui.records.reset",
+    "source": "重置"
+  },
+  {
+    "selector": "#event-records>div:nth-of-type(1)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.records.event",
+    "source": "事件 / Skill"
+  },
+  {
+    "selector": "#event-records>div:nth-of-type(1)>span:nth-of-type(3)",
+    "nodeIndex": 0,
+    "key": "ui.records.result",
+    "source": "结果"
+  },
+  {
+    "selector": "#event-records>div:nth-of-type(1)>span:nth-of-type(4)",
+    "nodeIndex": 0,
+    "key": "ui.records.latest",
+    "source": "最近发现"
+  },
+  {
+    "selector": "#task-records>div:nth-of-type(1)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.records.task",
+    "source": "任务 / Skill"
+  },
+  {
+    "selector": "#task-records>div:nth-of-type(1)>span:nth-of-type(3)",
+    "nodeIndex": 0,
+    "key": "ui.records.status",
+    "source": "状态"
+  },
+  {
+    "selector": "#task-records>div:nth-of-type(1)>span:nth-of-type(4)",
+    "nodeIndex": 0,
+    "key": "ui.records.execution",
+    "source": "执行时间 / 详情"
+  },
+  {
+    "selector": "#records>div:nth-of-type(6)>div:nth-of-type(1)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.records.page_size",
+    "source": "每页条数"
+  },
+  {
+    "selector": "#records-page-size",
+    "attribute": "aria-label",
+    "key": "ui.records.page_size",
+    "source": "每页条数"
+  },
+  {
+    "selector": "#records-prev",
+    "nodeIndex": 0,
+    "key": "ui.records.previous",
+    "source": "上一页"
+  },
+  {
+    "selector": "#records-next",
+    "nodeIndex": 0,
+    "key": "ui.records.next",
+    "source": "下一页"
   },
   {
     "selector": "#settings>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
@@ -1065,29 +957,53 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#settings>div:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.1kcpj6u",
-    "source": "管理当前设备上的显示、通知、后台运行和更新偏好。"
+    "key": "ui.settings.description",
+    "source": "管理平台连接、显示、通知、后台运行和更新偏好。"
   },
   {
     "selector": "#settings>section:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.settings.connection",
+    "source": "平台连接"
+  },
+  {
+    "selector": "#settings>section:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.settings.connection_description",
+    "source": "修改平台地址和客户端接入凭证，测试成功后保存。"
+  },
+  {
+    "selector": "#settings>section:nth-of-type(1)>div:nth-of-type(2)>div:nth-of-type(1)>span:nth-of-type(1)>strong:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.settings.platform_address",
+    "source": "平台地址"
+  },
+  {
+    "selector": "#edit-connection",
+    "nodeIndex": 0,
+    "key": "ui.settings.edit_connection",
+    "source": "修改地址与凭证"
+  },
+  {
+    "selector": "#settings>section:nth-of-type(2)>div:nth-of-type(1)>h2:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.18jnfwf",
     "source": "通用"
   },
   {
-    "selector": "#settings>section:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(2)>div:nth-of-type(1)>p:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.q1nr4a",
     "source": "这些偏好仅保存在当前设备。"
   },
   {
-    "selector": "#settings>section:nth-of-type(1)>div:nth-of-type(2)>label:nth-of-type(1)>span:nth-of-type(1)>strong:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(2)>div:nth-of-type(2)>label:nth-of-type(1)>span:nth-of-type(1)>strong:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.1xgb2a4",
     "source": "显示语言"
   },
   {
-    "selector": "#settings>section:nth-of-type(1)>div:nth-of-type(2)>label:nth-of-type(1)>span:nth-of-type(1)>small:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(2)>div:nth-of-type(2)>label:nth-of-type(1)>span:nth-of-type(1)>small:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.844cpj",
     "source": "切换客户端界面语言。"
@@ -1099,13 +1015,13 @@ window.clientStaticI18nBindings = [
     "source": "简体中文"
   },
   {
-    "selector": "#settings>section:nth-of-type(1)>div:nth-of-type(2)>label:nth-of-type(2)>span:nth-of-type(1)>strong:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(2)>div:nth-of-type(2)>label:nth-of-type(2)>span:nth-of-type(1)>strong:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.1ddtq7h",
     "source": "默认打开页面"
   },
   {
-    "selector": "#settings>section:nth-of-type(1)>div:nth-of-type(2)>label:nth-of-type(2)>span:nth-of-type(1)>small:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(2)>div:nth-of-type(2)>label:nth-of-type(2)>span:nth-of-type(1)>small:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.4i4wrn",
     "source": "客户端启动并读取状态后进入此页面。"
@@ -1119,8 +1035,8 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#settings-default-panel>option:nth-of-type(2)",
     "nodeIndex": 0,
-    "key": "ui.zg9dnv",
-    "source": "Agent 发现"
+    "key": "ui.agentManagement.title",
+    "source": "Agent 管理"
   },
   {
     "selector": "#settings-default-panel>option:nth-of-type(3)",
@@ -1131,53 +1047,41 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#settings-default-panel>option:nth-of-type(4)",
     "nodeIndex": 0,
-    "key": "ui.1meon5z",
-    "source": "Skill 治理"
-  },
-  {
-    "selector": "#settings-default-panel>option:nth-of-type(5)",
-    "nodeIndex": 0,
-    "key": "ui.1ihgm6s",
-    "source": "运行状态"
-  },
-  {
-    "selector": "#settings-default-panel>option:nth-of-type(6)",
-    "nodeIndex": 0,
     "key": "ui.cn5hhp",
     "source": "执行记录"
   },
   {
-    "selector": "#settings>section:nth-of-type(2)>div:nth-of-type(1)>h2:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(3)>div:nth-of-type(1)>h2:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.rm9gzc",
     "source": "通知"
   },
   {
-    "selector": "#settings>section:nth-of-type(2)>div:nth-of-type(1)>p:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(3)>div:nth-of-type(1)>p:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.f9jdcf",
     "source": "本地通知记录仍会保留；这里控制是否发送系统通知。"
   },
   {
-    "selector": "#settings>section:nth-of-type(2)>div:nth-of-type(2)>label:nth-of-type(1)>span:nth-of-type(1)>strong:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(3)>div:nth-of-type(2)>label:nth-of-type(1)>span:nth-of-type(1)>strong:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.1kcpq6m",
     "source": "系统通知"
   },
   {
-    "selector": "#settings>section:nth-of-type(2)>div:nth-of-type(2)>label:nth-of-type(1)>span:nth-of-type(1)>small:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(3)>div:nth-of-type(2)>label:nth-of-type(1)>span:nth-of-type(1)>small:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.1shb5xn",
     "source": "在操作系统通知中心提醒安全事件和新版本。"
   },
   {
-    "selector": "#settings>section:nth-of-type(2)>div:nth-of-type(2)>label:nth-of-type(2)>span:nth-of-type(1)>strong:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(3)>div:nth-of-type(2)>label:nth-of-type(2)>span:nth-of-type(1)>strong:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.kv4qqj",
     "source": "最低提醒级别"
   },
   {
-    "selector": "#settings>section:nth-of-type(2)>div:nth-of-type(2)>label:nth-of-type(2)>span:nth-of-type(1)>small:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(3)>div:nth-of-type(2)>label:nth-of-type(2)>span:nth-of-type(1)>small:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.1y6fjwv",
     "source": "低于此级别的事件只保留在客户端通知中心。"
@@ -1201,22 +1105,22 @@ window.clientStaticI18nBindings = [
     "source": "仅严重事件"
   },
   {
-    "selector": "#settings>section:nth-of-type(3)>div:nth-of-type(1)>h2:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(4)>div:nth-of-type(1)>h2:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.1qfo3nz",
     "source": "后台运行"
   },
   {
-    "selector": "#settings>section:nth-of-type(3)>div:nth-of-type(1)>p:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(4)>div:nth-of-type(1)>p:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.gl202e",
-    "source": "控制登录系统后是否自动运行治理服务。"
+    "key": "ui.background.description",
+    "source": "连接后自动启动，登录系统和关闭窗口后持续运行。"
   },
   {
-    "selector": "#settings>section:nth-of-type(3)>div:nth-of-type(2)>label:nth-of-type(1)>span:nth-of-type(1)>strong:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(4)>div:nth-of-type(2)>div:nth-of-type(1)>span:nth-of-type(1)>strong:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.fh7d6d",
-    "source": "登录后启动后台治理"
+    "key": "ui.background.title",
+    "source": "后台服务状态"
   },
   {
     "selector": "#settings-service-detail",
@@ -1225,37 +1129,121 @@ window.clientStaticI18nBindings = [
     "source": "正在读取后台服务状态。"
   },
   {
-    "selector": "#settings>section:nth-of-type(4)>div:nth-of-type(1)>h2:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(4)>details:nth-of-type(1)>summary:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.settings.runtime_diagnostics",
+    "source": "查看运行诊断"
+  },
+  {
+    "selector": "#status-service-badge",
+    "nodeIndex": 0,
+    "key": "ui.k9n8n1",
+    "source": "正在检查"
+  },
+  {
+    "selector": "#status-service-title",
+    "nodeIndex": 0,
+    "key": "ui.1c5uvbb",
+    "source": "后台巡检状态"
+  },
+  {
+    "selector": "#status-service-description",
+    "nodeIndex": 0,
+    "key": "ui.rnnvao",
+    "source": "默认每 5 分钟同步平台任务并校验受管 Skill。"
+  },
+  {
+    "selector": "#run-once",
+    "nodeIndex": 0,
+    "key": "ui.mrp3gx",
+    "source": "立即执行巡检"
+  },
+  {
+    "selector": "#install-service",
+    "nodeIndex": 0,
+    "key": "ui.background.retry",
+    "source": "重试后台启动"
+  },
+  {
+    "selector": "#settings>section:nth-of-type(4)>details:nth-of-type(1)>section:nth-of-type(2)",
+    "attribute": "aria-label",
+    "key": "ui.18n4e82",
+    "source": "巡检状态摘要"
+  },
+  {
+    "selector": "#settings>section:nth-of-type(4)>details:nth-of-type(1)>section:nth-of-type(2)>div:nth-of-type(1)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.161y0qz",
+    "source": "最近完整巡检"
+  },
+  {
+    "selector": "#settings>section:nth-of-type(4)>details:nth-of-type(1)>section:nth-of-type(2)>div:nth-of-type(2)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.1qkh0vc",
+    "source": "下次完整巡检"
+  },
+  {
+    "selector": "#settings>section:nth-of-type(4)>details:nth-of-type(1)>section:nth-of-type(2)>div:nth-of-type(3)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.12upddw",
+    "source": "受管 Skill"
+  },
+  {
+    "selector": "#settings>section:nth-of-type(4)>details:nth-of-type(1)>section:nth-of-type(2)>div:nth-of-type(4)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.14ab6cf",
+    "source": "隔离中"
+  },
+  {
+    "selector": "#settings>section:nth-of-type(4)>details:nth-of-type(1)>section:nth-of-type(2)>div:nth-of-type(5)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.rku52j",
+    "source": "待补报事件"
+  },
+  {
+    "selector": "#status-attention-text",
+    "nodeIndex": 0,
+    "key": "ui.qgchf6",
+    "source": "正在读取需要处理的事项"
+  },
+  {
+    "selector": "#status-last-operation",
+    "nodeIndex": 0,
+    "key": "ui.gglmew",
+    "source": "最近操作：等待操作"
+  },
+  {
+    "selector": "#settings>section:nth-of-type(5)>div:nth-of-type(1)>h2:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.1jyi6ml",
     "source": "版本更新"
   },
   {
-    "selector": "#settings>section:nth-of-type(4)>div:nth-of-type(1)>p:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(5)>div:nth-of-type(1)>p:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.15xi2nq",
     "source": "正式通道只接收稳定版本；测试通道可以提前接收候选版本。"
   },
   {
-    "selector": "#settings>section:nth-of-type(4)>div:nth-of-type(2)>label:nth-of-type(1)>span:nth-of-type(1)>strong:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(5)>div:nth-of-type(2)>label:nth-of-type(1)>span:nth-of-type(1)>strong:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.6kkfu4",
     "source": "自动检查更新"
   },
   {
-    "selector": "#settings>section:nth-of-type(4)>div:nth-of-type(2)>label:nth-of-type(1)>span:nth-of-type(1)>small:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(5)>div:nth-of-type(2)>label:nth-of-type(1)>span:nth-of-type(1)>small:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.qq9dhi",
     "source": "客户端接入平台后定期检查，并在发现新版本时通知。"
   },
   {
-    "selector": "#settings>section:nth-of-type(4)>div:nth-of-type(2)>label:nth-of-type(2)>span:nth-of-type(1)>strong:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(5)>div:nth-of-type(2)>label:nth-of-type(2)>span:nth-of-type(1)>strong:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.r9v2r2",
     "source": "更新通道"
   },
   {
-    "selector": "#settings>section:nth-of-type(4)>div:nth-of-type(2)>label:nth-of-type(2)>span:nth-of-type(1)>small:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(5)>div:nth-of-type(2)>label:nth-of-type(2)>span:nth-of-type(1)>small:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.p88z2y",
     "source": "切换通道后会立即重新检查可用版本。"
@@ -1273,7 +1261,7 @@ window.clientStaticI18nBindings = [
     "source": "测试通道"
   },
   {
-    "selector": "#settings>section:nth-of-type(4)>div:nth-of-type(2)>div:nth-of-type(1)>span:nth-of-type(1)>strong:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(5)>div:nth-of-type(2)>div:nth-of-type(1)>span:nth-of-type(1)>strong:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.15awyex",
     "source": "当前版本"
@@ -1291,13 +1279,49 @@ window.clientStaticI18nBindings = [
     "source": "立即检查"
   },
   {
-    "selector": "#settings>section:nth-of-type(5)>div:nth-of-type(1)>h2:nth-of-type(1)",
+    "selector": "#settings>details:nth-of-type(1)>summary:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.2iytch",
+    "source": "高级恢复"
+  },
+  {
+    "selector": "#settings>details:nth-of-type(1)>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.backup_description",
+    "source": "历史备份恢复需平台授权，按 Skill 分别创建任务。执行前校验策略与内容，覆盖前保留现有文件。"
+  },
+  {
+    "selector": "#settings>details:nth-of-type(1)>div:nth-of-type(1)>label:nth-of-type(1)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.backup_label",
+    "source": "历史备份"
+  },
+  {
+    "selector": "#backup-select>option:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.1suljud",
+    "source": "正在加载"
+  },
+  {
+    "selector": "#refresh-backups",
+    "nodeIndex": 0,
+    "key": "ui.12qo56a",
+    "source": "刷新"
+  },
+  {
+    "selector": "#restore-backup",
+    "nodeIndex": 0,
+    "key": "ui.1ysslpv",
+    "source": "恢复所选备份"
+  },
+  {
+    "selector": "#settings>section:nth-of-type(6)>div:nth-of-type(1)>h2:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.mapmds",
     "source": "诊断"
   },
   {
-    "selector": "#settings>section:nth-of-type(5)>div:nth-of-type(1)>p:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(6)>div:nth-of-type(1)>p:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.zqmuxv",
     "source": "用于现场排查，不会导出接入凭据明文。"
@@ -1483,30 +1507,6 @@ window.clientStaticI18nBindings = [
     "source": "确认删除"
   },
   {
-    "selector": "#stop-service-dialog>div:nth-of-type(1)>h3:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.1pjn73n",
-    "source": "停止后台服务"
-  },
-  {
-    "selector": "#stop-service-dialog>div:nth-of-type(1)>p:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.14g39az",
-    "source": "停止后，客户端将不再同步平台任务、巡检文件变化、发送告警或自动恢复 Skill。本地受管内容不会删除。运行状态保存在 ~/.agent-manager，受管内容保存在 ~/.river-security/agent-manager；移动数据前请先停止后台服务。"
-  },
-  {
-    "selector": "#stop-service-dialog>div:nth-of-type(1)>form:nth-of-type(1)>button:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.1589w37",
-    "source": "取消"
-  },
-  {
-    "selector": "#confirm-stop-service",
-    "nodeIndex": 0,
-    "key": "ui.58ick1",
-    "source": "确认停止"
-  },
-  {
     "selector": "#remove-custom-agent-dialog>div:nth-of-type(1)>h3:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.1aqcjp2",
@@ -1639,9 +1639,9 @@ window.clientStaticI18nBindings = [
     "source": "选择 Skill 后可查看说明"
   },
   {
-    "selector": "#install-skill-dialog>div:nth-of-type(1)>fieldset:nth-of-type(1)>legend:nth-of-type(1)",
+    "selector": "#install-skill-dialog>div:nth-of-type(1)>fieldset:nth-of-type(1)>legend:nth-of-type(1)>span:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.wjp48m",
+    "key": "ui.installTargets.title",
     "source": "目标 Agent（可多选）"
   },
   {
@@ -1671,8 +1671,8 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#custom-agent-form>p:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.6ijsdp",
-    "source": "适用于未内置适配的 Agent。指定其 Skill 根目录后，即可使用现有的发现、接管、安装和巡检能力。客户端安全治理无需先在平台创建智能体；Agent 强授权模式下再选择对应的平台智能体。"
+    "key": "ui.agentManagement.custom_description",
+    "source": "指定自定义 Agent 的 Skill 根目录后自动发现并纳管。安装和加载权限由平台授权控制。"
   },
   {
     "selector": "#custom-agent-form>label:nth-of-type(1)",
@@ -1721,5 +1721,23 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "ui.1ck5d01",
     "source": "添加并发现"
+  },
+  {
+    "selector": "#skill-action-dialog>div:nth-of-type(1)>div:nth-of-type(1)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.target_path",
+    "source": "目标目录"
+  },
+  {
+    "selector": "#skill-action-dialog>div:nth-of-type(1)>form:nth-of-type(1)>button:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.cancel",
+    "source": "取消"
+  },
+  {
+    "selector": "#confirm-skill-action",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.confirm_action",
+    "source": "确认并创建任务"
   }
 ]

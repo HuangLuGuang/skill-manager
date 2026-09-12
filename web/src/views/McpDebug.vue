@@ -31,8 +31,8 @@
             </a-form-item>
           </a-col>
           <a-col :xs="24" :lg="16">
-            <a-form-item label="Streamable HTTP Endpoint" required>
-              <a-input v-model:value="serviceEndpoint" placeholder="https://mcp.example.com/mcp" @change="resetConnection" />
+            <a-form-item label="Streamable HTTP Endpoint" required :validate-status="endpointError ? 'error' : undefined" :help="endpointError ? t(endpointError) : undefined">
+              <a-input ref="endpointInput" v-model:value="serviceEndpoint" aria-label="Streamable HTTP Endpoint" :aria-invalid="!!endpointError" placeholder="https://mcp.example.com/mcp" @change="endpointError = ''; resetConnection()" @pressEnter="connect" />
             </a-form-item>
           </a-col>
         </a-row>
@@ -75,7 +75,7 @@
       </a-form>
 
       <a-space wrap style="margin-top: 16px">
-        <a-button v-if="!connected" type="primary" :loading="connecting" @click="connect">{{ $t("legacy.bt1d8b") }}</a-button>
+        <a-button v-if="!connected" type="primary" :loading="connecting" :disabled="connecting" @click="connect">{{ $t("legacy.bt1d8b") }}</a-button>
         <a-button v-else danger @click="resetConnection">{{ $t("legacy.2kwd2d") }}</a-button>
         <a-button v-if="connected" :loading="pinging" @click="ping">Ping</a-button>
         <a-button @click="copyClientConfig">{{ $t("legacy.135fagt") }}</a-button>
@@ -86,7 +86,7 @@
     <a-row :gutter="16" style="margin-top: 16px">
       <a-col :xs="24" :xl="10">
         <a-card title="Tools" :loading="connecting">
-          <template #extra><span class="muted">{{ tools.length }} {{ $t("legacy.d5a1x9") }}</span></template>
+          <template #extra><span class="muted">{{ t('uiExperience.toolCount', { count: tools.length }) }}</span></template>
           <a-empty v-if="!tools.length" :description="$t('legacy.1qrt9zy')" />
           <a-list v-else :data-source="tools" size="small" class="tool-list">
             <template #renderItem="{ item }">
@@ -205,6 +205,7 @@ import { message } from 'ant-design-vue'
 
 import { debugMcpUpstream, listMcpGateways, listMcpServers } from '../api'
 import { copyText, promptManualCopy } from '../utils/clipboard'
+import { validateServiceEndpoint } from '../utils/serviceEndpoint'
 
 const { t } = useI18n()
 const targetMode = ref('service')
@@ -212,6 +213,8 @@ const servers = ref([])
 const gateways = ref([])
 const serverId = ref()
 const serviceEndpoint = ref('')
+const endpointInput = ref(null)
+const endpointError = ref('')
 const authorizationHeader = ref('Authorization')
 const authorizationValue = ref('')
 const timeoutSeconds = ref(30)
@@ -383,7 +386,13 @@ const request = (method, params = {}, notification = false) => targetMode.value 
 
 const connect = async () => {
   if (connecting.value) return
-  if (targetMode.value === 'service' && !serviceEndpoint.value.trim()) return message.warning(phrase('legacy.1lzx3ub'))
+  if (targetMode.value === 'service') {
+    endpointError.value = validateServiceEndpoint(serviceEndpoint.value)
+    if (endpointError.value) {
+      endpointInput.value?.focus()
+      return
+    }
+  }
   if (targetMode.value === 'gateway' && (!gatewaySlug.value || !gatewayEndpoint.value.trim() || !gatewayToken.value.trim())) return message.warning(phrase('legacy.1wfq6rv'))
   connecting.value = true
   resetConnection()

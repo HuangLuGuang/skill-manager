@@ -266,7 +266,7 @@ onMounted(fetchAlerts)
 }
 
 .summary-row {
-  margin-top: 16px;
+  margin-top: 8px;
 }
 
 .summary-card {

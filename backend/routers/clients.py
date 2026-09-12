@@ -5,13 +5,17 @@ import re
 import sqlite3
 import tempfile
 import zipfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Query, Request, Response
+from backend import client_governance, client_skill_actions
 from fastapi.responses import FileResponse
+from fastapi.encoders import jsonable_encoder
 from jose import JWTError, jwt
-from sqlalchemy import func
+from pydantic import ValidationError
+from sqlalchemy import case, func, or_
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from .. import auth, models, schemas
@@ -537,7 +541,7 @@ def _matching_skill_entry(
             (entry for entry in candidates if entry.skill_id == local_skill.version_id),
             None,
         )
-        if exact_version is not None:
+        if exact_version is not None and local_skill.signature and exact_version.skill_path and _cached_skill_signature(exact_version.skill_path, signature_cache) == local_skill.signature:
             return exact_version
 
     matching_content = []
@@ -583,6 +587,16 @@ def _cached_skill_signature(skill_path: str, cache: dict[str, str | None] | None
     return signature
 
 
+def _replace_recovery_inventory(db: Session, client_id: str, records) -> None:
+    if records is None:
+        return
+    db.query(models.ClientRecoveryRecord).filter_by(client_id=client_id).delete()
+    unique = {item.id: item for item in records}
+    for item in unique.values():
+        db.add(models.ClientRecoveryRecord(client_id=client_id, record_id=item.id, details_json=_dump(item.model_dump())))
+    db.flush()
+
+
 def _replace_inventory(db: Session, client_id: str, agents: list[schemas.ClientAgentInventory]) -> None:
     existing = {
         _local_agent_id(row.local_agent_id, row.agent_type): row
@@ -625,6 +639,11 @@ def _replace_inventory(db: Session, client_id: str, agents: list[schemas.ClientA
                     skill_name=skill.name,
                     skill_path=skill.path,
                     signature=skill.signature,
+                    governance_json=(
+                        _dump(skill.governance.model_dump(mode="json"))
+                        if skill.governance and skill.governance.signature == skill.signature
+                        else None
+                    ),
                     install_mode=skill.install_mode,
                     status=skill.status,
                     verified_at=now,
@@ -659,6 +678,7 @@ def _auto_match_agents(db: Session, client_id: str, owner: str | None) -> None:
 def _client_response(db: Session, row: models.ManagedClient) -> dict:
     agents = db.query(models.ClientAgent).filter(models.ClientAgent.client_id == row.client_id).all()
     skills = db.query(models.ClientSkillInstall).filter(models.ClientSkillInstall.client_id == row.client_id).all()
+    classification = client_governance.policy_view(db, row.client_id)
     latest_event_ids = (
         db.query(func.max(models.ClientEvent.id).label("event_id"))
         .filter(models.ClientEvent.client_id == row.client_id, models.ClientEvent.skill_name.is_not(None))
@@ -671,6 +691,15 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
         .filter(models.ClientEvent.event_type.in_(("unmanaged_skill_found", "skill_modified", "skill_blocked", "skill_quarantined")))
         .count()
     )
+    if classification["enabled"] and classification["supported"]:
+        affected_paths = set()
+        for skill in skills:
+            observation = _load(skill.governance_json, {})
+            if not observation or observation.get("signature") != skill.signature:
+                continue
+            if (observation.get("trigger") in client_governance.ACTIONS and observation.get("action") != "record_only") or observation.get("action_status") == "failed":
+                affected_paths.add(skill.skill_path)
+        issue_count = len(affected_paths)
     online = bool(row.last_seen_at and datetime.utcnow() - row.last_seen_at <= _CLIENT_ONLINE_WINDOW)
     return {
         "client_id": row.client_id,
@@ -681,11 +710,13 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
         "client_version": row.client_version,
         "governance_mode": row.governance_mode,
         "policy_mode": row.policy_mode,
+        "classification": classification,
         "status": "online" if online else "offline",
         "last_seen_at": row.last_seen_at,
         "registered_by": row.registered_by,
         "created_at": row.created_at,
         "issue_count": issue_count,
+        "recovery": [_load(item.details_json, {}) for item in db.query(models.ClientRecoveryRecord).filter_by(client_id=row.client_id).all()],
         "agents": [
             {
                 "local_agent_id": _local_agent_id(agent.local_agent_id, agent.agent_type),
@@ -713,6 +744,7 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
                         "signature": skill.signature,
                         "install_mode": skill.install_mode,
                         "status": skill.status,
+                        "governance": _load(skill.governance_json, None),
                     }
                     for skill in skills
                     if skill.agent_type == agent.agent_type
@@ -724,6 +756,11 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
 
 
 def _client_policy_response(db: Session, row: models.ManagedClient) -> dict:
+    classification = client_governance.policy_view(db, row.client_id)
+    if classification["incompatible_rules"]:
+        raise ApiError(409, "client.policy_capability_required", "当前客户端不支持生效策略中的动作，请升级客户端", "Upgrade this client to execute the active policy actions")
+    if classification["protocol"] == 1:
+        classification["rules"] = {key: value for key, value in classification["rules"].items() if not key.endswith("scan_rejected")}
     bindings = db.query(models.ClientAgent).filter(models.ClientAgent.client_id == row.client_id).all()
     profiles = []
     for binding in bindings:
@@ -748,6 +785,7 @@ def _client_policy_response(db: Session, row: models.ManagedClient) -> dict:
         )
     return {
         "mode": row.policy_mode,
+        "classification": classification,
         "governance_mode": row.governance_mode,
         "light_scan_seconds": 300,
         "full_scan_seconds": 1800,
@@ -761,7 +799,7 @@ def _client_policy_response(db: Session, row: models.ManagedClient) -> dict:
     }
 
 
-def _task_history(db: Session, client_id: str, limit: int = 100) -> list[dict]:
+def _task_history(db: Session, client_id: str, limit: int = 100, rows=None) -> list[dict]:
     return [
         {
             "id": task.id,
@@ -773,13 +811,13 @@ def _task_history(db: Session, client_id: str, limit: int = 100) -> list[dict]:
             "started_at": task.started_at,
             "finished_at": task.finished_at,
         }
-        for task in (
+        for task in (rows if rows is not None else (
             db.query(models.ClientTask)
             .filter(models.ClientTask.client_id == client_id)
             .order_by(models.ClientTask.id.desc())
             .limit(limit)
             .all()
-        )
+        ))
     ]
 
 
@@ -808,7 +846,7 @@ def _update_model_config_state(
         client_agent.applied_model = str(payload.get("model") or "") or None
 
 
-def _event_history(db: Session, client_id: str, limit: int = 100) -> list[dict]:
+def _event_history(db: Session, client_id: str, limit: int = 100, rows=None) -> list[dict]:
     return [
         {
             "id": event.id,
@@ -817,15 +855,17 @@ def _event_history(db: Session, client_id: str, limit: int = 100) -> list[dict]:
             "skill_name": event.skill_name,
             "details": _load(event.details_json, {}),
             "created_at": event.created_at,
+            "last_seen_at": event.last_seen_at or event.created_at,
+            "observation_count": event.observation_count,
         }
-        for event in (
+        for event in (rows if rows is not None else (
             db.query(models.ClientEvent)
             .filter(models.ClientEvent.client_id == client_id)
             .filter(models.ClientEvent.event_type.notin_(("client_registered", "takeover_completed")))
-            .order_by(models.ClientEvent.id.desc())
+            .order_by(func.coalesce(models.ClientEvent.last_seen_at, models.ClientEvent.created_at).desc(), models.ClientEvent.id.desc())
             .limit(limit)
             .all()
-        )
+        ))
     ]
 
 
@@ -851,6 +891,8 @@ def register_client(
     row.status = "online"
     row.last_seen_at = datetime.utcnow()
     _replace_inventory(db, body.client_id, body.agents)
+    _replace_recovery_inventory(db, body.client_id, body.recovery)
+    client_governance.record_protocol(db, body.client_id, body.governance_protocol, is_new=is_new)
     _auto_match_agents(db, body.client_id, token.created_by)
     if is_new:
         db.add(models.ClientEvent(client_id=body.client_id, event_type="client_registered"))
@@ -875,6 +917,7 @@ def heartbeat(
     row.status = "online"
     if body.client_version:
         row.client_version = body.client_version
+    client_governance.record_protocol(db, client_id, body.governance_protocol)
     db.commit()
     return {"ok": True, "last_seen_at": row.last_seen_at, "policy": _client_policy_response(db, row)}
 
@@ -892,6 +935,47 @@ def get_client_policy(
     return _client_policy_response(db, row)
 
 
+@router.get("/{client_id}/history")
+def get_client_history(
+    client_id: str, request: Request,
+    kind: str = Query("events", pattern="^(events|tasks)$"),
+    page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100),
+    keyword: str = Query("", max_length=200), agent: str = Query("", max_length=128),
+    record_type: str = Query("", max_length=128), status: str = Query("", max_length=64),
+    days: int = Query(0, ge=0, le=365),
+    authorization: str | None = Header(None), db: Session = Depends(get_db),
+):
+    token = _runtime_token("client:read-policy", authorization, request, db)
+    _bind_client(token, client_id, db)
+    _client_or_404(db, client_id)
+    is_task = kind == "tasks"
+    model = models.ClientTask if is_task else models.ClientEvent
+    query = db.query(model).filter(model.client_id == client_id)
+    if not is_task:
+        query = query.filter(model.event_type.notin_(("client_registered", "takeover_completed")))
+    type_column = model.task_type if is_task else model.event_type
+    agent_column = func.json_extract(model.payload_json, "$.agent_type") if is_task else model.agent_type
+    timestamp = func.coalesce(model.finished_at, model.started_at, model.created_at) if is_task else func.coalesce(model.last_seen_at, model.created_at)
+    types = [value for (value,) in query.with_entities(type_column).distinct().all() if value]
+    agents = [value for (value,) in query.with_entities(agent_column).distinct().all() if value]
+    if keyword.strip():
+        columns = [type_column, model.payload_json, model.error] if is_task else [type_column, model.skill_name, model.details_json]
+        query = query.filter(or_(*(column.contains(keyword.strip(), autoescape=True) for column in columns)))
+    if agent:
+        query = query.filter(agent_column == agent)
+    if record_type:
+        query = query.filter(type_column == record_type)
+    if status and is_task:
+        query = query.filter(model.status == status)
+    if days:
+        query = query.filter(timestamp >= datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days))
+    total = query.count()
+    page = min(page, max(1, (total + page_size - 1) // page_size))
+    rows = query.order_by(timestamp.desc(), model.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return {"items": (_task_history if is_task else _event_history)(db, client_id, rows=rows),
+            "total": total, "page": page, "page_size": page_size, "types": sorted(types), "agents": sorted(agents)}
+
+
 @router.get("/{client_id}/status")
 def get_client_runtime_status(
     client_id: str,
@@ -906,6 +990,7 @@ def get_client_runtime_status(
     client.status = "online"
     db.commit()
     result = _client_response(db, client)
+    result["manual_skill_actions_allowed"] = "client:request-skill-actions" in _load(token.scopes_json, [])
     can_configure_models = bool(token.allow_agent_credential_issuance)
     allowed_model_names = {
         str(item).strip()
@@ -980,6 +1065,7 @@ def report_inventory(
     _bind_client(token, client_id, db)
     row = _client_or_404(db, client_id)
     _replace_inventory(db, client_id, body.agents)
+    _replace_recovery_inventory(db, client_id, body.recovery)
     _auto_match_agents(db, client_id, token.created_by)
     row.last_seen_at = datetime.utcnow()
     row.status = "online"
@@ -999,14 +1085,28 @@ def report_event(
     token = _runtime_token("client:report-events", authorization, request, db)
     _bind_client(token, client_id, db)
     _client_or_404(db, client_id)
-    row = models.ClientEvent(
-        client_id=client_id,
-        event_type=body.event_type,
-        agent_type=body.agent_type,
-        skill_name=body.skill_name,
-        details_json=_dump(body.details),
-    )
-    db.add(row)
+    observed_at = body.observed_at or datetime.now(timezone.utc)
+    if observed_at.tzinfo:
+        observed_at = observed_at.astimezone(timezone.utc).replace(tzinfo=None)
+    values = dict(client_id=client_id, event_type=body.event_type, agent_type=body.agent_type,
+                  skill_name=body.skill_name, details_json=_dump(body.details),
+                  observation_count=body.observation_count, last_seen_at=observed_at)
+    aggregate = body.event_type in {"skill_governance_recorded", "skill_governance_detected", "skill_governance_action"} and body.details.get("path") and body.details.get("signature")
+    if aggregate:
+        identity = [client_id, body.event_type, *[body.details.get(key) for key in
+                    ("path", "signature", "trigger", "policy_version", "action", "status", "error_code", "task_id")]]
+        key = hashlib.sha256(_dump(identity).encode()).hexdigest()
+        statement = sqlite_insert(models.ClientEvent).values(**values, aggregate_key=key)
+        statement = statement.on_conflict_do_update(index_elements=[models.ClientEvent.aggregate_key], set_={
+            "observation_count": func.max(models.ClientEvent.observation_count, statement.excluded.observation_count),
+            "last_seen_at": func.max(models.ClientEvent.last_seen_at, statement.excluded.last_seen_at),
+            "details_json": case((statement.excluded.last_seen_at >= models.ClientEvent.last_seen_at, statement.excluded.details_json), else_=models.ClientEvent.details_json),
+        })
+        db.execute(statement)
+        row = db.query(models.ClientEvent).filter_by(aggregate_key=key).one()
+    else:
+        row = models.ClientEvent(**values)
+        db.add(row)
     db.commit()
     db.refresh(row)
     details = {
@@ -1075,6 +1175,23 @@ def poll_tasks(
         .all()
     )
     return [{"id": row.id, "task_type": row.task_type, "payload": _load(row.payload_json, {})} for row in rows]
+
+
+@router.post("/{client_id}/skill-actions")
+def request_skill_action(
+    client_id: str,
+    body: schemas.ClientSkillActionRequest,
+    request: Request,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+    manager: AgentManager = Depends(get_manager),
+):
+    token = _runtime_token("client:request-skill-actions", authorization, request, db)
+    _bind_client(token, client_id, db)
+    client = _client_or_404(db, client_id)
+    task = client_skill_actions.create_action(db, client, body, token.created_by or client_id, manager)
+    db.commit()
+    return {"id": task.id, "status": task.status, "task_type": task.task_type, "payload": _load(task.payload_json, {})}
 
 
 @router.post("/{client_id}/model-configurations")
@@ -1383,6 +1500,19 @@ def report_task_result(
     )
     if not row:
         raise HTTPException(status_code=404, detail="任务不存在")
+    if row.task_type in {"skill_action", "remove_skill", "install_skill", "repair_skill"}:
+        updates = {"status": body.status, "error": body.error}
+        if body.status == "running":
+            updates["started_at"] = func.coalesce(models.ClientTask.started_at, datetime.utcnow())
+        else:
+            updates["finished_at"] = datetime.utcnow()
+        changed = db.query(models.ClientTask).filter(
+            models.ClientTask.id == task_id, models.ClientTask.client_id == client_id,
+            models.ClientTask.status.in_(("pending", "running")),
+        ).update(updates, synchronize_session=False)
+        db.commit()
+        db.refresh(row)
+        return {"ok": True, "ignored": not bool(changed), "status": row.status}
     if row.status == "cancelled":
         return {"ok": True, "ignored": True}
     row.status = body.status
@@ -1404,6 +1534,56 @@ def report_task_result(
         row.finished_at = datetime.utcnow()
     db.commit()
     return {"ok": True}
+
+
+def _governance_scope(db, scope, user):
+    if scope == client_governance.DEFAULT_SCOPE:
+        if user.role != "super_admin":
+            raise ApiError(403, "client.default_policy_forbidden", "只有超级管理员可配置平台默认策略", "Only super administrators can configure the default policy")
+    else:
+        _ensure_visible(_client_or_404(db, scope), user)
+
+
+@router.get("/governance/default")
+def get_default_governance(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
+    return {**client_governance.policy_view(db), "editable": current_user.role == "super_admin"}
+
+
+@router.post("/governance/default/preview")
+def preview_default_governance(body: client_governance.PolicyChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
+    _governance_scope(db, client_governance.DEFAULT_SCOPE, current_user)
+    return client_governance.preview(db, client_governance.DEFAULT_SCOPE, body)
+
+
+@router.put("/governance/default")
+def save_default_governance(body: client_governance.PolicyChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
+    _governance_scope(db, client_governance.DEFAULT_SCOPE, current_user)
+    result = client_governance.save_policy(db, client_governance.DEFAULT_SCOPE, body, current_user)
+    _operation(db, current_user, "更新客户端默认分类策略", "default", _dump(jsonable_encoder(result)))
+    db.commit()
+    return result
+
+
+@router.get("/{client_id}/governance")
+def get_client_governance(client_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
+    _governance_scope(db, client_id, current_user)
+    client = _client_or_404(db, client_id)
+    return client_governance.policy_view(db, client_id)
+
+
+@router.post("/{client_id}/governance/preview")
+def preview_client_governance(client_id: str, body: client_governance.PolicyChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
+    _governance_scope(db, client_id, current_user)
+    return client_governance.preview(db, client_id, body)
+
+
+@router.put("/{client_id}/governance")
+def save_client_governance(client_id: str, body: client_governance.PolicyChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
+    _governance_scope(db, client_id, current_user)
+    result = client_governance.save_policy(db, client_id, body, current_user)
+    _operation(db, current_user, "更新客户端分类策略", client_id, _dump(jsonable_encoder(result)))
+    db.commit()
+    return result
 
 
 @router.get("")
@@ -1587,6 +1767,8 @@ def update_client_policy(
     if body.mode is None and body.governance_mode is None:
         raise HTTPException(status_code=400, detail="至少提供一项客户端策略")
     if body.mode is not None:
+        if client_governance.policy_view(db, client_id)["enabled"]:
+            raise ApiError(409, "client.classification_policy_active", "请通过分类策略配置处置方式", "Configure actions through the classification policy")
         row.policy_mode = body.mode
     if body.governance_mode is not None:
         row.governance_mode = body.governance_mode
@@ -1680,6 +1862,15 @@ def create_task(
     client = _client_or_404(db, client_id)
     _ensure_visible(client, current_user)
     payload = dict(body.payload)
+    if body.task_type == "skill_action":
+        try:
+            action = schemas.ClientSkillActionRequest.model_validate(payload)
+        except ValidationError as exc:
+            raise ApiError(422, "client.action_payload_invalid", "处置任务参数不完整或无效", "The remediation task parameters are incomplete or invalid") from exc
+        task = client_skill_actions.create_action(db, client, action, current_user.username, manager)
+        _operation(db, current_user, "创建客户端处置任务", client_id, f"task_id={task.id}")
+        db.commit()
+        return {"id": task.id, "status": task.status}
     if body.task_type == "apply_model_config":
         agent_type = str(payload.get("agent_type") or "").strip()
         local_agent_id = _local_agent_id(payload.get("local_agent_id"), agent_type)
@@ -1780,6 +1971,13 @@ def create_task(
         )[0]
         if not client_agent:
             raise HTTPException(status_code=400, detail="客户端未发现支持 Skill 管理的目标 Agent")
+        payload["expected_root"] = client_agent.skills_path
+        payload["expected_targets"] = {
+            item.skill_path: item.signature
+            for item in db.query(models.ClientSkillInstall).filter_by(
+                client_id=client_id, agent_type=agent_type,
+            ).all() if item.skill_path
+        }
         if client.governance_mode == "strict":
             agent = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == managed_agent_id).first()
             if not agent:
@@ -1811,7 +2009,13 @@ def create_task(
         )
         if not install:
             raise HTTPException(status_code=400, detail="客户端中不存在可移除的受管 Skill")
+        if not install.skill_path or not install.signature:
+            raise ApiError(409, "client.skill_content_unavailable", "请先同步目标 Skill 的目录和内容指纹", "Synchronize the target Skill path and content fingerprint first")
         payload["skill_name"] = install.skill_name
+        payload["path"] = install.skill_path
+        payload["expected_signature"] = install.signature
+        payload["actor"] = current_user.username
+        payload["policy_version"] = client_governance.policy_view(db, client_id)["version"]
     for pending in (
         db.query(models.ClientTask)
         .filter(
@@ -1844,6 +2048,16 @@ def cancel_task(
         raise HTTPException(status_code=404, detail="任务不存在")
     if row.status not in {"pending", "running"}:
         raise HTTPException(status_code=400, detail="只有待执行或执行中的任务可以取消")
+    if row.task_type in {"skill_action", "remove_skill", "install_skill", "repair_skill"}:
+        changed = db.query(models.ClientTask).filter(
+            models.ClientTask.id == task_id, models.ClientTask.client_id == client_id,
+            models.ClientTask.status == "pending",
+        ).update({"status": "cancelled", "finished_at": datetime.utcnow()}, synchronize_session=False)
+        if not changed:
+            raise ApiError(409, "client.action_already_started", "处置任务已开始，无法中途取消，请等待结果", "Remediation has started and cannot be cancelled midway; wait for the result")
+        _operation(db, current_user, "取消客户端任务", client_id, f"task_id={task_id}")
+        db.commit()
+        return {"id": task_id, "status": "cancelled"}
     row.status = "cancelled"
     row.finished_at = datetime.utcnow()
     if row.task_type == "apply_model_config":
@@ -1859,6 +2073,7 @@ def retry_task(
     task_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
+    manager: AgentManager = Depends(get_manager),
 ):
     client = _client_or_404(db, client_id)
     _ensure_visible(client, current_user)
@@ -1867,15 +2082,32 @@ def retry_task(
         raise HTTPException(status_code=404, detail="任务不存在")
     if row.status not in {"failed", "cancelled"}:
         raise HTTPException(status_code=400, detail="只有失败或已取消的任务可以重试")
-    row.status = "pending"
-    row.error = None
-    row.started_at = None
-    row.finished_at = None
-    if row.task_type == "apply_model_config":
-        _update_model_config_state(db, client_id, _load(row.payload_json, {}), "pending")
-    _operation(db, current_user, "重试客户端任务", client_id, f"task_id={task_id}")
+    if row.task_type in {"skill_action", "remove_skill"}:
+        payload = _load(row.payload_json, {})
+        if row.task_type == "remove_skill":
+            if not payload.get("path") or not payload.get("expected_signature"):
+                raise ApiError(409, "client.skill_content_unavailable", "此历史任务未绑定内容，请同步后从 Skill 列表重新创建操作", "This historical task has no content binding; synchronize and create a new action from the Skill list")
+            request = {"action": "uninstall", "agent_type": payload["agent_type"], "path": payload["path"], "expected_signature": payload["expected_signature"]}
+        else:
+            request = payload["request"]
+        action = schemas.ClientSkillActionRequest.model_validate({**request, "request_id": f"retry-task:{task_id}"})
+        retry = client_skill_actions.create_action(db, client, action, current_user.username, manager)
+        _operation(db, current_user, "重试客户端处置任务", client_id, f"task_id={task_id}, retry_task_id={retry.id}")
+        db.commit()
+        return {"id": retry.id, "status": retry.status}
+    # The daemon retains terminal receipts by task ID. A retry is new work;
+    # preserve the original payload, including its content preconditions.
+    retry_key = f"retry-task:{client_id}:{task_id}"
+    inserted = db.execute(sqlite_insert(models.ClientTask).values(
+        client_id=client_id, task_type=row.task_type, payload_json=row.payload_json,
+        request_key=retry_key,
+    ).on_conflict_do_nothing(index_elements=[models.ClientTask.request_key]))
+    retry = db.query(models.ClientTask).filter_by(request_key=retry_key).one()
+    if inserted.rowcount and row.task_type == "apply_model_config":
+        _update_model_config_state(db, client_id, _load(retry.payload_json, {}), "pending")
+    _operation(db, current_user, "重试客户端任务", client_id, f"task_id={task_id}, retry_task_id={retry.id}")
     db.commit()
-    return {"id": row.id, "status": row.status}
+    return {"id": retry.id, "status": retry.status}
 
 
 @router.post("/{client_id}/compare")
@@ -1949,7 +2181,11 @@ def compare_inventory(
                     and (entry and (entry.name in allowed_refs or entry.skill_id in allowed_refs or family_id in allowed_refs))
                 )
             )
-            allowed = bool(local_agent and entry and authorized and entry.status == SkillStatus.APPROVED and expected_signature and local_skill.signature == expected_signature)
+            content_matches = bool(expected_signature and local_skill.signature == expected_signature)
+            risk = getattr(getattr(entry, "risk_level", None), "value", getattr(entry, "risk_level", None))
+            malicious = bool(content_matches and risk == "malicious")
+            certified = bool(entry and entry.status in (SkillStatus.APPROVED, SkillStatus.DEPLOYED) and content_matches and not malicious)
+            allowed = bool(local_agent and authorized and certified)
             if not local_agent:
                 reason = "local_agent_not_found"
             elif strict and not managed_agent:
@@ -1958,7 +2194,9 @@ def compare_inventory(
                 reason = "skill_not_found"
             elif strict and allowed_refs is not None and entry.name not in allowed_refs and entry.skill_id not in allowed_refs and family_id not in allowed_refs:
                 reason = "agent_not_authorized"
-            elif entry.status != SkillStatus.APPROVED:
+            elif malicious:
+                reason = "malicious"
+            elif entry.status not in (SkillStatus.APPROVED, SkillStatus.DEPLOYED):
                 reason = "skill_not_approved"
             elif not expected_signature or local_skill.signature != expected_signature:
                 reason = "signature_mismatch"
@@ -1975,6 +2213,9 @@ def compare_inventory(
                     "version_id": entry.skill_id if entry else None,
                     "status": entry.status.value if entry else None,
                     "expected_signature": expected_signature,
+                    "certified": certified,
+                    "malicious": malicious,
+                    "rejected": client_governance.content_rejected(entry, content_matches),
                     "allowed": allowed,
                     "reason": reason,
                 }

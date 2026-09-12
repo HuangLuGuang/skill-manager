@@ -15,12 +15,10 @@
         </div>
         <p class="rail-tagline">统一治理智能体配置、能力与运行安全。</p>
         <nav aria-label="客户端流程">
-          <button class="nav-item active" data-panel="connect"><span>01</span>客户端概览</button>
-          <button class="nav-item" data-panel="discover"><span>02</span>Agent 发现</button>
-          <button class="nav-item" data-panel="models"><span>03</span>模型切换</button>
-          <button class="nav-item" data-panel="takeover"><span>04</span><span id="takeover-nav-label" class="nav-label">接管预览</span></button>
-          <button class="nav-item" data-panel="status"><span>05</span>运行状态</button>
-          <button class="nav-item" data-panel="records"><span>06</span>执行记录</button>
+          <button class="nav-item active" data-panel="connect"><span class="nav-index">01</span><span class="nav-label">客户端概览</span></button>
+          <button class="nav-item" data-panel="discover"><span class="nav-index">02</span><span class="nav-label" data-i18n="ui.agentManagement.title">Agent 管理</span></button>
+          <button class="nav-item" data-panel="models"><span class="nav-index">03</span><span class="nav-label">模型切换</span></button>
+          <button class="nav-item" data-panel="records"><span class="nav-index">04</span><span class="nav-label">执行记录</span></button>
         </nav>
         <div class="rail-note"><div><strong data-system-name>智能体生命周期管理系统</strong><small id="client-build-version">版本 dev</small></div></div>
       </aside>
@@ -58,14 +56,13 @@
               </div>
               <div class="actions">
                 <button id="overview-sync" class="primary icon-button icon-refresh">刷新状态</button>
-                <button id="edit-connection" class="icon-button icon-edit">修改连接</button>
               </div>
             </section>
 
             <section class="metric-grid" aria-label="客户端管理摘要">
               <button class="metric" data-target-panel="discover"><strong id="metric-agents">0</strong><span>本机 Agent</span></button>
               <button class="metric" data-target-panel="discover"><strong id="metric-bound">0 / 0</strong><span id="metric-bound-label">治理就绪</span></button>
-              <button class="metric" data-target-panel="takeover"><strong id="metric-skills">0</strong><span>受管 Skill</span></button>
+              <button class="metric" data-target-panel="discover"><strong id="metric-skills">0</strong><span>受管 Skill</span></button>
               <div class="metric"><strong id="metric-todos">0</strong><span>待完成事项</span></div>
             </section>
 
@@ -138,15 +135,51 @@
 
         <section id="discover" class="panel">
           <div class="panel-toolbar">
-            <div><h2>本机 Agent 与 Skill</h2><p>查看发现路径、校验状态，并选择需要纳入治理的 Skill。</p></div>
-            <div class="actions discover-actions"><button id="add-custom-agent-button" title="添加自定义 Agent">添加 Agent</button><button id="discover-button" class="primary" title="重新发现本机 Agent 与 Skill">重新发现</button></div>
+            <div><h2 data-i18n="ui.agentManagement.title">Agent 管理</h2><p data-i18n="ui.agentManagement.automatic">发现的 Agent 和 Skill 自动纳管，按平台生效策略处理。</p></div>
+            <div class="actions discover-actions"><button id="platform-install-button" data-ui-icon="download" class="action-success icon-button icon-install" title="从平台安装 Skill">从平台安装</button><button id="add-custom-agent-button" data-ui-icon="plus" title="添加自定义 Agent">添加 Agent</button><button id="discover-button" data-ui-icon="refresh-cw" class="primary" title="重新发现本机 Agent 与 Skill">重新发现</button></div>
           </div>
-          <div id="agent-list" class="agent-list empty">尚未执行发现</div>
+          <div class="agent-switcher"><button id="agent-scroll-left" type="button" class="agent-scroll-button" data-ui-icon="chevron-left" aria-label="向左滚动 Agent" data-i18n-aria-label="ui.agentTabs.scroll_left" hidden></button><div id="agent-tabs" role="tablist" data-i18n-aria-label="ui.agentTabs.agents" aria-label="选择 Agent"></div><button id="agent-scroll-right" type="button" class="agent-scroll-button" data-ui-icon="chevron-right" aria-label="向右滚动 Agent" data-i18n-aria-label="ui.agentTabs.scroll_right" hidden></button></div>
+          <div id="agent-context"></div>
+          <div class="agent-content-tabs" role="tablist" data-i18n-aria-label="ui.agentTabs.content" aria-label="Agent 内容">
+            <button id="agent-local-tab" role="tab" tabindex="0" data-agent-view="local" aria-selected="true" aria-controls="agent-local-panel"><span data-i18n="ui.agentTabs.local">本地 Skills</span><small id="agent-local-count"></small></button>
+            <button id="agent-pending-tab" role="tab" tabindex="-1" data-agent-view="pending" aria-selected="false" aria-controls="agent-pending-panel"><span data-i18n="ui.agentTabs.pending">检测记录</span><small id="agent-pending-count"></small></button>
+            <button id="agent-recovery-tab" role="tab" tabindex="-1" data-agent-view="recovery" aria-selected="false" aria-controls="agent-recovery-panel"><span data-i18n="ui.agentTabs.recovery">隔离副本</span><small id="agent-recovery-count"></small></button>
+          </div>
+          <section id="agent-local-panel" role="tabpanel" aria-labelledby="agent-local-tab">
+          <div class="agent-skill-filters"><div class="agent-search-field" data-ui-icon="search"><input id="agent-skill-search" type="search" placeholder="搜索 Skill 名称" data-i18n-placeholder="ui.agentTabs.search" aria-label="搜索 Skill 名称" data-i18n-aria-label="ui.agentTabs.search" /></div><select id="agent-skill-status" aria-label="认证状态" data-i18n-aria-label="ui.agentTabs.status"><option value="" data-i18n="ui.agentTabs.all">全部认证状态</option><option value="trusted" data-i18n="ui.agentTabs.trusted">已认证</option><option value="unverified" data-i18n="ui.agentTabs.unverified">未认证</option><option value="changed" data-i18n="ui.agentTabs.changed">内容变化</option><option value="malicious" data-i18n="ui.agentTabs.malicious">已确认恶意</option></select></div>
+          <div class="agent-skill-columns"><span>Skill</span><span data-i18n="ui.agentTabs.status">认证状态</span><span data-i18n="ui.agentTabs.actions">操作</span></div>
+          <div id="agent-list" class="agent-list empty" data-no-i18n></div>
+          <p id="agent-skill-empty" class="empty" hidden data-i18n="ui.agentTabs.empty">没有符合条件的 Skill</p>
+          <div class="agent-skill-pagination"><span id="agent-skill-total"></span><div><span data-i18n="ui.records.page_size">每页条数</span><select id="agent-skill-page-size" aria-label="每页条数" data-i18n-aria-label="ui.records.page_size"><option selected>10</option><option>20</option><option>50</option></select><button id="agent-skill-prev" data-ui-icon="chevron-left" data-i18n="ui.records.previous">上一页</button><span id="agent-skill-page"></span><button id="agent-skill-next" data-ui-icon="chevron-right" data-i18n="ui.records.next">下一页</button></div></div>
           <p class="agent-discovery-tip">没有找到需要管理的 Agent？可点击右上角“添加 Agent”，手动指定 Skill 根目录。</p>
-          <div id="discover-next" class="next-step" hidden>
-            <div><strong id="selection-heading">下一步：确认接管范围</strong><span id="selection-guidance">已选择 <b id="selected-skill-count">0</b> 个 Skill，生成预览后可查看哪些继续启用、哪些需要处理。</span></div>
-            <button id="open-preview-button" class="primary icon-button icon-preview">生成接管预览</button>
+          </section>
+          <section id="agent-pending-panel" role="tabpanel" aria-labelledby="agent-pending-tab" hidden>
+          <div class="pending-command-bar"><span data-i18n="ui.agentHistory.description">已提交的检测任务及结果</span><button id="refresh-pending" data-ui-icon="refresh-cw" data-i18n="ui.agentHistory.refresh">刷新记录</button></div>
+          <div id="pending-list" class="takeover-list empty" data-no-i18n></div>
+          <p id="agent-pending-empty" class="empty" hidden data-i18n="ui.agentTabs.pending_empty">此 Agent 暂无检测记录</p>
+          </section>
+          <section id="agent-recovery-panel" role="tabpanel" aria-labelledby="agent-recovery-tab" hidden>
+          <div class="recovery-toolbar">
+            <label id="pending-select-all-wrap" class="pending-select-all" hidden><input id="pending-select-all" type="checkbox" />全选待检测</label>
+            <div class="recovery-actions">
+              <button id="refresh-quarantine" data-ui-icon="refresh-cw" class="icon-button icon-refresh">刷新隔离区</button>
+              <button id="submit-selected-pending" data-ui-icon="shield-check" class="primary icon-button icon-submit" hidden disabled>提交所选 0</button>
+            </div>
           </div>
+          <div id="pending-progress" class="operation-progress" aria-live="polite" hidden>
+            <div class="operation-progress-heading">
+              <strong data-progress-title>正在提交平台检测</strong>
+              <span data-progress-elapsed>已用时 0 秒</span>
+            </div>
+            <div class="operation-progress-track"><i data-progress-bar></i></div>
+            <p data-progress-detail>正在准备待处理 Skill...</p>
+          </div>
+          <div id="pending-batch-status" class="takeover-feedback" aria-live="polite" hidden></div>
+          <div id="quarantine-list" class="takeover-list empty" data-no-i18n></div>
+
+          <p id="agent-recovery-empty" class="empty" hidden data-i18n="ui.agentTabs.recovery_empty">此 Agent 暂无隔离副本</p>
+
+          </section>
         </section>
 
         <section id="models" class="panel">
@@ -162,106 +195,6 @@
             <span id="model-result-count">0 个模型</span>
           </div>
           <div id="model-catalog" class="model-catalog empty">正在读取可用模型</div>
-        </section>
-
-        <section id="takeover" class="panel">
-          <div class="panel-toolbar">
-            <div>
-              <div class="takeover-heading-line"><h2 id="takeover-heading">接管预览</h2><span id="takeover-state-badge" class="takeover-state-badge" hidden>接管中</span></div>
-              <p id="takeover-description">安全治理模式只校验平台批准状态与内容签名；Agent 强授权模式还会校验智能体允许范围。</p>
-            </div>
-            <div class="actions">
-              <button id="platform-install-button" class="action-success icon-button icon-install" title="从平台安装 Skill">从平台安装</button>
-              <button id="toggle-takeover" hidden>暂停接管</button>
-              <button id="preview-button" class="icon-button icon-refresh">刷新预览</button>
-            </div>
-          </div>
-          <div id="takeover-progress" class="operation-progress" aria-live="polite" hidden>
-            <div class="operation-progress-heading">
-              <strong data-progress-title>正在处理</strong>
-              <span data-progress-elapsed>已用时 0 秒</span>
-            </div>
-            <div class="operation-progress-track"><i data-progress-bar></i></div>
-            <p data-progress-detail>正在准备...</p>
-          </div>
-          <div id="takeover-summary" class="summary-strip" hidden>
-            <div><strong id="manage-count">0</strong><span>本次可接管<small>已接管的 Skill 不会重复处理</small></span></div>
-            <div><strong id="pending-count">0</strong><span>本次需停用<small>移出 Agent 目录并安全保留</small></span></div>
-          </div>
-          <div id="takeover-result-note" class="result-note" hidden></div>
-          <div id="takeover-feedback" class="takeover-feedback" aria-live="polite" hidden></div>
-          <div id="takeover-list" class="takeover-list empty">请先发现 Agent，并选择要接管的 Skill</div>
-          <div id="takeover-actions" class="takeover-actions" hidden>
-            <label class="takeover-confirm"><input id="takeover-ack" type="checkbox" /><span><strong>确认执行上述处理</strong><small>需要处理的 Skill 会从 Agent 目录移出并保留到待处理区，不会被删除。</small></span></label>
-            <button id="apply-button" class="action-success icon-button icon-check" data-busy-text="正在接管..." disabled>执行接管</button>
-          </div>
-          <div class="panel-toolbar pending-heading">
-            <div><h2>已停用待处理</h2><p>这些 Skill 已安全移出 Agent 目录，提交平台检测后可在 Skill 列表中继续审核。</p></div>
-          </div>
-          <div class="pending-command-bar">
-            <div>
-              <label id="pending-select-all-wrap" class="pending-select-all" hidden><input id="pending-select-all" type="checkbox" />全选待检测</label>
-            </div>
-            <div class="actions pending-actions">
-              <button id="submit-selected-pending" class="primary icon-button icon-submit" hidden disabled>提交所选 0</button>
-              <button id="refresh-pending" class="icon-button icon-refresh">刷新待处理</button>
-            </div>
-          </div>
-          <div id="pending-progress" class="operation-progress" aria-live="polite" hidden>
-            <div class="operation-progress-heading">
-              <strong data-progress-title>正在提交平台检测</strong>
-              <span data-progress-elapsed>已用时 0 秒</span>
-            </div>
-            <div class="operation-progress-track"><i data-progress-bar></i></div>
-            <p data-progress-detail>正在准备待处理 Skill...</p>
-          </div>
-          <div id="pending-batch-status" class="takeover-feedback" aria-live="polite" hidden></div>
-          <div id="pending-list" class="takeover-list empty">当前没有停用待处理的 Skill</div>
-        </section>
-
-        <section id="status" class="panel">
-          <section class="status-hero">
-            <div>
-              <span id="status-service-badge" class="overview-badge">正在检查</span>
-              <h2 id="status-service-title">后台巡检状态</h2>
-              <p id="status-service-description">默认每 5 分钟同步平台任务并校验受管 Skill。</p>
-            </div>
-            <div class="status-actions">
-              <button id="run-once" class="primary icon-button icon-run">立即执行巡检</button>
-              <button id="toggle-governance" class="takeover-toggle pause icon-button icon-pause">暂停持续治理</button>
-              <button id="install-service" class="action-success icon-button icon-start">启用后台服务</button>
-              <button id="uninstall-service" class="subtle-danger icon-button icon-stop" hidden>停止后台服务</button>
-            </div>
-          </section>
-
-          <section class="status-metrics" aria-label="巡检状态摘要">
-            <div><strong id="status-last-scan">-</strong><span>最近完整巡检</span></div>
-            <div><strong id="status-next-scan">-</strong><span>下次完整巡检</span></div>
-            <div><strong id="status-managed-count">0</strong><span>受管 Skill</span></div>
-            <div><strong id="status-quarantine-count">0</strong><span>隔离中</span></div>
-            <div><strong id="status-queued-count">0</strong><span>待补报事件</span></div>
-          </section>
-
-          <div id="status-attention" class="status-attention"><span id="status-attention-text">正在读取需要处理的事项</span></div>
-          <div id="status-last-operation" class="operation-result" aria-live="polite">最近操作：等待操作</div>
-
-          <div class="panel-toolbar quarantine-heading">
-            <div><h2>隔离区</h2><p>异常内容不会直接恢复到 Agent。确认安全后，请从平台选择批准版本重新安装。</p></div>
-            <button id="refresh-quarantine" class="icon-button icon-refresh">刷新隔离区</button>
-          </div>
-          <div id="quarantine-list" class="takeover-list empty">正在加载隔离记录</div>
-
-          <details class="advanced-recovery">
-            <summary>高级恢复</summary>
-            <p>接管前备份用于紧急回退。恢复会覆盖对应 Agent 当前的同名 Skill，请确认后操作。</p>
-            <div class="backup-row">
-              <label>接管前备份
-                <select id="backup-select"><option value="">正在加载</option></select>
-              </label>
-              <button id="refresh-backups" class="icon-button icon-refresh">刷新</button>
-              <button id="restore-backup" class="danger icon-button icon-restore">恢复所选备份</button>
-            </div>
-          </details>
         </section>
 
         <section id="notifications" class="panel">
@@ -287,28 +220,44 @@
         </section>
 
         <section id="records" class="panel">
-          <section class="status-hero">
-            <div><span class="overview-badge">本地记录</span><h2>执行记录</h2><p>查看巡检发现、自动处置以及平台下发任务的执行结果。</p></div>
-            <button id="refresh-records" class="icon-button icon-refresh">刷新记录</button>
-          </section>
-          <div class="panel-toolbar task-history-heading"><div><h2>巡检与处置记录</h2><p>记录 Skill 修改、自动恢复、隔离和安装等安全事件。</p></div></div>
-          <div class="takeover-column-head task-history-columns"><span>事件</span><span>Agent</span><span>结果</span><span>发生时间</span></div>
-          <div id="event-history-list" class="takeover-list empty">暂无巡检与处置记录</div>
-          <div class="panel-toolbar task-history-heading"><div><h2>平台任务记录</h2><p>记录策略同步、Skill 安装、移除和修复任务。</p></div></div>
-          <div class="takeover-column-head task-history-columns"><span>任务</span><span>Agent</span><span>状态</span><span>执行时间 / 结果</span></div>
-          <div id="task-history-list" class="takeover-list empty">暂无平台任务记录</div>
+          <div class="record-toolbar">
+          <div class="record-tabs" role="tablist" aria-label="记录分类" data-i18n-aria-label="ui.records.category">
+            <button id="records-events-tab" role="tab" aria-selected="true" aria-controls="event-records" data-record-kind="events" data-i18n="ui.records.events">巡检与处置</button>
+            <button id="records-tasks-tab" role="tab" aria-selected="false" aria-controls="task-records" data-record-kind="tasks" data-i18n="ui.records.tasks">平台任务</button>
+          </div>
+          <button id="refresh-records" type="button" data-i18n="ui.records.refresh">刷新</button></div>
+          <div class="record-filters">
+            <label><span data-i18n="ui.records.keyword">关键词</span><input id="records-keyword" type="search" data-i18n-placeholder="ui.records.search" placeholder="搜索 Skill、类型或错误" /></label>
+            <label><span>Agent</span><select id="records-agent"></select></label>
+            <label><span data-i18n="ui.records.type">类型</span><select id="records-type"></select></label>
+            <label id="records-status-filter" hidden><span data-i18n="ui.records.status">状态</span><select id="records-status"></select></label>
+            <label><span data-i18n="ui.records.time">时间范围</span><select id="records-days"><option value="0" data-i18n="ui.records.all_time">全部时间</option><option value="1" data-i18n="ui.records.day">最近 24 小时</option><option value="7" data-i18n="ui.records.week">最近 7 天</option><option value="30" data-i18n="ui.records.month">最近 30 天</option></select></label>
+            <button id="records-reset" type="button" data-i18n="ui.records.reset">重置</button>
+          </div>
+          <div id="records-feedback" role="status" aria-live="polite"></div>
+          <div id="event-records" role="tabpanel" aria-labelledby="records-events-tab"><div class="takeover-column-head task-history-columns"><span data-i18n="ui.records.event">事件 / Skill</span><span>Agent</span><span data-i18n="ui.records.result">结果</span><span data-i18n="ui.records.latest">最近发现</span></div><div id="event-history-list" class="takeover-list"></div></div>
+          <div id="task-records" role="tabpanel" aria-labelledby="records-tasks-tab" hidden><div class="takeover-column-head task-history-columns"><span data-i18n="ui.records.task">任务 / Skill</span><span>Agent</span><span data-i18n="ui.records.status">状态</span><span data-i18n="ui.records.execution">执行时间 / 详情</span></div><div id="task-history-list" class="takeover-list"></div></div>
+          <div class="record-pagination"><span id="records-total"></span><div><span data-i18n="ui.records.page_size">每页条数</span><select id="records-page-size" aria-label="每页条数" data-i18n-aria-label="ui.records.page_size"><option selected>10</option><option>20</option><option>50</option></select><button id="records-prev" type="button" data-i18n="ui.records.previous">上一页</button><span id="records-page"></span><button id="records-next" type="button" data-i18n="ui.records.next">下一页</button></div></div>
+
         </section>
 
         <section id="settings" class="panel settings-panel">
           <div class="panel-toolbar">
-            <div><h2>客户端设置</h2><p>管理当前设备上的显示、通知、后台运行和更新偏好。</p></div>
+            <div><h2>客户端设置</h2><p data-i18n="ui.settings.description">管理平台连接、显示、通知、后台运行和更新偏好。</p></div>
           </div>
+
+          <section class="settings-section">
+            <div class="settings-section-heading"><h2 data-i18n="ui.settings.connection">平台连接</h2><p data-i18n="ui.settings.connection_description">修改平台地址和客户端接入凭证，测试成功后保存。</p></div>
+            <div class="settings-rows">
+              <div class="settings-row"><span><strong data-i18n="ui.settings.platform_address">平台地址</strong><small id="settings-server" data-no-i18n></small></span><button id="edit-connection" class="icon-button icon-edit" type="button" data-i18n="ui.settings.edit_connection">修改地址与凭证</button></div>
+            </div>
+          </section>
 
           <section class="settings-section">
             <div class="settings-section-heading"><h2>通用</h2><p>这些偏好仅保存在当前设备。</p></div>
             <div class="settings-rows">
               <label class="settings-row"><span><strong>显示语言</strong><small>切换客户端界面语言。</small></span><select id="settings-language"><option value="zh-CN">简体中文</option><option value="en-US">English</option></select></label>
-              <label class="settings-row"><span><strong>默认打开页面</strong><small>客户端启动并读取状态后进入此页面。</small></span><select id="settings-default-panel"><option value="connect">客户端概览</option><option value="discover">Agent 发现</option><option value="models">模型切换</option><option value="takeover">Skill 治理</option><option value="status">运行状态</option><option value="records">执行记录</option></select></label>
+              <label class="settings-row"><span><strong>默认打开页面</strong><small>客户端启动并读取状态后进入此页面。</small></span><select id="settings-default-panel"><option value="connect">客户端概览</option><option value="discover" data-i18n="ui.agentManagement.title">Agent 管理</option><option value="models">模型切换</option><option value="records">执行记录</option></select></label>
             </div>
           </section>
 
@@ -321,10 +270,36 @@
           </section>
 
           <section class="settings-section">
-            <div class="settings-section-heading"><h2>后台运行</h2><p>控制登录系统后是否自动运行治理服务。</p></div>
+            <div class="settings-section-heading"><h2>后台运行</h2><p data-i18n="ui.background.description">连接后自动启动，登录系统和关闭窗口后持续运行。</p></div>
             <div class="settings-rows">
-              <label class="settings-row"><span><strong>登录后启动后台治理</strong><small id="settings-service-detail">正在读取后台服务状态。</small></span><input id="settings-background-service" class="settings-switch" type="checkbox" /></label>
+              <div class="settings-row"><span><strong data-i18n="ui.background.title">后台服务状态</strong><small id="settings-service-detail">正在读取后台服务状态。</small></span></div>
             </div>
+            <details class="runtime-diagnostics"><summary data-i18n="ui.settings.runtime_diagnostics">查看运行诊断</summary>
+          <section class="status-hero">
+            <div>
+              <span id="status-service-badge" class="overview-badge">正在检查</span>
+              <h2 id="status-service-title">后台巡检状态</h2>
+              <p id="status-service-description">默认每 5 分钟同步平台任务并校验受管 Skill。</p>
+            </div>
+            <div class="status-actions">
+              <button id="run-once" class="primary icon-button icon-run">立即执行巡检</button>
+              <button id="install-service" class="action-success icon-button icon-start" data-i18n="ui.background.retry">重试后台启动</button>
+            </div>
+          </section>
+
+          <section class="status-metrics" aria-label="巡检状态摘要">
+            <div><strong id="status-last-scan">-</strong><span>最近完整巡检</span></div>
+            <div><strong id="status-next-scan">-</strong><span>下次完整巡检</span></div>
+            <div><strong id="status-managed-count">0</strong><span>受管 Skill</span></div>
+            <div><strong id="status-quarantine-count">0</strong><span>隔离中</span></div>
+            <div><strong id="status-queued-count">0</strong><span>待补报事件</span></div>
+          </section>
+
+          <div id="status-attention" class="status-attention"><span id="status-attention-text">正在读取需要处理的事项</span></div>
+          <div id="status-last-operation" class="operation-result" aria-live="polite">最近操作：等待操作</div>
+
+
+            </details>
           </section>
 
           <section class="settings-section">
@@ -335,6 +310,18 @@
               <div class="settings-row"><span><strong>当前版本</strong><small id="settings-update-status">尚未检查更新。</small></span><button id="settings-check-update" class="icon-button icon-check">立即检查</button></div>
             </div>
           </section>
+
+          <details class="advanced-recovery">
+            <summary>高级恢复</summary>
+            <p data-i18n="ui.agentManagement.backup_description">历史备份恢复需平台授权，按 Skill 分别创建任务。执行前校验策略与内容，覆盖前保留现有文件。</p>
+            <div class="backup-row">
+              <label><span data-i18n="ui.agentManagement.backup_label">历史备份</span>
+                <select id="backup-select"><option value="">正在加载</option></select>
+              </label>
+              <button id="refresh-backups" class="icon-button icon-refresh">刷新</button>
+              <button id="restore-backup" class="danger icon-button icon-restore">恢复所选备份</button>
+            </div>
+          </details>
 
           <section class="settings-section">
             <div class="settings-section-heading"><h2>诊断</h2><p>用于现场排查，不会导出接入凭据明文。</p></div>
@@ -407,13 +394,6 @@
         <div class="dialog-actions"><button id="cancel-discard-pending" class="icon-button icon-close">取消</button><button id="confirm-discard-pending" class="danger icon-button icon-remove" data-busy-text="正在删除...">确认删除</button></div>
       </div>
     </dialog>
-    <dialog id="stop-service-dialog" class="message-dialog">
-      <div class="message-dialog-body">
-        <h3>停止后台服务</h3>
-        <p>停止后，客户端将不再同步平台任务、巡检文件变化、发送告警或自动恢复 Skill。本地受管内容不会删除。运行状态保存在 ~/.agent-manager，受管内容保存在 ~/.river-security/agent-manager；移动数据前请先停止后台服务。</p>
-        <form method="dialog"><button value="cancel">取消</button><button id="confirm-stop-service" class="subtle-danger icon-button icon-stop" value="default" type="button">确认停止</button></form>
-      </div>
-    </dialog>
     <dialog id="remove-custom-agent-dialog" class="message-dialog">
       <div class="message-dialog-body">
         <h3>取消自定义 Agent 登记</h3>
@@ -444,7 +424,7 @@
         <label>可信版本<select id="install-platform-version" disabled><option value="">请先选择 Skill</option></select></label>
         <div id="install-skill-preview" class="install-skill-preview"><span>选择 Skill 后可查看说明</span></div>
         <fieldset class="install-target-fieldset">
-          <legend>目标 Agent（可多选）</legend>
+          <legend><span data-i18n="ui.installTargets.title">目标 Agent（可多选）</span><span id="install-target-count" class="install-target-count" aria-live="polite" data-no-i18n></span></legend>
           <div id="install-agent-targets" class="install-agent-targets"><span>请先选择 Skill</span></div>
         </fieldset>
         <div class="dialog-actions"><button id="cancel-install-skill" class="icon-button icon-close">取消</button><button id="confirm-install-skill" class="action-success icon-button icon-install" data-busy-text="正在安装...">安装到所选 Agent</button></div>
@@ -453,11 +433,19 @@
     <dialog id="custom-agent-dialog" class="message-dialog custom-agent-dialog">
       <form id="custom-agent-form" class="message-dialog-body">
         <h3>添加自定义 Agent</h3>
-        <p>适用于未内置适配的 Agent。指定其 Skill 根目录后，即可使用现有的发现、接管、安装和巡检能力。客户端安全治理无需先在平台创建智能体；Agent 强授权模式下再选择对应的平台智能体。</p>
+        <p data-i18n="ui.agentManagement.custom_description">指定自定义 Agent 的 Skill 根目录后自动发现并纳管。安装和加载权限由平台授权控制。</p>
         <label>Agent 名称<input id="custom-agent-name" type="text" placeholder="例如：内部研发助手" maxlength="100" required /></label>
         <label>Skill 根目录<div class="path-input"><input id="custom-agent-path" type="text" placeholder="绝对路径，例如 /Users/me/.my-agent/skills" required /><button id="select-custom-agent-path" class="icon-button icon-folder" type="button">选择目录</button></div><small>请选择包含各个 Skill 子目录的根目录，不是单个 SKILL.md 文件。</small></label>
         <div class="dialog-actions"><button id="cancel-custom-agent" class="icon-button icon-close" type="button">取消</button><button class="action-success icon-button icon-add" type="submit" data-busy-text="正在添加...">添加并发现</button></div>
       </form>
+    </dialog>
+    <dialog id="skill-action-dialog" class="message-dialog skill-action-dialog" aria-labelledby="skill-action-title" aria-describedby="skill-action-description">
+      <div class="message-dialog-body">
+        <h3 id="skill-action-title" data-no-i18n></h3>
+        <p id="skill-action-description" data-no-i18n></p>
+        <div class="skill-action-context"><span class="dialog-field-label" data-i18n="ui.agentManagement.target_path">目标目录</span><code id="skill-action-path" data-no-i18n></code><p id="skill-action-impact" data-no-i18n></p></div>
+        <form method="dialog" class="dialog-actions"><button value="cancel" data-i18n="ui.agentManagement.cancel">取消</button><button id="confirm-skill-action" type="button" class="primary" data-i18n="ui.agentManagement.confirm_action">确认并创建任务</button></form>
+      </div>
     </dialog>
     <script src="./static-i18n-bindings.js"></script>
     <script src="./i18n.js"></script>

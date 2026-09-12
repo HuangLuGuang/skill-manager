@@ -71,7 +71,7 @@
         <a-button v-if="hasAccess('agents:create')" type="primary" @click="openAgent()">{{ $t("legacy.1krdxw3") }}</a-button>
       </a-space>
 
-      <a-table :data-source="agents" :columns="columns" rowKey="id" :loading="loading" :pagination="{ pageSize: 10 }">
+      <a-table :data-source="agents" :columns="columns" :scroll="{ x: 1200 }" rowKey="id" :loading="loading" :pagination="{ pageSize: 10 }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'agent'">
             <div class="agent-name">{{ record.name }}</div>
@@ -537,7 +537,7 @@ onMounted(async () => {
 }
 
 .flow-card {
-  margin-top: 16px;
+  margin-top: 8px;
 }
 
 .flow-section {

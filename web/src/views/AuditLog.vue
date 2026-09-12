@@ -32,6 +32,7 @@
 
       <a-table
         :data-source="rows"
+        :scroll="{ x: 1560 }"
         :columns="columns"
         rowKey="event_id"
         :loading="loading"
@@ -75,6 +76,7 @@ import { getAuditPaged } from '../api'
 import { translateDomain } from '../i18n'
 import { useLocaleText } from '../i18n/useLocaleText'
 import { formatDateTime } from '../utils/format'
+import { formatAuditValue } from '../utils/auditValue'
 
 const { phrase, text } = useLocaleText()
 const loading = ref(false)
@@ -106,7 +108,7 @@ const columns = computed(() => [
   { title: 'Agent', dataIndex: 'agent_id', key: 'agent_id', width: 170 },
   { title: text('来源 IP', 'Source IP'), dataIndex: 'client_ip', key: 'client_ip', width: 140 },
   { title: text('凭证/Actor', 'Credential / Actor'), dataIndex: 'actor', key: 'actor', width: 170, sorter: true },
-  { title: text('详情', 'Details'), dataIndex: 'details', key: 'details' },
+  { title: text('详情', 'Details'), dataIndex: 'details', key: 'details', width: 360 },
 ])
 
 const eventTypeOptions = computed(() => [
@@ -246,7 +248,7 @@ const formatAuditDetails = (details = {}) => {
     if (key === 'source' && value === 'managed_client') return text('受管客户端', 'Managed Client')
     if (value === true) return text('允许', 'Allowed')
     if (value === false) return text('拒绝', 'Denied')
-    return typeof value === 'string' ? phrase(value) : value
+    return formatAuditValue(key, value, translateDomain)
   }
   return Object.entries(details || {})
     .filter(([key, value]) => !hidden.has(key) && value !== undefined && value !== null && value !== '')

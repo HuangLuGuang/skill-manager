@@ -52,6 +52,12 @@
           </label>
         </div>
 
+        <label class="field-block output-token-field">
+          <span class="field-label">{{ t('docsAssistantSettings.maxOutputTokens') }}</span>
+          <a-input-number v-model:value="form.max_output_tokens" :min="1" :precision="0" style="width: 100%" />
+          <small>{{ t('docsAssistantSettings.maxOutputTokensHint') }}</small>
+        </label>
+
         <div class="localized-grid">
           <label class="field-block">
             <span class="field-label">{{ t('docsAssistantSettings.welcomeZh') }}</span>
@@ -140,6 +146,7 @@ const form = reactive({
   instruction_zh: '',
   instruction_en: '',
   max_context_sections: 4,
+  max_output_tokens: 12800,
   common_questions: [],
 })
 
@@ -164,6 +171,7 @@ const buildSettingsPayload = () => ({
   instruction_zh: form.instruction_zh,
   instruction_en: form.instruction_en,
   max_context_sections: Number(form.max_context_sections || 4),
+  max_output_tokens: Number(form.max_output_tokens ?? 12800),
   common_questions: form.common_questions.map(item => ({
     ...item,
     question_zh: item.question_zh,
@@ -185,6 +193,7 @@ const assignConfig = config => {
     instruction_zh: config.instruction_zh || '',
     instruction_en: config.instruction_en || '',
     max_context_sections: config.max_context_sections || 4,
+    max_output_tokens: config.max_output_tokens ?? 12800,
     common_questions: (config.common_questions || []).map(item => ({ ...item })),
   })
 }
@@ -300,6 +309,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
 .settings-grid { display: grid; grid-template-columns: minmax(300px, 1fr) 180px; gap: 18px; }
 .localized-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 20px; }
 .field-block { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
+.output-token-field { margin-top: 20px; }
 .field-label { color: #314a62; font-size: 13px; font-weight: 630; }
 .field-block small { color: #7b8a9a; font-size: 11px; line-height: 1.55; }
 .inline-link { display: inline-flex; align-items: center; gap: 4px; width: fit-content; color: #2663b8; font-size: 12px; }
