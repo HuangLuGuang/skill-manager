@@ -67,7 +67,7 @@
                 </a-select>
               </label>
               <a-button @click="openClassification(detail.client_id)">{{ $t('clientGovernance.title') }}</a-button>
-              <a-button class="detail-refresh" @click="refreshDetail">{{ $t("legacy.2fhcc7") }}</a-button>
+              <a-button @click="refreshDetail">{{ $t("legacy.2fhcc7") }}</a-button>
             </div>
           </div>
 
@@ -175,14 +175,14 @@
                 <div v-if="taskTargetLabel(record)" class="muted">{{ taskTargetLabel(record) }}</div>
               </template>
               <template v-else-if="column.key === 'status'">
-                <a-tag :color="taskColor(record.status)">{{ taskStatusLabel(record.status) }}</a-tag>
+                <a-tag :color="taskColor(record.status)">{{ taskStatusLabel(record.status, record) }}</a-tag>
               </template>
               <template v-else-if="column.key === 'created'">{{ formatTime(record.created_at) }}</template>
-              <template v-else-if="column.key === 'error'">{{ record.error || '-' }}</template>
+              <template v-else-if="column.key === 'error'">{{ ['policy_superseded', 'policy_ack_required'].includes(record.error) ? $t(`clientGovernance.${record.error}`) : record.error || '-' }}</template>
               <template v-else-if="column.key === 'action'">
                 <a-space>
                   <a-button v-if="hasAccess('clients:execute') && (['pending', 'running'].includes(record.status))" type="link" danger :loading="taskOperations.has(record.id)" :disabled="taskOperations.has(record.id) || (['skill_action', 'remove_skill', 'install_skill', 'repair_skill'].includes(record.task_type) && record.status === 'running')" :title="['skill_action', 'remove_skill', 'install_skill', 'repair_skill'].includes(record.task_type) && record.status === 'running' ? $t('clientGovernance.actionAlreadyStarted') : ''" @click="cancelTask(record)">{{ $t("legacy.1589w37") }}</a-button>
-                  <a-button v-if="hasAccess('clients:execute') && (['failed', 'cancelled'].includes(record.status))" type="link" :loading="taskOperations.has(record.id)" :disabled="taskOperations.has(record.id)" @click="retryTask(record)">{{ $t("legacy.lswd2v") }}</a-button>
+                  <a-button v-if="hasAccess('clients:execute') && record.error !== 'policy_superseded' && (['failed', 'cancelled'].includes(record.status))" type="link" :loading="taskOperations.has(record.id)" :disabled="taskOperations.has(record.id)" @click="retryTask(record)">{{ $t("legacy.lswd2v") }}</a-button>
                 </a-space>
               </template>
             </template>
@@ -652,7 +652,7 @@ const taskSkillName = task => task.payload?.skill_name
   || skills.value.find(skill => skill.skill_id === task.payload?.skill_id)?.name
   || task.payload?.skill_id
   || ''
-const taskTargetLabel = task => task.task_type === 'apply_model_config'
+const taskTargetLabel = task => task.task_type === 'sync_policy' ? '' : task.task_type === 'apply_model_config'
   ? `${task.payload?.model || '-'} · ${agentLabel(task.payload?.agent_type)}`
   : taskSkillName(task) ? `${taskSkillName(task)} · ${agentLabel(task.payload?.agent_type)}` : ''
 const isOnline = record => record.status === 'online'
@@ -710,7 +710,9 @@ const taskLabel = task => {
   if (task.task_type === 'rescan' && task.payload?.reason === 'policy_changed') return phrase('legacy.q9utgp')
   return translateDomain('taskType', task.task_type, task.task_type)
 }
-const taskStatusLabel = value => translateDomain('taskStatus', value, value)
+const taskStatusLabel = (value, task) => task?.task_type === 'sync_policy' && task.error === 'policy_superseded'
+  ? i18n.global.t('clientGovernance.superseded') : task?.task_type === 'sync_policy' && value === 'succeeded'
+    ? i18n.global.t('clientGovernance.policyApplied') : translateDomain('taskStatus', value, value)
 const taskColor = value => ({ pending: 'default', running: 'blue', succeeded: 'green', failed: 'red', cancelled: 'default' }[value] || 'default')
 
 onMounted(async () => {
@@ -757,10 +759,12 @@ onMounted(async () => {
 }
 .detail-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
 }
+.detail-head > :first-child { min-width: 0; overflow-wrap: anywhere; }
 .agent-skill-table { width: min(984px, calc(100vw - 96px)); max-width: 100%; }
 .agent-skill-table :deep(td) { overflow-wrap: anywhere; }
 .local-agents-table :deep(.ant-tag) { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
@@ -771,7 +775,10 @@ onMounted(async () => {
 }
 .policy-controls {
   display: flex;
+  align-items: flex-end;
   flex-wrap: wrap;
+  margin-left: auto;
+  max-width: 100%;
   gap: 12px;
 }
 .policy-controls label > span {
@@ -779,9 +786,6 @@ onMounted(async () => {
   margin-bottom: 5px;
   color: #7a869a;
   font-size: 12px;
-}
-.detail-refresh {
-  align-self: flex-end;
 }
 .skill-option-time {
   float: right;

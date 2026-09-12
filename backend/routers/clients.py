@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import logging
@@ -10,6 +11,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Query, Request, Response
 from backend import client_governance, client_skill_actions
+from backend.client_task_notifications import task_hub
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.encoders import jsonable_encoder
 from jose import JWTError, jwt
@@ -1159,22 +1162,53 @@ def report_takeover(
 
 
 @router.get("/{client_id}/tasks")
-def poll_tasks(
+async def poll_tasks(
     client_id: str,
     request: Request,
+    wait_seconds: int = Query(0, ge=0, le=30),
+    after_id: int = Query(0, ge=0),
     authorization: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    token = _runtime_token("client:read-tasks", authorization, request, db)
-    _bind_client(token, client_id, db)
-    _client_or_404(db, client_id)
-    rows = (
-        db.query(models.ClientTask)
-        .filter(models.ClientTask.client_id == client_id, models.ClientTask.status == "pending")
-        .order_by(models.ClientTask.id.asc())
-        .all()
-    )
-    return [{"id": row.id, "task_type": row.task_type, "payload": _load(row.payload_json, {})} for row in rows]
+    def fetch():
+        try:
+            token = _runtime_token("client:read-tasks", authorization, request, db)
+            _bind_client(token, client_id, db)
+            _client_or_404(db, client_id)
+            rows = db.query(models.ClientTask).filter_by(client_id=client_id, status="pending").filter(models.ClientTask.id > after_id).order_by(models.ClientTask.id).all()
+            return [{"id": row.id, "task_type": row.task_type, "payload": _load(row.payload_json, {})} for row in rows]
+        finally:
+            db.close()
+
+    # Authenticate before allocating a waiting connection.
+    rows = await run_in_threadpool(fetch)
+    if rows or not wait_seconds:
+        return rows
+    hub = task_hub(db.get_bind())
+    async with hub.subscribe(client_id) as wake:
+        deadline = asyncio.get_running_loop().time() + wait_seconds
+        while True:
+            wake.clear()
+            # Subscribe first, then query again so a commit cannot fall in a gap.
+            rows = await run_in_threadpool(fetch)
+            if rows:
+                return rows
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0 or await request.is_disconnected():
+                return []
+            try:
+                await asyncio.wait_for(wake.wait(), min(remaining, 1))
+            except asyncio.TimeoutError:
+                # Check disconnects without a database query for each waiter.
+                while not wake.is_set() and asyncio.get_running_loop().time() < deadline:
+                    if await request.is_disconnected():
+                        return []
+                    try:
+                        await asyncio.wait_for(wake.wait(), min(1, deadline - asyncio.get_running_loop().time()))
+                    except asyncio.TimeoutError:
+                        pass
+                if not wake.is_set():
+                    return await run_in_threadpool(fetch)
 
 
 @router.post("/{client_id}/skill-actions")
@@ -1500,7 +1534,16 @@ def report_task_result(
     )
     if not row:
         raise HTTPException(status_code=404, detail="任务不存在")
-    if row.task_type in {"skill_action", "remove_skill", "install_skill", "repair_skill"}:
+    target_version = _load(row.payload_json, {}).get("target_version")
+    if row.task_type == "sync_policy" and target_version and body.status == "succeeded" and row.status in ("pending", "running"):
+        if body.applied_policy_version != target_version:
+            db.query(models.ClientTask).filter(
+                models.ClientTask.id == task_id,
+                models.ClientTask.status.in_(("pending", "running")),
+            ).update({"status": "failed", "error": "policy_ack_required", "finished_at": datetime.utcnow()}, synchronize_session=False)
+            db.commit()
+            raise ApiError(409, "client.policy_ack_required", "客户端未确认应用目标策略版本，请升级或重试", "The client must confirm the applied policy version; upgrade or retry")
+    if row.task_type in {"sync_policy", "skill_action", "remove_skill", "install_skill", "repair_skill"}:
         updates = {"status": body.status, "error": body.error}
         if body.status == "running":
             updates["started_at"] = func.coalesce(models.ClientTask.started_at, datetime.utcnow())
@@ -2082,8 +2125,10 @@ def retry_task(
         raise HTTPException(status_code=404, detail="任务不存在")
     if row.status not in {"failed", "cancelled"}:
         raise HTTPException(status_code=400, detail="只有失败或已取消的任务可以重试")
+    payload = _load(row.payload_json, {})
+    if row.task_type == "sync_policy" and payload.get("target_version") and payload["target_version"] != client_governance.policy_view(db, client_id)["version"]:
+        raise ApiError(409, "client.policy_superseded", "此任务已被较新策略版本取代，请查看最新同步任务", "A newer policy superseded this task; use the latest synchronization task")
     if row.task_type in {"skill_action", "remove_skill"}:
-        payload = _load(row.payload_json, {})
         if row.task_type == "remove_skill":
             if not payload.get("path") or not payload.get("expected_signature"):
                 raise ApiError(409, "client.skill_content_unavailable", "此历史任务未绑定内容，请同步后从 Skill 列表重新创建操作", "This historical task has no content binding; synchronize and create a new action from the Skill list")

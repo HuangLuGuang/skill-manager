@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sync"
@@ -69,23 +71,6 @@ func heartbeatOnce(ctx context.Context, home string, api API, store *Store) erro
 	return nil
 }
 
-func queuePlatformTasks(ctx context.Context, home string, api API, store *Store) error {
-	tasks, err := api.Tasks(ctx, clientIDForHome(home))
-	if err != nil {
-		return err
-	}
-	for _, task := range tasks {
-		body, err := json.Marshal(task)
-		if err != nil {
-			return err
-		}
-		if _, err = store.db.Exec(`INSERT OR IGNORE INTO client_tasks(task_id,status,error,updated_at,task_json) VALUES(?,'pending','',?,?)`, task.ID, time.Now().UTC().Format(time.RFC3339Nano), string(body)); err != nil {
-			return err
-		}
-	}
-	return flushTaskResults(ctx, clientIDForHome(home), api, store)
-}
-
 func flushTaskResults(ctx context.Context, clientID string, api API, store *Store) error {
 	// Persisted terminal results are retried even when an earlier POST was
 	// lost. The platform task may otherwise remain running indefinitely.
@@ -93,16 +78,20 @@ func flushTaskResults(ctx context.Context, clientID string, api API, store *Stor
 	if err != nil {
 		return err
 	}
+	var firstError error
 	for _, task := range history {
 		key := fmt.Sprintf("task:reported:%d", task.ID)
-		if err := api.ReportTask(ctx, clientID, task.ID, task.Status, task.Error); err != nil {
-			return err
+		if err := api.ReportExecutedTask(ctx, clientID, task.Task, task.Status, task.Error); err != nil {
+			if firstError == nil {
+				firstError = err
+			}
+			continue
 		}
 		if err := store.SetState(key, task.Status); err != nil {
 			return err
 		}
 	}
-	return nil
+	return firstError
 }
 
 func syncInventoryOnce(ctx context.Context, home string, api API, store *Store) error {
@@ -199,14 +188,63 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		}
 		return synchronizeInventory(request)
 	})
-	periodic(10*time.Second, "tasks", func(request context.Context) error {
-		err := queuePlatformTasks(request, home, api, store)
-		if err == nil {
-			signal()
-		}
-		_ = flushEvents(request, api, store)
-		return err
+	periodic(10*time.Second, "task_reports", func(request context.Context) error {
+		taskErr := flushTaskResults(request, clientIDForHome(home), api, store)
+		return errors.Join(taskErr, flushEvents(request, api, store))
 	})
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		var afterID int64
+		backoff := time.Second
+		for ctx.Err() == nil {
+			started := time.Now()
+			request, stop := context.WithTimeout(ctx, 40*time.Second)
+			tasks, err := api.WaitTasks(request, clientIDForHome(home), afterID)
+			stop()
+			if err == nil {
+				for _, task := range tasks {
+					body, marshalErr := json.Marshal(task)
+					if marshalErr != nil {
+						err = marshalErr
+						break
+					}
+					_, err = store.db.Exec(`INSERT OR IGNORE INTO client_tasks(task_id,status,error,updated_at,task_json) VALUES(?,'pending','',?,?)`, task.ID, time.Now().UTC().Format(time.RFC3339Nano), string(body))
+					if err != nil {
+						break
+					}
+					if task.ID > afterID {
+						afterID = task.ID
+					}
+				}
+				if len(tasks) > 0 {
+					signal()
+				}
+			}
+			syncError(store, "tasks", err)
+			delay := time.Duration(0)
+			if err != nil {
+				delay = backoff + time.Duration(rand.Intn(500))*time.Millisecond
+				backoff *= 2
+				if backoff > 30*time.Second {
+					backoff = 30 * time.Second
+				}
+			} else {
+				backoff = time.Second
+				if elapsed := time.Since(started); elapsed < time.Second {
+					delay = time.Second - elapsed
+				}
+			}
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+		}
+	}()
+
 	workers.Add(1)
 	go func() {
 		defer workers.Done()
@@ -285,6 +323,7 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		syncError(store, "auto_install", autoErr)
 		didWork = didWork || autoChanged
 		if err == nil {
+			policy = cachedPolicy(store)
 			due, _ := store.Due("patrol:light", interval)
 			force, _, _ := store.State("patrol:force")
 			current := inventoryRevision(inventory)

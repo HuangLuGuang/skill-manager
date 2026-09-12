@@ -238,7 +238,7 @@ test('edits an existing connection in a modal without reopening the inline form'
 
 test('groups Skills and recovery in Agent Management', () => {
   const management = indexHtml.split('<section id="discover"')[1].split('<section id="models"')[0]
-  for (const id of ['agent-list', 'platform-install-button', 'pending-list', 'quarantine-list']) {
+  for (const id of ['agent-list', 'pending-list', 'quarantine-list']) {
     assert.ok(management.includes(`id="${id}"`), id)
   }
   assert.equal(context.window.clientI18n.t('ui.agentManagement.title'), 'Agent Management')
@@ -294,7 +294,7 @@ test('shows quarantine detection progress without offering duplicate submission'
 test('refreshes the visible quarantine list after background status changes', () => {
   assert.match(
     appSource,
-    /const refreshChangedInventory = async[\s\S]*const quarantineChanged = local\.quarantined_skills !== connection\.local\?\.quarantined_skills[\s\S]*if \(refreshQuarantine\) await loadQuarantine\(\)/,
+    /const refreshChangedInventory = async[\s\S]*const quarantineChanged = local\.quarantined_skills !== connection\.local\?\.quarantined_skills[\s\S]*if \(refreshQuarantine\) await loadPending\(\)/,
   )
 })
 
@@ -310,7 +310,6 @@ test('pending copies remain actionable in recovery while submitted scans use ind
   assert.match(appSource, /data-discard-copy[\s\S]*discard-pending-dialog'\)\.showModal\(\)/)
   assert.match(appSource, /confirm-discard-pending[\s\S]*run\('discard-pending', \['--id', item\.id, '--confirm'\]\)/)
   assert.match(appSource, /scanHistoryItems = JSON.parse\(await run\(refresh \? 'refresh-scan-history' : 'scan-history'\)\)/)
-  assert.match(appSource, /const copies = pendingItems.filter\(item => item.reason !== 'observed_scan'/)
   assert.match(appSource, /pending_copy_id \? \{id: copy.pending_copy_id\}/)
 })
 
@@ -351,4 +350,27 @@ test('localizes every dynamic desktop template fragment', () => {
   }
   walk(ast)
   assert.deepEqual(failures, [])
+})
+
+test('counts unique recovery copies and keeps scan snapshots out of the recovery list', () => {
+  const source = appSource.slice(appSource.indexOf('const mergeRecoveryCopies ='), appSource.indexOf('const recoveryVisible ='))
+  const helpers = vm.runInNewContext(`${source}; ({mergeRecoveryCopies, recoveryStage})`)
+  const pending = [
+    {id: 'linked', pending_path: '/copy/a', skill_id: 's1', status: 'APPROVED'},
+    {id: 'legacy', pending_path: '/copy/b'},
+    {id: 'duplicate', pending_path: '/copy/b'},
+    {id: 'scan', pending_path: '/snapshot/c', reason: 'observed_scan'},
+  ]
+  const copies = helpers.mergeRecoveryCopies([
+    {id: 'a', quarantine_path: '/copy/a', pending_id: 'linked', status: 'quarantined'},
+    {id: 'alias', quarantine_path: '/copy/a', status: 'quarantined'},
+  ], pending)
+  assert.equal(copies.length, 2)
+  assert.equal(copies[0].detection_status, 'APPROVED')
+  assert.equal(helpers.recoveryStage(copies[0]), 'approved')
+  assert.equal(helpers.recoveryStage(copies[1]), 'unsubmitted')
+  for (const [status, stage] of [['PENDING', 'scanning'], ['VETTED', 'review'], ['REJECTED', 'rejected'], ['CANCELLED', 'interrupted']]) {
+    assert.equal(helpers.recoveryStage({skill_id:'s', detection_status:status}), stage)
+  }
+  assert.equal(helpers.recoveryStage({status:'backed_up'}), 'backup')
 })

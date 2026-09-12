@@ -162,6 +162,23 @@ func (api API) Tasks(ctx context.Context, clientID string) ([]Task, error) {
 	return result, err
 }
 
+func (api API) WaitTasks(ctx context.Context, clientID string, afterID int64) ([]Task, error) {
+	client := *api.http
+	client.Timeout = 40 * time.Second
+	api.http = &client
+	var result []Task
+	err := api.getJSON(ctx, fmt.Sprintf("/api/v1/clients/%s/tasks?wait_seconds=30&after_id=%d", clientID, afterID), &result)
+	return result, err
+}
+
+func (api API) ReportExecutedTask(ctx context.Context, clientID string, task Task, status, taskError string) error {
+	body := map[string]any{"status": status, "error": taskError}
+	if task.TaskType == "sync_policy" && status == "succeeded" {
+		body["applied_policy_version"] = stringValue(task.Payload, "target_version")
+	}
+	return api.post(ctx, fmt.Sprintf("/api/v1/clients/%s/tasks/%d/result", clientID, task.ID), body)
+}
+
 func (api API) ReportTask(ctx context.Context, clientID string, taskID int64, status, taskError string) error {
 	return api.post(ctx, fmt.Sprintf("/api/v1/clients/%s/tasks/%d/result", clientID, taskID), map[string]any{
 		"status": status,

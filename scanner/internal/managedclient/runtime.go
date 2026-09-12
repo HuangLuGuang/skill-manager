@@ -180,7 +180,7 @@ func executeTasks(ctx context.Context, home string, inventory Inventory, policy 
 			return err
 		}
 		if completed {
-			_ = api.ReportTask(ctx, inventory.ClientID, task.ID, "succeeded", "")
+			_ = api.ReportExecutedTask(ctx, inventory.ClientID, task, "succeeded", "")
 			continue
 		}
 		accepted, remoteStatus, err := api.StartTask(ctx, inventory.ClientID, task.ID)
@@ -197,6 +197,9 @@ func executeTasks(ctx context.Context, home string, inventory Inventory, policy 
 			return err
 		}
 		taskErr := executeTask(ctx, home, inventory, policy, api, store, task)
+		if taskErr == nil && task.TaskType == "sync_policy" {
+			policy = cachedPolicy(store)
+		}
 		status := "succeeded"
 		message := ""
 		if taskErr != nil {
@@ -206,7 +209,10 @@ func executeTasks(ctx context.Context, home string, inventory Inventory, policy 
 		if err := store.SaveTask(task, status, message); err != nil {
 			return err
 		}
-		if err := api.ReportTask(ctx, inventory.ClientID, task.ID, status, message); err != nil {
+		if err := api.ReportExecutedTask(ctx, inventory.ClientID, task, status, message); err != nil {
+			return err
+		}
+		if err := store.SetState(fmt.Sprintf("task:reported:%d", task.ID), status); err != nil {
 			return err
 		}
 	}
@@ -237,7 +243,7 @@ func ConfigureAgentModel(ctx context.Context, home string, inventory Inventory, 
 	if err := store.SaveTask(task, status, message); err != nil {
 		return err
 	}
-	if err := api.ReportTask(ctx, inventory.ClientID, task.ID, status, message); err != nil {
+	if err := api.ReportExecutedTask(ctx, inventory.ClientID, task, status, message); err != nil {
 		return err
 	}
 	return taskErr
@@ -248,6 +254,21 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 	case "skill_action":
 		return executeObservedTask(ctx, home, policy, api, store, task)
 	case "sync_policy":
+		fresh, err := api.Policy(ctx, inventory.ClientID)
+		if err != nil {
+			return err
+		}
+		target := stringValue(task.Payload, "target_version")
+		if target != "" && (fresh.Classification == nil || fresh.Classification.Version != target) {
+			return fmt.Errorf("policy_superseded")
+		}
+		body, err := json.Marshal(fresh)
+		if err != nil {
+			return err
+		}
+		if err := store.SetState("policy", string(body)); err != nil {
+			return err
+		}
 		return RequestFullScan(home)
 	case "rescan":
 		fresh, err := Discover(home)

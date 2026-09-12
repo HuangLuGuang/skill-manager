@@ -3,7 +3,6 @@
     <a-spin :spinning="loading">
       <template v-if="policy">
         <a-alert v-if="!impact" type="info" show-icon :message="t('clientGovernance.description')" />
-        <p>{{ t('clientGovernance.version', { version: policy.version }) }}</p>
         <a-alert v-if="!editable" type="warning" :message="t(policy.supported ? 'clientGovernance.readonly' : 'clientGovernance.upgrade')" />
         <a-alert v-if="!impact && clientId && policy.advanced_supported === false" type="warning" show-icon :message="t('clientGovernance.capabilityAvailable')" />
         <a-form v-if="!impact" layout="vertical" class="policy-form">

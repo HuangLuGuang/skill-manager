@@ -251,6 +251,30 @@ document.querySelectorAll('.nav-item').forEach(button => {
   button.addEventListener('click', () => showPanel(button.dataset.panel))
 })
 
+const switchOverviewTab = key => {
+  document.querySelectorAll('[data-overview-tab]').forEach(button => {
+    const selected = button.dataset.overviewTab === key
+    button.setAttribute('aria-selected', String(selected))
+    button.tabIndex = selected ? 0 : -1
+    document.getElementById(button.getAttribute('aria-controls')).hidden = !selected
+  })
+  $('.overview-tab-content').scrollTop = 0
+}
+document.querySelectorAll('[data-overview-tab]').forEach(button => {
+  button.addEventListener('click', () => switchOverviewTab(button.dataset.overviewTab))
+  button.addEventListener('keydown', event => {
+    const tabs = [...document.querySelectorAll('[data-overview-tab]')]
+    const index = tabs.indexOf(button)
+    const target = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+      : event.key === 'ArrowRight' ? (index + 1) % tabs.length
+      : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : -1
+    if (target < 0) return
+    event.preventDefault()
+    switchOverviewTab(tabs[target].dataset.overviewTab)
+    tabs[target].focus()
+  })
+})
+
 const saveConnection = async ({ button, server, token, name, onSuccess }) => {
   if (button.disabled) return
   setBusy(button, true)
@@ -418,11 +442,9 @@ const renderConnected = data => {
       action: t('ui.background.retry'), actionType: 'install-service', error: data.service_installed,
     })
   }
-  if ((local.quarantined_skills || 0) > 0) {
-    todos.push({ title: tf`${skillCount(local.quarantined_skills)} 已隔离`, detail: t('ui.overview.recovery_hint'), action: t('ui.fdodj6'), panel: 'discover', view: 'recovery', error: true })
-  }
-  if ((local.pending_skills || 0) > 0) {
-    todos.push({ title: `${skillCount(local.pending_skills)} · ${t('ui.agentManagement.pending')}`, detail: t('ui.agentManagement.pending_description'), action: t('ui.11srxfq'), panel: 'discover', view: 'recovery' })
+  const attentionCopies = recoveryItems.filter(item => item.status !== 'backed_up' && item.status !== 'restored')
+  if (attentionCopies.length) {
+    todos.push({ title: t('ui.overview.attention_copies').replace('{count}', attentionCopies.length), detail: t('ui.overview.attention_hint'), action: t('ui.overview.view_copies'), panel: 'discover', view: 'recovery' })
   }
   if ((local.queued_events || 0) > 0) {
     todos.push({ title: tf`${local.queued_events} 条审计事件待补报`, detail: t('ui.1smkxvk'), action: t('ui.1hbudir'), actionType: 'refresh' })
@@ -440,19 +462,38 @@ const renderConnected = data => {
   $('#panel-title').textContent = panelTitle(activePanel)
   $('#overview-badge').className = `overview-badge${connectionError ? ' error' : ''}`
   $('#overview-badge').textContent = connectionError ? t('ui.19towct') : t('ui.id9tin')
-  $('#overview-title').textContent = connectionError ? t('ui.gqjsy5') : t('ui.7t7yhn')
-  $('#overview-subtitle').textContent = connectionError
-    ? tf`${runtimeText(data.error || t('ui.cvy3o'))}。现有 Skill 不受影响。`
-    : isEnglish()
-      ? `${platform.name || data.name || data.inventory?.hostname || t('ui.13nfgz7')} · Connected to ${data.server}`
-      : `${platform.name || data.name || data.inventory?.hostname || t('ui.13nfgz7')}已接入 ${data.server}`
+  $('#overview-title').textContent = platform.name || data.name || data.inventory?.hostname || t('ui.13nfgz7')
+  const lastSync = t('ui.overview.synced').replace('{time}', formatTime(local.sync?.inventory?.last_success_at || platform.last_seen_at))
+  $('#overview-subtitle').textContent = connectionError ? runtimeText(data.error || t('ui.cvy3o')) : lastSync
+  $('#overview-service').textContent = t(patrolActive ? 'ui.overview.running' : 'ui.overview.stopped')
+  $('#overview-service').classList.toggle('error', !patrolActive)
+  const appliedPolicy = local.classification
+  const currentPolicyText = appliedPolicy?.enabled
+    ? t('ui.overview.policy_managed')
+    : platform.classification?.enabled
+      ? t('ui.overview.policy_pending')
+      : policyLabel(platform.policy_mode)
+  $('#overview-policy').textContent = currentPolicyText
+  const policyGroups = [
+    ['unverified', ['unverified', 'unverified_content_changed']],
+    ['trusted', ['trusted_content_changed']],
+    ['results', ['malicious', 'trusted_scan_rejected', 'unverified_scan_rejected']],
+  ]
+  $('#overview-policy-rules').innerHTML = appliedPolicy?.enabled ? policyGroups.map(([group, triggers]) => {
+    const rows = triggers.filter(trigger => Object.hasOwn(appliedPolicy.rules || {}, trigger)).map(trigger => `<div class="policy-rule-row"><dt>${escapeHtml(governanceLabelFor('trigger', trigger))}</dt><dd><span class="policy-action policy-action-${['record', 'record_only', 'submit_scan', 'quarantine', 'uninstall', 'restore_trusted'].includes(appliedPolicy.rules[trigger]) ? appliedPolicy.rules[trigger] : 'unknown'}">${escapeHtml(governanceLabelFor('action', appliedPolicy.rules[trigger]))}</span></dd></div>`).join('')
+    return rows ? `<section class="policy-rule-group policy-rule-group-${group}"><h3>${escapeHtml(t(`ui.overview.policy_group.${group}`))}</h3><dl class="detail-list">${rows}</dl></section>` : ''
+  }).join('') : ''
+  $('#overview-last-sync').textContent = lastSync
   $('#overview-sync').textContent = connectionError ? t('ui.xhhfbd') : t('ui.2fhcc7')
 
   $('#metric-agents').textContent = localAgents.length
-  $('#metric-bound').textContent = strict ? `${bound.length} / ${supported.length}` : `${supported.length} / ${supported.length}`
+  $('#metric-bound').textContent = strict ? `${bound.length} / ${supported.length}` : supported.length
   $('#metric-bound-label').textContent = strict ? t('ui.1idv0ac') : t('ui.16k09ve')
   $('#metric-skills').textContent = local.managed_skills ?? managedSkills
   $('#metric-todos').textContent = todos.length
+  $('#metric-todos').hidden = todos.length === 0
+  $('#overview-todo-summary').textContent = todos.length ? t('ui.overview.todo_hint').replace('{count}', todos.length) : ''
+  $('#overview-all-clear').hidden = todos.length !== 0
   $('#progress-summary').textContent = data.connected
     ? t('ui.agentManagement.automatic')
     : t('ui.agentManagement.offline')
@@ -463,9 +504,8 @@ const renderConnected = data => {
   $('#step-service span').textContent = t('ui.background.title')
   setProgress('step-service', patrolActive ? 'done' : 'current')
   $('#detail-service').textContent = patrolActive ? t('ui.yp0d17') : t('ui.background.start_failed')
-  $('#detail-policy').textContent = policyLabel(platform.policy_mode)
   $('#detail-governance').textContent = governanceLabel(platform.governance_mode)
-  $('#detail-last-seen').textContent = formatTime(platform.last_seen_at)
+  $('#detail-last-seen').textContent = formatTime(local.sync?.inventory?.last_success_at || platform.last_seen_at)
   $('#detail-token-status').textContent = data.connected ? tf`有效 · ${data.token_hint}` : tf`需检查 · ${data.token_hint}`
   $('#detail-queued-events').textContent = local.queued_events || 0
   $('#detail-local-scan').textContent = formatTime(local.last_inventory_at)
@@ -482,16 +522,32 @@ const renderConnected = data => {
   renderStatus(data)
   renderModelSwitcher(data)
 
-  $('#todo-section').hidden = todos.length === 0
+  $('#todo-section').hidden = false
   $('#todo-list').innerHTML = todos.map((todo, index) => `
       <div class="todo-item${todo.error ? ' error' : ''}">
+        <img class="overview-todo-icon" src="./assets/icons/${todo.error ? 'circle-alert' : 'search'}.svg" alt="" />
         <div><strong>${escapeHtml(todo.title)}</strong><span>${escapeHtml(todo.detail)}</span></div>
-        <button class="icon-button icon-next" data-todo-index="${index}">${escapeHtml(todo.action)}</button>
+        <button class="${index === 0 ? 'primary' : ''} overview-todo-action" data-todo-index="${index}"><img src="./assets/icons/${todo.view === 'recovery' ? 'archive' : (todo.actionType === 'refresh' ? 'refresh-cw' : 'chevron-right')}.svg" alt="" />${escapeHtml(todo.action)}</button>
       </div>`).join('')
   document.querySelectorAll('[data-todo-index]').forEach(button => {
     button.addEventListener('click', async () => {
       const todo = todos[Number(button.dataset.todoIndex)]
       if (todo.panel) {
+        if (todo.view === 'recovery') {
+          if (button.disabled) return
+          setBusy(button, true)
+          try {
+            await loadPending()
+            await loadQuarantine()
+            $('#recovery-status-filter').value = ''
+            const candidates = recoveryItems.filter(item => item.status !== 'backed_up' && item.status !== 'restored')
+            const target = inventory?.agents?.find(agent => installedAgent(agent) && candidates.some(item => item.agent_type === agent.agent_type))
+            if (target) switchAgent(agentKey(target))
+          } catch (error) {
+            showMessageDialog(t('ui.agentTabs.recovery'), runtimeText(error))
+            return
+          } finally { setBusy(button, false) }
+        }
         showPanel(todo.panel)
         if (todo.view) switchAgentView(todo.view)
         return
@@ -886,14 +942,15 @@ const renderTaskHistory = tasks => {
   element.innerHTML = tasks.length ? tasks.map(task => {
     const payload = task.payload || {}
     const policySync = task.task_type === 'sync_policy' || (task.task_type === 'rescan' && payload.reason === 'policy_changed')
-    const target = policySync
-      ? tf`处置：${policyLabel(payload.mode)} · 治理：${governanceLabel(payload.governance_mode)}`
+    const target = payload.target_version
+      ? t('ui.overview.classified_policy')
+      : policySync ? tf`处置：${policyLabel(payload.mode)} · 治理：${governanceLabel(payload.governance_mode)}`
       : payload.skill_name || payload.skill_id || (task.task_type === 'rescan' ? t('ui.1agolmk') : '-')
     return `<div class="takeover-row task-history-row">
       <div><strong>${escapeHtml(taskTypeLabel(task))}</strong><p>${escapeHtml(target)}</p></div>
       <span>${escapeHtml(payload.agent_type ? agentLabel(payload.agent_type) : t('ui.13nfgz7'))}</span>
-      <strong class="task-status-${escapeHtml(task.status)}">${escapeHtml(taskStatusLabel(task.status))}</strong>
-      <span class="${task.error ? 'task-history-error' : ''}">${escapeHtml(formatTime(task.finished_at || task.started_at || task.updated_at || task.created_at))}${task.error ? `<details class="record-error"><summary>${escapeHtml(t('ui.records.error_details'))}</summary><p>${escapeHtml(runtimeText(task.error))}</p></details>` : ''}</span>
+      <strong class="task-status-${escapeHtml(task.status)}">${escapeHtml(task.task_type === 'sync_policy' && task.error === 'policy_superseded' ? t('ui.policyTask.superseded') : task.task_type === 'sync_policy' && task.status === 'succeeded' ? t('ui.policyTask.applied') : taskStatusLabel(task.status))}</strong>
+      <span class="${task.error ? 'task-history-error' : ''}">${escapeHtml(formatTime(task.finished_at || task.started_at || task.updated_at || task.created_at))}${task.error ? `<details class="record-error"><summary>${escapeHtml(t('ui.records.error_details'))}</summary><p>${escapeHtml(['policy_superseded', 'policy_ack_required'].includes(task.error) ? t(`ui.policyTask.${task.error}`) : runtimeText(task.error))}</p></details>` : ''}</span>
     </div>`
   }).join('') : t('ui.records.empty')
 }
@@ -922,21 +979,23 @@ const refreshChangedInventory = async () => {
   try {
     const local = JSON.parse(await run('local-status'))
     const changedAt = local.last_inventory_at || ''
+    const policyChanged = JSON.stringify(local.classification) !== JSON.stringify(connection.local?.classification)
     const taskChanged = local.tasks?.[0]?.updated_at !== connection.local?.tasks?.[0]?.updated_at
     const notificationChanged = local.notifications?.[0]?.id !== connection.local?.notifications?.[0]?.id || local.unread_notifications !== connection.local?.unread_notifications
-    const quarantineChanged = local.quarantined_skills !== connection.local?.quarantined_skills
-    const refreshQuarantine = $('#discover').classList.contains('active')
-    if ((!changedAt || changedAt === lastInventoryAt) && !taskChanged && !notificationChanged && !quarantineChanged) return
+    const quarantineChanged = local.quarantined_skills !== connection.local?.quarantined_skills || local.pending_skills !== connection.local?.pending_skills
+    const refreshQuarantine = $('#discover').classList.contains('active') || $('#connect').classList.contains('active')
+    if ((!changedAt || changedAt === lastInventoryAt) && !policyChanged && !taskChanged && !notificationChanged && !quarantineChanged) return
     if (changedAt === lastInventoryAt) {
       connection.local = local
-      renderStatus(connection)
-      if (refreshQuarantine) await loadQuarantine()
+      if (policyChanged) renderConnected(connection)
+      else renderStatus(connection)
+      if (refreshQuarantine) await loadPending()
       return
     }
     const refreshManagement = $('#discover').classList.contains('active')
     await refreshConnection()
     if (refreshManagement) await loadPending()
-    if (refreshQuarantine) await loadQuarantine()
+    if (refreshQuarantine) await loadPending()
   } catch (_) {
     // The normal connection refresh remains responsible for surfacing errors.
   } finally {
@@ -1045,7 +1104,6 @@ const renderSkillObservation = skill => {
     trigger ? governanceLabelFor('trigger', trigger) : '',
     observation?.action ? `${t('ui.agentManagement.policy')}: ${governanceLabelFor('action', observation.action)}` : '',
     source ? governanceLabelFor('source', source) : '',
-    observation?.policy_version ? `${t('ui.agentManagement.policy_version')}: ${observation.policy_version}` : '',
     observation?.action_status ? governanceLabelFor('actionStatus', observation.action_status) : '',
     pending ? `${t('ui.agentManagement.scan')}: ${scanProgressText(pending) || pendingStatusLabel(pending.status)}` : '',
     pending?.progress?.updated_at ? `${t('ui.agentManagement.scan_updated')}: ${formatTime(pending.progress.updated_at)}` : '',
@@ -1107,7 +1165,7 @@ let scanHistoryItems = []
 const agentKey = agent => agent.local_agent_id || agent.agent_type
 const selectedAgent = () => inventory?.agents?.find(agent => agentKey(agent) === selectedAgentID && installedAgent(agent))
 const scopeIncludes = item => Boolean(selectedAgent()) && item.agent_type === selectedAgent().agent_type
-const scopedPendingItems = () => pendingItems.filter(item => scopeIncludes(item))
+const scopedPendingItems = () => pendingItems.filter(item => recoveryItems.some(copy => copy.pending_copy_id === item.id && recoveryVisible(copy)))
 const skillCertification = skill => {
   const value = skill.governance?.signature === skill.signature ? skill.governance : null
   if (value?.malicious) return 'malicious'
@@ -1136,14 +1194,15 @@ const syncAgentHistory = () => {
       input.checked = selectedPendingIDs.has(input.dataset.selectPending)
     })
   })
-  document.querySelectorAll('[data-recovery-agent]').forEach(row => { row.hidden = !scopeIncludes({agent_type: row.dataset.recoveryAgent}) })
+  document.querySelectorAll('[data-recovery-agent]').forEach(row => { row.hidden = !recoveryItems.some(item => item.id === row.dataset.recoveryId && recoveryVisible(item)) })
   document.querySelectorAll('[data-select-pending]').forEach(input => { input.checked = selectedPendingIDs.has(input.dataset.selectPending) })
   const hasPending = scanHistoryItems.some(scopeIncludes)
   $('#pending-list').hidden = !hasPending
   $('#agent-pending-empty').hidden = hasPending
-  const hasRecovery = recoveryItems.some(item => scopeIncludes(item))
+  const hasRecovery = recoveryItems.some(recoveryVisible)
   $('#quarantine-list').hidden = !hasRecovery
   $('#agent-recovery-empty').hidden = hasRecovery
+  $('#agent-recovery-empty').textContent = t('ui.recovery.filter_empty')
   syncPendingBatchControls()
 }
 const agentLogoFile = agent => ({
@@ -1183,7 +1242,7 @@ const renderAgentNavigation = agents => {
     strip.innerHTML = markup
     strip.scrollLeft = scroll
   }
-  $('#agent-context').innerHTML = selected ? `${agentLogo(selected, true)}<div class="agent-context-copy"><strong>${escapeHtml(agentLabel(selected.agent_type))}</strong><span title="${escapeHtml(selected.skills_path || '')}">${escapeHtml(selected.skills_path || '')}</span></div>${selected.skills_path && selected.capabilities?.path_available !== false && selected.capabilities?.skills_directory_exists !== false ? `<button type="button" class="agent-folder-button" data-ui-icon="folder-open" data-reveal-path="${escapeHtml(selected.skills_path)}">${escapeHtml(t('ui.agentTabs.directory'))}</button>` : ''}` : `<p>${escapeHtml(t('ui.agentTabs.no_agents'))}</p>`
+  $('#agent-context').innerHTML = selected ? `${agentLogo(selected)}<div class="agent-context-copy" title="${escapeHtml(selected.skills_path || '')}"><strong>${escapeHtml(agentLabel(selected.agent_type))}</strong></div>${selected.skills_path && selected.capabilities?.path_available !== false && selected.capabilities?.skills_directory_exists !== false ? `<button type="button" class="agent-folder-button" data-ui-icon="folder-open" data-reveal-path="${escapeHtml(selected.skills_path)}" aria-label="${escapeHtml(t('ui.agentTabs.directory'))}" title="${escapeHtml(t('ui.agentTabs.directory'))}: ${escapeHtml(selected.skills_path)}"></button>` : ''}` : `<p>${escapeHtml(t('ui.agentTabs.no_agents'))}</p>`
   $('#agent-local-count').textContent = selected?.skills?.length || 0
   const changed = renderedAgentSelection !== selectedAgentID
   renderedAgentSelection = selectedAgentID
@@ -2155,10 +2214,39 @@ $('#restore-backup').addEventListener('click', async event => {
   }
 })
 
+const mergeRecoveryCopies = (quarantined, pending) => {
+  const result = []
+  const paths = new Set()
+  for (const copy of quarantined) {
+    if (copy.quarantine_path && paths.has(copy.quarantine_path)) continue
+    const linked = pending.find(item => item.id === copy.pending_id || item.pending_path === copy.quarantine_path)
+    result.push(linked?.skill_id ? {...copy, skill_id: linked.skill_id, version_id: linked.version_id, detection_status: linked.status} : copy)
+    if (copy.quarantine_path) paths.add(copy.quarantine_path)
+  }
+  for (const item of pending) {
+    if (item.reason === 'observed_scan' || paths.has(item.pending_path) || quarantined.some(copy => copy.pending_id === item.id)) continue
+    result.push({...item, id: `pending:${item.id}`, pending_copy_id: item.id, quarantine_path: item.pending_path, detection_status: item.skill_id ? item.status : '', status: 'pending_copy'})
+    if (item.pending_path) paths.add(item.pending_path)
+  }
+  return result
+}
+const recoveryStage = item => {
+  if (item.status === 'backed_up') return 'backup'
+  if (!item.skill_id) return 'unsubmitted'
+  if (item.detection_status === 'APPROVED') return 'approved'
+  if (item.detection_status === 'REJECTED') return 'rejected'
+  if (item.detection_status === 'VETTED') return 'review'
+  if (['CANCELLED', 'unavailable', 'FAILED', 'ERROR'].includes(item.detection_status)) return 'interrupted'
+  return 'scanning'
+}
+const recoveryVisible = item => scopeIncludes(item) && (!$('#recovery-status-filter').value || recoveryStage(item) === $('#recovery-status-filter').value)
+$('#recovery-status-filter').addEventListener('change', () => {
+  selectedPendingIDs.clear()
+  syncAgentHistory()
+})
 const loadQuarantine = async () => {
   const quarantined = JSON.parse(await run('quarantine'))
-  const copies = pendingItems.filter(item => item.reason !== 'observed_scan' && !quarantined.some(copy => copy.pending_id === item.id || copy.quarantine_path === item.pending_path))
-  const items = [...quarantined, ...copies.map(item => ({...item, id: `pending:${item.id}`, pending_copy_id: item.id, quarantine_path: item.pending_path, detection_status: item.skill_id ? item.status : '', status: 'pending_copy'}))]
+  const items = mergeRecoveryCopies(quarantined, pendingItems)
   recoveryItems = items
   $('#quarantine-list').classList.toggle('empty', !items.length)
   $('#quarantine-list').innerHTML = items.length ? `<div class="history-columns recovery-columns"><span>Skill</span><span>${escapeHtml(t('ui.agentHistory.status'))}</span><span>${escapeHtml(t('ui.agentTabs.actions'))}</span></div>` + items.map(item => {
@@ -2171,7 +2259,7 @@ const loadQuarantine = async () => {
       ? { ...item, status: item.detection_status }
       : null
     return tf`
-    <div class="takeover-row quarantine-row" data-recovery-agent="${escapeHtml(item.agent_type)}">
+    <div class="takeover-row quarantine-row" data-recovery-agent="${escapeHtml(item.agent_type)}" data-recovery-id="${escapeHtml(item.id)}">
       <div class="quarantine-skill-identity">${item.pending_copy_id && !item.skill_id ? `<input type="checkbox" class="pending-copy-select" data-select-pending="${escapeHtml(item.pending_copy_id)}" aria-label="${escapeHtml(item.skill_name)}" ${selectedPendingIDs.has(item.pending_copy_id) ? 'checked' : ''} />` : ''}<details class="history-details"><summary data-ui-icon="file-text">${escapeHtml(item.skill_name)}</summary><div class="history-facts"><button class="path-link" type="button" title="隔离目录：${escapeHtml(item.quarantine_path)}" data-reveal-path="${escapeHtml(item.quarantine_path)}">所属 Agent：${escapeHtml(agentLabel(item.agent_type))} · ${escapeHtml(item.original_path || item.pending_path)}</button><small>${escapeHtml(detection ? quarantineDetectionGuidance(detection) : reasonLabel(item.reason))}</small>${item.skill_id ? `<small>${escapeHtml(quarantineNextLabel(item.detection_status))}</small>` : ''}</div></details></div>
       ${detection
         ? `<strong class="quarantine-status result-status ${escapeHtml(pendingStatusClass(detection.status))}"><i></i>${escapeHtml(pendingStatusLabel(detection.status))}</strong>`
@@ -2241,6 +2329,7 @@ const loadQuarantine = async () => {
     openInstallDialog(null, button.dataset.installSafeVersion)
   }))
   syncAgentHistory()
+  if (connection?.configured) renderConnected(connection)
   return items
 }
 

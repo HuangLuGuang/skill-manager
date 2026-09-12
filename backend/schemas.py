@@ -844,6 +844,7 @@ class ClientSkillActionRequest(BaseModel):
 
 
 class ClientTaskResult(BaseModel):
+    applied_policy_version: Optional[str] = Field(default=None, max_length=128)
     status: str = Field(pattern="^(running|succeeded|failed|cancelled)$")
     error: Optional[str] = None
 

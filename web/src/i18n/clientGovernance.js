@@ -1,5 +1,6 @@
 export const clientGovernanceMessages = {
   'zh-CN': {
+    targetVersion: '目标策略版本：{version}', superseded: '被新版取代', policyApplied: '策略已应用', policy_superseded: '此任务已被较新策略版本取代。', policy_ack_required: '客户端未确认目标版本，请升级客户端后重试。',
     capabilityAvailable: '此客户端支持基础动作；使用仅记录或新增检测不通过处置前，请先升级客户端。',
     capabilityTitle: '部分客户端需要升级', capabilityHint: '以下客户端不支持所选动作，暂不能保存。升级并同步客户端后重新预览。',
     groups: {
@@ -7,7 +8,7 @@ export const clientGovernanceMessages = {
       certified: { title: '已认证 Skill', description: '设置已认证内容发生变化时的处理方式。' },
       results: { title: '检测结果处置', description: '恶意内容优先处理；检测异常不触发检测不通过规则。' },
     },
-    priority: '优先执行', scanFollowup: '检测不通过后：{action}', configureFollowup: '设置',
+    priority: '命中后按此规则处理', scanFollowup: '检测不通过后：{action}', configureFollowup: '设置',
 
     recheckCompact: '{count} 个 Skill 暂无法预估，保存后仍按生效策略处理。',
     howToHandle: '处理方法',
@@ -56,6 +57,7 @@ export const clientGovernanceMessages = {
     client: '客户端', agent: 'Agent', skill: 'Skill', path: '目录', active: '分类策略已启用', cancel: '关闭',
   },
   'en-US': {
+    targetVersion: 'Target policy version: {version}', superseded: 'Superseded', policyApplied: 'Policy applied', policy_superseded: 'A newer policy version superseded this task.', policy_ack_required: 'The client did not confirm the target version. Upgrade and retry.',
     capabilityAvailable: 'This client supports basic actions. Upgrade before using record-only or new scan rejection actions.',
     capabilityTitle: 'Some clients need an upgrade', capabilityHint: 'These clients do not support the selected actions. Upgrade and synchronize them, then preview again before saving.',
     groups: {
@@ -63,7 +65,7 @@ export const clientGovernanceMessages = {
       certified: { title: 'Certified Skills', description: 'Handle changes to previously certified content.' },
       results: { title: 'Scan result actions', description: 'Malicious content takes priority. Scan errors do not trigger rejection actions.' },
     },
-    priority: 'Takes priority', scanFollowup: 'If rejected: {action}', configureFollowup: 'Configure',
+    priority: 'This rule applies when matched', scanFollowup: 'If rejected: {action}', configureFollowup: 'Configure',
 
     recheckCompact: 'Estimates unavailable for {count} Skills. Saved policies still apply.',
     howToHandle: 'How to resolve',

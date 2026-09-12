@@ -93,7 +93,7 @@ def test_go_client_records_changes_and_executes_content_bound_recovery(tmp_path)
     daemon = None
 
     def await_value(read, predicate, description):
-        deadline = time.monotonic() + 15
+        deadline = time.monotonic() + 45
         value = None
         while time.monotonic() < deadline:
             assert daemon.poll() is None, "client daemon exited unexpectedly"
@@ -132,13 +132,27 @@ def test_go_client_records_changes_and_executes_content_bound_recovery(tmp_path)
         assert alias_observation["governance"]["signature"] == observed["signature"]
         assert (skill / "SKILL.md").read_text() == original
         assert detail()["issue_count"] >= 1
+        # A live Go long poll receives the committed policy task and acknowledges
+        # the exact version only after persisting it and requesting inspection.
+        governance_path = path + "/governance"
+        current = admin.get(governance_path).json()
+        update = {"expected_version": current["version"], "rules": {"malicious": "record_only"}}
+        preview = admin.post(governance_path + "/preview", json=update)
+        assert preview.status_code == 200, preview.text
+        saved = admin.put(governance_path, json={**update, "preview_id": preview.json()["preview_id"]})
+        assert saved.status_code == 200, saved.text
+        target = saved.json()["version"]
+        synchronized = await_value(lambda: detail()["tasks"],
+                                   lambda tasks: any(t["task_type"] == "sync_policy" and t["payload"].get("target_version") == target and t["status"] == "succeeded" for t in tasks),
+                                   "exact policy version acknowledgment through long polling")
+        assert any(t["payload"].get("target_version") == target for t in synchronized)
         (skill / "SKILL.md").write_text(original + "User edit\n")
         changed = await_value(current_skill,
                               lambda s: s.get("governance", {}) and s["governance"].get("trigger") == "unverified_content_changed",
                               "file watcher classification")
         assert changed["signature"] != observed["signature"]
         assert changed["governance"]["trigger"] == "unverified_content_changed"
-        # Hold the real task claim across a 10-second poll interval. Other loops
+        # Hold the real task claim across a long-poll renewal interval. Other loops
         # must continue, and a shared-path edit must invalidate the queued action.
         hold_claim.set()
         slow = admin.post(path + "/tasks", json={"task_type": "skill_action", "payload": {

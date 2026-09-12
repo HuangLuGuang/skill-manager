@@ -180,6 +180,7 @@ def save_policy(db: Session, scope: str, change: PolicyChange, user):
         raise ApiError(409, "client.policy_capability_required", "部分客户端不支持所选动作，请升级客户端后重新预览", "Some clients do not support the selected actions. Upgrade them and preview again")
     if change.preview_id != result["preview_id"]:
         raise ApiError(409, "client.policy_preview_required", "请确认最新影响范围后保存策略", "Confirm the latest impact preview before saving")
+    previous = {item["client_id"]: policy_view(db, item["client_id"]) for item in result["clients"]}
     row = db.get(models.ClientGovernancePolicy, scope)
     if row is None:
         row = models.ClientGovernancePolicy(scope=scope, revision=0)
@@ -189,5 +190,21 @@ def save_policy(db: Session, scope: str, change: PolicyChange, user):
     row.enabled = True
     row.updated_by = user.username
     row.updated_at = datetime.utcnow()
+    db.flush()
+    for client_id, before in previous.items():
+        after = policy_view(db, client_id)
+        outstanding = db.query(models.ClientTask.id).filter(
+            models.ClientTask.client_id == client_id, models.ClientTask.task_type == "sync_policy",
+            models.ClientTask.status.in_(("pending", "running")),
+        ).first()
+        if before["rules"] == after["rules"] and before["enabled"] == after["enabled"] and not outstanding:
+            continue
+        db.query(models.ClientTask).filter(
+            models.ClientTask.client_id == client_id, models.ClientTask.task_type == "sync_policy",
+            models.ClientTask.status.in_(("pending", "running")),
+        ).update({"status": "cancelled", "error": "policy_superseded", "finished_at": datetime.utcnow()}, synchronize_session=False)
+        payload = {"reason": "classification_policy_changed", "target_version": after["version"], "previous_version": before["version"]}
+        db.add(models.ClientTask(client_id=client_id, task_type="sync_policy", payload_json=json.dumps(payload),
+                                request_key=hashlib.sha256(f"policy:{client_id}:{after['version']}".encode()).hexdigest()))
     db.flush()
     return policy_view(db, None if scope == DEFAULT_SCOPE else scope)

@@ -165,7 +165,7 @@ func TestTaskQueueRetainsOlderWorkAndRetriesReceipts(t *testing.T) {
 	}))
 	defer server.Close()
 	api := NewAPI(server.URL, "token", time.Second)
-	if err := queuePlatformTasks(context.Background(), home, api, store); err == nil {
+	if err := flushTaskResults(context.Background(), clientIDForHome(home), api, store); err == nil {
 		t.Fatal("expected receipt transport failure")
 	}
 	unreported, err := store.UnreportedTasks()
@@ -173,7 +173,7 @@ func TestTaskQueueRetainsOlderWorkAndRetriesReceipts(t *testing.T) {
 		t.Fatalf("failed receipt was lost: %v %v", unreported, err)
 	}
 	for i := 0; i < 2; i++ {
-		if err := queuePlatformTasks(context.Background(), home, api, store); err != nil {
+		if err := flushTaskResults(context.Background(), clientIDForHome(home), api, store); err != nil {
 			t.Fatal(err)
 		}
 	}

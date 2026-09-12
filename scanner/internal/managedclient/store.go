@@ -615,7 +615,7 @@ func (store *Store) LocalStatus() (LocalStatus, error) {
 		}
 	}
 	result.Sync = map[string]SyncStatus{}
-	for _, kind := range []string{"heartbeat", "inventory", "tasks", "worker", "scan_progress"} {
+	for _, kind := range []string{"heartbeat", "inventory", "tasks", "worker", "scan_progress", "task_reports"} {
 		last, _, err := store.State("sync:" + kind + ":success")
 		if err != nil {
 			return result, err
