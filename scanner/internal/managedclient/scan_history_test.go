@@ -9,6 +9,46 @@ import (
 	"testing"
 )
 
+func TestConcurrentStoreOpenPreservesScanHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "client.db")
+	store, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.db.Exec(`INSERT INTO client_scan_history VALUES ('retained','{"id":"retained","skill_id":"skill","status":"APPROVED"}')`); err != nil {
+		t.Fatal(err)
+	}
+	results := make(chan error, 12)
+	for i := 0; i < 12; i++ {
+		go func() {
+			for n := 0; n < 5; n++ {
+				opened, err := OpenStore(path)
+				if err != nil {
+					results <- err
+					return
+				}
+				_, err = opened.ScanHistory()
+				opened.Close()
+				if err != nil {
+					results <- err
+					return
+				}
+			}
+			results <- nil
+		}()
+	}
+	for i := 0; i < 12; i++ {
+		if err := <-results; err != nil {
+			t.Error(err)
+		}
+	}
+	items, err := store.ScanHistory()
+	if err != nil || len(items) != 1 || items[0].Status != "APPROVED" {
+		t.Fatalf("history changed after concurrent opens: %+v, %v", items, err)
+	}
+}
+
 func TestScanHistorySurvivesCopyCleanupAndResubmission(t *testing.T) {
 	home := t.TempDir()
 	db := filepath.Join(home, "client.db")

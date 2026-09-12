@@ -225,14 +225,14 @@
             <button id="records-events-tab" role="tab" aria-selected="true" aria-controls="event-records" data-record-kind="events" data-i18n="ui.records.events">巡检与处置</button>
             <button id="records-tasks-tab" role="tab" aria-selected="false" aria-controls="task-records" data-record-kind="tasks" data-i18n="ui.records.tasks">平台任务</button>
           </div>
-          <button id="refresh-records" type="button" data-i18n="ui.records.refresh">刷新</button></div>
+          <button id="refresh-records" type="button" class="icon-button icon-refresh" data-i18n="ui.records.refresh">刷新</button></div>
           <div class="record-filters">
             <label><span data-i18n="ui.records.keyword">关键词</span><input id="records-keyword" type="search" data-i18n-placeholder="ui.records.search" placeholder="搜索 Skill、类型或错误" /></label>
             <label><span>Agent</span><select id="records-agent"></select></label>
             <label><span data-i18n="ui.records.type">类型</span><select id="records-type"></select></label>
             <label id="records-status-filter" hidden><span data-i18n="ui.records.status">状态</span><select id="records-status"></select></label>
             <label><span data-i18n="ui.records.time">时间范围</span><select id="records-days"><option value="0" data-i18n="ui.records.all_time">全部时间</option><option value="1" data-i18n="ui.records.day">最近 24 小时</option><option value="7" data-i18n="ui.records.week">最近 7 天</option><option value="30" data-i18n="ui.records.month">最近 30 天</option></select></label>
-            <button id="records-reset" type="button" data-i18n="ui.records.reset">重置</button>
+            <button id="records-reset" type="button" class="icon-button icon-restore" data-i18n="ui.records.reset">重置</button>
           </div>
           <div id="records-feedback" role="status" aria-live="polite"></div>
           <div id="event-records" role="tabpanel" aria-labelledby="records-events-tab"><div class="takeover-column-head task-history-columns"><span data-i18n="ui.records.event">事件 / Skill</span><span>Agent</span><span data-i18n="ui.records.result">结果</span><span data-i18n="ui.records.latest">最近发现</span></div><div id="event-history-list" class="takeover-list"></div></div>

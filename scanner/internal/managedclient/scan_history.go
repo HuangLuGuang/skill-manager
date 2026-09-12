@@ -12,6 +12,13 @@ import (
 
 // Snapshot submitted tasks separately from the lifetime of their local copies.
 func (store *Store) initScanHistory() error {
+	var installed int
+	if err := store.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE (type='table' AND name='client_scan_history') OR (type='trigger' AND name IN ('scan_history_after_insert','scan_history_after_update'))`).Scan(&installed); err != nil {
+		return err
+	}
+	if installed == 3 {
+		return nil
+	}
 	columns := []string{"id", "agent_type", "skill_name", "original_path", "pending_path", "reason", "status", "skill_id", "version_id", "content_fingerprint", "created_at", "submitted_at", "progress_json"}
 	pairs := []string{}
 	for _, column := range columns {
@@ -22,24 +29,30 @@ func (store *Store) initScanHistory() error {
 		}
 	}
 	snapshot := `INSERT INTO client_scan_history(history_id, item_json) SELECT id || ':' || COALESCE(NULLIF(version_id,''),skill_id) || ':' || COALESCE(submitted_at,''), json_object(` + strings.Join(pairs, ",") + `) FROM client_pending WHERE COALESCE(skill_id,'') <> '' ON CONFLICT(history_id) DO UPDATE SET item_json=excluded.item_json;`
-	tx, err := store.db.Begin()
+	ctx := context.Background()
+	tx, err := store.db.Conn(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	if _, err = tx.Exec(`CREATE TABLE IF NOT EXISTS client_scan_history(history_id TEXT PRIMARY KEY, item_json TEXT NOT NULL);`); err != nil {
+	defer tx.Close()
+	if _, err = tx.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(snapshot); err != nil {
+	defer tx.ExecContext(ctx, `ROLLBACK`)
+	if _, err = tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS client_scan_history(history_id TEXT PRIMARY KEY, item_json TEXT NOT NULL);`); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, snapshot); err != nil {
 		return err
 	}
 	for _, event := range []string{"INSERT", "UPDATE"} {
 		// Capture before the source can be cleaned up, reset or re-submitted.
-		if _, err = tx.Exec(`CREATE TRIGGER IF NOT EXISTS scan_history_after_` + strings.ToLower(event) + ` AFTER ` + event + ` ON client_pending BEGIN ` + strings.Replace(snapshot, " WHERE COALESCE", " WHERE id=NEW.id AND COALESCE", 1) + ` END;`); err != nil {
+		if _, err = tx.ExecContext(ctx, `CREATE TRIGGER IF NOT EXISTS scan_history_after_`+strings.ToLower(event)+` AFTER `+event+` ON client_pending BEGIN `+strings.Replace(snapshot, " WHERE COALESCE", " WHERE id=NEW.id AND COALESCE", 1)+` END;`); err != nil {
 			return err
 		}
 	}
-	return tx.Commit()
+	_, err = tx.ExecContext(ctx, `COMMIT`)
+	return err
 }
 
 func (store *Store) ScanHistory() ([]PendingItem, error) {

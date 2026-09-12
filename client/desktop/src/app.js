@@ -419,10 +419,10 @@ const renderConnected = data => {
     })
   }
   if ((local.quarantined_skills || 0) > 0) {
-    todos.push({ title: tf`${skillCount(local.quarantined_skills)} 已隔离`, detail: t('ui.1jypd9c'), action: t('ui.fdodj6'), panel: 'discover', error: true })
+    todos.push({ title: tf`${skillCount(local.quarantined_skills)} 已隔离`, detail: t('ui.overview.recovery_hint'), action: t('ui.fdodj6'), panel: 'discover', view: 'recovery', error: true })
   }
   if ((local.pending_skills || 0) > 0) {
-    todos.push({ title: `${skillCount(local.pending_skills)} · ${t('ui.agentManagement.pending')}`, detail: t('ui.agentManagement.pending_description'), action: t('ui.11srxfq'), panel: 'discover' })
+    todos.push({ title: `${skillCount(local.pending_skills)} · ${t('ui.agentManagement.pending')}`, detail: t('ui.agentManagement.pending_description'), action: t('ui.11srxfq'), panel: 'discover', view: 'recovery' })
   }
   if ((local.queued_events || 0) > 0) {
     todos.push({ title: tf`${local.queued_events} 条审计事件待补报`, detail: t('ui.1smkxvk'), action: t('ui.1hbudir'), actionType: 'refresh' })
@@ -491,7 +491,11 @@ const renderConnected = data => {
   document.querySelectorAll('[data-todo-index]').forEach(button => {
     button.addEventListener('click', async () => {
       const todo = todos[Number(button.dataset.todoIndex)]
-      if (todo.panel) return showPanel(todo.panel)
+      if (todo.panel) {
+        showPanel(todo.panel)
+        if (todo.view) switchAgentView(todo.view)
+        return
+      }
       if (todo.actionType === 'refresh') return refreshConnection()
       if (todo.actionType === 'install-service') {
         setBusy(button, true)
@@ -534,8 +538,8 @@ const renderModelSwitcher = data => {
     : t('client.models.issuance_disabled')
   $('#model-agent-tabs').innerHTML = agents.map(agent => `
     <button type="button" role="tab" aria-selected="${agent.local_agent_id === selectedModelAgentID}" class="${agent.local_agent_id === selectedModelAgentID ? 'active' : ''}" data-model-agent="${escapeHtml(agent.local_agent_id)}">
-      <strong>${escapeHtml(agentLabel(agent.agent_type))}</strong>
-      <span>${escapeHtml(modelConfigState(agent).model || t('client.models.not_configured'))}</span>
+      ${agentLogo(agent)}<span class="model-agent-copy"><strong>${escapeHtml(agentLabel(agent.agent_type))}</strong>
+      <span>${escapeHtml(modelConfigState(agent).model || t('client.models.not_configured'))}</span></span>
     </button>`).join('')
   document.querySelectorAll('[data-model-agent]').forEach(button => button.addEventListener('click', () => {
     selectedModelAgentID = button.dataset.modelAgent
@@ -571,13 +575,17 @@ const renderModelSwitcher = data => {
       <div class="model-row-name"><strong>${escapeHtml(model.display_name || model.name)}</strong><code>${escapeHtml(model.name)}</code></div>
       <span class="model-provider">${escapeHtml(model.provider_name || '-')}</span>
       <span class="model-limits">${model.context_window ? escapeHtml(tf`上下文 ${model.context_window}`) : ''}${model.max_output_tokens ? escapeHtml(tf` · 输出 ${model.max_output_tokens}`) : ''}</span>
-      <button type="button" class="${current ? '' : 'primary'}" data-switch-model="${escapeHtml(model.name)}" ${current || !permission.can_configure_models ? 'disabled' : ''}>${escapeHtml(current ? t('client.models.current') : t('client.models.switch'))}</button>
+      <button type="button" class="${current ? '' : 'primary'}" data-switch-model="${escapeHtml(model.name)}" ${current || modelSwitchBusy || !permission.can_configure_models ? 'disabled' : ''}>${escapeHtml(current ? t('client.models.current') : t('client.models.switch'))}</button>
     </div>`
   }).join('') : t('client.models.no_matches')
   document.querySelectorAll('[data-switch-model]').forEach(button => button.addEventListener('click', () => beginModelSwitch(selected, button.dataset.switchModel, button)))
 }
 
+let modelSwitchBusy = false
 const executeModelSwitch = async (agent, model, button, managedAgentID = '') => {
+  if (modelSwitchBusy) return
+  modelSwitchBusy = true
+  document.querySelectorAll('[data-switch-model]').forEach(item => { item.disabled = true })
   const args = ['--agent-type', agent.agent_type, '--model', model]
   if (managedAgentID) args.push('--managed-agent-id', managedAgentID)
   setBusy(button, true)
@@ -589,7 +597,9 @@ const executeModelSwitch = async (agent, model, button, managedAgentID = '') => 
     showMessageDialog(t('client.models.switch_failed'), runtimeText(error))
     log(error)
   } finally {
+    modelSwitchBusy = false
     setBusy(button, false)
+    if (connection) renderModelSwitcher(connection)
   }
 }
 
@@ -663,7 +673,7 @@ const renderNotifications = local => {
     const action = notificationAction(item.event_type)
     const copy = localizedNotification(item)
     return `
-    <button class="notification-item ${escapeHtml(item.severity)}${item.read_at ? '' : ' unread'}" data-notification-id="${item.id}" data-notification-panel="${action.panel}">
+    <button class="notification-item ${escapeHtml(item.severity)}${item.read_at ? '' : ' unread'}" data-notification-id="${item.id}" data-notification-agent="${escapeHtml(item.agent_type || '')}" data-notification-panel="${action.panel}">
       <i aria-hidden="true"></i>
       <div class="notification-content">
         <div><strong>${escapeHtml(copy.title)}</strong><span class="severity-label">${notificationSeverity(item.severity)}</span>${item.read_at ? '' : `<span>${t('ui.1grkwxe')}</span>`}</div>
@@ -676,6 +686,11 @@ const renderNotifications = local => {
   document.querySelectorAll('[data-notification-id]').forEach(button => button.addEventListener('click', async () => {
     const panel = button.dataset.notificationPanel
     showPanel(panel)
+    if (panel === 'discover') {
+      const agent = inventory?.agents?.find(item => item.agent_type === button.dataset.notificationAgent && installedAgent(item))
+      if (agent) switchAgent(agentKey(agent))
+      switchAgentView('local')
+    }
     try {
       await run('read-notifications', ['--id', button.dataset.notificationId])
       await refreshLocalNotifications()
@@ -759,7 +774,7 @@ const loadRecordHistory = async () => {
     const rows = result.items
     if (recordState.kind === 'events') renderEventHistory(rows)
     else renderTaskHistory(rows)
-    $('#records-feedback').textContent = rows.length ? '' : t('ui.records.empty')
+    $('#records-feedback').textContent = ''
     $('#records-total').textContent = `${t('ui.records.total')}: ${result.total}`
     const pages = Math.max(1, Math.ceil(result.total / recordState.pageSize))
     $('#records-page').textContent = `${result.page} / ${pages}`
@@ -862,7 +877,7 @@ const renderEventHistory = events => {
     <span>${escapeHtml(event.agent_type ? agentLabel(event.agent_type) : t('ui.13nfgz7'))}</span>
     <strong class="task-status-${event.details?.action === 'record_only' ? 'completed' : event.details?.trigger === 'malicious' || event.details?.status === 'failed' ? 'failed' : event.details?.trigger ? 'warning' : eventStatus(event.event_type)}">${escapeHtml(event.details?.trigger ? governanceLabelFor('trigger', event.details.trigger) : eventResultLabel(event.event_type))}</strong>
     <span>${escapeHtml(formatTime(event.last_seen_at || event.created_at))}${event.observation_count > 1 ? `<small>${escapeHtml(t('ui.agentManagement.observations'))}: ${event.observation_count}</small>` : ''}</span>
-  </div>`).join('') : t('ui.1tbkycy')
+  </div>`).join('') : t('ui.records.empty')
 }
 
 const renderTaskHistory = tasks => {
@@ -880,7 +895,7 @@ const renderTaskHistory = tasks => {
       <strong class="task-status-${escapeHtml(task.status)}">${escapeHtml(taskStatusLabel(task.status))}</strong>
       <span class="${task.error ? 'task-history-error' : ''}">${escapeHtml(formatTime(task.finished_at || task.started_at || task.updated_at || task.created_at))}${task.error ? `<details class="record-error"><summary>${escapeHtml(t('ui.records.error_details'))}</summary><p>${escapeHtml(runtimeText(task.error))}</p></details>` : ''}</span>
     </div>`
-  }).join('') : t('ui.2jt1e6')
+  }).join('') : t('ui.records.empty')
 }
 async function refreshConnection() {
   try {
@@ -2466,7 +2481,7 @@ const selectedInstallSkill = () => {
 
 const installSubmitter = item => item?.submitted_by || t('ui.13nfgz7')
 const installVersion = item => item?.version_no ? `v${item.version_no}` : 'v-'
-const installSubmittedAt = item => item?.submitted_at ? formatTime(item.submitted_at) : t('ui.13nfgz7')
+const installSubmittedAt = item => item?.submitted_at ? formatTime(item.submitted_at) : '-'
 
 const installCatalogSourceFor = skill => {
   const candidates = installCatalog.filter(item => item.items.some(candidate => candidate.skill_id === skill.skill_id))
@@ -2487,6 +2502,7 @@ const loadInstallSkillVersions = async () => {
   const select = $('#install-platform-version')
   installVersions = []
   select.disabled = true
+  $('#confirm-install-skill').disabled = true
   select.innerHTML = `<option value="">${skill ? '正在读取可信版本...' : t('请先选择 Skill')}</option>`
   if (!skill) return
   const source = installCatalogSourceFor(skill)
@@ -2502,11 +2518,12 @@ const loadInstallSkillVersions = async () => {
     if (selectedInstallSkill()?.skill_id !== skill.skill_id) return
     installVersions = response.items || []
     select.innerHTML = installVersions.length
-      ? installVersions.map(item => `<option value="${escapeHtml(item.version_id)}">${escapeHtml(installVersion(item))}${item.source_version ? ` · ${escapeHtml(item.source_version)}` : ''}${item.latest_trusted ? ' · 最新可信' : ''} · ${escapeHtml(tf`提交人：${installSubmitter(item)}`)} · ${escapeHtml(tf`提交时间：${installSubmittedAt(item)}`)}</option>`).join('')
+      ? installVersions.map(item => `<option value="${escapeHtml(item.version_id)}">${escapeHtml(installVersion(item))}${item.source_version ? ` · ${escapeHtml(item.source_version)}` : ''}${item.latest_trusted ? ` · ${t('ui.install.latest_trusted')}` : ''} · ${escapeHtml(tf`提交人：${installSubmitter(item)}`)} · ${escapeHtml(tf`提交时间：${installSubmittedAt(item)}`)}</option>`).join('')
       : '<option value="">暂无可信版本</option>'
     select.value = response.default_version_id || installVersions[0]?.version_id || ''
     select.disabled = !installVersions.length
     await loadInstallSkillPreview()
+    updateInstallTargetCount()
   } catch (error) {
     select.innerHTML = `<option value="">${escapeHtml(runtimeText(error))}</option>`
   }
@@ -2551,6 +2568,7 @@ const renderInstallSkillOptions = () => {
 
 const updateInstallTargetCount = () => {
   const selected = $('#install-agent-targets').querySelectorAll('[data-install-target]:checked').length
+  $('#confirm-install-skill').disabled = platformInstallBusy || !selected || !$('#install-platform-version').value || $('#install-platform-version').disabled
   $('#install-target-count').textContent = t('ui.installTargets.count').replace('{selected}', selected).replace('{total}', installCatalog.length)
 }
 $('#install-agent-targets').addEventListener('change', updateInstallTargetCount)
@@ -2637,18 +2655,21 @@ $('#install-platform-skill').addEventListener('change', () => {
   renderInstallTargets()
   loadInstallSkillVersions()
 })
-$('#install-platform-version').addEventListener('change', loadInstallSkillPreview)
+$('#install-platform-version').addEventListener('change', () => { updateInstallTargetCount(); loadInstallSkillPreview() })
 $('#cancel-install-skill').addEventListener('click', () => {
   lockedInstallSkill = null
   $('#install-skill-dialog').close()
 })
+let platformInstallBusy = false
 $('#confirm-install-skill').addEventListener('click', async event => {
+  if (platformInstallBusy) return
   const skill = selectedInstallSkill()
   if (!skill) return showMessageDialog(t('ui.1xx9z2h'), t('ui.5bo4oh'))
   const targets = [...document.querySelectorAll('[data-install-target]:checked')].map(item => item.value)
   if (!targets.length) return showMessageDialog(t('ui.1titnia'), t('ui.1ybbgmr'))
   const versionId = $('#install-platform-version').value
   if (!versionId) return showMessageDialog('请选择可信版本', '恢复或安装必须绑定一个可信版本。')
+  platformInstallBusy = true
   const button = event.currentTarget
   setBusy(button, true)
   const succeeded = []
@@ -2673,6 +2694,7 @@ $('#confirm-install-skill').addEventListener('click', async event => {
     showMessageDialog(t('ui.12x45mj'), tf`安装命令已经执行，但页面状态刷新失败：${runtimeText(error)}`)
     log(error)
   } finally {
+    platformInstallBusy = false
     setBusy(button, false)
   }
 })

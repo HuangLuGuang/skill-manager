@@ -86,9 +86,8 @@ p { margin: 0; color: #687684; font-size: 13px; line-height: 1.55; }
 .state.online { border-color: #8ab7a8; color: #236556; background: #eef8f4; }
 
 .panel { display: none; }
-.panel.active { display: block; animation: reveal .18s ease-out; }
-@keyframes reveal { from { opacity: 0; transform: translateY(4px); } }
-@media (prefers-reduced-motion: reduce) { .panel.active { animation: none; } }
+.panel.active { display: block; }
+select { appearance: none; -webkit-appearance: none; background-color: #fff; background-image: url('./assets/icons/chevron-down.svg') !important; background-position: right 10px center !important; background-size: 14px !important; background-repeat: no-repeat !important; padding-right: 32px !important; }
 .panel-copy, .panel-toolbar {
   display: flex;
   align-items: flex-start;
@@ -294,7 +293,7 @@ button.is-busy, button.is-busy:disabled { cursor: wait; }
 .subtle-danger { border-color: #d9aaa2; color: #a63f32; background: #fff8f6; }
 .subtle-danger:hover { border-color: #b94835; color: #8f3025; background: #fff0ec; }
 .icon-button::before { display: inline-block; margin-right: 6px; font-weight: 800; line-height: 1; }
-.icon-refresh::before, .icon-resume::before { content: "↻"; }
+.icon-refresh, .icon-resume { --control-icon: url('./assets/icons/refresh-cw.svg'); }
 .icon-check::before { content: "✓"; }
 .icon-edit::before { content: "✎"; }
 .icon-connect::before, .icon-next::before { content: "→"; }
@@ -309,6 +308,19 @@ button.is-busy, button.is-busy:disabled { cursor: wait; }
 .icon-folder::before { content: "▰"; font-size: 9px; }
 .icon-add::before { content: "+"; }
 .icon-notification::before { content: "●"; font-size: 9px; }
+.icon-check { --control-icon: url('./assets/icons/circle-check.svg'); }
+.icon-folder { --control-icon: url('./assets/icons/folder-open.svg'); }
+.icon-add { --control-icon: url('./assets/icons/plus.svg'); }
+.icon-install { --control-icon: url('./assets/icons/download.svg'); }
+.icon-submit { --control-icon: url('./assets/icons/shield-check.svg'); }
+.icon-restore, .icon-back { --control-icon: url('./assets/icons/rotate-ccw.svg'); }
+.icon-button:is(.icon-refresh,.icon-resume,.icon-check,.icon-folder,.icon-add,.icon-install,.icon-submit,.icon-restore,.icon-back)::before {
+  content: ''; width: 16px; height: 16px; flex: 0 0 16px; vertical-align: -3px;
+  background: currentColor; mask: var(--control-icon) center / contain no-repeat; -webkit-mask: var(--control-icon) center / contain no-repeat;
+}
+@media (prefers-reduced-motion: no-preference) {
+  button { transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
+}
 .message-dialog {
   width: min(460px, calc(100vw - 48px));
   padding: 0;
@@ -448,6 +460,9 @@ button.is-busy, button.is-busy:disabled { cursor: wait; }
   border-bottom: 1px solid #cbd3da;
 }
 .model-agent-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   min-width: 150px;
   padding: 10px 14px 9px;
   border: 0;
@@ -460,6 +475,7 @@ button.is-busy, button.is-busy:disabled { cursor: wait; }
 .model-agent-tabs button:hover { color: #263846; background: #f7f9fa; }
 .model-agent-tabs button.active { border-bottom-color: #263846; color: #263846; background: #fff; }
 .model-agent-tabs strong, .model-agent-tabs span { display: block; }
+.model-agent-copy { min-width: 0; }
 .model-agent-tabs strong { font-size: 12px; }
 .model-agent-tabs span { overflow: hidden; margin-top: 3px; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .model-current {

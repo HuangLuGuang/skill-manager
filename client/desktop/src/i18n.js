@@ -887,6 +887,8 @@
     'ui.agentTabs.recovery_empty': { 'zh-CN': "此 Agent 暂无隔离副本", 'en-US': "No recovery copies for this Agent" },
     'ui.agentTabs.no_agents': { 'zh-CN': "未发现已安装的 Agent，可添加自定义 Agent。", 'en-US': "No installed Agents found. You can add a custom Agent." },
     'ui.agentTabs.directory': { 'zh-CN': "打开目录", 'en-US': "Open folder" },
+    'ui.install.latest_trusted': { 'zh-CN': '最新可信', 'en-US': 'Latest trusted' },
+    'ui.overview.recovery_hint': { 'zh-CN': '在 Agent 管理的隔离副本中查看原因、提交检测或选择批准版本。', 'en-US': 'Open Recovery Copies in Agent Management to inspect, scan, or choose an approved version.' },
     'ui.agentManagement.title': { 'zh-CN': 'Agent 管理', 'en-US': 'Agent Management' },
     'ui.agentManagement.recoveryState.quarantined': { 'zh-CN': '已隔离，可恢复副本已保留', 'en-US': 'Quarantined; Recovery Copy Retained' },
     'ui.agentManagement.recoveryState.uninstalled': { 'zh-CN': '已卸载，可恢复副本已保留', 'en-US': 'Uninstalled; Recovery Copy Retained' },
