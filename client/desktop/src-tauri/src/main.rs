@@ -3,9 +3,10 @@ use std::env;
 use std::ffi::CStr;
 use std::fs;
 use std::io::ErrorKind;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::plugin::PermissionState;
@@ -98,6 +99,8 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "remove-custom-agent",
         "inventory",
         "cached-inventory",
+        "log-settings",
+        "export-diagnostics",
         "register",
         "switch-model",
         "takeover",
@@ -259,26 +262,34 @@ async fn open_client_location(kind: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn export_diagnostics(content: String) -> Result<String, String> {
+async fn export_diagnostics(days: u32) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        if content.len() > 1024 * 1024 {
-            return Err("诊断报告内容超过 1 MB 限制".to_string());
+        let result = execute_client_sync("export-diagnostics".to_string(), vec!["--days".to_string(), days.to_string()])?;
+        let value: serde_json::Value = serde_json::from_str(&result).map_err(|_| "diagnostics_invalid_result".to_string())?;
+        value.get("path").and_then(|v| v.as_str()).map(str::to_string).ok_or_else(|| "diagnostics_invalid_result".to_string())
+    }).await.map_err(|error| format!("diagnostics_export_failed: {error}"))?
+}
+
+#[tauri::command]
+async fn record_desktop_diagnostic(record: serde_json::Value) -> Result<(), String> {
+    let body = serde_json::to_vec(&record).map_err(|_| "diagnostics_invalid_record".to_string())?;
+    if body.len() > 16384 {
+        return Err("diagnostics_record_too_large".to_string());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut child = Command::new(client_binary()?)
+            .arg("record-desktop-diagnostic")
+            .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped())
+            .spawn().map_err(|error| error.to_string())?;
+        let written = child.stdin.take().ok_or_else(|| "diagnostics_invalid_record".to_string())?
+            .write_all(&body);
+        let result = child.wait_with_output().map_err(|error| error.to_string())?;
+        written.map_err(|error| error.to_string())?;
+        if !result.status.success() {
+            return Err(String::from_utf8_lossy(&result.stderr).trim().to_string());
         }
-        serde_json::from_str::<serde_json::Value>(&content)
-            .map_err(|error| format!("诊断报告格式无效: {error}"))?;
-        let home = system_home().ok_or_else(|| "无法确定当前用户目录".to_string())?;
-        let output_dir = home.join("Downloads");
-        fs::create_dir_all(&output_dir).map_err(|error| format!("无法创建下载目录: {error}"))?;
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|error| format!("系统时间无效: {error}"))?
-            .as_secs();
-        let path = output_dir.join(format!("agent-manager-client-diagnostics-{timestamp}.json"));
-        fs::write(&path, content).map_err(|error| format!("无法写入诊断报告: {error}"))?;
-        Ok(path.to_string_lossy().into_owned())
-    })
-    .await
-    .map_err(|error| format!("导出诊断报告异常: {error}"))?
+        Ok(())
+    }).await.map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -654,6 +665,7 @@ fn main() {
             reveal_path,
             open_client_location,
             export_diagnostics,
+            record_desktop_diagnostic,
             get_connection_status,
             get_client_history,
             show_system_notification,
@@ -704,5 +716,24 @@ mod tests {
     #[test]
     fn system_home_is_absolute() {
         assert!(system_home().expect("system home").is_absolute());
+    }
+
+    #[test]
+    #[ignore = "requires an isolated AGENT_MANAGER_CLIENT_HOME and compiled AGENT_MANAGER_CLIENT_BINARY"]
+    fn diagnostics_export_uses_real_sidecar() {
+        let home = std::env::var("AGENT_MANAGER_CLIENT_HOME").expect("isolated test home");
+        assert!(std::env::var("AGENT_MANAGER_CLIENT_BINARY").is_ok());
+        let settings = super::execute_client_sync("log-settings".into(), vec!["--days".into(), "1".into()]).expect("save retention");
+        let settings: serde_json::Value = serde_json::from_str(&settings).unwrap();
+        assert_eq!(settings["retention_days"], 1);
+        tauri::async_runtime::block_on(super::record_desktop_diagnostic(serde_json::json!({
+            "event": "script_error", "message": "native export test", "version": "integration-test", "count": 1,
+        }))).expect("write native diagnostic");
+        let exported = tauri::async_runtime::block_on(super::export_diagnostics(1)).expect("export diagnostics");
+        assert!(Path::new(&exported).starts_with(Path::new(&home).join("Downloads")));
+        let bytes = std::fs::read(exported).expect("read actual ZIP");
+        assert!(bytes.starts_with(b"PK\x03\x04"));
+        let invalid = tauri::async_runtime::block_on(super::export_diagnostics(30));
+        assert!(invalid.unwrap_err().contains("diagnostics_invalid_range"));
     }
 }

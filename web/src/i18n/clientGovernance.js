@@ -1,5 +1,6 @@
 export const clientGovernanceMessages = {
   'zh-CN': {
+    eventsLoadFailed: '事件加载失败，请重试。',
     targetVersion: '目标策略版本：{version}', superseded: '被新版取代', policyApplied: '策略已应用', policy_superseded: '此任务已被较新策略版本取代。', policy_ack_required: '客户端未确认目标版本，请升级客户端后重试。',
     capabilityAvailable: '此客户端支持基础动作；使用仅记录或新增检测不通过处置前，请先升级客户端。',
     capabilityTitle: '部分客户端需要升级', capabilityHint: '以下客户端不支持所选动作，暂不能保存。升级并同步客户端后重新预览。',
@@ -57,6 +58,7 @@ export const clientGovernanceMessages = {
     client: '客户端', agent: 'Agent', skill: 'Skill', path: '目录', active: '分类策略已启用', cancel: '关闭',
   },
   'en-US': {
+    eventsLoadFailed: 'Could not load events. Please retry.',
     targetVersion: 'Target policy version: {version}', superseded: 'Superseded', policyApplied: 'Policy applied', policy_superseded: 'A newer policy version superseded this task.', policy_ack_required: 'The client did not confirm the target version. Upgrade and retry.',
     capabilityAvailable: 'This client supports basic actions. Upgrade before using record-only or new scan rejection actions.',
     capabilityTitle: 'Some clients need an upgrade', capabilityHint: 'These clients do not support the selected actions. Upgrade and synchronize them, then preview again before saving.',

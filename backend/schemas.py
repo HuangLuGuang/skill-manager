@@ -323,7 +323,7 @@ class AccessTokenCreate(BaseModel):
     expires_at: Optional[datetime] = None
     max_body_kb: int = Field(default=1024, ge=1, le=10240)
     max_concurrent_requests: int = Field(default=5, ge=1, le=100)
-    max_upload_mb: int = Field(default=50, ge=1, le=10240)
+    max_upload_mb: int = Field(default=100, ge=1, le=10240)
     max_concurrent_jobs: int = Field(default=2, ge=1, le=100)
     enable_compression: bool = False
     compression_level: str = Field(default="auto", pattern="^(auto|conservative|aggressive)$")

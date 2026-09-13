@@ -205,3 +205,43 @@ func TestLocalStatusIncludesObservedSkillsAndIndependentSyncHealth(t *testing.T)
 		t.Fatal(status.Sync)
 	}
 }
+
+func TestHeartbeatDoesNotWaitForFiveMinuteDiscoveryInterval(t *testing.T) {
+	home, store, _, _ := observedFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var heartbeats atomic.Int32
+	reached := make(chan struct{})
+	var once sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/heartbeat"):
+			if heartbeats.Add(1) >= 3 {
+				once.Do(func() { close(reached) })
+			}
+			json.NewEncoder(w).Encode(map[string]any{"policy": Policy{Mode: "audit", Classification: DefaultClassificationPolicy()}})
+		case strings.HasSuffix(r.URL.Path, "/tasks"):
+			w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "/compare"):
+			w.Write([]byte(`{"items":[]}`))
+		default:
+			w.Write([]byte(`{}`))
+		}
+	}))
+	defer server.Close()
+	finished := make(chan error, 1)
+	go func() {
+		finished <- RunDaemon(ctx, home, NewAPI(server.URL, "test", time.Second), store, 5*time.Minute, nil)
+	}()
+	select {
+	case <-reached:
+	case <-time.After(14 * time.Second):
+		t.Error("heartbeat still waits for discovery interval", heartbeats.Load())
+	}
+	cancel()
+	select {
+	case <-finished:
+	case <-time.After(3 * time.Second):
+		t.Error("daemon did not stop")
+	}
+}

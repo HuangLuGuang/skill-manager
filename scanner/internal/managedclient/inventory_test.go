@@ -1,6 +1,7 @@
 package managedclient
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -369,6 +370,34 @@ func TestDiscoverKeepsBrokenManagedSymlinkVisible(t *testing.T) {
 	skill := inventory.Agents[0].Skills[0]
 	if skill.Name != "deleted-skill" || skill.Status != "broken_link" || !strings.Contains(skill.Error, "软链接目标不存在") {
 		t.Fatalf("unexpected broken symlink result: %#v", skill)
+	}
+}
+
+func TestTemplateHeavySkillFitsDefaultManifestLimits(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "template-heavy")
+	for i := 0; i < 2100; i++ {
+		if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("template-%d.svg", i)), []byte("<svg/>"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 4; i++ {
+		file, err := os.Create(filepath.Join(root, fmt.Sprintf("reference-%d.bin", i)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = file.Truncate(15 * 1024 * 1024)
+		file.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	value, err := manifest.Build(root, DefaultManifestOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(value.Files) != 2105 || value.TotalBytes < 60*1024*1024 || manifest.ContentSignature(value.Files) == "" {
+		t.Fatalf("incomplete manifest: %d files, %d bytes", len(value.Files), value.TotalBytes)
 	}
 }
 

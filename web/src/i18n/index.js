@@ -1,3 +1,4 @@
+import { clientDiscoveryMessages } from './clientDiscovery.js'
 import { createI18n } from 'vue-i18n'
 import { uiExperienceMessages } from './uiExperience.js'
 import { iamMessages } from './iam.js'
@@ -82,6 +83,7 @@ export const i18n = createI18n({
       decisionFlow: decisionFlowMessages['zh-CN'],
       skillDetail: skillDetailMessages['zh-CN'],
       clientGovernance: clientGovernanceMessages['zh-CN'],
+      clientDiscovery: clientDiscoveryMessages['zh-CN'],
       skillColumns: skillColumnMessages['zh-CN'],
       skillFilters: {
         all: 'ALL（全部状态）', scanning: 'SCANNING（检测中）', awaitingReview: 'VETTED（待审核）',
@@ -864,7 +866,8 @@ export const i18n = createI18n({
         compressionConservative: '保守压缩',
         compressionAggressive: '积极压缩',
         capacityAndSource: '容量与来源限制',
-        maxUploadMb: '最大上传 MB',
+        maxUploadMb: 'Skill 最大上传大小（MB）',
+        clientUploadLimit: 'Skill 上传上限 {upload} MB',
         maxConcurrentJobs: '最大并发扫描任务',
         maxBodyKb: '最大请求体 KB',
         maxConcurrentRequests: '最大并发请求',
@@ -1099,6 +1102,7 @@ export const i18n = createI18n({
       decisionFlow: decisionFlowMessages['en-US'],
       skillDetail: skillDetailMessages['en-US'],
       clientGovernance: clientGovernanceMessages['en-US'],
+      clientDiscovery: clientDiscoveryMessages['en-US'],
       skillColumns: skillColumnMessages['en-US'],
       skillFilters: {
         all: 'ALL（全部状态）', scanning: 'SCANNING（检测中）', awaitingReview: 'VETTED（待审核）',
@@ -1881,7 +1885,8 @@ export const i18n = createI18n({
         compressionConservative: 'Conservative',
         compressionAggressive: 'Aggressive',
         capacityAndSource: 'Capacity and source limits',
-        maxUploadMb: 'Maximum upload MB',
+        maxUploadMb: 'Maximum Skill upload size (MB)',
+        clientUploadLimit: 'Skill upload limit: {upload} MB',
         maxConcurrentJobs: 'Maximum concurrent scan jobs',
         maxBodyKb: 'Maximum request body KB',
         maxConcurrentRequests: 'Maximum concurrent requests',

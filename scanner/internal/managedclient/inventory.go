@@ -17,7 +17,7 @@ import (
 
 var Version = "dev"
 
-const InventoryCacheVersion = "4"
+const InventoryCacheVersion = "5"
 
 type Skill struct {
 	Governance    *SkillObservation `json:"governance,omitempty"`
@@ -60,6 +60,7 @@ type Inventory struct {
 }
 
 type adapter struct {
+	displayName        string
 	agentType          string
 	binaries           []string
 	skillRoots         []string
@@ -87,6 +88,10 @@ func adapters() []adapter {
 			sharedSkills:       true,
 			sharedSkillReaders: []string{"OpenCode", "Cursor"},
 		},
+		{agentType: "qoder", displayName: "Qoder", skillRoots: []string{".qoder/skills"}, supportsSkill: true},
+		{agentType: "qoder-cn", displayName: "Qoder CN", skillRoots: []string{".qoder-cn/skills"}, supportsSkill: true},
+		{agentType: "qoderwork", displayName: "QoderWork", skillRoots: []string{".qoderwork/skills"}, supportsSkill: true},
+		{agentType: "zcode", displayName: "ZCode", skillRoots: []string{".zcode/skills"}, supportsSkill: true},
 		{agentType: "claude-code", binaries: []string{"claude"}, skillRoots: []string{".claude/skills"}, supportsSkill: true},
 		{agentType: "codex", appPaths: []string{"/Applications/Codex.app", "Applications/Codex.app"}, binaries: []string{"codex"}, skillRoots: []string{".codex/skills"}, supportsSkill: true},
 		{agentType: "gemini", binaries: []string{"gemini"}, skillRoots: []string{".gemini/skills"}, supportsSkill: true},
@@ -118,7 +123,7 @@ func Discover(home string) (Inventory, error) {
 	if err != nil {
 		return result, err
 	}
-	specs := adapters()
+	specs := adaptersForHome(home)
 	for index := range specs {
 		if roots := config.AgentSkillRoots[specs[index].agentType]; len(roots) > 0 {
 			specs[index].skillRoots = roots
@@ -218,6 +223,7 @@ func DeviceID(hostname, home string) string {
 
 func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, bool, error) {
 	agent := Agent{
+		DisplayName:              spec.displayName,
 		LocalAgentID:             spec.agentType,
 		AgentType:                spec.agentType,
 		SkillManagementSupported: spec.supportsSkill,
@@ -309,8 +315,8 @@ func BuiltinAgentSettings(home string) ([]BuiltinAgentSetting, error) {
 }
 
 func builtinAgentSettings(home string, config Config) []BuiltinAgentSetting {
-	result := make([]BuiltinAgentSetting, 0, len(adapters()))
-	for _, spec := range adapters() {
+	result := make([]BuiltinAgentSetting, 0, len(adaptersForHome(home)))
+	for _, spec := range adaptersForHome(home) {
 		defaults := resolvedSkillRoots(home, spec.skillRoots)
 		current := defaults
 		customized := false
@@ -333,7 +339,7 @@ func builtinAgentSettings(home string, config Config) []BuiltinAgentSetting {
 func SetBuiltinAgentRoots(home, agentType string, roots []string) error {
 	agentType = strings.TrimSpace(agentType)
 	supported := false
-	for _, spec := range adapters() {
+	for _, spec := range adaptersForHome(home) {
 		if spec.agentType == agentType {
 			supported = true
 			break

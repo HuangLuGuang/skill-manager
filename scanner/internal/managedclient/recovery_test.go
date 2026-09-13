@@ -207,3 +207,146 @@ func TestRecoveryMetadataFailureRetainsCopiesAndRejectsNewContentOnRetry(t *test
 		t.Fatal(string(content), err)
 	}
 }
+
+func TestAutomaticRecoveryRequiresExactApprovedContent(t *testing.T) {
+	for _, origin := range []string{"quarantine", "legacy_pending", "legacy_untracked"} {
+		t.Run(origin, func(t *testing.T) {
+			for _, scenario := range []string{"approved", "unapproved", "different_content", "occupied", "offline"} {
+				t.Run(scenario, func(t *testing.T) {
+					home, store, inventory, skill := observedFixture(t)
+					item, err := quarantineSkill(home, store, "codex", skill.Name, skill.Path, "unverified", skill.Signature)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if origin == "legacy_pending" || origin == "legacy_untracked" {
+						legacyPath := filepath.Join(home, ".river-security", "agent-manager", "pending", "codex", skill.Name)
+						if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
+							t.Fatal(err)
+						}
+						if err := os.Rename(item.QuarantinePath, legacyPath); err != nil {
+							t.Fatal(err)
+						}
+						item.QuarantinePath = legacyPath
+						if _, err := store.db.Exec(`DELETE FROM client_quarantine WHERE id=?`, item.ID); err != nil {
+							t.Fatal(err)
+						}
+						if err := store.SavePending(PendingItem{ID: "legacy-copy", AgentType: "codex", SkillName: skill.Name, OriginalPath: skill.Path, PendingPath: item.QuarantinePath, Reason: "skill_not_approved", Status: "pending"}); err != nil {
+							t.Fatal(err)
+						}
+						item.ID = "pending:legacy-copy"
+						if origin == "legacy_untracked" {
+							if _, err := store.db.Exec(`DELETE FROM client_pending WHERE id=?`, "legacy-copy"); err != nil {
+								t.Fatal(err)
+							}
+							item.ID = "pending:" + pendingID(legacyPath)
+						}
+					}
+					if scenario == "occupied" {
+						writeSkill(t, skill.Path, "existing")
+					}
+					comparisons := 0
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if scenario == "offline" {
+							http.Error(w, "offline", 503)
+							return
+						}
+						switch {
+						case strings.HasSuffix(r.URL.Path, "/policy"):
+							json.NewEncoder(w).Encode(Policy{Classification: DefaultClassificationPolicy()})
+						case strings.HasSuffix(r.URL.Path, "/compare"):
+							comparisons++
+							signature := skill.Signature
+							if scenario == "different_content" {
+								signature = "other"
+							}
+							json.NewEncoder(w).Encode(map[string]any{"items": []CompareItem{{AgentType: "codex", LocalPath: skill.Path, LocalSignature: signature, Certified: scenario != "unapproved"}}})
+						default:
+							w.Write([]byte(`{}`))
+						}
+					}))
+					defer server.Close()
+					api := NewAPI(server.URL, "token", time.Second)
+					changed, err := ReconcileCertifiedQuarantine(context.Background(), home, api, store, inventory)
+					if scenario == "approved" {
+						if err != nil || !changed {
+							t.Fatalf("restore: %v %v", changed, err)
+						}
+						if err := checkObservedContent(skill); err != nil {
+							t.Fatal(err)
+						}
+						if origin == "legacy_pending" || origin == "legacy_untracked" {
+							pending, err := store.PendingItems()
+							if err != nil || len(pending) != 0 {
+								t.Fatalf("restored pending record remains: %v %v", pending, err)
+							}
+							if _, err := os.Stat(item.QuarantinePath); err != nil {
+								t.Fatal("recovery source was not retained", err)
+							}
+						}
+						var status string
+						if err := store.db.QueryRow(`SELECT status FROM client_quarantine WHERE id=?`, item.ID).Scan(&status); err != nil || status != "restored" {
+							t.Fatalf("status %s %v", status, err)
+						}
+						again, err := ReconcileCertifiedQuarantine(context.Background(), home, api, store, inventory)
+						if err != nil || again || comparisons != 1 {
+							t.Fatalf("duplicate recovery %v %v %d", again, err, comparisons)
+						}
+					} else if changed {
+						t.Fatal("restored unapproved or unavailable content")
+					} else if scenario != "occupied" {
+						if _, err := os.Lstat(skill.Path); !os.IsNotExist(err) {
+							t.Fatal("created target", err)
+						}
+					}
+					if err := checkObservedContent(Skill{Path: item.QuarantinePath, Signature: skill.Signature}); err != nil {
+						t.Fatal("lost recovery copy", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestManualQuarantineRequiresExplicitRestore(t *testing.T) {
+	home, store, inventory, skill := observedFixture(t)
+	item, err := quarantineSkill(home, store, "codex", skill.Name, skill.Path, "manual", skill.Signature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comparisons := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/policy"):
+			json.NewEncoder(w).Encode(Policy{Classification: DefaultClassificationPolicy()})
+		case strings.HasSuffix(r.URL.Path, "/compare"):
+			comparisons++
+			json.NewEncoder(w).Encode(map[string]any{"items": []CompareItem{{AgentType: "codex", LocalPath: skill.Path, LocalSignature: skill.Signature, Certified: true}}})
+		default:
+			w.Write([]byte(`{}`))
+		}
+	}))
+	defer server.Close()
+	api := NewAPI(server.URL, "token", time.Second)
+	for i := 0; i < 2; i++ {
+		changed, err := ReconcileCertifiedQuarantine(context.Background(), home, api, store, inventory)
+		if err != nil || changed || comparisons != 0 {
+			t.Fatalf("manual quarantine auto-restored: %v %v %d", changed, err, comparisons)
+		}
+	}
+	if _, err := os.Lstat(skill.Path); !os.IsNotExist(err) {
+		t.Fatal("isolated path reappeared", err)
+	}
+	if err := checkObservedContent(Skill{Path: item.QuarantinePath, Signature: skill.Signature}); err != nil {
+		t.Fatal(err)
+	}
+	task := Task{ID: 99, TaskType: "skill_action", Payload: map[string]any{"action": "restore_quarantine", "path": skill.Path, "expected_signature": skill.Signature, "quarantine_id": item.ID}}
+	if err := restoreQuarantineTask(context.Background(), home, inventory, inventory.Agents[0], api, store, task); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkObservedContent(skill); err != nil {
+		t.Fatal(err)
+	}
+	if comparisons != 1 {
+		t.Fatal("explicit restore did not recheck approval", comparisons)
+	}
+}

@@ -4,6 +4,7 @@
       <template #title>
         <a-page-header :title="$t('legacy.hx2vnc')" :sub-title="$t('legacy.ud53vr')">
           <template #extra>
+            <a-button v-if="hasAccess('clients:update')" @click="discoveryOpen = true">{{ $t('clientDiscovery.title') }}</a-button>
             <a-button v-if="hasAccess('clients:update')" @click="openClassification('')">{{ $t('clientGovernance.defaults') }}</a-button>
             <a-button type="primary" @click="installGuideVisible = true">{{ $t("legacy.18h6c95") }}</a-button>
             <a-button :loading="loading" @click="loadClients">{{ $t("legacy.12qo56a") }}</a-button>
@@ -48,6 +49,7 @@
     </section>
 
     </a-card>
+    <ClientDiscoveryConfig v-model:open="discoveryOpen" />
 
     <a-drawer v-model:open="detailVisible" :title="$t('legacy.95lv9i')" width="min(1080px, 100vw)" :destroy-on-close="true">
       <a-spin :spinning="detailLoading">
@@ -189,8 +191,9 @@
           </a-table>
 
           <div class="section-title">{{ $t("legacy.1hnc5z3") }}</div>
+          <a-spin :spinning="eventsLoading">
           <a-timeline v-if="detail.events?.length">
-            <a-timeline-item v-for="event in detail.events.slice(0, eventVisibleCount)" :key="event.id" :color="eventColor(event)">
+            <a-timeline-item v-for="event in detail.events" :key="event.id" :color="eventColor(event)">
               <strong>{{ eventLabel(event.event_type) }}</strong>
               <span v-if="event.skill_name"> · {{ event.skill_name }}</span>
               <div class="muted">{{ formatTime(event.created_at) }}</div>
@@ -199,9 +202,8 @@
             </a-timeline-item>
           </a-timeline>
           <a-empty v-else :description="$t('legacy.1fxykwc')" />
-          <div v-if="detail.events?.length > eventVisibleCount" class="event-more">
-            <a-button type="link" @click="eventVisibleCount += 10">{{ $t("legacy.vrh2fz") }}</a-button>
-          </div>
+          <a-pagination v-if="detail.events_total" class="event-more" :current="detail.event_page" :page-size="detail.event_page_size" :total="detail.events_total" :show-size-changer="false" :disabled="eventsLoading" @change="changeEventPage" />
+          </a-spin>
         </template>
       </a-spin>
     </a-drawer>
@@ -289,7 +291,9 @@ import {
   translateText as text,
 } from '../i18n'
 
+import ClientDiscoveryConfig from '../components/ClientDiscoveryConfig.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
+const discoveryOpen = ref(false)
 import { message } from 'ant-design-vue'
 
 import {
@@ -314,7 +318,8 @@ const openClassification = clientId => { classificationClientId.value = clientId
 const detailLoading = ref(false)
 const submitting = ref(false)
 const actionKey = ref('')
-const eventVisibleCount = ref(10)
+const eventsLoading = ref(false)
+let eventSequence = 0
 const detailVisible = ref(false)
 const installVisible = ref(false)
 const modelConfigVisible = ref(false)
@@ -448,7 +453,8 @@ const loadClients = async () => {
 }
 const openDetail = async (record) => {
   const sequence = ++detailSequence
-  eventVisibleCount.value = 10
+  ++eventSequence
+  eventsLoading.value = false
   detailVisible.value = true
   detailLoading.value = true
   detail.value = null
@@ -466,11 +472,30 @@ const refreshDetail = async () => {
   if (!detail.value?.client_id) return
   const clientId = detail.value.client_id
   const sequence = ++detailSequence
-  const result = await getClientDetail(clientId)
+  const eventsRequest = eventSequence
+  const result = await getClientDetail(clientId, { event_page: detail.value.event_page || 1 })
   if (sequence !== detailSequence || !detailVisible.value || detail.value?.client_id !== clientId) return
+  if (eventsLoading.value || eventsRequest !== eventSequence) {
+    Object.assign(result, { events: detail.value.events, events_total: detail.value.events_total, event_page: detail.value.event_page, event_page_size: detail.value.event_page_size })
+  }
   detail.value = result
   currentPolicy.value = detail.value.policy_mode || 'audit'
   currentGovernance.value = detail.value.governance_mode || 'registry'
+}
+const changeEventPage = async page => {
+  const clientId = detail.value?.client_id
+  if (!clientId || eventsLoading.value) return
+  const sequence = ++eventSequence
+  eventsLoading.value = true
+  try {
+    const result = await getClientDetail(clientId, { event_page: page })
+    if (sequence !== eventSequence || !detailVisible.value || detail.value?.client_id !== clientId) return
+    Object.assign(detail.value, { events: result.events, events_total: result.events_total, event_page: result.event_page, event_page_size: result.event_page_size })
+  } catch {
+    if (sequence === eventSequence) message.error(i18n.global.t('clientGovernance.eventsLoadFailed'))
+  } finally {
+    if (sequence === eventSequence) eventsLoading.value = false
+  }
 }
 const watchTask = async (taskId, clientId = detail.value?.client_id) => {
   for (let attempt = 0; attempt < 15 && detailVisible.value && detail.value?.client_id === clientId; attempt += 1) {

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Query, Request, Response
-from backend import client_governance, client_skill_actions
+from backend import client_discovery, client_governance, client_skill_actions
 from backend.client_task_notifications import task_hub
 from starlette.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
@@ -562,6 +562,7 @@ def _matching_skill_entry(
             entry
             for entry in matching_content
             if entry.status in (SkillStatus.APPROVED, SkillStatus.DEPLOYED)
+            and getattr(getattr(entry, "risk_level", None), "value", getattr(entry, "risk_level", None)) != "malicious"
         ]
         # Multiple immutable versions may have the same governed content when
         # they differ only by ignored metadata such as .DS_Store. In that case
@@ -572,6 +573,7 @@ def _matching_skill_entry(
         entry
         for entry in candidates
         if entry.status in (SkillStatus.APPROVED, SkillStatus.DEPLOYED)
+        and getattr(getattr(entry, "risk_level", None), "value", getattr(entry, "risk_level", None)) != "malicious"
     ]
     if trusted_candidates:
         return newest_version(trusted_candidates)
@@ -788,6 +790,7 @@ def _client_policy_response(db: Session, row: models.ManagedClient) -> dict:
         )
     return {
         "mode": row.policy_mode,
+        "agent_discovery": client_discovery.view(db),
         "classification": classification,
         "governance_mode": row.governance_mode,
         "light_scan_seconds": 300,
@@ -923,6 +926,27 @@ def heartbeat(
     client_governance.record_protocol(db, client_id, body.governance_protocol)
     db.commit()
     return {"ok": True, "last_seen_at": row.last_seen_at, "policy": _client_policy_response(db, row)}
+
+
+@router.get("/discovery-config")
+def get_discovery_config(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
+    return client_discovery.view(db)
+
+
+@router.put("/discovery-config")
+def update_discovery_config(body: client_discovery.CatalogChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
+    previous = client_discovery.view(db)
+    result = client_discovery.save(db, body)
+    if result["version"] != previous["version"]:
+        for (client_id,) in db.query(models.ManagedClient.client_id).all():
+            db.add(models.ClientTask(
+                client_id=client_id,
+                task_type="sync_policy",
+                payload_json=_dump({"agent_discovery_version": result["version"]}),
+            ))
+    _operation(db, current_user, "client_discovery_updated", "clients", json.dumps(result, ensure_ascii=False))
+    db.commit()
+    return result
 
 
 @router.get("/{client_id}/policy")
@@ -1222,6 +1246,10 @@ def request_skill_action(
 ):
     token = _runtime_token("client:request-skill-actions", authorization, request, db)
     _bind_client(token, client_id, db)
+    if body.action == "restore_quarantine":
+        raise ApiError(403, "client.quarantine_auto_recovery_only",
+                       "隔离副本由客户端核对平台批准内容后自动恢复，不能手动放行",
+                       "Quarantined copies are restored automatically after matching approved platform content; manual release is unavailable")
     client = _client_or_404(db, client_id)
     task = client_skill_actions.create_action(db, client, body, token.created_by or client_id, manager)
     db.commit()
@@ -1776,6 +1804,8 @@ def download_client_update(
 @router.get("/{client_id}")
 def get_client(
     client_id: str,
+    event_page: int = Query(1, ge=1),
+    event_page_size: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
@@ -1783,7 +1813,17 @@ def get_client(
     _ensure_visible(row, current_user)
     result = _client_response(db, row)
     result["tasks"] = _task_history(db, client_id)
-    result["events"] = _event_history(db, client_id)
+    events = db.query(models.ClientEvent).filter(
+        models.ClientEvent.client_id == client_id,
+        models.ClientEvent.event_type.notin_(("client_registered", "takeover_completed")),
+    )
+    total = events.count()
+    event_page = min(event_page, max(1, (total + event_page_size - 1) // event_page_size))
+    rows = events.order_by(func.coalesce(models.ClientEvent.last_seen_at, models.ClientEvent.created_at).desc(), models.ClientEvent.id.desc()).offset((event_page - 1) * event_page_size).limit(event_page_size).all()
+    result["events"] = _event_history(db, client_id, rows=rows)
+    result["events_total"] = total
+    result["event_page"] = event_page
+    result["event_page_size"] = event_page_size
     return result
 
 

@@ -224,6 +224,10 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 			if value.Trigger != "" && !classificationActions[value.Trigger][value.Action] {
 				value.Action = "record"
 			}
+			if previous.Signature != value.Signature || previous.Certification != value.Certification || previous.Malicious != value.Malicious || previous.PolicyVersion != value.PolicyVersion || previous.Action != value.Action {
+				store.LogDiagnostic("info", "governance", "verdict_changed", map[string]any{"client_id": inventory.ClientID, "agent_type": agent.AgentType, "skill_name": skill.Name, "path": skill.Path, "signature": skill.Signature, "certification": value.Certification, "trigger": value.Trigger, "action": value.Action, "policy_version": value.PolicyVersion, "comparison": comparison})
+			}
+
 			actionKey := skill.Signature + ":" + value.Trigger + ":" + value.Action + ":" + value.PolicyVersion
 			if value.Trigger != "" {
 				counterKey := "observation-count:" + observationKey(skill.Path+":"+actionKey)
@@ -333,7 +337,11 @@ func checkObservedContent(skill Skill) error {
 }
 
 func copyObservedSnapshot(skill Skill, target string) error {
-	value, err := manifest.Build(skill.Path, DefaultManifestOptions())
+	root, err := filepath.EvalSymlinks(skill.Path)
+	if err != nil {
+		return err
+	}
+	value, err := manifest.Build(root, DefaultManifestOptions())
 	if err != nil {
 		return err
 	}
@@ -341,7 +349,7 @@ func copyObservedSnapshot(skill Skill, target string) error {
 		return fmt.Errorf("skill_content_changed")
 	}
 	for _, entry := range value.Files {
-		path := filepath.Join(skill.Path, filepath.FromSlash(entry.Path))
+		path := filepath.Join(root, filepath.FromSlash(entry.Path))
 		info, err := os.Lstat(path)
 		if err != nil {
 			return err

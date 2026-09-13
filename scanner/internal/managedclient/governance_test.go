@@ -160,61 +160,77 @@ func TestOfflineDefaultKeepsUnknownContent(t *testing.T) {
 }
 
 func TestManualScanKeepsSourceAndReusesExactSnapshot(t *testing.T) {
-	home, store, _, skill := observedFixture(t)
-	var uploads atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/scanner/imports" {
-			if r.Header.Get("Authorization") != "Bearer submit-token" {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
+	for _, linked := range []bool{false, true} {
+		t.Run(map[bool]string{false: "directory", true: "managed_symlink"}[linked], func(t *testing.T) {
+			home, store, _, skill := observedFixture(t)
+			if linked {
+				release := filepath.Join(ManagedSkillsRoot(home), "sample", "versions", "v1", "release")
+				if err := os.MkdirAll(filepath.Dir(release), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(skill.Path, release); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(release, skill.Path); err != nil {
+					t.Fatal(err)
+				}
 			}
-			uploads.Add(1)
-			w.Write([]byte(`{"skill_id":"scanned-content","version_id":"v1","status":"PENDING"}`))
-			return
-		}
-		w.Write([]byte(`{}`))
-	}))
-	defer server.Close()
-	api := NewAPI(server.URL, "submit-token", time.Second)
-	var first string
-	for attempt := 0; attempt < 2; attempt++ {
-		id, err := SubmitDiscoveredSkill(context.Background(), home, api, store, "codex", skill.Path, skill.Signature)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if attempt == 0 {
-			first = id
-		} else if id != first {
-			t.Fatal("repeated click created another snapshot")
-		}
-		if err := checkObservedContent(skill); err != nil {
-			t.Fatal("original content changed:", err)
-		}
-	}
-	if uploads.Load() != 1 {
-		t.Fatalf("duplicate scan submission: %d", uploads.Load())
-	}
-	task := Task{ID: 51, TaskType: "skill_action", Payload: map[string]any{"action": "submit_scan", "agent_type": "codex", "path": skill.Path, "expected_signature": skill.Signature}}
-	for retry := 0; retry < 2; retry++ {
-		if err := executeObservedTask(context.Background(), home, Policy{}, api, store, task); err != nil {
-			t.Fatal("platform scan task failed", err)
-		}
-	}
-	if uploads.Load() != 1 {
-		t.Fatal("platform task did not reuse the pending content snapshot")
-	}
-	observation, err := store.Observation(skill.Path)
-	if err != nil || observation.PendingID != first || observation.Signature != skill.Signature {
-		t.Fatal(observation, err)
-	}
-	if err := os.WriteFile(filepath.Join(skill.Path, "SKILL.md"), []byte("edited after selection"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := SubmitDiscoveredSkill(context.Background(), home, api, store, "codex", skill.Path, skill.Signature); err == nil {
-		t.Fatal("stale selection submitted new content")
-	}
-	if uploads.Load() != 1 {
-		t.Fatal("stale selection reached scanner")
+			var uploads atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/v1/scanner/imports" {
+					if r.Header.Get("Authorization") != "Bearer submit-token" {
+						w.WriteHeader(http.StatusUnauthorized)
+						return
+					}
+					uploads.Add(1)
+					w.Write([]byte(`{"skill_id":"scanned-content","version_id":"v1","status":"PENDING"}`))
+					return
+				}
+				w.Write([]byte(`{}`))
+			}))
+			defer server.Close()
+			api := NewAPI(server.URL, "submit-token", time.Second)
+			var first string
+			for attempt := 0; attempt < 2; attempt++ {
+				id, err := SubmitDiscoveredSkill(context.Background(), home, api, store, "codex", skill.Path, skill.Signature)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if attempt == 0 {
+					first = id
+				} else if id != first {
+					t.Fatal("repeated click created another snapshot")
+				}
+				if err := checkObservedContent(skill); err != nil {
+					t.Fatal("original content changed:", err)
+				}
+			}
+			if uploads.Load() != 1 {
+				t.Fatalf("duplicate scan submission: %d", uploads.Load())
+			}
+			task := Task{ID: 51, TaskType: "skill_action", Payload: map[string]any{"action": "submit_scan", "agent_type": "codex", "path": skill.Path, "expected_signature": skill.Signature}}
+			for retry := 0; retry < 2; retry++ {
+				if err := executeObservedTask(context.Background(), home, Policy{}, api, store, task); err != nil {
+					t.Fatal("platform scan task failed", err)
+				}
+			}
+			if uploads.Load() != 1 {
+				t.Fatal("platform task did not reuse the pending content snapshot")
+			}
+			observation, err := store.Observation(skill.Path)
+			if err != nil || observation.PendingID != first || observation.Signature != skill.Signature {
+				t.Fatal(observation, err)
+			}
+			if err := os.WriteFile(filepath.Join(skill.Path, "SKILL.md"), []byte("edited after selection"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := SubmitDiscoveredSkill(context.Background(), home, api, store, "codex", skill.Path, skill.Signature); err == nil {
+				t.Fatal("stale selection submitted new content")
+			}
+			if uploads.Load() != 1 {
+				t.Fatal("stale selection reached scanner")
+			}
+		})
 	}
 }
 
@@ -278,5 +294,13 @@ func TestTrustedRecoveryVerifiesDownloadBeforeChangingCurrentFiles(t *testing.T)
 	items, err := store.QuarantineItems()
 	if err != nil || len(items) != 0 {
 		t.Fatal("source moved before download authorization", items, err)
+	}
+}
+
+func TestRescannedApprovalClearsPreviousMaliciousVerdict(t *testing.T) {
+	previous := SkillObservation{Signature: "same", Malicious: true, Trigger: "malicious", Certification: "unverified"}
+	current := classifyObservation(previous, Skill{Signature: "same"}, &CompareItem{LocalSignature: "same", Certified: true, SkillID: "approved", VersionID: "v1"})
+	if current.Malicious || current.Trigger != "" || current.Certification != "certified" {
+		t.Fatalf("old verdict survived fresh approval: %+v", current)
 	}
 }

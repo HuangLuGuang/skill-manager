@@ -90,7 +90,11 @@ class ScannerAuthContext:
 def _fingerprint_skill_dir(skill_dir: Path) -> dict[str, Any]:
     files: list[dict[str, Any]] = []
     total_bytes = 0
-    for path in sorted(item for item in skill_dir.rglob("*") if item.is_file()):
+    # Match the Go scanner's lexical ordering of relative POSIX path strings.
+    for path in sorted(
+        (item for item in skill_dir.rglob("*") if item.is_file()),
+        key=lambda item: item.relative_to(skill_dir).as_posix(),
+    ):
         if path.is_symlink():
             continue
         rel = path.relative_to(skill_dir).as_posix()

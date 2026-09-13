@@ -50,9 +50,9 @@ func (watcher *SkillWatcher) Close() error {
 
 func (watcher *SkillWatcher) Refresh(home string, store *Store) error {
 	roots := managedSkillsRoots(home)
-	for _, spec := range adapters() {
+	for _, spec := range adaptersForHome(home) {
 		for _, root := range spec.skillRoots {
-			roots = append(roots, filepath.Join(home, root))
+			roots = append(roots, resolveSkillRoot(home, root))
 		}
 	}
 	if config, err := LoadConfig(home); err == nil {

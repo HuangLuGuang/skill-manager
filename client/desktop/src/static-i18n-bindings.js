@@ -229,6 +229,12 @@ window.clientStaticI18nBindings = [
     "source": "客户端信息"
   },
   {
+    "selector": "#overview-directories-tab>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.overview.directories_tab",
+    "source": "Agent 与目录"
+  },
+  {
     "selector": "#todo-section>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.overview.attention",
@@ -433,15 +439,15 @@ window.clientStaticI18nBindings = [
     "source": "平台地址"
   },
   {
-    "selector": "#overview-info-panel>section:nth-of-type(2)>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
+    "selector": "#overview-directories-panel>section:nth-of-type(1)>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.1uz44ch",
+    "key": "ui.overview.directories_title",
     "source": "内置 Agent 与共用目录"
   },
   {
-    "selector": "#overview-info-panel>section:nth-of-type(2)>div:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
+    "selector": "#overview-directories-panel>section:nth-of-type(1)>div:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.kztjqe",
+    "key": "ui.overview.directories_hint",
     "source": "客户端默认识别以下 Agent 和共用 Skills 目录。点击对应项目可修改扫描目录。"
   },
   {
@@ -707,24 +713,6 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "ui.a3jz2",
     "source": "提交所选 0"
-  },
-  {
-    "selector": "#pending-progress>div:nth-of-type(1)>strong:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.1p52cco",
-    "source": "正在提交平台检测"
-  },
-  {
-    "selector": "#pending-progress>div:nth-of-type(1)>span:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.i9ne2h",
-    "source": "已用时 0 秒"
-  },
-  {
-    "selector": "#pending-progress>p:nth-of-type(1)",
-    "nodeIndex": 0,
-    "key": "ui.x8hsen",
-    "source": "正在准备待处理 Skill..."
   },
   {
     "selector": "#agent-recovery-empty",
@@ -1353,14 +1341,14 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#settings>details:nth-of-type(1)>summary:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.2iytch",
-    "source": "高级恢复"
+    "key": "ui.backups.title",
+    "source": "历史 Skill 备份"
   },
   {
     "selector": "#settings>details:nth-of-type(1)>p:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.agentManagement.backup_description",
-    "source": "历史备份恢复需平台授权，按 Skill 分别创建任务。执行前校验策略与内容，覆盖前保留现有文件。"
+    "key": "ui.backups.hint",
+    "source": "选择备份，查看将恢复的 Skill 与目录。执行时按平台当前策略校验，覆盖前保留现有文件。"
   },
   {
     "selector": "#settings>details:nth-of-type(1)>div:nth-of-type(1)>label:nth-of-type(1)>span:nth-of-type(1)",
@@ -1381,10 +1369,16 @@ window.clientStaticI18nBindings = [
     "source": "刷新"
   },
   {
+    "selector": "#backup-task-records",
+    "nodeIndex": 0,
+    "key": "ui.backups.tasks",
+    "source": "查看任务记录"
+  },
+  {
     "selector": "#restore-backup",
     "nodeIndex": 0,
-    "key": "ui.1ysslpv",
-    "source": "恢复所选备份"
+    "key": "ui.backups.submit",
+    "source": "申请恢复"
   },
   {
     "selector": "#settings>section:nth-of-type(6)>div:nth-of-type(1)>h2:nth-of-type(1)",
@@ -1397,6 +1391,36 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "ui.zqmuxv",
     "source": "用于现场排查，不会导出接入凭据明文。"
+  },
+  {
+    "selector": "#settings>section:nth-of-type(6)>div:nth-of-type(2)>label:nth-of-type(1)>span:nth-of-type(1)>strong:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.diagnostics.retention",
+    "source": "日志保留时间"
+  },
+  {
+    "selector": "#settings-log-usage",
+    "nodeIndex": 0,
+    "key": "ui.diagnostics.loading",
+    "source": "正在读取日志占用"
+  },
+  {
+    "selector": "#settings-log-retention",
+    "attribute": "aria-label",
+    "key": "ui.diagnostics.retention",
+    "source": "日志保留时间（天）"
+  },
+  {
+    "selector": "#settings>section:nth-of-type(6)>div:nth-of-type(2)>label:nth-of-type(2)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.diagnostics.range",
+    "source": "导出最近天数"
+  },
+  {
+    "selector": "#settings-log-range",
+    "attribute": "aria-label",
+    "key": "ui.diagnostics.range",
+    "source": "导出最近天数"
   },
   {
     "selector": "#settings-open-logs",
@@ -1415,6 +1439,30 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "ui.c6pxh9",
     "source": "导出诊断报告"
+  },
+  {
+    "selector": "#rescan-confirm-title",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.rescan_title",
+    "source": "重新检测 Skill"
+  },
+  {
+    "selector": "#rescan-confirm-dialog>form:nth-of-type(1)>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.rescan_certified_confirm",
+    "source": "该本地 Skill 已认证，是否重新提交平台检测？"
+  },
+  {
+    "selector": "#rescan-confirm-dialog>form:nth-of-type(1)>div:nth-of-type(1)>button:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.cancel",
+    "source": "取消"
+  },
+  {
+    "selector": "#rescan-confirm-dialog>form:nth-of-type(1)>div:nth-of-type(1)>button:nth-of-type(2)",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.rescan_submit",
+    "source": "重新检测"
   },
   {
     "selector": "#message-dialog-title",

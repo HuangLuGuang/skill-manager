@@ -43,7 +43,7 @@ let pendingDiscardItem = null
 let pendingRefreshTimer = null
 let pendingRefreshBusy = false
 let pendingSubmissionBusy = false
-let pendingBatchTracking = null
+const submittingQuarantineIDs = new Set()
 let pendingClientUpdate = null
 let clientUpdateInstalling = false
 let clientUpdateCheckBusy = false
@@ -115,7 +115,7 @@ const setBusy = (button, busy) => {
 }
 const run = async (command, args = []) => invoke('execute_client', { command, args })
 const log = value => {
-  $('#status-last-operation').textContent = `${t('ui.png61n')}：${new Date().toLocaleTimeString(window.clientI18n?.getLocale?.() || 'zh-CN')} · ${runtimeText(value || t('ui.rxr1o0'))}`
+  $('#status-last-operation').textContent = `${t('ui.png61n')}：${new Date().toISOString()} · ${runtimeText(value || t('ui.rxr1o0'))}`
 }
 const showMessageDialog = (title, detail) => {
   $('#message-dialog-title').textContent = title
@@ -202,16 +202,18 @@ const stopOperationProgress = selector => {
 
 document.addEventListener('click', async event => {
   const button = event.target.closest('[data-reveal-path]')
-  if (!button) return
+  if (!button || button.disabled) return
   event.preventDefault()
   event.stopPropagation()
-  setBusy(button, true)
+  button.disabled = true
+  button.setAttribute('aria-busy', 'true')
   try {
     await invoke('reveal_path', { path: button.dataset.revealPath })
   } catch (error) {
     showMessageDialog(t('ui.17y2ac'), String(error))
   } finally {
-    setBusy(button, false)
+    button.disabled = false
+    button.removeAttribute('aria-busy')
   }
 })
 
@@ -1091,7 +1093,7 @@ const scanProgressText = item => {
 
 const renderSkillObservation = skill => {
   const observation = skill.governance?.signature === skill.signature ? skill.governance : null
-  const certification = observation?.certification || 'confirmation_pending'
+  const certification = skill.status === 'broken_link' ? 'missing_files' : skill.status === 'unscannable' ? 'unscannable' : observation?.certification || 'confirmation_pending'
   const pending = observation?.pending_id ? pendingItems.find(item => item.id === observation.pending_id) : null
   const policy = connection?.local?.classification || connection?.platform?.classification
   const trigger = observation?.trigger
@@ -1111,7 +1113,7 @@ const renderSkillObservation = skill => {
     `${t('ui.agentManagement.inventory_sync')}: ${formatTime(connection?.local?.sync?.inventory?.last_success_at)}`,
     skill.status === 'external_link' ? t('ui.agentManagement.link_outside_scope') : skill.error || observation?.error_code || connection?.local?.sync?.inventory?.error || '',
   ].filter(Boolean)
-  return `<div class="skill-observation ${observation?.malicious || skill.error ? 'warning' : ''}"><span data-ui-icon="${observation?.malicious ? 'circle-alert' : certification === 'certified' ? 'circle-check' : certification === 'changed' ? 'triangle-alert' : certification === 'unverified' ? 'circle-alert' : 'clock-3'}" class="skill-status ${escapeHtml(certification)} ${observation?.malicious ? 'malicious' : ''}">${escapeHtml(facts.join(' · '))}</span></div><details class="skill-facts"><summary>${escapeHtml(t('ui.agentManagement.details'))}</summary><button class="path-link" type="button" title="${escapeHtml(skill.path)}" data-reveal-path="${escapeHtml(skill.path)}">${escapeHtml(skill.path)}</button>${details.map(detail => `<small>${escapeHtml(detail)}</small>`).join('')}</details>`
+  return `<div class="skill-observation ${observation?.malicious || skill.error ? 'warning' : ''}"><span data-ui-icon="${observation?.malicious || certification === 'missing_files' ? 'circle-alert' : certification === 'certified' ? 'circle-check' : certification === 'changed' ? 'triangle-alert' : certification === 'unverified' ? 'circle-alert' : 'clock-3'}" class="skill-status ${escapeHtml(certification)} ${observation?.malicious ? 'malicious' : ''}">${escapeHtml(facts.join(' · '))}</span></div><details class="skill-facts"><summary>${escapeHtml(t('ui.agentManagement.details'))}</summary><button class="path-link" type="button" title="${escapeHtml(skill.path)}" data-reveal-path="${escapeHtml(skill.path)}">${escapeHtml(skill.path)}</button>${details.map(detail => `<small>${escapeHtml(detail)}</small>`).join('')}</details>`
 }
 
 document.addEventListener('click', event => {
@@ -1324,6 +1326,14 @@ $('#agent-skill-prev').addEventListener('click', () => { agentSkillPage--; rende
 $('#agent-skill-next').addEventListener('click', () => { agentSkillPage++; renderInventory() })
 
 
+const confirmCertifiedRescan = () => new Promise(resolve => {
+  const dialog = $('#rescan-confirm-dialog')
+  if (dialog.open) return resolve(false)
+  dialog.returnValue = ''
+  dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirm'), { once: true })
+  dialog.showModal()
+})
+
 const renderInventory = () => {
   if (!inventory?.agents) return
   const visibleAgents = inventory.agents.filter(installedAgent)
@@ -1364,8 +1374,9 @@ const renderInventory = () => {
                 </span>
               </div>
               <div class="skill-row-actions">
-                <button class="skill-scan-button" data-ui-icon="shield-check" type="button" data-submit-observed="${escapeHtml(skill.path)}" data-agent-type="${escapeHtml(agent.agent_type)}" data-signature="${escapeHtml(skill.signature || '')}" ${skill.error || !skill.signature || !connection?.connected || submittingObservedPaths.has(skill.path) ? 'disabled' : ''}>${escapeHtml(t(submittingObservedPaths.has(skill.path) ? 'ui.agentManagement.submitting' : 'ui.agentManagement.action.submit_scan'))}</button>
-                <details class="skill-more"><summary data-ui-icon="ellipsis" aria-label="${escapeHtml(t('ui.agentManagement.more'))}" title="${escapeHtml(t('ui.agentManagement.more'))}"></summary><div class="skill-more-menu">${renderSkillActions(agent, skill)}${skill.skill_id && !skill.error ? tf`<button type="button" data-ui-icon="download" data-install-other="${escapeHtml(skill.skill_id)}" data-skill-name="${escapeHtml(skill.name)}" data-source-agent="${escapeHtml(agent.agent_type)}">安装到其他 Agent</button>` : ''}</div></details>
+                ${skill.status === 'broken_link' ? `<button class="skill-scan-button" data-ui-icon="download" type="button" data-reinstall-missing="${escapeHtml(agent.agent_type)}" data-skill-name="${escapeHtml(skill.name)}" data-skill-id="${escapeHtml(skill.skill_id || '')}" ${!connection?.connected ? 'disabled' : ''}>${escapeHtml(t('ui.agentManagement.reinstall_missing'))}</button>` : `                <button class="skill-scan-button" data-ui-icon="shield-check" type="button" data-submit-observed="${escapeHtml(skill.path)}" data-agent-type="${escapeHtml(agent.agent_type)}" data-signature="${escapeHtml(skill.signature || '')}" ${skill.error || !skill.signature || !connection?.connected || submittingObservedPaths.has(skill.path) ? 'disabled' : ''}>${escapeHtml(t(submittingObservedPaths.has(skill.path) ? 'ui.agentManagement.submitting' : 'ui.agentManagement.action.submit_scan'))}</button>
+                <details class="skill-more"><summary data-ui-icon="ellipsis" aria-label="${escapeHtml(t('ui.agentManagement.more'))}" title="${escapeHtml(t('ui.agentManagement.more'))}"></summary><div class="skill-more-menu">${renderSkillActions(agent, skill)}${skill.skill_id && !skill.error ? tf`<button type="button" data-ui-icon="download" data-install-other="${escapeHtml(skill.skill_id)}" data-skill-name="${escapeHtml(skill.name)}" data-source-agent="${escapeHtml(agent.agent_type)}">安装到其他 Agent</button>` : ''}</div></details>`}
+
               </div>
             </div>`).join('') : ''}</div>` : ''}
         </article>`
@@ -1376,6 +1387,7 @@ const renderInventory = () => {
     details.open = !details.open
     button.setAttribute('aria-expanded', String(details.open))
   }))
+  document.querySelectorAll('[data-reinstall-missing]').forEach(button => button.addEventListener('click', () => openInstallDialog(null, button.dataset.skillName, button.dataset.reinstallMissing, { name: button.dataset.skillName, skill_id: button.dataset.skillId })))
   document.querySelectorAll('[data-install-other]').forEach(button => button.addEventListener('click', () => {
     button.closest('details').open = false
     openInstallDialog({ skill_id: button.dataset.installOther, name: button.dataset.skillName, source_agent_type: button.dataset.sourceAgent })
@@ -1407,9 +1419,13 @@ const renderInventory = () => {
   document.querySelectorAll('[data-submit-observed]').forEach(button => button.addEventListener('click', async () => {
     const path = button.dataset.submitObserved
     if (submittingObservedPaths.has(path)) return
+    const skill = inventory?.agents?.find(agent => agent.agent_type === button.dataset.agentType)?.skills?.find(item => item.path === path)
     submittingObservedPaths.add(path)
-    setBusy(button, true)
     try {
+      if (skill?.signature && skill.signature === button.dataset.signature && skill.governance?.signature === skill.signature && skill.governance?.certification === 'certified') {
+        if (!await confirmCertifiedRescan()) return
+      }
+      setBusy(button, true)
       await run('submit-observed', ['--agent-type', button.dataset.agentType, '--skill', path, '--expected-signature', button.dataset.signature])
       await discover()
       await loadPending(true)
@@ -1436,7 +1452,8 @@ const renderSkillActions = (agent, skill) => {
   const pending = (connection?.platform?.tasks || []).some(task => task.task_type === 'skill_action' && task.payload?.path === skill.path && ['pending', 'running'].includes(task.status))
   const disabled = !allowed || !connection?.connected || Boolean(skill.error) || !skill.signature || pending
   const title = !allowed ? t('ui.agentManagement.action_permission_required') : pending ? t('ui.agentManagement.action_pending') : ''
-  const actions = ['quarantine', 'uninstall', ...(skill.governance?.trusted_version_id ? ['restore_trusted'] : [])]
+  const certified = Boolean(skill.signature) && skill.governance?.signature === skill.signature && skill.governance?.certification === 'certified'
+  const actions = [...(certified ? [] : ['quarantine']), 'uninstall', ...(skill.governance?.trusted_version_id ? ['restore_trusted'] : [])]
   return `${title ? `<small class="skill-menu-hint">${escapeHtml(title)}</small>` : ''}${actions.map(action => `<button type="button" data-ui-icon="${({quarantine: 'archive', uninstall: 'trash-2', restore_trusted: 'rotate-ccw'})[action]}" data-skill-action="${escapeHtml(skill.path)}" data-agent-type="${escapeHtml(agent.agent_type)}" data-action="${action}" ${disabled ? 'disabled' : ''}>${escapeHtml(t(`ui.agentManagement.action.${action}`))}</button>`).join('')}`
 }
 
@@ -1627,67 +1644,6 @@ const pendingStatusTerminal = status => ['APPROVED', 'REJECTED', 'CANCELLED', 'u
 const pendingNeedsRefresh = item => Boolean(item.skill_id) && !pendingStatusTerminal(item.status)
 const pendingCanSubmit = item => !item.skill_id
 
-const reconcilePendingBatchTracking = () => {
-  if (!pendingBatchTracking) return
-  for (const id of [...pendingBatchTracking.ids]) {
-    const item = pendingItems.find(candidate => candidate.id === id)
-    // A 404 or submission-ownership 403 detaches stale platform IDs. Once the
-    // local item is submit-ready again, it no longer belongs in this batch.
-    if (item && !item.skill_id) {
-      pendingBatchTracking.ids.delete(id)
-      pendingBatchTracking.statuses.delete(id)
-    }
-  }
-  if (pendingBatchTracking.ids.size === 0) {
-    pendingBatchTracking = null
-    $('#pending-batch-status').hidden = true
-  }
-}
-
-const renderPendingBatchStatus = () => {
-  reconcilePendingBatchTracking()
-  if (!pendingBatchTracking) return
-  const element = $('#pending-batch-status')
-  const counts = { detecting: 0, review: 0, approved: 0, rejected: 0, cancelled: 0 }
-  pendingBatchTracking.ids.forEach(id => {
-    const item = pendingItems.find(candidate => candidate.id === id)
-    if (item) pendingBatchTracking.statuses.set(id, item.status)
-    const status = item?.status || pendingBatchTracking.statuses.get(id) || 'submitted'
-    if (status === 'VETTED') counts.review += 1
-    else if (status === 'APPROVED') counts.approved += 1
-    else if (status === 'REJECTED') counts.rejected += 1
-    else if (status === 'CANCELLED') counts.cancelled += 1
-    else counts.detecting += 1
-  })
-  const total = pendingBatchTracking.ids.size
-  const resolved = total - counts.detecting
-  const finished = counts.detecting === 0 && counts.review === 0
-  element.hidden = false
-  element.className = `takeover-feedback ${finished ? counts.rejected || counts.cancelled ? 'error' : 'success' : 'processing'}`
-  const title = counts.detecting
-    ? tf`本批检测进度：已出结果 ${resolved}/${total}`
-    : counts.review
-      ? tf`自动检测已完成：${counts.review} 个待审核`
-      : t('ui.1iebqkf')
-  element.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml([
-    tf`检测中 ${counts.detecting}`,
-    tf`待审核 ${counts.review}`,
-    tf`已批准 ${counts.approved}`,
-    tf`未通过 ${counts.rejected}`,
-    counts.cancelled ? tf`已取消 ${counts.cancelled}` : '',
-  ].filter(Boolean).join(' · '))}</span>`
-}
-
-const pendingBatchIsActive = () => {
-  reconcilePendingBatchTracking()
-  if (!pendingBatchTracking) return false
-  return [...pendingBatchTracking.ids].some(id => {
-    const item = pendingItems.find(candidate => candidate.id === id)
-    const status = item?.status || pendingBatchTracking.statuses.get(id) || 'submitted'
-    return !pendingStatusTerminal(status)
-  })
-}
-
 const syncPendingBatchControls = () => {
   const eligible = scopedPendingItems().filter(pendingCanSubmit)
   for (const id of [...selectedPendingIDs]) {
@@ -1737,7 +1693,6 @@ const loadPending = async (refresh = false, { silent = false } = {}) => {
     if (refresh) pendingRefreshBusy = false
   }
   pendingItems = items
-  renderPendingBatchStatus()
   for (const id of [...selectedPendingIDs]) {
     if (!items.some(item => item.id === id && pendingCanSubmit(item))) selectedPendingIDs.delete(id)
   }
@@ -1790,80 +1745,43 @@ const submitPendingIDs = async (ids, button) => {
   if (pendingSubmissionBusy || !ids.length) return
   pendingSubmissionBusy = true
   const submitted = []
-  const submittedIDs = []
   const failures = []
   try {
     setBusy(button, true)
     syncPendingBatchControls()
-    const queuedNames = ids
-      .map(id => pendingItems.find(item => item.id === id)?.skill_name)
-      .filter(Boolean)
-    startOperationProgress('#pending-progress', {
-      title: tf`正在提交平台检测 0/${ids.length}`,
-      detail: queuedNames.length ? tf`本次共 ${ids.length} 个：${formatList(queuedNames)}` : t('ui.1fn4bpx'),
-      current: 0,
-      total: ids.length,
-    })
     let currentItems = JSON.parse(await run('pending'))
     for (let index = 0; index < ids.length; index += 1) {
       const id = ids[index]
-      button.textContent = ids.length > 1 ? tf`正在提交 ${index + 1}/${ids.length}` : t('ui.q83krs')
+      button.textContent = ids.length > 1 ? tf`正在提交 ${index + 1}/${ids.length}` : t('ui.agentManagement.submitting')
       const current = currentItems.find(item => item.id === id)
       if (!current || current.skill_id) continue
-      updateOperationProgress('#pending-progress', {
-        title: tf`正在提交平台检测 ${index + 1}/${ids.length}`,
-        detail: tf`当前：${current.skill_name || id}`,
-        current: index,
-        total: ids.length,
-      })
       try {
         const result = JSON.parse(await run('submit-pending', ['--id', id]))
         submitted.push(result.name || current.skill_name || result.skill_id)
-        submittedIDs.push(current.id)
         selectedPendingIDs.delete(id)
         currentItems = JSON.parse(await run('pending'))
       } catch (error) {
         failures.push({ name: current.skill_name || id, detail: String(error) })
         if (String(error).includes('client:submit-skill') || String(error).includes('scanner:submit')) break
       }
-      updateOperationProgress('#pending-progress', {
-        title: tf`正在提交平台检测 ${index + 1}/${ids.length}`,
-        detail: tf`已完成 ${index + 1} 个，成功 ${submitted.length} 个，失败 ${failures.length} 个。`,
-        current: index + 1,
-        total: ids.length,
-      })
-    }
-    if (submittedIDs.length) {
-      const tracking = pendingBatchIsActive()
-        ? pendingBatchTracking
-        : { ids: new Set(), statuses: new Map() }
-      submittedIDs.forEach(id => {
-        tracking.ids.add(id)
-        tracking.statuses.set(id, 'submitted')
-      })
-      pendingBatchTracking = tracking
     }
     await loadPending()
     if (submitted.length) {
-      renderPendingBatchStatus()
       log(tf`已提交平台检测：${formatList(submitted)}`)
     }
     if (failures.length) {
       const permissionDenied = failures.some(item => item.detail.includes('client:submit-skill') || item.detail.includes('scanner:submit'))
       const detail = permissionDenied
-        ? t('ui.1vj1hpi')
+        ? t('ui.agentManagement.submit_permission_required')
         : failures.map(item => `${item.name}：${item.detail}`).join('\n')
-      showMessageDialog(permissionDenied ? t('ui.am251f') : t('ui.6y7is'), detail)
-      showTakeoverFeedback('error', t('ui.1wps06y'), detail)
+      showMessageDialog(t('ui.agentManagement.submit_failed'), detail)
       log(detail)
     }
   } catch (error) {
     const detail = String(error)
-    showMessageDialog(t('ui.182zhbv'), detail)
-    showTakeoverFeedback('error', t('ui.182zhbv'), detail)
+    showMessageDialog(t('ui.agentManagement.submit_failed'), detail)
     log(detail)
   } finally {
-    stopOperationProgress('#pending-progress')
     pendingSubmissionBusy = false
     ids.forEach(id => selectedPendingIDs.delete(id))
     document.querySelectorAll('[data-select-pending]').forEach(input => {
@@ -1945,7 +1863,7 @@ $('#refresh-records').addEventListener('click', async event => {
   try { await loadRecordHistory() } finally { setBusy(button, false) }
 })
 
-$('#settings-trigger').addEventListener('click', () => showPanel('settings'))
+$('#settings-trigger').addEventListener('click', () => { showPanel('settings'); void refreshLogSettings() })
 $('#settings-language').addEventListener('change', event => {
   window.clientI18n?.setLocale(event.currentTarget.value)
 })
@@ -1995,40 +1913,49 @@ $('#settings-open-data').addEventListener('click', async () => {
     showMessageDialog(t('打开数据目录失败'), String(error))
   }
 })
+let exportingDiagnostics = false
+let savingLogSettings = false
+let logSettingsRequest = 0
+function renderLogSettings(settings) {
+  $('#settings-log-retention').value = String(settings.retention_days)
+  $('#settings-log-usage').textContent = `${t('ui.diagnostics.usage')}: ${(Number(settings.used_bytes || 0) / 1024 / 1024).toFixed(1)} MB · ${t('ui.diagnostics.limit')}`
+  const previous = Number($('#settings-log-range').value) || 3
+  $('#settings-log-range').innerHTML = [1, 3, 7, 14, 30].filter(days => days <= settings.retention_days).map(days => `<option value="${days}">${days}</option>`).join('')
+  $('#settings-log-range').value = String(Math.min(previous, settings.retention_days))
+}
+async function refreshLogSettings() {
+  if (savingLogSettings) return
+  const request = ++logSettingsRequest
+  try {
+    const settings = JSON.parse(await run('log-settings'))
+    if (request === logSettingsRequest && !savingLogSettings) renderLogSettings(settings)
+  } catch (error) {
+    if (request === logSettingsRequest && !savingLogSettings) $('#settings-log-usage').textContent = runtimeText(error)
+  }
+}
+$('#settings-log-retention').addEventListener('change', async event => {
+  if (savingLogSettings) return
+  savingLogSettings = true
+  ++logSettingsRequest
+  const control = event.currentTarget
+  control.disabled = true
+  try { renderLogSettings(JSON.parse(await run('log-settings', ['--days', control.value]))) }
+  catch (error) { showMessageDialog(t('ui.diagnostics.failed'), runtimeText(error)) }
+  finally { savingLogSettings = false; control.disabled = false; await refreshLogSettings() }
+})
 $('#settings-export-diagnostics').addEventListener('click', async event => {
+  if (exportingDiagnostics) return
+  exportingDiagnostics = true
   const button = event.currentTarget
   setBusy(button, true)
   try {
-    const local = connection?.local || {}
-    const platform = connection?.platform || {}
-    const report = {
-      generated_at: new Date().toISOString(),
-      client_version: clientBuildVersion,
-      locale: window.clientI18n?.getLocale?.() || 'zh-CN',
-      settings: clientSettings,
-      connection: {
-        configured: Boolean(connection?.configured),
-        connected: Boolean(connection?.connected),
-        server: connection?.server || '',
-        client_id: platform.client_id || connection?.inventory?.client_id || '',
-        client_name: platform.name || connection?.name || '',
-        service_installed: Boolean(connection?.service_installed),
-        service_running: Boolean(connection?.service_running),
-      },
-      runtime: {
-        governance_enabled: Boolean(local.governance_enabled),
-        managed_skills: Number(local.managed_skills || 0),
-        quarantined_skills: Number(local.quarantined_skills || 0),
-        queued_events: Number(local.queued_events || 0),
-        last_inventory_at: local.last_inventory_at || null,
-        last_full_scan_at: local.last_full_scan_at || null,
-      },
-    }
-    const path = await invoke('export_diagnostics', { content: JSON.stringify(report, null, 2) })
+    const path = await invoke('export_diagnostics', { days: Number($('#settings-log-range').value) || 3 })
     showMessageDialog(t('诊断报告已导出'), tf`文件已保存到 ${path}`)
+    await refreshLogSettings()
   } catch (error) {
     showMessageDialog(t('导出诊断报告失败'), String(error))
   } finally {
+    exportingDiagnostics = false
     setBusy(button, false)
   }
 })
@@ -2160,11 +2087,36 @@ $('#confirm-client-update').addEventListener('click', async event => {
   }
 })
 
+let backupPreview = null
+let backupPreviewSequence = 0
+const previewBackup = async () => {
+  const sequence = ++backupPreviewSequence
+  const name = $('#backup-select').value
+  backupPreview = null
+  $('#restore-backup').disabled = true
+  $('#backup-preview').textContent = t(name ? 'ui.backups.loading' : 'ui.backups.empty')
+  if (!name) return
+  try {
+    const items = JSON.parse(await run('backups', ['--backup', name])) || []
+    if (sequence !== backupPreviewSequence) return
+    backupPreview = { name, items }
+    $('#backup-preview').innerHTML = items.length ? items.map(item => `<div class="backup-skill"><div><strong>${escapeHtml(item.SkillName)}</strong><small>${escapeHtml(item.AgentType)}</small><code>${escapeHtml(item.Target)}</code></div><span class="backup-impact">${t(item.Signature === item.TargetSignature ? 'ui.backups.same' : item.TargetSignature ? 'ui.backups.replace' : 'ui.backups.create')}</span></div>`).join('') : escapeHtml(t('ui.backups.empty'))
+    $('#backup-feedback').textContent = t(connection?.platform?.manual_skill_actions_allowed ? 'ui.backups.policy' : 'ui.agentManagement.action_permission_required')
+    $('#restore-backup').disabled = !items.length || !connection?.platform?.manual_skill_actions_allowed || backupRestoreBusy
+  } catch (error) {
+    if (sequence === backupPreviewSequence) $('#backup-preview').textContent = connectionErrorText(String(error))
+  }
+}
+$('#backup-select').addEventListener('change', () => { void previewBackup() })
+$('#backup-task-records').addEventListener('click', () => { showPanel('records'); $('#records-tasks-tab').click() })
 const loadBackups = async () => {
+  const selected = $('#backup-select').value
   const backups = JSON.parse(await run('backups'))
   $('#backup-select').innerHTML = backups.length
-    ? backups.map(item => `<option value="${escapeHtml(item.name)}">${escapeHtml(formatTime(item.created_at))}</option>`).join('')
+    ? backups.map(item => `<option value="${escapeHtml(item.name)}">${escapeHtml(formatTime(item.created_at))} · ${escapeHtml(item.name)}</option>`).join('')
     : t('ui.2jmxw8')
+  if (backups.some(item => item.name === selected)) $('#backup-select').value = selected
+  await previewBackup()
   return backups
 }
 $('#refresh-backups').addEventListener('click', async event => {
@@ -2185,6 +2137,8 @@ let backupRestoreRequest = null
 $('#restore-backup').addEventListener('click', async event => {
   if (backupRestoreBusy) return
   const backup = $('#backup-select').value
+  const preview = backupPreview
+  if (!preview || preview.name !== backup || !preview.items.length) return
   if (!backup) return log(t('ui.1npxley'))
   if (!connection?.platform?.manual_skill_actions_allowed) return showMessageDialog(t('ui.agentManagement.restore_backup_title'), t('ui.agentManagement.action_permission_required'))
   if (!window.confirm(t('ui.agentManagement.restore_backup_confirm'))) return
@@ -2192,10 +2146,19 @@ $('#restore-backup').addEventListener('click', async event => {
   backupRestoreBusy = true
   const button = event.currentTarget
   setBusy(button, true)
+  $('#backup-select').disabled = true
+  $('#refresh-backups').disabled = true
   try {
+    const current = JSON.parse(await run('backups', ['--backup', backup])) || []
+    if (JSON.stringify(current) !== JSON.stringify(preview.items)) {
+      await previewBackup()
+      $('#backup-feedback').textContent = t('ui.backups.changed')
+      return
+    }
     const result = JSON.parse(await run('restore', ['--backup', backup, '--request-id', backupRestoreRequest.id, '--confirm']))
     const summary = `${t('ui.agentManagement.restore_backup_queued')}: ${result.tasks.length}`
     log(summary)
+    $('#backup-feedback').textContent = summary
     if (result.errors.length) {
       await refreshConnection()
       await loadQuarantine()
@@ -2211,6 +2174,9 @@ $('#restore-backup').addEventListener('click', async event => {
   } finally {
     backupRestoreBusy = false
     setBusy(button, false)
+    $('#backup-select').disabled = false
+    $('#refresh-backups').disabled = false
+    button.disabled = !backupPreview?.items.length || !connection?.platform?.manual_skill_actions_allowed
   }
 })
 
@@ -2224,7 +2190,7 @@ const mergeRecoveryCopies = (quarantined, pending) => {
     if (copy.quarantine_path) paths.add(copy.quarantine_path)
   }
   for (const item of pending) {
-    if (item.reason === 'observed_scan' || paths.has(item.pending_path) || quarantined.some(copy => copy.pending_id === item.id)) continue
+    if (item.reason === 'observed_scan' || item.reason === 'quarantine_rescan' || paths.has(item.pending_path) || quarantined.some(copy => copy.pending_id === item.id)) continue
     result.push({...item, id: `pending:${item.id}`, pending_copy_id: item.id, quarantine_path: item.pending_path, detection_status: item.skill_id ? item.status : '', status: 'pending_copy'})
     if (item.pending_path) paths.add(item.pending_path)
   }
@@ -2245,6 +2211,7 @@ $('#recovery-status-filter').addEventListener('change', () => {
   syncAgentHistory()
 })
 const loadQuarantine = async () => {
+  pendingItems = JSON.parse(await run('pending'))
   const quarantined = JSON.parse(await run('quarantine'))
   const items = mergeRecoveryCopies(quarantined, pendingItems)
   recoveryItems = items
@@ -2265,12 +2232,13 @@ const loadQuarantine = async () => {
         ? `<strong class="quarantine-status result-status ${escapeHtml(pendingStatusClass(detection.status))}"><i></i>${escapeHtml(pendingStatusLabel(detection.status))}</strong>`
         : `<strong class="quarantine-status result-status status-review" data-ui-icon="archive">${escapeHtml(t(item.pending_copy_id ? 'ui.agentHistory.pending_copy' : item.status === 'backed_up' ? 'ui.agentHistory.backed_up' : 'ui.agentHistory.quarantined'))}</strong>`}
       <div class="takeover-row-actions quarantine-actions">
+        ${item.status === 'backed_up' ? `<button type="button" class="icon-button" data-ui-icon="rotate-ccw" data-restore-quarantine="${escapeHtml(item.id)}" title="${escapeHtml(recoveryReason)}" ${recoveryReason ? 'disabled' : ''}>${escapeHtml(t('ui.agentManagement.restore_short'))}</button>` : ''}
         ${!item.skill_id
-          ? `<button class="primary icon-button icon-submit" data-submit-quarantine="${escapeHtml(item.id)}">${escapeHtml(t('ui.agentManagement.submit_current'))}</button>`
+          ? `<button class="primary icon-button icon-submit ${submittingQuarantineIDs.has(item.id) ? 'is-busy' : ''}" data-submit-quarantine="${escapeHtml(item.id)}" data-busy-text="${escapeHtml(t('ui.agentManagement.submitting'))}" ${submittingQuarantineIDs.has(item.id) ? 'disabled aria-busy="true"' : ''}>${escapeHtml(t(submittingQuarantineIDs.has(item.id) ? 'ui.agentManagement.submitting' : 'ui.agentManagement.scan_short'))}</button>`
           : ''}
         <details class="skill-more"><summary data-ui-icon="ellipsis" aria-label="${escapeHtml(t('ui.agentManagement.more'))}"></summary><div class="skill-more-menu">
         ${recoveryReason ? `<small class="skill-menu-hint">${escapeHtml(recoveryReason)}</small>` : ''}
-        ${item.pending_copy_id ? `<button type="button" data-ui-icon="trash-2" data-discard-copy="${escapeHtml(item.pending_copy_id)}">${escapeHtml(t('ui.agentHistory.delete_copy'))}</button>` : `<button type="button" data-ui-icon="rotate-ccw" data-restore-quarantine="${escapeHtml(item.id)}" title="${escapeHtml(recoveryReason)}" ${recoveryReason ? 'disabled' : ''}>${escapeHtml(t(item.status === 'backed_up' ? 'ui.agentManagement.action.restore_backup' : 'ui.agentManagement.action.restore_quarantine'))}</button>`}
+        ${item.pending_copy_id ? `<button type="button" data-ui-icon="trash-2" data-discard-copy="${escapeHtml(item.pending_copy_id)}">${escapeHtml(t('ui.agentHistory.delete_copy'))}</button>` : ''}
         <button class="icon-button icon-install" data-install-safe-version="${escapeHtml(item.skill_name)}">选择批准版本</button>
         </div></details>
       </div>
@@ -2293,7 +2261,7 @@ const loadQuarantine = async () => {
   document.querySelectorAll('[data-restore-quarantine]').forEach(button => button.addEventListener('click', () => {
     if (requestingSkillAction) return
     const item = items.find(value => value.id === button.dataset.restoreQuarantine)
-    if (!item?.signature) return
+    if (!item?.signature || item.status !== 'backed_up') return
     const restoringBackup = item.status === 'backed_up'
     const current = inventory?.agents?.flatMap(agent => agent.skills || []).find(skill => skill.path === item.original_path)
     pendingSkillAction = { requestID: crypto.randomUUID(), action: restoringBackup ? 'restore_backup' : 'restore_quarantine', agentType: item.agent_type,
@@ -2310,19 +2278,23 @@ const loadQuarantine = async () => {
     $('#skill-action-dialog').showModal()
   }))
   document.querySelectorAll('[data-submit-quarantine]').forEach(button => button.addEventListener('click', async () => {
+    if (pendingSubmissionBusy || submittingQuarantineIDs.size) return
+    const quarantineID = button.dataset.submitQuarantine
+    submittingQuarantineIDs.add(quarantineID)
     setBusy(button, true)
     try {
       const copy = items.find(item => item.id === button.dataset.submitQuarantine)
       const pending = copy?.pending_copy_id ? {id: copy.pending_copy_id} : JSON.parse(await run('queue-quarantine', ['--id', button.dataset.submitQuarantine]))
-      await loadPending()
       await submitPendingIDs([pending.id], button)
       await refreshConnection()
       await loadQuarantine()
     } catch (error) {
-      showMessageDialog(t('ui.1wvf48w'), String(error))
+      showMessageDialog(t('ui.agentManagement.submit_failed'), String(error))
       log(error)
     } finally {
+      submittingQuarantineIDs.delete(quarantineID)
       setBusy(button, false)
+      await loadQuarantine().catch(log)
     }
   }))
   document.querySelectorAll('[data-install-safe-version]').forEach(button => button.addEventListener('click', () => {
@@ -2685,7 +2657,7 @@ const renderInstallTargets = () => {
   updateInstallTargetCount()
 }
 
-const openInstallDialog = async (skill, initialQuery = '', targetAgentType = '') => {
+const openInstallDialog = async (skill, initialQuery = '', targetAgentType = '', reinstallSkill = null) => {
   const agents = (inventory?.agents || []).filter(item => installedAgent(item) && item.skill_management_supported && item.skills_path?.trim() && item.capabilities?.path_available !== false && (!targetAgentType || item.agent_type === targetAgentType))
   if (!agents.length) return showMessageDialog(t('ui.1rloj41'), t('ui.k8dvfk'))
   lockedInstallSkill = skill || null
@@ -2694,8 +2666,8 @@ const openInstallDialog = async (skill, initialQuery = '', targetAgentType = '')
   $('#install-target-count').textContent = ''
   installVersions = []
   $('#install-skill-search').value = initialQuery
-  $('#install-skill-search-label').hidden = Boolean(skill)
-  $('#install-skill-title').textContent = skill ? tf`安装 ${skill.name} 到其他 Agent` : t('ui.c0s9l')
+  $('#install-skill-search-label').hidden = Boolean(skill || reinstallSkill)
+  $('#install-skill-title').textContent = reinstallSkill ? t('ui.agentManagement.reinstall_title').replace('{name}', reinstallSkill.name) : skill ? tf`安装 ${skill.name} 到其他 Agent` : t('ui.c0s9l')
   $('#install-platform-skill').disabled = true
   $('#install-platform-skill').innerHTML = `<option value="">${skill ? escapeHtml(skill.name) : t('ui.12x34mh')}</option>`
   $('#install-platform-version').disabled = true
@@ -2704,6 +2676,15 @@ const openInstallDialog = async (skill, initialQuery = '', targetAgentType = '')
   $('#install-skill-dialog').showModal()
   try {
     installCatalog = await loadInstallCatalog(agents, initialQuery, skill)
+    if (reinstallSkill) {
+      const matches = installSkills().filter(item => reinstallSkill.skill_id ? item.skill_id === reinstallSkill.skill_id : item.name === reinstallSkill.name)
+      if (matches.length !== 1) {
+        $('#install-skill-dialog').close()
+        return showMessageDialog(t('ui.agentManagement.reinstall_missing'), t(matches.length ? 'ui.agentManagement.reinstall_ambiguous' : 'ui.agentManagement.reinstall_unavailable').replace('{name}', reinstallSkill.name))
+      }
+      skill = matches[0]
+      lockedInstallSkill = skill
+    }
     if (skill) {
       $('#install-platform-skill').innerHTML = `<option value="${escapeHtml(skill.skill_id)}">${escapeHtml(skill.name)}</option>`
       $('#install-platform-skill').value = skill.skill_id
@@ -2803,6 +2784,7 @@ function escapeHtml(value) {
 
 invoke('get_build_version').then(version => {
   clientBuildVersion = version
+  window.clientDiagnostics?.started(version)
   $('#client-build-version').textContent = tf`版本 ${version}`
   syncSettingsControls()
 })

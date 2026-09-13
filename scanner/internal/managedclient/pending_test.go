@@ -17,6 +17,15 @@ import (
 )
 
 func TestReconcileApprovedPendingAutomaticallyInstallsExactVersion(t *testing.T) {
+	testApprovedPendingInstallation(t, false)
+}
+
+func TestLegacyPendingInstallsIntoAssociatedAgent(t *testing.T) {
+	testApprovedPendingInstallation(t, true)
+}
+
+func testApprovedPendingInstallation(t *testing.T, legacy bool) {
+	t.Helper()
 	home := t.TempDir()
 	skillsRoot := filepath.Join(home, ".codex", "skills")
 	source := filepath.Join(skillsRoot, "safe-skill")
@@ -37,7 +46,16 @@ func TestReconcileApprovedPendingAutomaticallyInstallsExactVersion(t *testing.T)
 	if err := store.MarkPendingSubmitted(pending, "skill-1", "skill-version-2"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdatePendingStatus("skill-1", "skill-version-2", "REJECTED"); err != nil {
+	if legacy {
+		if _, err := store.db.Exec(`UPDATE client_pending SET original_path='', reason='legacy_pending' WHERE id=?`, pending.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	status := "REJECTED"
+	if legacy {
+		status = "PENDING"
+	}
+	if err := store.UpdatePendingStatus("skill-1", "skill-version-2", status); err != nil {
 		t.Fatal(err)
 	}
 
@@ -83,7 +101,8 @@ func TestReconcileApprovedPendingAutomaticallyInstallsExactVersion(t *testing.T)
 		t.Fatal(err)
 	}
 	if !changed || packageRequests != 1 {
-		t.Fatalf("approved pending Skill was not installed exactly once: changed=%v requests=%d", changed, packageRequests)
+		lastError, _, _ := store.State("pending:install-error:" + pending.ID)
+		t.Fatalf("approved pending Skill was not installed exactly once: changed=%v requests=%d error=%s", changed, packageRequests, lastError)
 	}
 	if items, err := store.PendingItems(); err != nil || len(items) != 0 {
 		t.Fatalf("installed pending record was not cleared: %#v %v", items, err)
@@ -145,6 +164,14 @@ func TestSubmitAndRefreshPendingUsesFullDetection(t *testing.T) {
 				if request.FormValue(field) != "true" {
 					t.Errorf("%s was not enabled", field)
 				}
+			}
+			var submitted struct {
+				Name        string `json:"name"`
+				Fingerprint string `json:"fingerprint"`
+				Files       []any  `json:"files"`
+			}
+			if err := json.Unmarshal([]byte(request.FormValue("manifest")), &submitted); err != nil || submitted.Name != "demo" || submitted.Fingerprint == "" || len(submitted.Files) != 0 {
+				t.Errorf("invalid compact submission manifest: %+v, %v", submitted, err)
 			}
 			if _, exists := request.MultipartForm.Value["no_cache"]; exists {
 				t.Errorf("no_cache must be controlled only by the platform global policy")
@@ -625,5 +652,25 @@ func TestAutomaticInstallBindsOriginalRootAndCurrentContent(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLegacyPendingWithMultipleRootsKeepsCopy(t *testing.T) {
+	home, store, inventory, skill := observedFixture(t)
+	inventory.Agents[0].Capabilities = map[string]any{"skill_roots": []string{filepath.Dir(skill.Path), filepath.Join(home, "other-skills")}}
+	item := PendingItem{ID: "legacy", AgentType: inventory.Agents[0].AgentType, SkillName: skill.Name, PendingPath: skill.Path, Reason: "legacy_pending", Status: "APPROVED"}
+	if err := store.SavePending(item); err != nil {
+		t.Fatal(err)
+	}
+	err := installApprovedPending(context.Background(), home, inventory, Policy{}, API{}, store, item, "")
+	if err == nil || err.Error() != "skill_target_unavailable" {
+		t.Fatal(err)
+	}
+	if err := checkObservedContent(skill); err != nil {
+		t.Fatal(err)
+	}
+	var original string
+	if err := store.db.QueryRow(`SELECT original_path FROM client_pending WHERE id='legacy'`).Scan(&original); err != nil || original != "" {
+		t.Fatal(original, err)
 	}
 }

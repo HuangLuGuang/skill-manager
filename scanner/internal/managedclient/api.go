@@ -44,6 +44,7 @@ type CompareItem struct {
 }
 
 type Policy struct {
+	AgentDiscovery   *DiscoveryCatalog     `json:"agent_discovery,omitempty"`
 	Classification   *ClassificationPolicy `json:"classification,omitempty"`
 	Mode             string                `json:"mode"`
 	GovernanceMode   string                `json:"governance_mode"`

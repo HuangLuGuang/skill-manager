@@ -36,7 +36,8 @@ const sharedReaders = computed(() => {
     ?? (capabilities.shared_skills ? capabilities.shared_skill_readers || [] : [])
 })
 watch(() => [props.client.client_id, path.value], () => { request.value = null; errorMessage.value = '' })
-const actions = computed(() => props.recovery ? [props.skill.status === 'backed_up' ? 'restore_backup' : 'restore_quarantine'] : ['submit_scan', 'quarantine', 'uninstall', 'restore_trusted'])
+const certified = computed(() => Boolean(props.skill.signature) && props.skill.governance?.signature === props.skill.signature && props.skill.governance?.certification === 'certified')
+const actions = computed(() => props.recovery ? [props.skill.status === 'backed_up' ? 'restore_backup' : 'restore_quarantine'] : ['submit_scan', ...(certified.value ? [] : ['quarantine']), 'uninstall', 'restore_trusted'])
 const disabledReason = computed(() => {
   if (!can('clients:execute')) return t('clientGovernance.noActionPermission')
   if (!props.client.classification?.supported) return t('clientGovernance.upgrade')
@@ -46,7 +47,7 @@ const disabledReason = computed(() => {
   return ''
 })
 function prepare(action) {
-  if (busy.value || disabledReason.value) return
+  if (busy.value || disabledReason.value || !actions.value.includes(action)) return
   errorMessage.value = ''
   request.value = {
     request_id: crypto.randomUUID(), action, agent_type: props.agent.agent_type, local_agent_id: props.agent.local_agent_id,

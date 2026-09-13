@@ -293,6 +293,25 @@ func (store *Store) PendingItems() ([]PendingItem, error) {
 		filepath.Join(filepath.Dir(store.root), ".river-security", "agent-manager", "pending"),
 		filepath.Join(store.root, "pending"),
 	}
+	// Retained recovery copies already have a lifecycle record, including after
+	// restoration. They must not be rediscovered as untracked pending folders.
+	recoveryRows, err := store.db.Query(`SELECT quarantine_path FROM client_quarantine`)
+	if err != nil {
+		return nil, err
+	}
+	for recoveryRows.Next() {
+		var path string
+		if err := recoveryRows.Scan(&path); err != nil {
+			recoveryRows.Close()
+			return nil, err
+		}
+		known[canonicalExistingPath(path)] = true
+	}
+	err = recoveryRows.Err()
+	recoveryRows.Close()
+	if err != nil {
+		return nil, err
+	}
 	legacy := []string{}
 	for _, root := range legacyRoots {
 		items, _ := filepath.Glob(filepath.Join(root, "*", "*"))
@@ -357,11 +376,14 @@ func (store *Store) MarkPendingSubmitted(item PendingItem, skillID, versionID st
 }
 
 func (store *Store) UpdatePendingStatus(skillID, versionID, status string) error {
-	if versionID != "" {
-		_, err := store.db.Exec(`UPDATE client_pending SET status = ? WHERE skill_id = ? AND version_id = ?`, status, skillID, versionID)
-		return err
+	var previous string
+	_ = store.db.QueryRow("SELECT status FROM client_pending WHERE skill_id=? AND COALESCE(version_id,'')=? LIMIT 1", skillID, versionID).Scan(&previous)
+	result, err := store.db.Exec(`UPDATE client_pending SET status = ? WHERE skill_id = ? AND COALESCE(version_id, '') = ?`, status, skillID, versionID)
+	if err == nil && previous != status {
+		if count, e := result.RowsAffected(); e == nil && count > 0 {
+			store.LogDiagnostic("info", "scan", "status_changed", map[string]any{"skill_id": skillID, "version_id": versionID, "previous_status": previous, "status": status})
+		}
 	}
-	_, err := store.db.Exec(`UPDATE client_pending SET status = ? WHERE skill_id = ? AND COALESCE(version_id, '') = ''`, status, skillID)
 	return err
 }
 
@@ -814,11 +836,26 @@ func (store *Store) SaveInventory(inventory Inventory) error {
 }
 
 func (store *Store) SetState(key, value string) error {
+	var previous string
+	if key == "policy" {
+		previous, _, _ = store.State(key)
+	}
 	_, err := store.db.Exec(
 		`INSERT INTO client_state(key, value, updated_at) VALUES(?, ?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
 		key, value, time.Now().UTC().Format(time.RFC3339Nano),
 	)
+	if err == nil && key == "policy" && previous != value {
+		var before, after Policy
+		_ = json.Unmarshal([]byte(previous), &before)
+		if json.Unmarshal([]byte(value), &after) == nil {
+			fields := map[string]any{"mode": after.Mode, "classification": after.Classification, "full_scan_seconds": after.FullScanSeconds}
+			if before.Classification != nil {
+				fields["previous_version"] = before.Classification.Version
+			}
+			store.LogDiagnostic("info", "policy", "updated", fields)
+		}
+	}
 	return err
 }
 
@@ -893,6 +930,7 @@ func (store *Store) ResetForConnectionChange() error {
 
 type QueuedEvent struct {
 	ID        int64
+	CreatedAt string
 	ClientID  string
 	EventType string
 	AgentType string
@@ -915,7 +953,7 @@ func (store *Store) QueueEvent(event QueuedEvent) error {
 
 func (store *Store) QueuedEvents() ([]QueuedEvent, error) {
 	rows, err := store.db.Query(
-		`SELECT id, client_id, event_type, agent_type, skill_name, details_json
+		`SELECT id, client_id, event_type, agent_type, skill_name, details_json, created_at
 		 FROM client_events_queue ORDER BY id LIMIT 500`,
 	)
 	if err != nil {
@@ -927,12 +965,18 @@ func (store *Store) QueuedEvents() ([]QueuedEvent, error) {
 		var item QueuedEvent
 		var agentType, skillName sql.NullString
 		var details string
-		if err := rows.Scan(&item.ID, &item.ClientID, &item.EventType, &agentType, &skillName, &details); err != nil {
+		if err := rows.Scan(&item.ID, &item.ClientID, &item.EventType, &agentType, &skillName, &details, &item.CreatedAt); err != nil {
 			return nil, err
 		}
 		item.AgentType, item.SkillName = agentType.String, skillName.String
 		if err := json.Unmarshal([]byte(details), &item.Details); err != nil {
 			return nil, err
+		}
+		if item.Details == nil {
+			item.Details = map[string]any{}
+		}
+		if _, exists := item.Details["last_seen_at"]; !exists {
+			item.Details["last_seen_at"] = item.CreatedAt
 		}
 		result = append(result, item)
 	}
@@ -1062,6 +1106,8 @@ func (store *Store) queryTasks(query string, args ...any) ([]LocalTask, error) {
 }
 
 func (store *Store) SaveTask(task Task, status, taskError string) error {
+	var previousStatus, previousError string
+	_ = store.db.QueryRow("SELECT status,error FROM client_tasks WHERE task_id=?", task.ID).Scan(&previousStatus, &previousError)
 	body, err := json.Marshal(task)
 	if err != nil {
 		return err
@@ -1075,5 +1121,12 @@ func (store *Store) SaveTask(task Task, status, taskError string) error {
 		time.Now().UTC().Format(time.RFC3339Nano),
 		string(body),
 	)
+	if err == nil && (previousStatus != status || previousError != taskError) {
+		level := "info"
+		if taskError != "" {
+			level = "error"
+		}
+		store.LogDiagnostic(level, "tasks", "status_changed", map[string]any{"task_id": task.ID, "task_type": task.TaskType, "previous_status": previousStatus, "status": status, "error": taskError})
+	}
 	return err
 }

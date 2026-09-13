@@ -146,6 +146,20 @@ def test_compare_prefers_reported_approved_version_when_signatures_collide(monke
     assert legacy is approved
 
 
+def test_compare_uses_safe_approval_instead_of_historical_malicious_approval(monkeypatch):
+    from types import SimpleNamespace
+    safe = SimpleNamespace(skill_id="rescanned-v1", version_no=1, name="sample",
+                           skill_path="/safe", status=SkillStatus.APPROVED, risk_level="benign")
+    old = SimpleNamespace(skill_id="old-v2", version_no=2, name="sample",
+                          skill_path="/old", status=SkillStatus.APPROVED, risk_level="malicious")
+    monkeypatch.setattr(clients, "compute_content_signature", lambda path: "same-content")
+    local = schemas.ClientSkillCompareItem(name="sample", signature="same-content")
+    manager = _Manager({"safe": safe, "old": old})
+    assert clients._matching_skill_entry(manager, local) is safe
+    safe.status = SkillStatus.REJECTED
+    assert clients._matching_skill_entry(manager, local) is old
+
+
 def test_generated_registry_name_uses_skill_metadata(tmp_path):
     root = tmp_path / "uploaded_skills" / "063abf7c7194468c8c6c69b160acebe9"
     root.mkdir(parents=True)
@@ -287,20 +301,9 @@ def test_recovery_tasks_bind_client_copy_and_inventory(tmp_path):
     assert registered.status_code == 200, registered.text
     assert registered.json()["recovery"][0]["signature"] == copy["signature"]
     action = {"request_id": "restore-1", "action": "restore_quarantine", "agent_type": "codex", "path": copy["original_path"], "expected_signature": copy["signature"], "quarantine_id": copy["id"]}
-    created = client.post("/api/v1/clients/recovery-host/skill-actions", headers=headers, json=action)
-    assert created.status_code == 200, created.text
-    assert created.json()["payload"]["quarantine_id"] == copy["id"]
-    assert client.post("/api/v1/clients/recovery-host/skill-actions", headers=headers, json=action).json()["id"] == created.json()["id"]
-    for change in [{"expected_signature": "old"}, {"quarantine_id": "other-copy"}, {"path": "/skills/other"}]:
-        rejected = client.post("/api/v1/clients/recovery-host/skill-actions", headers=headers, json={**action, "request_id": "invalid", **change})
-        assert rejected.status_code == 409, rejected.text
-        assert rejected.json()["error_code"] == "client.recovery_content_changed"
-    agent["skills"] = [{"name": "sample", "path": copy["original_path"], "signature": "new-user-content"}]
-    updated = client.post("/api/v1/clients/recovery-host/inventory", headers=headers, json={"agents": [agent]})
-    assert updated.status_code == 200, updated.text
-    occupied = client.post("/api/v1/clients/recovery-host/skill-actions", headers=headers, json={**action, "request_id": "occupied"})
-    assert occupied.status_code == 409, occupied.text
-    assert occupied.json()["error_code"] == "client.recovery_path_occupied"
+    denied = client.post("/api/v1/clients/recovery-host/skill-actions", headers=headers, json=action)
+    assert denied.status_code == 403, denied.text
+    assert denied.json()["error_code"] == "client.quarantine_auto_recovery_only"
     updated = client.post("/api/v1/clients/recovery-host/inventory", headers=headers, json={"agents": [agent], "recovery": []})
     assert updated.status_code == 200, updated.text
     assert client.get("/api/v1/clients/recovery-host").json()["recovery"] == []
@@ -2215,3 +2218,72 @@ def test_policy_delivery_checks_reported_action_capabilities(tmp_path):
     restored = client.post(root + '/heartbeat', headers=headers, json={'client_id': 'capability-host', 'governance_protocol': 2})
     assert restored.status_code == 200, restored.text
     assert restored.json()['policy']['classification']['rules']['unverified'] == 'record_only'
+
+
+def test_discovery_catalog_save_validation_and_client_sync(tmp_path):
+    client = _client(tmp_path)
+    url = '/api/v1/clients/discovery-config'
+    initial = client.get(url)
+    assert initial.status_code == 200, initial.text
+    catalog = initial.json()
+    seeds = {a['agent_type']: a for a in catalog['agents']}
+    assert seeds['qoder']['skill_roots'] == ['.qoder/skills']
+    assert seeds['qoder-cn']['skill_roots'] == ['.qoder-cn/skills']
+    assert not seeds['claude-desktop']['enabled']
+    agent = dict(agent_type='company', name='Company', enabled=True, systems=['linux'], skill_roots=['~/company/skills'])
+    body = {'expected_version': catalog['version'], 'agents': [agent]}
+    saved = client.put(url, json=body)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['agents'] == [agent]
+    assert client.get(url).json() == saved.json()
+    assert client.put(url, json=body).status_code == 409
+    current = saved.json()['version']
+    for invalid in [dict(agent, skill_roots=[]), dict(agent, skill_roots=['../skills']), dict(agent, systems=[]), dict(agent, agent_type='../../bad')]:
+        assert client.put(url, json={'expected_version': current, 'agents': [invalid]}).status_code == 422
+    assert client.put(url, json={'expected_version': current, 'agents': [agent, agent]}).status_code == 422
+    token = client.post('/api/v1/access/tokens', json={'name': 'discovery', 'token_type': 'client'}).json()['token']
+    headers = {'Authorization': f'Bearer {token}'}
+    registered = client.post('/api/v1/clients/register', headers=headers, json={
+        'client_id': 'discovery-host', 'name': 'host', 'hostname': 'host', 'os': 'linux', 'arch': 'amd64', 'client_version': 'dev', 'agents': [],
+    })
+    assert registered.status_code == 200, registered.text
+    policy = client.get('/api/v1/clients/discovery-host/policy', headers=headers)
+    assert policy.json()['agent_discovery'] == saved.json()
+    heartbeat = client.post('/api/v1/clients/discovery-host/heartbeat', headers=headers, json={'client_id': 'discovery-host'})
+    assert heartbeat.json()['policy']['agent_discovery'] == saved.json()
+    empty = client.put(url, json={'expected_version': current, 'agents': []})
+    assert empty.status_code == 200, empty.text
+    assert empty.json()['agents'] == []
+    tasks = client.get('/api/v1/clients/discovery-host/tasks', headers=headers).json()
+    discovery_tasks = [task for task in tasks if task['payload'].get('agent_discovery_version')]
+    assert len(discovery_tasks) == 1
+    assert discovery_tasks[0]['task_type'] == 'sync_policy'
+    assert discovery_tasks[0]['payload']['agent_discovery_version'] == empty.json()['version']
+    assert client.get('/api/v1/clients/discovery-host/policy', headers=headers).json()['agent_discovery'] == empty.json()
+    unchanged = client.put(url, json={'expected_version': empty.json()['version'], 'agents': []})
+    assert unchanged.status_code == 200
+    assert client.get('/api/v1/clients/discovery-host/tasks', headers=headers).json() == tasks
+
+
+def test_admin_client_events_pagination_beyond_one_hundred(tmp_path):
+    client = _client(tmp_path)
+    db = next(client.app.dependency_overrides[get_db]())
+    try:
+        db.add(models.ManagedClient(client_id='paged', name='Paged', hostname='host', os='linux', arch='amd64', client_version='dev'))
+        db.flush()
+        for index in range(105):
+            db.add(models.ClientEvent(client_id='paged', event_type='skill_action', skill_name=str(index), created_at=datetime(2026, 1, 1)))
+        db.add(models.ClientEvent(client_id='paged', event_type='client_registered'))
+        db.commit()
+    finally:
+        db.close()
+    first = client.get('/api/v1/clients/paged').json()
+    assert first['events_total'] == 105
+    assert len(first['events']) == 10
+    assert first['events'][0]['skill_name'] == '104'
+    last = client.get('/api/v1/clients/paged', params={'event_page': 11}).json()
+    assert len(last['events']) == 5
+    assert last['events'][-1]['skill_name'] == '0'
+    assert not set(e['id'] for e in first['events']) & set(e['id'] for e in last['events'])
+    assert client.get('/api/v1/clients/paged', params={'event_page': 99}).json()['event_page'] == 11
+    assert client.get('/api/v1/clients/paged', params={'event_page': 0}).status_code == 422

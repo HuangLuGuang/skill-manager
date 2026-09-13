@@ -76,6 +76,22 @@ def test_long_poll_observes_commit_from_another_engine(tmp_path):
         other.dispose()
 
 
+def test_discovery_save_wakes_waiting_client(tmp_path):
+    client, headers = connected(tmp_path)
+    url = '/api/v1/clients/discovery-config'
+    catalog = client.get(url).json()
+    with client, ThreadPoolExecutor() as pool:
+        future = pool.submit(client.get, '/api/v1/clients/waiting/tasks?wait_seconds=30', headers=headers)
+        await_waiter()
+        saved = client.put(url, json={'expected_version': catalog['version'], 'agents': []})
+        assert saved.status_code == 200, saved.text
+        response = future.result(timeout=3)
+        assert response.status_code == 200
+        task = response.json()[0]
+        assert task['task_type'] == 'sync_policy'
+        assert task['payload']['agent_discovery_version'] == saved.json()['version']
+
+
 def test_policy_tasks_skip_overrides_supersede_and_require_version_ack(tmp_path):
     client, headers = connected(tmp_path)
     root = '/api/v1/clients/waiting'

@@ -316,17 +316,264 @@ const zh = {
       ],
     },
     'case-client-modular-governance': {
-      eyebrow: '场景实践 · 客户端治理', title: '在一台多 Agent 工作站上实施模块化 Skill 治理', summary: '把本机 Agent、Skill 根目录、平台 Agent 授权和处置策略拆成可核对的治理单元，避免一个目录或一次修复影响整台主机。',
-      scenario: { label: '案例摘要', items: [{ label: '业务角色', value: '终端管理员 · Agent 负责人 · 安全运营' }, { label: '预计耗时', value: '约 30–40 分钟' }, { label: '验收结果', value: '两个 Agent 独立授权 · 单 Skill 异常定向恢复' }] },
-      sections: [
-        { id: 'business', title: '业务场景与模块边界', paragraphs: ['培训工作站training-workstation-01同时运行Codex和Claude Code。Codex只服务财务报销，Claude Code只用于开发辅助；主机还存在可能被OpenCode和Cursor共同读取的~/.agents/skills目录。治理目标不是把整台机器粗略标成可信，而是逐层确认“哪个Agent、从哪个目录、可以使用哪个已批准Skill、异常后采取什么动作”。'], flow: [{ label: '客户端', value: 'training-workstation-01' }, { label: '发现', value: 'Agent与Skill根目录' }, { label: '绑定', value: '本机Agent → 平台Agent' }, { label: '授权', value: '每个Agent的Skill范围', type: 'decision' }, { label: '处置', value: '按Skill审计或恢复', type: 'success' }], table: { columns: ['治理单元', '案例配置', '必须核对的边界'], rows: [['Codex模块', 'finance-expense-agent → travel-expense-calculator', '只能安装财务Agent已授权的批准版本'], ['Claude Code模块', 'developer-assistant → approved-helper', '不能继承Codex的Skill授权'], ['共用目录', '~/.agents/skills', '可治理内容和完整性，不能仅凭目录证明调用者'], ['主机处置策略', '先只审计，再自动恢复', '正式改动本地文件前先观察识别准确性']] }, callout: { type: 'note', title: '“模块化”在这里的准确含义', body: '当前客户端按Agent类型、一个或多个Skill根目录、具体Skill和平台Agent绑定进行治理。它不是插件市场式的功能模块，也不会把共用目录自动归属给某一个Agent。' }, download: { path: '/examples/client-modular-governance-plan.json', filename: 'client-modular-governance-plan.json', label: '下载客户端模块化治理计划', hint: '虚构主机、Agent绑定、共用目录边界和验收清单' } },
-        { id: 'prepare', title: '准备平台对象和可信 Skill', steps: [{ title: '准备两个已批准Skill', body: '复用差旅报销案例的travel-expense-calculator，并提交approved-helper样本；分别完成检测和批准。不要把本地已有目录直接当作平台可信版本。' }, { title: '创建两个平台Agent', body: '创建finance-expense-agent（Codex）和developer-assistant（Claude Code），分别只授权对应Skill。' }, { title: '创建客户端接入凭证', body: '在统一凭证中心创建客户端类型凭证，仅用于这台演练工作站；明文写入客户端安全配置后不再展示。' }, { title: '安装并连接客户端', body: '下载与工作站系统匹配的安装包，填写平台地址和客户端凭证，确认注册、心跳和后台服务状态。', expected: '管理台客户端列表显示该工作站在线，客户端概览显示平台已连接。' }], link: { path: '/clients', label: '打开客户端管理' }, download: { path: '/examples/approved-helper.zip', filename: 'approved-helper.zip', label: '下载开发辅助 Skill 样本', hint: '只声明Read权限的安全演示Skill，用于第二个Agent模块' } },
-        { id: 'discover', title: '发现 Agent、目录和共用边界', paragraphs: ['进入桌面客户端“Agent发现”，先读清楚实际路径再接管。不同版本或自定义配置可能改变Skill根目录，页面发现结果比文档中的示例路径更权威。'], steps: [{ title: '核对内置Agent', body: '确认Codex和Claude Code均被识别，并展开查看各自Skill根目录和本地Skill。' }, { title: '识别共用Skills目录', body: '确认~/.agents/skills作为共用记录单独显示；不要将其绑定成Codex或Claude Code的身份。' }, { title: '处理非默认路径', body: '如果实际安装使用了其他目录，在客户端设置中修改内置Agent根目录；未内置工具使用自定义Agent。' }, { title: '生成接管预览', body: '核对哪些内容已可信、可接管或需要停用待处理，再明确确认接管范围。', expected: '每个本机Skill只出现在真实根目录中，共用目录独立可见，没有因符号链接重复计入。' }], image: { name: 'client-app-discovery', alt: '客户端按Agent和根目录发现Skill', caption: 'Agent发现页是模块边界的事实入口：先核对Agent、实际根目录、共用目录和Skill，再选择治理范围。' } },
-        { id: 'bind-install', title: '启用 Agent 强授权并分别下发', steps: [{ title: '先保持只审计', body: '在客户端详情把处置策略保持为只审计，先验证路径识别和事件，不立即改写本地目录。' }, { title: '切换为Agent强授权', body: '将治理方式切换为Agent强授权；此模式要求支持Skill管理的本机Agent绑定平台Agent。' }, { title: '分别绑定', body: '把Codex绑定finance-expense-agent，把Claude Code绑定developer-assistant。共用目录不承担Agent身份绑定。' }, { title: '分别安装批准版本', body: '在Codex下安装travel-expense-calculator，在Claude Code下安装approved-helper。安装列表应按平台Agent授权过滤。', expected: 'Codex不能选择approved-helper，Claude Code不能选择travel-expense-calculator；两个安装任务分别成功。' }], image: { name: 'client-detail', alt: '管理台客户端详情中的Agent绑定和Skill任务', caption: '客户端详情用于核对治理方式、处置策略、本机Agent绑定、Skill清单、任务状态和事件。' }, callout: { type: 'warning', title: '按钮提示不等于任务完成', body: '远程下发后必须查看任务状态、目标Agent、Skill版本和最新事件；pending或running只表示任务尚未完成。' }, link: { path: '/docs/client-management', label: '查看客户端功能说明' } },
-        { id: 'drill', title: '验证单模块异常与定向恢复', steps: [{ title: '只修改财务Skill演示副本', body: '在确认可恢复后，对Codex目录中的travel-expense-calculator添加一行无害注释，不修改Claude Code目录。' }, { title: '立即巡检', body: '在只审计模式执行一次巡检，确认产生Codex财务Skill的内容修改事件，但本地内容不被自动恢复。' }, { title: '核对影响范围', body: '确认approved-helper仍然完整、Claude Code绑定和任务没有变化，共用目录没有被误处置。' }, { title: '切换自动恢复并修复', body: '只有在路径和事件核对正确后切换自动恢复，使用修复任务恢复财务Skill的已批准版本。', expected: '财务Skill摘要恢复一致；开发Skill和共用目录未变化；任务与安全事件形成完整记录。' }], image: { name: 'client-app-status', alt: '客户端巡检和定向恢复状态', caption: '运行状态页用于核对持续巡检、受管与隔离数量、待补报事件及恢复结果。' } },
-        { id: 'acceptance', title: '验收与故障定位', table: { columns: ['验收项或现象', '正确判断'], rows: [['两个Agent都能安装任意Skill', '失败：强授权绑定或Agent授权范围没有生效'], ['只修改财务Skill后只有对应事件', '通过：异常定位到正确Agent、路径和Skill'], ['只审计模式自动改回文件', '失败：处置策略与预期不一致'], ['修复任务成功且开发Skill摘要不变', '通过：恢复没有跨模块影响'], ['共用目录显示多个可能读取者', '通过：这是读取边界提示，不是调用者认证'], ['平台暂时不可达', '客户端使用最近一次成功同步策略继续巡检，恢复后补报事件；不要把离线等同于停管']] }, link: { path: '/audit', label: '打开统一审计' } },
+  "eyebrow": "场景实践 · 客户端治理",
+  "title": "在一台多 Agent 工作站上实施模块化 Skill 治理",
+  "summary": "把本机 Agent、Skill 根目录、平台 Agent 授权和处置策略拆成可核对的治理单元，避免一个目录或一次修复影响整台主机。",
+  "scenario": {
+    "label": "案例摘要",
+    "items": [
+      {
+        "label": "业务角色",
+        "value": "终端管理员 · Agent 负责人 · 安全运营"
+      },
+      {
+        "label": "预计耗时",
+        "value": "约 30–40 分钟"
+      },
+      {
+        "label": "验收结果",
+        "value": "两个 Agent 独立授权 · 单 Skill 异常定向恢复"
+      }
+    ]
+  },
+  "sections": [
+    {
+      "id": "business",
+      "title": "业务场景与模块边界",
+      "paragraphs": [
+        "培训工作站training-workstation-01同时运行Codex和Claude Code。Codex只服务财务报销，Claude Code只用于开发辅助；主机还存在可能被OpenCode和Cursor共同读取的~/.agents/skills目录。治理目标不是把整台机器粗略标成可信，而是逐层确认“哪个Agent、从哪个目录、可以使用哪个已批准Skill、异常后采取什么动作”。"
       ],
+      "flow": [
+        {
+          "label": "客户端",
+          "value": "training-workstation-01"
+        },
+        {
+          "label": "发现",
+          "value": "Agent与Skill根目录"
+        },
+        {
+          "label": "绑定",
+          "value": "本机Agent → 平台Agent"
+        },
+        {
+          "label": "授权",
+          "value": "每个Agent的Skill范围",
+          "type": "decision"
+        },
+        {
+          "label": "处置",
+          "value": "按Skill审计或恢复",
+          "type": "success"
+        }
+      ],
+      "table": {
+        "columns": [
+          "治理单元",
+          "案例配置",
+          "必须核对的边界"
+        ],
+        "rows": [
+          [
+            "Codex模块",
+            "finance-expense-agent → travel-expense-calculator",
+            "只能安装财务Agent已授权的批准版本"
+          ],
+          [
+            "Claude Code模块",
+            "developer-assistant → approved-helper",
+            "不能继承Codex的Skill授权"
+          ],
+          [
+            "共用目录",
+            "~/.agents/skills",
+            "可治理内容和完整性，不能仅凭目录证明调用者"
+          ],
+          [
+            "分类处置策略",
+            "先仅记录，再按触发情况恢复可信版本",
+            "核对具体规则和本机有效策略"
+          ]
+        ]
+      },
+      "callout": {
+        "type": "note",
+        "title": "“模块化”在这里的准确含义",
+        "body": "当前客户端按Agent类型、一个或多个Skill根目录、具体Skill和平台Agent绑定进行治理。它不是插件市场式的功能模块，也不会把共用目录自动归属给某一个Agent。"
+      },
+      "download": {
+        "path": "/examples/client-modular-governance-plan.json",
+        "filename": "client-modular-governance-plan.json",
+        "label": "下载客户端模块化治理计划",
+        "hint": "虚构主机、Agent绑定、共用目录边界和验收清单"
+      }
     },
+    {
+      "id": "prepare",
+      "title": "准备平台对象和可信 Skill",
+      "steps": [
+        {
+          "title": "准备两个已批准Skill",
+          "body": "复用差旅报销案例的travel-expense-calculator，并提交approved-helper样本；分别完成检测和批准。不要把本地已有目录直接当作平台可信版本。"
+        },
+        {
+          "title": "创建两个平台Agent",
+          "body": "创建finance-expense-agent（Codex）和developer-assistant（Claude Code），分别只授权对应Skill。"
+        },
+        {
+          "title": "创建客户端接入凭证",
+          "body": "在统一凭证中心创建客户端类型凭证，仅用于这台演练工作站；明文写入客户端安全配置后不再展示。"
+        },
+        {
+          "title": "安装并连接客户端",
+          "body": "下载与工作站系统匹配的安装包，填写平台地址和客户端凭证，确认注册、心跳和后台服务状态。",
+          "expected": "管理台客户端列表显示该工作站在线，客户端概览显示平台已连接。"
+        }
+      ],
+      "link": {
+        "path": "/clients",
+        "label": "打开客户端管理"
+      },
+      "download": {
+        "path": "/examples/approved-helper.zip",
+        "filename": "approved-helper.zip",
+        "label": "下载开发辅助 Skill 样本",
+        "hint": "只声明Read权限的安全演示Skill，用于第二个Agent模块"
+      }
+    },
+    {
+      "id": "discover",
+      "title": "发现 Agent、目录和共用边界",
+      "paragraphs": [
+        "在平台“Agent 发现配置”搜索 Codex 和 Claude Code，核对启用状态与 Skill 目录。客户端同步后，在“Agent 管理”选择对应 Agent 查看本地 Skills。"
+      ],
+      "steps": [
+        {
+          "title": "核对目录",
+          "body": "在 Agent 管理中选择 Agent，点击文件夹图标核对实际目录。平台配置可修改内置目录，本机单独设置的目录优先。"
+        },
+        {
+          "title": "识别共用目录",
+          "body": "共用 Skills 独立展示；目录可能被多个 Agent 读取，不代表调用者身份。"
+        },
+        {
+          "title": "验证同步与发现",
+          "body": "保存发现配置后，核对同步任务，再检查客户端重新发现的结果。目录必须实际存在，保存配置不会创建目录。"
+        }
+      ],
+      "image": {
+        "name": "client-app-discovery",
+        "alt": "客户端按Agent和根目录发现Skill",
+        "caption": "桌面客户端实际 Agent 管理界面；按 Agent 查看目录与本地 Skill 状态。"
+      }
+    },
+    {
+      "id": "bind-install",
+      "title": "启用 Agent 强授权并分别下发",
+      "steps": [
+        {
+          "title": "先设置仅记录",
+          "body": "在该客户端的分类处置策略中，将本次演练涉及的“已认证 Skill 内容变化”设为“仅记录”，保存后核对客户端检测策略。"
+        },
+        {
+          "title": "切换为Agent强授权",
+          "body": "将治理方式切换为Agent强授权；此模式要求支持Skill管理的本机Agent绑定平台Agent。"
+        },
+        {
+          "title": "分别绑定",
+          "body": "把Codex绑定finance-expense-agent，把Claude Code绑定developer-assistant。共用目录不承担Agent身份绑定。"
+        },
+        {
+          "title": "分别安装批准版本",
+          "body": "在Codex下安装travel-expense-calculator，在Claude Code下安装approved-helper。安装列表应按平台Agent授权过滤。",
+          "expected": "Codex不能选择approved-helper，Claude Code不能选择travel-expense-calculator；两个安装任务分别成功。"
+        }
+      ],
+      "image": {
+        "name": "client-detail",
+        "alt": "管理台客户端详情中的Agent绑定和Skill任务",
+        "caption": "客户端详情用于核对治理方式、处置策略、本机Agent绑定、Skill清单、任务状态和事件。"
+      },
+      "callout": {
+        "type": "warning",
+        "title": "按钮提示不等于任务完成",
+        "body": "远程下发后必须查看任务状态、目标Agent、Skill版本和最新事件；pending或running只表示任务尚未完成。"
+      },
+      "link": {
+        "path": "/docs/client-management",
+        "label": "查看客户端功能说明"
+      }
+    },
+    {
+      "id": "drill",
+      "title": "验证单模块异常与定向恢复",
+      "steps": [
+        {
+          "title": "只修改财务Skill演示副本",
+          "body": "在确认可恢复后，对Codex目录中的travel-expense-calculator添加一行无害注释，不修改Claude Code目录。"
+        },
+        {
+          "title": "立即巡检",
+          "body": "进入齿轮“设置”→“后台运行”→“查看运行诊断”，点击“立即执行巡检”。确认对应内容变化事件和仅记录结果。"
+        },
+        {
+          "title": "核对影响范围",
+          "body": "确认approved-helper仍然完整、Claude Code绑定和任务没有变化，共用目录没有被误处置。"
+        },
+        {
+          "title": "按触发规则恢复",
+          "body": "把该客户端“已认证 Skill 内容变化”设为“恢复可信版本”，预览并保存，等待客户端应用策略和执行。",
+          "expected": "核对恢复事件与内容摘要；其他 Agent 的目录未变化。"
+        }
+      ],
+      "image": {
+        "name": "client-app-status",
+        "alt": "客户端巡检和定向恢复状态",
+        "caption": "桌面客户端设置页的实际运行诊断入口；处置结果在执行记录中核对。"
+      }
+    },
+    {
+      "id": "acceptance",
+      "title": "验收与故障定位",
+      "table": {
+        "columns": [
+          "验收项或现象",
+          "正确判断"
+        ],
+        "rows": [
+          [
+            "两个Agent都能安装任意Skill",
+            "失败：强授权绑定或Agent授权范围没有生效"
+          ],
+          [
+            "只修改财务Skill后只有对应事件",
+            "通过：异常定位到正确Agent、路径和Skill"
+          ],
+          [
+            "规则为仅记录却自动改回文件",
+            "检查本机有效策略、其他命中规则和手动任务"
+          ],
+          [
+            "修复任务成功且开发Skill摘要不变",
+            "通过：恢复没有跨模块影响"
+          ],
+          [
+            "共用目录显示多个可能读取者",
+            "通过：这是读取边界提示，不是调用者认证"
+          ],
+          [
+            "平台暂时不可达",
+            "客户端使用最近一次成功同步策略继续巡检，恢复后补报事件；不要把离线等同于停管"
+          ]
+        ]
+      },
+      "link": {
+        "path": "/audit",
+        "label": "打开统一审计"
+      }
+    }
+  ]
+},
     'case-model-privacy-compression': {
       eyebrow: '场景实践 · 模型网关', title: '保护客服对话隐私并核对上下文压缩', summary: '让含虚构客户编号和邮箱的客服对话通过模型网关，分别验证访问控制、PII伪匿名化、压缩结果、响应还原和审计边界。',
       scenario: { label: '案例摘要', items: [{ label: '业务角色', value: '模型网关管理员 · 隐私审计员 · 客服应用开发者' }, { label: '预计耗时', value: '约 30 分钟' }, { label: '验收结果', value: '上游不见原始PII · 压缩结果可量化' }] },
@@ -1230,112 +1477,324 @@ const zh = {
       ],
     },
     'client-management': {
-      eyebrow: '功能指南',
-      title: '客户端管理',
-      summary: '桌面客户端负责本机 Agent 与 Skill 的发现、接管和持续治理；管理台负责集中查看客户端、配置策略并远程下发任务。',
-      sections: [
-        {
-          id: 'desktop-and-console',
-          title: '先区分桌面客户端和管理台',
-          paragraphs: ['Agent Manager Client安装在需要治理Skill的用户主机或服务器上，通过客户端接入凭证注册、心跳并上报本地Agent、Skill清单和安全事件。它不是管理台的缩小版，两端承担的职责不同。'],
-          table: {
-            columns: ['使用位置', '主要职责'],
-            rows: [
-              ['桌面客户端', '发现本机Agent和Skill目录，选择接管范围，安装可信版本，持续巡检并执行恢复、隔离或只审计。'],
-              ['平台管理台', '集中查看多台客户端，配置治理方式和处置策略，绑定平台Agent，远程下发安装、修复、移除、模型配置和策略同步任务。'],
-            ],
-          },
-          image: { name: 'client-app-overview', alt: 'Agent Manager桌面客户端概览', caption: '桌面客户端概览集中显示接入进度、本机 Agent、受管 Skill、平台检测能力和后台巡检状态。截图使用示例数据。' },
-        },
-        {
-          id: 'install-register',
-          title: '安装与接入顺序',
-          steps: [
-            { title: '下载对应平台安装包', body: '管理台当前提供macOS Apple Silicon、macOS Intel、Windows x64和Linux x64安装包，具体以当前发布列表为准。' },
-            { title: '创建客户端接入凭证', body: '在统一凭证中心选择“给客户端使用”。如果需要自动下发 Agent 模型配置，显式开启“允许客户端为本机 Agent 自动创建运行凭证”；凭证明文只展示一次。' },
-            { title: '连接平台并发现 Agent', body: '在客户端填写平台地址与凭证，确认发现的Agent、共用目录和Skill路径。' },
-            { title: '确认治理范围并启用后台巡检', body: '先生成接管预览，确认需要继续启用和停用待处理的Skill，再安装后台服务。', expected: '关闭客户端窗口后，已经安装的后台服务仍会持续同步任务、巡检文件和上报事件。' },
-          ],
-        },
-        {
-          id: 'client-pages',
-          title: '桌面客户端有哪些页面',
-          table: {
-            columns: ['页面或入口', '可以完成的事情'],
-            rows: [
-              ['客户端概览', '查看平台连接、接入进度、本机Agent、受管Skill、待办事项和平台检测能力。'],
-              ['Agent发现', '发现内置Agent、共用Skill目录和自定义Agent，查看路径并选择纳入治理的Skill。'],
-              ['模型切换', '按本机Claude Code、Codex或Hermes查看实际模型配置，并切换到客户端凭证允许配置的网关模型。'],
-              ['Skill治理', '预览接管结果，从平台安装批准版本，把未知或未批准内容安全移入待处理区并提交检测。'],
-              ['运行状态', '立即巡检，暂停或恢复持续治理，查看隔离区，并使用接管前备份进行高级恢复。'],
-              ['执行记录', '区分本地巡检与处置记录，以及平台下发的安装、修复、移除和策略任务。'],
-              ['安全通知', '查看自动恢复、隔离阻断和只审计提醒，并按未读或严重程度筛选。'],
-              ['设置', '切换语言和默认页面，配置系统通知、后台启动、更新通道，并导出不含凭证明文的诊断报告。'],
-            ],
-          },
-        },
-        {
-          id: 'discover-govern',
-          title: '发现并接管本地 Skill',
-          paragraphs: ['客户端默认识别Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes、TRAE CN、TRAE、Cursor、CodeBuddy、WorkBuddy等内置Agent，并单独标记可由多个Agent读取的共用Skills目录；未内置的工具可以添加为自定义Agent。'],
-          bullets: ['展开Agent后检查实际扫描目录、Skill名称和校验状态，再勾选要纳入治理的Skill。', '接管预览会区分已可信、可以接管和需要停用待处理的内容；执行前需要明确确认。', '停用不是删除：内容从Agent入口移出并安全保留，可以提交平台检测。', '从平台安装时选择已批准版本和一个或多个目标Agent，客户端会验证发布签名和文件Hash。'],
-          image: { name: 'client-app-discovery', alt: '桌面客户端Agent发现页面', caption: 'Agent发现页面按本地Agent展示Skill根目录、发现结果和平台状态。截图使用示例路径和数据。' },
-          callout: { type: 'note', title: '共用目录的识别边界', body: '共用Skills目录可能被多个Agent读取，客户端只能治理该目录的状态和内容完整性，不能仅凭目录判断实际调用方。' },
-        },
-        {
-          id: 'governance-modes',
-          title: '治理方式与处置策略',
-          table: {
-            columns: ['配置', '实际作用'],
-            rows: [
-              ['客户端安全治理', '本地Skill只要已在平台注册为可信版本且签名一致即可使用，不要求绑定平台Agent。'],
-              ['Agent强授权', '本地Agent必须绑定平台Agent，且只能安装该Agent获授权的Skill。'],
-              ['只审计', '发现异常后记录并上报，不自动改动本地内容。'],
-              ['自动恢复', '发现受管Skill异常时恢复平台批准版本。'],
-              ['隔离阻断', '把异常内容移入隔离区，并从Agent的Skill入口移除。'],
-            ],
-          },
-          callout: { type: 'warning', title: '先确认影响范围', body: '自动恢复和隔离阻断会修改本地Skill目录。正式启用前应先在只审计模式观察路径识别和事件结果。' },
-        },
-        {
-          id: 'continuous-governance',
-          title: '持续巡检、隔离与恢复',
-          paragraphs: ['后台服务按周期同步平台策略和任务，并检查受管Skill是否被修改、撤销或替换。平台暂时不可达时，客户端使用最近一次成功同步的策略继续检查，并在恢复连接后补报事件。'],
-          bullets: ['“立即执行巡检”用于主动完成一次全量检查；暂停持续治理不会删除受管内容。', '隔离区保留异常副本和处置原因，不会直接把未确认内容恢复到Agent入口。', '恢复可信内容时优先从平台选择批准版本；接管前备份只用于明确的紧急回退。', '执行记录和安全通知共同提供本地巡检、自动处置及平台任务的证据。'],
-          image: { name: 'client-app-status', alt: '桌面客户端运行状态页面', caption: '运行状态页面展示后台巡检、受管与隔离数量、待补报事件以及隔离项的后续操作。截图使用示例数据。' },
-        },
-        {
-          id: 'console-management',
-          title: '管理台如何集中管理客户端',
-          paragraphs: ['管理台客户端列表用于查看所有受管主机的在线状态、版本、Agent与Skill数量、安全事件和最后心跳；客户端详情再展开治理方式、本机Agent、任务与事件。'],
-          image: { name: 'client-list', alt: '管理台客户端列表', caption: '管理台列表用于跨主机查看客户端状态和治理规模。示例数据以实际环境为准。' },
-          bullets: ['客户端详情可以切换客户端安全治理或Agent强授权，并配置只审计、自动恢复或隔离阻断。', '按本机Agent选择平台批准Skill，可以远程下发、修复或移除；桌面客户端的“模型切换”用于Claude Code、Codex和Hermes的网关模型配置。', '失败或取消的客户端任务可以重试；本地巡检和处置结果进入事件及统一审计。'],
-          callout: { type: 'note', title: '任务的具体用途', body: '客户端任务用于安装、恢复、移除Skill、应用受支持的模型配置和同步策略。执行后应在客户端详情中核对目标Agent、资源、任务状态和最新事件。' },
-          link: { path: '/clients', label: '打开客户端管理' },
-        },
-        {
-          id: 'agent-model-config',
-          title: '在客户端按本机 Agent 切换网关模型',
-          steps: [
-            { title: '授权客户端的委派范围', body: '创建客户端凭证时开启自动创建Agent运行凭证，并在“允许客户端配置的模型”中选择范围；留空表示所有已启用模型。客户端凭证本身不能调用模型或MCP。' },
-            { title: '选择本机 Agent', body: '进入桌面客户端“模型切换”，选择已发现的Claude Code、Codex或Hermes。页面从本机配置文件读取当前模型、网关地址和配置路径。' },
-            { title: '确认网关地址来源', body: '客户端不单独填写模型网关地址，而是复用接入时配置的Agent Manager地址。Claude Code使用该根地址；Codex和Hermes自动规范化为以/v1结尾的Base URL。该地址不是供应商页面配置的上游模型地址。' },
-            { title: '自动建立运行身份', body: '如果该本机Agent尚无运行身份，第一次切换会自动创建归属当前客户端的托管Agent并完成绑定，不要求预先在管理台创建或选择。' },
-            { title: '选择网关模型并切换', body: '列表只显示当前客户端凭证委派范围内的启用模型。sidecar在进程内领取该Agent的独立运行凭证，备份并合并配置，然后重新读取实际状态。', expected: 'Claude Code写入Anthropic Messages配置；Codex写入Responses model provider；Hermes写入OpenAI-compatible chat配置。桌面页面拿不到凭证明文。' },
-          ],
-          image: { name: 'client-app-models', alt: '桌面客户端模型切换页面', caption: '模型切换页展示本机实际模型、由Agent Manager接入地址生成的网关地址、配置文件路径和凭证允许使用的模型。截图使用脱敏示例数据。' },
-          callout: { type: 'note', title: '模型与MCP的边界', body: '自动生成的Agent凭证固定包含运行校验和model:chat，且只允许本次模型；如果平台Agent已有MCP网关范围，还会保留相同的mcp:connect、mcp:list-tools、mcp:call-tools和网关允许列表。MCP服务器配置仍在单独功能中管理。' },
-          link: { path: '/credentials', label: '创建带自动签发授权的客户端凭证' },
-        },
-        {
-          id: 'console-client-detail',
-          title: '从客户端详情核对任务和事件',
-          paragraphs: ['远程操作后，在同一详情抽屉中检查目标Agent、Skill、任务状态和最近事件，避免只根据按钮提示判断操作是否真正完成。'],
-          image: { name: 'client-detail', alt: '管理台客户端详情页面', caption: '客户端详情集中展示治理方式、处置策略、本机Agent、最近任务与安全事件。' },
-          link: { path: '/clients', label: '查看客户端详情' },
-        },
+  "eyebrow": "功能指南",
+  "title": "客户端管理",
+  "summary": "配置 Agent 发现与分类处置策略，在客户端管理 Skill，并核对同步、检测和恢复结果。",
+  "sections": [
+    {
+      "id": "desktop-and-console",
+      "title": "客户端与平台分别做什么",
+      "paragraphs": [
+        "客户端负责发现本机 Agent、校验实际 Skill 内容、安装可信版本和执行处置。平台负责批准与签名、下发配置、管理默认及单台客户端策略，并汇总任务和事件。"
       ],
+      "image": {
+        "name": "client-app-overview",
+        "alt": "客户端概览：总览、运行与同步、检测策略、扫描能力和客户端信息。",
+        "caption": "客户端概览：总览、运行与同步、检测策略、扫描能力和客户端信息。 截图来自实际桌面客户端。"
+      }
     },
+    {
+      "id": "install-register",
+      "title": "安装与接入",
+      "paragraphs": [
+        "在平台“统一凭证中心”选择“给客户端使用”，创建凭证；在客户端填写平台地址和凭证，连接成功后检查后台服务状态。关闭窗口后，已正常启动的后台服务继续工作。",
+        "需要切换模型时，再为客户端凭证开启自动创建 Agent 运行凭证，并限定允许配置的模型。客户端接入凭证本身不用于调用模型或 MCP。",
+        "客户端凭证的最大请求体默认 100 MB（102400 KB）；已有凭证保留原配置。Skill 提交还受文件总量、单文件大小、文件数及服务端上传限制约束，调大凭证参数不会自动解除其他限制。"
+      ]
+    },
+    {
+      "id": "client-pages",
+      "title": "现在从哪里操作",
+      "paragraphs": [],
+      "table": {
+        "columns": [
+          "入口",
+          "用途"
+        ],
+        "rows": [
+          [
+            "客户端概览 → 总览",
+            "待处理事项、本机 Agent 和受管 Skill 数量。"
+          ],
+          [
+            "客户端概览 → 运行与同步",
+            "后台运行、同步状态和最近运行信息。"
+          ],
+          [
+            "客户端概览 → 检测策略",
+            "查看本机已同步的分类处置规则。"
+          ],
+          [
+            "Agent 管理",
+            "选择 Agent，切换本地 Skills、检测记录、隔离副本；搜索、筛选、安装和提交检测。"
+          ],
+          [
+            "模型切换",
+            "按本机 Agent 查看和切换允许使用的网关模型。"
+          ],
+          [
+            "执行记录",
+            "分别查看巡检与处置、平台任务，支持筛选和分页。"
+          ],
+          [
+            "右上角铃铛",
+            "查看安全通知、失败原因及处置入口。"
+          ],
+          [
+            "右上角齿轮 → 设置",
+            "管理连接、语言、通知、后台运行、更新和诊断。"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "discovery-config",
+      "title": "在平台配置 Agent 发现目录",
+      "paragraphs": [
+        "进入“客户端管理 → Agent 发现配置”，按 Agent 名称或标识搜索，配置启用状态、适用系统和 Skill 目录；每行一个目录。相对路径以客户端用户主目录为起点，例如 .qoderwork/skills。保存会提交全部配置，搜索只筛选显示。",
+        "内置目录包含 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes、TRAE、Cursor、CodeBuddy、WorkBuddy，以及 Qoder、Qoder CN、QoderWork、ZCode。Claude Desktop、Kimi Work、Doubao Work 的预置条目未启用且没有默认目录，应核对实际目录后配置。",
+        "在线客户端通过配置同步任务获取更新并重新发现；离线时沿用已缓存配置。本机单独设置的目录优先。保存目录不会安装 Agent，也不会创建不存在的目录。",
+        "目录未生效时，依次核对平台保存值、同步任务、本机覆盖设置、适用系统和目录是否存在；配置已收到不等于已发现 Agent。"
+      ],
+      "image": {
+        "name": "client-discovery-config",
+        "alt": "Chrome 中的 Agent 发现配置：按名称或标识搜索后编辑对应目录。",
+        "caption": "Chrome 中的 Agent 发现配置：按名称或标识搜索后编辑对应目录。"
+      }
+    },
+    {
+      "id": "discover-govern",
+      "title": "在 Agent 管理中查看 Skill",
+      "paragraphs": [
+        "选择顶部 Agent，再切换“本地 Skills”“检测记录”“隔离副本”。右侧文件夹图标打开当前 Agent 的目录。",
+        "“已认证”表示本地内容匹配平台批准版本且校验通过；同名 Skill 在平台通过，并不能证明这份本地内容相同。“认证状态待确认”表示尚无有效校验结论，应展开详情查看同步、路径或扫描错误。",
+        "从具体 Skill 的操作入口选择从平台安装，会定位该 Skill；核对目标 Agent 和可信版本后安装。安装会验证发布签名和文件摘要，不能只凭同名显示已认证。"
+      ],
+      "image": {
+        "name": "client-app-discovery",
+        "alt": "Agent 管理按 Agent 展示本地 Skills、检测记录和隔离副本。",
+        "caption": "Agent 管理按 Agent 展示本地 Skills、检测记录和隔离副本。 截图来自实际桌面客户端。"
+      },
+      "callout": {
+        "type": "note",
+        "title": "共用目录",
+        "body": "共用 Skills 目录单独列出。目录可能被多个 Agent 读取，但不能仅凭目录识别实际调用者。"
+      }
+    },
+    {
+      "id": "governance-modes",
+      "title": "默认策略与单台客户端策略",
+      "paragraphs": [
+        "平台“默认处置策略”提供公共规则；客户端详情的“分类处置策略”可逐项继承平台默认，或为这一台客户端单独设置。默认规则更新不会覆盖单台客户端的显式设置。",
+        "客户端“检测策略”展示本机已同步的有效规则。平台默认值与客户端不同，先核对是否存在单台客户端覆盖，再检查同步任务。治理方式另行决定是否要求平台 Agent 绑定及 Skill 授权。"
+      ],
+      "image": {
+        "name": "client-policy",
+        "alt": "分类处置策略按未认证 Skill、已认证 Skill、检测结果处置分区。",
+        "caption": "分类处置策略按未认证 Skill、已认证 Skill、检测结果处置分区。"
+      },
+      "table": {
+        "columns": [
+          "触发情况",
+          "说明"
+        ],
+        "rows": [
+          [
+            "未经平台认证",
+            "当前本地内容尚不属于平台可信版本。"
+          ],
+          [
+            "未认证 Skill 内容变化",
+            "未认证内容再次发生变化。"
+          ],
+          [
+            "已认证 Skill 内容变化",
+            "已认证内容偏离可信版本。"
+          ],
+          [
+            "平台确认恶意",
+            "当前内容已被平台确认恶意，命中后按此规则处置。"
+          ],
+          [
+            "变化内容检测不通过（有可信版本）",
+            "有可恢复的可信版本，但变化内容被拒绝。"
+          ],
+          [
+            "内容检测不通过（无可信版本）",
+            "当前内容被拒绝，且无可信版本可恢复。"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "policy-actions",
+      "title": "每个动作会做什么",
+      "paragraphs": [],
+      "table": {
+        "columns": [
+          "动作",
+          "效果"
+        ],
+        "rows": [
+          [
+            "仅记录",
+            "保留本地文件并记录事件，不产生该处置的安全告警。"
+          ],
+          [
+            "记录且告警",
+            "保留本地文件，记录事件并产生告警。"
+          ],
+          [
+            "提交平台检测",
+            "提交当前内容检测；有可信版本和无可信版本的检测不通过规则分别决定后续处置。"
+          ],
+          [
+            "隔离",
+            "移出 Agent 入口，保留隔离副本供检测或恢复。"
+          ],
+          [
+            "卸载（保留恢复副本）",
+            "移除当前入口，保留可用于恢复的副本。"
+          ],
+          [
+            "恢复可信版本",
+            "恢复符合当前策略和授权的可信内容。"
+          ]
+        ]
+      },
+      "callout": {
+        "type": "note",
+        "title": "检测异常与检测不通过不同",
+        "body": "上传失败、超时、扫描错误不等于内容被拒绝，不触发“检测不通过”规则。动作选项随触发情况而不同。"
+      }
+    },
+    {
+      "id": "policy-preview",
+      "title": "预览影响后再保存",
+      "paragraphs": [
+        "点击“预览影响范围”，默认按客户端显示 Agent 数、Skill 数和预计处置汇总；展开客户端查看 Agent，再展开查看 Skill、目录及预估动作。",
+        "预览依据平台已收到的内容资料。资料不足时显示暂无法预估，实际动作仍由客户端校验当前内容后决定。需要更准确的预估，可完成一次巡检和上报后重新预览。",
+        "保存后查看策略同步任务。策略已应用表示配置已读取并保存，不表示所有 Skill 处置已经完成；实际处置结果要查看事件和执行记录。"
+      ],
+      "image": {
+        "name": "client-policy-preview",
+        "alt": "影响预览默认按客户端汇总，逐层展开查看具体 Skill。",
+        "caption": "影响预览默认按客户端汇总，逐层展开查看具体 Skill。"
+      }
+    },
+    {
+      "id": "continuous-governance",
+      "title": "同步与巡检多久执行一次",
+      "paragraphs": [
+        "平台任务使用长轮询：客户端发出等待请求，有任务时服务端返回，处理后继续等待。分类策略和 Agent 发现配置保存后均通过同步任务通知客户端，不需要等到下一次心跳。网络重连、排队和执行仍可能造成延迟。",
+        "后台心跳最长约每 10 秒一次，常规巡检默认每 5 分钟、完整巡检默认每 30 分钟。文件变化也会触发检查；这些周期与任务长轮询不同。",
+        "手动巡检入口：右上角齿轮 → 设置 → 后台运行 → 查看运行诊断 → 立即执行巡检。手动巡检按当前已生效策略执行。",
+        "平台离线时使用最近成功同步的策略，并保留待补报事件。恢复连接后继续同步和上报；需要平台验证或下载的操作可能失败或等待重试。"
+      ],
+      "image": {
+        "name": "client-app-status",
+        "alt": "设置 → 后台运行 → 查看运行诊断：手动巡检和后台运行状态。",
+        "caption": "设置 → 后台运行 → 查看运行诊断：手动巡检和后台运行状态。 截图来自实际桌面客户端。"
+      }
+    },
+    {
+      "id": "quarantine-recovery",
+      "title": "隔离副本如何检测和恢复",
+      "paragraphs": [
+        "在对应 Agent 的“隔离副本”中点击“提交检测”，也可选择多个待检测项后批量提交。提交过程中查看该行状态，提交后的平台结论在检测记录和隔离列表中更新。",
+        "提交成功只表示平台受理。只有相应内容批准并满足当前策略、内容校验和授权要求后，才能自动安装或恢复。检测中、待审核和扫描错误都不等于已批准。",
+        "从哪个 Agent 的隔离区提交，后续安装就针对该 Agent 和对应原路径。隔离内容精确匹配已有批准版本时，也可进入自动恢复检查，不要求重复提交。",
+        "原位置已有内容、源目录失效、目录无法唯一确定、权限不足或内容校验失败都可能阻止恢复。客户端不会仅凭名称覆盖现有文件；失败后应查看通知、行详情与执行记录。手动隔离的副本不因后台匹配而自动解除。",
+        "隔离列表显示“检测通过”但仍保留副本时，检查安装或恢复是否成功。检测结果与恢复结果是两件事。"
+      ],
+      "image": {
+        "name": "client-app-quarantine",
+        "alt": "隔离副本按 Agent 展示检测状态与可用操作。",
+        "caption": "桌面客户端“隔离副本”入口；截图时所选 Agent 没有隔离副本。"
+      }
+    },
+    {
+      "id": "console-management",
+      "title": "在平台核对任务与最近事件",
+      "paragraphs": [
+        "客户端列表显示在线状态、Agent 和 Skill 数量。进入客户端详情查看本机 Agent、平台任务和最近事件。",
+        "“处置任务已创建”不是执行完成。应继续核对任务的等待、执行、成功或失败状态，失败时查看原因，再决定重试。",
+        "最近事件使用服务端分页，每页 10 条，按最近发生时间倒序，可以翻看超过 100 条的历史记录。刷新详情保留当前页。"
+      ],
+      "image": {
+        "name": "client-detail",
+        "alt": "Chrome 中的客户端详情：本机 Agent、任务与最近事件。",
+        "caption": "Chrome 中的客户端详情：本机 Agent、任务与最近事件。"
+      },
+      "link": {
+        "path": "/clients",
+        "label": "打开客户端管理"
+      }
+    },
+    {
+      "id": "recent-events",
+      "title": "翻页查看最近事件",
+      "paragraphs": [
+        "在客户端详情底部使用分页器查看更早事件。刷新保留当前页，切换客户端从第一页开始；事件按最近发生时间排序。"
+      ],
+      "image": {
+        "name": "client-events",
+        "alt": "客户端最近事件分页",
+        "caption": "平台实际页面：最近事件支持翻页查看历史记录。"
+      }
+    },
+    {
+      "id": "agent-model-config",
+      "title": "在客户端按本机 Agent 切换网关模型",
+      "steps": [
+        {
+          "title": "授权客户端的委派范围",
+          "body": "创建客户端凭证时开启自动创建Agent运行凭证，并在“允许客户端配置的模型”中选择范围；留空表示所有已启用模型。客户端凭证本身不能调用模型或MCP。"
+        },
+        {
+          "title": "选择本机 Agent",
+          "body": "进入桌面客户端“模型切换”，选择已发现的Claude Code、Codex或Hermes。页面从本机配置文件读取当前模型、网关地址和配置路径。"
+        },
+        {
+          "title": "确认网关地址来源",
+          "body": "客户端不单独填写模型网关地址，而是复用接入时配置的Agent Manager地址。Claude Code使用该根地址；Codex和Hermes自动规范化为以/v1结尾的Base URL。该地址不是供应商页面配置的上游模型地址。"
+        },
+        {
+          "title": "自动建立运行身份",
+          "body": "如果该本机Agent尚无运行身份，第一次切换会自动创建归属当前客户端的托管Agent并完成绑定，不要求预先在管理台创建或选择。"
+        },
+        {
+          "title": "选择网关模型并切换",
+          "body": "列表只显示当前客户端凭证委派范围内的启用模型。sidecar在进程内领取该Agent的独立运行凭证，备份并合并配置，然后重新读取实际状态。",
+          "expected": "Claude Code写入Anthropic Messages配置；Codex写入Responses model provider；Hermes写入OpenAI-compatible chat配置。桌面页面拿不到凭证明文。"
+        }
+      ],
+      "image": {
+        "name": "client-app-models",
+        "alt": "桌面客户端模型切换页面",
+        "caption": "模型切换页展示本机实际模型、由Agent Manager接入地址生成的网关地址、配置文件路径和凭证允许使用的模型。截图来自实际桌面客户端。"
+      },
+      "callout": {
+        "type": "note",
+        "title": "模型与MCP的边界",
+        "body": "自动生成的Agent凭证固定包含运行校验和model:chat，且只允许本次模型；如果平台Agent已有MCP网关范围，还会保留相同的mcp:connect、mcp:list-tools、mcp:call-tools和网关允许列表。MCP服务器配置仍在单独功能中管理。"
+      },
+      "link": {
+        "path": "/credentials",
+        "label": "创建带自动签发授权的客户端凭证"
+      }
+    },
+    {
+      "id": "diagnostics",
+      "title": "出现问题时如何排查",
+      "paragraphs": [
+        "先查看 Skill 行详情、安全通知和“执行记录”，区分路径问题、认证结果、任务执行失败与同步失败。不要把扫描完成当作批准，也不要把已批准当作安装成功。",
+        "设置 → 诊断可以选择日志保留时间和导出最近天数，打开日志或数据目录，并导出诊断报告。报告不包含接入凭证明文、原始数据库或 Skill 源文件；发送前仍应检查其中的主机、路径和运行信息。",
+        "Skill 提交默认限制为总内容 100 MiB、单文件 20 MiB、最多 20000 个文件。超限时按实际失败环节处理；指纹不一致属于内容校验问题，单纯调大上传大小不能解决。"
+      ]
+    }
+  ]
+},
     'credential-management': {
       eyebrow: '智能体管理',
       title: '统一凭证中心',
@@ -1994,17 +2453,264 @@ const en = {
       ],
     },
     'case-client-modular-governance': {
-      eyebrow: 'Scenario guide · Client governance', title: 'Govern Skills as modules on a multi-Agent workstation', summary: 'Separate local Agents, Skill roots, platform Agent authorization, and remediation policy into verifiable units so one directory or repair does not affect the whole host.',
-      scenario: { label: 'Scenario summary', items: [{ label: 'Roles', value: 'Endpoint administrator · Agent owner · Security operations' }, { label: 'Estimated time', value: 'About 30–40 minutes' }, { label: 'Acceptance result', value: 'Two independent Agent scopes · targeted repair' }] },
-      sections: [
-        { id: 'business', title: 'Business scenario and module boundaries', paragraphs: ['The fictitious training-workstation-01 runs Codex for expense work and Claude Code for development assistance. The host also has ~/.agents/skills, which OpenCode and Cursor may both read. The objective is not to label the whole machine trusted. It is to verify which Agent reads which root, which approved Skills it may use, and what response applies to one abnormal Skill.'], flow: [{ label: 'Client', value: 'training-workstation-01' }, { label: 'Discovery', value: 'Agents and Skill roots' }, { label: 'Binding', value: 'Local → platform Agent' }, { label: 'Authorization', value: 'Per-Agent Skill scope', type: 'decision' }, { label: 'Response', value: 'Audit or repair one Skill', type: 'success' }], table: { columns: ['Governance unit', 'Scenario configuration', 'Boundary to verify'], rows: [['Codex module', 'finance-expense-agent → travel-expense-calculator', 'Only the approved Skill authorized for the finance Agent'], ['Claude Code module', 'developer-assistant → approved-helper', 'Does not inherit Codex authorization'], ['Shared root', '~/.agents/skills', 'Govern content and integrity; do not infer caller identity'], ['Host response policy', 'Audit first, then automatic recovery', 'Observe discovery accuracy before changing local files']] }, callout: { type: 'note', title: 'What modular means here', body: 'The current Client governs by Agent type, one or more Skill roots, individual Skill, and platform Agent binding. It is not a plugin-market module system, and a shared root is not automatically owned by one Agent.' }, download: { path: '/examples/client-modular-governance-plan.json', filename: 'client-modular-governance-plan.json', label: 'Download the modular Client governance plan', hint: 'Fictitious host, Agent bindings, shared-root boundary, and acceptance checks' } },
-        { id: 'prepare', title: 'Prepare platform objects and trusted Skills', steps: [{ title: 'Prepare two approved Skills', body: 'Reuse travel-expense-calculator from the expense scenario and submit the approved-helper sample. Complete scanning and approval for both; a local directory alone is not a trusted platform version.' }, { title: 'Create two platform Agents', body: 'Create finance-expense-agent for Codex and developer-assistant for Claude Code, each authorized only for its intended Skill.' }, { title: 'Issue a Client credential', body: 'Create a Client access credential for this training workstation and store its one-time secret only in Client secure configuration.' }, { title: 'Install and connect the Client', body: 'Download the matching installer, enter platform URL and credential, and verify registration, heartbeat, and background-service state.', expected: 'The console lists the workstation online and Client Overview shows a connected platform.' }], link: { path: '/clients', label: 'Open Client management' }, download: { path: '/examples/approved-helper.zip', filename: 'approved-helper.zip', label: 'Download the development-helper Skill', hint: 'Safe demo Skill with Read-only declaration for the second Agent module' } },
-        { id: 'discover', title: 'Discover Agents, roots, and the shared boundary', paragraphs: ['Open Agent Discovery and verify real paths before enrollment. Versions and local configuration can change Skill roots, so the displayed discovery result is authoritative over example paths in this guide.'], steps: [{ title: 'Confirm built-in Agents', body: 'Verify Codex and Claude Code, then expand each to inspect actual Skill roots and local Skills.' }, { title: 'Identify the shared root', body: 'Confirm ~/.agents/skills appears as a separate shared record; do not bind it as Codex or Claude Code identity.' }, { title: 'Handle non-default roots', body: 'Adjust built-in Agent roots in Client settings when the real installation differs. Use a custom Agent for unsupported tools.' }, { title: 'Generate an enrollment preview', body: 'Review trusted, enrollable, and disabled-pending content before explicitly confirming scope.', expected: 'Each local Skill appears under its real root, the shared root stays separate, and symlink aliases are not double-counted.' }], image: { name: 'client-app-discovery', alt: 'Client Skill discovery by Agent and root', caption: 'Agent Discovery is the factual boundary: verify Agent, real roots, shared roots, and Skills before choosing governance scope.' } },
-        { id: 'bind-install', title: 'Enable strict Agent authorization and deliver separately', steps: [{ title: 'Start in audit-only mode', body: 'Keep enforcement at Audit only while validating paths and events; do not rewrite local content yet.' }, { title: 'Switch to strict Agent authorization', body: 'This mode requires every supported local Agent to bind a platform Agent.' }, { title: 'Bind each Agent', body: 'Bind Codex to finance-expense-agent and Claude Code to developer-assistant. The shared directory does not provide Agent identity.' }, { title: 'Install each approved version', body: 'Install travel-expense-calculator under Codex and approved-helper under Claude Code. The list should be filtered by platform Agent authorization.', expected: 'Codex cannot select approved-helper, Claude Code cannot select the expense Skill, and both install tasks succeed independently.' }], image: { name: 'client-detail', alt: 'Agent bindings and Skill tasks in Client details', caption: 'Client details combine governance mode, response policy, local Agent bindings, Skill inventory, task state, and events.' }, callout: { type: 'warning', title: 'A button message is not task completion', body: 'After remote delivery, verify task state, target Agent, Skill version, and latest event. pending or running means work is incomplete.' }, link: { path: '/docs/client-management', label: 'Read Client feature guidance' } },
-        { id: 'drill', title: 'Verify one-module detection and targeted recovery', steps: [{ title: 'Modify only the finance demo copy', body: 'After ensuring recovery, append a harmless comment to travel-expense-calculator in the Codex root. Do not change the Claude Code root.' }, { title: 'Inspect immediately', body: 'In Audit only, run an inspection and confirm an event for the Codex expense Skill without automatic content recovery.' }, { title: 'Check the impact boundary', body: 'Confirm approved-helper, Claude Code binding and tasks, and the shared root did not change.' }, { title: 'Enable recovery and repair', body: 'Only after confirming paths and events, switch to Automatic recovery and restore the approved expense version.', expected: 'The expense digest matches again while the development Skill and shared root remain unchanged; task and event evidence is complete.' }], image: { name: 'client-app-status', alt: 'Client inspection and targeted recovery status', caption: 'Runtime Status verifies inspection, managed and quarantined counts, queued events, and recovery results.' } },
-        { id: 'acceptance', title: 'Acceptance and troubleshooting', table: { columns: ['Check or symptom', 'Correct interpretation'], rows: [['Both Agents can install any Skill', 'Fail: strict binding or Agent authorization is ineffective'], ['Only the finance Skill emits an event after its change', 'Pass: the abnormality maps to the correct Agent, path, and Skill'], ['Audit only silently restores a file', 'Fail: response policy does not match intent'], ['Repair succeeds and the development digest is unchanged', 'Pass: recovery did not cross module boundaries'], ['The shared root lists possible readers', 'Pass: this is a read-boundary hint, not caller authentication'], ['Platform temporarily unavailable', 'Client continues with the last synced policy and queues events; offline does not mean unmanaged']] }, link: { path: '/audit', label: 'Open unified audit' } },
+  "eyebrow": "Scenario guide · Client governance",
+  "title": "Govern Skills as modules on a multi-Agent workstation",
+  "summary": "Separate local Agents, Skill roots, platform Agent authorization, and remediation policy into verifiable units so one directory or repair does not affect the whole host.",
+  "scenario": {
+    "label": "Scenario summary",
+    "items": [
+      {
+        "label": "Roles",
+        "value": "Endpoint administrator · Agent owner · Security operations"
+      },
+      {
+        "label": "Estimated time",
+        "value": "About 30–40 minutes"
+      },
+      {
+        "label": "Acceptance result",
+        "value": "Two independent Agent scopes · targeted repair"
+      }
+    ]
+  },
+  "sections": [
+    {
+      "id": "business",
+      "title": "Business scenario and module boundaries",
+      "paragraphs": [
+        "The fictitious training-workstation-01 runs Codex for expense work and Claude Code for development assistance. The host also has ~/.agents/skills, which OpenCode and Cursor may both read. The objective is not to label the whole machine trusted. It is to verify which Agent reads which root, which approved Skills it may use, and what response applies to one abnormal Skill."
       ],
+      "flow": [
+        {
+          "label": "Client",
+          "value": "training-workstation-01"
+        },
+        {
+          "label": "Discovery",
+          "value": "Agents and Skill roots"
+        },
+        {
+          "label": "Binding",
+          "value": "Local → platform Agent"
+        },
+        {
+          "label": "Authorization",
+          "value": "Per-Agent Skill scope",
+          "type": "decision"
+        },
+        {
+          "label": "Response",
+          "value": "Audit or repair one Skill",
+          "type": "success"
+        }
+      ],
+      "table": {
+        "columns": [
+          "Governance unit",
+          "Scenario configuration",
+          "Boundary to verify"
+        ],
+        "rows": [
+          [
+            "Codex module",
+            "finance-expense-agent → travel-expense-calculator",
+            "Only the approved Skill authorized for the finance Agent"
+          ],
+          [
+            "Claude Code module",
+            "developer-assistant → approved-helper",
+            "Does not inherit Codex authorization"
+          ],
+          [
+            "Shared root",
+            "~/.agents/skills",
+            "Govern content and integrity; do not infer caller identity"
+          ],
+          [
+            "Classification policy",
+            "Record only first; restore trusted content for the selected trigger",
+            "Verify the specific rule and locally effective policy"
+          ]
+        ]
+      },
+      "callout": {
+        "type": "note",
+        "title": "What modular means here",
+        "body": "The current Client governs by Agent type, one or more Skill roots, individual Skill, and platform Agent binding. It is not a plugin-market module system, and a shared root is not automatically owned by one Agent."
+      },
+      "download": {
+        "path": "/examples/client-modular-governance-plan.json",
+        "filename": "client-modular-governance-plan.json",
+        "label": "Download the modular Client governance plan",
+        "hint": "Fictitious host, Agent bindings, shared-root boundary, and acceptance checks"
+      }
     },
+    {
+      "id": "prepare",
+      "title": "Prepare platform objects and trusted Skills",
+      "steps": [
+        {
+          "title": "Prepare two approved Skills",
+          "body": "Reuse travel-expense-calculator from the expense scenario and submit the approved-helper sample. Complete scanning and approval for both; a local directory alone is not a trusted platform version."
+        },
+        {
+          "title": "Create two platform Agents",
+          "body": "Create finance-expense-agent for Codex and developer-assistant for Claude Code, each authorized only for its intended Skill."
+        },
+        {
+          "title": "Issue a Client credential",
+          "body": "Create a Client access credential for this training workstation and store its one-time secret only in Client secure configuration."
+        },
+        {
+          "title": "Install and connect the Client",
+          "body": "Download the matching installer, enter platform URL and credential, and verify registration, heartbeat, and background-service state.",
+          "expected": "The console lists the workstation online and Client Overview shows a connected platform."
+        }
+      ],
+      "link": {
+        "path": "/clients",
+        "label": "Open Client management"
+      },
+      "download": {
+        "path": "/examples/approved-helper.zip",
+        "filename": "approved-helper.zip",
+        "label": "Download the development-helper Skill",
+        "hint": "Safe demo Skill with Read-only declaration for the second Agent module"
+      }
+    },
+    {
+      "id": "discover",
+      "title": "Discover Agents, roots, and the shared boundary",
+      "paragraphs": [
+        "Search for Codex and Claude Code in platform Agent Discovery Configuration and verify enabled state and roots. After synchronization, select each Agent under Agent Management to inspect Local Skills."
+      ],
+      "steps": [
+        {
+          "title": "Verify roots",
+          "body": "Select an Agent and use the folder icon to inspect its real root. Platform configuration supplies built-in roots; local overrides take precedence."
+        },
+        {
+          "title": "Identify shared roots",
+          "body": "Shared Skills appear separately. Several Agents may read a root; its path does not establish caller identity."
+        },
+        {
+          "title": "Verify sync and discovery",
+          "body": "After saving discovery configuration, inspect the sync task and Client discovery results. Saving configuration does not create missing directories."
+        }
+      ],
+      "image": {
+        "name": "client-app-discovery",
+        "alt": "Client Skill discovery by Agent and root",
+        "caption": "Actual desktop Client Agent Management window; inspect roots and local Skill states per Agent."
+      }
+    },
+    {
+      "id": "bind-install",
+      "title": "Enable strict Agent authorization and deliver separately",
+      "steps": [
+        {
+          "title": "Start with Record only",
+          "body": "In this client’s classification policy, set Certified Skill content changed to Record only. Save and verify the effective rule under Scan policies."
+        },
+        {
+          "title": "Switch to strict Agent authorization",
+          "body": "This mode requires every supported local Agent to bind a platform Agent."
+        },
+        {
+          "title": "Bind each Agent",
+          "body": "Bind Codex to finance-expense-agent and Claude Code to developer-assistant. The shared directory does not provide Agent identity."
+        },
+        {
+          "title": "Install each approved version",
+          "body": "Install travel-expense-calculator under Codex and approved-helper under Claude Code. The list should be filtered by platform Agent authorization.",
+          "expected": "Codex cannot select approved-helper, Claude Code cannot select the expense Skill, and both install tasks succeed independently."
+        }
+      ],
+      "image": {
+        "name": "client-detail",
+        "alt": "Agent bindings and Skill tasks in Client details",
+        "caption": "Client details combine governance mode, response policy, local Agent bindings, Skill inventory, task state, and events."
+      },
+      "callout": {
+        "type": "warning",
+        "title": "A button message is not task completion",
+        "body": "After remote delivery, verify task state, target Agent, Skill version, and latest event. pending or running means work is incomplete."
+      },
+      "link": {
+        "path": "/docs/client-management",
+        "label": "Read Client feature guidance"
+      }
+    },
+    {
+      "id": "drill",
+      "title": "Verify one-module detection and targeted recovery",
+      "steps": [
+        {
+          "title": "Modify only the finance demo copy",
+          "body": "After ensuring recovery, append a harmless comment to travel-expense-calculator in the Codex root. Do not change the Claude Code root."
+        },
+        {
+          "title": "Inspect immediately",
+          "body": "Open Settings → Background Operation → View runtime diagnostics → Run Inspection Now. Verify the content-change event and Record only result."
+        },
+        {
+          "title": "Check the impact boundary",
+          "body": "Confirm approved-helper, Claude Code binding and tasks, and the shared root did not change."
+        },
+        {
+          "title": "Restore through the trigger rule",
+          "body": "Set this client’s Certified Skill content changed action to Restore trusted version. Preview and save, then wait for policy application and execution.",
+          "expected": "Verify recovery events and content digests; other Agent roots remain unchanged."
+        }
+      ],
+      "image": {
+        "name": "client-app-status",
+        "alt": "Client inspection and targeted recovery status",
+        "caption": "Actual desktop Client runtime diagnostics in Settings; verify remediation results in Activity Records."
+      }
+    },
+    {
+      "id": "acceptance",
+      "title": "Acceptance and troubleshooting",
+      "table": {
+        "columns": [
+          "Check or symptom",
+          "Correct interpretation"
+        ],
+        "rows": [
+          [
+            "Both Agents can install any Skill",
+            "Fail: strict binding or Agent authorization is ineffective"
+          ],
+          [
+            "Only the finance Skill emits an event after its change",
+            "Pass: the abnormality maps to the correct Agent, path, and Skill"
+          ],
+          [
+            "A Record only rule appears to restore files",
+            "Check locally effective policy, other matching rules, and manual tasks"
+          ],
+          [
+            "Repair succeeds and the development digest is unchanged",
+            "Pass: recovery did not cross module boundaries"
+          ],
+          [
+            "The shared root lists possible readers",
+            "Pass: this is a read-boundary hint, not caller authentication"
+          ],
+          [
+            "Platform temporarily unavailable",
+            "Client continues with the last synced policy and queues events; offline does not mean unmanaged"
+          ]
+        ]
+      },
+      "link": {
+        "path": "/audit",
+        "label": "Open unified audit"
+      }
+    }
+  ]
+},
     'case-model-privacy-compression': {
       eyebrow: 'Scenario guide · Model gateway', title: 'Protect support-conversation privacy and verify context compression', summary: 'Send a fictitious customer ID and email through the Model Gateway, then verify access control, pseudonymization, compression, response restoration, and audit boundaries independently.',
       scenario: { label: 'Scenario summary', items: [{ label: 'Roles', value: 'Gateway administrator · Privacy auditor · Support-app developer' }, { label: 'Estimated time', value: 'About 30 minutes' }, { label: 'Acceptance result', value: 'Upstream sees no raw PII · compression is measurable' }] },
@@ -2392,19 +3098,324 @@ const en = {
       ],
     },
     'client-management': {
-      eyebrow: 'Feature guide', title: 'Client management', summary: 'The desktop Client discovers, enrolls, and continuously governs local Agents and Skills; the console provides fleet visibility, policy configuration, and remote task delivery.',
-      sections: [
-        { id: 'desktop-and-console', title: 'Separate the desktop Client from the console', paragraphs: ['Install Agent Manager Client on every workstation or server whose local Skills need governance. It registers with a Client access credential, sends heartbeats, and reports local Agents, Skill inventory, and security events. It is not a reduced version of the admin console; the two surfaces have different responsibilities.'], table: { columns: ['Where you work', 'Primary responsibility'], rows: [['Desktop Client', 'Discover local Agents and Skill roots, choose governance scope, install trusted versions, and continuously audit, restore, or quarantine local content.'], ['Platform console', 'View multiple Clients, configure governance and enforcement, bind managed Agents, and remotely deliver install, repair, remove, model-configuration, and policy-sync tasks.']] }, image: { name: 'client-app-overview', alt: 'Agent Manager desktop Client overview', caption: 'Client Overview combines connection progress, local Agents, managed Skills, platform scanning capabilities, and background inspection state. The screenshot uses example data.' } },
-        { id: 'install-register', title: 'Install and connect', steps: [{ title: 'Download the matching installer', body: 'The console currently lists macOS Apple Silicon, macOS Intel, Windows x64, and Linux x64 packages; actual availability depends on the current release.' }, { title: 'Create a Client access credential', body: 'Choose “For Agent Manager Client” in Credential Center. Enable automatic Agent credential issuance only when this Client should deliver model configuration. The secret is shown only once.' }, { title: 'Connect and discover Agents', body: 'Enter the platform address and credential in the Client, then confirm discovered Agents, shared roots, and Skill paths.' }, { title: 'Confirm scope and enable background inspection', body: 'Generate a governance preview, confirm which Skills remain enabled or move to pending, then install the background service.', expected: 'After the desktop window closes, an installed background service continues syncing tasks, inspecting files, and reporting events.' }] },
-        { id: 'client-pages', title: 'What each desktop page provides', table: { columns: ['Page or entry', 'What you can do'], rows: [['Client Overview', 'Inspect connection, enrollment progress, local Agents, managed Skills, action items, and platform scanning capabilities.'], ['Agent Discovery', 'Discover built-in Agents, shared Skill roots, and custom Agents, then review paths and select Skills for governance.'], ['Model Switching', 'Read the live configuration of local Claude Code, Codex, or Hermes and switch to gateway models delegated to this Client credential.'], ['Skill Governance', 'Preview enrollment, install approved versions, move unknown or unapproved content safely to pending, and submit it for scanning.'], ['Runtime Status', 'Run an inspection, pause or resume continuous governance, inspect quarantine, and use pre-enrollment backups for advanced recovery.'], ['Activity Records', 'Separate local inspection and remediation from platform-delivered install, repair, remove, and policy tasks.'], ['Security Notifications', 'Review automatic recovery, isolation block, and audit-only alerts, filtered by unread or severity.'], ['Settings', 'Choose language and start page, configure system notifications and background start, select update channel, and export diagnostics without plaintext credentials.']] } },
-        { id: 'discover-govern', title: 'Discover and enroll local Skills', paragraphs: ['The Client recognizes Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, Hermes, TRAE CN, TRAE, Cursor, CodeBuddy, and WorkBuddy, and separately marks shared Skill roots that multiple Agents may read. Unsupported tools can be registered as custom Agents.'], bullets: ['Expand an Agent to review its real scan roots, Skill names, and validation state before selecting governance scope.', 'The preview separates trusted, enrollable, and pending content, and requires explicit confirmation before changes.', 'Disabled does not mean deleted: content is removed from the Agent entry point, kept safely, and can be submitted for platform scanning.', 'When installing from the platform, choose an approved version and one or more target Agents; the Client verifies release signature and file hashes.'], image: { name: 'client-app-discovery', alt: 'Desktop Client Agent Discovery page', caption: 'Agent Discovery groups Skill roots, discovery results, and platform state by local Agent. The screenshot uses example paths and data.' }, callout: { type: 'note', title: 'Shared-root identity boundary', body: 'Multiple Agents may read the same shared Skill root. The Client can govern its state and content integrity, but the directory alone does not identify the actual caller.' } },
-        { id: 'governance-modes', title: 'Governance modes and enforcement policies', table: { columns: ['Setting', 'Actual effect'], rows: [['Client security governance', 'A local Skill may be used when it is a trusted platform version and its signature matches; a platform Agent binding is not required.'], ['Strict Agent authorization', 'The local Agent must be bound to a managed Agent and may install only Skills authorized for that Agent.'], ['Audit only', 'Record and report abnormal content without changing local files.'], ['Automatic recovery', 'Restore the approved platform version when a managed Skill becomes abnormal.'], ['Isolation block', 'Move abnormal content into quarantine and remove it from the Agent Skill entry point.']] }, callout: { type: 'warning', title: 'Confirm the affected paths first', body: 'Automatic recovery and isolation modify local Skill directories. Observe path detection and events in Audit only mode before enabling them in production.' } },
-        { id: 'continuous-governance', title: 'Continuous inspection, quarantine, and recovery', paragraphs: ['The background service periodically syncs platform policy and tasks, then checks whether managed Skills were modified, revoked, or replaced. If the platform is temporarily unavailable, the Client continues with the last successfully synced policy and reports queued events after reconnection.'], bullets: ['Run Inspection Now performs a full check; pausing continuous governance does not delete managed content.', 'Quarantine preserves the abnormal copy and reason without restoring unconfirmed content to the Agent entry point.', 'Prefer an approved platform version for recovery. Pre-enrollment backups are reserved for explicit emergency rollback.', 'Activity Records and Security Notifications provide evidence for local inspection, automatic remediation, and platform tasks.'], image: { name: 'client-app-status', alt: 'Desktop Client Runtime Status page', caption: 'Runtime Status shows background inspection, managed and quarantined counts, queued events, and follow-up actions for quarantined content. The screenshot uses example data.' } },
-        { id: 'console-management', title: 'Manage the Client fleet from the console', paragraphs: ['The console list provides fleet-wide online state, version, Agent and Skill counts, security events, and last heartbeat. Client details then expose governance mode, local Agents, tasks, and events.'], image: { name: 'client-list', alt: 'Console Client list', caption: 'The console list compares Client state and governance scale across hosts. Values shown are example environment data.' }, bullets: ['Client details switch between Client security governance and Strict Agent authorization and configure Audit only, Automatic recovery, or Isolation block.', 'Select an approved platform Skill under a local Agent to deliver, repair, or remove it remotely. Use Model Switching in the desktop Client for Claude Code, Codex, and Hermes gateway configuration.', 'Failed or cancelled Client tasks can be retried; local inspection and remediation enter events and unified audit.'], callout: { type: 'note', title: 'What Client tasks do', body: 'Client tasks install, restore, or remove Skills, apply supported model settings, and synchronize policy. After execution, verify the target Agent, resource, task state, and latest event in Client details.' }, link: { path: '/clients', label: 'Open Client management' } },
-        { id: 'agent-model-config', title: 'Switch gateway models per local Agent in the Client', steps: [{ title: 'Delegate a model boundary', body: 'Enable automatic Agent credential issuance on the Client credential and optionally restrict Models the Client may configure. An empty list means all enabled models. The Client credential itself cannot call models or MCP.' }, { title: 'Choose a local Agent', body: 'Open Model Switching and select discovered Claude Code, Codex, or Hermes. The page reads the current model, gateway URL, and configuration path from disk.' }, { title: 'Confirm where the gateway URL comes from', body: 'The Client has no separate model-gateway URL field. It reuses the Agent Manager URL entered during enrollment. Claude Code uses that root URL; Codex and Hermes normalize it to a Base URL ending in /v1. This is not the upstream provider URL configured by an administrator.' }, { title: 'Create the runtime identity automatically', body: 'If the local Agent has no runtime identity, the first switch creates a Client-owned managed Agent and binds it automatically. No matching Agent needs to be created or selected in advance.' }, { title: 'Select and switch', body: 'The catalog shows only enabled models inside the delegated Client boundary. The sidecar retrieves an Agent-bound runtime credential in-process, backs up and merges the local configuration, then reads live state again.', expected: 'Claude Code uses Anthropic Messages, Codex uses a Responses model provider, and Hermes uses OpenAI-compatible Chat Completions. The desktop renderer never receives the credential plaintext.' }], image: { name: 'client-app-models', alt: 'Desktop Client Model Switching page', caption: 'Model Switching shows the live local model, the gateway URL derived from the Agent Manager enrollment URL, the configuration path, and models delegated to the credential. The screenshot uses sanitized example data.' }, callout: { type: 'note', title: 'Model and MCP boundary', body: 'The managed Agent is an identity and audit anchor; it does not require the model to match the Agent type. Generated credentials include runtime checks and model:chat restricted to the selected model. If the managed Agent already has MCP gateways, the generated credential also preserves mcp:connect, mcp:list-tools, mcp:call-tools and the same gateway allowlist. MCP server configuration remains a separate feature.' }, link: { path: '/credentials', label: 'Create a Client credential with Agent issuance authorization' } },
-        { id: 'console-client-detail', title: 'Verify tasks and events in Client details', paragraphs: ['After a remote operation, verify the target Agent, Skill, task state, and latest event in the same details drawer instead of relying only on the button confirmation.'], image: { name: 'client-detail', alt: 'Console Client detail page', caption: 'Client details combine governance mode, enforcement policy, local Agents, recent tasks, and security events.' }, link: { path: '/clients', label: 'View Client details' } },
+  "eyebrow": "Feature guide",
+  "title": "Client management",
+  "summary": "Configure Agent discovery and classification policies, manage local Skills, and verify synchronization, scanning, and recovery.",
+  "sections": [
+    {
+      "id": "desktop-and-console",
+      "title": "What the Client and console do",
+      "paragraphs": [
+        "The Client discovers local Agents, validates actual Skill content, installs trusted versions, and executes remediation. The console approves and signs content, distributes configuration, manages default and per-client rules, and collects tasks and events."
       ],
+      "image": {
+        "name": "client-app-overview",
+        "alt": "Client Overview: Overview, Runtime & Sync, Detection Policy, Scan Capabilities, and Client Information.",
+        "caption": "Client Overview: Overview, Runtime & Sync, Detection Policy, Scan Capabilities, and Client Information. Captured from the actual desktop Client window."
+      }
     },
+    {
+      "id": "install-register",
+      "title": "Install and connect",
+      "paragraphs": [
+        "In Credential Center, choose the Client route and create a credential. Enter the platform URL and credential in the desktop Client, then check its background service. A running background service continues after the window closes.",
+        "For model switching, explicitly allow automatic Agent credential issuance and restrict configurable models. The Client credential itself cannot call models or MCP.",
+        "New Client credentials default to a 100 MB request-body limit (102400 KB); existing credentials retain their settings. Skill submissions also have content-size, per-file, file-count, and server upload limits. Raising the credential limit does not remove other limits."
+      ]
+    },
+    {
+      "id": "client-pages",
+      "title": "Where to find each operation",
+      "paragraphs": [],
+      "table": {
+        "columns": [
+          "Entry",
+          "Purpose"
+        ],
+        "rows": [
+          [
+            "Client Overview → Overview",
+            "Action items, local Agents, and managed Skill counts."
+          ],
+          [
+            "Client Overview → Runtime & Sync",
+            "Background service, synchronization, and recent runtime information."
+          ],
+          [
+            "Client Overview → Scan policies",
+            "Effective classification rules cached on this machine."
+          ],
+          [
+            "Agent Management",
+            "Choose an Agent and switch between Local Skills, Scan Records, and Quarantine Copies; search, filter, install, and submit."
+          ],
+          [
+            "Model Switching",
+            "View and switch permitted gateway models per local Agent."
+          ],
+          [
+            "Activity Records",
+            "Filter and paginate Inspection & Remediation and Platform Tasks separately."
+          ],
+          [
+            "Top-right bell",
+            "Security notifications, failures, and remediation links."
+          ],
+          [
+            "Top-right gear → Settings",
+            "Connection, language, notifications, background operation, updates, and diagnostics."
+          ]
+        ]
+      }
+    },
+    {
+      "id": "discovery-config",
+      "title": "Configure Agent discovery from the console",
+      "paragraphs": [
+        "Open Client Management → Agent Discovery. Search by Agent name or identifier and set enabled state, operating systems, and Skill roots, one root per line. Relative paths start at the client user home, for example .qoderwork/skills. Saving submits the complete configuration; search only filters the display.",
+        "Built-in definitions cover Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, Hermes, TRAE, Cursor, CodeBuddy, WorkBuddy, Qoder, Qoder CN, QoderWork, and ZCode. Claude Desktop, Kimi Work, and Doubao Work are initially disabled with empty roots; verify their actual directories before enabling them.",
+        "Online clients receive configuration-sync tasks and rediscover. Offline clients keep cached configuration. Local root overrides take precedence. Saving a path neither installs an Agent nor creates a missing directory.",
+        "If a root does not take effect, check the saved value, synchronization task, local overrides, operating system, and directory existence. Receiving configuration and discovering an Agent are separate outcomes."
+      ],
+      "image": {
+        "name": "client-discovery-config",
+        "alt": "Agent discovery in Chrome: search by name or identifier and inspect the matching roots.",
+        "caption": "Agent discovery in Chrome: search by name or identifier and inspect the matching roots."
+      }
+    },
+    {
+      "id": "discover-govern",
+      "title": "Inspect Skills in Agent Management",
+      "paragraphs": [
+        "Select an Agent in the top bar, then choose Local Skills, Scan Records, or Recovery Copies. The folder icon opens the selected Agent directory.",
+        "Certified means the local content matches an approved platform version and passes validation. Approval of a Skill with the same name is not proof that these local bytes match. Certification pending means no valid conclusion is available yet; inspect row details for sync, path, or scanning errors.",
+        "Installing from a specific Skill action locates that Skill in the platform catalog. Check the target Agent and trusted version. Installation validates release signatures and file digests before certification."
+      ],
+      "image": {
+        "name": "client-app-discovery",
+        "alt": "Agent Management groups local Skills, scan records, and quarantine copies by Agent.",
+        "caption": "Agent Management groups local Skills, scan records, and quarantine copies by Agent. Captured from the actual desktop Client window."
+      },
+      "callout": {
+        "type": "note",
+        "title": "Shared roots",
+        "body": "Shared Skill roots appear separately. Multiple Agents may read the same root; the directory does not establish caller identity."
+      }
+    },
+    {
+      "id": "governance-modes",
+      "title": "Default and per-client policies",
+      "paragraphs": [
+        "Platform Default Policy supplies shared rules. Classification Policy in Client details can inherit each default or override it for that machine. Updating defaults does not replace explicit client overrides.",
+        "Scan policies in the Client shows locally synchronized effective rules. If it differs from the platform default, check per-client overrides and then synchronization tasks. Governance mode separately determines whether Agent binding and Skill authorization are required."
+      ],
+      "image": {
+        "name": "client-policy",
+        "alt": "Classification policy groups unverified Skills, certified Skills, and scan-result handling.",
+        "caption": "Classification policy groups unverified Skills, certified Skills, and scan-result handling."
+      },
+      "table": {
+        "columns": [
+          "Trigger",
+          "Meaning"
+        ],
+        "rows": [
+          [
+            "Not platform-certified",
+            "Current local content is not a trusted platform version."
+          ],
+          [
+            "Unverified Skill content changed",
+            "Previously unverified content changes again."
+          ],
+          [
+            "Certified Skill content changed",
+            "Certified content differs from its trusted version."
+          ],
+          [
+            "Platform-confirmed malicious",
+            "Current content is confirmed malicious; this rule determines handling."
+          ],
+          [
+            "Changed content rejected (trusted version available)",
+            "Changed content is rejected and a trusted version is available."
+          ],
+          [
+            "Content rejected (no trusted version)",
+            "Content is rejected with no trusted version available."
+          ]
+        ]
+      }
+    },
+    {
+      "id": "policy-actions",
+      "title": "What each action does",
+      "paragraphs": [],
+      "table": {
+        "columns": [
+          "Action",
+          "Effect"
+        ],
+        "rows": [
+          [
+            "Record only",
+            "Retain local files and record the event without a security alert for this action."
+          ],
+          [
+            "Record and alert",
+            "Retain files, record the event, and raise an alert."
+          ],
+          [
+            "Submit for platform scanning",
+            "Submit current content; separate rejection rules apply with and without a trusted version."
+          ],
+          [
+            "Quarantine",
+            "Remove the Agent entry point and retain a copy for scanning or recovery."
+          ],
+          [
+            "Uninstall (keep recovery copy)",
+            "Remove the current entry point and retain a recovery copy."
+          ],
+          [
+            "Restore trusted version",
+            "Restore trusted content allowed by current policy and authorization."
+          ]
+        ]
+      },
+      "callout": {
+        "type": "note",
+        "title": "Scanning errors are not rejection",
+        "body": "Upload failures, timeouts, and scanner errors do not mean content was rejected and do not trigger rejection rules. Available actions depend on the trigger."
+      }
+    },
+    {
+      "id": "policy-preview",
+      "title": "Preview impact before saving",
+      "paragraphs": [
+        "Preview Impact initially shows client-level Agent and Skill counts with estimated actions. Expand the client and then an Agent to inspect individual Skills, paths, and actions.",
+        "Estimates use content information already reported to the platform. Insufficient information produces an unavailable estimate; actual handling still depends on client validation. Run an inspection, wait for reporting, and preview again when more evidence is needed.",
+        "After saving, inspect the policy-sync task. Policy applied means configuration was retrieved and saved, not that all Skill remediation finished. Review events and activity records for actual remediation."
+      ],
+      "image": {
+        "name": "client-policy-preview",
+        "alt": "Impact preview starts with client totals and expands to Agents and individual Skills.",
+        "caption": "Impact preview starts with client totals and expands to Agents and individual Skills."
+      }
+    },
+    {
+      "id": "continuous-governance",
+      "title": "Synchronization and inspection timing",
+      "paragraphs": [
+        "Platform tasks use long polling: the Client waits on a request, the server returns available tasks, and the Client then waits again. Classification-policy and Agent-discovery saves create synchronization tasks, without waiting for the next heartbeat. Reconnection, queues, and execution can still add latency.",
+        "Background heartbeats run at intervals of up to about 10 seconds. Regular inspection defaults to 5 minutes and full inspection to 30 minutes. File changes also trigger checks. These schedules are separate from task long polling.",
+        "To inspect immediately, open the gear → Settings → Background Operation → View Runtime Diagnostics → Run Inspection Now. It executes the currently effective policy.",
+        "While offline, the Client uses its last synchronized policy and retains queued events. It resumes syncing and reporting when connected; operations requiring platform validation or downloads may fail or await retry."
+      ],
+      "image": {
+        "name": "client-app-status",
+        "alt": "Settings → Background Operation → View Runtime Diagnostics provides immediate inspection and service status.",
+        "caption": "Settings → Background Operation → View Runtime Diagnostics provides immediate inspection and service status. Captured from the actual desktop Client window."
+      }
+    },
+    {
+      "id": "quarantine-recovery",
+      "title": "Scan and restore quarantine copies",
+      "paragraphs": [
+        "In the target Agent’s Recovery Copies tab, submit one copy or select multiple pending copies. The row shows submission state; subsequent platform conclusions appear in Scan Records and quarantine.",
+        "Submission only means the platform accepted the request. Automatic installation or recovery requires approval of the corresponding content plus current policy, content validation, and authorization checks. Scanning, pending review, and scan errors are not approval.",
+        "A submission from an Agent’s quarantine targets that Agent and the corresponding original path. Exact content already matching an approved version can also be checked for automatic restoration without resubmitting.",
+        "Existing destination content, invalid source paths, ambiguous roots, permissions, or failed validation may block recovery. The Client does not overwrite files merely because names match. Inspect notifications, row details, and activity records after failure. Manually quarantined copies are not automatically released by background matching.",
+        "A passed scan can coexist with a remaining quarantine copy when installation or recovery has not succeeded. Scan results and restoration results are separate."
+      ],
+      "image": {
+        "name": "client-app-quarantine",
+        "alt": "Quarantine copies show scan status and available actions for the selected Agent.",
+        "caption": "Recovery Copies in the desktop Client; the selected Agent had no recovery copies when captured."
+      }
+    },
+    {
+      "id": "console-management",
+      "title": "Verify tasks and recent events in the console",
+      "paragraphs": [
+        "The client list shows online state and Agent and Skill counts. Open Client details to inspect local Agents, platform tasks, and recent events.",
+        "Task created does not mean execution completed. Inspect pending, running, succeeded, or failed state and the failure reason before retrying.",
+        "Recent events use server-side pagination with 10 entries per page, newest occurrence first. Older history beyond 100 entries remains accessible, and refreshing details preserves the current page."
+      ],
+      "image": {
+        "name": "client-detail",
+        "alt": "Client details in Chrome show local Agents, tasks, and recent events.",
+        "caption": "Client details in Chrome show local Agents, tasks, and recent events."
+      },
+      "link": {
+        "path": "/clients",
+        "label": "Open Client Management"
+      }
+    },
+    {
+      "id": "recent-events",
+      "title": "Page through recent events",
+      "paragraphs": [
+        "Use the pagination controls at the bottom of Client details to inspect older events. Refresh preserves the current page; opening another client starts at page one. Events are sorted by latest occurrence."
+      ],
+      "image": {
+        "name": "client-events",
+        "alt": "Client recent-events pagination",
+        "caption": "Live console: pagination makes older client events accessible."
+      }
+    },
+    {
+      "id": "agent-model-config",
+      "title": "Switch gateway models per local Agent in the Client",
+      "steps": [
+        {
+          "title": "Delegate a model boundary",
+          "body": "Enable automatic Agent credential issuance on the Client credential and optionally restrict Models the Client may configure. An empty list means all enabled models. The Client credential itself cannot call models or MCP."
+        },
+        {
+          "title": "Choose a local Agent",
+          "body": "Open Model Switching and select discovered Claude Code, Codex, or Hermes. The page reads the current model, gateway URL, and configuration path from disk."
+        },
+        {
+          "title": "Confirm where the gateway URL comes from",
+          "body": "The Client has no separate model-gateway URL field. It reuses the Agent Manager URL entered during enrollment. Claude Code uses that root URL; Codex and Hermes normalize it to a Base URL ending in /v1. This is not the upstream provider URL configured by an administrator."
+        },
+        {
+          "title": "Create the runtime identity automatically",
+          "body": "If the local Agent has no runtime identity, the first switch creates a Client-owned managed Agent and binds it automatically. No matching Agent needs to be created or selected in advance."
+        },
+        {
+          "title": "Select and switch",
+          "body": "The catalog shows only enabled models inside the delegated Client boundary. The sidecar retrieves an Agent-bound runtime credential in-process, backs up and merges the local configuration, then reads live state again.",
+          "expected": "Claude Code uses Anthropic Messages, Codex uses a Responses model provider, and Hermes uses OpenAI-compatible Chat Completions. The desktop renderer never receives the credential plaintext."
+        }
+      ],
+      "image": {
+        "name": "client-app-models",
+        "alt": "Desktop Client Model Switching page",
+        "caption": "Model Switching shows the live local model, the gateway URL derived from the Agent Manager enrollment URL, the configuration path, and models delegated to the credential. Captured from the actual desktop Client window."
+      },
+      "callout": {
+        "type": "note",
+        "title": "Model and MCP boundary",
+        "body": "The managed Agent is an identity and audit anchor; it does not require the model to match the Agent type. Generated credentials include runtime checks and model:chat restricted to the selected model. If the managed Agent already has MCP gateways, the generated credential also preserves mcp:connect, mcp:list-tools, mcp:call-tools and the same gateway allowlist. MCP server configuration remains a separate feature."
+      },
+      "link": {
+        "path": "/credentials",
+        "label": "Create a Client credential with Agent issuance authorization"
+      }
+    },
+    {
+      "id": "diagnostics",
+      "title": "Troubleshooting",
+      "paragraphs": [
+        "Start with Skill row details, Security Notifications, and Activity Records. Separate path errors, certification, execution failures, and synchronization failures. A completed scan is not approval; approval is not successful installation.",
+        "Settings → Diagnostics lets you choose log retention and export range, open log or data directories, and export a report. The report excludes plaintext access credentials, raw databases, and Skill source files. Review machine, path, and runtime information before sharing.",
+        "Skill submissions default to 100 MiB total content, 20 MiB per file, and 20000 files. Address the limit at the failing layer. Fingerprint mismatch is a content-validation issue; increasing upload size alone does not fix it."
+      ]
+    }
+  ]
+},
     'model-gateway': {
       eyebrow: 'Feature guide', title: 'Model gateway', summary: 'Proxy model traffic and centralize access control, Prompt protection, privacy replacement, optional context compression, usage analysis, and call audits.',
       sections: [

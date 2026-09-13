@@ -94,6 +94,7 @@ const outcomeColor = value => ({ success: 'green', failed: 'red', failure: 'red'
 const moduleLabel = value => te(`iam.modules.${value}`) ? t(`iam.modules.${value}`) : value || '—'
 const reasonLabel = value => te(`iam.loginReasons.${value}`) ? t(`iam.loginReasons.${value}`) : value
 const eventLabel = record => {
+  if (record.action === 'client_discovery_updated') return t('clientDiscovery.auditUpdated')
   if (record.module === 'audit' && te(`iam.auditActions.${record.action}`)) return t(`iam.auditActions.${record.action}`)
   if (record.event_type && te(`iam.events.${record.event_type.replaceAll('.', '_')}`)) return t(`iam.events.${record.event_type.replaceAll('.', '_')}`)
   if (record.source === 'login') return t('iam.signInEvent')

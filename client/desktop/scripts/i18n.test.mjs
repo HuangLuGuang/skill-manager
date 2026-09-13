@@ -3,8 +3,43 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import test from 'node:test'
 import vm from 'node:vm'
+import { clientGovernanceMessages } from '../../../web/src/i18n/clientGovernance.js'
 
 const require = createRequire(import.meta.url)
+
+test('scan submission preserves original failures and releases the busy state', async () => {
+  const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8')
+  const start = source.indexOf('const submitPendingIDs = async')
+  const end = source.indexOf("\n$('#pending-select-all')", start)
+  for (const failure of ['', 'HTTP 413: File too large (max 50 MB)', 'client:submit-skill permission denied', 'pending read failed']) {
+    const dialogs = []
+    const button = {textContent: 'Submit', dataset: {}, disabled: false}
+    const sandbox = {
+      pendingSubmissionBusy: false, selectedPendingIDs: new Set(['copy']),
+      document: {querySelectorAll: () => []},
+      t: key => key, tf: (parts, ...values) => parts.reduce((s, part, i) => s + part + (values[i] ?? ''), ''),
+      formatList: names => names.join(', '), log: () => {}, syncPendingBatchControls: () => {}, loadPending: async () => {},
+      setBusy: (b, busy) => { b.disabled = busy; if (busy) {b.dataset.original = b.textContent; b.dataset.busyLabel = 'Busy'} else b.textContent = b.dataset.original },
+      showMessageDialog: (title, detail) => dialogs.push({title, detail}),
+      run: async command => {
+        if (failure === 'pending read failed') throw new Error(failure)
+        if (command === 'pending') return JSON.stringify([{id: 'copy', skill_name: 'example'}])
+        if (failure) throw new Error(failure)
+        return JSON.stringify({name: 'example', skill_id: 'skill'})
+      },
+    }
+    vm.runInNewContext(source.slice(start, end) + '\nthis.submit = submitPendingIDs', sandbox)
+    await sandbox.submit(['copy'], button)
+    assert.equal(sandbox.pendingSubmissionBusy, false)
+    assert.equal(button.disabled, false)
+    assert.equal(button.textContent, 'Submit')
+    assert.equal(dialogs.length, failure ? 1 : 0)
+    if (failure) {
+      assert.equal(dialogs[0].title, 'ui.agentManagement.submit_failed')
+      assert.ok(dialogs[0].detail.includes(failure.includes('permission denied') ? 'submit_permission_required' : failure))
+    }
+  }
+})
 const { parse } = require('@babel/parser')
 const storage = new Map([['agent-manager-client-locale', 'en-US']])
 const context = {
@@ -54,7 +89,7 @@ test('classification notifications localize reasons and retain Skill names and p
       const copy = env.render({ event_type: 'skill_governance_action', agent_type: 'codex', skill_name: '用户 Skill',
         details: { trigger: 'malicious', action: 'quarantine', status: 'failed', error_code: 'skill_content_changed', path: '/skills/用户 Skill' } })
       assert.equal(copy.title, locale === 'en-US' ? 'Skill Remediation Result' : 'Skill 处置结果')
-      assert.ok(copy.message.includes(locale === 'en-US' ? 'Current content confirmed malicious' : '当前内容已确认恶意'))
+      assert.ok(copy.message.includes(clientGovernanceMessages[locale].malicious))
       assert.ok(copy.message.includes(locale === 'en-US' ? 'Remediation Failed' : '处置失败'))
       assert.ok(copy.message.includes('/skills/用户 Skill'))
       assert.ok(!copy.message.includes('ui.agentManagement.'))
@@ -298,14 +333,6 @@ test('refreshes the visible quarantine list after background status changes', ()
   )
 })
 
-test('drops detached submissions from the current pending batch count', () => {
-  assert.match(
-    appSource,
-    /const reconcilePendingBatchTracking = \(\) => \{[\s\S]*if \(item && !item\.skill_id\)[\s\S]*pendingBatchTracking\.ids\.delete\(id\)[\s\S]*pendingBatchTracking\.statuses\.delete\(id\)/,
-  )
-  assert.match(appSource, /const renderPendingBatchStatus = \(\) => \{\s*reconcilePendingBatchTracking\(\)/)
-})
-
 test('pending copies remain actionable in recovery while submitted scans use independent history', () => {
   assert.match(appSource, /data-discard-copy[\s\S]*discard-pending-dialog'\)\.showModal\(\)/)
   assert.match(appSource, /confirm-discard-pending[\s\S]*run\('discard-pending', \['--id', item\.id, '--confirm'\]\)/)
@@ -356,10 +383,11 @@ test('counts unique recovery copies and keeps scan snapshots out of the recovery
   const source = appSource.slice(appSource.indexOf('const mergeRecoveryCopies ='), appSource.indexOf('const recoveryVisible ='))
   const helpers = vm.runInNewContext(`${source}; ({mergeRecoveryCopies, recoveryStage})`)
   const pending = [
-    {id: 'linked', pending_path: '/copy/a', skill_id: 's1', status: 'APPROVED'},
+    {id: 'linked', pending_path: '/snapshot/a', reason: 'quarantine_rescan', skill_id: 's1', status: 'APPROVED'},
     {id: 'legacy', pending_path: '/copy/b'},
     {id: 'duplicate', pending_path: '/copy/b'},
     {id: 'scan', pending_path: '/snapshot/c', reason: 'observed_scan'},
+    {id: 'restored-scan', pending_path: '/snapshot/restored', reason: 'quarantine_rescan', status: 'pending'},
   ]
   const copies = helpers.mergeRecoveryCopies([
     {id: 'a', quarantine_path: '/copy/a', pending_id: 'linked', status: 'quarantined'},
@@ -373,4 +401,25 @@ test('counts unique recovery copies and keeps scan snapshots out of the recovery
     assert.equal(helpers.recoveryStage({skill_id:'s', detection_status:status}), stage)
   }
   assert.equal(helpers.recoveryStage({status:'backed_up'}), 'backup')
+})
+
+
+test('client policy labels match platform labels in both languages', () => {
+  const i18n = context.window.clientI18n
+  const previous = i18n.getLocale()
+  try {
+    for (const locale of ['zh-CN', 'en-US']) {
+      i18n.setLocale(locale)
+      const platform = clientGovernanceMessages[locale]
+      for (const trigger of ['unverified', 'malicious', 'trusted_content_changed', 'unverified_content_changed', 'trusted_scan_rejected', 'unverified_scan_rejected']) {
+        assert.equal(i18n.t(`ui.agentManagement.trigger.${trigger}`), platform[trigger], `${locale}: ${trigger}`)
+      }
+      for (const action of ['record_only', 'record', 'submit_scan', 'quarantine', 'uninstall', 'restore_trusted']) {
+        assert.equal(i18n.t(`ui.agentManagement.action.${action}`), platform[action], `${locale}: ${action}`)
+      }
+      for (const [local, remote] of Object.entries({ unverified: 'unverified', trusted: 'certified', results: 'results' })) {
+        assert.equal(i18n.t(`ui.overview.policy_group.${local}`), platform.groups[remote].title)
+      }
+    }
+  } finally { i18n.setLocale(previous) }
 })

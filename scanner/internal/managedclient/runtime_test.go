@@ -245,6 +245,87 @@ func TestRescanTaskRequestsFullScan(t *testing.T) {
 	}
 }
 
+func TestInstallConfirmsInstalledContentBeforeReturning(t *testing.T) {
+	for _, scenario := range []string{"certified", "signature_mismatch", "unavailable", "malicious"} {
+		t.Run(scenario, func(t *testing.T) {
+			home := t.TempDir()
+			root := filepath.Join(home, ".codex", "skills")
+			if err := os.MkdirAll(root, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := signedPackage(t, privateKey)
+			store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			compared := false
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.Contains(r.URL.Path, "/skills/skill-1/package"):
+					_, _ = w.Write(body)
+				case strings.HasSuffix(r.URL.Path, "/compare"):
+					compared = true
+					if scenario == "unavailable" {
+						w.WriteHeader(http.StatusServiceUnavailable)
+						return
+					}
+					var payload struct {
+						Agents []Agent `json:"agents"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+						t.Error(err)
+						return
+					}
+					if len(payload.Agents) != 1 || len(payload.Agents[0].Skills) != 1 {
+						t.Error("expected only the installed skill")
+						return
+					}
+					skill := payload.Agents[0].Skills[0]
+					sig := skill.Signature
+					if scenario == "signature_mismatch" {
+						sig = "different-content"
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"items": []CompareItem{{
+						AgentType: "codex", Name: skill.Name, LocalPath: skill.Path,
+						LocalSignature: sig, Certified: true, Malicious: scenario == "malicious",
+						SkillID: "skill-1", VersionID: "version-1",
+					}}})
+				case strings.HasSuffix(r.URL.Path, "/events"):
+					_, _ = w.Write([]byte(`{"ok":true}`))
+				default:
+					t.Errorf("unexpected request %s", r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			inventory := Inventory{ClientID: "client-1", Agents: []Agent{{AgentType: "codex", SkillsPath: root, SkillManagementSupported: true}}}
+			policy := Policy{ReleasePublicKey: base64.StdEncoding.EncodeToString(publicKey), Classification: DefaultClassificationPolicy()}
+			if err := InstallApprovedSkill(context.Background(), home, inventory, policy, NewAPI(server.URL, "token", time.Second), store, "codex", "", "skill-1"); err != nil {
+				t.Fatal(err)
+			}
+			value, err := store.Observation(filepath.Join(root, "safe-skill"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !compared {
+				t.Fatal("install returned without comparing installed content")
+			}
+			if scenario == "certified" {
+				if value.Certification != "certified" || value.TrustedSignature == "" || value.TrustedVersionID != "version-1" {
+					t.Fatalf("missing immediate certification: %+v", value)
+				}
+			} else if value.Certification == "certified" {
+				t.Fatalf("invalid certification: %+v", value)
+			}
+		})
+	}
+}
+
 func TestInstallApprovedSkillSharesReleaseAcrossAgents(t *testing.T) {
 	home := t.TempDir()
 	codexSkills := filepath.Join(home, ".codex", "skills")

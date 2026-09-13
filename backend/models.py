@@ -154,7 +154,7 @@ class AccessToken(Base):
     expires_at = Column(DateTime, nullable=True)
     max_body_kb = Column(Integer, default=1024, nullable=False)
     max_concurrent_requests = Column(Integer, default=5, nullable=False)
-    max_upload_mb = Column(Integer, default=50, nullable=False)
+    max_upload_mb = Column(Integer, default=100, nullable=False)
     max_concurrent_jobs = Column(Integer, default=2, nullable=False)
     enable_compression = Column(Boolean, default=False, nullable=False)
     compression_level = Column(String(32), default="auto", nullable=False)

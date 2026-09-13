@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"os/user"
@@ -20,12 +21,14 @@ import (
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		if len(os.Args) < 2 || os.Args[1] != "run" {
+			fmt.Fprintln(os.Stderr, "error:", err)
+		}
 		os.Exit(1)
 	}
 }
 
-func run(args []string) error {
+func run(args []string) (runErr error) {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|available-skills|skill-preview|skill-versions|install-skill|quarantine|queue-quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
 	}
@@ -49,6 +52,8 @@ func run(args []string) error {
 	expectedTargetSignature := fs.String("expected-target-signature", "", "current target content selected for backup restoration")
 	skillAction := fs.String("action", "", "authorized Skill remediation action")
 	requestID := fs.String("request-id", "", "idempotency ID for a manual Skill action")
+	logDays := fs.Int("days", 0, "diagnostic retention or export range in days")
+	outputDir := fs.String("output-dir", "", "diagnostic ZIP output directory")
 	interval := fs.Duration("interval", 5*time.Minute, "daemon polling interval")
 	var agentMappings stringList
 	var selectedSkills stringList
@@ -59,8 +64,59 @@ func run(args []string) error {
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
+	started := time.Now()
+	defer func() { managedclient.RecordCommandDiagnostic(*home, args[0], started, runErr) }()
 	if err := managedclient.EnsureDataLayout(*home); err != nil {
 		return fmt.Errorf("初始化客户端数据目录失败: %w", err)
+	}
+	if args[0] == "record-desktop-diagnostic" {
+		data, err := io.ReadAll(io.LimitReader(os.Stdin, 16385))
+		if err != nil {
+			return err
+		}
+		if len(data) > 16384 {
+			return fmt.Errorf("diagnostics_record_too_large")
+		}
+		return managedclient.RecordDesktopDiagnostic(*home, data)
+	}
+	if args[0] == "log-settings" {
+		root := filepath.Join(*home, ".agent-manager")
+		var value managedclient.LogSettings
+		var err error
+		if *logDays != 0 {
+			value, err = managedclient.SaveLogSettings(root, *logDays)
+		} else {
+			value, err = managedclient.ReadLogSettings(root)
+		}
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(value)
+	}
+	if args[0] == "export-diagnostics" {
+		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		if *outputDir == "" {
+			*outputDir = filepath.Join(*home, "Downloads")
+		}
+		if *logDays == 0 {
+			*logDays = 3
+			settings, err := managedclient.ReadLogSettings(filepath.Join(*home, ".agent-manager"))
+			if err != nil {
+				return err
+			}
+			if *logDays > settings.RetentionDays {
+				*logDays = settings.RetentionDays
+			}
+		}
+		path, err := store.ExportDiagnostics(*outputDir, *logDays)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{"path": path})
 	}
 	config, err := managedclient.LoadConfig(*home)
 	if err != nil {
@@ -188,6 +244,13 @@ func run(args []string) error {
 		return nil
 	}
 	if args[0] == "backups" {
+		if *backup != "" {
+			items, err := managedclient.PlanBackupRestore(*home, *backup)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(os.Stdout).Encode(items)
+		}
 		items, err := managedclient.ListBackups(*home)
 		if err != nil {
 			return err
@@ -638,6 +701,13 @@ func run(args []string) error {
 			return err
 		}
 		defer releaseLock()
+		if args[0] == "run" {
+			stopCapture, err := managedclient.CaptureDaemonOutput(*home)
+			if err != nil {
+				return err
+			}
+			defer stopCapture()
+		}
 		api := managedclient.NewAPI(*server, *token, 30*time.Second)
 		var watcher *managedclient.SkillWatcher
 		if args[0] == "run" {

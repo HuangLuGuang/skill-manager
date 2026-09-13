@@ -305,7 +305,7 @@
 
               <div class="advanced-subtitle">{{ $t('credentials.capacityAndSource') }}</div>
               <a-row :gutter="16">
-                <a-col v-if="form.token_type === 'scanner'" :xs="24" :md="12">
+                <a-col v-if="['scanner', 'client'].includes(form.token_type)" :xs="24" :md="12">
                   <a-form-item :label="$t('credentials.maxUploadMb')">
                     <a-input-number v-model:value="form.max_upload_mb" :min="1" :max="10240" style="width: 100%" />
                   </a-form-item>
@@ -410,7 +410,7 @@ const form = reactive({
   allowed_ips: [],
   max_body_kb: 1024,
   max_concurrent_requests: 5,
-  max_upload_mb: 50,
+  max_upload_mb: 100,
   max_concurrent_jobs: 2,
   enable_compression: false,
   compression_level: 'auto',
@@ -556,6 +556,7 @@ const securityBoundary = record => {
     details.push(t('credentials.scannerLimitsValue', { upload: record.max_upload_mb, jobs: record.max_concurrent_jobs, source }))
   } else {
     details.push(t('credentials.requestLimitsValue', { body: record.max_body_kb, requests: record.max_concurrent_requests, source }))
+    if (record.token_type === 'client') details.push(t('credentials.clientUploadLimit', { upload: record.max_upload_mb }))
   }
   if ((record.scopes || []).includes('model:chat')) {
     details.push(t('credentials.promptGuardValue', { mode: promptGuardLabel(record.prompt_guard_mode) }))
@@ -607,7 +608,7 @@ const resetForm = (tokenType, defaults = {}) => {
     allowed_ips: [],
     max_body_kb: 1024,
     max_concurrent_requests: 5,
-    max_upload_mb: 50,
+    max_upload_mb: 100,
     max_concurrent_jobs: 2,
     enable_compression: false,
     compression_level: 'auto',

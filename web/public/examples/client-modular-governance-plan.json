@@ -4,9 +4,15 @@
   "client": {
     "name": "training-workstation-01",
     "governance_mode": "strict",
-    "policy_rollout": [
-      "audit",
-      "repair"
+    "classification_rollout": [
+      {
+        "trigger": "trusted_content_changed",
+        "action": "record_only"
+      },
+      {
+        "trigger": "trusted_content_changed",
+        "action": "restore_trusted"
+      }
     ]
   },
   "agent_bindings": [
@@ -36,5 +42,6 @@
     "A modification to one managed Skill creates an event for that Skill and Agent.",
     "Repair restores the approved version without changing the other Agent root.",
     "Shared roots remain visibly separate from Agent identity and authorization."
-  ]
+  ],
+  "usage": "Illustrative exercise plan, not an importable client configuration."
 }

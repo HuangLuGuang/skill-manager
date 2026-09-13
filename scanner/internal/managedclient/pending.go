@@ -69,7 +69,12 @@ func SubmitPending(ctx context.Context, home, server, token string, store *Store
 	if err := packager.CreateZip(skillRoot, value, zipPath); err != nil {
 		return scannerclient.SubmitResult{}, err
 	}
-	payload, err := json.Marshal(value)
+	// The platform rebuilds file hashes from the ZIP and checks this fingerprint.
+	// Keep the multipart field small even for Skills with many template files.
+	submissionManifest := value
+	submissionManifest.Files = nil
+	submissionManifest.Root = ""
+	payload, err := json.Marshal(submissionManifest)
 	if err != nil {
 		return scannerclient.SubmitResult{}, err
 	}
@@ -237,6 +242,27 @@ func ReconcileApprovedPending(ctx context.Context, home string, api API, store *
 	return changed, nil
 }
 
+func pendingOriginalPath(item PendingItem, agent Agent) string {
+	if item.OriginalPath != "" {
+		return item.OriginalPath
+	}
+	if item.Reason != "legacy_pending" || !validInstallComponent(item.SkillName) {
+		return ""
+	}
+	roots := map[string]string{}
+	for _, root := range agentSkillRoots(agent) {
+		if filepath.IsAbs(root) {
+			roots[canonicalExistingPath(root)] = root
+		}
+	}
+	if len(roots) == 1 {
+		for _, root := range roots {
+			return filepath.Join(root, item.SkillName)
+		}
+	}
+	return ""
+}
+
 func installApprovedPending(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, item PendingItem, managedAgentID string) error {
 	ctx, release, err := withMutationLock(ctx, home)
 	if err != nil {
@@ -244,7 +270,18 @@ func installApprovedPending(ctx context.Context, home string, inventory Inventor
 	}
 	defer release()
 	agent, ok := findAgent(inventory, item.AgentType)
-	if !ok || item.OriginalPath == "" {
+	if !ok {
+		return fmt.Errorf("skill_target_unavailable")
+	}
+	if item.OriginalPath == "" {
+		item.OriginalPath = pendingOriginalPath(item, agent)
+		if item.OriginalPath != "" {
+			if _, err := store.db.Exec(`UPDATE client_pending SET original_path=? WHERE id=? AND original_path=''`, item.OriginalPath, item.ID); err != nil {
+				return err
+			}
+		}
+	}
+	if item.OriginalPath == "" {
 		return fmt.Errorf("skill_target_unavailable")
 	}
 	root := filepath.Dir(item.OriginalPath)

@@ -36,6 +36,7 @@ func inventoryRevision(inventory Inventory) string {
 }
 
 func syncError(store *Store, kind string, err error) {
+	logSyncTransition(store, kind, err)
 	detail := ""
 	if err != nil {
 		detail = err.Error()
@@ -111,9 +112,22 @@ func syncInventoryOnce(ctx context.Context, home string, api API, store *Store) 
 // RunDaemon separates liveness, task receipt, discovery and file work. Only
 // the worker executes actions, while network synchronization keeps running.
 func RunDaemon(ctx context.Context, home string, api API, store *Store, interval time.Duration, watcher *SkillWatcher) error {
+	api = api.WithDiagnostics(store)
 	if interval <= 0 {
 		interval = 5 * time.Minute
 	}
+	startup := map[string]any{"client_id": clientIDForHome(home), "patrol_interval_ms": interval.Milliseconds(), "version": Version, "pid": os.Getpid(), "started_at": time.Now().Format(time.RFC3339Nano)}
+	if data, err := json.Marshal(startup); err == nil {
+		_ = store.SetState("diagnostics:daemon", string(data))
+	}
+	store.LogDiagnostic("info", "daemon", "started", startup)
+	defer func() {
+		startup["stopped_at"] = time.Now().Format(time.RFC3339Nano)
+		if data, err := json.Marshal(startup); err == nil {
+			_ = store.SetState("diagnostics:daemon", string(data))
+		}
+		store.LogDiagnostic("info", "daemon", "stopped", startup)
+	}()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var workers sync.WaitGroup
@@ -171,7 +185,11 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 			}
 		}()
 	}
-	periodic(interval, "heartbeat", func(request context.Context) error { return heartbeatOnce(request, home, api, store) })
+	heartbeatInterval := interval
+	if heartbeatInterval > 10*time.Second {
+		heartbeatInterval = 10 * time.Second
+	}
+	periodic(heartbeatInterval, "heartbeat", func(request context.Context) error { return heartbeatOnce(request, home, api, store) })
 	periodic(10*time.Second, "scan_progress", func(request context.Context) error {
 		changed, terminal, err := refreshBackgroundScans(request, api, store)
 		if err != nil {
@@ -321,7 +339,9 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		}
 		autoChanged, autoErr := ReconcileApprovedPending(request, home, api, store, inventory, policy)
 		syncError(store, "auto_install", autoErr)
-		didWork = didWork || autoChanged
+		restored, restoreErr := ReconcileCertifiedQuarantine(request, home, api, store, inventory)
+		syncError(store, "auto_restore", restoreErr)
+		didWork = didWork || autoChanged || restored
 		if err == nil {
 			policy = cachedPolicy(store)
 			due, _ := store.Due("patrol:light", interval)

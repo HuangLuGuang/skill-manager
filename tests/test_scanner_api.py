@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import os
@@ -14,6 +15,7 @@ from agent_manager.api.router import get_manager
 from agent_manager.api.router import runtime_router as agent_runtime_router
 from agent_manager.api.scanner_router import (
     ScannerAuthContext,
+    _fingerprint_skill_dir,
     _scanner_release_dir,
     admin_router,
     get_scanner_import,
@@ -37,6 +39,32 @@ def _skill_zip() -> bytes:
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr("SKILL.md", "---\nname: api-skill\ndescription: API test\n---\n")
     return buffer.getvalue()
+
+
+def test_scanner_fingerprint_orders_relative_paths_like_go(tmp_path):
+    skill_dir = tmp_path / "skill"
+    contents = {
+        "SKILL.md": b"name: example\n",
+        "scripts/pptx_to_svg/__init__.py": b"package",
+        "scripts/pptx_to_svg.py": b"script",
+        "templates/a/item.svg": b"svg",
+        "templates/a-b.svg": b"sibling",
+        "templates/中文.svg": b"unicode",
+    }
+    expected_hash = hashlib.sha256()
+    for name in sorted(contents):
+        content = contents[name]
+        path = skill_dir / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        digest = hashlib.sha256(content).hexdigest()
+        expected_hash.update(f"{name}\0{len(content)}\0{digest}\0".encode())
+    expected = "sha256:" + expected_hash.hexdigest()
+    result = _fingerprint_skill_dir(skill_dir)
+    assert result["fingerprint"] == expected
+    assert [item["path"] for item in result["files"]] == sorted(contents)
+    (skill_dir / "scripts/pptx_to_svg.py").write_bytes(b"changed")
+    assert _fingerprint_skill_dir(skill_dir)["fingerprint"] != expected
 
 
 def test_scanner_import_requires_token(tmp_path):

@@ -20,9 +20,11 @@ func RunFullScan(ctx context.Context, home string, api API, store *Store) error 
 }
 
 func runOnce(ctx context.Context, home string, api API, store *Store, forceFullScan bool) error {
+	api = api.WithDiagnostics(store)
 	if err := store.ResetPatrolFindings(); err != nil {
 		return err
 	}
+	discoveryBefore, _ := json.Marshal(discoveryCatalog(home))
 	inventory, err := Discover(home)
 	if err != nil {
 		return err
@@ -50,6 +52,19 @@ func runOnce(ctx context.Context, home string, api API, store *Store, forceFullS
 			}
 		}
 	}
+	discoveryAfter, _ := json.Marshal(discoveryCatalog(home))
+	if string(discoveryBefore) != string(discoveryAfter) {
+		inventory, err = Discover(home)
+		if err != nil {
+			return err
+		}
+		if err := store.EnrichInventory(&inventory); err != nil {
+			return err
+		}
+		if err := store.SaveInventory(inventory); err != nil {
+			return err
+		}
+	}
 	if !online {
 		body, ok, stateErr := store.State("policy")
 		if stateErr != nil {
@@ -74,6 +89,8 @@ func runOnce(ctx context.Context, home string, api API, store *Store, forceFullS
 	}
 	if online {
 		_, _ = ReconcileApprovedPending(ctx, home, api, store, inventory, policy)
+		_, restoreErr := ReconcileCertifiedQuarantine(ctx, home, api, store, inventory)
+		syncError(store, "auto_restore", restoreErr)
 	}
 	fullInterval := time.Duration(policy.FullScanSeconds) * time.Second
 	if fullInterval <= 0 {
@@ -161,7 +178,9 @@ func PollTasks(ctx context.Context, home string, api API, store *Store) error {
 	if pendingErr != nil {
 		return pendingErr
 	}
-	if len(tasks) == 0 && !pendingChanged {
+	restored, restoreErr := ReconcileCertifiedQuarantine(ctx, home, api, store, inventory)
+	syncError(store, "auto_restore", restoreErr)
+	if len(tasks) == 0 && !pendingChanged && !restored {
 		return nil
 	}
 	fresh, err := Discover(home)
@@ -175,6 +194,7 @@ func PollTasks(ctx context.Context, home string, api API, store *Store) error {
 
 func executeTasks(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, tasks []Task) error {
 	for _, task := range tasks {
+		ctx = context.WithValue(ctx, diagnosticContextKey{}, map[string]any{"task_id": task.ID, "task_type": task.TaskType})
 		completed, err := store.TaskCompleted(task.ID)
 		if err != nil {
 			return err
@@ -546,6 +566,47 @@ func installApprovedSkillVersion(ctx context.Context, home string, inventory Inv
 	if err := store.ResolvePendingForInstall(agentType, manifest.Name, link); err != nil {
 		return err
 	}
+	if classificationEnabled(policy) {
+		installed := Skill{Name: manifest.Name, Path: link, Signature: manifest.ContentSignature}
+		if err := checkObservedContent(installed); err != nil {
+			return err
+		}
+		agent.Skills = []Skill{installed}
+		checkInventory := inventory
+		checkInventory.Agents = []Agent{agent}
+		comparisons, compareErr := api.Compare(ctx, checkInventory, map[string]string{agentType: managedAgentID})
+		confirmed := false
+		if compareErr == nil {
+			for _, comparison := range comparisons {
+				if comparison.AgentType != agentType || comparison.LocalPath != link || comparison.LocalSignature != installed.Signature {
+					continue
+				}
+				if err := checkObservedContent(installed); err != nil {
+					return err
+				}
+				previous, err := store.Observation(link)
+				if err != nil {
+					return err
+				}
+				value := classifyObservation(SkillObservation{
+					TrustedSignature: previous.TrustedSignature,
+					TrustedSkillID:   previous.TrustedSkillID,
+					TrustedVersionID: previous.TrustedVersionID,
+				}, installed, &comparison)
+				value.PolicyVersion = policy.Classification.Version
+				if err := store.SaveObservation(link, value); err != nil {
+					return err
+				}
+				confirmed = value.Certification == "certified"
+				break
+			}
+		}
+		if !confirmed {
+			if err := RequestFullScan(home); err != nil {
+				return err
+			}
+		}
+	}
 	_ = reportEvent(ctx, api, store, inventory.ClientID, "skill_installed", agentType, manifest.Name, map[string]any{
 		"skill_id": skillID, "version_id": manifest.VersionID, "version_no": manifest.VersionNo,
 		"backup_paths": backupPaths, "policy_version": policyVersion,
@@ -569,7 +630,18 @@ func brokenManagedSymlink(home, link string) bool {
 	return false
 }
 
-func patrol(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, fullScan, online bool) error {
+func patrol(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, fullScan, online bool) (patrolErr error) {
+	started := time.Now()
+	defer func() {
+		fields := map[string]any{"client_id": inventory.ClientID, "full_scan": fullScan, "online": online, "duration_ms": time.Since(started).Milliseconds(), "status": "succeeded"}
+		level := "info"
+		if patrolErr != nil {
+			level = "error"
+			fields["status"] = "failed"
+			fields["error"] = patrolErr.Error()
+		}
+		store.LogDiagnostic(level, "patrol", "finished", fields)
+	}()
 	if classificationEnabled(policy) {
 		return patrolClassified(ctx, home, inventory, policy, api, store, online)
 	}
@@ -1016,6 +1088,10 @@ func reportEvent(ctx context.Context, api API, store *Store, clientID, eventType
 	if details == nil {
 		details = map[string]any{}
 	}
+	if _, ok := details["last_seen_at"]; !ok {
+		details["last_seen_at"] = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	store.LogDiagnostic("info", "governance", eventType, map[string]any{"client_id": clientID, "agent_type": agentType, "skill_name": skillName, "details": details})
 	if notification, ok := notificationForEvent(eventType, agentType, skillName, details); ok {
 		_ = store.RecordNotification(notification)
 	}

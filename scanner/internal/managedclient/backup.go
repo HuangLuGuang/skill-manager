@@ -73,9 +73,9 @@ func PlanBackupRestore(home, name string) ([]BackupRestoreItem, error) {
 		return nil, fmt.Errorf("backup not found: %s", name)
 	}
 	roots := map[string]string{}
-	for _, spec := range adapters() {
+	for _, spec := range adaptersForHome(home) {
 		if spec.supportsSkill && len(spec.skillRoots) > 0 {
-			roots[spec.agentType] = filepath.Join(home, filepath.FromSlash(spec.skillRoots[0]))
+			roots[spec.agentType] = resolveSkillRoot(home, spec.skillRoots[0])
 		}
 	}
 	config, err := LoadConfig(home)
