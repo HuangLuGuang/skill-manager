@@ -5,7 +5,7 @@ from typing import Any, AsyncIterator
 
 
 RESPONSES_REQUEST_FIELDS = {
-    "background", "conversation", "include", "input", "instructions", "max_output_tokens",
+    "background", "client_metadata", "conversation", "include", "input", "instructions", "max_output_tokens",
     "metadata", "model", "parallel_tool_calls", "previous_response_id", "prompt",
     "prompt_cache_key", "prompt_cache_retention", "reasoning", "safety_identifier",
     "service_tier", "store", "stream", "stream_options", "temperature", "text",
@@ -19,6 +19,11 @@ def responses_to_openai_request(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"Unsupported Responses API fields: {', '.join(unknown)}")
     if "input" not in payload:
         raise ValueError("Responses API field 'input' is required")
+    for field in ("previous_response_id", "conversation", "prompt"):
+        if payload.get(field):
+            raise ValueError(f"Responses API field '{field}' requires server-side state; send the full input history")
+    if payload.get("background") or payload.get("store"):
+        raise ValueError("This gateway supports foreground, stateless Responses requests; use background=false and store=false")
     messages: list[dict[str, Any]] = []
     instructions = payload.get("instructions")
     if isinstance(instructions, str) and instructions:
@@ -34,7 +39,7 @@ def responses_to_openai_request(payload: dict[str, Any]) -> dict[str, Any]:
         "model": payload.get("model"),
         "messages": messages,
         "stream": bool(payload.get("stream", False)),
-        "metadata": dict(payload.get("metadata") or {}),
+        "metadata": {**dict(payload.get("client_metadata") or {}), **dict(payload.get("metadata") or {})},
     }
     for source, target in {
         "max_output_tokens": "max_completion_tokens", "temperature": "temperature",
@@ -43,7 +48,9 @@ def responses_to_openai_request(payload: dict[str, Any]) -> dict[str, Any]:
         if payload.get(source) is not None:
             result[target] = payload[source]
     if payload.get("service_tier") is not None:
-        result["serviceTier"] = payload["service_tier"]
+        result["service_tier"] = payload["service_tier"]
+    if payload.get("parallel_tool_calls") is not None:
+        result["parallel_tool_calls"] = payload["parallel_tool_calls"]
     if payload.get("stream_options") is not None:
         result["stream_options"] = payload["stream_options"]
     reasoning = payload.get("reasoning")
@@ -54,6 +61,8 @@ def responses_to_openai_request(payload: dict[str, Any]) -> dict[str, Any]:
         if text.get("verbosity") is not None:
             result["verbosity"] = text["verbosity"]
         text_format = text.get("format")
+        if isinstance(text_format, dict) and text_format.get("type") in {"text", "json_object"}:
+            result["response_format"] = {"type": text_format["type"]}
         if isinstance(text_format, dict) and text_format.get("type") == "json_schema":
             result["response_format"] = {
                 "type": "json_schema",
@@ -115,8 +124,10 @@ def _append_response_input(messages: list[dict[str, Any]], items: list[Any]) -> 
                 "role": "tool", "tool_call_id": item.get("call_id"),
                 "content": _response_content_to_text(item.get("output", "")),
             })
-        elif item_type in {"reasoning", "item_reference"}:
+        elif item_type == "reasoning":
             continue
+        elif item_type == "item_reference":
+            raise ValueError("Responses item_reference requires server-side state; send the full input item")
         else:
             raise ValueError(f"Unsupported Responses API input item type: {item_type}")
 
@@ -209,7 +220,7 @@ def response_tool_kinds(payload: dict[str, Any]) -> dict[str, dict[str, str]]:
 def _response_tool_choice_to_openai(tool_choice: Any) -> Any:
     if isinstance(tool_choice, str):
         return tool_choice
-    if isinstance(tool_choice, dict) and tool_choice.get("type") == "function":
+    if isinstance(tool_choice, dict) and tool_choice.get("type") in {"function", "custom"}:
         return {"type": "function", "function": {"name": tool_choice.get("name")}}
     raise ValueError("Unsupported Responses API tool_choice")
 
@@ -246,20 +257,28 @@ def openai_to_responses_response(payload: dict[str, Any], tool_kinds: dict[str, 
     usage = payload.get("usage") or {}
     input_tokens = int(usage.get("prompt_tokens") or 0)
     output_tokens = int(usage.get("completion_tokens") or 0)
-    return {"id": f"resp_{uuid.uuid4().hex}", "object": "response", "created_at": int(payload.get("created") or time.time()), "status": "completed", "error": None, "incomplete_details": None, "model": payload.get("model"), "output": output, "parallel_tool_calls": True, "tool_choice": "auto", "tools": [], "usage": {"input_tokens": input_tokens, "input_tokens_details": {"cached_tokens": 0}, "output_tokens": output_tokens, "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": int(usage.get("total_tokens") or input_tokens + output_tokens)}}
+    result = {"id": f"resp_{uuid.uuid4().hex}", "object": "response", "created_at": int(payload.get("created") or time.time()), "status": "completed", "error": None, "incomplete_details": None, "model": payload.get("model"), "output": output, "parallel_tool_calls": True, "tool_choice": "auto", "tools": [], "usage": {"input_tokens": input_tokens, "input_tokens_details": {"cached_tokens": 0}, "output_tokens": output_tokens, "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": int(usage.get("total_tokens") or input_tokens + output_tokens)}}
+
+    if choice.get("finish_reason") == "length":
+        result["status"] = "incomplete"
+        result["incomplete_details"] = {"reason": "max_output_tokens"}
+    return result
 
 
 async def openai_stream_to_responses(chunks: Any, model: str | None, tool_kinds: dict[str, dict[str, str]] | None = None) -> AsyncIterator[str]:
     response_id = f"resp_{uuid.uuid4().hex}"
     message_id = f"msg_{uuid.uuid4().hex}"
     response = _stream_response(response_id, model, "in_progress", [])
-    yield _sse("response.created", {"type": "response.created", "response": response})
-    yield _sse("response.in_progress", {"type": "response.in_progress", "response": response})
+    yield _sse("response.created", {"type": "response.created", "response": response, "sequence_number": 0})
+    yield _sse("response.in_progress", {"type": "response.in_progress", "response": response, "sequence_number": 1})
     buffer, text_started = "", False
     text_parts: list[str] = []
     tools: dict[int, dict[str, Any]] = {}
     usage: dict[str, Any] = {}
-    sequence = 0
+    sequence = 2
+    next_output_index = 0
+    text_index = 0
+    finish_reason = None
     async for chunk in chunks:
         buffer += chunk.decode("utf-8") if isinstance(chunk, bytes) else str(chunk)
         while "\n\n" in buffer:
@@ -299,16 +318,21 @@ async def openai_stream_to_responses(chunks: Any, model: str | None, tool_kinds:
             if isinstance(payload.get("usage"), dict):
                 usage.update(payload["usage"])
             for choice in payload.get("choices") or []:
+                finish_reason = choice.get("finish_reason") or finish_reason
                 delta = choice.get("delta") or {}
                 value = delta.get("content")
                 if isinstance(value, str) and value:
                     if not text_started:
                         text_started = True
+                        text_index = next_output_index
+                        next_output_index += 1
                         item = {"id": message_id, "type": "message", "status": "in_progress", "role": "assistant", "content": []}
-                        yield _sse("response.output_item.added", {"type": "response.output_item.added", "output_index": 0, "item": item, "sequence_number": sequence})
+                        yield _sse("response.output_item.added", {"type": "response.output_item.added", "output_index": text_index, "item": item, "sequence_number": sequence})
+                        sequence += 1
+                        yield _sse("response.content_part.added", {"type": "response.content_part.added", "item_id": message_id, "output_index": text_index, "content_index": 0, "part": {"type": "output_text", "text": "", "annotations": [], "logprobs": []}, "sequence_number": sequence})
                         sequence += 1
                     text_parts.append(value)
-                    yield _sse("response.output_text.delta", {"type": "response.output_text.delta", "item_id": message_id, "output_index": 0, "content_index": 0, "delta": value, "logprobs": [], "sequence_number": sequence})
+                    yield _sse("response.output_text.delta", {"type": "response.output_text.delta", "item_id": message_id, "output_index": text_index, "content_index": 0, "delta": value, "logprobs": [], "sequence_number": sequence})
                     sequence += 1
                 for tool_call in delta.get("tool_calls") or []:
                     index = int(tool_call.get("index") or 0)
@@ -320,28 +344,46 @@ async def openai_stream_to_responses(chunks: Any, model: str | None, tool_kinds:
                         current["name"] = function["name"]
                     if current["name"] and not current["started"]:
                         current["started"] = True
-                        yield _sse("response.output_item.added", {"type": "response.output_item.added", "output_index": (1 if text_started else 0) + index, "item": _tool_item(current["name"], "", current["call_id"], tool_kinds, status="in_progress", item_id=current["id"]), "sequence_number": sequence})
+                        current["output_index"] = next_output_index
+                        next_output_index += 1
+                        yield _sse("response.output_item.added", {"type": "response.output_item.added", "output_index": current["output_index"], "item": _tool_item(current["name"], "", current["call_id"], tool_kinds, status="in_progress", item_id=current["id"]), "sequence_number": sequence})
                         sequence += 1
                     arguments = function.get("arguments")
                     if isinstance(arguments, str) and arguments:
                         current["arguments"] += arguments
                         if (tool_kinds or {}).get(current["name"], {}).get("type") != "custom":
-                            yield _sse("response.function_call_arguments.delta", {"type": "response.function_call_arguments.delta", "item_id": current["id"], "output_index": (1 if text_started else 0) + index, "delta": arguments, "sequence_number": sequence})
+                            yield _sse("response.function_call_arguments.delta", {"type": "response.function_call_arguments.delta", "item_id": current["id"], "output_index": current["output_index"], "delta": arguments, "sequence_number": sequence})
                             sequence += 1
     output: list[dict[str, Any]] = []
     if text_started:
         text = "".join(text_parts)
         message_item = {"id": message_id, "type": "message", "status": "completed", "role": "assistant", "content": [{"type": "output_text", "text": text, "annotations": [], "logprobs": []}]}
-        yield _sse("response.output_item.done", {"type": "response.output_item.done", "output_index": 0, "item": message_item, "sequence_number": sequence})
+        yield _sse("response.output_text.done", {"type": "response.output_text.done", "item_id": message_id, "output_index": text_index, "content_index": 0, "text": text, "logprobs": [], "sequence_number": sequence})
+        sequence += 1
+        yield _sse("response.content_part.done", {"type": "response.content_part.done", "item_id": message_id, "output_index": text_index, "content_index": 0, "part": message_item["content"][0], "sequence_number": sequence})
+        sequence += 1
+        yield _sse("response.output_item.done", {"type": "response.output_item.done", "output_index": text_index, "item": message_item, "sequence_number": sequence})
         sequence += 1
         output.append(message_item)
     for index, current in sorted(tools.items()):
-        output_index = (1 if text_started else 0) + index
+        output_index = current["output_index"]
         item = _tool_item(current["name"], current["arguments"], current["call_id"], tool_kinds, item_id=current["id"])
+        custom = item["type"] == "custom_tool_call"
+        event_type = "response.custom_tool_call_input.done" if custom else "response.function_call_arguments.done"
+        yield _sse(event_type, {"type": event_type, "item_id": current["id"], "output_index": output_index,
+                                "input" if custom else "arguments": item["input"] if custom else item["arguments"], "sequence_number": sequence})
+        sequence += 1
         yield _sse("response.output_item.done", {"type": "response.output_item.done", "output_index": output_index, "item": item, "sequence_number": sequence})
         sequence += 1
         output.append(item)
-    yield _sse("response.completed", {"type": "response.completed", "response": _stream_response(response_id, model, "completed", output, usage), "sequence_number": sequence})
+    positions = {message_id: text_index, **{item["id"]: item["output_index"] for item in tools.values()}}
+    output.sort(key=lambda item: positions[item["id"]])
+    status = "incomplete" if finish_reason == "length" else "completed"
+    final = _stream_response(response_id, model, "completed", output, usage)
+    final["status"] = status
+    if status == "incomplete":
+        final["incomplete_details"] = {"reason": "max_output_tokens"}
+    yield _sse(f"response.{status}", {"type": f"response.{status}", "response": final, "sequence_number": sequence})
 
 
 def _stream_response(

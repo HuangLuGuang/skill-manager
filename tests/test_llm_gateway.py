@@ -495,6 +495,7 @@ def test_upstream_urls_append_only_the_protocol_endpoint():
 @pytest.mark.parametrize("api_format,base_url", [
     ("openai", "https://provider.example/v1/chat/completions"),
     ("anthropic", "https://provider.example/v1/messages"),
+    ("responses_api", "https://provider.example/v1/responses"),
 ])
 def test_discover_provider_models_pagination_and_credentials(tmp_path, monkeypatch, api_format, base_url):
     client, _, factory = _client(tmp_path, monkeypatch)
@@ -634,10 +635,213 @@ def test_model_provider_test_runs_real_completion_with_entered_model(tmp_path, m
     assert captured["payload"] == {
         "model": "provider-model",
         "messages": [{"role": "user", "content": "Reply with exactly OK."}],
-        "max_tokens": 8,
+        "max_tokens": 128,
         "stream": False,
     }
     assert captured["headers"]["authorization"] == "Bearer provider-key"
+
+
+@pytest.mark.parametrize("api_format,suffix", [("openai", "chat/completions"), ("anthropic", "messages"), ("responses_api", "responses")])
+@pytest.mark.parametrize("entry", ["chat/completions", "messages", "responses"])
+def test_gateway_protocol_matrix_preserves_privacy(tmp_path, monkeypatch, api_format, suffix, entry):
+    real_upstream = llm_gateway._call_upstream
+    client, token, factory = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(llm_gateway, "_call_upstream", real_upstream)
+    with factory() as db:
+        provider = db.get(models.ModelProvider, 1)
+        provider.api_format = api_format
+        db.commit()
+
+    class Upstream:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def post(self, url, *, json, headers):
+            assert url == f"http://mock.local/{suffix}"
+            assert headers["authorization"] == "Bearer provider-key"
+            serialized = str(json)
+            assert "jane@example.com" not in serialized
+            import re
+            masked = re.search(r"<EMAIL_ADDRESS:[^>]+>", serialized).group()
+            if api_format == "responses_api":
+                result = {"id": "resp-test", "status": "completed", "model": "mock-model", "output": [
+                    {"type": "message", "content": [{"type": "output_text", "text": masked}]}]}
+                assert "messages" not in json and json["store"] is False
+            elif api_format == "anthropic":
+                result = {"id": "msg-test", "model": "mock-model", "type": "message", "role": "assistant", "stop_reason": "end_turn",
+                          "content": [{"type": "text", "text": masked}], "usage": {"input_tokens": 2, "output_tokens": 1}}
+            else:
+                result = {"id": "chat-test", "model": "mock-model", "choices": [{"index": 0, "message": {"role": "assistant", "content": masked}}]}
+            return httpx.Response(200, json=result)
+
+    monkeypatch.setattr(llm_gateway.httpx, "AsyncClient", Upstream)
+    body = {"model": "mock-model", "max_tokens": 128, "messages": [{"role": "user", "content": "jane@example.com"}]}
+    if entry == "responses":
+        body = {"model": "mock-model", "input": "jane@example.com", "max_output_tokens": 128}
+    result = client.post(f"/v1/{entry}", json=body, headers={"Authorization": f"Bearer {token}"})
+    assert result.status_code == 200, result.text
+    assert "jane@example.com" in result.text and "<EMAIL_ADDRESS:" not in result.text
+
+
+@pytest.mark.parametrize("entry", ["chat/completions", "messages", "responses"])
+@pytest.mark.parametrize("protocol,suffix", [("openai", "chat/completions"), ("anthropic", "messages"), ("responses_api", "responses")])
+def test_upstream_stream_protocol_matrix_preserves_privacy(tmp_path, monkeypatch, entry, protocol, suffix):
+    client, token, factory = _client(tmp_path, monkeypatch)
+    with factory() as db:
+        db.get(models.ModelProvider, 1).api_format = protocol
+        db.query(models.ModelEndpoint).one().upstream_name = "shared-upstream"
+        db.commit()
+
+    class Stream:
+        def __init__(self, body):
+            import re
+            assert "jane@example.com" not in str(body)
+            masked = re.search(r"<EMAIL_ADDRESS:[^>]+>", str(body)).group()
+            self.events = [
+                {"type": "response.created", "response": {"id": "resp-stream", "model": "mock-model"}},
+                {"type": "response.output_text.delta", "delta": masked[:8]},
+                {"type": "response.output_text.delta", "delta": masked[8:]},
+                {"type": "response.completed", "response": {"id": "resp-stream", "model": "mock-model", "status": "completed", "output": [], "usage": {"input_tokens": 2, "output_tokens": 1}}},
+            ]
+            if protocol == "anthropic":
+                self.events = [
+                    {"type": "message_start", "message": {"id": "msg-test", "model": "shared-upstream", "usage": {"input_tokens": 2}}},
+                    {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": masked[:8]}},
+                    {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": masked[8:]}},
+                    {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}},
+                    {"type": "message_stop"},
+                ]
+            elif protocol == "openai":
+                self.events = [
+                    {"model": "shared-upstream", "choices": [{"index": 0, "delta": {"content": masked[:8]}}]},
+                    {"model": "shared-upstream", "choices": [{"index": 0, "delta": {"content": masked[8:]}}]},
+                    {"model": "shared-upstream", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3}},
+                ]
+
+        async def __aenter__(self):
+            text = "".join((f"event: {event['type']}\n" if protocol == "anthropic" else "") + f"data: {json.dumps(event)}\n\n" for event in self.events)
+            if protocol == "openai":
+                text += "data: [DONE]\n\n"
+            return httpx.Response(200, text=text)
+
+        async def __aexit__(self, *args):
+            pass
+
+    class Upstream:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def stream(self, method, url, *, json, **kwargs):
+            assert url == f"http://mock.local/{suffix}" and json["stream"] is True
+            assert json["model"] == "shared-upstream"
+            return Stream(json)
+
+    monkeypatch.setattr(llm_gateway.httpx, "AsyncClient", Upstream)
+    body = {"model": "mock-model", "max_tokens": 128, "stream": True, "messages": [{"role": "user", "content": "jane@example.com"}]}
+    if entry == "responses":
+        body = {"model": "mock-model", "stream": True, "input": "jane@example.com"}
+    result = client.post(f"/v1/{entry}", json=body, headers={"Authorization": f"Bearer {token}"})
+    assert result.status_code == 200
+    assert "jane@example.com" in result.text and "<EMAIL_ADDRESS:" not in result.text
+    assert "shared-upstream" not in result.text
+    with factory() as db:
+        audit = db.query(models.LlmRequestAudit).one()
+        assert audit.total_tokens == 3
+
+
+def test_provider_scoped_models_and_stable_gateway_names(tmp_path, monkeypatch):
+    client, token, factory = _client(tmp_path, monkeypatch)
+    client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(id=1, role="admin")
+    provider = client.post("/v1/model-providers", json={"name": "other", "base_url": "https://other.test/v1"}).json()
+    added = client.post("/v1/models", json={"provider_id": provider["id"], "upstream_name": "mock-model"})
+    assert added.status_code == 200, added.text
+    model = added.json()
+    assert model["name"] == "other/mock-model"
+    assert model["upstream_name"] == "mock-model"
+    assert model["provider_name"] == "other"
+    duplicate = client.post("/v1/models", json={"provider_id": provider["id"], "name": "different-alias", "upstream_name": "mock-model"})
+    assert duplicate.status_code == 409 and duplicate.json()["error_code"] == "model.provider_duplicate"
+    assert client.put(f"/v1/models/{model['id']}", json={"name": "changed"}).status_code == 422
+    headers = {"Authorization": f"Bearer {token}"}
+    listed = client.get("/v1/models", headers=headers).json()["data"]
+    assert [item["id"] for item in listed] == ["mock-model"]
+    blocked = client.post("/v1/chat/completions", headers=headers, json={"model": model["name"], "messages": [{"role": "user", "content": "Hi"}]})
+    assert blocked.status_code == 403
+    with factory() as db:
+        assert db.query(models.ModelEndpoint).filter_by(name="mock-model").one().provider_id == 1
+
+
+@pytest.mark.parametrize("api_format", ["openai", "anthropic", "responses_api"])
+def test_gateway_alias_routes_to_original_upstream_name(tmp_path, monkeypatch, api_format):
+    real_call = llm_gateway._call_upstream
+    client, token, factory = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(llm_gateway, "_call_upstream", real_call)
+    with factory() as db:
+        row = db.query(models.ModelEndpoint).one()
+        row.upstream_name = "shared-upstream"
+        db.get(models.ModelProvider, 1).api_format = api_format
+        db.commit()
+
+    class Upstream:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, url, *, json, headers):
+            assert json["model"] == "shared-upstream"
+            if api_format == "responses_api":
+                body = {"model": "shared-upstream", "status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": "OK"}]}]}
+            elif api_format == "anthropic":
+                body = {"model": "shared-upstream", "content": [{"type": "text", "text": "OK"}], "stop_reason": "end_turn"}
+            else:
+                body = {"model": "shared-upstream", "choices": [{"message": {"role": "assistant", "content": "OK"}}]}
+            return httpx.Response(200, json=body)
+    monkeypatch.setattr(llm_gateway.httpx, "AsyncClient", Upstream)
+    result = client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {token}"}, json={"model": "mock-model", "messages": [{"role": "user", "content": "Hi"}]})
+    assert result.status_code == 200, result.text
+    assert result.json()["model"] == "mock-model"
+    with factory() as db:
+        assert db.query(models.LlmRequestAudit).one().model == "mock-model"
+
+
+def test_responses_provider_create_update_and_inference_test(tmp_path, monkeypatch):
+    client, _, factory = _client(tmp_path, monkeypatch)
+    client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(id=1, role="admin")
+    created = client.post("/v1/model-providers", json={"name": "responses", "base_url": "https://example.test/v1", "api_format": "responses_api", "api_key": "private"})
+    assert created.status_code == 200 and created.json()["api_format"] == "responses_api"
+    assert "private" not in created.text
+    provider_id = created.json()["id"]
+    assert client.put(f"/v1/model-providers/{provider_id}", json={"api_format": "responses_api"}).status_code == 200
+
+    class Upstream:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def post(self, url, *, json, headers):
+            assert url == "https://example.test/v1/responses"
+            assert json["model"] == "chosen-model" and json["max_output_tokens"] == 128
+            return httpx.Response(200, json={"status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": "OK"}]}]})
+
+    monkeypatch.setattr(llm_gateway.httpx, "AsyncClient", Upstream)
+    result = client.post(f"/v1/model-providers/{provider_id}/test", json={"model": "chosen-model"})
+    assert result.status_code == 200 and result.json()["ok"] is True
 
 
 def test_model_provider_test_reports_upstream_404_as_failure(tmp_path, monkeypatch):
@@ -866,6 +1070,9 @@ def test_openai_models_endpoint_lists_allowed_models(tmp_path, monkeypatch):
                 "object": "model",
                 "created": response.json()["data"][0]["created"],
                 "owned_by": "agent-manager",
+                "provider_id": 1,
+                "provider_name": "mock",
+                "upstream_name": "mock-model",
             }
         ],
     }
@@ -2396,3 +2603,54 @@ def test_stream_ttft_ignores_control_chunks_and_accepts_text_or_tool_arguments()
     assert llm_gateway._stream_chunk_has_output({
         "choices": [{"delta": {"tool_calls": [{"function": {"arguments": "{"}}]}}],
     })
+
+
+def test_runtime_anthropic_catalog_pagination_and_model_detail(tmp_path, monkeypatch):
+    client, token, factory = _client(tmp_path, monkeypatch)
+    with factory() as db:
+        db.query(models.LlmApiKey).one().allowed_models_json = '[]'
+        db.add(models.ModelEndpoint(provider_id=1, name='other/shared-model', upstream_name='shared-model'))
+        db.commit()
+    headers = {'x-api-key': token, 'anthropic-version': '2023-06-01'}
+    first = client.get('/v1/models?limit=1', headers=headers).json()
+    assert first['has_more'] is True and first['first_id'] == 'mock-model'
+    assert first['data'][0]['type'] == 'model' and first['data'][0]['created_at'].endswith('Z')
+    second = client.get('/v1/models', params={'after_id': first['last_id'], 'limit': 1}, headers=headers).json()
+    assert second['last_id'] == 'other/shared-model' and second['has_more'] is False
+    previous = client.get('/v1/models', params={'before_id': second['first_id'], 'limit': 1}, headers=headers).json()
+    assert previous['data'] == first['data']
+    assert client.get('/v1/models/other/shared-model', headers=headers).json()['id'] == 'other/shared-model'
+    assert client.get('/models', headers=headers).json()['data'][0]['type'] == 'model'
+    assert client.get('/v1/models?limit=0', headers=headers).status_code == 400
+    bearer = {'Authorization': f'Bearer {token}'}
+    assert client.get('/v1/models', headers=bearer).json()['object'] == 'list'
+    assert client.get('/v1/models/other/shared-model', headers=bearer).json()['object'] == 'model'
+    with factory() as db:
+        db.query(models.LlmApiKey).one().allowed_models_json = '["mock-model"]'
+        db.commit()
+    assert client.get('/v1/models/other/shared-model', headers=headers).status_code == 404
+    with factory() as db:
+        db.get(models.ModelProvider, 1).enabled = False
+        db.commit()
+    assert client.get('/v1/models', headers=headers).json()['data'] == []
+
+
+def test_anthropic_token_count_is_local_bounded_and_authorized(tmp_path, monkeypatch):
+    client, token, factory = _client(tmp_path, monkeypatch, max_body_kb=1)
+    headers = {'x-api-key': token}
+    body = {'model': 'mock-model', 'messages': [{'role': 'user', 'content': 'hello'}]}
+    result = client.post('/v1/messages/count_tokens', json=body, headers=headers)
+    assert result.status_code == 200
+    assert result.json()['input_tokens'] > 0
+    assert result.headers['x-token-count-method'] == 'estimated-utf8'
+    body['messages'][0]['content'] = 'hello ' * 20
+    assert client.post('/v1/messages/count_tokens', json=body, headers=headers).json()['input_tokens'] > result.json()['input_tokens']
+    body['messages'][0]['content'] = 'x' * 2000
+    assert client.post('/v1/messages/count_tokens', json=body, headers=headers).status_code == 413
+    body['messages'][0]['content'] = 'hello'
+    body['model'] = 'not-allowed'
+    assert client.post('/v1/messages/count_tokens', json=body, headers=headers).status_code == 403
+    invalid = client.get('/v1/models', headers={'x-api-key': 'invalid'})
+    assert invalid.status_code == 401 and invalid.json()['type'] == 'error'
+    with factory() as db:
+        assert db.query(models.LlmRequestAudit).count() == 0

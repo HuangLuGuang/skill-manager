@@ -102,3 +102,46 @@ def test_responses_stream_emits_failed_event_for_upstream_error():
     assert '"code": "upstream_error"' in body
     assert '"message": "upstream unavailable"' in body
     assert "event: response.completed" not in body
+
+
+def test_responses_common_client_parameters_and_state_boundary():
+    body = responses_to_openai_request({'input':'hi', 'parallel_tool_calls':False, 'store':False, 'client_metadata': {'session_id': 'test'},
+                                        'text':{'format':{'type':'json_object'}}, 'service_tier':'auto'})
+    assert body['parallel_tool_calls'] is False
+    assert body['response_format'] == {'type':'json_object'}
+    assert body['service_tier'] == 'auto'
+    assert body['metadata']['session_id'] == 'test'
+    for field, value in [('previous_response_id','resp-old'), ('background',True), ('store',True)]:
+        with pytest.raises(ValueError):
+            responses_to_openai_request({'input':'hi', field:value})
+
+
+def test_responses_stream_sequences_and_truncation():
+    async def collect():
+        async def chunks():
+            yield 'data: {"choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":"length"}]}\n\n'
+            yield 'data: [DONE]\n\n'
+        return [json.loads(line[6:]) for event in [event async for event in openai_stream_to_responses(chunks(),'model')]
+                for line in event.splitlines() if line.startswith('data: ')]
+    events = asyncio.run(collect())
+    assert [event['sequence_number'] for event in events] == list(range(len(events)))
+    assert events[-1]['type'] == 'response.incomplete'
+    assert events[-1]['response']['incomplete_details']['reason'] == 'max_output_tokens'
+
+
+def test_responses_stream_preserves_item_indices_when_text_follows_tool():
+    async def collect():
+        async def chunks():
+            for delta in [
+                {'tool_calls': [{'index': 0, 'id': 'call-test', 'function': {'name': 'read_file', 'arguments': '{}'}}]},
+                {'content': 'Reading'},
+            ]:
+                yield 'data: ' + json.dumps({'choices':[{'index':0, 'delta':delta}]}) + '\n\n'
+        return [json.loads(line[6:]) for event in [event async for event in openai_stream_to_responses(chunks(),'model')]
+                for line in event.splitlines() if line.startswith('data: ')]
+    events = asyncio.run(collect())
+    added = {event['item']['id']: event['output_index'] for event in events if event['type'] == 'response.output_item.added'}
+    for event in events:
+        if event['type'] == 'response.output_item.done':
+            assert event['output_index'] == added[event['item']['id']]
+    assert [item['type'] for item in events[-1]['response']['output']] == ['function_call', 'message']

@@ -4,7 +4,7 @@
       <template #title>
         <a-page-header :title="$t('credentials.pageTitle')" :sub-title="$t('credentials.pageSubtitle')">
           <template #extra>
-            <a-button :loading="loading" @click="fetchTokens">{{ $t('credentials.refresh') }}</a-button>
+            <a-button :loading="loading || optionsLoading" @click="refreshAll">{{ $t('credentials.refresh') }}</a-button>
             <a-button v-if="hasAccess('credentials:create')" type="primary" @click="openCreate()">{{ $t('credentials.createAction') }}</a-button>
           </template>
         </a-page-header>
@@ -193,7 +193,7 @@
               </a-col>
               <a-col v-if="form.token_type === 'agent_runtime'" :xs="24" :md="12">
                 <a-form-item :label="$t('credentials.boundAgent')" required>
-                  <a-select
+                  <a-select :get-popup-container="trigger => trigger.parentElement"
                     v-model:value="form.bound_agent_id"
                     show-search
                     allow-clear
@@ -248,15 +248,16 @@
             <a-row :gutter="16">
               <a-col v-if="supportsModels" :xs="24" :md="supportsMcp ? 12 : 24">
                 <a-form-item :label="$t(form.token_type === 'client' ? 'credentials.clientDelegatedModels' : 'credentials.allowedModels')">
-                  <a-select v-model:value="form.allowed_models" mode="multiple" allow-clear :placeholder="$t('credentials.allowedModelsPlaceholder')">
-                    <a-select-option v-for="model in models" :key="model.name" :value="model.name">{{ model.display_name || model.name }}</a-select-option>
-                  </a-select>
+                  <a-select :get-popup-container="trigger => trigger.parentElement" v-model:value="form.allowed_models" mode="multiple" allow-clear
+                    :loading="optionsLoading" :options="modelOptions" option-label-prop="selectionLabel" :filter-option="filterModelOption"
+                    :placeholder="$t('credentials.allowedModelsPlaceholder')" />
+                  <div class="field-hint">{{ $t('credentials.oneProviderPerModel') }}</div>
                   <div class="field-hint">{{ $t(form.token_type === 'client' ? 'credentials.clientDelegatedModelsHint' : 'credentials.allModelsHint') }}</div>
                 </a-form-item>
               </a-col>
               <a-col v-if="supportsMcp" :xs="24" :md="supportsModels ? 12 : 24">
                 <a-form-item :label="$t('credentials.allowedGateways')" required>
-                  <a-select v-model:value="form.allowed_mcp_gateways" mode="multiple" allow-clear :placeholder="$t('credentials.allowedGatewaysPlaceholder')">
+                  <a-select :get-popup-container="trigger => trigger.parentElement" v-model:value="form.allowed_mcp_gateways" mode="multiple" allow-clear :placeholder="$t('credentials.allowedGatewaysPlaceholder')">
                     <a-select-option v-for="gateway in mcpGateways" :key="gateway.slug" :value="gateway.slug">
                       {{ gateway.name }}（{{ gateway.slug }}）
                     </a-select-option>
@@ -271,7 +272,7 @@
               <p class="advanced-intro">{{ $t('credentials.advancedDescription') }}</p>
 
               <a-form-item v-if="form.agent_preset === 'custom' || form.token_type !== 'agent_runtime'" :label="$t('credentials.rawPermissions')">
-                <a-select v-model:value="form.scopes" mode="multiple" style="width: 100%" @change="handleScopesChange">
+                <a-select :get-popup-container="trigger => trigger.parentElement" v-model:value="form.scopes" mode="multiple" style="width: 100%" @change="handleScopesChange">
                   <a-select-option v-for="scope in availableScopes" :key="scope" :value="scope">{{ scope }}</a-select-option>
                 </a-select>
                 <div class="field-hint">{{ $t('credentials.rawPermissionsHint') }}</div>
@@ -293,7 +294,7 @@
                   <a-col :xs="24" :md="12">
                     <a-form-item>
                       <a-checkbox v-model:checked="form.enable_compression">{{ $t('credentials.enableCompression') }}</a-checkbox>
-                      <a-select v-if="form.enable_compression" v-model:value="form.compression_level" style="margin-top: 8px">
+                      <a-select :get-popup-container="trigger => trigger.parentElement" v-if="form.enable_compression" v-model:value="form.compression_level" style="margin-top: 8px">
                         <a-select-option value="auto">{{ $t('credentials.compressionAuto') }}</a-select-option>
                         <a-select-option value="conservative">{{ $t('credentials.compressionConservative') }}</a-select-option>
                         <a-select-option value="aggressive">{{ $t('credentials.compressionAggressive') }}</a-select-option>
@@ -329,7 +330,7 @@
                 </template>
               </a-row>
               <a-form-item :label="$t('credentials.allowedIps')">
-                <a-select v-model:value="form.allowed_ips" mode="tags" :placeholder="$t('credentials.allowedIpsPlaceholder')" />
+                <a-select :get-popup-container="trigger => trigger.parentElement" v-model:value="form.allowed_ips" mode="tags" :placeholder="$t('credentials.allowedIpsPlaceholder')" />
                 <div class="field-hint">{{ $t('credentials.allowedIpsHint') }}</div>
               </a-form-item>
             </a-collapse-panel>
@@ -364,6 +365,7 @@
 </template>
 
 <script setup>
+import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess } from '../access'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -397,6 +399,25 @@ const actionId = ref(null)
 const tokens = ref([])
 const agents = ref([])
 const models = ref([])
+const optionsLoading = ref(false)
+const filterModelOption = (input, option) => (option.searchText || option.label || '').toLowerCase().includes(input.toLowerCase())
+const modelOptions = computed(() => {
+  const groups = new Map()
+  const selected = new Set(form.allowed_models)
+  const selectedUpstreams = new Set(models.value.filter(model => selected.has(model.name)).map(model => model.upstream_name || model.name))
+  for (const model of models.value) {
+    const provider = model.provider_id
+    if (!groups.has(provider)) groups.set(provider, { label: model.provider_name || String(provider), options: [] })
+    const upstream = model.upstream_name || model.name
+    groups.get(provider).options.push({
+      value: model.name, label: upstream,
+      selectionLabel: `${upstream} · ${model.provider_name || provider}`,
+      searchText: [upstream, model.display_name, model.provider_name, model.name].filter(Boolean).join(' '),
+      disabled: !selected.has(model.name) && selectedUpstreams.has(upstream),
+    })
+  }
+  return [...groups.values()]
+})
 const mcpGateways = ref([])
 const filters = reactive({ token_type: undefined })
 const form = reactive({
@@ -544,7 +565,7 @@ const lastActivity = record => record.last_used_at
   : t('credentials.neverUsed')
 const resourceBoundary = record => {
   const parts = []
-  if (record.allowed_models?.length) parts.push(t('credentials.modelsValue', { value: record.allowed_models.join(', ') }))
+  if (record.allowed_models?.length) parts.push(t('credentials.modelsValue', { value: record.allowed_models.map(name => modelLabel(models.value.find(model => model.name === name)) || name).join(', ') }))
   else if ((record.scopes || []).includes('model:chat')) parts.push(t('credentials.allModels'))
   if (record.allowed_mcp_gateways?.length) parts.push(t('credentials.gatewaysValue', { value: record.allowed_mcp_gateways.join(', ') }))
   return parts.join(' · ') || t('credentials.noResourceAllowlist')
@@ -639,6 +660,7 @@ const selectScenario = (scenarioId, defaults = {}) => {
   selectedScenarioId.value = scenarioId
   resetForm(scenario.tokenType, defaults)
   createStage.value = 'config'
+  void fetchOptions()
 }
 
 const fetchTokens = async () => {
@@ -653,11 +675,20 @@ const fetchTokens = async () => {
   }
 }
 const fetchOptions = async () => {
-  const [agentRows, modelRows, gatewayRows] = await Promise.all([listAgents(), listModelEndpoints(), listMcpGateways()])
-  agents.value = agentRows || []
-  models.value = modelRows || []
-  mcpGateways.value = gatewayRows || []
+  if (optionsLoading.value) return
+  optionsLoading.value = true
+  try {
+    const results = await Promise.allSettled([listAgents(), listModelEndpoints(), listMcpGateways()])
+    const targets = [agents, models, mcpGateways]
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') targets[index].value = result.value || []
+    })
+    if (results.some(result => result.status === 'rejected')) message.error(t('credentials.optionsLoadFailed'))
+  } finally {
+    optionsLoading.value = false
+  }
 }
+const refreshAll = () => Promise.all([fetchTokens(), fetchOptions()])
 const openCreateFromQuery = async () => {
   if (route.query.create !== 'agent_runtime') return
   const agentId = String(route.query.agent_id || '')

@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 from sqlalchemy import func, or_, update
 from sqlalchemy.orm import Session, object_session
+from sqlalchemy.exc import IntegrityError
 
 from .. import auth, models, schemas
 from ..anthropic_compat import (
@@ -44,6 +45,7 @@ from ..responses_compat import (
     response_tool_kinds,
     responses_to_openai_request,
 )
+from ..responses_upstream import ResponsesStreamAdapter, openai_to_responses_request, responses_to_openai_response
 from ..runtime_trace_schemas import RuntimeTraceInternalEvent
 from ..services import gateway_sessions
 from ..services.runtime_traces import best_effort_trace_publisher, ingest_transaction, publish_events_best_effort
@@ -515,6 +517,7 @@ def _model_response(db: Session, row: models.ModelEndpoint) -> schemas.ModelEndp
         provider_id=row.provider_id,
         provider_name=provider.name if provider else None,
         name=row.name,
+        upstream_name=row.upstream_name or row.name,
         display_name=row.display_name,
         enabled=row.enabled,
         context_window=row.context_window,
@@ -1244,6 +1247,11 @@ def _anthropic_url(base_url: str) -> str:
     return f"{base}/messages"
 
 
+def _responses_url(base_url: str) -> str:
+    base = base_url.rstrip("/")
+    return base if base.endswith("/responses") else f"{base}/responses"
+
+
 def _upstream_error_summary(response: httpx.Response) -> str:
     try:
         payload = response.json()
@@ -1264,9 +1272,22 @@ def _upstream_error_summary(response: httpx.Response) -> str:
 def _is_valid_provider_test_response(api_format: str, payload: Any) -> bool:
     if not isinstance(payload, dict):
         return False
+    if api_format == "responses_api":
+        try:
+            message = responses_to_openai_response(payload)["choices"][0]["message"]
+            return bool(message.get("content") or message.get("refusal") or message.get("tool_calls"))
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return False
     if api_format == "anthropic":
-        return isinstance(payload.get("content"), list)
-    return isinstance(payload.get("choices"), list) and bool(payload["choices"])
+        return isinstance(payload.get("content"), list) and any(
+            isinstance(part, dict) and (part.get("text") or part.get("type") == "tool_use")
+            for part in payload["content"]
+        )
+    return isinstance(payload.get("choices"), list) and any(
+        isinstance(choice, dict) and isinstance(choice.get("message"), dict) and
+        any(choice["message"].get(field) for field in ("content", "refusal", "tool_calls"))
+        for choice in payload["choices"]
+    )
 
 
 def _upstream_request(provider: models.ModelProvider, payload: dict[str, Any]) -> tuple[str, dict[str, Any], dict[str, str]]:
@@ -1284,6 +1305,13 @@ def _upstream_request(provider: models.ModelProvider, payload: dict[str, Any]) -
         upstream_payload = openai_to_anthropic_request(payload)
         upstream_payload.update(anthropic_options)
         return _anthropic_url(provider.base_url), upstream_payload, headers
+    if api_format == "responses_api":
+        try:
+            if anthropic_options:
+                payload["anthropic_options"] = anthropic_options
+            return _responses_url(provider.base_url), openai_to_responses_request(payload), headers
+        except (ValueError, KeyError, TypeError, AttributeError):
+            raise ApiError(422, "model_provider.unsupported_parameters", "当前供应商协议不支持请求中的参数或内容", "The provider protocol does not support the request parameters or content") from None
     return _chat_url(provider.base_url), payload, headers
 
 
@@ -1291,14 +1319,22 @@ async def _call_upstream(db: Session, model: models.ModelEndpoint, payload: dict
     provider = db.query(models.ModelProvider).filter(models.ModelProvider.id == model.provider_id).first()
     if not provider:
         raise HTTPException(status_code=400, detail="模型供应商不存在")
-    url, upstream_payload, headers = _upstream_request(provider, payload)
+    url, upstream_payload, headers = _upstream_request(provider, {**payload, "model": model.upstream_name or model.name})
     async with httpx.AsyncClient(timeout=provider.timeout_seconds) as client:
         response = await client.post(url, json=upstream_payload, headers=headers)
     if response.status_code >= 400:
         raise HTTPException(status_code=502, detail=f"上游模型接口失败: {response.status_code} {response.text[:500]}")
+    if getattr(provider, "api_format", "openai") == "responses_api":
+        try:
+            result = responses_to_openai_response(response.json())
+            result["model"] = model.name
+            return result
+        except (ValueError, KeyError, TypeError, AttributeError):
+            raise ApiError(502, "model_provider.invalid_response", "供应商返回了无效或失败的响应", "Provider returned an invalid or failed response") from None
     result = response.json()
     if (getattr(provider, "api_format", "openai") or "openai") == "anthropic":
-        return anthropic_to_openai_response(result)
+        result = anthropic_to_openai_response(result)
+    result["model"] = model.name
     return result
 
 
@@ -1344,6 +1380,7 @@ def _stream_chunk_has_output(chunk: dict[str, Any]) -> bool:
 
 async def _upstream_sse_data(upstream: httpx.Response, api_format: str):
     event = "message"
+    responses_adapter = ResponsesStreamAdapter() if api_format == "responses_api" else None
     async for line in upstream.aiter_lines():
         if not line:
             continue
@@ -1353,6 +1390,16 @@ async def _upstream_sse_data(upstream: httpx.Response, api_format: str):
         if not line.startswith("data:"):
             continue
         data = line[5:].strip()
+        if responses_adapter is not None:
+            if data == "[DONE]" and responses_adapter.completed:
+                continue
+            try:
+                parsed = json.loads(data)
+                for converted in responses_adapter.convert(parsed):
+                    yield converted if isinstance(converted, str) else json.dumps(converted, ensure_ascii=False)
+            except (ValueError, KeyError, TypeError, AttributeError):
+                raise ApiError(502, "model_provider.invalid_stream", "供应商流式响应无效或失败", "Provider stream was invalid or failed") from None
+            continue
         if api_format != "anthropic":
             yield data
             continue
@@ -1362,6 +1409,8 @@ async def _upstream_sse_data(upstream: httpx.Response, api_format: str):
             continue
         for converted in anthropic_stream_event_to_openai(event, parsed):
             yield converted if isinstance(converted, str) else json.dumps(converted, ensure_ascii=False)
+    if responses_adapter is not None and not responses_adapter.completed:
+        raise ApiError(502, "model_provider.incomplete_stream", "供应商流式响应提前结束", "Provider stream ended before completion")
 
 
 async def _stream_upstream(
@@ -1393,7 +1442,7 @@ async def _stream_upstream(
     provider = db.query(models.ModelProvider).filter(models.ModelProvider.id == model.provider_id).first()
     if not provider:
         raise HTTPException(status_code=400, detail="模型供应商不存在")
-    url, upstream_payload, headers = _upstream_request(provider, payload)
+    url, upstream_payload, headers = _upstream_request(provider, {**payload, "model": model.upstream_name or model.name})
     api_format = getattr(provider, "api_format", "openai") or "openai"
 
     masked_parts: dict[int, dict[str, list[str]]] = {}
@@ -1489,6 +1538,8 @@ async def _stream_upstream(
                             return
                         try:
                             chunk = json.loads(data)
+                            if "model" in chunk:
+                                chunk["model"] = model.name
                         except json.JSONDecodeError:
                             yield f"data: {data}\n\n"
                             continue
@@ -2044,7 +2095,7 @@ async def discover_provider_models(
     if not row:
         raise ApiError(404, "model.provider_not_found", "模型供应商不存在", "Model provider not found")
     base = row.base_url.rstrip("/")
-    for suffix in ("/chat/completions", "/messages"):
+    for suffix in ("/chat/completions", "/messages", "/responses"):
         if base.endswith(suffix):
             base = base[:-len(suffix)]
             break
@@ -2100,7 +2151,7 @@ async def test_model_provider(
         {
             "model": model_name,
             "messages": [{"role": "user", "content": "Reply with exactly OK."}],
-            "max_tokens": 8,
+            "max_tokens": 128,
             "stream": False,
         },
     )
@@ -2161,15 +2212,36 @@ async def create_model(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_admin_user),
 ):
-    if not db.query(models.ModelProvider).filter(models.ModelProvider.id == body.provider_id).first():
+    provider = db.get(models.ModelProvider, body.provider_id)
+    if not provider:
         raise HTTPException(status_code=404, detail="模型供应商不存在")
-    if db.query(models.ModelEndpoint).filter(models.ModelEndpoint.name == body.name).first():
-        raise HTTPException(status_code=400, detail="模型名称已存在")
+    upstream_name = (body.upstream_name or body.name or "").strip()
+    if not upstream_name:
+        raise ApiError(422, "model.upstream_required", "请输入上游模型名", "Enter an upstream model name")
+    if db.query(models.ModelEndpoint).filter(models.ModelEndpoint.provider_id == provider.id, func.coalesce(models.ModelEndpoint.upstream_name, models.ModelEndpoint.name) == upstream_name).first():
+        raise ApiError(409, "model.provider_duplicate", "当前供应商已添加该模型", "This provider already has this model")
+    name = (body.name or "").strip()
+    if not name:
+        name = upstream_name
+        if db.query(models.ModelEndpoint).filter_by(name=name).first():
+            prefix = re.sub(r"[^a-zA-Z0-9_-]+", "-", provider.name).strip("-") or f"provider-{provider.id}"
+            base = f"{prefix}/{upstream_name}"[:120]
+            name = base
+            counter = 2
+            while db.query(models.ModelEndpoint).filter_by(name=name).first():
+                name = f"{base}-{counter}"
+                counter += 1
+    elif db.query(models.ModelEndpoint).filter_by(name=name).first():
+        raise ApiError(409, "model.gateway_name_duplicate", "网关调用名称已存在，请使用其他名称", "Gateway model name already exists; choose another name")
     if body.is_default:
         db.query(models.ModelEndpoint).update({"is_default": False})
-    row = models.ModelEndpoint(**body.model_dump())
+    row = models.ModelEndpoint(**{**body.model_dump(), "name": name, "upstream_name": upstream_name})
     db.add(row)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise ApiError(409, "model.configuration_conflict", "模型配置重复，请刷新后重试", "Model configuration conflicts; refresh and retry") from None
     db.refresh(row)
     return _model_response(db, row)
 
@@ -2185,12 +2257,27 @@ async def update_model(
     if not row:
         raise HTTPException(status_code=404, detail="模型不存在")
     data = body.model_dump(exclude_unset=True)
+    if "name" in data and data["name"] != row.name:
+        raise ApiError(422, "model.gateway_name_immutable", "网关调用名称创建后保持固定，以保留权限和调用绑定", "Gateway model names are fixed after creation to preserve access and caller bindings")
+    provider_id = data.get("provider_id", row.provider_id)
+    if not db.get(models.ModelProvider, provider_id):
+        raise ApiError(404, "model.provider_not_found", "模型供应商不存在", "Model provider not found")
+    upstream_name = (data.get("upstream_name", row.upstream_name or row.name) or "").strip()
+    if not upstream_name:
+        raise ApiError(422, "model.upstream_required", "请输入上游模型名", "Enter an upstream model name")
+    if db.query(models.ModelEndpoint).filter(models.ModelEndpoint.id != row.id, models.ModelEndpoint.provider_id == provider_id, func.coalesce(models.ModelEndpoint.upstream_name, models.ModelEndpoint.name) == upstream_name).first():
+        raise ApiError(409, "model.provider_duplicate", "当前供应商已添加该模型", "This provider already has this model")
+    data["upstream_name"] = upstream_name
     if data.get("is_default"):
         db.query(models.ModelEndpoint).filter(models.ModelEndpoint.id != model_id).update({"is_default": False})
     for field, value in data.items():
         setattr(row, field, value)
     row.updated_at = _now()
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise ApiError(409, "model.configuration_conflict", "模型配置重复，请刷新后重试", "Model configuration conflicts; refresh and retry") from None
     db.refresh(row)
     return _model_response(db, row)
 
@@ -3616,7 +3703,12 @@ async def _execute_chat_completions_with_key(
 
 def _models_payload_for_key(db: Session, key: models.LlmApiKey) -> dict[str, Any]:
     allowed_models = _json_loads(key.allowed_models_json, [])
-    query = db.query(models.ModelEndpoint).filter(models.ModelEndpoint.enabled.is_(True))
+    if isinstance(key, models.AccessToken) and key.token_type == "agent_runtime" and not allowed_models and key.bound_agent_id:
+        agent = db.query(models.ManagedAgent).filter_by(agent_id=key.bound_agent_id).first()
+        if agent and agent.default_model:
+            allowed_models = [agent.default_model]
+    query = db.query(models.ModelEndpoint).join(models.ModelProvider).filter(
+        models.ModelEndpoint.enabled.is_(True), models.ModelProvider.enabled.is_(True))
     if allowed_models:
         query = query.filter(models.ModelEndpoint.name.in_(allowed_models))
     rows = query.order_by(models.ModelEndpoint.name.asc()).all()
@@ -3628,10 +3720,90 @@ def _models_payload_for_key(db: Session, key: models.LlmApiKey) -> dict[str, Any
                 "object": "model",
                 "created": int((row.created_at or _now()).timestamp()),
                 "owned_by": "agent-manager",
+                "provider_id": row.provider_id,
+                "provider_name": db.get(models.ModelProvider, row.provider_id).name,
+                "upstream_name": row.upstream_name or row.name,
             }
             for row in rows
         ],
     }
+
+
+def _anthropic_error(exc: HTTPException) -> JSONResponse:
+    status = 401 if isinstance(exc, ApiError) and exc.code in {"credential.invalid_or_disabled", "credential.expired"} else exc.status_code
+    kind = {401: "authentication_error", 403: "permission_error", 404: "not_found_error",
+            413: "request_too_large", 429: "rate_limit_error"}.get(status, "api_error" if status >= 500 else "invalid_request_error")
+    message = exc.en_message if isinstance(exc, ApiError) else str(exc.detail)
+    return JSONResponse(status_code=status, headers=exc.headers,
+                        content={"type": "error", "error": {"type": kind, "message": message,
+                                 "code": exc.code if isinstance(exc, ApiError) else f"http.{status}"}})
+
+
+def _anthropic_model(db: Session, item: dict[str, Any]) -> dict[str, Any]:
+    row = db.query(models.ModelEndpoint).filter_by(name=item["id"]).one()
+    return {"id": row.name, "type": "model", "display_name": row.display_name or row.upstream_name or row.name,
+            "created_at": datetime.utcfromtimestamp(item["created"]).isoformat() + "Z",
+            "max_input_tokens": row.context_window, "max_tokens": row.max_output_tokens}
+
+
+def _runtime_model_catalog(request: Request, db: Session, model_id: str | None = None):
+    anthropic = bool(request.headers.get("anthropic-version") or request.headers.get("x-api-key"))
+    credential = request.headers.get("authorization") or (f"Bearer {request.headers['x-api-key']}" if request.headers.get("x-api-key") else None)
+    try:
+        key = _resolve_api_key(db, credential, request=request)
+        catalog = _models_payload_for_key(db, key)
+        items = catalog["data"]
+        if model_id is not None:
+            item = next((item for item in items if item["id"] == model_id), None)
+            if item is None:
+                raise ApiError(404, "model.unavailable", "模型不存在或不可用", "Model not found or unavailable")
+            return _anthropic_model(db, item) if anthropic else item
+        if not anthropic:
+            return catalog
+        params = request.query_params
+        try:
+            limit = int(params.get("limit", "20"))
+        except ValueError:
+            raise ApiError(400, "model_catalog.invalid_limit", "分页数量必须为整数", "limit must be an integer") from None
+        if not 1 <= limit <= 1000 or (params.get("before_id") and params.get("after_id")):
+            raise ApiError(400, "model_catalog.invalid_pagination", "分页数量须为 1–1000，且只能使用一个游标", "Use limit 1..1000 and only one pagination cursor")
+        before, after = params.get("before_id"), params.get("after_id")
+        ids = [item["id"] for item in items]
+        if (before or after) and (before or after) not in ids:
+            raise ApiError(400, "model_catalog.invalid_cursor", "模型分页游标无效", "Unknown model pagination cursor")
+        if after:
+            items = items[ids.index(after) + 1:]
+        if before:
+            items = items[:ids.index(before)]
+        has_more = len(items) > limit
+        page = items[-limit:] if before else items[:limit]
+        return {"data": [_anthropic_model(db, item) for item in page], "has_more": has_more,
+                "first_id": page[0]["id"] if page else None, "last_id": page[-1]["id"] if page else None}
+    except HTTPException as exc:
+        if anthropic:
+            return _anthropic_error(exc)
+        raise
+
+
+@runtime_router.post("/v1/messages/count_tokens", summary="Anthropic-compatible local token estimate")
+async def anthropic_count_tokens(request: Request, response: Response, db: Session = Depends(get_db)):
+    credential = request.headers.get("authorization") or (f"Bearer {request.headers['x-api-key']}" if request.headers.get("x-api-key") else None)
+    try:
+        key = _resolve_api_key(db, credential, request=request)
+        await _check_request_size(request, key)
+        try:
+            payload = await request.json()
+            # Counting requests omit generation limits.
+            parsed = schemas.AnthropicMessagesRequest.model_validate({**payload, "max_tokens": 1})
+        except (ValueError, TypeError):
+            raise ApiError(400, "token_count.invalid_request", "Token 计数请求格式无效", "Invalid token counting request") from None
+        _resolve_model(db, parsed.model, key)
+        content = {field: payload[field] for field in ("system", "messages", "tools", "tool_choice", "thinking") if field in payload}
+        count = max(1, math.ceil(len(json.dumps(content, ensure_ascii=False).encode("utf-8")) / 3))
+        response.headers["x-token-count-method"] = "estimated-utf8"
+        return {"input_tokens": count}
+    except HTTPException as exc:
+        return _anthropic_error(exc)
 
 
 @runtime_router.post(
@@ -3653,13 +3825,7 @@ async def anthropic_messages_compat(
     try:
         result = await _chat_completions_impl(converted, request, response, credential, db)
     except HTTPException as exc:
-        error_type = "authentication_error" if exc.status_code in {401, 403} else "invalid_request_error"
-        if exc.status_code >= 500:
-            error_type = "api_error"
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"type": "error", "error": {"type": error_type, "message": str(exc.detail)}},
-        )
+        return _anthropic_error(exc)
     if isinstance(result, StreamingResponse):
         headers = {
             key: value
@@ -3777,11 +3943,10 @@ async def chat_completions_api(
     summary="OpenAI-compatible model list endpoint",
 )
 async def list_models_compat(
-    authorization: str | None = Header(default=None),
+    request: Request,
     db: Session = Depends(get_db),
 ):
-    key = _resolve_api_key(db, authorization)
-    return _models_payload_for_key(db, key)
+    return _runtime_model_catalog(request, db)
 
 
 @runtime_router.get(
@@ -3789,8 +3954,12 @@ async def list_models_compat(
     summary="OpenAI-compatible model list endpoint for clients whose base_url omits /v1",
 )
 async def list_models_root_compat(
-    authorization: str | None = Header(default=None),
+    request: Request,
     db: Session = Depends(get_db),
 ):
-    key = _resolve_api_key(db, authorization)
-    return _models_payload_for_key(db, key)
+    return _runtime_model_catalog(request, db)
+
+
+@runtime_router.get("/v1/models/{model_id:path}", summary="Retrieve an authorized gateway model")
+async def retrieve_model_compat(model_id: str, request: Request, db: Session = Depends(get_db)):
+    return _runtime_model_catalog(request, db, model_id)

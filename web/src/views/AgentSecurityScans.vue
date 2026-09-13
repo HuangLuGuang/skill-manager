@@ -661,8 +661,8 @@
         <a-form-item v-if="taskForm.scan_kind === 'mcp_risk_scan' && needsEvaluator" :label="t('agentSecurityScans.tasks.prompt')"><a-textarea v-model:value="taskForm.prompt" :rows="3" :maxlength="4096" /></a-form-item>
         <a-form-item v-if="needsEvaluator" :label="t('agentSecurityScans.tasks.evaluationModel')" required :extra="t('agentSecurityScans.tasks.evaluationModelHelp')">
           <a-select v-model:value="taskForm.evaluation_model" show-search option-filter-prop="label" :loading="redteamOptionsLoading" :disabled="redteamOptionsLoading" :placeholder="t('agentSecurityScans.tasks.selectEvaluationModel')" :not-found-content="t('agentSecurityScans.tasks.noEvaluationModels')">
-            <a-select-option v-for="model in evaluationModels" :key="model.id" :value="model.name" :label="`${model.display_name || model.name} (${model.name}) · ${model.provider_name}`">
-              {{ model.display_name || model.name }} ({{ model.name }}) · {{ model.provider_name }}
+            <a-select-option v-for="model in evaluationModels" :key="model.id" :value="model.name" :label="modelLabel(model)">
+              {{ modelLabel(model) }}
             </a-select-option>
           </a-select>
         </a-form-item>
@@ -743,7 +743,7 @@
           <a-form-item v-if="taskForm.infer_agent_intent" :label="t('agentSecurityScans.inventory.intentInferenceModel')">
             <a-select v-model:value="taskForm.intent_inference_model" allow-clear :placeholder="t('agentSecurityScans.inventory.defaultIntentModel')">
               <a-select-option v-for="model in intentInferenceModels" :key="model.id" :value="model.name">
-                {{ model.display_name || model.name }} · {{ model.provider_name || t('agentSecurityScans.inventory.unknownProvider') }}
+                {{ modelLabel(model) }}
               </a-select-option>
             </a-select>
           </a-form-item>
@@ -1091,6 +1091,7 @@
 </template>
 
 <script setup>
+import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess } from '../access'
 import { createRequestId } from '../utils/requestId'
 import { nextTick, computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'

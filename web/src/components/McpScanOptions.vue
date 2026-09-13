@@ -26,12 +26,13 @@
   <template v-if="modelValue.mcp_mode !== 'metadata'">
     <a-form-item v-for="role in roles" :key="role.field" :label="t(role.label)">
       <a-select :value="modelValue[role.field]" allow-clear show-search :placeholder="t('mcpScan.sameModel')" @change="value => set({ [role.field]: value })">
-        <a-select-option v-for="model in models" :key="model.name" :value="model.name">{{ model.display_name || model.name }} ({{ model.name }})</a-select-option>
+        <a-select-option v-for="model in models" :key="model.name" :value="model.name">{{ modelLabel(model) }}</a-select-option>
       </a-select>
     </a-form-item>
   </template>
 </template>
 <script setup>
+import { modelLabel } from '../utils/modelLabels'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getMcpScanTools } from '../api'

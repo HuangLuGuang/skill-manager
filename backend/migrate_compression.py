@@ -13,6 +13,13 @@ def migrate() -> None:
         if dialect != "sqlite":
             return
 
+        existing_models = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(model_endpoints)")}
+        if existing_models:
+            if "upstream_name" not in existing_models:
+                conn.exec_driver_sql("ALTER TABLE model_endpoints ADD COLUMN upstream_name VARCHAR(128)")
+            conn.exec_driver_sql("UPDATE model_endpoints SET upstream_name = name WHERE upstream_name IS NULL")
+            conn.exec_driver_sql("CREATE UNIQUE INDEX IF NOT EXISTS uq_model_provider_upstream ON model_endpoints(provider_id, coalesce(upstream_name, name))")
+
         # llm_api_keys 表
         existing = {
             row[1]

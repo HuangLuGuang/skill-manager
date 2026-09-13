@@ -892,7 +892,7 @@ class ClientTakeoverReport(BaseModel):
 class ModelProviderCreate(BaseModel):
     name: str
     base_url: str
-    api_format: str = Field(default="openai", pattern="^(openai|anthropic)$")
+    api_format: str = Field(default="openai", pattern="^(openai|anthropic|responses_api)$")
     api_key: Optional[str] = None
     enabled: bool = True
     timeout_seconds: int = Field(default=60, ge=1, le=600)
@@ -902,7 +902,7 @@ class ModelProviderCreate(BaseModel):
 class ModelProviderUpdate(BaseModel):
     name: Optional[str] = None
     base_url: Optional[str] = None
-    api_format: Optional[str] = Field(default=None, pattern="^(openai|anthropic)$")
+    api_format: Optional[str] = Field(default=None, pattern="^(openai|anthropic|responses_api)$")
     api_key: Optional[str] = None
     clear_api_key: bool = False
     enabled: Optional[bool] = None
@@ -930,7 +930,8 @@ class ModelProviderTestRequest(BaseModel):
 
 class ModelEndpointCreate(BaseModel):
     provider_id: int
-    name: str
+    name: Optional[str] = Field(default=None, max_length=128)
+    upstream_name: Optional[str] = Field(default=None, max_length=128)
     display_name: Optional[str] = None
     enabled: bool = True
     context_window: Optional[int] = None
@@ -941,6 +942,7 @@ class ModelEndpointCreate(BaseModel):
 class ModelEndpointUpdate(BaseModel):
     provider_id: Optional[int] = None
     name: Optional[str] = None
+    upstream_name: Optional[str] = Field(default=None, max_length=128)
     display_name: Optional[str] = None
     enabled: Optional[bool] = None
     context_window: Optional[int] = None
@@ -953,6 +955,7 @@ class ModelEndpointResponse(BaseModel):
     provider_id: int
     provider_name: Optional[str] = None
     name: str
+    upstream_name: str
     display_name: Optional[str] = None
     enabled: bool
     context_window: Optional[int] = None
@@ -1092,6 +1095,7 @@ class ChatCompletionRequest(BaseModel):
     logit_bias: Optional[dict[str, Any]] = None
     tools: Optional[list[dict[str, Any]]] = None
     tool_choice: Optional[Any] = None
+    parallel_tool_calls: Optional[bool] = None
     response_format: Optional[dict[str, Any]] = None
     stream_options: Optional[dict[str, Any]] = None
     seed: Optional[int] = None

@@ -243,8 +243,8 @@
         </a-form-item>
         <a-form-item :label="$t('clientModelConfig.model')" required>
           <a-select v-model:value="modelConfigForm.model" show-search option-filter-prop="label" :placeholder="$t('clientModelConfig.modelPlaceholder')">
-            <a-select-option v-for="model in configurableModels" :key="model.name" :value="model.name" :label="model.display_name || model.name">
-              {{ model.display_name || model.name }}<span v-if="model.display_name" class="skill-option-time">{{ model.name }}</span>
+            <a-select-option v-for="model in configurableModels" :key="model.name" :value="model.name" :label="modelLabel(model)">
+              {{ modelLabel(model) }}
             </a-select-option>
           </a-select>
         </a-form-item>
@@ -279,6 +279,7 @@
 </template>
 
 <script setup>
+import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess } from '../access'
 import ClientGovernancePolicy from '../components/ClientGovernancePolicy.vue'
 import ClientSkillScan from '../components/ClientSkillScan.vue'

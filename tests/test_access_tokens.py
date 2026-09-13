@@ -186,6 +186,46 @@ def test_only_client_credential_can_allow_agent_credential_issuance(tmp_path):
     assert invalid.json()["error_code"] == "credential.agent_issuance_not_applicable"
 
 
+def test_credential_selects_one_provider_per_upstream_model(tmp_path):
+    client = _client(tmp_path)
+    sessions = client.app.dependency_overrides[get_db]()
+    db = next(sessions)
+    try:
+        providers = [models.ModelProvider(name=name, base_url="https://example.test") for name in ("glm", "glm_Anthropic")]
+        db.add_all(providers)
+        db.flush()
+        db.add_all([
+            models.ModelEndpoint(provider_id=providers[0].id, name="glm-5.3-flash", upstream_name="glm-5.3-flash"),
+            models.ModelEndpoint(provider_id=providers[1].id, name="glm_Anthropic/glm-5.3-flash", upstream_name="glm-5.3-flash"),
+            models.ModelEndpoint(provider_id=providers[1].id, name="glm-5.2", upstream_name="glm-5.2"),
+        ])
+        db.commit()
+    finally:
+        sessions.close()
+    duplicates = ["glm-5.3-flash", "glm_Anthropic/glm-5.3-flash"]
+    for kind, extra in [("model_gateway", {}), ("client", {"allow_agent_credential_issuance": True}),
+                        ("agent_runtime", {"bound_agent_id": "risk-agent", "scopes": ["model:chat"]})]:
+        rejected = client.post("/api/v1/access/tokens", json={
+            "name": "duplicate", "token_type": kind, "allowed_models": duplicates, **extra,
+        })
+        assert rejected.status_code == 422, rejected.text
+        assert rejected.json()["error_code"] == "credential.duplicate_upstream_model"
+    names = ["glm-5.3-flash", "glm-5.2"]
+    result = client.post("/api/v1/access/tokens", json={
+        "name": "multi-provider", "token_type": "model_gateway", "allowed_models": names,
+    })
+    assert result.status_code == 200, result.text
+    record = result.json()["record"]
+    assert record["allowed_models"] == names
+    listed = client.get("/api/v1/access/tokens").json()["items"]
+    assert next(item for item in listed if item["id"] == record["id"])["allowed_models"] == names
+    rejected = client.put(f"/api/v1/access/tokens/{record['id']}", json={"allowed_models": duplicates})
+    assert rejected.status_code == 422
+    switched = client.put(f"/api/v1/access/tokens/{record['id']}", json={"allowed_models": [duplicates[1], "glm-5.2"]})
+    assert switched.status_code == 200
+    assert switched.json()["allowed_models"] == [duplicates[1], "glm-5.2"]
+
+
 def test_client_credential_model_allowlist_is_a_delegated_issuance_boundary(tmp_path):
     client = _client(tmp_path)
     created = client.post(

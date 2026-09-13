@@ -8,6 +8,21 @@ import (
 	"testing"
 )
 
+func TestGatewayModelAliasRoundTrip(t *testing.T) {
+	for _, agentType := range []string{"claude-code", "codex", "hermes"} {
+		t.Run(agentType, func(t *testing.T) {
+			home := t.TempDir()
+			alias := "glm-anthropic/glm-5.3-flash"
+			if err := ApplyModelConfig(home, "https://gateway.example.com", "local-agent", agentType, alias, ""); err != nil {
+				t.Fatal(err)
+			}
+			if state := InspectModelConfig(home, agentType); state.Model != alias {
+				t.Fatalf("gateway model name changed: %#v", state)
+			}
+		})
+	}
+}
+
 func TestApplyClaudeCodeModelConfigPreservesSettingsAndDoesNotWriteCredential(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, ".claude", "settings.json")
@@ -165,5 +180,26 @@ func TestApplyClaudeCodeModelConfigWritesTaskIssuedAgentCredential(t *testing.T)
 	}
 	if got := info.Mode().Perm(); got != 0o600 {
 		t.Fatalf("secret-bearing settings mode = %o, want 600", got)
+	}
+}
+
+func TestCodexGatewayConfigDisablesServerTools(t *testing.T) {
+	for _, original := range []string{"web_search = \"live\"\n", "[features]\nimage_generation = true\nshell_tool = true\n", "features.image_generation = true\n"} {
+		body, err := mergeCodexModelConfig([]byte(original), "https://gateway.example/v1", "model", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		again, err := mergeCodexModelConfig(body, "https://gateway.example/v1", "model", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, result := range []string{string(body), string(again)} {
+			if !strings.Contains(result, "web_search = \"disabled\"") || strings.Count(result, "image_generation = false") != 1 {
+				t.Fatal("gateway tool settings missing or duplicated")
+			}
+			if strings.Contains(original, "shell_tool") && !strings.Contains(result, "shell_tool = true") {
+				t.Fatal("unrelated feature changed")
+			}
+		}
 	}
 }

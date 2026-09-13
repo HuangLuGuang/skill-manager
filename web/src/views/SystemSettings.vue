@@ -94,6 +94,7 @@
 </template>
 
 <script setup>
+import { modelLabel } from '../utils/modelLabels'
 import BrandingSettings from '../components/BrandingSettings.vue'
 import { translateLegacy as phrase } from '../i18n'
 
@@ -275,7 +276,7 @@ const analysisItems = computed(() => [
       ? phrase('legacy.1f6jve4')
       : phrase('legacy.50t2b9'),
     meta: [
-      { label: phrase('legacy.1ow6qt'), value: managerStatus.value.llm_model || llmConfig.value.model || '-' },
+      { label: phrase('legacy.1ow6qt'), value: modelLabel(modelEndpoints.value.find(model => model.name === (managerStatus.value.llm_model || llmConfig.value.model))) || managerStatus.value.llm_model || llmConfig.value.model || '-' },
       { label: phrase('legacy.2tds9c'), value: llmSource.value },
     ],
     actionText: phrase('legacy.13jl62z'),

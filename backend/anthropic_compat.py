@@ -25,6 +25,8 @@ def anthropic_to_openai_request(payload: dict[str, Any]) -> dict[str, Any]:
                 text_blocks.append({"type": "text", "text": block.get("text", "")})
             elif block_type == "image":
                 source = block.get("source") or {}
+                if source.get("type") == "url":
+                    text_blocks.append({"type": "image_url", "image_url": {"url": source.get("url")}})
                 if source.get("type") == "base64":
                     text_blocks.append({
                         "type": "image_url",
@@ -88,6 +90,10 @@ def anthropic_to_openai_request(payload: dict[str, Any]) -> dict[str, Any]:
             result["tool_choice"] = "required"
         elif choice_type == "auto":
             result["tool_choice"] = "auto"
+        elif choice_type == "none":
+            result["tool_choice"] = "none"
+        if "disable_parallel_tool_use" in tool_choice:
+            result["parallel_tool_calls"] = not tool_choice["disable_parallel_tool_use"]
     result["anthropic_options"] = {
         key: payload[key]
         for key in ("top_k", "thinking", "service_tier", "context_management", "output_config")
@@ -158,6 +164,10 @@ def openai_to_anthropic_request(payload: dict[str, Any]) -> dict[str, Any]:
         result["tool_choice"] = {"type": "any"}
     elif tool_choice == "auto":
         result["tool_choice"] = {"type": "auto"}
+    elif tool_choice == "none":
+        result["tool_choice"] = {"type": "none"}
+    if payload.get("parallel_tool_calls") is False:
+        result.setdefault("tool_choice", {"type": "auto"})["disable_parallel_tool_use"] = True
     return result
 
 

@@ -85,7 +85,7 @@
           </template>
           <template v-else-if="column.key === 'capabilities'">
             <a-space direction="vertical" size="small">
-              <span>{{ $t("legacy.1nqvdwt") }}{{ record.default_model || '-' }}</span>
+              <span>{{ $t("legacy.1nqvdwt") }}{{ modelLabel(models.find(model => model.name === record.default_model)) || record.default_model || '-' }}</span>
               <span>Skill：{{ record.skill_names?.length || 0 }} {{ $t("legacy.d5a1x9") }}</span>
             </a-space>
           </template>
@@ -174,7 +174,7 @@
         <a-form-item :label="$t('legacy.9tnz09')">
           <a-select v-model:value="agentForm.default_model" allow-clear show-search :placeholder="$t('legacy.13jl62z')">
             <a-select-option v-for="model in models" :key="model.name" :value="model.name">
-              {{ model.display_name || model.name }}
+              {{ modelLabel(model) }}
             </a-select-option>
           </a-select>
         </a-form-item>
@@ -263,6 +263,7 @@
 </template>
 
 <script setup>
+import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess } from '../access'
 import { translateLegacy as phrase } from '../i18n'
 

@@ -1043,6 +1043,8 @@ def get_client_runtime_status(
                 "id": model.id,
                 "name": model.name,
                 "display_name": model.display_name,
+                "upstream_name": model.upstream_name or model.name,
+                "provider_id": provider.id,
                 "provider_name": provider.name,
                 "context_window": model.context_window,
                 "max_output_tokens": model.max_output_tokens,

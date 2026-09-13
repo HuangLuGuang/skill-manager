@@ -1049,10 +1049,12 @@ def test_client_model_switch_catalog_binding_and_task_credential_are_self_servic
         enabled=True,
     )
     database.add(provider)
+    other_provider = models.ModelProvider(name="other-provider", base_url="https://other.example.com/v1", enabled=True)
+    database.add(other_provider)
     database.flush()
     database.add_all([
-        models.ModelEndpoint(provider_id=provider.id, name="codex-allowed", display_name="Codex Allowed", enabled=True),
-        models.ModelEndpoint(provider_id=provider.id, name="codex-hidden", display_name="Codex Hidden", enabled=True),
+        models.ModelEndpoint(provider_id=provider.id, name="codex-allowed", upstream_name="shared-model", display_name="Codex Allowed", enabled=True),
+        models.ModelEndpoint(provider_id=other_provider.id, name="codex-hidden", upstream_name="shared-model", display_name="Codex Hidden", enabled=True),
         models.ManagedAgent(agent_id="codex-primary", name="Primary Codex", channel="Codex", status="active", created_by="admin"),
         models.ManagedAgent(agent_id="codex-secondary", name="Secondary Codex", channel="Codex", status="active", created_by="admin"),
         models.McpGateway(slug="developer-tools", name="Developer Tools", status="active"),
@@ -1106,6 +1108,8 @@ def test_client_model_switch_catalog_binding_and_task_credential_are_self_servic
     status = client.get("/api/v1/clients/codex-switch-host/status", headers=headers)
     assert status.status_code == 200
     assert [item["name"] for item in status.json()["model_configuration"]["models"]] == ["codex-allowed"]
+    assert status.json()["model_configuration"]["models"][0]["upstream_name"] == "shared-model"
+    assert status.json()["model_configuration"]["models"][0]["provider_name"] == "gateway-provider"
     assert len(status.json()["available_managed_agents"]) == 2
 
     task = client.post(

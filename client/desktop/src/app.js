@@ -624,13 +624,13 @@ const renderModelSwitcher = data => {
       <div><dt>${escapeHtml(t('client.models.runtime_identity'))}</dt><dd>${escapeHtml(platformAgent?.managed_agent_id ? t('client.models.identity_ready') : t('client.models.identity_auto_create'))}</dd></div>
     </dl>`
   const query = modelSearch.trim().toLowerCase()
-  const visible = models.filter(model => !query || [model.name, model.display_name, model.provider_name].some(value => String(value || '').toLowerCase().includes(query)))
+  const visible = models.filter(model => !query || [model.name, model.upstream_name, model.display_name, model.provider_name].some(value => String(value || '').toLowerCase().includes(query)))
   $('#model-result-count').textContent = tf`${visible.length} 个模型`
   $('#model-catalog').classList.toggle('empty', visible.length === 0)
   $('#model-catalog').innerHTML = visible.length ? visible.map(model => {
     const current = state.model === model.name
     return `<div class="model-row${current ? ' current' : ''}">
-      <div class="model-row-name"><strong>${escapeHtml(model.display_name || model.name)}</strong><code>${escapeHtml(model.name)}</code></div>
+      <div class="model-row-name"><strong>${escapeHtml(model.display_name || model.upstream_name || model.name)}</strong><code>${escapeHtml(model.name)}</code></div>
       <span class="model-provider">${escapeHtml(model.provider_name || '-')}</span>
       <span class="model-limits">${model.context_window ? escapeHtml(tf`上下文 ${model.context_window}`) : ''}${model.max_output_tokens ? escapeHtml(tf` · 输出 ${model.max_output_tokens}`) : ''}</span>
       <button type="button" class="${current ? '' : 'primary'}" data-switch-model="${escapeHtml(model.name)}" ${current || modelSwitchBusy || !permission.can_configure_models ? 'disabled' : ''}>${escapeHtml(current ? t('client.models.current') : t('client.models.switch'))}</button>

@@ -84,6 +84,64 @@ def _enabled_config():
     }
 
 
+@pytest.mark.parametrize("protocol,suffix", [
+    ("openai", "chat/completions"), ("anthropic", "messages"), ("responses_api", "responses"),
+])
+def test_docs_and_skill_call_selected_provider_protocol(monkeypatch, protocol, suffix):
+    import httpx
+    from agent_manager.core import llm
+
+    client, factory = _test_client()
+    with factory() as db:
+        db.query(models.ModelProvider).one().api_format = protocol
+        db.query(models.ModelEndpoint).one().upstream_name = "shared-upstream"
+        db.commit()
+    assert client.post("/api/config/docs-assistant", json=_enabled_config()).status_code == 200
+    calls = []
+
+    class Upstream:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def post(self, url, *, json, headers):
+            assert url == f"https://model.example.test/v1/{suffix}"
+            assert json["model"] == "shared-upstream"
+            calls.append(json)
+            answer = '{"verdict":"safe"}'
+            if protocol == "responses_api":
+                assert "input" in json and "messages" not in json
+                result = {"id": "resp-test", "status": "completed", "model": "shared-upstream", "output": [
+                    {"type": "message", "content": [{"type": "output_text", "text": answer}]}]}
+            elif protocol == "anthropic":
+                assert headers["anthropic-version"] == "2023-06-01" and json["system"]
+                result = {"id": "msg-test", "model": "shared-upstream", "stop_reason": "end_turn",
+                          "content": [{"type": "text", "text": answer}], "usage": {"input_tokens": 1, "output_tokens": 1}}
+            else:
+                result = {"model": "shared-upstream", "choices": [{"message": {"content": answer}}]}
+            return httpx.Response(200, json=result)
+
+    monkeypatch.setattr(httpx, "AsyncClient", Upstream)
+    response = client.post("/api/config/docs-assistant/ask", json={
+        "question": "How to submit?", "locale": "en-US",
+        "contexts": [{"slug": "quick-start", "article_title": "Start", "section_title": "Submit", "content": "Upload ZIP."}],
+    })
+    assert response.status_code == 200, response.text
+    assert response.json() == {"answer": '{"verdict":"safe"}', "model": "docs-model"}
+
+    monkeypatch.setattr("backend.sqlite_db.SessionLocal", factory)
+    monkeypatch.delenv("AGENT_MANAGER_LLM_GATEWAY_URL", raising=False)
+    value, raw = llm._call_llm(llm.LLMConfig(provider="model-gateway", model="docs-model"), "Return JSON.", "Inspect this Skill.")
+    assert value == {"verdict": "safe"}
+    assert raw["model"] == "docs-model"
+    assert len(calls) == 2
+
+
 def test_docs_assistant_is_disabled_by_default():
     client, _ = _test_client()
     response = client.get("/api/config/docs-assistant")

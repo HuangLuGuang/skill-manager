@@ -163,6 +163,7 @@ func mergeCodexModelConfig(body []byte, server, model, credential string) ([]byt
 	}
 	kept := make([]string, 0)
 	section := ""
+	featuresSeen := false
 	skipManagedSection := false
 	scanner := bufio.NewScanner(bytes.NewReader(body))
 	for scanner.Scan() {
@@ -170,6 +171,12 @@ func mergeCodexModelConfig(body []byte, server, model, credential string) ([]byt
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
 			section = trimmed
+			if section == "[features]" {
+				featuresSeen = true
+				kept = append(kept, line, "image_generation = false")
+				skipManagedSection = false
+				continue
+			}
 			skipManagedSection = section == "[model_providers.agent_manager]"
 			if skipManagedSection {
 				continue
@@ -178,7 +185,11 @@ func mergeCodexModelConfig(body []byte, server, model, credential string) ([]byt
 		if skipManagedSection {
 			continue
 		}
-		if section == "" && (strings.HasPrefix(trimmed, "model =") || strings.HasPrefix(trimmed, "model_provider =")) {
+		if (section == "[features]" && strings.HasPrefix(trimmed, "image_generation =")) ||
+			(section == "" && strings.HasPrefix(trimmed, "features.image_generation =")) {
+			continue
+		}
+		if section == "" && (strings.HasPrefix(trimmed, "model =") || strings.HasPrefix(trimmed, "model_provider =") || strings.HasPrefix(trimmed, "web_search =")) {
 			continue
 		}
 		kept = append(kept, line)
@@ -189,7 +200,7 @@ func mergeCodexModelConfig(body []byte, server, model, credential string) ([]byt
 	for len(kept) > 0 && strings.TrimSpace(kept[len(kept)-1]) == "" {
 		kept = kept[:len(kept)-1]
 	}
-	lines := []string{"model = " + strconv.Quote(model), "model_provider = \"agent_manager\"", ""}
+	lines := []string{"model = " + strconv.Quote(model), "model_provider = \"agent_manager\"", "web_search = \"disabled\"", ""}
 	lines = append(lines, kept...)
 	if len(kept) > 0 {
 		lines = append(lines, "")
@@ -197,6 +208,9 @@ func mergeCodexModelConfig(body []byte, server, model, credential string) ([]byt
 	lines = append(lines, "[model_providers.agent_manager]", "name = \"Agent Manager\"", "base_url = "+strconv.Quote(server), "wire_api = \"responses\"")
 	if strings.TrimSpace(credential) != "" {
 		lines = append(lines, "experimental_bearer_token = "+strconv.Quote(strings.TrimSpace(credential)))
+	}
+	if !featuresSeen {
+		lines = append(lines, "", "[features]", "image_generation = false")
 	}
 	updated := []byte(strings.Join(lines, "\n") + "\n")
 	parsed := map[string]any{}

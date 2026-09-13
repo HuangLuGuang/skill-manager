@@ -116,6 +116,7 @@ def _normalize_allowed_models(
     scopes: list[str],
     allowed_models: list[str] | None,
     allow_agent_credential_issuance: bool = False,
+    db: Session | None = None,
 ) -> list[str]:
     result: list[str] = []
     for model in allowed_models or []:
@@ -132,6 +133,14 @@ def _normalize_allowed_models(
             "Allowed models are not applicable to this credential type or scope",
             params={"token_type": token_type},
         )
+    if db is not None and result:
+        selected = db.query(models.ModelEndpoint).filter(models.ModelEndpoint.name.in_(result)).all()
+        upstream_names: set[str] = set()
+        for model in selected:
+            upstream = model.upstream_name or model.name
+            if upstream in upstream_names:
+                raise ApiError(422, "credential.duplicate_upstream_model", "同名上游模型只能选择一个供应商", "Select only one provider for each upstream model name")
+            upstream_names.add(upstream)
     return result
 
 
@@ -523,6 +532,7 @@ async def create_access_token(
                 scopes,
                 body.allowed_models,
                 body.allow_agent_credential_issuance,
+                db=db,
             )
         ),
         allowed_mcp_gateways_json=_json_dumps(allowed_mcp_gateways),
@@ -594,6 +604,7 @@ async def update_access_token(
                 scopes,
                 data.pop("allowed_models"),
                 next_agent_issuance,
+                db=db,
             )
         )
     if row.token_type == "client" and not next_agent_issuance:

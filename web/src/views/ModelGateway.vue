@@ -58,7 +58,7 @@
                     </div>
                     <div class="provider-url">{{ provider.base_url }}</div>
                     <div class="provider-tags">
-                      <a-tag>{{ provider.api_format === 'anthropic' ? 'Anthropic' : 'OpenAI-compatible' }}</a-tag>
+                      <a-tag>{{ $t(`modelGateway.provider.formats.${provider.api_format || 'openai'}`) }}</a-tag>
                       <a-tag>LLM</a-tag>
                       <a-tag v-if="provider.enable_compression">{{ $t('modelGateway.catalog.compression') }}</a-tag>
                     </div>
@@ -90,7 +90,8 @@
                   <div class="model-description">
                     <span class="model-symbol" aria-hidden="true"><ApiOutlined /></span>
                     <div class="model-labels">
-                      <span class="model-name">{{ model.name }}</span>
+                      <span class="model-name">{{ model.upstream_name || model.name }}</span>
+                      <span v-if="model.upstream_name && model.upstream_name !== model.name" class="model-display-name">{{ $t('modelGateway.catalog.gatewayName') }}: {{ model.name }}</span>
                       <span v-if="model.display_name && model.display_name !== model.name" class="model-display-name">{{ model.display_name }}</span>
                       <a-tag>CHAT</a-tag>
                       <a-tooltip v-if="model.context_window" :title="$t('modelGateway.catalog.contextWindow', { count: model.context_window })"><a-tag>{{ formatContextWindow(model.context_window) }}</a-tag></a-tooltip>
@@ -140,7 +141,7 @@
               </template>
               <template v-else-if="column.key === 'models'">
                 <a-space wrap>
-                  <a-tag v-for="name in record.allowed_models || []" :key="name">{{ name }}</a-tag>
+                  <a-tag v-for="name in record.allowed_models || []" :key="name">{{ modelLabel(models.find(model => model.name === name)) || name }}</a-tag>
                   <span v-if="!record.allowed_models?.length" class="muted">{{ $t("legacy.1b657i5") }}</span>
                 </a-space>
               </template>
@@ -404,10 +405,13 @@
       </a-space>
       <a-table :data-source="discoveredModels" :columns="discoveryColumns" :row-selection="discoveryRowSelection" row-key="name" :loading="discoveringProviderId !== null" :scroll="{ x: 550 }" size="small">
         <template #bodyCell="{ column, record }">
-          <a-space v-if="column.key === 'action'" wrap>
-            <a-button v-if="hasAccess('models:create')" type="link" :disabled="addingDiscovered || models.some(item => item.name === record.name)" @click="openDiscoveredModel(record)">{{ $t(models.some(item => item.name === record.name) ? 'modelGateway.catalog.registered' : 'modelGateway.catalog.add') }}</a-button>
+          <template v-if="column.dataIndex === 'name'">
+            <div>{{ record.name }}</div>
+          </template>
+          <div v-else-if="column.key === 'action'" class="discovery-actions">
+            <a-button v-if="hasAccess('models:create')" type="link" :disabled="addingDiscovered || !!discoveryRegistration[record.name]" @click="openDiscoveredModel(record)">{{ $t(discoveryRegistration[record.name] ? 'modelGateway.catalog.registered' : 'modelGateway.catalog.add') }}</a-button>
             <a-button v-if="hasAccess('providers:test')" type="link" @click="openModelTest({ ...record, provider_id: discoveryProvider.id })">{{ $t('modelGateway.providerTest.action') }}</a-button>
-          </a-space>
+          </div>
         </template>
       </a-table>
     </a-modal>
@@ -420,8 +424,7 @@
         </a-form-item>
         <a-form-item :label="$t('legacy.849biy')" required>
           <a-select v-model:value="providerForm.api_format">
-            <a-select-option value="openai">OpenAI-compatible</a-select-option>
-            <a-select-option value="anthropic">Anthropic-compatible</a-select-option>
+            <a-select-option v-for="format in ['openai', 'responses_api', 'anthropic']" :key="format" :value="format">{{ $t(`modelGateway.provider.formats.${format}`) }}</a-select-option>
           </a-select>
         </a-form-item>
         <a-form-item label="API Key"><a-input-password v-model:value="providerForm.api_key" :placeholder="$t('legacy.x2xaci')" /></a-form-item>
@@ -476,7 +479,8 @@
             <a-select-option v-for="item in providers" :key="item.id" :value="item.id">{{ item.name }}</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item :label="$t('legacy.1hmiuig')" required><a-input v-model:value="modelForm.name" /></a-form-item>
+        <a-form-item :label="$t('modelGateway.catalog.upstreamName')" required><a-input v-model:value="modelForm.upstream_name" /></a-form-item>
+        <a-form-item :label="$t('modelGateway.catalog.gatewayName')" :extra="$t('modelGateway.catalog.gatewayNameHelp')"><a-input v-model:value="modelForm.name" :disabled="!!editingModelId" :placeholder="$t('modelGateway.catalog.gatewayNameAuto')" /></a-form-item>
         <a-form-item :label="$t('legacy.1m2bn1g')"><a-input v-model:value="modelForm.display_name" /></a-form-item>
         <a-form-item :label="$t('legacy.wbvjnl')"><a-input-number v-model:value="modelForm.context_window" style="width: 100%" /></a-form-item>
         <a-form-item :label="$t('legacy.rvvikw')"><a-input-number v-model:value="modelForm.max_output_tokens" style="width: 100%" /></a-form-item>
@@ -493,7 +497,7 @@
         <a-alert type="info" show-icon :message="$t('legacy.1rret3q')" style="margin-bottom: 16px" />
         <a-form-item :label="$t('legacy.1o3mles')">
           <a-select v-model:value="keyForm.allowed_models" mode="multiple" :placeholder="$t('legacy.1hrenha')">
-            <a-select-option v-for="item in models" :key="item.name" :value="item.name">{{ item.name }}</a-select-option>
+            <a-select-option v-for="item in models" :key="item.name" :value="item.name">{{ modelLabel(item) }}</a-select-option>
           </a-select>
         </a-form-item>
         <a-row :gutter="16">
@@ -682,6 +686,7 @@
 </template>
 
 <script setup>
+import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess } from '../access'
 import { can } from '../access'
 import { translateLegacy as phrase } from '../i18n'
@@ -747,13 +752,16 @@ const failedDiscoveredNames = ref([])
 const discoveryRowSelection = computed(() => ({
   selectedRowKeys: selectedDiscoveredNames.value,
   onChange: keys => { selectedDiscoveredNames.value = keys },
-  getCheckboxProps: record => ({ disabled: addingDiscovered.value || models.value.some(item => item.name === record.name) }),
+  getCheckboxProps: record => ({ disabled: addingDiscovered.value || !!discoveryRegistration.value[record.name] }),
 }))
 const discoveryColumns = computed(() => [
   { title: t('modelGateway.catalog.modelName'), dataIndex: 'name' },
   { title: t('modelGateway.catalog.actions'), key: 'action', width: 240 },
 ])
 const models = ref([])
+const discoveryRegistration = computed(() => Object.fromEntries(models.value
+  .filter(model => model.provider_id === discoveryProvider.value?.id)
+  .map(model => [model.upstream_name || model.name, model])))
 const providerGroups = computed(() => providers.value.map(provider => ({
   ...provider,
   defaultModel: models.value.find(model => model.provider_id === provider.id && model.is_default),
@@ -900,8 +908,8 @@ const providerForm = reactive({ name: '', base_url: '', api_format: 'openai', ap
 const providerTestForm = reactive({ model: '' })
 const providerTestModelOptions = computed(() => models.value
   .filter(item => item.provider_id === providerUnderTest.value?.id && item.enabled)
-  .map(item => ({ value: item.name })))
-const modelForm = reactive({ provider_id: null, name: '', display_name: '', enabled: true, context_window: null, max_output_tokens: null, is_default: false })
+  .map(item => ({ value: item.upstream_name || item.name })))
+const modelForm = reactive({ provider_id: null, name: '', upstream_name: '', display_name: '', enabled: true, context_window: null, max_output_tokens: null, is_default: false })
 const keyForm = reactive({
   name: '',
   allowed_models: [],
@@ -1128,7 +1136,7 @@ const addSelectedModels = async () => {
   if (addingDiscovered.value || submitting.value || !discoveryProvider.value) return
   const providerId = discoveryProvider.value.id
   const selected = discoveredModels.value.filter(item => selectedDiscoveredNames.value.includes(item.name)
-    && !models.value.some(model => model.name === item.name))
+    && !discoveryRegistration.value[item.name])
   if (!selected.length) return
   addingDiscovered.value = true
   failedDiscoveredNames.value = []
@@ -1136,7 +1144,7 @@ const addSelectedModels = async () => {
   try {
     for (const item of selected) {
       try {
-        const model = await createModelEndpoint({ provider_id: providerId, name: item.name, display_name: item.display_name })
+        const model = await createModelEndpoint({ provider_id: providerId, upstream_name: item.name, display_name: item.display_name })
         models.value.push(model)
         added += 1
       } catch {
@@ -1152,7 +1160,7 @@ const addSelectedModels = async () => {
 
 const openDiscoveredModel = (record = null) => {
   openModel(null, discoveryProvider.value.id)
-  modelForm.name = record?.name || ''
+  modelForm.upstream_name = record?.name || ''
   modelForm.display_name = record?.display_name || ''
 }
 
@@ -1160,13 +1168,14 @@ const openModelTest = (record) => {
   const provider = providers.value.find(item => item.id === record.provider_id)
   if (!provider || testingProvider.value) return
   openProviderTest(provider)
-  providerTestForm.model = record.name
+  providerTestForm.model = record.upstream_name || record.name
 }
 
 const openProviderTest = (record) => {
   if (testingProvider.value) return
   providerUnderTest.value = record
-  providerTestForm.model = models.value.find(item => item.provider_id === record.id && item.enabled)?.name || ''
+  const selected = models.value.find(item => item.provider_id === record.id && item.enabled)
+  providerTestForm.model = selected?.upstream_name || selected?.name || ''
   providerTestVisible.value = true
 }
 
@@ -1218,6 +1227,7 @@ const openModel = (record = null, providerId = null) => {
     provider_id: record?.provider_id || providerId || providers.value[0]?.id || null,
     name: record?.name || '',
     display_name: record?.display_name || '',
+    upstream_name: record?.upstream_name || record?.name || '',
     enabled: record?.enabled ?? true,
     context_window: record?.context_window || null,
     max_output_tokens: record?.max_output_tokens || null,
@@ -1232,7 +1242,7 @@ const saveModel = async () => {
   try {
     if (editingModelId.value) await updateModelEndpoint(editingModelId.value, { ...modelForm })
     else await createModelEndpoint({ ...modelForm })
-    selectedDiscoveredNames.value = selectedDiscoveredNames.value.filter(name => name !== modelForm.name)
+    selectedDiscoveredNames.value = selectedDiscoveredNames.value.filter(name => name !== modelForm.upstream_name)
     modelVisible.value = false
     await loadAll()
   } catch (error) {
@@ -1525,6 +1535,7 @@ onMounted(loadAll)
 .model-labels { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; min-width: 0; }
 .model-name { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
 .model-display-name { color: var(--catalog-muted); font-size: 12px; overflow-wrap: anywhere; }
+.discovery-actions { display: grid; grid-template-columns: 100px 64px; align-items: center; gap: 8px; }
 .model-actions { display: flex; align-items: center; flex-shrink: 0; gap: 8px; }
 .model-actions :deep(.ant-btn) { height: 28px; }
 .model-actions :deep(.test-model-button) { color: #2457be; border-color: #dce6f8; background: #f8faff; padding-inline: 10px; }

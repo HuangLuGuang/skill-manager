@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 
 from .asset_lifecycle_models import (  # noqa: F401
     AgentAssetLink,
@@ -100,6 +100,8 @@ class ModelEndpoint(Base):
     id = Column(Integer, primary_key=True, index=True)
     provider_id = Column(Integer, ForeignKey("model_providers.id"), index=True, nullable=False)
     name = Column(String(128), unique=True, index=True, nullable=False)
+    upstream_name = Column(String(128), nullable=True)
+    __table_args__ = (Index("uq_model_provider_upstream", provider_id, func.coalesce(upstream_name, name), unique=True),)
     display_name = Column(String(128), nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
     context_window = Column(Integer, nullable=True)

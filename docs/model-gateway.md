@@ -28,10 +28,20 @@ Worker 使用任务租约调用 Backend 的任务专属 OpenAI-compatible 评估
 页面以供应商分组展示一个列表，头部提供凭据配置、获取模型和添加模型入口。模型列表默认收起，点击模型数量展开后显示模型名称、上下文大小、
 默认标记、启用开关、编辑和逐模型测试操作。自定义添加可填写模型名称、上下文窗口、输出限制和默认模型。
 默认模型及其所属供应商分别显示“默认模型”和“默认供应商”标识；列表收起时也展示默认模型名称。默认供应商由默认模型归属确定。
-模型名称在网关内全局唯一；获取列表不改写已有配置。供应商列表不代表当前密钥拥有全部模型的调用权限。
+模型按“供应商 + 上游模型名”判重，不同供应商可以添加同名模型；发现列表中的“已添加”仅指当前供应商。每条配置另有全局唯一的网关调用名称：第一次添加时默认沿用上游模型名，重名时自动生成供应商前缀，也可以在创建时填写。创建后调用名称固定，编辑上游模型名或供应商不会改变凭证和配置中的调用绑定。
+
+凭证可用模型、文档助手、Skill 扫描策略、智能体默认模型、客户端模型切换、MCP/Agent 安全扫描及 Dify 意图分析均使用网关调用名称；选择器同时显示供应商、上游模型和调用名称。网关 `/v1/models` 返回调用名称，转发到上游时改用上游模型名，响应、用量及审计保持网关调用名称。
+
+统一凭证中心按供应商分组展示已添加到网关的模型，支持按供应商或模型名称搜索；同一张凭证对每个上游模型名只能选择一个供应商，不同名称的模型可跨供应商选择。进入创建配置或点击刷新会重新加载模型选项；供应商下尚未添加的模型需先在“供应商与模型”中添加。
+
+**English:** The Credential Center groups registered gateway models by provider and supports searching by provider or model and selecting one provider per upstream model name in each credential. Models with different upstream names may use different providers. Entering credential configuration or refreshing reloads the model options. Register models under their provider before selecting them in a credential.
+
+旧数据迁移保留原调用名称、模型 ID、默认模型及权限引用，将原名称回填为上游模型名。无需批量修改历史凭证或客户端配置。
+
+**English:** Models are unique by provider and upstream model name. Discovery marks only models registered with the current provider as added. Each configuration has a unique gateway model name, generated from the upstream name or a provider prefix, or entered at creation. This caller-facing name remains fixed to preserve bindings. Credentials, documentation settings, Skill policies, Agent defaults, client switching and security evaluators store gateway names. Selectors show the provider and model identity. Requests use the upstream name only at the provider boundary; responses and audits keep the gateway name. Migration preserves existing names, IDs and references.
 
 管理员接口 `GET /api/v1/model-providers/{provider_id}/models` 使用服务端保存的供应商凭据读取上游 `/models`，
-支持 OpenAI-compatible 列表及 Anthropic 游标分页。Base URL 保留配置的版本路径，若填写完整推理端点则替换其端点后缀。
+支持 OpenAI Chat Completions、Responses API 的模型列表及 Anthropic 游标分页。Base URL 保留配置的版本路径，若填写完整推理端点则替换其端点后缀。
 供应商不支持列表接口、连接失败或返回格式错误时，页面提示重试或自定义添加。
 每个模型的“测试”入口复用供应商真实推理测试接口，显示 HTTP 状态和耗时；测试会消耗少量模型额度。
 
@@ -92,8 +102,14 @@ Trace 阶段：
 | `POST /api/v1/llm/chat/completions` | Agent Manager 命名空间路径，适合内部系统显式调用 |
 | `POST /v1/messages` | Anthropic Messages 兼容路径，适合 Claude Code 和 Anthropic SDK |
 | `POST /v1/responses` | OpenAI Responses 兼容路径，适合 Codex 自定义 model provider；请求在网关内转换后复用同一模型校验、隐私与审计链路 |
-| `GET /v1/models` | OpenAI-compatible 模型列表，只返回当前模型调用凭证允许访问的启用模型 |
+| `GET /v1/models` | 模型列表：Bearer 默认返回 OpenAI 格式；携带 `anthropic-version` 或 `x-api-key` 时返回 Anthropic 格式及游标分页 |
 | `GET /models` | 兼容不含 `/v1` 的模型列表路径 |
+| `GET /v1/models/{model_id}` | 查询当前凭证可访问的模型详情，支持包含供应商前缀的调用名称 |
+| `POST /v1/messages/count_tokens` | Anthropic 格式的本地 Token 估算，返回 `input_tokens`；`x-token-count-method: estimated-utf8` 表明并非供应商精确计数 |
+
+模型列表和详情同时过滤凭证模型范围、模型启用状态和供应商启用状态。Anthropic 列表支持 `limit`（1–1000，默认 20）、`after_id`、`before_id`，返回 `has_more`、`first_id`、`last_id`；两个游标不能同时使用。Anthropic 接口支持 `x-api-key` 和 Bearer，错误使用 `type: error` 结构。计数接口在本地估算，不发送内容到供应商、不产生推理费用，仍校验凭证、模型范围及请求大小；图片和模型专有分词可能产生较大误差。
+
+**English:** Model lists and retrieval enforce credential scope and enabled model/provider state. Bearer requests return OpenAI model objects; `anthropic-version` or `x-api-key` selects Anthropic objects and cursor pagination (`limit`, `after_id`, `before_id`). Anthropic accepts API-key or Bearer authentication. `/v1/messages/count_tokens` returns a local UTF-8 estimate, identified by `x-token-count-method: estimated-utf8`; it does not call the provider and is not an exact tokenizer count.
 
 客户端配置建议：
 
@@ -102,6 +118,10 @@ Trace 阶段：
 - Hermes 或其他从根地址自动拼接路径的客户端：可配 `http://127.0.0.1`，网关对外提供 `/chat/completions` 和 `/models`。当前 Compose 的根路径由管理台前端使用，不适合会直接 POST 根地址的客户端。
 - Claude Code：设置 `ANTHROPIC_BASE_URL=http://127.0.0.1`、`ANTHROPIC_AUTH_TOKEN=amat_xxx`，并把 Claude Code 使用的模型名设置为管理台登记的模型名。
 - Codex：在 `~/.codex/config.toml` 配置自定义 `model_provider`，`base_url` 使用 `http://127.0.0.1/v1`，`wire_api = "responses"`。桌面客户端“模型切换”可以自动完成该配置。
+
+Codex 的网关配置需要 `web_search = "disabled"` 和 `[features] image_generation = false`：当前网关提供本地 function/custom/namespace 工具调用转换，不执行供应商侧的网页搜索和图片生成。客户端模型切换会写入这些配置并保留其他配置及备份。Claude Code 使用 `ANTHROPIC_MODEL` 指定已授权的网关调用名称；若使用不同档位的辅助模型，也需要把相应 `ANTHROPIC_DEFAULT_*_MODEL` 指向已授权的网关名称。
+
+**English:** For Codex, set `web_search = "disabled"` and `image_generation = false` under `[features]`; these server-side tools are not implemented by the gateway. Managed model switching writes these settings while preserving other settings and backing up the config. Local function/custom/namespace tools remain supported. Claude Code must use authorized gateway model names, including any configured auxiliary model tiers.
 
 请求必须携带带有模型调用能力的凭证。在管理台 `智能体管理 / 统一凭证中心` 的路线图中，普通服务或脚本选择“给应用调用模型”；已登记 Agent 选择“给 Agent 使用”，再选择包含模型能力的方案：
 
@@ -282,7 +302,9 @@ OpenAI-compatible 请求使用 `metadata`，MCP 请求使用 `params._meta`。`X
 
 未知字段会被拒绝，避免把高成本或未审计参数无意透传给上游供应商。
 
-`/v1/responses` 当前兼容文本与图片输入、function/custom/namespace 工具、工具结果、常用采样与 reasoning/text 参数，以及文本和工具调用 SSE。它不承诺 Responses API 的服务端内置工具、文件输入、后台任务、会话持久化或 WebSocket 语义；即使请求字段因兼容而被接收，也不会绕过模型网关的参数白名单、凭证、模型范围、请求大小、并发、隐私处理和审计。
+`/v1/responses` 当前兼容文本与图片输入、function/custom/namespace 工具、工具结果、`client_metadata`、并行工具开关、常用采样与 reasoning/text 参数，以及文本和工具调用 SSE。流式事件带递增 `sequence_number`，输出达到上限时返回 `response.incomplete`。请求采用无状态模式，客户端每轮携带完整历史并使用 `store: false`；`previous_response_id`、`conversation`、服务端提示模板、引用历史 item、持久化和后台任务会明确返回错误。服务端内置工具、文件输入及 WebSocket 尚未实现。
+
+**English:** Responses supports common Codex metadata, text/image input, function/custom/namespace tools and results, parallel-tool controls, JSON output and SSE lifecycle events. Truncation produces `response.incomplete`. Send full history with `store: false`; state references, stored/background responses, server-side tools, files and WebSocket transport are not implemented. See [Codex provider configuration](https://learn.chatgpt.com/docs/config-file/config-advanced), [DeepSeek Responses compatibility](https://api-docs.deepseek.com/guides/responses_api/) and [Anthropic model pagination](https://platform.claude.com/docs/en/api/models/list).
 
 为了兼容部分客户端的占位空值，网关会把请求字段或消息扩展字段中的 `"[undefined]"` / `"undefined"` 清理掉，不会继续透传给上游模型供应商。
 
@@ -366,13 +388,35 @@ Prompt 不再作为主流程里的独立上传资产。平台默认在模型网�
 
 ## 6. 模型供应商与模型
 
-模型供应商保存 `base_url`、上游协议（OpenAI-compatible 或 Anthropic-compatible）、API Key、超时和启用状态。
+模型供应商保存 `base_url`、上游协议（OpenAI Chat Completions、OpenAI Responses API 或 Anthropic Messages 兼容）、API Key、超时和启用状态。
 
 - `base_url` 必须包含供应商要求的 API 版本路径；网关不会自动插入 `/v1`。
-- OpenAI-compatible 上游在 `base_url` 后追加 `/chat/completions`，Anthropic-compatible 上游追加 `/messages`；如果填写的是完整协议端点则不重复追加。
-- 供应商测试要求输入真实模型名称，并向相同协议端点发送一条最小非流式推理请求；只有 `2xx` 且响应结构符合所选协议时才判定成功。该操作可能消耗少量供应商额度。
+- `openai` 上游追加 `/chat/completions`，`responses_api` 上游追加 `/responses`，`anthropic` 上游追加 `/messages`；如果填写的是完整协议端点则不重复追加。
+- 供应商测试要求输入真实模型名称，并向相同协议端点发送一条最多输出 128 Token 的非流式推理请求；只有 `2xx`、响应符合所选协议且包含实际输出时才判定成功，空响应或仅思考内容不算成功。该操作可能消耗少量供应商额度。
 - 上游仅支持 OpenAI 时，Anthropic 入站请求会在网关边界转换为 Chat Completions，响应和 SSE 再转换回 Anthropic 格式。
 - 当前核心兼容范围为文本、图片 base64、客户端工具调用、流式输出和基础 usage；Anthropic 专有的服务端工具、完整 prompt caching 语义及全部 beta 内容块不承诺兼容。
+
+Responses 上游支持文本与图片输入、function 工具及工具结果、结构化输出、reasoning effort、文本详细程度、普通响应和 SSE。三种客户端入口都先经过网关模型权限与隐私处理，再转换成所选上游格式；Responses 请求使用 `store: false`，输入、输出、缓存和推理 Token 会转换为 Chat Completions usage 字段。`stop`、惩罚参数、`logit_bias`、`seed` 及 `n > 1` 等无法映射的 Chat Completions 参数会返回稳定错误编码。
+
+Claude Code 使用 Responses 上游时，`output_config.effort` 转换为 `reasoning.effort`；开启或自适应 thinking 且未指定强度时使用 `high`，关闭时使用 `none`，实际支持的强度取决于供应商。Anthropic 的精确思考预算、思考展示和签名不跨协议保留；客户端的 keep-all thinking 编辑保留完整输入历史，其他上下文编辑返回不支持错误。
+
+**English:** With a Responses upstream, Claude Code's `output_config.effort` maps to `reasoning.effort`. Enabled/adaptive thinking defaults to `high` when no effort is supplied; disabled thinking maps to `none`. Accepted effort levels depend on the provider. Exact Anthropic thinking budgets, display settings, and signatures are not preserved across protocols. The client's keep-all thinking edit retains the full input history; other context edits are rejected.
+
+| 上游协议 | 推理 API | 模型列表 API |
+| --- | --- | --- |
+| OpenAI Chat Completions | `POST {base_url}/chat/completions` | `GET {base_url}/models` |
+| OpenAI Responses API | `POST {base_url}/responses` | `GET {base_url}/models` |
+| Anthropic Messages | `POST {base_url}/messages` | `GET {base_url}/models`，支持 `after_id` 分页 |
+
+模型列表是独立接口，不是 `/responses/models`。兼容服务可能只实现推理接口；能列出模型也不代表当前凭据有调用权限，需要逐个测试。Responses 的响应存取、删除、后台任务、服务端内置工具和会话持久化不在此上游适配范围。
+
+**English:** Select `openai`, `responses_api`, or `anthropic` in the provider settings. Include the API version path in the Base URL; the gateway appends `/chat/completions`, `/responses`, or `/messages`. A full inference endpoint is also accepted. All three formats discover models through the sibling `/models` endpoint; Anthropic pagination uses `after_id`. Model listing and inference are tested independently because listing does not prove permission to invoke a model.
+
+Responses providers support text and image input, function calls and results, structured output, reasoning effort, verbosity, non-streaming responses, SSE, and token usage. Requests pass through the same gateway authorization, privacy and audit pipeline with `store: false`. Unsupported Chat Completions options return a stable error code. Stateful response retrieval/deletion, background jobs, built-in server tools and persistent conversations are outside this adapter's scope.
+
+Provider tests request up to 128 output tokens and require a successful HTTP response with actual output. Empty results or reasoning-only results do not count as success.
+
+协议参考：[OpenAI Responses](https://developers.openai.com/api/reference/resources/responses)、[OpenAI Models](https://developers.openai.com/api/reference/resources/models)、[Anthropic Models](https://platform.claude.com/docs/en/api/models/list)。
 
 供应商 API Key 会加密落库：
 

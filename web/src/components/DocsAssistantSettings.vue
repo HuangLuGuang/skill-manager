@@ -117,6 +117,7 @@
 </template>
 
 <script setup>
+import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess } from '../access'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -153,11 +154,9 @@ const form = reactive({
 const modelOptions = computed(() => models.value
   .filter(item => item.enabled !== false)
   .map(item => {
-    const name = String(item.name || '').trim()
-    const displayName = String(item.display_name || '').trim()
     return {
       value: item.name,
-      label: displayName && displayName !== name ? `${displayName} · ${name}` : name,
+      label: modelLabel(item),
     }
   }))
 const contextOptions = [2, 3, 4, 5, 6].map(value => ({ value, label: String(value) }))

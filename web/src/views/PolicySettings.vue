@@ -215,6 +215,7 @@
 </template>
 
 <script setup>
+import { modelLabel } from '../utils/modelLabels'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
@@ -328,7 +329,7 @@ const llmModelOptions = computed(() => {
   if (llmForm.model) values.add(llmForm.model)
   return [...values].map(value => {
     const endpoint = modelEndpoints.value.find(item => item.name === value)
-    return { value, label: endpoint?.display_name ? endpoint.display_name + ' (' + value + ')' : value }
+    return { value, label: endpoint ? modelLabel(endpoint) : value }
   })
 })
 const sandboxImageOptions = computed(() => {
