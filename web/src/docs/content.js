@@ -390,7 +390,7 @@ const zh = {
             "可治理内容和完整性，不能仅凭目录证明调用者"
           ],
           [
-            "分类处置策略",
+            "客户端策略",
             "先仅记录，再按触发情况恢复可信版本",
             "核对具体规则和本机有效策略"
           ]
@@ -473,7 +473,7 @@ const zh = {
       "steps": [
         {
           "title": "先设置仅记录",
-          "body": "在该客户端的分类处置策略中，将本次演练涉及的“已认证 Skill 内容变化”设为“仅记录”，保存后核对客户端检测策略。"
+          "body": "在该客户端的客户端策略中，将本次演练涉及的“已认证 Skill 内容变化”设为“仅记录”，保存后核对客户端检测策略。"
         },
         {
           "title": "切换为Agent强授权",
@@ -579,10 +579,10 @@ const zh = {
       scenario: { label: '案例摘要', items: [{ label: '业务角色', value: '模型网关管理员 · 隐私审计员 · 客服应用开发者' }, { label: '预计耗时', value: '约 30 分钟' }, { label: '验收结果', value: '上游不见原始PII · 压缩结果可量化' }] },
       sections: [
         { id: 'business', title: '业务场景与成功标准', paragraphs: ['客服应用需要总结一段重复的服务中断记录。演练请求只使用虚构客户CUST-1001和保留域名demo.user@example.com，但仍按真实隐私数据链路处理。成功不是“页面显示已启用”，而是一次请求在链路中留下可以交叉核对的处理证据。'], flow: [{ label: '入站', value: '凭证与模型范围' }, { label: '隐私', value: 'PII替换为会话Token', type: 'decision' }, { label: '压缩', value: '处理重复上下文' }, { label: '上游', value: '不含原始PII', type: 'success' }, { label: '返回', value: '响应还原并审计', type: 'success' }], table: { columns: ['检查点', '成功标准'], rows: [['访问控制', '模型凭证有效且只允许目标模型'], ['隐私替换', 'masked阶段不含原始邮箱和客户编号'], ['压缩', '响应头明确为on、enabled-noop或off，并与Trace一致'], ['响应还原', '模型返回占位Token时，最终响应恢复为原始值'], ['审计边界', '只有授权管理员或隐私审计角色查看原始阶段']] }, callout: { type: 'warning', title: '演示也不要使用真实客户数据', body: 'Pipeline Trace的original阶段会保存原始内容。即使网关会保护发往上游的数据，也不能把测试环境当作无审计留存的匿名环境。' } },
-        { id: 'configure', title: '配置模型、策略和最小权限凭证', steps: [{ title: '登记可用供应商和模型', body: '配置OpenAI-compatible供应商与密钥，登记模型名称、上下文窗口和输出限制，并确认模型已启用。' }, { title: '配置隐私策略', body: '启用CUSTOMER_ID和EMAIL_ADDRESS等案例所需实体类型，将策略绑定到演练用户所在组；不需要绕过PII检查。' }, { title: '选择压缩启用范围', body: '可以在供应商级统一启用，也可以只为本次带model:chat的模型调用凭证启用；演练建议先使用auto或保守级别。' }, { title: '创建模型调用凭证', body: '只允许目标模型，设置合理的请求体和并发限制；明文只保存到演练调用方。', expected: 'GET /v1/models只返回该凭证允许访问的启用模型。' }], link: { path: '/model-gateway/providers', label: '打开模型网关配置' } },
+        { id: 'configure', title: '配置模型、策略和最小权限凭证', steps: [{ title: '登记可用供应商和模型', body: '配置OpenAI-compatible供应商与密钥，登记模型名称、上下文窗口和输出限制，并确认模型已启用。' }, { title: '配置隐私策略', body: '启用CUSTOMER_ID和EMAIL_ADDRESS等案例所需实体类型，将策略绑定到演练用户所在组；不需要绕过PII检查。' }, { title: '选择压缩启用范围', body: '在带 model:chat 的调用凭据中启用压缩并选择级别；客户端自动签发的凭据通过客户端策略配置。演练建议先使用 auto 或保守级别。' }, { title: '创建模型调用凭证', body: '只允许目标模型，设置合理的请求体和并发限制；明文只保存到演练调用方。', expected: 'GET /v1/models只返回该凭证允许访问的启用模型。' }], link: { path: '/model-gateway/providers', label: '打开模型网关配置' } },
         { id: 'request', title: '下载并发送可复现请求', paragraphs: ['下载样本后，把replace-with-enabled-model替换为管理台实际启用且凭证允许的模型。样本使用重复记录，使压缩有机会产生变换，但实际结果仍由模型、内容和压缩组件决定。'], code: 'export MODEL_GATEWAY_TOKEN="amat_xxx"\ncurl -sS -D model-gateway-headers.txt \\\n  http://127.0.0.1/v1/chat/completions \\\n  -H "Authorization: Bearer ${MODEL_GATEWAY_TOKEN}" \\\n  -H "Content-Type: application/json" \\\n  --data @model-privacy-compression-request.json', download: { path: '/examples/model-privacy-compression-request.json', filename: 'model-privacy-compression-request.json', label: '下载隐私与压缩请求样本', hint: '虚构客户编号、保留域名邮箱和重复客服记录' }, callout: { type: 'note', title: '保留conversation_id', body: '同一tenant_id和conversation_id会复用历史伪匿名映射。多轮演练保持两者稳定，跨租户或新会话则使用新的标识。' } },
         { id: 'verify', title: '从响应头和链路追踪核对结果', steps: [{ title: '先看响应头', body: '检查x-request-id、x-privacy-policy、x-prompt-guard和x-compression。on表示本次产生压缩，enabled-noop表示已启用但没有变换，off表示未启用。' }, { title: '定位同一请求Trace', body: '使用x-request-id进入隐私链路追踪，依次查看original、masked、compressed、masked_response和final_response。' }, { title: '验证隐私顺序', body: 'masked和compressed阶段不应出现demo.user@example.com或CUST-1001；压缩发生在PII替换之后。' }, { title: '验证压缩证据', body: '当x-compression为on时，核对pre_tokens、post_tokens、tokens_saved、ratio和duration_ms；enabled-noop时不应伪造节省量。' }, { title: '验证最终响应', body: '如果上游响应引用了占位Token，final_response应还原为原始虚构值；若模型没有引用这些值，则无需强求响应出现。', expected: '响应头、Trace阶段和Token压缩统计对同一request_id的状态一致。' }], image: { name: 'token-compression', alt: '模型网关Token压缩统计', caption: '统计页用于观察总体趋势；单次案例仍以响应头和对应request_id的链路阶段为准。' }, link: { path: '/pipeline-trace', label: '打开隐私链路追踪' } },
-        { id: 'compare', title: '正确解释压缩效果', table: { columns: ['观察结果', '含义与下一步'], rows: [['x-compression: on', '本次发生变换；比较压缩前后Token和语义完整性'], ['x-compression: enabled-noop', '功能已启用，但当前内容无需或无法有效变换；可换更长且重复的上下文复测'], ['x-compression: off', '当前供应商和凭证均未启用压缩，检查实际调用使用的凭证'], ['tokens_saved为0', '不代表调用失败；先看状态、变换列表和输入长度'], ['节省较多但摘要遗漏事实', '压缩不是无损保证；降低级别、补充回归样本或针对该调用关闭'], ['统计页有节省但本次没有', '统计是时间范围聚合，单次结论必须按request_id核对']] }, callout: { type: 'warning', title: '不要把压缩率写成服务承诺', body: '节省量与上下文类型、长度、语言、模型和压缩级别相关。上线验收应同时比较事实保留、延迟、错误率和Token，而不是只追求更高压缩比例。' } },
+        { id: 'compare', title: '正确解释压缩效果', table: { columns: ['观察结果', '含义与下一步'], rows: [['x-compression: on', '本次发生变换；比较压缩前后Token和语义完整性'], ['x-compression: enabled-noop', '功能已启用，但当前内容无需或无法有效变换；可换更长且重复的上下文复测'], ['x-compression: off', '本次调用凭据未启用压缩，检查凭据的压缩配置'], ['tokens_saved为0', '不代表调用失败；先看状态、变换列表和输入长度'], ['节省较多但摘要遗漏事实', '压缩不是无损保证；降低级别、补充回归样本或针对该调用关闭'], ['统计页有节省但本次没有', '统计是时间范围聚合，单次结论必须按request_id核对']] }, callout: { type: 'warning', title: '不要把压缩率写成服务承诺', body: '节省量与上下文类型、长度、语言、模型和压缩级别相关。上线验收应同时比较事实保留、延迟、错误率和Token，而不是只追求更高压缩比例。' } },
         { id: 'failure', title: '隐私与压缩故障定位', table: { columns: ['现象', '优先检查'], rows: [['x-privacy-policy为disabled', '凭证所属用户、用户组策略绑定和策略启用状态'], ['masked阶段仍有原始值', '实体类型、自定义规则、字段角色和是否请求绕过'], ['请求绕过被403拒绝', '策略不允许bypass_pii_check；不要为演练放宽'], ['只有original没有完整后续阶段', 'Prompt防护是否阻断、上游是否失败或流式客户端是否中断'], ['压缩开启但一直noop', '输入是否过短、压缩组件自检、实际凭证与供应商配置'], ['普通用户能看到原始PII', '权限配置错误，应立即收窄到管理员或隐私审计角色']] }, link: { path: '/docs/model-gateway', label: '查看模型网关功能说明' } },
       ],
     },
@@ -1585,13 +1585,13 @@ const zh = {
       "id": "governance-modes",
       "title": "默认策略与单台客户端策略",
       "paragraphs": [
-        "平台“默认处置策略”提供公共规则；客户端详情的“分类处置策略”可逐项继承平台默认，或为这一台客户端单独设置。默认规则更新不会覆盖单台客户端的显式设置。",
-        "客户端“检测策略”展示本机已同步的有效规则。平台默认值与客户端不同，先核对是否存在单台客户端覆盖，再检查同步任务。治理方式另行决定是否要求平台 Agent 绑定及 Skill 授权。"
+        "平台“平台默认客户端策略”提供公共规则；客户端详情的“客户端策略”支持 Token 压缩、Prompt 防护与 Skill 分类处置。Prompt 防护默认仅记录，Token 压缩默认关闭；两者均可继承平台默认或为单台客户端覆盖。Skill 规则可逐项继承。默认更新不覆盖客户端显式设置。",
+        "客户端“检测策略”展示本机已同步的有效规则。Prompt 防护保存后更新模型切换自动创建的有效凭证，新建和轮换凭证继承当前值，网关后续请求立即使用新配置；长轮询同步桌面端配置与版本。LLM 复核开关目前仅保存，尚未执行复核。平台默认值与客户端不同，先核对覆盖项，再检查同步任务。"
       ],
       "image": {
         "name": "client-policy",
-        "alt": "分类处置策略按未认证 Skill、已认证 Skill、检测结果处置分区。",
-        "caption": "分类处置策略按未认证 Skill、已认证 Skill、检测结果处置分区。"
+        "alt": "客户端策略默认仅记录 Prompt 风险、关闭 Token 压缩；截图使用当前页面与示例数据。",
+        "caption": "客户端策略默认仅记录 Prompt 风险、关闭 Token 压缩；截图使用当前页面与示例数据。"
       },
       "table": {
         "columns": [
@@ -1678,9 +1678,15 @@ const zh = {
       ],
       "image": {
         "name": "client-policy-preview",
-        "alt": "影响预览默认按客户端汇总，逐层展开查看具体 Skill。",
-        "caption": "影响预览默认按客户端汇总，逐层展开查看具体 Skill。"
+        "alt": "影响预览展示 Token 压缩与 Prompt 防护的配置变化及自动凭据更新数量；示例数据。",
+        "caption": "影响预览展示 Token 压缩与 Prompt 防护的配置变化及自动凭据更新数量；示例数据。"
       }
+    },
+    {
+      "id": "model-policy-sync",
+      "title": "核对模型策略同步",
+      "paragraphs": ["在客户端概览的“检测策略”中核对 Prompt 防护、Token 压缩及同步状态。默认 Prompt 防护为仅记录，Token 压缩关闭。", "管理台保存后，网关后续请求读取更新后的凭据配置；客户端通过长轮询同步展示状态。“等待同步”或“离线缓存”表示本地尚未确认最新配置。"],
+      "image": { "name": "client-app-policy", "alt": "桌面客户端展示仅记录、压缩关闭和已同步状态", "caption": "当前桌面页面使用示例数据，展示 Prompt 防护、Token 压缩及同步状态。" }
     },
     {
       "id": "continuous-governance",
@@ -1832,14 +1838,15 @@ const zh = {
             { title: '在路线图中选择调用者', body: '页面会自动带入对应凭证类型和最小权限。Agent 运行凭证要先创建 Agent；使用 MCP 前要先发布网关。' },
             { title: '填写可审计名称并建立身份绑定', body: '名称应能识别环境和用途，例如“客服 Agent 生产运行凭证”。Agent 场景必须选择它代表的已登记 Agent。' },
             { title: '选择能力和资源范围', body: 'Agent 从“只做运行校验”开始，按需增加治理、模型或 MCP；模型和 MCP 场景再选择允许资源。' },
-            { title: '必要时展开高级安全设置', body: '原始 scope、Prompt 防护、上下文压缩、来源 IP、请求大小和并发都在高级设置。不了解调用规模时保留默认值。' },
+            { title: '必要时展开高级安全设置', body: '原始 scope、Prompt 防护、上下文压缩、来源 IP、请求大小和并发都在高级设置。Prompt 防护默认仅记录，Token 压缩默认关闭。' },
             { title: '保存并立即复制', body: '明文只在创建后展示一次。写入调用方的安全配置后关闭窗口，不要放进源码、截图或普通日志。', expected: '列表只显示凭证前缀、使用者、可访问能力和状态；展开一行可核对 scope、资源范围和安全限制。' },
           ],
         },
         {
           id: 'model-controls',
           title: '带 model:chat 的凭证',
-          bullets: ['模型调用凭证默认包含 model:chat；Agent 运行凭证只有显式选择“治理 + 模型”或手工添加后才能调用模型。', '可限制允许模型；列表为空表示不在凭证层限定模型，不代表绕过模型启用状态或组策略。', 'Token 压缩级别和 Prompt 防护模式跟随凭证；Prompt 防护可选关闭、记录、警告或阻断。', '请求仍要通过凭证状态、绑定、模型范围、请求大小、来源 IP 和并发校验。'],
+          image: { name: 'credential-protection', alt: '凭据高级设置：Prompt 防护仅记录，Token 压缩关闭', caption: '当前页面的示例数据：新建模型调用凭据默认仅记录 Prompt 风险，Token 压缩默认关闭。' },
+          bullets: ['模型调用凭证默认包含 model:chat；Agent 运行凭证只有显式选择“治理 + 模型”或手工添加后才能调用模型。', '可限制允许模型；列表为空表示不在凭证层限定模型，不代表绕过模型启用状态或组策略。', 'Token 压缩级别和 Prompt 防护模式跟随凭证；Prompt 防护默认仅记录，可选关闭、记录、警告或阻断。', '请求仍要通过凭证状态、绑定、模型范围、请求大小、来源 IP 和并发校验。'],
         },
         {
           id: 'client-agent-issuance',
@@ -1987,7 +1994,7 @@ const zh = {
           id: 'setup-flow',
           title: '配置顺序',
           steps: [
-            { title: '添加供应商', body: '选择 OpenAI Chat Completions、OpenAI Responses API 或 Anthropic Messages 兼容格式，配置端点和供应商密钥；需要时在供应商级启用压缩。' },
+            { title: '添加供应商', body: '选择 OpenAI Chat Completions、OpenAI Responses API 或 Anthropic Messages 兼容格式，配置端点和供应商密钥。' },
             { title: '登记模型', body: '设置模型名称、上下文窗口、最大输出和启用状态。' },
             { title: '配置用户组和隐私策略', body: '决定PII实体类型、Prompt防护和会话映射策略。' },
             { title: '签发模型调用凭证', body: '限制允许模型、请求大小和并发；也可以只为指定凭证启用压缩。' },
@@ -2003,7 +2010,7 @@ const zh = {
         {
           id: 'pipeline',
           title: '一次请求经过什么',
-          bullets: ['校验凭证状态、模型范围、请求大小和并发。', '在对应策略启用时检测提示词注入、系统提示泄露和凭据外传风险。', '在匹配隐私策略时识别PII并替换为会话内伪匿名Token。', '供应商或调用凭证启用压缩时，在上游调用前压缩上下文。', '还原模型响应，并写入审计、用量和链路追踪。'],
+          bullets: ['校验凭证状态、模型范围、请求大小和并发。', '在对应策略启用时检测提示词注入、系统提示泄露和凭据外传风险。', '在匹配隐私策略时识别PII并替换为会话内伪匿名Token。', '调用凭据启用压缩时，在上游调用前压缩上下文。', '还原模型响应，并写入审计、用量和链路追踪。'],
         },
         {
           id: 'compatible-endpoints',
@@ -2024,7 +2031,7 @@ const zh = {
         {
           id: 'token-compression',
           title: 'Token 压缩与用量分析',
-          paragraphs: ['供应商可以全局启用压缩；带 model:chat 的模型调用凭证或 Agent 运行凭证也可以单独启用，并选择 auto、conservative 或 aggressive。只在供应商启用而凭证未指定级别时使用 auto。平台在调用上游前处理 messages，并记录压缩前后 Token、节省量、压缩比例和耗时。'],
+          paragraphs: ['带 model:chat 的调用凭据可设置压缩开关及 auto、conservative 或 aggressive 级别。客户端自动签发的运行凭据通过客户端策略配置，支持默认继承或单台覆盖，更新已有凭据并应用于新建及轮换凭据，通过长轮询同步桌面端状态。平台在调用上游前处理 messages，并记录压缩前后 Token、节省量、压缩比例和耗时。'],
           bullets: ['Token压缩统计按时间和模型展示请求量、输入/输出Token、节省量、平均响应时间、模型耗时和平台耗时。', '用户Token分析用于查看不同用户的调用量和Token消耗。', '响应头和链路追踪可用于确认本次请求是已压缩、启用但未产生变换，还是未启用。'],
           callout: { type: 'note', title: '启用不等于每次都会节省', body: '短上下文可能无需压缩；压缩组件不可用或处理失败时会降级使用原始messages，不能把“已启用”直接当作“已节省”。' },
           image: { name: 'token-compression', alt: 'Token压缩统计页面', caption: '统计页同时展示Token用量、压缩请求、节省效果及平台和模型耗时。示例数据以实际环境为准。' },
@@ -2222,7 +2229,7 @@ const zh = {
         { id: 'agent-blocked', title: '为什么 Agent 不能加载已批准的 Skill？', paragraphs: ['检查运行凭证是否绑定当前Agent、Agent是否获授权使用该Skill、本地签名是否匹配，以及当前请求是否先完成签名验证。'] },
         { id: 'credential-lost', title: '凭证明文丢失后能否再次查看？', paragraphs: ['不能。服务端只保存Hash。应吊销旧凭证并重新创建，然后更新调用方配置。'] },
         { id: 'client-offline', title: '客户端为什么显示离线或不能下发 Skill？', paragraphs: ['先检查客户端后台服务、平台地址、客户端接入凭证和最后心跳。下发失败时继续检查Skill是否已批准、目标Agent是否支持Skill管理；Agent强授权模式还要检查本地Agent绑定和Skill授权范围。'] },
-        { id: 'compression-zero', title: '为什么启用了压缩但节省 Token 为 0？', paragraphs: ['确认供应商或本次调用使用的模型凭证已启用压缩，并查看链路或响应头。短上下文可能无需变换；压缩组件不可用或处理失败时会降级使用原始messages，因此“已启用”不保证每次产生节省。'] },
+        { id: 'compression-zero', title: '为什么启用了压缩但节省 Token 为 0？', paragraphs: ['确认本次调用使用的凭据已启用压缩，并查看链路或响应头。短上下文可能无需变换；压缩组件不可用或处理失败时会降级使用原始messages，因此“已启用”不保证每次产生节省。'] },
         { id: 'skill-alert-blocking', title: '模型网关的 Skill 告警会阻断请求吗？', paragraphs: ['当前不会。它用于核对调用方声明的Skill与平台登记、状态和Agent授权并生成审计告警，不等同于本地内容签名验证，也不替代Skill Verifier或客户端巡检。'] },
         { id: 'docker-web', title: 'Docker容器运行但网页打不开怎么办？', paragraphs: ['检查Nginx是否健康、80端口是否映射、Backend和Frontend是否健康，再查看Nginx日志。不要先删除数据卷。'] },
       ],
@@ -2534,7 +2541,7 @@ const en = {
             "Govern content and integrity; do not infer caller identity"
           ],
           [
-            "Classification policy",
+            "Client policies",
             "Record only first; restore trusted content for the selected trigger",
             "Verify the specific rule and locally effective policy"
           ]
@@ -2723,10 +2730,10 @@ const en = {
       scenario: { label: 'Scenario summary', items: [{ label: 'Roles', value: 'Gateway administrator · Privacy auditor · Support-app developer' }, { label: 'Estimated time', value: 'About 30 minutes' }, { label: 'Acceptance result', value: 'Upstream sees no raw PII · compression is measurable' }] },
       sections: [
         { id: 'business', title: 'Business scenario and success criteria', paragraphs: ['A support application summarizes repetitive outage history. The exercise uses fictitious CUST-1001 and the reserved domain demo.user@example.com, but sends them through the same privacy path as real data. Success is not a setting labelled Enabled; it is evidence from one request across every processing stage.'], flow: [{ label: 'Ingress', value: 'Credential and model scope' }, { label: 'Privacy', value: 'PII → session tokens', type: 'decision' }, { label: 'Compression', value: 'Process repeated context' }, { label: 'Upstream', value: 'No raw PII', type: 'success' }, { label: 'Return', value: 'Restore and audit', type: 'success' }], table: { columns: ['Checkpoint', 'Success criterion'], rows: [['Access control', 'Credential is active and allows only the target model'], ['Privacy replacement', 'masked stage contains neither raw email nor customer ID'], ['Compression', 'Header reports on, enabled-noop, or off consistently with Trace'], ['Response restoration', 'If the model echoes tokens, final response restores original values'], ['Audit boundary', 'Only authorized administrators or privacy auditors see original content']] }, callout: { type: 'warning', title: 'Do not use real customers in the exercise', body: 'Pipeline Trace stores the original stage. Protecting upstream traffic does not make a test environment anonymous or remove audit retention.' } },
-        { id: 'configure', title: 'Configure the model, policy, and least-privilege credential', steps: [{ title: 'Register an available provider and model', body: 'Configure an OpenAI-compatible provider, secret, model name, context window, output limit, and enabled state.' }, { title: 'Configure privacy policy', body: 'Enable CUSTOMER_ID, EMAIL_ADDRESS, and any other needed entities, then bind the policy to the exercise user group. Do not bypass PII checks.' }, { title: 'Choose compression scope', body: 'Enable it at provider level or only on this model credential with model:chat. Start with auto or conservative for the exercise.' }, { title: 'Issue the model credential', body: 'Allow only the target model and set reasonable body-size and concurrency limits. Store the one-time secret only in the caller.', expected: 'GET /v1/models returns only enabled models allowed by the credential.' }], link: { path: '/model-gateway/providers', label: 'Open Model Gateway configuration' } },
+        { id: 'configure', title: 'Configure the model, policy, and least-privilege credential', steps: [{ title: 'Register an available provider and model', body: 'Configure an OpenAI-compatible provider, secret, model name, context window, output limit, and enabled state.' }, { title: 'Configure privacy policy', body: 'Enable CUSTOMER_ID, EMAIL_ADDRESS, and any other needed entities, then bind the policy to the exercise user group. Do not bypass PII checks.' }, { title: 'Choose compression scope', body: 'Enable compression on the calling credential with model:chat and select its level. Automatically issued client credentials use client policies. Start with auto or conservative for the exercise.' }, { title: 'Issue the model credential', body: 'Allow only the target model and set reasonable body-size and concurrency limits. Store the one-time secret only in the caller.', expected: 'GET /v1/models returns only enabled models allowed by the credential.' }], link: { path: '/model-gateway/providers', label: 'Open Model Gateway configuration' } },
         { id: 'request', title: 'Download and send a reproducible request', paragraphs: ['Replace replace-with-enabled-model with a model enabled in the console and allowed by the credential. Repeated history gives compression an opportunity to transform content, but the outcome still depends on model, text, and compression availability.'], code: 'export MODEL_GATEWAY_TOKEN="amat_xxx"\ncurl -sS -D model-gateway-headers.txt \\\n  http://127.0.0.1/v1/chat/completions \\\n  -H "Authorization: Bearer ${MODEL_GATEWAY_TOKEN}" \\\n  -H "Content-Type: application/json" \\\n  --data @model-privacy-compression-request.json', download: { path: '/examples/model-privacy-compression-request.json', filename: 'model-privacy-compression-request.json', label: 'Download the privacy and compression request', hint: 'Fictitious customer ID, reserved email domain, and repeated support history' }, callout: { type: 'note', title: 'Keep conversation_id stable', body: 'The same tenant_id and conversation_id reuse historical pseudonym mappings. Keep both stable for a multi-turn drill; use new identifiers for a new tenant or conversation.' } },
         { id: 'verify', title: 'Verify response headers and Pipeline Trace', steps: [{ title: 'Read response headers first', body: 'Inspect x-request-id, x-privacy-policy, x-prompt-guard, and x-compression. on means a transform occurred, enabled-noop means enabled without a transform, and off means disabled.' }, { title: 'Open the same request trace', body: 'Use x-request-id to inspect original, masked, compressed, masked_response, and final_response.' }, { title: 'Verify privacy order', body: 'masked and compressed must not contain demo.user@example.com or CUST-1001. Compression runs after PII replacement.' }, { title: 'Verify compression evidence', body: 'When on, compare pre_tokens, post_tokens, tokens_saved, ratio, and duration_ms. Do not invent savings for enabled-noop.' }, { title: 'Verify final response', body: 'If upstream references a placeholder, final_response should restore the fictitious original. If the model does not mention it, the final answer need not contain it.', expected: 'Headers, Trace stages, and Token Compression Stats agree for the same request_id.' }], image: { name: 'token-compression', alt: 'Model Gateway Token Compression Stats', caption: 'Stats show aggregate trends. This exercise still uses headers and the matching request_id for a single-call conclusion.' }, link: { path: '/pipeline-trace', label: 'Open Pipeline Trace' } },
-        { id: 'compare', title: 'Interpret compression correctly', table: { columns: ['Observation', 'Meaning and next action'], rows: [['x-compression: on', 'This call changed context; compare token counts and semantic retention'], ['x-compression: enabled-noop', 'Enabled, but this content did not benefit; retest with longer repetitive context'], ['x-compression: off', 'Neither actual provider nor credential enabled compression'], ['tokens_saved is 0', 'Not a failed call; inspect status, transforms, and input length'], ['High savings but missing facts', 'Compression is not lossless; lower the level, expand regression samples, or disable for this call'], ['Aggregate stats save tokens but this call does not', 'Stats cover a period; inspect a single call by request_id']] }, callout: { type: 'warning', title: 'Do not turn a compression ratio into an SLA', body: 'Savings depend on language, context type and length, model, and level. Production acceptance must compare fact retention, latency, error rate, and tokens—not maximize one percentage.' } },
+        { id: 'compare', title: 'Interpret compression correctly', table: { columns: ['Observation', 'Meaning and next action'], rows: [['x-compression: on', 'This call changed context; compare token counts and semantic retention'], ['x-compression: enabled-noop', 'Enabled, but this content did not benefit; retest with longer repetitive context'], ['x-compression: off', 'The calling credential has compression disabled'], ['tokens_saved is 0', 'Not a failed call; inspect status, transforms, and input length'], ['High savings but missing facts', 'Compression is not lossless; lower the level, expand regression samples, or disable for this call'], ['Aggregate stats save tokens but this call does not', 'Stats cover a period; inspect a single call by request_id']] }, callout: { type: 'warning', title: 'Do not turn a compression ratio into an SLA', body: 'Savings depend on language, context type and length, model, and level. Production acceptance must compare fact retention, latency, error rate, and tokens—not maximize one percentage.' } },
         { id: 'failure', title: 'Privacy and compression troubleshooting', table: { columns: ['Symptom', 'Check first'], rows: [['x-privacy-policy is disabled', 'Credential owner, user-group binding, and enabled policy'], ['Raw values remain in masked', 'Entity types, custom rules, message role, and bypass metadata'], ['Bypass request receives 403', 'Policy disallows bypass_pii_check; do not relax it for this drill'], ['Only original exists without later stages', 'Prompt Guard block, upstream failure, or interrupted streaming Client'], ['Compression stays noop', 'Input length, compression self-test, actual provider, and actual credential'], ['Ordinary user can view raw PII', 'Permission defect; restrict immediately to administrators or privacy auditors']] }, link: { path: '/docs/model-gateway', label: 'Read Model Gateway guidance' } },
       ],
     },
@@ -3213,13 +3220,13 @@ const en = {
       "id": "governance-modes",
       "title": "Default and per-client policies",
       "paragraphs": [
-        "Platform Default Policy supplies shared rules. Classification Policy in Client details can inherit each default or override it for that machine. Updating defaults does not replace explicit client overrides.",
-        "Scan policies in the Client shows locally synchronized effective rules. If it differs from the platform default, check per-client overrides and then synchronization tasks. Governance mode separately determines whether Agent binding and Skill authorization are required."
+        "Default Client policies provide shared rules. Client policies configure Token compression, Prompt Guard and Skill classification. Prompt Guard defaults to log only and Token compression defaults to off. Both support default inheritance or a per-client override; Skill rules inherit individually. Default updates preserve explicit client overrides.",
+        "Desktop Scan policies show synchronized rules. Saving Prompt Guard updates active credentials created by model switching; new and rotated credentials inherit the current values. Subsequent gateway requests use the saved configuration, while long polling synchronizes desktop settings and versions. The LLM review flag is stored without executing a review. Check overrides and synchronization tasks when values differ."
       ],
       "image": {
         "name": "client-policy",
-        "alt": "Classification policy groups unverified Skills, certified Skills, and scan-result handling.",
-        "caption": "Classification policy groups unverified Skills, certified Skills, and scan-result handling."
+        "alt": "Client policies default to log-only Prompt Guard and Token compression off; current UI with example data.",
+        "caption": "Client policies default to log-only Prompt Guard and Token compression off; current UI with example data."
       },
       "table": {
         "columns": [
@@ -3306,9 +3313,15 @@ const en = {
       ],
       "image": {
         "name": "client-policy-preview",
-        "alt": "Impact preview starts with client totals and expands to Agents and individual Skills.",
-        "caption": "Impact preview starts with client totals and expands to Agents and individual Skills."
+        "alt": "Impact preview shows Token compression and Prompt Guard changes and affected automatic credentials; example data.",
+        "caption": "Impact preview shows Token compression and Prompt Guard changes and affected automatic credentials; example data."
       }
+    },
+    {
+      "id": "model-policy-sync",
+      "title": "Verify model policy synchronization",
+      "paragraphs": ["Open Scan policies in Client Overview to inspect Prompt Guard, Token compression, and synchronization status. Prompt Guard defaults to log only and compression defaults to off.", "After saving in the console, subsequent gateway requests use the updated credential settings. Long polling synchronizes the desktop display. Pending synchronization or offline cache means the client has not confirmed the latest configuration."],
+      "image": { "name": "client-app-policy", "alt": "Desktop client showing log-only protection, compression off, and a synchronized status", "caption": "Current desktop UI with example data showing Prompt Guard, Token compression, and synchronization status." }
     },
     {
       "id": "continuous-governance",
@@ -3427,11 +3440,11 @@ const en = {
       eyebrow: 'Feature guide', title: 'Model gateway', summary: 'Proxy model traffic and centralize access control, Prompt protection, privacy replacement, optional context compression, usage analysis, and call audits.',
       sections: [
         { id: 'feature-map', title: 'Pages and capabilities', table: { columns: ['Page', 'What it controls or explains'], rows: [['Providers / Models', 'Register upstream endpoints and model limits, formats, and enabled state.'], ['Group policies / Privacy policies', 'Bind model access and PII handling to user groups.'], ['Prompt Guard', 'Test and audit prompt injection, system prompt leakage, and credential exfiltration patterns.'], ['Skill Alerts', 'Compare Skills declared by callers with registry, state, and Agent authorization.'], ['Privacy Audit / Pipeline Trace', 'Inspect results and original, replaced, compressed, upstream, and restored stages.'], ['Token Compression Stats / User Token Analytics', 'Inspect requests, token use, savings, processing time, and user-level consumption.']] } },
-        { id: 'setup-flow', title: 'Setup order', steps: [{ title: 'Add a provider', body: 'Select OpenAI Chat Completions, OpenAI Responses API, or Anthropic Messages compatibility, then configure the endpoint and provider secret; enable provider-level compression if required.' }, { title: 'Register models', body: 'Set model name, context size, output limits, and enabled state.' }, { title: 'Configure groups and privacy policies', body: 'Choose PII entities, Prompt protection, and session mapping behavior.' }, { title: 'Issue a model credential', body: 'Limit models, request size, and concurrency; compression may also be enabled only for selected credentials.' }, { title: 'Call and inspect the trace', body: 'Use an OpenAI- or Anthropic-compatible endpoint, then inspect the privacy pipeline.' }], link: { path: '/model-gateway/providers', label: 'Open Providers' } },
+        { id: 'setup-flow', title: 'Setup order', steps: [{ title: 'Add a provider', body: 'Select OpenAI Chat Completions, OpenAI Responses API, or Anthropic Messages compatibility, then configure the endpoint and provider secret.' }, { title: 'Register models', body: 'Set model name, context size, output limits, and enabled state.' }, { title: 'Configure groups and privacy policies', body: 'Choose PII entities, Prompt protection, and session mapping behavior.' }, { title: 'Issue a model credential', body: 'Limit models, request size, and concurrency; compression may also be enabled only for selected credentials.' }, { title: 'Call and inspect the trace', body: 'Use an OpenAI- or Anthropic-compatible endpoint, then inspect the privacy pipeline.' }], link: { path: '/model-gateway/providers', label: 'Open Providers' } },
         { id: 'provider-protocols', title: 'Upstream protocols and model discovery', paragraphs: ['Include the provider version path in the Base URL. Chat Completions appends /chat/completions, Responses API appends /responses, and Anthropic appends /messages. Full inference endpoints are accepted.', 'All three formats discover models through the sibling /models endpoint; Anthropic supports cursor pagination. Compatible services may omit listing. Add a model manually and use Test to verify actual inference access.', 'Different providers may register the same upstream model name. Already added applies only to the current provider. Gateway model names are globally unique, generated when omitted, and fixed after creation. Credential, documentation, Skill policy, Agent and client selectors show provider identity and store the gateway name.', 'Responses supports text, images, function tools and results, structured output, reasoning effort, and SSE through the gateway authorization and privacy pipeline with store: false. Response persistence and background jobs are outside this adapter.'] },
-        { id: 'pipeline', title: 'What happens to a request', bullets: ['Validate credential state, model scope, request size, and concurrency.', 'When the matching policy enables it, detect prompt injection, system prompt leakage, and credential exfiltration patterns.', 'When a privacy policy matches, replace PII with session-scoped pseudonymous tokens.', 'When the provider or credential enables compression, process context before the upstream call.', 'Restore the response and record audit, usage, and trace stages.'] },
+        { id: 'pipeline', title: 'What happens to a request', bullets: ['Validate credential state, model scope, request size, and concurrency.', 'When the matching policy enables it, detect prompt injection, system prompt leakage, and credential exfiltration patterns.', 'When a privacy policy matches, replace PII with session-scoped pseudonymous tokens.', 'When the calling credential enables compression, process context before the upstream call.', 'Restore the response and record audit, usage, and trace stages.'] },
         { id: 'compatible-endpoints', title: 'Choose the compatible endpoint for each Agent', table: { columns: ['Caller', 'Gateway endpoint', 'Purpose'], rows: [['Claude Code', 'POST /v1/messages', 'Anthropic Messages-compatible requests.'], ['Codex', 'POST /v1/responses', 'Responses protocol through a custom model_provider.'], ['Hermes and regular OpenAI-compatible clients', 'POST /v1/chat/completions', 'Chat Completions-compatible requests.'], ['Model discovery', 'GET /v1/models', 'Credential-filtered OpenAI or Anthropic model lists with cursor pagination.'], ['Model details', 'GET /v1/models/{model_id}', 'Retrieve an authorized model.'], ['Token estimate', 'POST /v1/messages/count_tokens', 'Local estimate; response header identifies estimated-utf8.']] }, callout: { type: 'note', title: 'Protocol boundary', body: 'All three endpoints share credential, model-scope, privacy, and audit checks, but their wire fields are not interchangeable. Model Switching writes the correct endpoint and disables server-side web search and image generation for Codex. Send full Responses history with store set to false.' } },
-        { id: 'token-compression', title: 'Token compression and usage analysis', paragraphs: ['A provider can enable compression globally. A model-call or Agent runtime credential with model:chat scope can also enable it and select auto, conservative, or aggressive. When only the provider enables compression and the credential does not select a level, the gateway uses auto. The platform processes messages before the upstream call and records token counts before and after compression, savings, ratio, and processing time.'], bullets: ['Token Compression Stats groups requests, input and output tokens, savings, average response time, model time, and platform time by period and model.', 'User Token Analytics compares call volume and token consumption across users.', 'Response headers and Pipeline Trace help distinguish compressed, enabled with no transformation, and disabled requests.'], callout: { type: 'note', title: 'Enabled does not mean every request saves tokens', body: 'Short context may need no transformation. If the compression component is unavailable or fails, the gateway falls back to the original messages, so enabled must not be interpreted as saved.' }, image: { name: 'token-compression', alt: 'Token Compression Stats page', caption: 'The stats page combines token usage, compression requests, savings, and platform and model timing. Values shown are example environment data.' }, link: { path: '/model-gateway/stats', label: 'Open Token Compression Stats' } },
+        { id: 'token-compression', title: 'Token compression and usage analysis', paragraphs: ['Credentials with model:chat configure compression and its auto, conservative, or aggressive level. Automatically issued client credentials use default or per-client policies. Saving updates existing automatic credentials and future issuance or rotation; long polling synchronizes desktop state. The platform processes messages before the upstream call and records token counts before and after compression, savings, ratio, and processing time.'], bullets: ['Token Compression Stats groups requests, input and output tokens, savings, average response time, model time, and platform time by period and model.', 'User Token Analytics compares call volume and token consumption across users.', 'Response headers and Pipeline Trace help distinguish compressed, enabled with no transformation, and disabled requests.'], callout: { type: 'note', title: 'Enabled does not mean every request saves tokens', body: 'Short context may need no transformation. If the compression component is unavailable or fails, the gateway falls back to the original messages, so enabled must not be interpreted as saved.' }, image: { name: 'token-compression', alt: 'Token Compression Stats page', caption: 'The stats page combines token usage, compression requests, savings, and platform and model timing. Values shown are example environment data.' }, link: { path: '/model-gateway/stats', label: 'Open Token Compression Stats' } },
         { id: 'skill-alerts', title: 'Skill Alerts in model requests', paragraphs: ['When a caller declares Skills in a model request, the platform compares them with Skill registration, loadable state, and Agent authorization, then records missing, unknown, mismatched, unavailable, or unauthorized declarations.'], callout: { type: 'warning', title: 'Currently audit-only', body: 'Skill Alerts do not block model calls. Caller-declared Skill metadata is not local signature or content verification; use Skill Verifier or Client inspection when content integrity is required.' }, link: { path: '/model-gateway/skill-alerts', label: 'Open Skill Alerts' } },
         { id: 'privacy', title: 'Privacy trace boundaries', paragraphs: ['Pipeline Trace can show original, masked, compressed, upstream, and restored content. Original stages may contain PII and should be limited to authorized administrator or privacy auditor roles.'], link: { path: '/pipeline-trace', label: 'Open Pipeline Trace' } },
       ],
@@ -3509,7 +3522,7 @@ const en = {
         { id: 'agent-blocked', title: 'Why can an Agent not load an approved Skill?', paragraphs: ['Check that the runtime credential is bound to the Agent, the Agent is authorized for the Skill, the local signature matches, and signature verification happened before the load check.'] },
         { id: 'credential-lost', title: 'Can a lost credential secret be shown again?', paragraphs: ['No. The server stores only a hash. Revoke the old credential, create a new one, and update the caller.'] },
         { id: 'client-offline', title: 'Why is a Client offline or unable to deliver a Skill?', paragraphs: ['Check the Client background service, platform address, Client access credential, and last heartbeat. If delivery fails, confirm that the Skill is approved and the target Agent supports Skill management. Strict Agent authorization also requires the local Agent binding and allowed Skill scope.'] },
-        { id: 'compression-zero', title: 'Why are token savings zero after compression is enabled?', paragraphs: ['Confirm that compression is enabled on the provider or the credential used by this call, then inspect the trace or response headers. Short context may need no transformation; if compression is unavailable or fails, the gateway falls back to the original messages. Enabled therefore does not guarantee savings on every request.'] },
+        { id: 'compression-zero', title: 'Why are token savings zero after compression is enabled?', paragraphs: ['Confirm that compression is enabled on the credential used by this call, then inspect the trace or response headers. Short context may need no transformation; if compression is unavailable or fails, the gateway falls back to the original messages. Enabled therefore does not guarantee savings on every request.'] },
         { id: 'skill-alert-blocking', title: 'Do Model Gateway Skill Alerts block requests?', paragraphs: ['Not currently. They compare caller-declared Skills with registry, state, and Agent authorization and create audit alerts. They are not local content signature verification and do not replace Skill Verifier or Client inspection.'] },
         { id: 'docker-web', title: 'Containers run but the console is unavailable', paragraphs: ['Check Nginx health, port 80 mapping, Backend and Frontend health, then read Nginx logs. Do not delete volumes first.'] },
       ],
@@ -3591,13 +3604,14 @@ en.articles['credential-management'] = {
         { title: 'Choose the caller from Credential routes', body: 'The page supplies the matching credential type and minimum permissions. Create the Agent before an Agent runtime credential and publish a gateway before enabling MCP.' },
         { title: 'Use an auditable name and bind identity', body: 'Include purpose and environment, such as “Support Agent production runtime.” Agent routes must select the registered Agent represented by the credential.' },
         { title: 'Choose capabilities and resource boundaries', body: 'Start an Agent with Runtime checks only, then add governance, models, or MCP when needed. Model and MCP routes select their allowed resources.' },
-        { title: 'Open Advanced security settings only when needed', body: 'Raw scopes, Prompt Guard, context compression, source IP, body size, and concurrency live there. Keep defaults when caller scale is unknown.' },
+        { title: 'Open Advanced security settings only when needed', body: 'Raw scopes, Prompt Guard, context compression, source IP, body size, and concurrency live there. Prompt Guard defaults to log only; Token compression defaults to off.' },
         { title: 'Save and copy immediately', body: 'The secret appears once. Store it in the caller secure configuration, never source, screenshots, or normal logs.', expected: 'The list shows prefix, caller, accessible capabilities, and status. Expand a row to verify scopes, resources, and security limits.' },
       ],
     },
     {
       id: 'model-controls', title: 'Credentials with model:chat',
-      bullets: ['Model gateway credentials include model:chat by default. Agent runtime credentials require Governance + Model or an explicit model:chat scope.', 'Allowed models may be restricted. An empty list means no credential-level model restriction, not a bypass of model state or group policy.', 'Token-compression level and Prompt Guard mode follow the credential. Prompt Guard supports off, log, warn, or block.', 'Requests still pass credential status, binding, model range, body size, source IP, and concurrency checks.'],
+      image: { name: 'credential-protection', alt: 'Credential advanced settings: log-only Prompt Guard and compression off', caption: 'Current UI with example data: new model credentials default to log-only Prompt Guard and Token compression off.' },
+      bullets: ['Model gateway credentials include model:chat by default. Agent runtime credentials require Governance + Model or an explicit model:chat scope.', 'Allowed models may be restricted. An empty list means no credential-level model restriction, not a bypass of model state or group policy.', 'Token-compression level and Prompt Guard mode follow the credential. Prompt Guard defaults to log only and supports off, log, warn, or block.', 'Requests still pass credential status, binding, model range, body size, source IP, and concurrency checks.'],
     },
     {
       id: 'client-agent-issuance', title: 'How a Client automatically creates Agent runtime credentials',

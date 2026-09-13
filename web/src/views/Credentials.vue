@@ -135,6 +135,8 @@
       v-model:open="createVisible"
       :title="$t('credentials.createTitle')"
       width="900px"
+      :style="{ top: '24px' }"
+      :body-style="{ maxHeight: 'calc(100dvh - 140px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }"
       :footer="null"
       :destroy-on-close="true"
     >
@@ -169,7 +171,7 @@
         </div>
       </div>
 
-      <div v-else>
+      <div v-else class="credential-config">
         <div class="selected-route" :style="{ '--route-accent': selectedScenario.color }">
           <span class="selected-route__mark">{{ selectedScenario.mark }}</span>
           <div>
@@ -294,6 +296,7 @@
                   <a-col :xs="24" :md="12">
                     <a-form-item>
                       <a-checkbox v-model:checked="form.enable_compression">{{ $t('credentials.enableCompression') }}</a-checkbox>
+                      <div class="field-hint">{{ $t('credentials.compressionHint') }}</div>
                       <a-select :get-popup-container="trigger => trigger.parentElement" v-if="form.enable_compression" v-model:value="form.compression_level" style="margin-top: 8px">
                         <a-select-option value="auto">{{ $t('credentials.compressionAuto') }}</a-select-option>
                         <a-select-option value="conservative">{{ $t('credentials.compressionConservative') }}</a-select-option>
@@ -343,7 +346,7 @@
         </div>
         <div class="modal-actions">
           <a-button @click="createVisible = false">{{ $t('credentials.cancel') }}</a-button>
-          <a-button type="primary" :loading="creating" @click="handleCreate">{{ $t('credentials.createAndShow') }}</a-button>
+          <a-button type="primary" :loading="creating" :disabled="creating" @click="handleCreate">{{ $t('credentials.createAndShow') }}</a-button>
         </div>
       </div>
     </a-modal>
@@ -435,7 +438,7 @@ const form = reactive({
   max_concurrent_jobs: 2,
   enable_compression: false,
   compression_level: 'auto',
-  prompt_guard_mode: 'block',
+  prompt_guard_mode: 'log',
   prompt_guard_llm_review: false,
   allow_agent_credential_issuance: false,
 })
@@ -633,7 +636,7 @@ const resetForm = (tokenType, defaults = {}) => {
     max_concurrent_jobs: 2,
     enable_compression: false,
     compression_level: 'auto',
-    prompt_guard_mode: tokenType === 'agent_runtime' ? 'block' : 'off',
+    prompt_guard_mode: 'log',
     prompt_guard_llm_review: false,
     allow_agent_credential_issuance: false,
   })
@@ -700,6 +703,7 @@ const openCreateFromQuery = async () => {
   await router.replace({ name: 'credentials', query: {} })
 }
 const handleCreate = async () => {
+  if (creating.value) return
   if (!form.name.trim()) {
     message.warning(t('credentials.nameRequired'))
     return
@@ -1100,11 +1104,19 @@ onMounted(async () => {
 }
 
 .credential-form {
+  min-height: 0;
+  flex: 1;
   max-height: min(62vh, 680px);
   margin-top: 16px;
   padding-right: 4px;
   overflow-y: auto;
 }
+
+.credential-config { display: flex; flex-direction: column; min-height: 0; }
+.credential-config > .selected-route,
+.credential-config > .creation-summary,
+.credential-config > .modal-actions { flex-shrink: 0; }
+.scenario-picker { overflow-y: auto; }
 
 .form-section {
   padding: 17px 18px 3px;

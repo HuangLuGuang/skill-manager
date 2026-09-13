@@ -88,8 +88,6 @@ class ModelProvider(Base):
     api_key = Column(Text, nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
     timeout_seconds = Column(Integer, default=60, nullable=False)
-    # Provider 级别压缩默认值（API Key 设置优先）
-    enable_compression = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -128,7 +126,7 @@ class LlmApiKey(Base):
     # Headroom 智能压缩配置
     enable_compression = Column(Boolean, default=False, nullable=False)
     compression_level = Column(String(32), default="auto", nullable=False)
-    prompt_guard_mode = Column(String(32), default="off", nullable=False)
+    prompt_guard_mode = Column(String(32), default="log", nullable=False)
     prompt_guard_llm_review = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     last_used_at = Column(DateTime, nullable=True)
@@ -160,7 +158,7 @@ class AccessToken(Base):
     max_concurrent_jobs = Column(Integer, default=2, nullable=False)
     enable_compression = Column(Boolean, default=False, nullable=False)
     compression_level = Column(String(32), default="auto", nullable=False)
-    prompt_guard_mode = Column(String(32), default="off", nullable=False)
+    prompt_guard_mode = Column(String(32), default="log", nullable=False)
     prompt_guard_llm_review = Column(Boolean, default=False, nullable=False)
     created_by = Column(String(128), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -490,6 +488,8 @@ class ClientGovernancePolicy(Base):
 
     scope = Column(String(128), primary_key=True)
     rules_json = Column(Text, default="{}", nullable=False)
+    prompt_guard_json = Column(Text, default="null", nullable=False)
+    compression_json = Column(Text, default="null", nullable=False)
     revision = Column(Integer, default=0, nullable=False)
     enabled = Column(Boolean, default=False, nullable=False)
     protocol = Column(Integer, default=0, nullable=False)

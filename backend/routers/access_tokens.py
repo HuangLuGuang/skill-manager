@@ -544,11 +544,7 @@ async def create_access_token(
         max_concurrent_jobs=body.max_concurrent_jobs,
         enable_compression=body.enable_compression,
         compression_level=body.compression_level,
-        prompt_guard_mode=(
-            "block"
-            if body.token_type == "agent_runtime" and "prompt_guard_mode" not in body.model_fields_set
-            else body.prompt_guard_mode
-        ),
+        prompt_guard_mode=body.prompt_guard_mode,
         prompt_guard_llm_review=body.prompt_guard_llm_review,
         created_by=current_user.username,
     )

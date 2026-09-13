@@ -16,7 +16,7 @@ func TestPolicySyncPersistsExactVersionAndReportsAcknowledgment(t *testing.T) {
 	var report map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			w.Write([]byte(`{"classification":{"enabled":true,"version":"2:1","rules":{}}}`))
+			w.Write([]byte(`{"classification":{"enabled":true,"version":"2:1","rules":{},"prompt_guard":{"mode":"warn","llm_review":true},"prompt_guard_source":"client","compression":{"enabled":true,"level":"conservative"}}}`))
 		} else {
 			json.NewDecoder(r.Body).Decode(&report)
 			w.Write([]byte(`{"status":"succeeded"}`))
@@ -30,6 +30,14 @@ func TestPolicySyncPersistsExactVersionAndReportsAcknowledgment(t *testing.T) {
 	}
 	if cachedPolicy(store).Classification.Version != "2:1" {
 		t.Fatal("policy was not persisted")
+	}
+	compression := cachedPolicy(store).Classification.Compression
+	if compression == nil || !compression.Enabled || compression.Level != "conservative" {
+		t.Fatalf("compression settings were lost during synchronization: %+v", compression)
+	}
+	guard := cachedPolicy(store).Classification.PromptGuard
+	if guard == nil || guard.Mode != "warn" || !guard.LLMReview {
+		t.Fatalf("Prompt Guard settings were lost during synchronization: %+v", guard)
 	}
 	if body, err := os.ReadFile(filepath.Join(home, ".agent-manager", "run-now")); err != nil || string(body) != "full" {
 		t.Fatalf("inspection was not requested: %s, %v", body, err)

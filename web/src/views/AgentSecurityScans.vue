@@ -657,7 +657,6 @@
         </template>
         <a-form-item :label="t('agentSecurityScans.tasks.kind')" required><a-select v-model:value="taskForm.scan_kind" :disabled="availableScanKinds.length === 1"><a-select-option v-for="kind in availableScanKinds" :key="kind" :value="kind">{{ scanKindLabel(kind) }}</a-select-option></a-select></a-form-item>
         <McpScanOptions v-if="taskForm.scan_kind === 'mcp_risk_scan'" v-model="mcpForm" :target="selectedTaskTarget" :models="evaluationModels" :can-import="hasAccess('scans:create')" />
-        <a-alert v-if="compressedMcpModels.length" class="modal-alert" type="warning" show-icon :message="t('mcpScan.compressionWarningTitle')" :description="t('mcpScan.compressionWarning', { models: compressedMcpModels.join(', ') })" />
         <a-form-item v-if="taskForm.scan_kind === 'mcp_risk_scan' && needsEvaluator" :label="t('agentSecurityScans.tasks.prompt')"><a-textarea v-model:value="taskForm.prompt" :rows="3" :maxlength="4096" /></a-form-item>
         <a-form-item v-if="needsEvaluator" :label="t('agentSecurityScans.tasks.evaluationModel')" required :extra="t('agentSecurityScans.tasks.evaluationModelHelp')">
           <a-select v-model:value="taskForm.evaluation_model" show-search option-filter-prop="label" :loading="redteamOptionsLoading" :disabled="redteamOptionsLoading" :placeholder="t('agentSecurityScans.tasks.selectEvaluationModel')" :not-found-content="t('agentSecurityScans.tasks.noEvaluationModels')">
@@ -1371,12 +1370,6 @@ const emptyMcpOptions = () => ({ mcp_mode: 'metadata', mcp_depth: 'full', mcp_so
 const mcpForm = ref(emptyMcpOptions())
 const needsEvaluator = computed(() => ['agent_risk_scan', 'llm_redteam_scan'].includes(taskForm.scan_kind) || (taskForm.scan_kind === 'mcp_risk_scan' && mcpForm.value.mcp_mode !== 'metadata'))
 const evaluatorSelectionMissing = computed(() => needsEvaluator.value && (redteamOptionsLoading.value || !taskForm.evaluation_model))
-const compressedMcpModels = computed(() => {
-  if (taskForm.scan_kind !== 'mcp_risk_scan' || mcpForm.value.mcp_mode === 'metadata') return []
-  const selected = new Set([taskForm.evaluation_model, mcpForm.value.analysis_model,
-    ...(mcpForm.value.mcp_mode === 'redteam' ? [mcpForm.value.attack_model] : [])])
-  return evaluationModels.value.filter(model => selected.has(model.name) && model.compression_enabled).map(model => model.name)
-})
 const killSwitchModalOpen = ref(false)
 const killSwitchTask = ref(null)
 const killSwitchReason = ref('')

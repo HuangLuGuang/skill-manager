@@ -6,6 +6,34 @@
         <a-alert v-if="!editable" type="warning" :message="t(policy.supported ? 'clientGovernance.readonly' : 'clientGovernance.upgrade')" />
         <a-alert v-if="!impact && clientId && policy.advanced_supported === false" type="warning" show-icon :message="t('clientGovernance.capabilityAvailable')" />
         <a-form v-if="!impact" layout="vertical" class="policy-form">
+          <section class="policy-group">
+            <header class="group-heading"><h3>{{ t('clientGovernance.compression.title') }}</h3><p>{{ t('clientGovernance.compression.description') }}</p></header>
+            <a-checkbox v-if="clientId" v-model:checked="inheritCompression" :disabled="!editable || busy">{{ t('clientGovernance.inherit') }}</a-checkbox>
+            <div class="group-rules">
+              <a-form-item :label="t('clientGovernance.compression.enabled')"><a-switch v-model:checked="compression.enabled" :disabled="!editable || busy || inheritCompression" /></a-form-item>
+              <a-form-item :label="t('clientGovernance.compression.level')">
+                <a-select v-model:value="compression.level" :disabled="!editable || busy || inheritCompression || !compression.enabled">
+                  <a-select-option v-for="level in ['auto', 'conservative', 'aggressive']" :key="level" :value="level">{{ t(`clientGovernance.compression.${level}`) }}</a-select-option>
+                </a-select>
+              </a-form-item>
+            </div>
+            <div class="effective">{{ t('clientGovernance.effective', { action: compressionLabel(policy.compression) }) }}</div>
+            <div v-if="inheritCompression" class="effective">{{ t('clientGovernance.prompt.defaultValue', { value: compressionLabel(policy.compression_default) }) }}</div>
+          </section>
+          <section class="policy-group">
+            <header class="group-heading"><h3>{{ t('clientGovernance.prompt.title') }}</h3><p>{{ t('clientGovernance.prompt.description') }}</p></header>
+            <a-checkbox v-if="clientId" v-model:checked="inheritPrompt" :disabled="!editable || busy">{{ t('clientGovernance.inherit') }}</a-checkbox>
+            <div class="group-rules">
+              <a-form-item :label="t('clientGovernance.prompt.mode')">
+                <a-select v-model:value="promptGuard.mode" :disabled="!editable || busy || inheritPrompt">
+                  <a-select-option v-for="mode in ['off', 'log', 'warn', 'block']" :key="mode" :value="mode">{{ t(`clientGovernance.prompt.${mode}`) }}</a-select-option>
+                </a-select>
+              </a-form-item>
+              <a-form-item :label="t('clientGovernance.prompt.llmReview')"><a-switch v-model:checked="promptGuard.llm_review" :disabled="!editable || busy || inheritPrompt" /><div class="effective">{{ t('clientGovernance.prompt.reviewHint') }}</div></a-form-item>
+            </div>
+            <div class="effective">{{ t('clientGovernance.effective', { action: promptLabel(policy.prompt_guard) }) }}</div>
+            <div v-if="inheritPrompt" class="effective">{{ t('clientGovernance.prompt.defaultValue', { value: promptLabel(policy.prompt_guard_default) }) }}</div>
+          </section>
           <section v-for="group in groups" :key="group.key" class="policy-group">
             <header class="group-heading">
               <h3>{{ t(`clientGovernance.groups.${group.key}.title`) }}</h3>
@@ -33,6 +61,10 @@
           </section>
         </a-form>
         <template v-else>
+          <a-alert type="info" show-icon :message="t('clientGovernance.compression.preview', { count: impact.compression_impacts?.reduce((sum, item) => sum + item.changed_credentials, 0) || 0 })" />
+          <ul class="prompt-impact"><li v-for="item in impact.compression_impacts" :key="item.client_id">{{ item.client_name }}: {{ compressionLabel(item.current) }} → {{ compressionLabel(item.proposed) }}</li></ul>
+          <a-alert type="info" show-icon :message="t('clientGovernance.prompt.preview', { count: impact.prompt_impacts?.reduce((sum, item) => sum + item.changed_credentials, 0) || 0 })" />
+          <ul class="prompt-impact"><li v-for="item in impact.prompt_impacts" :key="item.client_id">{{ item.client_name }}: {{ promptLabel(item.current) }} → {{ promptLabel(item.proposed) }}</li></ul>
           <p>{{ t('clientGovernance.candidates', { clients: impact.client_count, count: impact.candidate_count }) }}</p>
           <a-alert v-if="impact.excluded_clients?.length" type="warning" show-icon :message="t('clientGovernance.excludedTitle', { count: impact.excluded_clients.length })" class="excluded-clients">
             <template #description>
@@ -102,6 +134,10 @@ const props = defineProps({ open: Boolean, clientId: { type: String, default: ''
 const emit = defineEmits(['update:open', 'saved'])
 const { t } = useI18n()
 const policy = ref(null), rules = ref({}), impact = ref(null), loading = ref(false), busy = ref(false)
+const promptGuard = ref({ mode: 'log', llm_review: false }), inheritPrompt = ref(false)
+const compression = ref({ enabled: false, level: 'auto' }), inheritCompression = ref(false)
+const compressionLabel = value => value ? (value.enabled ? `${t('clientGovernance.prompt.enabled')} · ${t(`clientGovernance.compression.${value.level}`)}` : t('clientGovernance.prompt.disabled')) : ''
+const promptLabel = guard => guard ? `${t(`clientGovernance.prompt.${guard.mode}`)} · ${t('clientGovernance.prompt.llmReview')}: ${t(guard.llm_review ? 'clientGovernance.prompt.enabled' : 'clientGovernance.prompt.disabled')}` : ''
 const expandedKeys = ref([])
 const impactTree = computed(() => {
   const clients = new Map()
@@ -166,11 +202,15 @@ async function load() {
     if (sequence !== loadSequence) return
     policy.value = result
     rules.value = { ...(clientId ? result.overrides : result.rules) }
+    promptGuard.value = { ...result.prompt_guard }
+    inheritPrompt.value = Boolean(clientId && !result.prompt_guard_override)
+    compression.value = { ...result.compression }
+    inheritCompression.value = Boolean(clientId && !result.compression_override)
   } catch (error) { if (sequence === loadSequence) message.error(error.response?.data?.detail || t('clientGovernance.failed')) }
   finally { if (sequence === loadSequence) loading.value = false }
 }
 watch(() => [props.open, props.clientId], load, { immediate: true })
-const payload = () => ({ rules: { ...rules.value }, expected_version: policy.value.version })
+const payload = () => ({ rules: { ...rules.value }, prompt_guard: inheritPrompt.value ? null : { ...promptGuard.value }, compression: inheritCompression.value ? null : { ...compression.value }, expected_version: policy.value.version })
 const current = (sequence, clientId) => sequence === loadSequence && props.open && clientId === props.clientId
 async function handleError(error) {
   const code = error.apiErrorCode || error.response?.data?.error_code
@@ -210,6 +250,7 @@ async function save() {
 <style scoped>
 .policy-form { margin-top: 16px; display: grid; gap: 16px; max-height: 62vh; overflow-y: auto; padding: 2px 6px 2px 2px; }
 .policy-group { border: 1px solid #e6eaf0; border-radius: 8px; padding: 16px; }
+.prompt-impact { max-height: 160px; overflow-y: auto; padding-left: 20px; overflow-wrap: anywhere; }
 .group-heading { margin-bottom: 14px; }
 .group-heading h3 { margin: 0; font-size: 15px; font-weight: 600; }
 .group-heading p { margin: 4px 0 0; color: #777; font-size: 12px; line-height: 1.5; }

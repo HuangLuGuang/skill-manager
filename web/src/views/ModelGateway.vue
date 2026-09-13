@@ -60,7 +60,6 @@
                     <div class="provider-tags">
                       <a-tag>{{ $t(`modelGateway.provider.formats.${provider.api_format || 'openai'}`) }}</a-tag>
                       <a-tag>LLM</a-tag>
-                      <a-tag v-if="provider.enable_compression">{{ $t('modelGateway.catalog.compression') }}</a-tag>
                     </div>
                   </div>
                 </div>
@@ -430,10 +429,6 @@
         <a-form-item label="API Key"><a-input-password v-model:value="providerForm.api_key" :placeholder="$t('legacy.x2xaci')" /></a-form-item>
         <a-form-item><a-checkbox v-model:checked="providerForm.clear_api_key">{{ $t("legacy.1h2ipsy") }}</a-checkbox></a-form-item>
         <a-form-item :label="$t('legacy.tabbi8')"><a-input-number v-model:value="providerForm.timeout_seconds" :min="1" :max="600" style="width: 100%" /></a-form-item>
-        <a-form-item>
-          <a-checkbox v-model:checked="providerForm.enable_compression">{{ $t("legacy.10di3wx") }}</a-checkbox>
-          <div style="color: #888; font-size: 12px; margin-top: 4px">{{ $t("legacy.1y0xlm4") }}</div>
-        </a-form-item>
         <a-form-item><a-checkbox v-model:checked="providerForm.enabled">{{ $t("legacy.5pm2ma") }}</a-checkbox></a-form-item>
       </a-form>
     </a-modal>
@@ -904,7 +899,7 @@ const editingGroupId = ref(null)
 const selectedGroup = ref(null)
 const policyRuleRows = ref([])
 
-const providerForm = reactive({ name: '', base_url: '', api_format: 'openai', api_key: '', clear_api_key: false, enabled: true, timeout_seconds: 60, enable_compression: false })
+const providerForm = reactive({ name: '', base_url: '', api_format: 'openai', api_key: '', clear_api_key: false, enabled: true, timeout_seconds: 60 })
 const providerTestForm = reactive({ model: '' })
 const providerTestModelOptions = computed(() => models.value
   .filter(item => item.provider_id === providerUnderTest.value?.id && item.enabled)
@@ -920,7 +915,7 @@ const keyForm = reactive({
   status: 'active',
   enable_compression: false,
   compression_level: 'auto',
-  prompt_guard_mode: 'off',
+  prompt_guard_mode: 'log',
   prompt_guard_llm_review: false,
 })
 const groupForm = reactive({ name: '', description: '', user_ids: [], privacy_policy_id: null, is_active: true })
@@ -1084,7 +1079,6 @@ const openProvider = (record = null) => {
     clear_api_key: false,
     enabled: record?.enabled ?? true,
     timeout_seconds: record?.timeout_seconds || 60,
-    enable_compression: record?.enable_compression ?? false,
   })
   providerVisible.value = true
 }
@@ -1269,7 +1263,7 @@ const openKey = (record = null) => {
     status: record?.status || 'active',
     enable_compression: record?.enable_compression ?? false,
     compression_level: record?.compression_level || 'auto',
-    prompt_guard_mode: record?.prompt_guard_mode || 'off',
+    prompt_guard_mode: record?.prompt_guard_mode || 'log',
     prompt_guard_llm_review: record?.prompt_guard_llm_review ?? false,
   })
   keyVisible.value = true

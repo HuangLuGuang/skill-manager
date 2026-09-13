@@ -133,7 +133,7 @@ def test_create_access_token_returns_plaintext_once_and_lists_masked_record(tmp_
     assert body["record"]["token_hash"] is None
     assert body["record"]["bound_agent_id"] == "risk-agent"
     assert body["record"]["scopes"] == ["runtime:can-load"]
-    assert body["record"]["prompt_guard_mode"] == "block"
+    assert body["record"]["prompt_guard_mode"] == "log"
 
     listed = client.get("/api/v1/access/tokens")
     assert listed.status_code == 200

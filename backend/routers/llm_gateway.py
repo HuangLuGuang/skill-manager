@@ -498,7 +498,6 @@ def _provider_response(row: models.ModelProvider) -> schemas.ModelProviderRespon
         timeout_seconds=row.timeout_seconds,
         api_key_configured=bool(row.api_key),
         api_key_masked=_mask_secret(row.api_key),
-        enable_compression=getattr(row, "enable_compression", False),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -3281,14 +3280,7 @@ async def _execute_chat_completions_with_key(
         source="caller_metadata",
     )
 
-    # 解析压缩策略: API Key 设置 > Provider 设置 > 全局默认
-    provider = db.query(models.ModelProvider).filter(
-        models.ModelProvider.id == model.provider_id
-    ).first()
-    compression_enabled = bool(
-        getattr(key, "enable_compression", False)
-        or getattr(provider, "enable_compression", False)
-    )
+    compression_enabled = bool(getattr(key, "enable_compression", False))
     compression_level = str(getattr(key, "compression_level", None) or "auto")
     metadata = {str(k): str(v) for k, v in (payload.metadata or {}).items()}
     tenant_id = metadata.get("tenant_id") or f"group-{key.group_id or 'default'}"

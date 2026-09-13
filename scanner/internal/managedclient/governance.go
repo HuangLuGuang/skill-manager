@@ -16,11 +16,24 @@ import (
 )
 
 type ClassificationPolicy struct {
-	Protocol int               `json:"protocol"`
-	Enabled  bool              `json:"enabled"`
-	Version  string            `json:"version"`
-	Rules    map[string]string `json:"rules"`
-	Sources  map[string]string `json:"sources"`
+	Compression       *CompressionPolicy `json:"compression,omitempty"`
+	PromptGuard       *PromptGuardPolicy `json:"prompt_guard,omitempty"`
+	PromptGuardSource string             `json:"prompt_guard_source,omitempty"`
+	Protocol          int                `json:"protocol"`
+	Enabled           bool               `json:"enabled"`
+	Version           string             `json:"version"`
+	Rules             map[string]string  `json:"rules"`
+	Sources           map[string]string  `json:"sources"`
+}
+
+type PromptGuardPolicy struct {
+	Mode      string `json:"mode"`
+	LLMReview bool   `json:"llm_review"`
+}
+
+type CompressionPolicy struct {
+	Enabled bool   `json:"enabled"`
+	Level   string `json:"level"`
 }
 
 type SkillObservation struct {

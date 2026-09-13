@@ -1,5 +1,16 @@
 export const clientGovernanceMessages = {
   'zh-CN': {
+    compression: {
+      title: 'Token 压缩', description: '设置模型切换自动创建的运行凭据是否压缩上下文。保存后更新已有自动凭据，新建和轮换凭据继承当前配置；客户端通过长轮询同步。',
+      enabled: '启用 Token 压缩', level: '压缩级别', auto: '均衡', conservative: '保守', aggressive: '激进',
+      preview: '将更新 {count} 个自动运行凭据的 Token 压缩配置。新建凭据也将使用保存后的策略。',
+    },
+    prompt: {
+      title: 'Prompt 防护', description: '管理模型切换自动创建的运行凭证。保存后在模型网关生效，客户端通过长轮询同步配置；后续新建凭证继承当前策略。',
+      reviewHint: '当前网关仅保存复核开关，尚未执行 LLM 复核。阻断模式拦截高风险及不可信来源的中风险命中。',
+      mode: '防护模式', llmReview: 'LLM 复核', off: '关闭', log: '仅记录', warn: '告警并放行', block: '阻断风险请求', enabled: '开启', disabled: '关闭',
+      defaultValue: '平台默认：{value}', preview: '将更新 {count} 个自动运行凭证的 Prompt 防护。新建凭证也将使用保存后的策略。',
+    },
     eventsLoadFailed: '事件加载失败，请重试。',
     targetVersion: '目标策略版本：{version}', superseded: '被新版取代', policyApplied: '策略已应用', policy_superseded: '此任务已被较新策略版本取代。', policy_ack_required: '客户端未确认目标版本，请升级客户端后重试。',
     capabilityAvailable: '此客户端支持基础动作；使用仅记录或新增检测不通过处置前，请先升级客户端。',
@@ -45,7 +56,7 @@ export const clientGovernanceMessages = {
     recoveryConfirmation: '将保留副本恢复到原目录。执行前重新检查内容和当前策略；原目录已有内容或策略要求隔离、卸载或替换时，会报告冲突。',
     observations: '已观测 {count} 次', lastSeen: '最近出现：{time}',
     skill_governance_recorded: 'Skill 分类记录', skill_governance_detected: 'Skill 分类告警', skill_governance_action: 'Skill 分类处置', skill_scan_submitted: 'Skill 已提交检测',
-    title: '分类处置策略', defaults: '平台默认处置策略', description: '按触发情况分别设置自动动作。仅记录和记录且告警均保留本地文件。',
+    title: '客户端策略', defaults: '平台默认客户端策略', description: '配置 Token 压缩、Prompt 防护和 Skill 分类处置。Skill 的仅记录和记录且告警动作均保留本地文件。',
     trusted_scan_rejected: '变化内容检测不通过（有可信版本）', unverified_scan_rejected: '内容检测不通过（无可信版本）', rejectedHint: '提交检测后被拒绝时生效；恶意内容优先按恶意策略处理，检测异常不触发此规则。',
     unverified: '未经平台认证', malicious: '平台确认恶意', trusted_content_changed: '已认证 Skill 内容变化', unverified_content_changed: '未认证 Skill 内容变化',
     record_only: '仅记录', record: '记录且告警', submit_scan: '提交平台检测', quarantine: '隔离', uninstall: '卸载（保留恢复副本）', restore_trusted: '恢复可信版本',
@@ -58,6 +69,17 @@ export const clientGovernanceMessages = {
     client: '客户端', agent: 'Agent', skill: 'Skill', path: '目录', active: '分类策略已启用', cancel: '关闭',
   },
   'en-US': {
+    compression: {
+      title: 'Token compression', description: 'Configure context compression for runtime credentials created by model switching. Saving updates existing automatic credentials; new and rotated credentials inherit the current settings. Clients synchronize through long polling.',
+      enabled: 'Enable token compression', level: 'Compression level', auto: 'Balanced', conservative: 'Conservative', aggressive: 'Aggressive',
+      preview: 'Token compression will be updated for {count} automatic runtime credentials. New credentials will also use the saved policy.',
+    },
+    prompt: {
+      title: 'Prompt Guard', description: 'Manage runtime credentials created by model switching. Saved settings apply at the model gateway; clients synchronize through long polling. New credentials inherit the current policy.',
+      reviewHint: 'The gateway currently records this flag without executing LLM review. Block mode stops high-risk findings and medium-risk findings from untrusted sources.',
+      mode: 'Protection mode', llmReview: 'LLM review', off: 'Off', log: 'Log only', warn: 'Warn and allow', block: 'Block risky requests', enabled: 'On', disabled: 'Off',
+      defaultValue: 'Platform default: {value}', preview: 'Prompt Guard will be updated for {count} automatic runtime credentials. New credentials will also use the saved policy.',
+    },
     eventsLoadFailed: 'Could not load events. Please retry.',
     targetVersion: 'Target policy version: {version}', superseded: 'Superseded', policyApplied: 'Policy applied', policy_superseded: 'A newer policy version superseded this task.', policy_ack_required: 'The client did not confirm the target version. Upgrade and retry.',
     capabilityAvailable: 'This client supports basic actions. Upgrade before using record-only or new scan rejection actions.',
@@ -103,7 +125,7 @@ export const clientGovernanceMessages = {
     recoveryConfirmation: 'Restore the retained copy to its original directory. Content and current policy are checked first. Existing target content or policy requiring quarantine, uninstall, or replacement results in a conflict.',
     observations: '{count} observations', lastSeen: 'Last observed: {time}',
     skill_governance_recorded: 'Skill Classification Record', skill_governance_detected: 'Skill Classification Alert', skill_governance_action: 'Skill Remediation', skill_scan_submitted: 'Skill Submitted for Scanning',
-    title: 'Classification policies', defaults: 'Default Client policies', description: 'Choose an automatic action for each trigger. Both record actions preserve local files.',
+    title: 'Client policies', defaults: 'Default Client policies', description: 'Configure Token compression, Prompt Guard and Skill classification actions. Both Skill record actions preserve local files.',
     trusted_scan_rejected: 'Scan rejected (trusted version available)', unverified_scan_rejected: 'Scan rejected (no trusted version)', rejectedHint: 'Applies to rejected submissions. Malicious content uses the malicious policy; scan errors do not trigger this rule.',
     unverified: 'Not certified by the platform', malicious: 'Confirmed malicious', trusted_content_changed: 'Certified Skill content changed', unverified_content_changed: 'Uncertified Skill content changed',
     record_only: 'Record only', record: 'Record and alert', submit_scan: 'Submit for detection', quarantine: 'Isolate', uninstall: 'Uninstall (keep recovery copy)', restore_trusted: 'Restore trusted version',

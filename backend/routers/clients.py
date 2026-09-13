@@ -165,6 +165,9 @@ def _issue_agent_runtime_credential(
         owner = db.query(models.User).filter(models.User.username == client_token.created_by).first()
         owner_id = owner.id if owner else None
     plain = _new_token()
+    model_policy = client_governance.policy_view(db, client_id)
+    prompt_guard = model_policy["prompt_guard"]
+    compression = model_policy["compression"]
     row = models.AccessToken(
         name=f"{agent.name} · {client_id} 自动运行凭证",
         token_type="agent_runtime",
@@ -181,7 +184,10 @@ def _issue_agent_runtime_credential(
         expires_at=client_token.expires_at,
         max_body_kb=client_token.max_body_kb,
         max_concurrent_requests=client_token.max_concurrent_requests,
-        prompt_guard_mode="block",
+        prompt_guard_mode=prompt_guard["mode"],
+        prompt_guard_llm_review=prompt_guard["llm_review"],
+        enable_compression=compression["enabled"],
+        compression_level=compression["level"],
         created_by=f"client:{client_id}",
     )
     db.add(row)

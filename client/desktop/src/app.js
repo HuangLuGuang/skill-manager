@@ -485,7 +485,19 @@ const renderConnected = data => {
     const rows = triggers.filter(trigger => Object.hasOwn(appliedPolicy.rules || {}, trigger)).map(trigger => `<div class="policy-rule-row"><dt>${escapeHtml(governanceLabelFor('trigger', trigger))}</dt><dd><span class="policy-action policy-action-${['record', 'record_only', 'submit_scan', 'quarantine', 'uninstall', 'restore_trusted'].includes(appliedPolicy.rules[trigger]) ? appliedPolicy.rules[trigger] : 'unknown'}">${escapeHtml(governanceLabelFor('action', appliedPolicy.rules[trigger]))}</span></dd></div>`).join('')
     return rows ? `<section class="policy-rule-group policy-rule-group-${group}"><h3>${escapeHtml(t(`ui.overview.policy_group.${group}`))}</h3><dl class="detail-list">${rows}</dl></section>` : ''
   }).join('') : ''
+  if (appliedPolicy?.prompt_guard) {
+    const guard = appliedPolicy.prompt_guard
+    const modeKey = ['off', 'log', 'warn', 'block'].includes(guard.mode) ? guard.mode : 'unknown'
+    const synchronized = !connectionError && platform.classification?.version === appliedPolicy.version
+    $('#overview-policy-rules').insertAdjacentHTML('beforeend', `<section class="policy-rule-group"><h3>${escapeHtml(t('ui.promptGuard.title'))}</h3><dl class="detail-list"><div class="policy-rule-row"><dt>${escapeHtml(t('ui.promptGuard.mode'))}</dt><dd>${escapeHtml(t(`ui.promptGuard.${modeKey}`))}</dd></div><div class="policy-rule-row"><dt>${escapeHtml(t('ui.promptGuard.llmReview'))}</dt><dd>${escapeHtml(t(guard.llm_review ? 'ui.promptGuard.enabled' : 'ui.promptGuard.disabled'))}</dd></div><div class="policy-rule-row"><dt>${escapeHtml(t('ui.promptGuard.syncStatus'))}</dt><dd>${escapeHtml(t(synchronized ? 'ui.promptGuard.synced' : connectionError ? 'ui.promptGuard.cached' : 'ui.promptGuard.pending'))}</dd></div></dl><p>${escapeHtml(t('ui.promptGuard.description'))}</p></section>`)
+  }
   $('#overview-last-sync').textContent = lastSync
+  if (appliedPolicy?.compression) {
+    const compression = appliedPolicy.compression
+    const level = ['auto', 'conservative', 'aggressive'].includes(compression.level) ? compression.level : 'unknown'
+    const synchronized = !connectionError && platform.classification?.version === appliedPolicy.version
+    $('#overview-policy-rules').insertAdjacentHTML('beforeend', `<section class="policy-rule-group"><h3>${escapeHtml(t('ui.compression.title'))}</h3><dl class="detail-list"><div class="policy-rule-row"><dt>${escapeHtml(t('ui.compression.enabled'))}</dt><dd>${escapeHtml(t(compression.enabled ? 'ui.promptGuard.enabled' : 'ui.promptGuard.disabled'))}</dd></div>${compression.enabled ? `<div class="policy-rule-row"><dt>${escapeHtml(t('ui.compression.level'))}</dt><dd>${escapeHtml(t(`ui.compression.${level}`))}</dd></div>` : ''}<div class="policy-rule-row"><dt>${escapeHtml(t('ui.promptGuard.syncStatus'))}</dt><dd>${escapeHtml(t(synchronized ? 'ui.promptGuard.synced' : connectionError ? 'ui.promptGuard.cached' : 'ui.promptGuard.pending'))}</dd></div></dl><p>${escapeHtml(t('ui.compression.description'))}</p></section>`)
+  }
   $('#overview-sync').textContent = connectionError ? t('ui.xhhfbd') : t('ui.2fhcc7')
 
   $('#metric-agents').textContent = localAgents.length

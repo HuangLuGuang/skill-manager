@@ -47,10 +47,6 @@ def migrate() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE model_providers ADD COLUMN api_format VARCHAR(32) NOT NULL DEFAULT 'openai'"
             )
-        if "enable_compression" not in existing:
-            conn.exec_driver_sql(
-                "ALTER TABLE model_providers ADD COLUMN enable_compression BOOLEAN NOT NULL DEFAULT 0"
-            )
 
         # llm_usage_metrics 表
         existing = {

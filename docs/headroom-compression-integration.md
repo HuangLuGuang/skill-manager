@@ -48,11 +48,11 @@
 
 | 文件 | 变更类型 | 说明 |
 |------|----------|------|
-| `backend/models.py` | 修改 | LlmApiKey / ModelProvider 新增压缩字段 |
+| `backend/models.py` | 修改 | 模型调用凭据新增压缩字段 |
 | `backend/schemas.py` | 修改 | 对应 Pydantic schema 新增字段 |
 | `backend/routers/llm_gateway.py` | 修改 | 核心集成：压缩调用 + 审计扩展 |
 | `backend/sqlite_db.py` | 无需修改 | SQLAlchemy Base.metadata 自动建表 |
-| `web/src/` | 修改 | 管理台 API Key 表单 + Provider 表单扩展 |
+| `web/src/` | 修改 | 管理台凭据表单与客户端策略 |
 | `pyproject.toml` | 修改 | 新增 `headroom-ai[proxy]` 可选依赖 |
 | `docs/model-gateway.md` | 修改 | 文档更新 |
 
@@ -110,13 +110,6 @@ compression_level = Column(String(32), default="auto", nullable=False)
 # "auto" = 均衡策略, "conservative" = 仅 SmartCrusher, "aggressive" = 全部算法 + Kompress
 ```
 
-在 `ModelProvider` 类中新增 1 个字段（加在 `updated_at` 之前）:
-
-```python
-# Provider 级别压缩默认值（API Key 设置优先）
-enable_compression = Column(Boolean, default=False, nullable=False)
-```
-
 在 `LlmUsageMetric` 类中新增 5 个字段（加在 `reused_tokens` 之后）:
 
 ```python
@@ -163,25 +156,7 @@ enable_compression: bool = False
 compression_level: str = "auto"
 ```
 
-在 `ModelProviderCreate` 中新增:
-
-```python
-enable_compression: bool = False
-```
-
-在 `ModelProviderUpdate` 中新增:
-
-```python
-enable_compression: Optional[bool] = None
-```
-
-在 `ModelProviderResponse` 中新增:
-
-```python
-enable_compression: bool = False
-```
-
-查找所有构造 `LlmApiKeyResponse` 和 `ModelProviderResponse` 的地方，确保传入了新字段的默认值。
+调用凭据的响应中包含压缩开关与级别。
 
 **文件**: `backend/routers/llm_gateway.py`
 
@@ -190,12 +165,6 @@ enable_compression: bool = False
 ```python
 enable_compression=row.enable_compression if hasattr(row, 'enable_compression') else False,
 compression_level=row.compression_level if hasattr(row, 'compression_level') else "auto",
-```
-
-修改 `_provider_response()` 函数（约第 151 行），在返回值中新增:
-
-```python
-enable_compression=row.enable_compression if hasattr(row, 'enable_compression') else False,
 ```
 
 #### Step 2.3 — 数据库 Migration
@@ -224,15 +193,6 @@ def migrate():
                 conn.exec_driver_sql(
                     f"ALTER TABLE llm_api_keys ADD COLUMN {col_name} {col_type}"
                 )
-
-        # model_providers 表
-        existing = {row[1] for row in conn.exec_driver_sql(
-            "PRAGMA table_info(model_providers)"
-        ).fetchall()}
-        if "enable_compression" not in existing:
-            conn.exec_driver_sql(
-                "ALTER TABLE model_providers ADD COLUMN enable_compression BOOLEAN NOT NULL DEFAULT 0"
-            )
 
         # llm_usage_metrics 表
         existing = {row[1] for row in conn.exec_driver_sql(
@@ -457,15 +417,8 @@ from ..compression import compress_messages
 **关键集成点 1 — 解析压缩开关**（在 `_chat_completions_with_key` 函数开头，约第 1551 行，`policy = _resolve_policy(db, key)` 之后）:
 
 ```python
-# 解析压缩策略: API Key 设置 > Provider 设置 > 全局默认
 model = _resolve_model(db, payload.model, key)
-provider = db.query(models.ModelProvider).filter(
-    models.ModelProvider.id == model.provider_id
-).first()
-compression_enabled = (
-    getattr(key, 'enable_compression', False)
-    or getattr(provider, 'enable_compression', False)
-)
+compression_enabled = bool(getattr(key, 'enable_compression', False))
 compression_level = getattr(key, 'compression_level', None) or "auto"
 ```
 
@@ -560,17 +513,9 @@ compression_level=body.compression_level,
 
 在 `data = body.model_dump(exclude_unset=True)` 之后，对 `enable_compression` 和 `compression_level` 字段做和现有字段一致的处理（pydantic 会自动处理）。
 
-**创建 Provider** (`create_model_provider`，约第 1080 行):
-
-在 `ModelProvider` 构造时新增 `enable_compression=body.enable_compression`。
-
-**更新 Provider** (`update_model_provider`，约第 1097 行):
-
-同上，pydantic 自动处理 optional 字段。
-
 #### Step 4.2 — 返回响应中包含压缩字段
 
-确保所有 response 构造处（`_api_key_response`、`_provider_response`）均已包含新字段（Phase 2 已覆盖）。
+确保所有 response 构造处（`_api_key_response`）均已包含新字段（Phase 2 已覆盖）。
 
 ---
 
@@ -610,20 +555,10 @@ compression_level=body.compression_level,
 )}
 ```
 
-#### Step 5.2 — Provider 表单扩展
+#### Step 5.2 — 客户端策略
 
-在 Provider 创建/编辑表单中，`timeout_seconds` 之后新增:
-
-```jsx
-<FormControl>
-  <FormLabel>默认开启智能压缩</FormLabel>
-  <Switch ... />
-  <FormHelperText>
-    使用该 Provider 下所有模型的 API Key 将默认开启压缩
-    （API Key 级别的设置优先）
-  </FormHelperText>
-</FormControl>
-```
+客户端策略配置自动签发运行凭据的压缩开关及级别，支持平台默认和单客户端覆盖。
+保存时同步已有自动凭据，新建和轮换凭据继承当前配置；长轮询下发策略与版本。
 
 #### Step 5.3 — Pipeline Trace 展示扩展
 

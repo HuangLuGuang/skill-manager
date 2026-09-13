@@ -64,7 +64,6 @@ def seed_backend() -> None:
             api_format="openai",
             enabled=True,
             timeout_seconds=10,
-            enable_compression=False,
         )
         db.add(provider)
         db.flush()

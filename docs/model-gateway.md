@@ -10,6 +10,12 @@
 
 ---
 
+## 客户端模型切换 / Client model switching
+
+模型切换自动创建的运行凭证，其 Prompt 防护默认仅记录，模式与 LLM 复核开关由平台默认客户端策略或单客户端覆盖配置。保存策略会更新已有有效自动凭证；新建和轮换凭证继承当前值。网关后续请求使用新配置，桌面端通过既有长轮询同步策略和版本。LLM 复核目前只保存开关，尚未执行模型复核。详见[客户端策略](agent-manager-client.md#prompt-防护--prompt-guard)。
+
+Prompt Guard defaults to log only for automatically issued model-switching credentials; settings come from the default or per-client policy. Saving updates active automatic credentials; issuance and rotation inherit the current values. Subsequent gateway requests use the new settings, while desktop clients synchronize the policy and version through existing long polling. The LLM review flag is stored but does not currently execute a review. See [client policies](agent-manager-client.md#prompt-防护--prompt-guard).
+
 ## 1. 管理台入口
 
 Agent 风险扫描和大模型红队扫描在发起时必须选择评估模型。列表读取网关中模型及供应商均已启用的模型，预览、创建和执行时再次校验。
@@ -324,14 +330,24 @@ Prompt 不再作为主流程里的独立上传资产。平台默认在模型网�
 
 ### 开启方式
 
-在管理台 `智能体管理 / 统一凭证中心` 选择“给应用调用模型”，或为 Agent 选择包含模型能力的方案，然后在“高级安全设置”中配置 `Prompt 防护`。已签发凭证不支持就地编辑；需要调整时应创建替代凭证，再吊销旧凭证：
+在管理台 `智能体管理 / 统一凭证中心` 选择“大模型凭证”，或为 Agent 选择包含模型能力的方案，然后在“高级安全设置”中配置 `Prompt 防护`。新建凭据默认“仅记录”，Token 压缩默认关闭。仅记录模式检测风险并记录结果，不因 Prompt 规则命中阻断请求。
+
+普通凭据在此页面创建时配置防护模式；客户端模型切换自动创建的凭据通过“客户端策略”管理，保存策略会更新已有自动凭据，并应用于新建、轮换凭据。客户端通过长轮询同步配置及版本。
+
+In the Credential Center, choose **LLM Credential** or an Agent option with model access, then open **Advanced security settings**. New credentials default to **Log** for Prompt Guard and have Token compression turned off. Log mode detects and records risks without blocking requests because of Prompt rule matches.
+
+Client-issued model-switching credentials are managed through **Client policies**. Saving updates existing automatic credentials and future issuance or rotation; clients synchronize settings and versions through long polling.
+
+![凭据默认防护设置：仅记录，压缩关闭；示例数据](../web/public/docs/screenshots/zh-CN/credential-protection.png)
+
+![Credential protection defaults: Log, compression off; example data](../web/public/docs/screenshots/en-US/credential-protection.png)
 
 | 模式 | 行为 |
 |---|---|
 | 关闭 | 不检测 Prompt 风险 |
 | 仅记录 | 命中规则时写入链路追踪和统计，但不影响请求 |
 | 告警放行 | 命中规则时标记告警并放行 |
-| 高风险阻断 | 命中高风险规则时返回 `403`，并写入审计和链路追踪 |
+| 阻断风险请求 | 命中高风险规则或不可信来源的中风险规则时返回 `403`，并写入审计和链路追踪 |
 
 新接入方统一从 `智能体管理 / 统一凭证中心` 的对应调用路线创建和管理凭证。
 
@@ -545,7 +561,13 @@ export AGENT_MANAGER_LLM_GATEWAY_CONVERSATION_ID="vetting-session"
 
 ### 开启方式
 
-可以在供应商管理中全局启用压缩，也可以在 `智能体管理 / 统一凭证中心` 创建带模型能力的凭证时，展开“高级安全设置”单独启用，并选择均衡、保守或激进。只有供应商启用而凭证没有指定级别时，运行时使用 `auto`。
+在 `智能体管理 / 统一凭证中心` 创建带 `model:chat` 能力的凭据时，展开“高级安全设置”，设置上下文压缩开关及均衡（auto）、保守（conservative）或激进（aggressive）级别。网关按本次调用凭据的配置执行压缩。
+
+客户端模型切换自动创建的运行凭据通过“客户端管理 → 客户端策略 → Token 压缩”配置，支持平台默认与单客户端覆盖。保存后更新已有自动凭据；新建和轮换凭据继承当前配置。策略通过现有长轮询同步到桌面端，网关在后续请求中读取已保存的凭据配置。
+
+In the Credential Center, create a credential with `model:chat`, expand Advanced Security Settings, and configure context compression and its balanced (`auto`), conservative, or aggressive level. The gateway uses the calling credential's settings.
+
+For credentials automatically created by client model switching, configure **Client Management → Client policies → Token compression**. Default settings and per-client overrides apply to existing automatic credentials and future issuance or rotation. Long polling synchronizes desktop policy state; subsequent gateway requests use the saved credential settings.
 
 ### 如何看到效果
 

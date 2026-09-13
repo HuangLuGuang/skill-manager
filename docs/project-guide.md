@@ -12,6 +12,10 @@
 
 如果你第一次接触这个项目，先看这份文档，再按需要跳转到更细的专题文档。
 
+模型切换自动签发的运行凭证默认仅记录 Prompt 风险，支持在管理台客户端策略中配置 Prompt 防护，继承平台默认或单台覆盖；保存更新已有凭证，新建凭证继承当前策略。客户端通过长轮询同步显示状态，网关在后续请求中执行保存后的配置。LLM 复核开关当前仅保存，尚未执行复核。
+
+Prompt Guard for runtime credentials issued by model switching defaults to log only and is configured in client policies, with platform defaults and per-client overrides. Saving updates existing credentials; new credentials inherit the current policy. Long polling synchronizes the desktop display, while subsequent gateway requests enforce the saved settings. The LLM review flag is currently stored without executing a review.
+
 当前正在执行的下一版本建设清单见 [智能体安全平台下一版本实施计划](agent-security-vnext-implementation-plan.md)。该清单按实现和验收进度逐项勾选。
 
 ---
@@ -1617,7 +1621,9 @@ Dify 部署端 Admin API Key 的版本条件和配置步骤见
 MCP 模型扫描另记录阶段、请求状态、异常类型和源码位置，并随心跳持久化，每次 attempt 保留最近 500 条、最多 10 次 attempt。
 日志不包含凭据、原始对话或工具参数/响应，下载要求任务访问权限并记录审计。旧任务仅导出当时已保存的信息。
 
-MCP 扫描选择评估、分析或攻击模型时，若模型供应商开启智能压缩，页面会提醒压缩可能改变扫描指令或工具调用格式。
+模型调用的 Token 压缩由调用凭据的开关与级别控制；客户端自动签发的运行凭据通过客户端策略配置，支持默认继承和单台覆盖，并通过长轮询同步。
+
+Token compression follows the calling credential settings. Automatically issued client runtime credentials use default or per-client compression policies synchronized through long polling.
 遇到轮次或 Token 耗尽，先检查是否反复生成无法识别的调用、阶段是否推进，再调整预算；轮次表示模型调用次数，
 不是成功工具调用次数。网关工具等待审批时，扫描立即停止并提示管理员检查 MCP 网关的待审批请求及授权配置。
 

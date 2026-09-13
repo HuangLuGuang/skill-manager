@@ -891,7 +891,6 @@ async def get_redteam_options(
                 "display_name": model.display_name,
                 "provider_name": provider.name,
                 "upstream_name": model.upstream_name or model.name,
-                "compression_enabled": bool(provider.enable_compression),
             }
             for model, provider in _evaluation_models_query(db).order_by(models.ModelEndpoint.name).all()
         ],

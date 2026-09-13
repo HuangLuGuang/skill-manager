@@ -2384,8 +2384,7 @@ def test_redteam_options_and_selected_gateway_model_validation(p1_api, monkeypat
     assert {item["name"] for item in response.json()["dataset_details"]} == set(response.json()["datasets"])
     assert next(item for item in response.json()["dataset_details"] if item["name"] == "cnsafe")["count"] == 3030
     assert [item["name"] for item in response.json()["evaluation_models"]] == ["judge"]
-    assert set(response.json()["evaluation_models"][0]) == {"id", "name", "display_name", "provider_name", "compression_enabled"}
-    assert response.json()["evaluation_models"][0]["compression_enabled"] is False
+    assert set(response.json()["evaluation_models"][0]) == {"id", "name", "display_name", "provider_name", "upstream_name"}
     state["user"] = users["admin"]
     target = _create_target(client, target_type=None, asset_type="llm", connector_type="openai_compatible", config={"model": "target"})
     policy = _create_policy(client, suffix="redteam-options")

@@ -232,6 +232,11 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql("ALTER TABLE managed_agents ADD COLUMN runtime_token_id INTEGER")
         if "created_by" not in agent_columns:
             conn.exec_driver_sql("ALTER TABLE managed_agents ADD COLUMN created_by VARCHAR(128)")
+        governance_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(client_governance_policies)").fetchall()}
+        if "prompt_guard_json" not in governance_columns:
+            conn.exec_driver_sql("ALTER TABLE client_governance_policies ADD COLUMN prompt_guard_json TEXT NOT NULL DEFAULT 'null'")
+        if "compression_json" not in governance_columns:
+            conn.exec_driver_sql("ALTER TABLE client_governance_policies ADD COLUMN compression_json TEXT NOT NULL DEFAULT 'null'")
         access_token_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(access_tokens)").fetchall()}
         if "bound_client_id" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN bound_client_id VARCHAR(128)")
@@ -248,7 +253,7 @@ def ensure_sqlite_schema() -> None:
         if "allowed_mcp_gateways_json" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN allowed_mcp_gateways_json TEXT NOT NULL DEFAULT '[]'")
         if "prompt_guard_mode" not in access_token_columns:
-            conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN prompt_guard_mode VARCHAR(32) NOT NULL DEFAULT 'off'")
+            conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN prompt_guard_mode VARCHAR(32) NOT NULL DEFAULT 'log'")
         if "prompt_guard_llm_review" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN prompt_guard_llm_review BOOLEAN NOT NULL DEFAULT 0")
         runtime_task_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(runtime_tasks)").fetchall()}
@@ -409,19 +414,9 @@ def ensure_sqlite_schema() -> None:
             "INSERT OR IGNORE INTO backend_schema_migrations (name, applied_at) "
             "VALUES ('runtime_trace_p4_v1', CURRENT_TIMESTAMP)"
         )
-        migration = conn.exec_driver_sql(
-            "SELECT name FROM backend_schema_migrations WHERE name = 'agent_runtime_prompt_guard_block_v1'"
-        ).first()
-        if not migration:
-            conn.exec_driver_sql(
-                "UPDATE access_tokens SET prompt_guard_mode = 'block' WHERE token_type = 'agent_runtime' AND prompt_guard_mode = 'off'"
-            )
-            conn.exec_driver_sql(
-                "INSERT INTO backend_schema_migrations (name, applied_at) VALUES ('agent_runtime_prompt_guard_block_v1', CURRENT_TIMESTAMP)"
-            )
         llm_key_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(llm_api_keys)").fetchall()}
         if "prompt_guard_mode" not in llm_key_columns:
-            conn.exec_driver_sql("ALTER TABLE llm_api_keys ADD COLUMN prompt_guard_mode VARCHAR(32) NOT NULL DEFAULT 'off'")
+            conn.exec_driver_sql("ALTER TABLE llm_api_keys ADD COLUMN prompt_guard_mode VARCHAR(32) NOT NULL DEFAULT 'log'")
         if "prompt_guard_llm_review" not in llm_key_columns:
             conn.exec_driver_sql("ALTER TABLE llm_api_keys ADD COLUMN prompt_guard_llm_review BOOLEAN NOT NULL DEFAULT 0")
         audit_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(llm_request_audit)").fetchall()}
