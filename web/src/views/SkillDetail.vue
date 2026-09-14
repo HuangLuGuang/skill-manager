@@ -928,6 +928,7 @@
       :ok-text="$t('legacy.1srvmx8')"
       :cancel-text="$t('legacy.1589w37')"
       :confirm-loading="actionLoading"
+      :ok-button-props="{ disabled: actionLoading || !approvalVersionId }"
       @ok="submitApprove"
     >
       <a-form layout="vertical">
@@ -942,17 +943,8 @@
         <a-form-item label="Skill">
           <a-input :value="detail?.name || ''" disabled />
         </a-form-item>
-        <a-form-item :label="$t('skillVersions.version')" required>
-          <a-select v-model:value="clientInstallVersion">
-            <a-select-option
-              v-for="item in trustedSkillVersions"
-              :key="item.version_id"
-              :value="item.version_id"
-            >
-              v{{ item.version_no }}{{ item.source_version ? ` · ${item.source_version}` : '' }}
-              {{ item.latest_trusted ? ` · ${$t('skillVersions.latestTrusted')}` : '' }}
-            </a-select-option>
-          </a-select>
+        <a-form-item :label="$t('skillVersions.version')">
+          <a-input :value="approvalVersionLabel" disabled />
         </a-form-item>
         <a-form-item :label="$t('legacy.1lakt7z')">
           <a-input :value="currentUser()" disabled />
@@ -1204,6 +1196,16 @@ const currentVersionRecord = computed(() =>
   skillVersions.value.find(item => item.version_id === detail.value?.version_id) || null,
 )
 const currentVersionId = computed(() => detail.value?.version_id || skillId.value)
+const approvalVersionId = computed(() => detail.value?.version_id || '')
+const approvalVersionLabel = computed(() => {
+  const record = currentVersionRecord.value || detail.value
+  if (!record) return ''
+  return [
+    record.version_no != null ? `v${record.version_no}` : '',
+    record.source_version || '',
+    approvalVersionId.value,
+  ].filter(Boolean).join(' · ')
+})
 
 const versionRiskChain = record => record?.risk_chain || {
   static_risk_level: record?.risk_level,
@@ -1681,11 +1683,11 @@ const openRejectModal = () => {
 }
 
 const submitApprove = async () => {
-  if (!detail.value) return
+  if (actionLoading.value || !approvalVersionId.value) return
   actionLoading.value = true
   actionType.value = 'approve'
   try {
-    await approveSkill(currentVersionId.value, { approver: currentUser(), note: approveNote.value.trim() || null })
+    await approveSkill(approvalVersionId.value, { approver: currentUser(), note: approveNote.value.trim() || null })
     message.success(phrase('legacy.10hmnl2'))
     approveModalOpen.value = false
     fetchDetail()
