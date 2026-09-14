@@ -218,21 +218,33 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		for ctx.Err() == nil {
 			started := time.Now()
 			request, stop := context.WithTimeout(ctx, 40*time.Second)
-			tasks, err := api.WaitTasks(request, clientIDForHome(home), afterID)
+			tasks, updateVersions, err := api.WaitTasksWithUpdates(request, clientIDForHome(home), afterID)
 			stop()
 			if err == nil {
-				for _, task := range tasks {
-					body, marshalErr := json.Marshal(task)
+				if updateVersions.Stable != "" || updateVersions.Preview != "" {
+					body, marshalErr := json.Marshal(updateVersions)
 					if marshalErr != nil {
 						err = marshalErr
-						break
+					} else if previous, exists, stateErr := store.State("client:update-versions"); stateErr != nil {
+						err = stateErr
+					} else if !exists || previous != string(body) {
+						err = store.SetState("client:update-versions", string(body))
 					}
-					_, err = store.db.Exec(`INSERT OR IGNORE INTO client_tasks(task_id,status,error,updated_at,task_json) VALUES(?,'pending','',?,?)`, task.ID, time.Now().UTC().Format(time.RFC3339Nano), string(body))
-					if err != nil {
-						break
-					}
-					if task.ID > afterID {
-						afterID = task.ID
+				}
+				if err == nil {
+					for _, task := range tasks {
+						body, marshalErr := json.Marshal(task)
+						if marshalErr != nil {
+							err = marshalErr
+							break
+						}
+						_, err = store.db.Exec(`INSERT OR IGNORE INTO client_tasks(task_id,status,error,updated_at,task_json) VALUES(?,'pending','',?,?)`, task.ID, time.Now().UTC().Format(time.RFC3339Nano), string(body))
+						if err != nil {
+							break
+						}
+						if task.ID > afterID {
+							afterID = task.ID
+						}
 					}
 				}
 				if len(tasks) > 0 {

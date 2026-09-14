@@ -36,6 +36,7 @@ type LocalStatus struct {
 	Tasks               []LocalTask           `json:"tasks"`
 	UnreadNotifications int                   `json:"unread_notifications"`
 	Notifications       []LocalNotification   `json:"notifications"`
+	ClientUpdates       ClientUpdateVersions  `json:"client_updates"`
 }
 
 type SyncStatus struct {
@@ -684,6 +685,11 @@ func (store *Store) LocalStatus() (LocalStatus, error) {
 	}
 	if err := store.db.QueryRow(`SELECT COUNT(*) FROM client_notifications WHERE read_at IS NULL`).Scan(&result.UnreadNotifications); err != nil {
 		return result, err
+	}
+	if body, ok, stateErr := store.State("client:update-versions"); stateErr != nil {
+		return result, stateErr
+	} else if ok && json.Unmarshal([]byte(body), &result.ClientUpdates) != nil {
+		return result, fmt.Errorf("client update version state is invalid")
 	}
 	return result, nil
 }

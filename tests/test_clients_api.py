@@ -1366,6 +1366,25 @@ def test_client_update_manifest_and_download_require_client_token(tmp_path, monk
     ).json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
 
+    registered = client.post(
+        "/api/v1/clients/register",
+        headers=headers,
+        json={
+            "client_id": "update-signal-client",
+            "name": "Update Signal Client",
+            "hostname": "update-signal-client",
+            "os": "darwin",
+            "arch": "arm64",
+            "client_version": "0.1.0",
+            "agents": [],
+        },
+    )
+    assert registered.status_code == 200
+    task_poll = client.get("/api/v1/clients/update-signal-client/tasks", headers=headers)
+    assert task_poll.status_code == 200
+    assert task_poll.headers["x-agent-manager-client-stable-version"] == "0.2.0"
+    assert task_poll.headers["x-agent-manager-client-preview-version"] == "0.3.0"
+
     denied = client.get("/api/v1/clients/updates/darwin/arm64/0.1.0")
     assert denied.status_code == 401
     checked = client.get("/api/v1/clients/updates/darwin/arm64/0.1.0", headers=headers)

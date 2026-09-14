@@ -48,12 +48,18 @@ let pendingClientUpdate = null
 let clientUpdateInstalling = false
 let clientUpdateCheckBusy = false
 let lastAutomaticUpdateCheckAt = 0
+let lastClientUpdateSignal = ''
+let clientUpdateReminderTimer = null
+let clientUpdateSignalRetryTimer = null
 let clientBuildVersion = 'dev'
 const selectedPendingIDs = new Set()
 const notificationDeliveryAttempts = new Set()
 const operationProgress = new Map()
 const CLIENT_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 const CLIENT_UPDATE_NOTIFIED_KEY = 'agent-manager-client-update-notified'
+const CLIENT_UPDATE_REMINDER_KEY = 'agent-manager-client-update-reminder'
+const CLIENT_UPDATE_REMINDER_DELAY_MS = 60 * 60 * 1000
+const CLIENT_UPDATE_SIGNAL_RETRY_DELAY_MS = 60 * 1000
 const CLIENT_SETTINGS_KEY = 'agent-manager-client-settings-v1'
 const DEFAULT_CLIENT_SETTINGS = {
   defaultPanel: 'connect',
@@ -1031,7 +1037,7 @@ async function refreshConnection() {
       $('#builtin-agent-settings').innerHTML = tf`<div class="inline-error"><strong>读取扫描目录失败</strong><span>${escapeHtml(error)}</span></div>`
     })
     await loadPending().catch(error => log(error))
-    checkClientUpdateAutomatically()
+    if (!checkClientUpdateFromLongPoll(connection.local)) checkClientUpdateAutomatically()
   } catch (error) {
     renderDisconnected()
     log(error)
@@ -1048,6 +1054,11 @@ const refreshChangedInventory = async () => {
     const taskChanged = local.tasks?.[0]?.updated_at !== connection.local?.tasks?.[0]?.updated_at
     const notificationChanged = local.notifications?.[0]?.id !== connection.local?.notifications?.[0]?.id || local.unread_notifications !== connection.local?.unread_notifications
     const quarantineChanged = local.quarantined_skills !== connection.local?.quarantined_skills || local.pending_skills !== connection.local?.pending_skills
+    const updatesChanged = JSON.stringify(local.client_updates || {}) !== JSON.stringify(connection.local?.client_updates || {})
+    if (updatesChanged) {
+      connection.local.client_updates = local.client_updates
+      checkClientUpdateFromLongPoll(local)
+    }
     const refreshQuarantine = $('#discover').classList.contains('active') || $('#connect').classList.contains('active')
     if ((!changedAt || changedAt === lastInventoryAt) && !policyChanged && !taskChanged && !notificationChanged && !quarantineChanged) return
     if (changedAt === lastInventoryAt) {
@@ -1941,12 +1952,16 @@ $('#settings-notification-level').addEventListener('change', event => {
 })
 $('#settings-auto-update').addEventListener('change', event => {
   saveClientSettings({ autoCheckUpdates: event.currentTarget.checked })
-  if (event.currentTarget.checked) void checkClientUpdateAutomatically()
+  if (event.currentTarget.checked) {
+    lastClientUpdateSignal = ''
+    if (!checkClientUpdateFromLongPoll(connection?.local)) void checkClientUpdateAutomatically()
+  }
 })
 $('#settings-update-channel').addEventListener('change', event => {
   saveClientSettings({ updateChannel: event.currentTarget.value })
   pendingClientUpdate = null
   lastAutomaticUpdateCheckAt = 0
+  lastClientUpdateSignal = ''
   void checkClientUpdate({ interactive: true })
 })
 $('#settings-check-update').addEventListener('click', async event => {
@@ -2035,6 +2050,67 @@ document.querySelectorAll('[data-target-panel]').forEach(button => {
 
 const clientUpdateVersion = result => result?.display_version || result?.version || ''
 
+const readClientUpdateReminder = () => {
+  try {
+    return JSON.parse(localStorage.getItem(CLIENT_UPDATE_REMINDER_KEY) || '{}')
+  } catch {
+    return {}
+  }
+}
+
+const scheduleClientUpdateReminder = result => {
+  if (clientUpdateReminderTimer) clearTimeout(clientUpdateReminderTimer)
+  clientUpdateReminderTimer = null
+  const version = clientUpdateVersion(result)
+  const reminder = readClientUpdateReminder()
+  if (!version || reminder.version !== version || Number(reminder.remind_at) <= Date.now()) return false
+  clientUpdateReminderTimer = setTimeout(() => {
+    clientUpdateReminderTimer = null
+    if (clientSettings.autoCheckUpdates && pendingClientUpdate?.available && clientUpdateVersion(pendingClientUpdate) === version) {
+      openClientUpdateDialog(pendingClientUpdate)
+    }
+  }, Number(reminder.remind_at) - Date.now())
+  return true
+}
+
+const promptClientUpdate = result => {
+  if (scheduleClientUpdateReminder(result)) return
+  localStorage.removeItem(CLIENT_UPDATE_REMINDER_KEY)
+  openClientUpdateDialog(result)
+}
+
+const deferClientUpdate = result => {
+  const version = clientUpdateVersion(result)
+  if (!version) return
+  localStorage.setItem(CLIENT_UPDATE_REMINDER_KEY, JSON.stringify({ version, remind_at: Date.now() + CLIENT_UPDATE_REMINDER_DELAY_MS }))
+  scheduleClientUpdateReminder(result)
+  log(t('ui.clientUpdate.reminder_scheduled'))
+}
+
+const checkClientUpdateFromLongPoll = local => {
+  if (!clientSettings.autoCheckUpdates || !connection?.connected) return false
+  const version = local?.client_updates?.[clientSettings.updateChannel] || ''
+  if (!version) return false
+  const signal = `${clientSettings.updateChannel}:${version}`
+  if (signal === lastClientUpdateSignal) return true
+  lastClientUpdateSignal = signal
+  void checkClientUpdate({ notify: true, prompt: true }).then(succeeded => {
+    if (succeeded) {
+      if (clientUpdateSignalRetryTimer) clearTimeout(clientUpdateSignalRetryTimer)
+      clientUpdateSignalRetryTimer = null
+      return
+    }
+    if (lastClientUpdateSignal !== signal) return
+    lastClientUpdateSignal = ''
+    if (clientUpdateSignalRetryTimer) clearTimeout(clientUpdateSignalRetryTimer)
+    clientUpdateSignalRetryTimer = setTimeout(() => {
+      clientUpdateSignalRetryTimer = null
+      checkClientUpdateFromLongPoll(connection?.local)
+    }, CLIENT_UPDATE_SIGNAL_RETRY_DELAY_MS)
+  })
+  return true
+}
+
 const renderClientUpdateAvailability = result => {
   const button = $('#settings-check-update')
   const available = Boolean(result?.available)
@@ -2059,7 +2135,7 @@ const openClientUpdateDialog = result => {
   $('#client-update-progress').hidden = true
   $('#cancel-client-update').disabled = false
   $('#confirm-client-update').disabled = false
-  $('#update-dialog').showModal()
+  if (!$('#update-dialog').open) $('#update-dialog').showModal()
 }
 
 const notifyClientUpdate = async result => {
@@ -2072,10 +2148,10 @@ const notifyClientUpdate = async result => {
   localStorage.setItem(CLIENT_UPDATE_NOTIFIED_KEY, version)
 }
 
-const checkClientUpdate = async ({ interactive = false, notify = false } = {}) => {
+const checkClientUpdate = async ({ interactive = false, notify = false, prompt = false } = {}) => {
   if (clientUpdateCheckBusy) {
     if (interactive) showMessageDialog(t('ui.t1go01'), t('ui.147j41'))
-    return
+    return false
   }
   clientUpdateCheckBusy = true
   lastAutomaticUpdateCheckAt = Date.now()
@@ -2090,7 +2166,7 @@ const checkClientUpdate = async ({ interactive = false, notify = false } = {}) =
         showMessageDialog(title, detail)
         log(developmentBuild ? t('ui.1n2cpzt') : t('ui.16cvhj6'))
       }
-      return
+      return true
     }
     renderClientUpdateAvailability(result)
     if (notify) {
@@ -2101,12 +2177,15 @@ const checkClientUpdate = async ({ interactive = false, notify = false } = {}) =
       }
     }
     if (interactive) openClientUpdateDialog(result)
+    else if (prompt) promptClientUpdate(result)
+    return true
   } catch (error) {
     if ($('#settings-update-status')) $('#settings-update-status').textContent = runtimeText(error)
     if (interactive) {
       showMessageDialog(t('ui.1be4nr0'), String(error))
       log(error)
     }
+    return false
   } finally {
     clientUpdateCheckBusy = false
   }
@@ -2120,10 +2199,11 @@ const checkClientUpdateAutomatically = () => {
 $('#cancel-client-update').addEventListener('click', () => {
   if (clientUpdateInstalling) return
   $('#update-dialog').close()
-  if (pendingClientUpdate?.version) log(tf`发现新版本 ${clientUpdateVersion(pendingClientUpdate)}，已选择稍后更新`)
+  deferClientUpdate(pendingClientUpdate)
 })
 $('#update-dialog').addEventListener('cancel', event => {
   if (clientUpdateInstalling) event.preventDefault()
+  else deferClientUpdate(pendingClientUpdate)
 })
 
 $('#confirm-client-update').addEventListener('click', async event => {

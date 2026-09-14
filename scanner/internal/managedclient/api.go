@@ -71,6 +71,11 @@ type Task struct {
 	Payload  map[string]any `json:"payload"`
 }
 
+type ClientUpdateVersions struct {
+	Stable  string `json:"stable,omitempty"`
+	Preview string `json:"preview,omitempty"`
+}
+
 type SkillActionRequest struct {
 	RequestID               string `json:"request_id"`
 	Action                  string `json:"action"`
@@ -164,12 +169,36 @@ func (api API) Tasks(ctx context.Context, clientID string) ([]Task, error) {
 }
 
 func (api API) WaitTasks(ctx context.Context, clientID string, afterID int64) ([]Task, error) {
+	tasks, _, err := api.WaitTasksWithUpdates(ctx, clientID, afterID)
+	return tasks, err
+}
+
+func (api API) WaitTasksWithUpdates(ctx context.Context, clientID string, afterID int64) ([]Task, ClientUpdateVersions, error) {
 	client := *api.http
 	client.Timeout = 40 * time.Second
 	api.http = &client
+	request, err := api.request(ctx, http.MethodGet, fmt.Sprintf("/api/v1/clients/%s/tasks?wait_seconds=30&after_id=%d", clientID, afterID), nil)
+	if err != nil {
+		return nil, ClientUpdateVersions{}, err
+	}
+	response, err := api.http.Do(request)
+	if err != nil {
+		return nil, ClientUpdateVersions{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		detail, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		return nil, ClientUpdateVersions{}, fmt.Errorf("Agent Manager 返回 %s: %s", response.Status, strings.TrimSpace(string(detail)))
+	}
 	var result []Task
-	err := api.getJSON(ctx, fmt.Sprintf("/api/v1/clients/%s/tasks?wait_seconds=30&after_id=%d", clientID, afterID), &result)
-	return result, err
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return nil, ClientUpdateVersions{}, err
+	}
+	versions := ClientUpdateVersions{
+		Stable:  strings.TrimSpace(response.Header.Get("X-Agent-Manager-Client-Stable-Version")),
+		Preview: strings.TrimSpace(response.Header.Get("X-Agent-Manager-Client-Preview-Version")),
+	}
+	return result, versions, nil
 }
 
 func (api API) ReportExecutedTask(ctx context.Context, clientID string, task Task, status, taskError string) error {

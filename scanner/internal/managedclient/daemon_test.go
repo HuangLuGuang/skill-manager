@@ -191,6 +191,9 @@ func TestLocalStatusIncludesObservedSkillsAndIndependentSyncHealth(t *testing.T)
 	}
 	syncError(store, "heartbeat", nil)
 	syncError(store, "inventory", fmt.Errorf("upload unavailable"))
+	if err := store.SetState("client:update-versions", `{"stable":"26.9.1403","preview":"26.9.1404"}`); err != nil {
+		t.Fatal(err)
+	}
 	status, err := store.LocalStatus()
 	if err != nil {
 		t.Fatal(err)
@@ -203,6 +206,9 @@ func TestLocalStatusIncludesObservedSkillsAndIndependentSyncHealth(t *testing.T)
 	}
 	if status.Sync["inventory"].Error != "upload unavailable" || status.Sync["inventory"].LastSuccessAt != "" {
 		t.Fatal(status.Sync)
+	}
+	if status.ClientUpdates.Stable != "26.9.1403" || status.ClientUpdates.Preview != "26.9.1404" {
+		t.Fatal(status.ClientUpdates)
 	}
 }
 

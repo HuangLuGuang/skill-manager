@@ -31,6 +31,19 @@ func TestRegisterSendsClientTokenAndInventory(t *testing.T) {
 	}
 }
 
+func TestWaitTasksReturnsUpdateVersionsFromLongPoll(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		w.Header().Set("X-Agent-Manager-Client-Stable-Version", "26.9.1403")
+		w.Header().Set("X-Agent-Manager-Client-Preview-Version", "26.9.1404")
+		_ = json.NewEncoder(w).Encode([]Task{})
+	}))
+	defer server.Close()
+	tasks, versions, err := NewAPI(server.URL, "secret", time.Second).WaitTasksWithUpdates(context.Background(), "client-1", 0)
+	if err != nil || len(tasks) != 0 || versions.Stable != "26.9.1403" || versions.Preview != "26.9.1404" {
+		t.Fatalf("unexpected long-poll result tasks=%#v versions=%#v err=%v", tasks, versions, err)
+	}
+}
+
 func TestAvailableSkillsSendsExactSkillQuery(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/api/v1/clients/client-1/skills/available" {

@@ -539,6 +539,19 @@ def _client_update_manifest(channel: str = "stable") -> dict | None:
     return value
 
 
+def _client_update_versions() -> dict[str, str]:
+    versions: dict[str, str] = {}
+    for channel in ("stable", "preview"):
+        try:
+            manifest = _client_update_manifest(channel)
+        except HTTPException:
+            continue
+        version = str((manifest or {}).get("version") or "").strip()
+        if re.fullmatch(r"\d+(?:\.\d+){2,3}", version):
+            versions[channel] = version
+    return versions
+
+
 def _matching_skill_entry(
     manager: AgentManager,
     local_skill: schemas.ClientSkillCompareItem,
@@ -1215,6 +1228,7 @@ def report_takeover(
 async def poll_tasks(
     client_id: str,
     request: Request,
+    response: Response,
     wait_seconds: int = Query(0, ge=0, le=30),
     after_id: int = Query(0, ge=0),
     authorization: str | None = Header(None),
@@ -1232,6 +1246,10 @@ async def poll_tasks(
 
     # Authenticate before allocating a waiting connection.
     rows = await run_in_threadpool(fetch)
+    versions = await run_in_threadpool(_client_update_versions)
+    for channel, version in versions.items():
+        response.headers[f"X-Agent-Manager-Client-{channel.title()}-Version"] = version
+    response.headers["Cache-Control"] = "private, no-store"
     if rows or not wait_seconds:
         return rows
     hub = task_hub(db.get_bind())

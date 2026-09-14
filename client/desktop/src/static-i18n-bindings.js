@@ -1557,8 +1557,8 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#cancel-client-update",
     "nodeIndex": 0,
-    "key": "ui.orpumu",
-    "source": "稍后更新"
+    "key": "ui.clientUpdate.remind_later",
+    "source": "1 小时后提醒"
   },
   {
     "selector": "#confirm-client-update",
