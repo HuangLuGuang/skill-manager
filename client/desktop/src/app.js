@@ -2341,7 +2341,10 @@ const loadQuarantine = async () => {
     $('#skill-action-dialog').showModal()
   }))
   document.querySelectorAll('[data-submit-quarantine]').forEach(button => button.addEventListener('click', async () => {
-    if (pendingSubmissionBusy || submittingQuarantineIDs.size) return
+    if (pendingSubmissionBusy || submittingQuarantineIDs.size) {
+      showMessageDialog(t('ui.agentManagement.submitting'), t('ui.agentManagement.submission_in_progress'))
+      return
+    }
     const quarantineID = button.dataset.submitQuarantine
     submittingQuarantineIDs.add(quarantineID)
     setBusy(button, true)

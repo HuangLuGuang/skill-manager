@@ -1136,6 +1136,7 @@
     'ui.agentManagement.certification.unscannable': { 'zh-CN': '无法校验', 'en-US': 'Cannot verify' },
     'ui.agentManagement.submit_failed': { 'zh-CN': '提交检测失败', 'en-US': 'Scan submission failed' },
     'ui.agentManagement.submitting': { 'zh-CN': '正在提交…', 'en-US': 'Submitting…' },
+    'ui.agentManagement.submission_in_progress': { 'zh-CN': '已有 Skill 正在提交平台检测，请等待当前提交完成后再试。', 'en-US': 'A Skill is already being submitted for platform scanning. Wait for the current submission to finish and try again.' },
     'ui.agentManagement.submit_permission_required': { 'zh-CN': '当前凭证没有提交检测权限，请联系管理员调整凭证权限。', 'en-US': 'The current credential cannot submit scans. Ask an administrator to update its permissions.' },
     'ui.agentManagement.reinstall_title': { 'zh-CN': '重新安装 {name}', 'en-US': 'Reinstall {name}' },
     'ui.agentManagement.reinstall_unavailable': { 'zh-CN': '平台未提供可安装的「{name}」。请确认该 Skill 已批准，且当前客户端有安装权限。', 'en-US': '“{name}” is not available for installation. Check its approval and this client’s installation permissions.' },
