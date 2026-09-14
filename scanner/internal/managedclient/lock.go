@@ -39,6 +39,28 @@ func AcquireMutationLock(home string) (func(), error) {
 	return release, err
 }
 
+// AcquireMutationLockWithTimeout gives short interactive operations a chance to
+// run after a background mutation finishes, while preserving the same exclusive
+// file-operation boundary.
+func AcquireMutationLockWithTimeout(home string, timeout time.Duration) (func(), error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		release, err := AcquireMutationLock(home)
+		if !errors.Is(err, ErrSkillActionBusy) || timeout <= 0 {
+			return release, err
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, ErrSkillActionBusy
+		}
+		pause := 100 * time.Millisecond
+		if remaining < pause {
+			pause = remaining
+		}
+		time.Sleep(pause)
+	}
+}
+
 func acquireClientLock(home, name string) (func(), error) {
 	root := filepath.Join(home, ".agent-manager")
 	if err := os.MkdirAll(root, 0o700); err != nil {

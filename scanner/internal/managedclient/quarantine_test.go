@@ -7,7 +7,25 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
+
+func TestInteractiveMutationLockWaitsForBackgroundAction(t *testing.T) {
+	home := t.TempDir()
+	release, err := AcquireMutationLock(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		release()
+	}()
+	waited, err := AcquireMutationLockWithTimeout(home, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waited()
+}
 
 func TestLegacyPatrolAndQuarantineRespectMutationLock(t *testing.T) {
 	home, store, _, skill := observedFixture(t)

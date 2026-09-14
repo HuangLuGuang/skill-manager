@@ -19,6 +19,8 @@ import (
 	"skill-manager/scanner/internal/managedclient"
 )
 
+var interactiveMutationLockTimeout = 5 * time.Second
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		if len(os.Args) < 2 || os.Args[1] != "run" {
@@ -333,7 +335,7 @@ func run(args []string) (runErr error) {
 	}
 	if args[0] == "scan-history" || args[0] == "refresh-scan-history" || args[0] == "pending" || args[0] == "refresh-pending" || args[0] == "submit-pending" || args[0] == "discard-pending" || args[0] == "quarantine" || args[0] == "queue-quarantine" {
 		if args[0] == "discard-pending" || args[0] == "queue-quarantine" {
-			release, err := managedclient.AcquireMutationLock(*home)
+			release, err := managedclient.AcquireMutationLockWithTimeout(*home, interactiveMutationLockTimeout)
 			if err != nil {
 				return err
 			}
