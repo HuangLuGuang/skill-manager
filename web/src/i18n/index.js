@@ -13,6 +13,7 @@ import { clientGovernanceMessages } from './clientGovernance.js'
 import { skillColumnMessages } from './skillColumns.js'
 import { policySettingsMessages } from './policySettings.js'
 import { policySimulationMessages } from './policySimulation.js'
+import { auditMessages } from './audit.js'
 
 import { domainKey, domainMessages } from './domain.js'
 import { legacyKey, legacyMessages } from './legacy.js'
@@ -794,6 +795,7 @@ export const i18n = createI18n({
         ...policySettingsMessages['zh-CN'],
       },
       policySimulation: policySimulationMessages['zh-CN'],
+      auditLog: auditMessages['zh-CN'],
       credentials: {
         pageTitle: '统一凭证中心',
         pageSubtitle: '先按调用者选择凭证，再配置它能访问的资源',
@@ -1817,6 +1819,7 @@ export const i18n = createI18n({
         ...policySettingsMessages['en-US'],
       },
       policySimulation: policySimulationMessages['en-US'],
+      auditLog: auditMessages['en-US'],
       credentials: {
         pageTitle: 'Credential Center',
         pageSubtitle: 'Choose the caller first, then define the resources it may access',

@@ -1958,9 +1958,11 @@ const zh = {
           steps: [
             { title: '选择时间范围', body: '页面提供最近 24 小时、7 天和 30 天。先覆盖事件发生时间，避免把“查不到”误认为“没有发生”。' },
             { title: '选择事件类型', body: '先用阻断、内容不一致、审核或客户端处置等稳定事件类型缩小范围。' },
-            { title: '使用关键词', body: '按 Skill、Agent、凭证 Actor 或事件详情中的关键值查询。' },
-            { title: '交叉核对', body: '同时查看时间、事件、Skill、Agent、来源 IP、凭证 / Actor 和详情；Skill 有 ID 时可以跳转到详情。' },
+            { title: '使用关键词', body: '输入 Skill、Agent、凭证 Actor 或事件详情中的关键词即自动刷新结果；事件类型和时间范围选定后立即生效，筛选变化会回到第一页。' },
+            { title: '交叉核对', body: '表格按时间、事件、对象、Agent 与来源、操作人展示记录；对象下显示 Skill ID，Agent 下显示来源 IP。Skill 链接可跳转到详情。' },
+            { title: '展开证据', body: '点击“查看”在当前行下展开原因和事件 ID；原因仅在记录提供时显示。“原始 JSON”保留事件的完整字段和值，用于按事件 ID 排障、核对来源或向技术支持提供证据；日常浏览无需打开。' },
           ],
+          image: { name: 'audit-trail', alt: '审计追踪表格与行内事件详情', caption: '示例数据：在表格内展开原因和事件 ID，按需查看完整原始 JSON。' },
           link: { path: '/audit', label: '打开审计追踪' },
         },
         {
@@ -3714,9 +3716,11 @@ en.articles['audit-trail'] = {
       steps: [
         { title: 'Choose a time range', body: 'The page provides the last 24 hours, 7 days, and 30 days. Cover the actual event time before concluding that no event exists.' },
         { title: 'Choose an event type', body: 'Narrow by a stable type such as block, content mismatch, review, or Client enforcement.' },
-        { title: 'Search by keyword', body: 'Search values related to Skill, Agent, credential Actor, or event details.' },
-        { title: 'Cross-check fields', body: 'Read time, event, Skill, Agent, source IP, credential / Actor, and details together. A known Skill ID links to its details.' },
+        { title: 'Search by keyword', body: 'Results refresh as you type a Skill, Agent, credential Actor, or event-detail keyword. Event and time filters apply immediately; filter changes return to page one.' },
+        { title: 'Cross-check fields', body: 'The table shows time, event, object, Agent and source, and actor. Skill IDs appear below object names, and source IPs below Agents. Skill links open their details.' },
+        { title: 'Expand evidence', body: 'Select View to expand the event ID and any recorded reason. Original JSON preserves every event field and value for troubleshooting by event ID, checking the source, or sharing evidence with technical support; routine review does not require opening it.' },
       ],
+      image: { name: 'audit-trail', alt: 'Audit trail table with inline event details', caption: 'Example data: expand the recorded reason and event ID, then inspect the complete original JSON when needed.' },
       link: { path: '/audit', label: 'Open Audit trail' },
     },
     {

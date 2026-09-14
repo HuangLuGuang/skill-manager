@@ -236,6 +236,10 @@ MCP 能力总线集中配置远程 Streamable HTTP MCP Server，并通过虚拟�
 
 ### 3.8 可验证安全审计
 
+“智能体管理 → 审计追踪”按时间、事件、对象、Agent 与来源、操作人展示 Skill 与客户端治理记录。输入关键词或更改事件类型、最近 24 小时 / 7 天 / 30 天范围后立即刷新并回到第一页，点击“查看”展开事件 ID 与记录提供的原因。“原始 JSON”保留完整字段和值，供按事件 ID 排障、核对来源或向技术支持提供证据；日常浏览无需打开。Skill 名称与 ID、Agent 与来源 IP 分层显示；证据保留原文。
+
+In **Agent management → Audit Trail**, filter governance events by keyword, event type, and the last 24 hours, 7 days, or 30 days. Filters apply immediately as you type or select and return to page one. Select **View** to expand the event ID and any recorded reason. **Original JSON** preserves the complete fields and values for troubleshooting by event ID, checking the source, or sharing evidence with technical support; routine review does not require it. Skill IDs and source IPs appear beneath their corresponding objects and Agents; evidence remains in its original language.
+
 管理面的 Token、Agent、MCP、模型和策略写操作会进入统一安全审计链。每条事件包含前一条事件哈希，并使用独立 Ed25519 审计密钥签名。管理员可调用 `GET /api/v1/security-audit/verify`，或在 Backend 环境执行 `python -m backend.security_audit verify` 检查完整性。配置 `SECURITY_AUDIT_EXPORT_PATH` 后，同一事件还会追加写入 JSONL，供外部日志平台采集。
 
 ---
