@@ -1165,6 +1165,10 @@ func removeSharedInstalls(store *Store, installs []Installation, releasePath str
 }
 
 func reportEvent(ctx context.Context, api API, store *Store, clientID, eventType, agentType, skillName string, details map[string]any) error {
+	return reportEventWithLocalNotification(ctx, api, store, clientID, eventType, agentType, skillName, details, true)
+}
+
+func reportEventWithLocalNotification(ctx context.Context, api API, store *Store, clientID, eventType, agentType, skillName string, details map[string]any, notifyLocal bool) error {
 	if details == nil {
 		details = map[string]any{}
 	}
@@ -1172,8 +1176,10 @@ func reportEvent(ctx context.Context, api API, store *Store, clientID, eventType
 		details["last_seen_at"] = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	store.LogDiagnostic("info", "governance", eventType, map[string]any{"client_id": clientID, "agent_type": agentType, "skill_name": skillName, "details": details})
-	if notification, ok := notificationForEvent(eventType, agentType, skillName, details); ok {
-		_ = store.RecordNotification(notification)
+	if notifyLocal {
+		if notification, ok := notificationForEvent(eventType, agentType, skillName, details); ok {
+			_ = store.RecordNotification(notification)
+		}
 	}
 	if eventType == "skill_modified" || eventType == "unmanaged_skill_found" || eventType == "skill_quarantined" {
 		if err := store.RecordPatrolFinding(PatrolFinding{EventType: eventType, AgentType: agentType, SkillName: skillName}); err != nil {

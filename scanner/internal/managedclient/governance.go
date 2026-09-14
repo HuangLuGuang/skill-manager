@@ -254,7 +254,8 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 			// An active path discovered after successful removal is a new
 			// installation occurrence even when its content is unchanged.
 			reappeared := previous.ActionStatus == "completed" && (value.Action == "quarantine" || value.Action == "uninstall")
-			if actionKey != previous.ActionKey || reappeared {
+			newIncident := actionKey != previous.ActionKey || reappeared
+			if newIncident {
 				value.ActionKey = actionKey
 				value.ActionStatus = "pending"
 				value.ErrorCode = ""
@@ -264,11 +265,11 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 				if value.Action == "record_only" {
 					eventType = "skill_governance_recorded"
 				}
-				if err := reportEvent(ctx, api, store, inventory.ClientID, eventType, agent.AgentType, skill.Name, map[string]any{
+				if err := reportEventWithLocalNotification(ctx, api, store, inventory.ClientID, eventType, agent.AgentType, skill.Name, map[string]any{
 					"path": skill.Path, "signature": skill.Signature, "trigger": value.Trigger, "action": value.Action,
 					"policy_version": value.PolicyVersion, "event_key": observationKey(skill.Path) + ":" + actionKey,
 					"observation_count": value.Count, "last_seen_at": value.LastSeenAt,
-				}); err != nil {
+				}, newIncident); err != nil {
 					failures = append(failures, err)
 				}
 			}
@@ -308,12 +309,13 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 					} else {
 						value.ActionStatus, value.ErrorCode = "completed", ""
 					}
-					_ = reportEvent(ctx, api, store, inventory.ClientID, "skill_governance_action", agent.AgentType, skill.Name, map[string]any{
+					notifyAction := newIncident || value.ActionStatus != previous.ActionStatus || value.ErrorCode != previous.ErrorCode
+					_ = reportEventWithLocalNotification(ctx, api, store, inventory.ClientID, "skill_governance_action", agent.AgentType, skill.Name, map[string]any{
 						"path": skill.Path, "signature": skill.Signature, "trigger": value.Trigger, "action": value.Action,
 						"policy_version": value.PolicyVersion, "status": value.ActionStatus, "error_code": value.ErrorCode,
 						"quarantine_id": value.QuarantineID, "pending_id": value.PendingID,
 						"quarantine_ids_by_path": recoveryIDs,
-					})
+					}, notifyAction)
 				}
 			}
 			for _, reader := range inventory.Agents {

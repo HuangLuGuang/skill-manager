@@ -45,6 +45,65 @@ func TestOpenStoreMigratesPendingVersionFields(t *testing.T) {
 	}
 }
 
+func TestOpenStoreCollapsesExistingRepeatedGovernanceNotificationsOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "client.db")
+	store, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`DELETE FROM client_state WHERE key = 'migration:collapse-repeated-governance-notifications-v1'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, values := range []struct {
+		eventType, signature, delivered string
+	}{
+		{"skill_governance_detected", "same", "2026-09-14T01:00:01Z"},
+		{"skill_governance_detected", "same", ""},
+		{"skill_governance_detected", "same", ""},
+		{"skill_governance_detected", "changed", ""},
+		{"skill_auto_install_failed", "same", ""},
+	} {
+		details, _ := json.Marshal(map[string]string{"signature": values.signature})
+		if _, err := store.db.Exec(`INSERT INTO client_notifications(
+			severity,event_type,agent_type,skill_name,title,message,created_at,delivered_at,details_json
+		) VALUES('warning',?,'codex','sample','title','message','2026-09-14T01:00:00Z',NULLIF(?,''),?)`, values.eventType, values.delivered, string(details)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.Notifications(20)
+	if err != nil || len(items) != 3 {
+		t.Fatalf("repeated notification migration failed: %#v %v", items, err)
+	}
+	pending, err := store.PendingNotifications(20)
+	if err != nil || len(pending) != 2 {
+		t.Fatalf("migration did not remove the delivered incident backlog: %#v %v", pending, err)
+	}
+	if _, err := store.db.Exec(`INSERT INTO client_notifications(
+		severity,event_type,agent_type,skill_name,title,message,created_at,details_json
+	) VALUES('warning','skill_governance_detected','codex','sample','title','message','2026-09-14T02:00:00Z','{"signature":"same"}')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	items, err = store.Notifications(20)
+	if err != nil || len(items) != 4 {
+		t.Fatalf("one-time migration collapsed a later incident: %#v %v", items, err)
+	}
+}
+
 func TestStorePersistsInventoryAndCompletedTasks(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "client.db"))
 	if err != nil {

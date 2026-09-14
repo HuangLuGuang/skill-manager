@@ -111,21 +111,36 @@ func TestDefaultRecordsWithoutMovingSkillsAndReportsObservationCounts(t *testing
 				if err := patrol(context.Background(), home, inventory, policy, api, store, true, true); err != nil {
 					t.Fatal(err)
 				}
+				if i == 0 {
+					if _, err := store.db.Exec(`UPDATE client_notifications SET created_at = ?`, time.Now().UTC().Add(-10*time.Minute).Format(time.RFC3339Nano)); err != nil {
+						t.Fatal(err)
+					}
+				}
 			}
 			if _, err := os.Stat(filepath.Join(skill.Path, "SKILL.md")); err != nil {
 				t.Fatal("default moved file", err)
 			}
-			if events != 2 {
-				t.Fatalf("events=%d", events)
+			notifications, err := store.Notifications(10)
+			if err != nil || len(notifications) != 1 {
+				t.Fatalf("stable incident emitted repeated notifications: %#v %v", notifications, err)
 			}
-			if len(keys) != 1 || counts[0] != 1 || counts[1] != 2 {
-				t.Fatalf("observations did not reuse incident identity: %v %v", keys, counts)
+			skill.Signature += "-changed"
+			inventory.Agents[0].Skills[0].Signature = skill.Signature
+			if err := patrol(context.Background(), home, inventory, policy, api, store, true, true); err != nil {
+				t.Fatal(err)
+			}
+			if events != 3 || len(keys) != 2 || counts[0] != 1 || counts[1] != 2 || counts[2] != 1 {
+				t.Fatalf("incident identity did not track stable and changed content: events=%d keys=%v counts=%v", events, keys, counts)
+			}
+			notifications, err = store.Notifications(10)
+			if err != nil || len(notifications) != 2 {
+				t.Fatalf("changed content did not emit a new notification: %#v %v", notifications, err)
 			}
 			value, err := store.Observation(skill.Path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if value.Action != "record" || value.Count != 2 {
+			if value.Action != "record" || value.Count != 1 {
 				t.Fatal(value)
 			}
 		})

@@ -189,11 +189,47 @@ func OpenStore(path string) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{db: db, root: filepath.Dir(path)}
+	if err := store.migrateRepeatedGovernanceNotifications(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := store.initScanHistory(); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return store, nil
+}
+
+func (store *Store) migrateRepeatedGovernanceNotifications() error {
+	const migrationKey = "migration:collapse-repeated-governance-notifications-v1"
+	tx, err := store.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var completed string
+	if err := tx.QueryRow(`SELECT value FROM client_state WHERE key = ?`, migrationKey).Scan(&completed); err == nil {
+		return tx.Commit()
+	} else if err != sql.ErrNoRows {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM client_notifications
+		WHERE event_type = 'skill_governance_detected'
+		  AND id NOT IN (
+			SELECT MIN(id)
+			FROM client_notifications
+			WHERE event_type = 'skill_governance_detected'
+			GROUP BY agent_type, skill_name, details_json
+		  )`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO client_state(key,value,updated_at) VALUES(?,?,?)`,
+		migrationKey, "1", time.Now().UTC().Format(time.RFC3339Nano),
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 type ScanProgress struct {
