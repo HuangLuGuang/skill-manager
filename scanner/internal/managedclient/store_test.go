@@ -39,8 +39,8 @@ func TestOpenStoreMigratesPendingVersionFields(t *testing.T) {
 	}
 	defer store.Close()
 	if _, err := store.db.Exec(`INSERT INTO client_pending(
-		id, agent_type, skill_name, original_path, pending_path, reason, status, version_id, content_fingerprint, created_at
-	) VALUES('pending-1', 'codex', 'demo', '', '/tmp/demo', 'test', 'pending', 'version-2', 'sha256:test', '2026-07-23T00:00:00Z')`); err != nil {
+		id, agent_type, skill_name, original_path, pending_path, reason, status, version_id, version_no, source_version, content_fingerprint, created_at
+	) VALUES('pending-1', 'codex', 'demo', '', '/tmp/demo', 'test', 'pending', 'version-2', 2, '1.4.0', 'sha256:test', '2026-07-23T00:00:00Z')`); err != nil {
 		t.Fatalf("pending version migrations were not applied: %v", err)
 	}
 }

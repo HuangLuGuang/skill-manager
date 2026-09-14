@@ -103,7 +103,7 @@ func TestScanHistorySurvivesCopyCleanupAndResubmission(t *testing.T) {
 		t.Fatal("completed scan overwritten", history)
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"skill_id":"family","version_id":"v2","status":"REJECTED"}`))
+		w.Write([]byte(`{"skill_id":"family","version_id":"v2","version_no":2,"source_version":"1.4.0","status":"REJECTED"}`))
 	}))
 	defer server.Close()
 	history, err = RefreshScanHistory(context.Background(), server.URL, "token", store)
@@ -111,8 +111,8 @@ func TestScanHistorySurvivesCopyCleanupAndResubmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range history {
-		if entry.VersionID == "v2" && entry.Status != "REJECTED" {
-			t.Fatal("removed-copy scan not refreshed", history)
+		if entry.VersionID == "v2" && (entry.Status != "REJECTED" || entry.VersionNo != 2 || entry.SourceVersion != "1.4.0") {
+			t.Fatal("removed-copy scan metadata not refreshed", history)
 		}
 	}
 }

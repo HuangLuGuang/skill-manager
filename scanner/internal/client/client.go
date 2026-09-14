@@ -77,6 +77,8 @@ type SubmitResult struct {
 	ScanProgressAnalyzers map[string]string `json:"scan_progress_analyzers,omitempty"`
 	SkillID               string            `json:"skill_id,omitempty"`
 	VersionID             string            `json:"version_id,omitempty"`
+	VersionNo             int               `json:"version_no,omitempty"`
+	SourceVersion         string            `json:"source_version,omitempty"`
 	Name                  string            `json:"name,omitempty"`
 	Status                string            `json:"status,omitempty"`
 	RiskLevel             string            `json:"risk_level,omitempty"`
@@ -90,6 +92,8 @@ type importResult struct {
 	ScanProgressAnalyzers map[string]string `json:"scan_progress_analyzers"`
 	SkillID               string            `json:"skill_id"`
 	VersionID             string            `json:"version_id"`
+	VersionNo             int               `json:"version_no"`
+	SourceVersion         string            `json:"source_version"`
 	Name                  string            `json:"name"`
 	Status                string            `json:"status"`
 	RiskLevel             string            `json:"risk_level"`
@@ -215,6 +219,8 @@ func (c Client) GetImport(ctx context.Context, skillID string) (SubmitResult, er
 		ScanProgressAnalyzers: payload.ScanProgressAnalyzers,
 		SkillID:               payload.SkillID,
 		VersionID:             payload.VersionID,
+		VersionNo:             payload.VersionNo,
+		SourceVersion:         payload.SourceVersion,
 		Name:                  payload.Name,
 		Status:                payload.Status,
 		RiskLevel:             payload.RiskLevel,

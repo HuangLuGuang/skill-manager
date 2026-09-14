@@ -1152,6 +1152,14 @@ const governanceLabelFor = (kind, value) => {
   return translated === key ? value || '-' : translated
 }
 
+const pendingVersionLabel = item => Number(item?.version_no) > 0 ? `v${Number(item.version_no)}` : ''
+const pendingReviewVersionBadge = item => {
+  const label = item?.status === 'VETTED' ? pendingVersionLabel(item) : ''
+  if (!label) return ''
+  const title = [label, item.source_version, item.version_id].filter(Boolean).join(' · ')
+  return `<span class="review-version-badge" title="${escapeHtml(title)}">${escapeHtml(label)}</span>`
+}
+
 const scanProgressText = item => {
   const progress = item?.progress
   if (item?.status !== 'PENDING' || !progress || progress.version_id !== (item.version_id || item.skill_id)) return ''
@@ -1176,6 +1184,7 @@ const renderSkillObservation = skill => {
   const facts = [
     governanceLabelFor('certification', certification),
     observation?.malicious ? t('ui.agentManagement.trigger.malicious') : '',
+    pending?.status === 'VETTED' && pendingVersionLabel(pending) ? `${pendingStatusLabel(pending.status)} · ${pendingVersionLabel(pending)}` : '',
   ].filter(Boolean)
   const details = [
     trigger ? governanceLabelFor('trigger', trigger) : '',
@@ -1776,7 +1785,7 @@ const loadPending = async (refresh = false, { silent = false } = {}) => {
   $('#pending-list').innerHTML = groupTakeoverItems(scanHistoryItems).map(group => `<div data-pending-agent="${escapeHtml(group.agentType)}">
     <div class="history-columns recovery-columns"><span>Skill</span><span>${escapeHtml(t('ui.agentHistory.status'))}</span><span>${escapeHtml(t('ui.agentHistory.submitted_at'))}</span></div>
     ${group.items.map(item => `<div class="takeover-row quarantine-row">
-      <details class="history-details"><summary data-ui-icon="file-text">${escapeHtml(item.skill_name)}</summary><div class="history-facts"><small>${escapeHtml(item.original_path || item.pending_path)}</small><small>${escapeHtml(t('ui.agentHistory.version'))}: ${escapeHtml(item.version_id || item.skill_id)}</small></div></details>
+      <details class="history-details"><summary data-ui-icon="file-text">${escapeHtml(item.skill_name)}${pendingReviewVersionBadge(item)}</summary><div class="history-facts"><small>${escapeHtml(item.original_path || item.pending_path)}</small><small>${escapeHtml(t('ui.agentHistory.version'))}: ${escapeHtml(item.version_id || item.skill_id)}</small></div></details>
       <div class="pending-skill-status"><span class="result-status ${escapeHtml(pendingStatusClass(item.status))}"><i></i>${escapeHtml(pendingStatusLabel(item.status))}</span>${scanProgressText(item) ? `<small>${escapeHtml(scanProgressText(item))}</small>` : ''}</div>
       <span class="history-submitted-at">${escapeHtml(formatTime(item.submitted_at || item.created_at))}</span>
     </div>`).join('')}
@@ -2330,7 +2339,7 @@ const mergeRecoveryCopies = (quarantined, pending) => {
   for (const copy of quarantined) {
     if (copy.quarantine_path && paths.has(copy.quarantine_path)) continue
     const linked = pending.find(item => item.id === copy.pending_id || item.pending_path === copy.quarantine_path)
-    result.push(linked?.skill_id ? {...copy, skill_id: linked.skill_id, version_id: linked.version_id, detection_status: linked.status} : copy)
+    result.push(linked?.skill_id ? {...copy, skill_id: linked.skill_id, version_id: linked.version_id, version_no: linked.version_no, source_version: linked.source_version, detection_status: linked.status} : copy)
     if (copy.quarantine_path) paths.add(copy.quarantine_path)
   }
   for (const item of pending) {
@@ -2371,7 +2380,7 @@ const loadQuarantine = async () => {
       : null
     return tf`
     <div class="takeover-row quarantine-row" data-recovery-agent="${escapeHtml(item.agent_type)}" data-recovery-id="${escapeHtml(item.id)}">
-      <div class="quarantine-skill-identity">${item.pending_copy_id && !item.skill_id ? `<input type="checkbox" class="pending-copy-select" data-select-pending="${escapeHtml(item.pending_copy_id)}" aria-label="${escapeHtml(item.skill_name)}" ${selectedPendingIDs.has(item.pending_copy_id) ? 'checked' : ''} />` : ''}<details class="history-details"><summary data-ui-icon="file-text">${escapeHtml(item.skill_name)}</summary><div class="history-facts"><button class="path-link" type="button" title="隔离目录：${escapeHtml(item.quarantine_path)}" data-reveal-path="${escapeHtml(item.quarantine_path)}">所属 Agent：${escapeHtml(agentLabel(item.agent_type))} · ${escapeHtml(item.original_path || item.pending_path)}</button><small>${escapeHtml(detection ? quarantineDetectionGuidance(detection) : reasonLabel(item.reason))}</small>${item.skill_id ? `<small>${escapeHtml(quarantineNextLabel(item.detection_status))}</small>` : ''}</div></details></div>
+      <div class="quarantine-skill-identity">${item.pending_copy_id && !item.skill_id ? `<input type="checkbox" class="pending-copy-select" data-select-pending="${escapeHtml(item.pending_copy_id)}" aria-label="${escapeHtml(item.skill_name)}" ${selectedPendingIDs.has(item.pending_copy_id) ? 'checked' : ''} />` : ''}<details class="history-details"><summary data-ui-icon="file-text">${escapeHtml(item.skill_name)}${pendingReviewVersionBadge(detection)}</summary><div class="history-facts"><button class="path-link" type="button" title="隔离目录：${escapeHtml(item.quarantine_path)}" data-reveal-path="${escapeHtml(item.quarantine_path)}">所属 Agent：${escapeHtml(agentLabel(item.agent_type))} · ${escapeHtml(item.original_path || item.pending_path)}</button><small>${escapeHtml(detection ? quarantineDetectionGuidance(detection) : reasonLabel(item.reason))}</small>${item.skill_id ? `<small>${escapeHtml(quarantineNextLabel(item.detection_status))}</small>` : ''}</div></details></div>
       ${detection
         ? `<strong class="quarantine-status result-status ${escapeHtml(pendingStatusClass(detection.status))}"><i></i>${escapeHtml(pendingStatusLabel(detection.status))}</strong>`
         : `<strong class="quarantine-status result-status status-review" data-ui-icon="archive">${escapeHtml(t(item.pending_copy_id ? 'ui.agentHistory.pending_copy' : item.status === 'backed_up' ? 'ui.agentHistory.backed_up' : 'ui.agentHistory.quarantined'))}</strong>`}

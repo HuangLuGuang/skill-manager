@@ -177,7 +177,7 @@ func TestSubmitAndRefreshPendingUsesFullDetection(t *testing.T) {
 				t.Errorf("no_cache must be controlled only by the platform global policy")
 			}
 			_ = json.NewEncoder(response).Encode(map[string]any{
-				"skill_id": "skill-family-1", "version_id": "skill-version-2", "name": "demo", "status": "PENDING",
+				"skill_id": "skill-family-1", "version_id": "skill-version-2", "version_no": 2, "source_version": "1.4.0", "name": "demo", "status": "PENDING",
 			})
 			return
 		}
@@ -186,7 +186,7 @@ func TestSubmitAndRefreshPendingUsesFullDetection(t *testing.T) {
 		}
 		getCount++
 		_ = json.NewEncoder(response).Encode(map[string]any{
-			"skill_id": "skill-family-1", "version_id": "skill-version-2", "name": "demo", "status": "APPROVED",
+			"skill_id": "skill-family-1", "version_id": "skill-version-2", "version_no": 2, "source_version": "1.4.0", "name": "demo", "status": "APPROVED",
 		})
 	}))
 	defer server.Close()
@@ -199,7 +199,7 @@ func TestSubmitAndRefreshPendingUsesFullDetection(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, pending := range submitted {
-		if pending.SkillID != "skill-family-1" || pending.VersionID != "skill-version-2" || pending.Status != "submitted" {
+		if pending.SkillID != "skill-family-1" || pending.VersionID != "skill-version-2" || pending.VersionNo != 2 || pending.SourceVersion != "1.4.0" || pending.Status != "submitted" {
 			t.Fatalf("duplicate pending Skill did not share submission: %#v", submitted)
 		}
 	}
@@ -207,7 +207,7 @@ func TestSubmitAndRefreshPendingUsesFullDetection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 2 || items[0].Status != "APPROVED" || items[1].Status != "APPROVED" {
+	if len(items) != 2 || items[0].Status != "APPROVED" || items[1].Status != "APPROVED" || items[0].VersionNo != 2 || items[1].VersionNo != 2 {
 		t.Fatalf("pending result was not refreshed: %#v", items)
 	}
 	if getCount != 1 {

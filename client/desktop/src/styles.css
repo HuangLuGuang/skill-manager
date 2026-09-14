@@ -1508,6 +1508,7 @@ html[lang="en-US"] #preview-button {
 #discover .history-details > summary::-webkit-details-marker { display: none; }
 #discover .history-details > summary::before { flex: 0 0 16px; color: #6a7f92; }
 #discover .history-details > summary:hover { color: #28715e; }
+#discover .review-version-badge { flex: 0 0 auto; padding: 2px 6px; border-radius: 4px; color: #8a5a19; background: #fff0d7; font-size: 11px; font-weight: 700; line-height: 1.4; }
 #discover .history-facts { margin-top: 8px; padding: 10px; border-radius: 5px; background: #f3f7f9; display: grid; gap: 6px; }
 #discover .history-facts small { color: #71818d; line-height: 1.5; font-size: 11px; }
 #discover .history-facts .path-link { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; font-size: 11px; }

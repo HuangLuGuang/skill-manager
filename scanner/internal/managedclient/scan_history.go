@@ -12,14 +12,16 @@ import (
 
 // Snapshot submitted tasks separately from the lifetime of their local copies.
 func (store *Store) initScanHistory() error {
-	var installed int
-	if err := store.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE (type='table' AND name='client_scan_history') OR (type='trigger' AND name IN ('scan_history_after_insert','scan_history_after_update'))`).Scan(&installed); err != nil {
+	var currentObjects int
+	if err := store.db.QueryRow(`SELECT count(*) FROM sqlite_master
+		WHERE (type='table' AND name='client_scan_history')
+		   OR (type='trigger' AND name IN ('scan_history_after_insert','scan_history_after_update') AND sql LIKE '%version_no%')`).Scan(&currentObjects); err != nil {
 		return err
 	}
-	if installed == 3 {
+	if currentObjects == 3 {
 		return nil
 	}
-	columns := []string{"id", "agent_type", "skill_name", "original_path", "pending_path", "reason", "status", "skill_id", "version_id", "content_fingerprint", "created_at", "submitted_at", "progress_json"}
+	columns := []string{"id", "agent_type", "skill_name", "original_path", "pending_path", "reason", "status", "skill_id", "version_id", "version_no", "source_version", "content_fingerprint", "created_at", "submitted_at", "progress_json"}
 	pairs := []string{}
 	for _, column := range columns {
 		if column == "progress_json" {
@@ -42,12 +44,15 @@ func (store *Store) initScanHistory() error {
 	if _, err = tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS client_scan_history(history_id TEXT PRIMARY KEY, item_json TEXT NOT NULL);`); err != nil {
 		return err
 	}
+	if _, err = tx.ExecContext(ctx, `DROP TRIGGER IF EXISTS scan_history_after_insert; DROP TRIGGER IF EXISTS scan_history_after_update;`); err != nil {
+		return err
+	}
 	if _, err = tx.ExecContext(ctx, snapshot); err != nil {
 		return err
 	}
 	for _, event := range []string{"INSERT", "UPDATE"} {
 		// Capture before the source can be cleaned up, reset or re-submitted.
-		if _, err = tx.ExecContext(ctx, `CREATE TRIGGER IF NOT EXISTS scan_history_after_`+strings.ToLower(event)+` AFTER `+event+` ON client_pending BEGIN `+strings.Replace(snapshot, " WHERE COALESCE", " WHERE id=NEW.id AND COALESCE", 1)+` END;`); err != nil {
+		if _, err = tx.ExecContext(ctx, `CREATE TRIGGER scan_history_after_`+strings.ToLower(event)+` AFTER `+event+` ON client_pending BEGIN `+strings.Replace(snapshot, " WHERE COALESCE", " WHERE id=NEW.id AND COALESCE", 1)+` END;`); err != nil {
 			return err
 		}
 	}
@@ -101,6 +106,8 @@ func RefreshScanHistory(ctx context.Context, server, token string, store *Store)
 			}
 		} else {
 			item.Status = result.Status
+			item.VersionNo = result.VersionNo
+			item.SourceVersion = result.SourceVersion
 			item.Progress = ScanProgress{}
 			if result.Status == "PENDING" {
 				item.Progress = ScanProgress{Stage: result.ScanProgressStage, Analyzers: result.ScanProgressAnalyzers, VersionID: version, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}

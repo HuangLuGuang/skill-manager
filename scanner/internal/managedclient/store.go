@@ -135,6 +135,8 @@ func OpenStore(path string) (*Store, error) {
 			status TEXT NOT NULL,
 			skill_id TEXT,
 			version_id TEXT,
+			version_no INTEGER NOT NULL DEFAULT 0,
+			source_version TEXT NOT NULL DEFAULT '',
 			content_fingerprint TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,
 			submitted_at TEXT
@@ -177,6 +179,14 @@ func OpenStore(path string) (*Store, error) {
 		return nil, err
 	}
 	if _, err := db.Exec(`ALTER TABLE client_pending ADD COLUMN version_id TEXT`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(`ALTER TABLE client_pending ADD COLUMN version_no INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(`ALTER TABLE client_pending ADD COLUMN source_version TEXT NOT NULL DEFAULT ''`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 		db.Close()
 		return nil, err
 	}
@@ -251,6 +261,8 @@ type PendingItem struct {
 	Status           string       `json:"status"`
 	SkillID          string       `json:"skill_id,omitempty"`
 	VersionID        string       `json:"version_id,omitempty"`
+	VersionNo        int          `json:"version_no,omitempty"`
+	SourceVersion    string       `json:"source_version,omitempty"`
 	Fingerprint      string       `json:"content_fingerprint,omitempty"`
 	CreatedAt        string       `json:"created_at"`
 	SubmittedAt      string       `json:"submitted_at,omitempty"`
@@ -272,8 +284,8 @@ func (store *Store) SavePending(item PendingItem) error {
 		item.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	_, err := store.db.Exec(
-		`INSERT INTO client_pending(id, agent_type, skill_name, original_path, pending_path, reason, status, skill_id, version_id, content_fingerprint, created_at, submitted_at)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO client_pending(id, agent_type, skill_name, original_path, pending_path, reason, status, skill_id, version_id, version_no, source_version, content_fingerprint, created_at, submitted_at)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(pending_path) DO UPDATE SET
 		   original_path=excluded.original_path,
 		   reason=excluded.reason,
@@ -282,7 +294,7 @@ func (store *Store) SavePending(item PendingItem) error {
 		     ELSE client_pending.content_fingerprint
 		   END`,
 		item.ID, item.AgentType, item.SkillName, item.OriginalPath, item.PendingPath,
-		item.Reason, item.Status, item.SkillID, item.VersionID, item.Fingerprint, item.CreatedAt, nullableString(item.SubmittedAt),
+		item.Reason, item.Status, item.SkillID, item.VersionID, item.VersionNo, item.SourceVersion, item.Fingerprint, item.CreatedAt, nullableString(item.SubmittedAt),
 	)
 	return err
 }
@@ -290,7 +302,7 @@ func (store *Store) SavePending(item PendingItem) error {
 func (store *Store) PendingItems() ([]PendingItem, error) {
 	rows, err := store.db.Query(
 		`SELECT id, agent_type, skill_name, original_path, pending_path, reason, status,
-		        COALESCE(skill_id, ''), COALESCE(version_id, ''), COALESCE(content_fingerprint, ''), created_at, COALESCE(submitted_at, ''), progress_json,
+		        COALESCE(skill_id, ''), COALESCE(version_id, ''), version_no, source_version, COALESCE(content_fingerprint, ''), created_at, COALESCE(submitted_at, ''), progress_json,
 		        COALESCE((SELECT value FROM client_state WHERE key = 'pending:install-error:' || client_pending.id), '')
 		 FROM client_pending ORDER BY created_at DESC`,
 	)
@@ -303,7 +315,7 @@ func (store *Store) PendingItems() ([]PendingItem, error) {
 	for rows.Next() {
 		var item PendingItem
 		var progress string
-		if err := rows.Scan(&item.ID, &item.AgentType, &item.SkillName, &item.OriginalPath, &item.PendingPath, &item.Reason, &item.Status, &item.SkillID, &item.VersionID, &item.Fingerprint, &item.CreatedAt, &item.SubmittedAt, &progress, &item.AutoInstallError); err != nil {
+		if err := rows.Scan(&item.ID, &item.AgentType, &item.SkillName, &item.OriginalPath, &item.PendingPath, &item.Reason, &item.Status, &item.SkillID, &item.VersionID, &item.VersionNo, &item.SourceVersion, &item.Fingerprint, &item.CreatedAt, &item.SubmittedAt, &progress, &item.AutoInstallError); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(progress), &item.Progress); err != nil {
@@ -424,10 +436,18 @@ func (store *Store) UpdatePendingStatus(skillID, versionID, status string) error
 	return err
 }
 
+func (store *Store) UpdatePendingVersionMetadata(skillID, versionID string, versionNo int, sourceVersion string) error {
+	_, err := store.db.Exec(
+		`UPDATE client_pending SET version_no = ?, source_version = ? WHERE skill_id = ? AND COALESCE(version_id, '') = ?`,
+		versionNo, sourceVersion, skillID, versionID,
+	)
+	return err
+}
+
 func (store *Store) ResetPendingSubmission(id string) error {
 	_, err := store.db.Exec(
 		`UPDATE client_pending
-		 SET status = 'pending', skill_id = NULL, version_id = NULL, submitted_at = NULL, progress_json = '{}'
+		 SET status = 'pending', skill_id = NULL, version_id = NULL, version_no = 0, source_version = '', submitted_at = NULL, progress_json = '{}'
 		 WHERE id = ?`,
 		id,
 	)
@@ -439,12 +459,12 @@ func (store *Store) UpdatePendingFingerprint(id, fingerprint string) error {
 	return err
 }
 
-func (store *Store) LinkPendingGroup(fingerprint, status, skillID, versionID, submittedAt string) error {
+func (store *Store) LinkPendingGroup(fingerprint, status, skillID, versionID string, versionNo int, sourceVersion, submittedAt string) error {
 	_, err := store.db.Exec(
 		`UPDATE client_pending
-		 SET status = ?, skill_id = ?, version_id = ?, submitted_at = ?
+		 SET status = ?, skill_id = ?, version_id = ?, version_no = ?, source_version = ?, submitted_at = ?
 		 WHERE content_fingerprint = ?`,
-		status, skillID, versionID, nullableString(submittedAt), fingerprint,
+		status, skillID, versionID, versionNo, sourceVersion, nullableString(submittedAt), fingerprint,
 	)
 	return err
 }
@@ -953,7 +973,7 @@ func (store *Store) ResetForConnectionChange() error {
 	}
 	if _, err := tx.Exec(
 		`UPDATE client_pending
-		 SET status = 'pending', skill_id = NULL, version_id = NULL, submitted_at = NULL, progress_json = '{}'
+		 SET status = 'pending', skill_id = NULL, version_id = NULL, version_no = 0, source_version = '', submitted_at = NULL, progress_json = '{}'
 		 WHERE skill_id IS NOT NULL OR version_id IS NOT NULL`,
 	); err != nil {
 		return err

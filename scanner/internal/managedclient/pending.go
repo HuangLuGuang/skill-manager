@@ -35,11 +35,13 @@ func SubmitPending(ctx context.Context, home, server, token string, store *Store
 	}
 	if item.SkillID != "" {
 		return scannerclient.SubmitResult{
-			SkillID:   item.SkillID,
-			VersionID: item.VersionID,
-			Name:      item.SkillName,
-			Status:    item.Status,
-			Message:   "相同内容的 Skill 已提交平台检测",
+			SkillID:       item.SkillID,
+			VersionID:     item.VersionID,
+			VersionNo:     item.VersionNo,
+			SourceVersion: item.SourceVersion,
+			Name:          item.SkillName,
+			Status:        item.Status,
+			Message:       "相同内容的 Skill 已提交平台检测",
 		}, nil
 	}
 	skillRoot, err := filepath.EvalSymlinks(item.PendingPath)
@@ -91,6 +93,9 @@ func SubmitPending(ctx context.Context, home, server, token string, store *Store
 		return result, err
 	}
 	if err := store.MarkPendingSubmitted(item, result.SkillID, result.VersionID); err != nil {
+		return result, err
+	}
+	if err := store.UpdatePendingVersionMetadata(result.SkillID, result.VersionID, result.VersionNo, result.SourceVersion); err != nil {
 		return result, err
 	}
 	return result, nil
@@ -170,6 +175,11 @@ func refreshPending(ctx context.Context, server, token string, store *Store, inc
 			}
 		}
 		items[index].Status = result.Status
+		items[index].VersionNo = result.VersionNo
+		items[index].SourceVersion = result.SourceVersion
+		if err := store.UpdatePendingVersionMetadata(items[index].SkillID, items[index].VersionID, result.VersionNo, result.SourceVersion); err != nil {
+			return nil, err
+		}
 		items[index].Progress = ScanProgress{}
 		if result.Status == "PENDING" {
 			items[index].Progress = ScanProgress{Stage: result.ScanProgressStage, Analyzers: result.ScanProgressAnalyzers, VersionID: statusID, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
@@ -362,13 +372,15 @@ func linkPendingGroups(store *Store, items []PendingItem) ([]PendingItem, error)
 			continue
 		}
 		source := items[anchor]
-		if err := store.LinkPendingGroup(fingerprint, source.Status, source.SkillID, source.VersionID, source.SubmittedAt); err != nil {
+		if err := store.LinkPendingGroup(fingerprint, source.Status, source.SkillID, source.VersionID, source.VersionNo, source.SourceVersion, source.SubmittedAt); err != nil {
 			return nil, err
 		}
 		for _, index := range indexes {
 			items[index].Status = source.Status
 			items[index].SkillID = source.SkillID
 			items[index].VersionID = source.VersionID
+			items[index].VersionNo = source.VersionNo
+			items[index].SourceVersion = source.SourceVersion
 			items[index].SubmittedAt = source.SubmittedAt
 		}
 	}
