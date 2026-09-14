@@ -25,6 +25,10 @@ func TestModelConfigTaskRetrievesAgentCredentialOutsideTaskPayload(t *testing.T)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		requestedPath = request.URL.Path
 		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(request.URL.Path, "/model-preflight") {
+			_, _ = w.Write([]byte(`{"ok":true}`))
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"token":          "amat_task_bound_agent_secret",
 			"token_prefix":   "amat_task_bo",
@@ -33,14 +37,18 @@ func TestModelConfigTaskRetrievesAgentCredentialOutsideTaskPayload(t *testing.T)
 		})
 	}))
 	defer server.Close()
-
-	err := executeTask(
+	store, err := OpenStore(filepath.Join(home, "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	err = executeTask(
 		context.Background(),
 		home,
 		Inventory{ClientID: "host-1"},
 		Policy{},
 		NewAPI(server.URL, "client-token", time.Second),
-		nil,
+		store,
 		Task{
 			ID:       42,
 			TaskType: "apply_model_config",
@@ -69,6 +77,45 @@ func TestModelConfigTaskRetrievesAgentCredentialOutsideTaskPayload(t *testing.T)
 	env, _ := settings["env"].(map[string]any)
 	if env["ANTHROPIC_AUTH_TOKEN"] != "amat_task_bound_agent_secret" {
 		t.Fatalf("task-issued credential was not applied: %#v", env)
+	}
+}
+
+func TestModelPreflightFailureDoesNotIssueCredentialOrWrite(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".claude", "settings.json")
+	before := []byte(`{"env":{"CLAUDE_CODE_MAX_OUTPUT_TOKENS":"2048"},"unrelated":true}`)
+	if err := atomicWriteFile(path, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		requests++
+		if !strings.HasSuffix(request.URL.Path, "/model-preflight") {
+			t.Errorf("credential requested after failed preflight")
+		}
+		var body struct {
+			Current map[string]any `json:"current_parameters"`
+		}
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		if body.Current["max_output_tokens"] != float64(2048) {
+			t.Errorf("inherited parameter missing: %v", body.Current)
+		}
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"error_code":"client.model_output_limit"}`))
+	}))
+	defer server.Close()
+	store, err := OpenStore(filepath.Join(home, "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	err = executeTask(context.Background(), home, Inventory{ClientID: "host"}, Policy{}, NewAPI(server.URL, "test", time.Second), store, Task{ID: 42, TaskType: "apply_model_config", Payload: map[string]any{"agent_type": "claude-code", "local_agent_id": "claude-code", "model": "model-b", "auto_issue_credential": true}})
+	if err == nil || requests != 1 {
+		t.Fatalf("failed preflight did not stop task: %v, requests=%d", err, requests)
+	}
+	after, _ := os.ReadFile(path)
+	if !bytes.Equal(before, after) {
+		t.Fatal("configuration changed after failed preflight")
 	}
 }
 

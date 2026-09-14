@@ -8,7 +8,8 @@ import re
 import secrets
 import time
 import uuid
-from base64 import urlsafe_b64encode
+from base64 import b64decode, b64encode, urlsafe_b64encode
+from binascii import Error as Base64Error
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -31,6 +32,8 @@ from ..anthropic_compat import (
     openai_to_anthropic_response,
 )
 from ..api_errors import ApiError, request_locale
+from ..model_verification import record_probe
+from ..gemini_compat import gemini_to_chat, chat_to_gemini, chat_stream_to_gemini
 from ..compression import compress_messages
 from ..config import settings
 from ..gateway_skill_context import (
@@ -228,14 +231,15 @@ def _publish_model_runtime_trace(
     else:
         publish_events_best_effort(db, events)
     if trace_context.get("gateway_trace_id") and (error is not None or response_payload is not None):
-        gateway_sessions.finish(db, request_id, "blocked" if blocked else "error" if error is not None else "completed")
+        gateway_sessions.finish(db, request_id, "blocked" if blocked else "error" if error is not None else "completed",
+                                request_payload=request_payload, response_payload=response_payload)
         trace_context["gateway_finished"] = True
 PROMPT_GUARD_RULES = [
     ("prompt_injection", "HIGH", "要求忽略或覆盖系统指令", r"(?i)(ignore|disregard|forget)\s+(all\s+)?(previous|prior|above|system)\s+(instructions?|prompts?)|(忽略|无视|忘记|不要遵守|不用遵守|别管).{0,16}(以上|之前|前面|所有|系统|开发者|平台).{0,16}(指令|提示词|规则|要求)|(覆盖|重写|替换).{0,12}(系统|开发者|平台).{0,8}(指令|提示词|规则)"),
     ("system_prompt_leak", "HIGH", "要求泄露系统提示词或内部指令", r"(?i)(reveal|show|print|dump|output|return).{0,40}(system[_ -]?prompt|developer[_ -]?(message|prompt)|hidden (instructions?|rules?)|internal (instructions?|config|policy))|(system[_ -]?prompt|developer[_ -]?(message|prompt)|hidden (instructions?|rules?)|internal (instructions?|config|policy)).{0,40}(reveal|show|print|dump|output|return)|(泄露|显示|输出|打印|复述|逐字|返回).{0,30}(system[_ -]?prompt|developer[_ -]?prompt|系统提示词|系统指令|开发者消息|开发者提示词|隐藏规则|隐藏指令|内部指令|内部配置|初始提示词|完整提示词)|(system[_ -]?prompt|developer[_ -]?prompt|系统提示词|系统指令|开发者消息|开发者提示词|隐藏规则|隐藏指令|内部指令|内部配置|初始提示词|完整提示词).{0,40}(泄露|显示|输出|打印|复述|逐字|返回)"),
     ("secret_exfiltration", "HIGH", "要求输出密钥、凭据或敏感配置", r"(?i)(api[_ -]?keys?|secrets?|tokens?|passwords?|credentials?|private keys?|authorization header|cookies?).{0,60}(print|show|reveal|dump|output|return|exfiltrate|list)|(print|show|reveal|dump|output|return|list).{0,60}(api[_ -]?keys?|secrets?|tokens?|passwords?|credentials?|private keys?|authorization header|cookies?)|(输出|泄露|打印|展示|导出|列出|返回|原样输出).{0,40}(密钥|凭据|密码|token|api key|私钥|环境变量|配置文件|authorization header|cookie)|(amk_|amat_|sk-).{0,40}(输出|打印|展示|返回|原样|凭据|token|key|密钥)"),
-    ("tool_abuse", "HIGH", "要求执行命令或读取敏感本地文件", r"(?i)(shell|bash|cmd|terminal|命令行).{0,30}(exec|execute|run|执行|调用)|(\benv\b|cat\s+~?/?\\.ssh/id_rsa|/etc/passwd|\\.env|~/.config)|读取.{0,40}(/etc/passwd|\\.env|~/.config|账号|密钥)"),
-    ("encoded_instruction", "MEDIUM", "要求解码并执行隐藏指令", r"(?i)(base64|decode|解码).{0,20}(execute|run|follow|执行|运行|遵循)|[A-Za-z0-9+/]{32,}={0,2}"),
+    ("tool_abuse", "HIGH", "要求执行命令或读取敏感本地文件", r"(?i)(?P<command_action>((?:shell|bash|cmd|terminal)\b|命令行)[^.!?;。！？\r\n\\]{0,30}(\b(?:execute|exec|run)\b|执行|调用))|(\benv\b|cat\s+~?/?\\.ssh/id_rsa|/etc/passwd|\\.env|~/.config)|读取.{0,40}(/etc/passwd|\\.env|~/.config|账号|密钥)"),
+    ("encoded_instruction", "MEDIUM", "要求解码并执行隐藏指令", r"(?i)(base64|decode|解码).{0,20}(execute|run|follow|执行|运行|遵循)"),
     ("safety_bypass", "MEDIUM", "要求绕过安全限制或审计", r"(?i)(bypass|disable|turn off|ignore).{0,30}(safety|policy|guardrail|audit|filter|moderation)|(绕过|关闭|禁用|跳过|规避).{0,20}(安全|策略|审计|过滤|限制|风控|防护|检测)"),
     ("role_override", "MEDIUM", "要求模型切换为不受限制的角色", r"(?i)(developer mode|dan mode|jailbreak|act as).{0,40}(no restrictions?|unfiltered|ignore)|(开发者模式|越狱模式|无限制模式|DAN模式|扮演).{0,24}(无视规则|不受限制|绕过限制|没有限制)"),
     ("tool_output_instruction", "MEDIUM", "工具返回内容夹带新的执行指令", r"(?i)(tool output|observation|retrieved content).{0,80}(ignore|follow these instructions|system prompt)|(工具返回|检索内容|网页内容|文档内容|搜索结果).{0,40}(忽略|执行以下|遵循以下|按以下指令|新的系统指令)"),
@@ -363,6 +367,44 @@ def _message_content_sources(messages: list[dict[str, Any]], metadata: dict[str,
     return result
 
 
+def _direct_prompt_rule_match(rule_id: str, pattern: str, text: str):
+    compiled = re.compile(pattern)
+    position = 0
+    while (match := compiled.search(text, position)) is not None:
+        if rule_id == "tool_abuse" and match.groupdict().get("command_action"):
+            # A negated execution statement is diagnostic text. Other matches
+            # in the same output, including sensitive paths, remain eligible.
+            if re.search(r"(?i)\b(?:cannot|can['’]t|could not|do not|does not|must not|should not|not)\s+(?:be\s+)?(?:execute|exec|run)\b$|(?:不能|无法|不可|不要|禁止)(?:被)?(?:执行|调用)$", match.group()):
+                position = match.start() + 1
+                continue
+        return match
+    return None
+
+
+def _prompt_rule_match(rule_id: str, pattern: str, text: str):
+    direct = _direct_prompt_rule_match(rule_id, pattern, text)
+    if direct or rule_id != "encoded_instruction":
+        return direct
+    # A long path, digest or ordinary encoded data is not an instruction.
+    # Decode bounded, complete Base64 tokens as text only; never execute them.
+    for candidate in re.finditer(r"(?<![A-Za-z0-9+/_=-])[A-Za-z0-9+/_-]{32,}={0,2}(?![A-Za-z0-9+/_=-])", text):
+        token = candidate.group()
+        if len(token) > 8192:
+            continue
+        normalized = token.replace("-", "+").replace("_", "/")
+        try:
+            raw = b64decode(normalized + "=" * (-len(normalized) % 4), validate=True)
+            if b64encode(raw).decode().rstrip("=") != normalized.rstrip("="):
+                continue
+            decoded = raw.decode("utf-8")
+        except (ValueError, Base64Error, UnicodeError):
+            continue
+        if any(_direct_prompt_rule_match(other_id, other_pattern, decoded)
+               for other_id, _, _, other_pattern in PROMPT_GUARD_RULES):
+            return candidate
+    return None
+
+
 def _scan_prompt_security(
     messages: list[dict[str, Any]],
     *,
@@ -379,7 +421,7 @@ def _scan_prompt_security(
             if not text:
                 continue
             for rule_id, severity, reason, pattern in PROMPT_GUARD_RULES:
-                match = re.search(pattern, text)
+                match = _prompt_rule_match(rule_id, pattern, text)
                 if not match:
                     continue
                 if RISK_ORDER[severity] > RISK_ORDER[max_risk]:
@@ -400,7 +442,7 @@ def _scan_prompt_security(
         for rule_id, severity, reason, pattern in PROMPT_GUARD_RULES:
             if rule_id in existing_rules:
                 continue
-            match = re.search(pattern, combined)
+            match = _prompt_rule_match(rule_id, pattern, combined)
             if not match:
                 continue
             if RISK_ORDER[severity] > RISK_ORDER[max_risk]:
@@ -2658,7 +2700,23 @@ async def get_trace_detail(
                 "total_tokens": metric.total_tokens,
             }
         )
-    return {"request_id": request_id, "stages": stages}
+    tokens = set(re.findall(r"<[A-Z][A-Z0-9_]*:[a-z]+_[0-9a-f]{10}>", _json_dumps(stages)))
+    mappings = []
+    if tokens:
+        mappings = db.query(models.PseudonymMapping).filter(
+            models.PseudonymMapping.tenant_id == rows[0].tenant_id,
+            models.PseudonymMapping.conversation_id == rows[0].conversation_id,
+            models.PseudonymMapping.token.in_(tokens),
+            models.PseudonymMapping.expires_at >= _now(),
+        ).all()
+    return {
+        "request_id": request_id,
+        "stages": stages,
+        "pii_mappings": [
+            {"token": row.token, "original_value": row.original_value, "entity_type": row.entity_type}
+            for row in mappings
+        ],
+    }
 
 
 def _mapping_payload(row: models.PseudonymMapping) -> dict[str, Any]:
@@ -3207,6 +3265,7 @@ async def _chat_completions_with_key(
     if isinstance(key, models.AccessToken):
         tenant_id = str(key.group_id) if key.group_id is not None else ("default" if tenant_id == "group-default" else tenant_id)
     _resolve_model(db, payload.model, key)
+    record_probe(db, key, payload, request_id)
     messages = [_strip_undefined_values(message.model_dump()) for message in payload.messages]
     if settings.RUNTIME_TRACE_ENABLED and not (getattr(key, "bound_agent_id", None) and metadata.get("trace_id")):
         declared = [("metadata.session_id", metadata.get("session_id")),
@@ -3872,6 +3931,62 @@ async def responses_compat(
         headers = {key: value for key, value in result.headers.items() if key.lower() not in {"content-type", "content-length"}}
         return StreamingResponse(openai_stream_to_responses(result.body_iterator, payload.get("model"), tool_kinds), media_type="text/event-stream", headers=headers)
     return openai_to_responses_response(result, tool_kinds)
+
+
+@runtime_router.post("/client-models/{model_id}/v1/messages", summary="Claude Desktop gateway model route")
+async def claude_desktop_messages(
+    model_id: str, payload: schemas.AnthropicMessagesRequest, request: Request, response: Response,
+    authorization: str | None = Header(default=None), x_api_key: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    try:
+        model = bytes.fromhex(model_id).decode("utf-8")
+        if not model or len(model) > 128 or payload.model != "claude-sonnet-5":
+            raise ValueError("invalid route")
+    except (ValueError, UnicodeError) as exc:
+        raise ApiError(400, "client.desktop_model_route_invalid", "桌面模型路由无效", "Invalid desktop model route") from exc
+    # Routing changes only the model alias. Credential, model permission,
+    # privacy, Prompt Guard, rate limits and auditing use the ordinary pipeline.
+    return await anthropic_messages_compat(payload.model_copy(update={"model": model}), request, response, authorization, x_api_key, db)
+
+
+@runtime_router.post("/client-models/{model_id}/v1beta/models/{model_action:path}")
+async def client_gemini_generate_content(
+    model_id: str, model_action: str, payload: dict[str, Any], request: Request, response: Response,
+    authorization: str | None = Header(default=None), x_goog_api_key: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    try:
+        model = bytes.fromhex(model_id).decode("utf-8")
+        if not model or len(model) > 128:
+            raise ValueError("invalid route")
+    except (ValueError, UnicodeError) as exc:
+        raise ApiError(400, "client.model_route_invalid", "模型路由无效", "Invalid model route") from exc
+    _, separator, action = model_action.rpartition(":")
+    if not separator:
+        raise ApiError(400, "gemini.operation_unsupported", "不支持此 Gemini 操作", "Unsupported Gemini operation")
+    return await gemini_generate_content(model + ":" + action, payload, request, response, authorization, x_goog_api_key, db)
+
+
+@runtime_router.post("/v1beta/models/{model_action:path}", summary="Gemini-compatible governed generation")
+async def gemini_generate_content(
+    model_action: str, payload: dict[str, Any], request: Request, response: Response,
+    authorization: str | None = Header(default=None), x_goog_api_key: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    model, separator, action = model_action.rpartition(":")
+    if not separator or not model or action not in {"generateContent", "streamGenerateContent"}:
+        raise ApiError(400, "gemini.operation_unsupported", "不支持此 Gemini 操作", "Unsupported Gemini operation")
+    try:
+        converted = schemas.ChatCompletionRequest.model_validate(gemini_to_chat(payload, model, action == "streamGenerateContent"))
+    except (ValueError, KeyError, TypeError, AttributeError, ValidationError) as exc:
+        raise ApiError(400, "gemini.invalid_request", "Gemini 请求参数无效或不受支持", "Invalid or unsupported Gemini request") from exc
+    credential = authorization or (f"Bearer {x_goog_api_key}" if x_goog_api_key else None)
+    result = await _chat_completions_impl(converted, request, response, credential, db)
+    if isinstance(result, StreamingResponse):
+        headers = {key: value for key, value in result.headers.items() if key.lower() not in {"content-type", "content-length"}}
+        return StreamingResponse(chat_stream_to_gemini(result.body_iterator, model), media_type="text/event-stream", headers=headers)
+    return chat_to_gemini(result)
 
 
 @runtime_router.post(

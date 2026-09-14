@@ -62,7 +62,7 @@ func TestApplyClaudeCodeModelConfigPreservesSettingsAndDoesNotWriteCredential(t 
 
 func TestApplyModelConfigRejectsUnsupportedAgentWithoutWriting(t *testing.T) {
 	home := t.TempDir()
-	if err := ApplyModelConfig(home, "https://agent-manager.example.com", "gemini-default", "gemini", "model", ""); err == nil {
+	if err := ApplyModelConfig(home, "https://agent-manager.example.com", "unknown-default", "unknown", "model", ""); err == nil {
 		t.Fatal("expected unsupported Agent error")
 	}
 	if _, err := os.Stat(filepath.Join(home, ".gemini", "settings.json")); !os.IsNotExist(err) {

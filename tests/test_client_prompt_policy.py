@@ -105,8 +105,10 @@ def test_new_and_rotated_credentials_inherit_policy(db):
     for mode in ['warn', 'log']:
         if mode == 'log':
             save(db, 'client-1', {'mode': mode, 'llm_review': True})
+        task = models.ClientTask(client_id='client-1', task_type='apply_model_config', payload_json='{}')
+        db.add(task); db.commit()
         _, issued = _issue_agent_runtime_credential(db, client_token=issuer, client_id='client-1', agent=agent,
-                                                    model_name='test-model')
+                                                    model_name='test-model', task=task)
         assert (issued.prompt_guard_mode, issued.prompt_guard_llm_review) == (mode, True)
         assert (issued.enable_compression, issued.compression_level) == (True, 'conservative')
 

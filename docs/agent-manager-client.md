@@ -139,11 +139,14 @@ export AGENT_MANAGER_CLIENT_TOKEN="amat_xxx"
 
 桌面客户端的“模型切换”页以本机实际配置为入口，而不是以平台 Agent 表单为入口：
 
-1. 先选择本机发现的 Claude Code、Codex 或 Hermes。
+1. 先选择本机发现并报告模型配置能力的 Agent。配置适配覆盖 Claude Code、Claude Desktop、Codex、Gemini CLI、Grok Build、OpenCode、OpenClaw、Hermes 和 Pi；各版本实测结果见 [验证矩阵](acceptance/model-switching-2026-09-13/README.md)。
 2. 页面直接读取本机配置文件，显示当前模型、网关地址和配置路径。
 3. 模型列表只显示当前客户端凭证委派范围内、且模型与供应商都已启用的网关模型。
-4. 点击“切换”。如果该本机 Agent 尚无运行身份，平台会自动创建一个归属当前客户端的托管 Agent 并完成绑定，不要求预先在管理台创建。
-5. 客户端执行后重新读取本机配置；页面展示的“当前实际配置”不是平台期望值。
+4. 点击“切换”，检查参数表单和配置差异。“未设置”保留原配置；填写值才显式修改。如果该本机 Agent 尚无运行身份且客户端获准委派凭证，平台创建归属当前客户端的托管 Agent 并绑定。
+5. 客户端保存备份、写入并重新读取配置，显示待重启状态。有调用验证能力的 Agent 可执行“验证调用”，用隔离配置和最小提示核对真实响应与网关审计。现有会话仍需重启。
+6. “恢复配置”恢复最近备份，执行前核对当前文件版本；出现后续编辑时报告冲突。失败任务可查看原因并重试，原版本条件仍然有效。
+
+**English:** Select a discovered Agent with model configuration capability, choose an authorized model, and review Agent-specific parameters and the configuration preview. Unset fields preserve existing values. The client backs up, writes and reads back the configuration. Existing sessions need restarting. Where available, “Verify call” checks an isolated native response against gateway audit evidence. Recovery restores the latest backup only if the current files still match. See the [matrix](acceptance/model-switching-2026-09-13/README.md) for actual native coverage.
 
 ![桌面客户端模型切换页面](../web/public/docs/screenshots/zh-CN/client-app-models.png)
 

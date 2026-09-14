@@ -129,7 +129,7 @@
               <span v-if="trace.agent_id" class="session-subtitle">{{ trace.agent_id }}</span>
               <code class="session-id" :title="trace.session_id">{{ shortId(trace.session_id) }}</code>
               <span class="session-badges">
-                <span v-if="trace.aggregation" class="trace-badge">{{ t(`runtimeTraceExplorer.aggregation.${trace.aggregation.method}`) }}</span>
+                <span v-if="trace.aggregation" class="trace-badge">{{ t(`runtimeTraceExplorer.aggregation.${trace.aggregation.source === 'connection_probe' ? 'connection_probe' : trace.aggregation.method}`) }}</span>
                 <span class="trace-badge" :class="`completeness-${completenessTone(trace.completeness)}`">
                   {{ completenessLabel(trace.completeness) }}
                 </span>
@@ -197,7 +197,7 @@
             </div>
 
             <details v-if="selectedTrace.aggregation" class="gateway-requests">
-              <summary>{{ t(`runtimeTraceExplorer.aggregation.${selectedTrace.aggregation.method}`) }} · {{ t('runtimeTraceExplorer.aggregation.count', { count: selectedTrace.aggregation.request_count }) }}</summary>
+              <summary>{{ t(`runtimeTraceExplorer.aggregation.${selectedTrace.aggregation.source === 'connection_probe' ? 'connection_probe' : selectedTrace.aggregation.method}`) }} · {{ t('runtimeTraceExplorer.aggregation.count', { count: selectedTrace.aggregation.request_count }) }}</summary>
               <div class="gateway-request-scroll">
                 <table>
                   <thead><tr>

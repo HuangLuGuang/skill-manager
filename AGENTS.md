@@ -127,6 +127,7 @@ make sandbox-runtime-build
   - 函数入口的 `submitting` 防重入。
 - 如果系统设置未启用或未配置直连 LLM API Key，提交页的 LLM 选项不能勾选，并要有 tooltip 说明；服务端内部任务也可以通过模型网关环境变量走隐私代理。
 - 文件列表、扫描文件、报告 JSON 等内容应支持查看原始内容，避免只显示摘要。
+- 禁止 UI 单元测试，列出本次改动受影响的 UI 并给出测试 Todo list，我自行验证。
 
 ## Sandbox 约定
 

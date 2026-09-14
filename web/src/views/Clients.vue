@@ -118,7 +118,11 @@
                 <a-tag v-if="record.model_config_status && record.model_config_status !== 'not_configured'" :color="modelConfigColor(record.model_config_status)">
                   {{ modelConfigStatusLabel(record.model_config_status) }}
                 </a-tag>
-                <div v-if="record.model_config_error" class="muted model-error">{{ record.model_config_error }}</div>
+                <div v-if="record.model_config_error" class="muted model-error">{{ modelErrorLabel(record.model_config_error) }}</div>
+                <details v-if="record.capabilities?.model_config_state?.verification?.length" class="model-config-evidence">
+                  <summary>{{ $t('clientModelConfig.evidence') }}</summary>
+                  <pre>{{ JSON.stringify(record.capabilities.model_config_state.verification, null, 2) }}</pre>
+                </details>
               </template>
               <template v-else-if="column.key === 'skills'">{{ record.skills?.length || 0 }}</template>
               <template v-else-if="column.key === 'action'">
@@ -135,6 +139,9 @@
                     :title="modelConfigDisabledReason(record)"
                     @click="openModelConfig(record)"
                   >{{ $t('clientModelConfig.action') }}</a-button>
+                  <a-button v-if="hasAccess('clients:execute') && record.capabilities?.model_config_verification && record.capabilities?.model_config_state?.change_id" type="link" :loading="modelOperationBusy === record.local_agent_id + ':verify_model_config'" :disabled="!!modelOperationBusy" @click="runModelOperation(record, 'verify_model_config')">{{ $t('clientModelConfig.verify') }}</a-button>
+                  <a-button v-if="hasAccess('clients:execute') && record.capabilities?.model_config_state?.change_id" type="link" :loading="modelOperationBusy === record.local_agent_id + ':restore_model_config'" :disabled="!!modelOperationBusy || !record.capabilities?.model_config_state?.can_restore" @click="runModelOperation(record, 'restore_model_config')">{{ $t('clientModelConfig.restore') }}</a-button>
+
                 </a-space>
               </template>
             </template>
@@ -180,10 +187,10 @@
                 <a-tag :color="taskColor(record.status)">{{ taskStatusLabel(record.status, record) }}</a-tag>
               </template>
               <template v-else-if="column.key === 'created'">{{ formatTime(record.created_at) }}</template>
-              <template v-else-if="column.key === 'error'">{{ ['policy_superseded', 'policy_ack_required'].includes(record.error) ? $t(`clientGovernance.${record.error}`) : record.error || '-' }}</template>
+              <template v-else-if="column.key === 'error'">{{ ['policy_superseded', 'policy_ack_required'].includes(record.error) ? $t(`clientGovernance.${record.error}`) : modelErrorLabel(record.error) }}</template>
               <template v-else-if="column.key === 'action'">
                 <a-space>
-                  <a-button v-if="hasAccess('clients:execute') && (['pending', 'running'].includes(record.status))" type="link" danger :loading="taskOperations.has(record.id)" :disabled="taskOperations.has(record.id) || (['skill_action', 'remove_skill', 'install_skill', 'repair_skill'].includes(record.task_type) && record.status === 'running')" :title="['skill_action', 'remove_skill', 'install_skill', 'repair_skill'].includes(record.task_type) && record.status === 'running' ? $t('clientGovernance.actionAlreadyStarted') : ''" @click="cancelTask(record)">{{ $t("legacy.1589w37") }}</a-button>
+                  <a-button v-if="hasAccess('clients:execute') && (['pending', 'running'].includes(record.status))" type="link" danger :loading="taskOperations.has(record.id)" :disabled="taskOperations.has(record.id) || taskCannotCancel(record)" :title="taskCannotCancel(record) ? $t('clientGovernance.actionAlreadyStarted') : ''" @click="cancelTask(record)">{{ $t("legacy.1589w37") }}</a-button>
                   <a-button v-if="hasAccess('clients:execute') && record.error !== 'policy_superseded' && (['failed', 'cancelled'].includes(record.status))" type="link" :loading="taskOperations.has(record.id)" :disabled="taskOperations.has(record.id)" @click="retryTask(record)">{{ $t("legacy.lswd2v") }}</a-button>
                 </a-space>
               </template>
@@ -228,6 +235,7 @@
       :title="$t('clientModelConfig.title')"
       :ok-text="$t('clientModelConfig.apply')"
       :confirm-loading="modelConfigSubmitting"
+      :ok-button-props="{ disabled: modelConfigSubmitting || !modelConfigForm.model }"
       @ok="createModelConfig"
     >
       <a-alert
@@ -248,6 +256,16 @@
             </a-select-option>
           </a-select>
         </a-form-item>
+        <a-alert v-if="modelConfigTarget?.capabilities?.model_config_contract?.parameter_status === 'version_unverified'" type="warning" :message="$t('clientModelConfig.versionUnverified')" :description="modelConfigTarget.capabilities.model_config_contract.parameter_versions?.join(', ')" />
+        <a-form-item v-for="(field, key) in modelParameterFields" :key="key" :label="$t(`clientModelConfig.parameters.${key}`)">
+          <a-select v-if="field.enum" v-model:value="modelConfigForm.parameters[key]" allow-clear :placeholder="$t('clientModelConfig.unset')">
+            <a-select-option v-for="option in field.enum" :key="option" :value="option">{{ option }}</a-select-option>
+          </a-select>
+          <a-input-number v-else v-model:value="modelConfigForm.parameters[key]" :min="field.min" :max="field.max" :precision="field.type === 'integer' ? 0 : undefined" :placeholder="$t('clientModelConfig.unset')" style="width: 100%" />
+          <div class="muted"><code>{{ field.path }}</code> → <code>{{ field.wire }}</code></div>
+        </a-form-item>
+        <a-alert type="info" :message="$t('clientModelConfig.effect')" />
+        <pre class="model-config-preview">{{ modelConfigPreview }}</pre>
       </a-form>
     </a-modal>
 
@@ -351,7 +369,28 @@ const skillActionCreated = async ({ clientId, taskId }) => {
 const currentPolicy = ref('audit')
 const currentGovernance = ref('registry')
 const installForm = reactive({ agent_type: '', managed_agent_id: '', skill_id: '' })
-const modelConfigForm = reactive({ local_agent_id: '', agent_type: '', managed_agent_id: '', model: '' })
+const modelConfigForm = reactive({ local_agent_id: '', agent_type: '', managed_agent_id: '', model: '', parameters: {}, expected_revision: undefined })
+const modelConfigTarget = ref(null)
+const modelOperationBusy = ref('')
+const runModelOperation = async (record, operation) => {
+  if (modelOperationBusy.value) return
+  modelOperationBusy.value = record.local_agent_id + ':' + operation
+  const state = record.capabilities?.model_config_state || {}
+  try {
+    const task = await createClientTask(detail.value.client_id, { task_type: operation, payload: { agent_type: record.agent_type, local_agent_id: record.local_agent_id, change_id: state.change_id, expected_revision: state.revision } })
+    await refreshDetail()
+    message.success(i18n.global.t('clientModelConfig.taskCreated'))
+    watchTask(task.id).catch(() => {})
+  } catch (error) { message.error(error.response?.data?.detail || i18n.global.t('clientModelConfig.createFailed')) }
+  finally { modelOperationBusy.value = '' }
+}
+
+const modelParameterFields = computed(() => modelConfigTarget.value?.capabilities?.model_config_contract?.parameters || {})
+const modelConfigPreview = computed(() => JSON.stringify({
+  path: modelConfigTarget.value?.capabilities?.model_config_state?.config_path,
+  before: { model: modelConfigTarget.value?.capabilities?.model_config_state?.model, parameters: modelConfigTarget.value?.capabilities?.model_config_state?.parameters || {} },
+  after: { model: modelConfigForm.model, parameters: { ...(modelConfigTarget.value?.capabilities?.model_config_state?.parameters || {}), ...Object.fromEntries(Object.entries(modelConfigForm.parameters).filter(([, value]) => value != null)) } },
+}, null, 2))
 const downloadPlatforms = ref([])
 const selectedPlatform = ref()
 const clientDownloading = ref(false)
@@ -544,14 +583,11 @@ const runtimeTokenFor = record => accessTokens.value
     && tokenNotExpired(token)
     && (token.scopes || []).includes('model:chat'))
   .sort((left, right) => Number(right.id) - Number(left.id))[0]
-const supportedModelConfigAgents = new Set(['claude-code', 'codex', 'hermes'])
-const canConfigureModel = record => supportedModelConfigAgents.has(record.agent_type)
-  && Boolean(record.capabilities?.model_config_auto_apply)
-  && Boolean(record.managed_agent_id)
+const canConfigureModel = record => Boolean(record.capabilities?.model_config_auto_apply)
   && Boolean(runtimeTokenFor(record) || clientIssuanceToken.value)
 const modelConfigDisabledReason = record => {
-  if (!supportedModelConfigAgents.has(record.agent_type) || !record.capabilities?.model_config_auto_apply) return i18n.global.t('clientModelConfig.unsupportedAgent')
-  if (!record.managed_agent_id) return i18n.global.t('clientModelConfig.bindFirst')
+  if (!record.capabilities?.model_config_auto_apply) return i18n.global.t('clientModelConfig.unsupportedAgent')
+  if (!record.managed_agent_id && !clientIssuanceToken.value) return i18n.global.t('clientModelConfig.bindFirst')
   if (!runtimeTokenFor(record) && !clientIssuanceToken.value) return i18n.global.t('clientModelConfig.credentialRequired')
   return ''
 }
@@ -560,11 +596,14 @@ const openModelConfig = record => {
     message.warning(modelConfigDisabledReason(record))
     return
   }
+  modelConfigTarget.value = record
   Object.assign(modelConfigForm, {
     local_agent_id: record.local_agent_id || record.agent_type,
     agent_type: record.agent_type,
     managed_agent_id: record.managed_agent_id,
     model: record.desired_model || record.applied_model || managedAgentDefaultModel(record) || '',
+    parameters: {},
+    expected_revision: record.capabilities?.model_config_state?.revision,
   })
   if (!configurableModels.value.some(model => model.name === modelConfigForm.model)) {
     modelConfigForm.model = configurableModels.value[0]?.name || ''
@@ -572,6 +611,7 @@ const openModelConfig = record => {
   modelConfigVisible.value = true
 }
 const createModelConfig = async () => {
+  if (modelConfigSubmitting.value) return
   if (!modelConfigForm.model) {
     message.warning(i18n.global.t('clientModelConfig.selectModel'))
     return
@@ -700,7 +740,15 @@ const matchingAgents = agentType => String(agentType || '').startsWith('custom-'
   : agents.value.filter(agent => agentKind(agent.channel) === agentKind(agentType))
 const managedAgentDefaultModel = record => agents.value.find(agent => agent.agent_id === record.managed_agent_id)?.default_model || ''
 const modelConfigStatusLabel = value => i18n.global.t(`clientModelConfig.status.${value}`)
-const modelConfigColor = value => ({ pending: 'default', applying: 'blue', applied: 'green', failed: 'red', cancelled: 'default' }[value] || 'default')
+const taskCannotCancel = task => task.status === 'running' && ['skill_action', 'remove_skill', 'install_skill', 'repair_skill', 'apply_model_config', 'verify_model_config', 'restore_model_config'].includes(task.task_type)
+const modelErrorLabel = value => {
+  if (!value) return '-'
+  const code = String(value).match(/^model_config\.([a-z_]+)/)?.[1]
+  if (!code) return value
+  const key = `clientModelConfig.errors.${code}`
+  return `${i18n.global.t(i18n.global.te(key) ? key : 'clientModelConfig.errors.fallback')} (${value})`
+}
+const modelConfigColor = value => ({ pending: 'default', applying: 'blue', applied: 'blue', pending_restart: 'orange', verified: 'green', failed: 'red', cancelled: 'default' }[value] || 'default')
 const agentLabel = (value, record = null) => record?.capabilities?.display_name || ({
   'claude-code': 'Claude Code',
   codex: 'Codex',
@@ -832,6 +880,10 @@ onMounted(async () => {
   margin-top: -8px;
   text-align: center;
 }
+.model-config-preview { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.model-config-evidence { min-width: 0; margin-top: 8px; }
+.model-config-evidence summary { cursor: pointer; }
+.model-config-evidence pre { max-height: 240px; max-width: 480px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
 .ellipsis {
   max-width: 360px;
   overflow: hidden;

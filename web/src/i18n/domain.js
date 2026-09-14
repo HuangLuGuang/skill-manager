@@ -36,6 +36,7 @@ export const domainMessages = {
       rescan: '重新巡检',
       sync_policy: '同步处置策略',
       apply_model_config: '应用模型配置',
+      verify_model_config: '验证模型调用', restore_model_config: '恢复模型配置',
     },
     auditEvent: {
       skill_governance_recorded: 'Skill 分类记录',
@@ -119,6 +120,7 @@ export const domainMessages = {
       rescan: 'Run Inspection Again',
       sync_policy: 'Sync Response Policy',
       apply_model_config: 'Apply Model Configuration',
+      verify_model_config: 'Verify Model Call', restore_model_config: 'Restore Model Configuration',
     },
     auditEvent: {
       skill_governance_recorded: 'Skill Classification Record',

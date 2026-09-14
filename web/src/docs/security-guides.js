@@ -36,7 +36,7 @@ guide('security-scan-guide', ['安全扫描操作指南', 'Security scanning gui
     ['page-map', {
       title: '六个工作区分别做什么',
       table: { columns: ['工作区', '功能与操作', '下一步'], rows: [
-        ['扫描目标', '登记 Agent、MCP、大模型或基础设施；编辑地址与环境；按用途保存凭据；查看最新扫描和当前综合风险分。Dify 来源管理从这里进入。', '先登记目标，再配置策略。'],
+        ['扫描目标', '登记 Agent、MCP、大模型或基础设施；编辑地址与环境；按用途保存凭据；查看最新扫描和当前综合风险分。', '先登记目标，再配置策略。'],
         ['执行策略', '规定执行模式、环境、能力、预算、网络范围、租约和重试；支持启用、停用与编辑。', '确保目标和策略的环境、能力与网络范围匹配。'],
         ['扫描任务', '查看排队、执行、用例进度、累计用量和终止原因；打开详情、取消或紧急停止。', '任务结束后查看保存的用例和产物。'],
         ['定时计划', '管理周期、时区、下次执行、暂停恢复与执行记录。', '先验证一次即时扫描，再安排周期。'],
@@ -46,7 +46,7 @@ guide('security-scan-guide', ['安全扫描操作指南', 'Security scanning gui
     }, {
       title: 'What each of the six workspaces does',
       table: { columns: ['Workspace', 'Functions and actions', 'Next step'], rows: [
-        ['Targets', 'Register Agents, MCP, models, or infrastructure; edit endpoint and environment; save credentials by purpose; inspect latest scans and current risk. Dify Sources opens here.', 'Register a target, then configure a policy.'],
+        ['Targets', 'Register Agents, MCP, models, or infrastructure; edit endpoint and environment; save credentials by purpose; inspect latest scans and current risk.', 'Register a target, then configure a policy.'],
         ['Policies', 'Set mode, environment, capabilities, budgets, networks, leases, and retries; edit, enable, or disable.', 'Match target environment, capabilities, and networks.'],
         ['Tasks', 'Inspect queues, execution, case progress, usage, and stop reasons; open details, cancel, or stop urgently.', 'Review persisted cases and artifacts after completion.'],
         ['Schedules', 'Manage recurrence, timezone, next execution, pause/resume, and run history.', 'Validate an immediate scan first.'],
@@ -300,8 +300,8 @@ guide('dify-security-access', ['Dify 接入、三种凭据与资产清单', 'Dif
     }],
   ])
 
-guide('security-operations', ['定时扫描、资产同步与风险处置', 'Schedules, asset sync, and risk disposition'],
-  ['配置周期扫描和 Dify 来源同步，理解风险分、覆盖有效期、人工审核与修复验证，并排查 Worker 执行问题。', 'Configure scheduled scans and Dify source sync; understand scoring, coverage validity, review, remediation, and Worker diagnostics.'], [
+guide('security-operations', ['定时扫描与风险处置', 'Schedules and risk disposition'],
+  ['配置周期扫描，理解风险分、覆盖有效期、人工审核与修复验证，并排查 Worker 执行问题。', 'Configure scheduled scans; understand scoring, coverage validity, review, remediation, and Worker diagnostics.'], [
     ['schedules', {
       title: '定时计划：把已验证的扫描重复执行',
       steps: [
@@ -319,26 +319,6 @@ guide('security-operations', ['定时扫描、资产同步与风险处置', 'Sch
         { title: 'Save and optionally run immediately', body: 'Enable run-on-save to validate dispatch. Scheduled tasks do not continue existing sessions; Dify inventory requires online Console configuration.' },
         { title: 'Inspect schedule execution history', body: 'Check enabled state, next execution, and latest result. Edit, pause/resume, run once, inspect history, or delete. A run with task_id opens its report. Deleting the schedule retains task/report history.' },
       ], bullets: ['If the previous run is queued or active, the next is skipped. Multiple missed intervals coalesce into at most one catch-up; manual runs do not shift recurrence.', 'Each run revalidates account, target access, credentials, policy, and production approval. Complete missing approval, then run once from the schedule.', 'Edits affect future dispatches; existing tasks retain configuration. Identical automatic triggers can reuse an active task while retaining trigger provenance.'],
-    }],
-    ['asset-sources', {
-      title: 'Dify 来源管理：持续发现应用和配置变更',
-      steps: [
-        { title: '准备模板目标', body: '创建已验证的 Dify 目标，填好 Console 根地址、Workspace ID、App ID，保存 Console 凭据以及需要的 Knowledge 凭据。' },
-        { title: '扫描目标 → Dify 来源管理 → 新增', body: '填写来源名称，选择模板目标和同环境采集策略。范围可选指定 App ID 列表或整个工作空间；首次建议先指定少量已授权应用。' },
-        { title: '配置同步周期', body: '选择至少 5 分钟的间隔、每日时间或五字段 Cron，并选择时区。关闭定时同步仍可手动同步。设置评估有效期；默认 168 小时，过期后提示待复扫。' },
-        { title: '可选配置变更后扫描', body: '选择自动扫描策略，再分别决定扫描新应用和配置发生变化的应用。同步只读取配置；主动扫描仍要求各应用运行凭据、权限、预算和生产审批。' },
-        { title: '保存后同步并打开批次', body: '查看成功、部分完成、失败或取消，逐项检查 App 的新增/修改/未变化状态、子任务与错误。批次活动中先取消并等待终止，再编辑来源。' },
-      ],
-      callout: { type: 'note', title: '新应用不会继承模板的 App Key', body: '来源复用模板的 Console/Knowledge 采集凭据；新应用不继承模板应用的运行凭据、声明意图、Workflow ID 或资产绑定。需要动态扫描时分别配置每个 App Key。完整枚举中“来源未观察到”不等于上游已删除。' },
-    }, {
-      title: 'Dify Sources: discover apps and configuration changes continuously',
-      steps: [
-        { title: 'Prepare a template target', body: 'Validate a Dify target with Console root URL, Workspace ID, App ID, Console credential, and any required Knowledge credential.' },
-        { title: 'Targets → Dify Sources → Add', body: 'Name the source and choose the template plus a same-environment inventory policy. Select specific App IDs or the entire workspace; start with a small authorized set.' },
-        { title: 'Configure synchronization', body: 'Choose an interval of at least five minutes, daily time, or five-field Cron and timezone. Manual sync remains available when scheduling is disabled. Assessment validity defaults to 168 hours; expiry marks rescan needed.' },
-        { title: 'Optionally scan after changes', body: 'Select an automatic scanning policy, then enable new-app and/or changed-app scanning. Sync reads configuration; active scans still require per-app runtime credentials, access, budgets, and production approval.' },
-        { title: 'Save, synchronize, and inspect the batch', body: 'Inspect successful, partial, failed, or cancelled batches and each app’s new/changed/unchanged state, child task, and error. Cancel and wait for active batches before editing the source.' },
-      ], callout: { type: 'note', title: 'New apps do not inherit the template App Key', body: 'Sources reuse Console/Knowledge collection credentials. New apps do not inherit runtime keys, declared intent, Workflow ID, or asset bindings. Configure individual App Keys for dynamic scanning. Not observed in a complete enumeration does not establish upstream deletion.' },
     }],
     ['risk-scores', {
       title: '本次扫描风险分与当前综合风险分',
@@ -388,7 +368,6 @@ guide('security-operations', ['定时扫描、资产同步与风险处置', 'Sch
         ['lease_expired / 重试耗尽', '先恢复 Worker 和心跳网络，再按新任务验证。旧失败记录保留，不能生成虚假完成报告。'],
         ['下载诊断日志', '报告页点击“下载诊断日志”，将 JSON 提供给支持人员。包括状态、预算和 MCP 执行事件、HTTP/RPC 状态、异常类型与源码位置；不包含密钥、原始对话或工具参数。历史任务可能只有摘要。'],
         ['重试扫描', '失败或超时任务沿用原配置重新校验权限和策略。已有重试仍在排队或运行时打开该任务；结束后再次点击创建新任务，原报告保留。'],
-        ['MCP 模型压缩提醒', '所选评估、分析或攻击模型的供应商开启压缩时显示提醒。压缩可能改变工具调用协议，造成重复请求或不完整结果；先核对诊断日志，避免只增加预算。'],
         ['MCP 网关等待审批', '到 MCP 网关检查待审批请求及工具授权。已结束扫描不会因审批完成自动恢复；后续任务仍按网关授权配置校验。'],
         ['MCP 报告与阶段', '执行中展示阶段进度，不代表最终用例通过。完成后 MCP 和 SARIF 报告展示发现、分析和修复建议，并可查看原始内容。模型判断标为待验证；工具参数没有认证字段不能证明服务缺失鉴权。'],
       ] }, link: { path: '/docs/docker-operations', label: '查看容器状态与日志排查' },
@@ -404,7 +383,6 @@ guide('security-operations', ['定时扫描、资产同步与风险处置', 'Sch
         ['Expired lease / exhausted retries', 'Restore Worker connectivity and verify with a new task. Preserve the failed record rather than inventing completion.'],
         ['Download diagnostic logs', 'Download JSON from the report page for support. It includes status, budgets, MCP execution events, HTTP/RPC status, exception types, and source locations, without secrets, raw conversations, or tool arguments. Older tasks may contain only a summary.'],
         ['Retry scan', 'Failed or timed-out tasks reuse their settings and recheck permissions and policies. Open an existing queued/running retry; create a new task after it ends. Original reports are retained.'],
-        ['MCP model compression warning', 'A warning appears when a selected evaluator, analyst, or attacker model has provider compression enabled. Compression may alter tool protocols, causing repeated requests or incomplete results. Check diagnostics before increasing budgets.'],
         ['MCP gateway approval pending', 'Review pending approvals and tool authorization in the MCP gateway. Approval does not automatically resume an ended scan; subsequent tasks still enforce gateway authorization.'],
         ['MCP reports and stages', 'Live stages show execution progress, not final test success. MCP and SARIF reports display findings, analysis, remediation, and raw content. Model assessments remain unverified; missing authentication fields in tool arguments do not prove missing server authentication.'],
       ] }, link: { path: '/docs/docker-operations', label: 'Read container and log diagnostics' },

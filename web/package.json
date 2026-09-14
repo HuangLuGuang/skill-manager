@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:trace-pii": "node --test scripts/trace-pii.test.mjs",
     "test:client-discovery": "node --test scripts/client-discovery.test.mjs",
     "test:iam": "node --test scripts/iam-access.test.mjs",
     "test:policy-settings": "node --test scripts/policy-settings.test.mjs",

@@ -79,7 +79,6 @@ export const generatedEnPhrases = {
   "伪匿名映射保存的天数。TTL 内同一会话复用相同 token，过期后映射不可再用于还原。": "The number of days that pseudo-anonymous mappings are kept. The same token is reused in the same session within the TTL. After expiration, the mapping can no longer be used for restoration.",
   "低于或等于该风险的 skill 会自动批准为可信版本；生产环境通常只建议 benign。": "Skills with a risk lower than or equal to this are automatically approved as trusted versions; only benign is usually recommended for production environments.",
   "使用示例": "Usage example",
-  "使用该 Provider 模型的 API Key 将默认开启上下文压缩（API Key 级别设置优先）": "Using the API Key of this Provider model will enable context compression by default (API Key level setting takes precedence)",
   "例如 Bearer xxx": "For example Bearer xxx",
   "例如 github": "For example github",
   "例如 read_credentials、write_memory": "For example read_credentials, write_memory",

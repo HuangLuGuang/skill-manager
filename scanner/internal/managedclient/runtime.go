@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 )
@@ -242,8 +243,21 @@ func executeTasks(ctx context.Context, home string, inventory Inventory, policy 
 // ConfigureAgentModel requests an authorized model switch and executes the
 // returned task immediately. The task-bound runtime credential is fetched by
 // the sidecar and never exposed to the desktop renderer.
-func ConfigureAgentModel(ctx context.Context, home string, inventory Inventory, api API, store *Store, localAgentID, agentType, managedAgentID, model string) error {
-	task, err := api.RequestModelConfiguration(ctx, inventory.ClientID, localAgentID, agentType, managedAgentID, model)
+func ConfigureAgentModel(ctx context.Context, home string, inventory Inventory, api API, store *Store, localAgentID, agentType, managedAgentID, model string, options ...map[string]any) error {
+	if len(options) > 0 {
+		if parameters, ok := options[0]["parameters"].(map[string]any); ok && len(parameters) > 0 {
+			fresh, err := Discover(home)
+			if err != nil {
+				return err
+			}
+			fresh.ClientID = inventory.ClientID
+			if err := api.ReportInventory(ctx, fresh); err != nil {
+				return err
+			}
+			inventory = fresh
+		}
+	}
+	task, err := api.RequestModelConfiguration(ctx, inventory.ClientID, localAgentID, agentType, managedAgentID, model, options...)
 	if err != nil {
 		return err
 	}
@@ -302,6 +316,29 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 			return err
 		}
 		return RequestFullScan(home)
+	case "verify_model_config", "restore_model_config":
+		kind, localID := stringValue(task.Payload, "agent_type"), stringValue(task.Payload, "local_agent_id")
+		state := InspectModelConfig(home, kind)
+		if state.ChangeID != stringValue(task.Payload, "change_id") || state.Revision != stringValue(task.Payload, "expected_revision") {
+			return fmt.Errorf("model_config.conflict")
+		}
+		if task.TaskType == "restore_model_config" {
+			if err := RestoreModelConfig(home, state.ChangeID); err != nil {
+				return err
+			}
+			task.Payload["applied_model"] = InspectModelConfig(home, kind).Model
+			return nil
+		}
+		evidence, err := VerifyModelConfig(ctx, home, kind, localID, api, inventory)
+		ids := []string{}
+		for _, request := range evidence {
+			if request.Status == "success" {
+				ids = append(ids, request.RequestID)
+			}
+		}
+		task.Payload["verification_request_ids"] = ids
+		task.Payload["applied_model"] = state.Model
+		return err
 	case "apply_model_config":
 		agentType := stringValue(task.Payload, "agent_type")
 		localAgentID := stringValue(task.Payload, "local_agent_id")
@@ -309,9 +346,48 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 		if agentType == "" || localAgentID == "" || model == "" {
 			return fmt.Errorf("model config task is missing target Agent or model")
 		}
+		if id, found, err := store.State(fmt.Sprintf("model-change:%d", task.ID)); err != nil {
+			return err
+		} else if found && id != "" {
+			state := InspectModelConfig(home, agentType)
+			if state.ChangeID == id && state.Model == model && state.Revision == state.AppliedRevision && state.CanRestore && (state.Status == "pending_restart" || state.Status == "verified") {
+				return nil
+			}
+			return fmt.Errorf("model_config.retry_conflict")
+		}
+		parameters, _ := task.Payload["parameters"].(map[string]any)
+		if err := ValidateModelParameters(agentType, parameters); err != nil {
+			return err
+		}
+		if len(parameters) > 0 {
+			binary, _ := exec.LookPath(modelAdapters[agentType].Binary)
+			if err := validateModelParameterVersion(agentType, discoverModelVersion(home, agentType, binary), parameters); err != nil {
+				return err
+			}
+		}
+		revision, err := ModelConfigRevision(home, agentType)
+		if err != nil {
+			return err
+		}
+		expected := stringValue(task.Payload, "expected_revision")
+		if expected != "" && revision != expected {
+			return fmt.Errorf("model_config.conflict")
+		}
+		current, err := readModelParameters(home, agentType)
+		if err != nil {
+			return err
+		}
+		if err := api.PreflightModelTask(ctx, inventory.ClientID, task.ID, revision, current); err != nil {
+			return err
+		}
 		credential := ""
 		if boolValue(task.Payload, "auto_issue_credential") {
-			issued, err := api.IssueAgentCredential(ctx, inventory.ClientID, task.ID)
+			previousHash := ""
+			if previous, err := nativeModelCredential(home, agentType); err == nil && previous != "" {
+				hash := sha256.Sum256([]byte(previous))
+				previousHash = hex.EncodeToString(hash[:])
+			}
+			issued, err := api.IssueAgentCredential(ctx, inventory.ClientID, task.ID, previousHash)
 			if err != nil {
 				return fmt.Errorf("issue Agent runtime credential: %w", err)
 			}
@@ -320,7 +396,11 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 				return fmt.Errorf("Agent Manager returned an empty Agent runtime credential")
 			}
 		}
-		return ApplyModelConfig(home, api.server, localAgentID, agentType, model, credential)
+		change, err := ApplyModelConfigRevision(home, api.server, localAgentID, agentType, model, credential, revision, parameters)
+		if change.ID != "" {
+			_ = store.SetState(fmt.Sprintf("model-change:%d", task.ID), change.ID)
+		}
+		return err
 	case "install_skill", "repair_skill":
 		agentType := stringValue(task.Payload, "agent_type")
 		managedAgentID := stringValue(task.Payload, "managed_agent_id")
@@ -1188,4 +1268,41 @@ func stringValue(payload map[string]any, key string) string {
 func boolValue(payload map[string]any, key string) bool {
 	value, _ := payload[key].(bool)
 	return value
+}
+
+func ConfigureModelOperation(ctx context.Context, home, kind, operation string, api API, inventory Inventory, store *Store) error {
+	state := InspectModelConfig(home, kind)
+	if err := api.ReportInventory(ctx, inventory); err != nil {
+		return err
+	}
+	var task Task
+	if err := api.postJSON(ctx, "/api/v1/clients/"+inventory.ClientID+"/model-operations", map[string]any{"task_type": operation, "payload": map[string]any{"agent_type": kind, "local_agent_id": kind, "change_id": state.ChangeID, "expected_revision": state.Revision}}, &task); err != nil {
+		return err
+	}
+	if task.ID == 0 || task.TaskType != operation {
+		return fmt.Errorf("model_config.operation_invalid")
+	}
+	claimed, _, err := api.StartTask(ctx, inventory.ClientID, task.ID)
+	if err != nil {
+		return err
+	}
+	if !claimed {
+		return fmt.Errorf("model_config.locked")
+	}
+
+	if err := store.SaveTask(task, "running", ""); err != nil {
+		return err
+	}
+	taskErr := executeTask(ctx, home, inventory, Policy{}, api, store, task)
+	status, message := "succeeded", ""
+	if taskErr != nil {
+		status, message = "failed", taskErr.Error()
+	}
+	if err := store.SaveTask(task, status, message); err != nil {
+		return err
+	}
+	if err := api.ReportExecutedTask(ctx, inventory.ClientID, task, status, message); err != nil {
+		return err
+	}
+	return taskErr
 }

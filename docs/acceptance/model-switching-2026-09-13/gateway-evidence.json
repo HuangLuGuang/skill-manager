@@ -1,0 +1,728 @@
+{
+  "source": "local test gateway database, read-only audit extraction",
+  "platform": "macOS arm64",
+  "scope": "selected test requests only; no prompts, responses, credentials or raw traces",
+  "requests": [
+    {
+      "request_id": "req_1cfe5ce0a1f4",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-hermes-ba8eca9222",
+      "created_at": "2026-09-13 04:44:21.338743",
+      "request_duration_ms": 1351.79
+    },
+    {
+      "request_id": "req_7b958b7331b3",
+      "model": "glm_Anthropic/glm-5.3-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-claude-code-22abe4c2a6",
+      "created_at": "2026-09-13 04:51:32.846557",
+      "request_duration_ms": 870.9
+    },
+    {
+      "request_id": "req_026eb093fcdc",
+      "model": "deepseek-v4-flash",
+      "status": "blocked",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-gemini-12fd7cc1f5",
+      "created_at": "2026-09-13 04:57:22.279007",
+      "request_duration_ms": 105.37
+    },
+    {
+      "request_id": "req_e2893c88c08a",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-pi-1021474907",
+      "created_at": "2026-09-13 04:57:23.202105",
+      "request_duration_ms": 843.33
+    },
+    {
+      "request_id": "req_19d980067551",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-codex-2ab7573842",
+      "created_at": "2026-09-13 05:01:47.799235",
+      "request_duration_ms": 1500.25
+    },
+    {
+      "request_id": "req_15270cb81272",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-pi-1021474907",
+      "created_at": "2026-09-13 05:08:20.696766",
+      "request_duration_ms": 1286.86
+    },
+    {
+      "request_id": "req_859d4ded2380",
+      "model": "glm_Anthropic/glm-5.3-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-claude-code-22abe4c2a6",
+      "created_at": "2026-09-13 05:08:21.073332",
+      "request_duration_ms": 1783.39
+    },
+    {
+      "request_id": "req_c922264a5a69",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-pi-1021474907",
+      "created_at": "2026-09-13 05:08:21.503337",
+      "request_duration_ms": 751.53
+    },
+    {
+      "request_id": "req_957fdb6c03d6",
+      "model": "glm_Anthropic/glm-5.3-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-claude-code-22abe4c2a6",
+      "created_at": "2026-09-13 05:08:24.208334",
+      "request_duration_ms": 4798.65
+    },
+    {
+      "request_id": "req_4092c3bd3c94",
+      "model": "glm_Anthropic/glm-5.3-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-claude-code-22abe4c2a6",
+      "created_at": "2026-09-13 05:08:29.365447",
+      "request_duration_ms": 5103.83
+    },
+    {
+      "request_id": "req_750e11e36e77",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-codex-2ab7573842",
+      "created_at": "2026-09-13 05:10:22.722789",
+      "request_duration_ms": 889.21
+    },
+    {
+      "request_id": "req_7e39799d7716",
+      "model": "deepseek-v4-pro",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-codex-2ab7573842",
+      "created_at": "2026-09-13 05:10:27.067192",
+      "request_duration_ms": 1499.59
+    },
+    {
+      "request_id": "req_9bb9f0d4e81f",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-codex-2ab7573842",
+      "created_at": "2026-09-13 05:10:29.952678",
+      "request_duration_ms": 875.03
+    },
+    {
+      "request_id": "req_db5577a39229",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-codex-2ab7573842",
+      "created_at": "2026-09-13 05:13:05.940833",
+      "request_duration_ms": 987.02
+    },
+    {
+      "request_id": "req_937ed6c79d44",
+      "model": "deepseek-v4-pro",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-codex-2ab7573842",
+      "created_at": "2026-09-13 05:13:11.185256",
+      "request_duration_ms": 1735.52
+    },
+    {
+      "request_id": "req_7c19b983f246",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-codex-2ab7573842",
+      "created_at": "2026-09-13 05:13:14.993281",
+      "request_duration_ms": 917.29
+    },
+    {
+      "request_id": "req_7841bbcb8dca",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-codex-2ab7573842",
+      "created_at": "2026-09-13 05:13:37.019118",
+      "request_duration_ms": 943.41
+    },
+    {
+      "request_id": "req_de67b614a5c2",
+      "model": "deepseek-v4-flash",
+      "status": "blocked",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-opencode-7b6676e54e",
+      "created_at": "2026-09-13 05:18:54.094451",
+      "request_duration_ms": 30.94
+    },
+    {
+      "request_id": "req_3ed741341385",
+      "model": "deepseek-v4-flash",
+      "status": "blocked",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-gemini-12fd7cc1f5",
+      "created_at": "2026-09-13 05:35:14.798581",
+      "request_duration_ms": 64.69
+    },
+    {
+      "request_id": "req_04d27c67f6b1",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-claude-code-22abe4c2a6",
+      "created_at": "2026-09-13 05:37:56.222252",
+      "request_duration_ms": 783.12
+    },
+    {
+      "request_id": "req_087d07a75ec4",
+      "model": "deepseek-v4-pro",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-hermes-ba8eca9222",
+      "created_at": "2026-09-13 05:37:34.430877",
+      "request_duration_ms": 2424.96
+    },
+    {
+      "request_id": "req_0a7cccecd99c",
+      "model": "glm_Anthropic/glm-5.3-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-claude-code-22abe4c2a6",
+      "created_at": "2026-09-13 05:37:58.264124",
+      "request_duration_ms": 877.14
+    },
+    {
+      "request_id": "req_27edf619fc26",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-pi-1021474907",
+      "created_at": "2026-09-13 05:37:51.996102",
+      "request_duration_ms": 994.7
+    },
+    {
+      "request_id": "req_2e3859bfbd7c",
+      "model": "glm_Anthropic/glm-5.3-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-claude-code-22abe4c2a6",
+      "created_at": "2026-09-13 05:37:54.366825",
+      "request_duration_ms": 1111.16
+    },
+    {
+      "request_id": "req_6e6663150976",
+      "model": "glm_Anthropic/glm-5.3-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-claude-code-22abe4c2a6",
+      "created_at": "2026-09-13 05:37:54.706945",
+      "request_duration_ms": 1522.47
+    },
+    {
+      "request_id": "req_7ee2ceb88974",
+      "model": "deepseek-v4-pro",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-pi-1021474907",
+      "created_at": "2026-09-13 05:37:50.176359",
+      "request_duration_ms": 1417.68
+    },
+    {
+      "request_id": "req_94c6ebb14ace",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-pi-1021474907",
+      "created_at": "2026-09-13 05:37:47.924162",
+      "request_duration_ms": 1103.45
+    },
+    {
+      "request_id": "req_9c3ded89c31c",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-hermes-ba8eca9222",
+      "created_at": "2026-09-13 05:37:44.441136",
+      "request_duration_ms": 1150.2
+    },
+    {
+      "request_id": "req_cafcd094905a",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-hermes-ba8eca9222",
+      "created_at": "2026-09-13 05:37:23.149526",
+      "request_duration_ms": 1055.25
+    },
+    {
+      "request_id": "req_db1a7274ad11",
+      "model": "glm_Anthropic/glm-5.3-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-claude-code-22abe4c2a6",
+      "created_at": "2026-09-13 05:37:58.650859",
+      "request_duration_ms": 1350.53
+    },
+    {
+      "request_id": "req_1df4425b226f",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-codex-2ab7573842",
+      "created_at": "2026-09-13 05:38:27.692317",
+      "request_duration_ms": 1334.79
+    },
+    {
+      "request_id": "req_348136046d7f",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-codex-2ab7573842",
+      "created_at": "2026-09-13 05:38:30.256755",
+      "request_duration_ms": 2472.37
+    },
+    {
+      "request_id": "req_6e30db4ce8be",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-codex-2ab7573842",
+      "created_at": "2026-09-13 05:38:33.243935",
+      "request_duration_ms": 2882.32
+    },
+    {
+      "request_id": "req_a964c75dbeb2",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-hermes-ba8eca9222",
+      "created_at": "2026-09-13 05:39:46.156459",
+      "request_duration_ms": 1157.67
+    },
+    {
+      "request_id": "req_3714349ee951",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-hermes-ba8eca9222",
+      "created_at": "2026-09-13 05:39:47.586089",
+      "request_duration_ms": 1214.34
+    },
+    {
+      "request_id": "req_4f2227eb2dee",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-hermes-ba8eca9222",
+      "created_at": "2026-09-13 05:48:06.433887",
+      "request_duration_ms": 1296.72
+    },
+    {
+      "request_id": "req_71b1819841ec",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-codex-2ab7573842",
+      "created_at": "2026-09-13 05:45:30.486741",
+      "request_duration_ms": 776.09
+    },
+    {
+      "request_id": "req_9c1cb8bf7992",
+      "model": "glm_Anthropic/glm-5.3-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-claude-code-22abe4c2a6",
+      "created_at": "2026-09-13 05:45:40.279246",
+      "request_duration_ms": 932.29
+    },
+    {
+      "request_id": "req_bb40f286bd3c",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-codex-2ab7573842",
+      "created_at": "2026-09-13 05:55:57.224368",
+      "request_duration_ms": 1159.71
+    },
+    {
+      "request_id": "req_cb6e02c9d24b",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-codex-2ab7573842",
+      "created_at": "2026-09-13 05:55:47.262560",
+      "request_duration_ms": 877.14
+    },
+    {
+      "request_id": "req_f96ee9b20a1f",
+      "model": "deepseek-v4-pro",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-codex-2ab7573842",
+      "created_at": "2026-09-13 05:55:52.327516",
+      "request_duration_ms": 1475.61
+    },
+    {
+      "request_id": "req_2ec6e4e04bfb",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-gemini-12fd7cc1f5",
+      "created_at": "2026-09-13 05:59:21.406843",
+      "request_duration_ms": 1146.96
+    },
+    {
+      "request_id": "req_c1e87d297147",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-gemini-12fd7cc1f5",
+      "created_at": "2026-09-13 06:01:27.840029",
+      "request_duration_ms": 865.98
+    },
+    {
+      "request_id": "req_a58013e9bbaf",
+      "model": "deepseek-v4-pro",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-gemini-12fd7cc1f5",
+      "created_at": "2026-09-13 06:01:30.765592",
+      "request_duration_ms": 1719.29
+    },
+    {
+      "request_id": "req_51ce6c15257f",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-gemini-12fd7cc1f5",
+      "created_at": "2026-09-13 06:01:32.754299",
+      "request_duration_ms": 812.61
+    },
+    {
+      "request_id": "req_151607b3f9e2",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-gemini-12fd7cc1f5",
+      "created_at": "2026-09-13 06:02:11.353661",
+      "request_duration_ms": 1567.2
+    },
+    {
+      "request_id": "req_d2aad59e8e36",
+      "model": "deepseek-v4-flash",
+      "status": "success",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-gemini-12fd7cc1f5",
+      "created_at": "2026-09-13 06:02:12.413803",
+      "request_duration_ms": 979.95
+    },
+    {
+      "request_id": "req_6b3e063ffd22",
+      "model": "deepseek-v4-flash",
+      "status": "blocked",
+      "credential_type": "agent_runtime",
+      "agent_id": "client-am-model-validation-20260913-opencode-7b6676e54e",
+      "created_at": "2026-09-13 05:59:23.813912",
+      "request_duration_ms": 9.12
+    }
+  ],
+  "tasks": [
+    {
+      "id": 59,
+      "task_type": "apply_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:13:04.292999",
+      "finished_at": "2026-09-13 05:13:04.353460"
+    },
+    {
+      "id": 60,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:13:04.384671",
+      "finished_at": "2026-09-13 05:13:09.202593"
+    },
+    {
+      "id": 61,
+      "task_type": "apply_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:13:09.209954",
+      "finished_at": "2026-09-13 05:13:09.260712"
+    },
+    {
+      "id": 62,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:13:09.280099",
+      "finished_at": "2026-09-13 05:13:13.822692"
+    },
+    {
+      "id": 63,
+      "task_type": "restore_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:13:13.842536",
+      "finished_at": "2026-09-13 05:13:13.866851"
+    },
+    {
+      "id": 64,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:13:13.886965",
+      "finished_at": "2026-09-13 05:13:16.925132"
+    },
+    {
+      "id": 68,
+      "task_type": "apply_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:13.197450",
+      "finished_at": "2026-09-13 05:37:13.262709"
+    },
+    {
+      "id": 69,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:13.287215",
+      "finished_at": "2026-09-13 05:37:24.105084"
+    },
+    {
+      "id": 70,
+      "task_type": "apply_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:24.114375",
+      "finished_at": "2026-09-13 05:37:24.193993"
+    },
+    {
+      "id": 71,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:24.216625",
+      "finished_at": "2026-09-13 05:37:35.259156"
+    },
+    {
+      "id": 72,
+      "task_type": "restore_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:35.279053",
+      "finished_at": "2026-09-13 05:37:35.312257"
+    },
+    {
+      "id": 73,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:35.335072",
+      "finished_at": "2026-09-13 05:37:45.285834"
+    },
+    {
+      "id": 74,
+      "task_type": "apply_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:45.363655",
+      "finished_at": "2026-09-13 05:37:45.427291"
+    },
+    {
+      "id": 75,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:45.449190",
+      "finished_at": "2026-09-13 05:37:47.974032"
+    },
+    {
+      "id": 76,
+      "task_type": "apply_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:47.981534",
+      "finished_at": "2026-09-13 05:37:48.037621"
+    },
+    {
+      "id": 77,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:48.058110",
+      "finished_at": "2026-09-13 05:37:50.248896"
+    },
+    {
+      "id": 78,
+      "task_type": "restore_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:50.274935",
+      "finished_at": "2026-09-13 05:37:50.303318"
+    },
+    {
+      "id": 79,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:50.322144",
+      "finished_at": "2026-09-13 05:37:52.041798"
+    },
+    {
+      "id": 80,
+      "task_type": "apply_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:52.127895",
+      "finished_at": "2026-09-13 05:37:52.171388"
+    },
+    {
+      "id": 81,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:52.191510",
+      "finished_at": "2026-09-13 05:37:54.933672"
+    },
+    {
+      "id": 82,
+      "task_type": "apply_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:54.941126",
+      "finished_at": "2026-09-13 05:37:54.984786"
+    },
+    {
+      "id": 83,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:55.001537",
+      "finished_at": "2026-09-13 05:37:56.789766"
+    },
+    {
+      "id": 84,
+      "task_type": "restore_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:56.810266",
+      "finished_at": "2026-09-13 05:37:56.830292"
+    },
+    {
+      "id": 85,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:37:56.849242",
+      "finished_at": "2026-09-13 05:37:58.822251"
+    },
+    {
+      "id": 94,
+      "task_type": "apply_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:55:46.046798",
+      "finished_at": "2026-09-13 05:55:46.102601"
+    },
+    {
+      "id": 95,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:55:46.120338",
+      "finished_at": "2026-09-13 05:55:50.596954"
+    },
+    {
+      "id": 96,
+      "task_type": "apply_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:55:50.619550",
+      "finished_at": "2026-09-13 05:55:50.678156"
+    },
+    {
+      "id": 97,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:55:50.697147",
+      "finished_at": "2026-09-13 05:55:55.847884"
+    },
+    {
+      "id": 98,
+      "task_type": "restore_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:55:55.867735",
+      "finished_at": "2026-09-13 05:55:55.888347"
+    },
+    {
+      "id": 99,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:55:55.905907",
+      "finished_at": "2026-09-13 05:56:03.752633"
+    },
+    {
+      "id": 100,
+      "task_type": "apply_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:59:17.959584",
+      "finished_at": "2026-09-13 05:59:18.029880"
+    },
+    {
+      "id": 101,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:59:19.202524",
+      "finished_at": "2026-09-13 05:59:21.491793"
+    },
+    {
+      "id": 102,
+      "task_type": "apply_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 05:59:21.568667",
+      "finished_at": "2026-09-13 05:59:21.611168"
+    },
+    {
+      "id": 103,
+      "task_type": "verify_model_config",
+      "status": "failed",
+      "created_at": "2026-09-13 05:59:22.577038",
+      "finished_at": "2026-09-13 05:59:23.953303"
+    },
+    {
+      "id": 104,
+      "task_type": "apply_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 06:01:24.400392",
+      "finished_at": "2026-09-13 06:01:24.467753"
+    },
+    {
+      "id": 105,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 06:01:25.895713",
+      "finished_at": "2026-09-13 06:01:27.919106"
+    },
+    {
+      "id": 106,
+      "task_type": "apply_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 06:01:27.928282",
+      "finished_at": "2026-09-13 06:01:28.007130"
+    },
+    {
+      "id": 107,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 06:01:28.028667",
+      "finished_at": "2026-09-13 06:01:30.865846"
+    },
+    {
+      "id": 108,
+      "task_type": "restore_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 06:01:30.886420",
+      "finished_at": "2026-09-13 06:01:30.912723"
+    },
+    {
+      "id": 109,
+      "task_type": "verify_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 06:01:30.931586",
+      "finished_at": "2026-09-13 06:01:32.835493"
+    },
+    {
+      "id": 110,
+      "task_type": "apply_model_config",
+      "status": "succeeded",
+      "created_at": "2026-09-13 06:02:08.670849",
+      "finished_at": "2026-09-13 06:02:08.748953"
+    }
+  ]
+}

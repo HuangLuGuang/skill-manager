@@ -62,7 +62,6 @@
                 class="search-control"
                 :placeholder="t('agentSecurityScans.targets.search')"
               />
-              <a-button @click="governance.openSources()">{{ t('scanSchedule.sources') }}</a-button>
               <a-button v-if="hasAccess('targets:create') && (canAdmin)" type="primary" @click="openTargetModal()">
                 <template #icon><PlusOutlined /></template>
                 {{ t('agentSecurityScans.targets.create') }}

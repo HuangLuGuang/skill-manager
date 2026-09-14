@@ -762,6 +762,17 @@ class GatewaySessionRequest(Base):
     completed_at = Column(DateTime, nullable=True)
 
 
+class GatewaySessionFingerprint(Base):
+    """Versioned, content-free evidence for optional gateway association."""
+    __tablename__ = "gateway_session_fingerprints"
+    __table_args__ = (Index("ix_gateway_fingerprint_match", "scope_id", "kind", "digest"),)
+    request_id = Column(String(128), ForeignKey("gateway_session_requests.request_id"), primary_key=True)
+    kind = Column(String(32), primary_key=True)
+    scope_id = Column(String(64), nullable=False)
+    digest = Column(String(64), nullable=False)
+    message_count = Column(Integer, nullable=False)
+
+
 class RuntimeTraceEvent(Base):
     __tablename__ = "runtime_trace_events"
     __table_args__ = (

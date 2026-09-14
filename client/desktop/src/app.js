@@ -582,8 +582,7 @@ const modelAgentKind = value => {
 }
 
 const localModelAgents = data => (data?.inventory?.agents || []).filter(agent =>
-  ['claude-code', 'codex', 'hermes'].includes(agent.agent_type)
-  && agent.capabilities?.model_config_auto_apply,
+  agent.capabilities?.model_config_auto_apply,
 )
 
 const platformAgentForLocal = (data, agent) => {
@@ -616,7 +615,7 @@ const renderModelSwitcher = data => {
     renderModelSwitcher(connection)
   }))
   if (!selected) {
-    $('#model-current').innerHTML = tf`<div><strong>未发现支持的 Agent</strong><span>当前仅支持自动配置 Claude Code、Codex 和 Hermes。安装后重新发现即可显示。</span></div>`
+    $('#model-current').textContent = t('ui.modelConfig.noAgent')
     $('#model-catalog').classList.add('empty')
     $('#model-catalog').textContent = t('client.models.no_local_agent')
     $('#model-result-count').textContent = tf`${models.length} 个模型`
@@ -629,12 +628,45 @@ const renderModelSwitcher = data => {
       <span>${escapeHtml(t('client.models.current_config'))}</span>
       <strong>${escapeHtml(state.model || t('client.models.no_model'))}</strong>
       ${state.error ? `<em>${escapeHtml(runtimeText(state.error))}</em>` : ''}
+      ${state.status ? `<span>${escapeHtml(t(`ui.modelConfig.status.${state.status}`))}</span>` : ''}
+      ${state.change_id && selected.capabilities?.model_config_verification ? `<button id="verify-model-config" type="button" ${modelSwitchBusy ? 'disabled' : ''}>${escapeHtml(t('ui.modelConfig.verify'))}</button>` : ''}
+      ${state.change_id ? `<button id="restore-model-config" type="button" ${state.can_restore && !modelSwitchBusy ? '' : 'disabled'}>${escapeHtml(t('ui.modelConfig.restore'))}</button>` : ''}
     </div>
     <dl>
       <div><dt>${escapeHtml(t('client.models.gateway_url'))}</dt><dd><code>${escapeHtml(state.gateway_url || '-')}</code></dd></div>
       <div><dt>${escapeHtml(t('client.models.config_file'))}</dt><dd><code>${escapeHtml(state.config_path || '-')}</code></dd></div>
       <div><dt>${escapeHtml(t('client.models.runtime_identity'))}</dt><dd>${escapeHtml(platformAgent?.managed_agent_id ? t('client.models.identity_ready') : t('client.models.identity_auto_create'))}</dd></div>
-    </dl>`
+    </dl>
+    ${state.verification?.length ? `<details class="model-config-evidence"><summary>${escapeHtml(t('ui.modelConfig.evidence'))}</summary><pre>${escapeHtml(JSON.stringify(state.verification, null, 2))}</pre></details>` : ''}`
+  $('#verify-model-config')?.addEventListener('click', async event => {
+    if (modelSwitchBusy) return
+    modelSwitchBusy = true
+    setBusy(event.currentTarget, true)
+    document.querySelectorAll('[data-switch-model], #verify-model-config, #restore-model-config').forEach(item => { item.disabled = true })
+    try {
+      await run('verify-model', ['--agent-type', selected.agent_type])
+      showMessageDialog(t('ui.modelConfig.status.verified'), t('ui.modelConfig.verifiedDetail'))
+    } catch (error) { showMessageDialog(t('ui.modelConfig.verificationFailed'), runtimeText(error)) }
+    finally {
+      await run('inventory').catch(() => {})
+      await refreshConnection()
+      modelSwitchBusy = false
+      if (connection) renderModelSwitcher(connection)
+    }
+  })
+  $('#restore-model-config')?.addEventListener('click', async event => {
+    if (modelSwitchBusy) return
+    modelSwitchBusy = true
+    setBusy(event.currentTarget, true)
+    document.querySelectorAll('[data-switch-model], #verify-model-config, #restore-model-config').forEach(item => { item.disabled = true })
+    try {
+      await run('restore-model', ['--agent-type', selected.agent_type, '--model-change-id', state.change_id])
+      await run('inventory')
+      await refreshConnection()
+      showMessageDialog(t('ui.modelConfig.status.restored'), t('ui.modelConfig.effect'))
+    } catch (error) { showMessageDialog(t('client.models.switch_failed'), runtimeText(error)) }
+    finally { modelSwitchBusy = false; if (connection) renderModelSwitcher(connection) }
+  })
   const query = modelSearch.trim().toLowerCase()
   const visible = models.filter(model => !query || [model.name, model.upstream_name, model.display_name, model.provider_name].some(value => String(value || '').toLowerCase().includes(query)))
   $('#model-result-count').textContent = tf`${visible.length} 个模型`
@@ -645,24 +677,26 @@ const renderModelSwitcher = data => {
       <div class="model-row-name"><strong>${escapeHtml(model.display_name || model.upstream_name || model.name)}</strong><code>${escapeHtml(model.name)}</code></div>
       <span class="model-provider">${escapeHtml(model.provider_name || '-')}</span>
       <span class="model-limits">${model.context_window ? escapeHtml(tf`上下文 ${model.context_window}`) : ''}${model.max_output_tokens ? escapeHtml(tf` · 输出 ${model.max_output_tokens}`) : ''}</span>
-      <button type="button" class="${current ? '' : 'primary'}" data-switch-model="${escapeHtml(model.name)}" ${current || modelSwitchBusy || !permission.can_configure_models ? 'disabled' : ''}>${escapeHtml(current ? t('client.models.current') : t('client.models.switch'))}</button>
+      <button type="button" class="${current ? '' : 'primary'}" data-switch-model="${escapeHtml(model.name)}" ${modelSwitchBusy || !permission.can_configure_models ? 'disabled' : ''}>${escapeHtml(current ? t('ui.modelConfig.configure') : t('client.models.switch'))}</button>
     </div>`
   }).join('') : t('client.models.no_matches')
   document.querySelectorAll('[data-switch-model]').forEach(button => button.addEventListener('click', () => beginModelSwitch(selected, button.dataset.switchModel, button)))
 }
 
 let modelSwitchBusy = false
-const executeModelSwitch = async (agent, model, button, managedAgentID = '') => {
+const executeModelSwitch = async (agent, model, button, managedAgentID = '', parameters = {}) => {
   if (modelSwitchBusy) return
   modelSwitchBusy = true
-  document.querySelectorAll('[data-switch-model]').forEach(item => { item.disabled = true })
+  document.querySelectorAll('[data-switch-model], #verify-model-config, #restore-model-config').forEach(item => { item.disabled = true })
   const args = ['--agent-type', agent.agent_type, '--model', model]
+  args.push('--model-parameters', JSON.stringify(parameters))
+  if (modelConfigState(agent).revision) args.push('--model-revision', modelConfigState(agent).revision)
   if (managedAgentID) args.push('--managed-agent-id', managedAgentID)
   setBusy(button, true)
   try {
     log(await run('switch-model', args))
     await refreshConnection()
-    showMessageDialog(t('client.models.switch_complete'), tf`${agentLabel(agent.agent_type)} 已切换为 ${model}，页面显示的是重新读取后的实际配置。`)
+    showMessageDialog(t('ui.modelConfig.written'), t('ui.modelConfig.effect'))
   } catch (error) {
     showMessageDialog(t('client.models.switch_failed'), runtimeText(error))
     log(error)
@@ -674,7 +708,24 @@ const executeModelSwitch = async (agent, model, button, managedAgentID = '') => 
 }
 
 const beginModelSwitch = (agent, model, button) => {
-  return executeModelSwitch(agent, model, button)
+  const dialog = $('#model-config-dialog')
+  const contract = agent.capabilities?.model_config_contract || {}
+  const fields = contract.parameters || {}
+  const state = modelConfigState(agent)
+  $('#model-config-fields').innerHTML = (contract.parameter_status === 'version_unverified' ? `<p>${escapeHtml(t('ui.modelConfig.versionUnverified'))} <code>${escapeHtml((contract.parameter_versions || []).join(', '))}</code></p>` : '') + Object.entries(fields).map(([key, field]) => `<label>${escapeHtml(t(`ui.modelConfig.parameters.${key}`))}
+    ${field.enum ? `<select data-model-parameter="${escapeHtml(key)}"><option value="">${escapeHtml(t('ui.modelConfig.unset'))}</option>${field.enum.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}</select>` : `<input data-model-parameter="${escapeHtml(key)}" type="number" min="${field.min}" max="${field.max}" step="${field.type === 'integer' ? 1 : 'any'}" placeholder="${escapeHtml(t('ui.modelConfig.unset'))}">`}
+    <small><code>${escapeHtml(field.path)}</code> → <code>${escapeHtml(field.wire)}</code></small></label>`).join('')
+  const values = () => Object.fromEntries([...dialog.querySelectorAll('[data-model-parameter]')].filter(input => input.value !== '').map(input => [input.dataset.modelParameter, input.type === 'number' ? Number(input.value) : input.value]))
+  const preview = () => { $('#model-config-preview').textContent = JSON.stringify({ path: state.config_path, before: { model: state.model, parameters: state.parameters || {} }, after: { model, parameters: { ...(state.parameters || {}), ...Object.fromEntries(Object.entries(values()).filter(([, value]) => value !== null)) } } }, null, 2) }
+  dialog.querySelectorAll('[data-model-parameter]').forEach(input => input.addEventListener('input', preview))
+  preview()
+  $('#confirm-model-config').onclick = async () => {
+    if (modelSwitchBusy || !$('#model-config-form').reportValidity()) return
+    const parameters = values()
+    dialog.close()
+    await executeModelSwitch(agent, model, button, '', parameters)
+  }
+  dialog.showModal()
 }
 
 $('#model-search').addEventListener('input', event => {
@@ -2354,7 +2405,7 @@ function taskTypeLabel(task) {
   const value = task?.task_type || task
   if (value === 'skill_action') return governanceLabelFor('action', task.payload?.action)
   if (value === 'rescan' && task?.payload?.reason === 'policy_changed') return t('ui.q9utgp')
-  return { install_skill: t('ui.14fftle'), remove_skill: t('ui.s2pmon'), repair_skill: t('ui.14oueep'), apply_model_config: t('client.models.task_type'), rescan: t('ui.1rnx8gk'), sync_policy: t('ui.q9utgp') }[value] || value || tf`平台任务`
+  return { install_skill: t('ui.14fftle'), remove_skill: t('ui.s2pmon'), repair_skill: t('ui.14oueep'), apply_model_config: t('client.models.task_type'), verify_model_config: t('ui.modelConfig.verify'), restore_model_config: t('ui.modelConfig.restore'), rescan: t('ui.1rnx8gk'), sync_policy: t('ui.q9utgp') }[value] || value || tf`平台任务`
 }
 
 function taskStatusLabel(value) {

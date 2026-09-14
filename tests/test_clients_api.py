@@ -850,6 +850,18 @@ def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_pat
         }
     ]
 
+    rejected = client.post(
+        "/api/v1/clients/host-model/tasks",
+        json={"task_type": "apply_model_config", "payload": {
+            "local_agent_id": "claude-main", "agent_type": "claude-code",
+            "model": "claude-sonnet", "parameters": {"timeout_ms": 1000},
+        }},
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["error_code"] == "client.model_parameter_version_unverified"
+    current = client.get("/api/v1/clients/host-model").json()["agents"][0]
+    assert current["capabilities"]["model_config_contract"]["parameters"] == {}
+
     task = client.post(
         "/api/v1/clients/host-model/tasks",
         json={
@@ -864,6 +876,23 @@ def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_pat
         },
     )
     assert task.status_code == 200
+    preflight_url = f"/api/v1/clients/host-model/tasks/{task.json()['id']}/model-preflight"
+    preflight_body = {"revision": "0" * 64, "current_parameters": {"max_output_tokens": 1024}}
+    assert client.post(preflight_url, headers=headers, json=preflight_body).status_code == 200
+    database = next(client.app.dependency_overrides[get_db]())
+    target = database.query(models.ModelEndpoint).filter_by(name="claude-sonnet").one()
+    target.max_output_tokens = 512
+    database.commit()
+    too_large = client.post(preflight_url, headers=headers, json=preflight_body)
+    assert too_large.status_code == 422
+    assert too_large.json()["error_code"] == "client.model_output_limit"
+    target.enabled = False
+    database.commit()
+    assert client.post(preflight_url, headers=headers, json=preflight_body).json()["error_code"] == "model.not_found"
+    target.enabled = True
+    target.max_output_tokens = None
+    database.commit()
+    database.close()
     polled = client.get("/api/v1/clients/host-model/tasks", headers=headers).json()
     assert polled == [
         {
@@ -874,6 +903,7 @@ def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_pat
                 "agent_type": "claude-code",
                 "managed_agent_id": "claude-research",
                 "model": "claude-sonnet",
+                "parameters": {},
             },
         }
     ]
@@ -913,7 +943,7 @@ def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_pat
     local_agent = detail["agents"][0]
     assert local_agent["desired_model"] == "claude-sonnet"
     assert local_agent["applied_model"] == "claude-sonnet"
-    assert local_agent["model_config_status"] == "applied"
+    assert local_agent["model_config_status"] == "pending_restart"
     database = next(client.app.dependency_overrides[get_db]())
     assert database.query(models.ManagedAgent).filter_by(agent_id="claude-research").one().default_model == "claude-sonnet"
     database.close()
@@ -1173,7 +1203,7 @@ def test_client_model_switch_catalog_binding_and_task_credential_are_self_servic
     database = next(client.app.dependency_overrides[get_db]())
     stale_task = database.query(models.ClientTask).filter(models.ClientTask.id == task.json()["id"]).one()
     assert stale_task.status == "failed"
-    assert stale_task.error == "客户端未在限定时间内完成模型切换"
+    assert stale_task.error == "model_config.task_timeout"
     database.close()
 
 
@@ -2291,3 +2321,36 @@ def test_admin_client_events_pagination_beyond_one_hundred(tmp_path):
     assert not set(e['id'] for e in first['events']) & set(e['id'] for e in last['events'])
     assert client.get('/api/v1/clients/paged', params={'event_page': 99}).json()['event_page'] == 11
     assert client.get('/api/v1/clients/paged', params={'event_page': 0}).status_code == 422
+
+
+def test_model_operations_share_revision_checks_claim_and_evidence_gate(tmp_path):
+    client = _client(tmp_path)
+    token = client.post('/api/v1/access/tokens', json={'name':'probe-client','token_type':'client'}).json()['token']
+    headers = {'Authorization': f'Bearer {token}'}
+    state = {'change_id':'change-1','revision':'a'*64,'model':'model-a','can_restore':True}
+    assert client.post('/api/v1/clients/register', headers=headers, json={
+        'client_id':'probe-host','name':'Probe','hostname':'test','os':'darwin','arch':'arm64','client_version':'test',
+        'agents':[{'agent_type':'hermes','local_agent_id':'hermes','capabilities':{'model_config_auto_apply':True,'model_config_verification':True,'model_config_state':state}}],
+    }).status_code == 200
+    payload = {'agent_type':'hermes','local_agent_id':'hermes','change_id':'change-1','expected_revision':'a'*64}
+    endpoint = '/api/v1/clients/probe-host/model-operations'
+    first = client.post(endpoint, headers=headers, json={'task_type':'verify_model_config','payload':payload})
+    assert first.status_code == 200, first.text
+    repeated = client.post(endpoint, headers=headers, json={'task_type':'verify_model_config','payload':payload})
+    assert repeated.json()['id'] == first.json()['id']
+    result_url = f"/api/v1/clients/probe-host/tasks/{first.json()['id']}/result"
+    assert client.post(result_url, headers=headers, json={'status':'running'}).json()['ignored'] is False
+    assert client.post(result_url, headers=headers, json={'status':'running'}).json()['ignored'] is True
+    cancelled = client.post(f"/api/v1/clients/probe-host/tasks/{first.json()['id']}/cancel")
+    assert cancelled.status_code == 409
+    denied = client.post(result_url, headers=headers, json={'status':'succeeded','verification_request_ids':[]})
+    assert denied.status_code == 409
+    assert denied.json()['error_code'] == 'client.model_evidence_required'
+    detail = client.get('/api/v1/clients/probe-host').json()
+    assert detail['agents'][0]['model_config_status'] == 'failed'
+    stale = client.post(endpoint, headers=headers, json={'task_type':'restore_model_config','payload':{**payload,'expected_revision':'b'*64}})
+    assert stale.status_code == 409
+    remote = client.post('/api/v1/clients/probe-host/tasks', json={'task_type':'restore_model_config','payload':payload})
+    assert remote.status_code == 200, remote.text
+    duplicate = client.post(endpoint, headers=headers, json={'task_type':'restore_model_config','payload':payload})
+    assert duplicate.json()['id'] == remote.json()['id']

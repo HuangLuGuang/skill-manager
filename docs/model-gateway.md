@@ -16,6 +16,38 @@
 
 Prompt Guard defaults to log only for automatically issued model-switching credentials; settings come from the default or per-client policy. Saving updates active automatic credentials; issuance and rotation inherit the current values. Subsequent gateway requests use the new settings, while desktop clients synchronize the policy and version through existing long polling. The LLM review flag is stored but does not currently execute a review. See [client policies](agent-manager-client.md#prompt-防护--prompt-guard).
 
+客户端管理台与桌面客户端共用 `agent_manager/core/model_switch_contract.json` 的 Agent、协议和参数契约。管理台下发与桌面本地操作均创建客户端任务，任务绑定独立 Agent 运行凭证；模型授权、凭证有效期、隐私处理、Prompt Guard 和审计仍由网关执行。
+
+The console and desktop share the Agent, protocol and parameter contract in `agent_manager/core/model_switch_contract.json`. Both paths create client tasks with separate Agent runtime credentials. Model authorization, credential validity, privacy, Prompt Guard and audit remain enforced by the gateway.
+
+参数表单中的“未设置”表示保留原配置；选择值或输入数字才会显式修改。保存前展示模型、参数和文件位置的差异。客户端校验版本指纹、保存私有备份、安全写入并读回；现有会话需要重启。状态“待重启”不表示模型调用通过。“验证调用”使用独立配置目录和最小提示，只有 Agent 返回匹配结果且网关审计确认目标模型与显式请求参数时，才显示“隔离调用验证通过”。缺少验证命令的 Agent 不显示该入口。
+
+“Unset” preserves the existing configuration; a selected or entered value explicitly changes it. The preview shows model, parameter and path changes. The client checks the revision, saves a private backup, writes and reads back the configuration. Existing sessions need restarting. “Restart required” is not a successful model call. Verification runs an isolated Agent with a minimal prompt and requires both the expected response and matching gateway audit evidence. Agents without a verification command do not offer that action.
+
+| Agent | 结构化参数 / Structured option | 原生位置 / Native location | 请求映射与条件 / Mapping and conditions |
+|---|---|---|---|
+| Claude Code | `max_output_tokens` | `env.CLAUDE_CODE_MAX_OUTPUT_TOKENS` | Anthropic `max_tokens`；不得超过平台上限，上游须支持 / platform output limit and upstream support |
+| Claude Code | `timeout_ms` | `env.API_TIMEOUT_MS` | Agent 本地超时；不作为上游参数 / local timeout, not forwarded |
+| Codex | `request_max_retries` | `model_providers.agent_manager.request_max_retries` | 本地请求重试次数，整数 / local retry count, integer |
+| Codex | `stream_idle_timeout_ms` | `model_providers.agent_manager.stream_idle_timeout_ms` | 本地流空闲超时，整数 / local stream idle timeout, integer |
+| Hermes | `max_tokens` | `model.max_tokens` | Chat Completions `max_tokens`；平台输出上限 / platform output limit |
+
+结构化参数目前只对已验证版本开放：Claude Code 2.1.220、Codex 0.132.0、Hermes 0.17.0。未知版本或其他版本保留原参数；两端展示原因，服务端拒绝显式参数修改，客户端执行任务与调用验证前再次检查本机版本。版本集合来自共享契约，不由前端单独维护。新增版本需补充原生参数验证后更新契约。
+
+Structured parameters currently require a verified version: Claude Code 2.1.220, Codex 0.132.0 or Hermes 0.17.0. Unknown and other versions retain existing parameters. Both UIs explain the restriction, the server rejects explicit parameter changes, and the client rechecks the installed version before task execution and call verification. The version set lives in the shared contract. Add native parameter evidence before extending it.
+
+平台输出上限同时约束新输入和继承值。例如原配置输出上限为 1024，目标模型上限为 512，留空保留原值会被预检拒绝；显式改为 256 可通过。客户端写入前通过任务预检接口重新核对模型状态、授权、配置指纹及当前参数，预检通过后才领取运行凭证并写入。预检不可用或失败时保留原配置；任务创建后的模型限制变化不会仅依赖旧的发现缓存。
+
+Platform output limits apply to explicit and inherited values. If the existing limit is 1024 and the target model allows 512, leaving the field unset fails preflight; explicitly setting 256 can pass. Before writing, task preflight rechecks model availability, authorization, revision and effective parameters. Credential issuance and configuration writing follow successful preflight. Failed or unavailable preflight preserves the original configuration and avoids relying solely on cached model limits.
+
+其他 Agent 当前仅提供模型与网关配置。默认流式行为由 Agent 决定；界面没有通用温度、top-p 或流式开关。原生配置中不相关字段按语义保留，备份恢复原始字节。备份包含原配置中的凭据，仅保存在本机私有目录，不上传到管理台。恢复前再次核对当前内容；有后续修改时报告冲突，避免覆盖。最近一次切换保留前一枚独立运行凭证以便恢复；父客户端凭证吊销仍会使关联运行凭证失效。
+
+Other Agents currently expose model and gateway configuration only. Agents control their default streaming behavior. There is no universal temperature, top-p or streaming toggle. Unrelated fields retain their meaning; recovery restores the original bytes. Backups may contain original credentials and stay in a private local directory. Recovery checks current contents and reports later edits as conflicts. The previous runtime credential is retained for the latest recovery; revoking the parent client credential still invalidates its runtime credentials.
+
+版本和上游能力并非仅凭配置读回就能确认。当前实测范围、已知限制与中英文界面截图见 [模型切换验证记录](acceptance/model-switching-2026-09-13/README.md)。
+
+Configuration readback alone cannot establish version or upstream capability support. See the [model switching evidence](acceptance/model-switching-2026-09-13/README.md) for verified combinations, limitations and bilingual screenshots.
+
 ## 1. 管理台入口
 
 Agent 风险扫描和大模型红队扫描在发起时必须选择评估模型。列表读取网关中模型及供应商均已启用的模型，预览、创建和执行时再次校验。
@@ -246,6 +278,18 @@ OpenAI-compatible 请求使用 `metadata`，MCP 请求使用 `params._meta`。`X
 | 最长前缀对应多个轨迹 | 独立建组并标记歧义 |
 | 无匹配或历史已压缩、编辑 | 新建推测会话 |
 
+新增的 v1 关联证据在原历史匹配没有唯一结果时使用：
+
+- **连续对话**：忽略 system/developer 消息变化，但要求其余历史连续包含网关已实际返回的助手回答。只重复用户首句不足以触发这项匹配。角色、工具调用和结果仍参与匹配。
+- **标题生成**：识别 Hermes 的标题任务结构，同时精确匹配此前用户输入及助手回答各前 500 个字符；只有唯一候选会话时归入，显示“推测关联：标题生成（v1）”。不按时间接近或 Agent 名称猜测。
+- **连接验证**：以平台记录的 `model_probe` 事件识别，列表及详情显示“独立连接验证”，每次独立建组，不作为聊天关联候选。
+
+新增索引只保存版本化摘要，随原轨迹过期清理；不会读取历史原始 Payload 做在线扫描。歧义仍独立建组，原始请求、权限范围、隐私映射与审计 `conversation_id` 不变。新证据只覆盖启用后的调用，不自动改写既有轨迹。任意摘要压缩、被改写的回答和不符合已支持结构的辅助任务仍可能拆分。
+
+The additional v1 evidence is used when the original history lookup finds no unique match. Continuous-dialogue matching ignores system/developer changes but requires a contiguous history containing an assistant response actually returned by the gateway. A shared first user message alone is insufficient. Hermes title tasks require an exact match of both previously observed user and assistant snippets (up to 500 characters each), with one candidate session. Platform-recorded model probes remain independent and are labelled as connection checks. Ambiguous candidates remain separate.
+
+The new index contains versioned digests only and expires with its trace. Online matching does not scan raw historical payloads. Original requests, access boundaries, privacy mappings and audit conversation IDs are preserved. Existing traces are not automatically regrouped; arbitrary history compression and unsupported auxiliary-task formats can still split sessions.
+
 这类会话在界面标为“推测聚合”：复制相同历史的新聊天仍可能被合并，压缩可能导致同一聊天被拆分。
 `/new` 只有实际改变传入历史或显式会话标识时才能被网关观察到。
 
@@ -323,6 +367,14 @@ OpenAI-compatible 请求使用 `metadata`，MCP 请求使用 `params._meta`。`X
 ---
 
 ## 4. Prompt 防护
+
+工具滥用检测中的“终端＋执行动作”匹配限制在同一句、同一行内，不跨 JSON 转义换行拼接指令，并识别紧邻动作的明确否定表达（如 `terminal cannot be run`）。因此，非交互终端错误说明不会仅因包含 `terminal` 和 `run` 被阻断。检测仍继续检查同一输出中的其他执行指令、敏感文件及凭据访问，不豁免整个工具结果。这是规则匹配，不是完整的自然语言意图判断。
+
+The terminal/action rule stays within a sentence and line, including JSON-escaped line boundaries, and recognizes explicit negation immediately before the action, such as `terminal cannot be run`. Non-interactive terminal diagnostics therefore do not trigger solely through these words. Other execution instructions, sensitive-file access and credential access in the same output are still checked; tool results are not exempted as a whole. This remains rule-based matching, not full natural-language intent analysis.
+
+编码指令检测不会仅因路径、哈希或数据包含长串 Base64 字符就阻断。明确的“解码并执行”指令仍直接命中；对于独立的 Base64/Base64URL 候选，检测器仅对长度不超过 8192 字符的完整候选进行格式校验和单层 UTF-8 解码，解码文本命中既有攻击规则时才报告编码指令。此过程不执行解码内容，不递归解码，也不保证发现所有编码变体。工具输出中的其他风险仍按原有规则检测。
+
+Encoded-instruction detection does not block paths, hashes or data solely because they contain long Base64-like strings. Explicit decode-and-execute instructions still match directly. Complete Base64/Base64URL candidates up to 8192 characters undergo format validation and one UTF-8 decoding pass; an encoded-instruction finding requires the decoded text to match an existing attack rule. Decoded content is never executed or recursively decoded. This does not guarantee detection of every encoding variant, and other tool-output protections remain active.
 
 Prompt 不再作为主流程里的独立上传资产。平台默认在模型网关运行时处理真实请求，因为这里能看到最终发给模型的 `system` / `user` / `tool` messages。
 
@@ -608,10 +660,17 @@ x-compression: enabled-noop
 
 **方式 2 — 管理台隐私链路追踪**:
 
+最近请求默认展示时间、用户、智能体、模型、总耗时、Prompt 防护、输入和输出。通过右上角“显示列”可开关调用凭证、用户组、分项耗时、类型和 Request ID 等列，也可恢复默认；选择按账号保存在当前浏览器。调用凭证和智能体长文本以省略号显示，悬停可查看完整内容（智能体包含 ID）。
+
+The recent requests table shows time, user, agent, model, total duration, Prompt protection, input, and output by default. Use **Columns** to toggle fields or restore defaults. Choices are saved per account in the current browser. Long credential and agent text is truncated; hover to view the full value, including the agent ID.
+
 进入 `隐私链路追踪` 页面，展开一次请求:
 
 - 详情顶部显示本次是否压缩、节省 Token 和耗时；具体数值取决于请求内容
 - 展开第 3 阶段「智能压缩后」可对比压缩前后的 messages 差异
+- 各阶段文本高亮可定位的 PII，并显示当前位置和总命中数。点击“上一处 / 下一处”可循环跳转，自动滚动到对应文本；查看原始阶段时先点击显示原文。定位依据为脱敏占位符及当前链路同租户、同会话内仍有效的原值映射。映射缺失或过期时只能定位占位符，零命中不代表没有 PII。
+
+Stage text highlights available PII matches and provides **Previous match / Next match** controls with a position counter. Navigation wraps and scrolls to the match. Reveal the original stage before navigating its text. Highlights use masking placeholders and active mappings from the trace's tenant and conversation. Missing or expired mappings allow placeholder-only navigation; zero matches does not establish that text is PII-free.
 
 ## MCP 扫描模型
 

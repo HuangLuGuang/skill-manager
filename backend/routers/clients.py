@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Query, Request, Response
 from backend import client_discovery, client_governance, client_skill_actions
+from backend.model_switch import AGENTS as MODEL_ADAPTERS, validate_options as validate_model_options, validate_parameter_version, contract_for_version, validate_effective_parameters, reported_model_parameters
 from backend.client_task_notifications import task_hub
 from starlette.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
@@ -61,12 +62,8 @@ _CLIENT_PLATFORM_LABELS = {
     "windows-x86_64": "Windows 64 位",
     "linux-x86_64": "Linux 64 位",
 }
-_MODEL_CONFIG_AGENT_TYPES = {"claude-code", "codex", "hermes"}
-_MODEL_CONFIG_AGENT_LABELS = {
-    "claude-code": "Claude Code",
-    "codex": "Codex",
-    "hermes": "Hermes",
-}
+_MODEL_CONFIG_AGENT_TYPES = set(MODEL_ADAPTERS)
+_MODEL_CONFIG_AGENT_LABELS = {key: spec["label"] for key, spec in MODEL_ADAPTERS.items()}
 _AUTO_AGENT_CREDENTIAL_SCOPES = [
     "runtime:verify-signature",
     "runtime:can-load",
@@ -141,13 +138,26 @@ def _issue_agent_runtime_credential(
     agent: models.ManagedAgent,
     model_name: str,
     allowed_mcp_gateways: list[str] | None = None,
+    task: models.ClientTask,
+    previous_credential_hash: str | None = None,
 ) -> tuple[str, models.AccessToken]:
     now = datetime.utcnow()
+    payload = _load(task.payload_json, {})
+    if "previous_credential_id" not in payload:
+        if previous_credential_hash:
+            previous = db.query(models.AccessToken).filter_by(token_hash=previous_credential_hash,
+                token_type="agent_runtime", bound_agent_id=agent.agent_id, status="active").first()
+        else:
+            previous = _active_runtime_token(db, agent.agent_id, "model:chat")
+        payload["previous_credential_id"] = previous.id if previous else None
+    # Retain the immediate predecessor for the latest configuration's recovery.
+    # Retries rotate only the newly issued attempt, not that predecessor.
     db.query(models.AccessToken).filter(
         models.AccessToken.token_type == "agent_runtime",
         models.AccessToken.bound_agent_id == agent.agent_id,
         models.AccessToken.issued_by_client_token_id == client_token.id,
         models.AccessToken.status == "active",
+        models.AccessToken.id != (payload["previous_credential_id"] or -1),
     ).update(
         {
             "status": "revoked",
@@ -192,6 +202,8 @@ def _issue_agent_runtime_credential(
     )
     db.add(row)
     db.flush()
+    payload["issued_credential_id"] = row.id
+    task.payload_json = _dump(payload)
     agent.runtime_token_id = row.id
     agent.default_model = model_name
     agent.updated_at = now
@@ -675,6 +687,11 @@ def _agent_kind(value: str | None) -> str:
 
 def _auto_match_agents(db: Session, client_id: str, owner: str | None) -> None:
     candidates = db.query(models.ManagedAgent).filter(models.ManagedAgent.status == "active")
+    assigned_elsewhere = db.query(models.ClientAgent.managed_agent_id).filter(
+        models.ClientAgent.client_id != client_id,
+        models.ClientAgent.managed_agent_id.is_not(None),
+    )
+    candidates = candidates.filter(~models.ManagedAgent.agent_id.in_(assigned_elsewhere))
     if owner:
         candidates = candidates.filter(models.ManagedAgent.created_by == owner)
     by_kind: dict[str, list[models.ManagedAgent]] = {}
@@ -737,7 +754,7 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
                 "install_path": agent.install_path,
                 "skills_path": agent.skills_path,
                 "skill_management_supported": agent.skill_management_supported,
-                "capabilities": _load(agent.capabilities_json, {}),
+                "capabilities": {**_load(agent.capabilities_json, {}), **({"model_config_contract": contract_for_version(agent.agent_type, agent.agent_version)} if agent.agent_type in MODEL_ADAPTERS else {})},
                 "desired_model": agent.desired_model,
                 "applied_model": agent.applied_model,
                 "model_config_status": agent.model_config_status,
@@ -854,7 +871,7 @@ def _update_model_config_state(
     client_agent.model_config_status = status
     client_agent.model_config_error = error
     client_agent.model_config_updated_at = datetime.utcnow()
-    if status == "applied":
+    if status in {"applied", "pending_restart"}:
         client_agent.applied_model = str(payload.get("model") or "") or None
 
 
@@ -1041,6 +1058,7 @@ def get_client_runtime_status(
     if allowed_model_names:
         model_query = model_query.filter(models.ModelEndpoint.name.in_(allowed_model_names))
     result["model_configuration"] = {
+        "adapters": MODEL_ADAPTERS,
         "can_configure_models": can_configure_models,
         "allowed_model_scope": "selected" if allowed_model_names else "all",
         "automatic_agent_credential_scopes": list(_AUTO_AGENT_CREDENTIAL_SCOPES),
@@ -1292,6 +1310,7 @@ def request_model_configuration(
             "当前 Agent 暂不支持自动配置模型",
             "This Agent does not support automatic model configuration",
         )
+    _lock_model_task_agent(db, client_id, local_agent_id)
     client_agent = (
         db.query(models.ClientAgent)
         .filter(
@@ -1394,10 +1413,13 @@ def request_model_configuration(
     )
     if not model:
         raise ApiError(404, "model.not_found", "模型不存在或未启用", "The model is missing or disabled")
+    options = validate_model_options(agent_type, body.parameters, body.expected_revision, model)
+    validate_parameter_version(agent_type, options["parameters"], client_agent.agent_version)
+    validate_effective_parameters(agent_type, options["parameters"], reported_model_parameters(_load(client_agent.capabilities_json, {})), model)
     now = datetime.utcnow()
     for active_task in db.query(models.ClientTask).filter(
         models.ClientTask.client_id == client_id,
-        models.ClientTask.task_type == "apply_model_config",
+        models.ClientTask.task_type.in_(("apply_model_config", "verify_model_config", "restore_model_config")),
         models.ClientTask.status.in_(("pending", "running")),
     ).all():
         active_payload = _load(active_task.payload_json, {})
@@ -1405,7 +1427,7 @@ def request_model_configuration(
             started_at = active_task.started_at or active_task.created_at
             if active_task.status == "running" and started_at and now - started_at >= _MODEL_CONFIG_TASK_STALE_AFTER:
                 active_task.status = "failed"
-                active_task.error = "客户端未在限定时间内完成模型切换"
+                active_task.error = "model_config.task_timeout"
                 active_task.finished_at = now
                 _update_model_config_state(db, client_id, active_payload, "failed", active_task.error)
                 continue
@@ -1421,6 +1443,7 @@ def request_model_configuration(
         "managed_agent_id": agent.agent_id,
         "model": model.name,
         "auto_issue_credential": True,
+        **options,
     }
     task = models.ClientTask(
         client_id=client_id,
@@ -1441,6 +1464,43 @@ def request_model_configuration(
     return {"id": task.id, "task_type": task.task_type, "payload": payload, "status": task.status}
 
 
+@router.post("/{client_id}/tasks/{task_id}/model-preflight")
+def preflight_model_task(
+    client_id: str, task_id: int, body: schemas.ClientModelPreflightRequest, request: Request,
+    authorization: str | None = Header(None), db: Session = Depends(get_db),
+):
+    token = _runtime_token("client:read-tasks", authorization, request, db)
+    _bind_client(token, client_id, db)
+    task = db.query(models.ClientTask).filter_by(id=task_id, client_id=client_id).first()
+    if not task or task.task_type != "apply_model_config" or task.status not in {"pending", "running"}:
+        raise ApiError(409, "client.task_not_active", "模型配置任务未处于可执行状态", "The model configuration task is not active")
+    payload = _load(task.payload_json, {})
+    kind = payload.get("agent_type")
+    binding = db.query(models.ClientAgent).filter_by(client_id=client_id, agent_type=kind, local_agent_id=payload.get("local_agent_id")).first()
+    agent = db.query(models.ManagedAgent).filter_by(agent_id=binding.managed_agent_id, status="active").first() if binding else None
+    if not agent or agent.agent_id != payload.get("managed_agent_id"):
+        raise ApiError(404, "agent.bound_not_found", "关联的 Agent 不存在或未启用", "The linked Agent is missing or disabled")
+    model = db.query(models.ModelEndpoint).join(models.ModelProvider).filter(
+        models.ModelEndpoint.name == payload.get("model"), models.ModelEndpoint.enabled.is_(True), models.ModelProvider.enabled.is_(True),
+    ).first()
+    if not model:
+        raise ApiError(404, "model.not_found", "模型不存在或未启用", "The model is missing or disabled")
+    delegated = _load(token.allowed_models_json, [])
+    if delegated and model.name not in delegated:
+        raise ApiError(403, "client.model_not_delegated", "当前客户端凭证不允许配置该模型", "The Client credential cannot configure this model")
+    if payload.get("auto_issue_credential"):
+        if not token.allow_agent_credential_issuance:
+            raise ApiError(403, "client.agent_credential_issuance_disabled", "当前客户端凭证未开启创建运行凭证的权限", "This Client credential cannot create runtime credentials")
+    elif model.name not in _agent_model_names(db, agent):
+        raise ApiError(403, "client.agent_model_not_authorized", "Agent 运行凭证未授权访问该模型", "The Agent runtime credential cannot access this model")
+    if payload.get("expected_revision") and payload["expected_revision"] != body.revision:
+        raise ApiError(409, "client.model_config_conflict", "配置已变化，请刷新后重试", "Configuration changed; refresh and retry")
+    explicit = validate_model_options(kind, payload.get("parameters", {}), model=model)["parameters"]
+    validate_parameter_version(kind, explicit, binding.agent_version)
+    validate_effective_parameters(kind, explicit, body.current_parameters, model)
+    return {"ok": True}
+
+
 @router.post(
     "/{client_id}/tasks/{task_id}/agent-credential",
     response_model=schemas.ClientAgentCredentialResponse,
@@ -1449,6 +1509,7 @@ def issue_task_agent_credential(
     client_id: str,
     task_id: int,
     request: Request,
+    body: schemas.ClientAgentCredentialRequest | None = None,
     authorization: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
@@ -1516,9 +1577,10 @@ def issue_task_agent_credential(
     ).first()
     if not agent:
         raise ApiError(404, "agent.bound_not_found", "绑定的 Agent 不存在或未启用", "The bound Agent is missing or disabled")
-    model = db.query(models.ModelEndpoint).filter(
+    model = db.query(models.ModelEndpoint).join(models.ModelProvider).filter(
         models.ModelEndpoint.name == model_name,
         models.ModelEndpoint.enabled.is_(True),
+        models.ModelProvider.enabled.is_(True),
     ).first()
     if not model:
         raise ApiError(404, "model.not_found", "模型不存在或未启用", "The model is missing or disabled")
@@ -1542,6 +1604,8 @@ def issue_task_agent_credential(
         agent=agent,
         model_name=model.name,
         allowed_mcp_gateways=allowed_mcp_gateways,
+        task=task,
+        previous_credential_hash=body.previous_credential_hash if body else None,
     )
     return schemas.ClientAgentCredentialResponse(
         token=plain,
@@ -1550,6 +1614,20 @@ def issue_task_agent_credential(
         allowed_models=[model.name],
         allowed_mcp_gateways=allowed_mcp_gateways,
     )
+
+
+@router.post("/{client_id}/model-verification-evidence")
+def model_verification_evidence(
+    client_id: str, body: schemas.ClientModelVerificationEvidence, request: Request,
+    authorization: str | None = Header(None), db: Session = Depends(get_db),
+):
+    from backend.model_verification import probe_evidence
+    token = _runtime_token("client:read-tasks", authorization, request, db)
+    _bind_client(token, client_id, db)
+    agent = db.query(models.ClientAgent).filter_by(client_id=client_id, local_agent_id=body.local_agent_id, agent_type=body.agent_type).first()
+    if not agent or not agent.managed_agent_id:
+        raise ApiError(404, "client.agent_binding_required", "未找到已绑定的 Agent", "Bound Agent not found")
+    return {"requests": probe_evidence(db, client_id, agent.managed_agent_id, body.challenge)}
 
 
 @router.post("/{client_id}/tasks/{task_id}/result")
@@ -1570,6 +1648,14 @@ def report_task_result(
     )
     if not row:
         raise HTTPException(status_code=404, detail="任务不存在")
+    if row.task_type in {"apply_model_config", "verify_model_config", "restore_model_config"} and body.status == "running":
+        changed = db.query(models.ClientTask).filter_by(id=task_id, client_id=client_id, status="pending").update(
+            {"status": "running", "started_at": datetime.utcnow()}, synchronize_session=False)
+        if changed:
+            _update_model_config_state(db, client_id, _load(row.payload_json, {}), "applying")
+        db.commit()
+        db.refresh(row)
+        return {"ok": True, "ignored": not bool(changed), "status": row.status}
     target_version = _load(row.payload_json, {}).get("target_version")
     if row.task_type == "sync_policy" and target_version and body.status == "succeeded" and row.status in ("pending", "running"):
         if body.applied_policy_version != target_version:
@@ -1592,17 +1678,40 @@ def report_task_result(
         db.commit()
         db.refresh(row)
         return {"ok": True, "ignored": not bool(changed), "status": row.status}
-    if row.status == "cancelled":
+    if row.status in {"cancelled", "succeeded", "failed"}:
         return {"ok": True, "ignored": True}
     row.status = body.status
     row.error = body.error
     payload = _load(row.payload_json, {})
+    if row.task_type in {"verify_model_config", "restore_model_config"}:
+        state = "applying" if body.status == "running" else "failed"
+        if body.status == "succeeded":
+            state = "restored"
+            if row.task_type == "verify_model_config":
+                agent = db.query(models.ClientAgent).filter_by(client_id=client_id, local_agent_id=payload["local_agent_id"], agent_type=payload["agent_type"]).first()
+                evidence = db.query(models.LlmRequestAudit).filter(models.LlmRequestAudit.request_id.in_(body.verification_request_ids),
+                    models.LlmRequestAudit.agent_id == (agent.managed_agent_id if agent else ""),
+                    models.LlmRequestAudit.model == payload["model"], models.LlmRequestAudit.status == "success",
+                    models.LlmRequestAudit.credential_type == "agent_runtime",
+                    models.LlmRequestAudit.created_at >= row.created_at).first()
+                if not evidence:
+                    row.status = "failed"
+                    row.error = "model_config.gateway_evidence_missing"
+                    row.finished_at = datetime.utcnow()
+                    _update_model_config_state(db, client_id, payload, "failed", row.error)
+                    db.commit()
+                    raise ApiError(409, "client.model_evidence_required", "缺少成功调用的网关证据", "Successful gateway call evidence is required")
+                state = "verified"
+        _update_model_config_state(db, client_id, payload, state, body.error)
+        if body.applied_model is not None:
+            agent = db.query(models.ClientAgent).filter_by(client_id=client_id, local_agent_id=payload["local_agent_id"], agent_type=payload["agent_type"]).first()
+            if agent: agent.applied_model = body.applied_model
     if row.task_type == "apply_model_config":
         _update_model_config_state(
             db,
             client_id,
             payload,
-            {"running": "applying", "succeeded": "applied", "failed": "failed", "cancelled": "cancelled"}[
+            {"running": "applying", "succeeded": "pending_restart", "failed": "failed", "cancelled": "cancelled"}[
                 body.status
             ],
             body.error,
@@ -1942,6 +2051,61 @@ def bind_client_agent(
     return {"client_id": client_id, "agent_type": agent_type, "managed_agent_id": row.managed_agent_id}
 
 
+def _lock_model_task_agent(db, client_id, local_id):
+    # Serialize creation against the Agent row in the same database transaction.
+    # A no-op UPDATE also takes the write lock on SQLite, where FOR UPDATE does not.
+    db.query(models.ClientAgent).filter_by(client_id=client_id, local_agent_id=local_id).update(
+        {"id": models.ClientAgent.id}, synchronize_session=False)
+
+
+def _create_model_operation(db, client_id, operation, payload, actor):
+    kind = str(payload.get("agent_type") or "")
+    local_id = _local_agent_id(payload.get("local_agent_id"), kind)
+    _lock_model_task_agent(db, client_id, local_id)
+    agent = db.query(models.ClientAgent).filter_by(client_id=client_id, agent_type=kind, local_agent_id=local_id).first()
+    caps = _load(agent.capabilities_json, {}) if agent else {}
+    state = caps.get("model_config_state") or {}
+    if not agent or not state.get("change_id"):
+        raise ApiError(409, "client.model_config_required", "请先同步已写入的模型配置", "Synchronize a written model configuration first")
+    if operation == "verify_model_config" and not caps.get("model_config_verification"):
+        raise ApiError(400, "client.model_verification_unavailable", "此 Agent 暂无自动调用验证方式", "Automatic call verification is unavailable for this Agent")
+    if operation == "restore_model_config" and not state.get("can_restore"):
+        raise ApiError(409, "client.model_restore_conflict", "当前配置已变化或没有可恢复备份", "Configuration changed or no recoverable backup exists")
+    if payload.get("expected_revision") != state.get("revision") or payload.get("change_id") != state.get("change_id"):
+        raise ApiError(409, "client.model_revision_conflict", "配置已变化，请刷新后重试", "Configuration changed; refresh and retry")
+    normalized = {"agent_type": kind, "local_agent_id": local_id, "change_id": state["change_id"],
+                  "expected_revision": state["revision"], "model": state.get("model", "")}
+    active = db.query(models.ClientTask).filter(models.ClientTask.client_id == client_id,
+        models.ClientTask.task_type.in_(("apply_model_config", "verify_model_config", "restore_model_config")),
+        models.ClientTask.status.in_(("pending", "running"))).all()
+    for item in active:
+        existing = _load(item.payload_json, {})
+        if existing.get("local_agent_id") == local_id:
+            if item.task_type == operation and existing == normalized:
+                return item
+            raise ApiError(409, "client.model_config_in_progress", "该 Agent 有正在执行的模型任务", "A model task is active for this Agent")
+    task = models.ClientTask(client_id=client_id, task_type=operation, payload_json=_dump(normalized))
+    db.add(task)
+    db.flush()
+    db.add(models.ClientEvent(client_id=client_id, agent_type=kind, event_type="model_operation_created",
+        details_json=_dump({"task_id": task.id, "operation": operation, "actor": actor, "local_agent_id": local_id})))
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+@router.post("/{client_id}/model-operations")
+def request_model_operation(client_id: str, body: schemas.ClientTaskCreate, request: Request,
+    authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    token = _runtime_token("client:read-tasks", authorization, request, db)
+    _bind_client(token, client_id, db)
+    _client_or_404(db, client_id)
+    if body.task_type not in {"verify_model_config", "restore_model_config"}:
+        raise ApiError(400, "client.model_operation_invalid", "模型操作无效", "Invalid model operation")
+    task = _create_model_operation(db, client_id, body.task_type, body.payload, f"client:{client_id}")
+    return {"id": task.id, "task_type": task.task_type, "payload": _load(task.payload_json, {}), "status": task.status}
+
+
 @router.post("/{client_id}/tasks")
 def create_task(
     client_id: str,
@@ -1953,6 +2117,9 @@ def create_task(
     client = _client_or_404(db, client_id)
     _ensure_visible(client, current_user)
     payload = dict(body.payload)
+    if body.task_type in {"verify_model_config", "restore_model_config"}:
+        task = _create_model_operation(db, client_id, body.task_type, payload, current_user.username)
+        return {"id": task.id, "status": task.status}
     if body.task_type == "skill_action":
         try:
             action = schemas.ClientSkillActionRequest.model_validate(payload)
@@ -1968,6 +2135,7 @@ def create_task(
         model_name = str(payload.get("model") or "").strip()
         if not agent_type or not model_name:
             raise HTTPException(status_code=400, detail="模型配置任务缺少目标 Agent 或模型")
+        _lock_model_task_agent(db, client_id, local_agent_id)
         client_agent = (
             db.query(models.ClientAgent)
             .filter(
@@ -1977,11 +2145,33 @@ def create_task(
             )
             .first()
         )
-        if not client_agent or not client_agent.managed_agent_id:
-            raise HTTPException(status_code=400, detail="本地 Agent 尚未绑定平台智能体")
+        if not client_agent:
+            raise ApiError(404, "client.agent_not_found", "客户端未发现目标 Agent", "Target Agent was not discovered")
+        if not client_agent.managed_agent_id:
+            issuance = _client_issuance_token(db, client_id)
+            if not issuance:
+                raise ApiError(403, "client.agent_credential_issuance_disabled", "客户端未授权创建独立运行身份", "The Client cannot create an independent runtime identity")
+            bound = _ensure_client_managed_agent(db, client=client, client_agent=client_agent, token=issuance, model_name=model_name)
+            client_agent.managed_agent_id = bound.agent_id
+
         capabilities = _load(client_agent.capabilities_json, {})
         if agent_type not in _MODEL_CONFIG_AGENT_TYPES or not capabilities.get("model_config_auto_apply"):
             raise HTTPException(status_code=400, detail="当前 Agent 暂不支持自动应用模型配置")
+        active = db.query(models.ClientTask).filter(
+            models.ClientTask.client_id == client_id,
+            models.ClientTask.task_type.in_(("apply_model_config", "verify_model_config", "restore_model_config")),
+            models.ClientTask.status.in_(("pending", "running")),
+        ).all()
+        if any(_local_agent_id(_load(task.payload_json, {}).get("local_agent_id"), agent_type) == local_agent_id for task in active):
+            raise ApiError(409, "client.model_config_in_progress", "该 Agent 正在切换模型", "A model switch is already running for this Agent")
+        target_model = db.query(models.ModelEndpoint).join(models.ModelProvider).filter(
+            models.ModelEndpoint.name == model_name, models.ModelEndpoint.enabled.is_(True), models.ModelProvider.enabled.is_(True),
+        ).first()
+        if not target_model:
+            raise ApiError(404, "model.not_found", "模型不存在或未启用", "The model is missing or disabled")
+        options = validate_model_options(agent_type, payload.get("parameters", {}), payload.get("expected_revision"), target_model)
+        validate_parameter_version(agent_type, options["parameters"], client_agent.agent_version)
+        validate_effective_parameters(agent_type, options["parameters"], reported_model_parameters(capabilities), target_model)
         agent = db.query(models.ManagedAgent).filter(
             models.ManagedAgent.agent_id == client_agent.managed_agent_id,
         ).first()
@@ -2024,6 +2214,7 @@ def create_task(
             "agent_type": agent_type,
             "managed_agent_id": agent.agent_id,
             "model": model_name,
+            **options,
         }
         if issuance_token:
             payload["auto_issue_credential"] = True
@@ -2139,13 +2330,15 @@ def cancel_task(
         raise HTTPException(status_code=404, detail="任务不存在")
     if row.status not in {"pending", "running"}:
         raise HTTPException(status_code=400, detail="只有待执行或执行中的任务可以取消")
-    if row.task_type in {"skill_action", "remove_skill", "install_skill", "repair_skill"}:
+    if row.task_type in {"skill_action", "remove_skill", "install_skill", "repair_skill", "apply_model_config", "verify_model_config", "restore_model_config"}:
         changed = db.query(models.ClientTask).filter(
             models.ClientTask.id == task_id, models.ClientTask.client_id == client_id,
             models.ClientTask.status == "pending",
         ).update({"status": "cancelled", "finished_at": datetime.utcnow()}, synchronize_session=False)
         if not changed:
             raise ApiError(409, "client.action_already_started", "处置任务已开始，无法中途取消，请等待结果", "Remediation has started and cannot be cancelled midway; wait for the result")
+        if row.task_type in {"apply_model_config", "verify_model_config", "restore_model_config"}:
+            _update_model_config_state(db, client_id, _load(row.payload_json, {}), "cancelled")
         _operation(db, current_user, "取消客户端任务", client_id, f"task_id={task_id}")
         db.commit()
         return {"id": task_id, "status": "cancelled"}
@@ -2174,6 +2367,17 @@ def retry_task(
     if row.status not in {"failed", "cancelled"}:
         raise HTTPException(status_code=400, detail="只有失败或已取消的任务可以重试")
     payload = _load(row.payload_json, {})
+    if row.task_type in {"apply_model_config", "verify_model_config", "restore_model_config"}:
+        local_id = _local_agent_id(payload.get("local_agent_id"), str(payload.get("agent_type") or ""))
+        _lock_model_task_agent(db, client_id, local_id)
+        active = db.query(models.ClientTask).filter(models.ClientTask.client_id == client_id,
+            models.ClientTask.task_type.in_(("apply_model_config", "verify_model_config", "restore_model_config")),
+            models.ClientTask.status.in_(("pending", "running"))).all()
+        for task in active:
+            if _load(task.payload_json, {}).get("local_agent_id") == local_id:
+                if task.request_key == f"retry-task:{client_id}:{task_id}":
+                    return {"id": task.id, "status": task.status}
+                raise ApiError(409, "client.model_config_in_progress", "该 Agent 有正在执行的模型任务", "A model task is active for this Agent")
     if row.task_type == "sync_policy" and payload.get("target_version") and payload["target_version"] != client_governance.policy_view(db, client_id)["version"]:
         raise ApiError(409, "client.policy_superseded", "此任务已被较新策略版本取代，请查看最新同步任务", "A newer policy superseded this task; use the latest synchronization task")
     if row.task_type in {"skill_action", "remove_skill"}:

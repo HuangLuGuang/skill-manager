@@ -5,16 +5,23 @@
         <a-page-header :title="$t('legacy.1ngfjb6')" :sub-title="$t('legacy.vpytmv')" />
       </template>
 
-    <a-alert
-      type="warning"
-      show-icon
-      :message="$t('legacy.1k6rkb4')"
-      :description="$t('legacy.xnr5g4')"
-    />
-
-    <a-card :title="$t('legacy.1wwptsv')" style="margin-top: 16px">
+    <a-card :title="$t('legacy.1wwptsv')">
       <template #extra>
-        <a-button @click="refreshTraces" :loading="loading">{{ $t("legacy.12qo56a") }}</a-button>
+        <a-space wrap>
+          <a-popover trigger="click" placement="bottomRight" :title="$t('skillColumns.hint')">
+            <template #content>
+              <a-checkbox-group v-model:value="visibleColumns" class="column-options">
+                <a-checkbox v-for="column in allTraceColumns" :key="column.key" :value="column.key"
+                  :disabled="visibleColumns.length === 1 && visibleColumns.includes(column.key)">
+                  {{ column.title }}
+                </a-checkbox>
+              </a-checkbox-group>
+              <a-button type="link" class="reset-columns" @click="visibleColumns = [...defaultTraceColumns]">{{ $t('skillColumns.reset') }}</a-button>
+            </template>
+            <a-button><SettingOutlined /> {{ $t('skillColumns.settings') }}</a-button>
+          </a-popover>
+          <a-button @click="refreshTraces" :loading="loading">{{ $t("legacy.12qo56a") }}</a-button>
+        </a-space>
       </template>
       <a-table
         class="trace-table"
@@ -24,7 +31,8 @@
         :loading="loading"
         size="small"
         :pagination="pagination"
-        :scroll="{ x: 1280, y: 400 }"
+        :scroll="{ x: traceScrollWidth, y: 'var(--trace-body-height)' }"
+        table-layout="fixed"
         :customRow="traceRowProps"
         @change="handleTableChange"
       >
@@ -35,20 +43,24 @@
             </a-tooltip>
           </template>
           <template v-else-if="column.key === 'api_key_username'">
-            {{ record.api_key_username || '-' }}
+            <a-tooltip :title="record.api_key_username"><span class="trace-cell-text">{{ record.api_key_username || '-' }}</span></a-tooltip>
           </template>
           <template v-else-if="column.key === 'api_key_name'">
-            {{ record.api_key_name || '-' }}
+            <a-tooltip :title="record.api_key_name"><span class="trace-cell-text">{{ record.api_key_name || '-' }}</span></a-tooltip>
           </template>
           <template v-else-if="column.key === 'agent'">
-            <div>{{ record.agent_name || '-' }}</div>
-            <div v-if="record.agent_id" class="muted">{{ record.agent_id }}</div>
+            <a-tooltip>
+              <template #title>
+                <div>{{ record.agent_name || '-' }}</div>
+                <div v-if="record.agent_id">{{ record.agent_id }}</div>
+              </template>
+              <span class="trace-cell-text">{{ record.agent_name || record.agent_id || '-' }}</span>
+            </a-tooltip>
           </template>
           <template v-else-if="column.key === 'api_key_group_names'">
-            <a-space v-if="normalizeGroupNames(record.api_key_group_names).length" size="small" wrap>
-              <a-tag v-for="name in normalizeGroupNames(record.api_key_group_names)" :key="name">{{ name }}</a-tag>
-            </a-space>
-            <span v-else>-</span>
+            <a-tooltip :title="formatGroupNames(record.api_key_group_names)">
+              <span class="trace-cell-text">{{ formatGroupNames(record.api_key_group_names) }}</span>
+            </a-tooltip>
           </template>
           <template v-else-if="column.key === 'type'">
             <a-tag :color="record.bypass_pii ? 'orange' : 'blue'">{{ record.bypass_pii ? 'Bypass' : 'PII Checked' }}</a-tag>
@@ -134,6 +146,7 @@
           style="margin-bottom: 16px"
         />
 
+        <p class="muted">{{ $t('pipelineTrace.piiHint') }}</p>
         <a-collapse v-model:activeKey="activeStages">
           <a-collapse-panel v-for="stage in stageOrder" :key="stage.key" :header="stage.label">
             <template #extra>
@@ -150,7 +163,7 @@
               show-icon
               :message="$t('legacy.16r4k88')"
             />
-            <pre v-else class="trace-block">{{ renderStage(stage.key) }}</pre>
+            <TracePiiText v-else :key="`${selectedId}:${stage.key}`" :text="renderStage(stage.key)" :mappings="detail?.pii_mappings || []" />
           </a-collapse-panel>
         </a-collapse>
       </a-spin>
@@ -161,10 +174,12 @@
 <script setup>
 import { translateLegacy as phrase, translateText as text } from '../i18n'
 
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
+import { SettingOutlined } from '@ant-design/icons-vue'
+import TracePiiText from '../components/TracePiiText.vue'
 
 import { getPrivacyTrace, listPrivacyTraces } from '../api'
 import { copyText, promptManualCopy } from '../utils/clipboard'
@@ -205,22 +220,40 @@ const stageOrder = [
   { key: 'final_response', label: phrase('legacy.jgj4pf') },
 ]
 
-const traceColumns = [
+const allTraceColumns = computed(() => [
   { title: phrase('legacy.1f90xvr'), dataIndex: 'created_at', width: 135, customRender: ({ text }) => formatBeijingDateTime(text) },
-  { title: phrase('legacy.1in002o'), key: 'api_key_username', width: 75 },
+  { title: phrase('legacy.1in002o'), key: 'api_key_username', width: 95 },
   { title: phrase('legacy.19kaip8'), key: 'api_key_group_names', width: 115 },
-  { title: t('pipelineTrace.credential'), key: 'api_key_name', width: 105 },
-  { title: t('pipelineTrace.agent'), key: 'agent', width: 130 },
-  { title: phrase('legacy.1ow6qt'), dataIndex: 'model', width: 110 },
-  { title: phrase('legacy.csussz'), dataIndex: 'request_duration_ms', width: 80, customRender: ({ text }) => formatMs(text) },
-  { title: phrase('legacy.j2g9ts'), dataIndex: 'upstream_duration_ms', width: 85, customRender: ({ text }) => formatMs(text) },
-  { title: phrase('legacy.1yz91un'), dataIndex: 'platform_duration_ms', width: 85, customRender: ({ text }) => formatMs(text) },
-  { title: phrase('legacy.5h548n'), key: 'prompt_security', width: 105 },
+  { title: t('pipelineTrace.credential'), key: 'api_key_name', width: 160 },
+  { title: t('pipelineTrace.agent'), key: 'agent', width: 160 },
+  { title: phrase('legacy.1ow6qt'), dataIndex: 'model', width: 150 },
+  { title: phrase('legacy.csussz'), dataIndex: 'request_duration_ms', width: 115, customRender: ({ text }) => formatMs(text) },
+  { title: phrase('legacy.j2g9ts'), dataIndex: 'upstream_duration_ms', width: 125, customRender: ({ text }) => formatMs(text) },
+  { title: phrase('legacy.1yz91un'), dataIndex: 'platform_duration_ms', width: 125, customRender: ({ text }) => formatMs(text) },
+  { title: phrase('legacy.5h548n'), key: 'prompt_security', width: 130 },
   { title: phrase('legacy.1qtojr9'), dataIndex: 'prompt_tokens', width: 75, customRender: ({ text }) => formatNumber(text) },
   { title: phrase('legacy.w0yvd4'), dataIndex: 'completion_tokens', width: 75, customRender: ({ text }) => formatNumber(text) },
-  { title: phrase('legacy.anh4cj'), key: 'type', width: 90 },
-  { title: 'Request ID', key: 'request_id', width: 90 },
-]
+  { title: phrase('legacy.anh4cj'), key: 'type', width: 115 },
+  { title: 'Request ID', key: 'request_id', width: 125 },
+].map(column => ({ ...column, key: column.key || column.dataIndex, ellipsis: true })))
+const defaultTraceColumns = ['created_at', 'api_key_username', 'agent', 'model', 'request_duration_ms', 'prompt_security', 'prompt_tokens', 'completion_tokens']
+const columnStorageKey = `pipeline-trace-visible-columns:${localStorage.getItem('username') || 'default'}`
+const readTraceColumns = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(columnStorageKey))
+    if (Array.isArray(saved)) {
+      const valid = allTraceColumns.value.filter(column => saved.includes(column.key)).map(column => column.key)
+      if (valid.length) return valid
+    }
+  } catch { /* Browser storage may be unavailable or contain invalid JSON. */ }
+  return [...defaultTraceColumns]
+}
+const visibleColumns = ref(readTraceColumns())
+watch(visibleColumns, value => {
+  try { localStorage.setItem(columnStorageKey, JSON.stringify(value)) } catch { /* Browser storage may be unavailable. */ }
+})
+const traceColumns = computed(() => allTraceColumns.value.filter(column => visibleColumns.value.includes(column.key)))
+const traceScrollWidth = computed(() => traceColumns.value.reduce((width, column) => width + column.width, 0))
 
 const fetchTraces = async (page = pagination.value.current, pageSize = pagination.value.pageSize) => {
   loading.value = true
@@ -250,15 +283,17 @@ const handleTableChange = (pager) => {
 
 const selectTrace = async (record) => {
   selectedId.value = record.request_id
+  detail.value = null
   drawerOpen.value = true
   revealOriginal.value = false
   detailLoading.value = true
   try {
-    detail.value = await getPrivacyTrace(record.request_id)
+    const result = await getPrivacyTrace(record.request_id)
+    if (selectedId.value === record.request_id) detail.value = result
   } catch (error) {
     message.error(error.response?.data?.detail || phrase('legacy.zzt7t8'))
   } finally {
-    detailLoading.value = false
+    if (selectedId.value === record.request_id) detailLoading.value = false
   }
 }
 
@@ -361,30 +396,40 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.trace-block {
-  max-height: 520px;
-  overflow: auto;
-  padding: 12px;
-  margin: 0;
-  background: #0f172a;
-  color: #e5e7eb;
-  border-radius: 6px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 12px;
-  line-height: 1.55;
+.column-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 320px;
+  max-width: calc(100vw - 64px);
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px 0;
 }
+.column-options :deep(.ant-checkbox-wrapper) { margin-inline-start: 0; }
+.reset-columns { margin-top: 12px; padding-left: 0; }
+.trace-cell-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 
 .request-id-text {
   display: inline-block;
-  max-width: 70px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: bottom;
   white-space: nowrap;
 }
 
+.trace-table {
+  --trace-body-height: max(280px, calc(100dvh - 340px));
+}
+
 .trace-table :deep(.ant-table-body) {
-  min-height: 400px;
+  min-height: var(--trace-body-height);
 }
 </style>

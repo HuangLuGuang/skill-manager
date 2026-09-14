@@ -1,0 +1,23 @@
+=== RUN   TestNativeCodexRequestRetries
+=== RUN   TestNativeCodexRequestRetries/retries_0
+    model_native_fault_test.go:72: native Codex fault server: retries=0 requests=1 elapsed=361ms process_failed=true
+=== RUN   TestNativeCodexRequestRetries/retries_2
+    model_native_fault_test.go:72: native Codex fault server: retries=2 requests=3 elapsed=765ms process_failed=true
+--- PASS: TestNativeCodexRequestRetries (1.21s)
+    --- PASS: TestNativeCodexRequestRetries/retries_0 (0.41s)
+    --- PASS: TestNativeCodexRequestRetries/retries_2 (0.80s)
+=== RUN   TestNativeModelTimeouts
+=== RUN   TestNativeModelTimeouts/claude-code_1000ms
+    model_native_fault_test.go:152: native claude-code fault server: timeout_ms=1000 timeout_observed_after=1s
+=== RUN   TestNativeModelTimeouts/claude-code_2500ms
+    model_native_fault_test.go:152: native claude-code fault server: timeout_ms=2500 timeout_observed_after=2.501s
+=== RUN   TestNativeModelTimeouts/codex_1000ms
+    model_native_fault_test.go:152: native codex fault server: stream_idle_timeout_ms=1000 timeout_observed_after=1.019s
+=== RUN   TestNativeModelTimeouts/codex_2500ms
+    model_native_fault_test.go:152: native codex fault server: stream_idle_timeout_ms=2500 timeout_observed_after=2.515s
+--- PASS: TestNativeModelTimeouts (8.83s)
+    --- PASS: TestNativeModelTimeouts/claude-code_1000ms (2.05s)
+    --- PASS: TestNativeModelTimeouts/claude-code_2500ms (2.91s)
+    --- PASS: TestNativeModelTimeouts/codex_1000ms (1.18s)
+    --- PASS: TestNativeModelTimeouts/codex_2500ms (2.69s)
+PASS

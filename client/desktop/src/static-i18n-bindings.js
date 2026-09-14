@@ -1859,5 +1859,29 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "ui.agentManagement.confirm_action",
     "source": "确认并创建任务"
+  },
+  {
+    "selector": "#model-config-title",
+    "nodeIndex": 0,
+    "key": "ui.modelConfig.preview",
+    "source": "模型配置预览"
+  },
+  {
+    "selector": "#model-config-form>div:nth-of-type(1)>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.modelConfig.effect",
+    "source": "配置写入后需重新启动 Agent，真实调用尚未验证。"
+  },
+  {
+    "selector": "#model-config-form>div:nth-of-type(2)>button:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.cancel",
+    "source": "取消"
+  },
+  {
+    "selector": "#confirm-model-config",
+    "nodeIndex": 0,
+    "key": "ui.modelConfig.apply",
+    "source": "应用配置"
   }
 ]

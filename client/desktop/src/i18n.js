@@ -860,6 +860,56 @@
   let locale = detectLocale()
 
   const semanticMessages = {
+    'ui.modelConfig.evidence': { 'zh-CN': '网关调用证据', 'en-US': 'Gateway call evidence' },
+    "ui.modelConfig.error.model_config.verification_version_unsupported": {"zh-CN": "该 Agent 版本尚无已确认的隔离验证流程。", "en-US": "An isolated verification workflow has not been established for this Agent version."},
+    "ui.modelConfig.error.model_config.verification_dependencies_missing": {"zh-CN": "隔离验证所需的已安装依赖不可用；未自动安装依赖。", "en-US": "Installed dependencies required for isolated verification are unavailable. No dependencies were installed."},
+    "ui.modelConfig.error.model_config.ambiguous_paths": {"zh-CN": "发现多个配置位置，请确认实际使用的配置文件。", "en-US": "Multiple configuration locations were found; confirm the active file."},
+    "ui.modelConfig.error.model_config.path_invalid": {"zh-CN": "无法确定有效的绝对配置路径。", "en-US": "A valid absolute configuration path could not be determined."},
+    "ui.modelConfig.error.model_config.gateway_blocked": {"zh-CN": "网关策略阻断了验证请求，请按请求记录查看拒绝原因。", "en-US": "Gateway policy blocked verification. Inspect the request audit for the reason."},
+    "ui.modelConfig.error.model_config.task_timeout": {"zh-CN": "模型配置任务超时，请检查客户端后重试。", "en-US": "The model configuration task timed out; check the Client and retry."},
+    "ui.modelConfig.error.model_config.conflict": {"zh-CN": "配置已变化，请刷新后重试。", "en-US": "Configuration changed; refresh and retry."},
+    "ui.modelConfig.error.model_config.restore_conflict": {"zh-CN": "检测到后续修改，恢复已停止。", "en-US": "Later edits were detected; restoration stopped."},
+    "ui.modelConfig.error.model_config.retry_conflict": {"zh-CN": "任务已写入或配置已变化，请检查当前状态后恢复或重新配置。", "en-US": "The task wrote configuration or it changed. Check the current state before restoring or configuring again."},
+    "ui.modelConfig.error.model_config.gateway_evidence_missing": {"zh-CN": "未找到目标模型及参数的成功网关记录，请检查调用证据。", "en-US": "No successful gateway record matches the target model and parameters. Inspect call evidence."},
+    "ui.modelConfig.error.model_config.agent_call_failed": {"zh-CN": "Agent 调用失败，请检查网关拒绝原因或本机 Agent 状态。", "en-US": "The Agent call failed. Check gateway rejection evidence and the local Agent."},
+    "ui.modelConfig.error.model_config.agent_response_missing": {"zh-CN": "Agent 未返回有效验证回答。", "en-US": "The Agent did not return a valid verification answer."},
+    "ui.modelConfig.error.model_config.verification_timeout": {"zh-CN": "Agent 调用验证超时，可重试。", "en-US": "Agent call verification timed out; retry is available."},
+    "ui.modelConfig.error.model_config.verification_unavailable": {"zh-CN": "该 Agent 暂无可用的自动调用验证方式。", "en-US": "Automatic call verification is unavailable for this Agent."},
+    "ui.modelConfig.error.model_config.agent_missing": {"zh-CN": "未发现 Agent 可执行文件。", "en-US": "The Agent executable was not found."},
+    "ui.modelConfig.error.model_config.credential_missing": {"zh-CN": "原生配置缺少运行凭据，请重新配置。", "en-US": "The native configuration has no runtime credential; configure it again."},
+    "ui.modelConfig.error.model_config.parameter_invalid": {"zh-CN": "参数值无效，请检查范围和类型。", "en-US": "Invalid parameter value; check its range and type."},
+    "ui.modelConfig.error.model_config.preflight_failed": {"zh-CN": "服务端未确认模型预检通过，配置未修改。", "en-US": "The server did not confirm model preflight; configuration was not changed."},
+    "ui.modelConfig.error.model_config.parameter_unsupported": {"zh-CN": "该 Agent 不支持此参数。", "en-US": "This Agent does not support this parameter."},
+    "ui.modelConfig.error.model_config.parameter_version_unverified": {"zh-CN": "该 Agent 版本的参数支持尚未验证，请刷新发现结果或保留现有参数。", "en-US": "Parameter support is unverified for this Agent version. Refresh discovery or retain existing parameters."},
+    "ui.modelConfig.versionUnverified": {"zh-CN": "当前 Agent 版本尚未验证，保留现有参数。结构化参数已验证版本：", "en-US": "This Agent version is unverified; existing parameters are retained. Structured parameters were verified with:"},
+    "ui.modelConfig.error.model_config.write_failed": {"zh-CN": "配置写入失败，可从备份恢复。", "en-US": "Configuration writing failed; restore from the backup."},
+    "ui.modelConfig.error.model_config.invalid_document": {"zh-CN": "原生配置格式无效，未应用修改。", "en-US": "The native configuration is invalid; changes were not applied."},
+    "ui.modelConfig.error.model_config.invalid_json": {"zh-CN": "原生 JSON 配置格式无效，未应用修改。", "en-US": "The native JSON configuration is invalid; changes were not applied."},
+    "ui.modelConfig.error.model_config.readback_failed": {"zh-CN": "配置读回与预期不一致，请检查并恢复。", "en-US": "Configuration readback differs from the expected result; inspect and restore."},
+    "ui.modelConfig.error.model_config.change_invalid": {"zh-CN": "未找到有效的模型配置变更记录。", "en-US": "No valid model configuration change record was found."},
+    "ui.modelConfig.error.model_config.symlink": {"zh-CN": "配置路径包含符号链接，请先确认实际配置位置。", "en-US": "The configuration path contains a symbolic link; confirm the actual location."},
+    "ui.modelConfig.error.model_config.locked": {"zh-CN": "另一个模型配置操作正在进行，请稍后重试。", "en-US": "Another model configuration operation is active; retry later."},
+    'ui.modelConfig.noAgent': { 'zh-CN': '未发现支持模型配置的 Agent，请安装后重新发现。', 'en-US': 'No Agent with model configuration support was discovered. Rediscover after installation.' },
+    'ui.modelConfig.restore': { 'zh-CN': '恢复切换前配置', 'en-US': 'Restore previous configuration' },
+    'ui.modelConfig.configure': { 'zh-CN': '配置参数', 'en-US': 'Configure parameters' },
+    'ui.modelConfig.status.applying': { 'zh-CN': '应用中', 'en-US': 'Applying' },
+    'ui.modelConfig.status.pending_restart': { 'zh-CN': '待重启 / 调用未验证', 'en-US': 'Restart required / call unverified' },
+    'ui.modelConfig.status.failed': { 'zh-CN': '失败', 'en-US': 'Failed' },
+    'ui.modelConfig.status.restored': { 'zh-CN': '已恢复原配置', 'en-US': 'Original configuration restored' },
+    'ui.modelConfig.verify': { 'zh-CN': '验证真实调用', 'en-US': 'Verify real call' },
+    'ui.modelConfig.status.verified': { 'zh-CN': '隔离调用验证通过', 'en-US': 'Isolated call verified' },
+    'ui.modelConfig.verificationFailed': { 'zh-CN': '调用验证失败', 'en-US': 'Call verification failed' },
+    'ui.modelConfig.verifiedDetail': { 'zh-CN': '已使用独立配置目录和最小连接提示核对 Agent 响应及网关审计。此结果不代表完整工具工作流已通过；现有 Agent 会话仍需重启。', 'en-US': 'The Agent response and gateway audit passed using an isolated configuration directory and a minimal connection prompt. This does not verify the full tool workflow. Restart existing Agent sessions.' },
+    'ui.modelConfig.preview': { 'zh-CN': '模型配置预览', 'en-US': 'Model configuration preview' },
+    'ui.modelConfig.apply': { 'zh-CN': '应用配置', 'en-US': 'Apply configuration' },
+    'ui.modelConfig.written': { 'zh-CN': '配置已写入，待重启', 'en-US': 'Configuration written; restart required' },
+    'ui.modelConfig.effect': { 'zh-CN': '配置写入后需重新启动 Agent，真实调用尚未验证。平台限制优先于显式参数。', 'en-US': 'Restart the Agent after writing configuration. Real calls remain unverified. Platform limits take precedence over explicit parameters.' },
+    'ui.modelConfig.unset': { 'zh-CN': '未设置：保留原配置或默认值', 'en-US': 'Unset: keep native configuration or defaults' },
+    'ui.modelConfig.parameters.max_output_tokens': { 'zh-CN': '最大输出 Token', 'en-US': 'Maximum output tokens' },
+    'ui.modelConfig.parameters.max_tokens': { 'zh-CN': '最大输出 Token', 'en-US': 'Maximum output tokens' },
+    'ui.modelConfig.parameters.timeout_ms': { 'zh-CN': '请求超时（毫秒）', 'en-US': 'Request timeout (ms)' },
+    'ui.modelConfig.parameters.request_max_retries': { 'zh-CN': '请求最大重试次数', 'en-US': 'Maximum request retries' },
+    'ui.modelConfig.parameters.stream_idle_timeout_ms': { 'zh-CN': '流式空闲超时（毫秒）', 'en-US': 'Stream idle timeout (ms)' },
     'ui.activity.credential_issued': { 'zh-CN': '已签发 Agent 凭证', 'en-US': 'Agent Credential Issued' },
     'ui.activity.binding_updated': { 'zh-CN': '已更新 Agent 绑定', 'en-US': 'Agent Binding Updated' },
     'ui.activity.agent_created': { 'zh-CN': '已自动创建 Agent', 'en-US': 'Agent Created Automatically' },
@@ -1205,6 +1255,8 @@
 
   const translateRuntime = value => {
     const source = String(value ?? '')
+    const modelCode = source.match(/\bmodel_config\.[a-z_]+/)?.[0]
+    if (modelCode && semanticMessages[`ui.modelConfig.error.${modelCode}`]) return t(`ui.modelConfig.error.${modelCode}`)
     const diagnosticCode = source.replace(/^(?:Error:|error:)\s*/, '').trim().split(':')[0]
     const diagnosticKey = `ui.diagnostics.error.${diagnosticCode}`
     if (semanticMessages[diagnosticKey]) return t(diagnosticKey)

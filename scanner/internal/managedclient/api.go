@@ -174,6 +174,17 @@ func (api API) WaitTasks(ctx context.Context, clientID string, afterID int64) ([
 
 func (api API) ReportExecutedTask(ctx context.Context, clientID string, task Task, status, taskError string) error {
 	body := map[string]any{"status": status, "error": taskError}
+	if task.TaskType == "verify_model_config" {
+		if ids, ok := task.Payload["verification_request_ids"]; ok {
+			body["verification_request_ids"] = ids
+		}
+	}
+	if task.TaskType == "verify_model_config" || task.TaskType == "restore_model_config" {
+		if model, ok := task.Payload["applied_model"]; ok {
+			body["applied_model"] = model
+		}
+	}
+
 	if task.TaskType == "sync_policy" && status == "succeeded" {
 		body["applied_policy_version"] = stringValue(task.Payload, "target_version")
 	}
@@ -199,28 +210,48 @@ func (api API) StartTask(ctx context.Context, clientID string, taskID int64) (bo
 	return !result.Ignored && err == nil, result.Status, err
 }
 
-func (api API) IssueAgentCredential(ctx context.Context, clientID string, taskID int64) (AgentCredential, error) {
+func (api API) IssueAgentCredential(ctx context.Context, clientID string, taskID int64, previousHash ...string) (AgentCredential, error) {
 	var result AgentCredential
+	body := map[string]any{}
+	if len(previousHash) > 0 && previousHash[0] != "" {
+		body["previous_credential_hash"] = previousHash[0]
+	}
 	err := api.postJSON(
 		ctx,
 		fmt.Sprintf("/api/v1/clients/%s/tasks/%d/agent-credential", clientID, taskID),
-		map[string]any{},
+		body,
 		&result,
 	)
 	return result, err
 }
 
-func (api API) RequestModelConfiguration(ctx context.Context, clientID, localAgentID, agentType, managedAgentID, model string) (Task, error) {
+func (api API) PreflightModelTask(ctx context.Context, clientID string, taskID int64, revision string, current map[string]any) error {
+	var result struct {
+		OK bool `json:"ok"`
+	}
+	if err := api.postJSON(ctx, fmt.Sprintf("/api/v1/clients/%s/tasks/%d/model-preflight", clientID, taskID), map[string]any{"revision": revision, "current_parameters": current}, &result); err != nil {
+		return err
+	}
+	if !result.OK {
+		return fmt.Errorf("model_config.preflight_failed")
+	}
+	return nil
+}
+
+func (api API) RequestModelConfiguration(ctx context.Context, clientID, localAgentID, agentType, managedAgentID, model string, options ...map[string]any) (Task, error) {
 	var result Task
+	payload := map[string]any{"local_agent_id": strings.TrimSpace(localAgentID), "agent_type": strings.TrimSpace(agentType), "managed_agent_id": strings.TrimSpace(managedAgentID), "model": strings.TrimSpace(model)}
+	if len(options) > 0 {
+		for _, key := range []string{"parameters", "expected_revision"} {
+			if value, ok := options[0][key]; ok {
+				payload[key] = value
+			}
+		}
+	}
 	err := api.postJSON(
 		ctx,
 		"/api/v1/clients/"+clientID+"/model-configurations",
-		map[string]any{
-			"local_agent_id":   strings.TrimSpace(localAgentID),
-			"agent_type":       strings.TrimSpace(agentType),
-			"managed_agent_id": strings.TrimSpace(managedAgentID),
-			"model":            strings.TrimSpace(model),
-		},
+		payload,
 		&result,
 	)
 	return result, err

@@ -1,0 +1,189 @@
+{
+  "version": 1,
+  "baseline": {
+    "repository": "https://github.com/farion1231/cc-switch",
+    "release": "v3.20.3",
+    "commit": "d695a2d77fd9081eafd3e9eedcbf2a97b3410928"
+  },
+  "agents": {
+    "claude-desktop": {
+      "label": "Claude Desktop",
+      "protocol": "anthropic",
+      "files": [
+        "Library/Application Support/Claude/claude_desktop_config.json",
+        "Library/Application Support/Claude-3p/claude_desktop_config.json",
+        "Library/Application Support/Claude-3p/configLibrary/19bff109-59d3-4d28-bb3c-233e18174c13.json",
+        "Library/Application Support/Claude-3p/configLibrary/_meta.json"
+      ],
+      "files_by_os": {
+        "windows": [
+          "AppData/Local/Claude/claude_desktop_config.json",
+          "AppData/Local/Claude-3p/claude_desktop_config.json",
+          "AppData/Local/Claude-3p/configLibrary/19bff109-59d3-4d28-bb3c-233e18174c13.json",
+          "AppData/Local/Claude-3p/configLibrary/_meta.json"
+        ]
+      },
+      "platforms": [
+        "darwin",
+        "windows"
+      ],
+      "binary": "",
+      "source": "https://github.com/farion1231/cc-switch/blob/v3.20.3/src-tauri/src/claude_desktop_config.rs",
+      "parameters": {}
+    },
+    "claude-code": {
+      "verification": "isolated_cli",
+      "label": "Claude Code",
+      "protocol": "anthropic",
+      "files": [
+        ".claude/settings.json"
+      ],
+      "binary": "claude",
+      "source": "https://code.claude.com/docs/en/settings",
+      "parameters": {
+        "max_output_tokens": {
+          "type": "integer",
+          "min": 1,
+          "max": 128000,
+          "path": "env.CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+          "wire": "max_tokens",
+          "condition": "model_output_limit"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "min": 1000,
+          "max": 600000,
+          "path": "env.API_TIMEOUT_MS",
+          "wire": "local_timeout",
+          "condition": "local"
+        }
+      },
+      "config_root_env": "CLAUDE_CONFIG_DIR",
+      "config_root_prefix": ".claude",
+      "parameter_versions": [
+        "2.1.220"
+      ]
+    },
+    "codex": {
+      "verification": "isolated_cli",
+      "label": "Codex",
+      "protocol": "responses",
+      "files": [
+        ".codex/config.toml"
+      ],
+      "binary": "codex",
+      "source": "https://developers.openai.com/codex/config-reference/",
+      "parameters": {
+        "request_max_retries": {
+          "type": "integer",
+          "min": 0,
+          "max": 10,
+          "path": "model_providers.agent_manager.request_max_retries",
+          "wire": "local_retries",
+          "condition": "local"
+        },
+        "stream_idle_timeout_ms": {
+          "type": "integer",
+          "min": 1000,
+          "max": 600000,
+          "path": "model_providers.agent_manager.stream_idle_timeout_ms",
+          "wire": "local_timeout",
+          "condition": "local"
+        }
+      },
+      "config_root_env": "CODEX_HOME",
+      "config_root_prefix": ".codex",
+      "parameter_versions": [
+        "0.132.0"
+      ]
+    },
+    "opencode": {
+      "verification": "isolated_cli",
+      "label": "OpenCode",
+      "protocol": "chat_completions",
+      "files": [
+        ".config/opencode/opencode.json"
+      ],
+      "binary": "opencode",
+      "source": "https://opencode.ai/docs/providers/",
+      "parameters": {},
+      "config_root_env": "XDG_CONFIG_HOME",
+      "config_root_prefix": ".config",
+      "config_file_env": "OPENCODE_CONFIG"
+    },
+    "gemini": {
+      "verification": "isolated_cli",
+      "label": "Gemini CLI",
+      "protocol": "gemini",
+      "files": [
+        ".gemini/settings.json",
+        ".gemini/.env"
+      ],
+      "binary": "gemini",
+      "source": "https://geminicli.com/docs/reference/configuration/",
+      "parameters": {},
+      "config_root_env": "GEMINI_CLI_HOME",
+      "config_root_prefix": ""
+    },
+    "openclaw": {
+      "label": "OpenClaw",
+      "protocol": "chat_completions",
+      "files": [
+        ".openclaw/openclaw.json"
+      ],
+      "binary": "openclaw",
+      "source": "https://docs.openclaw.ai/gateway/configuration-reference",
+      "parameters": {}
+    },
+    "pi": {
+      "verification": "isolated_cli",
+      "label": "Pi",
+      "protocol": "chat_completions",
+      "files": [
+        ".pi/agent/settings.json",
+        ".pi/agent/models.json"
+      ],
+      "binary": "pi",
+      "source": "https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent/docs",
+      "parameters": {},
+      "config_root_env": "PI_CODING_AGENT_DIR",
+      "config_root_prefix": ".pi/agent"
+    },
+    "grokbuild": {
+      "label": "Grok Build",
+      "protocol": "responses",
+      "files": [
+        ".grok/config.toml"
+      ],
+      "binary": "grok",
+      "source": "https://github.com/farion1231/cc-switch/blob/v3.20.3/src-tauri/src/grok_config.rs",
+      "parameters": {}
+    },
+    "hermes": {
+      "verification": "isolated_cli",
+      "label": "Hermes",
+      "protocol": "chat_completions",
+      "files": [
+        ".hermes/config.yaml",
+        ".hermes/.env"
+      ],
+      "binary": "hermes",
+      "source": "https://github.com/NousResearch/hermes-agent",
+      "parameters": {
+        "max_tokens": {
+          "type": "integer",
+          "min": 1,
+          "max": 128000,
+          "path": "model.max_tokens",
+          "wire": "max_tokens",
+          "condition": "model_output_limit"
+        }
+      },
+      "config_root_env": "HERMES_HOME",
+      "config_root_prefix": ".hermes",
+      "parameter_versions": [
+        "0.17.0"
+      ]
+    }
+  }
+}

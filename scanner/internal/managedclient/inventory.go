@@ -17,7 +17,7 @@ import (
 
 var Version = "dev"
 
-const InventoryCacheVersion = "5"
+const InventoryCacheVersion = "6"
 
 type Skill struct {
 	Governance    *SkillObservation `json:"governance,omitempty"`
@@ -93,11 +93,14 @@ func adapters() []adapter {
 		{agentType: "qoderwork", displayName: "QoderWork", skillRoots: []string{".qoderwork/skills"}, supportsSkill: true},
 		{agentType: "zcode", displayName: "ZCode", skillRoots: []string{".zcode/skills"}, supportsSkill: true},
 		{agentType: "claude-code", binaries: []string{"claude"}, skillRoots: []string{".claude/skills"}, supportsSkill: true},
+		{agentType: "claude-desktop", displayName: "Claude Desktop", appPaths: []string{"/Applications/Claude.app", "Applications/Claude.app"}},
 		{agentType: "codex", appPaths: []string{"/Applications/Codex.app", "Applications/Codex.app"}, binaries: []string{"codex"}, skillRoots: []string{".codex/skills"}, supportsSkill: true},
 		{agentType: "gemini", binaries: []string{"gemini"}, skillRoots: []string{".gemini/skills"}, supportsSkill: true},
 		{agentType: "opencode", appPaths: []string{"/Applications/OpenCode.app", "Applications/OpenCode.app"}, binaries: []string{"opencode"}, skillRoots: []string{".opencode/skills", ".config/opencode/skills"}, supportsSkill: true},
 		{agentType: "openclaw", binaries: []string{"openclaw"}, skillRoots: []string{".openclaw/skills"}, supportsSkill: true},
 		{agentType: "hermes", binaries: []string{"hermes"}, skillRoots: []string{".hermes/skills"}, supportsSkill: true},
+		{agentType: "pi", displayName: "Pi", binaries: []string{"pi"}, skillRoots: []string{".pi/agent/skills"}, supportsSkill: true},
+		{agentType: "grokbuild", displayName: "Grok Build", binaries: []string{"grok"}, skillRoots: []string{".grok/skills"}, supportsSkill: true},
 		{agentType: "trae-cn", appPaths: []string{"/Applications/Trae CN.app", "Applications/Trae CN.app"}, binaries: []string{"trae-cn"}, skillRoots: []string{".trae-cn/skills"}, supportsSkill: true},
 		{agentType: "trae", appPaths: []string{"/Applications/Trae.app", "Applications/Trae.app", "/Applications/TRAE.app", "Applications/TRAE.app"}, binaries: []string{"trae"}, skillRoots: []string{".trae/skills"}, supportsSkill: true},
 		{agentType: "cursor", appPaths: []string{"/Applications/Cursor.app", "Applications/Cursor.app"}, binaries: []string{"cursor"}, skillRoots: []string{".cursor/skills"}, supportsSkill: true},
@@ -230,8 +233,11 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 		Capabilities:             map[string]any{"skill_management": spec.supportsSkill},
 		Skills:                   []Skill{},
 	}
-	if spec.agentType == "claude-code" || spec.agentType == "codex" || spec.agentType == "hermes" {
+	if contract, ok := modelAdapters[spec.agentType]; ok && len(modelConfigFiles(spec.agentType)) > 0 {
 		agent.Capabilities["model_config_auto_apply"] = true
+		agent.Capabilities["model_config_contract"] = contract
+		_, probeErr := modelProbeCommand(agent.AgentType, "")
+		agent.Capabilities["model_config_verification"] = contract.Verification == "isolated_cli" && probeErr == nil
 		agent.Capabilities["model_config_state"] = InspectModelConfig(home, spec.agentType)
 	}
 	if spec.sharedSkills {
@@ -274,6 +280,12 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 	}
 	var roots []string
 	relatedDirectoryFound := false
+	for _, relative := range modelConfigFiles(spec.agentType) {
+		if info, err := os.Stat(resolvedModelPath(home, spec.agentType, relative)); err == nil && info.Mode().IsRegular() {
+			relatedDirectoryFound = true
+			break
+		}
+	}
 	for _, configuredRoot := range resolvedSkillRoots(home, spec.skillRoots) {
 		root := resolveSkillRoot(home, configuredRoot)
 		parent := filepath.Dir(root)
@@ -285,6 +297,12 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 		}
 	}
 	agent.Capabilities["installed"] = agent.InstallPath != ""
+	if _, ok := modelAdapters[spec.agentType]; ok {
+		agent.Version = discoverModelVersion(home, spec.agentType, agent.InstallPath)
+		if agent.Capabilities["model_config_auto_apply"] == true {
+			agent.Capabilities["model_config_contract"] = modelContractForVersion(spec.agentType, agent.Version)
+		}
+	}
 	if !relatedDirectoryFound && agent.InstallPath == "" {
 		return agent, false, nil
 	}

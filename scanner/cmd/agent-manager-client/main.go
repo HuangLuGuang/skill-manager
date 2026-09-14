@@ -30,7 +30,7 @@ func main() {
 
 func run(args []string) (runErr error) {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|available-skills|skill-preview|skill-versions|install-skill|quarantine|queue-quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
+		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|verify-model|restore-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|available-skills|skill-preview|skill-versions|install-skill|quarantine|queue-quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
@@ -45,6 +45,9 @@ func run(args []string) (runErr error) {
 	agentType := fs.String("agent-type", "", "local agent type")
 	managedAgentID := fs.String("managed-agent-id", "", "managed Agent ID")
 	model := fs.String("model", "", "gateway model name")
+	modelParameters := fs.String("model-parameters", "{}", "Agent-specific model parameters as JSON")
+	modelRevision := fs.String("model-revision", "", "expected model configuration revision")
+	modelChangeID := fs.String("model-change-id", "", "model configuration recovery ID")
 	skillID := fs.String("skill-id", "", "platform Skill ID")
 	versionID := fs.String("version-id", "", "trusted platform Skill version ID")
 	query := fs.String("query", "", "Skill name search")
@@ -566,7 +569,21 @@ func run(args []string) (runErr error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		api := managedclient.NewAPI(*server, *token, 2*time.Minute)
-		if err := managedclient.ConfigureAgentModel(ctx, *home, inventory, api, store, localAgentID, *agentType, *managedAgentID, *model); err != nil {
+		parameters := map[string]any{}
+		if err := json.Unmarshal([]byte(*modelParameters), &parameters); err != nil {
+			return fmt.Errorf("model_config.parameter_invalid")
+		}
+		if err := managedclient.ValidateModelParameters(*agentType, parameters); err != nil {
+			return err
+		}
+		revision := *modelRevision
+		if revision == "" {
+			revision, err = managedclient.ModelConfigRevision(*home, *agentType)
+			if err != nil {
+				return err
+			}
+		}
+		if err := managedclient.ConfigureAgentModel(ctx, *home, inventory, api, store, localAgentID, *agentType, *managedAgentID, *model, map[string]any{"parameters": parameters, "expected_revision": revision}); err != nil {
 			return err
 		}
 		fresh, err := managedclient.Discover(*home)
@@ -575,8 +592,37 @@ func run(args []string) (runErr error) {
 			_ = store.SaveInventory(fresh)
 			_ = api.ReportInventory(ctx, fresh)
 		}
-		fmt.Println("model configuration applied")
+		fmt.Println("model_config.pending_restart")
 		return nil
+	case "verify-model", "restore-model":
+		if *agentType == "" && args[0] == "restore-model" {
+			return managedclient.RestoreModelConfig(*home, *modelChangeID)
+		}
+		if *server == "" || *token == "" || *agentType == "" {
+			return fmt.Errorf("model operation requires --server, --token and --agent-type")
+		}
+		api := managedclient.NewAPI(*server, *token, 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		operation := "verify_model_config"
+		if args[0] == "restore-model" {
+			operation = "restore_model_config"
+		}
+		err = managedclient.ConfigureModelOperation(ctx, *home, *agentType, operation, api, inventory, store)
+		fresh, discoveryErr := managedclient.Discover(*home)
+		if discoveryErr == nil {
+			_ = store.SaveInventory(fresh)
+			_ = api.ReportInventory(ctx, fresh)
+		}
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(managedclient.InspectModelConfig(*home, *agentType))
 	case "install-skill":
 		if *server == "" || *token == "" || strings.TrimSpace(*agentType) == "" || strings.TrimSpace(*skillID) == "" {
 			return fmt.Errorf("install-skill requires --server, --token, --agent-type and --skill-id")

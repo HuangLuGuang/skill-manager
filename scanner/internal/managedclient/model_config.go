@@ -1,14 +1,12 @@
 package managedclient
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,21 +15,46 @@ import (
 )
 
 type ModelConfigState struct {
-	Supported  bool   `json:"supported"`
-	Model      string `json:"model,omitempty"`
-	GatewayURL string `json:"gateway_url,omitempty"`
-	ConfigPath string `json:"config_path,omitempty"`
-	Error      string `json:"error,omitempty"`
+	AppliedRevision string                 `json:"applied_revision,omitempty"`
+	Verification    []ModelRequestEvidence `json:"verification,omitempty"`
+	Supported       bool                   `json:"supported"`
+	Model           string                 `json:"model,omitempty"`
+	GatewayURL      string                 `json:"gateway_url,omitempty"`
+	ConfigPath      string                 `json:"config_path,omitempty"`
+	Error           string                 `json:"error,omitempty"`
+	Revision        string                 `json:"revision,omitempty"`
+	Parameters      map[string]any         `json:"parameters,omitempty"`
+	ChangeID        string                 `json:"change_id,omitempty"`
+	Status          string                 `json:"status,omitempty"`
+	CanRestore      bool                   `json:"can_restore"`
 }
 
 // InspectModelConfig reads the live Agent configuration without returning any
 // credential value. The desktop uses this as the source of truth after a switch.
-func InspectModelConfig(home, agentType string) ModelConfigState {
-	state := ModelConfigState{Supported: true}
+func InspectModelConfig(home, agentType string) (state ModelConfigState) {
+	state = ModelConfigState{Supported: true}
+	defer func() {
+		if !state.Supported {
+			return
+		}
+		var readErr error
+		state.Revision, readErr = ModelConfigRevision(home, agentType)
+		if readErr == nil {
+			state.Parameters, readErr = readModelParameters(home, agentType)
+		}
+		if readErr != nil {
+			state.Error = readErr.Error()
+		}
+		attachModelChangeState(home, agentType, &state)
+	}()
 	var err error
 	switch agentType {
+	case "claude-desktop":
+		return inspectClaudeDesktopConfig(home)
+	case "opencode", "openclaw", "pi", "grokbuild", "gemini":
+		return inspectNativeModelConfig(home, agentType)
 	case "claude-code":
-		state.ConfigPath = filepath.Join(home, ".claude", "settings.json")
+		state.ConfigPath = resolvedModelPath(home, "claude-code", ".claude/settings.json")
 		var body []byte
 		body, err = os.ReadFile(state.ConfigPath)
 		if errors.Is(err, os.ErrNotExist) {
@@ -46,7 +69,7 @@ func InspectModelConfig(home, agentType string) ModelConfigState {
 			}
 		}
 	case "codex":
-		state.ConfigPath = filepath.Join(home, ".codex", "config.toml")
+		state.ConfigPath = resolvedModelPath(home, "codex", ".codex/config.toml")
 		var parsed map[string]any
 		if _, err = toml.DecodeFile(state.ConfigPath, &parsed); errors.Is(err, os.ErrNotExist) {
 			return state
@@ -61,7 +84,7 @@ func InspectModelConfig(home, agentType string) ModelConfigState {
 			}
 		}
 	case "hermes":
-		state.ConfigPath = filepath.Join(home, ".hermes", "config.yaml")
+		state.ConfigPath = resolvedModelPath(home, "hermes", ".hermes/config.yaml")
 		var body []byte
 		body, err = os.ReadFile(state.ConfigPath)
 		if errors.Is(err, os.ErrNotExist) {
@@ -87,7 +110,7 @@ func InspectModelConfig(home, agentType string) ModelConfigState {
 // ApplyModelConfig updates model routing fields and, when supplied through the
 // task-bound issuance endpoint, stores the Agent-specific runtime credential.
 // The credential is never carried inside the task payload.
-func ApplyModelConfig(home, server, localAgentID, agentType, model, credential string) error {
+func renderModelConfig(home, server, localAgentID, agentType, model, credential string) error {
 	server = strings.TrimRight(strings.TrimSpace(server), "/")
 	localAgentID = strings.TrimSpace(localAgentID)
 	model = strings.TrimSpace(model)
@@ -98,6 +121,10 @@ func ApplyModelConfig(home, server, localAgentID, agentType, model, credential s
 		return errors.New("invalid local Agent ID")
 	}
 	switch agentType {
+	case "claude-desktop":
+		return applyClaudeDesktopConfig(home, server, model, credential)
+	case "opencode", "openclaw", "pi", "grokbuild", "gemini":
+		return applyNativeModelConfig(home, server, agentType, model, credential)
 	case "claude-code":
 		return applyClaudeCodeModelConfig(home, server, localAgentID, model, credential)
 	case "codex":
@@ -118,7 +145,7 @@ func modelGatewayV1(server string) string {
 }
 
 func applyCodexModelConfig(home, server, localAgentID, model, credential string) error {
-	path := filepath.Join(home, ".codex", "config.toml")
+	path := resolvedModelPath(home, "codex", ".codex/config.toml")
 	body, err := os.ReadFile(path)
 	mode := os.FileMode(0o600)
 	if err == nil {
@@ -146,82 +173,40 @@ func applyCodexModelConfig(home, server, localAgentID, model, credential string)
 }
 
 func mergeCodexModelConfig(body []byte, server, model, credential string) ([]byte, error) {
-	existingCredential := ""
-	if len(bytes.TrimSpace(body)) > 0 {
-		parsed := map[string]any{}
-		if _, err := toml.Decode(string(body), &parsed); err != nil {
-			return nil, err
-		}
-		if providers, ok := parsed["model_providers"].(map[string]any); ok {
-			if provider, ok := providers["agent_manager"].(map[string]any); ok {
-				existingCredential, _ = provider["experimental_bearer_token"].(string)
-			}
-		}
+	parsed := map[string]any{}
+	if _, err := toml.Decode(string(body), &parsed); err != nil {
+		return nil, errors.New("model_config.invalid_toml")
 	}
-	if strings.TrimSpace(credential) == "" {
-		credential = existingCredential
+	parsed["model"] = model
+	parsed["model_provider"] = "agent_manager"
+	// The gateway handles client tools, but does not execute OpenAI-hosted tools.
+	parsed["web_search"] = "disabled"
+	features := objectConfig(parsed, "features")
+	features["image_generation"] = false
+	providers := objectConfig(parsed, "model_providers")
+	provider := objectConfig(providers, "agent_manager")
+	provider["name"], provider["base_url"], provider["wire_api"] = "Agent Manager", server, "responses"
+	if strings.TrimSpace(credential) != "" {
+		provider["experimental_bearer_token"] = strings.TrimSpace(credential)
 	}
-	kept := make([]string, 0)
-	section := ""
-	featuresSeen := false
-	skipManagedSection := false
-	scanner := bufio.NewScanner(bytes.NewReader(body))
-	for scanner.Scan() {
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			section = trimmed
-			if section == "[features]" {
-				featuresSeen = true
-				kept = append(kept, line, "image_generation = false")
-				skipManagedSection = false
-				continue
-			}
-			skipManagedSection = section == "[model_providers.agent_manager]"
-			if skipManagedSection {
-				continue
-			}
-		}
-		if skipManagedSection {
-			continue
-		}
-		if (section == "[features]" && strings.HasPrefix(trimmed, "image_generation =")) ||
-			(section == "" && strings.HasPrefix(trimmed, "features.image_generation =")) {
-			continue
-		}
-		if section == "" && (strings.HasPrefix(trimmed, "model =") || strings.HasPrefix(trimmed, "model_provider =") || strings.HasPrefix(trimmed, "web_search =")) {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	if err := scanner.Err(); err != nil {
+	var output bytes.Buffer
+	if err := toml.NewEncoder(&output).Encode(parsed); err != nil {
 		return nil, err
 	}
-	for len(kept) > 0 && strings.TrimSpace(kept[len(kept)-1]) == "" {
-		kept = kept[:len(kept)-1]
+	return output.Bytes(), nil
+}
+
+func objectConfig(root map[string]any, key string) map[string]any {
+	value, ok := root[key].(map[string]any)
+	if !ok {
+		value = map[string]any{}
+		root[key] = value
 	}
-	lines := []string{"model = " + strconv.Quote(model), "model_provider = \"agent_manager\"", "web_search = \"disabled\"", ""}
-	lines = append(lines, kept...)
-	if len(kept) > 0 {
-		lines = append(lines, "")
-	}
-	lines = append(lines, "[model_providers.agent_manager]", "name = \"Agent Manager\"", "base_url = "+strconv.Quote(server), "wire_api = \"responses\"")
-	if strings.TrimSpace(credential) != "" {
-		lines = append(lines, "experimental_bearer_token = "+strconv.Quote(strings.TrimSpace(credential)))
-	}
-	if !featuresSeen {
-		lines = append(lines, "", "[features]", "image_generation = false")
-	}
-	updated := []byte(strings.Join(lines, "\n") + "\n")
-	parsed := map[string]any{}
-	if _, err := toml.Decode(string(updated), &parsed); err != nil {
-		return nil, fmt.Errorf("generated Codex config.toml is invalid: %w", err)
-	}
-	return updated, nil
+	return value
 }
 
 func applyHermesModelConfig(home, server, localAgentID, model, credential string) error {
-	configPath := filepath.Join(home, ".hermes", "config.yaml")
+	configPath := resolvedModelPath(home, "hermes", ".hermes/config.yaml")
 	configBody, err := os.ReadFile(configPath)
 	configMode := os.FileMode(0o600)
 	if err == nil {
@@ -256,6 +241,10 @@ func applyHermesModelConfig(home, server, localAgentID, model, credential string
 	yamlSetScalar(modelNode, "provider", "custom")
 	yamlSetScalar(modelNode, "base_url", modelGatewayV1(server))
 	yamlSetScalar(modelNode, "api_mode", "chat_completions")
+	if strings.TrimSpace(credential) != "" {
+		yamlSetScalar(modelNode, "api_key", strings.TrimSpace(credential))
+		configMode = 0o600
+	}
 	var output bytes.Buffer
 	encoder := yaml.NewEncoder(&output)
 	encoder.SetIndent(2)
@@ -269,7 +258,7 @@ func applyHermesModelConfig(home, server, localAgentID, model, credential string
 	if strings.TrimSpace(credential) == "" {
 		return nil
 	}
-	envPath := filepath.Join(home, ".hermes", ".env")
+	envPath := resolvedModelPath(home, "hermes", ".hermes/.env")
 	envBody, envErr := os.ReadFile(envPath)
 	if envErr == nil {
 		if err := backupAgentConfig(home, localAgentID, "hermes.env", envBody); err != nil {
@@ -331,13 +320,16 @@ func updateEnvValue(body []byte, key, value string) []byte {
 }
 
 func applyClaudeCodeModelConfig(home, server, localAgentID, model, credential string) error {
-	path := filepath.Join(home, ".claude", "settings.json")
+	path := resolvedModelPath(home, "claude-code", ".claude/settings.json")
 	settings := map[string]any{}
 	mode := os.FileMode(0o600)
 	body, err := os.ReadFile(path)
 	if err == nil {
 		if err := json.Unmarshal(body, &settings); err != nil {
 			return fmt.Errorf("Claude Code settings.json is invalid: %w", err)
+		}
+		if settings == nil {
+			return errors.New("model_config.invalid_document")
 		}
 		if info, statErr := os.Stat(path); statErr == nil {
 			mode = info.Mode().Perm()

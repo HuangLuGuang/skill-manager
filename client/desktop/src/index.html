@@ -461,6 +461,15 @@
         <form method="dialog" class="dialog-actions"><button value="cancel" data-i18n="ui.agentManagement.cancel">取消</button><button id="confirm-skill-action" type="button" class="primary" data-i18n="ui.agentManagement.confirm_action">确认并创建任务</button></form>
       </div>
     </dialog>
+    <dialog id="model-config-dialog" class="message-dialog" aria-labelledby="model-config-title">
+      <form id="model-config-form" class="message-dialog-body" method="dialog">
+        <h2 id="model-config-title" data-i18n="ui.modelConfig.preview">模型配置预览</h2>
+        <div class="model-config-scroll"><div id="model-config-fields"></div>
+        <p data-i18n="ui.modelConfig.effect">配置写入后需重新启动 Agent，真实调用尚未验证。</p>
+        <pre id="model-config-preview" data-no-i18n></pre></div>
+        <div class="dialog-actions"><button value="cancel" data-i18n="ui.agentManagement.cancel">取消</button><button id="confirm-model-config" type="button" class="primary" data-i18n="ui.modelConfig.apply">应用配置</button></div>
+      </form>
+    </dialog>
     <script src="./static-i18n-bindings.js"></script>
     <script src="./i18n.js"></script>
     <script src="./diagnostics.js"></script>

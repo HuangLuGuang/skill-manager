@@ -103,6 +103,8 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "export-diagnostics",
         "register",
         "switch-model",
+        "restore-model",
+        "verify-model",
         "takeover",
         "pending",
         "scan-history",

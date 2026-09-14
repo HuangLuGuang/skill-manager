@@ -519,6 +519,9 @@ def cleanup_expired(db: Session, *, now: datetime | None = None) -> dict[str, in
     if not trace_ids:
         db.commit()
         return {"traces": 0, "events": 0, "payloads": 0, "exports": expired_export_count, "batches": 0}
+    db.query(models.GatewaySessionFingerprint).filter(models.GatewaySessionFingerprint.request_id.in_(
+        db.query(models.GatewaySessionRequest.request_id).filter(models.GatewaySessionRequest.trace_id.in_(trace_ids))
+    )).delete(synchronize_session=False)
     db.query(models.GatewaySessionRequest).filter(models.GatewaySessionRequest.trace_id.in_(trace_ids)).delete(synchronize_session=False)
     db.query(models.GatewaySessionGroup).filter(models.GatewaySessionGroup.trace_id.in_(trace_ids)).delete(synchronize_session=False)
     db.query(models.GatewaySessionScope).filter(~db.query(models.GatewaySessionGroup).filter(

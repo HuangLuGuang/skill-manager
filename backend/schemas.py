@@ -826,7 +826,7 @@ class ClientEventCreate(BaseModel):
 
 
 class ClientTaskCreate(BaseModel):
-    task_type: str = Field(pattern="^(install_skill|remove_skill|rescan|repair_skill|apply_model_config|skill_action)$")
+    task_type: str = Field(pattern="^(install_skill|remove_skill|rescan|repair_skill|apply_model_config|verify_model_config|restore_model_config|skill_action)$")
     payload: dict[str, Any] = {}
 
 
@@ -844,6 +844,8 @@ class ClientSkillActionRequest(BaseModel):
 
 
 class ClientTaskResult(BaseModel):
+    verification_request_ids: list[str] = Field(default_factory=list, max_length=20)
+    applied_model: Optional[str] = Field(default=None, max_length=128)
     applied_policy_version: Optional[str] = Field(default=None, max_length=128)
     status: str = Field(pattern="^(running|succeeded|failed|cancelled)$")
     error: Optional[str] = None
@@ -854,6 +856,24 @@ class ClientModelConfigurationRequest(BaseModel):
     agent_type: str
     managed_agent_id: Optional[str] = None
     model: str
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    expected_revision: Optional[str] = None
+
+
+class ClientModelVerificationEvidence(BaseModel):
+    model_config = {"extra": "forbid"}
+    agent_type: str
+    local_agent_id: str
+    challenge: str = Field(pattern=r"^AM_VERIFY_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+class ClientAgentCredentialRequest(BaseModel):
+    previous_credential_hash: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class ClientModelPreflightRequest(BaseModel):
+    current_parameters: dict[str, Any] = Field(default_factory=dict)
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class ClientAgentCredentialResponse(BaseModel):

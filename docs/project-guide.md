@@ -12,9 +12,13 @@
 
 如果你第一次接触这个项目，先看这份文档，再按需要跳转到更细的专题文档。
 
+客户端模型切换支持按 Agent 编辑配置、参数预览、备份恢复和独立调用验证。各适配器的实际验证范围见 [模型切换记录](acceptance/model-switching-2026-09-13/README.md)，使用方式见 [模型网关](model-gateway.md#客户端模型切换--client-model-switching)。
+
 模型切换自动签发的运行凭证默认仅记录 Prompt 风险，支持在管理台客户端策略中配置 Prompt 防护，继承平台默认或单台覆盖；保存更新已有凭证，新建凭证继承当前策略。客户端通过长轮询同步显示状态，网关在后续请求中执行保存后的配置。LLM 复核开关当前仅保存，尚未执行复核。
 
 Prompt Guard for runtime credentials issued by model switching defaults to log only and is configured in client policies, with platform defaults and per-client overrides. Saving updates existing credentials; new credentials inherit the current policy. Long polling synchronizes the desktop display, while subsequent gateway requests enforce the saved settings. The LLM review flag is currently stored without executing a review.
+
+Client model switching provides Agent-specific configuration, parameter previews, backup recovery and isolated call verification. See the [evidence matrix](acceptance/model-switching-2026-09-13/README.md) for the actual validation scope and the [gateway guide](model-gateway.md#客户端模型切换--client-model-switching) for usage.
 
 当前正在执行的下一版本建设清单见 [智能体安全平台下一版本实施计划](agent-security-vnext-implementation-plan.md)。该清单按实现和验收进度逐项勾选。
 
@@ -1597,7 +1601,7 @@ Skill Verifier 下载位置：
 
 - `/docs/security-scan-guide`：六个工作区、目标字段、策略预算、六种扫描、任务详情、Finding 与报告。
 - `/docs/dify-security-access`：App API、Console Admin API、Knowledge API 获取步骤，地址与 ID、资产清单及排错。
-- `/docs/security-operations`：定时计划、Dify 来源同步、两类风险分、人工处置、修复验证及 Worker 排错。
+- `/docs/security-operations`：定时计划、两类风险分、人工处置、修复验证及 Worker 排错。
 - `/docs/runtime-trace-guide`：会话查询、事件字段、聚合与完整度、性能和脱敏/原始导出。
 
 指南中的页面截图使用当前组件和明确标识的示例数据，凭据均为掩码。
@@ -1606,7 +1610,7 @@ Dify 部署端 Admin API Key 的版本条件和配置步骤见
 
 侧边栏在“模型网关”之后、“系统管理”之前提供两个已启用的入口：
 
-- “安全扫描”：目标、凭据、策略、生产审批、任务预览/执行、定时计划、Dify 来源管理、风险评分、Kill Switch、Finding、报告和版本对比。
+- “安全扫描”：目标、凭据、策略、生产审批、任务预览/执行、定时计划、风险评分、Kill Switch、Finding、报告和版本对比。
 - “调用轨迹”：查看当前角色有权访问的脱敏对话与执行轨迹，搜索证据并在 Finding 与事件间跳转。
 
 上游组件的锁定版本、Commit、许可证、归属和能力边界见
@@ -1680,30 +1684,6 @@ Dify 定时采集使用在线 Console 配置。扫描目标、规则和策略与
 风险；详情提供覆盖状态、评分历史、风险处置、来源及最近同步时间。两个分数分别服务本次报告和长期治理。
 
 
-管理员先在安全扫描中登记 Dify 目标，配置 Console Base URL、Workspace ID、App ID 和
-`dify_console_api` 凭据，再到“安全扫描 → 扫描目标 → Dify 来源管理”选择该目标及同环境的采集策略。
-来源复用该目标的加密 Console／Knowledge 凭据；轮换立即应用到后续任务，新发现的 App 不继承
-模板 App 的运行调用凭据、声明意图、Workflow ID 或资产绑定。
-
-范围可以是指定 App ID 列表或整个工作空间。工作空间发现使用 Console 应用分页接口，最多 1000 个
-App；超限、重复页、权限失败均形成明确失败，不能当作完整枚举。指定范围会逐个重新采集配置。
-支持固定间隔（至少 5 分钟）、每日时间、五字段 Cron 和 IANA 时区。后台每 10 秒检查到期计划，
-时间以 UTC 保存；同一来源仅允许一个活动批次，漏过的周期合并为一次同步。关闭定时同步后仍可手动同步。
-
-批次由数据库唯一键和租约协调，采集交给既有安全扫描 Worker。服务重启后从已持久化的发现清单和
-子任务继续，重复请求返回原批次，子任务不重复创建。取消会停止继续派发，并向活动子任务请求取消。
-批次区分成功、部分完成、失败和取消，可查看每个 App 的任务、错误及新增／修改／未变化状态。
-有批次运行时先取消并等待结束，再修改来源配置。模板连接、工作空间、环境或归属变更后，重新保存来源以确认新配置。
-
-来源 App ID 与来源实例共同确定资产身份，名称变化保留历史。所有采集结果保留不可变快照；较早开始的
-采集晚到时不覆盖较新的有效配置。配置指纹包含 DSL 执行配置、代码、模型设置、资产配置和连接关系，
-排除采集时间和运行调用次数。完整枚举中未出现的 App 标记“来源未观察到”，缩小范围标记“已排除同步”；
-权限失败不移除资产。Console API 不能证明上游账号的可见范围始终不变，因此“未观察到”不等同于删除。
-
-变更后扫描策略是可选项，可分别启用新应用扫描和配置变化后扫描。启用后按资产版本幂等创建多轮 Agent 扫描，继续执行既有目标权限、凭据、
-环境、预算和生产审批校验；授权或配置不足时在风险详情显示待处理原因。新应用的运行凭据应分别配置。
-自动同步读取配置，不授予主动扫描权限。
-
 风险评分使用固定版本 `agent-risk-score@1`，分数用于处置排序，不代表漏洞利用概率或合规通过率。
 计算方式为最高风险基础分，加其他去重风险的附加分；附加最多 20 分，总分最多 100 分：
 
@@ -1724,8 +1704,7 @@ Agent 扫描和同一目标的 Dify 配置风险自动进入评分。管理员�
 应由接入方提供明确证据，聚合 Skill 报告仍需接入方提供可验证的装载关系。
 
 没有评估时分数为空；部分完成但未发现计分风险时仍为空。只有配置范围内检查完成且无计分风险时显示
-0，并展示检查范围。资产变化或结果过期会标记待复扫，未关闭风险继续保留分数。评估有效期默认 168 小时，
-可在来源配置修改；执行失败、取消或缺少相应检查用例均不能清除旧风险。
+0，并展示检查范围。资产变化或结果过期会标记待复扫，未关闭风险继续保留分数。评估有效期默认 168 小时；执行失败、取消或缺少相应检查用例均不能清除旧风险。
 风险接受继续计分；审核为误报后排除；修复声明先进入“修复待验证”。验证关闭需引用可比复扫任务，
 校验目标、资产版本、引擎版本、检查范围、完成时间和对应通过用例，并保留关闭审计。
 
@@ -1738,12 +1717,6 @@ Agent 扫描和同一目标的 Dify 配置风险自动进入评分。管理员�
 | `GET/POST /scan-schedules/{id}/runs` | 执行记录／立即执行一次 |
 | `POST /scan-schedules/preview` | 时区及执行时间预览 |
 | `GET /targets/{id}/risk-profile` | 目标综合风险与来源 |
-| `GET/POST /asset-sources` | 列表／创建来源 |
-| `PUT /asset-sources/{id}` | 按 version 更新配置 |
-| `POST /asset-sources/{id}/connection-tests` | 检查来源连接 |
-| `GET/POST /asset-sources/{id}/sync-runs` | 批次历史／幂等触发 |
-| `GET /asset-sync-runs/{id}` | 子任务及结果 |
-| `POST /asset-sync-runs/{id}/cancel` | 请求取消 |
 | `GET /managed-agents` | 分页智能体及风险摘要 |
 | `GET /managed-agents/{id}/risk` | 当前评分及覆盖 |
 | `GET /managed-agents/{id}/risk-history` | 评分历史 |
