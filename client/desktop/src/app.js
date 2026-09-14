@@ -1045,7 +1045,7 @@ async function refreshConnection() {
 }
 
 const refreshChangedInventory = async () => {
-  if (document.hidden || autoRefreshBusy || !connection?.configured) return
+  if (autoRefreshBusy || !connection?.configured) return
   autoRefreshBusy = true
   try {
     const local = JSON.parse(await run('local-status'))
@@ -1059,6 +1059,7 @@ const refreshChangedInventory = async () => {
       connection.local.client_updates = local.client_updates
       checkClientUpdateFromLongPoll(local)
     }
+    if (document.hidden) return
     const refreshQuarantine = $('#discover').classList.contains('active') || $('#connect').classList.contains('active')
     if ((!changedAt || changedAt === lastInventoryAt) && !policyChanged && !taskChanged && !notificationChanged && !quarantineChanged) return
     if (changedAt === lastInventoryAt) {

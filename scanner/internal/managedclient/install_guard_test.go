@@ -90,6 +90,79 @@ func TestInstallRetainsLegacyReleaseDirectory(t *testing.T) {
 	}
 }
 
+func TestQueuedInstallAdoptsSameContentFromPreviousManagedIdentity(t *testing.T) {
+	home := t.TempDir()
+	skillsRoot := filepath.Join(home, ".codex", "skills")
+	oldRelease := filepath.Join(ManagedSkillsRoot(home), "previous-skill", "versions", "previous-version", "release")
+	if err := os.MkdirAll(oldRelease, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("---\nname: safe-skill\n---\n")
+	if err := os.WriteFile(filepath.Join(oldRelease, "SKILL.md"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(skillsRoot, "safe-skill")
+	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(oldRelease, link); err != nil {
+		t.Fatal(err)
+	}
+
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageBody := signedPackage(t, private)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/package") {
+			_, _ = w.Write(packageBody)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/events") {
+			_, _ = w.Write([]byte(`{"ok":true}`))
+			return
+		}
+		t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state, err := inspectInstallTarget(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued := map[string]any{
+		"expected_root":    skillsRoot,
+		"expected_path":    link,
+		"expected_targets": map[string]any{link: state.signature},
+	}
+	inventory := Inventory{ClientID: "host", Agents: []Agent{{AgentType: "codex", SkillsPath: skillsRoot, SkillManagementSupported: true}}}
+	policy := Policy{ReleasePublicKey: base64.StdEncoding.EncodeToString(public)}
+	if err := installApprovedSkillVersion(context.Background(), home, inventory, policy, NewAPI(server.URL, "token", time.Second), store, "codex", "", "skill-1", "", false, queued); err != nil {
+		t.Fatal(err)
+	}
+
+	resolved, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(filepath.Join(ManagedSkillsRoot(home), "skill-1", "release"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != want {
+		t.Fatalf("same-content managed link was not adopted: got %s want %s", resolved, want)
+	}
+	installs, err := store.Installations()
+	if err != nil || len(installs) != 1 || installs[0].SkillID != "skill-1" {
+		t.Fatalf("new managed identity was not saved: %#v %v", installs, err)
+	}
+}
+
 func TestSignedPackageRejectsUnsafeInstallMetadata(t *testing.T) {
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

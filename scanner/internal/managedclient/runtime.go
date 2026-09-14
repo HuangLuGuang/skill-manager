@@ -499,7 +499,7 @@ func installApprovedSkillVersion(ctx context.Context, home string, inventory Inv
 		if info.Mode()&os.ModeSymlink != 0 {
 			resolved, resolveErr := filepath.EvalSymlinks(link)
 			resolvedTarget, targetErr := filepath.EvalSymlinks(target)
-			sameInstall = resolveErr == nil && targetErr == nil && filepath.Clean(resolved) == filepath.Clean(resolvedTarget)
+			sameInstall = sameInstall || (resolveErr == nil && targetErr == nil && filepath.Clean(resolved) == filepath.Clean(resolvedTarget))
 			if resolveErr != nil && brokenManagedSymlink(home, link) {
 				sameInstall = true
 			}
