@@ -174,6 +174,47 @@ func TestOfflineDefaultKeepsUnknownContent(t *testing.T) {
 	}
 }
 
+func TestCompareFailurePreservesTrustedVerdict(t *testing.T) {
+	home, store, inventory, skill := observedFixture(t)
+	if err := store.SaveObservation(skill.Path, SkillObservation{
+		Signature: skill.Signature, TrustedSignature: skill.Signature,
+		TrustedSkillID: "skill-1", TrustedVersionID: "version-1", Certification: "certified",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	policy := Policy{Classification: DefaultClassificationPolicy()}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := patrolClassified(ctx, home, inventory, policy, NewAPI("http://127.0.0.1:1", "token", 20*time.Millisecond), store, true); err != nil {
+		t.Fatal(err)
+	}
+	value, err := store.Observation(skill.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value.Certification != "certified" || value.Trigger != "" {
+		t.Fatalf("platform failure downgraded trusted skill: %#v", value)
+	}
+}
+
+func TestPartialComparePreservesUnreturnedTrustedVerdict(t *testing.T) {
+	home, store, inventory, skill := observedFixture(t)
+	if err := store.SaveObservation(skill.Path, SkillObservation{Signature: skill.Signature, TrustedSignature: skill.Signature, Certification: "certified"}); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []CompareItem{}})
+	}))
+	defer server.Close()
+	if err := patrolClassified(context.Background(), home, inventory, Policy{Classification: DefaultClassificationPolicy()}, NewAPI(server.URL, "token", time.Second), store, true); err != nil {
+		t.Fatal(err)
+	}
+	value, err := store.Observation(skill.Path)
+	if err != nil || value.Certification != "certified" {
+		t.Fatalf("partial comparison downgraded unreturned trusted skill: %#v %v", value, err)
+	}
+}
+
 func TestFileActionQueuesDetectionBeforeEnforcement(t *testing.T) {
 	home, store, inventory, skill := observedFixture(t)
 	reported := []string{}

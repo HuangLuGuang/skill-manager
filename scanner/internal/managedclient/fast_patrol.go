@@ -19,6 +19,7 @@ func fastPatrolTrustedChanges(ctx context.Context, home string, inventory Invent
 	}
 	action := policy.Classification.Rules["trusted_content_changed"]
 	if action != "quarantine" && action != "uninstall" {
+		store.LogDiagnostic("info", "watcher", "fast_action_skipped", map[string]any{"reason": "policy_action_not_supported", "action": action, "changed_paths": len(changedPaths), "policy_version": policy.Classification.Version})
 		return false, nil, nil
 	}
 	installs, err := store.Installations()
@@ -31,12 +32,21 @@ func fastPatrolTrustedChanges(ctx context.Context, home string, inventory Invent
 	}
 
 	affected := map[string]string{}
+	baselineCandidates := 0
 	for _, agent := range inventory.Agents {
 		for _, skill := range agent.Skills {
 			install, managed := baselines[filepath.Clean(skill.Path)]
 			if !managed || install.Manifest.ContentSignature == "" {
-				continue
+				// Older clients may have a trusted observation but no surviving
+				// client_installs row (for example after a prior quarantine). Reuse
+				// that persisted trusted signature for immediate local enforcement.
+				previous, observationErr := store.Observation(skill.Path)
+				if observationErr != nil || previous.TrustedSignature == "" {
+					continue
+				}
+				install = Installation{TargetPath: skill.Path, Manifest: releaseManifest{ContentSignature: previous.TrustedSignature}}
 			}
+			baselineCandidates++
 			physical, err := filepath.EvalSymlinks(skill.Path)
 			if err != nil {
 				continue
@@ -50,6 +60,11 @@ func fastPatrolTrustedChanges(ctx context.Context, home string, inventory Invent
 		}
 	}
 	if len(affected) == 0 {
+		reason := "path_not_matched"
+		if baselineCandidates == 0 {
+			reason = "baseline_missing"
+		}
+		store.LogDiagnostic("info", "watcher", "fast_action_skipped", map[string]any{"reason": reason, "changed_paths": len(changedPaths), "policy_version": policy.Classification.Version})
 		return false, nil, nil
 	}
 
@@ -57,6 +72,7 @@ func fastPatrolTrustedChanges(ctx context.Context, home string, inventory Invent
 	for physical, trusted := range affected {
 		value, err := manifest.Build(physical, DefaultManifestOptions())
 		if err != nil {
+			store.LogDiagnostic("warn", "watcher", "fast_action_skipped", map[string]any{"reason": "signature_build_failed", "path": physical, "error": err.Error(), "policy_version": policy.Classification.Version})
 			return false, nil, nil // Let the complete discovery path classify malformed or disappearing content.
 		}
 		current := manifest.ContentSignature(value.Files)

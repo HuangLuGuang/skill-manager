@@ -384,6 +384,7 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 					select {
 					case fastChanges <- paths:
 					default:
+						store.LogDiagnostic("warn", "watcher", "fast_action_skipped", map[string]any{"reason": "event_queue_fallback", "changed_paths": len(paths)})
 						due = time.Now()
 					}
 				} else {

@@ -166,6 +166,7 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 		items, err := api.Compare(ctx, inventory, policy.AgentBindings)
 		if err != nil {
 			online = false
+			store.LogDiagnostic("warn", "governance", "platform_compare_unavailable", map[string]any{"error": err.Error(), "policy_version": policy.Classification.Version})
 		} else {
 			for _, item := range items {
 				compared[comparisonKey(item.AgentType, item.Name, item.LocalPath, item.LocalSignature)] = item
@@ -231,6 +232,20 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 				comparison = &item
 			}
 			value := classifyObservation(previous, skill, comparison)
+			// A failed or partial platform comparison is not evidence that a
+			// previously trusted, unchanged skill lost certification. Keep the
+			// last local verdict and only let entries with an explicit comparison
+			// (or a genuinely new skill) transition state.
+			if comparison == nil && previous.TrustedSignature != "" && previous.TrustedSignature == skill.Signature {
+				preserved := previous
+				preserved.Signature = skill.Signature
+				if preserved.Certification == "" {
+					preserved.Certification = "certified"
+				}
+				preserved.Trigger = ""
+				preserved.Action = ""
+				value = preserved
+			}
 			var recoveryIDs map[string]string
 			value.PolicyVersion = policy.Classification.Version
 			value.Action = policy.Classification.Rules[value.Trigger]
