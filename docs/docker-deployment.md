@@ -76,6 +76,12 @@ uv run agent-manager registry audit-tool-permissions
 
 Compose 入口 Nginx 会把管理 API `/api/` 和 MCP Streamable HTTP 数据面 `/mcp/` 转发到 Backend；MCP Client 应使用 `http(s)://部署域名/mcp/{gateway_slug}`，不需要直接暴露 Backend 端口。旧版 `/sse/` 当前未实现，也不配置转发。
 
+入口 Nginx 会用直连客户端地址覆盖 `X-Forwarded-For`，Backend 默认仅信任回环地址和
+Compose 动态分配的 `172.16.0.0/12` 代理网段，因此登录日志、操作日志和访问控制读取到的
+是客户端地址，而不是 Nginx 容器地址。若在入口 Nginx 前增加负载均衡器、Ingress 或 CDN，
+需要先配置 Nginx Real IP 信任链，并通过 `FORWARDED_ALLOW_IPS` 收窄 Backend 信任的直连
+代理网段；不要直接信任任意来源提交的转发头。
+
 ### 智能体安全能力
 
 安全能力基线和轨迹能力基线安装后默认启用，不需要在 `.env` 配置功能开关。登录后管理台

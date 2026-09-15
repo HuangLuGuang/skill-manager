@@ -1,11 +1,24 @@
 from pathlib import Path
 
+import yaml
+
 
 def test_nginx_configs_hide_version_tokens():
     for config_path in (Path("deploy/nginx/default.conf"), Path("web/nginx.conf")):
         nginx_config = config_path.read_text(encoding="utf-8")
 
         assert "server_tokens off;" in nginx_config
+
+
+def test_compose_proxy_preserves_client_ip_without_trusting_inbound_header():
+    nginx_config = Path("deploy/nginx/default.conf").read_text(encoding="utf-8")
+    compose_config = yaml.safe_load(Path("docker-compose.yaml").read_text(encoding="utf-8"))
+
+    assert nginx_config.count("proxy_set_header X-Forwarded-For $remote_addr;") == 8
+    assert "$proxy_add_x_forwarded_for" not in nginx_config
+    assert compose_config["services"]["backend"]["environment"]["FORWARDED_ALLOW_IPS"] == (
+        "${FORWARDED_ALLOW_IPS:-127.0.0.1,172.16.0.0/12}"
+    )
 
 
 def test_docs_spa_entry_does_not_collide_with_screenshot_directory():
