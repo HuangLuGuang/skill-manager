@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
-from .models import ClientTask
+from .models import ClientEvent, ClientTask
 
 _hubs = {}
 _lock = threading.Lock()
@@ -75,16 +75,25 @@ def task_hub(engine):
         return _hubs[key]
 
 
+def notify_all():
+    """Wake active client long polls after a platform registry transition."""
+    with _lock:
+        hubs = list(_hubs.values())
+    for hub in hubs:
+        if not hub.loop.is_closed():
+            hub.loop.call_soon_threadsafe(hub.notify)
+
+
 @event.listens_for(Session, "after_flush")
 def remember_tasks(session, _context):
-    clients = {row.client_id for row in session.new if isinstance(row, ClientTask)}
+    clients = {row.client_id for row in session.new if isinstance(row, (ClientTask, ClientEvent))}
     if clients:
         session.info.setdefault("client_task_notifications", set()).update(clients)
 
 
 @event.listens_for(Session, "do_orm_execute")
 def remember_insert(state):
-    if state.is_insert and getattr(getattr(state.statement, "table", None), "name", None) == "client_tasks":
+    if state.is_insert and getattr(getattr(state.statement, "table", None), "name", None) in {"client_tasks", "client_events"}:
         client_id = state.statement.compile().params.get("client_id")
         session_clients = state.session.info.setdefault("client_task_notifications", set())
         session_clients.add(client_id)

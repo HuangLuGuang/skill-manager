@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
@@ -95,7 +96,7 @@ func flushTaskResults(ctx context.Context, clientID string, api API, store *Stor
 	return firstError
 }
 
-func syncInventoryOnce(ctx context.Context, home string, api API, store *Store) error {
+func syncInventoryOnce(ctx context.Context, home string, api API, store *Store, localReady func()) error {
 	inventory, err := Discover(home)
 	if err != nil {
 		return err
@@ -106,7 +107,62 @@ func syncInventoryOnce(ctx context.Context, home string, api API, store *Store) 
 	if err = store.SaveInventory(inventory); err != nil {
 		return err
 	}
+	if localReady != nil {
+		localReady()
+	}
 	return api.ReportInventory(ctx, inventory)
+}
+
+func applyPlatformScanEvents(store *Store, events []PlatformScanEvent, currentRevision int64) (int64, bool, error) {
+	sort.SliceStable(events, func(left, right int) bool { return events[left].Revision < events[right].Revision })
+	changed := false
+	for _, event := range events {
+		if event.Revision <= currentRevision {
+			continue
+		}
+		if event.Status == "" || event.VersionID == "" {
+			store.LogDiagnostic("info", "platform", "platform_event_ignored", map[string]any{
+				"pending_id": event.PendingID, "skill_id": event.SkillID, "version_id": event.VersionID,
+				"status": event.Status, "revision": event.Revision, "reason": "invalid_event",
+			})
+			currentRevision = event.Revision
+			continue
+		}
+		found, previous, err := store.PendingStatus(event.SkillID, event.VersionID)
+		if err != nil {
+			return currentRevision, changed, err
+		}
+		if !found {
+			store.LogDiagnostic("info", "platform", "platform_event_ignored", map[string]any{
+				"pending_id": event.PendingID, "skill_id": event.SkillID, "version_id": event.VersionID,
+				"status": event.Status, "revision": event.Revision, "reason": ErrPendingNotFound.Error(),
+			})
+			currentRevision = event.Revision
+			continue
+		}
+		if previous == event.Status {
+			currentRevision = event.Revision
+			continue
+		}
+		if err := store.UpdatePendingStatus(event.SkillID, event.VersionID, event.Status); err != nil {
+			if errors.Is(err, ErrPendingNotFound) {
+				store.LogDiagnostic("info", "platform", "platform_event_ignored", map[string]any{
+					"pending_id": event.PendingID, "skill_id": event.SkillID, "version_id": event.VersionID,
+					"status": event.Status, "revision": event.Revision, "reason": ErrPendingNotFound.Error(),
+				})
+				currentRevision = event.Revision
+				continue
+			}
+			return currentRevision, changed, err
+		}
+		store.LogDiagnostic("info", "platform", "platform_event_received", map[string]any{
+			"pending_id": event.PendingID, "skill_id": event.SkillID, "version_id": event.VersionID,
+			"status": event.Status, "revision": event.Revision,
+		})
+		currentRevision = event.Revision
+		changed = true
+	}
+	return currentRevision, changed, nil
 }
 
 // RunDaemon separates liveness, task receipt, discovery and file work. Only
@@ -121,6 +177,9 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		_ = store.SetState("diagnostics:daemon", string(data))
 	}
 	store.LogDiagnostic("info", "daemon", "started", startup)
+	if err := store.ReplayLatestUIEvent(home); err != nil {
+		store.LogDiagnostic("warn", "daemon", "ui_event_replay_failed", map[string]any{"error": err.Error()})
+	}
 	defer func() {
 		startup["stopped_at"] = time.Now().Format(time.RFC3339Nano)
 		if data, err := json.Marshal(startup); err == nil {
@@ -133,7 +192,7 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 	var workers sync.WaitGroup
 	var inventorySync sync.Mutex
 	registered := false
-	synchronizeInventory := func(request context.Context) error {
+	synchronizeInventory := func(request context.Context, localReady func()) error {
 		inventorySync.Lock()
 		defer inventorySync.Unlock()
 		if err := request.Err(); err != nil {
@@ -157,9 +216,11 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 			}
 			registered = true
 		}
-		return syncInventoryOnce(request, home, api, store)
+		return syncInventoryOnce(request, home, api, store, localReady)
 	}
 	wake := make(chan struct{}, 1)
+	fastChanges := make(chan []string, 1)
+	refreshInventory := make(chan struct{}, 1)
 	signal := func() {
 		select {
 		case wake <- struct{}{}:
@@ -190,22 +251,6 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		heartbeatInterval = 10 * time.Second
 	}
 	periodic(heartbeatInterval, "heartbeat", func(request context.Context) error { return heartbeatOnce(request, home, api, store) })
-	periodic(10*time.Second, "scan_progress", func(request context.Context) error {
-		changed, terminal, err := refreshBackgroundScans(request, api, store)
-		if err != nil {
-			return err
-		}
-		if !changed {
-			return nil
-		}
-		if terminal {
-			if err := store.SetState("patrol:force", "1"); err != nil {
-				return err
-			}
-			signal()
-		}
-		return synchronizeInventory(request)
-	})
 	periodic(10*time.Second, "task_reports", func(request context.Context) error {
 		taskErr := flushTaskResults(request, clientIDForHome(home), api, store)
 		return errors.Join(taskErr, flushEvents(request, api, store))
@@ -217,8 +262,20 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		backoff := time.Second
 		for ctx.Err() == nil {
 			started := time.Now()
+			pending, _ := store.PendingItems()
+			scanIDs := make([]string, 0, len(pending))
+			seenScanIDs := map[string]bool{}
+			for _, item := range pending {
+				if item.VersionID != "" && !seenScanIDs[item.VersionID] {
+					scanIDs = append(scanIDs, item.VersionID)
+					seenScanIDs[item.VersionID] = true
+				}
+			}
+			scanRevisionValue, _, _ := store.State("platform:scan-revision")
+			var scanRevision int64
+			_, _ = fmt.Sscan(scanRevisionValue, &scanRevision)
 			request, stop := context.WithTimeout(ctx, 40*time.Second)
-			tasks, updateVersions, err := api.WaitTasksWithUpdates(request, clientIDForHome(home), afterID)
+			tasks, updateVersions, scanEvents, err := api.WaitTasksWithUpdatesAndScans(request, clientIDForHome(home), afterID, scanIDs, scanRevision)
 			stop()
 			if err == nil {
 				if updateVersions.Stable != "" || updateVersions.Preview != "" {
@@ -232,6 +289,19 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 					}
 				}
 				if err == nil {
+					nextRevision, changed, applyErr := applyPlatformScanEvents(store, scanEvents, scanRevision)
+					if applyErr != nil {
+						store.LogDiagnostic("warn", "platform", "platform_event_apply_failed", map[string]any{"revision": scanRevision, "error": applyErr.Error()})
+						err = applyErr
+					} else {
+						scanRevision = nextRevision
+						if nextRevision > 0 {
+							_ = store.SetState("platform:scan-revision", fmt.Sprintf("%d", scanRevision))
+						}
+						if changed {
+							signal()
+						}
+					}
 					for _, task := range tasks {
 						body, marshalErr := json.Marshal(task)
 						if marshalErr != nil {
@@ -281,33 +351,51 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		due := time.Now()
-		pendingDiscovery := false
-		var changes <-chan struct{}
+		var changes <-chan []string
 		if watcher != nil {
 			changes = watcher.Changes()
 		}
 		for {
 			if !time.Now().Before(due) {
 				request, cancel := context.WithTimeout(ctx, 30*time.Second)
-				err := synchronizeInventory(request)
+				localSignaled := false
+				err := synchronizeInventory(request, func() {
+					localSignaled = true
+					signal()
+				})
 				cancel()
 				syncError(store, "inventory", err)
 				if watcher != nil {
 					_ = watcher.Refresh(home, store)
 				}
-				signal()
+				if !localSignaled {
+					signal()
+				}
 				due = time.Now().Add(interval)
-				pendingDiscovery = false
 			}
 			select {
 			case <-ctx.Done():
 				return
-			case <-changes:
-				if !pendingDiscovery {
-					due = time.Now().Add(750 * time.Millisecond)
-					pendingDiscovery = true
+			case paths := <-changes:
+				store.LogDiagnostic("info", "watcher", "change_detected", map[string]any{
+					"debounce_ms": skillWatchDebounce.Milliseconds(), "path_count": len(paths),
+				})
+				if len(paths) > 0 {
+					select {
+					case fastChanges <- paths:
+					default:
+						due = time.Now()
+					}
+				} else {
+					due = time.Now()
 				}
+			case <-refreshInventory:
+				due = time.Now()
 			case <-ticker.C:
+				workerWake := filepath.Join(RuntimeRoot(home), "worker-wake")
+				if _, err := os.Stat(workerWake); err == nil && os.Remove(workerWake) == nil {
+					signal()
+				}
 				trigger := filepath.Join(RuntimeRoot(home), "run-now")
 				if _, err := os.Stat(trigger); err == nil && os.Remove(trigger) == nil {
 					_ = store.SetState("patrol:force", "1")
@@ -321,21 +409,50 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 	defer workers.Wait()
 	defer cancel()
 	for {
+		var changedPaths []string
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-wake:
+		case changedPaths = <-fastChanges:
 		}
 		body, ok, err := store.State("inventory")
 		if err != nil || !ok {
+			if len(changedPaths) > 0 {
+				select {
+				case refreshInventory <- struct{}{}:
+				default:
+				}
+			}
 			continue
 		}
 		var inventory Inventory
 		if json.Unmarshal([]byte(body), &inventory) != nil {
+			if len(changedPaths) > 0 {
+				select {
+				case refreshInventory <- struct{}{}:
+				default:
+				}
+			}
 			continue
 		}
 		policy := cachedPolicy(store)
 		request, stop := context.WithTimeout(ctx, 3*time.Minute)
+		if len(changedPaths) > 0 {
+			handled, affectedRoots, fastErr := fastPatrolTrustedChanges(request, home, inventory, policy, api, store, changedPaths)
+			if handled && watcher != nil && len(affectedRoots) > 0 {
+				watcher.SuppressRoots(affectedRoots, 2*time.Second)
+			}
+			syncError(store, "fast_patrol", fastErr)
+			if !handled || fastErr != nil {
+				select {
+				case refreshInventory <- struct{}{}:
+				default:
+				}
+			}
+			stop()
+			continue
+		}
 		tasks, err := store.PendingTasks()
 		didWork := false
 		if err == nil {
@@ -349,6 +466,9 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 				}
 			}
 		}
+		sharingChanged, sharingErr := ReconcileSharedManagedInstalls(request, home, store)
+		syncError(store, "shared_installs", sharingErr)
+		didWork = didWork || sharingChanged
 		autoChanged, autoErr := ReconcileApprovedPending(request, home, api, store, inventory, policy)
 		syncError(store, "auto_install", autoErr)
 		restored, restoreErr := ReconcileCertifiedQuarantine(request, home, api, store, inventory)
@@ -381,7 +501,13 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		}
 		syncError(store, "worker", err)
 		if didWork {
-			syncError(store, "inventory", synchronizeInventory(request))
+			var signalErr error
+			syncError(store, "inventory", synchronizeInventory(request, func() {
+				// The cached inventory is now authoritative for the completed
+				// action. Wake the desktop before waiting for platform upload.
+				signalErr = store.EmitUIStateEvent(home, "local_state_changed", map[string]any{"source": "worker"})
+			}))
+			syncError(store, "desktop_event", signalErr)
 		}
 		stop()
 	}

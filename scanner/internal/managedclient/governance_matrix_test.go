@@ -129,6 +129,10 @@ func TestClassifiedPolicyActionMatrix(t *testing.T) {
 						t.Fatal("scan not deduplicated", uploads.Load())
 					}
 				case "quarantine", "uninstall", "restore_trusted":
+					notifications, err := store.Notifications(10)
+					if err != nil || len(notifications) != 1 || notifications[0].EventType != "skill_governance_action" {
+						t.Fatalf("file action should emit only its final notification: %#v %v", notifications, err)
+					}
 					copies, err := store.QuarantineItems()
 					if err != nil || len(copies) != 1 {
 						t.Fatal(copies, err)

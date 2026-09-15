@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,8 @@ import (
 
 	_ "modernc.org/sqlite"
 )
+
+var ErrPendingNotFound = errors.New("pending_not_found")
 
 type Store struct {
 	db   *sql.DB
@@ -148,6 +151,12 @@ func OpenStore(path string) (*Store, error) {
 			agent_type TEXT,
 			skill_name TEXT,
 			details_json TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS client_ui_events (
+			revision INTEGER PRIMARY KEY AUTOINCREMENT,
+			event_type TEXT NOT NULL,
+			details_json TEXT NOT NULL DEFAULT '{}',
 			created_at TEXT NOT NULL
 		);
 		CREATE TABLE IF NOT EXISTS client_exclusions (
@@ -425,15 +434,182 @@ func (store *Store) MarkPendingSubmitted(item PendingItem, skillID, versionID st
 }
 
 func (store *Store) UpdatePendingStatus(skillID, versionID, status string) error {
-	var previous string
-	_ = store.db.QueryRow("SELECT status FROM client_pending WHERE skill_id=? AND COALESCE(version_id,'')=? LIMIT 1", skillID, versionID).Scan(&previous)
-	result, err := store.db.Exec(`UPDATE client_pending SET status = ? WHERE skill_id = ? AND COALESCE(version_id, '') = ?`, status, skillID, versionID)
-	if err == nil && previous != status {
-		if count, e := result.RowsAffected(); e == nil && count > 0 {
-			store.LogDiagnostic("info", "scan", "status_changed", map[string]any{"skill_id": skillID, "version_id": versionID, "previous_status": previous, "status": status})
+	tx, err := store.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT id, agent_type, skill_name, status FROM client_pending WHERE skill_id=? AND COALESCE(version_id,'')=?`, skillID, versionID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type pendingChange struct {
+		ID        string `json:"pending_id"`
+		AgentType string `json:"agent_type"`
+		SkillName string `json:"skill_name"`
+		Previous  string `json:"previous_status"`
+	}
+	var changes []pendingChange
+	for rows.Next() {
+		var change pendingChange
+		if err := rows.Scan(&change.ID, &change.AgentType, &change.SkillName, &change.Previous); err != nil {
+			return err
+		}
+		changes = append(changes, change)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(changes) == 0 {
+		return fmt.Errorf("%w: %s/%s", ErrPendingNotFound, skillID, versionID)
+	}
+	changed := make([]pendingChange, 0, len(changes))
+	for _, change := range changes {
+		if change.Previous != status {
+			changed = append(changed, change)
 		}
 	}
-	return err
+	if len(changed) == 0 {
+		return tx.Commit()
+	}
+	if _, err := tx.Exec(`UPDATE client_pending SET status = ? WHERE skill_id = ? AND COALESCE(version_id, '') = ?`, status, skillID, versionID); err != nil {
+		return err
+	}
+	ids := make([]string, 0, len(changed))
+	for _, change := range changed {
+		ids = append(ids, change.ID)
+		if _, err := tx.Exec(`INSERT INTO client_state(key,value,updated_at) VALUES(?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`, "recovery:pending:"+change.ID, "queued", time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+	}
+	details, _ := json.Marshal(map[string]any{"pending_ids": ids, "skill_id": skillID, "version_id": versionID, "status": status, "changes": changed})
+	created := time.Now().UTC().Format(time.RFC3339Nano)
+	row, err := tx.Exec(`INSERT INTO client_ui_events(event_type, details_json, created_at) VALUES('pending_status_changed', ?, ?)`, string(details), created)
+	if err != nil {
+		return err
+	}
+	revision, err := row.LastInsertId()
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if _, err := tx.Exec(`UPDATE client_state SET value=?, updated_at=? WHERE key=?`, fmt.Sprintf("%d", revision), created, "recovery:pending:"+id); err != nil {
+			return err
+		}
+		if status == "APPROVED" {
+			// A prior not-yet-certified attempt must not impose the normal
+			// retry throttle after the platform has just approved this copy.
+			if _, err := tx.Exec(`DELETE FROM client_state WHERE key IN (?, ?)`, "quarantine:auto-restore:"+id, "quarantine:auto-restore:pending:"+id); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`DELETE FROM client_state WHERE key IN (?, ?)`, "recovery:error:"+id, "recovery:error:pending:"+id); err != nil {
+				return err
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	store.LogDiagnostic("info", "scan", "status_changed", map[string]any{"pending_ids": ids, "skill_id": skillID, "version_id": versionID, "status": status, "revision": revision})
+	if pendingStatusTerminal(status) {
+		store.LogDiagnostic("info", "scan", "pending_terminal_persisted", map[string]any{"pending_ids": ids, "skill_id": skillID, "version_id": versionID, "status": status, "revision": revision})
+	}
+	if status == "APPROVED" {
+		store.LogDiagnostic("info", "recovery", "recovery_queued", map[string]any{"pending_ids": ids, "skill_id": skillID, "version_id": versionID, "revision": revision})
+	}
+	// The page may have performed this read. Wake the daemon through a durable
+	// marker so it cannot miss an APPROVED transition between polls.
+	home := filepath.Dir(store.root)
+	if err := RequestWorkerWake(home); err != nil {
+		return err
+	}
+	if err := WriteUIStateSignalRevision(home, "pending_status_changed", fmt.Sprintf("%d", revision)); err != nil {
+		return err
+	}
+	store.LogDiagnostic("info", "desktop", "desktop_state_signal_written", map[string]any{"event_type": "pending_status_changed", "revision": revision})
+	return nil
+}
+
+func (store *Store) PendingStatus(skillID, versionID string) (bool, string, error) {
+	rows, err := store.db.Query(`SELECT status FROM client_pending WHERE skill_id=? AND COALESCE(version_id,'')=?`, skillID, versionID)
+	if err != nil {
+		return false, "", err
+	}
+	defer rows.Close()
+	found := false
+	status := ""
+	consistent := true
+	for rows.Next() {
+		var current string
+		if err := rows.Scan(&current); err != nil {
+			return false, "", err
+		}
+		if !found {
+			status = current
+			found = true
+		} else if current != status {
+			consistent = false
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, "", err
+	}
+	if !found {
+		return false, "", nil
+	}
+	if !consistent {
+		return true, "", nil
+	}
+	return true, status, nil
+}
+
+// EmitUIStateEvent persists a monotonic local revision before notifying the
+// desktop client. The database row is the durable source; the marker file is
+// only a wake-up hint and can safely be replayed after a restart.
+func (store *Store) EmitUIStateEvent(home, eventType string, details map[string]any) error {
+	payload, err := json.Marshal(details)
+	if err != nil {
+		return err
+	}
+	created := time.Now().UTC().Format(time.RFC3339Nano)
+	result, err := store.db.Exec(`INSERT INTO client_ui_events(event_type, details_json, created_at) VALUES(?, ?, ?)`, eventType, string(payload), created)
+	if err != nil {
+		return err
+	}
+	revision, err := result.LastInsertId()
+	if err != nil {
+		return err
+	}
+	if err := WriteUIStateSignalRevision(home, eventType, fmt.Sprintf("%d", revision)); err != nil {
+		return err
+	}
+	store.LogDiagnostic("info", "desktop", "desktop_state_signal_written", map[string]any{"event_type": eventType, "revision": revision})
+	return nil
+}
+
+// ReplayLatestUIEvent bridges an event committed while the desktop process
+// was stopped. It is intentionally best-effort: a later snapshot refresh is
+// still authoritative if no event exists.
+func (store *Store) ReplayLatestUIEvent(home string) error {
+	revision, eventType, err := store.LatestUIEvent()
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return WriteUIStateSignalRevision(home, eventType, fmt.Sprintf("%d", revision))
+}
+
+func (store *Store) LatestUIEvent() (int64, string, error) {
+	var revision int64
+	var eventType string
+	err := store.db.QueryRow(`SELECT revision, event_type FROM client_ui_events ORDER BY revision DESC LIMIT 1`).Scan(&revision, &eventType)
+	return revision, eventType, err
 }
 
 func (store *Store) UpdatePendingVersionMetadata(skillID, versionID string, versionNo int, sourceVersion string) error {

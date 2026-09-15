@@ -2,8 +2,10 @@ package managedclient
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -72,6 +74,11 @@ func TestAutomaticSharedLinksKeepOneCopyAndRestoreEachPath(t *testing.T) {
 			if items[0].QuarantinePath != items[1].QuarantinePath {
 				t.Fatal("duplicated retained content", items)
 			}
+			for _, item := range items {
+				if len(item.AffectedTargets) != 2 {
+					t.Fatal("shared recovery did not expose every affected target", item)
+				}
+			}
 			for i, agent := range inventory.Agents {
 				path := agent.Skills[0].Path
 				if _, err := os.Lstat(path); !os.IsNotExist(err) {
@@ -83,6 +90,12 @@ func TestAutomaticSharedLinksKeepOneCopyAndRestoreEachPath(t *testing.T) {
 				}
 				if err := checkObservedContent(Skill{Path: path, Signature: skill.Signature}); err != nil {
 					t.Fatal(err)
+				}
+				if i == 0 {
+					active, err := store.QuarantineItems()
+					if err != nil || len(active) != 1 || len(active[0].AffectedTargets) != 2 {
+						t.Fatal("remaining shared recovery lost incident scope", active, err)
+					}
 				}
 			}
 			if err := checkObservedContent(Skill{Path: external, Signature: skill.Signature}); err != nil {
@@ -103,12 +116,121 @@ func TestDiscardSharedRecoveryPreservesOtherReaderCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	queued, err := store.PendingItems()
+	if err != nil || len(queued) != 2 || queued[0].Fingerprint == "" || queued[0].Fingerprint != queued[1].Fingerprint {
+		t.Fatal("shared recovery did not queue every target under one verdict", queued, err)
+	}
 	if _, err := store.DiscardPending(pending.ID); err != nil {
 		t.Fatal(err)
+	}
+	queued, err = store.PendingItems()
+	if err != nil || len(queued) != 1 {
+		t.Fatal("discard removed another Agent pending target", queued, err)
 	}
 	items, err := store.QuarantineItems()
 	if err != nil || len(items) != 1 || items[0].Signature != skill.Signature {
 		t.Fatal("other recovery lost", items, err)
+	}
+}
+
+func TestApprovedSharedRecoveryRestoresEveryAffectedAgent(t *testing.T) {
+	home := t.TempDir()
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	external := filepath.Join(t.TempDir(), "safe-skill")
+	writeSkill(t, external, "safe-skill")
+	state, err := inspectInstallTarget(external)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]string{
+		"codex":       filepath.Join(home, ".codex", "skills", "safe-skill"),
+		"claude-code": filepath.Join(home, ".claude", "skills", "safe-skill"),
+	}
+	inventory := Inventory{ClientID: "client-1"}
+	for _, agentType := range []string{"codex", "claude-code"} {
+		path := paths[agentType]
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(external, path); err != nil {
+			t.Fatal(err)
+		}
+		inventory.Agents = append(inventory.Agents, Agent{
+			AgentType: agentType, SkillsPath: filepath.Dir(path), SkillManagementSupported: true,
+			Skills: []Skill{{Name: "safe-skill", Path: path, Signature: state.signature}},
+		})
+	}
+	value := SkillObservation{Action: "quarantine", Trigger: "trusted_content_changed", Signature: state.signature}
+	ids, err := applyAutomaticObservedAction(context.Background(), home, inventory, inventory.Agents[0], inventory.Agents[0].Skills[0], canonicalSkillRoot(external), Policy{}, API{}, store, &value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := QueueQuarantineForDetectionExpected(home, store, ids[paths["codex"]], state.signature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := store.PendingItems()
+	if err != nil || len(queued) != 2 {
+		t.Fatal("shared event was not expanded into per-Agent recovery targets", queued, err)
+	}
+	if err := store.MarkPendingSubmitted(pending, "skill-1", "version-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdatePendingStatus("skill-1", "version-1", "APPROVED"); err != nil {
+		t.Fatal(err)
+	}
+
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageBody := signedPackageFor(t, privateKey, "safe-skill")
+	packageRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/scanner/imports/version-1":
+			_ = json.NewEncoder(response).Encode(map[string]any{
+				"skill_id": "skill-1", "version_id": "version-1", "name": "safe-skill", "status": "APPROVED",
+			})
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/clients/client-1/skills/skill-1/package":
+			packageRequests++
+			response.Header().Set("Content-Type", "application/zip")
+			_, _ = response.Write(packageBody)
+		case request.Method == http.MethodPost:
+			response.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected request: %s %s", request.Method, request.URL.String())
+			response.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	changed, err := ReconcileApprovedPending(context.Background(), home, NewAPI(server.URL, "token", 5*time.Second), store, inventory, Policy{
+		ReleasePublicKey: base64.StdEncoding.EncodeToString(publicKey),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || packageRequests != 2 {
+		t.Fatalf("shared approval did not install every target: changed=%v requests=%d", changed, packageRequests)
+	}
+	if items, err := store.PendingItems(); err != nil || len(items) != 0 {
+		t.Fatal("shared pending targets remain", items, err)
+	}
+	if items, err := store.QuarantineItems(); err != nil || len(items) != 0 {
+		t.Fatal("shared quarantine targets remain", items, err)
+	}
+	for agentType, path := range paths {
+		if _, err := filepath.EvalSymlinks(path); err != nil {
+			t.Fatal("approved version was not restored", agentType, err)
+		}
+		content, err := os.ReadFile(filepath.Join(path, "SKILL.md"))
+		if err != nil || string(content) != "---\nname: safe-skill\n---\n" {
+			t.Fatalf("wrong approved content restored for %s: %q %v", agentType, content, err)
+		}
 	}
 }
 
@@ -148,64 +270,44 @@ func TestSharedRootAliasesRemoveEachLinkEntryOnce(t *testing.T) {
 	}
 }
 
-func TestSharedLinkPatrolPinsReadersBeforeEventDelivery(t *testing.T) {
-	for _, changed := range []bool{false, true} {
-		t.Run(fmt.Sprint(changed), func(t *testing.T) {
-			home, store, inventory, skill, external := sharedLinksFixture(t)
-			alias := inventory.Agents[1].Skills[0].Path
-			replacement := filepath.Join(t.TempDir(), "replacement")
-			if err := copyDir(external, replacement); err != nil {
-				t.Fatal(err)
-			}
-			changedOnce := false
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if strings.HasSuffix(r.URL.Path, "/events") && changed && !changedOnce {
-					changedOnce = true
-					if err := os.Remove(alias); err != nil {
-						t.Error(err)
-					}
-					if err := os.Symlink(replacement, alias); err != nil {
-						t.Error(err)
-					}
-				}
-				w.Write([]byte(`{"items":[]}`))
-			}))
-			defer server.Close()
-			policy := Policy{Classification: DefaultClassificationPolicy()}
-			policy.Classification.Rules["unverified"] = "quarantine"
-			err := patrolClassified(context.Background(), home, inventory, policy, NewAPI(server.URL, "token", time.Second), store, true)
-			if changed {
-				if err == nil {
-					t.Fatal("accepted changed sharing scope")
-				}
-				for _, path := range []string{skill.Path, alias, external, replacement} {
-					if err := checkObservedContent(Skill{Path: path, Signature: skill.Signature}); err != nil {
-						t.Fatal("content lost", path, err)
-					}
-				}
-				items, _ := store.QuarantineItems()
-				if len(items) != 0 {
-					t.Fatal("partial quarantine before preflight", items)
-				}
-			} else {
-				if err != nil {
-					t.Fatal(err)
-				}
-				ids := map[string]bool{}
-				for _, path := range []string{skill.Path, alias} {
-					value, err := store.Observation(path)
-					if err != nil || value.ActionStatus != "completed" || value.QuarantineID == "" {
-						t.Fatal(value, err)
-					}
-					ids[value.QuarantineID] = true
-					if _, err := os.Lstat(path); !os.IsNotExist(err) {
-						t.Fatal("reader not isolated", path, err)
-					}
-				}
-				if len(ids) != 2 {
-					t.Fatal("recovery destinations collapsed", ids)
-				}
-			}
-		})
+func TestSharedLinkPatrolQueuesEventsAfterEnforcement(t *testing.T) {
+	home, store, inventory, skill, external := sharedLinksFixture(t)
+	alias := inventory.Agents[1].Skills[0].Path
+	reported := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/events") {
+			reported = append(reported, "unexpected")
+		}
+		_, _ = w.Write([]byte(`{"items":[]}`))
+	}))
+	defer server.Close()
+	policy := Policy{Classification: DefaultClassificationPolicy()}
+	policy.Classification.Rules["unverified"] = "quarantine"
+	if err := patrolClassified(context.Background(), home, inventory, policy, NewAPI(server.URL, "token", time.Second), store, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(reported) != 0 {
+		t.Fatal("unexpected synchronous events", reported)
+	}
+	queued, err := store.QueuedEvents()
+	if err != nil || len(queued) != 2 || queued[0].EventType != "skill_governance_detected" || queued[1].EventType != "skill_governance_action" {
+		t.Fatal("governance events were not queued in order", queued, err)
+	}
+	if err := checkObservedContent(Skill{Path: external, Signature: skill.Signature}); err != nil {
+		t.Fatal("shared content copy was lost", err)
+	}
+	ids := map[string]bool{}
+	for _, path := range []string{skill.Path, alias} {
+		value, err := store.Observation(path)
+		if err != nil || value.ActionStatus != "completed" || value.QuarantineID == "" {
+			t.Fatal(value, err)
+		}
+		ids[value.QuarantineID] = true
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatal("reader not isolated", path, err)
+		}
+	}
+	if len(ids) != 2 {
+		t.Fatal("recovery destinations collapsed", ids)
 	}
 }

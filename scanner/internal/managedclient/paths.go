@@ -1,20 +1,47 @@
 package managedclient
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 )
 
 const (
 	runtimeDirectoryName = ".agent-manager"
 	dataDirectoryName    = ".river-security"
 	dataProductName      = "agent-manager"
+	uiStateSignalName    = "ui-state-revision.json"
 )
+
+type UIStateSignal struct {
+	Revision  string `json:"revision"`
+	EventType string `json:"event_type"`
+	CreatedAt string `json:"created_at"`
+}
+
+func WriteUIStateSignalRevision(home, eventType, revision string) error {
+	now := time.Now().UTC()
+	body, err := json.Marshal(UIStateSignal{Revision: revision, EventType: eventType, CreatedAt: now.Format(time.RFC3339Nano)})
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(UIStateSignalPath(home), body, 0o600)
+}
 
 func RuntimeRoot(home string) string {
 	return filepath.Join(home, runtimeDirectoryName)
+}
+
+func UIStateSignalPath(home string) string {
+	return filepath.Join(RuntimeRoot(home), uiStateSignalName)
+}
+
+func WriteUIStateSignal(home, eventType string) error {
+	now := time.Now().UTC()
+	return WriteUIStateSignalRevision(home, eventType, now.Format("20060102T150405.000000000Z07:00"))
 }
 
 func DataRoot(home string) string {

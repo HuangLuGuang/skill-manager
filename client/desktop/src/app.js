@@ -25,13 +25,19 @@ let connection = null
 const submittingObservedPaths = new Set()
 let pendingSkillAction = null
 let requestingSkillAction = false
+const trackedSkillActions = new Map()
 let installCatalog = []
 let installVersions = []
 let lockedInstallSkill = null
 let installAgentContext = ''
 let installSearchTimer = null
 let lastInventoryAt = ''
-let autoRefreshBusy = false
+let connectionRefreshGeneration = 0
+let localStateRefreshBusy = false
+let localStateRefreshQueued = false
+let latestLocalEventRevision = ''
+let localEventRetryTimer = null
+let localEventRetryAttempt = 0
 let notificationFilter = 'all'
 let customAgentPendingRemoval = null
 let builtinAgentSettings = []
@@ -40,8 +46,7 @@ let selectedModelAgentID = ''
 let modelSearch = ''
 let pendingItems = []
 let pendingDiscardItem = null
-let pendingRefreshTimer = null
-let pendingRefreshBusy = false
+let pendingQuarantineSubmission = null
 let pendingSubmissionBusy = false
 const submittingQuarantineIDs = new Set()
 let pendingClientUpdate = null
@@ -60,6 +65,8 @@ const CLIENT_UPDATE_NOTIFIED_KEY = 'agent-manager-client-update-notified'
 const CLIENT_UPDATE_REMINDER_KEY = 'agent-manager-client-update-reminder'
 const CLIENT_UPDATE_REMINDER_DELAY_MS = 60 * 60 * 1000
 const CLIENT_UPDATE_SIGNAL_RETRY_DELAY_MS = 60 * 1000
+const LOCAL_EVENT_REVISION_KEY = 'agent-manager-local-event-revision'
+const LOCAL_EVENT_MAX_RETRIES = 5
 const CLIENT_SETTINGS_KEY = 'agent-manager-client-settings-v1'
 const DEFAULT_CLIENT_SETTINGS = {
   defaultPanel: 'connect',
@@ -126,7 +133,7 @@ const log = value => {
 const showMessageDialog = (title, detail) => {
   $('#message-dialog-title').textContent = title
   $('#message-dialog-detail').textContent = runtimeText(detail)
-  $('#message-dialog').showModal()
+  if (!$('#message-dialog').open) $('#message-dialog').showModal()
 }
 
 const formatUpdateBytes = value => {
@@ -232,8 +239,24 @@ const skillSharedReaders = (agent, path) => {
     ?? capabilities.shared_skill_readers_by_root?.[root]
     ?? (capabilities.shared_skills ? capabilities.shared_skill_readers || [] : [])
 }
+const renderSkillSharing = (agent, skill) => {
+  const currentLabels = new Set(
+    [agent.agent_type, agent.display_name, agentLabel(agent.agent_type)]
+      .filter(Boolean)
+      .map(value => String(value).trim().toLowerCase()),
+  )
+  const readers = skillSharedReaders(agent, skill.path).filter(reader => {
+    const labels = [reader, agentLabel(reader)].map(value => String(value).trim().toLowerCase())
+    return !labels.some(label => currentLabels.has(label))
+  })
+  if (!readers.length) return ''
+  const agents = formatList(readers.map(agentLabel))
+  const label = t('ui.agentManagement.shared_with').replace('{agents}', agents)
+  return `<span class="skill-shared-readers" title="${escapeHtml(label)}">${escapeHtml(label)}</span>`
+}
 
 const showPanel = panel => {
+  const previousPanel = document.querySelector('.panel.active')?.id
   document.querySelectorAll('.nav-item, .panel').forEach(item => item.classList.remove('active'))
   document.querySelector(`.nav-item[data-panel="${panel}"]`)?.classList.add('active')
   $('#notification-trigger').classList.toggle('active', panel === 'notifications')
@@ -243,15 +266,17 @@ const showPanel = panel => {
   $('.workspace').scrollTop = 0
   if (panel === 'discover' && connection?.configured) {
     requestAnimationFrame(() => { syncAgentScroll(); revealSelectedAgent() })
-    void loadPending().catch(log)
-    void loadQuarantine().catch(log)
   }
   if (panel === 'models' && connection) renderModelSwitcher(connection)
-  if (panel === 'notifications') refreshConnection()
-  if (panel === 'records') void loadRecordHistory()
+  if (panel === 'records') {
+    if (previousPanel !== 'records') recordState.page = 1
+  }
   if (panel === 'settings') {
     syncSettingsControls()
     void loadBackups().catch(log)
+  }
+  if (connection?.configured) {
+    queueMicrotask(() => { void refreshLocalStateFromEvent() })
   }
 }
 
@@ -881,7 +906,7 @@ const recordOptions = (id, values, label) => {
   control.innerHTML = `<option value="">${escapeHtml(t('ui.records.all'))}</option>` + values.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(label(value))}</option>`).join('')
   control.value = values.includes(selected) ? selected : ''
 }
-const loadRecordHistory = async () => {
+const loadRecordHistory = async ({ strict = false } = {}) => {
   recordOptions('#records-status', ['pending', 'running', 'succeeded', 'failed', 'cancelled'], taskStatusLabel)
   const sequence = ++recordState.sequence
   const filters = { kind: recordState.kind, page: String(recordState.page), page_size: String(recordState.pageSize),
@@ -893,7 +918,10 @@ const loadRecordHistory = async () => {
   $('#event-history-list').innerHTML = $('#task-history-list').innerHTML = ''
   try {
     const result = await invoke('get_client_history', { filters })
-    if (sequence !== recordState.sequence) return
+    if (sequence !== recordState.sequence) {
+      if (strict) throw new Error('records_refresh_superseded')
+      return
+    }
     recordState.page = result.page
     recordState.total = result.total
     recordOptions('#records-agent', result.agents, agentLabel)
@@ -908,9 +936,13 @@ const loadRecordHistory = async () => {
     $('#records-prev').disabled = result.page <= 1
     $('#records-next').disabled = result.page >= pages
   } catch (error) {
-    if (sequence !== recordState.sequence) return
+    if (sequence !== recordState.sequence) {
+      if (strict) throw error
+      return
+    }
     $('#records-feedback').textContent = t('ui.records.load_error')
     $('#records-total').textContent = $('#records-page').textContent = ''
+    if (strict) throw error
   } finally {
     if (sequence === recordState.sequence) $('#records').setAttribute('aria-busy', 'false')
   }
@@ -999,12 +1031,25 @@ const localizedNotification = item => {
 const renderEventHistory = events => {
   const element = $('#event-history-list')
   element.classList.toggle('empty', !events.length)
-  element.innerHTML = events.length ? events.map(event => `<div class="takeover-row task-history-row">
-    <div><strong>${escapeHtml(eventTypeLabel(event.event_type))}</strong><p>${escapeHtml(event.skill_name || eventDetail(event.event_type))}</p></div>
+  element.innerHTML = events.length ? events.map(event => {
+    const details = event.details || {}
+    const type = event.record_type || event.event_type
+    const actionEvent = event.event_type === 'skill_governance_action'
+    const actionFailed = details.status === 'failed' || Boolean(details.error_code)
+    const status = actionEvent ? (actionFailed ? 'failed' : 'completed')
+      : details.action === 'record_only' ? 'completed'
+        : details.trigger === 'malicious' || details.status === 'failed' ? 'failed'
+          : details.trigger ? 'warning' : eventStatus(type)
+    const result = actionEvent ? taskStatusLabel(actionFailed ? 'failed' : 'succeeded')
+      : details.trigger ? governanceLabelFor('trigger', details.trigger) : eventResultLabel(type)
+    return `<div class="takeover-row task-history-row event-history-row">
+    <div><strong>${escapeHtml(event.skill_name || '-')}</strong></div>
     <span>${escapeHtml(event.agent_type ? agentLabel(event.agent_type) : t('ui.13nfgz7'))}</span>
-    <strong class="task-status-${event.details?.action === 'record_only' ? 'completed' : event.details?.trigger === 'malicious' || event.details?.status === 'failed' ? 'failed' : event.details?.trigger ? 'warning' : eventStatus(event.event_type)}">${escapeHtml(event.details?.trigger ? governanceLabelFor('trigger', event.details.trigger) : eventResultLabel(event.event_type))}</strong>
+    <span>${escapeHtml(eventTypeLabel(type))}</span>
+    <strong class="task-status-${status}">${escapeHtml(result)}</strong>
     <span>${escapeHtml(formatTime(event.last_seen_at || event.created_at))}${event.observation_count > 1 ? `<small>${escapeHtml(t('ui.agentManagement.observations'))}: ${event.observation_count}</small>` : ''}</span>
-  </div>`).join('') : t('ui.records.empty')
+  </div>`
+  }).join('') : t('ui.records.empty')
 }
 
 const renderTaskHistory = tasks => {
@@ -1025,58 +1070,163 @@ const renderTaskHistory = tasks => {
     </div>`
   }).join('') : t('ui.records.empty')
 }
+
+const rememberPendingSkillActions = tasks => {
+  for (const task of tasks || []) {
+    if (task.task_type !== 'skill_action' || !['pending', 'running'].includes(task.status)) continue
+    trackedSkillActions.set(String(task.id), task)
+  }
+}
+
+const finishTrackedSkillAction = async task => {
+  trackedSkillActions.delete(String(task.id))
+  if (task.status === 'succeeded') {
+    await discover()
+    await loadPending().catch(log)
+    const action = task.payload?.action || ''
+    const titleKey = action === 'uninstall'
+      ? 'ui.agentManagement.uninstall_completed'
+      : 'ui.agentManagement.action_completed'
+    const detailKey = action === 'uninstall'
+      ? 'ui.agentManagement.uninstall_completed_detail'
+      : 'ui.agentManagement.action_completed_detail'
+    showMessageDialog(t(titleKey), t(detailKey))
+    return
+  }
+  showMessageDialog(t('ui.agentManagement.action_failed'), task.error || t('ui.agentManagement.action_failed_detail'))
+}
+
+const reconcileTrackedSkillActions = tasks => {
+  rememberPendingSkillActions(tasks)
+  for (const [id] of trackedSkillActions) {
+    const current = (tasks || []).find(task => String(task.id) === id)
+    if (current && ['succeeded', 'failed', 'cancelled'].includes(current.status)) {
+      void finishTrackedSkillAction(current).catch(error => log(error))
+    }
+  }
+}
+
 async function refreshConnection() {
+  const generation = ++connectionRefreshGeneration
   try {
-    connection = await invoke('get_connection_status')
+    const nextConnection = await invoke('get_connection_status')
+    if (generation !== connectionRefreshGeneration) return
+    connection = nextConnection
     if (!connection.configured) return renderDisconnected()
     inventory = connection.inventory
     lastInventoryAt = connection.local?.last_inventory_at || lastInventoryAt
     renderConnected(connection)
     renderInventory()
+    reconcileTrackedSkillActions(connection.platform?.tasks)
     await loadBuiltinAgentSettings().catch(error => {
       $('#builtin-agent-settings').innerHTML = tf`<div class="inline-error"><strong>读取扫描目录失败</strong><span>${escapeHtml(error)}</span></div>`
     })
     await loadPending().catch(error => log(error))
     if (!checkClientUpdateFromLongPoll(connection.local)) checkClientUpdateAutomatically()
   } catch (error) {
+    if (generation !== connectionRefreshGeneration) return
     renderDisconnected()
     log(error)
   }
 }
 
-const refreshChangedInventory = async () => {
-  if (autoRefreshBusy || !connection?.configured) return
-  autoRefreshBusy = true
+const normalizeLocalRevision = value => String(value ?? '').trim()
+const numericRevision = value => /^\d+$/.test(value) ? BigInt(value) : null
+const revisionIsNewer = (candidate, current) => {
+  const next = normalizeLocalRevision(candidate)
+  const previous = normalizeLocalRevision(current)
+  if (!next) return false
+  if (!previous) return true
+  const nextNumber = numericRevision(next)
+  const previousNumber = numericRevision(previous)
+  if (nextNumber !== null && previousNumber !== null) return nextNumber > previousNumber
+  // Older clients used timestamp revisions. Preserve those values verbatim;
+  // arrival order is the only safe ordering when formats differ.
+  return next !== previous
+}
+const activePanelName = () => document.querySelector('.panel.active')?.id || 'connect'
+const recordLocalStateDiagnostic = (event, fields = {}) => {
+  window.clientDiagnostics?.localState?.(event, {
+    ...fields,
+    active_panel: fields.active_panel || activePanelName(),
+  })
+}
+const queueLocalEventRetry = (eventType = 'local_state_changed') => {
+  if (localEventRetryTimer || localEventRetryAttempt >= LOCAL_EVENT_MAX_RETRIES || document.hidden) return
+  const delay = Math.min(1000 * (2 ** localEventRetryAttempt), 10000)
+  localEventRetryAttempt++
+  localEventRetryTimer = setTimeout(() => {
+    localEventRetryTimer = null
+    void refreshLocalStateFromEvent({ source: 'event-retry', eventType, revision: latestLocalEventRevision })
+  }, delay)
+}
+
+const refreshLocalStateFromEvent = async ({ source = 'event', eventType = '', revision = '', force = false } = {}) => {
+  if ((!force && document.hidden) || !connection?.configured) return false
+  if (force && localEventRetryTimer) {
+    clearTimeout(localEventRetryTimer)
+    localEventRetryTimer = null
+  }
+  const targetRevision = normalizeLocalRevision(revision || latestLocalEventRevision)
+  if (localStateRefreshBusy) {
+    if (targetRevision && revisionIsNewer(targetRevision, latestLocalEventRevision)) latestLocalEventRevision = targetRevision
+    localStateRefreshQueued = true
+    return false
+  }
+  localStateRefreshBusy = true
+  const startedAt = Date.now()
+  const generation = ++connectionRefreshGeneration
   try {
-    const local = JSON.parse(await run('local-status'))
-    const changedAt = local.last_inventory_at || ''
-    const policyChanged = JSON.stringify(local.classification) !== JSON.stringify(connection.local?.classification)
-    const taskChanged = local.tasks?.[0]?.updated_at !== connection.local?.tasks?.[0]?.updated_at
-    const notificationChanged = local.notifications?.[0]?.id !== connection.local?.notifications?.[0]?.id || local.unread_notifications !== connection.local?.unread_notifications
-    const quarantineChanged = local.quarantined_skills !== connection.local?.quarantined_skills || local.pending_skills !== connection.local?.pending_skills
-    const updatesChanged = JSON.stringify(local.client_updates || {}) !== JSON.stringify(connection.local?.client_updates || {})
-    if (updatesChanged) {
-      connection.local.client_updates = local.client_updates
-      checkClientUpdateFromLongPoll(local)
+    const snapshot = await invoke('get_local_snapshot')
+    if (generation !== connectionRefreshGeneration || !connection) return false
+    connection.local = snapshot.local
+    connection.inventory = snapshot.inventory
+    inventory = snapshot.inventory
+    lastInventoryAt = snapshot.local?.last_inventory_at || lastInventoryAt
+    renderConnected(connection)
+    renderInventory()
+    // These reads are part of the applied snapshot. Do not acknowledge an
+    // event until every visible partition needed by the current page succeeds.
+    await loadPending()
+    const partitions = ['local_snapshot', 'pending', 'quarantine']
+    if ($('#records').classList.contains('active')) {
+      if (recordState.kind === 'events') recordState.page = 1
+      await loadRecordHistory({ strict: true })
+      partitions.push('records')
     }
-    if (document.hidden) return
-    const refreshQuarantine = $('#discover').classList.contains('active') || $('#connect').classList.contains('active')
-    if ((!changedAt || changedAt === lastInventoryAt) && !policyChanged && !taskChanged && !notificationChanged && !quarantineChanged) return
-    if (changedAt === lastInventoryAt) {
-      connection.local = local
-      if (policyChanged) renderConnected(connection)
-      else renderStatus(connection)
-      if (refreshQuarantine) await loadPending()
-      return
+    const appliedRevision = targetRevision || normalizeLocalRevision(snapshot.local?.ui_event_revision)
+    if (appliedRevision) {
+      localStorage.setItem(LOCAL_EVENT_REVISION_KEY, appliedRevision)
+      if (!latestLocalEventRevision || !revisionIsNewer(latestLocalEventRevision, appliedRevision)) latestLocalEventRevision = ''
     }
-    const refreshManagement = $('#discover').classList.contains('active')
-    await refreshConnection()
-    if (refreshManagement) await loadPending()
-    if (refreshQuarantine) await loadPending()
-  } catch (_) {
-    // The normal connection refresh remains responsible for surfacing errors.
+    localEventRetryAttempt = 0
+    recordLocalStateDiagnostic('desktop_snapshot_refreshed', {
+      revision: appliedRevision,
+      event_type: eventType || source,
+      duration_ms: Date.now() - startedAt,
+      outcome: 'succeeded',
+      partitions,
+    })
+    return true
+  } catch (error) {
+    const errorCode = String(error?.code || error?.message || error).split(':')[0].slice(0, 120)
+    recordLocalStateDiagnostic('desktop_snapshot_refresh_failed', {
+      revision: targetRevision,
+      event_type: eventType || source,
+      duration_ms: Date.now() - startedAt,
+      outcome: 'failed',
+      error_code: errorCode,
+      partitions: ['local_snapshot', 'pending', 'quarantine'],
+    })
+    log(t('ui.localEvents.refresh_failed').replace('{error}', error))
+    if (source === 'event' || source === 'event-retry' || source === 'queued-event') queueLocalEventRetry(eventType || 'local_state_changed')
+    return false
   } finally {
-    autoRefreshBusy = false
+    localStateRefreshBusy = false
+    if (localStateRefreshQueued) {
+      localStateRefreshQueued = false
+      queueMicrotask(() => { void refreshLocalStateFromEvent({ source: 'queued-event', eventType, revision: latestLocalEventRevision }) })
+    }
   }
 }
 
@@ -1174,14 +1324,16 @@ const scanProgressText = item => {
   return parts.join(' · ')
 }
 
-const renderSkillObservation = skill => {
+const renderSkillObservation = (skill, expanded = false) => {
   const observation = skill.governance?.signature === skill.signature ? skill.governance : null
   const certification = skill.status === 'broken_link' ? 'missing_files' : skill.status === 'unscannable' ? 'unscannable' : observation?.certification || 'confirmation_pending'
+  const actionTask = (connection?.platform?.tasks || []).find(task => task.task_type === 'skill_action' && task.payload?.path === skill.path && ['pending', 'running'].includes(task.status))
   const pending = observation?.pending_id ? pendingItems.find(item => item.id === observation.pending_id) : null
   const policy = connection?.local?.classification || connection?.platform?.classification
   const trigger = observation?.trigger
   const source = policy?.sources?.[trigger]
   const facts = [
+    actionTask ? `${governanceLabelFor('action', actionTask.payload?.action)} · ${taskStatusLabel(actionTask.status)} · ${t('ui.agentManagement.task_id')} ${actionTask.id}` : '',
     governanceLabelFor('certification', certification),
     observation?.malicious ? t('ui.agentManagement.trigger.malicious') : '',
     pending?.status === 'VETTED' && pendingVersionLabel(pending) ? `${pendingStatusLabel(pending.status)} · ${pendingVersionLabel(pending)}` : '',
@@ -1197,7 +1349,9 @@ const renderSkillObservation = skill => {
     `${t('ui.agentManagement.inventory_sync')}: ${formatTime(connection?.local?.sync?.inventory?.last_success_at)}`,
     skill.status === 'external_link' ? t('ui.agentManagement.link_outside_scope') : skill.error || observation?.error_code || connection?.local?.sync?.inventory?.error || '',
   ].filter(Boolean)
-  return `<div class="skill-observation ${observation?.malicious || skill.error ? 'warning' : ''}"><span data-ui-icon="${observation?.malicious || certification === 'missing_files' ? 'circle-alert' : certification === 'certified' ? 'circle-check' : certification === 'changed' ? 'triangle-alert' : certification === 'unverified' ? 'circle-alert' : 'clock-3'}" class="skill-status ${escapeHtml(certification)} ${observation?.malicious ? 'malicious' : ''}">${escapeHtml(facts.join(' · '))}</span></div><details class="skill-facts"><summary>${escapeHtml(t('ui.agentManagement.details'))}</summary><button class="path-link" type="button" title="${escapeHtml(skill.path)}" data-reveal-path="${escapeHtml(skill.path)}">${escapeHtml(skill.path)}</button>${details.map(detail => `<small>${escapeHtml(detail)}</small>`).join('')}</details>`
+  const statusClass = actionTask ? 'action-pending' : certification
+  const statusIcon = actionTask ? 'clock-3' : observation?.malicious || certification === 'missing_files' ? 'circle-alert' : certification === 'certified' ? 'circle-check' : certification === 'changed' ? 'triangle-alert' : certification === 'unverified' ? 'circle-alert' : 'clock-3'
+  return `<div class="skill-observation ${observation?.malicious || skill.error ? 'warning' : ''}"><span data-ui-icon="${statusIcon}" class="skill-status ${escapeHtml(statusClass)} ${observation?.malicious ? 'malicious' : ''}">${escapeHtml(facts.join(' · '))}</span></div><details class="skill-facts"${expanded ? ' open' : ''}><summary>${escapeHtml(t('ui.agentManagement.details'))}</summary><button class="path-link" type="button" title="${escapeHtml(skill.path)}" data-reveal-path="${escapeHtml(skill.path)}">${escapeHtml(skill.path)}</button>${details.map(detail => `<small>${escapeHtml(detail)}</small>`).join('')}</details>`
 }
 
 document.addEventListener('click', event => {
@@ -1246,9 +1400,11 @@ document.addEventListener('keydown', event => {
 const installedAgent = agent => Boolean(agent.install_path || isCustomAgent(agent) || isSharedSkills(agent))
 let selectedAgentID = localStorage.getItem('agent-manager-selected-agent') || ''
 let agentSkillPage = 1
+const expandedSkillDetails = new Set()
 let recoveryItems = []
 let scanHistoryItems = []
 const agentKey = agent => agent.local_agent_id || agent.agent_type
+const skillDetailKey = (agent, skill) => JSON.stringify([agentKey(agent), skill.path])
 const selectedAgent = () => inventory?.agents?.find(agent => agentKey(agent) === selectedAgentID && installedAgent(agent))
 const scopeIncludes = item => Boolean(selectedAgent()) && item.agent_type === selectedAgent().agent_type
 const scopedPendingItems = () => pendingItems.filter(item => recoveryItems.some(copy => copy.pending_copy_id === item.id && recoveryVisible(copy)))
@@ -1272,7 +1428,7 @@ const switchAgent = id => {
 const syncAgentHistory = () => {
   const agent = selectedAgent()
   $('#agent-pending-count').textContent = scanHistoryItems.filter(item => item.agent_type === agent?.agent_type).length
-  $('#agent-recovery-count').textContent = recoveryItems.filter(item => item.agent_type === agent?.agent_type).length
+  $('#agent-recovery-count').textContent = recoveryItems.filter(recoveryScopeIncludes).length
   document.querySelectorAll('[data-pending-agent]').forEach(group => {
     group.hidden = !scopeIncludes({agent_type: group.dataset.pendingAgent})
     group.querySelectorAll('[data-select-pending]').forEach(input => {
@@ -1418,8 +1574,27 @@ const confirmCertifiedRescan = () => new Promise(resolve => {
   dialog.showModal()
 })
 
+const keepExpandedSkillVisible = details => {
+  requestAnimationFrame(() => {
+    const list = $('#agent-list')
+    if (!details.open || !list.contains(details)) return
+    const listRect = list.getBoundingClientRect()
+    const detailsRect = details.getBoundingClientRect()
+    const bottomInset = 12
+    const overflow = detailsRect.bottom - (listRect.bottom - bottomInset)
+    if (overflow <= 0) return
+    list.scrollTo({
+      top: list.scrollTop + overflow,
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    })
+  })
+}
+
 const renderInventory = () => {
   if (!inventory?.agents) return
+  const list = $('#agent-list')
+  const previousScrollTop = list.scrollTop
+  const focusedDetailKey = document.activeElement?.dataset?.skillDetailKey || ''
   const visibleAgents = inventory.agents.filter(installedAgent)
   renderAgentNavigation(visibleAgents)
   const currentAgent = selectedAgent()
@@ -1436,8 +1611,8 @@ const renderInventory = () => {
   const bindings = Object.fromEntries((connection?.platform?.agents || []).map(agent => [agent.agent_type, agent.managed_agent_id || '']))
   const strict = connection?.platform?.governance_mode === 'strict'
   const availableAgents = connection?.platform?.available_managed_agents || []
-  $('#agent-list').classList.remove('empty')
-  $('#agent-list').innerHTML = currentAgent
+  list.classList.remove('empty')
+  list.innerHTML = currentAgent
     ? [currentAgent].map(agent => {
       const binding = bindings[agent.agent_type] || ''
       const shared = isSharedSkills(agent)
@@ -1449,12 +1624,15 @@ const renderInventory = () => {
           ${requiresBinding || isCustomAgent(agent)
             ? `<div class="agent-settings">${requiresBinding ? `<span>${escapeHtml(t('ui.agentManagement.binding'))}: ${escapeHtml(availableAgents.find(item => item.agent_id === binding)?.name || binding || t('ui.agentManagement.binding_required'))}</span>` : ''}${isCustomAgent(agent) ? tf`<button class="custom-agent-remove icon-button icon-remove" type="button" title="只取消本地登记，不删除 Skill 文件" data-remove-custom-agent="${escapeHtml(agent.agent_type)}" data-custom-agent-name="${escapeHtml(agent.display_name)}">取消登记</button>` : ''}</div>`
             : ''}
-          ${agent.skill_management_supported ? `<div class="skill-inventory">${pageSkills.length ? pageSkills.map(skill => tf`
+          ${agent.skill_management_supported ? `<div class="skill-inventory">${pageSkills.length ? pageSkills.map(skill => {
+            const detailKey = skillDetailKey(agent, skill)
+            const expanded = expandedSkillDetails.has(detailKey)
+            return tf`
             <div class="skill-row">
               <div class="skill-row-main">
                 <span>
-                  <button class="skill-name-button" type="button" data-ui-icon="file-text" data-toggle-skill-details aria-expanded="false"><strong>${escapeHtml(skill.name)}</strong></button>
-                  ${renderSkillObservation(skill)}
+                  <button class="skill-name-button" type="button" data-ui-icon="file-text" data-toggle-skill-details data-skill-detail-key="${escapeHtml(detailKey)}" aria-expanded="${expanded}"><strong>${escapeHtml(skill.name)}</strong>${renderSkillSharing(agent, skill)}</button>
+                  ${renderSkillObservation(skill, expanded)}
                 </span>
               </div>
               <div class="skill-row-actions">
@@ -1462,15 +1640,27 @@ const renderInventory = () => {
                 <details class="skill-more"><summary data-ui-icon="ellipsis" aria-label="${escapeHtml(t('ui.agentManagement.more'))}" title="${escapeHtml(t('ui.agentManagement.more'))}"></summary><div class="skill-more-menu">${renderSkillActions(agent, skill)}${skill.skill_id && !skill.error ? tf`<button type="button" data-ui-icon="download" data-install-other="${escapeHtml(skill.skill_id)}" data-skill-name="${escapeHtml(skill.name)}" data-source-agent="${escapeHtml(agent.agent_type)}">安装到其他 Agent</button>` : ''}</div></details>`}
 
               </div>
-            </div>`).join('') : ''}</div>` : ''}
+            </div>`
+          }).join('') : ''}</div>` : ''}
         </article>`
     }).join('')
     : t('ui.1o0lsp0')
+  list.scrollTop = previousScrollTop
   document.querySelectorAll('[data-toggle-skill-details]').forEach(button => button.addEventListener('click', () => {
     const details = button.closest('.skill-row').querySelector('.skill-facts')
     details.open = !details.open
     button.setAttribute('aria-expanded', String(details.open))
+    if (details.open) {
+      expandedSkillDetails.add(button.dataset.skillDetailKey)
+      keepExpandedSkillVisible(details)
+    } else {
+      expandedSkillDetails.delete(button.dataset.skillDetailKey)
+    }
   }))
+  if (focusedDetailKey) {
+    const focusedButton = Array.from(document.querySelectorAll('[data-skill-detail-key]')).find(button => button.dataset.skillDetailKey === focusedDetailKey)
+    focusedButton?.focus({ preventScroll: true })
+  }
   document.querySelectorAll('[data-reinstall-missing]').forEach(button => button.addEventListener('click', () => openInstallDialog(null, button.dataset.skillName, button.dataset.reinstallMissing, { name: button.dataset.skillName, skill_id: button.dataset.skillId })))
   document.querySelectorAll('[data-install-other]').forEach(button => button.addEventListener('click', () => {
     button.closest('details').open = false
@@ -1512,7 +1702,7 @@ const renderInventory = () => {
       setBusy(button, true)
       await run('submit-observed', ['--agent-type', button.dataset.agentType, '--skill', path, '--expected-signature', button.dataset.signature])
       await discover()
-      await loadPending(true)
+      await loadPending()
       showMessageDialog(t('ui.agentManagement.submitted'), t('ui.agentManagement.snapshot_description'))
     } catch (error) {
       showMessageDialog(t('ui.agentManagement.submit_failed'), runtimeText(error))
@@ -1548,15 +1738,16 @@ $('#confirm-skill-action').addEventListener('click', async event => {
   const action = pendingSkillAction
   setBusy(button, true)
   try {
+    await run('reconcile-service')
     const args = ['--action', action.action, '--request-id', action.requestID, '--agent-type', action.agentType,
       '--skill', action.path, '--expected-signature', action.signature]
     if (action.action === 'restore_trusted' && action.versionID) args.push('--version-id', action.versionID)
     if (['restore_quarantine', 'restore_backup'].includes(action.action)) args.push('--id', action.quarantineID)
     if (action.action === 'restore_backup' && action.targetSignature) args.push('--expected-target-signature', action.targetSignature)
     const task = JSON.parse(await run('request-skill-action', args))
+    trackedSkillActions.set(String(task.id), task)
     $('#skill-action-dialog').close()
     await refreshConnection()
-    showMessageDialog(t('ui.agentManagement.action_queued'), `${t('ui.agentManagement.task_id')}: ${task.id}`)
   } catch (error) {
     $('#skill-action-dialog').close()
     showMessageDialog(t('ui.agentManagement.action_failed'), connectionErrorText(error))
@@ -1724,8 +1915,6 @@ const groupTakeoverItems = items => {
   return [...groups].map(([agentType, groupItems]) => ({ agentType, items: groupItems }))
 }
 
-const pendingStatusTerminal = status => ['APPROVED', 'REJECTED', 'CANCELLED', 'unavailable'].includes(status)
-const pendingNeedsRefresh = item => Boolean(item.skill_id) && !pendingStatusTerminal(item.status)
 const pendingCanSubmit = item => !item.skill_id
 
 const syncPendingBatchControls = () => {
@@ -1742,45 +1931,19 @@ const syncPendingBatchControls = () => {
   submitSelected.disabled = selectedCount === 0 || pendingSubmissionBusy
   if (!pendingSubmissionBusy) submitSelected.textContent = tf`提交所选 ${selectedCount}`
   selectAll.disabled = pendingSubmissionBusy
-  refreshPending.disabled = pendingSubmissionBusy || pendingRefreshBusy
+  refreshPending.disabled = pendingSubmissionBusy
   document.querySelectorAll('[data-select-pending]').forEach(input => { input.disabled = pendingSubmissionBusy })
   selectAll.checked = eligible.length > 0 && selectedCount === eligible.length
   selectAll.indeterminate = selectedCount > 0 && selectedCount < eligible.length
 }
 
-const schedulePendingRefresh = items => {
-  if (pendingRefreshTimer) clearTimeout(pendingRefreshTimer)
-  pendingRefreshTimer = null
-  if (!items.some(pendingNeedsRefresh)) return
-  const activeAnalysis = items.some(item => pendingNeedsRefresh(item) && !['VETTED', 'APPROVED'].includes(item.status))
-  pendingRefreshTimer = setTimeout(async () => {
-    if (document.hidden || pendingRefreshBusy || pendingSubmissionBusy) {
-      schedulePendingRefresh(scanHistoryItems)
-      return
-    }
-    try {
-      await loadPending(true, { silent: true })
-    } catch (error) {
-      log(tf`刷新检测状态失败：${error}`)
-      schedulePendingRefresh(scanHistoryItems)
-    }
-  }, activeAnalysis ? 3000 : 10000)
-}
-
-const loadPending = async (refresh = false, { silent = false } = {}) => {
-  if (refresh && pendingRefreshBusy) return pendingItems
-  if (refresh) pendingRefreshBusy = true
-  let items
-  try {
-    items = JSON.parse(await run(refresh ? 'refresh-pending' : 'pending'))
-  } finally {
-    if (refresh) pendingRefreshBusy = false
-  }
+const loadPending = async ({ silent = false } = {}) => {
+  const items = JSON.parse(await run('pending'))
   pendingItems = items
   for (const id of [...selectedPendingIDs]) {
     if (!items.some(item => item.id === id && pendingCanSubmit(item))) selectedPendingIDs.delete(id)
   }
-  scanHistoryItems = JSON.parse(await run(refresh ? 'refresh-scan-history' : 'scan-history'))
+  scanHistoryItems = JSON.parse(await run('scan-history'))
   $('#pending-list').classList.toggle('empty', !scanHistoryItems.length)
   $('#pending-list').innerHTML = groupTakeoverItems(scanHistoryItems).map(group => `<div data-pending-agent="${escapeHtml(group.agentType)}">
     <div class="history-columns recovery-columns"><span>Skill</span><span>${escapeHtml(t('ui.agentHistory.status'))}</span><span>${escapeHtml(t('ui.agentHistory.submitted_at'))}</span></div>
@@ -1792,9 +1955,8 @@ const loadPending = async (refresh = false, { silent = false } = {}) => {
   </div>`).join('')
   await loadQuarantine()
   syncPendingBatchControls()
-  schedulePendingRefresh(scanHistoryItems)
   renderInventory()
-  if (refresh && !silent) log(tf`待处理区共有 ${skillCount(items.length)}`)
+  if (!silent) log(tf`待处理区共有 ${skillCount(items.length)}`)
   return items
 }
 
@@ -1809,8 +1971,12 @@ $('#confirm-discard-pending').addEventListener('click', async event => {
   const button = event.currentTarget
   setBusy(button, true)
   try {
-    await run('discard-pending', ['--id', item.id, '--confirm'])
-    selectedPendingIDs.delete(item.id)
+    if (item.kind === 'quarantine') {
+      await run('discard-quarantine', ['--id', item.id, '--expected-signature', item.signature, '--confirm'])
+    } else {
+      await run('discard-pending', ['--id', item.id, '--confirm'])
+      selectedPendingIDs.delete(item.id)
+    }
     pendingDiscardItem = null
     $('#discard-pending-dialog').close()
     await loadPending()
@@ -1904,7 +2070,7 @@ $('#refresh-pending').addEventListener('click', async event => {
   const button = event.currentTarget
   setBusy(button, true)
   try {
-    await loadPending(true)
+    await loadPending()
   } catch (error) {
     showMessageDialog(t('ui.mjir9s'), String(error))
     log(error)
@@ -2358,7 +2524,39 @@ const recoveryStage = item => {
   if (['CANCELLED', 'unavailable', 'FAILED', 'ERROR'].includes(item.detection_status)) return 'interrupted'
   return 'scanning'
 }
-const recoveryVisible = item => scopeIncludes(item) && (!$('#recovery-status-filter').value || recoveryStage(item) === $('#recovery-status-filter').value)
+const recoveryTargets = item => item.affected_targets?.length
+  ? item.affected_targets
+  : [{ agent_type: item.agent_type, original_path: item.original_path || item.pending_path, status: item.status }]
+const activeRecoveryTargets = item => recoveryTargets(item).filter(target => ['quarantined', 'uninstalled', 'quarantine_failed', 'backed_up', 'pending_copy'].includes(target.status))
+const recoveryScopeIncludes = item => Boolean(selectedAgent()) && activeRecoveryTargets(item).some(target => target.agent_type === selectedAgent().agent_type)
+const recoveryAgentLabels = item => [...new Set(recoveryTargets(item).map(target => agentLabel(target.agent_type)))]
+const recoverySignatureLabel = item => {
+  const value = String(item.signature || item.content_fingerprint || '').replace(/^sha256:/, '')
+  return value ? value.slice(0, 12) : '-'
+}
+const recoveryCopyAlreadyInstalled = item => {
+  if (!item.signature || item.error_code) return false
+  const targets = activeRecoveryTargets(item)
+  if (!targets.length) return false
+  return targets.every(target => {
+    const agent = inventory?.agents?.find(value => value.agent_type === target.agent_type)
+    return (agent?.skills || []).some(skill => skill.path === target.original_path && skill.signature === item.signature)
+  })
+}
+const recoveryKindLabel = item => {
+  if (item.status === 'uninstalled') return t('ui.agentHistory.manual_removed_copy')
+  if (item.reason === 'manual') return t('ui.agentHistory.manual_quarantine_copy')
+  if (item.reason === 'trusted_content_changed' || item.reason === 'signature_mismatch') return t('ui.agentHistory.changed_copy')
+  if (item.status === 'backed_up') return t('ui.agentHistory.backup_copy')
+  return reasonLabel(item.reason)
+}
+const recoveryStatusLabel = item => {
+  if (item.pending_copy_id) return t('ui.agentHistory.pending_copy')
+  if (item.status === 'uninstalled') return t('ui.agentHistory.uninstalled_copy')
+  if (item.status === 'backed_up') return t('ui.agentHistory.backed_up')
+  return t('ui.agentHistory.quarantined')
+}
+const recoveryVisible = item => recoveryScopeIncludes(item) && (!$('#recovery-status-filter').value || recoveryStage(item) === $('#recovery-status-filter').value)
 $('#recovery-status-filter').addEventListener('change', () => {
   selectedPendingIDs.clear()
   syncAgentHistory()
@@ -2370,6 +2568,7 @@ const loadQuarantine = async () => {
   recoveryItems = items
   $('#quarantine-list').classList.toggle('empty', !items.length)
   $('#quarantine-list').innerHTML = items.length ? `<div class="history-columns recovery-columns"><span>Skill</span><span>${escapeHtml(t('ui.agentHistory.status'))}</span><span>${escapeHtml(t('ui.agentTabs.actions'))}</span></div>` + items.map(item => {
+    const alreadyInstalled = recoveryCopyAlreadyInstalled(item)
     const pending = (connection?.platform?.tasks || []).some(task => task.task_type === 'skill_action' && task.payload?.path === item.original_path && ['pending', 'running'].includes(task.status))
     const recoveryReason = !connection?.platform?.manual_skill_actions_allowed ? t('ui.agentManagement.action_permission_required')
       : !connection?.connected ? t('ui.agentManagement.actionStatus.waiting')
@@ -2378,20 +2577,25 @@ const loadQuarantine = async () => {
     const detection = item.detection_status
       ? { ...item, status: item.detection_status }
       : null
+    const affectedAgents = recoveryAgentLabels(item)
+    const sharedBadge = affectedAgents.length > 1
+      ? `<span class="recovery-shared-badge">${escapeHtml(t('ui.agentHistory.shared_copy').replace('{count}', affectedAgents.length))}</span>`
+      : ''
+    const statusClass = alreadyInstalled ? 'status-approved' : item.status === 'uninstalled' ? 'status-cancelled' : 'status-review'
     return tf`
     <div class="takeover-row quarantine-row" data-recovery-agent="${escapeHtml(item.agent_type)}" data-recovery-id="${escapeHtml(item.id)}">
-      <div class="quarantine-skill-identity">${item.pending_copy_id && !item.skill_id ? `<input type="checkbox" class="pending-copy-select" data-select-pending="${escapeHtml(item.pending_copy_id)}" aria-label="${escapeHtml(item.skill_name)}" ${selectedPendingIDs.has(item.pending_copy_id) ? 'checked' : ''} />` : ''}<details class="history-details"><summary data-ui-icon="file-text">${escapeHtml(item.skill_name)}${pendingReviewVersionBadge(detection)}</summary><div class="history-facts"><button class="path-link" type="button" title="隔离目录：${escapeHtml(item.quarantine_path)}" data-reveal-path="${escapeHtml(item.quarantine_path)}">所属 Agent：${escapeHtml(agentLabel(item.agent_type))} · ${escapeHtml(item.original_path || item.pending_path)}</button><small>${escapeHtml(detection ? quarantineDetectionGuidance(detection) : reasonLabel(item.reason))}</small>${item.skill_id ? `<small>${escapeHtml(quarantineNextLabel(item.detection_status))}</small>` : ''}</div></details></div>
+      <div class="quarantine-skill-identity">${item.pending_copy_id && !item.skill_id ? `<input type="checkbox" class="pending-copy-select" data-select-pending="${escapeHtml(item.pending_copy_id)}" aria-label="${escapeHtml(item.skill_name)}" ${selectedPendingIDs.has(item.pending_copy_id) ? 'checked' : ''} />` : ''}<div class="recovery-identity"><details class="history-details"><summary data-ui-icon="file-text"><span class="recovery-skill-name">${escapeHtml(item.skill_name)}</span><span class="recovery-badges">${pendingReviewVersionBadge(detection)}<span class="recovery-kind-badge">${escapeHtml(recoveryKindLabel(item))}</span>${sharedBadge}</span></summary><div class="history-facts"><div class="history-copy-path"><span>${escapeHtml(t('ui.agentHistory.copy_path'))}</span><button class="path-link" type="button" title="${escapeHtml(t('ui.agentHistory.copy_path'))}: ${escapeHtml(item.quarantine_path)}" data-reveal-path="${escapeHtml(item.quarantine_path)}"><span>${escapeHtml(item.quarantine_path)}</span></button></div>${detection ? `<div class="history-guidance"><small>${escapeHtml(quarantineDetectionGuidance(detection))}</small>${item.skill_id ? `<small>${escapeHtml(quarantineNextLabel(item.detection_status))}</small>` : ''}</div>` : ''}</div></details><div class="recovery-evidence"><span>${escapeHtml(formatList(affectedAgents))}</span><span>${escapeHtml(formatTime(item.created_at))}</span><code title="${escapeHtml(t('ui.agentHistory.content_signature'))}: ${escapeHtml(item.signature || item.content_fingerprint || '')}">${escapeHtml(recoverySignatureLabel(item))}</code></div></div></div>
       ${detection
         ? `<strong class="quarantine-status result-status ${escapeHtml(pendingStatusClass(detection.status))}"><i></i>${escapeHtml(pendingStatusLabel(detection.status))}</strong>`
-        : `<strong class="quarantine-status result-status status-review" data-ui-icon="archive">${escapeHtml(t(item.pending_copy_id ? 'ui.agentHistory.pending_copy' : item.status === 'backed_up' ? 'ui.agentHistory.backed_up' : 'ui.agentHistory.quarantined'))}</strong>`}
+        : `<strong class="quarantine-status result-status ${statusClass}" data-ui-icon="${alreadyInstalled ? 'check-circle' : 'archive'}">${escapeHtml(alreadyInstalled ? t('ui.agentHistory.reinstalled_copy') : recoveryStatusLabel(item))}</strong>`}
       <div class="takeover-row-actions quarantine-actions">
         ${item.status === 'backed_up' ? `<button type="button" class="icon-button" data-ui-icon="rotate-ccw" data-restore-quarantine="${escapeHtml(item.id)}" title="${escapeHtml(recoveryReason)}" ${recoveryReason ? 'disabled' : ''}>${escapeHtml(t('ui.agentManagement.restore_short'))}</button>` : ''}
-        ${!item.skill_id
-          ? `<button class="primary icon-button icon-submit ${submittingQuarantineIDs.has(item.id) ? 'is-busy' : ''}" data-submit-quarantine="${escapeHtml(item.id)}" data-busy-text="${escapeHtml(t('ui.agentManagement.submitting'))}" ${submittingQuarantineIDs.has(item.id) ? 'disabled aria-busy="true"' : ''}>${escapeHtml(t(submittingQuarantineIDs.has(item.id) ? 'ui.agentManagement.submitting' : 'ui.agentManagement.scan_short'))}</button>`
+        ${!item.skill_id && !alreadyInstalled
+          ? `<button class="primary icon-button icon-submit ${submittingQuarantineIDs.has(item.id) ? 'is-busy' : ''}" data-submit-quarantine="${escapeHtml(item.id)}" data-busy-text="${escapeHtml(t('ui.agentManagement.submitting'))}" ${submittingQuarantineIDs.has(item.id) ? 'disabled aria-busy="true"' : ''}>${escapeHtml(t(submittingQuarantineIDs.has(item.id) ? 'ui.agentManagement.submitting' : 'ui.agentManagement.submit_copy'))}</button>`
           : ''}
         <details class="skill-more"><summary data-ui-icon="ellipsis" aria-label="${escapeHtml(t('ui.agentManagement.more'))}"></summary><div class="skill-more-menu">
         ${recoveryReason ? `<small class="skill-menu-hint">${escapeHtml(recoveryReason)}</small>` : ''}
-        ${item.pending_copy_id ? `<button type="button" data-ui-icon="trash-2" data-discard-copy="${escapeHtml(item.pending_copy_id)}">${escapeHtml(t('ui.agentHistory.delete_copy'))}</button>` : ''}
+        ${item.pending_copy_id ? `<button type="button" data-ui-icon="trash-2" data-discard-copy="${escapeHtml(item.pending_copy_id)}" data-discard-kind="pending">${escapeHtml(t('ui.agentHistory.delete_copy'))}</button>` : item.signature && !item.error_code ? `<button type="button" data-ui-icon="trash-2" data-discard-copy="${escapeHtml(item.id)}" data-discard-kind="quarantine">${escapeHtml(t('ui.agentHistory.delete_copy'))}</button>` : ''}
         <button class="icon-button icon-install" data-install-safe-version="${escapeHtml(item.skill_name)}">选择批准版本</button>
         </div></details>
       </div>
@@ -2403,12 +2607,15 @@ const loadQuarantine = async () => {
     syncPendingBatchControls()
   }))
   document.querySelectorAll('[data-discard-copy]').forEach(button => button.addEventListener('click', () => {
-    const item = pendingItems.find(item => item.id === button.dataset.discardCopy)
+    const quarantineCopy = button.dataset.discardKind === 'quarantine'
+    const item = quarantineCopy
+      ? items.find(item => item.id === button.dataset.discardCopy)
+      : pendingItems.find(item => item.id === button.dataset.discardCopy)
     if (!item) return
-    pendingDiscardItem = item
+    pendingDiscardItem = { ...item, kind: quarantineCopy ? 'quarantine' : 'pending' }
     $('#discard-pending-name').textContent = item.skill_name
     $('#discard-pending-agent').textContent = agentLabel(item.agent_type)
-    $('#discard-pending-path').textContent = item.pending_path
+    $('#discard-pending-path').textContent = item.quarantine_path || item.pending_path
     $('#discard-pending-dialog').showModal()
   }))
   document.querySelectorAll('[data-restore-quarantine]').forEach(button => button.addEventListener('click', () => {
@@ -2430,28 +2637,21 @@ const loadQuarantine = async () => {
     $('#skill-action-dialog').dataset.action = pendingSkillAction.action
     $('#skill-action-dialog').showModal()
   }))
-  document.querySelectorAll('[data-submit-quarantine]').forEach(button => button.addEventListener('click', async () => {
+  document.querySelectorAll('[data-submit-quarantine]').forEach(button => button.addEventListener('click', () => {
     if (pendingSubmissionBusy || submittingQuarantineIDs.size) {
       showMessageDialog(t('ui.agentManagement.submitting'), t('ui.agentManagement.submission_in_progress'))
       return
     }
-    const quarantineID = button.dataset.submitQuarantine
-    submittingQuarantineIDs.add(quarantineID)
-    setBusy(button, true)
-    try {
-      const copy = items.find(item => item.id === button.dataset.submitQuarantine)
-      const pending = copy?.pending_copy_id ? {id: copy.pending_copy_id} : JSON.parse(await run('queue-quarantine', ['--id', button.dataset.submitQuarantine]))
-      await submitPendingIDs([pending.id], button)
-      await refreshConnection()
-      await loadQuarantine()
-    } catch (error) {
-      showMessageDialog(t('ui.agentManagement.submit_failed'), String(error))
-      log(error)
-    } finally {
-      submittingQuarantineIDs.delete(quarantineID)
-      setBusy(button, false)
-      await loadQuarantine().catch(log)
-    }
+    const copy = items.find(item => item.id === button.dataset.submitQuarantine)
+    if (!copy) return
+    pendingQuarantineSubmission = { copy, button }
+    $('#quarantine-submit-name').textContent = copy.skill_name
+    $('#quarantine-submit-kind').textContent = recoveryKindLabel(copy)
+    $('#quarantine-submit-agents').textContent = formatList(recoveryAgentLabels(copy))
+    $('#quarantine-submit-time').textContent = formatTime(copy.created_at)
+    $('#quarantine-submit-signature').textContent = recoverySignatureLabel(copy)
+    $('#quarantine-submit-path').textContent = copy.quarantine_path || copy.pending_path
+    $('#quarantine-submit-dialog').showModal()
   }))
   document.querySelectorAll('[data-install-safe-version]').forEach(button => button.addEventListener('click', () => {
     openInstallDialog(null, button.dataset.installSafeVersion)
@@ -2460,6 +2660,41 @@ const loadQuarantine = async () => {
   if (connection?.configured) renderConnected(connection)
   return items
 }
+
+$('#cancel-quarantine-submit').addEventListener('click', () => {
+  $('#quarantine-submit-dialog').close()
+  pendingQuarantineSubmission = null
+})
+
+$('#quarantine-submit-dialog').addEventListener('close', () => {
+  pendingQuarantineSubmission = null
+})
+
+$('#confirm-quarantine-submit').addEventListener('click', async () => {
+  const selection = pendingQuarantineSubmission
+  if (!selection) return
+  const { copy, button } = selection
+  const quarantineID = copy.id
+  pendingQuarantineSubmission = null
+  $('#quarantine-submit-dialog').close()
+  submittingQuarantineIDs.add(quarantineID)
+  setBusy(button, true)
+  try {
+    const args = ['--id', quarantineID]
+    if (copy.signature) args.push('--expected-signature', copy.signature)
+    const pending = copy.pending_copy_id ? { id: copy.pending_copy_id } : JSON.parse(await run('queue-quarantine', args))
+    await submitPendingIDs([pending.id], button)
+    await refreshConnection()
+    await loadQuarantine()
+  } catch (error) {
+    showMessageDialog(t('ui.agentManagement.submit_failed'), runtimeText(error))
+    log(error)
+  } finally {
+    submittingQuarantineIDs.delete(quarantineID)
+    setBusy(button, false)
+    await loadQuarantine().catch(log)
+  }
+})
 
 $('#refresh-quarantine').addEventListener('click', async event => {
   const button = event.currentTarget
@@ -2515,6 +2750,7 @@ function eventTypeLabel(value) {
     unmanaged_skill_verified: t('ui.11fi048'), skill_installed: t('ui.14fftle'), skill_removed: t('ui.s2pmon'),
     skill_modified: t('ui.grb2re'), skill_repaired: t('ui.1dswesb'), skill_blocked: t('ui.ly2ow4'),
     skill_quarantined: t('ui.1bc6akl'), skill_quarantine_restored: t('ui.1swl6k'),
+    platform_scan_status: t('ui.records.platform_scan_status'),
   }[value] || value || t('ui.1l0wfyp')
 }
 
@@ -2530,7 +2766,7 @@ function agentKind(value) {
 }
 
 function reasonLabel(value) {
-  return {
+  const label = {
     allowed: t('ui.9nqwss'),
     skill_not_found: t('ui.1cgsepv'),
     skill_not_approved: t('ui.vtlruf'),
@@ -2543,7 +2779,10 @@ function reasonLabel(value) {
     not_compared: t('ui.1psmu0h'),
     legacy_pending: t('ui.1lrslxp'),
     quarantine_rescan: t('ui.agentManagement.quarantine_rescan'),
-  }[value] || value || '-'
+    trusted_content_changed: t('ui.agentHistory.changed_copy'),
+    manual: t('ui.agentHistory.manual_removed_copy'),
+  }[value]
+  return label || governanceLabelFor('trigger', value)
 }
 
 function pendingStatusLabel(value) {
@@ -2956,12 +3195,29 @@ const initializeClient = async () => {
     showPanel(clientSettings.defaultPanel)
   }
 }
+if (window.__TAURI__.event?.listen) {
+  window.__TAURI__.event
+    .listen('client-local-state-changed', event => {
+      const revision = normalizeLocalRevision(event.payload?.revision)
+      const eventType = normalizeLocalRevision(event.payload?.event_type) || 'local_state_changed'
+      recordLocalStateDiagnostic('desktop_state_event_received', {
+        revision,
+        event_type: eventType,
+        outcome: 'received',
+        partitions: [],
+      })
+      if (revision && revision === normalizeLocalRevision(localStorage.getItem(LOCAL_EVENT_REVISION_KEY))) return
+      if (revision && (!latestLocalEventRevision || revisionIsNewer(revision, latestLocalEventRevision))) latestLocalEventRevision = revision
+      void refreshLocalStateFromEvent({ source: 'event', eventType, revision })
+    })
+    .catch(error => log(t('ui.localEvents.listen_failed').replace('{error}', error)))
+}
+
 initializeClient()
-setInterval(refreshChangedInventory, 3000)
 setInterval(checkClientUpdateAutomatically, CLIENT_UPDATE_CHECK_INTERVAL_MS)
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
-    refreshChangedInventory()
+    void refreshLocalStateFromEvent({ source: 'foreground', force: true })
     checkClientUpdateAutomatically()
   }
 })

@@ -309,6 +309,127 @@ func TestInstallChecksTargetBeforeChangingSharedRelease(t *testing.T) {
 	}
 }
 
+func TestMultiAgentInstallReusesVerifiedIndependentRelease(t *testing.T) {
+	home := t.TempDir()
+	codex := filepath.Join(home, ".codex", "skills")
+	hermes := filepath.Join(home, ".hermes", "skills")
+	for _, path := range []string{codex, hermes} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/package") {
+			w.Write(signedPackage(t, private))
+			return
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	// Reproduce an edited legacy release: the first Agent must receive a clean
+	// copy without overwriting it, and the second Agent should reuse that copy.
+	legacy := filepath.Join(ManagedSkillsRoot(home), "skill-1", "versions", "skill-1", "release")
+	writeSkill(t, legacy, "edited-local-content")
+	alias := filepath.Join(ManagedSkillsRoot(home), "skill-1", "release")
+	if err := os.MkdirAll(filepath.Dir(alias), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(legacy, alias); err != nil {
+		t.Fatal(err)
+	}
+
+	inventory := Inventory{ClientID: "host", Agents: []Agent{
+		{AgentType: "codex", SkillsPath: codex, SkillManagementSupported: true},
+		{AgentType: "hermes", SkillsPath: hermes, SkillManagementSupported: true},
+	}}
+	policy := Policy{ReleasePublicKey: base64.StdEncoding.EncodeToString(public)}
+	api := NewAPI(server.URL, "token", time.Second)
+	for _, agentType := range []string{"codex", "hermes"} {
+		if err := InstallApprovedSkill(context.Background(), home, inventory, policy, api, store, agentType, "", "skill-1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	codexTarget, err := filepath.EvalSymlinks(filepath.Join(codex, "safe-skill"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hermesTarget, err := filepath.EvalSymlinks(filepath.Join(hermes, "safe-skill"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codexTarget != hermesTarget || !strings.Contains(filepath.ToSlash(codexTarget), "/copy-") {
+		t.Fatalf("multi-Agent install did not reuse the verified copy: codex=%s hermes=%s", codexTarget, hermesTarget)
+	}
+	installs, err := store.Installations()
+	if err != nil || len(installs) != 2 {
+		t.Fatalf("unexpected installations: %#v %v", installs, err)
+	}
+	for _, install := range installs {
+		if !verifyManagedInstall(home, install) {
+			t.Fatalf("shared copy was not accepted as a managed installation: %#v", install)
+		}
+	}
+	codexLink := filepath.Join(codex, "safe-skill")
+	codexRawTarget, err := os.Readlink(codexLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate := filepath.Join(filepath.Dir(filepath.Dir(codexRawTarget)), "copy-999999", "release")
+	if err := copyDir(codexTarget, duplicate); err != nil {
+		t.Fatal(err)
+	}
+	hermesLink := filepath.Join(hermes, "safe-skill")
+	if err := os.Remove(hermesLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(duplicate, hermesLink); err != nil {
+		t.Fatal(err)
+	}
+	for _, install := range installs {
+		if install.AgentType == "hermes" {
+			target, managed := managedSymlinkTarget(home, install)
+			if !managed || !verifyManagedInstall(home, install) {
+				t.Fatalf("test duplicate is not a valid managed release: target=%s managed=%v install=%#v", target, managed, install)
+			}
+		}
+	}
+	changed, err := ReconcileSharedManagedInstalls(context.Background(), home, store)
+	if err != nil || !changed {
+		t.Fatalf("legacy duplicate copies were not reconciled: changed=%v err=%v", changed, err)
+	}
+	if target, err := filepath.EvalSymlinks(hermesLink); err != nil || target != codexTarget {
+		t.Fatalf("legacy Hermes copy was not repointed to the shared release: %s %v", target, err)
+	}
+	if _, err := os.Stat(duplicate); err != nil {
+		t.Fatalf("redundant copy was discarded instead of retained: %v", err)
+	}
+	for index := range inventory.Agents {
+		inventory.Agents[index].Capabilities = map[string]any{"skill_roots": []string{inventory.Agents[index].SkillsPath}}
+		inventory.Agents[index].Skills, err = readSkills(inventory.Agents[index].SkillsPath, ManagedSkillsRoot(home), DefaultManifestOptions())
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	annotateDiscoverySharing(&inventory, Config{})
+	for _, agent := range inventory.Agents {
+		readers := agent.Capabilities["shared_skill_readers_by_path"].(map[string][]string)[agent.Skills[0].Path]
+		if len(readers) != 2 {
+			t.Fatalf("%s did not expose the shared Agent readers: %#v", agent.AgentType, readers)
+		}
+	}
+}
+
 func TestInstallApprovedVersionDoesNotReinterpretPlatformScanRisk(t *testing.T) {
 	for _, action := range []string{"record", "quarantine", "uninstall"} {
 		t.Run(action, func(t *testing.T) {

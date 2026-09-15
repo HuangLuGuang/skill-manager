@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -25,6 +26,9 @@ func runOnce(ctx context.Context, home string, api API, store *Store, forceFullS
 	if err := store.ResetPatrolFindings(); err != nil {
 		return err
 	}
+	if _, err := ReconcileSharedManagedInstalls(ctx, home, store); err != nil {
+		return err
+	}
 	discoveryBefore, _ := json.Marshal(discoveryCatalog(home))
 	inventory, err := Discover(home)
 	if err != nil {
@@ -34,6 +38,9 @@ func runOnce(ctx context.Context, home string, api API, store *Store, forceFullS
 		return err
 	}
 	if err := store.SaveInventory(inventory); err != nil {
+		return err
+	}
+	if _, err := ReconcileInstalledRecoveryCopies(home, store); err != nil {
 		return err
 	}
 	policy, heartbeatErr := api.Heartbeat(ctx, inventory)
@@ -175,13 +182,21 @@ func PollTasks(ctx context.Context, home string, api API, store *Store) error {
 	if err := executeTasks(ctx, home, inventory, policy, api, store, tasks); err != nil {
 		return err
 	}
+	sharingChanged, err := ReconcileSharedManagedInstalls(ctx, home, store)
+	if err != nil {
+		return err
+	}
+	recoveryChanged, err := ReconcileInstalledRecoveryCopies(home, store)
+	if err != nil {
+		return err
+	}
 	pendingChanged, pendingErr := ReconcileApprovedPending(ctx, home, api, store, inventory, policy)
 	if pendingErr != nil {
 		return pendingErr
 	}
 	restored, restoreErr := ReconcileCertifiedQuarantine(ctx, home, api, store, inventory)
 	syncError(store, "auto_restore", restoreErr)
-	if len(tasks) == 0 && !pendingChanged && !restored {
+	if len(tasks) == 0 && !pendingChanged && !restored && !recoveryChanged && !sharingChanged {
 		return nil
 	}
 	fresh, err := Discover(home)
@@ -516,8 +531,20 @@ func installApprovedSkillVersion(ctx context.Context, home string, inventory Inv
 	// Keep edited shared releases in place; install a verified independent copy.
 	preserveAlias := false
 	if !repair {
-		if _, err := os.Stat(target); err == nil {
-			if err := checkObservedContent(Skill{Path: target, Signature: manifest.ContentSignature}); err != nil {
+		targetInfo, targetErr := os.Stat(target)
+		if targetErr != nil && !os.IsNotExist(targetErr) {
+			return targetErr
+		}
+		targetTrusted := targetErr == nil && targetInfo.IsDir() && checkObservedContent(Skill{Path: target, Signature: manifest.ContentSignature}) == nil
+		if !targetTrusted {
+			reusable, found, err := reusableManagedRelease(home, store, skillID, manifest)
+			if err != nil {
+				return err
+			}
+			if found {
+				target = reusable
+				_, preserveAlias = aliasBeforeDownload[currentAlias]
+			} else if targetErr == nil {
 				copyRoot, err := os.MkdirTemp(filepath.Dir(target), "copy-")
 				if err != nil {
 					return err
@@ -526,8 +553,6 @@ func installApprovedSkillVersion(ctx context.Context, home string, inventory Inv
 				target = filepath.Join(copyRoot, "release")
 				_, preserveAlias = aliasBeforeDownload[currentAlias]
 			}
-		} else if !os.IsNotExist(err) {
-			return err
 		}
 	}
 	backupPaths := []string{}
@@ -628,7 +653,7 @@ func installApprovedSkillVersion(ctx context.Context, home string, inventory Inv
 			return err
 		}
 	}
-	if err := store.ResolveQuarantine(agentType, manifest.Name); err != nil {
+	if _, err := store.ResolveInstalledRecovery(agentType, manifest.Name, link, manifest.ContentSignature); err != nil {
 		return err
 	}
 	if err := store.ResolvePendingForInstall(agentType, manifest.Name, link); err != nil {
@@ -680,6 +705,118 @@ func installApprovedSkillVersion(ctx context.Context, home string, inventory Inv
 		"backup_paths": backupPaths, "policy_version": policyVersion,
 	})
 	return nil
+}
+
+// ReconcileInstalledRecoveryCopies hides stale active recovery rows only when
+// the exact recorded installation is present and still matches its signed
+// release manifest.
+func ReconcileInstalledRecoveryCopies(home string, store *Store) (bool, error) {
+	installs, err := store.Installations()
+	if err != nil {
+		return false, err
+	}
+	changed := false
+	for _, install := range installs {
+		if !installPathPresent(install) || !verifyManagedInstall(home, install) {
+			continue
+		}
+		resolved, err := store.ResolveInstalledRecovery(
+			install.AgentType,
+			install.SkillName,
+			install.TargetPath,
+			install.Manifest.ContentSignature,
+		)
+		if err != nil {
+			return changed, err
+		}
+		if resolved {
+			changed = true
+			store.LogDiagnostic("info", "recovery", "installed_copy_resolved", map[string]any{
+				"agent_type":  install.AgentType,
+				"skill_name":  install.SkillName,
+				"target_path": install.TargetPath,
+			})
+		}
+	}
+	return changed, nil
+}
+
+// ReconcileSharedManagedInstalls repairs duplicate physical copies left by
+// older multi-Agent installs. Only exact, independently verified signed
+// versions are consolidated; the redundant release directories are retained
+// so the link change does not discard recoverable data.
+func ReconcileSharedManagedInstalls(ctx context.Context, home string, store *Store) (bool, error) {
+	ctx, releaseMutation, err := withMutationLock(ctx, home)
+	if err != nil {
+		return false, err
+	}
+	defer releaseMutation()
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	installs, err := store.Installations()
+	if err != nil {
+		return false, err
+	}
+	type verifiedInstall struct {
+		install Installation
+		target  string
+	}
+	groups := map[string][]verifiedInstall{}
+	for _, install := range installs {
+		if install.SkillID == "" || install.Manifest.ContentSignature == "" || !verifyManagedInstall(home, install) {
+			continue
+		}
+		target, managed := managedSymlinkTarget(home, install)
+		if !managed {
+			continue
+		}
+		key := install.SkillID + "\x00" + install.Manifest.VersionID + "\x00" + install.Manifest.ContentSignature
+		groups[key] = append(groups[key], verifiedInstall{install: install, target: target})
+	}
+	changed := false
+	for _, group := range groups {
+		if len(group) < 2 {
+			continue
+		}
+		canonical := group[0]
+		for _, candidate := range group[1:] {
+			if filepath.Clean(candidate.target) == filepath.Clean(canonical.target) {
+				continue
+			}
+			if err := ctx.Err(); err != nil {
+				return changed, err
+			}
+			current, managed := managedSymlinkTarget(home, candidate.install)
+			if !managed || filepath.Clean(current) != filepath.Clean(candidate.target) || !verifyManagedInstall(home, candidate.install) || !verifyManagedInstall(home, canonical.install) {
+				continue
+			}
+			previous := candidate.install.TargetPath + fmt.Sprintf(".agent-manager-previous-%d", time.Now().UnixNano())
+			if err := os.Rename(candidate.install.TargetPath, previous); err != nil {
+				return changed, err
+			}
+			if err := os.Symlink(canonical.target, candidate.install.TargetPath); err != nil {
+				_ = os.Rename(previous, candidate.install.TargetPath)
+				return changed, err
+			}
+			if !verifyManagedInstall(home, candidate.install) {
+				_ = os.Remove(candidate.install.TargetPath)
+				_ = os.Rename(previous, candidate.install.TargetPath)
+				return changed, fmt.Errorf("shared install verification failed")
+			}
+			if err := os.Remove(previous); err != nil {
+				return changed, err
+			}
+			changed = true
+			store.LogDiagnostic("info", "install", "shared_copy_reconciled", map[string]any{
+				"agent_type":  candidate.install.AgentType,
+				"skill_id":    candidate.install.SkillID,
+				"target_path": candidate.install.TargetPath,
+				"shared_with": canonical.install.AgentType,
+			})
+		}
+	}
+	return changed, nil
 }
 
 func brokenManagedSymlink(home, link string) bool {
@@ -858,7 +995,7 @@ func patrol(ctx context.Context, home string, inventory Inventory, policy Policy
 			continue
 		}
 		if pathPresent && verifyManagedInstall(home, install) {
-			if err := store.ResolveQuarantine(install.AgentType, install.SkillName); err != nil {
+			if _, err := store.ResolveInstalledRecovery(install.AgentType, install.SkillName, install.TargetPath, install.Manifest.ContentSignature); err != nil {
 				return err
 			}
 			continue
@@ -986,9 +1123,11 @@ func managedSymlinkTarget(home string, install Installation) (string, bool) {
 	}
 	for _, root := range managedSkillsRoots(home) {
 		candidates := []string{filepath.Join(root, install.SkillID, "release")}
-		if install.Manifest.VersionID != "" {
-			candidates = append(candidates, filepath.Join(root, install.SkillID, "versions", install.Manifest.VersionID, "release"))
+		versionID := install.Manifest.VersionID
+		if versionID == "" {
+			versionID = install.SkillID
 		}
+		candidates = append(candidates, filepath.Join(root, install.SkillID, "versions", versionID, "release"))
 		if install.Manifest.ContentSignature != "" {
 			candidates = append(candidates, filepath.Join(root, install.SkillID, install.Manifest.ContentSignature))
 		}
@@ -997,8 +1136,50 @@ func managedSymlinkTarget(home string, install Installation) (string, bool) {
 				return expected, true
 			}
 		}
+		versionRoot := filepath.Join(root, install.SkillID, "versions", versionID)
+		if isManagedCopyRelease(versionRoot, target) {
+			return filepath.Clean(target), true
+		}
 	}
 	return "", false
+}
+
+func isManagedCopyRelease(versionRoot, target string) bool {
+	relative, err := filepath.Rel(versionRoot, filepath.Clean(target))
+	if err != nil {
+		return false
+	}
+	parts := strings.Split(filepath.ToSlash(relative), "/")
+	if len(parts) != 2 || parts[1] != "release" || !strings.HasPrefix(parts[0], "copy-") || len(parts[0]) == len("copy-") {
+		return false
+	}
+	for _, value := range strings.TrimPrefix(parts[0], "copy-") {
+		if value < '0' || value > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// Reuse an already verified local copy of the same signed version. This keeps
+// multi-Agent installs physically shared even when an edited legacy release
+// forced the first target onto an isolated copy-* directory.
+func reusableManagedRelease(home string, store *Store, skillID string, release releaseManifest) (string, bool, error) {
+	installs, err := store.Installations()
+	if err != nil {
+		return "", false, err
+	}
+	for _, install := range installs {
+		if install.SkillID != skillID || install.Manifest.VersionID != release.VersionID || install.Manifest.ContentSignature != release.ContentSignature {
+			continue
+		}
+		target, managed := managedSymlinkTarget(home, install)
+		if !managed || !verifyInstalled(install) {
+			continue
+		}
+		return target, true, nil
+	}
+	return "", false, nil
 }
 
 func verifyManagedInstall(home string, install Installation) bool {
@@ -1157,6 +1338,25 @@ func reportEvent(ctx context.Context, api API, store *Store, clientID, eventType
 }
 
 func reportEventWithLocalNotification(ctx context.Context, api API, store *Store, clientID, eventType, agentType, skillName string, details map[string]any, notifyLocal bool) error {
+	event, err := recordEventLocally(store, clientID, eventType, agentType, skillName, details, notifyLocal)
+	if err != nil {
+		return err
+	}
+	if err := api.ReportEvent(ctx, clientID, eventType, agentType, skillName, event.Details); err == nil {
+		return nil
+	}
+	return store.QueueEvent(event)
+}
+
+func queueEventWithLocalNotification(store *Store, clientID, eventType, agentType, skillName string, details map[string]any, notifyLocal bool) error {
+	event, err := recordEventLocally(store, clientID, eventType, agentType, skillName, details, notifyLocal)
+	if err != nil {
+		return err
+	}
+	return store.QueueEvent(event)
+}
+
+func recordEventLocally(store *Store, clientID, eventType, agentType, skillName string, details map[string]any, notifyLocal bool) (QueuedEvent, error) {
 	if details == nil {
 		details = map[string]any{}
 	}
@@ -1171,13 +1371,10 @@ func reportEventWithLocalNotification(ctx context.Context, api API, store *Store
 	}
 	if eventType == "skill_modified" || eventType == "unmanaged_skill_found" || eventType == "skill_quarantined" {
 		if err := store.RecordPatrolFinding(PatrolFinding{EventType: eventType, AgentType: agentType, SkillName: skillName}); err != nil {
-			return err
+			return QueuedEvent{}, err
 		}
 	}
-	if err := api.ReportEvent(ctx, clientID, eventType, agentType, skillName, details); err == nil {
-		return nil
-	}
-	return store.QueueEvent(QueuedEvent{ClientID: clientID, EventType: eventType, AgentType: agentType, SkillName: skillName, Details: details})
+	return QueuedEvent{ClientID: clientID, EventType: eventType, AgentType: agentType, SkillName: skillName, Details: details}, nil
 }
 
 func flushEvents(ctx context.Context, api API, store *Store) error {

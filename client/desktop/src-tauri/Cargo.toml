@@ -11,6 +11,7 @@ tauri-codegen = "=2.0.2"
 
 [dependencies]
 libc = "0.2"
+notify = "7.0.0"
 notify-rust = "4.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rfd = "0.15"

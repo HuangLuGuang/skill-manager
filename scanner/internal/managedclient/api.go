@@ -76,6 +76,14 @@ type ClientUpdateVersions struct {
 	Preview string `json:"preview,omitempty"`
 }
 
+type PlatformScanEvent struct {
+	Revision  int64  `json:"revision"`
+	PendingID string `json:"pending_id,omitempty"`
+	SkillID   string `json:"skill_id,omitempty"`
+	VersionID string `json:"version_id"`
+	Status    string `json:"status"`
+}
+
 type SkillActionRequest struct {
 	RequestID               string `json:"request_id"`
 	Action                  string `json:"action"`
@@ -169,36 +177,60 @@ func (api API) Tasks(ctx context.Context, clientID string) ([]Task, error) {
 }
 
 func (api API) WaitTasks(ctx context.Context, clientID string, afterID int64) ([]Task, error) {
-	tasks, _, err := api.WaitTasksWithUpdates(ctx, clientID, afterID)
+	tasks, _, _, err := api.WaitTasksWithUpdatesAndScans(ctx, clientID, afterID, nil, 0)
 	return tasks, err
 }
 
 func (api API) WaitTasksWithUpdates(ctx context.Context, clientID string, afterID int64) ([]Task, ClientUpdateVersions, error) {
+	tasks, versions, _, err := api.WaitTasksWithUpdatesAndScans(ctx, clientID, afterID, nil, 0)
+	return tasks, versions, err
+}
+
+func (api API) WaitTasksWithUpdatesAndScans(ctx context.Context, clientID string, afterID int64, scanIDs []string, scanRevision int64) ([]Task, ClientUpdateVersions, []PlatformScanEvent, error) {
 	client := *api.http
 	client.Timeout = 40 * time.Second
 	api.http = &client
-	request, err := api.request(ctx, http.MethodGet, fmt.Sprintf("/api/v1/clients/%s/tasks?wait_seconds=30&after_id=%d", clientID, afterID), nil)
+	query := url.Values{"wait_seconds": {"30"}, "after_id": {fmt.Sprintf("%d", afterID)}, "include_events": {"true"}, "scan_after_revision": {fmt.Sprintf("%d", scanRevision)}}
+	if len(scanIDs) > 0 {
+		query.Set("scan_ids", strings.Join(scanIDs, ","))
+	}
+	request, err := api.request(ctx, http.MethodGet, fmt.Sprintf("/api/v1/clients/%s/tasks?%s", clientID, query.Encode()), nil)
 	if err != nil {
-		return nil, ClientUpdateVersions{}, err
+		return nil, ClientUpdateVersions{}, nil, err
 	}
 	response, err := api.http.Do(request)
 	if err != nil {
-		return nil, ClientUpdateVersions{}, err
+		return nil, ClientUpdateVersions{}, nil, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		detail, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return nil, ClientUpdateVersions{}, fmt.Errorf("Agent Manager 返回 %s: %s", response.Status, strings.TrimSpace(string(detail)))
+		return nil, ClientUpdateVersions{}, nil, fmt.Errorf("Agent Manager 返回 %s: %s", response.Status, strings.TrimSpace(string(detail)))
 	}
-	var result []Task
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
-		return nil, ClientUpdateVersions{}, err
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, ClientUpdateVersions{}, nil, err
+	}
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		var legacy []Task
+		if err := json.Unmarshal(trimmed, &legacy); err != nil {
+			return nil, ClientUpdateVersions{}, nil, err
+		}
+		return legacy, ClientUpdateVersions{Stable: strings.TrimSpace(response.Header.Get("X-Agent-Manager-Client-Stable-Version")), Preview: strings.TrimSpace(response.Header.Get("X-Agent-Manager-Client-Preview-Version"))}, nil, nil
+	}
+	var envelope struct {
+		Tasks      []Task              `json:"tasks"`
+		ScanEvents []PlatformScanEvent `json:"scan_events"`
+	}
+	if err := json.Unmarshal(trimmed, &envelope); err != nil {
+		return nil, ClientUpdateVersions{}, nil, err
 	}
 	versions := ClientUpdateVersions{
 		Stable:  strings.TrimSpace(response.Header.Get("X-Agent-Manager-Client-Stable-Version")),
 		Preview: strings.TrimSpace(response.Header.Get("X-Agent-Manager-Client-Preview-Version")),
 	}
-	return result, versions, nil
+	return envelope.Tasks, versions, envelope.ScanEvents, nil
 }
 
 func (api API) ReportExecutedTask(ctx context.Context, clientID string, task Task, status, taskError string) error {

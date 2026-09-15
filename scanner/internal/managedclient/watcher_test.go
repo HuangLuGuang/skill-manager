@@ -8,6 +8,9 @@ import (
 )
 
 func TestSkillWatcherDetectsFileChange(t *testing.T) {
+	if skillWatchDebounce > 500*time.Millisecond {
+		t.Fatalf("Skill change debounce is too slow: %s", skillWatchDebounce)
+	}
 	home := t.TempDir()
 	root := filepath.Join(home, ".codex", "skills", "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -30,7 +33,10 @@ func TestSkillWatcherDetectsFileChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case <-watcher.Changes():
+	case paths := <-watcher.Changes():
+		if len(paths) == 0 || filepath.Clean(paths[0]) != filepath.Join(root, "SKILL.md") {
+			t.Fatalf("watcher discarded the changed path: %#v", paths)
+		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("Skill file change did not wake the watcher")
 	}
@@ -87,6 +93,36 @@ func TestSkillWatcherIgnoresChangesOutsideSkillRoots(t *testing.T) {
 	case <-watcher.Changes():
 		t.Fatal("unrelated home directory change woke the Skill watcher")
 	case <-time.After(1500 * time.Millisecond):
+	}
+}
+
+func TestSkillWatcherSuppressesClientOwnedChangesByRoot(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".codex", "skills", "demo")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	watcher, err := NewSkillWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+	if err := watcher.Refresh(home, store); err != nil {
+		t.Fatal(err)
+	}
+	watcher.SuppressRoots([]string{root}, time.Second)
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("name: demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case paths := <-watcher.Changes():
+		t.Fatalf("client-owned change triggered another patrol: %#v", paths)
+	case <-time.After(700 * time.Millisecond):
 	}
 }
 

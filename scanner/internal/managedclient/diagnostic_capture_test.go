@@ -96,3 +96,24 @@ func TestDiagnosticDesktopInputIsWhitelistedAndRedacted(t *testing.T) {
 		t.Fatal("unsupported event accepted")
 	}
 }
+
+func TestDiagnosticDesktopStateMetadataIsPersisted(t *testing.T) {
+	home := t.TempDir()
+	err := RecordDesktopDiagnostic(home, []byte(`{"event":"desktop_snapshot_refreshed","revision":"42","event_type":"pending_status_changed","active_panel":"discover","duration_ms":18,"outcome":"succeeded","partitions":["local_snapshot","pending"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := diagnosticFiles(filepath.Join(home, ".agent-manager"))
+	if err != nil || len(files) != 1 {
+		t.Fatal(err, files)
+	}
+	body, err := os.ReadFile(files[0].path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"desktop_snapshot_refreshed", "pending_status_changed", "discover", "local_snapshot", "18"} {
+		if !strings.Contains(string(body), value) {
+			t.Fatalf("metadata %q missing: %s", value, body)
+		}
+	}
+}

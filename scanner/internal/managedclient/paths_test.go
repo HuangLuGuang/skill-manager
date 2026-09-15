@@ -1,11 +1,37 @@
 package managedclient
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 )
+
+func TestWriteUIStateSignalUsesAtomicRuntimeMarker(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(RuntimeRoot(home), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteUIStateSignal(home, "local_state_changed"); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(UIStateSignalPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signal UIStateSignal
+	if err := json.Unmarshal(body, &signal); err != nil {
+		t.Fatal(err)
+	}
+	if signal.Revision == "" || signal.CreatedAt == "" || signal.EventType != "local_state_changed" {
+		t.Fatalf("unexpected UI state signal: %#v", signal)
+	}
+	info, err := os.Stat(UIStateSignalPath(home))
+	if err != nil || info.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("UI state signal permissions are too broad: %v %v", info, err)
+	}
+}
 
 func TestEnsureDataLayoutMigratesLegacyContent(t *testing.T) {
 	if runtime.GOOS == "windows" {

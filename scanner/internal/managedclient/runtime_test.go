@@ -406,7 +406,7 @@ func TestInstallApprovedSkillSharesReleaseAcrossAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	quarantineSource := filepath.Join(home, "modified", "safe-skill")
+	quarantineSource := filepath.Join(codexSkills, "safe-skill")
 	writeSkill(t, quarantineSource, "safe-skill")
 	if _, err := QuarantineSkill(home, store, "codex", "safe-skill", quarantineSource, "signature_mismatch"); err != nil {
 		t.Fatal(err)
@@ -478,6 +478,52 @@ func TestInstallApprovedSkillSharesReleaseAcrossAgents(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join(conflict, "SKILL.md"))
 	if err != nil || string(body) != "local content" {
 		t.Fatalf("same-name conflict was overwritten: %q %v", body, err)
+	}
+}
+
+func TestReconcileInstalledRecoveryCopiesArchivesExistingMatchingUninstall(t *testing.T) {
+	home := t.TempDir()
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	target := filepath.Join(home, ".hermes", "skills", "demo")
+	writeSkill(t, target, "demo")
+	item, err := QuarantineSkill(home, store, "hermes", "demo", target, "manual")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`UPDATE client_quarantine SET status='uninstalled' WHERE id=?`, item.ID); err != nil {
+		t.Fatal(err)
+	}
+	quarantined, err := store.QuarantineItems()
+	if err != nil || len(quarantined) != 1 {
+		t.Fatal(quarantined, err)
+	}
+	content := []byte("---\nname: demo\ndescription: test\n---\n")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "SKILL.md"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(content)
+	if err := store.SaveInstall(Installation{
+		AgentType: "hermes", SkillID: "skill-1", SkillName: "demo", TargetPath: target,
+		Manifest: releaseManifest{
+			ContentSignature: quarantined[0].Signature,
+			Files:            []releaseFile{{Path: "SKILL.md", Size: int64(len(content)), SHA256: hex.EncodeToString(sum[:])}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := ReconcileInstalledRecoveryCopies(home, store)
+	if err != nil || !changed {
+		t.Fatalf("matching stale copy was not reconciled: %v %v", changed, err)
+	}
+	if remaining, err := store.QuarantineItems(); err != nil || len(remaining) != 0 {
+		t.Fatalf("reconciled copy remains active: %#v %v", remaining, err)
 	}
 }
 
@@ -895,14 +941,18 @@ func TestRepointedSharedLinkOnlyQuarantinesAffectedAgent(t *testing.T) {
 }
 
 func signedPackage(t *testing.T, privateKey ed25519.PrivateKey) []byte {
+	return signedPackageFor(t, privateKey, "safe-skill")
+}
+
+func signedPackageFor(t *testing.T, privateKey ed25519.PrivateKey, name string) []byte {
 	t.Helper()
-	content := []byte("---\nname: safe-skill\n---\n")
+	content := []byte("---\nname: " + name + "\n---\n")
 	sum := sha256.Sum256(content)
 	contentSignature := sha256.Sum256([]byte("SKILL.md:" + hex.EncodeToString(sum[:]) + "\n"))
 	manifest := map[string]any{
 		"version":           1,
 		"skill_id":          "skill-1",
-		"name":              "safe-skill",
+		"name":              name,
 		"content_signature": hex.EncodeToString(contentSignature[:]),
 		"files": []map[string]any{{
 			"path": "SKILL.md", "size": len(content), "sha256": hex.EncodeToString(sum[:]),

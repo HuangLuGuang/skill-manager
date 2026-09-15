@@ -6,8 +6,10 @@ use std::io::ErrorKind;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::thread;
 use std::time::Duration;
 
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use tauri::plugin::PermissionState;
 use tauri::{AppHandle, Emitter};
@@ -23,6 +25,7 @@ const BUILD_VERSION: &str = match option_env!("AGENT_MANAGER_RELEASE_VERSION") {
     Some(value) => value,
     None => "dev",
 };
+const UI_STATE_SIGNAL_NAME: &str = "ui-state-revision.json";
 
 #[tauri::command]
 fn get_build_version() -> &'static str {
@@ -51,6 +54,19 @@ struct ConnectionStatus {
     local: serde_json::Value,
     inventory: serde_json::Value,
     platform: Option<serde_json::Value>,
+}
+
+#[derive(Serialize)]
+struct LocalSnapshot {
+    local: serde_json::Value,
+    inventory: serde_json::Value,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+struct LocalStateSignal {
+    revision: String,
+    event_type: String,
+    created_at: String,
 }
 
 #[derive(Serialize)]
@@ -114,6 +130,7 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "submit-observed",
         "request-skill-action",
         "discard-pending",
+        "discard-quarantine",
         "queue-quarantine",
         "available-skills",
         "skill-preview",
@@ -266,10 +283,20 @@ async fn open_client_location(kind: String) -> Result<(), String> {
 #[tauri::command]
 async fn export_diagnostics(days: u32) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let result = execute_client_sync("export-diagnostics".to_string(), vec!["--days".to_string(), days.to_string()])?;
-        let value: serde_json::Value = serde_json::from_str(&result).map_err(|_| "diagnostics_invalid_result".to_string())?;
-        value.get("path").and_then(|v| v.as_str()).map(str::to_string).ok_or_else(|| "diagnostics_invalid_result".to_string())
-    }).await.map_err(|error| format!("diagnostics_export_failed: {error}"))?
+        let result = execute_client_sync(
+            "export-diagnostics".to_string(),
+            vec!["--days".to_string(), days.to_string()],
+        )?;
+        let value: serde_json::Value =
+            serde_json::from_str(&result).map_err(|_| "diagnostics_invalid_result".to_string())?;
+        value
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| "diagnostics_invalid_result".to_string())
+    })
+    .await
+    .map_err(|error| format!("diagnostics_export_failed: {error}"))?
 }
 
 #[tauri::command]
@@ -281,32 +308,67 @@ async fn record_desktop_diagnostic(record: serde_json::Value) -> Result<(), Stri
     tauri::async_runtime::spawn_blocking(move || {
         let mut child = Command::new(client_binary()?)
             .arg("record-desktop-diagnostic")
-            .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped())
-            .spawn().map_err(|error| error.to_string())?;
-        let written = child.stdin.take().ok_or_else(|| "diagnostics_invalid_record".to_string())?
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        let written = child
+            .stdin
+            .take()
+            .ok_or_else(|| "diagnostics_invalid_record".to_string())?
             .write_all(&body);
-        let result = child.wait_with_output().map_err(|error| error.to_string())?;
+        let result = child
+            .wait_with_output()
+            .map_err(|error| error.to_string())?;
         written.map_err(|error| error.to_string())?;
         if !result.status.success() {
             return Err(String::from_utf8_lossy(&result.stderr).trim().to_string());
         }
         Ok(())
-    }).await.map_err(|error| error.to_string())?
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-async fn get_client_history(filters: std::collections::HashMap<String, String>) -> Result<serde_json::Value, String> {
+async fn get_client_history(
+    filters: std::collections::HashMap<String, String>,
+) -> Result<serde_json::Value, String> {
     let config = try_load_client_config()?.ok_or("client_not_configured")?;
-    let inventory: serde_json::Value = serde_json::from_str(&execute_client_sync("cached-inventory".to_string(), Vec::new())?)
-        .map_err(|_| "client_inventory_unavailable")?;
-    let id = inventory.get("client_id").and_then(|value| value.as_str()).ok_or("client_inventory_unavailable")?;
-    let response = reqwest::Client::builder().timeout(Duration::from_secs(15)).build()
+    let inventory: serde_json::Value = serde_json::from_str(&execute_client_sync(
+        "cached-inventory".to_string(),
+        Vec::new(),
+    )?)
+    .map_err(|_| "client_inventory_unavailable")?;
+    let id = inventory
+        .get("client_id")
+        .and_then(|value| value.as_str())
+        .ok_or("client_inventory_unavailable")?;
+    let response = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
         .map_err(|_| "client_history_unavailable")?
-        .get(format!("{}/api/v1/clients/{}/history", config.server.trim_end_matches('/'), id))
-        .query(&filters).bearer_auth(&config.token).send().await
+        .get(format!(
+            "{}/api/v1/clients/{}/history",
+            config.server.trim_end_matches('/'),
+            id
+        ))
+        .query(&filters)
+        .bearer_auth(&config.token)
+        .send()
+        .await
         .map_err(|_| "client_history_unavailable")?;
-    if !response.status().is_success() { return Err(format!("client_history_http_{}", response.status().as_u16())); }
-    response.json().await.map_err(|_| "client_history_unavailable".to_string())
+    if !response.status().is_success() {
+        return Err(format!(
+            "client_history_http_{}",
+            response.status().as_u16()
+        ));
+    }
+    response
+        .json()
+        .await
+        .map_err(|_| "client_history_unavailable".to_string())
 }
 
 #[tauri::command]
@@ -403,6 +465,25 @@ async fn get_connection_status() -> Result<ConnectionStatus, String> {
     );
     result.connected = true;
     Ok(result)
+}
+
+#[tauri::command]
+async fn get_local_snapshot() -> Result<LocalSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let local = serde_json::from_str(&execute_client_sync(
+            "local-status".to_string(),
+            Vec::new(),
+        )?)
+        .map_err(|error| format!("无法读取本地治理状态: {error}"))?;
+        let inventory = serde_json::from_str(&execute_client_sync(
+            "cached-inventory".to_string(),
+            Vec::new(),
+        )?)
+        .map_err(|error| format!("无法读取本机 Agent 信息: {error}"))?;
+        Ok(LocalSnapshot { local, inventory })
+    })
+    .await
+    .map_err(|error| format!("读取本地状态异常: {error}"))?
 }
 
 #[tauri::command]
@@ -529,7 +610,7 @@ fn load_client_config() -> Result<ClientConfig, String> {
     try_load_client_config()?.ok_or_else(|| "请先连接 Agent Manager".to_string())
 }
 
-fn try_load_client_config() -> Result<Option<ClientConfig>, String> {
+fn client_homes() -> Vec<PathBuf> {
     let mut homes = Vec::new();
     if let Ok(home) = env::var("AGENT_MANAGER_CLIENT_HOME") {
         if !home.trim().is_empty() {
@@ -552,8 +633,75 @@ fn try_load_client_config() -> Result<Option<ClientConfig>, String> {
         }
     }
     homes.dedup();
+    homes
+}
+
+fn client_runtime_root() -> Option<PathBuf> {
+    let homes = client_homes();
+    homes
+        .iter()
+        .find(|home| home.join(".agent-manager").join("config.json").is_file())
+        .or_else(|| homes.first())
+        .map(|home| home.join(".agent-manager"))
+}
+
+fn is_ui_state_signal_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value == UI_STATE_SIGNAL_NAME)
+}
+
+fn start_local_state_watcher(app: AppHandle) {
+    thread::spawn(move || {
+        let Some(runtime_root) = client_runtime_root() else {
+            eprintln!("could not determine Agent Manager Client runtime directory");
+            return;
+        };
+        if let Err(error) = fs::create_dir_all(&runtime_root) {
+            eprintln!("could not prepare Agent Manager Client event directory: {error}");
+            return;
+        }
+        let signal_path = runtime_root.join(UI_STATE_SIGNAL_NAME);
+        let mut last_revision = String::new();
+        let mut watcher: RecommendedWatcher =
+            match notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
+                let Ok(event) = result else {
+                    return;
+                };
+                if !event.paths.iter().any(|path| is_ui_state_signal_path(path)) {
+                    return;
+                }
+                let Ok(body) = fs::read(&signal_path) else {
+                    return;
+                };
+                let Ok(signal) = serde_json::from_slice::<LocalStateSignal>(&body) else {
+                    return;
+                };
+                if signal.revision.is_empty() || signal.revision == last_revision {
+                    return;
+                }
+                last_revision = signal.revision.clone();
+                let _ = app.emit("client-local-state-changed", signal);
+            }) {
+                Ok(watcher) => watcher,
+                Err(error) => {
+                    eprintln!("could not create Agent Manager Client event watcher: {error}");
+                    return;
+                }
+            };
+        if let Err(error) = watcher.watch(&runtime_root, RecursiveMode::NonRecursive) {
+            eprintln!("could not watch Agent Manager Client events: {error}");
+            return;
+        }
+        loop {
+            thread::park();
+        }
+    });
+}
+
+fn try_load_client_config() -> Result<Option<ClientConfig>, String> {
     let mut body = None;
-    for home in homes {
+    for home in client_homes() {
         let path = home.join(".agent-manager").join("config.json");
         match fs::read(&path) {
             Ok(value) => {
@@ -653,6 +801,7 @@ fn main() {
             if let Err(error) = notify_rust::set_application(&app.config().identifier) {
                 eprintln!("could not register macOS notification identity: {error}");
             }
+            start_local_state_watcher(app.handle().clone());
             Ok(())
         })
         .plugin(tauri_plugin_notification::init())
@@ -669,6 +818,7 @@ fn main() {
             export_diagnostics,
             record_desktop_diagnostic,
             get_connection_status,
+            get_local_snapshot,
             get_client_history,
             show_system_notification,
             check_client_update,
@@ -681,8 +831,54 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::sync::mpsc;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use super::{client_binary, display_release_version, mask_token, system_home};
+    use super::{
+        client_binary, display_release_version, is_ui_state_signal_path, mask_token, system_home,
+    };
+    use notify::{RecursiveMode, Watcher};
+
+    #[test]
+    fn native_watcher_observes_atomic_ui_state_signal() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "agent-manager-ui-event-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let target = root.join("ui-state-revision.json");
+        let temporary = root.join(".ui-state-revision.tmp");
+        let (sender, receiver) = mpsc::channel();
+        let mut watcher =
+            notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
+                let _ = sender.send(result);
+            })
+            .unwrap();
+        watcher.watch(&root, RecursiveMode::NonRecursive).unwrap();
+        std::fs::write(&temporary, br#"{"revision":"1"}"#).unwrap();
+        std::fs::rename(&temporary, &target).unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut observed = false;
+        while std::time::Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            match receiver.recv_timeout(remaining) {
+                Ok(Ok(event)) if event.paths.iter().any(|path| is_ui_state_signal_path(path)) => {
+                    observed = true;
+                    break;
+                }
+                Ok(_) => continue,
+                Err(_) => break,
+            }
+        }
+        drop(watcher);
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(observed, "native watcher missed the atomic UI state signal");
+    }
 
     #[test]
     fn formats_encoded_daily_release_version() {
@@ -725,13 +921,16 @@ mod tests {
     fn diagnostics_export_uses_real_sidecar() {
         let home = std::env::var("AGENT_MANAGER_CLIENT_HOME").expect("isolated test home");
         assert!(std::env::var("AGENT_MANAGER_CLIENT_BINARY").is_ok());
-        let settings = super::execute_client_sync("log-settings".into(), vec!["--days".into(), "1".into()]).expect("save retention");
+        let settings =
+            super::execute_client_sync("log-settings".into(), vec!["--days".into(), "1".into()])
+                .expect("save retention");
         let settings: serde_json::Value = serde_json::from_str(&settings).unwrap();
         assert_eq!(settings["retention_days"], 1);
         tauri::async_runtime::block_on(super::record_desktop_diagnostic(serde_json::json!({
             "event": "script_error", "message": "native export test", "version": "integration-test", "count": 1,
         }))).expect("write native diagnostic");
-        let exported = tauri::async_runtime::block_on(super::export_diagnostics(1)).expect("export diagnostics");
+        let exported = tauri::async_runtime::block_on(super::export_diagnostics(1))
+            .expect("export diagnostics");
         assert!(Path::new(&exported).starts_with(Path::new(&home).join("Downloads")));
         let bytes = std::fs::read(exported).expect("read actual ZIP");
         assert!(bytes.starts_with(b"PK\x03\x04"));

@@ -949,22 +949,22 @@ window.clientStaticI18nBindings = [
     "source": "重置"
   },
   {
-    "selector": "#event-records>div:nth-of-type(1)>span:nth-of-type(1)",
+    "selector": "#event-records>div:nth-of-type(1)>span:nth-of-type(3)",
     "nodeIndex": 0,
-    "key": "ui.records.event",
-    "source": "事件 / Skill"
+    "key": "ui.records.type",
+    "source": "类型"
   },
   {
-    "selector": "#event-records>div:nth-of-type(1)>span:nth-of-type(3)",
+    "selector": "#event-records>div:nth-of-type(1)>span:nth-of-type(4)",
     "nodeIndex": 0,
     "key": "ui.records.result",
     "source": "结果"
   },
   {
-    "selector": "#event-records>div:nth-of-type(1)>span:nth-of-type(4)",
+    "selector": "#event-records>div:nth-of-type(1)>span:nth-of-type(5)",
     "nodeIndex": 0,
-    "key": "ui.records.latest",
-    "source": "最近发现"
+    "key": "ui.records.latest_occurrence",
+    "source": "最近发生"
   },
   {
     "selector": "#task-records>div:nth-of-type(1)>span:nth-of-type(1)",
@@ -1593,38 +1593,98 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#discard-pending-dialog>div:nth-of-type(1)>span:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.ov02f2",
+    "key": "ui.agentHistory.local_permanent_delete",
     "source": "本地永久删除"
   },
   {
     "selector": "#discard-pending-dialog>div:nth-of-type(1)>h3:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.kl4geu",
-    "source": "删除本地副本"
+    "key": "ui.agentHistory.delete_copy_title",
+    "source": "删除保留副本"
   },
   {
     "selector": "#discard-pending-dialog>div:nth-of-type(1)>p:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.1hpyspl",
-    "source": "该 Skill 将从停用待处理区永久删除；关联的隔离副本也会一并清理。"
+    "key": "ui.agentHistory.delete_copy_description",
+    "source": "这份本地保留内容将永久删除，不再出现在隔离副本中。"
   },
   {
     "selector": "#discard-pending-dialog>div:nth-of-type(1)>p:nth-of-type(2)",
     "nodeIndex": 0,
-    "key": "ui.14g8b7d",
-    "source": "平台检测版本和审计记录会保留，已经安装的可信版本不受影响。"
+    "key": "ui.agentHistory.delete_copy_audit_note",
+    "source": "平台检测版本和审计记录会保留；当前 Agent 目录以及已经安装的可信版本不受影响。"
   },
   {
     "selector": "#cancel-discard-pending",
     "nodeIndex": 0,
-    "key": "ui.1589w37",
+    "key": "ui.agentManagement.cancel",
     "source": "取消"
   },
   {
     "selector": "#confirm-discard-pending",
     "nodeIndex": 0,
-    "key": "ui.d4pkd7",
-    "source": "确认删除"
+    "key": "ui.agentHistory.confirm_delete_copy",
+    "source": "确认删除副本"
+  },
+  {
+    "selector": "#quarantine-submit-dialog>div:nth-of-type(1)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.copy_evidence",
+    "source": "副本证据"
+  },
+  {
+    "selector": "#quarantine-submit-title",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.submit_copy_title",
+    "source": "提交这份隔离副本"
+  },
+  {
+    "selector": "#quarantine-submit-description",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.submit_copy_description",
+    "source": "平台只检测下方这份保留内容。检测通过后，客户端会将批准版本分别恢复到所有受影响的 Agent。"
+  },
+  {
+    "selector": "#quarantine-submit-dialog>div:nth-of-type(1)>dl:nth-of-type(1)>div:nth-of-type(2)>dt:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentHistory.source_event",
+    "source": "来源事件"
+  },
+  {
+    "selector": "#quarantine-submit-dialog>div:nth-of-type(1)>dl:nth-of-type(1)>div:nth-of-type(3)>dt:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentHistory.affected_agents",
+    "source": "涉及 Agent"
+  },
+  {
+    "selector": "#quarantine-submit-dialog>div:nth-of-type(1)>dl:nth-of-type(1)>div:nth-of-type(4)>dt:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentHistory.retained_at",
+    "source": "保留时间"
+  },
+  {
+    "selector": "#quarantine-submit-dialog>div:nth-of-type(1)>dl:nth-of-type(1)>div:nth-of-type(5)>dt:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentHistory.content_signature",
+    "source": "内容指纹"
+  },
+  {
+    "selector": "#quarantine-submit-dialog>div:nth-of-type(1)>dl:nth-of-type(1)>div:nth-of-type(6)>dt:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentHistory.copy_path",
+    "source": "副本目录"
+  },
+  {
+    "selector": "#cancel-quarantine-submit",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.cancel",
+    "source": "取消"
+  },
+  {
+    "selector": "#confirm-quarantine-submit",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.confirm_submit_copy",
+    "source": "确认提交此副本"
   },
   {
     "selector": "#remove-custom-agent-dialog>div:nth-of-type(1)>h3:nth-of-type(1)",
@@ -1858,7 +1918,7 @@ window.clientStaticI18nBindings = [
     "selector": "#confirm-skill-action",
     "nodeIndex": 0,
     "key": "ui.agentManagement.confirm_action",
-    "source": "确认并创建任务"
+    "source": "确认执行"
   },
   {
     "selector": "#model-config-title",

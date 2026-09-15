@@ -475,7 +475,7 @@ func TestDaemonAutomaticallyInstallsApprovedPendingWithClassification(t *testing
 	if err := store.MarkPendingSubmitted(pending, "skill-1", "skill-version-2"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdatePendingStatus("skill-1", "skill-version-2", "REJECTED"); err != nil {
+	if err := store.UpdatePendingStatus("skill-1", "skill-version-2", "PENDING"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -485,11 +485,17 @@ func TestDaemonAutomaticallyInstallsApprovedPendingWithClassification(t *testing
 	}
 	packageBody := signedPackage(t, privateKey)
 	var packageRequests atomic.Int32
+	var platformApproved atomic.Bool
+	var taskPolls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch {
 		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/scanner/imports/skill-version-2":
+			status := "PENDING"
+			if platformApproved.Load() {
+				status = "APPROVED"
+			}
 			_ = json.NewEncoder(response).Encode(map[string]any{
-				"skill_id": "skill-1", "version_id": "skill-version-2", "name": "safe-skill", "status": "APPROVED",
+				"skill_id": "skill-1", "version_id": "skill-version-2", "name": "safe-skill", "status": status,
 			})
 		case request.Method == http.MethodGet && strings.HasSuffix(request.URL.Path, "/skills/skill-1/package"):
 			packageRequests.Add(1)
@@ -503,7 +509,12 @@ func TestDaemonAutomaticallyInstallsApprovedPendingWithClassification(t *testing
 		case strings.HasSuffix(request.URL.Path, "/policy"):
 			json.NewEncoder(response).Encode(Policy{Mode: "audit", ReleasePublicKey: base64.StdEncoding.EncodeToString(publicKey), Classification: DefaultClassificationPolicy()})
 		case strings.HasSuffix(request.URL.Path, "/tasks"):
-			response.Write([]byte(`[]`))
+			if taskPolls.Add(1) == 2 {
+				platformApproved.Store(true)
+				response.Write([]byte(`{"tasks":[],"scan_events":[{"revision":1,"skill_id":"skill-1","version_id":"skill-version-2","status":"APPROVED"}]}`))
+			} else {
+				response.Write([]byte(`{"tasks":[],"scan_events":[]}`))
+			}
 		case strings.HasSuffix(request.URL.Path, "/compare"):
 			response.Write([]byte(`{"items":[]}`))
 		case request.Method == http.MethodPost:
@@ -515,10 +526,11 @@ func TestDaemonAutomaticallyInstallsApprovedPendingWithClassification(t *testing
 	}))
 	defer server.Close()
 
+	started := time.Now()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- RunDaemon(ctx, home, NewAPI(server.URL, "token", time.Second), store, 40*time.Millisecond, nil)
+		done <- RunDaemon(ctx, home, NewAPI(server.URL, "token", time.Second), store, 5*time.Minute, nil)
 	}()
 	defer func() {
 		cancel()
@@ -547,6 +559,12 @@ func TestDaemonAutomaticallyInstallsApprovedPendingWithClassification(t *testing
 	}
 	if packageRequests.Load() != 1 {
 		t.Fatal("unexpected installation count", packageRequests.Load())
+	}
+	if elapsed := time.Since(started); elapsed >= 2*time.Second {
+		t.Fatalf("event-driven recovery waited for巡检 interval: %s", elapsed)
+	}
+	if revision, ok, err := store.State("platform:scan-revision"); err != nil || !ok || revision != "1" {
+		t.Fatalf("platform scan revision was not persisted: %q %v %v", revision, ok, err)
 	}
 
 	if items, err := store.PendingItems(); err != nil || len(items) != 0 {

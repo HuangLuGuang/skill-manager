@@ -404,21 +404,58 @@ func addMutationLockDiagnostic(path string, fields map[string]any) {
 // configuration and application content are not part of this input contract.
 func RecordDesktopDiagnostic(home string, data []byte) error {
 	var input struct {
-		Event   string `json:"event"`
-		Message string `json:"message"`
-		Count   int    `json:"count"`
-		FirstAt string `json:"first_at"`
-		Version string `json:"version"`
+		Event       string   `json:"event"`
+		Message     string   `json:"message"`
+		Count       int      `json:"count"`
+		FirstAt     string   `json:"first_at"`
+		Version     string   `json:"version"`
+		Revision    any      `json:"revision"`
+		EventType   string   `json:"event_type"`
+		ActivePanel string   `json:"active_panel"`
+		DurationMS  int64    `json:"duration_ms"`
+		Outcome     string   `json:"outcome"`
+		ErrorCode   string   `json:"error_code"`
+		Partitions  []string `json:"partitions"`
 	}
 	if err := json.Unmarshal(data, &input); err != nil {
 		return fmt.Errorf("diagnostics_invalid_record")
 	}
-	if input.Event != "script_error" && input.Event != "unhandled_rejection" && input.Event != "started" {
+	allowedEvents := map[string]bool{
+		"script_error": true, "unhandled_rejection": true, "started": true,
+		"desktop_state_event_received": true, "desktop_snapshot_refreshed": true,
+		"desktop_snapshot_refresh_failed": true, "platform_event_ignored": true,
+	}
+	if !allowedEvents[input.Event] {
 		return fmt.Errorf("diagnostics_invalid_record")
 	}
-	level := "error"
+	level := "info"
+	if input.Event == "script_error" || input.Event == "unhandled_rejection" || input.Event == "desktop_snapshot_refresh_failed" {
+		level = "error"
+	}
 	if input.Event == "started" {
 		level = "info"
 	}
-	return writeDiagnostic(filepath.Join(home, ".agent-manager"), DiagnosticRecord{Level: level, Module: "desktop", Event: input.Event, Fields: map[string]any{"message": input.Message, "count": input.Count, "first_at": input.FirstAt, "desktop_version": input.Version}})
+	fields := map[string]any{"message": input.Message, "count": input.Count, "first_at": input.FirstAt, "desktop_version": input.Version}
+	if input.Revision != nil {
+		fields["revision"] = input.Revision
+	}
+	if input.EventType != "" {
+		fields["event_type"] = input.EventType
+	}
+	if input.ActivePanel != "" {
+		fields["active_panel"] = input.ActivePanel
+	}
+	if input.DurationMS > 0 {
+		fields["duration_ms"] = input.DurationMS
+	}
+	if input.Outcome != "" {
+		fields["outcome"] = input.Outcome
+	}
+	if input.ErrorCode != "" {
+		fields["error_code"] = input.ErrorCode
+	}
+	if input.Partitions != nil {
+		fields["partitions"] = input.Partitions
+	}
+	return writeDiagnostic(filepath.Join(home, ".agent-manager"), DiagnosticRecord{Level: level, Module: "desktop", Event: input.Event, Fields: fields})
 }

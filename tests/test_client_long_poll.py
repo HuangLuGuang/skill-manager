@@ -6,9 +6,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from backend import models
-from backend.client_task_notifications import _hubs, _lock
+from backend.client_task_notifications import _hubs, _lock, notify_all
 from backend.sqlite_db import get_db
 from tests.test_clients_api import _client
+from agent_manager.core.models import SkillStatus
 
 
 def connected(tmp_path):
@@ -30,6 +31,48 @@ def await_waiter():
                 return
         time.sleep(.01)
     raise AssertionError('request did not enter async wait')
+
+
+def test_long_poll_returns_durable_scan_status_revisions(tmp_path):
+    entry = type("Entry", (), {
+        "skill_id": "version-1", "family_id": "family-1", "name": "demo",
+        "status": SkillStatus.PENDING,
+    })()
+
+    class Manager:
+        def get_skill(self, value):
+            return entry if value == entry.skill_id else None
+
+        def list_scan_runs(self, _version_id):
+            return []
+
+    client = _client(tmp_path, Manager())
+    token = client.post('/api/v1/access/tokens', json={'name': 'scan-events', 'token_type': 'client'}).json()['token']
+    headers = {'Authorization': 'Bearer ' + token}
+    assert client.post('/api/v1/clients/register', headers=headers, json={
+        'client_id': 'waiting', 'name': 'Waiting', 'hostname': 'host', 'os': 'linux', 'arch': 'amd64', 'client_version': 'dev', 'governance_protocol': 2,
+    }).status_code == 200
+
+    first = client.get('/api/v1/clients/waiting/tasks?include_events=true&scan_ids=version-1', headers=headers).json()
+    assert first['tasks'] == []
+    assert first['scan_events'][0]['status'] == 'PENDING'
+    revision = first['scan_events'][0]['revision']
+    with client, ThreadPoolExecutor() as pool:
+        started = time.monotonic()
+        future = pool.submit(client.get, f'/api/v1/clients/waiting/tasks?wait_seconds=30&include_events=true&scan_ids=version-1&scan_after_revision={revision}', headers=headers)
+        await_waiter()
+        entry.status = SkillStatus.APPROVED
+        notify_all()
+        second_response = future.result(timeout=3)
+        assert time.monotonic() - started < 2
+    second = second_response.json()
+    assert second['scan_events'][0]['status'] == 'APPROVED'
+    assert second['scan_events'][0]['revision'] > revision
+    replay = client.get(
+        f'/api/v1/clients/waiting/tasks?include_events=true&scan_ids=version-1&scan_after_revision={second["scan_events"][0]["revision"]}',
+        headers=headers,
+    ).json()
+    assert replay['scan_events'] == []
 
 
 def test_long_poll_commit_wakes_without_holding_connection(tmp_path):

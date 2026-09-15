@@ -44,6 +44,23 @@ func TestWaitTasksReturnsUpdateVersionsFromLongPoll(t *testing.T) {
 	}
 }
 
+func TestWaitTasksWithScansDecodesDurableScanEvents(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Query().Get("scan_ids") != "version-1" || request.URL.Query().Get("scan_after_revision") != "7" {
+			t.Fatalf("unexpected scan cursor: %s", request.URL.RawQuery)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"tasks":       []map[string]any{},
+			"scan_events": []map[string]any{{"revision": 8, "skill_id": "family-1", "version_id": "version-1", "status": "APPROVED"}},
+		})
+	}))
+	defer server.Close()
+	_, _, events, err := NewAPI(server.URL, "secret", time.Second).WaitTasksWithUpdatesAndScans(context.Background(), "client-1", 0, []string{"version-1"}, 7)
+	if err != nil || len(events) != 1 || events[0].Revision != 8 || events[0].Status != "APPROVED" {
+		t.Fatalf("unexpected scan events=%#v err=%v", events, err)
+	}
+}
+
 func TestAvailableSkillsSendsExactSkillQuery(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/api/v1/clients/client-1/skills/available" {

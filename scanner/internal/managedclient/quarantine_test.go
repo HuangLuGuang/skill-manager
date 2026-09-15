@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -195,6 +196,34 @@ func TestQueueQuarantineForDetectionKeepsOriginalUntilApprovedInstall(t *testing
 	}
 }
 
+func TestQueueQuarantineForDetectionRejectsContentChangedAfterSelection(t *testing.T) {
+	home := t.TempDir()
+	source := filepath.Join(home, ".codex", "skills", "changed")
+	writeSkill(t, source, "selected content")
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	quarantine, err := QuarantineSkill(home, store, "codex", "changed", source, "signature_mismatch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.QuarantineItems()
+	if err != nil || len(items) != 1 || items[0].Signature == "" {
+		t.Fatal(items, err)
+	}
+	selectedSignature := items[0].Signature
+	writeSkill(t, quarantine.QuarantinePath, "changed after selection")
+
+	if _, err := QueueQuarantineForDetectionExpected(home, store, quarantine.ID, selectedSignature); err == nil || err.Error() != "skill_content_changed" {
+		t.Fatalf("changed quarantine copy was submitted: %v", err)
+	}
+	if pending, err := store.PendingItems(); err != nil || len(pending) != 0 {
+		t.Fatalf("changed copy created pending content: %#v %v", pending, err)
+	}
+}
+
 func TestDiscardPendingRemovesLinkedQuarantineButKeepsInstalledSkill(t *testing.T) {
 	home := t.TempDir()
 	source := filepath.Join(home, ".codex", "skills", "changed")
@@ -263,6 +292,93 @@ func TestDiscardPendingOnlyRemovesSelectedAgentCopy(t *testing.T) {
 	}
 	if _, err := os.Stat(items[1].PendingPath); err != nil {
 		t.Fatalf("another Agent copy was deleted: %v", err)
+	}
+}
+
+func TestResolveInstalledRecoveryRequiresExactPathAndMatchingUninstalledSignature(t *testing.T) {
+	home := t.TempDir()
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	target := filepath.Join(home, ".hermes", "skills", "demo")
+	otherTarget := filepath.Join(home, ".codex", "skills", "demo")
+	writeSkill(t, target, "demo")
+	first, err := QuarantineSkill(home, store, "hermes", "demo", target, "manual")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(t, otherTarget, "demo")
+	second, err := QuarantineSkill(home, store, "codex", "demo", otherTarget, "manual")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`UPDATE client_quarantine SET status='uninstalled' WHERE id IN (?,?)`, first.ID, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.QuarantineItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signature string
+	for _, item := range items {
+		if item.ID == first.ID {
+			signature = item.Signature
+		}
+	}
+	if changed, err := store.ResolveInstalledRecovery("hermes", "demo", target, "different"); err != nil || changed {
+		t.Fatalf("different version resolved: %v %v", changed, err)
+	}
+	if changed, err := store.ResolveInstalledRecovery("hermes", "demo", target, signature); err != nil || !changed {
+		t.Fatalf("matching installed copy was not resolved: %v %v", changed, err)
+	}
+	remaining, err := store.QuarantineItems()
+	if err != nil || len(remaining) != 1 || remaining[0].ID != second.ID {
+		t.Fatalf("unrelated Agent copy changed: %#v %v", remaining, err)
+	}
+}
+
+func TestDiscardQuarantineKeepsCurrentInstalledSkillAndAuditRow(t *testing.T) {
+	home := t.TempDir()
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	target := filepath.Join(home, ".hermes", "skills", "demo")
+	writeSkill(t, target, "untrusted")
+	item, err := QuarantineSkill(home, store, "hermes", "demo", target, "manual")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`UPDATE client_quarantine SET status='uninstalled' WHERE id=?`, item.ID); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.QuarantineItems()
+	if err != nil || len(items) != 1 {
+		t.Fatal(items, err)
+	}
+	writeSkill(t, target, "trusted")
+	if _, err := store.DiscardQuarantine(item.ID, "wrong"); err == nil || err.Error() != "skill_content_changed" {
+		t.Fatalf("signature mismatch was accepted: %v", err)
+	}
+	if _, err := os.Stat(item.QuarantinePath); err != nil {
+		t.Fatalf("copy changed after rejected confirmation: %v", err)
+	}
+	if _, err := store.DiscardQuarantine(item.ID, items[0].Signature); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(target, "SKILL.md"))
+	if err != nil || !strings.Contains(string(content), "name: trusted") {
+		t.Fatalf("current installed Skill changed: %q %v", content, err)
+	}
+	if _, err := os.Stat(item.QuarantinePath); !os.IsNotExist(err) {
+		t.Fatalf("retained copy still exists: %v", err)
+	}
+	var status string
+	if err := store.db.QueryRow(`SELECT status FROM client_quarantine WHERE id=?`, item.ID).Scan(&status); err != nil || status != "discarded" {
+		t.Fatalf("audit row not retained: %q %v", status, err)
 	}
 }
 

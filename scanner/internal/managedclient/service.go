@@ -105,7 +105,11 @@ func InstallService(home, executable string) (string, error) {
 	switch runtime.GOOS {
 	case "darwin":
 		domain := fmt.Sprintf("gui/%d", os.Getuid())
-		if exec.Command("launchctl", "bootout", domain, path).Run() == nil {
+		stopped := exec.Command("launchctl", "bootout", domain, path).Run() == nil
+		if !stopped {
+			stopped = exec.Command("launchctl", "bootout", domain+"/com.agent-manager.client").Run() == nil
+		}
+		if stopped {
 			_ = os.Remove(filepath.Join(home, ".agent-manager", "client.lock"))
 		}
 		if output, err := exec.Command("launchctl", "bootstrap", domain, path).CombinedOutput(); err != nil {
@@ -353,10 +357,36 @@ func ServiceStatus(home string) ServiceState {
 		).CombinedOutput()
 	}
 	state.Running = serviceCommandIsRunning(runtime.GOOS, output, err)
+	if state.Running && runtime.GOOS == "darwin" && !darwinServiceDefinitionMatches(output, path) {
+		state.Running = false
+		state.Detail = "已加载的后台服务不属于当前客户端安装，正在等待修复"
+		return state
+	}
 	if err != nil || !state.Running {
 		state.Detail = strings.TrimSpace(string(output))
 	}
 	return state
+}
+
+func darwinServiceDefinitionMatches(output []byte, expectedPath string) bool {
+	expectedPath = canonicalServiceDefinitionPath(expectedPath)
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "path = ") {
+			continue
+		}
+		loadedPath := canonicalServiceDefinitionPath(strings.TrimSpace(strings.TrimPrefix(line, "path = ")))
+		return loadedPath == expectedPath
+	}
+	return false
+}
+
+func canonicalServiceDefinitionPath(path string) string {
+	path = filepath.Clean(path)
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return path
 }
 
 func serviceCommandIsRunning(goos string, output []byte, commandErr error) bool {

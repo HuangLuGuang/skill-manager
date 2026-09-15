@@ -174,6 +174,46 @@ func TestOfflineDefaultKeepsUnknownContent(t *testing.T) {
 	}
 }
 
+func TestFileActionQueuesDetectionBeforeEnforcement(t *testing.T) {
+	home, store, inventory, skill := observedFixture(t)
+	reported := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/compare"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []CompareItem{{
+				AgentType: "codex", Name: skill.Name, LocalPath: skill.Path, LocalSignature: skill.Signature,
+			}}})
+		case strings.HasSuffix(r.URL.Path, "/events"):
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Error(err)
+				return
+			}
+			reported = append(reported, payload["event_type"].(string))
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	defer server.Close()
+
+	policy := Policy{Classification: DefaultClassificationPolicy()}
+	policy.Classification.Rules["unverified"] = "quarantine"
+	if err := patrolClassified(context.Background(), home, inventory, policy, NewAPI(server.URL, "token", time.Second), store, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(reported) != 0 {
+		t.Fatalf("file enforcement should not wait for event uploads: %v", reported)
+	}
+	queued, err := store.QueuedEvents()
+	if err != nil || len(queued) != 2 || queued[0].EventType != "skill_governance_detected" || queued[1].EventType != "skill_governance_action" {
+		t.Fatalf("governance evidence was not persisted for ordered background upload: %#v %v", queued, err)
+	}
+	if _, err := os.Stat(skill.Path); !os.IsNotExist(err) {
+		t.Fatalf("active skill was not quarantined: %v", err)
+	}
+}
+
 func TestManualScanKeepsSourceAndReusesExactSnapshot(t *testing.T) {
 	for _, linked := range []bool{false, true} {
 		t.Run(map[bool]string{false: "directory", true: "managed_symlink"}[linked], func(t *testing.T) {

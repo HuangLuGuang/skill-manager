@@ -43,3 +43,36 @@ def test_runtime_history_paginates_filters_and_isolates_clients(tmp_path):
     assert client.get(url, params={'page_size': 1000}, headers=headers).status_code == 422
     assert client.get(url).status_code in [401, 403]
     assert client.get(url, headers=registration_headers).status_code == 403
+
+
+def test_runtime_history_filters_governance_actions_by_effective_type(tmp_path):
+    client = _client(tmp_path)
+    token = client.post('/api/v1/access/tokens', json={'name': 'action-history', 'token_type': 'client'}).json()['token']
+    headers = {'Authorization': f'Bearer {token}'}
+    assert client.post('/api/v1/clients/register', headers=headers, json={
+        'client_id': 'action-history', 'name': 'action-history', 'hostname': 'action-history',
+        'os': 'linux', 'arch': 'amd64', 'client_version': 'dev', 'agents': [],
+    }).status_code == 200
+    session = next(client.app.dependency_overrides[get_db]())
+    session.add_all([
+        models.ClientEvent(client_id='action-history', event_type='skill_governance_action',
+            agent_type='hermes', skill_name='automatic-quarantine',
+            details_json=json.dumps({'action': 'quarantine', 'status': 'completed'})),
+        models.ClientEvent(client_id='action-history', event_type='skill_quarantined',
+            agent_type='codex', skill_name='legacy-quarantine', details_json='{}'),
+        models.ClientEvent(client_id='action-history', event_type='skill_governance_action',
+            agent_type='hermes', skill_name='automatic-uninstall',
+            details_json=json.dumps({'action': 'uninstall', 'status': 'completed'})),
+    ])
+    session.commit()
+    session.close()
+
+    url = '/api/v1/clients/action-history/history'
+    quarantine = client.get(url, headers=headers, params={'record_type': 'skill_quarantined'}).json()
+    assert quarantine['total'] == 2
+    assert {item['skill_name'] for item in quarantine['items']} == {'automatic-quarantine', 'legacy-quarantine'}
+    assert {item['record_type'] for item in quarantine['items']} == {'skill_quarantined'}
+    removed = client.get(url, headers=headers, params={'record_type': 'skill_removed'}).json()
+    assert removed['total'] == 1
+    assert removed['items'][0]['skill_name'] == 'automatic-uninstall'
+    assert {'skill_quarantined', 'skill_removed'} <= set(removed['types'])

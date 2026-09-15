@@ -113,3 +113,38 @@ func TestServiceCommandRequiresAnActuallyRunningProcess(t *testing.T) {
 		t.Fatal("running scheduled task was not detected")
 	}
 }
+
+func TestDarwinServiceDefinitionMustMatchCurrentHome(t *testing.T) {
+	expected := "/Users/example/Library/LaunchAgents/com.agent-manager.client.plist"
+	matching := []byte("path = " + expected + "\nstate = running\n")
+	if !darwinServiceDefinitionMatches(matching, expected) {
+		t.Fatal("current launch agent definition was not recognized")
+	}
+	stale := []byte("path = /private/tmp/old-home/Library/LaunchAgents/com.agent-manager.client.plist\nstate = running\n")
+	if darwinServiceDefinitionMatches(stale, expected) {
+		t.Fatal("launch agent from another home was accepted as current")
+	}
+	if darwinServiceDefinitionMatches([]byte("state = running\n"), expected) {
+		t.Fatal("launch agent without a definition path was accepted as current")
+	}
+}
+
+func TestDarwinServiceDefinitionAcceptsEquivalentSymlinkPath(t *testing.T) {
+	root := t.TempDir()
+	realRoot := filepath.Join(root, "real")
+	if err := os.MkdirAll(realRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	aliasRoot := filepath.Join(root, "alias")
+	if err := os.Symlink(realRoot, aliasRoot); err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(aliasRoot, "com.agent-manager.client.plist")
+	if err := os.WriteFile(filepath.Join(realRoot, "com.agent-manager.client.plist"), []byte("test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded := []byte("path = " + filepath.Join(realRoot, "com.agent-manager.client.plist") + "\nstate = running\n")
+	if !darwinServiceDefinitionMatches(loaded, expected) {
+		t.Fatal("equivalent symlinked launch agent path was rejected")
+	}
+}

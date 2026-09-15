@@ -329,6 +329,9 @@ def _process_pending_submission_task(
         )
     except Exception as exc:
         mgr.mark_submission_failed(skill_id, f"后台分析失败: {exc}")
+    finally:
+        from backend.client_task_notifications import notify_all
+        notify_all()
 
 
 def _submit_directory_for_processing(
@@ -2184,6 +2187,8 @@ def approve_skill(
 ):
     try:
         entry = mgr.approve(skill_id, approver=body.approver, note=body.note)
+        from backend.client_task_notifications import notify_all
+        notify_all()
         return {"skill_id": entry.skill_id, "status": entry.status.value, "message": "Approved"}
     except (ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -2197,6 +2202,8 @@ def reject_skill(
 ):
     try:
         entry = mgr.reject(skill_id, reviewer=body.reviewer, reason=body.reason)
+        from backend.client_task_notifications import notify_all
+        notify_all()
         return {"skill_id": entry.skill_id, "status": entry.status.value, "message": "Rejected"}
     except (ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -2210,6 +2217,8 @@ def cancel_skill_scan(
 ):
     try:
         entry, cancelled = mgr.cancel_scan(skill_id, reviewer=body.reviewer)
+        from backend.client_task_notifications import notify_all
+        notify_all()
         scan_pending = any(run.status == "PENDING" for run in mgr.list_scan_runs(entry.skill_id))
         return {
             "skill_id": entry.skill_id,

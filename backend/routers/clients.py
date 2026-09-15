@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.encoders import jsonable_encoder
 from jose import JWTError, jwt
 from pydantic import ValidationError
-from sqlalchemy import case, func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
@@ -886,27 +886,62 @@ def _update_model_config_state(
         client_agent.applied_model = str(payload.get("model") or "") or None
 
 
+_GOVERNANCE_ACTION_RECORD_TYPES = {
+    "quarantine": "skill_quarantined",
+    "uninstall": "skill_removed",
+    "restore_backup": "skill_repaired",
+    "restore_quarantine": "skill_quarantine_restored",
+    "restore_trusted": "skill_repaired",
+}
+
+
+def _event_record_type(event_type: str, details: dict) -> str:
+    if event_type == "skill_governance_action":
+        return _GOVERNANCE_ACTION_RECORD_TYPES.get(str(details.get("action") or ""), event_type)
+    return event_type
+
+
+def _event_record_type_expression():
+    action = func.json_extract(models.ClientEvent.details_json, "$.action")
+    return case(
+        *(
+            (
+                and_(
+                    models.ClientEvent.event_type == "skill_governance_action",
+                    action == action_name,
+                ),
+                record_type,
+            )
+            for action_name, record_type in _GOVERNANCE_ACTION_RECORD_TYPES.items()
+        ),
+        else_=models.ClientEvent.event_type,
+    )
+
+
 def _event_history(db: Session, client_id: str, limit: int = 100, rows=None) -> list[dict]:
-    return [
-        {
+    events = rows if rows is not None else (
+        db.query(models.ClientEvent)
+        .filter(models.ClientEvent.client_id == client_id)
+        .filter(models.ClientEvent.event_type.notin_(("client_registered", "takeover_completed")))
+        .order_by(func.coalesce(models.ClientEvent.last_seen_at, models.ClientEvent.created_at).desc(), models.ClientEvent.id.desc())
+        .limit(limit)
+        .all()
+    )
+    result = []
+    for event in events:
+        details = _load(event.details_json, {})
+        result.append({
             "id": event.id,
             "event_type": event.event_type,
+            "record_type": _event_record_type(event.event_type, details),
             "agent_type": event.agent_type,
             "skill_name": event.skill_name,
-            "details": _load(event.details_json, {}),
+            "details": details,
             "created_at": event.created_at,
             "last_seen_at": event.last_seen_at or event.created_at,
             "observation_count": event.observation_count,
-        }
-        for event in (rows if rows is not None else (
-            db.query(models.ClientEvent)
-            .filter(models.ClientEvent.client_id == client_id)
-            .filter(models.ClientEvent.event_type.notin_(("client_registered", "takeover_completed")))
-            .order_by(func.coalesce(models.ClientEvent.last_seen_at, models.ClientEvent.created_at).desc(), models.ClientEvent.id.desc())
-            .limit(limit)
-            .all()
-        ))
-    ]
+        })
+    return result
 
 
 @router.post("/register")
@@ -1014,7 +1049,7 @@ def get_client_history(
     query = db.query(model).filter(model.client_id == client_id)
     if not is_task:
         query = query.filter(model.event_type.notin_(("client_registered", "takeover_completed")))
-    type_column = model.task_type if is_task else model.event_type
+    type_column = model.task_type if is_task else _event_record_type_expression()
     agent_column = func.json_extract(model.payload_json, "$.agent_type") if is_task else model.agent_type
     timestamp = func.coalesce(model.finished_at, model.started_at, model.created_at) if is_task else func.coalesce(model.last_seen_at, model.created_at)
     types = [value for (value,) in query.with_entities(type_column).distinct().all() if value]
@@ -1229,9 +1264,71 @@ async def poll_tasks(
     response: Response,
     wait_seconds: int = Query(0, ge=0, le=30),
     after_id: int = Query(0, ge=0),
+    scan_ids: str = Query("", max_length=8192),
+    scan_after_revision: int = Query(0, ge=0),
+    include_events: bool = Query(False),
     authorization: str | None = Header(None),
     db: Session = Depends(get_db),
+    manager: AgentManager = Depends(get_manager),
 ):
+    requested_scan_ids = {value.strip() for value in scan_ids.split(",") if value.strip()}
+
+    def scan_events() -> list[dict]:
+        if not include_events or not requested_scan_ids:
+            return []
+        # Never hold the request's authentication/session connection while a
+        # long poll is suspended. Scan status materialization is a short,
+        # independent transaction.
+        scan_db = Session(bind=db.get_bind())
+        try:
+            return _scan_events(scan_db)
+        finally:
+            scan_db.close()
+
+    def _scan_events(scan_db: Session) -> list[dict]:
+        # The client supplies the versions it is actually waiting for. A
+        # status transition is materialized as a ClientEvent, giving the
+        # existing task long poll a durable, monotonic cursor without adding
+        # another high-frequency request path.
+        latest: dict[str, dict] = {}
+        for row in scan_db.query(models.ClientEvent).filter(
+            models.ClientEvent.client_id == client_id,
+            models.ClientEvent.event_type == "platform_scan_status",
+            func.json_extract(models.ClientEvent.details_json, "$.version_id").in_(requested_scan_ids),
+        ).order_by(models.ClientEvent.id.desc()).all():
+            details = _load(row.details_json, {})
+            version_id = str(details.get("version_id") or "")
+            if version_id and version_id in requested_scan_ids and version_id not in latest:
+                latest[version_id] = {"revision": row.id, "details": details}
+        for version_id in requested_scan_ids:
+            entry = manager.get_skill(version_id)
+            if entry is None:
+                continue
+            status = entry.status.value
+            runs = [run for run in manager.list_scan_runs(entry.skill_id) if run.status == "PENDING"]
+            if runs:
+                status = SkillStatus.PENDING.value
+            previous = latest.get(version_id, {}).get("details", {}).get("status")
+            if previous == status:
+                continue
+            row = models.ClientEvent(
+                client_id=client_id,
+                event_type="platform_scan_status",
+                skill_name=entry.name,
+                details_json=_dump({"version_id": version_id, "skill_id": entry.family_id or version_id, "status": status}),
+            )
+            scan_db.add(row)
+            scan_db.flush()
+            latest[version_id] = {"revision": row.id, "details": {"version_id": version_id, "skill_id": entry.family_id or version_id, "status": status}}
+        scan_db.commit()
+        rows = scan_db.query(models.ClientEvent).filter(
+            models.ClientEvent.client_id == client_id,
+            models.ClientEvent.event_type == "platform_scan_status",
+            models.ClientEvent.id > scan_after_revision,
+            func.json_extract(models.ClientEvent.details_json, "$.version_id").in_(requested_scan_ids),
+        ).order_by(models.ClientEvent.id).limit(500).all()
+        return [{"revision": row.id, **_load(row.details_json, {})} for row in rows if str(_load(row.details_json, {}).get("version_id") or "") in requested_scan_ids]
+
     def fetch():
         try:
             token = _runtime_token("client:read-tasks", authorization, request, db)
@@ -1248,8 +1345,9 @@ async def poll_tasks(
     for channel, version in versions.items():
         response.headers[f"X-Agent-Manager-Client-{channel.title()}-Version"] = version
     response.headers["Cache-Control"] = "private, no-store"
-    if rows or not wait_seconds:
-        return rows
+    events = await run_in_threadpool(scan_events)
+    if rows or events or not wait_seconds:
+        return {"tasks": rows, "scan_events": events} if include_events else rows
     hub = task_hub(db.get_bind())
     async with hub.subscribe(client_id) as wake:
         deadline = asyncio.get_running_loop().time() + wait_seconds
@@ -1257,8 +1355,9 @@ async def poll_tasks(
             wake.clear()
             # Subscribe first, then query again so a commit cannot fall in a gap.
             rows = await run_in_threadpool(fetch)
-            if rows:
-                return rows
+            events = await run_in_threadpool(scan_events)
+            if rows or events:
+                return {"tasks": rows, "scan_events": events} if include_events else rows
             remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0 or await request.is_disconnected():
                 return []
@@ -1274,7 +1373,9 @@ async def poll_tasks(
                     except asyncio.TimeoutError:
                         pass
                 if not wake.is_set():
-                    return await run_in_threadpool(fetch)
+                    rows = await run_in_threadpool(fetch)
+                    events = await run_in_threadpool(scan_events)
+                    return {"tasks": rows, "scan_events": events} if include_events else rows
 
 
 @router.post("/{client_id}/skill-actions")

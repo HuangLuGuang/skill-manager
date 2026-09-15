@@ -237,7 +237,7 @@
             <button id="records-reset" type="button" class="icon-button icon-restore" data-i18n="ui.records.reset">重置</button>
           </div>
           <div id="records-feedback" role="status" aria-live="polite"></div>
-          <div id="event-records" role="tabpanel" aria-labelledby="records-events-tab"><div class="takeover-column-head task-history-columns"><span data-i18n="ui.records.event">事件 / Skill</span><span>Agent</span><span data-i18n="ui.records.result">结果</span><span data-i18n="ui.records.latest">最近发现</span></div><div id="event-history-list" class="takeover-list"></div></div>
+          <div id="event-records" role="tabpanel" aria-labelledby="records-events-tab"><div class="takeover-column-head task-history-columns event-history-columns"><span data-i18n="ui.records.skill">Skill</span><span>Agent</span><span data-i18n="ui.records.type">类型</span><span data-i18n="ui.records.result">结果</span><span data-i18n="ui.records.latest_occurrence">最近发生</span></div><div id="event-history-list" class="takeover-list"></div></div>
           <div id="task-records" role="tabpanel" aria-labelledby="records-tasks-tab" hidden><div class="takeover-column-head task-history-columns"><span data-i18n="ui.records.task">任务 / Skill</span><span>Agent</span><span data-i18n="ui.records.status">状态</span><span data-i18n="ui.records.execution">执行时间 / 详情</span></div><div id="task-history-list" class="takeover-list"></div></div>
           <div class="record-pagination"><span id="records-total"></span><div><span data-i18n="ui.records.page_size">每页条数</span><select id="records-page-size" aria-label="每页条数" data-i18n-aria-label="ui.records.page_size"><option selected>10</option><option>20</option><option>50</option></select><button id="records-prev" type="button" data-i18n="ui.records.previous">上一页</button><span id="records-page"></span><button id="records-next" type="button" data-i18n="ui.records.next">下一页</button></div></div>
 
@@ -396,16 +396,32 @@
     </dialog>
     <dialog id="discard-pending-dialog" class="message-dialog discard-pending-dialog">
       <div class="message-dialog-body">
-        <span class="dialog-danger-label">本地永久删除</span>
-        <h3>删除本地副本</h3>
-        <p>该 Skill 将从停用待处理区永久删除；关联的隔离副本也会一并清理。</p>
+        <span class="dialog-danger-label" data-i18n="ui.agentHistory.local_permanent_delete">本地永久删除</span>
+        <h3 data-i18n="ui.agentHistory.delete_copy_title">删除保留副本</h3>
+        <p data-i18n="ui.agentHistory.delete_copy_description">这份本地保留内容将永久删除，不再出现在隔离副本中。</p>
         <div class="discard-pending-summary">
           <strong id="discard-pending-name"></strong>
           <span id="discard-pending-agent"></span>
           <code id="discard-pending-path"></code>
         </div>
-        <p class="dialog-audit-note">平台检测版本和审计记录会保留，已经安装的可信版本不受影响。</p>
-        <div class="dialog-actions"><button id="cancel-discard-pending" class="icon-button icon-close">取消</button><button id="confirm-discard-pending" class="danger icon-button icon-remove" data-busy-text="正在删除...">确认删除</button></div>
+        <p class="dialog-audit-note" data-i18n="ui.agentHistory.delete_copy_audit_note">平台检测版本和审计记录会保留；当前 Agent 目录以及已经安装的可信版本不受影响。</p>
+        <div class="dialog-actions"><button id="cancel-discard-pending" class="icon-button icon-close" data-i18n="ui.agentManagement.cancel">取消</button><button id="confirm-discard-pending" class="danger icon-button icon-remove" data-busy-text="正在删除..." data-i18n="ui.agentHistory.confirm_delete_copy">确认删除副本</button></div>
+      </div>
+    </dialog>
+    <dialog id="quarantine-submit-dialog" class="message-dialog quarantine-submit-dialog" aria-labelledby="quarantine-submit-title" aria-describedby="quarantine-submit-description">
+      <div class="message-dialog-body">
+        <span class="overview-badge" data-i18n="ui.agentManagement.copy_evidence">副本证据</span>
+        <h3 id="quarantine-submit-title" data-i18n="ui.agentManagement.submit_copy_title">提交这份隔离副本</h3>
+        <p id="quarantine-submit-description" data-i18n="ui.agentManagement.submit_copy_description">平台只检测下方这份保留内容。检测通过后，客户端会将批准版本分别恢复到所有受影响的 Agent。</p>
+        <dl class="quarantine-submit-evidence">
+          <div><dt>Skill</dt><dd id="quarantine-submit-name" data-no-i18n></dd></div>
+          <div><dt data-i18n="ui.agentHistory.source_event">来源事件</dt><dd id="quarantine-submit-kind" data-no-i18n></dd></div>
+          <div><dt data-i18n="ui.agentHistory.affected_agents">涉及 Agent</dt><dd id="quarantine-submit-agents" data-no-i18n></dd></div>
+          <div><dt data-i18n="ui.agentHistory.retained_at">保留时间</dt><dd id="quarantine-submit-time" data-no-i18n></dd></div>
+          <div class="wide"><dt data-i18n="ui.agentHistory.content_signature">内容指纹</dt><dd><code id="quarantine-submit-signature" data-no-i18n></code></dd></div>
+          <div class="wide"><dt data-i18n="ui.agentHistory.copy_path">副本目录</dt><dd><code id="quarantine-submit-path" data-no-i18n></code></dd></div>
+        </dl>
+        <div class="dialog-actions"><button id="cancel-quarantine-submit" class="icon-button icon-close" type="button" data-i18n="ui.agentManagement.cancel">取消</button><button id="confirm-quarantine-submit" class="primary icon-button icon-submit" type="button" data-busy-text="正在提交" data-i18n="ui.agentManagement.confirm_submit_copy">确认提交此副本</button></div>
       </div>
     </dialog>
     <dialog id="remove-custom-agent-dialog" class="message-dialog">
@@ -458,7 +474,7 @@
         <h3 id="skill-action-title" data-no-i18n></h3>
         <p id="skill-action-description" data-no-i18n></p>
         <div class="skill-action-context"><span class="dialog-field-label" data-i18n="ui.agentManagement.target_path">目标目录</span><code id="skill-action-path" data-no-i18n></code><p id="skill-action-impact" data-no-i18n></p></div>
-        <form method="dialog" class="dialog-actions"><button value="cancel" data-i18n="ui.agentManagement.cancel">取消</button><button id="confirm-skill-action" type="button" class="primary" data-i18n="ui.agentManagement.confirm_action">确认并创建任务</button></form>
+        <form method="dialog" class="dialog-actions"><button value="cancel" data-i18n="ui.agentManagement.cancel">取消</button><button id="confirm-skill-action" type="button" class="primary" data-i18n="ui.agentManagement.confirm_action">确认执行</button></form>
       </div>
     </dialog>
     <dialog id="model-config-dialog" class="message-dialog" aria-labelledby="model-config-title">

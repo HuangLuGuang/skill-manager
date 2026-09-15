@@ -48,7 +48,7 @@ func TestPendingCopyCommandsRespectMutationLock(t *testing.T) {
 	previousTimeout := interactiveMutationLockTimeout
 	interactiveMutationLockTimeout = 20 * time.Millisecond
 	t.Cleanup(func() { interactiveMutationLockTimeout = previousTimeout })
-	for _, command := range []string{"discard-pending", "queue-quarantine"} {
+	for _, command := range []string{"discard-pending", "discard-quarantine", "queue-quarantine"} {
 		t.Run(command, func(t *testing.T) {
 			home := t.TempDir()
 			release, err := managedclient.AcquireMutationLock(home)

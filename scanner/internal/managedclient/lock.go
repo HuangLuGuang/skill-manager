@@ -106,6 +106,14 @@ func RequestFullScan(home string) error {
 	return os.WriteFile(path, []byte("full"), 0o600)
 }
 
+func RequestWorkerWake(home string) error {
+	path := filepath.Join(home, ".agent-manager", "worker-wake")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return atomicWriteFile(path, []byte("wake"), 0o600)
+}
+
 func WaitForRun(home string, interval time.Duration, idle func()) bool {
 	return WaitForRunOrChange(home, interval, idle, nil)
 }

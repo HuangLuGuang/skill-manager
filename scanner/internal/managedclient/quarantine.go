@@ -15,21 +15,28 @@ import (
 )
 
 type QuarantineItem struct {
-	Signature       string `json:"signature"`
-	ErrorCode       string `json:"error_code,omitempty"`
-	ID              string `json:"id"`
-	AgentType       string `json:"agent_type"`
-	SkillName       string `json:"skill_name"`
-	OriginalPath    string `json:"original_path"`
-	QuarantinePath  string `json:"quarantine_path"`
-	Reason          string `json:"reason"`
-	Status          string `json:"status"`
-	CreatedAt       string `json:"created_at"`
-	RestoredAt      string `json:"restored_at,omitempty"`
-	PendingID       string `json:"pending_id,omitempty"`
-	DetectionStatus string `json:"detection_status,omitempty"`
-	SkillID         string `json:"skill_id,omitempty"`
-	VersionID       string `json:"version_id,omitempty"`
+	Signature       string             `json:"signature"`
+	ErrorCode       string             `json:"error_code,omitempty"`
+	ID              string             `json:"id"`
+	AgentType       string             `json:"agent_type"`
+	SkillName       string             `json:"skill_name"`
+	OriginalPath    string             `json:"original_path"`
+	QuarantinePath  string             `json:"quarantine_path"`
+	Reason          string             `json:"reason"`
+	Status          string             `json:"status"`
+	CreatedAt       string             `json:"created_at"`
+	RestoredAt      string             `json:"restored_at,omitempty"`
+	PendingID       string             `json:"pending_id,omitempty"`
+	DetectionStatus string             `json:"detection_status,omitempty"`
+	SkillID         string             `json:"skill_id,omitempty"`
+	VersionID       string             `json:"version_id,omitempty"`
+	AffectedTargets []QuarantineTarget `json:"affected_targets,omitempty"`
+}
+
+type QuarantineTarget struct {
+	AgentType    string `json:"agent_type"`
+	OriginalPath string `json:"original_path"`
+	Status       string `json:"status"`
 }
 
 func QuarantineSkill(home string, store *Store, agentType, skillName, source, reason string) (QuarantineItem, error) {
@@ -115,7 +122,6 @@ func (store *Store) QuarantineItems() ([]QuarantineItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	result := []QuarantineItem{}
 	for rows.Next() {
 		var item QuarantineItem
@@ -141,7 +147,47 @@ func (store *Store) QuarantineItems() ([]QuarantineItem, error) {
 		}
 		result = append(result, item)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	// The store uses a single SQLite connection. Resolve persisted recovery
+	// errors only after closing the result cursor above; querying client_state
+	// while rows is open would deadlock the connection pool.
+	for index := range result {
+		if persisted, ok, stateErr := store.State("recovery:error:" + result[index].ID); stateErr == nil && ok && strings.TrimSpace(persisted) != "" {
+			result[index].ErrorCode = persisted
+		}
+	}
+
+	targetRows, err := store.db.Query(
+		`SELECT quarantine_path, agent_type, original_path, status
+		 FROM client_quarantine
+		 ORDER BY created_at, id`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer targetRows.Close()
+	targetsByPath := map[string][]QuarantineTarget{}
+	for targetRows.Next() {
+		var quarantinePath string
+		var target QuarantineTarget
+		if err := targetRows.Scan(&quarantinePath, &target.AgentType, &target.OriginalPath, &target.Status); err != nil {
+			return nil, err
+		}
+		targetsByPath[quarantinePath] = append(targetsByPath[quarantinePath], target)
+	}
+	if err := targetRows.Err(); err != nil {
+		return nil, err
+	}
+	for index := range result {
+		result[index].AffectedTargets = targetsByPath[result[index].QuarantinePath]
+	}
+	return result, nil
 }
 
 func (store *Store) ResolveQuarantine(agentType, skillName string) error {
@@ -151,6 +197,117 @@ func (store *Store) ResolveQuarantine(agentType, skillName string) error {
 		time.Now().UTC().Format(time.RFC3339Nano), agentType, skillName,
 	)
 	return err
+}
+
+// ResolveInstalledRecovery archives recovery records superseded by a verified
+// trusted installation at the exact Agent path. An uninstalled record is only
+// resolved when its retained content matches the installed release, so a
+// different historical version remains available for review.
+func (store *Store) ResolveInstalledRecovery(agentType, skillName, targetPath, installedSignature string) (bool, error) {
+	items, err := store.QuarantineItems()
+	if err != nil {
+		return false, err
+	}
+	targetPath = filepath.Clean(targetPath)
+	changed := false
+	for _, item := range items {
+		if item.AgentType != agentType || item.SkillName != skillName || filepath.Clean(item.OriginalPath) != targetPath {
+			continue
+		}
+		if item.Status == "uninstalled" && (installedSignature == "" || item.Signature != installedSignature) {
+			continue
+		}
+		if item.Status != "quarantined" && item.Status != "uninstalled" {
+			continue
+		}
+		result, err := store.db.Exec(
+			`UPDATE client_quarantine SET status='resolved', restored_at=?
+			 WHERE id=? AND status IN ('quarantined','uninstalled')`,
+			time.Now().UTC().Format(time.RFC3339Nano), item.ID,
+		)
+		if err != nil {
+			return changed, err
+		}
+		if count, err := result.RowsAffected(); err == nil && count > 0 {
+			changed = true
+		}
+	}
+	return changed, nil
+}
+
+// DiscardQuarantine removes one retained recovery copy while preserving the
+// current Agent path and the audit row. The selected signature is required so
+// content changed after confirmation cannot be deleted accidentally.
+func (store *Store) DiscardQuarantine(id, expectedSignature string) (QuarantineItem, error) {
+	items, err := store.QuarantineItems()
+	if err != nil {
+		return QuarantineItem{}, err
+	}
+	var item QuarantineItem
+	for _, candidate := range items {
+		if candidate.ID == id {
+			item = candidate
+			break
+		}
+	}
+	if item.ID == "" {
+		return QuarantineItem{}, fmt.Errorf("quarantined Skill not found: %s", id)
+	}
+	if strings.TrimSpace(expectedSignature) == "" || item.Signature != expectedSignature {
+		return QuarantineItem{}, fmt.Errorf("skill_content_changed")
+	}
+	if strings.TrimSpace(item.QuarantinePath) == "" {
+		return QuarantineItem{}, fmt.Errorf("quarantine item has no local path: %s", id)
+	}
+	var linkedPending *PendingItem
+	if item.PendingID != "" {
+		pending, err := store.PendingItem(item.PendingID)
+		if err == nil {
+			linkedPending = &pending
+		}
+	}
+
+	var otherReferences int
+	if err := store.db.QueryRow(
+		`SELECT COUNT(*) FROM client_quarantine
+		 WHERE quarantine_path=? AND id<>? AND status IN ('quarantined','uninstalled','quarantine_failed','backed_up')`,
+		item.QuarantinePath, item.ID,
+	).Scan(&otherReferences); err != nil {
+		return QuarantineItem{}, err
+	}
+	if otherReferences == 0 {
+		if err := os.RemoveAll(item.QuarantinePath); err != nil {
+			return QuarantineItem{}, fmt.Errorf(localize.Text("删除隔离副本失败: %w", "failed to remove quarantine copy: %w"), err)
+		}
+		_ = os.Remove(filepath.Dir(item.QuarantinePath))
+	}
+	if linkedPending != nil && filepath.Clean(linkedPending.PendingPath) != filepath.Clean(item.QuarantinePath) {
+		if err := os.RemoveAll(linkedPending.PendingPath); err != nil {
+			return QuarantineItem{}, fmt.Errorf(localize.Text("删除待处理副本失败: %w", "failed to remove pending copy: %w"), err)
+		}
+	}
+
+	tx, err := store.db.Begin()
+	if err != nil {
+		return QuarantineItem{}, err
+	}
+	defer tx.Rollback()
+	if item.PendingID != "" {
+		if _, err := tx.Exec(`DELETE FROM client_pending WHERE id=?`, item.PendingID); err != nil {
+			return QuarantineItem{}, err
+		}
+	}
+	if _, err := tx.Exec(
+		`UPDATE client_quarantine SET status='discarded', restored_at=? WHERE id=?`,
+		time.Now().UTC().Format(time.RFC3339Nano), item.ID,
+	); err != nil {
+		return QuarantineItem{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return QuarantineItem{}, err
+	}
+	item.Status = "discarded"
+	return item, nil
 }
 
 // DiscardPending permanently removes one disabled local copy. If the pending
@@ -225,6 +382,10 @@ func (store *Store) DiscardPending(id string) (PendingItem, error) {
 }
 
 func QueueQuarantineForDetection(home string, store *Store, id string) (PendingItem, error) {
+	return QueueQuarantineForDetectionExpected(home, store, id, "")
+}
+
+func QueueQuarantineForDetectionExpected(home string, store *Store, id, expectedSignature string) (PendingItem, error) {
 	items, err := store.QuarantineItems()
 	if err != nil {
 		return PendingItem{}, err
@@ -239,10 +400,36 @@ func QueueQuarantineForDetection(home string, store *Store, id string) (PendingI
 	if quarantine.ID == "" {
 		return PendingItem{}, fmt.Errorf("quarantined Skill not found: %s", id)
 	}
+	if expectedSignature != "" && quarantine.Signature != expectedSignature {
+		return PendingItem{}, fmt.Errorf("skill_content_changed")
+	}
 	if info, statErr := os.Stat(filepath.Join(quarantine.QuarantinePath, "SKILL.md")); statErr != nil || info.IsDir() {
 		return PendingItem{}, fmt.Errorf("隔离内容缺少 SKILL.md，无法提交检测")
 	}
 
+	// One retained directory can back several Agent links. Queue one pending
+	// target per active link so one platform verdict can restore every affected
+	// Agent independently; a failed target remains available for retry.
+	var selected PendingItem
+	for _, candidate := range items {
+		if candidate.QuarantinePath != quarantine.QuarantinePath {
+			continue
+		}
+		pending, err := queueQuarantineTarget(home, store, candidate, expectedSignature)
+		if err != nil {
+			return PendingItem{}, err
+		}
+		if candidate.ID == quarantine.ID {
+			selected = pending
+		}
+	}
+	if selected.ID == "" {
+		return PendingItem{}, fmt.Errorf("quarantined Skill not found: %s", id)
+	}
+	return selected, nil
+}
+
+func queueQuarantineTarget(home string, store *Store, quarantine QuarantineItem, expectedSignature string) (PendingItem, error) {
 	target := filepath.Join(
 		PendingRoot(home),
 		quarantine.AgentType,
@@ -250,6 +437,12 @@ func QueueQuarantineForDetection(home string, store *Store, id string) (PendingI
 	)
 	pendingItemID := pendingID(target)
 	if existing, existingErr := store.PendingItem(pendingItemID); existingErr == nil {
+		if expectedSignature != "" {
+			value, buildErr := manifest.Build(existing.PendingPath, DefaultManifestOptions())
+			if buildErr != nil || manifest.ContentSignature(value.Files) != expectedSignature {
+				return PendingItem{}, fmt.Errorf("skill_content_changed")
+			}
+		}
 		return existing, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
@@ -262,6 +455,10 @@ func QueueQuarantineForDetection(home string, store *Store, id string) (PendingI
 	if err != nil {
 		_ = os.RemoveAll(target)
 		return PendingItem{}, err
+	}
+	if expectedSignature != "" && manifest.ContentSignature(value.Files) != expectedSignature {
+		_ = os.RemoveAll(target)
+		return PendingItem{}, fmt.Errorf("skill_content_changed")
 	}
 	pending := PendingItem{
 		ID:           pendingItemID,

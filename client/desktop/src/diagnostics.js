@@ -42,5 +42,8 @@
       version = String(value)
       send({ event: 'started', message: '', count: 1, first_at: new Date().toISOString() })
     },
+    localState(event, fields = {}) {
+      send({ event: String(event), ...fields, message: '', count: 1, first_at: new Date().toISOString() })
+    },
   }
 })()

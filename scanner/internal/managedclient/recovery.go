@@ -267,18 +267,41 @@ func ReconcileCertifiedQuarantine(ctx context.Context, home string, api API, sto
 		if !due {
 			continue
 		}
+		diagnostic := recoveryDiagnosticDetails(store, item)
+		store.LogDiagnostic("info", "recovery", "recovery_started", diagnostic)
 		if err := store.MarkSchedule(key); err != nil {
 			return changed, err
 		}
 		task := Task{Payload: map[string]any{"action": "restore_quarantine", "path": item.OriginalPath, "expected_signature": item.Signature, "quarantine_id": item.ID}}
 		err = restoreQuarantine(ctx, home, inventory, agent, api, store, task, true)
 		if err != nil {
+			diagnostic := recoveryDiagnosticDetails(store, item)
+			diagnostic["error_code"] = err.Error()
+			diagnostic["error_detail"] = err.Error()
+			store.LogDiagnostic("error", "recovery", "recovery_failed", diagnostic)
 			if err.Error() == "recovery_not_certified" {
 				continue
 			}
+			_ = store.SetState("recovery:error:"+item.ID, err.Error())
 			return changed, err
 		}
+		_ = store.SetState("recovery:error:"+item.ID, "")
+		store.LogDiagnostic("info", "recovery", "recovery_succeeded", recoveryDiagnosticDetails(store, item))
 		changed = true
 	}
 	return changed, nil
+}
+
+func recoveryDiagnosticDetails(store *Store, item QuarantineItem) map[string]any {
+	details := map[string]any{
+		"pending_id": strings.TrimPrefix(item.ID, "pending:"),
+		"skill_id":   item.SkillID,
+		"version_id": item.VersionID,
+		"agent_type": item.AgentType,
+		"skill_name": item.SkillName,
+	}
+	if revision, ok, err := store.State("recovery:pending:" + strings.TrimPrefix(item.ID, "pending:")); err == nil && ok {
+		details["revision"] = revision
+	}
+	return details
 }

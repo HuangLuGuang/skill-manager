@@ -288,6 +288,15 @@ test('groups Skills and recovery in Agent Management', () => {
   }
 })
 
+test('shows exact shared Agent readers beside each local Skill', () => {
+  const styles = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+  assert.match(appSource, /const renderSkillSharing = \(agent, skill\) =>[\s\S]*skillSharedReaders\(agent, skill\.path\)/)
+  assert.match(appSource, /currentLabels = new Set[\s\S]*agent\.agent_type, agent\.display_name, agentLabel\(agent\.agent_type\)[\s\S]*!labels\.some\(label => currentLabels\.has\(label\)\)/)
+  assert.match(appSource, /ui\.agentManagement\.shared_with[\s\S]*class="skill-shared-readers"/)
+  assert.match(appSource, /skill-name-button[\s\S]*renderSkillSharing\(agent, skill\)/)
+  assert.match(styles, /#agent-list \.skill-shared-readers\s*\{[^}]*overflow-wrap: anywhere[^}]*white-space: normal/)
+})
+
 test('rediscovers local Agents before refreshing governance after an install', () => {
   assert.match(
     appSource,
@@ -324,25 +333,36 @@ test('shows quarantine detection progress without offering duplicate submission'
   )?.[0]
   assert.ok(submitHandler)
   assert.doesNotMatch(submitHandler, /showPanel\('takeover'\)/)
-  assert.match(submitHandler, /await submitPendingIDs\(\[pending\.id\], button\)[\s\S]*await refreshConnection\(\)[\s\S]*await loadQuarantine\(\)/)
+  assert.match(submitHandler, /pendingQuarantineSubmission = \{ copy, button \}[\s\S]*quarantine-submit-dialog'\)\.showModal\(\)/)
+  assert.match(appSource, /const recoveryScopeIncludes = item =>[\s\S]*activeRecoveryTargets\(item\)\.some\(target => target\.agent_type === selectedAgent\(\)\.agent_type\)/)
+  const confirmHandler = appSource.match(
+    /#confirm-quarantine-submit'[\s\S]*?#refresh-quarantine'/,
+  )?.[0]
+  assert.ok(confirmHandler)
+  assert.match(confirmHandler, /--expected-signature', copy\.signature/)
+  assert.match(confirmHandler, /await submitPendingIDs\(\[pending\.id\], button\)[\s\S]*await refreshConnection\(\)[\s\S]*await loadQuarantine\(\)/)
   assert.match(appSource, /if \(item\.skill_id\) return t\('status\.platform_scanning'\)/)
   assert.doesNotMatch(appSource, /ui\.10hw1zw/)
   assert.match(appSource, /quarantine-skill-identity[\s\S]*history-details[\s\S]*quarantineDetectionGuidance[\s\S]*quarantine-status[\s\S]*quarantine-actions/)
   assert.doesNotMatch(appSource, /平台正在检测\$\{item\.skill_id/)
 })
 
-test('refreshes the visible quarantine list after background status changes', () => {
-  assert.match(
-    appSource,
-    /const refreshChangedInventory = async[\s\S]*const quarantineChanged = local\.quarantined_skills !== connection\.local\?\.quarantined_skills[\s\S]*if \(refreshQuarantine\) await loadPending\(\)/,
-  )
+test('refreshes local state from durable events and page entry without business polling', () => {
+  assert.match(appSource, /listen\('client-local-state-changed'/)
+  assert.match(appSource, /queueMicrotask\(\(\) => \{ void refreshLocalStateFromEvent\(\) \}\)/)
+  assert.doesNotMatch(appSource, /setInterval\(refreshChangedInventory/)
+  assert.doesNotMatch(appSource, /setInterval\(refreshTrackedSkillActions/)
+  assert.doesNotMatch(appSource, /run\('refresh-pending'/)
 })
 
 test('pending copies remain actionable in recovery while submitted scans use independent history', () => {
   assert.match(appSource, /data-discard-copy[\s\S]*discard-pending-dialog'\)\.showModal\(\)/)
   assert.match(appSource, /confirm-discard-pending[\s\S]*run\('discard-pending', \['--id', item\.id, '--confirm'\]\)/)
-  assert.match(appSource, /scanHistoryItems = JSON.parse\(await run\(refresh \? 'refresh-scan-history' : 'scan-history'\)\)/)
-  assert.match(appSource, /pending_copy_id \? \{id: copy.pending_copy_id\}/)
+  assert.match(appSource, /item\.kind === 'quarantine'[\s\S]*run\('discard-quarantine', \['--id', item\.id, '--expected-signature', item\.signature, '--confirm'\]\)/)
+  assert.match(appSource, /const recoveryCopyAlreadyInstalled = item =>[\s\S]*skill\.path === target\.original_path && skill\.signature === item\.signature/)
+  assert.match(appSource, /!item\.skill_id && !alreadyInstalled[\s\S]*data-submit-quarantine/)
+  assert.match(appSource, /scanHistoryItems = JSON.parse\(await run\('scan-history'\)\)/)
+  assert.match(appSource, /pending_copy_id \? \{ id: copy.pending_copy_id \}/)
 })
 
 test('bundles localized macOS application names', () => {

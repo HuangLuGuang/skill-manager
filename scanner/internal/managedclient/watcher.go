@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -16,13 +17,19 @@ var ignoredWatchDirs = map[string]bool{
 	"__pycache__": true, "dist": true, "build": true,
 }
 
+// Editors commonly emit several write/rename events for one save. Keep a
+// short stability window, but leave patrol scheduling to the daemon instead
+// of adding a second debounce there.
+const skillWatchDebounce = 300 * time.Millisecond
+
 type SkillWatcher struct {
-	watcher *fsnotify.Watcher
-	changes chan struct{}
-	done    chan struct{}
-	watched map[string]bool
-	roots   map[string]bool
-	mu      sync.Mutex
+	watcher    *fsnotify.Watcher
+	changes    chan []string
+	done       chan struct{}
+	watched    map[string]bool
+	roots      map[string]bool
+	suppressed map[string]time.Time
+	mu         sync.Mutex
 }
 
 func NewSkillWatcher() (*SkillWatcher, error) {
@@ -31,17 +38,45 @@ func NewSkillWatcher() (*SkillWatcher, error) {
 		return nil, err
 	}
 	result := &SkillWatcher{
-		watcher: watcher,
-		changes: make(chan struct{}, 1),
-		done:    make(chan struct{}),
-		watched: map[string]bool{},
-		roots:   map[string]bool{},
+		watcher:    watcher,
+		changes:    make(chan []string, 1),
+		done:       make(chan struct{}),
+		watched:    map[string]bool{},
+		roots:      map[string]bool{},
+		suppressed: map[string]time.Time{},
 	}
 	go result.run()
 	return result, nil
 }
 
-func (watcher *SkillWatcher) Changes() <-chan struct{} { return watcher.changes }
+func (watcher *SkillWatcher) Changes() <-chan []string { return watcher.changes }
+
+func (watcher *SkillWatcher) SuppressRoots(paths []string, duration time.Duration) {
+	watcher.mu.Lock()
+	defer watcher.mu.Unlock()
+	until := time.Now().Add(duration)
+	for _, path := range paths {
+		if path != "" {
+			watcher.suppressed[filepath.Clean(path)] = until
+		}
+	}
+}
+
+func (watcher *SkillWatcher) suppressedPath(path string) bool {
+	watcher.mu.Lock()
+	defer watcher.mu.Unlock()
+	now := time.Now()
+	for root, until := range watcher.suppressed {
+		if now.After(until) {
+			delete(watcher.suppressed, root)
+			continue
+		}
+		if pathWithinLexical(path, root) || filepath.Clean(path) == root {
+			return true
+		}
+	}
+	return false
+}
 
 func (watcher *SkillWatcher) Close() error {
 	close(watcher.done)
@@ -129,6 +164,7 @@ func (watcher *SkillWatcher) add(path string) error {
 func (watcher *SkillWatcher) run() {
 	var timer *time.Timer
 	var timerC <-chan time.Time
+	pending := map[string]bool{}
 	for {
 		select {
 		case <-watcher.done:
@@ -146,13 +182,14 @@ func (watcher *SkillWatcher) run() {
 			if !watcher.relevant(event.Name) {
 				continue
 			}
+			pending[filepath.Clean(event.Name)] = true
 			if event.Op&fsnotify.Create != 0 {
 				if info, err := os.Stat(event.Name); err == nil && info.IsDir() && !ignoredWatchPath(event.Name) {
 					_ = watcher.addTree(event.Name)
 				}
 			}
 			if timer == nil {
-				timer = time.NewTimer(time.Second)
+				timer = time.NewTimer(skillWatchDebounce)
 			} else {
 				if !timer.Stop() {
 					select {
@@ -160,7 +197,7 @@ func (watcher *SkillWatcher) run() {
 					default:
 					}
 				}
-				timer.Reset(time.Second)
+				timer.Reset(skillWatchDebounce)
 			}
 			timerC = timer.C
 		case _, ok := <-watcher.watcher.Errors:
@@ -168,13 +205,23 @@ func (watcher *SkillWatcher) run() {
 				return
 			}
 			select {
-			case watcher.changes <- struct{}{}:
+			case watcher.changes <- nil:
 			default:
 			}
 		case <-timerC:
-			select {
-			case watcher.changes <- struct{}{}:
-			default:
+			paths := make([]string, 0, len(pending))
+			for path := range pending {
+				if !watcher.suppressedPath(path) {
+					paths = append(paths, path)
+				}
+			}
+			sort.Strings(paths)
+			pending = map[string]bool{}
+			if len(paths) > 0 {
+				select {
+				case watcher.changes <- paths:
+				default:
+				}
 			}
 			timerC = nil
 		}

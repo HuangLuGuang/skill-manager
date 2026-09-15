@@ -13,6 +13,39 @@ import (
 	"time"
 )
 
+func TestInventoryRefreshWakesLocalGovernanceBeforePlatformUploadCompletes(t *testing.T) {
+	home, store, _, _ := observedFixture(t)
+	uploadStarted := make(chan struct{})
+	releaseUpload := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(uploadStarted)
+		<-releaseUpload
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	localReady := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- syncInventoryOnce(context.Background(), home, NewAPI(server.URL, "token", time.Second), store, func() {
+			close(localReady)
+		})
+	}()
+	select {
+	case <-uploadStarted:
+	case <-time.After(time.Second):
+		t.Fatal("inventory upload did not start")
+	}
+	select {
+	case <-localReady:
+	default:
+		t.Fatal("local governance was not woken before platform upload")
+	}
+	close(releaseUpload)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHeartbeatContinuesDuringBlockedAnalysis(t *testing.T) {
 	home, store, _, _ := observedFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())

@@ -32,7 +32,7 @@ func main() {
 
 func run(args []string) (runErr error) {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|verify-model|restore-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|available-skills|skill-preview|skill-versions|install-skill|quarantine|queue-quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
+		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|verify-model|restore-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|discard-quarantine|available-skills|skill-preview|skill-versions|install-skill|quarantine|queue-quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
@@ -333,8 +333,8 @@ func run(args []string) (runErr error) {
 		}
 		return json.NewEncoder(os.Stdout).Encode(map[string]string{"pending_id": id})
 	}
-	if args[0] == "scan-history" || args[0] == "refresh-scan-history" || args[0] == "pending" || args[0] == "refresh-pending" || args[0] == "submit-pending" || args[0] == "discard-pending" || args[0] == "quarantine" || args[0] == "queue-quarantine" {
-		if args[0] == "discard-pending" || args[0] == "queue-quarantine" {
+	if args[0] == "scan-history" || args[0] == "refresh-scan-history" || args[0] == "pending" || args[0] == "refresh-pending" || args[0] == "submit-pending" || args[0] == "discard-pending" || args[0] == "discard-quarantine" || args[0] == "quarantine" || args[0] == "queue-quarantine" {
+		if args[0] == "discard-pending" || args[0] == "discard-quarantine" || args[0] == "queue-quarantine" {
 			release, err := managedclient.AcquireMutationLockWithTimeout(*home, interactiveMutationLockTimeout)
 			if err != nil {
 				return err
@@ -401,6 +401,16 @@ func run(args []string) (runErr error) {
 			}
 			return json.NewEncoder(os.Stdout).Encode(item)
 		}
+		if args[0] == "discard-quarantine" {
+			if strings.TrimSpace(*itemID) == "" || strings.TrimSpace(*expectedSignature) == "" || !*confirm {
+				return fmt.Errorf("discard-quarantine requires --id, --expected-signature and --confirm")
+			}
+			item, err := store.DiscardQuarantine(*itemID, *expectedSignature)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(os.Stdout).Encode(item)
+		}
 		if args[0] == "quarantine" {
 			items, err := store.QuarantineItems()
 			if err != nil {
@@ -412,7 +422,7 @@ func run(args []string) (runErr error) {
 			if strings.TrimSpace(*itemID) == "" {
 				return fmt.Errorf("queue-quarantine requires --id")
 			}
-			item, err := managedclient.QueueQuarantineForDetection(*home, store, *itemID)
+			item, err := managedclient.QueueQuarantineForDetectionExpected(*home, store, *itemID, *expectedSignature)
 			if err != nil {
 				return err
 			}
@@ -429,6 +439,12 @@ func run(args []string) (runErr error) {
 		if err != nil {
 			return err
 		}
+		details := map[string]any{"source": "desktop"}
+		if revision, eventType, revisionErr := store.LatestUIEvent(); revisionErr == nil {
+			details["revision"] = revision
+			details["event_type"] = eventType
+		}
+		store.LogDiagnostic("info", "desktop", "desktop_snapshot_refreshed", details)
 		return json.NewEncoder(os.Stdout).Encode(status)
 	}
 	if args[0] == "cached-inventory" {

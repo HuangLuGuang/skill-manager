@@ -265,11 +265,25 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 				if value.Action == "record_only" {
 					eventType = "skill_governance_recorded"
 				}
-				if err := reportEventWithLocalNotification(ctx, api, store, inventory.ClientID, eventType, agent.AgentType, skill.Name, map[string]any{
+				// Immediate file actions emit a terminal action notification a
+				// moment later. Keep the detected event in platform history, but
+				// avoid showing a transient alert before the final local outcome.
+				notifyDetection := newIncident && value.Action != "quarantine" && value.Action != "uninstall" && value.Action != "restore_trusted"
+				details := map[string]any{
 					"path": skill.Path, "signature": skill.Signature, "trigger": value.Trigger, "action": value.Action,
 					"policy_version": value.PolicyVersion, "event_key": observationKey(skill.Path) + ":" + actionKey,
 					"observation_count": value.Count, "last_seen_at": value.LastSeenAt,
-				}, newIncident); err != nil {
+				}
+				var err error
+				if value.Action == "quarantine" || value.Action == "uninstall" || value.Action == "restore_trusted" {
+					// Persist detection evidence before touching the filesystem, but
+					// do not let a slow platform round trip gate enforcement. The
+					// regular event flush uploads this evidence afterward.
+					err = queueEventWithLocalNotification(store, inventory.ClientID, eventType, agent.AgentType, skill.Name, details, notifyDetection)
+				} else {
+					err = reportEventWithLocalNotification(ctx, api, store, inventory.ClientID, eventType, agent.AgentType, skill.Name, details, notifyDetection)
+				}
+				if err != nil {
 					failures = append(failures, err)
 				}
 			}
@@ -310,12 +324,17 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 						value.ActionStatus, value.ErrorCode = "completed", ""
 					}
 					notifyAction := newIncident || value.ActionStatus != previous.ActionStatus || value.ErrorCode != previous.ErrorCode
-					_ = reportEventWithLocalNotification(ctx, api, store, inventory.ClientID, "skill_governance_action", agent.AgentType, skill.Name, map[string]any{
+					actionDetails := map[string]any{
 						"path": skill.Path, "signature": skill.Signature, "trigger": value.Trigger, "action": value.Action,
 						"policy_version": value.PolicyVersion, "status": value.ActionStatus, "error_code": value.ErrorCode,
 						"quarantine_id": value.QuarantineID, "pending_id": value.PendingID,
 						"quarantine_ids_by_path": recoveryIDs,
-					}, notifyAction)
+					}
+					if value.Action == "quarantine" || value.Action == "uninstall" || value.Action == "restore_trusted" {
+						_ = queueEventWithLocalNotification(store, inventory.ClientID, "skill_governance_action", agent.AgentType, skill.Name, actionDetails, notifyAction)
+					} else {
+						_ = reportEventWithLocalNotification(ctx, api, store, inventory.ClientID, "skill_governance_action", agent.AgentType, skill.Name, actionDetails, notifyAction)
+					}
 				}
 			}
 			for _, reader := range inventory.Agents {
