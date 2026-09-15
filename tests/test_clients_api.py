@@ -146,7 +146,7 @@ def test_compare_prefers_reported_approved_version_when_signatures_collide(monke
     assert legacy is approved
 
 
-def test_compare_uses_safe_approval_instead_of_historical_malicious_approval(monkeypatch):
+def test_compare_uses_newest_approved_version_even_if_scan_risk_was_malicious(monkeypatch):
     from types import SimpleNamespace
     safe = SimpleNamespace(skill_id="rescanned-v1", version_no=1, name="sample",
                            skill_path="/safe", status=SkillStatus.APPROVED, risk_level="benign")
@@ -155,8 +155,6 @@ def test_compare_uses_safe_approval_instead_of_historical_malicious_approval(mon
     monkeypatch.setattr(clients, "compute_content_signature", lambda path: "same-content")
     local = schemas.ClientSkillCompareItem(name="sample", signature="same-content")
     manager = _Manager({"safe": safe, "old": old})
-    assert clients._matching_skill_entry(manager, local) is safe
-    safe.status = SkillStatus.REJECTED
     assert clients._matching_skill_entry(manager, local) is old
 
 
@@ -1971,6 +1969,7 @@ def test_registry_mode_does_not_require_managed_agent_binding(tmp_path, monkeypa
             "skill_id": "skill-1",
             "name": "approved-skill",
             "status": SkillStatus.APPROVED,
+            "risk_level": "malicious",
             "skill_path": str(skill_root),
         },
     )()
@@ -1999,7 +1998,24 @@ def test_registry_mode_does_not_require_managed_agent_binding(tmp_path, monkeypa
         json={"agents": [{"agent_type": "codex", "skills": [{"name": "approved-skill", "signature": signature}]}]},
     )
     assert compared.status_code == 200
-    assert compared.json()["items"][0]["allowed"] is True
+    verdict = compared.json()["items"][0]
+    assert verdict["allowed"] is True
+    assert verdict["certified"] is True
+    assert verdict["malicious"] is False
+    assert verdict["reason"] == "allowed"
+
+    entry.status = SkillStatus.VETTED
+    pending_review = client.post(
+        "/api/v1/clients/registry-host/compare",
+        headers=headers,
+        json={"agents": [{"agent_type": "codex", "skills": [{"name": "approved-skill", "signature": signature}]}]},
+    ).json()["items"][0]
+    assert pending_review["allowed"] is False
+    assert pending_review["certified"] is False
+    assert pending_review["malicious"] is True
+    assert pending_review["reason"] == "malicious"
+    entry.status = SkillStatus.APPROVED
+
     task = client.post(
         "/api/v1/clients/registry-host/tasks",
         json={"task_type": "install_skill", "payload": {"agent_type": "codex", "skill_id": "skill-1"}},

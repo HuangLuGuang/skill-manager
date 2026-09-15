@@ -309,7 +309,7 @@ func TestInstallChecksTargetBeforeChangingSharedRelease(t *testing.T) {
 	}
 }
 
-func TestInstallMaliciousVersionRespectsEffectivePolicy(t *testing.T) {
+func TestInstallApprovedVersionDoesNotReinterpretPlatformScanRisk(t *testing.T) {
 	for _, action := range []string{"record", "quarantine", "uninstall"} {
 		t.Run(action, func(t *testing.T) {
 			home := t.TempDir()
@@ -319,9 +319,11 @@ func TestInstallMaliciousVersionRespectsEffectivePolicy(t *testing.T) {
 			}
 			body := signedPackage(t, private)
 			downloaded := false
+			previewed := false
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch {
 				case strings.HasSuffix(r.URL.Path, "/preview"):
+					previewed = true
 					w.Write([]byte(`{"risk_level":"malicious","status":"APPROVED"}`))
 				case strings.HasSuffix(r.URL.Path, "/package"):
 					downloaded = true
@@ -341,17 +343,8 @@ func TestInstallMaliciousVersionRespectsEffectivePolicy(t *testing.T) {
 			policy.Classification.Rules["malicious"] = action
 			inventory := Inventory{ClientID: "host", Agents: []Agent{{AgentType: "codex", SkillsPath: root, SkillManagementSupported: true}}}
 			err = InstallApprovedSkill(context.Background(), home, inventory, policy, NewAPI(server.URL, "token", time.Second), store, "codex", "", "skill-1")
-			if action == "record" {
-				if err != nil || !downloaded {
-					t.Fatal("record policy installation failed", err)
-				}
-			} else {
-				if err == nil || err.Error() != "skill_install_malicious" || downloaded {
-					t.Fatal("destructive policy was not checked before download", err)
-				}
-				if _, err := os.Lstat(filepath.Join(root, "safe-skill")); !os.IsNotExist(err) {
-					t.Fatal("blocked install changed target", err)
-				}
+			if err != nil || !downloaded || previewed {
+				t.Fatal("approved platform decision was reinterpreted from scan risk", err, downloaded, previewed)
 			}
 		})
 	}

@@ -593,7 +593,6 @@ def _matching_skill_entry(
             entry
             for entry in matching_content
             if entry.status in (SkillStatus.APPROVED, SkillStatus.DEPLOYED)
-            and getattr(getattr(entry, "risk_level", None), "value", getattr(entry, "risk_level", None)) != "malicious"
         ]
         # Multiple immutable versions may have the same governed content when
         # they differ only by ignored metadata such as .DS_Store. In that case
@@ -604,7 +603,6 @@ def _matching_skill_entry(
         entry
         for entry in candidates
         if entry.status in (SkillStatus.APPROVED, SkillStatus.DEPLOYED)
-        and getattr(getattr(entry, "risk_level", None), "value", getattr(entry, "risk_level", None)) != "malicious"
     ]
     if trusted_candidates:
         return newest_version(trusted_candidates)
@@ -2498,8 +2496,12 @@ def compare_inventory(
             )
             content_matches = bool(expected_signature and local_skill.signature == expected_signature)
             risk = getattr(getattr(entry, "risk_level", None), "value", getattr(entry, "risk_level", None))
-            malicious = bool(content_matches and risk == "malicious")
-            certified = bool(entry and entry.status in (SkillStatus.APPROVED, SkillStatus.DEPLOYED) and content_matches and not malicious)
+            approved = bool(entry and entry.status in (SkillStatus.APPROVED, SkillStatus.DEPLOYED))
+            # APPROVED is the effective human/policy decision. Keep the scan
+            # risk in the platform report, but do not let it override the
+            # approval returned to managed clients.
+            malicious = bool(content_matches and risk == "malicious" and not approved)
+            certified = bool(approved and content_matches)
             allowed = bool(local_agent and authorized and certified)
             if not local_agent:
                 reason = "local_agent_not_found"

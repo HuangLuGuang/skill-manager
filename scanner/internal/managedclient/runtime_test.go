@@ -362,7 +362,7 @@ func TestInstallConfirmsInstalledContentBeforeReturning(t *testing.T) {
 			if !compared {
 				t.Fatal("install returned without comparing installed content")
 			}
-			if scenario == "certified" {
+			if scenario == "certified" || scenario == "malicious" {
 				if value.Certification != "certified" || value.TrustedSignature == "" || value.TrustedVersionID != "version-1" {
 					t.Fatalf("missing immediate certification: %+v", value)
 				}

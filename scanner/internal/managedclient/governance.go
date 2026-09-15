@@ -121,19 +121,19 @@ func classifyObservation(previous SkillObservation, skill Skill, comparison *Com
 	}
 	confirmed := comparison != nil && comparison.LocalSignature == skill.Signature && skill.Signature != ""
 	if confirmed {
-		value.Malicious = comparison.Malicious
+		value.Malicious = comparison.Malicious && !comparison.Certified
 		value.LastConfirmedAt = value.LastSeenAt
 	}
 	switch {
-	case value.Malicious:
-		value.Trigger = "malicious"
-		value.Certification = "unverified"
 	case confirmed && comparison.Certified:
 		value.TrustedSignature = skill.Signature
 		value.TrustedSkillID = comparison.SkillID
 		value.TrustedVersionID = comparison.VersionID
 		value.Trigger = ""
 		value.Certification = "certified"
+	case value.Malicious:
+		value.Trigger = "malicious"
+		value.Certification = "unverified"
 	case confirmed && comparison.ExpectedSignature == skill.Signature && comparison.Status == "REJECTED" && comparison.Rejected && value.PendingID != "":
 		value.Certification = "unverified"
 		value.Trigger = "unverified_scan_rejected"

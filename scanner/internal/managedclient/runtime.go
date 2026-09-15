@@ -437,18 +437,6 @@ func installApprovedSkillVersion(ctx context.Context, home string, inventory Inv
 	if agentType == "" || skillID == "" || (policy.GovernanceMode == "strict" && managedAgentID == "") {
 		return fmt.Errorf("install requires agent and skill information")
 	}
-	if classificationEnabled(policy) {
-		action := policy.Classification.Rules["malicious"]
-		if action == "quarantine" || action == "uninstall" {
-			preview, err := api.SkillPreview(ctx, inventory.ClientID, skillID, versionID, agentType, managedAgentID)
-			if err != nil {
-				return err
-			}
-			if preview.RiskLevel == "malicious" {
-				return fmt.Errorf("skill_install_malicious")
-			}
-		}
-	}
 	agent, ok := findAgent(inventory, agentType)
 	if !ok || !agent.SkillManagementSupported || agent.SkillsPath == "" {
 		return fmt.Errorf("agent %s does not support managed skills", agentType)
