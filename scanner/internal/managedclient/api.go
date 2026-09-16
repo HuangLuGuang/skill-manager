@@ -94,6 +94,7 @@ type SkillActionRequest struct {
 	VersionID               string `json:"version_id,omitempty"`
 	QuarantineID            string `json:"quarantine_id,omitempty"`
 	ExpectedTargetSignature string `json:"expected_target_signature,omitempty"`
+	RetainCopy              bool   `json:"retain_copy,omitempty"`
 }
 
 func (api API) RequestSkillAction(ctx context.Context, clientID string, request SkillActionRequest) (Task, error) {

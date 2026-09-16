@@ -32,7 +32,7 @@ func main() {
 
 func run(args []string) (runErr error) {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|verify-model|restore-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|discard-quarantine|available-skills|skill-preview|skill-versions|install-skill|quarantine|queue-quarantine|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
+		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|verify-model|restore-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|discard-quarantine|available-skills|skill-preview|skill-versions|install-skill|quarantine|queue-quarantine|apply-skill-action|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
@@ -57,6 +57,7 @@ func run(args []string) (runErr error) {
 	expectedTargetSignature := fs.String("expected-target-signature", "", "current target content selected for backup restoration")
 	skillAction := fs.String("action", "", "authorized Skill remediation action")
 	requestID := fs.String("request-id", "", "idempotency ID for a manual Skill action")
+	retainCopy := fs.Bool("retain-copy", true, "retain a recovery copy when uninstalling")
 	logDays := fs.Int("days", 0, "diagnostic retention or export range in days")
 	outputDir := fs.String("output-dir", "", "diagnostic ZIP output directory")
 	interval := fs.Duration("interval", 5*time.Minute, "daemon polling interval")
@@ -314,6 +315,27 @@ func run(args []string) (runErr error) {
 			return err
 		}
 		return json.NewEncoder(os.Stdout).Encode(task)
+	}
+	if args[0] == "apply-skill-action" {
+		if *server == "" || *token == "" || *agentType == "" || len(selectedSkills) != 1 || *expectedSignature == "" || *requestID == "" || (*skillAction != "uninstall" && *skillAction != "quarantine") {
+			return fmt.Errorf("apply-skill-action requires credentials, --action uninstall|quarantine, --agent-type, --skill, --expected-signature and --request-id")
+		}
+		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		err = managedclient.ExecuteImmediateSkillAction(ctx, *home, managedclient.NewAPI(*server, *token, 10*time.Second), store, managedclient.SkillActionRequest{
+			RequestID: *requestID, Action: *skillAction, AgentType: *agentType,
+			Path: selectedSkills[0], ExpectedSignature: *expectedSignature,
+			VersionID: *versionID, RetainCopy: *retainCopy,
+		}, *name)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{"request_id": *requestID, "status": "succeeded"})
 	}
 	if args[0] == "submit-observed" {
 		if *server == "" || *token == "" || *agentType == "" || len(selectedSkills) != 1 || *expectedSignature == "" {

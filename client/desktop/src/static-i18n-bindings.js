@@ -1909,6 +1909,12 @@ window.clientStaticI18nBindings = [
     "source": "目标目录"
   },
   {
+    "selector": "#skill-action-retain-wrap>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.agentManagement.retain_copy",
+    "source": "保留恢复副本"
+  },
+  {
     "selector": "#skill-action-dialog>div:nth-of-type(1)>form:nth-of-type(1)>button:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.agentManagement.cancel",

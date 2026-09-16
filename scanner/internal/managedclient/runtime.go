@@ -233,6 +233,9 @@ func executeTasks(ctx context.Context, home string, inventory Inventory, policy 
 			return err
 		}
 		taskErr := executeTask(ctx, home, inventory, policy, api, store, task)
+		if taskErr == nil {
+			taskErr = verifyTaskLocalCompletion(home, store, task)
+		}
 		if taskErr == nil && task.TaskType == "sync_policy" {
 			policy = cachedPolicy(store)
 		}
@@ -251,6 +254,64 @@ func executeTasks(ctx context.Context, home string, inventory Inventory, policy 
 		if err := store.SetState(fmt.Sprintf("task:reported:%d", task.ID), status); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func verifyTaskLocalCompletion(home string, store *Store, task Task) error {
+	if task.TaskType == "skill_action" {
+		action := stringValue(task.Payload, "action")
+		path := stringValue(task.Payload, "path")
+		switch action {
+		case "uninstall", "quarantine":
+			if path == "" {
+				return fmt.Errorf("skill_target_unavailable")
+			}
+			if _, err := os.Lstat(path); !os.IsNotExist(err) {
+				if err == nil {
+					return fmt.Errorf("skill_action_not_applied")
+				}
+				return err
+			}
+			items, err := store.QuarantineItems()
+			if err != nil {
+				return err
+			}
+			for _, item := range items {
+				if filepath.Clean(item.OriginalPath) == filepath.Clean(path) && (item.Status == "quarantined" || item.Status == "uninstalled") {
+					return nil
+				}
+			}
+			return fmt.Errorf("recovery_copy_not_persisted")
+		case "restore_quarantine", "restore_backup":
+			if path == "" {
+				return fmt.Errorf("skill_target_unavailable")
+			}
+			if _, err := os.Stat(path); err != nil {
+				return fmt.Errorf("skill_restore_not_applied: %w", err)
+			}
+		}
+	}
+	if task.TaskType == "install_skill" || task.TaskType == "repair_skill" {
+		agentType := stringValue(task.Payload, "agent_type")
+		skillID := stringValue(task.Payload, "skill_id")
+		if agentType == "" || skillID == "" {
+			return fmt.Errorf("skill_target_unavailable")
+		}
+		installs, err := store.Installations()
+		if err != nil {
+			return err
+		}
+		for _, install := range installs {
+			if install.AgentType == agentType && install.SkillID == skillID {
+				if _, err := os.Stat(install.TargetPath); err == nil {
+					return nil
+				} else if !os.IsNotExist(err) {
+					return err
+				}
+			}
+		}
+		return fmt.Errorf("skill_install_not_persisted")
 	}
 	return nil
 }

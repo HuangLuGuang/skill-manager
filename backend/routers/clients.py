@@ -1389,10 +1389,6 @@ def request_skill_action(
 ):
     token = _runtime_token("client:request-skill-actions", authorization, request, db)
     _bind_client(token, client_id, db)
-    if body.action == "restore_quarantine":
-        raise ApiError(403, "client.quarantine_auto_recovery_only",
-                       "隔离副本由客户端核对平台批准内容后自动恢复，不能手动放行",
-                       "Quarantined copies are restored automatically after matching approved platform content; manual release is unavailable")
     client = _client_or_404(db, client_id)
     task = client_skill_actions.create_action(db, client, body, token.created_by or client_id, manager)
     db.commit()

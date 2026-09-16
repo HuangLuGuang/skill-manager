@@ -841,6 +841,7 @@ class ClientSkillActionRequest(BaseModel):
     version_id: Optional[str] = Field(default=None, max_length=128)
     quarantine_id: Optional[str] = Field(default=None, max_length=128)
     expected_target_signature: Optional[str] = Field(default=None, max_length=128)
+    retain_copy: bool = True
 
 
 class ClientTaskResult(BaseModel):

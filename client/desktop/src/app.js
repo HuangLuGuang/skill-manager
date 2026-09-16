@@ -1678,7 +1678,7 @@ const renderInventory = () => {
     const skill = agent?.skills.find(item => item.path === select.dataset.skillAction)
     if (!skill) return
     pendingSkillAction = { requestID: crypto.randomUUID(), action: select.dataset.action, agentType: agent.agent_type,
-      path: skill.path, signature: skill.signature, versionID: skill.governance?.trusted_version_id || '' }
+      path: skill.path, signature: skill.signature, versionID: skill.governance?.trusted_version_id || '', retainCopy: true }
     select.closest('details').open = false
     $('#skill-action-title').textContent = governanceLabelFor('action', pendingSkillAction.action)
     $('#skill-action-description').textContent = t('ui.agentManagement.action_confirm')
@@ -1687,6 +1687,9 @@ const renderInventory = () => {
     $('#skill-action-impact').textContent = readers.length
       ? `${t('ui.agentManagement.shared_impact')}: ${formatList(readers)}`
       : `${t('ui.agentManagement.binding')}: ${agentLabel(agent.agent_type)}`
+    const retainWrap = $('#skill-action-retain-wrap')
+    retainWrap.hidden = pendingSkillAction.action !== 'uninstall'
+    $('#skill-action-retain-copy').checked = true
     $('#skill-action-dialog').dataset.action = pendingSkillAction.action
     $('#skill-action-dialog').showModal()
   }))
@@ -1738,16 +1741,23 @@ $('#confirm-skill-action').addEventListener('click', async event => {
   const action = pendingSkillAction
   setBusy(button, true)
   try {
-    await run('reconcile-service')
     const args = ['--action', action.action, '--request-id', action.requestID, '--agent-type', action.agentType,
       '--skill', action.path, '--expected-signature', action.signature]
     if (action.action === 'restore_trusted' && action.versionID) args.push('--version-id', action.versionID)
     if (['restore_quarantine', 'restore_backup'].includes(action.action)) args.push('--id', action.quarantineID)
     if (action.action === 'restore_backup' && action.targetSignature) args.push('--expected-target-signature', action.targetSignature)
-    const task = JSON.parse(await run('request-skill-action', args))
-    trackedSkillActions.set(String(task.id), task)
+    if (action.action === 'uninstall') args.push('--retain-copy', $('#skill-action-retain-copy').checked ? 'true' : 'false')
+    const immediate = ['uninstall', 'quarantine'].includes(action.action)
+    const result = JSON.parse(await run(immediate ? 'apply-skill-action' : 'request-skill-action', args))
+    if (!immediate) trackedSkillActions.set(String(result.id), result)
     $('#skill-action-dialog').close()
-    await refreshConnection()
+    if (immediate) {
+      await discover()
+      await loadPending()
+      await loadQuarantine()
+      await refreshConnection()
+      showMessageDialog(t('ui.agentManagement.action_completed'), t('ui.agentManagement.action_completed_detail'))
+    } else await refreshConnection()
   } catch (error) {
     $('#skill-action-dialog').close()
     showMessageDialog(t('ui.agentManagement.action_failed'), connectionErrorText(error))
@@ -2589,7 +2599,7 @@ const loadQuarantine = async () => {
         ? `<strong class="quarantine-status result-status ${escapeHtml(pendingStatusClass(detection.status))}"><i></i>${escapeHtml(pendingStatusLabel(detection.status))}</strong>`
         : `<strong class="quarantine-status result-status ${statusClass}" data-ui-icon="${alreadyInstalled ? 'check-circle' : 'archive'}">${escapeHtml(alreadyInstalled ? t('ui.agentHistory.reinstalled_copy') : recoveryStatusLabel(item))}</strong>`}
       <div class="takeover-row-actions quarantine-actions">
-        ${item.status === 'backed_up' ? `<button type="button" class="icon-button" data-ui-icon="rotate-ccw" data-restore-quarantine="${escapeHtml(item.id)}" title="${escapeHtml(recoveryReason)}" ${recoveryReason ? 'disabled' : ''}>${escapeHtml(t('ui.agentManagement.restore_short'))}</button>` : ''}
+        ${((item.status === 'uninstalled' && item.reason === 'manual') || item.status === 'backed_up') ? `<button type="button" class="icon-button" data-ui-icon="rotate-ccw" data-restore-quarantine="${escapeHtml(item.id)}" title="${escapeHtml(recoveryReason)}" ${recoveryReason ? 'disabled' : ''}>${escapeHtml(t('ui.agentManagement.restore_short'))}</button>` : ''}
         ${!item.skill_id && !alreadyInstalled
           ? `<button class="primary icon-button icon-submit ${submittingQuarantineIDs.has(item.id) ? 'is-busy' : ''}" data-submit-quarantine="${escapeHtml(item.id)}" data-busy-text="${escapeHtml(t('ui.agentManagement.submitting'))}" ${submittingQuarantineIDs.has(item.id) ? 'disabled aria-busy="true"' : ''}>${escapeHtml(t(submittingQuarantineIDs.has(item.id) ? 'ui.agentManagement.submitting' : 'ui.agentManagement.submit_copy'))}</button>`
           : ''}
@@ -2621,7 +2631,7 @@ const loadQuarantine = async () => {
   document.querySelectorAll('[data-restore-quarantine]').forEach(button => button.addEventListener('click', () => {
     if (requestingSkillAction) return
     const item = items.find(value => value.id === button.dataset.restoreQuarantine)
-    if (!item?.signature || item.status !== 'backed_up') return
+    if (!item?.signature || !((item.status === 'uninstalled' && item.reason === 'manual') || item.status === 'backed_up')) return
     const restoringBackup = item.status === 'backed_up'
     const current = inventory?.agents?.flatMap(agent => agent.skills || []).find(skill => skill.path === item.original_path)
     pendingSkillAction = { requestID: crypto.randomUUID(), action: restoringBackup ? 'restore_backup' : 'restore_quarantine', agentType: item.agent_type,
@@ -2629,6 +2639,7 @@ const loadQuarantine = async () => {
     $('#skill-action-title').textContent = governanceLabelFor('action', pendingSkillAction.action)
     $('#skill-action-description').textContent = t(restoringBackup ? 'ui.agentManagement.restore_backup_confirm' : 'ui.agentManagement.recovery_confirm')
     $('#skill-action-path').textContent = item.original_path
+    $('#skill-action-retain-wrap').hidden = true
     const agent = inventory?.agents?.find(value => value.agent_type === item.agent_type)
     const readers = skillSharedReaders(agent, item.original_path)
     $('#skill-action-impact').textContent = readers.length

@@ -42,6 +42,8 @@ def create_action(db, client, body: schemas.ClientSkillActionRequest, actor: str
         if body.action == "restore_backup":
             if recovery["status"] != "backed_up" or (skill.signature if skill else None) != body.expected_target_signature:
                 raise ApiError(409, "client.skill_content_changed", "目标目录内容已变化，请同步后重试", "Target directory content changed; synchronize and retry")
+        elif recovery.get("status") != "uninstalled" or recovery.get("reason") != "manual":
+            raise ApiError(403, "client.manual_uninstall_restore_only", "只有手动卸载保留的副本可以恢复", "Only copies retained by manual uninstall can be restored")
         elif skill:
             raise ApiError(409, "client.recovery_path_occupied", "原目录已有内容，请先处理当前文件", "The original directory contains content; handle the current files first")
     elif not skill or skill.signature != body.expected_signature:
@@ -51,6 +53,7 @@ def create_action(db, client, body: schemas.ClientSkillActionRequest, actor: str
         "path": body.path, "expected_signature": body.expected_signature, "skill_name": recovery["skill_name"] if recovery else skill.skill_name,
         "managed_agent_id": target.managed_agent_id, "policy_version": policy["version"],
         "source": "manual", "actor": actor, "request": request,
+        "retain_copy": body.retain_copy,
     }
     if recovery:
         payload["quarantine_id"] = body.quarantine_id

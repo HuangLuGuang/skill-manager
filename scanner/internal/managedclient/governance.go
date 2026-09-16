@@ -55,6 +55,7 @@ type SkillObservation struct {
 	Count            int                   `json:"count"`
 	PendingID        string                `json:"pending_id,omitempty"`
 	QuarantineID     string                `json:"quarantine_id,omitempty"`
+	RetainCopy       bool                  `json:"retain_copy,omitempty"`
 }
 
 type SkillScanObservation struct {
@@ -525,10 +526,14 @@ func SubmitDiscoveredSkill(ctx context.Context, home string, api API, store *Sto
 }
 
 func executeObservedTask(ctx context.Context, home string, policy Policy, api API, store *Store, task Task) error {
-	if task.ID <= 0 {
-		return fmt.Errorf("skill_action_task_required")
-	}
 	receiptKey := fmt.Sprintf("skill-action-receipt:%d", task.ID)
+	if task.ID <= 0 {
+		requestID := stringValue(task.Payload, "request_id")
+		if requestID == "" {
+			return fmt.Errorf("skill_action_request_required")
+		}
+		receiptKey = "skill-action-receipt:request:" + requestID
+	}
 	if _, exists, err := store.State(receiptKey); err != nil || exists {
 		return err
 	}
@@ -562,6 +567,10 @@ func executeObservedTask(ctx context.Context, home string, policy Policy, api AP
 				TrustedVersionID: stringValue(task.Payload, "version_id"),
 				TrustedSignature: stringValue(task.Payload, "trusted_signature"),
 				PolicyVersion:    stringValue(task.Payload, "policy_version"),
+				RetainCopy:       true,
+			}
+			if _, present := task.Payload["retain_copy"]; present {
+				value.RetainCopy = boolValue(task.Payload, "retain_copy")
 			}
 			if err := applyObservedAction(ctx, home, inventory, agent, skill, policy, api, store, &value); err != nil {
 				return err
@@ -584,14 +593,45 @@ func executeObservedTask(ctx context.Context, home string, policy Policy, api AP
 			if err := store.SetState(receiptKey, string(body)); err != nil {
 				return err
 			}
-			return reportEvent(ctx, api, store, inventory.ClientID, "skill_governance_action", agent.AgentType, skill.Name, map[string]any{
+			reportCtx := ctx
+			if task.ID <= 0 {
+				var cancel context.CancelFunc
+				reportCtx, cancel = context.WithTimeout(ctx, 500*time.Millisecond)
+				defer cancel()
+			}
+			return reportEvent(reportCtx, api, store, inventory.ClientID, "skill_governance_action", agent.AgentType, skill.Name, map[string]any{
 				"path": skill.Path, "signature": expected, "action": action, "source": "manual",
-				"actor": task.Payload["actor"], "task_id": task.ID, "status": "completed",
+				"actor": task.Payload["actor"], "task_id": task.ID, "request_id": task.Payload["request_id"], "status": "completed",
 				"policy_version": value.PolicyVersion, "quarantine_id": value.QuarantineID, "pending_id": value.PendingID,
 			})
 		}
 	}
 	return fmt.Errorf("skill_target_unavailable")
+}
+
+// ExecuteImmediateSkillAction applies a fast local remediation after the
+// caller has confirmed the current content signature. The resulting
+// governance event is reported immediately when online or queued by
+// reportEvent for the next successful sync.
+func ExecuteImmediateSkillAction(ctx context.Context, home string, api API, store *Store, request SkillActionRequest, actor string) error {
+	if request.Action != "uninstall" && request.Action != "quarantine" {
+		return fmt.Errorf("immediate_skill_action_unsupported")
+	}
+	if request.RequestID == "" || request.AgentType == "" || request.Path == "" || request.ExpectedSignature == "" {
+		return fmt.Errorf("skill_action_request_required")
+	}
+	policy := cachedPolicy(store)
+	task := Task{Payload: map[string]any{
+		"request_id": request.RequestID, "action": request.Action,
+		"agent_type": request.AgentType, "path": request.Path,
+		"expected_signature": request.ExpectedSignature, "version_id": request.VersionID,
+		"retain_copy": request.RetainCopy,
+		"actor":       actor,
+	}}
+	if err := executeObservedTask(ctx, home, policy, api, store, task); err != nil {
+		return err
+	}
+	return store.SetState("skill-action-immediate:"+request.RequestID, "succeeded")
 }
 
 func applyObservedAction(ctx context.Context, home string, inventory Inventory, agent Agent, skill Skill, policy Policy, api API, store *Store, value *SkillObservation) error {
@@ -623,6 +663,10 @@ func applyObservedAction(ctx context.Context, home string, inventory Inventory, 
 			// Uninstall removes the active copy; the stored copy remains an
 			// explicit recovery record, with its distinct disposition.
 			_, err = store.db.Exec(`UPDATE client_quarantine SET status='uninstalled' WHERE id=?`, item.ID)
+			if err == nil && !value.RetainCopy {
+				_, err = store.DiscardQuarantine(item.ID, item.Signature)
+				value.QuarantineID = ""
+			}
 		}
 		return err
 	case "restore_trusted":

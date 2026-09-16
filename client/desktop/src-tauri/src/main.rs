@@ -129,6 +129,7 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "submit-pending",
         "submit-observed",
         "request-skill-action",
+        "apply-skill-action",
         "discard-pending",
         "discard-quarantine",
         "queue-quarantine",
