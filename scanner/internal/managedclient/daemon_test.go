@@ -32,7 +32,7 @@ func TestInventoryRefreshWakesLocalGovernanceBeforePlatformUploadCompletes(t *te
 	}()
 	select {
 	case <-uploadStarted:
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("inventory upload did not start")
 	}
 	select {

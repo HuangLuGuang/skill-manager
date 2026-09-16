@@ -250,8 +250,21 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 			var recoveryIDs map[string]string
 			value.PolicyVersion = policy.Classification.Version
 			value.Action = policy.Classification.Rules[value.Trigger]
+			if value.Action == "uninstall" && value.Trigger != "manual" {
+				// Policy-driven removal always keeps forensic recovery evidence;
+				// only an explicit manual uninstall may opt out of retention.
+				value.RetainCopy = true
+			}
 			if value.Trigger != "" && !classificationActions[value.Trigger][value.Action] {
-				value.Action = "record"
+				// Never silently weaken a configured policy action. Keep the
+				// configured value visible and persist an explicit failure so the
+				// operator can correct the policy or retry.
+				value.ActionStatus = "failed"
+				value.ErrorCode = "policy_action_not_supported"
+				store.LogDiagnostic("error", "governance", "policy_action_not_supported", map[string]any{
+					"agent_type": agent.AgentType, "skill_name": skill.Name, "trigger": value.Trigger,
+					"action": value.Action, "policy_version": value.PolicyVersion,
+				})
 			}
 			if previous.Signature != value.Signature || previous.Certification != value.Certification || previous.Malicious != value.Malicious || previous.PolicyVersion != value.PolicyVersion || previous.Action != value.Action {
 				store.LogDiagnostic("info", "governance", "verdict_changed", map[string]any{"client_id": inventory.ClientID, "agent_type": agent.AgentType, "skill_name": skill.Name, "path": skill.Path, "signature": skill.Signature, "certification": value.Certification, "trigger": value.Trigger, "action": value.Action, "policy_version": value.PolicyVersion, "comparison": comparison})
@@ -291,7 +304,7 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 					"observation_count": value.Count, "last_seen_at": value.LastSeenAt,
 				}
 				var err error
-				if value.Action == "quarantine" || value.Action == "uninstall" || value.Action == "restore_trusted" {
+				if !online || value.Action == "quarantine" || value.Action == "uninstall" || value.Action == "restore_trusted" {
 					// Persist detection evidence before touching the filesystem, but
 					// do not let a slow platform round trip gate enforcement. The
 					// regular event flush uploads this evidence afterward.
@@ -308,9 +321,21 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 			} else if value.ActionStatus != "completed" {
 				if value.Action == "record" || value.Action == "record_only" {
 					value.ActionStatus = "completed"
+				} else if value.ErrorCode == "policy_action_not_supported" {
+					// The invalid policy action is already recorded above; do not
+					// execute a different action as an implicit fallback.
 				} else if skill.Signature == "" {
 					value.ActionStatus, value.ErrorCode = "failed", "skill_content_unavailable"
-				} else if !online && (value.Action == "submit_scan" || value.Action == "restore_trusted") {
+				} else if !online && value.Action == "submit_scan" {
+					var stageErr error
+					value.PendingID, stageErr = stageObservedSkill(home, agent, skill, store)
+					if stageErr != nil {
+						value.ActionStatus, value.ErrorCode = "failed", "skill_submission_staging_failed"
+						failures = append(failures, stageErr)
+					} else {
+						value.ActionStatus, value.ErrorCode = "completed", ""
+					}
+				} else if !online && value.Action == "restore_trusted" {
 					value.ActionStatus, value.ErrorCode = "waiting", "platform_unavailable"
 				} else {
 					actionInventory := inventory
@@ -346,7 +371,7 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 						"quarantine_id": value.QuarantineID, "pending_id": value.PendingID,
 						"quarantine_ids_by_path": recoveryIDs,
 					}
-					if value.Action == "quarantine" || value.Action == "uninstall" || value.Action == "restore_trusted" {
+					if !online || value.Action == "quarantine" || value.Action == "uninstall" || value.Action == "restore_trusted" {
 						_ = queueEventWithLocalNotification(store, inventory.ClientID, "skill_governance_action", agent.AgentType, skill.Name, actionDetails, notifyAction)
 					} else {
 						_ = reportEventWithLocalNotification(ctx, api, store, inventory.ClientID, "skill_governance_action", agent.AgentType, skill.Name, actionDetails, notifyAction)
@@ -359,6 +384,28 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 						aliasValue := value
 						if recoveryIDs != nil {
 							aliasValue.QuarantineID = recoveryIDs[alias.Path]
+						}
+						if reader.AgentType != agent.AgentType || filepath.Clean(alias.Path) != filepath.Clean(skill.Path) {
+							// Authentication is per Agent/path. A shared physical
+							// directory receives the same local file action, but an
+							// absent platform comparison must not copy the representative
+							// Agent's certification to the other readers.
+							aliasPrevious, aliasErr := store.Observation(alias.Path)
+							if aliasErr == nil {
+								_, comparedExplicitly := compared[comparisonKey(reader.AgentType, alias.Name, alias.Path, alias.Signature)]
+								if !comparedExplicitly {
+									// Keep the local action result shared, but retain only the
+									// authentication fields from this Agent/path. Action status,
+									// quarantine IDs and diagnostics still describe the common
+									// physical mutation.
+									aliasValue.Certification = aliasPrevious.Certification
+									aliasValue.Malicious = aliasPrevious.Malicious
+									aliasValue.LastConfirmedAt = aliasPrevious.LastConfirmedAt
+									aliasValue.TrustedSkillID = aliasPrevious.TrustedSkillID
+									aliasValue.TrustedVersionID = aliasPrevious.TrustedVersionID
+									aliasValue.TrustedSignature = aliasPrevious.TrustedSignature
+								}
+							}
 						}
 						if err := store.SaveObservation(alias.Path, aliasValue); err != nil {
 							failures = append(failures, err)
@@ -437,6 +484,18 @@ func copyObservedSnapshot(skill Skill, target string) error {
 }
 
 func submitObservedSkill(ctx context.Context, home string, agent Agent, skill Skill, api API, store *Store) (string, error) {
+	id, err := stageObservedSkill(home, agent, skill, store)
+	if err != nil {
+		return "", err
+	}
+	_, err = SubmitPending(ctx, home, api.server, api.token, store, id)
+	return id, err
+}
+
+// stageObservedSkill snapshots the exact local bytes and records a durable
+// pending item. It deliberately performs no platform request so file-change
+// enforcement can finish locally and let the sync worker retry later.
+func stageObservedSkill(home string, agent Agent, skill Skill, store *Store) (string, error) {
 	id := observationKey(skill.Path + ":" + skill.Signature)[len("observation:"):]
 	target := filepath.Join(PendingRoot(home), "observed-"+id)
 	if _, err := os.Stat(target); os.IsNotExist(err) {
@@ -469,8 +528,7 @@ func submitObservedSkill(ctx context.Context, home string, agent Agent, skill Sk
 	if err := store.SavePending(pending); err != nil {
 		return "", err
 	}
-	_, err := SubmitPending(ctx, home, api.server, api.token, store, id)
-	return id, err
+	return id, nil
 }
 
 // SubmitDiscoveredSkill snapshots the exact content selected in the desktop.
@@ -603,6 +661,7 @@ func executeObservedTask(ctx context.Context, home string, policy Policy, api AP
 				"path": skill.Path, "signature": expected, "action": action, "source": "manual",
 				"actor": task.Payload["actor"], "task_id": task.ID, "request_id": task.Payload["request_id"], "status": "completed",
 				"policy_version": value.PolicyVersion, "quarantine_id": value.QuarantineID, "pending_id": value.PendingID,
+				"retain_copy": value.RetainCopy,
 			})
 		}
 	}
@@ -664,7 +723,9 @@ func applyObservedAction(ctx context.Context, home string, inventory Inventory, 
 			// explicit recovery record, with its distinct disposition.
 			_, err = store.db.Exec(`UPDATE client_quarantine SET status='uninstalled' WHERE id=?`, item.ID)
 			if err == nil && !value.RetainCopy {
-				_, err = store.DiscardQuarantine(item.ID, item.Signature)
+				// quarantineSkill returns the row identity but not its computed
+				// signature; use the already verified source signature.
+				_, err = store.DiscardQuarantine(item.ID, skill.Signature)
 				value.QuarantineID = ""
 			}
 		}
@@ -674,22 +735,35 @@ func applyObservedAction(ctx context.Context, home string, inventory Inventory, 
 			value.ErrorCode = "trusted_version_unavailable"
 			return fmt.Errorf("trusted_version_unavailable")
 		}
-		if policy.GovernanceMode == "strict" && policy.AgentBindings[agent.AgentType] == "" {
-			value.ErrorCode = "agent_binding_required"
-			return fmt.Errorf("agent_binding_required")
-		}
-		body, err := api.DownloadPackageVersion(ctx, inventory.ClientID, value.TrustedSkillID, value.TrustedVersionID, agent.AgentType, policy.AgentBindings[agent.AgentType])
-		if err != nil {
-			return err
-		}
 		staging, err := os.MkdirTemp(RuntimeRoot(home), "restore-")
 		if err != nil {
 			return err
 		}
 		defer os.RemoveAll(staging)
-		release, err := VerifyAndExtractPackage(body, policy.ReleasePublicKey, staging)
-		if err != nil {
-			return err
+		cached := filepath.Join(ManagedSkillsRoot(home), value.TrustedSkillID, "versions", value.TrustedVersionID, "release")
+		var release releaseManifest
+		if info, statErr := os.Stat(cached); statErr == nil && info.IsDir() {
+			if err := copyDir(cached, staging); err != nil {
+				return err
+			}
+			built, buildErr := manifest.Build(staging, DefaultManifestOptions())
+			if buildErr != nil {
+				return buildErr
+			}
+			release = releaseManifest{SkillID: value.TrustedSkillID, VersionID: value.TrustedVersionID, Name: skill.Name, ContentSignature: manifest.ContentSignature(built.Files)}
+		} else {
+			if policy.GovernanceMode == "strict" && policy.AgentBindings[agent.AgentType] == "" {
+				value.ErrorCode = "agent_binding_required"
+				return fmt.Errorf("agent_binding_required")
+			}
+			body, downloadErr := api.DownloadPackageVersion(ctx, inventory.ClientID, value.TrustedSkillID, value.TrustedVersionID, agent.AgentType, policy.AgentBindings[agent.AgentType])
+			if downloadErr != nil {
+				return downloadErr
+			}
+			release, err = VerifyAndExtractPackage(body, policy.ReleasePublicKey, staging)
+			if err != nil {
+				return err
+			}
 		}
 		if release.ContentSignature != value.TrustedSignature || release.VersionID != value.TrustedVersionID {
 			value.ErrorCode = "trusted_version_mismatch"

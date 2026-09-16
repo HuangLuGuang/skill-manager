@@ -396,6 +396,27 @@ func pendingStatusTerminal(status string) bool {
 	}
 }
 
+// flushObservedSubmissions retries snapshots created by the local-first
+// watcher. The snapshot and pending row survive process restarts; only this
+// background sync performs the platform upload.
+func flushObservedSubmissions(ctx context.Context, home string, api API, store *Store) (bool, error) {
+	items, err := store.PendingItems()
+	if err != nil {
+		return false, err
+	}
+	changed := false
+	for _, item := range items {
+		if item.Reason != "observed_scan" || item.SkillID != "" || pendingStatusTerminal(item.Status) {
+			continue
+		}
+		if _, err := SubmitPending(ctx, home, api.server, api.token, store, item.ID); err != nil {
+			return changed, err
+		}
+		changed = true
+	}
+	return changed, nil
+}
+
 func clientIDForHome(home string) string {
 	hostname, _ := os.Hostname()
 	return DeviceID(hostname, home)

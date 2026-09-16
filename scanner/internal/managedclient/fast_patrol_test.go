@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestFastPatrolQuarantinesTrustedChangeAndPublishesLocalState(t *testing.T) {
@@ -69,5 +70,30 @@ func TestFastPatrolFallsBackForUnmanagedChange(t *testing.T) {
 	handled, _, err := fastPatrolTrustedChanges(context.Background(), home, inventory, policy, API{}, store, []string{filepath.Join(skill.Path, "SKILL.md")})
 	if err != nil || handled {
 		t.Fatalf("unmanaged change bypassed complete discovery: handled=%v err=%v", handled, err)
+	}
+}
+
+func TestFastPatrolRecordDoesNotWaitForPlatform(t *testing.T) {
+	home, store, inventory, skill := observedFixture(t)
+	if err := store.SaveInstall(Installation{AgentType: "codex", SkillID: "skill-1", TargetPath: skill.Path,
+		Manifest: releaseManifest{ContentSignature: skill.Signature}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveObservation(skill.Path, SkillObservation{Signature: skill.Signature, TrustedSignature: skill.Signature, Certification: "certified"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skill.Path, "SKILL.md"), []byte("---\nname: sample\n---\nchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	policy := Policy{Classification: DefaultClassificationPolicy()}
+	policy.Classification.Rules["trusted_content_changed"] = "record"
+	started := time.Now()
+	handled, _, err := fastPatrolTrustedChanges(context.Background(), home, inventory, policy, API{}, store, []string{filepath.Join(skill.Path, "SKILL.md")})
+	if err != nil || !handled || time.Since(started) > time.Second {
+		t.Fatalf("record action was not local-first: handled=%v err=%v duration=%s", handled, err, time.Since(started))
+	}
+	value, err := store.Observation(skill.Path)
+	if err != nil || value.Action != "record" || value.ActionStatus != "completed" {
+		t.Fatalf("record result not persisted locally: %#v %v", value, err)
 	}
 }

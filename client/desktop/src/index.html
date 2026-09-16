@@ -448,15 +448,25 @@
     <dialog id="install-skill-dialog" class="message-dialog install-skill-dialog">
       <div class="message-dialog-body">
         <h3 id="install-skill-title">从平台安装 Skill</h3>
-        <p>选择平台已批准的 Skill 和一个或多个目标 Agent。多个 Agent 共用一份受管内容，各自目录使用软连接。</p>
-        <label id="install-skill-search-label">搜索 Skill 名称<input id="install-skill-search" type="search" placeholder="输入名称筛选" autocomplete="off" /></label>
-        <label>平台 Skill<select id="install-platform-skill"><option value="">正在读取平台 Skill...</option></select></label>
-        <label>可信版本<select id="install-platform-version" disabled><option value="">请先选择 Skill</option></select></label>
-        <div id="install-skill-preview" class="install-skill-preview"><span>选择 Skill 后可查看说明</span></div>
-        <fieldset class="install-target-fieldset">
-          <legend><span data-i18n="ui.installTargets.title">目标 Agent（可多选）</span><span id="install-target-count" class="install-target-count" aria-live="polite" data-no-i18n></span></legend>
-          <div id="install-agent-targets" class="install-agent-targets"><span>请先选择 Skill</span></div>
-        </fieldset>
+        <div id="install-skill-selection" class="install-skill-selection">
+          <p data-i18n="ui.platformInstall.description">选择平台已批准的 Skill 和一个或多个目标 Agent。客户端只下载并验证一次，再将同一份受管内容安装到所选 Agent。</p>
+          <label id="install-skill-search-label">搜索 Skill 名称<input id="install-skill-search" type="search" placeholder="输入名称筛选" autocomplete="off" /></label>
+          <label>平台 Skill<select id="install-platform-skill"><option value="">正在读取平台 Skill...</option></select></label>
+          <label>可信版本<select id="install-platform-version" disabled><option value="">请先选择 Skill</option></select></label>
+          <div id="install-skill-preview" class="install-skill-preview"><span>选择 Skill 后可查看说明</span></div>
+          <fieldset class="install-target-fieldset">
+            <legend><span data-i18n="ui.installTargets.title">目标 Agent（可多选）</span><span id="install-target-count" class="install-target-count" aria-live="polite" data-no-i18n></span></legend>
+            <div id="install-agent-targets" class="install-agent-targets"><span>请先选择 Skill</span></div>
+          </fieldset>
+        </div>
+        <section id="install-batch-progress" class="install-batch-progress" aria-live="polite" hidden>
+          <div class="install-progress-summary">
+            <div><span data-i18n="ui.platformInstall.progress_label">批量安装进度</span><strong id="install-progress-count">0 / 0</strong></div>
+            <div class="install-progress-track" aria-hidden="true"><span id="install-progress-bar"></span></div>
+            <p id="install-progress-detail" data-i18n="ui.platformInstall.preparing">正在准备受管内容…</p>
+          </div>
+          <div id="install-progress-targets" class="install-progress-targets"></div>
+        </section>
         <div class="dialog-actions"><button id="cancel-install-skill" class="icon-button icon-close">取消</button><button id="confirm-install-skill" class="action-success icon-button icon-install" data-busy-text="正在安装...">安装到所选 Agent</button></div>
       </div>
     </dialog>

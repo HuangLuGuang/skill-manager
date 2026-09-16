@@ -64,6 +64,51 @@ func TestPendingCopyCommandsRespectMutationLock(t *testing.T) {
 	}
 }
 
+func TestImmediateUninstallHonorsDisabledRecoveryCopy(t *testing.T) {
+	home := t.TempDir()
+	skillPath := filepath.Join(home, ".codex", "skills", "demo")
+	if err := os.MkdirAll(skillPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillPath, "SKILL.md"), []byte("---\nname: demo\n---\ndemo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := managedclient.Discover(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signature string
+	for _, agent := range inventory.Agents {
+		if agent.AgentType == "codex" && len(agent.Skills) == 1 {
+			signature = agent.Skills[0].Signature
+		}
+	}
+	if signature == "" {
+		t.Fatal("test Skill was not discovered")
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{}`)) }))
+	defer server.Close()
+	if err := run([]string{
+		"apply-skill-action", "--home", home, "--server", server.URL, "--token", "test",
+		"--action", "uninstall", "--agent-type", "codex", "--skill", skillPath,
+		"--expected-signature", signature, "--request-id", "uninstall-without-copy", "--retain-copy=false",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(skillPath); !os.IsNotExist(err) {
+		t.Fatal("Skill directory still exists", err)
+	}
+	store, err := managedclient.OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	items, err := store.QuarantineItems()
+	if err != nil || len(items) != 0 {
+		t.Fatal("disabled retention still produced a recovery copy", items, err)
+	}
+}
+
 func TestConfigureConnectionChangeKeepsDiscoveryAndClearsPlatformState(t *testing.T) {
 	home := t.TempDir()
 	if err := managedclient.SaveConfig(home, managedclient.Config{
@@ -278,5 +323,15 @@ func TestFilterInventorySkillsBeforeCompare(t *testing.T) {
 	}
 	if len(excluded) != 2 {
 		t.Fatalf("unexpected exclusions: %#v", excluded)
+	}
+}
+
+func TestParseInstallTargetsKeepsOptionalManagedAgentID(t *testing.T) {
+	targets, err := parseInstallTargets([]string{"codex=managed-codex", "hermes="})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 2 || targets[0].AgentType != "codex" || targets[0].ManagedAgentID != "managed-codex" || targets[1].AgentType != "hermes" || targets[1].ManagedAgentID != "" {
+		t.Fatalf("unexpected install targets: %#v", targets)
 	}
 }

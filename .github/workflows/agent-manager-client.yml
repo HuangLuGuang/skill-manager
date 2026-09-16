@@ -249,6 +249,7 @@ jobs:
             echo "published=false" >> "$GITHUB_OUTPUT"
             echo "Archived client ${version}; a newer client remains latest."
           fi
+          node client/desktop/scripts/prune-client-releases.mjs /home/ubuntu/releases 5
 
   notify-publish-result:
     if: ${{ always() && startsWith(github.ref, 'refs/tags/client-v') }}

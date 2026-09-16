@@ -350,9 +350,20 @@ test('shows quarantine detection progress without offering duplicate submission'
 test('refreshes local state from durable events and page entry without business polling', () => {
   assert.match(appSource, /listen\('client-local-state-changed'/)
   assert.match(appSource, /queueMicrotask\(\(\) => \{ void refreshLocalStateFromEvent\(\) \}\)/)
+  assert.match(appSource, /refreshLocalStateFromEvent[\s\S]*await loadPending\(\)[\s\S]*await loadQuarantine\(\)/)
+  assert.match(appSource, /finishTrackedSkillAction[\s\S]*await loadPending\(\)\.catch\(log\)[\s\S]*await loadQuarantine\(\)\.catch\(log\)/)
+  assert.match(appSource, /const mergeLocalTaskStatuses = \(platformTasks = \[\], localTasks = \[\]\)[\s\S]*\['succeeded', 'failed', 'cancelled'\][\s\S]*\['pending', 'running'\]/)
+  assert.match(appSource, /connection\.platform\.tasks = mergeLocalTaskStatuses\(connection\.platform\.tasks, connection\.local\?\.tasks\)/)
+  assert.match(appSource, /connection\.platform\.tasks = mergeLocalTaskStatuses\(connection\.platform\.tasks, snapshot\.local\?\.tasks\)/)
+  assert.match(appSource, /refreshLocalStateFromEvent[\s\S]*reconcileTrackedSkillActions\(connection\.platform\?\.tasks\)/)
   assert.doesNotMatch(appSource, /setInterval\(refreshChangedInventory/)
   assert.doesNotMatch(appSource, /setInterval\(refreshTrackedSkillActions/)
   assert.doesNotMatch(appSource, /run\('refresh-pending'/)
+})
+
+test('passes the manual uninstall retention choice as an explicit boolean flag value', () => {
+  assert.match(appSource, /args\.push\(`--retain-copy=\$\{\$\('#skill-action-retain-copy'\)\.checked \? 'true' : 'false'\}`\)/)
+  assert.doesNotMatch(appSource, /args\.push\('--retain-copy',/)
 })
 
 test('pending copies remain actionable in recovery while submitted scans use independent history', () => {

@@ -20,3 +20,43 @@ def test_model_identity_migration_preserves_names_and_is_idempotent(tmp_path, mo
         conn.exec_driver_sql("INSERT INTO model_endpoints VALUES (2, 2, 'other/glm-original', 'glm-original')")
     with pytest.raises(IntegrityError), engine.begin() as conn:
         conn.exec_driver_sql("INSERT INTO model_endpoints VALUES (3, 2, 'duplicate', 'glm-original')")
+
+
+def test_model_provider_migration_removes_legacy_required_compression_column(tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'legacy-provider.db'}")
+    with engine.begin() as conn:
+        conn.exec_driver_sql("""
+            CREATE TABLE model_providers (
+                id INTEGER NOT NULL PRIMARY KEY,
+                name VARCHAR(128) NOT NULL,
+                base_url VARCHAR(512) NOT NULL,
+                api_format VARCHAR(32) NOT NULL DEFAULT 'openai',
+                api_key TEXT,
+                enabled BOOLEAN NOT NULL,
+                timeout_seconds INTEGER NOT NULL,
+                enable_compression BOOLEAN NOT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            )
+        """)
+        conn.exec_driver_sql("""
+            INSERT INTO model_providers
+                (id, name, base_url, api_format, enabled, timeout_seconds, enable_compression, created_at, updated_at)
+            VALUES (1, 'legacy', 'https://legacy.example', 'openai', 1, 60, 1, '2026-01-01', '2026-01-01')
+        """)
+        for table in ("llm_api_keys", "llm_usage_metrics", "llm_request_audit"):
+            conn.exec_driver_sql(f"CREATE TABLE {table} (id INTEGER PRIMARY KEY)")
+    monkeypatch.setattr(migrate_compression, "engine", engine)
+
+    migrate_compression.migrate()
+    migrate_compression.migrate()
+
+    with engine.begin() as conn:
+        columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(model_providers)")}
+        assert "enable_compression" not in columns
+        assert conn.exec_driver_sql("SELECT name FROM model_providers").scalar_one() == "legacy"
+        conn.exec_driver_sql("""
+            INSERT INTO model_providers
+                (id, name, base_url, api_format, enabled, timeout_seconds, created_at, updated_at)
+            VALUES (2, 'current', 'https://current.example', 'openai', 1, 60, '2026-01-02', '2026-01-02')
+        """)

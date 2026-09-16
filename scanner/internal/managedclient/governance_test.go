@@ -369,6 +369,36 @@ func TestAuthorizedFileActionBindsContentAndRetainsRecovery(t *testing.T) {
 	}
 }
 
+func TestManualUninstallWithoutRetentionRemovesRecoveryCopy(t *testing.T) {
+	home, store, inventory, skill := observedFixture(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{}`)) }))
+	defer server.Close()
+	task := Task{ID: 20, TaskType: "skill_action", Payload: map[string]any{
+		"action": "uninstall", "agent_type": "codex", "path": skill.Path,
+		"expected_signature": skill.Signature, "retain_copy": false,
+	}}
+	if err := executeTask(context.Background(), home, inventory, Policy{}, NewAPI(server.URL, "token", time.Second), store, task); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(skill.Path); !os.IsNotExist(err) {
+		t.Fatal("active copy was not removed", err)
+	}
+	items, err := store.QuarantineItems()
+	if err != nil || len(items) != 0 {
+		t.Fatal("unretained uninstall remained visible as a recovery copy", items, err)
+	}
+	var status, copyPath string
+	if err := store.db.QueryRow(`SELECT status,quarantine_path FROM client_quarantine WHERE original_path=? ORDER BY created_at DESC LIMIT 1`, skill.Path).Scan(&status, &copyPath); err != nil {
+		t.Fatal(err)
+	}
+	if status != "discarded" {
+		t.Fatalf("unexpected audit disposition %q", status)
+	}
+	if _, err := os.Stat(copyPath); !os.IsNotExist(err) {
+		t.Fatal("unretained recovery files still exist", err)
+	}
+}
+
 func TestTrustedRecoveryVerifiesDownloadBeforeChangingCurrentFiles(t *testing.T) {
 	home, store, inventory, skill := observedFixture(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

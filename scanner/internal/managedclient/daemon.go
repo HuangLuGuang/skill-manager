@@ -219,8 +219,44 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		return syncInventoryOnce(request, home, api, store, localReady)
 	}
 	wake := make(chan struct{}, 1)
-	fastChanges := make(chan []string, 1)
+	fastChanges := make(chan []string, 64)
 	refreshInventory := make(chan struct{}, 1)
+	enqueueFastChanges := func(paths []string) {
+		select {
+		case fastChanges <- paths:
+			return
+		default:
+		}
+		// Do not turn a full fast-path queue into a synchronous full patrol.
+		// Persist the coalesced paths so a restart or later drain can resume it.
+		body, _, _ := store.State("watcher:pending-paths")
+		var pending []string
+		_ = json.Unmarshal([]byte(body), &pending)
+		seen := map[string]bool{}
+		for _, path := range pending {
+			seen[path] = true
+		}
+		for _, path := range paths {
+			if !seen[path] {
+				pending = append(pending, path)
+				seen[path] = true
+			}
+		}
+		if encoded, err := json.Marshal(pending); err == nil {
+			_ = store.SetState("watcher:pending-paths", string(encoded))
+		}
+		store.LogDiagnostic("warn", "watcher", "fast_action_queued", map[string]any{"reason": "event_queue_persisted", "changed_paths": len(paths)})
+	}
+	if body, ok, _ := store.State("watcher:pending-paths"); ok {
+		var pending []string
+		if json.Unmarshal([]byte(body), &pending) == nil && len(pending) > 0 {
+			select {
+			case fastChanges <- pending:
+				_ = store.SetState("watcher:pending-paths", "[]")
+			default:
+			}
+		}
+	}
 	signal := func() {
 		select {
 		case wake <- struct{}{}:
@@ -381,12 +417,7 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 					"debounce_ms": skillWatchDebounce.Milliseconds(), "path_count": len(paths),
 				})
 				if len(paths) > 0 {
-					select {
-					case fastChanges <- paths:
-					default:
-						store.LogDiagnostic("warn", "watcher", "fast_action_skipped", map[string]any{"reason": "event_queue_fallback", "changed_paths": len(paths)})
-						due = time.Now()
-					}
+					enqueueFastChanges(paths)
 				} else {
 					due = time.Now()
 				}
@@ -419,6 +450,7 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		}
 		body, ok, err := store.State("inventory")
 		if err != nil || !ok {
+			store.LogDiagnostic("warn", "watcher", "fast_action_skipped", map[string]any{"reason": "inventory_snapshot_missing", "changed_paths": changedPaths})
 			if len(changedPaths) > 0 {
 				select {
 				case refreshInventory <- struct{}{}:
@@ -429,6 +461,7 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		}
 		var inventory Inventory
 		if json.Unmarshal([]byte(body), &inventory) != nil {
+			store.LogDiagnostic("warn", "watcher", "fast_action_skipped", map[string]any{"reason": "inventory_snapshot_missing", "changed_paths": changedPaths})
 			if len(changedPaths) > 0 {
 				select {
 				case refreshInventory <- struct{}{}:
@@ -456,6 +489,11 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 		}
 		tasks, err := store.PendingTasks()
 		didWork := false
+		if submitted, submitErr := flushObservedSubmissions(request, home, api, store); submitErr != nil {
+			syncError(store, "observed_submission", submitErr)
+		} else {
+			didWork = didWork || submitted
+		}
 		if err == nil {
 			for _, task := range tasks {
 				if task.Status == "pending" {

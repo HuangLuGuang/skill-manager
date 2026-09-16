@@ -2,8 +2,12 @@ package managedclient
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"skill-manager/scanner/internal/manifest"
@@ -14,12 +18,16 @@ import (
 // already-synced policy requires immediate quarantine or uninstall.
 func fastPatrolTrustedChanges(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, changedPaths []string) (bool, []string, error) {
 	started := time.Now()
+	sortedPaths := append([]string(nil), changedPaths...)
+	sort.Strings(sortedPaths)
+	digest := sha256.Sum256([]byte(strings.Join(sortedPaths, "\x00")))
+	changeID := hex.EncodeToString(digest[:8])
 	if len(changedPaths) == 0 || !classificationEnabled(policy) {
 		return false, nil, nil
 	}
 	action := policy.Classification.Rules["trusted_content_changed"]
-	if action != "quarantine" && action != "uninstall" {
-		store.LogDiagnostic("info", "watcher", "fast_action_skipped", map[string]any{"reason": "policy_action_not_supported", "action": action, "changed_paths": len(changedPaths), "policy_version": policy.Classification.Version})
+	if action != "record" && action != "record_only" && action != "submit_scan" && action != "quarantine" && action != "restore_trusted" && action != "uninstall" {
+		store.LogDiagnostic("info", "watcher", "fast_action_skipped", map[string]any{"change_id": changeID, "reason": "policy_action_not_supported", "action": action, "changed_paths": len(changedPaths), "policy_version": policy.Classification.Version, "configured_action": action, "fallback_reason": "policy_action_not_supported"})
 		return false, nil, nil
 	}
 	installs, err := store.Installations()
@@ -64,7 +72,7 @@ func fastPatrolTrustedChanges(ctx context.Context, home string, inventory Invent
 		if baselineCandidates == 0 {
 			reason = "baseline_missing"
 		}
-		store.LogDiagnostic("info", "watcher", "fast_action_skipped", map[string]any{"reason": reason, "changed_paths": len(changedPaths), "policy_version": policy.Classification.Version})
+		store.LogDiagnostic("info", "watcher", "fast_action_skipped", map[string]any{"change_id": changeID, "reason": reason, "changed_paths": len(changedPaths), "policy_version": policy.Classification.Version, "fallback_reason": reason})
 		return false, nil, nil
 	}
 
@@ -72,7 +80,7 @@ func fastPatrolTrustedChanges(ctx context.Context, home string, inventory Invent
 	for physical, trusted := range affected {
 		value, err := manifest.Build(physical, DefaultManifestOptions())
 		if err != nil {
-			store.LogDiagnostic("warn", "watcher", "fast_action_skipped", map[string]any{"reason": "signature_build_failed", "path": physical, "error": err.Error(), "policy_version": policy.Classification.Version})
+			store.LogDiagnostic("warn", "watcher", "fast_action_skipped", map[string]any{"change_id": changeID, "reason": "signature_build_failed", "path": physical, "error": err.Error(), "policy_version": policy.Classification.Version, "fallback_reason": "signature_build_failed"})
 			return false, nil, nil // Let the complete discovery path classify malformed or disappearing content.
 		}
 		current := manifest.ContentSignature(value.Files)
@@ -139,7 +147,7 @@ func fastPatrolTrustedChanges(ctx context.Context, home string, inventory Invent
 		return true, affectedRoots, err
 	}
 	store.LogDiagnostic("info", "watcher", "fast_action_completed", map[string]any{
-		"action": action, "changed_paths": len(changedPaths), "affected_skills": len(currentSignatures),
+		"change_id": changeID, "action": action, "configured_action": action, "changed_paths": sortedPaths, "affected_skills": len(currentSignatures), "affected_agents": len(targeted.Agents), "policy_version": policy.Classification.Version, "fast_path_result": "local_completed", "fallback_reason": "",
 		"duration_ms": time.Since(started).Milliseconds(),
 	})
 	// Reconcile every derived field and platform comparison in the background.

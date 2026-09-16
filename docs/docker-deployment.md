@@ -269,6 +269,8 @@ Compose 入口 Nginx 和前端静态站点均关闭了 `server_tokens`，默认�
 
 Backend 启动时会检查旧版 Skill 数据。首次升级到版本化模型时，会把同名 Skill 合并为一个名称族、把不同内容转换为递增版本，并删除同名同内容的旧重复记录及其待审/报告/统计/扫描运行关联数据。迁移完成后会写入 `registry_migrations.skill_families_v1` 标记，后续 `docker compose up` 或容器重启不会重复执行，也不会触发重新检测。Skill 内容目录和审计日志不会被自动删除。
 
+模型网关的 SQLite 升级迁移在 Backend 启动时执行。历史库若在 `model_providers` 表中遗留了不属于供应商配置的 `enable_compression` 必填列，Backend 会保留原有供应商记录并重建该表以移除该列；该列属于运行凭证而非上游供应商。升级前仍应备份 `backend_sqlite` 数据卷；启动后用管理台创建一个供应商，并确认 Backend 健康检查正常，作为升级验收的一部分。
+
 P1 安全配置默认使用 SQLite，不新增数据库服务。`request_leases` 表协调共享同一 SQLite 文件的多 Worker 并发额度；它不支持多个主机各自使用独立 SQLite 文件时共享额度。MCP 上游默认只允许 HTTPS，可用 `MCP_OUTBOUND_ALLOWLIST` 配置允许的域名、通配域名或 CIDR。审计签名密钥通过 `AUDIT_SIGNING_PRIVATE_KEY_PATH` 持久化，`SECURITY_AUDIT_EXPORT_PATH` 是可选的追加式 JSONL 导出位置。
 
 ## 构建脚本
@@ -358,9 +360,11 @@ Docker Compose 已将宿主机 `scanner/releases` 只读挂载到后端。部署
 内部 GitLab Runner 使用 `agent-manager-release` 标签，流水线分为两个独立任务：
 
 - 快速部署任务：只构建 x86 镜像、更新 Compose 并执行健康检查。代码合并并推送到 `dev` 时自动执行，镜像版本为 `dev-提交短哈希`。
-- `offline-package`：推送正式版本标签时，在快速部署成功后自动生成 x86、ARM 离线包并上传 S3。
-  上传前会分别验证两个包中的 `release-provenance.json`，要求版本等于 tag、Commit 等于流水线
-  Commit、架构匹配，并且来自干净的 `git_clone`；任一不一致都会阻止发布。
+- `offline-package`：推送正式版本标签时，在快速部署成功后自动生成 x86、ARM 离线包。
+  x86 包完成 provenance、镜像和安全 Worker 校验后立即上传 S3，并发送企业微信通知；ARM 包
+  完成同样校验后再上传并通知，最后发送双架构全部完成通知。上传前会分别验证两个包中的
+  `release-provenance.json`，要求版本等于 tag、Commit 等于流水线 Commit、架构匹配，并且来自
+  干净的 `git_clone`；任一不一致都会阻止对应架构发布。
 
 ```bash
 git tag v1.0.1

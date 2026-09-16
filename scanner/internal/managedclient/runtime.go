@@ -245,7 +245,7 @@ func executeTasks(ctx context.Context, home string, inventory Inventory, policy 
 			status = "failed"
 			message = taskErr.Error()
 		}
-		if err := store.SaveTask(task, status, message); err != nil {
+		if err := saveTerminalTaskAndNotify(home, store, task, status, message); err != nil {
 			return err
 		}
 		if err := api.ReportExecutedTask(ctx, inventory.ClientID, task, status, message); err != nil {
@@ -254,6 +254,28 @@ func executeTasks(ctx context.Context, home string, inventory Inventory, policy 
 		if err := store.SetState(fmt.Sprintf("task:reported:%d", task.ID), status); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func saveTerminalTaskAndNotify(home string, store *Store, task Task, status, message string) error {
+	if err := store.SaveTask(task, status, message); err != nil {
+		return err
+	}
+	// Local completion is the point at which the desktop can update safely.
+	// Platform reporting remains durable and retryable, so it must not delay
+	// the visible result of an action already applied on this client.
+	if err := store.EmitUIStateEvent(home, "local_task_completed", map[string]any{
+		"task_id":   task.ID,
+		"task_type": task.TaskType,
+		"status":    status,
+	}); err != nil {
+		store.LogDiagnostic("warn", "desktop", "desktop_state_signal_failed", map[string]any{
+			"task_id":   task.ID,
+			"task_type": task.TaskType,
+			"status":    status,
+			"error":     err.Error(),
+		})
 	}
 	return nil
 }
@@ -350,7 +372,7 @@ func ConfigureAgentModel(ctx context.Context, home string, inventory Inventory, 
 		status = "failed"
 		message = taskErr.Error()
 	}
-	if err := store.SaveTask(task, status, message); err != nil {
+	if err := saveTerminalTaskAndNotify(home, store, task, status, message); err != nil {
 		return err
 	}
 	if err := api.ReportExecutedTask(ctx, inventory.ClientID, task, status, message); err != nil {
@@ -501,7 +523,145 @@ func InstallApprovedSkillVersion(ctx context.Context, home string, inventory Inv
 	return installApprovedSkillVersion(ctx, home, inventory, policy, api, store, agentType, managedAgentID, skillID, versionID, false)
 }
 
+type InstallTarget struct {
+	AgentType      string `json:"agent_type"`
+	ManagedAgentID string `json:"managed_agent_id,omitempty"`
+}
+
+type InstallTargetResult struct {
+	AgentType string `json:"agent_type"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+}
+
+type InstallProgress struct {
+	Stage     string `json:"stage"`
+	AgentType string `json:"agent_type,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Completed int    `json:"completed"`
+	Total     int    `json:"total"`
+}
+
+type preparedInstallPackage struct {
+	root     string
+	manifest releaseManifest
+}
+
+// InstallApprovedSkillVersionBatch authorizes every selected Agent, downloads
+// and verifies one immutable package, then binds that release into each Agent
+// independently. A target failure does not prevent the remaining targets from
+// being attempted.
+func InstallApprovedSkillVersionBatch(
+	ctx context.Context,
+	home string,
+	inventory Inventory,
+	policy Policy,
+	api API,
+	store *Store,
+	targets []InstallTarget,
+	skillID string,
+	versionID string,
+	progress func(InstallProgress),
+) ([]InstallTargetResult, error) {
+	if !validInstallComponent(skillID) || (versionID != "" && !validInstallComponent(versionID)) {
+		return nil, fmt.Errorf("invalid install identifier")
+	}
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("install requires at least one target Agent")
+	}
+	emit := func(value InstallProgress) {
+		value.Total = len(targets)
+		if progress != nil {
+			progress(value)
+		}
+	}
+	emit(InstallProgress{Stage: "validating", Status: "running"})
+	eligible := make([]InstallTarget, 0, len(targets))
+	results := make([]InstallTargetResult, 0, len(targets))
+	completed := 0
+	seen := map[string]struct{}{}
+	for _, target := range targets {
+		target.AgentType = strings.TrimSpace(target.AgentType)
+		if target.AgentType == "" {
+			completed++
+			results = append(results, InstallTargetResult{Success: false, Error: "target Agent type is required"})
+			emit(InstallProgress{Stage: "target", Status: "failed", Error: "target Agent type is required", Completed: completed})
+			continue
+		}
+		if _, duplicate := seen[target.AgentType]; duplicate {
+			completed++
+			results = append(results, InstallTargetResult{AgentType: target.AgentType, Success: false, Error: "duplicate target Agent"})
+			emit(InstallProgress{Stage: "target", AgentType: target.AgentType, Status: "failed", Error: "duplicate target Agent", Completed: completed})
+			continue
+		}
+		seen[target.AgentType] = struct{}{}
+		agent, ok := findAgent(inventory, target.AgentType)
+		if !ok || !agent.SkillManagementSupported || agent.SkillsPath == "" {
+			completed++
+			errText := fmt.Sprintf("agent %s does not support managed skills", target.AgentType)
+			results = append(results, InstallTargetResult{AgentType: target.AgentType, Success: false, Error: errText})
+			emit(InstallProgress{Stage: "target", AgentType: target.AgentType, Status: "failed", Error: errText, Completed: completed})
+			continue
+		}
+		if _, err := api.SkillPreview(ctx, inventory.ClientID, skillID, versionID, target.AgentType, target.ManagedAgentID); err != nil {
+			completed++
+			results = append(results, InstallTargetResult{AgentType: target.AgentType, Success: false, Error: err.Error()})
+			emit(InstallProgress{Stage: "target", AgentType: target.AgentType, Status: "failed", Error: err.Error(), Completed: completed})
+			continue
+		}
+		eligible = append(eligible, target)
+	}
+	if len(eligible) == 0 {
+		emit(InstallProgress{Stage: "complete", Status: "failed", Completed: completed})
+		return results, nil
+	}
+
+	emit(InstallProgress{Stage: "downloading", Status: "running", Completed: completed})
+	packageTarget := eligible[0]
+	body, err := api.DownloadPackageVersion(ctx, inventory.ClientID, skillID, versionID, packageTarget.AgentType, packageTarget.ManagedAgentID)
+	if err != nil {
+		return results, err
+	}
+	emit(InstallProgress{Stage: "verifying", Status: "running", Completed: completed})
+	incoming := filepath.Join(ManagedSkillsRoot(home), skillID, fmt.Sprintf(".incoming-%d", time.Now().UnixNano()))
+	manifest, err := VerifyAndExtractPackage(body, policy.ReleasePublicKey, incoming)
+	if err != nil {
+		return results, err
+	}
+	defer os.RemoveAll(incoming)
+	prepared := preparedInstallPackage{root: incoming, manifest: manifest}
+	emit(InstallProgress{Stage: "prepared", Status: "succeeded", Completed: completed})
+
+	for _, target := range eligible {
+		emit(InstallProgress{Stage: "target", AgentType: target.AgentType, Status: "running", Completed: completed})
+		err := installApprovedSkillVersionWithPackage(ctx, home, inventory, policy, api, store, target.AgentType, target.ManagedAgentID, skillID, versionID, false, nil, &prepared)
+		completed++
+		result := InstallTargetResult{AgentType: target.AgentType, Success: err == nil}
+		status := "succeeded"
+		if err != nil {
+			result.Error = err.Error()
+			status = "failed"
+		}
+		results = append(results, result)
+		emit(InstallProgress{Stage: "target", AgentType: target.AgentType, Status: status, Error: result.Error, Completed: completed})
+	}
+	status := "succeeded"
+	for _, result := range results {
+		if !result.Success {
+			status = "partial"
+			break
+		}
+	}
+	emit(InstallProgress{Stage: "complete", Status: status, Completed: completed})
+	return results, nil
+}
+
 func installApprovedSkillVersion(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, agentType, managedAgentID, skillID, versionID string, repair bool, taskPayload ...map[string]any) error {
+	return installApprovedSkillVersionWithPackage(ctx, home, inventory, policy, api, store, agentType, managedAgentID, skillID, versionID, repair, taskPayload, nil)
+}
+
+func installApprovedSkillVersionWithPackage(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, agentType, managedAgentID, skillID, versionID string, repair bool, taskPayload []map[string]any, prepared *preparedInstallPackage) error {
 	if !validInstallComponent(skillID) || (versionID != "" && !validInstallComponent(versionID)) {
 		return fmt.Errorf("invalid install identifier")
 	}
@@ -528,16 +688,23 @@ func installApprovedSkillVersion(ctx context.Context, home string, inventory Inv
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	body, err := api.DownloadPackageVersion(ctx, inventory.ClientID, skillID, versionID, agentType, managedAgentID)
-	if err != nil {
-		return err
+	var incoming string
+	var manifest releaseManifest
+	if prepared != nil {
+		incoming = prepared.root
+		manifest = prepared.manifest
+	} else {
+		body, err := api.DownloadPackageVersion(ctx, inventory.ClientID, skillID, versionID, agentType, managedAgentID)
+		if err != nil {
+			return err
+		}
+		incoming = filepath.Join(ManagedSkillsRoot(home), skillID, fmt.Sprintf(".incoming-%d", time.Now().UnixNano()))
+		manifest, err = VerifyAndExtractPackage(body, policy.ReleasePublicKey, incoming)
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(incoming)
 	}
-	incoming := filepath.Join(ManagedSkillsRoot(home), skillID, fmt.Sprintf(".incoming-%d", time.Now().UnixNano()))
-	manifest, err := VerifyAndExtractPackage(body, policy.ReleasePublicKey, incoming)
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(incoming)
 	resolvedVersionID := manifest.VersionID
 	if resolvedVersionID == "" {
 		resolvedVersionID = skillID
@@ -1550,7 +1717,7 @@ func ConfigureModelOperation(ctx context.Context, home, kind, operation string, 
 	if taskErr != nil {
 		status, message = "failed", taskErr.Error()
 	}
-	if err := store.SaveTask(task, status, message); err != nil {
+	if err := saveTerminalTaskAndNotify(home, store, task, status, message); err != nil {
 		return err
 	}
 	if err := api.ReportExecutedTask(ctx, inventory.ClientID, task, status, message); err != nil {

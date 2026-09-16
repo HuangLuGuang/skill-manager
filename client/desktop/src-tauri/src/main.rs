@@ -3,7 +3,7 @@ use std::env;
 use std::ffi::CStr;
 use std::fs;
 use std::io::ErrorKind;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
@@ -137,6 +137,7 @@ fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, Str
         "skill-preview",
         "skill-versions",
         "install-skill",
+        "install-skills",
         "quarantine",
         "backups",
         "restore",
@@ -174,6 +175,62 @@ async fn execute_client(command: String, args: Vec<String>) -> Result<String, St
     tauri::async_runtime::spawn_blocking(move || execute_client_sync(command, args))
         .await
         .map_err(|error| format!("客户端操作异常: {error}"))?
+}
+
+#[tauri::command]
+async fn execute_client_with_progress(
+    app: AppHandle,
+    operation_id: String,
+    command: String,
+    args: Vec<String>,
+) -> Result<String, String> {
+    if command != "install-skills" {
+        return Err(format!("不支持进度输出的客户端操作: {command}"));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut child = Command::new(client_binary()?)
+            .arg(&command)
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|error| format!("无法启动 Agent Manager Client: {error}"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "客户端进度输出不可用".to_string())?;
+        let mut output = Vec::new();
+        for line in BufReader::new(stdout).lines() {
+            let line = line.map_err(|error| format!("读取客户端进度失败: {error}"))?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            output.push(line.clone());
+            if let Ok(mut payload) = serde_json::from_str::<serde_json::Value>(&line) {
+                if let Some(object) = payload.as_object_mut() {
+                    object.insert(
+                        "operation_id".to_string(),
+                        serde_json::Value::String(operation_id.clone()),
+                    );
+                }
+                let _ = app.emit("client-operation-progress", payload);
+            }
+        }
+        let result = child
+            .wait_with_output()
+            .map_err(|error| format!("等待客户端操作失败: {error}"))?;
+        if !result.status.success() {
+            let detail = String::from_utf8_lossy(&result.stderr).trim().to_string();
+            return Err(if detail.is_empty() {
+                format!("客户端操作失败: {}", result.status)
+            } else {
+                detail
+            });
+        }
+        Ok(output.join("\n"))
+    })
+    .await
+    .map_err(|error| format!("客户端操作异常: {error}"))?
 }
 
 #[tauri::command]
@@ -813,6 +870,7 @@ fn main() {
         )
         .invoke_handler(tauri::generate_handler![
             execute_client,
+            execute_client_with_progress,
             select_skill_directory,
             reveal_path,
             open_client_location,

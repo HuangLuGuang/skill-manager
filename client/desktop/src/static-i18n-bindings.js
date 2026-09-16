@@ -1771,10 +1771,10 @@ window.clientStaticI18nBindings = [
     "source": "从平台安装 Skill"
   },
   {
-    "selector": "#install-skill-dialog>div:nth-of-type(1)>p:nth-of-type(1)",
+    "selector": "#install-skill-selection>p:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.tijirl",
-    "source": "选择平台已批准的 Skill 和一个或多个目标 Agent。多个 Agent 共用一份受管内容，各自目录使用软连接。"
+    "key": "ui.platformInstall.description",
+    "source": "选择平台已批准的 Skill 和一个或多个目标 Agent。客户端只下载并验证一次，再将同一份受管内容安装到所选 Agent。"
   },
   {
     "selector": "#install-skill-search-label",
@@ -1789,7 +1789,7 @@ window.clientStaticI18nBindings = [
     "source": "输入名称筛选"
   },
   {
-    "selector": "#install-skill-dialog>div:nth-of-type(1)>label:nth-of-type(2)",
+    "selector": "#install-skill-selection>label:nth-of-type(2)",
     "nodeIndex": 0,
     "key": "ui.18gc65f",
     "source": "平台 Skill"
@@ -1801,7 +1801,7 @@ window.clientStaticI18nBindings = [
     "source": "正在读取平台 Skill..."
   },
   {
-    "selector": "#install-skill-dialog>div:nth-of-type(1)>label:nth-of-type(3)",
+    "selector": "#install-skill-selection>label:nth-of-type(3)",
     "nodeIndex": 0,
     "key": "ui.jhvfft",
     "source": "可信版本"
@@ -1819,7 +1819,7 @@ window.clientStaticI18nBindings = [
     "source": "选择 Skill 后可查看说明"
   },
   {
-    "selector": "#install-skill-dialog>div:nth-of-type(1)>fieldset:nth-of-type(1)>legend:nth-of-type(1)>span:nth-of-type(1)",
+    "selector": "#install-skill-selection>fieldset:nth-of-type(1)>legend:nth-of-type(1)>span:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.installTargets.title",
     "source": "目标 Agent（可多选）"
@@ -1829,6 +1829,18 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "ui.rlmw3h",
     "source": "请先选择 Skill"
+  },
+  {
+    "selector": "#install-batch-progress>div:nth-of-type(1)>div:nth-of-type(1)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.platformInstall.progress_label",
+    "source": "批量安装进度"
+  },
+  {
+    "selector": "#install-progress-detail",
+    "nodeIndex": 0,
+    "key": "ui.platformInstall.preparing",
+    "source": "正在准备受管内容…"
   },
   {
     "selector": "#cancel-install-skill",

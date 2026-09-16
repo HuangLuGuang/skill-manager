@@ -121,3 +121,25 @@ func TestRequestModelConfigurationSendsLocalTargetWithoutExposingCredential(t *t
 		t.Fatalf("unexpected task %#v err=%v", task, err)
 	}
 }
+
+func TestRequestSkillActionSerializesDisabledRecoveryCopy(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		value, present := body["retain_copy"]
+		if !present || value != false {
+			t.Fatalf("retain_copy=false was not preserved: %#v", body)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 19, "task_type": "skill_action"})
+	}))
+	defer server.Close()
+
+	task, err := NewAPI(server.URL, "secret", time.Second).RequestSkillAction(context.Background(), "client-1", SkillActionRequest{
+		RequestID: "request-1", Action: "uninstall", AgentType: "codex", Path: "/tmp/demo", ExpectedSignature: "signature", RetainCopy: false,
+	})
+	if err != nil || task.ID != 19 {
+		t.Fatalf("unexpected task %#v err=%v", task, err)
+	}
+}

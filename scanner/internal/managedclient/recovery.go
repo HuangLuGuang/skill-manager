@@ -125,30 +125,48 @@ func restoreQuarantine(ctx context.Context, home string, inventory Inventory, ag
 	if err := checkTarget(); err != nil {
 		return err
 	}
-	policy, err := api.Policy(ctx, inventory.ClientID)
-	if err != nil {
-		return err
-	}
+	policy := cachedPolicy(store)
 	skill := Skill{Name: item.SkillName, Path: path, Signature: expected}
-	probe := Inventory{ClientID: inventory.ClientID, Agents: []Agent{agent}}
-	probe.Agents[0].Skills = []Skill{skill}
-	results, err := api.Compare(ctx, probe, policy.AgentBindings)
-	if err != nil {
-		return err
-	}
 	var comparison *CompareItem
-	for index := range results {
-		result := &results[index]
-		if result.AgentType == agent.AgentType && result.LocalPath == path && result.LocalSignature == expected {
-			comparison = result
-			break
+	localAuthorized := !automatic && stringValue(task.Payload, "source") == "manual"
+	if automatic || !localAuthorized {
+		remotePolicy, policyErr := api.Policy(ctx, inventory.ClientID)
+		if policyErr != nil {
+			return policyErr
 		}
-	}
-	if comparison == nil {
-		return fmt.Errorf("recovery_verdict_unavailable")
-	}
-	if automatic && (!comparison.Certified || comparison.Malicious) {
-		return fmt.Errorf("recovery_not_certified")
+		policy = remotePolicy
+		probe := Inventory{ClientID: inventory.ClientID, Agents: []Agent{agent}}
+		probe.Agents[0].Skills = []Skill{skill}
+		results, compareErr := api.Compare(ctx, probe, policy.AgentBindings)
+		if compareErr != nil {
+			return compareErr
+		}
+		for index := range results {
+			result := &results[index]
+			if result.AgentType == agent.AgentType && result.LocalPath == path && result.LocalSignature == expected {
+				comparison = result
+				break
+			}
+		}
+		if comparison == nil {
+			return fmt.Errorf("recovery_verdict_unavailable")
+		}
+		if automatic && (!comparison.Certified || comparison.Malicious) {
+			return fmt.Errorf("recovery_not_certified")
+		}
+	} else {
+		// The platform task already authorized this exact manual recovery copy.
+		// Keep the previously observed trusted identity locally and report the
+		// completed file action asynchronously instead of blocking on /compare.
+		previous, observationErr := store.Observation(path)
+		if observationErr != nil {
+			return observationErr
+		}
+		comparison = &CompareItem{
+			AgentType: agent.AgentType, LocalPath: path, LocalSignature: expected,
+			Certified: previous.Certification == "certified" || previous.TrustedSignature == expected,
+			SkillID:   previous.TrustedSkillID, VersionID: previous.TrustedVersionID,
+		}
 	}
 	previous, err := store.Observation(path)
 	if err != nil {

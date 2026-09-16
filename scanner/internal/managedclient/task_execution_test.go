@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 )
@@ -44,5 +45,23 @@ func TestTaskRequiresPlatformAcceptanceBeforeFileAction(t *testing.T) {
 				t.Fatal("task state mismatch", history, err)
 			}
 		})
+	}
+}
+
+func TestTerminalTaskStateNotifiesDesktopBeforePlatformReconciliation(t *testing.T) {
+	home, store, _, _ := observedFixture(t)
+	task := Task{ID: 88, TaskType: "skill_action", Payload: map[string]any{"action": "restore_quarantine"}}
+	if err := saveTerminalTaskAndNotify(home, store, task, "succeeded", ""); err != nil {
+		t.Fatal(err)
+	}
+	revision, eventType, err := store.LatestUIEvent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revision <= 0 || eventType != "local_task_completed" {
+		t.Fatalf("terminal task did not produce a durable desktop event: revision=%d type=%q", revision, eventType)
+	}
+	if _, err := os.Stat(UIStateSignalPath(home)); err != nil {
+		t.Fatalf("terminal task did not wake the desktop: %v", err)
 	}
 }

@@ -32,7 +32,7 @@ func main() {
 
 func run(args []string) (runErr error) {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|verify-model|restore-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|discard-quarantine|available-skills|skill-preview|skill-versions|install-skill|quarantine|queue-quarantine|apply-skill-action|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
+		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|verify-model|restore-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|discard-quarantine|available-skills|skill-preview|skill-versions|install-skill|install-skills|quarantine|queue-quarantine|apply-skill-action|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
@@ -62,9 +62,11 @@ func run(args []string) (runErr error) {
 	outputDir := fs.String("output-dir", "", "diagnostic ZIP output directory")
 	interval := fs.Duration("interval", 5*time.Minute, "daemon polling interval")
 	var agentMappings stringList
+	var installTargets stringList
 	var selectedSkills stringList
 	var skillRoots stringList
 	fs.Var(&agentMappings, "agent", "agent mapping in local-type=managed-agent-id form")
+	fs.Var(&installTargets, "install-target", "installation target in local-type=managed-agent-id form")
 	fs.Var(&selectedSkills, "skill", "selected local Skill path")
 	fs.Var(&skillRoots, "skill-root", "built-in Agent Skill directory; repeat for multiple directories")
 	if err := fs.Parse(args[1:]); err != nil {
@@ -310,6 +312,7 @@ func run(args []string) (runErr error) {
 			Path: selectedSkills[0], ExpectedSignature: *expectedSignature, VersionID: *versionID,
 			QuarantineID:            *itemID,
 			ExpectedTargetSignature: *expectedTargetSignature,
+			RetainCopy:              *retainCopy,
 		})
 		if err != nil {
 			return err
@@ -684,6 +687,34 @@ func run(args []string) (runErr error) {
 		}
 		fmt.Println("Skill installed")
 		return nil
+	case "install-skills":
+		if *server == "" || *token == "" || strings.TrimSpace(*skillID) == "" || len(installTargets) == 0 {
+			return fmt.Errorf("install-skills requires --server, --token, --skill-id and at least one --install-target")
+		}
+		targets, err := parseInstallTargets(installTargets)
+		if err != nil {
+			return err
+		}
+		store, err := managedclient.OpenStore(filepath.Join(*home, ".agent-manager", "client.db"))
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+		api := managedclient.NewAPI(*server, *token, 5*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		policy, err := api.Policy(ctx, inventory.ClientID)
+		if err != nil {
+			return err
+		}
+		encoder := json.NewEncoder(os.Stdout)
+		results, err := managedclient.InstallApprovedSkillVersionBatch(ctx, *home, inventory, policy, api, store, targets, *skillID, *versionID, func(progress managedclient.InstallProgress) {
+			_ = encoder.Encode(progress)
+		})
+		if err != nil {
+			return err
+		}
+		return encoder.Encode(map[string]any{"stage": "result", "results": results, "total": len(targets)})
 	case "takeover":
 		if *server == "" || *token == "" {
 			return fmt.Errorf("takeover requires --server and --token")
@@ -885,6 +916,23 @@ func parseMappings(values []string) (map[string]string, error) {
 			return nil, fmt.Errorf("invalid --agent mapping %q", value)
 		}
 		result[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+	}
+	return result, nil
+}
+
+func parseInstallTargets(values []string) ([]managedclient.InstallTarget, error) {
+	result := make([]managedclient.InstallTarget, 0, len(values))
+	for _, value := range values {
+		parts := strings.SplitN(value, "=", 2)
+		agentType := strings.TrimSpace(parts[0])
+		if agentType == "" {
+			return nil, fmt.Errorf("invalid --install-target %q", value)
+		}
+		managedAgentID := ""
+		if len(parts) == 2 {
+			managedAgentID = strings.TrimSpace(parts[1])
+		}
+		result = append(result, managedclient.InstallTarget{AgentType: agentType, ManagedAgentID: managedAgentID})
 	}
 	return result, nil
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -159,6 +160,35 @@ func TestQuarantineRecoveryRechecksPolicyAndContent(t *testing.T) {
 				t.Fatal("retained copy removed", err)
 			}
 		})
+	}
+}
+
+func TestAuthorizedManualRecoveryCompletesWithoutPlatformRoundTrip(t *testing.T) {
+	home, store, inventory, skill := observedFixture(t)
+	item, err := quarantineSkill(home, store, "codex", skill.Name, skill.Path, "manual", skill.Signature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/policy") || strings.HasSuffix(r.URL.Path, "/compare") {
+			requests.Add(1)
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	task := Task{ID: 61, TaskType: "skill_action", Payload: map[string]any{
+		"action": "restore_quarantine", "agent_type": "codex", "path": skill.Path,
+		"expected_signature": skill.Signature, "quarantine_id": item.ID, "source": "manual",
+	}}
+	if err := restoreQuarantineTask(context.Background(), home, inventory, inventory.Agents[0], NewAPI(server.URL, "token", time.Second), store, task); err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("manual recovery waited for platform: %d requests", requests.Load())
+	}
+	if err := checkObservedContent(skill); err != nil {
+		t.Fatal(err)
 	}
 }
 

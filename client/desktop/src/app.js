@@ -1078,11 +1078,34 @@ const rememberPendingSkillActions = tasks => {
   }
 }
 
+// The local task ledger is authoritative for work already executed by this
+// client. Long-poll/platform snapshots can briefly retain a pending state
+// after the local action and its report have both completed.
+const mergeLocalTaskStatuses = (platformTasks = [], localTasks = []) => {
+  const localByID = new Map((localTasks || []).map(task => [String(task.id), task]))
+  return (platformTasks || []).map(task => {
+    const local = localByID.get(String(task.id))
+    if (!local || !['succeeded', 'failed', 'cancelled'].includes(local.status)) return task
+    if (!['pending', 'running'].includes(task.status)) return task
+    return {
+      ...task,
+      status: local.status,
+      error: local.error || '',
+      updated_at: local.updated_at || task.updated_at,
+      finished_at: local.updated_at || task.finished_at,
+    }
+  })
+}
+
 const finishTrackedSkillAction = async task => {
   trackedSkillActions.delete(String(task.id))
   if (task.status === 'succeeded') {
     await discover()
     await loadPending().catch(log)
+    // A completed restore moves the copy out of quarantine. Refresh the
+    // recovery partition here as well as from local-state events so the UI
+    // cannot retain a stale row when an event is delayed or unavailable.
+    await loadQuarantine().catch(log)
     const action = task.payload?.action || ''
     const titleKey = action === 'uninstall'
       ? 'ui.agentManagement.uninstall_completed'
@@ -1113,6 +1136,9 @@ async function refreshConnection() {
     if (generation !== connectionRefreshGeneration) return
     connection = nextConnection
     if (!connection.configured) return renderDisconnected()
+    if (connection.platform) {
+      connection.platform.tasks = mergeLocalTaskStatuses(connection.platform.tasks, connection.local?.tasks)
+    }
     inventory = connection.inventory
     lastInventoryAt = connection.local?.last_inventory_at || lastInventoryAt
     renderConnected(connection)
@@ -1181,13 +1207,21 @@ const refreshLocalStateFromEvent = async ({ source = 'event', eventType = '', re
     if (generation !== connectionRefreshGeneration || !connection) return false
     connection.local = snapshot.local
     connection.inventory = snapshot.inventory
+    if (connection.platform) {
+      connection.platform.tasks = mergeLocalTaskStatuses(connection.platform.tasks, snapshot.local?.tasks)
+    }
     inventory = snapshot.inventory
     lastInventoryAt = snapshot.local?.last_inventory_at || lastInventoryAt
     renderConnected(connection)
     renderInventory()
+    reconcileTrackedSkillActions(connection.platform?.tasks)
     // These reads are part of the applied snapshot. Do not acknowledge an
     // event until every visible partition needed by the current page succeeds.
     await loadPending()
+    // Recovery completion removes or changes quarantine rows. Refresh this
+    // partition on every accepted local revision so a completed restore is
+    // reflected without requiring the user to press the manual refresh button.
+    await loadQuarantine()
     const partitions = ['local_snapshot', 'pending', 'quarantine']
     if ($('#records').classList.contains('active')) {
       if (recordState.kind === 'events') recordState.page = 1
@@ -1680,7 +1714,9 @@ const renderInventory = () => {
     pendingSkillAction = { requestID: crypto.randomUUID(), action: select.dataset.action, agentType: agent.agent_type,
       path: skill.path, signature: skill.signature, versionID: skill.governance?.trusted_version_id || '', retainCopy: true }
     select.closest('details').open = false
-    $('#skill-action-title').textContent = governanceLabelFor('action', pendingSkillAction.action)
+    $('#skill-action-title').textContent = pendingSkillAction.action === 'uninstall'
+      ? t('ui.agentManagement.manual_uninstall')
+      : governanceLabelFor('action', pendingSkillAction.action)
     $('#skill-action-description').textContent = t('ui.agentManagement.action_confirm')
     $('#skill-action-path').textContent = skill.path
     const readers = skillSharedReaders(agent, skill.path)
@@ -1731,7 +1767,7 @@ const renderSkillActions = (agent, skill) => {
   const title = !allowed ? t('ui.agentManagement.action_permission_required') : pending ? t('ui.agentManagement.action_pending') : ''
   const certified = Boolean(skill.signature) && skill.governance?.signature === skill.signature && skill.governance?.certification === 'certified'
   const actions = [...(certified ? [] : ['quarantine']), 'uninstall', ...(skill.governance?.trusted_version_id ? ['restore_trusted'] : [])]
-  return `${title ? `<small class="skill-menu-hint">${escapeHtml(title)}</small>` : ''}${actions.map(action => `<button type="button" data-ui-icon="${({quarantine: 'archive', uninstall: 'trash-2', restore_trusted: 'rotate-ccw'})[action]}" data-skill-action="${escapeHtml(skill.path)}" data-agent-type="${escapeHtml(agent.agent_type)}" data-action="${action}" ${disabled ? 'disabled' : ''}>${escapeHtml(t(`ui.agentManagement.action.${action}`))}</button>`).join('')}`
+  return `${title ? `<small class="skill-menu-hint">${escapeHtml(title)}</small>` : ''}${actions.map(action => `<button type="button" data-ui-icon="${({quarantine: 'archive', uninstall: 'trash-2', restore_trusted: 'rotate-ccw'})[action]}" data-skill-action="${escapeHtml(skill.path)}" data-agent-type="${escapeHtml(agent.agent_type)}" data-action="${action}" ${disabled ? 'disabled' : ''}>${escapeHtml(action === 'uninstall' ? t('ui.agentManagement.manual_uninstall') : t(`ui.agentManagement.action.${action}`))}</button>`).join('')}`
 }
 
 $('#confirm-skill-action').addEventListener('click', async event => {
@@ -1746,7 +1782,7 @@ $('#confirm-skill-action').addEventListener('click', async event => {
     if (action.action === 'restore_trusted' && action.versionID) args.push('--version-id', action.versionID)
     if (['restore_quarantine', 'restore_backup'].includes(action.action)) args.push('--id', action.quarantineID)
     if (action.action === 'restore_backup' && action.targetSignature) args.push('--expected-target-signature', action.targetSignature)
-    if (action.action === 'uninstall') args.push('--retain-copy', $('#skill-action-retain-copy').checked ? 'true' : 'false')
+    if (action.action === 'uninstall') args.push(`--retain-copy=${$('#skill-action-retain-copy').checked ? 'true' : 'false'}`)
     const immediate = ['uninstall', 'quarantine'].includes(action.action)
     const result = JSON.parse(await run(immediate ? 'apply-skill-action' : 'request-skill-action', args))
     if (!immediate) trackedSkillActions.set(String(result.id), result)
@@ -2859,14 +2895,11 @@ function quarantineNextLabel(status) {
 
 const managedAgentIDFor = agentType => (connection?.platform?.agents || []).find(item => item.agent_type === agentType)?.managed_agent_id || ''
 
-const installPlatformSkill = async (agentType, skillId, pendingId = '', versionId = '') => {
-  const args = ['--agent-type', agentType, '--skill-id', skillId]
-  const managedAgentID = managedAgentIDFor(agentType)
-  if (managedAgentID) args.push('--managed-agent-id', managedAgentID)
-  if (pendingId) args.push('--id', pendingId)
+const installPlatformSkills = async (operationId, agentTypes, skillId, versionId = '') => {
+  const args = ['--skill-id', skillId]
   if (versionId) args.push('--version-id', versionId)
-  await run('install-skill', args)
-  log(tf`已安装 Skill ${skillId} 到 ${agentLabel(agentType)}`)
+  agentTypes.forEach(agentType => args.push('--install-target', `${agentType}=${managedAgentIDFor(agentType)}`))
+  return invoke('execute_client_with_progress', { operationId, command: 'install-skills', args })
 }
 
 const refreshAfterInstall = async () => {
@@ -3064,11 +3097,17 @@ const renderInstallTargets = () => {
 }
 
 const openInstallDialog = async (skill, initialQuery = '', targetAgentType = '', reinstallSkill = null) => {
+  if (platformInstallOperation) {
+    if (!$('#install-skill-dialog').open) $('#install-skill-dialog').showModal()
+    renderPlatformInstallProgress()
+    return
+  }
   const agents = (inventory?.agents || []).filter(item => installedAgent(item) && item.skill_management_supported && item.skills_path?.trim() && item.capabilities?.path_available !== false && (!targetAgentType || item.agent_type === targetAgentType))
   if (!agents.length) return showMessageDialog(t('ui.1rloj41'), t('ui.k8dvfk'))
   lockedInstallSkill = skill || null
   installAgentContext = targetAgentType
   installCatalog = []
+  resetPlatformInstallView()
   $('#install-target-count').textContent = ''
   installVersions = []
   $('#install-skill-search').value = initialQuery
@@ -3133,46 +3172,140 @@ $('#install-platform-skill').addEventListener('change', () => {
 })
 $('#install-platform-version').addEventListener('change', () => { updateInstallTargetCount(); loadInstallSkillPreview() })
 $('#cancel-install-skill').addEventListener('click', () => {
-  lockedInstallSkill = null
+  if (!platformInstallBusy) {
+    lockedInstallSkill = null
+    platformInstallOperation = null
+    resetPlatformInstallView()
+  }
   $('#install-skill-dialog').close()
 })
 let platformInstallBusy = false
-$('#confirm-install-skill').addEventListener('click', async event => {
+let platformInstallOperation = null
+
+const resetPlatformInstallView = () => {
+  $('#install-skill-selection').hidden = false
+  $('#install-batch-progress').hidden = true
+  $('#cancel-install-skill').textContent = t('ui.agentManagement.cancel')
+  $('#confirm-install-skill').hidden = false
+}
+
+const installProgressDetail = operation => {
+  if (operation.stage === 'validating') return t('ui.platformInstall.validating')
+  if (operation.stage === 'downloading') return t('ui.platformInstall.downloading')
+  if (operation.stage === 'verifying' || operation.stage === 'prepared') return t('ui.platformInstall.verifying')
+  if (operation.stage === 'target' && operation.activeAgent) return t('ui.platformInstall.installing').replace('{agent}', agentLabel(operation.activeAgent))
+  if (operation.stage === 'complete') {
+    if (operation.status === 'succeeded') return t('ui.platformInstall.complete')
+    if (operation.status === 'failed') return t('ui.platformInstall.failed')
+    return t('ui.platformInstall.partial')
+  }
+  if (operation.stage === 'failed') return operation.error || t('ui.platformInstall.failed')
+  return t('ui.platformInstall.preparing')
+}
+
+const renderPlatformInstallProgress = () => {
+  const operation = platformInstallOperation
+  if (!operation) return resetPlatformInstallView()
+  $('#install-skill-selection').hidden = true
+  $('#install-batch-progress').hidden = false
+  $('#install-skill-title').textContent = `${operation.skillName} · ${installVersion({ version_no: operation.versionNo })}`
+  $('#install-progress-count').textContent = `${operation.completed} / ${operation.targets.length}`
+  $('#install-progress-bar').style.width = `${operation.targets.length ? Math.round((operation.completed / operation.targets.length) * 100) : 0}%`
+  $('#install-progress-detail').textContent = installProgressDetail(operation)
+  $('#install-progress-targets').innerHTML = operation.targets.map(target => `<div class="install-progress-target" data-status="${escapeHtml(target.status)}">
+    <strong>${escapeHtml(agentLabel(target.agentType))}</strong>
+    <span>${escapeHtml(t(`ui.platformInstall.target_${target.status}`))}</span>
+    ${target.error ? `<small>${escapeHtml(runtimeText(target.error))}</small>` : ''}
+  </div>`).join('')
+  const failed = operation.targets.filter(target => target.status === 'failed')
+  $('#cancel-install-skill').textContent = platformInstallBusy ? t('ui.platformInstall.hide') : t('ui.platformInstall.done')
+  $('#confirm-install-skill').hidden = platformInstallBusy || !failed.length
+  $('#confirm-install-skill').disabled = platformInstallBusy
+  if (!platformInstallBusy && failed.length) $('#confirm-install-skill').textContent = t('ui.platformInstall.retry_failed')
+}
+
+const updatePlatformInstallProgress = payload => {
+  const operation = platformInstallOperation
+  if (!operation || payload?.operation_id !== operation.id) return
+  if (payload.stage === 'result') return
+  operation.stage = payload.stage || operation.stage
+  operation.status = payload.status || operation.status
+  operation.completed = Number(payload.completed ?? operation.completed)
+  if (payload.agent_type) {
+    const target = operation.targets.find(item => item.agentType === payload.agent_type)
+    if (target) {
+      target.status = payload.status || target.status
+      target.error = payload.error || ''
+    }
+    operation.activeAgent = payload.status === 'running' ? payload.agent_type : ''
+  }
+  renderPlatformInstallProgress()
+}
+
+if (window.__TAURI__.event?.listen) {
+  window.__TAURI__.event.listen('client-operation-progress', event => updatePlatformInstallProgress(event.payload)).catch(error => log(error))
+}
+
+const startPlatformInstall = async (skill, versionId, targets) => {
+  const version = installVersions.find(item => item.version_id === versionId)
+  const operationId = globalThis.crypto?.randomUUID?.() || `install-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  platformInstallOperation = {
+    id: operationId,
+    skillId: skill.skill_id,
+    skillName: skill.name,
+    versionId,
+    versionNo: version?.version_no,
+    stage: 'preparing',
+    status: 'running',
+    completed: 0,
+    activeAgent: '',
+    error: '',
+    targets: targets.map(agentType => ({ agentType, status: 'waiting', error: '' })),
+  }
+  platformInstallBusy = true
+  renderPlatformInstallProgress()
+  try {
+    await installPlatformSkills(operationId, targets, skill.skill_id, versionId)
+    log(t('ui.platformInstall.batch_finished').replace('{skill}', skill.name))
+  } catch (error) {
+    platformInstallOperation.stage = 'failed'
+    platformInstallOperation.status = 'failed'
+    platformInstallOperation.error = runtimeText(error)
+    platformInstallOperation.targets.forEach(target => {
+      if (target.status === 'waiting' || target.status === 'running') {
+        target.status = 'failed'
+        target.error = runtimeText(error)
+      }
+    })
+    platformInstallOperation.completed = platformInstallOperation.targets.length
+    log(error)
+  } finally {
+    platformInstallBusy = false
+    try {
+      await refreshAfterInstall()
+    } catch (error) {
+      log(tf`安装结果刷新失败：${runtimeText(error)}`)
+    }
+    renderPlatformInstallProgress()
+  }
+}
+
+$('#confirm-install-skill').addEventListener('click', async () => {
   if (platformInstallBusy) return
+  if (platformInstallOperation) {
+    const retryTargets = platformInstallOperation.targets.filter(target => target.status === 'failed').map(target => target.agentType)
+    if (retryTargets.length) {
+      const skill = { skill_id: platformInstallOperation.skillId, name: platformInstallOperation.skillName }
+      return startPlatformInstall(skill, platformInstallOperation.versionId, retryTargets)
+    }
+  }
   const skill = selectedInstallSkill()
   if (!skill) return showMessageDialog(t('ui.1xx9z2h'), t('ui.5bo4oh'))
   const targets = [...document.querySelectorAll('[data-install-target]:checked')].map(item => item.value)
   if (!targets.length) return showMessageDialog(t('ui.1titnia'), t('ui.1ybbgmr'))
   const versionId = $('#install-platform-version').value
   if (!versionId) return showMessageDialog('请选择可信版本', '恢复或安装必须绑定一个可信版本。')
-  platformInstallBusy = true
-  const button = event.currentTarget
-  setBusy(button, true)
-  const succeeded = []
-  const failed = []
-  try {
-    for (const agentType of targets) {
-      try {
-        await installPlatformSkill(agentType, skill.skill_id, '', versionId)
-        succeeded.push(agentLabel(agentType))
-      } catch (error) {
-        failed.push(`${agentLabel(agentType)}：${runtimeText(error)}`)
-      }
-    }
-    await refreshAfterInstall()
-    lockedInstallSkill = null
-    $('#install-skill-dialog').close()
-    showMessageDialog(!succeeded.length ? t('ui.v4sbw9') : failed.length ? t('ui.i22ked') : t('ui.1br1zwn'), [
-      succeeded.length ? tf`${skill.name} 已安装到：${formatList(succeeded)}。` : '',
-      failed.length ? tf`未安装：\n${failed.join('\n')}` : t('ui.o11sy8'),
-    ].filter(Boolean).join('\n'))
-  } catch (error) {
-    showMessageDialog(t('ui.12x45mj'), tf`安装命令已经执行，但页面状态刷新失败：${runtimeText(error)}`)
-    log(error)
-  } finally {
-    platformInstallBusy = false
-    setBusy(button, false)
-  }
+  await startPlatformInstall(skill, versionId, targets)
 })
 
 function renderCapability(selector, capability) {

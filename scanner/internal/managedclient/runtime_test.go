@@ -481,6 +481,77 @@ func TestInstallApprovedSkillSharesReleaseAcrossAgents(t *testing.T) {
 	}
 }
 
+func TestBatchInstallDownloadsOnceAndContinuesAfterTargetFailure(t *testing.T) {
+	home := t.TempDir()
+	codexSkills := filepath.Join(home, ".codex", "skills")
+	hermesSkills := filepath.Join(home, ".hermes", "skills")
+	for _, path := range []string{codexSkills, hermesSkills} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeSkill(t, filepath.Join(hermesSkills, "safe-skill"), "conflicting-local-skill")
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageBody := signedPackage(t, privateKey)
+	packageRequests := 0
+	previewRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		switch {
+		case strings.HasSuffix(request.URL.Path, "/preview"):
+			previewRequests++
+			_, _ = w.Write([]byte(`{"skill_id":"skill-1","version_id":"version-1","name":"safe-skill","status":"APPROVED"}`))
+		case strings.Contains(request.URL.Path, "/skills/skill-1/package"):
+			packageRequests++
+			_, _ = w.Write(packageBody)
+		case strings.HasSuffix(request.URL.Path, "/events"):
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	inventory := Inventory{ClientID: "client-1", Agents: []Agent{
+		{AgentType: "hermes", SkillsPath: hermesSkills, SkillManagementSupported: true},
+		{AgentType: "codex", SkillsPath: codexSkills, SkillManagementSupported: true},
+	}}
+	var progress []InstallProgress
+	results, err := InstallApprovedSkillVersionBatch(
+		context.Background(),
+		home,
+		inventory,
+		Policy{ReleasePublicKey: base64.StdEncoding.EncodeToString(publicKey)},
+		NewAPI(server.URL, "token", 5*time.Second),
+		store,
+		[]InstallTarget{{AgentType: "hermes"}, {AgentType: "codex"}},
+		"skill-1",
+		"version-1",
+		func(value InstallProgress) { progress = append(progress, value) },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if packageRequests != 1 || previewRequests != 2 {
+		t.Fatalf("batch install requests package=%d previews=%d", packageRequests, previewRequests)
+	}
+	if len(results) != 2 || results[0].AgentType != "hermes" || results[0].Success || results[1].AgentType != "codex" || !results[1].Success {
+		t.Fatalf("unexpected batch results: %#v", results)
+	}
+	if _, err := os.Stat(filepath.Join(codexSkills, "safe-skill", "SKILL.md")); err != nil {
+		t.Fatalf("later target was not installed after the first target failed: %v", err)
+	}
+	if len(progress) == 0 || progress[len(progress)-1].Stage != "complete" || progress[len(progress)-1].Status != "partial" || progress[len(progress)-1].Completed != 2 {
+		t.Fatalf("unexpected final progress: %#v", progress)
+	}
+}
+
 func TestReconcileInstalledRecoveryCopiesArchivesExistingMatchingUninstall(t *testing.T) {
 	home := t.TempDir()
 	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))

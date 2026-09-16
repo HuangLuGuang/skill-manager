@@ -1611,6 +1611,14 @@ html[lang="en-US"] #preview-button {
 .install-skill-dialog .message-dialog-body > * { flex-shrink: 0; }
 .install-skill-dialog h3 { overflow-wrap: anywhere; }
 .install-skill-dialog label { margin-top: 10px; }
+.install-skill-dialog .install-skill-selection {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  flex-direction: column;
+}
+.install-skill-dialog .install-skill-selection > :not(.install-target-fieldset) { flex-shrink: 0; }
 .install-skill-dialog .install-skill-preview {
   min-height: 0;
   max-height: 100px;
@@ -1632,7 +1640,23 @@ html[lang="en-US"] #preview-button {
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
-.install-skill-dialog .dialog-actions { margin-top: 14px; padding-top: 14px; }
+.install-skill-dialog .dialog-actions { z-index: 1; flex: 0 0 auto; margin-top: 14px; padding-top: 14px; background: #fff; }
+.install-batch-progress { flex: 1 1 auto !important; min-height: 260px; overflow-y: auto; overscroll-behavior: contain; }
+.install-progress-summary { padding: 15px 16px; border: 1px solid #d9e5e1; border-radius: 8px; background: #f5faf8; }
+.install-progress-summary > div:first-child { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; color: #526873; font-size: 11px; font-weight: 700; }
+.install-progress-summary strong { color: #246d5b; font: 750 18px/1 ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.install-progress-track { height: 5px; margin-top: 12px; overflow: hidden; border-radius: 999px; background: #dfe9e6; }
+.install-progress-track span { display: block; width: 0; height: 100%; border-radius: inherit; background: #2b7b67; transition: width .2s ease; }
+.install-progress-summary p { margin-top: 10px; color: #526873; font-size: 12px; }
+.install-progress-targets { display: grid; margin-top: 12px; border: 1px solid #dce3e7; background: #dce3e7; gap: 1px; }
+.install-progress-target { display: grid; align-items: center; min-height: 52px; padding: 10px 12px; background: #fff; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; }
+.install-progress-target strong { overflow: hidden; color: #30434f; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.install-progress-target span { color: #778690; font-size: 11px; font-weight: 650; }
+.install-progress-target small { grid-column: 1 / -1; overflow-wrap: anywhere; color: #a5483d; font-size: 10px; line-height: 1.45; }
+.install-progress-target[data-status="running"] span { color: #286f5e; }
+.install-progress-target[data-status="succeeded"] span { color: #28715e; }
+.install-progress-target[data-status="failed"] { border-left: 3px solid #c35445; }
+.install-progress-target[data-status="failed"] span { color: #a5483d; }
 @media (max-height: 700px) {
   .install-skill-dialog .message-dialog-body { padding: 16px 20px; }
   .install-skill-dialog .message-dialog-body > p { margin: 0; font-size: 12px; line-height: 1.5; }
