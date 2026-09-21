@@ -271,6 +271,8 @@ class ManagedAgentCreate(BaseModel):
     channel: Optional[str] = None
     status: str = "active"
     default_model: Optional[str] = None
+    default_model_source: str = Field(default="internal", pattern="^(internal|external_gateway)$")
+    external_gateway_id: Optional[int] = None
     skill_names: list[str] = []
     prompt_names: list[str] = []
 
@@ -284,6 +286,8 @@ class ManagedAgentUpdate(BaseModel):
     channel: Optional[str] = None
     status: Optional[str] = None
     default_model: Optional[str] = None
+    default_model_source: Optional[str] = Field(default=None, pattern="^(internal|external_gateway)$")
+    external_gateway_id: Optional[int] = None
     skill_names: Optional[list[str]] = None
     prompt_names: Optional[list[str]] = None
 
@@ -299,6 +303,10 @@ class ManagedAgentResponse(BaseModel):
     channel: Optional[str] = None
     status: str
     default_model: Optional[str] = None
+    default_model_source: str = "internal"
+    external_gateway_id: Optional[int] = None
+    external_gateway_name: Optional[str] = None
+    origin_type: str = "platform"
     skill_names: list[str] = []
     prompt_names: list[str] = []
     runtime_token_id: Optional[int] = None
@@ -306,6 +314,75 @@ class ManagedAgentResponse(BaseModel):
     created_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+
+class AgentAssetSkill(BaseModel):
+    name: str
+    path: Optional[str] = None
+    status: str = "observed"
+    signature: Optional[str] = None
+    version_no: Optional[int] = None
+    verified_at: Optional[datetime] = None
+
+
+class AgentAssetInstance(BaseModel):
+    client_id: str
+    client_name: str
+    hostname: str
+    os: str
+    arch: str
+    client_version: str
+    client_status: str
+    client_last_seen_at: datetime
+    local_agent_id: str
+    agent_type: str
+    agent_version: Optional[str] = None
+    install_path: Optional[str] = None
+    skills_path: Optional[str] = None
+    skill_management_supported: bool = True
+    capabilities: dict[str, Any] = Field(default_factory=dict)
+    desired_model: Optional[str] = None
+    applied_model: Optional[str] = None
+    model_config_status: str = "not_configured"
+    model_config_error: Optional[str] = None
+    last_scanned_at: datetime
+    skills: list[AgentAssetSkill] = Field(default_factory=list)
+
+
+class AgentAssetResponse(BaseModel):
+    asset_key: str
+    managed_agent_pk: Optional[int] = None
+    agent_id: str
+    name: str
+    origin_type: str
+    department_group_id: Optional[int] = None
+    department_name: Optional[str] = None
+    owner: Optional[str] = None
+    description: Optional[str] = None
+    channel: Optional[str] = None
+    status: str
+    client_status: Optional[str] = None
+    default_model: Optional[str] = None
+    default_model_source: str = "internal"
+    external_gateway_id: Optional[int] = None
+    external_gateway_name: Optional[str] = None
+    skill_names: list[str] = Field(default_factory=list)
+    discovered_skill_count: int = 0
+    prompt_names: list[str] = Field(default_factory=list)
+    runtime_token_id: Optional[int] = None
+    runtime_token_name: Optional[str] = None
+    created_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+    instance_count: int = 0
+    online_instance_count: int = 0
+    instances: list[AgentAssetInstance] = Field(default_factory=list)
+
+
+class AgentAssetListResponse(BaseModel):
+    items: list[AgentAssetResponse]
+    stats: dict[str, int]
 
 
 class AccessTokenCreate(BaseModel):
@@ -807,10 +884,6 @@ class ClientPolicyUpdate(BaseModel):
     governance_mode: Optional[str] = Field(default=None, pattern="^(registry|strict)$")
 
 
-class ClientAgentBindingUpdate(BaseModel):
-    managed_agent_id: Optional[str] = None
-
-
 class ClientInventoryRequest(BaseModel):
     agents: list[ClientAgentInventory] = []
     recovery: Optional[list[ClientRecoveryInventory]] = None
@@ -846,6 +919,7 @@ class ClientSkillActionRequest(BaseModel):
 
 class ClientTaskResult(BaseModel):
     verification_request_ids: list[str] = Field(default_factory=list, max_length=20)
+    restored_after_failure: bool = False
     applied_model: Optional[str] = Field(default=None, max_length=128)
     applied_policy_version: Optional[str] = Field(default=None, max_length=128)
     status: str = Field(pattern="^(running|succeeded|failed|cancelled)$")
@@ -853,12 +927,22 @@ class ClientTaskResult(BaseModel):
 
 
 class ClientModelConfigurationRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     local_agent_id: Optional[str] = None
     agent_type: str
     managed_agent_id: Optional[str] = None
     model: str
+    source: str = Field(default="internal", pattern="^(internal|external_gateway)$")
+    gateway_id: Optional[int] = Field(default=None, ge=1)
     parameters: dict[str, Any] = Field(default_factory=dict)
     expected_revision: Optional[str] = None
+
+
+class ClientExternalModelCatalogRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    local_agent_id: Optional[str] = Field(default=None, max_length=128)
+    agent_type: str = Field(min_length=1, max_length=64)
+    managed_agent_id: Optional[str] = Field(default=None, max_length=128)
 
 
 class ClientModelVerificationEvidence(BaseModel):
@@ -869,7 +953,9 @@ class ClientModelVerificationEvidence(BaseModel):
 
 
 class ClientAgentCredentialRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     previous_credential_hash: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    credential_source: str = Field(default="agent_runtime", pattern="^(agent_runtime|external_gateway)$")
 
 
 class ClientModelPreflightRequest(BaseModel):
@@ -881,6 +967,9 @@ class ClientAgentCredentialResponse(BaseModel):
     token: str
     token_prefix: str
     bound_agent_id: str
+    credential_type: str = "agent_runtime"
+    credential_source: str = "agent_runtime"
+    gateway_base_url: Optional[str] = None
     allowed_models: list[str] = []
     allowed_mcp_gateways: list[str] = []
 

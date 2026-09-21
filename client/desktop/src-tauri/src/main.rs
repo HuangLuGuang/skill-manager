@@ -108,6 +108,8 @@ fn display_release_version(version: &str) -> String {
 fn execute_client_sync(command: String, args: Vec<String>) -> Result<String, String> {
     const ALLOWED: &[&str] = &[
         "configure",
+        "connections",
+        "switch-connection",
         "agent-settings",
         "set-agent-roots",
         "reset-agent-roots",
@@ -526,6 +528,55 @@ async fn get_connection_status() -> Result<ConnectionStatus, String> {
 }
 
 #[tauri::command]
+async fn refresh_model_catalog(
+    local_agent_id: String,
+    agent_type: String,
+    managed_agent_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let config = try_load_client_config()?.ok_or("client_not_configured")?;
+    let inventory: serde_json::Value = serde_json::from_str(&execute_client_sync(
+        "cached-inventory".to_string(),
+        Vec::new(),
+    )?)
+    .map_err(|_| "client_inventory_unavailable")?;
+    let client_id = inventory
+        .get("client_id")
+        .and_then(|value| value.as_str())
+        .ok_or("client_inventory_unavailable")?;
+    let response = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|_| "model_catalog_refresh_unavailable")?
+        .post(format!(
+            "{}/api/v1/clients/{}/model-catalog/refresh",
+            config.server.trim_end_matches('/'),
+            client_id
+        ))
+        .bearer_auth(&config.token)
+        .json(&serde_json::json!({
+            "local_agent_id": local_agent_id,
+            "agent_type": agent_type,
+            "managed_agent_id": managed_agent_id.unwrap_or_default(),
+        }))
+        .send()
+        .await
+        .map_err(|_| "model_catalog_refresh_unavailable")?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let detail = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "model_catalog_refresh_http_{}: {}",
+            status.as_u16(),
+            detail
+        ));
+    }
+    response
+        .json()
+        .await
+        .map_err(|_| "model_catalog_refresh_invalid_response".to_string())
+}
+
+#[tauri::command]
 async fn get_local_snapshot() -> Result<LocalSnapshot, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let local = serde_json::from_str(&execute_client_sync(
@@ -877,6 +928,7 @@ fn main() {
             export_diagnostics,
             record_desktop_diagnostic,
             get_connection_status,
+            refresh_model_catalog,
             get_local_snapshot,
             get_client_history,
             show_system_notification,

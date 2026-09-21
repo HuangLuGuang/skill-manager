@@ -20,6 +20,7 @@ MODULE_ACTIONS = {
     "mcp": "view create update delete execute approve reject",
     "agents": "view create update delete",
     "clients": "view create update execute",
+    "external_gateways": "view create update delete test reveal",
     "runtime": "view create update delete execute",
     "traces": "view raw delete",
     "settings": "view update",
@@ -27,7 +28,7 @@ MODULE_ACTIONS = {
     "docs": "view update",
 }
 PERMISSIONS = {f"{module}:{action}" for module, actions in MODULE_ACTIONS.items() for action in actions.split()}
-SENSITIVE_PERMISSIONS = {"privacy_audit:raw", "traces:raw", "scans:raw"}
+SENSITIVE_PERMISSIONS = {"privacy_audit:raw", "traces:raw", "scans:raw", "external_gateways:reveal"}
 
 # name, parent, Chinese title, English title, path, permission, icon, feature
 PAGES = [
@@ -47,6 +48,7 @@ PAGES = [
     ("agent-management", None, "智能体管理", "Agent Management", None, None, "agent", None),
     ("agents", "agent-management", "智能体列表", "Agents", "/agents", "agents:view", "agent", None),
     ("clients", "agent-management", "客户端管理", "Clients", "/clients", "clients:view", "desktop", None),
+    ("external-ai-gateways", "agent-management", "外部 AI 网关", "External AI Gateways", "/external-ai-gateways", "external_gateways:view", "api", None),
     ("credentials", "agent-management", "统一凭证中心", "Credentials", "/credentials", "credentials:view", "key", None),
     ("runtime", "agent-management", "接入与运行", "Integration & Runtime", "/runtime", "runtime:view", "safety", None),
     ("skill-audit", "agent-management", "审计追踪", "Skill Audit", "/audit", "skills:view", "audit", None),

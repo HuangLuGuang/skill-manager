@@ -13,6 +13,8 @@ from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPExc
 from backend import client_discovery, client_governance, client_skill_actions
 from backend.model_switch import AGENTS as MODEL_ADAPTERS, validate_options as validate_model_options, validate_parameter_version, contract_for_version, validate_effective_parameters, reported_model_parameters
 from backend.client_task_notifications import task_hub
+from backend.external_ai_gateway import binding_models, ensure_binding
+from backend.security_scan_controls import unprotect_secret
 from starlette.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.encoders import jsonable_encoder
@@ -343,7 +345,15 @@ def _ensure_client_managed_agent(
     agent_id = _client_managed_agent_id(client.client_id, local_agent_id)
     existing = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == agent_id).first()
     if existing:
-        if _agent_kind(existing.channel) != _agent_kind(client_agent.agent_type) or not _token_can_use_agent(db, token, existing):
+        linked_client = db.query(models.ClientAgent.client_id).filter(
+            models.ClientAgent.managed_agent_id == agent_id
+        ).first()
+        if (
+            existing.origin_type != "client_discovery"
+            or _agent_kind(existing.channel) != _agent_kind(client_agent.agent_type)
+            or (linked_client and linked_client[0] != client.client_id)
+            or not _token_can_use_agent(db, token, existing)
+        ):
             raise ApiError(
                 409,
                 "client.auto_agent_identity_conflict",
@@ -371,6 +381,7 @@ def _ensure_client_managed_agent(
         channel=label,
         status="active",
         default_model=model_name,
+        origin_type="client_discovery",
         skill_names_json="[]",
         prompt_names_json="[]",
         created_by=owner,
@@ -392,6 +403,112 @@ def _ensure_client_managed_agent(
         )
     )
     return row
+
+
+def _ensure_inventory_agent_identity(
+    db: Session,
+    *,
+    client: models.ManagedClient,
+    client_agent: models.ClientAgent,
+    owner: str | None,
+    group_id: int | None = None,
+    source: str = "inventory",
+) -> models.ManagedAgent:
+    """Create the stable internal identity for a Client-discovered Agent.
+
+    The identity is infrastructure for policy, credentials and audit. It is not
+    a user-managed association to a separately created platform Agent.
+    """
+    local_agent_id = _local_agent_id(client_agent.local_agent_id, client_agent.agent_type)
+    agent_id = _client_managed_agent_id(client.client_id, local_agent_id)
+    existing = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == agent_id).first()
+    if existing:
+        linked_client = db.query(models.ClientAgent.client_id).filter(
+            models.ClientAgent.managed_agent_id == agent_id
+        ).first()
+        if (
+            existing.origin_type != "client_discovery"
+            or _agent_kind(existing.channel) != _agent_kind(client_agent.agent_type)
+            or (linked_client and linked_client[0] != client.client_id)
+        ):
+            raise ApiError(
+                409,
+                "client.auto_agent_identity_conflict",
+                "本机 Agent 的自动运行身份与现有记录冲突",
+                "The automatic runtime identity for this local Agent conflicts with an existing record",
+            )
+        return existing
+    label = _MODEL_CONFIG_AGENT_LABELS.get(client_agent.agent_type, client_agent.agent_type)
+    row = models.ManagedAgent(
+        agent_id=agent_id,
+        name=f"{client.name} · {label}"[:128],
+        department_group_id=group_id,
+        owner=owner or client.registered_by,
+        description=f"由客户端 {client.name} ({client.client_id}) 自动登记的本机 {label}。",
+        channel=label,
+        status="active",
+        default_model=client_agent.applied_model or client_agent.desired_model,
+        origin_type="client_discovery",
+        skill_names_json="[]",
+        prompt_names_json="[]",
+        created_by=owner or client.registered_by,
+    )
+    db.add(row)
+    db.flush()
+    db.add(
+        models.ClientEvent(
+            client_id=client.client_id,
+            event_type="managed_agent_auto_created",
+            agent_type=client_agent.agent_type,
+            details_json=_dump(
+                {
+                    "local_agent_id": local_agent_id,
+                    "managed_agent_id": row.agent_id,
+                    "source": source,
+                }
+            ),
+        )
+    )
+    return row
+
+
+def ensure_client_inventory_identities(
+    db: Session,
+    client: models.ManagedClient,
+    *,
+    owner: str | None,
+    group_id: int | None = None,
+    source: str = "inventory",
+) -> int:
+    created_or_bound = 0
+    for client_agent in db.query(models.ClientAgent).filter(models.ClientAgent.client_id == client.client_id).all():
+        if client_agent.managed_agent_id:
+            client_agent.takeover_status = "managed"
+            continue
+        identity = _ensure_inventory_agent_identity(
+            db,
+            client=client,
+            client_agent=client_agent,
+            owner=owner,
+            group_id=group_id,
+            source=source,
+        )
+        client_agent.managed_agent_id = identity.agent_id
+        client_agent.takeover_status = "managed"
+        created_or_bound += 1
+    return created_or_bound
+
+
+def backfill_client_inventory_identities(db: Session) -> int:
+    changed = 0
+    for client in db.query(models.ManagedClient).all():
+        changed += ensure_client_inventory_identities(
+            db,
+            client,
+            owner=client.registered_by,
+            source="migration",
+        )
+    return changed
 
 
 def _manager_trusted_skill(manager, skill_id: str):
@@ -642,12 +759,13 @@ def _replace_inventory(db: Session, client_id: str, agents: list[schemas.ClientA
     for agent in agents:
         local_agent_id = _local_agent_id(agent.local_agent_id, agent.agent_type)
         previous = existing.get(local_agent_id)
+        managed_agent_id = agent.managed_agent_id or (previous.managed_agent_id if previous else None)
         db.add(
             models.ClientAgent(
                 client_id=client_id,
                 local_agent_id=local_agent_id,
                 agent_type=agent.agent_type,
-                managed_agent_id=agent.managed_agent_id or (previous.managed_agent_id if previous else None),
+                managed_agent_id=managed_agent_id,
                 agent_version=agent.version,
                 install_path=agent.install_path,
                 skills_path=agent.skills_path,
@@ -658,6 +776,7 @@ def _replace_inventory(db: Session, client_id: str, agents: list[schemas.ClientA
                 model_config_status=previous.model_config_status if previous else "not_configured",
                 model_config_error=previous.model_config_error if previous else None,
                 model_config_updated_at=previous.model_config_updated_at if previous else None,
+                takeover_status="managed" if managed_agent_id else "discovered",
                 last_scanned_at=now,
             )
         )
@@ -694,24 +813,6 @@ def _agent_kind(value: str | None) -> str:
         "claudesktop": "claudedesktop",
         "geminicli": "gemini",
     }.get(normalized, normalized)
-
-
-def _auto_match_agents(db: Session, client_id: str, owner: str | None) -> None:
-    candidates = db.query(models.ManagedAgent).filter(models.ManagedAgent.status == "active")
-    assigned_elsewhere = db.query(models.ClientAgent.managed_agent_id).filter(
-        models.ClientAgent.client_id != client_id,
-        models.ClientAgent.managed_agent_id.is_not(None),
-    )
-    candidates = candidates.filter(~models.ManagedAgent.agent_id.in_(assigned_elsewhere))
-    if owner:
-        candidates = candidates.filter(models.ManagedAgent.created_by == owner)
-    by_kind: dict[str, list[models.ManagedAgent]] = {}
-    for candidate in candidates.all():
-        by_kind.setdefault(_agent_kind(candidate.channel), []).append(candidate)
-    for local in db.query(models.ClientAgent).filter(models.ClientAgent.client_id == client_id).all():
-        matches = by_kind.get(_agent_kind(local.agent_type), [])
-        if not local.managed_agent_id and len(matches) == 1:
-            local.managed_agent_id = matches[0].agent_id
 
 
 def _client_response(db: Session, row: models.ManagedClient) -> dict:
@@ -756,6 +857,7 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
         "created_at": row.created_at,
         "issue_count": issue_count,
         "recovery": [_load(item.details_json, {}) for item in db.query(models.ClientRecoveryRecord).filter_by(client_id=row.client_id).all()],
+        "model_routing": classification["model_routing"],
         "agents": [
             {
                 "local_agent_id": _local_agent_id(agent.local_agent_id, agent.agent_type),
@@ -771,7 +873,6 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
                 "model_config_status": agent.model_config_status,
                 "model_config_error": agent.model_config_error,
                 "model_config_updated_at": agent.model_config_updated_at,
-                "takeover_status": agent.takeover_status,
                 "skills": [
                     {
                         "skill_id": skill.skill_id,
@@ -837,6 +938,66 @@ def _client_policy_response(db: Session, row: models.ManagedClient) -> dict:
         },
         "agent_profiles": profiles,
     }
+
+
+def _external_catalog_response(
+    db: Session,
+    *,
+    client: models.ManagedClient,
+    client_agent: models.ClientAgent,
+    managed_agent: models.ManagedAgent,
+) -> dict:
+    routing = client_governance.policy_view(db, client.client_id)["model_routing"]
+    if not routing.get("external_gateway_enabled"):
+        raise ApiError(403, "client.external_gateway_disabled", "平台策略未允许使用外部 AI 网关", "The platform policy does not allow external AI gateways")
+    gateway = db.get(models.ExternalAIGateway, routing.get("external_gateway_id"))
+    if not gateway or not gateway.enabled:
+        raise ApiError(409, "client.external_gateway_unavailable", "外部 AI 网关不存在或未启用", "The external AI gateway is missing or disabled")
+    binding = db.query(models.ExternalGatewayAgentBinding).filter_by(
+        gateway_id=gateway.id, managed_agent_id=managed_agent.agent_id
+    ).first()
+    if not binding and not routing.get("auto_register_agent", True):
+        raise ApiError(409, "client.external_agent_registration_required", "外部 Agent 尚未注册", "The external Agent has not been registered")
+    binding = ensure_binding(db, gateway, managed_agent, client_id=client.client_id)
+    catalog = binding_models(db, gateway, binding)
+    db.commit()
+    return {
+        "source": "external_gateway",
+        "gateway": {"id": gateway.id, "name": gateway.name, "model_base_url": gateway.model_base_url},
+        "binding": {
+            "id": binding.id,
+            "external_agent_id": binding.external_agent_id,
+            "key_id": binding.key_id,
+            "status": binding.status,
+            "models_refreshed_at": binding.models_refreshed_at,
+        },
+        "models": catalog,
+        "auth_scheme": "bearer",
+        "agent": {
+            "agent_type": client_agent.agent_type,
+            "local_agent_id": _local_agent_id(client_agent.local_agent_id, client_agent.agent_type),
+            "managed_agent_id": managed_agent.agent_id,
+        },
+    }
+
+
+def _catalog_target(
+    db: Session,
+    client: models.ManagedClient,
+    body: schemas.ClientExternalModelCatalogRequest,
+) -> tuple[models.ClientAgent, models.ManagedAgent | None]:
+    local_agent_id = _local_agent_id(body.local_agent_id, body.agent_type.strip())
+    client_agent = db.query(models.ClientAgent).filter_by(
+        client_id=client.client_id, local_agent_id=local_agent_id, agent_type=body.agent_type.strip()
+    ).first()
+    if not client_agent or not _load(client_agent.capabilities_json, {}).get("model_config_auto_apply"):
+        raise ApiError(400, "client.model_config_agent_unsupported", "客户端未发现支持模型切换的目标 Agent", "The Client did not discover a target Agent that supports model switching")
+    requested = str(body.managed_agent_id or "").strip()
+    if client_agent.managed_agent_id and requested not in {"", client_agent.managed_agent_id}:
+        raise ApiError(409, "client.agent_identity_mismatch", "本机 Agent 身份与请求不一致", "The local Agent identity does not match the request")
+    managed_id = client_agent.managed_agent_id
+    managed_agent = db.query(models.ManagedAgent).filter_by(agent_id=managed_id, status="active").first() if managed_id else None
+    return client_agent, managed_agent
 
 
 def _task_history(db: Session, client_id: str, limit: int = 100, rows=None) -> list[dict]:
@@ -968,7 +1129,7 @@ def register_client(
     _replace_inventory(db, body.client_id, body.agents)
     _replace_recovery_inventory(db, body.client_id, body.recovery)
     client_governance.record_protocol(db, body.client_id, body.governance_protocol, is_new=is_new)
-    _auto_match_agents(db, body.client_id, token.created_by)
+    ensure_client_inventory_identities(db, row, owner=token.created_by, group_id=token.group_id)
     if is_new:
         db.add(models.ClientEvent(client_id=body.client_id, event_type="client_registered"))
     db.commit()
@@ -1103,6 +1264,17 @@ def get_client_runtime_status(
     )
     if allowed_model_names:
         model_query = model_query.filter(models.ModelEndpoint.name.in_(allowed_model_names))
+    routing = client_governance.policy_view(db, client_id)["model_routing"]
+    external_gateway = (
+        db.get(models.ExternalAIGateway, routing.get("external_gateway_id"))
+        if routing.get("external_gateway_enabled") and routing.get("external_gateway_id")
+        else None
+    )
+    bound_managed_agent_ids = [
+        item.managed_agent_id
+        for item in db.query(models.ClientAgent).filter_by(client_id=client_id).all()
+        if item.managed_agent_id
+    ]
     result["model_configuration"] = {
         "adapters": MODEL_ADAPTERS,
         "can_configure_models": can_configure_models,
@@ -1126,6 +1298,37 @@ def get_client_runtime_status(
                 else []
             )
         ],
+        "model_routing": routing,
+        "external_gateway": (
+            {
+                "id": external_gateway.id,
+                "name": external_gateway.name,
+                "model_base_url": external_gateway.model_base_url,
+            }
+            if external_gateway and external_gateway.enabled
+            else None
+        ),
+        "external_catalogs": [
+            {
+                "gateway_id": binding.gateway_id,
+                "gateway_name": external_gateway.name if external_gateway and binding.gateway_id == external_gateway.id else None,
+                "managed_agent_id": binding.managed_agent_id,
+                "external_agent_id": binding.external_agent_id,
+                "key_id": binding.key_id,
+                "status": binding.status,
+                "models": _load(binding.available_models_json, []),
+                "models_refreshed_at": binding.models_refreshed_at,
+            }
+            for binding in db.query(models.ExternalGatewayAgentBinding)
+            .filter(
+                models.ExternalGatewayAgentBinding.gateway_id == routing.get("external_gateway_id"),
+                models.ExternalGatewayAgentBinding.managed_agent_id.in_(
+                    bound_managed_agent_ids
+                )
+            )
+            .order_by(models.ExternalGatewayAgentBinding.id)
+            .all()
+        ] if routing.get("external_gateway_enabled") and routing.get("client_select_model", True) else [],
     }
     llm_config = LLMConfig.load()
     sandbox_config = SandboxConfig.load()
@@ -1139,17 +1342,66 @@ def get_client_runtime_status(
             "detail": llm_config.model if llm_config.is_ready else None,
         },
     }
-    agents = db.query(models.ManagedAgent).filter(models.ManagedAgent.status == "active")
-    owner = db.query(models.User).filter(models.User.username == token.created_by).first()
-    if not owner or owner.role != "super_admin":
-        agents = agents.filter(models.ManagedAgent.created_by == token.created_by)
-    result["available_managed_agents"] = [
-        {"agent_id": agent.agent_id, "name": agent.name, "channel": agent.channel}
-        for agent in agents.order_by(models.ManagedAgent.name.asc()).all()
-    ]
     result["tasks"] = _task_history(db, client_id, 20)
     result["events"] = _event_history(db, client_id, 50)
     return result
+
+
+@router.post("/{client_id}/model-catalog/refresh")
+def refresh_external_model_catalog(
+    client_id: str,
+    body: schemas.ClientExternalModelCatalogRequest,
+    request: Request,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    token = _runtime_token("client:read-tasks", authorization, request, db)
+    _bind_client(token, client_id, db)
+    client = _client_or_404(db, client_id)
+    routing = client_governance.policy_view(db, client_id)["model_routing"]
+    if not routing.get("client_select_model", True):
+        raise ApiError(
+            403,
+            "client.external_model_selection_disabled",
+            "平台策略未允许客户端自主选择外部模型",
+            "The platform policy does not allow Client-side external model selection",
+        )
+    client_agent, managed_agent = _catalog_target(db, client, body)
+    if managed_agent is None:
+        if not token.allow_agent_credential_issuance:
+            raise ApiError(403, "client.agent_credential_issuance_disabled", "当前客户端凭证未开启创建运行身份的权限", "This Client credential cannot create runtime identities")
+        managed_agent = _ensure_client_managed_agent(
+            db, client=client, client_agent=client_agent, token=token, model_name=""
+        )
+        client_agent.managed_agent_id = managed_agent.agent_id
+        db.flush()
+    if not _token_can_use_agent(db, token, managed_agent):
+        raise ApiError(404, "agent.not_found", "平台 Agent 不存在或无权使用", "Managed Agent not found")
+    return _external_catalog_response(db, client=client, client_agent=client_agent, managed_agent=managed_agent)
+
+
+@router.post("/{client_id}/external-model-catalog")
+def admin_external_model_catalog(
+    client_id: str,
+    body: schemas.ClientExternalModelCatalogRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    client = _client_or_404(db, client_id)
+    _ensure_visible(client, current_user)
+    client_agent, managed_agent = _catalog_target(db, client, body)
+    if managed_agent is None:
+        managed_agent = _ensure_inventory_agent_identity(
+            db,
+            client=client,
+            client_agent=client_agent,
+            owner=current_user.username,
+            source="external_model_catalog",
+        )
+        client_agent.managed_agent_id = managed_agent.agent_id
+        client_agent.takeover_status = "managed"
+        db.flush()
+    return _external_catalog_response(db, client=client, client_agent=client_agent, managed_agent=managed_agent)
 
 
 @router.post("/{client_id}/inventory")
@@ -1165,7 +1417,7 @@ def report_inventory(
     row = _client_or_404(db, client_id)
     _replace_inventory(db, client_id, body.agents)
     _replace_recovery_inventory(db, client_id, body.recovery)
-    _auto_match_agents(db, client_id, token.created_by)
+    ensure_client_inventory_identities(db, row, owner=token.created_by, group_id=token.group_id)
     row.last_seen_at = datetime.utcnow()
     row.status = "online"
     db.commit()
@@ -1444,40 +1696,20 @@ def request_model_configuration(
     if client_agent.managed_agent_id and requested_managed_agent_id not in {"", client_agent.managed_agent_id}:
         raise ApiError(
             409,
-            "client.agent_binding_locked",
-            "本机 Agent 已关联其他平台 Agent，请在客户端管理中更改关联",
-            "The local Agent is already linked to another managed Agent",
+            "client.agent_identity_mismatch",
+            "本机 Agent 身份与请求不一致，请刷新客户端清单",
+            "The local Agent identity does not match the request; refresh the Client inventory",
         )
     if not client_agent.managed_agent_id:
-        if requested_managed_agent_id:
-            requested_agent = (
-                db.query(models.ManagedAgent)
-                .filter(
-                    models.ManagedAgent.agent_id == requested_managed_agent_id,
-                    models.ManagedAgent.status == "active",
-                )
-                .first()
-            )
-            if not requested_agent or not _token_can_use_agent(db, client_token, requested_agent):
-                raise ApiError(404, "agent.not_found", "平台 Agent 不存在或无权使用", "Managed Agent not found")
-            if _agent_kind(requested_agent.channel) != _agent_kind(agent_type):
-                raise ApiError(
-                    400,
-                    "client.agent_binding_type_mismatch",
-                    "平台 Agent 类型与本机 Agent 不一致",
-                    "The managed Agent type does not match the local Agent",
-                )
-            binding_source = "model_switch_existing"
-        else:
-            requested_agent = _ensure_client_managed_agent(
-                db,
-                client=client,
-                client_agent=client_agent,
-                token=client_token,
-                model_name=model_name,
-            )
-            binding_source = "model_switch_auto_created"
+        requested_agent = _ensure_client_managed_agent(
+            db,
+            client=client,
+            client_agent=client_agent,
+            token=client_token,
+            model_name=model_name,
+        )
         client_agent.managed_agent_id = requested_agent.agent_id
+        client_agent.takeover_status = "managed"
         db.add(
             models.ClientEvent(
                 client_id=client_id,
@@ -1487,7 +1719,7 @@ def request_model_configuration(
                     {
                         "local_agent_id": local_agent_id,
                         "managed_agent_id": requested_agent.agent_id,
-                        "source": binding_source,
+                        "source": "model_switch_auto_created",
                     }
                 ),
             )
@@ -1501,31 +1733,62 @@ def request_model_configuration(
         .first()
     )
     if not agent or not _token_can_use_agent(db, client_token, agent):
-        raise ApiError(404, "agent.bound_not_found", "关联的 Agent 不存在或未启用", "The linked Agent is missing or disabled")
+        raise ApiError(404, "agent.identity_not_found", "本机 Agent 身份不存在或未启用", "The local Agent identity is missing or disabled")
+    source = body.source
     delegated_models = {
         str(item).strip()
         for item in _load(client_token.allowed_models_json, [])
         if str(item).strip()
     }
-    if delegated_models and model_name not in delegated_models:
+    if source == "internal" and delegated_models and model_name not in delegated_models:
         raise ApiError(
             403,
             "client.model_not_delegated",
             "当前客户端凭证不允许配置该模型",
             "The Client credential cannot configure this model",
         )
-    model = (
-        db.query(models.ModelEndpoint)
-        .join(models.ModelProvider, models.ModelProvider.id == models.ModelEndpoint.provider_id)
-        .filter(
-            models.ModelEndpoint.name == model_name,
-            models.ModelEndpoint.enabled.is_(True),
-            models.ModelProvider.enabled.is_(True),
+    model = None
+    gateway = None
+    external_binding = None
+    if source == "internal":
+        model = (
+            db.query(models.ModelEndpoint)
+            .join(models.ModelProvider, models.ModelProvider.id == models.ModelEndpoint.provider_id)
+            .filter(
+                models.ModelEndpoint.name == model_name,
+                models.ModelEndpoint.enabled.is_(True),
+                models.ModelProvider.enabled.is_(True),
+            )
+            .first()
         )
-        .first()
-    )
-    if not model:
-        raise ApiError(404, "model.not_found", "模型不存在或未启用", "The model is missing or disabled")
+        if not model:
+            raise ApiError(404, "model.not_found", "模型不存在或未启用", "The model is missing or disabled")
+    else:
+        routing = client_governance.policy_view(db, client_id)["model_routing"]
+        if not routing.get("external_gateway_enabled"):
+            raise ApiError(403, "client.external_gateway_disabled", "平台策略未允许使用外部 AI 网关", "The platform policy does not allow external AI gateways")
+        if not routing.get("client_select_model", True):
+            raise ApiError(
+                403,
+                "client.external_model_selection_disabled",
+                "平台策略未允许客户端自主选择外部模型",
+                "The platform policy does not allow Client-side external model selection",
+            )
+        if body.gateway_id not in (None, routing.get("external_gateway_id")):
+            raise ApiError(403, "client.external_gateway_not_allowed", "所选外部网关不在平台策略范围内", "The selected external gateway is outside the platform policy")
+        gateway = db.get(models.ExternalAIGateway, routing.get("external_gateway_id"))
+        if not gateway or not gateway.enabled:
+            raise ApiError(409, "client.external_gateway_unavailable", "外部 AI 网关不存在或未启用", "The external AI gateway is missing or disabled")
+        external_binding = db.query(models.ExternalGatewayAgentBinding).filter_by(
+            gateway_id=gateway.id, managed_agent_id=agent.agent_id
+        ).first()
+        if not external_binding:
+            if not routing.get("auto_register_agent", True):
+                raise ApiError(409, "client.external_agent_registration_required", "外部 Agent 尚未注册", "The external Agent has not been registered")
+            external_binding = ensure_binding(db, gateway, agent, client_id=client_id)
+        external_models = binding_models(db, gateway, external_binding)
+        if model_name not in {item["id"] for item in external_models}:
+            raise ApiError(404, "external_gateway.model_not_available", "当前外部 Agent 无权使用所选模型", "The selected model is unavailable to this external Agent")
     options = validate_model_options(agent_type, body.parameters, body.expected_revision, model)
     validate_parameter_version(agent_type, options["parameters"], client_agent.agent_version)
     validate_effective_parameters(agent_type, options["parameters"], reported_model_parameters(_load(client_agent.capabilities_json, {})), model)
@@ -1554,10 +1817,23 @@ def request_model_configuration(
         "local_agent_id": local_agent_id,
         "agent_type": agent_type,
         "managed_agent_id": agent.agent_id,
-        "model": model.name,
-        "auto_issue_credential": True,
+        "model": model_name,
         **options,
     }
+    if source == "external_gateway":
+        payload.update({
+            "source": "external_gateway",
+            "model": model_name,
+            "gateway_id": gateway.id,
+            "external_binding_id": external_binding.id,
+            "model_base_url": gateway.model_base_url,
+            "gateway_source": "external",
+            "credential_source": "external_gateway",
+            "credential_type": "external_gateway_api_key",
+            "verification_mode": "client_call",
+        })
+    else:
+        payload["auto_issue_credential"] = True
     task = models.ClientTask(
         client_id=client_id,
         task_type="apply_model_config",
@@ -1566,11 +1842,11 @@ def request_model_configuration(
         started_at=now,
     )
     db.add(task)
-    client_agent.desired_model = model.name
+    client_agent.desired_model = model_name
     client_agent.model_config_status = "applying"
     client_agent.model_config_error = None
     client_agent.model_config_updated_at = now
-    agent.default_model = model.name
+    agent.default_model = model_name
     agent.updated_at = now
     db.commit()
     db.refresh(task)
@@ -1592,16 +1868,21 @@ def preflight_model_task(
     binding = db.query(models.ClientAgent).filter_by(client_id=client_id, agent_type=kind, local_agent_id=payload.get("local_agent_id")).first()
     agent = db.query(models.ManagedAgent).filter_by(agent_id=binding.managed_agent_id, status="active").first() if binding else None
     if not agent or agent.agent_id != payload.get("managed_agent_id"):
-        raise ApiError(404, "agent.bound_not_found", "关联的 Agent 不存在或未启用", "The linked Agent is missing or disabled")
-    model = db.query(models.ModelEndpoint).join(models.ModelProvider).filter(
+        raise ApiError(404, "agent.identity_not_found", "本机 Agent 身份不存在或未启用", "The local Agent identity is missing or disabled")
+    external = payload.get("credential_source") == "external_gateway"
+    model = None if external else db.query(models.ModelEndpoint).join(models.ModelProvider).filter(
         models.ModelEndpoint.name == payload.get("model"), models.ModelEndpoint.enabled.is_(True), models.ModelProvider.enabled.is_(True),
     ).first()
-    if not model:
+    if not external and not model:
         raise ApiError(404, "model.not_found", "模型不存在或未启用", "The model is missing or disabled")
     delegated = _load(token.allowed_models_json, [])
-    if delegated and model.name not in delegated:
+    if not external and delegated and model.name not in delegated:
         raise ApiError(403, "client.model_not_delegated", "当前客户端凭证不允许配置该模型", "The Client credential cannot configure this model")
-    if payload.get("auto_issue_credential"):
+    if external:
+        external_binding = db.get(models.ExternalGatewayAgentBinding, payload.get("external_binding_id"))
+        if not external_binding or external_binding.status != "active" or external_binding.managed_agent_id != agent.agent_id:
+            raise ApiError(409, "client.external_binding_unavailable", "外部 Agent 绑定不可用", "The external Agent binding is unavailable")
+    elif payload.get("auto_issue_credential"):
         if not token.allow_agent_credential_issuance:
             raise ApiError(403, "client.agent_credential_issuance_disabled", "当前客户端凭证未开启创建运行凭证的权限", "This Client credential cannot create runtime credentials")
     elif model.name not in _agent_model_names(db, agent):
@@ -1658,7 +1939,10 @@ def issue_task_agent_credential(
             "Only pending or running tasks may issue an Agent runtime credential",
         )
     payload = _load(task.payload_json, {})
-    if not payload.get("auto_issue_credential"):
+    external = payload.get("credential_source") == "external_gateway"
+    if body and body.credential_source != ("external_gateway" if external else "agent_runtime"):
+        raise ApiError(409, "client.credential_source_mismatch", "领取的凭据来源与任务不一致", "The requested credential source does not match the task")
+    if not external and not payload.get("auto_issue_credential"):
         raise ApiError(
             403,
             "client.task_credential_issuance_not_authorized",
@@ -1680,16 +1964,41 @@ def issue_task_agent_credential(
     if not client_agent or not client_agent.managed_agent_id:
         raise ApiError(
             400,
-            "client.agent_binding_required",
-            "本机 Agent 尚未绑定平台 Agent",
-            "The local Agent is not bound to a managed Agent",
+            "client.agent_identity_missing",
+            "本机 Agent 身份尚未自动登记",
+            "The local Agent identity has not been registered automatically",
         )
     agent = db.query(models.ManagedAgent).filter(
         models.ManagedAgent.agent_id == client_agent.managed_agent_id,
         models.ManagedAgent.status == "active",
     ).first()
     if not agent:
-        raise ApiError(404, "agent.bound_not_found", "绑定的 Agent 不存在或未启用", "The bound Agent is missing or disabled")
+        raise ApiError(404, "agent.identity_not_found", "本机 Agent 身份不存在或未启用", "The local Agent identity is missing or disabled")
+    if external:
+        binding = db.get(models.ExternalGatewayAgentBinding, payload.get("external_binding_id"))
+        gateway = db.get(models.ExternalAIGateway, payload.get("gateway_id"))
+        if (
+            not binding
+            or not gateway
+            or not gateway.enabled
+            or binding.gateway_id != gateway.id
+            or binding.managed_agent_id != agent.agent_id
+            or binding.status != "active"
+        ):
+            raise ApiError(409, "client.external_binding_unavailable", "外部 Agent 绑定不可用", "The external Agent binding is unavailable")
+        plain = unprotect_secret(binding.api_key_encrypted)
+        if not plain:
+            raise ApiError(409, "external_gateway.credential_unavailable", "外部 Agent API Key 不可用", "External Agent API key is unavailable")
+        return schemas.ClientAgentCredentialResponse(
+            token=plain,
+            token_prefix=plain[:8],
+            bound_agent_id=agent.agent_id,
+            credential_type="external_gateway_api_key",
+            credential_source="external_gateway",
+            gateway_base_url=gateway.model_base_url,
+            allowed_models=[model_name],
+            allowed_mcp_gateways=[],
+        )
     model = db.query(models.ModelEndpoint).join(models.ModelProvider).filter(
         models.ModelEndpoint.name == model_name,
         models.ModelEndpoint.enabled.is_(True),
@@ -1724,6 +2033,8 @@ def issue_task_agent_credential(
         token=plain,
         token_prefix=credential.token_prefix,
         bound_agent_id=agent.agent_id,
+        credential_type="agent_runtime",
+        credential_source="agent_runtime",
         allowed_models=[model.name],
         allowed_mcp_gateways=allowed_mcp_gateways,
     )
@@ -1739,7 +2050,7 @@ def model_verification_evidence(
     _bind_client(token, client_id, db)
     agent = db.query(models.ClientAgent).filter_by(client_id=client_id, local_agent_id=body.local_agent_id, agent_type=body.agent_type).first()
     if not agent or not agent.managed_agent_id:
-        raise ApiError(404, "client.agent_binding_required", "未找到已绑定的 Agent", "Bound Agent not found")
+        raise ApiError(404, "client.agent_identity_missing", "未找到本机 Agent 身份", "Local Agent identity not found")
     return {"requests": probe_evidence(db, client_id, agent.managed_agent_id, body.challenge)}
 
 
@@ -1797,23 +2108,24 @@ def report_task_result(
     row.error = body.error
     payload = _load(row.payload_json, {})
     if row.task_type in {"verify_model_config", "restore_model_config"}:
-        state = "applying" if body.status == "running" else "failed"
+        state = "applying" if body.status == "running" else "restored" if body.restored_after_failure else "failed"
         if body.status == "succeeded":
             state = "restored"
             if row.task_type == "verify_model_config":
-                agent = db.query(models.ClientAgent).filter_by(client_id=client_id, local_agent_id=payload["local_agent_id"], agent_type=payload["agent_type"]).first()
-                evidence = db.query(models.LlmRequestAudit).filter(models.LlmRequestAudit.request_id.in_(body.verification_request_ids),
-                    models.LlmRequestAudit.agent_id == (agent.managed_agent_id if agent else ""),
-                    models.LlmRequestAudit.model == payload["model"], models.LlmRequestAudit.status == "success",
-                    models.LlmRequestAudit.credential_type == "agent_runtime",
-                    models.LlmRequestAudit.created_at >= row.created_at).first()
-                if not evidence:
-                    row.status = "failed"
-                    row.error = "model_config.gateway_evidence_missing"
-                    row.finished_at = datetime.utcnow()
-                    _update_model_config_state(db, client_id, payload, "failed", row.error)
-                    db.commit()
-                    raise ApiError(409, "client.model_evidence_required", "缺少成功调用的网关证据", "Successful gateway call evidence is required")
+                if payload.get("verification_mode") != "client_call":
+                    agent = db.query(models.ClientAgent).filter_by(client_id=client_id, local_agent_id=payload["local_agent_id"], agent_type=payload["agent_type"]).first()
+                    evidence = db.query(models.LlmRequestAudit).filter(models.LlmRequestAudit.request_id.in_(body.verification_request_ids),
+                        models.LlmRequestAudit.agent_id == (agent.managed_agent_id if agent else ""),
+                        models.LlmRequestAudit.model == payload["model"], models.LlmRequestAudit.status == "success",
+                        models.LlmRequestAudit.credential_type == "agent_runtime",
+                        models.LlmRequestAudit.created_at >= row.created_at).first()
+                    if not evidence:
+                        row.status = "failed"
+                        row.error = "model_config.gateway_evidence_missing"
+                        row.finished_at = datetime.utcnow()
+                        _update_model_config_state(db, client_id, payload, "failed", row.error)
+                        db.commit()
+                        raise ApiError(409, "client.model_evidence_required", "缺少成功调用的网关证据", "Successful gateway call evidence is required")
                 state = "verified"
         _update_model_config_state(db, client_id, payload, state, body.error)
         if body.applied_model is not None:
@@ -2127,43 +2439,6 @@ def update_client_policy(
     }
 
 
-@router.put("/{client_id}/agents/{agent_type}")
-def bind_client_agent(
-    client_id: str,
-    agent_type: str,
-    body: schemas.ClientAgentBindingUpdate,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_admin_user),
-):
-    client = _client_or_404(db, client_id)
-    _ensure_visible(client, current_user)
-    row = (
-        db.query(models.ClientAgent)
-        .filter(models.ClientAgent.client_id == client_id, models.ClientAgent.agent_type == agent_type)
-        .first()
-    )
-    if not row:
-        raise HTTPException(status_code=404, detail="本地 Agent 不存在")
-    if body.managed_agent_id:
-        agent = db.query(models.ManagedAgent).filter(models.ManagedAgent.agent_id == body.managed_agent_id).first()
-        if not agent:
-            raise HTTPException(status_code=404, detail="平台智能体不存在")
-        if current_user.role != "super_admin" and agent.created_by != current_user.username:
-            raise HTTPException(status_code=404, detail="平台智能体不存在")
-        if _agent_kind(agent.channel) != _agent_kind(agent_type):
-            raise HTTPException(status_code=400, detail="平台智能体类型与本地 Agent 不一致")
-    row.managed_agent_id = body.managed_agent_id
-    _operation(
-        db,
-        current_user,
-        "更新本地 Agent 映射",
-        client_id,
-        f"agent_type={agent_type}, managed_agent_id={body.managed_agent_id or '-'}",
-    )
-    db.commit()
-    return {"client_id": client_id, "agent_type": agent_type, "managed_agent_id": row.managed_agent_id}
-
-
 def _lock_model_task_agent(db, client_id, local_id):
     # Serialize creation against the Agent row in the same database transaction.
     # A no-op UPDATE also takes the write lock on SQLite, where FOR UPDATE does not.
@@ -2188,6 +2463,9 @@ def _create_model_operation(db, client_id, operation, payload, actor):
         raise ApiError(409, "client.model_revision_conflict", "配置已变化，请刷新后重试", "Configuration changed; refresh and retry")
     normalized = {"agent_type": kind, "local_agent_id": local_id, "change_id": state["change_id"],
                   "expected_revision": state["revision"], "model": state.get("model", "")}
+    for key in ("gateway_source", "credential_source", "verification_mode"):
+        if state.get(key):
+            normalized[key] = state[key]
     active = db.query(models.ClientTask).filter(models.ClientTask.client_id == client_id,
         models.ClientTask.task_type.in_(("apply_model_config", "verify_model_config", "restore_model_config")),
         models.ClientTask.status.in_(("pending", "running"))).all()
@@ -2277,11 +2555,16 @@ def create_task(
         ).all()
         if any(_local_agent_id(_load(task.payload_json, {}).get("local_agent_id"), agent_type) == local_agent_id for task in active):
             raise ApiError(409, "client.model_config_in_progress", "该 Agent 正在切换模型", "A model switch is already running for this Agent")
-        target_model = db.query(models.ModelEndpoint).join(models.ModelProvider).filter(
-            models.ModelEndpoint.name == model_name, models.ModelEndpoint.enabled.is_(True), models.ModelProvider.enabled.is_(True),
-        ).first()
-        if not target_model:
-            raise ApiError(404, "model.not_found", "模型不存在或未启用", "The model is missing or disabled")
+        source = str(payload.get("source") or "internal")
+        if source not in {"internal", "external_gateway"}:
+            raise ApiError(422, "client.model_source_invalid", "模型来源无效", "Invalid model source")
+        target_model = None
+        if source == "internal":
+            target_model = db.query(models.ModelEndpoint).join(models.ModelProvider).filter(
+                models.ModelEndpoint.name == model_name, models.ModelEndpoint.enabled.is_(True), models.ModelProvider.enabled.is_(True),
+            ).first()
+            if not target_model:
+                raise ApiError(404, "model.not_found", "模型不存在或未启用", "The model is missing or disabled")
         options = validate_model_options(agent_type, payload.get("parameters", {}), payload.get("expected_revision"), target_model)
         validate_parameter_version(agent_type, options["parameters"], client_agent.agent_version)
         validate_effective_parameters(agent_type, options["parameters"], reported_model_parameters(capabilities), target_model)
@@ -2300,7 +2583,7 @@ def create_task(
             if issuance_token
             else set()
         )
-        if issuance_token and delegated_models and model_name not in delegated_models:
+        if source == "internal" and issuance_token and delegated_models and model_name not in delegated_models:
             raise ApiError(
                 403,
                 "client.model_not_delegated",
@@ -2308,7 +2591,7 @@ def create_task(
                 "The Client credential cannot configure this model",
             )
         allowed_models = _agent_model_names(db, agent)
-        if model_name not in allowed_models:
+        if source == "internal" and model_name not in allowed_models:
             model = db.query(models.ModelEndpoint).filter(
                 models.ModelEndpoint.name == model_name,
                 models.ModelEndpoint.enabled.is_(True),
@@ -2322,15 +2605,47 @@ def create_task(
                     "Agent 运行凭证未授权访问该模型，客户端凭证也未开启自动创建权限",
                     "The Agent runtime credential does not allow this model and the Client credential cannot create one",
                 )
-        payload = {
+        task_payload = {
             "local_agent_id": local_agent_id,
             "agent_type": agent_type,
             "managed_agent_id": agent.agent_id,
             "model": model_name,
             **options,
         }
-        if issuance_token:
-            payload["auto_issue_credential"] = True
+        if source == "external_gateway":
+            routing = client_governance.policy_view(db, client_id)["model_routing"]
+            if not routing.get("external_gateway_enabled"):
+                raise ApiError(403, "client.external_gateway_disabled", "平台策略未允许使用外部 AI 网关", "The platform policy does not allow external AI gateways")
+            gateway_id = routing.get("external_gateway_id")
+            requested_gateway_id = payload.get("gateway_id")
+            if requested_gateway_id not in (None, gateway_id):
+                raise ApiError(403, "client.external_gateway_not_allowed", "所选外部网关不在平台策略范围内", "The selected external gateway is outside the platform policy")
+            gateway = db.get(models.ExternalAIGateway, gateway_id)
+            if not gateway or not gateway.enabled:
+                raise ApiError(409, "client.external_gateway_unavailable", "外部 AI 网关不存在或未启用", "The external AI gateway is missing or disabled")
+            binding = db.query(models.ExternalGatewayAgentBinding).filter_by(
+                gateway_id=gateway.id, managed_agent_id=agent.agent_id
+            ).first()
+            if not binding:
+                if not routing.get("auto_register_agent", True):
+                    raise ApiError(409, "client.external_agent_registration_required", "外部 Agent 尚未注册", "The external Agent has not been registered")
+                binding = ensure_binding(db, gateway, agent, client_id=client_id)
+            external_models = binding_models(db, gateway, binding)
+            if model_name not in {item["id"] for item in external_models}:
+                raise ApiError(404, "external_gateway.model_not_available", "当前外部 Agent 无权使用所选模型", "The selected model is unavailable to this external Agent")
+            task_payload.update({
+                "source": "external_gateway",
+                "gateway_id": gateway.id,
+                "external_binding_id": binding.id,
+                "model_base_url": gateway.model_base_url,
+                "gateway_source": "external",
+                "credential_source": "external_gateway",
+                "credential_type": "external_gateway_api_key",
+                "verification_mode": "client_call",
+            })
+        elif issuance_token:
+            task_payload["auto_issue_credential"] = True
+        payload = task_payload
         client_agent.desired_model = model_name
         client_agent.model_config_status = "pending"
         client_agent.model_config_error = None

@@ -22,6 +22,8 @@ const panelTitle = panel => ({
 }[panel] || panel)
 let inventory = null
 let connection = null
+let savedConnections = []
+let pendingConnectionSwitch = null
 const submittingObservedPaths = new Set()
 let pendingSkillAction = null
 let requestingSkillAction = false
@@ -68,6 +70,8 @@ const CLIENT_UPDATE_SIGNAL_RETRY_DELAY_MS = 60 * 1000
 const LOCAL_EVENT_REVISION_KEY = 'agent-manager-local-event-revision'
 const LOCAL_EVENT_MAX_RETRIES = 5
 const CLIENT_SETTINGS_KEY = 'agent-manager-client-settings-v1'
+const EXTERNAL_GATEWAY_POLICY_PROMPT_KEY = 'agent-manager-external-gateway-policy-prompt-v1'
+const EXTERNAL_GATEWAY_POLICY_DISMISSED_KEY = 'agent-manager-external-gateway-policy-dismissed-v1'
 const DEFAULT_CLIENT_SETTINGS = {
   defaultPanel: 'connect',
   systemNotifications: true,
@@ -94,7 +98,7 @@ const saveClientSettings = patch => {
 
 const syncSettingsControls = () => {
   if (!$('#settings-language')) return
-  $('#settings-server').textContent = connection?.server || t('ui.settings.not_connected')
+  renderSavedConnections()
   $('#settings-language').value = window.clientI18n?.getLocale?.() || 'zh-CN'
   $('#settings-default-panel').value = clientSettings.defaultPanel
   $('#settings-system-notifications').checked = clientSettings.systemNotifications
@@ -114,13 +118,41 @@ const syncSettingsControls = () => {
     : tf`当前版本 ${clientBuildVersion} · ${clientSettings.updateChannel === 'preview' ? t('测试通道') : t('正式通道')}`
 }
 
+const renderSavedConnections = () => {
+  const element = $('#saved-connections')
+  if (!element) return
+  if (!savedConnections.length) {
+    element.innerHTML = `<div class="saved-connections-empty">${escapeHtml(t('ui.settings.not_connected'))}</div>`
+    return
+  }
+  element.innerHTML = savedConnections.map((item, index) => {
+    const label = item.name || item.server
+    return `<div class="saved-connection-row${item.active ? ' active' : ''}">
+      <span class="saved-connection-main"><strong>${escapeHtml(label)}</strong><small>${escapeHtml(item.server)}</small></span>
+      ${item.active ? `<span class="saved-connection-active">${escapeHtml(t('ui.settings.current_connection'))}</span>` : ''}
+      <span class="saved-connection-actions">
+        ${item.active
+          ? `<button type="button" class="icon-button icon-edit" data-edit-active-connection>${escapeHtml(t('ui.settings.edit_connection'))}</button>`
+          : `<button type="button" class="primary icon-button icon-connect" data-switch-connection="${index}">${escapeHtml(t('ui.settings.switch'))}</button>`}
+      </span>
+    </div>`
+  }).join('')
+  element.querySelector('[data-edit-active-connection]')?.addEventListener('click', () => editConnection())
+  element.querySelectorAll('[data-switch-connection]').forEach(button => button.addEventListener('click', () => beginConnectionSwitch(Number(button.dataset.switchConnection))))
+}
+
+const loadSavedConnections = async () => {
+  savedConnections = JSON.parse(await run('connections'))
+  renderSavedConnections()
+}
+
 const $ = selector => document.querySelector(selector)
 const setBusy = (button, busy) => {
   button.disabled = busy
   button.classList.toggle('is-busy', busy)
   if (busy) {
     button.dataset.original = button.textContent
-    button.dataset.busyLabel = button.dataset.busyText || t('ui.1j4vco4')
+    button.dataset.busyLabel = button.dataset.busyKey ? t(button.dataset.busyKey) : button.dataset.busyText || t('ui.1j4vco4')
     button.textContent = button.dataset.busyLabel
   } else if (button.textContent === button.dataset.busyLabel) {
     button.textContent = button.dataset.original
@@ -380,6 +412,9 @@ const renderDisconnected = () => {
   $('#connection-state').textContent = t('ui.1gwretz')
   $('#connection-state').classList.remove('online')
   $('#notification-trigger').hidden = true
+  $('#external-gateway-policy-banner').hidden = true
+  $('#external-model-readiness').hidden = true
+  if ($('#external-gateway-policy-dialog').open) $('#external-gateway-policy-dialog').close()
   $('#model-permission-note').textContent = t('client.models.connect_first')
   $('#model-agent-tabs').innerHTML = ''
   $('#model-current').innerHTML = ''
@@ -388,10 +423,15 @@ const renderDisconnected = () => {
   $('#panel-title').textContent = t('ui.wu8jgp')
   syncSettingsControls()
 }
-const editConnection = () => {
-  $('#edit-server').value = connection?.server || ''
-  $('#edit-client-name').value = connection?.name || connection?.platform?.name || ''
+const editConnection = (add = false) => {
+  $('#edit-connection-form').dataset.mode = add ? 'add' : 'edit'
+  $('#edit-connection-title').textContent = t(add ? 'ui.settings.add_connection_title' : 'ui.settings.edit_connection_title')
+  $('#edit-connection-description').textContent = t(add ? 'ui.settings.add_connection_hint' : 'ui.settings.edit_connection_hint')
+  $('#edit-server').value = add ? '' : connection?.server || ''
+  $('#edit-client-name').value = add ? '' : connection?.name || connection?.platform?.name || ''
   $('#edit-token').value = ''
+  $('#edit-token').required = add
+  $('#edit-token').placeholder = t(add ? 'ui.settings.credential_required' : 'ui.settings.keep_credential')
   $('#edit-connection-dialog').showModal()
   $('#edit-server').focus()
 }
@@ -410,6 +450,48 @@ $('#edit-connection-form').addEventListener('submit', async event => {
 $('#cancel-edit-connection').addEventListener('click', () => {
   $('#edit-token').value = ''
   $('#edit-connection-dialog').close()
+})
+
+const beginConnectionSwitch = index => {
+  const target = savedConnections[index]
+  if (target?.active) return
+  if (!target) return
+  pendingConnectionSwitch = target
+  $('#switch-connection-target').innerHTML = `<strong>${escapeHtml(target.name || target.server)}</strong><small>${escapeHtml(target.server)}</small>`
+  $('#switch-connection-dialog').showModal()
+}
+
+$('#cancel-switch-connection').addEventListener('click', () => {
+  pendingConnectionSwitch = null
+  $('#switch-connection-dialog').close()
+})
+
+$('#confirm-switch-connection').addEventListener('click', async event => {
+  if (!pendingConnectionSwitch || event.currentTarget.disabled) return
+  const button = event.currentTarget
+  const target = pendingConnectionSwitch
+  let serviceNeedsRestart = false
+  setBusy(button, true)
+  try {
+    const service = JSON.parse(await run('service-status'))
+    if (service.installed) {
+      await run('prepare-update')
+      serviceNeedsRestart = true
+    }
+    await run('switch-connection', ['--server', target.server])
+    await run('reconcile-service')
+    serviceNeedsRestart = false
+    pendingConnectionSwitch = null
+    $('#switch-connection-dialog').close()
+    await refreshConnection()
+  } catch (error) {
+    showMessageDialog(t('ui.settings.switch_failed'), connectionErrorText(error))
+  } finally {
+    if (serviceNeedsRestart) {
+      try { await run('reconcile-service') } catch (error) { log(error) }
+    }
+    setBusy(button, false)
+  }
 })
 
 const renderBuiltinAgentSettings = () => {
@@ -445,14 +527,11 @@ const loadBuiltinAgentSettings = async (force = false) => {
 
 const renderConnected = data => {
   const platform = data.platform || {}
-  const agents = data.inventory?.agents || []
+  const agents = (data.inventory?.agents || []).filter(visibleAgent)
   const localAgents = agents.filter(agent => !isSharedSkills(agent))
   const platformAgents = platform.agents || []
-  const platformByType = Object.fromEntries(platformAgents.map(agent => [agent.agent_type, agent]))
   const governableTargets = agents.filter(agent => agent.skill_management_supported)
   const supported = localAgents.filter(agent => agent.skill_management_supported)
-  const bound = supported.filter(agent => platformByType[agent.agent_type]?.managed_agent_id)
-  const strict = platform.governance_mode === 'strict'
   const managedSkills = platformAgents.reduce((count, agent) => count + (agent.skills || []).filter(skill => skill.skill_id).length, 0)
   const todos = []
   const local = data.local || {}
@@ -464,9 +543,6 @@ const renderConnected = data => {
   }
   if (data.connected && governableTargets.length === 0) {
     todos.push({ title: t('ui.1uwxfnn'), detail: t('ui.1syv6zk'), action: t('ui.ooab5x'), panel: 'discover' })
-  }
-  if (data.connected && strict && supported.length > bound.length) {
-    todos.push({ title: tf`${supported.length - bound.length} 个 Agent 尚未绑定`, detail: t('ui.tq4rjs'), action: t('ui.67hphv'), panel: 'discover' })
   }
   if (data.configured && !data.service_running) {
     todos.push({
@@ -532,8 +608,8 @@ const renderConnected = data => {
   $('#overview-sync').textContent = connectionError ? t('ui.xhhfbd') : t('ui.2fhcc7')
 
   $('#metric-agents').textContent = localAgents.length
-  $('#metric-bound').textContent = strict ? `${bound.length} / ${supported.length}` : supported.length
-  $('#metric-bound-label').textContent = strict ? t('ui.1idv0ac') : t('ui.16k09ve')
+  $('#metric-bound').textContent = supported.length
+  $('#metric-bound-label').textContent = t('ui.agentManagement.local_agents_managed')
   $('#metric-skills').textContent = local.managed_skills ?? managedSkills
   $('#metric-todos').textContent = todos.length
   $('#metric-todos').hidden = todos.length === 0
@@ -586,7 +662,7 @@ const renderConnected = data => {
             await loadQuarantine()
             $('#recovery-status-filter').value = ''
             const candidates = recoveryItems.filter(item => item.status !== 'backed_up' && item.status !== 'restored')
-            const target = inventory?.agents?.find(agent => installedAgent(agent) && candidates.some(item => item.agent_type === agent.agent_type))
+            const target = inventory?.agents?.find(agent => visibleAgent(agent) && candidates.some(item => item.agent_type === agent.agent_type))
             if (target) switchAgent(agentKey(target))
           } catch (error) {
             showMessageDialog(t('ui.agentTabs.recovery'), runtimeText(error))
@@ -624,6 +700,136 @@ const platformAgentForLocal = (data, agent) => {
 
 const modelConfigState = agent => agent?.capabilities?.model_config_state || {}
 
+const fillMessageTemplate = (key, values) => Object.entries(values).reduce(
+  (message, [name, value]) => message.replaceAll(`{${name}}`, String(value)),
+  t(key),
+)
+
+const normalizeGatewayURL = value => String(value || '').trim().replace(/\/+$/, '')
+
+const externalCatalogForLocal = (data, agent) => {
+  if (!agent) return null
+  const routing = data?.platform?.model_configuration?.model_routing || {}
+  const platformAgent = platformAgentForLocal(data, agent)
+  return (data?.platform?.model_configuration?.external_catalogs || []).find(catalog =>
+    catalog.managed_agent_id === platformAgent?.managed_agent_id
+    && (!routing.external_gateway_id || catalog.gateway_id === routing.external_gateway_id),
+  )
+}
+
+const externalGatewayPolicyContext = data => {
+  const permission = data?.platform?.model_configuration || {}
+  const routing = permission.model_routing || {}
+  if (
+    !routing.external_gateway_enabled
+    || !routing.client_select_model
+    || !permission.can_configure_models
+  ) return null
+  const agents = localModelAgents(data)
+  const gateway = permission.external_gateway || {
+    id: routing.external_gateway_id,
+    name: t('client.models.external_gateway'),
+    model_base_url: '',
+  }
+  const targetURL = normalizeGatewayURL(gateway.model_base_url)
+  const pendingAgents = agents.filter(agent => {
+    const state = modelConfigState(agent)
+    const external = ['external', 'external_gateway'].includes(state.gateway_source)
+    return !external || (targetURL && normalizeGatewayURL(state.gateway_url) !== targetURL)
+  })
+  if (!pendingAgents.length) return null
+  const unpreparedAgents = agents.filter(agent => !externalCatalogForLocal(data, agent))
+  const clientID = data?.platform?.client_id || data?.inventory?.client_id || data?.server || 'client'
+  const policyVersion = data?.platform?.classification?.version || 'unknown'
+  return {
+    gateway,
+    pendingAgents,
+    unpreparedAgents,
+    signature: `${clientID}:${policyVersion}:${gateway.id || routing.external_gateway_id || ''}:${targetURL}`,
+  }
+}
+
+const externalGatewayPolicyDetail = (key, context) => fillMessageTemplate(key, {
+  gateway: context.gateway.name || t('client.models.external_gateway'),
+  count: context.pendingAgents.length,
+})
+
+const storedSignatures = key => {
+  try {
+    const raw = localStorage.getItem(key) || ''
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter(item => typeof item === 'string') : [raw]
+  } catch {
+    try {
+      const raw = localStorage.getItem(key) || ''
+      return raw ? [raw] : []
+    } catch { return [] }
+  }
+}
+
+const rememberSignature = (key, signature) => {
+  const values = storedSignatures(key)
+  if (values.includes(signature)) return
+  try { localStorage.setItem(key, JSON.stringify([...values, signature].slice(-20))) } catch {}
+}
+
+let externalGatewayBatchState = null
+
+const renderExternalGatewayPolicyBanner = data => {
+  const banner = $('#external-gateway-policy-banner')
+  const context = externalGatewayPolicyContext(data)
+  const dismissed = context && storedSignatures(EXTERNAL_GATEWAY_POLICY_DISMISSED_KEY).includes(context.signature)
+  banner.hidden = !context || dismissed
+  if (!context) return
+  const action = $('#external-gateway-policy-banner-action')
+  const dismiss = $('#external-gateway-policy-banner-dismiss')
+  const state = externalGatewayBatchState?.signature === context.signature
+    ? externalGatewayBatchState
+    : context.unpreparedAgents.length === 0
+      ? { completed: true, running: false, success: localModelAgents(data).length, failed: [] }
+      : null
+  action.hidden = false
+  action.disabled = Boolean(state?.running) || modelSwitchBusy
+  dismiss.hidden = !state?.completed
+  if (state?.running) {
+    action.textContent = t('client.models.prepare_all_agents')
+    $('#external-gateway-policy-banner-detail').textContent = fillMessageTemplate('client.models.preparing_all_agents', {
+      done: state.done,
+      total: state.total,
+      agent: state.agent,
+    })
+    return
+  }
+  if (state?.completed && state.failed.length === 0) {
+    action.hidden = true
+    $('#external-gateway-policy-banner-detail').textContent = fillMessageTemplate('client.models.prepare_all_complete', { count: state.success })
+    return
+  }
+  if (state?.completed) {
+    action.textContent = t('client.models.retry_failed_agents')
+    $('#external-gateway-policy-banner-detail').textContent = fillMessageTemplate('client.models.prepare_all_partial', {
+      success: state.success,
+      failed: state.failed.length,
+    })
+    return
+  }
+  action.textContent = t('client.models.prepare_all_agents')
+  $('#external-gateway-policy-banner-detail').textContent = externalGatewayPolicyDetail('client.models.policy_banner_detail', context)
+}
+
+const externalGatewayPromptSignatures = () => storedSignatures(EXTERNAL_GATEWAY_POLICY_PROMPT_KEY)
+
+const syncExternalGatewayPolicyPrompt = data => {
+  const context = externalGatewayPolicyContext(data)
+  if (!context) return
+  const seen = externalGatewayPromptSignatures()
+  if (seen.includes(context.signature) || document.querySelector('dialog[open]')) return
+  $('#external-gateway-policy-detail').textContent = externalGatewayPolicyDetail('client.models.policy_changed_detail', context)
+  $('#external-gateway-policy-dialog').showModal()
+  rememberSignature(EXTERNAL_GATEWAY_POLICY_PROMPT_KEY, context.signature)
+}
+
 const renderModelSwitcher = data => {
   const agents = localModelAgents(data)
   const permission = data?.platform?.model_configuration || {}
@@ -631,10 +837,43 @@ const renderModelSwitcher = data => {
     selectedModelAgentID = agents[0]?.local_agent_id || ''
   }
   const selected = agents.find(agent => agent.local_agent_id === selectedModelAgentID)
-  const models = permission.models || []
+  const platformAgent = selected ? platformAgentForLocal(data, selected) : null
+  const routing = permission.model_routing || {}
+  const internalModels = routing.external_gateway_enabled
+    ? []
+    : (permission.models || []).map(model => typeof model === 'string' ? { name: model, display_name: model } : model).filter(model => model?.name).map(model => ({ ...model, gateway_source: model.gateway_source || 'internal' }))
+  $('#refresh-models').disabled = modelSwitchBusy
+    || !permission.can_configure_models
+    || !routing.external_gateway_enabled
+    || !routing.client_select_model
+  const externalCatalog = routing.external_gateway_enabled ? externalCatalogForLocal(data, selected) : null
+  const externalGatewayName = externalCatalog?.gateway_name || permission.external_gateway?.name || t('client.models.external_gateway')
+  const externalModels = (externalCatalog?.models || []).map(model => typeof model === 'string' ? { name: model, display_name: model } : model).filter(model => model?.name).map(model => ({ ...model, gateway_source: 'external', provider_name: model.provider_name || externalGatewayName }))
+  const models = routing.external_gateway_enabled ? externalModels : internalModels
+  renderExternalGatewayPolicyBanner(data)
+  const readiness = $('#external-model-readiness')
+  readiness.hidden = !externalCatalog
+  if (externalCatalog) {
+    readiness.innerHTML = `
+      <strong>${escapeHtml(t('client.models.readiness_title'))}</strong>
+      <span>${escapeHtml(t('client.models.readiness_detail'))}</span>
+      <dl>
+        <div><dt>${escapeHtml(t('client.models.gateway_name'))}</dt><dd>${escapeHtml(externalGatewayName)}</dd></div>
+        <div><dt>${escapeHtml(t('client.models.external_agent_id'))}</dt><dd><code>${escapeHtml(externalCatalog.external_agent_id || '-')}</code></dd></div>
+        <div><dt>${escapeHtml(t('client.models.key_id'))}</dt><dd><code>${escapeHtml(externalCatalog.key_id || '-')}</code></dd></div>
+        <div><dt>${escapeHtml(t('client.models.credential_status'))}</dt><dd>${escapeHtml(externalCatalog.status === 'active' && externalCatalog.key_id ? t('client.models.key_escrowed') : t('client.models.key_pending'))}</dd></div>
+        <div><dt>${escapeHtml(t('client.models.available_models'))}</dt><dd>${escapeHtml(String(externalModels.length))}</dd></div>
+      </dl>`
+  }
   $('#model-permission-note').className = `model-permission-note${permission.can_configure_models ? '' : ' disabled'}`
+  const hasExternalCatalog = Boolean(externalCatalog) || ['external', 'external_gateway'].includes(permission.gateway_source || permission.source) || models.some(model => ['external', 'external_gateway'].includes(model.gateway_source || model.source))
+  const externalStatus = externalCatalog
+    ? ` · ${externalCatalog.status === 'active' ? t('client.models.catalog_ready') : t('client.models.catalog_error')}${externalCatalog.models_refreshed_at ? ` · ${formatTime(externalCatalog.models_refreshed_at)}` : ''}`
+    : ''
   $('#model-permission-note').textContent = permission.can_configure_models
-    ? tf`当前凭证可配置 ${models.length} 个网关模型；首次切换会自动建立运行身份并创建独立凭证。`
+    ? hasExternalCatalog
+      ? `${t('client.models.external_catalog')} · ${tf`当前凭证可配置 ${models.length} 个网关模型；首次切换会自动建立运行身份并创建独立凭证。`}${externalStatus}`
+      : tf`当前凭证可配置 ${models.length} 个网关模型；首次切换会自动建立运行身份并创建独立凭证。`
     : t('client.models.issuance_disabled')
   $('#model-agent-tabs').innerHTML = agents.map(agent => `
     <button type="button" role="tab" aria-selected="${agent.local_agent_id === selectedModelAgentID}" class="${agent.local_agent_id === selectedModelAgentID ? 'active' : ''}" data-model-agent="${escapeHtml(agent.local_agent_id)}">
@@ -653,18 +892,20 @@ const renderModelSwitcher = data => {
     return
   }
   const state = modelConfigState(selected)
-  const platformAgent = platformAgentForLocal(data, selected)
+  const verifying = modelVerificationAgentID === selected.local_agent_id
   $('#model-current').innerHTML = `
     <div class="model-current-main">
       <span>${escapeHtml(t('client.models.current_config'))}</span>
       <strong>${escapeHtml(state.model || t('client.models.no_model'))}</strong>
       ${state.error ? `<em>${escapeHtml(runtimeText(state.error))}</em>` : ''}
       ${state.status ? `<span>${escapeHtml(t(`ui.modelConfig.status.${state.status}`))}</span>` : ''}
-      ${state.change_id && selected.capabilities?.model_config_verification ? `<button id="verify-model-config" type="button" ${modelSwitchBusy ? 'disabled' : ''}>${escapeHtml(t('ui.modelConfig.verify'))}</button>` : ''}
+      ${state.change_id && selected.capabilities?.model_config_verification ? `<button id="verify-model-config" type="button" ${modelSwitchBusy ? 'disabled' : ''}>${escapeHtml(verifying ? t('ui.1j4vco4') : t('ui.modelConfig.verify'))}</button>` : ''}
       ${state.change_id ? `<button id="restore-model-config" type="button" ${state.can_restore && !modelSwitchBusy ? '' : 'disabled'}>${escapeHtml(t('ui.modelConfig.restore'))}</button>` : ''}
+      ${verifying ? `<span class="model-verification-progress">${escapeHtml(t('client.models.verifying_call'))}</span>` : ''}
     </div>
     <dl>
       <div><dt>${escapeHtml(t('client.models.gateway_url'))}</dt><dd><code>${escapeHtml(state.gateway_url || '-')}</code></dd></div>
+      <div><dt>${escapeHtml(t('client.models.gateway_source'))}</dt><dd>${escapeHtml(state.gateway_source === 'external' ? t('client.models.external_gateway') : t('client.models.builtin_gateway'))}</dd></div>
       <div><dt>${escapeHtml(t('client.models.config_file'))}</dt><dd><code>${escapeHtml(state.config_path || '-')}</code></dd></div>
       <div><dt>${escapeHtml(t('client.models.runtime_identity'))}</dt><dd>${escapeHtml(platformAgent?.managed_agent_id ? t('client.models.identity_ready') : t('client.models.identity_auto_create'))}</dd></div>
     </dl>
@@ -672,18 +913,35 @@ const renderModelSwitcher = data => {
   $('#verify-model-config')?.addEventListener('click', async event => {
     if (modelSwitchBusy) return
     modelSwitchBusy = true
-    setBusy(event.currentTarget, true)
-    document.querySelectorAll('[data-switch-model], #verify-model-config, #restore-model-config').forEach(item => { item.disabled = true })
+    modelVerificationAgentID = selected.local_agent_id
+    renderModelSwitcher(connection)
+    let verificationError = null
     try {
       await run('verify-model', ['--agent-type', selected.agent_type])
-      showMessageDialog(t('ui.modelConfig.status.verified'), t('ui.modelConfig.verifiedDetail'))
-    } catch (error) { showMessageDialog(t('ui.modelConfig.verificationFailed'), runtimeText(error)) }
-    finally {
+    } catch (error) {
+      verificationError = error
+    }
+    try {
       await run('inventory').catch(() => {})
       await refreshConnection()
+    } finally {
       modelSwitchBusy = false
+      modelVerificationAgentID = ''
       if (connection) renderModelSwitcher(connection)
     }
+    const refreshed = localModelAgents(connection).find(agent => agent.local_agent_id === selected.local_agent_id)
+    const refreshedState = modelConfigState(refreshed)
+    if (verificationError) {
+      const detail = refreshedState.status === 'restored'
+        ? `${runtimeText(verificationError)} ${t('client.models.verification_restored')}`
+        : runtimeText(verificationError)
+      showMessageDialog(t('ui.modelConfig.verificationFailed'), detail)
+      return
+    }
+    showMessageDialog(
+      t('ui.modelConfig.status.verified'),
+      refreshedState.verification_mode === 'client_call' ? t('client.models.client_call_verified') : t('ui.modelConfig.verifiedDetail'),
+    )
   })
   $('#restore-model-config')?.addEventListener('click', async event => {
     if (modelSwitchBusy) return
@@ -703,19 +961,20 @@ const renderModelSwitcher = data => {
   $('#model-result-count').textContent = tf`${visible.length} 个模型`
   $('#model-catalog').classList.toggle('empty', visible.length === 0)
   $('#model-catalog').innerHTML = visible.length ? visible.map(model => {
-    const current = state.model === model.name
+    const current = state.model === model.name && (state.gateway_source || 'internal') === model.gateway_source
     return `<div class="model-row${current ? ' current' : ''}">
       <div class="model-row-name"><strong>${escapeHtml(model.display_name || model.upstream_name || model.name)}</strong><code>${escapeHtml(model.name)}</code></div>
       <span class="model-provider">${escapeHtml(model.provider_name || '-')}</span>
       <span class="model-limits">${model.context_window ? escapeHtml(tf`上下文 ${model.context_window}`) : ''}${model.max_output_tokens ? escapeHtml(tf` · 输出 ${model.max_output_tokens}`) : ''}</span>
-      <button type="button" class="${current ? '' : 'primary'}" data-switch-model="${escapeHtml(model.name)}" ${modelSwitchBusy || !permission.can_configure_models ? 'disabled' : ''}>${escapeHtml(current ? t('ui.modelConfig.configure') : t('client.models.switch'))}</button>
+      <button type="button" class="${current ? '' : 'primary'}" data-switch-model="${escapeHtml(model.name)}" data-gateway-source="${escapeHtml(model.gateway_source || model.source || permission.gateway_source || permission.source || '')}" ${modelSwitchBusy || !permission.can_configure_models ? 'disabled' : ''}>${escapeHtml(current ? t('ui.modelConfig.configure') : t('client.models.switch'))}</button>
     </div>`
   }).join('') : t('client.models.no_matches')
-  document.querySelectorAll('[data-switch-model]').forEach(button => button.addEventListener('click', () => beginModelSwitch(selected, button.dataset.switchModel, button)))
+  document.querySelectorAll('[data-switch-model]').forEach(button => button.addEventListener('click', () => beginModelSwitch(selected, button.dataset.switchModel, button, button.dataset.gatewaySource)))
 }
 
 let modelSwitchBusy = false
-const executeModelSwitch = async (agent, model, button, managedAgentID = '', parameters = {}) => {
+let modelVerificationAgentID = ''
+const executeModelSwitch = async (agent, model, button, managedAgentID = '', parameters = {}, gatewaySource = '') => {
   if (modelSwitchBusy) return
   modelSwitchBusy = true
   document.querySelectorAll('[data-switch-model], #verify-model-config, #restore-model-config').forEach(item => { item.disabled = true })
@@ -723,9 +982,16 @@ const executeModelSwitch = async (agent, model, button, managedAgentID = '', par
   args.push('--model-parameters', JSON.stringify(parameters))
   if (modelConfigState(agent).revision) args.push('--model-revision', modelConfigState(agent).revision)
   if (managedAgentID) args.push('--managed-agent-id', managedAgentID)
+  if (gatewaySource) args.push('--gateway-source', gatewaySource)
   setBusy(button, true)
   try {
     log(await run('switch-model', args))
+    // The local task-completed event can arrive before the CLI has refreshed
+    // its cached inventory. Force a live discovery after the write so the
+    // first readback always reflects the gateway that was just applied.
+    const freshInventory = JSON.parse(await run('inventory'))
+    inventory = freshInventory
+    if (connection) connection.inventory = freshInventory
     await refreshConnection()
     showMessageDialog(t('ui.modelConfig.written'), t('ui.modelConfig.effect'))
   } catch (error) {
@@ -738,7 +1004,7 @@ const executeModelSwitch = async (agent, model, button, managedAgentID = '', par
   }
 }
 
-const beginModelSwitch = (agent, model, button) => {
+const beginModelSwitch = (agent, model, button, gatewaySource = '') => {
   const dialog = $('#model-config-dialog')
   const contract = agent.capabilities?.model_config_contract || {}
   const fields = contract.parameters || {}
@@ -747,14 +1013,14 @@ const beginModelSwitch = (agent, model, button) => {
     ${field.enum ? `<select data-model-parameter="${escapeHtml(key)}"><option value="">${escapeHtml(t('ui.modelConfig.unset'))}</option>${field.enum.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}</select>` : `<input data-model-parameter="${escapeHtml(key)}" type="number" min="${field.min}" max="${field.max}" step="${field.type === 'integer' ? 1 : 'any'}" placeholder="${escapeHtml(t('ui.modelConfig.unset'))}">`}
     <small><code>${escapeHtml(field.path)}</code> → <code>${escapeHtml(field.wire)}</code></small></label>`).join('')
   const values = () => Object.fromEntries([...dialog.querySelectorAll('[data-model-parameter]')].filter(input => input.value !== '').map(input => [input.dataset.modelParameter, input.type === 'number' ? Number(input.value) : input.value]))
-  const preview = () => { $('#model-config-preview').textContent = JSON.stringify({ path: state.config_path, before: { model: state.model, parameters: state.parameters || {} }, after: { model, parameters: { ...(state.parameters || {}), ...Object.fromEntries(Object.entries(values()).filter(([, value]) => value !== null)) } } }, null, 2) }
+  const preview = () => { $('#model-config-preview').textContent = JSON.stringify({ path: state.config_path, before: { model: state.model, gateway_source: state.gateway_source || 'internal', parameters: state.parameters || {} }, after: { model, gateway_source: gatewaySource || 'internal', parameters: { ...(state.parameters || {}), ...Object.fromEntries(Object.entries(values()).filter(([, value]) => value !== null)) } } }, null, 2) }
   dialog.querySelectorAll('[data-model-parameter]').forEach(input => input.addEventListener('input', preview))
   preview()
   $('#confirm-model-config').onclick = async () => {
     if (modelSwitchBusy || !$('#model-config-form').reportValidity()) return
     const parameters = values()
     dialog.close()
-    await executeModelSwitch(agent, model, button, '', parameters)
+    await executeModelSwitch(agent, model, button, '', parameters, gatewaySource)
   }
   dialog.showModal()
 }
@@ -764,18 +1030,139 @@ $('#model-search').addEventListener('input', event => {
   if (connection) renderModelSwitcher(connection)
 })
 
-$('#refresh-models').addEventListener('click', async event => {
-  const button = event.currentTarget
+const applyExternalCatalogRefresh = (agent, refreshed) => {
+  const modelConfiguration = refreshed?.model_configuration || refreshed
+  if (!connection?.platform?.model_configuration || !Array.isArray(modelConfiguration?.models)) return
+  const refreshedAgent = modelConfiguration.agent || {}
+  if (refreshedAgent.managed_agent_id) {
+    const platformAgents = connection.platform.agents || []
+    const currentIndex = platformAgents.findIndex(item =>
+      item.local_agent_id === agent.local_agent_id
+      || (!item.local_agent_id && item.agent_type === agent.agent_type),
+    )
+    const nextPlatformAgent = {
+      ...(currentIndex >= 0 ? platformAgents[currentIndex] : {}),
+      local_agent_id: refreshedAgent.local_agent_id || agent.local_agent_id,
+      agent_type: refreshedAgent.agent_type || agent.agent_type,
+      managed_agent_id: refreshedAgent.managed_agent_id,
+    }
+    connection.platform.agents = currentIndex >= 0
+      ? platformAgents.map((item, index) => index === currentIndex ? nextPlatformAgent : item)
+      : [...platformAgents, nextPlatformAgent]
+  }
+  const currentCatalogs = connection.platform.model_configuration.external_catalogs || []
+  const catalog = {
+    gateway_id: modelConfiguration.gateway?.id,
+    gateway_name: modelConfiguration.gateway?.name,
+    managed_agent_id: modelConfiguration.agent?.managed_agent_id,
+    external_agent_id: modelConfiguration.binding?.external_agent_id,
+    key_id: modelConfiguration.binding?.key_id,
+    status: modelConfiguration.binding?.status,
+    models: modelConfiguration.models,
+    models_refreshed_at: modelConfiguration.binding?.models_refreshed_at,
+  }
+  connection.platform.model_configuration.external_catalogs = [
+    ...currentCatalogs.filter(item => item.gateway_id !== catalog.gateway_id || item.managed_agent_id !== catalog.managed_agent_id),
+    catalog,
+  ]
+  renderModelSwitcher(connection)
+}
+
+const refreshExternalCatalogForAgent = async agent => {
+  const platformAgent = platformAgentForLocal(connection, agent)
+  const refreshed = await invoke('refresh_model_catalog', {
+    localAgentId: agent.local_agent_id,
+    agentType: agent.agent_type,
+    managedAgentId: platformAgent?.managed_agent_id || '',
+  })
+  applyExternalCatalogRefresh(agent, refreshed)
+  return refreshed
+}
+
+const refreshExternalModelCatalog = async button => {
+  if (modelSwitchBusy) return
+  modelSwitchBusy = true
   setBusy(button, true)
   try {
-    await run('inventory')
+    const selected = localModelAgents(connection).find(agent => agent.local_agent_id === selectedModelAgentID)
+    if (!selected) throw new Error('model_config.agent_missing')
+    await refreshExternalCatalogForAgent(selected)
     await refreshConnection()
   } catch (error) {
     showMessageDialog(t('client.models.refresh_failed'), runtimeText(error))
   } finally {
+    modelSwitchBusy = false
     setBusy(button, false)
+    if (connection) renderModelSwitcher(connection)
   }
+}
+
+const prepareExternalGatewayConfiguration = async () => {
+  if (modelSwitchBusy) return
+  if ($('#external-gateway-policy-dialog').open) $('#external-gateway-policy-dialog').close()
+  showPanel('models')
+  const context = externalGatewayPolicyContext(connection)
+  if (!context) return
+  const previous = externalGatewayBatchState?.signature === context.signature ? externalGatewayBatchState : null
+  const previousFailedIDs = new Set((previous?.failed || []).map(item => item.agent.local_agent_id))
+  const allAgents = localModelAgents(connection)
+  const targets = previousFailedIDs.size
+    ? allAgents.filter(agent => previousFailedIDs.has(agent.local_agent_id))
+    : context.unpreparedAgents
+  if (!targets.length) {
+    externalGatewayBatchState = { signature: context.signature, running: false, completed: true, done: 0, total: 0, success: allAgents.length, failed: [] }
+    renderExternalGatewayPolicyBanner(connection)
+    return
+  }
+  modelSwitchBusy = true
+  externalGatewayBatchState = { signature: context.signature, running: true, completed: false, done: 0, total: targets.length, success: allAgents.length - targets.length, failed: [], agent: '' }
+  renderModelSwitcher(connection)
+  for (const agent of targets) {
+    externalGatewayBatchState.agent = agentLabel(agent.agent_type)
+    renderExternalGatewayPolicyBanner(connection)
+    try {
+      await refreshExternalCatalogForAgent(agent)
+      externalGatewayBatchState.success++
+    } catch (error) {
+      externalGatewayBatchState.failed.push({ agent, error })
+    }
+    externalGatewayBatchState.done++
+    renderExternalGatewayPolicyBanner(connection)
+  }
+  await refreshConnection().catch(error => log(error))
+  modelSwitchBusy = false
+  externalGatewayBatchState.running = false
+  externalGatewayBatchState.completed = true
+  renderModelSwitcher(connection)
+}
+
+$('#refresh-models').addEventListener('click', async event => {
+  await refreshExternalModelCatalog(event.currentTarget)
 })
+
+$('#external-gateway-policy-later').addEventListener('click', () => $('#external-gateway-policy-dialog').close())
+$('#external-gateway-policy-configure').addEventListener('click', () => { void prepareExternalGatewayConfiguration() })
+$('#external-gateway-policy-banner-action').addEventListener('click', () => { void prepareExternalGatewayConfiguration() })
+$('#external-gateway-policy-banner-dismiss').addEventListener('click', () => {
+  const context = externalGatewayPolicyContext(connection)
+  const batchCompleted = externalGatewayBatchState?.completed && externalGatewayBatchState.signature === context?.signature
+  if (!context || (!batchCompleted && context.unpreparedAgents.length > 0)) return
+  rememberSignature(EXTERNAL_GATEWAY_POLICY_DISMISSED_KEY, context.signature)
+  $('#refresh-models')?.focus({preventScroll: true})
+  renderExternalGatewayPolicyBanner(connection)
+})
+
+$('#model-agent-tabs').addEventListener('wheel', event => {
+  if (event.ctrlKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return
+  const workspace = $('.workspace')
+  if (!workspace) return
+  const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? workspace.clientHeight : 1)
+  const next = Math.max(0, Math.min(workspace.scrollHeight - workspace.clientHeight, workspace.scrollTop + delta))
+  if (Math.abs(next - workspace.scrollTop) > 0.5) {
+    event.preventDefault()
+    workspace.scrollTop = next
+  }
+}, {passive: false})
 
 const renderStatus = data => {
   const local = data?.local || {}
@@ -839,7 +1226,7 @@ const renderNotifications = local => {
     const panel = button.dataset.notificationPanel
     showPanel(panel)
     if (panel === 'discover') {
-      const agent = inventory?.agents?.find(item => item.agent_type === button.dataset.notificationAgent && installedAgent(item))
+      const agent = inventory?.agents?.find(item => item.agent_type === button.dataset.notificationAgent && visibleAgent(item))
       if (agent) switchAgent(agentKey(agent))
       switchAgentView('local')
     }
@@ -1135,6 +1522,7 @@ async function refreshConnection() {
     const nextConnection = await invoke('get_connection_status')
     if (generation !== connectionRefreshGeneration) return
     connection = nextConnection
+    await loadSavedConnections().catch(error => log(error))
     if (!connection.configured) return renderDisconnected()
     if (connection.platform) {
       connection.platform.tasks = mergeLocalTaskStatuses(connection.platform.tasks, connection.local?.tasks)
@@ -1142,6 +1530,7 @@ async function refreshConnection() {
     inventory = connection.inventory
     lastInventoryAt = connection.local?.last_inventory_at || lastInventoryAt
     renderConnected(connection)
+    syncExternalGatewayPolicyPrompt(connection)
     renderInventory()
     reconcileTrackedSkillActions(connection.platform?.tasks)
     await loadBuiltinAgentSettings().catch(error => {
@@ -1431,7 +1820,7 @@ document.addEventListener('keydown', event => {
   if (menu) { menu.open = false; menu.querySelector('summary').focus() }
 })
 
-const installedAgent = agent => Boolean(agent.install_path || isCustomAgent(agent) || isSharedSkills(agent))
+const visibleAgent = agent => Boolean(agent.skills_path?.trim() || agent.install_path || isCustomAgent(agent) || isSharedSkills(agent))
 let selectedAgentID = localStorage.getItem('agent-manager-selected-agent') || ''
 let agentSkillPage = 1
 const expandedSkillDetails = new Set()
@@ -1439,7 +1828,7 @@ let recoveryItems = []
 let scanHistoryItems = []
 const agentKey = agent => agent.local_agent_id || agent.agent_type
 const skillDetailKey = (agent, skill) => JSON.stringify([agentKey(agent), skill.path])
-const selectedAgent = () => inventory?.agents?.find(agent => agentKey(agent) === selectedAgentID && installedAgent(agent))
+const selectedAgent = () => inventory?.agents?.find(agent => agentKey(agent) === selectedAgentID && visibleAgent(agent))
 const scopeIncludes = item => Boolean(selectedAgent()) && item.agent_type === selectedAgent().agent_type
 const scopedPendingItems = () => pendingItems.filter(item => recoveryItems.some(copy => copy.pending_copy_id === item.id && recoveryVisible(copy)))
 const skillCertification = skill => {
@@ -1629,7 +2018,7 @@ const renderInventory = () => {
   const list = $('#agent-list')
   const previousScrollTop = list.scrollTop
   const focusedDetailKey = document.activeElement?.dataset?.skillDetailKey || ''
-  const visibleAgents = inventory.agents.filter(installedAgent)
+  const visibleAgents = inventory.agents.filter(visibleAgent)
   renderAgentNavigation(visibleAgents)
   const currentAgent = selectedAgent()
   const filteredSkills = filteredAgentSkills(currentAgent)
@@ -1642,22 +2031,15 @@ const renderInventory = () => {
   $('#agent-skill-page').textContent = `${agentSkillPage} / ${pages}`
   $('#agent-skill-prev').disabled = agentSkillPage <= 1
   $('#agent-skill-next').disabled = agentSkillPage >= pages
-  const bindings = Object.fromEntries((connection?.platform?.agents || []).map(agent => [agent.agent_type, agent.managed_agent_id || '']))
-  const strict = connection?.platform?.governance_mode === 'strict'
-  const availableAgents = connection?.platform?.available_managed_agents || []
   list.classList.remove('empty')
   list.innerHTML = currentAgent
     ? [currentAgent].map(agent => {
-      const binding = bindings[agent.agent_type] || ''
       const shared = isSharedSkills(agent)
       const readers = agent.capabilities?.shared_skill_readers || []
-      const requiresBinding = agent.skill_management_supported && strict && !shared
       return `
         <article class="agent-card${shared ? ' shared-skills-card' : ''}" data-agent-card="${escapeHtml(agentKey(agent))}">
           ${shared ? tf`<div class="shared-skills-note"><strong>这是共用目录，不计入 Agent 数量</strong><span>${escapeHtml(formatList(readers) || t('ui.waagmd'))} 可能读取其中的 Skill，实际以各 Agent 的版本和配置为准；共用目录仅执行状态与内容完整性治理，无法据此识别具体调用方。</span></div>` : ''}
-          ${requiresBinding || isCustomAgent(agent)
-            ? `<div class="agent-settings">${requiresBinding ? `<span>${escapeHtml(t('ui.agentManagement.binding'))}: ${escapeHtml(availableAgents.find(item => item.agent_id === binding)?.name || binding || t('ui.agentManagement.binding_required'))}</span>` : ''}${isCustomAgent(agent) ? tf`<button class="custom-agent-remove icon-button icon-remove" type="button" title="只取消本地登记，不删除 Skill 文件" data-remove-custom-agent="${escapeHtml(agent.agent_type)}" data-custom-agent-name="${escapeHtml(agent.display_name)}">取消登记</button>` : ''}</div>`
-            : ''}
+          ${isCustomAgent(agent) ? tf`<div class="agent-settings"><button class="custom-agent-remove icon-button icon-remove" type="button" title="只取消本地登记，不删除 Skill 文件" data-remove-custom-agent="${escapeHtml(agent.agent_type)}" data-custom-agent-name="${escapeHtml(agent.display_name)}">取消登记</button></div>` : ''}
           ${agent.skill_management_supported ? `<div class="skill-inventory">${pageSkills.length ? pageSkills.map(skill => {
             const detailKey = skillDetailKey(agent, skill)
             const expanded = expandedSkillDetails.has(detailKey)
@@ -1722,7 +2104,7 @@ const renderInventory = () => {
     const readers = skillSharedReaders(agent, skill.path)
     $('#skill-action-impact').textContent = readers.length
       ? `${t('ui.agentManagement.shared_impact')}: ${formatList(readers)}`
-      : `${t('ui.agentManagement.binding')}: ${agentLabel(agent.agent_type)}`
+      : `Agent: ${agentLabel(agent.agent_type)}`
     const retainWrap = $('#skill-action-retain-wrap')
     retainWrap.hidden = pendingSkillAction.action !== 'uninstall'
     $('#skill-action-retain-copy').checked = true
@@ -2265,7 +2647,7 @@ $('#overview-sync').addEventListener('click', async event => {
   setBusy(button, true)
   try { await refreshConnection() } finally { setBusy(button, false) }
 })
-$('#edit-connection').addEventListener('click', editConnection)
+$('#add-connection').addEventListener('click', () => editConnection(true))
 document.querySelectorAll('[data-target-panel]').forEach(button => {
   button.addEventListener('click', () => showPanel(button.dataset.targetPanel))
 })
@@ -2680,7 +3062,7 @@ const loadQuarantine = async () => {
     const readers = skillSharedReaders(agent, item.original_path)
     $('#skill-action-impact').textContent = readers.length
       ? `${t('ui.agentManagement.shared_impact')}: ${formatList(readers)}`
-      : `${t('ui.agentManagement.binding')}: ${agentLabel(item.agent_type)}`
+      : `Agent: ${agentLabel(item.agent_type)}`
     $('#skill-action-dialog').dataset.action = pendingSkillAction.action
     $('#skill-action-dialog').showModal()
   }))
@@ -3102,7 +3484,7 @@ const openInstallDialog = async (skill, initialQuery = '', targetAgentType = '',
     renderPlatformInstallProgress()
     return
   }
-  const agents = (inventory?.agents || []).filter(item => installedAgent(item) && item.skill_management_supported && item.skills_path?.trim() && item.capabilities?.path_available !== false && (!targetAgentType || item.agent_type === targetAgentType))
+  const agents = (inventory?.agents || []).filter(item => visibleAgent(item) && item.skill_management_supported && item.skills_path?.trim() && item.capabilities?.path_available !== false && (!targetAgentType || item.agent_type === targetAgentType))
   if (!agents.length) return showMessageDialog(t('ui.1rloj41'), t('ui.k8dvfk'))
   lockedInstallSkill = skill || null
   installAgentContext = targetAgentType
@@ -3151,7 +3533,7 @@ $('#install-skill-search').addEventListener('input', () => {
   clearTimeout(installSearchTimer)
   installSearchTimer = setTimeout(async () => {
     const query = $('#install-skill-search').value.trim()
-    const agents = (inventory?.agents || []).filter(item => installedAgent(item) && item.skill_management_supported)
+    const agents = (inventory?.agents || []).filter(item => visibleAgent(item) && item.skill_management_supported)
     $('#install-platform-skill').disabled = true
     $('#install-platform-skill').innerHTML = t('ui.gii72j')
     try {
@@ -3352,6 +3734,11 @@ if (window.__TAURI__.event?.listen) {
       })
       if (revision && revision === normalizeLocalRevision(localStorage.getItem(LOCAL_EVENT_REVISION_KEY))) return
       if (revision && (!latestLocalEventRevision || revisionIsNewer(revision, latestLocalEventRevision))) latestLocalEventRevision = revision
+      if (eventType === 'local_task_completed') {
+        void refreshLocalStateFromEvent({ source: 'event', eventType, revision })
+          .then(refreshed => { if (refreshed) return refreshConnection() })
+        return
+      }
       void refreshLocalStateFromEvent({ source: 'event', eventType, revision })
     })
     .catch(error => log(t('ui.localEvents.listen_failed').replace('{error}', error)))

@@ -15,18 +15,21 @@ import (
 )
 
 type ModelConfigState struct {
-	AppliedRevision string                 `json:"applied_revision,omitempty"`
-	Verification    []ModelRequestEvidence `json:"verification,omitempty"`
-	Supported       bool                   `json:"supported"`
-	Model           string                 `json:"model,omitempty"`
-	GatewayURL      string                 `json:"gateway_url,omitempty"`
-	ConfigPath      string                 `json:"config_path,omitempty"`
-	Error           string                 `json:"error,omitempty"`
-	Revision        string                 `json:"revision,omitempty"`
-	Parameters      map[string]any         `json:"parameters,omitempty"`
-	ChangeID        string                 `json:"change_id,omitempty"`
-	Status          string                 `json:"status,omitempty"`
-	CanRestore      bool                   `json:"can_restore"`
+	AppliedRevision  string                 `json:"applied_revision,omitempty"`
+	Verification     []ModelRequestEvidence `json:"verification,omitempty"`
+	Supported        bool                   `json:"supported"`
+	Model            string                 `json:"model,omitempty"`
+	GatewayURL       string                 `json:"gateway_url,omitempty"`
+	GatewaySource    string                 `json:"gateway_source,omitempty"`
+	CredentialSource string                 `json:"credential_source,omitempty"`
+	VerificationMode string                 `json:"verification_mode,omitempty"`
+	ConfigPath       string                 `json:"config_path,omitempty"`
+	Error            string                 `json:"error,omitempty"`
+	Revision         string                 `json:"revision,omitempty"`
+	Parameters       map[string]any         `json:"parameters,omitempty"`
+	ChangeID         string                 `json:"change_id,omitempty"`
+	Status           string                 `json:"status,omitempty"`
+	CanRestore       bool                   `json:"can_restore"`
 }
 
 // InspectModelConfig reads the live Agent configuration without returning any

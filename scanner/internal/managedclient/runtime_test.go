@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -77,6 +78,90 @@ func TestModelConfigTaskRetrievesAgentCredentialOutsideTaskPayload(t *testing.T)
 	env, _ := settings["env"].(map[string]any)
 	if env["ANTHROPIC_AUTH_TOKEN"] != "amat_task_bound_agent_secret" {
 		t.Fatalf("task-issued credential was not applied: %#v", env)
+	}
+}
+
+func TestExternalGatewayModelTaskUsesTaskBoundCredentialAndModelBaseURL(t *testing.T) {
+	home := t.TempDir()
+	var credentialRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(request.URL.Path, "/model-preflight"):
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		case strings.HasSuffix(request.URL.Path, "/agent-credential"):
+			if err := json.NewDecoder(request.Body).Decode(&credentialRequest); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"token":             "external-task-secret",
+				"credential_source": "external_gateway",
+				"credential_type":   "external_gateway_api_key",
+				"gateway_base_url":  "https://external.example.test:8080",
+			})
+		default:
+			t.Fatalf("unexpected request %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	store, err := OpenStore(filepath.Join(home, "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	task := Task{ID: 84, TaskType: "apply_model_config", Payload: map[string]any{
+		"local_agent_id":    "codex",
+		"agent_type":        "codex",
+		"model":             "external-model",
+		"model_base_url":    "https://external.example.test:8080",
+		"gateway_source":    "external",
+		"credential_source": "external_gateway",
+		"verification_mode": "client_call",
+	}}
+	if err := executeTask(context.Background(), home, Inventory{ClientID: "host-1"}, Policy{}, NewAPI(server.URL, "client-token", time.Second), store, task); err != nil {
+		t.Fatal(err)
+	}
+	if credentialRequest["credential_source"] != "external_gateway" {
+		t.Fatalf("credential source was not bound to the task: %#v", credentialRequest)
+	}
+	body, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, expected := range []string{`base_url = "https://external.example.test:8080/v1"`, `wire_api = "responses"`, `experimental_bearer_token = "external-task-secret"`} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("external Codex config is missing %q:\n%s", expected, text)
+		}
+	}
+	if strings.Contains(fmt.Sprint(task.Payload), "external-task-secret") {
+		t.Fatalf("external credential leaked into task payload: %#v", task.Payload)
+	}
+	state := InspectModelConfig(home, "codex")
+	if state.GatewaySource != "external" || state.CredentialSource != "external_gateway" || state.VerificationMode != "client_call" {
+		t.Fatalf("external route metadata was not persisted: %#v", state)
+	}
+}
+
+func TestExternalGatewayModelTaskRejectsSecretInPayload(t *testing.T) {
+	home := t.TempDir()
+	store, err := OpenStore(filepath.Join(home, "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	task := Task{ID: 85, TaskType: "apply_model_config", Payload: map[string]any{
+		"local_agent_id": "codex", "agent_type": "codex", "model": "external-model",
+		"model_base_url": "https://external.example.test", "gateway_source": "external",
+		"credential_source": "external_gateway", "verification_mode": "client_call",
+		"api_key": "must-not-be-here",
+	}}
+	err = executeTask(context.Background(), home, Inventory{ClientID: "host-1"}, Policy{}, NewAPI("https://platform.example.test", "client-token", time.Second), store, task)
+	if err == nil || !strings.Contains(err.Error(), "model_config.secret_in_payload") {
+		t.Fatalf("secret-bearing task was not rejected: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(home, ".codex", "config.toml")); !os.IsNotExist(statErr) {
+		t.Fatalf("secret-bearing task wrote configuration: %v", statErr)
 	}
 }
 

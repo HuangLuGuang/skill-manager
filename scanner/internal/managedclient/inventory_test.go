@@ -130,8 +130,14 @@ func TestDiscoverInstalledAgentWithoutSkillsDirectory(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".test-agent"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, found, err := discoverAgent(home, spec, DefaultManifestOptions()); err != nil || !found {
+	directoryOnlySpec := adapter{agentType: "test", skillRoots: []string{".test-agent/skills"}, supportsSkill: true}
+	agent, found, err := discoverAgent(home, directoryOnlySpec, DefaultManifestOptions())
+	if err != nil || !found {
 		t.Fatalf("Agent directory should make Agent visible: found=%v err=%v", found, err)
+	}
+	expectedSkillsPath := filepath.Join(home, ".test-agent", "skills")
+	if agent.SkillsPath != expectedSkillsPath || len(agent.Skills) != 0 || agent.Capabilities["skills_directory_exists"] != false {
+		t.Fatalf("Agent without Skills directory should retain its target path and report zero Skills: %+v", agent)
 	}
 }
 

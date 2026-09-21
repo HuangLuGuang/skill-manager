@@ -301,7 +301,7 @@ def test_recovery_tasks_bind_client_copy_and_inventory(tmp_path):
     action = {"request_id": "restore-1", "action": "restore_quarantine", "agent_type": "codex", "path": copy["original_path"], "expected_signature": copy["signature"], "quarantine_id": copy["id"]}
     denied = client.post("/api/v1/clients/recovery-host/skill-actions", headers=headers, json=action)
     assert denied.status_code == 403, denied.text
-    assert denied.json()["error_code"] == "client.quarantine_auto_recovery_only"
+    assert denied.json()["error_code"] == "client.manual_uninstall_restore_only"
     updated = client.post("/api/v1/clients/recovery-host/inventory", headers=headers, json={"agents": [agent], "recovery": []})
     assert updated.status_code == 200, updated.text
     assert client.get("/api/v1/clients/recovery-host").json()["recovery"] == []
@@ -534,6 +534,12 @@ def test_client_register_inventory_and_task_round_trip(tmp_path):
     assert registered.status_code == 200
     assert registered.json()["client_id"] == "host-001"
     assert len(registered.json()["agents"]) == 2
+    registered_ids = {
+        item["agent_type"]: item["managed_agent_id"]
+        for item in registered.json()["agents"]
+    }
+    assert registered_ids["codex"].startswith("client-host-001-codex-")
+    assert registered_ids["legacy-client"].startswith("client-host-001-legacy-client-")
 
     repeated = client.post("/api/v1/clients/register", headers=headers, json=json.loads(registered.request.content))
     assert repeated.status_code == 200
@@ -541,27 +547,9 @@ def test_client_register_inventory_and_task_round_trip(tmp_path):
     assert database.query(models.ClientEvent).filter_by(client_id="host-001", event_type="client_registered").count() == 1
     database.close()
 
-    database = next(client.app.dependency_overrides[get_db]())
-    database.add(
-        models.ManagedAgent(
-            agent_id="bound-codex",
-            name="Bound Codex",
-            channel="Codex",
-            status="active",
-            skill_names_json="[]",
-            prompt_names_json="[]",
-        )
-    )
-    database.commit()
-    database.close()
-    bound = client.put(
-        "/api/v1/clients/host-001/agents/codex",
-        json={"managed_agent_id": "bound-codex"},
-    )
-    assert bound.status_code == 200
     runtime_policy = client.get("/api/v1/clients/host-001/policy", headers=headers)
     assert runtime_policy.status_code == 200
-    assert runtime_policy.json()["agent_bindings"] == {"codex": "bound-codex"}
+    assert runtime_policy.json()["agent_bindings"] == registered_ids
     heartbeat = client.post(
         "/api/v1/clients/host-001/heartbeat",
         headers=headers,
@@ -583,7 +571,7 @@ def test_client_register_inventory_and_task_round_trip(tmp_path):
         },
     )
     assert refreshed.status_code == 200
-    assert refreshed.json()["agents"][0]["managed_agent_id"] == "bound-codex"
+    assert refreshed.json()["agents"][0]["managed_agent_id"] == registered_ids["codex"]
 
     database = next(client.app.dependency_overrides[get_db]())
     stored_client = database.query(models.ManagedClient).filter(models.ManagedClient.client_id == "host-001").first()
@@ -596,7 +584,7 @@ def test_client_register_inventory_and_task_round_trip(tmp_path):
     assert runtime_status.json()["client_id"] == "host-001"
     assert runtime_status.json()["status"] == "online"
     assert runtime_status.json()["detection_capabilities"]["rules"]["enabled"] is True
-    assert runtime_status.json()["agents"][0]["managed_agent_id"] == "bound-codex"
+    assert runtime_status.json()["agents"][0]["managed_agent_id"] == registered_ids["codex"]
     assert all(event["event_type"] != "client_registered" for event in runtime_status.json()["events"])
 
     policy_update = client.put(
@@ -733,7 +721,7 @@ def test_client_register_inventory_and_task_round_trip(tmp_path):
 
     detail = client.get("/api/v1/clients/host-001")
     assert detail.status_code == 200
-    assert detail.json()["agents"][0]["managed_agent_id"] == "bound-codex"
+    assert detail.json()["agents"][0]["managed_agent_id"] == registered_ids["codex"]
     assert detail.json()["agents"][0]["skills"] == []
     assert any(item["status"] == "succeeded" for item in detail.json()["tasks"])
     assert all(item["event_type"] != "takeover_completed" for item in detail.json()["events"])
@@ -772,39 +760,8 @@ def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_pat
         )
     )
     database.add(models.McpGateway(slug="readonly", name="Readonly", status="active"))
-    database.add(
-        models.ManagedAgent(
-            agent_id="claude-research",
-            name="Claude Research",
-            channel="Claude Code",
-            status="active",
-            skill_names_json="[]",
-            prompt_names_json="[]",
-        )
-    )
     database.commit()
     database.close()
-
-    runtime_credential = client.post(
-        "/api/v1/access/tokens",
-        json={
-            "name": "claude-composite-runtime",
-            "token_type": "agent_runtime",
-            "bound_agent_id": "claude-research",
-            "scopes": [
-                "runtime:verify-signature",
-                "runtime:can-load",
-                "runtime:check-tool",
-                "model:chat",
-                "mcp:connect",
-                "mcp:list-tools",
-                "mcp:call-tools",
-            ],
-            "allowed_models": ["claude-sonnet"],
-            "allowed_mcp_gateways": ["readonly"],
-        },
-    )
-    assert runtime_credential.status_code == 200
 
     registered = client.post(
         "/api/v1/clients/register",
@@ -828,11 +785,28 @@ def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_pat
     )
     assert registered.status_code == 200
     assert registered.json()["agents"][0]["local_agent_id"] == "claude-main"
-    bound = client.put(
-        "/api/v1/clients/host-model/agents/claude-code",
-        json={"managed_agent_id": "claude-research"},
+    managed_agent_id = registered.json()["agents"][0]["managed_agent_id"]
+    assert managed_agent_id.startswith("client-host-model-claude-main-")
+    runtime_credential = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "claude-composite-runtime",
+            "token_type": "agent_runtime",
+            "bound_agent_id": managed_agent_id,
+            "scopes": [
+                "runtime:verify-signature",
+                "runtime:can-load",
+                "runtime:check-tool",
+                "model:chat",
+                "mcp:connect",
+                "mcp:list-tools",
+                "mcp:call-tools",
+            ],
+            "allowed_models": ["claude-sonnet"],
+            "allowed_mcp_gateways": ["readonly"],
+        },
     )
-    assert bound.status_code == 200
+    assert runtime_credential.status_code == 200
 
     policy = client.get("/api/v1/clients/host-model/policy", headers=headers)
     assert policy.status_code == 200
@@ -840,7 +814,7 @@ def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_pat
         {
             "local_agent_id": "claude-main",
             "agent_type": "claude-code",
-            "managed_agent_id": "claude-research",
+            "managed_agent_id": managed_agent_id,
             "default_model": None,
             "allowed_models": ["claude-sonnet"],
             "allowed_mcp_gateways": ["readonly"],
@@ -899,7 +873,7 @@ def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_pat
             "payload": {
                 "local_agent_id": "claude-main",
                 "agent_type": "claude-code",
-                "managed_agent_id": "claude-research",
+                "managed_agent_id": managed_agent_id,
                 "model": "claude-sonnet",
                 "parameters": {},
             },
@@ -943,7 +917,7 @@ def test_client_applies_agent_scoped_model_config_without_secret_in_task(tmp_pat
     assert local_agent["applied_model"] == "claude-sonnet"
     assert local_agent["model_config_status"] == "pending_restart"
     database = next(client.app.dependency_overrides[get_db]())
-    assert database.query(models.ManagedAgent).filter_by(agent_id="claude-research").one().default_model == "claude-sonnet"
+    assert database.query(models.ManagedAgent).filter_by(agent_id=managed_agent_id).one().default_model == "claude-sonnet"
     database.close()
 
 
@@ -972,16 +946,6 @@ def test_client_can_issue_task_bound_agent_runtime_credential_when_explicitly_al
     database.add(provider)
     database.flush()
     database.add(models.ModelEndpoint(provider_id=provider.id, name="claude-auto", enabled=True))
-    database.add(
-        models.ManagedAgent(
-            agent_id="claude-auto-agent",
-            name="Claude Auto",
-            channel="Claude Code",
-            status="active",
-            skill_names_json="[]",
-            prompt_names_json="[]",
-        )
-    )
     database.commit()
     database.close()
 
@@ -1006,10 +970,8 @@ def test_client_can_issue_task_bound_agent_runtime_credential_when_explicitly_al
         },
     )
     assert registered.status_code == 200
-    assert client.put(
-        "/api/v1/clients/auto-model-host/agents/claude-code",
-        json={"managed_agent_id": "claude-auto-agent"},
-    ).status_code == 200
+    managed_agent_id = registered.json()["agents"][0]["managed_agent_id"]
+    assert managed_agent_id.startswith("client-auto-model-host-claude-main-")
 
     task = client.post(
         "/api/v1/clients/auto-model-host/tasks",
@@ -1039,7 +1001,7 @@ def test_client_can_issue_task_bound_agent_runtime_credential_when_explicitly_al
     )
     assert issued.status_code == 200
     assert issued.json()["token"].startswith("amat_")
-    assert issued.json()["bound_agent_id"] == "claude-auto-agent"
+    assert issued.json()["bound_agent_id"] == managed_agent_id
     assert issued.json()["allowed_models"] == ["claude-auto"]
 
     database = next(client.app.dependency_overrides[get_db]())
@@ -1047,7 +1009,7 @@ def test_client_can_issue_task_bound_agent_runtime_credential_when_explicitly_al
         models.AccessToken.issued_by_client_token_id == client_token_id,
         models.AccessToken.status == "active",
     ).one()
-    assert runtime.bound_agent_id == "claude-auto-agent"
+    assert runtime.bound_agent_id == managed_agent_id
     assert json.loads(runtime.scopes_json) == [
         "runtime:verify-signature",
         "runtime:can-load",
@@ -1090,17 +1052,6 @@ def test_client_model_switch_catalog_binding_and_task_credential_are_self_servic
     database.commit()
     database.close()
 
-    mcp_runtime = client.post(
-        "/api/v1/access/tokens",
-        json={
-            "name": "codex-existing-runtime",
-            "token_type": "agent_runtime",
-            "bound_agent_id": "codex-primary",
-            "scopes": ["runtime:can-load", "mcp:connect", "mcp:list-tools", "mcp:call-tools"],
-            "allowed_mcp_gateways": ["developer-tools"],
-        },
-    )
-    assert mcp_runtime.status_code == 200
     created = client.post(
         "/api/v1/access/tokens",
         json={
@@ -1131,14 +1082,26 @@ def test_client_model_switch_catalog_binding_and_task_credential_are_self_servic
         },
     )
     assert registered.status_code == 200
-    assert registered.json()["agents"][0]["managed_agent_id"] is None
+    managed_agent_id = registered.json()["agents"][0]["managed_agent_id"]
+    assert managed_agent_id.startswith("client-codex-switch-host-codex-")
+    mcp_runtime = client.post(
+        "/api/v1/access/tokens",
+        json={
+            "name": "codex-existing-runtime",
+            "token_type": "agent_runtime",
+            "bound_agent_id": managed_agent_id,
+            "scopes": ["runtime:can-load", "mcp:connect", "mcp:list-tools", "mcp:call-tools"],
+            "allowed_mcp_gateways": ["developer-tools"],
+        },
+    )
+    assert mcp_runtime.status_code == 200
 
     status = client.get("/api/v1/clients/codex-switch-host/status", headers=headers)
     assert status.status_code == 200
     assert [item["name"] for item in status.json()["model_configuration"]["models"]] == ["codex-allowed"]
     assert status.json()["model_configuration"]["models"][0]["upstream_name"] == "shared-model"
     assert status.json()["model_configuration"]["models"][0]["provider_name"] == "gateway-provider"
-    assert len(status.json()["available_managed_agents"]) == 2
+    assert "available_managed_agents" not in status.json()
 
     task = client.post(
         "/api/v1/clients/codex-switch-host/model-configurations",
@@ -1146,7 +1109,7 @@ def test_client_model_switch_catalog_binding_and_task_credential_are_self_servic
         json={
             "local_agent_id": "codex",
             "agent_type": "codex",
-            "managed_agent_id": "codex-primary",
+            "managed_agent_id": managed_agent_id,
             "model": "codex-allowed",
         },
     )
@@ -1169,7 +1132,7 @@ def test_client_model_switch_catalog_binding_and_task_credential_are_self_servic
         json={},
     )
     assert issued.status_code == 200
-    assert issued.json()["bound_agent_id"] == "codex-primary"
+    assert issued.json()["bound_agent_id"] == managed_agent_id
     assert issued.json()["allowed_models"] == ["codex-allowed"]
     assert issued.json()["allowed_mcp_gateways"] == ["developer-tools"]
     database = next(client.app.dependency_overrides[get_db]())
@@ -1205,7 +1168,7 @@ def test_client_model_switch_catalog_binding_and_task_credential_are_self_servic
     database.close()
 
 
-def test_client_model_switch_auto_creates_runtime_identity_when_unbound(tmp_path):
+def test_client_registration_auto_creates_runtime_identity_for_model_switch(tmp_path):
     client = _client(tmp_path)
     database = next(client.app.dependency_overrides[get_db]())
     provider = models.ModelProvider(
@@ -1249,7 +1212,8 @@ def test_client_model_switch_auto_creates_runtime_identity_when_unbound(tmp_path
         },
     )
     assert registered.status_code == 200
-    assert registered.json()["agents"][0]["managed_agent_id"] is None
+    registered_agent_id = registered.json()["agents"][0]["managed_agent_id"]
+    assert registered_agent_id.startswith("client-designer-mac-claude-code-")
 
     switched = client.post(
         "/api/v1/clients/designer-mac/model-configurations",
@@ -1258,8 +1222,29 @@ def test_client_model_switch_auto_creates_runtime_identity_when_unbound(tmp_path
     )
     assert switched.status_code == 200
     managed_agent_id = switched.json()["payload"]["managed_agent_id"]
-    assert managed_agent_id.startswith("client-designer-mac-claude-code-")
+    assert managed_agent_id == registered_agent_id
     assert "token" not in switched.json()["payload"]
+
+    refreshed = client.post(
+        "/api/v1/clients/register",
+        headers=headers,
+        json={
+            "client_id": "designer-mac",
+            "name": "Designer Mac",
+            "hostname": "designer-mac",
+            "os": "darwin",
+            "arch": "arm64",
+            "client_version": "0.3.0",
+            "agents": [{
+                "local_agent_id": "claude-code",
+                "agent_type": "claude-code",
+                "skills_path": "/tmp/home/.claude/skills",
+                "capabilities": {"model_config_auto_apply": True},
+            }],
+        },
+    )
+    assert refreshed.status_code == 200
+    assert refreshed.json()["agents"][0]["managed_agent_id"] == managed_agent_id
 
     database = next(client.app.dependency_overrides[get_db]())
     local_agent = database.query(models.ClientAgent).filter(
@@ -1270,6 +1255,8 @@ def test_client_model_switch_auto_creates_runtime_identity_when_unbound(tmp_path
         models.ManagedAgent.agent_id == managed_agent_id,
     ).one()
     assert local_agent.managed_agent_id == managed_agent_id
+    assert local_agent.takeover_status == "managed"
+    assert runtime_identity.origin_type == "client_discovery"
     assert runtime_identity.name == "Designer Mac · Claude Code"
     assert runtime_identity.channel == "Claude Code"
     assert runtime_identity.created_by == "admin"
@@ -1602,7 +1589,7 @@ def test_compare_same_name_skills_uses_authorized_signature(tmp_path):
         json={"name": "客户端接入", "token_type": "client"},
     ).json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
-    client.post(
+    registered = client.post(
         "/api/v1/clients/register",
         headers=headers,
         json={
@@ -1615,23 +1602,12 @@ def test_compare_same_name_skills_uses_authorized_signature(tmp_path):
             "agents": [{"agent_type": "codex", "skill_management_supported": True}],
         },
     )
+    managed_agent_id = registered.json()["agents"][0]["managed_agent_id"]
     database = next(client.app.dependency_overrides[get_db]())
-    database.add(
-        models.ManagedAgent(
-            agent_id="codex-agent",
-            name="Codex Agent",
-            channel="Codex",
-            status="active",
-            skill_names_json='["family-2"]',
-            prompt_names_json="[]",
-        )
-    )
+    auto_identity = database.query(models.ManagedAgent).filter_by(agent_id=managed_agent_id).one()
+    auto_identity.skill_names_json = '["family-2"]'
     database.commit()
     database.close()
-    client.put(
-        "/api/v1/clients/same-name-host/agents/codex",
-        json={"managed_agent_id": "codex-agent"},
-    )
     client.put(
         "/api/v1/clients/same-name-host/policy",
         json={"governance_mode": "strict"},
@@ -1644,7 +1620,7 @@ def test_compare_same_name_skills_uses_authorized_signature(tmp_path):
             "agents": [
                 {
                     "agent_type": "codex",
-                    "managed_agent_id": "codex-agent",
+                    "managed_agent_id": managed_agent_id,
                     "skills": [
                         {
                             "name": "same",
@@ -1715,7 +1691,7 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
         json={"name": "客户端接入", "token_type": "client"},
     ).json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
-    client.post(
+    registered = client.post(
         "/api/v1/clients/register",
         headers=headers,
         json={
@@ -1734,19 +1710,10 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
             ],
         },
     )
-
+    managed_agent_id = registered.json()["agents"][0]["managed_agent_id"]
     database = next(client.app.dependency_overrides[get_db]())
-    database.add(
-        models.ManagedAgent(
-            agent_id="codex-agent",
-            name="Codex Agent",
-            channel="Codex",
-            status="active",
-            created_by="admin",
-            skill_names_json='["skill-1"]',
-            prompt_names_json="[]",
-        )
-    )
+    auto_identity = database.query(models.ManagedAgent).filter_by(agent_id=managed_agent_id).one()
+    auto_identity.skill_names_json = '["skill-1"]'
     database.commit()
     database.close()
     client.put(
@@ -1761,7 +1728,7 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
             "agents": [
                 {
                     "agent_type": "codex",
-                    "managed_agent_id": "codex-agent",
+                    "managed_agent_id": managed_agent_id,
                     "skills": [{"name": "approved-skill", "signature": content_signature}],
                 }
             ]
@@ -1769,7 +1736,7 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
     )
     assert compared.status_code == 200
     assert compared.json()["items"][0]["allowed"] is True
-    assert client.get("/api/v1/clients/host-001").json()["agents"][0]["managed_agent_id"] == "codex-agent"
+    assert client.get("/api/v1/clients/host-001").json()["agents"][0]["managed_agent_id"] == managed_agent_id
 
     rejected_task = client.post(
         "/api/v1/clients/host-001/tasks",
@@ -1777,7 +1744,7 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
             "task_type": "install_skill",
             "payload": {
                 "agent_type": "codex",
-                "managed_agent_id": "codex-agent",
+                "managed_agent_id": managed_agent_id,
                 "skill_id": "skill-2",
             },
         },
@@ -1791,7 +1758,7 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
             "task_type": "install_skill",
             "payload": {
                 "agent_type": "codex",
-                "managed_agent_id": "codex-agent",
+                "managed_agent_id": managed_agent_id,
                 "skill_id": "skill-1",
             },
         },
@@ -1807,13 +1774,13 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
     updated = client.post(
         "/api/v1/clients/host-001/inventory", headers=headers,
         json={"agents": [{"agent_type": "codex", "skills_path": "/tmp/.codex/skills",
-                          "skill_management_supported": True, "managed_agent_id": "codex-agent",
+                          "skill_management_supported": True, "managed_agent_id": managed_agent_id,
                           "skills": [{"name": "approved-skill", "path": current_path, "signature": "edited-content"}]}]},
     )
     assert updated.status_code == 200
     repair = client.post(
         "/api/v1/clients/host-001/tasks",
-        json={"task_type": "repair_skill", "payload": {"agent_type": "codex", "managed_agent_id": "codex-agent", "skill_id": "skill-1",
+        json={"task_type": "repair_skill", "payload": {"agent_type": "codex", "managed_agent_id": managed_agent_id, "skill_id": "skill-1",
                                                        "expected_targets": {current_path: "caller-supplied"}}},
     )
     assert repair.status_code == 200
@@ -1823,7 +1790,7 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
     policy = client.get("/api/v1/clients/host-001/policy", headers=headers).json()
     available = client.get(
         "/api/v1/clients/host-001/skills/available",
-        params={"agent_type": "codex", "managed_agent_id": "codex-agent"},
+        params={"agent_type": "codex", "managed_agent_id": managed_agent_id},
         headers=headers,
     )
     assert available.status_code == 200
@@ -1841,7 +1808,7 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
         "/api/v1/clients/host-001/skills/available",
         params={
             "agent_type": "codex",
-            "managed_agent_id": "codex-agent",
+            "managed_agent_id": managed_agent_id,
             "skill_id": "skill-1",
         },
         headers=headers,
@@ -1850,7 +1817,7 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
     assert exact_available.json() == available.json()
     preview = client.get(
         "/api/v1/clients/host-001/skills/skill-1/preview",
-        params={"managed_agent_id": "codex-agent"},
+        params={"managed_agent_id": managed_agent_id},
         headers=headers,
     )
     assert preview.status_code == 200
@@ -1859,7 +1826,7 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
     assert preview.json()["submitted_at"] == "2026-07-30T03:00:00"
     versions = client.get(
         "/api/v1/clients/host-001/skills/skill-1/versions",
-        params={"agent_type": "codex", "managed_agent_id": "codex-agent"},
+        params={"agent_type": "codex", "managed_agent_id": managed_agent_id},
         headers=headers,
     )
     assert versions.status_code == 200
@@ -1868,7 +1835,7 @@ def test_compare_and_download_signed_approved_skill(tmp_path, monkeypatch):
     assert versions.json()["items"][0]["submitted_at"] == "2026-07-30T03:00:00"
     package = client.get(
         "/api/v1/clients/host-001/skills/skill-1/package",
-        params={"managed_agent_id": "codex-agent"},
+        params={"managed_agent_id": managed_agent_id},
         headers=headers,
     )
     assert package.status_code == 200
@@ -2201,7 +2168,7 @@ def test_registry_available_skills_exact_query_bypasses_catalog_page(tmp_path):
     }]
 
 
-def test_register_auto_matches_only_unique_agent_type(tmp_path):
+def test_register_creates_client_owned_identity_instead_of_matching_platform_agent(tmp_path):
     client = _client(tmp_path)
     database = next(client.app.dependency_overrides[get_db]())
     database.add(
@@ -2235,7 +2202,15 @@ def test_register_auto_matches_only_unique_agent_type(tmp_path):
         },
     )
     assert response.status_code == 200
-    assert response.json()["agents"][0]["managed_agent_id"] == "codex-agent"
+    managed_agent_id = response.json()["agents"][0]["managed_agent_id"]
+    assert managed_agent_id.startswith("client-auto-host-codex-")
+    assert managed_agent_id != "codex-agent"
+    database = next(client.app.dependency_overrides[get_db]())
+    assert database.query(models.ManagedAgent).filter_by(
+        agent_id=managed_agent_id,
+        origin_type="client_discovery",
+    ).one()
+    database.close()
 
 
 def test_admin_cannot_read_another_owners_client(tmp_path):

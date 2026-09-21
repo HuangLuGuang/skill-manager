@@ -251,6 +251,44 @@ func TestConfigureDoesNotChangeConnectionDuringRuntimeOrFileAction(t *testing.T)
 	}
 }
 
+func TestSwitchConnectionUsesSavedCredentialAndKeepsBothProfiles(t *testing.T) {
+	home := t.TempDir()
+	var authorization string
+	var requestPath string
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		authorization = request.Header.Get("Authorization")
+		requestPath = request.URL.Path
+		_, _ = response.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	config := managedclient.Config{
+		Server: "http://old.example", Token: "old-token", Name: "Old",
+		Connections: []managedclient.SavedConnection{{Server: server.URL, Token: "new-token", Name: "New"}},
+	}
+	if err := managedclient.SaveConfig(home, config); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"switch-connection", "--home", home, "--server", server.URL}); err != nil {
+		t.Fatal(err)
+	}
+	if authorization != "Bearer new-token" {
+		t.Fatalf("saved credential was not used: %q", authorization)
+	}
+	if requestPath != "/api/v1/clients/register" {
+		t.Fatalf("unexpected request path %s", requestPath)
+	}
+	loaded, err := managedclient.LoadConfig(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Server != server.URL || loaded.Token != "new-token" || loaded.Name != "New" {
+		t.Fatalf("saved connection did not become active: %#v", loaded)
+	}
+	if len(loaded.Connections) != 2 {
+		t.Fatalf("switching discarded a saved connection: %#v", loaded.Connections)
+	}
+}
+
 func TestLoadCachedInventoryRejectsOutdatedCache(t *testing.T) {
 	store, err := managedclient.OpenStore(filepath.Join(t.TempDir(), "client.db"))
 	if err != nil {

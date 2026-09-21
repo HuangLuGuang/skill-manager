@@ -1,0 +1,26 @@
+export const externalAiGatewayMessages = {
+  'zh-CN': {
+    menu: '外部 AI 网关',
+    eyebrow: 'External AI Gateway',
+    title: '外部 AI 网关',
+    description: '配置外部网关的管理面与模型数据面。平台注册外部 Agent 后，使用下发的 API Key 动态获取可用模型。',
+    add: '新增连接', edit: '编辑连接', name: '网关名称', managementBaseUrl: '管理接口地址', modelBaseUrl: '模型接口地址', tokenId: 'Token ID', tokenValue: 'Token Value', enabled: '启用', status: '状态', actions: '操作', test: '测试连接', delete: '删除', save: '保存', cancel: '取消', apiKeys: 'API Key',
+    tokenPlaceholderCreate: '输入管理接口签名密钥', tokenPlaceholderEdit: '留空表示保留现有密钥', tokenMasked: '已保存：{value}',
+    urlHint: '填写服务根地址，不需要附加具体 API 路径。', modelDiscoveryHint: '可用模型不在此处维护，将使用外部 Agent 的 Bearer API Key 请求模型接口 /v1/models。',
+    active: '已启用', disabled: '已停用', untested: '未测试', testing: '测试中', success: '可用', failed: '不可用', neverTested: '尚未测试', lastTested: '最近测试：{time}',
+    required: '请完整填写名称、两个接口地址和 Token ID；新增连接时还必须填写 Token Value。', invalidUrl: '接口地址必须是有效的 HTTP 或 HTTPS 地址。', saved: '外部网关连接已保存', saveFailed: '保存外部网关失败', loadFailed: '加载外部网关失败', testSucceeded: '管理接口与模型接口连接测试成功', testFailed: '连接测试失败', connectionTestFailedDetail: '管理接口签名校验或模型接口连通性检查失败', deleteConfirm: '确定删除此外部网关连接吗？已绑定的策略可能因此不可用。', deleted: '外部网关连接已删除', deleteFailed: '删除外部网关失败', empty: '尚未配置外部 AI 网关',
+    keyDrawerTitle: '{name} · API Key 使用明细', keyDrawerHint: '这里显示外部网关为平台智能体签发的 Key 记录及使用方。默认仅显示掩码；查看明文需要当前密码并写入安全审计。', usedByAgent: '使用智能体', externalIdentity: '外部身份', apiKey: 'API Key', keyIdValue: 'Key ID：{id}', clientBound: '来源客户端：{id}', modelCount: '{count} 个模型', updatedAt: '更新时间', reveal: '查看明文', hide: '隐藏', copy: '复制', keyEmpty: '该网关尚未为智能体创建 API Key', keyLoadFailed: '加载 API Key 使用明细失败', revealTitle: '验证后查看 API Key', revealWarning: 'API Key 可直接调用外部模型接口，请只在必要时查看和复制。', currentPassword: '当前登录密码', passwordRequired: '请输入当前登录密码', revealed: 'API Key 已显示，本次查看已记录审计', revealFailed: '查看 API Key 失败', copied: 'API Key 已复制', copyFailed: '复制失败，请手动复制',
+  },
+  'en-US': {
+    menu: 'External AI Gateways',
+    eyebrow: 'External AI Gateway',
+    title: 'External AI Gateways',
+    description: 'Configure external gateway control-plane and model data-plane endpoints. After registering an external Agent, the platform uses its issued API key to discover available models dynamically.',
+    add: 'Add connection', edit: 'Edit connection', name: 'Gateway name', managementBaseUrl: 'Management API URL', modelBaseUrl: 'Model API URL', tokenId: 'Token ID', tokenValue: 'Token Value', enabled: 'Enabled', status: 'Status', actions: 'Actions', test: 'Test connection', delete: 'Delete', save: 'Save', cancel: 'Cancel', apiKeys: 'API Keys',
+    tokenPlaceholderCreate: 'Enter the management API signing secret', tokenPlaceholderEdit: 'Leave blank to keep the current secret', tokenMasked: 'Saved: {value}',
+    urlHint: 'Enter the service root URL without a specific API path.', modelDiscoveryHint: 'Models are not maintained here. The platform calls /v1/models with the external Agent Bearer API key.',
+    active: 'Enabled', disabled: 'Disabled', untested: 'Not tested', testing: 'Testing', success: 'Available', failed: 'Unavailable', neverTested: 'Not tested yet', lastTested: 'Last tested: {time}',
+    required: 'Enter a name, both API URLs, and a Token ID. Token Value is also required for a new connection.', invalidUrl: 'API URLs must be valid HTTP or HTTPS addresses.', saved: 'External gateway connection saved', saveFailed: 'Could not save external gateway', loadFailed: 'Could not load external gateways', testSucceeded: 'Management and model endpoint checks succeeded', testFailed: 'Connection test failed', connectionTestFailedDetail: 'Management signature validation or model endpoint connectivity check failed', deleteConfirm: 'Delete this external gateway connection? Policies that use it may stop working.', deleted: 'External gateway connection deleted', deleteFailed: 'Could not delete external gateway', empty: 'No external AI gateway configured',
+    keyDrawerTitle: '{name} · API key usage', keyDrawerHint: 'This lists keys issued by the external gateway and the managed Agent using each one. Values are masked by default; revealing plaintext requires your current password and is security-audited.', usedByAgent: 'Used by Agent', externalIdentity: 'External identity', apiKey: 'API Key', keyIdValue: 'Key ID: {id}', clientBound: 'Source client: {id}', modelCount: '{count} models', updatedAt: 'Updated', reveal: 'Reveal', hide: 'Hide', copy: 'Copy', keyEmpty: 'This gateway has not issued an API key for any Agent', keyLoadFailed: 'Could not load API key usage', revealTitle: 'Verify to reveal API key', revealWarning: 'This API key can call the external model endpoint. Reveal and copy it only when necessary.', currentPassword: 'Current password', passwordRequired: 'Enter your current password', revealed: 'API key revealed and the access was audited', revealFailed: 'Could not reveal API key', copied: 'API key copied', copyFailed: 'Copy failed; copy it manually',
+  },
+}

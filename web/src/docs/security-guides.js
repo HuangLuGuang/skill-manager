@@ -145,8 +145,8 @@ guide('security-scan-guide', ['安全扫描操作指南', 'Security scanning gui
     }],
   ])
 
-guide('dify-security-access', ['Dify 接入、三种凭据与资产清单', 'Dify access, three credentials, and asset inventory'],
-  ['逐步获取 App API、Console Admin API、Knowledge API 凭据，核对 API 地址、Workspace ID 和 App ID，再执行资产采集与排错。', 'Obtain App API, Console Admin API, and Knowledge API credentials; verify endpoint URLs, Workspace ID, and App ID; collect and troubleshoot inventory.'], [
+guide('dify-security-access', ['Dify 应用纳管、三种凭据与资产清单', 'Dify application governance, credentials, and asset inventory'],
+  ['按资产发现、动态测试、知识授权和运行证据分别接入 Dify；逐步配置三种凭据并执行资产采集与排错。', 'Connect Dify separately for asset discovery, dynamic testing, knowledge authorization, and runtime evidence; configure three credentials and collect inventory.'], [
     ['credential-map', {
       title: '先按操作选择凭据，三个 Key 不能混用',
       table: { columns: ['管理台凭据用途', '从哪里取得', '用于什么'], rows: [

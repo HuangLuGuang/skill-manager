@@ -82,7 +82,7 @@
           />
 
           <div class="section-title">{{ $t("legacy.4ig27k") }}</div>
-          <a-table class="local-agents-table" :columns="agentColumns" :data-source="detail.agents || []" :row-key="row => row.local_agent_id || row.agent_type" size="small" :pagination="false" :expandable="agentTableExpandable" :scroll="{ x: 920 }">
+          <a-table class="local-agents-table" :columns="agentColumns" :data-source="detail.agents || []" :row-key="row => row.local_agent_id || row.agent_type" size="small" :pagination="false" :expandable="agentTableExpandable" :scroll="{ x: 760 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'type'">
                 <strong>{{ agentLabel(record.agent_type, record) }}</strong>
@@ -93,25 +93,6 @@
                 <a-tag :color="record.skill_management_supported ? 'green' : 'default'">
                   {{ record.skill_management_supported ? $t('legacy.1uut84r') : $t('legacy.lp0s29') }}
                 </a-tag>
-              </template>
-              <template v-else-if="column.key === 'binding'">
-                <a-select
-                  v-if="currentGovernance === 'strict' && !isSharedSkillsRecord(record)"
-                  :value="record.managed_agent_id || undefined"
-                  allow-clear
-                  show-search
-                  :placeholder="$t('legacy.meza8d')"
-                  style="width: 220px"
-                  :loading="actionKey === `bind:${record.agent_type}`"
-                  :disabled="actionKey === `bind:${record.agent_type}`"
-                  @change="value => saveBinding(record, value)"
-                >
-                  <a-select-option v-for="agent in matchingAgents(record.agent_type)" :key="agent.agent_id" :value="agent.agent_id">
-                    {{ agent.name }}（{{ agent.agent_id }}）
-                  </a-select-option>
-                </a-select>
-                <span v-else-if="isSharedSkillsRecord(record)" class="muted">{{ $t("legacy.1jv12q7") }}</span>
-                <span v-else class="muted">{{ $t("legacy.cdw9mi") }}</span>
               </template>
               <template v-else-if="column.key === 'model'">
                 <div>{{ record.applied_model || record.desired_model || managedAgentDefaultModel(record) || '-' }}</div>
@@ -129,7 +110,7 @@
                 <a-space direction="vertical" size="small">
                   <a-button v-if="hasAccess('clients:execute')"
                     type="link"
-                    :disabled="!record.skill_management_supported || (currentGovernance === 'strict' && (isSharedSkillsRecord(record) || !record.managed_agent_id))"
+                    :disabled="!record.skill_management_supported || (currentGovernance === 'strict' && isSharedSkillsRecord(record))"
                     :title="currentGovernance === 'strict' && isSharedSkillsRecord(record) ? $t('legacy.13rv9dd') : ''"
                     @click="openInstall(record)"
                   >{{ $t("legacy.1byrs80") }}</a-button>
@@ -249,9 +230,33 @@
         <a-form-item :label="$t('clientModelConfig.agent')">
           <a-input :value="agentLabel(modelConfigForm.agent_type)" disabled />
         </a-form-item>
+        <a-form-item :label="$t('externalModel.source')">
+          <a-radio-group v-model:value="modelConfigForm.source" button-style="solid" @change="handleModelSourceChange">
+            <a-radio-button value="internal">{{ $t('externalModel.internal') }}</a-radio-button>
+            <a-radio-button value="external_gateway" :disabled="!externalSourceAvailable">{{ $t('externalModel.external') }}</a-radio-button>
+          </a-radio-group>
+          <div v-if="!externalGatewayAllowed" class="muted">{{ $t('externalModel.unavailable') }}</div>
+        </a-form-item>
+        <template v-if="modelConfigForm.source === 'external_gateway'">
+          <a-alert type="info" show-icon class="policy-note" :message="$t('externalModel.prepareHint')" />
+          <a-button :loading="externalModelsLoading" :disabled="externalModelsLoading" @click="refreshExternalModels">
+            {{ $t(externalCatalog ? 'externalModel.refresh' : 'externalModel.prepare') }}
+          </a-button>
+          <a-alert v-if="externalModelsLoading" class="model-catalog-state" type="info" show-icon :message="$t('externalModel.preparing')" />
+          <a-alert v-else-if="externalModelsError" class="model-catalog-state" type="error" show-icon :message="$t('externalModel.loadFailed')" :description="externalModelsError" />
+          <a-alert v-else-if="externalCatalog" class="model-catalog-state" :type="externalModels.length ? 'success' : 'warning'" show-icon :message="$t(externalModels.length ? 'externalModel.ready' : 'externalModel.empty')">
+            <template #description>
+              <div>{{ $t('externalModel.modelCount', { count: externalModels.length }) }}</div>
+              <div v-if="externalCatalog.gateway">{{ $t('externalModel.gateway', { name: externalCatalog.gateway.name }) }}</div>
+              <div v-if="externalCatalog.binding?.external_agent_id">{{ $t('externalModel.agent', { id: externalCatalog.binding.external_agent_id }) }}</div>
+              <div v-if="externalCatalog.binding?.status">{{ $t('externalModel.bindingStatus', { status: externalCatalog.binding.status }) }}</div>
+              <div v-if="externalCatalog.binding?.key_id">{{ $t('externalModel.keyId', { id: externalCatalog.binding.key_id }) }}</div>
+            </template>
+          </a-alert>
+        </template>
         <a-form-item :label="$t('clientModelConfig.model')" required>
-          <a-select v-model:value="modelConfigForm.model" show-search option-filter-prop="label" :placeholder="$t('clientModelConfig.modelPlaceholder')">
-            <a-select-option v-for="model in configurableModels" :key="model.name" :value="model.name" :label="modelLabel(model)">
+          <a-select v-model:value="modelConfigForm.model" show-search option-filter-prop="label" :loading="externalModelsLoading" :disabled="modelConfigForm.source === 'external_gateway' && !externalCatalog" :placeholder="$t(modelConfigForm.source === 'external_gateway' && !externalCatalog ? 'externalModel.selectAfterRefresh' : 'clientModelConfig.modelPlaceholder')">
+            <a-select-option v-for="model in modelSelectionOptions" :key="model.name" :value="model.name" :label="modelLabel(model)">
               {{ modelLabel(model) }}
             </a-select-option>
           </a-select>
@@ -265,6 +270,7 @@
           <div class="muted"><code>{{ field.path }}</code> → <code>{{ field.wire }}</code></div>
         </a-form-item>
         <a-alert type="info" :message="$t('clientModelConfig.effect')" />
+        <div v-if="modelConfigForm.source === 'external_gateway'" class="muted model-call-note">{{ $t('externalModel.clientReported') }}</div>
         <pre class="model-config-preview">{{ modelConfigPreview }}</pre>
       </a-form>
     </a-modal>
@@ -316,7 +322,6 @@ const discoveryOpen = ref(false)
 import { message } from 'ant-design-vue'
 
 import {
-  bindClientAgent,
   cancelClientTask,
   createClientDownloadTicket,
   createClientTask,
@@ -326,6 +331,7 @@ import {
   listClients,
   listClientDownloads,
   listModelEndpoints,
+  prepareExternalModelCatalog,
   listSkills,
   retryClientTask,
   updateClientPolicy,
@@ -336,7 +342,6 @@ const classificationClientId = ref('')
 const openClassification = clientId => { classificationClientId.value = clientId; classificationOpen.value = true }
 const detailLoading = ref(false)
 const submitting = ref(false)
-const actionKey = ref('')
 const eventsLoading = ref(false)
 let eventSequence = 0
 const detailVisible = ref(false)
@@ -369,8 +374,12 @@ const skillActionCreated = async ({ clientId, taskId }) => {
 const currentPolicy = ref('audit')
 const currentGovernance = ref('registry')
 const installForm = reactive({ agent_type: '', managed_agent_id: '', skill_id: '' })
-const modelConfigForm = reactive({ local_agent_id: '', agent_type: '', managed_agent_id: '', model: '', parameters: {}, expected_revision: undefined })
+const modelConfigForm = reactive({ local_agent_id: '', agent_type: '', managed_agent_id: '', source: 'internal', gateway_id: null, model: '', parameters: {}, expected_revision: undefined })
 const modelConfigTarget = ref(null)
+const externalCatalog = ref(null)
+const externalModels = ref([])
+const externalModelsLoading = ref(false)
+const externalModelsError = ref('')
 const modelOperationBusy = ref('')
 const runModelOperation = async (record, operation) => {
   if (modelOperationBusy.value) return
@@ -415,7 +424,6 @@ const columns = [
 const agentColumns = [
   { title: phrase('legacy.tus94r'), key: 'type' },
   { title: phrase('legacy.uwo0jt'), key: 'capability', width: 150 },
-  { title: phrase('legacy.es5rq0'), key: 'binding', width: 250 },
   { title: i18n.global.t('clientModelConfig.model'), key: 'model', width: 160 },
   { title: 'Skill', key: 'skills', width: 70 },
   { title: phrase('legacy.501w24'), key: 'action', width: 150, fixed: 'right' },
@@ -472,6 +480,10 @@ const configurableModels = computed(() => {
   const allowed = new Set(token.allowed_models || [])
   return modelEndpoints.value.filter(model => model.enabled && (!allowed.size || allowed.has(model.name)))
 })
+const effectiveModelRouting = computed(() => detail.value?.model_routing || detail.value?.governance?.model_routing || {})
+const externalGatewayAllowed = computed(() => Boolean(effectiveModelRouting.value.external_gateway_enabled && effectiveModelRouting.value.external_gateway_id))
+const externalSourceAvailable = computed(() => externalGatewayAllowed.value)
+const modelSelectionOptions = computed(() => modelConfigForm.source === 'external_gateway' ? externalModels.value : configurableModels.value)
 const installableSkills = computed(() => {
   const installedIDs = new Set(targetInstalledSkills.value.map(skill => skill.skill_id).filter(Boolean))
   const installedNames = new Set(targetInstalledSkills.value.map(skill => skill.name).filter(Boolean))
@@ -553,16 +565,6 @@ const saveGovernance = async (governanceMode) => {
   await refreshDetail()
   message.success(phrase('legacy.jzjm0b'))
 }
-const saveBinding = async (record, managedAgentId) => {
-  actionKey.value = `bind:${record.agent_type}`
-  try {
-    await bindClientAgent(detail.value.client_id, record.agent_type, { managed_agent_id: managedAgentId || null })
-    await refreshDetail()
-    message.success(phrase('legacy.1a8f1u0'))
-  } finally {
-    actionKey.value = ''
-  }
-}
 const openInstall = async (record) => {
   Object.assign(installForm, { agent_type: record.agent_type, managed_agent_id: record.managed_agent_id, skill_id: '' })
   targetInstalledSkills.value = record.skills || []
@@ -584,10 +586,11 @@ const runtimeTokenFor = record => accessTokens.value
     && (token.scopes || []).includes('model:chat'))
   .sort((left, right) => Number(right.id) - Number(left.id))[0]
 const canConfigureModel = record => Boolean(record.capabilities?.model_config_auto_apply)
-  && Boolean(runtimeTokenFor(record) || clientIssuanceToken.value)
+  && Boolean((externalGatewayAllowed.value && record.managed_agent_id) || runtimeTokenFor(record) || clientIssuanceToken.value)
 const modelConfigDisabledReason = record => {
   if (!record.capabilities?.model_config_auto_apply) return i18n.global.t('clientModelConfig.unsupportedAgent')
-  if (!record.managed_agent_id && !clientIssuanceToken.value) return i18n.global.t('clientModelConfig.bindFirst')
+  if (externalGatewayAllowed.value) return record.managed_agent_id ? '' : i18n.global.t('clientModelConfig.identityPending')
+  if (!record.managed_agent_id && !clientIssuanceToken.value) return i18n.global.t('clientModelConfig.identityPending')
   if (!runtimeTokenFor(record) && !clientIssuanceToken.value) return i18n.global.t('clientModelConfig.credentialRequired')
   return ''
 }
@@ -597,18 +600,51 @@ const openModelConfig = record => {
     return
   }
   modelConfigTarget.value = record
+  externalCatalog.value = null
+  externalModels.value = []
+  externalModelsError.value = ''
   Object.assign(modelConfigForm, {
     local_agent_id: record.local_agent_id || record.agent_type,
     agent_type: record.agent_type,
     managed_agent_id: record.managed_agent_id,
+    source: externalGatewayAllowed.value && record.managed_agent_id ? 'external_gateway' : 'internal',
+    gateway_id: externalGatewayAllowed.value && record.managed_agent_id ? effectiveModelRouting.value.external_gateway_id : null,
     model: record.desired_model || record.applied_model || managedAgentDefaultModel(record) || '',
     parameters: {},
     expected_revision: record.capabilities?.model_config_state?.revision,
   })
-  if (!configurableModels.value.some(model => model.name === modelConfigForm.model)) {
+  if (modelConfigForm.source === 'internal' && !configurableModels.value.some(model => model.name === modelConfigForm.model)) {
     modelConfigForm.model = configurableModels.value[0]?.name || ''
+  } else if (modelConfigForm.source === 'external_gateway') {
+    modelConfigForm.model = ''
   }
   modelConfigVisible.value = true
+}
+const handleModelSourceChange = () => {
+  modelConfigForm.model = ''
+  modelConfigForm.gateway_id = modelConfigForm.source === 'external_gateway' ? effectiveModelRouting.value.external_gateway_id : null
+  if (modelConfigForm.source === 'internal') modelConfigForm.model = configurableModels.value[0]?.name || ''
+}
+const refreshExternalModels = async () => {
+  if (externalModelsLoading.value || !detail.value?.client_id || !modelConfigTarget.value) return
+  externalModelsLoading.value = true
+  externalModelsError.value = ''
+  try {
+    const result = await prepareExternalModelCatalog(detail.value.client_id, {
+      local_agent_id: modelConfigForm.local_agent_id,
+      agent_type: modelConfigForm.agent_type,
+      ...(modelConfigForm.managed_agent_id ? { managed_agent_id: modelConfigForm.managed_agent_id } : {}),
+    })
+    externalCatalog.value = result
+    externalModels.value = (result.models || []).map(model => ({ ...model, name: model.name || model.id }))
+    modelConfigForm.gateway_id = result.gateway?.id || effectiveModelRouting.value.external_gateway_id
+    if (!externalModels.value.some(model => model.name === modelConfigForm.model)) modelConfigForm.model = externalModels.value[0]?.name || ''
+  } catch (error) {
+    externalCatalog.value = null
+    externalModels.value = []
+    modelConfigForm.model = ''
+    externalModelsError.value = error.response?.data?.detail || i18n.global.t('externalModel.loadFailed')
+  } finally { externalModelsLoading.value = false }
 }
 const createModelConfig = async () => {
   if (modelConfigSubmitting.value) return
@@ -734,10 +770,6 @@ const formatBytes = value => {
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / 1024 ** 2).toFixed(1)} MB`
 }
-const agentKind = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^claude$/, 'claudecode').replace(/^geminicli$/, 'gemini')
-const matchingAgents = agentType => String(agentType || '').startsWith('custom-')
-  ? agents.value
-  : agents.value.filter(agent => agentKind(agent.channel) === agentKind(agentType))
 const managedAgentDefaultModel = record => agents.value.find(agent => agent.agent_id === record.managed_agent_id)?.default_model || ''
 const modelConfigStatusLabel = value => i18n.global.t(`clientModelConfig.status.${value}`)
 const taskCannotCancel = task => task.status === 'running' && ['skill_action', 'remove_skill', 'install_skill', 'repair_skill', 'apply_model_config', 'verify_model_config', 'restore_model_config'].includes(task.task_type)
@@ -768,10 +800,7 @@ const policyDescription = mode => ({
   repair: phrase('legacy.1rf6q23'),
   block: phrase('legacy.souye8'),
 }[mode])
-const governanceDescription = mode => ({
-  registry: phrase('legacy.f874ug'),
-  strict: phrase('legacy.1kx3oiq'),
-}[mode])
+const governanceDescription = mode => t(`clientGovernance.governanceModeDescription.${mode}`)
 const governanceShortLabel = mode => ({ registry: phrase('legacy.2kc7ip'), strict: phrase('legacy.y5lawk') }[mode] || phrase('legacy.2kc7ip'))
 const eventLabel = value => ['skill_governance_recorded', 'skill_governance_detected', 'skill_governance_action', 'skill_scan_submitted'].includes(value)
   ? i18n.global.t(`clientGovernance.${value}`)
@@ -817,6 +846,8 @@ onMounted(async () => {
   max-width: 160px;
   word-break: break-word;
 }
+.model-catalog-state { margin-top: 12px; }
+.model-call-note { margin: 8px 0; }
 .inline-note {
   margin-left: 8px;
 }

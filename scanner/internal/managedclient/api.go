@@ -21,6 +21,9 @@ type API struct {
 type AgentCredential struct {
 	Token              string   `json:"token"`
 	TokenPrefix        string   `json:"token_prefix"`
+	CredentialSource   string   `json:"credential_source,omitempty"`
+	CredentialType     string   `json:"credential_type,omitempty"`
+	GatewayBaseURL     string   `json:"gateway_base_url,omitempty"`
 	BoundAgentID       string   `json:"bound_agent_id"`
 	AllowedModels      []string `json:"allowed_models"`
 	AllowedMCPGateways []string `json:"allowed_mcp_gateways"`
@@ -240,6 +243,9 @@ func (api API) ReportExecutedTask(ctx context.Context, clientID string, task Tas
 		if ids, ok := task.Payload["verification_request_ids"]; ok {
 			body["verification_request_ids"] = ids
 		}
+		if restored, ok := task.Payload["restored_after_failure"]; ok {
+			body["restored_after_failure"] = restored
+		}
 	}
 	if task.TaskType == "verify_model_config" || task.TaskType == "restore_model_config" {
 		if model, ok := task.Payload["applied_model"]; ok {
@@ -273,8 +279,19 @@ func (api API) StartTask(ctx context.Context, clientID string, taskID int64) (bo
 }
 
 func (api API) IssueAgentCredential(ctx context.Context, clientID string, taskID int64, previousHash ...string) (AgentCredential, error) {
+	return api.IssueTaskCredential(ctx, clientID, taskID, "", previousHash...)
+}
+
+// IssueTaskCredential retrieves a secret that is bound to one authorized
+// model task. The task payload only contains the source selector; the secret is
+// returned by this separate authenticated request and never persisted in the
+// task record.
+func (api API) IssueTaskCredential(ctx context.Context, clientID string, taskID int64, credentialSource string, previousHash ...string) (AgentCredential, error) {
 	var result AgentCredential
 	body := map[string]any{}
+	if credentialSource = strings.TrimSpace(credentialSource); credentialSource != "" {
+		body["credential_source"] = credentialSource
+	}
 	if len(previousHash) > 0 && previousHash[0] != "" {
 		body["previous_credential_hash"] = previousHash[0]
 	}
@@ -284,6 +301,14 @@ func (api API) IssueAgentCredential(ctx context.Context, clientID string, taskID
 		body,
 		&result,
 	)
+	if err == nil && credentialSource != "" {
+		if result.CredentialSource != credentialSource {
+			return AgentCredential{}, fmt.Errorf("model_config.credential_source_mismatch")
+		}
+		if credentialSource == "external_gateway" && result.CredentialType != "external_gateway_api_key" {
+			return AgentCredential{}, fmt.Errorf("model_config.credential_type_mismatch")
+		}
+	}
 	return result, err
 }
 
@@ -308,6 +333,12 @@ func (api API) RequestModelConfiguration(ctx context.Context, clientID, localAge
 			if value, ok := options[0][key]; ok {
 				payload[key] = value
 			}
+		}
+		if source := strings.TrimSpace(stringValue(options[0], "gateway_source")); source != "" {
+			if source == "external" {
+				source = "external_gateway"
+			}
+			payload["source"] = source
 		}
 	}
 	err := api.postJSON(

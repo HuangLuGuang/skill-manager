@@ -32,6 +32,7 @@ from .routers import (
     asset_lifecycle,
     auth,
     clients,
+    external_ai_gateways,
     iam,
     config,
     llm_gateway,
@@ -155,6 +156,8 @@ app.include_router(runtime_traces.router, prefix=settings.API_PREFIX)
 app.include_router(mcp_gateway.admin_router, prefix=f"{settings.API_PREFIX}/v1", dependencies=[Depends(get_current_admin_user)])
 app.include_router(mcp_gateway.runtime_router)
 app.include_router(clients.router, prefix=settings.API_PREFIX)
+app.include_router(external_ai_gateways.router, prefix=settings.API_PREFIX)
+app.include_router(external_ai_gateways.runtime_router, prefix=settings.API_PREFIX)
 app.include_router(llm_gateway.runtime_router)
 app.include_router(llm_gateway.admin_router, prefix=settings.API_PREFIX)
 app.include_router(access_runtime_router)
@@ -174,6 +177,7 @@ _AUDITED_ADMIN_PREFIXES = (
     "/api/v1/groups",
     "/api/v1/model-providers",
     "/api/v1/models",
+    "/api/v1/external-ai-gateways",
     "/api/v1/llm-api-keys",
     "/api/v1/privacy-policies",
     "/api/v1/runtime-governance/",
@@ -232,11 +236,51 @@ def ensure_sqlite_schema() -> None:
             conn.exec_driver_sql("ALTER TABLE managed_agents ADD COLUMN runtime_token_id INTEGER")
         if "created_by" not in agent_columns:
             conn.exec_driver_sql("ALTER TABLE managed_agents ADD COLUMN created_by VARCHAR(128)")
+        if "default_model_source" not in agent_columns:
+            conn.exec_driver_sql(
+                "ALTER TABLE managed_agents ADD COLUMN default_model_source VARCHAR(32) NOT NULL DEFAULT 'internal'"
+            )
+        if "external_gateway_id" not in agent_columns:
+            conn.exec_driver_sql("ALTER TABLE managed_agents ADD COLUMN external_gateway_id INTEGER")
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_managed_agents_external_gateway_id "
+                "ON managed_agents (external_gateway_id)"
+            )
+        if "origin_type" not in agent_columns:
+            conn.exec_driver_sql(
+                "ALTER TABLE managed_agents ADD COLUMN origin_type VARCHAR(32) NOT NULL DEFAULT 'platform'"
+            )
+            conn.exec_driver_sql(
+                "UPDATE managed_agents SET origin_type = 'client_discovery' "
+                "WHERE agent_id LIKE 'client-%' AND agent_id IN ("
+                "SELECT managed_agent_id FROM client_agents WHERE managed_agent_id IS NOT NULL)"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_managed_agents_origin_type ON managed_agents (origin_type)"
+            )
+        external_binding_columns = {
+            row[1]
+            for row in conn.exec_driver_sql(
+                "PRAGMA table_info(external_gateway_agent_bindings)"
+            ).fetchall()
+        }
+        if external_binding_columns and "available_models_json" not in external_binding_columns:
+            conn.exec_driver_sql(
+                "ALTER TABLE external_gateway_agent_bindings "
+                "ADD COLUMN available_models_json TEXT NOT NULL DEFAULT '[]'"
+            )
+        if external_binding_columns and "models_refreshed_at" not in external_binding_columns:
+            conn.exec_driver_sql(
+                "ALTER TABLE external_gateway_agent_bindings "
+                "ADD COLUMN models_refreshed_at DATETIME"
+            )
         governance_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(client_governance_policies)").fetchall()}
         if "prompt_guard_json" not in governance_columns:
             conn.exec_driver_sql("ALTER TABLE client_governance_policies ADD COLUMN prompt_guard_json TEXT NOT NULL DEFAULT 'null'")
         if "compression_json" not in governance_columns:
             conn.exec_driver_sql("ALTER TABLE client_governance_policies ADD COLUMN compression_json TEXT NOT NULL DEFAULT 'null'")
+        if "model_routing_json" not in governance_columns:
+            conn.exec_driver_sql("ALTER TABLE client_governance_policies ADD COLUMN model_routing_json TEXT NOT NULL DEFAULT 'null'")
         access_token_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(access_tokens)").fetchall()}
         if "bound_client_id" not in access_token_columns:
             conn.exec_driver_sql("ALTER TABLE access_tokens ADD COLUMN bound_client_id VARCHAR(128)")
@@ -560,6 +604,9 @@ validate_security_settings(settings)
 initialize_signing_identity(allow_create=not settings.ENFORCE_SECURE_STARTUP)
 ensure_audit_signing_key()
 ensure_sqlite_schema()
+with SessionLocal() as identity_db:
+    if clients.backfill_client_inventory_identities(identity_db):
+        identity_db.commit()
 bootstrap_builtin_security_worker_once(settings, SessionLocal)
 get_agent_manager()
 

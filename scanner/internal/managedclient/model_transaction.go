@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -25,16 +26,19 @@ type modelFile struct {
 }
 
 type ModelChange struct {
-	Restored        bool                   `json:"restored,omitempty"`
-	AppliedRevision string                 `json:"applied_revision,omitempty"`
-	Evidence        []ModelRequestEvidence `json:"evidence,omitempty"`
-	Error           string                 `json:"error,omitempty"`
-	ID              string                 `json:"id"`
-	AgentType       string                 `json:"agent_type"`
-	Model           string                 `json:"model"`
-	Status          string                 `json:"status"`
-	Revision        string                 `json:"revision"`
-	Files           []modelFile            `json:"files"`
+	Restored         bool                   `json:"restored,omitempty"`
+	AppliedRevision  string                 `json:"applied_revision,omitempty"`
+	Evidence         []ModelRequestEvidence `json:"evidence,omitempty"`
+	Error            string                 `json:"error,omitempty"`
+	ID               string                 `json:"id"`
+	AgentType        string                 `json:"agent_type"`
+	Model            string                 `json:"model"`
+	GatewaySource    string                 `json:"gateway_source,omitempty"`
+	CredentialSource string                 `json:"credential_source,omitempty"`
+	VerificationMode string                 `json:"verification_mode,omitempty"`
+	Status           string                 `json:"status"`
+	Revision         string                 `json:"revision"`
+	Files            []modelFile            `json:"files"`
 }
 
 func modelConfigFiles(agentType string) []string {
@@ -143,6 +147,11 @@ func ApplyModelConfigRevision(home, server, localAgentID, agentType, model, cred
 	parameters := map[string]any{}
 	if len(options) > 0 {
 		parameters = options[0]
+	}
+	if len(options) > 1 {
+		change.GatewaySource = strings.TrimSpace(stringValue(options[1], "gateway_source"))
+		change.CredentialSource = strings.TrimSpace(stringValue(options[1], "credential_source"))
+		change.VerificationMode = strings.TrimSpace(stringValue(options[1], "verification_mode"))
 	}
 	if err := ValidateModelParameters(agentType, parameters); err != nil {
 		return change, err
@@ -279,6 +288,9 @@ func attachModelChangeState(home, kind string, state *ModelConfigState) {
 			continue
 		}
 		state.ChangeID, state.Status = change.ID, change.Status
+		state.GatewaySource = change.GatewaySource
+		state.CredentialSource = change.CredentialSource
+		state.VerificationMode = change.VerificationMode
 		state.Verification = change.Evidence
 		state.AppliedRevision = change.AppliedRevision
 		if change.Status == "verified" && state.Revision != change.AppliedRevision {

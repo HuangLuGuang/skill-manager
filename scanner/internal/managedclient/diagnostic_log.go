@@ -81,13 +81,18 @@ func diagnosticSanitizer(root string) func(any) (any, error) {
 	tokens := []string{os.Getenv("AGENT_MANAGER_CLIENT_TOKEN")}
 	if file, e := os.Open(filepath.Join(root, "config.json")); e == nil {
 		var config struct {
-			Token string `json:"token"`
+			Token       string            `json:"token"`
+			Connections []SavedConnection `json:"connections"`
 		}
 		if json.NewDecoder(io.LimitReader(file, 1024*1024)).Decode(&config) == nil {
 			tokens = append(tokens, config.Token)
+			for _, connection := range config.Connections {
+				tokens = append(tokens, connection.Token)
+			}
 		}
 		file.Close()
 	}
+	sort.SliceStable(tokens, func(i, j int) bool { return len(tokens[i]) > len(tokens[j]) })
 	var replace func(any) any
 	replace = func(item any) any {
 		switch v := item.(type) {

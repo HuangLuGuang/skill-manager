@@ -2,10 +2,12 @@
 
 Agent Manager Client 用于统一发现、接管和巡检本机 Agent 的 Skill 目录。它直接管控文件入口，不依赖 Agent 是否遵循提示词、Skill 指令或 Hook。
 
-客户端支持两种治理方式：
+客户端支持两种 Skill 授权方式：
 
-- 客户端安全治理（默认）：Skill 已在平台批准且本地内容签名一致即可使用，不要求创建或绑定平台智能体。
-- Agent 强授权：除批准状态和签名外，还要求本机 Agent 绑定平台智能体，并校验该智能体的 Skill 允许范围。
+- 客户端安全治理（默认）：Skill 已在平台批准且本地内容签名一致即可使用。
+- Agent 强授权：除批准状态和签名外，还校验本机 Agent 自动登记身份所配置的 Skill 允许范围。
+
+客户端发现本机 Agent 后会自动在平台登记稳定身份，供策略、模型凭证和审计使用。该过程不需要用户创建或选择另一个平台智能体。
 
 客户端当前内置支持以下 Agent：
 
@@ -38,6 +40,19 @@ Qoder、Qoder CN、QoderWork、ZCode 的预置目录分别为 `.qoder/skills`、
 离线客户端继续使用已缓存配置。排查时分别核对“配置已同步”和“目录已发现”，不要只凭
 平台心跳判断目录是否生效。
 
+客户端以目录状态判断可管理 Agent：任一配置的 Skill 根目录存在时扫描其中的 Skill；
+Skill 根目录尚不存在、但其直接父目录存在时，仍显示并计入该 Agent，Skill 数量为 0，
+同时保留预期的 Skill 根目录供后续安装创建。可执行文件或应用路径只作为补充信息，不参与
+Agent 可见性判断。客户端概览与 Agent 管理使用同一发现结果；共用 Skills 目录单独显示，
+不计入 Agent 数量。
+
+**English:** The client derives manageable Agent visibility from configured directory state. If a
+configured Skills root exists, the client scans it. If the Skills root is absent but its direct parent
+directory exists, the Agent is still shown and counted with zero Skills, while the expected Skills path
+is retained for a later installation. Executable and application paths are supplemental signals only.
+Client Overview and Agent Management use the same discovery result; shared Skills directories remain
+visible but are excluded from the Agent count.
+
 桌面“客户端概览”包含总览、运行与同步、检测策略、扫描能力和客户端信息。
 “Agent 管理”按 Agent 切换本地 Skills、检测记录和隔离副本。“执行记录”分为巡检与处置、
 平台任务，支持按 Agent、有效处置类型和时间筛选及分页；巡检与处置列表单独展示 Skill、
@@ -46,17 +61,17 @@ Agent、类型、结果和最近发生时间。切换到执行记录会重新加
 
 ## 模块化治理的边界
 
-客户端的治理单元是“本机 Agent 类型 + 实际 Skill 根目录 + 具体 Skill + 可选的平台
-Agent 绑定”，而不是把整台主机视为一个不可拆分的可信单元：
+客户端的治理单元是“本机 Agent 身份 + 实际 Skill 根目录 + 具体 Skill”，而不是把整台
+主机视为一个不可拆分的可信单元：
 
 - 一个本机 Agent 可以配置一个或多个实际 Skill 根目录；客户端会解析符号链接，避免同一
   物理目录仅因路径别名被重复识别。
-- Agent 强授权模式下，每个支持 Skill 管理的本机 Agent 分别绑定平台 Agent，并按该
-  Agent 的 Skill 允许范围过滤安装和巡检结论。
+- Agent 强授权模式下，每个支持 Skill 管理的本机 Agent 使用客户端上报后自动登记的身份，
+  并按该身份的 Skill 允许范围过滤安装和巡检结论。
 - 修改、修复、移除和隔离以具体 Skill 安装记录为目标。执行后仍应核对目标 Agent、路径、
   版本、任务状态和事件，不能只依赖按钮提示。
 - 共用 `.agents/skills` 目录单独显示可能的读取者，但目录本身不能证明实际调用者身份，
-  因此不承担 Agent 强授权绑定。
+  因此不作为某个本机 Agent 的强授权身份。
 - 启用会修改文件的动作前，先使用“仅记录”或“记录且告警”核对根目录、共享边界和事件归属。
 
 帮助中心“场景实践 → 客户端模块化治理”提供一台 Codex 与 Claude Code 共存工作站的
@@ -66,6 +81,7 @@ Agent 绑定”，而不是把整台主机视为一个不可拆分的可信单�
 
 右上角“设置”集中管理当前设备的偏好：
 
+- 平台连接：保存多个 Agent Manager 地址及各自的客户端名称、接入凭证；凭证仅保存在当前用户可读的 `~/.agent-manager/config.json`（权限 `0600`）中，不会返回桌面渲染进程。新增连接会先验证再保存；切换已保存连接时使用该连接自己的凭证重新注册，成功后才设为当前连接并重启后台服务。
 - 显示语言：简体中文或英文。
 - 默认打开页面：客户端读取状态后优先进入的页面。
 - 系统通知：控制是否把安全事件和新版本发送到操作系统通知中心；本地通知记录不受影响。
@@ -77,6 +93,10 @@ Agent 绑定”，而不是把整台主机视为一个不可拆分的可信单�
 - 诊断：选择日志保留时间与导出最近天数，打开日志或数据目录，导出不含接入凭证明文、原始数据库和 Skill 源文件的报告。诊断包中的 `runtime.jsonl` 会记录客户端命令、后台治理动作及文件锁竞争；锁竞争失败还包含持锁进程 PID、锁更新时间和锁龄，可用于关联前后操作。发送前仍应检查主机、路径和运行信息。
 
 客户端不提供通知提示音设置。
+
+同一时刻只有一个连接处于活动状态。切换平台会沿用既有安全边界：旧平台的认证、策略、任务和安装关联会从本地运行状态中清理，再同步目标平台；本地 Skill、恢复副本、扫描目录设置和已保存连接不会删除。目标平台不可达或凭证无效时不会改变当前连接。
+
+**English:** Settings can save multiple Agent Manager addresses, each with its own client name and credential. Credentials remain in the current user's `~/.agent-manager/config.json` with `0600` permissions and are never returned to the desktop renderer. The Client validates a new or saved target before making it active. Only one connection is active at a time; a successful switch clears previous platform certification, policy, task, and installation associations before resyncing, while retaining local Skills, recovery copies, discovery settings, and saved connections. A failed validation leaves the current connection unchanged.
 
 客户端内部语言与 macOS Finder 中的应用名称相互独立。Finder 会按照 macOS
 系统首选语言读取安装包内的 `InfoPlist.strings`：中文显示“智能体生命周期管理系统客户端”，
@@ -136,7 +156,7 @@ export AGENT_MANAGER_CLIENT_TOKEN="amat_xxx"
 智能体管理 -> 客户端管理
 ```
 
-默认使用“客户端安全治理”，无需绑定平台智能体。只有切换为“Agent 强授权”后，才需要在客户端详情中选择平台智能体；同类型只有一个候选时平台会自动匹配。
+默认使用“客户端安全治理”。切换为“Agent 强授权”后，平台按本机 Agent 自动登记的身份校验 Skill 范围，无需额外关联。
 
 ### 在桌面客户端切换网关模型
 
@@ -145,7 +165,7 @@ export AGENT_MANAGER_CLIENT_TOKEN="amat_xxx"
 1. 先选择本机发现并报告模型配置能力的 Agent。配置适配覆盖 Claude Code、Claude Desktop、Codex、Gemini CLI、Grok Build、OpenCode、OpenClaw、Hermes 和 Pi；各版本实测结果见 [验证矩阵](acceptance/model-switching-2026-09-13/README.md)。
 2. 页面直接读取本机配置文件，显示当前模型、网关地址和配置路径。
 3. 模型列表只显示当前客户端凭证委派范围内、且模型与供应商都已启用的网关模型。
-4. 点击“切换”，检查参数表单和配置差异。“未设置”保留原配置；填写值才显式修改。如果该本机 Agent 尚无运行身份且客户端获准委派凭证，平台创建归属当前客户端的托管 Agent 并绑定。
+4. 点击“切换”，检查参数表单和配置差异。“未设置”保留原配置；填写值才显式修改。如果该本机 Agent 尚无运行身份且客户端获准委派凭证，平台会自动补全归属当前客户端的运行身份。
 5. 客户端保存备份、写入并重新读取配置，显示待重启状态。有调用验证能力的 Agent 可执行“验证调用”，用隔离配置和最小提示核对真实响应与网关审计。现有会话仍需重启。
 6. “恢复配置”恢复最近备份，执行前核对当前文件版本；出现后续编辑时报告冲突。失败任务可查看原因并重试，原版本条件仍然有效。
 
@@ -183,9 +203,7 @@ export AGENT_MANAGER_CLIENT_TOKEN="amat_xxx"
   --model gpt-5-codex
 ```
 
-首次未关联时额外传 `--managed-agent-id <agent-id>`；后续调用会复用已有关联。
-
-不在内置列表中的 Agent，无需开发新适配器。进入“Agent 管理 → 添加 Agent”，填写便于识别的名称，并选择包含多个 Skill 子目录的绝对路径。移除自定义 Agent 只取消登记，不会删除该目录中的文件。客户端安全治理无需在平台重复创建 Agent；Agent 强授权模式下，先在平台创建“自定义 Agent”，再在客户端选择对应的平台智能体。
+不在内置列表中的 Agent，无需开发新适配器。进入“Agent 管理 → 添加 Agent”，填写便于识别的名称，并选择包含多个 Skill 子目录的绝对路径。移除自定义 Agent 只取消登记，不会删除该目录中的文件。客户端上报后，本地 Agent 会自动出现在平台“智能体列表”，来源标记为“客户端发现”，详情保留客户端实例、Skill 目录和扫描证据。
 
 ## 4. 命令行接管已有目录
 
@@ -204,7 +222,7 @@ export AGENT_MANAGER_CLIENT_TOKEN="amat_xxx"
   --confirm
 ```
 
-Agent 强授权模式再增加 `--agent codex=codex-agent`。上述预览和确认属于命令行接管流程；桌面日常操作入口为“Agent 管理”，按本地 Skill、检测记录和隔离副本分别处理。
+Agent 强授权使用客户端上报后自动登记的本机 Agent 身份，无需额外传入平台 Agent 映射。上述预览和确认属于命令行接管流程；桌面日常操作入口为“Agent 管理”，按本地 Skill、检测记录和隔离副本分别处理。
 
 接管规则：
 
@@ -297,7 +315,7 @@ Skill 是否处置完成需在事件和执行记录中确认。平台客户端�
 2. 点击目标 Agent 的“下发 Skill”。
 3. 选择 `APPROVED` Skill。
 
-Agent 强授权模式下，需要先绑定平台智能体，列表只显示该智能体允许使用的 Skill。
+Agent 强授权模式下，列表只显示该本机 Agent 自动登记身份允许使用的 Skill。
 
 客户端通过长轮询获取任务后，会验证 Ed25519 发布签名和逐文件 SHA-256。签名或文件哈希不一致时拒绝安装。
 桌面端同一次选择多个 Agent 安装时，客户端会先逐个确认目标 Agent 的使用权限，再只下载、验签和

@@ -28,6 +28,7 @@ def test_access_token_admin_routes_are_mounted_under_api_v1():
     assert '"maintenance_window_start": "DATETIME"' in main_py
     assert '"maintenance_window_end": "DATETIME"' in main_py
     assert '"dedicated_identity_ref": "VARCHAR(128)"' in main_py
+    assert "ALTER TABLE managed_agents ADD COLUMN origin_type" in main_py
     assert '"approval_id": "VARCHAR(64)"' in main_py
     assert "agent_security_p6_production_approval_v1" in main_py
     assert "ADD COLUMN access_mode VARCHAR(32) NOT NULL DEFAULT 'unknown'" in main_py
@@ -53,6 +54,10 @@ def test_p6_production_approval_schema_upgrades_existing_sqlite(tmp_path, monkey
         conn.exec_driver_sql("CREATE TABLE runtime_trace_events (id INTEGER PRIMARY KEY, event_id VARCHAR(64))")
         conn.exec_driver_sql("CREATE TABLE mcp_tools (id INTEGER PRIMARY KEY)")
         conn.exec_driver_sql("CREATE TABLE mcp_gateways (id INTEGER PRIMARY KEY)")
+        conn.exec_driver_sql(
+            "CREATE TABLE external_gateway_agent_bindings "
+            "(id INTEGER PRIMARY KEY, gateway_id INTEGER, managed_agent_id VARCHAR(128))"
+        )
 
     monkeypatch.setattr(backend_main, "engine", legacy_engine)
     monkeypatch.setattr(migrate_compression, "migrate", lambda: None)
@@ -84,6 +89,12 @@ def test_p6_production_approval_schema_upgrades_existing_sqlite(tmp_path, monkey
         report_contract_migration = conn.exec_driver_sql(
             "SELECT name FROM backend_schema_migrations WHERE name = 'agent_security_p6_report_contract_v1'"
         ).first()
+        external_binding_columns = {
+            row[1]
+            for row in conn.exec_driver_sql(
+                "PRAGMA table_info(external_gateway_agent_bindings)"
+            )
+        }
 
     assert {"production_target_ids_json", "maintenance_window_start", "maintenance_window_end", "dedicated_identity_ref"} <= policy_columns
     assert {"approval_id", "kill_switch_activated", "kill_switch_activated_at", "kill_switch_activated_by", "kill_switch_reason"} <= task_columns
@@ -100,6 +111,7 @@ def test_p6_production_approval_schema_upgrades_existing_sqlite(tmp_path, monkey
     assert "risk_mapping_json" in trace_event_columns
     assert asi_mapping_migration == ("agent_security_p6_asi_mapping_v1",)
     assert report_contract_migration == ("agent_security_p6_report_contract_v1",)
+    assert {"available_models_json", "models_refreshed_at"} <= external_binding_columns
 
 
 def test_api_entrypoints_use_supported_lifespan_startup():

@@ -20,6 +20,18 @@ func TestModelProbeRejectsEchoedPromptAndErrorExitPayload(t *testing.T) {
 	}
 }
 
+func TestHermesModelProbeAcceptsExactMarkerOnFirstOrLaterLine(t *testing.T) {
+	marker := "AM_VERIFY_12345678-1234-1234-1234-123456789abc"
+	for _, output := range []string{marker + "\n", "Hermes response:\n  " + marker + "  \n"} {
+		if !modelProbeHasAnswer("hermes", []byte(output), marker) {
+			t.Fatalf("exact Hermes marker was not recognized in %q", output)
+		}
+	}
+	if modelProbeHasAnswer("hermes", []byte("Reply with exactly "+marker), marker) {
+		t.Fatal("Hermes prompt echo must not be accepted as the answer")
+	}
+}
+
 func TestMissingAgentVerificationPersistsFailureAndKeepsRecovery(t *testing.T) {
 	home := t.TempDir()
 	if err := ApplyModelConfig(home, "https://gateway.example", "codex", "codex", "model", "test-key"); err != nil {

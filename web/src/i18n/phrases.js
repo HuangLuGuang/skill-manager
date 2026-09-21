@@ -216,7 +216,6 @@ export const enPhrases = {
   '创建凭证': 'Create Credential',
   '签发凭证': 'Issue Credential',
   '绑定智能体': 'Bind Agent',
-  '客户端类型': 'Client Type',
   '默认模型': 'Default Model',
   '允许 Skills': 'Allowed Skills',
   '安装客户端': 'Install Client',

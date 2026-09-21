@@ -26,6 +26,7 @@ const routes = [
   },
   { path: '/agents', name: 'agents', component: () => import('../views/Agents.vue'), meta: { requiresAuth: true } },
   { path: '/clients', name: 'clients', component: () => import('../views/Clients.vue'), meta: { requiresAuth: true } },
+  { path: '/external-ai-gateways', name: 'external-ai-gateways', component: () => import('../views/ExternalAiGateways.vue'), meta: { requiresAuth: true } },
   { path: '/credentials', name: 'credentials', component: () => import('../views/Credentials.vue'), meta: { requiresAuth: true } },
   { path: '/mcp-governance/servers', name: 'mcp-servers', component: () => import('../views/McpGateway.vue'), meta: { requiresAuth: true, mcpTab: 'servers' } },
   { path: '/mcp-governance/gateways', name: 'mcp-gateways', component: () => import('../views/McpGateway.vue'), meta: { requiresAuth: true, mcpTab: 'gateways' } },

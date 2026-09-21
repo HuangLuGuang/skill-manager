@@ -18,6 +18,9 @@ func TestConfigAndServiceDefinitions(t *testing.T) {
 	if err != nil || loaded.Server != "http://manager" || loaded.Token != "secret" {
 		t.Fatalf("unexpected config %#v %v", loaded, err)
 	}
+	if len(loaded.Connections) != 1 || loaded.Connections[0].Server != "http://manager" || loaded.Connections[0].Token != "secret" {
+		t.Fatalf("active connection was not migrated into saved connections: %#v", loaded.Connections)
+	}
 	info, err := os.Stat(filepath.Join(home, ".agent-manager", "config.json"))
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("config permissions are not private: %v %v", info, err)
@@ -33,6 +36,33 @@ func TestConfigAndServiceDefinitions(t *testing.T) {
 	windowsPath, windowsBody, err := ServiceDefinition(home, `C:\Program Files\Agent Manager\client.exe`, "windows")
 	if err != nil || !strings.HasSuffix(windowsPath, "agent-manager-client.cmd") || !strings.Contains(windowsBody, "client.exe\"") {
 		t.Fatalf("invalid Windows service: %s %s %v", windowsPath, windowsBody, err)
+	}
+}
+
+func TestSaveConfigPreservesAndDeduplicatesConnections(t *testing.T) {
+	home := t.TempDir()
+	config := Config{
+		Server: " https://manager-a.example/ ", Token: " token-a ", Name: " Manager A ",
+		Connections: []SavedConnection{
+			{Server: "https://manager-b.example/", Token: "token-b", Name: "Manager B"},
+			{Server: "https://manager-a.example", Token: "stale-token", Name: "Stale"},
+		},
+	}
+	if err := SaveConfig(home, config); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadConfig(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Connections) != 2 {
+		t.Fatalf("unexpected saved connections: %#v", loaded.Connections)
+	}
+	if loaded.Connections[0].Server != "https://manager-a.example" || loaded.Connections[0].Token != "token-a" || loaded.Connections[0].Name != "Manager A" {
+		t.Fatalf("active connection was not normalized and kept first: %#v", loaded.Connections[0])
+	}
+	if saved, ok := loaded.FindConnection("https://manager-b.example/"); !ok || saved.Token != "token-b" {
+		t.Fatalf("saved connection lookup failed: %#v ok=%v", saved, ok)
 	}
 }
 

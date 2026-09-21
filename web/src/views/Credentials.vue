@@ -419,6 +419,14 @@ const modelOptions = computed(() => {
       disabled: !selected.has(model.name) && selectedUpstreams.has(upstream),
     })
   }
+  const known = new Set(models.value.map(model => model.name))
+  const external = [...selected].filter(name => !known.has(name))
+  if (external.length) {
+    groups.set('external-agent', {
+      label: t('externalModel.external'),
+      options: external.map(name => ({ value: name, label: name, selectionLabel: name, searchText: name })),
+    })
+  }
   return [...groups.values()]
 })
 const mcpGateways = ref([])
@@ -624,10 +632,10 @@ const resetForm = (tokenType, defaults = {}) => {
   Object.assign(form, {
     name: defaults.name || '',
     token_type: tokenType,
-    agent_preset: 'verification',
+    agent_preset: defaults.agent_preset || 'verification',
     bound_agent_id: defaults.bound_agent_id,
-    scopes: [...(typeDefaults[tokenType] || [])],
-    allowed_models: [],
+    scopes: [...(defaults.scopes || typeDefaults[tokenType] || [])],
+    allowed_models: [...(defaults.allowed_models || [])],
     allowed_mcp_gateways: [],
     allowed_ips: [],
     max_body_kb: 1024,
@@ -696,9 +704,15 @@ const openCreateFromQuery = async () => {
   if (route.query.create !== 'agent_runtime') return
   const agentId = String(route.query.agent_id || '')
   const agent = agents.value.find(item => item.agent_id === agentId)
+  const usesExternalModel = agent?.default_model_source === 'external_gateway' && agent?.default_model
   startScenario('agent', {
     bound_agent_id: agentId || undefined,
     name: agent ? t('credentials.agentCredentialName', { name: agent.name }) : '',
+    ...(usesExternalModel ? {
+      agent_preset: 'governance_model',
+      scopes: agentScopePresets.governance_model,
+      allowed_models: [agent.default_model],
+    } : {}),
   })
   await router.replace({ name: 'credentials', query: {} })
 }

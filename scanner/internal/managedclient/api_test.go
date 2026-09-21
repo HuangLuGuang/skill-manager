@@ -105,7 +105,7 @@ func TestRequestModelConfigurationSendsLocalTargetWithoutExposingCredential(t *t
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if body["local_agent_id"] != "codex" || body["agent_type"] != "codex" || body["managed_agent_id"] != "agent-1" || body["model"] != "gpt-managed" {
+		if body["local_agent_id"] != "codex" || body["agent_type"] != "codex" || body["managed_agent_id"] != "agent-1" || body["model"] != "gpt-managed" || body["source"] != "external_gateway" {
 			t.Fatalf("unexpected request body %#v", body)
 		}
 		if _, exposed := body["token"]; exposed {
@@ -116,7 +116,7 @@ func TestRequestModelConfigurationSendsLocalTargetWithoutExposingCredential(t *t
 	}))
 	defer server.Close()
 
-	task, err := NewAPI(server.URL, "secret", time.Second).RequestModelConfiguration(context.Background(), "client-1", "codex", "codex", "agent-1", "gpt-managed")
+	task, err := NewAPI(server.URL, "secret", time.Second).RequestModelConfiguration(context.Background(), "client-1", "codex", "codex", "agent-1", "gpt-managed", map[string]any{"gateway_source": "external"})
 	if err != nil || task.ID != 12 || task.TaskType != "apply_model_config" {
 		t.Fatalf("unexpected task %#v err=%v", task, err)
 	}

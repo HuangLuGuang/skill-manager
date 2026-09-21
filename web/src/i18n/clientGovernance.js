@@ -1,5 +1,12 @@
 export const clientGovernanceMessages = {
   'zh-CN': {
+    modelRouting: {
+      title: '外部 AI 网关接入', description: '控制客户端是否通过已配置的外部网关使用模型。可用模型在注册外部 Agent 并取得 API Key 后实时获取，无需手工维护。', enabled: '使用外部网关', gateway: '默认外部网关', gatewayPlaceholder: '选择已启用的外部网关', clientSelectModel: '允许客户端选择模型', autoRegisterAgent: '自动注册外部 Agent', disabled: '未启用', selectable: '客户端可选择模型', fixed: '模型由平台指定', gatewayMissing: '网关未配置', cannotEnable: '平台默认策略未使用外部网关，客户端不能单独开启。', gatewayInherited: '客户端继承平台指定的网关，不能切换到其他连接。', internalCapabilitiesUnavailable: '外部模型调用不经过内置模型网关，内置 Prompt 防护、Token 压缩和调用审计不会自动生效。', preview: '模型路由策略将影响 {count} 台客户端。',
+    },
+    governanceModeDescription: {
+      registry: '客户端安全治理：Skill 已在平台批准且本地内容签名一致，即可由本机 Agent 使用。',
+      strict: 'Agent 强授权：除平台批准和签名一致外，Skill 还必须分配给当前 Agent。',
+    },
     compression: {
       title: 'Token 压缩', description: '设置模型切换自动创建的运行凭据是否压缩上下文。保存后更新已有自动凭据，新建和轮换凭据继承当前配置；客户端通过长轮询同步。',
       enabled: '启用 Token 压缩', level: '压缩级别', auto: '均衡', conservative: '保守', aggressive: '激进',
@@ -69,6 +76,13 @@ export const clientGovernanceMessages = {
     client: '客户端', agent: 'Agent', skill: 'Skill', path: '目录', active: '分类策略已启用', cancel: '关闭',
   },
   'en-US': {
+    modelRouting: {
+      title: 'External AI gateway access', description: 'Control whether Clients use models through the configured external gateway. Available models are discovered after external Agent registration with the issued API key; no manual model catalog is required.', enabled: 'Use external gateway', gateway: 'Default external gateway', gatewayPlaceholder: 'Select an enabled external gateway', clientSelectModel: 'Allow Client model selection', autoRegisterAgent: 'Register external Agent automatically', disabled: 'Disabled', selectable: 'Client may select a model', fixed: 'Model selected by the platform', gatewayMissing: 'Gateway not configured', cannotEnable: 'The platform default does not use the external gateway, so this Client cannot enable it independently.', gatewayInherited: 'The Client inherits the platform gateway and cannot switch to another connection.', internalCapabilitiesUnavailable: 'External model calls bypass the built-in model gateway. Built-in Prompt Guard, Token compression, and call auditing do not apply automatically.', preview: 'The model routing policy affects {count} Clients.',
+    },
+    governanceModeDescription: {
+      registry: 'Client security governance: a local Agent may use a Skill when it is approved by the platform and its local content signature matches.',
+      strict: 'Agent authorization: in addition to platform approval and a matching signature, the Skill must be assigned to the current Agent.',
+    },
     compression: {
       title: 'Token compression', description: 'Configure context compression for runtime credentials created by model switching. Saving updates existing automatic credentials; new and rotated credentials inherit the current settings. Clients synchronize through long polling.',
       enabled: 'Enable token compression', level: 'Compression level', auto: 'Balanced', conservative: 'Conservative', aggressive: 'Aggressive',

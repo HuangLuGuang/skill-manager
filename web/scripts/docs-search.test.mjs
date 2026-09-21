@@ -179,6 +179,43 @@ test('Ask AI finds Dify credential acquisition and operational guides in both la
   }
 })
 
+test('Ask AI finds product-specific integration and external gateway guidance', () => {
+  const queries = {
+    'zh-CN': [
+      ['不同产品应该选择客户端、Runtime API、Dify API 还是 Scanner？', 'scenario-selection'],
+      ['外部 AI 网关注册智能体获取 API Key 并刷新模型怎么配置？', 'external-ai-gateway'],
+      ['客户端使用外部网关时所有 Agent 是否要逐个刷新模型？', 'external-ai-gateway'],
+    ],
+    'en-US': [
+      ['Which integration should I use for a local tool, custom Runtime, Dify, or Scanner?', 'scenario-selection'],
+      ['How do I register an Agent, get an API key, and refresh models from an external AI gateway?', 'external-ai-gateway'],
+      ['Does every local Agent need to refresh external gateway models individually in the Client?', 'external-ai-gateway'],
+    ],
+  }
+  for (const [locale, cases] of Object.entries(queries)) {
+    for (const [query, slug] of cases) {
+      const [first] = rankDocsContexts({ content: docsContent[locale], query })
+      assert.equal(first.slug, slug, `${locale}: ${query}`)
+    }
+  }
+})
+
+test('external model and runtime guides expose the implemented custom-Agent path', () => {
+  for (const locale of ['zh-CN', 'en-US']) {
+    const external = JSON.stringify(docsContent[locale].articles['external-ai-gateway'])
+    const runtime = JSON.stringify(docsContent[locale].articles['runtime-integration'])
+    const scenario = JSON.stringify(docsContent[locale].articles['scenario-selection'])
+
+    assert.ok(external.includes('GET /api/v1/runtime/external-model/credential'))
+    assert.ok(external.includes('model:chat'))
+    assert.ok(external.includes('model_base_url'))
+    assert.ok(external.includes('client-external-models'))
+    assert.match(runtime, locale === 'zh-CN' ? /推荐用于.*自研 Agent/ : /Recommended for custom Agents/)
+    assert.doesNotMatch(runtime, /Codex|WorkBuddy|Claude Code/)
+    assert.doesNotMatch(scenario, /Dify 不走本地 SKILL\.md 客户端流程|Dify does not use the local SKILL\.md Client path/)
+  }
+})
+
 test('AI Security help is bilingual and describes only enabled evidence boundaries', () => {
   const expected = {
     'zh-CN': ['页面默认开启', '不执行 tools/call', '任务 succeeded 只表示执行契约完成', '当前 Token 不支持原地轮换', 'PDF 不支持原始级别'],

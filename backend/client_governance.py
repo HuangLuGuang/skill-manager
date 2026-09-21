@@ -54,6 +54,46 @@ class CompressionConfig(BaseModel):
     level: Literal["auto", "conservative", "aggressive"] = "auto"
 
 
+class ModelRoutingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    external_gateway_enabled: bool = False
+    external_gateway_id: int | None = Field(default=None, ge=1)
+    auto_register_agent: bool = True
+    client_select_model: bool = True
+
+    @model_validator(mode="after")
+    def gateway_required_when_enabled(self):
+        if self.external_gateway_enabled and self.external_gateway_id is None:
+            raise ApiError(
+                422,
+                "client.external_gateway_required",
+                "启用外部网关时必须选择网关连接",
+                "An external gateway connection is required when external routing is enabled",
+            )
+        return self
+
+
+def effective_model_routing(default: dict | None, override: dict | None) -> dict:
+    """Apply a client override without allowing it to widen the platform policy."""
+    platform = {**ModelRoutingConfig().model_dump(), **(default or {})}
+    if not override:
+        return platform
+    effective = {**platform, **override}
+    effective["external_gateway_enabled"] = bool(
+        platform["external_gateway_enabled"] and override.get("external_gateway_enabled", True)
+    )
+    if override.get("external_gateway_id") not in (None, platform.get("external_gateway_id")):
+        effective["external_gateway_enabled"] = False
+    effective["external_gateway_id"] = platform.get("external_gateway_id")
+    effective["auto_register_agent"] = bool(
+        platform["auto_register_agent"] and override.get("auto_register_agent", True)
+    )
+    effective["client_select_model"] = bool(
+        platform["client_select_model"] and override.get("client_select_model", True)
+    )
+    return effective
+
+
 def automatic_credentials(db: Session, client_id: str):
     return db.query(models.AccessToken).filter(
         models.AccessToken.token_type == "agent_runtime",
@@ -70,6 +110,7 @@ class PolicyChange(BaseModel):
     preview_id: str | None = None
     prompt_guard: PromptGuardConfig | None = None
     compression: CompressionConfig | None = None
+    model_routing: ModelRoutingConfig | None = None
 
     @model_validator(mode="after")
     def valid_actions(self):
@@ -109,6 +150,9 @@ def policy_view(db: Session, client_id: str | None = None):
     guard_override = json.loads(custom.prompt_guard_json) if custom else None
     compression_default = (json.loads(default.compression_json) if default else None) or CompressionConfig().model_dump()
     compression_override = json.loads(custom.compression_json) if custom else None
+    routing_default = (json.loads(default.model_routing_json) if default else None) or ModelRoutingConfig().model_dump()
+    routing_override = json.loads(custom.model_routing_json) if custom else None
+    effective_routing = effective_model_routing(routing_default, routing_override)
     return {
         "protocol": custom.protocol if custom else 2,
         "advanced_supported": client_id is None or bool(custom and custom.protocol == 2),
@@ -125,6 +169,10 @@ def policy_view(db: Session, client_id: str | None = None):
         "compression_default": compression_default,
         "compression_override": compression_override,
         "compression_source": "client" if compression_override else "default",
+        "model_routing": effective_routing,
+        "model_routing_default": routing_default,
+        "model_routing_override": routing_override,
+        "model_routing_source": "client" if routing_override else "default",
         "defaults": defaults,
         "overrides": overrides if client_id else (json.loads(default.rules_json) if default else {}),
         "sources": {trigger: "client" if trigger in overrides else "default" for trigger in ACTIONS},
@@ -151,7 +199,16 @@ def preview(db: Session, scope: str, change: PolicyChange):
     clients = db.query(models.ManagedClient)
     if not default_scope:
         clients = clients.filter(models.ManagedClient.client_id == scope)
-    items, scopes, excluded_clients, incompatible_clients, prompt_impacts, compression_impacts = [], [], [], [], [], []
+    items, scopes, excluded_clients, incompatible_clients, prompt_impacts, compression_impacts, model_routing_impacts = [], [], [], [], [], [], []
+    if "model_routing" in change.model_fields_set and change.model_routing and change.model_routing.external_gateway_enabled:
+        gateway = db.get(models.ExternalAIGateway, change.model_routing.external_gateway_id)
+        if not gateway or not gateway.enabled:
+            raise ApiError(
+                409,
+                "client.external_gateway_unavailable",
+                "所选外部 AI 网关不存在或未启用",
+                "The selected external AI gateway is missing or disabled",
+            )
     for client in clients.order_by(models.ManagedClient.client_id).all():
         view = policy_view(db, client.client_id)
         proposed_guard = view["prompt_guard"]
@@ -180,6 +237,22 @@ def preview(db: Session, scope: str, change: PolicyChange):
                 token.enable_compression != proposed_compression["enabled"] or token.compression_level != proposed_compression["level"]
                 for token in credentials
             ) if "compression" in change.model_fields_set else 0,
+        })
+        proposed_routing = view["model_routing"]
+        if "model_routing" in change.model_fields_set:
+            configured = change.model_routing.model_dump() if change.model_routing else None
+            if default_scope:
+                proposed_routing = effective_model_routing(
+                    configured or ModelRoutingConfig().model_dump(),
+                    view["model_routing_override"],
+                )
+            else:
+                proposed_routing = effective_model_routing(view["model_routing_default"], configured)
+        model_routing_impacts.append({
+            "client_id": client.client_id,
+            "client_name": client.name,
+            "current": view["model_routing"],
+            "proposed": proposed_routing,
         })
         if default_scope and not view["enabled"]:
             excluded_clients.append({"client_id": client.client_id, "client_name": client.name,
@@ -233,11 +306,15 @@ def preview(db: Session, scope: str, change: PolicyChange):
                                         "prompt_guard_set": "prompt_guard" in change.model_fields_set, "prompt_impacts": prompt_impacts,
                                         "compression": change.compression.model_dump() if change.compression else None,
                                         "compression_set": "compression" in change.model_fields_set, "compression_impacts": compression_impacts,
+                                        "model_routing": change.model_routing.model_dump() if change.model_routing else None,
+                                        "model_routing_set": "model_routing" in change.model_fields_set,
+                                        "model_routing_impacts": model_routing_impacts,
                                         "clients": scopes, "excluded_clients": excluded_clients, "incompatible_clients": incompatible_clients,
                                         "items": [{key: value for key, value in item.items() if key != "observed_at"} for item in items]}, sort_keys=True).encode()).hexdigest()
     return {"preview_id": digest, "version": current["version"], "items": items, "clients": scopes, "client_count": len(scopes),
             "prompt_impacts": prompt_impacts,
             "compression_impacts": compression_impacts,
+            "model_routing_impacts": model_routing_impacts,
             "candidate_count": len(items), "excluded_clients": excluded_clients,
             "incompatible_clients": incompatible_clients, "rules": change.rules, "contains_uninstall": "uninstall" in change.rules.values()}
 
@@ -259,6 +336,8 @@ def save_policy(db: Session, scope: str, change: PolicyChange, user):
         row.prompt_guard_json = json.dumps(change.prompt_guard.model_dump() if change.prompt_guard else None, sort_keys=True)
     if "compression" in change.model_fields_set:
         row.compression_json = json.dumps(change.compression.model_dump() if change.compression else None, sort_keys=True)
+    if "model_routing" in change.model_fields_set:
+        row.model_routing_json = json.dumps(change.model_routing.model_dump() if change.model_routing else None, sort_keys=True)
     row.revision += 1
     row.enabled = True
     row.updated_by = user.username
@@ -279,16 +358,30 @@ def save_policy(db: Session, scope: str, change: PolicyChange, user):
             models.ClientTask.client_id == client_id, models.ClientTask.task_type == "sync_policy",
             models.ClientTask.status.in_(("pending", "running")),
         ).first()
+        routing_changed = before["model_routing"] != after["model_routing"]
         if (before["rules"] == after["rules"] and before["prompt_guard"] == after["prompt_guard"]
                 and before["prompt_guard_source"] == after["prompt_guard_source"]
                 and before["compression"] == after["compression"] and before["compression_source"] == after["compression_source"]
+                and not routing_changed
                 and before["enabled"] == after["enabled"] and not outstanding):
             continue
         db.query(models.ClientTask).filter(
             models.ClientTask.client_id == client_id, models.ClientTask.task_type == "sync_policy",
             models.ClientTask.status.in_(("pending", "running")),
         ).update({"status": "cancelled", "error": "policy_superseded", "finished_at": datetime.utcnow()}, synchronize_session=False)
-        payload = {"reason": "classification_policy_changed", "target_version": after["version"], "previous_version": before["version"]}
+        only_routing_changed = routing_changed and (
+            before["rules"] == after["rules"]
+            and before["prompt_guard"] == after["prompt_guard"]
+            and before["prompt_guard_source"] == after["prompt_guard_source"]
+            and before["compression"] == after["compression"]
+            and before["compression_source"] == after["compression_source"]
+            and before["enabled"] == after["enabled"]
+        )
+        payload = {
+            "reason": "model_routing_policy_changed" if only_routing_changed else "classification_policy_changed",
+            "target_version": after["version"],
+            "previous_version": before["version"],
+        }
         db.add(models.ClientTask(client_id=client_id, task_type="sync_policy", payload_json=json.dumps(payload),
                                 request_key=hashlib.sha256(f"policy:{client_id}:{after['version']}".encode()).hexdigest()))
     db.flush()

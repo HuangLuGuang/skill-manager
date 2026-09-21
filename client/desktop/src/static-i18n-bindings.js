@@ -309,8 +309,8 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#step-bind>span:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.hues6c",
-    "source": "绑定智能体"
+    "key": "ui.g3bs3y",
+    "source": "清单上报"
   },
   {
     "selector": "#step-service>span:nth-of-type(1)",
@@ -739,6 +739,24 @@ window.clientStaticI18nBindings = [
     "source": "刷新模型"
   },
   {
+    "selector": "#external-gateway-policy-banner>div:nth-of-type(1)>strong:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "client.models.policy_banner_title",
+    "source": "平台已启用外部网关"
+  },
+  {
+    "selector": "#external-gateway-policy-banner-action",
+    "nodeIndex": 0,
+    "key": "client.models.prepare_all_agents",
+    "source": "为全部 Agent 准备模型"
+  },
+  {
+    "selector": "#external-gateway-policy-banner-dismiss",
+    "nodeIndex": 0,
+    "key": "client.models.dismiss_banner",
+    "source": "关闭提示"
+  },
+  {
     "selector": "#model-agent-tabs",
     "attribute": "aria-label",
     "key": "ui.uja3bo",
@@ -1021,28 +1039,22 @@ window.clientStaticI18nBindings = [
     "source": "管理平台连接、显示、通知、后台运行和更新偏好。"
   },
   {
-    "selector": "#settings>section:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(1)>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.settings.connection",
     "source": "平台连接"
   },
   {
-    "selector": "#settings>section:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
+    "selector": "#settings>section:nth-of-type(1)>div:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.settings.connection_description",
-    "source": "修改平台地址和客户端接入凭证，测试成功后保存。"
+    "source": "保存多个 Agent Manager 连接，并在验证目标连接后快速切换。"
   },
   {
-    "selector": "#settings>section:nth-of-type(1)>div:nth-of-type(2)>div:nth-of-type(1)>span:nth-of-type(1)>strong:nth-of-type(1)",
+    "selector": "#add-connection",
     "nodeIndex": 0,
-    "key": "ui.settings.platform_address",
-    "source": "平台地址"
-  },
-  {
-    "selector": "#edit-connection",
-    "nodeIndex": 0,
-    "key": "ui.settings.edit_connection",
-    "source": "修改地址与凭证"
+    "key": "ui.settings.add_connection",
+    "source": "新增连接"
   },
   {
     "selector": "#settings>section:nth-of-type(2)>div:nth-of-type(1)>h2:nth-of-type(1)",
@@ -1477,58 +1489,82 @@ window.clientStaticI18nBindings = [
     "source": "知道了"
   },
   {
-    "selector": "#edit-connection-form>h3:nth-of-type(1)",
+    "selector": "#edit-connection-title",
     "nodeIndex": 0,
-    "key": "ui.1pa4fpb",
+    "key": "ui.settings.edit_connection_title",
     "source": "修改 Agent Manager 连接"
   },
   {
-    "selector": "#edit-connection-form>p:nth-of-type(1)",
+    "selector": "#edit-connection-description",
     "nodeIndex": 0,
-    "key": "ui.1g7kdr3",
-    "source": "测试成功后保存新的平台地址和客户端名称；凭据留空表示继续使用现有凭据。"
+    "key": "ui.settings.edit_connection_hint",
+    "source": "测试成功后保存连接；当前连接的凭证留空表示继续使用现有凭证。"
   },
   {
-    "selector": "#edit-connection-form>label:nth-of-type(1)",
+    "selector": "#edit-connection-form>label:nth-of-type(1)>span:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.1kbs7oz",
+    "key": "ui.settings.manager_address",
     "source": "Agent Manager 地址"
   },
   {
-    "selector": "#edit-connection-form>label:nth-of-type(2)",
+    "selector": "#edit-connection-form>label:nth-of-type(2)>span:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.11044ab",
+    "key": "ui.settings.client_credential",
     "source": "客户端接入凭证"
   },
   {
     "selector": "#edit-token",
     "attribute": "placeholder",
-    "key": "ui.wrpj57",
-    "source": "留空表示继续使用现有凭据"
+    "key": "ui.settings.keep_credential",
+    "source": "留空表示继续使用现有凭证"
   },
   {
-    "selector": "#edit-connection-form>label:nth-of-type(3)",
+    "selector": "#edit-connection-form>label:nth-of-type(3)>span:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.8r4dti",
+    "key": "ui.settings.client_name",
     "source": "客户端名称"
   },
   {
     "selector": "#edit-client-name",
     "attribute": "placeholder",
-    "key": "ui.15c688q",
+    "key": "ui.settings.client_name_placeholder",
     "source": "研发客户端"
   },
   {
     "selector": "#cancel-edit-connection",
     "nodeIndex": 0,
-    "key": "ui.1589w37",
+    "key": "ui.settings.cancel",
     "source": "取消"
   },
   {
     "selector": "#edit-connection-form>div:nth-of-type(1)>button:nth-of-type(2)",
     "nodeIndex": 0,
-    "key": "ui.93zfr8",
+    "key": "ui.settings.test_and_save",
     "source": "测试并保存"
+  },
+  {
+    "selector": "#switch-connection-title",
+    "nodeIndex": 0,
+    "key": "ui.settings.switch_title",
+    "source": "切换 Agent Manager"
+  },
+  {
+    "selector": "#switch-connection-dialog>div:nth-of-type(1)>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.settings.switch_warning",
+    "source": "切换后会清理旧平台的认证、策略和任务关联并重新同步；本地 Skill 和已保存连接不会删除。"
+  },
+  {
+    "selector": "#cancel-switch-connection",
+    "nodeIndex": 0,
+    "key": "ui.settings.cancel",
+    "source": "取消"
+  },
+  {
+    "selector": "#confirm-switch-connection",
+    "nodeIndex": 0,
+    "key": "ui.settings.confirm_switch",
+    "source": "确认切换"
   },
   {
     "selector": "#update-dialog>div:nth-of-type(1)>span:nth-of-type(1)",
@@ -1961,5 +1997,35 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "ui.modelConfig.apply",
     "source": "应用配置"
+  },
+  {
+    "selector": "#external-gateway-policy-dialog>div:nth-of-type(1)>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "client.models.policy_changed_badge",
+    "source": "模型路由策略已更新"
+  },
+  {
+    "selector": "#external-gateway-policy-title",
+    "nodeIndex": 0,
+    "key": "client.models.policy_changed_title",
+    "source": "平台已切换到外部网关"
+  },
+  {
+    "selector": "#external-gateway-policy-dialog>div:nth-of-type(1)>div:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "client.models.policy_changed_note",
+    "source": "刷新时会注册或复用外部 Agent、托管 API Key 并读取可用模型；明文 Key 不会显示在客户端页面。"
+  },
+  {
+    "selector": "#external-gateway-policy-later",
+    "nodeIndex": 0,
+    "key": "client.models.handle_later",
+    "source": "稍后处理"
+  },
+  {
+    "selector": "#external-gateway-policy-configure",
+    "nodeIndex": 0,
+    "key": "client.models.refresh_and_configure",
+    "source": "刷新模型并配置"
   }
 ]

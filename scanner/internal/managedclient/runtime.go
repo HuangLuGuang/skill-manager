@@ -428,6 +428,12 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 			return nil
 		}
 		evidence, err := VerifyModelConfig(ctx, home, kind, localID, api, inventory)
+		if err != nil && state.VerificationMode == "client_call" {
+			if restoreErr := RestoreModelConfig(home, state.ChangeID); restoreErr != nil {
+				return fmt.Errorf("%w; model_config.auto_restore_failed: %v", err, restoreErr)
+			}
+			task.Payload["restored_after_failure"] = true
+		}
 		ids := []string{}
 		for _, request := range evidence {
 			if request.Status == "success" {
@@ -436,6 +442,9 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 		}
 		task.Payload["verification_request_ids"] = ids
 		task.Payload["applied_model"] = state.Model
+		if boolValue(task.Payload, "restored_after_failure") {
+			task.Payload["applied_model"] = InspectModelConfig(home, kind).Model
+		}
 		return err
 	case "apply_model_config":
 		agentType := stringValue(task.Payload, "agent_type")
@@ -443,6 +452,23 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 		model := stringValue(task.Payload, "model")
 		if agentType == "" || localAgentID == "" || model == "" {
 			return fmt.Errorf("model config task is missing target Agent or model")
+		}
+		for _, key := range []string{"api_key", "token", "credential", "token_value"} {
+			if strings.TrimSpace(stringValue(task.Payload, key)) != "" {
+				return fmt.Errorf("model_config.secret_in_payload")
+			}
+		}
+		gatewaySource := strings.TrimSpace(stringValue(task.Payload, "gateway_source"))
+		credentialSource := strings.TrimSpace(stringValue(task.Payload, "credential_source"))
+		verificationMode := strings.TrimSpace(stringValue(task.Payload, "verification_mode"))
+		modelBaseURL := strings.TrimRight(strings.TrimSpace(stringValue(task.Payload, "model_base_url")), "/")
+		if gatewaySource == "external" || gatewaySource == "external_gateway" {
+			gatewaySource = "external"
+			if modelBaseURL == "" || credentialSource != "external_gateway" || verificationMode != "client_call" {
+				return fmt.Errorf("model_config.external_contract_invalid")
+			}
+		} else {
+			modelBaseURL = api.server
 		}
 		if id, found, err := store.State(fmt.Sprintf("model-change:%d", task.ID)); err != nil {
 			return err
@@ -479,22 +505,26 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 			return err
 		}
 		credential := ""
-		if boolValue(task.Payload, "auto_issue_credential") {
+		if boolValue(task.Payload, "auto_issue_credential") || credentialSource != "" {
 			previousHash := ""
 			if previous, err := nativeModelCredential(home, agentType); err == nil && previous != "" {
 				hash := sha256.Sum256([]byte(previous))
 				previousHash = hex.EncodeToString(hash[:])
 			}
-			issued, err := api.IssueAgentCredential(ctx, inventory.ClientID, task.ID, previousHash)
+			issued, err := api.IssueTaskCredential(ctx, inventory.ClientID, task.ID, credentialSource, previousHash)
 			if err != nil {
 				return fmt.Errorf("issue Agent runtime credential: %w", err)
 			}
 			credential = issued.Token
+			if gatewaySource == "external" && strings.TrimRight(strings.TrimSpace(issued.GatewayBaseURL), "/") != modelBaseURL {
+				return fmt.Errorf("model_config.credential_gateway_mismatch")
+			}
 			if credential == "" {
 				return fmt.Errorf("Agent Manager returned an empty Agent runtime credential")
 			}
 		}
-		change, err := ApplyModelConfigRevision(home, api.server, localAgentID, agentType, model, credential, revision, parameters)
+		route := map[string]any{"gateway_source": gatewaySource, "credential_source": credentialSource, "verification_mode": verificationMode}
+		change, err := ApplyModelConfigRevision(home, modelBaseURL, localAgentID, agentType, model, credential, revision, parameters, route)
 		if change.ID != "" {
 			_ = store.SetState(fmt.Sprintf("model-change:%d", task.ID), change.ID)
 		}

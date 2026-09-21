@@ -17,7 +17,7 @@ import (
 
 var Version = "dev"
 
-const InventoryCacheVersion = "6"
+const InventoryCacheVersion = "7"
 
 type Skill struct {
 	Governance    *SkillObservation `json:"governance,omitempty"`
@@ -279,6 +279,7 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 		}
 	}
 	var roots []string
+	var relatedRoot string
 	relatedDirectoryFound := false
 	for _, relative := range modelConfigFiles(spec.agentType) {
 		if info, err := os.Stat(resolvedModelPath(home, spec.agentType, relative)); err == nil && info.Mode().IsRegular() {
@@ -291,6 +292,9 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 		parent := filepath.Dir(root)
 		if info, err := os.Stat(parent); err == nil && info.IsDir() {
 			relatedDirectoryFound = true
+			if relatedRoot == "" {
+				relatedRoot = root
+			}
 		}
 		if info, err := os.Stat(root); err == nil && info.IsDir() {
 			roots = append(roots, root)
@@ -306,13 +310,17 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 	if !relatedDirectoryFound && agent.InstallPath == "" {
 		return agent, false, nil
 	}
-	if agent.InstallPath != "" && len(roots) == 0 && len(spec.skillRoots) > 0 {
-		agent.SkillsPath = resolveSkillRoot(home, spec.skillRoots[0])
+	if len(roots) == 0 && len(spec.skillRoots) > 0 {
+		agent.SkillsPath = relatedRoot
+		if agent.SkillsPath == "" {
+			agent.SkillsPath = resolveSkillRoot(home, spec.skillRoots[0])
+		}
 		agent.Capabilities["skills_directory_exists"] = false
 	}
 	if len(roots) > 0 {
 		agent.SkillsPath = roots[0]
 		agent.Capabilities["skill_roots"] = roots
+		agent.Capabilities["skills_directory_exists"] = true
 	}
 	for _, root := range roots {
 		skills, err := readSkills(root, ManagedSkillsRoot(home), opts)

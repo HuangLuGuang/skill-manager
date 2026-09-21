@@ -2,6 +2,8 @@
 
 模型网关把 `rs-router` 的隐私代理能力内置到 Agent Manager 后台中，用于统一代理 OpenAI-compatible Chat Completions 请求，并在请求进入外部模型供应商前做 PII 伪匿名化、Prompt 防护和智能上下文压缩。
 
+客户已经部署独立 AI 网关时，可以让客户端模型流量直接进入客户网关，由 Agent Manager 只负责连接配置、Agent 注册、动态模型目录、策略和任务下发。该模式不经过本章的内置数据面，详见 [外部 AI 网关接入与 Skill 治理](external-ai-gateway-integration.md)。
+
 它解决两类问题：
 
 - 外部应用 / Agent 调用 LLM 时，不直接暴露真实隐私数据给模型供应商。

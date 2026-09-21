@@ -280,11 +280,11 @@ test('agents-only reader loads without requesting unrelated account or credentia
   const context = {
     hasAccess: code => code === 'agents:view',
     listGroups: forbidden, listManagedUsers: forbidden, listModelEndpoints: forbidden,
-    listSkills: forbidden, listAccessTokens: forbidden, getAudit: forbidden,
-    groups: {}, users: {}, models: {}, skills: {}, accessTokens: {}, auditRows: {},
+    listSkills: forbidden,
+    groups: {}, users: {}, models: {}, skills: {},
   }
   await (await viewFunction('Agents', 'loadOptions', context))()
-  for (const name of ['groups', 'users', 'models', 'skills', 'accessTokens', 'auditRows']) assert.deepEqual(context[name].value, [])
+  for (const name of ['groups', 'users', 'models', 'skills']) assert.deepEqual(context[name].value, [])
 })
 
 test('overview-only reader requests aggregate data without unrelated business APIs', async () => {

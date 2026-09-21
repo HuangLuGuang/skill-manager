@@ -1,3 +1,6 @@
+import json
+from datetime import datetime
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -5,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend import auth, models
 from backend.api_errors import ApiError, api_error_handler
-from backend.routers import access_tokens, agents
+from backend.routers import access_tokens, agents, clients
 from backend.sqlite_db import Base, get_db
 
 
@@ -65,6 +68,7 @@ def test_create_list_and_update_department_agent(tmp_path):
     assert created["agent_id"] == "risk-screening-agent"
     assert created["department_name"] == "风控部"
     assert created["skill_names"] == ["risk-screening-deep-trace"]
+    assert created["origin_type"] == "platform"
 
     list_response = client.get("/agents", params={"department_group_id": group_id})
     assert list_response.status_code == 200
@@ -159,3 +163,139 @@ def test_agent_identity_is_immutable_while_credentials_are_bound(tmp_path):
     deleted = client.delete(f"/agents/{agent['id']}")
     assert deleted.status_code == 409
     assert deleted.json()["error_code"] == "agent.credentials_still_bound"
+
+
+def test_asset_list_merges_existing_instances_and_auto_registered_client_agents(tmp_path):
+    client, group_id = _client(tmp_path)
+    platform_agent = client.post(
+        "/agents",
+        json={
+            "agent_id": "contract-review-agent",
+            "name": "合同审查助手",
+            "department_group_id": group_id,
+            "channel": "Claude Code",
+        },
+    ).json()
+    database = next(client.app.dependency_overrides[get_db]())
+    database.add(
+        models.ManagedClient(
+            client_id="huanglg-4",
+            name="huanglg-4.local",
+            hostname="huanglg-4.local",
+            os="darwin",
+            arch="arm64",
+            client_version="1.0.0",
+            registered_by="admin",
+            last_seen_at=datetime.utcnow(),
+        )
+    )
+    database.add_all(
+        [
+            models.ClientAgent(
+                client_id="huanglg-4",
+                local_agent_id="claude-code",
+                agent_type="Claude Code",
+                managed_agent_id="contract-review-agent",
+                agent_version="1.2.3",
+                install_path="/Applications/Claude.app",
+                skills_path="/Users/admin/.claude/skills",
+                takeover_status="managed",
+            ),
+            models.ClientAgent(
+                client_id="huanglg-4",
+                local_agent_id="codex",
+                agent_type="Codex",
+                agent_version="0.49.0",
+                install_path="/Applications/Codex.app",
+                skills_path="/Users/admin/.codex/skills",
+            ),
+            models.ClientSkillInstall(
+                client_id="huanglg-4",
+                agent_type="Claude Code",
+                skill_name="contract-reader",
+                skill_path="/Users/admin/.claude/skills/contract-reader",
+                status="verified",
+            ),
+            models.ClientSkillInstall(
+                client_id="huanglg-4",
+                agent_type="Codex",
+                skill_name="ppt-master",
+                skill_path="/Users/admin/.codex/skills/ppt-master",
+                status="verified",
+            ),
+        ]
+    )
+    database.commit()
+    host = database.query(models.ManagedClient).filter_by(client_id="huanglg-4").one()
+    assert clients.ensure_client_inventory_identities(database, host, owner="admin") == 1
+    database.commit()
+
+    response = client.get("/agents/assets")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["stats"] == {"total": 2, "platform": 1, "client_discovery": 1}
+    assert len(payload["items"]) == 2
+    managed = next(item for item in payload["items"] if item["agent_id"] == "contract-review-agent")
+    discovered = next(item for item in payload["items"] if item["origin_type"] == "client_discovery")
+    assert managed["managed_agent_pk"] == platform_agent["id"]
+    assert managed["origin_type"] == "platform"
+    assert managed["instance_count"] == 1
+    assert managed["instances"][0]["local_agent_id"] == "claude-code"
+    assert managed["instances"][0]["skills"][0]["name"] == "contract-reader"
+    assert discovered["agent_id"].startswith("client-huanglg-4-codex-")
+    assert discovered["discovered_skill_count"] == 1
+    stored = database.query(models.ClientAgent).filter_by(client_id="huanglg-4", local_agent_id="codex").one()
+    assert stored.managed_agent_id == discovered["agent_id"]
+    assert stored.takeover_status == "managed"
+    managed_identity = database.query(models.ManagedAgent).filter_by(agent_id=discovered["agent_id"]).one()
+    assert managed_identity.origin_type == "client_discovery"
+
+    external_gateway = models.ExternalAIGateway(
+        name="北京联通 AI 网关",
+        management_base_url="http://gateway.example.test:4005",
+        model_base_url="http://gateway.example.test:8080/",
+        token_id="test-token-id",
+        token_value_encrypted="encrypted-test-token",
+        created_by="admin",
+    )
+    database.add(external_gateway)
+    database.flush()
+    database.add(
+        models.ExternalGatewayAgentBinding(
+            gateway_id=external_gateway.id,
+            client_id="huanglg-4",
+            managed_agent_id=discovered["agent_id"],
+            external_agent_id="client-huanglg-4-codex",
+            key_id="key-codex",
+            api_key_encrypted="encrypted-test-key",
+        )
+    )
+    stored.capabilities_json = json.dumps(
+        {
+            "model_config_auto_apply": True,
+            "model_config_state": {
+                "model": "deepseek-v4-flash",
+                "gateway_url": "http://gateway.example.test:8080/v1",
+                "gateway_source": "external",
+                "credential_source": "external_gateway",
+            },
+        }
+    )
+    database.commit()
+
+    refreshed = client.get("/agents/assets").json()
+    refreshed_discovered = next(item for item in refreshed["items"] if item["origin_type"] == "client_discovery")
+    assert refreshed_discovered["external_gateway_id"] == external_gateway.id
+    assert refreshed_discovered["external_gateway_name"] == "北京联通 AI 网关"
+
+    identity_update = client.put(
+        f"/agents/{discovered['managed_agent_pk']}",
+        json={"agent_id": "manual-replacement"},
+    )
+    assert identity_update.status_code == 409
+    assert identity_update.json()["error_code"] == "agent.client_identity_immutable"
+    identity_delete = client.delete(f"/agents/{discovered['managed_agent_pk']}")
+    assert identity_delete.status_code == 409
+    assert identity_delete.json()["error_code"] == "agent.client_managed"
+    database.close()

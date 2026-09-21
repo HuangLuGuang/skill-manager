@@ -673,7 +673,7 @@ const architectureLabels = computed(() => ({
   exitFullscreen: text('退出全屏', 'Exit full screen'),
   callers: text('调用方与管理入口', 'Callers and management entry'),
   admins: text('管理员 / 审核员', 'Administrators / reviewers'),
-  scanner: text('Scanner / CI', 'Scanner / CI'),
+  scanner: text('二进制扫描器 / 持续集成（CI）流水线', 'Binary Scanner / Continuous Integration (CI) Pipeline'),
   agents: text('Agent / 客户端', 'Agents / Clients'),
   modelApps: text('模型应用', 'Model applications'),
   mcpClients: text('MCP Client', 'MCP Clients'),

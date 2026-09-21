@@ -397,7 +397,6 @@ export const generatedEnPhrases = {
   "约束可用 Skill 和默认模型。": "Constraints are available in Skills and Default Models.",
   "组策略": "group policy",
   "绑定 Skill": "Bind Skill",
-  "绑定平台智能体": "Bind platform agent",
   "绑定组策略": "Bind group policy",
   "绑定能力范围": "Binding ability range",
   "绑定范围": "Binding scope",

@@ -38,6 +38,7 @@ def route_permission(request):
         ("/api/v1/privacy/stats", "privacy_audit", "view"),
         ("/api/v1/llm-stats", "privacy_audit", "view"),
         ("/api/v1/model-gateway/skill-alerts", "privacy", "view"),
+        ("/api/v1/external-ai-gateways", "external_gateways", None),
         ("/api/v1/model-providers", "providers", None),
         ("/api/v1/models", "models", None),
         ("/api/v1/privacy-policies", "privacy", None),
@@ -86,8 +87,10 @@ def route_permission(request):
         if module == "traces":
             action = "raw" if "raw" in path else ("delete" if method == "DELETE" or "cleanup" in path else "view")
         elif method == "POST":
-            if tail in {"test", "connection-tests"}:
-                action = "test" if module in {"providers", "models", "privacy"} else "execute" if module == "scans" else "sync"
+            if tail == "reveal" and module == "external_gateways":
+                action = "reveal"
+            elif tail in {"test", "connection-tests"}:
+                action = "test" if module in {"providers", "models", "privacy", "external_gateways"} else "execute" if module == "scans" else "sync"
             elif tail in {"approve", "reject", "deploy", "sign"}:
                 action = tail
             elif tail in {"rescan", "scan", "scan-batch", "rescan-batch"} and module == "skills":

@@ -16,12 +16,57 @@ type CustomAgentConfig struct {
 	SkillsPath string `json:"skills_path"`
 }
 
+type SavedConnection struct {
+	Server string `json:"server"`
+	Token  string `json:"token"`
+	Name   string `json:"name,omitempty"`
+}
+
 type Config struct {
 	Server          string              `json:"server"`
 	Token           string              `json:"token"`
 	Name            string              `json:"name,omitempty"`
+	Connections     []SavedConnection   `json:"connections,omitempty"`
 	CustomAgents    []CustomAgentConfig `json:"custom_agents,omitempty"`
 	AgentSkillRoots map[string][]string `json:"agent_skill_roots,omitempty"`
+}
+
+func normalizeConnection(connection SavedConnection) SavedConnection {
+	connection.Server = strings.TrimRight(strings.TrimSpace(connection.Server), "/")
+	connection.Token = strings.TrimSpace(connection.Token)
+	connection.Name = strings.TrimSpace(connection.Name)
+	return connection
+}
+
+func (config Config) FindConnection(server string) (SavedConnection, bool) {
+	target := strings.TrimRight(strings.TrimSpace(server), "/")
+	for _, connection := range config.Connections {
+		connection = normalizeConnection(connection)
+		if connection.Server == target && connection.Token != "" {
+			return connection, true
+		}
+	}
+	return SavedConnection{}, false
+}
+
+func (config *Config) syncActiveConnection() {
+	active := normalizeConnection(SavedConnection{Server: config.Server, Token: config.Token, Name: config.Name})
+	config.Server, config.Token, config.Name = active.Server, active.Token, active.Name
+	connections := make([]SavedConnection, 0, len(config.Connections)+1)
+	seen := map[string]bool{}
+	if active.Server != "" && active.Token != "" {
+		connections = append(connections, active)
+		seen[active.Server] = true
+	}
+	for _, connection := range config.Connections {
+		connection = normalizeConnection(connection)
+		if connection.Server == "" || connection.Token == "" || seen[connection.Server] {
+			continue
+		}
+		connections = append(connections, connection)
+		seen[connection.Server] = true
+	}
+	config.Connections = connections
 }
 
 func LoadConfig(home string) (Config, error) {
@@ -34,13 +79,14 @@ func LoadConfig(home string) (Config, error) {
 		return config, err
 	}
 	err = json.Unmarshal(body, &config)
+	if err == nil {
+		config.syncActiveConnection()
+	}
 	return config, err
 }
 
 func SaveConfig(home string, config Config) error {
-	config.Server = strings.TrimRight(strings.TrimSpace(config.Server), "/")
-	config.Token = strings.TrimSpace(config.Token)
-	config.Name = strings.TrimSpace(config.Name)
+	config.syncActiveConnection()
 	if config.Server == "" || config.Token == "" {
 		return errors.New("server and token are required")
 	}

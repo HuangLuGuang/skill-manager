@@ -23,6 +23,39 @@ func TestGatewayModelAliasRoundTrip(t *testing.T) {
 	}
 }
 
+func TestExternalGatewayConfigUsesBearerCredentialForSupportedProtocols(t *testing.T) {
+	tests := []struct {
+		agentType  string
+		gatewayURL string
+	}{
+		{agentType: "claude-code", gatewayURL: "https://external.example.test:8080"},
+		{agentType: "codex", gatewayURL: "https://external.example.test:8080/v1"},
+		{agentType: "hermes", gatewayURL: "https://external.example.test:8080/v1"},
+	}
+	for _, test := range tests {
+		t.Run(test.agentType, func(t *testing.T) {
+			home := t.TempDir()
+			if err := ApplyModelConfig(home, "https://external.example.test:8080", test.agentType, test.agentType, "external-model", "external-bearer-secret"); err != nil {
+				t.Fatal(err)
+			}
+			state := InspectModelConfig(home, test.agentType)
+			if state.Model != "external-model" || state.GatewayURL != test.gatewayURL {
+				t.Fatalf("unexpected external %s state: %#v", test.agentType, state)
+			}
+			credential, err := nativeModelCredential(home, test.agentType)
+			if err != nil || credential != "external-bearer-secret" {
+				t.Fatalf("external Bearer credential was not stored for %s: %q, %v", test.agentType, credential, err)
+			}
+			for _, relative := range modelConfigFiles(test.agentType) {
+				path := resolvedModelPath(home, test.agentType, relative)
+				if info, err := os.Stat(path); err == nil && info.Mode().Perm() != 0o600 {
+					t.Fatalf("secret-bearing %s config mode = %o, want 600", path, info.Mode().Perm())
+				}
+			}
+		})
+	}
+}
+
 func TestApplyClaudeCodeModelConfigPreservesSettingsAndDoesNotWriteCredential(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, ".claude", "settings.json")

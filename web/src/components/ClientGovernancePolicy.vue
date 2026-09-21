@@ -1,5 +1,5 @@
 <template>
-  <a-modal :open="open" :title="t(clientId ? 'clientGovernance.title' : 'clientGovernance.defaults')" width="820px" :footer="null" @cancel="emit('update:open', false)">
+  <a-modal :open="open" :title="t(clientId ? 'clientGovernance.title' : 'clientGovernance.defaults')" width="820px" :footer="null" :z-index="1010" @cancel="emit('update:open', false)">
     <a-spin :spinning="loading">
       <template v-if="policy">
         <a-alert v-if="!impact" type="info" show-icon :message="t('clientGovernance.description')" />
@@ -7,12 +7,32 @@
         <a-alert v-if="!impact && clientId && policy.advanced_supported === false" type="warning" show-icon :message="t('clientGovernance.capabilityAvailable')" />
         <a-form v-if="!impact" layout="vertical" class="policy-form">
           <section class="policy-group">
+            <header class="group-heading"><h3>{{ t('clientGovernance.modelRouting.title') }}</h3><p>{{ t('clientGovernance.modelRouting.description') }}</p></header>
+            <a-checkbox v-if="clientId" v-model:checked="inheritModelRouting" :disabled="!editable || busy">{{ t('clientGovernance.inherit') }}</a-checkbox>
+            <div class="group-rules model-routing-rules">
+              <a-form-item :label="t('clientGovernance.modelRouting.enabled')">
+                <a-switch v-model:checked="modelRouting.external_gateway_enabled" :disabled="modelRoutingDisabled || (!!clientId && !modelRoutingDefault.external_gateway_enabled)" />
+                <div v-if="clientId && !modelRoutingDefault.external_gateway_enabled" class="effective">{{ t('clientGovernance.modelRouting.cannotEnable') }}</div>
+              </a-form-item>
+              <a-form-item :label="t('clientGovernance.modelRouting.gateway')" required>
+                <a-select v-model:value="modelRouting.external_gateway_id" :disabled="modelRoutingDisabled || !modelRouting.external_gateway_enabled || !!clientId" :placeholder="t('clientGovernance.modelRouting.gatewayPlaceholder')">
+                  <a-select-option v-for="gateway in availableGateways" :key="gateway.id" :value="gateway.id">{{ gateway.name }}</a-select-option>
+                </a-select>
+                <div v-if="clientId" class="effective">{{ t('clientGovernance.modelRouting.gatewayInherited') }}</div>
+              </a-form-item>
+              <a-form-item :label="t('clientGovernance.modelRouting.clientSelectModel')"><a-switch v-model:checked="modelRouting.client_select_model" :disabled="modelRoutingDisabled || !modelRouting.external_gateway_enabled || (!!clientId && !modelRoutingDefault.client_select_model)" /></a-form-item>
+              <a-form-item :label="t('clientGovernance.modelRouting.autoRegisterAgent')"><a-switch v-model:checked="modelRouting.auto_register_agent" :disabled="modelRoutingDisabled || !modelRouting.external_gateway_enabled || (!!clientId && !modelRoutingDefault.auto_register_agent)" /></a-form-item>
+            </div>
+            <div class="effective">{{ t('clientGovernance.effective', { action: modelRoutingLabel(policy.model_routing) }) }}</div>
+            <a-alert v-if="modelRouting.external_gateway_enabled" class="routing-note" type="warning" show-icon :message="t('clientGovernance.modelRouting.internalCapabilitiesUnavailable')" />
+          </section>
+          <section class="policy-group" :class="{ 'policy-group-disabled': modelRouting.external_gateway_enabled }">
             <header class="group-heading"><h3>{{ t('clientGovernance.compression.title') }}</h3><p>{{ t('clientGovernance.compression.description') }}</p></header>
-            <a-checkbox v-if="clientId" v-model:checked="inheritCompression" :disabled="!editable || busy">{{ t('clientGovernance.inherit') }}</a-checkbox>
+            <a-checkbox v-if="clientId" v-model:checked="inheritCompression" :disabled="!editable || busy || modelRouting.external_gateway_enabled">{{ t('clientGovernance.inherit') }}</a-checkbox>
             <div class="group-rules">
-              <a-form-item :label="t('clientGovernance.compression.enabled')"><a-switch v-model:checked="compression.enabled" :disabled="!editable || busy || inheritCompression" /></a-form-item>
+              <a-form-item :label="t('clientGovernance.compression.enabled')"><a-switch v-model:checked="compression.enabled" :disabled="!editable || busy || inheritCompression || modelRouting.external_gateway_enabled" /></a-form-item>
               <a-form-item :label="t('clientGovernance.compression.level')">
-                <a-select v-model:value="compression.level" :disabled="!editable || busy || inheritCompression || !compression.enabled">
+                <a-select v-model:value="compression.level" :disabled="!editable || busy || inheritCompression || !compression.enabled || modelRouting.external_gateway_enabled">
                   <a-select-option v-for="level in ['auto', 'conservative', 'aggressive']" :key="level" :value="level">{{ t(`clientGovernance.compression.${level}`) }}</a-select-option>
                 </a-select>
               </a-form-item>
@@ -20,16 +40,16 @@
             <div class="effective">{{ t('clientGovernance.effective', { action: compressionLabel(policy.compression) }) }}</div>
             <div v-if="inheritCompression" class="effective">{{ t('clientGovernance.prompt.defaultValue', { value: compressionLabel(policy.compression_default) }) }}</div>
           </section>
-          <section class="policy-group">
+          <section class="policy-group" :class="{ 'policy-group-disabled': modelRouting.external_gateway_enabled }">
             <header class="group-heading"><h3>{{ t('clientGovernance.prompt.title') }}</h3><p>{{ t('clientGovernance.prompt.description') }}</p></header>
-            <a-checkbox v-if="clientId" v-model:checked="inheritPrompt" :disabled="!editable || busy">{{ t('clientGovernance.inherit') }}</a-checkbox>
+            <a-checkbox v-if="clientId" v-model:checked="inheritPrompt" :disabled="!editable || busy || modelRouting.external_gateway_enabled">{{ t('clientGovernance.inherit') }}</a-checkbox>
             <div class="group-rules">
               <a-form-item :label="t('clientGovernance.prompt.mode')">
-                <a-select v-model:value="promptGuard.mode" :disabled="!editable || busy || inheritPrompt">
+                <a-select v-model:value="promptGuard.mode" :disabled="!editable || busy || inheritPrompt || modelRouting.external_gateway_enabled">
                   <a-select-option v-for="mode in ['off', 'log', 'warn', 'block']" :key="mode" :value="mode">{{ t(`clientGovernance.prompt.${mode}`) }}</a-select-option>
                 </a-select>
               </a-form-item>
-              <a-form-item :label="t('clientGovernance.prompt.llmReview')"><a-switch v-model:checked="promptGuard.llm_review" :disabled="!editable || busy || inheritPrompt" /><div class="effective">{{ t('clientGovernance.prompt.reviewHint') }}</div></a-form-item>
+              <a-form-item :label="t('clientGovernance.prompt.llmReview')"><a-switch v-model:checked="promptGuard.llm_review" :disabled="!editable || busy || inheritPrompt || modelRouting.external_gateway_enabled" /><div class="effective">{{ t('clientGovernance.prompt.reviewHint') }}</div></a-form-item>
             </div>
             <div class="effective">{{ t('clientGovernance.effective', { action: promptLabel(policy.prompt_guard) }) }}</div>
             <div v-if="inheritPrompt" class="effective">{{ t('clientGovernance.prompt.defaultValue', { value: promptLabel(policy.prompt_guard_default) }) }}</div>
@@ -61,6 +81,7 @@
           </section>
         </a-form>
         <template v-else>
+          <a-alert v-if="impact.model_routing_impacts?.length" type="info" show-icon :message="t('clientGovernance.modelRouting.preview', { count: impact.model_routing_impacts.filter(item => JSON.stringify(item.current) !== JSON.stringify(item.proposed)).length })" />
           <a-alert type="info" show-icon :message="t('clientGovernance.compression.preview', { count: impact.compression_impacts?.reduce((sum, item) => sum + item.changed_credentials, 0) || 0 })" />
           <ul class="prompt-impact"><li v-for="item in impact.compression_impacts" :key="item.client_id">{{ item.client_name }}: {{ compressionLabel(item.current) }} → {{ compressionLabel(item.proposed) }}</li></ul>
           <a-alert type="info" show-icon :message="t('clientGovernance.prompt.preview', { count: impact.prompt_impacts?.reduce((sum, item) => sum + item.changed_credentials, 0) || 0 })" />
@@ -129,15 +150,24 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 import { can } from '../access'
-import { getClientGovernance, previewClientGovernance, saveClientGovernance } from '../api'
+import { getClientGovernance, listExternalAiGateways, previewClientGovernance, saveClientGovernance } from '../api'
 const props = defineProps({ open: Boolean, clientId: { type: String, default: '' } })
 const emit = defineEmits(['update:open', 'saved'])
 const { t } = useI18n()
 const policy = ref(null), rules = ref({}), impact = ref(null), loading = ref(false), busy = ref(false)
 const promptGuard = ref({ mode: 'log', llm_review: false }), inheritPrompt = ref(false)
 const compression = ref({ enabled: false, level: 'auto' }), inheritCompression = ref(false)
+const gateways = ref([])
+const modelRouting = ref({ external_gateway_enabled: false, external_gateway_id: null, auto_register_agent: true, client_select_model: true })
+const modelRoutingDefault = ref({ external_gateway_enabled: false, external_gateway_id: null, auto_register_agent: true, client_select_model: true })
+const inheritModelRouting = ref(false)
+const availableGateways = computed(() => gateways.value.filter(item => item.enabled || item.id === modelRouting.value.external_gateway_id))
+const modelRoutingDisabled = computed(() => !editable.value || busy.value || inheritModelRouting.value)
 const compressionLabel = value => value ? (value.enabled ? `${t('clientGovernance.prompt.enabled')} · ${t(`clientGovernance.compression.${value.level}`)}` : t('clientGovernance.prompt.disabled')) : ''
 const promptLabel = guard => guard ? `${t(`clientGovernance.prompt.${guard.mode}`)} · ${t('clientGovernance.prompt.llmReview')}: ${t(guard.llm_review ? 'clientGovernance.prompt.enabled' : 'clientGovernance.prompt.disabled')}` : ''
+const modelRoutingLabel = value => !value?.external_gateway_enabled
+  ? t('clientGovernance.modelRouting.disabled')
+  : `${gateways.value.find(item => item.id === value.external_gateway_id)?.name || t('clientGovernance.modelRouting.gatewayMissing')} · ${t(value.client_select_model ? 'clientGovernance.modelRouting.selectable' : 'clientGovernance.modelRouting.fixed')}`
 const expandedKeys = ref([])
 const impactTree = computed(() => {
   const clients = new Map()
@@ -198,7 +228,8 @@ async function load() {
   loading.value = true
   const clientId = props.clientId
   try {
-    const result = await getClientGovernance(clientId)
+    const gatewayRequest = can('external_gateways:view') ? listExternalAiGateways() : Promise.resolve([])
+    const [result, gatewayRows] = await Promise.all([getClientGovernance(clientId), gatewayRequest])
     if (sequence !== loadSequence) return
     policy.value = result
     rules.value = { ...(clientId ? result.overrides : result.rules) }
@@ -206,11 +237,26 @@ async function load() {
     inheritPrompt.value = Boolean(clientId && !result.prompt_guard_override)
     compression.value = { ...result.compression }
     inheritCompression.value = Boolean(clientId && !result.compression_override)
+    gateways.value = gatewayRows || []
+    modelRoutingDefault.value = { ...modelRoutingDefault.value, ...(result.model_routing_default || result.model_routing || {}) }
+    modelRouting.value = { ...modelRoutingDefault.value, ...(result.model_routing || {}) }
+    inheritModelRouting.value = Boolean(clientId && !result.model_routing_override)
   } catch (error) { if (sequence === loadSequence) message.error(error.response?.data?.detail || t('clientGovernance.failed')) }
   finally { if (sequence === loadSequence) loading.value = false }
 }
 watch(() => [props.open, props.clientId], load, { immediate: true })
-const payload = () => ({ rules: { ...rules.value }, prompt_guard: inheritPrompt.value ? null : { ...promptGuard.value }, compression: inheritCompression.value ? null : { ...compression.value }, expected_version: policy.value.version })
+const routingPayload = () => {
+  if (inheritModelRouting.value) return null
+  if (!props.clientId) return { ...modelRouting.value }
+  return {
+    ...modelRoutingDefault.value,
+    external_gateway_enabled: Boolean(modelRoutingDefault.value.external_gateway_enabled && modelRouting.value.external_gateway_enabled),
+    external_gateway_id: modelRoutingDefault.value.external_gateway_id,
+    auto_register_agent: Boolean(modelRoutingDefault.value.auto_register_agent && modelRouting.value.auto_register_agent),
+    client_select_model: Boolean(modelRoutingDefault.value.client_select_model && modelRouting.value.client_select_model),
+  }
+}
+const payload = () => ({ rules: { ...rules.value }, prompt_guard: inheritPrompt.value ? null : { ...promptGuard.value }, compression: inheritCompression.value ? null : { ...compression.value }, model_routing: routingPayload(), expected_version: policy.value.version })
 const current = (sequence, clientId) => sequence === loadSequence && props.open && clientId === props.clientId
 async function handleError(error) {
   const code = error.apiErrorCode || error.response?.data?.error_code
@@ -250,6 +296,9 @@ async function save() {
 <style scoped>
 .policy-form { margin-top: 16px; display: grid; gap: 16px; max-height: 62vh; overflow-y: auto; padding: 2px 6px 2px 2px; }
 .policy-group { border: 1px solid #e6eaf0; border-radius: 8px; padding: 16px; }
+.policy-group-disabled { background: #fafafa; color: #8c8c8c; }
+.policy-group-disabled .group-heading p,
+.policy-group-disabled .effective { color: #a3a3a3; }
 .prompt-impact { max-height: 160px; overflow-y: auto; padding-left: 20px; overflow-wrap: anywhere; }
 .group-heading { margin-bottom: 14px; }
 .group-heading h3 { margin: 0; font-size: 15px; font-weight: 600; }
@@ -280,5 +329,6 @@ async function save() {
 .excluded-clients ul { padding-left: 18px; margin: 8px 0; }
 .excluded-clients p { margin-bottom: 0; }
 .effective { color: #777; margin-top: 6px; overflow-wrap: anywhere; }
+.routing-note { margin-top: 14px; }
 .actions { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 </style>

@@ -82,7 +82,7 @@
               <div class="progress-track">
                 <div id="step-connect" class="progress-step"><i></i><span>接入平台</span></div>
                 <div id="step-discover" class="progress-step"><i></i><span>发现 Agent</span></div>
-                <div id="step-bind" class="progress-step"><i></i><span>绑定智能体</span></div>
+                <div id="step-bind" class="progress-step"><i></i><span>清单上报</span></div>
                 <div id="step-service" class="progress-step"><i></i><span>后台巡检</span></div>
               </div>
             </section><section class="overview-section">
@@ -189,7 +189,18 @@
             <div><h2>模型切换</h2><p>查看本机 Agent 的实际配置，并切换到当前客户端凭证允许配置给 Agent 的网关模型。</p></div>
             <button id="refresh-models" class="icon-button icon-refresh">刷新模型</button>
           </div>
+          <section id="external-gateway-policy-banner" class="external-gateway-policy-banner" aria-live="polite" hidden>
+            <div>
+              <strong data-i18n="client.models.policy_banner_title">平台已启用外部网关</strong>
+              <span id="external-gateway-policy-banner-detail" data-no-i18n></span>
+            </div>
+            <div class="external-gateway-policy-actions">
+              <button id="external-gateway-policy-banner-action" type="button" class="primary icon-button icon-refresh" data-i18n="client.models.prepare_all_agents">为全部 Agent 准备模型</button>
+              <button id="external-gateway-policy-banner-dismiss" type="button" class="icon-button icon-check" data-i18n="client.models.dismiss_banner" hidden>关闭提示</button>
+            </div>
+          </section>
           <div id="model-permission-note" class="model-permission-note"></div>
+          <section id="external-model-readiness" class="external-model-readiness" aria-live="polite" hidden></section>
           <div id="model-agent-tabs" class="model-agent-tabs" role="tablist" aria-label="可配置模型的本机 Agent"></div>
           <section id="model-current" class="model-current"></section>
           <div class="model-catalog-toolbar">
@@ -249,10 +260,11 @@
           </div>
 
           <section class="settings-section">
-            <div class="settings-section-heading"><h2 data-i18n="ui.settings.connection">平台连接</h2><p data-i18n="ui.settings.connection_description">修改平台地址和客户端接入凭证，测试成功后保存。</p></div>
-            <div class="settings-rows">
-              <div class="settings-row"><span><strong data-i18n="ui.settings.platform_address">平台地址</strong><small id="settings-server" data-no-i18n></small></span><button id="edit-connection" class="icon-button icon-edit" type="button" data-i18n="ui.settings.edit_connection">修改地址与凭证</button></div>
+            <div class="settings-section-heading settings-connection-heading">
+              <div><h2 data-i18n="ui.settings.connection">平台连接</h2><p data-i18n="ui.settings.connection_description">保存多个 Agent Manager 连接，并在验证目标连接后快速切换。</p></div>
+              <button id="add-connection" class="icon-button icon-add" type="button" data-i18n="ui.settings.add_connection">新增连接</button>
             </div>
+            <div id="saved-connections" class="saved-connections" aria-live="polite"></div>
           </section>
 
           <section class="settings-section">
@@ -357,16 +369,27 @@
     </dialog>
     <dialog id="edit-connection-dialog" class="message-dialog connection-dialog">
       <form id="edit-connection-form" class="message-dialog-body">
-        <h3>修改 Agent Manager 连接</h3>
-        <p>测试成功后保存新的平台地址和客户端名称；凭据留空表示继续使用现有凭据。</p>
-        <label>Agent Manager 地址<input id="edit-server" type="url" placeholder="http://127.0.0.1:8001" required /></label>
-        <label>客户端接入凭证<input id="edit-token" type="password" placeholder="留空表示继续使用现有凭据" /></label>
-        <label>客户端名称<input id="edit-client-name" type="text" placeholder="研发客户端" /></label>
+        <h3 id="edit-connection-title" data-i18n="ui.settings.edit_connection_title">修改 Agent Manager 连接</h3>
+        <p id="edit-connection-description" data-i18n="ui.settings.edit_connection_hint">测试成功后保存连接；当前连接的凭证留空表示继续使用现有凭证。</p>
+        <label><span data-i18n="ui.settings.manager_address">Agent Manager 地址</span><input id="edit-server" type="url" placeholder="http://127.0.0.1:8001" required /></label>
+        <label><span data-i18n="ui.settings.client_credential">客户端接入凭证</span><input id="edit-token" type="password" data-i18n-placeholder="ui.settings.keep_credential" placeholder="留空表示继续使用现有凭证" /></label>
+        <label><span data-i18n="ui.settings.client_name">客户端名称</span><input id="edit-client-name" type="text" data-i18n-placeholder="ui.settings.client_name_placeholder" placeholder="研发客户端" /></label>
         <div class="dialog-actions">
-          <button id="cancel-edit-connection" class="icon-button icon-close" type="button">取消</button>
-          <button class="primary icon-button icon-connect" type="submit" data-busy-text="正在测试...">测试并保存</button>
+          <button id="cancel-edit-connection" class="icon-button icon-close" type="button" data-i18n="ui.settings.cancel">取消</button>
+          <button class="primary icon-button icon-connect" type="submit" data-busy-text="正在测试..." data-i18n="ui.settings.test_and_save">测试并保存</button>
         </div>
       </form>
+    </dialog>
+    <dialog id="switch-connection-dialog" class="message-dialog connection-dialog" aria-labelledby="switch-connection-title">
+      <div class="message-dialog-body">
+        <h3 id="switch-connection-title" data-i18n="ui.settings.switch_title">切换 Agent Manager</h3>
+        <p data-i18n="ui.settings.switch_warning">切换后会清理旧平台的认证、策略和任务关联并重新同步；本地 Skill 和已保存连接不会删除。</p>
+        <div id="switch-connection-target" class="connection-switch-target" data-no-i18n></div>
+        <div class="dialog-actions">
+          <button id="cancel-switch-connection" class="icon-button icon-close" type="button" data-i18n="ui.settings.cancel">取消</button>
+          <button id="confirm-switch-connection" class="primary icon-button icon-connect" type="button" data-busy-key="ui.settings.switching" data-i18n="ui.settings.confirm_switch">确认切换</button>
+        </div>
+      </div>
     </dialog>
     <dialog id="update-dialog" class="message-dialog update-dialog">
       <div class="message-dialog-body">
@@ -495,6 +518,15 @@
         <pre id="model-config-preview" data-no-i18n></pre></div>
         <div class="dialog-actions"><button value="cancel" data-i18n="ui.agentManagement.cancel">取消</button><button id="confirm-model-config" type="button" class="primary" data-i18n="ui.modelConfig.apply">应用配置</button></div>
       </form>
+    </dialog>
+    <dialog id="external-gateway-policy-dialog" class="message-dialog external-gateway-policy-dialog" aria-labelledby="external-gateway-policy-title" aria-describedby="external-gateway-policy-detail">
+      <div class="message-dialog-body">
+        <span class="overview-badge" data-i18n="client.models.policy_changed_badge">模型路由策略已更新</span>
+        <h3 id="external-gateway-policy-title" data-i18n="client.models.policy_changed_title">平台已切换到外部网关</h3>
+        <p id="external-gateway-policy-detail" data-no-i18n></p>
+        <div class="external-gateway-policy-note" data-i18n="client.models.policy_changed_note">刷新时会注册或复用外部 Agent、托管 API Key 并读取可用模型；明文 Key 不会显示在客户端页面。</div>
+        <div class="dialog-actions"><button id="external-gateway-policy-later" type="button" data-i18n="client.models.handle_later">稍后处理</button><button id="external-gateway-policy-configure" type="button" class="primary icon-button icon-refresh" data-i18n="client.models.refresh_and_configure">刷新模型并配置</button></div>
+      </div>
     </dialog>
     <script src="./static-i18n-bindings.js"></script>
     <script src="./i18n.js"></script>

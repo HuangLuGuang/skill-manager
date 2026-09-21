@@ -18,10 +18,11 @@ import (
 )
 
 type ModelRequestEvidence struct {
-	RequestID  string         `json:"request_id"`
-	Model      string         `json:"model"`
-	Status     string         `json:"status"`
-	Parameters map[string]any `json:"parameters"`
+	RequestID        string         `json:"request_id,omitempty"`
+	Model            string         `json:"model"`
+	Status           string         `json:"status"`
+	Parameters       map[string]any `json:"parameters"`
+	VerificationMode string         `json:"verification_mode,omitempty"`
 }
 
 const modelProbeInstructions = "You are checking a model connection. Return the marker requested by the user exactly. Do not use tools."
@@ -197,7 +198,11 @@ func VerifyModelConfig(ctx context.Context, home, kind, localID string, api API,
 	if err := os.Mkdir(workspace, 0o700); err != nil {
 		return nil, err
 	}
-	if err = renderModelConfig(temporary, api.server, localID, kind, state.Model, credential); err != nil {
+	probeGateway := strings.TrimSpace(state.GatewayURL)
+	if probeGateway == "" {
+		probeGateway = api.server
+	}
+	if err = renderModelConfig(temporary, probeGateway, localID, kind, state.Model, credential); err != nil {
 		return nil, err
 	}
 	if err = writeModelParameters(temporary, kind, state.Parameters); err != nil {
@@ -248,9 +253,10 @@ func VerifyModelConfig(ctx context.Context, home, kind, localID string, api API,
 	var response struct {
 		Requests []ModelRequestEvidence `json:"requests"`
 	}
-	evidenceErr := api.postJSON(ctx, "/api/v1/clients/"+inventory.ClientID+"/model-verification-evidence", map[string]any{"agent_type": kind, "local_agent_id": localID, "challenge": challenge}, &response)
-	resultErr = evidenceErr
-	if resultErr == nil {
+	if state.VerificationMode != "client_call" {
+		resultErr = api.postJSON(ctx, "/api/v1/clients/"+inventory.ClientID+"/model-verification-evidence", map[string]any{"agent_type": kind, "local_agent_id": localID, "challenge": challenge}, &response)
+	}
+	if resultErr == nil && state.VerificationMode != "client_call" {
 		for _, request := range response.Requests {
 			if request.Status == "blocked" {
 				resultErr = errors.New("model_config.gateway_blocked")
@@ -267,6 +273,15 @@ func VerifyModelConfig(ctx context.Context, home, kind, localID string, api API,
 		case !modelProbeHasAnswer(kind, output, challenge):
 			resultErr = errors.New("model_config.agent_response_missing")
 		default:
+			if state.VerificationMode == "client_call" {
+				response.Requests = []ModelRequestEvidence{{
+					Model:            state.Model,
+					Status:           "success",
+					Parameters:       state.Parameters,
+					VerificationMode: "client_call",
+				}}
+				break
+			}
 			matched := false
 			for _, request := range response.Requests {
 				if request.Model == state.Model && request.Status == "success" {
@@ -331,7 +346,12 @@ func VerifyModelConfig(ctx context.Context, home, kind, localID string, api API,
 
 func modelProbeHasAnswer(kind string, output []byte, marker string) bool {
 	if kind == "hermes" {
-		return strings.Contains(string(output), "\n"+marker)
+		for _, line := range strings.Split(string(output), "\n") {
+			if strings.TrimSpace(line) == marker {
+				return true
+			}
+		}
+		return false
 	}
 	if kind == "gemini" {
 		for i, b := range output {

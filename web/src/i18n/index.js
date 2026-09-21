@@ -14,6 +14,9 @@ import { skillColumnMessages } from './skillColumns.js'
 import { policySettingsMessages } from './policySettings.js'
 import { policySimulationMessages } from './policySimulation.js'
 import { auditMessages } from './audit.js'
+import { externalAiGatewayMessages } from './externalAiGateway.js'
+import { externalModelMessages } from './externalModel.js'
+import { agentAssetMessages } from './agentAssets.js'
 
 import { domainKey, domainMessages } from './domain.js'
 import { legacyKey, legacyMessages } from './legacy.js'
@@ -34,6 +37,9 @@ export const i18n = createI18n({
   messages: {
     'zh-CN': {
       uiExperience: uiExperienceMessages['zh-CN'],
+      externalAiGateway: externalAiGatewayMessages['zh-CN'],
+      externalModel: externalModelMessages['zh-CN'],
+      agentAssets: agentAssetMessages['zh-CN'],
       iam: iamMessages['zh-CN'],
       branding: {"title": "品牌与系统名称", "nameZh": "系统名称（中文）", "nameEn": "系统名称（英文）", "company": "公司名称", "save": "保存名称", "upload": "上传 Logo", "restore": "恢复默认 Logo", "hint": "名称保存后立即生效。Logo 支持 PNG、JPEG、GIF、WebP，最大 5 MB。", "required": "请输入系统名称", "loadFailed": "品牌配置加载失败，请刷新页面重试", "failed": "保存失败，请重试", "saved": "品牌配置已更新", "tooLarge": "图片大小不能超过 5 MB"},
       scanTaskActions: scanTaskActionsMessages['zh-CN'],
@@ -987,8 +993,8 @@ export const i18n = createI18n({
         securityTitle: '任务不包含凭证明文',
         securityDescription: '如果客户端凭证已开启自动创建权限，客户端会通过当前任务一次性领取并写入目标 Agent 的独立运行凭证；否则继续使用本机已有凭证。修改前会备份原配置。',
         unsupportedAgent: '客户端尚未报告该 Agent 的模型配置适配能力。',
-        bindFirst: '请先绑定平台 Agent。',
-        credentialRequired: '绑定的 Agent 没有包含 model:chat 的有效运行凭证，当前客户端凭证也未开启自动创建权限。',
+        identityPending: '本机 Agent 身份尚未完成自动登记，请刷新客户端清单后重试。',
+        credentialRequired: '该本机 Agent 没有包含 model:chat 的有效运行凭证，当前客户端凭证也未开启自动创建权限。',
         selectModel: '请选择模型。',
         taskCreated: '模型配置任务已下发。',
         createFailed: '下发模型配置失败。',
@@ -1072,6 +1078,9 @@ export const i18n = createI18n({
     },
     'en-US': {
       uiExperience: uiExperienceMessages['en-US'],
+      externalAiGateway: externalAiGatewayMessages['en-US'],
+      externalModel: externalModelMessages['en-US'],
+      agentAssets: agentAssetMessages['en-US'],
       iam: iamMessages['en-US'],
       branding: {"title": "Branding and system names", "nameZh": "System name (Chinese)", "nameEn": "System name (English)", "company": "Company name", "save": "Save names", "upload": "Upload logo", "restore": "Restore default logo", "hint": "Names take effect immediately after saving. Logo: PNG, JPEG, GIF, or WebP, up to 5 MB.", "required": "Enter a system name", "loadFailed": "Unable to load branding. Refresh the page to retry.", "failed": "Unable to save. Please retry.", "saved": "Branding updated", "tooLarge": "The image must not exceed 5 MB"},
       scanTaskActions: scanTaskActionsMessages['en-US'],
@@ -2025,8 +2034,8 @@ export const i18n = createI18n({
         securityTitle: 'The task contains no credential secret',
         securityDescription: 'When the Client credential allows automatic issuance, the Client retrieves and writes a separate runtime credential for the target Agent through this task. Otherwise it keeps the existing local credential. Existing settings are backed up first.',
         unsupportedAgent: 'Automatic configuration currently supports discovered Claude Code, Codex, and Hermes installations.',
-        bindFirst: 'Bind a platform Agent first.',
-        credentialRequired: 'The bound Agent has no active model:chat runtime credential and this Client credential cannot create one automatically.',
+        identityPending: 'This local Agent has not completed automatic registration. Refresh the Client inventory and retry.',
+        credentialRequired: 'This local Agent has no active model:chat runtime credential and this Client credential cannot create one automatically.',
         selectModel: 'Select a model.',
         taskCreated: 'The model configuration task was delivered.',
         createFailed: 'Failed to deliver the model configuration.',

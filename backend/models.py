@@ -69,6 +69,9 @@ class ManagedAgent(Base):
     channel = Column(String(64), nullable=True)
     status = Column(String(32), default="active", nullable=False)
     default_model = Column(String(128), nullable=True)
+    default_model_source = Column(String(32), default="internal", nullable=False)
+    external_gateway_id = Column(Integer, ForeignKey("external_ai_gateways.id"), index=True, nullable=True)
+    origin_type = Column(String(32), default="platform", index=True, nullable=False)
     skill_names_json = Column(Text, default="[]", nullable=False)
     prompt_names_json = Column(Text, default="[]", nullable=False)
     runtime_token_id = Column(Integer, ForeignKey("access_tokens.id"), nullable=True)
@@ -490,10 +493,52 @@ class ClientGovernancePolicy(Base):
     rules_json = Column(Text, default="{}", nullable=False)
     prompt_guard_json = Column(Text, default="null", nullable=False)
     compression_json = Column(Text, default="null", nullable=False)
+    model_routing_json = Column(Text, default="null", nullable=False)
     revision = Column(Integer, default=0, nullable=False)
     enabled = Column(Boolean, default=False, nullable=False)
     protocol = Column(Integer, default=0, nullable=False)
     updated_by = Column(String(128), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ExternalAIGateway(Base):
+    __tablename__ = "external_ai_gateways"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(128), unique=True, index=True, nullable=False)
+    management_base_url = Column(String(1024), nullable=False)
+    model_base_url = Column(String(1024), nullable=False)
+    token_id = Column(String(255), nullable=False)
+    token_value_encrypted = Column(Text, nullable=False)
+    enabled = Column(Boolean, default=True, index=True, nullable=False)
+    last_test_status = Column(String(32), nullable=True)
+    last_test_error = Column(Text, nullable=True)
+    last_tested_at = Column(DateTime, nullable=True)
+    created_by = Column(String(128), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ExternalGatewayAgentBinding(Base):
+    __tablename__ = "external_gateway_agent_bindings"
+    __table_args__ = (
+        UniqueConstraint("gateway_id", "managed_agent_id", name="uq_external_gateway_managed_agent"),
+        UniqueConstraint("gateway_id", "external_agent_id", name="uq_external_gateway_external_agent"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    gateway_id = Column(Integer, ForeignKey("external_ai_gateways.id"), index=True, nullable=False)
+    client_id = Column(String(128), ForeignKey("managed_clients.client_id"), index=True, nullable=True)
+    managed_agent_id = Column(String(128), ForeignKey("managed_agents.agent_id"), index=True, nullable=False)
+    external_agent_id = Column(String(255), index=True, nullable=False)
+    key_id = Column(String(255), nullable=False)
+    api_key_encrypted = Column(Text, nullable=False)
+    available_models_json = Column(Text, default="[]", nullable=False)
+    models_refreshed_at = Column(DateTime, nullable=True)
+    status = Column(String(32), default="active", index=True, nullable=False)
+    last_error = Column(Text, nullable=True)
+    last_synced_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 

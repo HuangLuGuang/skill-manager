@@ -37,6 +37,7 @@ export const navigationItems = [
     children: [
       { key: '/agents', label: '智能体列表', icon: 'agent' },
       { key: '/clients', label: '客户端管理', icon: 'desktop' },
+      { key: '/external-ai-gateways', label: 'externalAiGateway.menu', icon: 'api' },
       { key: '/credentials', label: '统一凭证中心', icon: 'key' },
       { key: '/runtime', label: '接入与运行', icon: 'safety' },
       { key: '/audit', label: '审计追踪', icon: 'audit' },

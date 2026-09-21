@@ -17,12 +17,12 @@ func TestDiagnosticExportOfflineIncludesEvidenceNotCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"token":"UNLABELED-CREDENTIAL"}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"token":"UNLABELED-CREDENTIAL","connections":[{"server":"https://saved.example","token":"SAVED-UNLABELED-CREDENTIAL"}]}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	store.SetState("policy", `{"mode":"audit","release_public_key":"public","token":"TOPSECRET"}`)
 	store.SaveTask(Task{ID: 21, TaskType: "apply_model_config", Payload: map[string]any{"api_key": "PRIVATEKEY"}}, "failed", "connection_failed")
-	store.LogDiagnostic("warning", "test", "failed", map[string]any{"password": "SECRETPASSWORD", "task_id": 21, "error": "request rejected UNLABELED-CREDENTIAL"})
+	store.LogDiagnostic("warning", "test", "failed", map[string]any{"password": "SECRETPASSWORD", "task_id": 21, "error": "request rejected UNLABELED-CREDENTIAL and SAVED-UNLABELED-CREDENTIAL"})
 	store.QueueEvent(QueuedEvent{ClientID: "offline-client", EventType: "skill_quarantined", Details: map[string]any{"signature": "signed-content", "token": "OFFLINESECRET"}})
 	_, err = store.db.Exec(`UPDATE client_events_queue SET created_at = ?`, "2026-09-12T12:34:56.789Z")
 	if err != nil {
@@ -46,7 +46,7 @@ func TestDiagnosticExportOfflineIncludesEvidenceNotCredentials(t *testing.T) {
 		}
 		body, _ := io.ReadAll(r)
 		r.Close()
-		for _, secret := range []string{"TOPSECRET", "PRIVATEKEY", "SECRETPASSWORD", "OFFLINESECRET", "UNLABELED-CREDENTIAL"} {
+		for _, secret := range []string{"TOPSECRET", "PRIVATEKEY", "SECRETPASSWORD", "OFFLINESECRET", "UNLABELED-CREDENTIAL", "SAVED-UNLABELED-CREDENTIAL"} {
 			if strings.Contains(string(body), secret) {
 				t.Fatal("credential leaked")
 			}

@@ -32,7 +32,7 @@ func main() {
 
 func run(args []string) (runErr error) {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-manager-client <configure|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|verify-model|restore-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|discard-quarantine|available-skills|skill-preview|skill-versions|install-skill|install-skills|quarantine|queue-quarantine|apply-skill-action|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
+		return fmt.Errorf("usage: agent-manager-client <configure|connections|switch-connection|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|verify-model|restore-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|discard-quarantine|available-skills|skill-preview|skill-versions|install-skill|install-skills|quarantine|queue-quarantine|apply-skill-action|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
@@ -47,6 +47,7 @@ func run(args []string) (runErr error) {
 	agentType := fs.String("agent-type", "", "local agent type")
 	managedAgentID := fs.String("managed-agent-id", "", "managed Agent ID")
 	model := fs.String("model", "", "gateway model name")
+	gatewaySource := fs.String("gateway-source", "", "model gateway source")
 	modelParameters := fs.String("model-parameters", "{}", "Agent-specific model parameters as JSON")
 	modelRevision := fs.String("model-revision", "", "expected model configuration revision")
 	modelChangeID := fs.String("model-change-id", "", "model configuration recovery ID")
@@ -130,6 +131,36 @@ func run(args []string) (runErr error) {
 	if err != nil {
 		return err
 	}
+	if args[0] == "connections" {
+		items := make([]map[string]any, 0, len(config.Connections))
+		for _, connection := range config.Connections {
+			items = append(items, map[string]any{
+				"server": connection.Server,
+				"name":   connection.Name,
+				"active": connection.Server == config.Server,
+			})
+		}
+		return json.NewEncoder(os.Stdout).Encode(items)
+	}
+	if args[0] == "switch-connection" {
+		connection, ok := config.FindConnection(*server)
+		if !ok {
+			return fmt.Errorf("connection_profile_not_found")
+		}
+		*server, *token, *name = connection.Server, connection.Token, connection.Name
+		inventory, discoverErr := managedclient.Discover(*home)
+		if discoverErr != nil {
+			return discoverErr
+		}
+		if connection.Name != "" {
+			inventory.Name = connection.Name
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := managedclient.NewAPI(connection.Server, connection.Token, 30*time.Second).Register(ctx, inventory); err != nil {
+			return err
+		}
+	}
 	previousServer := strings.TrimRight(strings.TrimSpace(config.Server), "/")
 	previousToken := strings.TrimSpace(config.Token)
 	if *server == "" {
@@ -141,7 +172,7 @@ func run(args []string) (runErr error) {
 	if *name == "" && args[0] != "add-custom-agent" {
 		*name = config.Name
 	}
-	if args[0] == "configure" {
+	if args[0] == "configure" || args[0] == "switch-connection" {
 		config.Server = strings.TrimRight(strings.TrimSpace(*server), "/")
 		config.Token = strings.TrimSpace(*token)
 		config.Name = *name
@@ -626,7 +657,7 @@ func run(args []string) (runErr error) {
 				return err
 			}
 		}
-		if err := managedclient.ConfigureAgentModel(ctx, *home, inventory, api, store, localAgentID, *agentType, *managedAgentID, *model, map[string]any{"parameters": parameters, "expected_revision": revision}); err != nil {
+		if err := managedclient.ConfigureAgentModel(ctx, *home, inventory, api, store, localAgentID, *agentType, *managedAgentID, *model, map[string]any{"parameters": parameters, "expected_revision": revision, "gateway_source": strings.TrimSpace(*gatewaySource)}); err != nil {
 			return err
 		}
 		fresh, err := managedclient.Discover(*home)
