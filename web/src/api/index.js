@@ -121,6 +121,7 @@ export const exportSecurityScanReportPdf = (taskId, language = 'zh-CN') =>
 export const getDocsAssistantConfig = () => api.get('/config/docs-assistant')
 export const updateDocsAssistantConfig = (data) => api.post('/config/docs-assistant', data)
 export const askDocsAssistant = (data) => api.post('/config/docs-assistant/ask', data)
+export const exportDocsPdf = data => api.post('/config/docs-export.pdf', data, { responseType: 'blob' })
 
 export const listSkills = (params = {}) => api.get('/v1/skills', { params })
 export const listSkillsPaged = (params = {}) => api.get('/v1/skills', { params: { ...params, page: params.page || 1, page_size: params.page_size || 10 } })

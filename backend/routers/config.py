@@ -1,11 +1,14 @@
 import json
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from .. import auth, iam, models, schemas
 from ..api_errors import ApiError
+from ..docs_export_pdf import build_docs_export_pdf
 from ..sqlite_db import get_db
 
 
@@ -198,6 +201,40 @@ async def update_docs_assistant_config(
     )
     db.commit()
     return {"status": "success"}
+
+
+@router.post("/docs-export.pdf")
+async def export_docs_pdf(
+    payload: schemas.DocsPdfExportRequest,
+    request: Request,
+    current_user: models.User = Depends(auth.get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    request.state.iam_permission = "docs:update"
+    iam.check(db, current_user, "docs:update")
+    if len(payload.model_dump_json().encode("utf-8")) > 2 * 1024 * 1024:
+        raise ApiError(
+            413,
+            "docs_export.payload_too_large",
+            "帮助文档导出内容超过 2 MiB 限制",
+            "The documentation export exceeds the 2 MiB request limit",
+        )
+
+    now = datetime.now().astimezone()
+    generated_at = (
+        now.strftime("%Y年%m月%d日 %H:%M")
+        if payload.locale == "zh-CN"
+        else now.strftime("%B %d, %Y %H:%M %Z")
+    )
+    document = build_docs_export_pdf(payload, generated_at=generated_at)
+    return Response(
+        content=document,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="Agent-Manager-help-documentation.pdf"',
+            "X-PDF-Outline": "module-article",
+        },
+    )
 
 
 def _answer_text(result: dict[str, Any]) -> str:

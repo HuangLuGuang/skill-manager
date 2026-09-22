@@ -1,11 +1,13 @@
 <template>
   <div class="docs-settings-page">
+    <DocsExportSettings />
     <DocsAssistantSettings />
   </div>
 </template>
 
 <script setup>
 import DocsAssistantSettings from '../components/DocsAssistantSettings.vue'
+import DocsExportSettings from '../components/DocsExportSettings.vue'
 </script>
 
 <style scoped>

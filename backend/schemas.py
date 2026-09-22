@@ -168,6 +168,99 @@ class DocsAssistantAnswer(BaseModel):
     model: str
 
 
+class DocsPdfLabelValue(BaseModel):
+    label: str = Field(min_length=1, max_length=200)
+    value: str = Field(min_length=1, max_length=1000)
+
+
+class DocsPdfStep(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    body: str = Field(default="", max_length=4000)
+    code: Optional[str] = Field(default=None, max_length=12000)
+    expected: Optional[str] = Field(default=None, max_length=2000)
+
+
+class DocsPdfTable(BaseModel):
+    columns: list[str] = Field(min_length=1, max_length=8)
+    rows: list[list[str]] = Field(default_factory=list, max_length=100)
+
+    @field_validator("columns")
+    @classmethod
+    def validate_columns(cls, value: list[str]) -> list[str]:
+        if any(not item or len(item) > 300 for item in value):
+            raise ValueError("table columns must contain 1-300 characters")
+        return value
+
+    @field_validator("rows")
+    @classmethod
+    def validate_rows(cls, value: list[list[str]]) -> list[list[str]]:
+        if any(len(row) > 8 or any(len(cell) > 4000 for cell in row) for row in value):
+            raise ValueError("table rows exceed the supported dimensions")
+        return value
+
+
+class DocsPdfCallout(BaseModel):
+    type: str = Field(default="note", pattern="^(note|warning)$")
+    title: str = Field(min_length=1, max_length=300)
+    body: str = Field(default="", max_length=4000)
+
+
+class DocsPdfReference(BaseModel):
+    label: str = Field(min_length=1, max_length=300)
+    url: str = Field(min_length=1, max_length=2000)
+
+
+class DocsPdfImage(BaseModel):
+    name: str = Field(pattern=r"^[A-Za-z0-9_.-]+$", max_length=160)
+    alt: str = Field(default="", max_length=500)
+    caption: str = Field(default="", max_length=1000)
+
+
+class DocsPdfResource(BaseModel):
+    label: str = Field(min_length=1, max_length=300)
+    value: str = Field(default="", max_length=2000)
+
+
+class DocsPdfSection(BaseModel):
+    id: str = Field(default="", max_length=160)
+    title: str = Field(min_length=1, max_length=300)
+    paragraphs: list[str] = Field(default_factory=list, max_length=30)
+    bullets: list[str] = Field(default_factory=list, max_length=30)
+    flow: list[DocsPdfLabelValue] = Field(default_factory=list, max_length=12)
+    diagram: Optional[str] = Field(default=None, pattern="^(architecture|governance|skill-scan-logic|docker)$")
+    steps: list[DocsPdfStep] = Field(default_factory=list, max_length=20)
+    table: Optional[DocsPdfTable] = None
+    code: Optional[str] = Field(default=None, max_length=12000)
+    callout: Optional[DocsPdfCallout] = None
+    references: list[DocsPdfReference] = Field(default_factory=list, max_length=20)
+    image: Optional[DocsPdfImage] = None
+    link: Optional[DocsPdfResource] = None
+    download: Optional[DocsPdfResource] = None
+
+    @field_validator("paragraphs", "bullets")
+    @classmethod
+    def validate_text_lists(cls, value: list[str]) -> list[str]:
+        if any(len(item) > 12000 for item in value):
+            raise ValueError("documentation text exceeds 12000 characters")
+        return value
+
+
+class DocsPdfArticle(BaseModel):
+    slug: str = Field(max_length=160)
+    group_title: str = Field(min_length=1, max_length=200)
+    eyebrow: str = Field(default="", max_length=200)
+    title: str = Field(min_length=1, max_length=300)
+    summary: str = Field(default="", max_length=3000)
+    scenario: list[DocsPdfLabelValue] = Field(default_factory=list, max_length=12)
+    roles: list[DocsPdfLabelValue] = Field(default_factory=list, max_length=12)
+    sections: list[DocsPdfSection] = Field(default_factory=list, max_length=40)
+
+
+class DocsPdfExportRequest(BaseModel):
+    locale: str = Field(default="zh-CN", pattern="^(zh-CN|en-US)$")
+    articles: list[DocsPdfArticle] = Field(min_length=1, max_length=40)
+
+
 class ScheduledTaskBase(BaseModel):
     display_name: str
     description: Optional[str] = None

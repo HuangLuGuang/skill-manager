@@ -41,6 +41,7 @@ WORKDIR /app
 COPY pyproject.toml README.md company-policy.example.yaml ./
 COPY agent_manager ./agent_manager
 COPY backend ./backend
+COPY web/public/docs/screenshots ./web/public/docs/screenshots
 COPY services/aig-scan-service/vendor/ai-infra-guard/data/eval ./services/aig-scan-service/vendor/ai-infra-guard/data/eval
 COPY services/aig-scan-service/vendor/ai-infra-guard/LICENSE services/aig-scan-service/vendor/ai-infra-guard/NOTICE ./services/aig-scan-service/vendor/ai-infra-guard/
 COPY deploy/agent-security ./deploy/agent-security
