@@ -8,6 +8,7 @@ from .. import auth, models, schemas
 from ..api_errors import ApiError
 from ..sqlite_db import get_db
 from ..external_ai_gateway import binding_models, delete_binding_remote, ensure_binding
+from .clients import _client_managed_agent_id
 
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -210,11 +211,14 @@ def _asset_rows(db: Session, current_user: models.User) -> list[schemas.AgentAss
     for skill in installs:
         skills_by_agent.setdefault((skill.client_id, skill.agent_type), []).append(skill)
     bindings: dict[str, list[models.ClientAgent]] = {}
+    discovery_bindings: dict[str, list[models.ClientAgent]] = {}
     for local in local_agents:
         if local.managed_agent_id:
             bindings.setdefault(local.managed_agent_id, []).append(local)
+        discovery_id = _client_managed_agent_id(local.client_id, _local_agent_id(local))
+        discovery_bindings.setdefault(discovery_id, []).append(local)
 
-    managed_agent_ids = [managed.agent_id for managed in managed_agents]
+    managed_agent_ids = list({managed.agent_id for managed in managed_agents} | set(bindings))
     external_bindings = (
         db.query(models.ExternalGatewayAgentBinding)
         .filter(models.ExternalGatewayAgentBinding.managed_agent_id.in_(managed_agent_ids))
@@ -226,6 +230,13 @@ def _asset_rows(db: Session, current_user: models.User) -> list[schemas.AgentAss
     external_bindings_by_agent: dict[str, list[models.ExternalGatewayAgentBinding]] = {}
     for binding in external_bindings:
         external_bindings_by_agent.setdefault(binding.managed_agent_id, []).append(binding)
+    for discovery_id, local_rows in discovery_bindings.items():
+        for local in local_rows:
+            if local.managed_agent_id and local.managed_agent_id != discovery_id:
+                linked = external_bindings_by_agent.get(local.managed_agent_id, [])
+                external_bindings_by_agent.setdefault(discovery_id, []).extend(
+                    binding for binding in linked if binding.client_id == local.client_id
+                )
     external_gateway_ids = {binding.gateway_id for binding in external_bindings}
     external_gateways_by_id = {
         gateway.id: gateway
@@ -241,13 +252,14 @@ def _asset_rows(db: Session, current_user: models.User) -> list[schemas.AgentAss
     rows: list[schemas.AgentAssetResponse] = []
     for managed in managed_agents:
         response = _agent_response(db, managed)
+        instance_bindings = discovery_bindings if managed.origin_type == "client_discovery" else bindings
         instances = [
             _asset_instance(
                 clients_by_id[local.client_id],
                 local,
                 skills_by_agent.get((local.client_id, local.agent_type), []),
             )
-            for local in bindings.get(managed.agent_id, [])
+            for local in instance_bindings.get(managed.agent_id, [])
             if local.client_id in clients_by_id
         ]
         online_count = sum(instance.client_status == "online" for instance in instances)
@@ -275,7 +287,9 @@ def _asset_rows(db: Session, current_user: models.User) -> list[schemas.AgentAss
                 description=response.description,
                 channel=response.channel,
                 status=response.status,
-                client_status=("online" if online_count else "offline") if instances else None,
+                client_status=("online" if online_count else "offline") if instances else (
+                    "not_detected" if managed.origin_type == "client_discovery" else None
+                ),
                 default_model=response.default_model,
                 default_model_source=response.default_model_source,
                 external_gateway_id=reported_gateway.id if reported_gateway else response.external_gateway_id,
@@ -416,7 +430,7 @@ async def list_agent_assets(
         rows = [row for row in rows if row.origin_type == origin]
     if department_group_id is not None:
         rows = [row for row in rows if row.department_group_id == department_group_id]
-    if status in {"online", "offline"}:
+    if status in {"online", "offline", "not_detected"}:
         rows = [row for row in rows if row.client_status == status]
     elif status:
         rows = [row for row in rows if row.status == status]

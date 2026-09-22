@@ -9,6 +9,10 @@ Agent Manager Client 用于统一发现、接管和巡检本机 Agent 的 Skill 
 
 客户端发现本机 Agent 后会自动在平台登记稳定身份，供策略、模型凭证和审计使用。该过程不需要用户创建或选择另一个平台智能体。
 
+“智能体列表 → 客户端发现”按客户端 ID 和本机 Agent ID 展示独立发现记录及当前 Skill 清单。已有平台运行身份绑定的客户端也会登记本机发现身份；清单更新保留原运行绑定、凭证和模型配置。平台创建页仍展示该平台身份关联的实例，客户端发现页按本机身份统计，两个来源页的数量不能相加作为去重设备数。Claude Code 与 Claude Desktop 是独立类型。历史发现记录在当前完整清单中没有实例时显示“当前未发现”，Skill 数量显示不可用；仍有实例但客户端心跳过期时显示“离线”，保留最近上报清单。升级时由服务端启动补登记，后续清单上报幂等维护。
+
+Client discovery lists each local Agent by Client ID and local Agent ID, including Agents with an existing platform runtime binding. Inventory updates preserve that binding, credentials and model configuration. Platform and discovery views can reference the same local instance and are not additive device counts. Claude Code and Claude Desktop remain separate types. Historical entries absent from current inventory show “Not currently detected” with an unavailable Skill count; offline Clients retain their last reported inventory. Server startup backfills missing discovery identities and subsequent reports maintain them idempotently.
+
 客户端当前内置支持以下 Agent：
 
 - Claude Code

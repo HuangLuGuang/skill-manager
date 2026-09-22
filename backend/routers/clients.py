@@ -482,9 +482,10 @@ def ensure_client_inventory_identities(
 ) -> int:
     created_or_bound = 0
     for client_agent in db.query(models.ClientAgent).filter(models.ClientAgent.client_id == client.client_id).all():
-        if client_agent.managed_agent_id:
-            client_agent.takeover_status = "managed"
-            continue
+        discovery_id = _client_managed_agent_id(
+            client.client_id, _local_agent_id(client_agent.local_agent_id, client_agent.agent_type)
+        )
+        identity_exists = db.query(models.ManagedAgent.id).filter_by(agent_id=discovery_id).first() is not None
         identity = _ensure_inventory_agent_identity(
             db,
             client=client,
@@ -493,9 +494,14 @@ def ensure_client_inventory_identities(
             group_id=group_id,
             source=source,
         )
-        client_agent.managed_agent_id = identity.agent_id
+        # Inventory identity and an existing runtime credential binding have
+        # separate lifecycles. Keep the latter while registering local assets.
+        needs_binding = not client_agent.managed_agent_id
+        if needs_binding:
+            client_agent.managed_agent_id = identity.agent_id
         client_agent.takeover_status = "managed"
-        created_or_bound += 1
+        if not identity_exists or needs_binding:
+            created_or_bound += 1
     return created_or_bound
 
 

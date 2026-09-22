@@ -40,6 +40,7 @@
             <a-select-option value="draft">{{ $t("legacy.oc54qp") }}</a-select-option>
             <a-select-option value="online">{{ $t('agentAssets.filters.online') }}</a-select-option>
             <a-select-option value="offline">{{ $t('agentAssets.filters.offline') }}</a-select-option>
+            <a-select-option value="not_detected">{{ $t('agentAssets.filters.not_detected') }}</a-select-option>
           </a-select>
           <a-input v-model:value="filters.q" :placeholder="$t('agentAssets.filters.search')" class="asset-search" allow-clear @pressEnter="fetchAgentAssets" />
           <a-button type="primary" @click="fetchAgentAssets" :loading="loading">{{ $t("legacy.16mfmhy") }}</a-button>
@@ -76,11 +77,12 @@
             </template>
             <template v-else-if="column.key === 'assets'">
               <div>{{ assetModelText(record) }}</div>
-              <div class="muted">{{ record.origin_type === 'platform' ? $t('agentAssets.assignedSkillSummary', { count: record.skill_names?.length || 0 }) : $t('agentAssets.discoveredSkillSummary', { count: record.discovered_skill_count || 0 }) }}</div>
+              <div class="muted">{{ record.origin_type === 'platform' ? $t('agentAssets.assignedSkillSummary', { count: record.skill_names?.length || 0 }) : record.client_status === 'not_detected' ? $t('agentAssets.inventoryUnavailable') : $t('agentAssets.discoveredSkillSummary', { count: record.discovered_skill_count || 0 }) }}</div>
             </template>
             <template v-else-if="column.key === 'status'">
               <a-space direction="vertical" size="small">
                 <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
+                <a-tag v-if="record.client_status === 'not_detected'">{{ clientStatusText(record.client_status) }}</a-tag>
                 <span v-if="record.instance_count" class="muted">{{ $t('agentAssets.onlineInstances', { online: record.online_instance_count, total: record.instance_count }) }}</span>
               </a-space>
             </template>
@@ -156,9 +158,10 @@
         </template>
 
         <template v-else>
+          <a-alert v-if="selectedAsset.client_status === 'not_detected'" type="info" show-icon :message="$t('agentAssets.notDetectedHint')" />
           <a-row :gutter="[10, 10]" class="drawer-summary">
             <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.clientStatus') }}</span><strong>{{ clientStatusText(selectedAsset.client_status) }}</strong></div></a-col>
-            <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.skillCount') }}</span><strong>{{ selectedAsset.discovered_skill_count }}</strong></div></a-col>
+            <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.skillCount') }}</span><strong>{{ selectedAsset.client_status === 'not_detected' ? '—' : selectedAsset.discovered_skill_count }}</strong></div></a-col>
             <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.currentModel') }}</span><strong>{{ currentModelText(selectedAsset) }}</strong></div></a-col>
             <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.lastScan') }}</span><strong>{{ latestScanAt ? formatDateTime(latestScanAt) : '-' }}</strong></div></a-col>
           </a-row>

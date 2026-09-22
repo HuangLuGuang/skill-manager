@@ -227,17 +227,22 @@ def test_asset_list_merges_existing_instances_and_auto_registered_client_agents(
     )
     database.commit()
     host = database.query(models.ManagedClient).filter_by(client_id="huanglg-4").one()
-    assert clients.ensure_client_inventory_identities(database, host, owner="admin") == 1
+    assert clients.ensure_client_inventory_identities(database, host, owner="admin") == 2
+    assert clients.ensure_client_inventory_identities(database, host, owner="admin") == 0
     database.commit()
 
     response = client.get("/agents/assets")
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["stats"] == {"total": 2, "platform": 1, "client_discovery": 1}
-    assert len(payload["items"]) == 2
+    assert payload["stats"] == {"total": 3, "platform": 1, "client_discovery": 2}
+    assert len(payload["items"]) == 3
     managed = next(item for item in payload["items"] if item["agent_id"] == "contract-review-agent")
-    discovered = next(item for item in payload["items"] if item["origin_type"] == "client_discovery")
+    discovered = next(item for item in payload["items"] if item["agent_id"].startswith("client-huanglg-4-codex-"))
+    claude = next(item for item in payload["items"] if item["agent_id"].startswith("client-huanglg-4-claude-code-"))
+    assert claude["discovered_skill_count"] == 1
+    assert claude["instances"][0]["skills"][0]["name"] == "contract-reader"
+    assert database.query(models.ClientAgent).filter_by(local_agent_id="claude-code").one().managed_agent_id == "contract-review-agent"
     assert managed["managed_agent_pk"] == platform_agent["id"]
     assert managed["origin_type"] == "platform"
     assert managed["instance_count"] == 1
@@ -285,7 +290,7 @@ def test_asset_list_merges_existing_instances_and_auto_registered_client_agents(
     database.commit()
 
     refreshed = client.get("/agents/assets").json()
-    refreshed_discovered = next(item for item in refreshed["items"] if item["origin_type"] == "client_discovery")
+    refreshed_discovered = next(item for item in refreshed["items"] if item["agent_id"] == discovered["agent_id"])
     assert refreshed_discovered["external_gateway_id"] == external_gateway.id
     assert refreshed_discovered["external_gateway_name"] == "北京联通 AI 网关"
 
@@ -298,4 +303,88 @@ def test_asset_list_merges_existing_instances_and_auto_registered_client_agents(
     identity_delete = client.delete(f"/agents/{discovered['managed_agent_pk']}")
     assert identity_delete.status_code == 409
     assert identity_delete.json()["error_code"] == "agent.client_managed"
+    database.close()
+
+
+def test_discovery_backfill_preserves_runtime_binding_and_distinguishes_absent_inventory(tmp_path):
+    from datetime import timedelta
+    from backend import schemas
+
+    client, _ = _client(tmp_path)
+    database = next(client.app.dependency_overrides[get_db]())
+    host = models.ManagedClient(
+        client_id="legacy-host", name="huanglg-4.local", hostname="huanglg-4.local",
+        os="darwin", arch="arm64", client_version="26.09.16.2", registered_by="admin",
+        last_seen_at=datetime.utcnow(),
+    )
+    runtime = models.ManagedAgent(agent_id="legacy-runtime", name="wclaude", channel="Claude Code", created_by="admin")
+    credential = models.AccessToken(
+        name="existing-runtime", token_type="agent_runtime", token_hash="test-hash",
+        token_prefix="test", bound_agent_id="legacy-runtime", created_by="admin",
+    )
+    database.add_all([host, runtime, credential])
+    database.flush()
+    inventory = schemas.ClientAgentInventory(
+        agent_type="claude-code", local_agent_id="claude-code", managed_agent_id="legacy-runtime",
+        skills=[schemas.ClientSkillInventory(name=f"skill-{i}", path=f"/tmp/skills/skill-{i}") for i in range(8)],
+    )
+    clients._replace_inventory(database, host.client_id, [inventory])
+    local = database.query(models.ClientAgent).filter_by(client_id=host.client_id).one()
+    local.applied_model = "existing-model"
+    local.model_config_status = "applied"
+    gateway = models.ExternalAIGateway(
+        name="existing-gateway", management_base_url="https://gateway.test/manage",
+        model_base_url="https://gateway.test/v1", token_id="fixture-id",
+        token_value_encrypted="fixture-encrypted", created_by="admin",
+    )
+    database.add(gateway)
+    database.flush()
+    database.add(models.ExternalGatewayAgentBinding(
+        gateway_id=gateway.id, client_id=host.client_id, managed_agent_id="legacy-runtime",
+        external_agent_id="existing-external", key_id="fixture-key", api_key_encrypted="fixture-encrypted",
+    ))
+    inventory.capabilities = {"model_config_state": {"gateway_source": "external", "gateway_id": gateway.id}}
+    database.commit()
+    assert clients.backfill_client_inventory_identities(database) == 1
+    database.commit()
+    assert clients.backfill_client_inventory_identities(database) == 0
+    clients._replace_inventory(database, host.client_id, [inventory.model_copy(update={"managed_agent_id": None})])
+    assert clients.ensure_client_inventory_identities(database, host, owner="admin") == 0
+    database.commit()
+    local = database.query(models.ClientAgent).filter_by(client_id=host.client_id).one()
+    assert local.managed_agent_id == "legacy-runtime"
+    assert local.applied_model == "existing-model"
+    assert local.model_config_status == "applied"
+    assert database.query(models.AccessToken).one().bound_agent_id == "legacy-runtime"
+    discovered_id = clients._client_managed_agent_id(host.client_id, "claude-code")
+    rows = client.get("/agents/assets", params={"origin": "client_discovery"}).json()["items"]
+    assert len(rows) == 1
+    assert rows[0]["agent_id"] == discovered_id
+    assert rows[0]["discovered_skill_count"] == 8
+    assert rows[0]["client_status"] == "online"
+    assert rows[0]["external_gateway_id"] == gateway.id
+    assert database.query(models.ExternalGatewayAgentBinding).one().managed_agent_id == "legacy-runtime"
+
+    client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(
+        id=2, username="other-user", hashed_password="x", role="admin",
+    )
+    assert client.get("/agents/assets").json()["items"] == []
+    client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(
+        id=1, username="admin", hashed_password="x", role="admin",
+    )
+
+    host.last_seen_at = datetime.utcnow() - timedelta(minutes=15)
+    database.commit()
+    offline = client.get("/agents/assets", params={"status": "offline"}).json()["items"]
+    assert next(r for r in offline if r["agent_id"] == discovered_id)["discovered_skill_count"] == 8
+
+    clients._replace_inventory(database, host.client_id, [])
+    database.commit()
+    missing = client.get("/agents/assets", params={"status": "not_detected"}).json()["items"]
+    assert len(missing) == 1
+    assert missing[0]["agent_id"] == discovered_id
+    assert missing[0]["instance_count"] == 0
+    assert missing[0]["client_status"] == "not_detected"
+    assert database.query(models.ManagedAgent).filter_by(agent_id="legacy-runtime").one()
+    assert database.query(models.AccessToken).one().bound_agent_id == "legacy-runtime"
     database.close()

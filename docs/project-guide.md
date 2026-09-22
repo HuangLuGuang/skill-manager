@@ -12,6 +12,8 @@
 
 如果你第一次接触这个项目，先看这份文档，再按需要跳转到更细的专题文档。
 
+客户端发现视图按本机身份汇总 Skill，已有平台运行绑定也保留独立发现记录；历史记录未在当前清单出现时标记“当前未发现”，而非将缺少清单解释成零个 Skill。身份与计数口径见 [客户端使用说明](agent-manager-client.md)。Client discovery maintains local inventory independently of existing runtime bindings and explicitly marks historical entries absent from current inventory.
+
 客户端模型切换支持按 Agent 编辑配置、参数预览、备份恢复和独立调用验证。各适配器的实际验证范围见 [模型切换记录](acceptance/model-switching-2026-09-13/README.md)，内置代理方式见 [模型网关](model-gateway.md#客户端模型切换--client-model-switching)。客户已有网关时，平台智能体可不经客户端直接注册外部身份、选择动态模型并通过 Agent 运行凭证领取绑定 Key；客户端模型切换仍沿用任务绑定凭据流程，详见 [外部 AI 网关接入与 Skill 治理](external-ai-gateway-integration.md)。
 
 模型切换自动签发的运行凭证默认仅记录 Prompt 风险，支持在管理台客户端策略中配置 Prompt 防护，继承平台默认或单台覆盖；保存更新已有凭证，新建凭证继承当前策略。客户端通过长轮询同步显示状态，网关在后续请求中执行保存后的配置。LLM 复核开关当前仅保存，尚未执行复核。
