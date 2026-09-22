@@ -337,7 +337,7 @@ func (store *Store) PendingItems() ([]PendingItem, error) {
 		if version == "" || item.Progress.VersionID != version || item.Status != "PENDING" {
 			item.Progress = ScanProgress{}
 		}
-		if _, err := os.Stat(item.PendingPath); err != nil {
+		if _, err := os.Stat(item.PendingPath); err != nil && !(item.Reason == "quarantine_rescan" && item.SkillID != "") {
 			continue
 		}
 		known[canonicalExistingPath(item.PendingPath)] = true

@@ -7,6 +7,35 @@ import (
 	"time"
 )
 
+func TestInstallationStagingIsOutsideWatchRoots(t *testing.T) {
+	home := t.TempDir()
+	store, err := OpenStore(filepath.Join(RuntimeRoot(home), "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	staging, err := newInstallStaging(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(t, filepath.Join(staging, "release.tmp"), "demo")
+	watcher, err := NewSkillWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+	if err := watcher.Refresh(home, store); err != nil {
+		t.Fatal(err)
+	}
+	watcher.mu.Lock()
+	defer watcher.mu.Unlock()
+	for root := range watcher.roots {
+		if pathWithinLexical(staging, root) {
+			t.Fatalf("staging is watched by %s", root)
+		}
+	}
+}
+
 func TestSkillWatcherDetectsFileChange(t *testing.T) {
 	if skillWatchDebounce > 500*time.Millisecond {
 		t.Fatalf("Skill change debounce is too slow: %s", skillWatchDebounce)

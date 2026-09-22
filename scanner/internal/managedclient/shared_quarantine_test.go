@@ -200,6 +200,18 @@ func TestApprovedSharedRecoveryRestoresEveryAffectedAgent(t *testing.T) {
 			packageRequests++
 			response.Header().Set("Content-Type", "application/zip")
 			_, _ = response.Write(packageBody)
+		case request.URL.Path == "/api/v1/clients/client-1/compare":
+			var body struct {
+				Agents []Agent `json:"agents"`
+			}
+			_ = json.NewDecoder(request.Body).Decode(&body)
+			var verdicts []CompareItem
+			for _, agent := range body.Agents {
+				for _, skill := range agent.Skills {
+					verdicts = append(verdicts, CompareItem{AgentType: agent.AgentType, LocalPath: skill.Path, LocalSignature: skill.Signature, Reason: "signature_mismatch"})
+				}
+			}
+			_ = json.NewEncoder(response).Encode(map[string]any{"items": verdicts})
 		case request.Method == http.MethodPost:
 			response.WriteHeader(http.StatusNoContent)
 		default:

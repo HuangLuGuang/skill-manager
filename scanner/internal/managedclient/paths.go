@@ -52,6 +52,15 @@ func ManagedSkillsRoot(home string) string {
 	return filepath.Join(DataRoot(home), "skills")
 }
 
+// newInstallStaging reserves private workspace outside the watched Skill roots.
+func newInstallStaging(home string) (string, error) {
+	root := filepath.Join(DataRoot(home), "staging")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", err
+	}
+	return os.MkdirTemp(root, "install-")
+}
+
 func PendingRoot(home string) string {
 	return filepath.Join(DataRoot(home), "pending")
 }

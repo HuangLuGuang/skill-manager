@@ -325,8 +325,89 @@ func installApprovedPending(ctx context.Context, home string, inventory Inventor
 			local.Agents[index].SkillsPath = root
 		}
 	}
-	return installApprovedSkillVersion(ctx, home, local, policy, api, store, item.AgentType, managedAgentID, item.SkillID, item.VersionID, false,
-		map[string]any{"expected_root": root, "expected_path": item.OriginalPath, "expected_targets": targets})
+	var prepared *preparedInstallPackage
+	if item.Reason == "quarantine_rescan" {
+		var cleanup func()
+		var err error
+		prepared, cleanup, err = prepareApprovedLocalCopy(ctx, home, api, inventory.ClientID, agent, managedAgentID, item)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+	}
+	return installApprovedSkillVersionWithPackage(ctx, home, local, policy, api, store, item.AgentType, managedAgentID, item.SkillID, item.VersionID, false,
+		[]map[string]any{{"expected_root": root, "expected_path": item.OriginalPath, "expected_targets": targets}}, prepared)
+}
+
+// Only missing or mismatched local content falls back to the signed package.
+// Transport and authorization failures leave the recovery pending.
+func prepareApprovedLocalCopy(ctx context.Context, home string, api API, clientID string, agent Agent, managedAgentID string, item PendingItem) (*preparedInstallPackage, func(), error) {
+	noop := func() {}
+	if !validInstallComponent(item.SkillName) || item.VersionID == "" {
+		return nil, noop, fmt.Errorf("recovery_verdict_unavailable")
+	}
+	snapshot, err := inspectInstallTarget(item.PendingPath)
+	if os.IsNotExist(err) {
+		return nil, noop, nil
+	}
+	if err != nil {
+		return nil, noop, err
+	}
+	if snapshot.signature == "" {
+		return nil, noop, nil
+	}
+	agent.Skills = []Skill{{Name: item.SkillName, Path: item.OriginalPath, Signature: snapshot.signature, SkillID: item.SkillID, VersionID: item.VersionID}}
+	items, err := api.Compare(ctx, Inventory{ClientID: clientID, Agents: []Agent{agent}}, map[string]string{agent.AgentType: managedAgentID})
+	if err != nil {
+		return nil, noop, err
+	}
+	var verdict *CompareItem
+	for i := range items {
+		candidate := &items[i]
+		if candidate.AgentType == item.AgentType && candidate.LocalPath == item.OriginalPath && candidate.LocalSignature == snapshot.signature {
+			verdict = candidate
+			break
+		}
+	}
+	if verdict == nil {
+		return nil, noop, fmt.Errorf("recovery_verdict_unavailable")
+	}
+	if verdict.Reason == "signature_mismatch" || (verdict.Certified && verdict.VersionID != item.VersionID) {
+		return nil, noop, nil
+	}
+	if !verdict.Certified || !verdict.Allowed || verdict.Malicious || verdict.Rejected || verdict.SkillID != item.SkillID || verdict.VersionID != item.VersionID || verdict.ExpectedSignature != snapshot.signature {
+		return nil, noop, fmt.Errorf("recovery_not_certified")
+	}
+	staging, err := newInstallStaging(home)
+	if err != nil {
+		return nil, noop, err
+	}
+	cleanup := func() { _ = os.RemoveAll(staging) }
+	root := filepath.Join(staging, "release")
+	err = copyObservedSnapshot(Skill{Path: item.PendingPath, Signature: snapshot.signature}, root)
+	var contents manifest.Manifest
+	if err == nil {
+		contents, err = manifest.Build(root, DefaultManifestOptions())
+		if err == nil && manifest.ContentSignature(contents.Files) != snapshot.signature {
+			err = fmt.Errorf("skill_content_changed")
+		}
+	}
+	if err != nil {
+		cleanup()
+		if os.IsNotExist(err) || err.Error() == "skill_content_changed" {
+			return nil, noop, nil
+		}
+		return nil, noop, err
+	}
+	files := make([]releaseFile, 0, len(contents.Files))
+	for _, file := range contents.Files {
+		files = append(files, releaseFile{Path: file.Path, Size: file.Size, SHA256: file.SHA256})
+	}
+	return &preparedInstallPackage{root: root, manifest: releaseManifest{
+		Version: 1, Files: files,
+		SkillID: item.SkillID, VersionID: item.VersionID, VersionNo: item.VersionNo, SourceVersion: item.SourceVersion,
+		Name: item.SkillName, ContentSignature: snapshot.signature, ContentFingerprint: item.Fingerprint,
+	}}, cleanup, nil
 }
 
 func fingerprintPendingPeers(store *Store, items []PendingItem, submitted PendingItem) error {

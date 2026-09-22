@@ -1867,6 +1867,10 @@ Backend 仅接受可信代理网段提供的转发信息，避免把 Nginx 容�
 
 ## 13. 客户端 Skill 怎么统一接管
 
+隔离副本复检批准后，客户端优先计算本地副本内容签名，并通过平台 Compare 核对提交的确切版本、认证状态和 Agent 使用权限。一致且获准时，使用本地副本完成恢复；副本缺失或内容与批准版本不一致时，下载该确切版本的签名包。平台不可达、认证或权限检查失败时保留待处理状态，不把失败当作允许恢复。复制后再次校验内容，避免校验期间的修改被带入安装。
+
+单目标安装、批量安装和上述本地副本恢复的准备文件位于 `~/.river-security/agent-manager/staging/install-*`，不放入受监控的 `skills` 目录。校验完成后才移入正式版本目录；安装成功或失败均清理本次临时目录。正式版本仍按现有规则监听和校验，临时文件不受实时监听不代表跳过验签。
+
 当客户同时使用 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes、TeleAgent 或其他支持 Skill 目录的 Agent 时，推荐安装 Agent Manager Client。TeleAgent 的动态用户目录按 `.config/TeleAgent/users/*/skills` 展开，不依赖固定用户 ID：
 
 1. 在“智能体管理 -> 统一凭证中心”选择“给客户端使用”创建客户端接入凭证；需要自动配置 Agent 模型时，显式开启“允许客户端为本机 Agent 自动创建运行凭证”。

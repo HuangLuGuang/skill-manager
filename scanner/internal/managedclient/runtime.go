@@ -654,7 +654,12 @@ func InstallApprovedSkillVersionBatch(
 		return results, err
 	}
 	emit(InstallProgress{Stage: "verifying", Status: "running", Completed: completed})
-	incoming := filepath.Join(ManagedSkillsRoot(home), skillID, fmt.Sprintf(".incoming-%d", time.Now().UnixNano()))
+	staging, err := newInstallStaging(home)
+	if err != nil {
+		return results, err
+	}
+	defer os.RemoveAll(staging)
+	incoming := filepath.Join(staging, "release")
 	manifest, err := VerifyAndExtractPackage(body, policy.ReleasePublicKey, incoming)
 	if err != nil {
 		return results, err
@@ -728,7 +733,12 @@ func installApprovedSkillVersionWithPackage(ctx context.Context, home string, in
 		if err != nil {
 			return err
 		}
-		incoming = filepath.Join(ManagedSkillsRoot(home), skillID, fmt.Sprintf(".incoming-%d", time.Now().UnixNano()))
+		staging, err := newInstallStaging(home)
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(staging)
+		incoming = filepath.Join(staging, "release")
 		manifest, err = VerifyAndExtractPackage(body, policy.ReleasePublicKey, incoming)
 		if err != nil {
 			return err

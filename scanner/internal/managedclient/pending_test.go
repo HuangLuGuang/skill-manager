@@ -17,14 +17,34 @@ import (
 )
 
 func TestReconcileApprovedPendingAutomaticallyInstallsExactVersion(t *testing.T) {
-	testApprovedPendingInstallation(t, false)
+	testApprovedPendingInstallation(t, false, "mismatch")
 }
 
 func TestLegacyPendingInstallsIntoAssociatedAgent(t *testing.T) {
-	testApprovedPendingInstallation(t, true)
+	testApprovedPendingInstallation(t, true, "mismatch")
 }
 
-func testApprovedPendingInstallation(t *testing.T, legacy bool) {
+func TestApprovedQuarantineRestoresLocalCopyWithoutDownload(t *testing.T) {
+	testApprovedPendingInstallation(t, false, "match")
+}
+
+func TestApprovedQuarantineMissingCopyDownloads(t *testing.T) {
+	testApprovedPendingInstallation(t, false, "missing")
+}
+
+func TestApprovedQuarantineLocalCopyRequiresAuthorization(t *testing.T) {
+	testApprovedPendingInstallation(t, false, "denied")
+}
+
+func TestApprovedQuarantineCompareFailureDoesNotDownload(t *testing.T) {
+	testApprovedPendingInstallation(t, false, "offline")
+}
+
+func TestApprovedQuarantineCopyChangedAfterCompareDownloads(t *testing.T) {
+	testApprovedPendingInstallation(t, false, "changed")
+}
+
+func testApprovedPendingInstallation(t *testing.T, legacy bool, localCopy string) {
 	t.Helper()
 	home := t.TempDir()
 	skillsRoot := filepath.Join(home, ".codex", "skills")
@@ -64,9 +84,38 @@ func testApprovedPendingInstallation(t *testing.T, legacy bool) {
 		t.Fatal(err)
 	}
 	packageBody := signedPackage(t, privateKey)
+	snapshot, err := inspectInstallTarget(pending.PendingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if localCopy == "missing" {
+		if err := os.RemoveAll(pending.PendingPath); err != nil {
+			t.Fatal(err)
+		}
+	}
 	packageRequests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch {
+		case strings.HasSuffix(request.URL.Path, "/compare"):
+			if localCopy == "offline" {
+				response.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			verdict := CompareItem{AgentType: "codex", LocalPath: source, LocalSignature: snapshot.signature,
+				SkillID: "skill-1", VersionID: "skill-version-2", Reason: "signature_mismatch"}
+			if localCopy == "match" || localCopy == "denied" || localCopy == "changed" {
+				verdict.Certified, verdict.Allowed = true, true
+				verdict.ExpectedSignature, verdict.Reason = snapshot.signature, "allowed"
+			}
+			if localCopy == "denied" {
+				verdict.Allowed, verdict.Reason = false, "agent_not_authorized"
+			}
+			if localCopy == "changed" {
+				if err := os.WriteFile(filepath.Join(pending.PendingPath, "SKILL.md"), []byte("changed"), 0600); err != nil {
+					t.Error(err)
+				}
+			}
+			_ = json.NewEncoder(response).Encode(map[string]any{"items": []CompareItem{verdict}})
 		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/scanner/imports/skill-version-2":
 			_ = json.NewEncoder(response).Encode(map[string]any{
 				"skill_id": "skill-1", "version_id": "skill-version-2", "name": "safe-skill", "status": "APPROVED",
@@ -100,15 +149,36 @@ func testApprovedPendingInstallation(t *testing.T, legacy bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !changed || packageRequests != 1 {
+	if localCopy == "denied" || localCopy == "offline" {
+		lastError, _, _ := store.State("pending:install-error:" + pending.ID)
+		if changed || packageRequests != 0 || lastError == "" {
+			t.Fatalf("failed authorization must remain pending without download: %v %d %q", changed, packageRequests, lastError)
+		}
+		if _, err := os.Lstat(source); !os.IsNotExist(err) {
+			t.Fatalf("unauthorized content was restored: %v", err)
+		}
+		return
+	}
+	wantDownloads := 1
+	if localCopy == "match" {
+		wantDownloads = 0
+	}
+	if !changed || packageRequests != wantDownloads {
 		lastError, _, _ := store.State("pending:install-error:" + pending.ID)
 		t.Fatalf("approved pending Skill was not installed exactly once: changed=%v requests=%d error=%s", changed, packageRequests, lastError)
+	}
+	if entries, err := os.ReadDir(filepath.Join(DataRoot(home), "staging")); err != nil || len(entries) != 0 {
+		t.Fatalf("installation staging not cleaned: %v %v", entries, err)
 	}
 	if items, err := store.PendingItems(); err != nil || len(items) != 0 {
 		t.Fatalf("installed pending record was not cleared: %#v %v", items, err)
 	}
 	if items, err := store.QuarantineItems(); err != nil || len(items) != 0 {
 		t.Fatalf("installed Skill was not released from quarantine: %#v %v", items, err)
+	}
+	installs, err := store.Installations()
+	if err != nil || len(installs) != 1 || !verifyInstalled(installs[0]) {
+		t.Fatalf("restored installation has no valid integrity baseline: %#v %v", installs, err)
 	}
 	if _, err := filepath.EvalSymlinks(filepath.Join(skillsRoot, "safe-skill")); err != nil {
 		t.Fatalf("trusted Skill was not restored to the Agent: %v", err)
@@ -516,7 +586,17 @@ func TestDaemonAutomaticallyInstallsApprovedPendingWithClassification(t *testing
 				response.Write([]byte(`{"tasks":[],"scan_events":[]}`))
 			}
 		case strings.HasSuffix(request.URL.Path, "/compare"):
-			response.Write([]byte(`{"items":[]}`))
+			var body struct {
+				Agents []Agent `json:"agents"`
+			}
+			_ = json.NewDecoder(request.Body).Decode(&body)
+			var verdicts []CompareItem
+			for _, agent := range body.Agents {
+				for _, skill := range agent.Skills {
+					verdicts = append(verdicts, CompareItem{AgentType: agent.AgentType, LocalPath: skill.Path, LocalSignature: skill.Signature, Reason: "signature_mismatch"})
+				}
+			}
+			_ = json.NewEncoder(response).Encode(map[string]any{"items": verdicts})
 		case request.Method == http.MethodPost:
 			response.WriteHeader(http.StatusNoContent)
 		default:
