@@ -199,6 +199,48 @@ func (store *Store) ResolveQuarantine(agentType, skillName string) error {
 	return err
 }
 
+// A permitted live path ends its previous automatic isolation incident. The
+// retained copy remains historical evidence, even if the application recreated
+// the path with newer content rather than restoring the original bytes.
+func (store *Store) resolvePermittedUnverifiedCopy(ctx context.Context, home, agentType string, skill Skill, policy Policy, observation SkillObservation) error {
+	if !classificationEnabled(policy) || observation.ActionStatus != "completed" || observation.ErrorCode != "" || observation.Malicious {
+		return nil
+	}
+	if observation.Trigger != "unverified" && observation.Trigger != "unverified_content_changed" {
+		return nil
+	}
+	if (observation.Action != "record" && observation.Action != "record_only") || policy.Classification.Rules[observation.Trigger] != observation.Action {
+		return nil
+	}
+	var count int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM client_quarantine
+		WHERE agent_type=? AND original_path=? AND status='quarantined'
+		AND reason IN ('unverified','unverified_content_changed','unmanaged_skill')`, agentType, skill.Path).Scan(&count); err != nil || count == 0 {
+		return err
+	}
+	_, release, err := withMutationLock(ctx, home)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err := checkObservedContent(Skill{Path: skill.Path, Signature: observation.Signature}); err != nil {
+		return err
+	}
+	result, err := store.db.Exec(`UPDATE client_quarantine SET status='resolved', restored_at=?
+		WHERE agent_type=? AND original_path=? AND status='quarantined'
+		AND reason IN ('unverified','unverified_content_changed','unmanaged_skill')`, time.Now().UTC().Format(time.RFC3339Nano), agentType, skill.Path)
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil || changed == 0 {
+		return err
+	}
+	details := map[string]any{"agent_type": agentType, "path": skill.Path, "skill_name": skill.Name, "resolved_count": changed, "source": "permitted_local_copy"}
+	store.LogDiagnostic("info", "recovery", "present_copy_resolved", details)
+	return store.EmitUIStateEvent(home, "local_state_changed", details)
+}
+
 // ResolveInstalledRecovery archives recovery records superseded by a verified
 // trusted installation at the exact Agent path. An uninstalled record is only
 // resolved when its retained content matches the installed release, so a

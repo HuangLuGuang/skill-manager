@@ -409,6 +409,8 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 						}
 						if err := store.SaveObservation(alias.Path, aliasValue); err != nil {
 							failures = append(failures, err)
+						} else if err := store.resolvePermittedUnverifiedCopy(ctx, home, reader.AgentType, alias, policy, aliasValue); err != nil {
+							failures = append(failures, err)
 						}
 					}
 				}
