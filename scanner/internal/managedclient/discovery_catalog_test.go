@@ -76,6 +76,31 @@ func TestDiscoveryBuiltinsBeforeFirstSync(t *testing.T) {
 	}
 }
 
+func TestDiscoveryCatalogAcceptsTeleAgentWildcardRoot(t *testing.T) {
+	home := t.TempDir()
+	writeSkill(t, filepath.Join(home, ".config", "TeleAgent", "users", "v1_public_dynamic", "skills", "sample"), "sample")
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	body, _ := json.Marshal(Policy{Mode: "audit", AgentDiscovery: &DiscoveryCatalog{Version: "teleagent", Agents: []AgentDefinition{
+		{AgentType: "teleagent", Name: "TeleAgent", Enabled: true, Systems: []string{runtime.GOOS}, SkillRoots: []string{".config/TeleAgent/users/*/skills"}},
+	}}})
+	if err := store.SetState("policy", string(body)); err != nil {
+		t.Fatal(err)
+	}
+
+	inventory, err := Discover(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, ok := findAgent(inventory, "teleagent")
+	if !ok || len(agent.Skills) != 1 || agent.Skills[0].Name != "sample" {
+		t.Fatalf("unexpected TeleAgent catalog discovery: %#v", inventory.Agents)
+	}
+}
+
 func TestRunOnceUsesNewCatalogBeforeComparingSkills(t *testing.T) {
 	home := t.TempDir()
 	writeSkill(t, filepath.Join(home, ".qoder", "skills", "sample"), "sample")

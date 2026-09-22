@@ -1873,9 +1873,9 @@ const syncAgentHistory = () => {
 const agentLogoFile = agent => ({
   'claude-code': 'claude-color', codex: 'openai', gemini: 'gemini-color', opencode: 'opencode',
   hermes: 'hermesagent', openclaw: 'openclaw-color', 'trae-cn': 'trae', trae: 'trae', cursor: 'cursor',
-  codebuddy: 'codebuddy-color', workbuddy: 'workbuddy', 'global-skills': 'users',
+  codebuddy: 'codebuddy-color', workbuddy: 'workbuddy', teleagent: 'teleagent', 'global-skills': 'users',
 }[agent.agent_type] || 'bot')
-const agentLogo = (agent, large = false) => `<img class="agent-logo${large ? ' large' : ''}" src="./assets/icons/${agentLogoFile(agent)}.${agentLogoFile(agent) === 'workbuddy' ? 'png' : 'svg'}" alt="" aria-hidden="true" draggable="false" />`
+const agentLogo = (agent, large = false) => `<img class="agent-logo${large ? ' large' : ''}" src="./assets/icons/${agentLogoFile(agent)}.${['workbuddy', 'teleagent'].includes(agentLogoFile(agent)) ? 'png' : 'svg'}" alt="" aria-hidden="true" draggable="false" />`
 const agentScrollBehavior = () => matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
 const syncAgentScroll = () => {
   const strip = $('#agent-tabs')
@@ -3155,6 +3155,7 @@ function agentLabel(value) {
     'global-skills': t('ui.13u0v7i'),
     codebuddy: 'CodeBuddy',
     workbuddy: 'WorkBuddy',
+    teleagent: 'TeleAgent',
   }[value] || value
 }
 

@@ -1865,7 +1865,7 @@ Backend 仅接受可信代理网段提供的转发信息，避免把 Nginx 容�
 
 ## 13. 客户端 Skill 怎么统一接管
 
-当客户同时使用 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes 或其他支持 Skill 目录的 Agent 时，推荐安装 Agent Manager Client：
+当客户同时使用 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes、TeleAgent 或其他支持 Skill 目录的 Agent 时，推荐安装 Agent Manager Client。TeleAgent 的动态用户目录按 `.config/TeleAgent/users/*/skills` 展开，不依赖固定用户 ID：
 
 1. 在“智能体管理 -> 统一凭证中心”选择“给客户端使用”创建客户端接入凭证；需要自动配置 Agent 模型时，显式开启“允许客户端为本机 Agent 自动创建运行凭证”。
 2. 安装客户端并输入 Agent Manager 地址和凭证。

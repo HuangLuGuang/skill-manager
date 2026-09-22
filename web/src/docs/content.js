@@ -1592,8 +1592,8 @@ const zh = {
       "id": "discovery-config",
       "title": "在平台配置 Agent 发现目录",
       "paragraphs": [
-        "进入“客户端管理 → Agent 发现配置”，按 Agent 名称或标识搜索，配置启用状态、适用系统和 Skill 目录；每行一个目录。相对路径以客户端用户主目录为起点，例如 .qoderwork/skills。保存会提交全部配置，搜索只筛选显示。",
-        "内置目录包含 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes、TRAE、Cursor、CodeBuddy、WorkBuddy，以及 Qoder、Qoder CN、QoderWork、ZCode。Claude Desktop、Kimi Work、Doubao Work 的预置条目未启用且没有默认目录，应核对实际目录后配置。",
+        "进入“客户端管理 → Agent 发现配置”，按 Agent 名称或标识搜索，配置启用状态、适用系统和 Skill 目录；每行一个目录。相对路径以客户端用户主目录为起点，例如 .qoderwork/skills；动态用户目录可以使用单独的 * 路径段。保存会提交全部配置，搜索只筛选显示。",
+        "内置目录包含 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes、TRAE、Cursor、CodeBuddy、WorkBuddy、TeleAgent，以及 Qoder、Qoder CN、QoderWork、ZCode。TeleAgent 默认使用 .config/TeleAgent/users/*/skills，只展开已存在的用户 Skill 目录，不依赖固定用户 ID。Claude Desktop、Kimi Work、Doubao Work 的预置条目未启用且没有默认目录，应核对实际目录后配置。",
         "在线客户端通过配置同步任务获取更新并重新发现；离线时沿用已缓存配置。本机单独设置的目录优先。保存目录不会安装 Agent，也不会创建不存在的目录。",
         "目录未生效时，依次核对平台保存值、同步任务、本机覆盖设置、适用系统和目录是否存在；配置已收到不等于已发现 Agent。"
       ],
@@ -3225,8 +3225,8 @@ const en = {
       "id": "discovery-config",
       "title": "Configure Agent discovery from the console",
       "paragraphs": [
-        "Open Client Management → Agent Discovery. Search by Agent name or identifier and set enabled state, operating systems, and Skill roots, one root per line. Relative paths start at the client user home, for example .qoderwork/skills. Saving submits the complete configuration; search only filters the display.",
-        "Built-in definitions cover Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, Hermes, TRAE, Cursor, CodeBuddy, WorkBuddy, Qoder, Qoder CN, QoderWork, and ZCode. Claude Desktop, Kimi Work, and Doubao Work are initially disabled with empty roots; verify their actual directories before enabling them.",
+        "Open Client Management → Agent Discovery. Search by Agent name or identifier and set enabled state, operating systems, and Skill roots, one root per line. Relative paths start at the client user home, for example .qoderwork/skills; dynamic user directories may use a standalone * path segment. Saving submits the complete configuration; search only filters the display.",
+        "Built-in definitions cover Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, Hermes, TRAE, Cursor, CodeBuddy, WorkBuddy, TeleAgent, Qoder, Qoder CN, QoderWork, and ZCode. TeleAgent defaults to .config/TeleAgent/users/*/skills and expands only existing user Skill directories, so it does not depend on a fixed user ID. Claude Desktop, Kimi Work, and Doubao Work are initially disabled with empty roots; verify their actual directories before enabling them.",
         "Online clients receive configuration-sync tasks and rediscover. Offline clients keep cached configuration. Local root overrides take precedence. Saving a path neither installs an Agent nor creates a missing directory.",
         "If a root does not take effect, check the saved value, synchronization task, local overrides, operating system, and directory existence. Receiving configuration and discovering an Agent are separate outcomes."
       ],

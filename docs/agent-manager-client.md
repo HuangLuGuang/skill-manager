@@ -22,6 +22,7 @@ Agent Manager Client 用于统一发现、接管和巡检本机 Agent 的 Skill 
 - Cursor
 - CodeBuddy
 - WorkBuddy
+- TeleAgent
 - Qoder、Qoder CN、QoderWork、ZCode
 
 客户端还识别可由 OpenCode、Cursor 等读取的共用 `.agents/skills` 目录，并在界面中单独标明共享边界。以上 Agent 和目录支持 Skill 发现、接管、安装和巡检。其他工具可在桌面端点击“添加 Agent”，填写名称并选择或输入 Skill 根目录；自定义 Agent 会复用同一套治理流程。
@@ -29,11 +30,11 @@ Agent Manager Client 用于统一发现、接管和巡检本机 Agent 的 Skill 
 ## 平台发现配置与桌面入口
 
 平台“客户端管理 → Agent 发现配置”可按名称或标识搜索 Agent，设置启用状态、适用系统和
-一个或多个 Skill 根目录。相对路径从客户端用户主目录解析，每行一个目录。本机单独设置
+一个或多个 Skill 根目录。相对路径从客户端用户主目录解析，每行一个目录；动态用户目录可使用单独的 `*` 路径段。本机单独设置
 的目录优先；没有配置缓存时使用客户端内置定义。目录不存在时不会因保存配置而自动创建。
 
 Qoder、Qoder CN、QoderWork、ZCode 的预置目录分别为 `.qoder/skills`、`.qoder-cn/skills`、
-`.qoderwork/skills`、`.zcode/skills`。Claude Desktop、Kimi Work、Doubao Work 的预置条目
+`.qoderwork/skills`、`.zcode/skills`。TeleAgent 使用 `.config/TeleAgent/users/*/skills`，客户端会把动态用户目录展开为实际 Skill 根目录，不依赖固定用户 ID。Claude Desktop、Kimi Work、Doubao Work 的预置条目
 默认关闭且没有目录，确认实际路径后再配置启用。
 
 保存发现配置会创建同步任务，在线客户端通过长轮询接收任务、读取最新配置并重新发现。
@@ -41,15 +42,18 @@ Qoder、Qoder CN、QoderWork、ZCode 的预置目录分别为 `.qoder/skills`、
 平台心跳判断目录是否生效。
 
 客户端以目录状态判断可管理 Agent：任一配置的 Skill 根目录存在时扫描其中的 Skill；
-Skill 根目录尚不存在、但其直接父目录存在时，仍显示并计入该 Agent，Skill 数量为 0，
+固定 Skill 根目录尚不存在、但其直接父目录存在时，仍显示并计入该 Agent，Skill 数量为 0，
 同时保留预期的 Skill 根目录供后续安装创建。可执行文件或应用路径只作为补充信息，不参与
-Agent 可见性判断。客户端概览与 Agent 管理使用同一发现结果；共用 Skills 目录单独显示，
+Agent 可见性判断。动态目录模式只使用已经存在的匹配目录，不会创建包含 `*` 的目录；没有用户 profile 时，已安装的 TeleAgent 仍可见，但不能作为 Skill 安装目标。客户端概览与 Agent 管理使用同一发现结果；共用 Skills 目录单独显示，
 不计入 Agent 数量。
 
 **English:** The client derives manageable Agent visibility from configured directory state. If a
 configured Skills root exists, the client scans it. If the Skills root is absent but its direct parent
 directory exists, the Agent is still shown and counted with zero Skills, while the expected Skills path
 is retained for a later installation. Executable and application paths are supplemental signals only.
+Dynamic root patterns expand existing directories only and never create a literal `*` directory. TeleAgent
+therefore uses `.config/TeleAgent/users/*/skills` without depending on a fixed user ID; an installed app
+without a user profile remains visible but is not offered as a managed-Skill installation target.
 Client Overview and Agent Management use the same discovery result; shared Skills directories remain
 visible but are excluded from the Agent count.
 

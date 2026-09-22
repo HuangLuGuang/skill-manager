@@ -794,6 +794,7 @@ const agentLabel = (value, record = null) => record?.capabilities?.display_name 
   'global-skills': phrase('legacy.13u0v7i'),
   codebuddy: 'CodeBuddy',
   workbuddy: 'WorkBuddy',
+  teleagent: 'TeleAgent',
 }[value] || value)
 const policyDescription = mode => ({
   audit: phrase('legacy.mubbv4'),

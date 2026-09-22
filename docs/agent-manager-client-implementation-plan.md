@@ -2,7 +2,7 @@
 
 > 2026-07-17 补充完成：客户端安全治理与 Agent 强授权双模式、Skill 选择性接管、未知 Skill 自动处置、隔离区索引与单项恢复、离线策略缓存、审计事件补报、任务取消/重试、后台服务真实状态及 Windows 用户级服务均已实现。平台与桌面端已同步展示治理方式、当前问题和中文处置原因。
 
-本文档用于确认和跟踪 Agent Manager Client（Agent Manager 客户端）的实施范围。客户端内置支持 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw 和 Hermes，也允许用户登记具有 Skill 目录的自定义 Agent，统一管理可用 Skill 的发现、接管、安装、更新、完整性校验和异常处置。
+本文档用于确认和跟踪 Agent Manager Client（Agent Manager 客户端）的实施范围。客户端内置支持 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes 和 TeleAgent，也允许用户登记具有 Skill 目录的自定义 Agent，统一管理可用 Skill 的发现、接管、安装、更新、完整性校验和异常处置。TeleAgent 的用户标识不是固定值，客户端通过 `.config/TeleAgent/users/*/skills` 展开实际存在的用户 Skill 目录。
 
 实施原则：客户操作保持“安装、连接、接管”三步；内部适配不同 Agent 的目录差异，不要求客户手工配置 Hook、MCP 或 Skill 路径。
 
@@ -18,7 +18,7 @@
 
 ### 1.2 首版目标
 
-- 自动发现本机 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes。
+- 自动发现本机 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes、TeleAgent。
 - 支持登记自定义 Agent 名称及 Skill 根目录，不要求为每种工具开发专用适配器。
 - 扫描现有 Skill，生成接管预览，不直接删除客户文件。
 - 将受治理 Skill 统一保存到 Agent Manager 安全仓库。
@@ -159,6 +159,7 @@ Agent 原生目录继续使用，降低兼容风险：
 | OpenCode | `~/.config/opencode/skills` | 完整接管、安装、卸载和巡检 |
 | OpenClaw | `~/.openclaw/skills` | 完整接管、安装、卸载和巡检 |
 | Hermes | `~/.hermes/skills` | 完整接管、安装、卸载和巡检 |
+| TeleAgent | `~/.config/TeleAgent/users/*/skills` | 展开动态用户目录后发现、接管、安装、卸载和巡检 |
 | 自定义 Agent | 用户选择或输入 | 完整接管、安装、卸载和巡检 |
 
 内置适配器负责识别常见工具的默认目录；其他 Agent 只要具有明确的 Skill 根目录，即可通过自定义 Agent 接入。OpenClaw 的完整 Skill 管理由 Agent Manager 自有适配器实现，不依赖 CC Switch 是否在当前版本开放对应界面。
@@ -171,7 +172,7 @@ Agent 原生目录继续使用，降低兼容风险：
 
 ### 6.1 发现
 
-- 检查六类内置工具的安装状态和版本，并加载用户登记的自定义 Agent。
+- 检查内置工具的安装状态和版本，并加载用户登记的自定义 Agent。
 - 仅对声明 `skill_management=true` 的适配器检查已知用户级 Skill 目录。
 - 枚举包含 `SKILL.md` 的直接子目录。
 - 记录 Agent 类型、Skill 路径和目录来源。

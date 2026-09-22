@@ -13,6 +13,7 @@ from . import models
 from .api_errors import ApiError
 
 KEY = 'client_agent_discovery'
+REQUIRED_BUILTIN_TYPES = {'teleagent'}
 SEEDS = [
     ('global-skills', 'Shared Skills', '.agents/skills'),
     ('claude-code', 'Claude Code', '.claude/skills'), ('codex', 'Codex', '.codex/skills'),
@@ -21,6 +22,7 @@ SEEDS = [
     ('trae-cn', 'TRAE CN', '.trae-cn/skills'), ('trae', 'TRAE', '.trae/skills'),
     ('cursor', 'Cursor', '.cursor/skills'), ('codebuddy', 'CodeBuddy', '.codebuddy/skills'),
     ('workbuddy', 'WorkBuddy', '.workbuddy/skills'),
+    ('teleagent', 'TeleAgent', '.config/TeleAgent/users/*/skills'),
     ('qoder', 'Qoder', '.qoder/skills'), ('qoder-cn', 'Qoder CN', '.qoder-cn/skills'),
     ('qoderwork', 'QoderWork', '.qoderwork/skills'), ('zcode', 'ZCode', '.zcode/skills'),
     ('claude-desktop', 'Claude Desktop', ''), ('kimi-work', 'Kimi Work', ''), ('doubao-work', 'Doubao Work', ''),
@@ -42,7 +44,14 @@ class AgentDefinition(BaseModel):
         self.skill_roots = list(dict.fromkeys(root.strip() for root in self.skill_roots))
         for root in self.skill_roots:
             value = root.replace('\\', '/')
-            if not value.strip() or len(value) > 512 or '..' in PurePosixPath(value).parts or any(c in value for c in ['\0', '\n', '\r', '*', '?']):
+            parts = PurePosixPath(value).parts
+            wildcard_parts = [part for part in parts if any(char in part for char in '*?[]')]
+            invalid = (
+                not value.strip() or len(value) > 512 or '..' in parts
+                or any(c in value for c in ['\0', '\n', '\r', '?', '[', ']'])
+                or any(part != '*' for part in wildcard_parts)
+            )
+            if invalid:
                 raise ValueError('Invalid Skill directory')
         return self
 
@@ -69,6 +78,11 @@ def defaults():
 def view(db: Session):
     row = db.get(models.SystemConfig, KEY)
     agents = json.loads(row.value) if row else defaults()
+    existing_types = {agent.get('agent_type') for agent in agents}
+    agents.extend(
+        agent for agent in defaults()
+        if agent['agent_type'] in REQUIRED_BUILTIN_TYPES and agent['agent_type'] not in existing_types
+    )
     version = hashlib.sha256(json.dumps(agents, sort_keys=True).encode()).hexdigest()
     return {'version': version, 'agents': agents}
 

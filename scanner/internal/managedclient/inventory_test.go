@@ -46,6 +46,7 @@ func TestDiscoverFindsSupportedAgentsAndSkills(t *testing.T) {
 		"global-skills": ".agents/skills",
 		"codebuddy":     ".codebuddy/skills",
 		"workbuddy":     ".workbuddy/skills",
+		"teleagent":     ".config/TeleAgent/users/v1_public_test/skills",
 	}
 	for agentType, root := range roots {
 		writeSkill(t, filepath.Join(home, filepath.FromSlash(root), agentType+"-skill"), agentType+"-skill")
@@ -65,8 +66,8 @@ func TestDiscoverFindsSupportedAgentsAndSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inventory.Agents) != 13 {
-		t.Fatalf("expected 13 agents, got %#v", inventory.Agents)
+	if len(inventory.Agents) != 14 {
+		t.Fatalf("expected 14 agents, got %#v", inventory.Agents)
 	}
 	if inventory.Agents[0].AgentType != "global-skills" {
 		t.Fatalf("global Skills must be listed first: %#v", inventory.Agents)
@@ -111,6 +112,49 @@ func TestDiscoverFindsSupportedAgentsAndSkills(t *testing.T) {
 	}
 	if inventory.ClientID != DeviceID(inventory.Hostname, home) {
 		t.Fatal("device ID is not stable")
+	}
+}
+
+func TestDiscoverTeleAgentExpandsDynamicUserSkillRoots(t *testing.T) {
+	home := t.TempDir()
+	firstRoot := filepath.Join(home, ".config", "TeleAgent", "users", "v1_public_100", "skills")
+	secondRoot := filepath.Join(home, ".config", "TeleAgent", "users", "v1_public_200", "skills")
+	writeSkill(t, filepath.Join(firstRoot, "stock-analysis"), "stock-analysis")
+	writeSkill(t, filepath.Join(secondRoot, "document-review"), "document-review")
+
+	inventory, err := Discover(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, ok := findAgent(inventory, "teleagent")
+	if !ok {
+		t.Fatal("TeleAgent was not discovered from its dynamic user directories")
+	}
+	if len(agent.Skills) != 2 || agent.SkillsPath != firstRoot {
+		t.Fatalf("unexpected TeleAgent discovery: %#v", agent)
+	}
+	roots := agentSkillRoots(agent)
+	if len(roots) != 2 || roots[0] != firstRoot || roots[1] != secondRoot {
+		t.Fatalf("dynamic TeleAgent roots were not expanded deterministically: %#v", roots)
+	}
+}
+
+func TestDiscoverInstalledTeleAgentWithoutUserProfileDoesNotExposeWildcardInstallPath(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "Applications", "TeleAgent.app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	inventory, err := Discover(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, ok := findAgent(inventory, "teleagent")
+	if !ok || agent.InstallPath == "" {
+		t.Fatalf("installed TeleAgent was not discovered: %#v", inventory.Agents)
+	}
+	if agent.SkillsPath != "" {
+		t.Fatalf("wildcard must not be exposed as an installable directory: %#v", agent)
 	}
 }
 

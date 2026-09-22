@@ -2273,16 +2273,19 @@ def test_discovery_catalog_save_validation_and_client_sync(tmp_path):
     seeds = {a['agent_type']: a for a in catalog['agents']}
     assert seeds['qoder']['skill_roots'] == ['.qoder/skills']
     assert seeds['qoder-cn']['skill_roots'] == ['.qoder-cn/skills']
+    assert seeds['teleagent']['skill_roots'] == ['.config/TeleAgent/users/*/skills']
     assert not seeds['claude-desktop']['enabled']
-    agent = dict(agent_type='company', name='Company', enabled=True, systems=['linux'], skill_roots=['~/company/skills'])
+    agent = dict(agent_type='company', name='Company', enabled=True, systems=['linux'], skill_roots=['~/company/users/*/skills'])
     body = {'expected_version': catalog['version'], 'agents': [agent]}
     saved = client.put(url, json=body)
     assert saved.status_code == 200, saved.text
-    assert saved.json()['agents'] == [agent]
+    saved_by_type = {item['agent_type']: item for item in saved.json()['agents']}
+    assert saved_by_type['company'] == agent
+    assert saved_by_type['teleagent']['skill_roots'] == ['.config/TeleAgent/users/*/skills']
     assert client.get(url).json() == saved.json()
     assert client.put(url, json=body).status_code == 409
     current = saved.json()['version']
-    for invalid in [dict(agent, skill_roots=[]), dict(agent, skill_roots=['../skills']), dict(agent, systems=[]), dict(agent, agent_type='../../bad')]:
+    for invalid in [dict(agent, skill_roots=[]), dict(agent, skill_roots=['../skills']), dict(agent, skill_roots=['~/company/user*/skills']), dict(agent, systems=[]), dict(agent, agent_type='../../bad')]:
         assert client.put(url, json={'expected_version': current, 'agents': [invalid]}).status_code == 422
     assert client.put(url, json={'expected_version': current, 'agents': [agent, agent]}).status_code == 422
     token = client.post('/api/v1/access/tokens', json={'name': 'discovery', 'token_type': 'client'}).json()['token']
@@ -2297,14 +2300,14 @@ def test_discovery_catalog_save_validation_and_client_sync(tmp_path):
     assert heartbeat.json()['policy']['agent_discovery'] == saved.json()
     empty = client.put(url, json={'expected_version': current, 'agents': []})
     assert empty.status_code == 200, empty.text
-    assert empty.json()['agents'] == []
+    assert [item['agent_type'] for item in empty.json()['agents']] == ['teleagent']
     tasks = client.get('/api/v1/clients/discovery-host/tasks', headers=headers).json()
     discovery_tasks = [task for task in tasks if task['payload'].get('agent_discovery_version')]
     assert len(discovery_tasks) == 1
     assert discovery_tasks[0]['task_type'] == 'sync_policy'
     assert discovery_tasks[0]['payload']['agent_discovery_version'] == empty.json()['version']
     assert client.get('/api/v1/clients/discovery-host/policy', headers=headers).json()['agent_discovery'] == empty.json()
-    unchanged = client.put(url, json={'expected_version': empty.json()['version'], 'agents': []})
+    unchanged = client.put(url, json={'expected_version': empty.json()['version'], 'agents': empty.json()['agents']})
     assert unchanged.status_code == 200
     assert client.get('/api/v1/clients/discovery-host/tasks', headers=headers).json() == tasks
 

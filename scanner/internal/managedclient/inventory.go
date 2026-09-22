@@ -17,7 +17,7 @@ import (
 
 var Version = "dev"
 
-const InventoryCacheVersion = "7"
+const InventoryCacheVersion = "8"
 
 type Skill struct {
 	Governance    *SkillObservation `json:"governance,omitempty"`
@@ -106,6 +106,7 @@ func adapters() []adapter {
 		{agentType: "cursor", appPaths: []string{"/Applications/Cursor.app", "Applications/Cursor.app"}, binaries: []string{"cursor"}, skillRoots: []string{".cursor/skills"}, supportsSkill: true},
 		{agentType: "codebuddy", appPaths: []string{"/Applications/CodeBuddy.app", "Applications/CodeBuddy.app"}, binaries: []string{"codebuddy"}, skillRoots: []string{".codebuddy/skills"}, supportsSkill: true},
 		{agentType: "workbuddy", appPaths: []string{"/Applications/WorkBuddy.app", "Applications/WorkBuddy.app"}, binaries: []string{"workbuddy"}, skillRoots: []string{".workbuddy/skills"}, supportsSkill: true},
+		{agentType: "teleagent", displayName: "TeleAgent", appPaths: []string{"/Applications/TeleAgent.app", "Applications/TeleAgent.app"}, skillRoots: []string{".config/TeleAgent/users/*/skills"}, supportsSkill: true},
 	}
 }
 
@@ -287,7 +288,7 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 			break
 		}
 	}
-	for _, configuredRoot := range resolvedSkillRoots(home, spec.skillRoots) {
+	for _, configuredRoot := range expandedSkillRoots(home, spec.skillRoots) {
 		root := resolveSkillRoot(home, configuredRoot)
 		parent := filepath.Dir(root)
 		if info, err := os.Stat(parent); err == nil && info.IsDir() {
@@ -312,7 +313,7 @@ func discoverAgent(home string, spec adapter, opts manifest.Options) (Agent, boo
 	}
 	if len(roots) == 0 && len(spec.skillRoots) > 0 {
 		agent.SkillsPath = relatedRoot
-		if agent.SkillsPath == "" {
+		if agent.SkillsPath == "" && !strings.ContainsAny(spec.skillRoots[0], "*?[") {
 			agent.SkillsPath = resolveSkillRoot(home, spec.skillRoots[0])
 		}
 		agent.Capabilities["skills_directory_exists"] = false
@@ -414,6 +415,19 @@ func resolvedSkillRoots(home string, roots []string) []string {
 		result = append(result, root)
 	}
 	return result
+}
+
+func expandedSkillRoots(home string, roots []string) []string {
+	result := []string{}
+	for _, pattern := range resolvedSkillRoots(home, roots) {
+		if !strings.ContainsAny(pattern, "*?[") {
+			result = append(result, pattern)
+			continue
+		}
+		matches, _ := filepath.Glob(pattern)
+		result = append(result, matches...)
+	}
+	return resolvedSkillRoots(home, result)
 }
 
 func resolveSkillRoot(home, value string) string {

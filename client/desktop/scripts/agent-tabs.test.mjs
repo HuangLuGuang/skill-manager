@@ -5,7 +5,7 @@ import vm from 'node:vm'
 
 const source = fs.readFileSync(new URL('../src/app.js', import.meta.url), 'utf8')
 const context = vm.createContext({})
-for (const name of ['isCustomAgent', 'isSharedSkills', 'installedAgent']) {
+for (const name of ['isCustomAgent', 'isSharedSkills', 'visibleAgent']) {
   vm.runInContext(source.split('\n').find(line => line.startsWith(`const ${name} =`)), context)
 }
 const certification = source.slice(source.indexOf('const skillCertification ='), source.indexOf('const filteredAgentSkills ='))
@@ -15,15 +15,15 @@ const evaluate = (expression, value) => {
   return vm.runInContext(expression, context)
 }
 
-test('leftover Skill directories do not create installed Agent tabs', () => {
-  assert.equal(evaluate('installedAgent(value)', { agent_type: 'claude-code', skills_path: '/home/user/.claude/skills', skills: [{ name: 'retained' }] }), false)
+test('directory-based Agents remain reachable without an executable path', () => {
+  assert.equal(evaluate('visibleAgent(value)', { agent_type: 'claude-code', skills_path: '/home/user/.claude/skills', skills: [{ name: 'retained' }] }), true)
 })
 test('installed empty Agents, custom Agents and shared Skills remain reachable', () => {
   for (const agent of [
     { agent_type: 'claude-code', install_path: '/home/user/.local/bin/claude', skills: [] },
     { agent_type: 'custom-local', capabilities: { custom: true }, skills: [] },
     { agent_type: 'global-skills', skills: [] },
-  ]) assert.equal(evaluate('installedAgent(value)', agent), true)
+  ]) assert.equal(evaluate('visibleAgent(value)', agent), true)
 })
 test('certification filters apply only to the exact observed content', () => {
   assert.equal(evaluate('skillCertification(value)', { signature: 'new', governance: { signature: 'old', certification: 'certified' } }), 'confirmation_pending')
@@ -88,10 +88,10 @@ test('dragging scrolls without accidentally switching the Agent; ordinary clicks
 test('every built-in Agent logo is packaged locally, including shared and custom Agents', () => {
   const sandbox = vm.createContext({})
   vm.runInContext(source.slice(source.indexOf('const agentLogoFile ='), source.indexOf('const agentLogo =')), sandbox)
-  for (const type of ['claude-code', 'codex', 'gemini', 'opencode', 'hermes', 'openclaw', 'trae-cn', 'trae', 'cursor', 'codebuddy', 'workbuddy', 'global-skills', 'custom-local']) {
+  for (const type of ['claude-code', 'codex', 'gemini', 'opencode', 'hermes', 'openclaw', 'trae-cn', 'trae', 'cursor', 'codebuddy', 'workbuddy', 'teleagent', 'global-skills', 'custom-local']) {
     sandbox.agent = { agent_type: type }
     const file = vm.runInContext('agentLogoFile(agent)', sandbox)
-    assert.ok(fs.existsSync(new URL(`../src/assets/icons/${file}.${file === 'workbuddy' ? 'png' : 'svg'}`, import.meta.url)), `Missing logo for ${type}`)
+    assert.ok(fs.existsSync(new URL(`../src/assets/icons/${file}.${['workbuddy', 'teleagent'].includes(file) ? 'png' : 'svg'}`, import.meta.url)), `Missing logo for ${type}`)
   }
 })
 
