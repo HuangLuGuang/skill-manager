@@ -801,7 +801,7 @@ const policyDescription = mode => ({
   repair: phrase('legacy.1rf6q23'),
   block: phrase('legacy.souye8'),
 }[mode])
-const governanceDescription = mode => t(`clientGovernance.governanceModeDescription.${mode}`)
+const governanceDescription = mode => i18n.global.t(`clientGovernance.governanceModeDescription.${mode}`)
 const governanceShortLabel = mode => ({ registry: phrase('legacy.2kc7ip'), strict: phrase('legacy.y5lawk') }[mode] || phrase('legacy.2kc7ip'))
 const eventLabel = value => ['skill_governance_recorded', 'skill_governance_detected', 'skill_governance_action', 'skill_scan_submitted'].includes(value)
   ? i18n.global.t(`clientGovernance.${value}`)

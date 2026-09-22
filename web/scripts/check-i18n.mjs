@@ -133,6 +133,8 @@ assert.equal(
 const i18nRuntime = fs.readFileSync(new URL('../src/i18n/index.js', import.meta.url), 'utf8')
 assert.ok(!i18nRuntime.includes('MutationObserver'))
 assert.ok(!i18nRuntime.includes('createTreeWalker'))
+const clientsView = fs.readFileSync(new URL('../src/views/Clients.vue', import.meta.url), 'utf8')
+assert.match(clientsView, /const governanceDescription = mode => i18n\.global\.t\(`/)
 
 for (const [source, english] of Object.entries(enPhrases)) {
   if (chinesePattern.test(english)) failures.push(`English translation contains Chinese: ${source} -> ${english}`)
