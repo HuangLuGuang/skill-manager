@@ -33,7 +33,9 @@ docker compose ps
 镜像已构建或加载后，复制 `.env.example` 即可直接启动全部基础服务，包括扫描 Worker 和
 AI-Infra-Guard 内部服务，无需额外 profile。Apple Silicon 构建时使用
 `./build.sh --all --platform linux/arm64`。示例和 Compose 缺省值使用公开的本地开发占位密钥，
-并关闭生产安全启动校验；首次创建管理员时，随机密码保存在持久化数据卷中，可执行以下命令读取：
+并关闭生产安全启动校验。如果数据库中还没有管理员账号，且 `.env` 中的
+`INITIAL_ADMIN_PASSWORD` 留空，首次启动会生成随机密码并保存在持久化数据卷中。
+在项目根目录执行以下命令读取：
 
 ```bash
 docker compose exec backend cat /app/runtime/data/initial-admin-password
@@ -50,11 +52,12 @@ http://localhost
 生产环境必须创建 `.env`，为 `SECRET_KEY`、`AGENT_MANAGER_SANDBOX_API_KEY`、
 `AGENT_SECURITY_WORKER_TOKEN` 和 `AIG_SCAN_SERVICE_TOKEN` 分别设置独立随机凭据，
 并设置 `ENFORCE_SECURE_STARTUP=true`。`AIG_SERVICE_TOKEN` 默认引用 `AIG_SCAN_SERVICE_TOKEN`。
-空的 `INITIAL_ADMIN_PASSWORD` 会生成随机初始密码，也可以设置自己的强密码：
+首次创建管理员账号前，必须在 `.env` 中设置至少 12 个字符的
+`INITIAL_ADMIN_PASSWORD`；生产安全模式不会自动生成随机初始密码：
 
 ```bash
 cp .env.example .env
-# 编辑 .env，设置独立随机凭据和 ENFORCE_SECURE_STARTUP=true
+# 编辑 .env，设置独立随机凭据、ENFORCE_SECURE_STARTUP=true 和 INITIAL_ADMIN_PASSWORD
 ./build.sh --all
 docker compose run --rm --no-deps backend agent-manager signing-key init
 docker compose up -d
@@ -64,6 +67,30 @@ docker compose ps
 生产模式不会接受本地占位密钥，也不会恢复公开固定管理员密码。签名私钥必须在启动
 服务前通过上述显式命令预置；生产副本不会在启动或公钥查询时各自生成身份。多副本
 部署必须挂载同一份只读私钥或由统一密钥管理系统下发。
+
+### 管理员初始密码与升级
+
+默认管理员用户名是 `admin`，可在首次创建账号前通过 `INITIAL_ADMIN_USERNAME` 修改。
+`INITIAL_ADMIN_PASSWORD` 是首次创建该用户名对应账号时使用的初始密码，不是每次启动时
+重新设置密码的配置项。首次部署时，在 `.env` 中填写自己的密码，例如：
+
+```dotenv
+ENFORCE_SECURE_STARTUP=true
+INITIAL_ADMIN_PASSWORD=replace-with-your-strong-password
+```
+
+生产安全模式下，密码至少需要 12 个字符；留空会使首次创建管理员账号的 Backend 启动
+失败。仅在未启用安全启动校验、数据库中尚无该账号且变量留空时，系统才会生成随机密码。
+随机密码文件位于 Backend 持久化数据卷；可用上文的 `docker compose exec backend cat ...`
+命令查看当时生成的初始值。后续改密不会更新该文件；文件存在或不存在都不能单独证明
+当前登录密码。
+
+升级时应保留原数据库和数据卷。只要数据库中已存在该用户名的账号，启动时就不会读取
+`INITIAL_ADMIN_PASSWORD` 来修改密码：原密码继续有效，后来在 `.env` 中填写新值并重建
+Backend 容器也不会重置密码。若换了数据库、删除了数据卷，或修改了
+`INITIAL_ADMIN_USERNAME` 使系统找不到该账号，启动时会按首次创建账号处理。登录后修改
+自己的密码，请使用右上角账号菜单的“修改密码”，输入当前密码和新密码；有账号管理权限的
+管理员也可以在“系统管理 → 账号管理”中重置其他账号的密码。
 
 升级前执行以下只读检查，确认不存在已批准或已部署但未声明工具权限的 Skill：
 
@@ -413,9 +440,7 @@ docker compose down -v
 
 ## 默认账号
 
-```text
-用户名：默认 admin
-密码：部署前在 `.env` 中设置的 `INITIAL_ADMIN_PASSWORD`
-```
+默认用户名为 `admin`。初始密码的设置、随机密码查看以及升级后的行为见
+[管理员初始密码与升级](#管理员初始密码与升级)。
 
 Buildx 镜像构建最多尝试 3 次，失败后等待 5、10 秒，并复用构建缓存。这也覆盖 Dockerfile 构建器镜像和构建阶段内部解析基础镜像时的临时网络失败；持续失败仍会终止发布。

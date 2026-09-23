@@ -1375,7 +1375,7 @@ npm run dev
 默认登录：
 
 - 用户名：默认 `admin`，可通过 `INITIAL_ADMIN_USERNAME` 修改
-- 密码：首次部署必须通过 `INITIAL_ADMIN_PASSWORD` 设置；系统不提供固定默认密码
+- 密码：首次创建账号时使用 `INITIAL_ADMIN_PASSWORD`；生产安全模式要求至少 12 个字符。非安全模式下，数据库尚无该账号且变量留空时会生成随机密码；已有账号不会因后来修改该变量而改密。Docker 部署和升级步骤见[管理员初始密码与升级](docker-deployment.md#管理员初始密码与升级)
 
 ### 11.2 本地使用 docker sandbox
 
