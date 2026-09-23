@@ -801,7 +801,7 @@ func (store *Store) EnrichInventory(inventory *Inventory) error {
 					observation.ActionStatus = "pending"
 				} else if observation.PendingID == strings.TrimPrefix(observationKey(skill.Path+":"+skill.Signature), "observation:") {
 					pending, exists := pendingByID[observation.PendingID]
-					if exists && pending.Reason == "observed_scan" && pending.OriginalPath == skill.Path {
+					if exists && pending.Reason == "observed_scan" && pending.OriginalPath == skill.Path && pending.AgentType == inventory.Agents[agentIndex].AgentType {
 						observation.Scan = &SkillScanObservation{Status: pending.Status, SkillID: pending.SkillID, VersionID: pending.VersionID, Progress: pending.Progress}
 					} else if !exists {
 						observation.PendingID = ""

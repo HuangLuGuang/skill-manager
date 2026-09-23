@@ -288,9 +288,13 @@ func TestManualScanKeepsSourceAndReusesExactSnapshot(t *testing.T) {
 			api := NewAPI(server.URL, "submit-token", time.Second)
 			var first string
 			for attempt := 0; attempt < 2; attempt++ {
-				id, err := SubmitDiscoveredSkill(context.Background(), home, api, store, "codex", skill.Path, skill.Signature)
+				result, err := SubmitDiscoveredSkillWithResult(context.Background(), home, api, store, "codex", skill.Path, skill.Signature)
 				if err != nil {
 					t.Fatal(err)
+				}
+				id := result.PendingID
+				if result.AlreadySubmitted != (attempt > 0) {
+					t.Fatalf("incorrect submission reuse flag: %+v", result)
 				}
 				if attempt == 0 {
 					first = id

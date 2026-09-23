@@ -73,6 +73,7 @@ type SubmitOptions struct {
 }
 
 type SubmitResult struct {
+	AlreadySubmitted      bool              `json:"already_submitted,omitempty"`
 	ScanProgressStage     string            `json:"scan_progress_stage,omitempty"`
 	ScanProgressAnalyzers map[string]string `json:"scan_progress_analyzers,omitempty"`
 	SkillID               string            `json:"skill_id,omitempty"`

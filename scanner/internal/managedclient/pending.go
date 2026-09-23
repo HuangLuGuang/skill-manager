@@ -35,13 +35,14 @@ func SubmitPending(ctx context.Context, home, server, token string, store *Store
 	}
 	if item.SkillID != "" {
 		return scannerclient.SubmitResult{
-			SkillID:       item.SkillID,
-			VersionID:     item.VersionID,
-			VersionNo:     item.VersionNo,
-			SourceVersion: item.SourceVersion,
-			Name:          item.SkillName,
-			Status:        item.Status,
-			Message:       "相同内容的 Skill 已提交平台检测",
+			AlreadySubmitted: true,
+			SkillID:          item.SkillID,
+			VersionID:        item.VersionID,
+			VersionNo:        item.VersionNo,
+			SourceVersion:    item.SourceVersion,
+			Name:             item.SkillName,
+			Status:           item.Status,
+			Message:          "相同内容的 Skill 已提交平台检测",
 		}, nil
 	}
 	skillRoot, err := filepath.EvalSymlinks(item.PendingPath)

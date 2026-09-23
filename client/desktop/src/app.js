@@ -1747,11 +1747,23 @@ const scanProgressText = item => {
   return parts.join(' · ')
 }
 
-const renderSkillObservation = (skill, expanded = false) => {
+const observedSkillScan = (agent, skill) => {
+  const observation = skill?.governance
+  if (!skill?.signature || observation?.signature !== skill.signature || !observation.pending_id) return null
+  const pending = pendingItems.find(item => item.id === observation.pending_id)
+  if (pending) return pending.agent_type === agent.agent_type && pending.original_path === skill.path && pending.reason === 'observed_scan' ? pending : null
+  return observation.scan || null
+}
+const observedScanActive = scan => ['pending', 'submitted', 'PENDING', 'VETTED'].includes(scan?.status)
+const observedScanLabel = scan => scan?.status === 'PENDING' || scan?.status === 'submitted'
+  ? t('ui.agentManagement.scan_in_progress')
+  : scan?.status === 'pending' ? t('ui.agentManagement.scan_queued') : pendingStatusLabel(scan?.status)
+
+const renderSkillObservation = (skill, expanded = false, agent = selectedAgent()) => {
   const observation = skill.governance?.signature === skill.signature ? skill.governance : null
   const certification = skill.status === 'broken_link' ? 'missing_files' : skill.status === 'unscannable' ? 'unscannable' : observation?.certification || 'confirmation_pending'
   const actionTask = (connection?.platform?.tasks || []).find(task => task.task_type === 'skill_action' && task.payload?.path === skill.path && ['pending', 'running'].includes(task.status))
-  const pending = observation?.pending_id ? pendingItems.find(item => item.id === observation.pending_id) : null
+  const pending = observedSkillScan(agent, skill)
   const policy = connection?.local?.classification || connection?.platform?.classification
   const trigger = observation?.trigger
   const source = policy?.sources?.[trigger]
@@ -1759,7 +1771,7 @@ const renderSkillObservation = (skill, expanded = false) => {
     actionTask ? `${governanceLabelFor('action', actionTask.payload?.action)} · ${taskStatusLabel(actionTask.status)} · ${t('ui.agentManagement.task_id')} ${actionTask.id}` : '',
     governanceLabelFor('certification', certification),
     observation?.malicious ? t('ui.agentManagement.trigger.malicious') : '',
-    pending?.status === 'VETTED' && pendingVersionLabel(pending) ? `${pendingStatusLabel(pending.status)} · ${pendingVersionLabel(pending)}` : '',
+    pending ? [observedScanLabel(pending), pendingVersionLabel(pending)].filter(Boolean).join(' · ') : '',
   ].filter(Boolean)
   const details = [
     trigger ? governanceLabelFor('trigger', trigger) : '',
@@ -2043,16 +2055,18 @@ const renderInventory = () => {
           ${agent.skill_management_supported ? `<div class="skill-inventory">${pageSkills.length ? pageSkills.map(skill => {
             const detailKey = skillDetailKey(agent, skill)
             const expanded = expandedSkillDetails.has(detailKey)
+            const scan = observedSkillScan(agent, skill)
+            const scanning = observedScanActive(scan)
             return tf`
             <div class="skill-row">
               <div class="skill-row-main">
                 <span>
                   <button class="skill-name-button" type="button" data-ui-icon="file-text" data-toggle-skill-details data-skill-detail-key="${escapeHtml(detailKey)}" aria-expanded="${expanded}"><strong>${escapeHtml(skill.name)}</strong>${renderSkillSharing(agent, skill)}</button>
-                  ${renderSkillObservation(skill, expanded)}
+                  ${renderSkillObservation(skill, expanded, agent)}
                 </span>
               </div>
               <div class="skill-row-actions">
-                ${skill.status === 'broken_link' ? `<button class="skill-scan-button" data-ui-icon="download" type="button" data-reinstall-missing="${escapeHtml(agent.agent_type)}" data-skill-name="${escapeHtml(skill.name)}" data-skill-id="${escapeHtml(skill.skill_id || '')}" ${!connection?.connected ? 'disabled' : ''}>${escapeHtml(t('ui.agentManagement.reinstall_missing'))}</button>` : `                <button class="skill-scan-button" data-ui-icon="shield-check" type="button" data-submit-observed="${escapeHtml(skill.path)}" data-agent-type="${escapeHtml(agent.agent_type)}" data-signature="${escapeHtml(skill.signature || '')}" ${skill.error || !skill.signature || !connection?.connected || submittingObservedPaths.has(skill.path) ? 'disabled' : ''}>${escapeHtml(t(submittingObservedPaths.has(skill.path) ? 'ui.agentManagement.submitting' : 'ui.agentManagement.action.submit_scan'))}</button>
+                ${skill.status === 'broken_link' ? `<button class="skill-scan-button" data-ui-icon="download" type="button" data-reinstall-missing="${escapeHtml(agent.agent_type)}" data-skill-name="${escapeHtml(skill.name)}" data-skill-id="${escapeHtml(skill.skill_id || '')}" ${!connection?.connected ? 'disabled' : ''}>${escapeHtml(t('ui.agentManagement.reinstall_missing'))}</button>` : `                <button class="skill-scan-button" data-ui-icon="shield-check" type="button" data-submit-observed="${escapeHtml(skill.path)}" data-agent-type="${escapeHtml(agent.agent_type)}" data-signature="${escapeHtml(skill.signature || '')}" ${skill.error || !skill.signature || !connection?.connected || submittingObservedPaths.has(skill.path) || scanning ? 'disabled' : ''}>${escapeHtml(submittingObservedPaths.has(skill.path) ? t('ui.agentManagement.submitting') : scanning ? observedScanLabel(scan) : t('ui.agentManagement.action.submit_scan'))}</button>
                 <details class="skill-more"><summary data-ui-icon="ellipsis" aria-label="${escapeHtml(t('ui.agentManagement.more'))}" title="${escapeHtml(t('ui.agentManagement.more'))}"></summary><div class="skill-more-menu">${renderSkillActions(agent, skill)}${skill.skill_id && !skill.error ? tf`<button type="button" data-ui-icon="download" data-install-other="${escapeHtml(skill.skill_id)}" data-skill-name="${escapeHtml(skill.name)}" data-source-agent="${escapeHtml(agent.agent_type)}">安装到其他 Agent</button>` : ''}</div></details>`}
 
               </div>
@@ -2114,17 +2128,19 @@ const renderInventory = () => {
   document.querySelectorAll('[data-submit-observed]').forEach(button => button.addEventListener('click', async () => {
     const path = button.dataset.submitObserved
     if (submittingObservedPaths.has(path)) return
-    const skill = inventory?.agents?.find(agent => agent.agent_type === button.dataset.agentType)?.skills?.find(item => item.path === path)
+    const agent = inventory?.agents?.find(agent => agent.agent_type === button.dataset.agentType)
+    const skill = agent?.skills?.find(item => item.path === path)
+    if (!skill || observedScanActive(observedSkillScan(agent, skill))) return
     submittingObservedPaths.add(path)
     try {
       if (skill?.signature && skill.signature === button.dataset.signature && skill.governance?.signature === skill.signature && skill.governance?.certification === 'certified') {
         if (!await confirmCertifiedRescan()) return
       }
       setBusy(button, true)
-      await run('submit-observed', ['--agent-type', button.dataset.agentType, '--skill', path, '--expected-signature', button.dataset.signature])
+      const result = JSON.parse(await run('submit-observed', ['--agent-type', button.dataset.agentType, '--skill', path, '--expected-signature', button.dataset.signature]))
       await discover()
       await loadPending()
-      showMessageDialog(t('ui.agentManagement.submitted'), t('ui.agentManagement.snapshot_description'))
+      showMessageDialog(t(result.already_submitted ? 'ui.agentManagement.already_submitted' : 'ui.agentManagement.submitted'), t(result.already_submitted ? 'ui.agentManagement.existing_submission_description' : 'ui.agentManagement.snapshot_description'))
     } catch (error) {
       showMessageDialog(t('ui.agentManagement.submit_failed'), runtimeText(error))
     } finally {

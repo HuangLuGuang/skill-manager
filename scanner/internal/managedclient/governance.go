@@ -536,14 +536,25 @@ func stageObservedSkill(home string, agent Agent, skill Skill, store *Store) (st
 // SubmitDiscoveredSkill snapshots the exact content selected in the desktop.
 // The scanner upload endpoint authorizes submission with the client credential.
 func SubmitDiscoveredSkill(ctx context.Context, home string, api API, store *Store, agentType, path, expectedSignature string) (string, error) {
+	result, err := SubmitDiscoveredSkillWithResult(ctx, home, api, store, agentType, path, expectedSignature)
+	return result.PendingID, err
+}
+
+type ObservedSubmissionResult struct {
+	PendingID        string `json:"pending_id"`
+	AlreadySubmitted bool   `json:"already_submitted"`
+}
+
+func SubmitDiscoveredSkillWithResult(ctx context.Context, home string, api API, store *Store, agentType, path, expectedSignature string) (ObservedSubmissionResult, error) {
+	var result ObservedSubmissionResult
 	release, err := AcquireMutationLock(home)
 	if err != nil {
-		return "", err
+		return result, err
 	}
 	defer release()
 	inventory, err := Discover(home)
 	if err != nil {
-		return "", err
+		return result, err
 	}
 	for _, agent := range inventory.Agents {
 		if agent.AgentType != agentType || !agent.SkillManagementSupported {
@@ -554,35 +565,40 @@ func SubmitDiscoveredSkill(ctx context.Context, home string, api API, store *Sto
 				continue
 			}
 			if expectedSignature == "" || skill.Signature != expectedSignature {
-				return "", fmt.Errorf("skill_content_changed")
+				return result, fmt.Errorf("skill_content_changed")
 			}
 			if err := checkObservedContent(skill); err != nil {
-				return "", err
+				return result, err
 			}
-			id, submitErr := submitObservedSkill(ctx, home, agent, skill, api, store)
+			id, err := stageObservedSkill(home, agent, skill, store)
+			if err != nil {
+				return result, err
+			}
+			submission, submitErr := SubmitPending(ctx, home, api.server, api.token, store, id)
+			result = ObservedSubmissionResult{PendingID: id, AlreadySubmitted: submission.AlreadySubmitted}
 			if id != "" {
 				value, err := store.Observation(skill.Path)
 				if err != nil {
-					return id, err
+					return result, err
 				}
 				if value.Signature != skill.Signature {
 					value = classifyObservation(value, skill, nil)
 				}
 				value.PendingID = id
 				if err := store.SaveObservation(skill.Path, value); err != nil {
-					return id, err
+					return result, err
 				}
 				_ = RequestFullScan(home)
 			}
-			if submitErr == nil {
+			if submitErr == nil && !result.AlreadySubmitted {
 				_ = reportEvent(ctx, api, store, inventory.ClientID, "skill_scan_submitted", agent.AgentType, skill.Name, map[string]any{
 					"path": skill.Path, "signature": skill.Signature, "pending_id": id, "source": "manual",
 				})
 			}
-			return id, submitErr
+			return result, submitErr
 		}
 	}
-	return "", fmt.Errorf("skill_target_unavailable")
+	return result, fmt.Errorf("skill_target_unavailable")
 }
 
 func executeObservedTask(ctx context.Context, home string, policy Policy, api API, store *Store, task Task) error {

@@ -383,11 +383,11 @@ func run(args []string) (runErr error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		api := managedclient.NewAPI(*server, *token, 2*time.Minute)
-		id, err := managedclient.SubmitDiscoveredSkill(ctx, *home, api, store, *agentType, selectedSkills[0], *expectedSignature)
+		result, err := managedclient.SubmitDiscoveredSkillWithResult(ctx, *home, api, store, *agentType, selectedSkills[0], *expectedSignature)
 		if err != nil {
 			return err
 		}
-		return json.NewEncoder(os.Stdout).Encode(map[string]string{"pending_id": id})
+		return json.NewEncoder(os.Stdout).Encode(result)
 	}
 	if args[0] == "scan-history" || args[0] == "refresh-scan-history" || args[0] == "pending" || args[0] == "refresh-pending" || args[0] == "submit-pending" || args[0] == "discard-pending" || args[0] == "discard-quarantine" || args[0] == "quarantine" || args[0] == "queue-quarantine" {
 		if args[0] == "discard-pending" || args[0] == "discard-quarantine" || args[0] == "queue-quarantine" {

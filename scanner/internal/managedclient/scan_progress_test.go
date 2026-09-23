@@ -51,6 +51,13 @@ func TestScanProgressPersistsForItsDetectionVersion(t *testing.T) {
 	if scan == nil || scan.Status != "PENDING" || scan.Progress.Analyzers["llm"] != "running" {
 		t.Fatal("inventory omitted actual detection progress", scan)
 	}
+	otherAgent := Inventory{Agents: []Agent{{AgentType: "other-agent", Skills: []Skill{skill}}}}
+	if err := store.EnrichInventory(&otherAgent); err != nil {
+		t.Fatal(err)
+	}
+	if value := otherAgent.Agents[0].Skills[0].Governance; value != nil && value.Scan != nil {
+		t.Fatal("scan progress leaked into a different Agent")
+	}
 	original, err := os.ReadFile(filepath.Join(skill.Path, "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
