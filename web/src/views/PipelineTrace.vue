@@ -65,6 +65,11 @@
           <template v-else-if="column.key === 'type'">
             <a-tag :color="record.bypass_pii ? 'orange' : 'blue'">{{ record.bypass_pii ? 'Bypass' : 'PII Checked' }}</a-tag>
           </template>
+          <template v-else-if="column.key === 'has_pii'">
+            <a-tag :color="record.has_pii === true ? 'orange' : 'default'">
+              {{ record.bypass_pii ? $t('pipelineTrace.notChecked') : record.has_pii === true ? $t('pipelineTrace.detected') : record.has_pii === false ? $t('pipelineTrace.notDetected') : $t('pipelineTrace.unavailable') }}
+            </a-tag>
+          </template>
           <template v-else-if="column.key === 'prompt_security'">
             <a-tag :color="promptSecurityColor(record.prompt_security_risk)">
               {{ promptSecurityRiskLabel(record.prompt_security_risk) }}
@@ -231,12 +236,13 @@ const allTraceColumns = computed(() => [
   { title: phrase('legacy.j2g9ts'), dataIndex: 'upstream_duration_ms', width: 125, customRender: ({ text }) => formatMs(text) },
   { title: phrase('legacy.1yz91un'), dataIndex: 'platform_duration_ms', width: 125, customRender: ({ text }) => formatMs(text) },
   { title: phrase('legacy.5h548n'), key: 'prompt_security', width: 130 },
+  { title: t('pipelineTrace.privacyData'), key: 'has_pii', width: 125 },
   { title: phrase('legacy.1qtojr9'), dataIndex: 'prompt_tokens', width: 75, customRender: ({ text }) => formatNumber(text) },
   { title: phrase('legacy.w0yvd4'), dataIndex: 'completion_tokens', width: 75, customRender: ({ text }) => formatNumber(text) },
   { title: phrase('legacy.anh4cj'), key: 'type', width: 115 },
   { title: 'Request ID', key: 'request_id', width: 125 },
 ].map(column => ({ ...column, key: column.key || column.dataIndex, ellipsis: true })))
-const defaultTraceColumns = ['created_at', 'api_key_username', 'agent', 'model', 'request_duration_ms', 'prompt_security', 'prompt_tokens', 'completion_tokens']
+const defaultTraceColumns = ['created_at', 'api_key_username', 'agent', 'model', 'request_duration_ms', 'prompt_security', 'has_pii', 'prompt_tokens', 'completion_tokens']
 const columnStorageKey = `pipeline-trace-visible-columns:${localStorage.getItem('username') || 'default'}`
 const readTraceColumns = () => {
   try {

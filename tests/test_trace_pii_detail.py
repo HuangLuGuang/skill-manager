@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from backend import models
-from backend.routers.llm_gateway import get_trace_detail
+from backend.routers.llm_gateway import get_trace_detail, list_traces
 from backend.sqlite_db import Base
 
 
@@ -42,3 +42,37 @@ def test_detail_pii_mappings_are_scoped_to_trace_and_active(tmp_path):
         result = asyncio.run(get_trace_detail('trace-test', db=db, current_user=None))
         assert result['pii_mappings'] == []
         assert result['stages']['masked']['messages'][0]['content'] == token
+
+
+def test_trace_list_reports_request_pii_detection_result(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'trace-list.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        for request_id, bypass, traffic_type, counts in [
+            ('detected', False, 'pii_checked', {'EMAIL_ADDRESS': 1}),
+            ('not-detected', False, 'pii_checked', {}),
+            ('bypassed', True, 'pii_bypass', {}),
+        ]:
+            db.add(models.LlmPipelineTrace(
+                request_id=request_id, stage='meta', tenant_id='tenant-a', conversation_id='conv-a',
+                model='test', bypass_pii=bypass, payload_json='{}',
+                expires_at=datetime.utcnow() + timedelta(days=1),
+            ))
+            db.add(models.LlmRequestAudit(
+                request_id=request_id, tenant_id='tenant-a', conversation_id='conv-a',
+                user_ref='test', model='test', traffic_type=traffic_type,
+                detected_counts_json=json.dumps(counts),
+            ))
+        db.add(models.LlmPipelineTrace(
+            request_id='missing-audit', stage='meta', tenant_id='tenant-a', conversation_id='conv-a',
+            model='test', payload_json='{}', expires_at=datetime.utcnow() + timedelta(days=1),
+        ))
+        db.commit()
+        result = asyncio.run(list_traces(db=db, current_user=None))
+        by_id = {trace['request_id']: trace['has_pii'] for trace in result['traces']}
+        assert by_id == {
+            'detected': True,
+            'not-detected': False,
+            'bypassed': None,
+            'missing-audit': None,
+        }

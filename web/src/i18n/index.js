@@ -1039,6 +1039,11 @@ export const i18n = createI18n({
         },
       },
       pipelineTrace: {
+        privacyData: '隐私数据检测',
+        detected: '已检出',
+        notDetected: '未检出',
+        notChecked: '未检测',
+        unavailable: '无结果',
         piiMatches: '可定位 PII：{current} / {total}',
         previousPii: '上一处',
         nextPii: '下一处',
@@ -2109,6 +2114,11 @@ export const i18n = createI18n({
         },
       },
       pipelineTrace: {
+        privacyData: 'Privacy detection',
+        detected: 'Detected',
+        notDetected: 'Not detected',
+        notChecked: 'Not checked',
+        unavailable: 'No result',
         piiMatches: 'PII matches: {current} / {total}',
         previousPii: 'Previous match',
         nextPii: 'Next match',

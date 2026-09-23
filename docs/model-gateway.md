@@ -662,9 +662,9 @@ x-compression: enabled-noop
 
 **方式 2 — 管理台隐私链路追踪**:
 
-最近请求默认展示时间、用户、智能体、模型、总耗时、Prompt 防护、输入和输出。通过右上角“显示列”可开关调用凭证、用户组、分项耗时、类型和 Request ID 等列，也可恢复默认；选择按账号保存在当前浏览器。调用凭证和智能体长文本以省略号显示，悬停可查看完整内容（智能体包含 ID）。
+最近请求默认展示时间、用户、智能体、模型、总耗时、Prompt 防护、隐私数据检测结果、输入和输出。“已检出/未检出”依据本次请求审计中的 PII 检测命中数；绕过检测显示“未检测”，缺少可用检测结果显示“无结果”。“未检出”仅表示当前策略没有命中，不保证原文不含隐私数据。通过右上角“显示列”可开关调用凭证、用户组、分项耗时、类型和 Request ID 等列，也可恢复默认；选择按账号保存在当前浏览器。调用凭证和智能体长文本以省略号显示，悬停可查看完整内容（智能体包含 ID）。
 
-The recent requests table shows time, user, agent, model, total duration, Prompt protection, input, and output by default. Use **Columns** to toggle fields or restore defaults. Choices are saved per account in the current browser. Long credential and agent text is truncated; hover to view the full value, including the agent ID.
+The recent requests table shows time, user, agent, model, total duration, Prompt protection, privacy detection result, input, and output by default. Detected and Not detected reflect PII hits in the request audit; bypassed checks show Not checked, and missing results show No result. Not detected only means the current policy found no match; it does not prove the original text contains no private data. Use **Columns** to toggle fields or restore defaults. Choices are saved per account in the current browser. Long credential and agent text is truncated; hover to view the full value, including the agent ID.
 
 进入 `隐私链路追踪` 页面，展开一次请求:
 

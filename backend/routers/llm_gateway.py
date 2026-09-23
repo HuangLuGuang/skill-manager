@@ -2654,10 +2654,27 @@ async def list_traces(
             else []
         )
     }
+    audit_by_request_id = {
+        audit.request_id: audit
+        for audit in (
+            db.query(models.LlmRequestAudit)
+            .filter(models.LlmRequestAudit.request_id.in_(request_ids))
+            .all()
+            if request_ids
+            else []
+        )
+    }
     traces = []
     for row in rows:
         payload = _json_loads(row.payload_json, {})
         metric = metric_by_request_id.get(row.request_id)
+        audit = audit_by_request_id.get(row.request_id)
+        detected_counts = _json_loads(audit.detected_counts_json, None) if audit else None
+        has_pii = (
+            any(isinstance(count, int) and count > 0 for count in detected_counts.values())
+            if audit and not row.bypass_pii and audit.traffic_type == "pii_checked" and isinstance(detected_counts, dict)
+            else None
+        )
         traces.append(
             {
                 **payload,
@@ -2666,6 +2683,7 @@ async def list_traces(
                 "conversation_id": row.conversation_id,
                 "model": row.model,
                 "bypass_pii": row.bypass_pii,
+                "has_pii": has_pii,
                 "created_at": row.created_at.isoformat(),
                 "prompt_tokens": metric.prompt_tokens if metric else payload.get("prompt_tokens", 0),
                 "completion_tokens": metric.completion_tokens if metric else payload.get("completion_tokens", 0),
