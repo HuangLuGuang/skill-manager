@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,7 +15,11 @@ import (
 )
 
 func TestInventoryRefreshWakesLocalGovernanceBeforePlatformUploadCompletes(t *testing.T) {
-	home, store, _, _ := observedFixture(t)
+	home, store, previous, _ := observedFixture(t)
+	if err := store.SaveInventory(previous); err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(t, filepath.Join(home, ".codex", "skills", "new-skill"), "new-skill")
 	uploadStarted := make(chan struct{})
 	releaseUpload := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -39,6 +44,12 @@ func TestInventoryRefreshWakesLocalGovernanceBeforePlatformUploadCompletes(t *te
 	case <-localReady:
 	default:
 		t.Fatal("local governance was not woken before platform upload")
+	}
+	if revision, _, err := store.LatestUIEvent(); err != nil || revision == 0 {
+		t.Fatal("new Skill was not signaled to the desktop before platform upload", revision, err)
+	}
+	if cached, ok, err := store.State("inventory"); err != nil || !ok || !strings.Contains(cached, "new-skill") {
+		t.Fatal("new Skill was not in the local inventory before platform upload", err)
 	}
 	close(releaseUpload)
 	if err := <-done; err != nil {

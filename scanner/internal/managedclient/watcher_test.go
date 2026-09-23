@@ -100,6 +100,64 @@ func TestSkillWatcherDetectsNewStandardSkillRoot(t *testing.T) {
 	}
 }
 
+func TestSkillWatcherDetectsNewDynamicAgentSkillRoot(t *testing.T) {
+	home := t.TempDir()
+	users := filepath.Join(home, ".config", "TeleAgent", "users")
+	if err := os.MkdirAll(users, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	watcher, err := NewSkillWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+	if err := watcher.Refresh(home, store); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(users, "new-user", "skills", "new-skill")
+	writeSkill(t, root, "new-skill")
+	select {
+	case paths := <-watcher.Changes():
+		if len(paths) == 0 {
+			t.Fatal("dynamic Skill creation produced no changed paths")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("new dynamic Agent Skill root did not wake the watcher")
+	}
+}
+
+func TestSkillWatcherDetectsNewSkillInConfiguredAgentRoot(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, "configured-skills")
+	if err := SaveConfig(home, Config{Server: "http://manager.invalid", Token: "test", AgentSkillRoots: map[string][]string{"codex": {root}}}); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	watcher, err := NewSkillWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+	if err := watcher.Refresh(home, store); err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(t, filepath.Join(root, "new-skill"), "new-skill")
+	select {
+	case <-watcher.Changes():
+	case <-time.After(3 * time.Second):
+		t.Fatal("configured Agent Skill root did not wake the watcher")
+	}
+}
+
 func TestSkillWatcherIgnoresChangesOutsideSkillRoots(t *testing.T) {
 	home := t.TempDir()
 	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))

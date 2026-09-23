@@ -25,12 +25,15 @@ from agent_manager.api.router import (
     VerifySkillSignatureRequest,
     VerifySkillSignatureResponse,
     _extract_zip_with_nested_archives,
+    _process_pending_submission_task,
     _resolve_skill_root,
+    _scan_executor,
     _submit_directory_for_processing,
     get_manager,
 )
 from agent_manager.core.manager import AgentManager
 from agent_manager.core.models import AuditEvent, RegistryEntry, SkillOrigin, SkillStatus, SourceInfo
+from agent_manager.core.scan_cache import compute_content_fingerprint
 from agent_manager.core.scanner_tokens import DEFAULT_SCOPES, ScannerToken, ScannerTokenStore
 from agent_manager.core.vetting import _load_manifest
 from backend.models import AccessToken
@@ -647,6 +650,7 @@ async def submit_scanner_import(
     use_sandbox: bool = Form(False),
     use_skillspector: bool = Form(False),
     use_deep_scan: bool = Form(False),
+    force_rescan: bool = Form(False),
     judgement_mode: str | None = Form(None),
     scanner_version: str | None = Form(None),
     host_id: str | None = Form(None),
@@ -687,7 +691,7 @@ async def submit_scanner_import(
         _extract_zip_with_nested_archives(zip_path, extract_dir)
         skill_root = _resolve_skill_root(extract_dir)
         try:
-            _load_manifest(skill_root)
+            skill_name, _, _, _ = _load_manifest(skill_root)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         server_manifest = _fingerprint_skill_dir(skill_root)
@@ -696,6 +700,12 @@ async def submit_scanner_import(
                 status_code=400,
                 detail="Manifest fingerprint mismatch between scanner and server",
             )
+        if force_rescan:
+            existing = mgr.registry.find_version_by_content(skill_name, compute_content_fingerprint(skill_root))
+            if existing is not None:
+                allowed_owners = {scanner_auth.name, scanner_auth.author or "", scanner_auth.token_name or ""}
+                if existing.source.author not in allowed_owners and existing.source.token_name not in allowed_owners:
+                    raise HTTPException(status_code=403, detail="scanner token can only rescan own submissions")
 
         persistent_dir = mgr.registry.data_dir / "scanner_uploaded_skills" / uuid.uuid4().hex
         persistent_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -719,6 +729,38 @@ async def submit_scanner_import(
             deep_scan_enabled,
             judgement_mode,
         )
+        if force_rescan and response.scan_state == "REUSED":
+            entry = mgr.get_skill(response.version_id)
+            allowed_owners = {scanner_auth.name, scanner_auth.author or "", scanner_auth.token_name or ""}
+            if entry is None or (entry.source.author not in allowed_owners and entry.source.token_name not in allowed_owners):
+                raise HTTPException(status_code=403, detail="scanner token can only rescan own submissions")
+            entry, started = mgr.request_rescan(entry.skill_id, scan_options={
+                "use_behavioral": use_behavioral,
+                "use_llm": use_llm,
+                "use_sandbox": use_sandbox,
+                "use_skillspector": deep_scan_enabled,
+            })
+            if started:
+                _scan_executor.submit(
+                    _process_pending_submission_task,
+                    mgr,
+                    entry.skill_id,
+                    use_behavioral,
+                    use_llm,
+                    use_sandbox,
+                    deep_scan_enabled,
+                    True,
+                    judgement_mode,
+                )
+            active_run = next((run for run in mgr.list_scan_runs(entry.skill_id) if run.status == "PENDING"), None)
+            response.scan_reused = False
+            response.scan_run_id = active_run.scan_run_id if active_run else None
+            response.scan_state = "PENDING"
+            response.status = "PENDING"
+            response.outcome = "rescan_submitted" if started else "scan_in_progress"
+            response.risk_level = None
+            response.findings_count = 0
+            response.message = "已重新检测现有版本。" if started else "相同内容版本正在检测，已复用现有任务。"
         store.log_event(
             "scanner_import_submitted",
             scanner_auth.legacy_token,
@@ -730,6 +772,7 @@ async def submit_scanner_import(
                 "scanner_version": scanner_version,
                 "manifest_fingerprint": (parsed_manifest or {}).get("fingerprint") if parsed_manifest else None,
                 "server_fingerprint": server_manifest["fingerprint"],
+                "force_rescan": force_rescan,
                 "detection_options": {
                     "rules": use_behavioral,
                     "deep_scan": deep_scan_enabled,

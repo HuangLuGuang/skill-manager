@@ -1747,11 +1747,11 @@ const scanProgressText = item => {
   return parts.join(' · ')
 }
 
-const observedSkillScan = (agent, skill) => {
+const observedSkillScan = skill => {
   const observation = skill?.governance
   if (!skill?.signature || observation?.signature !== skill.signature || !observation.pending_id) return null
   const pending = pendingItems.find(item => item.id === observation.pending_id)
-  if (pending) return pending.agent_type === agent.agent_type && pending.original_path === skill.path && pending.reason === 'observed_scan' ? pending : null
+  if (pending) return pending.original_path === skill.path && pending.reason === 'observed_scan' ? pending : null
   return observation.scan || null
 }
 const observedScanActive = scan => ['pending', 'submitted', 'PENDING', 'VETTED'].includes(scan?.status)
@@ -1759,11 +1759,11 @@ const observedScanLabel = scan => scan?.status === 'PENDING' || scan?.status ===
   ? t('ui.agentManagement.scan_in_progress')
   : scan?.status === 'pending' ? t('ui.agentManagement.scan_queued') : pendingStatusLabel(scan?.status)
 
-const renderSkillObservation = (skill, expanded = false, agent = selectedAgent()) => {
+const renderSkillObservation = (skill, expanded = false) => {
   const observation = skill.governance?.signature === skill.signature ? skill.governance : null
   const certification = skill.status === 'broken_link' ? 'missing_files' : skill.status === 'unscannable' ? 'unscannable' : observation?.certification || 'confirmation_pending'
   const actionTask = (connection?.platform?.tasks || []).find(task => task.task_type === 'skill_action' && task.payload?.path === skill.path && ['pending', 'running'].includes(task.status))
-  const pending = observedSkillScan(agent, skill)
+  const pending = observedSkillScan(skill)
   const policy = connection?.local?.classification || connection?.platform?.classification
   const trigger = observation?.trigger
   const source = policy?.sources?.[trigger]
@@ -2055,14 +2055,14 @@ const renderInventory = () => {
           ${agent.skill_management_supported ? `<div class="skill-inventory">${pageSkills.length ? pageSkills.map(skill => {
             const detailKey = skillDetailKey(agent, skill)
             const expanded = expandedSkillDetails.has(detailKey)
-            const scan = observedSkillScan(agent, skill)
+            const scan = observedSkillScan(skill)
             const scanning = observedScanActive(scan)
             return tf`
             <div class="skill-row">
               <div class="skill-row-main">
                 <span>
                   <button class="skill-name-button" type="button" data-ui-icon="file-text" data-toggle-skill-details data-skill-detail-key="${escapeHtml(detailKey)}" aria-expanded="${expanded}"><strong>${escapeHtml(skill.name)}</strong>${renderSkillSharing(agent, skill)}</button>
-                  ${renderSkillObservation(skill, expanded, agent)}
+                  ${renderSkillObservation(skill, expanded)}
                 </span>
               </div>
               <div class="skill-row-actions">
@@ -2130,7 +2130,7 @@ const renderInventory = () => {
     if (submittingObservedPaths.has(path)) return
     const agent = inventory?.agents?.find(agent => agent.agent_type === button.dataset.agentType)
     const skill = agent?.skills?.find(item => item.path === path)
-    if (!skill || observedScanActive(observedSkillScan(agent, skill))) return
+    if (!skill || observedScanActive(observedSkillScan(skill))) return
     submittingObservedPaths.add(path)
     try {
       if (skill?.signature && skill.signature === button.dataset.signature && skill.governance?.signature === skill.signature && skill.governance?.certification === 'certified') {
@@ -2514,6 +2514,8 @@ $('#refresh-pending').addEventListener('click', async event => {
   const button = event.currentTarget
   setBusy(button, true)
   try {
+    await run('refresh-pending')
+    await run('refresh-scan-history')
     await loadPending()
   } catch (error) {
     showMessageDialog(t('ui.mjir9s'), String(error))

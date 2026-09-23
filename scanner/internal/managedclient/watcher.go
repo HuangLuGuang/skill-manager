@@ -84,16 +84,35 @@ func (watcher *SkillWatcher) Close() error {
 }
 
 func (watcher *SkillWatcher) Refresh(home string, store *Store) error {
+	config, err := LoadConfig(home)
+	if err != nil {
+		return err
+	}
 	roots := managedSkillsRoots(home)
 	for _, spec := range adaptersForHome(home) {
-		for _, root := range spec.skillRoots {
-			roots = append(roots, resolveSkillRoot(home, root))
+		skillRoots := spec.skillRoots
+		if configured := config.AgentSkillRoots[spec.agentType]; len(configured) > 0 {
+			skillRoots = configured
+		}
+		for _, root := range skillRoots {
+			pattern := resolveSkillRoot(home, root)
+			if wildcard := strings.IndexAny(pattern, "*?["); wildcard >= 0 {
+				prefix := pattern[:wildcard]
+				if strings.HasSuffix(prefix, string(filepath.Separator)) {
+					prefix = filepath.Clean(prefix)
+				} else {
+					prefix = filepath.Dir(prefix)
+				}
+				roots = append(roots, prefix)
+				matches, _ := filepath.Glob(pattern)
+				roots = append(roots, matches...)
+				continue
+			}
+			roots = append(roots, pattern)
 		}
 	}
-	if config, err := LoadConfig(home); err == nil {
-		for _, agent := range config.CustomAgents {
-			roots = append(roots, agent.SkillsPath)
-		}
+	for _, agent := range config.CustomAgents {
+		roots = append(roots, agent.SkillsPath)
 	}
 	if installs, err := store.Installations(); err == nil {
 		for _, install := range installs {

@@ -55,8 +55,8 @@ func TestScanProgressPersistsForItsDetectionVersion(t *testing.T) {
 	if err := store.EnrichInventory(&otherAgent); err != nil {
 		t.Fatal(err)
 	}
-	if value := otherAgent.Agents[0].Skills[0].Governance; value != nil && value.Scan != nil {
-		t.Fatal("scan progress leaked into a different Agent")
+	if value := otherAgent.Agents[0].Skills[0].Governance; value == nil || value.Scan == nil || value.Scan.Status != "PENDING" {
+		t.Fatal("shared Skill path lost the current content scan", value)
 	}
 	original, err := os.ReadFile(filepath.Join(skill.Path, "SKILL.md"))
 	if err != nil {

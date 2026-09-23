@@ -380,7 +380,6 @@ test('refreshes local state from durable events and page entry without business 
   assert.match(appSource, /refreshLocalStateFromEvent[\s\S]*reconcileTrackedSkillActions\(connection\.platform\?\.tasks\)/)
   assert.doesNotMatch(appSource, /setInterval\(refreshChangedInventory/)
   assert.doesNotMatch(appSource, /setInterval\(refreshTrackedSkillActions/)
-  assert.doesNotMatch(appSource, /run\('refresh-pending'/)
 })
 
 test('passes the manual uninstall retention choice as an explicit boolean flag value', () => {

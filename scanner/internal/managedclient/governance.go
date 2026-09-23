@@ -574,6 +574,19 @@ func SubmitDiscoveredSkillWithResult(ctx context.Context, home string, api API, 
 			if err != nil {
 				return result, err
 			}
+			pending, err := store.PendingItem(id)
+			if err != nil {
+				return result, err
+			}
+			forceRescan := pendingStatusTerminal(pending.Status)
+			if forceRescan {
+				if err := store.ResetPendingSubmission(id); err != nil {
+					return result, err
+				}
+				if err := store.SetState("pending:force-rescan:"+id, "1"); err != nil {
+					return result, err
+				}
+			}
 			submission, submitErr := SubmitPending(ctx, home, api.server, api.token, store, id)
 			result = ObservedSubmissionResult{PendingID: id, AlreadySubmitted: submission.AlreadySubmitted}
 			if id != "" {

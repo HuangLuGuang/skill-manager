@@ -70,6 +70,7 @@ type SubmitOptions struct {
 	ManifestJSON    string
 	ScannerVersion  string
 	HostID          string
+	ForceRescan     bool
 }
 
 type SubmitResult struct {
@@ -152,6 +153,9 @@ func (c Client) SubmitZip(ctx context.Context, zipPath string, opts SubmitOption
 	_ = writer.WriteField("use_deep_scan", boolString(opts.UseSkillspector))
 	_ = writer.WriteField("use_sandbox", boolString(opts.UseSandbox))
 	_ = writer.WriteField("use_llm", boolString(opts.UseLLM))
+	if opts.ForceRescan {
+		_ = writer.WriteField("force_rescan", "true")
+	}
 	if opts.JudgementMode != "" {
 		_ = writer.WriteField("judgement_mode", opts.JudgementMode)
 	}

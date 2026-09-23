@@ -11,6 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import agent_manager.api.router as api_router
+import agent_manager.api.scanner_router as scanner_api
 from agent_manager.api.router import get_manager
 from agent_manager.api.router import runtime_router as agent_runtime_router
 from agent_manager.api.scanner_router import (
@@ -193,6 +194,61 @@ def test_scanner_import_accepts_scanner_token(tmp_path):
         assert payload["status"] == "PENDING"
     finally:
         api_router._manager = previous_manager
+
+
+def test_scanner_import_force_rescan_starts_new_run_for_owned_version(tmp_path, monkeypatch):
+    app = FastAPI()
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    app.dependency_overrides[get_manager] = lambda: manager
+    app.include_router(router)
+    client = TestClient(app)
+    _record, token = ScannerTokenStore(manager.registry.data_dir).create(name="customer-a")
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("---\nname: api-skill\ndescription: API test\n---\n", encoding="utf-8")
+    entry = manager.submit(skill, source=SourceInfo(origin=SkillOrigin.LOCAL, author="customer-a"))
+    assert entry.status == SkillStatus.APPROVED
+    scheduled = []
+    monkeypatch.setattr(scanner_api._scan_executor, "submit", lambda *args: scheduled.append(args))
+
+    response = client.post(
+        "/api/v1/scanner/imports",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"file": ("skill.zip", _skill_zip(), "application/zip")},
+        data={"force_rescan": "true"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["version_id"] == entry.skill_id
+    assert payload["status"] == "PENDING"
+    assert payload["scan_reused"] is False
+    assert payload["scan_run_id"]
+    assert len(scheduled) == 1
+    assert len(manager.list_scan_runs(entry.skill_id)) == 2
+
+
+def test_scanner_import_cannot_force_rescan_another_tokens_version(tmp_path):
+    app = FastAPI()
+    manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    app.dependency_overrides[get_manager] = lambda: manager
+    app.include_router(router)
+    client = TestClient(app)
+    _record, token = ScannerTokenStore(manager.registry.data_dir).create(name="customer-b")
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("---\nname: api-skill\ndescription: API test\n---\n", encoding="utf-8")
+    entry = manager.submit(skill, source=SourceInfo(origin=SkillOrigin.LOCAL, author="customer-a"))
+
+    response = client.post(
+        "/api/v1/scanner/imports",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"file": ("skill.zip", _skill_zip(), "application/zip")},
+        data={"force_rescan": "true"},
+    )
+
+    assert response.status_code == 403
+    assert len(manager.list_scan_runs(entry.skill_id)) == 1
 
 
 def test_legacy_scanner_token_issuance_is_removed(tmp_path):

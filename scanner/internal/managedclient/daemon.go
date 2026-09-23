@@ -97,6 +97,10 @@ func flushTaskResults(ctx context.Context, clientID string, api API, store *Stor
 }
 
 func syncInventoryOnce(ctx context.Context, home string, api API, store *Store, localReady func()) error {
+	previousBody, previousExists, err := store.State("inventory")
+	if err != nil {
+		return err
+	}
 	inventory, err := Discover(home)
 	if err != nil {
 		return err
@@ -106,6 +110,12 @@ func syncInventoryOnce(ctx context.Context, home string, api API, store *Store, 
 	}
 	if err = store.SaveInventory(inventory); err != nil {
 		return err
+	}
+	var previous Inventory
+	if !previousExists || json.Unmarshal([]byte(previousBody), &previous) != nil || inventoryRevision(previous) != inventoryRevision(inventory) {
+		if err := store.EmitUIStateEvent(home, "local_state_changed", map[string]any{"source": "inventory"}); err != nil {
+			return err
+		}
 	}
 	if localReady != nil {
 		localReady()

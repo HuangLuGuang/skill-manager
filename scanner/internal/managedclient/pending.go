@@ -15,13 +15,23 @@ import (
 )
 
 func SubmitPending(ctx context.Context, home, server, token string, store *Store, id string) (scannerclient.SubmitResult, error) {
+	forceRescan, _, err := store.State("pending:force-rescan:" + id)
+	if err != nil {
+		return scannerclient.SubmitResult{}, err
+	}
+	return submitPending(ctx, home, server, token, store, id, forceRescan == "1")
+}
+
+func submitPending(ctx context.Context, home, server, token string, store *Store, id string, forceRescan bool) (scannerclient.SubmitResult, error) {
 	items, err := store.PendingItems()
 	if err != nil {
 		return scannerclient.SubmitResult{}, err
 	}
-	items, err = linkPendingGroups(store, items)
-	if err != nil {
-		return scannerclient.SubmitResult{}, err
+	if !forceRescan {
+		items, err = linkPendingGroups(store, items)
+		if err != nil {
+			return scannerclient.SubmitResult{}, err
+		}
 	}
 	var item PendingItem
 	for _, candidate := range items {
@@ -89,6 +99,7 @@ func SubmitPending(ctx context.Context, home, server, token string, store *Store
 		ManifestJSON:    string(payload),
 		ScannerVersion:  "agent-manager-client",
 		HostID:          clientIDForHome(home),
+		ForceRescan:     forceRescan,
 	})
 	if err != nil {
 		return result, err
@@ -98,6 +109,11 @@ func SubmitPending(ctx context.Context, home, server, token string, store *Store
 	}
 	if err := store.UpdatePendingVersionMetadata(result.SkillID, result.VersionID, result.VersionNo, result.SourceVersion); err != nil {
 		return result, err
+	}
+	if forceRescan {
+		if err := store.SetState("pending:force-rescan:"+id, ""); err != nil {
+			return result, err
+		}
 	}
 	return result, nil
 }

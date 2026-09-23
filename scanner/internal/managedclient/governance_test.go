@@ -334,6 +334,58 @@ func TestManualScanKeepsSourceAndReusesExactSnapshot(t *testing.T) {
 	}
 }
 
+func TestManualRescanStartsNewRunAndRetainsRetryIntent(t *testing.T) {
+	home, store, _, skill := observedFixture(t)
+	var uploads atomic.Int32
+	var forced atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/scanner/imports" {
+			w.Write([]byte(`{}`))
+			return
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		attempt := uploads.Add(1)
+		if r.FormValue("force_rescan") == "true" {
+			forced.Add(1)
+		}
+		if attempt == 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Write([]byte(`{"skill_id":"family","version_id":"v1","status":"PENDING"}`))
+	}))
+	defer server.Close()
+	api := NewAPI(server.URL, "token", time.Second)
+	first, err := SubmitDiscoveredSkillWithResult(context.Background(), home, api, store, "codex", skill.Path, skill.Signature)
+	if err != nil || first.AlreadySubmitted {
+		t.Fatal(first, err)
+	}
+	if err := store.UpdatePendingStatus("family", "v1", "APPROVED"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SubmitDiscoveredSkillWithResult(context.Background(), home, api, store, "codex", skill.Path, skill.Signature); err == nil {
+		t.Fatal("failed forced rescan was reported as successful")
+	}
+	intent, _, err := store.State("pending:force-rescan:" + first.PendingID)
+	if err != nil || intent != "1" {
+		t.Fatal("failed rescan lost retry intent", intent, err)
+	}
+	if _, err := SubmitPending(context.Background(), home, server.URL, "token", store, first.PendingID); err != nil {
+		t.Fatal("retry failed", err)
+	}
+	if uploads.Load() != 3 || forced.Load() != 2 {
+		t.Fatalf("rescan upload flags were lost: uploads=%d forced=%d", uploads.Load(), forced.Load())
+	}
+	intent, _, err = store.State("pending:force-rescan:" + first.PendingID)
+	if err != nil || intent != "" {
+		t.Fatal("completed rescan kept retry intent", intent, err)
+	}
+}
+
 func TestAuthorizedFileActionBindsContentAndRetainsRecovery(t *testing.T) {
 	for _, action := range []string{"quarantine", "uninstall"} {
 		t.Run(action, func(t *testing.T) {
