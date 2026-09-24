@@ -90,6 +90,34 @@ class ScannerAuthContext:
     access_token: AccessToken | None = None
 
 
+def _submission_principal(scanner_auth: ScannerAuthContext) -> str:
+    token = scanner_auth.access_token
+    if token and token.token_type == "client" and token.bound_client_id:
+        return f"client:{token.bound_client_id}"
+    if token:
+        return f"access-token:{token.id}"
+    if scanner_auth.legacy_token:
+        return f"scanner-token:{scanner_auth.legacy_token.id}"
+    return ""
+
+
+def _source_owned_by(scanner_auth: ScannerAuthContext, entry: RegistryEntry) -> bool:
+    allowed_owners = {scanner_auth.name, scanner_auth.author or "", scanner_auth.token_name or ""}
+    return entry.source.author in allowed_owners or entry.source.token_name in allowed_owners
+
+
+def _submission_owned_by(scanner_auth: ScannerAuthContext, entry: RegistryEntry) -> bool:
+    principal = _submission_principal(scanner_auth)
+    return _source_owned_by(scanner_auth, entry) or bool(principal and principal in entry.submission_principals)
+
+
+def _grant_submission_access(mgr: AgentManager, scanner_auth: ScannerAuthContext, entry: RegistryEntry) -> None:
+    principal = _submission_principal(scanner_auth)
+    if not principal:
+        return
+    entry.submission_principals = mgr.registry.grant_submission_principal(entry.skill_id, principal)
+
+
 def _fingerprint_skill_dir(skill_dir: Path) -> dict[str, Any]:
     files: list[dict[str, Any]] = []
     total_bytes = 0
@@ -703,8 +731,12 @@ async def submit_scanner_import(
         if force_rescan:
             existing = mgr.registry.find_version_by_content(skill_name, compute_content_fingerprint(skill_root))
             if existing is not None:
-                allowed_owners = {scanner_auth.name, scanner_auth.author or "", scanner_auth.token_name or ""}
-                if existing.source.author not in allowed_owners and existing.source.token_name not in allowed_owners:
+                same_bound_client = bool(
+                    scanner_auth.access_token
+                    and scanner_auth.access_token.token_type == "client"
+                    and scanner_auth.access_token.bound_client_id == host_id
+                )
+                if not same_bound_client and not _submission_owned_by(scanner_auth, existing):
                     raise HTTPException(status_code=403, detail="scanner token can only rescan own submissions")
 
         persistent_dir = mgr.registry.data_dir / "scanner_uploaded_skills" / uuid.uuid4().hex
@@ -728,11 +760,11 @@ async def submit_scanner_import(
             use_sandbox,
             deep_scan_enabled,
             judgement_mode,
+            entry_prepared=lambda entry: _grant_submission_access(mgr, scanner_auth, entry),
         )
         if force_rescan and response.scan_state == "REUSED":
             entry = mgr.get_skill(response.version_id)
-            allowed_owners = {scanner_auth.name, scanner_auth.author or "", scanner_auth.token_name or ""}
-            if entry is None or (entry.source.author not in allowed_owners and entry.source.token_name not in allowed_owners):
+            if entry is None or not _submission_owned_by(scanner_auth, entry):
                 raise HTTPException(status_code=403, detail="scanner token can only rescan own submissions")
             entry, started = mgr.request_rescan(entry.skill_id, scan_options={
                 "use_behavioral": use_behavioral,
@@ -796,10 +828,12 @@ def get_scanner_import(
     entry = mgr.get_skill(skill_id)
     if entry is None:
         raise HTTPException(status_code=404, detail="Skill not found")
-    allowed_owners = {scanner_auth.name, scanner_auth.author or "", scanner_auth.token_name or ""}
-    if entry.source.author not in allowed_owners and entry.source.token_name not in allowed_owners:
+    if not _submission_owned_by(scanner_auth, entry):
         raise HTTPException(status_code=403, detail="scanner token can only read own submissions")
-    payload = entry.model_dump(mode="json", exclude={"vetting": {"scan_report"}})
+    payload = entry.model_dump(
+        mode="json",
+        exclude={"vetting": {"scan_report"}, "submission_principals": True},
+    )
     payload["skill_id"] = entry.family_id or entry.skill_id
     payload["version_id"] = entry.skill_id
     active_runs = [run for run in mgr.list_scan_runs(entry.skill_id) if run.status == "PENDING"]

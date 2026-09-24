@@ -1751,7 +1751,10 @@ const observedSkillScan = skill => {
   const observation = skill?.governance
   if (!skill?.signature || observation?.signature !== skill.signature || !observation.pending_id) return null
   const pending = pendingItems.find(item => item.id === observation.pending_id)
-  if (pending) return pending.original_path === skill.path && pending.reason === 'observed_scan' ? pending : null
+  if (pending) {
+    if (observation.certification === 'certified' && pending.status === 'pending') return null
+    return pending.original_path === skill.path && pending.reason === 'observed_scan' ? pending : null
+  }
   return observation.scan || null
 }
 const observedScanActive = scan => ['pending', 'submitted', 'PENDING', 'VETTED'].includes(scan?.status)

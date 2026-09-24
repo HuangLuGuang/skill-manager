@@ -283,20 +283,25 @@ def test_scanner_import_accepts_bound_client_token(tmp_path):
     session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
     token = "amat_client_submit"
+    rotated_token = "amat_client_submit_rotated"
+    other_client_token = "amat_other_client"
     db = session_factory()
-    db.add(
-        models.AccessToken(
-            name="desktop-client",
+    for raw_token, name, client_id in (
+        (token, "desktop-client", "host-001"),
+        (rotated_token, "desktop-client-rotated", "host-001"),
+        (other_client_token, "other-client", "host-002"),
+    ):
+        db.add(models.AccessToken(
+            name=name,
             token_type="client",
-            token_hash=_hash_token(token),
-            token_prefix=token[:8],
-            bound_client_id="host-001",
+            token_hash=_hash_token(raw_token),
+            token_prefix=raw_token[:8],
+            bound_client_id=client_id,
             scopes_json='["client:submit-skill"]',
             allowed_models_json="[]",
             allowed_ips_json="[]",
             status="active",
-        )
-    )
+        ))
     db.commit()
     db.close()
 
@@ -309,6 +314,16 @@ def test_scanner_import_accepts_bound_client_token(tmp_path):
 
     app = FastAPI()
     manager = AgentManager(policy=CompanyPolicy.default(), data_dir=tmp_path / "data")
+    legacy_skill = tmp_path / "legacy-client-skill"
+    legacy_skill.mkdir()
+    (legacy_skill / "SKILL.md").write_text(
+        "---\nname: api-skill\ndescription: API test\n---\n",
+        encoding="utf-8",
+    )
+    legacy_entry = manager.submit(
+        legacy_skill,
+        source=SourceInfo(origin=SkillOrigin.LOCAL, author="old-client-token", token_name="old-client-token"),
+    )
     previous_manager = api_router._manager
     api_router._manager = manager
     try:
@@ -326,7 +341,9 @@ def test_scanner_import_accepts_bound_client_token(tmp_path):
 
         assert response.status_code == 200
         entry = manager.get_skill(response.json()["skill_id"])
-        assert entry.source.channel == "agent_manager_client"
+        assert entry.skill_id == legacy_entry.skill_id
+        assert entry.source.author == "old-client-token"
+        assert "client:host-001" in entry.submission_principals
         result = client.get(
             f"/api/v1/scanner/imports/{entry.skill_id}",
             headers={"Authorization": f"Bearer {token}"},
@@ -334,6 +351,19 @@ def test_scanner_import_accepts_bound_client_token(tmp_path):
         assert result.status_code == 200
         assert result.json()["skill_id"] == (entry.family_id or entry.skill_id)
         assert result.json()["version_id"] == entry.skill_id
+        assert "submission_principals" not in result.json()
+
+        rotated_result = client.get(
+            f"/api/v1/scanner/imports/{entry.skill_id}",
+            headers={"Authorization": f"Bearer {rotated_token}"},
+        )
+        assert rotated_result.status_code == 200
+
+        other_client_result = client.get(
+            f"/api/v1/scanner/imports/{entry.skill_id}",
+            headers={"Authorization": f"Bearer {other_client_token}"},
+        )
+        assert other_client_result.status_code == 403
     finally:
         api_router._manager = previous_manager
 

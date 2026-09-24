@@ -23,7 +23,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
@@ -34,7 +34,7 @@ from agent_manager.api.upload_progress import stream_upload_progress
 
 from agent_manager.core.llm import LLMConfig
 from agent_manager.core.manager import AgentManager, findings_summary_from_report
-from agent_manager.core.models import SkillOrigin, SkillStatus, SourceInfo
+from agent_manager.core.models import RegistryEntry, SkillOrigin, SkillStatus, SourceInfo
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.policy_simulation import PolicySimulationRequest, simulate_policy
 from agent_manager.core.prompt_models import PromptStatus
@@ -344,6 +344,7 @@ def _submit_directory_for_processing(
     use_sandbox: bool,
     use_skillspector: bool,
     judgement_mode: str | None = None,
+    entry_prepared: Callable[[RegistryEntry], None] | None = None,
 ) -> SubmitResponse:
     entry, should_process, resolution = mgr.prepare_submission(
         skill_dir,
@@ -354,6 +355,8 @@ def _submit_directory_for_processing(
         use_skillspector=use_skillspector,
         judgement_mode=judgement_mode,
     )
+    if entry_prepared is not None:
+        entry_prepared(entry)
     runs = mgr.list_scan_runs(entry.skill_id)
     scan_run = next((run for run in runs if run.status == "PENDING"), runs[0] if runs else None) if resolution != "existing_version_reused" else None
     if should_process:

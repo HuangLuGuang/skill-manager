@@ -152,6 +152,10 @@ class RegistryEntry(BaseModel):
     reused_from_skill_id: Optional[str] = None
     latest_version: bool = False
     latest_trusted_version: bool = False
+    # Principals that submitted this immutable content through the scanner API.
+    # Client credentials use the bound client identity so credential rotation
+    # does not orphan an in-flight or historical submission.
+    submission_principals: list[str] = Field(default_factory=list)
 
     @field_validator("name")
     @classmethod

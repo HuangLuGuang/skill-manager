@@ -696,3 +696,13 @@ def test_list_exposes_analyzer_results_independently_of_final_risk(registry):
     entry.vetting.scan_report.pop("llm_analysis")
     registry.update(entry)
     assert registry.list_skill_summaries(page=1, page_size=10)["items"][0]["analysis_results"]["llm"] == {"status": "failed", "risk_level": None}
+
+
+def test_submission_principals_are_persisted_without_duplicates(registry):
+    entry = _make_entry("submission-owner")
+    registry.add(entry)
+
+    assert registry.grant_submission_principal(entry.skill_id, "client:one") == ["client:one"]
+    assert registry.grant_submission_principal(entry.skill_id, "client:one") == ["client:one"]
+    assert registry.grant_submission_principal(entry.skill_id, "client:two") == ["client:one", "client:two"]
+    assert registry.get_by_id(entry.skill_id).submission_principals == ["client:one", "client:two"]

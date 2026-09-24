@@ -895,6 +895,29 @@ class Registry:
                     entry.content_fingerprint = backfill_content_fingerprint
             self._upsert_entry(conn, entry)
 
+    def grant_submission_principal(self, skill_id: str, principal: str) -> list[str]:
+        """Atomically allow a scanner principal to read one immutable version."""
+        if not principal:
+            return []
+        with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT payload FROM skill_registry WHERE skill_id = ?",
+                (skill_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"skill_id {skill_id!r} not found")
+            payload = json.loads(row["payload"])
+            principals = list(payload.get("submission_principals") or [])
+            if principal not in principals:
+                principals.append(principal)
+                payload["submission_principals"] = principals
+                conn.execute(
+                    "UPDATE skill_registry SET payload = ? WHERE skill_id = ?",
+                    (json.dumps(payload, ensure_ascii=False, default=str), skill_id),
+                )
+            return principals
+
     def delete(self, skill_id: str) -> None:
         with self._lock, self._connect() as conn:
             row = conn.execute(

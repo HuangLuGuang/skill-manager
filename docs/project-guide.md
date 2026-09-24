@@ -402,6 +402,8 @@ flowchart TB
 - [agent_manager/core/scan_cache.py](../agent_manager/core/scan_cache.py)
   重复扫描复用缓存
 
+客户端通过 Scanner API 提交相同内容时，提交读取权按绑定的客户端 ID 持久化，因此同一客户端轮换凭证不会丢失检测结果关联；普通 Scanner 凭证仍按凭证主体隔离，不同客户端不能读取彼此的提交。
+
 ---
 
 ## 6. 核心业务流程
