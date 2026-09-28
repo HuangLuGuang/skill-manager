@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,13 @@ func TestWindowsScheduledTaskSettings(t *testing.T) {
 		t.Skip("set AGENT_MANAGER_TEST_SCHEDULER=1 to verify real Windows Task Scheduler settings")
 	}
 	name := fmt.Sprintf("AgentManagerClientTest-%d-%d", os.Getpid(), time.Now().UnixNano())
-	if output, err := exec.Command("schtasks", "/Create", "/F", "/SC", "ONLOGON", "/TN", name, "/TR", "cmd.exe /c exit 0").CombinedOutput(); err != nil {
+	current, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := `C:\Users\测试用户`
+	script := windowsServiceRegistrationScript(name, `C:\Windows\System32\cmd.exe`, home, current.Username, false)
+	if output, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput(); err != nil {
 		t.Fatalf("create isolated task: %v %s", err, output)
 	}
 	defer func() {
@@ -23,10 +30,6 @@ func TestWindowsScheduledTaskSettings(t *testing.T) {
 			t.Errorf("remove isolated task: %v %s", err, output)
 		}
 	}()
-	script := strings.ReplaceAll(windowsServiceSettingsScript, "'AgentManagerClient'", "'"+name+"'")
-	if output, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput(); err != nil {
-		t.Fatalf("configure task: %v %s", err, output)
-	}
 	output, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Export-ScheduledTask -TaskName '"+name+"'").Output()
 	if err != nil {
 		t.Fatal(err)
@@ -43,6 +46,12 @@ func TestWindowsScheduledTaskSettings(t *testing.T) {
 				Count    int
 			}
 		}
+		Actions struct {
+			Exec struct {
+				Command   string
+				Arguments string
+			}
+		}
 	}
 	// PowerShell emits UTF-8 bytes but Export-ScheduledTask's declaration uses UTF-16.
 	text := strings.TrimPrefix(strings.TrimSpace(string(output)), "\ufeff")
@@ -53,5 +62,8 @@ func TestWindowsScheduledTaskSettings(t *testing.T) {
 	settings := task.Settings
 	if settings.ExecutionTimeLimit != "PT0S" || settings.DisallowStartIfOnBatteries || settings.StopIfGoingOnBatteries || !settings.StartWhenAvailable || settings.MultipleInstancesPolicy != "IgnoreNew" || settings.RestartOnFailure.Interval != "PT1M" || settings.RestartOnFailure.Count != 999 {
 		t.Fatalf("scheduler did not retain continuous background settings: %+v", settings)
+	}
+	if !strings.EqualFold(task.Actions.Exec.Command, `C:\Windows\System32\cmd.exe`) || task.Actions.Exec.Arguments != windowsServiceArguments(home) {
+		t.Fatalf("scheduler did not retain direct Unicode action: %+v", task.Actions.Exec)
 	}
 }

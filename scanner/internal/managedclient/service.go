@@ -2,19 +2,26 @@ package managedclient
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 )
+
+const windowsServiceTaskName = "AgentManagerClient"
 
 type ServiceState struct {
 	Installed bool   `json:"installed"`
@@ -32,6 +39,14 @@ type serviceRegistration struct {
 	Executable  string `json:"executable"`
 	SHA256      string `json:"sha256"`
 	RestartedAt string `json:"restarted_at,omitempty"`
+}
+
+type windowsScheduledTask struct {
+	Installed  bool   `json:"installed"`
+	State      string `json:"state"`
+	Execute    string `json:"execute"`
+	Arguments  string `json:"arguments"`
+	LastResult int64  `json:"last_result"`
 }
 
 func ServiceDefinition(home, executable, goos string) (string, string, error) {
@@ -75,10 +90,6 @@ RestartSec=10
 WantedBy=default.target
 `, strconv.Quote(executable), strconv.Quote(home))
 		return path, body, nil
-	case "windows":
-		path := filepath.Join(home, ".agent-manager", "agent-manager-client.cmd")
-		body := fmt.Sprintf("@echo off\r\n\"%s\" run --home \"%s\"\r\n", strings.ReplaceAll(executable, "\"", ""), strings.ReplaceAll(home, "\"", ""))
-		return path, body, nil
 	default:
 		return "", "", fmt.Errorf("service installation is not supported on %s", goos)
 	}
@@ -88,6 +99,22 @@ func InstallService(home, executable string) (string, error) {
 	executable, err := filepath.Abs(executable)
 	if err != nil {
 		return "", err
+	}
+	if runtime.GOOS == "windows" {
+		if err := os.MkdirAll(filepath.Join(home, ".agent-manager", "logs"), 0o700); err != nil {
+			return "", err
+		}
+		if err := installWindowsService(home, executable); err != nil {
+			return "", err
+		}
+		if err := writeServiceRegistration(home, executable); err != nil {
+			return "", err
+		}
+		// Legacy releases launched the Unicode install path through a
+		// UTF-8 batch file. cmd.exe decoded that file with the active OEM code
+		// page, so Chinese product or user directories exited with code 1.
+		_ = os.Remove(windowsLegacyServicePath(home))
+		return windowsServiceTaskName, nil
 	}
 	path, body, err := ServiceDefinition(home, executable, runtime.GOOS)
 	if err != nil {
@@ -125,19 +152,6 @@ func InstallService(home, executable string) (string, error) {
 		if output, err := exec.Command("systemctl", "--user", "enable", "--now", "agent-manager-client.service").CombinedOutput(); err != nil {
 			return "", fmt.Errorf("systemctl enable failed: %s", output)
 		}
-	case "windows":
-		if exec.Command("schtasks", "/End", "/TN", "AgentManagerClient").Run() == nil {
-			_ = os.Remove(filepath.Join(home, ".agent-manager", "client.lock"))
-		}
-		if output, err := exec.Command("schtasks", "/Create", "/F", "/SC", "ONLOGON", "/TN", "AgentManagerClient", "/TR", path).CombinedOutput(); err != nil {
-			return "", fmt.Errorf("schtasks create failed: %s", output)
-		}
-		if output, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", windowsServiceSettingsScript).CombinedOutput(); err != nil {
-			return "", fmt.Errorf("scheduled task settings failed: %s", output)
-		}
-		if output, err := exec.Command("schtasks", "/Run", "/TN", "AgentManagerClient").CombinedOutput(); err != nil {
-			return "", fmt.Errorf("schtasks run failed: %s", output)
-		}
 	}
 	if err := writeServiceRegistration(home, executable); err != nil {
 		return "", err
@@ -145,12 +159,146 @@ func InstallService(home, executable string) (string, error) {
 	return path, nil
 }
 
-const windowsServiceSettingsScript = `$ErrorActionPreference = 'Stop'; $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew; Set-ScheduledTask -TaskName 'AgentManagerClient' -Settings $settings | Out-Null`
+func windowsLegacyServicePath(home string) string {
+	return filepath.Join(home, ".agent-manager", "agent-manager-client.cmd")
+}
+
+func powershellLiteral(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+func windowsServiceArguments(home string) string {
+	return `run --home "` + strings.ReplaceAll(home, `"`, "") + `"`
+}
+
+func windowsServiceRegistrationScript(taskName, executable, home, username string, start bool) string {
+	startCommand := ""
+	if start {
+		startCommand = fmt.Sprintf("Start-ScheduledTask -TaskName %s;", powershellLiteral(taskName))
+	}
+	return fmt.Sprintf(
+		`[Console]::OutputEncoding = [Text.Encoding]::UTF8; $ErrorActionPreference = 'Stop'; `+
+			`Stop-ScheduledTask -TaskName %s -ErrorAction SilentlyContinue; `+
+			`$action = New-ScheduledTaskAction -Execute %s -Argument %s; `+
+			`$trigger = New-ScheduledTaskTrigger -AtLogOn -User %s; `+
+			`$principal = New-ScheduledTaskPrincipal -UserId %s -LogonType Interactive -RunLevel Limited; `+
+			`$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew; `+
+			`$task = Register-ScheduledTask -TaskName %s -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force; %s`,
+		powershellLiteral(taskName),
+		powershellLiteral(executable),
+		powershellLiteral(windowsServiceArguments(home)),
+		powershellLiteral(username),
+		powershellLiteral(username),
+		powershellLiteral(taskName),
+		startCommand,
+	)
+}
+
+func encodePowerShellCommand(script string) string {
+	units := utf16.Encode([]rune(script))
+	body := make([]byte, len(units)*2)
+	for index, unit := range units {
+		binary.LittleEndian.PutUint16(body[index*2:], unit)
+	}
+	return base64.StdEncoding.EncodeToString(body)
+}
+
+func runElevatedPowerShell(script string) ([]byte, error) {
+	encoded := encodePowerShellCommand(script)
+	launcher := fmt.Sprintf(
+		`[Console]::OutputEncoding = [Text.Encoding]::UTF8; $ErrorActionPreference = 'Stop'; `+
+			`try { $process = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -Verb RunAs -ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand',%s) -Wait -PassThru; exit $process.ExitCode } `+
+			`catch { [Console]::Error.WriteLine('windows_service_elevation_cancelled'); exit 1 }`,
+		powershellLiteral(encoded),
+	)
+	return exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", launcher).CombinedOutput()
+}
+
+func runWindowsPowerShellWithElevation(script, failureCode string) error {
+	if _, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput(); err == nil {
+		return nil
+	}
+	output, err := runElevatedPowerShell(script)
+	if err == nil {
+		return nil
+	}
+	detail := strings.TrimSpace(string(output))
+	if strings.Contains(detail, "windows_service_elevation_cancelled") {
+		return fmt.Errorf("windows_service_elevation_cancelled")
+	}
+	return errors.New(failureCode)
+}
+
+func installWindowsService(home, executable string) error {
+	if strings.ContainsAny(home+executable, "\r\n") {
+		return fmt.Errorf("windows_service_path_invalid")
+	}
+	current, err := user.Current()
+	if err != nil || strings.TrimSpace(current.Username) == "" {
+		return fmt.Errorf("windows_service_user_unavailable")
+	}
+	register := windowsServiceRegistrationScript(windowsServiceTaskName, executable, home, current.Username, false)
+	if err := runWindowsPowerShellWithElevation(register, "windows_service_registration_failed"); err != nil {
+		return err
+	}
+	_ = os.Remove(filepath.Join(home, ".agent-manager", "client.lock"))
+	start := fmt.Sprintf(
+		`[Console]::OutputEncoding = [Text.Encoding]::UTF8; $ErrorActionPreference = 'Stop'; Start-ScheduledTask -TaskName %s`,
+		powershellLiteral(windowsServiceTaskName),
+	)
+	if err := runWindowsPowerShellWithElevation(start, "windows_service_start_failed"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func queryWindowsService() (windowsScheduledTask, error) {
+	script := fmt.Sprintf(
+		`[Console]::OutputEncoding = [Text.Encoding]::UTF8; $ErrorActionPreference = 'Stop'; `+
+			`$task = Get-ScheduledTask -TaskName %s -ErrorAction SilentlyContinue; `+
+			`if ($null -eq $task) { [pscustomobject]@{installed=$false;state='';execute='';arguments='';last_result=0} | ConvertTo-Json -Compress; exit 0 }; `+
+			`$action = @($task.Actions)[0]; $lastResult = 0; try { $lastResult = [int64](Get-ScheduledTaskInfo -TaskName %s).LastTaskResult } catch {}; `+
+			`[pscustomobject]@{installed=$true;state=[string]$task.State;execute=[string]$action.Execute;arguments=[string]$action.Arguments;last_result=$lastResult} | ConvertTo-Json -Compress`,
+		powershellLiteral(windowsServiceTaskName), powershellLiteral(windowsServiceTaskName),
+	)
+	output, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
+	if err != nil {
+		return windowsScheduledTask{}, fmt.Errorf("windows_service_status_failed: %s", strings.TrimSpace(string(output)))
+	}
+	var task windowsScheduledTask
+	text := strings.TrimPrefix(strings.TrimSpace(string(output)), "\ufeff")
+	if err := json.Unmarshal([]byte(text), &task); err != nil {
+		return windowsScheduledTask{}, fmt.Errorf("windows_service_status_invalid: %w", err)
+	}
+	return task, nil
+}
+
+func windowsServiceActionMatches(home, executable string) (bool, error) {
+	task, err := queryWindowsService()
+	if err != nil || !task.Installed {
+		return false, err
+	}
+	return strings.EqualFold(filepath.Clean(task.Execute), filepath.Clean(executable)) &&
+		task.Arguments == windowsServiceArguments(home), nil
+}
+
+func removeWindowsService() error {
+	script := fmt.Sprintf(
+		`[Console]::OutputEncoding = [Text.Encoding]::UTF8; $ErrorActionPreference = 'Stop'; `+
+			`Unregister-ScheduledTask -TaskName %s -Confirm:$false -ErrorAction SilentlyContinue`,
+		powershellLiteral(windowsServiceTaskName),
+	)
+	return runWindowsPowerShellWithElevation(script, "windows_service_removal_failed")
+}
 
 func UninstallService(home string) error {
-	path, _, err := ServiceDefinition(home, "", runtime.GOOS)
-	if err != nil {
-		return err
+	path := windowsLegacyServicePath(home)
+	if runtime.GOOS != "windows" {
+		var err error
+		path, _, err = ServiceDefinition(home, "", runtime.GOOS)
+		if err != nil {
+			return err
+		}
 	}
 	switch runtime.GOOS {
 	case "darwin":
@@ -173,13 +321,17 @@ func UninstallService(home string) error {
 		}
 		_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
 	case "windows":
-		output, stopErr := exec.Command("schtasks", "/End", "/TN", "AgentManagerClient").CombinedOutput()
+		output, stopErr := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", fmt.Sprintf(
+			`Stop-ScheduledTask -TaskName %s -ErrorAction Stop`, powershellLiteral(windowsServiceTaskName),
+		)).CombinedOutput()
 		if stopErr == nil {
 			_ = os.Remove(filepath.Join(home, ".agent-manager", "client.lock"))
 		} else if ServiceStatus(home).Running {
-			return fmt.Errorf("schtasks stop failed: %s", strings.TrimSpace(string(output)))
+			return fmt.Errorf("windows_service_stop_failed: %s", strings.TrimSpace(string(output)))
 		}
-		_ = exec.Command("schtasks", "/Delete", "/F", "/TN", "AgentManagerClient").Run()
+		if err := removeWindowsService(); err != nil {
+			return err
+		}
 	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
@@ -197,12 +349,12 @@ func StopServiceForUpdate(home string) (ServiceState, error) {
 	if !state.Installed || !state.Running {
 		return state, nil
 	}
-	path, _, err := ServiceDefinition(home, "", runtime.GOOS)
-	if err != nil {
-		return state, err
-	}
 	switch runtime.GOOS {
 	case "darwin":
+		path, _, err := ServiceDefinition(home, "", runtime.GOOS)
+		if err != nil {
+			return state, err
+		}
 		domain := fmt.Sprintf("gui/%d", os.Getuid())
 		output, stopErr := exec.Command("launchctl", "bootout", domain, path).CombinedOutput()
 		if stopErr != nil {
@@ -216,8 +368,10 @@ func StopServiceForUpdate(home string) (ServiceState, error) {
 			return state, fmt.Errorf("systemctl stop failed: %s", strings.TrimSpace(string(output)))
 		}
 	case "windows":
-		if output, stopErr := exec.Command("schtasks", "/End", "/TN", "AgentManagerClient").CombinedOutput(); stopErr != nil {
-			return state, fmt.Errorf("schtasks stop failed: %s", strings.TrimSpace(string(output)))
+		if output, stopErr := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", fmt.Sprintf(
+			`Stop-ScheduledTask -TaskName %s -ErrorAction Stop`, powershellLiteral(windowsServiceTaskName),
+		)).CombinedOutput(); stopErr != nil {
+			return state, fmt.Errorf("windows_service_stop_failed: %s", strings.TrimSpace(string(output)))
 		}
 	}
 	_ = os.Remove(filepath.Join(home, ".agent-manager", "client.lock"))
@@ -335,6 +489,17 @@ func acquireServiceReconcileLock(home string) (func(), error) {
 }
 
 func ServiceStatus(home string) ServiceState {
+	if runtime.GOOS == "windows" {
+		task, err := queryWindowsService()
+		if err != nil {
+			return ServiceState{Detail: err.Error()}
+		}
+		state := ServiceState{Installed: task.Installed, Running: task.Installed && strings.EqualFold(task.State, "Running")}
+		if task.Installed && !state.Running {
+			state.Detail = fmt.Sprintf("%s; last_result=%d", task.State, task.LastResult)
+		}
+		return state
+	}
 	path, _, err := ServiceDefinition(home, "", runtime.GOOS)
 	if err != nil {
 		return ServiceState{Detail: err.Error()}
@@ -350,11 +515,6 @@ func ServiceStatus(home string) ServiceState {
 		output, err = exec.Command("launchctl", "print", fmt.Sprintf("gui/%d/com.agent-manager.client", os.Getuid())).CombinedOutput()
 	case "linux":
 		output, err = exec.Command("systemctl", "--user", "is-active", "agent-manager-client.service").CombinedOutput()
-	case "windows":
-		output, err = exec.Command(
-			"powershell", "-NoProfile", "-NonInteractive", "-Command",
-			"(Get-ScheduledTask -TaskName 'AgentManagerClient').State",
-		).CombinedOutput()
 	}
 	state.Running = serviceCommandIsRunning(runtime.GOOS, output, err)
 	if state.Running && runtime.GOOS == "darwin" && !darwinServiceDefinitionMatches(output, path) {
@@ -479,5 +639,9 @@ func serviceRegistrationMatches(home, executable string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return registration.Executable == executable && registration.SHA256 == digest, nil
+	matches := registration.Executable == executable && registration.SHA256 == digest
+	if !matches || runtime.GOOS != "windows" {
+		return matches, nil
+	}
+	return windowsServiceActionMatches(home, executable)
 }

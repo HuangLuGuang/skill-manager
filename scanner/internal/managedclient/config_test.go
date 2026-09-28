@@ -33,9 +33,31 @@ func TestConfigAndServiceDefinitions(t *testing.T) {
 	if err != nil || !strings.Contains(linuxPath, "systemd") || !strings.Contains(linuxBody, `"/opt/agent manager/client" run`) {
 		t.Fatalf("invalid Linux service: %s %s %v", linuxPath, linuxBody, err)
 	}
-	windowsPath, windowsBody, err := ServiceDefinition(home, `C:\Program Files\Agent Manager\client.exe`, "windows")
-	if err != nil || !strings.HasSuffix(windowsPath, "agent-manager-client.cmd") || !strings.Contains(windowsBody, "client.exe\"") {
-		t.Fatalf("invalid Windows service: %s %s %v", windowsPath, windowsBody, err)
+}
+
+func TestWindowsServiceRegistrationUsesDirectUnicodeAction(t *testing.T) {
+	executable := `C:\Users\测试用户\AppData\Local\智能体生命周期管理系统客户端\agent-manager-client.exe`
+	home := `C:\Users\测试用户`
+	script := windowsServiceRegistrationScript(windowsServiceTaskName, executable, home, `DESKTOP\测试用户`, true)
+	for _, expected := range []string{
+		"New-ScheduledTaskAction -Execute '" + executable + "'",
+		`-Argument 'run --home "C:\Users\测试用户"'`,
+		"New-ScheduledTaskPrincipal -UserId 'DESKTOP\\测试用户' -LogonType Interactive -RunLevel Limited",
+		"New-ScheduledTaskTrigger -AtLogOn -User 'DESKTOP\\测试用户'",
+		"Start-ScheduledTask",
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("Windows registration script missing %q: %s", expected, script)
+		}
+	}
+	if strings.Contains(strings.ToLower(script), ".cmd") {
+		t.Fatalf("Windows registration retained a batch-file action: %s", script)
+	}
+}
+
+func TestPowerShellLiteralEscapesApostrophe(t *testing.T) {
+	if got := powershellLiteral(`C:\Users\O'Brien`); got != `'C:\Users\O''Brien'` {
+		t.Fatalf("unexpected PowerShell literal %q", got)
 	}
 }
 
