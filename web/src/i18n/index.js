@@ -1051,6 +1051,9 @@ export const i18n = createI18n({
         agent: '智能体',
         credential: '调用凭证',
         credentialType: '凭证类型',
+        originalInputTokens: '原始输入 Token',
+        modelInputTokens: '发给模型输入 Token',
+        outputTokens: '输出 Token',
       },
       gatewaySkill: {
         skill: '声明 Skill',
@@ -2126,6 +2129,9 @@ export const i18n = createI18n({
         agent: 'Agent',
         credential: 'Credential',
         credentialType: 'Credential type',
+        originalInputTokens: 'Original input tokens',
+        modelInputTokens: 'Model input tokens',
+        outputTokens: 'Output tokens',
       },
       gatewaySkill: {
         skill: 'Declared Skill',

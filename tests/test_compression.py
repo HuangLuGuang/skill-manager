@@ -85,12 +85,16 @@ class TestCompressMessages:
         assert "conservative" in ALLOWED_COMPRESSION_LEVELS
         assert "aggressive" in ALLOWED_COMPRESSION_LEVELS
 
-    def test_gateway_compression_disables_ccr_placeholders(self, monkeypatch):
-        """网关压缩不应把内容替换成 ccr:* 占位符。"""
-        calls = []
-
+    def test_gateway_compression_removes_ccr_placeholders(self, monkeypatch):
+        """网关不应把无法解析的 CCR 引用发送给远程模型。"""
         class FakeResult:
-            messages = [{"role": "user", "content": "full skill content"}]
+            messages = [{
+                "role": "tool",
+                "content": (
+                    "total_records: 300\nfailed_records: 3\n"
+                    "[300 items compressed to 15. Retrieve more: hash=abc123. Expires in 5m.]"
+                ),
+            }]
             tokens_before = 100
             tokens_after = 90
             tokens_saved = 10
@@ -98,19 +102,50 @@ class TestCompressMessages:
             transforms_applied = ["fake"]
 
         def fake_compress(messages, **kwargs):
-            calls.append(kwargs)
             return FakeResult()
 
         fake_headroom = types.SimpleNamespace(compress=fake_compress)
         monkeypatch.setitem(sys.modules, "headroom", fake_headroom)
 
-        from backend.compression import compress_messages
+        from backend import compression as compression_module
 
-        result = compress_messages([{"role": "user", "content": "full skill content"}], level="auto")
+        monkeypatch.setattr(compression_module, "_count_messages", lambda messages: 50)
 
-        assert result.messages[0]["content"] == "full skill content"
-        assert calls
-        assert calls[0]["enable_ccr"] is False
+        result = compression_module.compress_messages(
+            [{"role": "tool", "content": "full tool content " * 20}],
+            level="auto",
+        )
+
+        assert "total_records: 300" in result.messages[0]["content"]
+        assert "Retrieve more" not in result.messages[0]["content"]
+        assert "gateway:ccr_marker_removed" in result.transforms_applied
+
+    def test_gateway_compression_restores_marker_only_content(self, monkeypatch):
+        """压缩结果只剩 CCR 引用时应恢复原始工具内容。"""
+        original_content = "authoritative settlement audit result " * 20
+
+        class FakeResult:
+            messages = [{"role": "tool", "content": "<<ccr:abc123 300_rows_offloaded>>"}]
+            tokens_before = 100
+            tokens_after = 10
+            tokens_saved = 90
+            compression_ratio = 0.9
+            transforms_applied = ["fake"]
+
+        fake_headroom = types.SimpleNamespace(compress=lambda messages, **kwargs: FakeResult())
+        monkeypatch.setitem(sys.modules, "headroom", fake_headroom)
+
+        from backend import compression as compression_module
+
+        monkeypatch.setattr(compression_module, "_count_messages", lambda messages: 100)
+
+        result = compression_module.compress_messages(
+            [{"role": "tool", "content": original_content}],
+            level="auto",
+        )
+
+        assert result.messages[0]["content"] == original_content
+        assert "gateway:ccr_fallback_original" in result.transforms_applied
 
 
 class TestCompressionIntegration:

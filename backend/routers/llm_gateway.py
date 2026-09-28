@@ -2664,11 +2664,33 @@ async def list_traces(
             else []
         )
     }
+    compressed_by_request_id = {
+        compressed.request_id: _json_loads(compressed.payload_json, {})
+        for compressed in (
+            db.query(models.LlmPipelineTrace)
+            .filter(
+                models.LlmPipelineTrace.request_id.in_(request_ids),
+                models.LlmPipelineTrace.stage == "compressed",
+            )
+            .all()
+            if request_ids
+            else []
+        )
+    }
     traces = []
     for row in rows:
         payload = _json_loads(row.payload_json, {})
         metric = metric_by_request_id.get(row.request_id)
         audit = audit_by_request_id.get(row.request_id)
+        compressed = compressed_by_request_id.get(row.request_id, {})
+        provider_prompt_tokens = metric.prompt_tokens if metric else payload.get("prompt_tokens", 0)
+        compression_enabled = compressed.get("enabled") is True
+        original_input_tokens = compressed.get("pre_tokens") if compression_enabled else provider_prompt_tokens
+        model_input_tokens = compressed.get("post_tokens") if compression_enabled else provider_prompt_tokens
+        if not isinstance(original_input_tokens, int) or isinstance(original_input_tokens, bool):
+            original_input_tokens = provider_prompt_tokens
+        if not isinstance(model_input_tokens, int) or isinstance(model_input_tokens, bool):
+            model_input_tokens = provider_prompt_tokens
         detected_counts = _json_loads(audit.detected_counts_json, None) if audit else None
         has_pii = (
             any(isinstance(count, int) and count > 0 for count in detected_counts.values())
@@ -2685,7 +2707,9 @@ async def list_traces(
                 "bypass_pii": row.bypass_pii,
                 "has_pii": has_pii,
                 "created_at": row.created_at.isoformat(),
-                "prompt_tokens": metric.prompt_tokens if metric else payload.get("prompt_tokens", 0),
+                "prompt_tokens": provider_prompt_tokens,
+                "original_input_tokens": original_input_tokens,
+                "model_input_tokens": model_input_tokens,
                 "completion_tokens": metric.completion_tokens if metric else payload.get("completion_tokens", 0),
                 "prompt_security_risk": payload.get("prompt_security_risk", "none"),
                 "prompt_security_action": payload.get("prompt_security_action", "off"),

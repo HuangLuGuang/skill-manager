@@ -76,3 +76,49 @@ def test_trace_list_reports_request_pii_detection_result(tmp_path):
             'bypassed': None,
             'missing-audit': None,
         }
+
+
+def test_trace_list_input_tokens_match_detail_compression_stages(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'trace-token-list.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        db.add_all([
+            models.LlmPipelineTrace(
+                request_id='compressed-request', stage='meta', tenant_id='tenant-a', conversation_id='conv-a',
+                model='test', payload_json='{}', expires_at=datetime.utcnow() + timedelta(days=1),
+            ),
+            models.LlmPipelineTrace(
+                request_id='compressed-request', stage='compressed', tenant_id='tenant-a', conversation_id='conv-a',
+                model='test', payload_json=json.dumps({
+                    'enabled': True,
+                    'pre_tokens': 38470,
+                    'post_tokens': 18103,
+                    'tokens_saved': 20367,
+                }), expires_at=datetime.utcnow() + timedelta(days=1),
+            ),
+            models.LlmUsageMetric(
+                request_id='compressed-request', tenant_id='tenant-a', conversation_id='conv-a', model='test',
+                prompt_tokens=18250, completion_tokens=100, total_tokens=18350,
+            ),
+            models.LlmPipelineTrace(
+                request_id='plain-request', stage='meta', tenant_id='tenant-a', conversation_id='conv-b',
+                model='test', payload_json='{}', expires_at=datetime.utcnow() + timedelta(days=1),
+            ),
+            models.LlmUsageMetric(
+                request_id='plain-request', tenant_id='tenant-a', conversation_id='conv-b', model='test',
+                prompt_tokens=700, completion_tokens=50, total_tokens=750,
+            ),
+        ])
+        db.commit()
+
+        result = asyncio.run(list_traces(db=db, current_user=None))
+        by_id = {trace['request_id']: trace for trace in result['traces']}
+        assert by_id['compressed-request']['prompt_tokens'] == 18250
+        assert by_id['compressed-request']['original_input_tokens'] == 38470
+        assert by_id['compressed-request']['model_input_tokens'] == 18103
+        assert by_id['plain-request']['original_input_tokens'] == 700
+        assert by_id['plain-request']['model_input_tokens'] == 700
+
+        detail = asyncio.run(get_trace_detail('compressed-request', db=db, current_user=None))
+        assert by_id['compressed-request']['original_input_tokens'] == detail['stages']['compressed']['pre_tokens']
+        assert by_id['compressed-request']['model_input_tokens'] == detail['stages']['compressed']['post_tokens']

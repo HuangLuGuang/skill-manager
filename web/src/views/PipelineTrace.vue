@@ -128,9 +128,9 @@
           <a-descriptions-item :label="$t('legacy.j2g9ts')">{{ formatMs(detail.stages.meta.upstream_duration_ms) }}</a-descriptions-item>
           <a-descriptions-item :label="$t('legacy.1yz91un')">{{ formatMs(detail.stages.meta.platform_duration_ms) }}</a-descriptions-item>
           <a-descriptions-item :label="$t('legacy.5h548n')">{{ promptSecuritySummary(detail.stages.meta) }}</a-descriptions-item>
-          <a-descriptions-item :label="$t('legacy.1dzteri')">{{ formatNumber(originalInputTokens) }}</a-descriptions-item>
-          <a-descriptions-item :label="$t('legacy.3xj6sq')">{{ formatNumber(modelInputTokens) }}</a-descriptions-item>
-          <a-descriptions-item :label="$t('legacy.k6sqb1')">{{ formatNumber(detail.stages.meta.completion_tokens) }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('pipelineTrace.originalInputTokens')">{{ formatNumber(originalInputTokens) }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('pipelineTrace.modelInputTokens')">{{ formatNumber(modelInputTokens) }}</a-descriptions-item>
+          <a-descriptions-item :label="$t('pipelineTrace.outputTokens')">{{ formatNumber(detail.stages.meta.completion_tokens) }}</a-descriptions-item>
         </a-descriptions>
 
         <a-alert
@@ -237,18 +237,20 @@ const allTraceColumns = computed(() => [
   { title: phrase('legacy.1yz91un'), dataIndex: 'platform_duration_ms', width: 125, customRender: ({ text }) => formatMs(text) },
   { title: phrase('legacy.5h548n'), key: 'prompt_security', width: 130 },
   { title: t('pipelineTrace.privacyData'), key: 'has_pii', width: 125 },
-  { title: phrase('legacy.1qtojr9'), dataIndex: 'prompt_tokens', width: 75, customRender: ({ text }) => formatNumber(text) },
-  { title: phrase('legacy.w0yvd4'), dataIndex: 'completion_tokens', width: 75, customRender: ({ text }) => formatNumber(text) },
+  { title: t('pipelineTrace.originalInputTokens'), dataIndex: 'original_input_tokens', width: 105, customRender: ({ text }) => formatNumber(text) },
+  { title: t('pipelineTrace.modelInputTokens'), dataIndex: 'model_input_tokens', width: 105, customRender: ({ text }) => formatNumber(text) },
+  { title: t('pipelineTrace.outputTokens'), dataIndex: 'completion_tokens', width: 85, customRender: ({ text }) => formatNumber(text) },
   { title: phrase('legacy.anh4cj'), key: 'type', width: 115 },
   { title: 'Request ID', key: 'request_id', width: 125 },
 ].map(column => ({ ...column, key: column.key || column.dataIndex, ellipsis: true })))
-const defaultTraceColumns = ['created_at', 'api_key_username', 'agent', 'model', 'request_duration_ms', 'prompt_security', 'has_pii', 'prompt_tokens', 'completion_tokens']
+const defaultTraceColumns = ['created_at', 'api_key_username', 'agent', 'model', 'request_duration_ms', 'prompt_security', 'has_pii', 'original_input_tokens', 'model_input_tokens', 'completion_tokens']
 const columnStorageKey = `pipeline-trace-visible-columns:${localStorage.getItem('username') || 'default'}`
 const readTraceColumns = () => {
   try {
     const saved = JSON.parse(localStorage.getItem(columnStorageKey))
     if (Array.isArray(saved)) {
-      const valid = allTraceColumns.value.filter(column => saved.includes(column.key)).map(column => column.key)
+      const migrated = saved.flatMap(key => key === 'prompt_tokens' ? ['original_input_tokens', 'model_input_tokens'] : [key])
+      const valid = allTraceColumns.value.filter(column => migrated.includes(column.key)).map(column => column.key)
       if (valid.length) return valid
     }
   } catch { /* Browser storage may be unavailable or contain invalid JSON. */ }
