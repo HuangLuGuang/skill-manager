@@ -375,6 +375,8 @@ Agent 强授权模式下，列表只显示该本机 Agent 自动登记身份允�
 
 桌面客户端连接后自动配置当前用户级后台服务：macOS 使用 LaunchAgent，Linux 使用 systemd user service，Windows 使用登录计划任务。Windows 计划任务直接保存后台 EXE 和启动参数，不经过批处理文件，因此中文用户名和中文安装目录不会受 `cmd.exe` 代码页影响；创建、修复或删除任务需要系统授权时仅对任务注册操作请求 UAC，后台进程仍以当前登录用户的受限权限运行。旧版本生成的 `~/.agent-manager/agent-manager-client.cmd` 会在新任务成功启动后移除。可在“设置 → 后台运行 → 查看运行诊断”核对服务状态并立即执行巡检。停止后台服务会同时停止平台任务同步。
 
+Windows 正式安装包将桌面主程序和内置后台程序构建为 GUI 子系统：桌面调用仍通过管道读取命令结果，登录计划任务在后台静默运行，不显示额外控制台窗口。开发调试构建保留桌面控制台，便于排查启动日志。
+
 ```bash
 ./agent-manager-client-darwin-arm64 install-service
 ./agent-manager-client-darwin-arm64 service-status

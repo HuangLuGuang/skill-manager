@@ -15,8 +15,10 @@ const goarch = arch === 'aarch64' ? 'arm64' : arch === 'x86_64' ? 'amd64' : arch
 const suffix = goos === 'windows' ? '.exe' : ''
 const output = resolve(root, 'client/desktop/src-tauri/bin', `agent-manager-client-${target}${suffix}`)
 const version = (process.env.AGENT_MANAGER_CLIENT_VERSION || 'dev').replace(/^client-v/, '').replace(/^v/, '')
+const linkerFlags = [`-X skill-manager/scanner/internal/managedclient.Version=${version}`]
+if (goos === 'windows') linkerFlags.unshift('-H=windowsgui')
 mkdirSync(dirname(output), { recursive: true })
-execFileSync('go', ['build', '-ldflags', `-X skill-manager/scanner/internal/managedclient.Version=${version}`, '-o', output, './cmd/agent-manager-client'], {
+execFileSync('go', ['build', '-ldflags', linkerFlags.join(' '), '-o', output, './cmd/agent-manager-client'], {
   cwd: resolve(root, 'scanner'),
   env: {
     ...process.env,
