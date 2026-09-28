@@ -832,7 +832,7 @@ func installApprovedSkillVersionWithPackage(ctx context.Context, home string, in
 	if err := checkInstallTarget(currentAlias, aliasBeforeDownload); err != nil {
 		return err
 	}
-	if before, exists := aliasBeforeDownload[currentAlias]; exists && before.mode.IsDir() {
+	if before, exists := aliasBeforeDownload[currentAlias]; exists && before.mode.IsDir() && before.signature != manifest.ContentSignature {
 		backup, err := retainInstallBackup(home, currentAlias, link, agentType, manifest.Name, policyVersion)
 		if err != nil {
 			return err
@@ -892,17 +892,15 @@ func installApprovedSkillVersionWithPackage(ctx context.Context, home string, in
 		if err := removeInstallAlias(currentAlias, aliasBeforeDownload); err != nil {
 			return err
 		}
-		if err := os.Symlink(target, currentAlias); err != nil {
+		if err := createManagedPath(target, currentAlias, managedAliasCopyFallback); err != nil {
 			return err
 		}
 	}
 	if err := os.RemoveAll(link); err != nil {
 		return err
 	}
-	if err := os.Symlink(target, link); err != nil {
-		if err := copyDir(target, link); err != nil {
-			return err
-		}
+	if err := createManagedPath(target, link, true); err != nil {
+		return err
 	}
 	if err := store.SaveInstall(Installation{
 		AgentType:      agentType,

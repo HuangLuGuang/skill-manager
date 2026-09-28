@@ -203,19 +203,25 @@ func encodePowerShellCommand(script string) string {
 	return base64.StdEncoding.EncodeToString(body)
 }
 
+func windowsPowerShellCommand(script string) *exec.Cmd {
+	return configureWindowsCommand(exec.Command(
+		"powershell", "-NoProfile", "-NonInteractive", "-Command", script,
+	))
+}
+
 func runElevatedPowerShell(script string) ([]byte, error) {
 	encoded := encodePowerShellCommand(script)
 	launcher := fmt.Sprintf(
 		`[Console]::OutputEncoding = [Text.Encoding]::UTF8; $ErrorActionPreference = 'Stop'; `+
-			`try { $process = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -Verb RunAs -ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand',%s) -Wait -PassThru; exit $process.ExitCode } `+
+			`try { $process = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -Verb RunAs -WindowStyle Hidden -ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand',%s) -Wait -PassThru; exit $process.ExitCode } `+
 			`catch { [Console]::Error.WriteLine('windows_service_elevation_cancelled'); exit 1 }`,
 		powershellLiteral(encoded),
 	)
-	return exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", launcher).CombinedOutput()
+	return windowsPowerShellCommand(launcher).CombinedOutput()
 }
 
 func runWindowsPowerShellWithElevation(script, failureCode string) error {
-	if _, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput(); err == nil {
+	if _, err := windowsPowerShellCommand(script).CombinedOutput(); err == nil {
 		return nil
 	}
 	output, err := runElevatedPowerShell(script)
@@ -261,7 +267,7 @@ func queryWindowsService() (windowsScheduledTask, error) {
 			`[pscustomobject]@{installed=$true;state=[string]$task.State;execute=[string]$action.Execute;arguments=[string]$action.Arguments;last_result=$lastResult} | ConvertTo-Json -Compress`,
 		powershellLiteral(windowsServiceTaskName), powershellLiteral(windowsServiceTaskName),
 	)
-	output, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
+	output, err := windowsPowerShellCommand(script).CombinedOutput()
 	if err != nil {
 		return windowsScheduledTask{}, fmt.Errorf("windows_service_status_failed: %s", strings.TrimSpace(string(output)))
 	}
@@ -321,7 +327,7 @@ func UninstallService(home string) error {
 		}
 		_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
 	case "windows":
-		output, stopErr := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", fmt.Sprintf(
+		output, stopErr := windowsPowerShellCommand(fmt.Sprintf(
 			`Stop-ScheduledTask -TaskName %s -ErrorAction Stop`, powershellLiteral(windowsServiceTaskName),
 		)).CombinedOutput()
 		if stopErr == nil {
@@ -368,7 +374,7 @@ func StopServiceForUpdate(home string) (ServiceState, error) {
 			return state, fmt.Errorf("systemctl stop failed: %s", strings.TrimSpace(string(output)))
 		}
 	case "windows":
-		if output, stopErr := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", fmt.Sprintf(
+		if output, stopErr := windowsPowerShellCommand(fmt.Sprintf(
 			`Stop-ScheduledTask -TaskName %s -ErrorAction Stop`, powershellLiteral(windowsServiceTaskName),
 		)).CombinedOutput(); stopErr != nil {
 			return state, fmt.Errorf("windows_service_stop_failed: %s", strings.TrimSpace(string(output)))

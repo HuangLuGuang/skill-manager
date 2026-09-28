@@ -90,6 +90,55 @@ func TestInstallRetainsLegacyReleaseDirectory(t *testing.T) {
 	}
 }
 
+func TestInstallReplacesTrustedManagedAliasDirectoryWithoutBackup(t *testing.T) {
+	home := t.TempDir()
+	skillsRoot := filepath.Join(home, ".codex", "skills")
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageBody := signedPackage(t, private)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/package") {
+			_, _ = w.Write(packageBody)
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	store, err := OpenStore(filepath.Join(home, ".agent-manager", "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	inventory := Inventory{ClientID: "host", Agents: []Agent{{AgentType: "codex", SkillsPath: skillsRoot, SkillManagementSupported: true}}}
+	policy := Policy{ReleasePublicKey: base64.StdEncoding.EncodeToString(public)}
+	api := NewAPI(server.URL, "token", time.Second)
+	if err := InstallApprovedSkill(context.Background(), home, inventory, policy, api, store, "codex", "", "skill-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	target := filepath.Join(ManagedSkillsRoot(home), "skill-1", "versions", "skill-1", "release")
+	alias := filepath.Join(ManagedSkillsRoot(home), "skill-1", "release")
+	if err := os.RemoveAll(alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyDir(target, alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallApprovedSkill(context.Background(), home, inventory, policy, api, store, "codex", "", "skill-1"); err != nil {
+		t.Fatal(err)
+	}
+	backups, err := ListBackups(home)
+	if err != nil || len(backups) != 0 {
+		t.Fatalf("trusted managed alias copy was treated as user content: %#v %v", backups, err)
+	}
+	installs, err := store.Installations()
+	if err != nil || len(installs) != 1 || !verifyInstalled(installs[0]) {
+		t.Fatalf("reinstalled Skill did not keep a valid content baseline: %#v %v", installs, err)
+	}
+}
+
 func TestQueuedInstallAdoptsSameContentFromPreviousManagedIdentity(t *testing.T) {
 	home := t.TempDir()
 	skillsRoot := filepath.Join(home, ".codex", "skills")

@@ -18,7 +18,7 @@ import (
 func prepareOpenCodeProbe(ctx context.Context, home, binary string) error {
 	versionCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	command := exec.CommandContext(versionCtx, binary, "--version")
+	command := configureWindowsCommand(exec.CommandContext(versionCtx, binary, "--version"))
 	command.Env = modelProbeEnvironment(home)
 	output, err := command.Output()
 	if err != nil || strings.TrimSpace(string(output)) != "1.1.51" {

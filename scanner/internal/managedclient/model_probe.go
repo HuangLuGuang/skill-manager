@@ -235,7 +235,7 @@ func VerifyModelConfig(ctx context.Context, home, kind, localID string, api API,
 	if kind == "codex" {
 		args = append([]string{"-c", "model_instructions_file=" + strconv.Quote(instructions)}, args...)
 	}
-	command := exec.CommandContext(probeCtx, binary, args...)
+	command := configureWindowsCommand(exec.CommandContext(probeCtx, binary, args...))
 	// Native context builders inspect the working directory. Keep it empty
 	// and separate from the home containing runtime credentials.
 	command.Dir = workspace

@@ -25,7 +25,8 @@ func discoverModelVersion(home, kind, binary string) string {
 	if kind == "claude-desktop" && runtime.GOOS == "darwin" && info.IsDir() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		output, err := exec.CommandContext(ctx, "/usr/bin/plutil", "-extract", "CFBundleShortVersionString", "raw", "-o", "-", filepath.Join(binary, "Contents", "Info.plist")).Output()
+		command := configureWindowsCommand(exec.CommandContext(ctx, "/usr/bin/plutil", "-extract", "CFBundleShortVersionString", "raw", "-o", "-", filepath.Join(binary, "Contents", "Info.plist")))
+		output, err := command.Output()
 		if err != nil {
 			return ""
 		}
@@ -53,7 +54,7 @@ func discoverModelVersion(home, kind, binary string) string {
 	defer os.RemoveAll(isolated)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, binary, "--version")
+	cmd := configureWindowsCommand(exec.CommandContext(ctx, binary, "--version"))
 	cmd.Dir = isolated
 	cmd.Env = modelProbeEnvironment(isolated)
 	output, err := cmd.CombinedOutput()
