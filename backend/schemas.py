@@ -983,6 +983,7 @@ class ClientInventoryRequest(BaseModel):
 
 
 class ClientEventCreate(BaseModel):
+    delivery_id: Optional[str] = Field(default=None, pattern="^[0-9a-f]{32}$")
     event_type: str
     agent_type: Optional[str] = None
     skill_name: Optional[str] = None

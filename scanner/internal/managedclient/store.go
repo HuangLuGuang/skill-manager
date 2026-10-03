@@ -208,6 +208,10 @@ func OpenStore(path string) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{db: db, root: filepath.Dir(path)}
+	if err := store.initEventQueue(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := store.migrateRepeatedGovernanceNotifications(); err != nil {
 		db.Close()
 		return nil, err
@@ -1142,9 +1146,8 @@ func (store *Store) ResetForConnectionChange() error {
 	if _, err := tx.Exec(`DELETE FROM client_scan_history`); err != nil {
 		return err
 	}
-	// Events produced for the previous platform must never be replayed to the
-	// newly configured platform.
-	if _, err := tx.Exec(`DELETE FROM client_events_queue`); err != nil {
+	// Keep queued evidence bound to its original platform across switching.
+	if _, err := tx.Exec(`DELETE FROM client_state WHERE key LIKE 'events:epoch:%'`); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(
@@ -1167,63 +1170,15 @@ func (store *Store) ResetForConnectionChange() error {
 }
 
 type QueuedEvent struct {
-	ID        int64
-	CreatedAt string
-	ClientID  string
-	EventType string
-	AgentType string
-	SkillName string
-	Details   map[string]any
-}
-
-func (store *Store) QueueEvent(event QueuedEvent) error {
-	details, err := json.Marshal(event.Details)
-	if err != nil {
-		return err
-	}
-	_, err = store.db.Exec(
-		`INSERT INTO client_events_queue(client_id, event_type, agent_type, skill_name, details_json, created_at)
-		 VALUES(?, ?, ?, ?, ?, ?)`,
-		event.ClientID, event.EventType, event.AgentType, event.SkillName, string(details), time.Now().UTC().Format(time.RFC3339Nano),
-	)
-	return err
-}
-
-func (store *Store) QueuedEvents() ([]QueuedEvent, error) {
-	rows, err := store.db.Query(
-		`SELECT id, client_id, event_type, agent_type, skill_name, details_json, created_at
-		 FROM client_events_queue ORDER BY id LIMIT 500`,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	result := []QueuedEvent{}
-	for rows.Next() {
-		var item QueuedEvent
-		var agentType, skillName sql.NullString
-		var details string
-		if err := rows.Scan(&item.ID, &item.ClientID, &item.EventType, &agentType, &skillName, &details, &item.CreatedAt); err != nil {
-			return nil, err
-		}
-		item.AgentType, item.SkillName = agentType.String, skillName.String
-		if err := json.Unmarshal([]byte(details), &item.Details); err != nil {
-			return nil, err
-		}
-		if item.Details == nil {
-			item.Details = map[string]any{}
-		}
-		if _, exists := item.Details["last_seen_at"]; !exists {
-			item.Details["last_seen_at"] = item.CreatedAt
-		}
-		result = append(result, item)
-	}
-	return result, rows.Err()
-}
-
-func (store *Store) DeleteQueuedEvent(id int64) error {
-	_, err := store.db.Exec(`DELETE FROM client_events_queue WHERE id = ?`, id)
-	return err
+	ID         int64
+	CreatedAt  string
+	ClientID   string
+	EventType  string
+	AgentType  string
+	SkillName  string
+	Details    map[string]any
+	Server     string
+	DeliveryID string
 }
 
 func (store *Store) SaveTakeoverScope(selected, excluded []string) error {

@@ -302,13 +302,14 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 					"path": skill.Path, "signature": skill.Signature, "trigger": value.Trigger, "action": value.Action,
 					"policy_version": value.PolicyVersion, "event_key": observationKey(skill.Path) + ":" + actionKey,
 					"observation_count": value.Count, "last_seen_at": value.LastSeenAt,
+					"action_status": value.ActionStatus, "error_code": value.ErrorCode,
 				}
 				var err error
 				if !online || value.Action == "quarantine" || value.Action == "uninstall" || value.Action == "restore_trusted" {
 					// Persist detection evidence before touching the filesystem, but
 					// do not let a slow platform round trip gate enforcement. The
 					// regular event flush uploads this evidence afterward.
-					err = queueEventWithLocalNotification(store, inventory.ClientID, eventType, agent.AgentType, skill.Name, details, notifyDetection)
+					err = queueEventWithLocalNotification(store, api.server, inventory.ClientID, eventType, agent.AgentType, skill.Name, details, notifyDetection)
 				} else {
 					err = reportEventWithLocalNotification(ctx, api, store, inventory.ClientID, eventType, agent.AgentType, skill.Name, details, notifyDetection)
 				}
@@ -372,7 +373,7 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 						"quarantine_ids_by_path": recoveryIDs,
 					}
 					if !online || value.Action == "quarantine" || value.Action == "uninstall" || value.Action == "restore_trusted" {
-						_ = queueEventWithLocalNotification(store, inventory.ClientID, "skill_governance_action", agent.AgentType, skill.Name, actionDetails, notifyAction)
+						_ = queueEventWithLocalNotification(store, api.server, inventory.ClientID, "skill_governance_action", agent.AgentType, skill.Name, actionDetails, notifyAction)
 					} else {
 						_ = reportEventWithLocalNotification(ctx, api, store, inventory.ClientID, "skill_governance_action", agent.AgentType, skill.Name, actionDetails, notifyAction)
 					}
@@ -701,8 +702,8 @@ func executeObservedTask(ctx context.Context, home string, policy Policy, api AP
 
 // ExecuteImmediateSkillAction applies a fast local remediation after the
 // caller has confirmed the current content signature. The resulting
-// governance event is reported immediately when online or queued by
-// reportEvent for the next successful sync.
+// governance event is persisted locally and delivered by the paced ordinary
+// event sender.
 func ExecuteImmediateSkillAction(ctx context.Context, home string, api API, store *Store, request SkillActionRequest, actor string) error {
 	if request.Action != "uninstall" && request.Action != "quarantine" {
 		return fmt.Errorf("immediate_skill_action_unsupported")

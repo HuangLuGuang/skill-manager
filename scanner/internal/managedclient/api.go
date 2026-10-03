@@ -13,9 +13,10 @@ import (
 )
 
 type API struct {
-	server string
-	token  string
-	http   *http.Client
+	server      string
+	token       string
+	http        *http.Client
+	eventsStore *Store
 }
 
 type AgentCredential struct {
@@ -47,15 +48,16 @@ type CompareItem struct {
 }
 
 type Policy struct {
-	AgentDiscovery   *DiscoveryCatalog     `json:"agent_discovery,omitempty"`
-	Classification   *ClassificationPolicy `json:"classification,omitempty"`
-	Mode             string                `json:"mode"`
-	GovernanceMode   string                `json:"governance_mode"`
-	LightScanSeconds int                   `json:"light_scan_seconds"`
-	FullScanSeconds  int                   `json:"full_scan_seconds"`
-	ReleasePublicKey string                `json:"release_public_key"`
-	AgentBindings    map[string]string     `json:"agent_bindings"`
-	AgentProfiles    []AgentProfile        `json:"agent_profiles,omitempty"`
+	OrdinaryEventsProtocol int                   `json:"ordinary_events_protocol,omitempty"`
+	AgentDiscovery         *DiscoveryCatalog     `json:"agent_discovery,omitempty"`
+	Classification         *ClassificationPolicy `json:"classification,omitempty"`
+	Mode                   string                `json:"mode"`
+	GovernanceMode         string                `json:"governance_mode"`
+	LightScanSeconds       int                   `json:"light_scan_seconds"`
+	FullScanSeconds        int                   `json:"full_scan_seconds"`
+	ReleasePublicKey       string                `json:"release_public_key"`
+	AgentBindings          map[string]string     `json:"agent_bindings"`
+	AgentProfiles          []AgentProfile        `json:"agent_profiles,omitempty"`
 }
 
 type AgentProfile struct {
@@ -351,21 +353,7 @@ func (api API) RequestModelConfiguration(ctx context.Context, clientID, localAge
 }
 
 func (api API) ReportEvent(ctx context.Context, clientID, eventType, agentType, skillName string, details map[string]any) error {
-	if details == nil {
-		details = map[string]any{}
-	}
-	count := details["observation_count"]
-	if count == nil {
-		count = 1
-	}
-	return api.post(ctx, "/api/v1/clients/"+clientID+"/events", map[string]any{
-		"event_type":        eventType,
-		"agent_type":        agentType,
-		"skill_name":        skillName,
-		"details":           details,
-		"observation_count": count,
-		"observed_at":       details["last_seen_at"],
-	})
+	return api.sendOrdinaryEvent(ctx, QueuedEvent{ClientID: clientID, EventType: eventType, AgentType: agentType, SkillName: skillName, Details: details})
 }
 
 func (api API) ReportTakeover(ctx context.Context, clientID, backup string, managedCount, pendingCount int) error {

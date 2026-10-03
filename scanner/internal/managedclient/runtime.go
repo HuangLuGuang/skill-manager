@@ -55,9 +55,7 @@ func runOnce(ctx context.Context, home string, api API, store *Store, forceFullS
 			if err := store.SetState("policy", string(body)); err != nil {
 				return err
 			}
-			if err := flushEvents(ctx, api, store); err != nil {
-				online = false
-			}
+			_ = flushEvents(ctx, api, store)
 		}
 	}
 	discoveryAfter, _ := json.Marshal(discoveryCatalog(home))
@@ -1608,17 +1606,24 @@ func reportEventWithLocalNotification(ctx context.Context, api API, store *Store
 	if err != nil {
 		return err
 	}
-	if err := api.ReportEvent(ctx, clientID, eventType, agentType, skillName, event.Details); err == nil {
+	event.Server = api.server
+	if err := store.QueueEvent(event); err != nil {
+		return err
+	}
+	// Continuous observations are drained by the event worker, allowing coalescing.
+	if observationIdentity(event) != "" {
 		return nil
 	}
-	return store.QueueEvent(event)
+	_ = flushEventsLimit(ctx, api, store, 2)
+	return nil
 }
 
-func queueEventWithLocalNotification(store *Store, clientID, eventType, agentType, skillName string, details map[string]any, notifyLocal bool) error {
+func queueEventWithLocalNotification(store *Store, server, clientID, eventType, agentType, skillName string, details map[string]any, notifyLocal bool) error {
 	event, err := recordEventLocally(store, clientID, eventType, agentType, skillName, details, notifyLocal)
 	if err != nil {
 		return err
 	}
+	event.Server = server
 	return store.QueueEvent(event)
 }
 
@@ -1644,19 +1649,7 @@ func recordEventLocally(store *Store, clientID, eventType, agentType, skillName 
 }
 
 func flushEvents(ctx context.Context, api API, store *Store) error {
-	items, err := store.QueuedEvents()
-	if err != nil {
-		return err
-	}
-	for _, item := range items {
-		if err := api.ReportEvent(ctx, item.ClientID, item.EventType, item.AgentType, item.SkillName, item.Details); err != nil {
-			return err
-		}
-		if err := store.DeleteQueuedEvent(item.ID); err != nil {
-			return err
-		}
-	}
-	return nil
+	return flushEventsLimit(ctx, api, store, 20)
 }
 
 func installPathPresent(install Installation) bool {

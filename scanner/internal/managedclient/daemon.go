@@ -283,7 +283,9 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 				request, cancel := context.WithTimeout(ctx, 30*time.Second)
 				err := callback(request)
 				cancel()
-				syncError(store, kind, err)
+				if kind != "events" {
+					syncError(store, kind, err)
+				}
 				select {
 				case <-ctx.Done():
 					return
@@ -299,8 +301,9 @@ func RunDaemon(ctx context.Context, home string, api API, store *Store, interval
 	periodic(heartbeatInterval, "heartbeat", func(request context.Context) error { return heartbeatOnce(request, home, api, store) })
 	periodic(10*time.Second, "task_reports", func(request context.Context) error {
 		taskErr := flushTaskResults(request, clientIDForHome(home), api, store)
-		return errors.Join(taskErr, flushEvents(request, api, store))
+		return taskErr
 	})
+	periodic(time.Second, "events", func(request context.Context) error { return flushEvents(request, api, store) })
 	workers.Add(1)
 	go func() {
 		defer workers.Done()

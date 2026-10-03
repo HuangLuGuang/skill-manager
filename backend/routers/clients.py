@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Query, Request, Response
+from backend.client_event_delivery import save_delivery
 from backend import client_discovery, client_governance, client_skill_actions
 from backend.model_switch import AGENTS as MODEL_ADAPTERS, validate_options as validate_model_options, validate_parameter_version, contract_for_version, validate_effective_parameters, reported_model_parameters
 from backend.client_task_notifications import task_hub
@@ -937,6 +938,7 @@ def _client_policy_response(db: Session, row: models.ManagedClient) -> dict:
         "light_scan_seconds": 300,
         "full_scan_seconds": 1800,
         "release_public_key": public_key_base64(),
+        "ordinary_events_protocol": 1,
         "agent_bindings": {
             binding.agent_type: binding.managed_agent_id
             for binding in bindings
@@ -1448,22 +1450,28 @@ def report_event(
     values = dict(client_id=client_id, event_type=body.event_type, agent_type=body.agent_type,
                   skill_name=body.skill_name, details_json=_dump(body.details),
                   observation_count=body.observation_count, last_seen_at=observed_at)
-    aggregate = body.event_type in {"skill_governance_recorded", "skill_governance_detected", "skill_governance_action"} and body.details.get("path") and body.details.get("signature")
-    if aggregate:
-        identity = [client_id, body.event_type, *[body.details.get(key) for key in
-                    ("path", "signature", "trigger", "policy_version", "action", "status", "error_code", "task_id")]]
-        key = hashlib.sha256(_dump(identity).encode()).hexdigest()
-        statement = sqlite_insert(models.ClientEvent).values(**values, aggregate_key=key)
-        statement = statement.on_conflict_do_update(index_elements=[models.ClientEvent.aggregate_key], set_={
-            "observation_count": func.max(models.ClientEvent.observation_count, statement.excluded.observation_count),
-            "last_seen_at": func.max(models.ClientEvent.last_seen_at, statement.excluded.last_seen_at),
-            "details_json": case((statement.excluded.last_seen_at >= models.ClientEvent.last_seen_at, statement.excluded.details_json), else_=models.ClientEvent.details_json),
-        })
-        db.execute(statement)
-        row = db.query(models.ClientEvent).filter_by(aggregate_key=key).one()
+    if body.delivery_id:
+        row, replay = save_delivery(db, client_id, body, observed_at)
+        if replay:
+            db.commit()
+            return {"ok": True, "event_id": row.id, "delivery_id": body.delivery_id, "durable": True}
     else:
-        row = models.ClientEvent(**values)
-        db.add(row)
+        aggregate = body.event_type in {"skill_governance_recorded", "skill_governance_detected", "skill_governance_action"} and body.details.get("path") and body.details.get("signature")
+        if aggregate:
+            identity = [client_id, body.event_type, *[body.details.get(key) for key in
+                        ("path", "signature", "trigger", "policy_version", "action", "status", "error_code", "task_id")]]
+            key = hashlib.sha256(_dump(identity).encode()).hexdigest()
+            statement = sqlite_insert(models.ClientEvent).values(**values, aggregate_key=key)
+            statement = statement.on_conflict_do_update(index_elements=[models.ClientEvent.aggregate_key], set_={
+                "observation_count": func.max(models.ClientEvent.observation_count, statement.excluded.observation_count),
+                "last_seen_at": func.max(models.ClientEvent.last_seen_at, statement.excluded.last_seen_at),
+                "details_json": case((statement.excluded.last_seen_at >= models.ClientEvent.last_seen_at, statement.excluded.details_json), else_=models.ClientEvent.details_json),
+            })
+            db.execute(statement)
+            row = db.query(models.ClientEvent).filter_by(aggregate_key=key).one()
+        else:
+            row = models.ClientEvent(**values)
+            db.add(row)
     db.commit()
     db.refresh(row)
     details = {
@@ -1488,7 +1496,7 @@ def report_event(
         )
     except sqlite3.OperationalError as exc:
         logger.warning("Could not project client event %s into audit: %s", row.id, exc)
-    return {"ok": True, "event_id": row.id}
+    return {"ok": True, "event_id": row.id, **({"delivery_id": body.delivery_id, "durable": True} if body.delivery_id else {})}
 
 
 @router.post("/{client_id}/takeover-report")
