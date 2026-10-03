@@ -420,6 +420,7 @@ func RecordDesktopDiagnostic(home string, data []byte) error {
 		DurationMS  int64    `json:"duration_ms"`
 		Outcome     string   `json:"outcome"`
 		ErrorCode   string   `json:"error_code"`
+		Path        string   `json:"path"`
 		Partitions  []string `json:"partitions"`
 	}
 	if err := json.Unmarshal(data, &input); err != nil {
@@ -429,6 +430,7 @@ func RecordDesktopDiagnostic(home string, data []byte) error {
 		"script_error": true, "unhandled_rejection": true, "started": true,
 		"desktop_state_event_received": true, "desktop_snapshot_refreshed": true,
 		"desktop_snapshot_refresh_failed": true, "platform_event_ignored": true,
+		"path_open_finished": true,
 	}
 	if !allowedEvents[input.Event] {
 		return fmt.Errorf("diagnostics_invalid_record")
@@ -440,6 +442,9 @@ func RecordDesktopDiagnostic(home string, data []byte) error {
 	if input.Event == "started" {
 		level = "info"
 	}
+	if input.Event == "path_open_finished" && input.Outcome == "failed" {
+		level = "error"
+	}
 	fields := map[string]any{"message": input.Message, "count": input.Count, "first_at": input.FirstAt, "desktop_version": input.Version}
 	if input.Revision != nil {
 		fields["revision"] = input.Revision
@@ -450,7 +455,7 @@ func RecordDesktopDiagnostic(home string, data []byte) error {
 	if input.ActivePanel != "" {
 		fields["active_panel"] = input.ActivePanel
 	}
-	if input.DurationMS > 0 {
+	if input.DurationMS > 0 || input.Event == "path_open_finished" {
 		fields["duration_ms"] = input.DurationMS
 	}
 	if input.Outcome != "" {
@@ -458,6 +463,9 @@ func RecordDesktopDiagnostic(home string, data []byte) error {
 	}
 	if input.ErrorCode != "" {
 		fields["error_code"] = input.ErrorCode
+	}
+	if input.Event == "path_open_finished" && input.Path != "" {
+		fields["path"] = input.Path
 	}
 	if input.Partitions != nil {
 		fields["partitions"] = input.Partitions

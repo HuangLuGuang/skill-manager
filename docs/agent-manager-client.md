@@ -102,6 +102,10 @@ Agent、类型、结果和最近发生时间。切换到执行记录会重新加
 
 客户端不提供通知提示音设置。
 
+点击 Agent/Skill 路径、打开日志或数据目录时，Windows 客户端通过系统 Shell API 打开目录；文件路径会打开所在目录并选中文件。客户端按 Shell API 的请求结果返回状态。诊断包的 `runtime.jsonl` 中，`path_open_finished` 记录目标路径、耗时、`accepted`（系统已接受请求）或 `failed`、稳定错误码和原始系统错误信息；`accepted` 不表示已经观察到目录窗口显示。
+
+**English:** On Windows, Agent/Skill paths and the log/data directory actions use the system Shell API. File paths reveal and select the file in its parent folder. The `path_open_finished` diagnostic event records the target path, duration, request outcome (`accepted` or `failed`), stable error code and original system error details. `accepted` means the Shell accepted the request; it does not confirm that a folder window was observed.
+
 同一时刻只有一个连接处于活动状态。切换平台会沿用既有安全边界：旧平台的认证、策略、任务和安装关联会从本地运行状态中清理，再同步目标平台；本地 Skill、恢复副本、扫描目录设置和已保存连接不会删除。目标平台不可达或凭证无效时不会改变当前连接。
 
 **English:** Settings can save multiple Agent Manager addresses, each with its own client name and credential. Credentials remain in the current user's `~/.agent-manager/config.json` with `0600` permissions and are never returned to the desktop renderer. The Client validates a new or saved target before making it active. Only one connection is active at a time; a successful switch clears previous platform certification, policy, task, and installation associations before resyncing, while retaining local Skills, recovery copies, discovery settings, and saved connections. A failed validation leaves the current connection unchanged.

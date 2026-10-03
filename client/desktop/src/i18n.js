@@ -855,6 +855,15 @@
   let locale = detectLocale()
 
   const semanticMessages = {
+    "ui.folderOpen.error.folder_open_absolute_required": {"zh-CN":"只能打开绝对路径。","en-US":"An absolute path is required."},
+    "ui.folderOpen.error.folder_open_path_missing": {"zh-CN":"路径不存在或已被移动。","en-US":"The path does not exist or has been moved."},
+    "ui.folderOpen.error.folder_open_unsupported": {"zh-CN":"当前系统暂不支持打开文件夹。","en-US":"Opening folders is not supported on this system."},
+    "ui.folderOpen.error.folder_open_com_failed": {"zh-CN":"无法初始化 Windows 文件管理器接口。","en-US":"Unable to initialize the Windows file manager interface."},
+    "ui.folderOpen.error.folder_open_shell_failed": {"zh-CN":"系统文件管理器未接受打开请求。","en-US":"The system file manager did not accept the open request."},
+    "ui.folderOpen.error.folder_open_parse_failed": {"zh-CN":"Windows 无法解析要显示的文件路径。","en-US":"Windows could not resolve the file path to reveal."},
+    "ui.folderOpen.error.folder_open_select_failed": {"zh-CN":"无法在文件管理器中选中文件。","en-US":"Unable to select the file in the file manager."},
+    "ui.folderOpen.error.folder_open_launch_failed": {"zh-CN":"无法启动系统文件管理器。","en-US":"Unable to launch the system file manager."},
+    "ui.folderOpen.error.folder_open_worker_failed": {"zh-CN":"打开文件夹操作异常。","en-US":"The folder opening operation failed."},
     'ui.modelConfig.evidence': { 'zh-CN': '网关调用证据', 'en-US': 'Gateway call evidence' },
     "ui.modelConfig.error.model_config.verification_version_unsupported": {"zh-CN": "该 Agent 版本尚无已确认的隔离验证流程。", "en-US": "An isolated verification workflow has not been established for this Agent version."},
     "ui.modelConfig.error.model_config.verification_dependencies_missing": {"zh-CN": "隔离验证所需的已安装依赖不可用；未自动安装依赖。", "en-US": "Installed dependencies required for isolated verification are unavailable. No dependencies were installed."},
@@ -1370,6 +1379,11 @@
 
   const translateRuntime = value => {
     const source = String(value ?? '')
+    const folderError = source.match(/^(folder_open_[a-z_]+)(?::\s*([\s\S]*))?$/)
+    if (folderError && semanticMessages[`ui.folderOpen.error.${folderError[1]}`]) {
+      const message = t(`ui.folderOpen.error.${folderError[1]}`)
+      return folderError[2] ? `${message}\n${folderError[2]}` : message
+    }
     const modelCode = source.match(/\bmodel_config\.[a-z_]+/)?.[0]
     if (modelCode && semanticMessages[`ui.modelConfig.error.${modelCode}`]) return t(`ui.modelConfig.error.${modelCode}`)
     const diagnosticCode = source.replace(/^(?:Error:|error:)\s*/, '').trim().split(':')[0]

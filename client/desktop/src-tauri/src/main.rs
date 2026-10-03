@@ -31,6 +31,8 @@ const BUILD_VERSION: &str = match option_env!("AGENT_MANAGER_RELEASE_VERSION") {
     None => "dev",
 };
 const UI_STATE_SIGNAL_NAME: &str = "ui-state-revision.json";
+#[cfg(target_os = "windows")]
+mod windows_shell;
 
 #[tauri::command]
 fn get_build_version() -> &'static str {
@@ -285,10 +287,10 @@ async fn select_skill_directory() -> Result<Option<String>, String> {
 
 fn reveal_path_sync(path: &Path) -> Result<(), String> {
     if !path.is_absolute() {
-        return Err("只能打开绝对路径".to_string());
+        return Err("folder_open_absolute_required".to_string());
     }
     if !path.exists() {
-        return Err(format!("路径不存在或已被移动: {}", path.display()));
+        return Err(format!("folder_open_path_missing: {}", path.display()));
     }
     #[cfg(target_os = "macos")]
     let status = if path.is_dir() {
@@ -297,13 +299,7 @@ fn reveal_path_sync(path: &Path) -> Result<(), String> {
         Command::new("open").arg("-R").arg(path).status()
     };
     #[cfg(target_os = "windows")]
-    let status = if path.is_dir() {
-        Command::new("explorer").arg(path).status()
-    } else {
-        Command::new("explorer")
-            .arg(format!("/select,{}", path.display()))
-            .status()
-    };
+    return windows_shell::reveal(path);
     #[cfg(target_os = "linux")]
     let status = Command::new("xdg-open")
         .arg(if path.is_dir() {
@@ -313,25 +309,41 @@ fn reveal_path_sync(path: &Path) -> Result<(), String> {
         })
         .status();
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    return Err("当前系统暂不支持打开文件夹".to_string());
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    return Err("folder_open_unsupported".to_string());
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     match status {
         Ok(value) if value.success() => Ok(()),
-        Ok(value) => Err(format!("系统文件管理器返回失败状态: {value}")),
-        Err(error) => Err(format!("无法打开系统文件管理器: {error}")),
+        Ok(value) => Err(format!("folder_open_shell_failed: {value}")),
+        Err(error) => Err(format!("folder_open_launch_failed: {error}")),
     }
 }
 
 #[tauri::command]
 async fn reveal_path(path: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || reveal_path_sync(&PathBuf::from(path)))
+    let diagnostic_path = path.clone();
+    let started = std::time::Instant::now();
+    let result = tauri::async_runtime::spawn_blocking(move || reveal_path_sync(&PathBuf::from(path)))
         .await
-        .map_err(|error| format!("打开文件夹操作异常: {error}"))?
+        .map_err(|error| format!("folder_open_worker_failed: {error}"))
+        .and_then(|result| result);
+    let error = result.as_ref().err().cloned().unwrap_or_default();
+    let record = serde_json::json!({
+        "event": "path_open_finished", "path": diagnostic_path,
+        "outcome": if result.is_ok() { "accepted" } else { "failed" },
+        "error_code": error.split(':').next().unwrap_or_default(),
+        "message": error, "duration_ms": started.elapsed().as_millis(),
+        "version": BUILD_VERSION, "count": 1,
+    });
+    // Diagnostic failures must not change the Shell operation's result.
+    tauri::async_runtime::spawn(async move {
+        let _ = record_desktop_diagnostic(record).await;
+    });
+    result
 }
 
 #[tauri::command]
 async fn open_client_location(kind: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    let path = tauri::async_runtime::spawn_blocking(move || {
         let home = system_home().ok_or_else(|| "无法确定当前用户目录".to_string())?;
         let path = match kind.as_str() {
             "logs" => home.join(".agent-manager").join("logs"),
@@ -339,10 +351,11 @@ async fn open_client_location(kind: String) -> Result<(), String> {
             _ => return Err("不支持的客户端目录类型".to_string()),
         };
         fs::create_dir_all(&path).map_err(|error| format!("无法创建客户端目录: {error}"))?;
-        reveal_path_sync(&path)
+        Ok(path)
     })
     .await
-    .map_err(|error| format!("打开客户端目录异常: {error}"))?
+    .map_err(|error| format!("folder_open_worker_failed: {error}"))??;
+    reveal_path(path.to_string_lossy().into_owned()).await
 }
 
 #[tauri::command]
@@ -946,6 +959,25 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reveal_path_rejects_invalid_targets_before_launch() {
+        assert_eq!(
+            super::reveal_path_sync(Path::new("relative-skill")),
+            Err("folder_open_absolute_required".into())
+        );
+        let missing = std::env::temp_dir().join(format!(
+            "agent-manager-missing-skill-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        assert!(super::reveal_path_sync(&missing)
+            .unwrap_err()
+            .starts_with("folder_open_path_missing:"));
+    }
+
     use std::path::Path;
     use std::sync::mpsc;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
