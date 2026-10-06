@@ -45,7 +45,8 @@ CLIENT_SCOPES = [
     "client:download-approved-skill",
     "client:request-skill-actions",
 ]
-ALLOWED_SCOPES = set(SCANNER_SCOPES + RUNTIME_SCOPES + MODEL_SCOPES + MCP_SCOPES + CLIENT_SCOPES)
+AIDR_SCOPES = ["aidr:heartbeat", "aidr:report-events"]
+ALLOWED_SCOPES = set(SCANNER_SCOPES + RUNTIME_SCOPES + MODEL_SCOPES + MCP_SCOPES + CLIENT_SCOPES + AIDR_SCOPES)
 DEFAULT_SCOPES_BY_TYPE = {
     "model_gateway": ["model:chat"],
     "agent_runtime": list(AGENT_VERIFICATION_SCOPES),
@@ -61,6 +62,7 @@ SCOPE_TOKEN_TYPES = {
     "model:chat": {"model_gateway", "agent_runtime"},
     **{scope: {"mcp_gateway", "agent_runtime"} for scope in MCP_SCOPES},
     **{scope: {"client"} for scope in CLIENT_SCOPES},
+    **{scope: {"client"} for scope in AIDR_SCOPES},
 }
 
 

@@ -30,6 +30,7 @@ export const domainMessages = {
       cancelled: '已取消',
     },
     taskType: {
+      aidr_plugin_action: 'Agent 运行治理接入',
       install_skill: '安装 Skill',
       remove_skill: '移除 Skill',
       repair_skill: '恢复可信版本',
@@ -114,6 +115,7 @@ export const domainMessages = {
       cancelled: 'Cancelled',
     },
     taskType: {
+      aidr_plugin_action: 'Agent runtime governance access',
       install_skill: 'Install Skill',
       remove_skill: 'Remove Skill',
       repair_skill: 'Restore Trusted Version',

@@ -364,3 +364,26 @@ async def delete_logo(
         )
         db.commit()
     return {"status": "success"}
+
+
+from ..aidr_content import AuditLifecycle, CaptureScope
+
+
+class AidrRedactionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    enabled: bool
+    version: str = Field(pattern=r"^[1-9][0-9]{0,18}$")
+    capture: CaptureScope | None = None
+    lifecycle: AuditLifecycle | None = None
+
+
+@router.get("/aidr-redaction")
+def get_aidr_redaction(db: Session = Depends(get_db), user=Depends(iam.require("settings:view"))):
+    from ..aidr_policy import current
+    return {**current(db), "can_edit": user.role in {"admin", "super_admin"} and "settings:update" in iam.permission_codes(db, user)}
+
+
+@router.put("/aidr-redaction")
+def update_aidr_redaction(body: AidrRedactionUpdate, request: Request, db: Session = Depends(get_db), user=Depends(iam.require("settings:update"))):
+    from ..aidr_policy import save
+    return save(db, body, user, request)

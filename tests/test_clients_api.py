@@ -440,6 +440,7 @@ def test_default_classification_policy_saves_auditable_dates_and_requires_super_
     client = _client(tmp_path)
     root = "/api/v1/clients/governance/default"
     policy = client.get(root).json()
+    assert policy["editable"] is True
     change = {"rules": {"malicious": "quarantine"}, "expected_version": policy["version"]}
     preview = client.post(root + "/preview", json=change)
     assert preview.status_code == 200, preview.text
@@ -449,6 +450,8 @@ def test_default_classification_policy_saves_auditable_dates_and_requires_super_
     assert saved.json()["updated_at"]
     assert client.get(root).json()["version"] == saved.json()["version"]
     client.app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(id=2, username="limited", hashed_password="x", role="admin")
+    readonly = client.get(root)
+    assert readonly.status_code == 200 and readonly.json()["editable"] is False
     denied = client.put(root, json={**change, "preview_id": preview.json()["preview_id"]})
     assert denied.status_code == 403
     assert denied.json()["error_code"] == "client.default_policy_forbidden"

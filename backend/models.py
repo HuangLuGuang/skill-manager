@@ -20,6 +20,8 @@ from .scan_schedule_models import (  # noqa: F401
     SecurityTaskTrigger,
 )
 from .sqlite_db import Base
+from .aidr_models import AidrPolicyReceipt, AidrDevice, AidrBatch, AidrEvent, AidrSource, AidrCoverageRecord, AidrLegacyDestination, AidrOperation, AidrAuditState  # noqa: F401
+from .aidr_enforcement import AidrEnforcementRevision, AidrRuntimeRecord, AidrResponseCommand  # noqa: F401
 from .iam_models import ManagementAudit, Menu, Permission, Role, RolePermission  # noqa: F401
 
 
@@ -494,6 +496,7 @@ class ClientGovernancePolicy(Base):
     prompt_guard_json = Column(Text, default="null", nullable=False)
     compression_json = Column(Text, default="null", nullable=False)
     model_routing_json = Column(Text, default="null", nullable=False)
+    runtime_governance_json = Column(Text, default="null", nullable=False)
     revision = Column(Integer, default=0, nullable=False)
     enabled = Column(Boolean, default=False, nullable=False)
     protocol = Column(Integer, default=0, nullable=False)

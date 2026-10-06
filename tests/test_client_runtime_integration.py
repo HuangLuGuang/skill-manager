@@ -96,7 +96,8 @@ def test_go_client_records_changes_and_executes_content_bound_recovery(tmp_path)
         deadline = time.monotonic() + 45
         value = None
         while time.monotonic() < deadline:
-            assert daemon.poll() is None, "client daemon exited unexpectedly"
+            if daemon is not None:
+                assert daemon.poll() is None, "client daemon exited unexpectedly"
             value = read()
             if predicate(value):
                 return value
@@ -214,11 +215,40 @@ def test_go_client_records_changes_and_executes_content_bound_recovery(tmp_path)
         assert task["status"] == "succeeded", task
         recovery = next(item for item in after["recovery"] if item["original_path"] == str(skill))
         assert recovery["signature"] == changed["signature"]
-        recovered = admin.post(path + "/tasks", json={"task_type": "skill_action", "payload": {
+        rejected_restore = admin.post(path + "/tasks", json={"task_type": "skill_action", "payload": {
             "action": "restore_quarantine", "agent_type": "codex", "path": str(skill),
-            "expected_signature": recovery["signature"], "quarantine_id": recovery["id"], "request_id": "integration-restore",
+            "expected_signature": recovery["signature"], "quarantine_id": recovery["id"], "request_id": "integration-isolated-restore",
         }})
+        assert rejected_restore.status_code == 403, rejected_restore.text
+        assert rejected_restore.json()["error_code"] == "client.manual_uninstall_restore_only"
+        assert not skill.exists()
+        # A fresh user-provided installation enters the real manual-uninstall
+        # path. Isolation copies do not acquire manual recovery permission.
+        skill.mkdir()
+        (skill / "SKILL.md").write_text(changed_content)
+        cli("run-once")
+        assert current_skill()["signature"] == changed["signature"]
+        manual_action = {"request_id": "integration-manual-uninstall", "action": "uninstall",
+                         "agent_type": "codex", "path": str(skill),
+                         "expected_signature": changed["signature"], "retain_copy": True}
+        uninstall = admin.post(path + "/skill-actions", headers={"Authorization": f"Bearer {token}"}, json=manual_action)
+        assert uninstall.status_code == 200, uninstall.text
+        cli("run-once")
+        assert not skill.exists()
+        assert next(item for item in detail()["tasks"] if item["id"] == uninstall.json()["id"])["status"] == "succeeded"
+        retained_manual = next(item for item in detail()["recovery"]
+                               if item["original_path"] == str(skill) and item["status"] == "uninstalled" and item["reason"] == "manual")
+        assert retained_manual["signature"] == changed["signature"]
+        local_manual = next(item for item in json.loads(cli("quarantine")) if item["id"] == retained_manual["id"])
+        assert (Path(local_manual["quarantine_path"]) / "SKILL.md").read_text() == changed_content
+        recovery_action = {"request_id": "integration-manual-restore", "action": "restore_quarantine",
+                           "agent_type": "codex", "path": str(skill),
+                           "expected_signature": retained_manual["signature"], "quarantine_id": retained_manual["id"]}
+        recovered = admin.post(path + "/skill-actions", headers={"Authorization": f"Bearer {token}"}, json=recovery_action)
         assert recovered.status_code == 200, recovered.text
+        duplicate = admin.post(path + "/skill-actions", headers={"Authorization": f"Bearer {token}"}, json=recovery_action)
+        assert duplicate.status_code == 200, duplicate.text
+        assert duplicate.json()["id"] == recovered.json()["id"]
         cli("run-once")
         assert (skill / "SKILL.md").read_text() == changed_content
         assert next(item for item in detail()["tasks"] if item["id"] == recovered.json()["id"])["status"] == "succeeded"
@@ -251,7 +281,19 @@ def test_go_client_records_changes_and_executes_content_bound_recovery(tmp_path)
         assert saved.status_code == 200, saved.text
         cli("run-once")
         assert not skill.exists()
-        after_policy = detail()
+        def synchronized_detail():
+            cli("run-once")
+            return detail()
+
+        # Await actual delivery through the paced sender and retained outage backoff.
+        after_policy = await_value(synchronized_detail,
+                                   lambda value: any(event["event_type"] == "skill_governance_action"
+                                                     and event["details"].get("action") == "quarantine"
+                                                     and event["details"].get("status") == "completed"
+                                                     and event["details"].get("policy_version") == saved.json()["version"]
+                                                     and event["details"].get("path") == str(skill)
+                                                     for event in value["events"]),
+                                   "policy action event delivery")
         assert not shared_alias.exists()
         assert shared_alias.is_symlink()
         action = next(event for event in after_policy["events"] if event["event_type"] == "skill_governance_action" and event["details"].get("action") == "quarantine"

@@ -16,14 +16,17 @@ import (
 )
 
 type ClassificationPolicy struct {
-	Compression       *CompressionPolicy `json:"compression,omitempty"`
-	PromptGuard       *PromptGuardPolicy `json:"prompt_guard,omitempty"`
-	PromptGuardSource string             `json:"prompt_guard_source,omitempty"`
-	Protocol          int                `json:"protocol"`
-	Enabled           bool               `json:"enabled"`
-	Version           string             `json:"version"`
-	Rules             map[string]string  `json:"rules"`
-	Sources           map[string]string  `json:"sources"`
+	RuntimeGovernance           *RuntimeGovernancePolicy `json:"runtime_governance,omitempty"`
+	RuntimeGovernanceConfigured bool                     `json:"runtime_governance_configured"`
+	RuntimeGovernanceVersion    string                   `json:"runtime_governance_version,omitempty"`
+	Compression                 *CompressionPolicy       `json:"compression,omitempty"`
+	PromptGuard                 *PromptGuardPolicy       `json:"prompt_guard,omitempty"`
+	PromptGuardSource           string                   `json:"prompt_guard_source,omitempty"`
+	Protocol                    int                      `json:"protocol"`
+	Enabled                     bool                     `json:"enabled"`
+	Version                     string                   `json:"version"`
+	Rules                       map[string]string        `json:"rules"`
+	Sources                     map[string]string        `json:"sources"`
 }
 
 type PromptGuardPolicy struct {

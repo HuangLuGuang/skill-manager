@@ -1,0 +1,150 @@
+"""Platform policy and device-stream delivery receipts; never store command content here."""
+import json
+import uuid
+from datetime import datetime
+
+from . import models
+from .api_errors import ApiError
+
+KEY = "aidr_audit_redaction"
+CLIENT_KEY = "aidr_audit_client:"
+REVISION_KEY = "aidr_audit_revision"
+
+
+def current(db, client_id=None):
+    row = db.get(models.SystemConfig, KEY)
+    value = json.loads(row.value) if row else {"enabled": True, "version": "1", "updated_by": None, "updated_at": None}
+    policy = {**value, 'capture': value.get('capture', {'prompt': False, 'tool_output': False, 'file_body': False}),
+            'lifecycle': value.get('lifecycle', {'enabled': True, 'retention_days': 7})}
+    if client_id is None:
+        return policy
+    row = db.get(models.SystemConfig, CLIENT_KEY + client_id)
+    local = json.loads(row.value) if row else None
+    if local and not local['inherit']:
+        return local
+    # Keep the restoration revision so an endpoint never sees its version go backwards.
+    return {**policy, 'inherit': True, **({
+        'version': str(max(int(policy['version']), int(local['version']))),
+        'updated_by': local['updated_by'], 'updated_at': local['updated_at'],
+    } if local and int(local['version']) > int(policy['version']) else {})}
+
+
+def conflict():
+    raise ApiError(409, 'aidr.policy_version_conflict', '配置已变化，请刷新', 'Configuration changed; please refresh')
+
+
+def write_config(db, key, value):
+    row = db.get(models.SystemConfig, key)
+    encoded = json.dumps(value)
+    if row:
+        changed = db.query(models.SystemConfig).filter_by(key=key, value=row.value).update({'value': encoded}, synchronize_session=False)
+        if changed != 1:
+            conflict()
+        db.expire(row)
+    else:
+        db.add(models.SystemConfig(key=key, value=encoded))
+    db.flush()
+
+
+def next_version(db, previous):
+    revision = max(int(json.loads(previous)) if previous is not None else 1, int(current(db)['version'])) + 1
+    encoded = json.dumps(str(revision))
+    if previous is None:
+        db.add(models.SystemConfig(key=REVISION_KEY, value=encoded))
+    else:
+        changed = db.query(models.SystemConfig).filter_by(key=REVISION_KEY, value=previous).update({'value': encoded}, synchronize_session=False)
+        if changed != 1:
+            conflict()
+    db.flush()
+    return str(revision)
+
+
+def save(db, body, user, request, client_id=None):
+    from . import iam
+    from sqlalchemy.exc import IntegrityError
+    if user.role not in {'admin', 'super_admin'}:
+        raise ApiError(403, 'aidr.policy_admin_required', '仅管理员可修改审计采集与脱敏策略', 'Only administrators may change audit collection and redaction policy')
+    revision_row = db.get(models.SystemConfig, REVISION_KEY)
+    previous_revision = revision_row.value if revision_row else None
+    before = current(db, client_id)
+    if before['version'] != body.version:
+        conflict()
+    inherit = client_id is not None and body.inherit
+    if inherit:
+        target = current(db)
+        if body.global_version != target['version']:
+            conflict()
+    else:
+        target = {'enabled': body.enabled,
+                  'capture': body.capture.model_dump() if body.capture is not None else before['capture'],
+                  'lifecycle': body.lifecycle.model_dump() if body.lifecycle is not None else before['lifecycle']}
+    if all(before[key] == target[key] for key in ('enabled', 'capture', 'lifecycle')) and (client_id is None or before['inherit'] == inherit):
+        return before
+    key = CLIENT_KEY + client_id if client_id is not None else KEY
+    try:
+        after = {**{key: target[key] for key in ('enabled', 'capture', 'lifecycle')},
+                 'version': next_version(db, previous_revision), 'updated_by': user.username, 'updated_at': datetime.utcnow().isoformat() + 'Z'}
+        if client_id is not None:
+            after['inherit'] = inherit
+        stored = {key: after[key] for key in ('inherit', 'version', 'updated_by', 'updated_at')} if inherit else after
+        write_config(db, key, stored)
+        iam.audit(db, request, user, 'clients' if client_id else 'settings', 'update', key, before=before, after=after)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise ApiError(409, 'aidr.policy_version_conflict', '配置已变化，请刷新', 'Configuration changed; please refresh') from exc
+    return after
+
+
+def reject():
+    raise ApiError(409, "aidr.redaction_policy_invalid", "脱敏策略凭据或序列范围不匹配", "Redaction policy receipt or sequence range does not match")
+
+
+def issue(db, client_id, stream, frontier, applied_receipt="", applied_after=0, content_supported=False, lifecycle_supported=False, message_supported=False, content_options_supported=False):
+    policy = current(db, client_id)
+    rows = db.query(models.AidrPolicyReceipt).filter_by(client_id=client_id, stream_id=stream, end_sequence=None).order_by(models.AidrPolicyReceipt.created_at).all()
+    if applied_receipt:
+        applied = next((row for row in rows if row.id == applied_receipt), None)
+        if not applied or applied.end_sequence is not None or not applied.start_sequence - 1 <= applied_after <= frontier:
+            reject()
+        # Close only after durable client application is acknowledged. A lost
+        # delivery response cannot strand records collected under the cached policy.
+        for previous in rows:
+            if (int(previous.version), bool(previous.capture_json), bool(previous.lifecycle_json)) < (int(applied.version), bool(applied.capture_json), bool(applied.lifecycle_json)) and previous.end_sequence is None:
+                previous.end_sequence = applied_after
+    capture_scope = dict(policy['capture'])
+    if not content_options_supported:
+        for key in ('command_body', 'max_fragment_bytes', 'max_event_bytes'):
+            capture_scope.pop(key, None)
+    if not message_supported:
+        capture_scope.pop('model_response', None)
+    if not capture_scope.get('model_response'):
+        capture_scope.pop('model_response', None)
+    capture = json.dumps(capture_scope, sort_keys=True, separators=(',', ':')) if content_supported else None
+    lifecycle = json.dumps(policy['lifecycle'], sort_keys=True, separators=(',', ':')) if lifecycle_supported else None
+    row = next((row for row in rows if row.version == policy["version"] and row.capture_json == capture and row.lifecycle_json == lifecycle and row.end_sequence is None), None)
+    if row is None:
+        row = models.AidrPolicyReceipt(id=uuid.uuid4().hex, client_id=client_id, stream_id=stream,
+                                      version=policy["version"], enabled=policy["enabled"], capture_json=capture, lifecycle_json=lifecycle, start_sequence=frontier + 1)
+        db.add(row)
+    db.flush()
+    return {"version": row.version, "enabled": row.enabled, "receipt": row.id, **({"message_schema": 1} if message_supported else {}), **({'capture': json.loads(row.capture_json)} if row.capture_json else {}),
+            **({'lifecycle': json.loads(row.lifecycle_json)} if row.lifecycle_json else {})}
+
+
+def validate(db, client_id, stream, sequence, behavior):
+    if not behavior or behavior.version < 3:
+        return  # Legacy contracts always require redaction.
+    policy = behavior.policy
+    return validate_receipt(db, client_id, stream, sequence, policy)
+
+
+def validate_receipt(db, client_id, stream, sequence, policy):
+    if policy.version == "0" and policy.enabled and not policy.receipt:
+        return  # First-contact fail-closed projection, still checked for secrets.
+    row = db.get(models.AidrPolicyReceipt, policy.receipt)
+    if (not row or row.client_id != client_id or row.stream_id != stream or row.version != policy.version
+            or row.enabled != policy.enabled or (json.loads(row.capture_json) if row.capture_json else None) != (policy.capture.model_dump() if policy.capture else None) or sequence < row.start_sequence
+            or (json.loads(row.lifecycle_json) if row.lifecycle_json else None) != (policy.lifecycle.model_dump() if policy.lifecycle else None)
+            or (row.end_sequence is not None and sequence > row.end_sequence)):
+        reject()

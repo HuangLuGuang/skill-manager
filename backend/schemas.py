@@ -966,7 +966,11 @@ class ClientRegisterRequest(BaseModel):
     recovery: Optional[list[ClientRecoveryInventory]] = None
 
 
+from .runtime_governance import Report as RuntimeGovernanceReport
+
+
 class ClientHeartbeatRequest(BaseModel):
+    runtime_governance: RuntimeGovernanceReport | None = None
     governance_protocol: int = Field(default=0, ge=0, le=2)
     client_id: str
     client_version: Optional[str] = None
@@ -993,7 +997,7 @@ class ClientEventCreate(BaseModel):
 
 
 class ClientTaskCreate(BaseModel):
-    task_type: str = Field(pattern="^(install_skill|remove_skill|rescan|repair_skill|apply_model_config|verify_model_config|restore_model_config|skill_action)$")
+    task_type: str = Field(pattern="^(install_skill|remove_skill|rescan|repair_skill|apply_model_config|verify_model_config|restore_model_config|skill_action|aidr_plugin_action)$")
     payload: dict[str, Any] = {}
 
 
@@ -1012,6 +1016,7 @@ class ClientSkillActionRequest(BaseModel):
 
 
 class ClientTaskResult(BaseModel):
+    aidr_result: RuntimeGovernanceReport | None = None
     verification_request_ids: list[str] = Field(default_factory=list, max_length=20)
     restored_after_failure: bool = False
     applied_model: Optional[str] = Field(default=None, max_length=128)

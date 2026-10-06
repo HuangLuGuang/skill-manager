@@ -14,6 +14,8 @@
 
 客户端发现视图按本机身份汇总 Skill，已有平台运行绑定也保留独立发现记录；历史记录未在当前清单出现时标记“当前未发现”，而非将缺少清单解释成零个 Skill。身份与计数口径见 [客户端使用说明](agent-manager-client.md)。Client discovery maintains local inventory independently of existing runtime bindings and explicitly marks historical entries absent from current inventory.
 
+普通治理事件采用本地有界聚合与持久化投递身份，按 300 毫秒发送间隔补传，保留观察计数、状态变化和原平台绑定。旧服务端能力、计数口径、迁移与回退边界见 [普通治理事件说明](agent-manager-client.md#普通治理事件队列与补传)。Ordinary client events use bounded observation coalescing and paced, idempotent delivery.
+
 客户端模型切换支持按 Agent 编辑配置、参数预览、备份恢复和独立调用验证。各适配器的实际验证范围见 [模型切换记录](acceptance/model-switching-2026-09-13/README.md)，内置代理方式见 [模型网关](model-gateway.md#客户端模型切换--client-model-switching)。客户已有网关时，平台智能体可不经客户端直接注册外部身份、选择动态模型并通过 Agent 运行凭证领取绑定 Key；客户端模型切换仍沿用任务绑定凭据流程，详见 [外部 AI 网关接入与 Skill 治理](external-ai-gateway-integration.md)。
 
 模型切换自动签发的运行凭证默认仅记录 Prompt 风险，支持在管理台客户端策略中配置 Prompt 防护，继承平台默认或单台覆盖；保存更新已有凭证，新建凭证继承当前策略。客户端通过长轮询同步显示状态，网关在后续请求中执行保存后的配置。LLM 复核开关当前仅保存，尚未执行复核。
@@ -404,7 +406,85 @@ flowchart TB
 
 客户端通过 Scanner API 提交相同内容时，提交读取权按绑定的客户端 ID 持久化，因此同一客户端轮换凭证不会丢失检测结果关联；普通 Scanner 凭证仍按凭证主体隔离，不同客户端不能读取彼此的提交。
 
+客户端的 `agent-manager-client agent-log-read --agent claude|codex` 提供带覆盖状态和可续读游标的调用/结果元数据；`agent-log-collect` 将读取与游标原子保存至专用本地 SQLite，`agent-log-state` 查询状态、事件和待发批次。`aidr-sync` 显式运行读取、上报和心跳；管理台设备详情的“Agent 日志观察”优先展示合并后的操作意图、脱敏命令/明确目标与日志结果依据，支持会话等条件筛选；能力和覆盖诊断可展开，缺口醒目提示。进程关联保持未知。凭证绑定设备并具有 AIDR scopes，管理查询及启停沿用现有设备访问权限。接入步骤、macOS 实测范围和未完成验收见 [客户端日志说明](agent-manager-client.md#agent-日志平台接入p1-0305) 与 [P1 平台验收记录](../experiments/aidr-agentlog/PLATFORM_ACCEPTANCE.md)。
+
+平台 **设备详情 → 策略与审批 → 系统采集策略** 发布签名归属与控制策略；**行为审计 → 系统事件** 查看实际执行器版本和系统证据。桌面 **运行治理 → 系统采集** 提供开始/停止，无需终端：复用设备连接和平台目标，通过 macOS 管理员授权安装/更新组件并启动独立 root 采集进程，桌面保持普通用户权限。默认仅采集 fork/exec/exit，真实订阅成功才显示运行；完整磁盘访问权限独立授权。停止关闭订阅、回收进程、限时补传，剩余记录保留到下次开始。开发包仅在 SIP 已关闭时安装 ad-hoc ES 签名组件，未更新组件不重复签名；正式发布需要 Developer ID、Apple ES 授权和公证。客户端不修改 SIP。流程、故障说明和人工验收见 [macOS 执行器说明](../client/macos-enforcer/README.md) 与 [客户端说明](agent-manager-client.md#桌面系统采集2026-10-05)。
+
+客户端另有开发阶段的 macOS 运行时只读入口 `agent-manager-client runtime-watch`：
+普通用户通过本地 Unix socket 接收单独启动的特权 ES 采集器事件及健康状态。
+桌面进程归属信息统一展示在“系统采集”的最近事件及事件诊断中。上述开发命令的协议见 [客户端使用说明](agent-manager-client.md#macos-运行时只读连接开发阶段)。
+
 ---
+
+### 审批与采集配置
+
+客户端默认策略和单机覆盖分别配置 Hook、系统防护的“仅审计 / 拦截”模式，支持恢复继承。新配置默认仅审计；存量未选择模式的策略保留原行为，旧客户端需升级后才能确认新模式。Agent 日志保持采集设置。平台目标与客户端实际模式分别显示，保存成功不代表已应用。
+
+“工具使用审批”配置 Agent 工具调用前的允许、拒绝和人工审批，Hook 拦截模式执行有效签名规则；“系统采集策略”配置 Agent 可执行文件及有效期，高级区域的文件访问规则在系统拦截模式执行。系统策略有效期作为设备认证租约：已认证设备由平台自动续签内容不变的新版本，修改采集目标或规则仍由管理员发布；自动续签进入操作审计，不混入管理员配置历史。运行中的系统采集器关闭旧订阅、补传后切换，实际 ES 心跳确认模式。仅审计保留采集、脱敏和上传，不执行阻断；采集故障不阻止正常工具操作。详见[客户端模式说明](agent-manager-client.md#仅审计与拦截模式)。普通系统事件页翻译进程生命周期，展示进程归属、PID、可用路径和系统决定；连续相同健康心跳合并显示，详情仍保留原始记录。当前通道不提供命令行或稳定进程名。
+
+工具操作是命令摘要：`[HEREDOC OMITTED]` 表示多行输入正文省略，`[BODY OMITTED]` 表示内联脚本或正文省略。摘要与正文分开保存。在“审计采集与脱敏”中开启“命令正文（脚本 / HereDoc）”后，更新后的客户端会采集日志或 Hook 已提供的 Shell 命令、内联脚本和包装代码；详情直接展示脱敏后的正文。有正文时页面不重复展示带占位符的命令摘要。未启用时仍仅保留摘要；已省略的历史正文无法恢复。
+
+`aidr_enforcement_collection_only` 是系统采集器报告“仅采集、不执行控制”的诊断码，不代表故障。日常界面显示采集状态，原始代码收在“查看技术诊断”。工具审批列表只显示 Hook 拦截模式下需要人工决定的调用；一般工具操作记录在“行为审计”，不进入审批列表。
+
+人工检查：中英文页签切换；工具审批空列表与规则展开；系统采集策略发布入口、文件控制高级区和历史区；系统事件筛选和技术诊断；桌面事件归属与诊断展开后轮询保持。此轮不更改真实设备策略。
+
+规则编辑区提供“测试规则命中”：填写 Agent 与工具名称，或进程归属与文件绝对路径，点击“测试当前草稿”，查看各条规则的命中情况、未命中原因及模拟决定。测试使用未保存的草稿，不发布策略、不创建审批、不执行工具；修改草稿或输入会清除旧结果。Hook 复用服务端真实匹配逻辑（精确名称或独立 `*`，拒绝优先于审批和允许）。系统测试只做路径预匹配；实际设备还按文件身份匹配，因此硬链接等不同路径仍可能命中。预览假设策略有效且处于拦截模式，客户端实际模式及版本仍以回执为准。
+
+**English:** Test rule matching evaluates the unsaved draft against an Agent/tool or attributed process/file path. Results show every rule's match, reason and simulated decision. Testing publishes nothing, creates no approval and executes no tool. Editing inputs clears previous results. Hook previews reuse the server's matcher; system previews compare paths only, while devices also match file identity. Previews assume an effective policy in Intercept mode; verify actual client mode and revision separately.
+
+人工验收清单：两处编辑页分别测试命中、未命中、多规则冲突及默认决定；Hook 测试精确名称与 `*`；系统测试未知进程归属的处理；检查编辑后旧结果消失、无效规则报错、失败后重试；中英文及窄窗口检查；确认测试前后已发布版本和审批数量不变。未新增 UI 单元测试。
+
+### 按会话查看行为审计
+
+客户端详情的 **行为审计 → 会话活动** 按“客户端、Agent、会话 ID”汇总入口，分别显示消息数、工具操作数和 Hook 原始事件数。会话列表显示最近活动时间和短 ID；有审计正文权限且已采集提问时，使用首条有正文提问的前 160 个字符作为标题。未采集问题时显示 Agent、时间与短 ID。可按 Agent、会话 ID 筛选，有正文权限时也可搜索已采集的问题；没有会话 ID 的操作以独立记录展示。系统事件和采集状态保留独立入口。
+
+会话内使用窄刻度导航轮次。悬停或键盘聚焦显示问题、时间及两种来源的数量；点击立即筛选本轮，选择导航中的“全部轮次”显示整个会话的连续记录。上下方向键移动刻度焦点，Enter 选择。窄屏使用轮次下拉列表。轮次超过一页时点击“更多轮次”。原生轮次 ID 相同的记录按轮次组织，日志与 Hook 保留各自来源；同 ID 下收到多条用户提交时保留全部 Hook 记录并提示数量，问题区显示首条提交。缺少轮次 ID 的用户提交独立展示，其余缺少轮次 ID 的记录进入“未归属轮次”，不按相邻时间推断归属。轮次显示序号仅用于当前会话导航，不是原生轮次 ID。
+
+选择会话时清除上一会话的时间线搜索；若当前来源没有记录而另一来源有记录，自动展示有记录的来源。轮次已完整加载时，优先定位当前来源最近有记录且具有轮次 ID 的轮次；轮次尚有下一页或只有未归属记录时，显示全部轮次。手动切换来源保持当前轮次与搜索，刷新保留当前选择。本轮为空但会话其他轮次有记录时，明确提示并提供“全部轮次”入口。只有 Hook 的会话显示来源覆盖说明；采集器在线不代表每个会话都有本地日志。
+
+在 **会话日志（输入 / 回复 / 工具）** 与 **宿主事件（Hook）** 之间切换查看各自记录。会话日志直接展示已采集的用户输入和模型回复，工具操作合并日志调用及结果；Hook 仅在同一接收流、用户、Agent、会话、轮次、调用、工具和子 Agent 身份下，恰好各有一条执行前/执行后记录时合并显示。配对在服务端分页前完成，展开后仍显示两条原始事件。生命周期事件使用简洁节点，失败突出结果和退出码。不同来源不合并计数，也不据此认定系统执行成功。
+
+会话活动填满客户端详情的剩余高度。设备信息、各级 Tab、会话标题、搜索与轮次导航固定；只有时间线记录区随阅读滚动，会话列表可独立滚动。标题与来源工具栏使用两行紧凑布局，会话 ID 和来源说明通过信息按钮查看，搜索与来源 Tab 同行；窄屏换行并使用会话与轮次下拉选择，保留固定导航与独立时间线滚动。会话列表按最近活动排序，时间线固定从早到晚，文字搜索停止输入 250 毫秒后生效；支持搜索工具、脱敏命令摘要、目标及 Hook 名称。日志按调用时间（缺少调用时按结果时间）排序，Hook 按接收时间排序。加载更多保留本次查询的新增记录上限；点击刷新重读当前会话与来源。单一来源为空时提供另一来源和采集状态入口。会话和轮次接口默认仅返回元数据；页面为有 `clients:read-audit-content` 权限的用户显式请求 `include_questions=true`，服务端再次检查权限，返回已采集的问题并记录仅含记录 ID 的访问审计，响应禁止缓存。Codex 附带浏览器、文件或注释上下文且存在明确请求段时，问题区展示请求段，并提供原始提问与上下文的展开入口；采集记录保持原文。用户提交事件直接显示已采集的正文；工具卡片统一使用“查看详情”，展开后自动读取并展示已采集的输入、输出和文件正文。正文保留脱敏、截断状态及独立权限校验，读取失败时提供重试。未提供结果标记的 Hook 不显示空泛的结果标签，明确的成功、失败、取消及缺少后续事件状态继续展示。过期正文不参与标题、搜索或轮次问题展示。
+
+**English:** Open **Client details → Behavior audit → Session activity**. Sessions show last activity and a short ID; authorized viewers also see the first captured question as a title and can search questions. The narrow turn rail previews question text, time and separate source counts on hover or keyboard focus. Select a tick to filter that turn, or select **All turns** in the turn navigation for the full timeline. Arrow keys move focus and Enter selects; small screens use a turn selector. Load more turns when needed. Native turn IDs group navigation only; log operations and Hook events remain separate. Repeated submissions within one native turn stay in Hook records, with the first question shown in the turn heading. Prompts without turn IDs stay independent; other missing-ID records are unassigned. APIs return metadata by default. Explicit question requests require audit-content permission, have identity-only access logs, and use no-store responses. Expired content is excluded. User submissions show collected text directly; expanding View details automatically loads captured input, output and file content, with permission checks and a retry action on failure. Hook entries omit unspecified-result labels while retaining explicit outcomes and missing-after-event states. The audit workspace fills the available drawer height. Device navigation, source tabs, search and turn navigation stay fixed while timeline records scroll; the session list scrolls independently. A compact two-row header puts search beside the source tabs and moves identity and source explanations into information popovers. Small screens use selectors and wrapped controls while retaining an independently scrolling timeline. Sessions are ordered by last activity; timeline records always run from oldest to newest. Source pairing, search and pagination remain available.
+
+受影响 UI：客户端详情的行为审计入口、会话列表、日志/Hook 时间线、展开详情，以及日志/Hook 独立详情弹窗中的正文展示。
+
+**English:** Selecting another session clears the timeline search and switches to the other source if only that source has records. When all turns are loaded, the latest turn with a native turn ID and records from the selected source is selected. With more turn pages or only unassigned records, all turns remain visible. Manual source changes and refresh retain the selection. An empty turn offers All turns when the session contains other records. Hook-only sessions explain that collector health does not establish session-log coverage.
+
+人工验收 Todo（未新增 UI 单元测试）：
+
+- [ ] 在同一会话切换两种来源，核对各自数量、时间与记录内容；只存在单一来源时检查空状态和跳转。
+- [ ] 打开仅有 Hook 的会话，确认自动显示 Hook 及日志覆盖说明；打开普通会话，确认定位最近有记录的轮次。手动选择空轮次时，提示本轮为空且能查看全部轮次，不误报整个会话为空。
+- [ ] 搜索会话 ID、工具、命令、目标与 Hook 名称；快速修改搜索、切换会话及客户端，确认旧请求不覆盖新结果。
+- [ ] 按时间正序浏览并加载更多，确认 Hook 前后事件在同一卡片，刷新后能看到新增记录。
+- [ ] 核对用户提交正文直接显示；展开成功、失败及前后配对的工具详情，确认自动显示已采集的输入、输出，无二次查看按钮；未知 Hook 结果不显示“结果未提供”。
+- [ ] 检查无正文权限账号、读取失败与重试；核对保留策略淘汰后的空状态。
+- [ ] 核对会话问题摘要、最近活动及短 ID；搜索已采集问题，无正文权限账号只能搜索会话 ID。
+- [ ] 悬停、键盘上下移动和 Enter 选择轮次，核对即时筛选、来源切换数量与“全部轮次”入口；刷新后保留全部轮次选择；超过 100 轮时加载更多。
+- [ ] 核对多次用户提交、无问题正文、日志独有轮次、无轮次 ID 和过期记录；切换会话或客户端后旧问题不残留。
+- [ ] 中英文、宽屏和窄窗口检查；滚动右侧长时间线时左侧会话位置不变，会话列表可独立滚动；窄屏选择器无溢出且只有时间线记录滚动，顶部所有 Tab、搜索、会话和轮次导航保持固定；信息按钮可用键盘打开；确认系统事件、采集状态和策略入口仍可使用。
+
+### 会话日志中的输入与模型回复
+
+在客户端策略的“审计采集与脱敏 → 扩展内容采集”中，分别选择“用户输入（Prompt）”与“模型回复（过程与最终）”。可使用全局默认或单台客户端覆盖。更新后的客户端读取新增日志并沿用设备认证、持久队列、上传确认与保留策略；不会自动回放已越过采集游标的历史记录。旧客户端需要更新才能采集会话消息。未开启正文采集时仅记录消息身份与阶段，不上传正文。
+
+页面位于 **客户端详情 → 行为审计 → 会话活动 → 会话日志（输入 / 回复 / 工具）**，按日志时间展示用户输入、过程回复、最终回复及工具操作。Codex 使用 `message.phase=commentary/final_answer`；Claude Code 使用明确的 `stop_reason=tool_use/end_turn`。无明确标记的模型文本显示“模型回复（阶段未标注）”，API 错误生成的合成 assistant 文本不作为模型回复。正文直接展示，使用现有审计正文权限、脱敏、截断提示与访问审计。正文长度在同一策略页配置：默认单片段 1024、单事件合计 2048 UTF-8 字节，两项范围均为 256–32768 字节，单事件上限不得小于单片段上限。先脱敏再截断；每事件最多 4 个片段。截断的正文显示原始字节数、实际保存字节数及当时的策略上限。
+
+会话日志是 Agent 保留的消息，不是完整模型 API 请求。开发者指令、推理记录、图片内容和协作 Agent 消息不纳入本次文本采集。消息与工具计数分别保留；没有可靠轮次标识的消息显示在“未归属轮次”，不根据相邻时间强行归属。
+
+**English:** Enable **User input (Prompt)** and **Model replies (progress and final)** separately in the global or per-client audit policy. Updated clients collect newly read session messages through the existing authenticated outbox and upload path. Existing cursors are preserved; historical records are not automatically replayed. Disabled content scopes retain message metadata only. View messages in **Client details → Behavior audit → Session activity → Session logs (messages & tools)**. Codex uses explicit commentary/final_answer phases; Claude uses tool_use/end_turn stop reasons. Missing phases remain unspecified, and synthetic API-error messages are excluded. Content permissions, redaction, truncation and retention apply. Configure body limits in the same global or per-client policy: defaults are 1024 UTF-8 bytes per fragment and 2048 per event, with a range of 256–32768 bytes for each. The event limit must be at least the fragment limit. Redaction precedes truncation, with at most 4 fragments per event. Truncated content shows source/stored byte counts and the applied limits. Enable Command body (scripts / HereDoc) to retain shell commands, inline scripts and wrapper code already present in logs or Hooks; details display the protected body directly. Legacy clients retain their original limits until updated. Previously omitted source content cannot be restored. These are retained conversation messages, not complete model API requests.
+
+人工验收 Todo（不新增 UI 单元测试）：
+
+- [ ] 更新客户端，分别开启输入、回复及关闭两者；核对正文范围与实际应用策略。
+- [ ] 在全局策略调整正文长度，在客户端覆盖并恢复继承；刷新页面核对保存结果，核对无效范围与单片段大于单事件时不能保存。
+- [ ] 开启命令正文，分别产生 HereDoc、内联脚本和包装代码；在日志与 Hook 详情核对正文、脱敏及超限提示；关闭后新增记录不包含命令正文。
+- [ ] 核对旧客户端的默认上限、待上传记录的原策略及历史记录保持一致；无正文权限账号不能读取命令正文。
+- [ ] 执行一个含工具调用的新会话，查看用户输入、过程回复、最终回复；缺少阶段标记时显示“阶段未标注”。
+- [ ] 切换日志与 Hook、轮次、全部轮次，核对消息与工具计数和分页；无 Hook 的纯文本会话也可检索和打开。
+- [ ] 核对无正文权限账号、脱敏、长回复截断、上传重试去重及正文到期。
+- [ ] 中英文及窄窗口检查；确认旧客户端仍可上传工具与 Hook 记录。
 
 ## 6. 核心业务流程
 
@@ -2072,3 +2152,36 @@ MCP 案例的确定性演示服务和调用脚本位于
   [openclaw-agent-manager-hooks.md](../docs/openclaw-agent-manager-hooks.md)
 - 模型网关、Prompt 防护与隐私链路：
   [model-gateway.md](../docs/model-gateway.md)
+
+AIDR P1 自动日志发现使用持久化目录前沿，近期活动与历史回溯分配独立预算，旧日期会话追加也会检查。设备详情分开展示传输心跳、来源发现、解析能力和覆盖缺口。启动及升级见 [客户端说明](agent-manager-client.md)，真实自动发现与网页验收状态见 [可读审计验收](../experiments/aidr-agentlog/READABLE_ACCEPTANCE.md)。
+
+
+### P1 补强：平台统一 AIDR 审计脱敏
+
+设备“行为审计 → 工具操作（Agent 日志）”读取当前设备的 Claude Code / Codex 会话日志，由客户端读取并上传。顶部常显来源说明，空列表提示检查 Agent 日志通道，并提供“宿主事件（Hook）”入口。宿主事件默认展示 Agent、Hook 事件和关键词，精确工具名及 ID 条件收在“更多筛选”，已启用数量常显；选择后立即查询，文本输入停顿 250 ms 后查询，条件变化返回首批并忽略旧请求响应。清除筛选同时清除收起的条件。行为审计的其他视图为“宿主事件（Hook）”“系统事件”和“采集状态”，分别对应宿主 Hook、操作系统采集通道和通道运行状态。系统事件入口使用跨平台名称；具体采集技术和支持范围在页面说明中展示，当前已实现的原生通道为 macOS Endpoint Security，Windows/Linux 系统通道尚未实现。设备在线、Hook 接收器在线与日志持续采集是独立状态；未配置运行采集目标时，页面明确提示“未配置日志采集目标”，并提供到本机“策略与审批”的配置入口。已有历史或手动短时采集记录仍可查询，不据此判定持续采集已启用。
+
+工具操作与 Hook 详情优先展示事件、工具、来源、时间，以及命令、目标和按权限读取的输入输出；回合、调用、来源位置、策略版本等收在“记录信息”，相关工具 Hook 收在独立折叠区。详情省略 JSON、空字段和不适用的工具关联说明；会话、子代理、压缩、停止等生命周期事件显示自身的阶段和身份。PostToolUse 未报告结构化执行状态时明确显示“已返回，未报告执行状态”。
+
+
+入口：**客户端管理 → 客户端策略 → 审计采集与脱敏**（英文 Client Management → Client policies → Audit collection and redaction）。客户端策略分为“接入与运行”和“审计采集与脱敏”，列表页入口编辑全局默认策略，设备入口编辑该客户端的审计策略；系统总览仅展示目标摘要及跳转入口。设备“策略与审批”和“采集状态”可进入本客户端审计编辑入口；采集状态保留客户端报告的范围、版本与刷新时间。UserPromptSubmit 正文未开启时，事件详情解释采集时策略并提供本客户端策略入口。进入客户端管理需 `clients:view`，审计策略需 `settings:view`；管理员且具有 `settings:update` 权限可修改全局默认策略，单机配置还需 `clients:update` 和设备可见权限；脱敏默认开启；修改人、时间、前后开关与版本进入管理审计，不记录命令内容。设备详情同时展示平台目标策略、客户端报告的版本/开关及最后刷新时间；没有支持报告的旧客户端显示未知/旧版本继续脱敏，不宣称已应用关闭状态。
+
+审计策略默认继承全局。关闭继承后，采集开关、Prompt/工具输出/文件正文、脱敏和保留天数作为一组单独配置，仅作用于该客户端；后续全局更新不覆盖单机配置。重新开启继承并保存后跟随全局更新。平台策略下发、日志通道状态、Hook 接入验收和历史清理均读取该设备的有效策略。保留天数适用于该设备已有历史，缩短后会淘汰超期内容；已淘汰内容不会恢复。全局和单机保存使用共享递增版本，恢复继承也产生新版本，既有凭据与待发积压仍遵循应用回执边界。
+
+**English:** Audit policy is inherited by default. A client override covers collection, content scope, redaction and retention together and remains unchanged by global updates. Restore inheritance to follow the global policy again. Delivery, channel status, Hook onboarding and history expiry use the effective client policy. Retention changes also affect existing history. Verify the client-reported applied version separately from the saved target.
+
+
+`aidr-sync` 启动后先读取缓存并尝试认证获取策略，以后每 30 秒重试，下一轮有界采集生效。网络往返及当前采集轮次会增加延迟，这不是硬实时 SLA。离线/获取失败使用已持久化缓存，首次失败默认开启（版本 0）；状态码为 `aidr_policy_applied`、`aidr_policy_cached`、`aidr_policy_response_invalid`。本地 `agent-log-collect` 使用同一状态目录的缓存，无平台连接时不主动刷新。
+
+关闭仅关闭允许字段的敏感值替换，命令里的真实凭证可能进入本地数据库及后台；白名单、UTF-8 字节上限、截断、控制字符处理和正文排除不变。完整 Prompt、独立文件正文、完整结果、未知参数不采集。明确的内联正文/脚本参数及 heredoc 仍省略，标记 `body_omitted`，不冒充凭证脱敏。普通 `git commit -m "fix scanner ownership across client credential rotation" && git status --short --branch` 在两种策略下均完整保留。明确 `--password`、秘密环境变量赋值、Authorization/Bearer、Cookie 和受支持令牌格式在开启时遮蔽其值，保持引号与操作符。
+
+升级不删除或重建本地数据。平台新增策略下发记录表；本地 metadata 增加策略缓存及应用序列边界。事件 `behavior.policy` 保存 `version/enabled/receipt`，`redacted` 表示发生替换，`body_omitted` 单独说明正文排除。服务端以绑定设备/stream 的真实下发记录授权，开启策略再次检查敏感模式，未下发版本或错误设备/序列拒绝（`aidr.redaction_policy_invalid`）。客户端持久化应用新策略后，在下次刷新确认上报旧数据序列上界；只有确认后才关闭旧策略范围，响应丢失仍可重试。冻结批次不修改、不重算摘要；旧队列按采集策略补传，即使当前目标已开启，合法 OFF 积压仍可接收。离线采集时间无法由服务端独立证明，策略依赖认证客户端正确报告应用边界，不提供终端可信执行证明。
+
+切换只影响后续新逻辑事件，不恢复、重采或清洗历史。版本 1/2 事件、既有内容哈希、覆盖游标及 ACK 契约保留；重读通过既有身份复用原始投影并保留新位置的来源证据；已淘汰正文的墓碑保持淘汰，避免恢复历史或重复逻辑事件。旧客户端继续固定脱敏，需升级才支持开关。版本 3 不支持向旧平台降级上报，部署顺序为先平台后采集端。
+
+日志重启、补传或新采集实例重新读取同一事件时，服务端先校验本次设备、采集实例和策略回执，再按日志来源、会话/调用身份、事件类型及原始内容摘要去重。同一原始事件保留首次有效解析结果，后续解析差异或策略回执变化不阻塞新记录；原始事件、内容哈希和已有批次 ACK 保持不变。新批次仍按原始字节校验和确认，真实来源或内容摘要不一致仍拒绝；已过期事件按保留的逻辑身份确认重复，不恢复正文。修复后可在客户端执行“重试日志采集”（CLI：`agent-manager-client aidr-desktop --action retry-logs`），由原后台继续上传原队列，再核对新操作、上传 ACK 和通道状态。普通页面对无法确认的结果显示“结果未确认”。
+
+### 设备详情：Skill、插件与行为审计
+
+客户端管理的设备详情分为概览、Agent与Skill、插件接入、行为审计、策略与审批。Skill治理与模型配置位于Agent与Skill；Claude/Codex安装、启用与信任位于插件接入；工具日志、Hook生命周期、系统事件及采集诊断位于行为审计；工具审批、系统策略和响应回执位于策略与审批。公共页头只展示设备与心跳，不在各标签下重复库存或任务表。按需加载的摘要保留报告时间与未知状态；安装回执、Hook意图、日志结果与OS执行证据分别核对。详细操作见[客户端说明](agent-manager-client.md)。
+
+详情页优先展示状态与操作：设备 ID 和凭据创建人可展开“设备信息”查看；概览每项功能保留一个摘要入口，页头刷新同时更新当前概览。插件页直接展示宿主安装、信任与操作，协议能力和逐项验收集中在“接入诊断与验收”。行为审计保留当前采集异常与历史覆盖缺口数量，采集边界和查询说明按需展开。审批列表仅显示一个同步时间，存在更多记录或已翻页时显示底部分页；Agent 与 Skill 页仅在有恢复副本时展示该列表。

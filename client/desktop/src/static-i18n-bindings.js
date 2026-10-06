@@ -61,6 +61,12 @@ window.clientStaticI18nBindings = [
     "source": "执行记录"
   },
   {
+    "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>nav:nth-of-type(1)>button:nth-of-type(5)>span:nth-of-type(2)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.title",
+    "source": "Agent 运行治理"
+  },
+  {
     "selector": "html:nth-of-type(1)>body:nth-of-type(1)>main:nth-of-type(1)>aside:nth-of-type(1)>div:nth-of-type(2)>div:nth-of-type(1)>strong:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.1s7qqi1",
@@ -1027,6 +1033,264 @@ window.clientStaticI18nBindings = [
     "source": "下一页"
   },
   {
+    "selector": "#runtime-governance>div:nth-of-type(1)",
+    "attribute": "aria-label",
+    "key": "ui.aidrDesktop.tabs.navigation",
+    "source": "运行治理内容"
+  },
+  {
+    "selector": "#governance-collection-tab",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.tabs.collection",
+    "source": "接入与采集"
+  },
+  {
+    "selector": "#governance-system-tab",
+    "nodeIndex": 0,
+    "key": "ui.systemCollection.title",
+    "source": "系统采集"
+  },
+  {
+    "selector": "#aidr-plugin-settings>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.connection_title",
+    "source": "插件接入与采集"
+  },
+  {
+    "selector": "#aidr-plugin-settings>div:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.description",
+    "source": "接入当前用户的 Claude/Codex。客户端管理本机接收器，凭证不写入插件。"
+  },
+  {
+    "selector": "#aidr-open-client-update",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.client_update_entry",
+    "source": "客户端更新"
+  },
+  {
+    "selector": "#aidr-plugin-settings>div:nth-of-type(1)>div:nth-of-type(2)>button:nth-of-type(2)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.inspect",
+    "source": "发现与自检"
+  },
+  {
+    "selector": "#aidr-managed-note",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.managed_note",
+    "source": "启用与安装由平台管理，请在设备详情的 Agent 运行治理中修改。自检和故障重试仍可在本机操作。"
+  },
+  {
+    "selector": "#aidr-authorization-note",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.authorization_scope",
+    "source": "受管安装修改整台机器的宿主配置和受保护桥接程序；审计数据仍使用调用用户自己的设备连接。密码由系统处理，新会话需核对实际加载。"
+  },
+  {
+    "selector": "#aidr-connection-needed>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.connection_needed",
+    "source": "先在客户端概览完成设备认证，再接入 Agent。"
+  },
+  {
+    "selector": "#aidr-open-connection",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.open_connection",
+    "source": "前往客户端概览"
+  },
+  {
+    "selector": "#aidr-plugin-settings>details:nth-of-type(1)>summary:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.system_prerequisites",
+    "source": "系统采集条件"
+  },
+  {
+    "selector": "#aidr-plugin-settings>details:nth-of-type(1)>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.system_prerequisites_note",
+    "source": "只读检查组件、签名和采集模式。检查不会请求管理员权限或启动 ES，系统授权与实际订阅需独立验证。"
+  },
+  {
+    "selector": "#aidr-plugin-settings>details:nth-of-type(1)>button:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.system_check",
+    "source": "检查系统条件"
+  },
+  {
+    "selector": "#aidr-host-status>section:nth-of-type(1)>div:nth-of-type(2)>button:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.claude",
+    "source": "接入 Claude"
+  },
+  {
+    "selector": "#aidr-host-status>section:nth-of-type(1)>div:nth-of-type(2)>button:nth-of-type(2)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.upgrade_claude",
+    "source": "更新 Claude 插件"
+  },
+  {
+    "selector": "#aidr-host-status>section:nth-of-type(1)>div:nth-of-type(2)>button:nth-of-type(3)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.authorize_claude",
+    "source": "授权 Claude 受管安装"
+  },
+  {
+    "selector": "#aidr-host-status>section:nth-of-type(1)>div:nth-of-type(2)>button:nth-of-type(4)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.remove_managed_claude",
+    "source": "移除 Claude 自有受管配置"
+  },
+  {
+    "selector": "#aidr-host-status>section:nth-of-type(2)>div:nth-of-type(2)>button:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.codex",
+    "source": "接入 Codex"
+  },
+  {
+    "selector": "#aidr-host-status>section:nth-of-type(2)>div:nth-of-type(2)>button:nth-of-type(2)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.upgrade_codex",
+    "source": "更新 Codex 插件"
+  },
+  {
+    "selector": "#aidr-host-status>section:nth-of-type(2)>div:nth-of-type(2)>button:nth-of-type(3)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.authorize_codex",
+    "source": "授权 Codex 受管安装"
+  },
+  {
+    "selector": "#aidr-host-status>section:nth-of-type(2)>div:nth-of-type(2)>button:nth-of-type(4)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.remove_managed_codex",
+    "source": "移除 Codex 自有受管配置"
+  },
+  {
+    "selector": "#aidr-plugin-settings>p:nth-of-type(3)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.trust_hint",
+    "source": "安装不会自动授予 Hook 信任。请在 Codex 原生 /hooks 中审阅；新会话才应用配置，不会重启已有会话。安装、自检和接收器运行均不证明真实事件已到达。"
+  },
+  {
+    "selector": "#aidr-receiver-controls>span:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.automatic",
+    "source": "自动运行"
+  },
+  {
+    "selector": "#aidr-receiver-controls>button:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.enable",
+    "source": "启用自动运行"
+  },
+  {
+    "selector": "#aidr-receiver-controls>button:nth-of-type(2)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.disable",
+    "source": "停用自动运行"
+  },
+  {
+    "selector": "#aidr-receiver-controls>button:nth-of-type(3)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.retry_logs",
+    "source": "重试日志采集"
+  },
+  {
+    "selector": "#aidr-receiver-controls>button:nth-of-type(4)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.retry",
+    "source": "重试接收器"
+  },
+  {
+    "selector": "#aidr-plugin-settings>details:nth-of-type(2)>summary:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.diagnostics",
+    "source": "采集与策略诊断"
+  },
+  {
+    "selector": "#aidr-plugin-settings>details:nth-of-type(2)>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.lifecycle",
+    "source": "切页、最小化及后台运行持续采集；关闭窗口或退出应用停止接收器，保留待发数据。重新打开后按启用状态恢复。"
+  },
+  {
+    "selector": "#aidr-system-collection>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.systemCollection.title",
+    "source": "系统采集"
+  },
+  {
+    "selector": "#aidr-system-collection>div:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.systemCollection.description",
+    "source": "采集平台策略指定的 Agent 进程及其子进程事件，并上传到当前设备。默认仅采集。"
+  },
+  {
+    "selector": "#system-collection-development",
+    "nodeIndex": 0,
+    "key": "ui.systemCollection.development",
+    "source": "开发测试组件：仅用于 SIP 已关闭的环境；安装或更新时进行临时签名，不是正式发布包。"
+  },
+  {
+    "selector": "#system-collection-start",
+    "nodeIndex": 0,
+    "key": "ui.systemCollection.start",
+    "source": "开始采集"
+  },
+  {
+    "selector": "#system-collection-stop",
+    "nodeIndex": 0,
+    "key": "ui.systemCollection.stop",
+    "source": "停止采集"
+  },
+  {
+    "selector": "#system-collection-permissions>summary:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.systemCollection.permissions",
+    "source": "权限与运行说明"
+  },
+  {
+    "selector": "#system-collection-permissions>p:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.systemCollection.authorization",
+    "source": "开始时由 macOS 请求管理员授权，桌面界面保持普通用户权限。采集独立运行，关闭窗口后仍继续；请在此停止，单次最多运行 24 小时。"
+  },
+  {
+    "selector": "#system-collection-permissions>p:nth-of-type(2)",
+    "nodeIndex": 0,
+    "key": "ui.systemCollection.fda",
+    "source": "需要为 aidr-enforcer 授予“完整磁盘访问权限”。管理员授权不能代替此权限。在系统设置中点击“+”，通过“显示组件”找到并添加采集器，授权后重新开始采集。"
+  },
+  {
+    "selector": "#system-collection-settings",
+    "nodeIndex": 0,
+    "key": "ui.systemCollection.settings",
+    "source": "打开完整磁盘访问设置"
+  },
+  {
+    "selector": "#system-collection-reveal",
+    "nodeIndex": 0,
+    "key": "ui.systemCollection.reveal",
+    "source": "显示组件"
+  },
+  {
+    "selector": "#aidr-system-collection>p:nth-of-type(3)",
+    "nodeIndex": 0,
+    "key": "ui.systemCollection.retention",
+    "source": "停止后保留未确认上传的记录，下次开始时补传。关闭窗口后仍继续采集，请使用“停止采集”结束。"
+  },
+  {
+    "selector": "#aidr-system-collection>h3:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.systemCollection.recent",
+    "source": "最近系统事件"
+  },
+  {
+    "selector": "#aidr-system-collection>p:nth-of-type(4)",
+    "nodeIndex": 0,
+    "key": "ui.systemCollection.coverage",
+    "source": "订阅成功后，重新启动策略中的 Agent 才能建立进程归属。这里展示最近 12 条事件，完整记录在平台“行为审计 → 系统事件”。"
+  },
+  {
     "selector": "#settings>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.1afvuhv",
@@ -1121,6 +1385,12 @@ window.clientStaticI18nBindings = [
     "nodeIndex": 0,
     "key": "ui.cn5hhp",
     "source": "执行记录"
+  },
+  {
+    "selector": "#settings-default-panel>option:nth-of-type(5)",
+    "nodeIndex": 0,
+    "key": "ui.aidrDesktop.title",
+    "source": "Agent 运行治理"
   },
   {
     "selector": "#settings>section:nth-of-type(3)>div:nth-of-type(1)>h2:nth-of-type(1)",
@@ -1346,8 +1616,20 @@ window.clientStaticI18nBindings = [
   },
   {
     "selector": "#settings-check-update",
+    "attribute": "title",
+    "key": "ui.clientUpdate.check_help",
+    "source": "检查客户端更新"
+  },
+  {
+    "selector": "#settings-check-update",
+    "attribute": "aria-label",
+    "key": "ui.clientUpdate.check_help",
+    "source": "检查客户端更新"
+  },
+  {
+    "selector": "#settings-check-update",
     "nodeIndex": 0,
-    "key": "ui.re5xvw",
+    "key": "ui.clientUpdate.check_now",
     "source": "立即检查"
   },
   {

@@ -1,4 +1,6 @@
+import { runtimeGovernanceMessages } from './runtime-governance.js'
 import { clientDiscoveryMessages } from './clientDiscovery.js'
+import { aidrMessages } from './aidr.js'
 import { createI18n } from 'vue-i18n'
 import { uiExperienceMessages } from './uiExperience.js'
 import { iamMessages } from './iam.js'
@@ -89,7 +91,9 @@ export const i18n = createI18n({
       skillBatch: skillBatchMessages['zh-CN'],
       decisionFlow: decisionFlowMessages['zh-CN'],
       skillDetail: skillDetailMessages['zh-CN'],
+      agentRuntimeGovernance: runtimeGovernanceMessages['zh-CN'],
       clientGovernance: clientGovernanceMessages['zh-CN'],
+      aidr: aidrMessages['zh-CN'],
       clientDiscovery: clientDiscoveryMessages['zh-CN'],
       skillColumns: skillColumnMessages['zh-CN'],
       skillFilters: {
@@ -1167,7 +1171,9 @@ export const i18n = createI18n({
       skillBatch: skillBatchMessages['en-US'],
       decisionFlow: decisionFlowMessages['en-US'],
       skillDetail: skillDetailMessages['en-US'],
+      agentRuntimeGovernance: runtimeGovernanceMessages['en-US'],
       clientGovernance: clientGovernanceMessages['en-US'],
+      aidr: aidrMessages['en-US'],
       clientDiscovery: clientDiscoveryMessages['en-US'],
       skillColumns: skillColumnMessages['en-US'],
       skillFilters: {

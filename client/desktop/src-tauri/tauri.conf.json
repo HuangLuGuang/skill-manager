@@ -40,6 +40,8 @@
       "bin/agent-manager-client"
     ],
     "resources": {
+      "resources/aidr-plugins/": "aidr-plugins/",
+      "resources/aidr-system/": "aidr-system/",
       "infoplist/en.lproj/InfoPlist.strings": "en.lproj/InfoPlist.strings",
       "infoplist/zh-Hans.lproj/InfoPlist.strings": "zh-Hans.lproj/InfoPlist.strings"
     },

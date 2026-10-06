@@ -19,6 +19,7 @@
           <button class="nav-item" data-panel="discover"><span class="nav-index">02</span><span class="nav-label" data-i18n="ui.agentManagement.title">Agent 管理</span></button>
           <button class="nav-item" data-panel="models"><span class="nav-index">03</span><span class="nav-label">模型切换</span></button>
           <button class="nav-item" data-panel="records"><span class="nav-index">04</span><span class="nav-label">执行记录</span></button>
+          <button class="nav-item" data-panel="runtime-governance"><span class="nav-index">05</span><span class="nav-label" data-i18n="ui.aidrDesktop.title">Agent 运行治理</span></button>
         </nav>
         <div class="rail-note"><div><strong data-system-name>智能体生命周期管理系统</strong><small id="client-build-version">版本 dev</small></div></div>
       </aside>
@@ -210,6 +211,7 @@
           <div id="model-catalog" class="model-catalog empty">正在读取可用模型</div>
         </section>
 
+
         <section id="notifications" class="panel">
           <section class="status-hero notification-hero">
             <div><span class="overview-badge">本机提醒</span><h2>安全通知</h2><p>集中查看文件变化巡检后的自动恢复、隔离阻断和只审计提醒。</p></div>
@@ -254,6 +256,65 @@
 
         </section>
 
+          <section id="runtime-governance" class="panel">
+            <div class="overview-tabs governance-tabs" role="tablist" data-i18n-aria-label="ui.aidrDesktop.tabs.navigation" aria-label="运行治理内容">
+              <button type="button" role="tab" id="governance-collection-tab" data-governance-tab="collection" aria-controls="aidr-plugin-settings" aria-selected="true" tabindex="0" data-i18n="ui.aidrDesktop.tabs.collection">接入与采集</button>
+              <button type="button" role="tab" id="governance-system-tab" data-governance-tab="system" aria-controls="aidr-system-collection" aria-selected="false" tabindex="-1" data-i18n="ui.systemCollection.title">系统采集</button>
+            </div>
+            <div id="aidr-plugin-settings" role="tabpanel" aria-labelledby="governance-collection-tab">
+            <div class="governance-heading"><div><h2 data-i18n="ui.aidrDesktop.connection_title">插件接入与采集</h2><p data-i18n="ui.aidrDesktop.description">接入当前用户的 Claude/Codex。客户端管理本机接收器，凭证不写入插件。</p></div><div class="governance-heading-actions"><button id="aidr-open-client-update" type="button" class="icon-button icon-refresh" data-i18n="ui.aidrDesktop.client_update_entry">客户端更新</button><button type="button" class="icon-button icon-check" data-aidr-action="inspect" data-i18n="ui.aidrDesktop.inspect">发现与自检</button></div></div>
+            <p id="aidr-managed-note" data-i18n="ui.aidrDesktop.managed_note" hidden>启用与安装由平台管理，请在设备详情的 Agent 运行治理中修改。自检和故障重试仍可在本机操作。</p>
+            <p id="aidr-authorization-note" data-i18n="ui.aidrDesktop.authorization_scope" hidden>受管安装修改整台机器的宿主配置和受保护桥接程序；审计数据仍使用调用用户自己的设备连接。密码由系统处理，新会话需核对实际加载。</p>
+            <div id="aidr-plugin-error" class="inline-error" role="alert" hidden></div>
+            <div id="aidr-connection-needed" class="governance-attention" hidden><p data-i18n="ui.aidrDesktop.connection_needed">先在客户端概览完成设备认证，再接入 Agent。</p><button type="button" id="aidr-open-connection" data-i18n="ui.aidrDesktop.open_connection">前往客户端概览</button></div>
+            <div id="aidr-collection-channels" class="governance-hosts" aria-live="polite"></div>
+            <details class="governance-diagnostics"><summary data-i18n="ui.aidrDesktop.system_prerequisites">系统采集条件</summary>
+              <p data-i18n="ui.aidrDesktop.system_prerequisites_note">只读检查组件、签名和采集模式。检查不会请求管理员权限或启动 ES，系统授权与实际订阅需独立验证。</p>
+              <button type="button" data-aidr-action="system-check" data-i18n="ui.aidrDesktop.system_check">检查系统条件</button>
+              <p id="aidr-system-check-error" aria-live="polite" hidden></p>
+              <dl id="aidr-system-prerequisites" class="detail-list" aria-live="polite"></dl>
+            </details>
+            <dl id="aidr-runtime-summary" class="governance-summary" aria-live="polite"></dl>
+            <div id="aidr-host-status" class="governance-hosts">
+              <section class="governance-host"><div id="aidr-host-claude-status"></div><div class="governance-host-actions">
+                <button type="button" class="primary" data-aidr-action="connect" data-aidr-agent="claude" data-i18n="ui.aidrDesktop.claude">接入 Claude</button>
+                <button type="button" data-aidr-action="upgrade" data-aidr-agent="claude" data-i18n="ui.aidrDesktop.upgrade_claude">更新 Claude 插件</button>
+                <button type="button" data-aidr-action="authorize" data-aidr-agent="claude" data-i18n="ui.aidrDesktop.authorize_claude" hidden>授权 Claude 受管安装</button>
+                <button type="button" class="subtle-danger" data-aidr-action="remove-managed" data-aidr-agent="claude" data-i18n="ui.aidrDesktop.remove_managed_claude" hidden>移除 Claude 自有受管配置</button>
+              </div></section>
+              <section class="governance-host"><div id="aidr-host-codex-status"></div><div class="governance-host-actions">
+                <button type="button" class="primary" data-aidr-action="connect" data-aidr-agent="codex" data-i18n="ui.aidrDesktop.codex">接入 Codex</button>
+                <button type="button" data-aidr-action="upgrade" data-aidr-agent="codex" data-i18n="ui.aidrDesktop.upgrade_codex">更新 Codex 插件</button>
+                <button type="button" data-aidr-action="authorize" data-aidr-agent="codex" data-i18n="ui.aidrDesktop.authorize_codex" hidden>授权 Codex 受管安装</button>
+                <button type="button" class="subtle-danger" data-aidr-action="remove-managed" data-aidr-agent="codex" data-i18n="ui.aidrDesktop.remove_managed_codex" hidden>移除 Codex 自有受管配置</button>
+              </div></section>
+            </div>
+            <p class="governance-evidence-note" data-i18n="ui.aidrDesktop.trust_hint">安装不会自动授予 Hook 信任。请在 Codex 原生 /hooks 中审阅；新会话才应用配置，不会重启已有会话。安装、自检和接收器运行均不证明真实事件已到达。</p>
+            <div id="aidr-receiver-controls" class="governance-receiver-controls">
+              <span data-i18n="ui.aidrDesktop.automatic">自动运行</span>
+              <button type="button" data-aidr-action="enable" data-i18n="ui.aidrDesktop.enable">启用自动运行</button>
+              <button type="button" data-aidr-action="disable" data-i18n="ui.aidrDesktop.disable">停用自动运行</button>
+              <button type="button" data-aidr-action="retry-logs" data-i18n="ui.aidrDesktop.retry_logs">重试日志采集</button>
+              <button type="button" data-aidr-action="retry" data-i18n="ui.aidrDesktop.retry">重试接收器</button>
+            </div>
+            <details class="governance-diagnostics"><summary data-i18n="ui.aidrDesktop.diagnostics">采集与策略诊断</summary><p data-i18n="ui.aidrDesktop.lifecycle">切页、最小化及后台运行持续采集；关闭窗口或退出应用停止接收器，保留待发数据。重新打开后按启用状态恢复。</p><dl id="aidr-receiver-state" class="detail-list"></dl></details>
+</div>
+        <section id="aidr-system-collection" role="tabpanel" aria-labelledby="governance-system-tab" hidden>
+          <div class="governance-heading"><div><h2 data-i18n="ui.systemCollection.title">系统采集</h2><p data-i18n="ui.systemCollection.description">采集平台策略指定的 Agent 进程及其子进程事件，并上传到当前设备。默认仅采集。</p></div></div>
+          <p id="system-collection-development" class="governance-attention" data-i18n="ui.systemCollection.development" hidden>开发测试组件：仅用于 SIP 已关闭的环境；安装或更新时进行临时签名，不是正式发布包。</p>
+          <div class="governance-receiver-controls"><strong id="system-collection-state" aria-live="polite"></strong><button id="system-collection-start" class="primary" type="button" data-i18n="ui.systemCollection.start">开始采集</button><button id="system-collection-stop" type="button" data-i18n="ui.systemCollection.stop">停止采集</button></div>
+          <p id="system-collection-error" class="inline-error" role="alert" hidden></p>
+          <dl id="system-collection-summary" class="detail-list" aria-live="polite"></dl>
+          <details id="system-collection-permissions" class="governance-diagnostics"><summary data-i18n="ui.systemCollection.permissions">权限与运行说明</summary>
+            <p data-i18n="ui.systemCollection.authorization">开始时由 macOS 请求管理员授权，桌面界面保持普通用户权限。采集独立运行，关闭窗口后仍继续；请在此停止，单次最多运行 24 小时。</p>
+            <p data-i18n="ui.systemCollection.fda">需要为 aidr-enforcer 授予“完整磁盘访问权限”。管理员授权不能代替此权限。在系统设置中点击“+”，通过“显示组件”找到并添加采集器，授权后重新开始采集。</p><div class="governance-heading-actions"><button id="system-collection-settings" type="button" data-i18n="ui.systemCollection.settings">打开完整磁盘访问设置</button><button id="system-collection-reveal" type="button" data-i18n="ui.systemCollection.reveal">显示组件</button></div>
+          </details>
+          <p data-i18n="ui.systemCollection.retention">停止后保留未确认上传的记录，下次开始时补传。关闭窗口后仍继续采集，请使用“停止采集”结束。</p>
+          <h3 data-i18n="ui.systemCollection.recent">最近系统事件</h3>
+          <p data-i18n="ui.systemCollection.coverage">订阅成功后，重新启动策略中的 Agent 才能建立进程归属。这里展示最近 12 条事件，完整记录在平台“行为审计 → 系统事件”。</p>
+          <div id="system-collection-events" class="runtime-evidence-list"></div>
+        </section>
+          </section>
         <section id="settings" class="panel settings-panel">
           <div class="panel-toolbar">
             <div><h2>客户端设置</h2><p data-i18n="ui.settings.description">管理平台连接、显示、通知、后台运行和更新偏好。</p></div>
@@ -271,7 +332,7 @@
             <div class="settings-section-heading"><h2>通用</h2><p>这些偏好仅保存在当前设备。</p></div>
             <div class="settings-rows">
               <label class="settings-row"><span><strong>显示语言</strong><small>切换客户端界面语言。</small></span><select id="settings-language"><option value="zh-CN">简体中文</option><option value="en-US">English</option></select></label>
-              <label class="settings-row"><span><strong>默认打开页面</strong><small>客户端启动并读取状态后进入此页面。</small></span><select id="settings-default-panel"><option value="connect">客户端概览</option><option value="discover" data-i18n="ui.agentManagement.title">Agent 管理</option><option value="models">模型切换</option><option value="records">执行记录</option></select></label>
+              <label class="settings-row"><span><strong>默认打开页面</strong><small>客户端启动并读取状态后进入此页面。</small></span><select id="settings-default-panel"><option value="connect">客户端概览</option><option value="discover" data-i18n="ui.agentManagement.title">Agent 管理</option><option value="models">模型切换</option><option value="records">执行记录</option><option value="runtime-governance" data-i18n="ui.aidrDesktop.title">Agent 运行治理</option></select></label>
             </div>
           </section>
 
@@ -321,7 +382,7 @@
             <div class="settings-rows">
               <label class="settings-row"><span><strong>自动检查更新</strong><small>客户端接入平台后定期检查，并在发现新版本时通知。</small></span><input id="settings-auto-update" class="settings-switch" type="checkbox" /></label>
               <label class="settings-row"><span><strong>更新通道</strong><small>切换通道后会立即重新检查可用版本。</small></span><select id="settings-update-channel"><option value="stable">正式通道</option><option value="preview">测试通道</option></select></label>
-              <div class="settings-row"><span><strong>当前版本</strong><small id="settings-update-status">尚未检查更新。</small></span><button id="settings-check-update" class="icon-button icon-check">立即检查</button></div>
+              <div class="settings-row"><span><strong>当前版本</strong><small id="settings-update-status">尚未检查更新。</small></span><button id="settings-check-update" class="icon-button icon-check" data-i18n="ui.clientUpdate.check_now" title="检查客户端更新" data-i18n-title="ui.clientUpdate.check_help" aria-label="检查客户端更新" data-i18n-aria-label="ui.clientUpdate.check_help">立即检查</button></div>
             </div>
           </section>
 
@@ -337,6 +398,8 @@
             <div id="backup-preview" class="backup-preview" aria-live="polite"></div>
             <div class="backup-footer"><span id="backup-feedback" role="status"></span><button id="backup-task-records" data-i18n="ui.backups.tasks">查看任务记录</button><button id="restore-backup" class="primary icon-button icon-restore" disabled data-i18n="ui.backups.submit">申请恢复</button></div>
           </details>
+
+
 
           <section class="settings-section">
             <div class="settings-section-heading"><h2>诊断</h2><p>用于现场排查，不会导出接入凭据明文。</p></div>
@@ -532,5 +595,8 @@
     <script src="./i18n.js"></script>
     <script src="./diagnostics.js"></script>
     <script src="./app.js"></script>
+    <script src="./aidr-plugins.js"></script>
+    <script src="./aidr-client-update.js"></script>
+    <script src="./system-collection.js"></script>
   </body>
 </html>

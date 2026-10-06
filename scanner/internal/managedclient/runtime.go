@@ -43,7 +43,7 @@ func runOnce(ctx context.Context, home string, api API, store *Store, forceFullS
 	if _, err := ReconcileInstalledRecoveryCopies(home, store); err != nil {
 		return err
 	}
-	policy, heartbeatErr := api.Heartbeat(ctx, inventory)
+	policy, heartbeatErr := api.Heartbeat(ctx, inventory, home)
 	online := heartbeatErr == nil
 	if online {
 		if policy.Mode == "" {
@@ -146,7 +146,7 @@ func PollTasks(ctx context.Context, home string, api API, store *Store) error {
 	if err != nil {
 		return err
 	}
-	policy, policyErr := api.Heartbeat(ctx, cached)
+	policy, policyErr := api.Heartbeat(ctx, cached, home)
 	if policyErr == nil && policy.Mode == "" {
 		policy, policyErr = api.Policy(ctx, cached.ClientID)
 	}
@@ -214,6 +214,16 @@ func executeTasks(ctx context.Context, home string, inventory Inventory, policy 
 			return err
 		}
 		if completed {
+			if task.TaskType == "aidr_plugin_action" {
+				saved, err := store.StoredTask(task.ID)
+				if err != nil {
+					return err
+				}
+				if err := api.ReportExecutedTask(ctx, inventory.ClientID, saved.Task, saved.Status, saved.Error); err != nil {
+					return err
+				}
+				continue
+			}
 			_ = api.ReportExecutedTask(ctx, inventory.ClientID, task, "succeeded", "")
 			continue
 		}
@@ -381,6 +391,54 @@ func ConfigureAgentModel(ctx context.Context, home string, inventory Inventory, 
 
 func executeTask(ctx context.Context, home string, inventory Inventory, policy Policy, api API, store *Store, task Task) error {
 	switch task.TaskType {
+	case "aidr_plugin_action":
+		if AIDRTaskHandler == nil {
+			return fmt.Errorf("aidr_desktop_version_unsupported")
+		}
+		if action := stringValue(task.Payload, "action"); action == "enable" || action == "disable" {
+			fresh, err := api.Policy(ctx, inventory.ClientID)
+			if err != nil {
+				return fmt.Errorf("aidr_desktop_policy_unavailable")
+			}
+			if fresh.Classification != nil && fresh.Classification.RuntimeGovernanceConfigured {
+				return fmt.Errorf("aidr_desktop_task_superseded")
+			}
+		}
+		if stringValue(task.Payload, "action") == "reconcile" {
+			fresh, err := api.Policy(ctx, inventory.ClientID)
+			if err != nil {
+				return fmt.Errorf("aidr_desktop_policy_unavailable")
+			}
+			if fresh.Classification == nil || !fresh.Classification.RuntimeGovernanceConfigured || fresh.Classification.RuntimeGovernanceVersion != stringValue(task.Payload, "policy_version") {
+				return fmt.Errorf("aidr_desktop_task_superseded")
+			}
+			target, _ := json.Marshal(task.Payload["target"])
+			current, _ := json.Marshal(fresh.Classification.RuntimeGovernance)
+			var a, b map[string]any
+			if json.Unmarshal(target, &a) != nil || json.Unmarshal(current, &b) != nil {
+				return fmt.Errorf("aidr_desktop_task_invalid")
+			}
+			// Nullable legacy fields are omitted when the typed API policy is
+			// marshaled. Their null wire form carries the same policy meaning.
+			for _, field := range []string{"modes", "channels"} {
+				if a[field] == nil {
+					delete(a, field)
+				}
+				if b[field] == nil {
+					delete(b, field)
+				}
+			}
+			canonicalA, _ := json.Marshal(a)
+			canonicalB, _ := json.Marshal(b)
+			if string(canonicalA) != string(canonicalB) {
+				return fmt.Errorf("aidr_desktop_task_superseded")
+			}
+		}
+		result, err := AIDRTaskHandler(ctx, home, task)
+		if result != nil {
+			task.Payload["aidr_result"] = result
+		}
+		return err
 	case "skill_action":
 		return executeObservedTask(ctx, home, policy, api, store, task)
 	case "sync_policy":

@@ -18,6 +18,7 @@ const panelTitle = panel => ({
   models: t('client.models.title'),
   notifications: t('ui.1atia5p'),
   records: t('ui.cn5hhp'),
+  'runtime-governance': t('ui.aidrDesktop.title'),
   settings: t('设置'),
 }[panel] || panel)
 let inventory = null
@@ -303,6 +304,7 @@ const showPanel = panel => {
   if (panel === 'records') {
     if (previousPanel !== 'records') recordState.page = 1
   }
+  if (panel === 'runtime-governance' && !$('#aidr-plugin-settings').hidden) void window.aidrGovernance?.refresh()
   if (panel === 'settings') {
     syncSettingsControls()
     void loadBackups().catch(log)
@@ -314,6 +316,32 @@ const showPanel = panel => {
 
 document.querySelectorAll('.nav-item').forEach(button => {
   button.addEventListener('click', () => showPanel(button.dataset.panel))
+})
+
+const switchGovernanceTab = key => {
+  document.querySelectorAll('[data-governance-tab]').forEach(button => {
+    const selected = button.dataset.governanceTab === key
+    button.setAttribute('aria-selected', String(selected))
+    button.tabIndex = selected ? 0 : -1
+    document.getElementById(button.getAttribute('aria-controls')).hidden = !selected
+  })
+  $('.workspace').scrollTop = 0
+  if (key === 'collection') void window.aidrGovernance?.refresh()
+  if (key === 'system') void window.aidrSystemCollection?.refresh()
+}
+document.querySelectorAll('[data-governance-tab]').forEach(button => {
+  button.addEventListener('click', () => switchGovernanceTab(button.dataset.governanceTab))
+  button.addEventListener('keydown', event => {
+    const tabs = [...document.querySelectorAll('[data-governance-tab]')]
+    const index = tabs.indexOf(button)
+    const target = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+      : event.key === 'ArrowRight' ? (index + 1) % tabs.length
+      : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : -1
+    if (target < 0) return
+    event.preventDefault()
+    switchGovernanceTab(tabs[target].dataset.governanceTab)
+    tabs[target].focus()
+  })
 })
 
 const switchOverviewTab = key => {
@@ -2744,8 +2772,9 @@ const renderClientUpdateAvailability = result => {
   button.classList.toggle('update-available', available)
   button.classList.toggle('icon-check', !available)
   button.classList.toggle('icon-install', available)
-  button.textContent = available ? tf`可更新 ${version}` : t('ui.re5xvw')
-  button.title = available ? tf`发现客户端新版本 ${version}，点击查看并更新` : t('ui.1wcdr2e')
+  button.textContent = available ? tf`可更新 ${version}` : t('ui.clientUpdate.check_now')
+  button.title = available ? t('ui.clientUpdate.available_help').replace('{version}', version) : t('ui.clientUpdate.check_help')
+  button.setAttribute('aria-label', button.title)
   if ($('#settings-update-status')) {
     $('#settings-update-status').textContent = available
       ? tf`发现新版本 ${version}`

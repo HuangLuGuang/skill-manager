@@ -1260,6 +1260,22 @@ func (store *Store) TaskCompleted(taskID int64) (bool, error) {
 	return status == "succeeded", err
 }
 
+func (store *Store) StoredTask(taskID int64) (LocalTask, error) {
+	rows, err := store.queryTasks(`SELECT task_id, status, COALESCE(error, ''), updated_at, task_json FROM client_tasks WHERE task_id=?`, taskID)
+	if err != nil {
+		return LocalTask{}, err
+	}
+	if len(rows) != 1 {
+		return LocalTask{}, sql.ErrNoRows
+	}
+	return rows[0], nil
+}
+
+func (store *Store) InterruptAIDRTasks() error {
+	_, err := store.db.Exec(`UPDATE client_tasks SET status='failed', error='aidr_desktop_task_interrupted' WHERE status='running' AND json_extract(task_json, '$.task_type')='aidr_plugin_action'`)
+	return err
+}
+
 func (store *Store) TaskHistory(limit int) ([]LocalTask, error) {
 	return store.queryTasks(
 		`SELECT task_id, status, COALESCE(error, ''), updated_at, task_json FROM client_tasks ORDER BY updated_at DESC LIMIT ?`,

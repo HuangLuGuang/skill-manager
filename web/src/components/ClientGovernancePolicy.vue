@@ -1,11 +1,46 @@
 <template>
-  <a-modal :open="open" :title="t(clientId ? 'clientGovernance.title' : 'clientGovernance.defaults')" width="820px" :footer="null" :z-index="1010" @cancel="emit('update:open', false)">
-    <a-spin :spinning="loading">
+  <a-modal :open="open" :title="t('clientGovernance.title')" width="820px" :footer="null" :z-index="1010" @cancel="emit('update:open', false)">
+    <a-tabs v-model:active-key="activeTab">
+      <a-tab-pane v-if="can('clients:view')" key="integration" :tab="t('aidr.policyNavigation.clientIntegration')" :disabled="busy" />
+      <a-tab-pane v-if="can('settings:view')" key="audit" :tab="t('aidr.redactionSettings.title')" :disabled="busy" />
+    </a-tabs>
+    <AidrRedactionSettings v-if="open && activeTab === 'audit' && can('settings:view')" :key="clientId" :client-id="clientId" />
+    <a-spin v-show="activeTab === 'integration'" :spinning="loading">
+      <p v-if="!clientId">{{ t('clientGovernance.defaults') }}</p>
+      <a-alert v-if="policyError" type="error" show-icon :message="t('clientGovernance.policyLoadFailed')" :description="policyError"><template #action><a-button :disabled="loading" @click="load">{{ t('clientGovernance.retryLoad') }}</a-button></template></a-alert>
+      <a-alert v-if="gatewayError" type="warning" show-icon :message="t('clientGovernance.gatewayLoadFailed')" :description="gatewayError"><template #action><a-button :disabled="loading" @click="load">{{ t('clientGovernance.retryLoad') }}</a-button></template></a-alert>
       <template v-if="policy">
+        <ClientProtectionStatus v-if="clientId && open && activeTab === 'integration'" :client-id="clientId" />
         <a-alert v-if="!impact" type="info" show-icon :message="t('clientGovernance.description')" />
-        <a-alert v-if="!editable" type="warning" :message="t(policy.supported ? 'clientGovernance.readonly' : 'clientGovernance.upgrade')" />
+        <a-alert v-if="!editable && !gatewayError && !policyError" type="warning" :message="t(policy.supported ? 'clientGovernance.readonly' : 'clientGovernance.upgrade')" />
         <a-alert v-if="!impact && clientId && policy.advanced_supported === false" type="warning" show-icon :message="t('clientGovernance.capabilityAvailable')" />
         <a-form v-if="!impact" layout="vertical" class="policy-form">
+          <section class="policy-group">
+            <header class="group-heading"><h3>{{ t('clientGovernance.runtime.title') }}</h3><p>{{ t('clientGovernance.runtime.description') }}</p></header>
+            <a-checkbox v-if="clientId && policy.runtime_channels_protocol === 3" v-model:checked="inheritRuntime" :disabled="!editable || busy">{{ t('clientGovernance.inherit') }}</a-checkbox>
+            <p v-else-if="clientId">{{ t('clientGovernance.runtime.inherited') }}</p>
+            <div class="group-rules">
+              <a-form-item :label="t('clientGovernance.runtime.enabled')"><a-switch v-model:checked="runtimeGovernance.enabled" :disabled="runtimeDisabled" /></a-form-item>
+              <a-form-item v-if="policy.runtime_channels_protocol === 3" :label="t('clientGovernance.runtime.channels')">
+                <a-space wrap><a-checkbox v-for="name in ['logs', 'hooks', 'system']" :key="name" v-model:checked="runtimeGovernance.channels[name]" :disabled="runtimeDisabled">{{ t(`clientGovernance.runtime.channel_${name}`) }}</a-checkbox></a-space>
+                <p class="effective">{{ t('clientGovernance.runtime.channelHint') }}</p>
+              </a-form-item>
+              <a-form-item v-for="channel in ['hooks', 'system']" :key="channel" :label="t(`clientGovernance.runtime.mode_${channel}`)">
+                <a-select :value="runtimeGovernance.modes?.[channel] || 'legacy'" :disabled="runtimeDisabled" @change="value => setMode(channel, value)">
+                  <a-select-option v-if="!runtimeGovernance.modes?.[channel]" value="legacy">{{ t('clientGovernance.runtime.mode_legacy') }}</a-select-option>
+                  <a-select-option v-for="mode in ['audit','intercept']" :key="mode" :value="mode">{{ t(`clientGovernance.runtime.mode_${mode}`) }}</a-select-option>
+                </a-select>
+                <p class="effective">{{ t(`clientGovernance.runtime.mode_${channel}_hint`) }}</p>
+              </a-form-item>
+              <a-form-item :label="t('clientGovernance.runtime.hosts')"><a-select v-model:value="runtimeGovernance.hosts" mode="multiple" :disabled="runtimeDisabled"><a-select-option value="codex">Codex</a-select-option><a-select-option value="claude">Claude Code</a-select-option></a-select></a-form-item>
+              <a-form-item v-for="field in ['installation', 'access_mode', 'updates']" :key="field" :label="t(`clientGovernance.runtime.${field}`)"><a-select v-model:value="runtimeGovernance[field]" :disabled="runtimeDisabled"><a-select-option v-for="option in runtimeOptions[field]" :key="option" :value="option">{{ t(`clientGovernance.runtime.${field}_${option}`) }}</a-select-option></a-select></a-form-item>
+              <a-form-item :label="t('clientGovernance.runtime.retry')"><a-select v-model:value="runtimeGovernance.retry.mode" :disabled="runtimeDisabled"><a-select-option v-for="mode in ['none','fixed','continuous']" :key="mode" :value="mode">{{ t(`clientGovernance.runtime.retry_${mode}`) }}</a-select-option></a-select></a-form-item>
+              <a-form-item v-if="runtimeGovernance.retry.mode === 'fixed'" :label="t('clientGovernance.runtime.retryCount')"><a-input-number v-model:value="runtimeGovernance.retry.retries" :min="0" :max="20" :precision="0" :disabled="runtimeDisabled" /></a-form-item>
+              <a-form-item v-if="runtimeGovernance.retry.mode !== 'none'" :label="t('clientGovernance.runtime.retryInterval')"><a-input-number v-model:value="runtimeGovernance.retry.max_interval_seconds" :min="10" :max="3600" :precision="0" :disabled="runtimeDisabled" /></a-form-item>
+            </div>
+            <p class="effective">{{ t('clientGovernance.runtime.pauseHint') }}</p>
+            <a-alert v-if="runtimeGovernance.access_mode === 'managed'" type="warning" show-icon :message="t('clientGovernance.runtime.managedHint')" />
+          </section>
           <section class="policy-group">
             <header class="group-heading"><h3>{{ t('clientGovernance.modelRouting.title') }}</h3><p>{{ t('clientGovernance.modelRouting.description') }}</p></header>
             <a-checkbox v-if="clientId" v-model:checked="inheritModelRouting" :disabled="!editable || busy">{{ t('clientGovernance.inherit') }}</a-checkbox>
@@ -81,6 +116,8 @@
           </section>
         </a-form>
         <template v-else>
+          <p v-for="channel in ['hooks','system']" :key="channel">{{ t(`clientGovernance.runtime.mode_${channel}`) }}: {{ t(`clientGovernance.runtime.mode_${impact.runtime_proposed?.modes?.[channel] || 'legacy'}`) }}</p>
+          <a-alert type="info" show-icon :message="t('clientGovernance.runtime.title')"><template #description><p>{{ t('clientGovernance.runtime.enabled') }}: {{ t(impact.runtime_proposed?.enabled ? 'clientGovernance.prompt.enabled' : 'clientGovernance.prompt.disabled') }} · {{ impact.runtime_proposed?.hosts?.join(' / ') }}</p><p v-if="impact.runtime_proposed?.channels">{{ ['logs', 'hooks', 'system'].filter(name => impact.runtime_proposed.channels[name]).map(name => t(`clientGovernance.runtime.channel_${name}`)).join(' · ') || t('clientGovernance.runtime.noChannels') }}</p><p>{{ t(`clientGovernance.runtime.installation_${impact.runtime_proposed?.installation}`) }} · {{ t(`clientGovernance.runtime.access_mode_${impact.runtime_proposed?.access_mode}`) }} · {{ t(`clientGovernance.runtime.updates_${impact.runtime_proposed?.updates}`) }} · {{ t(`clientGovernance.runtime.retry_${impact.runtime_proposed?.retry?.mode}`) }}</p></template></a-alert>
           <a-alert v-if="impact.model_routing_impacts?.length" type="info" show-icon :message="t('clientGovernance.modelRouting.preview', { count: impact.model_routing_impacts.filter(item => JSON.stringify(item.current) !== JSON.stringify(item.proposed)).length })" />
           <a-alert type="info" show-icon :message="t('clientGovernance.compression.preview', { count: impact.compression_impacts?.reduce((sum, item) => sum + item.changed_credentials, 0) || 0 })" />
           <ul class="prompt-impact"><li v-for="item in impact.compression_impacts" :key="item.client_id">{{ item.client_name }}: {{ compressionLabel(item.current) }} → {{ compressionLabel(item.proposed) }}</li></ul>
@@ -148,26 +185,43 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import AidrRedactionSettings from './AidrRedactionSettings.vue'
+import ClientProtectionStatus from './ClientProtectionStatus.vue'
 import { message } from 'ant-design-vue'
 import { can } from '../access'
 import { getClientGovernance, listExternalAiGateways, previewClientGovernance, saveClientGovernance } from '../api'
-const props = defineProps({ open: Boolean, clientId: { type: String, default: '' } })
+const props = defineProps({ open: Boolean, clientId: { type: String, default: '' }, initialTab: { type: String, default: 'integration' } })
 const emit = defineEmits(['update:open', 'saved'])
 const { t } = useI18n()
+const activeTab = ref('integration')
 const policy = ref(null), rules = ref({}), impact = ref(null), loading = ref(false), busy = ref(false)
 const promptGuard = ref({ mode: 'log', llm_review: false }), inheritPrompt = ref(false)
 const compression = ref({ enabled: false, level: 'auto' }), inheritCompression = ref(false)
-const gateways = ref([])
+const gateways = ref([]), policyError = ref(''), gatewayError = ref('')
 const modelRouting = ref({ external_gateway_enabled: false, external_gateway_id: null, auto_register_agent: true, client_select_model: true })
 const modelRoutingDefault = ref({ external_gateway_enabled: false, external_gateway_id: null, auto_register_agent: true, client_select_model: true })
 const inheritModelRouting = ref(false)
+const runtimeDefaults = () => ({ enabled: true, modes: { hooks: 'audit', system: 'audit' }, hosts: [], installation: 'manual', access_mode: 'ordinary', updates: 'manual', retry: {mode: 'fixed', retries: 2, max_interval_seconds: 300} })
+const runtimeGovernance = ref(runtimeDefaults())
+function setMode(channel, value) {
+  runtimeGovernance.value.modes = { hooks: null, system: null, ...runtimeGovernance.value.modes, [channel]: value === 'legacy' ? null : value }
+}
+const inheritRuntime = ref(false)
+watch(inheritRuntime, value => {
+  if (value && policy.value) {
+    runtimeGovernance.value = structuredClone(policy.value.runtime_governance_default || runtimeDefaults())
+    if (!runtimeGovernance.value.channels) runtimeGovernance.value.channels = { logs: false, hooks: true, system: false }
+  }
+})
+const runtimeOptions = {installation: ['automatic','manual'], access_mode: ['ordinary','managed'], updates: ['automatic','manual']}
+const runtimeDisabled = computed(() => !editable.value || busy.value || (!!props.clientId && (policy.value?.runtime_channels_protocol !== 3 || inheritRuntime.value)))
 const availableGateways = computed(() => gateways.value.filter(item => item.enabled || item.id === modelRouting.value.external_gateway_id))
 const modelRoutingDisabled = computed(() => !editable.value || busy.value || inheritModelRouting.value)
 const compressionLabel = value => value ? (value.enabled ? `${t('clientGovernance.prompt.enabled')} · ${t(`clientGovernance.compression.${value.level}`)}` : t('clientGovernance.prompt.disabled')) : ''
 const promptLabel = guard => guard ? `${t(`clientGovernance.prompt.${guard.mode}`)} · ${t('clientGovernance.prompt.llmReview')}: ${t(guard.llm_review ? 'clientGovernance.prompt.enabled' : 'clientGovernance.prompt.disabled')}` : ''
 const modelRoutingLabel = value => !value?.external_gateway_enabled
   ? t('clientGovernance.modelRouting.disabled')
-  : `${gateways.value.find(item => item.id === value.external_gateway_id)?.name || t('clientGovernance.modelRouting.gatewayMissing')} · ${t(value.client_select_model ? 'clientGovernance.modelRouting.selectable' : 'clientGovernance.modelRouting.fixed')}`
+  : `${gateways.value.find(item => item.id === value.external_gateway_id)?.name || (gatewayError.value ? t('clientGovernance.gatewayUnknown') : t('clientGovernance.modelRouting.gatewayMissing'))} · ${t(value.client_select_model ? 'clientGovernance.modelRouting.selectable' : 'clientGovernance.modelRouting.fixed')}`
 const expandedKeys = ref([])
 const impactTree = computed(() => {
   const clients = new Map()
@@ -195,7 +249,7 @@ const summaryText = record => {
   return Object.entries(counts).map(([key, count]) => `${t(`clientGovernance.${key}`)} ${count}`).join(' · ')
 }
 let loadSequence = 0
-const editable = computed(() => can('clients:update') && policy.value?.supported && (props.clientId || policy.value?.editable))
+const editable = computed(() => !gatewayError.value && !policyError.value && !loading.value && can('clients:update') && policy.value?.supported && (props.clientId || policy.value?.editable))
 const choices = {
   unverified: ['record_only', 'record', 'submit_scan', 'quarantine'], malicious: ['record_only', 'record', 'quarantine', 'uninstall'],
   trusted_content_changed: ['record_only', 'record', 'submit_scan', 'quarantine', 'restore_trusted'], unverified_content_changed: ['record_only', 'record', 'submit_scan', 'quarantine'],
@@ -223,15 +277,23 @@ const columns = computed(() => [
 const setRule = (trigger, action) => { impact.value = null; if (action) rules.value[trigger] = action; else delete rules.value[trigger] }
 async function load() {
   const sequence = ++loadSequence
-  busy.value = false; impact.value = null; policy.value = null
-  if (!props.open) return
+  busy.value = false; impact.value = null; policy.value = null; policyError.value = ''; gatewayError.value = ''; gateways.value = []
+  if (!props.open || activeTab.value !== 'integration') { loading.value = false; return }
   loading.value = true
   const clientId = props.clientId
   try {
     const gatewayRequest = can('external_gateways:view') ? listExternalAiGateways() : Promise.resolve([])
-    const [result, gatewayRows] = await Promise.all([getClientGovernance(clientId), gatewayRequest])
+    const [policyResult, gatewayResult] = await Promise.allSettled([getClientGovernance(clientId), gatewayRequest])
     if (sequence !== loadSequence) return
+    if (gatewayResult.status === 'rejected') gatewayError.value = 'client_governance_gateway_load_failed'
+    if (policyResult.status === 'rejected') { policyError.value = 'client_governance_policy_load_failed'; return }
+    const result = policyResult.value
+    const gatewayRows = gatewayResult.status === 'fulfilled' ? gatewayResult.value : []
     policy.value = result
+    runtimeGovernance.value = structuredClone(result.runtime_governance || runtimeDefaults())
+    if (!result.runtime_governance_configured) runtimeGovernance.value.modes = runtimeDefaults().modes
+    if (result.runtime_channels_protocol === 3 && !runtimeGovernance.value.channels) runtimeGovernance.value.channels = { logs: false, hooks: true, system: false }
+    inheritRuntime.value = Boolean(clientId && !result.runtime_governance_override)
     rules.value = { ...(clientId ? result.overrides : result.rules) }
     promptGuard.value = { ...result.prompt_guard }
     inheritPrompt.value = Boolean(clientId && !result.prompt_guard_override)
@@ -241,10 +303,14 @@ async function load() {
     modelRoutingDefault.value = { ...modelRoutingDefault.value, ...(result.model_routing_default || result.model_routing || {}) }
     modelRouting.value = { ...modelRoutingDefault.value, ...(result.model_routing || {}) }
     inheritModelRouting.value = Boolean(clientId && !result.model_routing_override)
-  } catch (error) { if (sequence === loadSequence) message.error(error.response?.data?.detail || t('clientGovernance.failed')) }
+  } catch (error) { if (sequence === loadSequence) policyError.value = 'client_governance_policy_load_failed' }
   finally { if (sequence === loadSequence) loading.value = false }
 }
-watch(() => [props.open, props.clientId], load, { immediate: true })
+watch(() => [props.open, props.clientId, props.initialTab], () => {
+  activeTab.value = can('settings:view') && (props.initialTab === 'audit' || !can('clients:view')) ? 'audit' : 'integration'
+  load()
+}, { immediate: true })
+watch(activeTab, tab => { if (props.open && tab === 'integration' && !policy.value && !loading.value) load() })
 const routingPayload = () => {
   if (inheritModelRouting.value) return null
   if (!props.clientId) return { ...modelRouting.value }
@@ -256,7 +322,7 @@ const routingPayload = () => {
     client_select_model: Boolean(modelRoutingDefault.value.client_select_model && modelRouting.value.client_select_model),
   }
 }
-const payload = () => ({ rules: { ...rules.value }, prompt_guard: inheritPrompt.value ? null : { ...promptGuard.value }, compression: inheritCompression.value ? null : { ...compression.value }, model_routing: routingPayload(), expected_version: policy.value.version })
+const payload = () => ({ rules: { ...rules.value }, prompt_guard: inheritPrompt.value ? null : { ...promptGuard.value }, compression: inheritCompression.value ? null : { ...compression.value }, model_routing: routingPayload(), ...(!props.clientId || policy.value.runtime_channels_protocol === 3 ? {runtime_governance: props.clientId && inheritRuntime.value ? null : JSON.parse(JSON.stringify(runtimeGovernance.value))} : {}), expected_version: policy.value.version })
 const current = (sequence, clientId) => sequence === loadSequence && props.open && clientId === props.clientId
 async function handleError(error) {
   const code = error.apiErrorCode || error.response?.data?.error_code

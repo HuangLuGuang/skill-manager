@@ -1,0 +1,17 @@
+{
+  "name": "aidr-codex",
+  "version": "0.1.1",
+  "description": "AIDR lifecycle evidence through the local Agent Manager receiver.",
+  "author": {
+    "name": "Agent Manager"
+  },
+  "interface": {
+    "displayName": "AIDR Codex",
+    "shortDescription": "Collect Agent lifecycle evidence locally.",
+    "longDescription": "Forward supported lifecycle hooks to the local Agent Manager receiver for policy-controlled audit projection.",
+    "developerName": "Agent Manager",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Explain the current AIDR plugin coverage."
+  }
+}

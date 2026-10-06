@@ -54,6 +54,45 @@ class CompressionConfig(BaseModel):
     level: Literal["auto", "conservative", "aggressive"] = "auto"
 
 
+class ReceiverRetryConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["none", "fixed", "continuous"] = "fixed"
+    retries: int = Field(default=2, ge=0, le=20)
+    max_interval_seconds: int = Field(default=300, ge=10, le=3600)
+
+
+class RuntimeCollectionChannels(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    logs: bool = False
+    hooks: bool = False
+    system: bool = False
+
+
+class RuntimeProtectionModes(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    hooks: Literal["audit", "intercept"] | None = "audit"
+    system: Literal["audit", "intercept"] | None = "audit"
+
+
+class RuntimeGovernanceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channels: RuntimeCollectionChannels | None = None
+    # Null preserves pre-mode installations until an administrator selects modes.
+    modes: RuntimeProtectionModes | None = None
+    enabled: bool = True
+    hosts: list[Literal["codex", "claude"]] = Field(default_factory=list, max_length=2)
+    installation: Literal["automatic", "manual"] = "manual"
+    access_mode: Literal["ordinary", "managed"] = "ordinary"
+    updates: Literal["automatic", "manual"] = "manual"
+    retry: ReceiverRetryConfig = Field(default_factory=ReceiverRetryConfig)
+
+    @model_validator(mode="after")
+    def unique_hosts(self):
+        if len(set(self.hosts)) != len(self.hosts):
+            raise ApiError(422, "aidr.runtime_duplicate_host", "宿主重复", "Duplicate host")
+        return self
+
+
 class ModelRoutingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     external_gateway_enabled: bool = False
@@ -111,6 +150,7 @@ class PolicyChange(BaseModel):
     prompt_guard: PromptGuardConfig | None = None
     compression: CompressionConfig | None = None
     model_routing: ModelRoutingConfig | None = None
+    runtime_governance: RuntimeGovernanceConfig | None = None
 
     @model_validator(mode="after")
     def valid_actions(self):
@@ -145,6 +185,9 @@ def policy_view(db: Session, client_id: str | None = None):
     overrides = json.loads(custom.rules_json) if custom else {}
     rules = {**defaults, **overrides}
     default_revision = default.revision if default else 0
+    runtime_default = json.loads(default.runtime_governance_json) if default else None
+    runtime_override = json.loads(custom.runtime_governance_json) if custom else None
+    runtime = runtime_override if runtime_override is not None else runtime_default
     revision = custom.revision if custom else 0
     guard_default = (json.loads(default.prompt_guard_json) if default else None) or PromptGuardConfig().model_dump()
     guard_override = json.loads(custom.prompt_guard_json) if custom else None
@@ -160,6 +203,13 @@ def policy_view(db: Session, client_id: str | None = None):
         "supported": client_id is None or bool(custom and custom.protocol in (1, 2)),
         "enabled": client_id is None or bool(custom and custom.enabled and custom.protocol in (1, 2)),
         "version": f"{default_revision}:{revision}",
+        "runtime_governance": runtime or RuntimeGovernanceConfig().model_dump(),
+        "runtime_channels_protocol": 3,
+        "runtime_governance_configured": runtime is not None,
+        "runtime_governance_version": f"{default_revision}:{revision}" if runtime_override is not None else str(default_revision),
+        "runtime_governance_default": runtime_default,
+        "runtime_governance_override": runtime_override,
+        "runtime_governance_source": "client" if runtime_override is not None else "default",
         "rules": rules,
         "prompt_guard": guard_override or guard_default,
         "prompt_guard_default": guard_default,
@@ -191,6 +241,8 @@ def legacy_policy_rules(mode: str):
 
 def preview(db: Session, scope: str, change: PolicyChange):
     default_scope = scope == DEFAULT_SCOPE
+    if default_scope and "runtime_governance" in change.model_fields_set and change.runtime_governance is None:
+        raise ApiError(422, "aidr.runtime_policy_required", "请提供明确的运行治理目标", "An explicit runtime governance target is required")
     current = policy_view(db, None if default_scope else scope)
     if current["version"] != change.expected_version:
         raise ApiError(409, "client.policy_changed", "策略已变化，请重新加载预览", "Policy changed; reload the preview")
@@ -301,7 +353,12 @@ def preview(db: Session, scope: str, change: PolicyChange):
                           "effect": "recheck" if not known else "changed" if before != after else "unchanged",
                           "recheck_reason": reason,
                           "client_override": overridden, "observed_at": observation.get("last_seen_at")})
+    runtime_proposed = current["runtime_governance"]
+    if "runtime_governance" in change.model_fields_set:
+        runtime_proposed = change.runtime_governance.model_dump() if change.runtime_governance else current["runtime_governance_default"] or RuntimeGovernanceConfig().model_dump()
     digest = hashlib.sha256(json.dumps({"scope": scope, "version": current["version"], "rules": change.rules,
+                                        "runtime_governance": change.runtime_governance.model_dump() if change.runtime_governance else None,
+                                        "runtime_governance_set": "runtime_governance" in change.model_fields_set,
                                         "prompt_guard": change.prompt_guard.model_dump() if change.prompt_guard else None,
                                         "prompt_guard_set": "prompt_guard" in change.model_fields_set, "prompt_impacts": prompt_impacts,
                                         "compression": change.compression.model_dump() if change.compression else None,
@@ -312,6 +369,8 @@ def preview(db: Session, scope: str, change: PolicyChange):
                                         "clients": scopes, "excluded_clients": excluded_clients, "incompatible_clients": incompatible_clients,
                                         "items": [{key: value for key, value in item.items() if key != "observed_at"} for item in items]}, sort_keys=True).encode()).hexdigest()
     return {"preview_id": digest, "version": current["version"], "items": items, "clients": scopes, "client_count": len(scopes),
+            "runtime_current": current["runtime_governance"],
+            "runtime_proposed": runtime_proposed,
             "prompt_impacts": prompt_impacts,
             "compression_impacts": compression_impacts,
             "model_routing_impacts": model_routing_impacts,
@@ -338,6 +397,8 @@ def save_policy(db: Session, scope: str, change: PolicyChange, user):
         row.compression_json = json.dumps(change.compression.model_dump() if change.compression else None, sort_keys=True)
     if "model_routing" in change.model_fields_set:
         row.model_routing_json = json.dumps(change.model_routing.model_dump() if change.model_routing else None, sort_keys=True)
+    if "runtime_governance" in change.model_fields_set:
+        row.runtime_governance_json = json.dumps(change.runtime_governance.model_dump() if change.runtime_governance else None, sort_keys=True)
     row.revision += 1
     row.enabled = True
     row.updated_by = user.username

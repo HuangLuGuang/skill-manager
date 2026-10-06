@@ -2,8 +2,9 @@
   <div>
     <a-card class="page-card">
       <template #title>
-        <a-page-header :title="$t('legacy.ppwp4v')" :sub-title="$t('legacy.1n3dozp')" />
+        <a-page-header :title="$t('legacy.ppwp4v')" :sub-title="$t('aidr.policyNavigation.description')" />
       </template>
+
 
     <a-card :title="$t('legacy.1b4zqhb')">
       <template #extra>
@@ -103,6 +104,7 @@
         </a-card>
       </a-col>
     </a-row>
+
     </a-card>
 
   </div>
@@ -111,12 +113,19 @@
 <script setup>
 import { translateLegacy as phrase, translateText as text } from '../i18n'
 
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { can as hasAccess } from '../access'
 import { message } from 'ant-design-vue'
 
 import { downloadSkillVerifier, getAuditPaged } from '../api'
 import { formatDateTime } from '../utils/format'
+
+const route = useRoute()
+const router = useRouter()
+watch(() => route.query.tab, tab => {
+  if (tab === 'audit-policy' && hasAccess('settings:view')) router.replace({ path: '/clients', query: { policy: 'audit' } })
+}, { immediate: true })
 
 const loadingAudit = ref(false)
 const guardDownloading = ref(false)

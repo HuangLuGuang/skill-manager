@@ -1,0 +1,6 @@
+{
+  "name": "aidr-claude",
+  "version": "0.1.1",
+  "description": "AIDR lifecycle evidence through the local Agent Manager receiver.",
+  "author": {"name": "Agent Manager"}
+}

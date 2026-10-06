@@ -5,7 +5,7 @@
         <a-page-header :title="$t('legacy.hx2vnc')" :sub-title="$t('legacy.ud53vr')">
           <template #extra>
             <a-button v-if="hasAccess('clients:update')" @click="discoveryOpen = true">{{ $t('clientDiscovery.title') }}</a-button>
-            <a-button v-if="hasAccess('clients:update')" @click="openClassification('')">{{ $t('clientGovernance.defaults') }}</a-button>
+            <a-button v-if="hasAccess('clients:view') || hasAccess('settings:view')" @click="openClassification('')">{{ $t('clientGovernance.title') }}</a-button>
             <a-button type="primary" @click="installGuideVisible = true">{{ $t("legacy.18h6c95") }}</a-button>
             <a-button :loading="loading" @click="loadClients">{{ $t("legacy.12qo56a") }}</a-button>
           </template>
@@ -23,7 +23,7 @@
       <a-table :columns="columns" :data-source="clients" row-key="client_id" :loading="loading" :pagination="{ pageSize: 10 }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'client'">
-            <a @click="openDetail(record)">{{ record.name }}</a>
+            <a role="button" tabindex="0" @click="openDetail(record)" @keydown.enter.prevent="openDetail(record)" @keydown.space.prevent="openDetail(record)">{{ record.name }}</a>
             <div class="muted">{{ record.hostname }} · {{ record.client_id }}</div>
           </template>
           <template v-else-if="column.key === 'platform'">
@@ -31,9 +31,9 @@
             <div class="muted">{{ governanceShortLabel(record.governance_mode) }} · Client {{ record.client_version }}</div>
           </template>
           <template v-else-if="column.key === 'agents'">
-            <span>{{ actualAgentCount(record) }} {{ $t("legacy.d5a1x9") }}</span>
-            <span class="muted inline-note">{{ $t("legacy.mhoty8") }}{{ managedAgentCount(record) }}</span>
-            <span v-if="sharedSkillsCount(record)" class="muted inline-note">{{ $t("legacy.1mn8gxl") }}{{ sharedSkillsCount(record) }}</span>
+            <span>{{ $t('clientGovernance.counts.discoveredAgents', { count: actualAgentCount(record) }) }}</span>
+            <span class="muted inline-note">{{ $t('clientGovernance.counts.manageableAgents', { count: managedAgentCount(record) }) }}</span>
+            <span v-if="sharedSkillsCount(record)" class="muted inline-note">{{ $t('clientGovernance.counts.sharedSkillSources', { count: sharedSkillsCount(record) }) }}</span>
           </template>
           <template v-else-if="column.key === 'skills'">{{ skillCount(record) }}</template>
           <template v-else-if="column.key === 'credentialOwner'">{{ record.registered_by || '-' }}</template>
@@ -42,7 +42,7 @@
           </template>
           <template v-else-if="column.key === 'lastSeen'">{{ formatTime(record.last_seen_at) }}</template>
           <template v-else-if="column.key === 'action'">
-            <a @click="openDetail(record)">{{ $t("legacy.10fbkvl") }}</a>
+            <a role="button" tabindex="0" @click="openDetail(record)" @keydown.enter.prevent="openDetail(record)" @keydown.space.prevent="openDetail(record)">{{ $t("legacy.10fbkvl") }}</a>
           </template>
         </template>
       </a-table>
@@ -51,35 +51,35 @@
     </a-card>
     <ClientDiscoveryConfig v-model:open="discoveryOpen" />
 
-    <a-drawer v-model:open="detailVisible" :title="$t('legacy.95lv9i')" width="min(1080px, 100vw)" :destroy-on-close="true">
-      <a-spin :spinning="detailLoading">
+    <a-drawer v-model:open="detailVisible" :title="$t('legacy.95lv9i')" width="min(1280px, 100vw)" :destroy-on-close="true" :body-style="sessionAuditActive ? { padding: '12px 16px', overflow: 'hidden', display: 'flex', flexDirection: 'column' } : {}">
+      <a-spin :spinning="detailLoading" :wrapper-class-name="sessionAuditActive ? 'session-audit-layout' : ''">
         <template v-if="detail">
           <div class="detail-head">
             <div>
               <div class="detail-title">{{ detail.name }}</div>
-              <div class="muted">{{ detail.hostname }} · {{ detail.os }}/{{ detail.arch }} · {{ detail.client_id }}</div>
-              <div class="muted">{{ $t("legacy.4xeakj") }}{{ detail.registered_by || '-' }}</div>
+              <div class="muted"><span v-if="detail.hostname !== detail.name">{{ detail.hostname }} · </span>{{ detail.os }}/{{ detail.arch }}</div>
+              <details class="device-info"><summary>{{ $t('agentRuntimeGovernance.presentation.deviceInfo') }}</summary><div>{{ $t('agentRuntimeGovernance.presentation.deviceId') }}: <code>{{ detail.client_id }}</code></div><div>{{ $t("legacy.4xeakj") }}{{ detail.registered_by || '-' }}</div></details>
             </div>
             <div class="policy-controls">
-              <label>
-                <span>{{ $t("legacy.1bb65oo") }}</span>
-                <a-select :value="currentGovernance" style="width: 170px" @change="saveGovernance">
-                  <a-select-option value="registry">{{ $t("legacy.12wr3db") }}</a-select-option>
-                  <a-select-option value="strict">{{ $t("legacy.1bqmand") }}</a-select-option>
-                </a-select>
-              </label>
-              <a-button @click="openClassification(detail.client_id)">{{ $t('clientGovernance.title') }}</a-button>
               <a-button @click="refreshDetail">{{ $t("legacy.2fhcc7") }}</a-button>
             </div>
           </div>
 
-          <a-alert
-            type="info"
-            show-icon
-            class="policy-note"
-            :message="detail.classification?.enabled ? $t('clientGovernance.active') : policyDescription(currentPolicy)"
-            :description="governanceDescription(currentGovernance)"
-          />
+          <div class="device-status-line"><a-tag :color="isOnline(detail) ? 'green' : 'default'">{{ $t(isOnline(detail) ? 'agentRuntimeGovernance.detail.online' : 'agentRuntimeGovernance.detail.offline') }}</a-tag><span>{{ $t('agentRuntimeGovernance.detail.lastHeartbeat') }}: {{ formatTime(detail.last_seen_at) }}</span></div>
+          <a-tabs v-model:active-key="runtimeTab" :destroy-inactive-tab-pane="true" class="device-runtime-tabs">
+            <a-tab-pane key="overview" :tab="$t('agentRuntimeGovernance.detail.overview')"><ClientDeviceOverview ref="overviewPanel" :client="detail" @navigate="navigateDetail" /></a-tab-pane>
+            <a-tab-pane key="skills" :tab="$t('agentRuntimeGovernance.detail.skills')">
+              <div class="skill-policy-controls">
+                <label>
+                <span>{{ $t("legacy.1bb65oo") }}</span>
+                <a-select :value="currentGovernance" :disabled="!hasAccess('clients:update')" class="governance-select" @change="saveGovernance">
+                  <a-select-option value="registry">{{ $t("legacy.12wr3db") }}</a-select-option>
+                  <a-select-option value="strict">{{ $t("legacy.1bqmand") }}</a-select-option>
+                </a-select>
+              </label>
+              </div>
+          <div class="policy-note">{{ detail.classification?.enabled ? $t('clientGovernance.active') : policyDescription(currentPolicy) }}</div>
+          <details><summary>{{ $t('agentRuntimeGovernance.presentation.policyHelp') }}</summary><p>{{ governanceDescription(currentGovernance) }}</p></details>
 
           <div class="section-title">{{ $t("legacy.4ig27k") }}</div>
           <a-table class="local-agents-table" :columns="agentColumns" :data-source="detail.agents || []" :row-key="row => row.local_agent_id || row.agent_type" size="small" :pagination="false" :expandable="agentTableExpandable" :scroll="{ x: 760 }">
@@ -148,6 +148,7 @@
             </template>
           </a-table>
 
+          <template v-if="detail.recovery?.length">
           <div class="section-title">{{ $t('clientGovernance.recoveryCopies') }}</div>
           <a-table :columns="recoveryColumns" :data-source="detail.recovery || []" row-key="id" size="small" :pagination="{ pageSize: 6 }" :scroll="{ x: 650 }">
             <template #bodyCell="{ column, record }">
@@ -157,8 +158,9 @@
             </template>
           </a-table>
 
-          <div class="section-title">{{ $t("legacy.uiriue") }}</div>
-          <a-table :columns="taskColumns" :data-source="detail.tasks || []" row-key="id" size="small" :pagination="{ pageSize: 6 }">
+          </template>
+          <div class="section-title">{{ $t("agentRuntimeGovernance.detail.skillTasks") }}</div>
+          <a-table :columns="taskColumns" :data-source="skillTasks" row-key="id" size="small" :pagination="{ pageSize: 6 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'type'">
                 <strong>{{ taskLabel(record) }}</strong>
@@ -178,7 +180,7 @@
             </template>
           </a-table>
 
-          <div class="section-title">{{ $t("legacy.1hnc5z3") }}</div>
+          <div class="section-title">{{ $t("agentRuntimeGovernance.detail.skillEvents") }}</div>
           <a-spin :spinning="eventsLoading">
           <a-timeline v-if="detail.events?.length">
             <a-timeline-item v-for="event in detail.events" :key="event.id" :color="eventColor(event)">
@@ -192,6 +194,16 @@
           <a-empty v-else :description="$t('legacy.1fxykwc')" />
           <a-pagination v-if="detail.events_total" class="event-more" :current="detail.event_page" :page-size="detail.event_page_size" :total="detail.events_total" :show-size-changer="false" :disabled="eventsLoading" @change="changeEventPage" />
           </a-spin>
+            </a-tab-pane>
+            <a-tab-pane key="plugins" :tab="$t('agentRuntimeGovernance.tabs.plugins')"><ClientRuntimeGovernance :client-id="detail.client_id" @collection="navigateDetail('collection')" @policy="navigateDetail('control')" /></a-tab-pane>
+            <a-tab-pane key="audit" :tab="$t('agentRuntimeGovernance.tabs.audit')"><ClientBehaviorAudit v-model:view="auditView" :client-id="detail.client_id" @policy="navigateDetail('control')" /></a-tab-pane>
+            <a-tab-pane key="control" :tab="$t('agentRuntimeGovernance.detail.control')">
+              <div class="detail-panel-heading"><a-button @click="openClassification(detail.client_id)">{{ $t('clientGovernance.title') }}</a-button><a-button v-if="hasAccess('settings:view')" @click="openClassification(detail.client_id, 'audit')">{{ $t('aidr.policyNavigation.openDevice') }}</a-button></div>
+              <a-radio-group v-model:value="controlView" class="detail-view-switch" option-type="button" button-style="solid" :options="controlOptions" />
+              <ClientHookPanel v-if="controlView === 'tools'" :client-id="detail.client_id" view="control" />
+              <ClientEnforcementPanel v-else :client-id="detail.client_id" view="control" />
+            </a-tab-pane>
+          </a-tabs>
         </template>
       </a-spin>
     </a-drawer>
@@ -299,13 +311,18 @@
       </a-steps>
     </a-modal>
   </div>
-    <ClientGovernancePolicy v-model:open="classificationOpen" :client-id="classificationClientId" @saved="loadClients(); detailVisible && refreshDetail()" />
+    <ClientGovernancePolicy v-model:open="classificationOpen" :client-id="classificationClientId" :initial-tab="classificationTab" @saved="loadClients(); detailVisible && refreshDetail()" />
 </template>
 
 <script setup>
 import { modelLabel } from '../utils/modelLabels'
 import { can as hasAccess } from '../access'
 import ClientGovernancePolicy from '../components/ClientGovernancePolicy.vue'
+import ClientBehaviorAudit from '../components/ClientBehaviorAudit.vue'
+import ClientDeviceOverview from '../components/ClientDeviceOverview.vue'
+import ClientRuntimeGovernance from '../components/ClientRuntimeGovernance.vue'
+import ClientHookPanel from '../components/ClientHookPanel.vue'
+import ClientEnforcementPanel from '../components/ClientEnforcementPanel.vue'
 import ClientSkillScan from '../components/ClientSkillScan.vue'
 import ClientSkillActions from '../components/ClientSkillActions.vue'
 import {
@@ -317,7 +334,8 @@ import {
 } from '../i18n'
 
 import ClientDiscoveryConfig from '../components/ClientDiscoveryConfig.vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 const discoveryOpen = ref(false)
 import { message } from 'ant-design-vue'
 
@@ -339,12 +357,30 @@ import {
 const loading = ref(false)
 const classificationOpen = ref(false)
 const classificationClientId = ref('')
-const openClassification = clientId => { classificationClientId.value = clientId; classificationOpen.value = true }
+const classificationTab = ref('integration')
+const route = useRoute(), router = useRouter()
+const openClassification = (clientId, tab = 'integration') => { classificationClientId.value = clientId; classificationTab.value = tab; classificationOpen.value = true }
+watch(() => [route.query.policy, route.query.client], ([value, clientId]) => {
+  if (value !== 'audit' || !hasAccess('settings:view')) return
+  openClassification(typeof clientId === 'string' ? clientId : '', 'audit')
+  const query = { ...route.query }; delete query.policy; delete query.client
+  router.replace({ query })
+}, { immediate: true })
 const detailLoading = ref(false)
 const submitting = ref(false)
 const eventsLoading = ref(false)
 let eventSequence = 0
 const detailVisible = ref(false)
+const runtimeTab = ref('overview')
+const auditView = ref('tools'), controlView = ref('tools')
+const sessionAuditActive = computed(() => runtimeTab.value === 'audit' && ['tools', 'hooks'].includes(auditView.value))
+const controlOptions = computed(() => ['tools', 'system'].map(value => ({ value, label: i18n.global.t(`agentRuntimeGovernance.detail.policyViews.${value}`) })))
+const navigateDetail = target => {
+  auditView.value = target === 'collection' ? 'collection' : 'tools'
+  if (target === 'systemControl') controlView.value = 'system'
+  runtimeTab.value = target === 'collection' ? 'audit' : target === 'systemControl' ? 'control' : target
+}
+const skillTasks = computed(() => (detail.value?.tasks || []).filter(task => task.task_type !== 'aidr_plugin_action'))
 const installVisible = ref(false)
 const modelConfigVisible = ref(false)
 const modelConfigSubmitting = ref(false)
@@ -357,6 +393,7 @@ const skills = ref([])
 const skillsLoading = ref(false)
 const targetInstalledSkills = ref([])
 const detail = ref(null)
+const overviewPanel = ref(null)
 const taskOperations = reactive(new Set())
 let detailSequence = 0
 const recoveryColumns = computed(() => [
@@ -422,7 +459,7 @@ const columns = [
   { title: phrase('legacy.501w24'), key: 'action', width: 80 },
 ]
 const agentColumns = [
-  { title: phrase('legacy.tus94r'), key: 'type' },
+  { title: 'Agent', key: 'type' },
   { title: phrase('legacy.uwo0jt'), key: 'capability', width: 150 },
   { title: i18n.global.t('clientModelConfig.model'), key: 'model', width: 160 },
   { title: 'Skill', key: 'skills', width: 70 },
@@ -504,6 +541,7 @@ const loadClients = async () => {
   }
 }
 const openDetail = async (record) => {
+  runtimeTab.value = 'overview'; auditView.value = 'tools'; controlView.value = 'tools'
   const sequence = ++detailSequence
   ++eventSequence
   eventsLoading.value = false
@@ -533,6 +571,7 @@ const refreshDetail = async () => {
   detail.value = result
   currentPolicy.value = detail.value.policy_mode || 'audit'
   currentGovernance.value = detail.value.governance_mode || 'registry'
+  await overviewPanel.value?.refresh()
 }
 const changeEventPage = async page => {
   const clientId = detail.value?.client_id
@@ -772,11 +811,14 @@ const formatBytes = value => {
 }
 const managedAgentDefaultModel = record => agents.value.find(agent => agent.agent_id === record.managed_agent_id)?.default_model || ''
 const modelConfigStatusLabel = value => i18n.global.t(`clientModelConfig.status.${value}`)
-const taskCannotCancel = task => task.status === 'running' && ['skill_action', 'remove_skill', 'install_skill', 'repair_skill', 'apply_model_config', 'verify_model_config', 'restore_model_config'].includes(task.task_type)
+const taskCannotCancel = task => task.status === 'running' && ['aidr_plugin_action', 'skill_action', 'remove_skill', 'install_skill', 'repair_skill', 'apply_model_config', 'verify_model_config', 'restore_model_config'].includes(task.task_type)
 const modelErrorLabel = value => {
   if (!value) return '-'
   const code = String(value).match(/^model_config\.([a-z_]+)/)?.[1]
-  if (!code) return value
+  if (!code) {
+    const runtimeKey = `agentRuntimeGovernance.codes.${value}`
+    return i18n.global.te(runtimeKey) ? `${i18n.global.t(runtimeKey)} (${value})` : i18n.global.t('clientGovernance.errorDetail', { error: String(value) })
+  }
   const key = `clientModelConfig.errors.${code}`
   return `${i18n.global.t(i18n.global.te(key) ? key : 'clientModelConfig.errors.fallback')} (${value})`
 }
@@ -871,9 +913,32 @@ onMounted(async () => {
   gap: 16px;
 }
 .detail-head > :first-child { min-width: 0; overflow-wrap: anywhere; }
+.session-audit-layout { flex: 1; min-height: 0; }
+.session-audit-layout :deep(.ant-spin-container) { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.session-audit-layout .detail-head { flex-shrink: 0; gap: 8px; }
+.session-audit-layout .detail-head > :first-child { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.session-audit-layout .detail-title { font-size: 17px; }
+.session-audit-layout .device-info { margin: 0; font-size: 12px; }
+.session-audit-layout .device-status-line { flex-shrink: 0; margin: 4px 0; font-size: 12px; }
+.session-audit-layout .device-runtime-tabs { flex: 1; min-height: 0; }
+.session-audit-layout .device-runtime-tabs :deep(.ant-tabs-nav) { flex-shrink: 0; margin-bottom: 8px; }
+.session-audit-layout .device-runtime-tabs :deep(.ant-tabs-tab) { padding-top: 8px; padding-bottom: 8px; }
+.session-audit-layout .device-runtime-tabs :deep(.ant-tabs-content-holder),
+.session-audit-layout .device-runtime-tabs :deep(.ant-tabs-content),
+.session-audit-layout .device-runtime-tabs :deep(.ant-tabs-tabpane-active) { height: 100%; min-height: 0; }
 .agent-skill-table { width: min(984px, calc(100vw - 96px)); max-width: 100%; }
 .agent-skill-table :deep(td) { overflow-wrap: anywhere; }
 .local-agents-table :deep(.ant-tag) { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.local-agents-table :deep(.ant-space-vertical), .local-agents-table :deep(.ant-space-item) { max-width: 100%; }
+.local-agents-table :deep(.ant-btn-link) { max-width: 100%; height: auto; white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.skill-policy-controls label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 100%; }
+.governance-select { width: 270px; max-width: 100%; }
+.device-status-line { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0; color: #627480; }
+.device-info { margin-top: 6px; color: #627480; overflow-wrap: anywhere; }
+.detail-panel-heading, .skill-policy-controls { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; margin: 16px 0; }
+.detail-panel-heading p { margin: 0; flex: 1; color: #627480; }
+.detail-view-switch { display: flex; flex-wrap: wrap; margin: 16px 0; }
+.detail-view-switch :deep(.ant-radio-button-wrapper) { height: auto; white-space: normal; }
 .detail-title {
   color: #16324f;
   font-size: 20px;

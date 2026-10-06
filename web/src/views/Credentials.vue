@@ -476,6 +476,7 @@ const typeDefaults = {
 }
 const scopeOptionsByType = {
   ...typeDefaults,
+  client: [...typeDefaults.client, 'aidr:heartbeat', 'aidr:report-events'],
   agent_runtime: [...agentScopePresets.governance_model_mcp],
 }
 

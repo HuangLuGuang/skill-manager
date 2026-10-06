@@ -241,6 +241,9 @@ func (api API) WaitTasksWithUpdatesAndScans(ctx context.Context, clientID string
 
 func (api API) ReportExecutedTask(ctx context.Context, clientID string, task Task, status, taskError string) error {
 	body := map[string]any{"status": status, "error": taskError}
+	if task.TaskType == "aidr_plugin_action" && task.Payload["aidr_result"] != nil {
+		body["aidr_result"] = task.Payload["aidr_result"]
+	}
 	if task.TaskType == "verify_model_config" {
 		if ids, ok := task.Payload["verification_request_ids"]; ok {
 			body["verification_request_ids"] = ids
@@ -364,15 +367,19 @@ func (api API) ReportTakeover(ctx context.Context, clientID, backup string, mana
 	})
 }
 
-func (api API) Heartbeat(ctx context.Context, inventory Inventory) (Policy, error) {
+func (api API) Heartbeat(ctx context.Context, inventory Inventory, homes ...string) (Policy, error) {
 	var response struct {
 		Policy Policy `json:"policy"`
 	}
-	err := api.postJSON(ctx, "/api/v1/clients/"+inventory.ClientID+"/heartbeat", map[string]any{
+	body := map[string]any{
 		"governance_protocol": 2,
 		"client_id":           inventory.ClientID,
 		"client_version":      inventory.ClientVersion,
-	}, &response)
+	}
+	if AIDRRuntimeSnapshot != nil && len(homes) == 1 {
+		body["runtime_governance"] = AIDRRuntimeSnapshot(homes[0])
+	}
+	err := api.postJSON(ctx, "/api/v1/clients/"+inventory.ClientID+"/heartbeat", body, &response)
 	return response.Policy, err
 }
 
