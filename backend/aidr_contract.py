@@ -5,7 +5,9 @@ Unknown fields are rejected so raw tool arguments cannot enter default storage.
 """
 from __future__ import annotations
 
+from .aidr_products import LogAgentID
 import json
+from .aidr_skill_contract import SkillUse
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -57,6 +59,8 @@ class Message(Contract):
 
 
 class Event(Contract):
+    user_scope: str | None = Field(default=None, pattern=r'^(0|[1-9][0-9]{0,9})$')
+    skill_use: SkillUse | None = None
     schema_version: Literal[1, 2, 3]
     message: Message | None = None
     behavior: Behavior | None = None
@@ -67,7 +71,7 @@ class Event(Contract):
     source_seq: Position
     record_offset: Position
     block: int = Field(ge=0, le=4096)
-    agent: Literal["claude", "codex"]
+    agent: LogAgentID
     agent_version: Annotated[str, StringConstraints(max_length=80)]
     source: Literal["agent_log"]
     session_id: Short
@@ -98,6 +102,8 @@ class Event(Contract):
             raise ValueError("invalid_position")
         if self.kind == "tool_call" and not self.tool:
             raise ValueError("missing_tool")
+        if self.skill_use:
+            self.skill_use.validate_source(self.agent, self.tool, self.kind, not self.behavior or not self.behavior.policy or self.behavior.policy.enabled)
         for value in (self.observed_at, self.received_at):
             stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
             if stamp.tzinfo is None or stamp.year == 1:

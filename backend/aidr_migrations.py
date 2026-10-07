@@ -77,6 +77,8 @@ def upgrade_aidr_schema(engine):
             backfill_operations(conn)
             from .aidr_correlation import install_indexes
             install_indexes(conn)
+            from .aidr_models import SESSION_MESSAGE_INDEX
+            SESSION_MESSAGE_INDEX.create(conn, checkfirst=True)
             conn.commit()
         except Exception:
             conn.rollback()

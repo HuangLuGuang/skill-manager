@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -108,6 +109,13 @@ type nativeCodexRequest struct {
 }
 
 func nativeCodexCalls(ctx context.Context, binary, home string, calls []nativeCodexRequest) ([]json.RawMessage, bool) {
+	results, err := nativeCodexCallsChecked(ctx, binary, home, calls)
+	return results, err == nil
+}
+
+var errNativeMethodUnsupported = errors.New("aidr_native_method_unsupported")
+
+func nativeCodexCallsChecked(ctx context.Context, binary, home string, calls []nativeCodexRequest) ([]json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary, "app-server", "--stdio")
@@ -118,51 +126,69 @@ func nativeCodexCalls(ctx context.Context, binary, home string, calls []nativeCo
 		}
 	}
 	cmd.Env = append(cmd.Env, "CODEX_HOME="+home)
+	inspection := len(calls) > 0
+	for _, call := range calls {
+		if call.method != "hooks/list" && call.method != "plugin/list" && call.method != "config/read" {
+			inspection = false
+		}
+	}
+	if inspection {
+		cmd.Env = append(cmd.Env, "AGENT_MANAGER_ACTIVITY=client_probe")
+	}
 	cmd.Dir = home
 	cmd.Stderr = io.Discard
 	stdin, e := cmd.StdinPipe()
 	if e != nil {
-		return nil, false
+		return nil, e
 	}
 	stdout, e := cmd.StdoutPipe()
 	if e != nil {
-		return nil, false
+		return nil, e
 	}
-	if cmd.Start() != nil {
-		return nil, false
+	if e = cmd.Start(); e != nil {
+		return nil, e
 	}
 	defer func() { stdin.Close(); cancel(); cmd.Wait() }()
 	enc := json.NewEncoder(stdin)
 	scan := bufio.NewScanner(stdout)
 	scan.Buffer(make([]byte, 4096), 512<<10)
-	request := func(id int, method string, params any) (json.RawMessage, bool) {
+	request := func(id int, method string, params any) (json.RawMessage, error) {
 		if enc.Encode(map[string]any{"id": id, "method": method, "params": params}) != nil {
-			return nil, false
+			return nil, code("aidr_plugin_source_unreadable")
 		}
 		for n := 0; n < 128 && scan.Scan(); n++ {
 			var r struct {
 				ID     int             `json:"id"`
 				Result json.RawMessage `json:"result"`
+				Error  *struct {
+					Code int `json:"code"`
+				} `json:"error"`
 			}
 			if json.Unmarshal(scan.Bytes(), &r) == nil && r.ID == id {
-				return r.Result, len(r.Result) > 0
+				if r.Error != nil && r.Error.Code == -32601 {
+					return nil, errNativeMethodUnsupported
+				}
+				if r.Error != nil || len(r.Result) == 0 {
+					return nil, code("aidr_plugin_source_unreadable")
+				}
+				return r.Result, nil
 			}
 		}
-		return nil, false
+		return nil, code("aidr_plugin_source_unreadable")
 	}
-	if _, ok := request(1, "initialize", map[string]any{"clientInfo": map[string]string{"name": "aidr-desktop-inventory", "version": "1"}, "capabilities": map[string]bool{"experimentalApi": true}}); !ok {
-		return nil, false
+	if _, err := request(1, "initialize", map[string]any{"clientInfo": map[string]string{"name": "aidr-desktop-inventory", "version": "1"}, "capabilities": map[string]bool{"experimentalApi": true}}); err != nil {
+		return nil, err
 	}
 	enc.Encode(map[string]string{"method": "initialized"})
 	results := make([]json.RawMessage, 0, len(calls))
 	for i, call := range calls {
-		result, ok := request(i+2, call.method, call.params)
-		if !ok {
-			return nil, false
+		result, err := request(i+2, call.method, call.params)
+		if err != nil {
+			return nil, err
 		}
 		results = append(results, result)
 	}
-	return results, true
+	return results, nil
 }
 
 func parseNativeCodexTrust(raw []byte) string {

@@ -86,3 +86,16 @@ def test_status_capacity_and_scope_isolation(service):
     body["status"]["scope_digest"] = "0"*64
     body["report_sequence"] = "2"
     assert send(client, body).status_code == 200
+
+
+def test_interface_compatibility_report_keeps_native_trust_separate(service):
+    client, _ = service
+    body = report()
+    body['status'].update(host_version='codex-cli 0.999.42', version_status='interface_compatible')
+    assert send(client, body).status_code == 200
+    observed = read(client)['report']['status']
+    assert observed['version_status'] == 'interface_compatible'
+    assert observed['hook_trust'] == 'unknown'
+    body['report_sequence'] = '2'
+    body['status']['version_status'] = 'invented'
+    assert send(client, body).status_code == 422

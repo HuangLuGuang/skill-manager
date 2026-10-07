@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"regexp"
+	products "skill-manager/scanner/internal/aidr/catalog"
 	"sort"
 	"time"
 
@@ -58,7 +59,7 @@ func verifyToolPolicy(envelope, key []byte, device string, now time.Time) (ToolP
 	}
 	ids := map[string]bool{}
 	for _, rule := range p.Rules {
-		if !toolRuleID.MatchString(rule.ID) || rule.ID == "default" || ids[rule.ID] || (rule.Agent != "*" && rule.Agent != "codex" && rule.Agent != "claude") || !validID(rule.Tool, true) || !decisionValid(rule.Decision) {
+		if !toolRuleID.MatchString(rule.ID) || rule.ID == "default" || ids[rule.ID] || (rule.Agent != "*" && !products.Hook(rule.Agent)) || !validID(rule.Tool, true) || !decisionValid(rule.Decision) {
 			return p, nil, code("aidr_hook_policy_invalid")
 		}
 		ids[rule.ID] = true

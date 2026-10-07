@@ -27,6 +27,12 @@ _AUTO_RENEW_ACTOR = 'system:auto-renew'
 _AUTO_RENEW_WINDOW_SECONDS = 6 * 60 * 60
 
 
+def latest_configuration(db: Session, client_id: str):
+    return db.query(AidrEnforcementRevision).filter_by(client_id=client_id).filter(
+        AidrEnforcementRevision.created_by != _AUTO_RENEW_ACTOR
+    ).order_by(AidrEnforcementRevision.revision.desc()).first()
+
+
 def renew_if_needed(db: Session, client_id: str, row):
     """Refresh an unchanged signed policy lease for an authenticated device."""
     if row is None:
@@ -41,7 +47,7 @@ def renew_if_needed(db: Session, client_id: str, row):
     now = int(time.time())
     if not current.get('agent_executables') or lifetime < 60 or lifetime > 30 * 86400:
         return row
-    renew_window = min(_AUTO_RENEW_WINDOW_SECONDS, max(60, lifetime // 4))
+    renew_window = min(_AUTO_RENEW_WINDOW_SECONDS, lifetime // 4)
     if expires_at - now > renew_window:
         return row
 
@@ -112,10 +118,9 @@ def system_rule_preview(client_id: str, body: SystemRulePreview, db: Session = D
 def get_policy(client_id: str, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     visible(db, client_id, user)
     row = latest(db, client_id)
-    configured = db.query(AidrEnforcementRevision).filter_by(client_id=client_id).filter(
-        AidrEnforcementRevision.created_by != _AUTO_RENEW_ACTOR
-    ).order_by(AidrEnforcementRevision.revision.desc()).first()
+    configured = latest_configuration(db, client_id)
     return dict(revision=str(row.revision) if row else '0', policy=json.loads(row.policy_json) if row else None,
+                configuration_revision=str(configured.revision) if configured else '0',
                 created_by=configured.created_by if configured else None, created_at=configured.created_at if configured else None,
                 can_edit=user.role in ('admin','super_admin'))
 
@@ -144,8 +149,9 @@ def runtime_status(client_id: str, db: Session = Depends(get_db), user=Depends(a
     if fresh and record['reason_code']=='aidr_enforcement_collection_only' and record['gaps']=='0':state='collecting'
     if record and record['reason_code']=='aidr_enforcement_stopped':state='stopped'
     if record and record['reason_code']=='aidr_enforcement_native_exit':state='failed'
+    configured_roots = json.loads(latest_policy.policy_json).get('agent_executables', []) if latest_policy else []
     return dict(platform=platform, platform_support=platform_support, state=state,target_revision=str(latest_policy.revision) if latest_policy else '0',reported_revision=record['revision'] if record else None,
-                health=record,last_received_at=row.received_at if row else None,can_edit=user.role in ('admin','super_admin'))
+                configured_roots=configured_roots, health=record,last_received_at=row.received_at if row else None,can_edit=user.role in ('admin','super_admin'))
 
 
 def target_context(db, client_id, user):
@@ -180,24 +186,34 @@ def publish(client_id: str, body: PolicyInput, db: Session = Depends(get_db), us
     visible(db, client_id, user)
     if user.role not in ('admin', 'super_admin'):
         fail(403, 'enforcement_admin_required', '需要管理员权限', 'Administrator role required')
-    current = latest(db, client_id)
-    previous = current.revision if current else 0
-    if body.expected_revision != str(previous):
-        fail(409, 'enforcement_revision_conflict', '策略版本已变化，请刷新', 'Policy revision changed; refresh before publishing')
-    value = create_snapshot(client_id, body, previous + 1)
-    envelope = sign(value)
-    if len(canonical(envelope).encode()) > 65536:
-        fail(422, 'enforcement_policy_too_large', '策略超过大小限制', 'Policy exceeds the size limit')
-    row = AidrEnforcementRevision(client_id=client_id, revision=previous + 1, policy_json=canonical(value),
-                                  envelope_json=canonical(envelope), created_by=user.username, created_at=now_text())
-    db.add(row)
-    _operation(db, user, 'aidr.enforcement.publish', client_id, canonical({'revision':value['revision'], 'rule_count':len(body.rules)}))
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        fail(409, 'enforcement_revision_conflict', '策略版本已变化，请刷新', 'Policy revision changed; refresh before publishing')
-    return dict(revision=value['revision'], policy=value, created_by=row.created_by, created_at=row.created_at)
+    for _ in range(3):
+        current = latest(db, client_id)
+        previous = current.revision if current else 0
+        configured = latest_configuration(db, client_id)
+        configuration_revision = str(configured.revision) if configured else '0'
+        expected = body.expected_configuration_revision
+        conflict = expected != configuration_revision if expected is not None else body.expected_revision != str(previous)
+        if conflict:
+            fail(409, 'enforcement_revision_conflict', '采集配置已被修改，请刷新后重新编辑', 'Collection configuration changed; refresh before editing again')
+        value = create_snapshot(client_id, body, previous + 1)
+        envelope = sign(value)
+        if len(canonical(envelope).encode()) > 65536:
+            fail(422, 'enforcement_policy_too_large', '策略超过大小限制', 'Policy exceeds the size limit')
+        row = AidrEnforcementRevision(client_id=client_id, revision=previous + 1, policy_json=canonical(value),
+                                      envelope_json=canonical(envelope), created_by=user.username, created_at=now_text())
+        db.add(row)
+        _operation(db, user, 'aidr.enforcement.publish', client_id, canonical({'revision':value['revision'], 'rule_count':len(body.rules)}))
+        try:
+            db.commit()
+            return dict(revision=value['revision'], configuration_revision=value['revision'], policy=value,
+                        created_by=row.created_by, created_at=row.created_at)
+        except IntegrityError:
+            db.rollback()
+            # A concurrent lease renewal may advance the signed revision while
+            # the administrator's configuration is still current.
+            if expected is None:
+                break
+    fail(409, 'enforcement_revision_conflict', '采集配置已被修改，请刷新后重新编辑', 'Collection configuration changed; refresh before editing again')
 
 
 @router.get('/snapshot')
@@ -232,34 +248,96 @@ class Target(Strict):
         return value
 
 
+class NetworkSnapshot(Strict):
+    source: str = Field(pattern=r'^libproc_snapshot$')
+    observation_id: str = Field(pattern=r'^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$')
+    protocol: str = Field(pattern=r'^(tcp|udp)$')
+    direction: str = Field(pattern=r'^unknown$')
+    local_ip: str = Field(max_length=45)
+    local_port: int = Field(ge=0, le=65535)
+    remote_ip: str = Field(max_length=45)
+    remote_port: int = Field(ge=1, le=65535)
+    state: str = Field(pattern=r'^(unknown|closed|syn_sent|syn_received|established|close_wait|fin_wait_1|closing|last_ack|fin_wait_2|time_wait)$')
+
+    @field_validator('local_ip', 'remote_ip')
+    @classmethod
+    def address(cls, value):
+        import ipaddress
+        ipaddress.ip_address(value)
+        return value
+
+    @model_validator(mode='after')
+    def transport_state(self):
+        if self.protocol == 'udp' and self.state != 'unknown':
+            raise ValueError('aidr_network_state_invalid')
+        return self
+
+
+class NetworkHealth(Strict):
+    source: str = Field(pattern=r'^libproc_snapshot$')
+    state: str = Field(pattern=r'^(starting|sampled|waiting_for_process|partial|permission_denied|stopped)$')
+    sampled_at_ns: str = Field(pattern=r'^(0|[1-9][0-9]{0,19})$')
+
+    @field_validator('sampled_at_ns')
+    @classmethod
+    def timestamp(cls, value):
+        if int(value) > 18446744073709551615:
+            raise ValueError('aidr_enforcement_integer_invalid')
+        return value
+
+
 class Record(Target):
+    network: NetworkSnapshot | None = None
+    network_health: NetworkHealth | None = None
+    detail_schema: int | None = Field(default=None, ge=1, le=1)
     schema_version: int = Field(default=1, ge=1, le=1)
     sequence: str = Field(pattern=r'^[1-9][0-9]{0,19}$')
     time_ns: str = Field(pattern=r'^[1-9][0-9]{0,19}$')
-    kind: str = Field(pattern=r'^(process|authorization|health|policy|response)$')
+    kind: str = Field(pattern=r'^(network|process|file|authorization|health|policy|response)$')
     root: Identity | None = None
     relation: str = Field(default='unknown', pattern=r'^(direct|inherited|unknown)$')
-    transition: str = Field(default='', pattern=r'^$|^(fork|exec|exit)$')
+    transition: str = Field(default='', pattern=r'^$|^(fork|exec|exit|observed)$')
     path: str = Field(default='', max_length=1023)
     revision: str = Field(default='0', pattern=r'^(0|[1-9][0-9]{0,19})$')
     rule_id: str = Field(default='', pattern=r'^[A-Za-z0-9_-]{0,64}$')
     decision: str = Field(default='unknown', pattern=r'^(allow|deny|unknown)$')
-    result: str = Field(default='unknown', pattern=r'^(unknown|responded|failed|applied|executed|verified|rejected)$')
+    result: str = Field(default='unknown', pattern=r'^(unknown|responded|failed|applied|executed|verified|rejected|observed)$')
     reason_code: str = Field(pattern=r'^aidr_[a-z0-9_]{1,100}$')
     command_id: str = Field(default='', pattern=r'^$|^[0-9a-f-]{36}$')
     latency_us: str = Field(default='0', pattern=r'^(0|[1-9][0-9]{0,19})$')
     deadline_remaining_us: str = Field(default='0', pattern=r'^(0|[1-9][0-9]{0,19})$')
     gaps: str = Field(default='0', pattern=r'^(0|[1-9][0-9]{0,19})$')
+    # Optional additions keep canonical legacy records and replay hashes stable.
+    argv: list[str] | None = Field(default=None, max_length=256)
+    argv_truncated: bool | None = None
+    paths_truncated: bool | None = None
+    cwd: str | None = Field(default=None, max_length=1023)
+    executable: str | None = Field(default=None, max_length=1023)
+    root_path: str | None = Field(default=None, max_length=1023)
+    parent: Identity | None = None
+    parent_pid: str | None = Field(default=None, pattern=r'^(0|[1-9][0-9]{0,9})$')
+    exit_code: int | None = Field(default=None, ge=0, le=255)
+    exit_signal: int | None = Field(default=None, ge=1, le=127)
+    duration_ms: str | None = Field(default=None, pattern=r'^(0|[1-9][0-9]{0,19})$')
+    operation: str | None = Field(default=None, pattern=r'^(create|modify|rename|delete)$')
+    destination_path: str | None = Field(default=None, max_length=1023)
+    activity_origin: str | None = Field(default=None, pattern=r'^client_probe$')
 
     @model_validator(mode='after')
     def bounded(self):
-        for name in ('sequence','time_ns','revision','latency_us','deadline_remaining_us','gaps'):
-            if int(getattr(self,name)) > 18446744073709551615:
+        for name in ('sequence','time_ns','revision','latency_us','deadline_remaining_us','gaps','duration_ms'):
+            if getattr(self,name) is not None and int(getattr(self,name)) > 18446744073709551615:
                 raise ValueError('aidr_enforcement_integer_invalid')
-        if any(ord(c)<32 for c in self.path):
-            raise ValueError('aidr_enforcement_path_invalid')
         if self.kind == 'response' and not self.command_id:
             raise ValueError('aidr_enforcement_command_missing')
+        if self.argv and sum(len(arg.encode('utf-8')) for arg in self.argv) > 8192:
+            raise ValueError('aidr_enforcement_argv_too_large')
+        if self.exit_code is not None and self.exit_signal is not None:
+            raise ValueError('aidr_enforcement_exit_invalid')
+        if (self.kind == 'network') != (self.network is not None) or (self.network and (self.relation == 'unknown' or self.root is None)) or (self.network_health and self.kind != 'health'):
+            raise ValueError('aidr_network_record_invalid')
+        if self.kind == 'file' and not self.operation:
+            raise ValueError('aidr_enforcement_operation_missing')
         return self
 
 
@@ -306,12 +384,31 @@ async def records(client_id: str, request: Request, authorization: str | None = 
     return dict(schema_version=1, client_id=client_id, durable=True, accepted=len(values), digest=hashlib.sha256(raw).hexdigest())
 
 
+@router.get('/record-agents')
+def record_agents(client_id: str, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    visible(db, client_id, user)
+    root = func.json_extract(AidrRuntimeRecord.payload_json, '$.root_path')
+    rows = db.query(root).filter(
+        AidrRuntimeRecord.client_id == client_id, AidrRuntimeRecord.expired_at.is_(None),
+        AidrRuntimeRecord.kind.in_(['process', 'file', 'network', 'authorization', 'response']),
+        root.isnot(None), root != '',
+    ).distinct().order_by(root).all()
+    return dict(items=[dict(root_path=row[0]) for row in rows])
+
+
 @router.get('/records')
-def query_records(client_id: str, before: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), kind: str = Query('', pattern=r'^$|^(process|authorization|health|policy|response)$'), db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+def query_records(client_id: str, before: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), kind: str = Query('', pattern=r'^$|^(activity|network|process|file|authorization|health|policy|response)$'), include_probes: bool = True, root_path: str = Query('', max_length=1023), db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     visible(db, client_id, user)
     query = db.query(AidrRuntimeRecord).filter_by(client_id=client_id,expired_at=None)
-    if kind:
+    if root_path:
+        query = query.filter(func.json_extract(AidrRuntimeRecord.payload_json, '$.root_path') == root_path)
+    if kind == 'activity':
+        query = query.filter(AidrRuntimeRecord.kind.in_(['process', 'file', 'network', 'authorization', 'response']))
+        query = query.filter(func.coalesce(func.json_extract(AidrRuntimeRecord.payload_json, '$.transition'), '') != 'fork')
+    elif kind:
         query = query.filter_by(kind=kind)
+    if not include_probes:
+        query = query.filter(func.coalesce(func.json_extract(AidrRuntimeRecord.payload_json, '$.activity_origin'), '') != 'client_probe')
     if before:
         query = query.filter(AidrRuntimeRecord.id < before)
     rows = query.order_by(AidrRuntimeRecord.id.desc()).limit(limit+1).all()
@@ -324,6 +421,21 @@ def query_records(client_id: str, before: int = Query(0, ge=0), limit: int = Que
                           termination_reason=reason))
     return dict(items=items,
                 has_more=len(rows)>limit, next_before=rows[limit-1].id if len(rows)>limit else None)
+
+
+@router.get('/records/{record_id}/context')
+def record_context(client_id: str, record_id: int, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    visible(db, client_id, user)
+    row = db.query(AidrRuntimeRecord).filter_by(id=record_id, client_id=client_id, expired_at=None).first()
+    if row is None:
+        fail(404, 'enforcement_record_not_found', '事件不存在或已过期', 'Event not found or expired')
+    target = json.loads(row.payload_json)
+    query = db.query(AidrRuntimeRecord).filter_by(client_id=client_id, monitor_id=row.monitor_id, expired_at=None)
+    for key in ('pid', 'pidversion', 'start_us'):
+        query = query.filter(func.json_extract(AidrRuntimeRecord.payload_json, '$.process.' + key) == target['process'][key])
+    query = query.filter(func.json_extract(AidrRuntimeRecord.payload_json, '$.boot_id') == target['boot_id'])
+    rows = query.order_by(func.length(AidrRuntimeRecord.sequence).desc(), AidrRuntimeRecord.sequence.desc()).limit(201).all()
+    return dict(items=[dict(id=r.id, record=json.loads(r.payload_json)) for r in reversed(rows[:200])], truncated=len(rows)>200)
 
 
 class Terminate(Target):

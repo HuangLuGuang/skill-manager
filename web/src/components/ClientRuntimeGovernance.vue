@@ -1,7 +1,10 @@
 <template>
-  <section class="runtime-governance">
+  <section class="runtime-governance" :class="{ 'plugin-view': view === 'plugins' }">
+    <template v-if="view === 'collection'">
     <div class="runtime-heading"><div><h3>{{ t(view === 'collection' ? 'detail.hookCollection' : 'tabs.plugins') }}</h3><p v-if="view === 'collection'">{{ t('detail.collectionNote') }}</p></div><a-button :loading="loading" :disabled="loading || !!busy" @click="load">{{ t(error ? 'retry' : 'refresh') }}</a-button></div>
+    <AidrProductCapabilities />
     <a-alert v-if="error" type="error" show-icon :message="error" />
+    <a-alert v-if="state?.channels?.logs?.health?.state === 'product_upgrade_required'" type="warning" show-icon :message="code('aidr.runtime_product_upgrade_required')" />
     <a-alert v-if="taskRefreshNeeded" type="info" show-icon :message="t(activeTasks.length ? 'taskWaiting' : 'taskAwaitingReport')" :description="t(refreshPaused ? 'taskRefreshPaused' : 'taskRefreshNote')" />
     <a-space wrap>
       <span>{{ t('reported') }}: {{ stamp(state?.reported_at) }}</span>
@@ -31,6 +34,10 @@
       <div><dt>{{ t('queued') }}</dt><dd>{{ state?.report?.queued_records ?? t('unknown') }}</dd></div>
       <div><dt>{{ t('automatic') }}</dt><dd>{{ yes(state?.report?.enabled) }}</dd></div>
     </dl>
+    <template v-if="view === 'collection'">
+      <h4>{{ t('connection.title') }}</h4><p>{{ t('connection.note') }}</p>
+      <div class="runtime-hosts"><article v-for="group in hookGroups" :key="group.id" class="runtime-host"><strong>{{ group.name }}</strong><section v-for="entry in group.entries" :key="entry.id" class="runtime-entry"><h4 v-if="group.entries.length > 1">{{ t(`catalog.entries.${entry.entry}`) }}</h4><ClientHookConnection :value="connection(entry.id)" /></section></article></div>
+    </template>
     <details v-if="view === 'collection'" class="runtime-diagnostics"><summary>{{ t('diagnostics') }}</summary>
     <template v-if="state?.target_configured">
       <p>{{ t('targetPolicy') }}: {{ state.target_version }} · {{ yes(state.target?.enabled) }} · {{ state.target?.hosts?.join(' / ') || t('unknown') }} · {{ t(`accessMode.${state.target?.access_mode || 'unknown'}`) }}</p>
@@ -64,29 +71,23 @@
       </a-space>
       <p v-if="receiverTask">{{ t('receiverTask') }} #{{ receiverTask.id }} · {{ t(receiverTask.payload.action) }} · {{ t(receiverTask.status) }}<span v-if="receiverTask.error_code"> · {{ code(receiverTask.error_code) }}</span></p>
     </template>
-    <template v-if="view === 'plugins'">
-      <a-button @click="$emit('policy')">{{ t('detail.configureAccess') }}</a-button>
-      <div class="runtime-hosts"><div v-for="agent in ['claude','codex']" :key="agent" class="runtime-host">
-        <strong>{{ agent === 'claude' ? 'Claude Code' : 'Codex' }}</strong>
-        <p>{{ t('version') }}: {{ host(agent)?.host_version || t('unknown') }} · {{ t('installed') }}: {{ yes(host(agent)?.installed) }} · {{ t('enabled') }}: {{ yes(host(agent)?.enabled) }}</p>
-        <p>{{ t('pluginVersion') }}: {{ host(agent)?.plugin_version || t('unknown') }}</p>
-        <p>{{ t('trust') }}: {{ t(host(agent)?.hook_trust || 'unknown') }} · {{ t('observed') }}: {{ stamp(host(agent)?.reported_at) }}</p>
-        <p>{{ t('compatibility') }}: {{ t(host(agent)?.version_status || 'unknown') }}</p>
-        <p v-if="host(agent)?.version_status !== 'adapter_target'">{{ t('verifiedVersionRequired') }}</p>
-        <a-space v-if="can('clients:execute')" wrap>
-          <a-button v-for="action in ['install','upgrade','inspect']" :key="action" :loading="busy === action+agent" :disabled="actionBlocked(action,agent)" @click="send(action, agent)">{{ t(action) }}</a-button>
-        </a-space>
-      </div></div>
     </template>
-    <template v-if="view === 'plugins'">
-    <p class="runtime-collection-link"><a-button type="link" @click="$emit('collection')">{{ t('detail.collection') }}</a-button></p>
-    <details class="runtime-diagnostics"><summary>{{ t('presentation.pluginDiagnostics') }}</summary>
+    <ClientPluginWorkbench v-else ref="pluginView" :client-id="clientId" :state="state" :loading="loading" :busy="busy" :can-execute="can('clients:execute')" :is-action-blocked="actionBlocked" @action="send" @refresh="load" @policy="$emit('policy')" @collection="$emit('collection')">
+      <template #alerts>
+        <a-alert v-if="error" type="error" show-icon :message="error" />
+        <a-alert v-if="state?.channels?.logs?.health?.state === 'product_upgrade_required'" type="warning" show-icon :message="code('aidr.runtime_product_upgrade_required')" />
+        <a-alert v-if="state && !supported" type="warning" show-icon :message="t('unsupported')" />
+        <a-alert v-if="taskRefreshNeeded" type="info" show-icon :message="t(activeTasks.length ? 'taskWaiting' : 'taskAwaitingReport')" :description="t(refreshPaused ? 'taskRefreshPaused' : 'taskRefreshNote')" />
+      </template>
+      <template #diagnostics>
+
+      <p>{{ t('reported') }}: {{ stamp(state?.reported_at) }}</p>
       <p>{{ t('note') }}</p><p>{{ t('trustNote') }}</p>
       <div ref="compatibilityAnchor"><ClientRuntimeCompatibility :state="state" /></div>
       <ClientOnboardingAcceptance :value="state?.onboarding" :loading="loading" :can-inspect="!blocked && can('clients:execute')" @refresh="load" @inspect="agent => send('inspect', agent)" @policy="$emit('policy')" @upgrade="compatibilityAnchor?.scrollIntoView({ block: 'center', behavior: 'smooth' })" />
-    </details>
     <details @toggle="pluginReportsOpen = $event.target.open"><summary>{{ t('detail.pluginReports') }}</summary><ClientHookPanel v-if="pluginReportsOpen" :client-id="clientId" view="plugins" /></details>
-    <details class="runtime-task-history" :open="state?.tasks?.some(task => ['pending','running','failed'].includes(task.status))"><summary>{{ t('tasks') }}</summary>
+      </template>
+      <template #tasks>
     <div v-for="task in state?.tasks || []" :key="task.id" class="runtime-task">
       <p>#{{ task.id }} · {{ t(task.payload.action) }} {{ task.payload.agent }} · {{ task.payload.plugin_version }} · {{ t(task.status) }}</p>
       <p v-if="task.error_code">{{ code(task.error_code) }}</p>
@@ -96,18 +97,24 @@
         <p v-for="item in task.payload.receipt.hosts" :key="item.agent">{{ item.agent }} · {{ item.host_version }} · {{ t('installed') }}: {{ yes(item.installed) }} · {{ t('enabled') }}: {{ yes(item.enabled) }} · {{ t('trust') }}: {{ t(item.hook_trust) }}</p>
       </details>
       <a-space v-if="can('clients:execute')" wrap>
-        <a-button v-if="task.status === 'pending'" :disabled="!!busy || loading" @click="taskAction(task,'cancel')">{{ t('cancel') }}</a-button>
-        <a-button v-if="['failed','cancelled'].includes(task.status)" :disabled="!!busy || loading" @click="taskAction(task,'retry')">{{ t('retry') }}</a-button>
+        <a-button v-if="task.status === 'pending'" :loading="busy === 'cancel' + task.id" :disabled="!!busy || loading" @click="taskAction(task,'cancel')">{{ t('cancel') }}</a-button>
+        <a-button v-if="['failed','cancelled'].includes(task.status)" :loading="busy === 'retry' + task.id" :disabled="!!busy || loading" @click="taskAction(task,'retry')">{{ t('retry') }}</a-button>
       </a-space>
     </div>
     <p v-if="!state?.tasks?.length">{{ t('noTasks') }}</p>
-    </details>
-    </template>
+      </template>
+    </ClientPluginWorkbench>
   </section>
 </template>
 
 <script setup>
+import AidrProductCapabilities from './AidrProductCapabilities.vue'
+import ClientPluginWorkbench from './ClientPluginWorkbench.vue'
+import products from '../aidr-products.json'
+import { groupProductEntries } from '../aidr-product-groups'
+const hookGroups = groupProductEntries(products.filter(p => p.hooks))
 import ClientHookPanel from './ClientHookPanel.vue'
+import ClientHookConnection from './ClientHookConnection.vue'
 import ClientRuntimeCompatibility from './ClientRuntimeCompatibility.vue'
 import ClientOnboardingAcceptance from './ClientOnboardingAcceptance.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
@@ -116,7 +123,7 @@ import { can } from '../access'
 import { getClientRuntimeGovernance, createClientTask, cancelClientTask, retryClientTask } from '../api'
 const props = defineProps({clientId: {type: String, required: true}, view: {type: String, default: 'plugins'}})
 defineEmits(['collection', 'policy'])
-const pluginReportsOpen = ref(false), compatibilityAnchor = ref(null)
+const pluginReportsOpen = ref(false), compatibilityAnchor = ref(null), pluginView = ref(null)
 let generation = 0
 let refreshTimer, pollUntil = 0
 const {t: translate, te, locale} = useI18n()
@@ -137,8 +144,9 @@ const stamp = value => value ? new Date(value).toLocaleString(locale.value) : t(
 const yes = value => t(value === true ? 'yes' : value === false ? 'no' : 'unknown')
 const code = value => value && te(`agentRuntimeGovernance.codes.${value}`) ? t(`codes.${value}`) : value ? `${t('statusCode')}: ${value}` : t('unknown')
 const host = agent => state.value?.report?.hosts?.find(item => item.agent === agent)
+const connection = agent => state.value?.hook_connections?.find(item => item.agent === agent)
 const receiverAlreadySet = action => !state.value?.stale && ((action === 'enable' && state.value?.report?.enabled === true && state.value.report.receiver_code === 'aidr_desktop_running') || (action === 'disable' && state.value?.report?.enabled === false && state.value.report.receiver_code === 'aidr_desktop_stopped'))
-const actionBlocked = (action, agent) => blocked.value || receiverAlreadySet(action) || (['install','upgrade'].includes(action) && host(agent)?.version_status !== 'adapter_target')
+const actionBlocked = (action, agent) => blocked.value || (agent && !products.find(p => p.id === agent)?.managed && (state.value?.report?.protocol || 0) < 5) || receiverAlreadySet(action) || (['install','upgrade'].includes(action) && !['interface_compatible', 'adapter_available'].includes(host(agent)?.version_status))
 const failure = cause => {
   const value = cause.response?.data?.error_code
   return value && te(`agentRuntimeGovernance.codes.${value}`) ? code(value) : value ? `${t('requestFailed')} ${code(value)}` : t('requestFailed')
@@ -188,11 +196,15 @@ watch(() => props.clientId, () => {
   state.value = null; loading.value = false; busy.value = ''; pendingRequest = null; error.value = ''
   load()
 }, { immediate: true })
-onBeforeUnmount(() => { generation++; clearTimeout(refreshTimer) })
+const statusTimer = setInterval(() => {
+  if (props.view === 'plugins' && pluginView.value?.$el?.offsetParent && !document.hidden && !busy.value && !loading.value && !taskRefreshNeeded.value) load(true)
+}, 15000)
+onBeforeUnmount(() => { generation++; clearTimeout(refreshTimer); clearInterval(statusTimer) })
 </script>
 
 <style scoped>
 .runtime-governance { margin: 12px 0 24px; overflow-wrap: anywhere; }
+.runtime-governance.plugin-view { margin: 0; height: 100%; min-height: 0; }
 .runtime-heading { display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 12px; }
 .runtime-heading h3 { margin: 0 0 6px; }
 .runtime-heading p { color: #627480; margin: 0; }
@@ -203,6 +215,8 @@ dl { display: grid; grid-template-columns: minmax(100px, 180px) minmax(0, 1fr); 
 .runtime-summary > div { min-width: 0; border: 1px solid #dce4e8; border-radius: 10px; background: #f8fafb; padding: 14px; }
 .runtime-summary dt { color: #627480; font-size: 12px; margin-bottom: 8px; }
 .runtime-summary dd { font-weight: 600; font-size: 14px; }
+.runtime-entry + .runtime-entry { border-top: 1px solid #dce4e8; margin-top: 18px; padding-top: 18px; }
+.runtime-entry h4 { font-size: 13px; color: #526873; margin-bottom: 12px; }
 .runtime-hosts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 18px 0; }
 .runtime-host { border: 1px solid #dce4e8; padding: 18px; border-radius: 10px; min-width: 0; }
 .runtime-host > strong { display: block; font-size: 17px; margin-bottom: 12px; }

@@ -37,12 +37,13 @@ def report(factory):
         db.commit()
 
 
-def test_unknown_and_disabled_targets_do_not_fabricate_acceptance(service):
+def test_default_and_disabled_targets_do_not_fabricate_acceptance(service):
     _, factory = service
     value, steps = state(factory)
-    assert value['target_enabled'] is None
-    assert not value['hosts']
-    assert all(item['status'] == 'unknown' for item in steps.values())
+    assert value['target_enabled'] is True
+    assert {host['agent'] for host in value['hosts']} == {'claude', 'codex'}
+    assert steps['configuration']['status'] == 'confirmed'
+    assert all(item['status'] == 'unknown' for key, item in steps.items() if key != 'configuration')
     target(factory)
     with factory() as db:
         row = db.get(models.ClientGovernancePolicy, '@default')

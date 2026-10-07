@@ -7,6 +7,8 @@ from .aidr_models import AidrHookBatch, AidrHookEvent
 from .aidr_hook_runtime import HookRuntimeRow
 
 RECENT_SECONDS = 15 * 60
+# The daemon inspects every five minutes; each of the two hosts may take a minute.
+HOST_OBSERVATION_SECONDS = 8 * 60
 
 
 def parsed_time(value):
@@ -48,7 +50,7 @@ def view(db, client_id, policy, report, stale, compatibility):
     for agent in target['hosts']:
         items = [config.copy()]
         host = next((item for item in (report or {}).get('hosts', []) if item['agent'] == agent), None)
-        host_fresh = bool(host and not stale and fresh(host.get('reported_at'), now, 180))
+        host_fresh = bool(host and not stale and fresh(host.get('reported_at'), now, HOST_OBSERVATION_SECONDS))
         host_evidence = {'type': 'native_host_client_report', 'at': host.get('reported_at') if host else None,
                          'installed': host.get('installed') if host else None, 'enabled': host.get('enabled') if host else None,
                          'trust': host.get('hook_trust') if host else None}

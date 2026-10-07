@@ -3,9 +3,57 @@
   if (!invoke) return
   const $ = id => document.getElementById(id)
   const t = key => window.clientI18n.t(`ui.aidrDesktop.${key}`)
+  const products = window.aidrProducts || []
+  const hookProducts = products.filter(product => product.hooks)
+  const qoderEntries = new Set(['qoder-cli', 'qoder-hooks', 'qoder-ide', 'qoder-work'])
+  let qoderCard = null
+  for (const product of hookProducts.filter(product => !product.managed)) {
+    const card = document.createElement('section'), status = document.createElement('div'), actions = document.createElement('div')
+    card.className = 'governance-host'; status.id = `aidr-host-${product.id}-status`; actions.className = 'governance-host-actions'
+    for (const action of ['connect', 'disconnect']) {
+      const button = document.createElement('button'); button.type = 'button'; button.className = action === 'connect' ? 'primary' : ''; button.dataset.aidrAction = action; button.dataset.aidrAgent = product.id; button.dataset.productAction = action; actions.append(button)
+    }
+    card.append(status, actions)
+    if (qoderEntries.has(product.id)) {
+      if (!qoderCard) {
+        qoderCard = document.createElement('section'); qoderCard.className = 'governance-host'
+        const title = document.createElement('strong'); title.textContent = 'Qoder'; qoderCard.append(title)
+        $('aidr-host-status').append(qoderCard)
+      }
+      card.className = 'governance-product-entry'; qoderCard.append(card)
+    } else $('aidr-host-status').append(card)
+  }
+  const catalogView = document.createElement('details'), catalogTitle = document.createElement('summary'), catalogNote = document.createElement('p'), catalogRows = document.createElement('div')
+  catalogView.className = 'governance-product-catalog'
+  catalogView.append(catalogTitle, catalogNote, catalogRows); $('aidr-host-status').after(catalogView)
+  window.aidrWorkbench.init()
+  let catalogLocale = ''
+  const renderCatalog = () => {
+    if (catalogLocale === window.clientI18n.getLocale()) return
+    catalogLocale = window.clientI18n.getLocale()
+    catalogTitle.textContent = t('catalog_title'); catalogNote.textContent = t('catalog_note'); catalogRows.replaceChildren()
+    let qoderCatalog = null
+    for (const product of products) {
+      const row = document.createElement('section'), title = document.createElement('strong'), info = document.createElement('p'), source = document.createElement('p')
+      const entryLabel = t(`entry_${product.entry.replaceAll('-', '_')}`)
+      title.textContent = qoderEntries.has(product.id) ? entryLabel : `${product.name} · ${entryLabel}`
+      info.textContent = `${product.os.join(' / ') || t('unknown')} · ${t('catalog_samples')}: ${product.sample_versions.join(' / ') || t('unknown')} · ${product.logs || product.hooks ? t('adapter_implemented') : t('catalog_unavailable')}`
+      source.textContent = `${t('channel_logs')}: ${product.logs || t('catalog_unavailable')} ${product.log_os.join('/')} ${product.roots.map(root => `~/${root}`).join(' / ')} · Hook: ${product.hooks || t('catalog_unavailable')} ${product.hook_os.join('/')}`
+      row.append(title, info, source)
+      if (qoderEntries.has(product.id)) {
+        if (!qoderCatalog) {
+          qoderCatalog = document.createElement('section')
+          const title = document.createElement('h3'); title.textContent = 'Qoder'; qoderCatalog.append(title)
+          catalogRows.append(qoderCatalog)
+        }
+        qoderCatalog.append(row)
+      } else catalogRows.append(row)
+    }
+  }
   let polling = false
   let statusRevision = 0, statusError = ''
   let busy = false, error = '', snapshot = {}, hosts = {}, collection = {}, collectionError = ''
+  let pendingAction = '', pendingAgent = ''
   let systemPrerequisites = null, systemError = ''
   let collectionCheckedAt = 0
   let renderedSnapshot = ''
@@ -24,6 +72,7 @@
     dt.textContent = label; dd.textContent = value; group.append(dt, dd); list.append(group)
   }
   const render = () => {
+    renderCatalog()
     const channelStale = Object.fromEntries(['logs', 'hooks', 'system'].map(kind => {
       const stamp = Date.parse(collection.channels?.[kind]?.reported_at)
       return [kind, !Number.isFinite(stamp) || Date.now() - stamp > 30000 || stamp > Date.now() + 5000]
@@ -34,12 +83,16 @@
     const managed = snapshot.policy?.target?.access_mode === 'managed'
     const configured = !!snapshot.code && !['aidr_desktop_not_configured', 'aidr_desktop_config_unreadable'].includes(snapshot.code)
     const platformManaged = snapshot.managed_task && snapshot.managed_task !== '0'
+    const target = snapshot.policy?.target
+    const selfEnrollment = target?.allow_user_enrollment === true && target?.access_mode === 'ordinary'
+    const localInstallation = (target?.installation === 'manual' || selfEnrollment) && target?.access_mode === 'ordinary'
     $('aidr-connection-needed').hidden = configured
     $('aidr-receiver-controls').hidden = !configured
     $('aidr-authorization-note').hidden = !managed
     document.querySelectorAll('[data-aidr-action="authorize"]').forEach(button => { button.hidden = !managed || !snapshot.policy?.target?.hosts?.includes(button.dataset.aidrAgent) })
     document.querySelectorAll('[data-aidr-action="remove-managed"]').forEach(button => { button.hidden = hosts[button.dataset.aidrAgent]?.managed_installed !== true })
     $('aidr-managed-note').hidden = !snapshot.managed_task || snapshot.managed_task === '0'
+    $('aidr-managed-note').textContent = t(selfEnrollment ? 'self_enrollment_note' : localInstallation ? 'manual_installation_note' : 'managed_note')
     const auditGap = snapshot.receiver_diagnostic?.audit_gap
     const gapError = snapshot.receiver_diagnostic?.audit_gap_code
     $('aidr-plugin-error').hidden = !error && !statusError && !auditGap && !gapError
@@ -49,13 +102,19 @@
     ].join(' · ')
     document.querySelectorAll('[data-aidr-action]').forEach(button => {
       const action = button.dataset.aidrAction
+      button.setAttribute('aria-busy', String(busy && action === pendingAction && (button.dataset.aidrAgent || '') === pendingAgent))
+      if (button.dataset.productAction) button.textContent = t(`product_${action}`)
+      if (action === 'connect') button.textContent = t('product_connect')
+      if (action === 'disconnect') button.hidden = hosts[button.dataset.aidrAgent]?.plugin?.installed !== true
       const plugin = hosts[button.dataset.aidrAgent]?.plugin
-      if (action === 'retry') button.title = t('retry_scope')
+      if (action === 'retry') { button.title = t('retry_scope'); button.hidden = !snapshot.retry_suspended }
       if (action === 'upgrade') button.hidden = plugin?.installed !== true
       if (action === 'enable') button.hidden = snapshot.enabled === true
       if (action === 'disable') button.hidden = snapshot.enabled !== true
-      button.disabled = busy || !configured || (action === 'retry-logs' && (collectionError !== '' || collection.channels?.logs?.state !== 'failed')) || (platformManaged && ['connect','upgrade','enable','disable'].includes(action)) || (['connect','upgrade'].includes(action) && plugin?.version_status !== 'adapter_target')
-      if (['connect', 'upgrade'].includes(action)) button.title = !configured ? codeText('aidr_desktop_not_configured') : platformManaged ? t('managed_note') : plugin?.version_status !== 'adapter_target' ? t(plugin?.version_status ? 'unsupported' : 'unchecked') : ''
+      const enrollmentBlocked = action === 'connect' && (!target || target.allow_user_enrollment == null || !target.enabled || target.channels?.hooks === false || (!selfEnrollment && !target.hosts?.includes(button.dataset.aidrAgent)))
+      const policyBlocked = enrollmentBlocked || platformManaged && (['enable', 'disable'].includes(action) || (!localInstallation && ['connect', 'upgrade', 'disconnect'].includes(action)))
+      button.disabled = busy || !configured || (action === 'retry-logs' && (collectionError !== '' || collection.channels?.logs?.state !== 'failed')) || policyBlocked || (['connect','upgrade'].includes(action) && !['interface_compatible', 'adapter_available'].includes(plugin?.version_status))
+      if (['connect', 'upgrade', 'disconnect'].includes(action)) button.title = !configured ? codeText('aidr_desktop_not_configured') : policyBlocked ? t('managed_note') : !['interface_compatible', 'adapter_available'].includes(plugin?.version_status) ? t(plugin?.version_status ? 'unsupported' : 'unchecked') : ''
     })
     const channelList = $('aidr-collection-channels'); channelList.replaceChildren()
     for (const kind of ['logs', 'hooks', 'system']) {
@@ -108,13 +167,19 @@
     } else add(prerequisiteList, t('channel_reason'), t('system_not_checked'))
     const diagnostic = snapshot.receiver_diagnostic
     const telemetry = snapshot.telemetry || {}
+    const retryPolicy = snapshot.policy?.target?.retry
+    const exhausted = snapshot.retry_suspended && snapshot.retry_mode === 'fixed' && Number.isInteger(retryPolicy?.retries) && snapshot.attempts > retryPolicy.retries
+    const receiverText = snapshot.retry_suspended
+      ? `${exhausted ? t('retry_exhausted').replace('{count}', String(retryPolicy.retries)) : t('retry_required')} · ${codeText(snapshot.code || 'aidr_desktop_not_configured')}`
+      : codeText(snapshot.code || 'aidr_desktop_not_configured')
     const summary = $('aidr-runtime-summary'); summary.replaceChildren()
-    add(summary, t('receiver'), statusError ? t('unknown') : codeText(snapshot.code || 'aidr_desktop_not_configured'))
+    summary.parentElement.dataset.health = statusError || snapshot.retry_suspended ? 'attention' : ['aidr_desktop_running', 'aidr_desktop_shared_receiver'].includes(snapshot.code) ? 'running' : 'unknown'
+    add(summary, t('receiver'), statusError ? t('unknown') : receiverText)
     add(summary, t('transport'), statusError ? t('unknown') : telemetry.runtime_code ? codeText(telemetry.runtime_code) : t('unknown'))
     add(summary, t('queued'), statusError || !telemetry.state ? t('unknown') : String(telemetry.state.queued_records))
     add(summary, t('latest_ack'), telemetry.state?.last_event_ack_at ? new Date(telemetry.state.last_event_ack_at).toLocaleString(window.clientI18n.getLocale()) : t('unknown'))
     const state = $('aidr-receiver-state'); state.replaceChildren()
-    add(state, t('receiver'), codeText(snapshot.code || 'aidr_desktop_not_configured'))
+    add(state, t('receiver'), receiverText)
     if (diagnostic) {
       add(state, t('ownership'), t(`ownership_${diagnostic.ownership || 'unavailable'}`))
       add(state, t('diagnostic_code'), codeText(diagnostic.code))
@@ -147,7 +212,7 @@
       add(state, t('policy_code'), codeText(snapshot.policy.code))
     }
     add(state, t('transport'), telemetry.runtime_code ? codeText(telemetry.runtime_code) : t('unknown'))
-    add(state, t('upload'), telemetry.upload_code ? codeText(telemetry.upload_code) : telemetry.state ? t('no_upload_error') : t('unknown'))
+    add(state, t('upload'), telemetry.upload_code ? codeText(telemetry.upload_code) : telemetry.state && !telemetry.shared_observation ? t('no_upload_error') : t('unknown'))
     add(state, t('queued'), telemetry.state ? String(telemetry.state.queued_records) : t('unknown'))
     add(state, t('last_report'), telemetry.last_report ? new Date(telemetry.last_report).toLocaleString(window.clientI18n.getLocale()) : t('unknown'))
     add(state, t('last_event_ack'), telemetry.state?.last_event_ack_at ? new Date(telemetry.state.last_event_ack_at).toLocaleString(window.clientI18n.getLocale()) : t('unknown'))
@@ -162,19 +227,24 @@
     add(state, t('retention'), lifecycle ? String(lifecycle.retention_days) : t('unknown'))
     if (lifecycle) add(state, t('suppressed'), telemetry.state?.audit_suppressed_recent == null ? t('unknown') : String(telemetry.state.audit_suppressed_recent))
     add(state, t('control_revision'), telemetry.state?.control_revision || t('unknown'))
-    for (const agent of ['claude', 'codex']) {
-      const signature = JSON.stringify([hosts[agent], window.clientI18n.getLocale()])
+    for (const agent of hookProducts.map(product => product.id)) {
+      const signature = JSON.stringify([hosts[agent], snapshot.policy, snapshot.enabled, collection.user_hook_hosts, window.clientI18n.getLocale()])
       if (renderedHosts.get(agent) === signature) continue
       renderedHosts.set(agent, signature)
       const section = $(`aidr-host-${agent}-status`), title = document.createElement('h3'), fields = document.createElement('dl')
       section.replaceChildren()
-      fields.className = 'detail-list'; title.textContent = agent === 'claude' ? 'Claude Code' : 'Codex'; section.append(title, fields)
+      const product = products.find(product => product.id === agent)
+      fields.className = 'detail-list'; title.textContent = qoderEntries.has(agent) ? t(`entry_${product.entry.replaceAll('-', '_')}`) : product?.name || agent; section.append(title, fields)
       const data = hosts[agent]
       if (data?.error) add(fields, t('source'), codeText(data.error))
       else if (data) {
         const plugin = data.plugin || {}
         add(fields, t('version'), plugin.host_version || t('unknown'))
-        add(fields, t('compatibility'), plugin.version_status === 'adapter_target' ? t('supported') : plugin.version_status === 'unverified' ? t('unsupported') : t('unknown'))
+        add(fields, t('compatibility'), plugin.version_status === 'interface_compatible' ? t('interface_compatible') : plugin.version_status === 'adapter_available' ? t('adapter_implemented') : plugin.version_status === 'unverified' ? t('unsupported') : t('unknown'))
+        const requested = collection.user_hook_hosts?.includes(agent)
+        const selected = target?.hosts?.includes(agent)
+        const enrollmentState = !target?.enabled || target?.channels?.hooks === false || (requested && !selfEnrollment && !selected) ? 'enrollment_blocked' : requested && !selected ? 'enrollment_pending' : selected && snapshot.enabled ? 'enrollment_waiting_event' : 'enrollment_not_enabled'
+        add(fields, t('enrollment_status'), t(enrollmentState))
         add(fields, t('installed'), valueText(plugin.installed)); add(fields, t('enabled'), valueText(plugin.enabled))
         add(fields, t('trust'), data.hook_trust === 'managed' ? t('managed_trust') : data.hook_trust === 'trusted' ? t('trusted') : data.hook_trust === 'needs_review' ? t('needs_review') : t('trust_unknown'))
         add(fields, t('checked_at'), plugin.reported_at ? new Date(plugin.reported_at).toLocaleString(window.clientI18n.getLocale()) : t('unknown'))
@@ -185,6 +255,7 @@
         details.append(heading, evidence); section.append(details)
       } else add(fields, t('source'), t('unchecked'))
     }
+    window.aidrWorkbench.render({ snapshot, hosts, collection, collectionError })
   }
   const poll = async (afterAction = false) => {
     if (polling || (busy && !afterAction)) return
@@ -214,17 +285,17 @@
   }
   const act = async (action, agent = '') => {
     if (busy) return
-    if (['connect', 'upgrade'].includes(action) && hosts[agent]?.plugin?.version_status !== 'adapter_target') return
+    if (['connect', 'upgrade'].includes(action) && !['interface_compatible', 'adapter_available'].includes(hosts[agent]?.plugin?.version_status)) return
     statusRevision++; polling = false
-    busy = true; error = ''; if (action === 'system-check') { systemError = ''; systemPrerequisites = null }; render()
+    busy = true; pendingAction = action; pendingAgent = agent; error = ''; if (action === 'system-check') { systemError = ''; systemPrerequisites = null }; render()
     try {
       if (action === 'inspect') {
-        for (const host of ['claude', 'codex']) {
+        for (const host of hookProducts.map(product => product.id)) {
           try { hosts[host] = await invoke('aidr_plugin_action', {action, agent: host}) }
           catch (cause) { hosts[host] = {error: String(cause)} }
         }
       } else {
-        const result = await invoke('aidr_plugin_action', {action, agent})
+        const result = await invoke('aidr_plugin_action', {action: action === 'connect' ? 'enroll' : action, agent})
         if (action === 'system-check') {
           if (result.version !== 1 || !Array.isArray(result.components)) throw 'aidr_system_prerequisites_invalid'
           systemPrerequisites = result
@@ -234,7 +305,7 @@
       collectionCheckedAt = 0
       await poll(true)
     } catch (cause) { if (action === 'system-check') systemError = String(cause); else error = String(cause) }
-    finally { busy = false; render() }
+    finally { busy = false; pendingAction = ''; pendingAgent = ''; render() }
   }
   document.querySelectorAll('[data-aidr-action]').forEach(button => button.addEventListener('click', () => { void act(button.dataset.aidrAction, button.dataset.aidrAgent || '') }))
   $('aidr-open-connection').addEventListener('click', () => document.querySelector('.nav-item[data-panel="connect"]')?.click())

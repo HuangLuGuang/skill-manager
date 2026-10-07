@@ -19,6 +19,7 @@ func TestReconcileLegacyNullModeAndChangedMode(t *testing.T) {
 			_ = json.Unmarshal(raw, &target)
 			target["modes"] = nil
 			target["channels"] = nil
+			target["log_sources"] = nil
 			if explicit {
 				target["modes"] = map[string]string{"hooks": "intercept", "system": "audit"}
 			}

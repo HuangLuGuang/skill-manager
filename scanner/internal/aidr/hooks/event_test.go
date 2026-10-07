@@ -29,7 +29,7 @@ func TestLifecycleProjectionOmitsBodies(t *testing.T) {
 				continue
 			}
 			t.Run(host+"/"+hook, func(t *testing.T) {
-				raw, _ := json.Marshal(map[string]any{"hook_event_name": hook, "session_id": "session-1", "prompt": "SYNTHETIC-PROMPT-SECRET", "message": "SYNTHETIC-MESSAGE-SECRET", "transcript_path": "/private/secret.jsonl", "reason": "UNRECOGNIZED-REASON"})
+				raw, _ := json.Marshal(map[string]any{"hook_event_name": hook, "session_id": "session-1", "conversation_id": "session-1", "prompt": "SYNTHETIC-PROMPT-SECRET", "message": "SYNTHETIC-MESSAGE-SECRET", "transcript_path": "/private/secret.jsonl", "reason": "UNRECOGNIZED-REASON"})
 				e := normalize(t, host, hook, string(raw), false)
 				got, _ := json.Marshal(e)
 				if e.Kind != kind || e.ProcessRelation != "unknown" || e.Behavior != nil || e.CallKey("device", "user") != "" {

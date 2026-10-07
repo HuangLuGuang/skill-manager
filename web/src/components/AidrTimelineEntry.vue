@@ -4,6 +4,7 @@
     <div class="entry-body">
       <div class="entry-card">
         <header><strong>{{ title }}</strong><span v-if="status" class="entry-status" :class="{ success }">{{ status }}</span></header>
+        <p v-if="event.skill_use" class="skill-evidence"><a-tag color="blue">{{ t('aidr.skillUse.' + event.skill_use.behavior) }}</a-tag>{{ event.skill_use.name || event.skill_use.path }}</p>
         <p v-if="!isTool && !item.message" class="event-code">{{ event.hook_event }}</p>
         <AidrAuditContent v-if="item.message" :show-heading="false" :client-id="clientId" source="log" :record-id="item.message.logical_event_id" :evidence="item.message" />
         <AidrAuditContent v-for="record in promptRecords" :key="record.id" :client-id="clientId" source="hook" :record-id="record.id" :evidence="record.record.event" />

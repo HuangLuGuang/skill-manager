@@ -10,12 +10,12 @@ import (
 )
 
 func nativeCodexLocalPlugins(ctx context.Context, binary, home string) ([]byte, error) {
-	results, ok := nativeCodexCalls(ctx, binary, home, []nativeCodexRequest{
+	results, err := nativeCodexCallsChecked(ctx, binary, home, []nativeCodexRequest{
 		{"plugin/list", map[string]any{"cwds": []string{home}, "forceRefetch": false, "marketplaceKinds": []string{"local"}}},
 		{"config/read", map[string]any{"cwd": home, "includeLayers": false}},
 	})
-	if !ok {
-		return nil, code("aidr_plugin_source_unreadable")
+	if err != nil {
+		return nil, err
 	}
 	return projectNativeCodexPlugins(results[0], results[1])
 }

@@ -39,6 +39,7 @@ type Capability struct {
 	Status        string `json:"status"`
 }
 type Discovery struct {
+	SourceID string                        `json:"source_id,omitempty"`
 	Progress *localstore.DiscoveryProgress `json:"progress,omitempty"`
 	Agent    string                        `json:"agent"`
 	Status   string                        `json:"status"`

@@ -339,19 +339,17 @@ func TestCodex160ControlledOperationsAndCursorResume(t *testing.T) {
 			seen[event.LogicalEventID] = true
 		}
 	}
-	if VersionSupport("codex", "0.160.0") != "available" || VersionSupport("codex", "0.160.1") != "unverified" {
-		t.Fatal("unverified neighboring version accepted")
-	}
+
 	end, err := ReadWithPolicy(context.Background(), s, cursor, budget, time.Unix(0, 0), &policy)
 	if err != nil || len(end.Events) != 0 {
 		t.Fatal("confirmed cursor reread events", err)
 	}
 }
 
-func TestUnknownVersionAndSessionAreExplicit(t *testing.T) {
-	for _, data := range []string{strings.Replace(claudeCall("a"), "2.1.220", "99.0", 1), strings.Replace(claudeCall("a"), `"sessionId":"session-a",`, "", 1)} {
+func TestUnknownVersionDoesNotHideValidRecordsAndMissingSessionStaysPartial(t *testing.T) {
+	for i, data := range []string{strings.Replace(claudeCall("a"), "2.1.220", "99.0", 1), strings.Replace(claudeCall("a"), `"sessionId":"session-a",`, "", 1)} {
 		b := read(t, source(t, "claude", data), Cursor{})
-		if b.Coverage.Status != "partial" || len(b.Events) != 1 {
+		if b.Coverage.Status != []string{"complete", "partial"}[i] || len(b.Events) != 1 {
 			t.Fatalf("%+v", b)
 		}
 	}

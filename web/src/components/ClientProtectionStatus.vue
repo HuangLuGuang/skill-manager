@@ -1,7 +1,8 @@
 <template>
   <div class="protection-status">
-    <a-button size="small" :loading="loading" :disabled="loading" @click="load">{{ t('clientGovernance.protection.refresh') }}</a-button>
     <a-alert v-if="failed" type="warning" show-icon :message="t('clientGovernance.protection.readFailed')" />
+    <div class="status-content">
+    <div class="status-modes">
     <div v-for="name in names" :key="name" class="mode-row">
       <strong>{{ t(`clientGovernance.runtime.mode_${name}`) }}</strong>
       <span>{{ t('clientGovernance.protection.configured') }}: {{ !failed && state?.channels?.[name] ? mode(state.channels[name].target_mode, 'legacy') : mode(null, 'unknown') }}</span>
@@ -9,6 +10,9 @@
       <a-tag :color="!failed && state?.channels?.[name]?.applied ? 'green' : 'orange'">{{ t(`clientGovernance.protection.${reason(name)}`) }}</a-tag>
       <p v-if="current(name)?.state === 'failed'">{{ diagnostic(current(name).code) }}</p>
       <p v-else-if="failedTask && name === 'hooks' && !state?.channels?.[name]?.applied">{{ diagnostic(failedTask.error_code) }}</p>
+    </div>
+    </div>
+    <a-button class="status-refresh" size="small" :loading="loading" :disabled="loading" @click="load">{{ t('clientGovernance.protection.refresh') }}</a-button>
     </div>
     <p>{{ t('clientGovernance.protection.savedHint') }}</p>
   </div>
@@ -53,7 +57,13 @@ const timer = setInterval(() => void load(), 10000)
 onBeforeUnmount(() => { sequence++; clearInterval(timer) })
 </script>
 <style scoped>
-.protection-status { margin: 12px 0; padding: 12px; background: var(--color-fill-quaternary, #f6f8fb); border-radius: 8px; }
-.mode-row { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; margin-top: 10px; }
-.protection-status p { margin: 8px 0 0; color: #596579; }
+.protection-status { margin: 0 0 12px; padding: 12px; background: var(--color-fill-quaternary, #f6f8fb); border-radius: 8px; }
+.status-content { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.status-modes { flex: 1 1 440px; min-width: 0; }
+.status-refresh { flex: 0 0 auto; margin-left: auto; }
+.mode-row { display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap; }
+.mode-row + .mode-row { margin-top: 10px; }
+.mode-row :deep(.ant-tag) { margin-inline-end: 0; white-space: normal; }
+.protection-status > :deep(.ant-alert) { margin-bottom: 10px; }
+.protection-status p { margin: 6px 0 0; color: #596579; font-size: 13px; overflow-wrap: anywhere; }
 </style>

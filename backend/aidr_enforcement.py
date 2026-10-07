@@ -75,6 +75,7 @@ class Rule(Strict):
 
 class PolicyInput(Strict):
     expected_revision: str = Field(pattern=r'^(0|[1-9][0-9]{0,17})$')
+    expected_configuration_revision: str | None = Field(default=None, pattern=r'^(0|[1-9][0-9]{0,17})$')
     lifetime_seconds: int = Field(default=86400, ge=60, le=30 * 86400)
     unknown_actor_action: str = Field(pattern=r'^(allow|deny)$')
     expired_action: str = Field(pattern=r'^(allow|deny)$')

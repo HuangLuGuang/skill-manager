@@ -60,7 +60,7 @@ func TestChannelTargetStopsHookWithoutClaimingLogOrSystem(t *testing.T) {
 	target.Channels.System = true
 	task := managedclient.Task{ID: 42, Payload: map[string]any{"action": "reconcile", "plugin_version": hooks.BundledPluginVersion, "expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339), "policy_version": "1:2", "target": target}}
 	report, err := executeAIDRTask(context.Background(), home, task)
-	if err != nil || report["enabled"] != false || report["protocol"] != 4 || report["policy_version"] != "1:2" {
+	if err != nil || report["enabled"] != false || report["protocol"] != 5 || report["policy_version"] != "1:2" {
 		t.Fatal(report, err)
 	}
 	channels := report["channels"].(map[string]any)

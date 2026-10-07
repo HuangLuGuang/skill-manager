@@ -85,7 +85,7 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 	} else if info.Size() < c.Offset {
 		reset = "aidr_log_truncated"
 	} else {
-		a, err := anchor(f, c.Offset)
+		a, err := sourceAnchor(s, f, c.Offset)
 		if err != nil {
 			return out, err
 		}
@@ -108,7 +108,9 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 		c.AgentVersion = ""
 		c.RecoveryGaps = nil
 		c.RecoveryDetailsTruncated = false
-		addGap(&c, reset)
+		if s.Agent != "opencode" {
+			addGap(&c, reset)
+		}
 	}
 	// Read a bounded snapshot of the file; appends are handled on the next call.
 	remaining := min(info.Size()-c.Offset, b.Bytes)
@@ -147,7 +149,17 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 			}
 			break
 		}
-		line, readErr := readLine(reader, b.LineBytes)
+		var line []byte
+		var readErr error
+		if s.Agent == "opencode" {
+			line, readErr = io.ReadAll(io.LimitReader(reader, int64(b.LineBytes)+1))
+			if len(line) > b.LineBytes || int64(len(line)) != info.Size() {
+				out.Coverage.mark("partial", "aidr_log_snapshot_incomplete")
+				break
+			}
+		} else {
+			line, readErr = readLine(reader, b.LineBytes)
+		}
 		out.Coverage.Bytes += int64(len(line))
 		if readErr != nil {
 			switch {
@@ -177,7 +189,14 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 		candidate := c
 		candidate.Gaps = append([]string{}, c.Gaps...)
 		drafts, parseErr := normalize(s.Agent, line, &candidate)
+		if s.Agent == "opencode" {
+			drafts, parseErr = normalizeOpenCode(s, line, &candidate)
+		}
 		if parseErr != nil {
+			if s.Agent == "opencode" {
+				out.Coverage.mark("partial", parseErr.Error())
+				break
+			}
 			if skip, invalidate := quarantineUnknown(s.Agent, line); skip {
 				reason := "aidr_log_optional_record_skipped"
 				if invalidate {
@@ -223,9 +242,6 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 			if candidate.Session == "" {
 				addGap(&candidate, "aidr_log_session_unknown")
 			}
-			if !supportedVersion(s.Agent, candidate.AgentVersion) {
-				addGap(&candidate, "aidr_log_version_unverified")
-			}
 			turn := candidate.Turn
 			if s.Agent == "codex" {
 				turn = d.Turn
@@ -260,13 +276,21 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 				version = 3
 			}
 			behavior := projectBehaviorPolicy(d, version, policy)
+			var skillUse *SkillUse
+			if d.Kind == "tool_call" {
+				skillUse = ProjectSkillUse(s.Agent, d.Tool, d.Cwd, d.Content, policy)
+			}
+			if d.Kind == "tool_result" && d.Outcome != "error" {
+				skillUse = ProjectSkillResult(s.Agent, d.ResultTool, d.Content, d.ResultMeta, policy)
+			}
+			ObserveSkillContent(skillUse)
 			namespace := "behavior/" + strconv.Itoa(version)
 			behaviorJSON, _ := json.Marshal(behavior)
 			id := digest(namespace, s.Agent, scope, turn, d.Call, d.Kind, d.Tool, d.Outcome, contentDigest, string(behaviorJSON))
 			if policy != nil {
 				id = digest(namespace, s.Agent, scope, turn, d.Call, d.Kind, d.Tool, d.Outcome, contentDigest)
 			}
-			out.Events = append(out.Events, Event{PreviousLogicalIDs: previousIDs, SchemaVersion: 2, Behavior: behavior, EventID: digest(namespace, s.ID, identity, strconv.FormatUint(c.Generation, 10), strconv.FormatInt(c.Offset, 10), strconv.Itoa(d.Block), string(line)), LogicalEventID: id, SourceID: s.ID, SourceInstanceID: digest(s.ID, identity, strconv.FormatUint(c.Generation, 10)), SourceSeq: c.Offset + int64(d.Block), RecordOffset: c.Offset, Block: d.Block, Agent: s.Agent, AgentVersion: candidate.AgentVersion, Source: "agent_log", SessionID: candidate.Session, TurnID: turn, CallID: d.Call, LogicalCallID: digest(s.Agent, scope, turn, d.Call), Kind: d.Kind, Tool: d.Tool, Outcome: d.Outcome, ObservedAt: d.Time, ReceivedAt: time.Now().UTC(), ContentDigest: contentDigest, ContentBytes: len(d.Content), EvidenceDigest: digest(string(line)), ProcessRelation: "unknown"})
+			out.Events = append(out.Events, Event{UserScope: sourceUserScope(), SkillUse: skillUse, PreviousLogicalIDs: previousIDs, SchemaVersion: 2, Behavior: behavior, EventID: digest(namespace, s.ID, identity, strconv.FormatUint(c.Generation, 10), strconv.FormatInt(c.Offset, 10), strconv.Itoa(d.Block), string(line)), LogicalEventID: id, SourceID: s.ID, SourceInstanceID: digest(s.ID, identity, strconv.FormatUint(c.Generation, 10)), SourceSeq: c.Offset + int64(d.Block), RecordOffset: c.Offset, Block: d.Block, Agent: s.Agent, AgentVersion: candidate.AgentVersion, Source: "agent_log", SessionID: candidate.Session, TurnID: turn, CallID: d.Call, LogicalCallID: digest(s.Agent, scope, turn, d.Call), Kind: d.Kind, Tool: d.Tool, Outcome: d.Outcome, ObservedAt: d.Time, ReceivedAt: time.Now().UTC(), ContentDigest: contentDigest, ContentBytes: len(d.Content), EvidenceDigest: digest(string(line)), ProcessRelation: "unknown"})
 		}
 		if len(drafts) == 0 {
 			out.Coverage.Ignored++
@@ -275,7 +299,7 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 		c = candidate
 		out.Coverage.Records++
 	}
-	c.Anchor, err = anchor(f, c.Offset)
+	c.Anchor, err = sourceAnchor(s, f, c.Offset)
 	if err != nil {
 		return out, fmt.Errorf("aidr_log_checkpoint_changed")
 	}
@@ -287,7 +311,11 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 	}
 	out.Coverage.GapDetailsTruncated = out.Coverage.GapDetailsTruncated || c.RecoveryDetailsTruncated
 	for _, r := range c.Gaps {
-		out.Coverage.mark("partial", r)
+		// Older cursors retained a version label as a gap despite parsed records.
+		// Keep the cursor history, but determine coverage from actual read failures.
+		if r != "aidr_log_version_unverified" {
+			out.Coverage.mark("partial", r)
+		}
 	}
 	if c.Offset < info.Size() && out.Coverage.Status == "complete" {
 		out.Coverage.mark("partial", "aidr_log_read_budget")

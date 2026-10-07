@@ -17,6 +17,7 @@ def legacy_database(tmp_path):
     Base.metadata.create_all(engine)
     tables = [models.AidrDevice, models.AidrBatch, models.AidrEvent, models.AidrSource, models.AidrCoverageRecord]
     with engine.begin() as c:
+        c.exec_driver_sql('DROP INDEX ix_aidr_session_messages')
         for model in (models.AidrEvent, models.AidrCoverageRecord):
             c.exec_driver_sql(f'DROP INDEX ix_{model.__tablename__}_retention')
             c.exec_driver_sql(f'ALTER TABLE {model.__tablename__} DROP COLUMN expired_at')
@@ -46,6 +47,8 @@ def test_upgrade_preserves_all_evidence_and_is_repeatable(tmp_path):
             assert [{k:v for k,v in r.items() if k in keys} for r in c.exec_driver_sql(f'SELECT * FROM {name}').mappings()] == [{k:v for k,v in r.items() if k != 'group_id'} for r in rows]
         assert c.exec_driver_sql("SELECT client_id,suffix FROM aidr_legacy_destinations").all() == [('old','17')]
         assert not c.exec_driver_sql('PRAGMA foreign_key_check(aidr_events)').all()
+        plan = c.exec_driver_sql("EXPLAIN QUERY PLAN SELECT agent,payload_json FROM aidr_events WHERE client_id='old' AND id<=100 AND expired_at IS NULL AND kind IN ('user_message','assistant_message')").all()
+        assert any('ix_aidr_session_messages' in row[3] for row in plan)
         assert c.exec_driver_sql('SELECT count(*) FROM aidr_operations').scalar() == 1
         view=json.loads(c.exec_driver_sql('SELECT payload_json FROM aidr_operations').scalar())
         assert view['call']['schema_version']==1 and not view['call'].get('behavior')

@@ -30,6 +30,7 @@ func canonical(raw json.RawMessage) string {
 type draft struct {
 	MessageRole, MessagePhase string
 	HookResult                bool
+	WorkBuddyResult           bool
 	ResultTool                string
 	Turn                      string
 	Cwd                       string
@@ -74,21 +75,20 @@ type item struct {
 	IsError   *bool           `json:"is_error"`
 }
 
-// VersionSupport reports this parser build's tested format support, independent of retained source gaps.
-func VersionSupport(agent, version string) string {
-	if supportedVersion(agent, version) {
-		return "available"
+func normalize(agent string, raw []byte, c *Cursor) ([]draft, error) {
+	switch agent {
+	case "workbuddy":
+		return normalizeWorkBuddy(raw, c)
+	case "qoder-cli":
+		return normalizeQoder(raw, c)
+	case "claude", "codex":
+		return normalizeLegacy(agent, raw, c)
+	default:
+		return nil, errors.New("aidr_log_agent_unsupported")
 	}
-	return "unverified"
 }
 
-func supportedVersion(agent, version string) bool {
-	if agent == "claude" {
-		return version == "2.1.220"
-	}
-	return version == "0.155.0-alpha.9.2" || version == "0.158.0-alpha.2.1" || version == "0.160.0"
-}
-func normalize(agent string, raw []byte, c *Cursor) ([]draft, error) {
+func normalizeLegacy(agent string, raw []byte, c *Cursor) ([]draft, error) {
 	var r logRecord
 	if json.Unmarshal(raw, &r) != nil || r.Type == "" {
 		return nil, errors.New("aidr_log_invalid_json")

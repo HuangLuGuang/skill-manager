@@ -1,7 +1,7 @@
 <template>
-  <section ref="panelElement" class="hook-panel">
+  <section ref="panelElement" class="hook-panel" :class="{ 'control-view': view === 'control' }">
     <ClientProtectionStatus v-if="view === 'control'" :client-id="clientId" channel="hooks" />
-    <h3 v-if="['control','events'].includes(view)">{{ t(view === 'control' ? 'aidr.hooks.title' : view === 'events' ? 'aidr.hooks.events.title' : view === 'plugins' ? 'aidr.hooks.plugins.title' : 'aidr.hooks.runtime.title') }}</h3>
+    <h3 v-if="view === 'events'">{{ t('aidr.hooks.events.title') }}</h3>
     <details v-if="['control','events'].includes(view)" class="hook-context"><summary>{{ t('aidr.hooks.evidenceBoundary') }}</summary><p>{{ t('aidr.hooks.evidenceNote') }}</p><template v-if="view === 'control'"><p>{{ t('aidr.hooks.note') }}</p><p>{{ t('aidr.hooks.autoSync') }}</p><p>{{ t('aidr.hooks.stale') }}</p></template><template v-if="view === 'events'"><p>{{ t('aidr.hooks.events.note') }}</p><p>{{ t('aidr.hooks.scrollHint') }}</p></template></details>
     <a-alert v-if="actionError" type="error" show-icon :message="actionError" />
     <template v-if="['plugins','runtime'].includes(view)">
@@ -47,7 +47,7 @@
       </template>
     </template>
     <template v-if="view === 'control'">
-    <p>{{ t('aidr.hooks.controlIntro') }}</p>
+    <p class="control-intro">{{ t('aidr.hooks.controlIntro') }}</p>
     <a-alert type="info" show-icon :message="t(`aidr.hooks.${controlReportKey}`)" />
     <div class="hook-heading hook-list-heading"><h4>{{ t('aidr.hooks.approvals') }} <span class="hook-count">{{ t('aidr.hooks.visibleRecords', { count: page.items.length }) }}</span></h4><a-button :loading="listLoading" :disabled="listLoading || deciding" @click="loadList()">{{ t(listError ? 'aidr.hooks.retry' : 'aidr.hooks.refresh') }}</a-button></div>
     <a-alert v-if="listError" type="error" show-icon :message="listError" />
@@ -97,9 +97,9 @@
           <p>{{ t('aidr.hooks.rules') }}</p>
           <div v-for="(rule, index) in draft.rules" :key="index" class="hook-rule">
             <label>{{ t('aidr.hooks.ruleId') }}<input v-model="rule.id" maxlength="64" /></label>
-            <label>{{ t('aidr.hooks.agent') }}<select v-model="rule.agent"><option>*</option><option>claude</option><option>codex</option></select></label>
+            <label>{{ t('aidr.hooks.agent') }}<select v-model="rule.agent" @change="normalizeRuleDecision(rule)"><option>*</option><option v-for="product in products.filter(p => p.hooks)" :key="product.id" :value="product.id">{{ product.name }}</option></select></label>
             <label>{{ t('aidr.hooks.tool') }}<input v-model="rule.tool" maxlength="256" /></label>
-            <label>{{ t('aidr.hooks.decision') }}<select v-model="rule.decision"><option v-for="d in decisions" :key="d" :value="d">{{ t(`aidr.hooks.${d}`) }}</option></select></label>
+            <label>{{ t('aidr.hooks.decision') }}<select v-model="rule.decision"><option v-for="d in decisions" :key="d" :value="d" :disabled="d === 'ask' && rule.agent !== '*' && !products.find(p => p.id === rule.agent)?.approval">{{ t(`aidr.hooks.${d}`) }}</option></select></label>
             <button type="button" @click="draft.rules.splice(index, 1)">{{ t('aidr.hooks.remove') }}</button>
           </div>
           <button type="button" :disabled="draft.rules.length >= 128" @click="draft.rules.push({ id: '', agent: '*', tool: '*', decision: 'ask' })">{{ t('aidr.hooks.add') }}</button>
@@ -113,7 +113,7 @@
     <template v-if="view === 'events'">
     <form class="hook-filters" @submit.prevent="applyEventFilters">
       <div class="hook-filter-main">
-        <label>{{ t('aidr.hooks.agent') }}<select v-model="eventFilters.agent"><option value="">{{ t('aidr.hooks.events.all') }}</option><option>claude</option><option>codex</option></select></label>
+        <label>{{ t('aidr.hooks.agent') }}<select v-model="eventFilters.agent"><option value="">{{ t('aidr.hooks.events.all') }}</option><option v-for="product in products.filter(p => p.hooks)" :key="product.id" :value="product.id">{{ product.name }}</option></select></label>
         <label>{{ t('aidr.hooks.events.eventFilter') }}<a-auto-complete v-model:value="eventFilters.hook_event" :options="hookEventOptions" :filter-option="matchHookEvent" :aria-label="t('aidr.hooks.events.eventFilter')" :placeholder="t('aidr.hooks.events.all')" :maxlength="32" allow-clear @select="selectHookEvent" /></label>
         <label>{{ t('aidr.hooks.events.search') }}<a-input v-model:value="eventFilters.keyword" :aria-label="t('aidr.hooks.events.search')" :placeholder="t('aidr.hooks.events.searchPlaceholder')" :title="t('aidr.hooks.events.keyword')" :maxlength="256" allow-clear /></label>
       </div>
@@ -213,6 +213,7 @@
 </template>
 
 <script setup>
+import products from '../aidr-products.json'
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import AidrAuditContent from './AidrAuditContent.vue'
 import AidrAuditActions from './AidrAuditActions.vue'
@@ -260,6 +261,7 @@ const matchHookEvent = (input, option) => option.value.toLowerCase().includes(in
 function selectHookEvent(value) { eventFilters.value.hook_event = value; applyEventFilters() }
 const detailOpen = ref(false), detailLoading = ref(false), detailId = ref(''), detail = ref(null), now = ref(Date.now())
 const decisions = ['allow', 'deny', 'ask']
+const normalizeRuleDecision = rule => { if (rule.decision === 'ask' && rule.agent !== '*' && !products.find(p => p.id === rule.agent)?.approval) rule.decision = 'deny' }
 const states = ['pending', 'approved', 'denied', 'revoked', 'expired']
 const stateLabel = value => t(`aidr.hooks.${states.includes(value) ? value : 'unknown'}`)
 const canEdit = computed(() => !!policy.value?.can_edit && can('clients:update'))
@@ -461,6 +463,9 @@ onBeforeUnmount(() => {
 
 .hook-panel { min-width: 0; width: 100%; box-sizing: border-box; margin: 16px 0; padding: 16px; border: 1px solid #d9d9d9; border-radius: 8px; }
 .hook-panel details { margin: 16px 0; }
+.hook-panel.control-view { margin: 0; padding: 0; border: 0; }
+.control-view .hook-context { margin: 8px 0; }
+.control-intro { margin: 8px 0; color: #596579; font-size: 13px; }
 .hook-heading, .hook-rule { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
 fieldset { border: 0; padding: 12px 0; }
 fieldset label { display: inline-flex; flex-direction: column; gap: 6px; margin: 0 12px 12px 0; max-width: 100%; }

@@ -31,11 +31,13 @@ Default roots are `$CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects`, and `$C
 - 未完成工具调用的会话/轮次/工具关联随游标持久化，跨读取预算和重启保留。完成后保留最近 64 条用于重复/冲突检查，可回收；总容量 512 条，容量耗尽、call ID 冲突和无法关联结果分别报告上述持久 gap，覆盖保持 partial。旧游标缺少完成状态和摘要仍可读取。
 - `received_at` is local reader receipt time, not server receipt time, and is excluded from origin/logical identity. No device or organization identity is accepted from a source log; P1-03 must add authenticated transport context.
 - A half line retains its start offset. Appends finish it on the next read. Persistent gap codes survive later healthy reads; begin a new explicit collection scope to discard old coverage context. A missing or unreadable file leaves the prior cursor intact.
-- `complete` means the bounded file snapshot was consumed within the declared time range and recognized types, not that all Agent activity was logged. Non-tool message/usage records are counted as ignored. Unsupported versions emit a coverage gap; new shapes are not silently accepted as known tool events. Valid unknown variants are quarantined with bounded persistent ranges and digests; malformed recognized critical records and invalid JSON retain their checkpoint. Unknown event metadata carrying no identity/tool fields preserves context; other unknown shapes invalidate bindings until explicit metadata restores context.
+- `complete` means the bounded file snapshot was consumed within the declared time range and recognized types, not that all Agent activity was logged. Non-tool message/usage records are counted as ignored. Agent versions are metadata; supported record shapes are parsed across releases. Only actual format/read failures affect coverage. Valid unknown variants are quarantined with bounded persistent ranges and digests; malformed recognized critical records and invalid JSON retain their checkpoint. Unknown event metadata carrying no identity/tool fields preserves context; other unknown shapes invalidate bindings until explicit metadata restores context.
 
 This is the P1-01 local subset of P0-02. Authenticated device/organization envelopes, capability transport and batch ACK are prerequisites for P1-03, not implemented by this package. No broader P0/P1 completion is claimed.
 
 ## Compatibility and verification / 兼容与验证
+
+按记录格式决定解析能力，版本号仅保留为来源元数据。陌生版本不会新增覆盖缺口；旧游标的 `aidr_log_version_unverified` 保留历史但不影响当前覆盖状态，真实格式错误继续报告。运行状态的解析支持来自读取结果，冻结批次及事件身份保持。
 
 Validated on the current Mac against anonymized and original read-only logs:
 
@@ -45,12 +47,13 @@ Validated on the current Mac against anonymized and original read-only logs:
 | Codex | 0.155.0-alpha.9.2 | response_item function/custom calls and outputs, session_meta, turn_context |
 | Codex | 0.158.0-alpha.2.1 | Ten independent live custom exec calls and structured result blocks; explicit exit codes 0/7, body omission and unknown process relation verified |
 | Codex | 0.160.0 | Two isolated live sessions, nine calls and nine results; automatic base-worker discovery, persistence, strict ACK and bilingual operation details verified. Log support does not certify plugin trust or managed Hook installation. |
+| Codex | 0.160.1 | Native CLI session before and after the client update: user/context inputs, commentary, final reply, custom exec call and output. The post-update session has six log records with matching local/platform logical IDs and durable ACKs. An anonymized native fixture verifies bounded cursor resume and reply phases. |
 
-Cursor `call_turns[].tool` is an optional, bounded tool name retained for reliable call/result parsing. The server accepts it without rewriting existing frozen batches; absent values preserve legacy projections. A rejected frozen batch must be retried unchanged after the compatible server update, not regenerated. Version 0.160.1 remains unverified. See the latest [acceptance record](../../../../experiments/aidr-agentlog/ACCEPTANCE.md).
+Cursor `call_turns[].tool` is an optional, bounded tool name retained for reliable call/result parsing. The server accepts it without rewriting existing frozen batches; absent values preserve legacy projections. A rejected frozen batch must be retried unchanged after the compatible server update, not regenerated. See the [client compatibility and recovery notes](../../../../docs/agent-manager-client.md) and [acceptance records](../../../../experiments/aidr-agentlog/ACCEPTANCE.md).
 
-游标 `call_turns[].tool` 为可选、有界的工具名，服务端兼容接收；旧游标缺失该字段时投影保持。兼容升级后按原冻结字节重试，不重算摘要或重建队列。0.160.0 日志已通过真实自动读取及网页验收；插件信任、Hook 实际触发和受管安装分别验收。
+游标 `call_turns[].tool` 为可选、有界的工具名，服务端兼容接收；旧游标缺失该字段时投影保持。兼容升级后按原冻结字节重试，不重算摘要或重建队列。0.160.0 与 0.160.1 日志已通过真实自动读取及网页验收；插件信任、Hook 实际触发和受管安装分别验收。0.160.1 回归样本覆盖用户输入、过程/最终回复、工具调用/结果及有界读取续传；没有退出码的工具输出保留未知结果。
 
-Other versions remain unverified. Linux/Windows compilation does not certify real log discovery on those systems. `testdata/provenance.json` documents replacements in local anonymous examples. No original private log is checked in.
+The table records real-version acceptance, not a parser allowlist. Compatible records from other versions are collected; this does not certify every new record shape. Linux/Windows compilation does not certify real log discovery on those systems. `testdata/provenance.json` documents replacements in local anonymous examples. No original private log is checked in.
 
 ```sh
 go test -race ./internal/aidr/agentlog ./cmd/agent-manager-client ./internal/runtimeobservation
@@ -115,3 +118,42 @@ Hook `tool_response` strings remain body text, including JSON-looking stdout. On
 结果未知时先在插件事件详情核对 `behavior.uncertainty`、依据、完整 session/turn/call 身份及来源摘要，再独立查看日志通道的工具结果与覆盖缺口。来源 call ID 不同、设备/用户/子代理身份不完整时，不能靠时间接近关联。当前平台展示来源证据，不把日志状态并入 Hook，不把接收器或 Agent 整轮退出码充当工具退出码。冻结上传及既有事件保持原样；新增结果原因适用于后续归一化。
 
 Affected UI manual checks / 受影响 UI 手工检查：插件事件详情与关联插件证据，操作详情结果原因，采集诊断。中文和 English 下逐项核对成功/非零、取消、纯 stdout、未知格式、冲突原因；旧事件仍显示原投影；开启/关闭正文采集均不改变结果依据；英文长原因不溢出。UI 交互由人工验收，未新增 UI 单元测试。
+
+## Product adapter boundaries
+
+The generated `../catalog/products.json` comes from `backend/aidr_products.json`.
+`workbuddy.go` handles desktop response-item JSONL; `qoder.go` accepts only explicit
+CLI entry envelopes; `opencode.go` reads complete part snapshots and joins message
+metadata by native IDs. Unknown formats remain visible coverage gaps. Snapshot
+text is emitted only once the host marks the assistant message complete; native
+`finish=stop` and `finish=tool-calls` distinguish final and intermediate replies.
+WorkBuddy `completed` does not establish reply phase or shell exit status.
+WorkBuddy result metadata is parsed separately from output text: logs use
+`providerData.toolResult.rawResponse`; native Hooks provide the same structure
+as `tool_response`. For Bash/PowerShell, numeric `exitCode` supplies the reported
+exit status. Explicit `is_error`/`isError`, `interrupted`, and `sandboxDenied`
+provide error, completion, cancellation, or sandbox-denial evidence. Missing
+fields remain unknown; output text is never searched for an exit code. This
+adapter is based on the installed WorkBuddy 5.6.2 implementation and real samples.
+Log output and Hook-provided error text retain the existing capture/redaction
+limits. A successful Bash Hook often contains metadata only; its output remains
+available in the separate Agent-log timeline. Existing uploaded events are not
+rewritten and collection cursors are not reset by this change.
+
+WorkBuddy 结果独立解析宿主元数据：日志取 `providerData.toolResult.rawResponse`，
+Hook 取 `tool_response`。Bash/PowerShell 的数值型 `exitCode` 表示宿主报告退出码；
+显式错误、取消和沙箱拒绝标记用于对应状态。正文、`completed` 和模型自述不用于
+推断退出码。日志输出及 Hook 错误正文继续按采集、脱敏和截断策略处理。
+成功命令的 Hook 可能只有元数据，完整输出查看日志通道；历史入库事件保持不变。
+
+`aidr-sync --source product-id=/absolute/root` can be repeated (1..64 roots).
+Root discovery and file progress are independent; duplicate configured roots are
+coalesced. Recoverable source errors do not terminate other products. Database
+and queue-capacity failures keep their existing shared-store semantics. No source
+payload is rewritten, and all emitted events use the existing redaction/policy,
+logical identity and strict upload ACK path.
+
+The opt-in `AIDR_LOCAL_PRODUCT_SAMPLES=1 go test ./internal/aidr/agentlog -run
+TestLocalProductSamples -v` reads local samples and prints only aggregate counts;
+it does not upload data or copy conversations into fixtures. This is parser
+validation, not real end-to-end product acceptance.

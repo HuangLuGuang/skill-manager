@@ -51,8 +51,8 @@
     </a-card>
     <ClientDiscoveryConfig v-model:open="discoveryOpen" />
 
-    <a-drawer v-model:open="detailVisible" :title="$t('legacy.95lv9i')" width="min(1280px, 100vw)" :destroy-on-close="true" :body-style="sessionAuditActive ? { padding: '12px 16px', overflow: 'hidden', display: 'flex', flexDirection: 'column' } : {}">
-      <a-spin :spinning="detailLoading" :wrapper-class-name="sessionAuditActive ? 'session-audit-layout' : ''">
+    <a-drawer v-model:open="detailVisible" :title="$t('legacy.95lv9i')" width="min(1280px, 100vw)" :destroy-on-close="true" :body-style="fixedDetailActive ? { padding: '12px 16px', overflow: 'hidden', display: 'flex', flexDirection: 'column' } : {}">
+      <a-spin :spinning="detailLoading" :wrapper-class-name="fixedDetailActive ? 'session-audit-layout' : ''">
         <template v-if="detail">
           <div class="detail-head">
             <div>
@@ -186,6 +186,7 @@
             <a-timeline-item v-for="event in detail.events" :key="event.id" :color="eventColor(event)">
               <strong>{{ eventLabel(event.event_type) }}</strong>
               <span v-if="event.skill_name"> · {{ event.skill_name }}</span>
+              <div v-if="event.event_type === 'aidr_skill_alert'" class="muted">{{ $t('aidr.skillUse.' + event.details.behavior) }} · {{ $t('aidr.skillUse.' + event.details.stage) }} · {{ $t('aidr.skillUse.' + event.details.reason_code) }}<span v-if="event.details.active === false"> · {{ $t('aidr.skillUse.inactiveAlert') }}</span></div>
               <div class="muted">{{ formatTime(event.created_at) }}</div>
               <div v-if="event.details?.trigger" class="muted">{{ governanceEventValue(event.details.trigger) }} · {{ governanceEventValue(event.details.action) }}</div>
               <div v-if="event.observation_count > 1" class="muted">{{ $t('clientGovernance.observations', { count: event.observation_count }) }} · {{ $t('clientGovernance.lastSeen', { time: formatTime(event.last_seen_at) }) }}</div>
@@ -196,10 +197,12 @@
           </a-spin>
             </a-tab-pane>
             <a-tab-pane key="plugins" :tab="$t('agentRuntimeGovernance.tabs.plugins')"><ClientRuntimeGovernance :client-id="detail.client_id" @collection="navigateDetail('collection')" @policy="navigateDetail('control')" /></a-tab-pane>
-            <a-tab-pane key="audit" :tab="$t('agentRuntimeGovernance.tabs.audit')"><ClientBehaviorAudit v-model:view="auditView" :client-id="detail.client_id" @policy="navigateDetail('control')" /></a-tab-pane>
+            <a-tab-pane key="audit" :tab="$t('agentRuntimeGovernance.tabs.audit')"><ClientBehaviorAudit v-model:view="auditView" :client-id="detail.client_id" @policy="openClassification(detail.client_id)" @plugins="runtimeTab = 'plugins'" /></a-tab-pane>
             <a-tab-pane key="control" :tab="$t('agentRuntimeGovernance.detail.control')">
-              <div class="detail-panel-heading"><a-button @click="openClassification(detail.client_id)">{{ $t('clientGovernance.title') }}</a-button><a-button v-if="hasAccess('settings:view')" @click="openClassification(detail.client_id, 'audit')">{{ $t('aidr.policyNavigation.openDevice') }}</a-button></div>
-              <a-radio-group v-model:value="controlView" class="detail-view-switch" option-type="button" button-style="solid" :options="controlOptions" />
+              <div class="control-toolbar">
+                <a-radio-group v-model:value="controlView" option-type="button" button-style="solid" :options="controlOptions" />
+                <a-button @click="openClassification(detail.client_id)">{{ $t('clientGovernance.title') }}</a-button>
+              </div>
               <ClientHookPanel v-if="controlView === 'tools'" :client-id="detail.client_id" view="control" />
               <ClientEnforcementPanel v-else :client-id="detail.client_id" view="control" />
             </a-tab-pane>
@@ -373,7 +376,7 @@ let eventSequence = 0
 const detailVisible = ref(false)
 const runtimeTab = ref('overview')
 const auditView = ref('tools'), controlView = ref('tools')
-const sessionAuditActive = computed(() => runtimeTab.value === 'audit' && ['tools', 'hooks'].includes(auditView.value))
+const fixedDetailActive = computed(() => ['audit', 'plugins'].includes(runtimeTab.value))
 const controlOptions = computed(() => ['tools', 'system'].map(value => ({ value, label: i18n.global.t(`agentRuntimeGovernance.detail.policyViews.${value}`) })))
 const navigateDetail = target => {
   auditView.value = target === 'collection' ? 'collection' : 'tools'
@@ -850,7 +853,7 @@ const eventLabel = value => ['skill_governance_recorded', 'skill_governance_dete
   : translateDomain('auditEvent', value, value)
 const governanceEventValue = value => i18n.global.te(`clientGovernance.${value}`) ? i18n.global.t(`clientGovernance.${value}`) : value || '-'
 const eventColor = event => event.details?.action === 'record_only' ? 'default' : event.details?.trigger === 'malicious' || event.details?.status === 'failed' || ['skill_blocked', 'skill_quarantined'].includes(event.event_type)
-  ? 'red' : ['skill_modified', 'skill_governance_detected'].includes(event.event_type) ? 'orange' : 'green'
+  ? 'red' : ['skill_modified', 'skill_governance_detected', 'aidr_skill_alert'].includes(event.event_type) ? 'orange' : 'green'
 const taskLabel = task => {
   if (task.task_type === 'skill_action') return governanceEventValue(task.payload?.action)
   if (task.task_type === 'rescan' && task.payload?.reason === 'policy_changed') return phrase('legacy.q9utgp')
@@ -939,6 +942,10 @@ onMounted(async () => {
 .detail-panel-heading p { margin: 0; flex: 1; color: #627480; }
 .detail-view-switch { display: flex; flex-wrap: wrap; margin: 16px 0; }
 .detail-view-switch :deep(.ant-radio-button-wrapper) { height: auto; white-space: normal; }
+.control-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 0 0 12px; }
+.control-toolbar :deep(.ant-radio-group) { display: flex; flex-wrap: wrap; }
+.control-toolbar :deep(.ant-radio-button-wrapper) { height: auto; white-space: normal; }
+.control-toolbar :deep(.ant-btn) { margin-left: auto; }
 .detail-title {
   color: #16324f;
   font-size: 20px;

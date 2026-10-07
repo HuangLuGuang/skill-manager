@@ -191,6 +191,7 @@ struct Supervisor {
 struct HealthObservation {
     last_check: Option<SystemTime>,
     resume_until: Option<Instant>,
+    healthy_since: Option<Instant>,
 }
 impl HealthObservation {
     fn resume_pending(&mut self, wall: SystemTime, monotonic: Instant) -> bool {
@@ -202,12 +203,19 @@ impl HealthObservation {
                 .map_or(true, |gap| gap > Duration::from_secs(15))
         }) {
             self.resume_until = Some(monotonic + Duration::from_secs(15));
+            self.healthy_since = None;
         }
         self.last_check = Some(wall);
         self.resume_until.is_some_and(|until| monotonic < until)
     }
     fn fresh(&mut self) {
         self.resume_until = None;
+    }
+    fn stable(&mut self, now: Instant) -> bool {
+        now.duration_since(*self.healthy_since.get_or_insert(now)) >= Duration::from_secs(60)
+    }
+    fn unhealthy(&mut self) {
+        self.healthy_since = None;
     }
 }
 
@@ -287,6 +295,7 @@ fn same_file(a: &fs::Metadata, b: &fs::Metadata) -> bool {
 }
 impl Supervisor {
     fn retry_failure(&mut self, code: String, retry: &RetryPolicy) {
+        self.health_observation.unhealthy();
         self.snapshot.code = code.clone();
         self.snapshot.last_failure = Some(code.clone());
         self.snapshot.last_failure_at_ms = Some(unix_ms());
@@ -428,6 +437,7 @@ impl Supervisor {
         }
     }
     fn stop(&mut self) {
+        self.health_observation.unhealthy();
         if let Some(mut child) = self.child.take() {
             // PID is taken exclusively from our unreaped Child, never from a
             // socket, old status record or another client's process listing.
@@ -537,7 +547,11 @@ impl Supervisor {
             .hash(&mut running);
         let running_fp = running.finish();
         let retry = RetryPolicy::from_plan(&plan);
-        if running_fp != self.running_fingerprint {
+        self.snapshot.enabled = plan["enabled"].as_bool() == Some(true);
+        self.snapshot.policy = plan["runtime_policy"].clone();
+        self.snapshot.retry_mode = retry.mode.clone();
+        self.snapshot.managed_task = plan["managed_task"].as_str().unwrap_or("0").into();
+        if running_fp != self.running_fingerprint || self.state_lock.is_none() {
             self.stop();
             self.running_fingerprint = running_fp;
             self.attempts = 0;
@@ -550,17 +564,19 @@ impl Supervisor {
             self.snapshot.last_failure_at_ms = None;
             if plan["paths"]["root"].is_string() {
                 if let Err(code) = self.load_retry_state(&plan, &retry) {
-                    self.snapshot.enabled = false;
-                    self.snapshot.code = code;
-                    self.retry_suspended = true;
+                    // Another desktop owns the supervisor. Observe its receiver
+                    // without spending retries or writing its recovery state.
+                    let other_instance = code == "aidr_desktop_receiver_conflict";
+                    self.snapshot.code = if other_instance {
+                        "aidr_desktop_other_instance".into()
+                    } else {
+                        code
+                    };
+                    self.retry_suspended = !other_instance;
                     return;
                 }
             }
         }
-        self.snapshot.enabled = plan["enabled"].as_bool() == Some(true);
-        self.snapshot.policy = plan["runtime_policy"].clone();
-        self.snapshot.retry_mode = retry.mode.clone();
-        self.snapshot.managed_task = plan["managed_task"].as_str().unwrap_or("0").into();
         if !receiver_required(&plan) {
             self.stop();
             self.snapshot.code = "aidr_desktop_disabled".into();
@@ -576,14 +592,15 @@ impl Supervisor {
         let socket = PathBuf::from(plan["paths"]["socket"].as_str().unwrap_or(""));
         self.capture_socket_birth(&socket, Duration::ZERO);
         if let Some(child) = self.child.as_mut() {
-            if child.try_wait().ok().flatten().is_some() {
+            if let Some(exit) = child.try_wait().ok().flatten() {
                 self.child = None;
                 self.capture_socket_birth(&socket, Duration::from_millis(200));
                 self.socket_birth = None;
                 self.clean_owned_socket();
                 self.lock = None;
                 self.snapshot.telemetry = Value::Null;
-                let code = self.error.lock().unwrap().clone();
+                let diagnostic = self.error.lock().unwrap().clone();
+                let code = receiver_exit_code(exit, &diagnostic);
                 self.retry_failure(code, &retry);
             }
         }
@@ -619,7 +636,7 @@ impl Supervisor {
                 self.prepare_failure(code, &retry);
                 return;
             }
-            *self.error.lock().unwrap() = "aidr_desktop_receiver_failed".into();
+            self.error = Arc::new(Mutex::new("aidr_desktop_receiver_failed".into()));
             // Persist the reserved attempt before launching. A crash in the
             // spawn window must not grant an extra retry after restarting.
             self.persist_retry_state();
@@ -656,12 +673,7 @@ impl Supervisor {
                         thread::spawn(move || {
                             // Retain only a stable code. Never retain command output,
                             // raw config, HTTP headers or credentials.
-                            for line in BufReader::new(stderr.take(4096))
-                                .lines()
-                                .map_while(Result::ok)
-                            {
-                                *error.lock().unwrap() = stable_error(&line);
-                            }
+                            drain_receiver_errors(stderr, &error);
                         });
                     }
                     self.child = Some(child);
@@ -700,6 +712,11 @@ impl Supervisor {
                         if valid_telemetry(&value, &plan["paths"]["device"]) {
                             self.snapshot.telemetry = value;
                             self.snapshot.code = "aidr_desktop_running".into();
+                            // Reset the consecutive failure budget only after a
+                            // full minute of valid heartbeats, never on spawn.
+                            if self.health_observation.stable(Instant::now()) {
+                                self.attempts = 1;
+                            }
                             if !self.snapshot.enabled && plan["receiver_required"].is_boolean() {
                                 if self.snapshot.telemetry["state"]["runtime_collection_enabled"]
                                     == false
@@ -726,7 +743,11 @@ impl Supervisor {
                 }
             }
             self.capture_socket_birth(&socket, Duration::ZERO);
+            if self.snapshot.code != "aidr_desktop_running" {
+                self.health_observation.unhealthy();
+            }
         } else if self.child.is_some() && resume_pending {
+            self.health_observation.unhealthy();
             self.snapshot.code = "aidr_desktop_health_rechecking".into();
             self.snapshot.telemetry = Value::Null;
         } else if self.child.is_some()
@@ -739,6 +760,54 @@ impl Supervisor {
             self.stop();
             self.retry_failure("aidr_desktop_health_stale".into(), &retry);
         }
+    }
+}
+fn drain_receiver_errors(mut reader: impl Read, error: &Mutex<String>) {
+    // Drain the pipe throughout the child's lifetime without retaining output
+    // or closing it after a byte budget (which could deliver SIGPIPE).
+    let mut chunk = [0u8; 1024];
+    let mut tail = Vec::new();
+    while let Ok(size) = reader.read(&mut chunk) {
+        if size == 0 {
+            break;
+        }
+        tail.extend_from_slice(&chunk[..size]);
+        if let Some(end) = tail.iter().rposition(|byte| byte.is_ascii_whitespace()) {
+            let code = stable_error(&String::from_utf8_lossy(&tail[..=end]));
+            if code != "aidr_desktop_receiver_failed" {
+                *error.lock().unwrap() = code;
+            }
+            tail.drain(..=end);
+        }
+        if tail.len() >= 100 {
+            tail.clear();
+        }
+    }
+    let code = stable_error(&String::from_utf8_lossy(&tail));
+    if code != "aidr_desktop_receiver_failed" {
+        *error.lock().unwrap() = code;
+    }
+}
+fn receiver_exit_code(status: std::process::ExitStatus, diagnostic: &str) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            return match signal {
+                9 => "aidr_desktop_receiver_killed",
+                15 => "aidr_desktop_receiver_terminated",
+                _ => "aidr_desktop_receiver_signal",
+            }
+            .into();
+        }
+    }
+    if diagnostic != "aidr_desktop_receiver_failed" {
+        return diagnostic.into();
+    }
+    if status.success() {
+        "aidr_desktop_receiver_ended".into()
+    } else {
+        "aidr_desktop_receiver_failed".into()
     }
 }
 fn correction_required(code: &str) -> bool {
@@ -836,6 +905,22 @@ pub fn collection_status(home: &Path, binary: &Path) -> Result<Value, String> {
     run_cli(binary, home, &["--action".into(), "channels-status".into()])
 }
 
+fn observe_shared_receiver(snapshot: &mut Snapshot) {
+    if snapshot.code != "aidr_desktop_other_instance" {
+        return;
+    }
+    let diagnostic = &snapshot.receiver_diagnostic;
+    if diagnostic["ownership"] == "external_verified"
+        && diagnostic["code"] == "aidr_hook_healthy"
+        && diagnostic["state"].is_object()
+    {
+        snapshot.code = "aidr_desktop_shared_receiver".into();
+        // GetHealth verifies the live peer and binding. It does not report
+        // transport errors, so leave those fields unknown.
+        snapshot.telemetry = json!({"state": diagnostic["state"], "shared_observation": true});
+    }
+}
+
 pub fn snapshot() -> Snapshot {
     let (mut snapshot, details) = match MANAGER.get() {
         Some(manager) => {
@@ -882,6 +967,7 @@ pub fn snapshot() -> Snapshot {
                 Err(code) => json!({"ownership":"unavailable", "code":code}),
             };
     }
+    observe_shared_receiver(&mut snapshot);
     snapshot
 }
 
@@ -902,6 +988,9 @@ pub fn action(
     if action == "retry" {
         if let Some(m) = MANAGER.get() {
             let mut s = m.lock().unwrap();
+            if s.snapshot.code == "aidr_desktop_other_instance" {
+                return Err(s.snapshot.code.clone());
+            }
             if s.snapshot.code == "aidr_desktop_retry_state_invalid" {
                 return Err(s.snapshot.code.clone());
             }
@@ -922,6 +1011,8 @@ pub fn action(
     if ![
         "inspect",
         "connect",
+        "enroll",
+        "disconnect",
         "upgrade",
         "enable",
         "disable",
@@ -932,7 +1023,7 @@ pub fn action(
     {
         return Err("aidr_desktop_action_invalid".into());
     }
-    run_cli(
+    let result = run_cli(
         binary,
         home,
         &[
@@ -943,7 +1034,23 @@ pub fn action(
             "--source-dir".into(),
             source.to_string_lossy().into_owned(),
         ],
-    )
+    )?;
+    // An explicit enrollment retries a paused receiver, without restarting a
+    // healthy shared receiver used by other products.
+    if action == "enroll" {
+        if let Some(manager) = MANAGER.get() {
+            let mut state = manager.lock().unwrap();
+            state.plan = None;
+            if state.child.is_none() && state.snapshot.code != "aidr_desktop_retry_state_invalid" {
+                state.attempts = 0;
+                state.retry_suspended = false;
+                state.next_start = Instant::now();
+                state.next_retry_at_ms = 0;
+                state.persist_retry_state();
+            }
+        }
+    }
+    Ok(result)
 }
 
 #[cfg(target_os = "macos")]
@@ -1147,6 +1254,51 @@ pub fn shutdown() {
 mod tests {
     use super::*;
     #[test]
+    fn retry_budget_recovers_only_after_sustained_valid_heartbeats() {
+        let now = Instant::now();
+        let mut health = HealthObservation::default();
+        assert!(!health.stable(now));
+        assert!(!health.stable(now + Duration::from_secs(59)));
+        assert!(health.stable(now + Duration::from_secs(60)));
+        health.unhealthy();
+        assert!(!health.stable(now + Duration::from_secs(61)));
+        assert!(!health.stable(now + Duration::from_secs(120)));
+        assert!(health.stable(now + Duration::from_secs(121)));
+    }
+    #[test]
+    fn receiver_diagnostics_drain_beyond_old_limit_and_keep_stable_code() {
+        let error = Mutex::new("aidr_desktop_receiver_failed".into());
+        let text = format!(
+            "{}\naidr_store_busy\nnon diagnostic output\n",
+            "x".repeat(9000)
+        );
+        drain_receiver_errors(text.as_bytes(), &error);
+        assert_eq!(*error.lock().unwrap(), "aidr_store_busy");
+    }
+    #[cfg(unix)]
+    #[test]
+    fn receiver_signal_is_distinct_from_application_failure() {
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(
+            receiver_exit_code(
+                std::process::ExitStatus::from_raw(9),
+                "aidr_desktop_receiver_failed"
+            ),
+            "aidr_desktop_receiver_killed"
+        );
+        assert_eq!(
+            receiver_exit_code(std::process::ExitStatus::from_raw(256), "aidr_store_busy"),
+            "aidr_store_busy"
+        );
+        assert_eq!(
+            receiver_exit_code(
+                std::process::ExitStatus::from_raw(0),
+                "aidr_desktop_receiver_failed"
+            ),
+            "aidr_desktop_receiver_ended"
+        );
+    }
+    #[test]
     fn scheduling_resume_waits_for_fresh_health_without_unbounded_grace() {
         let wall = SystemTime::UNIX_EPOCH + Duration::from_secs(1000);
         let monotonic = Instant::now();
@@ -1270,6 +1422,38 @@ mod tests {
             second.load_retry_state(&plan, &retry).unwrap_err(),
             "aidr_desktop_receiver_conflict"
         );
+        let mut observer = make();
+        observer.fingerprint = fingerprint(&root);
+        observer.plan = Some(Ok(plan.clone()));
+        let owner_state = fs::read(&path).unwrap();
+        for _ in 0..3 {
+            observer.tick();
+            assert_eq!(observer.snapshot.code, "aidr_desktop_other_instance");
+            assert!(!observer.snapshot.retry_suspended);
+            assert_eq!(observer.attempts, 0);
+            assert!(observer.child.is_none());
+            assert!(observer.state_lock.is_none());
+            assert_eq!(fs::read(&path).unwrap(), owner_state);
+        }
+        let mut observed = observer.snapshot.clone();
+        observed.receiver_diagnostic = json!({"ownership":"external_verified", "code":"aidr_hook_healthy", "state":{"queued_records":2}});
+        observe_shared_receiver(&mut observed);
+        assert_eq!(observed.code, "aidr_desktop_shared_receiver");
+        assert_eq!(observed.telemetry["state"]["queued_records"], 2);
+        assert!(observed.telemetry.get("upload_code").is_none());
+        for diagnostic in [
+            json!({"ownership":"external_unverified", "code":"aidr_hook_healthy", "state":{}}),
+            json!({"ownership":"external_verified", "code":"aidr_receiver_binding_mismatch", "state":{}}),
+            json!({"ownership":"unavailable", "code":"aidr_hook_receiver_unavailable"}),
+        ] {
+            let mut unknown = observer.snapshot.clone();
+            unknown.receiver_diagnostic = diagnostic;
+            observe_shared_receiver(&mut unknown);
+            assert_eq!(unknown.code, "aidr_desktop_other_instance");
+            assert!(unknown.telemetry.is_null());
+        }
+        observer.quit();
+        assert_eq!(fs::read(&path).unwrap(), owner_state);
         drop(first);
         restore_after_release(&mut second, &plan);
         assert_eq!(second.attempts, 3);
@@ -1314,6 +1498,12 @@ mod tests {
         restore_after_release(&mut rotated, &different);
         assert_eq!(rotated.attempts, 0);
         rotated.quit();
+        // The observing window retries the ownership lock after its owner
+        // exits, without a configuration change or a manual retry request.
+        observer.tick();
+        assert!(observer.state_lock.is_some());
+        assert_ne!(observer.snapshot.code, "aidr_desktop_other_instance");
+        observer.quit();
         fs::remove_file(&path).unwrap();
         let foreign = root.join("foreign");
         fs::write(&foreign, "keep this file").unwrap();

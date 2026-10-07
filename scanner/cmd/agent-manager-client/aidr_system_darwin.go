@@ -32,6 +32,8 @@ import (
 var systemDevelopment = "false"
 var systemNativeDigest string
 
+const systemStatusLimit = 1 << 20
+
 const systemRoot = "/Library/Application Support/AgentManagerRuntime/system"
 const systemEntitlement = `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>com.apple.developer.endpoint-security.client</key><true/></dict></plist>`
 
@@ -48,22 +50,23 @@ type systemRequest struct {
 	NativeHash string `json:"native_hash"`
 }
 type systemStatus struct {
-	Mode          string               `json:"mode,omitempty"`
-	TargetMode    string               `json:"target_mode,omitempty"`
-	PolicyVersion string               `json:"policy_version,omitempty"`
-	Observed      string               `json:"observed_at,omitempty"`
-	State         string               `json:"state"`
-	Code          string               `json:"code,omitempty"`
-	Development   bool                 `json:"development"`
-	Device        string               `json:"device,omitempty"`
-	Server        string               `json:"server,omitempty"`
-	Started       string               `json:"started_at,omitempty"`
-	Health        string               `json:"health_at,omitempty"`
-	Uploaded      string               `json:"uploaded_at,omitempty"`
-	UploadCode    string               `json:"upload_code,omitempty"`
-	Pending       *int                 `json:"pending_uploads"`
-	Events        int                  `json:"event_count"`
-	Recent        []enforcement.Record `json:"recent"`
+	Network       *enforcement.NetworkHealth `json:"network_health,omitempty"`
+	Mode          string                     `json:"mode,omitempty"`
+	TargetMode    string                     `json:"target_mode,omitempty"`
+	PolicyVersion string                     `json:"policy_version,omitempty"`
+	Observed      string                     `json:"observed_at,omitempty"`
+	State         string                     `json:"state"`
+	Code          string                     `json:"code,omitempty"`
+	Development   bool                       `json:"development"`
+	Device        string                     `json:"device,omitempty"`
+	Server        string                     `json:"server,omitempty"`
+	Started       string                     `json:"started_at,omitempty"`
+	Health        string                     `json:"health_at,omitempty"`
+	Uploaded      string                     `json:"uploaded_at,omitempty"`
+	UploadCode    string                     `json:"upload_code,omitempty"`
+	Pending       *int                       `json:"pending_uploads"`
+	Events        int                        `json:"event_count"`
+	Recent        []enforcement.Record       `json:"recent"`
 }
 
 func systemSocket(uid int) string {
@@ -131,7 +134,7 @@ func systemCall(uid int, action string) (systemStatus, error) {
 	if _, e = io.WriteString(c, action+"\n"); e != nil {
 		return status, e
 	}
-	e = json.NewDecoder(io.LimitReader(c, 65536)).Decode(&status)
+	e = json.NewDecoder(io.LimitReader(c, systemStatusLimit)).Decode(&status)
 	return status, e
 }
 func systemLocalStatus(uid int) systemStatus {
@@ -140,7 +143,7 @@ func systemLocalStatus(uid int) systemStatus {
 		return s
 	}
 	s = systemStatus{State: "stopped", Development: systemDevelopment == "true"}
-	b, e := systemRead(systemStatusPath(uid), uid, 65536)
+	b, e := systemRead(systemStatusPath(uid), uid, systemStatusLimit)
 	if e == nil && json.Unmarshal(b, &s) == nil && (s.State == "collecting" || s.State == "starting" || s.State == "draining") {
 		s.State = "failed"
 		s.Code = "aidr_system_process_lost"
@@ -450,7 +453,7 @@ func systemInstallStart(path string, uid int, out io.Writer) error {
 		}
 		select {
 		case <-done:
-			if raw, e := systemRead(systemStatusPath(uid), uid, 65536); e == nil {
+			if raw, e := systemRead(systemStatusPath(uid), uid, systemStatusLimit); e == nil {
 				var s systemStatus
 				if json.Unmarshal(raw, &s) == nil && s.State == "failed" {
 					return json.NewEncoder(out).Encode(s)
@@ -584,11 +587,9 @@ func systemRun(config string, uid int) error {
 	}()
 	// Credentials remain in the root-only configuration/environment, never process arguments.
 	_ = os.Setenv("AGENT_MANAGER_AIDR_TOKEN", r.Token)
-	ctx, expire := context.WithTimeout(ctx, 24*time.Hour)
-	defer expire()
 	var err error
 	for {
-		err = aidrEnforceRun(ctx, []string{"--state-dir", filepath.Dir(config), "--native", r.Native, "--public-key", filepath.Join(filepath.Dir(config), "public-key.bin"), "--server", r.Server, "--client-id", r.Device, "--duration", "24h"}, io.Discard, func(v systemObservation) {
+		err = aidrEnforceRun(ctx, []string{"--state-dir", filepath.Dir(config), "--native", r.Native, "--public-key", filepath.Join(filepath.Dir(config), "public-key.bin"), "--server", r.Server, "--client-id", r.Device, "--duration", "0"}, io.Discard, func(v systemObservation) {
 			mu.Lock()
 			defer mu.Unlock()
 			if v.Mode != "" {
@@ -598,6 +599,7 @@ func systemRun(config string, uid int) error {
 				status.Observed = time.Now().UTC().Format(time.RFC3339Nano)
 				event := *v.Record
 				if event.Kind == "health" {
+					status.Network = event.NetworkHealth
 					status.Health = time.Now().UTC().Format(time.RFC3339Nano)
 					if (event.Code == "aidr_enforcement_collection_only" || event.Code == "aidr_enforcement_active") && status.State != "draining" {
 						status.State = "collecting"
@@ -610,7 +612,7 @@ func systemRun(config string, uid int) error {
 						status.State = "draining"
 					}
 				}
-				if event.Kind == "process" {
+				if event.Kind == "process" || event.Kind == "file" || event.Kind == "network" {
 					status.Events++
 					status.Recent = append([]enforcement.Record{event}, status.Recent...)
 					if len(status.Recent) > 12 {

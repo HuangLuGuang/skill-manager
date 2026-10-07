@@ -1,5 +1,6 @@
 """Versioned Client classification policies and migration previews."""
 
+from .aidr_products import HookAgentID, LogAgentID, BY_ID
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
@@ -80,7 +81,9 @@ class RuntimeGovernanceConfig(BaseModel):
     # Null preserves pre-mode installations until an administrator selects modes.
     modes: RuntimeProtectionModes | None = None
     enabled: bool = True
-    hosts: list[Literal["codex", "claude"]] = Field(default_factory=list, max_length=2)
+    hosts: list[HookAgentID] = Field(default_factory=list, max_length=32)
+    allow_user_enrollment: bool = True
+    log_sources: list[LogAgentID] | None = Field(default=None, min_length=1, max_length=32)
     installation: Literal["automatic", "manual"] = "manual"
     access_mode: Literal["ordinary", "managed"] = "ordinary"
     updates: Literal["automatic", "manual"] = "manual"
@@ -90,7 +93,20 @@ class RuntimeGovernanceConfig(BaseModel):
     def unique_hosts(self):
         if len(set(self.hosts)) != len(self.hosts):
             raise ApiError(422, "aidr.runtime_duplicate_host", "宿主重复", "Duplicate host")
+        if self.log_sources is not None and len(set(self.log_sources)) != len(self.log_sources):
+            raise ApiError(422, "aidr.runtime_duplicate_source", "日志来源重复", "Duplicate log source")
+        if self.access_mode == 'managed' and any(not BY_ID[h]['managed'] for h in self.hosts):
+            raise ApiError(422, "aidr.managed_product_unsupported", "所选产品不支持系统级受管安装", "A selected product does not support managed installation")
         return self
+
+
+def default_runtime_governance():
+    """Effective onboarding policy when no administrator override exists."""
+    return RuntimeGovernanceConfig(
+        channels=RuntimeCollectionChannels(logs=True, hooks=True),
+        modes=RuntimeProtectionModes(), hosts=["codex", "claude"],
+        installation="automatic", updates="automatic",
+    ).model_dump()
 
 
 class ModelRoutingConfig(BaseModel):
@@ -185,9 +201,20 @@ def policy_view(db: Session, client_id: str | None = None):
     overrides = json.loads(custom.rules_json) if custom else {}
     rules = {**defaults, **overrides}
     default_revision = default.revision if default else 0
-    runtime_default = json.loads(default.runtime_governance_json) if default else None
+    runtime_default = (json.loads(default.runtime_governance_json) if default else None)
+    runtime_builtin = runtime_default is None
+    if runtime_default is None:
+        runtime_default = default_runtime_governance()
     runtime_override = json.loads(custom.runtime_governance_json) if custom else None
-    runtime = runtime_override if runtime_override is not None else runtime_default
+    runtime_default = {"allow_user_enrollment": True, **runtime_default}
+    if runtime_override is not None:
+        runtime_override = {"allow_user_enrollment": True, **runtime_override}
+    runtime = dict(runtime_override if runtime_override is not None else runtime_default)
+    from .runtime_governance import HookEnrollment, hook_target
+    enrollment = db.get(HookEnrollment, client_id) if client_id else None
+    user_hosts = json.loads(enrollment.hosts_json) if enrollment else []
+    if runtime["allow_user_enrollment"] and runtime["access_mode"] == "ordinary" and hook_target(runtime):
+        runtime["hosts"] = list(dict.fromkeys([*runtime["hosts"], *user_hosts]))
     revision = custom.revision if custom else 0
     guard_default = (json.loads(default.prompt_guard_json) if default else None) or PromptGuardConfig().model_dump()
     guard_override = json.loads(custom.prompt_guard_json) if custom else None
@@ -206,10 +233,12 @@ def policy_view(db: Session, client_id: str | None = None):
         "runtime_governance": runtime or RuntimeGovernanceConfig().model_dump(),
         "runtime_channels_protocol": 3,
         "runtime_governance_configured": runtime is not None,
-        "runtime_governance_version": f"{default_revision}:{revision}" if runtime_override is not None else str(default_revision),
+        "runtime_governance_version": f"{default_revision}:{revision}" if runtime_override is not None or enrollment else str(default_revision),
+        "runtime_user_hosts": user_hosts,
         "runtime_governance_default": runtime_default,
         "runtime_governance_override": runtime_override,
         "runtime_governance_source": "client" if runtime_override is not None else "default",
+        "runtime_governance_builtin": runtime_builtin and runtime_override is None,
         "rules": rules,
         "prompt_guard": guard_override or guard_default,
         "prompt_guard_default": guard_default,

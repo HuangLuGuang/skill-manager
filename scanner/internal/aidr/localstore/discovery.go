@@ -193,7 +193,7 @@ func (c *Crawler) Step(ctx context.Context, maxFiles, maxEntries int, budget tim
 		}
 		if st.IsDir() {
 			_, err = db.ExecContext(ctx, `INSERT OR IGNORE INTO discovery_dirs(root_key,path,mtime_ns) SELECT ?,?,? WHERE (SELECT count(*) FROM discovery_dirs)<8192`, c.key, full, st.ModTime().UnixNano())
-		} else if st.Mode().IsRegular() && strings.HasSuffix(full, ".jsonl") {
+		} else if st.Mode().IsRegular() && agentlog.SourceFile(c.agent, c.root, full) {
 			files++
 			src, _ := agentlog.NewSource(c.agent, c.root, full)
 			_, err = db.ExecContext(ctx, `INSERT INTO discovery_files(id,root_key,agent,root,path,mtime_ns,size) SELECT ?,?,?,?,?,?,? WHERE (SELECT count(*) FROM discovery_files)<? OR EXISTS(SELECT 1 FROM discovery_files WHERE id=?) ON CONFLICT(id) DO UPDATE SET pending=CASE WHEN mtime_ns!=excluded.mtime_ns OR size!=excluded.size THEN 1 ELSE pending END,mtime_ns=excluded.mtime_ns,size=excluded.size`, src.ID, c.key, c.agent, c.root, full, st.ModTime().UnixNano(), st.Size(), c.store.limits.Sources, src.ID)

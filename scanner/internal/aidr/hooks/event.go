@@ -15,34 +15,25 @@ import (
 	"unicode"
 
 	"skill-manager/scanner/internal/aidr/agentlog"
+	products "skill-manager/scanner/internal/aidr/catalog"
 )
 
 const MaxRecordBytes = 256 << 10
 
 // Catalog describes adapter schema coverage, not proof that a particular
 // installed host has enabled, trusted or emitted these events.
-var catalog = map[string]map[string]string{
-	"codex": {
-		"SessionStart": "session.start", "SessionEnd": "session.end",
-		"UserPromptSubmit": "turn.submit", "PreToolUse": "tool.pre",
-		"PostToolUse": "tool.post", "PermissionRequest": "permission.request",
-		"SubagentStart": "agent.start", "SubagentStop": "agent.stop",
-		"PreCompact": "context.compact.start", "PostCompact": "context.compact.end",
-		"Stop": "turn.stop", "Interrupt": "turn.interrupt",
-	},
-	"claude": {
-		"SessionStart": "session.start", "SessionEnd": "session.end",
-		"UserPromptSubmit": "turn.submit", "PreToolUse": "tool.pre",
-		"PostToolUse": "tool.post", "PostToolUseFailure": "tool.failure",
-		"PermissionRequest": "permission.request", "PermissionDenied": "permission.denied",
-		"SubagentStart": "agent.start", "SubagentStop": "agent.stop",
-		"PreCompact": "context.compact.start", "PostCompact": "context.compact.end",
-		"Stop": "turn.stop", "Notification": "notification",
-		"TaskCompleted": "task.completed", "TeammateIdle": "agent.idle",
-	},
-}
+var catalog = func() map[string]map[string]string {
+	out := map[string]map[string]string{}
+	for _, p := range products.All() {
+		if p.Hooks != "" {
+			out[p.ID] = p.HookEvents
+		}
+	}
+	return out
+}()
 
 type Event struct {
+	SkillUse        *agentlog.SkillUse   `json:"skill_use,omitempty"`
 	Schema          int                  `json:"schema_version"`
 	Agent           string               `json:"agent"`
 	Hook            string               `json:"hook_event"`
@@ -124,12 +115,17 @@ func Normalize(agent, hook string, raw []byte, policy agentlog.AuditPolicy, key 
 	if decoder.Decode(&extra) != io.EOF || in.Event != hook {
 		return e, code("aidr_hook_record_invalid")
 	}
+	if agent == "cursor" {
+		if err := cursorInput(raw, &in); err != nil {
+			return e, err
+		}
+	}
 	if !validID(in.Session, true) || !validID(in.Turn, false) || !validID(in.Prompt, false) || !validID(in.Call, false) || !validID(in.Subagent, false) || !validID(in.Tool, false) {
 		return e, code("aidr_hook_identity_invalid")
 	}
 	turn := in.Turn
 	// Keep the host namespace: Claude prompt IDs are not Codex turn IDs.
-	if agent == "claude" && in.Prompt != "" {
+	if (agent == "claude" || agent == "qoder-hooks") && in.Prompt != "" {
 		turn = in.Prompt
 	}
 	e = Event{Schema: 1, Agent: agent, Hook: hook, Kind: kind, Session: in.Session, Turn: turn, Call: in.Call, Subagent: in.Subagent, Policy: policy, ProcessRelation: "unknown", EvidenceDigest: digest(key, "hook-evidence/1", raw)}
@@ -148,6 +144,7 @@ func Normalize(agent, hook string, raw []byte, policy agentlog.AuditPolicy, key 
 			return Event{}, code("aidr_hook_tool_missing")
 		}
 		e.Tool = in.Tool
+		e.SkillUse = agentlog.ProjectSkillUse(agent, in.Tool, in.Cwd, in.Input, &policy)
 		if len(in.Input) != 0 {
 			// Canonicalize object key ordering with json.Number precision before
 			// binding an approval to exact arguments. Never shell-normalize them.
@@ -178,7 +175,11 @@ func Normalize(agent, hook string, raw []byte, policy agentlog.AuditPolicy, key 
 			}
 		}
 		var err error
-		e.Behavior, err = agentlog.ProjectToolEvidence(in.Tool, toolKind, in.Cwd, content, nil, outcome, policy)
+		if agent == "workbuddy" && kind == "tool.post" {
+			e.Behavior, err = agentlog.ProjectWorkBuddyToolEvidence(in.Tool, toolKind, in.Cwd, content, outcome, policy)
+		} else {
+			e.Behavior, err = agentlog.ProjectToolEvidence(in.Tool, toolKind, in.Cwd, content, nil, outcome, policy)
+		}
 		if err != nil {
 			return Event{}, err
 		}

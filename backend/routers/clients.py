@@ -847,6 +847,11 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
             if (observation.get("trigger") in client_governance.ACTIONS and observation.get("action") != "record_only") or observation.get("action_status") == "failed":
                 affected_paths.add(skill.skill_path)
         issue_count = len(affected_paths)
+    issue_count += db.query(models.ClientEvent).filter(
+        models.ClientEvent.client_id == row.client_id,
+        models.ClientEvent.event_type == 'aidr_skill_alert',
+        func.json_extract(models.ClientEvent.details_json, '$.active') == 1,
+    ).count()
     online = bool(row.last_seen_at and datetime.utcnow() - row.last_seen_at <= _CLIENT_ONLINE_WINDOW)
     return {
         "client_id": row.client_id,
@@ -904,6 +909,11 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
 
 def _client_policy_response(db: Session, row: models.ManagedClient) -> dict:
     classification = client_governance.policy_view(db, row.client_id)
+    observation = db.get(runtime_governance.Observation, row.client_id)
+    runtime_protocol = json.loads(observation.report_json).get("protocol", 0) if observation else 0
+    runtime_governance.check_product_policy(classification, runtime_protocol)
+    classification["runtime_governance"] = runtime_governance.client_target(
+        classification["runtime_governance"], json.loads(observation.report_json) if observation else None)
     if classification["incompatible_rules"]:
         raise ApiError(409, "client.policy_capability_required", "当前客户端不支持生效策略中的动作，请升级客户端", "Upgrade this client to execute the active policy actions")
     if classification["protocol"] == 1:
@@ -1163,6 +1173,7 @@ def heartbeat(
         row.client_version = body.client_version
     client_governance.record_protocol(db, client_id, body.governance_protocol)
     if body.runtime_governance is not None:
+        runtime_governance.record_enrollment(db, client_id, body.runtime_governance)
         runtime_governance.record(db, client_id, body.runtime_governance)
         runtime_governance.coordinate(db, row, body.runtime_governance)
     else:
@@ -1223,18 +1234,32 @@ def get_client_history(
     query = db.query(model).filter(model.client_id == client_id)
     if not is_task:
         query = query.filter(model.event_type.notin_(("client_registered", "takeover_completed")))
-    type_column = model.task_type if is_task else _event_record_type_expression()
-    agent_column = func.json_extract(model.payload_json, "$.agent_type") if is_task else model.agent_type
+    if is_task:
+        action = func.json_extract(model.payload_json, "$.action")
+        type_column = case((and_(model.task_type == 'aidr_plugin_action', action.in_(['install', 'upgrade', 'inspect', 'enable', 'disable', 'reconcile'])), model.task_type + ':' + action), else_=model.task_type)
+        task_agent = case((model.task_type == 'aidr_plugin_action', func.json_extract(model.payload_json, '$.agent')), else_=func.json_extract(model.payload_json, '$.agent_type'))
+        agent_column = case((task_agent == 'claude', 'claude-code'), else_=task_agent)
+        hosts = func.json_each(model.payload_json, '$.target.hosts').table_valued('value')
+        def targets_host(value):
+            return and_(model.task_type == 'aidr_plugin_action', action == 'reconcile',
+                        db.query(hosts.c.value).filter(hosts.c.value == value).exists())
+    else:
+        type_column = _event_record_type_expression()
+        agent_column = model.agent_type
     timestamp = func.coalesce(model.finished_at, model.started_at, model.created_at) if is_task else func.coalesce(model.last_seen_at, model.created_at)
     types = [value for (value,) in query.with_entities(type_column).distinct().all() if value]
     agents = [value for (value,) in query.with_entities(agent_column).distinct().all() if value]
+    if is_task:
+        for host, label in [('codex', 'codex'), ('claude', 'claude-code')]:
+            if label not in agents and query.filter(targets_host(host)).first():
+                agents.append(label)
     if keyword.strip():
         columns = [type_column, model.payload_json, model.error] if is_task else [type_column, model.skill_name, model.details_json]
         query = query.filter(or_(*(column.contains(keyword.strip(), autoescape=True) for column in columns)))
     if agent:
-        query = query.filter(agent_column == agent)
+        query = query.filter(or_(agent_column == agent, targets_host('claude' if agent == 'claude-code' else agent)) if is_task else agent_column == agent)
     if record_type:
-        query = query.filter(type_column == record_type)
+        query = query.filter(model.task_type == record_type if is_task and record_type == 'aidr_plugin_action' else type_column == record_type)
     if status and is_task:
         query = query.filter(model.status == status)
     if days:
@@ -2094,7 +2119,7 @@ def report_task_result(
     if row.task_type == "aidr_plugin_action":
         payload = _load(row.payload_json, {})
         if body.status == "running":
-            if payload.get("action") in {"enable", "disable"} and client_governance.policy_view(db, client_id)["runtime_governance_configured"]:
+            if payload.get("action") in {"enable", "disable"} and runtime_governance.policy_manages_receiver(db, client_id):
                 db.query(models.ClientTask).filter_by(id=task_id, status="pending").update({"status": "cancelled", "error": "aidr_desktop_task_superseded", "finished_at": datetime.utcnow()})
                 db.commit()
                 return {"ok": True, "ignored": True, "status": "cancelled"}

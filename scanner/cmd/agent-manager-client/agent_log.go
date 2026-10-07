@@ -11,13 +11,14 @@ import (
 	"time"
 
 	"skill-manager/scanner/internal/aidr/agentlog"
+	"skill-manager/scanner/internal/aidr/catalog"
 )
 
 // This read-only command emits proposed cursors; it does not update the daemon,
 // save a checkpoint, upload records, or mutate the source Agent's configuration.
 func readAgentLog(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("agent-log-read", flag.ContinueOnError)
-	agent := fs.String("agent", "", "claude or codex")
+	agent := fs.String("agent", "", "product log adapter ID")
 	root := fs.String("root", "", "explicit allowed log directory (default: current user's Agent log root)")
 	file := fs.String("file", "", "one JSONL file under the allowed root")
 	cursorPath := fs.String("cursor", "", "previous cursor JSON for --file; read-only, never overwritten")
@@ -30,7 +31,7 @@ func readAgentLog(args []string, out io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || (*agent != "claude" && *agent != "codex") {
+	if fs.NArg() != 0 || !catalog.Log(*agent) {
 		return errors.New("aidr_log_agent_required")
 	}
 	if *duration <= 0 || *duration > time.Minute || *maxBytes <= 0 || *maxBytes > 64<<20 || *maxEvents <= 0 || *maxEvents > 4096 || *maxLine <= 0 || *maxLine > 4<<20 || *maxFiles < 1 || *maxFiles > 4096 {
@@ -47,12 +48,18 @@ func readAgentLog(args []string, out io.Writer) error {
 				base = filepath.Join(home, ".claude")
 			}
 			*root = filepath.Join(base, "projects")
-		} else {
+		} else if *agent == "codex" {
 			base := os.Getenv("CODEX_HOME")
 			if base == "" {
 				base = filepath.Join(home, ".codex")
 			}
 			*root = filepath.Join(base, "sessions")
+		} else {
+			roots := catalog.LogRoots(*agent, home)
+			if len(roots) == 0 {
+				return errors.New("aidr_log_platform_unverified")
+			}
+			*root = roots[0]
 		}
 	}
 	since := time.Now().Add(-24 * time.Hour)

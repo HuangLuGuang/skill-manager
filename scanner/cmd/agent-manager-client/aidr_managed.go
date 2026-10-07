@@ -84,18 +84,14 @@ func desktopManagedAction(ctx context.Context, home, agent, action string, prefs
 	if host.Binary == "" {
 		return errors.New("aidr_desktop_host_missing")
 	}
-	status, err := hooks.InspectPlugin(ctx, agent, host.Binary, host.Home, paths.Socket)
-	if err != nil {
-		return err
-	}
-	if status.VersionStatus != "adapter_target" || (agent == "codex" && status.HostVersion != "codex-cli 0.159.0") {
-		return errors.New("aidr_managed_host_unverified")
-	}
 	layout, err := hooks.SystemManagedLayout(agent)
 	if err != nil {
 		return err
 	}
 	if action == "authorize-plan" {
+		if err = hooks.ManagedHostReady(ctx, agent, host.Binary, host.Home, false); err != nil {
+			return err
+		}
 		return json.NewEncoder(out).Encode(map[string]any{"agent": agent, "policy_version": prefs.RuntimePolicy.Version, "system_config": layout.Config, "system_binary": layout.Binary, "code": "aidr_managed_authorization_required"})
 	}
 	for _, host := range target.Hosts {
@@ -105,6 +101,13 @@ func desktopManagedAction(ctx context.Context, home, agent, action string, prefs
 		}
 		if !configured {
 			return errors.New("aidr_managed_authorization_required")
+		}
+		native, ok := prefs.Hosts[host]
+		if !ok {
+			native = desktopFindHost(host, home)
+		}
+		if err = hooks.ManagedHostReady(ctx, host, native.Binary, native.Home, true); err != nil {
+			return err
 		}
 		version, e := hooks.SystemManagedVersion(host)
 		if e != nil {

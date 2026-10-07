@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,6 +11,75 @@ import (
 
 	"skill-manager/scanner/internal/managedclient"
 )
+
+func TestManualPlatformPolicyAllowsLocalSettingsInstallationWithoutEnablingCapture(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("WorkBuddy settings adapter is currently macOS")
+	}
+	home := shortDesktopTestHome(t)
+	cfg := managedclient.Config{Server: "http://127.0.0.1:41901", Token: "fictional"}
+	if err := managedclient.SaveConfig(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	_, paths, err := desktopBinding(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(filepath.Join(home, ".workbuddy"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	prefs := desktopPreferences{Hosts: map[string]desktopHost{}, ManagedTask: 7, ManagedServer: cfg.Server, ManagedDevice: paths.Device,
+		RuntimePolicy: &desktopRuntimePolicy{Version: "1", Target: managedclient.RuntimeGovernancePolicy{
+			Enabled: true, Hosts: []string{"codex"}, Installation: "manual", AccessMode: "ordinary", Updates: "manual",
+			Retry: managedclient.ReceiverRetryPolicy{Mode: "none", MaxIntervalSeconds: 60},
+		}}}
+	for _, action := range []string{"connect", "connect", "upgrade", "disconnect"} {
+		if err = writeDesktopJSON(filepath.Join(paths.Root, "preferences.json"), prefs); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		if err = aidrDesktop([]string{"--home", home, "--action", action, "--agent", "workbuddy"}, &out); err != nil {
+			t.Fatal(action, err)
+		}
+		var result struct {
+			Plugin struct {
+				Installed bool `json:"installed"`
+			} `json:"plugin"`
+		}
+		if err = json.Unmarshal(out.Bytes(), &result); err != nil || result.Plugin.Installed != (action != "disconnect") {
+			t.Fatal(action, err)
+		}
+		after, err := loadDesktopPreferences(home)
+		if err != nil || after.Enabled || after.ManagedTask != 7 || after.RuntimePolicy.Target.Hosts[0] != "codex" {
+			t.Fatal("installation changed collection policy", err)
+		}
+		var bridge struct {
+			Active bool     `json:"active"`
+			Agents []string `json:"agents"`
+		}
+		if err = readDesktopJSON(paths.Connection, &bridge); err != nil || bridge.Active || len(bridge.Agents) != 1 || bridge.Agents[0] != "codex" {
+			t.Fatal("installation expanded receiver scope", err)
+		}
+	}
+	for _, mode := range []string{"automatic", "managed", "unknown"} {
+		blocked := prefs
+		policy := *prefs.RuntimePolicy
+		blocked.RuntimePolicy = &policy
+		if mode == "automatic" {
+			policy.Target.Installation = "automatic"
+		} else if mode == "managed" {
+			policy.Target.AccessMode = "managed"
+		} else {
+			blocked.RuntimePolicy = nil
+		}
+		if localPluginInstallationAllowed(blocked, "connect") {
+			t.Fatal("platform authority bypassed", mode)
+		}
+	}
+	if localPluginInstallationAllowed(prefs, "enable") || localPluginInstallationAllowed(prefs, "disable") {
+		t.Fatal("local receiver toggle bypassed platform target")
+	}
+}
 
 func shortDesktopTestHome(t *testing.T) string {
 	t.Helper()

@@ -59,3 +59,8 @@ void aidr_process_remap_scopes(aidr_processes *s,const unsigned mapping[32]) {
 }
 uint64_t aidr_process_gaps(aidr_processes *s) {return s->gaps;}
 size_t aidr_process_count(aidr_processes *s) {return s->count;}
+size_t aidr_process_snapshot(aidr_processes *s, aidr_attribution *out, size_t capacity) {
+  size_t count=0;
+  for(size_t i=0;i<AIDR_PROCESS_CAPACITY && count<capacity;i++)if(s->slots[i].kind)out[count++]=s->slots[i];
+  return count;
+}

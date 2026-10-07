@@ -3,14 +3,17 @@ package upload
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"skill-manager/scanner/internal/aidr/agentlog"
 	"skill-manager/scanner/internal/aidr/localstore"
 )
 
-type Root struct{ Agent, Path, File string }
+type Root struct{ Agent, Path, File, UnavailableCode string }
 type WorkerOptions struct {
 	Roots             []Root
 	Since             time.Time
@@ -29,9 +32,22 @@ type WorkerOptions struct {
 // Run is explicitly invoked and owns no service installation. Source discovery,
 // intake and upload each have bounded work; network failures retain the outbox.
 func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) error {
-	if len(o.Roots) < 1 || len(o.Roots) > 2 || o.Interval < time.Second || o.Interval > time.Minute || o.HeartbeatInterval < time.Second || o.HeartbeatInterval > time.Minute || o.DiscoveryInterval < time.Second || o.DiscoveryInterval > 5*time.Minute {
+	if len(o.Roots) < 1 || len(o.Roots) > 64 || o.Interval < time.Second || o.Interval > time.Minute || o.HeartbeatInterval < time.Second || o.HeartbeatInterval > time.Minute || o.DiscoveryInterval < time.Second || o.DiscoveryInterval > 5*time.Minute {
 		return errors.New("aidr_upload_worker_options_invalid")
 	}
+	seenRoots := map[Root]bool{}
+	roots := make([]Root, 0, len(o.Roots))
+	for _, root := range o.Roots {
+		root.Path = filepath.Clean(root.Path)
+		if root.File != "" {
+			root.File = filepath.Clean(root.File)
+		}
+		if !seenRoots[root] {
+			roots = append(roots, root)
+			seenRoots[root] = true
+		}
+	}
+	o.Roots = roots
 	if err := c.Bind(ctx, s); err != nil {
 		return err
 	}
@@ -45,6 +61,9 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 	capabilities := map[string]Capability{}
 	crawlers := map[int]*localstore.Crawler{}
 	for i, root := range o.Roots {
+		if root.UnavailableCode != "" {
+			continue
+		}
 		if root.File == "" {
 			crawler, err := s.NewCrawler(root.Agent, root.Path)
 			if err != nil {
@@ -81,6 +100,11 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 		}
 		if intakeEnabled {
 			for i, root := range o.Roots {
+				if root.UnavailableCode != "" {
+					srcKey, _ := agentlog.NewSource(root.Agent, root.Path, root.Path)
+					discovery = append(discovery, Discovery{SourceID: srcKey.ID, Agent: root.Agent, Status: "unavailable", Reasons: []string{root.UnavailableCode}})
+					continue
+				}
 				if crawler := crawlers[i]; crawler != nil {
 					progress, err := crawler.Step(ctx, 64, 10000, 300*time.Millisecond)
 					if errors.Is(err, localstore.ErrCapacity) {
@@ -89,14 +113,19 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 					} else if err != nil {
 						return err
 					}
-					discovery = append(discovery, Discovery{Agent: root.Agent, Status: progress.Status, Reasons: progress.Reasons, Progress: &progress})
+					srcKey, _ := agentlog.NewSource(root.Agent, root.Path, root.Path)
+					discovery = append(discovery, Discovery{SourceID: srcKey.ID, Agent: root.Agent, Status: progress.Status, Reasons: progress.Reasons, Progress: &progress})
 				} else {
-					discovery = append(discovery, Discovery{Agent: root.Agent, Status: "complete", Reasons: []string{}})
+					srcKey, _ := agentlog.NewSource(root.Agent, root.Path, root.Path)
+					discovery = append(discovery, Discovery{SourceID: srcKey.ID, Agent: root.Agent, Status: "complete", Reasons: []string{}})
 				}
 			}
 			// Reserve a separate intake slice for recent activity and historical work.
 			for _, recent := range []bool{true, false} {
 				for i, root := range o.Roots {
+					if root.UnavailableCode != "" {
+						continue
+					}
 					deadline := time.Now().Add(time.Second / time.Duration(len(o.Roots)))
 					var sources []agentlog.Source
 					crawler := crawlers[i]
@@ -135,6 +164,13 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 							if errors.Is(err, localstore.ErrCapacity) || errors.Is(err, context.DeadlineExceeded) {
 								break
 							}
+							if strings.HasPrefix(err.Error(), "aidr_log_") {
+								discovery[i].Status = "partial"
+								if !slices.Contains(discovery[i].Reasons, err.Error()) && len(discovery[i].Reasons) < 16 {
+									discovery[i].Reasons = append(discovery[i].Reasons, err.Error())
+								}
+								continue
+							}
 							return err
 						}
 						if crawler != nil {
@@ -142,17 +178,12 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 								return err
 							}
 						}
-						if checkpoint.Cursor.AgentVersion != "" {
+						{
 							state := "available"
-							for _, reason := range checkpoint.Cursor.Gaps {
-								if reason == "aidr_log_version_unverified" {
-									state = "unverified"
-								}
-							}
 							if checkpoint.Coverage.Status != "complete" {
 								state = "unavailable"
 							}
-							capabilities[src.ID] = Capability{Agent: src.Agent, Version: checkpoint.Cursor.AgentVersion, Status: state, ParserStatus: agentlog.VersionSupport(src.Agent, checkpoint.Cursor.AgentVersion), ParserVersion: agentlog.ParserVersion}
+							capabilities[src.ID] = Capability{Agent: src.Agent, Version: checkpoint.Cursor.AgentVersion, Status: state, ParserStatus: parserStatus(checkpoint.Coverage), ParserVersion: agentlog.ParserVersion}
 						}
 					}
 				}
@@ -234,4 +265,14 @@ func summarizeCapabilities(sources map[string]Capability) []Capability {
 		caps = append(caps, unique[key])
 	}
 	return caps
+}
+
+// Parser support describes observed records; host release numbers are metadata.
+func parserStatus(coverage agentlog.Coverage) string {
+	for _, reason := range coverage.Reasons {
+		if reason == "aidr_log_schema_unsupported" || reason == "aidr_log_invalid_json" || reason == "aidr_log_optional_record_skipped" || reason == "aidr_log_context_invalidated" {
+			return "unverified"
+		}
+	}
+	return "available"
 }

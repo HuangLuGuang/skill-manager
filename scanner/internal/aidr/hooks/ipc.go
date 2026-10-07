@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	products "skill-manager/scanner/internal/aidr/catalog"
 	"strconv"
 	"strings"
 	"sync"
@@ -207,11 +208,16 @@ func (r *Receiver) handle(ctx context.Context, c *net.UnixConn) IPCResponse {
 	if record.Sequence == "" {
 		response.Code = "aidr_hook_audit_paused"
 	}
-	if req.Hook == "PreToolUse" && r.store.BridgeControlMode() == "plugin_pre_tool" {
+	if IsPreTool(req.Agent, req.Hook) && r.store.BridgeControlMode() == "plugin_pre_tool" {
 		if record.Event.Schema == 0 {
 			return IPCResponse{Code: "aidr_hook_attempt_already_recorded"}
 		}
 		d := r.store.EvaluateTool(record.Event, time.Now())
+		product, _ := products.Get(req.Agent)
+		if d.Decision == "ask" && !product.Approval {
+			d.Decision = "deny"
+			d.Code = "aidr_hook_approval_unsupported"
+		}
 		if d.Decision == "ask" {
 			if record.Sequence == "" {
 				d.Decision, d.Code = "deny", "aidr_hook_audit_disabled_requires_evidence"

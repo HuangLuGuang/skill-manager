@@ -1,0 +1,26 @@
+export const skillUseMessages = {
+  'zh-CN': {
+    entry: '采集入口 / 宿主版本', version: '平台版本', yes: '是', no: '否', check: { registered: '平台注册', approved: '准入批准', revoked: '已撤销', content_matches: '内容一致', authorized: '实例授权' },
+    inactiveAlert: '历史告警 · 当前核对已更新', invocationAdapter: 'Skill 调用识别已适配', fileAdapter: '仅明确的 Skill 文件读取', unverifiedAdapter: 'Skill 识别未验证',
+    audit_disabled: '策略已暂停认证核对', title: 'Skill 行为', allBehaviors: '全部行为', allChecks: '全部认证状态', invocation: 'Skill 调用', file_access: 'Skill 文件访问',
+    attempted: '尝试', host_confirmed: '宿主确认完成', loaded: '宿主确认加载', read: '宿主确认读取', failed: '失败', unknown: '结果未知',
+    pending: '认证状态待确认', verified: '内容与授权已核对', verified_content: '内容已核对 · 授权未知', unregistered: '内容未登记', unapproved: '未通过准入审批', content_changed: '内容与批准版本不一致', revoked: '已撤销', unauthorized: '未授权给此智能体',
+    source_unknown: '缺少可靠路径或内容摘要', identity_ambiguous: '无法唯一确定 Skill 来源', registry_reference_missing: '安装记录引用的版本不可查询', registry_content_unavailable: '平台版本内容不可读取', signature_unverified: '平台签名尚未验证', agent_identity_unknown: '尚未确定平台智能体身份', query_failed: '认证查询失败，将自动重试',
+    empty: '当前条件下暂无 Skill 行为记录', help: '只展示明确的 Skill 工具调用或单文件读取。用户提及、搜索和目录枚举不计为调用。',
+    observation: '内容摘要来自采集时的本地文件观察，可能晚于操作；不证明调用时加载的精确内容。读取文件也不代表按 Skill 执行了任务。',
+    details: '来源与关联证据', path: '来源路径', digest: '观察摘要', checkedAt: '平台核对时间', observedAt: '内容观察时间', identity: '平台智能体 / 本地实例', references: '关联事件', diagnostics: '技术诊断', more: '更多记录', refresh: '重新核对', error: 'Skill 审计读取失败，请重试', unknownName: 'Skill 名称未知',
+    policyTitle: 'Skill 使用审计', enabled: '启用认证核对', alerts: '生成告警', policyHelp: '仅审计，不阻断工具。按可靠身份与摘要核对平台当前状态；缺少证据时保持待确认。',
+  },
+  'en-US': {
+    entry: 'Source entry / host version', version: 'Registry version', yes: 'Yes', no: 'No', check: { registered: 'Registered', approved: 'Admission approved', revoked: 'Revoked', content_matches: 'Content matches', authorized: 'Instance authorized' },
+    inactiveAlert: 'Historical alert · current check updated', invocationAdapter: 'Skill invocation adapter implemented', fileAdapter: 'Explicit Skill file reads only', unverifiedAdapter: 'Skill recognition unverified',
+    audit_disabled: 'Certification checks paused by policy', title: 'Skill activity', allBehaviors: 'All behaviors', allChecks: 'All certification states', invocation: 'Skill invocation', file_access: 'Skill file access',
+    attempted: 'Attempted', host_confirmed: 'Host confirmed completion', loaded: 'Host confirmed loading', read: 'Host confirmed reading', failed: 'Failed', unknown: 'Outcome unknown',
+    pending: 'Certification pending', verified: 'Content and authorization checked', verified_content: 'Content checked · authorization unknown', unregistered: 'Content not registered', unapproved: 'Admission not approved', content_changed: 'Content differs from approved version', revoked: 'Revoked', unauthorized: 'Not authorized for this Agent',
+    source_unknown: 'Reliable source path or content digest missing', identity_ambiguous: 'Skill source cannot be uniquely identified', registry_reference_missing: 'Installed version reference unavailable', registry_content_unavailable: 'Registry content unavailable', signature_unverified: 'Registry signature not verified', agent_identity_unknown: 'Platform Agent identity not established', query_failed: 'Certification query failed; retry pending',
+    empty: 'No Skill activity matches these filters', help: 'Shows explicit Skill tool invocations and single-file reads. Mentions, searches and directory listings are not invocations.',
+    observation: 'The digest is a local content observation made during collection, possibly after the operation. It does not attest to the exact content loaded at invocation. Reading a file does not prove a task followed the Skill.',
+    details: 'Source and linked evidence', path: 'Source path', digest: 'Observed digest', checkedAt: 'Registry check time', observedAt: 'Content observation time', identity: 'Platform Agent / local instance', references: 'Linked events', diagnostics: 'Technical diagnostics', more: 'More records', refresh: 'Check again', error: 'Unable to read Skill audit; please retry', unknownName: 'Skill name unavailable',
+    policyTitle: 'Skill use audit', enabled: 'Check certification', alerts: 'Generate alerts', policyHelp: 'Audit only. Check current registry status using reliable identity and digests. Missing evidence remains pending and never blocks tools.',
+  },
+}

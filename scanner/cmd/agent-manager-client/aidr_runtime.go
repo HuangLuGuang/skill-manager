@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"skill-manager/scanner/internal/aidr/catalog"
 	"skill-manager/scanner/internal/aidr/hooks"
 	"skill-manager/scanner/internal/managedclient"
 )
@@ -71,8 +72,8 @@ func inspectAIDRTarget(ctx context.Context, home string, policy managedclient.Po
 			return errors.New("aidr_desktop_status_failed")
 		}
 		status := observed.Plugin
-		if status.VersionStatus != "adapter_target" {
-			checkedCode = "aidr_plugin_version_unverified"
+		if status.VersionStatus != "interface_compatible" && !(hooks.SettingsAdapter(agent) && status.VersionStatus == "adapter_available") {
+			checkedCode = "aidr_plugin_interface_unavailable"
 		} else if status.Installed == nil {
 			checkedCode = "aidr_plugin_source_unreadable"
 		} else if !*status.Installed {
@@ -117,7 +118,7 @@ func executeAIDRTask(ctx context.Context, home string, task managedclient.Task) 
 		return nil, errors.New("aidr_desktop_task_invalid")
 	}
 	if action == "install" || action == "upgrade" || action == "inspect" {
-		if agent != "claude" && agent != "codex" {
+		if !catalog.Hook(agent) {
 			return nil, errors.New("aidr_desktop_task_invalid")
 		}
 	} else if agent != "" {
@@ -140,7 +141,7 @@ func executeAIDRTask(ctx context.Context, home string, task managedclient.Task) 
 // This reads only bounded, already projected local state. No native version
 // probe or raw settings/credential ever enters a heartbeat.
 func aidrRuntimeSnapshot(home string) map[string]any {
-	result := map[string]any{"protocol": 4, "plugin_version": hooks.BundledPluginVersion, "hosts": []any{}, "receiver_code": "aidr_desktop_stopped"}
+	result := map[string]any{"protocol": 5, "plugin_version": hooks.BundledPluginVersion, "hosts": []any{}, "receiver_code": "aidr_desktop_stopped"}
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		result["protocol"] = 0
 		result["receiver_code"] = "aidr_desktop_platform_unsupported"
@@ -168,6 +169,7 @@ func aidrRuntimeSnapshot(home string) map[string]any {
 		result["receiver_code"] = "aidr_desktop_managed_binding_changed"
 		return result
 	}
+	result["user_hook_hosts"] = desktopEnrollmentHosts(prefs, cfg, paths)
 	var supervision struct {
 		Version       int     `json:"version"`
 		Queue         string  `json:"queue"`
@@ -244,7 +246,7 @@ func aidrRuntimeSnapshot(home string) map[string]any {
 		}
 	}
 	hosts := []any{}
-	for _, agent := range []string{"claude", "codex"} {
+	for _, agent := range catalog.HookIDs() {
 		var observed struct {
 			Plugin     hooks.PluginStatus `json:"plugin"`
 			Trust      string             `json:"hook_trust"`
@@ -328,6 +330,13 @@ func reconcileAIDRPolicy(ctx context.Context, home string, task managedclient.Ta
 				ready = false
 			}
 			if configured {
+				host, ok := prefs.Hosts[agent]
+				if !ok {
+					host = desktopFindHost(agent, home)
+				}
+				if err := hooks.ManagedHostReady(ctx, agent, host.Binary, host.Home, true); err != nil {
+					return nil, err
+				}
 				installedVersion, e := hooks.SystemManagedVersion(agent)
 				if e != nil || (target.Updates == "automatic" && installedVersion != hooks.BundledPluginVersion) {
 					ready = false
@@ -378,6 +387,13 @@ func reconcileAIDRPolicy(ctx context.Context, home string, task managedclient.Ta
 			var observed bytes.Buffer
 			args := []string{"--home", home, "--action", "inspect", "--agent", agent, "--managed-task-id", strconv.FormatInt(task.ID, 10)}
 			if e := aidrDesktopContext(ctx, args, &observed); e != nil {
+				if stableAIDRCode(e) == "aidr_desktop_host_missing" {
+					missing := hooks.PluginStatus{Agent: agent, VersionStatus: "unverified", SourceCode: "aidr_desktop_host_missing", ReportedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+					if e = writeDesktopJSON(filepath.Join(paths.Root, "observed-"+agent+".json"), map[string]any{"plugin": missing, "hook_trust": "unknown", "access_mode": target.AccessMode}); e != nil {
+						return nil, e
+					}
+					continue
+				}
 				return finish(stableAIDRCode(e), false)
 			}
 			var state struct {
@@ -386,8 +402,8 @@ func reconcileAIDRPolicy(ctx context.Context, home string, task managedclient.Ta
 			if json.Unmarshal(observed.Bytes(), &state) != nil {
 				return finish("aidr_desktop_status_invalid", false)
 			}
-			if state.Plugin.VersionStatus != "adapter_target" {
-				return finish("aidr_plugin_version_unverified", false)
+			if state.Plugin.VersionStatus != "interface_compatible" && !(hooks.SettingsAdapter(agent) && state.Plugin.VersionStatus == "adapter_available") {
+				return finish("aidr_plugin_interface_unavailable", false)
 			}
 			if target.AccessMode == "managed" {
 				continue

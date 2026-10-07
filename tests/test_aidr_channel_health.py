@@ -92,12 +92,12 @@ def test_new_target_waits_for_its_own_channel_version_then_checks_transport(serv
     assert api.get('/api/v1/clients/one/aidr/status').json()['log_channel']['health']['state'] == 'reporting_paused'
 
 
-def test_unconfigured_policy_is_distinct_from_unknown_or_offline(service):
+def test_default_collection_target_does_not_claim_runtime_health(service):
     api, _ = service
     state = api.get('/api/v1/clients/one/aidr/status').json()
-    assert state['log_channel']['target_enabled'] is None
-    assert state['log_channel']['health']['state'] == 'not_configured'
-    assert state['log_channel']['health']['code'] == 'aidr_channel_not_configured'
+    assert state['log_channel']['target_enabled'] is True
+    assert state['log_channel']['health']['state'] == 'unreported'
+    assert state['log_channel']['health']['code'] == 'aidr_channel_unreported'
 
 
 def test_audit_pause_is_intentional_not_a_heartbeat_failure(service, monkeypatch):

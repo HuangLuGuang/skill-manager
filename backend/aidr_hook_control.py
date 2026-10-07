@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 from typing import Literal
+from .aidr_products import HookAgentID, BY_ID
 
 from pydantic import Field, model_validator
 from sqlalchemy import Column, ForeignKey, Integer, String, Text, UniqueConstraint
@@ -116,12 +117,14 @@ def save_attempt_report(db, client_id, raw):
 
 class ToolRule(Strict):
     id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
-    agent: Literal["claude", "codex", "*"]
+    agent: HookAgentID | Literal["*"]
     tool: str = Field(min_length=1, max_length=256, pattern=r"^\S+$")
     decision: Literal["allow", "deny", "ask"]
 
     @model_validator(mode="after")
     def check_tool(self):
+        if self.agent != "*" and self.decision == "ask" and not BY_ID[self.agent]["approval"]:
+            raise ValueError("hook_approval_unsupported")
         if any(ord(c)<32 or ord(c)==127 for c in self.tool):
             raise ValueError("hook_tool_invalid")
         return self
@@ -206,6 +209,8 @@ def request_approval(db, client_id, body):
         reject("hook_evidence_missing", "审批所需插件证据尚未到达", "Plugin evidence for approval has not arrived", 404)
     record = json.loads(event.payload_json)
     evidence = record["event"]
+    if not BY_ID[evidence["agent"]]["approval"]:
+        reject("aidr_hook_approval_unsupported", "此产品未接入工具审批", "Tool approval is not available for this product", 422)
     if record.get("receiver_instance") != body.receiver_instance or evidence["kind"] != "tool.pre" or not evidence.get("input_digest") or not evidence.get("native_call_id") or (evidence["agent"] == "codex" and not evidence.get("turn_id")):
         reject("hook_scope_unverified", "调用身份不足以建立审批范围", "Call identity is insufficient for an approval scope", 422)
     policy_row = latest_policy(db, client_id)

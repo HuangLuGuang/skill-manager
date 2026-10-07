@@ -1,4 +1,14 @@
-# AIDR native lifecycle plugins (P3)
+# Agent Manager plugins and Agent Manager Hook
+
+对外插件名称为 **Agent Manager**；设置文件接入为 **Agent Manager Hook**；共享服务为 **Agent Manager 本地接收器 / Agent Manager Local Receiver**。Claude Code、Codex 等是适配产品。原生插件包 `aidr-claude`、`aidr-codex`、配置中的命令和安装目录保持兼容，不改写用户自有 Hook。当前包版本 0.1.2；旧安装仍按原标识检查、更新与卸载。Codex manifest 的 `interface.displayName` 已统一；Claude Code 官方 manifest 以 `name` 同时充当插件标识，没有已确认的独立显示名字段，因此原生插件列表可能仍显示 `aidr-claude`，描述与管理界面使用 Agent Manager，不伪造宿主字段。
+
+**English:** The public plugin is Agent Manager, settings integration is Agent Manager Hook, and the shared service is Agent Manager Local Receiver. Stable package IDs and owned Hook commands remain unchanged for upgrade/uninstall compatibility. Bundle 0.1.2 updates branding. Codex supports a separate display name; Claude's native identifier remains visible where the host uses manifest `name` as its label. See [Skill evidence and acceptance](../../docs/external-agent-integration.md#skill-使用识别与认证审计).
+
+## 当前兼容契约 / Current compatibility contract
+
+接入按原生插件查询、实际安装/更新结果和受管 Hook 加载检查判断，Agent 版本号仅作诊断，不按精确版本白名单阻断。日志按实际记录格式解析，系统采集按操作系统能力与授权工作。新状态 `interface_compatible` 与旧客户端 `adapter_target` 报告分别展示；先升级平台，再更新客户端。下文历史验收中的版本清单仅说明实机证据范围。详见 [客户端小版本兼容与验收清单](../../docs/agent-manager-client.md#agent-小版本兼容与接入检查)。
+
+**English:** Native interface inspection, actual operation results and managed Hook loading determine compatibility; exact Agent versions do not gate integration. Log parsing follows record formats and OS collection follows system capabilities. Upgrade the platform before clients to accept `interface_compatible`; historical version lists document acceptance scope, not an allowlist. Native trust and real control outcomes require separate evidence.
 
 
 ## 2026-10-04：Hook 接收故障的审计与控制语义
@@ -35,7 +45,7 @@
 
 独立41893设备已完成Codex0.160.0日志自动管理、持久化、严格ACK与真实中英文网页：18事件/9操作，退出码0/7有结构化依据。服务端游标可选call_turns[].tool补齐后，原15条冻结批次原摘要恢复上传；重启不重复。前一日志分项结束时策略已恢复继承/未配置、上报关闭、当时凭证吊销；本轮续验状态见本节开头。日常目标及正文/脱敏未改。当前私有0.160候选尚未替换日常Go侧车。
 
-Codex0.160.0普通插件接入已补验：用户在独立原生profile审阅并信任Hook；一个真实新任务分别调用七次工具，18条Hook持久化并严格ACK，七组Pre/Post身份准确，中英文网页详情通过。另一个真实单调用任务产生六条Hook，用于非空冻结积压跨安装包更新，恢复上报后全部ACK且旧回执不变。精确0.160.0现加入普通插件已验版本；相邻0.160.1仍未验证，受管Codex仍限0.159.0。Hook未提供结果依据时保持未知，日志的明确退出码不填入Hook记录。
+Codex0.160.0普通插件接入已补验：用户在独立原生profile审阅并信任Hook；一个真实新任务分别调用七次工具，18条Hook持久化并严格ACK，七组Pre/Post身份准确，中英文网页详情通过。另一个真实单调用任务产生六条Hook，用于非空冻结积压跨安装包更新，恢复上报后全部ACK且旧回执不变。精确0.160.0现加入普通插件已验版本；0.160.1的后续普通接入与生命周期验收见下文，当时受管Codex限0.159.0。Hook未提供结果依据时保持未知，日志的明确退出码不填入Hook记录。
 
 **English:** Ordinary Codex 0.160.0 plugin integration now passed user-reviewed native trust, seven real tool calls, eighteen exact acknowledged Hooks, and bilingual web details. Six additional real Hooks survived a nonempty frozen-batch package replacement and were acknowledged after reporting resumed. Only the exact verified version was added; managed Codex remains 0.159.0. Missing Hook results remain unknown. Daily policy and audit scope were not changed. See the latest acceptance record for test cleanup and load-test status.
 
@@ -74,7 +84,7 @@ Hook采集gate单独持久化在既有hook_meta，关闭后拒绝新记录，已
 
 真实测试用户准备前的基线：本次已有有限授权，系统级受管测试当时因真实运行冲突暂停：日常真实 Home 的基础工作者、接收器及业务 Codex 进程仍在运行；日常 bridge 为 ordinary。产品受管入口校验操作系统真实用户 Home，不能把私有测试 Home 冒充真实 Home，也不能把日常设备/队列切成独立测试设备。该基线阶段未调用系统安装/移除、未弹管理员授权。已私有保存基线；`/etc/codex/requirements.toml`、Claude macOS managed-settings 和产品 managed 目录均仍不存在；日常 bridge 与 launchd plist 字节、权限、所有者、摘要完全不变，不需要恢复系统配置。随后使用真实aidr-test用户和独立设备完成取消、批准及三种受管生命周期；当前系统变化和恢复待验项见下文。
 
-普通 Codex 精确支持 0.158.0-alpha.2.1、0.159.0、0.159.2、0.160.0；受管 Codex 目标仍为精确 0.159.0；Claude 目标 2.1.220。本次没有删除版本限制、伪造原生信任或启动手动接收器。Claude 信任报告仍未知，实际 Hook 触发证据单独保存。
+该阶段普通 Codex 实机验证了 0.158.0-alpha.2.1、0.159.0、0.159.2、0.160.0；该阶段受管 Codex 验收目标为 0.159.0；Claude 目标 2.1.220。本次没有删除版本限制、伪造原生信任或启动手动接收器。Claude 信任报告仍未知，实际 Hook 触发证据单独保存。
 
 网页登录中断的一项实际原因已定位：验收 API 脚本用同一管理员再次登录，会更新 current_session_id，使浏览器原会话失效。API 核对与真实网页检查顺序执行，或使用不同的已有授权测试账号，避免验收相互干扰；不修改产品单会话鉴权。本次正确账号及新验证码登录后真实双语详情已通过。此前无响应的全部历史现象不据此一概归因。
 
@@ -188,9 +198,9 @@ Prompt当前明确适配 `UserPromptSubmit.prompt`；文件正文适配Write/Edi
 
 ## 客户入口与平台管理 / Customer entry and platform management
 
-Codex 0.159.0 / 0.159.2 自检使用原生 App Server 的本地市场查询和有效配置校验，不等待 CLI 的远端插件目录。缺失配置来源、市场读取错误或多来源冲突不会显示为“未安装”；本地版本由原生报告的包 manifest 读取，不替换成随包版本。0.159.0已通过原生安装、12项持久信任与8条真实审计事件验收，现开放接入；自检、信任和实际事件仍分别展示。
+Codex 0.159.0 / 0.159.2 / 0.160.0 / 0.160.1 自检使用原生 App Server 的本地市场查询和有效配置校验，不等待 CLI 的远端插件目录。缺失配置来源、市场读取错误或多来源冲突不会显示为“未安装”；本地版本由原生报告的包 manifest 读取，不替换成随包版本。自检、信任和实际事件分别展示。0.160.1 已核对 12 项持久信任、日志输入/过程回复/最终回复/工具记录及平台确认。2026-10-07 续验的 25 条生命周期事件覆盖全部 12 类声明 Hook，独立平台审批拒绝/允许另有 11 条 Hook，均与持久 ACK 精确匹配。审批使用单次信任覆盖和平台 API 决策，生命周期使用现有持久信任。当次验收的系统受管入口被版本校验阻断；当前已改为接口探测，仍未执行新版实际系统安装验收；网页人工审批、桌面模式切换及新版受管安装/升级/移除继续单独计验。详见 `experiments/aidr-agentlog/ACCEPTANCE.md`。
 
-**English:** Codex 0.159.0 / 0.159.2 inspection reads local marketplaces and effective configuration through the native App Server, without waiting for the CLI remote catalog. Missing sources, read failures and ambiguity remain unknown. The version comes from the native-reported package manifest. Codex 0.159.0 passes the installation gate after native installation, twelve persistently trusted hooks and eight real audit events; these remain separate evidence states.
+**English:** Codex 0.159.0 / 0.159.2 / 0.160.0 / 0.160.1 inspection reads local marketplaces and effective configuration through the native App Server, without waiting for the CLI remote catalog. Missing sources, read failures and ambiguity remain unknown. The version comes from the native-reported package manifest. Codex 0.160.1 has twelve persistently trusted hooks and real-session evidence for log inputs, commentary, final replies and tool records. The 2026-10-07 follow-up delivered 25 lifecycle Hooks covering all 12 declared types and 11 platform approval Hooks with exact durable ACK matching. Approval used API decisions and invocation-scoped trust; lifecycle probes used persisted trust. The version gate encountered in that acceptance run has now been replaced by native interface probes. Manual browser approval, desktop mode switching and managed installation/upgrade/removal on 0.160.1 remain separate acceptance items.
 
 桌面侧边栏 **Agent 运行治理 / Agent Runtime Governance** 提供接入、自检、接收器状态和故障重试；平台 **客户端管理 → 设备详情 → Agent 运行治理** 可下发安装、更新、自检、接收器启用/停用。远程任务沿用设备权限，安装包提供插件版本，客户无需管理接收器终端、桥接环境变量或 Token。平台接管后，本地安装/启停不可覆盖目标。原生插件启用和 Hook 信任与接收器启用是不同状态；安装不自动授予信任。
 
@@ -592,3 +602,18 @@ Claude 受控命令末尾增加 `--subagent-probe --platform-fixture /absolute/p
 
 
 新版五标签的实测范围与人工清单见 experiments/aidr-agentlog/ACCEPTANCE.md 最新设备详情记录；此前桌面900宽证据继续保留，平台布局验收分别记录。
+
+## Settings-based host adapters
+
+WorkBuddy, shared Qoder (`qoder-hooks`), QoderWork and Cursor use
+`scanner/internal/aidr/hooks/settings.go` rather than the Claude/Codex native
+plugin package. The capability catalog lists their verified configuration
+location, selected event contract and OS scope. Installation merges only owned
+commands; uninstall removes exact owned commands and preserves user settings.
+These adapters report configuration presence with unknown host enablement/trust
+until independent evidence arrives. Qoder's shared settings identity is kept
+separate from CLI log identity. QoderWork uses its separate settings directory
+and exit-code-2 denial contract. Cursor uses `permission: allow/deny` for generic
+pre-tool hooks, including in audit-only mode. Approval is not exposed for
+Cursor, WorkBuddy or QoderWork. See the product matrix and acceptance inventory
+in `docs/external-agent-integration.md` and `experiments/aidr-agentlog/ACCEPTANCE.md`.

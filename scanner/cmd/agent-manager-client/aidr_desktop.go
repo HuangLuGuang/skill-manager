@@ -24,6 +24,7 @@ type desktopHost struct {
 	Home   string `json:"home"`
 }
 type desktopPreferences struct {
+	Enrollment          *desktopHookEnrollment `json:"hook_enrollment,omitempty"`
 	HookMode            string                 `json:"hook_mode,omitempty"`
 	Enabled             bool                   `json:"enabled"`
 	Hosts               map[string]desktopHost `json:"hosts"`
@@ -36,6 +37,11 @@ type desktopPreferences struct {
 	AuthorizationTask   int64                  `json:"authorization_task,omitempty"`
 	AuthorizationAgent  string                 `json:"authorization_agent,omitempty"`
 	AuthorizationAction string                 `json:"authorization_action,omitempty"`
+}
+type desktopHookEnrollment struct {
+	Server string   `json:"server"`
+	Device string   `json:"device"`
+	Hosts  []string `json:"hosts"`
 }
 type desktopRuntimePolicy struct {
 	Target     managedclient.RuntimeGovernancePolicy `json:"target"`
@@ -187,11 +193,21 @@ func desktopFindHost(agent, home string) desktopHost {
 func aidrDesktop(args []string, out io.Writer) error {
 	return aidrDesktopContext(context.Background(), args, out)
 }
+
+// A platform target can delegate ordinary plugin installation to this user.
+// Receiver state and collection scope remain controlled by that target.
+func localPluginInstallationAllowed(p desktopPreferences, action string) bool {
+	if action != "connect" && action != "upgrade" && action != "disconnect" {
+		return false
+	}
+	return p.RuntimePolicy != nil && p.RuntimePolicy.Target.Valid() &&
+		(p.RuntimePolicy.Target.Installation == "manual" || (p.RuntimePolicy.Target.AllowUserEnrollment != nil && *p.RuntimePolicy.Target.AllowUserEnrollment)) && p.RuntimePolicy.Target.AccessMode == "ordinary" && p.AccessMode != "managed"
+}
 func aidrDesktopContext(parent context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("aidr-desktop", flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "client home")
 	action := fs.String("action", "status", "status, inspect, connect, enable or disable")
-	agent := fs.String("agent", "", "claude or codex")
+	agent := fs.String("agent", "", "Hook product ID from the capability catalog")
 	source := fs.String("source-dir", "", "bundled plugin resources")
 	hostBinary := fs.String("host-bin", "", "explicit native executable")
 	hostHome := fs.String("host-config-dir", "", "explicit user host configuration")
@@ -224,9 +240,17 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 	if e != nil {
 		return e
 	}
+	if *action == "enroll" {
+		return enrollDesktopHook(parent, args, *home, *agent, prefs, cfg, paths, out)
+	}
 	if *action != "diagnose" && *action != "status" && *action != "channels-status" && *action != "system-check" && *action != "inspect" && *action != "prepare" && *action != "authorize-plan" && *action != "apply-managed" && *action != "managed-removed" && *action != "authorization-result" && *action != "retry-logs" {
 		if prefs.ManagedTask > 0 && *managedTask == 0 {
-			return errors.New("aidr_desktop_platform_managed")
+			if prefs.ManagedServer != cfg.Server || prefs.ManagedDevice != paths.Device {
+				return errors.New("aidr_desktop_managed_binding_changed")
+			}
+			if !localPluginInstallationAllowed(prefs, *action) {
+				return errors.New("aidr_desktop_platform_managed")
+			}
 		}
 		if *managedTask > 0 {
 			if prefs.ManagedTask > *managedTask && prefs.ManagedServer == cfg.Server && prefs.ManagedDevice == paths.Device {
@@ -245,7 +269,7 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 	case "system-check":
 		return json.NewEncoder(out).Encode(systemPreflight(parent))
 	case "channels-status":
-		return json.NewEncoder(out).Encode(map[string]any{"channels": aidrRuntimeSnapshot(*home)["channels"], "runtime_policy": prefs.RuntimePolicy})
+		return json.NewEncoder(out).Encode(map[string]any{"channels": aidrRuntimeSnapshot(*home)["channels"], "runtime_policy": prefs.RuntimePolicy, "user_hook_hosts": desktopEnrollmentHosts(prefs, cfg, paths)})
 	case "retry-logs":
 		if e := requestLogRetry(paths); e != nil {
 			return e
@@ -293,8 +317,54 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 			return errors.New("aidr_managed_remove_unverified")
 		}
 		return recordManagedRemoval(prefs, paths, *agent, out)
-	case "inspect", "connect", "upgrade":
+	case "inspect", "connect", "upgrade", "disconnect":
 	default:
+		return errors.New("aidr_desktop_action_invalid")
+	}
+	if hooks.SettingsAdapter(*agent) {
+		if prefs.AccessMode == "managed" || (prefs.RuntimePolicy != nil && prefs.RuntimePolicy.Target.AccessMode == "managed") {
+			return errors.New("aidr_plugin_host_unsupported")
+		}
+		var status hooks.PluginStatus
+		if *action == "inspect" {
+			status, e = hooks.InspectSettingsHooks(*agent, *home, paths.Binary, paths.Connection)
+		} else {
+			if *action != "disconnect" {
+				if e = installDesktopBinary(paths.Binary); e != nil {
+					return e
+				}
+			}
+			status, e = hooks.MergeSettingsHooks(*agent, *home, paths.Binary, paths.Connection, *action == "disconnect")
+			if e == nil && *action == "disconnect" && prefs.Enrollment != nil {
+				hosts := desktopEnrollmentHosts(prefs, cfg, paths)
+				kept := []string{}
+				for _, host := range hosts {
+					if host != *agent {
+						kept = append(kept, host)
+					}
+				}
+				prefs.Enrollment = &desktopHookEnrollment{Server: cfg.Server, Device: paths.Device, Hosts: kept}
+			}
+			if e == nil && *action != "disconnect" && prefs.ManagedTask == 0 {
+				prefs.Enabled = true
+			}
+			if e == nil {
+				e = writeDesktopConnection(paths, prefs)
+			}
+			if e == nil {
+				e = writeDesktopJSON(filepath.Join(paths.Root, "preferences.json"), prefs)
+			}
+		}
+		if e != nil {
+			return e
+		}
+		result := map[string]any{"plugin": status, "hook_trust": "unknown", "access_mode": "ordinary", "enabled": prefs.Enabled, "code": status.SourceCode}
+		if e = writeDesktopJSON(filepath.Join(paths.Root, "observed-"+*agent+".json"), result); e != nil {
+			return e
+		}
+		return json.NewEncoder(out).Encode(result)
+	}
+	if *action == "disconnect" {
 		return errors.New("aidr_desktop_action_invalid")
 	}
 	if (*action == "connect" || *action == "upgrade") && prefs.RuntimePolicy != nil && prefs.RuntimePolicy.Target.AccessMode == "managed" {
@@ -367,8 +437,8 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 		}
 		return json.NewEncoder(out).Encode(result)
 	}
-	if status.VersionStatus != "adapter_target" {
-		return errors.New("aidr_plugin_version_unverified")
+	if status.VersionStatus != "interface_compatible" {
+		return errors.New("aidr_plugin_interface_unavailable")
 	}
 	if status.Installed == nil {
 		return errors.New("aidr_plugin_source_unreadable")
@@ -430,7 +500,7 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 		return errors.New("aidr_desktop_bridge_not_applied")
 	}
 	prefs.Hosts[*agent] = host
-	if *managedTask == 0 && *action == "connect" {
+	if prefs.ManagedTask == 0 && *action == "connect" {
 		prefs.Enabled = true
 	}
 	if e = writeDesktopJSON(filepath.Join(paths.Root, "preferences.json"), prefs); e != nil {

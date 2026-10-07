@@ -3,3 +3,4 @@ Interface SVG assets: Lucide 0.468.0 (ISC), https://github.com/lucide-icons/luci
 See accompanying licenses. Brand marks belong to their respective owners.
 WorkBuddy brand icon: extracted from the locally installed official WorkBuddy.app application icon, resized to 96px for identification. Copyright remains with Tencent.
 TeleAgent brand icon: extracted from the locally installed official TeleAgent.app application icon, resized to 128px for identification. Copyright remains with its owner.
+Codex and Qoder PNG brand icons: unchanged copies of web/src/assets/agent-logos, sourced from the locally installed official ChatGPT.app and Qoder.app respectively. Copyright remains with OpenAI and Qoder's owner.

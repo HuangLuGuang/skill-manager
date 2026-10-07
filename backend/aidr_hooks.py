@@ -1,6 +1,8 @@
 """Immutable plugin evidence. Host claims do not authorize OS operations."""
+from .aidr_products import HookAgentID, BY_ID
 import hashlib
 import json
+from .aidr_skill_contract import SkillUse
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -14,22 +16,10 @@ from .aidr_models import AidrHookBatch, AidrHookEvent
 from .aidr_operations import stamp
 from .api_errors import ApiError
 
-KINDS = {
-    "SessionStart": "session.start", "SessionEnd": "session.end",
-    "UserPromptSubmit": "turn.submit", "PreToolUse": "tool.pre",
-    "PostToolUse": "tool.post", "PostToolUseFailure": "tool.failure",
-    "PermissionRequest": "permission.request", "PermissionDenied": "permission.denied",
-    "SubagentStart": "agent.start", "SubagentStop": "agent.stop",
-    "PreCompact": "context.compact.start", "PostCompact": "context.compact.end",
-    "Stop": "turn.stop", "Interrupt": "turn.interrupt", "Notification": "notification",
-    "TaskCompleted": "task.completed", "TeammateIdle": "agent.idle",
-}
-CLAUDE_ONLY = {"PostToolUseFailure", "PermissionDenied", "Notification", "TaskCompleted", "TeammateIdle"}
-
-
 class HookEvent(Strict):
+    skill_use: SkillUse | None = None
     schema_version: Literal[1, 2, 3]
-    agent: Literal["claude", "codex"]
+    agent: HookAgentID
     hook_event: str = Field(max_length=32)
     kind: str = Field(max_length=32)
     session_id: str = Field(min_length=1, max_length=256)
@@ -47,7 +37,7 @@ class HookEvent(Strict):
 
     @model_validator(mode="after")
     def validate_evidence(self):
-        if KINDS.get(self.hook_event) != self.kind or (self.agent == "codex" and self.hook_event in CLAUDE_ONLY) or (self.agent == "claude" and self.hook_event == "Interrupt"):
+        if BY_ID[self.agent]['hook_events'].get(self.hook_event) != self.kind:
             raise ValueError("hook_unsupported")
         for value in (self.session_id, self.turn_id, self.native_call_id, self.native_agent_id, self.tool):
             if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value):
@@ -75,6 +65,8 @@ class HookEvent(Strict):
             raise ValueError("hook_call_invalid")
         if self.kind in {"tool.post", "tool.failure"} and self.behavior.method != "result_fields":
             raise ValueError("hook_result_invalid")
+        if self.skill_use:
+            self.skill_use.validate_source(self.agent, self.tool, self.kind, self.policy.enabled)
         return self
 
 
@@ -141,10 +133,13 @@ def save(db, device, raw):
                 projected.pop("receiver_instance", None)
             payload = json.dumps(projected, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
             content_hash = hashlib.sha256(payload.encode()).hexdigest()
-            db.execute(insert(AidrHookEvent).values(client_id=batch.client_id, stream_id=batch.stream_id, event_id=record.event_id, source_seq=int(record.source_seq), content_hash=content_hash, payload_json=payload).on_conflict_do_nothing())
+            inserted_event = db.execute(insert(AidrHookEvent).values(client_id=batch.client_id, stream_id=batch.stream_id, event_id=record.event_id, source_seq=int(record.source_seq), content_hash=content_hash, payload_json=payload).on_conflict_do_nothing())
             existing = db.query(AidrHookEvent).filter_by(client_id=batch.client_id, stream_id=batch.stream_id, event_id=record.event_id).first()
             if existing is None or existing.content_hash != content_hash:
                 db.rollback()
                 raise ApiError(409, "aidr.hook_event_conflict", "插件事件身份或序号冲突", "Plugin event identity or sequence conflict")
+            if inserted_event.rowcount:
+                from .aidr_skill_usage import merge
+                merge(db, "hook", existing)
     db.commit()
     return {"schema_version": 1, "client_id": batch.client_id, "stream_id": batch.stream_id, "digest": digest, "accepted": len(batch.records), "durable": True}

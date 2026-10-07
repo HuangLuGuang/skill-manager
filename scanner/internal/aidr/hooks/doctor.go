@@ -54,6 +54,9 @@ func hostCommand(ctx context.Context, binary, agent, configHome string, args ...
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.WaitDelay = time.Second
 	cmd.Env = os.Environ()
+	if len(args) == 1 && args[0] == "--version" || len(args) == 3 && args[0] == "plugin" && args[1] == "list" && args[2] == "--json" {
+		cmd.Env = append(cmd.Env, "AGENT_MANAGER_ACTIVITY=client_probe")
+	}
 	if configHome != "" {
 		key := "CODEX_HOME"
 		if agent == "claude" {
@@ -194,22 +197,20 @@ func InspectPlugin(ctx context.Context, agent, binary, configHome, socket string
 	scopeSum := sha256.Sum256(scope)
 	status.ScopeDigest = hex.EncodeToString(scopeSum[:])
 	version, err := hostCommand(ctx, binary, agent, configHome, "--version")
-	if err != nil {
-		return status, nil
+	if err == nil {
+		status.HostVersion = strings.TrimSpace(string(version))
 	}
-	status.HostVersion = strings.TrimSpace(string(version))
 	if len(status.HostVersion) > 100 || strings.ContainsAny(status.HostVersion, "\n\r") {
 		status.HostVersion = ""
-		return status, nil
-	}
-	if verifiedPluginHost(agent, status.HostVersion) {
-		status.VersionStatus = "adapter_target"
 	}
 	var data []byte
-	if agent == "codex" && (status.HostVersion == "codex-cli 0.159.0" || status.HostVersion == "codex-cli 0.159.2" || status.HostVersion == "codex-cli 0.160.0") {
+	if agent == "codex" {
 		// The native CLI also fetches a remote catalog. Local inspection must not
 		// depend on that network fetch; retain unknown for omitted configured IDs.
 		data, err = nativeCodexLocalPlugins(ctx, binary, effectiveHome)
+		if err == errNativeMethodUnsupported {
+			data, err = hostCommand(ctx, binary, agent, configHome, "plugin", "list", "--json")
+		}
 	} else {
 		data, err = hostCommand(ctx, binary, agent, configHome, "plugin", "list", "--json")
 	}
@@ -219,7 +220,9 @@ func InspectPlugin(ctx context.Context, agent, binary, configHome, socket string
 	parsed, err := ParsePluginStatus(agent, data)
 	if err == nil {
 		parsed.HostVersion = status.HostVersion
-		parsed.VersionStatus = status.VersionStatus
+		if parsed.Installed != nil && parsed.Enabled != nil {
+			parsed.VersionStatus = "interface_compatible"
+		}
 		parsed.ReportedAt = status.ReportedAt
 		parsed.ReceiverCode = status.ReceiverCode
 		parsed.ScopeDigest = status.ScopeDigest
@@ -237,17 +240,6 @@ func InspectPlugin(ctx context.Context, agent, binary, configHome, socket string
 		}
 	}
 	return status, nil
-}
-
-func verifiedPluginHost(agent, version string) bool {
-	switch agent {
-	case "codex":
-		return version == "codex-cli 0.158.0-alpha.2.1" || version == "codex-cli 0.159.0" || version == "codex-cli 0.159.2" || version == "codex-cli 0.160.0"
-	case "claude":
-		return version == "2.1.220 (Claude Code)"
-	default:
-		return false
-	}
 }
 
 // Check the native reported source, rather than assuming installation used the
@@ -274,8 +266,8 @@ func InstallPlugin(ctx context.Context, agent, binary, configHome, marketplace s
 	if err != nil {
 		return status, err
 	}
-	if status.VersionStatus != "adapter_target" {
-		return status, code("aidr_plugin_version_unverified")
+	if status.VersionStatus != "interface_compatible" {
+		return status, code("aidr_plugin_interface_unavailable")
 	}
 	if !filepath.IsAbs(marketplace) {
 		return status, code("aidr_plugin_marketplace_invalid")

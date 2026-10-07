@@ -209,3 +209,34 @@ def test_question_excerpt_preserves_original_and_first_available_content(service
         assert sessions(db, 'one', include_questions=True)['items'][0]['question_preview'] == '检查采集状态'
         question = next(r for r in turns(db, 'one', agent='codex', session_id='s', include_questions=True)['items'] if r['key']=='turn:t2')['question']
         assert question['display_text'] == '检查采集状态' and question['text'] == original
+
+
+def test_question_search_keeps_whole_session_counts_title_and_pagination(service):
+    """A later matching prompt selects the whole session, not just matching records."""
+    client, factory = service
+    from backend.aidr_models import AidrHookEvent
+    from backend.aidr_sessions import sessions
+    first = insert(factory, 1, event={'agent': 'codex', 'session_id': 'alpha', 'kind': 'turn.submit'})
+    insert(factory, 2, event={'agent': 'codex', 'session_id': 'alpha', 'kind': 'tool.pre'})
+    insert(factory, 3, event={'agent': 'codex', 'session_id': 'alpha', 'kind': 'tool.post'})
+    match = insert(factory, 4, event={'agent': 'codex', 'session_id': 'alpha', 'kind': 'turn.submit'})
+    other = insert(factory, 5, event={'agent': 'claude', 'session_id': 'beta', 'kind': 'turn.submit'})
+    assert upload(client, event('tool_call', session='alpha'), event('tool_result', session='alpha')).status_code == 200
+    with factory() as db:
+        for ident, body in [(first, 'Original title'), (match, 'find-this-needle'), (other, 'find-this-needle too')]:
+            row = db.get(AidrHookEvent, ident)
+            payload = json.loads(row.payload_json)
+            payload['event']['contents'][0]['text'] = body
+            row.payload_json = json.dumps(payload)
+        db.commit()
+        all_items = sessions(db, 'one', include_questions=True)['items']
+        params = dict(include_questions=True, keyword='find-this-needle', limit=1)
+        page = sessions(db, 'one', **params)
+        assert page['has_more']
+        second = sessions(db, 'one', cursor=page['next_cursor'], **params)
+        items = page['items'] + second['items']
+        assert not second['has_more'] and items == all_items
+        alpha = next(item for item in items if item['session_id'] == 'alpha')
+        assert alpha['hook_count'] == 4 and alpha['log_count'] == 1
+        assert alpha['question_preview'] == 'Original title'
+        assert sessions(db, 'one', keyword='find-this-needle')['items'] == []

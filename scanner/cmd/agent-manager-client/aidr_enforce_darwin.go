@@ -97,6 +97,13 @@ type systemObservation struct {
 	Code          string
 }
 
+func enforcementRunContext(parent context.Context, duration time.Duration) (context.Context, context.CancelFunc) {
+	if duration == 0 {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, duration)
+}
+
 func aidrEnforceRun(parent context.Context, args []string, out io.Writer, observe func(systemObservation)) error {
 	notify := func(v systemObservation) {
 		if observe != nil {
@@ -111,11 +118,11 @@ func aidrEnforceRun(parent context.Context, args []string, out io.Writer, observ
 	device := fs.String("client-id", "", "registered device identity")
 	tokenEnv := fs.String("token-env", "AGENT_MANAGER_AIDR_TOKEN", "device credential environment variable")
 	collectionOnly := fs.Bool("collection-only", false, "collect signed Agent process evidence without file control or process response")
-	duration := fs.Duration("duration", 10*time.Minute, "bounded foreground enforcement duration, at most 24h")
+	duration := fs.Duration("duration", 10*time.Minute, "collection duration; 0 runs until stopped")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || os.Geteuid() != 0 || *duration < time.Second || *duration > 24*time.Hour {
+	if fs.NArg() != 0 || os.Geteuid() != 0 || *duration < 0 || (*duration > 0 && *duration < time.Second) {
 		return errors.New("aidr_enforcement_config_invalid")
 	}
 	for _, p := range []string{*state, *native, *keyFile} {
@@ -167,7 +174,7 @@ func aidrEnforceRun(parent context.Context, args []string, out io.Writer, observ
 	defer s.Close()
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	ctx, cancel := context.WithTimeout(ctx, *duration)
+	ctx, cancel := enforcementRunContext(ctx, *duration)
 	defer cancel()
 	if err = c.Bind(ctx, s.Guard); err != nil {
 		return err
@@ -235,7 +242,7 @@ func aidrEnforceRun(parent context.Context, args []string, out io.Writer, observ
 	readDone := make(chan error, 1)
 	go func() {
 		scanner := bufio.NewScanner(output)
-		scanner.Buffer(make([]byte, 16384), 16385)
+		scanner.Buffer(make([]byte, 65536), 65537)
 		var health enforcement.Record
 		var lastSequence uint64
 		for scanner.Scan() {

@@ -1,5 +1,6 @@
 export const sessionMessages = {
   'zh-CN': {
+    loadingSessions: '正在读取会话…', loadingTurns: '正在读取会话轮次…', loadingTimeline: '正在读取时间线…', loadingHint: '数据加载完成后将自动显示',
     activity: '会话活动', sessions: '会话', findSession: '搜索会话 ID', allAgents: '全部 Agent',
     events: { sessionStart: '会话开始', sessionEnd: '会话结束', promptSubmit: '用户提交', preTool: '工具执行前', postTool: '工具执行后', toolFailure: '工具执行失败', permissionRequest: '请求权限', permissionDenied: '权限被拒绝', stop: '本轮结束', interrupt: '本轮中断', notification: '宿主通知', subagentStart: '子 Agent 启动', subagentStop: '子 Agent 停止', preCompact: '开始压缩上下文', postCompact: '上下文压缩完成', taskCompleted: '任务完成', teammateIdle: '协作 Agent 空闲', other: '宿主事件' },
     counts: '消息 {messages} · 工具 {logs} · Hook {hooks}', unknownSession: '未提供会话 ID', latest: '最近活动',
@@ -32,6 +33,7 @@ export const sessionMessages = {
     permissionRequest: '请求权限', truncated: '部分内容已截断，展开查看已采集内容。',
   },
   'en-US': {
+    loadingSessions: 'Loading sessions…', loadingTurns: 'Loading conversation turns…', loadingTimeline: 'Loading the timeline…', loadingHint: 'Records will appear when loading completes',
     activity: 'Session activity', sessions: 'Sessions', findSession: 'Search session ID', allAgents: 'All Agents',
     events: { sessionStart: 'Session started', sessionEnd: 'Session ended', promptSubmit: 'User submitted input', preTool: 'Before tool use', postTool: 'After tool use', toolFailure: 'Tool use failed', permissionRequest: 'Permission requested', permissionDenied: 'Permission denied', stop: 'Turn ended', interrupt: 'Turn interrupted', notification: 'Host notification', subagentStart: 'Subagent started', subagentStop: 'Subagent stopped', preCompact: 'Context compaction started', postCompact: 'Context compaction completed', taskCompleted: 'Task completed', teammateIdle: 'Teammate idle', other: 'Host event' },
     counts: 'Messages {messages} · Tools {logs} · Hooks {hooks}', unknownSession: 'Session ID unavailable', latest: 'Last activity',

@@ -1,4 +1,5 @@
 """Read-only draft matching; no publication, approval or device action."""
+from .aidr_products import HookAgentID
 from typing import Literal
 
 from pydantic import Field, field_validator
@@ -9,7 +10,7 @@ from .aidr_hook_control import ToolPolicyInput, evaluate
 
 class HookRulePreview(Strict):
     policy: ToolPolicyInput
-    agent: Literal['claude', 'codex']
+    agent: HookAgentID
     tool: str = Field(min_length=1, max_length=256, pattern=r'^\S+$')
 
 

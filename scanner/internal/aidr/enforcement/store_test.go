@@ -80,3 +80,47 @@ func TestRuntimeFrozenRecoveryAndBounds(t *testing.T) {
 		t.Fatal("acknowledged queue not empty")
 	}
 }
+
+func TestNetworkFrozenRecovery(t *testing.T) {
+	ctx := context.Background()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir = filepath.Join(dir, "network")
+	s, err := OpenStore(dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := record(t, "1")
+	r.Kind = "network"
+	r.Relation = "direct"
+	r.Root = &r.Process
+	r.Network = &NetworkSnapshot{Source: "libproc_snapshot", Observation: "11111111-1111-1111-1111-111111111111", Protocol: "tcp", Direction: "unknown", LocalIP: "127.0.0.1", LocalPort: 1234, RemoteIP: "127.0.0.1", RemotePort: 4321, State: "established"}
+	if err = s.Append(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.Prepare(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Acknowledge(ctx, b.Digest, b.Count+1); err == nil {
+		t.Fatal("bad ACK removed network record")
+	}
+	s.Close()
+	s, err = OpenStore(dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	recovered, err := s.Prepare(ctx)
+	if err != nil || string(recovered.Payload) != string(b.Payload) || recovered.Digest != b.Digest {
+		t.Fatal("network batch changed", err)
+	}
+	if err = s.Acknowledge(ctx, b.Digest, b.Count); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := s.Pending(ctx); err != nil || count != 0 {
+		t.Fatal("network ACK not drained", count, err)
+	}
+}

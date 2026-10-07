@@ -1,4 +1,5 @@
 """Latest plugin observations and retained readable baselines, never authority."""
+from .aidr_products import HookAgentID
 import json
 import time
 from typing import Literal
@@ -24,9 +25,9 @@ class PluginStatusRow(Base):
 
 
 class PluginStatus(Strict):
-    agent: Literal["claude", "codex"]
+    agent: HookAgentID
     host_version: str = Field(max_length=100)
-    version_status: Literal["unverified", "adapter_target"]
+    version_status: Literal["unverified", "adapter_target", "adapter_available", "interface_compatible"]
     installed: bool | None
     enabled: bool | None
     plugin_version: str = Field(max_length=80)
@@ -36,7 +37,7 @@ class PluginStatus(Strict):
     reported_at: str = Field(min_length=20, max_length=40)
     receiver_code: Literal["aidr_hook_receiver_not_checked", "aidr_hook_receiver_unavailable", "aidr_hook_healthy"]
     configuration_digest: str = Field(default="", pattern=r"^$|^[0-9a-f]{64}$")
-    source_kind: Literal["unknown", "native_install_path", "declared_local_source"]
+    source_kind: Literal["unknown", "native_install_path", "declared_local_source", "settings"]
     files_code: Literal["aidr_plugin_files_unknown", "aidr_plugin_files_unreadable", "aidr_plugin_files_observed"]
     files_digest: str = Field(default="", pattern=r"^$|^[0-9a-f]{64}$")
     scope_digest: str = Field(pattern=r"^[0-9a-f]{64}$")

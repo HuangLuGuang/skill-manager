@@ -9,9 +9,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
+	"skill-manager/scanner/internal/aidr/catalog"
 	"skill-manager/scanner/internal/aidr/localstore"
 	"skill-manager/scanner/internal/aidr/upload"
 )
@@ -29,11 +31,31 @@ func aidrSync(args []string, out io.Writer) (resultErr error) {
 	sinceText := fs.String("since", "", "initial lookback RFC3339; durable cursors keep their original scope")
 	duration := fs.Duration("duration", 0, "optional bounded run duration; zero runs until interrupted")
 	interval := fs.Duration("interval", 2*time.Second, "bounded intake/upload cycle interval")
+	roots := []upload.Root{}
+	fs.Func("source", "repeatable product-id=absolute-root; replaces legacy default roots", func(value string) error {
+		agent, path, ok := strings.Cut(value, "=")
+		if !ok || !catalog.Log(agent) || !filepath.IsAbs(path) {
+			return errors.New("aidr_log_source_invalid")
+		}
+		roots = append(roots, upload.Root{Agent: agent, Path: path})
+		return nil
+	})
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 || *state == "" || *duration < 0 {
 		return errors.New("aidr_upload_config_invalid")
+	}
+	if len(roots) > 0 {
+		conflict := false
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "claude-root" || f.Name == "codex-root" || f.Name == "claude-file" || f.Name == "codex-file" {
+				conflict = true
+			}
+		})
+		if conflict {
+			return errors.New("aidr_log_source_invalid")
+		}
 	}
 	since := time.Now().Add(-24 * time.Hour)
 	if *sinceText != "" {
@@ -80,7 +102,12 @@ func aidrSync(args []string, out io.Writer) (resultErr error) {
 	}
 	// Emit only final health. Live collection never waits on a UI or stdout
 	// consumer; state can be inspected once this explicitly launched run ends.
-	err = upload.Run(ctx, s, c, upload.WorkerOptions{Roots: []upload.Root{{Agent: "claude", Path: *claude, File: *claudeFile}, {Agent: "codex", Path: *codex, File: *codexFile}}, Since: since, Interval: *interval, HeartbeatInterval: 30 * time.Second, DiscoveryInterval: 30 * time.Second})
+	if len(roots) == 0 {
+		roots = []upload.Root{{Agent: "claude", Path: *claude, File: *claudeFile}, {Agent: "codex", Path: *codex, File: *codexFile}}
+	} else if *claudeFile != "" || *codexFile != "" {
+		return errors.New("aidr_log_source_invalid")
+	}
+	err = upload.Run(ctx, s, c, upload.WorkerOptions{Roots: roots, Since: since, Interval: *interval, HeartbeatInterval: 30 * time.Second, DiscoveryInterval: 30 * time.Second})
 	if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}

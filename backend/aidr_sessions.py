@@ -52,48 +52,48 @@ def sessions(db, client_id, *, cursor='', limit=20, keyword='', agent='', includ
     continuation = ''
     if paging['position']:
         params['at'], params['key'] = paging['position']
-        continuation = 'WHERE sort_at < :at OR (sort_at = :at AND key < :key)'
+        continuation = 'AND (sort_at < :at OR (sort_at = :at AND key < :key))'
     rows = db.execute(text(f"""
         WITH evidence AS (
           SELECT agent, session_id, CASE WHEN session_id = '' THEN id ELSE 0 END AS orphan_id,
-            julianday(latest_at) AS at, 1 AS logs, 0 AS hooks, 0 AS messages
+            julianday(latest_at) AS at, 1 AS logs, 0 AS hooks, 0 AS messages,
+            NULL AS prompt_id, 0 AS question_hit
           FROM aidr_operations WHERE client_id = :client_id AND expired_at IS NULL AND id <= :log_max
           UNION ALL
           SELECT json_extract(payload_json, '$.event.agent'), json_extract(payload_json, '$.event.session_id'),
-            0, julianday(json_extract(payload_json, '$.received_at')), 0, 1, 0
+            0, julianday(json_extract(payload_json, '$.received_at')), 0, 1, 0,
+            CASE WHEN json_extract(payload_json, '$.event.kind') = 'turn.submit'
+              AND EXISTS (SELECT 1 FROM json_each(payload_json, '$.event.contents') c
+                WHERE json_extract(c.value, '$.kind') = 'prompt' AND length(json_extract(c.value, '$.text')) > 0)
+              THEN id END,
+            CASE WHEN :include_questions AND :keyword != '' AND json_extract(payload_json, '$.event.kind') = 'turn.submit'
+              THEN EXISTS (SELECT 1 FROM json_each(payload_json, '$.event.contents') c
+                WHERE json_extract(c.value, '$.kind') = 'prompt' AND instr(lower(json_extract(c.value, '$.text')), :keyword) > 0)
+              ELSE 0 END
           FROM aidr_hook_events WHERE client_id = :client_id AND expired_at IS NULL AND id <= :hook_max
           UNION ALL
           SELECT agent, json_extract(payload_json, '$.session_id'), 0,
-            julianday(json_extract(payload_json, '$.observed_at')), 0, 0, 1
+            julianday(json_extract(payload_json, '$.observed_at')), 0, 0, 1,
+            CASE WHEN kind = 'user_message' AND EXISTS (SELECT 1 FROM json_each(payload_json, '$.message.contents') c
+                WHERE length(json_extract(c.value, '$.text')) > 0) THEN -id END,
+            CASE WHEN :include_questions AND :keyword != '' AND kind = 'user_message'
+              THEN EXISTS (SELECT 1 FROM json_each(payload_json, '$.message.contents') c
+                WHERE instr(lower(json_extract(c.value, '$.text')), :keyword) > 0) ELSE 0 END
           FROM aidr_events WHERE client_id=:client_id AND expired_at IS NULL AND id<=:message_max
             AND kind IN ('user_message','assistant_message')
-        ), prompts AS MATERIALIZED (
-          SELECT id, json_extract(payload_json, '$.event.agent') AS agent,
-            json_extract(payload_json, '$.event.session_id') AS session_id,
-            EXISTS (SELECT 1 FROM json_each(payload_json, '$.event.contents') content
-              WHERE json_extract(content.value, '$.kind') = 'prompt' AND length(json_extract(content.value, '$.text')) > 0) AS has_text,
-            EXISTS (SELECT 1 FROM json_each(payload_json, '$.event.contents') content
-              WHERE json_extract(content.value, '$.kind') = 'prompt'
-              AND instr(lower(json_extract(content.value, '$.text')), :keyword) > 0) AS hit
-          FROM aidr_hook_events WHERE client_id = :client_id AND expired_at IS NULL AND id <= :hook_max
-            AND json_extract(payload_json, '$.event.kind') = 'turn.submit'
-          UNION ALL
-          SELECT -id, agent, json_extract(payload_json, '$.session_id'),
-            EXISTS (SELECT 1 FROM json_each(payload_json, '$.message.contents') c WHERE length(json_extract(c.value, '$.text')) > 0),
-            EXISTS (SELECT 1 FROM json_each(payload_json, '$.message.contents') c WHERE instr(lower(json_extract(c.value, '$.text')), :keyword) > 0)
-          FROM aidr_events WHERE client_id=:client_id AND expired_at IS NULL AND id<=:message_max AND kind='user_message'
         ), grouped AS (
           SELECT agent, session_id, orphan_id, SUM(logs) AS log_count, SUM(hooks) AS hook_count, SUM(messages) AS message_count,
             MAX(at) AS sort_at, strftime('%Y-%m-%dT%H:%M:%fZ', MAX(at)) AS latest_at,
             json_array(agent, session_id, orphan_id) AS key,
-            (SELECT coalesce(MIN(CASE WHEN p.id>0 THEN p.id END), MAX(CASE WHEN p.id<0 THEN p.id END)) FROM prompts p WHERE p.agent = evidence.agent AND p.session_id = evidence.session_id AND p.has_text) AS prompt_id
+            coalesce(MIN(CASE WHEN prompt_id > 0 THEN prompt_id END), MAX(CASE WHEN prompt_id < 0 THEN prompt_id END)) AS prompt_id,
+            MAX(question_hit) AS question_hit
           FROM evidence WHERE (:agent = '' OR agent = :agent)
-            AND (:keyword = '' OR instr(lower(session_id), :keyword) > 0 OR (:include_questions AND EXISTS
-              (SELECT 1 FROM prompts p WHERE p.agent = evidence.agent AND p.session_id = evidence.session_id AND p.hit)))
           GROUP BY agent, session_id, orphan_id
-        ) SELECT * FROM grouped {continuation} ORDER BY sort_at DESC, key DESC LIMIT :limit
+        ) SELECT * FROM grouped
+          WHERE (:keyword = '' OR instr(lower(session_id), :keyword) > 0 OR (:include_questions AND question_hit))
+          {continuation} ORDER BY sort_at DESC, key DESC LIMIT :limit
     """), params).mappings().all()
-    items = [{k: v for k, v in row.items() if k != 'sort_at'} for row in rows[:limit]]
+    items = [{k: v for k, v in row.items() if k not in ('sort_at', 'question_hit')} for row in rows[:limit]]
     if include_questions:
         prompts = prompt_content(db, client_id, [r['prompt_id'] for r in items if r['prompt_id']])
         for item in items:

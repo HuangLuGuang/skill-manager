@@ -2,6 +2,7 @@ package managedclient
 
 import (
 	"context"
+	"skill-manager/scanner/internal/aidr/catalog"
 	"time"
 )
 
@@ -11,14 +12,16 @@ type ReceiverRetryPolicy struct {
 	MaxIntervalSeconds int    `json:"max_interval_seconds"`
 }
 type RuntimeGovernancePolicy struct {
-	Modes        *RuntimeProtectionModes    `json:"modes,omitempty"`
-	Channels     *RuntimeCollectionChannels `json:"channels,omitempty"`
-	Enabled      bool                       `json:"enabled"`
-	Hosts        []string                   `json:"hosts"`
-	Installation string                     `json:"installation"`
-	AccessMode   string                     `json:"access_mode"`
-	Updates      string                     `json:"updates"`
-	Retry        ReceiverRetryPolicy        `json:"retry"`
+	Modes               *RuntimeProtectionModes    `json:"modes,omitempty"`
+	Channels            *RuntimeCollectionChannels `json:"channels,omitempty"`
+	Enabled             bool                       `json:"enabled"`
+	Hosts               []string                   `json:"hosts"`
+	AllowUserEnrollment *bool                      `json:"allow_user_enrollment,omitempty"`
+	LogSources          []string                   `json:"log_sources,omitempty"`
+	Installation        string                     `json:"installation"`
+	AccessMode          string                     `json:"access_mode"`
+	Updates             string                     `json:"updates"`
+	Retry               ReceiverRetryPolicy        `json:"retry"`
 }
 
 type RuntimeProtectionModes struct {
@@ -45,15 +48,23 @@ func (p RuntimeGovernancePolicy) Valid() bool {
 	if p.Modes != nil && ((p.Modes.Hooks != "" && p.Modes.Hooks != "audit" && p.Modes.Hooks != "intercept") || (p.Modes.System != "" && p.Modes.System != "audit" && p.Modes.System != "intercept")) {
 		return false
 	}
-	if len(p.Hosts) > 2 || (p.Installation != "manual" && p.Installation != "automatic") || (p.AccessMode != "ordinary" && p.AccessMode != "managed") || (p.Updates != "manual" && p.Updates != "automatic") {
+	if len(p.Hosts) > 32 || len(p.LogSources) > 32 || (p.LogSources != nil && len(p.LogSources) == 0) || (p.Installation != "manual" && p.Installation != "automatic") || (p.AccessMode != "ordinary" && p.AccessMode != "managed") || (p.Updates != "manual" && p.Updates != "automatic") {
 		return false
 	}
 	seen := map[string]bool{}
 	for _, h := range p.Hosts {
-		if (h != "codex" && h != "claude") || seen[h] {
+		product, _ := catalog.Get(h)
+		if !catalog.Hook(h) || seen[h] || (p.AccessMode == "managed" && !product.Managed) {
 			return false
 		}
 		seen[h] = true
+	}
+	seen = map[string]bool{}
+	for _, source := range p.LogSources {
+		if !catalog.Log(source) || seen[source] {
+			return false
+		}
+		seen[source] = true
 	}
 	r := p.Retry
 	return (r.Mode == "none" || r.Mode == "fixed" || r.Mode == "continuous") && r.Retries >= 0 && r.Retries <= 20 && r.MaxIntervalSeconds >= 10 && r.MaxIntervalSeconds <= 3600

@@ -303,3 +303,41 @@ func TestAIDRManagedPolicyDoesNotClaimAuthorizationOrLoop(t *testing.T) {
 		t.Fatal(prefs)
 	}
 }
+
+func TestReconcileMissingHostDoesNotSkipOtherAgent(t *testing.T) {
+	home := shortDesktopTestHome(t)
+	if err := managedclient.SaveConfig(home, managedclient.Config{Server: "http://127.0.0.1:9", Token: "fictional"}); err != nil {
+		t.Fatal(err)
+	}
+	_, paths, err := desktopBinding(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(home, "claude-fixture")
+	if err = os.WriteFile(binary, []byte("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then printf 'fixture\\n'; else printf '[]\\n'; fi\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	prefs := desktopPreferences{Hosts: map[string]desktopHost{"codex": {Home: filepath.Join(home, ".codex")}, "claude": {Binary: binary, Home: filepath.Join(home, ".claude")}}}
+	if err = writeDesktopJSON(filepath.Join(paths.Root, "preferences.json"), prefs); err != nil {
+		t.Fatal(err)
+	}
+	target := managedclient.RuntimeGovernancePolicy{Enabled: true, Hosts: []string{"codex", "claude"}, Installation: "manual", AccessMode: "ordinary", Updates: "manual", Retry: managedclient.ReceiverRetryPolicy{Mode: "fixed", Retries: 2, MaxIntervalSeconds: 300}}
+	result, err := reconcileAIDRPolicy(context.Background(), home, managedclient.Task{ID: 1, Payload: map[string]any{"policy_version": "1", "target": target}})
+	if err != nil || result["enabled"] != true {
+		t.Fatal(result, err)
+	}
+	for _, agent := range []string{"codex", "claude"} {
+		var observed struct {
+			Plugin hooks.PluginStatus `json:"plugin"`
+		}
+		if err = readDesktopJSON(filepath.Join(paths.Root, "observed-"+agent+".json"), &observed); err != nil {
+			t.Fatal(err)
+		}
+		if agent == "codex" && observed.Plugin.SourceCode != "aidr_desktop_host_missing" {
+			t.Fatal(observed)
+		}
+		if agent == "claude" && (observed.Plugin.Installed == nil || *observed.Plugin.Installed) {
+			t.Fatal("second Agent was not inspected", observed)
+		}
+	}
+}

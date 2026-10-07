@@ -32,7 +32,15 @@
                 </a-select>
                 <p class="effective">{{ t(`clientGovernance.runtime.mode_${channel}_hint`) }}</p>
               </a-form-item>
-              <a-form-item :label="t('clientGovernance.runtime.hosts')"><a-select v-model:value="runtimeGovernance.hosts" mode="multiple" :disabled="runtimeDisabled"><a-select-option value="codex">Codex</a-select-option><a-select-option value="claude">Claude Code</a-select-option></a-select></a-form-item>
+              <a-form-item :label="t('clientGovernance.runtime.logSources')">
+                <a-select :value="runtimeGovernance.log_sources || ['claude', 'codex']" mode="multiple" :disabled="runtimeDisabled" @change="value => runtimeGovernance.log_sources = value"><a-select-option v-for="product in products.filter(p => p.logs)" :key="product.id" :value="product.id">{{ product.name }}</a-select-option></a-select>
+                <p class="effective">{{ t('clientGovernance.runtime.productHint') }}</p>
+              </a-form-item>
+              <a-form-item :label="t('clientGovernance.runtime.userEnrollment')">
+                <a-switch v-model:checked="runtimeGovernance.allow_user_enrollment" :disabled="runtimeDisabled" />
+                <p class="effective">{{ t('clientGovernance.runtime.userEnrollmentHint') }}</p>
+              </a-form-item>
+              <a-form-item :label="t('clientGovernance.runtime.hosts')"><a-select v-model:value="runtimeGovernance.hosts" mode="multiple" :disabled="runtimeDisabled"><a-select-option v-for="product in products.filter(p => p.hooks)" :key="product.id" :value="product.id" :disabled="runtimeGovernance.access_mode === 'managed' && !product.managed">{{ product.name }}</a-select-option></a-select></a-form-item>
               <a-form-item v-for="field in ['installation', 'access_mode', 'updates']" :key="field" :label="t(`clientGovernance.runtime.${field}`)"><a-select v-model:value="runtimeGovernance[field]" :disabled="runtimeDisabled"><a-select-option v-for="option in runtimeOptions[field]" :key="option" :value="option">{{ t(`clientGovernance.runtime.${field}_${option}`) }}</a-select-option></a-select></a-form-item>
               <a-form-item :label="t('clientGovernance.runtime.retry')"><a-select v-model:value="runtimeGovernance.retry.mode" :disabled="runtimeDisabled"><a-select-option v-for="mode in ['none','fixed','continuous']" :key="mode" :value="mode">{{ t(`clientGovernance.runtime.retry_${mode}`) }}</a-select-option></a-select></a-form-item>
               <a-form-item v-if="runtimeGovernance.retry.mode === 'fixed'" :label="t('clientGovernance.runtime.retryCount')"><a-input-number v-model:value="runtimeGovernance.retry.retries" :min="0" :max="20" :precision="0" :disabled="runtimeDisabled" /></a-form-item>
@@ -183,6 +191,7 @@
 </template>
 
 <script setup>
+import products from '../aidr-products.json'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AidrRedactionSettings from './AidrRedactionSettings.vue'
@@ -201,7 +210,7 @@ const gateways = ref([]), policyError = ref(''), gatewayError = ref('')
 const modelRouting = ref({ external_gateway_enabled: false, external_gateway_id: null, auto_register_agent: true, client_select_model: true })
 const modelRoutingDefault = ref({ external_gateway_enabled: false, external_gateway_id: null, auto_register_agent: true, client_select_model: true })
 const inheritModelRouting = ref(false)
-const runtimeDefaults = () => ({ enabled: true, modes: { hooks: 'audit', system: 'audit' }, hosts: [], installation: 'manual', access_mode: 'ordinary', updates: 'manual', retry: {mode: 'fixed', retries: 2, max_interval_seconds: 300} })
+const runtimeDefaults = () => ({ enabled: true, allow_user_enrollment: true, modes: { hooks: 'audit', system: 'audit' }, channels: { logs: true, hooks: true, system: false }, hosts: ['codex', 'claude'], installation: 'automatic', access_mode: 'ordinary', updates: 'automatic', retry: {mode: 'fixed', retries: 2, max_interval_seconds: 300} })
 const runtimeGovernance = ref(runtimeDefaults())
 function setMode(channel, value) {
   runtimeGovernance.value.modes = { hooks: null, system: null, ...runtimeGovernance.value.modes, [channel]: value === 'legacy' ? null : value }
@@ -290,7 +299,7 @@ async function load() {
     const result = policyResult.value
     const gatewayRows = gatewayResult.status === 'fulfilled' ? gatewayResult.value : []
     policy.value = result
-    runtimeGovernance.value = structuredClone(result.runtime_governance || runtimeDefaults())
+    runtimeGovernance.value = structuredClone(result.runtime_governance_override || result.runtime_governance_default || runtimeDefaults())
     if (!result.runtime_governance_configured) runtimeGovernance.value.modes = runtimeDefaults().modes
     if (result.runtime_channels_protocol === 3 && !runtimeGovernance.value.channels) runtimeGovernance.value.channels = { logs: false, hooks: true, system: false }
     inheritRuntime.value = Boolean(clientId && !result.runtime_governance_override)

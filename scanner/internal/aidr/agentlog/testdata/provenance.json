@@ -30,5 +30,13 @@
     "records": 17,
     "source": "2026-10-04 owned temporary seven-command native CLI task; exit 0, six tool exit codes 0 and one 7",
     "anonymization": "session/turn/call IDs, timestamps and owned workspace replaced; only controlled commands retained; output bodies and private metadata omitted, explicit exit codes retained"
+  },
+  {
+    "fixture": "codex-0.160.1.jsonl",
+    "agent": "codex",
+    "observed_version": "0.160.1",
+    "records": 8,
+    "source": "2026-10-07 owned native CLI session; one harmless printf, commentary and final reply; six Hook events uploaded",
+    "anonymization": "timestamps, session/turn/call IDs and cwd replaced; context messages omitted; controlled prompt simplified; native custom tool input and output structure retained"
   }
 ]

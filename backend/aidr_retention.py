@@ -1,14 +1,15 @@
 """Bounded audit payload expiry; identity, digest and durable ACK rows survive."""
 import asyncio
 import hashlib
+import json
 from datetime import datetime, timedelta, timezone
 
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 
 from .aidr_policy import CLIENT_KEY, current
-from .models import SystemConfig
-from .aidr_models import AidrEvent, AidrHookEvent, AidrCoverageRecord, AidrOperation
+from .models import SystemConfig, ClientEvent
+from .aidr_models import AidrEvent, AidrHookEvent, AidrCoverageRecord, AidrOperation, AidrSkillUse
 from .aidr_enforcement import AidrRuntimeRecord
 
 
@@ -18,7 +19,7 @@ def expire_once(db, now=None, limit=500):
     now = now or datetime.utcnow()
     default_days = current(db)['lifecycle']['retention_days']
     counts = {}
-    for model in (AidrEvent, AidrHookEvent, AidrCoverageRecord, AidrOperation, AidrRuntimeRecord):
+    for model in (AidrEvent, AidrHookEvent, AidrCoverageRecord, AidrOperation, AidrRuntimeRecord, AidrSkillUse):
         runtime = model is AidrRuntimeRecord
         # Filter by the effective device policy before LIMIT so long-retention
         # devices cannot consume the cleanup budget or starve other devices.
@@ -36,6 +37,15 @@ def expire_once(db, now=None, limit=500):
             if runtime and not row.content_hash:
                 row.content_hash = hashlib.sha256(row.payload_json.encode()).hexdigest()
             row.payload_json = '{}'
+            if model is AidrSkillUse:
+                row.session_id = ''
+                row.certification = 'pending'
+                key = hashlib.sha256(('skill-use:' + row.client_id + ':' + row.call_key).encode()).hexdigest()
+                alert = db.query(ClientEvent).filter_by(aggregate_key=key).first()
+                if alert:
+                    details = json.loads(alert.details_json)
+                    details['active'] = False
+                    alert.details_json = json.dumps(details)
             row.expired_at = now.replace(tzinfo=timezone.utc).isoformat(timespec='microseconds') if runtime else now
             if model is AidrOperation:
                 row.session_id, row.tool = '', ''

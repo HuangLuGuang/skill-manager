@@ -1,17 +1,17 @@
 {
   "name": "aidr-codex",
-  "version": "0.1.1",
-  "description": "AIDR lifecycle evidence through the local Agent Manager receiver.",
+  "version": "0.1.2",
+  "description": "Agent Manager: audit supported host events through the local receiver.",
   "author": {
     "name": "Agent Manager"
   },
   "interface": {
-    "displayName": "AIDR Codex",
-    "shortDescription": "Collect Agent lifecycle evidence locally.",
-    "longDescription": "Forward supported lifecycle hooks to the local Agent Manager receiver for policy-controlled audit projection.",
+    "displayName": "Agent Manager",
+    "shortDescription": "Agent Manager Hook integration for Codex.",
+    "longDescription": "Send supported host events to the Agent Manager Local Receiver. Installation and event delivery are verified separately.",
     "developerName": "Agent Manager",
     "category": "Productivity",
     "capabilities": [],
-    "defaultPrompt": "Explain the current AIDR plugin coverage."
+    "defaultPrompt": "Explain Agent Manager integration status and supported events."
   }
 }

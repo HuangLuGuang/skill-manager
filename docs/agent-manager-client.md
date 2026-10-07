@@ -1,5 +1,70 @@
 # Agent Manager Client 使用说明
 
+## 接入后自动采集与 Hook 状态
+
+未保存运行治理策略时，平台默认启用 Agent 日志和 Hook，关闭系统通道，Hook 使用仅审计模式；目标为本机发现的 Codex / Claude Code，普通插件自动安装和更新。客户端接入平台、取得有效策略后，既有后台服务自动读取日志，桌面原生监督器自动启动 Hook 接收器，无需再次点击“启用自动运行”。客户端启动前应先升级平台。旧协议无法应用新通道/模式时需更新客户端；旧客户端在没有显式策略时保留原有手动接收器控制。
+
+已保存的全局策略、单台覆盖和关闭设置保持不变。单台客户端选择继承后使用当前全局策略；需要自动安装已有单机配置的插件时，在“客户端策略 → 接入与采集”将安装方式设为自动。采集正文、脱敏及截断长度仍由审计策略决定。只安装应用、尚未接入平台，不会得到上传目标。普通插件需要的宿主启用/信任，以及企业受管安装需要的管理员授权，均不能由平台代替。接收器由桌面进程监督，退出桌面应用会回收它；再次启动桌面后按策略恢复，后台日志服务独立运行。
+
+“客户端详情 → 插件接入”和“行为审计 → 采集状态”按 Agent 直接展示：插件未安装/已安装/未发现 Agent、宿主未启用/已启用、授权待审阅/已授权/受管信任/管理员授权取消或失败/未知、本地接收器状态、最近 15 分钟 Hook 事件到达时间。状态来自不同证据：无事件不等于未授权，接收器运行不等于宿主已经加载插件。原生授权不可查询时保持未知。宿主每 5 分钟检查，观察有效期 8 分钟以覆盖两个宿主各最多 1 分钟检查；同时要求客户端报告未过期，接收器使用独立的 30 秒观察窗口。未发现一个目标 Agent 不再阻止检查另一个。
+
+**English:** With no saved runtime override, the platform enables Agent logs and Hooks in audit mode, leaves system collection off and automatically installs/updates ordinary plugins for discovered Codex and Claude Code hosts. After enrollment and policy delivery, the existing daemon collects logs and the desktop supervisor starts the Hook receiver automatically. Existing global/device policies and explicit disabling are preserved; content capture, redaction and truncation continue to follow audit policy. Native host trust and managed-installation administrator authorization still require the appropriate user action. The Hook receiver is owned by the desktop process and stops when that application exits; it resumes under policy on the next launch. The log daemon is independent. Older protocols require a client upgrade for the new channel/mode target; their existing manual receiver controls remain available when no explicit policy owns them.
+
+The platform shows installation, enablement, native authorization, receiver state and recent event arrival separately. An absent event does not establish lack of authorization, and a running receiver does not prove native Hook loading. Host observations allow eight minutes for the five-minute inspection cycle plus bounded host checks, while client and receiver freshness are checked independently. Missing hosts do not prevent checking other targets.
+
+人工验收清单 / Manual checks：① 全新客户端接入后继承默认策略，日志与 Hook 自动运行；② 全局关闭、单台覆盖关闭及恢复继承；③ 本机没有某个 Agent 时其余目标继续接入；④ Codex /hooks 待审阅与完成信任的状态变化；⑤ 受管授权取消/失败，平台保持具体状态；⑥ 桌面重开后的 Hook 自动恢复与真实事件到达；⑦ 中英文及窄屏下安装、授权、接收器和近期事件均可读。自动化回归和现有设备实页检查不代表全新安装、每种宿主授权和重登系统均已现场验收。
+
+2026-10-07 验证：相关 Python 回归 67 项通过，观察有效期调整后相关 44 项再次通过；Go 客户端包测试和构建、平台构建及 i18n 检查通过。现有设备平台实页已核对 Codex 0.160.1 的安装、启用、授权、接收器及持续到达事件，Claude 授权保持未知；中文、英文及 390px 布局已检查。扩展 Go 测试中的 `TestDiscoverFindsSupportedAgentsAndSkills` 因发现数量与期望 14 不同失败，尚未确认其基线，不计为全套通过。新 Go 构建未替换正在运行的客户端，缺失宿主继续协调分支已做隔离回归，仍需新版客户端实机验收。
+
+**English validation:** 67 relevant Python tests passed, with 44 rerun after the freshness change. Client package tests/build, platform build and i18n checks passed. The existing device showed Codex installation, enablement, authorization, receiver health and arriving Hooks; Claude authorization remained unknown. Chinese, English and 390px layouts were inspected. The broader Go inventory test failed its expected count of 14; its baseline remains unverified. The newly built Go binary has not replaced the running client, so missing-host reconciliation still needs live upgraded-client acceptance.
+
+
+## 系统网络连接快照
+
+桌面“运行治理 → 系统采集”统一开始和停止。平台“行为审计 → 系统事件”选择“网络连接快照”立即筛选；列表优先显示 Agent、程序、远端 IP:端口、协议、采样状态及时间，同一观察实例可展开原始快照。旧客户端显示网络状态未报告，不根据系统采集在线推断网络正常。
+
+这是约每秒的套接字快照，仅覆盖策略内且已确认归属的进程；短连接、瞬时失败可能漏采，消失不证明关闭。TCP 状态不是 HTTP 结果。方向、域名、累计收发量和完整时长当前不可得；不采集网络正文。请先升级平台，再更新客户端并通过页面停止/重新开始以更新采集组件。历史与未 ACK 队列保留。技术路线及签名边界见 [采集器说明](../client/macos-enforcer/README.md#网络连接快照--network-socket-snapshots)。
+
+**English:** Start/stop through Runtime governance → System collection. Filter Network socket snapshots under Behavior audit → System events. Snapshots show attributed Agent/process, remote IP:port, protocol, sampled state and time, with original observations retained. This is bounded polling, not full flow telemetry; short connections and transient failures may be missed. Missing sockets do not prove closure. Direction, domains, transfer totals and full duration are unavailable. Network health is independent; older clients remain unreported. Upgrade the platform first, then restart collection through the desktop. History and unacknowledged queues are retained.
+
+2026-10-07 实机结果：已授权启动，真实 Claude 请求本地受控服务及其 SessionStart Hook 子进程产生 12 条网络快照（9 个观察实例），包含 IPv4/IPv6 TCP 建立、CLOSE_WAIT 和 UDP 未知；同目标连接未合并，非目标程序未纳入。平台入库、上传确认、中英文详情、停止回执与进程回收通过，停止后待上传 0。该测试没有真实模型成功响应，Hook 子进程不代表模型驱动工具。取消授权已通过：页面明确提示已取消、未启动，未残留采集进程或控制 socket；实机离线恢复/权限拒绝/组件失败仍需逐项完成，见 [详细验证状态](../client/macos-enforcer/README.md#2026-10-07-验证状态--validation-status)。
+
+**English:** Live authorization, Claude requests to a controlled local stub, startup-Hook children, 12 network snapshots across 9 observation IDs, scope exclusion, upload confirmation, bilingual platform details and clean stop passed with zero backlog. This does not establish successful model calls or model-driven tools. Live cancellation also passed, with an explicit cancelled state and no remaining collector or control socket. Live offline recovery, permission denial and component failure remain pending.
+
+人工验收清单（两种语言）：① 启动授权/取消、重复点击；② 真实 Agent 与其子进程访问本地受控服务，分别核对 TCP 建立、对端 FIN 和不在范围的程序；③ 同目标多次连接的观察 ID 不相同；④ 本地记录、上传 ACK、平台记录序列、页面详情一致；⑤ 网络不可读/组件失败不能显示网络正常；⑥ 离线积压恢复后无丢失/重复；⑦ 停止进程回收及队列处理；⑧ IPv6、长路径、窄屏、详情原始记录及抽屉切换宽度；⑨ 完整瞬时失败事件、完整流关闭、流量统计与真实模型调用分别记录未验证/不支持，不能以 Hook 测试或独立测试替代。
+
+
+## Agent 小版本兼容与接入检查
+
+Hook 插件接入按宿主实际提供的接口判断，不使用 Claude/Codex 精确版本白名单。版本号仅作诊断元数据；原生插件列表格式可读、安装/启用状态明确时，显示“接入接口可用”。Codex 优先查询本地 App Server；只有宿主明确返回方法不支持时才尝试旧 CLI 列表接口。读取失败、格式变化或来源冲突须修复对应问题，不会被解释为“未安装”。安装和更新仍通过宿主原生命令执行，并读取实际结果；接口可用不代表 Hook 已信任或事件已上传。
+
+Agent 日志按实际记录格式解析，同一格式跨小版本继续采集用户输入、过程回复、最终回复和工具操作。不再因陌生版本制造覆盖缺口；真实解析失败、截断、会话身份缺失仍按原机制报告。旧游标中纯版本提示保留历史但不再影响当前覆盖状态，原游标位置、队列、冻结批次和事件身份保持。
+
+系统级受管安装不限定 Codex 0.159.0。安装前检查宿主原生查询接口；Codex 安装后及受管策略应用前，核对全部产品 Hook 的原生命令、启用状态、system 来源和 managed 信任，确认后才应用运行目标。安装前探测不代表受管配置已生效；Claude 当前仍按原生插件接口及系统配置检查，独立加载/信任保持原证据边界。系统事件采集继续依赖操作系统能力、授权、签名、有效进程归属策略和实际订阅，与 Agent 精确版本无关。
+
+**升级顺序：先更新平台后端与前端，再更新桌面客户端及 Go 采集组件并重启客户端。** 新状态 `interface_compatible` 需要配套平台接收；旧客户端 `adapter_target` 报告仍可读取，并标为旧版验收报告。无需更改 Agent 配置、删除日志游标或重新创建采集队列。未知版本不自动获得信任或审批权限；拦截仍要求有效签名策略和匹配的决定。
+
+**验证与人工清单：**本次以真实 Codex 0.160.1 完成只读插件接口与受管安装前探测；兼容协议样本覆盖不同小版本/预发行/厂商版本、方法缺失、格式错误、原生读取失败、日志正文与工具关联、旧版本提示和真实历史缺口。其他真实 Agent 版本、管理员安装/升级/移除及新包端到端运行仍需分别实机验收。受影响 UI：桌面“运行治理 → 接入与采集”、平台“客户端详情 → 插件接入”及采集诊断。人工检查：① 中英文状态及英文长文案；② 更新后自检、安装/更新与原生信任分开显示；③ 真实新问答核对输入、过程/最终回复、工具及 Hook 平台 ACK；④ 受管安装取消/批准、升级/移除，以及配置未加载时的具体错误。未新增 UI 单元测试。
+
+**English:** Integration is checked against native interfaces, not exact Agent release allowlists. Codex uses the local App Server and negotiates the legacy CLI only on an explicit method-not-supported response. Read errors and ambiguous sources remain unknown. Logs are parsed by observed record format; unfamiliar versions do not create coverage gaps. Real format/identity failures remain visible, and existing cursors and queues are retained. Managed Codex installation checks the inspection interface before authorization and exact native managed Hooks before applying the target. Claude's independent loading/trust evidence remains limited to the existing contract. OS collection is independent of Agent releases. Upgrade the platform first, then the desktop/Go components and restart the client. Native 0.160.1 read-only probes and protocol fixtures passed; other physical versions and the updated managed install/upgrade/removal still require acceptance. Check both languages, installation/trust separation, fresh conversation delivery and managed authorization/error flows manually.
+
+## 桌面运行治理工作台
+
+“接入与采集”使用双栏布局：左侧按产品选择，右侧分别显示日志策略、Hook 配置和操作。Qoder 保留一个产品入口，内部选择 CLI、共享 Hook、IDE、Work，状态和操作继续使用各自的产品标识；OpenCode 的日志入口也可查看。顶部集中显示共享接收器和上传回执，暂停时就近提供重试入口。安装、宿主信任、平台启用、事件到达分别展示；当前桌面接口没有逐产品到达回执，因此最后一步提示在平台查看，不能用共享通道运行或 ACK 代替某产品的真实事件。
+
+“系统采集”左侧为开始/停止、已生效模式、进程/文件及独立网络状态、待上传与最近确认，右侧为最近事件。主导航、页签和左侧控制不随事件滚动。网络保持连接快照语义。连接标识、版本、权限说明与原始事件诊断按需展开；命令、路径和退出结果保持原文。
+
+**English:** Runtime governance uses a product rail and independent details pane. Qoder entries share one brand navigation item while retaining separate capabilities and actions. The receiver and upload receipts are shared channel observations, not per-product event-delivery proof. System collection keeps controls on the left and recent events on the right; tabs and controls remain visible while events scroll. Network status remains independent and describes socket snapshots. Existing enrollment, host authorization, start/stop and durable upload behavior are retained.
+
+人工验收清单 / Manual checks（不新增 UI 单元测试）：
+
+- [ ] 首次进入、反复切换两个页签、滚动事件与展开诊断时，页签和左栏保持稳定。
+- [ ] 切换各 Agent 和 Qoder 各入口；无日志/Hook 能力时不展示可用采集操作。
+- [ ] 安装、授权、策略启用、事件到达的状态分开；报告过期和未报告保持未知。
+- [ ] 中英文 1080×720 和 900×620 窗口，长故障原因、路径、命令、IPv6 不覆盖相邻内容。
+- [ ] 启用 Hook、安装更新、移除、宿主审阅和重试接收器的真实流程；操作中重复点击被禁用。
+- [ ] 系统开始授权、取消、权限不足、启动失败、真实事件上传与停止补传；网络未采样时不显示网络采集正常。
+
 ## 桌面系统采集（2026-10-05）
 
 **入口：运行治理 → 系统采集。** 在平台启用该设备的系统通道，并在“策略与审批 → 系统采集策略”发布有效的 Agent 可执行文件归属策略。平台服务使用 `AIDR_POLICY_SIGNING_KEY_FILE` 指定私有签名密钥；桌面通过已有设备连接取得公开验签公钥，并在 root 私有目录固定该信任。
@@ -32,7 +97,7 @@ Hook 仅审计记录宿主事件；采集故障报告缺口并放行。拦截按
 
 **English:** The subsequent native Hook test passed Codex approval/denial, marker outcomes, terminal receipts and exact upload matching for 11 Hooks. Claude model errors prevented any tool call. API-submitted decisions and isolated CLI control do not replace manual browser approval or desktop mode-switch checks; see the Hook acceptance record.
 
-“停止采集”先停止订阅并回收原生进程，再进行最多 5 秒补传。未确认记录持久保留，下次开始继续上传；停止与排空分别报告。关闭窗口仍继续采集，每次最长 24 小时，重启机器后需要手动开始。平台关闭系统通道、策略过期或凭证被拒绝会停止采集。
+“停止采集”先停止订阅并回收原生进程，再进行最多 5 秒补传。未确认记录持久保留，下次开始继续上传；停止与排空分别报告。关闭窗口仍继续采集，持续至主动停止或进程退出；重启机器后需要手动开始。在线设备自动续签相同配置；平台关闭系统通道或凭证被拒绝会停止采集。断网时保留待发记录，离线租约到期的控制行为按策略处理。
 
 开发包只支持 SIP 已关闭的环境，安装/更新时将 ES entitlement 嵌入 ad-hoc 签名；未变更的组件再次启动不重新签名。客户端不会修改 SIP。正式包仍须 Developer ID、Apple ES 授权及公证。开发测试不等同正式发行验收。
 
@@ -105,7 +170,17 @@ Hook采集gate单独持久化在既有hook_meta，关闭后拒绝新记录，已
 
 真实测试用户准备前的基线：本次已有有限授权，系统级受管测试当时因真实运行冲突暂停：日常真实 Home 的基础工作者、接收器及业务 Codex 进程仍在运行；日常 bridge 为 ordinary。产品受管入口校验操作系统真实用户 Home，不能把私有测试 Home 冒充真实 Home，也不能把日常设备/队列切成独立测试设备。该基线阶段未调用系统安装/移除、未弹管理员授权。已私有保存基线；`/etc/codex/requirements.toml`、Claude macOS managed-settings 和产品 managed 目录均仍不存在；日常 bridge 与 launchd plist 字节、权限、所有者、摘要完全不变，不需要恢复系统配置。随后使用真实aidr-test用户和独立设备完成取消、批准及三种受管生命周期；当前系统变化和恢复待验项见下文。
 
-普通 Codex 精确支持 0.158.0-alpha.2.1、0.159.0、0.159.2、0.160.0；受管 Codex 目标仍为精确 0.159.0；Claude 目标 2.1.220。本次没有删除版本限制、伪造原生信任或启动手动接收器。Claude 信任报告仍未知，实际 Hook 触发证据单独保存。
+历史实机覆盖 Codex 0.158.0-alpha.2.1、0.159.0、0.159.2、0.160.0、0.160.1 和 Claude 2.1.220。当前兼容判断见本文“小版本兼容与接入检查”；该清单记录测试证据，不作为接入白名单。
+
+2026-10-07 在 ChatGPT.app 内置 Codex 0.160.1 验证了本地插件查询和 12 个已启用、持久信任的 Hook。真实新 CLI 会话的 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、Stop、SessionEnd 共 6 条事件已进入平台；会话日志中的用户输入、过程回复、最终回复和一次工具调用/结果分别核对。无退出码的日志工具结果保持未知。同日续验通过平台审批拒绝/允许，以及原生权限请求、压缩、中断和子代理生命周期；25 条生命周期事件覆盖全部 12 类声明 Hook，另有 11 条审批 Hook，均精确匹配平台入库和持久 ACK。此次历史续验时受管入口被 0.159.0 白名单阻断；当前已改为接口探测，但新版实际受管安装、升级或移除仍未完成。详见 `experiments/aidr-agentlog/ACCEPTANCE.md` 的 2026-10-07 记录。
+
+Hook 接收器异常退出后遵循平台重试次数；默认首次启动后最多重试两次。次数用尽或故障要求人工处理时，客户端明确显示“自动重试已暂停”，检查原因后使用“运行治理 → 接入与采集 → 重试接收器”恢复。操作保留队列及上传身份；历史缺口不能补齐，历史缺口提示也不代表当前仍离线。验收应同时核对新事件及平台 ACK。
+
+**English:** Ordinary Codex 0.160.1 uses the native local plugin inventory. On 2026-10-07, twelve enabled, persistently trusted hooks were observed; a real CLI session delivered six lifecycle/tool hooks and session-log input, commentary, final response, and a tool call/result to the platform. Missing shell exit evidence stays unknown. A subsequent run passed API-driven platform allow/deny (11 Hooks) and native permission, compaction, interruption and subagent lifecycle (25 Hooks covering all 12 declared types), with exact platform/durable ACK matching. Approval used invocation-scoped trust; lifecycle probes used persisted trust. The version gate observed during that run has now been replaced by interface probes; actual managed installation, upgrade and removal on 0.160.1 still require acceptance. Manual browser approval and desktop mode switching remain separate acceptance items. When receiver retries pause or exhaust the platform budget (two retries by default), inspect the cause and use Runtime Governance → Integration & Collection → Retry Receiver. Queues and upload identities are retained; recovery does not reconstruct historical gaps. Verify fresh events and platform ACKs.
+
+本次受影响 UI 为桌面“接入与采集”的接收器摘要、诊断及 Codex 兼容状态。人工复验清单：① 中文/英文检查 0.160.1 安装、启用、信任与兼容状态；② 正常退出再启动桌面，检查接收器自动恢复及新会话上传；③ 在独立测试设备制造重试耗尽，核对暂停提示与“重试接收器”恢复。①②已实测，③的新暂停文案未做现场故障注入。真实更新后会话 `01a113da-83a8-7781-8b5b-f1b5a554fa8a` 的 6 条 Hook 回执及 6 条日志逻辑 ID 与本地持久 ACK 已核对，网页显示过程回复、最终回复和工具记录。
+
+**English manual checklist:** Inspect Codex 0.160.1 status in both languages; quit/reopen the desktop and verify automatic receiver recovery plus fresh uploads (both passed). On an isolated device, exhaust retries and verify the new paused-state guidance and recovery button (fault injection for the new wording remains pending). The post-update session above has six acknowledged Hooks and six log records matched by logical ID to durable local ACKs; the platform shows commentary, final reply and tool activity.
 
 网页登录中断的一项实际原因已定位：验收 API 脚本用同一管理员再次登录，会更新 current_session_id，使浏览器原会话失效。API 核对与真实网页检查顺序执行，或使用不同的已有授权测试账号，避免验收相互干扰；不修改产品单会话鉴权。本次正确账号及新验证码登录后真实双语详情已通过。此前无响应的全部历史现象不据此一概归因。
 
@@ -327,6 +402,14 @@ visible but are excluded from the Agent count.
 平台任务，支持按 Agent、有效处置类型和时间筛选及分页；巡检与处置列表单独展示 Skill、
 Agent、类型、结果和最近发生时间。切换到执行记录会重新加载第一页，页面打开期间收到新的
 治理通知也会自动刷新第一页。右上角齿轮进入设置，铃铛进入安全通知。
+
+平台任务按实际动作显示，例如“安装 Hook 插件”“检查 Hook 插件接入”“自动应用接入与采集策略”，并显示目标 Agent、任务编号、策略和插件版本。策略任务可展开查看当次保存的通道、模式及自动安装/更新目标；这些是任务目标，执行结果以该行状态和错误为准。类型筛选可直接选择具体 Hook 操作，Agent 筛选包含策略任务中的多个目标。历史记录无需迁移，缺少字段时保留未知，不使用当前策略补写旧任务。
+
+**English:** Platform tasks show their specific action, target Agents, task ID and policy/plugin versions. Expand a policy task to inspect its saved channel, mode and installation/update targets; task status and errors report its outcome. Type filters distinguish Hook operations, and Agent filters include all policy targets. Historical records are read as stored; missing details are not reconstructed from today's policy.
+
+人工验收 / Manual checks：① 安装、更新、自检、接收器启停及策略任务名称可区分；② 展开策略任务并核对历史版本和目标；③ 按 Codex / Claude Code、具体动作、状态及时间组合筛选并翻页；④ 老记录缺少目标时正常展示；⑤ 中英文及客户端最小窗口下任务、错误详情与筛选可读。未新增 UI 单元测试。
+
+2026-10-07 已用开发包检查中英文真实历史任务、策略目标展开和错误文案，自检类型筛选返回两条对应历史记录。历史 API 回归 3 项、桌面 i18n 检查 29 项和开发包构建通过；完整筛选组合及其他操作类型仍按上述清单人工验收。
 
 ## 模块化治理的边界
 
@@ -895,6 +978,10 @@ macOS 系统防护中的终止入口使用服务端返回的 `can_terminate` / `
 
 行为审计使用“工具操作（Agent 日志）”“宿主事件（Hook）”“系统事件”“采集状态”四个视图。工具操作顶部说明数据来自当前设备的 Claude Code / Codex 会话日志，由客户端读取并上传；空列表提示检查 Agent 日志通道，并提供宿主事件入口。日志调用/结果仍按可靠身份合并，Hook原生事件独立分页，系统证据不由日志替代；日志空列表提供Hook入口。采集状态分别展示Hook接收器与日志读取器，各自保留报告时间、未知值、脱敏/范围、ACK和覆盖原因。来源覆盖明细与来源报告展开时读取，不默认请求全部诊断。
 
+策略与审批顶部将工具使用审批、系统采集策略切换与唯一的“客户端策略”入口放在同一工具栏；在该窗口内切换“接入与运行”和“审计采集与脱敏”。“刷新实际状态”位于当前通道状态区右侧，只重新读取客户端报告，不发布策略。English: Policies and approvals provides one Client policies entry beside the tool/system selector. Switch between Integration and runtime and Audit collection and redaction inside that dialog. Refresh actual status reloads client reports without publishing policies.
+
+本次布局人工复核清单：中英文切换工具/系统分区；从唯一客户端策略入口切换审计配置；窄屏检查刷新按钮和状态换行；使用只读账号确认配置权限仍与原来一致。Manual UI checklist: switch tool/system views in both languages; open audit settings through Client policies; check narrow-screen wrapping; verify existing access restrictions with a read-only account.
+
 策略与审批先展示工具审批申请，再展开工具规则/漂移分析；系统策略、历史与响应回执使用独立视图。进程终止仍在系统事件行，保持完整身份、执行器/monitor新鲜度及服务端独立校验。客户端分类/安装目标等既有配置通过此标签的客户端策略入口编辑；Skill治理方式仍在Agent与Skill中操作。
 
 非活动标签及审计/策略视图卸载组件，清理其计时器；返回重新读取，未提交筛选和展开状态可能重置。概览无定时轮询，插件页只按需刷新；系统事件视图不读取策略/历史/回执，系统策略视图不读取完整事件列表。读取失败持续提示，不作为空配置；已有日志快照保留并明确可能过时。正文、设备可见性和操作权限沿用既有接口，不更改采集、身份、队列或ACK协议。
@@ -1006,3 +1093,72 @@ Call evidence remains separate from result evidence. Details prioritize event, t
 事件证据限于当前策略更新时间之后且最近 15 分钟的未过期事件，查询最多 100 条；宿主配置报告限 180 秒且整体报告未过期，接收器报告需匹配当前目标版本。持久化批次是同一设备与流的独立平台记录，现有模型没有事件与批次精确关联。客户端 ACK 仅在最近 90 秒的报告与所示事件同流、同接收器实例，且 ACK 时间不早于平台事件到达、不过度超前时标已报告；平台保存批次不证明客户端收到 ACK。旧记录、缺少接收器实例或时钟差异造成证据不足时保持未知。
 
 **English:** Device details → Plugin access presents separate onboarding steps and the next actionable missing evidence. Expand each step for its source and timestamp. A disabled target needs no onboarding; opening configuration does not enable collection. Client reports and platform-stored facts remain distinct. No independent native host-loading receipt exists; that step stays unknown even when Hook arrival is observed, without trapping the next action on restarting sessions. Events must be unexpired, received after the policy update and within 15 minutes (up to 100 records). A same-stream durable batch is independent evidence, without an exact event-to-batch association. Client ACK requires a fresh report from the same stream and receiver instance, with a suitable timestamp; platform persistence does not prove client receipt. Missing identity or clock evidence remains unknown.
+
+系统事件已补充原文命令参数（8 KiB / 256 项）、工作目录、退出码/信号与文件创建、修改、重命名和删除通知；平台详情显示同一进程的活动与归属链。自检通过单独标记筛选，历史缺失字段不补造。已有 Agent 在下一次 ES 事件验证身份；未配置程序或未建立父子关系的已有子进程不等同于已覆盖。双语操作说明与本次人工验收见 [操作内容与覆盖范围](../client/macos-enforcer/README.md#操作内容与覆盖范围)。
+
+**English:** System events include verbatim bounded arguments, cwd, exit code/signal and file-change notifications. Details correlate the exact process identity. Client checks can be filtered, historical fields are not reconstructed, and existing Agent roots are verified on their next ES event. Online lease renewal no longer conflicts with an unchanged configuration draft; collection continues until stopped or exited.
+
+### 接收器重试与任务记录
+
+Hook 接收器的固定重试次数针对一轮连续故障：只有连续收到有效健康报告满 60 秒，才恢复下一轮的重试额度；单次启动、短暂运行或恢复调度不重置额度。失败立即循环的进程仍会按策略暂停，需修正原因后点击“重试接收器”。新版本保留原有暂停记录，不通过升级删除重试状态或队列。诊断区保留最近失败及时间；系统强制终止、终止信号和正常结束分别显示，不能仅凭 SIGKILL 判断是谁终止了进程。
+
+同一用户同时打开多个桌面窗口（例如开发进程和 `.app`）时，只有持有管理锁的实例启动 Hook 接收器。其他窗口显示“由另一客户端管理”，通过现有私有 socket 核对进程身份、程序、设备和队列绑定后展示可连接状态、待发数量及最近 ACK；未核实或不可连接时保持待核对状态。等待管理锁不计入接收器故障次数，也不改写原实例的恢复记录。原实例退出并清理自己的 socket 后，等待窗口自动获取管理权并沿用原队列。未知 socket 和非本窗口拥有的进程不会因重试而被删除或终止。
+
+**Multiple windows:** Only the desktop holding the supervisor lock starts the Hook receiver. Other windows display the independently verified live receiver, queue count and last ACK. Waiting for that lock neither consumes retries nor overwrites its owner's recovery record. After the owner exits and cleans up its socket, a waiting window resumes management using the same queue. Unverified peers remain unconfirmed; transport health is not inferred from a reachable receiver.
+
+平台客户端概览展示最近 5 条任务（包括成功任务），列出具体动作、目标产品、创建时间、策略版本和结果。展开“执行信息”查看通道目标、结束时间和错误码；这些是该次任务的信息，当前采集状态仍以各通道的健康报告为准。“已被新任务替代”表示旧任务已失效；历史失败不因后续成功而被改写。
+
+**English:** Fixed Hook receiver retries apply to consecutive failures. A full minute of valid health reports restores the retry budget; a spawn or brief recovery does not. Existing paused state and queues survive upgrades. Diagnostics distinguish force-kill, termination and normal exit without guessing who caused them. The platform overview shows the latest five tasks, including successful tasks, with concrete actions, products, timestamps, policy versions and expandable execution details. Task history is separate from current channel health.
+
+人工验收：固定重试策略下验证连续失败耗尽额度、手动重试、稳定运行一分钟后恢复额度；检查系统信号退出原因。平台中英文核对成功/失败任务、长产品名称、窄屏换行和执行信息展开，不把历史任务失败当作当前采集失败。
+
+多窗口 UI 验收：同时打开开发客户端和 `.app`，确认第二个窗口不提示重试暂停、只存在一个 Hook 接收器，且可查看真实待发数量及 ACK；退出原窗口后确认剩余窗口自动恢复管理、原队列和历史保留。中英文分别核对这些状态。外部 socket 无法核实身份或绑定时，不能显示已验证运行。
+
+2026-10-07 本机验证：开发进程与新版 `.app` 同时运行时，中英文均显示另一客户端管理下的可连接状态；随后向已核实的重复开发桌面发送 SIGTERM，新版窗口无需手动重试即启动自己的接收器。队列流 ID 保持一致，序号从 11669 继续递增，平台确认收到切换后的 11670–11674，桌面待发恢复为 0。这次实机覆盖进程退出后的恢复；正常应用退出及连续故障、预算保留、队列清理由 Rust 接收器测试覆盖，不代表所有宿主安装或审批流程重新验收。15 项 Rust 接收器测试、29 项桌面 i18n 检查、Tauri 开发包构建通过。截图在 `outputs/desktop-governance-design-20261007/receiver-shared-zh.png`、`receiver-shared-en.png`、`receiver-recovered-zh.png`。系统采集独立进程及用户策略保持不变。
+
+### 多产品日志与 Hook 接入
+
+在平台客户端策略的“Agent 日志来源”选择需要采集的产品，在 Hook 宿主选择相应入口。保存后到“采集状态”核对产品来源、覆盖错误和 ACK；不要仅凭设备在线判断有日志。新增产品需要协议 5 客户端。原策略未指定产品时维持 Claude / Codex，不自动扩大历史采集范围。
+
+桌面“运行治理 → 接入与采集”提供 WorkBuddy、Qoder 共享设置、QoderWork 和 Cursor 的接入/移除入口；平台自动安装策略复用同一适配器。用户既有 Hook 与其他配置被保留。配置完成后按宿主要求开启新会话或重启，检查真实事件；“已配置”不等于宿主已授权。能力目录显示产品入口、来源、OS 和样本版本，尚未接入的产品不出现在采集目标选项中。具体矩阵与限制见 `docs/external-agent-integration.md`。
+
+“允许用户自行接入 / Allow user enrollment”默认开启，已有策略缺少此字段时也采用该默认值。普通接入模式下，点击产品的“启用 Hook 采集 / Enable Hook collection”会复用现有安装器，保存与当前平台和设备绑定的本机选择，并随设备认证心跳自动同步。平台将管理员指定产品与允许的本机选择合并，再通过现有策略任务启用接收器及产品范围。无需再去平台勾选相同产品。安装失败不会提交接入选择；重复点击不会增加重复配置或产品；接收器已暂停时，本次明确的启用操作会请求重新尝试，正常运行的共享接收器不重启。
+
+断网时选择保存在本机，显示“配置已安装，等待平台同步”，恢复后自动重传；在平台返回有效目标之前不扩大接收范围。关闭自行接入后仅管理员指定产品生效；运行治理/Hook 通道关闭、企业受管模式均优先于本机选择。本机选择独立存储，不生成单机策略覆盖，因此仍继承后续全局策略。移除设置型 Hook 会同步撤回本机选择；管理员指定的产品仍由管理员策略管理。日志来源、系统采集、脱敏和拦截模式不会因接入 Hook 改变。升级时先更新平台，再更新客户端；旧客户端继续收到其支持的任务字段。新客户端尚未收到接入策略时提示等待策略同步，不伪报成功。
+
+宿主信任/授权仍在宿主完成，可能需要新建会话或重新加载。客户端显示已安装、待同步、策略受限和配置接收状态；事件实际送达以平台“插件接入”的最近事件为准，接收器在线不等于每个产品都已触发。未发现宿主或尚未完成自检时，启用按钮不可用。运行治理使用独立滚动布局，冷启动首次进入即可上下滚动。
+
+User enrollment is enabled by default, including existing policies without the field. In ordinary mode, **Enable Hook collection** installs the selected integration and persists a device/server-bound request. Authenticated heartbeats synchronize it; the platform merges allowed user choices with administrator-selected hosts and sends the effective target through existing policy tasks. Offline requests survive restarts. Disabled channels, administrator-only scopes and managed access take precedence. This does not change log sources, system collection, redaction or protection modes. Installation and receiver health do not prove event delivery: complete host trust review if needed and verify a new event on the platform. Settings-adapter removal withdraws the local request; administrator-selected products remain administrator-controlled.
+
+**Manual UI acceptance:** Cold-start the desktop and open Runtime Governance directly; scroll to the final product card without visiting another page. With a manual/ordinary policy, verify available products can be installed, updated and removed while automatic/managed policy actions stay platform-controlled. Confirm installation preserves the receiver switch and selected hosts. Check Chinese and English, then switch through Overview and Agent Management back to Governance and verify scrolling again.
+
+**English:** Select log products and Hook entry points in the global or per-device client policy. Check per-source coverage and ACK after saving. Protocol 5 is required for new targets; absent product selection keeps the original Claude/Codex scope. Desktop settings adapters preserve existing user hooks. Start a new host session (or restart where required), then verify actual delivery. Installed configuration is not host authorization or successful collection.
+
+A manual/ordinary policy allows local plugin installation, updates and removal. Receiver state and selected collection hosts remain platform-controlled. Installing an unselected host does not enable collection. Missing hosts or pending inspection keep installation unavailable; consult the product status first.
+
+
+### Agent Manager 插件名称与 Skill 使用审计
+
+接入与采集页面按适配产品组织；Qoder 只保留一个产品入口，CLI / IDE / Work 的能力和验证范围在详情中区分。原生插件显示 Agent Manager，设置型接入显示 Agent Manager Hook；同一用户下的产品共享 Agent Manager 本地接收器，健康状态与产品安装、授权、首个事件分开判断。内部安装 ID 未变，更新仍通过原有更新流程，卸载保留用户其他 Hook。
+
+客户端使用原有设备凭据上传 Skill 元数据，不额外索取管理员 Token、不上传完整 Skill 正文；平台“行为审计 → 会话活动 → Skill 行为”查看名称、尝试/结果、认证与关联证据。全局或单机“审计采集与脱敏 → Skill 使用审计”设置认证核对和告警，默认仅审计。缺少路径、摘要或实例映射时保持待确认；详情分别展示注册、批准、撤销、内容及授权。只有 Hook 的记录目前不执行同步目录摘要计算，避免阻塞宿主工具；等待可关联的日志证据。
+
+人工 UI 验收清单（中文和英文各执行）：
+- 原有插件被识别，Agent Manager / Agent Manager Hook 名称正确，Qoder 单产品与入口详情一致。
+- 同一用户多个产品接入时，接收器只显示共享健康；未授权/等待宿主加载/等待首事件仍分别展示。
+- 在真实会话切换 Skill 行为，改变行为/认证筛选立即生效；重新核对、空状态、失败重试和分页清晰。
+- 长技能名、长路径、摘要及英文在窄屏换行；抽屉宽度不随插件/审计 Tab 改变；仅列表内容滚动。
+- 在隔离设备与隔离 Skill 中验收批准、未登记、未批准、变更、撤销、未授权；检查查询失败为待确认，恢复后重新核对；同次调用只有一条告警，不同调用独立。
+- 重复安装/更新/卸载确认用户 Hook 保留；宿主信任需人工完成，配置保存不算采集通过。断网积压/恢复与客户端重启不清空队列或游标，再核对严格 ACK。
+
+逐产品实测状态和具体证据见 [Skill 使用识别与认证审计](external-agent-integration.md#skill-使用识别与认证审计)。WorkBuddy 的新调用通过不替代其他产品或全部审批状态的真实验收。
+
+**English:** Product cards distinguish Agent Manager native plugins from Agent Manager Hook configuration. Qoder stays one public product with separate entry contracts. The per-user receiver is shared, while trust/loading/event evidence stays per product. Skill activity and current certification checks are available inside session activity; global and device policies control checks and audit-only alerts. Test both languages, narrow layouts, immediate filters, independent trust states, existing-install compatibility and offline/restart delivery. See the integration matrix for the exact real-call and sample-only coverage.
+
+采集状态的 Agent 日志按原因显示“正在分批扫描日志”“部分日志文件或目录不存在”或“部分日志待检查”；来源详情直接说明原因和检查步骤。扫描中的来源不单独计为故障；丢失文件报告不能定位受影响会话，需结合最近记录到达及上传 ACK 判断链路。English: Agent log status distinguishes batched discovery, missing files/folders and other issues, with visible explanations. Scanning alone is not counted as a fault. A missing-source report does not identify affected sessions; verify recent arrivals and upload ACKs separately.
+
+人工复核：中英文查看同一来源的原因和建议；混合“扫描中 + 文件不存在”应保留缺失提示；只有扫描进度时不计入需检查来源；检查窄屏长提示换行。Manual checks: compare bilingual reasons and guidance; retain missing-source warnings when scanning is also pending; do not count scanning alone as a fault; check narrow-screen wrapping.
+
+采集状态首次进入显示加载指示与骨架屏，各通道等待自身数据及公共客户端报告就绪后分别展示，不再等三个接口全部结束；加载期间不显示“无来源”等空结果。手动刷新保留原内容并提示正在刷新，后台每 5 秒刷新不闪烁。此页调用日志状态时使用 `include_retention=false`，跳过页面不使用的历史过期数量统计；接口默认仍返回历史统计以兼容其他页面。English: Collection status shows a spinner and skeleton on entry, reveals each channel once its data and shared client report are ready, and preserves content during manual refresh. Background refresh does not flash. This page skips unused historical expiry totals with `include_retention=false`; the API default remains compatible.
+
+人工验收：中英文首次进入、手动刷新、切换通道；慢接口时其他已就绪通道可查看；接口失败显示错误而不是空结果；离开或换设备后旧响应不覆盖新页面；窄屏检查骨架和刷新提示。Manual checks: bilingual initial/manual loading, channel switches, independent slow/failing requests, stale responses after device changes, and narrow-screen loading feedback.

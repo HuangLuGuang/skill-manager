@@ -295,6 +295,7 @@ const showPanel = panel => {
   $('#notification-trigger').classList.toggle('active', panel === 'notifications')
   $('#settings-trigger').classList.toggle('active', panel === 'settings')
   $(`#${panel}`).classList.add('active')
+  $('.workspace').dataset.panel = panel
   $('#panel-title').textContent = panelTitle(panel)
   $('.workspace').scrollTop = 0
   if (panel === 'discover' && connection?.configured) {
@@ -429,6 +430,7 @@ const setProgress = (id, state) => {
   if (state) element.classList.add(state)
 }
 const renderDisconnected = () => {
+  $('.workspace').dataset.connected = 'false'
   $('#connection-intro').hidden = false
   $('#credential-tip').hidden = false
   $('#connected-overview').hidden = true
@@ -554,6 +556,7 @@ const loadBuiltinAgentSettings = async (force = false) => {
 }
 
 const renderConnected = data => {
+  $('.workspace').dataset.connected = 'true'
   const platform = data.platform || {}
   const agents = (data.inventory?.agents || []).filter(visibleAgent)
   const localAgents = agents.filter(agent => !isSharedSkills(agent))
@@ -1473,13 +1476,14 @@ const renderTaskHistory = tasks => {
   element.innerHTML = tasks.length ? tasks.map(task => {
     const payload = task.payload || {}
     const policySync = task.task_type === 'sync_policy' || (task.task_type === 'rescan' && payload.reason === 'policy_changed')
-    const target = payload.target_version
+    const aidr = task.task_type === 'aidr_plugin_action'
+    const target = aidr ? aidrTaskSummary(payload) : payload.target_version
       ? t('ui.overview.classified_policy')
       : policySync ? tf`处置：${policyLabel(payload.mode)} · 治理：${governanceLabel(payload.governance_mode)}`
       : payload.skill_name || payload.skill_id || (task.task_type === 'rescan' ? t('ui.1agolmk') : '-')
     return `<div class="takeover-row task-history-row">
-      <div><strong>${escapeHtml(taskTypeLabel(task))}</strong><p>${escapeHtml(target)}</p></div>
-      <span>${escapeHtml(payload.agent_type ? agentLabel(payload.agent_type) : t('ui.13nfgz7'))}</span>
+      <div><strong>${escapeHtml(taskTypeLabel(task))}</strong><p>${escapeHtml(target)}</p><small>#${escapeHtml(task.id)}</small>${aidr && payload.action === 'reconcile' && payload.target ? `<details class="record-target"><summary>${escapeHtml(t('ui.records.taskTarget'))}</summary><p>${escapeHtml(aidrTaskTarget(payload.target))}</p></details>` : ''}</div>
+      <span>${escapeHtml(aidr ? aidrTaskAgents(payload) : payload.agent_type ? agentLabel(payload.agent_type) : t('ui.13nfgz7'))}</span>
       <strong class="task-status-${escapeHtml(task.status)}">${escapeHtml(task.task_type === 'sync_policy' && task.error === 'policy_superseded' ? t('ui.policyTask.superseded') : task.task_type === 'sync_policy' && task.status === 'succeeded' ? t('ui.policyTask.applied') : taskStatusLabel(task.status))}</strong>
       <span class="${task.error ? 'task-history-error' : ''}">${escapeHtml(formatTime(task.finished_at || task.started_at || task.updated_at || task.created_at))}${task.error ? `<details class="record-error"><summary>${escapeHtml(t('ui.records.error_details'))}</summary><p>${escapeHtml(['policy_superseded', 'policy_ack_required'].includes(task.error) ? t(`ui.policyTask.${task.error}`) : runtimeText(task.error))}</p></details>` : ''}</span>
     </div>`
@@ -3211,9 +3215,36 @@ function agentLabel(value) {
 
 function taskTypeLabel(task) {
   const value = task?.task_type || task
-  if (value === 'skill_action') return governanceLabelFor('action', task.payload?.action)
+  if (value === 'aidr_plugin_action' || String(value).startsWith('aidr_plugin_action:')) {
+    const action = task?.payload?.action || String(value).split(':')[1]
+    return t(`ui.records.aidr.${['install', 'upgrade', 'inspect', 'enable', 'disable', 'reconcile'].includes(action) ? action : 'generic'}`)
+  }
+  if (value === 'skill_action') return task.payload?.action ? governanceLabelFor('action', task.payload.action) : t('ui.records.skillAction')
   if (value === 'rescan' && task?.payload?.reason === 'policy_changed') return t('ui.q9utgp')
   return { install_skill: t('ui.14fftle'), remove_skill: t('ui.s2pmon'), repair_skill: t('ui.14oueep'), apply_model_config: t('client.models.task_type'), verify_model_config: t('ui.modelConfig.verify'), restore_model_config: t('ui.modelConfig.restore'), rescan: t('ui.1rnx8gk'), sync_policy: t('ui.q9utgp') }[value] || value || tf`平台任务`
+}
+
+function aidrTaskAgents(payload) {
+  const hosts = payload.agent ? [payload.agent] : payload.target?.hosts
+  return Array.isArray(hosts) && hosts.length ? hosts.map(host => agentLabel(host === 'claude' ? 'claude-code' : host)).join(' / ') : t('ui.13nfgz7')
+}
+
+function aidrTaskSummary(payload) {
+  return [payload.policy_version ? `${t('ui.records.policyVersion')}: ${payload.policy_version}` : '',
+    payload.plugin_version ? `${t('ui.records.pluginVersion')}: ${payload.plugin_version}` : ''].filter(Boolean).join(' · ') || t('ui.records.targetUnavailable')
+}
+
+function aidrTaskTarget(target) {
+  const state = value => t(`ui.records.targetState.${value === true ? 'on' : value === false ? 'off' : 'unknown'}`)
+  const parts = ['logs', 'hooks', 'system'].map(channel => `${t(`ui.records.channel.${channel}`)}: ${state(target.enabled === false ? false : target.channels?.[channel])}`)
+  for (const channel of ['hooks', 'system']) {
+    const mode = target.modes?.[channel]
+    if (['audit', 'intercept'].includes(mode)) parts.push(`${t(`ui.records.channel.${channel}`)}: ${t(`ui.records.mode.${mode}`)}`)
+  }
+  for (const field of ['installation', 'updates']) {
+    if (['automatic', 'manual'].includes(target[field])) parts.push(`${t(`ui.records.${field}`)}: ${t(`ui.records.execution.${target[field]}`)}`)
+  }
+  return parts.join(' · ')
 }
 
 function taskStatusLabel(value) {

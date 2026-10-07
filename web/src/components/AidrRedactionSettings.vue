@@ -26,6 +26,9 @@
       </a-alert>
       <a-space wrap><a-switch v-model:checked="enabled" :disabled="fieldsDisabled" :aria-label="t('aidr.policyNavigation.redaction')" /><span>{{ t(enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }}</span></a-space>
       <p>{{ t('aidr.redactionSettings.warning') }}</p><p>{{ t('aidr.redactionSettings.timing') }}</p><p>{{ t('aidr.redactionSettings.history') }}</p>
+      <h4>{{ t('aidr.skillUse.policyTitle') }}</h4>
+      <a-space wrap><a-checkbox v-model:checked="skillAudit.enabled" :disabled="fieldsDisabled">{{ t('aidr.skillUse.enabled') }}</a-checkbox><a-checkbox v-model:checked="skillAudit.alerts" :disabled="fieldsDisabled || !skillAudit.enabled">{{ t('aidr.skillUse.alerts') }}</a-checkbox></a-space>
+      <p>{{ t('aidr.skillUse.policyHelp') }}</p>
       <h4>{{ t('aidr.content.scopeTitle') }}</h4>
       <a-space wrap><a-switch v-model:checked="lifecycle.enabled" :disabled="fieldsDisabled" :aria-label="t('aidr.lifecycle.collection')" /><span>{{ t(lifecycle.enabled ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }}</span></a-space>
       <p>{{ t('aidr.lifecycle.collectionHelp') }}</p>
@@ -47,6 +50,7 @@
         <p>{{ t('aidr.redactionSettings.reviewHelp') }}</p>
         <a-descriptions :column="1" bordered size="small">
           <a-descriptions-item v-if="clientId" :label="t('aidr.policyNavigation.source')">{{ t(reviewTarget.inherit ? 'aidr.policyNavigation.inherited' : 'aidr.policyNavigation.clientScope') }}</a-descriptions-item>
+          <a-descriptions-item :label="t('aidr.skillUse.policyTitle')">{{ t(reviewTarget.skill_audit.enabled ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }} · {{ t('aidr.skillUse.alerts') }}: {{ t(reviewTarget.skill_audit.alerts ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }}</a-descriptions-item>
           <a-descriptions-item :label="t('aidr.redactionSettings.version')">{{ reviewTarget.version }}</a-descriptions-item>
           <a-descriptions-item :label="t('aidr.policyNavigation.redaction')">{{ t(policy.enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }} → {{ t(reviewTarget.enabled ? 'aidr.redactionSettings.on' : 'aidr.redactionSettings.off') }}</a-descriptions-item>
           <a-descriptions-item :label="t('aidr.lifecycle.collection')">{{ t((policy.lifecycle?.enabled ?? true) ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }} → {{ t(reviewTarget.lifecycle.enabled ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') }}</a-descriptions-item>
@@ -76,10 +80,11 @@ const fieldsDisabled = computed(() => busy.value || !editable.value || (!!props.
 const scopeKinds = ['prompt', 'model_response', 'tool_output', 'file_body', 'command_body']
 const limitDefaults = { max_fragment_bytes: 1024, max_event_bytes: 2048 }
 const capture = ref({ prompt: false, model_response: false, tool_output: false, file_body: false })
+const skillAudit = ref({ enabled: true, alerts: true })
 const lifecycle = ref({ enabled: true, retention_days: 7 })
 const validRetention = computed(() => Number.isInteger(lifecycle.value.retention_days) && lifecycle.value.retention_days >= 1 && lifecycle.value.retention_days <= 365)
 const validLimits = computed(() => Object.keys(limitDefaults).every(key => Number.isInteger(capture.value[key]) && capture.value[key] >= 256 && capture.value[key] <= 32768) && capture.value.max_fragment_bytes <= capture.value.max_event_bytes)
-const changed = computed(() => validLimits.value && validRetention.value && ((props.clientId && inherit.value !== policy.value.inherit) || enabled.value !== policy.value.enabled || scopeKinds.some(kind => capture.value[kind] !== (policy.value.capture?.[kind] ?? false)) || Object.entries(limitDefaults).some(([key, fallback]) => capture.value[key] !== (policy.value.capture?.[key] ?? fallback)) || lifecycle.value.enabled !== (policy.value.lifecycle?.enabled ?? true) || lifecycle.value.retention_days !== (policy.value.lifecycle?.retention_days ?? 7)))
+const changed = computed(() => validLimits.value && validRetention.value && ((props.clientId && inherit.value !== policy.value.inherit) || enabled.value !== policy.value.enabled || scopeKinds.some(kind => capture.value[kind] !== (policy.value.capture?.[kind] ?? false)) || Object.entries(limitDefaults).some(([key, fallback]) => capture.value[key] !== (policy.value.capture?.[key] ?? fallback)) || ['enabled', 'alerts'].some(key => skillAudit.value[key] !== (policy.value.skill_audit?.[key] ?? true)) || lifecycle.value.enabled !== (policy.value.lifecycle?.enabled ?? true) || lifecycle.value.retention_days !== (policy.value.lifecycle?.retention_days ?? 7)))
 const loading = ref(false), failed = ref(false), saveFailed = ref(false), busy = ref(false)
 const reviewOpen = ref(false), reviewTarget = ref(null), acknowledged = ref(false)
 const requiresAcknowledgement = computed(() => reviewTarget.value && (
@@ -104,6 +109,7 @@ async function load() {
   finally { if (mounted) loading.value = false }
 }
 function applyDraft(value) {
+  skillAudit.value = { enabled: value.skill_audit?.enabled ?? true, alerts: value.skill_audit?.alerts ?? true }
   enabled.value = value.enabled
   capture.value = Object.fromEntries(scopeKinds.map(kind => [kind, value.capture?.[kind] ?? false]))
   for (const [key, fallback] of Object.entries(limitDefaults)) capture.value[key] = value.capture?.[key] ?? fallback
@@ -120,7 +126,7 @@ function setInheritance(value) {
 }
 function review() {
   if (busy.value || loading.value || failed.value || reviewOpen.value || !editable.value || !changed.value) return
-  reviewTarget.value = { enabled: enabled.value, capture: { ...capture.value }, lifecycle: { ...lifecycle.value }, version: policy.value.version, ...(props.clientId ? { inherit: inherit.value, global_version: policy.value.global_policy.version } : {}) }
+  reviewTarget.value = { skill_audit: { ...skillAudit.value }, enabled: enabled.value, capture: { ...capture.value }, lifecycle: { ...lifecycle.value }, version: policy.value.version, ...(props.clientId ? { inherit: inherit.value, global_version: policy.value.global_policy.version } : {}) }
   acknowledged.value = false
   reviewOpen.value = true
 }

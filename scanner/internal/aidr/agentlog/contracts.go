@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"skill-manager/scanner/internal/aidr/catalog"
 	"time"
 )
 
@@ -91,6 +92,8 @@ type Cursor struct {
 	Gaps                     []string   `json:"gap_codes"`
 }
 type Event struct {
+	UserScope          string    `json:"user_scope,omitempty"`
+	SkillUse           *SkillUse `json:"skill_use,omitempty"`
 	Message            *Message  `json:"message,omitempty"`
 	PreviousLogicalIDs []string  `json:"-"`
 	Behavior           *Behavior `json:"behavior,omitempty"`
@@ -150,7 +153,7 @@ func digest(parts ...string) string {
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
-func validAgent(agent string) bool { return agent == "claude" || agent == "codex" }
+func validAgent(agent string) bool { return catalog.Log(agent) }
 func ValidateCursor(c Cursor, s Source) error {
 	if c.ProjectionVersion < 0 || c.ProjectionVersion > 2 || c.DiscardStart < 0 || c.DiscardStart > c.Offset || len(c.FileIdentity) > 128 || c.Since.IsZero() {
 		return errors.New("aidr_log_cursor_invalid")

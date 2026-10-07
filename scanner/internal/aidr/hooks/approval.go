@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	products "skill-manager/scanner/internal/aidr/catalog"
 	"skill-manager/scanner/internal/aidr/enforcement"
 )
 
@@ -56,7 +57,8 @@ func positiveDecimal(s string) (int64, bool) {
 }
 func (s ToolScope) valid() bool {
 	_, rev := positiveDecimal(s.PolicyRevision)
-	if !validID(s.Device, true) || !eventID.MatchString(s.Stream) || !eventID.MatchString(s.Receiver) || !validID(s.User, true) || (s.Agent != "claude" && s.Agent != "codex") || !validID(s.Session, true) || !validID(s.Turn, false) || !validID(s.Call, true) || !validID(s.Subagent, false) || !validID(s.Tool, true) || !hexDigest.MatchString(s.InputDigest) || !eventID.MatchString(s.Attempt) || !validID(s.Rule, true) || !rev || s.ExecutionPoint != "plugin_pre_tool" {
+	product, _ := products.Get(s.Agent)
+	if !validID(s.Device, true) || !eventID.MatchString(s.Stream) || !eventID.MatchString(s.Receiver) || !validID(s.User, true) || !product.Approval || !validID(s.Session, true) || !validID(s.Turn, false) || !validID(s.Call, true) || !validID(s.Subagent, false) || !validID(s.Tool, true) || !hexDigest.MatchString(s.InputDigest) || !eventID.MatchString(s.Attempt) || !validID(s.Rule, true) || !rev || s.ExecutionPoint != "plugin_pre_tool" {
 		return false
 	}
 	// Codex call identity requires its native turn namespace. Claude's tool-use

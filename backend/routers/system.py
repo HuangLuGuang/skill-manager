@@ -1,4 +1,5 @@
 import os
+from ..aidr_skill_contract import SkillAuditPolicy
 import json
 import shutil
 from datetime import datetime, timedelta
@@ -375,6 +376,7 @@ class AidrRedactionUpdate(BaseModel):
     version: str = Field(pattern=r"^[1-9][0-9]{0,18}$")
     capture: CaptureScope | None = None
     lifecycle: AuditLifecycle | None = None
+    skill_audit: SkillAuditPolicy | None = None
 
 
 @router.get("/aidr-redaction")

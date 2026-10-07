@@ -24,6 +24,10 @@ func quarantineUnknown(agent string, raw []byte) (skip, invalidate bool) {
 			return true, true
 		}
 	}
+	if agent == "workbuddy" || agent == "qoder-cli" {
+		// Unknown identity-bearing variants require explicit adapter support.
+		return false, false
+	}
 	switch kind {
 	case "session_meta", "turn_context", "token_usage_record", "inter_agent_communication_metadata", "world_state", "compacted":
 		return false, false

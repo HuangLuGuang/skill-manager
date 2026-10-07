@@ -1,4 +1,5 @@
 """P1 device-authenticated device ingestion and bounded management queries."""
+from ..aidr_skill_contract import SkillAuditPolicy
 import hashlib
 import json
 import re
@@ -13,6 +14,7 @@ from ..aidr_operations import merge_operation, present, encode_cursor, decode_cu
 from starlette.concurrency import run_in_threadpool
 
 from .. import auth, models, aidr_policy
+from ..aidr_products import BY_ID, LogAgentID
 from .. import aidr_hook_queries
 from .. import aidr_sessions
 from .. import aidr_hooks
@@ -43,7 +45,7 @@ async def hook_batch(client_id: str, request: Request, authorization: str | None
 @router.get("/hooks")
 def hook_events(client_id: str, after: int | None = Query(None, ge=0, le=2**63-1),
                 before: int | None = Query(None, ge=1, le=2**63-1), snapshot_id: int | None = Query(None, ge=0, le=2**63-1),
-                limit: int = Query(100, ge=1, le=100), agent: str | None = Query(None, pattern='^(claude|codex)$'),
+                limit: int = Query(100, ge=1, le=100), agent: str | None = Query(None, pattern='^(' + '|'.join(BY_ID) + ')$'),
                 hook_event: str | None = Query(None, min_length=1, max_length=32), session_id: str | None = Query(None, min_length=1, max_length=256),
                 tool: str | None = Query(None, min_length=1, max_length=256), native_call_id: str | None = Query(None, min_length=1, max_length=256),
                 event_id: str | None = Query(None, pattern='^[0-9a-f]{32}$'), keyword: str | None = Query(None, min_length=1, max_length=256),
@@ -57,7 +59,7 @@ def hook_events(client_id: str, after: int | None = Query(None, ge=0, le=2**63-1
 
 @router.get('/sessions')
 def audit_sessions(client_id: str, response: Response, cursor: str = Query('', max_length=2048), limit: int = Query(20, ge=1, le=100),
-                   keyword: str = Query('', max_length=256), agent: str = Query('', pattern='^(|claude|codex)$'),
+                   keyword: str = Query('', max_length=256), agent: str = Query('', pattern='^(|' + '|'.join(BY_ID) + ')$'),
                    include_questions: bool = False,
                    db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     device_for_user(db, client_id, user)
@@ -79,7 +81,7 @@ def audit_question_view(db, user, client_id, response, result, include_questions
 
 
 @router.get('/session-turns')
-def audit_session_turns(client_id: str, response: Response, agent: str = Query(pattern='^(claude|codex)$'),
+def audit_session_turns(client_id: str, response: Response, agent: str = Query(pattern='^(' + '|'.join(BY_ID) + ')$'),
                         session_id: str = Query('', max_length=256), orphan_id: int = Query(0, ge=0, le=2**63-1),
                         cursor: str = Query('', max_length=2048), limit: int = Query(100, ge=1, le=100),
                         include_questions: bool = False, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
@@ -97,7 +99,7 @@ def audit_session_turns(client_id: str, response: Response, agent: str = Query(p
 
 @router.get('/session-timeline')
 def audit_session_timeline(client_id: str, source: str = Query(pattern='^(logs|hooks)$'),
-                           agent: str = Query(pattern='^(claude|codex)$'), session_id: str = Query('', max_length=256),
+                           agent: str = Query(pattern='^(' + '|'.join(BY_ID) + ')$'), session_id: str = Query('', max_length=256),
                            orphan_id: int = Query(0, ge=0, le=2**63-1), cursor: str = Query('', max_length=2048),
                            limit: int = Query(30, ge=1, le=100), keyword: str = Query('', max_length=256),
                            order: str = Query('oldest', pattern='^(oldest|newest)$'),
@@ -109,6 +111,34 @@ def audit_session_timeline(client_id: str, source: str = Query(pattern='^(logs|h
             orphan_id=orphan_id, cursor=cursor, limit=limit, keyword=keyword, order=order, turn_key=turn_key)
     except ValueError:
         fail(422, 'session_cursor_invalid', '会话翻页条件已失效，请刷新后重试', 'Invalid session cursor; refresh and retry')
+
+
+@router.get('/skill-uses')
+def skill_uses(client_id: str, agent: str = Query(max_length=32), session_id: str = Query(max_length=256),
+               behavior: str = Query('', pattern='^(|invocation|file_access)$'),
+               certification: str = Query('', pattern='^(|pending|verified|verified_content|unregistered|unapproved|content_changed|revoked|unauthorized)$'),
+               after: int = Query(0, ge=0), limit: int = Query(30, ge=1, le=100),
+               db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    device_for_user(db, client_id, user)
+    from ..aidr_models import AidrSkillUse
+    from ..aidr_skill_usage import refresh, registry_manager
+    query = db.query(AidrSkillUse).filter_by(client_id=client_id, agent=agent, session_id=session_id, expired_at=None).filter(AidrSkillUse.id > after)
+    if behavior: query = query.filter_by(behavior=behavior)
+    # Evaluate the selected state after rechecking, not against a stale cache.
+    rows = query.order_by(AidrSkillUse.id).limit(201).all()
+    items, cursor = [], after
+    manager = registry_manager()
+    for row in rows[:200]:
+        item = refresh(db, row, manager)
+        cursor = row.id
+        if not certification or item.get('certification', {}).get('status') == certification:
+            items.append(item)
+        if len(items) == limit:
+            break
+    more = bool(rows and cursor < rows[-1].id)
+    db.commit()
+    return {'items':items,'has_more':more,'next_cursor':str(cursor) if more else '',
+            'checks':'fresh_registry_with_observed_content','mode':'audit'}
 
 
 @router.get('/hooks/{record_id}/related')
@@ -167,6 +197,7 @@ class ClientAuditPolicyUpdate(BaseModel):
     enabled: bool
     capture: CaptureScope
     lifecycle: AuditLifecycle
+    skill_audit: 'SkillAuditPolicy | None' = None
 
 
 def client_audit_policy_view(db, client_id, user):
@@ -222,7 +253,7 @@ def configure(client_id: str, body: Configuration, db: Session = Depends(get_db)
 
 class Capability(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    agent: str = Field(pattern="^(claude|codex)$")
+    agent: LogAgentID
     version: str = Field(max_length=80)
     status: str = Field(pattern="^(available|unavailable|unverified)$")
     parser_status: str | None = Field(default=None, pattern="^(available|unverified)$")
@@ -240,8 +271,9 @@ class DiscoveryProgress(BaseModel):
 
 
 class DiscoveryStatus(BaseModel):
+    source_id: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
     model_config = ConfigDict(extra="forbid", strict=True)
-    agent: str = Field(pattern="^(claude|codex)$")
+    agent: LogAgentID
     status: str = Field(pattern="^(complete|partial|unavailable)$")
     reason_codes: list[Reason] = Field(max_length=32)
     progress: DiscoveryProgress | None = None
@@ -265,7 +297,7 @@ class Heartbeat(BaseModel):
     recovery_code: str = Field(default="", max_length=100, pattern="^$|^aidr_[a-z0-9_]+$")
     upload_code: str = Field(default="", max_length=100, pattern="^$|^aidr_[a-z0-9_]+$")
     audit_policy: PolicyHealth | None = None
-    discovery: list[DiscoveryStatus] = Field(default_factory=list, max_length=2)
+    discovery: list[DiscoveryStatus] = Field(default_factory=list, max_length=64)
 
 
 @router.post("/heartbeat")
@@ -315,6 +347,8 @@ def save_batch(db, device, stream_id, batch_id, raw):
                     fail(409, "event_conflict", "逻辑事件身份对应不同内容", "Logical event identity has different content")
                 if inserted_event.rowcount:
                     merge_operation(db.connection(),device.client_id,value.model_dump(exclude_none=True))
+                    from ..aidr_skill_usage import merge as merge_skill_use
+                    merge_skill_use(db, "log", existing)
             else:
                 content_hash = digest(payload)
                 db.execute(insert(models.AidrCoverageRecord).values(client_id=device.client_id, stream_id=stream_id, record_id=record.record_id, payload_json=payload, content_hash=content_hash).on_conflict_do_nothing(index_elements=["client_id", "stream_id", "record_id"]))
@@ -338,7 +372,7 @@ async def events_batch(client_id: str, request: Request, authorization: str | No
 
 
 @router.get("/status")
-def status(client_id: str, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_admin_user)):
+def status(client_id: str, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_admin_user), include_retention: bool = True):
     device = device_for_user(db, client_id, user)
     from ..client_governance import policy_view
     from ..runtime_governance import Observation, channel_view
@@ -356,10 +390,23 @@ def status(client_id: str, db: Session = Depends(get_db), user: models.User = De
         log_channel['health'] = {'state': 'reporting_paused', 'code': 'aidr_channel_reporting_paused', 'severity': 'info'}
     if not device:
         return {"configured": False, "log_channel": log_channel, "audit_redaction": audit_policy}
-    from ..aidr_retention import view as retention_view
-    return {"audit_redaction": audit_policy, "retention": retention_view(db, client_id), "configured": True, "enabled": device.enabled,
-            "online": online, "log_channel": log_channel,
+    # Metadata only: a reader heartbeat is not evidence of each product's delivery.
+    cutoff = datetime.utcnow() - timedelta(minutes=15)
+    arrivals = db.query(models.AidrEvent.agent, models.AidrEvent.kind,
+                        func.max(models.AidrEvent.received_at), func.count(models.AidrEvent.id)).filter(
+        models.AidrEvent.client_id == client_id, models.AidrEvent.expired_at.is_(None),
+        models.AidrEvent.received_at >= cutoff, models.AidrEvent.received_at <= datetime.utcnow()
+    ).group_by(models.AidrEvent.agent, models.AidrEvent.kind).all()
+    receipts = [{"agent": agent, "kind": kind, "last_received_at": at.isoformat() + "Z", "count": count}
+                for agent, kind, at, count in arrivals]
+    result = {"audit_redaction": audit_policy, "configured": True, "enabled": device.enabled,
+            "online": online, "log_channel": log_channel, "product_receipts": receipts, "receipt_window_seconds": 900,
             "last_seen_at": device.last_seen_at, "capabilities": json.loads(device.capabilities_json), "health": json.loads(device.health_json)}
+    # Collection status polls live health; history totals are only needed by diagnostics.
+    if include_retention:
+        from ..aidr_retention import view as retention_view
+        result["retention"] = retention_view(db, client_id)
+    return result
 
 
 @router.post("/state-migration")

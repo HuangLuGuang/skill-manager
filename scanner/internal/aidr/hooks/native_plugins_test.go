@@ -77,7 +77,7 @@ func TestNativeLocalInventoryEmptyIsDistinctFromMissing(t *testing.T) {
 }
 
 func TestCodexInspectionUsesLocalProtocolWithoutCatalogOrConfigLeak(t *testing.T) {
-	for _, version := range []string{"codex-cli 0.159.0", "codex-cli 0.159.2", "codex-cli 0.160.0"} {
+	for _, version := range []string{"codex-cli 0.159.0", "codex-cli 0.159.2", "codex-cli 0.160.0", "codex-cli 0.160.1", "codex-cli 0.160.99", "codex-cli 0.999.0-alpha.1", "vendor build"} {
 		t.Run(version, func(t *testing.T) { checkCodexLocalInspection(t, version) })
 	}
 }
@@ -101,6 +101,10 @@ func checkCodexLocalInspection(t *testing.T, version string) {
 	}
 	plugin := map[string]any{"id": "aidr-codex@aidr-local", "installed": true, "enabled": false,
 		"version": nil, "source": map[string]string{"type": "local", "path": path}}
+	if version == "codex-cli 0.160.1" {
+		// Native 0.160.1 reports localVersion alongside a null version.
+		plugin["localVersion"] = "0.1.0"
+	}
 	inventory := response(2, map[string]any{"marketplaces": []any{map[string]any{"plugins": []any{plugin}}}, "marketplaceLoadErrors": []any{}})
 	settings := response(3, map[string]any{"config": map[string]any{"plugins": map[string]any{"aidr-codex@aidr-local": map[string]bool{"enabled": false}}, "unrelated_private_setting": "PRIVATE-CONFIG-CANARY"}})
 	log := filepath.Join(root, "requests")
@@ -116,7 +120,7 @@ func checkCodexLocalInspection(t *testing.T, version string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	s, e := InspectPlugin(ctx, "codex", binary, root, "")
-	wantVersionStatus := "adapter_target"
+	wantVersionStatus := "interface_compatible"
 	if e != nil || s.Installed == nil || !*s.Installed || s.Enabled == nil || *s.Enabled || s.PluginVersion != "0.1.0" || s.VersionStatus != wantVersionStatus {
 		t.Fatalf("local protocol state incorrect: %+v %v", s, e)
 	}
@@ -159,29 +163,5 @@ func checkCodexLocalInspection(t *testing.T, version string) {
 	s, e = InspectPlugin(ctx, "codex", binary, root, "")
 	if e != nil || s.Installed != nil || s.Enabled != nil || s.SourceCode != "aidr_plugin_source_unreadable" {
 		t.Fatal("native config failure became a usable installation", s, e)
-	}
-}
-
-func TestVerifiedPluginHostVersions(t *testing.T) {
-	for _, tc := range []struct {
-		agent, version string
-		verified       bool
-	}{
-		{"codex", "codex-cli 0.158.0-alpha.2.1", true},
-		{"codex", "codex-cli 0.159.0", true},
-		{"codex", "codex-cli 0.159.2", true},
-		{"codex", "codex-cli 0.159.1", false},
-		{"claude", "2.1.220 (Claude Code)", true},
-		{"codex", "codex-cli 0.160.0", true},
-		{"codex", "codex-cli 0.160.1", false},
-		{"codex", "codex-cli 0.159.0-alpha.1", false},
-		{"codex", "", false},
-		{"claude", "2.1.221 (Claude Code)", false},
-		{"claude", "codex-cli 0.159.0", false},
-		{"other", "codex-cli 0.159.0", false},
-	} {
-		if got := verifiedPluginHost(tc.agent, tc.version); got != tc.verified {
-			t.Errorf("%s %s: got %t want %t", tc.agent, tc.version, got, tc.verified)
-		}
 	}
 }

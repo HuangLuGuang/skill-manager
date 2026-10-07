@@ -6,7 +6,7 @@
 #include <poll.h>
 #include <sys/wait.h>
 
-int main(void) {
+static int check_mode(bool audit_only) {
   int input_pipe[2],ready_pipe[2],output_pipe[2];
   assert(pipe(input_pipe)==0 && pipe(ready_pipe)==0 && pipe(output_pipe)==0);
   pid_t child=fork();
@@ -16,7 +16,7 @@ int main(void) {
       close(input_pipe[1]);close(ready_pipe[0]);close(output_pipe[0]);
       if(dup2(input_pipe[0],STDIN_FILENO)<0)_exit(2);
       close(input_pipe[0]);clearerr(stdin);
-      collection_only=true;
+      collection_only=audit_only;
       boot_id=@"11111111-1111-1111-1111-111111111111";
       monitor_id=@"22222222-2222-2222-2222-222222222222";
       processes=aidr_processes_create();
@@ -66,4 +66,9 @@ int main(void) {
   kill(child,SIGKILL);waitpid(child,&status,0);
   assert(!"production control reader did not return after owner disconnect");
   return 1;
+}
+
+int main(void) {
+  if(check_mode(true)!=0)return 1;
+  return check_mode(false);
 }

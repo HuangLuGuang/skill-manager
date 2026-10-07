@@ -131,17 +131,17 @@ func rawObject(raw json.RawMessage) map[string]json.RawMessage {
 func rawString(raw json.RawMessage) string { var s string; _ = json.Unmarshal(raw, &s); return s }
 func category(tool string) string {
 	switch tool {
-	case "Bash", "exec_command", "shell_command":
+	case "Bash", "bash", "Shell", "exec_command", "shell_command":
 		return "command"
-	case "Read", "read_file":
+	case "Read", "read", "read_file":
 		return "file_read"
-	case "Write", "write_file":
+	case "Write", "write", "write_file":
 		return "file_write"
-	case "Edit", "MultiEdit", "edit_file":
+	case "Edit", "edit", "MultiEdit", "edit_file":
 		return "file_edit"
 	case "rename_file", "move_file":
 		return "file_rename"
-	case "WebFetch", "fetch":
+	case "WebFetch", "webfetch", "fetch":
 		return "network_request"
 	case "apply_patch":
 		return "patch"
@@ -453,6 +453,13 @@ func projectBehaviorPolicy(d draft, version int, policy *AuditPolicy) *Behavior 
 			}
 			b.Uncertainty = append(b.Uncertainty, reason)
 		}
+	}
+	if d.WorkBuddyResult && d.Kind == "tool_result" {
+		tool := d.Tool
+		if tool == "" {
+			tool = d.ResultTool
+		}
+		projectWorkBuddyResult(b, tool, d.ResultMeta)
 	}
 	return b
 }

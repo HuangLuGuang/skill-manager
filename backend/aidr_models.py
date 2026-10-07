@@ -143,5 +143,27 @@ class AidrAuditState(Base):
     value = Column(Integer,nullable=False)
 
 
+class AidrSkillUse(Base):
+    __tablename__ = 'aidr_skill_uses'
+    __table_args__ = (UniqueConstraint('client_id', 'call_key', name='uq_aidr_skill_call'),
+                     Index('ix_aidr_skill_session', 'client_id', 'agent', 'session_id', 'id'))
+    id = Column(Integer, primary_key=True)
+    client_id = Column(String(128), ForeignKey('aidr_devices.client_id'), nullable=False)
+    call_key = Column(String(64), nullable=False)
+    agent = Column(String(32), nullable=False)
+    session_id = Column(String(256), nullable=False)
+    behavior = Column(String(32), nullable=False)
+    certification = Column(String(32), default='pending', nullable=False)
+    payload_json = Column(Text, nullable=False)
+    received_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expired_at = Column(DateTime, nullable=True)
+
+
 for _model in (AidrEvent, AidrHookEvent, AidrCoverageRecord, AidrOperation):
     Index('ix_' + _model.__tablename__ + '_retention', _model.expired_at, _model.received_at)
+
+# Session navigation reads messages separately from potentially large tool payloads.
+SESSION_MESSAGE_INDEX = Index(
+    'ix_aidr_session_messages', AidrEvent.client_id, AidrEvent.id, AidrEvent.agent,
+    sqlite_where=AidrEvent.expired_at.is_(None) & AidrEvent.kind.in_(('user_message', 'assistant_message')),
+)

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -148,14 +149,59 @@ func TestAutomaticDiscoveryBacklogOfflineAndRestart(t *testing.T) {
 }
 
 func TestParserSupportIndependentOfRetainedGap(t *testing.T) {
-	if agentlog.VersionSupport("codex", "0.158.0-alpha.2.1") != "available" {
-		t.Fatal("current tested parser missing")
-	}
-	if agentlog.VersionSupport("codex", "future") != "unverified" {
-		t.Fatal("unknown version must remain unverified")
+	if parserStatus(agentlog.Coverage{Status: "complete"}) != "available" || parserStatus(agentlog.Coverage{Status: "partial", Reasons: []string{"aidr_log_schema_unsupported"}}) != "unverified" {
+		t.Fatal("parser status must follow observed format")
 	}
 	caps := summarizeCapabilities(map[string]Capability{"old": {Agent: "codex", Version: "0.158.0-alpha.2.1", Status: "unavailable", ParserStatus: "available", ParserVersion: agentlog.ParserVersion}})
 	if len(caps) != 1 || caps[0].Status != "unavailable" || caps[0].ParserStatus != "available" {
 		t.Fatal("history must not overwrite parser support")
+	}
+}
+
+func TestMultipleProductsMissingSourceDoesNotStopIntake(t *testing.T) {
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	path := filepath.Join(root, "sample.jsonl")
+	os.WriteFile(path, []byte(`{"type":"function_call","sessionId":"sample-session","callId":"call-1","name":"Bash","timestamp":1791340000001,"arguments":"{\"command\":\"echo safe\"}"}`+"\n"), 0600)
+	store, err := localstore.Open(filepath.Join(root, "state"), localstore.DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var acknowledged atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		if strings.HasSuffix(r.URL.Path, "/heartbeat") {
+			var body struct {
+				Stream    string      `json:"stream_id"`
+				Discovery []Discovery `json:"discovery"`
+			}
+			json.Unmarshal(raw, &body)
+			if len(body.Discovery) != 3 {
+				t.Errorf("roots not independently reported or deduplicated: %d", len(body.Discovery))
+			}
+			ids := map[string]bool{}
+			for _, d := range body.Discovery {
+				if d.SourceID == "" || ids[d.SourceID] {
+					t.Error("invalid source identity")
+				}
+				ids[d.SourceID] = true
+			}
+			json.NewEncoder(w).Encode(map[string]any{"schema_version": 2, "client_id": "device-one", "stream_id": body.Stream, "server_received_at": "2026-10-07T00:00:00Z"})
+		} else {
+			acknowledged.Add(1)
+			json.NewEncoder(w).Encode(receipt(r, raw))
+		}
+	}))
+	defer server.Close()
+	good := Root{Agent: "workbuddy", Path: root, File: path}
+	err = Run(ctx, store, newClient(t, server.URL), WorkerOptions{Roots: []Root{{Agent: "qoder-cli", Path: filepath.Join(root, "missing")}, good, good, {Agent: "opencode", Path: filepath.Join(root, "unsupported"), UnavailableCode: "aidr_log_platform_unverified"}}, Since: time.Unix(0, 0), Interval: time.Second, HeartbeatInterval: time.Second, DiscoveryInterval: time.Minute, Observer: func(status localstore.Status) {
+		if status.LogicalEvents == 1 && status.Queued == 0 && acknowledged.Load() > 0 {
+			cancel()
+		}
+	}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatal("healthy source stopped", err)
 	}
 }

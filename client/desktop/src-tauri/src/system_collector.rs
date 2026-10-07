@@ -60,7 +60,7 @@ fn authorize(binary: &Path, request: &str) -> Result<Value, String> {
         .stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|_| "aidr_system_authorization_failed".to_string())?;
     let stdout = child.stdout.take().ok_or("aidr_system_authorization_failed")?;
     let stderr = child.stderr.take().ok_or("aidr_system_authorization_failed")?;
-    let reader = |stream: Box<dyn Read + Send>| std::thread::spawn(move || {let mut data=Vec::new();let _=stream.take(65536).read_to_end(&mut data);data});
+    let reader = |stream: Box<dyn Read + Send>| std::thread::spawn(move || {let mut data=Vec::new();let _=stream.take(1 << 20).read_to_end(&mut data);data});
     let out = reader(Box::new(stdout)); let err = reader(Box::new(stderr));
     let until = Instant::now() + Duration::from_secs(150);
     let status = loop {

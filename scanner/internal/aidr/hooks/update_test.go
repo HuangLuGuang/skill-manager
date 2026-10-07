@@ -44,7 +44,7 @@ func TestNativeUpdateVerifiesFilesAndPreservesDisabledPlugin(t *testing.T) {
 	marker := filepath.Join(root, "updated")
 	log := filepath.Join(root, "commands")
 	binary := filepath.Join(root, "claude")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + shellQuote(log) + "\ncase \"$1 $2\" in\n'--version ') echo '2.1.220 (Claude Code)' ;;\n'plugin list') if [ -f " + shellQuote(marker) + " ]; then printf '%s' " + shellQuote(listed(filepath.Join(market, "plugins/aidr-claude"))) + "; else printf '%s' " + shellQuote(listed(old)) + "; fi ;;\n'plugin update') touch " + shellQuote(marker) + " ;;\nesac\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + shellQuote(log) + "\ncase \"$1 $2\" in\n'--version ') echo '2.1.999 (Claude Code)' ;;\n'plugin list') if [ -f " + shellQuote(marker) + " ]; then printf '%s' " + shellQuote(listed(filepath.Join(market, "plugins/aidr-claude"))) + "; else printf '%s' " + shellQuote(listed(old)) + "; fi ;;\n'plugin update') touch " + shellQuote(marker) + " ;;\nesac\n"
 	if err = os.WriteFile(binary, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}

@@ -3,6 +3,7 @@ import json
 
 from backend import auth, models
 from backend.runtime_governance import Observation
+from backend.client_governance import RuntimeGovernanceConfig, default_runtime_governance
 from backend.sqlite_db import get_db
 from tests.test_clients_api import _client
 
@@ -82,7 +83,9 @@ def test_runtime_default_policy_permissions_preview_and_legacy(tmp_path):
     api, headers = setup_device(tmp_path)
     path = '/api/v1/clients/governance/default'
     before = api.get(path).json()
-    assert not before['runtime_governance_configured']
+    assert before['runtime_governance_configured']
+    assert before['runtime_governance_builtin']
+    assert before['runtime_governance'] == default_runtime_governance()
     assert before['runtime_governance']['retry'] == {'mode':'fixed','retries':2,'max_interval_seconds':300}
     assert heartbeat(api, headers).status_code == 200
     target = before['runtime_governance'] | {'installation':'automatic','hosts':['codex']}
@@ -103,7 +106,7 @@ def test_runtime_default_policy_permissions_preview_and_legacy(tmp_path):
 
 def test_runtime_auto_tasks_are_bounded_superseded_and_retryable(tmp_path):
     api, headers = setup_device(tmp_path)
-    target = api.get('/api/v1/clients/governance/default').json()['runtime_governance'] | {'hosts':['codex'], 'installation':'automatic'}
+    target = RuntimeGovernanceConfig().model_dump() | {'hosts':['codex'], 'installation':'automatic'}
     assert save_runtime_policy(api,target).status_code == 200
     supported = report() | {'protocol':2}
     for _ in range(100):
@@ -111,7 +114,7 @@ def test_runtime_auto_tasks_are_bounded_superseded_and_retryable(tmp_path):
     state = api.get('/api/v1/clients/runtime-test/runtime-governance').json()
     assert len(state['tasks']) == 1
     old = state['tasks'][0]['id']
-    assert state['tasks'][0]['payload']['target'] == target
+    assert state['tasks'][0]['payload']['target'] == {k: v for k, v in target.items() if k != 'allow_user_enrollment'}
     assert api.post('/api/v1/clients/runtime-test/tasks',json=action('conflict','disable')).status_code == 409
     assert save_runtime_policy(api,target | {'enabled':False}).status_code == 200
     assert heartbeat(api,headers,supported).status_code == 200
@@ -131,7 +134,7 @@ def test_runtime_auto_tasks_are_bounded_superseded_and_retryable(tmp_path):
 
 def test_runtime_auto_task_receipt_requires_applied_revision(tmp_path):
     api,headers = setup_device(tmp_path)
-    target = api.get('/api/v1/clients/governance/default').json()['runtime_governance'] | {'enabled':False}
+    target = RuntimeGovernanceConfig().model_dump() | {'enabled':False}
     assert save_runtime_policy(api,target).status_code == 200
     assert heartbeat(api,headers,report() | {'protocol':2}).status_code == 200
     task = api.get('/api/v1/clients/runtime-test/runtime-governance').json()['tasks'][0]
@@ -146,7 +149,7 @@ def test_runtime_auto_task_receipt_requires_applied_revision(tmp_path):
 
 def test_runtime_host_changes_progress_without_timestamp_task_storms(tmp_path):
     api, headers = setup_device(tmp_path)
-    target = api.get('/api/v1/clients/governance/default').json()['runtime_governance'] | {'installation':'automatic','hosts':['codex']}
+    target = RuntimeGovernanceConfig().model_dump() | {'installation':'automatic','hosts':['codex']}
     assert save_runtime_policy(api,target).status_code == 200
     data=report() | {'protocol':2}
     assert heartbeat(api,headers,data).status_code == 200
@@ -223,7 +226,7 @@ def save_device_runtime(api, target):
 def test_channels_inherit_override_restore_and_legacy_capability(tmp_path):
     api, headers = setup_device(tmp_path)
     assert api.post('/api/v1/clients/runtime-test/heartbeat', headers=headers, json={'client_id':'runtime-test','governance_protocol':2,'runtime_governance':report() | {'protocol':2}}).status_code == 200
-    target = api.get('/api/v1/clients/governance/default').json()['runtime_governance'] | {'channels':{'logs':True,'hooks':False,'system':False}}
+    target = RuntimeGovernanceConfig().model_dump() | {'channels':{'logs':True,'hooks':False,'system':False}}
     assert save_runtime_policy(api, target).status_code == 200
     inherited = api.get('/api/v1/clients/runtime-test/governance').json()
     assert inherited['runtime_governance_source'] == 'default'
@@ -254,7 +257,7 @@ def test_channels_inherit_override_restore_and_legacy_capability(tmp_path):
 
 def test_channel_report_is_bounded_versioned_and_keeps_its_own_time(tmp_path):
     api, headers = setup_device(tmp_path)
-    target = api.get('/api/v1/clients/governance/default').json()['runtime_governance'] | {'channels':{'logs':True,'hooks':False,'system':True}}
+    target = RuntimeGovernanceConfig().model_dump() | {'channels':{'logs':True,'hooks':False,'system':True}}
     assert save_runtime_policy(api, target).status_code == 200
     old = (datetime.utcnow()-timedelta(minutes=5)).isoformat()+'Z'
     logs = {'state':'running','code':'aidr_log_running','enabled':True,'policy_version':'1','reported_at':old,'queued_records':3,'last_ack_at':old,'coverage_codes':['aidr_log_version_unverified']}
@@ -278,7 +281,7 @@ def test_channel_report_is_bounded_versioned_and_keeps_its_own_time(tmp_path):
 
 def test_hook_receipt_does_not_claim_other_channel_application(tmp_path):
     api, headers = setup_device(tmp_path)
-    target = api.get('/api/v1/clients/governance/default').json()['runtime_governance'] | {'channels':{'logs':True,'hooks':False,'system':True}}
+    target = RuntimeGovernanceConfig().model_dump() | {'channels':{'logs':True,'hooks':False,'system':True}}
     assert save_runtime_policy(api, target).status_code == 200
     assert heartbeat(api, headers, report() | {'protocol':3}).status_code == 200
     state = api.get('/api/v1/clients/runtime-test/runtime-governance').json()
@@ -310,3 +313,81 @@ def test_runtime_details_return_registered_client_version_by_device_identity(tmp
     result = api.get('/api/v1/clients/runtime-test/runtime-governance').json()
     assert result['client_version'] == 'p1-local'
     assert result['compatibility']['state'] == 'legacy'
+
+
+def test_host_interface_compatibility_accepts_new_and_legacy_reports(tmp_path):
+    api, headers = setup_device(tmp_path)
+    host = {'agent': 'codex', 'host_version': 'codex-cli 0.999.42', 'installed': False,
+            'enabled': False, 'hook_trust': 'unknown', 'reported_at': '2026-10-07T01:00:00Z',
+            'source_code': 'aidr_plugin_not_installed'}
+    for status in ('interface_compatible', 'adapter_target', 'unverified'):
+        data = report() | {'hosts': [host | {'version_status': status}]}
+        assert heartbeat(api, headers, data).status_code == 200
+        observed = api.get('/api/v1/clients/runtime-test/runtime-governance').json()['report']['hosts'][0]
+        assert observed['version_status'] == status
+        assert observed['hook_trust'] == 'unknown'
+
+
+def test_builtin_collection_policy_reconciles_new_client_without_manual_enable(tmp_path):
+    api, headers = setup_device(tmp_path)
+    initial = api.get('/api/v1/clients/governance/default').json()
+    assert initial['runtime_governance'] == default_runtime_governance()
+    assert initial['runtime_governance']['channels'] == {'logs': True, 'hooks': True, 'system': False}
+    assert heartbeat(api, headers, report() | {'protocol': 4}).status_code == 200
+    state = api.get('/api/v1/clients/runtime-test/runtime-governance').json()
+    assert len(state['tasks']) == 1
+    assert state['tasks'][0]['payload']['action'] == 'reconcile'
+    assert state['tasks'][0]['payload']['target'] == {k: v for k, v in default_runtime_governance().items() if k != 'allow_user_enrollment'}
+    for _ in range(3):
+        assert heartbeat(api, headers, report() | {'protocol': 4}).status_code == 200
+    assert len(api.get('/api/v1/clients/runtime-test/runtime-governance').json()['tasks']) == 1
+    disabled = default_runtime_governance() | {'enabled': False}
+    assert save_runtime_policy(api, disabled).status_code == 200
+    assert api.get('/api/v1/clients/governance/default').json()['runtime_governance'] == disabled
+    assert not api.get('/api/v1/clients/governance/default').json()['runtime_governance_builtin']
+
+
+def test_device_collection_override_survives_builtin_default(tmp_path):
+    api, headers = setup_device(tmp_path)
+    from backend.client_governance import policy_view
+    with api.app.dependency_overrides[get_db]().__next__() as db:
+        row = db.get(models.ClientGovernancePolicy, 'runtime-test')
+        if row is None:
+            row = models.ClientGovernancePolicy(scope='runtime-test')
+            db.add(row)
+        explicit = RuntimeGovernanceConfig(enabled=False).model_dump()
+        row.runtime_governance_json = json.dumps(explicit)
+        db.commit()
+        effective = policy_view(db, 'runtime-test')
+        assert effective['runtime_governance'] == explicit
+        assert effective['runtime_governance_source'] == 'client'
+        assert not effective['runtime_governance_builtin']
+
+
+def test_hook_connection_states_do_not_infer_authorization_from_receiver():
+    from backend.runtime_governance import hook_connections
+    at = datetime.utcnow().isoformat()+'Z'
+    policy = {'runtime_governance': default_runtime_governance()}
+    host = {'agent':'codex','installed':False,'enabled':False,'hook_trust':'unknown','reported_at':at,'source_code':'aidr_plugin_not_installed'}
+    observation = {'hosts':[host], 'channels':{'hooks':{'state':'running','reported_at':at}}}
+    def state(data=observation, stale=False, target=policy):
+        return hook_connections(target, data, stale, {'hosts':[]})[1]
+    assert state()['installation'] == 'not_installed'
+    assert state()['authorization'] == 'unknown'
+    assert state()['receiver'] == 'running'
+    assert state()['event_received_at'] is None
+    observation['hosts'][0] = host | {'installed':True,'enabled':True,'hook_trust':'needs_review'}
+    assert state()['authorization'] == 'review_required'
+    observation['hosts'][0]['hook_trust'] = 'trusted'
+    assert state()['authorization'] == 'authorized'
+    assert state(stale=True)['authorization'] == state(stale=True)['installation'] == 'unknown'
+    assert state(stale=True)['receiver'] == 'unknown'
+    observation['hosts'][0] = host | {'source_code':'aidr_desktop_host_missing','installed':None,'enabled':None}
+    assert state()['installation'] == 'host_missing'
+    observation['hosts'][0] = host
+    observation['policy_code'] = 'aidr_managed_authorization_cancelled'
+    assert state(target={'runtime_governance': default_runtime_governance() | {'access_mode':'managed'}})['authorization'] == 'cancelled'
+    observation['hosts'][0]['reported_at'] = (datetime.utcnow()-timedelta(minutes=4)).isoformat()+'Z'
+    assert state()['installation'] == 'not_installed'
+    observation['hosts'][0]['reported_at'] = (datetime.utcnow()-timedelta(minutes=9)).isoformat()+'Z'
+    assert state()['installation'] == 'unknown'

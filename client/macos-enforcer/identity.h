@@ -21,3 +21,4 @@ void aidr_process_exit(aidr_processes *s, aidr_identity key);
 void aidr_process_gap(aidr_processes *s);
 uint64_t aidr_process_gaps(aidr_processes *s);
 size_t aidr_process_count(aidr_processes *s);
+size_t aidr_process_snapshot(aidr_processes *s, aidr_attribution *out, size_t capacity);

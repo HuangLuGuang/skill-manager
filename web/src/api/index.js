@@ -274,7 +274,7 @@ export const previewClientGovernance = (clientId, data) => api.post(`${clientGov
 export const saveClientGovernance = (clientId, data) => api.put(clientGovernancePath(clientId), data)
 export const getClientDetail = (clientId, params) => api.get(`/v1/clients/${clientId}`, { params })
 const aidrPath = clientId => `/v1/clients/${encodeURIComponent(clientId)}/aidr`
-export const getClientAidrStatus = clientId => api.get(`${aidrPath(clientId)}/status`)
+export const getClientAidrStatus = (clientId, params) => api.get(`${aidrPath(clientId)}/status`, { params })
 export const getClientAidrOperations = (clientId, params) => api.get(`${aidrPath(clientId)}/operations`, { params })
 export const getClientAidrSessions = (clientId, params) => api.get(`${aidrPath(clientId)}/sessions`, { params })
 export const getClientAidrSessionTimeline = (clientId, params) => api.get(`${aidrPath(clientId)}/session-timeline`, { params })
@@ -413,3 +413,5 @@ export const getHookApproval = (id, approval) => api.get(`${hookPath(id)}/hook-a
 export const decideHookApproval = (id, approval, body) => api.post(`${hookPath(id)}/hook-approvals/${encodeURIComponent(approval)}/decision`, body)
 
 export const getClientRuntimeGovernance = clientId => api.get(`/v1/clients/${clientId}/runtime-governance`)
+
+export const getClientAidrSkillUses = (clientId, params) => api.get(`${aidrPath(clientId)}/skill-uses`, { params })

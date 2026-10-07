@@ -18,13 +18,14 @@ import (
 	"syscall"
 	"time"
 
+	products "skill-manager/scanner/internal/aidr/catalog"
 	"skill-manager/scanner/internal/aidr/hooks"
 	"skill-manager/scanner/internal/aidr/upload"
 )
 
 func aidrPluginDoctor(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("aidr-plugin-doctor", flag.ContinueOnError)
-	agent := fs.String("agent", "", "host: claude or codex")
+	agent := fs.String("agent", "", "product Hook adapter ID")
 	binary := fs.String("host-bin", "", "absolute native host executable")
 	home := fs.String("host-config-dir", "", "optional explicit host configuration directory")
 	socket := fs.String("socket", os.Getenv("AIDR_HOOK_SOCKET"), "optional receiver socket")
@@ -68,7 +69,7 @@ func aidrPluginDoctor(args []string, out io.Writer) error {
 
 func aidrPluginInstall(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("aidr-plugin-install", flag.ContinueOnError)
-	agent := fs.String("agent", "", "host: claude or codex")
+	agent := fs.String("agent", "", "product Hook adapter ID")
 	binary := fs.String("host-bin", "", "absolute native host executable")
 	home := fs.String("host-config-dir", "", "optional explicit host configuration directory")
 	market := fs.String("marketplace-path", "", "absolute vetted local marketplace directory")
@@ -115,12 +116,13 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 	socket := fs.String("socket", os.Getenv("AIDR_HOOK_SOCKET"), "private receiver Unix socket")
 	connection := fs.String("connection-file", "", "private desktop bridge connection, without credentials")
 	managedConnection := fs.Bool("managed-connection", false, "use the calling OS user's private desktop connection")
-	agent := fs.String("agent", "", "host: claude or codex")
+	agent := fs.String("agent", "", "product Hook adapter ID")
 	hook := fs.String("event", "", "native lifecycle event name")
 	health := fs.Bool("health", false, "read receiver status without submitting an event")
 	controlMode, gapFile, failureCode := "unknown", "", "aidr_hook_precheck_failed"
 	defer func() {
-		if resultErr == nil || *health {
+		var denied *hooks.HostDenied
+		if resultErr == nil || *health || errors.As(resultErr, &denied) {
 			return
 		}
 		if failureCode == "aidr_hook_precheck_failed" {
@@ -133,9 +135,9 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 			if err := hooks.WriteBridgeGap(gapFile, *agent, *hook, failureCode); err != nil {
 				fmt.Fprintln(diagnostics, "aidr_hook_gap_report_failed")
 			}
-			resultErr = json.NewEncoder(out).Encode(map[string]any{})
-		} else if *hook == "PreToolUse" {
-			resultErr = writeHookDeny(out, failureCode)
+			resultErr = hooks.WriteHostDecision(out, *agent, *hook, "allow", "")
+		} else if hooks.IsPreTool(*agent, *hook) {
+			resultErr = hooks.WriteHostDecision(out, *agent, *hook, "deny", failureCode)
 		}
 	}()
 	if err := fs.Parse(args); err != nil {
@@ -148,7 +150,7 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 		}
 		*connection = filepath.Join(current.HomeDir, ".agent-manager/aidr/bridge.json")
 		if _, err = os.Lstat(*connection); os.IsNotExist(err) {
-			return nil
+			return hooks.WriteInactiveHost(out, *agent, *hook)
 		}
 	}
 	if *connection != "" {
@@ -171,7 +173,7 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 			return errors.New("aidr_desktop_connection_invalid")
 		}
 		if (mode == "managed") != *managedConnection || (cfg.Active != nil && !*cfg.Active) {
-			return nil
+			return hooks.WriteInactiveHost(out, *agent, *hook)
 		}
 		if cfg.Agents != nil {
 			selected := false
@@ -181,7 +183,7 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 				}
 			}
 			if !selected {
-				return nil
+				return hooks.WriteInactiveHost(out, *agent, *hook)
 			}
 		}
 		*socket = cfg.Socket
@@ -210,7 +212,7 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 	}
 	req := hooks.IPCRequest{Version: 1, Method: "GetHealth"}
 	if !*health {
-		if *agent != "claude" && *agent != "codex" {
+		if !products.Hook(*agent) {
 			return errors.New("aidr_hook_config_invalid")
 		}
 		raw, err := io.ReadAll(io.LimitReader(in, hooks.MaxRecordBytes+1))
@@ -254,7 +256,7 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 	if *health {
 		return json.NewEncoder(out).Encode(response)
 	}
-	if *hook == "PreToolUse" && controlMode == "plugin_pre_tool" && response.Decision == nil {
+	if hooks.IsPreTool(*agent, *hook) && controlMode == "plugin_pre_tool" && response.Decision == nil {
 		failureCode = "aidr_hook_control_decision_missing"
 		return errors.New(failureCode)
 	}
@@ -274,27 +276,22 @@ func aidrHookWithDiagnostics(args []string, in io.Reader, out, diagnostics io.Wr
 					cleanup, finish := context.WithTimeout(context.Background(), time.Second)
 					hooks.Exchange(cleanup, *socket, hooks.IPCRequest{Version: 1, Method: "CancelApproval", EventID: req.EventID})
 					finish()
-					return writeHookDeny(out, "aidr_hook_approval_timeout")
+					return hooks.WriteHostDecision(out, *agent, *hook, "deny", "aidr_hook_approval_timeout")
 				case <-ticker.C:
 					answer, e := hooks.Exchange(wait, *socket, hooks.IPCRequest{Version: 1, Method: "PollApproval", EventID: req.EventID})
 					if e != nil || answer.Code != "aidr_hook_decision" || answer.Decision == nil {
-						return writeHookDeny(out, "aidr_hook_approval_unavailable")
+						return hooks.WriteHostDecision(out, *agent, *hook, "deny", "aidr_hook_approval_unavailable")
 					}
 					d = *answer.Decision
 				}
 			}
 		}
 		if d.Decision != "allow" {
-			return writeHookDeny(out, d.Code)
+			return hooks.WriteHostDecision(out, *agent, *hook, "deny", d.Code)
 		}
 	}
-	// Auditing emits no permission decision. A recorded hook is evidence only.
-	_, err = io.WriteString(out, "{}\n")
-	return err
-}
-
-func writeHookDeny(out io.Writer, reason string) error {
-	return json.NewEncoder(out).Encode(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}})
+	// Return the host's non-blocking audit response (Cursor requires allow).
+	return hooks.WriteHostDecision(out, *agent, *hook, "allow", "")
 }
 
 func aidrHookServe(args []string, out io.Writer) (resultErr error) {

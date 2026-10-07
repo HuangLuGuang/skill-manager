@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"skill-manager/scanner/internal/aidr/catalog"
 	"skill-manager/scanner/internal/aidr/localstore"
 	"skill-manager/scanner/internal/aidr/upload"
 	"skill-manager/scanner/internal/managedclient"
@@ -48,7 +49,22 @@ func automaticLogPlan(home string, policy managedclient.Policy) (logRunPlan, err
 	if err != nil {
 		return logRunPlan{}, err
 	}
-	for _, agent := range []string{"claude", "codex"} {
+	sources := target.LogSources
+	if sources == nil {
+		sources = []string{"claude", "codex"}
+	}
+	for _, agent := range sources {
+		if agent != "claude" && agent != "codex" {
+			product, _ := catalog.Get(agent)
+			for _, relative := range product.Roots {
+				root := upload.Root{Agent: agent, Path: filepath.Join(home, relative)}
+				if !catalog.SupportedLogOS(product) {
+					root.UnavailableCode = "aidr_log_platform_unverified"
+				}
+				p.roots = append(p.roots, root)
+			}
+			continue
+		}
 		base := filepath.Join(home, "."+agent)
 		if configured := prefs.Hosts[agent].Home; configured != "" {
 			base = configured

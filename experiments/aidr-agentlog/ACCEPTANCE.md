@@ -1,5 +1,75 @@
 # P1-01 Agent 日志读取验收
 
+## 2026-10-07：多产品日志与 Hook 适配验收
+
+产品、入口、版本、OS、日志及 Hook 能力矩阵维护在 [外部 Agent 对接文档](../../docs/external-agent-integration.md#aidr-多产品适配与证据范围2026-10-07)。能力目录不作为本机接入成功证明。此次只部署临时测试 CLI / 接收器，没有替换正在运行的桌面包与后台服务；日常客户端仍报告协议 4，新版实现为协议 5。全局及单机策略未改变。
+
+### 真实产品链路
+
+- **WorkBuddy 5.6.2 / macOS 桌面**：先只读验证本机 JSONL 格式，再在已登录的真实产品中提交三轮无敏感内容的新问答。每轮要求分别执行一个打印固定标记的命令和一个预期退出码 7 的命令，不读取项目、配置或凭证。会话 `b7970f03-db9c-4b8f-9ca9-3b8c96140b1b`：日志原生输入 3、回复 3、工具调用 6、工具结果 6，共 18 条。本地队列、平台入库与会话页面一致，页面显示消息 6 / 工具 6，调用和结果不重复计数。相同来源重启续采后仍为 18 条，待发 0。
+- **WorkBuddy Hook**：该会话入库 8 条（SessionStart 1、UserPromptSubmit 2、PreToolUse 2、PostToolUse 2、Stop 1）。最后一轮提交、两次工具操作和轮次结束全链路通过。此前调试阶段存在接收器停止期间的覆盖缺口，不能称三轮 Hook 完整。退出码 7 操作也由宿主发出 PostToolUse，不能仅凭该事件或 `completed` 标成成功。未取得可靠原生 turn ID 的日志保留未归属轮次，不按时间合并。
+- **Cursor 3.12.30 / macOS 本地 Agents**：两轮真实用户提交，模型发起 Shell 工具调用；按宿主弹窗逐次批准无害命令，没有修改自动运行或安全设置。会话 `12958c30-3599-48c3-90ca-2e7c3b5a68db` 入库 10 条 Hook；另有宿主自己的 `empty-state-draft` SessionStart 1 条，保持原始身份。最后一轮 6 条：beforeSubmitPrompt、两条 preToolUse、postToolUse、postToolUseFailure、stop。平台按原生 generation/call ID 展示，失败详情显示宿主明确的 exit code 7。这里的用户批准是 Cursor 原生执行权限，不是 Agent Manager 审批验收；没有实现 Cursor 日志适配。
+- **Qoder CLI / OpenCode**：仅只读真实历史样本。Qoder 的 3 个原生 JSONL 文件解析到输入 6、回复 5、调用 9、结果 9；OpenCode 1.1.51 的 141 个原生 part 快照解析到输入 3、回复 13、调用 39、结果 39。没有上传这些历史正文，不将样本解析称为新问答端到端验收。
+
+### 发现并修复的问题
+
+1. Cursor 原生工具名 `Shell` 在客户端已规范化，但后端行为字段校验未接受，导致整个 Hook 批次返回 422。现已同步工具语义；保留原冻结批次，重启同一接收器后按严格 ACK 重传成功，再完成新的一轮真实验收。重传未改写批次或清空队列。此项是拒收恢复，不等同于真实断网验收。
+2. 新产品 Hook 覆盖缺口写入仍受 Claude/Codex 限制，现改为统一能力目录。设置型安装报告改用 `adapter_available`，配置存在、启用、授权和实际事件分别展示。
+3. 老客户端可能忽略新日志来源字段而使用旧默认范围。新采集范围要求协议 5；旧客户端策略请求返回 `aidr.runtime_product_upgrade_required`，平台显示未应用/待升级，旧客户端保留此前已接受策略。原有 Claude/Codex 策略下发不变。
+4. 设置合并保留用户 Hook、空 Hook 分组、无关字段和大整数；重复安装只有一份自有条目，移除只处理自有命令。不同产品协议分别验证，QoderWork 拒绝通过退出码 2 表达。
+
+### 自动检查与边界
+
+- Go：agentlog、hooks、localstore、upload、agent-manager-client 相关包通过；设置安装/卸载、Cursor 协议、QoderWork 返回格式和 managedclient 运行策略相关测试通过。多来源测试覆盖缺失来源、独立进度、重复根及不支持的 OS，不阻断健康来源。已有队列测试覆盖网络失败及恢复、ACK 和脱敏；这不是各原生产品的完整故障验收。
+- 后端：相关 API、Hook、运行治理、插件状态与新增产品测试 66 项通过；补充旧客户端策略投递后产品及运行治理 33 项通过（与前组有重叠，不能相加）。
+- 平台构建、中英文检查 22 项、桌面中英文检查 29 项、Rust `cargo check` 通过。平台仍有既有大分块提示。没有新增 UI 单元测试。
+- managedclient 全包曾因库存测试固定期待 14 个 Agent、实际额外发现本机 `pi` 而失败；同一库存测试在隔离 PATH 后通过，确认环境依赖。此次未修改库存发现逻辑，不把该次全包结果报告为通过。
+- WorkBuddy / Cursor 临时配置均已恢复，WorkBuddy 原文件字节及权限保留，Cursor 原本不存在的测试配置已移除。测试接收器退出；日志与 Hook 待上传均为 0。测试会话及已入库证据保留。平台语言恢复简体中文，临时视口已恢复。
+
+### 未验证项及人工验收清单
+
+1. 新桌面包实际安装后，在中英文“运行治理 → 接入与采集”检查产品目录、安装/移除按钮、未知授权及配置已写入状态；平台选择全局及单机覆盖，核对协议 5、策略回执、分来源状态。此次桌面未替换，因此完整桌面按钮到平台策略自动接入流程未实测。
+2. WorkBuddy / Cursor 真实 `SessionEnd` 尚未取得；`Stop` 仅证明一轮结束。新宿主阻断、Qoder 审批、宿主超时/异常行为尚未原生验收。需要在可控制的测试会话验证命令确实未执行以及审批决定，而不能只看返回 JSON。
+3. Qoder CLI 新问答、Qoder 共享 Hook、QoderWork、OpenCode 新会话尚未端到端验收。共享 Qoder Hook 不强行声明 IDE/CLI；本机 Qoder.app 不直接等同 QoderWork。OpenClaw / TraeWork 缺少可验证本地环境或契约，未实现适配；OpenCode 新版 SQLite 存储与插件流也未实现。
+4. 原生产品真实断网、退出重启及脱敏敏感样本未逐产品验收。下一步用无真实凭证的固定测试标记，在专用接收器暂时不可用后恢复，核对原始批次、去重、ACK、本地待发及平台数量；不得对日常链路断网或删除游标。已通过 WorkBuddy 采集器重启续采，不能替代宿主重启全流程。
+5. 平台已检查中英文能力目录、会话日志与 Hook 分开展示，以及 Cursor 原生失败详情；900px 窄视口检查表格容器无页面横向溢出。继续人工核对更窄屏幕、长产品名称/路径、多个来源错误和不同 OS。截图位于本地 `outputs/aidr-products-20261007/`，不包含历史会话正文或凭证。
+
+**English:** WorkBuddy native model-driven turns passed log intake, strict ACK, backend storage and session UI checks; collector restart retained 18 records with no duplicates. Cursor local Agents produced real submit, successful-tool, failed-tool and turn-stop Hooks; its failure details retain native exit code 7. Earlier receiver gaps are explicit. Settings were restored and test queues drained. Qoder/OpenCode native historical samples were parsed read-only, not uploaded or counted as end-to-end acceptance. SessionEnd, native interception/approval, per-product offline/redaction, new desktop onboarding and additional OS/storage variants remain unverified. See the support matrix for documented, implemented and unavailable entry points.
+
+## 2026-10-07：跨小版本接入能力改造
+
+精确宿主版本白名单已从插件安装/更新、桌面接入任务和 Codex 受管入口移除。新报告以 `interface_compatible` 表示实际接入查询格式可读；旧 `adapter_target` 报告继续接收并单独标示。Codex 只在原生查询明确返回方法不存在时使用旧 CLI 接口，真实读取或格式错误保持未知。受管安装前可探测接口，安装后必须核对原生 managed Hook，才确认运行目标；该入口探测不等于实际系统安装成功。
+
+日志对兼容记录不再新增版本缺口；旧版本提示保留在游标历史但不影响当前覆盖状态，真实解析失败继续显示。未清理游标、队列或冻结批次，没有更改日常策略和服务。
+
+验证：Go hooks、agentlog、upload、agent-manager-client 四个包回归通过；17 项后端状态/运行治理 API 测试通过；平台 i18n 22 项和桌面 i18n 29 项通过，平台构建、桌面前端资源构建及临时 Go 客户端构建通过。新协议样本覆盖多个小版本/预发行/厂商字符串、版本命令失败、原生接口缺失/错误、受管接口可读但配置未加载、全部受管 Hook 已加载、消息阶段、工具绑定和旧游标。它们是协议样本，不是这些未来发行版本的实机证据。
+
+当前真实 Codex 0.160.1 只读插件与受管安装前探测通过（`TestInstalledCodexCompatibilityProbe`，显式指定本机二进制和配置目录）；未调用模型或安装系统组件。平台实际中英文页面已检查旧版报告标识及布局，语言恢复中文；截图 `/private/tmp/aidr-interface-platform-zh.png`、`/private/tmp/aidr-interface-platform-en.png`。当前日常客户端仍运行旧组件，新客户端状态、桌面新文案及管理员安装/升级/移除实机复验见客户端文档清单。未新增 UI 单元测试，未发布或替换日常客户端。
+
+**English:** Integration now follows native interface observations instead of exact host versions. Compatible logs continue across releases without false version gaps. Regression tests, API tests, bilingual checks, frontend builds and a temporary Go build passed. Real Codex 0.160.1 passed read-only plugin and managed preflight probes; synthetic release strings do not certify future native builds. The browser verified legacy-report labels in both languages. The daily client was not replaced; updated desktop states and privileged managed installation/upgrade/removal remain manual acceptance items. Deploy the platform before clients.
+
+## 2026-10-07：Codex 0.160.1 审批与生命周期续验
+
+使用 ChatGPT.app 内置 `codex-cli 0.160.1` 和当前已构建客户端执行真实新会话。普通插件、控制审批和系统受管安装分别计验收状态。
+
+| 验收项 | 当前结果与证据 |
+| --- | --- |
+| 平台审批拒绝 / 允许 | 通过。独立平台分别拒绝、批准一次真实 touch 请求；拒绝时标记不存在且宿主返回 AIDR 拒绝，批准时标记存在且命令退出 0。两个原生宿主退出 0，平台决策、客户端终态回执及 5+6 条 Hook 的 event_id/source_seq 与持久 ACK 精确一致，待发 0。 |
+| 原生权限请求 | 通过。新会话产生 `item/commandExecution/requestApproval`，核对会话、轮次、调用、命令及目录后回复 decline；命令状态 declined，标记不存在。PermissionRequest 等 6 条 Hook 已入库并 ACK。 |
+| 压缩与中断 | 通过。新建会话完成两个短问答，再显式压缩该会话，收到 contextCompaction 完成；新轮次调用 turn/interrupt 后中断。PreCompact/PostCompact/Interrupt 等 9 条 Hook 已入库并 ACK；网页已核对完整 9 条 Hook 及压缩前后事件。 |
+| 子代理启动 / 结束 | 通过。一个新建父会话创建一个仅回复固定文本的子代理，等待完成并关闭；SubagentStart/SubagentStop 的子代理身份一致，10 条 Hook 已入库并 ACK。 |
+| 系统级受管安装 | 未通过。`scanner/cmd/agent-manager-client/aidr_managed.go` 的受管入口仍要求精确 `codex-cli 0.159.0`，0.160.1 返回 `aidr_managed_host_unverified`。当前 `/etc/codex/requirements.toml` 不存在；未绕过版本校验，未执行系统安装、更新、移除或管理员授权。 |
+
+三个生命周期会话合计 25 条事件覆盖当前声明的全部 12 类 Hook：SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、Stop、SessionEnd、PermissionRequest、PreCompact、PostCompact、Interrupt、SubagentStart、SubagentStop。逐条核对实际平台数据库与本地持久回执的身份、序号，不以宿主退出码替代事件证据；事件类型覆盖不等于每种参数、异常及系统受管分支均通过。
+
+审批通过 `native_approval_acceptance.py --agent codex --codex <上述内置二进制> --model gpt-6-luna` 执行，审批决定由真实平台 API 提交。其隔离插件使用单次原生信任覆盖，不证明持久信任，也不替代人工网页审批或桌面模式切换。生命周期探针使用原生 App Server、现有持久信任及日常接收器，仅操作新建测试会话；测试后归档自有会话并退出自有进程，保留事件、队列及验收报告。日常设备策略、系统受管配置和服务未变更。
+
+本地证据：汇总 `/private/tmp/aidr-1601-extended-acceptance/summary.json`；审批 `/private/tmp/aidr-p3-native-approval-pfo2exou/report.json` 及 `independent-verification.json`；压缩/中断 `/private/tmp/aidr-1601-compact-bqihmth4/report.json`；原生权限 `/private/tmp/aidr-1601-permission-qetmzz1j/report.json`；子代理 `/private/tmp/aidr-1601-subagent-wktsjlzg/report.json`。临时目录可能被系统清理，不能视为发布归档。
+
+**待验清单：**适配新版系统受管契约后，在真实测试用户下通过产品入口验收管理员取消/批准、安装、升级、移除及恢复；另行验收网页人工审批与桌面模式切换。本次不新增 UI 单元测试，不据此宣布 P3 全部完成。
+
+**English:** Real Codex 0.160.1 sessions passed platform allow/deny (11 exactly acknowledged Hooks), native permission decline, compaction, interruption and subagent lifecycle (25 Hooks covering all 12 declared types). Platform IDs/sequences matched durable local ACKs; the compaction session was also checked in the browser. Approval used API decisions and invocation-scoped plugin trust; lifecycle probes used existing persisted trust. Managed installation remains blocked by the product's exact 0.159.0 gate, before administrator authorization. No system installation, update or removal was performed. Owned sessions/processes were closed or archived, and daily policies/services were preserved. Manual browser approval, desktop mode switching and the updated managed lifecycle remain separate acceptance items.
+
 ## 2026-10-06：当前代码的真实 Hook 审批补验
 
 重新构建当前 Go 客户端，运行 `native_approval_acceptance.py`，分别启动独立本地平台和私有原生会话。未修改日常设备策略、接收器或脱敏配置。
@@ -2058,3 +2128,38 @@ AC电源100%，保留原系统唤醒计划，只添加本任务owner org.agent-m
 5. 恢复日志通道前核对现有安全配置、原状态目录与独占进程；沿用长期说明启动方式，用独立新会话/临时目录对照本地记录、冻结批次、严格 ACK、平台及工具操作。当前 reader 未运行，不能宣称今天工具操作已恢复，也未认证 Codex 0.160.0 支持。
 
 **English:** Bilingual real pages now distinguish lifecycle meaning, absent call IDs, command intent and three independent collection channels. The enabled receiver button is disabled based on a recent report, with task #130 visible. One read-only inspection (#131) completed and refreshed the page without a manual refresh or receiver restart. Automatic text/outcome/time filtering and clear were verified on actual pages. Existing 17 target Hooks retain their identities and hashes. The inactive log reader and missing OS report remain unresolved runtime conditions, not fixed by these UI changes. Timeout/slow-response/pagination cases and renewed log/OS ingestion require the listed controlled verification; no overall P1/P2/P3 completion is claimed.
+# 2026-10-07 接收器重试与平台任务摘要
+
+- 现场只读核对：平台目标为 fixed/2；接收器监督记录 attempts=3、active=false、suspended=true，最近失败时间 16:42:40，只有 `aidr_desktop_receiver_failed`，不能还原该次退出的直接原因。未删除状态、游标或队列，未改平台策略。
+- 修正重试额度跨健康运行永久累积：60 秒有效健康报告后恢复连续故障预算；短暂运行、无效报告、调度恢复或再次失败不直接重置。保留暂停状态的手动恢复入口与最近失败记录。退出诊断新增信号/正常结束分类；stderr 持续有界读取，只保留稳定编码，避免读到总计 4096 字节后关闭管道。
+- Rust 接收器测试 15 项通过，含真实侧车启动/离线积压/退出/次数上限与清理；桌面 i18n 29 项、平台 i18n 22 项、Tauri debug app 和平台构建通过。未新增 UI 单元测试。
+- 真实平台中英文核对：#151 为 Codex 安装授权检查成功；#150 为 Codex/Claude Code 的运行治理策略应用成功；#149/#148 保留历史失败。展示动作、产品、创建时间、版本，展开通道目标/结束时间/错误码。恢复中文。截图位于 outputs/aidr-receiver-tasks-20261007/。
+- 本机恢复仍待用户在当前开发客户端点击“重试接收器”，随后核对真实进程、有效心跳、ACK 和稳定运行；不得把本次测试通过当成现场接收器已经恢复。窄屏及信号退出提示的人工清单见客户端说明。
+
+# 2026-10-07 桌面手动安装与首次滚动回归
+
+- 修复平台 `manual + ordinary` 目标被统一当作禁止本地安装的问题：桌面按钮和 Go 操作校验同步允许安装、更新、移除，保留平台接收器开关及宿主范围。
+- Go 隔离目录验证 WorkBuddy 安装、重复安装、更新、移除；检查接收器仍关闭、平台任务与 Codex 宿主范围未变。自动安装、受管安装和未知策略仍禁止本地越权操作。`go test ./cmd/agent-manager-client ./internal/aidr/hooks` 通过。
+- `npm run test:i18n` 29 项通过；Go sidecar prepare 与 Tauri debug app 构建通过，JavaScript 语法检查和 `git diff --check` 通过。
+- 真实新版 macOS 窗口：冷启动后直接进入运行治理，无需切换其他页面即可向下滚动到插件卡片；WorkBuddy、Qoder、Cursor 安装按钮可用。QoderWork 未发现宿主，安装仍不可用。英文提示正常换行，英文滚动与按钮状态通过；测试后恢复中文并退出临时验收窗口，原开发客户端及后台服务保留。
+- 本轮未修改真实产品 Hook 配置或平台采集目标，未重新验收全部产品的真实事件上传。原版首次滚动故障未在本轮重复复现；修复后的冷启动路径已实际验证。
+
+# 2026-10-07 Hook 默认允许用户自行接入
+
+- 新增默认开启的 `allow_user_enrollment`。本机选择经绑定设备的认证心跳同步到独立表，合并为有效 Hook 范围，不覆盖继承策略。旧客户端使用其支持的任务字段；新客户端首次报告能力会创建版本化的选择记录。部署顺序为平台先升级、客户端后升级。
+- Go 隔离 Home 使用 WorkBuddy 安装器验证：离线安装与请求持久化、重复操作去重、卸载撤回、不同平台隔离及管理员禁止。平台 API 验证默认值、独立继承、同一请求不重复改版本、关闭/恢复通道、受管模式、重复/非法产品拒绝和无凭证拒绝。以上为隔离自动测试，不是实际 WorkBuddy 模型调用验收。
+- 相关后端 63 项通过；Go 客户端和 Hook 包通过，受管客户端策略一致性专项通过；Rust 接收器 15 项通过。平台 i18n 22 项、桌面 i18n 29 项与平台构建、Tauri debug app 构建通过。公共 `managedclient` 全包有 `TestOrdinaryPacingFairnessAndRoundBound` 失败，单独重跑仍失败；未改该限速实现，也未验证基线是否同样失败，不宣称 Go 全量通过。
+- 本机开发重载中旧工作进程报告过两次任务一致性失败，能力字段兼容处理已修复；#155 的锁冲突通过平台既有重试入口恢复，#156 成功。用户随后在新版桌面点击 WorkBuddy“启用 Hook 采集”：本机选择和平台独立记录均为 `["workbuddy"]`，自动生成的 #157 成功，客户端在 17:32:35 应用 10:20 策略。平台中英文默认开关、解释与布局已检查。原有 WorkBuddy 已在管理员范围内，本次真实验收证明选择同步和正常采集；从范围外加入的合并规则由隔离测试验证。
+- 真实 WorkBuddy 5.6.2 新建无敏感测试问答，由 Agent 执行一次 `/usr/bin/printf AM_HOOK_ENROLL_20261007`。原生会话 `a8e5908e-6228-473b-9802-4b42390254fb` 的 UserPromptSubmit、SessionStart、PreToolUse、PostToolUse、Stop 共 5 条，平台记录为 #9500/#9501/#9503/#9505/#9506。逐条 event_id 和 source_seq 匹配本地 `hook_receipts`，17:33:54—17:34:02 获得持久化 ACK；这 5 条没有待上传记录。平台精确会话筛选显示 5 条 Hook，工具前后按同一原生调用 ID 合并，日志页另有 2 条消息及 1 次工具操作，回复包含 ACCEPTANCE_DONE。证据截图：`outputs/aidr-hook-enrollment-20261007/workbuddy-hooks-zh.png`。未将 Hook 和日志相加计为两次工具操作。
+- 已知能力边界：该 WorkBuddy PostToolUse 的结果格式仍标记 `result_format_unsupported`，不能据此确认退出码或工具成功；模型回复自述退出码 0 不能代替独立结果。事件接收、ACK 与展示通过不等于全部工具结果适配通过。
+- 人工 Todo：新版桌面中英文检查卡片换行、安装中按钮禁用；实际断网重启后的自动同步、关闭自行接入/Hook 通道后收回范围；真实工具失败、原生授权及其他产品分别验收。当前桌面自动化不能绑定用户开发窗口，本次点击由用户完成，未取得该窗口英文布局证据。已存在的宿主原生信任授权必须由用户完成。
+- English: User enrollment is enabled by default; explicit administrator restrictions remain effective. The user enabled WorkBuddy in the development client, task #157 applied policy 10:20, and a real WorkBuddy 5.6.2 conversation produced five native Hooks with matching durable local receipts and platform timeline entries. The host was already in the administrator scope; adding a previously excluded host was tested in isolation. WorkBuddy tool-result decoding, live offline restart/recovery, other products and the new desktop English layout remain outside this live acceptance. The unrelated managed-client pacing test still fails; no all-tests-passed claim is made.
+
+# 2026-10-07 WorkBuddy 工具结果解析修复
+
+- 根因：旧解析仅识别通用 `exit_code`；WorkBuddy Bash/PowerShell 使用 `exitCode`，日志还将其保存在 `providerData.toolResult.rawResponse`。核对本机 5.6.2 随包 `codebuddy-headless.js` 中 `extractRawResponse`、`executePostToolUseHooks` 与工具结果构造，以及前轮受控测试原始 JSONL 后，实现独立 WorkBuddy 结果适配。Hook 读取原生 `tool_response`，日志读取 `rawResponse`；不从输出正文或模型自述提取状态。
+- 支持数值退出码、显式错误/完成、取消和沙箱拒绝状态；输出与错误正文沿用现有采集/脱敏/截断。未提供状态保持未知。成功 Bash Hook 本身没有 stdout/stderr 时，不拼接其他通道伪造 Hook 正文；会话日志保留宿主提供的输出。页面共用“宿主报告退出码 / Host-reported exit code”文案。没有清空队列、回退游标或改写历史事件。
+- 真实验收：17:43 在 WorkBuddy 5.6.2 新建会话 `8a8131ae-52f4-4f30-a67d-62aa20850dc8`，由模型触发两次独立 Bash 工具调用，无文件读写及网络工具。第一次 printf 返回 0，第二次受控 shell 返回 7；未重试故意失败。平台 Hook #9694 为 reported_success/0，#9697 为 reported_error/7；整会话 7 条 Hook 均匹配本地 receipt 的 event_id/seq 并已 ACK。日志 #22230/#22232 同样为 success/0 与 error/7，含真实输出；全部 6 条日志的 logical_id 对应本地已 ACK 记录。平台时间线显示两次操作，各有 Hook 前后事件，模型回复和日志输出可见。
+- 自动验证：Go agentlog、hooks、upload、客户端命令包通过；本机只读样本验证 WorkBuddy 7 个文件、Qoder CLI 3 个文件、OpenCode 141 个快照文件。后端 Hook/契约/正文相关 28 项通过；平台 i18n 22 项、桌面 i18n 29 项通过；Go sidecar、Tauri debug app 和平台构建通过，平台保留已有大分块提示。新增测试覆盖结构化成功/失败/取消/拒绝、无状态、无效类型、冲突、正文伪装退出码、通道绑定和脱敏。无新增 UI 单元测试。
+- 人工检查：已查看中文日志输出和中英文结果文案；截图保存在 `outputs/aidr-workbuddy-results-20261007/`。待验：真实用户取消、沙箱拒绝、PowerShell、其他工具与不同 WorkBuddy 版本；对应代码/样例测试不能代替宿主端到端验证。保留现有开发客户端与原采集配置，未触碰 root 系统采集。
+- English: WorkBuddy native result metadata is now decoded independently of output text. A real 5.6.2 session produced two model-driven tool calls with exit codes 0 and 7, matching Hook and log records, local upload receipts and visible platform results. Historical events remain unchanged. Cancellation, sandbox denial, PowerShell and other versions have parser coverage but were not exercised end to end.

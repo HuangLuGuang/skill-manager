@@ -1,5 +1,13 @@
 # Agent Manager Project Guide
 
+客户端接入后默认按策略自动启用 Agent 日志和普通插件 Hook，平台直接显示安装、授权、接收器及最近事件状态；已有全局/单机覆盖保持优先。系统采集仍单独启用。完整行为、授权边界和人工验收见[客户端说明](agent-manager-client.md#接入后自动采集与-hook-状态)。
+
+Client enrollment uses default policy-driven log and ordinary Hook collection, with separate installation, authorization, receiver and delivery status. Existing overrides take precedence; system collection remains separate.
+
+Hook 接收器重试按连续故障计数，收到一分钟有效健康报告后恢复额度；平台客户端概览显示含成功记录的最近任务，并注明动作、产品、时间及策略版本。详见[接收器重试与任务记录](agent-manager-client.md#接收器重试与任务记录)。
+
+Hook retry budgets recover after one minute of valid health reports. Client overview task history includes successes and identifies the action, products, time and policy revision independently of live collection health.
+
 这份文档是这个项目的主说明文档，目标是把下面几件事讲清楚：
 
 - 这个项目解决什么问题
@@ -408,7 +416,7 @@ flowchart TB
 
 客户端的 `agent-manager-client agent-log-read --agent claude|codex` 提供带覆盖状态和可续读游标的调用/结果元数据；`agent-log-collect` 将读取与游标原子保存至专用本地 SQLite，`agent-log-state` 查询状态、事件和待发批次。`aidr-sync` 显式运行读取、上报和心跳；管理台设备详情的“Agent 日志观察”优先展示合并后的操作意图、脱敏命令/明确目标与日志结果依据，支持会话等条件筛选；能力和覆盖诊断可展开，缺口醒目提示。进程关联保持未知。凭证绑定设备并具有 AIDR scopes，管理查询及启停沿用现有设备访问权限。接入步骤、macOS 实测范围和未完成验收见 [客户端日志说明](agent-manager-client.md#agent-日志平台接入p1-0305) 与 [P1 平台验收记录](../experiments/aidr-agentlog/PLATFORM_ACCEPTANCE.md)。
 
-平台 **设备详情 → 策略与审批 → 系统采集策略** 发布签名归属与控制策略；**行为审计 → 系统事件** 查看实际执行器版本和系统证据。桌面 **运行治理 → 系统采集** 提供开始/停止，无需终端：复用设备连接和平台目标，通过 macOS 管理员授权安装/更新组件并启动独立 root 采集进程，桌面保持普通用户权限。默认仅采集 fork/exec/exit，真实订阅成功才显示运行；完整磁盘访问权限独立授权。停止关闭订阅、回收进程、限时补传，剩余记录保留到下次开始。开发包仅在 SIP 已关闭时安装 ad-hoc ES 签名组件，未更新组件不重复签名；正式发布需要 Developer ID、Apple ES 授权和公证。客户端不修改 SIP。流程、故障说明和人工验收见 [macOS 执行器说明](../client/macos-enforcer/README.md) 与 [客户端说明](agent-manager-client.md#桌面系统采集2026-10-05)。
+平台 **设备详情 → 策略与审批 → 系统采集策略** 发布签名归属与控制策略；**行为审计 → 系统事件** 查看实际执行器版本和系统证据。桌面 **运行治理 → 系统采集** 提供开始/停止，无需终端：复用设备连接和平台目标，通过 macOS 管理员授权安装/更新组件并启动独立 root 采集进程，桌面保持普通用户权限。默认采集进程执行及文件变化通知，真实订阅成功才显示运行；完整磁盘访问权限独立授权。停止关闭订阅、回收进程、限时补传，剩余记录保留到下次开始。开发包仅在 SIP 已关闭时安装 ad-hoc ES 签名组件，未更新组件不重复签名；正式发布需要 Developer ID、Apple ES 授权和公证。客户端不修改 SIP。流程、故障说明和人工验收见 [macOS 执行器说明](../client/macos-enforcer/README.md) 与 [客户端说明](agent-manager-client.md#桌面系统采集2026-10-05)。
 
 客户端另有开发阶段的 macOS 运行时只读入口 `agent-manager-client runtime-watch`：
 普通用户通过本地 Unix socket 接收单独启动的特权 ES 采集器事件及健康状态。
@@ -420,7 +428,7 @@ flowchart TB
 
 客户端默认策略和单机覆盖分别配置 Hook、系统防护的“仅审计 / 拦截”模式，支持恢复继承。新配置默认仅审计；存量未选择模式的策略保留原行为，旧客户端需升级后才能确认新模式。Agent 日志保持采集设置。平台目标与客户端实际模式分别显示，保存成功不代表已应用。
 
-“工具使用审批”配置 Agent 工具调用前的允许、拒绝和人工审批，Hook 拦截模式执行有效签名规则；“系统采集策略”配置 Agent 可执行文件及有效期，高级区域的文件访问规则在系统拦截模式执行。系统策略有效期作为设备认证租约：已认证设备由平台自动续签内容不变的新版本，修改采集目标或规则仍由管理员发布；自动续签进入操作审计，不混入管理员配置历史。运行中的系统采集器关闭旧订阅、补传后切换，实际 ES 心跳确认模式。仅审计保留采集、脱敏和上传，不执行阻断；采集故障不阻止正常工具操作。详见[客户端模式说明](agent-manager-client.md#仅审计与拦截模式)。普通系统事件页翻译进程生命周期，展示进程归属、PID、可用路径和系统决定；连续相同健康心跳合并显示，详情仍保留原始记录。当前通道不提供命令行或稳定进程名。
+“工具使用审批”配置 Agent 工具调用前的允许、拒绝和人工审批，Hook 拦截模式执行有效签名规则；“系统采集策略”配置 Agent 可执行文件及有效期，高级区域的文件访问规则在系统拦截模式执行。系统策略有效期作为设备认证租约：已认证设备由平台自动续签内容不变的新版本，修改采集目标或规则仍由管理员发布；自动续签进入操作审计，不混入管理员配置历史。运行中的系统采集器关闭旧订阅、补传后切换，实际 ES 心跳确认模式。仅审计保留采集、脱敏和上传，不执行阻断；采集故障不阻止正常工具操作。详见[客户端模式说明](agent-manager-client.md#仅审计与拦截模式)。系统事件默认展示命令与文件变化：有界原文 argv（8 KiB / 256 项）、执行目录、程序及 Agent 根路径、退出码/信号、进程存活时间、文件创建/修改/重命名/删除。详情按精确进程身份展示活动和可展开的归属链，原始 JSON 收在技术诊断。客户端自检单独标记筛选；历史缺失字段不补造。采集持续到停止或进程退出，续签独立于管理员配置版本，不影响正常编辑。已有根在下一次系统事件验证身份；页面明确显示策略覆盖范围。
 
 工具操作是命令摘要：`[HEREDOC OMITTED]` 表示多行输入正文省略，`[BODY OMITTED]` 表示内联脚本或正文省略。摘要与正文分开保存。在“审计采集与脱敏”中开启“命令正文（脚本 / HereDoc）”后，更新后的客户端会采集日志或 Hook 已提供的 Shell 命令、内联脚本和包装代码；详情直接展示脱敏后的正文。有正文时页面不重复展示带占位符的命令摘要。未启用时仍仅保留摘要；已省略的历史正文无法恢复。
 
@@ -464,6 +472,80 @@ flowchart TB
 - [ ] 悬停、键盘上下移动和 Enter 选择轮次，核对即时筛选、来源切换数量与“全部轮次”入口；刷新后保留全部轮次选择；超过 100 轮时加载更多。
 - [ ] 核对多次用户提交、无问题正文、日志独有轮次、无轮次 ID 和过期记录；切换会话或客户端后旧问题不残留。
 - [ ] 中英文、宽屏和窄窗口检查；滚动右侧长时间线时左侧会话位置不变，会话列表可独立滚动；窄屏选择器无溢出且只有时间线记录滚动，顶部所有 Tab、搜索、会话和轮次导航保持固定；信息按钮可用键盘打开；确认系统事件、采集状态和策略入口仍可使用。
+
+### 会话活动加载与性能
+
+会话活动首屏先读取会话与轮次，再按实际选中轮次请求一次时间线；等待轮次时显示加载状态。切换会话会忽略旧请求结果，轮次读取失败时仍可浏览全部轮次并重试。会话列表在一次数据汇总中完成数量统计及问题匹配，按整个会话筛选，保留最早有正文的问题标题、权限检查和快照分页。
+
+首次进入、刷新和切换查询时显示居中的加载指示，依次提示正在读取会话、轮次或时间线；请求结束后自动消失。首次加载时不同时展示“没有会话”或采集故障引导；刷新按钮在三个读取阶段均防止重复触发。尊重系统减少动态效果设置，不人为延长加载时间。
+
+平台升级自动创建有效会话消息的部分索引，读取输入与回复时不必扫描全部工具日志；已有事件、正文、队列和游标不变。首次建立索引需要读取现存日志表，耗时与数据量有关。
+
+**English:** Session activity resolves the session and turn selection before loading its initial timeline, avoiding a redundant all-turns request. Loading stays visible while turns resolve. Stale responses are ignored when switching sessions; a failed turn request still permits browsing all turns and retrying. Session search aggregates counts and prompt matches together, preserving whole-session counts, the first available question title, content permissions and snapshot pagination.
+
+Upgrade creates a partial index for non-expired session messages, avoiding scans of tool records when reading inputs and replies. Existing evidence, bodies, queues and cursors remain intact. Initial index creation scans the existing log table and depends on its size.
+
+会话首屏性能人工验收：进入页面后确认只显示选中轮次；切换来源、快速切换会话、搜索及清空搜索、刷新和加载更多后确认记录未混入其他会话；轮次加载失败时确认重试及全部轮次仍可用。
+
+### 采集状态与来源诊断
+
+行为审计下的会话活动、系统事件、采集状态共用固定高度布局及相同的设备头部、抽屉内边距和页签间距。切换三页时页签位置保持一致；系统事件列表在自己的内容区滚动，顶部导航不跟随滚动。
+
+系统事件采用紧凑活动列表：默认显示进程、文件与网络行为，点击类型立即筛选；授权、策略、响应和健康记录在“更多类型”中选择。每项优先展示操作、Agent、命令或目标、进程身份、时间及已采集结果，点击整项打开详情。工作目录、完整参数、进程归属链和关联活动在详情中查看，原始字段保留在折叠的技术诊断中。“采集详情”集中展示状态、报告时间、策略版本、配置范围、网络采样能力和启动说明。
+
+“全部 Agent”下拉列表包含当前配置及有效历史记录中的归属程序，选项列出完整路径以区分不同安装位置。按事件上报的 `root_path` 在服务端精确筛选，子进程归入其 Agent 根程序；翻页、事件类型切换及自检开关继续保留该筛选。缺少归属路径的旧事件仍可在“全部 Agent”查看。Agent 筛选覆盖所有有效历史记录，而文本搜索仅筛选当前页。
+
+搜索只筛选本页已加载记录；页脚分别显示可见项目数和本页原始记录数。网络项目继续按同一进程实例和套接字观察标识汇总，本页多次观察可在详情追溯；显示的是采样时状态，不能据此判断 HTTP 请求成功。退出码使用单独的结果标签，网络或文件详情中的关联退出结果明确标为所属进程的结果。
+
+**English:** System events uses a compact activity list with immediate type filters. Authorization, policy, response and health records are available under More types. Open a row for full arguments, working directory, process attribution, related activity and collapsible diagnostics. Collection details contains status, report time, revisions, configured coverage, network sampling limits and setup instructions. Navigation and filters stay fixed while the list scrolls. Search applies only to the loaded page; the footer distinguishes visible items from raw records. Network observations retain their exact process/socket grouping and traceability. Sampled TCP state does not confirm an HTTP outcome; related exit results are labelled as process results.
+
+The Agent selector includes configured and historically observed root executables. Server-side exact `root_path` filtering preserves child-process attribution across pagination and event types. Legacy records without a root path remain visible under All Agents. Session activity shows an accessible loading indicator through the session, turn and timeline requests on entry and refresh, with reduced-motion support and no artificial delay.
+
+采集状态的来源列表、详情标题及未启用产品使用对应品牌标识，标识文件随平台打包，不访问外部图片服务器。Codex、Qoder、WorkBuddy 图标取自已安装的官方应用资源，其余复用已有品牌 SVG；来源及许可见 `web/src/assets/agent-logos/NOTICE.md`。Qoder 在采集状态、插件接入和产品能力目录中统一为一个产品；CLI 日志、共享 Hook、IDE、Work 的能力及状态在产品内部按入口展示。平台和桌面保留各入口的适配 ID、策略及操作目标，历史事件无需迁移；平台未启用产品按产品去重，已部分启用的 Qoder 在同一产品内展示其余入口的未启用状态。**English:** Collection status uses locally bundled product marks. Qoder appears as one product, with entry-specific capabilities and states inside it. Adapter IDs, policy targets, actions and historical events remain unchanged; inactive entries of a partially enabled product stay within that product.
+
+系统事件 UI 人工验收清单：
+
+- 中英文及窄屏下检查长命令、长路径、IPv6 的换行，事件列表、筛选和详情没有横向溢出。
+- 切换 Agent 后检查后续分页、子进程归属及类型筛选；恢复全部 Agent 后可查看无归属路径的旧事件。
+- 首次进入及刷新会话活动，确认加载指示出现、阶段更新并在成功或失败后结束；检查采集状态中各品牌 Logo 的加载、列表与详情一致性。
+- 滚动事件列表、多次切换三个审计页签，确认顶部位置稳定；类型切换、搜索清空、自检开关及最近/更早记录即时生效。
+- 打开进程、文件、网络事件，核对完整操作、结果、关联活动和原始记录；网络重复观察可逐条打开。
+- 检查无记录、无匹配、读取失败及采集停止/报告过期状态；从采集详情可跳转采集状态。
+- Qoder 人工验收：日志与 Hook 的未启用列表、插件卡片和能力目录中产品名称只出现一次；展开入口后核对 CLI、共享 Hook 与 Work 的支持范围和独立状态，安装操作仍指向所选入口。检查中文、英文、窄屏及单入口启用/部分启用情况。
+- 拦截模式下，由有权限的管理员在受控进程上核对原有终止确认和回执流程；仅审计模式不出现可执行的终止操作。
+
+**English:** Session activity, System events and Collection status share the same fixed-height audit layout, device header, drawer padding and tab spacing. Switching views keeps the tabs in place. System events scroll within their content area while navigation remains fixed.
+
+客户端详情的 **插件接入** 使用产品列表与详情双栏。左侧按品牌选择 Claude Code、Codex、WorkBuddy、Qoder、Cursor；Qoder 内部切换共享 Hook 和 Work，操作仍使用各入口的适配 ID。顶部页签及操作栏固定，左右内容区独立滚动；窄屏将产品列表变为横向选择条。
+
+详情分别展示插件安装、宿主授权、宿主启用和近 15 分钟事件到达。各项使用自己的报告，不把前一步成功当作后一步完成。已收到事件时仍展示未知授权；过期报告不继续显示当前安装成功。主操作按当前状态引导配置策略、安装、发现与自检、查看本机授权指引或查看采集状态。版本、能力目录、诊断与接入任务默认折叠；更新插件位于“产品能力与版本”。实际授权由目标设备完成。
+
+页面可见且没有待处理任务时每 15 秒只读刷新；任务期间沿用原有 5 秒轮询及 2 分钟自动轮询上限，保留手动刷新。离开页面后停止普通状态定时刷新。设备接收器状态单独展示，不据此认定某产品已经接入。安装、更新、自检和任务重试沿用现有幂等任务接口及权限校验。
+
+**English:** Plugin access uses a product rail and an independently scrolling inspector. Qoder has one product with separate shared-Hook and Work entries. Installation, authorization, enablement and event delivery remain separate observations. The next action follows the reported state; capabilities, diagnostics and tasks are collapsed. Local authorization stays on the target device. Visible idle pages refresh every 15 seconds; active tasks retain the existing bounded polling and manual refresh flow.
+
+插件接入人工验收清单（不新增 UI 单元测试）：
+
+- 切换全部产品与 Qoder 两个入口，核对标题、状态、版本和操作对应当前入口。
+- 展开能力、诊断及任务记录，滚动长内容，确认主导航与产品列表不移动；检查中文、英文和 390px 窄屏。
+- 分别用真实设备状态检查：未安装、宿主未发现、待授权、未启用、已收到事件、无新事件和过期报告；未知状态应保持未知。
+- 在授权的测试设备验证安装、更新、自检及重试任务，确认按钮 loading、防重复点击、失败提示和最终回执；安装结果不能直接变成事件到达成功。
+- 检查操作指引、采集状态跳转、策略入口、关闭后重新打开及刷新加载状态。验证读取失败时可重试，离开页面后停止定时请求。
+
+客户端详情的 **行为审计 → 采集状态** 分为 Agent 日志、Hook 事件、系统事件三个通道。顶部导航固定，下面的来源列表与详情区域滚动；窄屏改为上下布局，选择来源后定位详情，并提供返回来源列表的入口。页面可见时每 5 秒读取当前报告，也可点击“刷新状态”重新查询；报告超过有效期后显示“状态待更新”。
+
+左侧只列出策略范围内的来源，未启用产品与技术诊断默认折叠。右侧展示所选来源的发现、安装、授权、平台到达记录及下一步操作；“查看采集策略”直接打开当前客户端配置，“查看插件接入”和活动入口保持在同一客户端。配置保存、共享接收器运行、设备在线均不等于某产品已采集数据。
+
+日志到达统计仅包含当前设备近 15 分钟已入库且未过期的原始记录，不读取正文；按产品和记录类型汇总。到达时间包含离线补传，数量不是去重后的工具操作次数。旧平台未返回该统计时显示未报告。队列与 ACK 属于整个通道；系统进程/文件与网络快照分别显示自身报告，网络快照不能解释为完整连接事件。
+
+**English:** Collection status has separate Agent logs, Hook events and System events channels. Navigation stays fixed while the source and detail area scrolls. On narrow screens, selecting a source moves to its details. Visible panels refresh every 5 seconds; expired evidence is marked as awaiting fresh status. In-scope sources show discovery, installation, authorization, arrivals and actionable guidance. Disabled products and diagnostics are collapsed. Log receipt statistics cover non-expired records received for this device during the last 15 minutes, including delayed uploads; they contain no conversation bodies and are not unique tool-operation counts. Queue and ACK reports are channel-wide. Process/file and network snapshot health remain independent.
+
+人工验收 Todo：
+
+- [ ] 在三个通道切换产品，确认右侧内容同步，未启用产品和技术诊断可展开。
+- [ ] 对照真实报告核对等待事件、权限不足、未安装、过期报告和无 ACK；旧客户端缺少字段时应显示未报告。
+- [ ] 检查策略、插件、会话活动和系统事件入口始终指向当前设备；操作指引只展示说明。
+- [ ] 中英文及窄屏检查：顶部 Tab 不随内容滚动，长名称与错误码不撑宽页面，键盘可以选择来源及展开诊断。
 
 ### 会话日志中的输入与模型回复
 
@@ -2185,3 +2267,37 @@ AIDR P1 自动日志发现使用持久化目录前沿，近期活动与历史回
 客户端管理的设备详情分为概览、Agent与Skill、插件接入、行为审计、策略与审批。Skill治理与模型配置位于Agent与Skill；Claude/Codex安装、启用与信任位于插件接入；工具日志、Hook生命周期、系统事件及采集诊断位于行为审计；工具审批、系统策略和响应回执位于策略与审批。公共页头只展示设备与心跳，不在各标签下重复库存或任务表。按需加载的摘要保留报告时间与未知状态；安装回执、Hook意图、日志结果与OS执行证据分别核对。详细操作见[客户端说明](agent-manager-client.md)。
 
 详情页优先展示状态与操作：设备 ID 和凭据创建人可展开“设备信息”查看；概览每项功能保留一个摘要入口，页头刷新同时更新当前概览。插件页直接展示宿主安装、信任与操作，协议能力和逐项验收集中在“接入诊断与验收”。行为审计保留当前采集异常与历史覆盖缺口数量，采集边界和查询说明按需展开。审批列表仅显示一个同步时间，存在更多记录或已翻页时显示底部分页；Agent 与 Skill 页仅在有恢复副本时展示该列表。
+
+
+### AIDR 小版本兼容
+
+客户端 Hook 接入以原生接口可读性和实际安装结果判断，Agent 日志以记录格式解析；版本字符串用于诊断，不作为精确版本白名单。Codex 受管目标需确认原生 managed Hook 已加载，系统事件采集继续按 OS 能力和授权工作。新客户端 `interface_compatible` 状态须先部署配套平台；完整规则、历史回执保留及人工验收清单见 [客户端说明](agent-manager-client.md#agent-小版本兼容与接入检查)。
+
+**English:** AIDR compatibility follows native interfaces and log record formats rather than exact Agent release numbers. Managed Codex targets require native loaded-Hook confirmation; OS collection retains its platform/permission checks. Deploy the matching platform before the new client status contract.
+
+### 系统网络行为
+
+macOS 系统采集复用 ES 精确进程归属与 libproc 套接字快照，新增 `kind=network` 的可选结构化记录及独立 `network_health`，共用持久化严格 ACK 队列。平台在系统事件中展示端点、协议和采样状态并按观察实例汇总；不会从 PID/时间邻近推断归属。当前不提供完整网络流事件、域名和流量总计。快照预算、发行要求、Apple 资料及人工验收见 [客户端说明](agent-manager-client.md#系统网络连接快照) 和 [采集器架构](../client/macos-enforcer/README.md#网络连接快照--network-socket-snapshots)。
+
+**English:** System network records use libproc snapshots of ES-attributed processes, with independent network health and the existing durable strict-ACK queue. Endpoints, protocol and sampled states are presented as observations. Complete flow events, domain attribution and byte totals are not implemented.
+
+### AIDR 多产品适配目录
+
+AIDR 产品入口、日志格式/根目录、Hook 事件及决策能力统一维护在 `backend/aidr_products.json`；运行 `python3 scripts/sync-aidr-products.py` 更新 Go 与两端 UI 的随包副本，`--check` 检查一致性。新增产品先提供官方契约或匿名样本，再新增 `scanner/internal/aidr/agentlog/` 解析模块或 `hooks/` 宿主协议；公共脱敏、上传、ACK、存储沿用原链路。完整文件快照不当作 JSONL 追加流。
+
+客户端策略可多选日志产品和 Hook 宿主。协议 5 才应用新增产品目标；旧策略未指定 `log_sources` 时继续采集 Claude / Codex。平台和桌面“产品与采集能力”按产品分组，组内按入口列出适配及样本范围，实际生效由安装、授权、事件和 ACK 另行确认。逐产品矩阵与限制见 [外部 Agent 集成](external-agent-integration.md#aidr-多产品适配与证据范围2026-10-07)。
+
+**English:** `backend/aidr_products.json` is the canonical capability catalog; run the sync script after changes. Product adapters own discovery/format/protocol differences and share redaction, durable queues and ACK/storage. Protocol 5 enables multi-product policies; old defaults preserve Claude/Codex. Implemented capabilities, installed settings, host authorization and actual event delivery remain separate observations.
+
+### Hook 自行接入默认值
+
+客户端策略的 `allow_user_enrollment` 默认 `true`，普通模式下本机“启用 Hook 采集”同时完成配置安装和接入请求。设备认证心跳中的 `user_hook_hosts` 更新独立的 `client_hook_enrollments`，仅在选择改变时递增单机策略版本；有效目标合并管理员预设范围与被允许的本机选择，原始全局/单机策略及其继承关系不变。旧报告和任务回执不会擦除本机选择。通道关闭、仅管理员范围或受管模式不会采用额外选择；服务端下发有效目标前本机不扩大采集。详情见客户端使用说明。
+
+
+### Skill 使用证据与认证告警
+
+会话活动新增 Skill 行为视图。产品适配模块提取可选 `skill_use` 元数据，经原有日志/Hook 持久化和 ACK 链路写入，`aidr_skill_uses` 按可靠原生身份聚合。后台按有效全局/单机策略核对 registry、签名和实例绑定，以 `aidr_skill_alert` 复用客户端事件告警。每次调用一条告警，查询失败和证据不足为待确认，不新增阻断。界面只把明确调用/文件读取作为行为；尝试、宿主确认和未知结果分别展示。来源摘要是采集时观察，不是调用时内容证明。
+
+对外名称统一为 Agent Manager、Agent Manager Hook、Agent Manager 本地接收器；内部安装标识和旧事件兼容。具体数据边界、逐产品支持矩阵和人工验收见 [集成文档](external-agent-integration.md#skill-使用识别与认证审计) 与 [客户端说明](agent-manager-client.md#agent-manager-插件名称与-skill-使用审计)。
+
+**English:** Session Skill activity combines entry-specific evidence using strong native identities. Server-side, policy-controlled registry/signature/instance checks create deduplicated client alerts. Missing evidence remains pending and tools are never blocked by this audit feature. Public names are unified while internal IDs remain compatible; see the linked integration matrix for actual verification scope.

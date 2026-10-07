@@ -14,14 +14,14 @@ REVISION_KEY = "aidr_audit_revision"
 def current(db, client_id=None):
     row = db.get(models.SystemConfig, KEY)
     value = json.loads(row.value) if row else {"enabled": True, "version": "1", "updated_by": None, "updated_at": None}
-    policy = {**value, 'capture': value.get('capture', {'prompt': False, 'tool_output': False, 'file_body': False}),
+    policy = {**value, 'skill_audit': value.get('skill_audit', {'enabled': True, 'alerts': True}), 'capture': value.get('capture', {'prompt': False, 'tool_output': False, 'file_body': False}),
             'lifecycle': value.get('lifecycle', {'enabled': True, 'retention_days': 7})}
     if client_id is None:
         return policy
     row = db.get(models.SystemConfig, CLIENT_KEY + client_id)
     local = json.loads(row.value) if row else None
     if local and not local['inherit']:
-        return local
+        return {**local, 'skill_audit': local.get('skill_audit', {'enabled': True, 'alerts': True})}
     # Keep the restoration revision so an endpoint never sees its version go backwards.
     return {**policy, 'inherit': True, **({
         'version': str(max(int(policy['version']), int(local['version']))),
@@ -75,14 +75,14 @@ def save(db, body, user, request, client_id=None):
         if body.global_version != target['version']:
             conflict()
     else:
-        target = {'enabled': body.enabled,
+        target = {'enabled': body.enabled, 'skill_audit': body.skill_audit.model_dump() if getattr(body, 'skill_audit', None) is not None else before['skill_audit'],
                   'capture': body.capture.model_dump() if body.capture is not None else before['capture'],
                   'lifecycle': body.lifecycle.model_dump() if body.lifecycle is not None else before['lifecycle']}
-    if all(before[key] == target[key] for key in ('enabled', 'capture', 'lifecycle')) and (client_id is None or before['inherit'] == inherit):
+    if all(before[key] == target[key] for key in ('enabled', 'capture', 'lifecycle', 'skill_audit')) and (client_id is None or before['inherit'] == inherit):
         return before
     key = CLIENT_KEY + client_id if client_id is not None else KEY
     try:
-        after = {**{key: target[key] for key in ('enabled', 'capture', 'lifecycle')},
+        after = {**{key: target[key] for key in ('enabled', 'capture', 'lifecycle', 'skill_audit')},
                  'version': next_version(db, previous_revision), 'updated_by': user.username, 'updated_at': datetime.utcnow().isoformat() + 'Z'}
         if client_id is not None:
             after['inherit'] = inherit

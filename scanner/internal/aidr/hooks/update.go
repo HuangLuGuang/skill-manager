@@ -13,8 +13,8 @@ func UpdatePlugin(ctx context.Context, agent, binary, home, market string) (Plug
 	if err != nil {
 		return before, err
 	}
-	if before.VersionStatus != "adapter_target" {
-		return before, code("aidr_plugin_version_unverified")
+	if before.VersionStatus != "interface_compatible" {
+		return before, code("aidr_plugin_interface_unavailable")
 	}
 	if before.Installed == nil || before.Enabled == nil {
 		return before, code("aidr_plugin_source_unreadable")

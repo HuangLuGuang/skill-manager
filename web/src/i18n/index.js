@@ -1,4 +1,6 @@
 import { runtimeGovernanceMessages } from './runtime-governance.js'
+import { collectionStatusMessages } from './collection-status.js'
+import { pluginWorkbenchMessages } from './plugin-workbench.js'
 import { clientDiscoveryMessages } from './clientDiscovery.js'
 import { aidrMessages } from './aidr.js'
 import { createI18n } from 'vue-i18n'
@@ -38,6 +40,8 @@ export const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
+      collectionStatus: collectionStatusMessages['zh-CN'],
+      pluginWorkbench: pluginWorkbenchMessages['zh-CN'],
       uiExperience: uiExperienceMessages['zh-CN'],
       externalAiGateway: externalAiGatewayMessages['zh-CN'],
       externalModel: externalModelMessages['zh-CN'],
@@ -1118,6 +1122,8 @@ export const i18n = createI18n({
       legacy: legacyMessages['zh-CN'],
     },
     'en-US': {
+      collectionStatus: collectionStatusMessages['en-US'],
+      pluginWorkbench: pluginWorkbenchMessages['en-US'],
       uiExperience: uiExperienceMessages['en-US'],
       externalAiGateway: externalAiGatewayMessages['en-US'],
       externalModel: externalModelMessages['en-US'],

@@ -420,7 +420,7 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 			}
 			// Nullable legacy fields are omitted when the typed API policy is
 			// marshaled. Their null wire form carries the same policy meaning.
-			for _, field := range []string{"modes", "channels"} {
+			for _, field := range []string{"modes", "channels", "log_sources"} {
 				if a[field] == nil {
 					delete(a, field)
 				}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	products "skill-manager/scanner/internal/aidr/catalog"
 	"time"
 )
 
@@ -50,7 +51,7 @@ func ValidateBridgePrivateFile(path string) error {
 }
 
 func WriteBridgeGap(path, agent, hook, cause string) error {
-	if ValidateBridgePrivateFile(path) != nil || (agent != "claude" && agent != "codex") || !bridgeHook.MatchString(hook) || !bridgeCode.MatchString(cause) {
+	if ValidateBridgePrivateFile(path) != nil || !products.Hook(agent) || !bridgeHook.MatchString(hook) || !bridgeCode.MatchString(cause) {
 		return code("aidr_hook_gap_report_failed")
 	}
 	data, _ := json.Marshal(BridgeGap{"aidr_hook_audit_gap", cause, agent, hook, time.Now().UTC().Format(time.RFC3339Nano)})
@@ -94,7 +95,7 @@ func ReadBridgeGap(path string) (*BridgeGap, error) {
 	defer f.Close()
 	b, err := io.ReadAll(io.LimitReader(f, 1025))
 	var gap BridgeGap
-	if err != nil || len(b) > 1024 || json.Unmarshal(b, &gap) != nil || gap.Code != "aidr_hook_audit_gap" || !bridgeCode.MatchString(gap.Cause) || (gap.Agent != "claude" && gap.Agent != "codex") || !bridgeHook.MatchString(gap.Hook) {
+	if err != nil || len(b) > 1024 || json.Unmarshal(b, &gap) != nil || gap.Code != "aidr_hook_audit_gap" || !bridgeCode.MatchString(gap.Cause) || !products.Hook(gap.Agent) || !bridgeHook.MatchString(gap.Hook) {
 		return nil, code("aidr_hook_gap_report_failed")
 	}
 	if _, err := time.Parse(time.RFC3339Nano, gap.ObservedAt); err != nil {

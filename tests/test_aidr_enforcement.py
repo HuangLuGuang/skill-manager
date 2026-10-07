@@ -292,3 +292,121 @@ def test_collection_mode_preserves_evidence_and_rejects_response(control):
     assert client.post(ROOT+'/records', json={'records':[health]}, headers=HEADERS).status_code == 200
     assert client.get(ROOT+'/status').json()['state'] == 'stale'
     assert client.get(ROOT+'/records?kind=process').json()['items'][0]['can_terminate'] is False
+
+
+def test_short_lease_renewal_preserves_editor_configuration_revision(control, monkeypatch):
+    from backend import aidr_enforcement as policy_module, client_governance
+    client, _, _ = control
+    monkeypatch.setattr(client_governance, 'policy_view', lambda *args: {
+        'runtime_governance': {'enabled': True, 'channels': {'system': True}}, 'runtime_governance_version': '1'})
+    body = policy() | {'lifetime_seconds': 60, 'expected_configuration_revision': '0'}
+    first = client.post(ROOT+'/policy', json=body).json()
+    now = int(first['policy']['issued_at'])
+    clock = SimpleNamespace(time=lambda: now)
+    monkeypatch.setattr(aidr_enforcement, 'time', clock)
+    monkeypatch.setattr(policy_module, 'time', clock)
+    assert client.get(ROOT+'/bootstrap', headers=HEADERS).json()['revision'] == '1'
+    now += 44
+    assert client.get(ROOT+'/bootstrap', headers=HEADERS).json()['revision'] == '1'
+    now += 1
+    assert client.get(ROOT+'/bootstrap', headers=HEADERS).json()['revision'] == '2'
+    assert client.get(ROOT+'/bootstrap', headers=HEADERS).json()['revision'] == '2'
+    assert client.get(ROOT+'/policy').json()['configuration_revision'] == '1'
+    body.update(expected_revision='1', expected_configuration_revision='1', rules=[])
+    saved = client.post(ROOT+'/policy', json=body)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['revision'] == saved.json()['configuration_revision'] == '3'
+    assert client.post(ROOT+'/policy', json=body).status_code == 409
+
+
+def test_operation_evidence_round_trip_context_and_filtering(control):
+    client, _, _ = control
+    root = event()
+    records = [root | {'argv': ['/bin/sh', '-c', 'printf token=verbatim\nexit 7'], 'cwd': '/private/tmp', 'argv_truncated': False}]
+    for index, operation in enumerate(('create', 'modify', 'rename', 'delete'), 2):
+        records.append(root | {'sequence': str(index), 'kind': 'file', 'transition': '', 'operation': operation,
+                               'path': '/private/tmp/a\nfile', 'destination_path': '/private/tmp/b' if operation == 'rename' else None,
+                               'result': 'observed', 'reason_code': 'aidr_file_'+operation})
+    records += [root | {'sequence': '6', 'transition': 'exit', 'exit_code': 7, 'duration_ms': '234'},
+                root | {'sequence': '7', 'activity_origin': 'client_probe'},
+                root | {'sequence': '8', 'transition': 'fork'},
+                root | {'sequence': '9', 'process': root['process'] | {'pidversion': '43'}}]
+    result = client.post(ROOT+'/records', headers=HEADERS, json={'records': records})
+    assert result.status_code == 200, result.text
+    assert client.post(ROOT+'/records', headers=HEADERS, json={'records': records}).status_code == 200
+    all_rows = client.get(ROOT+'/records').json()['items']
+    command = next(row for row in all_rows if row['record']['sequence'] == '1')
+    assert command['record']['argv'] == records[0]['argv']
+    visible = client.get(ROOT+'/records?kind=activity&include_probes=false').json()['items']
+    assert {row['record']['sequence'] for row in visible} == {'1','2','3','4','5','6','9'}
+    context = client.get(ROOT+f"/records/{command['id']}/context").json()
+    assert [row['record']['sequence'] for row in context['items']] == [str(i) for i in range(1,9)]
+    assert not context['truncated']
+    assert client.get(ROOT.replace('/one/', '/two/')+f"/records/{command['id']}/context").status_code == 404
+    legacy = next(row['record'] for row in all_rows if row['record']['sequence'] == '8')
+    assert 'argv' not in legacy and 'exit_code' not in legacy
+    oversized = root | {'sequence':'10', 'argv':['a'*8193]}
+    assert client.post(ROOT+'/records', headers=HEADERS, json={'records':[oversized]}).status_code == 422
+
+
+def test_network_snapshots_ack_filter_context_and_validation(control):
+    client, factory, _ = control
+    first = event()
+    first.update(kind='network', transition='', reason_code='aidr_network_snapshot', network=dict(
+        source='libproc_snapshot', observation_id=str(uuid.uuid4()), protocol='tcp', direction='unknown',
+        local_ip='::1', local_port=43210, remote_ip='::1', remote_port=8765, state='established'))
+    second = copy.deepcopy(first)
+    second['sequence'] = '2'
+    second['network']['observation_id'] = str(uuid.uuid4())
+    second['network']['local_port'] = 43211
+    payload = {'records': [first, second]}
+    response = client.post(ROOT+'/records', headers=HEADERS, json=payload)
+    assert response.status_code == 200, response.text
+    ack = response.json()
+    assert client.post(ROOT+'/records', headers=HEADERS, json=payload).json() == ack
+    rows = client.get(ROOT+'/records?kind=network').json()['items']
+    assert len(rows) == 2
+    assert len({r['record']['network']['observation_id'] for r in rows}) == 2
+    assert all('bytes_sent' not in r['record']['network'] for r in rows)
+    assert len(client.get(ROOT+'/records?kind=activity').json()['items']) == 2
+    context = client.get(ROOT+f"/records/{rows[0]['id']}/context").json()['items']
+    assert len(context) == 2
+    for change in [dict(state='failed'), dict(remote_ip='guess.example'), dict(direction='outbound'), dict(protocol='udp'), dict(remote_port=65536)]:
+        bad = copy.deepcopy(first); bad['network'].update(change)
+        assert client.post(ROOT+'/records', headers=HEADERS, json={'records':[bad]}).status_code == 422
+    legacy = event(); legacy['sequence']='3'
+    assert client.post(ROOT+'/records', headers=HEADERS, json={'records':[legacy]}).status_code == 200
+    assert client.get(ROOT+'/records?kind=process').json()['items'][0]['record'].get('network') is None
+
+
+def test_agent_root_filter_scopes_history_pagination_and_descendants(control):
+    from backend.aidr_enforcement import AidrRuntimeRecord
+    client, factory, _ = control
+    base = event()
+    agent_a, agent_b = '/apps/Claude/claude', '/apps/Codex/codex'
+    records = [
+        base | {'root_path': agent_a, 'sequence': '1'},
+        base | {'root_path': agent_b, 'sequence': '2'},
+        base | {'root_path': agent_a, 'sequence': '3', 'activity_origin': 'client_probe'},
+        base | {'root_path': agent_a, 'sequence': '4', 'relation': 'inherited', 'executable': '/bin/sh'},
+        base | {'sequence': '5'},
+        base | {'root_path': '/expired/agent', 'sequence': '6'},
+    ]
+    response = client.post(ROOT+'/records', headers=HEADERS, json={'records': records})
+    assert response.status_code == 200, response.text
+    with factory() as db:
+        db.query(AidrRuntimeRecord).filter_by(client_id='one', sequence='6').update({'expired_at': '2026-01-01T00:00:00Z'})
+        db.commit()
+    assert client.get(ROOT+'/record-agents').json()['items'] == [{'root_path': agent_a}, {'root_path': agent_b}]
+    params = {'root_path': agent_a, 'kind': 'process', 'include_probes': False, 'limit': 1}
+    first = client.get(ROOT+'/records', params=params).json()
+    assert [r['record']['sequence'] for r in first['items']] == ['4']
+    assert first['has_more']
+    second = client.get(ROOT+'/records', params=params | {'before': first['next_before']}).json()
+    assert [r['record']['sequence'] for r in second['items']] == ['1']
+    assert not second['has_more']
+    assert len(client.get(ROOT+'/records', params={'root_path': agent_a}).json()['items']) == 3
+    assert not client.get(ROOT+'/records', params={'root_path': '/bin/sh'}).json()['items']
+    assert not client.get(ROOT+'/records', params={'root_path': '/apps/%'}).json()['items']
+    assert client.get(ROOT+'/records', params={'root_path': 'x' * 1024}).status_code == 422
+    assert client.get(ROOT.replace('/one/', '/two/')+'/record-agents').status_code == 404

@@ -111,7 +111,7 @@ func Discover(ctx context.Context, agent, root string, maxFiles, maxEntries int,
 				}
 				if info.IsDir() {
 					walk(full, depth+1)
-				} else if info.Mode().IsRegular() && strings.HasSuffix(name, ".jsonl") {
+				} else if info.Mode().IsRegular() && SourceFile(agent, root, full) {
 					src, e := NewSource(agent, root, full)
 					if e == nil {
 						result.Sources = append(result.Sources, src)

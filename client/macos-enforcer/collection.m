@@ -8,13 +8,17 @@ void aidr_collection_project(aidr_policy *policy) {
   policy->expired_deny=false;
 }
 
-size_t aidr_collection_events(es_event_type_t events[4],bool collection_only) {
+size_t aidr_collection_events(es_event_type_t events[AIDR_COLLECTION_EVENT_COUNT],bool collection_only) {
   events[0]=ES_EVENT_TYPE_NOTIFY_FORK;
   events[1]=ES_EVENT_TYPE_NOTIFY_EXEC;
   events[2]=ES_EVENT_TYPE_NOTIFY_EXIT;
-  if(collection_only)return 3;
-  events[3]=ES_EVENT_TYPE_AUTH_OPEN;
-  return 4;
+  events[3]=ES_EVENT_TYPE_NOTIFY_CREATE;
+  events[4]=ES_EVENT_TYPE_NOTIFY_CLOSE;
+  events[5]=ES_EVENT_TYPE_NOTIFY_RENAME;
+  events[6]=ES_EVENT_TYPE_NOTIFY_UNLINK;
+  if(collection_only)return 7;
+  events[7]=ES_EVENT_TYPE_AUTH_OPEN;
+  return 8;
 }
 
 bool aidr_collection_input(NSString *type,bool collection_only) {

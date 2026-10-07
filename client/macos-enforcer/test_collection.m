@@ -25,9 +25,10 @@ int main(void) {
     assert(policy->revision==7 && policy->expires==1800000000 && policy->root_count==1 && !memcmp(&root,&policy->roots[0],sizeof(root)));
     aidr_rule empty={0};
     for(size_t i=0;i<128;i++)assert(!memcmp(&empty,&policy->rules[i],sizeof(empty)));
-    es_event_type_t events[4];
+    es_event_type_t events[AIDR_COLLECTION_EVENT_COUNT];
     size_t count=aidr_collection_events(events,true);
-    assert(count==3);
+    assert(count==7);
+    assert(events[3]==ES_EVENT_TYPE_NOTIFY_CREATE && events[4]==ES_EVENT_TYPE_NOTIFY_CLOSE && events[5]==ES_EVENT_TYPE_NOTIFY_RENAME && events[6]==ES_EVENT_TYPE_NOTIFY_UNLINK);
     for(size_t i=0;i<count;i++)assert(events[i]!=ES_EVENT_TYPE_AUTH_OPEN);
     assert(events[0]==ES_EVENT_TYPE_NOTIFY_FORK && events[1]==ES_EVENT_TYPE_NOTIFY_EXEC && events[2]==ES_EVENT_TYPE_NOTIFY_EXIT);
     assert(aidr_collection_input(@"attribution",true));
@@ -36,7 +37,7 @@ int main(void) {
     assert(aidr_collection_input(@"policy",false) && aidr_collection_input(@"terminate",false));
     assert(!aidr_collection_input(@"attribution",false));
     assert(strcmp(aidr_collection_cache(true),aidr_collection_cache(false)));
-    assert(aidr_collection_events(events,false)==4 && events[3]==ES_EVENT_TYPE_AUTH_OPEN);
+    assert(aidr_collection_events(events,false)==8 && events[7]==ES_EVENT_TYPE_AUTH_OPEN);
     NSString *missing=[@"/private/tmp/aidr-collection-" stringByAppendingString:NSUUID.UUID.UUIDString];
     uint64_t now=(uint64_t)NSDate.date.timeIntervalSince1970;
     NSDictionary *input=@{@"schema":@1,@"device":@"fixture",@"revision":@"9",
