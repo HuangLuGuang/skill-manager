@@ -272,7 +272,7 @@
           </template>
           <template v-else-if="column.key === 'sandbox'">
             <a-space wrap>
-              <a-tag v-if="record.sandbox_runtime" color="blue">{{ record.sandbox_runtime }}</a-tag>
+              <a-tag v-if="record.sandbox_runtime" color="blue">{{ ['remote', 'docker'].includes(record.sandbox_runtime) ? t(`skillUpload.sandboxRuntime.${record.sandbox_runtime}`) : record.sandbox_runtime }}</a-tag>
               <a-tag v-if="record.sandbox_required_by_policy" color="orange">{{ $t("legacy.pf5db8") }}</a-tag>
             </a-space>
           </template>
