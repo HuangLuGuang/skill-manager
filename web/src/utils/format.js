@@ -1,3 +1,4 @@
+import { formatFileSize as formatFileSizeValue } from './fileSize.js'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 import timezone from 'dayjs/plugin/timezone'
@@ -50,19 +51,7 @@ export const formatCompactNumber = value =>
         maximumFractionDigits: 1,
       }).format(Number(value))
 
-export const formatFileSize = value => {
-  const bytes = Number(value)
-  if (!Number.isFinite(bytes) || bytes < 0) return '-'
-  if (bytes < 1024) return `${formatNumber(bytes)} B`
-  const units = ['KB', 'MB', 'GB', 'TB']
-  let size = bytes / 1024
-  let unit = units[0]
-  for (let index = 1; size >= 1024 && index < units.length; index += 1) {
-    size /= 1024
-    unit = units[index]
-  }
-  return `${new Intl.NumberFormat(getCurrentLocale(), { maximumFractionDigits: 1 }).format(size)} ${unit}`
-}
+export const formatFileSize = value => formatFileSizeValue(value, getCurrentLocale())
 
 export const formatDetails = (details, limit = 4) => {
   if (!details || typeof details !== 'object') return '-'
