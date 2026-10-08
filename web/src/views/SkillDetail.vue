@@ -621,7 +621,7 @@
               <a-descriptions :column="{ xs: 1, sm: 1, md: 1, lg: 1, xl: 2, xxl: 2 }" size="small" bordered>
                 <a-descriptions-item :label="$t('decisionFlow.findingCount')">{{ detail?.vetting?.findings_count ?? $t('decisionFlow.unrecorded') }}</a-descriptions-item>
                 <a-descriptions-item :label="$t('decisionFlow.duration')">{{ scanDurationDisplay }}</a-descriptions-item>
-                <a-descriptions-item :label="$t('decisionFlow.analyzers')">{{ detail?.vetting?.analyzers_used?.join(', ') || $t('decisionFlow.unrecorded') }}</a-descriptions-item>
+                <a-descriptions-item :label="$t('decisionFlow.analyzers')">{{ analyzerNames.join(', ') || $t('decisionFlow.unrecorded') }}</a-descriptions-item>
                 <a-descriptions-item :label="$t('decisionFlow.resultReuse')">{{ $t(detail?.scan_reused === true ? 'decisionFlow.reusedResult' : detail?.scan_reused === false ? 'decisionFlow.newScan' : 'decisionFlow.unrecorded') }}</a-descriptions-item>
                 <a-descriptions-item :label="$t('decisionFlow.cacheKey')">{{ detail?.scan_cache_key || $t('decisionFlow.unrecorded') }}</a-descriptions-item>
               </a-descriptions>
@@ -2121,6 +2121,11 @@ const jumpToRationale = async (target) => {
   if (id) document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 const sandboxRuntime = computed(() => sandboxAnalysis.value?.runtime || detail.value?.vetting?.sandbox_runtime)
+// 已有报告的分析器名称按该次报告记录的运行方式展示。
+const analyzerNames = computed(() => (detail.value?.vetting?.analyzers_used || []).map(name =>
+  name.startsWith('sandbox:') && ['remote', 'docker'].includes(sandboxRuntime.value)
+    ? `sandbox:${sandboxRuntime.value}` : name,
+))
 const sandboxRuntimeLabel = computed(() => {
   const runtime = sandboxRuntime.value
   return ['remote', 'docker'].includes(runtime) ? t(`skillDetail.${runtime}`) : runtime || t('decisionFlow.unrecorded')

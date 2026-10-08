@@ -132,6 +132,8 @@ make sandbox-runtime-build
 
 ## Sandbox 约定
 
+- Sandbox 分析器名称使用本次检测记录的 runtime，包括无脚本跳过；已有报告的展示以该次记录为准。
+
 - Skill 详情的远程 Sandbox 服务地址按报告原因编码展示：`no_executable_script` 对应“未调用 / Not called”。
 
 - Sandbox 的风险等级只代表运行时 probe 观察到的行为，不等同于静态扫描或 LLM 的最终风险。

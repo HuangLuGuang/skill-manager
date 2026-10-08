@@ -931,7 +931,8 @@ class VettingPipeline:
                 ],
                 "analyzers_used": [
                     *scan_report.get("analyzers_used", ["basic"]),
-                    "sandbox:docker",
+                    # 按本次运行方式记录，远程服务和无脚本跳过也保持一致。
+                    f"sandbox:{sandbox_runtime or 'unknown'}",
                 ],
                 "sandbox_analysis": sandbox_result,
             })

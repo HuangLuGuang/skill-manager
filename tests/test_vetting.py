@@ -784,19 +784,25 @@ class TestVettingPipeline:
         assert classification["blocking_count"] == 0
         assert classification["items"][0]["classification"] == "risk"
 
-    def test_sandbox_flags_are_recorded(self, skill_dir, default_policy, monkeypatch):
+    @pytest.mark.parametrize("runtime", ["docker", "remote"])
+    @pytest.mark.parametrize("has_script", [False, True])
+    def test_sandbox_flags_are_recorded(self, skill_dir, default_policy, monkeypatch, runtime, has_script):
         class FakeRunner:
-            config = SandboxConfig(runtime="docker")
+            config = SandboxConfig(runtime=runtime)
 
             def run_probe(self, skill_path, entrypoint, args=None):
                 return SandboxResult(
                     executed=True,
-                    runtime="docker",
+                    runtime=runtime,
                     entrypoint=entrypoint,
                     exit_code=0,
                 )
 
         monkeypatch.setattr("agent_manager.core.vetting.get_sandbox_runner", lambda: FakeRunner())
+        # 同时覆盖实际执行与无脚本跳过，运行方式都应忠实记录。
+        monkeypatch.setattr("agent_manager.core.vetting._run_scanner", lambda *_: {"findings": [], "max_severity": "SAFE"})
+        if has_script:
+            (skill_dir / "probe.py").write_text("print(1)\n")
         pipeline = VettingPipeline(default_policy)
         source = SourceInfo(origin=SkillOrigin.LOCAL)
 
@@ -804,7 +810,10 @@ class TestVettingPipeline:
 
         assert result.sandbox_triggered is True
         assert result.sandbox_required_by_policy is False
-        assert result.sandbox_runtime == "docker"
+        assert result.sandbox_runtime == runtime
+        assert f"sandbox:{runtime}" in result.analyzers_used
+        assert f"sandbox:{runtime}" in result.scan_report["analyzers_used"]
+        assert result.scan_report["sandbox_analysis"]["executed"] is has_script
         assert "sandbox_analysis" in result.scan_report
 
     def test_llm_probe_entrypoint_must_be_existing_supported_file(self, skill_dir):
