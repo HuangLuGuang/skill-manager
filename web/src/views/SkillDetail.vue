@@ -2127,7 +2127,13 @@ const sandboxRuntimeLabel = computed(() => {
 })
 const sandboxTargetLabel = computed(() => t(sandboxRuntime.value === 'remote'
   ? 'skillDetail.sandboxService' : sandboxRuntime.value === 'docker' ? 'skillDetail.sandboxImage' : 'skillDetail.sandboxTarget'))
-const sandboxTarget = computed(() => sandboxAnalysis.value?.image || t('decisionFlow.unrecorded'))
+const sandboxTarget = computed(() => {
+  // 无可执行脚本时不会调用远程服务，按报告原因显示实际调用状态。
+  if (sandboxRuntime.value === 'remote' && sandboxAnalysis.value?.reason_code === 'no_executable_script') {
+    return t('skillDetail.sandboxNotCalled')
+  }
+  return sandboxAnalysis.value?.image || t('decisionFlow.unrecorded')
+})
 const sandboxExecutionState = computed(() => {
   const recorded = analysisState(scanReport.value, 'sandbox')
   if (recorded !== 'unrecorded') return recorded

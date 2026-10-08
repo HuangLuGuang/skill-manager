@@ -1,6 +1,7 @@
 export const skillDetailMessages = {
   'zh-CN': {
     submitter: '提交人',
+    sandboxNotCalled: '未调用',
     installClient: '客户端',
     selectInstallClient: '请选择客户端',
     installAgent: 'Agent',
@@ -21,6 +22,7 @@ export const skillDetailMessages = {
   },
   'en-US': {
     submitter: 'Submitter',
+    sandboxNotCalled: 'Not called',
     installClient: 'Client',
     selectInstallClient: 'Select a client',
     installAgent: 'Agent',

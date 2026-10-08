@@ -132,6 +132,8 @@ make sandbox-runtime-build
 
 ## Sandbox 约定
 
+- Skill 详情的远程 Sandbox 服务地址按报告原因编码展示：`no_executable_script` 对应“未调用 / Not called”。
+
 - Sandbox 的风险等级只代表运行时 probe 观察到的行为，不等同于静态扫描或 LLM 的最终风险。
 - 默认 probe 可能覆盖不足；启用 LLM 时可以生成测试参数，但不要让 LLM 生成要执行的代码。
 - 本地 Docker runtime 镜像建议使用 `agent-manager-sandbox-runtime:latest`，避免运行时缺少常见依赖。
