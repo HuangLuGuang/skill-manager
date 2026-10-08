@@ -87,7 +87,7 @@
             </dd>
           </div>
           <div class="basic-field">
-            <dt>{{ $t('legacy.41rk3e') }}</dt>
+            <dt>{{ $t('skillDetail.submitter') }}</dt>
             <dd>
               {{ detail?.source?.author || '-' }}
             </dd>

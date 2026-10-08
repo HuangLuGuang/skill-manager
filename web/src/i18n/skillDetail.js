@@ -1,5 +1,6 @@
 export const skillDetailMessages = {
   'zh-CN': {
+    submitter: '提交人',
     installClient: '客户端',
     selectInstallClient: '请选择客户端',
     installAgent: 'Agent',
@@ -19,6 +20,7 @@ export const skillDetailMessages = {
     autoApproval: '策略自动批准', cachedAutoApproval: '复用结果 · 策略自动批准', pendingReview: '待审核',
   },
   'en-US': {
+    submitter: 'Submitter',
     installClient: 'Client',
     selectInstallClient: 'Select a client',
     installAgent: 'Agent',
