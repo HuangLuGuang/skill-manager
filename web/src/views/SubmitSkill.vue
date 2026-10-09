@@ -219,10 +219,10 @@
 
     <a-modal v-model:open="folderReviewOpen" :title="t('skillUpload.folder.review')" :width="800" :ok-text="t('skillUpload.folder.continue')" :cancel-text="t('skillUpload.folder.cancel')" :ok-button-props="{ disabled: !folderSelectedKeys.length || folderSelectedSize > FOLDER_LIMITS.total }" @ok="confirmFolderSelection" @cancel="cancelFolder">
       <a-alert v-if="folderSelectedSize > FOLDER_LIMITS.total" type="warning" show-icon :message="t('skillUpload.folder.largeSelection')" style="margin-bottom: 12px" />
-      <p>{{ t('skillUpload.folder.selectedSize', { size: formatZipSize(folderSelectedSize) }) }}</p>
+      <p>{{ t('skillUpload.folder.selectedSize', { size: formatFolderSize(folderSelectedSize) }) }}</p>
       <a-table :data-source="folderRows" :columns="folderColumns" row-key="path" :pagination="{ pageSize: 8 }" :scroll="{ x: 600 }" :row-selection="{ selectedRowKeys: folderSelectedKeys, onChange: keys => folderSelectedKeys = keys }" size="small">
         <template #bodyCell="{ column, record }">
-          <span v-if="column.key === 'size'">{{ formatZipSize(record.size) }}</span>
+          <span v-if="column.key === 'size'">{{ formatFolderSize(record.size) }}</span>
           <a-button v-else-if="column.key === 'remove'" type="link" @click="removeFolderRow(record.path)">{{ t('skillUpload.folder.remove') }}</a-button>
         </template>
       </a-table>
@@ -272,7 +272,7 @@
           </template>
           <template v-else-if="column.key === 'sandbox'">
             <a-space wrap>
-              <a-tag v-if="record.sandbox_runtime" color="blue">{{ record.sandbox_runtime }}</a-tag>
+              <a-tag v-if="record.sandbox_runtime" color="blue">{{ ['remote', 'docker'].includes(record.sandbox_runtime) ? t(`skillUpload.sandboxRuntime.${record.sandbox_runtime}`) : record.sandbox_runtime }}</a-tag>
               <a-tag v-if="record.sandbox_required_by_policy" color="orange">{{ $t("legacy.pf5db8") }}</a-tag>
             </a-space>
           </template>
@@ -289,6 +289,7 @@
 <script setup>
 import { translateLegacy as phrase } from '../i18n'
 
+import { formatFileSize } from '../utils/fileSize.js'
 import { FOLDER_LIMITS, inspectFolder, folderGroups, selectFolderEntries } from '../utils/folderUpload'
 import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -314,6 +315,10 @@ import {
 
 const router = useRouter()
 const { t, locale } = useI18n()
+const formatFolderSize = bytes => formatFileSize(bytes, locale.value, {
+  byteUnit: t('skillUpload.folder.byteUnit'),
+  fractionDigits: 2,
+})
 const { text } = useLocaleText()
 const submitMode = ref('zip')
 const showLocalImport = false
@@ -655,7 +660,7 @@ const reviewFolderFiles = files => {
     const confirmation = {
       title: t('skillUpload.folder.review'),
       content: h('div', [
-        h('p', t('skillUpload.folder.summary', { name: report.name, count: report.entries.length, size: formatZipSize(report.total), skipped: report.skipped })),
+        h('p', t('skillUpload.folder.summary', { name: report.name, count: report.entries.length, size: formatFolderSize(report.total), skipped: report.skipped })),
         ...(report.sensitive.length ? [h('p', t('skillUpload.folder.sensitive')), h('div', { style: 'max-height: 180px; overflow: auto; overflow-wrap: anywhere' }, report.sensitive.map(path => h('div', path)))] : []),
       ]),
       okText: t('skillUpload.folder.continue'), cancelText: t('skillUpload.folder.cancel'),

@@ -127,9 +127,14 @@ make sandbox-runtime-build
   - 函数入口的 `submitting` 防重入。
 - 如果系统设置未启用或未配置直连 LLM API Key，提交页的 LLM 选项不能勾选，并要有 tooltip 说明；服务端内部任务也可以通过模型网关环境变量走隐私代理。
 - 文件列表、扫描文件、报告 JSON 等内容应支持查看原始内容，避免只显示摘要。
+- 文件夹上传原始大小按所属目录全部层级文件的字节数汇总；显示与计算分离，大小显示复用 `web/src/utils/fileSize.js`，字节单位走 i18n。
 - 禁止 UI 单元测试，列出本次改动受影响的 UI 并给出测试 Todo list，我自行验证。
 
 ## Sandbox 约定
+
+- Sandbox 分析器名称使用本次检测记录的 runtime，包括无脚本跳过；已有报告的展示以该次记录为准。
+
+- Skill 详情的远程 Sandbox 服务地址按报告原因编码展示：`no_executable_script` 对应“未调用 / Not called”。
 
 - Sandbox 的风险等级只代表运行时 probe 观察到的行为，不等同于静态扫描或 LLM 的最终风险。
 - 默认 probe 可能覆盖不足；启用 LLM 时可以生成测试参数，但不要让 LLM 生成要执行的代码。

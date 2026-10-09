@@ -87,7 +87,7 @@
             </dd>
           </div>
           <div class="basic-field">
-            <dt>{{ $t('legacy.41rk3e') }}</dt>
+            <dt>{{ $t('skillDetail.submitter') }}</dt>
             <dd>
               {{ detail?.source?.author || '-' }}
             </dd>
@@ -621,7 +621,7 @@
               <a-descriptions :column="{ xs: 1, sm: 1, md: 1, lg: 1, xl: 2, xxl: 2 }" size="small" bordered>
                 <a-descriptions-item :label="$t('decisionFlow.findingCount')">{{ detail?.vetting?.findings_count ?? $t('decisionFlow.unrecorded') }}</a-descriptions-item>
                 <a-descriptions-item :label="$t('decisionFlow.duration')">{{ scanDurationDisplay }}</a-descriptions-item>
-                <a-descriptions-item :label="$t('decisionFlow.analyzers')">{{ detail?.vetting?.analyzers_used?.join(', ') || $t('decisionFlow.unrecorded') }}</a-descriptions-item>
+                <a-descriptions-item :label="$t('decisionFlow.analyzers')">{{ analyzerNames.join(', ') || $t('decisionFlow.unrecorded') }}</a-descriptions-item>
                 <a-descriptions-item :label="$t('decisionFlow.resultReuse')">{{ $t(detail?.scan_reused === true ? 'decisionFlow.reusedResult' : detail?.scan_reused === false ? 'decisionFlow.newScan' : 'decisionFlow.unrecorded') }}</a-descriptions-item>
                 <a-descriptions-item :label="$t('decisionFlow.cacheKey')">{{ detail?.scan_cache_key || $t('decisionFlow.unrecorded') }}</a-descriptions-item>
               </a-descriptions>
@@ -2121,13 +2121,24 @@ const jumpToRationale = async (target) => {
   if (id) document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 const sandboxRuntime = computed(() => sandboxAnalysis.value?.runtime || detail.value?.vetting?.sandbox_runtime)
+// 已有报告的分析器名称按该次报告记录的运行方式展示。
+const analyzerNames = computed(() => (detail.value?.vetting?.analyzers_used || []).map(name =>
+  name.startsWith('sandbox:') && ['remote', 'docker'].includes(sandboxRuntime.value)
+    ? `sandbox:${sandboxRuntime.value}` : name,
+))
 const sandboxRuntimeLabel = computed(() => {
   const runtime = sandboxRuntime.value
   return ['remote', 'docker'].includes(runtime) ? t(`skillDetail.${runtime}`) : runtime || t('decisionFlow.unrecorded')
 })
 const sandboxTargetLabel = computed(() => t(sandboxRuntime.value === 'remote'
   ? 'skillDetail.sandboxService' : sandboxRuntime.value === 'docker' ? 'skillDetail.sandboxImage' : 'skillDetail.sandboxTarget'))
-const sandboxTarget = computed(() => sandboxAnalysis.value?.image || t('decisionFlow.unrecorded'))
+const sandboxTarget = computed(() => {
+  // 无可执行脚本时不会调用远程服务，按报告原因显示实际调用状态。
+  if (sandboxRuntime.value === 'remote' && sandboxAnalysis.value?.reason_code === 'no_executable_script') {
+    return t('skillDetail.sandboxNotCalled')
+  }
+  return sandboxAnalysis.value?.image || t('decisionFlow.unrecorded')
+})
 const sandboxExecutionState = computed(() => {
   const recorded = analysisState(scanReport.value, 'sandbox')
   if (recorded !== 'unrecorded') return recorded
