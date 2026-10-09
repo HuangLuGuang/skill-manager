@@ -30,6 +30,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Qu
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
+from backend.api_errors import ApiError
 from agent_manager.api.upload_progress import stream_upload_progress
 
 from agent_manager.core.llm import LLMConfig
@@ -38,7 +39,12 @@ from agent_manager.core.models import RegistryEntry, SkillOrigin, SkillStatus, S
 from agent_manager.core.policy import CompanyPolicy
 from agent_manager.core.policy_simulation import PolicySimulationRequest, simulate_policy
 from agent_manager.core.prompt_models import PromptStatus
-from agent_manager.core.sandbox import SandboxConfig, SandboxConnectionTest, test_sandbox_connection
+from agent_manager.core.sandbox import (
+    SandboxConfig,
+    SandboxConnectionTest,
+    sandbox_url_error,
+    test_sandbox_connection,
+)
 from agent_manager.core.scan_report_pdf import build_scan_report_pdf
 from agent_manager.core.skillspector import is_skillspector_available
 from agent_manager.core.text_reader import read_text_fallback
@@ -850,6 +856,14 @@ def get_sandbox_config():
 
 
 def _sandbox_config_from_payload(body: SandboxConfigPayload, current: SandboxConfig) -> SandboxConfig:
+    error = sandbox_url_error(body.remote_url, runtime=body.runtime)
+    if error:
+        messages = {
+            "sandbox.url_required": ("请填写远程 Sandbox 服务地址。", "Enter the remote Sandbox service URL."),
+            "sandbox.url_too_long": ("远程 Sandbox 服务地址最多 2048 个字符。", "The remote Sandbox service URL must not exceed 2048 characters."),
+            "sandbox.url_invalid": ("请输入有效的 HTTP/HTTPS 服务地址，不含空白、查询参数或片段。", "Enter a valid HTTP/HTTPS service URL without whitespace, query parameters, or fragments."),
+        }
+        raise ApiError(422, error, *messages[error])
     data = body.model_dump()
     clear_remote_api_key = data.pop("clear_remote_api_key", False)
     incoming_api_key = data.pop("remote_api_key", None)

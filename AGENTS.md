@@ -132,6 +132,8 @@ make sandbox-runtime-build
 
 ## Sandbox 约定
 
+- Sandbox 服务地址保存与连接测试共用校验：最多 2048 字符的 HTTP/HTTPS 基础 URL，错误使用 `sandbox.url_*` 稳定编码；前端同步校验并通过 i18n 展示，超长输入保留完整内容并提示错误；仅远程模式校验该地址，保存入口仅校验本次变更的 Sandbox 配置；接口复用 `ApiError` 错误协议。后端地址常量和校验统一放在 `agent_manager/core/sandbox.py`。独立 API 入口须注册 `ApiError` 处理器，保持与后台一致的稳定错误编码和双语响应。
+
 - Sandbox 分析器名称使用本次检测记录的 runtime，包括无脚本跳过；已有报告的展示以该次记录为准。
 
 - Skill 详情的远程 Sandbox 服务地址按报告原因编码展示：`no_executable_script` 对应“未调用 / Not called”。

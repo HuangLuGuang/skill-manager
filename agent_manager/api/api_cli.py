@@ -12,6 +12,8 @@ def main(host: str, port: int, reload: bool):
     """Start the agent manager API server."""
     from fastapi import FastAPI
 
+    from backend.api_errors import ApiError, api_error_handler
+
     from agent_manager.api.lifecycle import lifespan_with_startup
     from agent_manager.core.vetting import warmup_scanner
 
@@ -29,6 +31,8 @@ def main(host: str, port: int, reload: bool):
         version="0.1.0",
         lifespan=lifespan_with_startup(warmup_skill_scanner),
     )
+    # 独立入口复用管理后台的错误协议，保留稳定编码和双语提示。
+    app.add_exception_handler(ApiError, api_error_handler)
     app.include_router(router)
     app.include_router(scanner_admin_router)
     app.include_router(access_runtime_router)

@@ -173,7 +173,7 @@
                   <a-select v-model:value="sandboxForm.image" show-search :placeholder="t('policySettings.imagePlaceholder')" :options="sandboxImageOptions" :disabled="saving || loading || !hasAccess('settings:update')" />
                 </a-form-item>
                 <template v-else>
-                  <a-form-item :label="t('policySettings.remoteUrl')">
+                  <a-form-item :label="t('policySettings.remoteUrl')" :tooltip="t('policySettings.remoteUrlHint', { limit: SANDBOX_URL_MAX_LENGTH })" :validate-status="sandboxAddressError ? 'error' : undefined" :help="sandboxAddressError ? t(`policySettings.sandboxUrlErrors.${sandboxAddressError}`) : undefined">
                     <div class="connection-controls">
                       <a-input v-model:value="sandboxForm.remote_url" placeholder="http://sandbox:8194" :disabled="saving || loading || !hasAccess('settings:update')" />
                       <a-button html-type="button" :disabled="!hasAccess('settings:update') || testingSandbox || saving || loading || !loaded" @click="useDefaultSandboxUrl">{{ t('policySettings.defaultUrl') }}</a-button>
@@ -215,6 +215,7 @@
 </template>
 
 <script setup>
+import { SANDBOX_URL_MAX_LENGTH, sandboxUrlError } from '../utils/sandboxUrl.js'
 import { modelLabel } from '../utils/modelLabels'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -383,6 +384,14 @@ const buildLlmPayload = () => ({
   clear_api_key: true,
 })
 
+const sandboxAddressError = computed(() => sandboxUrlError(sandboxForm.remote_url, sandboxForm.runtime))
+const validateSandboxAddress = () => {
+  if (!sandboxAddressError.value) return true
+  openService('sandbox')
+  message.error(t(`policySettings.sandboxUrlErrors.${sandboxAddressError.value}`))
+  return false
+}
+
 const buildSandboxPayload = () => ({
   enabled: sandboxForm.enabled,
   runtime: sandboxForm.runtime,
@@ -485,6 +494,9 @@ const handleSaveAll = async () => {
     message.error(t('policySettings.modelMissing'))
     return
   }
+  // 仅校验本次要保存的 Sandbox 配置，旧地址不阻止其他设置保存。
+  const sandboxChanged = JSON.stringify(buildSandboxPayload()) !== savedState.sandbox
+  if (sandboxChanged && hasAccess('settings:update') && hasAccess('settings:view') && !validateSandboxAddress()) return
   saving.value = true
   try {
     const jobs = [
@@ -506,6 +518,7 @@ const handleSaveAll = async () => {
 }
 const handleTestSandboxConnection = async () => {
   if (!hasAccess('settings:update') || testingSandbox.value || saving.value || loading.value || !loaded.value) return
+  if (!validateSandboxAddress()) return
   testingSandbox.value = true
   sandboxTestResult.value = null
   const payload = { ...buildSandboxPayload(), enabled: true, runtime: 'remote' }
