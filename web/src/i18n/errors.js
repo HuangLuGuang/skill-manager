@@ -1,5 +1,12 @@
 import { scanScheduleMessages } from './scanSchedule.js'
 const errorMessages = {
+  'server.internal_error': { 'zh-CN': '服务器内部错误', 'en-US': 'Internal server error' },
+  'request.validation_failed': { 'zh-CN': '请求参数无效', 'en-US': 'Invalid request parameters' },
+  'http.500': { 'zh-CN': '服务器内部错误', 'en-US': 'Internal server error' },
+  'http.403': { 'zh-CN': '权限不足', 'en-US': 'Permission denied' },
+  'sandbox.url_required': { 'zh-CN': '请填写远程 Sandbox 服务地址。', 'en-US': 'Enter the remote Sandbox service URL.' },
+  'sandbox.url_too_long': { 'zh-CN': '远程 Sandbox 服务地址最多 2048 个字符。', 'en-US': 'The remote Sandbox service URL must not exceed 2048 characters.' },
+  'sandbox.url_invalid': { 'zh-CN': '请输入有效的 HTTP/HTTPS 服务地址，不含空白、查询参数或片段。', 'en-US': 'Enter a valid HTTP/HTTPS service URL without whitespace, query parameters, or fragments.' },
   'mcp_scan.gateway_approval_required': { 'zh-CN': 'MCP 网关要求管理员审批本次工具调用，工具尚未执行。请联系管理员到 MCP 网关查看待审批请求及工具授权配置。当前扫描已结束，完成审批不会自动恢复任务。', 'en-US': 'The MCP gateway requires administrator approval for this tool call. The tool has not run. Ask an administrator to review the pending request and tool authorization settings in the MCP gateway. This scan has ended; approval will not automatically resume it.' },
   'mcp_scan.rounds_limit_reached': { 'zh-CN': '扫描轮次额度已用尽或不足以完成下一轮，扫描尚未完成。请提高扫描策略中的“最大轮次”后重试。', 'en-US': 'The scan round budget is exhausted or insufficient for the next round. The scan is incomplete. Increase the maximum rounds in the scan policy and retry.' },
   'mcp_scan.tokens_limit_reached': { 'zh-CN': '已达到最大 Token 用量，扫描尚未完成。请提高扫描策略中的 Token 上限后重试。', 'en-US': 'The token limit has been reached and the scan is incomplete. Increase the token limit in the scan policy and retry.' },

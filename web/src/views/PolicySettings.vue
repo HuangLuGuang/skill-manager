@@ -145,59 +145,72 @@
           <a-tab-pane key="advanced" :tab="t('policySettings.advancedTab')">
             <h2>{{ t('policySettings.advancedTitle') }}</h2>
             <p class="section-hint">{{ t('policySettings.advancedHint') }}</p>
-            <a-form-item :label="t('policySettings.reuseScanResults')">
-              <a-switch v-model:checked="formState.scan_result_reuse_enabled" :disabled="saving || loading || !hasAccess('policy:update')" />
+            <a-form-item v-bind="fieldProps('policy.scan_result_reuse_enabled')">
+              <template #label><span>{{ t('policySettings.reuseScanResults') }}</span></template>
+              <a-switch :aria-label="t('policySettings.reuseScanResults')" :id="'advanced-policy.scan_result_reuse_enabled'" v-model:checked="formState.scan_result_reuse_enabled" :disabled="saving || loading || !hasAccess('policy:update')" />
               <div class="field-hint">{{ t('policySettings.reuseScanResultsHint') }}</div>
             </a-form-item>
+            <a-alert v-if="saveFailures.length" type="error" show-icon class="save-errors" :message="t('policySettings.saveFailed')">
+              <template #description><ol><li v-for="(line, index) in failureLines(saveFailures)" :key="index">{{ line }}</li></ol></template>
+            </a-alert>
+            <a-alert v-if="connectionFailures.length" type="error" show-icon class="save-errors" :message="t('policySettings.connectionFailed')">
+              <template #description><ol><li v-for="(line, index) in failureLines(connectionFailures)" :key="index">{{ line }}</li></ol></template>
+            </a-alert>
             <a-collapse v-model:activeKey="advancedSections">
               <a-collapse-panel v-if="hasAccess('settings:view')" key="llm" :header="t('policySettings.llmConfig')">
-                <a-form-item :label="t('policySettings.model')">
-                  <a-select v-model:value="llmForm.model" show-search allow-clear :placeholder="t('policySettings.modelPlaceholder')" :options="llmModelOptions" :disabled="saving || loading || !hasAccess('settings:update')" />
+                <a-form-item :label="t('policySettings.model')" v-bind="fieldProps('llm.model')">
+                  <a-select :id="'advanced-llm.model'" v-model:value="llmForm.model" show-search allow-clear :placeholder="t('policySettings.modelPlaceholder')" :options="llmModelOptions" :disabled="saving || loading || !hasAccess('settings:update')" />
                   <div class="field-hint"><router-link to="/model-gateway/models">{{ t('policySettings.modelHint') }}</router-link></div>
                 </a-form-item>
                 <div class="form-grid">
-                  <a-form-item :label="t('policySettings.timeout')"><a-input-number v-model:value="llmForm.timeout_seconds" :min="5" :max="180" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
-                  <a-form-item :label="t('policySettings.maxFiles')"><a-input-number v-model:value="llmForm.max_files" :min="1" :max="20" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
-                  <a-form-item :label="t('policySettings.maxManifestChars')"><a-input-number v-model:value="llmForm.max_manifest_chars" :min="2000" :max="50000" :step="1000" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
-                  <a-form-item :label="t('policySettings.maxFileChars')"><a-input-number v-model:value="llmForm.max_file_chars" :min="500" :max="20000" :step="500" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item :label="t('policySettings.timeout')" v-bind="fieldProps('llm.timeout_seconds')"><ConfigIntegerInput :id="'advanced-llm.timeout_seconds'" v-model:value="llmForm.timeout_seconds" :min="5" :max="180" :step="1" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item :label="t('policySettings.maxFiles')" v-bind="fieldProps('llm.max_files')"><ConfigIntegerInput :id="'advanced-llm.max_files'" v-model:value="llmForm.max_files" :min="1" :max="20" :step="1" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item :label="t('policySettings.maxManifestChars')" v-bind="fieldProps('llm.max_manifest_chars')"><ConfigIntegerInput :id="'advanced-llm.max_manifest_chars'" v-model:value="llmForm.max_manifest_chars" :min="2000" :max="50000" :step="1000" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item :label="t('policySettings.maxFileChars')" v-bind="fieldProps('llm.max_file_chars')"><ConfigIntegerInput :id="'advanced-llm.max_file_chars'" v-model:value="llmForm.max_file_chars" :min="500" :max="20000" :step="500" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
                 </div>
               </a-collapse-panel>
               <a-collapse-panel v-if="hasAccess('settings:view')" key="sandbox" :header="t('policySettings.sandboxConfig')">
                 <div class="form-grid">
-                  <a-form-item :label="t('policySettings.runtime')">
-                    <a-select v-model:value="sandboxForm.runtime" :options="runtimeOptions" :disabled="saving || loading || !hasAccess('settings:update')" />
+                  <a-form-item :label="t('policySettings.runtime')" v-bind="fieldProps('sandbox.runtime')">
+                    <a-select :id="'advanced-sandbox.runtime'" v-model:value="sandboxForm.runtime" :options="runtimeOptions" :disabled="saving || loading || !hasAccess('settings:update')" />
                   </a-form-item>
-                  <a-form-item :label="t('policySettings.timeout')"><a-input-number v-model:value="sandboxForm.timeout_seconds" :min="1" :max="300" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item :label="t('policySettings.timeout')" v-bind="fieldProps('sandbox.timeout_seconds')"><ConfigIntegerInput :id="'advanced-sandbox.timeout_seconds'" v-model:value="sandboxForm.timeout_seconds" :min="1" :max="300" :step="1" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
                 </div>
-                <a-form-item v-if="sandboxForm.runtime === 'docker'" :label="t('policySettings.image')">
-                  <a-select v-model:value="sandboxForm.image" show-search :placeholder="t('policySettings.imagePlaceholder')" :options="sandboxImageOptions" :disabled="saving || loading || !hasAccess('settings:update')" />
+                <a-form-item v-if="sandboxForm.runtime === 'docker'" :label="t('policySettings.image')" v-bind="fieldProps('sandbox.image')">
+                  <a-select :id="'advanced-sandbox.image'" v-model:value="sandboxForm.image" show-search :placeholder="t('policySettings.imagePlaceholder')" :options="sandboxImageOptions" :disabled="saving || loading || !hasAccess('settings:update')" />
                 </a-form-item>
                 <template v-else>
-                  <a-form-item :label="t('policySettings.remoteUrl')">
+                  <a-form-item :label="t('policySettings.remoteUrl')" v-bind="fieldProps('sandbox.remote_url')">
                     <div class="connection-controls">
-                      <a-input v-model:value="sandboxForm.remote_url" placeholder="http://sandbox:8194" :disabled="saving || loading || !hasAccess('settings:update')" />
+                      <a-input :id="'advanced-sandbox.remote_url'" v-model:value="sandboxForm.remote_url" placeholder="http://sandbox:8194" :disabled="saving || loading || !hasAccess('settings:update')" />
                       <a-button html-type="button" :disabled="!hasAccess('settings:update') || testingSandbox || saving || loading || !loaded" @click="useDefaultSandboxUrl">{{ t('policySettings.defaultUrl') }}</a-button>
                       <a-button html-type="button" :loading="testingSandbox" :disabled="!hasAccess('settings:update') || testingSandbox || saving || loading || !loaded" @click="handleTestSandboxConnection">{{ t('policySettings.testConnection') }}</a-button>
                     </div>
                   </a-form-item>
                   <a-alert v-if="sandboxTestResult" class="sandbox-test-result" show-icon :type="sandboxTestResult.available ? 'success' : 'error'" :message="t(sandboxTestResult.available ? 'policySettings.connectionOk' : 'policySettings.connectionFailed')" :description="sandboxTestDescription" />
-                  <a-collapse ghost>
+                  <a-collapse v-model:activeKey="authSections" ghost>
                     <a-collapse-panel key="auth" :header="t('policySettings.auth')">
-                      <a-form-item :label="t('policySettings.apiKey')">
-                        <a-input-password v-model:value="sandboxForm.remote_api_key" :placeholder="t('policySettings.apiKeyPlaceholder')" autocomplete="new-password" :disabled="saving || loading || !hasAccess('settings:update')" />
+                      <a-form-item :label="t('policySettings.apiKey')" v-bind="fieldProps('sandbox.remote_api_key')">
+                        <a-input-password :id="'advanced-sandbox.remote_api_key'" v-model:value="sandboxForm.remote_api_key" :placeholder="t('policySettings.apiKeyPlaceholder')" autocomplete="new-password" :disabled="saving || loading || !hasAccess('settings:update')" />
                         <div class="field-hint">{{ t('policySettings.currentKey', { key: sandboxConfig.remote_api_key_configured ? (sandboxConfig.remote_api_key_masked || t('policySettings.configuredKey')) : t('policySettings.notConfigured') }) }}</div>
                       </a-form-item>
-                      <a-form-item><a-checkbox v-model:checked="sandboxForm.clear_remote_api_key" :disabled="saving || loading || !hasAccess('settings:update')">{{ t('policySettings.clearKey') }}</a-checkbox></a-form-item>
+                      <a-form-item v-bind="fieldProps('sandbox.clear_remote_api_key')">
+                        <div class="inline-clear-key">
+                          <a-checkbox :id="'advanced-sandbox.clear_remote_api_key'" v-model:checked="sandboxForm.clear_remote_api_key" :disabled="saving || loading || !hasAccess('settings:update')">{{ t('policySettings.clearKey') }}</a-checkbox>
+                          <a-tooltip :title="t('policySettings.fieldHints.sandbox_clear_remote_api_key')"><QuestionCircleOutlined class="field-help" /></a-tooltip>
+                        </div>
+                      </a-form-item>
                     </a-collapse-panel>
                   </a-collapse>
                 </template>
+                <a-alert v-if="sandboxForm.runtime === 'remote'" type="info" show-icon class="remote-limits" :message="t('policySettings.remoteLimits')" />
                 <div class="form-grid">
-                  <a-form-item :label="t('policySettings.network')"><a-select v-model:value="sandboxForm.network_mode" :options="networkOptions" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
-                  <a-form-item :label="t('policySettings.memory')"><a-input v-model:value="sandboxForm.memory_limit" placeholder="256m" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
-                  <a-form-item :label="t('policySettings.cpu')"><a-input v-model:value="sandboxForm.cpu_limit" placeholder="1.0" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
-                  <a-form-item :label="t('policySettings.pids')"><a-input-number v-model:value="sandboxForm.pids_limit" :min="1" :max="1024" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item :label="t('policySettings.network')" v-bind="fieldProps('sandbox.network_mode')"><a-select :id="'advanced-sandbox.network_mode'" v-model:value="sandboxForm.network_mode" :options="networkOptions" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item v-if="sandboxForm.runtime === 'docker'" :label="t('policySettings.memory')" v-bind="fieldProps('sandbox.memory_limit')"><a-input :id="'advanced-sandbox.memory_limit'" v-model:value="sandboxForm.memory_limit" placeholder="256m" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item v-if="sandboxForm.runtime === 'docker'" :label="t('policySettings.cpu')" v-bind="fieldProps('sandbox.cpu_limit')"><a-input :id="'advanced-sandbox.cpu_limit'" v-model:value="sandboxForm.cpu_limit" inputmode="decimal" placeholder="1.0" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
+                  <a-form-item v-if="sandboxForm.runtime === 'docker'" :label="t('policySettings.pids')" v-bind="fieldProps('sandbox.pids_limit')"><ConfigIntegerInput :id="'advanced-sandbox.pids_limit'" v-model:value="sandboxForm.pids_limit" :min="1" :max="1024" :step="1" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
                 </div>
-                <a-form-item><a-checkbox v-model:checked="sandboxForm.read_only_rootfs" :disabled="saving || loading || !hasAccess('settings:update')">{{ t('policySettings.readOnly') }}</a-checkbox></a-form-item>
+                <a-form-item v-if="sandboxForm.runtime === 'docker'" :label="t('policySettings.readOnly')" v-bind="fieldProps('sandbox.read_only_rootfs')"><a-checkbox :id="'advanced-sandbox.read_only_rootfs'" v-model:checked="sandboxForm.read_only_rootfs" :disabled="saving || loading || !hasAccess('settings:update')" /></a-form-item>
               </a-collapse-panel>
             </a-collapse>
           </a-tab-pane>
@@ -215,6 +228,9 @@
 </template>
 
 <script setup>
+import { advancedConfigErrors, configRequestError } from '../utils/advancedConfig.js'
+import ConfigIntegerInput from '../components/ConfigIntegerInput.vue'
+import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { modelLabel } from '../utils/modelLabels'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -231,7 +247,7 @@ import {
   policyActions, actionPolicy, allowedActions,
 } from '../utils/policySettings'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const route = useRoute()
 const loading = ref(false)
 const loaded = ref(false)
@@ -243,6 +259,7 @@ const activeTab = ref('decision')
 const ruleSections = ref([])
 const companySections = ref([])
 const advancedSections = ref([])
+const authSections = ref([])
 const focusedCategories = computed(() => String(route.query.categories || '').split(',').filter(Boolean))
 const sandboxConfig = ref({})
 const modelEndpoints = ref([])
@@ -375,32 +392,39 @@ const buildLlmPayload = () => ({
   provider: 'model-gateway',
   api_base: '',
   model: llmForm.model || '',
-  timeout_seconds: Number(llmForm.timeout_seconds || 30),
-  max_files: Number(llmForm.max_files || 6),
-  max_file_chars: Number(llmForm.max_file_chars || 3000),
-  max_manifest_chars: Number(llmForm.max_manifest_chars || 12000),
+  timeout_seconds: Number(llmForm.timeout_seconds),
+  max_files: Number(llmForm.max_files),
+  max_file_chars: Number(llmForm.max_file_chars),
+  max_manifest_chars: Number(llmForm.max_manifest_chars),
   api_key: null,
   clear_api_key: true,
 })
 
-const buildSandboxPayload = () => ({
+const buildSandboxPayload = () => {
+  const payload = {
   enabled: sandboxForm.enabled,
   runtime: sandboxForm.runtime,
   image: sandboxForm.image,
-  timeout_seconds: Number(sandboxForm.timeout_seconds || 15),
+  timeout_seconds: Number(sandboxForm.timeout_seconds),
   network_mode: sandboxForm.network_mode,
   memory_limit: sandboxForm.memory_limit,
   cpu_limit: sandboxForm.cpu_limit,
-  pids_limit: Number(sandboxForm.pids_limit || 64),
+  pids_limit: Number(sandboxForm.pids_limit),
   read_only_rootfs: sandboxForm.read_only_rootfs,
   remote_url: sandboxForm.remote_url || null,
   remote_api_key: sandboxForm.remote_api_key || null,
   clear_remote_api_key: sandboxForm.clear_remote_api_key,
-})
+  }
+  const inactive = sandboxForm.runtime === 'docker'
+    ? ['remote_url', 'remote_api_key', 'clear_remote_api_key']
+    : ['image', 'memory_limit', 'cpu_limit', 'pids_limit', 'read_only_rootfs']
+  for (const field of inactive) delete payload[field]
+  return payload
+}
 
 
 const buildSnapshotPayload = () => ({
-  policy: buildPayload(), llm: buildLlmPayload(), sandbox: buildSandboxPayload(),
+  policy: buildPayload(), llm: { ...llmForm }, sandbox: { ...sandboxForm },
 })
 const dirty = computed(() => loaded.value && Object.entries(buildSnapshotPayload()).some(
   ([key, payload]) => JSON.stringify(payload) !== savedState[key],
@@ -435,15 +459,15 @@ const applyLlmConfig = (llm) => {
 const applySandboxConfig = (sandbox) => {
   sandboxConfig.value = sandbox || {}
   sandboxForm.enabled = sandbox?.enabled ?? false
-  sandboxForm.runtime = sandbox?.runtime || 'remote'
-  sandboxForm.image = sandbox?.image || 'agent-manager-sandbox-runtime:latest'
+  sandboxForm.runtime = sandbox?.runtime ?? 'remote'
+  sandboxForm.image = sandbox?.image ?? 'agent-manager-sandbox-runtime:latest'
   sandboxForm.timeout_seconds = sandbox?.timeout_seconds ?? 15
-  sandboxForm.network_mode = sandbox?.network_mode || 'none'
-  sandboxForm.memory_limit = sandbox?.memory_limit || '256m'
-  sandboxForm.cpu_limit = sandbox?.cpu_limit || '1.0'
+  sandboxForm.network_mode = sandbox?.network_mode ?? 'none'
+  sandboxForm.memory_limit = sandbox?.memory_limit ?? '256m'
+  sandboxForm.cpu_limit = sandbox?.cpu_limit ?? '1.0'
   sandboxForm.pids_limit = sandbox?.pids_limit ?? 64
   sandboxForm.read_only_rootfs = sandbox?.read_only_rootfs ?? true
-  sandboxForm.remote_url = sandbox?.remote_url || defaultSandboxRemoteUrl
+  sandboxForm.remote_url = sandbox?.remote_url ?? defaultSandboxRemoteUrl
   sandboxForm.remote_api_key = ''
   sandboxForm.clear_remote_api_key = false
 }
@@ -467,6 +491,9 @@ const fetchPolicy = async () => {
     applySandboxConfig(sandboxRes)
     applyPolicy(policyRes.policy)
     markSaved()
+    saveFailures.value = []
+    connectionFailures.value = []
+    for (const key of Object.keys(serverFieldErrors)) delete serverFieldErrors[key]
     loaded.value = true
   } catch {
     loadFailed.value = true
@@ -478,43 +505,103 @@ const reloadPolicy = () => {
   if (dirty.value && !window.confirm(t('policySettings.leaveConfirm'))) return
   return fetchPolicy()
 }
+const serverFieldErrors = reactive({})
+const saveFailures = ref([])
+const connectionFailures = ref([])
+const forms = { llm: llmForm, sandbox: sandboxForm, policy: formState }
+const localErrors = computed(() => Object.fromEntries(Object.entries(forms).flatMap(([group, form]) =>
+  Object.entries(advancedConfigErrors(group, form)).map(([field, error]) => [`${group}.${field}`, error]),
+)))
+const groupLabel = group => t(`policySettings.${{ llm: 'llmConfig', sandbox: 'sandboxConfig', policy: 'admissionTab' }[group]}`)
+const errorMessage = error => error.code.startsWith('sandbox.url_')
+  ? t(`policySettings.sandboxUrlErrors.${error.code.slice(8)}`)
+  : t(`policySettings.validation.${error.code.replace('config.', '')}`, error.params)
+const fieldProps = key => {
+  const [group, field] = key.split('.')
+  const error = localErrors.value[key] || serverFieldErrors[key]
+    || connectionFailures.value.find(failure => failure.group === group)?.errors?.find(item => item.field === field)
+  return {
+    tooltip: group === 'policy' ? undefined : t(`policySettings.fieldHints.${key.replace('.', '_')}`),
+    validateStatus: error ? 'error' : undefined,
+    help: error ? errorMessage(error) : undefined,
+    htmlFor: group === 'policy' ? null : `advanced-${key}`,
+  }
+}
+const failureLines = failures => failures.flatMap(failure => {
+  const prefix = groupLabel(failure.group)
+  return failure.errors?.length
+    ? failure.errors.map(error => `${prefix}: ${t(`policySettings.fieldNames.${error.field}`)}: ${errorMessage(error)}`)
+    : [`${prefix}: ${configRequestError(failure, locale.value)}`]
+})
+for (const [group, form] of Object.entries(forms)) {
+  watch(() => ({ ...form }), (current, previous) => {
+    for (const field of Object.keys(current)) {
+      if (current[field] !== previous[field]) delete serverFieldErrors[`${group}.${field}`]
+    }
+  })
+}
+const validateGroups = async (groups, source = 'save') => {
+  const keys = Object.keys(localErrors.value).filter(key => groups.includes(key.split('.')[0]))
+  if (!keys.length) return true
+  const failures = source === 'test' ? connectionFailures : saveFailures
+  failures.value = groups.map(group => ({ group, errors: keys.filter(key => key.startsWith(`${group}.`)).map(key => ({ field: key.split('.')[1], ...localErrors.value[key] })) })).filter(failure => failure.errors.length)
+  activeTab.value = 'advanced'
+  advancedSections.value = [...new Set(keys.map(key => key.split('.')[0]).filter(group => group !== 'policy'))]
+  if (keys.some(key => key === 'sandbox.remote_api_key' || key === 'sandbox.clear_remote_api_key')) authSections.value = ['auth']
+  message.error(t(source === 'test' ? 'policySettings.testFixFields' : 'policySettings.fixFields'))
+  await nextTick()
+  document.getElementById(`advanced-${keys[0]}`)?.focus()
+  return false
+}
+const recordFailure = (group, error, source = 'save') => {
+  const body = error.response?.data || {}
+  const errors = body.error_params?.errors?.filter(item => item.field && item.code) || []
+  if (source === 'save') for (const item of errors) serverFieldErrors[`${group}.${item.field}`] = item
+  return { group, errors, code: body.error_code, params: body.error_params, message: body.detail || '' }
+}
 const handleSaveAll = async () => {
   if (saving.value || loading.value || !loaded.value || !dirty.value) return
-  if (hasAccess('settings:update') && hasAccess('settings:view') && llmForm.enabled && !llmForm.model) {
-    openService('llm')
-    message.error(t('policySettings.modelMissing'))
-    return
-  }
+  const jobs = [
+    { key: 'policy', build: buildPayload, update: updatePolicy, apply: result => applyPolicy(result.policy) },
+    { key: 'llm', build: buildLlmPayload, update: updateLlmConfig, apply: applyLlmConfig },
+    { key: 'sandbox', build: buildSandboxPayload, update: updateSandboxConfig, apply: applySandboxConfig },
+  ].filter(job => hasAccess(job.key === 'policy' ? 'policy:update' : 'settings:update')
+    && (job.key === 'policy' || hasAccess('settings:view'))
+    && JSON.stringify(buildSnapshotPayload()[job.key]) !== savedState[job.key])
+  if (!await validateGroups(jobs.map(job => job.key))) return
   saving.value = true
+  saveFailures.value = []
   try {
-    const jobs = [
-      { key: 'policy', build: buildPayload, update: updatePolicy, apply: result => applyPolicy(result.policy) },
-      { key: 'llm', build: buildLlmPayload, update: updateLlmConfig, apply: applyLlmConfig },
-      { key: 'sandbox', build: buildSandboxPayload, update: updateSandboxConfig, apply: applySandboxConfig },
-    ].filter(job => hasAccess(job.key === 'policy' ? 'policy:update' : 'settings:update') && (job.key === 'policy' || hasAccess('settings:view')) && JSON.stringify(job.build()) !== savedState[job.key])
     const results = await Promise.allSettled(jobs.map(async job => {
       const result = await job.update(job.build())
       job.apply(result)
-      savedState[job.key] = JSON.stringify(job.build())
+      savedState[job.key] = JSON.stringify(buildSnapshotPayload()[job.key])
+      for (const key of Object.keys(serverFieldErrors)) if (key.startsWith(`${job.key}.`)) delete serverFieldErrors[key]
     }))
-    const failed = results.some(result => result.status === 'rejected')
-    if (failed) message.error(t('policySettings.saveFailed'))
-    else message.success(t('policySettings.saved'))
+    saveFailures.value = results.flatMap((result, index) => result.status === 'rejected' ? [recordFailure(jobs[index].key, result.reason)] : [])
+    if (saveFailures.value.length) {
+      activeTab.value = 'advanced'
+      advancedSections.value = saveFailures.value.map(failure => failure.group)
+      message.error(t('policySettings.saveFailed'))
+    } else message.success(t('policySettings.saved'))
   } finally {
     saving.value = false
   }
 }
 const handleTestSandboxConnection = async () => {
   if (!hasAccess('settings:update') || testingSandbox.value || saving.value || loading.value || !loaded.value) return
-  testingSandbox.value = true
   sandboxTestResult.value = null
+  if (!await validateGroups(['sandbox'], 'test')) return
+  testingSandbox.value = true
   const payload = { ...buildSandboxPayload(), enabled: true, runtime: 'remote' }
   try {
     const result = await testSandboxConfig(payload)
     if (JSON.stringify(payload) === JSON.stringify({ ...buildSandboxPayload(), enabled: true, runtime: 'remote' })) {
       sandboxTestResult.value = result
+      connectionFailures.value = []
     }
-  } catch {
+  } catch (error) {
+    connectionFailures.value = [recordFailure('sandbox', error, 'test')]
     message.error(t('policySettings.connectionFailed'))
   } finally {
     testingSandbox.value = false
@@ -548,6 +635,10 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
   color: var(--policy-ink);
   width: 100%;
 }
+.save-errors, .remote-limits { margin-bottom: 16px; }
+.inline-clear-key { display: flex; align-items: center; gap: 6px; }
+.field-help { color: #8c8c8c; }
+.save-errors ol { margin: 0; padding-left: 20px; overflow-wrap: anywhere; }
 .policy-page h2 { font-size: 17px; font-weight: 600; line-height: 1.5; margin: 0; }
 .policy-page h3 { font-size: 14px; font-weight: 600; line-height: 1.5; margin: 0; }
 .policy-page p { line-height: 1.65; margin: 8px 0 12px; }

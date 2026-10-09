@@ -71,7 +71,8 @@
         </a-layout-sider>
         <button v-if="narrowNavigation && !navigationCollapsed" class="navigation-backdrop" :aria-label="t('iam.collapseNavigation')" @click="navigationCollapsed = true" />
         <a-layout-content ref="mainContent" class="app-content" :inert="narrowNavigation && !navigationCollapsed">
-          <router-view :key="locale" />
+          <!-- 策略页使用响应式文案，切换语言时保留未保存输入和校验错误。 -->
+          <router-view :key="route.path === '/policy' ? route.path : locale" />
         </a-layout-content>
       </a-layout>
 

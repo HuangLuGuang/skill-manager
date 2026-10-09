@@ -18,12 +18,39 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlsplit
 
 import httpx
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl, TypeAdapter, ValidationError
 
 logger = logging.getLogger(__name__)
+
+SANDBOX_URL_MAX_LENGTH = 2048
+_http_url = TypeAdapter(HttpUrl)
+
+
+def sandbox_url_error(value: str | None, runtime: str = "remote") -> str | None:
+    """Return a stable validation code, or None for an accepted base URL."""
+    # 本地运行不使用远程地址，保留的远程配置不影响保存。
+    if runtime == "docker":
+        return None
+    if not value:
+        return "sandbox.url_required"
+    if len(value) > SANDBOX_URL_MAX_LENGTH:
+        return "sandbox.url_too_long"
+    try:
+        # 服务会拼接 /run-code，查询参数和片段不能作为服务基础地址。
+        if re.search(r"[\s\\?#]", value) or not re.match(r"^https?://", value, re.I):
+            return "sandbox.url_invalid"
+        _http_url.validate_python(value)
+        parsed = urlsplit(value)
+        if not parsed.hostname or parsed.port == 0:
+            return "sandbox.url_invalid"
+    except (ValidationError, ValueError):
+        return "sandbox.url_invalid"
+    return None
+
 
 _DEFAULT_SANDBOX_CONFIG_PATH = Path.home() / ".agent-manager" / "sandbox.yaml"
 
