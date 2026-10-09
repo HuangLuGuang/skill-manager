@@ -28,7 +28,7 @@ from typing import Any, Callable
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from starlette.concurrency import run_in_threadpool
 from backend.api_errors import ApiError
 from agent_manager.api.upload_progress import stream_upload_progress
@@ -599,6 +599,99 @@ class VerifySkillSignatureResponse(BaseModel):
     signature_match: bool
 
 
+# 只约束配置写入边界，旧 YAML 继续按原模型读取，避免升级后无法启动。
+_ADVANCED_INTEGER_LIMITS = {
+    "llm": {"timeout_seconds": (5, 180), "max_files": (1, 20),
+            "max_manifest_chars": (2000, 50000), "max_file_chars": (500, 20000)},
+    "sandbox": {"timeout_seconds": (1, 300), "pids_limit": (1, 1024)},
+    "policy": {},
+}
+_ADVANCED_FIELD_NAMES = {
+    "timeout_seconds": ("超时（秒）", "Timeout (seconds)"),
+    "max_files": ("最多读取文件数", "Maximum files to read"),
+    "max_manifest_chars": ("Skill 描述字符上限", "Skill description character limit"),
+    "max_file_chars": ("单文件字符上限", "Character limit per file"),
+    "pids_limit": ("进程数上限", "Process limit"),
+    "cpu_limit": ("CPU 配额（核）", "CPU quota (cores)"),
+    "memory_limit": ("内存上限", "Memory limit"),
+    "runtime": ("运行方式", "Runtime"), "network_mode": ("网络访问", "Network access"),
+    "image": ("运行镜像", "Runtime image"), "model": ("分析模型", "Analysis model"),
+    "remote_url": ("远程服务地址", "Remote service URL"),
+    "remote_api_key": ("远程 API Key", "Remote API key"),
+    "clear_remote_api_key": ("清除远程 API Key", "Clear remote API key"),
+    "enabled": ("启用状态", "Enabled"),
+    "read_only_rootfs": ("根文件系统只读", "Read-only root filesystem"),
+    "scan_result_reuse_enabled": ("检测结果复用", "Reuse scan results"),
+}
+
+
+def _validate_service_config(values: dict, group: str) -> dict:
+    """Validate raw write inputs and return safe field errors without credentials."""
+    # JSON 配置必须为对象，避免数组被转换为配置或标量触发 500。
+    if not isinstance(values, dict):
+        raise ApiError(
+            422, "request.validation_failed",
+            "配置请求必须是 JSON 对象。", "Configuration must be a JSON object.",
+        )
+    data = dict(values)
+    errors = []
+
+    def issue(field, code, zh, en, **params):
+        names = _ADVANCED_FIELD_NAMES[field]
+        errors.append({"field": field, "code": code, "params": params,
+                       "zh": f"{names[0]}：{zh}", "en": f"{names[1]}: {en}"})
+
+    if group == "sandbox":
+        runtime = data.get("runtime", "remote")
+        # 非当前运行方式的字段既不校验，也不覆盖保存的另一种运行配置。
+        inactive = ("remote_url", "remote_api_key", "clear_remote_api_key") if runtime == "docker" else (
+            "image", "memory_limit", "cpu_limit", "pids_limit", "read_only_rootfs")
+        for field in inactive:
+            data.pop(field, None)
+        for field, allowed in (("runtime", ("remote", "docker")), ("network_mode", ("none", "bridge"))):
+            if field in data and data[field] not in allowed:
+                issue(field, "config.choice", "请选择有效选项。", "Select a valid option.")
+        if runtime == "remote":
+            value = data.get("remote_url", "http://sandbox:8194")
+            code = sandbox_url_error(value) if isinstance(value, (str, type(None))) else "sandbox.url_invalid"
+            if code:
+                issue("remote_url", code, "请输入最多 2048 字符的 HTTP/HTTPS 基础地址。", "Enter an HTTP/HTTPS base URL of at most 2048 characters.")
+            key = data.get("remote_api_key")
+            if key is not None and (not isinstance(key, str) or len(key) > 4096 or re.search(r"[\s\x00-\x1f\x7f]", key)):
+                issue("remote_api_key", "config.key", "最多 4096 字符，不含空白或控制字符。", "Use at most 4096 characters without whitespace or control characters.")
+            if key and data.get("clear_remote_api_key") is True:
+                issue("remote_api_key", "config.key_conflict", "新密钥与清除操作不能同时选择。", "A new key and clearing the key cannot be selected together.")
+        if runtime == "docker":
+            image = data.get("image", "agent-manager-sandbox-runtime:latest")
+            # 镜像名兼容 registry:port、tag 和 sha256 digest。
+            component = r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*"
+            image_pattern = rf"(?:(?:[a-zA-Z0-9.-]+|\[[0-9a-fA-F:]+\])(?::[0-9]+)?/)?{component}(?:/{component})*(?::[\w][\w.-]{{0,127}})?(?:@sha256:[0-9a-fA-F]{{64}})?"
+            if not isinstance(image, str) or len(image) > 255 or not re.fullmatch(image_pattern, image, re.ASCII):
+                issue("image", "config.image", "请输入最多 255 字符的有效 Docker 镜像引用。", "Enter a valid Docker image reference of at most 255 characters.")
+            cpu = data.get("cpu_limit", "1.0")
+            if not isinstance(cpu, str) or not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,2})?", cpu) or not 0.01 <= float(cpu) <= 64:
+                issue("cpu_limit", "config.cpu", "请输入 0.01–64 的十进制数，最多两位小数。", "Enter a decimal number from 0.01 to 64 with at most two decimal places.")
+            memory = data.get("memory_limit", "256m")
+            match = re.fullmatch(r"([0-9]+)([bkmg])", memory, re.I) if isinstance(memory, str) else None
+            size = int(match[1]) * 1024 ** "bkmg".index(match[2].lower()) if match and len(match[1]) <= 16 else 0
+            if not 6 * 1024 ** 2 <= size <= 64 * 1024 ** 3:
+                issue("memory_limit", "config.memory", "请输入正整数及 b/k/m/g 单位，范围 6 MiB–64 GiB。", "Enter a positive integer with b/k/m/g units, from 6 MiB to 64 GiB.")
+    for field, (minimum, maximum) in _ADVANCED_INTEGER_LIMITS[group].items():
+        if field in data and (type(data[field]) is not int or not minimum <= data[field] <= maximum):
+            issue(field, "config.integer", f"请输入 {minimum}–{maximum} 的正整数。", f"Enter a positive integer from {minimum} to {maximum}.", min=minimum, max=maximum)
+    bool_fields = {"llm": ("enabled",), "sandbox": ("enabled", "read_only_rootfs", "clear_remote_api_key"), "policy": ("scan_result_reuse_enabled",)}
+    for field in bool_fields[group]:
+        if field in data and type(data[field]) is not bool:
+            issue(field, "config.boolean", "请选择开启或关闭。", "Select on or off.")
+    if group == "llm" and data.get("enabled") is True and not data.get("model", "deepseek-chat"):
+        issue("model", "config.required", "请选择分析模型。", "Select an analysis model.")
+    if errors:
+        first = errors[0]
+        raise ApiError(422, first["code"], "；".join(e["zh"] for e in errors), "; ".join(e["en"] for e in errors),
+                       params={"group": group, "errors": [{k: e[k] for k in ("field", "code", "params")} for e in errors]})
+    return data
+
+
 class PolicyPayload(BaseModel):
     scan_result_reuse_enabled: bool = True
     auto_approve_max_risk: str
@@ -620,6 +713,12 @@ class PolicyPayload(BaseModel):
     skillspector_timeout_seconds: int = 120
     skillspector_min_blocking_severity: str = "HIGH"
     skillspector_use_llm: bool = False
+
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_write(cls, values):
+        return _validate_service_config(values, "policy")
 
 
 class PolicyResponse(BaseModel):
@@ -664,11 +763,17 @@ class LLMConfigPayload(BaseModel):
     api_base: str = "https://api.deepseek.com"
     api_key: str | None = None
     model: str = "deepseek-chat"
-    timeout_seconds: float = 30.0
+    timeout_seconds: int = 30
     max_files: int = 6
     max_file_chars: int = 3000
     max_manifest_chars: int = 12000
     clear_api_key: bool = False
+
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_write(cls, values):
+        return _validate_service_config(values, "llm")
 
 
 class LLMConfigResponse(BaseModel):
@@ -698,6 +803,12 @@ class SandboxConfigPayload(BaseModel):
     remote_url: str | None = "http://sandbox:8194"
     remote_api_key: str | None = None
     clear_remote_api_key: bool = False
+
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_write(cls, values):
+        return _validate_service_config(values, "sandbox")
 
 
 class SandboxConfigResponse(BaseModel):
@@ -856,15 +967,11 @@ def get_sandbox_config():
 
 
 def _sandbox_config_from_payload(body: SandboxConfigPayload, current: SandboxConfig) -> SandboxConfig:
-    error = sandbox_url_error(body.remote_url, runtime=body.runtime)
-    if error:
-        messages = {
-            "sandbox.url_required": ("请填写远程 Sandbox 服务地址。", "Enter the remote Sandbox service URL."),
-            "sandbox.url_too_long": ("远程 Sandbox 服务地址最多 2048 个字符。", "The remote Sandbox service URL must not exceed 2048 characters."),
-            "sandbox.url_invalid": ("请输入有效的 HTTP/HTTPS 服务地址，不含空白、查询参数或片段。", "Enter a valid HTTP/HTTPS service URL without whitespace, query parameters, or fragments."),
-        }
-        raise ApiError(422, error, *messages[error])
     data = body.model_dump()
+    inactive = ("remote_url", "remote_api_key", "clear_remote_api_key") if body.runtime == "docker" else (
+        "image", "memory_limit", "cpu_limit", "pids_limit", "read_only_rootfs")
+    for field in inactive:
+        data.pop(field, None)
     clear_remote_api_key = data.pop("clear_remote_api_key", False)
     incoming_api_key = data.pop("remote_api_key", None)
     merged = {**current.model_dump(), **data}

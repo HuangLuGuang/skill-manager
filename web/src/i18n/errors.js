@@ -1,5 +1,9 @@
 import { scanScheduleMessages } from './scanSchedule.js'
 const errorMessages = {
+  'server.internal_error': { 'zh-CN': '服务器内部错误', 'en-US': 'Internal server error' },
+  'request.validation_failed': { 'zh-CN': '请求参数无效', 'en-US': 'Invalid request parameters' },
+  'http.500': { 'zh-CN': '服务器内部错误', 'en-US': 'Internal server error' },
+  'http.403': { 'zh-CN': '权限不足', 'en-US': 'Permission denied' },
   'sandbox.url_required': { 'zh-CN': '请填写远程 Sandbox 服务地址。', 'en-US': 'Enter the remote Sandbox service URL.' },
   'sandbox.url_too_long': { 'zh-CN': '远程 Sandbox 服务地址最多 2048 个字符。', 'en-US': 'The remote Sandbox service URL must not exceed 2048 characters.' },
   'sandbox.url_invalid': { 'zh-CN': '请输入有效的 HTTP/HTTPS 服务地址，不含空白、查询参数或片段。', 'en-US': 'Enter a valid HTTP/HTTPS service URL without whitespace, query parameters, or fragments.' },

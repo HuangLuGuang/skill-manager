@@ -68,7 +68,7 @@ def test_api_validation_preserves_error_envelope(method, path, value, code, monk
         assert response.status_code == 422
         body = response.json()
         assert body["error_code"] == code
-        assert body["error_params"] == {}
+        assert body["error_params"]["errors"][0]["field"] == "remote_url"
         assert isinstance(body["detail"], str)
         assert "[object Object]" not in body["detail"]
         if locale == "en-US":
@@ -107,5 +107,5 @@ def test_standalone_api_error_envelope(method, path, value, code, monkeypatch):
         assert response.status_code == 422
         body = response.json()
         assert body["error_code"] == code
-        assert body["error_params"] == {}
+        assert body["error_params"]["errors"][0]["field"] == "remote_url"
         assert body["detail"].isascii() == (locale == "en-US")
