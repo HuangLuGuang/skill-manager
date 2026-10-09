@@ -372,7 +372,10 @@ agent-manager_v1.0.0_arm.tar.gz
 
 ```text
 docker-compose.yaml
-.env.example                         # 包含本次镜像 TAG
+.env.example
+start.sh
+upgrade.sh
+deploy/offline.py
 deploy/nginx/default.conf
 release-provenance.json
 docs/offline-deployment.md
@@ -386,6 +389,11 @@ scanner/releases/agent-manager-client-26.03.15.1-linux-x86_64.AppImage
 ```
 
 仓库源码树、测试、构建脚本和开发工具不进入安装包；容器镜像保留应用运行所需的程序。
+打包时将 Compose 的应用镜像引用写为实际发布版本；源码仓库内的 `latest` 开发默认值保持原样。
+现场通过 `./start.sh` 自动加载镜像、初始化缺失的签名密钥、启动并检查服务；
+`./upgrade.sh /path/to/package.tar.gz` 自动解压、备份并更新部署文件、加载镜像、重建并检查服务。
+脚本使用 Bash、Python 3 标准库和 Docker Compose（需支持 `--wait-timeout`），保留现场 `.env` 和数据卷。
+升级备份仅覆盖部署文件，业务数据需另行备份；操作步骤见 [现场实施指南](offline-deployment.md)。
 `--source-dir .` 可用当前工作区构建诊断包，正式 CI 发布使用干净的 Git clone；诊断包不能替代正式发布验证。
 
 Docker Compose 已将宿主机 `scanner/releases` 只读挂载到后端。部署完成后，管理员可在“客户端管理 → 安装客户端”按系统和版本下载；新增版本只需把新的 release 文件复制到该目录，无需重建镜像。
@@ -414,7 +422,7 @@ git push origin 1.0.6_arm
 
 产物分别为 `/home/ubuntu/releases/agent-manager_1.0.6_x86.tar.gz` 和
 `/home/ubuntu/releases/agent-manager_1.0.6_arm.tar.gz`。带 `v` 前缀时文件名也保留 `v`。
-ARM 包内的镜像 tag、配置模板中的 `TAG` 和 provenance 版本均为完整 tag（例如 `1.0.6_arm`），
+ARM 包内的镜像 tag、Compose 镜像引用和 provenance 版本均为完整 tag（例如 `1.0.6_arm`），
 压缩包文件名只保留一次 `_arm`。ARM 作业使用独立应用镜像 tag，并在成功或失败退出时恢复
 35 上共享的 `nginx:1.27-alpine` x86 镜像 tag。
 

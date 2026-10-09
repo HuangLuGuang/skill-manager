@@ -248,6 +248,7 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path, p
     for relative in (
         "docker-compose.yaml", ".env.example", "deploy/nginx/default.conf",
         "docs/offline-deployment.md", "docs/docker-deployment.md",
+        "start.sh", "upgrade.sh", "deploy/offline.py",
     ):
         destination = source / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -256,7 +257,7 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path, p
     (source / "scanner/releases/skill-scan-report.json").write_text("private scan report")
     subprocess.run(
         ["git", "-C", str(source), "add", ".gitignore", "tracked.txt", "build.sh",
-         "docker-compose.yaml", ".env.example", "deploy/nginx/default.conf", "docs"],
+         "docker-compose.yaml", ".env.example", "deploy", "docs", "start.sh", "upgrade.sh"],
         check=True,
     )
     subprocess.run(
@@ -318,13 +319,19 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path, p
         f"docker_images/{arch}/agent-manager-images-{version}.tar.xz",
         "installers/docker-installer-28.5.2-x86-arm.tar.gz",
         "scanner/releases/latest.json", "scanner/releases/agent-manager-client.exe",
+        "start.sh", "upgrade.sh", "deploy/offline.py",
     }
     with tarfile.open(output / f"agent-manager_test_{arch}.tar.gz") as archive:
         assert {entry.name for entry in archive if entry.isfile()} == {"agent-manager/" + path for path in files}
         env = archive.extractfile("agent-manager/.env.example").read().decode()
-        assert f"TAG={version}\n" in env
+        assert "TAG=" not in env
+        assert archive.getmember("agent-manager/start.sh").mode & 0o111
+        assert archive.getmember("agent-manager/upgrade.sh").mode & 0o111
         compose = yaml.safe_load(archive.extractfile("agent-manager/docker-compose.yaml"))
         for service in compose["services"].values():
+            if service["image"].startswith("agent-manager-"):
+                assert service["image"].endswith(":" + version)
+                assert "${" not in service["image"]
             for volume in service.get("volumes", []):
                 if isinstance(volume, str) and volume.startswith("./"):
                     assert "agent-manager/" + volume.split(":")[0][2:] in names

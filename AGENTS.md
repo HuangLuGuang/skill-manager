@@ -192,7 +192,8 @@ make sandbox-runtime-build
 - `10.10.71.35` 上的 GitLab Runner 名为 `35-ubuntu`，标签为 `agent-manager-release`；部署目录是 `/home/ubuntu/skill-manager`，发布产物目录是 `/home/ubuntu/releases`。
 - 功能分支 push 不部署。代码合并并 push 到 `dev` 后，`deploy-35` 自动构建 x86 镜像、更新 Compose、执行健康检查并发送企业微信通知。
 - 正式发布从已验证的 `dev` 提交创建版本 tag：`1.0.6`（兼容 `v1.0.6`）先更新 35，再由 `offline-package` 仅构建 x86 包；`1.0.6_arm`（兼容 `v1.0.6_arm`）由 `offline-package-arm` 仅构建 ARM 包。上传 S3 后校验下载链接并发送企业微信通知。
-- 离线包使用部署文件清单组包：Compose、配置模板、Nginx 配置、目标架构镜像、Docker 安装程序、客户端发布文件、部署文档及 provenance。源码仅用于构建镜像，仓库源码树不进入交付包。
+- 离线包使用部署文件清单组包：Compose、配置模板、Nginx 配置、目标架构镜像、Docker 安装程序、客户端发布文件、启动/升级脚本、部署文档及 provenance。源码仅用于构建镜像，仓库源码树不进入交付包。
+- 打包时将包内 Compose 的应用镜像固定为发布版本。`start.sh` 加载离线镜像并启动、检查；`upgrade.sh <安装包>` 在原安装目录备份部署文件后更新并检查，保留现场 `.env` 和数据卷。部署文件备份不替代业务数据备份。
 - 桌面客户端使用独立的 `client-vYY.MM.DD.N` GitHub tag 构建，`N` 为当天递增的发布序号；只有高于或等于当前版本的构建才能更新 `/home/ubuntu/releases/client-latest`，不要与平台版本 tag 混用。
 - Docker Hub 基础镜像通过 35 的 Docker daemon 代理拉取；Backend 构建中的 apt、GitHub、PyPI 分别使用 `BUILD_APT_PROXY`、`BUILD_GIT_PROXY`、`BUILD_PYPI_INDEX`。PyPI 默认使用清华源，不要给 GitLab Runner 设置全局代理。
 - ARM 应用镜像使用带 `_arm` 的独立版本 tag；共享的 `nginx:1.27-alpine` tag 在成功或失败退出时恢复原 x86 镜像。35 部署后检查运行镜像为 `amd64`、`docker compose ps` 全部健康，并验证 `http://127.0.0.1/`。
