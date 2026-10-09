@@ -10,6 +10,9 @@ import tarfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "docs/acceptance/agent-security-vnext"
 
@@ -197,7 +200,7 @@ def test_e2e_regression_runner_maps_all_scenarios_without_claiming_bank_equivale
 
 def test_release_packager_supports_current_worktree_without_copying_ignored_files():
     script = (ROOT / "package-release.sh").read_text(encoding="utf-8")
-    offline_doc = (ROOT / "docs" / "offline-deployment.md").read_text(encoding="utf-8")
+    offline_doc = (ROOT / "docs" / "docker-deployment.md").read_text(encoding="utf-8")
 
     assert "--source-dir" in script
     assert 'git -C "$SOURCE_DIR" ls-files --cached --others --exclude-standard -z' in script
@@ -219,7 +222,11 @@ def test_frontend_release_image_fails_closed_on_known_dependency_vulnerabilities
     assert package["overrides"]["postcss"].startswith("^8.5.23")
 
 
-def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path):
+@pytest.mark.parametrize(("platform", "arch", "version"), [
+    ("linux/amd64", "x86", "test"),
+    ("linux/arm64", "arm", "test_arm"),
+])
+def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path, platform, arch, version):
     source = tmp_path / "source"
     source.mkdir()
     subprocess.run(["git", "init", "-q", str(source)], check=True)
@@ -229,13 +236,27 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path):
     (source / "new.txt").write_text("untracked-but-not-ignored\n", encoding="utf-8")
     build = source / "build.sh"
     build.write_text(
-        "#!/bin/bash\nset -e\nmkdir -p docker_images/x86\n"
-        "touch docker_images/x86/agent-manager-images-test.tar.xz\n",
+        "#!/bin/bash\nset -e\n"
+        'version=""\narch=x86\nwhile [ "$#" -gt 0 ]; do\n'
+        '  if [ "$1" = "-t" ]; then version="$2"; shift; fi\n'
+        '  if [ "$1" = "-p" ] && [ "$2" = "linux/arm64" ]; then arch=arm; fi\n'
+        '  shift\ndone\nmkdir -p "docker_images/${arch}"\n'
+        'printf image > "docker_images/${arch}/agent-manager-images-${version}.tar.xz"\n',
         encoding="utf-8",
     )
     build.chmod(0o755)
+    for relative in (
+        "docker-compose.yaml", ".env.example", "deploy/nginx/default.conf",
+        "docs/offline-deployment.md", "docs/docker-deployment.md",
+    ):
+        destination = source / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / relative, destination)
+    (source / "scanner/releases").mkdir(parents=True)
+    (source / "scanner/releases/skill-scan-report.json").write_text("private scan report")
     subprocess.run(
-        ["git", "-C", str(source), "add", ".gitignore", "tracked.txt", "build.sh"],
+        ["git", "-C", str(source), "add", ".gitignore", "tracked.txt", "build.sh",
+         "docker-compose.yaml", ".env.example", "deploy/nginx/default.conf", "docs"],
         check=True,
     )
     subprocess.run(
@@ -256,6 +277,10 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path):
 
     installer = tmp_path / "installer.tar.gz"
     installer.write_bytes(b"test-installer")
+    client_feed = tmp_path / "client-feed"
+    client_feed.mkdir()
+    (client_feed / "latest.json").write_text('{"version": "test"}')
+    (client_feed / "agent-manager-client.exe").write_bytes(b"client-installer")
     output = tmp_path / "output"
     work = tmp_path / "work"
     subprocess.run(
@@ -263,9 +288,9 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path):
             "bash",
             str(ROOT / "package-release.sh"),
             "--version",
-            "test",
+            version,
             "--platform",
-            "linux/amd64",
+            platform,
             "--source-dir",
             str(source),
             "--installer",
@@ -274,6 +299,8 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path):
             str(output),
             "--work-dir",
             str(work),
+            "--client-releases",
+            str(client_feed),
             "--reuse-images",
         ],
         check=True,
@@ -282,18 +309,36 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path):
         cwd=tmp_path,
     )
 
-    with tarfile.open(output / "agent-manager_test_x86.tar.gz") as archive:
+    with tarfile.open(output / f"agent-manager_test_{arch}.tar.gz") as archive:
         names = set(archive.getnames())
         provenance = json.load(archive.extractfile("agent-manager/release-provenance.json"))
-    assert "agent-manager/tracked.txt" in names
-    assert "agent-manager/new.txt" in names
+    files = {
+        "docker-compose.yaml", ".env.example", "deploy/nginx/default.conf", "release-provenance.json",
+        "docs/offline-deployment.md", "docs/docker-deployment.md",
+        f"docker_images/{arch}/agent-manager-images-{version}.tar.xz",
+        "installers/docker-installer-28.5.2-x86-arm.tar.gz",
+        "scanner/releases/latest.json", "scanner/releases/agent-manager-client.exe",
+    }
+    with tarfile.open(output / f"agent-manager_test_{arch}.tar.gz") as archive:
+        assert {entry.name for entry in archive if entry.isfile()} == {"agent-manager/" + path for path in files}
+        env = archive.extractfile("agent-manager/.env.example").read().decode()
+        assert f"TAG={version}\n" in env
+        compose = yaml.safe_load(archive.extractfile("agent-manager/docker-compose.yaml"))
+        for service in compose["services"].values():
+            for volume in service.get("volumes", []):
+                if isinstance(volume, str) and volume.startswith("./"):
+                    assert "agent-manager/" + volume.split(":")[0][2:] in names
+    assert "agent-manager/scanner/releases" in names
+    assert "agent-manager/tracked.txt" not in names
+    assert "agent-manager/new.txt" not in names
+    assert "agent-manager/scanner/releases/skill-scan-report.json" not in names
     assert "agent-manager/.env" not in names
     assert not any(name.startswith("agent-manager/.git/") for name in names)
     assert provenance["schema"] == "agent-manager-release-provenance@1"
-    assert provenance["version"] == "test"
-    assert provenance["platform"] == "linux/amd64"
-    assert provenance["architecture"] == "amd64"
-    assert provenance["archive_layout"] == "x86"
+    assert provenance["version"] == version
+    assert provenance["platform"] == platform
+    assert provenance["architecture"] == platform.split("/")[1]
+    assert provenance["archive_layout"] == arch
     assert provenance["source_mode"] == "worktree"
     assert provenance["worktree_dirty"] is True
     assert len(provenance["git_commit"]) == 40
@@ -309,11 +354,11 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path):
             "bash",
             str(ROOT / "package-release.sh"),
             "--version",
-            "clone-test",
+            "clone-" + version,
             "--branch",
             clone_branch,
             "--platform",
-            "linux/amd64",
+            platform,
             "--repo",
             str(source),
             "--installer",
@@ -329,7 +374,7 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path):
         text=True,
         cwd=tmp_path,
     )
-    with tarfile.open(output / "agent-manager_clone-test_x86.tar.gz") as archive:
+    with tarfile.open(output / f"agent-manager_clone-test_{arch}.tar.gz") as archive:
         clone_provenance = json.load(archive.extractfile("agent-manager/release-provenance.json"))
     assert clone_provenance["source_mode"] == "git_clone"
     assert clone_provenance["worktree_dirty"] is False
@@ -345,11 +390,11 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path):
             "--file",
             str(provenance_file),
             "--version",
-            "clone-test",
+            "clone-" + version,
             "--commit",
             clone_provenance["git_commit"],
             "--platform",
-            "linux/amd64",
+            platform,
             "--require-clean-clone",
         ],
         check=False,
@@ -367,11 +412,11 @@ def test_release_packager_source_dir_excludes_gitignored_files(tmp_path: Path):
             "--file",
             str(provenance_file),
             "--version",
-            "clone-test",
+            "clone-" + version,
             "--commit",
             clone_provenance["git_commit"],
             "--platform",
-            "linux/amd64",
+            platform,
             "--require-clean-clone",
         ],
         check=False,
