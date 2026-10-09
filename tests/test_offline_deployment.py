@@ -1,0 +1,232 @@
+from __future__ import annotations
+
+import fcntl
+import io
+import json
+import lzma
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tarfile
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def make_release(root, version='1.0.7', platform='linux/amd64'):
+    root.mkdir(parents=True, exist_ok=True)
+    for name in ('start.sh', 'upgrade.sh', 'deploy/offline.py', '.env.example',
+                 'deploy/nginx/default.conf', 'docs/offline-deployment.md', 'docs/docker-deployment.md'):
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / name, target)
+    (root / 'docker-compose.yaml').write_text(
+        (ROOT / 'docker-compose.yaml').read_text().replace('${TAG:-latest}', version))
+    (root / 'release-provenance.json').write_text(json.dumps({'version': version, 'platform': platform}))
+    arch = 'arm' if platform == 'linux/arm64' else 'x86'
+    image = root / f'docker_images/{arch}/agent-manager-images-{version}.tar.xz'
+    image.parent.mkdir(parents=True, exist_ok=True)
+    image.write_bytes(lzma.compress(b'offline-images'))
+    (root / 'scanner/releases').mkdir(parents=True, exist_ok=True)
+    (root / 'scanner/releases/latest.json').write_text(json.dumps({'version': version}))
+    return root
+
+
+def package(source, target):
+    with tarfile.open(target, 'w:gz') as archive:
+        archive.add(source, arcname='agent-manager')
+    return target
+
+
+@pytest.fixture
+def installation(tmp_path):
+    root = make_release(tmp_path / 'existing install', '1.0.6')
+    (root / '.env').write_text('TAG=old-version\nSECRET_KEY=customer-secret\nINITIAL_ADMIN_PASSWORD=unchanged\n')
+    (root / '.env').chmod(0o600)
+    binaries = tmp_path / 'bin'
+    binaries.mkdir()
+    log = tmp_path / 'docker.jsonl'
+    docker = binaries / 'docker'
+    docker.write_text(f'#!{sys.executable}\n' + r'''
+import json, os, sys
+from pathlib import Path
+import yaml
+args = sys.argv[1:]
+with open(os.environ['DOCKER_LOG'], 'a') as out:
+    out.write(json.dumps(args) + '\n')
+fail = os.environ.get('DEPLOY_TEST_FAILURE', '')
+if args[0] == 'info':
+    print('aarch64' if fail == 'architecture' else 'x86_64')
+elif args[0] == 'load':
+    sys.exit(1 if fail == 'load' else 0)
+elif args[:2] == ['image', 'inspect']:
+    print('linux/arm64' if fail == 'image_architecture' else 'linux/amd64')
+elif args[0] == 'compose':
+    if 'version' in args:
+        print('Docker Compose version v2.30.0')
+    elif '--help' in args:
+        print('--wait --wait-timeout --pull --no-build')
+    elif 'config' in args:
+        print(json.dumps(yaml.safe_load(Path(args[args.index('-f') + 1]).read_text())))
+    elif 'up' in args:
+        sys.exit(1 if fail == 'health' else 0)
+    elif 'exec' in args:
+        sys.exit(1 if fail == 'http' else 0)
+''')
+    docker.chmod(0o755)
+
+    def run(action='start', archive=None, failure='', runner_root=None):
+        env = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'],
+                   DOCKER_LOG=str(log), DEPLOY_TEST_FAILURE=failure)
+        # The helper is standalone, so use the environment's Python with PyYAML for the fake Docker only.
+        python_link = binaries / 'python3'
+        if not python_link.exists():
+            python_link.symlink_to(sys.executable)
+        command = ['bash', str((runner_root or root) / f'{action}.sh')]
+        if archive:
+            command.append(str(archive))
+        if runner_root:
+            command += ['--install-dir', str(root)]
+        command += ['--wait-timeout', '2']
+        result = subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=20)
+        calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+        return result, calls
+
+    return root, run
+
+
+def test_start_loads_images_then_initializes_signer_and_waits(installation):
+    root, run = installation
+    original = (root / '.env').read_bytes()
+    result, calls = run()
+    assert result.returncode == 0, result.stderr
+    load = next(i for i, call in enumerate(calls) if call[0] == 'load')
+    signing = next(i for i, call in enumerate(calls) if 'signing-key' in call)
+    up = next(i for i, call in enumerate(calls) if 'up' in call and '--help' not in call)
+    assert load < signing < up
+    assert '--wait' in calls[up] and '--wait-timeout' in calls[up]
+    assert '--no-build' in calls[up] and calls[up][calls[up].index('--pull') + 1] == 'never'
+    assert any('http://127.0.0.1/' in call for call in calls)
+    assert (root / '.env').read_bytes() == original
+    assert '检查通过' in result.stdout
+
+
+def test_start_creates_env_only_when_missing(installation):
+    root, run = installation
+    (root / '.env').unlink()
+    result, _ = run()
+    assert result.returncode == 0, result.stderr
+    assert (root / '.env').read_bytes() == (root / '.env.example').read_bytes()
+    assert (root / '.env').stat().st_mode & 0o777 == 0o600
+
+
+def test_upgrade_backs_up_and_preserves_customer_env(tmp_path, installation):
+    root, run = installation
+    old_compose = (root / 'docker-compose.yaml').read_bytes()
+    old_env = (root / '.env').read_bytes()
+    old_nginx = (root / 'deploy/nginx/default.conf').read_bytes()
+    source = make_release(tmp_path / 'new release')
+    (source / 'deploy/nginx/default.conf').write_text('# new nginx config\n')
+    archive = package(source, tmp_path / 'upgrade.tar.gz')
+    result, calls = run('upgrade', archive, runner_root=source)
+    assert result.returncode == 0, result.stdout + result.stderr
+    backup, = (root / 'backups').iterdir()
+    assert (backup / 'docker-compose.yaml').read_bytes() == old_compose
+    assert (backup / '.env').read_bytes() == old_env
+    assert (backup / 'deploy/nginx/default.conf').read_bytes() == old_nginx
+    assert (root / '.env').read_bytes() == old_env
+    assert (root / '.env').stat().st_mode & 0o777 == 0o600
+    assert '1.0.7' in (root / 'docker-compose.yaml').read_text()
+    assert '${TAG' not in (root / 'docker-compose.yaml').read_text()
+    assert (root / 'deploy/nginx/default.conf').read_text() == '# new nginx config\n'
+    assert json.loads((root / 'scanner/releases/latest.json').read_text())['version'] == '1.0.7'
+    assert (root / 'docker_images/x86/agent-manager-images-1.0.6.tar.xz').exists()
+    assert (root / 'docker_images/x86/agent-manager-images-1.0.7.tar.xz').exists()
+    assert any('--force-recreate' in call for call in calls)
+    assert all('down' not in call for call in calls)
+    assert not list(root.glob('.upgrade-*'))
+    assert backup.stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.parametrize('failure', ['architecture', 'load', 'image_architecture', 'health', 'http'])
+def test_upgrade_failures_are_visible_and_keep_backups(tmp_path, installation, failure):
+    root, run = installation
+    original = (root / 'docker-compose.yaml').read_bytes()
+    old_env = (root / '.env').read_bytes()
+    source = make_release(tmp_path / 'new')
+    result, calls = run('upgrade', package(source, tmp_path / 'release.tar.gz'), failure=failure)
+    assert result.returncode != 0
+    assert '已升级到' not in result.stdout
+    assert (root / '.env').read_bytes() == old_env
+    if failure == 'architecture':
+        assert not (root / 'backups').exists()
+        assert not any(call[0] == 'load' for call in calls)
+    else:
+        backup, = (root / 'backups').iterdir()
+        assert (backup / 'docker-compose.yaml').read_bytes() == original
+        assert str(backup) in result.stderr
+    if failure in {'architecture', 'load', 'image_architecture'}:
+        assert (root / 'docker-compose.yaml').read_bytes() == original
+        assert not any('--force-recreate' in call for call in calls)
+    else:
+        assert '1.0.7' in (root / 'docker-compose.yaml').read_text()
+
+
+@pytest.mark.parametrize('entry_type', ['escape', 'symlink', 'hardlink'])
+def test_upgrade_rejects_archive_escape_before_touching_installation(tmp_path, installation, entry_type):
+    root, run = installation
+    original = (root / 'docker-compose.yaml').read_bytes()
+    archive = tmp_path / 'unsafe.tar.gz'
+    with tarfile.open(archive, 'w:gz') as bundle:
+        entry = tarfile.TarInfo('agent-manager/../../escaped' if entry_type == 'escape' else 'agent-manager/link')
+        if entry_type != 'escape':
+            entry.type = tarfile.SYMTYPE if entry_type == 'symlink' else tarfile.LNKTYPE
+            entry.linkname = '../../escaped'
+        bundle.addfile(entry, io.BytesIO())
+    result, calls = run('upgrade', archive)
+    assert result.returncode != 0
+    assert '不安全路径' in result.stderr
+    assert not calls
+    assert not (tmp_path / 'escaped').exists()
+    assert (root / 'docker-compose.yaml').read_bytes() == original
+
+
+def test_start_refuses_another_operation_on_same_installation(installation):
+    root, run = installation
+    with (root / '.offline-deploy.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        result, calls = run()
+    assert result.returncode != 0
+    assert '正在执行启动或升级' in result.stderr
+    assert not calls
+
+
+def test_upgrade_rejects_wrong_compose_version(tmp_path, installation):
+    root, run = installation
+    source = make_release(tmp_path / 'new')
+    (source / 'docker-compose.yaml').write_text((ROOT / 'docker-compose.yaml').read_text())
+    result, calls = run('upgrade', package(source, tmp_path / 'bad-version.tar.gz'))
+    assert result.returncode != 0
+    assert '镜像版本与安装包版本不一致' in result.stderr
+    assert not any(call[0] == 'load' for call in calls)
+    assert not (root / 'backups').exists()
+
+
+def test_upgrade_does_not_write_through_existing_deployment_symlink(tmp_path, installation):
+    root, run = installation
+    original = (root / 'docker-compose.yaml').read_bytes()
+    external = tmp_path / 'external.conf'
+    external.write_text('site-managed config')
+    nginx = root / 'deploy/nginx/default.conf'
+    nginx.unlink()
+    nginx.symlink_to(external)
+    source = make_release(tmp_path / 'new')
+    result, calls = run('upgrade', package(source, tmp_path / 'release.tar.gz'))
+    assert result.returncode != 0
+    assert '软链接' in result.stderr
+    assert external.read_text() == 'site-managed config'
+    assert (root / 'docker-compose.yaml').read_bytes() == original
+    assert not any('--force-recreate' in call for call in calls)

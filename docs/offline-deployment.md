@@ -5,18 +5,21 @@
 ## 交付物
 
 根据服务器架构，准备对应的安装包。CI 普通版本 tag（如 `1.0.6`）生成 x86 包，
-带 `_arm` 的 tag（如 `1.0.6_arm`）生成 ARM 包，同时兼容 `v` 前缀。以下以 `v1.0.0` 为示例，现场命令中的版本号应替换为实际交付版本：
+带 `_arm` 的 tag（如 `1.0.6_arm`）生成 ARM 包，同时兼容 `v` 前缀。以下以 `1.0.6` 为示例，现场命令中的版本号应替换为实际交付版本：
 
 ```text
-agent-manager_v1.0.0_arm.tar.gz    # ARM 服务器
-agent-manager_v1.0.0_x86.tar.gz    # x86 服务器
+agent-manager_1.0.6_arm.tar.gz    # ARM 服务器
+agent-manager_1.0.6_x86.tar.gz    # x86 服务器
 ```
 
 安装包内主要包含：
 
 ```text
 docker-compose.yaml
-.env.example                         # 已写入本包镜像 TAG
+.env.example
+start.sh                             # 加载镜像、启动、检查
+upgrade.sh                           # 指定安装包升级
+deploy/offline.py                     # 脚本共用逻辑（Python 标准库）
 deploy/nginx/default.conf
 release-provenance.json
 docs/offline-deployment.md
@@ -27,6 +30,8 @@ installers/docker-installer-28.5.2-x86-arm.tar.gz
 ```
 
 安装包已包含平台、Worker 和内部扫描服务镜像，现场无需构建镜像。
+包内 `docker-compose.yaml` 的应用镜像直接使用发布版本，例如 `agent-manager-backend:1.0.6`；
+ARM 包使用完整版本 `1.0.6_arm`。配置中的旧 `TAG` 不再决定包内应用镜像版本。
 交付包按部署清单组装，仓库源码树、测试及构建工具不进入包；镜像包含运行所需程序。
 ARM tag 为 `1.0.6_arm` 时，包名为 `agent-manager_1.0.6_arm.tar.gz`，
 内部镜像文件为 `docker_images/arm/agent-manager-images-1.0.6_arm.tar.xz`。
@@ -46,70 +51,83 @@ uname -m
 常见对应关系：
 
 ```text
-x86_64   -> 使用 agent-manager_v1.0.0_x86.tar.gz
-aarch64  -> 使用 agent-manager_v1.0.0_arm.tar.gz
-arm64    -> 使用 agent-manager_v1.0.0_arm.tar.gz
+x86_64   -> 使用 agent-manager_1.0.6_x86.tar.gz
+aarch64  -> 使用 agent-manager_1.0.6_arm.tar.gz
+arm64    -> 使用 agent-manager_1.0.6_arm.tar.gz
 ```
 
-确认 Docker 和 Compose 可用：
+现场需要 Bash、Python 3（仅标准库，无需 pip 安装依赖）、Docker 和支持 `--wait-timeout` 的 Compose。
+确认命令可用，当前用户有 Docker 访问权限：
 
 ```bash
+python3 --version
 docker --version
 docker compose version
 ```
 
-如果现场没有 Docker，先按客户环境使用安装包内的 Docker 安装程序完成安装，再确认上述两个命令可运行。
+如果现场没有 Docker，先按客户环境使用安装包内的 Docker 安装程序完成安装，再确认上述命令可运行。
 
-## 解压并加载镜像
+## 解压并启动
 
-ARM 服务器执行：
-
-```bash
-tar -xzf agent-manager_v1.0.0_arm.tar.gz
-cd agent-manager
-
-xz -dc docker_images/arm/agent-manager-images-v1.0.0_arm.tar.xz | docker load
-```
-
-x86 服务器执行：
+以下以 x86 包为例，ARM 服务器换用对应的 `_arm.tar.gz`：
 
 ```bash
-tar -xzf agent-manager_v1.0.0_x86.tar.gz
+tar -xzf agent-manager_1.0.6_x86.tar.gz
 cd agent-manager
-
-xz -dc docker_images/x86/agent-manager-images-v1.0.0.tar.xz | docker load
+./start.sh
 ```
 
-以下命令均在解压得到的 `agent-manager` 目录执行。
+脚本自动加载包内 `.tar.xz` 镜像、核对 Docker 和镜像架构、在缺少 `.env` 时复制配置模板，
+初始化缺失的签名密钥（已有密钥继续使用），然后启动服务。启动过程中禁止在线拉取和现场构建。
+最后等待服务健康，并通过 Nginx 请求首页；全部通过才返回成功。默认最多等待 300 秒，可调整：
 
-## 快速启动
+```bash
+./start.sh --wait-timeout 600
+```
 
-首次安装时复制配置模板，并在 `.env` 中设置登录密码：
+首次生产部署应先准备配置，再运行脚本：
 
 ```bash
 cp .env.example .env
+# 编辑 .env，完成以下生产配置
+./start.sh
 ```
 
-将 `.env` 中的 `INITIAL_ADMIN_PASSWORD=` 改为自己设置的密码，例如
-`INITIAL_ADMIN_PASSWORD=replace-with-your-password`，然后启动：
+为 `SECRET_KEY`、`AGENT_MANAGER_SANDBOX_API_KEY`、`AGENT_SECURITY_WORKER_TOKEN`、
+`AIG_SCAN_SERVICE_TOKEN` 设置独立随机凭据，设置 `ENFORCE_SECURE_STARTUP=true`，
+并设置至少 12 个字符的 `INITIAL_ADMIN_PASSWORD`。直接使用模板启动采用本地测试配置；
+初始密码留空时的行为见下文。更多配置见 [Docker 部署文档](docker-deployment.md#生产部署)。
+
+## 使用安装包升级
+
+在原安装目录执行，安装包路径可以是绝对路径或相对于当前命令目录的路径：
 
 ```bash
-docker compose up -d
+./upgrade.sh /path/to/agent-manager_1.0.7_x86.tar.gz
+# ARM 服务器使用 agent-manager_1.0.7_arm.tar.gz
 ```
 
-这套快速启动使用模板中的本地测试配置。已有部署升级时保留原 `.env` 和数据卷，
-将原 `.env` 的 `TAG` 更新为新包 `.env.example` 中的值后启动；`INITIAL_ADMIN_PASSWORD` 不会修改已有账号的密码。
-正式生产环境先为 `SECRET_KEY`、`AGENT_MANAGER_SANDBOX_API_KEY`、
-`AGENT_SECURITY_WORKER_TOKEN`、`AIG_SCAN_SERVICE_TOKEN` 设置独立随机凭据，
-设置 `ENFORCE_SECURE_STARTUP=true` 和至少 12 个字符的 `INITIAL_ADMIN_PASSWORD`，
-再初始化签名密钥并启动（已加载的镜像直接使用）：
+旧安装目录还没有 `upgrade.sh` 时，先将新包解压到另一个目录，从新包调用并指定原安装目录：
 
 ```bash
-docker compose run --rm --no-deps backend agent-manager signing-key init
-docker compose up -d
+/path/to/new/agent-manager/upgrade.sh /path/to/agent-manager_1.0.7_x86.tar.gz --install-dir /opt/agent-manager
 ```
 
-更多配置见 [Docker 部署文档](docker-deployment.md#生产部署)。
+脚本会：
+
+1. 解压到原安装目录下的临时目录，检查包内容、版本及 Docker 架构。
+2. 在 `backups/时间-随机后缀/` 中备份旧 Compose、Nginx 配置、部署脚本、版本信息、配置模板、部署文档、客户端发布目录及现有 `.env`。
+3. 加载并验证新镜像，然后覆盖本次部署文件、更新客户端发布文件；现场 `.env` 保持不变，旧版本镜像归档保留。
+4. 在原安装目录重建容器，保留 Docker 命名卷，等待健康检查并检查 Nginx 首页。
+
+可追加 `--wait-timeout 600` 延长等待。脚本不会执行 `docker compose down -v`。
+部署文件备份**不包含数据库、签名密钥和数据卷内容**；生产升级前应单独完成业务数据备份。
+如果原来通过 `COMPOSE_PROJECT_NAME` 自定义项目名，升级时继续使用原值，保证连接原有数据卷。
+新版 Compose 和 Nginx 配置会覆盖现场对这两个文件的直接修改，旧配置保留在备份目录。
+
+升级失败时返回非零退出码，并显示备份路径；先检查容器状态和日志。启动新版本可能已经执行数据库迁移，
+需要结合数据迁移情况制定恢复步骤，仅恢复旧 Compose 不能保证完成业务回滚。
+备份目录含现场配置，应限制访问。仅使用可信来源的正式安装包。
 
 ## 验证启动
 
@@ -189,8 +207,8 @@ docker compose logs -f sandbox
 
 ## 现场注意事项
 
-- `TAG` 必须与 `.env.example` 和 provenance 中的镜像版本一致，例如 `1.0.6` 或 `1.0.6_arm`。
+- 版本以包内 `docker-compose.yaml` 的镜像引用和 `release-provenance.json` 为准。
 - ARM 和 x86 安装包不要混用。
-- 当前交付的 `docker-compose.yaml` 固定使用宿主机 80 端口，并用四个 Docker 命名卷保存后端数据、上传文件、SQLite 和 Registry 数据；这些配置不是 `.env` 变量。现场确需调整时，应修改 `docker-compose.yaml`，记录现场差异后再启动。
+- 当前交付的 `docker-compose.yaml` 固定使用宿主机 80 端口，并用五个 Docker 命名卷保存后端数据、上传文件、SQLite、Registry 和内部扫描任务数据；这些配置不是 `.env` 变量。现场确需调整时，应修改 `docker-compose.yaml`，记录现场差异后再启动。
 - 域名、TLS 证书和外部负载均衡属于 Compose 入口之外的现场网络配置，不要只修改 `.env` 后假定已经生效。
-- 镜像文件是 `.tar.xz`，需要用 `xz -dc ... | docker load` 加载。
+- 脚本自动加载 `.tar.xz` 镜像；手动加载时可使用 `xz -dc ... | docker load`。
