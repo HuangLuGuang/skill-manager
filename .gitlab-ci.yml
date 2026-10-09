@@ -25,7 +25,7 @@ deploy-35:
   stage: deploy
   timeout: 1h
   rules:
-    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+$/'
     - if: '$CI_COMMIT_BRANCH == "dev"'
   script:
     - |
@@ -117,131 +117,131 @@ deploy-35:
             --data-binary @- "$WECHAT_WEBHOOK_URL" >/dev/null \
         || true
 
-offline-package:
+.offline-package:
   extends: .release-on-35
   stage: package
   timeout: 4h
-  needs:
-    - deploy-35
-  rules:
-    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
   script:
     - |
       set -euo pipefail
       unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
 
       notify() {
-        local content="$1"
-        if [ -z "${WECHAT_WEBHOOK_URL:-}" ]; then
-          echo "WECHAT_WEBHOOK_URL is not configured; skipping notification"
-          return 0
-        fi
-        python3 -c 'import json,sys; print(json.dumps({"msgtype":"text","text":{"content":sys.argv[1]}}, ensure_ascii=False))' "$content" \
-          | curl --fail --silent --show-error --max-time 15 \
-              -H 'Content-Type: application/json' \
-              --data-binary @- "$WECHAT_WEBHOOK_URL" >/dev/null \
-          || echo "Warning: WeCom notification failed"
+        python3 - "$1" <<'PY_NOTIFY'
+      import json
+      import os
+      import sys
+      import urllib.request
+
+      payload = {"msgtype": "text", "text": {"content": sys.argv[1]}}
+      request = urllib.request.Request(
+          os.environ["WECHAT_WEBHOOK_URL"],
+          data=json.dumps(payload, ensure_ascii=False).encode(),
+          headers={"Content-Type": "application/json"},
+      )
+      with urllib.request.urlopen(request, timeout=15) as response:
+          result = json.load(response)
+      if result.get("errcode") != 0:
+          raise SystemExit(f"WeCom notification failed: {result.get('errcode')}")
+      PY_NOTIFY
       }
 
-      notify "Agent Manager ${CI_COMMIT_TAG} 开始生成客户离线包\n${CI_PIPELINE_URL}"
+      : "${WECHAT_WEBHOOK_URL:?Configure WECHAT_WEBHOOK_URL for release download notifications}"
+      notify "Agent Manager ${CI_COMMIT_TAG} 开始生成 ${PACKAGE_ARCH} 客户离线包
+      ${CI_PIPELINE_URL}"
 
       test -f "$DOCKER_INSTALLER"
       test -f "$CLIENT_RELEASES/latest.json"
       command -v aws >/dev/null
       aws s3api head-bucket --bucket "$S3_BUCKET" --endpoint-url "$S3_ENDPOINT" --region "$S3_REGION"
       docker info >/dev/null
-      docker run --rm --platform linux/arm64 alpine:3.20 uname -m | grep -q '^aarch64$'
 
-      X86_ARCHIVE="$RELEASE_DIR/agent-manager_${CI_COMMIT_TAG}_x86.tar.gz"
-      ARM_ARCHIVE="$RELEASE_DIR/agent-manager_${CI_COMMIT_TAG}_arm.tar.gz"
+      if [ "$PACKAGE_ARCH" = "arm" ]; then
+        docker run --rm --platform linux/arm64 alpine:3.20 uname -m | grep -q '^aarch64$'
+        # Both architectures share the Compose nginx tag on the deployment host.
+        NGINX_X86_ID="$(docker image inspect --format '{{.Id}}' nginx:1.27-alpine)"
+        test "$(docker image inspect --format '{{.Architecture}}' "$NGINX_X86_ID")" = amd64
+        restore_nginx() {
+          docker image tag "$NGINX_X86_ID" nginx:1.27-alpine
+        }
+        trap restore_nginx EXIT
+      fi
 
+      ARCHIVE="$RELEASE_DIR/agent-manager_${CI_COMMIT_TAG%_arm}_${PACKAGE_ARCH}.tar.gz"
       HTTP_PROXY="$BUILD_DOCKER_PROXY" \
       HTTPS_PROXY="$BUILD_DOCKER_PROXY" \
         ./package-release.sh \
           -v "$CI_COMMIT_TAG" \
           -b "$CI_COMMIT_TAG" \
-          -p linux/amd64 \
+          -p "$PACKAGE_PLATFORM" \
           -i "$DOCKER_INSTALLER" \
           -c "$CLIENT_RELEASES" \
           -o "$RELEASE_DIR"
 
-      test -s "$X86_ARCHIVE"
-      tar -xOf "$X86_ARCHIVE" "agent-manager/release-provenance.json" \
+      test -s "$ARCHIVE"
+      tar -xOf "$ARCHIVE" "agent-manager/release-provenance.json" \
         | python3 scripts/verify-agent-manager-release-provenance.py \
             --file - \
             --version "$CI_COMMIT_TAG" \
             --commit "$CI_COMMIT_SHA" \
-            --platform linux/amd64 \
+            --platform "$PACKAGE_PLATFORM" \
             --require-clean-clone
-      tar -xOf "$X86_ARCHIVE" "agent-manager/docker_images/x86/agent-manager-images-${CI_COMMIT_TAG}.tar.xz" \
+      tar -xOf "$ARCHIVE" "agent-manager/docker_images/${PACKAGE_ARCH}/agent-manager-images-${CI_COMMIT_TAG}.tar.xz" \
         | xz -dc \
         | docker load >/dev/null
-      ./scripts/verify-agent-security-worker-image.sh "agent-manager-security-worker:${CI_COMMIT_TAG}" amd64
-      ./scripts/verify-aig-scan-service-image.sh "agent-manager-aig-scan-service:${CI_COMMIT_TAG}" amd64
+      ./scripts/verify-agent-security-worker-image.sh "agent-manager-security-worker:${CI_COMMIT_TAG}" "${PACKAGE_PLATFORM#linux/}"
+      ./scripts/verify-aig-scan-service-image.sh "agent-manager-aig-scan-service:${CI_COMMIT_TAG}" "${PACKAGE_PLATFORM#linux/}"
 
-      upload_archive() {
-        local archive="$1"
-        local name
-        name="$(basename "$archive")"
-        aws s3 cp "$archive" "s3://${S3_BUCKET}/agent-manager/${name}" \
-          --endpoint-url "$S3_ENDPOINT" \
-          --region "$S3_REGION" \
-          --content-type application/gzip \
-          --content-disposition "attachment; filename=\"${name}\""
-      }
+      if [ "$PACKAGE_ARCH" = "arm" ]; then
+        restore_nginx
+        test "$(docker image inspect --format '{{.Architecture}}' nginx:1.27-alpine)" = amd64
+        trap - EXIT
+      fi
 
-      upload_archive "$X86_ARCHIVE"
-      notify "Agent Manager ${CI_COMMIT_TAG} x86 客户离线包已上传 S3\n${S3_ENDPOINT}/${S3_BUCKET}/agent-manager/\n${CI_PIPELINE_URL}"
-
-      restore_x86_images() {
-        tar -xOf "$X86_ARCHIVE" "agent-manager/docker_images/x86/agent-manager-images-${CI_COMMIT_TAG}.tar.xz" \
-          | xz -dc \
-          | docker load >/dev/null \
-          || echo "Warning: failed to restore x86 image tags"
-      }
-      trap restore_x86_images EXIT
-
-      HTTP_PROXY="$BUILD_DOCKER_PROXY" \
-      HTTPS_PROXY="$BUILD_DOCKER_PROXY" \
-        ./package-release.sh \
-          -v "$CI_COMMIT_TAG" \
-          -b "$CI_COMMIT_TAG" \
-          -p linux/arm64 \
-          -i "$DOCKER_INSTALLER" \
-          -c "$CLIENT_RELEASES" \
-          -o "$RELEASE_DIR"
-
-      test -s "$ARM_ARCHIVE"
-      tar -xOf "$ARM_ARCHIVE" "agent-manager/release-provenance.json" \
-        | python3 scripts/verify-agent-manager-release-provenance.py \
-            --file - \
-            --version "$CI_COMMIT_TAG" \
-            --commit "$CI_COMMIT_SHA" \
-            --platform linux/arm64 \
-            --require-clean-clone
-      tar -xOf "$ARM_ARCHIVE" "agent-manager/docker_images/arm/agent-manager-images-${CI_COMMIT_TAG}.tar.xz" \
-        | xz -dc \
-        | docker load >/dev/null
-      ./scripts/verify-agent-security-worker-image.sh "agent-manager-security-worker:${CI_COMMIT_TAG}" arm64
-      ./scripts/verify-aig-scan-service-image.sh "agent-manager-aig-scan-service:${CI_COMMIT_TAG}" arm64
-
-      upload_archive "$ARM_ARCHIVE"
-      notify "Agent Manager ${CI_COMMIT_TAG} ARM 客户离线包已上传 S3\n${S3_ENDPOINT}/${S3_BUCKET}/agent-manager/\n${CI_PIPELINE_URL}"
-
-      restore_x86_images
-      ./scripts/verify-agent-security-worker-image.sh "agent-manager-security-worker:${CI_COMMIT_TAG}" amd64
-      ./scripts/verify-aig-scan-service-image.sh "agent-manager-aig-scan-service:${CI_COMMIT_TAG}" amd64
-      trap - EXIT
-
-      notify "Agent Manager ${CI_COMMIT_TAG} 客户离线包已全部上传 S3\n${S3_ENDPOINT}/${S3_BUCKET}/agent-manager/\n${CI_PIPELINE_URL}"
+      NAME="$(basename "$ARCHIVE")"
+      S3_URI="s3://${S3_BUCKET}/agent-manager/${NAME}"
+      aws s3 cp "$ARCHIVE" "$S3_URI" \
+        --endpoint-url "$S3_ENDPOINT" \
+        --region "$S3_REGION" \
+        --content-type application/gzip \
+        --content-disposition "attachment; filename=\"${NAME}\""
+      aws s3api head-object --bucket "$S3_BUCKET" --key "agent-manager/${NAME}" \
+        --endpoint-url "$S3_ENDPOINT" --region "$S3_REGION" >/dev/null
+      DOWNLOAD_URL="$(aws s3 presign "$S3_URI" \
+        --endpoint-url "$S3_ENDPOINT" --region "$S3_REGION" --expires-in 604800)"
+      test -n "$DOWNLOAD_URL"
+      python3 scripts/publish_release_notification.py \
+        --archive "$ARCHIVE" \
+        --download-url "$DOWNLOAD_URL" \
+        --version "$CI_COMMIT_TAG" \
+        --platform "$PACKAGE_PLATFORM" \
+        --expires-in 604800
   after_script:
     - |
       if [ "$CI_JOB_STATUS" = "success" ] || [ -z "${WECHAT_WEBHOOK_URL:-}" ]; then
         exit 0
       fi
       python3 -c 'import json,sys; print(json.dumps({"msgtype":"text","text":{"content":sys.argv[1]}}, ensure_ascii=False))' \
-        "Agent Manager ${CI_COMMIT_TAG} 客户离线包生成失败\n${CI_JOB_URL}" \
+        "Agent Manager ${CI_COMMIT_TAG} 客户离线包发布失败（构建、校验、上传或通知）\n${CI_JOB_URL}" \
         | curl --fail --silent --show-error --max-time 15 \
             -H 'Content-Type: application/json' \
             --data-binary @- "$WECHAT_WEBHOOK_URL" >/dev/null \
         || true
+
+offline-package:
+  extends: .offline-package
+  needs:
+    - deploy-35
+  variables:
+    PACKAGE_PLATFORM: linux/amd64
+    PACKAGE_ARCH: x86
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+$/'
+
+offline-package-arm:
+  extends: .offline-package
+  variables:
+    PACKAGE_PLATFORM: linux/arm64
+    PACKAGE_ARCH: arm
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+_arm$/'

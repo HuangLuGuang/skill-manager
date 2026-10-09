@@ -4,7 +4,8 @@
 
 ## 交付物
 
-根据服务器架构，准备对应的安装包。以下以 `v1.0.0` 为示例，现场命令中的版本号应替换为实际交付版本：
+根据服务器架构，准备对应的安装包。CI 普通版本 tag（如 `1.0.6`）生成 x86 包，
+带 `_arm` 的 tag（如 `1.0.6_arm`）生成 ARM 包，同时兼容 `v` 前缀。以下以 `v1.0.0` 为示例，现场命令中的版本号应替换为实际交付版本：
 
 ```text
 agent-manager_v1.0.0_arm.tar.gz    # ARM 服务器
@@ -15,12 +16,21 @@ agent-manager_v1.0.0_x86.tar.gz    # x86 服务器
 
 ```text
 docker-compose.yaml
-.env.example
-docker_images/<arch>/agent-manager-images-v1.0.0.tar.xz
+.env.example                         # 已写入本包镜像 TAG
+deploy/nginx/default.conf
+release-provenance.json
+docs/offline-deployment.md
+docs/docker-deployment.md
+scanner/releases/                    # 客户端发布文件
+docker_images/<arch>/agent-manager-images-<tag>.tar.xz
 installers/docker-installer-28.5.2-x86-arm.tar.gz
 ```
 
 安装包已包含平台、Worker 和内部扫描服务镜像，现场无需构建镜像。
+交付包按部署清单组装，仓库源码树、测试及构建工具不进入包；镜像包含运行所需程序。
+ARM tag 为 `1.0.6_arm` 时，包名为 `agent-manager_1.0.6_arm.tar.gz`，
+内部镜像文件为 `docker_images/arm/agent-manager-images-1.0.6_arm.tar.xz`。
+加载时以实际文件名为准，镜像版本可查看 `release-provenance.json`。
 
 ## 部署前检查
 
@@ -58,7 +68,7 @@ ARM 服务器执行：
 tar -xzf agent-manager_v1.0.0_arm.tar.gz
 cd agent-manager
 
-xz -dc docker_images/arm/agent-manager-images-v1.0.0.tar.xz | docker load
+xz -dc docker_images/arm/agent-manager-images-v1.0.0_arm.tar.xz | docker load
 ```
 
 x86 服务器执行：
@@ -84,13 +94,22 @@ cp .env.example .env
 `INITIAL_ADMIN_PASSWORD=replace-with-your-password`，然后启动：
 
 ```bash
-TAG=v1.0.0 docker compose up -d
+docker compose up -d
 ```
 
 这套快速启动使用模板中的本地测试配置。已有部署升级时保留原 `.env` 和数据卷，
-直接使用新版本的 `TAG` 启动；`INITIAL_ADMIN_PASSWORD` 不会修改已有账号的密码。
-正式生产环境需要替换模板中的开发凭据并启用安全启动，按
-[Docker 部署文档的生产部署步骤](docker-deployment.md#生产部署)操作。
+将原 `.env` 的 `TAG` 更新为新包 `.env.example` 中的值后启动；`INITIAL_ADMIN_PASSWORD` 不会修改已有账号的密码。
+正式生产环境先为 `SECRET_KEY`、`AGENT_MANAGER_SANDBOX_API_KEY`、
+`AGENT_SECURITY_WORKER_TOKEN`、`AIG_SCAN_SERVICE_TOKEN` 设置独立随机凭据，
+设置 `ENFORCE_SECURE_STARTUP=true` 和至少 12 个字符的 `INITIAL_ADMIN_PASSWORD`，
+再初始化签名密钥并启动（已加载的镜像直接使用）：
+
+```bash
+docker compose run --rm --no-deps backend agent-manager signing-key init
+docker compose up -d
+```
+
+更多配置见 [Docker 部署文档](docker-deployment.md#生产部署)。
 
 ## 验证启动
 
@@ -146,7 +165,7 @@ docker compose down
 重新启动：
 
 ```bash
-TAG=v1.0.0 docker compose up -d
+docker compose up -d
 ```
 
 查看后端日志：
@@ -170,7 +189,7 @@ docker compose logs -f sandbox
 
 ## 现场注意事项
 
-- `TAG` 必须和安装包版本一致，例如 `v1.0.0`。
+- `TAG` 必须与 `.env.example` 和 provenance 中的镜像版本一致，例如 `1.0.6` 或 `1.0.6_arm`。
 - ARM 和 x86 安装包不要混用。
 - 当前交付的 `docker-compose.yaml` 固定使用宿主机 80 端口，并用四个 Docker 命名卷保存后端数据、上传文件、SQLite 和 Registry 数据；这些配置不是 `.env` 变量。现场确需调整时，应修改 `docker-compose.yaml`，记录现场差异后再启动。
 - 域名、TLS 证书和外部负载均衡属于 Compose 入口之外的现场网络配置，不要只修改 `.env` 后假定已经生效。
