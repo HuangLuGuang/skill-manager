@@ -56,16 +56,36 @@ aarch64  -> 使用 agent-manager_1.0.6_arm.tar.gz
 arm64    -> 使用 agent-manager_1.0.6_arm.tar.gz
 ```
 
-现场需要 Bash、Python 3（仅标准库，无需 pip 安装依赖）、Docker 和支持 `--wait-timeout` 的 Compose。
+现场需要 Bash、Python 3（仅标准库，无需 pip 安装依赖）、Docker 和支持健康等待、JSON 配置输出及当前编排格式的 Compose。
 确认命令可用，当前用户有 Docker 访问权限：
 
 ```bash
 python3 --version
 docker --version
 docker compose version
+# 使用独立命令的环境：docker-compose version
 ```
 
 如果现场没有 Docker，先按客户环境使用安装包内的 Docker 安装程序完成安装，再确认上述命令可运行。
+
+启动和升级会自动检查 Docker 服务是否可访问，优先使用 `docker compose`；插件不可用或功能不足时，
+尝试独立命令 `docker-compose`。选中的命令用于后续配置检查、密钥初始化、启动、重建和健康检查。
+两种命令都必须支持 `up --wait --wait-timeout`、`config --format json` 和包内 Compose 配置，
+包括 `env_file.required`；旧版 Python Compose v1 不满足要求，需更新 Compose。
+
+检查失败时会停止操作并明确提示：
+
+| 提示 | 处理方式 |
+| --- | --- |
+| Docker 未安装或未加入 PATH | 安装包内的 Docker 安装程序完成安装后，确认 `docker --version` 可运行 |
+| 无法连接 Docker 服务 | 先核对 `docker context show` 和 `DOCKER_HOST`；本机 systemd 环境检查 `systemctl status docker`，确认需要后运行 `sudo systemctl start docker`；rootless 使用 `systemctl --user status docker` |
+| 当前用户无权访问 Docker | 使用有权限的账号，或请管理员配置 Docker 用户组后重新登录；rootless 检查当前用户的 socket/context |
+| 两种 Compose 命令均不可用 | 安装 Compose 插件或独立程序，确认对应的 `version` 命令可运行 |
+| Compose 版本不兼容或配置无法解析 | 更新 Compose，并检查 `.env` 和 `docker-compose.yaml` 的格式 |
+| 检查超时或其他连接错误 | 运行 `docker info` 排查 context、远端地址、TLS 和认证配置 |
+
+脚本不会自动安装 Docker、启动系统服务或修改用户权限。文档中的手动 `docker compose` 命令，
+在独立命令环境下替换为 `docker-compose`。
 
 ## 解压并启动
 
@@ -76,6 +96,18 @@ tar -xzf agent-manager_1.0.6_x86.tar.gz
 cd agent-manager
 ./start.sh
 ```
+
+首次启动默认监听宿主机 80 端口。需要自定义端口时：
+
+```bash
+./start.sh --port 8088
+# 访问 http://<服务器IP>:8088
+```
+
+`--port` 接受 1–65535，保存为安装目录 `.env` 中的 `HTTP_PORT`。
+以后不带 `--port` 启动，以及运行 `upgrade.sh`，都会沿用这个端口；再次指定可更改端口。
+脚本以安装目录 `.env` 为端口配置来源，其他配置项和凭据保持原样。
+请确保所选端口可用。Sandbox 的本机端口仍为 `127.0.0.1:8194`。
 
 脚本自动加载包内 `.tar.xz` 镜像、核对 Docker 和镜像架构、在缺少 `.env` 时复制配置模板，
 初始化缺失的签名密钥（已有密钥继续使用），然后启动服务。启动过程中禁止在线拉取和现场构建。
@@ -119,6 +151,10 @@ cp .env.example .env
 2. 在 `backups/时间-随机后缀/` 中备份旧 Compose、Nginx 配置、部署脚本、版本信息、配置模板、部署文档、客户端发布目录及现有 `.env`。
 3. 加载并验证新镜像，然后覆盖本次部署文件、更新客户端发布文件；现场 `.env` 保持不变，旧版本镜像归档保留。
 4. 在原安装目录重建容器，保留 Docker 命名卷，等待健康检查并检查 Nginx 首页。
+
+升级保留 `.env` 中的 `HTTP_PORT`，新 Compose 使用该端口，因此无需在升级时重新指定。
+客户端安装程序和更新文件随包放在 `scanner/releases/`，升级时备份并更新该目录，
+由后端通过只读挂载提供下载；自定义端口后从同一管理台地址下载客户端即可。
 
 可追加 `--wait-timeout 600` 延长等待。脚本不会执行 `docker compose down -v`。
 部署文件备份**不包含数据库、签名密钥和数据卷内容**；生产升级前应单独完成业务数据备份。
