@@ -1101,11 +1101,17 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#aidr-host-status>section:nth-of-type(1)>div:nth-of-type(2)>button:nth-of-type(3)",
     "nodeIndex": 0,
+    "key": "ui.aidrDesktop.remove_native_plugin",
+    "source": "移除 Hook 插件"
+  },
+  {
+    "selector": "#aidr-host-status>section:nth-of-type(1)>div:nth-of-type(2)>button:nth-of-type(4)",
+    "nodeIndex": 0,
     "key": "ui.aidrDesktop.authorize_claude",
     "source": "授权 Claude 受管安装"
   },
   {
-    "selector": "#aidr-host-status>section:nth-of-type(1)>div:nth-of-type(2)>button:nth-of-type(4)",
+    "selector": "#aidr-host-status>section:nth-of-type(1)>div:nth-of-type(2)>button:nth-of-type(5)",
     "nodeIndex": 0,
     "key": "ui.aidrDesktop.remove_managed_claude",
     "source": "移除 Claude 自有受管配置"
@@ -1125,11 +1131,17 @@ window.clientStaticI18nBindings = [
   {
     "selector": "#aidr-host-status>section:nth-of-type(2)>div:nth-of-type(2)>button:nth-of-type(3)",
     "nodeIndex": 0,
+    "key": "ui.aidrDesktop.remove_native_plugin",
+    "source": "移除 Hook 插件"
+  },
+  {
+    "selector": "#aidr-host-status>section:nth-of-type(2)>div:nth-of-type(2)>button:nth-of-type(4)",
+    "nodeIndex": 0,
     "key": "ui.aidrDesktop.authorize_codex",
     "source": "授权 Codex 受管安装"
   },
   {
-    "selector": "#aidr-host-status>section:nth-of-type(2)>div:nth-of-type(2)>button:nth-of-type(4)",
+    "selector": "#aidr-host-status>section:nth-of-type(2)>div:nth-of-type(2)>button:nth-of-type(5)",
     "nodeIndex": 0,
     "key": "ui.aidrDesktop.remove_managed_codex",
     "source": "移除 Codex 自有受管配置"
@@ -1201,16 +1213,16 @@ window.clientStaticI18nBindings = [
     "source": "客户端更新"
   },
   {
-    "selector": "#aidr-system-collection>div:nth-of-type(1)>aside:nth-of-type(1)>h2:nth-of-type(1)",
+    "selector": "#aidr-system-collection>div:nth-of-type(1)>section:nth-of-type(1)>header:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
     "nodeIndex": 0,
-    "key": "ui.governanceDesign.control",
-    "source": "采集控制"
+    "key": "ui.systemTargets.title",
+    "source": "选择要采集的 Agent"
   },
   {
-    "selector": "#system-collection-start",
+    "selector": "#system-targets-discover",
     "nodeIndex": 0,
-    "key": "ui.systemCollection.start",
-    "source": "开始采集"
+    "key": "ui.systemTargets.rediscover",
+    "source": "重新发现"
   },
   {
     "selector": "#system-collection-stop",
@@ -1219,25 +1231,49 @@ window.clientStaticI18nBindings = [
     "source": "停止采集"
   },
   {
-    "selector": "#aidr-system-collection>div:nth-of-type(1)>aside:nth-of-type(1)>details:nth-of-type(1)>summary:nth-of-type(1)",
+    "selector": "#aidr-system-collection>div:nth-of-type(1)>section:nth-of-type(1)>details:nth-of-type(1)>summary:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.systemTargets.add",
+    "source": "添加自定义程序"
+  },
+  {
+    "selector": "#aidr-system-collection>div:nth-of-type(1)>section:nth-of-type(1)>details:nth-of-type(1)>label:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.systemTargets.path",
+    "source": "程序完整路径"
+  },
+  {
+    "selector": "#system-targets-add",
+    "nodeIndex": 0,
+    "key": "ui.systemTargets.checkAdd",
+    "source": "检查并添加"
+  },
+  {
+    "selector": "#aidr-system-collection>div:nth-of-type(1)>details:nth-of-type(1)>summary:nth-of-type(1)",
+    "nodeIndex": 0,
+    "key": "ui.systemTargets.diagnostics",
+    "source": "采集状态与诊断"
+  },
+  {
+    "selector": "#aidr-system-collection>div:nth-of-type(1)>details:nth-of-type(1)>div:nth-of-type(1)>aside:nth-of-type(1)>details:nth-of-type(1)>summary:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.governanceDesign.connectionDetails",
     "source": "连接与诊断"
   },
   {
-    "selector": "#aidr-system-collection>div:nth-of-type(1)>aside:nth-of-type(1)>details:nth-of-type(2)>summary:nth-of-type(1)",
+    "selector": "#aidr-system-collection>div:nth-of-type(1)>details:nth-of-type(1)>div:nth-of-type(1)>aside:nth-of-type(1)>details:nth-of-type(2)>summary:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.systemCollection.network.limitations",
     "source": "网络采样范围与限制"
   },
   {
-    "selector": "#aidr-system-collection>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
+    "selector": "#aidr-system-collection>div:nth-of-type(1)>details:nth-of-type(1)>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.systemCollection.recent",
     "source": "最近系统事件"
   },
   {
-    "selector": "#aidr-system-collection>div:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
+    "selector": "#aidr-system-collection>div:nth-of-type(1)>details:nth-of-type(1)>div:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.governanceDesign.recentHint",
     "source": "最近 12 条记录，完整记录见平台“行为审计 → 系统事件”。"
@@ -1279,22 +1315,34 @@ window.clientStaticI18nBindings = [
     "source": "显示组件"
   },
   {
-    "selector": "#aidr-system-collection>div:nth-of-type(1)>div:nth-of-type(1)>details:nth-of-type(2)>summary:nth-of-type(1)",
+    "selector": "#aidr-system-collection>div:nth-of-type(1)>details:nth-of-type(1)>div:nth-of-type(1)>div:nth-of-type(1)>details:nth-of-type(2)>summary:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.aidrDesktop.system_prerequisites",
     "source": "系统采集条件"
   },
   {
-    "selector": "#aidr-system-collection>div:nth-of-type(1)>div:nth-of-type(1)>details:nth-of-type(2)>button:nth-of-type(1)",
+    "selector": "#aidr-system-collection>div:nth-of-type(1)>details:nth-of-type(1)>div:nth-of-type(1)>div:nth-of-type(1)>details:nth-of-type(2)>button:nth-of-type(1)",
     "nodeIndex": 0,
     "key": "ui.aidrDesktop.system_check",
     "source": "检查系统条件"
   },
   {
-    "selector": "#aidr-system-collection>div:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(2)",
+    "selector": "#aidr-system-collection>div:nth-of-type(1)>details:nth-of-type(1)>div:nth-of-type(1)>div:nth-of-type(1)>p:nth-of-type(2)",
     "nodeIndex": 0,
     "key": "ui.systemCollection.retention",
     "source": "停止后保留未确认上传的记录，下次开始时补传。关闭窗口后仍继续采集，请使用“停止采集”结束。"
+  },
+  {
+    "selector": "#system-collection-start",
+    "nodeIndex": 0,
+    "key": "ui.systemCollection.start",
+    "source": "开始采集"
+  },
+  {
+    "selector": "#system-targets-apply",
+    "nodeIndex": 0,
+    "key": "ui.systemTargets.apply",
+    "source": "应用修改"
   },
   {
     "selector": "#settings>div:nth-of-type(1)>div:nth-of-type(1)>h2:nth-of-type(1)",

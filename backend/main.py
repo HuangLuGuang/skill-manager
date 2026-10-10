@@ -110,6 +110,8 @@ async def application_lifespan(_: FastAPI):
     aidr_retention_task = asyncio.create_task(aidr_retention_loop())
     from .aidr_skill_usage import audit_loop
     skill_audit_task = asyncio.create_task(audit_loop())
+    from .aidr_overview import projection_loop
+    overview_task = asyncio.create_task(projection_loop())
     from .services.asset_sync import lifecycle_loop
     asset_task = asyncio.create_task(lifecycle_loop())
     try:
@@ -118,6 +120,7 @@ async def application_lifespan(_: FastAPI):
         retention_task.cancel()
         aidr_retention_task.cancel()
         skill_audit_task.cancel()
+        overview_task.cancel()
         asset_task.cancel()
         with suppress(asyncio.CancelledError):
             await asset_task
@@ -127,6 +130,8 @@ async def application_lifespan(_: FastAPI):
             await aidr_retention_task
         with suppress(asyncio.CancelledError):
             await skill_audit_task
+        with suppress(asyncio.CancelledError):
+            await overview_task
 
 
 app = FastAPI(
@@ -169,6 +174,7 @@ app.include_router(mcp_gateway.admin_router, prefix=f"{settings.API_PREFIX}/v1",
 app.include_router(mcp_gateway.runtime_router)
 app.include_router(clients.router, prefix=settings.API_PREFIX)
 app.include_router(aidr.router, prefix=settings.API_PREFIX)
+app.include_router(aidr.global_tool_router, prefix=settings.API_PREFIX)
 app.include_router(aidr_enforcement.router, prefix=settings.API_PREFIX)
 app.include_router(external_ai_gateways.router, prefix=settings.API_PREFIX)
 app.include_router(external_ai_gateways.runtime_router, prefix=settings.API_PREFIX)
@@ -227,6 +233,10 @@ def ensure_sqlite_schema() -> None:
     Base.metadata.create_all(bind=engine)
     from .aidr_migrations import upgrade_aidr_schema
     upgrade_aidr_schema(engine)
+    from .aidr_tool_policy_scope import initialize_global_policy
+    with SessionLocal() as policy_db:
+        initialize_global_policy(policy_db)
+        policy_db.commit()
     from .iam import initialize as initialize_iam, migrate as migrate_iam
     migrate_iam(engine)
     with SessionLocal() as iam_db:

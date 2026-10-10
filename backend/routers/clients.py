@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Query, Request, Response
 from backend.client_event_delivery import save_delivery
 from backend import client_discovery, client_governance, client_skill_actions, runtime_governance
+from backend.agent_workspace import installation_owns_path
 from backend.model_switch import AGENTS as MODEL_ADAPTERS, validate_options as validate_model_options, validate_parameter_version, contract_for_version, validate_effective_parameters, reported_model_parameters
 from backend.client_task_notifications import task_hub
 from backend.external_ai_gateway import binding_models, ensure_binding
@@ -2465,6 +2466,57 @@ def get_client_inventory(
     row = _client_or_404(db, client_id)
     _ensure_visible(row, current_user)
     return {"client_id": client_id, "agents": _client_response(db, row)["agents"]}
+
+
+@router.get("/{client_id}/agent-workspace")
+def get_agent_workspace(
+    client_id: str, local_agent_id: str = Query(..., min_length=1, max_length=512),
+    before: int = Query(2**63-1, ge=1), limit: int = Query(30, ge=1, le=100),
+    db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    client = _client_or_404(db, client_id)
+    _ensure_visible(client, current_user)
+    local = db.query(models.ClientAgent).filter(models.ClientAgent.client_id == client_id, or_(
+        models.ClientAgent.local_agent_id == local_agent_id,
+        and_(or_(models.ClientAgent.local_agent_id.is_(None), models.ClientAgent.local_agent_id == ''), models.ClientAgent.agent_type == local_agent_id),
+    )).first()
+    if local is None:
+        raise ApiError(404, 'client.agent_not_found', '此安装入口已不在客户端清单中', 'This installation is no longer in the client inventory')
+    classification = client_governance.policy_view(db, client_id)
+    agent = {
+        'local_agent_id': _local_agent_id(local.local_agent_id, local.agent_type), 'agent_type': local.agent_type,
+        'managed_agent_id': local.managed_agent_id, 'version': local.agent_version,
+        'install_path': local.install_path, 'skills_path': local.skills_path,
+        'skill_management_supported': local.skill_management_supported,
+        'capabilities': {**_load(local.capabilities_json, {}), **({'model_config_contract': contract_for_version(local.agent_type, local.agent_version)} if local.agent_type in MODEL_ADAPTERS else {})},
+        'desired_model': local.desired_model, 'applied_model': local.applied_model,
+        'model_config_status': local.model_config_status, 'model_config_error': local.model_config_error,
+        'model_config_updated_at': local.model_config_updated_at,
+    }
+    agent['skills'] = [{
+        'skill_id': skill.skill_id, 'version_id': skill.version_id, 'version_no': skill.version_no,
+        'name': skill.skill_name, 'path': skill.skill_path, 'signature': skill.signature,
+        'status': skill.status, 'governance': _load(skill.governance_json, None),
+    } for skill in db.query(models.ClientSkillInstall).filter_by(client_id=client_id, agent_type=local.agent_type).all()
+      if installation_owns_path(agent, skill.skill_path, client.os)]
+    data = {
+        'client_id': client_id, 'name': client.name, 'os': client.os, 'arch': client.arch,
+        'status': 'online' if client.last_seen_at and datetime.utcnow() - client.last_seen_at <= _CLIENT_ONLINE_WINDOW else 'offline',
+        'classification': classification, 'model_routing': classification['model_routing'], 'agents': [agent],
+        'recovery': [value for record in db.query(models.ClientRecoveryRecord).filter_by(client_id=client_id).all()
+                     if installation_owns_path(agent, (value := _load(record.details_json, {})).get('original_path'), client.os)],
+    }
+    task = models.ClientTask
+    local_id = func.json_extract(task.payload_json, '$.local_agent_id')
+    product = func.json_extract(task.payload_json, '$.agent')
+    rows = db.query(task).filter(task.client_id == client_id, task.id < before, or_(
+        local_id == local_agent_id,
+        and_(task.task_type == 'aidr_plugin_action', product == agent['agent_type']),
+    )).order_by(task.id.desc()).limit(limit + 1).all()
+    data['tasks'] = _task_history(db, client_id, rows=rows[:limit])
+    data['tasks_has_more'] = len(rows) > limit
+    data['tasks_next_before'] = rows[limit - 1].id if len(rows) > limit else None
+    return data
 
 
 @router.put("/{client_id}/policy")

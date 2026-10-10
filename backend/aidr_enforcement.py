@@ -9,7 +9,7 @@ from pathlib import PurePosixPath
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import Column, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Column, ForeignKey, Index, Integer, String, Text, UniqueConstraint, literal_column
 
 from .sqlite_db import Base
 from .api_errors import ApiError
@@ -39,6 +39,23 @@ class AidrRuntimeRecord(Base):
     received_at = Column(String(32), nullable=False)
     content_hash = Column(String(64), nullable=True)
     expired_at = Column(String(32), nullable=True)
+
+
+# Fixed literal paths let SQLite match these expressions in both DDL and queries.
+RUNTIME_ROOT_PATH = literal_column("json_extract(payload_json, '$.root_path')")
+RUNTIME_PROCESS_FIELDS = {
+    path: literal_column(f"json_extract(payload_json, '$.{path}')")
+    for path in ('boot_id', 'process.pid', 'process.pidversion', 'process.start_us')
+}
+RUNTIME_QUERY_INDEXES = (
+    Index('ix_aidr_runtime_page', AidrRuntimeRecord.client_id, AidrRuntimeRecord.expired_at,
+          AidrRuntimeRecord.id),
+    Index('ix_aidr_runtime_agent_roots', AidrRuntimeRecord.client_id, AidrRuntimeRecord.expired_at,
+          RUNTIME_ROOT_PATH, AidrRuntimeRecord.id, AidrRuntimeRecord.kind),
+    Index('ix_aidr_runtime_instance_sequence', AidrRuntimeRecord.client_id, AidrRuntimeRecord.monitor_id,
+          AidrRuntimeRecord.expired_at, *RUNTIME_PROCESS_FIELDS.values(),
+          literal_column('length(sequence)'), AidrRuntimeRecord.sequence),
+)
 
 
 class AidrResponseCommand(Base):

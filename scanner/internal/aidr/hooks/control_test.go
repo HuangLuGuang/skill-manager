@@ -58,14 +58,14 @@ func TestSignedToolPolicyCacheConflictAndExplanation(t *testing.T) {
 	if d.Decision != "deny" || d.Rule != "deny" || d.Revision != "2" {
 		t.Fatal("cached policy lost")
 	}
-	if d = s.EvaluateTool(event, now.Add(2*time.Hour)); d.Decision != "deny" || d.Code != "aidr_hook_policy_expired" {
-		t.Fatal("expired policy allowed")
+	if d = s.EvaluateTool(event, now.Add(2*time.Hour)); d.Decision != "deny" || d.Code != "aidr_hook_rule_deny" {
+		t.Fatal("cached policy stopped applying after its legacy lease")
 	}
 	if err := s.SetControlMode("audit"); err != nil {
 		t.Fatal(err)
 	}
 	if d = s.EvaluateTool(event, now.Add(2*time.Hour)); d.Decision != "allow" || s.BridgeControlMode() != "audit" {
-		t.Fatal("audit mode enforced an expired deny policy", d)
+		t.Fatal("audit mode enforced a deny policy", d)
 	}
 	if len(s.ControlKey()) != 65 {
 		t.Fatal("audit mode removed signature trust")
@@ -80,5 +80,36 @@ func TestSignedToolPolicyCacheConflictAndExplanation(t *testing.T) {
 	p.Domain = "aidr.tool-grant/1"
 	if s.ApplyToolPolicy(ctx, signGrant(t, key, p), now) == nil {
 		t.Fatal("cross-domain policy accepted")
+	}
+}
+
+func TestPersistentSignedRulesAcrossTimeAndRestart(t *testing.T) {
+	ctx, now := context.Background(), time.Now()
+	dir := storeDirectory(t)
+	s := openTestStore(t, dir, 10)
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	pub := elliptic.Marshal(elliptic.P256(), key.X, key.Y)
+	if err := s.ConfigureControl(ctx, pub); err != nil {
+		t.Fatal(err)
+	}
+	p := ToolPolicy{Schema: 2, Domain: "aidr.tool-policy/2", Device: "device-a", Revision: "1", Issued: fmt.Sprint(now.Unix()), Default: "allow", Rules: []ToolRule{}}
+	if err := s.ApplyToolPolicy(ctx, signGrant(t, key, p), now); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s = openTestStore(t, dir, 10)
+	defer s.Close()
+	if err := s.ConfigureControl(ctx, pub); err != nil {
+		t.Fatal(err)
+	}
+	if d := s.EvaluateTool(Event{Agent: "codex", Tool: "Bash"}, now.AddDate(5, 0, 0)); d.Code != "aidr_hook_rule_allow" {
+		t.Fatal(d)
+	}
+	p.Revision, p.Default = "2", "deny"
+	if err := s.ApplyToolPolicy(ctx, signGrant(t, key, p), now); err != nil {
+		t.Fatal(err)
+	}
+	if d := s.EvaluateTool(Event{}, now.AddDate(5, 0, 0)); d.Code != "aidr_hook_rule_deny" {
+		t.Fatal(d)
 	}
 }

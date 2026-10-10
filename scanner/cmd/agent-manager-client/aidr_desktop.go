@@ -211,6 +211,7 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 	source := fs.String("source-dir", "", "bundled plugin resources")
 	hostBinary := fs.String("host-bin", "", "explicit native executable")
 	hostHome := fs.String("host-config-dir", "", "explicit user host configuration")
+	localOnly := fs.Bool("local-only", false, "inspect local plugin configuration without starting the host")
 	managedTask := fs.Int64("managed-task-id", 0, "claimed platform task identity")
 	resultCode := fs.String("result-code", "", "bounded authorization outcome")
 	policyVersion := fs.String("policy-version", "", "authorization target revision")
@@ -218,6 +219,9 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 		return e
 	}
 	if fs.NArg() != 0 {
+		return errors.New("aidr_desktop_config_invalid")
+	}
+	if *localOnly && *action != "inspect" {
 		return errors.New("aidr_desktop_config_invalid")
 	}
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
@@ -335,15 +339,8 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 				}
 			}
 			status, e = hooks.MergeSettingsHooks(*agent, *home, paths.Binary, paths.Connection, *action == "disconnect")
-			if e == nil && *action == "disconnect" && prefs.Enrollment != nil {
-				hosts := desktopEnrollmentHosts(prefs, cfg, paths)
-				kept := []string{}
-				for _, host := range hosts {
-					if host != *agent {
-						kept = append(kept, host)
-					}
-				}
-				prefs.Enrollment = &desktopHookEnrollment{Server: cfg.Server, Device: paths.Device, Hosts: kept}
+			if e == nil && *action == "disconnect" {
+				clearDesktopHookEnrollment(&prefs, cfg, paths, *agent)
 			}
 			if e == nil && *action != "disconnect" && prefs.ManagedTask == 0 {
 				prefs.Enabled = true
@@ -364,8 +361,8 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 		}
 		return json.NewEncoder(out).Encode(result)
 	}
-	if *action == "disconnect" {
-		return errors.New("aidr_desktop_action_invalid")
+	if *action == "disconnect" && (prefs.AccessMode == "managed" || (prefs.RuntimePolicy != nil && prefs.RuntimePolicy.Target.AccessMode == "managed")) {
+		return errors.New("aidr_desktop_platform_managed")
 	}
 	if (*action == "connect" || *action == "upgrade") && prefs.RuntimePolicy != nil && prefs.RuntimePolicy.Target.AccessMode == "managed" {
 		if *managedTask > 0 {
@@ -395,7 +392,12 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 	}
 	ctx, cancel := context.WithTimeout(parent, time.Minute)
 	defer cancel()
-	status, e := hooks.InspectPlugin(ctx, *agent, host.Binary, host.Home, paths.Socket)
+	var status hooks.PluginStatus
+	if *localOnly {
+		status, e = hooks.InspectLocalPlugin(ctx, *agent, host.Home, paths.Socket)
+	} else {
+		status, e = hooks.InspectPlugin(ctx, *agent, host.Binary, host.Home, paths.Socket)
+	}
 	if e != nil {
 		return e
 	}
@@ -421,17 +423,32 @@ func aidrDesktopContext(parent context.Context, args []string, out io.Writer) er
 					status.SourceCode = stableAIDRCode(e)
 				}
 			}
-			if *agent == "codex" && configured {
+			if *agent == "codex" && configured && !*localOnly {
 				trust = hooks.NativeCodexManagedTrust(ctx, host.Binary, host.Home)
 			}
 		}
-		if mode == "ordinary" && *agent == "codex" && status.Installed != nil && *status.Installed {
+		if mode == "ordinary" && *agent == "codex" && status.Installed != nil && *status.Installed && !*localOnly {
 			trust = hooks.NativeCodexTrust(ctx, host.Binary, host.Home)
 		}
 		result := map[string]any{"host": host, "plugin": status, "hook_trust": trust, "access_mode": mode}
 		if configured, e := hooks.SystemManagedConfigured(*agent); e == nil {
 			result["managed_installed"] = configured
 		}
+		if e = writeDesktopJSON(filepath.Join(paths.Root, "observed-"+*agent+".json"), result); e != nil {
+			return e
+		}
+		return json.NewEncoder(out).Encode(result)
+	}
+	if *action == "disconnect" {
+		status, e = hooks.UninstallPlugin(ctx, *agent, host.Binary, host.Home, paths.Connection)
+		if e != nil {
+			return e
+		}
+		clearDesktopHookEnrollment(&prefs, cfg, paths, *agent)
+		if e = writeDesktopJSON(filepath.Join(paths.Root, "preferences.json"), prefs); e != nil {
+			return e
+		}
+		result := map[string]any{"host": host, "plugin": status, "hook_trust": "unknown", "access_mode": "ordinary", "enabled": prefs.Enabled, "code": "aidr_plugin_not_installed"}
 		if e = writeDesktopJSON(filepath.Join(paths.Root, "observed-"+*agent+".json"), result); e != nil {
 			return e
 		}

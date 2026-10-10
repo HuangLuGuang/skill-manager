@@ -33,7 +33,7 @@
     catalogLocale = window.clientI18n.getLocale()
     catalogTitle.textContent = t('catalog_title'); catalogNote.textContent = t('catalog_note'); catalogRows.replaceChildren()
     let qoderCatalog = null
-    for (const product of products) {
+    for (const product of products.filter(item => item.collection_visible !== false)) {
       const row = document.createElement('section'), title = document.createElement('strong'), info = document.createElement('p'), source = document.createElement('p')
       const entryLabel = t(`entry_${product.entry.replaceAll('-', '_')}`)
       title.textContent = qoderEntries.has(product.id) ? entryLabel : `${product.name} · ${entryLabel}`
@@ -58,6 +58,15 @@
   let collectionCheckedAt = 0
   let renderedSnapshot = ''
   const renderedHosts = new Map()
+  const enrollmentActionState = agent => {
+    const state = window.aidrWorkbench.productState(agent, { snapshot, hosts, collection, collectionError })
+    const product = products.find(item => item.id === agent)
+    if (!state.current || state.installed !== true || (product?.hook_setup?.host_enablement !== false && state.plugin?.enabled === false)) return ''
+    if (state.enabled) return 'enabled'
+    const target = snapshot.policy?.target
+    if (!collectionError && target?.enabled && target.channels?.hooks !== false && target.access_mode === 'ordinary' && target.allow_user_enrollment === true && collection.user_hook_hosts?.includes(agent)) return 'pending'
+    return ''
+  }
   const codeText = code => {
     const key = `ui.aidrDesktop.code.${code}`
     const translated = window.clientI18n.t(key)
@@ -102,10 +111,11 @@
     ].join(' · ')
     document.querySelectorAll('[data-aidr-action]').forEach(button => {
       const action = button.dataset.aidrAction
+      const enrollment = action === 'connect' ? enrollmentActionState(button.dataset.aidrAgent) : ''
       button.setAttribute('aria-busy', String(busy && action === pendingAction && (button.dataset.aidrAgent || '') === pendingAgent))
       if (button.dataset.productAction) button.textContent = t(`product_${action}`)
-      if (action === 'connect') button.textContent = t('product_connect')
-      if (action === 'disconnect') button.hidden = hosts[button.dataset.aidrAgent]?.plugin?.installed !== true
+      if (action === 'connect') button.textContent = t(enrollment === 'enabled' ? 'product_connected' : enrollment === 'pending' ? 'product_pending' : 'product_connect')
+      if (action === 'disconnect') button.hidden = hosts[button.dataset.aidrAgent]?.plugin?.installed !== true || managed
       const plugin = hosts[button.dataset.aidrAgent]?.plugin
       if (action === 'retry') { button.title = t('retry_scope'); button.hidden = !snapshot.retry_suspended }
       if (action === 'upgrade') button.hidden = plugin?.installed !== true
@@ -113,8 +123,9 @@
       if (action === 'disable') button.hidden = snapshot.enabled !== true
       const enrollmentBlocked = action === 'connect' && (!target || target.allow_user_enrollment == null || !target.enabled || target.channels?.hooks === false || (!selfEnrollment && !target.hosts?.includes(button.dataset.aidrAgent)))
       const policyBlocked = enrollmentBlocked || platformManaged && (['enable', 'disable'].includes(action) || (!localInstallation && ['connect', 'upgrade', 'disconnect'].includes(action)))
-      button.disabled = busy || !configured || (action === 'retry-logs' && (collectionError !== '' || collection.channels?.logs?.state !== 'failed')) || policyBlocked || (['connect','upgrade'].includes(action) && !['interface_compatible', 'adapter_available'].includes(plugin?.version_status))
-      if (['connect', 'upgrade', 'disconnect'].includes(action)) button.title = !configured ? codeText('aidr_desktop_not_configured') : policyBlocked ? t('managed_note') : !['interface_compatible', 'adapter_available'].includes(plugin?.version_status) ? t(plugin?.version_status ? 'unsupported' : 'unchecked') : ''
+      button.disabled = busy || !!enrollment || !configured || (action === 'retry-logs' && (collectionError !== '' || collection.channels?.logs?.state !== 'failed')) || policyBlocked || (['connect','upgrade'].includes(action) && !['interface_compatible', 'adapter_available'].includes(plugin?.version_status))
+      if (['connect', 'upgrade', 'disconnect'].includes(action)) button.title = !configured ? codeText('aidr_desktop_not_configured') : policyBlocked ? t('managed_note') : action === 'disconnect' ? t('remove_scope') : !['interface_compatible', 'adapter_available'].includes(plugin?.version_status) ? t(plugin?.version_status ? 'unsupported' : 'unchecked') : ''
+      if (enrollment && !policyBlocked) button.title = t(enrollment === 'enabled' ? 'enrollment_waiting_event' : 'enrollment_pending')
     })
     const channelList = $('aidr-collection-channels'); channelList.replaceChildren()
     for (const kind of ['logs', 'hooks', 'system']) {
@@ -245,8 +256,9 @@
         const selected = target?.hosts?.includes(agent)
         const enrollmentState = !target?.enabled || target?.channels?.hooks === false || (requested && !selfEnrollment && !selected) ? 'enrollment_blocked' : requested && !selected ? 'enrollment_pending' : selected && snapshot.enabled ? 'enrollment_waiting_event' : 'enrollment_not_enabled'
         add(fields, t('enrollment_status'), t(enrollmentState))
-        add(fields, t('installed'), valueText(plugin.installed)); add(fields, t('enabled'), valueText(plugin.enabled))
-        add(fields, t('trust'), data.hook_trust === 'managed' ? t('managed_trust') : data.hook_trust === 'trusted' ? t('trusted') : data.hook_trust === 'needs_review' ? t('needs_review') : t('trust_unknown'))
+        add(fields, t('installed'), valueText(plugin.installed))
+        if (product.hook_setup?.host_enablement !== false) add(fields, t('enabled'), valueText(plugin.enabled))
+        if (product.hook_setup?.host_authorization !== false) add(fields, t('trust'), data.hook_trust === 'managed' ? t('managed_trust') : data.hook_trust === 'trusted' ? t('trusted') : data.hook_trust === 'needs_review' ? t('needs_review') : t('trust_unknown'))
         add(fields, t('checked_at'), plugin.reported_at ? new Date(plugin.reported_at).toLocaleString(window.clientI18n.getLocale()) : t('unknown'))
         const details = document.createElement('details'), heading = document.createElement('summary'), evidence = document.createElement('dl')
         details.className = 'governance-host-details'; evidence.className = 'detail-list'; heading.textContent = t('host_details')
@@ -285,6 +297,7 @@
   }
   const act = async (action, agent = '') => {
     if (busy) return
+    if (action === 'connect' && enrollmentActionState(agent)) return
     if (['connect', 'upgrade'].includes(action) && !['interface_compatible', 'adapter_available'].includes(hosts[agent]?.plugin?.version_status)) return
     statusRevision++; polling = false
     busy = true; pendingAction = action; pendingAgent = agent; error = ''; if (action === 'system-check') { systemError = ''; systemPrerequisites = null }; render()

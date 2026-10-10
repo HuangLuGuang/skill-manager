@@ -3,7 +3,7 @@ import asyncio
 import hashlib
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import PurePosixPath
 
 from sqlalchemy import func
@@ -11,7 +11,7 @@ from sqlalchemy.dialects.sqlite import insert
 from starlette.concurrency import run_in_threadpool
 
 from . import aidr_policy, models
-from .aidr_models import AidrAuditState, AidrEvent, AidrHookEvent, AidrSkillUse
+from .aidr_models import AidrEvent, AidrHookEvent, AidrSkillUse
 from agent_manager.core.signer import compute_content_digest, verify_signature, signature_content_digest, verify_content_digest
 
 
@@ -73,6 +73,11 @@ def merge(db, source, record):
             data['identity_ambiguous'] = True
         else:
             data['skill'] = {**old, **{k:v for k,v in skill.items() if v}}
+            if skill.get('content_status'):
+                for field in ('content_digest', 'content_observed_at', 'content_status', 'content_reason'):
+                    data['skill'].pop(field, None)
+                    if skill.get(field):
+                        data['skill'][field] = skill[field]
     if len(data['evidence']) < 64:
         data['evidence'].append(ref)
     else:
@@ -105,6 +110,7 @@ def merge(db, source, record):
             results = {r['stage'] for r in data['evidence'] if r['kind'] in {'tool.post','tool_result','tool.failure'}}
             data['stage'] = 'unknown' if {'host_confirmed','failed'} <= results else 'failed' if 'failed' in results else 'host_confirmed' if 'host_confirmed' in results else 'unknown' if results else 'attempted'
     row.payload_json = dump(data)
+    row.next_check_at = datetime.utcnow()
 
 
 def certification(db, row, manager):
@@ -115,17 +121,20 @@ def certification(db, row, manager):
               'checked_at':datetime.utcnow().isoformat()+'Z', 'basis':'post_collection_content_observation'}
     if data['identity_ambiguous']:
         return {**result, 'reason':'identity_ambiguous'}
-    if not skill.get('path') or not skill.get('content_digest'):
+    if not skill.get('path'):
         return result
+    if not skill.get('content_digest'):
+        reason = 'content_' + skill['content_reason'] if skill.get('content_reason') else 'content_digest_missing'
+        return {**result, 'reason':reason}
     root = str(PurePosixPath(skill['path']).parent)
     installations = db.query(models.ClientSkillInstall).filter_by(client_id=row.client_id, skill_path=root).all()
     ids = {item.version_id or item.skill_id for item in installations if item.version_id or item.skill_id}
     if manager is None:
         raise RuntimeError('registry_unavailable')
-    entries = manager.list_skills()
     if len(ids) > 1:
         return {**result,'reason':'identity_ambiguous'}
     expected_id = next(iter(ids), None)
+    entries = manager.list_certification_candidates(skill_id=expected_id, name=None if expected_id else skill.get('name'))
     entry = next((e for e in entries if e.skill_id == expected_id), None) if expected_id else None
     if expected_id and entry is None:
         return {**result, 'reason':'registry_reference_missing'}
@@ -137,7 +146,7 @@ def certification(db, row, manager):
     for candidate in candidates:
         digest = signature_content_digest(candidate.signature)
         try:
-            digests[candidate.skill_id] = digest or compute_content_digest(candidate.skill_path)
+            digests[candidate.skill_id] = digest or getattr(manager, 'content_digest', compute_content_digest)(candidate.skill_path)
         except (OSError, ValueError, TypeError):
             unavailable = True
     if not entry:
@@ -162,7 +171,8 @@ def certification(db, row, manager):
     if not result['approved']:
         return {**result,'status':'unapproved','reason':'unapproved'}
     signed_digest = signature_content_digest(entry.signature)
-    verified = verify_content_digest(skill['content_digest'], entry.signature) if signed_digest else bool(entry.signature and verify_signature(entry.skill_path, entry.signature))
+    verified = (getattr(manager, 'verify_digest', verify_content_digest)(skill['content_digest'], entry.signature) if signed_digest
+                else bool(entry.signature and getattr(manager, 'verify_path', verify_signature)(entry.skill_path, entry.signature)))
     if not verified:
         return {**result,'reason':'signature_unverified'}
     # Inventory ownership is usable only for a unique product instance whose
@@ -183,25 +193,26 @@ def certification(db, row, manager):
             'identity_basis':'unique_inventory_skill_root'}
 
 
-def refresh(db, row, manager):
+def refresh(db, row, manager, settings=None):
     original = row.payload_json
     data = json.loads(row.payload_json)
-    settings = aidr_policy.current(db,row.client_id).get('skill_audit', {'enabled':True,'alerts':True})
+    settings = settings if settings is not None else aidr_policy.current(db,row.client_id)['skill_audit']
     try:
         check = certification(db, row, manager) if settings['enabled'] else {'status':'pending','reason':'audit_disabled','checked_at':datetime.utcnow().isoformat()+'Z'}
     except (OSError, ValueError, RuntimeError):
         check = {'status':'pending','reason':'query_failed','checked_at':datetime.utcnow().isoformat()+'Z'}
     data['certification'] = check
+    next_check = datetime.utcnow() + timedelta(seconds=settings['status_refresh_seconds'])
     # A concurrent ingest must not lose new evidence to an older check snapshot.
     changed = db.query(AidrSkillUse).filter_by(id=row.id, payload_json=original).update(
-        {'certification':check['status'], 'payload_json':dump(data)}, synchronize_session=False)
+        {'certification':check['status'], 'payload_json':dump(data), 'next_check_at':next_check}, synchronize_session=False)
     db.expire(row)
     if not changed:
         return {'id':str(row.id),'agent':row.agent,'session_id':row.session_id,**json.loads(row.payload_json)}
-    settings = aidr_policy.current(db,row.client_id).get('skill_audit', {'enabled':True,'alerts':True})
     bad = {'unregistered','unapproved','revoked','content_changed','unauthorized'}
+    rule = 'approval' if check['status'] in {'unregistered', 'unapproved', 'revoked'} else check['status']
     key = hashlib.sha256(('skill-use:' + row.client_id + ':' + row.call_key).encode()).hexdigest()
-    if settings['enabled'] and settings['alerts'] and check['status'] in bad:
+    if settings['enabled'] and settings['alerts'] and check['status'] in bad and settings['alert_rules'].get(rule) == 'alert':
         details = {'active':True,'usage_id':str(row.id),'behavior':row.behavior,'stage':data['stage'],'reason_code':check['reason'],
                    'certification':check,'evidence':data['evidence']}
         key = hashlib.sha256(('skill-use:' + row.client_id + ':' + row.call_key).encode()).hexdigest()
@@ -220,27 +231,32 @@ def refresh(db, row, manager):
 
 
 def registry_manager():
-    from agent_manager.api.router import get_manager
+    from functools import lru_cache
     from types import SimpleNamespace
-    try:
-        # Share one current registry snapshot within this bounded pass only.
-        entries = get_manager().list_skills()
-        return SimpleNamespace(list_skills=lambda: entries)
-    except (OSError, ValueError, RuntimeError):
-        return None
+
+    @lru_cache(maxsize=200)
+    def candidates(*, skill_id=None, name=None):
+        from agent_manager.api.router import get_manager
+        return get_manager().registry.list_certification_candidates(skill_id=skill_id, name=name)
+
+    # Lazy, request-local snapshots: incomplete evidence needs no registry read.
+    # A new request/pass reads current approval and revocation state again.
+    return SimpleNamespace(list_certification_candidates=candidates,
+                           content_digest=lru_cache(maxsize=200)(compute_content_digest),
+                           verify_digest=lru_cache(maxsize=200)(verify_content_digest),
+                           verify_path=lru_cache(maxsize=200)(verify_signature))
 
 
 def maintenance():
     from .sqlite_db import SessionLocal
     with SessionLocal() as db:
         manager = registry_manager()
-        mark = db.get(AidrAuditState,'skill_usage_check')
-        after = mark.value if mark else 0
-        rows = db.query(AidrSkillUse).filter(AidrSkillUse.id > after, AidrSkillUse.expired_at.is_(None)).order_by(AidrSkillUse.id).limit(50).all()
-        for row in rows: refresh(db,row,manager)
-        end = rows[-1].id if rows else 0
-        if mark: mark.value = end
-        else: db.add(AidrAuditState(key='skill_usage_check',value=end))
+        rows = db.query(AidrSkillUse).filter(AidrSkillUse.next_check_at <= datetime.utcnow(), AidrSkillUse.expired_at.is_(None)).order_by(AidrSkillUse.next_check_at, AidrSkillUse.id).limit(50).all()
+        settings = {}
+        for row in rows:
+            if row.client_id not in settings:
+                settings[row.client_id] = aidr_policy.current(db, row.client_id)['skill_audit']
+            refresh(db, row, manager, settings[row.client_id])
         db.commit()
 
 
@@ -250,4 +266,4 @@ async def audit_loop():
             await run_in_threadpool(maintenance)
         except Exception as exc:
             logging.getLogger(__name__).warning('Skill audit unavailable: %s',type(exc).__name__)
-        await asyncio.sleep(10)
+        await asyncio.sleep(1)

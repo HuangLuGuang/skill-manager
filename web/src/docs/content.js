@@ -1,5 +1,6 @@
 import { securityGuides } from './security-guides.js'
 import { integrationGuides } from './integration-guides.js'
+import { aidrGuides, aidrGuideOrder } from './aidr-guides.js'
 
 const zh = {
   groups: [
@@ -526,8 +527,8 @@ const zh = {
       ],
       "image": {
         "name": "client-app-status",
-        "alt": "客户端巡检和定向恢复状态",
-        "caption": "桌面客户端设置页的实际运行诊断入口；处置结果在执行记录中核对。"
+        "alt": "客户端概览 → 运行与同步：后台治理、最近同步和待上报事件。",
+        "caption": "客户端概览 → 运行与同步：后台治理、最近同步和待上报事件。 2026-10-10 直接截取本机 macOS Dev 客户端；所示状态是当时观测值。"
       }
     },
     {
@@ -1530,8 +1531,8 @@ const zh = {
       ],
       "image": {
         "name": "client-app-overview",
-        "alt": "客户端概览：总览、运行与同步、检测策略、扫描能力和客户端信息。",
-        "caption": "客户端概览：总览、运行与同步、检测策略、扫描能力和客户端信息。 截图来自实际桌面客户端。"
+        "alt": "客户端概览：待关注事项与管理范围。",
+        "caption": "客户端概览：待关注事项与管理范围。 2026-10-10 直接截取本机 macOS Dev 客户端；所示状态是当时观测值。"
       }
     },
     {
@@ -1626,14 +1627,10 @@ const zh = {
       "id": "governance-modes",
       "title": "默认策略与单台客户端策略",
       "paragraphs": [
-        "平台“平台默认客户端策略”提供公共规则；客户端详情的“客户端策略”支持 Token 压缩、Prompt 防护与 Skill 分类处置。Prompt 防护默认仅记录，Token 压缩默认关闭；两者均可继承平台默认或为单台客户端覆盖。Skill 规则可逐项继承。默认更新不覆盖客户端显式设置。",
+        "平台“客户端管理 → 客户端策略”提供公共规则；单机设置进入“设备详情 → 策略与审批 → 采集与治理配置”。“模型与请求”设置 Token 压缩和 Prompt 防护，“Skill 处置”设置分类规则。Prompt 防护默认仅记录，Token 压缩默认关闭；两者均可继承平台默认或为单台客户端覆盖。Skill 规则可逐项继承。默认更新不覆盖客户端显式设置。",
         "客户端“检测策略”展示本机已同步的有效规则。Prompt 防护保存后更新模型切换自动创建的有效凭证，新建和轮换凭证继承当前值，网关后续请求立即使用新配置；长轮询同步桌面端配置与版本。LLM 复核开关目前仅保存，尚未执行复核。平台默认值与客户端不同，先核对覆盖项，再检查同步任务。"
       ],
-      "image": {
-        "name": "client-policy",
-        "alt": "客户端策略默认仅记录 Prompt 风险、关闭 Token 压缩；截图使用当前页面与示例数据。",
-        "caption": "客户端策略默认仅记录 Prompt 风险、关闭 Token 压缩；截图使用当前页面与示例数据。"
-      },
+      "image": { "name": "client-app-policy", "alt": "客户端概览 → 检测策略：当前同步的 Skill 处置规则。", "caption": "客户端概览 → 检测策略：当前同步的 Skill 处置规则。 2026-10-10 直接截取本机 macOS Dev 客户端；所示状态是当时观测值。" },
       "table": {
         "columns": [
           "触发情况",
@@ -1716,18 +1713,12 @@ const zh = {
         "点击“预览影响范围”，默认按客户端显示 Agent 数、Skill 数和预计处置汇总；展开客户端查看 Agent，再展开查看 Skill、目录及预估动作。",
         "预览依据平台已收到的内容资料。资料不足时显示暂无法预估，实际动作仍由客户端校验当前内容后决定。需要更准确的预估，可完成一次巡检和上报后重新预览。",
         "保存后查看策略同步任务。策略已应用表示配置已读取并保存，不表示所有 Skill 处置已经完成；实际处置结果要查看事件和执行记录。"
-      ],
-      "image": {
-        "name": "client-policy-preview",
-        "alt": "影响预览展示 Token 压缩与 Prompt 防护的配置变化及自动凭据更新数量；示例数据。",
-        "caption": "影响预览展示 Token 压缩与 Prompt 防护的配置变化及自动凭据更新数量；示例数据。"
-      }
+      ]
     },
     {
       "id": "model-policy-sync",
       "title": "核对模型策略同步",
-      "paragraphs": ["在客户端概览的“检测策略”中核对 Prompt 防护、Token 压缩及同步状态。默认 Prompt 防护为仅记录，Token 压缩关闭。", "管理台保存后，网关后续请求读取更新后的凭据配置；客户端通过长轮询同步展示状态。“等待同步”或“离线缓存”表示本地尚未确认最新配置。"],
-      "image": { "name": "client-app-policy", "alt": "桌面客户端展示仅记录、压缩关闭和已同步状态", "caption": "当前桌面页面使用示例数据，展示 Prompt 防护、Token 压缩及同步状态。" }
+      "paragraphs": ["在客户端概览的“检测策略”中核对 Prompt 防护、Token 压缩及同步状态。默认 Prompt 防护为仅记录，Token 压缩关闭。", "管理台保存后，网关后续请求读取更新后的凭据配置；客户端通过长轮询同步展示状态。“等待同步”或“离线缓存”表示本地尚未确认最新配置。"]
     },
     {
       "id": "continuous-governance",
@@ -1740,8 +1731,8 @@ const zh = {
       ],
       "image": {
         "name": "client-app-status",
-        "alt": "设置 → 后台运行 → 查看运行诊断：手动巡检和后台运行状态。",
-        "caption": "设置 → 后台运行 → 查看运行诊断：手动巡检和后台运行状态。 截图来自实际桌面客户端。"
+        "alt": "客户端概览 → 运行与同步：后台治理、最近同步和待上报事件。",
+        "caption": "客户端概览 → 运行与同步：后台治理、最近同步和待上报事件。 2026-10-10 直接截取本机 macOS Dev 客户端；所示状态是当时观测值。"
       }
     },
     {
@@ -2712,8 +2703,8 @@ const en = {
       ],
       "image": {
         "name": "client-app-status",
-        "alt": "Client inspection and targeted recovery status",
-        "caption": "Actual desktop Client runtime diagnostics in Settings; verify remediation results in Activity Records."
+        "alt": "Client Overview → Runtime & Sync: background governance, last sync and queued events.",
+        "caption": "Client Overview → Runtime & Sync: background governance, last sync and queued events. Captured directly from the installed macOS Dev client on 2026-10-10; displayed states are observations at capture time."
       }
     },
     {
@@ -3163,8 +3154,8 @@ const en = {
       ],
       "image": {
         "name": "client-app-overview",
-        "alt": "Client Overview: Overview, Runtime & Sync, Detection Policy, Scan Capabilities, and Client Information.",
-        "caption": "Client Overview: Overview, Runtime & Sync, Detection Policy, Scan Capabilities, and Client Information. Captured from the actual desktop Client window."
+        "alt": "Client Overview: items needing attention and management scope.",
+        "caption": "Client Overview: items needing attention and management scope. Captured directly from the installed macOS Dev client on 2026-10-10; displayed states are observations at capture time."
       }
     },
     {
@@ -3259,14 +3250,10 @@ const en = {
       "id": "governance-modes",
       "title": "Default and per-client policies",
       "paragraphs": [
-        "Default Client policies provide shared rules. Client policies configure Token compression, Prompt Guard and Skill classification. Prompt Guard defaults to log only and Token compression defaults to off. Both support default inheritance or a per-client override; Skill rules inherit individually. Default updates preserve explicit client overrides.",
+        "Client management → Client policies provides shared rules. For a device, open Client details → Policies and approvals → Collection and governance settings. Model and requests configures Token compression and Prompt Guard; Skill handling configures classification rules. Prompt Guard defaults to log only and Token compression defaults to off. Both support default inheritance or a per-client override; Skill rules inherit individually. Default updates preserve explicit client overrides.",
         "Desktop Scan policies show synchronized rules. Saving Prompt Guard updates active credentials created by model switching; new and rotated credentials inherit the current values. Subsequent gateway requests use the saved configuration, while long polling synchronizes desktop settings and versions. The LLM review flag is stored without executing a review. Check overrides and synchronization tasks when values differ."
       ],
-      "image": {
-        "name": "client-policy",
-        "alt": "Client policies default to log-only Prompt Guard and Token compression off; current UI with example data.",
-        "caption": "Client policies default to log-only Prompt Guard and Token compression off; current UI with example data."
-      },
+      "image": { "name": "client-app-policy", "alt": "Client Overview → Scan policies: synchronized Skill handling rules.", "caption": "Client Overview → Scan policies: synchronized Skill handling rules. Captured directly from the installed macOS Dev client on 2026-10-10; displayed states are observations at capture time." },
       "table": {
         "columns": [
           "Trigger",
@@ -3349,18 +3336,12 @@ const en = {
         "Preview Impact initially shows client-level Agent and Skill counts with estimated actions. Expand the client and then an Agent to inspect individual Skills, paths, and actions.",
         "Estimates use content information already reported to the platform. Insufficient information produces an unavailable estimate; actual handling still depends on client validation. Run an inspection, wait for reporting, and preview again when more evidence is needed.",
         "After saving, inspect the policy-sync task. Policy applied means configuration was retrieved and saved, not that all Skill remediation finished. Review events and activity records for actual remediation."
-      ],
-      "image": {
-        "name": "client-policy-preview",
-        "alt": "Impact preview shows Token compression and Prompt Guard changes and affected automatic credentials; example data.",
-        "caption": "Impact preview shows Token compression and Prompt Guard changes and affected automatic credentials; example data."
-      }
+      ]
     },
     {
       "id": "model-policy-sync",
       "title": "Verify model policy synchronization",
-      "paragraphs": ["Open Scan policies in Client Overview to inspect Prompt Guard, Token compression, and synchronization status. Prompt Guard defaults to log only and compression defaults to off.", "After saving in the console, subsequent gateway requests use the updated credential settings. Long polling synchronizes the desktop display. Pending synchronization or offline cache means the client has not confirmed the latest configuration."],
-      "image": { "name": "client-app-policy", "alt": "Desktop client showing log-only protection, compression off, and a synchronized status", "caption": "Current desktop UI with example data showing Prompt Guard, Token compression, and synchronization status." }
+      "paragraphs": ["Open Scan policies in Client Overview to inspect Prompt Guard, Token compression, and synchronization status. Prompt Guard defaults to log only and compression defaults to off.", "After saving in the console, subsequent gateway requests use the updated credential settings. Long polling synchronizes the desktop display. Pending synchronization or offline cache means the client has not confirmed the latest configuration."]
     },
     {
       "id": "continuous-governance",
@@ -3373,8 +3354,8 @@ const en = {
       ],
       "image": {
         "name": "client-app-status",
-        "alt": "Settings → Background Operation → View Runtime Diagnostics provides immediate inspection and service status.",
-        "caption": "Settings → Background Operation → View Runtime Diagnostics provides immediate inspection and service status. Captured from the actual desktop Client window."
+        "alt": "Client Overview → Runtime & Sync: background governance, last sync and queued events.",
+        "caption": "Client Overview → Runtime & Sync: background governance, last sync and queued events. Captured directly from the installed macOS Dev client on 2026-10-10; displayed states are observations at capture time."
       }
     },
     {
@@ -4007,6 +3988,26 @@ en.articles['skill-policy'] = {
 }
 
 for (const [locale, content] of [['zh-CN', zh], ['en-US', en]]) {
+  Object.assign(content.articles, aidrGuides[locale])
+  const aidrGroup = {
+    title: locale === 'zh-CN' ? '运行审计与防护 · AIDR' : 'Runtime audit and protection · AIDR',
+    items: aidrGuideOrder.map(slug => ({ slug, title: content.articles[slug].title, summary: content.articles[slug].summary })),
+  }
+  const agentGroupIndex = content.groups.findIndex(group => group.items.some(item => item.slug === 'audit-trail'))
+  content.groups.splice(agentGroupIndex + 1, 0, aidrGroup)
+  for (const slug of ['client-management', 'hook-integration', 'audit-trail']) {
+    content.articles[slug].sections.unshift({
+      id: 'aidr-operating-guides',
+      title: locale === 'zh-CN' ? '客户端 AIDR 操作指南' : 'Client AIDR operating guides',
+      paragraphs: [locale === 'zh-CN'
+        ? '客户端运行审计包含 Agent 日志、插件 Hook 和系统事件三条独立通道。平台配置、客户端接入、会话证据、工具审批、Skill 认证和排障请查阅下列专题；自研 Agent 的同步验签示例与客户端后台审计应分别理解。'
+        : 'Client runtime audit has three independent channels: Agent logs, plugin Hooks and system events. Use these guides for platform configuration, client setup, session evidence, tool approvals, Skill certification and troubleshooting. Synchronous verification in custom Agent examples differs from background client audit.'],
+      table: {
+        columns: locale === 'zh-CN' ? ['专题', '内容'] : ['Guide', 'Contents'],
+        rows: aidrGroup.items.map(item => [{ path: `/docs/${item.slug}`, label: item.title }, item.summary]),
+      },
+    })
+  }
   const guides = securityGuides[locale]
   Object.assign(content.articles, guides)
   const group = content.groups.find(group => group.items.some(item => item.slug === 'agent-security-runtime'))
@@ -4089,6 +4090,7 @@ export const docsArticleOrder = [
   'security-operations',
   'runtime-trace-guide',
   'audit-trail',
+  ...aidrGuideOrder,
   'model-gateway',
   'external-ai-gateway',
   'system-management',

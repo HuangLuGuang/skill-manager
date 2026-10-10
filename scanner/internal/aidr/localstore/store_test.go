@@ -110,6 +110,34 @@ func TestAtomicCheckpointResumeAndPrivacy(t *testing.T) {
 	}
 }
 
+func TestContextRepairProgressStaysLocal(t *testing.T) {
+	src := source(t, lines(1))
+	s := openStore(t, tempDir(t), DefaultLimits())
+	c := collect(t, s, src)
+	r := c.Cursor
+	r.ContextRepair = nil
+	r.QoderLinks = []agentlog.QoderLink{{ID: "native-message", Turn: "native-request-set"}}
+	r.ContextRepairVersion = 1
+	next := c.Cursor
+	next.QoderLinks = r.QoderLinks
+	next.ContextRepair = &r
+	next.ContextRepairVersion = 0
+	next.ModelContext = &agentlog.ModelContext{Model: "example", Source: "codex.turn_context"}
+	next.ModelTurn, next.ModelProvider, next.ModelHeaderRead = "turn", "provider", true
+	updated, err := s.Commit(testContext, c, agentlog.ReadBatch{SchemaVersion: 1, Source: src, Cursor: next, Coverage: c.Coverage})
+	if err != nil || updated.Cursor.ContextRepair == nil {
+		t.Fatal("repair progress not persisted", err)
+	}
+	var coverageID string
+	if err := s.db.QueryRow(`SELECT id FROM coverage_history ORDER BY created_ns DESC LIMIT 1`).Scan(&coverageID); err != nil {
+		t.Fatal(err)
+	}
+	payload := string(coverageJSON(t, s, coverageID))
+	if strings.Contains(payload, "context_repair") || strings.Contains(payload, "model_") || strings.Contains(payload, "qoder_links") {
+		t.Fatal("local repair state leaked to upload contract")
+	}
+}
+
 func TestRepeatedEvidenceAndRotation(t *testing.T) {
 	body := lines(1)
 	src := source(t, body+strings.Replace(body, "01:00:00", "01:00:01", 1))

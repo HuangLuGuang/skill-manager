@@ -23,7 +23,7 @@ func TestApprovalAttemptIdentitySingleDeliveryAndLifecycle(t *testing.T) {
 	if err := s.ConfigureControl(ctx, pub); err != nil {
 		t.Fatal(err)
 	}
-	p := ToolPolicy{Schema: 1, Domain: "aidr.tool-policy/1", Device: "device-a", Revision: "1", Issued: fmt.Sprint(now.Unix()), Expires: fmt.Sprint(now.Add(time.Hour).Unix()), Default: "ask", Rules: []ToolRule{}}
+	p := ToolPolicy{Schema: 2, Domain: "aidr.tool-policy/2", Device: "device-a", Revision: "1", Issued: fmt.Sprint(now.Unix()), Default: "ask", Rules: []ToolRule{}}
 	if err := s.ApplyToolPolicy(ctx, signGrant(t, key, p), now); err != nil {
 		t.Fatal(err)
 	}

@@ -1,11 +1,11 @@
 export const clientGovernanceMessages = {
   'zh-CN': {
-    protection: { configured: '平台配置模式', effective: '客户端已生效模式', refresh: '刷新实际状态', readFailed: '状态读取失败，请重试；以下不代表当前已生效。', unknown: '尚未确认', pending: '等待客户端应用', applied: '已确认应用', upgrade: '客户端需升级后应用模式', disabled: '通道未启用', stopped: '请在客户端启动采集', failed: '应用失败，请查看原因', savedHint: '保存后，以客户端报告确认实际生效状态。' },
+    protection: { retryPolicy: '重新应用当前策略', configured: '平台配置模式', effective: '客户端已生效模式', refresh: '刷新实际状态', readFailed: '状态读取失败，请重试；以下不代表当前已生效。', unknown: '尚未确认', pending: '等待客户端应用', applied: '已确认应用', upgrade: '客户端需升级后应用模式', disabled: '通道未启用', stopped: '请在客户端启动采集', failed: '应用失败，请查看原因', savedHint: '保存后，以客户端报告确认实际生效状态。' },
     errorDetail: '错误详情：{error}',
     counts: { discoveredAgents: '发现的 Agent：{count}', manageableAgents: '可治理 Agent：{count}', sharedSkillSources: '共享 Skill 来源：{count}' },
     runtime: {
       userEnrollment: '允许用户自行接入（默认开启）', userEnrollmentHint: '普通接入下，用户可在客户端一键安装并启用所选产品的 Hook。关闭后仅采集管理员指定产品；关闭 Hook 通道或系统受管模式时不接受自行接入。',
- logSources: '日志采集产品', productHint: '新增产品需要协议 5 客户端。日志与 Hook 分别选择；适配能力不代表本机已收到事件。',
+ logSources: '日志采集产品', qoderEntries: 'Qoder Hook 入口', qoderSharedHook: '共享 Hook 设置', productHint: '新增产品需要协议 5 客户端。日志与 Hook 分别选择；适配能力不代表本机已收到事件。',
       mode_hooks: 'Hook 模式', mode_system: '系统防护模式', mode_audit: '仅审计', mode_intercept: '拦截', mode_legacy: '保留原有模式', mode_unknown: '未确认',
       mode_hooks_hint: '仅审计记录工具与宿主事件；拦截在工具执行前按规则允许、拒绝或申请审批。',
       mode_system_hint: '仅审计采集进程事件；拦截额外执行已有文件访问规则和进程响应。系统采集启动后自动切换，需要有效的签名策略。',
@@ -91,12 +91,12 @@ export const clientGovernanceMessages = {
     client: '客户端', agent: 'Agent', skill: 'Skill', path: '目录', active: '分类策略已启用', cancel: '关闭',
   },
   'en-US': {
-    protection: { configured: 'Platform configured mode', effective: 'Client effective mode', refresh: 'Refresh actual status', readFailed: 'Could not read status. Retry; the displayed data does not confirm the current mode.', unknown: 'Unconfirmed', pending: 'Waiting for client application', applied: 'Application confirmed', upgrade: 'Update client to apply modes', disabled: 'Channel disabled', stopped: 'Start collection in the desktop client', failed: 'Application failed; review the reason', savedHint: 'After saving, check the client report to confirm application.' },
+    protection: { retryPolicy: 'Reapply current policy', configured: 'Platform configured mode', effective: 'Client effective mode', refresh: 'Refresh actual status', readFailed: 'Could not read status. Retry; the displayed data does not confirm the current mode.', unknown: 'Unconfirmed', pending: 'Waiting for client application', applied: 'Application confirmed', upgrade: 'Update client to apply modes', disabled: 'Channel disabled', stopped: 'Start collection in the desktop client', failed: 'Application failed; review the reason', savedHint: 'After saving, check the client report to confirm application.' },
     errorDetail: 'Error details: {error}',
     counts: { discoveredAgents: 'Agents discovered: {count}', manageableAgents: 'Governable Agents: {count}', sharedSkillSources: 'Shared Skill sources: {count}' },
     runtime: {
       userEnrollment: 'Allow user enrollment (on by default)', userEnrollmentHint: 'In ordinary access mode, users can install and enable Hooks for a chosen product in one click. When off, only administrator-selected products are collected. A disabled Hook channel or managed access mode prevents self-enrollment.',
- logSources: 'Log collection products', productHint: 'New products require client protocol 5. Select logs and Hooks separately; adapter availability does not prove event delivery.',
+ logSources: 'Log collection products', qoderEntries: 'Qoder Hook entries', qoderSharedHook: 'Shared Hook settings', productHint: 'New products require client protocol 5. Select logs and Hooks separately; adapter availability does not prove event delivery.',
       mode_hooks: 'Hook mode', mode_system: 'System protection mode', mode_audit: 'Audit only', mode_intercept: 'Intercept', mode_legacy: 'Keep existing mode', mode_unknown: 'Unconfirmed',
       mode_hooks_hint: 'Audit records tool and host events. Intercept allows, denies or requests approval before tool execution according to rules.',
       mode_system_hint: 'Audit collects process events. Intercept also applies existing file access rules and process responses. A running collector switches automatically and requires valid signed policy.',

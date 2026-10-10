@@ -1,8 +1,16 @@
 <template>
   <section class="collection-status">
-    <header class="collection-heading"><div><h2>{{ tr('title') }}</h2><p>{{ attentionCount ? tr('attention', { count: attentionCount }) : tr('summary') }}</p></div><a-button :loading="loading && !backgroundRefresh" :disabled="loading" @click="load()"><ReloadOutlined /> {{ tr('refresh') }}</a-button></header>
+    <header class="collection-heading"><div><h2>{{ tr('title') }}</h2><p>{{ attentionCount ? tr('channelsNeedCheck', { count: attentionCount }) : tr('summary') }}</p></div><a-button :loading="loading && !backgroundRefresh" :disabled="loading" @click="load()"><ReloadOutlined /> {{ tr('refresh') }}</a-button></header>
     <nav class="collection-channels" :aria-label="tr('title')"><button v-for="item in channels" :key="item.id" :class="{ selected: channel === item.id }" :aria-pressed="channel === item.id" @click="changeChannel(item.id)"><component :is="item.icon" /><span><strong>{{ tr(item.id) }}</strong><small>{{ channelSummary(item.id) }}</small></span></button></nav>
-    <div ref="scrollArea" class="collection-scroll" :aria-busy="selectedPending">
+    <div ref="scrollArea" class="collection-scroll" @scroll.passive="lastScrollAt = Date.now()" tabindex="0" :aria-label="tr('detail')" :aria-busy="selectedPending">
+      <section v-if="issues.length" class="collection-issues" :aria-label="tr('checkHeading')">
+        <strong>{{ tr('checkHeading') }}</strong>
+        <button v-for="issue in issues" :key="issue.channel" @click="changeChannel(issue.channel, issue.sourceId)">
+          <span>{{ tr(issue.channel) }} · {{ label(issue.state) }}</span><RightOutlined />
+          <small>{{ tr('updated') }}：{{ stamp(issue.observed) }}</small>
+          <p>{{ issue.hint }}</p>
+        </button>
+      </section>
       <a-alert v-if="errors.length" type="warning" show-icon :message="tr('partialRead')" />
       <div v-if="!selectedReady" class="collection-loading" role="status"><LoadingOutlined spin /><strong>{{ tr('loading') }}</strong><p>{{ tr('loadingHint') }}</p><a-skeleton active :paragraph="{ rows: 4 }" /></div>
       <div v-else-if="selectedPending && !backgroundRefresh" class="collection-refreshing" role="status"><LoadingOutlined spin />{{ tr('refreshing') }}</div>
@@ -20,6 +28,7 @@
           <header><span class="source-icon"><component v-if="channel === 'system'" :is="selected.id === 'network' ? ApiOutlined : DesktopOutlined" /><AgentProductLogo v-else :product-id="selected.id" /></span><div><h3>{{ selectedGroup?.name }} · {{ label(selected.state) }}</h3><small v-if="selected.entry">{{ entryLabel(selected.entry) }}</small><p>{{ description }}</p></div></header>
           <div class="inspector-body">
             <div v-if="logReasons.length" class="log-reasons"><h4>{{ tr('logReasons') }}</h4><ul><li v-for="reason in logReasons" :key="reason">{{ tr('logReason.' + reason) }}</li></ul></div>
+            <template v-if="channel === 'logs'"><template v-for="(item, index) in selected.discovery || []" :key="index"><p v-if="item.progress?.historical_missing" class="small-note">{{ t('clientOverview.historicalMissing', { count: item.progress?.historical_missing }) }} {{ t('clientOverview.historicalBoundary') }}</p><p v-if="item.progress?.unread_missing">{{ t('clientOverview.missingUnread', { count: item.progress?.unread_missing }) }}</p><p v-if="item.progress?.missing_directories">{{ t('clientOverview.missingDirectories', { count: item.progress?.missing_directories }) }}</p></template></template>
             <h4>{{ tr('chain') }}</h4><dl class="evidence-list"><div><dt>{{ tr('updated') }}</dt><dd>{{ stamp(selected.observed) }}</dd></div><div><dt>{{ tr('policyApplied') }}</dt><dd>{{ currentChannel.applied ? tr('policyApplied') : tr('policyPending') }}</dd></div>
               <template v-if="channel === 'logs'"><div><dt>{{ tr('discovery') }}</dt><dd>{{ discoveryLabel }}</dd></div><div><dt>{{ tr('event') }}</dt><dd>{{ selected.arrival ? stamp(selected.arrival) : tr(selected.receiptsReported ? 'noArrival' : 'unknown') }}</dd></div></template>
               <template v-else-if="channel === 'hooks'"><div><dt>{{ tr('installation') }}</dt><dd>{{ connectionLabel('installation', selected.connection?.installation) }}</dd></div><div><dt>{{ tr('authorization') }}</dt><dd>{{ connectionLabel('authorization', selected.connection?.authorization) }}</dd></div><div><dt>{{ tr('event') }}</dt><dd>{{ selected.arrival ? stamp(selected.arrival) : tr('noArrival') }}</dd></div></template>
@@ -47,11 +56,11 @@ import { can } from '../access'
 import products from '../aidr-products.json'
 import AgentProductLogo from './AgentProductLogo.vue'
 import { groupProductEntries, productGroupId } from '../aidr-product-groups'
-const props = defineProps({ clientId: { type: String, required: true } })
+const props = defineProps({ clientId: { type: String, required: true }, fixedAgent: { type: String, default: '' }, initialChannel: { type: String, default: 'logs' } })
 const emit = defineEmits(['policy', 'plugins', 'activity'])
 const { t, te, tm, locale } = useI18n()
 const tr = (key, params) => t('collectionStatus.' + key, params || {})
-const channel = ref('logs'), selectedId = ref(''), runtime = ref(null), logs = ref(null), system = ref(null), errors = ref([]), loading = ref(false), guideOpen = ref(false)
+const channel = ref(props.initialChannel), selectedId = ref(''), runtime = ref(null), logs = ref(null), system = ref(null), errors = ref([]), loading = ref(false), guideOpen = ref(false)
 const backgroundRefresh = ref(false)
 const settled = ref({ runtime: false, logs: false, system: false })
 const pending = ref({ runtime: false, logs: false, system: false })
@@ -59,12 +68,13 @@ const selectedReady = computed(() => settled.value.runtime && (channel.value ===
 const selectedPending = computed(() => pending.value.runtime || (channel.value !== 'hooks' && pending.value[channel.value]))
 const inspector = ref(null), sourcePanel = ref(null), scrollArea = ref(null)
 const channels = [{ id: 'logs', icon: MessageOutlined }, { id: 'hooks', icon: LinkOutlined }, { id: 'system', icon: FileTextOutlined }]
-let generation = 0
+let generation = 0, lastScrollAt = 0
 const clock = ref(Date.now())
 // Read-only refresh runs only while this panel is visible.
 const clockTimer = setInterval(() => {
+ if (document.hidden || !scrollArea.value?.offsetParent || Date.now() - lastScrollAt <= 2000) return
  clock.value = Date.now()
- if (!document.hidden && scrollArea.value?.offsetParent) load(true)
+ load(true)
 }, 5000)
 const parsed = value => value ? Date.parse(/(?:Z|[+-]\d\d:\d\d)$/.test(value) ? value : value + 'Z') : NaN
 const fresh = (value, seconds = 30) => Number.isFinite(parsed(value)) && clock.value - parsed(value) <= seconds * 1000 && clock.value - parsed(value) >= -5000
@@ -73,7 +83,7 @@ const channelData = id => id === 'logs' ? logs.value?.log_channel || runtime.val
 const currentChannel = computed(() => channelData(channel.value))
 const reportFresh = computed(() => !errors.value.includes('runtime') && !errors.value.includes(channel.value) && fresh(currentChannel.value.report?.reported_at))
 const label = value => te('collectionStatus.states.' + value) ? tr('states.' + value) : tr('states.unknown')
-const warningStates = new Set(['failed','stopped','disabled','unsupported','source_partial','source_missing','source_unavailable','permission_denied','not_installed','review_required','admin_required','cancelled','interrupted','host_missing','partial','transport_offline','read_failed','disable_not_applied','mode_upgrade_required','product_upgrade_required'])
+const warningStates = new Set(['stale','unreported','unknown','failed','stopped','disabled','unsupported','source_partial','source_missing','source_unavailable','permission_denied','not_installed','review_required','admin_required','cancelled','interrupted','host_missing','partial','transport_offline','read_failed','disable_not_applied','mode_upgrade_required','product_upgrade_required'])
 const tone = state => state === 'received' ? 'good' : warningStates.has(state) ? 'warning' : 'neutral'
 function baseState(id) {
  if (errors.value.includes(id) || errors.value.includes('runtime')) return 'read_failed'
@@ -88,7 +98,7 @@ const requested = id => id === 'logs' ? runtime.value?.target?.log_sources || ['
 function productRows(id) {
  const data = channelData(id), base = baseState(id)
  if (!runtime.value || data.target_enabled === false) return []
- return products.filter(p => p[id] && requested(id).includes(p.id)).map(product => {
+ return products.filter(p => p[id] && (!props.fixedAgent || p.id === props.fixedAgent) && requested(id).includes(p.id)).map(product => {
   let state = base
   const discovery = (logs.value?.health?.discovery || []).filter(d => d.agent === product.id)
   const receipts = (logs.value?.product_receipts || []).filter(r => r.agent === product.id && fresh(r.last_received_at, 900))
@@ -135,7 +145,7 @@ function systemRows() {
 }
 const rows = computed(() => channel.value === 'system' ? systemRows() : productRows(channel.value))
 const entryLabel = entry => t(`agentRuntimeGovernance.catalog.entries.${entry}`)
-const inactiveEntries = computed(() => runtime.value?.target_configured && currentChannel.value.target_enabled != null ? products.filter(p => p[channel.value] && (currentChannel.value.target_enabled === false || !requested(channel.value).includes(p.id))) : [])
+const inactiveEntries = computed(() => runtime.value?.target_configured && currentChannel.value.target_enabled != null ? products.filter(p => (!props.fixedAgent || p.id === props.fixedAgent) && p.collection_visible !== false && p[channel.value] && (currentChannel.value.target_enabled === false || !requested(channel.value).includes(p.id))) : [])
 const sourceGroups = computed(() => groupProductEntries(rows.value).map(group => ({
  ...group,
  entries: [...group.entries, ...inactiveEntries.value.filter(p => productGroupId(p.id) === group.id).map(product => ({ ...product, product, state: 'not_requested' }))],
@@ -145,7 +155,16 @@ const selected = computed(() => selectableRows.value.find(row => row.id === sele
 const selectedGroup = computed(() => sourceGroups.value.find(group => group.entries.some(row => row.id === selected.value?.id)))
 watch(selectableRows, value => { if (!value.some(row => row.id === selectedId.value)) selectedId.value = value[0]?.id || '' })
 const disabledProducts = computed(() => groupProductEntries(inactiveEntries.value).filter(group => !sourceGroups.value.some(active => active.id === group.id)))
-const attentionCount = computed(() => rows.value.filter(row => warningStates.has(row.state)).length)
+const issues = computed(() => channels.flatMap(({ id }) => {
+ if (!settled.value.runtime || (id !== 'hooks' && !settled.value[id])) return []
+ const candidates = id === 'system' ? systemRows() : productRows(id)
+ const problem = candidates.find(row => warningStates.has(row.state))
+ const state = problem?.state || baseState(id)
+ if (!warningStates.has(state)) return []
+ return [{ channel: id, sourceId: problem?.id || '', state, observed: channelData(id).report?.reported_at,
+  hint: state === 'stale' ? tr(id === 'system' ? 'systemStaleNote' : 'staleNote') : ['unknown', 'unreported', 'read_failed'].includes(state) ? tr('reportProblem') : state === 'transport_offline' ? tr('checkUpload') : tr(id === 'logs' ? 'logProblem' : id === 'hooks' ? 'hookProblem' : 'checkSystem') }]
+}))
+const attentionCount = computed(() => issues.value.length)
 const discoveryLabel = computed(() => selected.value?.discovery?.length ? selected.value.discovery.map(d => d.status === 'partial' ? label(['source_missing', 'source_scanning'].includes(selected.value.state) ? selected.value.state : 'source_partial') : t('aidr.' + (d.status === 'complete' ? 'complete' : 'unavailable'))).join(' · ') : tr('unknown'))
 const logReasonKinds = {
  aidr_log_source_missing: 'missing', aidr_log_permission_denied: 'permission',
@@ -166,14 +185,14 @@ const guidance = computed(() => {
  if (['stale','unreported','unknown','read_failed'].includes(state)) return tr('checkReport')
  return tr(channel.value === 'logs' ? 'checkLog' : channel.value === 'hooks' ? 'checkHook' : 'checkSystem')
 })
-const description = computed(() => selected.value?.state === 'stale' ? tr('staleNote') : selected.value?.state === 'source_scanning' ? tr('logScanning') : tone(selected.value?.state) === 'warning' ? tr(channel.value === 'logs' ? 'logProblem' : channel.value === 'hooks' ? 'hookProblem' : 'checkSystem') : tr('receiptNote'))
+const description = computed(() => selected.value?.state === 'stale' ? tr(channel.value === 'system' ? 'systemStaleNote' : 'staleNote') : selected.value?.state === 'source_scanning' ? tr('logScanning') : tone(selected.value?.state) === 'warning' ? tr(channel.value === 'logs' ? 'logProblem' : channel.value === 'hooks' ? 'hookProblem' : 'checkSystem') : tr('receiptNote'))
 const guideSteps = computed(() => tm('collectionStatus.' + (channel.value === 'system' ? 'systemSteps' : 'guideSteps')))
 function channelSummary(id) {
  if (!settled.value.runtime || (id !== 'hooks' && !settled.value[id])) return tr('loading')
  const state = baseState(id)
  return state === 'running' ? tr(id === 'logs' ? 'logHint' : id === 'hooks' ? 'hookHint' : 'systemHint') : label(state)
 }
-function changeChannel(id) { channel.value = id; selectedId.value = ''; if (scrollArea.value) scrollArea.value.scrollTop = 0 }
+function changeChannel(id, sourceId = '') { channel.value = id; selectedId.value = sourceId; if (scrollArea.value) scrollArea.value.scrollTop = 0 }
 async function selectSource(id) { selectedId.value = id; await nextTick(); if (window.matchMedia('(max-width:700px)').matches) inspector.value?.scrollIntoView({ block: 'start' }) }
 function openActivity() { emit('activity', channel.value === 'system' ? 'system' : channel.value === 'hooks' ? 'hooks' : 'tools') }
 async function load(background = false) {
@@ -217,6 +236,10 @@ watch(() => props.clientId, () => {
 onBeforeUnmount(() => { generation++; clearInterval(clockTimer) })
 </script>
 <style scoped>
+.collection-issues { padding:14px 16px; margin-bottom:16px; border:1px solid #edcf90; border-radius:7px; background:#fffaf0; }
+.collection-issues>strong { display:block; margin-bottom:8px; }
+.collection-issues button { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px 12px; width:100%; text-align:left; border:0; border-top:1px solid #f0e4ce; background:none; padding:12px 0; color:#795a28; cursor:pointer; }
+.collection-issues small,.collection-issues p { grid-column:1 / -1; margin:0; font-size:12px; line-height:1.7; }
 .collection-loading { padding: 28px; border: 1px solid #dfe6ef; border-radius: 7px; background: #fff; }
 .collection-loading > .anticon { color: #2860e8; margin-right: 10px; font-size: 20px; }
 .collection-loading > p { color: #718198; margin: 10px 0 24px; }
@@ -232,7 +255,7 @@ onBeforeUnmount(() => { generation++; clearInterval(clockTimer) })
 .disabled-product-name { display: flex; align-items: center; gap: 8px; }
 .disabled-product-logo { display: inline-flex; width: 22px; height: 22px; flex-shrink: 0; }
 .collection-scroll{overflow-anchor:none}
-.collection-status{display:flex;flex-direction:column;flex:1;min-height:0;color:#23334c}.collection-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex:none;margin:12px 0 16px}.collection-heading h2{font-size:22px;margin:0 0 5px}.collection-heading p{margin:0;color:#718198;font-size:13px}.collection-channels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid #dde5f0;border-radius:7px;overflow:hidden;flex:none}.collection-channels button{background:#fff;border:0;border-right:1px solid #dde5f0;padding:16px;display:flex;align-items:center;gap:13px;text-align:left;cursor:pointer;color:inherit;border-bottom:3px solid transparent;min-width:0}.collection-channels button:last-child{border-right:0}.collection-channels button.selected{background:#f5f8ff;border-bottom-color:#2860e8;color:#245ddb}.collection-channels button>.anticon{font-size:25px}.collection-channels strong{font-size:15px}.collection-channels small{display:block;color:#718198;margin-top:6px;font-size:12px}.collection-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;margin-top:16px;padding-bottom:16px;scrollbar-gutter:stable}.collection-grid{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);gap:16px;align-items:start}.source-panel,.source-inspector,.empty-inspector{border:1px solid #dfe6ef;border-radius:7px;min-width:0}.source-panel{padding:20px 16px 3px}.source-panel h3{margin:0;font-size:19px}.muted,.source-hint{color:#718198;font-size:12px;line-height:1.7}.source-hint{margin:8px 0 15px}.source-list{display:flex;flex-direction:column;gap:9px}.source-row{display:flex;align-items:center;gap:12px;border:1px solid #e0e7f0;border-radius:6px;padding:13px 12px;min-height:80px;background:#fff;width:100%;text-align:left;color:inherit;cursor:pointer}.source-row.selected{background:#f5f8ff;border-color:#a9c2f5}.source-row.warning.selected{background:#fffbf1;border-color:#edcf90}.source-icon{display:flex;align-items:center;justify-content:center;background:#f0f4fa;color:#6883ac;border-radius:7px;width:34px;height:34px;flex:none;font-size:22px}.source-name{flex:1;min-width:0}.source-name strong{font-size:15px;display:block;overflow-wrap:anywhere}.source-name small{display:block;margin-top:7px;color:#8592a7;font-size:11px}.source-result{text-align:right;max-width:46%}.source-result strong{font-weight:500;display:flex;gap:6px;align-items:center;font-size:12px}.source-result small{display:block;color:#8794a7;font-size:10px;margin-top:8px}.good .source-result strong{color:#278441}.warning .source-result strong{color:#aa7418}.chevron{font-size:10px;color:#8b9bb2}.upload-summary{display:flex;align-items:center;gap:12px;background:#f5f8fd;border-radius:5px;padding:16px 12px;margin-top:15px}.upload-summary>.anticon{font-size:28px;color:#7190bf}.upload-summary>div{flex:1;min-width:0}.upload-summary strong{display:block;font-size:13px}.upload-summary small{display:block;color:#7e8fa8;margin-top:6px;font-size:11px}.upload-summary :deep(.ant-btn){height:auto;white-space:normal;max-width:130px;font-size:12px;padding:0}.small-note{font-size:11px;color:#7c8ca3;line-height:1.7;margin:9px 0}.disclosure{border-top:1px solid #e2e8f0;margin-top:15px;padding:15px 0}.disclosure summary{cursor:pointer;font-size:13px;color:#536881}.disclosure p{margin:12px 0 7px}.disabled-product{display:flex;justify-content:space-between;gap:12px;padding:8px 0;font-size:13px}.disabled-product small{color:#8391a6}dl{margin:12px 0}dl>div{display:flex;justify-content:space-between;gap:15px;padding:7px 0;font-size:12px}dt{color:#7c8ca2}dd{margin:0;text-align:right;overflow-wrap:anywhere}.source-inspector{overflow:hidden}.source-inspector.warning{border-color:#edcf90}.source-inspector>header{display:flex;align-items:flex-start;gap:12px;background:#f5f8fd;padding:20px 18px;border-bottom:1px solid #e1e8f2}.source-inspector.warning>header{background:#fff9ed;border-color:#f3e5c7}.source-inspector h3{font-size:16px;margin:0;line-height:1.7}.source-inspector header p{margin:7px 0 0;font-size:12px;color:#7f8da2;line-height:1.75}.inspector-body{padding:18px}.inspector-body h4{font-size:14px;margin:0 0 12px}.evidence-list>div{padding:11px 0;border-bottom:1px solid #f0f3f8}.scope-box,.desktop-path{background:#f5f8fd;border-radius:5px;padding:13px;line-height:1.8;font-size:12px;color:#6c819f}.desktop-path{display:flex;align-items:flex-start;gap:9px;color:#2e476c}.desktop-path>.anticon{font-size:20px;margin-top:2px}.next-action{margin-top:20px;border-top:1px solid #e2e8f0;padding-top:17px}.next-action>p{font-size:13px;line-height:1.8;color:#6f8098}.action-buttons{display:flex;flex-wrap:wrap;gap:9px;margin:14px 0 6px}.action-buttons :deep(.ant-btn){height:auto;white-space:normal;padding:7px 12px;font-size:12px}.next-action>:deep(.ant-btn-link){padding-left:0;font-size:12px}.disclosure code{display:block;overflow-wrap:anywhere;margin:8px 0;font-size:11px;color:#6d7e96}.disclosure pre{max-height:280px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f7f9fc;padding:12px;font-size:11px;color:#62748e}.empty-inspector{padding:25px;color:#718198;line-height:1.8}.empty-inspector h3{margin-top:15px}.mobile-back{display:none}.guide-steps{padding-left:22px}.guide-steps li{margin:18px 0;line-height:1.8}.collection-scroll>.ant-alert{margin-bottom:12px}button:focus-visible,summary:focus-visible{outline:2px solid #87aafa;outline-offset:2px}
+.collection-status{display:flex;flex-direction:column;flex:1;min-height:0;color:#23334c}.collection-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex:none;margin:12px 0 16px}.collection-heading h2{font-size:22px;margin:0 0 5px}.collection-heading p{margin:0;color:#718198;font-size:13px}.collection-channels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid #dde5f0;border-radius:7px;overflow:hidden;flex:none}.collection-channels button{background:#fff;border:0;border-right:1px solid #dde5f0;padding:16px;display:flex;align-items:center;gap:13px;text-align:left;cursor:pointer;color:inherit;border-bottom:3px solid transparent;min-width:0}.collection-channels button:last-child{border-right:0}.collection-channels button.selected{background:#f5f8ff;border-bottom-color:#2860e8;color:#245ddb}.collection-channels button>.anticon{font-size:25px}.collection-channels strong{font-size:15px}.collection-channels small{display:block;color:#718198;margin-top:6px;font-size:12px}.collection-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;margin-top:16px;padding-bottom:16px;scrollbar-gutter:stable}.collection-grid{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);gap:16px;align-items:start}.source-panel,.source-inspector,.empty-inspector{border:1px solid #dfe6ef;border-radius:7px;min-width:0}.source-panel{padding:20px 16px 3px}.source-panel h3{margin:0;font-size:19px}.muted,.source-hint{color:#718198;font-size:12px;line-height:1.7}.source-hint{margin:8px 0 15px}.source-list{display:flex;flex-direction:column;gap:9px}.source-row{display:flex;align-items:center;gap:12px;border:1px solid #e0e7f0;border-radius:6px;padding:13px 12px;min-height:80px;background:#fff;width:100%;text-align:left;color:inherit;cursor:pointer}.source-row.selected{background:#f5f8ff;border-color:#a9c2f5}.source-row.warning.selected{background:#fffbf1;border-color:#edcf90}.source-icon{display:flex;align-items:center;justify-content:center;background:#f0f4fa;color:#6883ac;border-radius:7px;width:34px;height:34px;flex:none;font-size:22px}.source-name{flex:1;min-width:0}.source-name strong{font-size:15px;display:block;overflow-wrap:anywhere}.source-name small{display:block;margin-top:7px;color:#8592a7;font-size:11px}.source-result{text-align:right;max-width:46%}.source-result strong{font-weight:500;display:flex;gap:6px;align-items:center;font-size:12px}.source-result small{display:block;color:#8794a7;font-size:10px;margin-top:8px}.good .source-result strong{color:#278441}.warning .source-result strong{color:#aa7418}.chevron{font-size:10px;color:#8b9bb2}.upload-summary{display:flex;align-items:center;gap:12px;background:#f5f8fd;border-radius:5px;padding:16px 12px;margin-top:15px}.upload-summary>.anticon{font-size:28px;color:#7190bf}.upload-summary>div{flex:1;min-width:0}.upload-summary strong{display:block;font-size:13px}.upload-summary small{display:block;color:#7e8fa8;margin-top:6px;font-size:11px}.upload-summary :deep(.ant-btn){height:auto;white-space:normal;max-width:130px;font-size:12px;padding:0}.small-note{font-size:11px;color:#7c8ca3;line-height:1.7;margin:9px 0}.disclosure{border-top:1px solid #e2e8f0;margin-top:15px;padding:15px 0}.disclosure summary{cursor:pointer;font-size:13px;color:#536881}.disclosure p{margin:12px 0 7px}.disabled-product{display:flex;justify-content:space-between;gap:12px;padding:8px 0;font-size:13px}.disabled-product small{color:#8391a6}dl{margin:12px 0}dl>div{display:flex;justify-content:space-between;gap:15px;padding:7px 0;font-size:12px}dt{color:#7c8ca2}dd{margin:0;text-align:right;overflow-wrap:anywhere}.source-inspector{overflow:hidden}.source-inspector.warning{border-color:#edcf90}.source-inspector>header{display:flex;align-items:flex-start;gap:12px;background:#f5f8fd;padding:20px 18px;border-bottom:1px solid #e1e8f2}.source-inspector.warning>header{background:#fff9ed;border-color:#f3e5c7}.source-inspector h3{font-size:16px;margin:0;line-height:1.7}.source-inspector header p{margin:7px 0 0;font-size:12px;color:#7f8da2;line-height:1.75}.inspector-body{padding:18px}.inspector-body h4{font-size:14px;margin:0 0 12px}.evidence-list>div{padding:11px 0;border-bottom:1px solid #f0f3f8}.scope-box,.desktop-path{background:#f5f8fd;border-radius:5px;padding:13px;line-height:1.8;font-size:12px;color:#6c819f}.desktop-path{display:flex;align-items:flex-start;gap:9px;color:#2e476c}.desktop-path>.anticon{font-size:20px;margin-top:2px}.next-action{margin-top:20px;border-top:1px solid #e2e8f0;padding-top:17px}.next-action>p{font-size:13px;line-height:1.8;color:#6f8098}.action-buttons{display:flex;flex-wrap:wrap;gap:9px;margin:14px 0 6px}.action-buttons :deep(.ant-btn){height:auto;white-space:normal;padding:7px 12px;font-size:12px}.next-action>:deep(.ant-btn-link){padding-left:0;font-size:12px}.disclosure code{display:block;overflow-wrap:anywhere;margin:8px 0;font-size:11px;color:#6d7e96}.disclosure pre{max-height:none;overflow:visible;white-space:pre-wrap;overflow-wrap:anywhere;background:#f7f9fc;padding:12px;font-size:11px;color:#62748e}.empty-inspector{padding:25px;color:#718198;line-height:1.8}.empty-inspector h3{margin-top:15px}.mobile-back{display:none}.guide-steps{padding-left:22px}.guide-steps li{margin:18px 0;line-height:1.8}.collection-scroll>.ant-alert{margin-bottom:12px}button:focus-visible,summary:focus-visible{outline:2px solid #87aafa;outline-offset:2px}
 @media(max-width:1050px){.source-row{gap:8px;padding:10px}.source-name strong{font-size:13px}.source-result strong{font-size:11px}.source-icon{width:28px;height:28px;font-size:19px}.collection-channels button{padding:12px;gap:9px}.collection-channels strong{font-size:13px}.collection-channels small{font-size:11px}.upload-summary{flex-wrap:wrap}.upload-summary :deep(.ant-btn){margin-left:40px;max-width:none}}
 @media(max-width:700px){.collection-grid{grid-template-columns:1fr}.collection-heading{margin:8px 0 12px}.collection-heading h2{font-size:19px}.collection-heading p{font-size:11px}.collection-channels button{padding:10px 8px;gap:6px;align-items:flex-start}.collection-channels button>.anticon{font-size:18px}.collection-channels small{font-size:10px}.collection-channels strong{font-size:12px}.collection-scroll{margin-top:12px}.mobile-back{display:block;margin:10px}.source-result{max-width:47%}.source-result small{font-size:10px}.source-result strong{font-size:12px}.source-name strong{font-size:14px}.source-panel{padding:16px 12px 2px}.source-inspector>header,.inspector-body{padding:16px}.upload-summary{flex-wrap:nowrap}.upload-summary :deep(.ant-btn){margin-left:0;max-width:90px}}
 </style>

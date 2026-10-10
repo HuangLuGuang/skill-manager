@@ -9,7 +9,8 @@
       <a-alert v-if="failed" type="error" :message="t(errorCode === 'aidr.content_expired' ? 'aidr.lifecycle.historyExpired' : 'aidr.content.failed')" show-icon />
       <div v-for="(item, index) in contents || []" :key="index" class="audit-content-fragment">
         <p v-if="contents.length > 1 || item.redacted || item.truncated"><strong>{{ fragmentLabel(item, index) }}</strong><span v-if="item.redacted"> · {{ t('aidr.detail.redactedContent') }}</span><span v-if="item.truncated"> · {{ t('aidr.detail.partialContent') }}</span></p>
-        <pre>{{ item.text }}</pre>
+        <AidrMarkdown v-if="['prompt', 'model_response'].includes(item.kind) && !item.source_field?.endsWith('.context')" :text="item.text" :mode="contentMode" />
+        <pre v-else>{{ item.text }}</pre>
         <p v-if="item.truncated" class="audit-content-note">{{ t('aidr.content.truncationSize', { source: item.source_bytes, stored: storedBytes(item.text), fragment: appliedCapture?.max_fragment_bytes ?? 1024, event: appliedCapture?.max_event_bytes ?? 2048 }) }}</p>
       </div>
     </template>
@@ -20,7 +21,8 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { can, pageAllowed } from '../access'
 import { getClientAidrContent } from '../api'
-const props = defineProps({ showHeading: { type: Boolean, default: true }, clientId: { type: String, required: true }, source: { type: String, required: true }, recordId: { type: [String, Number], required: true }, evidence: { type: Object, required: true } })
+import AidrMarkdown from './AidrMarkdown.vue'
+const props = defineProps({ contentMode: { type: String, default: 'source' }, showHeading: { type: Boolean, default: true }, clientId: { type: String, required: true }, source: { type: String, required: true }, recordId: { type: [String, Number], required: true }, evidence: { type: Object, required: true } })
 const { t } = useI18n()
 const busy = ref(false), contents = ref(null), failed = ref(false), errorCode = ref('')
 let generation = 0
@@ -40,6 +42,8 @@ const visible = computed(() => {
 })
 function fragmentLabel(item, index) {
   const field = item.source_field || ''
+  if (item.kind === 'prompt' && field.endsWith('.request')) return t('aidr.sessions.requestFragment')
+  if (item.kind === 'prompt' && field.endsWith('.context')) return t('aidr.sessions.contextFragment')
   const key = field.endsWith('old_string') ? 'aidr.detail.beforeEdit' : field.endsWith('new_string') ? 'aidr.detail.afterEdit' : 'aidr.content.kinds.' + item.kind
   return t(key) + (contents.value?.length > 1 ? ` ${index + 1}` : '')
 }

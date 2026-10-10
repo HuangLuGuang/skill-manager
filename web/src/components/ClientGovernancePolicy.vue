@@ -1,22 +1,25 @@
 <template>
-  <a-modal :open="open" :title="t('clientGovernance.title')" width="820px" :footer="null" :z-index="1010" @cancel="emit('update:open', false)">
+  <a-modal :open="open" :title="t('clientGovernance.title')" width="820px" class="client-governance-modal" :style="{ top: '24px', paddingBottom: 0, margin: '0 auto' }" :closable="!modalBusy" :mask-closable="!modalBusy" :keyboard="!modalBusy" :z-index="1010" @cancel="close">
     <a-tabs v-model:active-key="activeTab">
-      <a-tab-pane v-if="can('clients:view')" key="integration" :tab="t('aidr.policyNavigation.clientIntegration')" :disabled="busy" />
-      <a-tab-pane v-if="can('settings:view')" key="audit" :tab="t('aidr.redactionSettings.title')" :disabled="busy" />
+      <a-tab-pane v-if="can('clients:view')" key="integration" :tab="t('clientPolicy.configure')" :disabled="modalBusy" />
+      <a-tab-pane v-if="can('settings:view')" key="audit" :tab="t('clientPolicy.content')" :disabled="modalBusy" />
     </a-tabs>
-    <AidrRedactionSettings v-if="open && activeTab === 'audit' && can('settings:view')" :key="clientId" :client-id="clientId" />
+    <AidrRedactionSettings v-if="open && activeTab === 'audit' && can('settings:view')" :key="clientId" ref="auditSettings" :client-id="clientId" external-actions />
     <a-spin v-show="activeTab === 'integration'" :spinning="loading">
       <p v-if="!clientId">{{ t('clientGovernance.defaults') }}</p>
       <a-alert v-if="policyError" type="error" show-icon :message="t('clientGovernance.policyLoadFailed')" :description="policyError"><template #action><a-button :disabled="loading" @click="load">{{ t('clientGovernance.retryLoad') }}</a-button></template></a-alert>
       <a-alert v-if="gatewayError" type="warning" show-icon :message="t('clientGovernance.gatewayLoadFailed')" :description="gatewayError"><template #action><a-button :disabled="loading" @click="load">{{ t('clientGovernance.retryLoad') }}</a-button></template></a-alert>
       <template v-if="policy">
-        <ClientProtectionStatus v-if="clientId && open && activeTab === 'integration'" :client-id="clientId" />
-        <a-alert v-if="!impact" type="info" show-icon :message="t('clientGovernance.description')" />
         <a-alert v-if="!editable && !gatewayError && !policyError" type="warning" :message="t(policy.supported ? 'clientGovernance.readonly' : 'clientGovernance.upgrade')" />
         <a-alert v-if="!impact && clientId && policy.advanced_supported === false" type="warning" show-icon :message="t('clientGovernance.capabilityAvailable')" />
         <a-form v-if="!impact" layout="vertical" class="policy-form">
-          <section class="policy-group">
+          <nav class="settings-navigation" :aria-label="t('clientPolicy.navigation')">
+            <button v-for="section in ['runtime', 'models', 'skills']" :key="section" type="button" :aria-pressed="settingsSection === section" @click="settingsSection = section">{{ t(`clientPolicy.${section}`) }}</button>
+          </nav>
+          <p class="settings-description">{{ t(`clientPolicy.${settingsSection}Hint`) }} {{ t('clientPolicy.settingsHint') }}</p>
+          <section v-show="settingsSection === 'runtime'" class="policy-group">
             <header class="group-heading"><h3>{{ t('clientGovernance.runtime.title') }}</h3><p>{{ t('clientGovernance.runtime.description') }}</p></header>
+            <details v-if="clientId && open && activeTab === 'integration'" class="runtime-status"><summary>{{ t('clientPolicy.statusDetails') }}</summary><ClientProtectionStatus :client-id="clientId" /></details>
             <a-checkbox v-if="clientId && policy.runtime_channels_protocol === 3" v-model:checked="inheritRuntime" :disabled="!editable || busy">{{ t('clientGovernance.inherit') }}</a-checkbox>
             <p v-else-if="clientId">{{ t('clientGovernance.runtime.inherited') }}</p>
             <div class="group-rules">
@@ -33,23 +36,36 @@
                 <p class="effective">{{ t(`clientGovernance.runtime.mode_${channel}_hint`) }}</p>
               </a-form-item>
               <a-form-item :label="t('clientGovernance.runtime.logSources')">
-                <a-select :value="runtimeGovernance.log_sources || ['claude', 'codex']" mode="multiple" :disabled="runtimeDisabled" @change="value => runtimeGovernance.log_sources = value"><a-select-option v-for="product in products.filter(p => p.logs)" :key="product.id" :value="product.id">{{ product.name }}</a-select-option></a-select>
+                <a-select :value="selectedProductGroups(runtimeGovernance.log_sources || ['claude', 'codex'])" mode="multiple" :disabled="runtimeDisabled" @change="setLogProducts"><a-select-option v-for="product in logSourceOptions" :key="product.id" :value="product.id">{{ product.name }}</a-select-option></a-select>
                 <p class="effective">{{ t('clientGovernance.runtime.productHint') }}</p>
               </a-form-item>
               <a-form-item :label="t('clientGovernance.runtime.userEnrollment')">
                 <a-switch v-model:checked="runtimeGovernance.allow_user_enrollment" :disabled="runtimeDisabled" />
                 <p class="effective">{{ t('clientGovernance.runtime.userEnrollmentHint') }}</p>
               </a-form-item>
-              <a-form-item :label="t('clientGovernance.runtime.hosts')"><a-select v-model:value="runtimeGovernance.hosts" mode="multiple" :disabled="runtimeDisabled"><a-select-option v-for="product in products.filter(p => p.hooks)" :key="product.id" :value="product.id" :disabled="runtimeGovernance.access_mode === 'managed' && !product.managed">{{ product.name }}</a-select-option></a-select></a-form-item>
+              <a-form-item :label="t('clientGovernance.runtime.hosts')">
+                <a-select :value="selectedProductGroups(runtimeGovernance.hosts)" mode="multiple" :disabled="runtimeDisabled" @change="setHookProducts"><a-select-option v-for="product in hookProductOptions" :key="product.id" :value="product.id" :disabled="!product.entries.some(hookEntryEligible)">{{ product.name }}</a-select-option></a-select>
+                <details v-if="selectedProductGroups(runtimeGovernance.hosts).includes('qoder')" class="effective">
+                  <summary>{{ t('clientGovernance.runtime.qoderEntries') }}</summary>
+                  <a-checkbox-group :value="runtimeGovernance.hosts.filter(id => productGroupId(id) === 'qoder')" :disabled="runtimeDisabled" @change="setQoderHookEntries">
+                    <a-space wrap><a-checkbox v-for="entry in qoderHookEntries" :key="entry.id" :value="entry.id" :aria-label="qoderEntryLabel(entry)" :disabled="!hookEntryEligible(entry)">{{ qoderEntryLabel(entry) }}</a-checkbox></a-space>
+                  </a-checkbox-group>
+                </details>
+              </a-form-item>
+              <details class="runtime-advanced">
+                <summary>{{ t('clientPolicy.advanced') }}</summary><p class="effective">{{ t('clientPolicy.advancedHint') }}</p>
+                <div class="group-rules">
               <a-form-item v-for="field in ['installation', 'access_mode', 'updates']" :key="field" :label="t(`clientGovernance.runtime.${field}`)"><a-select v-model:value="runtimeGovernance[field]" :disabled="runtimeDisabled"><a-select-option v-for="option in runtimeOptions[field]" :key="option" :value="option">{{ t(`clientGovernance.runtime.${field}_${option}`) }}</a-select-option></a-select></a-form-item>
               <a-form-item :label="t('clientGovernance.runtime.retry')"><a-select v-model:value="runtimeGovernance.retry.mode" :disabled="runtimeDisabled"><a-select-option v-for="mode in ['none','fixed','continuous']" :key="mode" :value="mode">{{ t(`clientGovernance.runtime.retry_${mode}`) }}</a-select-option></a-select></a-form-item>
               <a-form-item v-if="runtimeGovernance.retry.mode === 'fixed'" :label="t('clientGovernance.runtime.retryCount')"><a-input-number v-model:value="runtimeGovernance.retry.retries" :min="0" :max="20" :precision="0" :disabled="runtimeDisabled" /></a-form-item>
               <a-form-item v-if="runtimeGovernance.retry.mode !== 'none'" :label="t('clientGovernance.runtime.retryInterval')"><a-input-number v-model:value="runtimeGovernance.retry.max_interval_seconds" :min="10" :max="3600" :precision="0" :disabled="runtimeDisabled" /></a-form-item>
+                </div>
+              </details>
             </div>
             <p class="effective">{{ t('clientGovernance.runtime.pauseHint') }}</p>
             <a-alert v-if="runtimeGovernance.access_mode === 'managed'" type="warning" show-icon :message="t('clientGovernance.runtime.managedHint')" />
           </section>
-          <section class="policy-group">
+          <section v-show="settingsSection === 'models'" class="policy-group">
             <header class="group-heading"><h3>{{ t('clientGovernance.modelRouting.title') }}</h3><p>{{ t('clientGovernance.modelRouting.description') }}</p></header>
             <a-checkbox v-if="clientId" v-model:checked="inheritModelRouting" :disabled="!editable || busy">{{ t('clientGovernance.inherit') }}</a-checkbox>
             <div class="group-rules model-routing-rules">
@@ -69,7 +85,7 @@
             <div class="effective">{{ t('clientGovernance.effective', { action: modelRoutingLabel(policy.model_routing) }) }}</div>
             <a-alert v-if="modelRouting.external_gateway_enabled" class="routing-note" type="warning" show-icon :message="t('clientGovernance.modelRouting.internalCapabilitiesUnavailable')" />
           </section>
-          <section class="policy-group" :class="{ 'policy-group-disabled': modelRouting.external_gateway_enabled }">
+          <section v-show="settingsSection === 'models'" class="policy-group" :class="{ 'policy-group-disabled': modelRouting.external_gateway_enabled }">
             <header class="group-heading"><h3>{{ t('clientGovernance.compression.title') }}</h3><p>{{ t('clientGovernance.compression.description') }}</p></header>
             <a-checkbox v-if="clientId" v-model:checked="inheritCompression" :disabled="!editable || busy || modelRouting.external_gateway_enabled">{{ t('clientGovernance.inherit') }}</a-checkbox>
             <div class="group-rules">
@@ -83,7 +99,7 @@
             <div class="effective">{{ t('clientGovernance.effective', { action: compressionLabel(policy.compression) }) }}</div>
             <div v-if="inheritCompression" class="effective">{{ t('clientGovernance.prompt.defaultValue', { value: compressionLabel(policy.compression_default) }) }}</div>
           </section>
-          <section class="policy-group" :class="{ 'policy-group-disabled': modelRouting.external_gateway_enabled }">
+          <section v-show="settingsSection === 'models'" class="policy-group" :class="{ 'policy-group-disabled': modelRouting.external_gateway_enabled }">
             <header class="group-heading"><h3>{{ t('clientGovernance.prompt.title') }}</h3><p>{{ t('clientGovernance.prompt.description') }}</p></header>
             <a-checkbox v-if="clientId" v-model:checked="inheritPrompt" :disabled="!editable || busy || modelRouting.external_gateway_enabled">{{ t('clientGovernance.inherit') }}</a-checkbox>
             <div class="group-rules">
@@ -97,7 +113,7 @@
             <div class="effective">{{ t('clientGovernance.effective', { action: promptLabel(policy.prompt_guard) }) }}</div>
             <div v-if="inheritPrompt" class="effective">{{ t('clientGovernance.prompt.defaultValue', { value: promptLabel(policy.prompt_guard_default) }) }}</div>
           </section>
-          <section v-for="group in groups" :key="group.key" class="policy-group">
+          <section v-for="group in groups" v-show="settingsSection === 'skills'" :key="group.key" class="policy-group">
             <header class="group-heading">
               <h3>{{ t(`clientGovernance.groups.${group.key}.title`) }}</h3>
               <p>{{ t(`clientGovernance.groups.${group.key}.description`) }}</p>
@@ -180,18 +196,22 @@
             </template>
           </a-table>
         </template>
-        <div class="actions">
-          <a-button v-if="impact" :disabled="busy" @click="impact = null">{{ t('clientGovernance.back') }}</a-button>
-          <a-button :disabled="busy" @click="emit('update:open', false)">{{ t('clientGovernance.cancel') }}</a-button>
-          <a-button type="primary" :loading="busy" :disabled="!editable || busy || !!impact?.incompatible_clients?.length" @click="impact ? save() : preview()">{{ t(impact ? 'clientGovernance.confirm' : 'clientGovernance.preview') }}</a-button>
-        </div>
       </template>
     </a-spin>
+    <template #footer>
+      <div class="actions">
+        <a-button v-if="activeTab === 'integration' && impact" :disabled="modalBusy" @click="impact = null">{{ t('clientGovernance.back') }}</a-button>
+        <a-button :disabled="modalBusy" @click="close">{{ t('clientGovernance.cancel') }}</a-button>
+        <a-button v-if="activeTab === 'integration' && policy" type="primary" :loading="busy" :disabled="!editable || busy || !!impact?.incompatible_clients?.length" @click="impact ? save() : preview()">{{ t(impact ? 'clientGovernance.confirm' : 'clientGovernance.preview') }}</a-button>
+        <a-button v-if="activeTab === 'audit' && auditSettings?.editable" type="primary" :loading="auditSettings.busy" :disabled="!auditSettings.canReview" @click="auditSettings.review()">{{ t('aidr.redactionSettings.save') }}</a-button>
+      </div>
+    </template>
   </a-modal>
 </template>
 
 <script setup>
 import products from '../aidr-products.json'
+import { expandProductSelection, groupProductEntries, productGroupId, selectedProductGroups } from '../aidr-product-groups'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AidrRedactionSettings from './AidrRedactionSettings.vue'
@@ -203,7 +223,11 @@ const props = defineProps({ open: Boolean, clientId: { type: String, default: ''
 const emit = defineEmits(['update:open', 'saved'])
 const { t } = useI18n()
 const activeTab = ref('integration')
+const settingsSection = ref('runtime')
 const policy = ref(null), rules = ref({}), impact = ref(null), loading = ref(false), busy = ref(false)
+const auditSettings = ref(null)
+const modalBusy = computed(() => busy.value || (activeTab.value === 'audit' && (auditSettings.value?.busy || auditSettings.value?.reviewOpen)))
+function close() { if (!modalBusy.value) emit('update:open', false) }
 const promptGuard = ref({ mode: 'log', llm_review: false }), inheritPrompt = ref(false)
 const compression = ref({ enabled: false, level: 'auto' }), inheritCompression = ref(false)
 const gateways = ref([]), policyError = ref(''), gatewayError = ref('')
@@ -212,6 +236,23 @@ const modelRoutingDefault = ref({ external_gateway_enabled: false, external_gate
 const inheritModelRouting = ref(false)
 const runtimeDefaults = () => ({ enabled: true, allow_user_enrollment: true, modes: { hooks: 'audit', system: 'audit' }, channels: { logs: true, hooks: true, system: false }, hosts: ['codex', 'claude'], installation: 'automatic', access_mode: 'ordinary', updates: 'automatic', retry: {mode: 'fixed', retries: 2, max_interval_seconds: 300} })
 const runtimeGovernance = ref(runtimeDefaults())
+// Retain selected legacy sources when editing another policy field.
+const logSourceOptions = computed(() => groupProductEntries(products.filter(product => product.logs && (
+  product.collection_visible !== false || runtimeGovernance.value.log_sources?.includes(product.id)
+))))
+const hookProductOptions = groupProductEntries(products.filter(product => product.hooks))
+const qoderHookEntries = hookProductOptions.find(product => product.id === 'qoder')?.entries || []
+const hookEntryEligible = entry => runtimeGovernance.value.access_mode !== 'managed' || entry.managed
+const qoderEntryLabel = entry => entry.entry === 'shared-settings' ? t('clientGovernance.runtime.qoderSharedHook') : t('agentRuntimeGovernance.catalog.entries.' + entry.entry)
+function setLogProducts(value) {
+  runtimeGovernance.value.log_sources = expandProductSelection(value, runtimeGovernance.value.log_sources || ['claude', 'codex'], logSourceOptions.value)
+}
+function setHookProducts(value) {
+  runtimeGovernance.value.hosts = expandProductSelection(value, runtimeGovernance.value.hosts, hookProductOptions, hookEntryEligible)
+}
+function setQoderHookEntries(value) {
+  runtimeGovernance.value.hosts = [...runtimeGovernance.value.hosts.filter(id => productGroupId(id) !== 'qoder'), ...value]
+}
 function setMode(channel, value) {
   runtimeGovernance.value.modes = { hooks: null, system: null, ...runtimeGovernance.value.modes, [channel]: value === 'legacy' ? null : value }
 }
@@ -369,7 +410,21 @@ async function save() {
 </script>
 
 <style scoped>
-.policy-form { margin-top: 16px; display: grid; gap: 16px; max-height: 62vh; overflow-y: auto; padding: 2px 6px 2px 2px; }
+:global(.client-governance-modal .ant-modal-content) { display: flex; flex-direction: column; max-height: calc(100dvh - 48px); }
+:global(.client-governance-modal .ant-modal-body) { min-height: 0; overflow-y: auto; }
+:global(.client-governance-modal .ant-modal-header),
+:global(.client-governance-modal .ant-modal-footer) { flex-shrink: 0; }
+.policy-form { margin-top: 16px; display: grid; gap: 16px; padding: 2px 6px 2px 2px; }
+.settings-navigation { display: flex; gap: 4px; padding: 4px; background: #f1f4f9; border-radius: 8px; }
+.settings-navigation button { flex: 1; min-width: 0; padding: 10px 12px; border: 0; border-radius: 6px; background: transparent; color: #596b83; font: inherit; cursor: pointer; }
+.settings-navigation button[aria-pressed=true] { background: #fff; color: #285bc4; font-weight: 600; box-shadow: 0 1px 4px #223c6114; }
+.settings-navigation button:focus-visible { outline: 2px solid #3265df; outline-offset: 2px; }
+.settings-description { margin: 0; color: #66768c; font-size: 13px; line-height: 1.6; }
+.runtime-advanced { grid-column: 1 / -1; border-top: 1px solid #e6eaf0; padding-top: 16px; }
+.runtime-advanced summary { cursor: pointer; color: #445971; font-weight: 500; }
+.runtime-advanced .group-rules { padding-top: 12px; }
+.runtime-status { margin-bottom: 16px; }
+.runtime-status summary { cursor: pointer; color: #526987; font-size: 13px; margin-bottom: 10px; }
 .policy-group { border: 1px solid #e6eaf0; border-radius: 8px; padding: 16px; }
 .policy-group-disabled { background: #fafafa; color: #8c8c8c; }
 .policy-group-disabled .group-heading p,
@@ -405,5 +460,5 @@ async function save() {
 .excluded-clients p { margin-bottom: 0; }
 .effective { color: #777; margin-top: 6px; overflow-wrap: anywhere; }
 .routing-note { margin-top: 14px; }
-.actions { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 </style>

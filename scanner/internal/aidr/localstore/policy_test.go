@@ -9,6 +9,25 @@ import (
 	"testing"
 )
 
+func TestModelProtocolNegotiationKeepsCaptureReceipt(t *testing.T) {
+	s := openStore(t, tempDir(t), DefaultLimits())
+	p := agentlog.AuditPolicy{Version: "2", Enabled: true, Receipt: strings.Repeat("a", 32), Capture: &agentlog.CaptureScope{}}
+	if err := s.SavePolicy(testContext, p); err != nil {
+		t.Fatal(err)
+	}
+	p.ModelContextSchema = 1
+	if err := s.SavePolicy(testContext, p); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LoadPolicy(testContext); err != nil || s.Policy().ModelContextSchema != 1 {
+		t.Fatal("negotiation not persisted", err)
+	}
+	p.Enabled = false
+	if err := s.SavePolicy(testContext, p); err == nil {
+		t.Fatal("same receipt accepted changed redaction")
+	}
+}
+
 func TestPolicySwitchFrozenBatchRestartAndRotation(t *testing.T) {
 	dir := tempDir(t)
 	s := openStore(t, dir, DefaultLimits())

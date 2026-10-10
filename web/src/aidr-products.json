@@ -119,6 +119,10 @@
       ".workbuddy/projects"
     ],
     "hooks": "workbuddy-settings",
+    "hook_setup": {
+      "host_authorization": false,
+      "host_enablement": false
+    },
     "block": true,
     "approval": false,
     "evidence": "local-source-and-log-sample",
@@ -196,13 +200,19 @@
     "logs": "",
     "roots": [],
     "hooks": "qoder-settings",
+    "log_entry": "qoder-cli",
+    "hook_setup": {
+      "host_authorization": false,
+      "host_enablement": false
+    },
     "block": true,
     "approval": true,
     "managed": false,
     "evidence": "documented",
     "docs": [
       "https://docs.qoder.com/cli/hooks",
-      "https://docs.qoder.com/extensions/hooks"
+      "https://docs.qoder.com/extensions/hooks",
+      "https://docs.qoder.com/qoder/hooks"
     ],
     "hook_events": {
       "SessionStart": "session.start",
@@ -270,6 +280,7 @@
   {
     "id": "opencode",
     "name": "OpenCode",
+    "collection_visible": false,
     "entry": "cli",
     "os": [
       "darwin"

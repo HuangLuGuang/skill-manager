@@ -37,16 +37,19 @@ func TestOpenCodeSnapshotCompletionRewriteAndResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &AuditPolicy{MessageSchema: 1, Version: "2", Receipt: strings.Repeat("a", 32), Enabled: true, Capture: &CaptureScope{ModelResponse: true}}
+	p := &AuditPolicy{ModelContextSchema: 1, MessageSchema: 1, Version: "2", Receipt: strings.Repeat("a", 32), Enabled: true, Capture: &CaptureScope{ModelResponse: true}}
 	first, err := ReadWithPolicy(context.Background(), s, Cursor{}, DefaultBudget(), time.Unix(0, 0), p)
 	if err != nil || len(first.Events) != 0 || first.Cursor.Offset != 0 || !has(first, "aidr_log_snapshot_pending") {
 		t.Fatal("incomplete snapshot consumed", err)
 	}
-	os.WriteFile(message, []byte(`{"id":"msg_test","sessionID":"ses_test","role":"assistant","finish":"stop","time":{"created":1791340000000,"completed":1791340001000}}`), 0600)
+	os.WriteFile(message, []byte(`{"id":"msg_test","sessionID":"ses_test","role":"assistant","finish":"stop","modelID":"example-model","providerID":"example-provider","time":{"created":1791340000000,"completed":1791340001000}}`), 0600)
 	os.WriteFile(part, []byte(`{"id":"prt_test","sessionID":"ses_test","messageID":"msg_test","type":"text","text":"final"}`), 0600)
 	final, err := ReadWithPolicy(context.Background(), s, first.Cursor, DefaultBudget(), time.Unix(0, 0), p)
 	if err != nil || len(final.Events) != 1 || final.Events[0].Message.Phase != "final" {
 		t.Fatal("completed snapshot missing", err)
+	}
+	if final.Events[0].ModelContext == nil || final.Events[0].ModelContext.Model != "example-model" || final.Events[0].ModelContext.Provider != "example-provider" {
+		t.Fatal("missing snapshot model")
 	}
 	again, err := ReadWithPolicy(context.Background(), s, final.Cursor, DefaultBudget(), time.Unix(0, 0), p)
 	if err != nil || len(again.Events) != 0 {
@@ -77,7 +80,7 @@ func TestLocalProductSamples(t *testing.T) {
 				return err
 			}
 			files++
-			p := &AuditPolicy{MessageSchema: 1, Version: "2", Receipt: strings.Repeat("a", 32), Enabled: true, Capture: &CaptureScope{Prompt: true, ModelResponse: true}}
+			p := &AuditPolicy{ModelContextSchema: 1, MessageSchema: 1, Version: "2", Receipt: strings.Repeat("a", 32), Enabled: true, Capture: &CaptureScope{Prompt: true, ModelResponse: true}}
 			c := Cursor{}
 			for i := 0; i < 1000; i++ {
 				b, err := ReadWithPolicy(context.Background(), s, c, DefaultBudget(), time.Unix(0, 0), p)
@@ -90,6 +93,12 @@ func TestLocalProductSamples(t *testing.T) {
 						return err
 					}
 					counts[e.Kind]++
+					if e.TurnID != "" {
+						counts["with_turn"]++
+					}
+					if e.ModelContext != nil {
+						counts["with_model_context"]++
+					}
 				}
 				if b.Cursor.Offset == c.Offset {
 					if b.Coverage.Status != "complete" && !has(b, "aidr_log_snapshot_pending") {

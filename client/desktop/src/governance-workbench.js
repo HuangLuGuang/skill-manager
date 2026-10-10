@@ -15,8 +15,10 @@
     return img
   }
   const groups = []
-  for (const product of window.aidrProducts || []) {
-    if (!product.logs && !product.hooks && groupId(product.id) !== 'qoder') continue
+  const products = window.aidrProducts || []
+  const linkedLogEntries = new Set(products.map(product => product.log_entry).filter(Boolean))
+  for (const product of products) {
+    if (product.collection_visible === false || (!product.logs && !product.hooks) || linkedLogEntries.has(product.id)) continue
     const id = groupId(product.id)
     let group = groups.find(item => item.id === id)
     if (!group) { group = { id, name: id === 'qoder' ? 'Qoder' : product.name, entries: [] }; groups.push(group) }
@@ -48,12 +50,13 @@
     $('aidr-product-inspector').scrollTop = 0
   }
   function states(product, data) {
+    const logProduct = products.find(entry => entry.id === product.log_entry) || product
     const target = data.snapshot?.policy?.target, host = data.hosts?.[product.id], plugin = host?.plugin
     const policy = data.collection?.runtime_policy
     const logTarget = policy?.target
     const logSources = logTarget?.log_sources ?? ['claude', 'codex']
-    const logs = !product.logs ? 'unsupported' : !logTarget || data.collectionError ? 'unknown'
-      : logTarget.enabled && logTarget.channels?.logs && logSources.includes(product.id) ? 'inPolicy' : 'notEnabled'
+    const logs = !logProduct.logs ? 'unsupported' : !logTarget || data.collectionError ? 'unknown'
+      : logTarget.enabled && logTarget.channels?.logs && logSources.includes(logProduct.id) ? 'inPolicy' : 'notEnabled'
     const stamp = Date.parse(plugin?.reported_at)
     const current = Number.isFinite(stamp) && Date.now() - stamp < 480000 && stamp <= Date.now() + 5000
     const installed = current ? plugin?.installed : null
@@ -61,9 +64,9 @@
     const enabled = target?.enabled && target.channels?.hooks !== false && target.hosts?.includes(product.id) && data.snapshot?.enabled
     const requested = data.collection?.user_hook_hosts?.includes(product.id)
     const hooks = !product.hooks ? 'unsupported' : !host ? 'unchecked' : host.error || !current ? 'unknown'
-      : installed == null ? 'unknown' : !installed ? 'notInstalled' : host.hook_trust === 'needs_review' ? 'needsAuth'
-      : !enabled ? requested ? 'pendingPolicy' : 'notEnabled' : plugin.enabled === false ? 'hostDisabled' : 'configured'
-    return { logs, hooks, installed, trusted, enabled, current, host, plugin }
+      : installed == null ? 'unknown' : !installed ? 'notInstalled' : product.hook_setup?.host_authorization !== false && host.hook_trust === 'needs_review' ? 'needsAuth'
+      : !enabled ? requested ? 'pendingPolicy' : 'notEnabled' : product.hook_setup?.host_enablement !== false && plugin.enabled === false ? 'hostDisabled' : 'configured'
+    return { logs, hooks, installed, trusted, enabled, current, host, plugin, logProduct }
   }
   function render(data) {
     latest = data
@@ -106,16 +109,19 @@
     for (const actions of actionGroups.values()) $('aidr-host-status').append(actions)
     channels.replaceChildren()
     for (const kind of ['logs', 'hooks']) {
-      const card = node('section', 'governance-channel-card'), title = node('h3', '', t(kind)), status = node('strong', `governance-channel-state state-${state[kind]}`, t(state[kind]))
+      const card = node('section', 'governance-channel-card'), title = node('h3', '', t(kind === 'hooks' && product.hooks && product.hooks !== 'native-plugin' ? 'hookConfiguration' : kind)), status = node('strong', `governance-channel-state state-${state[kind]}`, t(state[kind]))
       card.append(title, status)
       if (kind === 'logs') {
-        card.append(node('p', '', t(product.logs ? 'logScope' : 'logUnsupported')))
-        if (product.logs) {
+        card.append(node('p', '', t(state.logProduct.logs ? 'logScope' : 'logUnsupported')))
+        if (state.logProduct.logs) {
           card.append(node('p', 'governance-channel-meta', `${t('sharedLogChannel')} · ${fresh ? hostText(`channel_state_${report.state}`) : t('unknown')}`))
         }
       } else {
         if (product.hooks) card.append(node('p', 'governance-channel-meta', t(product.hooks === 'native-plugin' ? 'nativeName' : 'hookName')))
-        card.append(node('p', '', t(state.hooks === 'needsAuth' ? 'authHint' : product.hooks ? 'hookHint' : 'hookUnsupported')))
+        const configurationOnly = product.hook_setup?.host_authorization === false && product.hook_setup?.host_enablement === false
+        const hint = configurationOnly ? state.hooks === 'configured' ? 'configurationEnabledHint' : 'configurationHint'
+          : state.hooks === 'needsAuth' ? 'authHint' : state.hooks === 'configured' ? 'hookEnabledHint' : product.hooks ? 'hookHint' : 'hookUnsupported'
+        card.append(node('p', '', t(hint)))
         if (actionGroups.has(selected)) card.append(actionGroups.get(selected))
       }
       channels.append(card)
@@ -125,7 +131,11 @@
     if (product.hooks) {
       progress.append(node('h3', '', t('progress')))
       const list = node('ol', 'governance-steps')
-      for (const [label, confirmed] of [['installed', state.installed === true], ['authorized', state.trusted], ['policyEnabled', state.enabled === true], ['delivery', false]]) {
+      const steps = [['installed', state.installed === true]]
+      if (product.hook_setup?.host_authorization !== false) steps.push(['authorized', state.trusted])
+      steps.push(['policyEnabled', state.enabled === true], ['delivery', false])
+      list.style.setProperty('--step-count', steps.length)
+      for (const [label, confirmed] of steps) {
         const item = node('li', confirmed ? 'confirmed' : '')
         item.append(node('span', '', t(label)), node('small', '', t(confirmed ? 'confirmed' : label === 'delivery' ? 'checkPlatform' : 'unconfirmed')))
         list.append(item)
@@ -133,5 +143,5 @@
       progress.append(list)
     }
   }
-  window.aidrWorkbench = { init, render }
+  window.aidrWorkbench = { init, render, productState: (id, data) => states(window.aidrProducts.find(product => product.id === id), data) }
 })()

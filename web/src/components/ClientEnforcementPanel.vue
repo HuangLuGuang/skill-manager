@@ -1,6 +1,10 @@
 <template>
-  <section class="enforcement-panel" :class="{ 'system-event-view': view === 'events', 'control-view': view === 'control' }">
+  <section class="enforcement-panel" :class="{ 'system-event-view': view === 'events', 'control-view': view !== 'events' }">
     <template v-if="view === 'control'">
+      <ClientSystemCollection :client-id="clientId" />
+      <details @toggle="advancedOpen = $event.target.open"><summary>{{ t('systemSelection.advancedRules') }}</summary><ClientEnforcementPanel v-if="advancedOpen" :client-id="clientId" view="advanced" /></details>
+    </template>
+    <template v-if="view === 'advanced'">
     <ClientProtectionStatus :client-id="clientId" channel="system" />
     <p class="control-intro">{{ t('aidr.enforcement.policyIntro') }}</p>
     <a-alert v-if="error" type="error" :message="t('aidr.enforcement.failed')" :description="errorText" />
@@ -33,7 +37,7 @@
       <p v-else>{{ t('aidr.enforcement.setup.unsupportedNext') }}</p>
     </details>
     </template>
-    <details v-if="view === 'control'" open>
+    <details v-if="view === 'advanced'" open>
       <summary>{{ t('aidr.enforcement.config') }}</summary>
       <p>{{ t('aidr.enforcement.runtimeHint') }}</p>
       <a-form layout="vertical" :disabled="!canPublish || saving">
@@ -78,7 +82,7 @@
       <a-alert v-if="error" class="events-alert" type="error" show-icon :message="t('aidr.enforcement.failed')" :description="errorText" />
       <div v-else-if="['failed', 'degraded', 'stale', 'stopped'].includes(status.state)" class="events-notice"><InfoCircleOutlined /><span>{{ tr('historyAvailable') }}</span><a-button type="link" size="small" @click="infoOpen = true">{{ tr('checkStatus') }}</a-button></div>
       <div class="events-filters">
-        <a-select v-model:value="eventAgent" class="event-agent-filter" :aria-label="tr('agentFilter')" :options="agentOptions" @change="resetEvents"><template #option="{ value, label }"><div class="agent-filter-option"><strong>{{ label }}</strong><small v-if="value">{{ value }}</small></div></template></a-select>
+        <a-select v-if="!fixedRoot" v-model:value="eventAgent" class="event-agent-filter" :aria-label="tr('agentFilter')" :options="agentOptions" @change="resetEvents"><template #option="{ value, label }"><div class="agent-filter-option"><strong>{{ label }}</strong><small v-if="value">{{ value }}</small></div></template></a-select>
         <nav class="event-categories" :aria-label="t('aidr.enforcement.kind')"><button v-for="category in eventCategories" :key="category.value" :aria-pressed="eventKind === category.value" :class="{ selected: eventKind === category.value }" @click="setEventKind(category.value)"><component :is="category.icon" aria-hidden="true" />{{ tr(category.label) }}</button></nav>
         <a-select class="extra-event-types" :value="extraKind" :aria-label="tr('moreTypes')" :placeholder="tr('moreTypes')" :options="extraKindOptions" @change="setEventKind" />
         <a-input v-model:value="eventSearch" class="event-search" allow-clear :aria-label="tr('search')" :placeholder="tr('search')"><template #prefix><SearchOutlined /></template></a-input>
@@ -110,7 +114,7 @@
         <a-button @click="infoOpen = false; emit('collection')">{{ tr('checkCollection') }}</a-button>
       </a-modal>
     </template>
-    <details v-if="view === 'control'"><summary>{{ t('aidr.enforcement.commands') }}</summary><div v-for="row in responses" :key="row.id"><code>{{ row.id }}</code> · {{ t(`aidr.enforcement.results.${row.display_state || row.state}`) }} <a-button size="small" @click="selected = row; detailOpen = true">{{ t('aidr.enforcement.detail') }}</a-button></div></details>
+    <details v-if="view === 'advanced'"><summary>{{ t('aidr.enforcement.commands') }}</summary><div v-for="row in responses" :key="row.id"><code>{{ row.id }}</code> · {{ t(`aidr.enforcement.results.${row.display_state || row.state}`) }} <a-button size="small" @click="selected = row; detailOpen = true">{{ t('aidr.enforcement.detail') }}</a-button></div></details>
     <a-modal v-model:open="detailOpen" :title="selected?.record ? eventActivity(selected.record) : t('aidr.enforcement.detail')" :footer="null" width="min(1000px, 94vw)" :body-style="{ maxHeight: '72vh', overflowY: 'auto' }">
       <template v-if="selected?.record">
         <div class="event-detail-heading"><p class="detail-meta">{{ time(selected.record.time_ns) }}<template v-if="selected.record.process?.pid"> · PID {{ selected.record.process.pid }}</template></p><span v-if="eventOutcome(selected.record)" class="event-outcome" :class="outcomeTone(selected.record)">{{ eventOutcome(selected.record) }}</span></div>
@@ -162,13 +166,15 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { CodeOutlined, FileTextOutlined, GlobalOutlined, HeartOutlined, InfoCircleOutlined, ReloadOutlined, RightOutlined, SearchOutlined, SafetyOutlined, SettingOutlined, UnorderedListOutlined } from '@ant-design/icons-vue'
+import ClientSystemCollection from './ClientSystemCollection.vue'
 import ClientProtectionStatus from './ClientProtectionStatus.vue'
 import AidrRulePreview from './AidrRulePreview.vue'
 import { message } from 'ant-design-vue'
 import { can } from '../access'
 import { getEnforcement, publishEnforcement, terminateEnforcement } from '../api'
-const props = defineProps({ clientId: { type: String, required: true }, view: { type: String, default: 'control' } })
+const props = defineProps({ clientId: { type: String, required: true }, view: { type: String, default: 'control' }, fixedRoot: { type: String, default: '' } })
 const emit = defineEmits(['collection'])
+const advancedOpen = ref(false)
 const { t, te, locale } = useI18n()
 const tr = (key, params = {}) => t(`aidr.enforcement.eventsView.${key}`, params)
 const eventSearch = ref(''), infoOpen = ref(false), eventList = ref(null), hasLoaded = ref(false)
@@ -271,6 +277,8 @@ function programLabel(record) {
   return path.includes('/claude/versions/') ? 'claude' : basename(path) || t('aidr.enforcement.unknown')
 }
 function rootLabel(path) {
+  const appName = path.match(/(?:^|\/)([^/]+)\.app\/Contents\//)?.[1]
+  if (appName) return appName === 'Claude' ? 'Claude Code' : appName
   if (basename(path) === 'claude' || path.includes('/claude/versions/')) return 'Claude Code'
   if (basename(path) === 'codex') return 'Codex'
   return basename(path)
@@ -306,14 +314,15 @@ function loadDraft(policy) {
 function loadHistorical() { const row = history.value.find(item => item.revision === historyRevision.value); if (row) loadDraft(row.policy) }
 function failure(err) { error.value = err.response?.data?.error_code || err.response?.data?.detail?.error_code || 'aidr_enforcement_request_failed' }
 async function refresh(options = {}) {
+  if (props.view === 'control') return
   if (loading.value) { refreshQueued = true; reloadDraftQueued ||= !!options.reloadDraft; return }
   const g = generation, id = props.clientId
   loading.value = true
   try {
     const queryKind = eventKind.value, queryBefore = before.value, queryProbes = includeProbes.value, queryAgent = eventAgent.value
     const resources = props.view === 'events' ? ['status', 'records'] : ['status', 'policy', 'history', 'responses']
-    if (props.view === 'events' && (!agentsLoaded.value || options.reloadAgents)) resources.push('record-agents')
-    const data = Object.fromEntries(await Promise.all(resources.map(async resource => [resource, await getEnforcement(id, resource, resource === 'records' ? { before: queryBefore, kind: queryKind, include_probes: queryProbes, root_path: queryAgent } : undefined)])))
+    if (props.view === 'events' && !props.fixedRoot && (!agentsLoaded.value || options.reloadAgents)) resources.push('record-agents')
+    const data = Object.fromEntries(await Promise.all(resources.map(async resource => [resource, await getEnforcement(id, resource, resource === 'records' ? { before: queryBefore, kind: queryKind, include_probes: queryProbes, root_path: props.fixedRoot ? undefined : queryAgent, installation_path: props.fixedRoot || undefined } : undefined)])))
     if (g !== generation) return
     status.value = data.status
     if (props.view === 'events') {
@@ -360,8 +369,8 @@ async function terminate(row) {
   } catch (err) { if (g === generation) failure(err) }
   finally { if (g === generation) terminating.value = false }
 }
-watch(() => props.clientId, () => {
-  eventAgent.value = ''; agentRoots.value = []; agentsLoaded.value = false
+watch(() => [props.clientId, props.fixedRoot], () => {
+  eventAgent.value = props.fixedRoot; agentRoots.value = []; agentsLoaded.value = false
   generation++; refreshQueued = false; reloadDraftQueued = false; initialized = false; loading.value = false; saving.value = false; terminating.value = false; before.value = 0; status.value = {}; events.value = {}; responses.value = []; history.value = []; requests.clear(); detailOpen.value = false; infoOpen.value = false; hasLoaded.value = false; eventSearch.value = ''
   clearInterval(timer); refresh(); timer = setInterval(() => { if (!document.hidden) refresh() }, 5000)
 }, { immediate: true })

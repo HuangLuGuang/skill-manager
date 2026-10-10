@@ -159,6 +159,8 @@ func aidrSystem(args []string, out io.Writer) error {
 	request := fs.String("request", "", "private installation request")
 	uid := fs.Int("uid", os.Getuid(), "collection owner")
 	config := fs.String("config", "", "root-owned collection configuration")
+	selection := fs.String("selection", "", "target selection JSON")
+	custom := fs.String("custom", "", "custom program path")
 	if e := fs.Parse(args); e != nil {
 		return e
 	}
@@ -166,6 +168,8 @@ func aidrSystem(args []string, out io.Writer) error {
 		return systemError("request_invalid")
 	}
 	switch *action {
+	case "targets", "discover", "select", "add-program":
+		return systemTargets(*home, *action, *selection, *custom, out)
 	case "status":
 		return json.NewEncoder(out).Encode(systemLocalStatus(os.Getuid()))
 	case "stop":

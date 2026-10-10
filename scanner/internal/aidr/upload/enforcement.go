@@ -12,7 +12,7 @@ import (
 )
 
 func (c *Client) RuntimeGet(ctx context.Context, resource string) ([]byte, Result) {
-	if resource != "snapshot" && resource != "commands" && resource != "bootstrap" {
+	if resource != "snapshot" && resource != "commands" && resource != "bootstrap" && resource != "collection/device" {
 		return nil, Result{Code: "aidr_enforcement_request_invalid"}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/api/v1/clients/"+url.PathEscape(c.clientID)+"/aidr/enforcement/"+resource, nil)
@@ -57,6 +57,18 @@ func (c *Client) RuntimeGet(ctx context.Context, resource string) ([]byte, Resul
 		return nil, Result{Code: "aidr_upload_request_rejected"}
 	}
 	return data, Result{}
+}
+
+// SystemCollection posts only discovery or target selections, never device-authored policies.
+func (c *Client) SystemCollection(ctx context.Context, resource string, body any) ([]byte, Result) {
+	if resource != "discovery" && resource != "selection" {
+		return nil, Result{Code: "aidr_enforcement_request_invalid"}
+	}
+	raw, err := json.Marshal(body)
+	if err != nil || len(raw) > 65536 {
+		return nil, Result{Code: "aidr_enforcement_request_invalid"}
+	}
+	return c.post(ctx, "enforcement/collection/"+resource, raw, nil)
 }
 
 func (c *Client) SendRuntime(ctx context.Context, s *enforcement.Store) (Result, error) {

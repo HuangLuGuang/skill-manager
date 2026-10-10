@@ -51,6 +51,13 @@ var secretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\?[^\s"']+`),
 }
 
+// ProjectMetadataText applies the same policy and byte limits as action metadata.
+func ProjectMetadataText(s string, limit int, policy AuditPolicy) (string, bool, bool) {
+	b := &Behavior{Version: 3, Policy: &policy}
+	value := safeText(s, limit, b)
+	return value, b.Redacted, b.Truncated
+}
+
 func safeText(s string, limit int, b *Behavior) string {
 	original := s
 	if b.Version >= 3 {

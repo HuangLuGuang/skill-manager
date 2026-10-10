@@ -33,6 +33,9 @@ def expire_once(db, now=None, limit=500):
         rows = db.query(model).filter(model.expired_at.is_(None), model.received_at < boundary,
             func.julianday(model.received_at) < func.julianday(now) - effective_days,
         ).order_by(model.received_at, model.id).limit(limit).all()
+        if model in (AidrEvent, AidrHookEvent):
+            from .aidr_overview import remove_evidence
+            remove_evidence(db, 'logs' if model is AidrEvent else 'hooks', [row.id for row in rows])
         for row in rows:
             if runtime and not row.content_hash:
                 row.content_hash = hashlib.sha256(row.payload_json.encode()).hexdigest()
@@ -53,6 +56,8 @@ def expire_once(db, now=None, limit=500):
         counts[model.__tablename__] = len(rows)
         db.flush()
     db.commit()
+    from .aidr_overview import invalidate_cache
+    invalidate_cache()
     return counts
 
 

@@ -15,7 +15,8 @@ func normalizeWorkBuddy(raw []byte, c *Cursor) ([]draft, error) {
 		Timestamp                                               int64
 		Content, Output                                         json.RawMessage
 		ProviderData                                            struct {
-			ToolResult struct {
+			ConversationRequestID string `json:"conversationRequestId"`
+			ToolResult            struct {
 				RawResponse json.RawMessage `json:"rawResponse"`
 			} `json:"toolResult"`
 		} `json:"providerData"`
@@ -45,12 +46,13 @@ func normalizeWorkBuddy(raw []byte, c *Cursor) ([]draft, error) {
 	if r.Timestamp <= 0 {
 		return nil, errors.New("aidr_log_schema_unsupported")
 	}
+	turn := token(r.ProviderData.ConversationRequestID)
 	switch r.Type {
 	case "message":
 		if token(r.ID) == "" {
 			return nil, errors.New("aidr_log_schema_unsupported")
 		}
-		if d, ok := messageDraft(r.Role, "unspecified", r.ID, "", r.Content, at); ok {
+		if d, ok := messageDraft(r.Role, "unspecified", r.ID, turn, r.Content, at); ok {
 			return []draft{d}, nil
 		}
 	case "function_call", "function_call_result":
@@ -62,8 +64,8 @@ func normalizeWorkBuddy(raw []byte, c *Cursor) ([]draft, error) {
 			if !json.Valid(input) {
 				return nil, errors.New("aidr_log_schema_unsupported")
 			}
-			rememberTool(c, r.CallID, "", r.Name, input)
-			return []draft{{Call: r.CallID, Kind: "tool_call", Tool: r.Name, Cwd: r.Cwd, Content: input, Outcome: "unknown", Time: at}}, nil
+			rememberTool(c, r.CallID, turn, r.Name, input)
+			return []draft{{Turn: turn, Call: r.CallID, Kind: "tool_call", Tool: r.Name, Cwd: r.Cwd, Content: input, Outcome: "unknown", Time: at}}, nil
 		}
 		// The native result may be one text block or an array of blocks.
 		content := r.Output
@@ -71,8 +73,8 @@ func normalizeWorkBuddy(raw []byte, c *Cursor) ([]draft, error) {
 		if json.Unmarshal(content, &block) == nil && block.Type == "text" {
 			content, _ = json.Marshal(block.Text)
 		}
-		completeTool(c, r.CallID, "")
-		return []draft{{Call: r.CallID, Kind: "tool_result", ResultTool: r.Name, Content: content, ResultMeta: r.ProviderData.ToolResult.RawResponse, WorkBuddyResult: true, Outcome: "unknown", Time: at}}, nil
+		completeTool(c, r.CallID, turn)
+		return []draft{{Turn: turn, Call: r.CallID, Kind: "tool_result", ResultTool: r.Name, Content: content, ResultMeta: r.ProviderData.ToolResult.RawResponse, WorkBuddyResult: true, Outcome: "unknown", Time: at}}, nil
 	}
 	return nil, nil
 }

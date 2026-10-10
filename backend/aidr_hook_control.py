@@ -5,6 +5,7 @@ import time
 import uuid
 from typing import Literal
 from .aidr_products import HookAgentID, BY_ID
+from .aidr_command_rules import CommandCondition, SHELL_TOOLS
 
 from pydantic import Field, model_validator
 from sqlalchemy import Column, ForeignKey, Integer, String, Text, UniqueConstraint
@@ -116,6 +117,7 @@ def save_attempt_report(db, client_id, raw):
 
 
 class ToolRule(Strict):
+    command: CommandCondition | None = None
     id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
     agent: HookAgentID | Literal["*"]
     tool: str = Field(min_length=1, max_length=256, pattern=r"^\S+$")
@@ -132,7 +134,8 @@ class ToolRule(Strict):
 
 class ToolPolicyInput(Strict):
     expected_revision: str = Field(pattern=r"^(0|[1-9][0-9]{0,17})$")
-    lifetime_seconds: int = Field(default=3600, ge=60, le=86400)
+    # Accepted for older management UIs; published rules persist until replaced.
+    lifetime_seconds: int | None = Field(default=None, ge=60, le=86400, exclude=True)
     default_action: Literal["allow", "deny", "ask"]
     rules: list[ToolRule] = Field(max_length=128)
 
@@ -171,15 +174,29 @@ def latest_policy(db, client_id):
     return db.query(HookPolicyRow).filter_by(client_id=client_id).order_by(HookPolicyRow.revision.desc()).first()
 
 
-def evaluate(policy, agent, tool):
-    matched = sorted((r for r in policy["rules"] if r["agent"] in (agent, "*") and r["tool"] in (tool, "*")), key=lambda r: r["id"])
+def evaluate(policy, agent, tool, observation=None):
+    matched = []
+    unresolved = False
+    for rule in policy['rules']:
+        if rule['agent'] not in (agent, '*') or rule['tool'] not in (tool, '*'):
+            continue
+        if rule.get('command'):
+            if tool.lower().split('.')[-1] not in SHELL_TOOLS:
+                continue
+            if not observation or observation.get('policy_revision') != str(policy.get('revision', '1')) or rule['id'] in observation.get('unresolved', []):
+                unresolved = True
+                continue
+            if rule['id'] not in observation.get('matched', []):
+                continue
+        matched.append(rule)
+    matched.sort(key=lambda r: r['id'])
     # Restrictive decisions win independent of list order. All matched rule IDs
     # remain available for explaining a conflict or a wider effective permission.
     for decision in ("deny", "ask", "allow"):
         winner = next((r for r in matched if r["decision"] == decision), None)
         if winner:
-            return {"decision": decision, "rule_id": winner["id"], "matched_rule_ids": [r["id"] for r in matched]}
-    return {"decision": policy["default_action"], "rule_id": "default", "matched_rule_ids": []}
+            return {"decision": decision, "rule_id": winner["id"], "matched_rule_ids": [r["id"] for r in matched], **({'unresolved': True} if unresolved else {})}
+    return {"decision": policy["default_action"], "rule_id": "default", "matched_rule_ids": [], **({'unresolved': True} if unresolved else {})}
 
 
 def publish(db, client_id, body, username):
@@ -188,7 +205,14 @@ def publish(db, client_id, body, username):
     if body.expected_revision != str(revision):
         reject("hook_policy_conflict", "工具策略版本已变化", "Tool policy revision changed")
     now = int(time.time())
-    policy = {"schema": 1, "domain": "aidr.tool-policy/1", "device": client_id, "revision": str(revision+1), "issued_at": str(now), "expires_at": str(now+body.lifetime_seconds), "default_action": body.default_action, "rules": [r.model_dump() for r in body.rules]}
+    command_rules = any(r.command for r in body.rules)
+    if command_rules:
+        from .aidr_hook_runtime import HookRuntimeRow
+        reports = db.query(HookRuntimeRow).filter_by(client_id=client_id).filter(HookRuntimeRow.received_at >= now-90).all()
+        if not reports or any(json.loads(r.payload).get('command_rules_schema') != 1 for r in reports):
+            reject('hook_command_upgrade_required', '请先升级本地接收器并等待能力报告，再发布命令规则', 'Upgrade the local receiver and wait for its capability report before publishing command rules', 409)
+    schema = 3 if command_rules else 2
+    policy = {"schema": schema, "domain": f"aidr.tool-policy/{schema}", "device": client_id, "revision": str(revision+1), "issued_at": str(now), "default_action": body.default_action, "rules": [r.model_dump(exclude_none=True) for r in body.rules]}
     envelope = sign(policy)
     if len(canonical(envelope).encode())>32768:
         reject("hook_policy_too_large", "工具策略超过大小限制", "Tool policy exceeds the size limit", 422)
@@ -204,6 +228,8 @@ def approval_view(row):
 
 
 def request_approval(db, client_id, body):
+    from .aidr_tool_policy_scope import require_current
+    require_current(db, client_id)
     event = db.query(AidrHookEvent).filter_by(client_id=client_id, stream_id=body.stream_id, event_id=body.event_id).first()
     if event is None or event.expired_at is not None:
         reject("hook_evidence_missing", "审批所需插件证据尚未到达", "Plugin evidence for approval has not arrived", 404)
@@ -218,13 +244,11 @@ def request_approval(db, client_id, body):
     if policy_row is None or str(policy_row.revision) != body.policy_revision:
         reject("hook_policy_conflict", "工具策略版本已变化", "Tool policy revision changed")
     policy = json.loads(policy_row.payload)
-    if int(policy["expires_at"]) <= now:
-        reject("hook_policy_expired", "工具策略已过期", "Tool policy expired")
-    decision = evaluate(policy, evidence["agent"], evidence["tool"])
+    decision = evaluate(policy, evidence["agent"], evidence["tool"], evidence.get('command_match'))
     if decision["decision"] != "ask" or decision["rule_id"] != body.rule_id:
         reject("hook_approval_not_applicable", "当前规则不接受此审批请求", "The current rule does not accept this approval request")
     scope = {"device": client_id, "stream": body.stream_id, "receiver_instance": body.receiver_instance, "user_scope": record["user_scope"], "agent": evidence["agent"], "session_id": evidence["session_id"], "turn_id": evidence.get("turn_id", ""), "native_call_id": evidence["native_call_id"], "native_agent_id": evidence.get("native_agent_id", ""), "tool": evidence["tool"], "input_digest": evidence["input_digest"], "attempt_nonce": body.event_id, "rule_id": body.rule_id, "policy_revision": body.policy_revision, "execution_point": "plugin_pre_tool"}
-    result = db.execute(insert(HookApprovalRow).values(id=uuid.uuid4().hex, client_id=client_id, stream_id=body.stream_id, event_id=body.event_id, receiver_instance=body.receiver_instance, scope=canonical(scope), nonce=uuid.uuid4().hex, revision=1, state="pending", created_at=now, expires_at=min(now+300, int(policy["expires_at"]))).on_conflict_do_nothing(index_elements=["client_id", "stream_id", "event_id"]))
+    result = db.execute(insert(HookApprovalRow).values(id=uuid.uuid4().hex, client_id=client_id, stream_id=body.stream_id, event_id=body.event_id, receiver_instance=body.receiver_instance, scope=canonical(scope), nonce=uuid.uuid4().hex, revision=1, state="pending", created_at=now, expires_at=now+300).on_conflict_do_nothing(index_elements=["client_id", "stream_id", "event_id"]))
     row = db.query(HookApprovalRow).filter_by(client_id=client_id, stream_id=body.stream_id, event_id=body.event_id).one()
     if result.rowcount and db.query(HookApprovalRow).filter_by(client_id=client_id, state="pending").filter(HookApprovalRow.expires_at>now).count()>1000:
         reject("hook_approval_capacity", "待处理审批达到上限", "Pending approval capacity reached", 429)
@@ -234,6 +258,9 @@ def request_approval(db, client_id, body):
 
 
 def decide(db, client_id, approval_id, body, username):
+    if body.decision == 'allow':
+        from .aidr_tool_policy_scope import require_current
+        require_current(db, client_id)
     content = canonical([approval_id, username, body.model_dump()])
     digest = hashlib.sha256(content.encode()).hexdigest()
     inserted = db.execute(insert(HookApprovalReceipt).values(client_id=client_id, request_id=body.request_id, digest=digest, response="{}").on_conflict_do_nothing())
@@ -270,6 +297,15 @@ def decide(db, client_id, approval_id, body, username):
 
 
 def snapshot(db, client_id, body):
+    from .aidr_tool_policy_scope import reconcile
+    try:
+        reconcile(db, client_id)
+        db.commit()
+    except ApiError as error:
+        db.rollback()
+        if error.code != 'aidr.hook_command_upgrade_required':
+            raise
+        return {"policy": None, "grants": [], "more_grants": False, "next_after": body.after}
     policy = latest_policy(db, client_id)
     rows = db.query(HookApprovalRow).filter_by(client_id=client_id, stream_id=body.stream_id, receiver_instance=body.receiver_instance).filter(HookApprovalRow.id>body.after, HookApprovalRow.expires_at>int(time.time()), HookApprovalRow.envelope.isnot(None)).order_by(HookApprovalRow.id).limit(101).all()
     result = {"policy": json.loads(policy.envelope) if policy else None, "grants": [], "more_grants": False, "next_after": body.after}

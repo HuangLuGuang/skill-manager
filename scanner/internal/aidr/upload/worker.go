@@ -81,6 +81,28 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		// Drain durable backlog before intake consumes the remaining store space.
+		if !time.Now().Before(nextUpload) {
+			for batch := 0; batch < 4; batch++ {
+				result, err := c.SendOne(ctx, s)
+				if err != nil {
+					return err
+				}
+				if result.Code != "" {
+					if !result.Retryable {
+						return errors.New(result.Code)
+					}
+					nextUpload = time.Now().Add(RetryDelay(failures))
+					failures = min(failures+1, 6)
+					break
+				}
+				failures = 0
+				nextUpload = time.Time{}
+				if !result.Uploaded {
+					break
+				}
+			}
+		}
 		if !time.Now().Before(nextPolicy) {
 			if err := c.RefreshPolicy(ctx, s); err != nil {
 				return err
@@ -174,7 +196,11 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 							return err
 						}
 						if crawler != nil {
-							if err = crawler.ReadDone(ctx, src, checkpoint.Cursor.Offset); err != nil {
+							readOffset := checkpoint.Cursor.Offset
+							if checkpoint.Cursor.ContextRepair != nil {
+								readOffset = checkpoint.Cursor.ContextRepair.Offset
+							}
+							if err = crawler.ReadDone(ctx, src, readOffset); err != nil {
 								return err
 							}
 						}
@@ -186,27 +212,6 @@ func Run(ctx context.Context, s *localstore.Store, c *Client, o WorkerOptions) e
 							capabilities[src.ID] = Capability{Agent: src.Agent, Version: checkpoint.Cursor.AgentVersion, Status: state, ParserStatus: parserStatus(checkpoint.Coverage), ParserVersion: agentlog.ParserVersion}
 						}
 					}
-				}
-			}
-		}
-		if !time.Now().Before(nextUpload) {
-			for batch := 0; batch < 4; batch++ {
-				result, err := c.SendOne(ctx, s)
-				if err != nil {
-					return err
-				}
-				if result.Code != "" {
-					if !result.Retryable {
-						return errors.New(result.Code)
-					}
-					nextUpload = time.Now().Add(RetryDelay(failures))
-					failures = min(failures+1, 6)
-					break
-				}
-				failures = 0
-				nextUpload = time.Time{}
-				if !result.Uploaded {
-					break
 				}
 			}
 		}

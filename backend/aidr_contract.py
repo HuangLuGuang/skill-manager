@@ -52,13 +52,23 @@ class Message(Contract):
         if self.role == 'user' and self.phase != 'unspecified':
             raise ValueError('message_phase_invalid')
         kind, field = ('prompt', 'message.input') if self.role == 'user' else ('model_response', 'message.output')
-        if any(c.kind != kind or c.source_field != field for c in self.contents):
+        fields = {field, field + '.request', field + '.context'} if self.role == 'user' else {field}
+        if any(c.kind != kind or c.source_field not in fields for c in self.contents):
             raise ValueError('message_content_source_invalid')
         validate_contents(self.contents, self.content_status, self.policy)
         return self
 
 
+class ModelContext(Contract):
+    model: Token | None = None
+    provider: Token | None = None
+    reasoning_effort: Token | None = None
+    reasoning_summary: Token | None = None
+    source: Literal['codex.turn_context', 'claude.message.model', 'qoder-cli.message.model', 'workbuddy.providerData.model', 'opencode.message']
+
+
 class Event(Contract):
+    model_context: ModelContext | None = None
     user_scope: str | None = Field(default=None, pattern=r'^(0|[1-9][0-9]{0,9})$')
     skill_use: SkillUse | None = None
     schema_version: Literal[1, 2, 3]
@@ -90,6 +100,15 @@ class Event(Contract):
 
     @model_validator(mode="after")
     def consistent(self):
+        if self.model_context:
+            if not any(getattr(self.model_context, k) for k in ('model', 'provider', 'reasoning_effort', 'reasoning_summary')):
+                raise ValueError('model_context_empty')
+            expected = {'codex': 'codex.turn_context', 'claude': 'claude.message.model',
+                        'qoder-cli': 'qoder-cli.message.model', 'workbuddy': 'workbuddy.providerData.model', 'opencode': 'opencode.message'}
+            if expected.get(self.agent) != self.model_context.source or not self.session_id:
+                raise ValueError('model_context_source_invalid')
+            if self.agent == 'codex' and not self.turn_id:
+                raise ValueError('model_context_turn_missing')
         if self.schema_version == 3:
             if not self.message or self.behavior or self.kind != self.message.role + '_message' or self.tool or self.outcome != 'unknown':
                 raise ValueError('message_version_mismatch')
@@ -153,7 +172,20 @@ class CallTurn(Contract):
     content_digest: Hash | None = None
 
 
+class QoderLink(Contract):
+    id: Token
+    turn: Token
+
+
 class Cursor(Contract):
+    # Accept already-frozen development batches; current clients keep this local.
+    qoder_links: list[QoderLink] | None = Field(default=None, max_length=512)
+    model_context: ModelContext | None = None
+    model_provider: Token | None = None
+    model_turn: Token | None = None
+    model_header_read: bool | None = None
+    context_repair_version: int | None = Field(default=None, ge=0, le=2)
+    context_repair: Cursor | None = None
     recovery_gaps: list[Gap] | None = Field(default=None, max_length=32)
     recovery_details_truncated: bool | None = None
     projection_version: int | None = Field(default=None,ge=0,le=2)
@@ -172,6 +204,20 @@ class Cursor(Contract):
     agent_version: str = Field(max_length=80)
     since: str = Field(max_length=40)
     gap_codes: list[Reason] | None = Field(max_length=32)
+
+    @field_validator('context_repair', mode='before')
+    @classmethod
+    def bounded_repair(cls, value):
+        if isinstance(value, dict) and value.get('context_repair') is not None:
+            raise ValueError('nested_context_repair')
+        return value
+
+    @model_validator(mode='after')
+    def repair_scope(self):
+        r = self.context_repair
+        if r and (r.source_id != self.source_id or r.file_identity != self.file_identity or int(r.offset) > int(self.offset)):
+            raise ValueError('context_repair_scope')
+        return self
 
 
 class CoverageRecord(Contract):

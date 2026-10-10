@@ -6,9 +6,12 @@ from pydantic import Field, field_validator
 
 from .aidr_enforcement import Strict, PolicyInput, absolute_path
 from .aidr_hook_control import ToolPolicyInput, evaluate
+from .aidr_command_rules import observe
 
 
 class HookRulePreview(Strict):
+    command: str = Field(default='', max_length=32768)
+    cwd: str = Field(default='', max_length=1024)
     policy: ToolPolicyInput
     agent: HookAgentID
     tool: str = Field(min_length=1, max_length=256, pattern=r'^\S+$')
@@ -23,15 +26,20 @@ class SystemRulePreview(Strict):
 
 def preview_hook(body: HookRulePreview):
     policy = body.policy.model_dump()
-    result = evaluate(policy, body.agent, body.tool)
+    observation = observe(policy, body.agent, body.tool, body.command, body.cwd)
+    result = evaluate(policy, body.agent, body.tool, observation)
     rows = []
     for rule in policy['rules']:
         agent = rule['agent'] in ('*', body.agent)
         tool = rule['tool'] in ('*', body.tool)
+        if rule.get('command') and agent and tool:
+            state = 'unresolved' if rule['id'] in observation['unresolved'] else 'matched' if rule['id'] in observation['matched'] else 'command'
+            rows.append(dict(id=rule['id'], matched=state == 'matched', reason=state, decision=rule['decision']))
+            continue
         rows.append(dict(id=rule['id'], matched=agent and tool,
                          reason='matched' if agent and tool else 'agent_and_tool' if not agent and not tool else 'agent' if not agent else 'tool',
                          decision=rule['decision']))
-    return dict(**result, rules=rows, basis='hook', used_default=not result['matched_rule_ids'])
+    return dict(**result, rules=rows, basis='hook', used_default=result['rule_id'] == 'default')
 
 
 def preview_system(body: SystemRulePreview):

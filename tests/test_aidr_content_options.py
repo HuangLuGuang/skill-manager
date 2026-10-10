@@ -1,4 +1,4 @@
-"""Configurable body budgets and opt-in command bodies across policy and upload."""
+"""Configurable body budgets and command capture across policy and upload."""
 import copy
 import pytest
 
@@ -8,6 +8,28 @@ from tests.test_aidr_api import service, submit, batch
 from tests.test_aidr_client_policy import policies, draft, GLOBAL, LOCAL
 from tests.test_aidr_content import configure, fragment
 from tests.test_aidr_redaction import behavior
+
+
+def test_command_capture_default_and_explicit_disable_survive_reload(policies):
+    client, factory, _ = policies
+    initial = client.get(GLOBAL).json()
+    assert initial['capture']['command_body'] is True
+    disabled = client.put(GLOBAL, json=dict(version=initial['version'], enabled=True,
+                          capture={**initial['capture'], 'command_body': False})).json()
+    assert disabled['capture']['command_body'] is False
+    assert client.get(GLOBAL).json()['capture']['command_body'] is False
+    assert client.get(LOCAL).json()['capture']['command_body'] is False
+    # Historical receipts without the field continue to mean not captured.
+    assert CaptureScope.model_validate({'prompt': True}).command_body is False
+    from backend import aidr_policy, models
+    import json
+    with factory() as db:
+        row = db.get(models.SystemConfig, aidr_policy.KEY)
+        old = json.loads(row.value)
+        old['capture'].pop('command_body')
+        row.value = json.dumps(old)
+        db.commit()
+    assert client.get(GLOBAL).json()['capture'].get('command_body', False) is False
 
 
 def test_policy_limits_global_override_and_legacy_delivery(policies):

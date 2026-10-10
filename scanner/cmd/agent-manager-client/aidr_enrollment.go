@@ -21,6 +21,19 @@ func desktopEnrollmentHosts(p desktopPreferences, cfg managedclient.Config, path
 	return append([]string{}, p.Enrollment.Hosts...)
 }
 
+func clearDesktopHookEnrollment(p *desktopPreferences, cfg managedclient.Config, paths desktopPaths, agent string) {
+	if p.Enrollment == nil {
+		return
+	}
+	kept := []string{}
+	for _, host := range desktopEnrollmentHosts(*p, cfg, paths) {
+		if host != agent {
+			kept = append(kept, host)
+		}
+	}
+	p.Enrollment = &desktopHookEnrollment{Server: cfg.Server, Device: paths.Device, Hosts: kept}
+}
+
 func enrollDesktopHook(ctx context.Context, args []string, home, agent string, prefs desktopPreferences, cfg managedclient.Config, paths desktopPaths, out io.Writer) error {
 	if !catalog.Hook(agent) {
 		return errors.New("aidr_plugin_host_unsupported")

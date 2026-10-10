@@ -38,6 +38,14 @@ mod runtime_watch;
 mod windows_shell;
 
 #[tauri::command]
+async fn aidr_system_targets(action: String, selection: Option<serde_json::Value>, custom: Option<String>) -> Result<serde_json::Value, String> {
+    let home = client_homes().into_iter().next().ok_or("aidr_desktop_home_invalid")?;
+    let binary = client_binary().map_err(|_| "aidr_desktop_binary_missing")?;
+    tauri::async_runtime::spawn_blocking(move || system_collector::targets(&home, &binary, &action, selection, custom))
+        .await.map_err(|_| "aidr_system_runtime_failed".to_string())?
+}
+
+#[tauri::command]
 async fn aidr_system_action(app: AppHandle, action: String) -> Result<serde_json::Value, String> {
     let home = client_homes().into_iter().next().ok_or("aidr_desktop_home_invalid")?;
     let binary = client_binary().map_err(|_| "aidr_desktop_binary_missing")?;
@@ -1077,6 +1085,7 @@ fn main() {
             aidr_receiver_status,
             aidr_collection_status,
             aidr_system_action,
+            aidr_system_targets,
             aidr_plugin_action,
             execute_client_with_progress,
             runtime_observation_supported,

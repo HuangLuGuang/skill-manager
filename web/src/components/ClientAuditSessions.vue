@@ -4,7 +4,7 @@
     <aside class="session-list">
       <header><h3>{{ t('aidr.sessions.sessions') }}</h3><a-button size="small" :loading="sessionsLoading || turnsLoading || timelineLoading" :disabled="sessionsLoading || turnsLoading || timelineLoading" @click="refresh">{{ t('aidr.sessions.refresh') }}</a-button></header>
       <div class="session-filters">
-        <a-select v-model:value="agent" :aria-label="t('aidr.agent')"><a-select-option value="">{{ t('aidr.sessions.allAgents') }}</a-select-option><a-select-option v-for="product in products.filter(p => p.logs || p.hooks)" :key="product.id" :value="product.id">{{ product.name }}</a-select-option></a-select>
+        <a-select v-if="!fixedAgent" v-model:value="agent" :aria-label="t('aidr.agent')"><a-select-option value="">{{ t('aidr.sessions.allAgents') }}</a-select-option><a-select-option v-for="product in groupProductEntries(products.filter(p => p.collection_visible !== false && (p.logs || p.hooks)))" :key="product.id" :value="product.id">{{ product.name }}</a-select-option></a-select>
         <a-input v-model:value="sessionSearch" :aria-label="t(canRead ? 'aidr.sessions.findQuestion' : 'aidr.sessions.findSession')" :placeholder="t(canRead ? 'aidr.sessions.findQuestion' : 'aidr.sessions.findSession')" :maxlength="256" allow-clear />
       </div>
       <a-alert v-if="sessionsError" type="error" :message="t('aidr.sessions.readFailed')" show-icon><template #action><a-button type="link" :disabled="sessionsLoading" @click="loadSessions(failedSessionAppend, true)">{{ t('aidr.sessions.retry') }}</a-button></template></a-alert>
@@ -27,43 +27,52 @@
         <div class="timeline-header">
           <header class="selected-session">
             <h3 :title="sessionTitle(selected)">{{ sessionTitle(selected) }}</h3>
+            <span v-if="!sourceCount(selected, 'tools') && sourceCount(selected, 'hooks')" class="session-coverage" :title="t('aidr.sessions.hooksOnlyHelp')">{{ t('aidr.sessions.hooksOnly') }}</span>
             <a-popover :title="t('aidr.sessions.sessionInfo')" :trigger="['click']">
-              <template #content><div class="session-info"><code>{{ sessionLabel(selected) }}</code><p>{{ t('aidr.sessions.latest') }} · {{ timestamp(selected.latest_at) }}</p></div></template>
+              <template #content><div class="session-info"><code>{{ sessionLabel(selected) }}</code><p>{{ t('aidr.sessions.latest') }} · {{ timestamp(selected.latest_at) }}</p><p>{{ t('aidr.sessions.logHelp') }}</p><p>{{ t('aidr.sessions.hookHelp') }}</p><p v-if="!sourceCount(selected, 'tools') && sourceCount(selected, 'hooks')">{{ t('aidr.sessions.hooksOnlyHelp') }}</p></div></template>
               <button class="session-info-button" type="button" :aria-label="t('aidr.sessions.sessionInfo')"><InfoCircleOutlined /></button>
             </a-popover>
             <span class="session-meta" :title="timestamp(selected.latest_at)">{{ agentName(selected.agent) }} · {{ shortDate(selected.latest_at) }}</span>
           </header>
           <div class="timeline-toolbar">
             <div class="source-tabs" role="group" :aria-label="t('aidr.sessions.activity')">
-              <button v-for="value in ['tools', 'hooks']" :key="value" type="button" :aria-pressed="!showSkills && source === value" @click="showSkills = false; source = value">{{ t('aidr.sessions.' + (value === 'tools' ? 'logsTab' : 'hooksTab')) }} <span>{{ sourceCount(countContext, value) }}</span></button>
+              <button v-for="value in ['tools', 'hooks']" :key="value" type="button" :aria-pressed="!showSkills && source === value" @click="showSkills = false; source = value">{{ t('aidr.sessions.' + (value === 'tools' ? 'logsTab' : 'hooksTab')) }} <span>{{ sourceCount(countContext(value), value) }}</span></button>
               <button type="button" :aria-pressed="showSkills" @click="showSkills = true">{{ t('aidr.skillUse.title') }}</button>
             </div>
-            <a-popover v-if="!showSkills" :trigger="['hover', 'click', 'focus']">
-              <template #content><p class="source-explanation">{{ t(source === 'tools' ? 'aidr.sessions.logHelp' : 'aidr.sessions.hookHelp') }}</p><p v-if="!sourceCount(selected, 'tools') && sourceCount(selected, 'hooks')" class="source-explanation">{{ t('aidr.sessions.hooksOnlyHelp') }}</p></template>
-              <button class="session-info-button" type="button" :aria-label="t('aidr.sessions.sourceInfo')"><InfoCircleOutlined /></button>
-            </a-popover>
-            <span v-if="!showSkills && !sourceCount(selected, 'tools') && sourceCount(selected, 'hooks')" class="source-coverage">{{ t('aidr.sessions.hooksOnly') }}</span>
+            <div v-if="!showSkills" class="content-mode" role="group" :aria-label="t('aidr.sessions.contentDisplay')"><button v-for="mode in ['rendered', 'source']" :key="mode" type="button" :aria-pressed="contentMode === mode" @click="contentMode = mode">{{ t('aidr.sessions.' + mode) }}</button></div>
             <a-input v-if="!showSkills" v-model:value="search" class="timeline-search" :aria-label="t('aidr.sessions.search')" :placeholder="t('aidr.sessions.searchCompact')" :maxlength="256" allow-clear />
           </div>
         </div>
         <AidrSkillUses v-if="showSkills" :client-id="clientId" :agent="selected.agent" :session-id="selected.session_id" />
         <div v-else class="turn-reading">
-          <AidrTurnNavigator :items="turns.items" :active="turnKey" :can-read="canRead" :loading="turnsLoading" :error="turnsError" :has-more="turns.has_more" @select="turnKey = $event" @more="loadTurns(turnsFailedAppend || !turnsError)" />
+          <AidrTurnNavigator :items="sourceTurns" :active="turnKey" :can-read="canRead" :loading="turnsLoading" :error="turnsError" :has-more="turns.has_more" @select="turnKey = $event" @more="loadTurns(turnsFailedAppend || !turnsError)" />
           <div ref="timelinePane" class="timeline-records" tabindex="0" role="region" :aria-label="t('aidr.sessions.timeline')">
             <a-alert v-if="timelineError" type="error" :message="t('aidr.sessions.readFailed')" show-icon><template #action><a-button type="link" :disabled="timelineLoading" @click="loadTimeline(failedAppend)">{{ t('aidr.sessions.retry') }}</a-button></template></a-alert>
             <p v-if="(timelineLoading || turnsLoading) && !timeline.items.length" role="status" class="muted">{{ t('aidr.sessions.loading') }}</p>
             <div :key="timelineIdentity">
             <section v-for="group in timelineGroups" :key="group.key" class="turn-group">
               <header class="question-heading"><strong>{{ group.turn ? turnLabel(group.turn) : t('aidr.sessions.unassignedTurn') }}</strong><time v-if="group.turn">{{ shortDate(group.turn.started_at) }}</time><span v-if="group.turn?.prompt_id" class="muted">{{ t('aidr.detail.prompt') }} · {{ group.turn.prompt_id > 0 ? 'Hook' : t('aidr.sessions.logSource') }}</span></header>
+              <div v-if="source === 'hooks' ? hookFields(group.turn).length : group.turn?.log_models?.length" class="turn-context">
+                <div v-if="source === 'hooks' && hookFields(group.turn).length" class="turn-context-row">
+                  <span class="turn-context-source">{{ t('aidr.sessions.hookMetadata') }}</span>
+                  <dl><div v-for="field in hookFields(group.turn)" :key="field.key" :title="field.title"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div></dl>
+                </div>
+                <div v-for="report in source === 'tools' ? group.turn?.log_models || [] : []" :key="report.id" class="turn-context-row" :title="logModelTitle(report)">
+                  <span class="turn-context-source">{{ t('aidr.sessions.logMetadata') }}</span>
+                  <dl><div v-for="field in modelFields.filter(key => report[key])" :key="field"><dt>{{ t('aidr.sessions.' + field) }}</dt><dd>{{ field === 'model' ? modelValue(report[field]) : report[field] }}</dd></div></dl>
+                </div>
+              </div>
               <div v-if="group.turn?.key !== 'unassigned'" class="question-body">
-                <p>{{ questionText(group.turn) }}</p>
+                <AidrMarkdown :text="questionText(group.turn)" :mode="contentMode" />
+                <details v-if="canRead && group.turn?.question?.context_text" class="original-question"><summary>{{ t('aidr.sessions.contextFragment') }}</summary><pre>{{ group.turn.question.context_text }}</pre></details>
                 <details v-if="canRead && group.turn?.question?.text !== group.turn?.question?.display_text && group.turn?.question?.text" class="original-question"><summary>{{ t('aidr.sessions.originalQuestion') }}</summary><pre>{{ group.turn.question.text }}</pre></details>
-                <span v-if="group.turn?.question?.truncated" class="muted">{{ t('aidr.detail.partialContent') }}</span>
+                <p v-for="note in group.turn?.question?.truncations || []" :key="note.part" class="muted">{{ t('aidr.sessions.truncation.' + note.part, note) }}</p>
+                <span v-if="group.turn?.question?.truncated && !group.turn.question.truncations?.length" class="muted">{{ t('aidr.detail.partialContent') }}</span>
                 <span v-if="group.turn?.question?.redacted" class="muted">{{ t('aidr.detail.redactedContent') }}</span>
                 <p v-if="group.turn?.prompt_count > 1" class="muted">{{ t('aidr.sessions.multiplePrompts', { count: group.turn.prompt_count }) }}</p>
               </div>
               <p v-else class="muted">{{ t('aidr.sessions.unassignedTurnHelp') }}</p>
-              <AidrTimelineEntry v-for="item in group.items" :key="item.key" :item="item" :client-id="clientId" />
+              <AidrTimelineEntry v-for="item in group.items" :key="item.key" :item="item" :client-id="clientId" :content-mode="contentMode" />
             </section>
             </div>
         <div v-if="!turnsLoading && !timelineLoading && !timelineError && !timeline.items.length" class="timeline-empty">
@@ -85,16 +94,37 @@
 <script setup>
 import AidrSkillUses from './AidrSkillUses.vue'
 import products from '../aidr-products.json'
+import { groupProductEntries } from '../aidr-product-groups'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { InfoCircleOutlined } from '@ant-design/icons-vue'
 import { getClientAidrSessions, getClientAidrSessionTimeline, getClientAidrSessionTurns } from '../api'
 import { can } from '../access'
 import AidrTimelineEntry from './AidrTimelineEntry.vue'
+import AidrMarkdown from './AidrMarkdown.vue'
 import AidrTurnNavigator from './AidrTurnNavigator.vue'
-const props = defineProps({ clientId: { type: String, required: true } })
+const modelFields = ['model', 'provider', 'reasoning_effort', 'reasoning_summary']
+function modelValue(value) { return value?.toLowerCase() === 'auto' ? 'Auto' : value }
+function logModelTitle(report) {
+  return [...modelFields.filter(key => report[key]).map(key => `${t('aidr.sessions.' + key)}: ${key === 'model' ? modelValue(report[key]) : report[key]}`), `${report.source} · ${timestamp(report.at)} #${report.id}`].join('\n')
+}
+function hookFields(turn) {
+  const context = turn?.hook_context || { model: turn?.hook_models || [] }
+  return ['model', 'cwd', 'workspace_roots'].flatMap(key => {
+    const native = context[key] || []
+    const session = key !== 'model' && !native.length && turns.value.host_context?.[key]
+    const reports = session ? [session] : native
+    if (!reports.length) return []
+    const label = t('aidr.sessions.' + key)
+    return [{ key, label: session ? t('aidr.sessions.sessionContextLabel', { field: label }) : label,
+      value: [...new Set(reports.flatMap(report => [].concat(report.value)).map(value => key === 'model' ? modelValue(value) : value))].join(' / '),
+      title: reports.map(report => `${timestamp(report.at)} · ${report.hook_event} #${report.id}`).join('\n') }]
+  })
+}
+const props = defineProps({ clientId: { type: String, required: true }, activityRequest: Object, fixedAgent: { type: String, default: '' } })
 defineEmits(['collection'])
 const source = defineModel('source', { type: String, default: 'tools' })
+const contentMode = ref('rendered')
 const { t, locale } = useI18n()
 const empty = () => ({ items: [], has_more: false, next_cursor: '' })
 const sessions = ref(empty()), timeline = ref(empty()), selected = ref(null)
@@ -106,9 +136,10 @@ const canRead = computed(() => can('clients:read-audit-content'))
 const turnContext = computed(() => JSON.stringify([props.clientId, selected.value?.key, canRead.value]))
 const resolvedTurnContext = ref('')
 const turnsReady = computed(() => resolvedTurnContext.value === turnContext.value)
+const sourceTurns = computed(() => turns.value.items.filter(turn => sourceCount(turn, source.value)))
 const activeTurn = computed(() => turns.value.items.find(item => item.key === turnKey.value))
-const countContext = computed(() => (turnKey.value && activeTurn.value) || selected.value)
-const turnLabel = turn => turn.key === 'unassigned' ? t('aidr.sessions.unassignedTurn') : turns.value.items.some(item => item.key === turn.key) ? t('aidr.sessions.round', { n: turns.value.items.filter(item => item.key !== 'unassigned').findIndex(item => item.key === turn.key) + 1 }) : t('aidr.sessions.turnId', { id: turn.key.slice(5, 13) })
+const countContext = value => activeTurn.value && sourceCount(activeTurn.value, value) ? activeTurn.value : selected.value
+const turnLabel = turn => turn.key === 'unassigned' ? t('aidr.sessions.unassignedTurn') : sourceTurns.value.some(item => item.key === turn.key) ? t('aidr.sessions.round', { n: sourceTurns.value.filter(item => item.key !== 'unassigned').findIndex(item => item.key === turn.key) + 1 }) : t('aidr.sessions.turnId', { id: turn.key.slice(5, 13) })
 const questionText = turn => !canRead.value ? t('aidr.sessions.questionRestricted') : turn?.question?.display_text || t('aidr.sessions.questionMissing')
 const timelineGroups = computed(() => {
   const groups = []
@@ -138,11 +169,11 @@ function timestamp(value) { return value ? new Date(value).toLocaleString(locale
 const shortDateFormatter = computed(() => new Intl.DateTimeFormat(locale.value, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }))
 function shortDate(value) { return value ? shortDateFormatter.value.format(new Date(value)) : '—' }
 function sourceCount(item, value) { return value === 'tools' ? (item?.log_count || 0) + (item?.message_count || 0) : item?.hook_count || 0 }
-function selectSession(value) {
+function selectSession(value, keepSource = false) {
   if (!value || value.key === selected.value?.key) return
   clearTimeout(searchTimer); search.value = ''; query.value = ''
   const other = source.value === 'tools' ? 'hooks' : 'tools'
-  if (!sourceCount(value, source.value) && sourceCount(value, other)) source.value = other
+  if (!keepSource && !sourceCount(value, source.value) && sourceCount(value, other)) source.value = other
   selected.value = value
 }
 async function loadTurns(append = false) {
@@ -173,7 +204,7 @@ async function loadSessions(append = false, preserve = false) {
     sessions.value = { ...result, items: append ? [...sessions.value.items, ...result.items] : result.items }
     const current = sessions.value.items.find(item => item.key === selected.value?.key)
     if (current) selected.value = current
-    else if (result.items.length) selectSession(result.items[0])
+    else if (result.items.length) selectSession(result.items[0], props.activityRequest?.clientId === clientId)
     else selected.value = null
   } catch { if (request === sessionRequest) sessionsError.value = true }
   finally { if (request === sessionRequest) sessionsLoading.value = false }
@@ -200,18 +231,24 @@ function refresh() {
   loadSessions(false, true)
   loadTurns()
 }
+watch(source, () => {
+  if (turnKey.value && !sourceTurns.value.some(turn => turn.key === turnKey.value)) turnKey.value = ''
+}, { flush: 'sync' })
 watch(timelineIdentity, () => { timelinePane.value?.scrollTo({ top: 0 }); timelineRequest++; timelineLoading.value = false; timeline.value = empty(); timelineError.value = false; if (selected.value) loadTimeline() })
 watch(turnContext, () => { turnRequest++; resolvedTurnContext.value = ''; turns.value = empty(); turnsLoading.value = false; turnsError.value = false; turnKey.value = ''; if (selected.value) loadTurns() })
 watch(canRead, () => { sessions.value = empty(); selected.value = null; loadSessions() })
 watch([sessionQuery, agent], () => loadSessions())
 watch(sessionSearch, value => { clearTimeout(sessionTimer); sessionTimer = setTimeout(() => { sessionQuery.value = value.trim() }, 250) })
 watch(search, value => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { query.value = value.trim() }, 250) })
-watch(() => props.clientId, () => {
+watch([() => props.clientId, () => props.activityRequest, () => props.fixedAgent], () => {
   sessionRequest++; timelineRequest++; clearTimeout(sessionTimer); clearTimeout(searchTimer)
   sessions.value = empty(); timeline.value = empty(); selected.value = null
   sessionsLoading.value = false; timelineLoading.value = false; sessionsError.value = false; timelineError.value = false
-  sessionSearch.value = ''; sessionQuery.value = ''; agent.value = ''; search.value = ''; query.value = ''
-  loadSessions()
+  const requestedAgent = props.fixedAgent || (props.activityRequest?.clientId === props.clientId ? props.activityRequest.agent : '')
+  const requestedSession = props.activityRequest?.clientId === props.clientId ? props.activityRequest.sessionId || '' : ''
+  const filterChanged = sessionQuery.value !== requestedSession || agent.value !== requestedAgent
+  sessionSearch.value = requestedSession; sessionQuery.value = requestedSession; agent.value = requestedAgent; search.value = ''; query.value = ''; showSkills.value = false
+  if (!filterChanged) loadSessions()
 }, { immediate: true })
 onBeforeUnmount(() => { sessionRequest++; timelineRequest++; turnRequest++; clearTimeout(sessionTimer); clearTimeout(searchTimer) })
 </script>
@@ -243,14 +280,24 @@ h3 { margin: 0; font-size: 16px; }
 .session-info-button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; padding: 0; border: 0; background: none; color: #667085; cursor: pointer; border-radius: 4px; }
 .session-info-button:hover { background: #eef4ff; color: #245fe5; }
 button:focus-visible, .timeline-records:focus-visible { outline: 2px solid #245fe5; outline-offset: -2px; }
-.session-info, .source-explanation { max-width: min(380px, 75vw); overflow-wrap: anywhere; font-size: 13px; }
-.session-info p, .source-explanation { margin: 4px 0; }
-.source-coverage { color: #667085; font-size: 12px; }
+.session-info { max-width: min(380px, 75vw); overflow-wrap: anywhere; font-size: 13px; }
+.session-info p { margin: 4px 0; }
+.session-coverage { flex-shrink: 0; border-radius: 4px; padding: 2px 6px; background: #f2f4f7; color: #667085; font-size: 11px; line-height: 18px; cursor: default; }
 .timeline-search { width: 210px; min-width: 150px; max-width: 100%; margin-left: auto; margin-bottom: 5px; }
+.content-mode { display: flex; flex-shrink: 0; gap: 2px; margin: 0 8px 5px auto; padding: 2px; border: 1px solid #e4e8ef; border-radius: 5px; }
+.content-mode button { border: 0; border-radius: 3px; padding: 3px 7px; background: none; color: #667085; font-size: 12px; cursor: pointer; }
+.content-mode button[aria-pressed="true"] { background: #eef4ff; color: #245fe5; }
 .turn-reading { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 8px; flex: 1; min-height: 0; overflow: hidden; padding: 10px 0 0 8px; }
 .timeline-records { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 0 14px 12px 0; }
 .question-heading { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; font-size: 13px; }
 .question-heading time { color: #667085; }
+.turn-context { display: grid; gap: 6px; margin: -2px 0 12px; font-size: 12px; }
+.turn-context-row { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.turn-context-source { color: #475467; font-weight: 600; flex: 0 0 68px; }
+.turn-context dl { display: flex; flex-wrap: wrap; gap: 4px 16px; min-width: 0; margin: 0; }
+.turn-context dl > div { display: flex; gap: 6px; min-width: 0; max-width: 100%; }
+.turn-context dt { color: #667085; flex-shrink: 0; }
+.turn-context dd { margin: 0; color: #344054; overflow-wrap: anywhere; min-width: 0; }
 .question-body { background: #eef4ff; border-left: 3px solid #245fe5; padding: 9px 12px; margin-bottom: 14px; border-radius: 5px; overflow-wrap: anywhere; }
 .question-body p { white-space: pre-wrap; margin: 0; }
 .original-question { margin-top: 8px; font-size: 12px; }

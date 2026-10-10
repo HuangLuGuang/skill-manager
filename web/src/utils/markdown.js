@@ -1,4 +1,4 @@
-import { marked } from 'marked'
+import { marked, Renderer } from 'marked'
 
 const allowedTags = new Set([
   'A', 'BLOCKQUOTE', 'BR', 'CODE', 'DEL', 'EM', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
@@ -46,8 +46,14 @@ const sanitizeElement = element => {
   if (languageClass) element.classList.add(languageClass)
 }
 
-export const renderSafeMarkdown = value => {
-  const rawHtml = marked.parse(String(value || ''), { breaks: true, gfm: true })
+export const renderSafeMarkdown = (value, { literalHtml = false } = {}) => {
+  const renderer = literalHtml ? new Renderer() : undefined
+  if (renderer) {
+    const escape = value => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    renderer.html = token => escape(token.text)
+    renderer.image = token => escape(token.raw)
+  }
+  const rawHtml = marked.parse(String(value || ''), { breaks: true, gfm: true, ...(renderer ? { renderer } : {}) })
   const documentValue = new DOMParser().parseFromString(`<body>${rawHtml}</body>`, 'text/html')
   for (const element of [...documentValue.body.querySelectorAll('*')]) sanitizeElement(element)
   return documentValue.body.innerHTML

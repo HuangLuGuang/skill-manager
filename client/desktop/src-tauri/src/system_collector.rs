@@ -22,6 +22,15 @@ fn cli(binary: &Path, args: &[&str]) -> Result<Value, String> {
 }
 
 fn shell_quote(value: &str) -> String { format!("'{}'", value.replace('\'', "'\\''")) }
+
+pub fn targets(home: &Path, binary: &Path, action: &str, selection: Option<Value>, custom: Option<String>) -> Result<Value, String> {
+    if !cfg!(target_os = "macos") { return Err("aidr_system_unsupported".into()); }
+    if !matches!(action, "targets" | "discover" | "select" | "add-program") { return Err("aidr_system_request_invalid".into()); }
+    let _guard = ACTION.try_lock().map_err(|_| "aidr_system_busy".to_string())?;
+    let selection = selection.unwrap_or(Value::Null).to_string();
+    let custom = custom.unwrap_or_default();
+    cli(binary, &["--action", action, "--home", &home.to_string_lossy(), "--selection", &selection, "--custom", &custom])
+}
 fn apple_quote(value: &str) -> String { format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\"")) }
 
 pub fn action(home: &Path, binary: &Path, resources: &Path, action: &str) -> Result<Value, String> {

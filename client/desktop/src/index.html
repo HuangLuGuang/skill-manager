@@ -278,12 +278,14 @@
               <section class="governance-host"><div id="aidr-host-claude-status"></div><div class="governance-host-actions">
                 <button type="button" class="primary" data-aidr-action="connect" data-aidr-agent="claude" data-i18n="ui.aidrDesktop.claude">接入 Claude</button>
                 <button type="button" data-aidr-action="upgrade" data-aidr-agent="claude" data-i18n="ui.aidrDesktop.upgrade_claude">更新 Claude 插件</button>
+                <button type="button" class="subtle-danger" data-aidr-action="disconnect" data-aidr-agent="claude" data-i18n="ui.aidrDesktop.remove_native_plugin" hidden>移除 Hook 插件</button>
                 <button type="button" data-aidr-action="authorize" data-aidr-agent="claude" data-i18n="ui.aidrDesktop.authorize_claude" hidden>授权 Claude 受管安装</button>
                 <button type="button" class="subtle-danger" data-aidr-action="remove-managed" data-aidr-agent="claude" data-i18n="ui.aidrDesktop.remove_managed_claude" hidden>移除 Claude 自有受管配置</button>
               </div></section>
               <section class="governance-host"><div id="aidr-host-codex-status"></div><div class="governance-host-actions">
                 <button type="button" class="primary" data-aidr-action="connect" data-aidr-agent="codex" data-i18n="ui.aidrDesktop.codex">接入 Codex</button>
                 <button type="button" data-aidr-action="upgrade" data-aidr-agent="codex" data-i18n="ui.aidrDesktop.upgrade_codex">更新 Codex 插件</button>
+                <button type="button" class="subtle-danger" data-aidr-action="disconnect" data-aidr-agent="codex" data-i18n="ui.aidrDesktop.remove_native_plugin" hidden>移除 Hook 插件</button>
                 <button type="button" data-aidr-action="authorize" data-aidr-agent="codex" data-i18n="ui.aidrDesktop.authorize_codex" hidden>授权 Codex 受管安装</button>
                 <button type="button" class="subtle-danger" data-aidr-action="remove-managed" data-aidr-agent="codex" data-i18n="ui.aidrDesktop.remove_managed_codex" hidden>移除 Codex 自有受管配置</button>
               </div></section>
@@ -305,11 +307,20 @@
             </div>
 </div>
         <section id="aidr-system-collection" role="tabpanel" aria-labelledby="governance-system-tab" hidden>
+          <div class="system-collection-scroll">
+          <p id="system-collection-error" class="inline-error" role="alert" hidden></p>
+          <section class="system-target-panel">
+            <header><div><h2 data-i18n="ui.systemTargets.title">选择要采集的 Agent</h2><p id="system-targets-description"></p></div><div class="system-target-heading-actions"><strong id="system-collection-state" aria-live="polite"></strong><button id="system-targets-discover" type="button" class="icon-button icon-refresh" data-i18n="ui.systemTargets.rediscover">重新发现</button><button id="system-collection-stop" type="button" data-i18n="ui.systemCollection.stop">停止采集</button></div></header>
+            <p id="system-targets-error" class="inline-error" role="alert" hidden></p>
+            <p id="system-targets-policy" class="governance-attention" hidden></p>
+            <div id="system-targets-list" aria-live="polite"></div>
+            <p id="system-targets-scope" class="system-target-note"></p>
+            <details class="system-custom-program"><summary data-i18n="ui.systemTargets.add">添加自定义程序</summary><label for="system-targets-custom" data-i18n="ui.systemTargets.path">程序完整路径</label><div><input id="system-targets-custom" type="text" maxlength="1023" placeholder="/Applications/Example.app/Contents/MacOS/Example"><button id="system-targets-add" type="button" data-i18n="ui.systemTargets.checkAdd">检查并添加</button></div></details>
+
+          </section>
+          <details class="governance-diagnostics system-collection-details"><summary data-i18n="ui.systemTargets.diagnostics">采集状态与诊断</summary>
           <div class="governance-system-layout">
           <aside class="governance-system-control">
-          <h2 data-i18n="ui.governanceDesign.control">采集控制</h2>
-          <div class="governance-receiver-controls"><strong id="system-collection-state" aria-live="polite"></strong><button id="system-collection-start" class="primary" type="button" data-i18n="ui.systemCollection.start">开始采集</button><button id="system-collection-stop" type="button" data-i18n="ui.systemCollection.stop">停止采集</button></div>
-          <p id="system-collection-error" class="inline-error" role="alert" hidden></p>
           <dl id="system-collection-overview" class="governance-system-overview" aria-live="polite"></dl>
           <details class="governance-diagnostics"><summary data-i18n="ui.governanceDesign.connectionDetails">连接与诊断</summary>
           <dl id="system-collection-summary" class="detail-list" aria-live="polite"></dl>
@@ -332,6 +343,9 @@
           </details>
           <p data-i18n="ui.systemCollection.retention">停止后保留未确认上传的记录，下次开始时补传。关闭窗口后仍继续采集，请使用“停止采集”结束。</p>
           </div></div>
+          </details>
+          </div>
+          <footer class="system-target-footer"><div><strong id="system-targets-count"></strong><p id="system-targets-next" class="system-target-note"></p></div><button id="system-collection-start" class="primary" type="button" data-i18n="ui.systemCollection.start">开始采集</button><button id="system-targets-apply" class="primary" type="button" data-i18n="ui.systemTargets.apply" hidden>应用修改</button></footer>
         </section>
           </section>
         <section id="settings" class="panel settings-panel">

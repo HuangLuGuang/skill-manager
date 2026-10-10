@@ -8,12 +8,14 @@ import (
 // AuditPolicy identifies a server-issued policy for one device collection stream.
 // Version zero is the initial fail-closed policy, not a server override.
 type AuditPolicy struct {
-	MessageSchema int             `json:"message_schema,omitempty"`
-	Version       string          `json:"version"`
-	Enabled       bool            `json:"enabled"`
-	Receipt       string          `json:"receipt"`
-	Capture       *CaptureScope   `json:"capture,omitempty"`
-	Lifecycle     *AuditLifecycle `json:"lifecycle,omitempty"`
+	SkillAudit         *SkillAuditPolicy `json:"skill_audit,omitempty"`
+	ModelContextSchema int               `json:"model_context_schema,omitempty"`
+	MessageSchema      int               `json:"message_schema,omitempty"`
+	Version            string            `json:"version"`
+	Enabled            bool              `json:"enabled"`
+	Receipt            string            `json:"receipt"`
+	Capture            *CaptureScope     `json:"capture,omitempty"`
+	Lifecycle          *AuditLifecycle   `json:"lifecycle,omitempty"`
 }
 
 type AuditLifecycle struct {
@@ -47,7 +49,10 @@ func (p AuditPolicy) ContentLimits() (int, int) {
 }
 
 func (p AuditPolicy) Equal(other AuditPolicy) bool {
-	if p.MessageSchema != other.MessageSchema || p.Version != other.Version || p.Enabled != other.Enabled || p.Receipt != other.Receipt {
+	if (p.SkillAudit == nil) != (other.SkillAudit == nil) || (p.SkillAudit != nil && *p.SkillAudit != *other.SkillAudit) {
+		return false
+	}
+	if p.ModelContextSchema != other.ModelContextSchema || p.MessageSchema != other.MessageSchema || p.Version != other.Version || p.Enabled != other.Enabled || p.Receipt != other.Receipt {
 		return false
 	}
 	if (p.Lifecycle == nil) != (other.Lifecycle == nil) || (p.Lifecycle != nil && *p.Lifecycle != *other.Lifecycle) {
@@ -65,8 +70,14 @@ var policyVersion = regexp.MustCompile(`^[1-9][0-9]{0,18}$`)
 var policyReceipt = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 func (p AuditPolicy) Valid() bool {
+	if p.SkillAudit != nil && (p.Version == "0" || !p.SkillAudit.Valid()) {
+		return false
+	}
 	fragment, event := p.ContentLimits()
 	if fragment < 256 || event < fragment || event > 32768 {
+		return false
+	}
+	if p.ModelContextSchema < 0 || p.ModelContextSchema > 1 || (p.ModelContextSchema == 1 && p.Version == "0") {
 		return false
 	}
 	if p.MessageSchema < 0 || p.MessageSchema > 1 || (p.MessageSchema == 1 && (p.Capture == nil || p.Version == "0")) {

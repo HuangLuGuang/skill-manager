@@ -1,6 +1,7 @@
 <template>
-  <div>
-    <a-card class="page-card">
+  <div :class="{ 'agent-workspace-page': workspaceAsset }">
+    <AgentDiscoveredWorkspace v-if="workspaceAsset" :key="workspaceAsset.asset_key" :asset="workspaceAsset" :initial-client="route.query.client" :initial-local-id="route.query.local" @back="closeWorkspace" />
+    <a-card v-else class="page-card">
       <template #title>
         <a-page-header :title="$t('legacy.5chjsa')" :sub-title="$t('agentAssets.subtitle')">
           <template #extra>
@@ -52,7 +53,7 @@
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'agent'">
               <div class="agent-cell">
-                <div class="agent-mark" :class="{ client: record.origin_type === 'client_discovery' }">{{ agentInitials(record) }}</div>
+                <div class="agent-mark" :class="{ client: record.origin_type === 'client_discovery' }"><AgentProductLogo v-if="record.origin_type === 'client_discovery'" :product-id="record.instances?.[0]?.agent_type || record.channel || ''" /><template v-else>{{ agentInitials(record) }}</template></div>
                 <div>
                   <div class="agent-name">{{ record.name }}</div>
                   <div v-if="record.origin_type === 'platform'" class="muted">{{ record.agent_id }}</div>
@@ -157,68 +158,6 @@
           </a-tabs>
         </template>
 
-        <template v-else>
-          <a-alert v-if="selectedAsset.client_status === 'not_detected'" type="info" show-icon :message="$t('agentAssets.notDetectedHint')" />
-          <a-row :gutter="[10, 10]" class="drawer-summary">
-            <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.clientStatus') }}</span><strong>{{ clientStatusText(selectedAsset.client_status) }}</strong></div></a-col>
-            <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.skillCount') }}</span><strong>{{ selectedAsset.client_status === 'not_detected' ? '—' : selectedAsset.discovered_skill_count }}</strong></div></a-col>
-            <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.currentModel') }}</span><strong>{{ currentModelText(selectedAsset) }}</strong></div></a-col>
-            <a-col :xs="12" :md="6"><div class="summary-card"><span>{{ $t('agentAssets.drawer.lastScan') }}</span><strong>{{ latestScanAt ? formatDateTime(latestScanAt) : '-' }}</strong></div></a-col>
-          </a-row>
-
-          <a-tabs v-model:activeKey="assetDetailTab">
-          <a-tab-pane key="overview" :tab="$t('agentAssets.drawer.overview')">
-            <section class="detail-section">
-              <h3>{{ $t('agentAssets.drawer.identity') }}</h3>
-              <a-alert type="info" :message="assetIdentityHint" />
-            </section>
-            <section class="detail-section">
-              <h3>{{ $t('agentAssets.drawer.basic') }}</h3>
-              <a-descriptions bordered size="small" :column="2">
-                <a-descriptions-item :label="$t('agentAssets.drawer.platformId')">{{ selectedAsset.agent_id }}</a-descriptions-item>
-                <a-descriptions-item :label="$t('agentAssets.drawer.localId')">{{ primaryInstance?.local_agent_id || '-' }}</a-descriptions-item>
-                <a-descriptions-item :label="$t('agentAssets.drawer.typeVersion')">{{ primaryInstance ? `${primaryInstance.agent_type} / ${primaryInstance.agent_version || '-'}` : selectedAsset.channel || '-' }}</a-descriptions-item>
-                <a-descriptions-item :label="$t('agentAssets.drawer.discoverySource')">{{ selectedAsset.origin_type === 'client_discovery' ? $t('agentAssets.drawer.clientReport') : $t('agentAssets.source.platform') }}</a-descriptions-item>
-                <a-descriptions-item :label="$t('agentAssets.drawer.client')">{{ primaryInstance?.client_name || '-' }}</a-descriptions-item>
-                <a-descriptions-item :label="$t('agentAssets.drawer.environment')">{{ primaryInstance ? `${primaryInstance.os} / ${primaryInstance.arch}` : '-' }}</a-descriptions-item>
-                <a-descriptions-item :label="$t('agentAssets.drawer.installPath')">{{ primaryInstance?.install_path || '-' }}</a-descriptions-item>
-                <a-descriptions-item :label="$t('agentAssets.drawer.skillsPath')">{{ primaryInstance?.skills_path || '-' }}</a-descriptions-item>
-              </a-descriptions>
-            </section>
-          </a-tab-pane>
-          <a-tab-pane key="skills" :tab="`${$t('agentAssets.drawer.skills')} (${detailSkills.length})`">
-            <a-table :data-source="detailSkills" :columns="skillColumns" row-key="key" size="small" :pagination="false">
-              <template #bodyCell="{ column, record }">
-                <template v-if="column.key === 'localStatus'"><a-tag>{{ $t('agentAssets.drawer.localInstalled') }}</a-tag></template>
-                <template v-else-if="column.key === 'certification'"><a-tag :color="record.signature ? 'green' : 'orange'">{{ record.signature ? record.status : $t('legacy.1rfhupd') }}</a-tag></template>
-                <template v-else-if="column.key === 'verifiedAt'">{{ record.verified_at ? formatDateTime(record.verified_at) : '-' }}</template>
-              </template>
-            </a-table>
-          </a-tab-pane>
-          <a-tab-pane key="model" :tab="$t('agentAssets.drawer.model')">
-            <a-descriptions bordered size="small" :column="2">
-              <a-descriptions-item :label="$t('agentAssets.drawer.modelStatus')">{{ modelConfigStatusText(primaryInstance?.model_config_status) }}</a-descriptions-item>
-              <a-descriptions-item :label="$t('agentAssets.drawer.currentModel')">{{ currentModelText(selectedAsset) }}</a-descriptions-item>
-              <a-descriptions-item :label="$t('agentAssets.drawer.gatewaySource')">{{ gatewaySourceText(selectedAsset) }}</a-descriptions-item>
-              <a-descriptions-item :label="$t('agentAssets.drawer.autoApply')">{{ primaryInstance?.capabilities?.model_config_auto_apply ? $t('agentAssets.drawer.supported') : $t('agentAssets.drawer.unsupported') }}</a-descriptions-item>
-              <a-descriptions-item :label="$t('agentAssets.drawer.credentialSource')">{{ credentialSourceText(selectedAsset) }}</a-descriptions-item>
-            </a-descriptions>
-          </a-tab-pane>
-          <a-tab-pane key="evidence" :tab="$t('agentAssets.drawer.evidence')">
-            <h3>{{ $t('agentAssets.drawer.evidenceTitle') }}</h3>
-            <a-timeline>
-              <a-timeline-item v-for="instance in selectedAsset.instances" :key="`${instance.client_id}:${instance.local_agent_id}:scan`">
-                <div>{{ $t('agentAssets.drawer.scannedAt') }}</div>
-                <div class="muted">{{ instance.client_name }} · {{ formatDateTime(instance.last_scanned_at) }}</div>
-              </a-timeline-item>
-              <a-timeline-item v-if="selectedAsset.origin_type === 'client_discovery'">
-                <div>{{ $t('agentAssets.drawer.discoveredAt') }}</div>
-                <div class="muted">{{ selectedAsset.created_at ? formatDateTime(selectedAsset.created_at) : '-' }}</div>
-              </a-timeline-item>
-            </a-timeline>
-          </a-tab-pane>
-          </a-tabs>
-        </template>
       </template>
     </a-drawer>
 
@@ -393,9 +332,11 @@ import { formatDateTime } from '../utils/format'
 import { can as hasAccess } from '../access'
 import { translateLegacy as phrase } from '../i18n'
 
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import AgentDiscoveredWorkspace from '../components/AgentDiscoveredWorkspace.vue'
+import AgentProductLogo from '../components/AgentProductLogo.vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 
 import {
@@ -411,8 +352,11 @@ import {
   updateAgent,
 } from '../api'
 
-const router = useRouter()
-const { t, te } = useI18n()
+const router = useRouter(), route = useRoute()
+const workspaceAsset = ref(null)
+const closeWorkspace = () => { workspaceAsset.value = null; const query = { ...route.query }; delete query.agent; delete query.client; delete query.local; router.replace({ query }) }
+
+const { t } = useI18n()
 const loading = ref(false)
 const submitting = ref(false)
 const agentVisible = ref(false)
@@ -424,6 +368,7 @@ const editingAgentId = ref(null)
 const editingOriginType = ref('platform')
 const createdDraft = ref(false)
 const agents = ref([])
+watch(() => [route.query.agent, agents.value], ([id, items]) => { workspaceAsset.value = items.find(item => item.origin_type === 'client_discovery' && item.agent_id === id) || null })
 const assetStats = reactive({ total: 0, platform: 0, client_discovery: 0 })
 const groups = ref([])
 const users = ref([])
@@ -457,19 +402,12 @@ const columns = computed(() => [
   { title: t('agentAssets.columns.lastSeen'), key: 'lastSeen', width: 170 },
   { title: t('agentAssets.columns.actions'), key: 'actions', width: 110, fixed: 'right' },
 ])
-const skillColumns = computed(() => [
-  { title: t('agentAssets.drawer.skill'), dataIndex: 'name', key: 'skill' },
-  { title: t('agentAssets.drawer.localStatus'), key: 'localStatus', width: 120 },
-  { title: t('agentAssets.drawer.certification'), key: 'certification', width: 140 },
-  { title: t('agentAssets.drawer.lastVerified'), key: 'verifiedAt', width: 180 },
-])
 const activeUsers = computed(() => users.value.filter(item => item.is_active !== false))
 const skillOptions = computed(() => skills.value.map((skill, index) => ({
   ...skill,
   value: uniqueOptionValue(skill, 'skill', index),
 })))
 const selectableModels = computed(() => agentForm.default_model_source === 'external_gateway' ? externalModels.value : models.value)
-const primaryInstance = computed(() => selectedAsset.value?.instances?.[0] || null)
 const platformSkills = computed(() => (selectedAsset.value?.skill_names || []).map((reference, index) => {
   const matched = skills.value.find(item => item.skill_id === reference || item.id === reference || item.name === reference)
   return {
@@ -479,20 +417,6 @@ const platformSkills = computed(() => (selectedAsset.value?.skill_names || []).m
     status: matched?.status || 'ASSIGNED',
   }
 }))
-const latestScanAt = computed(() => {
-  const values = (selectedAsset.value?.instances || []).map(item => item.last_scanned_at).filter(Boolean)
-  return values.sort().at(-1) || null
-})
-const detailSkills = computed(() => (selectedAsset.value?.instances || []).flatMap(instance =>
-  (instance.skills || []).map((skill, index) => ({
-    ...skill,
-    key: `${instance.client_id}:${instance.local_agent_id}:${skill.path || skill.name}:${index}`,
-    client_name: instance.client_name,
-  }))))
-const assetIdentityHint = computed(() => {
-  if (!selectedAsset.value) return ''
-  return t(selectedAsset.value.origin_type === 'client_discovery' ? 'agentAssets.drawer.managedClientHint' : 'agentAssets.drawer.platformHint')
-})
 const statusText = (status) => ({ active: phrase('legacy.5pm2ma'), disabled: phrase('legacy.1dcdrxo'), draft: phrase('legacy.oc54qp') }[status] || status)
 const statusColor = (status) => ({ active: 'green', disabled: 'red', draft: 'orange' }[status] || 'default')
 const tabLabel = (key, count) => `${t(`agentAssets.tabs.${key}`)} ${count}`
@@ -507,11 +431,6 @@ const ownerDepartmentText = record => {
   return names.length ? names.join(' / ') : t('agentAssets.ownerDepartmentMissing')
 }
 const skillStatusText = status => ({ APPROVED: phrase('legacy.10hmnl2'), DEPLOYED: phrase('legacy.1t00jqn'), ASSIGNED: t('agentAssets.drawer.assigned') }[status] || status)
-const modelConfigStatusText = status => {
-  if (!status) return t('agentAssets.drawer.notConfigured')
-  const key = `agentAssets.drawer.modelStatuses.${status}`
-  return te(key) ? t(key) : status
-}
 const agentInitials = record => String(record.channel || record.name || 'A').split(/\s+/).map(item => item[0]).join('').slice(0, 2).toUpperCase()
 const instanceLocation = record => {
   const instance = record.instances?.[0]
@@ -553,12 +472,6 @@ const gatewaySourceText = record => {
   if (record.default_model_source === 'external_gateway') return `${t('agentAssets.drawer.externalGateway')}${record.external_gateway_name ? ` · ${record.external_gateway_name}` : ''}`
   if (record.default_model) return t('agentAssets.drawer.builtInGateway')
   return t('agentAssets.drawer.localConfig')
-}
-const credentialSourceText = record => {
-  const source = String(reportedModelState(record).credential_source || '').toLowerCase()
-  if (source === 'external_gateway') return t('agentAssets.drawer.externalApiKey')
-  if (source === 'agent_runtime') return t('agentAssets.drawer.runtimeCredential')
-  return t('agentAssets.drawer.credentialUnknown')
 }
 const userOptionLabel = (user) => `${user.username}${user.email ? `（${user.email}）` : ''}`
 const uniqueOptionValue = (item, type, index) => `${type}:${item.skill_id || item.id || index}:${index}`
@@ -633,6 +546,7 @@ const resetFilters = async () => {
 }
 
 const openAsset = (record) => {
+  if (record.origin_type === 'client_discovery') { workspaceAsset.value = record; router.push({ query: { ...route.query, agent: record.agent_id } }); return }
   selectedAsset.value = record
   assetDetailTab.value = 'overview'
   assetVisible.value = true
@@ -786,6 +700,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.agent-workspace-page { height: 100%; min-height: 0; overflow: hidden; }
 .agent-name {
   font-weight: 600;
 }
@@ -852,6 +767,7 @@ onMounted(async () => {
 }
 
 .agent-mark.client {
+  padding: 6px;
   color: #137b73;
   background: #eaf8f5;
 }

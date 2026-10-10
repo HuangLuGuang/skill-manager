@@ -1,6 +1,6 @@
 """Transactional SQLite upgrade preserving P1 evidence and receipt identities."""
 from sqlalchemy import MetaData
-from sqlalchemy.schema import CreateTable
+from sqlalchemy.schema import CreateIndex, CreateTable
 
 
 def upgrade_aidr_schema(engine):
@@ -36,6 +36,13 @@ def upgrade_aidr_schema(engine):
                 conn.exec_driver_sql('ALTER TABLE aidr_policy_receipts ADD COLUMN capture_json TEXT')
             if receipt_columns and 'lifecycle_json' not in receipt_columns:
                 conn.exec_driver_sql('ALTER TABLE aidr_policy_receipts ADD COLUMN lifecycle_json TEXT')
+            if receipt_columns and 'skill_audit_json' not in receipt_columns:
+                conn.exec_driver_sql('ALTER TABLE aidr_policy_receipts ADD COLUMN skill_audit_json TEXT')
+            skill_columns = {r[1] for r in conn.exec_driver_sql('PRAGMA table_info("aidr_skill_uses")')}
+            if skill_columns:
+                if 'next_check_at' not in skill_columns:
+                    conn.exec_driver_sql("ALTER TABLE aidr_skill_uses ADD COLUMN next_check_at DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'")
+                conn.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_aidr_skill_due ON aidr_skill_uses(expired_at,next_check_at,id)')
             for name in ('aidr_events', 'aidr_hook_events', 'aidr_coverage_records', 'aidr_operations', 'aidr_runtime_records'):
                 columns = {r[1] for r in conn.exec_driver_sql(f'PRAGMA table_info("{name}")')}
                 if not columns:
@@ -73,12 +80,20 @@ def upgrade_aidr_schema(engine):
             for table in tables:
                 if conn.exec_driver_sql(f'PRAGMA foreign_key_check("{table.name}")').first():
                     raise RuntimeError("aidr_migration_reference_invalid")
-            from .aidr_operations import backfill_operations
+            from .aidr_operations import backfill_operations, repair_codex_session_projections
             backfill_operations(conn)
+            repair_codex_session_projections(conn)
             from .aidr_correlation import install_indexes
             install_indexes(conn)
-            from .aidr_models import SESSION_MESSAGE_INDEX
+            from .aidr_models import SESSION_MESSAGE_INDEX, SESSION_LIST_INDEXES
             SESSION_MESSAGE_INDEX.create(conn, checkfirst=True)
+            for index in SESSION_LIST_INDEXES:
+                # SQLite expression indexes are not reflected by SQLAlchemy.
+                conn.execute(CreateIndex(index, if_not_exists=True))
+            from .aidr_enforcement import RUNTIME_QUERY_INDEXES
+            if conn.exec_driver_sql('PRAGMA table_info("aidr_runtime_records")').first():
+                for index in RUNTIME_QUERY_INDEXES:
+                    conn.execute(CreateIndex(index, if_not_exists=True))
             conn.commit()
         except Exception:
             conn.rollback()

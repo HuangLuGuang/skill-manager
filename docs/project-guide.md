@@ -1,5 +1,19 @@
 # Agent Manager Project Guide
 
+## 插件后台巡检 / Background plugin inspection
+
+接收器和策略协调器的周期巡检读取本地插件配置、安装记录及产品文件，不启动 Codex / Claude。安装、升级、策略应用所需校验和手动诊断保留原生查询。本地配置启用、宿主授权、Hook 事件到达与日志采集进度分别核验；配置不可读保持未知。更新 Go 组件并重启客户端后生效，既有源码暂存副本不会自动删除。实现边界及双语人工验收清单见 [客户端说明](agent-manager-client.md#agent-小版本兼容与接入检查)。
+
+Periodic receiver and policy checks read local plugin settings, installation records and product files without launching Codex or Claude. Native queries remain for installation, upgrades, policy application and manual diagnostics. Configuration, authorization, Hook delivery and log collection progress remain separate evidence. Restart the client with the updated Go component to apply this change; existing staging copies are retained.
+
+## AIDR 在线帮助 / Online AIDR help
+
+平台帮助中心 `/docs` 的“运行审计与防护 · AIDR”提供六个双语专题：三种采集方式对比、平台操作、客户端接入、策略与审批、Skill 使用认证、诊断与性能。入口为 `/docs/aidr-overview`；可按章节搜索、向文档助手提问或导出 PDF，功能清单导出也包含 AIDR。
+
+在线正文维护在 [AIDR 帮助资源](../web/src/docs/aidr-guides.js)，截图位于 `web/public/docs/screenshots/{zh-CN,en-US}/aidr-*.png`。截图于 2026-10-10 直接取自已登录的本地平台完整页面及原生 macOS Dev 客户端，保留当时实际状态。截图中的停止、未知、待确认及历史事件按原样展示，不能推导正式发行或全部宿主控制已验收。采集来源、入口和文件摘要见 `web/public/docs/screenshots/aidr-captures.json`。
+
+The platform Help Center at `/docs/aidr-overview` contains six bilingual AIDR guides covering channel comparison, platform operations, desktop setup, policies and approvals, Skill-use certification, and diagnostics/performance. Navigation, search, assistant context, PDF chapters and the capability workbook share this content. Screenshots were captured on 2026-10-10 from authenticated local platform pages and the native macOS Dev client. They retain observed states, including stopped or unconfirmed states, rather than establishing production readiness or all-host enforcement. Capture provenance and asset hashes are recorded in `web/public/docs/screenshots/aidr-captures.json`.
+
 客户端接入后默认按策略自动启用 Agent 日志和普通插件 Hook，平台直接显示安装、授权、接收器及最近事件状态；已有全局/单机覆盖保持优先。系统采集仍单独启用。完整行为、授权边界和人工验收见[客户端说明](agent-manager-client.md#接入后自动采集与-hook-状态)。
 
 Client enrollment uses default policy-driven log and ordinary Hook collection, with separate installation, authorization, receiver and delivery status. Existing overrides take precedence; system collection remains separate.
@@ -416,7 +430,11 @@ flowchart TB
 
 客户端的 `agent-manager-client agent-log-read --agent claude|codex` 提供带覆盖状态和可续读游标的调用/结果元数据；`agent-log-collect` 将读取与游标原子保存至专用本地 SQLite，`agent-log-state` 查询状态、事件和待发批次。`aidr-sync` 显式运行读取、上报和心跳；管理台设备详情的“Agent 日志观察”优先展示合并后的操作意图、脱敏命令/明确目标与日志结果依据，支持会话等条件筛选；能力和覆盖诊断可展开，缺口醒目提示。进程关联保持未知。凭证绑定设备并具有 AIDR scopes，管理查询及启停沿用现有设备访问权限。接入步骤、macOS 实测范围和未完成验收见 [客户端日志说明](agent-manager-client.md#agent-日志平台接入p1-0305) 与 [P1 平台验收记录](../experiments/aidr-agentlog/PLATFORM_ACCEPTANCE.md)。
 
-平台 **设备详情 → 策略与审批 → 系统采集策略** 发布签名归属与控制策略；**行为审计 → 系统事件** 查看实际执行器版本和系统证据。桌面 **运行治理 → 系统采集** 提供开始/停止，无需终端：复用设备连接和平台目标，通过 macOS 管理员授权安装/更新组件并启动独立 root 采集进程，桌面保持普通用户权限。默认采集进程执行及文件变化通知，真实订阅成功才显示运行；完整磁盘访问权限独立授权。停止关闭订阅、回收进程、限时补传，剩余记录保留到下次开始。开发包仅在 SIP 已关闭时安装 ad-hoc ES 签名组件，未更新组件不重复签名；正式发布需要 Developer ID、Apple ES 授权和公证。客户端不修改 SIP。流程、故障说明和人工验收见 [macOS 执行器说明](../client/macos-enforcer/README.md) 与 [客户端说明](agent-manager-client.md#桌面系统采集2026-10-05)。
+平台 **设备详情 → 策略与审批 → 系统采集策略** 设置允许采集的 Agent 和对象选择方式，并展示设备发现结果；**行为审计 → 系统事件** 查看实际执行器版本和系统证据。桌面 **运行治理 → 系统采集** 自动发现程序，勾选安装入口后开始采集，无需终端：复用设备连接和平台目标，通过 macOS 管理员授权安装/更新组件并启动独立 root 采集进程，桌面保持普通用户权限。默认采集进程执行及文件变化通知，真实订阅成功才显示运行；完整磁盘访问权限独立授权。停止关闭订阅、回收进程、限时补传，剩余记录保留到下次开始。开发包仅在 SIP 已关闭时安装 ad-hoc ES 签名组件，未更新组件不重复签名；正式发布需要 Developer ID、Apple ES 授权和公证。客户端不修改 SIP。流程、故障说明和人工验收见 [macOS 执行器说明](../client/macos-enforcer/README.md) 与 [客户端说明](agent-manager-client.md#系统采集对象选择)。
+
+“客户端选择”允许终端用户从平台允许的 Codex、Claude Code、WorkBuddy 或自定义程序中勾选实际安装入口；“平台指定”要求每个指定产品至少选择一个可用入口。发现结果来自客户端的常见安装目录、运行中程序及手动添加路径；客户端核对原生可执行文件和代码签名，平台按设备凭据、配置版本、发现时效和允许范围校验选择，再签发原有格式的进程归属策略。程序路径收在详情中；原有签名规则、租约和历史入口保留在高级区域。平台保存要求与客户端开始采集是独立动作，发现可用、配置签发、执行器应用和真实事件分别核对。
+
+平台“刷新发现”发送发现请求，由运行中的新版桌面客户端轮询处理；页面保留上次报告时间。运行中的采集对象修改通过“应用修改”签发新版本，并等待执行器报告。范围收窄会从签名目标中移除不再允许的程序；关闭系统采集后执行器在下一次配置检查时停止。已有路径策略首次切换到选择配置前，应先完成设备发现。上线顺序为平台、客户端；启动时创建 `aidr_system_selections` 表，不改写已有系统策略。
 
 客户端另有开发阶段的 macOS 运行时只读入口 `agent-manager-client runtime-watch`：
 普通用户通过本地 Unix socket 接收单独启动的特权 ES 采集器事件及健康状态。
@@ -428,15 +446,53 @@ flowchart TB
 
 客户端默认策略和单机覆盖分别配置 Hook、系统防护的“仅审计 / 拦截”模式，支持恢复继承。新配置默认仅审计；存量未选择模式的策略保留原行为，旧客户端需升级后才能确认新模式。Agent 日志保持采集设置。平台目标与客户端实际模式分别显示，保存成功不代表已应用。
 
-“工具使用审批”配置 Agent 工具调用前的允许、拒绝和人工审批，Hook 拦截模式执行有效签名规则；“系统采集策略”配置 Agent 可执行文件及有效期，高级区域的文件访问规则在系统拦截模式执行。系统策略有效期作为设备认证租约：已认证设备由平台自动续签内容不变的新版本，修改采集目标或规则仍由管理员发布；自动续签进入操作审计，不混入管理员配置历史。运行中的系统采集器关闭旧订阅、补传后切换，实际 ES 心跳确认模式。仅审计保留采集、脱敏和上传，不执行阻断；采集故障不阻止正常工具操作。详见[客户端模式说明](agent-manager-client.md#仅审计与拦截模式)。系统事件默认展示命令与文件变化：有界原文 argv（8 KiB / 256 项）、执行目录、程序及 Agent 根路径、退出码/信号、进程存活时间、文件创建/修改/重命名/删除。详情按精确进程身份展示活动和可展开的归属链，原始 JSON 收在技术诊断。客户端自检单独标记筛选；历史缺失字段不补造。采集持续到停止或进程退出，续签独立于管理员配置版本，不影响正常编辑。已有根在下一次系统事件验证身份；页面明确显示策略覆盖范围。
+“工具使用审批”配置 Agent 工具调用前的允许、拒绝和人工审批，Hook 拦截模式执行签名规则；规则持续有效直到发布新版本，仅具体调用的单次审批保留超时。“系统采集策略”配置 Agent 可执行文件及有效期，高级区域的文件访问规则在系统拦截模式执行。系统策略有效期作为设备认证租约：已认证设备由平台自动续签内容不变的新版本，管理员发布采集范围和规则，允许客户端选择时由设备在该范围内提交安装入口并由平台签发；自动续签进入操作审计，不混入管理员配置历史。运行中的系统采集器关闭旧订阅、补传后切换，实际 ES 心跳确认模式。仅审计保留采集、脱敏和上传，不执行阻断；采集故障不阻止正常工具操作。详见[客户端模式说明](agent-manager-client.md#仅审计与拦截模式)。系统事件默认展示命令与文件变化：有界原文 argv（8 KiB / 256 项）、执行目录、程序及 Agent 根路径、退出码/信号、进程存活时间、文件创建/修改/重命名/删除。详情按精确进程身份展示活动和可展开的归属链，原始 JSON 收在技术诊断。客户端自检单独标记筛选；历史缺失字段不补造。采集持续到停止或进程退出，续签独立于管理员配置版本，不影响正常编辑。已有根在下一次系统事件验证身份；页面明确显示策略覆盖范围。
 
-工具操作是命令摘要：`[HEREDOC OMITTED]` 表示多行输入正文省略，`[BODY OMITTED]` 表示内联脚本或正文省略。摘要与正文分开保存。在“审计采集与脱敏”中开启“命令正文（脚本 / HereDoc）”后，更新后的客户端会采集日志或 Hook 已提供的 Shell 命令、内联脚本和包装代码；详情直接展示脱敏后的正文。有正文时页面不重复展示带占位符的命令摘要。未启用时仍仅保留摘要；已省略的历史正文无法恢复。
+工具操作是命令摘要：`[HEREDOC OMITTED]` 表示多行输入正文省略，`[BODY OMITTED]` 表示内联脚本或正文省略。摘要与正文分开保存。新平台的“命令正文（脚本 / HereDoc）”默认开启，已有策略保留原选择，可在“审计采集与脱敏”中修改。支持该能力的客户端采集日志或 Hook 已提供的 Shell 命令、内联脚本和包装代码，遵循现有脱敏与长度上限；详情直接展示正文，有正文时不重复展示带占位符的摘要。已省略的历史正文无法恢复。
+
+**English:** New installations enable command body capture by default. Existing policy choices are preserved. Capable clients capture available scripts and HereDocs under the configured redaction and byte limits; previously omitted bodies cannot be recovered.
 
 `aidr_enforcement_collection_only` 是系统采集器报告“仅采集、不执行控制”的诊断码，不代表故障。日常界面显示采集状态，原始代码收在“查看技术诊断”。工具审批列表只显示 Hook 拦截模式下需要人工决定的调用；一般工具操作记录在“行为审计”，不进入审批列表。
 
 人工检查：中英文页签切换；工具审批空列表与规则展开；系统采集策略发布入口、文件控制高级区和历史区；系统事件筛选和技术诊断；桌面事件归属与诊断展开后轮询保持。此轮不更改真实设备策略。
 
-规则编辑区提供“测试规则命中”：填写 Agent 与工具名称，或进程归属与文件绝对路径，点击“测试当前草稿”，查看各条规则的命中情况、未命中原因及模拟决定。测试使用未保存的草稿，不发布策略、不创建审批、不执行工具；修改草稿或输入会清除旧结果。Hook 复用服务端真实匹配逻辑（精确名称或独立 `*`，拒绝优先于审批和允许）。系统测试只做路径预匹配；实际设备还按文件身份匹配，因此硬链接等不同路径仍可能命中。预览假设策略有效且处于拦截模式，客户端实际模式及版本仍以回执为准。
+Agent 日志本地数据库默认配额为 1 GiB（1024 MiB）。平台持久化 ACK 校验通过后，客户端在同一事务中释放已确认的事件、关联证据和覆盖快照正文；保留去重 ID／摘要、来源与观测时间、ACK 水位及解析游标。启动时同样处理旧库已确认正文，未确认数据及冻结批次保持不变。已上传历史从平台查看，本地释放不改变平台保留期限；本地去重元数据按原保留窗口回收。配额仍约束数据库页，WAL 和 SHM 另占空间。
+
+**English:** The local Agent log database defaults to 1 GiB (1024 MiB). A validated durable platform ACK atomically releases confirmed event, evidence and coverage bodies while retaining deduplication IDs/digests, source and observation metadata, ACK watermarks and parser checkpoints. Startup also releases confirmed legacy bodies; pending records and frozen uploads remain intact. View uploaded history on the platform. Local release does not change platform retention; deduplication metadata follows its existing retention window. WAL and SHM consume space outside the database page quota.
+
+UI 验收 Todo（简体中文 / English）：在“采集状态”核对“已释放本地正文”的数量及说明；在“审计采集与脱敏”核对平台保留期限与本地 ACK 后释放的区别；确认已上传会话正文仍可从平台打开。
+
+规则编辑区按常用预设、当前规则和未命中处理组织；规则列表可直接调整 Agent 与处理方式。已发布信息以版本、发布人和时间展示，历史策略继续保存在后端。底栏“预览并发布”先核对草稿和默认处理，再提交签名策略。
+
+客户端管理页顶部的“全局工具规则”统一配置预设、自定义规则和未命中处理。平台启动时，若没有已发布的全局规则，自动创建版本 1：规则为空，未命中时允许，发布者为 `system`。重复启动不会追加版本；已有全局规则保持不变。管理员可预览影响的继承客户端数量及保持单独配置的数量，再发布新全局版本。未配置过工具规则的客户端默认继承；升级前已有设备签名规则的客户端保留单独配置。在客户端“工具与命令规则”中开启“继承全局工具规则”，预览并发布后改为跟随全局；关闭继承后可在当前规则基础上编辑并单独发布。单独配置整体替换全局规则，不合并两套规则。
+
+**English — initialization:** On startup, a platform without published global rules creates revision 1 with an empty rule list and an allow fallback, published by `system`. Subsequent restarts preserve existing revisions and client overrides. Administrators publish further changes as new revisions.
+
+全局规则版本、设备签名版本和客户端实际报告分别展示。全局发布只追加配置版本，不逐台签名、不扫描事件；设备下次请求控制快照时按自己的身份和递增版本签发，重复同步不重复生成版本。全局命令规则可先保存；未报告命令匹配能力的接收器暂不获得新签名，保留原本地策略，升级并提交近期能力报告后继续同步。离线客户端同样继续使用本地已验证策略，恢复连接后同步；发布不会改变 Hook 的仅审计/拦截模式。新全局版本尚未签发期间，平台不批准旧版本的待处理调用；已在设备签发并缓存的规则及许可按其原有有效性执行，离线撤销不是即时的。全局规则持续有效，直到新版本替换。
+
+**English:** Use **Clients → Global tool rules** for shared presets, custom rules and fallback handling. Clients without existing tool rules inherit by default; legacy device policies remain overrides. In a client's rule editor, review and publish the inheritance switch to follow global updates, or disable it to publish a complete local override. Global publication stores one revision; each device receives an individually signed, monotonic policy on its next control snapshot. Repeated synchronization is idempotent. Command rules wait for a recent capable receiver report; offline or incompatible receivers retain their verified local policy. Hook mode remains independent. Saved targets, issued device revisions and client-reported application are distinct. Pending calls under outdated global rules cannot receive new platform approval; offline cached authority is not instantly revoked.
+
+UI 验收 Todo（简体中文 / English）：从客户端列表打开全局规则；编辑预设、自定义命令和未命中处理；核对发布预览的继承/覆盖数量；取消预览不保存；已有客户端保持单独规则；开启继承、关闭继承和恢复继承后核对来源及签名版本；等待实际客户端回执；两窗口并发修改提示刷新；390px 窄屏检查抽屉、继承开关、规则编辑弹窗及底栏。后端隔离测试覆盖签名、幂等、恢复继承、权限、冲突与能力门槛，不代表真实宿主拦截验收。
+
+“测试规则命中”默认折叠，Hook 测试分为“命令”和“宿主工具名称”：命令框填写 `rm -rf ./example` 等内容，执行工具选择 Hook 实际报告的 `Bash`、`exec` 等名称；原生工具测试填写 `Read` 等工具名。模拟结果只显示本次最终处理，逐条命中原因在详情展开查看。系统测试填写进程归属和文件绝对路径。测试使用未保存的草稿，不发布策略、不创建审批、不执行工具；修改草稿或输入会清除旧结果。Hook 复用服务端真实匹配逻辑，拒绝优先于审批和允许。系统测试只做路径预匹配；实际设备还按文件身份匹配，因此硬链接等不同路径仍可能命中。预览假设策略有效且处于拦截模式，客户端实际模式及版本仍以回执为准。
+
+**English:** The editor groups presets, current rules and fallback handling. Agent scope and handling can be edited inline. Published metadata shows revision, author and time; historical policies remain stored. Review and publish opens a draft summary before submission. The collapsed tester separates command input from native tool names. Command tests use the selected shell tool reported by Hooks, while native-tool tests accept names such as Read. One simulated outcome is prominent; per-rule reasons are expandable.
+
+UI 验收 Todo（中英文）：检查预设/自定义编辑、行内修改、默认允许/拒绝说明；分别测试命令和宿主工具，展开未命中原因；修改输入后结果清除；预览发布后取消不保存；390px 窄屏检查表格卡片、编辑弹窗和底栏，确认所有操作可见。
+
+“工具与命令规则”提供递归删除、Git reset --hard、curl 管道运行脚本三个可编辑预设，也可添加自定义规则：命令名或可执行文件路径、必须包含/至少包含一个参数、目标绝对路径前缀、管道目标、Agent 和允许/审批/拒绝。参数每行一个，按完整参数匹配，短选项组 `-fr` 可匹配 `-r`。宿主工具名称规则继续精确匹配 `Bash`、`exec` 等；已有工具名 `rm` 的规则保留原语义，需要编辑为“命令及参数”才能匹配 Bash 内的 rm。“未命中规则时”选择拒绝仍拒绝所有未匹配工具；明确选择默认决定，先测试草稿，再发布签名策略。测试不执行命令、不创建审批、不改变真实设备策略。
+
+命令匹配支持有界的 Shell 字面量语法：引号、转义、多条命令和管道。`echo rm` 不匹配 rm；非允许规则匹配任一子命令，允许规则要求所有子命令及指定路径均匹配。目标路径按文本和 Hook 工作目录规范化，不证明文件身份或软链接目标。变量、替换、重定向、包装执行、缺失命令等无法可靠解析时，该条件不计为命中，继续判断其他规则；没有规则明确命中时，采用“未命中规则时”的允许、审批或拒绝设置，并保留解析不确定标记。因此默认允许也会放行无法解析的命令。仅审计继续执行。此功能不解释 Python/JavaScript 等任意脚本正文，也不等于完整 Shell 或 OS 行为控制。
+
+新版本接收器在调用前事件中保存控制决定，Hook 时间线对拒绝决定显示红色“已拦截 · 客户端控制决定”、拒绝原因和命中规则。这是客户端返回给宿主的控制决定，不是操作系统执行结果；宿主自身权限拒绝和缺失执行后事件保持各自证据含义。历史事件未记录控制决定时不补推断为已拦截。人工验收 Todo（中英文、窄屏）：检查拒绝卡片及长规则名换行、未命中默认允许的预览、普通缺失执行后事件不误标、仅审计不误标。
+
+命令规则采用签名策略 schema 3；原生工具规则继续使用 schema 2，旧安装标识和历史规则保留。发布新命令规则要求最近 90 秒的接收器报告声明 `command_rules_schema: 1`，否则提示升级且不发布。需先更新后端，再升级客户端/接收器。发布成功与设备已应用分别核对。审批沿用原始输入摘要、调用身份、策略版本和一次性授权；不为规则匹配增加原始命令上传。
+
+**English:** Tool and command rules offer editable recursive-delete, Git reset --hard and curl-to-shell presets plus custom executable, required/alternative arguments, target path prefix, pipeline target, Agent scope and decision. Native tool rules retain exact-name semantics. Preview only analyzes the draft. The literal shell subset handles quoting, escapes and multiple commands. Unresolved conditions are not matches; confirmed matches retain their precedence, otherwise the configured default applies, including allowing unresolved commands when default is allow. Audit mode continues. Paths are textual, not filesystem identity. Interpreter source code is outside this matcher. Command policies use signed schema 3 and require a fresh receiver capability report; native-only policies remain schema 2. Upgrade the backend and receiver before publishing. Matching does not expand raw-command collection. New pre-tool events persist the client control decision; rejected calls show a red Blocked label, reason and matched rule. This is not an OS execution receipt. Historical missing decisions are not inferred. Check these states in both languages and at narrow widths.
+
+人工验收清单 / Manual UI checklist（简体中文与英文均检查）：预设编辑、自定义参数与路径、重复 ID 提示、修改后旧预览清除、`echo rm` 不命中与 `rm -rf` 命中、未命中默认决定、只读权限、390px 窄屏弹窗/表格及底部操作。真实宿主验收需在隔离目录发布专用测试规则，核对接收器 schema 3 回执、原生 Hook、平台审批、一次性批准消费及恢复原策略；单元测试和网页预览不代替此验收。
+
+客户端策略弹窗的正文使用单一滚动区域，底栏根据按钮换行自动预留空间。“接入与运行”的预览、返回和确认操作，以及“审计采集与脱敏”的保存操作均固定在底部。审计策略有有效修改后才能保存；点击保存仍需核对变更并按需确认采集风险，提交期间禁止重复保存、切换页签和关闭弹窗。人工检查全局与单机策略、预览返回、审计保存确认和取消及中英文窄屏，确认操作始终可见且不误保存。/ Client policy dialogs use one scrolling body and reserve the actual footer height when buttons wrap. Integration preview/back/confirmation and audit-policy saving stay in the footer. Audit saving requires valid changes and opens the existing change review and any required collection acknowledgement. Submission disables duplicate saves, tab switching and closing. Manually check global/device policies, preview/back, audit review/cancellation and narrow Chinese/English layouts.
 
 **English:** Test rule matching evaluates the unsaved draft against an Agent/tool or attributed process/file path. Results show every rule's match, reason and simulated decision. Testing publishes nothing, creates no approval and executes no tool. Editing inputs clears previous results. Hook previews reuse the server's matcher; system previews compare paths only, while devices also match file identity. Previews assume an effective policy in Intercept mode; verify actual client mode and revision separately.
 
@@ -444,9 +500,29 @@ flowchart TB
 
 ### 按会话查看行为审计
 
+会话列表默认通过元数据索引汇总当前设备的日志、消息和 Hook 数量，分页后只查找当前页会话的首条有效提问，避免为展示 20 个会话读取全部历史工具正文。关键词搜索仍按原有正文权限查询，保留完整会话计数；分页快照上限、过期过滤及正文访问审计保持有效。升级时自动添加索引，首次建索引耗时随历史数据量增长，不重写事件或清空队列。
+
+**English:** The default session list aggregates device metadata through indexes and resolves the first available question only for sessions on the selected page. Keyword searches retain content permissions and full-session counts. Snapshot ceilings, retention filters and content access auditing remain in effect. Upgrades add indexes once; index creation time depends on history size and does not rewrite events or clear queues.
+
+性能人工验收 / Performance checks：首次打开行为审计、刷新会话、Agent 筛选、提问关键词搜索、更多会话；核对加载提示、标题与各来源数量，并确认翻页期间新收到的提问不会混入旧快照。Check initial loading, refresh, Agent filtering, question search and pagination, including loading feedback, titles, counts and snapshot isolation.
+
+行为审计使用各子页面自己的刷新入口；会话左侧“刷新”更新会话列表、轮次及当前时间线。设备数据刷新在概览等设备信息页面使用。人工验收：切换会话活动、系统事件和采集状态，确认顶部不显示设备刷新按钮，且各自刷新正常；切回概览确认设备刷新仍可用。中英文均需检查。
+
+**English:** Behavior audit uses each subpage's own refresh control. Refresh beside Sessions reloads the session list, turns and current timeline. Device refresh remains available in device information views such as Overview. Manual checks: switch between Session activity, System events and Collection status, verify no device refresh button appears in the header and each local refresh works; return to Overview and verify device refresh remains available. Check both languages.
+
+会话日志的工具结果有明确退出码时显示“命令退出码 {code}”；没有退出码但日志明确标记失败时显示“工具调用失败（日志记录）”。该状态描述工具执行结果，采集和上传故障在采集状态中查看。缺少调用、缺少结果及结果未确认继续保留各自状态。
+
+**English:** Session log tool results show “Command exit code {code}” when the recorded outcome has an explicit exit code, or “Tool call failed (log record)” for an explicit failure without one. These describe tool execution; collection and upload health is shown under Collection status. Missing calls, missing results and unconfirmed results retain their distinct labels.
+
+人工验收 / Manual checks：在中英文会话日志中检查退出码 0、非零退出码、无退出码的明确失败、缺少调用和结果未确认；确认退出码不重复展示、Hook 结果仍按宿主报告显示，并检查窄屏标签换行。Check these cases in both languages, including narrow-screen wrapping and unchanged host-reported Hook results.
+
 客户端详情的 **行为审计 → 会话活动** 按“客户端、Agent、会话 ID”汇总入口，分别显示消息数、工具操作数和 Hook 原始事件数。会话列表显示最近活动时间和短 ID；有审计正文权限且已采集提问时，使用首条有正文提问的前 160 个字符作为标题。未采集问题时显示 Agent、时间与短 ID。可按 Agent、会话 ID 筛选，有正文权限时也可搜索已采集的问题；没有会话 ID 的操作以独立记录展示。系统事件和采集状态保留独立入口。
 
-会话内使用窄刻度导航轮次。悬停或键盘聚焦显示问题、时间及两种来源的数量；点击立即筛选本轮，选择导航中的“全部轮次”显示整个会话的连续记录。上下方向键移动刻度焦点，Enter 选择。窄屏使用轮次下拉列表。轮次超过一页时点击“更多轮次”。原生轮次 ID 相同的记录按轮次组织，日志与 Hook 保留各自来源；同 ID 下收到多条用户提交时保留全部 Hook 记录并提示数量，问题区显示首条提交。缺少轮次 ID 的用户提交独立展示，其余缺少轮次 ID 的记录进入“未归属轮次”，不按相邻时间推断归属。轮次显示序号仅用于当前会话导航，不是原生轮次 ID。
+会话内使用窄刻度导航轮次。悬停或键盘聚焦显示问题、时间及两种来源的数量；点击立即筛选本轮，选中轮次自动定位。可滚动时显示上下翻动按钮和边缘渐隐，底部显示当前位置与总轮次数。上下方向键移动刻度焦点，Enter 选择。窄屏使用轮次下拉列表。轮次超过一页时点击“更多轮次”。原生轮次 ID 相同的记录按轮次组织，日志与 Hook 保留各自来源；同 ID 下收到多条用户提交时保留全部 Hook 记录并提示数量，问题区显示首条提交。缺少轮次 ID 的用户提交独立展示，其余缺少轮次 ID 的记录进入“未归属轮次”，不按相邻时间推断归属。轮次显示序号仅用于当前会话导航，不是原生轮次 ID。
+
+**English:** The turn rail reveals the selected turn, shows scroll arrows and edge fades when more turns are outside the viewport, and displays the current position and total. Narrow screens retain a turn selector.
+
+人工验收 / Manual checks：少量及 50+ 轮次、选择首尾轮次、上下翻动与键盘导航、切换会话后定位、中英文及窄屏；检查新策略默认命令正文开启、显式关闭后保持关闭、新记录遵循脱敏与长度上限。
 
 选择会话时清除上一会话的时间线搜索；若当前来源没有记录而另一来源有记录，自动展示有记录的来源。轮次已完整加载时，优先定位当前来源最近有记录且具有轮次 ID 的轮次；轮次尚有下一页或只有未归属记录时，显示全部轮次。手动切换来源保持当前轮次与搜索，刷新保留当前选择。本轮为空但会话其他轮次有记录时，明确提示并提供“全部轮次”入口。只有 Hook 的会话显示来源覆盖说明；采集器在线不代表每个会话都有本地日志。
 
@@ -458,10 +534,33 @@ flowchart TB
 
 受影响 UI：客户端详情的行为审计入口、会话列表、日志/Hook 时间线、展开详情，以及日志/Hook 独立详情弹窗中的正文展示。
 
+“仅收到 Hook”显示为会话标题旁的灰色状态标签。采集来源与覆盖范围说明统一放在标题的信息按钮内；下方工具栏展示来源切换和搜索。English: “Hooks only” is a neutral status badge beside the session title. Collection-source and coverage explanations are available from the title's information button; the toolbar contains source switching and search.
+
+会话筛选将 Qoder 合并为一个选项，包含 CLI、共享 Hook、IDE 和 Work 入口；记录仍保留各入口身份，不合并同名会话。会话标题下显示主会话 Hook 最近明确报告的模型、工作目录及工作区；悬停可查看报告时间和事件 ID，事件详情保留各次报告。未报告的字段不展示，不从默认模型配置或工具工作目录推断；历史记录不会补造字段。元数据沿用脱敏策略。最近报告只代表该次宿主报告，不证明后续每次模型请求使用相同模型。
+
+**English:** The Qoder session filter includes CLI, shared Hook, IDE and Work entries while preserving separate entry/session identities. The session header shows the latest explicitly reported main-session Hook model, working directory and workspace roots. Hover for the report time and event ID; event details retain each report. Missing fields remain absent, with no configuration-based inference or historical backfill. Metadata follows audit redaction. A host model report does not establish the model used by every subsequent request.
+
 **English:** Selecting another session clears the timeline search and switches to the other source if only that source has records. When all turns are loaded, the latest turn with a native turn ID and records from the selected source is selected. With more turn pages or only unassigned records, all turns remain visible. Manual source changes and refresh retain the selection. An empty turn offers All turns when the session contains other records. Hook-only sessions explain that collector health does not establish session-log coverage.
+
+轮次标题旁显示该轮主 Agent 的“Hook 模型”。仅关联同一设备、产品、会话和原生轮次 ID 的明确报告；无原生轮次 ID 的提问只使用自身报告，不关联相邻事件。同一轮重复模型去重，报告过多个模型则并列展示，悬停可查看最近对应事件时间和 ID。缺少报告时不显示，保留顶部“Hook 最近报告”的会话范围语义。
+
+**English — turn models:** The turn heading shows explicit main-agent Hook model reports for that native turn. A prompt without a native turn ID uses only its own report. Duplicate model names are collapsed; multiple reported models are listed with their latest event provenance on hover. Missing reports remain absent, independently of the session-wide latest report.
+
+**Agent 日志模型信息：** 会话标题下的“Agent 日志最近报告”展示最新采集记录中的模型、供应商标识和推理设置；有原生轮次 ID 时，同一轮的不同模型配置也展示在轮次标题旁。悬停可查看记录时间、字段来源及事件 ID。Codex 读取 `session_meta.model_provider` 与 `turn_context.model/effort/summary`；Claude Code、Qoder CLI 读取助手消息的 `message.model`；WorkBuddy 读取记录自身的 `providerData.model`；OpenCode 从同一消息 ID 的快照读取 `modelID/providerID`。供应商标识可能是用户配置的别名；日志未提供的字段不推断，设置不等同于最终上游请求参数。
+
+只采集这些有界元数据，不读取 API Key、认证文件或完整模型配置。新增元数据通过协议协商接入原有队列和 ACK 链路；已有历史事件保持不变。升级时仅从原文件首条会话记录及游标前最多 1 MiB 的记录恢复身份匹配的上下文，不移动游标或重放事件；超出范围、尚未记录或无法可靠归属的模型继续留空。查询使用设备、产品、会话的局部索引，只返回模型元数据，不读取正文。
+
+**English — Agent log models:** The session header shows the latest collected log's model, provider ID and available reasoning settings. Native turn IDs associate distinct model configurations with their own turns; hover reveals event provenance. Provider IDs may be local aliases. Missing fields stay absent and recorded settings do not establish the final upstream request. Credentials and full configuration files are not collected. Metadata uses negotiated protocol support and the existing durable queue/ACK path. Existing history is unchanged; bounded identity-matched context recovery does not move cursors or replay events.
+
+模型信息 UI 人工验收：中英文分别检查会话元信息、轮次模型及悬停来源；切换模型后旧轮次保持原值；缺少日志模型的会话不借用 Hook 或本机默认配置；检查长模型名、供应商别名与窄屏换行。真实新会话应核对日志字段 → 本地队列 → 上传 ACK → 平台记录 → 页面，历史样本解析不替代新调用验收。
 
 人工验收 Todo（未新增 UI 单元测试）：
 
+- [ ] 切换轮次、来源和会话，核对模型仅属于当前轮；检查同轮多模型、无模型报告、长模型名及中英文窄屏换行。/ Verify turn-local models, multiple models, absent reports and long names in both languages and narrow layouts.
+
+- [ ] 中英文检查仅有 Hook 的会话：标题状态标签与 Tab 明显区分，信息按钮能用键盘查看来源说明；切换到有日志的会话时标签消失。English: verify the header badge, keyboard-accessible source information and badge removal when selecting a session with logs.
+- [ ] 中英文检查模型、工作目录、长路径和多工作区；核对悬停来源与事件详情一致，切换会话无旧值残留。English: check metadata, long paths, workspace roots and report provenance; switching sessions must clear previous values.
+- [ ] Qoder 下拉选项只有一个，选择后包含各入口；翻页、搜索和时间线仍使用原始入口身份。English: one Qoder option includes all entries; pagination, search and timeline retain native entry identities.
 - [ ] 在同一会话切换两种来源，核对各自数量、时间与记录内容；只存在单一来源时检查空状态和跳转。
 - [ ] 打开仅有 Hook 的会话，确认自动显示 Hook 及日志覆盖说明；打开普通会话，确认定位最近有记录的轮次。手动选择空轮次时，提示本轮为空且能查看全部轮次，不误报整个会话为空。
 - [ ] 搜索会话 ID、工具、命令、目标与 Hook 名称；快速修改搜索、切换会话及客户端，确认旧请求不覆盖新结果。
@@ -495,6 +594,10 @@ Upgrade creates a partial index for non-expired session messages, avoiding scans
 
 “全部 Agent”下拉列表包含当前配置及有效历史记录中的归属程序，选项列出完整路径以区分不同安装位置。按事件上报的 `root_path` 在服务端精确筛选，子进程归入其 Agent 根程序；翻页、事件类型切换及自检开关继续保留该筛选。缺少归属路径的旧事件仍可在“全部 Agent”查看。Agent 筛选覆盖所有有效历史记录，而文本搜索仅筛选当前页。
 
+macOS 事件的 Agent 名称优先取归属路径中的 `.app` 应用名，例如 `WorkBuddy.app/Contents/MacOS/Electron` 显示为 WorkBuddy；进程名和完整程序路径仍保留原始值。历史 Agent 列表通过路径索引查询；详情按客户端、采集器、启动标识及完整进程实例身份检索，以数值序号顺序返回最近 200 条有效事件。会话轮次使用会话范围索引，保留原有快照游标、轮次归属和正文权限。升级会为已有数据建立索引，首次建立耗时取决于历史数据量。
+
+**English:** Agent names for macOS events use the application name from the attributed `.app` path, so `WorkBuddy.app/Contents/MacOS/Electron` appears as WorkBuddy. Original process names and executable paths remain available. Indexed historical roots populate the Agent selector. Details retrieve the latest 200 retained events by client, collector, boot and full process identity, ordered by numeric sequence. Session turns use session-scoped indexes with existing snapshot cursors, attribution and content permissions. Upgrade builds the indexes for existing data; initial build time depends on history size.
+
 搜索只筛选本页已加载记录；页脚分别显示可见项目数和本页原始记录数。网络项目继续按同一进程实例和套接字观察标识汇总，本页多次观察可在详情追溯；显示的是采样时状态，不能据此判断 HTTP 请求成功。退出码使用单独的结果标签，网络或文件详情中的关联退出结果明确标为所属进程的结果。
 
 **English:** System events uses a compact activity list with immediate type filters. Authorization, policy, response and health records are available under More types. Open a row for full arguments, working directory, process attribution, related activity and collapsible diagnostics. Collection details contains status, report time, revisions, configured coverage, network sampling limits and setup instructions. Navigation and filters stay fixed while the list scrolls. Search applies only to the loaded page; the footer distinguishes visible items from raw records. Network observations retain their exact process/socket grouping and traceability. Sampled TCP state does not confirm an HTTP outcome; related exit results are labelled as process results.
@@ -507,6 +610,7 @@ The Agent selector includes configured and historically observed root executable
 
 - 中英文及窄屏下检查长命令、长路径、IPv6 的换行，事件列表、筛选和详情没有横向溢出。
 - 切换 Agent 后检查后续分页、子进程归属及类型筛选；恢复全部 Agent 后可查看无归属路径的旧事件。
+- 核对 WorkBuddy 等 `.app` 根程序在列表、Agent 筛选和详情中的名称；子进程按根程序显示所属应用，原始 Electron 进程名和路径可追溯。中英文及窄屏下复查。
 - 首次进入及刷新会话活动，确认加载指示出现、阶段更新并在成功或失败后结束；检查采集状态中各品牌 Logo 的加载、列表与详情一致性。
 - 滚动事件列表、多次切换三个审计页签，确认顶部位置稳定；类型切换、搜索清空、自检开关及最近/更早记录即时生效。
 - 打开进程、文件、网络事件，核对完整操作、结果、关联活动和原始记录；网络重复观察可逐条打开。
@@ -516,21 +620,54 @@ The Agent selector includes configured and historically observed root executable
 
 **English:** Session activity, System events and Collection status share the same fixed-height audit layout, device header, drawer padding and tab spacing. Switching views keeps the tabs in place. System events scroll within their content area while navigation remains fixed.
 
-客户端详情的 **插件接入** 使用产品列表与详情双栏。左侧按品牌选择 Claude Code、Codex、WorkBuddy、Qoder、Cursor；Qoder 内部切换共享 Hook 和 Work，操作仍使用各入口的适配 ID。顶部页签及操作栏固定，左右内容区独立滚动；窄屏将产品列表变为横向选择条。
+客户端详情的 **插件接入** 使用产品列表与详情双栏。左侧按品牌选择 Claude Code、Codex、WorkBuddy、Qoder、Cursor；Qoder 优先选择本机已发现的入口，需要时在详情下拉框切换共享 Hook 或 Work，操作仍使用各入口的适配 ID。顶部页签及操作栏固定，左右内容区独立滚动；窄屏将产品列表变为横向选择条。
 
-详情分别展示插件安装、宿主授权、宿主启用和近 15 分钟事件到达。各项使用自己的报告，不把前一步成功当作后一步完成。已收到事件时仍展示未知授权；过期报告不继续显示当前安装成功。主操作按当前状态引导配置策略、安装、发现与自检、查看本机授权指引或查看采集状态。版本、能力目录、诊断与接入任务默认折叠；更新插件位于“产品能力与版本”。实际授权由目标设备完成。
+客户端详情的 **概览** 默认统计 Hook，可切换 Agent 日志、Agent 产品和最近 24 小时 / 7 天 / 30 天。Qoder 在筛选中统一为一个产品。命令调用、工具调用、活跃会话、宿主报告失败支持下钻；趋势按小时聚合显示，长时间范围合并时间柱，命令 / 工具 Top 5 和 Agent 分布可点击查看对应操作。查看原记录时沿用审计正文权限；会话项跳转行为审计并带入来源、产品及会话 ID。
+
+统计按所选来源独立计算，不跨 Hook / 日志相加。工具前后事件只按可靠原生调用身份合并；调用前事件表示尝试，未知结果不算成功。命令调用是包含已识别终端动作的宿主调用，一个包装调用包含多条命令仍只计一次；简单命令按主程序归类，复杂脚本归为单独类别，不聚合参数和正文。缺少可靠身份、缺少调用起点或存在歧义的工具事件单列未计入数量。活跃会话按设备、来源、用户、原生产品及会话标识去重，无会话 ID 的记录不计入。Hook 使用本地接收时间，日志使用来源时间；当前小时未结束且存在后台处理延迟，界面展示更新时间。首次回填显示 loading，统计超过一分钟未更新时明确提示延迟。
+
+资产和接入情况用紧凑入口展示，采集健康独立保留 Hook、日志、系统三通道的报告时间，不受统计筛选影响。“需要处理”展示当前来源问题、进行中任务和近 7 天尚未解决的失败；相同目标后续成功、明确被替代的任务移入“任务记录”。旧策略失败只有在新策略成功任务与新鲜的当前有效策略回执一致时才归为历史；模型检查等不同目标不据此恢复。任务记录按需分页，保留原始结果与错误码。审批数量仍仅指近期读取的申请。
+
+新版日志采集器区分历史文件缺失、未读或进度未知文件缺失、目录缺失。已读至最后观察位置的历史缺失文件放在“日志来源详情”，不作为当前采集故障；不能据此保证文件消失前没有追加未观察内容。旧客户端未上报分类时保留“缺失范围未确认”，不擅自判定已恢复。
+
+**统计实现与性能：** `backend/aidr_overview.py` 在后台每批最多处理两种来源各 250 条，持久化水位、轻量事件投影、调用投影与小时桶；积压时分批继续，无积压时每 5 秒检查。首次部署自动建表并回填，GET 请求不启动回填、不解析历史正文。结果迟到与多条调用起点会重新核对原调用，保留期清理同步移除对应投影并修正统计。多 worker 通过 SQLite 写事务串行推进水位；原始事件、ACK、客户端游标和队列保持现有机制。查询按设备 / 来源 / 时间索引读取小时摘要；会话去重读取轻量投影。设备权限先于缓存检查，进程内 128 项、5 秒缓存包含完整筛选范围。缓存命中不表示采集链路健康；状态接口与统计独立加载，任务详情、正文及更多记录按需读取。
+
+当前小时从有索引的调用投影按截止时间统计，已结束的小时读取汇总桶，避免客户端时钟偏快时提前计入未来记录，确保指标与明细采用相同时间范围。
+
+**English — overview:** Hook is the default statistics source; select Agent logs, product (one Qoder option) and 24 hours / 7 days / 30 days. Metrics, time bars and Top 5 rankings open matching records. Sources are counted independently; terminal actions inside a wrapper count as one host invocation, not individual shell statements. Pre-events show attempts, and only explicit results count as failures. Missing or ambiguous call identities are excluded and disclosed. Raw-record content retains existing access checks. Active sessions require a native session ID. Reports and statistics show independent timestamps; initial aggregation and delayed updates are visible. The open hour uses indexed operations up to the same cutoff as drilldown; completed hours use pre-aggregated buckets, so future-dated client records are not counted early.
+
+Current issues are separated from task history. Exact-target later successes and current-policy success receipts can resolve older task failures; unrelated checks cannot. Historical missing files read to the last observed offset are informational; unread files and missing directories remain actionable. Older clients keep an unconfirmed missing-scope message. A bounded background worker maintains metadata projections and hourly buckets; page reads never backfill or parse historical bodies. Retention and late results reconcile counters. SQLite transactions serialize workers; a scoped, short-lived cache reduces repeated queries.
+
+**Agent 与 Skill** 分为资产清单、任务记录、治理记录和待恢复副本。资产清单中的 Agent 与共享 Skill 目录分别选择；展开资产查看 Skill，模型配置、验证和恢复操作位于“更多操作”。**插件接入** 顶部“刷新插件状态”读取平台已有报告；“重新检查接入”是单独的客户端任务，在报告缺失、延迟时突出显示，也可从技术诊断中执行。接入配置与最近事件分开显示。
+
+**English:** Pending approval counts cover recently fetched requests only. Agents and Skills separates inventory, tasks, governance history and recovery copies; shared directories are a separate asset category. Model actions are under More actions. Plugin access reads reports through Refresh plugin status; Recheck integration runs a separate client task. Integration configuration and latest event arrival are shown separately.
+
+人工验收 Todo / Manual checks（不新增 UI 单元测试）：
+
+- 中文/英文检查概览：默认 Hook；切换来源、Agent、24 小时 / 7 天 / 30 天立即生效；快速切换不回写旧响应；首次加载、空数据、失败重试和更新延迟状态明确。/ Check defaults, immediate filtering, stale-response protection, loading, empty, error and delayed states.
+- 点击四个指标、时间柱、三种排名；更多记录分页不重复；原记录正文权限与会话跳转正确。/ Check metric/bar/ranking drilldowns, pagination, content permissions and session navigation.
+- 验证历史已读文件缺失仅出现在来源详情，未读 / 未知和目录缺失仍有处理入口；旧客户端报告不冒充分类结果。/ Check missing-source classification and old-client behavior.
+- 核对相同目标重试成功后移出关注区、不同目标失败保留，任务记录仍有失败原文；7 天之前记录只在历史中查看。/ Check exact-target recovery and historical records.
+- 检查窄屏、长工具名 / 路径及中英文图表标签；无 UI 单元测试，按真实页面人工验收。/ Check narrow layouts, long labels and both languages.
+- 切换资产类别与四个子视图，验证 Skill 展开、分页、共享目录限制，以及“更多操作”中的权限和禁用状态。/ Check asset categories, all four views, pagination, Skill expansion and permitted actions.
+- 插件页检查单一刷新入口、无事件/已收到事件/报告过期状态；390px 窄屏检查换行和表格内部横向滚动。真实下发、验证、恢复与安装操作须在授权测试设备上另行验收。/ Check refresh scope, delivery and stale states, and narrow layouts; accept mutating operations separately on an authorized test device.
+
+详情紧凑展示安装、授权、启用、版本和最近检查时间。报告过期时明确标注“状态更新延迟”，以历史样式展示上次检查结果；最近事件取该设备该产品尚在保留期内的最新记录，不随 15 分钟静默窗口消失。“查看 Hook 事件”打开同一客户端的会话活动并按产品筛选，Qoder 覆盖所属入口。共享接收器旁只保留一个采集状态入口。技术诊断仅包含当前入口报告、检查与更新操作，客户端升级说明仅在报告表明需要升级时展示。实际授权由目标设备完成。
+
+主页面只显示当前入口进行中的任务及最新失败任务（明确被替代的任务除外）。技术诊断的“操作记录”显示设备最近 20 条接入任务中属于当前入口的记录，历史成功记录保留可查。取消与重试沿用现有任务状态限制。
 
 页面可见且没有待处理任务时每 15 秒只读刷新；任务期间沿用原有 5 秒轮询及 2 分钟自动轮询上限，保留手动刷新。离开页面后停止普通状态定时刷新。设备接收器状态单独展示，不据此认定某产品已经接入。安装、更新、自检和任务重试沿用现有幂等任务接口及权限校验。
 
-**English:** Plugin access uses a product rail and an independently scrolling inspector. Qoder has one product with separate shared-Hook and Work entries. Installation, authorization, enablement and event delivery remain separate observations. The next action follows the reported state; capabilities, diagnostics and tasks are collapsed. Local authorization stays on the target device. Visible idle pages refresh every 15 seconds; active tasks retain the existing bounded polling and manual refresh flow.
+**English:** Plugin access uses a product rail and an independently scrolling inspector. Qoder defaults to a locally detected entry, with a compact entry selector. Installation, authorization and enablement are separate observations; stale checks are explicitly historical. The latest retained event remains visible after inactivity. View Hook events opens session activity filtered to the product. Diagnostics show only the selected entry; upgrade guidance appears when required. Active tasks and the latest unresolved failure appear inline; operation history contains this entry’s records among the device’s latest 20 integration tasks. Local authorization stays on the target device. Visible idle pages refresh every 15 seconds; active tasks retain bounded polling and manual refresh.
 
 插件接入人工验收清单（不新增 UI 单元测试）：
 
 - 切换全部产品与 Qoder 两个入口，核对标题、状态、版本和操作对应当前入口。
-- 展开能力、诊断及任务记录，滚动长内容，确认主导航与产品列表不移动；检查中文、英文和 390px 窄屏。
+- 展开诊断及操作记录，确认只有当前入口的数据；检查中文、英文、长版本号和 390px 窄屏。/ Verify entry-scoped diagnostics and history in both languages and at 390px.
 - 分别用真实设备状态检查：未安装、宿主未发现、待授权、未启用、已收到事件、无新事件和过期报告；未知状态应保持未知。
 - 在授权的测试设备验证安装、更新、自检及重试任务，确认按钮 loading、防重复点击、失败提示和最终回执；安装结果不能直接变成事件到达成功。
-- 检查操作指引、采集状态跳转、策略入口、关闭后重新打开及刷新加载状态。验证读取失败时可重试，离开页面后停止定时请求。
+- 检查操作指引、采集状态、按产品查看 Hook 事件、策略入口、关闭后重新打开及刷新加载状态。验证读取失败时可重试，离开页面后停止定时请求。/ Verify navigation, product-filtered Hook events, refresh errors and polling cleanup.
+- 静默超过 15 分钟仍显示最近保留事件；报告过期后显示延迟和上次检查时间，新报告中的停用或卸载应立即更新。/ Verify retained arrival times, explicitly stale observations and newly reported disable/uninstall states.
 
 客户端详情的 **行为审计 → 采集状态** 分为 Agent 日志、Hook 事件、系统事件三个通道。顶部导航固定，下面的来源列表与详情区域滚动；窄屏改为上下布局，选择来源后定位详情，并提供返回来源列表的入口。页面可见时每 5 秒读取当前报告，也可点击“刷新状态”重新查询；报告超过有效期后显示“状态待更新”。
 
@@ -2067,6 +2204,8 @@ Backend 仅接受可信代理网段提供的转发信息，避免把 Nginx 容�
 
 本地 Skill 列表会根据解析后的实际目录和软链接目标，在名称旁显示共用该内容的其他 Agent，不重复显示当前 Agent；私有 Skill 不显示共用标签，同名但物理目录不同的 Skill 不会被误判为共用。本地 Skill 内容变化后，客户端按当前分类规则决定仅记录、记录且告警、提交检测、隔离或恢复可信版本。选择隔离时内容移出 Agent 入口并保留副本。隔离列表直接显示副本的来源事件、保留时间、内容指纹和涉及的全部 Agent，共享安装不会再只显示最先触发巡检的 Agent；手动卸载、手动隔离和内容变更使用不同的副本标识。操作员选择“提交此副本”后，确认窗会再次展示同一组证据，客户端只上传该隔离事件保留的内容；若确认后内容指纹发生变化，提交失败并要求刷新。共享副本会为每个受影响的 Agent 保留独立恢复目标，但共用一次平台检测结果；该版本成为可信版本（`APPROVED`）后，客户端后台服务会按返回的 `version_id` 分别安装到各目标并解除对应隔离，不会影响与该事件无关的同名副本。客户端还会按 Agent、原路径和内容签名核对已重新安装的可信版本，自动归档对应的“已卸载副本”，不同版本的历史副本仍保留。操作员也可选择“删除保留副本”：客户端要求确认时看到的内容签名保持不变，只删除副本路径，不触碰当前 Agent 目录，并保留平台检测版本和审计记录。某个目标自动安装失败时，客户端只保留该目标的待处理记录并稍后重试，其他成功目标不回滚。不能仅凭扫描任务完成或进入待审核状态就自动恢复运行。
 
+隔离与恢复备份保留内部符号链接原文，并核对普通文件、目录结构、权限模式和链接文本后再删除或替换原目录；恢复校验包括扫描忽略目录。单次复制上限为 1 GiB 普通文件内容和 100,000 个条目。隔离失败会清理本次未登记副本，已登记恢复副本保留。分类策略自动文件处置失败使用持久化退避（30 秒至 30 分钟），内容、动作或策略变化重新处理，手动重试不受此等待限制。原生插件查询结束或超时会回收其进程组／Windows Job 中的子进程。具体边界见 [客户端备份恢复](agent-manager-client.md#7-备份恢复)。
+
 ### 13.1 界面语言
 
 管理平台和桌面客户端支持简体中文与英文：
@@ -2264,7 +2403,25 @@ AIDR P1 自动日志发现使用持久化目录前沿，近期活动与历史回
 
 ### 设备详情：Skill、插件与行为审计
 
+设备概览的工具活动趋势与主要活动榜单在宽屏中并排等高展示，趋势图占较宽区域，榜单条目均匀排列；窄屏改为上下排列。统计口径通过筛选栏按需查看，图表下方直接衔接通道状态卡片。
+
+策略与审批的 `GET /api/v1/clients/{client_id}/aidr/hook-policy` 返回策略版本、策略内容、编辑权限、规则差异、接收器运行状态和插件状态。历史过期数量由采集诊断接口按需统计，审计保留天数由审计策略配置，后台按保留策略执行到期清理。
+
+客户端详情的“策略与审批”通过“工具规则、审批记录、系统策略”直接切换，切换分类保留本页工具规则草稿。工具规则已有内容时，常用规则预设默认收起；平台配置模式与客户端报告的生效模式并列显示，保存成功不等于客户端已应用。“采集与治理配置”按采集与接入、模型与请求、Skill 处置分组，安装、更新与重试按需展开，各组修改统一预览并保存；“内容与脱敏”直接打开本客户端的审计内容策略。
+
+In client details, **Policies & approvals** offers direct navigation to **Tool rules**, **Approval requests**, and **System policy**, preserving tool-rule drafts when switching categories. Presets start collapsed when rules exist. Configured and client-reported modes remain distinct; a successful save does not confirm application on the client. **Collection & governance** groups settings into collection/setup, models/requests, and Skill actions, with installation, updates, and retries expandable on demand. Changes across groups are previewed and saved together. **Content & redaction** opens the client's audit-content policy.
+
+手工验收 / Manual verification:
+- 中英文、桌面与窄屏检查三个策略入口、状态信息、规则表和弹窗底部按钮，确认长文案换行且可键盘操作。 / Check both languages, desktop and narrow layouts, keyboard navigation, long labels, and modal footer visibility.
+- 修改工具规则后切换审批记录、系统策略再返回，确认草稿保留；仅查看页面不发布规则。 / Edit a rule, switch through approvals and system policy, and verify the draft remains without publishing.
+- 检查全局继承、只读权限、空规则及加载失败状态。 / Check inheritance, read-only access, empty rules, and load failures.
+- 分组修改配置，预览全部变更并保存；核对客户端回执、审批处理及实际生效模式。 / Edit across groups, preview and save all changes, then verify client receipts, approval actions, and the effective mode.
+
 客户端管理的设备详情分为概览、Agent与Skill、插件接入、行为审计、策略与审批。Skill治理与模型配置位于Agent与Skill；Claude/Codex安装、启用与信任位于插件接入；工具日志、Hook生命周期、系统事件及采集诊断位于行为审计；工具审批、系统策略和响应回执位于策略与审批。公共页头只展示设备与心跳，不在各标签下重复库存或任务表。按需加载的摘要保留报告时间与未知状态；安装回执、Hook意图、日志结果与OS执行证据分别核对。详细操作见[客户端说明](agent-manager-client.md)。
+
+从 **智能体列表 → 客户端发现 → 详情** 可进入单个 Agent 的工作区，按“概览、能力与配置、行为审计、策略与审批、执行记录”组织信息。先选择安装入口，再查看该入口报告的 Skill、模型配置和任务；会话、插件及工具审批按客户端与 Agent 类型查询。系统事件按程序路径或 macOS 应用包筛选，未知归属与其他路径仍可在客户端详情查看。共享接收器、设备信息及跨 Agent 策略由客户端详情管理，两处提供互相跳转入口。
+
+Agent 工作区展示真实采集报告、原始证据和任务回执；创建任务不等于执行成功，发布策略不等于客户端已应用。插件操作、Skill 治理及受支持的模型切换复用现有权限和任务校验。日志重试在桌面客户端“Agent 运行治理 → 接入与采集”执行。English: Agents → Client discovery → Details opens the installation workspace. Skills, model configuration and tasks follow the selected installation; sessions, plugins and tool approvals follow the client and agent type. Shared services and cross-agent policy remain in client details. Runtime reports and execution receipts establish actual outcomes.
 
 详情页优先展示状态与操作：设备 ID 和凭据创建人可展开“设备信息”查看；概览每项功能保留一个摘要入口，页头刷新同时更新当前概览。插件页直接展示宿主安装、信任与操作，协议能力和逐项验收集中在“接入诊断与验收”。行为审计保留当前采集异常与历史覆盖缺口数量，采集边界和查询说明按需展开。审批列表仅显示一个同步时间，存在更多记录或已翻页时显示底部分页；Agent 与 Skill 页仅在有恢复副本时展示该列表。
 
@@ -2296,7 +2453,31 @@ AIDR 产品入口、日志格式/根目录、Hook 事件及决策能力统一维
 
 ### Skill 使用证据与认证告警
 
+“客户端策略 → 内容与脱敏 → Skill 使用审计”支持全局默认与单机覆盖。默认在首次使用、文件变化或缓存到期时重新计算，摘要最长复用 300 秒；也可选每次使用在后台计算。平台批准、撤销和授权状态独立刷新，默认间隔 30 秒。积压、离线与重试可能推迟结果，该间隔不是告警时延承诺。
+
+高级资源上限默认为并发 1、256 个文件、单文件 2 MiB、单次 8 MiB。复用前检查文件身份、大小、修改时间等元数据；macOS/Linux 另检查 change time，Windows 的同大小且恢复修改时间的变化可能要到缓存到期重读才发现。复用摘要保留原观察时间，不能证明调用时加载了相同内容。并发是采集器上限，当前顺序采集路径不会因调大该值自动提高并行量。
+
+内容不一致、未登记/未批准/撤销、实例未授权三类规则可分别选择“仅记录”或“记录并告警”，受“生成告警”总开关控制。超限、读取失败、证据不足保持待确认。保存预览列出当前值与本次值，单机配置页独立展示最近一次客户端报告及其时间，不把已保存配置当成客户端已应用。
+
+摘要计算在后台日志采集中进行。每个采集 Store 的内存缓存最多 128 个目录、合计 8192 份文件元数据，同目录并发请求合并；目录条目遍历上限为 `max_files × 4 + 256`。平台使用到期索引，每批最多核对 50 条，同批复用候选、摘要和验签结果，下批重新读取平台状态。手动“重新核对”仍读取当前状态。关闭认证核对后，新客户端停止计算摘要，平台将结论标记为暂停；旧客户端需要升级才能应用读取参数。
+
+UI 复验清单：中英文与窄屏下检查全局/单机继承、两种核对方式、资源整数边界及单文件不超过总量、关闭认证/告警后的控件状态、保存预览与取消、并发修改冲突、报告缺失/旧报告与目标不同，以及行为卡片的新算/复用时间和超限原因。隔离 HTTP 联调覆盖策略下发、Go 日志采集、缓存、上传 ACK、认证和告警；各宿主真实加载仍需现场验收。
+
+**English — policy and performance:** Global and device policies configure background content checks, a 300-second maximum digest reuse window, and a separate 30-second registry refresh interval. Defaults are one concurrent check, 256 files, 2 MiB per file and 8 MiB total. Metadata is checked before reuse and original observation timestamps are retained. Windows metadata here does not expose change time, so same-size rewrites with restored mtime may wait for full rehash. Cache and refresh batches are bounded; scheduling intervals do not guarantee alert latency. Three alert categories support record-only or record-and-alert under a master switch. Save previews and timestamped client reports distinguish configuration from reported application. Manually verify both languages, narrow layouts, inheritance, invalid limits, preview/cancel, stale reports and observation status.
+
+Skill 行为卡片直接展示采集入口、宿主版本（已上报时）、日志与 Hook 关联记录数、工具、来源路径、行为结果和认证状态。平台版本、实例身份及内容摘要有值时展示；原始事件编号和完整字段保留在技术诊断中。来源记录数用于追溯，不代表独立 Skill 调用次数。
+
+**English — activity cards:** Source entry, reported host version, linked log/Hook record counts, tool, path, outcome and certification are visible on each card. Registry version, instance identity and content digest appear when available. Technical diagnostics retain original event references and full fields. Source record counts are not separate Skill invocations.
+
+UI 人工验收补充：中文及英文下检查入口和来源统计、完整长路径、已知/待确认认证状态；窄屏检查换行，展开技术诊断确认原始关联仍可追溯。
+
 会话活动新增 Skill 行为视图。产品适配模块提取可选 `skill_use` 元数据，经原有日志/Hook 持久化和 ACK 链路写入，`aidr_skill_uses` 按可靠原生身份聚合。后台按有效全局/单机策略核对 registry、签名和实例绑定，以 `aidr_skill_alert` 复用客户端事件告警。每次调用一条告警，查询失败和证据不足为待确认，不新增阻断。界面只把明确调用/文件读取作为行为；尝试、宿主确认和未知结果分别展示。来源摘要是采集时观察，不是调用时内容证明。
+
+Skill 行为接口按需读取认证元数据：优先查询设备部署的版本，其次查询所有精确同名候选；名称和部署映射均缺失但有摘要时，仍保留完整候选范围。认证查询不加载扫描报告。空列表、来源或摘要缺失时直接返回对应状态。同一请求内复用候选查询结果，下次请求及后台核对重新读取当前注册、批准和撤销状态；认证筛选仍在核对后执行。
+
+人工验收：打开有记录和无记录的会话，检查 Skill 行为加载与“重新核对”；切换行为、认证筛选并加载更多，确认记录和游标正常。在隔离测试环境变更批准或撤销状态，下次重新核对应立即反映变化，重复核对不新增重复告警。简体中文及英文界面分别检查。
+
+**English — query performance:** Skill activity reads certification metadata on demand, selecting the deployed version first or all exact-name candidates. Evidence with a digest but no name or deployment mapping retains the full candidate scope. Scan reports are excluded. Empty lists and incomplete evidence need no registry lookup. Candidate results are reused within a request only; subsequent requests and background checks read current approval and revocation state before certification filtering. Manually verify populated/empty sessions, recheck, filters and pagination in both languages; use an isolated environment to verify changed certification and alert deduplication.
 
 对外名称统一为 Agent Manager、Agent Manager Hook、Agent Manager 本地接收器；内部安装标识和旧事件兼容。具体数据边界、逐产品支持矩阵和人工验收见 [集成文档](external-agent-integration.md#skill-使用识别与认证审计) 与 [客户端说明](agent-manager-client.md#agent-manager-插件名称与-skill-使用审计)。
 

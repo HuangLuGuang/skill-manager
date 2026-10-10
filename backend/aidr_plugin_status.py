@@ -90,7 +90,7 @@ def receive(db, client_id, report):
         if baseline:
             if current["configuration_digest"] != baseline["configuration_digest"]:
                 fields.append("native_configuration")
-            if current["host_version"] != baseline["host_version"]:
+            if current["host_version"] and baseline["host_version"] and current["host_version"] != baseline["host_version"]:
                 fields.append("host_version")
             if current["files_digest"] and baseline.get("files_digest") and current["source_kind"] == baseline["source_kind"] and current["files_digest"] != baseline["files_digest"]:
                 fields.append("declared_files")
@@ -122,6 +122,6 @@ def receive(db, client_id, report):
 def view(db, client_id):
     now = int(time.time())
     rows = db.query(PluginStatusRow).filter_by(client_id=client_id).order_by(PluginStatusRow.received_at.desc(), PluginStatusRow.scope_id).limit(21).all()
-    return {"evidence_type": "native_plugin_listing_report", "checked_at": str(now), "truncated": len(rows) > 20,
+    return {"evidence_type": "plugin_configuration_report", "checked_at": str(now), "truncated": len(rows) > 20,
             "items": [{"report": json.loads(r.payload), "change": json.loads(r.change), "received_at": str(r.received_at),
                        "stale": now-r.received_at > 180} for r in rows[:20]]}

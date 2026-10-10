@@ -65,7 +65,11 @@ func projectMessage(d draft, p AuditPolicy) *Message {
 	}
 	if enabled {
 		c := contentBuilder{policy: p}
-		c.add(kind, field, 0, rawString(d.Content))
+		if m.Role == "user" {
+			c.addPrompt(field, rawString(d.Content))
+		} else {
+			c.add(kind, field, 0, rawString(d.Content))
+		}
 		m.Contents, m.ContentStatus = c.result(true)
 	}
 	return m
@@ -76,7 +80,7 @@ func validateMessage(m *Message, kind string) error {
 		return errors.New("aidr_log_message_invalid")
 	}
 	for _, c := range m.Contents {
-		if (m.Role == "user" && (c.Kind != "prompt" || c.Field != "message.input")) || (m.Role == "assistant" && (c.Kind != "model_response" || c.Field != "message.output")) {
+		if (m.Role == "user" && (c.Kind != "prompt" || !contentAllowed(c.Field, "message.input|message.input.request|message.input.context"))) || (m.Role == "assistant" && (c.Kind != "model_response" || c.Field != "message.output")) {
 			return errors.New("aidr_log_message_invalid")
 		}
 	}

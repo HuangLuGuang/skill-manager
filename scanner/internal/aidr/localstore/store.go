@@ -35,12 +35,13 @@ type Limits struct {
 	Retention     time.Duration
 }
 
-func DefaultLimits() Limits { return Limits{256 << 20, 100000, 200000, 4096, 7 * 24 * time.Hour} }
+func DefaultLimits() Limits { return Limits{1 << 30, 100000, 200000, 4096, 7 * 24 * time.Hour} }
 func (l Limits) valid() bool {
 	return l.DatabaseBytes >= 1<<20 && l.DatabaseBytes <= 4<<30 && l.LogicalEvents > 0 && l.LogicalEvents <= 1000000 && l.Evidence > 0 && l.Evidence <= 2000000 && l.Sources > 0 && l.Sources <= 16384 && l.Retention > 0 && l.Retention <= 365*24*time.Hour
 }
 
 type Store struct {
+	skillObserver      *agentlog.SkillObserver
 	policy             *agentlog.AuditPolicy
 	collectionResumeAt time.Time
 	runtimeResumeAt    time.Time
@@ -66,9 +67,8 @@ CREATE TABLE IF NOT EXISTS sources(
 );
 CREATE TABLE IF NOT EXISTS logical_events(
  id TEXT PRIMARY KEY, content_hash TEXT NOT NULL, payload TEXT,
- created_ns INTEGER NOT NULL, acked_ns INTEGER
+ created_ns INTEGER NOT NULL, acked_ns INTEGER, source_id TEXT, observed_at TEXT
 );
-CREATE INDEX IF NOT EXISTS logical_events_source ON logical_events(json_extract(payload,'$.source_id'));
 CREATE TABLE IF NOT EXISTS evidence(
  id TEXT PRIMARY KEY, logical_id TEXT NOT NULL REFERENCES logical_events(id),
  content_hash TEXT NOT NULL, payload TEXT, created_ns INTEGER NOT NULL
@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS evidence(
 CREATE INDEX IF NOT EXISTS evidence_logical ON evidence(logical_id);
 CREATE TABLE IF NOT EXISTS coverage_history(
  id TEXT PRIMARY KEY, source_id TEXT NOT NULL, payload TEXT NOT NULL,
- created_ns INTEGER NOT NULL, acked_ns INTEGER
+ created_ns INTEGER NOT NULL, acked_ns INTEGER, payload_encoding TEXT NOT NULL DEFAULT 'json'
 );
 CREATE TABLE IF NOT EXISTS outbox(
  seq INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL,
@@ -137,7 +137,7 @@ func Open(dir string, limits Limits) (*Store, error) {
 		lock.Close()
 		return nil, err
 	}
-	s := &Store{db: db, lock: lock, limits: limits}
+	s := &Store{db: db, lock: lock, limits: limits, skillObserver: agentlog.NewSkillObserver()}
 	fail := func(e error) (*Store, error) { db.Close(); lock.Close(); return nil, e }
 	db.SetMaxOpenConns(1)
 	if _, err = db.Exec(`PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=1048576;`); err != nil {
@@ -172,6 +172,12 @@ func Open(dir string, limits Limits) (*Store, error) {
 	}
 	if _, err = db.Exec(schema); err != nil {
 		return fail(err)
+	}
+	if err = s.compactCoverageHistory(context.Background()); err != nil {
+		return fail(storageError(err))
+	}
+	if err = s.initializeACKRelease(context.Background()); err != nil {
+		return fail(storageError(err))
 	}
 	tx, err := db.Begin()
 	if err != nil {
@@ -354,7 +360,7 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 			logical = append(logical, projected...)
 		}
 		contentHash := hash(logical)
-		res, err := tx.ExecContext(ctx, `INSERT INTO logical_events(id,content_hash,payload,created_ns) VALUES(?,?,?,?) ON CONFLICT(id) DO NOTHING`, e.LogicalEventID, contentHash, string(payload), now)
+		res, err := tx.ExecContext(ctx, `INSERT INTO logical_events(id,content_hash,payload,created_ns,source_id,observed_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, e.LogicalEventID, contentHash, string(payload), now, e.SourceID, e.ObservedAt.UTC().Format(time.RFC3339Nano))
 		if err != nil {
 			return zero, err
 		}
@@ -372,7 +378,7 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 			}
 		}
 		evidenceHash := hash(canonicalEvent(e))
-		if _, err = tx.Exec(`INSERT INTO evidence(id,logical_id,content_hash,payload,created_ns) VALUES(?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, e.EventID, e.LogicalEventID, evidenceHash, string(payload), now); err != nil {
+		if _, err = tx.Exec(`INSERT INTO evidence(id,logical_id,content_hash,payload,created_ns) VALUES(?,?,?,CASE WHEN (SELECT acked_ns FROM logical_events WHERE id=?) IS NULL THEN ? ELSE NULL END,?) ON CONFLICT(id) DO NOTHING`, e.EventID, e.LogicalEventID, evidenceHash, e.LogicalEventID, string(payload), now); err != nil {
 			return zero, err
 		}
 		if err = tx.QueryRow(`SELECT content_hash FROM evidence WHERE id=?`, e.EventID).Scan(&storedHash); err != nil {
@@ -397,14 +403,29 @@ func (s *Store) Commit(ctx context.Context, previous Checkpoint, b agentlog.Read
 		return zero, err
 	}
 	if oldCoverage != string(coverage) || oldCursor != string(cursor) {
+		// Repair progress is local scheduling state, not part of the wire cursor.
+		wireCursor := b.Cursor
+		wireCursor.ContextRepair = nil
+		wireCursor.ContextRepairVersion = 0
+		// Call bindings are parser resume state; events carry their own call/turn IDs.
+		wireCursor.CallTurns = nil
+		wireCursor.QoderLinks = nil
+		wireCursor.ModelContext = nil
+		wireCursor.ModelProvider = ""
+		wireCursor.ModelTurn = ""
+		wireCursor.ModelHeaderRead = false
 		envelope, _ := json.Marshal(struct {
 			SourceID string            `json:"source_id"`
 			Revision int64             `json:"revision,string"`
 			Cursor   agentlog.Cursor   `json:"cursor"`
 			Coverage agentlog.Coverage `json:"coverage"`
-		}{b.Source.ID, nextRevision, b.Cursor, b.Coverage})
+		}{b.Source.ID, nextRevision, wireCursor, b.Coverage})
 		coverageID := fmt.Sprintf("%s:%d", b.Source.ID, nextRevision)
-		if _, err = tx.Exec(`INSERT INTO coverage_history(id,source_id,payload,created_ns) VALUES(?,?,?,?)`, coverageID, b.Source.ID, string(envelope), now); err != nil {
+		stored, encoding, err := encodeCoverage(envelope)
+		if err != nil {
+			return zero, err
+		}
+		if _, err = tx.Exec(`INSERT INTO coverage_history(id,source_id,payload,created_ns,payload_encoding) VALUES(?,?,?,?,?)`, coverageID, b.Source.ID, stored, now, encoding); err != nil {
 			return zero, err
 		}
 		if _, err = tx.Exec(`INSERT INTO outbox(kind,record_id,payload,created_ns) VALUES('coverage',?,?,?)`, coverageID, string(envelope), now); err != nil {
@@ -468,7 +489,7 @@ func (s *Store) Collect(ctx context.Context, source agentlog.Source, budget agen
 	if s.runtimeResumeAt.After(budget.CollectionResumeAt) {
 		budget.CollectionResumeAt = s.runtimeResumeAt
 	}
-	b, err := agentlog.ReadWithPolicy(ctx, source, c.Cursor, budget, since, s.policy)
+	b, err := agentlog.ReadWithPolicy(ctx, source, c.Cursor, budget, since, s.policy, s.skillObserver)
 	if err != nil {
 		return c, err
 	}

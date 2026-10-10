@@ -420,7 +420,7 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 			}
 			// Nullable legacy fields are omitted when the typed API policy is
 			// marshaled. Their null wire form carries the same policy meaning.
-			for _, field := range []string{"modes", "channels", "log_sources"} {
+			for _, field := range []string{"modes", "channels", "log_sources", "system_targets"} {
 				if a[field] == nil {
 					delete(a, field)
 				}
@@ -428,10 +428,21 @@ func executeTask(ctx context.Context, home string, inventory Inventory, policy P
 					delete(b, field)
 				}
 			}
+			// A nullable channel mode preserves its current behavior. Go's
+			// string fields encode that same value as an empty string.
+			for _, target := range []map[string]any{a, b} {
+				if modes, ok := target["modes"].(map[string]any); ok {
+					for _, channel := range []string{"hooks", "system"} {
+						if modes[channel] == nil {
+							modes[channel] = ""
+						}
+					}
+				}
+			}
 			canonicalA, _ := json.Marshal(a)
 			canonicalB, _ := json.Marshal(b)
 			if string(canonicalA) != string(canonicalB) {
-				return fmt.Errorf("aidr_desktop_task_superseded")
+				return fmt.Errorf("aidr_desktop_policy_content_mismatch")
 			}
 		}
 		result, err := AIDRTaskHandler(ctx, home, task)

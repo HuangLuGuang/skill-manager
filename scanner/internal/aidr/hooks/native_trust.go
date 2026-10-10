@@ -145,10 +145,13 @@ func nativeCodexCallsChecked(ctx context.Context, binary, home string, calls []n
 	if e != nil {
 		return nil, e
 	}
-	if e = cmd.Start(); e != nil {
+	stop, e := startNativeProcess(cmd)
+	if e != nil {
+		stdin.Close()
+		stdout.Close()
 		return nil, e
 	}
-	defer func() { stdin.Close(); cancel(); cmd.Wait() }()
+	defer func() { stdin.Close(); stop(); cancel(); cmd.Wait() }()
 	enc := json.NewEncoder(stdin)
 	scan := bufio.NewScanner(stdout)
 	scan.Buffer(make([]byte, 4096), 512<<10)

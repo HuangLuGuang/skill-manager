@@ -438,6 +438,9 @@ def _article_flowables(
             story.extend([table, Spacer(1, 10)])
     for section in article.sections:
         story.extend(_section_flowables(section, locale=locale, labels=labels, styles=styles))
+    # Chapters start on a new page; trailing layout space must not create its own page.
+    while story and isinstance(story[-1], Spacer):
+        story.pop()
     return story
 
 

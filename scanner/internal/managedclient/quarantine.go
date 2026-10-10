@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -65,18 +66,30 @@ func quarantineCurrentSkill(ctx context.Context, home string, store *Store, agen
 	return quarantineSkill(home, store, agentType, skillName, source, reason, expectedSignature)
 }
 
-func quarantineSkill(home string, store *Store, agentType, skillName, source, reason, expectedSignature string) (QuarantineItem, error) {
+func quarantineSkill(home string, store *Store, agentType, skillName, source, reason, expectedSignature string) (result QuarantineItem, err error) {
 	now := time.Now().UTC()
 	sum := sha256.Sum256([]byte(source + "\x00" + now.Format(time.RFC3339Nano)))
 	id := now.Format("20060102T150405Z") + "-" + hex.EncodeToString(sum[:6])
-	target := filepath.Join(QuarantineRoot(home), id, filepath.Base(source))
-	if err := copyDir(source, target); err != nil {
+	root := filepath.Join(QuarantineRoot(home), id)
+	if err := os.MkdirAll(QuarantineRoot(home), 0700); err != nil {
+		return QuarantineItem{}, err
+	}
+	if err := os.Mkdir(root, 0700); err != nil {
+		return QuarantineItem{}, err
+	}
+	retained := false
+	defer func() {
+		if !retained {
+			err = errors.Join(err, removeOwnedCopy(root))
+		}
+	}()
+	target := filepath.Join(root, filepath.Base(source))
+	if err := copyRecoveryTree(source, target); err != nil {
 		return QuarantineItem{}, err
 	}
 	if expectedSignature != "" {
 		for _, path := range []string{source, target} {
 			if err := checkObservedContent(Skill{Path: path, Signature: expectedSignature}); err != nil {
-				_ = os.RemoveAll(filepath.Dir(target))
 				return QuarantineItem{}, err
 			}
 		}
@@ -85,15 +98,15 @@ func quarantineSkill(home string, store *Store, agentType, skillName, source, re
 		ID: id, AgentType: agentType, SkillName: skillName, OriginalPath: source,
 		QuarantinePath: target, Reason: reason, Status: "quarantined", CreatedAt: now.Format(time.RFC3339Nano),
 	}
-	_, err := store.db.Exec(
+	_, err = store.db.Exec(
 		`INSERT INTO client_quarantine(id, agent_type, skill_name, original_path, quarantine_path, reason, status, created_at)
 		 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
 		item.ID, item.AgentType, item.SkillName, item.OriginalPath, item.QuarantinePath, item.Reason, item.Status, item.CreatedAt,
 	)
 	if err != nil {
-		_ = os.RemoveAll(filepath.Dir(target))
 		return QuarantineItem{}, err
 	}
+	retained = true
 	if err := os.RemoveAll(source); err != nil {
 		item.Status = "quarantine_failed"
 		_, _ = store.db.Exec(`UPDATE client_quarantine SET status='quarantine_failed' WHERE id=?`, item.ID)

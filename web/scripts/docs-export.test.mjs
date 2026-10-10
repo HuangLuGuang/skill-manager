@@ -30,12 +30,12 @@ test('PDF export source covers every current help article in both languages', ()
   for (const locale of ['zh-CN', 'en-US']) {
     const navigationSlugs = docsContent[locale].groups.flatMap(group => group.items.map(item => item.slug))
     assert.deepEqual(navigationSlugs, docsArticleOrder)
-    assert.equal(navigationSlugs.length, 34)
+    assert.equal(navigationSlugs.length, 40)
     const payload = buildDocsPdfExportPayload({
       locale,
       selectedArticleKeys: navigationSlugs.map(slug => slug || '__home__'),
     })
-    assert.equal(payload.articles.length, 34)
+    assert.equal(payload.articles.length, 40)
     assert.deepEqual(payload.articles.map(article => article.slug), docsArticleOrder)
     assert.ok(payload.articles.every(article => article.group_title && article.title && article.sections.length))
   }

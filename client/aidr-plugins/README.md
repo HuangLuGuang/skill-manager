@@ -448,7 +448,7 @@ uv run pytest tests/test_aidr_hooks.py tests/test_aidr_hook_bridge.py -q
   --previous-report /absolute/private/before.json
 ```
 
-基线只读，不在采集失败时自动覆盖。未知报告不能当成卸载，文件不可读不能当成未变化。`configuration_digest` 描述原生列表，`files_digest` 描述产品 manifest、hooks.json、bridge.sh，`files_comparable` 描述两次文件观察是否可比较；这些都不是宿主信任或执行证明。Claude 使用 `native_install_path`，Codex 使用 `declared_local_source`，后者不保证与已加载缓存一致。只有同一设备/用户/宿主配置的报告才有比较意义，路径不输出。自动上报与平台来源面板已接入；来源故障和状态过期的中英文真实页面已有验收记录。
+基线只读，不在采集失败时自动覆盖。未知报告不能当成卸载，文件不可读不能当成未变化。周期巡检直接读取本地插件配置和安装记录，不启动宿主；`configuration_digest` 描述插件配置，`files_digest` 描述产品 manifest、hooks.json、bridge.sh，`files_comparable` 描述两次文件观察是否可比较。原生查询保留在安装、升级、策略应用所需校验及手动诊断中。这些观察都不是当前会话的宿主信任或执行证明。Claude 使用 `native_install_path`，Codex 使用 `declared_local_source`，后者不保证与已加载缓存一致。只有同一设备/用户/宿主配置的报告才有比较意义，路径不输出。自动上报与平台来源面板已接入；来源故障和状态过期的中英文真实页面已有验收记录。
 
 **English:** Save a doctor report, then compare with `--previous-report`. The baseline is read-only. Unreadable sources remain unknown; file read failures preserve installed status. Configuration and bounded product-file digests are evidence of observed changes, not permissions, hook trust or loaded runtime bytes. Compare reports from the same device, user and host configuration. Automatic reporting and the platform source panel are implemented; bilingual source-failure and stale-status browser checks have passed.
 
@@ -458,7 +458,7 @@ uv run pytest tests/test_aidr_hooks.py tests/test_aidr_hook_bridge.py -q
 
 平台设备详情 → 插件接入 → 插件来源与漂移证据。来源范围按用户、Agent 和配置目录区分，绑定设备与本地流；安装状态不可读保持未知。报告序号跨接收器重启递增，旧报告不覆盖新报告，最近可读基线不因读取失败丢失。每设备最多 64 个来源，满容量返回 `aidr.plugin_status_capacity`；查询展示最近 20 个并提示截断。180 秒未更新标为过期。采样未覆盖两次检查间的所有变化，不应将接收时间视为修改发生时间。
 
-**English:** The receiver independently inspects native hosts about every 60 seconds. Use explicit host/configuration paths when needed. Source scopes are bound to the device and stream; persistent sequencing survives receiver restart. Unreadable observations preserve the readable baseline. The platform retains up to 64 source scopes per device, shows the latest 20 and marks reports stale after 180 seconds. Snapshots are not a complete change log or proof of permissions.
+**English:** The receiver independently reads local plugin configuration, installation records and product files about every 60 seconds without starting a host process. Native queries remain available for installation, upgrades, required policy application checks and manual diagnostics. Use explicit host/configuration paths when needed. Source scopes are bound to the device and stream; persistent sequencing survives receiver restart. Unreadable observations preserve the readable baseline. The platform retains up to 64 source scopes per device, shows the latest 20 and marks reports stale after 180 seconds. Snapshots are not a complete change log or proof of permissions.
 
 复验真实原生列表到平台报告（创建独立后台及私有配置，不调用模型）：
 

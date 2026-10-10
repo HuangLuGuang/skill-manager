@@ -72,38 +72,35 @@
       <p v-if="receiverTask">{{ t('receiverTask') }} #{{ receiverTask.id }} · {{ t(receiverTask.payload.action) }} · {{ t(receiverTask.status) }}<span v-if="receiverTask.error_code"> · {{ code(receiverTask.error_code) }}</span></p>
     </template>
     </template>
-    <ClientPluginWorkbench v-else ref="pluginView" :client-id="clientId" :state="state" :loading="loading" :busy="busy" :can-execute="can('clients:execute')" :is-action-blocked="actionBlocked" @action="send" @refresh="load" @policy="$emit('policy')" @collection="$emit('collection')">
+    <ClientPluginWorkbench v-else ref="pluginView" :key="fixedAgent" :fixed-agent="fixedAgent" :client-id="clientId" :state="state" :loading="loading" :busy="busy" :can-execute="can('clients:execute')" :is-action-blocked="actionBlocked" @action="send" @refresh="load" @policy="$emit('policy')" @collection="$emit('collection')" @events="$emit('events', $event)">
       <template #alerts>
         <a-alert v-if="error" type="error" show-icon :message="error" />
         <a-alert v-if="state?.channels?.logs?.health?.state === 'product_upgrade_required'" type="warning" show-icon :message="code('aidr.runtime_product_upgrade_required')" />
         <a-alert v-if="state && !supported" type="warning" show-icon :message="t('unsupported')" />
         <a-alert v-if="taskRefreshNeeded" type="info" show-icon :message="t(activeTasks.length ? 'taskWaiting' : 'taskAwaitingReport')" :description="t(refreshPaused ? 'taskRefreshPaused' : 'taskRefreshNote')" />
       </template>
-      <template #diagnostics>
-
-      <p>{{ t('reported') }}: {{ stamp(state?.reported_at) }}</p>
-      <p>{{ t('note') }}</p><p>{{ t('trustNote') }}</p>
-      <div ref="compatibilityAnchor"><ClientRuntimeCompatibility :state="state" /></div>
-      <ClientOnboardingAcceptance :value="state?.onboarding" :loading="loading" :can-inspect="!blocked && can('clients:execute')" @refresh="load" @inspect="agent => send('inspect', agent)" @policy="$emit('policy')" @upgrade="compatibilityAnchor?.scrollIntoView({ block: 'center', behavior: 'smooth' })" />
-    <details @toggle="pluginReportsOpen = $event.target.open"><summary>{{ t('detail.pluginReports') }}</summary><ClientHookPanel v-if="pluginReportsOpen" :client-id="clientId" view="plugins" /></details>
+      <template #diagnostics="{ agent }">
+        <p>{{ t('reported') }}: {{ stamp(state?.reported_at) }}</p>
+        <ClientRuntimeCompatibility v-if="['legacy', 'partial'].includes(state?.compatibility?.state)" :state="state" />
+        <details><summary>{{ translate('pluginWorkbench.rawReport') }}</summary><pre class="plugin-report">{{ JSON.stringify(host(agent) || {}, null, 2) }}</pre></details>
+        <a-button type="link" @click="historyAgent = agent">{{ translate('pluginWorkbench.taskHistory') }}</a-button>
       </template>
-      <template #tasks>
-    <div v-for="task in state?.tasks || []" :key="task.id" class="runtime-task">
-      <p>#{{ task.id }} · {{ t(task.payload.action) }} {{ task.payload.agent }} · {{ task.payload.plugin_version }} · {{ t(task.status) }}</p>
+      <template #tasks="{ agent }">
+    <div v-for="task in attentionTasks(agent)" :key="task.id" class="runtime-task">
+      <p>#{{ task.id }} · {{ taskLabel(task.payload.action) }} · {{ t(task.status) }}</p>
       <p v-if="task.error_code">{{ code(task.error_code) }}</p>
-      <p>{{ t('validUntil') }}: {{ stamp(task.payload.expires_at) }}</p>
-      <details v-if="task.payload.receipt"><summary>{{ t('receipt') }}</summary>
-        <p>{{ t('automatic') }}: {{ yes(task.payload.receipt.enabled) }} · {{ t('receiver') }}: {{ code(task.payload.receipt.receiver_code) }}</p>
-        <p v-for="item in task.payload.receipt.hosts" :key="item.agent">{{ item.agent }} · {{ item.host_version }} · {{ t('installed') }}: {{ yes(item.installed) }} · {{ t('enabled') }}: {{ yes(item.enabled) }} · {{ t('trust') }}: {{ t(item.hook_trust) }}</p>
-      </details>
       <a-space v-if="can('clients:execute')" wrap>
         <a-button v-if="task.status === 'pending'" :loading="busy === 'cancel' + task.id" :disabled="!!busy || loading" @click="taskAction(task,'cancel')">{{ t('cancel') }}</a-button>
         <a-button v-if="['failed','cancelled'].includes(task.status)" :loading="busy === 'retry' + task.id" :disabled="!!busy || loading" @click="taskAction(task,'retry')">{{ t('retry') }}</a-button>
       </a-space>
     </div>
-    <p v-if="!state?.tasks?.length">{{ t('noTasks') }}</p>
       </template>
     </ClientPluginWorkbench>
+    <a-modal :open="!!historyAgent" :title="translate('pluginWorkbench.taskHistory')" :footer="null" @cancel="historyAgent = ''">
+      <p>{{ translate('pluginWorkbench.taskHistoryScope') }}</p>
+      <div v-for="task in productTasks(historyAgent)" :key="task.id" class="runtime-task"><p>#{{ task.id }} · {{ taskLabel(task.payload.action) }} · {{ t(task.status) }} · {{ stamp(task.created_at) }}</p><p v-if="task.error_code">{{ code(task.error_code) }}</p></div>
+      <a-empty v-if="!productTasks(historyAgent).length" :description="t('noTasks')" />
+    </a-modal>
   </section>
 </template>
 
@@ -113,27 +110,31 @@ import ClientPluginWorkbench from './ClientPluginWorkbench.vue'
 import products from '../aidr-products.json'
 import { groupProductEntries } from '../aidr-product-groups'
 const hookGroups = groupProductEntries(products.filter(p => p.hooks))
-import ClientHookPanel from './ClientHookPanel.vue'
 import ClientHookConnection from './ClientHookConnection.vue'
 import ClientRuntimeCompatibility from './ClientRuntimeCompatibility.vue'
-import ClientOnboardingAcceptance from './ClientOnboardingAcceptance.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { can } from '../access'
 import { getClientRuntimeGovernance, createClientTask, cancelClientTask, retryClientTask } from '../api'
-const props = defineProps({clientId: {type: String, required: true}, view: {type: String, default: 'plugins'}})
-defineEmits(['collection', 'policy'])
-const pluginReportsOpen = ref(false), compatibilityAnchor = ref(null), pluginView = ref(null)
+const props = defineProps({clientId: {type: String, required: true}, view: {type: String, default: 'plugins'}, fixedAgent: {type: String, default: ''}})
+defineEmits(['collection', 'policy', 'events'])
+const historyAgent = ref(''), pluginView = ref(null)
 let generation = 0
 let refreshTimer, pollUntil = 0
 const {t: translate, te, locale} = useI18n()
 const t = key => translate(`agentRuntimeGovernance.${key}`)
+const taskLabel = action => action === 'inspect' ? translate('pluginWorkbench.inspect') : t(action)
 const state = ref(null), loading = ref(false), busy = ref(''), error = ref('')
 const refreshPaused = ref(false)
 let pendingRequest = null
 const supported = computed(() => state.value?.supports_tasks === true)
 const activeTasks = computed(() => (state.value?.tasks || []).filter(task => ['pending','running'].includes(task.status)))
 const receiverTask = computed(() => state.value?.tasks?.find(task => ['enable','disable'].includes(task.payload.action)))
+const productTasks = agent => (state.value?.tasks || []).filter(task => task.payload.agent === agent)
+const attentionTasks = agent => {
+  const tasks = productTasks(agent)
+  return tasks.filter((task, index) => ['pending', 'running'].includes(task.status) || (index === 0 && task.status === 'failed' && !['aidr_desktop_task_superseded', 'aidr.aidr_desktop_task_superseded'].includes(task.error_code)))
+}
 const receiverAwaitingReport = computed(() => {
   const task = receiverTask.value, applied = state.value?.report?.managed_task
   return task?.status === 'succeeded' && (!/^[0-9]+$/.test(String(applied)) || BigInt(applied) < BigInt(task.id))
@@ -193,7 +194,7 @@ async function taskAction(task, action) {
 }
 watch(() => props.clientId, () => {
   generation++; clearTimeout(refreshTimer); pollUntil = 0; refreshPaused.value = false
-  state.value = null; loading.value = false; busy.value = ''; pendingRequest = null; error.value = ''
+  state.value = null; loading.value = false; busy.value = ''; pendingRequest = null; error.value = ''; historyAgent.value = ''
   load()
 }, { immediate: true })
 const statusTimer = setInterval(() => {
@@ -203,6 +204,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(refreshTimer); clearInterval(
 </script>
 
 <style scoped>
+.plugin-report { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; padding: 12px; background: #f8fafc; margin: 12px 0; font-size: 12px; }
 .runtime-governance { margin: 12px 0 24px; overflow-wrap: anywhere; }
 .runtime-governance.plugin-view { margin: 0; height: 100%; min-height: 0; }
 .runtime-heading { display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 12px; }

@@ -132,3 +132,7 @@ final result: passed at the verified native window size; minimum-window and life
 - No UI unit tests added. Frontend build and existing i18n checks passed.
 
 final result: passed
+
+## 2026-10-09 系统采集方案 1
+
+平台与客户端选择式系统采集的本次检查见 [独立验收记录](outputs/system-selection-implementation/design-qa.md)。两端中英文布局和本机程序发现已检查；新选择流程的原生授权、执行器应用与上传 ACK 仍列为人工验收项。

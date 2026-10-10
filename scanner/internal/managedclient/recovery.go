@@ -191,8 +191,8 @@ func restoreQuarantine(ctx context.Context, home string, inventory Inventory, ag
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(staging)
-	if err := copyDir(item.QuarantinePath, staging); err != nil {
+	defer removeOwnedCopy(staging)
+	if err := copyRecoveryTree(item.QuarantinePath, staging); err != nil {
 		return err
 	}
 	if err := checkObservedContent(Skill{Path: staging, Signature: expected}); err != nil {

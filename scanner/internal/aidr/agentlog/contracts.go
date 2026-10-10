@@ -72,55 +72,63 @@ type CallTurn struct {
 	ContentDigest string `json:"content_digest,omitempty"`
 }
 type Cursor struct {
-	RecoveryGaps             []Gap      `json:"recovery_gaps,omitempty"`
-	RecoveryDetailsTruncated bool       `json:"recovery_details_truncated,omitempty"`
-	ProjectionVersion        int        `json:"projection_version,omitempty"`
-	CallTurns                []CallTurn `json:"call_turns,omitempty"`
-	SchemaVersion            int        `json:"schema_version"`
-	ParserVersion            string     `json:"parser_version"`
-	SourceID                 string     `json:"source_id"`
-	FileIdentity             string     `json:"file_identity"`
-	Generation               uint64     `json:"generation,string"`
-	Discarding               bool       `json:"discarding_oversized_record"`
-	DiscardStart             int64      `json:"discard_start,string"`
-	Offset                   int64      `json:"offset,string"`
-	Anchor                   string     `json:"anchor"`
-	Session                  string     `json:"session_id"`
-	Turn                     string     `json:"turn_id"`
-	AgentVersion             string     `json:"agent_version"`
-	Since                    time.Time  `json:"since"`
-	Gaps                     []string   `json:"gap_codes"`
+	QoderLinks               []QoderLink   `json:"qoder_links,omitempty"`
+	ModelHeaderRead          bool          `json:"model_header_read,omitempty"`
+	ModelContext             *ModelContext `json:"model_context,omitempty"`
+	ModelProvider            string        `json:"model_provider,omitempty"`
+	ModelTurn                string        `json:"model_turn,omitempty"`
+	ContextRepairVersion     int           `json:"context_repair_version,omitempty"`
+	ContextRepair            *Cursor       `json:"context_repair,omitempty"`
+	RecoveryGaps             []Gap         `json:"recovery_gaps,omitempty"`
+	RecoveryDetailsTruncated bool          `json:"recovery_details_truncated,omitempty"`
+	ProjectionVersion        int           `json:"projection_version,omitempty"`
+	CallTurns                []CallTurn    `json:"call_turns,omitempty"`
+	SchemaVersion            int           `json:"schema_version"`
+	ParserVersion            string        `json:"parser_version"`
+	SourceID                 string        `json:"source_id"`
+	FileIdentity             string        `json:"file_identity"`
+	Generation               uint64        `json:"generation,string"`
+	Discarding               bool          `json:"discarding_oversized_record"`
+	DiscardStart             int64         `json:"discard_start,string"`
+	Offset                   int64         `json:"offset,string"`
+	Anchor                   string        `json:"anchor"`
+	Session                  string        `json:"session_id"`
+	Turn                     string        `json:"turn_id"`
+	AgentVersion             string        `json:"agent_version"`
+	Since                    time.Time     `json:"since"`
+	Gaps                     []string      `json:"gap_codes"`
 }
 type Event struct {
-	UserScope          string    `json:"user_scope,omitempty"`
-	SkillUse           *SkillUse `json:"skill_use,omitempty"`
-	Message            *Message  `json:"message,omitempty"`
-	PreviousLogicalIDs []string  `json:"-"`
-	Behavior           *Behavior `json:"behavior,omitempty"`
-	SchemaVersion      int       `json:"schema_version"`
-	LogicalEventID     string    `json:"logical_event_id"`
-	EventID            string    `json:"event_id"`
-	SourceID           string    `json:"source_id"`
-	SourceInstanceID   string    `json:"source_instance_id"`
-	SourceSeq          int64     `json:"source_seq,string"`
-	RecordOffset       int64     `json:"record_offset,string"`
-	Block              int       `json:"block"`
-	Agent              string    `json:"agent"`
-	AgentVersion       string    `json:"agent_version"`
-	Source             string    `json:"source"`
-	SessionID          string    `json:"session_id"`
-	TurnID             string    `json:"turn_id"`
-	CallID             string    `json:"native_call_id"`
-	LogicalCallID      string    `json:"logical_call_id"`
-	Kind               string    `json:"kind"`
-	Tool               string    `json:"tool"`
-	Outcome            string    `json:"outcome"`
-	ObservedAt         time.Time `json:"observed_at"`
-	ReceivedAt         time.Time `json:"received_at"`
-	ContentDigest      string    `json:"content_digest"`
-	ContentBytes       int       `json:"content_bytes"`
-	EvidenceDigest     string    `json:"evidence_digest"`
-	ProcessRelation    string    `json:"process_relation"`
+	ModelContext       *ModelContext `json:"model_context,omitempty"`
+	UserScope          string        `json:"user_scope,omitempty"`
+	SkillUse           *SkillUse     `json:"skill_use,omitempty"`
+	Message            *Message      `json:"message,omitempty"`
+	PreviousLogicalIDs []string      `json:"-"`
+	Behavior           *Behavior     `json:"behavior,omitempty"`
+	SchemaVersion      int           `json:"schema_version"`
+	LogicalEventID     string        `json:"logical_event_id"`
+	EventID            string        `json:"event_id"`
+	SourceID           string        `json:"source_id"`
+	SourceInstanceID   string        `json:"source_instance_id"`
+	SourceSeq          int64         `json:"source_seq,string"`
+	RecordOffset       int64         `json:"record_offset,string"`
+	Block              int           `json:"block"`
+	Agent              string        `json:"agent"`
+	AgentVersion       string        `json:"agent_version"`
+	Source             string        `json:"source"`
+	SessionID          string        `json:"session_id"`
+	TurnID             string        `json:"turn_id"`
+	CallID             string        `json:"native_call_id"`
+	LogicalCallID      string        `json:"logical_call_id"`
+	Kind               string        `json:"kind"`
+	Tool               string        `json:"tool"`
+	Outcome            string        `json:"outcome"`
+	ObservedAt         time.Time     `json:"observed_at"`
+	ReceivedAt         time.Time     `json:"received_at"`
+	ContentDigest      string        `json:"content_digest"`
+	ContentBytes       int           `json:"content_bytes"`
+	EvidenceDigest     string        `json:"evidence_digest"`
+	ProcessRelation    string        `json:"process_relation"`
 }
 type ReadBatch struct {
 	SchemaVersion int      `json:"schema_version"`
@@ -155,6 +163,14 @@ func digest(parts ...string) string {
 }
 func validAgent(agent string) bool { return catalog.Log(agent) }
 func ValidateCursor(c Cursor, s Source) error {
+	if c.ContextRepairVersion < 0 || c.ContextRepairVersion > contextRepairVersion {
+		return errors.New("aidr_log_cursor_invalid")
+	}
+	if r := c.ContextRepair; r != nil {
+		if r.ContextRepair != nil || r.Offset > c.Offset || r.FileIdentity != c.FileIdentity || ValidateCursor(*r, s) != nil {
+			return errors.New("aidr_log_cursor_invalid")
+		}
+	}
 	if c.ProjectionVersion < 0 || c.ProjectionVersion > 2 || c.DiscardStart < 0 || c.DiscardStart > c.Offset || len(c.FileIdentity) > 128 || c.Since.IsZero() {
 		return errors.New("aidr_log_cursor_invalid")
 	}
@@ -172,6 +188,16 @@ func ValidateCursor(c Cursor, s Source) error {
 	}
 	if len(c.CallTurns) > maxToolBindings {
 		return errors.New("aidr_log_cursor_invalid")
+	}
+	if len(c.QoderLinks) > maxQoderLinks {
+		return errors.New("aidr_log_cursor_invalid")
+	}
+	seenLinks := map[string]bool{}
+	for _, link := range c.QoderLinks {
+		if token(link.ID) == "" || token(link.Turn) == "" || seenLinks[link.ID] {
+			return errors.New("aidr_log_cursor_invalid")
+		}
+		seenLinks[link.ID] = true
 	}
 	if len(c.RecoveryGaps) > 32 {
 		return errors.New("aidr_log_cursor_invalid")
@@ -203,6 +229,9 @@ func ValidateCursor(c Cursor, s Source) error {
 // ValidateEvent is the local ingestion envelope contract. Device
 // authentication and upload ACK belong to the later authenticated transport.
 func ValidateEvent(e Event) error {
+	if !e.ModelContext.valid(e.Agent) || (e.ModelContext != nil && (e.SessionID == "" || (e.Agent == "codex" && e.TurnID == ""))) {
+		return errors.New("aidr_log_model_context_invalid")
+	}
 	if e.SchemaVersion == 3 {
 		if e.Behavior != nil || e.Message == nil || validateMessage(e.Message, e.Kind) != nil {
 			return errors.New("aidr_log_message_invalid")

@@ -79,6 +79,42 @@ def save_runtime_policy(api, target):
     return api.put(path, json=body | {'preview_id': result.json()['preview_id']})
 
 
+def test_partial_modes_wire_target_and_legacy_task_retry(tmp_path):
+    api, headers = setup_device(tmp_path)
+    target = RuntimeGovernanceConfig().model_dump() | {'modes': {'hooks': 'intercept', 'system': None}}
+    assert save_runtime_policy(api, target).status_code == 200
+    assert heartbeat(api, headers, report() | {'protocol': 4}).status_code == 200
+    path = '/api/v1/clients/runtime-test'
+    task = api.get(path+'/runtime-governance').json()['tasks'][0]
+    assert task['payload']['target']['modes'] == {'hooks': 'intercept', 'system': ''}
+    assert api.get(path+'/policy', headers=headers).json()['classification']['runtime_governance']['modes'] == task['payload']['target']['modes']
+    assert api.get('/api/v1/clients/governance/default').json()['runtime_governance']['modes'] == target['modes']
+    # A failed task saved before the wire normalization remains retryable.
+    with next(api.app.dependency_overrides[get_db]()) as db:
+        row = db.get(models.ClientTask, int(task['id']))
+        payload = json.loads(row.payload_json)
+        payload['target']['modes']['system'] = None
+        row.payload_json = json.dumps(payload)
+        row.status, row.error = 'failed', 'aidr_desktop_task_superseded'
+        db.commit()
+    retried = api.post(f"{path}/tasks/{task['id']}/retry")
+    assert retried.status_code == 200, retried.text
+    retry_id = retried.json()['id']
+    assert api.post(f"{path}/tasks/{task['id']}/retry").json()['id'] == retry_id
+    retry = api.get(path+'/runtime-governance').json()['tasks'][0]
+    assert retry['payload']['target']['modes'] == {'hooks': 'intercept', 'system': ''}
+
+
+def test_partial_modes_wire_target_preserves_policy_and_explicit_modes():
+    from backend.runtime_governance import client_target
+    for modes in (None, {'hooks': None, 'system': 'intercept'}, {'hooks': 'audit', 'system': 'intercept'}):
+        target = {'modes': modes, 'allow_user_enrollment': True}
+        before = json.dumps(target, sort_keys=True)
+        wire = client_target(target, {'user_hook_hosts': []})
+        assert json.dumps(target, sort_keys=True) == before
+        assert wire['modes'] == (None if modes is None else {k: v if v is not None else '' for k, v in modes.items()})
+
+
 def test_runtime_default_policy_permissions_preview_and_legacy(tmp_path):
     api, headers = setup_device(tmp_path)
     path = '/api/v1/clients/governance/default'
@@ -391,3 +427,30 @@ def test_hook_connection_states_do_not_infer_authorization_from_receiver():
     assert state()['installation'] == 'not_installed'
     observation['hosts'][0]['reported_at'] = (datetime.utcnow()-timedelta(minutes=9)).isoformat()+'Z'
     assert state()['installation'] == 'unknown'
+
+
+def test_latest_hook_arrival_survives_idle_window_and_stale_report(tmp_path):
+    from backend.aidr_models import AidrDevice, AidrHookEvent
+    from backend.runtime_governance import latest_product_arrivals, hook_connections
+    api, _ = setup_device(tmp_path)
+    old = datetime.utcnow() - timedelta(days=2)
+    with api.app.dependency_overrides[get_db]().__next__() as db:
+        db.add(AidrDevice(client_id='runtime-test', created_by='test'))
+        db.flush()
+        for seq, agent, at, expired in [
+            (1, 'codex', old, None),
+            (2, 'codex', old + timedelta(hours=1), None),
+            (3, 'codex', datetime.utcnow(), datetime.utcnow()),
+            (4, 'workbuddy', old, None),
+        ]:
+            db.add(AidrHookEvent(client_id='runtime-test', stream_id='s', event_id=str(seq),
+                                 source_seq=seq, content_hash='test', received_at=at, expired_at=expired,
+                                 payload_json=json.dumps({'event': {'agent': agent}})))
+        db.commit()
+        arrivals = latest_product_arrivals(db, 'runtime-test')
+        assert arrivals == {'codex': (old + timedelta(hours=1)).isoformat()+'Z', 'workbuddy': old.isoformat()+'Z'}
+        assert latest_product_arrivals(db, 'another-device') == {}
+        states = hook_connections({'runtime_governance': default_runtime_governance()}, None, True, {'hosts': []}, arrivals)
+        codex = next(item for item in states if item['agent'] == 'codex')
+        assert codex['event_received_at'] == arrivals['codex']
+        assert codex['installation'] == codex['authorization'] == codex['receiver'] == 'unknown'

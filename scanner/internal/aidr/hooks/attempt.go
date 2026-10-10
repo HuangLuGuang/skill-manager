@@ -65,10 +65,6 @@ func (s *Store) BeginApproval(ctx context.Context, record Record, now time.Time)
 		return deny, code("aidr_hook_attempt_capacity")
 	}
 	expires := now.Add(45 * time.Second).Unix()
-	policyExpiry, _ := positiveDecimal(s.controlPolicy.Expires)
-	if policyExpiry < expires {
-		expires = policyExpiry
-	}
 	_, err = s.db.ExecContext(ctx, `INSERT INTO hook_attempts(event_id,receiver,user_scope,scope,expires_at) VALUES(?,?,?,?,?)`, record.EventID, s.instance, record.User, string(raw), expires)
 	d.Code = "aidr_hook_approval_pending"
 	return d, err
@@ -130,10 +126,8 @@ func (s *Store) PollApproval(ctx context.Context, id, user string, cancel bool, 
 	if s.controlPolicy == nil || s.controlPolicy.Revision != scope.PolicyRevision {
 		return finish("aidr_hook_policy_changed", false)
 	}
-	current := s.controlPolicy.Evaluate(Event{Agent: scope.Agent, Tool: scope.Tool}, now)
-	if current.Decision != "ask" || current.Rule != scope.Rule {
-		return finish("aidr_hook_policy_changed", false)
-	}
+	// BeginApproval persisted the evaluated rule and exact input digest. The
+	// signed policy is immutable within a revision; grants bind that same scope.
 	if grantID != "" {
 		err = consumeGrantTx(ctx, tx, grantID, scope, now)
 		if err == nil {

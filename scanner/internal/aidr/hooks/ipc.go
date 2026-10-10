@@ -213,6 +213,9 @@ func (r *Receiver) handle(ctx context.Context, c *net.UnixConn) IPCResponse {
 			return IPCResponse{Code: "aidr_hook_attempt_already_recorded"}
 		}
 		d := r.store.EvaluateTool(record.Event, time.Now())
+		if record.Event.ControlDecision != nil {
+			d = *record.Event.ControlDecision
+		}
 		product, _ := products.Get(req.Agent)
 		if d.Decision == "ask" && !product.Approval {
 			d.Decision = "deny"

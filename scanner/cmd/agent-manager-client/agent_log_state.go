@@ -24,7 +24,7 @@ func agentLogState(command string, args []string, out io.Writer) (resultErr erro
 	sinceText := fs.String("since", "", "initial lookback RFC3339; existing cursor retains its scope")
 	after := fs.String("after", "", "exclusive event pagination cursor")
 	limit := fs.Int("limit", 500, "maximum events or batch records, up to 500")
-	dbMiB := fs.Int64("max-db-mib", 256, "database page quota in MiB; WAL uses additional bounded space")
+	dbMiB := fs.Int64("max-db-mib", localstore.DefaultLimits().DatabaseBytes>>20, "database page quota in MiB; WAL uses additional bounded space")
 	events := fs.Int("max-events", 100000, "logical identity capacity; includes retained deduplication IDs")
 	evidence := fs.Int("max-evidence", 200000, "evidence identity capacity")
 	days := fs.Int("retention-days", 7, "acknowledged payload retention, 1-365 days")

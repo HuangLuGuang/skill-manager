@@ -14,6 +14,7 @@ type ReceiverRetryPolicy struct {
 type RuntimeGovernancePolicy struct {
 	Modes               *RuntimeProtectionModes    `json:"modes,omitempty"`
 	Channels            *RuntimeCollectionChannels `json:"channels,omitempty"`
+	SystemTargets       *SystemCollectionTargets   `json:"system_targets,omitempty"`
 	Enabled             bool                       `json:"enabled"`
 	Hosts               []string                   `json:"hosts"`
 	AllowUserEnrollment *bool                      `json:"allow_user_enrollment,omitempty"`
@@ -22,6 +23,11 @@ type RuntimeGovernancePolicy struct {
 	AccessMode          string                     `json:"access_mode"`
 	Updates             string                     `json:"updates"`
 	Retry               ReceiverRetryPolicy        `json:"retry"`
+}
+
+type SystemCollectionTargets struct {
+	SelectionMode string   `json:"selection_mode"`
+	Products      []string `json:"products"`
 }
 
 type RuntimeProtectionModes struct {
@@ -45,6 +51,18 @@ func (p RuntimeGovernancePolicy) CollectHooks() bool {
 }
 
 func (p RuntimeGovernancePolicy) Valid() bool {
+	if p.SystemTargets != nil {
+		if p.SystemTargets.SelectionMode != "client" && p.SystemTargets.SelectionMode != "platform" {
+			return false
+		}
+		seen := map[string]bool{}
+		for _, product := range p.SystemTargets.Products {
+			if (product != "codex" && product != "claude" && product != "workbuddy" && product != "custom") || seen[product] {
+				return false
+			}
+			seen[product] = true
+		}
+	}
 	if p.Modes != nil && ((p.Modes.Hooks != "" && p.Modes.Hooks != "audit" && p.Modes.Hooks != "intercept") || (p.Modes.System != "" && p.Modes.System != "audit" && p.Modes.System != "intercept")) {
 		return false
 	}

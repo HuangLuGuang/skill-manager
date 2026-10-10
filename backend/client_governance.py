@@ -75,12 +75,25 @@ class RuntimeProtectionModes(BaseModel):
     system: Literal["audit", "intercept"] | None = "audit"
 
 
+class SystemCollectionTargets(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    selection_mode: Literal["client", "platform"] = "client"
+    products: list[Literal["codex", "claude", "workbuddy", "custom"]] = Field(default_factory=list, max_length=4)
+
+    @model_validator(mode="after")
+    def unique_products(self):
+        if len(set(self.products)) != len(self.products):
+            raise ValueError("aidr_system_duplicate_product")
+        return self
+
+
 class RuntimeGovernanceConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     channels: RuntimeCollectionChannels | None = None
     # Null preserves pre-mode installations until an administrator selects modes.
     modes: RuntimeProtectionModes | None = None
     enabled: bool = True
+    system_targets: SystemCollectionTargets | None = None
     hosts: list[HookAgentID] = Field(default_factory=list, max_length=32)
     allow_user_enrollment: bool = True
     log_sources: list[LogAgentID] | None = Field(default=None, min_length=1, max_length=32)

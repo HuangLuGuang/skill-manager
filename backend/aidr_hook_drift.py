@@ -17,6 +17,10 @@ def explain(policy, agent, tool):
 
 
 def compare(previous, current):
+    if any(r.get('command') for p in (previous, current) if p for r in p['rules']):
+        return dict(code='aidr_hook_policy_command_scoped', previous_revision=previous['revision'] if previous else None,
+                    current_revision=current['revision'], counts={}, conflict_partitions=None,
+                    partition_count=None, items=[], details_truncated=False, rule_changes={})
     # Exact tool names and the wildcard partition the whole tool namespace.
     # None represents all names absent from BOTH policies, never a tool request.
     names = sorted({r["tool"] for p in (previous, current) if p for r in p["rules"] if r["tool"] != "*"})
@@ -55,5 +59,5 @@ def policy_analysis(db, client_id, revision):
     previous = json.loads(rows[1].payload) if len(rows) > 1 else None
     return {**compare(previous, current), "evidence_type": "published_policy_comparison",
             "reported_at": str(int(time.time())), "published_by": rows[0].created_by,
-            "issued_at": current["issued_at"], "expires_at": current["expires_at"],
-            "expired": int(current["expires_at"]) <= int(time.time()), "client_application": "unknown"}
+            "issued_at": current["issued_at"], "validity": "until_replaced",
+            "client_application": "unknown"}

@@ -9,14 +9,52 @@ from pydantic import Field, model_validator
 from sqlalchemy.dialects.sqlite import insert
 
 from . import aidr_policy
-from .aidr_behavior import AuditPolicy, Behavior, Strict
+from .aidr_behavior import AuditPolicy, Behavior, Strict, safe
 from .aidr_content import Content, ContentStatus, validate_contents
 from .aidr_contract import _unique_object, invalid_batch
 from .aidr_models import AidrHookBatch, AidrHookEvent
 from .aidr_operations import stamp
 from .api_errors import ApiError
 
+class HostContext(Strict):
+    model: str = Field(default='', max_length=256)
+    cwd: str = Field(default='', max_length=512)
+    workspace_roots: list[str] = Field(default_factory=list, max_length=8)
+    redacted: bool = False
+    truncated: bool = False
+
+    @model_validator(mode='after')
+    def bounded(self):
+        safe(self.model, 256, False)
+        safe(self.cwd, 512, False)
+        for root in self.workspace_roots:
+            safe(root, 512, False)
+        return self
+
+
+from .aidr_command_rules import CommandObservation
+
+
+class ControlDecision(Strict):
+    decision: Literal['allow', 'deny', 'ask']
+    rule_id: str = Field(default='', pattern=r'^$|^[A-Za-z0-9_-]{1,64}$')
+    matched_rule_ids: list[str] = Field(max_length=128)
+    policy_revision: str = Field(default='', pattern=r'^$|^[1-9][0-9]{0,17}$')
+    code: str = Field(pattern=r'^aidr_hook_[a-z0-9_]{1,64}$')
+    unresolved: bool = False
+
+    @model_validator(mode='after')
+    def bounded(self):
+        import re
+        if any(not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', item) for item in self.matched_rule_ids):
+            raise ValueError('hook_control_rule_invalid')
+        return self
+
+
 class HookEvent(Strict):
+    control_decision: ControlDecision | None = None
+    command_match: CommandObservation | None = None
+    context: HostContext | None = None
     skill_use: SkillUse | None = None
     schema_version: Literal[1, 2, 3]
     agent: HookAgentID
@@ -37,6 +75,14 @@ class HookEvent(Strict):
 
     @model_validator(mode="after")
     def validate_evidence(self):
+        if self.control_decision and self.kind != 'tool.pre':
+            raise ValueError('hook_control_decision_scope_invalid')
+        if self.command_match and (self.kind != 'tool.pre' or not self.input_digest):
+            raise ValueError('hook_command_observation_scope_invalid')
+        if self.context and self.policy.enabled:
+            from .aidr_redaction import redact_values
+            if any(redact_values(v) != v for v in [self.context.model, self.context.cwd, *self.context.workspace_roots]):
+                raise ValueError('hook_context_redaction_required')
         if BY_ID[self.agent]['hook_events'].get(self.hook_event) != self.kind:
             raise ValueError("hook_unsupported")
         for value in (self.session_id, self.turn_id, self.native_call_id, self.native_agent_id, self.tool):

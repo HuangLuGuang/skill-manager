@@ -83,8 +83,31 @@ func ProjectPrompt(prompt string, policy AuditPolicy) ([]Content, string) {
 		return nil, "not_requested"
 	}
 	c := contentBuilder{policy: policy}
-	c.add("prompt", "hook.prompt", 0, prompt)
+	c.addPrompt("hook.prompt", prompt)
 	return c.result(true)
+}
+
+// Codex app messages carry explicit context before the user's request. Capture
+// the request first so attachment metadata cannot consume its fragment budget.
+// Both fragments remain within the existing per-event policy budget.
+func (c *contentBuilder) addPrompt(field, text string) {
+	trimmed := strings.TrimLeft(text, " \t\r\n")
+	wrapped := strings.HasPrefix(trimmed, "<in-app-browser-context") || strings.HasPrefix(trimmed, "# Files mentioned by the user:") || strings.HasPrefix(trimmed, "# Response annotations:")
+	const marker = "\n## My request:\n"
+	at := strings.Index(text, marker)
+	if !wrapped || at < 0 || strings.TrimSpace(text[at+len(marker):]) == "" {
+		c.add("prompt", field, 0, text)
+		return
+	}
+	c.add("prompt", field+".request", 0, text[at+len(marker):])
+	context := text[:at+len(marker)]
+	_, eventLimit := c.policy.ContentLimits()
+	if c.bytes >= eventLimit {
+		c.values = append(c.values, Content{Kind: "prompt", Field: field + ".context", Block: 1, SourceBytes: len(context), Truncated: true})
+		c.partial = true
+		return
+	}
+	c.add("prompt", field+".context", 1, context)
 }
 
 func projectContents(tool, kind string, raw json.RawMessage, policy AuditPolicy) ([]Content, string) {
@@ -229,7 +252,7 @@ func validateContents(values []Content, status string, policy AuditPolicy) error
 			}
 		case "prompt":
 			if policy.Capture.Prompt {
-				fields = "hook.prompt|message.input"
+				fields = "hook.prompt|hook.prompt.request|hook.prompt.context|message.input|message.input.request|message.input.context"
 			}
 		case "model_response":
 			if policy.Capture.ModelResponse {

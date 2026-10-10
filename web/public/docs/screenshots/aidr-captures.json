@@ -1,0 +1,245 @@
+{
+  "description": "Direct UI captures. No fixture data or replacement UI. Platform selections are read-only; native client is the installed macOS Dev version. Screenshot states are not defaults or all-feature acceptance.",
+  "captures": [
+    {
+      "file": "zh-CN/aidr-platform-overview.png",
+      "locale": "zh-CN",
+      "source": "authenticated-local-platform",
+      "location": "/clients",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "221b653ee73d2b4a2e1785d27c1f9208816cf971f8f5992011e25920ce44df65"
+    },
+    {
+      "file": "zh-CN/aidr-runtime-policy.png",
+      "locale": "zh-CN",
+      "source": "authenticated-local-platform",
+      "location": "/clients",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "79138584be623f1e78b4b6b7253e37347af1c30af767773abf0a2492beae4005"
+    },
+    {
+      "file": "zh-CN/aidr-session-activity.png",
+      "locale": "zh-CN",
+      "source": "authenticated-local-platform",
+      "location": "/clients",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "e37fe01e9006ebd453bfe2be793dce016ab6fc0de54ff495466c24fac3b7d242"
+    },
+    {
+      "file": "zh-CN/aidr-client-integration.png",
+      "locale": "zh-CN",
+      "source": "native-macos-dev-client",
+      "location": "Agent Runtime Governance",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "363a792befb64ef4fad4410e8ec09f4f68ddc5dc1e848181364e0e02fe66f5d1"
+    },
+    {
+      "file": "zh-CN/aidr-client-system.png",
+      "locale": "zh-CN",
+      "source": "native-macos-dev-client",
+      "location": "Agent Runtime Governance",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "f347885c0de47f6794452920a2b771ea3ed684b2bd1a2eb4c9cf4244c20cc89d"
+    },
+    {
+      "file": "zh-CN/aidr-tool-rules.png",
+      "locale": "zh-CN",
+      "source": "authenticated-local-platform",
+      "location": "/clients",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "67ed494a09be002fb66cdcfb20592b4eb34cd462482e4908da20acfd08987d24"
+    },
+    {
+      "file": "zh-CN/aidr-content-policy.png",
+      "locale": "zh-CN",
+      "source": "authenticated-local-platform",
+      "location": "/clients",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "3fcb1781c0fa931322e5db3ba12db6eccc969fa87cce503738183af37afafab3"
+    },
+    {
+      "file": "zh-CN/aidr-skill-activity.png",
+      "locale": "zh-CN",
+      "source": "authenticated-local-platform",
+      "location": "/clients",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "a827b11175f4c8afae69b0e9cebfe7f4c46db3cc2863ee559f22b7ca5953a445"
+    },
+    {
+      "file": "zh-CN/aidr-skill-policy.png",
+      "locale": "zh-CN",
+      "source": "authenticated-local-platform",
+      "location": "/clients",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "29e5f4455cff3bf0e2adb576aaf0c67a4f6daedfa51c32f6645b3cc972a8e603"
+    },
+    {
+      "file": "en-US/aidr-platform-overview.png",
+      "locale": "en-US",
+      "source": "authenticated-local-platform",
+      "location": "/clients",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "f0fdd3a88fdb5fe63637ee6bf1574802e9cefdba64b2fdaaf79d39753ff4abe9"
+    },
+    {
+      "file": "en-US/aidr-runtime-policy.png",
+      "locale": "en-US",
+      "source": "authenticated-local-platform",
+      "location": "/clients",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "ae41ed68256939f80e3479174c273615b938a7c60c84e16d4667dcb7316de9f5"
+    },
+    {
+      "file": "en-US/aidr-session-activity.png",
+      "locale": "en-US",
+      "source": "authenticated-local-platform",
+      "location": "/clients",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "f089a8f65b91476c366bd1f7dcc04b784a795a00d54c5025aa69755415a048ef"
+    },
+    {
+      "file": "en-US/aidr-client-integration.png",
+      "locale": "en-US",
+      "source": "native-macos-dev-client",
+      "location": "Agent Runtime Governance",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "0379768e8f96002241dc8f86d10676f004214cc1ee71c6b031d9ffaa993fe7e5"
+    },
+    {
+      "file": "en-US/aidr-client-system.png",
+      "locale": "en-US",
+      "source": "native-macos-dev-client",
+      "location": "Agent Runtime Governance",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "fed425e4bccba5ef877a059f6045946d318f4ebb9566de07dc0ba53db1845ba9"
+    },
+    {
+      "file": "en-US/aidr-tool-rules.png",
+      "locale": "en-US",
+      "source": "authenticated-local-platform",
+      "location": "/clients",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "e13c69cf2d2df9126002ef4348505e3b827a2d1887fdfe23d65f15cab75d7918"
+    },
+    {
+      "file": "en-US/aidr-content-policy.png",
+      "locale": "en-US",
+      "source": "authenticated-local-platform",
+      "location": "/clients",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "42e205c81b679fbb4f6fd2f57fd39c2920c3acab9106aa282441bb3e4bda9c88"
+    },
+    {
+      "file": "en-US/aidr-skill-activity.png",
+      "locale": "en-US",
+      "source": "authenticated-local-platform",
+      "location": "/clients",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "d1230e094cba5ac6299b72de835475f12c2e7ad101951be84b7c93b801553ad1"
+    },
+    {
+      "file": "en-US/aidr-skill-policy.png",
+      "locale": "en-US",
+      "source": "authenticated-local-platform",
+      "location": "/clients",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "9c6f80da6f4320b67a9760bfe33357127d650c45f667be3b88078494972b7557"
+    },
+    {
+      "file": "zh-CN/client-app-overview.png",
+      "locale": "zh-CN",
+      "source": "native-macos-dev-client",
+      "location": "Client Overview",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "96d48bee060bc5c419569ef38e65a8812bcf470464ffd38aa220980a57b50b8f"
+    },
+    {
+      "file": "zh-CN/client-app-policy.png",
+      "locale": "zh-CN",
+      "source": "native-macos-dev-client",
+      "location": "Client Overview",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "7bc63ed99bb468b143930a0f4507c61f790b6d9b7948a68425b17abb4d10ee3b"
+    },
+    {
+      "file": "zh-CN/client-app-status.png",
+      "locale": "zh-CN",
+      "source": "native-macos-dev-client",
+      "location": "Client Overview",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "dff5c36fdd49056582425445731e01aee38cac63398ca350c2feb2a6b4b36caa"
+    },
+    {
+      "file": "en-US/client-app-overview.png",
+      "locale": "en-US",
+      "source": "native-macos-dev-client",
+      "location": "Client Overview",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "a03a3a3c41a956e64761a66720d47da4f40be8189d6cee0ac98faf64e2fccc8e"
+    },
+    {
+      "file": "en-US/client-app-policy.png",
+      "locale": "en-US",
+      "source": "native-macos-dev-client",
+      "location": "Client Overview",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "4b7fd8e30f1b766ac315c307f32647a6763a655d9779cae8b73eb40508c584b1"
+    },
+    {
+      "file": "en-US/client-app-status.png",
+      "locale": "en-US",
+      "source": "native-macos-dev-client",
+      "location": "Client Overview",
+      "captured_on": "2026-10-10",
+      "timezone": "Asia/Shanghai",
+      "data": "observed-runtime-state",
+      "sha256": "506c14556b0ede894bb58370ff91893a0129bc2f7a9b538c5f2d13b2727aa7b2"
+    }
+  ]
+}

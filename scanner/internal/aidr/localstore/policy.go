@@ -46,10 +46,15 @@ func (s *Store) SavePolicy(ctx context.Context, p agentlog.AuditPolicy) error {
 		return err
 	}
 	if s.policy != nil && s.policy.Receipt == p.Receipt {
-		if !p.Equal(*s.policy) {
+		if p.Equal(*s.policy) {
+			return nil
+		}
+		// Metadata protocol negotiation does not change the receipt's capture scope.
+		previous := *s.policy
+		previous.ModelContextSchema = p.ModelContextSchema
+		if !p.Equal(previous) {
 			return ErrInvalid
 		}
-		return nil
 	}
 	raw, _ := json.Marshal(p)
 	resume := s.collectionResumeAt

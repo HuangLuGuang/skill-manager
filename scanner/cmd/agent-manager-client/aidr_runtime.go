@@ -53,7 +53,7 @@ func inspectAIDRTarget(ctx context.Context, home string, policy managedclient.Po
 			return errors.New("aidr_desktop_task_interrupted")
 		}
 		var output bytes.Buffer
-		if err := aidrDesktopContext(ctx, []string{"--home", home, "--action", "inspect", "--agent", agent}, &output); err != nil {
+		if err := aidrDesktopContext(ctx, []string{"--home", home, "--action", "inspect", "--local-only", "--agent", agent}, &output); err != nil {
 			code := stableAIDRCode(err)
 			if first == nil {
 				first = errors.New(code)
@@ -72,7 +72,7 @@ func inspectAIDRTarget(ctx context.Context, home string, policy managedclient.Po
 			return errors.New("aidr_desktop_status_failed")
 		}
 		status := observed.Plugin
-		if status.VersionStatus != "interface_compatible" && !(hooks.SettingsAdapter(agent) && status.VersionStatus == "adapter_available") {
+		if status.VersionStatus != "interface_compatible" && status.VersionStatus != "adapter_available" {
 			checkedCode = "aidr_plugin_interface_unavailable"
 		} else if status.Installed == nil {
 			checkedCode = "aidr_plugin_source_unreadable"

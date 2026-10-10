@@ -23,6 +23,7 @@ class HookRuntimeRow(Base):
 
 
 class RuntimeReport(Strict):
+    command_rules_schema: Literal[1] | None = None
     schema_version: Literal[1]
     stream_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     receiver_instance: str = Field(pattern=r"^[0-9a-f]{32}$")

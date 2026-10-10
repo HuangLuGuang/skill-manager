@@ -34,7 +34,18 @@ func addGap(c *Cursor, reason string) {
 func ReadIncremental(ctx context.Context, s Source, old Cursor, b Budget, since time.Time) (ReadBatch, error) {
 	return ReadWithPolicy(ctx, s, old, b, since, nil)
 }
-func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since time.Time, policy *AuditPolicy) (ReadBatch, error) {
+func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since time.Time, policy *AuditPolicy, observers ...*SkillObserver) (ReadBatch, error) {
+	var observer *SkillObserver
+	if len(observers) > 0 && observers[0] != nil {
+		observer = observers[0]
+	} else {
+		observer = NewSkillObserver()
+	}
+	return readWithPolicy(ctx, s, old, b, since, policy, 0, observer)
+}
+
+// replayEnd rebuilds context only, up to an existing committed checkpoint.
+func readWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since time.Time, policy *AuditPolicy, replayEnd int64, observer *SkillObserver) (ReadBatch, error) {
 	out := ReadBatch{SchemaVersion: SchemaVersion, Source: s, Events: []Event{}, Cursor: old, Coverage: Coverage{Status: "complete", Reasons: []string{}}}
 	expected, e := NewSource(s.Agent, s.Root, s.Path)
 	if e != nil || expected.ID != s.ID || !b.valid() {
@@ -79,7 +90,7 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 		if since.IsZero() {
 			since = time.Now().Add(-24 * time.Hour)
 		}
-		c = Cursor{ProjectionVersion: 2, SchemaVersion: SchemaVersion, ParserVersion: ParserVersion, SourceID: s.ID, FileIdentity: identity, Generation: 1, Since: since, Gaps: []string{}}
+		c = Cursor{ContextRepairVersion: contextRepairVersion, ProjectionVersion: 2, SchemaVersion: SchemaVersion, ParserVersion: ParserVersion, SourceID: s.ID, FileIdentity: identity, Generation: 1, Since: since, Gaps: []string{}}
 	} else if c.FileIdentity != identity {
 		reset = "aidr_log_rotated"
 	} else if info.Size() < c.Offset {
@@ -102,18 +113,57 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 		c.Offset = 0
 		c.Discarding = false
 		c.DiscardStart = 0
+		c.ModelContext, c.ModelProvider, c.ModelTurn = nil, "", ""
+		c.ModelHeaderRead = false
 		c.Session = ""
 		c.Turn = ""
 		c.CallTurns = nil
+		c.QoderLinks = nil
 		c.AgentVersion = ""
 		c.RecoveryGaps = nil
 		c.RecoveryDetailsTruncated = false
+		c.ContextRepair = nil
+		c.ContextRepairVersion = contextRepairVersion
 		if s.Agent != "opencode" {
 			addGap(&c, reset)
 		}
 	}
+	if replayEnd == 0 && needsContextRepair(s, c) {
+		var checkpoint Cursor
+		if c.ContextRepair != nil {
+			checkpoint = *c.ContextRepair
+		}
+		replay, err := readWithPolicy(ctx, s, checkpoint, b, c.Since, nil, c.Offset, observer)
+		if err != nil {
+			return out, err
+		}
+		if replay.Cursor.FileIdentity != c.FileIdentity {
+			out.Coverage.mark("unavailable", "aidr_log_source_changed")
+			return out, nil
+		}
+		if replay.Cursor.Offset == c.Offset {
+			c.Session, c.Turn, c.AgentVersion = replay.Cursor.Session, replay.Cursor.Turn, replay.Cursor.AgentVersion
+			c.CallTurns = replay.Cursor.CallTurns
+			c.QoderLinks = replay.Cursor.QoderLinks
+			c.ModelContext, c.ModelProvider, c.ModelTurn = replay.Cursor.ModelContext, replay.Cursor.ModelProvider, replay.Cursor.ModelTurn
+			c.ContextRepair, c.ContextRepairVersion = nil, contextRepairVersion
+		} else {
+			c.ContextRepair = &replay.Cursor
+		}
+		out.Cursor, out.Coverage = c, replay.Coverage
+		out.Coverage.mark("partial", "aidr_log_read_budget")
+		return out, nil
+	}
+	c.ContextRepairVersion = contextRepairVersion
+	if s.Agent == "codex" {
+		restoreModelProvider(f, &c)
+	}
 	// Read a bounded snapshot of the file; appends are handled on the next call.
-	remaining := min(info.Size()-c.Offset, b.Bytes)
+	end := info.Size()
+	if replayEnd > 0 {
+		end = min(end, replayEnd)
+	}
+	remaining := min(end-c.Offset, b.Bytes)
 	if _, err = f.Seek(c.Offset, io.SeekStart); err != nil {
 		return out, err
 	}
@@ -165,7 +215,9 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 			switch {
 			case errors.Is(readErr, bufio.ErrBufferFull):
 				addGap(&c, "aidr_log_record_too_large")
-				invalidateContext(&c)
+				if !oversizedPreservesContext(s.Agent, line) {
+					invalidateContext(&c)
+				}
 				c.DiscardStart = c.Offset
 				c.Offset += int64(len(line))
 				out.Coverage.SkippedBytes += int64(len(line))
@@ -218,6 +270,9 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 			break
 		}
 		for _, d := range drafts {
+			if replayEnd > 0 {
+				continue
+			}
 			if (policy != nil && !policy.CollectionEnabled()) || (!b.CollectionResumeAt.IsZero() && !d.Time.After(b.CollectionResumeAt)) {
 				addGap(&candidate, "aidr_audit_collection_disabled")
 				out.Coverage.gap(c.Offset, c.Offset+int64(len(line)), "aidr_audit_collection_disabled")
@@ -236,14 +291,14 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 				message := projectMessage(d, *policy)
 				contentHash := digest(canonical(d.Content))
 				id := digest("message/1", s.Agent, s.ID, candidate.Session, d.Call, d.MessageRole, d.MessagePhase, contentHash)
-				out.Events = append(out.Events, Event{SchemaVersion: 3, Message: message, EventID: digest(id, identity, strconv.FormatInt(c.Offset, 10)), LogicalEventID: id, SourceID: s.ID, SourceInstanceID: digest(s.ID, identity, strconv.FormatUint(c.Generation, 10)), SourceSeq: c.Offset + int64(d.Block), RecordOffset: c.Offset, Block: d.Block, Agent: s.Agent, AgentVersion: candidate.AgentVersion, Source: "agent_log", SessionID: candidate.Session, TurnID: d.Turn, CallID: d.Call, LogicalCallID: digest(s.Agent, s.ID, candidate.Session, d.Call), Kind: d.Kind, Outcome: "unknown", ObservedAt: d.Time, ReceivedAt: time.Now().UTC(), ContentDigest: contentHash, ContentBytes: len(d.Content), EvidenceDigest: digest(string(line)), ProcessRelation: "unknown"})
+				out.Events = append(out.Events, Event{ModelContext: collectedModel(d, policy), SchemaVersion: 3, Message: message, EventID: digest(id, identity, strconv.FormatInt(c.Offset, 10)), LogicalEventID: id, SourceID: s.ID, SourceInstanceID: digest(s.ID, identity, strconv.FormatUint(c.Generation, 10)), SourceSeq: c.Offset + int64(d.Block), RecordOffset: c.Offset, Block: d.Block, Agent: s.Agent, AgentVersion: candidate.AgentVersion, Source: "agent_log", SessionID: candidate.Session, TurnID: d.Turn, CallID: d.Call, LogicalCallID: digest(s.Agent, s.ID, candidate.Session, d.Call), Kind: d.Kind, Outcome: "unknown", ObservedAt: d.Time, ReceivedAt: time.Now().UTC(), ContentDigest: contentHash, ContentBytes: len(d.Content), EvidenceDigest: digest(string(line)), ProcessRelation: "unknown"})
 				continue
 			}
 			if candidate.Session == "" {
 				addGap(&candidate, "aidr_log_session_unknown")
 			}
 			turn := candidate.Turn
-			if s.Agent == "codex" {
+			if s.Agent == "codex" || s.Agent == "qoder-cli" || s.Agent == "workbuddy" {
 				turn = d.Turn
 			}
 			scope := s.ID + ":" + candidate.Session
@@ -254,7 +309,7 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 				message := projectMessage(d, *policy)
 				contentHash := digest(canonical(d.Content))
 				id := digest("message/1", s.Agent, s.ID, candidate.Session, d.Call, d.MessageRole, d.MessagePhase, contentHash)
-				out.Events = append(out.Events, Event{SchemaVersion: 3, Message: message, EventID: digest(id, identity, strconv.FormatInt(c.Offset, 10)), LogicalEventID: id, SourceID: s.ID, SourceInstanceID: digest(s.ID, identity, strconv.FormatUint(c.Generation, 10)), SourceSeq: c.Offset + int64(d.Block), RecordOffset: c.Offset, Block: d.Block, Agent: s.Agent, AgentVersion: candidate.AgentVersion, Source: "agent_log", SessionID: candidate.Session, TurnID: d.Turn, CallID: d.Call, LogicalCallID: digest(s.Agent, s.ID, candidate.Session, d.Call), Kind: d.Kind, Outcome: "unknown", ObservedAt: d.Time, ReceivedAt: time.Now().UTC(), ContentDigest: contentHash, ContentBytes: len(d.Content), EvidenceDigest: digest(string(line)), ProcessRelation: "unknown"})
+				out.Events = append(out.Events, Event{ModelContext: collectedModel(d, policy), SchemaVersion: 3, Message: message, EventID: digest(id, identity, strconv.FormatInt(c.Offset, 10)), LogicalEventID: id, SourceID: s.ID, SourceInstanceID: digest(s.ID, identity, strconv.FormatUint(c.Generation, 10)), SourceSeq: c.Offset + int64(d.Block), RecordOffset: c.Offset, Block: d.Block, Agent: s.Agent, AgentVersion: candidate.AgentVersion, Source: "agent_log", SessionID: candidate.Session, TurnID: d.Turn, CallID: d.Call, LogicalCallID: digest(s.Agent, s.ID, candidate.Session, d.Call), Kind: d.Kind, Outcome: "unknown", ObservedAt: d.Time, ReceivedAt: time.Now().UTC(), ContentDigest: contentHash, ContentBytes: len(d.Content), EvidenceDigest: digest(string(line)), ProcessRelation: "unknown"})
 				continue
 			}
 			if candidate.Session == "" {
@@ -283,14 +338,18 @@ func ReadWithPolicy(ctx context.Context, s Source, old Cursor, b Budget, since t
 			if d.Kind == "tool_result" && d.Outcome != "error" {
 				skillUse = ProjectSkillResult(s.Agent, d.ResultTool, d.Content, d.ResultMeta, policy)
 			}
-			ObserveSkillContent(skillUse)
+			if skillUse != nil && skillUse.Path != "" {
+				observationCtx, cancelObservation := context.WithDeadline(ctx, deadline)
+				observer.Observe(observationCtx, skillUse, policy)
+				cancelObservation()
+			}
 			namespace := "behavior/" + strconv.Itoa(version)
 			behaviorJSON, _ := json.Marshal(behavior)
 			id := digest(namespace, s.Agent, scope, turn, d.Call, d.Kind, d.Tool, d.Outcome, contentDigest, string(behaviorJSON))
 			if policy != nil {
 				id = digest(namespace, s.Agent, scope, turn, d.Call, d.Kind, d.Tool, d.Outcome, contentDigest)
 			}
-			out.Events = append(out.Events, Event{UserScope: sourceUserScope(), SkillUse: skillUse, PreviousLogicalIDs: previousIDs, SchemaVersion: 2, Behavior: behavior, EventID: digest(namespace, s.ID, identity, strconv.FormatUint(c.Generation, 10), strconv.FormatInt(c.Offset, 10), strconv.Itoa(d.Block), string(line)), LogicalEventID: id, SourceID: s.ID, SourceInstanceID: digest(s.ID, identity, strconv.FormatUint(c.Generation, 10)), SourceSeq: c.Offset + int64(d.Block), RecordOffset: c.Offset, Block: d.Block, Agent: s.Agent, AgentVersion: candidate.AgentVersion, Source: "agent_log", SessionID: candidate.Session, TurnID: turn, CallID: d.Call, LogicalCallID: digest(s.Agent, scope, turn, d.Call), Kind: d.Kind, Tool: d.Tool, Outcome: d.Outcome, ObservedAt: d.Time, ReceivedAt: time.Now().UTC(), ContentDigest: contentDigest, ContentBytes: len(d.Content), EvidenceDigest: digest(string(line)), ProcessRelation: "unknown"})
+			out.Events = append(out.Events, Event{ModelContext: collectedModel(d, policy), UserScope: sourceUserScope(), SkillUse: skillUse, PreviousLogicalIDs: previousIDs, SchemaVersion: 2, Behavior: behavior, EventID: digest(namespace, s.ID, identity, strconv.FormatUint(c.Generation, 10), strconv.FormatInt(c.Offset, 10), strconv.Itoa(d.Block), string(line)), LogicalEventID: id, SourceID: s.ID, SourceInstanceID: digest(s.ID, identity, strconv.FormatUint(c.Generation, 10)), SourceSeq: c.Offset + int64(d.Block), RecordOffset: c.Offset, Block: d.Block, Agent: s.Agent, AgentVersion: candidate.AgentVersion, Source: "agent_log", SessionID: candidate.Session, TurnID: turn, CallID: d.Call, LogicalCallID: digest(s.Agent, scope, turn, d.Call), Kind: d.Kind, Tool: d.Tool, Outcome: d.Outcome, ObservedAt: d.Time, ReceivedAt: time.Now().UTC(), ContentDigest: contentDigest, ContentBytes: len(d.Content), EvidenceDigest: digest(string(line)), ProcessRelation: "unknown"})
 		}
 		if len(drafts) == 0 {
 			out.Coverage.Ignored++

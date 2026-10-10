@@ -9,18 +9,21 @@ from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import Field, field_validator, model_validator
-from sqlalchemy import func
+from sqlalchemy import func, text, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from cryptography.hazmat.primitives import serialization
 
 from .. import auth, models
 from ..aidr_enforcement import (Strict, PolicyInput, AidrEnforcementRevision, AidrRuntimeRecord,
-                                AidrResponseCommand, canonical, create_snapshot, latest, sign)
+                                AidrResponseCommand, RUNTIME_ROOT_PATH, RUNTIME_PROCESS_FIELDS,
+                                canonical, create_snapshot, latest, sign)
 from ..sqlite_db import get_db
 from ..aidr_rule_preview import SystemRulePreview, preview_system
 from .aidr import runtime_device, fail
 from .clients import _client_or_404, _ensure_visible, _operation
+from .. import aidr_system_selection as system_selection
+from ..client_governance import SystemCollectionTargets
 
 router = APIRouter(prefix='/v1/clients/{client_id}/aidr/enforcement', tags=['aidr-enforcement'])
 _AUTO_RENEW_ACTOR = 'system:auto-renew'
@@ -106,6 +109,102 @@ def visible(db, client_id, user):
 
 def now_text():
     return datetime.now(timezone.utc).isoformat()
+
+
+class RequirementsInput(Strict):
+    expected_version: str = Field(max_length=80)
+    enabled: bool
+    requirements: SystemCollectionTargets
+
+
+@router.get('/collection')
+def collection_view(client_id: str, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    visible(db, client_id, user)
+    return system_selection.view(db, client_id)
+
+
+@router.post('/collection')
+def save_collection(client_id: str, body: RequirementsInput, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    from ..client_governance import policy_view, PolicyChange, preview, save_policy
+    visible(db, client_id, user)
+    if user.role not in ('admin', 'super_admin'):
+        fail(403, 'enforcement_admin_required', '需要管理员权限', 'Administrator role required')
+    current = policy_view(db, client_id)
+    existing_selection = db.get(system_selection.SystemSelection, client_id)
+    signed = latest(db, client_id)
+    if body.enabled and signed and json.loads(signed.policy_json)['agent_executables'] and not (existing_selection and json.loads(existing_selection.inventory_json)):
+        system_selection.problem('discovery_required', '请先在客户端发现程序，再调整现有采集范围', 'Discover programs on the client before changing the existing collection scope')
+    if body.enabled and not body.requirements.products:
+        system_selection.problem('products_required', '请选择允许采集的 Agent', 'Choose the allowed Agents', 422)
+    runtime = dict(current['runtime_governance'])
+    if body.enabled and not runtime['enabled']:
+        system_selection.problem('runtime_disabled', '请先启用该客户端的运行治理', 'Enable runtime governance for this device first')
+    runtime['channels'] = {**(runtime.get('channels') or {'logs': True, 'hooks': True}), 'system': body.enabled}
+    runtime['system_targets'] = body.requirements.model_dump()
+    custom = db.get(models.ClientGovernancePolicy, client_id)
+    change = PolicyChange(expected_version=body.expected_version, rules=json.loads(custom.rules_json) if custom else {}, runtime_governance=runtime)
+    change.preview_id = preview(db, client_id, change)['preview_id']
+    save_policy(db, client_id, change, user)
+    # Restrict already signed roots immediately when administrators narrow scope.
+    selection = db.get(system_selection.SystemSelection, client_id)
+    inventory = json.loads(selection.inventory_json) if selection else []
+    signed = latest(db, client_id)
+    if signed:
+        previous = json.loads(signed.policy_json)['agent_executables']
+        allowed = {x['path'] for x in inventory if x['product'] in body.requirements.products and x['availability'] == 'available'}
+        retained = [p for p in previous if p in allowed] if body.enabled else []
+        system_selection.write_roots(db, client_id, retained, user.username)
+        if selection:
+            selection.selected_json = canonical([x['id'] for x in inventory if x['path'] in retained])
+    _operation(db, user, 'aidr.system.requirements', client_id, canonical(body.model_dump()))
+    db.commit()
+    return system_selection.view(db, client_id)
+
+
+@router.post('/collection/rediscover')
+def request_discovery(client_id: str, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    db.connection().exec_driver_sql('BEGIN IMMEDIATE')
+    visible(db, client_id, user)
+    if user.role not in ('admin', 'super_admin'):
+        fail(403, 'enforcement_admin_required', '需要管理员权限', 'Administrator role required')
+    row = db.get(system_selection.SystemSelection, client_id)
+    if row is None:
+        row = system_selection.SystemSelection(client_id=client_id)
+        db.add(row)
+    row.discovery_request = str(uuid.uuid4())
+    _operation(db, user, 'aidr.system.rediscover', client_id, '{}')
+    db.commit()
+    return system_selection.view(db, client_id)
+
+
+@router.get('/collection/device')
+def device_collection(client_id: str, request: Request, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    runtime_device(db, client_id, authorization, request, 'aidr:heartbeat')
+    return system_selection.view(db, client_id)
+
+
+@router.post('/collection/discovery')
+def report_discovery(client_id: str, body: system_selection.DiscoveryInput, request: Request, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    db.connection().exec_driver_sql('BEGIN IMMEDIATE')
+    runtime_device(db, client_id, authorization, request, 'aidr:heartbeat')
+    row = db.get(system_selection.SystemSelection, client_id)
+    if row is None:
+        row = system_selection.SystemSelection(client_id=client_id)
+        db.add(row)
+    row.inventory_json = canonical([x.model_dump() for x in body.items])
+    row.reported_at = now_text()
+    db.commit()
+    return system_selection.view(db, client_id)
+
+
+@router.post('/collection/selection')
+def select_collection(client_id: str, body: system_selection.SelectionInput, request: Request, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    db.connection().exec_driver_sql('BEGIN IMMEDIATE')
+    runtime_device(db, client_id, authorization, request, 'aidr:heartbeat')
+    revision = system_selection.select(db, client_id, body)
+    _operation(db, SimpleNamespace(username='device:' + client_id), 'aidr.system.selection', client_id, canonical({'revision': revision, 'ids': body.ids}))
+    db.commit()
+    return system_selection.view(db, client_id)
 
 
 @router.post('/policy/preview')
@@ -387,21 +486,32 @@ async def records(client_id: str, request: Request, authorization: str | None = 
 @router.get('/record-agents')
 def record_agents(client_id: str, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     visible(db, client_id, user)
-    root = func.json_extract(AidrRuntimeRecord.payload_json, '$.root_path')
-    rows = db.query(root).filter(
-        AidrRuntimeRecord.client_id == client_id, AidrRuntimeRecord.expired_at.is_(None),
-        AidrRuntimeRecord.kind.in_(['process', 'file', 'network', 'authorization', 'response']),
-        root.isnot(None), root != '',
-    ).distinct().order_by(root).all()
+    # Seek past each distinct root, instead of visiting every event in its index range.
+    root = str(RUNTIME_ROOT_PATH)
+    next_root = f"""SELECT {root} FROM aidr_runtime_records INDEXED BY ix_aidr_runtime_agent_roots
+        WHERE client_id=:client_id AND expired_at IS NULL
+          AND kind IN ('process','file','network','authorization','response')
+          AND {root} > {{previous}} ORDER BY {root} LIMIT 1"""
+    rows = db.execute(text(f"""WITH RECURSIVE roots(root_path) AS (
+        SELECT ({next_root.format(previous="''")})
+        UNION ALL
+        SELECT ({next_root.format(previous='roots.root_path')}) FROM roots WHERE root_path IS NOT NULL
+    ) SELECT root_path FROM roots WHERE root_path IS NOT NULL ORDER BY root_path"""), {'client_id': client_id}).all()
     return dict(items=[dict(root_path=row[0]) for row in rows])
 
 
 @router.get('/records')
-def query_records(client_id: str, before: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), kind: str = Query('', pattern=r'^$|^(activity|network|process|file|authorization|health|policy|response)$'), include_probes: bool = True, root_path: str = Query('', max_length=1023), db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+def query_records(client_id: str, before: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), kind: str = Query('', pattern=r'^$|^(activity|network|process|file|authorization|health|policy|response)$'), include_probes: bool = True, root_path: str = Query('', max_length=1023), installation_path: str = Query('', max_length=1023), db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     visible(db, client_id, user)
     query = db.query(AidrRuntimeRecord).filter_by(client_id=client_id,expired_at=None)
-    if root_path:
-        query = query.filter(func.json_extract(AidrRuntimeRecord.payload_json, '$.root_path') == root_path)
+    if installation_path:
+        bundle = installation_path.rstrip('/')
+        scope = RUNTIME_ROOT_PATH == installation_path
+        if bundle.endswith('.app'):
+            scope = or_(scope, RUNTIME_ROOT_PATH.startswith(bundle + '/Contents/', autoescape=True))
+        query = query.filter(scope)
+    elif root_path:
+        query = query.filter(RUNTIME_ROOT_PATH == root_path)
     if kind == 'activity':
         query = query.filter(AidrRuntimeRecord.kind.in_(['process', 'file', 'network', 'authorization', 'response']))
         query = query.filter(func.coalesce(func.json_extract(AidrRuntimeRecord.payload_json, '$.transition'), '') != 'fork')
@@ -432,8 +542,8 @@ def record_context(client_id: str, record_id: int, db: Session = Depends(get_db)
     target = json.loads(row.payload_json)
     query = db.query(AidrRuntimeRecord).filter_by(client_id=client_id, monitor_id=row.monitor_id, expired_at=None)
     for key in ('pid', 'pidversion', 'start_us'):
-        query = query.filter(func.json_extract(AidrRuntimeRecord.payload_json, '$.process.' + key) == target['process'][key])
-    query = query.filter(func.json_extract(AidrRuntimeRecord.payload_json, '$.boot_id') == target['boot_id'])
+        query = query.filter(RUNTIME_PROCESS_FIELDS['process.' + key] == target['process'][key])
+    query = query.filter(RUNTIME_PROCESS_FIELDS['boot_id'] == target['boot_id'])
     rows = query.order_by(func.length(AidrRuntimeRecord.sequence).desc(), AidrRuntimeRecord.sequence.desc()).limit(201).all()
     return dict(items=[dict(id=r.id, record=json.loads(r.payload_json)) for r in reversed(rows[:200])], truncated=len(rows)>200)
 

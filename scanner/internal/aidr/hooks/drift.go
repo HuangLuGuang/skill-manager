@@ -57,7 +57,7 @@ func ComparePluginStatus(previous, current PluginStatus) PluginDrift {
 	if previous.ConfigurationDigest != current.ConfigurationDigest {
 		d.Fields = append(d.Fields, "native_configuration")
 	}
-	if previous.HostVersion != current.HostVersion {
+	if previous.HostVersion != "" && current.HostVersion != "" && previous.HostVersion != current.HostVersion {
 		d.Fields = append(d.Fields, "host_version")
 	}
 	d.FilesComparable = previous.FilesDigest != "" && current.FilesDigest != "" && previous.SourceKind == current.SourceKind

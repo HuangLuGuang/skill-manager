@@ -56,7 +56,10 @@ from pathlib import Path
 import yaml
 args = sys.argv[1:]
 with open(os.environ['DOCKER_LOG'], 'a') as out:
-    out.write(json.dumps(args) + '\n')
+    out.write(json.dumps((['docker-compose'] if Path(sys.argv[0]).name == 'docker-compose' else []) + args) + '\n')
+standalone = Path(sys.argv[0]).name == 'docker-compose'
+if standalone:
+    args.insert(0, 'compose')
 fail = os.environ.get('DEPLOY_TEST_FAILURE', '')
 if args[0] == 'info':
     print('aarch64' if fail == 'architecture' else 'x86_64')
@@ -66,9 +69,11 @@ elif args[:2] == ['image', 'inspect']:
     print('linux/arm64' if fail == 'image_architecture' else 'linux/amd64')
 elif args[0] == 'compose':
     if 'version' in args:
+        if fail == 'plugin_missing' and not standalone:
+            sys.exit(1)
         print('Docker Compose version v2.30.0')
     elif '--help' in args:
-        print('--wait --wait-timeout --pull --no-build')
+        print('--wait --wait-timeout --pull --no-build --format')
     elif 'config' in args:
         print(json.dumps(yaml.safe_load(Path(args[args.index('-f') + 1]).read_text())))
     elif 'up' in args:
@@ -77,8 +82,9 @@ elif args[0] == 'compose':
         sys.exit(1 if fail == 'http' else 0)
 ''')
     docker.chmod(0o755)
+    shutil.copy2(docker, binaries / 'docker-compose')
 
-    def run(action='start', archive=None, failure='', runner_root=None):
+    def run(action='start', archive=None, failure='', runner_root=None, extra_args=()):
         env = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'],
                    DOCKER_LOG=str(log), DEPLOY_TEST_FAILURE=failure)
         # The helper is standalone, so use the environment's Python with PyYAML for the fake Docker only.
@@ -90,7 +96,7 @@ elif args[0] == 'compose':
             command.append(str(archive))
         if runner_root:
             command += ['--install-dir', str(root)]
-        command += ['--wait-timeout', '2']
+        command += ['--wait-timeout', '2', *extra_args]
         result = subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=20)
         calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
         return result, calls
@@ -121,6 +127,49 @@ def test_start_creates_env_only_when_missing(installation):
     assert result.returncode == 0, result.stderr
     assert (root / '.env').read_bytes() == (root / '.env.example').read_bytes()
     assert (root / '.env').stat().st_mode & 0o777 == 0o600
+
+
+def test_start_and_upgrade_use_standalone_compose(tmp_path, installation):
+    root, run = installation
+    result, calls = run(failure='plugin_missing')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert any(call[0] == 'docker-compose' and 'up' in call for call in calls)
+    source = make_release(tmp_path / 'new')
+    result, calls = run('upgrade', package(source, tmp_path / 'upgrade.tar.gz'), failure='plugin_missing')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert any(call[0] == 'docker-compose' and '--force-recreate' in call for call in calls)
+
+
+def test_custom_port_survives_restart_and_upgrade(tmp_path, installation, monkeypatch):
+    root, run = installation
+    original = (root / '.env').read_text()
+    monkeypatch.setenv('HTTP_PORT', '9999')
+    result, _ = run(extra_args=('--port', '18086'))
+    assert result.returncode == 0, result.stderr
+    expected = original + 'HTTP_PORT=18086\n'
+    assert (root / '.env').read_text() == expected
+    result, _ = run()
+    assert result.returncode == 0, result.stderr
+    assert (root / '.env').read_text() == expected
+    source = make_release(tmp_path / 'new')
+    result, _ = run('upgrade', package(source, tmp_path / 'release.tar.gz'))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (root / '.env').read_text() == expected
+    backup, = (root / 'backups').iterdir()
+    assert (backup / '.env').read_text() == expected
+    result, _ = run(extra_args=('--port', '18087'))
+    assert result.returncode == 0, result.stderr
+    assert (root / '.env').read_text() == original + 'HTTP_PORT=18087\n'
+
+
+@pytest.mark.parametrize('port', ['0', '65536', 'invalid'])
+def test_invalid_port_does_not_change_installation(installation, port):
+    root, run = installation
+    original = (root / '.env').read_bytes()
+    result, calls = run(extra_args=('--port', port))
+    assert result.returncode != 0
+    assert not calls
+    assert (root / '.env').read_bytes() == original
 
 
 def test_upgrade_backs_up_and_preserves_customer_env(tmp_path, installation):

@@ -99,3 +99,22 @@ def test_interface_compatibility_report_keeps_native_trust_separate(service):
     body['report_sequence'] = '2'
     body['status']['version_status'] = 'invented'
     assert send(client, body).status_code == 422
+
+
+def test_local_observation_preserves_evidence_and_does_not_invent_host_version_drift(service):
+    client, _ = service
+    body = report()
+    assert send(client, body).status_code == 200
+    body['report_sequence'] = '2'
+    body['status'].update(host_version='', version_status='adapter_available')
+    assert send(client, body).status_code == 200
+    item = read(client)
+    assert item['change']['fields'] == []
+    assert item['report']['status']['hook_trust'] == 'unknown'
+    assert item['report']['status']['version_status'] == 'adapter_available'
+    body['report_sequence'] = '3'
+    body['status'].update(files_digest='f'*64)
+    assert send(client, body).status_code == 200
+    assert read(client)['change']['fields'] == ['declared_files']
+    page = client.get('/api/v1/clients/one/aidr/hook-policy').json()['plugins']
+    assert page['evidence_type'] == 'plugin_configuration_report'

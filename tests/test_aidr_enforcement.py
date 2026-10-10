@@ -410,3 +410,57 @@ def test_agent_root_filter_scopes_history_pagination_and_descendants(control):
     assert not client.get(ROOT+'/records', params={'root_path': '/apps/%'}).json()['items']
     assert client.get(ROOT+'/records', params={'root_path': 'x' * 1024}).status_code == 422
     assert client.get(ROOT.replace('/one/', '/two/')+'/record-agents').status_code == 404
+
+
+def test_runtime_queries_seek_indexes_and_keep_full_instance_identity(control):
+    from sqlalchemy import event as sql_event
+    from backend.aidr_enforcement import AidrRuntimeRecord
+    client, factory, _ = control
+    base = event() | {'root_path': '/Applications/WorkBuddy.app/Contents/MacOS/Electron'}
+    sequences = [*range(1, 206), 9007199254740993, 18446744073709551615]
+    with factory() as db:
+        # Insert out of sequence: arrival IDs must not replace numeric event order.
+        for sequence in reversed(sequences):
+            value = base | {'sequence': str(sequence)}
+            db.add(AidrRuntimeRecord(client_id='one', monitor_id=value['monitor_id'],
+                sequence=value['sequence'], kind='process', payload_json=json.dumps(value), received_at='2026-10-09'))
+        variants = [
+            {'process': base['process'] | {field: '999'}} for field in ('pid', 'pidversion', 'start_us')
+        ] + [{'boot_id': str(uuid.uuid4())}, {'monitor_id': str(uuid.uuid4())}, {}, {}]
+        for index, changes in enumerate(variants):
+            value = base | changes | {'sequence': str(300 + index), 'root_path': f'/other/{index}'}
+            db.add(AidrRuntimeRecord(client_id='two' if index == 5 else 'one', monitor_id=value['monitor_id'],
+                sequence=value['sequence'], kind='process', payload_json=json.dumps(value), received_at='2026-10-09',
+                expired_at='2026-10-09' if index == 6 else None))
+        db.commit()
+        ident = db.query(AidrRuntimeRecord.id).filter_by(client_id='one', sequence='1').scalar()
+    statements = []
+    engine = factory.kw['bind']
+    def capture(conn, cursor, statement, parameters, context, many):
+        if 'aidr_runtime_records' in statement:
+            statements.append((statement, parameters))
+    sql_event.listen(engine, 'before_cursor_execute', capture)
+    try:
+        result = client.get(ROOT + f'/records/{ident}/context').json()
+        agents = client.get(ROOT + '/record-agents').json()['items']
+        for root in ('', base['root_path']):
+            response = client.get(ROOT + '/records', params={'kind': 'activity', 'root_path': root})
+            assert response.status_code == 200
+    finally:
+        sql_event.remove(engine, 'before_cursor_execute', capture)
+    assert result['truncated']
+    assert [int(item['record']['sequence']) for item in result['items']] == sequences[-200:]
+    assert {'root_path': '/other/5'} not in agents and {'root_path': '/other/6'} not in agents
+    assert agents == sorted(agents, key=lambda item: item['root_path'])
+    with engine.connect() as conn:
+        for sql, params in statements:
+            plan = ' '.join(row[3] for row in conn.exec_driver_sql('EXPLAIN QUERY PLAN ' + sql, params))
+            if 'WITH RECURSIVE roots' in sql:
+                assert plan.count('ix_aidr_runtime_agent_roots') == 2
+                assert '<expr>>?' in plan
+            elif 'ORDER BY length' in sql:
+                assert 'ix_aidr_runtime_instance_sequence' in plan
+                assert plan.count('<expr>=?') == 4
+                assert 'TEMP B-TREE' not in plan
+            elif 'ORDER BY aidr_runtime_records.id DESC' in sql:
+                assert 'TEMP B-TREE' not in plan

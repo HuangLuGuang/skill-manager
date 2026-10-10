@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"skill-manager/scanner/internal/aidr/agentlog"
+	products "skill-manager/scanner/internal/aidr/catalog"
 	"skill-manager/scanner/internal/aidr/localstore"
 )
 
@@ -253,11 +254,7 @@ func (s *Store) Status(ctx context.Context) (StoreStatus, error) {
 		status.ControlCode = "aidr_hook_policy_missing"
 		if s.controlPolicy != nil {
 			status.ControlRevision = s.controlPolicy.Revision
-			d := s.controlPolicy.Evaluate(Event{}, time.Now())
 			status.ControlCode = "aidr_hook_policy_ready"
-			if d.Code == "aidr_hook_policy_expired" {
-				status.ControlCode = d.Code
-			}
 		}
 	}
 	err := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM hook_events),CAST(COALESCE((SELECT seq FROM sqlite_sequence WHERE name='hook_events'),0) AS TEXT),COALESCE((SELECT value FROM hook_meta WHERE key='audit_policy_after'),'0')`).Scan(&status.Queued, &status.LastSequence, &status.AppliedAfter)
@@ -336,6 +333,22 @@ func (s *Store) receiveWithBridge(ctx context.Context, id, user, agent, hook str
 	e, err := Normalize(agent, hook, raw, s.policy, s.key)
 	if err != nil {
 		return r, err
+	}
+	if s.controlPolicy != nil {
+		e.CommandMatch = s.controlPolicy.observeCommand(e, raw)
+	}
+	// Pin the control decision to the same policy and immutable event before
+	// uploads can observe it. IPC returns this decision to the host.
+	if e.Kind == "tool.pre" && s.controlMode == "intercept" {
+		d := s.evaluateToolLocked(e, time.Now())
+		product, _ := products.Get(agent)
+		if d.Decision == "ask" && !product.Approval {
+			d.Decision, d.Code = "deny", "aidr_hook_approval_unsupported"
+		}
+		if d.Decision == "ask" && !s.policy.CollectionEnabled() {
+			d.Decision, d.Code = "deny", "aidr_hook_audit_disabled_requires_evidence"
+		}
+		e.ControlDecision = &d
 	}
 	if !s.policy.CollectionEnabled() {
 		// Keep live control evaluation separate from audit persistence. An ask

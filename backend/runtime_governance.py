@@ -165,6 +165,12 @@ def record_enrollment(db, client_id, report):
 def client_target(target, report):
     """Older clients compare typed policy and task payloads byte-for-byte."""
     result = dict(target)
+    if isinstance(result.get("modes"), dict):
+        # Go string fields use an empty string for the nullable preserve mode.
+        result["modes"] = dict(result["modes"])
+        for channel in ("hooks", "system"):
+            if result["modes"].get(channel) is None:
+                result["modes"][channel] = ""
     if not report or report.get("user_hook_hosts") is None:
         result.pop("allow_user_enrollment", None)
     return result
@@ -258,13 +264,12 @@ def compatibility_view(report, supports_tasks, stale):
             'observed': observed, 'stale': stale, 'evidence_type': 'client_protocol_report'}
 
 
-def recent_product_arrivals(db, client_id):
-    from sqlalchemy import func
+def latest_product_arrivals(db, client_id):
+    from sqlalchemy import func, literal_column
     from .aidr_models import AidrHookEvent
-    agent = func.json_extract(AidrHookEvent.payload_json, '$.event.agent')
+    agent = literal_column("json_extract(payload_json, '$.event.agent')")
     rows = db.query(agent, func.max(AidrHookEvent.received_at)).filter(
-        AidrHookEvent.client_id == client_id, AidrHookEvent.expired_at.is_(None),
-        AidrHookEvent.received_at >= datetime.utcnow()-timedelta(minutes=15)
+        AidrHookEvent.client_id == client_id, AidrHookEvent.expired_at.is_(None)
     ).group_by(agent).all()
     return {name: at.isoformat()+'Z' for name, at in rows if name in BY_ID and at}
 
@@ -320,7 +325,7 @@ def view(db, client_id):
             "client_version": client.client_version if client else None,
             "compatibility": compatibility,
             "onboarding": onboarding,
-            "hook_connections": hook_connections(policy, report, stale, onboarding, recent_product_arrivals(db, client_id)),
+            "hook_connections": hook_connections(policy, report, stale, onboarding, latest_product_arrivals(db, client_id)),
             "channels_supported": bool(report and report.get("protocol") in (3, 4, 5)),
             "channels": channel_view(policy, report),
             "target": policy["runtime_governance"],
@@ -446,7 +451,7 @@ def retry_reconcile(db, client, original):
         error(409, "runtime_task_superseded", "请按当前策略执行", "Use the current policy")
     observation = db.get(Observation, client.client_id)
     report = Report.model_validate_json(observation.report_json) if observation else None
-    if not report or payload.get("target") != client_target(policy["runtime_governance"], report.model_dump()) or payload.get("plugin_version") != report.plugin_version:
+    if not report or client_target(payload.get("target") or {}, report.model_dump()) != client_target(policy["runtime_governance"], report.model_dump()) or payload.get("plugin_version") != report.plugin_version:
         error(409, "runtime_task_superseded", "请按当前策略及安装包执行", "Use the current policy and client package")
     db.connection().exec_driver_sql("UPDATE managed_clients SET id=id WHERE client_id=?", (client.client_id,))
     key = f"aidr-reconcile-retry:{client.client_id}:{original.id}"
@@ -457,6 +462,7 @@ def retry_reconcile(db, client, original):
     if latest and latest.id != original.id:
         error(409, "runtime_task_superseded", "已有较新任务", "A newer task exists")
     payload.pop("receipt", None)
+    payload["target"] = client_target(policy["runtime_governance"], report.model_dump())
     payload["request_id"] = f"retry-{original.id}"
     payload["expires_at"] = (datetime.utcnow()+timedelta(hours=24)).isoformat(timespec="seconds")+"Z"
     task = models.ClientTask(client_id=client.client_id, task_type="aidr_plugin_action", payload_json=json.dumps(payload, separators=(",", ":")), request_key=key)

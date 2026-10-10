@@ -1,8 +1,8 @@
 <template>
   <section ref="panelElement" class="hook-panel" :class="{ 'control-view': view === 'control' }">
-    <ClientProtectionStatus v-if="view === 'control'" :client-id="clientId" channel="hooks" />
+    <ClientProtectionStatus v-if="view === 'control' && !global && !fixedAgent" :client-id="clientId" channel="hooks" />
     <h3 v-if="view === 'events'">{{ t('aidr.hooks.events.title') }}</h3>
-    <details v-if="['control','events'].includes(view)" class="hook-context"><summary>{{ t('aidr.hooks.evidenceBoundary') }}</summary><p>{{ t('aidr.hooks.evidenceNote') }}</p><template v-if="view === 'control'"><p>{{ t('aidr.hooks.note') }}</p><p>{{ t('aidr.hooks.autoSync') }}</p><p>{{ t('aidr.hooks.stale') }}</p></template><template v-if="view === 'events'"><p>{{ t('aidr.hooks.events.note') }}</p><p>{{ t('aidr.hooks.scrollHint') }}</p></template></details>
+    <details v-if="view === 'events'" class="hook-context"><summary>{{ t('aidr.hooks.evidenceBoundary') }}</summary><p>{{ t('aidr.hooks.evidenceNote') }}</p><p>{{ t('aidr.hooks.events.note') }}</p><p>{{ t('aidr.hooks.scrollHint') }}</p></details>
     <a-alert v-if="actionError" type="error" show-icon :message="actionError" />
     <template v-if="['plugins','runtime'].includes(view)">
       <a-button :loading="policyLoading" :disabled="policyLoading" @click="loadPolicy">{{ t(policyError ? 'aidr.hooks.retry' : 'aidr.hooks.refresh') }}</a-button>
@@ -47,8 +47,9 @@
       </template>
     </template>
     <template v-if="view === 'control'">
-    <p class="control-intro">{{ t('aidr.hooks.controlIntro') }}</p>
-    <a-alert type="info" show-icon :message="t(`aidr.hooks.${controlReportKey}`)" />
+    <p v-if="!fixedAgent" class="control-mode-note">{{ t(global ? 'aidr.hooks.scope.globalHelp' : `aidr.hooks.${controlReportKey}`) }}</p>
+    <div v-if="!global && !controlSection" class="control-tabs" role="group" :aria-label="t('aidr.hooks.title')"><button :aria-pressed="controlTab === 'rules'" @click="controlTab = 'rules'">{{ t('aidr.hooks.commands.title') }}</button><button :aria-pressed="controlTab === 'approvals'" @click="controlTab = 'approvals'">{{ t('aidr.hooks.approvals') }} <span>{{ page.items.length }}</span></button></div>
+    <div v-if="controlTab === 'approvals'">
     <div class="hook-heading hook-list-heading"><h4>{{ t('aidr.hooks.approvals') }} <span class="hook-count">{{ t('aidr.hooks.visibleRecords', { count: page.items.length }) }}</span></h4><a-button :loading="listLoading" :disabled="listLoading || deciding" @click="loadList()">{{ t(listError ? 'aidr.hooks.retry' : 'aidr.hooks.refresh') }}</a-button></div>
     <a-alert v-if="listError" type="error" show-icon :message="listError" />
     <p>{{ t('aidr.hooks.lastSync') }}: {{ lastSynced ? new Date(lastSynced).toLocaleString(locale) : t('aidr.hooks.unknown') }}</p>
@@ -67,48 +68,36 @@
     </a-table>
     <p v-if="!listError && !page.items.length">{{ t('aidr.hooks.approvalEmptyHelp') }}</p>
     <div v-if="cursor || page.has_more" class="hook-heading"><a-button :disabled="listLoading || deciding || !cursor" @click="loadList(null)">{{ t('aidr.hooks.first') }}</a-button><a-button :disabled="listLoading || deciding || !page.has_more" @click="loadList({ before: page.next_before, before_id: page.next_before_id })">{{ t('aidr.hooks.next') }}</a-button></div>
-    <details open>
-      <summary>{{ t('aidr.hooks.policy') }} · {{ policy?.revision && String(policy.revision) !== '0' ? policy.revision : t('aidr.hooks.none') }}</summary>
+    </div>
+    <section v-if="controlTab === 'rules'" class="control-rules">
+      <div class="policy-meta"><span>{{ t('aidr.hooks.revision') }} {{ policy?.revision && String(policy.revision) !== '0' ? policy.revision : t('aidr.hooks.none') }}<template v-if="policy?.analysis?.published_by"> · {{ policy.analysis.published_by }}</template><template v-if="policy?.analysis?.issued_at"> · {{ stamp(policy.analysis.issued_at) }}</template></span><a-button type="text" size="small" :loading="policyLoading" :disabled="policyLoading || saving" @click="loadPolicy">{{ t(policyError ? 'aidr.hooks.retry' : 'aidr.hooks.refresh') }}</a-button></div>
       <a-alert v-if="policyError" type="error" :message="policyError" show-icon />
-      <a-button :loading="policyLoading" :disabled="policyLoading || saving" @click="loadPolicy">{{ t(policyError ? 'aidr.hooks.retry' : 'aidr.hooks.refresh') }}</a-button>
       <template v-if="policy">
-        <p>{{ t('aidr.hooks.ruleHelp') }}</p>
-        <p>{{ t('aidr.hooks.conflictNote') }}</p>
-        <details v-if="policy.analysis" class="hook-analysis">
-          <summary>{{ t('aidr.hooks.drift.title') }} · {{ policy.analysis.previous_revision || '—' }} → {{ policy.analysis.current_revision }}</summary>
-          <p>{{ t('aidr.hooks.drift.note') }}</p>
-          <p>{{ t('aidr.hooks.drift.author') }}: {{ policy.analysis.published_by }} · {{ stamp(policy.analysis.issued_at) }}</p>
-          <a-alert v-if="policy.analysis.expired" type="warning" show-icon :message="t('aidr.hooks.drift.expired')" />
-          <p v-for="kind in ['expanded', 'restricted', 'unchanged', 'baseline_unknown']" :key="kind">{{ t('aidr.hooks.drift.' + kind) }}: {{ policy.analysis.counts[kind] }}</p>
-          <p>{{ t('aidr.hooks.drift.conflicts') }}: {{ policy.analysis.conflict_partitions }}</p>
-          <p v-if="policy.analysis.details_truncated">{{ t('aidr.hooks.drift.truncated') }}</p>
-          <div v-for="(entry, index) in policy.analysis.items" :key="index" class="hook-drift-entry">
-            <strong>{{ entry.agent }} · {{ entry.scope === 'other_tools' ? t('aidr.hooks.drift.otherTools') : entry.tool }}</strong>
-            <p>{{ t('aidr.hooks.drift.' + entry.change) }} · {{ entry.before ? t('aidr.hooks.' + entry.before.decision) : t('aidr.hooks.unknown') }} → {{ t('aidr.hooks.' + entry.after.decision) }}</p>
-            <p>{{ t('aidr.hooks.drift.winner') }}: <code>{{ entry.before?.rule_id || '—' }} → {{ entry.after.rule_id }}</code></p>
-            <p>{{ t('aidr.hooks.drift.matched') }}: <code>{{ entry.after.matched_rule_ids.join(', ') || t('aidr.hooks.defaultAction') }}</code><span v-if="entry.after.matched_ids_truncated"> · {{ t('aidr.hooks.drift.idsTruncated') }}</span></p>
-            <p v-if="entry.after.conflict">{{ t('aidr.hooks.drift.conflictRule') }}</p>
-          </div>
-        </details>
+        <div class="scope-choice" v-if="!global">
+          <label :title="!policy.global_policy ? t('aidr.hooks.scope.unconfigured') : ''"><a-switch v-model:checked="inherit" :disabled="!canEdit || saving || policyLoading || !!policyError || (!inherit && !policy.global_policy)" @change="changeInheritance" /> {{ t('aidr.hooks.scope.inherit') }}</label>
+          <span>{{ t('aidr.hooks.scope.globalRevision') }} {{ policy.global_revision === '0' ? t('aidr.hooks.none') : policy.global_revision }}</span>
+          <span>{{ t('aidr.hooks.scope.' + policy.distribution) }}</span>
+          <small>{{ t('aidr.hooks.scope.localHelp') }}</small>
+        </div>
+        <p v-else>{{ t('aidr.hooks.scope.impact', policy.impact || {}) }}</p>
         <p v-if="!canEdit">{{ t('aidr.hooks.readonly') }}</p>
-        <fieldset :disabled="!canEdit || saving || policyLoading || !!policyError">
+        <AidrCommandRules v-model:rules="draft.rules" :products="products" :disabled="(!global && inherit) || !canEdit || saving || policyLoading || !!policyError" />
+        <fieldset class="default-rule" :disabled="(!global && inherit) || !canEdit || saving || policyLoading || !!policyError">
           <label>{{ t('aidr.hooks.defaultAction') }}<select v-model="draft.default_action"><option v-for="d in decisions" :key="d" :value="d">{{ t(`aidr.hooks.${d}`) }}</option></select></label>
-          <label>{{ t('aidr.hooks.lifetime') }}<input v-model.number="draft.lifetime_seconds" type="number" min="60" max="86400" /></label>
-          <p>{{ t('aidr.hooks.rules') }}</p>
-          <div v-for="(rule, index) in draft.rules" :key="index" class="hook-rule">
-            <label>{{ t('aidr.hooks.ruleId') }}<input v-model="rule.id" maxlength="64" /></label>
-            <label>{{ t('aidr.hooks.agent') }}<select v-model="rule.agent" @change="normalizeRuleDecision(rule)"><option>*</option><option v-for="product in products.filter(p => p.hooks)" :key="product.id" :value="product.id">{{ product.name }}</option></select></label>
-            <label>{{ t('aidr.hooks.tool') }}<input v-model="rule.tool" maxlength="256" /></label>
-            <label>{{ t('aidr.hooks.decision') }}<select v-model="rule.decision"><option v-for="d in decisions" :key="d" :value="d" :disabled="d === 'ask' && rule.agent !== '*' && !products.find(p => p.id === rule.agent)?.approval">{{ t(`aidr.hooks.${d}`) }}</option></select></label>
-            <button type="button" @click="draft.rules.splice(index, 1)">{{ t('aidr.hooks.remove') }}</button>
-          </div>
-          <button type="button" :disabled="draft.rules.length >= 128" @click="draft.rules.push({ id: '', agent: '*', tool: '*', decision: 'ask' })">{{ t('aidr.hooks.add') }}</button>
+          <span :class="{ 'default-danger': draft.default_action === 'deny' }">{{ t('aidr.hooks.commands.fallback.' + draft.default_action) }}</span>
         </fieldset>
-        <AidrRulePreview :client-id="clientId" channel="hooks" :draft="draft" />
-        <a-button :loading="saving" :disabled="!canEdit || saving || policyLoading || !!policyError" @click="publish">{{ t('aidr.hooks.publish') }}</a-button>
-        <p v-if="saved">{{ t('aidr.hooks.published') }}</p>
+        <AidrRulePreview :client-id="clientId" :global="global" channel="hooks" :draft="draft" />
+        <footer class="policy-footer"><span role="status">{{ t(saved ? 'aidr.hooks.published' : dirty ? 'aidr.hooks.commands.unsaved' : 'aidr.hooks.commands.noChanges') }}</span><a-button type="primary" :disabled="!canEdit || saving || policyLoading || !!policyError || !dirty" @click="reviewOpen = true">{{ t('aidr.hooks.commands.review') }}</a-button></footer>
       </template>
-    </details>
+    </section>
+    <a-modal v-model:open="reviewOpen" :title="t('aidr.hooks.commands.review')" :closable="!saving" :mask-closable="!saving" :keyboard="!saving" :confirm-loading="saving" :ok-text="t(global ? 'aidr.hooks.globalPublish' : 'aidr.hooks.publish')" :cancel-text="t('aidr.hooks.cancel')" :cancel-button-props="{ disabled: saving }" :ok-button-props="{ disabled: !dirty || !canEdit || !!policyError }" @ok="publish">
+      <p>{{ t('aidr.hooks.commands.reviewHelp') }}</p>
+      <p v-if="global">{{ t('aidr.hooks.scope.impact', policy?.impact || {}) }}</p>
+      <p v-else>{{ t(inherit ? 'aidr.hooks.scope.inherit' : 'aidr.hooks.scope.local') }}</p>
+      <ul class="publish-review"><li v-for="rule in draft.rules" :key="rule.id"><div><strong>{{ rule.id }}</strong><code>{{ rule.command ? [rule.command.executable, ...(rule.command.args_all || []), rule.command.args_any?.length ? '(' + rule.command.args_any.join(' / ') + ')' : '', rule.command.path_prefix, rule.command.pipe_to?.length ? '| ' + rule.command.pipe_to.join(' / ') : ''].filter(Boolean).join(' ') : rule.tool }}</code><small>{{ t(rule.command ? 'aidr.hooks.commands.commandType' : 'aidr.hooks.commands.toolType') }}</small></div><span>{{ rule.agent === '*' ? t('aidr.hooks.commands.allAgents') : products.find(p => p.id === rule.agent)?.name || rule.agent }}</span><a-tag>{{ t('aidr.hooks.' + rule.decision) }}</a-tag></li></ul>
+      <p><strong>{{ t('aidr.hooks.defaultAction') }}: {{ t('aidr.hooks.' + draft.default_action) }}</strong></p><p>{{ t('aidr.hooks.commands.fallback.' + draft.default_action) }}</p>
+      <a-alert v-if="actionError" type="error" show-icon :message="actionError" />
+    </a-modal>
     </template>
     <template v-if="view === 'events'">
     <form class="hook-filters" @submit.prevent="applyEventFilters">
@@ -219,14 +208,39 @@ import AidrAuditContent from './AidrAuditContent.vue'
 import AidrAuditActions from './AidrAuditActions.vue'
 import ClientProtectionStatus from './ClientProtectionStatus.vue'
 import AidrRulePreview from './AidrRulePreview.vue'
+import AidrCommandRules from './AidrCommandRules.vue'
 import { useI18n } from 'vue-i18n'
 import { can } from '../access'
-import { getHookPolicy, saveHookPolicy, listHookApprovals, getHookApproval, decideHookApproval, listHookEvents, getHookEventRelations } from '../api'
-const props = defineProps({ clientId: { type: String, required: true }, view: { type: String, default: 'control' } })
+import { getHookPolicy, saveHookPolicy, getGlobalToolPolicy, saveGlobalToolPolicy, listHookApprovals, getHookApproval, decideHookApproval, listHookEvents, getHookEventRelations } from '../api'
+const props = defineProps({ clientId: { type: String, default: '' }, global: Boolean, view: { type: String, default: 'control' }, controlSection: { type: String, default: '' }, fixedAgent: { type: String, default: '' } })
 const { t, locale } = useI18n()
 const scopeLabel = scope => scope ? ['prompt', 'model_response', 'tool_output', 'file_body', 'command_body'].filter(kind => scope[kind]).map(kind => t('aidr.content.kinds.' + kind)).join(' · ') || t('aidr.content.none') : t('aidr.redactionSettings.unknown')
 const lifecycleLabel = value => value ? t(value.enabled ? 'aidr.lifecycle.enabled' : 'aidr.lifecycle.disabled') + ' · ' + t('aidr.lifecycle.days', { days: value.retention_days }) : t('aidr.lifecycle.legacy')
-const policy = ref(null), draft = ref({ default_action: 'deny', lifetime_seconds: 3600, rules: [] })
+const policy = ref(null), draft = ref({ default_action: 'deny', rules: [] })
+const reviewOpen = ref(false), baseline = ref('')
+const inherit = ref(false), baselineInherit = ref(false)
+let localDraft = null
+const dirty = computed(() => !!policy.value && ((props.global && !policy.value.policy) || inherit.value !== baselineInherit.value || JSON.stringify(draft.value) !== baseline.value))
+function applyPolicy(data) {
+  localDraft = null
+  policy.value = data
+  inherit.value = !props.global && !!data.inherit
+  const selected = inherit.value ? data.global_policy : data.policy
+  draft.value = { default_action: selected?.default_action || 'allow', rules: structuredClone(selected?.rules || []) }
+  baseline.value = JSON.stringify(draft.value); baselineInherit.value = inherit.value
+}
+function changeInheritance() {
+  if (inherit.value) {
+    localDraft = JSON.parse(JSON.stringify(draft.value))
+    const selected = policy.value?.global_policy
+    draft.value = { default_action: selected?.default_action || 'allow', rules: structuredClone(selected?.rules || []) }
+  } else if (localDraft) {
+    draft.value = localDraft
+    localDraft = null
+  }
+}
+const controlTab = ref('rules')
+watch(() => props.controlSection, section => { if (section) controlTab.value = section }, { immediate: true })
 const controlReportKey = computed(() => {
   const report = policy.value?.runtime?.items?.[0]
   if (!report || report.code !== 'aidr_hook_runtime_recent' || now.value - Number(report.received_at) * 1000 > 90000) return 'controlUnknown'
@@ -234,6 +248,7 @@ const controlReportKey = computed(() => {
 })
 const policyLoading = ref(false), listLoading = ref(false), saving = ref(false), deciding = ref(false), saved = ref(false)
 const policyError = ref(''), listError = ref(''), actionError = ref(''), detailError = ref('')
+watch(draft, () => { saved.value = false }, { deep: true })
 const page = ref({ items: [], has_more: false }), cursor = ref(null)
 const eventsPage = ref({ items: [], has_more: false }), eventsLoading = ref(false), eventsError = ref('')
 const eventHistory = ref([{}]), eventIndex = ref(0)
@@ -261,7 +276,6 @@ const matchHookEvent = (input, option) => option.value.toLowerCase().includes(in
 function selectHookEvent(value) { eventFilters.value.hook_event = value; applyEventFilters() }
 const detailOpen = ref(false), detailLoading = ref(false), detailId = ref(''), detail = ref(null), now = ref(Date.now())
 const decisions = ['allow', 'deny', 'ask']
-const normalizeRuleDecision = rule => { if (rule.decision === 'ask' && rule.agent !== '*' && !products.find(p => p.id === rule.agent)?.approval) rule.decision = 'deny' }
 const states = ['pending', 'approved', 'denied', 'revoked', 'expired']
 const stateLabel = value => t(`aidr.hooks.${states.includes(value) ? value : 'unknown'}`)
 const canEdit = computed(() => !!policy.value?.can_edit && can('clients:update'))
@@ -275,7 +289,7 @@ const tableDate = (value, iso) => value ? new Date(iso ? value : Number(value) *
 const datePart = (value, iso = false) => tableDate(value, iso)?.toLocaleDateString(locale.value) || t('aidr.hooks.unknown')
 const timePart = (value, iso = false) => tableDate(value, iso)?.toLocaleTimeString(locale.value, { hour12: false }) || ''
 const stamp = value => value ? new Date(Number(value) * 1000).toLocaleString(locale.value) : t('aidr.hooks.unknown')
-const failure = (error, key) => `${t(`aidr.hooks.${key}`)}${error.apiErrorCode ? ` (${error.apiErrorCode})` : ''}`
+const failure = (error, key) => error.apiErrorCode?.endsWith('hook_command_upgrade_required') ? t('aidr.hooks.commands.upgrade') : `${t(`aidr.hooks.${key}`)}${error.apiErrorCode ? ` (${error.apiErrorCode})` : ''}`
 let generation = 0, detailGeneration = 0, listGeneration = 0
 const panelElement = ref(null), panelVisible = ref(false), documentVisible = ref(!document.hidden), componentActive = ref(true)
 const lastSynced = ref(0), latestAvailable = ref(false)
@@ -284,6 +298,7 @@ const canSync = computed(() => props.view === 'control' && panelVisible.value &&
 const headId = data => data.items?.[0]?.id || ''
 const invalidateList = () => { listGeneration++; listLoading.value = false }
 const syncApprovals = () => {
+  if (props.global) return
   if (canSync.value && !listLoading.value && !deciding.value) void loadList(cursor.value, true)
 }
 const visibilityChanged = () => { documentVisible.value = !document.hidden }
@@ -311,10 +326,9 @@ async function loadPolicy() {
   const epoch = generation
   policyLoading.value = true; policyError.value = ''; saved.value = false
   try {
-    const data = await getHookPolicy(props.clientId)
+    const data = await (props.global ? getGlobalToolPolicy() : getHookPolicy(props.clientId))
     if (epoch !== generation) return
-    policy.value = data
-    draft.value = { default_action: data.policy?.default_action || 'deny', lifetime_seconds: 3600, rules: structuredClone(data.policy?.rules || []) }
+    applyPolicy(data)
   } catch (error) { if (epoch === generation) policyError.value = failure(error, 'policyError') }
   finally { if (epoch === generation) policyLoading.value = false }
 }
@@ -325,7 +339,7 @@ async function loadList(next = cursor.value, automatic = false) {
   listLoading.value = true
   if (!automatic) listError.value = ''
   try {
-    const data = await listHookApprovals(props.clientId, automatic ? {} : next || {})
+    const data = await listHookApprovals(props.clientId, { ...(automatic ? {} : next || {}), ...(props.fixedAgent ? { agent: props.fixedAgent } : {}) })
     if (!current()) return
     lastSynced.value = Date.now(); listError.value = ''
     if (automatic && next) {
@@ -387,14 +401,15 @@ function openEventDetail(record) {
 watch(eventDetailOpen, open => { if (!open) { relatedGeneration++; relatedLoading.value = false; related.value = null; relatedError.value = '' } })
 
 async function publish() {
-  if (saving.value || !canEdit.value || policyError.value) return
+  if (saving.value || policyLoading.value || !dirty.value || !canEdit.value || policyError.value) return
   const rules = draft.value.rules
-  if (!Number.isInteger(draft.value.lifetime_seconds) || draft.value.lifetime_seconds < 60 || draft.value.lifetime_seconds > 86400 || rules.some(r => !/^[A-Za-z0-9_-]{1,64}$/.test(r.id) || r.id === 'default' || !r.tool || /\s/.test(r.tool)) || new Set(rules.map(r => r.id)).size !== rules.length) { actionError.value = t('aidr.hooks.invalid'); return }
+  if (rules.some(r => !/^[A-Za-z0-9_-]{1,64}$/.test(r.id) || r.id === 'default' || !r.tool || /\s/.test(r.tool)) || new Set(rules.map(r => r.id)).size !== rules.length) { actionError.value = t('aidr.hooks.invalid'); return }
   const epoch = generation
   saving.value = true; actionError.value = ''; saved.value = false
   try {
-    const data = await saveHookPolicy(props.clientId, { default_action: draft.value.default_action, lifetime_seconds: draft.value.lifetime_seconds, rules: draft.value.rules.map(r => ({ id: r.id, agent: r.agent, tool: r.tool, decision: r.decision })), expected_revision: policy.value.revision })
-    if (epoch === generation) { policy.value = { ...data, can_edit: policy.value.can_edit }; saved.value = true }
+    const body = { ...draft.value, expected_revision: policy.value.revision }
+    const data = await (props.global ? saveGlobalToolPolicy(body) : saveHookPolicy(props.clientId, { ...body, inherit: inherit.value, expected_global_revision: policy.value.global_revision, expected_scope_revision: policy.value.scope_revision }))
+    if (epoch === generation) { applyPolicy(data); saved.value = true; reviewOpen.value = false }
   } catch (error) { if (epoch === generation) actionError.value = failure(error, 'actionError') }
   finally { if (epoch === generation) saving.value = false }
 }
@@ -429,11 +444,12 @@ watch(detailOpen, open => {
     detail.value = null; detailId.value = ''; detailLoading.value = false; detailError.value = ''; actionError.value = ''
   }
 })
-watch(() => [props.clientId, props.view], () => {
+watch(() => [props.clientId, props.view, props.fixedAgent], () => {
   clearTimeout(eventFilterTimer); eventsPending.value = false; resettingEventFilters = true; advancedFiltersOpen.value = false
   generation++; detailGeneration++; invalidateList(); requestIds.clear()
   lastSynced.value = 0; latestAvailable.value = false; latestHead = ''
   policy.value = null; page.value = { items: [], has_more: false }; cursor.value = null
+  reviewOpen.value = false; baseline.value = ''
   eventsGeneration++; relatedGeneration++; relatedLoading.value = false; related.value = null; relatedError.value = ''
   eventsPage.value = { items: [], has_more: false }; eventHistory.value = [{}]; eventIndex.value = 0; eventFilters.value = emptyEventFilters(); appliedEventFilters.value = {}; eventsError.value = ''; eventsLoading.value = false
   resettingEventFilters = false
@@ -453,6 +469,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.scope-choice { display:flex; align-items:center; flex-wrap:wrap; gap:10px 16px; padding:12px; margin-bottom:16px; border-radius:8px; background:#f4f7fb; }
+.scope-choice label { display:flex; align-items:center; gap:8px; font-weight:600; }.scope-choice small{width:100%;color:#738098}
 .audit-detail { overflow-wrap: anywhere; }
 .audit-detail-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
 .audit-detail-header h3 { margin: 0; font-size: 20px; }
@@ -464,6 +482,20 @@ onBeforeUnmount(() => {
 .hook-panel { min-width: 0; width: 100%; box-sizing: border-box; margin: 16px 0; padding: 16px; border: 1px solid #d9d9d9; border-radius: 8px; }
 .hook-panel details { margin: 16px 0; }
 .hook-panel.control-view { margin: 0; padding: 0; border: 0; }
+.control-mode-note { margin: 8px 0 16px; color: #68768b; font-size: 13px; }
+.scope-choice > label { flex-direction: row; align-items: center; margin: 0; }
+.control-tabs { display:flex; gap:24px; border-bottom:1px solid #e4eaf2; }
+.control-tabs button { border:0; background:transparent; padding:12px 0; font:inherit; cursor:pointer; color:#637189; border-bottom:3px solid transparent; }
+.control-tabs button[aria-pressed=true] { color:#2860ed; border-bottom-color:#2860ed; font-weight:600; }
+.control-tabs span { background:#f0f3f8; border-radius:4px; padding:2px 6px; font-size:12px; }
+.policy-meta { display:flex; justify-content:space-between; align-items:center; gap:12px; margin:12px 0 18px; color:#7a879e; font-size:12px; flex-wrap:wrap; }
+.control-rules .default-rule { display:flex; flex-wrap:wrap; align-items:center; gap:12px 20px; margin:16px 0; padding:12px 16px; background:#f3f7ff; border-radius:8px; }
+.control-rules .default-rule label { display:flex; flex-direction:row; align-items:center; gap:16px; margin:0; font-weight:600; }
+.default-rule span { font-size:13px; color:#68768b; }.default-rule .default-danger { color:#ba343e; }
+.policy-footer { position:sticky; bottom:0; z-index:2; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; padding:14px 0; background:white; border-top:1px solid #e4eaf2; }
+.policy-footer > span { font-size:13px; color:#68768b; }
+.publish-review { list-style:none; padding:0; max-height:45vh; overflow:auto; }.publish-review li { display:flex; flex-wrap:wrap; gap:10px; justify-content:space-between; padding:12px 0; border-bottom:1px solid #e4eaf2; }.publish-review code { overflow-wrap:anywhere; }
+.publish-review li>div{flex:1 1 200px;min-width:0}.publish-review code{display:block;font-size:12px;margin:5px 0}.publish-review small{color:#7a879e}.publish-review :deep(.ant-tag){align-self:flex-start}
 .control-view .hook-context { margin: 8px 0; }
 .control-intro { margin: 8px 0; color: #596579; font-size: 13px; }
 .hook-heading, .hook-rule { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 12px 0; }

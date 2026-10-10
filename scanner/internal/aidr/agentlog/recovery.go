@@ -1,9 +1,76 @@
 package agentlog
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 )
+
+const contextRepairVersion = 3
+
+func needsContextRepair(s Source, c Cursor) bool {
+	if s.Agent == "qoder-cli" {
+		return c.Offset > 0 && c.ContextRepairVersion < contextRepairVersion
+	}
+	if s.Agent != "codex" || c.ContextRepairVersion >= contextRepairVersion || c.Offset == 0 || c.Session != "" {
+		return false
+	}
+	for _, gap := range c.Gaps {
+		if gap == "aidr_log_record_too_large" {
+			return true
+		}
+	}
+	return false
+}
+
+// The envelope of these Codex records never updates session/turn identity.
+// Inspect JSON tokens, not text in their (possibly truncated) payload bodies.
+func oversizedPreservesContext(agent string, prefix []byte) bool {
+	if agent != "codex" {
+		return false
+	}
+	d := json.NewDecoder(bytes.NewReader(prefix))
+	return contextNeutralEnvelope(d, false)
+}
+
+func contextNeutralEnvelope(d *json.Decoder, response bool) bool {
+	tok, err := d.Token()
+	if err != nil || tok != json.Delim('{') {
+		return false
+	}
+	var kind string
+	for d.More() {
+		key, err := d.Token()
+		if err != nil {
+			return false
+		}
+		if key == "type" {
+			if d.Decode(&kind) != nil {
+				return false
+			}
+			if response {
+				switch kind {
+				case "function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output", "message", "agent_message", "reasoning":
+					return true
+				default:
+					return false
+				}
+			}
+			if kind != "response_item" {
+				return kind == "compacted" || kind == "world_state" || kind == "token_usage_record" || kind == "inter_agent_communication_metadata"
+			}
+			continue
+		}
+		if key == "payload" && kind == "response_item" {
+			return contextNeutralEnvelope(d, true)
+		}
+		var value json.RawMessage
+		if d.Decode(&value) != nil {
+			return false
+		}
+	}
+	return false
+}
 
 // Only syntactically valid unknown variants are quarantined. A recognized
 // identity/tool record with invalid fields remains at its checkpoint for repair.
@@ -86,9 +153,11 @@ func identityFields(value any) bool {
 }
 
 func invalidateContext(c *Cursor) {
+	c.ModelContext, c.ModelProvider, c.ModelTurn = nil, "", ""
 	c.Session = ""
 	c.Turn = ""
 	c.CallTurns = nil
+	c.QoderLinks = nil
 	addGap(c, "aidr_log_context_invalidated")
 }
 

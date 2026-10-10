@@ -15,10 +15,11 @@ import (
 )
 
 type ToolRule struct {
-	ID       string `json:"id"`
-	Agent    string `json:"agent"`
-	Tool     string `json:"tool"`
-	Decision string `json:"decision"`
+	Command  *CommandCondition `json:"command,omitempty"`
+	ID       string            `json:"id"`
+	Agent    string            `json:"agent"`
+	Tool     string            `json:"tool"`
+	Decision string            `json:"decision"`
 }
 type ToolPolicy struct {
 	Schema   int        `json:"schema"`
@@ -26,16 +27,17 @@ type ToolPolicy struct {
 	Device   string     `json:"device"`
 	Revision string     `json:"revision"`
 	Issued   string     `json:"issued_at"`
-	Expires  string     `json:"expires_at"`
+	Expires  string     `json:"expires_at,omitempty"`
 	Default  string     `json:"default_action"`
 	Rules    []ToolRule `json:"rules"`
 }
 type ToolDecision struct {
-	Decision string   `json:"decision"`
-	Rule     string   `json:"rule_id"`
-	Matched  []string `json:"matched_rule_ids"`
-	Revision string   `json:"policy_revision"`
-	Code     string   `json:"code"`
+	Decision   string   `json:"decision"`
+	Rule       string   `json:"rule_id"`
+	Matched    []string `json:"matched_rule_ids"`
+	Revision   string   `json:"policy_revision"`
+	Code       string   `json:"code"`
+	Unresolved bool     `json:"unresolved,omitempty"`
 }
 
 func decisionValid(s string) bool { return s == "allow" || s == "deny" || s == "ask" }
@@ -53,12 +55,19 @@ func verifyToolPolicy(envelope, key []byte, device string, now time.Time) (ToolP
 	}
 	_, r := positiveDecimal(p.Revision)
 	issued, i := positiveDecimal(p.Issued)
+	// Schema 1 is retained for signed policies already cached by existing devices.
+	// Its former lease no longer limits the lifetime of rule configuration.
 	expires, e := positiveDecimal(p.Expires)
-	if p.Schema != 1 || p.Domain != "aidr.tool-policy/1" || p.Device != device || !r || !i || !e || issued > now.Unix()+30 || expires <= issued || expires-issued > 86400 || !decisionValid(p.Default) || p.Rules == nil || len(p.Rules) > 128 {
+	formatValid := (p.Schema == 3 && p.Domain == "aidr.tool-policy/3" && p.Expires == "") || (p.Schema == 2 && p.Domain == "aidr.tool-policy/2" && p.Expires == "") ||
+		(p.Schema == 1 && p.Domain == "aidr.tool-policy/1" && e && expires > issued && expires-issued <= 86400)
+	if !formatValid || p.Device != device || !r || !i || issued > now.Unix()+30 || !decisionValid(p.Default) || p.Rules == nil || len(p.Rules) > 128 {
 		return p, nil, code("aidr_hook_policy_invalid")
 	}
 	ids := map[string]bool{}
 	for _, rule := range p.Rules {
+		if rule.Command != nil && (p.Schema != 3 || !rule.Command.valid()) {
+			return p, nil, code("aidr_hook_policy_invalid")
+		}
 		if !toolRuleID.MatchString(rule.ID) || rule.ID == "default" || ids[rule.ID] || (rule.Agent != "*" && !products.Hook(rule.Agent)) || !validID(rule.Tool, true) || !decisionValid(rule.Decision) {
 			return p, nil, code("aidr_hook_policy_invalid")
 		}
@@ -67,16 +76,24 @@ func verifyToolPolicy(envelope, key []byte, device string, now time.Time) (ToolP
 	return p, raw, nil
 }
 
-func (p ToolPolicy) Evaluate(event Event, now time.Time) ToolDecision {
-	result := ToolDecision{Decision: "deny", Revision: p.Revision, Matched: []string{}, Code: "aidr_hook_policy_expired"}
-	expires, _ := positiveDecimal(p.Expires)
-	issued, _ := positiveDecimal(p.Issued)
-	if expires <= now.Unix() || issued > now.Unix()+30 {
-		return result
-	}
+func (p ToolPolicy) Evaluate(event Event, _ time.Time) ToolDecision {
+	result := ToolDecision{Revision: p.Revision, Matched: []string{}}
 	matched := []ToolRule{}
 	for _, rule := range p.Rules {
 		if (rule.Agent == "*" || rule.Agent == event.Agent) && (rule.Tool == "*" || rule.Tool == event.Tool) {
+			if rule.Command != nil {
+				if !shellTool(event.Tool) {
+					continue
+				}
+				o := event.CommandMatch
+				if o == nil || o.Revision != p.Revision || containsRule(o.Unresolved, rule.ID) {
+					result.Unresolved = true
+					continue
+				}
+				if !containsRule(o.Matched, rule.ID) {
+					continue
+				}
+			}
 			matched = append(matched, rule)
 		}
 	}
@@ -101,7 +118,7 @@ func (p ToolPolicy) Evaluate(event Event, now time.Time) ToolDecision {
 }
 
 // ConfigureControl pins an operator-provided key. With control configured,
-// missing or expired policy yields deny; without it the receiver audits only.
+// missing policy yields deny; the platform mode determines audit or intercept.
 func (s *Store) ConfigureControl(ctx context.Context, key []byte) error {
 	x, _ := elliptic.Unmarshal(elliptic.P256(), key)
 	if x == nil {
@@ -181,6 +198,10 @@ func (s *Store) ApplyToolPolicy(ctx context.Context, envelope []byte, now time.T
 func (s *Store) EvaluateTool(event Event, now time.Time) ToolDecision {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.evaluateToolLocked(event, now)
+}
+
+func (s *Store) evaluateToolLocked(event Event, now time.Time) ToolDecision {
 	if s.controlMode != "intercept" {
 		return ToolDecision{Decision: "allow", Code: "aidr_hook_audit_only", Matched: []string{}}
 	}

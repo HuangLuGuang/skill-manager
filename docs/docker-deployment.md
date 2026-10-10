@@ -391,8 +391,13 @@ scanner/releases/agent-manager-client-26.03.15.1-linux-x86_64.AppImage
 仓库源码树、测试、构建脚本和开发工具不进入安装包；容器镜像保留应用运行所需的程序。
 打包时将 Compose 的应用镜像引用写为实际发布版本；源码仓库内的 `latest` 开发默认值保持原样。
 现场通过 `./start.sh` 自动加载镜像、初始化缺失的签名密钥、启动并检查服务；
+默认 HTTP 端口为 80；`./start.sh --port 8088` 将端口写入 `.env` 的 `HTTP_PORT`，
+以后启动和升级都会沿用，访问地址为 `http://<服务器IP>:8088`。
 `./upgrade.sh /path/to/package.tar.gz` 自动解压、备份并更新部署文件、加载镜像、重建并检查服务。
-脚本使用 Bash、Python 3 标准库和 Docker Compose（需支持 `--wait-timeout`），保留现场 `.env` 和数据卷。
+脚本使用 Bash、Python 3 标准库和 Docker Compose，保留现场 `.env` 和数据卷。
+启动和升级会检查 Docker 命令、服务连接与访问权限，优先选择可用的 `docker compose`，
+否则尝试 `docker-compose`；需支持健康等待、JSON 配置输出及当前编排格式，旧版 Compose v1 需更新。
+缺少程序、服务不可达、权限不足或版本不兼容时给出明确提示；处理步骤见现场实施指南的“部署前检查”。
 升级备份仅覆盖部署文件，业务数据需另行备份；操作步骤见 [现场实施指南](offline-deployment.md)。
 `--source-dir .` 可用当前工作区构建诊断包，正式 CI 发布使用干净的 Git clone；诊断包不能替代正式发布验证。
 

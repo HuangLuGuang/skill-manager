@@ -538,7 +538,7 @@ func observePlugins(ctx context.Context, c *upload.Client, s *hooks.Store, targe
 			if ctx.Err() != nil {
 				return nil
 			}
-			status, err := hooks.InspectPlugin(ctx, target.agent, target.binary, target.home, "")
+			status, err := hooks.InspectLocalPlugin(ctx, target.agent, target.home, "")
 			if ctx.Err() != nil {
 				return nil
 			}

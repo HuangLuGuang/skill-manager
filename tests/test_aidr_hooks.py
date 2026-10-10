@@ -22,6 +22,33 @@ def send(client, value=None, target="one", token="one"):
     return client.post(f"/api/v1/clients/{target}/aidr/hooks:batch", content=json.dumps(value or hook_batch(), separators=(",", ":")), headers={"authorization": "Bearer test-"+token, "content-type": "application/json"})
 
 
+def test_control_decision_upload_and_timeline(service):
+    client, _ = service
+    value = hook_batch()
+    event = value['records'][0]['event']
+    event.update(hook_event='PreToolUse', kind='tool.pre', tool='Bash', native_call_id='blocked-call', turn_id='turn')
+    event['behavior'] = dict(version=3, policy=event['policy'], body_omitted=False,
+        category='command', method='direct_fields', actions=[], status='unknown',
+        result_basis=[], redacted=False, truncated=False, uncertainty=[])
+    decision = dict(decision='deny', rule_id='delete', matched_rule_ids=['delete'],
+        policy_revision='7', code='aidr_hook_rule_deny', unresolved=False)
+    event['control_decision'] = decision
+    response = send(client, value)
+    assert response.status_code == 200, response.text
+    page = client.get('/api/v1/clients/one/aidr/session-timeline', params={
+        'source':'hooks', 'agent':'codex', 'session_id':event['session_id']})
+    assert page.status_code == 200, page.text
+    saved = page.json()['items'][0]['records'][0]['record']['event']
+    assert saved['control_decision'] == decision
+    assert saved['behavior']['status'] == 'unknown'  # Control evidence is separate from execution outcome.
+    bad = hook_batch(2)
+    bad['records'][0]['event']['control_decision'] = decision
+    assert send(client, bad).status_code == 422
+    bad = copy.deepcopy(value)
+    bad['records'][0]['event']['control_decision']['code'] = '<script>invalid</script>'
+    assert send(client, bad).status_code == 422
+
+
 def test_hook_atomic_dedup_and_conflicting_sequence(service):
     client, factory = service
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -42,6 +69,21 @@ def test_hook_atomic_dedup_and_conflicting_sequence(service):
     items = client.get("/api/v1/clients/one/aidr/hooks").json()["items"]
     assert len(items) == 1 and items[0]["record"]["event"]["process_relation"] == "unknown"
     assert "receiver_instance" not in items[0]["record"]  # old projections stay byte-compatible
+
+
+def test_hook_context_roundtrip_and_privacy(service):
+    client, _ = service
+    value = hook_batch()
+    context = {'model':'model-test', 'cwd':'/tmp/project', 'workspace_roots':['/tmp/one','/tmp/two'], 'redacted':False, 'truncated':False}
+    value['records'][0]['event']['context'] = context
+    assert send(client,value).status_code == 200
+    item = client.get('/api/v1/clients/one/aidr/hooks').json()['items'][0]
+    assert item['record']['event']['context'] == context
+    bad = hook_batch(2)
+    bad['records'][0]['event']['context'] = {**context, 'cwd':'/tmp/api_key=synthetic-secret'}
+    assert send(client,bad).status_code == 422
+    bad['records'][0]['event']['context'] = {**context, 'cwd':'模'*200}
+    assert send(client,bad).status_code == 422
 
 
 def test_hook_binding_permissions_and_payload_boundaries(service):

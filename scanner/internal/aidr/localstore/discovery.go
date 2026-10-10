@@ -21,12 +21,15 @@ type Crawler struct {
 	RescanInterval           time.Duration
 }
 type DiscoveryProgress struct {
-	Known       int      `json:"known_sources"`
-	Pending     int      `json:"pending_sources"`
-	Directories int      `json:"pending_directories"`
-	Entries     int      `json:"scanned_entries"`
-	Status      string   `json:"status"`
-	Reasons     []string `json:"reason_codes"`
+	Known              int      `json:"known_sources"`
+	Pending            int      `json:"pending_sources"`
+	Directories        int      `json:"pending_directories"`
+	Entries            int      `json:"scanned_entries"`
+	Status             string   `json:"status"`
+	Reasons            []string `json:"reason_codes"`
+	HistoricalMissing  int      `json:"historical_missing"`
+	UnreadMissing      int      `json:"unread_missing"`
+	MissingDirectories int      `json:"missing_directories"`
 }
 
 func (s *Store) NewCrawler(agent, root string) (*Crawler, error) {
@@ -227,7 +230,18 @@ func (c *Crawler) Step(ctx context.Context, maxFiles, maxEntries int, budget tim
 	if n >= 8192 || total >= c.store.limits.Sources {
 		p.Reasons = appendUnique(p.Reasons, "aidr_log_discovery_capacity")
 	}
-	rows, err = db.QueryContext(ctx, `SELECT DISTINCT reason FROM discovery_dirs WHERE root_key=? AND reason!='' UNION SELECT DISTINCT reason FROM discovery_files WHERE root_key=? AND reason!=''`, c.key, c.key)
+	const historical = `f.reason='aidr_log_source_missing' AND s.id IS NOT NULL AND CAST(json_extract(s.cursor,'$.offset') AS INTEGER)>=f.size AND json_extract(s.cursor,'$.context_repair') IS NULL`
+	var historicalPending int
+	err = db.QueryRowContext(ctx, `SELECT coalesce(sum(CASE WHEN `+historical+` THEN 1 ELSE 0 END),0),coalesce(sum(CASE WHEN f.reason='aidr_log_source_missing' AND NOT coalesce((`+historical+`),0) THEN 1 ELSE 0 END),0),coalesce(sum(CASE WHEN `+historical+` AND f.pending=1 THEN 1 ELSE 0 END),0) FROM discovery_files f LEFT JOIN sources s ON s.id=f.id WHERE f.root_key=?`, c.key).Scan(&p.HistoricalMissing, &p.UnreadMissing, &historicalPending)
+	if err != nil {
+		return p, err
+	}
+	p.Pending -= historicalPending
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM discovery_dirs WHERE root_key=? AND reason='aidr_log_source_missing'`, c.key).Scan(&p.MissingDirectories)
+	if err != nil {
+		return p, err
+	}
+	rows, err = db.QueryContext(ctx, `SELECT DISTINCT reason FROM discovery_dirs WHERE root_key=? AND reason!='' UNION SELECT DISTINCT f.reason FROM discovery_files f LEFT JOIN sources s ON s.id=f.id WHERE f.root_key=? AND f.reason!='' AND NOT coalesce((`+historical+`),0)`, c.key, c.key)
 	if err != nil {
 		return p, err
 	}

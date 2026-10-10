@@ -10,6 +10,8 @@ import (
 )
 
 func nativeCodexLocalPlugins(ctx context.Context, binary, home string) ([]byte, error) {
+	// On-demand native diagnostics can refresh Git marketplaces during startup
+	// even with this filter. Periodic inspection uses InspectLocalPlugin instead.
 	results, err := nativeCodexCallsChecked(ctx, binary, home, []nativeCodexRequest{
 		{"plugin/list", map[string]any{"cwds": []string{home}, "forceRefetch": false, "marketplaceKinds": []string{"local"}}},
 		{"config/read", map[string]any{"cwd": home, "includeLayers": false}},

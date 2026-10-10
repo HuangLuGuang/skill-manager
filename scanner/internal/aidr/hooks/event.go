@@ -33,6 +33,9 @@ var catalog = func() map[string]map[string]string {
 }()
 
 type Event struct {
+	ControlDecision *ToolDecision        `json:"control_decision,omitempty"`
+	CommandMatch    *CommandObservation  `json:"command_match,omitempty"`
+	Context         *HostContext         `json:"context,omitempty"`
 	SkillUse        *agentlog.SkillUse   `json:"skill_use,omitempty"`
 	Schema          int                  `json:"schema_version"`
 	Agent           string               `json:"agent"`
@@ -53,19 +56,22 @@ type Event struct {
 }
 
 type input struct {
-	Event       string          `json:"hook_event_name"`
-	Session     string          `json:"session_id"`
-	Turn        string          `json:"turn_id"`
-	Prompt      string          `json:"prompt_id"`
-	PromptText  string          `json:"prompt"`
-	Call        string          `json:"tool_use_id"`
-	Subagent    string          `json:"agent_id"`
-	Tool        string          `json:"tool_name"`
-	Cwd         string          `json:"cwd"`
-	Input       json.RawMessage `json:"tool_input"`
-	Response    json.RawMessage `json:"tool_response"`
-	Error       string          `json:"error"`
-	Interrupted bool            `json:"is_interrupt"`
+	Event            string          `json:"hook_event_name"`
+	Session          string          `json:"session_id"`
+	Turn             string          `json:"turn_id"`
+	Prompt           string          `json:"prompt_id"`
+	RequestSet       string          `json:"request_set_id"`
+	ParentRequestSet string          `json:"parent_request_set_id"`
+	PromptText       string          `json:"prompt"`
+	Call             string          `json:"tool_use_id"`
+	Subagent         string          `json:"agent_id"`
+	Tool             string          `json:"tool_name"`
+	Cwd              string          `json:"cwd"`
+	Model            json.RawMessage `json:"model"`
+	Input            json.RawMessage `json:"tool_input"`
+	Response         json.RawMessage `json:"tool_response"`
+	Error            string          `json:"error"`
+	Interrupted      bool            `json:"is_interrupt"`
 }
 
 func code(s string) error { return errors.New(s) }
@@ -128,7 +134,18 @@ func Normalize(agent, hook string, raw []byte, policy agentlog.AuditPolicy, key 
 	if (agent == "claude" || agent == "qoder-hooks") && in.Prompt != "" {
 		turn = in.Prompt
 	}
+	if agent == "qoder-hooks" {
+		if !validID(in.RequestSet, false) || !validID(in.ParentRequestSet, false) {
+			return e, code("aidr_hook_identity_invalid")
+		}
+		if in.RequestSet != "" {
+			turn = in.RequestSet
+		} else if hook == "Stop" && in.ParentRequestSet != "" {
+			turn = in.ParentRequestSet
+		}
+	}
 	e = Event{Schema: 1, Agent: agent, Hook: hook, Kind: kind, Session: in.Session, Turn: turn, Call: in.Call, Subagent: in.Subagent, Policy: policy, ProcessRelation: "unknown", EvidenceDigest: digest(key, "hook-evidence/1", raw)}
+	e.Context = projectHostContext(agent, raw, in, policy)
 	if policy.Capture != nil {
 		e.Schema = 2
 		if policy.Lifecycle != nil {

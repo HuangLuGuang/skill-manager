@@ -1,7 +1,7 @@
 """Device-scoped P1 telemetry; only projected metadata is stored."""
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, BigInteger, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, BigInteger, String, Text, UniqueConstraint, literal_column
 
 from .sqlite_db import Base
 
@@ -15,6 +15,7 @@ class AidrPolicyReceipt(Base):
     enabled = Column(Boolean, nullable=False)
     capture_json = Column(Text, nullable=True)
     lifecycle_json = Column(Text, nullable=True)
+    skill_audit_json = Column(Text, nullable=True)
     start_sequence = Column(BigInteger, nullable=False)
     end_sequence = Column(BigInteger, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -146,7 +147,8 @@ class AidrAuditState(Base):
 class AidrSkillUse(Base):
     __tablename__ = 'aidr_skill_uses'
     __table_args__ = (UniqueConstraint('client_id', 'call_key', name='uq_aidr_skill_call'),
-                     Index('ix_aidr_skill_session', 'client_id', 'agent', 'session_id', 'id'))
+                     Index('ix_aidr_skill_session', 'client_id', 'agent', 'session_id', 'id'),
+                     Index('ix_aidr_skill_due', 'expired_at', 'next_check_at', 'id'))
     id = Column(Integer, primary_key=True)
     client_id = Column(String(128), ForeignKey('aidr_devices.client_id'), nullable=False)
     call_key = Column(String(64), nullable=False)
@@ -154,6 +156,7 @@ class AidrSkillUse(Base):
     session_id = Column(String(256), nullable=False)
     behavior = Column(String(32), nullable=False)
     certification = Column(String(32), default='pending', nullable=False)
+    next_check_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     payload_json = Column(Text, nullable=False)
     received_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     expired_at = Column(DateTime, nullable=True)
@@ -166,4 +169,35 @@ for _model in (AidrEvent, AidrHookEvent, AidrCoverageRecord, AidrOperation):
 SESSION_MESSAGE_INDEX = Index(
     'ix_aidr_session_messages', AidrEvent.client_id, AidrEvent.id, AidrEvent.agent,
     sqlite_where=AidrEvent.expired_at.is_(None) & AidrEvent.kind.in_(('user_message', 'assistant_message')),
+)
+
+# Cover session-list metadata without loading tool arguments or output bodies.
+SESSION_LIST_INDEXES = (
+    Index('ix_aidr_operation_session_turns', AidrOperation.client_id, AidrOperation.agent,
+          AidrOperation.session_id, AidrOperation.expired_at, AidrOperation.id,
+          literal_column("coalesce(json_extract(payload_json, '$.call.turn_id'), json_extract(payload_json, '$.result.turn_id'), '')"),
+          literal_column("julianday(coalesce(json_extract(payload_json, '$.call.observed_at'), json_extract(payload_json, '$.result.observed_at'), latest_at))")),
+    Index('ix_aidr_hook_session_turns', AidrHookEvent.client_id, AidrHookEvent.expired_at,
+          *[literal_column(f"json_extract(payload_json, '$.event.{field}')") for field in ('agent', 'session_id')],
+          AidrHookEvent.id,
+          *[literal_column(f"json_extract(payload_json, '$.event.{field}')") for field in ('turn_id', 'kind')],
+          literal_column("julianday(json_extract(payload_json, '$.received_at'))")),
+    Index('ix_aidr_qoder_call_turn', AidrOperation.client_id, AidrOperation.agent, AidrOperation.session_id,
+          literal_column("json_extract(payload_json,'$.call.native_call_id')"), AidrOperation.id),
+    Index('ix_aidr_log_model_context', AidrEvent.client_id, AidrEvent.agent,
+          literal_column("json_extract(payload_json, '$.session_id')"), AidrEvent.id,
+          sqlite_where=AidrEvent.expired_at.is_(None) & (literal_column("json_type(payload_json, '$.model_context')") == 'object')),
+    Index('ix_aidr_hook_session_context', AidrHookEvent.client_id,
+          *[literal_column(f"json_extract(payload_json, '$.event.{field}')") for field in ('agent', 'session_id')],
+          AidrHookEvent.id,
+          sqlite_where=AidrHookEvent.expired_at.is_(None) & (literal_column("json_type(payload_json, '$.event.context')") == 'object')),
+    Index('ix_aidr_operation_session_list', AidrOperation.client_id, AidrOperation.expired_at,
+          AidrOperation.id, AidrOperation.agent, AidrOperation.session_id, AidrOperation.latest_at),
+    Index('ix_aidr_hook_session_list', AidrHookEvent.client_id, AidrHookEvent.expired_at,
+          *[literal_column(f"json_extract(payload_json, '$.event.{field}')") for field in ('agent', 'session_id', 'kind')],
+          AidrHookEvent.id, literal_column("julianday(json_extract(payload_json, '$.received_at'))")),
+    Index('ix_aidr_message_session_list', AidrEvent.client_id, AidrEvent.expired_at, AidrEvent.agent,
+          literal_column("json_extract(payload_json, '$.session_id')"), AidrEvent.kind, AidrEvent.id,
+          literal_column("julianday(json_extract(payload_json, '$.observed_at'))"),
+          sqlite_where=AidrEvent.kind.in_(('user_message', 'assistant_message'))),
 )

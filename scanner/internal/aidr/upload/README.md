@@ -37,7 +37,7 @@ agent-manager-client aidr-sync \
 
 ## 容量与健康
 
-沿用 [localstore](../localstore/README.md) 配额。容量不足暂停摄入并保留游标，仍尝试上传已持久化队列及心跳；`aidr_store_capacity` 可见。上传错误使用 `aidr_upload_*` 编码。历史正文淘汰单独计数，不表示采集缺口；待上传正文不会被保留期限清理。
+沿用 [localstore](../localstore/README.md) 默认 1 GiB 数据库页配额。容量不足暂停摄入并保留游标，仍尝试上传已持久化队列及心跳；`aidr_store_capacity` 可见。上传错误使用 `aidr_upload_*` 编码。严格 ACK 后释放已确认日志正文，保留去重元数据及解析游标；本地正文释放单独计数，不表示采集缺口。待上传正文不会被保留期限清理，已上传历史在平台查看。
 
 平台暂停上传只通过 HTTP 403 的稳定 `aidr.reporting_disabled` 识别为可恢复的 `aidr_upload_reporting_paused`，不能按提示文本或任意403放宽鉴权。日志和Hook上传都保持冻结正文及严格ACK，退避为1/2/4/8/16/32/60秒封顶，实际工作者周期可能延后尝试。本地摄入、策略刷新及心跳独立继续；认证拒绝停止工作者且保留队列。Hook接收器状态报告可选携带 `upload_code`、`next_upload_at` 和 `last_event_ack_at`；后者仅在本地严格匹配批次ACK的同一事务中持久保存，不等同于状态报告成功。旧报告缺少这些字段时保持未知。
 

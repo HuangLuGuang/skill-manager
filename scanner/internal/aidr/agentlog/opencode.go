@@ -76,8 +76,8 @@ func normalizeOpenCode(s Source, raw []byte, c *Cursor) ([]draft, error) {
 		return nil, errors.New("aidr_log_schema_unsupported")
 	}
 	var m struct {
-		ID, SessionID, Role, Finish string
-		Time                        struct{ Created, Completed int64 }
+		ID, SessionID, Role, Finish, ModelID, ProviderID string
+		Time                                             struct{ Created, Completed int64 }
 	}
 	if err := snapshotMetadata(s.Root, filepath.Join(s.Root, "message", p.SessionID, p.MessageID+".json"), &m); err != nil {
 		return nil, err
@@ -86,6 +86,13 @@ func normalizeOpenCode(s Source, raw []byte, c *Cursor) ([]draft, error) {
 		return nil, errors.New("aidr_log_schema_unsupported")
 	}
 	c.Session = p.SessionID
+	var model *ModelContext
+	if m.Role == "assistant" {
+		model = &ModelContext{Model: modelValue(m.ModelID), Provider: modelValue(m.ProviderID), Source: "opencode.message"}
+		if model.empty() {
+			model = nil
+		}
+	}
 	if p.Type == "text" {
 		// Mutable assistant text is emitted only when its message is complete.
 		if m.Role == "assistant" && m.Time.Completed == 0 {
@@ -100,6 +107,7 @@ func normalizeOpenCode(s Source, raw []byte, c *Cursor) ([]draft, error) {
 		body, _ := json.Marshal(p.Text)
 		d, ok := messageDraft(m.Role, phase, p.ID, "", body, time.UnixMilli(m.Time.Created).UTC())
 		if ok {
+			d.ModelContext = model
 			return []draft{d}, nil
 		}
 		return nil, nil
@@ -115,5 +123,5 @@ func normalizeOpenCode(s Source, raw []byte, c *Cursor) ([]draft, error) {
 		result, outcome = p.State.Error, "error"
 	}
 	body, _ := json.Marshal(result)
-	return []draft{{Call: p.CallID, Tool: p.Tool, Kind: "tool_call", Content: p.State.Input, Outcome: "unknown", Time: time.UnixMilli(p.State.Time.Start).UTC()}, {Call: p.CallID, ResultTool: p.Tool, Kind: "tool_result", Content: body, ResultMeta: p.State.Metadata, Outcome: outcome, Block: 1, Time: time.UnixMilli(p.State.Time.End).UTC()}}, nil
+	return []draft{{ModelContext: model, Call: p.CallID, Tool: p.Tool, Kind: "tool_call", Content: p.State.Input, Outcome: "unknown", Time: time.UnixMilli(p.State.Time.Start).UTC()}, {ModelContext: model, Call: p.CallID, ResultTool: p.Tool, Kind: "tool_result", Content: body, ResultMeta: p.State.Metadata, Outcome: outcome, Block: 1, Time: time.UnixMilli(p.State.Time.End).UTC()}}, nil
 }

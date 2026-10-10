@@ -28,6 +28,7 @@ func canonical(raw json.RawMessage) string {
 }
 
 type draft struct {
+	ModelContext              *ModelContext
 	MessageRole, MessagePhase string
 	HookResult                bool
 	WorkBuddyResult           bool
@@ -76,19 +77,29 @@ type item struct {
 }
 
 func normalize(agent string, raw []byte, c *Cursor) ([]draft, error) {
+	var drafts []draft
+	var err error
 	switch agent {
 	case "workbuddy":
-		return normalizeWorkBuddy(raw, c)
+		drafts, err = normalizeWorkBuddy(raw, c)
 	case "qoder-cli":
-		return normalizeQoder(raw, c)
+		drafts, err = normalizeQoder(raw, c)
 	case "claude", "codex":
-		return normalizeLegacy(agent, raw, c)
+		drafts, err = normalizeLegacy(agent, raw, c)
 	default:
 		return nil, errors.New("aidr_log_agent_unsupported")
 	}
+	if err == nil {
+		attachModelContext(agent, raw, c, drafts)
+	}
+	return drafts, err
 }
 
 func normalizeLegacy(agent string, raw []byte, c *Cursor) ([]draft, error) {
+	return normalizeLegacyTurn(agent, raw, c, "")
+}
+
+func normalizeLegacyTurn(agent string, raw []byte, c *Cursor, nativeTurn string) ([]draft, error) {
 	var r logRecord
 	if json.Unmarshal(raw, &r) != nil || r.Type == "" {
 		return nil, errors.New("aidr_log_invalid_json")
@@ -139,7 +150,7 @@ func normalizeLegacy(agent string, raw []byte, c *Cursor) ([]draft, error) {
 			for i, v := range contents {
 				switch v.Type {
 				case "tool_use":
-					rememberTool(c, v.ID, "", v.Name, v.Input)
+					rememberTool(c, v.ID, nativeTurn, v.Name, v.Input)
 					drafts = append(drafts, draft{Call: v.ID, Kind: "tool_call", Tool: v.Name, Cwd: r.Cwd, Outcome: "unknown", Content: v.Input, Time: at, Block: i})
 				case "tool_result":
 					outcome := "unknown"
@@ -154,8 +165,8 @@ func normalizeLegacy(agent string, raw []byte, c *Cursor) ([]draft, error) {
 					if len(contents) == 1 {
 						meta = r.ResultMeta
 					}
-					_, resultTool := completeTool(c, v.ToolUseID, "")
-					drafts = append(drafts, draft{ResultMeta: meta, Call: v.ToolUseID, ResultTool: resultTool, Kind: "tool_result", Outcome: outcome, Content: v.Content, Time: at, Block: i})
+					resultTurn, resultTool := completeTool(c, v.ToolUseID, nativeTurn)
+					drafts = append(drafts, draft{Turn: resultTurn, ResultMeta: meta, Call: v.ToolUseID, ResultTool: resultTool, Kind: "tool_result", Outcome: outcome, Content: v.Content, Time: at, Block: i})
 				case "text", "thinking", "redacted_thinking", "image":
 				default:
 					return nil, errors.New("aidr_log_schema_unsupported")

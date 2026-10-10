@@ -6,7 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator, model_serial
 
 CONTENT_FIELDS = {
     'command_body': {'input.command', 'input.cmd', 'input.code'},
-    'prompt': {'hook.prompt', 'message.input'},
+    'prompt': {'hook.prompt', 'hook.prompt.request', 'hook.prompt.context',
+               'message.input', 'message.input.request', 'message.input.context'},
     'model_response': {'message.output'},
     'tool_output': {'result.text', 'result.stdout', 'result.stderr', 'result.output', 'result.content.text'},
     'file_body': {'input.content', 'input.old_string', 'input.new_string', 'input.edits.old_string', 'input.edits.new_string', 'input.patch', 'input.command', 'result.file.text'},

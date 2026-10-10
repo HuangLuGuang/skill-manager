@@ -220,3 +220,25 @@ def test_control_delivery_is_scoped_and_byte_bounded(control):
         db.query(models.AccessToken).filter_by(name="one").one().scopes_json='["aidr:report-events"]'
         db.commit()
     assert client.post(ROOT+"/hook-control/snapshot",json=body,headers=HEADERS).status_code==403
+
+
+def test_persistent_rules_and_legacy_policy_keep_approval_attempts_bounded(control):
+    client, factory, _ = control
+    body = policy()
+    body.pop("lifetime_seconds")
+    result = client.put(ROOT + "/hook-policy", json=body)
+    assert result.status_code == 200, result.text
+    published = result.json()["policy"]
+    assert published["schema"] == 2 and published["domain"] == "aidr.tool-policy/2"
+    assert "expires_at" not in published
+    assert result.json()["analysis"]["validity"] == "until_replaced"
+    # Existing signed configuration survives its former lease without rewriting history.
+    with factory() as db:
+        old = db.query(control_logic.HookPolicyRow).one()
+        payload = json.loads(old.payload)
+        payload.update(schema=1, domain="aidr.tool-policy/1", issued_at=str(int(time.time())-7200), expires_at=str(int(time.time())-3600))
+        old.payload, old.envelope = canonical(payload), canonical(sign(payload))
+        db.commit()
+    row, _ = pending(client)
+    assert 0 < int(row["expires_at"]) - int(time.time()) <= 300
+    assert decision(client, row, "allow").status_code == 200

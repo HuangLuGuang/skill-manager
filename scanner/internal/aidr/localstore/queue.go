@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"skill-manager/scanner/internal/aidr/agentlog"
 	"time"
 )
 
@@ -33,6 +32,19 @@ func (s *Store) Prepare(ctx context.Context, maxRecords, maxBytes int) (*UploadB
 	if maxRecords < 1 || maxRecords > 500 || maxBytes < 1024 || maxBytes > 1<<20 {
 		return nil, ErrInvalid
 	}
+	// Freezing duplicates queued bytes until ACK. A nearly full store can still
+	// drain smaller batches; a previously frozen batch is always returned intact.
+	for {
+		batch, err := s.prepare(ctx, maxRecords, maxBytes)
+		err = storageError(err)
+		if !errors.Is(err, ErrCapacity) || maxRecords == 1 {
+			return batch, err
+		}
+		maxRecords = max(1, maxRecords/2)
+	}
+}
+
+func (s *Store) prepare(ctx context.Context, maxRecords, maxBytes int) (*UploadBatch, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -141,6 +153,11 @@ func (s *Store) Acknowledge(ctx context.Context, id, digest string) error {
 	if existingID != id || existingDigest != digest {
 		return ErrBatchConflict
 	}
+	// Release the frozen copy inside this ACK transaction before expanding the
+	// retained rows with acknowledgement timestamps. Rollback restores the copy.
+	if _, err = tx.Exec(`DELETE FROM active_batch WHERE singleton=1`); err != nil {
+		return err
+	}
 	now := time.Now().UnixNano()
 	if _, err = tx.Exec(`UPDATE logical_events SET acked_ns=? WHERE id IN (SELECT record_id FROM outbox WHERE seq<=? AND kind='event')`, now, through); err != nil {
 		return err
@@ -151,7 +168,7 @@ func (s *Store) Acknowledge(ctx context.Context, id, digest string) error {
 	if _, err = tx.Exec(`DELETE FROM outbox WHERE seq<=?`, through); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(`DELETE FROM active_batch WHERE singleton=1`); err != nil {
+	if err = releaseAcknowledgedPayloads(tx); err != nil {
 		return err
 	}
 	for key, value := range map[string]any{"last_ack_id": id, "last_ack_seq": through, "last_ack_at": time.Unix(0, now).UTC().Format(time.RFC3339Nano)} {
@@ -159,7 +176,10 @@ func (s *Store) Acknowledge(ctx context.Context, id, digest string) error {
 			return err
 		}
 	}
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	return s.reclaimPages(ctx, 256)
 }
 
 type Status struct {
@@ -248,7 +268,7 @@ func (s *Store) Prune(ctx context.Context, now time.Time) (int64, error) {
 	// admission boundary is the retention cutoff; the server preserves their hash.
 	var boundary time.Time
 	var ids []string
-	rows, err := tx.QueryContext(ctx, `SELECT id,payload FROM logical_events WHERE acked_ns IS NOT NULL AND acked_ns<?`, cutoff)
+	rows, err := tx.QueryContext(ctx, `SELECT id,coalesce(observed_at,json_extract(payload,'$.observed_at')) FROM logical_events WHERE acked_ns IS NOT NULL AND acked_ns<?`, cutoff)
 	if err != nil {
 		return 0, err
 	}
@@ -261,12 +281,12 @@ func (s *Store) Prune(ctx context.Context, now time.Time) (int64, error) {
 		}
 		at := time.Unix(0, cutoff).UTC()
 		if raw.Valid {
-			var e agentlog.Event
-			if json.Unmarshal([]byte(raw.String), &e) != nil {
+			parsed, parseErr := time.Parse(time.RFC3339Nano, raw.String)
+			if parseErr != nil {
 				rows.Close()
 				return 0, ErrInvalid
 			}
-			at = e.ObservedAt
+			at = parsed
 		}
 		// Retirement cannot exclude observations inside the current window.
 		if at.After(time.Unix(0, cutoff)) {
@@ -307,7 +327,7 @@ func (s *Store) Prune(ctx context.Context, now time.Time) (int64, error) {
 	if _, err = tx.Exec(`INSERT INTO metadata(key,value) VALUES('source_revision',coalesce((SELECT max(revision) FROM sources),0)) ON CONFLICT(key) DO UPDATE SET value=max(CAST(value AS INTEGER),CAST(excluded.value AS INTEGER))`); err != nil {
 		return 0, err
 	}
-	if _, err = tx.Exec(`DELETE FROM sources WHERE NOT EXISTS(SELECT 1 FROM coverage_history WHERE source_id=sources.id) AND NOT EXISTS(SELECT 1 FROM logical_events WHERE json_extract(payload,'$.source_id')=sources.id)`); err != nil {
+	if _, err = tx.Exec(`DELETE FROM sources WHERE NOT EXISTS(SELECT 1 FROM coverage_history WHERE source_id=sources.id) AND NOT EXISTS(SELECT 1 FROM logical_events WHERE coalesce(source_id,json_extract(payload,'$.source_id'))=sources.id)`); err != nil {
 		return 0, err
 	}
 	if _, err = tx.Exec(`DELETE FROM discovery_files WHERE reason='aidr_log_source_missing' AND NOT EXISTS(SELECT 1 FROM sources WHERE sources.id=discovery_files.id)`); err != nil {

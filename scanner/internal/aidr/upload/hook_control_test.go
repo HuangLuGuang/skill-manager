@@ -137,7 +137,7 @@ func TestHookControlPagingRevocationOfflineAndBadSignature(t *testing.T) {
 	if d := s.EvaluateTool(hooks.Event{Agent: "codex", Tool: "Bash"}, now); d.Decision != "ask" || d.Revision != "1" {
 		t.Fatal("offline cache corrupted")
 	}
-	if d := s.EvaluateTool(hooks.Event{}, now.Add(2*time.Hour)); d.Decision != "deny" {
-		t.Fatal("expired cache allowed")
+	if d := s.EvaluateTool(hooks.Event{}, now.Add(2*time.Hour)); d.Decision != "ask" {
+		t.Fatal("offline cached rules stopped applying")
 	}
 }

@@ -73,7 +73,12 @@ func hostCommand(ctx context.Context, binary, agent, configHome string, args ...
 	var out boundedOutput
 	cmd.Stdout = &out
 	cmd.Stderr = io.Discard
-	if err := cmd.Run(); err != nil {
+	stop, err := startNativeProcess(cmd)
+	if err != nil {
+		return nil, code("aidr_plugin_source_unreadable")
+	}
+	defer stop()
+	if err := cmd.Wait(); err != nil {
 		return nil, code("aidr_plugin_source_unreadable")
 	}
 	return out.Bytes(), nil
@@ -162,7 +167,7 @@ func ParsePluginStatus(agent string, raw []byte) (PluginStatus, error) {
 	} else {
 		s.SourceCode = "aidr_plugin_enabled_trust_unknown"
 	}
-	// This digest describes native listing metadata, never an effective permission
+	// This digest describes plugin metadata, never an effective permission
 	// or hook trust decision. Paths are hashed locally rather than uploaded.
 	metadata, _ := json.Marshal([]any{s.Agent, s.PluginID, s.PluginVersion, s.Installed, s.Enabled, s.SourceKind, s.sourcePath})
 	sum := sha256.Sum256(metadata)
@@ -205,8 +210,8 @@ func InspectPlugin(ctx context.Context, agent, binary, configHome, socket string
 	}
 	var data []byte
 	if agent == "codex" {
-		// The native CLI also fetches a remote catalog. Local inspection must not
-		// depend on that network fetch; retain unknown for omitted configured IDs.
+		// Query the native local inventory on demand. Starting the host can still
+		// refresh configured marketplaces; background checks use local files.
 		data, err = nativeCodexLocalPlugins(ctx, binary, effectiveHome)
 		if err == errNativeMethodUnsupported {
 			data, err = hostCommand(ctx, binary, agent, configHome, "plugin", "list", "--json")

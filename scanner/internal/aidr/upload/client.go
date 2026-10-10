@@ -125,6 +125,14 @@ func (c *Client) post(ctx context.Context, path string, raw []byte, headers map[
 		return nil, Result{Code: "aidr_upload_server_unavailable", Retryable: true}
 	}
 	if response.StatusCode != 200 {
+		if strings.HasPrefix(path, "enforcement/collection/") {
+			var problem struct {
+				Code string `json:"error_code"`
+			}
+			if json.Unmarshal(data, &problem) == nil && strings.HasPrefix(problem.Code, "aidr.system_") && len(problem.Code) < 100 {
+				return nil, Result{Code: problem.Code}
+			}
+		}
 		return nil, Result{Code: "aidr_upload_request_rejected"}
 	}
 	return data, Result{}
@@ -273,7 +281,7 @@ func (c *Client) RefreshPolicy(ctx context.Context, s *localstore.Store) error {
 		return err
 	}
 	raw, _ := json.Marshal(map[string]string{"stream_id": stream, "last_sequence": fmt.Sprint(n), "applied_receipt": s.Policy().Receipt, "applied_after": after})
-	data, result := c.post(ctx, "audit-policy", raw, map[string]string{"X-AIDR-Policy-Schema": "2", "X-AIDR-Audit-Lifecycle": "1", "X-AIDR-Message-Capture": "1", "X-AIDR-Content-Options": "1"})
+	data, result := c.post(ctx, "audit-policy", raw, map[string]string{"X-AIDR-Policy-Schema": "2", "X-AIDR-Audit-Lifecycle": "1", "X-AIDR-Message-Capture": "1", "X-AIDR-Content-Options": "1", "X-AIDR-Model-Context": "1", "X-AIDR-Skill-Audit": "1"})
 	if result.Code != "" {
 		c.policyCode = "aidr_policy_cached"
 		return nil

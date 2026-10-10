@@ -1,0 +1,26 @@
+export const clientPolicyMessages = {
+  'zh-CN': {
+    title: '策略与审批', description: '配置执行规则，处理审批，核对客户端生效状态。', navigation: '策略分类',
+    tools: '工具规则', toolsHint: '决定哪些操作放行、审批或阻止',
+    approvals: '审批记录', approvalsHint: '查看申请并处理待审批操作',
+    system: '系统策略', systemHint: '选择采集对象与系统执行规则',
+    configure: '采集与治理配置', content: '内容与脱敏',
+    runtime: '采集与接入', runtimeHint: '选择采集通道、Agent 和运行方式。',
+    models: '模型与请求', modelsHint: '配置模型路由、上下文压缩和提示词防护。',
+    skills: 'Skill 处置', skillsHint: '按 Skill 状态设置检测、停用与恢复方式。',
+    advanced: '安装、更新与重试', advancedHint: '管理接入方式和故障恢复。',
+    settingsHint: '按用途配置；预览变更后统一保存。', statusDetails: '查看客户端实际生效状态',
+  },
+  'en-US': {
+    title: 'Policies & approvals', description: 'Set execution rules, review requests, and verify client status.', navigation: 'Policy categories',
+    tools: 'Tool rules', toolsHint: 'Allow, require approval, or block operations',
+    approvals: 'Approval requests', approvalsHint: 'Review requests and handle pending operations',
+    system: 'System policy', systemHint: 'Choose collection targets and execution rules',
+    configure: 'Collection & governance', content: 'Content & redaction',
+    runtime: 'Collection & setup', runtimeHint: 'Choose collection channels, Agents, and operating modes.',
+    models: 'Models & requests', modelsHint: 'Configure routing, context compression, and prompt protection.',
+    skills: 'Skill actions', skillsHint: 'Set scanning, quarantine, and recovery actions for each Skill state.',
+    advanced: 'Installation, updates & retries', advancedHint: 'Manage setup and recovery from failures.',
+    settingsHint: 'Configure by purpose, then preview and save all changes together.', statusDetails: 'View effective status reported by the client',
+  },
+}

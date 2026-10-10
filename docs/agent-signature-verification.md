@@ -2,6 +2,16 @@
 
 ## Overview
 
+### 异步使用审计与加载前验签
+
+本文下述主动调用验签接口的加载前集成，与“Skill 使用审计”的异步观察是两个调用时点。使用审计由后台日志采集器计算或复用本地 SHA-256 摘要，平台核对已签名批准摘要及当前批准、撤销和授权状态；同步 Hook 路径不读取整个 Skill 目录。审计结果不代表宿主实际加载成功，也不证明加载瞬间内容。
+
+使用审计默认最长复用摘要 300 秒，复用前检查文件元数据，保留原观察时间；缓存到期或检测到变化后全量重读。平台状态默认独立按 30 秒调度刷新。两种核对方式、资源上限及告警分类见 [项目指南](project-guide.md#skill-使用证据与认证告警)。离线、证据不足及超限均保持待确认。元数据缓存不是防篡改证明，Windows 同大小且恢复 mtime 的变化可能到到期重读才发现；需要调用时证明的宿主仍须实现可靠的加载前拦截与内容绑定。
+
+**English:** Load-time verification and asynchronous usage audit occur at different times. Background log collection computes or reuses a local SHA-256 digest; the platform verifies the signed approved digest and current approval, revocation and authorization. Hook execution does not hash the directory. Reused digests retain the original observation time. Metadata caching is not tamper-proof attestation or proof of successful loading. Reliable pre-load interception and content binding are required for invocation-time guarantees.
+
+### 主动验签集成
+
 对于外部 Agent 来说，只传 `skill_name` 调 `can-load` 只能完成“注册状态检查”，不能证明 Agent 本地这份 skill 内容还是审批通过时的那一份。
 
 更安全的接法是：

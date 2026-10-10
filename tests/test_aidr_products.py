@@ -21,6 +21,17 @@ def test_generated_catalogs_match():
     assert len({p['id'] for p in PRODUCTS}) == len(PRODUCTS)
 
 
+def test_combined_product_log_entry_preserves_source_contract():
+    products = {p['id']: p for p in PRODUCTS}
+    for product in PRODUCTS:
+        if source := product.get('log_entry'):
+            assert product['hooks']
+            assert source != product['id']
+            assert products[source]['logs']
+            assert not products[source].get('log_entry')
+            assert not products[source]['hooks']
+
+
 @pytest.mark.parametrize('agent', ['workbuddy', 'qoder-cli', 'opencode'])
 def test_new_log_product_ingestion_session_and_replay(service, agent):
     client, _ = service

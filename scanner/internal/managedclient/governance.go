@@ -54,6 +54,8 @@ type SkillObservation struct {
 	LastConfirmedAt  string                `json:"last_confirmed_at,omitempty"`
 	ActionKey        string                `json:"action_key,omitempty"`
 	ActionStatus     string                `json:"action_status,omitempty"`
+	ActionFailures   int                   `json:"action_failures,omitempty"`
+	NextActionAt     string                `json:"next_action_at,omitempty"`
 	ErrorCode        string                `json:"error_code,omitempty"`
 	Count            int                   `json:"count"`
 	PendingID        string                `json:"pending_id,omitempty"`
@@ -291,6 +293,7 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 				value.ActionKey = actionKey
 				value.ActionStatus = "pending"
 				value.ErrorCode = ""
+				value.ActionFailures, value.NextActionAt = 0, ""
 			}
 			if value.Trigger != "" {
 				eventType := "skill_governance_detected"
@@ -322,7 +325,7 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 			}
 			if value.Trigger == "" {
 				value.ActionStatus = "completed"
-			} else if value.ActionStatus != "completed" {
+			} else if value.ActionStatus != "completed" && !automaticFileActionDeferred(value, time.Now()) {
 				if value.Action == "record" || value.Action == "record_only" {
 					value.ActionStatus = "completed"
 				} else if value.ErrorCode == "policy_action_not_supported" {
@@ -361,12 +364,14 @@ func patrolClassified(ctx context.Context, home string, inventory Inventory, pol
 					recoveryIDs, err = applyAutomaticObservedAction(ctx, home, actionInventory, agent, skill, key, policy, api, store, &value)
 					if err != nil {
 						value.ActionStatus = "failed"
+						deferAutomaticFileAction(&value, time.Now())
 						if value.ErrorCode == "" {
 							value.ErrorCode = "skill_action_failed"
 						}
 						failures = append(failures, err)
 					} else {
 						value.ActionStatus, value.ErrorCode = "completed", ""
+						value.ActionFailures, value.NextActionAt = 0, ""
 					}
 					notifyAction := newIncident || value.ActionStatus != previous.ActionStatus || value.ErrorCode != previous.ErrorCode
 					actionDetails := map[string]any{

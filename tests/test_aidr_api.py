@@ -40,6 +40,7 @@ def service(tmp_path):
     app.dependency_overrides[get_db] = database
     app.dependency_overrides[auth.get_current_admin_user] = lambda: models.User(id=1, username="owner", role="admin")
     app.include_router(aidr.router, prefix="/api")
+    app.include_router(aidr.global_tool_router, prefix="/api")
     with TestClient(app) as client:
         yield client, factory
     engine.dispose()
@@ -85,6 +86,8 @@ def test_frozen_batch_with_cursor_tool_binding_and_legacy_replay(service):
                   session_id="owned-session", turn_id="owned-turn", agent_version="0.160.0",
                   since="2026-10-04T00:00:00Z", gap_codes=[],
                   call_turns=[{"call": "owned-call", "turn": "owned-turn", "ambiguous": False, "tool": "exec"}])
+    cursor.update(qoder_links=[{'id':'native-message','turn':'native-request-set'}], model_header_read=True, model_provider='example', model_turn='owned-turn', model_context={'source':'codex.turn_context','model':'example'})
+    cursor['context_repair'] = {**cursor, 'offset':'50', 'context_repair_version':1}
     coverage = dict(gaps=[], gap_details_truncated=False, status="complete", reason_codes=[],
                     records=2, ignored=0, filtered=0, skipped_bytes=0, bytes=100)
     value = batch()

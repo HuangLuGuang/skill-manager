@@ -13,6 +13,179 @@ from backend import auth, models, iam_models
 BASE = '/api/v1/clients/one/aidr'
 
 
+def test_qoder_shared_session_native_call_turn_and_models(service):
+    client, factory = service
+    session = 'qoder-native-session'
+    submit_id = insert(factory, 1, event={'agent':'qoder-hooks', 'session_id':session,
+        'kind':'turn.submit', 'turn_id':'r1', 'context':{'model':'Auto'}})
+    insert(factory, 2, event={'agent':'qoder-hooks','session_id':session,'turn_id':'',
+        'native_call_id':'qoder-call','tool':'Bash','kind':'tool.pre','context':{'model':'Auto'}})
+    insert(factory, 3, event={'agent':'qoder-hooks','session_id':session,'turn_id':'',
+        'native_call_id':'qoder-call','tool':'Bash','kind':'tool.post'})
+    insert(factory, 4, event={'agent':'qoder-hooks','session_id':session,'turn_id':'',
+        'native_call_id':'not-recorded','tool':'Bash','kind':'tool.pre'})
+    call = event('tool_call', agent='qoder-cli', session=session, turn='r1', call='qoder-call', tool='Bash', user_scope='501')
+    result = event('tool_result', agent='qoder-cli', session=session, turn='r1', call='qoder-call', user_scope='501')
+    assert upload(client,call,result).status_code == 200
+    params = dict(agent='qoder-hooks', session_id=session)
+    rows = get(client, '/sessions', agent='qoder')['items']
+    assert len(rows)==1 and rows[0]['agent']=='qoder-hooks'
+    assert rows[0]['log_count']==1 and rows[0]['hook_count']==4
+    turns = {r['key']:r for r in get(client,'/session-turns',**params)['items']}
+    assert turns['turn:r1']['prompt_id']==submit_id
+    assert turns['turn:r1']['hook_count']==3 and turns['turn:r1']['log_count']==1
+    assert turns['turn:r1']['hook_models'][0]['value']=='Auto'
+    assert turns['unassigned']['hook_count']==1
+    hooks=get(client,'/session-timeline',source='hooks',turn_key='turn:r1',**params)['items']
+    assert len(hooks)==2 and all(r['turn_key']=='turn:r1' for r in hooks)
+    logs=get(client,'/session-timeline',source='logs',turn_key='turn:r1',**params)['items']
+    assert len(logs)==1 and logs[0]['operation']['call']['agent']=='qoder-cli'
+    # Same native call under another turn is ambiguous, not a time-based match.
+    assert upload(client,event('tool_call',agent='qoder-cli',session=session,turn='r2',call='qoder-call',tool='Bash',user_scope='501')).status_code==200
+    turns={r['key']:r for r in get(client,'/session-turns',**params)['items']}
+    assert turns['unassigned']['hook_count']==3
+
+
+def test_qoder_call_link_is_snapshot_and_device_scoped(service):
+    client,factory=service
+    insert(factory,1,event={'agent':'qoder-hooks','session_id':'s','native_call_id':'c','tool':'Bash','turn_id':''})
+    insert(factory,2,event={'agent':'qoder-hooks','session_id':'s','turn_id':'other'})
+    params=dict(agent='qoder-hooks',session_id='s',limit=1)
+    first=get(client,'/session-turns',**params)
+    assert first['has_more']
+    assert upload(client,event('tool_call',agent='qoder-cli',session='s',turn='late',call='c',tool='Bash',user_scope='501')).status_code==200
+    second=get(client,'/session-turns',**params,cursor=first['next_cursor'])
+    assert {r['key'] for r in first['items']+second['items']}=={'unassigned','turn:other'}
+
+
+def test_qoder_native_call_link_requires_same_user_session_and_tool(service):
+    client, factory = service
+    insert(factory,1,event={'agent':'qoder-hooks','session_id':'s','native_call_id':'c','tool':'Bash','turn_id':''})
+    for index, overrides in enumerate(({'user_scope':'502'}, {'session_id':'different'}, {'tool':'Read'})):
+        call = event('tool_call',agent='qoder-cli',session='s',turn=f'r{index}',call='c',tool='Bash',user_scope='501')
+        call.update(overrides)
+        call['logical_event_id'] = str(index+1)*64
+        assert upload(client,call).status_code==200
+    rows=get(client,'/session-turns',agent='qoder-hooks',session_id='s')['items']
+    assert next(r for r in rows if r['key']=='unassigned')['hook_count']==1
+
+
+def test_qoder_session_skill_list_keeps_both_raw_sources(service, monkeypatch):
+    from backend.aidr_models import AidrSkillUse
+    client, factory = service
+    monkeypatch.setattr('backend.aidr_skill_usage.registry_manager',lambda:None)
+    monkeypatch.setattr('backend.aidr_skill_usage.refresh',lambda db,row,manager,settings=None:{'id':str(row.id),'agent':row.agent})
+    with factory() as db:
+        for entry in ('qoder-hooks','qoder-cli','qoder-work'):
+            db.add(AidrSkillUse(client_id='one',call_key=entry,agent=entry,session_id='s',behavior='invocation',payload_json='{}'))
+        db.commit()
+    response=client.get(BASE+'/skill-uses',params={'agent':'qoder-hooks','session_id':'s'})
+    assert response.status_code==200
+    assert {r['agent'] for r in response.json()['items']}=={'qoder-hooks','qoder-cli'}
+
+
+def test_qoder_product_filter_preserves_entry_identity_and_pagination(service):
+    client, factory = service
+    entries = ('qoder-cli', 'qoder-hooks', 'qoder-ide', 'qoder-work')
+    for i, entry in enumerate((*entries, 'codex'), 1):
+        insert(factory, i, event={'agent':entry,'session_id':'shared-id'})
+    page = get(client, '/sessions', agent='qoder', limit=2)
+    rows = page['items'][:]
+    while page['has_more']:
+        page = get(client, '/sessions', agent='qoder', limit=2, cursor=page['next_cursor'])
+        rows.extend(page['items'])
+    assert {r['agent'] for r in rows} == set(entries)
+    assert len(rows) == len({r['key'] for r in rows}) == 4
+    assert [r['agent'] for r in get(client, '/sessions', agent='qoder-cli')['items']] == ['qoder-cli']
+    for row in rows:
+        detail = get(client, '/session-timeline', source='hooks', agent=row['agent'], session_id=row['session_id'])
+        assert len(detail['items']) == 1
+
+
+def test_session_host_context_is_explicit_scoped_and_snapshot_bounded(service):
+    from backend.aidr_sessions import session_host_context
+    _, factory = service
+    base = {'agent':'codex','session_id':'context-session','native_agent_id':''}
+    first = insert(factory,1,event={**base,'context':{'model':'first','cwd':'/tmp/old'}})
+    second = insert(factory,2,event={**base,'context':{'cwd':'/tmp/new'}})
+    insert(factory,3,event={**base,'native_agent_id':'child','context':{'model':'child'}})
+    insert(factory,4,event={**base,'context':{'model':'expired'}},expired=True)
+    insert(factory,5,event={**base,'context':{'model':'other-device'}},client='two')
+    insert(factory,6,event={**base,'agent':'claude','context':{'model':'other-product'}})
+    insert(factory,7,event={**base,'session_id':'different','context':{'model':'other-session'}})
+    with factory() as db:
+        result=session_host_context(db,'one','codex','context-session',second)
+        assert result['model']['value']=='first' and result['model']['id']==str(first)
+        assert result['cwd']['value']=='/tmp/new' and result['cwd']['id']==str(second)
+        assert session_host_context(db,'one','codex','',999)=={}
+        assert session_host_context(db,'one','codex','missing',999)=={}
+        assert session_host_context(db,'one','codex','context-session',first)['cwd']['value']=='/tmp/old'
+        assert session_host_context(db,'one','codex','context-session',999)['model']['value']=='first'
+
+
+def test_turn_models_are_explicit_scoped_and_deduplicated(service):
+    client, factory = service
+    base = dict(agent='codex', session_id='turn-models', turn_id='t1', native_agent_id='')
+    def report(n, model, **changes):
+        return insert(factory, n, event={**base, 'context': {'model': model}, **changes})
+    report(1, 'model-a')
+    last_a = report(2, 'model-a')
+    report(3, 'model-b')
+    report(4, 'child-model', native_agent_id='child')
+    report(5, 'subagent-model', kind='subagent.start')
+    report(6, 'other-model', session_id='other')
+    report(7, 'later-model', turn_id='t2')
+    insert(factory, 8, event={**base, 'turn_id': 't3'})
+    insert(factory, 9, event={**base, 'context': {'model': 'expired'}}, expired=True)
+    insert(factory, 10, event={**base, 'context': {'model': 'other-device'}}, client='two')
+    report(11, 'other-product', agent='claude')
+    rows = get(client, '/session-turns', agent='codex', session_id='turn-models')['items']
+    by_key = {row['key']: row['hook_models'] for row in rows}
+    assert [r['value'] for r in by_key['turn:t1']] == ['model-a', 'model-b']
+    assert by_key['turn:t1'][0]['id'] == str(last_a)
+    assert [r['value'] for r in by_key['turn:t2']] == ['later-model']
+    assert by_key['turn:t3'] == []
+
+
+def test_turn_models_snapshot_and_prompt_without_native_turn(service):
+    from backend.aidr_sessions import turn_hook_models
+    _, factory = service
+    base = dict(agent='codex', session_id='prompt-models', turn_id='', native_agent_id='')
+    prompt = insert(factory, 1, event={**base, 'kind': 'turn.submit', 'context': {'model': 'prompt-model'}})
+    insert(factory, 2, event={**base, 'context': {'model': 'unassigned-model'}})
+    first = insert(factory, 3, event={**base, 'turn_id': 't1', 'context': {'model': 'first'}})
+    insert(factory, 4, event={**base, 'turn_id': 't1', 'context': {'model': 'later'}})
+    with factory() as db:
+        result = turn_hook_models(db, 'one', 'codex', 'prompt-models', first, [f'prompt:{prompt}', 'turn:t1', 'unassigned'])
+        assert result[f'prompt:{prompt}'][0]['value'] == 'prompt-model'
+        assert [r['value'] for r in result['turn:t1']] == ['first']
+        assert 'unassigned' not in result
+        assert turn_hook_models(db, 'one', 'codex', '', 999, ['turn:t1']) == {}
+
+
+def test_turn_hook_context_keeps_directory_and_workspace_in_their_native_turn(service):
+    from backend.aidr_sessions import turn_hook_contexts
+    client, factory = service
+    base = dict(agent='codex', session_id='turn-directories', turn_id='t1', native_agent_id='')
+    first = insert(factory, 1, event={**base, 'context': {'model': 'model-a', 'cwd': '/tmp/first', 'workspace_roots': ['/tmp/first', '/tmp/shared']}})
+    insert(factory, 2, event={**base, 'context': {'cwd': '/tmp/first'}})
+    insert(factory, 3, event={**base, 'turn_id': 't2', 'context': {'model': 'model-b', 'cwd': '/tmp/second'}})
+    insert(factory, 4, event={**base, 'native_agent_id': 'child', 'context': {'cwd': '/tmp/child'}})
+    insert(factory, 5, event={**base, 'context': {'cwd': '/tmp/expired'}}, expired=True)
+    rows = get(client, '/session-turns', agent='codex', session_id='turn-directories')['items']
+    by_key = {row['key']: row for row in rows}
+    context = by_key['turn:t1']['hook_context']
+    assert [r['value'] for r in context['cwd']] == ['/tmp/first']
+    assert context['workspace_roots'][0]['value'] == ['/tmp/first', '/tmp/shared']
+    assert context['model'] == by_key['turn:t1']['hook_models']
+    assert by_key['turn:t2']['hook_context']['cwd'][0]['value'] == '/tmp/second'
+    assert 'workspace_roots' not in by_key['turn:t2']['hook_context']
+    with factory() as db:
+        snapshot = turn_hook_contexts(db, 'one', 'codex', 'turn-directories', first, ['turn:t1', 'turn:t2'])
+        assert snapshot['turn:t1']['cwd'][0]['id'] == str(first)
+        assert 'turn:t2' not in snapshot
+
+
 def get(client, path, **params):
     response = client.get(BASE + path, params=params)
     assert response.status_code == 200, response.text
@@ -240,3 +413,60 @@ def test_question_search_keeps_whole_session_counts_title_and_pagination(service
         assert alpha['hook_count'] == 4 and alpha['log_count'] == 1
         assert alpha['question_preview'] == 'Original title'
         assert sessions(db, 'one', keyword='find-this-needle')['items'] == []
+
+
+def test_session_list_counts_use_indexes_and_prompts_respect_page_ceiling(service):
+    from sqlalchemy import event as sql_event
+    from backend.aidr_sessions import sessions
+    client, factory = service
+    insert(factory, 1, event={'agent': 'codex', 'session_id': 'alpha', 'kind': 'tool.pre'})
+    insert(factory, 2, event={'agent': 'codex', 'session_id': 'beta', 'kind': 'tool.pre'})
+    with factory() as db:
+        statements = []
+        conn = db.connection()
+        def capture(conn, cursor, statement, parameters, context, many):
+            if statement.lstrip().startswith('WITH evidence'):
+                statements.append((statement, parameters))
+        sql_event.listen(conn, 'before_cursor_execute', capture)
+        first = sessions(db, 'one', include_questions=True, limit=1)
+        sql_event.remove(conn, 'before_cursor_execute', capture)
+        sql, params = statements[0]
+        assert 'json_each' not in sql
+        plan = conn.exec_driver_sql('EXPLAIN QUERY PLAN ' + sql, params).all()
+        for name in ('operation', 'hook', 'message'):
+            assert any(f'ix_aidr_{name}_session_list' in row[3] for row in plan)
+    # A new prompt for the next session must not leak into an older page snapshot.
+    remaining = 'alpha' if first['items'][0]['session_id'] == 'beta' else 'beta'
+    insert(factory, 3, event={'agent': 'codex', 'session_id': remaining, 'kind': 'turn.submit'})
+    with factory() as db:
+        second = sessions(db, 'one', include_questions=True, limit=1, cursor=first['next_cursor'])
+        assert second['items'][0]['session_id'] == remaining
+        assert second['items'][0]['prompt_id'] is None
+        assert second['items'][0]['question_preview'] == ''
+        assert second['items'][0]['hook_count'] == 1
+        refreshed = sessions(db, 'one', include_questions=True)
+        assert next(i for i in refreshed['items'] if i['session_id'] == remaining)['question_preview']
+
+
+def test_turn_query_scopes_indexes_to_selected_session(service):
+    from sqlalchemy import event as sql_event
+    from backend.aidr_sessions import turns
+    _, factory = service
+    for n in range(1, 4):
+        insert(factory, n, event={'agent': 'codex', 'session_id': f'session-{n}', 'turn_id': 't1'})
+    with factory() as db:
+        conn = db.connection()
+        statements = []
+        def capture(conn, cursor, statement, parameters, context, many):
+            if statement.lstrip().startswith('WITH evidence'):
+                statements.append((statement, parameters))
+        sql_event.listen(conn, 'before_cursor_execute', capture)
+        try:
+            result = turns(db, 'one', agent='codex', session_id='session-2')
+        finally:
+            sql_event.remove(conn, 'before_cursor_execute', capture)
+        assert result['items'][0]['hook_count'] == 1
+        sql, params = statements[0]
+        plan = ' '.join(row[3] for row in conn.exec_driver_sql('EXPLAIN QUERY PLAN ' + sql, params))
+        assert 'ix_aidr_operation_session_turns (client_id=? AND agent=? AND session_id=? AND expired_at=? AND id<?)' in plan
+        assert 'ix_aidr_hook_session_turns (client_id=? AND expired_at=? AND <expr>=? AND <expr>=? AND id<?)' in plan

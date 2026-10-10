@@ -39,6 +39,26 @@ def registry(tmp_path):
 
 
 class TestRegistry:
+    def test_certification_candidates_preserve_identity_without_reports(self, registry, monkeypatch):
+        first = _make_entry('sample')
+        second = first.model_copy(update={'skill_id': 'second-version'})
+        other = _make_entry('other')
+        for entry in (first, second, other):
+            registry.add(entry)
+        connect = registry._connect
+        statements = []
+        def traced_connect():
+            conn = connect()
+            conn.set_trace_callback(statements.append)
+            return conn
+        monkeypatch.setattr(registry, '_connect', traced_connect)
+        assert {e.skill_id for e in registry.list_certification_candidates(name='sample')} == {first.skill_id, second.skill_id}
+        assert [e.skill_id for e in registry.list_certification_candidates(skill_id=other.skill_id, name='sample')] == [other.skill_id]
+        assert registry.list_certification_candidates(name='SAMPLE') == []
+        assert len(registry.list_certification_candidates()) == 3
+        assert registry.list_certification_candidates(skill_id='missing') == []
+        assert not any('skill_scan_reports' in sql for sql in statements)
+
     @pytest.mark.parametrize("terminal_status", ["COMPLETED", "FAILED", "CANCELLED"])
     def test_scan_progress_is_persistent_and_scoped_to_pending_run(self, registry, terminal_status):
         entry = _make_entry()

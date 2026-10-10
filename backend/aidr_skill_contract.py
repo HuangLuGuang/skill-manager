@@ -3,10 +3,35 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+class SkillAlertRules(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    content_changed: Literal['record', 'alert'] = 'alert'
+    approval: Literal['record', 'alert'] = 'alert'
+    unauthorized: Literal['record', 'alert'] = 'alert'
+
+
 class SkillAuditPolicy(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     enabled: bool = True
     alerts: bool = True
+    check_mode: Literal['on_change', 'every_use'] = 'on_change'
+    digest_cache_seconds: int = Field(default=300, ge=60, le=3600)
+    status_refresh_seconds: int = Field(default=30, ge=5, le=3600)
+    max_concurrency: int = Field(default=1, ge=1, le=8)
+    max_files: int = Field(default=256, ge=1, le=10000)
+    max_file_bytes: int = Field(default=2 << 20, ge=1 << 20, le=100 << 20)
+    max_total_bytes: int = Field(default=8 << 20, ge=1 << 20, le=1 << 30)
+    alert_rules: SkillAlertRules = Field(default_factory=SkillAlertRules)
+
+    @model_validator(mode='after')
+    def check_limits(self):
+        if self.max_file_bytes > self.max_total_bytes:
+            raise ValueError('skill_audit_limits_invalid')
+        return self
+
+
+def skill_audit_policy(value=None):
+    return SkillAuditPolicy.model_validate(value or {}).model_dump()
 
 
 class SkillUse(BaseModel):
@@ -18,6 +43,8 @@ class SkillUse(BaseModel):
     phase: Literal['host_loaded'] | None = None
     content_digest: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     content_observed_at: str | None = Field(default=None, max_length=40)
+    content_status: Literal['computed', 'reused', 'unavailable', 'disabled'] | None = None
+    content_reason: Literal['source_missing', 'source_unreadable', 'source_symlink', 'source_changed', 'file_limit', 'file_size_limit', 'total_size_limit', 'entry_limit', 'check_cancelled', 'audit_disabled'] | None = None
 
     def validate_source(self, agent, tool, kind, redact=True):
         if kind not in {'tool_call', 'tool_result', 'tool.pre', 'tool.post', 'tool.failure', 'permission.request', 'permission.denied'}:
@@ -36,6 +63,12 @@ class SkillUse(BaseModel):
 
     @model_validator(mode='after')
     def check(self):
+        if self.content_status in {'computed', 'reused'} and (not self.content_digest or self.content_reason):
+            raise ValueError('skill_content_status_invalid')
+        if self.content_status in {'unavailable', 'disabled'} and (self.content_digest or not self.content_reason):
+            raise ValueError('skill_content_status_invalid')
+        if self.content_reason and self.content_status not in {'unavailable', 'disabled'}:
+            raise ValueError('skill_content_status_invalid')
         if self.behavior == 'invocation':
             if not ((self.name and not self.path and self.basis in {'tool_input.skill','tool_input.name'} and self.phase is None) or (self.path and self.basis in {'result.base_directory', 'result.metadata'} and self.phase == 'host_loaded')):
                 raise ValueError('skill_invocation_invalid')

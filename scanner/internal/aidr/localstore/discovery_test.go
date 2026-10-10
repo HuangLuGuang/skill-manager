@@ -199,3 +199,58 @@ func TestDiscoveryCapacityAndPersistentSkippedEntry(t *testing.T) {
 		}
 	}
 }
+
+func TestMissingDiscoverySeparatesReadHistoryFromUnreadFiles(t *testing.T) {
+	src := source(t, lines(1))
+	s := openStore(t, tempDir(t), DefaultLimits())
+	defer s.Close()
+	checkpoint, err := s.Collect(testContext, src, agentlog.DefaultBudget(), time.Unix(0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.NewCrawler(src.Agent, src.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err = c.Step(testContext, 64, 1000, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(src.Path); err != nil {
+		t.Fatal(err)
+	}
+	p, err := c.Step(testContext, 64, 1000, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.HistoricalMissing != 1 || p.UnreadMissing != 0 || p.Pending != 0 {
+		t.Fatalf("history classification: %+v", p)
+	}
+	for _, reason := range p.Reasons {
+		if reason == "aidr_log_source_missing" {
+			t.Fatal("read history marked current missing")
+		}
+	}
+	// The retained discovery size exceeds the read cursor: missing content remains actionable.
+	if _, err = s.db.Exec("UPDATE discovery_files SET size=? WHERE id=?", checkpoint.Cursor.Offset+100, src.ID); err != nil {
+		t.Fatal(err)
+	}
+	p, err = c.Step(testContext, 64, 1000, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.HistoricalMissing != 0 || p.UnreadMissing != 1 {
+		t.Fatalf("unread classification: %+v", p)
+	}
+	found := false
+	for _, reason := range p.Reasons {
+		found = found || reason == "aidr_log_source_missing"
+	}
+	if !found {
+		t.Fatal("unread missing file must remain actionable")
+	}
+	after, err := s.Checkpoint(testContext, src.ID)
+	if err != nil || after.Cursor.Offset != checkpoint.Cursor.Offset {
+		t.Fatal("missing classification changed cursor", err)
+	}
+}

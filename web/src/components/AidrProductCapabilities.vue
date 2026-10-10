@@ -22,7 +22,7 @@ import products from '../aidr-products.json'
 import { groupProductEntries } from '../aidr-product-groups'
 import AgentProductLogo from './AgentProductLogo.vue'
 const props = defineProps({ productIds: { type: Array, default: null } })
-const groups = computed(() => groupProductEntries(products.filter(p => !props.productIds || props.productIds.includes(p.id))))
+const groups = computed(() => groupProductEntries(products.filter(p => p.collection_visible !== false && (!props.productIds || props.productIds.includes(p.id)))))
 const { t: translate } = useI18n()
 const t = key => translate(`agentRuntimeGovernance.${key}`)
 </script>

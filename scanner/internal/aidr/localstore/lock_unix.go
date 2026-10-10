@@ -19,7 +19,8 @@ func privateDirectory(path string) error {
 	return nil
 }
 func lockDirectory(path string) (*os.File, error) {
-	fd, err := unix.Open(path, unix.O_CREAT|unix.O_RDWR|unix.O_NOFOLLOW, 0600)
+	// Host inspection processes must not retain the collector's writer lock.
+	fd, err := unix.Open(path, unix.O_CREAT|unix.O_RDWR|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0600)
 	if err != nil {
 		return nil, err
 	}

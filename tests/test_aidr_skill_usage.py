@@ -46,7 +46,7 @@ def setup_certification(db, tmp_path):
     evidence(db, skill={'behavior':'file_access','path':str(root/'SKILL.md'),'basis':'tool_input.path','content_digest':digest,'content_observed_at':datetime.utcnow().isoformat()+'Z'})
     row = db.query(AidrSkillUse).one()
     entry = SimpleNamespace(skill_id='v1',name='sample',family_id='family',version_no=1,skill_path=str(root),status='APPROVED',signature='signature')
-    manager = SimpleNamespace(list_skills=lambda:[entry])
+    manager = SimpleNamespace(list_certification_candidates=lambda **_:[entry])
     return row, entry, manager, root
 
 
@@ -55,8 +55,20 @@ def test_missing_source_is_pending_not_unregistered(service):
     with factory() as db:
         evidence(db,skill={'behavior':'invocation','name':'sample','basis':'tool_input.skill'})
         row=db.query(AidrSkillUse).one()
-        assert certification(db,row,SimpleNamespace(list_skills=lambda:[]))['status']=='pending'
+        assert certification(db,row,SimpleNamespace(list_certification_candidates=lambda **_:[]))['status']=='pending'
         assert db.query(models.ClientEvent).count()==0
+
+
+def test_known_path_without_digest_has_specific_pending_reason(service):
+    _, factory = service
+    with factory() as db:
+        evidence(db, skill={'behavior':'file_access', 'path':'/skills/sample/SKILL.md', 'basis':'literal_cat'})
+        row = db.query(AidrSkillUse).one()
+        result = certification(db, row, None)
+        assert result['status'] == 'pending'
+        assert result['reason'] == 'content_digest_missing'
+        assert result['registered'] is None and result['content_matches'] is None
+        assert db.query(models.ClientEvent).count() == 0
 
 
 @pytest.mark.parametrize('state,expected',[('APPROVED','verified_content'),('PENDING','unapproved'),('REJECTED','unapproved'),('RETIRED','revoked')])
@@ -92,10 +104,10 @@ def test_query_failure_is_pending_and_rechecked_without_cache(service,tmp_path):
     _,factory=service
     with factory() as db:
         row,entry,manager,root=setup_certification(db,tmp_path)
-        def offline(): raise OSError('unavailable')
-        manager.list_skills=offline
+        def offline(**_): raise OSError('unavailable')
+        manager.list_certification_candidates=offline
         assert refresh(db,row,manager)['certification']['reason']=='query_failed'
-        manager.list_skills=lambda:[]
+        manager.list_certification_candidates=lambda **_:[]
         assert refresh(db,row,manager)['certification']['status']=='unregistered'
         db.flush();assert db.query(models.ClientEvent).count()==1
 
@@ -108,7 +120,7 @@ def test_missing_registry_content_and_same_name_are_not_certification(service, t
         assert certification(db, row, manager)['reason'] == 'registry_content_unavailable'
         entry.skill_path = str(root)
         other = SimpleNamespace(**vars(entry)); other.skill_id = 'v2'
-        manager.list_skills = lambda: [entry, other]
+        manager.list_certification_candidates = lambda **_: [entry, other]
         assert certification(db, row, manager)['reason'] == 'identity_ambiguous'
 
 
@@ -160,10 +172,65 @@ def test_fresh_filter_and_device_scope(service, tmp_path, monkeypatch):
     with factory() as db:
         row,entry,manager,root = setup_certification(db,tmp_path)
         db.commit()
-    manager.list_skills = lambda: []
+    manager.list_certification_candidates = lambda **_: []
     monkeypatch.setattr('backend.aidr_skill_usage.registry_manager',lambda:manager)
     response=client.get('/api/v1/clients/one/aidr/skill-uses',params={'agent':'workbuddy','session_id':'session','certification':'unregistered'})
     assert response.status_code == 200, response.text
     assert len(response.json()['items']) == 1
     denied=client.get('/api/v1/clients/two/aidr/skill-uses',params={'agent':'workbuddy','session_id':'session'})
     assert denied.status_code in {403,404}
+
+
+def test_empty_and_incomplete_evidence_skip_registry(service, monkeypatch):
+    client, factory = service
+    def unexpected_registry():
+        pytest.fail('Incomplete evidence must not load the registry')
+    monkeypatch.setattr('agent_manager.api.router.get_manager', unexpected_registry)
+    url = '/api/v1/clients/one/aidr/skill-uses'
+    params = {'agent': 'workbuddy', 'session_id': 'session'}
+    assert client.get(url, params=params).json()['items'] == []
+    with factory() as db:
+        evidence(db, skill={'behavior': 'file_access', 'path': '/skills/sample/SKILL.md', 'basis': 'literal_cat'})
+        db.commit()
+    response = client.get(url, params=params)
+    assert response.status_code == 200
+    assert response.json()['items'][0]['certification']['reason'] == 'content_digest_missing'
+
+
+def test_registry_candidates_reused_only_within_request(monkeypatch):
+    from backend.aidr_skill_usage import registry_manager
+    queries = []
+    state = 'APPROVED'
+    def candidates(**filters):
+        queries.append(filters)
+        return [SimpleNamespace(status=state)]
+    registry = SimpleNamespace(list_certification_candidates=candidates)
+    monkeypatch.setattr('agent_manager.api.router.get_manager', lambda: SimpleNamespace(registry=registry))
+    first = registry_manager()
+    assert queries == []
+    assert first.list_certification_candidates(name='sample')[0].status == 'APPROVED'
+    first.list_certification_candidates(name='sample')
+    assert len(queries) == 1
+    state = 'RETIRED'
+    assert registry_manager().list_certification_candidates(name='sample')[0].status == 'RETIRED'
+    assert len(queries) == 2
+
+
+def test_candidate_query_uses_deployment_before_name(service, tmp_path):
+    _, factory = service
+    with factory() as db:
+        row, entry, manager, root = setup_certification(db, tmp_path)
+        data = json.loads(row.payload_json)
+        data['skill']['name'] = 'sample'
+        row.payload_json = json.dumps(data)
+        queries = []
+        def candidates(**filters):
+            queries.append(filters)
+            return []
+        manager.list_certification_candidates = candidates
+        assert certification(db, row, manager)['status'] == 'unregistered'
+        assert queries[-1] == {'skill_id': None, 'name': 'sample'}
+        db.add(models.ClientSkillInstall(client_id='one', agent_type='workbuddy', skill_name='sample', skill_path=str(root), version_id='v1'))
+        db.flush()
+        assert certification(db, row, manager)['reason'] == 'registry_reference_missing'
+        assert queries[-1] == {'skill_id': 'v1', 'name': None}

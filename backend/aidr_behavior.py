@@ -3,6 +3,7 @@ import re
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .aidr_content import AuditLifecycle, CaptureScope, Content, ContentStatus, validate_contents
+from .aidr_skill_contract import SkillAuditPolicy
 
 PATTERNS = [
  r'(?is)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)',
@@ -63,6 +64,8 @@ class Action(Strict):
 
 
 class AuditPolicy(Strict):
+    skill_audit: SkillAuditPolicy | None = None
+    model_context_schema: Literal[1] | None = None
     message_schema: Literal[1] | None = None
     version: str = Field(pattern=r"^(0|[1-9][0-9]{0,18})$")
     enabled: bool
@@ -72,7 +75,7 @@ class AuditPolicy(Strict):
 
     @model_validator(mode='after')
     def check(self):
-        if self.version == '0' and (not self.enabled or self.receipt or self.capture is not None or self.lifecycle is not None):
+        if self.version == '0' and (not self.enabled or self.receipt or self.capture is not None or self.lifecycle is not None or self.skill_audit is not None):
             raise ValueError('audit_policy_initial_invalid')
         if self.lifecycle is not None and self.capture is None:
             raise ValueError('audit_policy_lifecycle_invalid')

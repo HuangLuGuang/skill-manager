@@ -1,26 +1,27 @@
 package agentlog
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
-	"skill-manager/scanner/internal/manifest"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // SkillUse is host evidence, independent of registry certification. It carries
 // no Skill body and makes no claim that instructions were followed.
 type SkillUse struct {
-	Behavior  string `json:"behavior"`
-	Name      string `json:"name,omitempty"`
-	Path      string `json:"path,omitempty"`
-	Basis     string `json:"basis"`
-	Digest    string `json:"content_digest,omitempty"`
-	CheckedAt string `json:"content_observed_at,omitempty"`
-	Phase     string `json:"phase,omitempty"`
+	Behavior      string `json:"behavior"`
+	Name          string `json:"name,omitempty"`
+	Path          string `json:"path,omitempty"`
+	Basis         string `json:"basis"`
+	Digest        string `json:"content_digest,omitempty"`
+	CheckedAt     string `json:"content_observed_at,omitempty"`
+	Phase         string `json:"phase,omitempty"`
+	ContentStatus string `json:"content_status,omitempty"`
+	ContentReason string `json:"content_reason,omitempty"`
 }
 
 // WorkBuddy's native Skill result starts with this host-generated source field.
@@ -66,26 +67,7 @@ func ProjectSkillResult(agent, tool string, raw, meta json.RawMessage, policy *A
 // ObserveSkillContent runs on the asynchronous log reader, never on a Hook's
 // decision path. This is a later inventory observation, not execution attestation.
 func ObserveSkillContent(use *SkillUse) {
-	if use == nil || use.Path == "" {
-		return
-	}
-	root := filepath.Dir(filepath.FromSlash(use.Path))
-	if checkPath(use.Path) != nil {
-		return
-	}
-	info, err := os.Lstat(use.Path)
-	if err != nil || !info.Mode().IsRegular() {
-		return
-	}
-	value, err := manifest.Build(root, manifest.Options{
-		IgnoreDirs:   map[string]bool{".git": true, ".venv": true, "node_modules": true, "__pycache__": true, "dist": true, "build": true, ".DS_Store": true},
-		MaxFileBytes: 2 << 20, MaxTotalBytes: 8 << 20, MaxFiles: 256,
-	})
-	if err != nil {
-		return
-	}
-	use.Digest = manifest.ContentSignature(value.Files)
-	use.CheckedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	NewSkillObserver().Observe(context.Background(), use, nil)
 }
 
 // Recognize a literal single-file read, not a search or a shell expression.

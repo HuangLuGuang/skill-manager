@@ -5,7 +5,7 @@
     <a-alert v-if="value?.target_enabled === false" type="info" show-icon :message="t('agentRuntimeGovernance.onboarding.notRequested')" />
     <a-alert v-else-if="value?.target_enabled == null" type="info" show-icon :message="t('agentRuntimeGovernance.onboarding.unknownTarget')" />
     <p v-if="value?.audit_enabled === false">{{ t('agentRuntimeGovernance.onboarding.auditPaused') }}</p>
-    <a-radio-group v-if="value?.hosts?.length" :value="current?.agent" @update:value="selectedAgent = $event" button-style="solid"><a-radio-button v-for="item in value.hosts" :key="item.agent" :value="item.agent">{{ item.agent === 'claude' ? 'Claude Code' : 'Codex' }}</a-radio-button></a-radio-group>
+    <a-radio-group v-if="value?.hosts?.length" :value="current?.agent" @update:value="selectedAgent = $event" button-style="solid"><a-radio-button v-for="item in value.hosts" :key="item.agent" :value="item.agent">{{ productName(item.agent) }}</a-radio-button></a-radio-group>
     <template v-if="current">
       <div v-if="current.next_step" class="acceptance-next">
         <strong>{{ t('agentRuntimeGovernance.onboarding.next') }}: {{ t('agentRuntimeGovernance.onboarding.steps.' + current.next_step.key) }}</strong>
@@ -31,6 +31,8 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import products from '../aidr-products.json'
+const productName = id => products.find(product => product.id === id)?.name || id
 const props = defineProps({ value: { type: Object, default: null }, loading: Boolean, canInspect: Boolean })
 defineEmits(['refresh', 'inspect', 'policy', 'upgrade'])
 const { t, locale } = useI18n()

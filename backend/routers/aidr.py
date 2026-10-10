@@ -17,10 +17,12 @@ from .. import auth, models, aidr_policy
 from ..aidr_products import BY_ID, LogAgentID
 from .. import aidr_hook_queries
 from .. import aidr_sessions
+from .. import aidr_overview
 from .. import aidr_hooks
 from .. import aidr_hook_runtime
 from .. import aidr_plugin_status
 from .. import aidr_hook_control as hook_control
+from .. import aidr_tool_policy_scope as tool_scope
 from ..aidr_rule_preview import HookRulePreview, preview_hook
 from ..aidr_models import AidrHookEvent
 from ..aidr_behavior import AuditPolicy
@@ -33,6 +35,70 @@ from .access_tokens import resolve_access_token
 from .clients import _client_or_404, _ensure_visible, _operation
 
 router = APIRouter(prefix="/v1/clients/{client_id}/aidr", tags=["aidr"])
+global_tool_router = APIRouter(prefix='/v1/aidr/tool-policy', tags=['aidr'])
+
+
+def tool_policy_admin(user=Depends(auth.get_current_admin_user)):
+    if user.role not in ('admin', 'super_admin'):
+        fail(403, 'hook_admin_required', '需要管理员权限', 'Administrator role required')
+    return user
+
+
+@global_tool_router.get('')
+def global_tool_policy(db: Session = Depends(get_db), user=Depends(tool_policy_admin)):
+    return {**tool_scope.global_view(db), 'can_edit': True, 'impact': tool_scope.impact(db)}
+
+
+@global_tool_router.post('/preview')
+def preview_global_tools(body: HookRulePreview, user=Depends(tool_policy_admin)):
+    return preview_hook(body)
+
+
+@global_tool_router.put('')
+def publish_global_tools(body: hook_control.ToolPolicyInput, db: Session = Depends(get_db), user=Depends(tool_policy_admin)):
+    value = tool_scope.publish_global(db, body, user.username)
+    _operation(db, user, 'aidr.hook.global_policy', 'global', dump({'revision': value['revision'], 'rule_count': len(body.rules)}))
+    db.commit()
+    return {**value, 'can_edit': True, 'impact': tool_scope.impact(db)}
+
+
+@router.get('/overview')
+def audit_overview(client_id: str, response: Response, source: str = Query('hooks', pattern='^(hooks|logs)$'),
+                   agent: str = Query('', pattern='^(|qoder|' + '|'.join(BY_ID) + ')$'), hours: int = Query(24, ge=1, le=720),
+                   db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    device_for_user(db, client_id, user)
+    response.headers['Cache-Control'] = 'no-store'
+    return aidr_overview.cached_overview(db, client_id, source, agent, hours)
+
+
+@router.get('/overview/tasks')
+def audit_overview_tasks(client_id: str, before: int | None = Query(None, ge=1),
+                         db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    device_for_user(db, client_id, user)
+    return aidr_overview.task_summary(db, client_id, before)
+
+
+@router.get('/overview/entry')
+def audit_overview_entry(client_id: str, source: str = Query('hooks', pattern='^(hooks|logs)$'),
+                        record_id: int = Query(ge=1), db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    device_for_user(db, client_id, user)
+    result = aidr_overview.detail_entry(db, client_id, source, record_id)
+    if result is None:
+        fail(404, 'overview_entry_unavailable', '记录不存在或已过期', 'Record is unavailable or expired')
+    return result
+
+
+@router.get('/overview/details')
+def audit_overview_details(client_id: str, source: str = Query('hooks', pattern='^(hooks|logs)$'),
+                           agent: str = Query('', pattern='^(|qoder|' + '|'.join(BY_ID) + ')$'),
+                           since: int = Query(ge=0), until: int = Query(ge=0),
+                           dimension: str = Query('', pattern='^(|commands|tools|agents|failures|sessions)$'),
+                           value: str = Query('', max_length=256), cursor: str = Query('', pattern='^([0-9]{1,12}:[a-f0-9]{64})?$'),
+                           db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+    device_for_user(db, client_id, user)
+    if not 0 < until - since <= 720 * 3600:
+        fail(422, 'overview_range_invalid', '统计时间范围无效', 'Invalid statistics time range')
+    return aidr_overview.details(db, client_id, source, since, until, agent, dimension, value, cursor)
 
 
 @router.post("/hooks:batch")
@@ -59,7 +125,7 @@ def hook_events(client_id: str, after: int | None = Query(None, ge=0, le=2**63-1
 
 @router.get('/sessions')
 def audit_sessions(client_id: str, response: Response, cursor: str = Query('', max_length=2048), limit: int = Query(20, ge=1, le=100),
-                   keyword: str = Query('', max_length=256), agent: str = Query('', pattern='^(|' + '|'.join(BY_ID) + ')$'),
+                   keyword: str = Query('', max_length=256), agent: str = Query('', pattern='^(|qoder|' + '|'.join(BY_ID) + ')$'),
                    include_questions: bool = False,
                    db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     device_for_user(db, client_id, user)
@@ -122,14 +188,16 @@ def skill_uses(client_id: str, agent: str = Query(max_length=32), session_id: st
     device_for_user(db, client_id, user)
     from ..aidr_models import AidrSkillUse
     from ..aidr_skill_usage import refresh, registry_manager
-    query = db.query(AidrSkillUse).filter_by(client_id=client_id, agent=agent, session_id=session_id, expired_at=None).filter(AidrSkillUse.id > after)
+    entries = ('qoder-hooks', 'qoder-cli') if agent == 'qoder-hooks' else (agent,)
+    query = db.query(AidrSkillUse).filter_by(client_id=client_id, session_id=session_id, expired_at=None).filter(AidrSkillUse.agent.in_(entries), AidrSkillUse.id > after)
     if behavior: query = query.filter_by(behavior=behavior)
     # Evaluate the selected state after rechecking, not against a stale cache.
     rows = query.order_by(AidrSkillUse.id).limit(201).all()
     items, cursor = [], after
     manager = registry_manager()
+    settings = aidr_policy.current(db, client_id)['skill_audit']
     for row in rows[:200]:
-        item = refresh(db, row, manager)
+        item = refresh(db, row, manager, settings)
         cursor = row.id
         if not certification or item.get('certification', {}).get('status') == certification:
             items.append(item)
@@ -202,7 +270,15 @@ class ClientAuditPolicyUpdate(BaseModel):
 
 def client_audit_policy_view(db, client_id, user):
     permissions = iam.permission_codes(db, user)
+    device = db.get(models.AidrDevice, client_id)
+    health = json.loads(device.health_json or '{}') if device else {}
+    report = health.get('audit_policy') or {}
+    reported = report.get('policy') or {}
+    runtime = {'version': reported.get('version'), 'skill_audit': reported.get('skill_audit'),
+               'code': report.get('code'), 'refreshed_at': report.get('refreshed_at'),
+               'reported_at': device.last_seen_at.isoformat() + 'Z' if device and device.last_seen_at else None}
     return {**aidr_policy.current(db, client_id), 'global_policy': aidr_policy.current(db),
+            'skill_audit_runtime': runtime,
             'can_edit': user.role in {'admin', 'super_admin'} and {'clients:update', 'settings:update'} <= permissions}
 
 
@@ -268,6 +344,9 @@ class DiscoveryProgress(BaseModel):
     scanned_entries: int = Field(ge=0,le=10000)
     status: str = Field(pattern="^(complete|partial|unavailable)$")
     reason_codes: list[Reason] = Field(max_length=16)
+    historical_missing: int | None = Field(default=None, ge=0, le=16384)
+    unread_missing: int | None = Field(default=None, ge=0, le=16384)
+    missing_directories: int | None = Field(default=None, ge=0, le=8192)
 
 
 class DiscoveryStatus(BaseModel):
@@ -467,7 +546,7 @@ class PolicyRequest(BaseModel):
 
 
 @router.post("/audit-policy")
-def audit_policy(client_id: str, body: PolicyRequest, request: Request, authorization: str | None = Header(None), x_aidr_policy_schema: str = Header('1'), x_aidr_audit_lifecycle: str = Header(''), x_aidr_message_capture: str = Header(''), x_aidr_content_options: str = Header(''), db: Session = Depends(get_db)):
+def audit_policy(client_id: str, body: PolicyRequest, request: Request, authorization: str | None = Header(None), x_aidr_policy_schema: str = Header('1'), x_aidr_audit_lifecycle: str = Header(''), x_aidr_message_capture: str = Header(''), x_aidr_content_options: str = Header(''), x_aidr_model_context: str = Header(''), x_aidr_skill_audit: str = Header(''), db: Session = Depends(get_db)):
     runtime_device(db, client_id, authorization, request, "aidr:heartbeat", allow_paused=True)
     frontier = int(body.last_sequence)
     if frontier >= 2**63 - 1:
@@ -480,7 +559,11 @@ def audit_policy(client_id: str, body: PolicyRequest, request: Request, authoriz
         fail(422, 'policy_schema_unsupported', '审计策略契约不支持', 'Unsupported audit policy schema')
     if x_aidr_content_options not in {'', '1'} or (x_aidr_content_options and x_aidr_policy_schema != '2'):
         fail(422, 'policy_schema_unsupported', '审计策略契约不支持', 'Unsupported audit policy schema')
-    policy = aidr_policy.issue(db, client_id, body.stream_id, frontier, body.applied_receipt, int(body.applied_after), content_supported=x_aidr_policy_schema == '2', lifecycle_supported=x_aidr_audit_lifecycle == '1', message_supported=x_aidr_message_capture == '1', content_options_supported=x_aidr_content_options == '1')
+    if x_aidr_model_context not in {'', '1'} or (x_aidr_model_context and x_aidr_policy_schema != '2'):
+        fail(422, 'policy_schema_unsupported', '审计策略契约不支持', 'Unsupported audit policy schema')
+    if x_aidr_skill_audit not in {'', '1'} or (x_aidr_skill_audit and x_aidr_policy_schema != '2'):
+        fail(422, 'policy_schema_unsupported', '审计策略契约不支持', 'Unsupported audit policy schema')
+    policy = aidr_policy.issue(db, client_id, body.stream_id, frontier, body.applied_receipt, int(body.applied_after), content_supported=x_aidr_policy_schema == '2', lifecycle_supported=x_aidr_audit_lifecycle == '1', message_supported=x_aidr_message_capture == '1', content_options_supported=x_aidr_content_options == '1', model_context_supported=x_aidr_model_context == '1', skill_audit_supported=x_aidr_skill_audit == '1')
     db.commit()
     return policy
 
@@ -491,8 +574,7 @@ def hook_policy_view(client_id: str, db: Session = Depends(get_db), user=Depends
     row = hook_control.latest_policy(db, client_id)
     from ..aidr_hook_drift import policy_analysis
     revision = str(row.revision) if row else "0"
-    from ..aidr_retention import view as retention_view
-    return {"revision": revision, "policy": json.loads(row.payload) if row else None, "can_edit": user.role in ("admin", "super_admin"), "analysis": policy_analysis(db, client_id, row.revision) if row else None, "runtime": aidr_hook_runtime.view(db, client_id, revision), "plugins": aidr_plugin_status.view(db, client_id), "retention": retention_view(db, client_id)}
+    return {**tool_scope.scope_view(db, client_id), "revision": revision, "policy": json.loads(row.payload) if row else None, "can_edit": user.role in ("admin", "super_admin"), "analysis": policy_analysis(db, client_id, row.revision) if row else None, "runtime": aidr_hook_runtime.view(db, client_id, revision), "plugins": aidr_plugin_status.view(db, client_id)}
 
 
 @router.post("/hook-plugin-status")
@@ -514,15 +596,14 @@ def hook_rule_preview(client_id: str, body: HookRulePreview, db: Session = Depen
 
 
 @router.put("/hook-policy")
-def hook_policy_publish(client_id: str, body: hook_control.ToolPolicyInput, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+def hook_policy_publish(client_id: str, body: tool_scope.ClientPolicyInput, db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     device_for_user(db, client_id, user)
     if user.role not in ("admin", "super_admin"):
         fail(403, "hook_admin_required", "需要管理员权限", "Administrator role required")
-    value = hook_control.publish(db, client_id, body, user.username)
-    _operation(db, user, "aidr.hook.policy", client_id, dump({"revision": value["revision"], "rule_count": len(body.rules)}))
+    tool_scope.publish_client(db, client_id, body, user.username)
+    _operation(db, user, "aidr.hook.policy", client_id, dump({"inherit": body.inherit, "rule_count": len(body.rules)}))
     db.commit()
-    from ..aidr_hook_drift import policy_analysis
-    return {"policy": value, "revision": value["revision"], "analysis": policy_analysis(db, client_id, int(value["revision"])), "runtime": aidr_hook_runtime.view(db, client_id, value["revision"]), "plugins": aidr_plugin_status.view(db, client_id)}
+    return hook_policy_view(client_id, db, user)
 
 
 @router.post("/hook-control/bootstrap")
@@ -550,10 +631,13 @@ def hook_approval_request(client_id: str, body: hook_control.ApprovalRequest, re
 
 
 @router.get("/hook-approvals")
-def hook_approval_list(client_id: str, before: int = Query(2**63-1, ge=1, le=2**63-1), before_id: str = Query("f"*32, pattern=r"^[0-9a-f]{32}$"), limit: int = Query(50, ge=1, le=100), db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
+def hook_approval_list(client_id: str, before: int = Query(2**63-1, ge=1, le=2**63-1), before_id: str = Query("f"*32, pattern=r"^[0-9a-f]{32}$"), limit: int = Query(50, ge=1, le=100), agent: str = Query('', max_length=80), db: Session = Depends(get_db), user=Depends(auth.get_current_admin_user)):
     device_for_user(db, client_id, user)
     table = hook_control.HookApprovalRow
-    rows = db.query(table).filter_by(client_id=client_id).filter(or_(table.created_at<before, and_(table.created_at==before, table.id<before_id))).order_by(table.created_at.desc(), table.id.desc()).limit(limit+1).all()
+    query = db.query(table).filter_by(client_id=client_id)
+    if agent:
+        query = query.filter(func.json_extract(table.scope, '$.agent') == agent)
+    rows = query.filter(or_(table.created_at<before, and_(table.created_at==before, table.id<before_id))).order_by(table.created_at.desc(), table.id.desc()).limit(limit+1).all()
     items = rows[:limit]
     return {"items": [hook_control.approval_view(row) for row in items], "has_more": len(rows)>limit, "next_before": str(items[-1].created_at) if items else None, "next_before_id": items[-1].id if items else None}
 

@@ -81,6 +81,56 @@ def backfill_operations(conn):
         conn.execute(stmt.on_conflict_do_update(index_elements=['key'],set_={'value':after}))
 
 
+def repair_codex_session_projections(conn):
+    """Join unique historical halves using native identity; retain immutable events.
+
+    The old oversized-record bug cleared the call's session while its result
+    recovered it. No timestamp proximity or tool-name matching is used.
+    """
+    state = AidrAuditState.__table__
+    marker = 'codex_session_projection_repair_v1'
+    if conn.execute(select(state.c.value).where(state.c.key == marker)).scalar():
+        return 0
+    table = AidrOperation.__table__
+    groups = {}
+    for row in conn.execute(select(table).where(table.c.agent == 'codex', table.c.expired_at.is_(None))).mappings():
+        view = json.loads(row['payload_json'])
+        for side in ('call', 'result'):
+            e = view.get(side)
+            if not e:
+                continue
+            identity = tuple(e.get(k) for k in ('source_id', 'source_instance_id', 'turn_id', 'native_call_id'))
+            if not all(identity):
+                continue
+            key = (row['client_id'], e.get('user_scope'), *identity)
+            groups.setdefault(key, []).append((row, view, side))
+    repaired = 0
+    for halves in groups.values():
+        if len(halves) != 2 or {h[2] for h in halves} != {'call', 'result'}:
+            continue
+        call_row, call_view, _ = next(h for h in halves if h[2] == 'call')
+        result_row, view, _ = next(h for h in halves if h[2] == 'result')
+        call, result = call_view['call'], view['result']
+        if (call_row['id'] == result_row['id'] or call_row['session_id'] or call.get('session_id')
+                or not result_row['session_id'] or result.get('session_id') != result_row['session_id']
+                or call_view.get('result') or view.get('call')
+                or any(v.get(k) for v in (call_view, view) for k in ('conflicting_evidence', 'evidence_truncated', 'history_expired'))):
+            continue
+        view['call'] = call
+        view['seen_ids'] = list(dict.fromkeys(call_view['seen_ids'] + view['seen_ids']))
+        view['association'] = 'native_call_same_source_instance'
+        behavior = result.get('behavior')
+        status = behavior['status'] if behavior else {'success': 'reported_complete', 'error': 'reported_error'}.get(result['outcome'], 'unknown')
+        conn.execute(table.update().where(table.c.id == result_row['id']).values(
+            tool=call['tool'], result_status=status, payload_json=dump(view),
+            latest_at=max(call_row['latest_at'], result_row['latest_at']),
+            received_at=min(call_row['received_at'], result_row['received_at'])))
+        conn.execute(table.delete().where(table.c.id == call_row['id']))
+        repaired += 1
+    conn.execute(insert(state).values(key=marker, value=1))
+    return repaired
+
+
 def present(row):
     view=json.loads(row.payload_json)
     call,result=view['call'],view['result']

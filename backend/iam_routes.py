@@ -27,7 +27,7 @@ def route_permission(request):
         "/api/v1/clients/{client_id}/aidr/enforcement/policy/preview",
     }:
         return "clients:view"
-    if method == "POST" and path == "/api/v1/clients/{client_id}/aidr/enforcement/policy":
+    if method == "POST" and path in {"/api/v1/clients/{client_id}/aidr/enforcement/policy", "/api/v1/clients/{client_id}/aidr/enforcement/collection", "/api/v1/clients/{client_id}/aidr/enforcement/collection/rediscover"}:
         return "clients:update"
     if method == "POST" and path == "/api/v1/clients/{client_id}/aidr/enforcement/terminate":
         return "clients:execute"

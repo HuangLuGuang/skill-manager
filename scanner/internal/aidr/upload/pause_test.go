@@ -237,9 +237,9 @@ func TestLogReportingPausePreservesBatchWhileReadingAppend(t *testing.T) {
 	if err != context.Canceled || !appended || !collectedDuringPause || accepted.Load() < 2 {
 		t.Fatal(err, appended, collectedDuringPause, accepted.Load())
 	}
-	page, err := store.Events(context.Background(), "", 10)
-	if err != nil || len(page.Events) != 2 {
-		t.Fatal("logical calls were duplicated or omitted", len(page.Events), err)
+	state, err := store.Status(context.Background())
+	if err != nil || state.LogicalEvents != 2 || state.EvictedPayloads != 2 || state.Queued != 0 {
+		t.Fatal("confirmed identities lost or payloads not released", state, err)
 	}
 }
 
