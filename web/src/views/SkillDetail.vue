@@ -605,7 +605,10 @@
             </a-tab-pane>
             <a-tab-pane key="llm" :tab="$t('decisionFlow.llmAnalysis')">
                 <a-skeleton :loading="loading" active :paragraph="{ rows: 8 }">
-                  <template v-if="llmAnalysis">
+                  <a-alert v-if="llmFailure !== null" type="error" show-icon :message="$t('skillDetail.llmFailed')">
+                    <template #description><div style="white-space: pre-wrap; overflow-wrap: anywhere">{{ llmFailure || $t('skillDetail.llmFailureUnavailable') }}</div></template>
+                  </a-alert>
+                  <template v-else-if="llmAnalysis">
                     <a-card id="llm-section" size="small" :title="$t('legacy.1iy14k9')">
                       <a-descriptions :column="{ xs: 1, sm: 2 }" size="small" bordered style="margin-bottom: 12px">
                         <a-descriptions-item :label="$t('legacy.1l721lr')">{{ llmAnalysis.provider || '-' }}</a-descriptions-item>
@@ -1104,7 +1107,7 @@ import {
 } from '../api'
 import { formatDateTime } from '../utils/format'
 import { parseUnifiedDiff } from '../utils/diff'
-import { analysisState } from '../utils/decisionFlow'
+import { analysisState, formatLlmFailureReason, llmFailureReason } from '../utils/decisionFlow'
 import { translateDomain } from '../i18n'
 import { legacyKey, legacyMessages } from '../i18n/legacy'
 import { useLocaleText } from '../i18n/useLocaleText'
@@ -1733,6 +1736,7 @@ const llmAnalysis = computed(() => {
     risk_level: analysis.risk_level || 'benign',
   }
 })
+const llmFailure = computed(() => formatLlmFailureReason(llmFailureReason(scanReport.value, policyNotes.value), t))
 const llmExplanationHtml = computed(() => {
   const text = llmAnalysis.value?.report || ''
   if (!text) return phrase('legacy.xsay8c')

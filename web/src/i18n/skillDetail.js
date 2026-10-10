@@ -1,5 +1,8 @@
 export const skillDetailMessages = {
   'zh-CN': {
+    llmFailed: 'LLM 分析失败',
+    llmUpstreamFailed: '上游模型接口失败',
+    llmFailureUnavailable: '报告未记录失败原因，请查看服务端日志。',
     networkAttempts: '{count}次',
     sandboxHelp: {
       probe: '为观察脚本行为而安排的一次试运行。\ndefault：平台默认测试。\nrepresentative：从整次检测汇总信息展示的测试记录。\n-：报告没有提供测试描述。',
@@ -36,6 +39,9 @@ export const skillDetailMessages = {
     autoApproval: '策略自动批准', cachedAutoApproval: '复用结果 · 策略自动批准', pendingReview: '待审核',
   },
   'en-US': {
+    llmFailed: 'LLM analysis failed',
+    llmUpstreamFailed: 'Upstream model request failed',
+    llmFailureUnavailable: 'The report did not record a failure reason. Check the server logs.',
     networkAttempts: '{count} attempts',
     sandboxHelp: {
       probe: 'A test run used to observe script behavior.\ndefault: the platform’s default test.\nrepresentative: a test record displayed from the overall scan summary.\n-: the report provides no test description.',

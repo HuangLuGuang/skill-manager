@@ -23,6 +23,22 @@ export const analysisState = (report, key) => {
   return ['completed', 'failed', 'skipped', 'disabled', 'unavailable', 'pending'].includes(status) ? status : 'unrecorded'
 }
 
+// 兼容旧报告：LLM 异常原因保存在策略备注中，状态以本次报告为准。
+export const llmFailureReason = (report, notes = []) => {
+  const prefix = '[LLM] analysis skipped: '
+  const reasons = notes.filter(note => typeof note === 'string' && note.startsWith(prefix))
+    .map(note => note.slice(prefix.length))
+  const state = analysisState(report, 'llm')
+  if (state !== 'failed' && !(state === 'unrecorded' && !report?.llm_analysis && reasons.length)) return null
+  return reasons.join('\n')
+}
+
+// 兼容已保存的网关错误，仅翻译平台前缀，后续上游响应保持原文。
+export const formatLlmFailureReason = (reason, translate) => reason?.replace(
+  /^(\d+:\s*)?上游模型接口失败:\s*/gm,
+  (_, status = '') => `${status}${translate('skillDetail.llmUpstreamFailed')}: `,
+) ?? reason
+
 export const findingTarget = item => {
   const source = String(item.source || item.analyzer || '').toLowerCase()
   return source.includes('sandbox') ? 'sandbox' : source.includes('skillspector') ? 'skillspector' : source.includes('llm') ? 'llm' : 'rule'
