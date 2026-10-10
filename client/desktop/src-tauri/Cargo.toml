@@ -25,3 +25,6 @@ tauri-runtime = "=2.1.1"
 tauri-runtime-wry = "=2.1.2"
 tauri-utils = "=2.0.2"
 url = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Com", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging"] }

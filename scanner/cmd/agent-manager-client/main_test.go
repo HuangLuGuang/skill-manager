@@ -150,6 +150,7 @@ func TestConfigureConnectionChangeKeepsDiscoveryAndClearsPlatformState(t *testin
 		t.Fatal(err)
 	}
 	if err := store.QueueEvent(managedclient.QueuedEvent{
+		Server:   "http://old.example",
 		ClientID: "client-1", EventType: "skill_modified", AgentType: "codex", SkillName: "demo",
 	}); err != nil {
 		t.Fatal(err)
@@ -204,8 +205,8 @@ func TestConfigureConnectionChangeKeepsDiscoveryAndClearsPlatformState(t *testin
 	if installs, err := store.Installations(); err != nil || len(installs) != 0 {
 		t.Fatalf("install associations from the previous platform were retained: %#v err=%v", installs, err)
 	}
-	if events, err := store.QueuedEvents(); err != nil || len(events) != 0 {
-		t.Fatalf("events from the previous platform were retained: %#v err=%v", events, err)
+	if events, err := store.QueuedEvents(); err != nil || len(events) != 1 || events[0].Server != "http://old.example" {
+		t.Fatalf("events lost their original platform binding: %#v err=%v", events, err)
 	}
 	pending, err := store.PendingItems()
 	if err != nil {

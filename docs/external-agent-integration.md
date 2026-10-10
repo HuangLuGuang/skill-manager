@@ -1,6 +1,30 @@
 # External Agent Integration
 
+客户端托管接入的图文操作入口为平台帮助中心 `/docs/aidr-client`；三通道对比见 `/docs/aidr-overview`，平台策略与审批见 `/docs/aidr-policies`。自研 Agent 的加载前同步校验与客户端基于日志的后台 Skill 内容观察有不同证据边界，详见 `/docs/aidr-skill-audit`。
+
+For illustrated managed-client onboarding, use `/docs/aidr-client` in the platform Help Center. See `/docs/aidr-overview` for channel comparison and `/docs/aidr-policies` for policies/approvals. Synchronous pre-load verification in custom Agents and log-driven background Skill observation have different evidence boundaries, explained in `/docs/aidr-skill-audit`.
+
+## Hook 命令规则 / Hook command rules
+
+接收器支持 `aidr.tool-policy/3` 的可选 `command` 条件，字段为 `executable`、`args_all`、`args_any`、`path_prefix`、`pipe_to`。规则仍带 `id / agent / tool / decision`；原生工具规则兼容 schema 1/2。命令输入仅从受支持 Shell 工具的原始 `tool_input.command` 或 `tool_input.cmd` 读取，在脱敏前本地匹配。工具名（不区分大小写，允许命名空间前缀）：Bash、exec、exec_command、Shell、run_terminal_cmd、run_shell_command。其他工具不套用命令条件；工具名规则仍可单独管控。
+
+仅调用前事件携带 `command_match`：`schema_version: 1`、`policy_revision`、`matched`、`unresolved`。这是认证设备接收器的判断报告，服务端依据持久化事件及当前版本核对审批，并非服务端独立复核原始命令。匹配报告不包含命令正文或参数；现有 `input_digest`、调用身份、队列和严格 ACK 保持。规则解析未知与规则实际命中分别记录；审批授权仅能消费一次，策略更新使旧审批失效。
+
+解析不确定的条件不计为命中；没有其他明确命中的规则时采用策略默认决定。拦截模式的调用前事件额外携带接收器生成的 `control_decision`（decision、rule_id、matched_rule_ids、policy_revision、code、可选 unresolved），随原事件一次性持久化并上传。该字段不采信宿主输入，表示接收器的控制决定；审批后续结果仍以独立审批回执为准。仅审计事件及旧记录可不带该字段。
+
+**English:** Unresolved conditions do not match; absent a confirmed rule match, the configured default applies. In intercept mode, the receiver persists its initial `control_decision` with the pre-tool event before upload. Host input cannot supply this field. It describes the receiver decision, while later approval outcomes use separate receipts. Audit-only and historical events may omit it.
+
+**English:** Signed command policies use schema 3 with optional executable/argument/path/pipeline conditions. The receiver matches original pre-tool input locally before redaction and reports only the policy revision and matched/unresolved rule IDs. The server trusts this authenticated receiver observation within the persisted event and exact approval scope; it does not independently reparse unavailable raw input. Existing digest, queue, ACK and one-use grant semantics remain. The literal matcher is bounded and does not interpret arbitrary script code or resolve filesystem aliases. See [rule editing and acceptance](project-guide.md) for rollout and UI checks.
+
 ## Overview
+
+平台启动时自动补齐初始全局工具规则版本 1（空规则、默认允许）；已有全局版本和设备单独规则保持不变。客户端默认继承该已发布版本，下次控制快照同步时获得设备签名。
+
+**English:** Startup seeds global tool revision 1 (empty rules, allow fallback) when no global revision exists. Existing global revisions and client overrides are preserved. Inheriting clients receive a device-signed policy on their next control snapshot.
+
+工具与命令规则支持全局默认和客户端整套覆盖。新客户端默认继承，存量设备规则保留；控制快照按设备生成签名版本，客户端使用原有验签和同步协议。命令条件需要接收器报告 `command_rules_schema=1`；不满足时等待升级，保留原本地策略。实际应用以设备报告为准，Hook 运行模式独立配置。配置入口和中英文验收清单见 [项目指南](project-guide.md)。
+
+**English:** Tool rules support global defaults and complete client overrides. New clients inherit; existing device rules are preserved. Control snapshots materialize a device-scoped signed revision using the existing verification and synchronization protocol. Command conditions require a recent `command_rules_schema=1` receiver report. Incompatible or offline clients keep their verified local policy until synchronization succeeds; actual application and Hook mode are tracked separately.
 
 这个项目本身不是统一 Agent Runtime，也不替外部 Agent 执行 Skill；它提供 Skill 准入、Agent/MCP
 安全测评、模型/MCP 网关、运行时放行和统一证据轨迹。
@@ -18,6 +42,14 @@
 Skill 加载机制，但在关键节点调用 Agent Manager 做校验、阻断和审计。
 
 如果客户需要统一管理 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes 等本地 Skill 目录，优先使用 Agent Manager Client。它不依赖 Agent 是否遵循 Skill 指令，说明见 [agent-manager-client.md](agent-manager-client.md)。
+
+Claude/Codex AIDR 接入按实际原生接口和日志格式检测兼容性，不要求客户使用同一个精确小版本；版本、接口可用、原生信任及事件到达分别展示。平台需先更新，再更新客户端。具体规则与验收边界见 [客户端兼容说明](agent-manager-client.md#agent-小版本兼容与接入检查)。
+
+**English:** AIDR integration checks native interfaces and log formats across minor versions. Interface availability, native trust and actual delivery remain separate. Upgrade the platform before clients; see the client compatibility guide.
+
+客户端默认按平台策略自动接入普通 Hook 插件并启动接收器；Codex 原生信任和受管系统授权仍由用户完成。安装与授权状态可直接在平台插件接入页查看，参见[自动采集与 Hook 状态](agent-manager-client.md#接入后自动采集与-hook-状态)。
+
+Ordinary Hook access and receiver startup follow the default platform policy automatically. Native Codex trust and managed system authorization remain user actions; the platform displays these states separately.
 
 ### 接入方式选择
 
@@ -620,3 +652,161 @@ flowchart TD
   校验 skill 注册状态是否允许加载
 - `GET /api/v1/access/runtime/check-tool`
   校验运行时 tool 调用是否在允许范围内
+
+## AIDR 多产品适配与证据范围（2026-10-07）
+
+Hook 的可选 `context` 元数据保留宿主明确报告的 `model`、`cwd`。Cursor 优先使用 `model_id`，其 `workspace_roots` 单独展示为工作区，不当作进程工作目录。依据：[Claude Hooks](https://code.claude.com/docs/en/hooks) 的 SessionStart 模型字段及通用 cwd、[Cursor Hooks](https://cursor.com/docs/hooks) 的模型及工作区字段；其他入口只保留实际输入中的字段，不从默认配置推断。模型最多 256 字节，路径每项最多 512 字节，工作区最多 8 项，沿用审计脱敏策略并标记处理状态。新增字段可选，旧客户端和历史事件继续兼容。
+
+Optional Hook `context` metadata preserves explicitly reported `model` and `cwd`. Cursor prefers `model_id`; `workspace_roots` remain workspace roots, not a process working directory. Missing fields are not inferred from configuration. Metadata follows audit redaction with UTF-8 byte limits: model 256, each path 512, up to 8 workspace roots. Processing flags are retained; older clients and historical events remain compatible.
+
+2026-10-08 本机 Codex 实验：更新现有采集组件后，真实工具 Hook 的平台记录 #13229 包含模型 `gpt-6-astra` 和当前项目工作目录；对应本地序号 13210 已 ACK，页面中英文显示通过。Claude/Cursor 的新增字段通过格式与脱敏测试，本次未重新执行它们的真实新会话验收。会话上下文使用只索引带 context 记录的局部索引，避免每次打开会话重扫旧正文。
+
+Agent 日志还支持独立的 `model_context` 元数据协商（`X-AIDR-Model-Context: 1` / `model_context_schema: 1`），复用日志上传协议。Codex 的供应商来自 `session_meta.model_provider`，模型和推理强度/摘要设置来自原生轮次 `turn_context`；Claude Code 与 Qoder CLI 的模型来自助手消息；WorkBuddy 来自 `providerData.model`；OpenCode 来自同消息 ID 的 `modelID/providerID`。供应商 ID 是来源标识或配置别名，不推导请求地址、运营方或最终 API 请求。没有可靠轮次 ID 时只显示会话最近日志报告。当前本机 WorkBuddy、Qoder CLI、OpenCode 历史样本模型解析已通过，其他 Qoder 入口不据此标记通过。Claude 格式回归通过，新模型元数据链路的真实新调用仍需单独验收。
+
+**English:** Log model metadata has independent protocol negotiation and uses the existing upload/ACK path. Codex provides session provider and native-turn model/settings; Claude and Qoder CLI provide assistant message models; WorkBuddy provides per-record models; OpenCode provides identity-matched message model/provider IDs. IDs may be aliases, not proven upstream endpoints. Historical local samples validate parsing only, and do not certify other product entries or fresh end-to-end calls.
+
+2026-10-08 日志模型元数据验收：本机正在进行的 Codex 会话实际日志通过采集、队列、ACK、平台入库和中英文页面展示，平台记录 #34775 报告 `gpt-6-astra / openai / high / detailed`，对应原生轮次未被其他轮次覆盖。已检查英文 390 px 布局。WorkBuddy 9 个历史文件、Qoder CLI 3 个历史文件、OpenCode 142 个快照分别得到 326、14、91 条带模型元数据的事件；这些是只读历史样本验证。额外独立 Codex CLI 新问答退出码为 1，未取得目标模型回复，不计为完整问答通过。Go 日志/队列/上传测试、37 项后端测试、前端构建与 22 项 i18n 检查通过。升级检查修复了覆盖报告误带本地模型游标字段导致拒收的问题；已冻结的开发批次可以正常重传，模型游标状态在后续报告中只留本地，未删除积压或游标。
+
+Local verification on 2026-10-08: real Codex tool Hook record #13229 retained the host-reported model and project working directory; local sequence 13210 was acknowledged. Chinese and English rendering passed. Claude/Cursor metadata passed format and redaction tests; fresh-session end-to-end verification was not repeated for those products. A partial index limits session-context lookups to records carrying context.
+
+统一目录为 `backend/aidr_products.json`。产品 ID 表示产品入口，不等于库存中的 Agent 类型。`sample_versions` 是格式样本范围，不是精确版本白名单；不同 OS、入口和未来格式须分别验证。目录中的适配能力与设备实际安装、授权、事件到达、ACK 状态分开显示。
+
+| 产品入口 | 依据 | 日志适配 | Hook 适配 | 本机验证与限制 |
+| --- | --- | --- | --- | --- |
+| Claude Code CLI | [官方 Hooks](https://code.claude.com/docs/en/hooks)及现有实现 | 原 JSONL、游标和数据兼容 | 原生插件、阻断与审批，保留受管安装 | 原有功能回归；本次不替代此前实机验收 |
+| Codex CLI / App Server | [官方文档](https://developers.openai.com/codex/)及现有实现 | 原 rollout JSONL；仅覆盖实际落盘的来源 | 原生插件、阻断与审批，保留受管安装 | 原有功能回归；未落盘的侧边会话仍不能凭 Hook 推定存在日志 |
+| WorkBuddy macOS 桌面 5.6.2 | [插件文档](https://www.codebuddy.cn/docs/workbuddy/Plugins)、本机随包 CLI 源码与真实日志 | `~/.workbuddy/projects` JSONL；输入、回复、调用、结果 | `~/.workbuddy/settings.json`；7 类事件；工具拒绝适配；未接入审批 | 已使用真实新问答验证日志与 Hook 入库；宿主工具返回 `completed` 不等于命令成功；回复阶段未知时保持未知 |
+| Qoder | [桌面 Hooks](https://docs.qoder.com/qoder/hooks)、[CLI Hooks](https://docs.qoder.com/cli/hooks)、[共享设置](https://docs.qoder.com/extensions/hooks)、[Work Hooks](https://docs.qoder.com/qoderwork/hooks) | CLI 格式 1.1.57 / 1.1.61 JSONL 已适配；桌面 0.4.1 本次生成 1.1.61 格式真实日志 | qoder-hooks 共享设置已实现；qoder-work 独立设置保留；共享事件不自行确定宿主入口 | 2026-10-08 桌面 0.4.1 新调用：Hook 7 条、日志 6 条完成平台入库及 ACK。独立 CLI、IDE、Work 新调用及阻断/审批未复验 |
+| Cursor IDE / 本地 Agents | [官方 Hooks](https://cursor.com/docs/hooks) | 未接入，不读取内部会话数据库 | `~/.cursor/hooks.json` version 1；7 类通用事件；`permission: allow/deny`；不提供审批 | 本机 3.12.30 本地 Agents 的真实提交、工具成功、工具失败及轮次结束已入库并在平台查看；SessionEnd 尚未实测。CLI、Cloud、Windows 未完成实机验收 |
+| OpenCode CLI（仅兼容旧接入） | 本机 1.1.51 存储样本、[插件接口](https://opencode.ai/docs/plugins/) | `~/.local/share/opencode/storage/part` 完整 JSON 快照，以原生 message/session ID 读取元数据 | 官方有插件接口，当前尚未接入 | 真实历史快照解析通过；不宣称支持新版 SQLite 存储或流式插件。等待 assistant message 完成后采集文本 |
+| OpenClaw Gateway | [内部 Hooks](https://docs.openclaw.ai/automation/hooks)、[插件 Hooks](https://docs.openclaw.ai/plugins/hooks) | 未接入 | 能力已文档核对，未实现适配 | 本机未发现环境。内部事件与工具插件钩子是不同接口，需要目标版本原生样本与实机验证 |
+| TraeWork | [产品入口](https://www.trae.ai/work) | 未接入 | 未取得足够的公开契约或本机样本 | 已安装 Trae / Trae CN IDE 不证明 TraeWork 具备行为审计接口 |
+
+OpenCode 当前不作为新增采集入口展示。官方插件支持工具前后、消息和会话事件，但本项目尚无对应 Hook 适配；现有日志解析仅有 1.1.51 JSON 快照依据。目录中的 `collection_visible: false` 只控制采集入口展示，不移除产品 ID、旧策略、解析器、队列或历史事件。已配置来源继续报告实际状态；新接入需另行完成目标版本适配和真实链路验收。
+
+**English:** OpenCode is hidden from new collection setup. Official plugins expose tool, message and session events, but no Agent Manager Hook adapter is implemented. The retained log adapter is based on 1.1.51 JSON snapshots. The catalog visibility flag only affects collection presentation; existing policies, source health, queues and history remain compatible.
+
+### 来源、安装及决策语义
+
+- 新产品日志由全局或单机运行治理策略的 `log_sources` 选择。省略此字段保留 Claude / Codex 范围；新版客户端协议为 5。旧客户端不会收到无法应用的多产品协调任务；策略接口返回明确的升级要求，防止旧客户端忽略新采集范围而误用默认目录。平台保留待升级状态，客户端继续保留先前已接受的策略，升级后应用新版本。
+- `aidr-sync --source product-id=/absolute/root` 可重复传入多个来源（最多 64），用于诊断或集成；桌面用户仍使用平台策略。一个来源的缺失、权限或可恢复读取问题单独报告，不中断其他来源。队列容量及本地数据库故障仍需整体处理。
+- JSONL 使用原游标、代际与逻辑去重；OpenCode 快照检查完整内容，等待完整对象和可读原生元数据，重启续采不重新计数。身份不足时保留未关联，不按时间相近猜测。
+- 日志与 Hook 继续分开显示，工具调用与结果按同来源的可靠标识组织；跨来源关系只引用，不把两条证据相加当作两次工具执行。Qoder 共享 Hook 的入口未知，不能据同名产品强制关联 CLI。
+- 设置型 Hook 增量合并现有 JSON，保存无关字段、matcher 和用户 Hook；按本系统生成的精确命令识别自有条目，重复安装幂等，移除仅处理自有条目。无宿主配置目录时不创建产品安装环境。配置存在只表示已配置，启用和宿主信任仍未知，实际事件另行确认。
+- 仅审计模式在接收器失败时返回宿主允许格式并保留覆盖缺口。Cursor 的权限 Hook 必须返回合法 `permission`；空对象不能代替许可。拦截模式使用各宿主决策格式；Cursor / WorkBuddy / QoderWork 不展示审批能力。通配审批规则命中这些宿主时拒绝本次工具，提示不支持审批，不伪造审批申请。
+- Hook 进程若被宿主超时终止，或宿主自身跳过 Hook，桥接程序无法保证阻断。新接入产品为用户级配置，不等于防篡改或系统级受管保护；生产拦截须按目标版本另行验收。
+- 日志解析支持不等于完整模型请求可见。WorkBuddy 的推理内容不采集；无法确认过程/最终回复阶段时保留 `unspecified`。原始正文继续按现有 capture、脱敏、截断和保留策略处理。
+- WorkBuddy 会话日志使用每条记录的 `providerData.conversationRequestId` 关联用户消息、模型回复、工具调用和结果的轮次；缺少有效原生请求 ID 的记录保留为未归属事件。更新后的客户端从现有采集游标继续读取，新采集记录应用此映射。
+- WorkBuddy session logs correlate user messages, assistant replies, tool calls and results by each record’s native `providerData.conversationRequestId`. Records without a valid request ID remain unassigned. The updated client resumes existing checkpoints and applies this mapping to newly collected records.
+- WorkBuddy Hook 原生 `turn_id` 优先；缺少时，工具事件按同客户端、用户、会话、工具名与调用 ID 精确查询仍在保留期内且没有证据冲突的日志。只有唯一轮次才关联，子 Agent 身份未对齐的记录保持未归属。关联在查询时计算，不改写原始 Hook；分页固定日志快照，后来到达的日志在刷新后参与关联。缺少轮次 ID 的提交问题、开始和结束事件也保留为未归属事件，不额外生成编号轮次。
+- WorkBuddy Hooks retain native `turn_id` when supplied. Otherwise, tool events resolve a unique turn from retained, non-conflicting logs matching client, user, session, tool and call ID. Unmapped subagent identities remain unassigned. Read-time correlation preserves the original Hook; pagination uses a fixed log snapshot and refresh includes later logs. Submissions and lifecycle events without a turn ID remain unassigned rather than creating numbered turns.
+- 本机 WorkBuddy 5.7.6 的命令 Hook 构造及序列化代码隔离验证：`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`Stop` 未发出轮次/请求 ID；工具 Hook 提供 `call_id` 与 `tool_use_id`。内部 `session` 对象在序列化前移除。这是版本相关的代码路径验证，不代表所有宿主版本或扩展处理器的完整运行验收。
+- An isolated check of the installed WorkBuddy 5.7.6 command-Hook construction and serialization found no turn/request ID in these four events. Tool Hooks carry `call_id` and `tool_use_id`; the internal `session` object is removed before serialization. This is version-specific code-path evidence, not full live acceptance of every host version or extension processor.
+- WorkBuddy 5.6.2 结果适配：日志从 `providerData.toolResult.rawResponse`、Hook 从 `tool_response` 读取结构化结果。Bash/PowerShell 支持 `exitCode`；显式错误、取消、沙箱拒绝标记分别转换为宿主报告状态。正文中的“Exit Code”或模型自述不作为状态依据。成功 Hook 未提供输出时，从会话日志查看，缺少字段继续保持未知。更新作用于新采集事件，不删除游标或改写历史记录。
+- WorkBuddy 5.6.2 results: logs and Hooks read native `rawResponse` metadata from their respective envelopes. Shell exit codes and explicit error/interruption/sandbox-denial flags establish host-reported status. Text output does not establish exit status; absent fields remain unknown. Output stays subject to capture/redaction limits. Existing records and cursors are preserved.
+
+**English:** Product IDs separate entry points, not just brand names. The checked-in catalog distinguishes implemented adapters from runtime health and records sample versions without pinning exact versions. New logs opt in through `log_sources`; absent settings preserve Claude/Codex scope. Sources keep independent checkpoints and recoverable errors while reusing the durable queue and strict ACK. WorkBuddy JSONL, Qoder CLI JSONL and OpenCode 1.1.51 JSON snapshots have native-sample coverage. Settings adapters incrementally merge owned hooks for WorkBuddy, shared Qoder, QoderWork and Cursor. Configuration is not loading evidence. Qoder shared hooks cannot establish CLI/IDE identity. Cursor/WorkBuddy/QoderWork have no approval adapter; native host failures and timeouts remain product-specific. OpenClaw and TraeWork are not advertised as integrated. Raw logs are not the complete upstream model API request.
+
+WorkBuddy 的 Agent Manager 接入使用用户 `settings.json` 中的 Hook 命令，不是插件市场安装。2026-10-08 核对本机 WorkBuddy 5.7.6 随包 `HookManager.getHooks`：直接读取 settings 中的 hooks，再另行合并插件 hooks；当前配置接入不需要独立的原生插件信任或启用步骤。能力目录的 `hook_setup.host_authorization=false`、`host_enablement=false` 表示这些步骤不适用，不会把未知的报告字段改成“已授权”。平台展示 Hook 配置安装及最近事件，客户端展示配置安装、平台策略和事件到达；其他入口保持各自的授权检查。安装成功仅代表配置已写入，平台策略、接收器和真实事件仍需分别确认。本次源码核对不代表 5.7.6 的新调用端到端验收。
+
+**English:** WorkBuddy integration installs Hook commands into user settings, separately from marketplace plugins. Its bundled 5.7.6 `HookManager.getHooks` reads settings hooks directly, then merges plugin hooks. The catalog marks separate native authorization and enablement steps as inapplicable for this integration; unknown wire observations remain unchanged. Platform UI shows configuration and latest event; desktop UI retains configuration, policy and delivery checks. Installation proves configuration only. The 5.7.6 source check is not a new end-to-end call verification.
+
+### 客户端一键启用 Hook
+
+普通模式默认允许用户自行接入（`allow_user_enrollment=true`）。客户端安装器仍按各宿主协议增量合并配置；安装完成后通过认证心跳上报所选产品，等待平台有效策略应用。WorkBuddy/Cursor/Qoder 等设置型适配器卸载时撤回对应本机选择，不影响用户已有配置。宿主原生授权及新会话生效要求不变；用真实新事件及平台记录验收，不能以安装成功或配置保存替代采集成功。该路径不自动添加日志来源，也不启用系统采集。
+
+
+### Skill 使用识别与认证审计
+
+对外原生插件名为 **Agent Manager**，设置型接入为 **Agent Manager Hook**，共享服务为 **Agent Manager 本地接收器 / Agent Manager Local Receiver**。内部 `aidr-claude`、`aidr-codex`、`qoder-cli`、`qoder-hooks`、`qoder-work`、队列标识、协议字段及旧事件不迁移。Qoder 对外为一个产品，各入口在详情中分别说明。Claude manifest 没有确认过的独立显示名字段，原生插件列表仍可能显示兼容 ID；管理界面和描述统一名称。安装器继续增量合并且只卸载自有配置。
+
+接收器通过用户 home 下的 `~/.agent-manager/aidr/hook.sock` 和 `bridge.json` 共享；同一用户下各已接入产品共用接收器，上传队列按平台与设备绑定。它不是全机所有用户共享服务。在线、已安装、已授权、宿主加载、首个事件、上传 ACK 是不同证据，保持分开呈现。
+
+#### 数据与核对边界
+
+- `skill_use` 是可选元数据：行为、名称、来源路径、提取依据、可选宿主加载阶段、观察摘要及时间。旧事件与逻辑 ID 不变；历史未结构化事件不回填为新调用。
+- 明确的 `Skill` / `skill` 工具输入由产品模块读取。文件访问只识别结构化单文件读取及字面量 `cat …/SKILL.md`；搜索、枚举、提及、复合 shell 表达式不计为调用。Pre 只表示尝试；结果缺失为未知；工具失败独立展示。宿主加载或文件读取不能证明按技能执行了任务。
+- 按设备、用户范围、产品入口、会话、原生智能体与调用 ID 关联，Codex 还要求原生轮次一致。缺少可靠身份保留独立证据；Qoder 共享 Hook 不冒充 CLI。重复前后事件与日志副本聚合为同一调用；独立调用不合并。
+- 有可靠路径时，仅异步日志读取器观察本地目录内容，复用 manifest / `ContentSignature`，不上传正文；默认最多 256 个文件、单文件 2 MiB、合计 8 MiB，可在 Skill 审计策略中调整。无法读取、路径包含符号链接或超限时保留待确认及稳定原因码。Hook 决策路径不做目录哈希，只有 Hook 且缺少日志摘要时认证待确认。摘要是采集时观察，不证明调用瞬间内容；客户端是证据提供方，不是防篡改证明。
+- 平台优先使用精确安装路径映射的版本 ID；其次用明确的 Skill 名称定位候选，再比较摘要。名称不构成认证；没有名称时需要摘要唯一匹配。同名不同内容不能标为已认证，候选内容不可读时待确认。已签名版本使用签名封套内批准摘要并验签，兼容旧签名校验。
+- 注册、审批、撤销、内容匹配与实例授权分别展示。授权只在现有设备库存中有唯一产品实例、对应 Skill 根、明确平台绑定且非未知子智能体时核对；否则保持未知。授权沿用平台智能体现有 Skill ID / 家族 / 名称绑定语义。
+- 上传沿用设备凭据、持久队列与严格 ACK；客户端不持有管理员凭据做认证查询。认证在服务器后台和页面“重新核对”进行，不进入工具决策。每次有界批次重新读取当前 registry 和策略，没有跨批次长期认证缓存；后台按 `next_check_at` 索引每批最多检查 50 条，批次之间等待 1 秒；单条按策略默认 30 秒后再次到期，大量记录存在排队延迟，页面读取即时重检当前页。
+- 全局与单机“Skill 使用审计”控制认证核对和告警，默认仅审计。查询失败、路径/摘要/身份不足是待确认，不是未认证。明确不通过时写入已有客户端事件 `aidr_skill_alert`，每个调用一个 aggregate key；重传和后续结果更新不重复告警。当前状态变化会更新告警，历史记录仍可追溯。没有新增阻断。
+
+#### 逐产品证据矩阵（本次 Skill 识别验收）
+
+新增 `X-AIDR-Skill-Audit: 1` 与 `X-AIDR-Policy-Schema: 2` 协商 `skill_audit`，范围快照保存在设备/流/序号绑定的凭据中；未协商的旧客户端响应不包含该字段。配置项及人工复验见 [项目指南](project-guide.md#skill-使用证据与认证告警)。新观察包含 `content_status=computed|reused|unavailable|disabled`；复用保留原 `content_observed_at`，失败包含 `content_reason`，不携带摘要。离线使用已持久化的有效策略，冻结待发数据与原凭据不重写。
+
+**English:** Skill policies are negotiated with `X-AIDR-Skill-Audit: 1` and policy schema 2. Receipt snapshots bind settings to the device, stream and sequence range. Legacy responses omit the new field. Observations distinguish computed, reused, unavailable and disabled states; reused digests keep their original timestamp. Offline policy snapshots and frozen upload bytes remain intact. Registry refresh uses bounded due batches and remains independent from local digest reuse.
+
+| 产品 | 文档确认 | 适配已实现 | 真实样本通过 | 本机新调用端到端 | 受限或未验证 |
+| --- | --- | --- | --- | --- | --- |
+| WorkBuddy | [Skills](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Skills-Market)、[插件](https://www.codebuddy.cn/docs/workbuddy/Plugins) | Skill 输入；原生结果首行来源目录；日志与 Hook | macOS 5.6.2 | 隔离 Skill 的调用、Hook、日志、摘要、上传、平台认证与单次告警、页面通过 | 其他 OS / 版本；已批准、撤销等状态在隔离后端测试中覆盖，未改真实 Skill 审批 |
+| Qoder | [CLI Hooks](https://docs.qoder.com/cli/hooks)及现有入口目录 | CLI `Skill` / `input.skill`；保留原生结果 | CLI 1.1.61 真实历史记录 | 未通过 | 本机 PATH 无 Qoder CLI；该样本无可靠 Skill 来源路径。IDE / Work 的 Skill 调用和 Hook 覆盖未确认 |
+| OpenCode | [Skills](https://opencode.ai/v2/docs/skills)、[原生工具实现](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/tool/skill.ts) | 1.1.51 快照 `state.input.name`、`state.metadata.dir` / name、completed | 本机历史快照，名称、路径、摘要、成功结果通过 | 本次新调用 90 秒未完成 | 未接入 OpenCode 插件事件；新版存储格式和新调用链路未验证 |
+| Claude Code | [Skills](https://code.claude.com/docs/en/skills)、[插件字段](https://code.claude.com/docs/en/plugins-reference) | 模型 Skill 工具输入、明确文件读取，沿用日志与原生 Hook | 匿名格式回归通过；本次未取得新 Skill 结果 | 2.1.220 新调用 90 秒未完成 | `/skill` 用户直调路径不能等同于模型 Skill 工具路径；加载结果路径与双路径实机验收待完成 |
+| Codex | 现有日志 / Hook 原生契约 | 明确单文件访问；没有宣称专用 Skill 调用 | 当前 App Hook 的读取与失败意图；搜索未生成 Skill 使用记录 | 本轮产生两条文件访问记录；Hook 结果仍未知，缺少日志摘要，认证待确认 | PATH CLI 实际为 0.132.0，与此前 App 0.160.1 不能混同；不把 Hook 意图冒充成功读取 |
+| Cursor | [官方 Hooks](https://cursor.com/docs/hooks) | 已确认字段的 Skill 文件读取 | 普通工具协议既有覆盖，Skill 专用覆盖未确认 | 未完成 | 不宣称专用 Skill 调用；仍需隔离真实读取、失败及上传验收 |
+
+WorkBuddy 实测会话 `6e506cbe-0d5a-4208-ad82-f4499fc17fdb` 的隔离 Skill 对应 Hook #11891 / #11893、日志 #23809 / #23811，聚合为一条记录；平台判定内容未登记，保持一条告警。测试提交时宿主保留的旧草稿同时要求加载另一个已有技能，实际产生两个不同调用，分别保留，未把它们合并为一次；只执行了加载，未执行其工作流。报告不包含原始正文或凭据。新的 CLI 超时尝试不能算端到端通过。
+
+**English:** Agent Manager is the public plugin name; Agent Manager Hook denotes settings-based integration. Stable installation IDs remain compatible. The local receiver is shared per user home, not across all OS users. Skill evidence separates invocation/file access from attempt/host confirmation/failure/unknown. Strong native identity correlates sources; no time-window joins. Content hashes are bounded, asynchronous observations, not call-time attestation. Registry, signature, revocation and mapped-instance authorization are independent checks. Missing evidence and unavailable queries remain pending. Fresh bounded checks use existing device ingestion credentials and server-side registry access; audit-only alerts never enter tool decisions. WorkBuddy 5.6.2 passed a new real call through platform/UI; Qoder CLI and OpenCode passed historical source parsing only. Other entries, direct slash commands and unavailable model calls retain their explicit unverified status.
+
+
+本次验证记录（2026-10-07 至 10-08）：Go `agentlog`、`hooks`、`upload` 相关包通过；后端组合回归 48 项通过，补充契约与筛选回归组合 35 项通过，客户端历史/内容相关组合 21 项通过（这些组合存在重叠，不相加作为独立用例数）。覆盖真实 Ed25519 摘要验签、撤销后重新核对、内容不符、同名多来源、身份缺失、失败/搜索、前后与跨来源去重、查询失败与恢复、设备访问权限及即时认证筛选。平台 i18n 22 项、桌面 i18n 29 项及两端构建通过，未新增 UI 单元测试。平台构建仍有既有大 chunk 提示。
+
+仍未通过：现有 `managedclient.TestOrdinaryPacingFairnessAndRoundBound` 的最小发送间隔断言，两次观察到约 259/264 ms，低于测试要求的 295 ms；该发送调度实现和测试未在本次修改，不能将整包称为通过。真实断网恢复、全部认证分支的真实产品调用、原生宿主升级/卸载/重新信任尚未逐产品复验；安装幂等、用户配置保留和传输重试只具有相关 Go 回归证据。最小后续步骤是在隔离设备完成各产品新调用，并按客户端文档逐项对照 ACK、认证与告警，不修改业务 Skill 审批。Claude / OpenCode 先解决本机新请求超时，Qoder CLI 需提供已安装可用入口；不自动安装或登录。
+
+实测 UI：平台简体中文及英文、390 px 窄屏（展开详情的卡片 scrollWidth = clientWidth）、认证筛选立即更新和空状态；桌面简体中文/英文的统一名称与共享接收器分别检查。测试后恢复中文及原 viewport，删除本次临时 Skill / 隔离 CLI 目录，保留全部审计历史与队列；后台与桌面已使用本次构建，系统采集进程未变更。WorkBuddy 的两条 Hook 有本地 durable ACK 回执，日志 ACK 已越过测试记录，Go/Python 内容摘要一致；每个真实调用只有一条使用记录与告警。
+
+
+实现位置：
+- 产品及采集：`backend/aidr_products.json`（同步生成平台、桌面与 Go 目录）、`scanner/internal/aidr/agentlog/skill_use.go`、`contracts.go`、`read.go`、`opencode.go`、`scanner/internal/aidr/hooks/event.go`。
+- 认证与存储：`backend/aidr_skill_contract.py`、`aidr_skill_usage.py`、`aidr_models.py`、`aidr_contract.py`、`aidr_hooks.py`、`aidr_policy.py`、`aidr_retention.py`、`main.py`、`routers/aidr.py`、`routers/clients.py`、`routers/system.py`、`agent_manager/core/signer.py`。
+- 名称与客户端：两个原生 `plugin.json`、Go `hooks/bundle.go` / `bundle.json`、桌面 `governance-workbench.js` / `i18n.js`；安装 ID 不变。
+- 平台：`AidrSkillUses.vue`、`AidrTimelineEntry.vue`、`ClientAuditSessions.vue`、`AidrRedactionSettings.vue`、`AidrProductCapabilities.vue`、`ClientPluginWorkbench.vue`、`Clients.vue`、API 封装及对应 i18n 资源。
+- 回归：`scanner/internal/aidr/agentlog/skill_use_test.go`、`tests/test_aidr_skill_usage.py`。当前指南、客户端说明、项目指南和插件 README 同步更新。
+
+#### Qoder 桌面接入验收（2026-10-08）
+
+客户端 Qoder 主入口同时展示共享设置 Hook 和关联的 CLI 格式日志能力，避免默认进入仅日志适配而隐藏 Hook 安装操作。`log_entry` 关联共享 Hook 与 CLI 格式日志能力。会话活动按相同设备与原生会话 ID 展示这两种来源，原始 `qoder-cli` / `qoder-hooks` 标识保持不变；IDE / Work 仍使用各自适配契约。Hook 使用 `~/.qoder/settings.json`，增量安装 Agent Manager Hook；该配置接入不展示独立插件授权、启用步骤。日志仍由平台 `log_sources` 单独控制，启用 Hook 不等于启用日志。
+
+本机 Qoder 桌面 0.4.1（原生日志 runtime 1.1.61）由真实模型执行无敏感测试：`printf` 成功、`exit 7` 预期失败，然后最终回复。会话 `98bb24ed-c59e-45cb-9072-16f9886b174a` 收到 SessionStart、UserPromptSubmit、两次 PreToolUse、PostToolUse、PostToolUseFailure、Stop，共 7 条 Hook；JSONL 用户输入 1、助手回复 1、工具调用 2、工具结果 2 共 6 条，平台记录 #34987–34992，本地 6 条均已 ACK。来源模型为 `auto`，不能推断实际供应商或具体模型。轮次缺失的事件保持未归属；共享 Hook 与日志仍保留各自入口。SessionEnd、独立 CLI / IDE / Work、拦截审批和断网重传未在本次新调用中验证。日志通道曾报告 `aidr_store_busy`，经现有重试入口恢复，未删除队列或游标；随后切换来源再次复现；回归测试确认子进程继承 writer lock 会导致旧采集器关闭后无法重新打开。Unix 锁改用 `O_CLOEXEC`，不让宿主检查子进程继承队列锁。更新本地开发组件并重启普通用户后台后，实际再次启用 Qoder 日志来源，状态为运行中且取得新的 ACK，无需手动重试。
+
+**English:** The Qoder desktop panel exposes shared Hook installation and its related CLI-format log source together. The session view groups shared Hooks and CLI-format logs by device and native session ID while preserving raw entry IDs. Qoder desktop 0.4.1 produced native runtime 1.1.61 JSONL and seven Hook events during a fresh model-driven test with one successful command, one expected failure and a final reply. Six log records were durably acknowledged and stored by the platform. Model `auto` is preserved without inventing a provider. SessionEnd, standalone CLI/IDE/Work, enforcement, approval and offline replay remain unverified in this run. A local writer-lock error recovered through the existing log retry action. A subprocess regression reproduced an inherited writer lock preventing the next collector from opening its queue; Unix locks now use `O_CLOEXEC`.
+
+人工检查：中英文 Qoder 主入口应同时显示日志与 Hook 配置，未安装时提供启用操作，安装后不重复提供启用；切到 QoderWork 时显示独立状态；单独关闭日志策略后仍可使用 Hook；配置安装不能显示为事件已到达。保留用户既有配置，重复安装无重复 Hook，移除只清理本系统配置。
+
+本次验证：18 项产品契约后端测试、Go Hook / 日志解析 / 本地队列 / 上传测试、平台与客户端前端构建及两侧 i18n 检查通过；队列锁继承回归在修复前失败、修复后通过。原生客户端开发窗口无法被自动化接口定位，新按钮的中英文原生窗口点击验收仍待人工完成。测试后恢复原始 Qoder 配置及平台来源范围，保留审计记录。
+
+
+#### Qoder 原生轮次与模型（2026-10-09）
+
+共享 Hook 的 `request_set_id` 用于用户提交轮次，Stop 的 `parent_request_set_id` 用于结束轮次。CLI 格式 JSONL 通过 `requestSetId`、`uuid` / `parentUuid`（含 attachment 节点）保留原生轮次；工具结果可用原生调用 ID 复用已确认的调用归属。每个来源的有界关联缓存随游标持久化，旧游标升级时分批重读已提交范围，只恢复上下文、不重新上传历史。
+
+本机桌面 0.4.1 的普通工具 Hook 不带轮次 ID。平台只在设备、用户范围、会话、原生调用 ID 和工具名称全部一致、日志提供唯一轮次时显示关联；缺失、冲突或分页快照之后才到达的日志不改变当前页。原始 Hook 不回写。会话日志、Hook 和 Skill 列表保留来源，关联不增加调用计数。关联使用专用表达式索引，避免逐事件扫描整张操作表。
+
+每轮分别展示实际 Hook / 日志模型，不能用会话最近模型覆盖其他轮次。Qoder 的 `Auto` / `auto` 是宿主报告的自动选择，无法据此确定实际供应商或最终模型。日志和 Hook 策略独立；只安装 Hook 不会加入 `log_sources`。
+
+会话标题下不重复展示最近模型。轮次区域随当前标签展示对应来源的信息：Hook 标签显示本轮 Hook 模型、工作目录和工作区；会话日志标签显示本轮日志模型、供应商标识、推理强度及推理摘要设置，只展示该来源实际采集到的字段。Hook 工作目录或工作区只有会话级证据时标注“会话最近报告”，不推断为当前轮次；模型不跨轮次补齐。/ The session header omits duplicate model metadata. Turn metadata follows the selected source tab: Hooks show observed Hook models, directories and workspace roots; session logs show observed log models, provider IDs and reasoning settings. Only fields captured by the selected source are shown. Session-only Hook directory/workspace evidence is explicitly labelled as the latest session report. Models are never carried across turns.
+
+页面人工检查 / UI manual checks：切换不同轮次及日志 / Hook 标签，确认只显示所选来源的元数据且各轮模型不串用；供应商、推理摘要设置和长工作目录保持可读；所选来源没有元数据时不出现空行；中英文及窄屏无横向溢出。/ Switch turns and source tabs; check that only the selected source metadata appears, models stay within their turns, provider/reasoning/path fields remain readable, missing metadata creates no empty row, and Chinese/English narrow layouts do not overflow.
+
+轮次导航按当前来源显示和编号：“会话日志”仅包含有日志或消息的轮次，“Hook 事件”仅包含有 Hook 的分组；切换来源时，当前轮次若无该来源记录则返回全部轮次。/ Turn navigation and numbering follow the selected source. Agent logs show turns with log or message records; Hook events show groups with Hook records. Switching sources returns to all turns when the selected turn has no records in the new source.
+未归属事件使用独立入口，不显示轮次刻度，也不计入编号和轮次总数；窄屏下拉框保留该入口。人工验收：核对中英文的“第 1 轮 / 未归属事件”，切换日志和 Hook，确认未归属原始记录仍可查看，并检查窄屏文字与键盘操作。/ Unassigned events have a separate entry and are excluded from turn ticks, numbering and totals. The compact selector keeps this entry. Manual checks: verify the numbered turn and unassigned entry in both languages, switch sources, inspect unassigned records, and check narrow-screen text and keyboard navigation.
+
+会话活动正文默认渲染 Markdown；工具栏的“渲染 / 源文本”同步切换轮次顶部提问及时间线中的用户输入、过程回复和最终回复，不重新请求正文，也不改变已保存的原文。命令、工具输出及附带上下文保持源文本。渲染支持标题、列表、表格、链接和代码块；原始 HTML 按文本显示，链接经过安全过滤，不加载正文中的图片。/ Session activity renders Markdown by default. The Rendered / Source control switches the turn question and timeline user/progress/final messages together, without refetching or modifying stored text. Commands, tool output and attached context remain source text. Headings, lists, tables, links and code blocks are supported; raw HTML is displayed literally, links are sanitized, and embedded images are not loaded.
+
+源文本使用带边框的等宽文本区域，保留 Markdown 标记和原始实体；渲染模式展示格式化正文。普通文字在两种模式下内容相同，附带上下文保持原文。/ Source mode uses a bordered monospace area and preserves Markdown markers and original entities; rendered mode formats the message. Plain text has the same content in both modes, and attached context remains raw.
+
+人工检查：对比渲染与源文本中的加粗、实体字符、列表、代码块和长表格；确认顶部与时间线同步切换，源文本保留 HTML 标签与原始实体，正文权限和脱敏标记不变，并检查中英文与窄屏。/ Manually compare bold text, entities, lists, code blocks and wide tables in both modes; verify synchronized switching, original tags/entities in source mode, unchanged content permissions/redaction indicators, and Chinese/English narrow layouts.
+
+消息卡片采用紧凑间距：类型标题与正文间隔 6px，卡片内边距为上下 10px、左右 12px，消息间距 12px；最终回复保留蓝色标识。人工检查单行、多段落、源文本、脱敏或截断提示与英文窄屏，确认正文和状态可读。/ Message cards use compact spacing: 6px between type and content, 10px vertical and 12px horizontal padding, and 12px between messages. Final replies retain their blue accent. Manually check single-line and multi-paragraph messages, source mode, redaction/truncation notes, and narrow English layouts for readable content and status.
+
+2026-10-09 本机 Qoder 桌面 0.4.1（CLI 格式 runtime 1.1.61）新会话 `49cb6635-4354-409a-84fa-3eb14e287d7e` 完成真实模型驱动的两轮：printf 成功、exit 7 预期失败和两次最终回复。平台收到 8 条日志（输入、工具调用、工具结果、最终回复各 2）与 9 条 Hook。两轮原生 ID 分别为 `2949bc6a-0e79-47ac-acd7-219f37aa67c5`、`f69d67c0-1654-4001-920d-0fb7d413c95b`；普通工具 Hook 通过精确原生调用 ID 对照日志展示归属。设备策略 10:34 已加入 `qoder-cli`，本地严格 ACK 后队列为 0。每轮 Hook 模型为 Auto，日志原值 auto 在界面显示 Auto，不能据此推断上游模型或供应商。旧 Hook 已丢失的原生轮次不能按时间或正文猜测补齐。
+
+此次发现轮次解析缓存 `qoder_links` 误进入 coverage 上传，导致整批被拒收并暂停日志重试。新客户端仅本地保存该缓存；平台有界兼容已冻结批次中的原生 ID 映射，正常重试后排空积压，无需重写批次、清空游标或重传已确认历史。当前策略保持仅审计及用户既有内容采集设置。
+
+**English:** A fresh model-driven Qoder desktop 0.4.1 session (runtime 1.1.61) passed two native turns, one successful command, one expected exit 7, and both final replies. Eight log records and nine Hooks reached the platform and the local outbox drained after durable ACK. Exact call identity links ordinary tool Hooks to the native logged turn. Hook Auto and log auto display as Auto, without inferring a provider or upstream model. A leaked local `qoder_links` cache had caused frozen coverage batches to be rejected; new uploads omit it and the platform accepts bounded legacy snapshots so normal retry recovers the backlog without rewriting it. Standalone CLI, IDE, Work, SessionEnd and interception approval have not been newly validated here.
+
+人工验收 / Manual checks：分别切换两轮，核对问题、工具成功/失败和模型来源；启用 Qoder 日志来源后核对新问答的输入、回复、工具、ACK、同会话独立时间线；重启续采不重复历史；缺少调用、同 ID 冲突或跨用户时保留未归属；检查中英文及窄屏。

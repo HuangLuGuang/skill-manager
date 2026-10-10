@@ -1,0 +1,100 @@
+{"type": "session_meta", "payload": {"id": "anonymous-session", "cli_version": "0.155.0-alpha.9.2"}}
+{"type": "turn_context", "payload": {"turn_id": "anonymous-turn"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-1", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-1", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-2", "name": "list_agents", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-2", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-3", "name": "spawn_agent", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-3", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-4", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-4", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-5", "name": "send_message", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-5", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-6", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-6", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-7", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-7", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-8", "name": "send_message", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-8", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-9", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-9", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-10", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-10", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-11", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-11", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-12", "name": "send_message", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-12", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-13", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-13", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-14", "name": "send_message", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-14", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-15", "name": "wait_agent", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-15", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-16", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-16", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-17", "name": "send_message", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-17", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-18", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-18", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-19", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-19", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-20", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-20", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-21", "name": "send_message", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-21", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-22", "name": "wait_agent", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-22", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-23", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-23", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-24", "name": "send_message", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-24", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-25", "name": "followup_task", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-25", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-26", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-26", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-27", "name": "send_message", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-27", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-28", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-28", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-29", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-29", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-30", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-30", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-31", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-31", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-32", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-32", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-33", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-33", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-34", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-34", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-35", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-35", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-36", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-36", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "turn_context", "payload": {"turn_id": "anonymous-turn"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-37", "name": "list_agents", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-37", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-38", "name": "followup_task", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-38", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-39", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-39", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-40", "name": "send_message", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-40", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-41", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-41", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-42", "name": "send_message", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-42", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-43", "name": "wait_agent", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-43", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-44", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-44", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-45", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-45", "output": [{"type": "text", "text": "ANONYMIZED"}]}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-46", "name": "send_message", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-46", "output": "ANONYMIZED"}}
+{"type": "turn_context", "payload": {"turn_id": "anonymous-turn"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call", "call_id": "anonymous-47", "name": "list_agents", "arguments": "{\"redacted\":\"ANONYMIZED\"}"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "function_call_output", "call_id": "anonymous-47", "output": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call", "call_id": "anonymous-48", "name": "exec", "input": "ANONYMIZED"}}
+{"type": "response_item", "timestamp": "2026-09-23T10:00:00Z", "payload": {"type": "custom_tool_call_output", "call_id": "anonymous-48", "output": [{"type": "text", "text": "ANONYMIZED"}]}}

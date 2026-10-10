@@ -9,6 +9,41 @@ import (
 	"time"
 )
 
+func TestAIDRInterruptedInstallationAndDurableReceipt(t *testing.T) {
+	s, err := OpenStore(filepath.Join(t.TempDir(), "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, task := range []Task{{ID: 1, TaskType: "aidr_plugin_action", Payload: map[string]any{"action": "upgrade"}}, {ID: 2, TaskType: "skill_action", Payload: map[string]any{}}} {
+		if err := s.SaveTask(task, "running", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.InterruptAIDRTasks(); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.StoredTask(1)
+	if err != nil || a.Status != "failed" || a.Error != "aidr_desktop_task_interrupted" {
+		t.Fatal(a, err)
+	}
+	b, err := s.StoredTask(2)
+	if err != nil || b.Status != "running" {
+		t.Fatal("other task changed", b, err)
+	}
+	if err := s.SaveTask(Task{ID: 3, TaskType: "aidr_plugin_action", Payload: map[string]any{"aidr_result": map[string]any{"managed_task": "3", "enabled": true}}}, "succeeded", ""); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := s.UnreportedTasks()
+	if err != nil || len(pending) != 2 {
+		t.Fatal(pending, err)
+	}
+	stored, err := s.StoredTask(3)
+	if err != nil || stored.Task.Payload["aidr_result"] == nil {
+		t.Fatal("receipt lost", err)
+	}
+}
+
 func TestOpenStoreMigratesPendingVersionFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "client.db")
 	db, err := sql.Open("sqlite", path)

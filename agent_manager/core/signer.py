@@ -220,6 +220,11 @@ def signature_content_digest(signature: str | None) -> str | None:
     return decoded[1] if decoded else None
 
 
+def verify_content_digest(digest: str, signature: str) -> bool:
+    """Verify an observed content digest against a signed registry envelope."""
+    return _verify_envelope("skill", digest, signature)
+
+
 def _verify_envelope(kind: str, expected_digest: str, envelope: str) -> bool:
     decoded = _decode_envelope(envelope)
     if (

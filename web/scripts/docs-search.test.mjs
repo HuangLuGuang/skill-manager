@@ -10,6 +10,21 @@ import { rankDocsContexts } from '../src/utils/docsSearch.js'
 const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const repoRoot = path.resolve(webRoot, '..')
 
+test('AIDR operating guides are bilingual and retrievable by the help assistant', () => {
+  const slugs = ['aidr-overview', 'aidr-platform', 'aidr-client', 'aidr-policies', 'aidr-skill-audit', 'aidr-troubleshooting']
+  for (const slug of slugs) {
+    assert.deepEqual(docsContent['zh-CN'].articles[slug].sections.map(section => section.id), docsContent['en-US'].articles[slug].sections.map(section => section.id))
+  }
+  for (const [locale, query, expected] of [
+    ['zh-CN', 'AIDR 三种采集方式对比 前提 优势 限制', 'aidr-overview'],
+    ['en-US', 'AIDR three collection channels prerequisites strengths costs', 'aidr-overview'],
+    ['zh-CN', 'Skill 使用认证 内容变化 摘要缓存 性能', 'aidr-skill-audit'],
+    ['en-US', 'AIDR client Hook setup system permissions', 'aidr-client'],
+  ]) {
+    assert.ok(rankDocsContexts({ content: docsContent[locale], query }).slice(0, 3).some(result => result.slug === expected), `${locale}: missing ${expected}`)
+  }
+})
+
 const cases = [
   {
     locale: 'zh-CN',

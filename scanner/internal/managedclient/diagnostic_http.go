@@ -16,6 +16,7 @@ type diagnosticTransport struct {
 }
 
 func (api API) WithDiagnostics(store *Store) API {
+	api.eventsStore = store
 	copy := *api.http
 	base := copy.Transport
 	if base == nil {

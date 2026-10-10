@@ -1,0 +1,8 @@
+{
+  "name": "aidr-claude",
+  "version": "0.1.2",
+  "description": "Agent Manager: Agent Manager Hook integration for Claude Code.",
+  "author": {
+    "name": "Agent Manager"
+  }
+}

@@ -1,0 +1,26 @@
+export const clientDetailMessages = {
+  'zh-CN': {
+    installed: '{count} 个入口已安装', reported: '已收到 {count} 个入口的安装报告',
+    pending: '近期申请中待审批 {count} 项', collectionIssues: '日志来源待关注',
+    checkCollection: '查看来源与处理方法', unknownSource: '未标明产品的来源', loading: '正在读取设备摘要…',
+    taskHistory: '查看 Agent 与 Skill 任务', taskDetails: '查看任务', taskProgress: '进行中与近期失败的任务', failedHistory: '失败记录（展开核对）', collectionOnly: '采集中 · 仅审计',
+    inventory: '资产清单', tasks: '任务记录', history: '治理记录', recovery: '待恢复副本',
+    agents: 'Agent', shared: '共享 Skill 目录', sourceType: '资产类型', more: '更多操作',
+    sharedNote: '共享目录独立展示；它不是 Agent，也不提供模型配置。',
+    unsupported: '不支持 Skill 管理', deviceRefresh: '刷新设备数据', system: '系统采集',
+    systemEvents: '查看系统事件', approvalScope: '统计范围',
+    logUnknown: '日志来源有待确认项', logImpact: '部分日志可能尚未采集；查看对应来源，不代表整个通道已停止。',
+  },
+  'en-US': {
+    installed: '{count} entries installed', reported: 'Installation reports received for {count} entries',
+    pending: '{count} pending in recent requests', collectionIssues: 'Log sources needing attention',
+    checkCollection: 'View sources and next steps', unknownSource: 'Source without a product identity', loading: 'Reading device summaries…',
+    taskHistory: 'View Agent and Skill tasks', taskDetails: 'View task', taskProgress: 'In-progress and recent failed tasks', failedHistory: 'Failed record (expand to review)', collectionOnly: 'Collecting · Audit only',
+    inventory: 'Inventory', tasks: 'Task history', history: 'Governance history', recovery: 'Copies to restore',
+    agents: 'Agents', shared: 'Shared Skill directories', sourceType: 'Asset type', more: 'More actions',
+    sharedNote: 'Shared directories are listed separately. They are not Agents and have no model configuration.',
+    unsupported: 'Skill management unavailable', deviceRefresh: 'Refresh device data', system: 'System collection',
+    systemEvents: 'View system events', approvalScope: 'Count scope',
+    logUnknown: 'Log source needs verification', logImpact: 'Some logs may not have been collected. Check the affected source; this does not mean the entire channel has stopped.',
+  },
+}

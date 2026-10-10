@@ -10,7 +10,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Query, Request, Response
-from backend import client_discovery, client_governance, client_skill_actions
+from backend.client_event_delivery import save_delivery
+from backend import client_discovery, client_governance, client_skill_actions, runtime_governance
+from backend.agent_workspace import installation_owns_path
 from backend.model_switch import AGENTS as MODEL_ADAPTERS, validate_options as validate_model_options, validate_parameter_version, contract_for_version, validate_effective_parameters, reported_model_parameters
 from backend.client_task_notifications import task_hub
 from backend.external_ai_gateway import binding_models, ensure_binding
@@ -846,6 +848,11 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
             if (observation.get("trigger") in client_governance.ACTIONS and observation.get("action") != "record_only") or observation.get("action_status") == "failed":
                 affected_paths.add(skill.skill_path)
         issue_count = len(affected_paths)
+    issue_count += db.query(models.ClientEvent).filter(
+        models.ClientEvent.client_id == row.client_id,
+        models.ClientEvent.event_type == 'aidr_skill_alert',
+        func.json_extract(models.ClientEvent.details_json, '$.active') == 1,
+    ).count()
     online = bool(row.last_seen_at and datetime.utcnow() - row.last_seen_at <= _CLIENT_ONLINE_WINDOW)
     return {
         "client_id": row.client_id,
@@ -903,6 +910,11 @@ def _client_response(db: Session, row: models.ManagedClient) -> dict:
 
 def _client_policy_response(db: Session, row: models.ManagedClient) -> dict:
     classification = client_governance.policy_view(db, row.client_id)
+    observation = db.get(runtime_governance.Observation, row.client_id)
+    runtime_protocol = json.loads(observation.report_json).get("protocol", 0) if observation else 0
+    runtime_governance.check_product_policy(classification, runtime_protocol)
+    classification["runtime_governance"] = runtime_governance.client_target(
+        classification["runtime_governance"], json.loads(observation.report_json) if observation else None)
     if classification["incompatible_rules"]:
         raise ApiError(409, "client.policy_capability_required", "当前客户端不支持生效策略中的动作，请升级客户端", "Upgrade this client to execute the active policy actions")
     if classification["protocol"] == 1:
@@ -937,6 +949,7 @@ def _client_policy_response(db: Session, row: models.ManagedClient) -> dict:
         "light_scan_seconds": 300,
         "full_scan_seconds": 1800,
         "release_public_key": public_key_base64(),
+        "ordinary_events_protocol": 1,
         "agent_bindings": {
             binding.agent_type: binding.managed_agent_id
             for binding in bindings
@@ -1160,6 +1173,12 @@ def heartbeat(
     if body.client_version:
         row.client_version = body.client_version
     client_governance.record_protocol(db, client_id, body.governance_protocol)
+    if body.runtime_governance is not None:
+        runtime_governance.record_enrollment(db, client_id, body.runtime_governance)
+        runtime_governance.record(db, client_id, body.runtime_governance)
+        runtime_governance.coordinate(db, row, body.runtime_governance)
+    else:
+        db.query(runtime_governance.Observation).filter_by(client_id=client_id).update({"supports_tasks": False}, synchronize_session=False)
     db.commit()
     return {"ok": True, "last_seen_at": row.last_seen_at, "policy": _client_policy_response(db, row)}
 
@@ -1216,18 +1235,32 @@ def get_client_history(
     query = db.query(model).filter(model.client_id == client_id)
     if not is_task:
         query = query.filter(model.event_type.notin_(("client_registered", "takeover_completed")))
-    type_column = model.task_type if is_task else _event_record_type_expression()
-    agent_column = func.json_extract(model.payload_json, "$.agent_type") if is_task else model.agent_type
+    if is_task:
+        action = func.json_extract(model.payload_json, "$.action")
+        type_column = case((and_(model.task_type == 'aidr_plugin_action', action.in_(['install', 'upgrade', 'inspect', 'enable', 'disable', 'reconcile'])), model.task_type + ':' + action), else_=model.task_type)
+        task_agent = case((model.task_type == 'aidr_plugin_action', func.json_extract(model.payload_json, '$.agent')), else_=func.json_extract(model.payload_json, '$.agent_type'))
+        agent_column = case((task_agent == 'claude', 'claude-code'), else_=task_agent)
+        hosts = func.json_each(model.payload_json, '$.target.hosts').table_valued('value')
+        def targets_host(value):
+            return and_(model.task_type == 'aidr_plugin_action', action == 'reconcile',
+                        db.query(hosts.c.value).filter(hosts.c.value == value).exists())
+    else:
+        type_column = _event_record_type_expression()
+        agent_column = model.agent_type
     timestamp = func.coalesce(model.finished_at, model.started_at, model.created_at) if is_task else func.coalesce(model.last_seen_at, model.created_at)
     types = [value for (value,) in query.with_entities(type_column).distinct().all() if value]
     agents = [value for (value,) in query.with_entities(agent_column).distinct().all() if value]
+    if is_task:
+        for host, label in [('codex', 'codex'), ('claude', 'claude-code')]:
+            if label not in agents and query.filter(targets_host(host)).first():
+                agents.append(label)
     if keyword.strip():
         columns = [type_column, model.payload_json, model.error] if is_task else [type_column, model.skill_name, model.details_json]
         query = query.filter(or_(*(column.contains(keyword.strip(), autoescape=True) for column in columns)))
     if agent:
-        query = query.filter(agent_column == agent)
+        query = query.filter(or_(agent_column == agent, targets_host('claude' if agent == 'claude-code' else agent)) if is_task else agent_column == agent)
     if record_type:
-        query = query.filter(type_column == record_type)
+        query = query.filter(model.task_type == record_type if is_task and record_type == 'aidr_plugin_action' else type_column == record_type)
     if status and is_task:
         query = query.filter(model.status == status)
     if days:
@@ -1448,22 +1481,28 @@ def report_event(
     values = dict(client_id=client_id, event_type=body.event_type, agent_type=body.agent_type,
                   skill_name=body.skill_name, details_json=_dump(body.details),
                   observation_count=body.observation_count, last_seen_at=observed_at)
-    aggregate = body.event_type in {"skill_governance_recorded", "skill_governance_detected", "skill_governance_action"} and body.details.get("path") and body.details.get("signature")
-    if aggregate:
-        identity = [client_id, body.event_type, *[body.details.get(key) for key in
-                    ("path", "signature", "trigger", "policy_version", "action", "status", "error_code", "task_id")]]
-        key = hashlib.sha256(_dump(identity).encode()).hexdigest()
-        statement = sqlite_insert(models.ClientEvent).values(**values, aggregate_key=key)
-        statement = statement.on_conflict_do_update(index_elements=[models.ClientEvent.aggregate_key], set_={
-            "observation_count": func.max(models.ClientEvent.observation_count, statement.excluded.observation_count),
-            "last_seen_at": func.max(models.ClientEvent.last_seen_at, statement.excluded.last_seen_at),
-            "details_json": case((statement.excluded.last_seen_at >= models.ClientEvent.last_seen_at, statement.excluded.details_json), else_=models.ClientEvent.details_json),
-        })
-        db.execute(statement)
-        row = db.query(models.ClientEvent).filter_by(aggregate_key=key).one()
+    if body.delivery_id:
+        row, replay = save_delivery(db, client_id, body, observed_at)
+        if replay:
+            db.commit()
+            return {"ok": True, "event_id": row.id, "delivery_id": body.delivery_id, "durable": True}
     else:
-        row = models.ClientEvent(**values)
-        db.add(row)
+        aggregate = body.event_type in {"skill_governance_recorded", "skill_governance_detected", "skill_governance_action"} and body.details.get("path") and body.details.get("signature")
+        if aggregate:
+            identity = [client_id, body.event_type, *[body.details.get(key) for key in
+                        ("path", "signature", "trigger", "policy_version", "action", "status", "error_code", "task_id")]]
+            key = hashlib.sha256(_dump(identity).encode()).hexdigest()
+            statement = sqlite_insert(models.ClientEvent).values(**values, aggregate_key=key)
+            statement = statement.on_conflict_do_update(index_elements=[models.ClientEvent.aggregate_key], set_={
+                "observation_count": func.max(models.ClientEvent.observation_count, statement.excluded.observation_count),
+                "last_seen_at": func.max(models.ClientEvent.last_seen_at, statement.excluded.last_seen_at),
+                "details_json": case((statement.excluded.last_seen_at >= models.ClientEvent.last_seen_at, statement.excluded.details_json), else_=models.ClientEvent.details_json),
+            })
+            db.execute(statement)
+            row = db.query(models.ClientEvent).filter_by(aggregate_key=key).one()
+        else:
+            row = models.ClientEvent(**values)
+            db.add(row)
     db.commit()
     db.refresh(row)
     details = {
@@ -1488,7 +1527,7 @@ def report_event(
         )
     except sqlite3.OperationalError as exc:
         logger.warning("Could not project client event %s into audit: %s", row.id, exc)
-    return {"ok": True, "event_id": row.id}
+    return {"ok": True, "event_id": row.id, **({"delivery_id": body.delivery_id, "durable": True} if body.delivery_id else {})}
 
 
 @router.post("/{client_id}/takeover-report")
@@ -2078,6 +2117,43 @@ def report_task_result(
     )
     if not row:
         raise HTTPException(status_code=404, detail="任务不存在")
+    if row.task_type == "aidr_plugin_action":
+        payload = _load(row.payload_json, {})
+        if body.status == "running":
+            if payload.get("action") in {"enable", "disable"} and runtime_governance.policy_manages_receiver(db, client_id):
+                db.query(models.ClientTask).filter_by(id=task_id, status="pending").update({"status": "cancelled", "error": "aidr_desktop_task_superseded", "finished_at": datetime.utcnow()})
+                db.commit()
+                return {"ok": True, "ignored": True, "status": "cancelled"}
+            if payload.get("action") == "reconcile" and payload.get("policy_version") != client_governance.policy_view(db, client_id)["runtime_governance_version"]:
+                db.query(models.ClientTask).filter_by(id=task_id, status="pending").update({"status": "cancelled", "error": "aidr_desktop_task_superseded", "finished_at": datetime.utcnow()})
+                db.commit()
+                return {"ok": True, "ignored": True, "status": "cancelled"}
+            expires = datetime.fromisoformat(payload["expires_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+            if expires <= datetime.utcnow():
+                db.query(models.ClientTask).filter_by(id=task_id, status="pending").update({"status": "failed", "error": "aidr_desktop_task_expired", "finished_at": datetime.utcnow()})
+                db.commit()
+                return {"ok": True, "ignored": True, "status": "failed"}
+            changed = db.query(models.ClientTask).filter_by(id=task_id, client_id=client_id, status="pending").update({"status": "running", "started_at": datetime.utcnow()}, synchronize_session=False)
+        else:
+            if row.status != "running":
+                return {"ok": True, "ignored": True, "status": row.status}
+            if body.status == "succeeded":
+                if body.aidr_result is None or (payload["action"] != "inspect" and body.aidr_result.managed_task != str(task_id)):
+                    raise ApiError(409, "aidr.runtime_receipt_required", "缺少匹配的本机执行回执", "A matching local execution receipt is required")
+                if (payload["action"] == "enable" and body.aidr_result.enabled is not True) or (payload["action"] == "disable" and body.aidr_result.enabled is not False):
+                    raise ApiError(409, "aidr.runtime_receipt_required", "本机配置回执与任务目标不一致", "The local configuration receipt does not match the target")
+                if payload["action"] == "reconcile" and (body.aidr_result.policy_version != payload["policy_version"] or not body.aidr_result.policy_applied_at
+                        or body.aidr_result.enabled != runtime_governance.hook_target(payload["target"]) or body.aidr_result.policy_code != "aidr_desktop_policy_applied"):
+                    raise ApiError(409, "aidr.runtime_receipt_required", "缺少匹配的策略应用证据", "Matching policy application evidence is required")
+                runtime_governance.record(db, client_id, body.aidr_result)
+                payload["receipt"] = body.aidr_result.model_dump()
+            error_code = body.error
+            if error_code and not re.fullmatch(r"aidr_[a-z0-9_]{1,90}", error_code):
+                error_code = "aidr_desktop_receiver_failed"
+            changed = db.query(models.ClientTask).filter_by(id=task_id, client_id=client_id, status="running").update({"status": body.status, "error": error_code, "payload_json": _dump(payload), "finished_at": datetime.utcnow()}, synchronize_session=False)
+        db.commit()
+        db.refresh(row)
+        return {"ok": True, "ignored": not bool(changed), "status": row.status}
     if row.task_type in {"apply_model_config", "verify_model_config", "restore_model_config"} and body.status == "running":
         changed = db.query(models.ClientTask).filter_by(id=task_id, client_id=client_id, status="pending").update(
             {"status": "running", "started_at": datetime.utcnow()}, synchronize_session=False)
@@ -2177,8 +2253,11 @@ def preview_default_governance(body: client_governance.PolicyChange, db: Session
 @router.put("/governance/default")
 def save_default_governance(body: client_governance.PolicyChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
     _governance_scope(db, client_governance.DEFAULT_SCOPE, current_user)
+    previous_runtime = client_governance.policy_view(db)["runtime_governance"]
     result = client_governance.save_policy(db, client_governance.DEFAULT_SCOPE, body, current_user)
     _operation(db, current_user, "更新客户端默认分类策略", "default", _dump(jsonable_encoder(result)))
+    if previous_runtime != result["runtime_governance"]:
+        _operation(db, current_user, "aidr.runtime_policy_changed", "default", _dump({"version": result["runtime_governance_version"], "before": previous_runtime, "after": result["runtime_governance"]}))
     db.commit()
     return result
 
@@ -2199,7 +2278,10 @@ def preview_client_governance(client_id: str, body: client_governance.PolicyChan
 @router.put("/{client_id}/governance")
 def save_client_governance(client_id: str, body: client_governance.PolicyChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user)):
     _governance_scope(db, client_id, current_user)
+    previous_runtime = client_governance.policy_view(db, client_id)["runtime_governance"]
     result = client_governance.save_policy(db, client_id, body, current_user)
+    if previous_runtime != result["runtime_governance"]:
+        _operation(db, current_user, "aidr.runtime_policy_changed", client_id, _dump({"version": result["runtime_governance_version"], "before": previous_runtime, "after": result["runtime_governance"]}))
     _operation(db, current_user, "更新客户端分类策略", client_id, _dump(jsonable_encoder(result)))
     db.commit()
     return result
@@ -2386,6 +2468,57 @@ def get_client_inventory(
     return {"client_id": client_id, "agents": _client_response(db, row)["agents"]}
 
 
+@router.get("/{client_id}/agent-workspace")
+def get_agent_workspace(
+    client_id: str, local_agent_id: str = Query(..., min_length=1, max_length=512),
+    before: int = Query(2**63-1, ge=1), limit: int = Query(30, ge=1, le=100),
+    db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_admin_user),
+):
+    client = _client_or_404(db, client_id)
+    _ensure_visible(client, current_user)
+    local = db.query(models.ClientAgent).filter(models.ClientAgent.client_id == client_id, or_(
+        models.ClientAgent.local_agent_id == local_agent_id,
+        and_(or_(models.ClientAgent.local_agent_id.is_(None), models.ClientAgent.local_agent_id == ''), models.ClientAgent.agent_type == local_agent_id),
+    )).first()
+    if local is None:
+        raise ApiError(404, 'client.agent_not_found', '此安装入口已不在客户端清单中', 'This installation is no longer in the client inventory')
+    classification = client_governance.policy_view(db, client_id)
+    agent = {
+        'local_agent_id': _local_agent_id(local.local_agent_id, local.agent_type), 'agent_type': local.agent_type,
+        'managed_agent_id': local.managed_agent_id, 'version': local.agent_version,
+        'install_path': local.install_path, 'skills_path': local.skills_path,
+        'skill_management_supported': local.skill_management_supported,
+        'capabilities': {**_load(local.capabilities_json, {}), **({'model_config_contract': contract_for_version(local.agent_type, local.agent_version)} if local.agent_type in MODEL_ADAPTERS else {})},
+        'desired_model': local.desired_model, 'applied_model': local.applied_model,
+        'model_config_status': local.model_config_status, 'model_config_error': local.model_config_error,
+        'model_config_updated_at': local.model_config_updated_at,
+    }
+    agent['skills'] = [{
+        'skill_id': skill.skill_id, 'version_id': skill.version_id, 'version_no': skill.version_no,
+        'name': skill.skill_name, 'path': skill.skill_path, 'signature': skill.signature,
+        'status': skill.status, 'governance': _load(skill.governance_json, None),
+    } for skill in db.query(models.ClientSkillInstall).filter_by(client_id=client_id, agent_type=local.agent_type).all()
+      if installation_owns_path(agent, skill.skill_path, client.os)]
+    data = {
+        'client_id': client_id, 'name': client.name, 'os': client.os, 'arch': client.arch,
+        'status': 'online' if client.last_seen_at and datetime.utcnow() - client.last_seen_at <= _CLIENT_ONLINE_WINDOW else 'offline',
+        'classification': classification, 'model_routing': classification['model_routing'], 'agents': [agent],
+        'recovery': [value for record in db.query(models.ClientRecoveryRecord).filter_by(client_id=client_id).all()
+                     if installation_owns_path(agent, (value := _load(record.details_json, {})).get('original_path'), client.os)],
+    }
+    task = models.ClientTask
+    local_id = func.json_extract(task.payload_json, '$.local_agent_id')
+    product = func.json_extract(task.payload_json, '$.agent')
+    rows = db.query(task).filter(task.client_id == client_id, task.id < before, or_(
+        local_id == local_agent_id,
+        and_(task.task_type == 'aidr_plugin_action', product == agent['agent_type']),
+    )).order_by(task.id.desc()).limit(limit + 1).all()
+    data['tasks'] = _task_history(db, client_id, rows=rows[:limit])
+    data['tasks_has_more'] = len(rows) > limit
+    data['tasks_next_before'] = rows[limit - 1].id if len(rows) > limit else None
+    return data
+
+
 @router.put("/{client_id}/policy")
 def update_client_policy(
     client_id: str,
@@ -2514,6 +2647,14 @@ def create_task(
     client = _client_or_404(db, client_id)
     _ensure_visible(client, current_user)
     payload = dict(body.payload)
+    if body.task_type == "aidr_plugin_action":
+        try:
+            task = runtime_governance.create(db, client, payload)
+        except ValidationError as exc:
+            raise ApiError(422, "aidr.runtime_action_invalid", "运行治理任务参数无效", "Invalid runtime governance task parameters") from exc
+        _operation(db, current_user, "aidr.runtime_task_created", client_id, f"task_id={task.id}")
+        db.commit()
+        return {"id": task.id, "status": task.status}
     if body.task_type in {"verify_model_config", "restore_model_config"}:
         task = _create_model_operation(db, client_id, body.task_type, payload, current_user.username)
         return {"id": task.id, "status": task.status}
@@ -2764,7 +2905,7 @@ def cancel_task(
         raise HTTPException(status_code=404, detail="任务不存在")
     if row.status not in {"pending", "running"}:
         raise HTTPException(status_code=400, detail="只有待执行或执行中的任务可以取消")
-    if row.task_type in {"skill_action", "remove_skill", "install_skill", "repair_skill", "apply_model_config", "verify_model_config", "restore_model_config"}:
+    if row.task_type in {"aidr_plugin_action", "skill_action", "remove_skill", "install_skill", "repair_skill", "apply_model_config", "verify_model_config", "restore_model_config"}:
         changed = db.query(models.ClientTask).filter(
             models.ClientTask.id == task_id, models.ClientTask.client_id == client_id,
             models.ClientTask.status == "pending",
@@ -2801,6 +2942,8 @@ def retry_task(
     if row.status not in {"failed", "cancelled"}:
         raise HTTPException(status_code=400, detail="只有失败或已取消的任务可以重试")
     payload = _load(row.payload_json, {})
+    if row.task_type == "aidr_plugin_action":
+        return _retry_runtime_task(db, client, row, current_user)
     if row.task_type in {"apply_model_config", "verify_model_config", "restore_model_config"}:
         local_id = _local_agent_id(payload.get("local_agent_id"), str(payload.get("agent_type") or ""))
         _lock_model_task_agent(db, client_id, local_id)
@@ -3163,3 +3306,28 @@ def download_client_skill_package(
             archive.write(root / item["path"], f"skill/{item['path']}")
     background_tasks.add_task(tmp_path.unlink, missing_ok=True)
     return FileResponse(tmp_path, filename=f"{display_name}.zip", media_type="application/zip")
+
+
+@router.get("/{client_id}/runtime-governance")
+def runtime_governance_view(client_id: str, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_admin_user)):
+    _ensure_visible(_client_or_404(db, client_id), user)
+    return runtime_governance.view(db, client_id)
+
+
+def _retry_runtime_task(db, client, row, user):
+    payload = _load(row.payload_json, {})
+    if payload.get("action") == "reconcile":
+        task = runtime_governance.retry_reconcile(db, client, row)
+        _operation(db, user, "aidr.runtime_task_retried", client.client_id, f"task_id={task.id}")
+        db.commit()
+        return {"id": task.id, "status": task.status}
+    payload.pop("expires_at", None)
+    payload.pop("receipt", None)
+    payload["request_id"] = f"retry-{row.id}"
+    latest = db.query(models.ClientTask).filter_by(client_id=client.client_id, task_type="aidr_plugin_action").order_by(models.ClientTask.id.desc()).first()
+    if latest and latest.id > row.id and _load(latest.payload_json, {}).get("request_id") != payload["request_id"]:
+        raise ApiError(409, "aidr.runtime_task_superseded", "已有较新的任务，请按当前目标创建操作", "Create an operation for the current target; a newer task already exists")
+    task = runtime_governance.create(db, client, payload)
+    _operation(db, user, "aidr.runtime_task_retried", client.client_id, f"task_id={task.id}")
+    db.commit()
+    return {"id": task.id, "status": task.status}

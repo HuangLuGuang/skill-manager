@@ -222,7 +222,7 @@ func TestRunOnceInstallsSignedTaskAndRecordsCompletion(t *testing.T) {
 		case strings.HasSuffix(request.URL.Path, "/heartbeat"):
 			w.Write([]byte(`{"ok":true}`))
 		case strings.HasSuffix(request.URL.Path, "/policy"):
-			json.NewEncoder(w).Encode(map[string]any{"mode": mode, "release_public_key": base64.StdEncoding.EncodeToString(publicKey)})
+			json.NewEncoder(w).Encode(map[string]any{"ordinary_events_protocol": 1, "mode": mode, "release_public_key": base64.StdEncoding.EncodeToString(publicKey)})
 		case strings.HasSuffix(request.URL.Path, "/tasks") && request.Method == http.MethodGet:
 			json.NewEncoder(w).Encode([]map[string]any{{
 				"id":        9,
@@ -248,7 +248,7 @@ func TestRunOnceInstallsSignedTaskAndRecordsCompletion(t *testing.T) {
 			var payload map[string]any
 			json.NewDecoder(request.Body).Decode(&payload)
 			events = append(events, payload["event_type"].(string))
-			w.Write([]byte(`{"ok":true}`))
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "event_id": len(events), "delivery_id": payload["delivery_id"], "durable": true})
 		default:
 			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
 		}
@@ -268,7 +268,7 @@ func TestRunOnceInstallsSignedTaskAndRecordsCompletion(t *testing.T) {
 	if err := store.SaveInventory(inventory); err != nil {
 		t.Fatal(err)
 	}
-	policyBody, _ := json.Marshal(Policy{Mode: "block", ReleasePublicKey: base64.StdEncoding.EncodeToString(publicKey)})
+	policyBody, _ := json.Marshal(Policy{OrdinaryEventsProtocol: 1, Mode: "block", ReleasePublicKey: base64.StdEncoding.EncodeToString(publicKey)})
 	if err := store.SetState("policy", string(policyBody)); err != nil {
 		t.Fatal(err)
 	}

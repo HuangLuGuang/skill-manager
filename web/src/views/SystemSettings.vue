@@ -6,6 +6,7 @@
       </template>
 
     <BrandingSettings />
+    <AidrRedactionSettings v-if="can('settings:view')" summary />
 
     <section class="health-panel">
       <div class="health-main">
@@ -95,6 +96,7 @@
 
 <script setup>
 import { modelLabel } from '../utils/modelLabels'
+import AidrRedactionSettings from '../components/AidrRedactionSettings.vue'
 import BrandingSettings from '../components/BrandingSettings.vue'
 import { translateLegacy as phrase } from '../i18n'
 

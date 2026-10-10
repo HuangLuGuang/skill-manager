@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"skill-manager/scanner/internal/managedclient"
+	"skill-manager/scanner/internal/runtimeobservation"
 )
 
 var interactiveMutationLockTimeout = 5 * time.Second
@@ -26,13 +27,53 @@ func main() {
 		if len(os.Args) < 2 || os.Args[1] != "run" {
 			fmt.Fprintln(os.Stderr, "error:", err)
 		}
+		var hostExit interface{ ExitCode() int }
+		if len(os.Args) > 1 && os.Args[1] == "aidr-hook" && errors.As(err, &hostExit) {
+			os.Exit(hostExit.ExitCode())
+		}
 		os.Exit(1)
 	}
 }
 
 func run(args []string) (runErr error) {
+	if len(args) > 0 && args[0] == "aidr-managed-install" {
+		return aidrManagedInstall(args[1:], os.Stdout)
+	}
+	if len(args) > 0 && args[0] == "aidr-desktop" {
+		return aidrDesktop(args[1:], os.Stdout)
+	}
+	if len(args) > 0 && args[0] == "aidr-plugin-package" {
+		return aidrPluginPackage(args[1:], os.Stdout)
+	}
+	if len(args) > 0 && args[0] == "aidr-plugin-install" {
+		return aidrPluginInstall(args[1:], os.Stdout)
+	}
+	if len(args) > 0 && args[0] == "aidr-plugin-doctor" {
+		return aidrPluginDoctor(args[1:], os.Stdout)
+	}
+	if len(args) > 0 && args[0] == "aidr-hook" {
+		return aidrHook(args[1:], os.Stdin, os.Stdout)
+	}
+	if len(args) > 0 && args[0] == "aidr-hook-serve" {
+		return aidrHookServe(args[1:], os.Stdout)
+	}
+	if len(args) > 0 && args[0] == "aidr-enforce" {
+		return aidrEnforce(args[1:], os.Stdout)
+	}
+	if len(args) > 0 && args[0] == "aidr-system" {
+		return aidrSystem(args[1:], os.Stdout)
+	}
+	if len(args) > 0 && args[0] == "aidr-sync" {
+		return aidrSync(args[1:], os.Stdout)
+	}
+	if len(args) > 0 && (args[0] == "agent-log-collect" || args[0] == "agent-log-state") {
+		return agentLogState(args[0], args[1:], os.Stdout)
+	}
+	if len(args) > 0 && args[0] == "agent-log-read" {
+		return readAgentLog(args[1:], os.Stdout)
+	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-manager-client <configure|connections|switch-connection|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|verify-model|restore-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|discard-quarantine|available-skills|skill-preview|skill-versions|install-skill|install-skills|quarantine|queue-quarantine|apply-skill-action|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service> [options]")
+		return fmt.Errorf("usage: agent-manager-client <configure|connections|switch-connection|agent-settings|set-agent-roots|reset-agent-roots|add-custom-agent|remove-custom-agent|inventory|cached-inventory|register|switch-model|verify-model|restore-model|takeover|scan-history|refresh-scan-history|pending|refresh-pending|submit-pending|discard-pending|discard-quarantine|available-skills|skill-preview|skill-versions|install-skill|install-skills|quarantine|queue-quarantine|apply-skill-action|backups|restore|run-once|run|local-status|read-notifications|clear-notifications|deliver-notification|service-status|prepare-update|reconcile-service|install-service|uninstall-service|runtime-watch|agent-log-read|agent-log-collect|agent-log-state|aidr-sync> [options]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	home := fs.String("home", envOr("AGENT_MANAGER_CLIENT_HOME", userHome()), "Agent home directory")
@@ -62,6 +103,9 @@ func run(args []string) (runErr error) {
 	logDays := fs.Int("days", 0, "diagnostic retention or export range in days")
 	outputDir := fs.String("output-dir", "", "diagnostic ZIP output directory")
 	interval := fs.Duration("interval", 5*time.Minute, "daemon polling interval")
+	runtimeSocket := fs.String("socket", "", "root runtime observation relay Unix socket")
+	runtimeReconnect := fs.Duration("reconnect", time.Second, "runtime observation reconnect delay")
+	runtimeHealthTimeout := fs.Duration("health-timeout", 5*time.Second, "runtime observer heartbeat timeout")
 	var agentMappings stringList
 	var installTargets stringList
 	var selectedSkills stringList
@@ -72,6 +116,13 @@ func run(args []string) (runErr error) {
 	fs.Var(&skillRoots, "skill-root", "built-in Agent Skill directory; repeat for multiple directories")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
+	}
+	if args[0] == "runtime-watch" {
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		return runtimeobservation.Watch(ctx, os.Stdout, runtimeobservation.WatchOptions{
+			SocketPath: *runtimeSocket, ReconnectDelay: *runtimeReconnect, HealthTimeout: *runtimeHealthTimeout,
+		})
 	}
 	started := time.Now()
 	defer func() { managedclient.RecordCommandDiagnostic(*home, args[0], started, runErr) }()

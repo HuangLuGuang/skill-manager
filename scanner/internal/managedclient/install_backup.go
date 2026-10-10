@@ -32,11 +32,11 @@ func retainInstallBackup(home, source, originalPath, agentType, skillName, polic
 	retained := false
 	defer func() {
 		if !retained {
-			_ = os.RemoveAll(root)
+			_ = removeOwnedCopy(root)
 		}
 	}()
 	copyPath := filepath.Join(root, agentType, skillName)
-	if err := copyDir(resolved, copyPath); err != nil {
+	if err := copyRecoveryTree(resolved, copyPath); err != nil {
 		return "", err
 	}
 	if err := checkObservedContent(Skill{Path: copyPath, Signature: before.signature}); err != nil {

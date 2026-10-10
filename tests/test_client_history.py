@@ -76,3 +76,43 @@ def test_runtime_history_filters_governance_actions_by_effective_type(tmp_path):
     assert removed['total'] == 1
     assert removed['items'][0]['skill_name'] == 'automatic-uninstall'
     assert {'skill_quarantined', 'skill_removed'} <= set(removed['types'])
+
+
+def test_aidr_history_filters_actual_action_and_all_target_hosts(tmp_path):
+    client = _client(tmp_path)
+    token = client.post('/api/v1/access/tokens', json={'name': 'hook-history', 'token_type': 'client'}).json()['token']
+    headers = {'Authorization': f'Bearer {token}'}
+    assert client.post('/api/v1/clients/register', headers=headers, json={
+        'client_id': 'hook-history', 'name': 'hook-history', 'hostname': 'host',
+        'os': 'darwin', 'arch': 'arm64', 'client_version': 'dev', 'agents': [],
+    }).status_code == 200
+    session = next(client.app.dependency_overrides[get_db]())
+    payloads = [
+        {'action': 'install', 'agent': 'claude'},
+        {'action': 'inspect', 'agent': 'codex'},
+        {'action': 'reconcile', 'agent': '', 'policy_version': '10:17', 'target': {'hosts': ['codex', 'claude']}},
+        {'action': 'reconcile', 'target': {'hosts': ['codex']}},
+        {'action': 'enable'}, {}, {'action': 'future_action'},
+    ]
+    for payload in payloads:
+        session.add(models.ClientTask(client_id='hook-history', task_type='aidr_plugin_action', status='succeeded', payload_json=json.dumps(payload)))
+    session.commit()
+    session.close()
+    url = '/api/v1/clients/hook-history/history'
+    def history(**filters):
+        response = client.get(url, headers=headers, params={'kind': 'tasks', **filters})
+        assert response.status_code == 200, response.text
+        return response.json()
+    all_rows = history()
+    assert all_rows['total'] == 7
+    assert set(all_rows['agents']) == {'codex', 'claude-code'}
+    assert 'aidr_plugin_action:install' in all_rows['types']
+    assert history(agent='claude-code')['total'] == 2
+    assert history(agent='codex')['total'] == 3
+    filtered = history(agent='claude-code', record_type='aidr_plugin_action:reconcile')
+    assert filtered['total'] == 1
+    assert filtered['items'][0]['payload']['policy_version'] == '10:17'
+    assert history(record_type='aidr_plugin_action')['total'] == 7
+    assert history(record_type='aidr_plugin_action:inspect', agent='claude-code')['total'] == 0
+    assert history(keyword='10:17')['total'] == 1
+    assert history(agent='unknown')['total'] == 0
