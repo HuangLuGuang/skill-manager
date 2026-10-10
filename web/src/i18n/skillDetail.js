@@ -1,5 +1,8 @@
 export const skillDetailMessages = {
   'zh-CN': {
+    reviewTextHelp: '最多 {max} 个字符，中文、英文、标点、空格和换行均计入。',
+    reviewTextCount: '{count} / {max} 个字符',
+    reviewTextCountOver: '{count} / {max} 个字符，已超出 {excess} 个字符，请缩短后再保存。',
     llmFailed: 'LLM 分析失败',
     llmUpstreamFailed: '上游模型接口失败',
     llmFailureUnavailable: '报告未记录失败原因，请查看服务端日志。',
@@ -39,6 +42,9 @@ export const skillDetailMessages = {
     autoApproval: '策略自动批准', cachedAutoApproval: '复用结果 · 策略自动批准', pendingReview: '待审核',
   },
   'en-US': {
+    reviewTextHelp: 'Maximum {max} characters, including Chinese, English, punctuation, spaces and line breaks.',
+    reviewTextCount: '{count} / {max} characters',
+    reviewTextCountOver: '{count} / {max} characters — {excess} over the limit. Shorten it before saving.',
     llmFailed: 'LLM analysis failed',
     llmUpstreamFailed: 'Upstream model request failed',
     llmFailureUnavailable: 'The report did not record a failure reason. Check the server logs.',

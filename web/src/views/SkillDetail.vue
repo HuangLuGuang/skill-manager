@@ -946,7 +946,7 @@
       :ok-text="$t('legacy.1srvmx8')"
       :cancel-text="$t('legacy.1589w37')"
       :confirm-loading="actionLoading"
-      :ok-button-props="{ disabled: actionLoading || !approvalVersionId }"
+      :ok-button-props="{ disabled: actionLoading || !approvalVersionId || approveTooLong }"
       @ok="submitApprove"
     >
       <a-form layout="vertical">
@@ -967,7 +967,7 @@
         <a-form-item :label="$t('legacy.1lakt7z')">
           <a-input :value="currentUser()" disabled />
         </a-form-item>
-        <a-form-item :label="$t('legacy.1v900uo')">
+        <a-form-item :label="$t('legacy.1v900uo')" :tooltip="$t('skillDetail.reviewTextHelp', { max: REVIEW_TEXT_LIMIT })" :validate-status="approveTooLong ? 'error' : undefined" :help="$t(approveTooLong ? 'skillDetail.reviewTextCountOver' : 'skillDetail.reviewTextCount', { count: approveTextLength, max: REVIEW_TEXT_LIMIT, excess: approveTextLength - REVIEW_TEXT_LIMIT })">
           <a-textarea v-model:value="approveNote" :rows="4" :placeholder="$t('legacy.y7iiel')" />
         </a-form-item>
       </a-form>
@@ -979,6 +979,7 @@
       :ok-text="$t('legacy.iwk43y')"
       :cancel-text="$t('legacy.1589w37')"
       :confirm-loading="actionLoading"
+      :ok-button-props="{ disabled: actionLoading || rejectTooLong }"
       @ok="submitReject"
     >
       <a-form layout="vertical">
@@ -988,7 +989,7 @@
         <a-form-item :label="$t('legacy.1gs5bzm')">
           <a-input :value="currentUser()" disabled />
         </a-form-item>
-        <a-form-item :label="$t('legacy.1l7e57j')" required>
+        <a-form-item :label="$t('legacy.1l7e57j')" :tooltip="$t('skillDetail.reviewTextHelp', { max: REVIEW_TEXT_LIMIT })" :validate-status="rejectTooLong ? 'error' : undefined" :help="$t(rejectTooLong ? 'skillDetail.reviewTextCountOver' : 'skillDetail.reviewTextCount', { count: rejectTextLength, max: REVIEW_TEXT_LIMIT, excess: rejectTextLength - REVIEW_TEXT_LIMIT })" required>
           <a-textarea v-model:value="rejectReason" :rows="4" :placeholder="$t('legacy.1gqmn09')" />
         </a-form-item>
       </a-form>
@@ -1076,6 +1077,8 @@
 </template>
 
 <script setup>
+import { REVIEW_TEXT_LIMIT, reviewTextLength } from '../utils/reviewText'
+
 import { can as hasAccess } from '../access'
 import SkillDecisionFlow from '../components/SkillDecisionFlow.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
@@ -1189,6 +1192,10 @@ const approveModalOpen = ref(false)
 const rejectModalOpen = ref(false)
 const approveNote = ref('')
 const rejectReason = ref('')
+const approveTextLength = computed(() => reviewTextLength(approveNote.value))
+const rejectTextLength = computed(() => reviewTextLength(rejectReason.value))
+const approveTooLong = computed(() => approveTextLength.value > REVIEW_TEXT_LIMIT)
+const rejectTooLong = computed(() => rejectTextLength.value > REVIEW_TEXT_LIMIT)
 const clientInstallOpen = ref(false)
 const clientInstallLoading = ref(false)
 const clientInstallClient = ref()
@@ -1683,7 +1690,7 @@ const openRejectModal = () => {
 }
 
 const submitApprove = async () => {
-  if (actionLoading.value || !approvalVersionId.value) return
+  if (actionLoading.value || !approvalVersionId.value || approveTooLong.value) return
   actionLoading.value = true
   actionType.value = 'approve'
   try {
@@ -1700,7 +1707,7 @@ const submitApprove = async () => {
 }
 
 const submitReject = async () => {
-  if (!detail.value) return
+  if (actionLoading.value || !detail.value || rejectTooLong.value) return
   if (!rejectReason.value.trim()) {
     message.warning(phrase('legacy.erwuhg'))
     return
