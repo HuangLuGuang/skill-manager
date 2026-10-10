@@ -1106,6 +1106,7 @@ import { formatDateTime } from '../utils/format'
 import { parseUnifiedDiff } from '../utils/diff'
 import { analysisState } from '../utils/decisionFlow'
 import { translateDomain } from '../i18n'
+import { legacyKey, legacyMessages } from '../i18n/legacy'
 import { useLocaleText } from '../i18n/useLocaleText'
 import AttackChainGraph from '../components/AttackChainGraph.vue'
 import SandboxDebugHelp from '../components/SandboxDebugHelp.vue'
@@ -1277,35 +1278,6 @@ const auditColumns = computed(() => [
   { title: text('操作人', 'Operator'), dataIndex: 'actor', key: 'actor', width: 120 },
   { title: text('详情', 'Details'), dataIndex: 'details', key: 'details' },
 ])
-
-const auditEventLabels = {
-  skill_submitted: phrase('legacy.1ctggg0'),
-  skill_processing_completed: phrase('legacy.4q96e1'),
-  skill_queued_for_review: phrase('legacy.13g0wa9'),
-  skill_vetted: phrase('legacy.14mw4ld'),
-  skill_approved: phrase('legacy.1irm9dn'),
-  skill_rejected: phrase('legacy.v95xbp'),
-  skill_deployed: phrase('legacy.10iljsa'),
-  skill_retired: phrase('legacy.xrktp3'),
-  skill_signature_verified: phrase('legacy.niy9wk'),
-  skill_tamper_detected: phrase('legacy.1r553w'),
-  skill_load_allowed: phrase('legacy.13u1sex'),
-  skill_load_blocked: phrase('legacy.1yqcn2t'),
-  tool_invoked: phrase('legacy.13iq9ke'),
-  tool_blocked: phrase('legacy.1hed6yi'),
-}
-
-const auditDetailLabels = {
-  skill_path: phrase('legacy.1lv21p9'),
-  status: phrase('legacy.1ccx4t4'),
-  risk_level: phrase('legacy.hm077g'),
-  pre_llm_risk_level: phrase('legacy.s1hoes'),
-  max_severity: phrase('legacy.syac4h'),
-  violations: phrase('legacy.1mfo0dp'),
-  verification_mode: phrase('legacy.1x88724'),
-  reason: phrase('legacy.jsgjbe'),
-  note: phrase('legacy.b5m1l6'),
-}
 
 const fileColumns = computed(() => [
   { title: text('路径', 'Path'), dataIndex: 'path', key: 'path' },
@@ -2446,8 +2418,9 @@ const bilingualText = (value) => {
 const platformResultText = (value) => {
   const displayValue = String(value || '').trim()
   if (!displayValue || !isEnglish.value) return displayValue
-  const translated = phrase(displayValue)
-  if (translated !== displayValue) return translated
+  // 仅使用已有英文译文，动态说明缺少翻译时继续按原文展示。
+  const translationKey = legacyKey(displayValue)
+  if (Object.hasOwn(legacyMessages['en-US'], translationKey.split('.')[1])) return t(translationKey)
   return displayValue
     .replace(/^规则：/, 'Rule: ')
     .replace(/^命中片段：/, 'Matched excerpt: ')
@@ -2510,20 +2483,23 @@ const sourceLabel = (entry) => {
   if (pathLabel) return pathLabel
   return originLabel(source.origin)
 }
-const auditEventLabel = (value) => phrase(auditEventLabels[value] || value || '-')
+// 审计编码只翻译一次，避免将已翻译文案再次转换为 legacy 编号。
+const auditEventLabel = (value) => translateDomain('auditEvent', value, value || '-')
 
 const formatAuditValue = (key, value) => {
   if (value === null || value === undefined || value === '') return '-'
-  if (key === 'status') return statusDisplay(String(value))
+  if (typeof value === 'boolean') return translateDomain('auditValue', String(value))
+  if (key === 'status') return translateDomain('skillStatus', value, String(value))
   if (key === 'risk_level' || key === 'pre_llm_risk_level') {
-    return riskDisplay(value)
+    return translateDomain('risk', String(value).toLowerCase(), String(value))
   }
   if (key === 'max_severity') {
-    return isEnglish.value ? String(value).toUpperCase() : (severityLabels[String(value).toUpperCase()] || String(value))
+    return translateDomain('risk', String(value).toLowerCase(), String(value))
   }
   if (Array.isArray(value)) return value.length ? value.join(text('、', ', ')) : text('无', 'None')
   if (typeof value === 'object') return JSON.stringify(value)
-  return phrase(String(value))
+  // 路径及其他原始值保持原文，不作为翻译键。
+  return String(value)
 }
 
 const formatAuditDetails = (details, limit = 6) => {
@@ -2531,7 +2507,7 @@ const formatAuditDetails = (details, limit = 6) => {
   const entries = Object.entries(details).slice(0, limit)
   if (!entries.length) return '-'
   return entries
-    .map(([key, value]) => `${phrase(auditDetailLabels[key] || key)}${text('：', ': ')}${formatAuditValue(key, value)}`)
+    .map(([key, value]) => `${translateDomain('auditDetail', key, key)}${text('：', ': ')}${formatAuditValue(key, value)}`)
     .join(text('；', '; '))
 }
 
